@@ -172,3 +172,76 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
     return path
+
+
+def grade_nfl(days_back: int = 8, progress=None) -> dict:
+    """
+    NFL grading (2026-09-14, built for Week 1's first read): joins
+    predictions vs finished games and the latest banked book consensus.
+    READ-ONLY — prints the table; outcome persistence arrives with the
+    full evaluate integration if the rehearsal is earned.
+    """
+    from datetime import datetime, timedelta
+    import math
+
+    from sqlalchemy import select
+
+    from src.db.database import session_scope
+    from src.db.schema import Match, MatchStatus, Odds, Prediction, Sport
+    from src.walters.value import MarketSnapshot
+
+    def report(msg):
+        if progress:
+            progress(msg)
+
+    with session_scope() as s:
+        now = datetime.utcnow()
+        q = (select(Prediction, Match)
+             .join(Match, Match.id == Prediction.match_id)
+             .where(Match.sport == Sport.NFL,
+                    Match.status == MatchStatus.FINISHED,
+                    Match.utc_date >= now - timedelta(days=days_back))
+             .order_by(Match.utc_date))
+        hits = n = 0
+        ll = 0.0
+        clvs = []
+        for pred, m in s.execute(q).all():
+            y = 1 if m.home_score > m.away_score else 0
+            p = pred.home_win_prob
+            pick_home = p >= 0.5
+            hit = (pick_home and y == 1) or (not pick_home and y == 0)
+            hits += hit
+            n += 1
+            ll += -(y * math.log(max(p, 1e-12))
+                    + (1 - y) * math.log(max(1 - p, 1e-12)))
+            close_h = None
+            odds_rows = list(s.execute(select(Odds).where(
+                Odds.match_id == m.id, Odds.market == "1X2")).scalars())
+            if odds_rows:
+                by_sel = {}
+                for o in odds_rows:
+                    by_sel.setdefault(o.selection, []).append(
+                        (o.bookmaker, o.price_decimal))
+                implied = MarketSnapshot(market="1X2",
+                                         by_selection=by_sel).average_implied()
+                tot = sum(implied.values()) or 1.0
+                close_h = implied.get("HOME", 0) / tot
+            clv = None
+            if close_h is not None:
+                pick_p = p if pick_home else 1 - p
+                close_p = close_h if pick_home else 1 - close_h
+                clv = (pick_p - close_p)
+                clvs.append(clv)
+            report(f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
+                   f"{m.away_score:>2}-{m.home_score:<2} model_H={p:.3f} "
+                   f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
+                   f"{'HIT ' if hit else 'miss'} "
+                   f"clv={'%+.1fpp' % (clv*100) if clv is not None else '—'}")
+        if n == 0:
+            return {"ok": False, "reason": "no finished NFL games with predictions in window"}
+        summary = {"ok": True, "games": n, "hits": hits,
+                   "logloss": round(ll / n, 4),
+                   "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None}
+        report(f"  ── sides {hits}/{n} · log-loss {summary['logloss']} · "
+               f"mean CLV {summary['mean_clv_pp']}pp (n={len(clvs)} priced)")
+        return summary

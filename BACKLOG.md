@@ -182,6 +182,45 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **U3 CLOSED 2026-09-14: GitHub repo live** (private,
+  anthonyevans29/Sports-Predictor, first push 130 objects / 448 KiB =
+  code+docs only, .gitignore verified working). Pre-push vulnerability
+  scan: CLEAN — no secrets (env template only, all keys via getenv; lone
+  key-shaped literal is Kalshi's public Tie-strike UUID), no data, no
+  PII. Private retained deliberately: BACKLOG.md is the edge, not a
+  vulnerability. Ritual gains half-step: extract -> commit -> push, with
+  commit messages documenting each drop. Auth via fine-grained PAT
+  (contents-only, single-repo). REMAINING PERSISTENCE ITEM: weekly DB
+  backup (sqlite3 .backup) — the one irreplaceable artifact git doesn't
+  cover.
+
+- **BUILT 09-14 (pre-slate quiet slot), three items:** (1) nfl-grade
+  command — Week grading vs finished games + banked closer consensus
+  (sides, log-loss, per-pick CLV), read-only; makes tomorrow's Week-1
+  read automatic and feeds the Week-2 rehearsal decision. (2) Soccer
+  Kalshi matched-zero SENTINEL — loud warning when games AND markets
+  present but matched==0 (the two-dark-matchweeks lesson). (3) In-play
+  guard keyed on OUR kickoff at capture (derby lesson: occurrence is
+  close-time). First two edit attempts MISSED their anchors (guessed
+  code); caught by assertion, re-applied against read code — the
+  read-before-edit rule enforced by its own tooling.
+
+- **NFL WEEK-1 GAME-DAY COMPARISON 2026-09-13 (internal; the rehearsal
+  evidence file):** 15 priced games, mean model-vs-book gap ~-1.6pp =
+  NOT systematically hot; >0.80 rows behaved (+1.0/+5.9/+5.8 vs books).
+  THE STORY: two -24pp disagreements (model makes MIA and DEN live road
+  threats vs clear home-favorite books — 2025-Elo memory vs offseason
+  knowledge), largest divergences in system history; graded tonight.
+  Kalshi Week-1 board listed overnight: matched 28 / 14 games two-sided /
+  ambiguous 0 (parameterized matcher at full NFL coverage). QB feature
+  full flower: Tua AND Rush listed for ATL (controversy signal), Bagent,
+  Darnold+Milroe, Rourke, Morton. 12,300 closing-anchor odds rows banked.
+  DERBY KALSHI POSTSCRIPT same day: snapshots existed but were captured
+  in-play (DB kickoff 15:30Z vs Kalshi occurrence 18:30Z — occurrence is
+  close-time, not start); export's post-kickoff filter correctly refused
+  = defense in depth held. Fix-session item: in-play gate should also
+  check matched game's utc_date at capture.
+
 - **MW4 FALSE ALARM 2026-09-12 — full reversal, on the record.** Claude
   called HOLD on the MW4 export (edges +27/+31/+21pp, inversion-shaped)
   and advanced two theories; BOTH FALSIFIED by probes within the hour:

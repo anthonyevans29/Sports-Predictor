@@ -487,6 +487,12 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
                     continue
                 sel = "HOME" if hs > as_ else "AWAY"
 
+            # 2026-09-14 derby incident: Kalshi occurrence is a CLOSE time,
+            # not kickoff — gate on OUR kickoff too, so in-play prices never
+            # enter the snapshot table again.
+            if best_g.utc_date <= now:
+                in_play += 1
+                continue
             key = (best_g.id, sel)
             if key in matched_rows:
                 unmatched += 1
@@ -502,6 +508,12 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
             ))
             stored += 1
 
+    # Sentinel (2026-09-14): two matchweeks went dark before anyone noticed —
+    # zero matches with BOTH sides present is an alarm, not a statistic.
+    if matched == 0 and games and all_markets:
+        report("  ⚠ MATCHED ZERO with games AND markets present — matcher may "
+               "be broken (see 2026-09-13 title-format incident). Probe the "
+               "payload before trusting 'absent'.")
     return {"ok": True, "series": series, "markets": len(all_markets),
             "matched": matched, "unmatched": unmatched, "ambiguous": ambiguous,
             "in_play": in_play, "wide_spread": wide_spread, "stored": stored}

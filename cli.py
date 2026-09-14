@@ -3342,6 +3342,15 @@ def totals_model_test_cmd(season, park_weight):
                   "totals-market edge (separate CLV question).[/dim]\n")
 
 
+@cli.command("nfl-grade")
+def nfl_grade_cmd():
+    """Grade NFL predictions vs finished games and banked closers (read-only)."""
+    from src.walters.nfl_predict import grade_nfl
+    r = grade_nfl(progress=lambda msg: console.print(msg))
+    if not r.get("ok"):
+        console.print(f"[yellow]{r.get('reason')}[/yellow]")
+
+
 @cli.command("predict-nfl")
 def predict_nfl_cmd():
     """Write NFL v1 predictions for upcoming games (rehearsal machinery)."""

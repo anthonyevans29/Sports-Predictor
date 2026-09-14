@@ -5,6 +5,10 @@ reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
 ## 2026-09-14
+- **`docs/CLI.md`**: full CLI catalog (~55 commands with options),
+  organized by workflow, plus the required-services matrix (providers,
+  endpoints, env vars, subscription notes) and local component
+  requirements. README links it as the primary interface reference.
 - **README rewritten** to current four-sport reality; this CHANGELOG seeded.
 - **`nfl-grade`**: grades NFL predictions vs finished games and banked
   closing consensus (sides, log-loss, CLV) — read-only, feeds the Week-2

@@ -87,6 +87,13 @@ as lines post; `sync-matches` + `nfl-grade` after game days;
 model predictions are withheld until the cup path passes its
 pre-committed acceptance test.
 
+## CLI reference
+
+The CLI is the primary interface (the web UI covers MLB and soccer views
+only — NFL and cups are CLI-operated). The full command catalog, with
+options, per-sport chains, required API endpoints, and component
+requirements: **[`docs/CLI.md`](docs/CLI.md)**.
+
 ## Documentation
 
 - `BACKLOG.md` — the living operational record: findings, incidents,

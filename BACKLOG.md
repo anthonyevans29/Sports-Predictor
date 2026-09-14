@@ -182,6 +182,33 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **CLI CATALOG SHIPPED 2026-09-14 (user request):** docs/CLI.md —
+  command inventory extracted FROM SOURCE (45 via regex + core chains),
+  organized by workflow (setup / syncs / MLB daily / soccer weekly / NFL
+  rehearsal / gated cups / eval / diagnostics / web), with the
+  required-services matrix (per-provider endpoints + env vars + the
+  fallback-key chain + subscription licensing notes) and local
+  components incl. the DB-backup line. README links it. Doc-drift note:
+  regenerate the inventory when commands are added — the extraction
+  snippet lives in the conversation record; a `cli-docs` generator
+  command is a possible future nicety.
+
+- **N1. NFL WEATHER CAPTURE [user-spotted gap 2026-09-14; not previously
+  logged].** MLB's capture-weather (venue coords, roofed handling,
+  capture stamps) has no NFL sibling — and NFL is the sport where weather
+  matters most (wind >15mph suppresses passing/kicking; late-season cold
+  moves totals markets). PHASES: (1) capture layer — NFL stadium coord
+  map (~30 venues) + domes/retractables list (ATL DAL DET HOU IND LV MIN
+  NO AZ; SoFi canopy counts roofed) + weekly chain step; worth building
+  SOON because banked history compounds and the games where it matters
+  arrive with the cold. (2) export context field (wind/temp per game,
+  consumer-side — their totals reads off our captured lines). (3) model
+  input ONLY when an NFL totals model exists (distant; sides-only v1
+  doesn't consume it). Build slot: next quiet slot post-Week-1 grading.
+  Current-model impact of the gap: zero (Elo consumes no weather); the
+  cost is unbanked history, which is why phase 1 shouldn't wait for
+  October.
+
 - **DOCS REFRESHED 2026-09-14 (user request):** README rewritten to
   current four-sport reality (was May-era soccer-only); CHANGELOG.md
   created and seeded with the season's milestones. STANDING RULE going

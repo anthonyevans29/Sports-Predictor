@@ -1,0 +1,742 @@
+{% extends "base.html" %}
+{% block title %}{{ match.home_team.name }} vs {{ match.away_team.name }}{% endblock %}
+
+{% block content %}
+  <header class="mb-6 flex items-start justify-between gap-4">
+    <div>
+      <a href="/matches" class="text-xs text-slate-500 hover:text-arsenal-red">← Matches</a>
+      <p class="text-sm text-slate-500 mt-1">
+        <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{{ match.competition.code }}</span>
+        · {{ match.competition.name }}
+        {% if match.stage %}· {{ match.stage }}{% endif %}
+        · {{ match.utc_date | dt }}
+      </p>
+    </div>
+    {% if match.status.value == "scheduled" %}
+      <form action="/matches/{{ match.id }}/refresh" method="post" class="shrink-0">
+        <button type="submit"
+                class="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-medium
+                       bg-arsenal-red text-white rounded hover:bg-red-700
+                       disabled:bg-slate-400 disabled:cursor-wait transition-colors"
+                onclick="
+                  this.disabled = true;
+                  this.innerHTML = '<svg class=&quot;animate-spin h-3 w-3&quot; xmlns=&quot;http://www.w3.org/2000/svg&quot; fill=&quot;none&quot; viewBox=&quot;0 0 24 24&quot;><circle class=&quot;opacity-25&quot; cx=&quot;12&quot; cy=&quot;12&quot; r=&quot;10&quot; stroke=&quot;currentColor&quot; stroke-width=&quot;4&quot;></circle><path class=&quot;opacity-75&quot; fill=&quot;currentColor&quot; d=&quot;M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z&quot;></path></svg>Refreshing…';
+                  this.form.submit();
+                ">
+          <svg class="h-3 w-3" fill="none" stroke="currentColor" viewBox="0 0 24 24" xmlns="http://www.w3.org/2000/svg">
+            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"></path>
+          </svg>
+          Refresh prediction
+        </button>
+        <p class="text-[10px] text-slate-400 mt-1 text-right">Pulls latest lineups / pitchers</p>
+      </form>
+    {% endif %}
+  </header>
+
+  <section class="bg-white rounded-lg shadow-sm border border-slate-200 px-8 py-10 mb-6">
+    <div class="grid grid-cols-3 items-center gap-6">
+      <div class="text-right">
+        <a href="/teams/{{ match.home_team.id }}" class="text-2xl font-bold hover:text-arsenal-red">{{ match.home_team.name }}</a>
+        {% if match.home_team.tla %}<div class="text-xs text-slate-500 font-mono mt-1">{{ match.home_team.tla }}</div>{% endif %}
+        <div class="mt-1">
+          <span class="inline-block text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-emerald-100 text-emerald-700">Home</span>
+        </div>
+      </div>
+      <div class="text-center">
+        {% if match.home_score is not none %}
+          <div class="text-5xl font-bold tabular-nums">{{ match.home_score }} <span class="text-slate-400">–</span> {{ match.away_score }}</div>
+          {% if match.home_score_ht is not none %}
+            <div class="text-xs text-slate-500 mt-2">HT {{ match.home_score_ht }}–{{ match.away_score_ht }}</div>
+          {% endif %}
+        {% else %}
+          <div class="text-2xl text-slate-400 font-medium">vs</div>
+        {% endif %}
+        <div class="mt-3 text-xs uppercase text-slate-500">{{ match.status.value }}</div>
+      </div>
+      <div>
+        <a href="/teams/{{ match.away_team.id }}" class="text-2xl font-bold hover:text-arsenal-red">{{ match.away_team.name }}</a>
+        {% if match.away_team.tla %}<div class="text-xs text-slate-500 font-mono mt-1">{{ match.away_team.tla }}</div>{% endif %}
+        <div class="mt-1">
+          <span class="inline-block text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded bg-slate-200 text-slate-600">Away</span>
+        </div>
+      </div>
+    </div>
+
+    {% if match.venue or match.referee %}
+      <div class="mt-6 text-center text-xs text-slate-500">
+        {% if match.venue %}<span class="font-medium">{{ match.home_team.name }}</span> host{{ '' if match.home_team.name.endswith('s') else 's' }} at {{ match.venue }}{% endif %}
+        {% if match.venue and match.referee %} · {% endif %}
+        {% if match.referee %}Referee: {{ match.referee }}{% endif %}
+      </div>
+    {% endif %}
+  </section>
+
+  <!-- ============ Phase 9: Pre-match preview ============ -->
+
+  {% if weather and not weather.indoor %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200 mb-6 px-5 py-4">
+      <div class="flex items-center justify-between flex-wrap gap-3">
+        <div class="text-xs uppercase text-slate-500 tracking-wide font-semibold">Weather at kickoff</div>
+        <div class="flex items-center gap-6 text-sm">
+          {% if weather.temperature_f is not none %}
+            <div>
+              <span class="text-slate-400 text-xs">Temp</span>
+              <span class="font-bold ml-1 tabular-nums">{{ weather.temperature_f }}°F</span>
+            </div>
+          {% endif %}
+          {% if weather.wind_mph is not none %}
+            <div>
+              <span class="text-slate-400 text-xs">Wind</span>
+              <span class="font-bold ml-1 tabular-nums">{{ weather.wind_mph }} mph</span>
+            </div>
+          {% endif %}
+          {% if weather.precipitation_in is not none and weather.precipitation_in > 0 %}
+            <div>
+              <span class="text-slate-400 text-xs">Precip</span>
+              <span class="font-bold ml-1 tabular-nums">{{ weather.precipitation_in }} in</span>
+            </div>
+          {% endif %}
+          {% if weather.condition %}
+            <div>
+              <span class="text-slate-400 text-xs">Condition</span>
+              <span class="font-medium ml-1">{{ weather.condition }}</span>
+            </div>
+          {% endif %}
+          {% if weather.is_high_altitude %}
+            <span class="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-xs font-medium">⛰ High altitude</span>
+          {% endif %}
+        </div>
+      </div>
+    </section>
+  {% elif weather and weather.indoor %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200 mb-6 px-5 py-3 text-xs text-slate-500">
+      Indoor / domed venue — weather not a factor.
+    </section>
+  {% endif %}
+
+  <!-- Form + Standings side-by-side -->
+  {% if home_form or away_form %}
+    <section class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+      {% for side in [('home', match.home_team, home_form, home_record), ('away', match.away_team, away_form, away_record)] %}
+        {% set role = side[0] %}{% set team = side[1] %}{% set form = side[2] %}{% set record = side[3] %}
+        <div class="bg-white rounded-lg shadow-sm border border-slate-200">
+          <h3 class="px-4 py-2.5 border-b border-slate-200 font-semibold text-sm flex items-baseline justify-between">
+            <span>
+              {{ team.name if team else '?' }}
+              <span class="text-xs text-slate-400 font-normal ml-1">{{ 'home' if role == 'home' else 'away' }}</span>
+            </span>
+            {% if record %}
+              <span class="text-xs text-slate-500 tabular-nums">
+                {% if record.is_baseball %}
+                  {{ record.wins }}–{{ record.losses }}{% if record.pct is not none %} · {{ '%.3f' | format(record.pct) }}{% endif %}
+                {% else %}
+                  {{ record.wins }}W–{{ record.draws }}D–{{ record.losses }}L · {{ record.points }} pts
+                {% endif %}
+              </span>
+            {% endif %}
+          </h3>
+          {% if form and form.results %}
+            <div class="px-4 py-3">
+              <!-- Form pills -->
+              <div class="flex items-center gap-3 mb-3">
+                <span class="text-[10px] uppercase text-slate-500">Last 5</span>
+                <div class="flex gap-1">
+                  {% for r in form.results[:5] %}
+                    <span class="inline-flex items-center justify-center w-5 h-5 text-[10px] font-bold rounded
+                                {% if r.result == 'W' %}bg-green-100 text-green-800
+                                {% elif r.result == 'D' %}bg-slate-200 text-slate-700
+                                {% elif r.result == 'L' %}bg-red-100 text-red-800
+                                {% else %}bg-slate-100 text-slate-400{% endif %}">
+                      {{ r.result or '?' }}
+                    </span>
+                  {% endfor %}
+                </div>
+                <span class="text-xs text-slate-500 tabular-nums ml-auto">
+                  {% if is_baseball %}
+                    {{ form.goals_scored }} RS / {{ form.goals_conceded }} RA
+                  {% else %}
+                    {{ form.goals_scored }} GF / {{ form.goals_conceded }} GA
+                  {% endif %}
+                </span>
+              </div>
+              <!-- Recent results list -->
+              <ul class="space-y-1 text-xs">
+                {% for r in form.results[:5] %}
+                  <li class="flex items-center gap-2">
+                    <span class="text-slate-400 tabular-nums w-12">{{ r.date.strftime('%d %b') }}</span>
+                    <span class="font-mono text-[10px] text-arsenal-red w-8">{{ r.competition }}</span>
+                    <span class="text-slate-500 w-3">{{ 'H' if r.is_home else 'A' }}</span>
+                    <a href="/teams/{{ r.opponent_id }}" class="hover:text-arsenal-red truncate flex-1">{{ r.opponent }}</a>
+                    <span class="font-medium tabular-nums">
+                      <a href="/matches/{{ r.match_id }}" class="hover:underline">{{ r.score }}</a>
+                    </span>
+                    <span class="inline-flex items-center justify-center w-4 h-4 text-[9px] font-bold rounded
+                                {% if r.result == 'W' %}bg-green-100 text-green-800
+                                {% elif r.result == 'D' %}bg-slate-200 text-slate-700
+                                {% else %}bg-red-100 text-red-800{% endif %}">{{ r.result }}</span>
+                  </li>
+                {% endfor %}
+              </ul>
+            </div>
+          {% else %}
+            <p class="px-4 py-3 text-xs text-slate-500">No recent results in DB.</p>
+          {% endif %}
+        </div>
+      {% endfor %}
+    </section>
+  {% endif %}
+
+  <!-- Probable pitchers (MLB) -->
+  {% if is_baseball and (home_pitcher or away_pitcher) %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200 mb-6">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold flex items-baseline justify-between">
+        <span>Probable pitchers</span>
+        {% if home_pitcher %}
+          <span class="text-xs font-normal
+                      {% if home_pitcher.kind == 'confirmed' %}text-green-700{% else %}text-amber-700{% endif %}">
+            {{ home_pitcher.kind }}
+          </span>
+        {% endif %}
+      </h2>
+      <div class="grid grid-cols-2 divide-x divide-slate-100">
+        {% for side in [(match.home_team.name, home_pitcher), (match.away_team.name, away_pitcher)] %}
+          {% set team_name = side[0] %}{% set p = side[1] %}
+          <div class="px-5 py-3">
+            <div class="text-xs text-slate-500 mb-0.5">{{ team_name }}</div>
+            <div class="text-lg font-bold">{{ p.player_name if p else '—' }}</div>
+            {% if p %}
+              {% if p.era is not none %}
+                <div class="flex gap-4 mt-1 text-xs text-slate-600">
+                  <span><span class="text-slate-400">ERA</span> <span class="font-semibold tabular-nums {% if p.era < 3.5 %}text-green-700{% elif p.era > 5.0 %}text-red-700{% endif %}">{{ '%.2f' | format(p.era) }}</span></span>
+                  {% if p.whip is not none %}<span><span class="text-slate-400">WHIP</span> <span class="font-medium tabular-nums">{{ '%.2f' | format(p.whip) }}</span></span>{% endif %}
+                  {% if p.k_per_9 is not none %}<span><span class="text-slate-400">K/9</span> <span class="font-medium tabular-nums">{{ '%.1f' | format(p.k_per_9) }}</span></span>{% endif %}
+                  {% if p.innings_pitched is not none %}<span><span class="text-slate-400">IP</span> <span class="tabular-nums">{{ '%.1f' | format(p.innings_pitched) }}</span></span>{% endif %}
+                </div>
+              {% else %}
+                <div class="text-[10px] text-slate-400 mt-0.5">Season stats not synced yet — run sync-pitcher-stats.</div>
+              {% endif %}
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <!-- Starting XI (soccer) -->
+  {% if not is_baseball and (home_lineup or away_lineup) %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200 mb-6">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold flex items-baseline justify-between">
+        <span>Starting XI</span>
+        {% if lineup_kind %}
+          <span class="text-xs font-normal
+                      {% if lineup_kind == 'confirmed' %}text-green-700{% else %}text-amber-700{% endif %}">
+            {{ lineup_kind }}
+          </span>
+        {% endif %}
+      </h2>
+      <div class="grid grid-cols-2 divide-x divide-slate-100">
+        {% for side in [('home', match.home_team, home_lineup), ('away', match.away_team, away_lineup)] %}
+          {% set lineup = side[2] %}
+          <div class="px-5 py-3">
+            <div class="text-xs text-slate-500 mb-2">{{ side[1].name if side[1] else '?' }}</div>
+            {% if lineup %}
+              {% set starters = lineup | selectattr('is_starter') | list %}
+              {% set bench = lineup | rejectattr('is_starter') | list %}
+              <ul class="space-y-0.5 text-xs">
+                {% for p in starters %}
+                  <li class="flex gap-2">
+                    <span class="text-slate-400 tabular-nums w-6 text-right">{{ p.shirt_number if p.shirt_number is not none else '·' }}</span>
+                    <span class="text-slate-400 w-8">{{ (p.player_position or '')[:3].upper() }}</span>
+                    <span class="font-medium">{{ p.player_name }}</span>
+                  </li>
+                {% endfor %}
+              </ul>
+              {% if bench %}
+                <details class="mt-2 text-[11px]">
+                  <summary class="cursor-pointer text-slate-500 hover:text-slate-700">Bench ({{ bench|length }})</summary>
+                  <ul class="mt-1 space-y-0.5 pl-1">
+                    {% for p in bench %}
+                      <li class="text-slate-500">{{ p.player_name }}</li>
+                    {% endfor %}
+                  </ul>
+                </details>
+              {% endif %}
+            {% else %}
+              <p class="text-xs text-slate-400">No lineup yet.</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <!-- Injuries (soccer) -->
+  {% if home_injuries or away_injuries %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200 mb-6">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold text-sm">Active injuries</h2>
+      <div class="grid grid-cols-2 divide-x divide-slate-100">
+        {% for side in [(match.home_team, home_injuries), (match.away_team, away_injuries)] %}
+          <div class="px-5 py-3">
+            <div class="text-xs text-slate-500 mb-2">{{ side[0].name if side[0] else '?' }} ({{ side[1]|length }})</div>
+            {% if side[1] %}
+              <ul class="space-y-0.5 text-xs">
+                {% for inj in side[1] %}
+                  <li class="flex gap-2">
+                    <span class="text-slate-400 w-8">{{ (inj.position or '')[:3].upper() }}</span>
+                    <span class="font-medium">{{ inj.name }}</span>
+                    {% if inj.reason %}<span class="text-slate-400 text-[10px] ml-auto">{{ inj.reason }}</span>{% endif %}
+                  </li>
+                {% endfor %}
+              </ul>
+            {% else %}
+              <p class="text-xs text-slate-400">None reported.</p>
+            {% endif %}
+          </div>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  <!-- Head-to-head -->
+  {% if h2h and h2h.meetings %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200 mb-6">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold flex items-baseline justify-between text-sm">
+        <span>Head-to-head — last {{ h2h.meetings|length }}</span>
+        <span class="text-xs font-normal text-slate-500">
+          {{ match.home_team.name }} {{ h2h.team_a_wins }} ·
+          Draws {{ h2h.draws }} ·
+          {{ h2h.team_b_wins }} {{ match.away_team.name }}
+        </span>
+      </h2>
+      <ul class="divide-y divide-slate-100">
+        {% for mtg in h2h.meetings %}
+          <li class="px-5 py-2 text-sm flex items-center gap-3">
+            <span class="text-xs text-slate-400 tabular-nums w-16">{{ mtg.date.strftime('%d %b %y') }}</span>
+            <span class="font-mono text-[10px] text-arsenal-red w-8">{{ mtg.competition }}</span>
+            <a href="/teams/{{ mtg.home_id }}" class="text-right flex-1 truncate hover:text-arsenal-red">{{ mtg.home }}</a>
+            <a href="/matches/{{ mtg.match_id }}" class="font-bold tabular-nums hover:underline">
+              {{ mtg.home_score }}–{{ mtg.away_score }}
+            </a>
+            <a href="/teams/{{ mtg.away_id }}" class="flex-1 truncate hover:text-arsenal-red">{{ mtg.away }}</a>
+          </li>
+        {% endfor %}
+      </ul>
+    </section>
+  {% endif %}
+
+  <!-- ============ /Phase 9 ============ -->
+
+  {% if prediction %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200 mb-6">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold flex items-center justify-between">
+        <span>Model prediction</span>
+        <div class="flex items-center gap-2 text-xs font-normal">
+          {% if prediction.factor_breakdown.is_cup_mode %}
+            <span class="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800" title="Cup-Elo blending applied">
+              {% if prediction.factor_breakdown.is_knockout %}cup knockout{% else %}cup mode{% endif %}
+            </span>
+          {% endif %}
+          {% if not is_baseball %}
+            {% set lk = prediction.factor_breakdown.lineup_kind %}
+            {% if lk == 'confirmed' %}
+              <span class="px-1.5 py-0.5 rounded bg-green-100 text-green-800">confirmed lineup</span>
+            {% elif lk == 'projected' %}
+              <span class="px-1.5 py-0.5 rounded bg-amber-100 text-amber-800">projected lineup</span>
+            {% else %}
+              <span class="px-1.5 py-0.5 rounded bg-slate-100 text-slate-600">no lineup data</span>
+            {% endif %}
+          {% endif %}
+          <span class="text-slate-400">model {{ prediction.model_version }}</span>
+          {% if prediction.computed_at %}
+            <span class="text-slate-300" title="When this prediction was last generated">· {{ prediction.computed_at | dt }}</span>
+          {% endif %}
+        </div>
+      </h2>
+      <div class="px-6 py-5 space-y-5">
+        <!-- Probability bars -->
+        <div>
+          <p class="text-xs uppercase tracking-wide text-slate-500 mb-2" title="Probability of each possible outcome. These sum to 100%.">
+            Probability of outcome
+          </p>
+          <div class="flex h-8 rounded overflow-hidden text-white text-xs font-semibold">
+            {% if prediction.p_home_pct > 0 %}
+              <div class="bg-arsenal-red flex items-center justify-center" style="width: {{ prediction.p_home_pct }}%">
+                {% if prediction.p_home_pct >= 8 %}{{ prediction.p_home_pct }}%{% endif %}
+              </div>
+            {% endif %}
+            {% if not is_baseball and prediction.p_draw_pct is not none and prediction.p_draw_pct > 0 %}
+              <div class="bg-slate-500 flex items-center justify-center" style="width: {{ prediction.p_draw_pct }}%">
+                {% if prediction.p_draw_pct >= 8 %}{{ prediction.p_draw_pct }}%{% endif %}
+              </div>
+            {% endif %}
+            {% if prediction.p_away_pct > 0 %}
+              <div class="bg-slate-900 flex items-center justify-center" style="width: {{ prediction.p_away_pct }}%">
+                {% if prediction.p_away_pct >= 8 %}{{ prediction.p_away_pct }}%{% endif %}
+              </div>
+            {% endif %}
+          </div>
+          <div class="flex justify-between text-xs text-slate-500 mt-1.5">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-arsenal-red"></span>{{ match.home_team.name }}</span>
+            {% if not is_baseball %}
+              <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-slate-500"></span>Draw</span>
+            {% endif %}
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-sm bg-slate-900"></span>{{ match.away_team.name }}</span>
+          </div>
+        </div>
+
+        {% if prediction.p_advance_home_pct is not none %}
+          <!-- Phase 7: cup-knockout to-advance probabilities -->
+          <div class="border-t border-slate-100 pt-4">
+            <p class="text-xs uppercase tracking-wide text-slate-500 mb-2">
+              To advance <span class="text-slate-400 normal-case">(includes ET + pens)</span>
+            </p>
+            <div class="flex h-6 rounded overflow-hidden text-white text-xs font-semibold">
+              <div class="bg-arsenal-red flex items-center justify-center" style="width: {{ prediction.p_advance_home_pct }}%">
+                {% if prediction.p_advance_home_pct >= 8 %}{{ prediction.p_advance_home_pct }}%{% endif %}
+              </div>
+              <div class="bg-slate-900 flex items-center justify-center" style="width: {{ prediction.p_advance_away_pct }}%">
+                {% if prediction.p_advance_away_pct >= 8 %}{{ prediction.p_advance_away_pct }}%{% endif %}
+              </div>
+            </div>
+            <div class="flex justify-between text-xs text-slate-500 mt-1.5">
+              <span>{{ match.home_team.name }} advance</span>
+              <span>{{ match.away_team.name }} advance</span>
+            </div>
+          </div>
+        {% endif %}
+
+        <!-- Expected runs/goals + most likely -->
+        <div class="grid grid-cols-3 gap-4 text-center">
+          <div>
+            <div class="text-xs uppercase tracking-wide text-slate-500">
+              {% if is_baseball %}Expected runs{% else %}Expected goals{% endif %}
+            </div>
+            <div class="text-2xl font-bold tabular-nums mt-1">
+              {{ prediction.xg_home }} <span class="text-slate-400">–</span> {{ prediction.xg_away }}
+            </div>
+            <div class="text-[10px] text-slate-500 mt-1">
+              {{ match.home_team.tla or match.home_team.name }} (H) · {{ match.away_team.tla or match.away_team.name }} (A)
+            </div>
+            {% if prediction.xg_home is not none and prediction.xg_away is not none %}
+              <div class="text-[10px] text-slate-400 mt-0.5">
+                total ≈ {{ '%.1f'|format(prediction.xg_home + prediction.xg_away) }}
+              </div>
+            {% endif %}
+          </div>
+          <div>
+            <div class="text-xs uppercase tracking-wide text-slate-500" title="Single most likely exact scoreline. Different question than 'most likely outcome' above.">
+              Most likely exact score
+            </div>
+            {% set mls = prediction.factor_breakdown.most_likely_score %}
+            {% if mls %}
+              <div class="text-2xl font-bold tabular-nums mt-1">
+                {{ mls[0] }} <span class="text-slate-400">–</span> {{ mls[1] }}
+              </div>
+            {% else %}
+              <div class="text-2xl font-bold tabular-nums mt-1 text-slate-400">—</div>
+            {% endif %}
+          </div>
+          {% if prediction.over_under_line and prediction.p_over_pct is not none %}
+            <div>
+              <div class="text-xs uppercase tracking-wide text-slate-500">Over {{ prediction.over_under_line }}</div>
+              <div class="text-2xl font-bold tabular-nums mt-1">{{ prediction.p_over_pct }}%</div>
+              <div class="text-[10px] text-slate-400 mt-1">prob. of {{ (prediction.over_under_line + 0.5)|int }}+ {% if is_baseball %}runs{% else %}goals{% endif %}</div>
+            </div>
+          {% endif %}
+        </div>
+
+        {% if is_baseball and prediction.xg_home is not none and prediction.over_under_line
+              and prediction.p_over_pct is not none
+              and (prediction.xg_home + prediction.xg_away) > prediction.over_under_line
+              and prediction.p_over_pct < 55 %}
+          <p class="text-xs text-slate-500 italic bg-slate-50 border border-slate-100 rounded px-3 py-2 mt-3">
+            Why is the expected total ({{ '%.1f'|format(prediction.xg_home + prediction.xg_away) }}) above the line
+            but the over only {{ prediction.p_over_pct }}%? Run totals are right-skewed — a handful of
+            high-scoring blowouts pull the <em>average</em> up, while the <em>typical</em> game lands a bit lower.
+            The average sits above the most likely outcome.
+          </p>
+        {% endif %}
+
+        {% if prediction.mls_disagrees_with_pick %}
+          <p class="text-xs text-slate-500 italic bg-slate-50 border border-slate-100 rounded px-3 py-2 mt-3">
+            Heads up: the most likely <em>outcome</em> is <strong>{{ prediction.pick_label }}</strong> ({{ prediction.pick_p_pct }}%) — but the most likely <em>exact score</em> implies a different result.
+            These answer different questions. Many team-winning scorelines (e.g. 2-1, 2-0, 3-1) each have lower individual probability than a single draw scoreline like 1-1, but together they add up to the higher outcome probability.
+          </p>
+        {% endif %}
+
+        <!-- Phase 9: Prediction narrative -->
+        {% if narrative %}
+          <div class="border-t border-slate-100 pt-4">
+            <p class="text-xs uppercase tracking-wide text-slate-500 mb-2">What the model sees</p>
+            <div class="flex items-center gap-2 mb-3 flex-wrap">
+              <p class="text-base font-semibold">{{ narrative.summary }}</p>
+              {% if narrative.tier %}
+                {% set t = narrative.tier.tier %}
+                <span class="inline-block text-[10px] font-semibold uppercase tracking-wide px-2 py-0.5 rounded
+                  {% if t == 'strong' %}bg-emerald-100 text-emerald-700
+                  {% elif t == 'lean' %}bg-sky-100 text-sky-700
+                  {% else %}bg-slate-200 text-slate-500{% endif %}">
+                  {{ t }}{% if not narrative.tier.actionable %} · no edge{% endif %}
+                </span>
+                {% if narrative.tier.capped_by_starter %}
+                  <span class="inline-block text-[10px] font-medium px-2 py-0.5 rounded bg-amber-100 text-amber-700"
+                        title="Capped at lean because a starting pitcher is unconfirmed — the pick rests on incomplete information.">
+                    ⚑ starter unconfirmed
+                  </span>
+                {% endif %}
+              {% endif %}
+            </div>
+            {% if narrative.expression %}
+              <div class="mb-3 text-sm bg-sky-50 border border-sky-100 rounded px-3 py-2 text-sky-800">
+                <span class="font-semibold">Stronger read: the total.</span>
+                {{ narrative.expression.note }}
+              </div>
+            {% endif %}
+            {% if narrative.bullpen_swing %}
+              <div class="mb-3 text-sm bg-amber-50 border border-amber-200 rounded px-3 py-2 text-amber-800">
+                <span class="font-semibold">⚑ Bullpen recent-form caution.</span>
+                {{ narrative.bullpen_swing.note }}
+              </div>
+            {% endif %}
+            {% if narrative.reasoning %}
+              <div class="mb-3">
+                <p class="text-[10px] uppercase text-slate-500 mb-1">Reasoning</p>
+                <ul class="space-y-1 text-sm text-slate-700">
+                  {% for line in narrative.reasoning %}
+                    <li class="flex gap-2"><span class="text-slate-400">·</span><span>{{ line }}</span></li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+            {% if narrative.watch_for %}
+              <div>
+                <p class="text-[10px] uppercase text-slate-500 mb-1">Watch for</p>
+                <ul class="space-y-1 text-sm text-slate-700">
+                  {% for line in narrative.watch_for %}
+                    <li class="flex gap-2"><span class="text-amber-500">⚠</span><span>{{ line }}</span></li>
+                  {% endfor %}
+                </ul>
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        <!-- Factor breakdown -->
+        {% if prediction.factor_breakdown %}
+          <div class="border-t border-slate-100 pt-4">
+            <p class="text-xs uppercase tracking-wide text-slate-500 mb-2">Factor breakdown</p>
+            <table class="w-full text-sm">
+              <tbody>
+                {% if is_baseball %}
+                  <tr>
+                    <td class="text-right pr-3 tabular-nums">{{ prediction.factor_breakdown.home_rs_pg }}</td>
+                    <td class="text-center text-slate-500 text-xs px-3">Runs / game</td>
+                    <td class="pl-3 tabular-nums">{{ prediction.factor_breakdown.away_rs_pg }}</td>
+                  </tr>
+                  <tr>
+                    <td class="text-right pr-3 tabular-nums">{{ prediction.factor_breakdown.home_ra_pg }}</td>
+                    <td class="text-center text-slate-500 text-xs px-3">Runs allowed</td>
+                    <td class="pl-3 tabular-nums">{{ prediction.factor_breakdown.away_ra_pg }}</td>
+                  </tr>
+                  {% if prediction.factor_breakdown.home_pitcher or prediction.factor_breakdown.away_pitcher %}
+                    <tr>
+                      <td class="text-right pr-3 text-xs">{{ prediction.factor_breakdown.home_pitcher or '—' }}</td>
+                      <td class="text-center text-slate-500 text-xs px-3">Pitching</td>
+                      <td class="pl-3 text-xs">{{ prediction.factor_breakdown.away_pitcher or '—' }}</td>
+                    </tr>
+                  {% endif %}
+                {% else %}
+                  <tr>
+                    <td class="text-right pr-3 tabular-nums">{{ prediction.factor_breakdown.home_elo }}</td>
+                    <td class="text-center text-slate-500 text-xs px-3">Elo</td>
+                    <td class="pl-3 tabular-nums">{{ prediction.factor_breakdown.away_elo }}</td>
+                  </tr>
+                  <tr>
+                    <td class="text-right pr-3 tabular-nums">{{ prediction.factor_breakdown.home_attack }}×</td>
+                    <td class="text-center text-slate-500 text-xs px-3">Attack</td>
+                    <td class="pl-3 tabular-nums">{{ prediction.factor_breakdown.away_attack }}×</td>
+                  </tr>
+                  <tr>
+                    <td class="text-right pr-3 tabular-nums">{{ prediction.factor_breakdown.home_defense }}×</td>
+                    <td class="text-center text-slate-500 text-xs px-3">Defense</td>
+                    <td class="pl-3 tabular-nums">{{ prediction.factor_breakdown.away_defense }}×</td>
+                  </tr>
+                  {% if prediction.factor_breakdown.home_injuries_count or prediction.factor_breakdown.away_injuries_count %}
+                    <tr>
+                      <td class="text-right pr-3 tabular-nums">
+                        {% if prediction.factor_breakdown.home_injuries_count %}
+                          {{ prediction.factor_breakdown.home_injuries_count }} out
+                        {% endif %}
+                      </td>
+                      <td class="text-center text-slate-500 text-xs px-3">Injuries</td>
+                      <td class="pl-3 tabular-nums">
+                        {% if prediction.factor_breakdown.away_injuries_count %}
+                          {{ prediction.factor_breakdown.away_injuries_count }} out
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endif %}
+                  {% if prediction.factor_breakdown.home_xi_attack is not none or prediction.factor_breakdown.away_xi_attack is not none %}
+                    <tr class="border-t border-slate-100">
+                      <td class="text-right pr-3 tabular-nums text-xs">
+                        {% if prediction.factor_breakdown.home_xi_attack is not none %}
+                          {{ prediction.factor_breakdown.home_xi_attack }}
+                          {% if prediction.factor_breakdown.home_baseline_attack is not none %}
+                            <span class="text-slate-400">/{{ prediction.factor_breakdown.home_baseline_attack }}</span>
+                          {% endif %}
+                        {% endif %}
+                      </td>
+                      <td class="text-center text-slate-500 text-xs px-3">XI atk vs baseline</td>
+                      <td class="pl-3 tabular-nums text-xs">
+                        {% if prediction.factor_breakdown.away_xi_attack is not none %}
+                          {{ prediction.factor_breakdown.away_xi_attack }}
+                          {% if prediction.factor_breakdown.away_baseline_attack is not none %}
+                            <span class="text-slate-400">/{{ prediction.factor_breakdown.away_baseline_attack }}</span>
+                          {% endif %}
+                        {% endif %}
+                      </td>
+                    </tr>
+                    <tr>
+                      <td class="text-right pr-3 tabular-nums text-xs">
+                        {% if prediction.factor_breakdown.home_xi_defense is not none %}
+                          {{ prediction.factor_breakdown.home_xi_defense }}
+                          {% if prediction.factor_breakdown.home_baseline_defense is not none %}
+                            <span class="text-slate-400">/{{ prediction.factor_breakdown.home_baseline_defense }}</span>
+                          {% endif %}
+                        {% endif %}
+                      </td>
+                      <td class="text-center text-slate-500 text-xs px-3">XI def vs baseline</td>
+                      <td class="pl-3 tabular-nums text-xs">
+                        {% if prediction.factor_breakdown.away_xi_defense is not none %}
+                          {{ prediction.factor_breakdown.away_xi_defense }}
+                          {% if prediction.factor_breakdown.away_baseline_defense is not none %}
+                            <span class="text-slate-400">/{{ prediction.factor_breakdown.away_baseline_defense }}</span>
+                          {% endif %}
+                        {% endif %}
+                      </td>
+                    </tr>
+                  {% endif %}
+                {% endif %}
+              </tbody>
+            </table>
+            {% if prediction.factor_breakdown.factor_notes %}
+              <div class="mt-2 text-xs text-slate-500">
+                {% for note in prediction.factor_breakdown.factor_notes %}
+                  <div>· {{ note }}</div>
+                {% endfor %}
+              </div>
+            {% endif %}
+          </div>
+        {% endif %}
+
+        <!-- Odds vs model (value detection) -->
+        {% if odds_summary %}
+          <div class="border-t border-slate-100 pt-4">
+            <p class="text-xs uppercase tracking-wide text-slate-500 mb-1">Best available odds vs model</p>
+            <p class="text-xs text-slate-500 italic mb-2">
+              Positive edge = model thinks the bookmaker is underpricing that outcome. Not the same as "predicted to happen."
+            </p>
+            <table class="w-full text-sm">
+              <thead class="text-xs uppercase text-slate-400">
+                <tr>
+                  <th class="text-left py-1">Selection</th>
+                  <th class="text-right py-1">Model %</th>
+                  <th class="text-right py-1">Best odds</th>
+                  <th class="text-right py-1">Implied</th>
+                  <th class="text-right py-1">Edge</th>
+                </tr>
+              </thead>
+              <tbody class="divide-y divide-slate-100">
+                {% for sel, pct_attr, label in [
+                  ('HOME', 'p_home_pct', match.home_team.name),
+                  ('DRAW', 'p_draw_pct', 'Draw'),
+                  ('AWAY', 'p_away_pct', match.away_team.name),
+                ] %}
+                  {% set offer = odds_summary.get(sel) %}
+                  {% set model_pct = prediction[pct_attr] %}
+                  <tr>
+                    <td class="py-1.5">{{ label }}</td>
+                    <td class="text-right py-1.5 tabular-nums">{{ model_pct }}%</td>
+                    {% if offer %}
+                      {% set implied_pct = (100.0 / offer.price)|round(1) %}
+                      {% set edge_pct = (model_pct - implied_pct)|round(1) %}
+                      <td class="text-right py-1.5 tabular-nums">
+                        <span class="text-xs text-slate-400">{{ offer.bookmaker[:8] }}</span>
+                        {{ offer.price }}
+                      </td>
+                      <td class="text-right py-1.5 tabular-nums text-slate-500">{{ implied_pct }}%</td>
+                      <td class="text-right py-1.5 tabular-nums font-semibold {% if edge_pct >= 3 %}text-green-600{% elif edge_pct >= 0 %}text-slate-600{% else %}text-red-500{% endif %}">
+                        {{ '+' if edge_pct > 0 else '' }}{{ edge_pct }}%
+                      </td>
+                    {% else %}
+                      <td colspan="3" class="text-right py-1.5 text-slate-400 text-xs">no odds loaded</td>
+                    {% endif %}
+                  </tr>
+                {% endfor %}
+              </tbody>
+            </table>
+          </div>
+        {% endif %}
+
+        <!-- Outcome (if scored) -->
+        {% if outcome %}
+          <div class="border-t border-slate-100 pt-4">
+            <p class="text-xs uppercase tracking-wide text-slate-500 mb-2">Outcome</p>
+            <div class="flex items-center gap-3 mb-2">
+              <span class="px-2 py-1 rounded text-xs font-bold {% if outcome.top_pick_hit %}bg-green-100 text-green-800{% else %}bg-red-100 text-red-800{% endif %}">
+                {{ 'Top pick hit ✓' if outcome.top_pick_hit else 'Top pick missed ✗' }}
+              </span>
+              {% if outcome.log_loss is not none %}
+                <span class="text-xs text-slate-500">log-loss {{ outcome.log_loss }}</span>
+              {% endif %}
+            </div>
+            {% if outcome.notes %}
+              <p class="text-sm text-slate-700">{{ outcome.notes }}</p>
+            {% endif %}
+          </div>
+        {% endif %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if home_stats or away_stats %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Match statistics</h2>
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+          <tr>
+            <th class="text-right px-5 py-2 w-1/3">{{ match.home_team.name }}</th>
+            <th class="text-center px-5 py-2 w-1/3">Stat</th>
+            <th class="text-left px-5 py-2 w-1/3">{{ match.away_team.name }}</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for label, attr in [
+            ('Shots', 'shots'),
+            ('Shots on target', 'shots_on_target'),
+            ('Possession %', 'possession_pct'),
+            ('Corners', 'corners'),
+            ('Fouls', 'fouls'),
+            ('Yellow cards', 'yellow_cards'),
+            ('Red cards', 'red_cards'),
+            ('xG', 'xg'),
+          ] %}
+            {% set hv = home_stats[attr] if home_stats and home_stats[attr] is not none else None %}
+            {% set av = away_stats[attr] if away_stats and away_stats[attr] is not none else None %}
+            {% if hv is not none or av is not none %}
+              <tr>
+                <td class="px-5 py-2 text-right tabular-nums">{{ hv if hv is not none else '-' }}</td>
+                <td class="px-5 py-2 text-center text-xs uppercase text-slate-500">{{ label }}</td>
+                <td class="px-5 py-2 text-left tabular-nums">{{ av if av is not none else '-' }}</td>
+              </tr>
+            {% endif %}
+          {% endfor %}
+        </tbody>
+      </table>
+    </section>
+  {% else %}
+    <p class="text-sm text-slate-500">No detailed stats for this match.
+      Try <code class="bg-slate-100 px-1 rounded">python cli.py sync-stats --competition {{ match.competition.code }} --season {{ match.season }}</code>.
+    </p>
+  {% endif %}
+{% endblock %}

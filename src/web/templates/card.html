@@ -1,0 +1,131 @@
+{% extends "base.html" %}
+{% block title %}Daily Card — {{ date }}{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-slate-800">Daily Card</h1>
+  <p class="text-slate-500">{{ date }} · {{ games|length }} game{{ '' if games|length == 1 else 's' }}</p>
+  <p class="text-sm text-slate-400 mt-1 max-w-3xl">
+    Fact assembler — deterministic flags, not bet advice. Market disagreement is
+    flagged as <span class="text-amber-600 font-medium">caution</span>, not edge,
+    until closing-line value proves otherwise. Interpretation is yours.
+  </p>
+</div>
+
+{% if not games %}
+  <div class="bg-slate-50 border border-slate-200 rounded-lg p-6 text-slate-500">
+    No scheduled games found for {{ date }}.
+  </div>
+{% else %}
+
+{# ---- Confidence ladder ---- #}
+<div class="bg-white border border-slate-200 rounded-lg overflow-hidden mb-8 shadow-sm">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-100 text-slate-600">
+      <tr>
+        <th class="text-left px-3 py-2 w-8">#</th>
+        <th class="text-left px-3 py-2">Pick</th>
+        <th class="text-right px-3 py-2">Model</th>
+        <th class="text-right px-3 py-2">Mkt edge</th>
+        <th class="text-left px-3 py-2">Tier</th>
+        <th class="text-left px-3 py-2">Top flag</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for g in games %}
+      {% set caution = g.flags | selectattr('0', 'equalto', 'caution') | map(attribute='1') | first %}
+      {% set note = g.flags | selectattr('0', 'equalto', 'note') | map(attribute='1') | first %}
+      <tr class="border-t border-slate-100 {% if loop.index0 % 2 %}bg-slate-50/50{% endif %}">
+        <td class="px-3 py-2 text-slate-400">{{ loop.index }}</td>
+        <td class="px-3 py-2 font-medium text-slate-800">{{ g.pick }}</td>
+        <td class="px-3 py-2 text-right">{{ '%.1f' | format(g.prob * 100) }}%</td>
+        <td class="px-3 py-2 text-right {% if g.mkt_edge is not none and g.mkt_edge < 0 %}text-rose-600{% elif g.mkt_edge is not none and g.mkt_edge > 0 %}text-emerald-600{% else %}text-slate-400{% endif %}">
+          {% if g.mkt_edge is not none %}{{ '%+.1f' | format(g.mkt_edge) }}pp{% else %}—{% endif %}
+        </td>
+        <td class="px-3 py-2">
+          <span class="px-2 py-0.5 rounded text-xs
+            {% if g.tier == 'strong' %}bg-emerald-100 text-emerald-700
+            {% elif g.tier == 'lean' %}bg-sky-100 text-sky-700
+            {% else %}bg-slate-100 text-slate-500{% endif %}">{{ g.tier }}</span>
+        </td>
+        <td class="px-3 py-2 text-xs">
+          {% if caution %}<span class="text-amber-600">⚠ {{ caution }}</span>
+          {% elif note %}<span class="text-slate-400">{{ note }}</span>
+          {% else %}<span class="text-emerald-600">clean</span>{% endif %}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+
+{# ---- Per-game fact cards ---- #}
+<div class="grid gap-4 md:grid-cols-2">
+  {% for g in games %}
+  <div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+    <div class="flex items-baseline justify-between mb-2">
+      <div class="font-semibold text-slate-800">{{ loop.index }}. {{ g.match }}</div>
+      <div class="text-xs px-2 py-0.5 rounded
+        {% if g.tier == 'strong' %}bg-emerald-100 text-emerald-700
+        {% elif g.tier == 'lean' %}bg-sky-100 text-sky-700
+        {% else %}bg-slate-100 text-slate-500{% endif %}">{{ g.tier }}</div>
+    </div>
+    <div class="text-sm text-slate-700 mb-2">
+      pick <span class="font-semibold">{{ g.pick }}</span>
+      {{ '%.1f' | format(g.prob * 100) }}%
+      · market edge
+      <span class="{% if g.mkt_edge is not none and g.mkt_edge < 0 %}text-rose-600{% elif g.mkt_edge is not none and g.mkt_edge > 0 %}text-emerald-600{% else %}text-slate-400{% endif %}">
+        {% if g.mkt_edge is not none %}{{ '%+.1f' | format(g.mkt_edge) }}pp{% else %}n/a{% endif %}
+      </span>
+    </div>
+    <dl class="text-xs text-slate-600 space-y-1">
+      <div><span class="text-slate-400">proj runs:</span>
+        {{ '%.2f' | format(g.proj_home) }} home / {{ '%.2f' | format(g.proj_away) }} away</div>
+      <div><span class="text-slate-400">SP:</span>
+        {{ g.fb.get('home_pitcher', '?') }} (ERA {{ g.fb.get('home_pitcher_era', '?') }})
+        vs {{ g.fb.get('away_pitcher', '?') }} (ERA {{ g.fb.get('away_pitcher_era', '?') }})</div>
+      <div><span class="text-slate-400">bullpen ERA:</span>
+        {{ g.fb.get('home_bullpen_era', '?') }} home / {{ g.fb.get('away_bullpen_era', '?') }} away
+        · swing {{ '%.2f' | format(g.bp_swing or 0) }}</div>
+      <div><span class="text-slate-400">recent RS/RA:</span>
+        home {{ g.fb.get('home_rs_recent', '?') }}/{{ g.fb.get('home_ra_recent', '?') }}
+        · away {{ g.fb.get('away_rs_recent', '?') }}/{{ g.fb.get('away_ra_recent', '?') }}</div>
+      <div><span class="text-slate-400">total:</span>
+        {% if g.totals_available %}
+          line {{ g.ou_line }} · over {{ '%.0f' | format(g.over_prob * 100) }}%
+          · stronger: {{ g.stronger }}
+          {% if g.total_gap is not none %}
+            <br><span class="text-slate-400">model total:</span>
+            {{ '%.2f' | format(g.model_total) }} vs mkt {{ g.market_total }}
+            = gap {{ '%+.2f' | format(g.total_gap) }}
+            {% if g.bettable_total_edge %}
+              <span class="text-emerald-600 font-medium">bettable edge</span>
+            {% else %}
+              <span class="text-slate-400">thin (lean only)</span>
+            {% endif %}
+          {% endif %}
+        {% else %}<span class="text-slate-400">unavailable (no market line)</span>{% endif %}</div>
+    </dl>
+    <div class="mt-2 text-xs">
+      <span class="text-slate-400">suitability:</span>
+      <span class="font-medium
+        {% if g.bet_suitability == 'cleaner' %}text-emerald-600
+        {% elif g.bet_suitability == 'test' or g.bet_suitability == 'test-only' %}text-amber-600
+        {% else %}text-slate-500{% endif %}">{{ g.bet_suitability }}</span>
+      <span class="text-slate-400">· recommended:</span>
+      <span class="font-medium text-slate-700">{{ g.recommended_market }}</span>
+    </div>
+    {% if g.flags %}
+    <div class="mt-3 pt-2 border-t border-slate-100 space-y-1">
+      {% for lvl, msg in g.flags %}
+      <div class="text-xs {% if lvl == 'caution' %}text-amber-600{% else %}text-slate-400{% endif %}">
+        {% if lvl == 'caution' %}⚠{% else %}·{% endif %} {{ msg }}
+      </div>
+      {% endfor %}
+    </div>
+    {% endif %}
+  </div>
+  {% endfor %}
+</div>
+{% endif %}
+{% endblock %}

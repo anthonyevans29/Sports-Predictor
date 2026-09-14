@@ -1,0 +1,145 @@
+{% extends "base.html" %}
+{% block title %}Admin — Sports Predictor{% endblock %}
+
+{% macro action_form(action_name, action, comps, current_year) %}
+  <form
+    class="mt-3 flex flex-wrap items-end gap-2"
+    hx-post="/admin/jobs/{{ action_name }}"
+    hx-target="#active-job"
+    hx-swap="innerHTML"
+    hx-on::after-request="this.reset(); htmx.trigger('#job-feed', 'refresh');"
+  >
+    {% if 'sport' in action.form_keys %}
+      <div class="w-28">
+        <label class="block text-[10px] uppercase text-slate-500 mb-0.5">Sport</label>
+        <select name="sport" required class="w-full text-sm px-2 py-1 border border-slate-300 rounded">
+          <option value="soccer">Soccer</option>
+          <option value="mlb">Baseball (MLB)</option>
+        </select>
+      </div>
+    {% endif %}
+    {% if 'competition_code' in action.form_keys %}
+      <div class="flex-1 min-w-[180px]">
+        <label class="block text-[10px] uppercase text-slate-500 mb-0.5">Competition</label>
+        <select name="competition_code" required class="w-full text-sm px-2 py-1 border border-slate-300 rounded">
+          {% if not comps %}
+            <option value="" disabled>(no competitions loaded yet)</option>
+          {% endif %}
+          {% for c in comps %}
+            <option value="{{ c.code }}">{{ c.name }} ({{ c.code }})</option>
+          {% endfor %}
+        </select>
+      </div>
+    {% endif %}
+    {% if 'season' in action.form_keys %}
+      <div class="w-28">
+        <label class="block text-[10px] uppercase text-slate-500 mb-0.5">Season</label>
+        <input name="season" type="text" required placeholder="2025/26 or 2026"
+               value="{{ current_year }}/{{ '%02d'|format((current_year + 1) % 100) }}"
+               class="w-full text-sm px-2 py-1 border border-slate-300 rounded font-mono">
+      </div>
+    {% endif %}
+    {% if 'seasons' in action.form_keys %}
+      <div class="w-20">
+        <label class="block text-[10px] uppercase text-slate-500 mb-0.5">Seasons</label>
+        <input name="seasons" type="number" min="0" value="0"
+               class="w-full text-sm px-2 py-1 border border-slate-300 rounded tabular-nums">
+      </div>
+    {% endif %}
+    {% if 'limit' in action.form_keys %}
+      <div class="w-20">
+        <label class="block text-[10px] uppercase text-slate-500 mb-0.5">Limit</label>
+        <input name="limit" type="number" min="1" max="500" value="30"
+               class="w-full text-sm px-2 py-1 border border-slate-300 rounded tabular-nums">
+      </div>
+    {% endif %}
+    <button type="submit" class="px-3 py-1.5 bg-arsenal-red text-white rounded text-sm font-medium hover:bg-red-700">
+      Run
+    </button>
+  </form>
+{% endmacro %}
+
+{% block content %}
+  <header class="mb-6 flex items-end justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-bold">Admin</h1>
+      <p class="text-slate-600 text-sm mt-1">
+        Run data syncs and model commands in the background.
+        <span class="text-amber-700">Localhost only.</span>
+      </p>
+    </div>
+    <div class="text-xs text-slate-500 text-right">
+      <div class="uppercase tracking-wide">Sport context</div>
+      <div class="text-lg font-semibold text-slate-900">
+        {% if active_sport == 'baseball' %}⚾ Baseball{% else %}⚽ Soccer{% endif %}
+      </div>
+      <div class="text-[10px]">Switch using the pill in the top nav.</div>
+    </div>
+  </header>
+
+  <div class="grid grid-cols-1 lg:grid-cols-[1fr_400px] gap-6">
+    <div class="space-y-6">
+
+      <!-- Data sync section: every sync-* action -->
+      <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+        <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Data sync</h2>
+        <div class="divide-y divide-slate-100">
+          {% set has_sync = false %}
+          {% for action_name, action in actions.items() if action_name.startswith('sync-') %}
+            {% set has_sync = true %}
+            <div class="px-5 py-4">
+              <div>
+                <div class="font-medium text-sm">{{ action_name }}</div>
+                <div class="text-xs text-slate-500">{{ action.description }}</div>
+              </div>
+              {{ action_form(action_name, action, comps, current_year) }}
+            </div>
+          {% endfor %}
+          {% if not has_sync %}
+            <p class="px-5 py-6 text-sm text-slate-500">No sync actions available for this sport.</p>
+          {% endif %}
+        </div>
+      </section>
+
+      <!-- Model section -->
+      <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+        <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Model</h2>
+        <div class="divide-y divide-slate-100">
+          {% for action_name in ['train', 'predict', 'evaluate', 'improve'] if action_name in actions %}
+            {% set action = actions[action_name] %}
+            <div class="px-5 py-4">
+              <div>
+                <div class="font-medium text-sm">{{ action_name }}</div>
+                <div class="text-xs text-slate-500">{{ action.description }}</div>
+              </div>
+              {{ action_form(action_name, action, comps, current_year) }}
+            </div>
+          {% endfor %}
+        </div>
+      </section>
+    </div>
+
+    <aside class="space-y-6">
+      <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+        <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Active job</h2>
+        <div id="active-job" class="p-4">
+          <p class="text-sm text-slate-500">No active job. Click Run on any action.</p>
+        </div>
+      </section>
+
+      <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+        <h2 class="px-5 py-3 border-b border-slate-200 font-semibold flex items-center justify-between">
+          <span>Recent jobs</span>
+          <button hx-get="/admin/jobs" hx-target="#job-feed" hx-swap="innerHTML"
+                  class="text-xs text-slate-500 hover:text-arsenal-red">refresh</button>
+        </h2>
+        <div id="job-feed"
+             hx-get="/admin/jobs"
+             hx-trigger="refresh from:body, every 10s"
+             hx-swap="innerHTML">
+          {% include "partials/job_feed.html" %}
+        </div>
+      </section>
+    </aside>
+  </div>
+{% endblock %}

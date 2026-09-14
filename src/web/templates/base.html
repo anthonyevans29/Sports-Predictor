@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>{% block title %}Sports Predictor{% endblock %}</title>
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          colors: {
+            arsenal: { red: "#EF0107", gold: "#9C824A" },
+          },
+        },
+      },
+    };
+  </script>
+
+  <script src="https://unpkg.com/htmx.org@1.9.10" defer></script>
+
+  <link rel="stylesheet" href="/static/css/custom.css" />
+</head>
+<body class="bg-slate-50 text-slate-900">
+
+  {% set nav = nav_ctx(request) %}
+  <nav class="bg-slate-900 text-white shadow">
+    <div class="max-w-7xl mx-auto px-4 py-3 flex items-center justify-between gap-4 flex-wrap">
+      <a href="/" class="flex items-center gap-2 font-bold text-lg shrink-0">
+        {% if nav.active_sport == 'baseball' %}
+          <span class="text-arsenal-red">⚾</span>
+        {% else %}
+          <span class="text-arsenal-red">⚽</span>
+        {% endif %}
+        <span>Sports Predictor</span>
+      </a>
+
+      <!-- Sport switcher: pill toggle between Soccer and Baseball -->
+      <div class="flex items-center bg-slate-800 rounded-full p-0.5 text-xs">
+        <a href="/set-sport/soccer"
+           class="px-3 py-1 rounded-full transition-colors {% if nav.active_sport == 'soccer' %}bg-arsenal-red text-white font-semibold{% else %}text-slate-300 hover:text-white{% endif %}">
+          ⚽ Soccer
+        </a>
+        <a href="/set-sport/baseball"
+           class="px-3 py-1 rounded-full transition-colors {% if nav.active_sport == 'baseball' %}bg-arsenal-red text-white font-semibold{% else %}text-slate-300 hover:text-white{% endif %}">
+          ⚾ Baseball
+        </a>
+      </div>
+
+      <!-- League selector — submits as soon as you pick. Uses /set-league for cookie -->
+      <form
+        action="/set-league/x" method="get"
+        class="flex items-center gap-2 text-sm"
+        onsubmit="event.preventDefault(); window.location='/set-league/' + this.league.value;"
+      >
+        <label for="league-select" class="text-slate-400 text-xs uppercase tracking-wide">League</label>
+        <select
+          name="league" id="league-select"
+          onchange="window.location='/set-league/' + this.value;"
+          class="bg-slate-800 border border-slate-700 text-white rounded px-2 py-1 focus:outline-none focus:ring-2 focus:ring-arsenal-red"
+        >
+          {% if not nav.comps %}
+            <option>(no leagues loaded)</option>
+          {% endif %}
+          {% for c in nav.comps %}
+            <option value="{{ c.code }}" {% if c.code == nav.active_code %}selected{% endif %}>
+              {{ c.name }}
+            </option>
+          {% endfor %}
+        </select>
+      </form>
+
+      <div class="flex items-center gap-6 text-sm">
+        <a href="/" class="hover:text-arsenal-red">Dashboard</a>
+        <a href="/competitions" class="hover:text-arsenal-red">Competitions</a>
+        <a href="/teams" class="hover:text-arsenal-red">Teams</a>
+        <a href="/matches" class="hover:text-arsenal-red">Matches</a>
+        <a href="/predictions" class="hover:text-arsenal-red">Predictions</a>
+        {% if nav.active_sport == 'baseball' %}
+          <a href="/card" class="hover:text-arsenal-red">Card</a>
+        {% endif %}
+        {% if nav.active_sport == 'soccer' %}
+          <a href="/players" class="hover:text-arsenal-red">Players</a>
+        {% endif %}
+        <a href="/admin" class="hover:text-arsenal-red">Admin</a>
+      </div>
+    </div>
+  </nav>
+
+  <main class="max-w-7xl mx-auto px-4 py-8">
+    {% block content %}{% endblock %}
+  </main>
+
+  <footer class="max-w-7xl mx-auto px-4 py-8 text-xs text-slate-500">
+    Local app. Predictions are model output, not betting advice.
+  </footer>
+
+  <script src="/static/js/app.js" defer></script>
+</body>
+</html>

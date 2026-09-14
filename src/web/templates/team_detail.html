@@ -1,0 +1,177 @@
+{% extends "base.html" %}
+{% block title %}{{ team.name }} — Sports Predictor{% endblock %}
+
+{% block content %}
+  <header class="mb-6 flex items-start justify-between gap-4">
+    <div>
+      <a href="/teams" class="text-xs text-slate-500 hover:text-arsenal-red">← All teams</a>
+      <h1 class="text-3xl font-bold mt-1">{{ team.name }}</h1>
+      <p class="text-slate-600 text-sm mt-1">
+        {% if team.tla %}<span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{{ team.tla }}</span>{% endif %}
+        {% if team.area %}· {{ team.area }}{% endif %}
+        {% if team.founded %}· Founded {{ team.founded }}{% endif %}
+        {% if team.venue %}· {{ team.venue }}{% endif %}
+      </p>
+    </div>
+    {% if is_pinned %}
+      <button
+        hx-post="/unpin-team/{{ team.id }}"
+        hx-swap="outerHTML"
+        hx-target="this"
+        class="px-3 py-2 text-sm border border-arsenal-red text-arsenal-red rounded hover:bg-red-50 whitespace-nowrap"
+        title="Remove from My clubs"
+      >★ Pinned</button>
+    {% else %}
+      <button
+        hx-post="/pin-team/{{ team.id }}"
+        hx-swap="outerHTML"
+        hx-target="this"
+        class="px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded hover:border-arsenal-red hover:text-arsenal-red whitespace-nowrap"
+        title="Add to My clubs"
+      >☆ Pin to My clubs</button>
+    {% endif %}
+  </header>
+
+  {% if form %}
+    <section class="mb-6">
+      <p class="text-xs uppercase tracking-wide text-slate-500 mb-2">Recent form</p>
+      <div class="flex gap-2">
+        {% for r in form %}
+          <span class="
+            inline-flex items-center justify-center w-9 h-9 rounded-full text-white font-bold text-sm
+            {% if r == 'W' %}bg-green-600{% elif r == 'D' %}bg-slate-400{% else %}bg-red-600{% endif %}
+          ">{{ r }}</span>
+        {% endfor %}
+      </div>
+    </section>
+  {% endif %}
+
+  {% if streak_kpi and streak_kpi.games > 0 %}
+    <section class="mb-6">
+      <p class="text-xs uppercase tracking-wide text-slate-500 mb-2">Streak KPIs
+        <span class="text-slate-400 normal-case">· season profile stat</span></p>
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="bg-white rounded-lg border border-slate-200 p-3">
+          <div class="text-2xl font-bold text-slate-800">
+            {{ '%.2f' | format(streak_kpi.avg_win_streak_len) if streak_kpi.avg_win_streak_len is not none else '—' }}</div>
+          <div class="text-xs text-slate-500">Avg winning streak</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 p-3">
+          <div class="text-2xl font-bold text-slate-800">{{ streak_kpi.longest_win_streak }}</div>
+          <div class="text-xs text-slate-500">Longest streak</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 p-3">
+          <div class="text-2xl font-bold
+            {% if streak_kpi.current_streak > 0 %}text-green-600{% elif streak_kpi.current_streak < 0 %}text-red-600{% else %}text-slate-800{% endif %}">
+            {% if streak_kpi.current_streak > 0 %}W{{ streak_kpi.current_streak }}{% elif streak_kpi.current_streak < 0 %}L{{ -streak_kpi.current_streak }}{% else %}—{% endif %}</div>
+          <div class="text-xs text-slate-500">Current</div>
+        </div>
+        <div class="bg-white rounded-lg border border-slate-200 p-3">
+          <div class="text-2xl font-bold text-slate-800">
+            {{ '%.0f' | format(streak_kpi.win_pct * 100) if streak_kpi.win_pct is not none else '—' }}%</div>
+          <div class="text-xs text-slate-500">Win% ({{ streak_kpi.games }} G)</div>
+        </div>
+      </div>
+    </section>
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <!-- Upcoming -->
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Upcoming fixtures</h2>
+      {% if upcoming %}
+        <ul class="divide-y divide-slate-100">
+          {% for m in upcoming %}
+            <li class="px-5 py-3 hover:bg-slate-50">
+              <a href="/matches/{{ m.id }}" class="grid grid-cols-[110px_1fr_60px_1fr] items-center gap-3">
+                <div class="text-xs text-slate-500">
+                  <div>{{ m.utc_date | dt }}</div>
+                  <div class="font-medium text-arsenal-red">{{ m.competition.code }}</div>
+                </div>
+                <span class="text-sm text-right truncate {% if m.home_team_id == team.id %}font-semibold{% endif %}">{{ m.home_team.name }}</span>
+                <span class="text-center text-slate-400 text-xs">vs</span>
+                <span class="text-sm text-left truncate {% if m.away_team_id == team.id %}font-semibold{% endif %}">{{ m.away_team.name }}</span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="px-5 py-6 text-sm text-slate-500">No upcoming fixtures.</p>
+      {% endif %}
+    </section>
+
+    <!-- Recent -->
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Recent results</h2>
+      {% if recent %}
+        <ul class="divide-y divide-slate-100">
+          {% for m in recent %}
+            <li class="px-5 py-3 hover:bg-slate-50">
+              <a href="/matches/{{ m.id }}" class="grid grid-cols-[110px_1fr_60px_1fr] items-center gap-3">
+                <div class="text-xs text-slate-500">
+                  <div>{{ m.utc_date | d }}</div>
+                  <div class="font-medium text-arsenal-red">{{ m.competition.code }}</div>
+                </div>
+                <span class="text-sm text-right truncate {% if m.home_team_id == team.id %}font-semibold{% endif %}">{{ m.home_team.name }}</span>
+                <span class="text-center font-bold text-sm tabular-nums">
+                  {{ m.home_score if m.home_score is not none else '-' }}
+                  <span class="text-slate-400">–</span>
+                  {{ m.away_score if m.away_score is not none else '-' }}
+                </span>
+                <span class="text-sm text-left truncate {% if m.away_team_id == team.id %}font-semibold{% endif %}">{{ m.away_team.name }}</span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="px-5 py-6 text-sm text-slate-500">No finished matches yet.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <!-- Squad power rankings (Phase 6a) -->
+  {% if squad_rankings %}
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200 mt-6">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold flex items-baseline justify-between">
+        <span>Squad power rankings</span>
+        <span class="text-xs font-normal text-slate-500">Season {{ squad_season }} · {{ squad_rankings|length }} players</span>
+      </h2>
+      <div class="p-1">
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-[11px] uppercase text-slate-500">
+            <tr>
+              <th class="px-3 py-2 text-right w-10">#</th>
+              <th class="px-3 py-2 text-left">Player</th>
+              <th class="px-2 py-2 text-left">Pos</th>
+              <th class="px-2 py-2 text-right">Apps</th>
+              <th class="px-2 py-2 text-right">Min</th>
+              <th class="px-3 py-2 text-right">Score</th>
+              <th class="px-3 py-2 text-left">Note</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {% for r in squad_rankings %}
+              <tr class="hover:bg-slate-50">
+                <td class="px-3 py-2 text-right text-slate-500 tabular-nums">{{ loop.index }}</td>
+                <td class="px-3 py-2 font-medium">{{ r.name }}</td>
+                <td class="px-2 py-2 text-xs text-slate-500">{{ r.position_bucket[:3].upper() }}</td>
+                <td class="px-2 py-2 text-right tabular-nums">{{ r.appearances }}</td>
+                <td class="px-2 py-2 text-right tabular-nums text-slate-500">{{ r.minutes }}</td>
+                <td class="px-3 py-2 text-right tabular-nums font-bold
+                            {% if r.score >= 70 %}text-green-700{% elif r.score >= 55 %}text-slate-900{% elif r.score >= 40 %}text-slate-500{% else %}text-slate-400{% endif %}">
+                  {{ '%.1f' | format(r.score) }}
+                </td>
+                <td class="px-3 py-2 text-xs text-slate-400">
+                  {% if r.notes %}{{ r.notes | join(', ') }}{% endif %}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+      <div class="px-5 py-2 text-[11px] text-slate-400 border-t border-slate-100">
+        Score is 0–100, where 50 ≈ position-average. Computed from per-90 rates with shrinkage for small samples. v1 — formula will improve over time.
+      </div>
+    </section>
+  {% endif %}
+{% endblock %}

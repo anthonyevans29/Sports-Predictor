@@ -1,0 +1,88 @@
+{% extends "base.html" %}
+{% block title %}{{ competition.name }} — Sports Predictor{% endblock %}
+
+{% block content %}
+  <header class="mb-6">
+    <a href="/competitions" class="text-xs text-slate-500 hover:text-arsenal-red">← All competitions</a>
+    <h1 class="text-3xl font-bold mt-1">{{ competition.name }}</h1>
+    <p class="text-slate-600 text-sm mt-1">
+      <span class="font-mono text-xs bg-slate-100 px-1.5 py-0.5 rounded">{{ competition.code }}</span>
+      · {{ competition.area }} · {{ competition.type }}
+    </p>
+  </header>
+
+  {% if seasons %}
+    <div class="mb-6 flex gap-2 flex-wrap">
+      {% for s in seasons %}
+        <a
+          href="/competitions/{{ competition.code }}?season={{ s }}"
+          class="px-3 py-1 rounded text-sm border {% if s == chosen_season %}bg-arsenal-red text-white border-arsenal-red{% else %}bg-white border-slate-300 text-slate-700 hover:border-arsenal-red{% endif %}"
+        >{{ s }}</a>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+    <!-- Teams -->
+    <section class="lg:col-span-1 bg-white rounded-lg shadow-sm border border-slate-200">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">
+        Teams {% if chosen_season %}<span class="text-xs text-slate-400 font-normal">({{ chosen_season }})</span>{% endif %}
+      </h2>
+      {% if teams %}
+        <ul class="divide-y divide-slate-100 max-h-96 overflow-y-auto">
+          {% for t in teams %}
+            <li><a href="/teams/{{ t.id }}" class="block px-5 py-2 text-sm hover:bg-slate-50">{{ t.name }}</a></li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="px-5 py-6 text-sm text-slate-500">No team data for this season.</p>
+      {% endif %}
+    </section>
+
+    <!-- Upcoming -->
+    <section class="lg:col-span-2 bg-white rounded-lg shadow-sm border border-slate-200">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Upcoming</h2>
+      {% if upcoming %}
+        <ul class="divide-y divide-slate-100">
+          {% for m in upcoming %}
+            <li class="px-5 py-2 text-sm hover:bg-slate-50">
+              <a href="/matches/{{ m.id }}" class="grid grid-cols-[120px_1fr_auto_1fr] gap-3 items-center">
+                <span class="text-xs text-slate-500">{{ m.utc_date | dt }}</span>
+                <span class="text-right truncate">{{ m.home_team.name }}</span>
+                <span class="text-slate-400">vs</span>
+                <span class="text-left truncate">{{ m.away_team.name }}</span>
+              </a>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="px-5 py-6 text-sm text-slate-500">No upcoming matches.</p>
+      {% endif %}
+    </section>
+  </div>
+
+  <!-- Recent results -->
+  <section class="bg-white rounded-lg shadow-sm border border-slate-200 mt-6">
+    <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Recent results</h2>
+    {% if recent_matches %}
+      <ul class="divide-y divide-slate-100">
+        {% for m in recent_matches %}
+          <li class="px-5 py-2 text-sm hover:bg-slate-50">
+            <a href="/matches/{{ m.id }}" class="grid grid-cols-[120px_1fr_60px_1fr] gap-3 items-center">
+              <span class="text-xs text-slate-500">{{ m.utc_date | d }}</span>
+              <span class="text-right truncate">{{ m.home_team.name }}</span>
+              <span class="text-center font-bold tabular-nums">
+                {{ m.home_score if m.home_score is not none else '-' }}
+                <span class="text-slate-400">–</span>
+                {{ m.away_score if m.away_score is not none else '-' }}
+              </span>
+              <span class="text-left truncate">{{ m.away_team.name }}</span>
+            </a>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="px-5 py-6 text-sm text-slate-500">No finished matches yet.</p>
+    {% endif %}
+  </section>
+{% endblock %}

@@ -1,0 +1,288 @@
+{% extends "base.html" %}
+{% block title %}{{ competition.name if competition else "Dashboard" }} — Sports Predictor{% endblock %}
+
+{% block content %}
+  {% if no_data %}
+    <div class="bg-amber-50 border border-amber-200 rounded-lg p-6 text-amber-900">
+      <h1 class="text-2xl font-bold mb-2">No data for this league yet</h1>
+      <p class="text-sm">
+        Run the data sync commands from the project root, e.g.:
+      </p>
+      <pre class="bg-amber-100 mt-3 p-3 rounded text-xs overflow-x-auto"><code>python cli.py sync-competitions
+python cli.py sync-teams   --competition {{ league_code }} --season 2024/25
+python cli.py sync-matches --competition {{ league_code }} --seasons 3</code></pre>
+    </div>
+  {% else %}
+    <!-- Header -->
+    <header class="mb-6 flex items-end justify-between gap-4 flex-wrap">
+      <div>
+        <p class="text-xs uppercase tracking-wide text-slate-500">
+          {{ competition.area }} · {{ competition.type }}
+        </p>
+        <h1 class="text-3xl font-bold mt-1">{{ competition.name }}</h1>
+        {% if chosen_season %}
+          <p class="text-slate-500 text-sm mt-1">Season {{ chosen_season }}</p>
+        {% endif %}
+      </div>
+      <a
+        href="/competitions/{{ competition.code }}"
+        class="text-sm text-arsenal-red hover:underline whitespace-nowrap"
+      >Full competition page →</a>
+    </header>
+
+    <!-- Main grid: left = fixtures + table, right = pinned sidebar -->
+    <div class="grid grid-cols-1 lg:grid-cols-[1fr_280px] gap-6">
+      <div class="space-y-6">
+
+        {% if value_edges %}
+          <section class="bg-gradient-to-br from-amber-50 to-amber-100/60 rounded-lg border border-amber-200 shadow-sm">
+            <h2 class="px-5 py-3 border-b border-amber-200 font-semibold text-amber-900 flex items-center justify-between">
+              <span>⚡ Where the market may be mispriced</span>
+              <span class="text-xs text-amber-700 font-normal">model vs bookmaker · top {{ value_edges|length }}</span>
+            </h2>
+            <p class="px-5 pt-2 pb-1 text-[11px] text-amber-800/80 italic">
+              These aren't predicted winners — they're outcomes the model rates higher than the bookmaker does.
+              Often the underdog or the draw. The "edge" is the relative gap, not a confidence score.
+            </p>
+            <ul class="divide-y divide-amber-200/60">
+              {% for e in value_edges %}
+                <li class="px-5 py-3">
+                  <a href="/matches/{{ e.match_id }}" class="grid grid-cols-[1fr_auto] gap-3 items-center">
+                    <div class="text-sm">
+                      <div class="font-medium">
+                        {{ e.home_name }} <span class="text-slate-400 font-normal">vs</span> {{ e.away_name }}
+                      </div>
+                      <div class="text-xs text-amber-800 mt-0.5">
+                        market underrates <span class="font-semibold">{{ e.selection_label }}</span>
+                        <span class="text-amber-700">@ {{ e.price }} ({{ e.bookmaker[:8] }})</span>
+                        <span class="text-amber-600">· model says {{ e.model_prob_pct }}% / market implies {{ e.fair_prob_pct }}%</span>
+                      </div>
+                    </div>
+                    <div class="text-right">
+                      <div class="text-lg font-bold text-green-700 tabular-nums">+{{ e.edge_pct }}%</div>
+                      <div class="text-[10px] text-amber-700 uppercase">edge</div>
+                    </div>
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+          </section>
+        {% endif %}
+
+        <!-- Upcoming fixtures -->
+        <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+          <h2 class="px-5 py-3 border-b border-slate-200 font-semibold flex items-center justify-between">
+            <span>Upcoming fixtures</span>
+            <span class="text-xs text-slate-400 font-normal">
+              {% if upcoming_fixtures %}
+                next 7 days · {{ upcoming_fixtures|length }}
+              {% endif %}
+            </span>
+          </h2>
+          {% if upcoming_fixtures %}
+            <p class="px-5 pt-2 pb-1 text-[11px] text-slate-500 italic">
+              Probability of each outcome. Highlighted = most likely. Click any fixture for the full prediction.
+            </p>
+            <ul class="divide-y divide-slate-100">
+              {% for m in upcoming_fixtures %}
+                <li class="hover:bg-slate-50">
+                  <a href="/matches/{{ m.id }}" class="block px-5 py-3">
+                    <div class="grid grid-cols-[110px_1fr_50px_1fr] items-center gap-3">
+                      <div class="text-xs">
+                        <div class="text-slate-500">{{ m.utc_date | dt }}</div>
+                        {% if m.matchday %}
+                          <div class="text-slate-400 text-[10px]">MD {{ m.matchday }}</div>
+                        {% elif m.stage %}
+                          <div class="text-slate-400 text-[10px] truncate">{{ m.stage }}</div>
+                        {% endif %}
+                      </div>
+                      <div class="text-sm text-right truncate">{{ m.home_name }}</div>
+                      <div class="text-center text-slate-400 text-xs">vs</div>
+                      <div class="text-sm text-left truncate">{{ m.away_name }}</div>
+                    </div>
+                    {% if m.prediction %}
+                      <div class="mt-2 grid grid-cols-[110px_1fr] gap-3 items-center">
+                        <div class="text-[10px] text-slate-400 uppercase tracking-wide" title="Probability of each outcome">P(outcome)</div>
+                        <div class="flex items-center gap-1.5 text-xs">
+                          <span class="px-2 py-0.5 rounded font-bold {% if m.prediction.pick == 'H' %}bg-arsenal-red text-white{% else %}bg-slate-100 text-slate-700{% endif %}">
+                            {{ m.prediction.p_home_pct }}%
+                          </span>
+                          {% if m.prediction.p_draw_pct is not none and m.prediction.p_draw_pct > 0 %}
+                            <span class="px-2 py-0.5 rounded font-medium {% if m.prediction.pick == 'D' %}bg-slate-700 text-white{% else %}bg-slate-100 text-slate-700{% endif %}">
+                              D {{ m.prediction.p_draw_pct }}%
+                            </span>
+                          {% endif %}
+                          <span class="px-2 py-0.5 rounded font-bold {% if m.prediction.pick == 'A' %}bg-arsenal-red text-white{% else %}bg-slate-100 text-slate-700{% endif %}">
+                            {{ m.prediction.p_away_pct }}%
+                          </span>
+                          <span class="ml-2 text-slate-400 text-[10px]">
+                            {% if standings_sport == 'baseball' %}
+                              xR {{ m.prediction.xg_home }} – {{ m.prediction.xg_away }}
+                            {% else %}
+                              xG {{ m.prediction.xg_home }} – {{ m.prediction.xg_away }}
+                            {% endif %}
+                          </span>
+                        </div>
+                      </div>
+                    {% endif %}
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="px-5 py-6 text-sm text-slate-500">No upcoming fixtures scheduled.</p>
+          {% endif %}
+        </section>
+
+        <!-- League / Standings table (only for league-type competitions) -->
+        {% if standings %}
+          <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+            <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">
+              {% if standings_sport == 'baseball' %}Standings{% else %}League table{% endif %}
+            </h2>
+            {% if standings_sport == 'baseball' %}
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-[11px] uppercase text-slate-500">
+                  <tr>
+                    <th class="px-3 py-2 text-right w-10">#</th>
+                    <th class="px-3 py-2 text-left">Team</th>
+                    <th class="px-2 py-2 text-right">G</th>
+                    <th class="px-2 py-2 text-right">W</th>
+                    <th class="px-2 py-2 text-right">L</th>
+                    <th class="px-2 py-2 text-right font-bold">Pct</th>
+                    <th class="px-2 py-2 text-right">RS</th>
+                    <th class="px-2 py-2 text-right">RA</th>
+                    <th class="px-2 py-2 text-right">Diff</th>
+                    <th class="px-3 py-2 text-left">Last 5</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  {% for row in standings %}
+                    <tr class="hover:bg-slate-50">
+                      <td class="px-3 py-2 text-right text-slate-500 tabular-nums">{{ loop.index }}</td>
+                      <td class="px-3 py-2">
+                        <a href="/teams/{{ row.team_id }}" class="hover:text-arsenal-red font-medium">{{ row.team_name }}</a>
+                      </td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.played }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.won }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.lost }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums font-bold">{{ "%.3f"|format(row.win_pct) }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.goals_for }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.goals_against }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums {% if row.goal_difference > 0 %}text-green-700{% elif row.goal_difference < 0 %}text-red-700{% endif %}">
+                        {{ '+' if row.goal_difference > 0 else '' }}{{ row.goal_difference }}
+                      </td>
+                      <td class="px-3 py-2">
+                        <div class="flex gap-0.5">
+                          {% for r in row.form %}
+                            <span class="
+                              inline-flex items-center justify-center w-5 h-5 rounded text-white text-[10px] font-bold
+                              {% if r == 'W' %}bg-green-600{% else %}bg-red-600{% endif %}
+                            ">{{ r }}</span>
+                          {% endfor %}
+                        </div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% else %}
+              <table class="w-full text-sm">
+                <thead class="bg-slate-50 text-[11px] uppercase text-slate-500">
+                  <tr>
+                    <th class="px-3 py-2 text-right w-10">#</th>
+                    <th class="px-3 py-2 text-left">Team</th>
+                    <th class="px-2 py-2 text-right">P</th>
+                    <th class="px-2 py-2 text-right">W</th>
+                    <th class="px-2 py-2 text-right">D</th>
+                    <th class="px-2 py-2 text-right">L</th>
+                    <th class="px-2 py-2 text-right">GF</th>
+                    <th class="px-2 py-2 text-right">GA</th>
+                    <th class="px-2 py-2 text-right">GD</th>
+                    <th class="px-3 py-2 text-right font-bold">PTS</th>
+                    <th class="px-3 py-2 text-left">Form</th>
+                  </tr>
+                </thead>
+                <tbody class="divide-y divide-slate-100">
+                  {% for row in standings %}
+                    <tr class="hover:bg-slate-50">
+                      <td class="px-3 py-2 text-right text-slate-500 tabular-nums">{{ loop.index }}</td>
+                      <td class="px-3 py-2">
+                        <a href="/teams/{{ row.team_id }}" class="hover:text-arsenal-red font-medium">{{ row.team_name }}</a>
+                      </td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.played }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.won }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.drawn }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.lost }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.goals_for }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums">{{ row.goals_against }}</td>
+                      <td class="px-2 py-2 text-right tabular-nums {% if row.goal_difference > 0 %}text-green-700{% elif row.goal_difference < 0 %}text-red-700{% endif %}">
+                        {{ '+' if row.goal_difference > 0 else '' }}{{ row.goal_difference }}
+                      </td>
+                      <td class="px-3 py-2 text-right tabular-nums font-bold">{{ row.points }}</td>
+                      <td class="px-3 py-2">
+                        <div class="flex gap-0.5">
+                          {% for r in row.form %}
+                            <span class="
+                              inline-flex items-center justify-center w-5 h-5 rounded text-white text-[10px] font-bold
+                              {% if r == 'W' %}bg-green-600{% elif r == 'D' %}bg-slate-400{% else %}bg-red-600{% endif %}
+                            ">{{ r }}</span>
+                          {% endfor %}
+                        </div>
+                      </td>
+                    </tr>
+                  {% endfor %}
+                </tbody>
+              </table>
+            {% endif %}
+          </section>
+        {% endif %}
+
+        <!-- Recent results -->
+        <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+          <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Recent results</h2>
+          {% if recent_results %}
+            <ul class="divide-y divide-slate-100">
+              {% for m in recent_results %}
+                <li class="hover:bg-slate-50">
+                  <a
+                    href="/matches/{{ m.id }}"
+                    class="grid grid-cols-[110px_1fr_60px_1fr] items-center gap-3 px-5 py-3"
+                  >
+                    <div class="text-xs text-slate-500">{{ m.utc_date | d }}</div>
+                    <div class="text-sm text-right truncate">{{ m.home_name }}</div>
+                    <div class="text-center font-bold text-sm tabular-nums">
+                      {{ m.home_score if m.home_score is not none else '-' }}
+                      <span class="text-slate-400">–</span>
+                      {{ m.away_score if m.away_score is not none else '-' }}
+                    </div>
+                    <div class="text-sm text-left truncate">{{ m.away_name }}</div>
+                  </a>
+                </li>
+              {% endfor %}
+            </ul>
+          {% else %}
+            <p class="px-5 py-6 text-sm text-slate-500">No finished matches yet this season.</p>
+          {% endif %}
+        </section>
+      </div>
+
+      <!-- Sidebar: pinned clubs + DB stats -->
+      <aside class="space-y-6">
+        <section class="bg-white rounded-lg shadow-sm border border-slate-200" id="pinned-sidebar">
+          {% include "partials/pinned_clubs.html" %}
+        </section>
+
+        <section class="bg-white rounded-lg shadow-sm border border-slate-200 p-4 text-xs text-slate-600">
+          <h3 class="font-semibold text-slate-900 mb-2 text-sm">Database</h3>
+          <dl class="space-y-1">
+            <div class="flex justify-between"><dt>Competitions</dt><dd class="tabular-nums">{{ counts.competitions }}</dd></div>
+            <div class="flex justify-between"><dt>Teams</dt><dd class="tabular-nums">{{ counts.teams }}</dd></div>
+            <div class="flex justify-between"><dt>Matches</dt><dd class="tabular-nums">{{ counts.matches }}</dd></div>
+            <div class="flex justify-between"><dt>Stat rows</dt><dd class="tabular-nums">{{ counts.stats_rows }}</dd></div>
+          </dl>
+        </section>
+      </aside>
+    </div>
+  {% endif %}
+{% endblock %}

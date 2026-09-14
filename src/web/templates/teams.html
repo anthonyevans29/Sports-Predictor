@@ -1,0 +1,53 @@
+{% extends "base.html" %}
+{% block title %}Teams — Sports Predictor{% endblock %}
+
+{% block content %}
+  <h1 class="text-3xl font-bold mb-6">Teams</h1>
+
+  <form action="/teams" method="get" class="mb-6 max-w-md">
+    <div class="flex gap-2">
+      <input
+        type="text"
+        name="q"
+        value="{{ q }}"
+        placeholder="Search by name…"
+        class="flex-1 px-3 py-2 rounded border border-slate-300 focus:outline-none focus:ring-2 focus:ring-arsenal-red"
+      />
+      <button type="submit" class="px-4 py-2 bg-arsenal-red text-white rounded font-medium hover:bg-red-700">Search</button>
+      {% if q %}<a href="/teams" class="px-4 py-2 text-slate-600 hover:text-slate-900 self-center">Clear</a>{% endif %}
+    </div>
+  </form>
+
+  {% if teams %}
+    <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+          <tr>
+            <th class="text-left px-5 py-2">Name</th>
+            <th class="text-left px-5 py-2">TLA</th>
+            <th class="text-left px-5 py-2">Area</th>
+            <th class="text-left px-5 py-2">Founded</th>
+            <th class="text-left px-5 py-2">Venue</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for t in teams %}
+            <tr class="hover:bg-slate-50">
+              <td class="px-5 py-2">
+                <a href="/teams/{{ t.id }}" class="text-arsenal-red font-medium hover:underline">{{ t.name }}</a>
+              </td>
+              <td class="px-5 py-2 font-mono text-xs">{{ t.tla or '' }}</td>
+              <td class="px-5 py-2 text-slate-600">{{ t.area or '' }}</td>
+              <td class="px-5 py-2 text-slate-600 tabular-nums">{{ t.founded or '' }}</td>
+              <td class="px-5 py-2 text-slate-600">{{ t.venue or '' }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+  {% else %}
+    <p class="text-sm text-slate-500">
+      {% if q %}No teams matching "{{ q }}".{% else %}No teams in DB yet. Run <code class="bg-slate-100 px-1 rounded">python cli.py sync-teams --competition PL --season 2024/25</code>.{% endif %}
+    </p>
+  {% endif %}
+{% endblock %}

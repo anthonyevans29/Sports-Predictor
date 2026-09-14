@@ -1,0 +1,17 @@
+{% if is_pinned %}
+  <button
+    hx-post="/unpin-team/{{ team_id }}"
+    hx-swap="outerHTML"
+    hx-target="this"
+    class="px-3 py-2 text-sm border border-arsenal-red text-arsenal-red rounded hover:bg-red-50 whitespace-nowrap"
+    title="Remove from My clubs"
+  >★ Pinned</button>
+{% else %}
+  <button
+    hx-post="/pin-team/{{ team_id }}"
+    hx-swap="outerHTML"
+    hx-target="this"
+    class="px-3 py-2 text-sm border border-slate-300 text-slate-700 rounded hover:border-arsenal-red hover:text-arsenal-red whitespace-nowrap"
+    title="Add to My clubs"
+  >☆ Pin to My clubs</button>
+{% endif %}

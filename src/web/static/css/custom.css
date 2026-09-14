@@ -1,0 +1,10 @@
+/* Custom additions on top of Tailwind. */
+
+/* Subtle left-border accent for win/draw/loss rows on the dashboard */
+.result-win  { border-left: 3px solid #16a34a; }   /* green-600 */
+.result-draw { border-left: 3px solid #94a3b8; }   /* slate-400 */
+.result-loss { border-left: 3px solid #dc2626; }   /* red-600   */
+
+/* Smooth-ish HTMX transitions if we use them later */
+.htmx-swapping { opacity: 0.5; transition: opacity 0.15s; }
+.htmx-settling { opacity: 1; }

@@ -1,0 +1,28 @@
+{% if recent_jobs %}
+  <ul class="divide-y divide-slate-100 max-h-[600px] overflow-y-auto">
+    {% for job in recent_jobs %}
+      <li class="px-4 py-2 hover:bg-slate-50">
+        <div class="flex items-center justify-between gap-2">
+          <div class="min-w-0">
+            <div class="text-sm font-medium truncate">{{ job.name }}</div>
+            <div class="text-[10px] text-slate-500 truncate">{{ job.description }}</div>
+          </div>
+          <span class="
+            px-1.5 py-0.5 rounded text-[10px] uppercase font-bold whitespace-nowrap
+            {% if job.status == 'running' %}bg-blue-200 text-blue-900{% endif %}
+            {% if job.status == 'pending' %}bg-slate-200 text-slate-700{% endif %}
+            {% if job.status == 'success' %}bg-green-200 text-green-900{% endif %}
+            {% if job.status == 'failed' %}bg-red-200 text-red-900{% endif %}
+          ">{{ job.status }}</span>
+        </div>
+        {% if job.result %}
+          <div class="text-[11px] text-slate-600 mt-1 truncate">{{ job.result }}</div>
+        {% elif job.error %}
+          <div class="text-[11px] text-red-700 mt-1 truncate">{{ job.error }}</div>
+        {% endif %}
+      </li>
+    {% endfor %}
+  </ul>
+{% else %}
+  <p class="px-4 py-6 text-sm text-slate-500">No jobs yet.</p>
+{% endif %}

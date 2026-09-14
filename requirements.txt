@@ -1,0 +1,25 @@
+# --- Web layer ---
+fastapi>=0.110.0
+uvicorn[standard]>=0.27.0
+jinja2>=3.1.0
+python-multipart>=0.0.9   # form handling for any POST endpoints
+
+# --- Data + ORM ---
+SQLAlchemy>=2.0.0
+alembic>=1.13.0
+requests>=2.31.0
+python-dotenv>=1.0.0
+pydantic>=2.5.0
+
+# --- Modeling (Phase 2) ---
+numpy>=1.26.0
+pandas>=2.1.0
+scipy>=1.11.0
+
+# --- CLI ---
+click>=8.1.0
+rich>=13.7.0
+
+# --- Dev ---
+pytest>=7.4.0
+pytest-cov>=4.1.0

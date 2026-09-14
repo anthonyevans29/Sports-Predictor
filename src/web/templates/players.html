@@ -1,0 +1,106 @@
+{% extends "base.html" %}
+{% block title %}Player rankings — Sports Predictor{% endblock %}
+
+{% block content %}
+  <header class="mb-6 flex items-end justify-between gap-4">
+    <div>
+      <h1 class="text-3xl font-bold">Player power rankings</h1>
+      <p class="text-slate-600 text-sm mt-1">
+        Composite per-90 score across goals, assists, creation, defensive work, and discipline.
+        50 ≈ position-average. Sample-shrunk for low-minute players.
+      </p>
+    </div>
+  </header>
+
+  {% if not_supported %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded">
+      Player rankings are currently soccer-only. Switch to ⚽ Soccer in the nav.
+    </div>
+  {% elif not_found %}
+    <div class="bg-amber-50 border border-amber-200 text-amber-900 p-4 rounded">
+      Competition <code class="font-mono">{{ competition }}</code> not found. Pick another from the nav.
+    </div>
+  {% else %}
+    <!-- Filters -->
+    <form method="get" class="bg-white rounded-lg shadow-sm border border-slate-200 p-4 mb-6 flex flex-wrap items-end gap-3">
+      <div>
+        <label class="block text-[10px] uppercase text-slate-500 mb-0.5">Competition</label>
+        <select name="competition" class="text-sm px-2 py-1 border border-slate-300 rounded">
+          {% for c in comp_options %}
+            <option value="{{ c.code }}" {% if c.code == competition %}selected{% endif %}>{{ c.name }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-[10px] uppercase text-slate-500 mb-0.5">Season</label>
+        <select name="season" class="text-sm px-2 py-1 border border-slate-300 rounded font-mono">
+          {% for s in season_options %}
+            <option value="{{ s }}" {% if s == season %}selected{% endif %}>{{ s }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-[10px] uppercase text-slate-500 mb-0.5">Position</label>
+        <select name="position" class="text-sm px-2 py-1 border border-slate-300 rounded">
+          {% for p in position_options %}
+            <option value="{{ p }}" {% if p == position %}selected{% endif %}>{{ p }}</option>
+          {% endfor %}
+        </select>
+      </div>
+      <div>
+        <label class="block text-[10px] uppercase text-slate-500 mb-0.5">Min minutes</label>
+        <input name="min_minutes" type="number" min="0" value="{{ min_minutes }}"
+               class="w-24 text-sm px-2 py-1 border border-slate-300 rounded tabular-nums">
+      </div>
+      <button type="submit" class="px-3 py-1.5 bg-arsenal-red text-white rounded text-sm font-medium hover:bg-red-700">
+        Apply
+      </button>
+    </form>
+
+    <!-- Rankings table -->
+    <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+      <h2 class="px-5 py-3 border-b border-slate-200 font-semibold flex items-baseline justify-between">
+        <span>Top {{ rankings|length }} {% if position != 'All' %}{{ position|lower }}s{% else %}players{% endif %}</span>
+        {% if rankings %}<span class="text-xs font-normal text-slate-500">{{ competition }} · {{ season }}</span>{% endif %}
+      </h2>
+      {% if rankings %}
+        <table class="w-full text-sm">
+          <thead class="bg-slate-50 text-[11px] uppercase text-slate-500">
+            <tr>
+              <th class="px-3 py-2 text-right w-10">#</th>
+              <th class="px-3 py-2 text-left">Player</th>
+              <th class="px-3 py-2 text-left">Team</th>
+              <th class="px-2 py-2 text-left">Pos</th>
+              <th class="px-2 py-2 text-right">Apps</th>
+              <th class="px-2 py-2 text-right">Min</th>
+              <th class="px-3 py-2 text-right">Score</th>
+            </tr>
+          </thead>
+          <tbody class="divide-y divide-slate-100">
+            {% for r in rankings %}
+              <tr class="hover:bg-slate-50">
+                <td class="px-3 py-2 text-right text-slate-500 tabular-nums">{{ loop.index }}</td>
+                <td class="px-3 py-2 font-medium">{{ r.name }}</td>
+                <td class="px-3 py-2">
+                  <a href="/teams/{{ r.team_id }}" class="text-slate-600 hover:text-arsenal-red">{{ r.team_name }}</a>
+                </td>
+                <td class="px-2 py-2 text-xs text-slate-500">{{ r.position_bucket[:3].upper() }}</td>
+                <td class="px-2 py-2 text-right tabular-nums">{{ r.appearances }}</td>
+                <td class="px-2 py-2 text-right tabular-nums text-slate-500">{{ r.minutes }}</td>
+                <td class="px-3 py-2 text-right tabular-nums font-bold
+                            {% if r.score >= 70 %}text-green-700{% elif r.score >= 55 %}text-slate-900{% elif r.score >= 40 %}text-slate-500{% else %}text-slate-400{% endif %}">
+                  {{ '%.1f' | format(r.score) }}
+                </td>
+              </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      {% else %}
+        <p class="px-5 py-6 text-sm text-slate-500">
+          No player data yet for this competition/season.
+          Run <code class="bg-slate-100 px-1 rounded">python cli.py sync-players --competition {{ competition }} --season {{ season or '2025/26' }}</code>.
+        </p>
+      {% endif %}
+    </section>
+  {% endif %}
+{% endblock %}

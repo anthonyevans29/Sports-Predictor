@@ -1,0 +1,113 @@
+{% extends "base.html" %}
+{% block title %}Dashboard — Sports Predictor{% endblock %}
+
+{% block content %}
+  <section class="mb-8">
+    <h1 class="text-3xl font-bold mb-1">Dashboard</h1>
+    {% if focus_team %}
+      <p class="text-slate-600">Focus team: <a href="/teams/{{ focus_team.id }}" class="text-arsenal-red font-medium hover:underline">{{ focus_team.name }}</a></p>
+    {% else %}
+      <p class="text-amber-700 bg-amber-50 border border-amber-200 rounded p-3 text-sm">
+        Focus team "Arsenal" not in your DB yet. Run
+        <code class="bg-amber-100 px-1 rounded">python cli.py sync-teams --competition PL --season 2024/25</code>
+        to load Premier League teams.
+      </p>
+    {% endif %}
+  </section>
+
+  <!-- Top-line counts -->
+  <section class="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+    {% for label, key in [('Competitions','competitions'), ('Teams','teams'), ('Matches','matches'), ('Stat rows','stats_rows')] %}
+      <div class="bg-white rounded-lg shadow-sm border border-slate-200 p-4">
+        <div class="text-xs uppercase tracking-wide text-slate-500">{{ label }}</div>
+        <div class="text-2xl font-bold mt-1">{{ counts[key] }}</div>
+      </div>
+    {% endfor %}
+  </section>
+
+  {% if focus_team %}
+    <div class="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
+      <!-- Upcoming -->
+      <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+        <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Upcoming fixtures</h2>
+        {% if upcoming %}
+          <ul class="divide-y divide-slate-100">
+            {% for m in upcoming %}
+              <li class="px-5 py-3 flex items-center justify-between gap-4 hover:bg-slate-50">
+                <a href="/matches/{{ m.id }}" class="flex-1 grid grid-cols-3 items-center gap-4">
+                  <div class="text-xs text-slate-500">
+                    <div>{{ m.date | dt }}</div>
+                    <div class="font-medium text-arsenal-red">{{ m.competition }}</div>
+                  </div>
+                  <div class="text-sm text-right truncate">{{ m.home }}</div>
+                  <div class="text-sm text-left truncate text-slate-600">vs {{ m.away }}</div>
+                </a>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="px-5 py-6 text-sm text-slate-500">No upcoming fixtures in DB. Run a sync.</p>
+        {% endif %}
+      </section>
+
+      <!-- Recent -->
+      <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+        <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Recent results</h2>
+        {% if recent %}
+          <ul class="divide-y divide-slate-100">
+            {% for m in recent %}
+              <li class="px-5 py-3 hover:bg-slate-50 {{ m.result_class }}">
+                <a href="/matches/{{ m.id }}" class="block grid grid-cols-[100px_1fr_60px_1fr] items-center gap-3">
+                  <div class="text-xs text-slate-500">
+                    <div>{{ m.date | d }}</div>
+                    <div class="font-medium text-arsenal-red">{{ m.competition }}</div>
+                  </div>
+                  <div class="text-sm text-right truncate">{{ m.home }}</div>
+                  <div class="text-center font-bold tabular-nums">
+                    {{ m.home_score if m.home_score is not none else '-' }}
+                    <span class="text-slate-400">–</span>
+                    {{ m.away_score if m.away_score is not none else '-' }}
+                  </div>
+                  <div class="text-sm text-left truncate text-slate-600">{{ m.away }}</div>
+                </a>
+              </li>
+            {% endfor %}
+          </ul>
+        {% else %}
+          <p class="px-5 py-6 text-sm text-slate-500">No finished matches yet.</p>
+        {% endif %}
+      </section>
+    </div>
+  {% endif %}
+
+  <!-- Per-competition breakdown -->
+  <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+    <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">Matches per competition</h2>
+    {% if comp_rows %}
+      <table class="w-full text-sm">
+        <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+          <tr>
+            <th class="text-left px-5 py-2">Code</th>
+            <th class="text-left px-5 py-2">Name</th>
+            <th class="text-right px-5 py-2">Matches</th>
+          </tr>
+        </thead>
+        <tbody class="divide-y divide-slate-100">
+          {% for code, name, count in comp_rows %}
+            <tr>
+              <td class="px-5 py-2 font-mono text-xs">
+                <a href="/competitions/{{ code }}" class="text-arsenal-red hover:underline">{{ code }}</a>
+              </td>
+              <td class="px-5 py-2">{{ name }}</td>
+              <td class="px-5 py-2 text-right tabular-nums">{{ count }}</td>
+            </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    {% else %}
+      <p class="px-5 py-6 text-sm text-slate-500">No competitions in DB. Run
+        <code class="bg-slate-100 px-1 rounded">python cli.py sync-competitions</code>.
+      </p>
+    {% endif %}
+  </section>
+{% endblock %}

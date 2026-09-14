@@ -1,0 +1,40 @@
+{% extends "base.html" %}
+{% block title %}Competitions — Sports Predictor{% endblock %}
+
+{% block content %}
+  <h1 class="text-3xl font-bold mb-6">Competitions</h1>
+
+  <div class="bg-white rounded-lg shadow-sm border border-slate-200 overflow-hidden">
+    <table class="w-full text-sm">
+      <thead class="bg-slate-50 text-xs uppercase text-slate-500">
+        <tr>
+          <th class="text-left px-5 py-2">Code</th>
+          <th class="text-left px-5 py-2">Name</th>
+          <th class="text-left px-5 py-2">Area</th>
+          <th class="text-left px-5 py-2">Type</th>
+          <th class="text-right px-5 py-2">Matches</th>
+        </tr>
+      </thead>
+      <tbody class="divide-y divide-slate-100">
+        {% for c, n in rows %}
+          <tr class="hover:bg-slate-50">
+            <td class="px-5 py-2 font-mono text-xs">
+              <a href="/competitions/{{ c.code }}" class="text-arsenal-red font-medium hover:underline">{{ c.code }}</a>
+            </td>
+            <td class="px-5 py-2">{{ c.name }}</td>
+            <td class="px-5 py-2 text-slate-600">{{ c.area }}</td>
+            <td class="px-5 py-2 text-slate-500 text-xs uppercase">{{ c.type }}</td>
+            <td class="px-5 py-2 text-right tabular-nums">{{ n }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+    {% if not rows %}
+      <p class="px-5 py-6 text-sm text-slate-500">
+        No competitions in DB. Run
+        <code class="bg-slate-100 px-1 rounded">python cli.py sync-competitions</code>
+        from the project root.
+      </p>
+    {% endif %}
+  </div>
+{% endblock %}

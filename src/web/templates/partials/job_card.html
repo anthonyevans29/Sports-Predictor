@@ -1,0 +1,49 @@
+{# Job card. Auto-polls every 2s while running; stops polling on completion. #}
+<div
+  class="
+    rounded border
+    {% if job.status == 'running' %}border-blue-300 bg-blue-50{% endif %}
+    {% if job.status == 'pending' %}border-slate-300 bg-slate-50{% endif %}
+    {% if job.status == 'success' %}border-green-300 bg-green-50{% endif %}
+    {% if job.status == 'failed' %}border-red-300 bg-red-50{% endif %}
+  "
+  {% if job.status in ('running', 'pending') %}
+    hx-get="/admin/jobs/{{ job.id }}"
+    hx-trigger="every 2s"
+    hx-swap="outerHTML"
+  {% endif %}
+>
+  <div class="px-4 py-2 border-b border-slate-200/60 flex items-center justify-between gap-2">
+    <div class="min-w-0">
+      <div class="text-sm font-medium truncate">{{ job.name }}</div>
+      <div class="text-xs text-slate-500 truncate">{{ job.description }}</div>
+    </div>
+    <span class="
+      px-2 py-0.5 rounded text-[10px] uppercase font-bold whitespace-nowrap
+      {% if job.status == 'running' %}bg-blue-200 text-blue-900{% endif %}
+      {% if job.status == 'pending' %}bg-slate-200 text-slate-700{% endif %}
+      {% if job.status == 'success' %}bg-green-200 text-green-900{% endif %}
+      {% if job.status == 'failed' %}bg-red-200 text-red-900{% endif %}
+    ">
+      {{ job.status }}{% if job.elapsed_seconds %} · {{ job.elapsed_seconds|round(1) }}s{% endif %}
+    </span>
+  </div>
+
+  {% if job.log_lines %}
+    <div class="px-4 py-2 max-h-48 overflow-y-auto text-xs font-mono text-slate-700 space-y-0.5">
+      {% for line in job.log_lines %}
+        <div class="whitespace-pre-wrap">{{ line }}</div>
+      {% endfor %}
+    </div>
+  {% endif %}
+
+  {% if job.status == 'success' and job.result %}
+    <div class="px-4 py-2 text-xs text-green-800 border-t border-green-200">
+      ✓ {{ job.result }}
+    </div>
+  {% elif job.status == 'failed' %}
+    <div class="px-4 py-2 text-xs text-red-800 border-t border-red-200">
+      ✗ {{ job.error }}
+    </div>
+  {% endif %}
+</div>

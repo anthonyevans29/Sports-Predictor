@@ -1,0 +1,1607 @@
+{
+  "exported_at": "2026-05-24T15:17:00.086229Z",
+  "sport": "mlb",
+  "start_date": "2026-05-24T00:00:00",
+  "end_date": "2026-05-25T00:00:00",
+  "competition_code": null,
+  "count": 16,
+  "predictions": [
+    {
+      "match_id": 4635,
+      "utc_date": "2026-05-24T16:15:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Rogers Centre",
+      "home_team": "Toronto Blue Jays",
+      "away_team": "Pittsburgh Pirates",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404975",
+        "probabilities": {
+          "home_win": 0.5189,
+          "draw": null,
+          "away_win": 0.4811
+        },
+        "top_pick": "home_win",
+        "top_pick_prob": 0.5189,
+        "expected_home": 4.257,
+        "expected_away": 4.09,
+        "over_under_line": 8.5,
+        "over_prob": 0.435,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.16,
+          "home_ra_pg": 4.22,
+          "away_rs_pg": 4.79,
+          "away_ra_pg": 4.48,
+          "home_pitcher": "Dylan Cease",
+          "away_pitcher": "Mitch Keller",
+          "home_pitcher_era": 3.4,
+          "away_pitcher_era": 3.98,
+          "league_era": 4.2,
+          "most_likely_score": [
+            3,
+            3
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.65,
+            "best_bookmaker": "Superbet",
+            "fair_prob": 0.6,
+            "model_prob": 0.5189,
+            "edge_pp": -8.11
+          },
+          "AWAY": {
+            "best_price": 2.48,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.4,
+            "model_prob": 0.4811,
+            "edge_pp": 8.11
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.5
+      },
+      "home_form": {
+        "last_5": "WWWWL",
+        "wins": 4,
+        "draws": 0,
+        "losses": 1,
+        "goals_scored": 19,
+        "goals_conceded": 10
+      },
+      "away_form": {
+        "last_5": "LLWWL",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 23,
+        "goals_conceded": 22
+      },
+      "pitchers": {
+        "home": {
+          "name": "Dylan Cease",
+          "kind": "confirmed",
+          "era": 2.98,
+          "whip": 1.22,
+          "k_per_9": 13.19,
+          "innings_pitched": 57.33,
+          "games_started": 10
+        },
+        "away": {
+          "name": "Mitch Keller",
+          "kind": "confirmed",
+          "era": 3.86,
+          "whip": 1.06,
+          "k_per_9": 6.33,
+          "innings_pitched": 58.33,
+          "games_started": 10
+        }
+      }
+    },
+    {
+      "match_id": 4636,
+      "utc_date": "2026-05-24T16:35:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Oriole Park at Camden Yards",
+      "home_team": "Baltimore Orioles",
+      "away_team": "Detroit Tigers",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404979",
+        "probabilities": {
+          "home_win": 0.4871,
+          "draw": null,
+          "away_win": 0.5129
+        },
+        "top_pick": "away_win",
+        "top_pick_prob": 0.5129,
+        "expected_home": 4.625,
+        "expected_away": 4.776,
+        "over_under_line": 8.5,
+        "over_prob": 0.5302,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.39,
+          "home_ra_pg": 5.39,
+          "away_rs_pg": 3.95,
+          "away_ra_pg": 4.37,
+          "home_pitcher": "Brandon Young",
+          "away_pitcher": "Framber Valdez",
+          "home_pitcher_era": 4.22,
+          "away_pitcher_era": 4.45,
+          "league_era": 4.2,
+          "most_likely_score": [
+            3,
+            3
+          ]
+        }
+      },
+      "outcome": null,
+      "market": null,
+      "home_form": {
+        "last_5": "WLLLW",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 24,
+        "goals_conceded": 32
+      },
+      "away_form": {
+        "last_5": "LLLLL",
+        "wins": 0,
+        "draws": 0,
+        "losses": 5,
+        "goals_scored": 12,
+        "goals_conceded": 25
+      },
+      "pitchers": {
+        "home": {
+          "name": "Brandon Young",
+          "kind": "confirmed",
+          "era": 4.25,
+          "whip": 1.48,
+          "k_per_9": 6.67,
+          "innings_pitched": 29.67,
+          "games_started": 6
+        },
+        "away": {
+          "name": "Framber Valdez",
+          "kind": "confirmed",
+          "era": 4.58,
+          "whip": 1.4,
+          "k_per_9": 7.36,
+          "innings_pitched": 55.0,
+          "games_started": 10
+        }
+      }
+    },
+    {
+      "match_id": 4637,
+      "utc_date": "2026-05-24T17:35:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Fenway Park",
+      "home_team": "Boston Red Sox",
+      "away_team": "Minnesota Twins",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404980",
+        "probabilities": {
+          "home_win": 0.5118,
+          "draw": null,
+          "away_win": 0.4882
+        },
+        "top_pick": "home_win",
+        "top_pick_prob": 0.5118,
+        "expected_home": 3.946,
+        "expected_away": 3.855,
+        "over_under_line": 8.5,
+        "over_prob": 0.382,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 3.84,
+          "home_ra_pg": 4.08,
+          "away_rs_pg": 4.63,
+          "away_ra_pg": 4.58,
+          "home_pitcher": "Sonny Gray",
+          "away_pitcher": "Bailey Ober",
+          "home_pitcher_era": 3.47,
+          "away_pitcher_era": 3.83,
+          "league_era": 4.2,
+          "most_likely_score": [
+            2,
+            2
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.68,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.5871,
+            "model_prob": 0.5118,
+            "edge_pp": -7.53
+          },
+          "AWAY": {
+            "best_price": 2.39,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.4129,
+            "model_prob": 0.4882,
+            "edge_pp": 7.53
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.63
+      },
+      "home_form": {
+        "last_5": "LLWWW",
+        "wins": 3,
+        "draws": 0,
+        "losses": 2,
+        "goals_scored": 22,
+        "goals_conceded": 17
+      },
+      "away_form": {
+        "last_5": "WWWLW",
+        "wins": 4,
+        "draws": 0,
+        "losses": 1,
+        "goals_scored": 23,
+        "goals_conceded": 14
+      },
+      "pitchers": {
+        "home": {
+          "name": "Sonny Gray",
+          "kind": "confirmed",
+          "era": 2.93,
+          "whip": 1.13,
+          "k_per_9": 6.75,
+          "innings_pitched": 40.0,
+          "games_started": 8
+        },
+        "away": {
+          "name": "Bailey Ober",
+          "kind": "confirmed",
+          "era": 3.63,
+          "whip": 1.07,
+          "k_per_9": 6.32,
+          "innings_pitched": 57.0,
+          "games_started": 10
+        }
+      }
+    },
+    {
+      "match_id": 4638,
+      "utc_date": "2026-05-24T17:35:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Citizens Bank Park",
+      "home_team": "Philadelphia Phillies",
+      "away_team": "Cleveland Guardians",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404980",
+        "probabilities": {
+          "home_win": 0.3504,
+          "draw": null,
+          "away_win": 0.6496
+        },
+        "top_pick": "away_win",
+        "top_pick_prob": 0.6496,
+        "expected_home": 3.365,
+        "expected_away": 4.819,
+        "over_under_line": 8.5,
+        "over_prob": 0.4183,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.17,
+          "home_ra_pg": 4.51,
+          "away_rs_pg": 4.31,
+          "away_ra_pg": 3.97,
+          "home_pitcher": "Andrew Painter",
+          "away_pitcher": "Parker Messick",
+          "home_pitcher_era": 5.13,
+          "away_pitcher_era": 3.04,
+          "league_era": 4.2,
+          "most_likely_score": [
+            2,
+            3
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 2.1,
+            "best_bookmaker": "Bet365",
+            "fair_prob": 0.4682,
+            "model_prob": 0.3504,
+            "edge_pp": -11.78
+          },
+          "AWAY": {
+            "best_price": 1.86,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.5318,
+            "model_prob": 0.6496,
+            "edge_pp": 11.78
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.73
+      },
+      "home_form": {
+        "last_5": "WLLLW",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 13,
+        "goals_conceded": 18
+      },
+      "away_form": {
+        "last_5": "LWWWW",
+        "wins": 4,
+        "draws": 0,
+        "losses": 1,
+        "goals_scored": 11,
+        "goals_conceded": 9
+      },
+      "pitchers": {
+        "home": {
+          "name": "Andrew Painter",
+          "kind": "confirmed",
+          "era": 5.77,
+          "whip": 1.49,
+          "k_per_9": 7.63,
+          "innings_pitched": 43.67,
+          "games_started": 8
+        },
+        "away": {
+          "name": "Parker Messick",
+          "kind": "confirmed",
+          "era": 2.45,
+          "whip": 1.02,
+          "k_per_9": 9.82,
+          "innings_pitched": 58.67,
+          "games_started": 10
+        }
+      }
+    },
+    {
+      "match_id": 4639,
+      "utc_date": "2026-05-24T17:35:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Yankee Stadium",
+      "home_team": "New York Yankees",
+      "away_team": "Tampa Bay Rays",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404981",
+        "probabilities": {
+          "home_win": 0.5465,
+          "draw": null,
+          "away_win": 0.4535
+        },
+        "top_pick": "home_win",
+        "top_pick_prob": 0.5465,
+        "expected_home": 4.209,
+        "expected_away": 3.793,
+        "over_under_line": 8.5,
+        "over_prob": 0.4016,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.79,
+          "home_ra_pg": 3.74,
+          "away_rs_pg": 4.76,
+          "away_ra_pg": 4.05,
+          "home_pitcher": "Ryan Weathers",
+          "away_pitcher": "Drew Rasmussen",
+          "home_pitcher_era": 3.81,
+          "away_pitcher_era": 3.58,
+          "league_era": 4.2,
+          "most_likely_score": [
+            3,
+            2
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.78,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.5486,
+            "model_prob": 0.5465,
+            "edge_pp": -0.21
+          },
+          "AWAY": {
+            "best_price": 2.2,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.4514,
+            "model_prob": 0.4535,
+            "edge_pp": 0.21
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.69
+      },
+      "home_form": {
+        "last_5": "LLLWW",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 15,
+        "goals_conceded": 18
+      },
+      "away_form": {
+        "last_5": "WWWWW",
+        "wins": 5,
+        "draws": 0,
+        "losses": 0,
+        "goals_scored": 35,
+        "goals_conceded": 15
+      },
+      "pitchers": {
+        "home": {
+          "name": "Ryan Weathers",
+          "kind": "confirmed",
+          "era": 3.58,
+          "whip": 1.13,
+          "k_per_9": 10.91,
+          "innings_pitched": 50.33,
+          "games_started": 9
+        },
+        "away": {
+          "name": "Drew Rasmussen",
+          "kind": "confirmed",
+          "era": 3.19,
+          "whip": 1.0,
+          "k_per_9": 8.44,
+          "innings_pitched": 48.0,
+          "games_started": 9
+        }
+      }
+    },
+    {
+      "match_id": 4640,
+      "utc_date": "2026-05-24T17:40:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Great American Ball Park",
+      "home_team": "Cincinnati Reds",
+      "away_team": "St. Louis Cardinals",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404981",
+        "probabilities": {
+          "home_win": 0.4221,
+          "draw": null,
+          "away_win": 0.5779
+        },
+        "top_pick": "away_win",
+        "top_pick_prob": 0.5779,
+        "expected_home": 4.872,
+        "expected_away": 5.82,
+        "over_under_line": 8.5,
+        "over_prob": 0.6286,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.42,
+          "home_ra_pg": 4.97,
+          "away_rs_pg": 4.56,
+          "away_ra_pg": 4.54,
+          "home_pitcher": "Brady Singer",
+          "away_pitcher": "Matthew Liberatore",
+          "home_pitcher_era": 5.45,
+          "away_pitcher_era": 4.52,
+          "league_era": 4.2,
+          "most_likely_score": [
+            3,
+            4
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.89,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.5213,
+            "model_prob": 0.4221,
+            "edge_pp": -9.92
+          },
+          "AWAY": {
+            "best_price": 2.05,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.4787,
+            "model_prob": 0.5779,
+            "edge_pp": 9.92
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.73
+      },
+      "home_form": {
+        "last_5": "WLWWL",
+        "wins": 3,
+        "draws": 0,
+        "losses": 2,
+        "goals_scored": 25,
+        "goals_conceded": 24
+      },
+      "away_form": {
+        "last_5": "LWLLW",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 25,
+        "goals_conceded": 27
+      },
+      "pitchers": {
+        "home": {
+          "name": "Brady Singer",
+          "kind": "confirmed",
+          "era": 6.26,
+          "whip": 1.7,
+          "k_per_9": 6.65,
+          "innings_pitched": 46.0,
+          "games_started": 10
+        },
+        "away": {
+          "name": "Matthew Liberatore",
+          "kind": "confirmed",
+          "era": 4.7,
+          "whip": 1.55,
+          "k_per_9": 7.49,
+          "innings_pitched": 51.67,
+          "games_started": 10
+        }
+      }
+    },
+    {
+      "match_id": 4641,
+      "utc_date": "2026-05-24T17:40:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "loanDepot park",
+      "home_team": "Miami Marlins",
+      "away_team": "New York Mets",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404981",
+        "probabilities": {
+          "home_win": 0.6057,
+          "draw": null,
+          "away_win": 0.3943
+        },
+        "top_pick": "home_win",
+        "top_pick_prob": 0.6057,
+        "expected_home": 4.366,
+        "expected_away": 3.416,
+        "over_under_line": 8.5,
+        "over_prob": 0.3797,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.32,
+          "home_ra_pg": 4.56,
+          "away_rs_pg": 3.95,
+          "away_ra_pg": 4.33,
+          "home_pitcher": "Tyler Phillips",
+          "away_pitcher": "Christian Scott",
+          "home_pitcher_era": 2.7,
+          "away_pitcher_era": 4.17,
+          "league_era": 4.2,
+          "most_likely_score": [
+            3,
+            2
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 2.02,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.4813,
+            "model_prob": 0.6057,
+            "edge_pp": 12.43
+          },
+          "AWAY": {
+            "best_price": 1.91,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.5187,
+            "model_prob": 0.3943,
+            "edge_pp": -12.43
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.74
+      },
+      "home_form": {
+        "last_5": "WWLLL",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 14,
+        "goals_conceded": 28
+      },
+      "away_form": {
+        "last_5": "LLWLL",
+        "wins": 1,
+        "draws": 0,
+        "losses": 4,
+        "goals_scored": 14,
+        "goals_conceded": 24
+      },
+      "pitchers": {
+        "home": {
+          "name": "Tyler Phillips",
+          "kind": "confirmed",
+          "era": 1.2,
+          "whip": 1.27,
+          "k_per_9": 8.1,
+          "innings_pitched": 30.0,
+          "games_started": 0
+        },
+        "away": {
+          "name": "Christian Scott",
+          "kind": "confirmed",
+          "era": 4.12,
+          "whip": 1.47,
+          "k_per_9": 11.44,
+          "innings_pitched": 19.67,
+          "games_started": 5
+        }
+      }
+    },
+    {
+      "match_id": 4642,
+      "utc_date": "2026-05-24T18:10:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Kauffman Stadium",
+      "home_team": "Kansas City Royals",
+      "away_team": "Seattle Mariners",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404982",
+        "probabilities": {
+          "home_win": 0.4722,
+          "draw": null,
+          "away_win": 0.5278
+        },
+        "top_pick": "away_win",
+        "top_pick_prob": 0.5278,
+        "expected_home": 3.528,
+        "expected_away": 3.782,
+        "over_under_line": 8.5,
+        "over_prob": 0.3328,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.0,
+          "home_ra_pg": 4.33,
+          "away_rs_pg": 4.08,
+          "away_ra_pg": 3.95,
+          "home_pitcher": "Seth Lugo",
+          "away_pitcher": "Bryan Woo",
+          "home_pitcher_era": 3.86,
+          "away_pitcher_era": 3.74,
+          "league_era": 4.2,
+          "most_likely_score": [
+            2,
+            2
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 2.19,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.4474,
+            "model_prob": 0.4722,
+            "edge_pp": 2.48
+          },
+          "AWAY": {
+            "best_price": 1.78,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.5526,
+            "model_prob": 0.5278,
+            "edge_pp": -2.48
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.78
+      },
+      "home_form": {
+        "last_5": "WLLLL",
+        "wins": 1,
+        "draws": 0,
+        "losses": 4,
+        "goals_scored": 10,
+        "goals_conceded": 16
+      },
+      "away_form": {
+        "last_5": "LWWLW",
+        "wins": 3,
+        "draws": 0,
+        "losses": 2,
+        "goals_scored": 14,
+        "goals_conceded": 12
+      },
+      "pitchers": {
+        "home": {
+          "name": "Seth Lugo",
+          "kind": "confirmed",
+          "era": 3.68,
+          "whip": 1.4,
+          "k_per_9": 7.82,
+          "innings_pitched": 58.67,
+          "games_started": 10
+        },
+        "away": {
+          "name": "Bryan Woo",
+          "kind": "confirmed",
+          "era": 3.51,
+          "whip": 0.98,
+          "k_per_9": 8.39,
+          "innings_pitched": 59.0,
+          "games_started": 10
+        }
+      }
+    },
+    {
+      "match_id": 4643,
+      "utc_date": "2026-05-24T18:10:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "American Family Field",
+      "home_team": "Milwaukee Brewers",
+      "away_team": "Los Angeles Dodgers",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404982",
+        "probabilities": {
+          "home_win": 0.3901,
+          "draw": null,
+          "away_win": 0.6099
+        },
+        "top_pick": "away_win",
+        "top_pick_prob": 0.6099,
+        "expected_home": 3.65,
+        "expected_away": 4.734,
+        "over_under_line": 8.5,
+        "over_prob": 0.4379,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.87,
+          "home_ra_pg": 3.78,
+          "away_rs_pg": 5.06,
+          "away_ra_pg": 3.42,
+          "home_pitcher": "Brandon Sproat",
+          "away_pitcher": "Yoshinobu Yamamoto",
+          "home_pitcher_era": 5.09,
+          "away_pitcher_era": 3.62,
+          "league_era": 4.2,
+          "most_likely_score": [
+            2,
+            3
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 2.55,
+            "best_bookmaker": "Bet365",
+            "fair_prob": 0.3908,
+            "model_prob": 0.3901,
+            "edge_pp": -0.07
+          },
+          "AWAY": {
+            "best_price": 1.62,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.6092,
+            "model_prob": 0.6099,
+            "edge_pp": 0.07
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.85
+      },
+      "home_form": {
+        "last_5": "LWWWW",
+        "wins": 4,
+        "draws": 0,
+        "losses": 1,
+        "goals_scored": 27,
+        "goals_conceded": 17
+      },
+      "away_form": {
+        "last_5": "WLWWL",
+        "wins": 3,
+        "draws": 0,
+        "losses": 2,
+        "goals_scored": 21,
+        "goals_conceded": 13
+      },
+      "pitchers": {
+        "home": {
+          "name": "Brandon Sproat",
+          "kind": "confirmed",
+          "era": 5.75,
+          "whip": 1.5,
+          "k_per_9": 9.07,
+          "innings_pitched": 40.67,
+          "games_started": 7
+        },
+        "away": {
+          "name": "Yoshinobu Yamamoto",
+          "kind": "confirmed",
+          "era": 3.32,
+          "whip": 0.96,
+          "k_per_9": 8.84,
+          "innings_pitched": 57.0,
+          "games_started": 9
+        }
+      }
+    },
+    {
+      "match_id": 4644,
+      "utc_date": "2026-05-24T18:20:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Wrigley Field",
+      "home_team": "Chicago Cubs",
+      "away_team": "Houston Astros",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404982",
+        "probabilities": {
+          "home_win": 0.6272,
+          "draw": null,
+          "away_win": 0.3728
+        },
+        "top_pick": "home_win",
+        "top_pick_prob": 0.6272,
+        "expected_home": 5.38,
+        "expected_away": 4.019,
+        "over_under_line": 8.5,
+        "over_prob": 0.5284,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.73,
+          "home_ra_pg": 4.38,
+          "away_rs_pg": 4.39,
+          "away_ra_pg": 5.09,
+          "home_pitcher": "Shota Imanaga",
+          "away_pitcher": "Peter Lambert",
+          "home_pitcher_era": 3.66,
+          "away_pitcher_era": 3.86,
+          "league_era": 4.2,
+          "most_likely_score": [
+            4,
+            3
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.63,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.6079,
+            "model_prob": 0.6272,
+            "edge_pp": 1.93
+          },
+          "AWAY": {
+            "best_price": 2.51,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.3921,
+            "model_prob": 0.3728,
+            "edge_pp": -1.93
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.96
+      },
+      "home_form": {
+        "last_5": "LLLLL",
+        "wins": 0,
+        "draws": 0,
+        "losses": 5,
+        "goals_scored": 7,
+        "goals_conceded": 26
+      },
+      "away_form": {
+        "last_5": "WWLWL",
+        "wins": 3,
+        "draws": 0,
+        "losses": 2,
+        "goals_scored": 13,
+        "goals_conceded": 13
+      },
+      "pitchers": {
+        "home": {
+          "name": "Shota Imanaga",
+          "kind": "confirmed",
+          "era": 3.38,
+          "whip": 1.04,
+          "k_per_9": 9.36,
+          "innings_pitched": 58.67,
+          "games_started": 10
+        },
+        "away": {
+          "name": "Peter Lambert",
+          "kind": "confirmed",
+          "era": 3.57,
+          "whip": 1.08,
+          "k_per_9": 8.92,
+          "innings_pitched": 35.33,
+          "games_started": 6
+        }
+      }
+    },
+    {
+      "match_id": 4645,
+      "utc_date": "2026-05-24T20:05:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Oracle Park",
+      "home_team": "San Francisco Giants",
+      "away_team": "Chicago White Sox",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404983",
+        "probabilities": {
+          "home_win": 0.4747,
+          "draw": null,
+          "away_win": 0.5253
+        },
+        "top_pick": "away_win",
+        "top_pick_prob": 0.5253,
+        "expected_home": 4.371,
+        "expected_away": 4.645,
+        "over_under_line": 8.5,
+        "over_prob": 0.4967,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 3.76,
+          "home_ra_pg": 4.57,
+          "away_rs_pg": 4.52,
+          "away_ra_pg": 4.73,
+          "home_pitcher": "Robbie Ray",
+          "away_pitcher": "Noah Schultz",
+          "home_pitcher_era": 4.25,
+          "away_pitcher_era": 4.59,
+          "league_era": 4.2,
+          "most_likely_score": [
+            3,
+            3
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.92,
+            "best_bookmaker": "Superbet",
+            "fair_prob": 0.5128,
+            "model_prob": 0.4747,
+            "edge_pp": -3.81
+          },
+          "AWAY": {
+            "best_price": 2.05,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.4872,
+            "model_prob": 0.5253,
+            "edge_pp": 3.81
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.75
+      },
+      "home_form": {
+        "last_5": "WLLLL",
+        "wins": 1,
+        "draws": 0,
+        "losses": 4,
+        "goals_scored": 22,
+        "goals_conceded": 35
+      },
+      "away_form": {
+        "last_5": "LWLWL",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 19,
+        "goals_conceded": 26
+      },
+      "pitchers": {
+        "home": {
+          "name": "Robbie Ray",
+          "kind": "projected",
+          "era": 4.28,
+          "whip": 1.32,
+          "k_per_9": 8.23,
+          "innings_pitched": 54.67,
+          "games_started": 10
+        },
+        "away": {
+          "name": "Noah Schultz",
+          "kind": "projected",
+          "era": 4.93,
+          "whip": 1.3,
+          "k_per_9": 8.31,
+          "innings_pitched": 34.67,
+          "games_started": 7
+        }
+      }
+    },
+    {
+      "match_id": 4646,
+      "utc_date": "2026-05-24T20:10:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Chase Field",
+      "home_team": "Arizona Diamondbacks",
+      "away_team": "Colorado Rockies",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404983",
+        "probabilities": {
+          "home_win": 0.5552,
+          "draw": null,
+          "away_win": 0.4448
+        },
+        "top_pick": "home_win",
+        "top_pick_prob": 0.5552,
+        "expected_home": 5.135,
+        "expected_away": 4.545,
+        "over_under_line": 8.5,
+        "over_prob": 0.5531,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.51,
+          "home_ra_pg": 4.52,
+          "away_rs_pg": 4.18,
+          "away_ra_pg": 4.92,
+          "home_pitcher": "Ryne Nelson",
+          "away_pitcher": "Jose Quintana",
+          "home_pitcher_era": 4.83,
+          "away_pitcher_era": 4.13,
+          "league_era": 4.2,
+          "most_likely_score": [
+            3,
+            3
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.56,
+            "best_bookmaker": "Superbet",
+            "fair_prob": 0.6343,
+            "model_prob": 0.5552,
+            "edge_pp": -7.91
+          },
+          "AWAY": {
+            "best_price": 2.8,
+            "best_bookmaker": "Unibet",
+            "fair_prob": 0.3657,
+            "model_prob": 0.4448,
+            "edge_pp": 7.91
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.77
+      },
+      "home_form": {
+        "last_5": "WLWWW",
+        "wins": 4,
+        "draws": 0,
+        "losses": 1,
+        "goals_scored": 20,
+        "goals_conceded": 14
+      },
+      "away_form": {
+        "last_5": "LWLLL",
+        "wins": 1,
+        "draws": 0,
+        "losses": 4,
+        "goals_scored": 12,
+        "goals_conceded": 24
+      },
+      "pitchers": {
+        "home": {
+          "name": "Ryne Nelson",
+          "kind": "projected",
+          "era": 5.19,
+          "whip": 1.19,
+          "k_per_9": 7.96,
+          "innings_pitched": 52.0,
+          "games_started": 10
+        },
+        "away": {
+          "name": "Jose Quintana",
+          "kind": "projected",
+          "era": 4.08,
+          "whip": 1.41,
+          "k_per_9": 4.54,
+          "innings_pitched": 39.67,
+          "games_started": 8
+        }
+      }
+    },
+    {
+      "match_id": 4647,
+      "utc_date": "2026-05-24T20:10:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Petco Park",
+      "home_team": "San Diego Padres",
+      "away_team": "Athletics",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404983",
+        "probabilities": {
+          "home_win": 0.5853,
+          "draw": null,
+          "away_win": 0.4147
+        },
+        "top_pick": "home_win",
+        "top_pick_prob": 0.5853,
+        "expected_home": 4.077,
+        "expected_away": 3.347,
+        "over_under_line": 8.5,
+        "over_prob": 0.3441,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.16,
+          "home_ra_pg": 4.02,
+          "away_rs_pg": 4.39,
+          "away_ra_pg": 4.55,
+          "home_pitcher": "Michael King",
+          "away_pitcher": "Luis Medina",
+          "home_pitcher_era": 2.95,
+          "away_pitcher_era": 3.51,
+          "league_era": 4.2,
+          "most_likely_score": [
+            3,
+            2
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.61,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.6068,
+            "model_prob": 0.5853,
+            "edge_pp": -2.15
+          },
+          "AWAY": {
+            "best_price": 2.54,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.3932,
+            "model_prob": 0.4147,
+            "edge_pp": 2.15
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.93
+      },
+      "home_form": {
+        "last_5": "WWLLW",
+        "wins": 3,
+        "draws": 0,
+        "losses": 2,
+        "goals_scored": 14,
+        "goals_conceded": 12
+      },
+      "away_form": {
+        "last_5": "LLWWW",
+        "wins": 3,
+        "draws": 0,
+        "losses": 2,
+        "goals_scored": 26,
+        "goals_conceded": 22
+      },
+      "pitchers": {
+        "home": {
+          "name": "Michael King",
+          "kind": "projected",
+          "era": 2.31,
+          "whip": 1.06,
+          "k_per_9": 9.1,
+          "innings_pitched": 58.33,
+          "games_started": 10
+        },
+        "away": {
+          "name": "Luis Medina",
+          "kind": "projected",
+          "era": 2.41,
+          "whip": 1.18,
+          "k_per_9": 8.68,
+          "innings_pitched": 18.67,
+          "games_started": 0
+        }
+      }
+    },
+    {
+      "match_id": 4648,
+      "utc_date": "2026-05-24T20:10:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Truist Park",
+      "home_team": "Atlanta Braves",
+      "away_team": "Washington Nationals",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404983",
+        "probabilities": {
+          "home_win": 0.7265,
+          "draw": null,
+          "away_win": 0.2735
+        },
+        "top_pick": "home_win",
+        "top_pick_prob": 0.7265,
+        "expected_home": 6.495,
+        "expected_away": 3.767,
+        "over_under_line": 8.5,
+        "over_prob": 0.5904,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 5.17,
+          "home_ra_pg": 3.54,
+          "away_rs_pg": 5.25,
+          "away_ra_pg": 5.49,
+          "home_pitcher": "Mart\u00edn P\u00e9rez",
+          "away_pitcher": "Foster Griffin",
+          "home_pitcher_era": 3.42,
+          "away_pitcher_era": 4.08,
+          "league_era": 4.2,
+          "most_likely_score": [
+            4,
+            2
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.64,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.597,
+            "model_prob": 0.7265,
+            "edge_pp": 12.95
+          },
+          "AWAY": {
+            "best_price": 2.46,
+            "best_bookmaker": "Pinnacle",
+            "fair_prob": 0.403,
+            "model_prob": 0.2735,
+            "edge_pp": -12.95
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.81
+      },
+      "home_form": {
+        "last_5": "LWWWW",
+        "wins": 4,
+        "draws": 0,
+        "losses": 1,
+        "goals_scored": 31,
+        "goals_conceded": 14
+      },
+      "away_form": {
+        "last_5": "WLLWW",
+        "wins": 3,
+        "draws": 0,
+        "losses": 2,
+        "goals_scored": 24,
+        "goals_conceded": 17
+      },
+      "pitchers": {
+        "home": {
+          "name": "Mart\u00edn P\u00e9rez",
+          "kind": "projected",
+          "era": 2.85,
+          "whip": 1.0,
+          "k_per_9": 8.34,
+          "innings_pitched": 41.0,
+          "games_started": 6
+        },
+        "away": {
+          "name": "Foster Griffin",
+          "kind": "projected",
+          "era": 4.02,
+          "whip": 1.18,
+          "k_per_9": 8.68,
+          "innings_pitched": 56.0,
+          "games_started": 10
+        }
+      }
+    },
+    {
+      "match_id": 4623,
+      "utc_date": "2026-05-24T22:05:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Oriole Park at Camden Yards",
+      "home_team": "Baltimore Orioles",
+      "away_team": "Detroit Tigers",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404984",
+        "probabilities": {
+          "home_win": 0.416,
+          "draw": null,
+          "away_win": 0.584
+        },
+        "top_pick": "away_win",
+        "top_pick_prob": 0.584,
+        "expected_home": 4.625,
+        "expected_away": 5.607,
+        "over_under_line": 8.5,
+        "over_prob": 0.5955,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.39,
+          "home_ra_pg": 5.39,
+          "away_rs_pg": 3.95,
+          "away_ra_pg": 4.37,
+          "home_pitcher": "Trevor Rogers",
+          "away_pitcher": "Framber Valdez",
+          "home_pitcher_era": 5.69,
+          "away_pitcher_era": 4.45,
+          "league_era": 4.2,
+          "most_likely_score": [
+            3,
+            4
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.9,
+            "best_bookmaker": "Betfair",
+            "fair_prob": 0.5184,
+            "model_prob": 0.416,
+            "edge_pp": -10.25
+          },
+          "AWAY": {
+            "best_price": 2.07,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.4816,
+            "model_prob": 0.584,
+            "edge_pp": 10.25
+          }
+        },
+        "bookmaker_count": 13,
+        "overround_pct": 4.7
+      },
+      "home_form": {
+        "last_5": "WLLLW",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 24,
+        "goals_conceded": 32
+      },
+      "away_form": {
+        "last_5": "LLLLL",
+        "wins": 0,
+        "draws": 0,
+        "losses": 5,
+        "goals_scored": 12,
+        "goals_conceded": 25
+      },
+      "pitchers": {
+        "home": {
+          "name": "Trevor Rogers",
+          "kind": "projected",
+          "era": 6.87,
+          "whip": 1.66,
+          "k_per_9": 7.82,
+          "innings_pitched": 38.0,
+          "games_started": 8
+        },
+        "away": {
+          "name": "Framber Valdez",
+          "kind": "projected",
+          "era": 4.58,
+          "whip": 1.4,
+          "k_per_9": 7.36,
+          "innings_pitched": 55.0,
+          "games_started": 10
+        }
+      }
+    },
+    {
+      "match_id": 4649,
+      "utc_date": "2026-05-24T23:20:00",
+      "status": "scheduled",
+      "competition": "MLB",
+      "season": "2026",
+      "venue": "Angel Stadium",
+      "home_team": "Los Angeles Angels",
+      "away_team": "Texas Rangers",
+      "actual_home_score": null,
+      "actual_away_score": null,
+      "prediction": {
+        "model_version": "v2",
+        "computed_at": "2026-05-24T14:59:21.404984",
+        "probabilities": {
+          "home_win": 0.4078,
+          "draw": null,
+          "away_win": 0.5922
+        },
+        "top_pick": "away_win",
+        "top_pick_prob": 0.5922,
+        "expected_home": 3.96,
+        "expected_away": 4.913,
+        "over_under_line": 8.5,
+        "over_prob": 0.4832,
+        "to_advance_home_prob": null,
+        "to_advance_away_prob": null,
+        "factor_breakdown": {
+          "home_rs_pg": 4.13,
+          "home_ra_pg": 5.13,
+          "away_rs_pg": 4.02,
+          "away_ra_pg": 3.9,
+          "home_pitcher": "Reid Detmers",
+          "away_pitcher": "MacKenzie Gore",
+          "home_pitcher_era": 4.76,
+          "away_pitcher_era": 4.56,
+          "league_era": 4.2,
+          "most_likely_score": [
+            2,
+            3
+          ]
+        }
+      },
+      "outcome": null,
+      "market": {
+        "selections": {
+          "HOME": {
+            "best_price": 1.88,
+            "best_bookmaker": "1xbet",
+            "fair_prob": 0.5291,
+            "model_prob": 0.4078,
+            "edge_pp": -12.13
+          },
+          "AWAY": {
+            "best_price": 2.07,
+            "best_bookmaker": "Unibet",
+            "fair_prob": 0.4709,
+            "model_prob": 0.5922,
+            "edge_pp": 12.13
+          }
+        },
+        "bookmaker_count": 12,
+        "overround_pct": 4.85
+      },
+      "home_form": {
+        "last_5": "WWLLL",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 27,
+        "goals_conceded": 31
+      },
+      "away_form": {
+        "last_5": "LLWWL",
+        "wins": 2,
+        "draws": 0,
+        "losses": 3,
+        "goals_scored": 29,
+        "goals_conceded": 25
+      },
+      "pitchers": {
+        "home": {
+          "name": "Reid Detmers",
+          "kind": "projected",
+          "era": 5.07,
+          "whip": 1.29,
+          "k_per_9": 9.98,
+          "innings_pitched": 55.0,
+          "games_started": 10
+        },
+        "away": {
+          "name": "MacKenzie Gore",
+          "kind": "projected",
+          "era": 4.78,
+          "whip": 1.33,
+          "k_per_9": 10.1,
+          "innings_pitched": 49.0,
+          "games_started": 10
+        }
+      }
+    }
+  ]
+}

@@ -1,0 +1,2855 @@
+# Backlog
+
+Living document — items deferred from earlier sessions plus future ideas with
+the reasoning for the deferral. Update when items ship or new ideas land.
+
+## Active themes
+
+### Data foundation (current focus)
+Building out player, team, and environmental data coverage so future modeling
+work has rich features to draw from. Examples in progress or queued below.
+
+### Daily ops + iteration
+Predict → evaluate → improve → export, with incremental fixes as exports surface
+issues. Park factors and reliever-as-starter fix shipped recently in this mode.
+
+---
+
+## Feature backlog
+
+Roughly ordered by expected value vs effort. Items marked **[DEFERRED]** have a
+specific reason they're not being built now.
+
+### MLB / baseball
+
+- **[ACTIVE MEASUREMENT — started 2026-06-24, REVIEW ~2026-07-08] Closing-line-
+  value: does the model actually beat the market?** This is THE question for
+  the income thesis. The model is well-calibrated but has NO demonstrated edge
+  over the market — the blend exists precisely because its disagreements were
+  anti-predictive. Calibration ≠ profitability; a perfectly calibrated model
+  still loses to vig with no edge over the close. CLV is the test that
+  distinguishes "good thermometer" from "edge."
+  RUNNING NOW: `capture-odds` fires 4×/day (8/12/4/8 local via launchd,
+  scripts/setup_clv_capture.sh) writing de-vigged consensus snapshots to the
+  OddsSnapshot table. Started banking data 2026-06-24 ~20:20Z.
+  TO DO at review (~2 weeks out, when multi-capture data has accrued):
+    1. `python cli.py clv-report --sport mlb --since 2026-06-24`
+    2. Read the TOWARD/AWAY tally on the model's picks, focusing on the
+       DISAGREEMENT games (where model ≠ market) — that subset is the whole
+       question, and it's a fraction of each slate, so it needs the full ~2 wks.
+    3. Sanity-check logs/capture_odds.log in the first day or two to confirm
+       the 4 launchd jobs are actually firing (machine-awake dependency).
+  DECISION GATE — be honest about all three outcomes:
+    • TOWARD reliably > away → model is early to real info → there IS an edge,
+      and the disagreement slice is the product worth building a pipeline/slate
+      around. THEN (and only then) revisit slate consolidation + bet logging.
+    • roughly even / AWAY → model is a calibrated thermometer that tracks the
+      market → NOT an income engine → do NOT build slate/parlay tooling on a
+      non-edge. Honest verdict, worth knowing.
+  HARD CONSTRAINT carried forward: parlays are HIGHER variance / LOWER
+  repeatability than the singles they're built from — never build frictionless
+  parlay tooling without showing the combined EV + variance cost in the same
+  view. Singles are where the calibration edge (if any) lives.
+  KNOWN DATA GAP (low priority): Mets/Cubs doubleheaders show as "unmatched 2"
+  every sync — the matcher can't disambiguate same-day same-teams games. Costs
+  2 games of odds/snapshots per affected day. Pre-existing matcher quirk,
+  unrelated to CLV; fix only if doubleheader CLV data is ever needed.
+  RELATED PARKED ITEM (future project, needs sample): find the signal that
+  distinguishes the model's GOOD disagreements (real market errors) from bad
+  ones — if CLV shows edge, THIS is how you isolate the profitable slice.
+  **UPDATE 2026-08-14:** the July 8 verdict (disagreements anti-predictive,
+  −0.71pp) picked up its first COUNTER-observations: 8/13 DET (+6.5pp CLV, won)
+  and MIA (+5.8pp CLV, lost 1-13) — the two largest model-vs-both-markets
+  disagreements of the week, and the market moved TOWARD the model on both.
+  One day, not a verdict reversal — but the parked "classify good vs bad
+  disagreements" project now has a concrete new feature source: the exported
+  kalshi.vs_book_pp column (book-vs-Kalshi split per side). Hypothesis worth
+  testing at sample: model disagreements where BOTH independent markets sit
+  together (small vs_book_pp) may behave differently from ones where the
+  sources also split. Also tracking slate-wide CLV daily as the drift metric
+  (Aug 11-13: −1.16 / −1.12 / +1.64pp).
+
+- **[ARCHITECTURE, HIGH PRIORITY — surfaced 2026-06-06] Config-freeze +
+  log-loss-only promotion gate blocks calibration fixes.**
+  **[2026-06-07 — addressed via Approach B]** Made config editing a
+  first-class operation, separate from retrain/promote. New CLI: `set-config
+  --field F --value V` edits the production model's frozen BaseballConfig in
+  place (whitelisted fields with sane ranges so a typo can't poison the live
+  model; audited in params.manual_config_edits; reversible). `set-home-boost`
+  is now a thin wrapper. `show-config` displays the live config + edit
+  history. Rationale: a config edit is a RECALIBRATION of the existing model,
+  not a new model, so forcing it through the retrain→log-loss gate was a
+  category error. The retrain gate is left UNTOUCHED (still correct for its
+  real job: deciding whether a retrained candidate replaces production).
+  Validation of a config edit happens AFTER (run a week → calibration-deep),
+  not via a pre-promotion holdout score.
+  STILL OPEN (deliberately not done — would be over-engineering for a
+  single-user local app now): (a) making the retrain gate itself
+  calibration-aware (Approach A) — note it also needs pitching wired into the
+  holdout replay, which is currently neutral-pitching; (b) fully separating
+  live-config from the frozen training snapshot as schema (Approach C) — the
+  someday-architecture if this becomes multi-model or hosted-at-scale. The
+  discovery of WHICH config to change stays a human-in-the-loop step (read
+  calibration-deep, decide, apply) — appropriate pre-hosting.
+
+- **[RESOLVED 2026-06-29 — REJECTED, do not build] Taper bullpen recent-form
+  weight on extreme swings.** See the 2026-06-29 shipped entry: the
+  overrated-favorite defect was the PRE-run-shrink model; post-shrink big-swing
+  games are +2.4pp (if anything under-confident). A taper would push calibrated
+  games under water. Kept here (struck) so the idea isn't re-proposed from the
+  stale framing below. ORIGINAL ITEM (historical): The model fix for the overconfidence finding now surfaced by the
+  bullpen-swing flag (see Shipped 2026-06-05). Currently 12.4 blends recent
+  (10-day) bullpen ERA at a flat 30%. Problem: when recent diverges hugely
+  from season (>=1.5-2+ ERA), that 10-day window is mostly small-sample noise
+  that mean-reverts, but 30% weight is enough to swing predictions into
+  overconfidence (big-swing games: -19.6pp calibration gap; -13.3pp
+  post-12.5). FIX: make the recent-form weight TAPER as the swing grows —
+  keep most weight for a ~1-run swing, heavily discount a 3-run swing. e.g.
+  effective_recent_weight = 0.30 * clamp(1 - (swing - 1.0)/K, floor, 1.0).
+  Build behind a BaseballConfig toggle with a documented revert path (mirror
+  the 12.5 pattern: pitcher_anchor_mode / pitcher_damping). VALIDATE against
+  calibration before/after — do NOT ship on the current thin sample (n=13
+  post-12.5). Decision gate: the June 7 calibration check + a few more
+  big-swing games. If the taper improves big-swing calibration without
+  hurting the well-calibrated no-swing bucket (-0.8pp now), keep it.
+
+- **[INVESTIGATE] Probable-pitcher freshness vs FlashScore (observed 2026-06-01)**
+  User saw all starters confirmed on FlashScore while our pipeline still
+  flagged some as projected/unknown when the pre-game chain ran. We pull
+  probables from MLB Stats API (`/schedule?hydrate=probablePitcher`), which
+  can LAG faster aggregators by 1-2h. Two distinct causes look identical in
+  output (`starter_known: false`):
+    (a) MLB-feed lag — starter confirmed elsewhere but MLB's field hasn't
+        flipped yet. Fix = timing (run chain later / per-match refresh), or
+        consider a secondary probables source for cross-check.
+    (b) Name present but no usable ERA (rookie/recall) → correct cap, working
+        as designed, NOT a freshness bug.
+  DIAGNOSTIC before any change: when a game is flagged unconfirmed but
+  FlashScore shows a starter, re-run `sync-pitchers` later — if it flips to
+  confirmed, it's (a) lag; if not, it's (b) or a parse gap. Characterize the
+  pattern over several days before touching the sync — do NOT re-architect on
+  a single observation. If (a) proves common, options: (1) later default
+  pre-game timing, (2) add a fallback probables source, (3) widen the
+  hydrate/parse. Low-effort first step is just timing guidance.
+  **UPDATE 2026-06-02:** clean case observed — Mets 9:40pm game, starter
+  genuinely unnamed everywhere (incl. FlashScore); our data correctly had
+  away_pitcher=None, starter_known=False, tier capped to lean. Cap working
+  as designed — NOT our lag, the info doesn't exist yet. BUT found a real
+  LOGGING bug: sync_pitchers logged that match "confirmed (2 pitchers)"
+  while only ONE pitcher resolved (Mets side null). The "confirmed
+  (N pitchers)" log line over-reports — should say "partial (1 pitcher)" or
+  "projected" when a side is null, and the count should reflect
+  actually-resolved starters. Harmless to predictions (cap caught it) but
+  the log misleads, which erodes trust in the pipeline. Easy fix.
+  **UPDATE 2026-08-13:** root cause of the systematic West-Coast "projected"
+  labels found and fixed — sync_pitchers bucketed by UTC date while MLB's
+  schedule API speaks local business date, AND "confirmed" was a <=4h
+  countdown. Both now run on business date (UTC-8h); day-of probables =
+  confirmed. STILL OPEN (small): the "confirmed (N pitchers)" log line still
+  over-reports when a side is null (should say "partial (1 pitcher)"), and the
+  per-date log label still prints UTC date (cosmetic).
+
+- **[QUEUED 2026-08-14] Kalshi team-name aliases + unmatched-title reporting.**
+  TB@Athletics is the one persistently unmatched game — suspected cause: the
+  A's play out of Sacramento and Kalshi likely titles the market "Sacramento",
+  which shares zero tokens with our "Athletics" (strict-gate false negative,
+  working as designed but fixable). Fix: small known-alias map
+  (sacramento/oakland → athletics) in the matcher, and — per the
+  reported-not-silent philosophy — print the titles of unmatched
+  CURRENT-WINDOW markets so coverage gaps name themselves. ~1 hour.
+
+- **[QUEUED 2026-08-14] kalshi-disagreement run on clean data (~2026-08-19).**
+  The Step-1 verdict command exists (built 8/10) but has never run on
+  trustworthy data — pre-matcher-fix rows were purged 8/12. After ~a week of
+  clean two-sided captures, run `kalshi-disagreement` for the
+  redundant-vs-independent verdict. Early manual reads: book-Kalshi corr 0.979
+  with mean |gap| ~1.1pp (mostly redundant) BUT splits up to 2.2pp exist and
+  the first graded split (TEX@LAA 8/12) resolved to Kalshi's side. Step 2
+  (who's closer when they disagree) needs these grades accumulating.
+  **STEP-1 VERDICT 2026-08-17 (n=214 paired sides, clean post-matcher data):**
+  Kalshi is largely REDUNDANT as a second opinion — mean |diff| 1.00pp,
+  signed +0.18pp (no lean), 6% of sides >=3pp, 3% >=5pp. Per the
+  pre-committed rule: STOP — no Step-2 grading loop built. TWO CAVEATS kept
+  on the record: (1) this table measures OVERLAP quality only — Kalshi's
+  demonstrated value this week was COVERAGE (priced 3 Monday games the book
+  feed never did, priced DH legs early, and unpaired games don't appear in
+  this read at all) plus two single-game cases of being closer to close
+  (TEX@LAA split, DH G1 books collapsing toward Kalshi's number); coverage
+  value stands regardless of redundancy. (2) vs_book_pp keeps accumulating
+  passively in exports at zero cost — revisit only if the >=3pp share grows
+  or a lean appears. IMPLICATION FOR S3/S4: soccer Kalshi build proceeds on
+  the coverage argument (single book provider there), but the 3-way
+  disagreement columns ship as plain instrumentation — no prominence, no
+  grading machinery.
+
+- **MW4 FALSE ALARM 2026-09-12 — full reversal, on the record.** Claude
+  called HOLD on the MW4 export (edges +27/+31/+21pp, inversion-shaped)
+  and advanced two theories; BOTH FALSIFIED by probes within the hour:
+  (1) compressed-Elo leak — model_versions probe shows v18 production
+  intact (1368-1691), v19/v20 properly rejected; (2) data mutation — the
+  "28 finished" is two POSTPONED fixtures, all played games healthy.
+  Standing explanation: v18 behaving AS DESIGNED — heavy current-season
+  weighting on 28 games (Hull UNBEATEN, Chelsea/Spurs cold starts) plus
+  post-break injury pile-up on big clubs = the thermometer's anti-
+  predictive-shape edge at maximum amplitude. FILE SHIPPED with caution
+  note at full strength; quarantine reversed — Monday grades normally and
+  MW4 becomes the pick-edge ledger's most informative matchweek: maximum
+  model conviction vs maximum market disagreement, graded in 72h.
+  LESSON LOGGED: verify before withholding — a 40-minute hold on
+  legitimate output; the probes, not the alarm, made the decision.
+
+- **FIRST LIVE CONSUMPTION OF MARKET-ONLY FORMAT 2026-09-11:** GPT layer
+  traded the cup rosters off market context + own football reads (self-
+  audit: A- football logic, C entry-price discipline — their layer, their
+  jurisdiction). Boundary HELD: no predictions existed to consume; the
+  layered design's "winner logic vs betting logic" separation was
+  independently rediscovered in their own audit. Their 19/24 consensus
+  read matches our review exactly (two graders, one answer key). BANKED:
+  this week = the consumer's UNASSISTED cup baseline — post-acceptance,
+  model value-add over market-context-alone becomes directly measurable.
+
+- **CUP WEEK REVIEW 2026-09-11 — acceptance answer key COMPLETE.** 24
+  graded fixtures with stored pre-game books (14 each): EFL R3 favorites
+  6/6 (pure chalk, incl. cross-division); CL MD1 favorites 13/18, ALL
+  extreme mismatches held (80-90% band 3/3: Barcelona/United/Bayern;
+  90%+ 1/1), misses confined to sub-60% coin-flips, 2 draws. CHALK WEEK =
+  BOOKS WERE RIGHT = the +/-8pp acceptance bar has no soft spots; no
+  upset noise to excuse a miss. Rosters shipped to GPT layer as the cup
+  ledger. The fixed cup model's exam is now fully written and waiting.
+
+- **NFL DAY-2 INTERNAL READ 2026-09-10:** QB feature live end-to-end
+  (Caldwell/Rams named IN the one priced game). Frozen tiers didn't soften
+  the slate — 11/16 still strong at 0.68: the DISTRIBUTION is hot, not the
+  labels; rows >0.80 are unvalidated extrapolation (backtest bands stop at
+  80). Weekend book postings will price the overheat row-by-row; a
+  probability cap above the validated range becomes a rehearsal question
+  IF the gaps confirm. Market ledger day 2: +4.6pp (SF@LAR). Provider
+  publishes per-gameday (opener left window; Friday game freshly priced;
+  14 await). NEXT NFL BUILD (Claude, before Week-2 rehearsal): evaluate
+  path for NFL — sides + CLV vs banked closers — so rehearsal weeks grade
+  automatically instead of by hand.
+
+- **NFL TIER THRESHOLDS FROZEN 2026-09-10 (pre-Week-1 results, per the
+  shakedown finding):** strong >=0.68, lean >=0.57, else toss-up. Frozen
+  BEFORE any live NFL outcome exists so results cannot tune the vocabulary;
+  the shakedown's 11/16-strong slate re-tiers to a meaningful spread. Any
+  future change goes through a pre-committed read, same as everything.
+
+- **NFL SHAKEDOWN FINDINGS 2026-09-09 (Week-1 internal file, nothing
+  shipped):** machinery works end to end. THREE FINDINGS: (1) tier
+  distribution too hot — 11/16 strong under MLB-inherited thresholds;
+  NFL-specific tiers to be PRE-COMMITTED before the Week-2 rehearsal
+  (proposal: strong >=0.68, lean >=0.57); backtest's own 70-80% band
+  leaned over-confident (74.1 stated / 69.8 realized) and nothing >80%
+  was sample-validated; Week 1 is Elo's stalest week (offseason roster
+  turnover invisible). (2) RESOLVED same evening: the injuries
+  endpoint carries NO position field at all (player = id/name/image —
+  raw probe). Fix: list_injuries now fetches the team roster alongside
+  and joins position by provider player id (best-effort, one extra
+  request/team); re-run sync-injuries to heal all rows, verify with the
+  GROUP BY. Free extra finding: empty-team responses are clean, so
+  synced_at:null conflates healthy-roster with never-synced — per-team
+  sync stamp regardless of rows = rehearsal-review refinement. (3) Market ledger opens: model hotter than books on both
+  priced games (+10.8pp SEA, +4.6pp LAR) — matches the over-confidence
+  shading; comparison accrues as Week-1 books post.
+
+- **NFL PREDICTION PATH BUILT 2026-09-09 (same day as the gate pass).**
+  predict-nfl: full-stream ratings (preseason excluded) -> upcoming-game
+  probs -> MATCH-ONLY upsert (S13 semantics from birth). export-nfl-
+  predictions: rehearsal-format file — model probs + tier, market fair
+  probs, QB status front-and-center in input_quality (qb_listed names per
+  side + injury counts + sync stamp), rehearsal:true flag + note until the
+  Week-2 rehearsal passes. SHAKEDOWN PLAN: generate against Week 1
+  internally (we inspect, nothing ships); Week 2 = formal rehearsal + GPT
+  dry read; live Week 3 earliest.
+
+- **NFL GATE VERDICT 2026-09-09 (same day): PASS — decisively.** Model
+  0.6361 vs baseline 0.6911 (margin 0.055 = 5.5x required); all four
+  n>=30 bands calibrated <=7pp (worst 6.6pp in 40-50% — stated 45.5%
+  realized 38.9%, road-favorite shading, WATCH at rehearsal, not defect).
+  HONEST FRAME: baseline was weak by construction (no historical odds) —
+  this establishes signal, NOT market-beating; the market comparison
+  accrues from Week-1's banked closers onward. EARNED: Week-2 dress
+  rehearsal. NEXT BUILD (Claude): NFL prediction path — predictions-table
+  writes, export format with QB-status input_quality, tier semantics —
+  so the rehearsal generates real files. Live Week 3 earliest, after
+  rehearsal + GPT dry read. Gate numbers were frozen pre-model and held.
+
+- **NFL PHASE 2 GATE — WRITTEN 2026-09-09 BEFORE ANY MODEL CODE EXISTS.**
+  Protocol: walk-forward over finished NFL games in utc_date order,
+  PRESEASON EXCLUDED from training and scoring (rotation noise — the EFL
+  Trophy principle). Warm-up: season 2024 (ratings accrue, nothing
+  scored). Scored window: season 2025 regular+post (~285 games).
+  Baseline (honest limitation: NO historical odds exist in the backfill —
+  provider serves pre-match windows only — so no market baseline is
+  possible): constant home-probability fitted on the WARM-UP season's
+  realized home win rate only. PASS REQUIRES BOTH:
+  (1) model mean log-loss <= baseline mean log-loss MINUS 0.010;
+  (2) calibration: in every 10pp band with n>=30, |realized - stated
+  mean| <= 7pp.
+  FAIL on either -> model does not ship, iterate or park; Week-2
+  rehearsal only after a pass; live only after rehearsal + GPT dry read.
+  These numbers are frozen now — the backtest may not be re-read
+  against friendlier criteria.
+
+- **NFL PHASE 1c CLOSED 2026-09-09 — Week 1 tracking LIVE pre-kickoff.**
+  Kalshi debut: matched 4 / ambiguous 0 (two early-listed games, both
+  sides; 60 future-week legs date-refused) — the parameterized matcher
+  served NFL unmodified. Injuries: 296 rows (QB-status pipeline live,
+  ~9/team; 117 skips to characterize casually later). Books: NEW
+  sync-odds-nfl command (built same morning — the Week-1 CLV-anchor gap
+  found and closed pre-kickoff) captured 548 rows across the two
+  posted games (~274/game: full NFL depth incl. spread/total lines);
+  14 games await provider publication through the week. Cups results
+  banked same console. WEEK-1 STANCE RESTATED: tracking only — no NFL
+  model exists yet (phase 2 queued behind compression work by design);
+  the opener's story is data end to end, and the model earns its slot
+  against exactly this data. Weekly rhythm: sync-odds-nfl + sync-kalshi-nfl
+  every day or two through the week as lines post.
+
+- **U2. EXPORT CONTEXT FIELDS: prev/next fixture awareness [user request
+  2026-09-08; export-only, zero model risk].** Per team per row: previous
+  result + date + COMPETITION, next fixture + date + competition + venue;
+  rest-days for each side AND the differential; congestion (matches in
+  last 14d). Phase 2: last-5 form string. Consumer-side behavioral signals
+  (post-cup letdown, congestion asymmetry, rotation pressure); NOT model
+  inputs — if GPT-layer use proves predictive they enter the S-track
+  normally. Pure DB reads; U1-class safety; buildable any day.
+
+- **DIAGNOSIS UPDATE 2026-09-08 (verdict count): transitions = 8 — suspect
+  NOT convicted.** Old stream carried ~4-6 at the same boundaries and
+  produced spread 323; similar counts cannot explain 4.4x collapse alone.
+  Per-team regression fix remains right-in-principle (wrong semantics on
+  an interleaved stream) but is no longer claimed as the cure. NEXT:
+  decisive instrumented double-train (old pot vs new pot, per-team rating
+  trajectory dump) — script next session, five-minute run user-side,
+  locates the collapse point empirically. Round-3 books (16 ties) + CL
+  MD1 odds (18 legs) banked for the acceptance test.
+
+- **COMPRESSION DIAGNOSIS 2026-09-08: MECHANISM FOUND (pending one count).**
+  train() applies season regression on EVERY season-string TRANSITION in
+  the single chronologically-interleaved multi-competition stream (global
+  last_season toggle). Misaligned competition calendars (summer European
+  qualifying labeled next-season vs playoff/final stragglers, cups leading
+  leagues) toggle the string repeatedly; each toggle pulls ALL teams 25%
+  to 1500. Five toggles = spread x0.23 = 323->74 observed. Only
+  state-shrinking operation in the file; deterministic; matches v19/v20.
+  VERDICT SQL issued (count transitions in the real stream). FIX (correct
+  regardless of count, prepped for review): per-TEAM season regression —
+  a club regresses when ITS new season starts, immune to stream
+  interleaving. Then: bonus-application read -> gated retrain (spread
+  guard) -> acceptance vs round-2 + round-3 stored books -> CL-matchday
+  dress rehearsal THIS WEEK if all passes. Round 3 itself: data-only,
+  ruling held under calendar pressure.
+
+- **EFL TROPHY: CONSCIOUSLY EXCLUDED (user question 2026-09-08).** Not
+  registered (API league 46 — one line if ever wanted) and should stay out:
+  U21 academy sides -> skip walls or junk team rows; heavy rotation makes
+  results low-signal about true strength; and the trainer consumes ALL
+  soccer matches, so Trophy results would contaminate pyramid club ratings
+  — the exact ratings the cup project is fixing. Re-entry condition: a
+  training-exclusion flag (competition-level exclude_from_training) built
+  FIRST, then registration. CL same day: teams+matches+odds synced
+  (data-only per ruling; odds deliberately captured as acceptance-test
+  evidence for cross-league pricing).
+
+- **FA CUP PLAN (user question 2026-09-07, qualifying rounds underway):
+  DO NOT sync qualifying — near-pure cost** (non-league both-sides ->
+  skip walls; sync-teams would balloon the table with hundreds of clubs;
+  signal value ~nil since league play is the strength source and NL isn't
+  in the league table). API keeps history -> waiting is free; deep-running
+  non-league sides get targeted retro-backfill when relevant. TRIGGERS:
+  (1) Round 1, November — EFL clubs enter, sync then; (2) MANDATORY before
+  Round 3, January — PL entry, prediction-relevant, gated behind the cup
+  acceptance test like EFL/CL. Phase-4 note: add a National League tier
+  below EL2 (-360) to league_strength as part of explicit-unknown-league
+  handling.
+
+- **MW3 CLOSED 2026-09-07: sides 3/10 (season 17/30) — worst matchweek;
+  BOTH giant edges (Forest +15.4, Hull +14.6) missed BY DRAW, both with
+  POSITIVE CLV (+15.2/+14.2: market moved toward the model, reality drew
+  anyway). Forward positive-edge cohort: 4/8 — the MW2 counter-trend
+  regressed on schedule; the haircut discipline's clearest vindication.
+  n=30 read unchanged. Draw-miss pattern noted for the ledger.
+
+- **SPREAD GUARD FIRST LIVE FIRING 2026-09-07: v20 REJECTED with the
+  designed message** ("candidate 74 vs production 323 over 27 common teams
+  (23%) — fit collapsed toward the mean"). v19: 63. COMPRESSION IS
+  DETERMINISTIC — same collapse, same data, twice. Gate design validated;
+  production v18; break-window diagnosis begins from a confirmed
+  reproducible target. Refresh stays parked until the fit-dynamics read
+  lands.
+
+- **M17 (observation only): first total provider odds outage, 2026-09-06.**
+  Entire 15-game Sunday slate bookless — bulk pull healthy (10,906 rows /
+  76 games on OTHER days), per-game fallback probed all 15 with clean "no
+  odds yet", DB shows ZERO rows ever captured for today's games (no wipe;
+  never listed). Provider-side publication gap, fully characterized in one
+  console by the sentinel stack. System response correct throughout:
+  honest book_odds=0, Kalshi two_sided 15/15 (Step-1 redundancy verdict's
+  biggest day — full slate on the backup source), consumer notified.
+  Expectation: null-CLV day tomorrow unless closers publish late; M11b
+  heals whenever they land. NO ACTION — filed as the reference case for
+  what a provider outage looks like vs a code fault.
+
+- **U1. UNIFIED DAILY CARD ACROSS SPORTS [user request 2026-09-06; UI-only,
+  zero model risk, buildable any day incl. matchdays].** The MLB card
+  (src/walters/card.py build_card + /card route + CLI parity — fact
+  assembler with honest flags) extends to soccer and NFL. Scoping (read):
+  sport coupling is ONE query line, but fields are baseball-shaped — the
+  real work is per-sport field vocabulary through shared bones:
+  soccer = draw prob, injury/xG notes, promoted_this_season, Kalshi
+  three-way, cohort flags; NFL = schedule/odds/injury rows pre-model
+  (tracking-first phase gets a card too), model fields when one earns a
+  slot. PHASES: (a) build_card(sport=...) + soccer card parity;
+  (b) THE UNIFIED "TODAY" PAGE — every game, every sport, tier/flags/
+  market-disagreement at a glance, per-game drill-down: mission control
+  for the actual daily workflow (three sports, N files); (c) NFL column.
+  Priority: high-value, never displaces gated items (phase 4, NFL model);
+  natural interleave work for break windows and matchday-freeze days.
+  Old deferred "match-view UI" item folds into this.
+
+- **NFL 1c FIELD VERIFICATION 2026-09-06 — all four probes reported:**
+  (1) ODDS MAP VERIFIED PERFECT: provider serves Home/Away, Asian Handicap,
+  Over/Under verbatim (3Way Result deliberately unmapped — NFL moneylines
+  are two-sided here). (2) KXNFLGAME CONFIRMED: 64 live markets; matched 0
+  = the EPL listing pattern (sample market Sept 21 — future weeks only,
+  outside now+7d; Week-1 markets expected to list near Thursday; Tue/Wed
+  re-run confirms). (3) BUG FIXED: /injuries rejects the season param
+  entirely (current-status feed, team-only) — param dropped, signature
+  kept for the service contract. (4) BUG FIXED: new cli command printed
+  "None markets" (wrong summary key). Also: the 16 status-less games
+  healed via the seasons re-run (updated=334x2). Remaining before Week 1:
+  Tue/Wed sync-kalshi-nfl + sync-injuries re-run = phase 1c closes.
+  CL SCOPE RULING (same day, user flagged CL starts Tuesday): Champions
+  League prediction sits behind the SAME phase-4 gate as EFL Cup — no
+  continental leagues synced means opponents resolve to league None ->
+  the -100 default bug class; data syncs run, NO CL rows ship until the
+  cup acceptance test (now extended: cross-division AND cross-league legs
+  must price sanely). Phase 4 now unlocks THREE competitions (EFL, CL,
+  FA Cup early rounds incl. pyramid clubs) — priority raised accordingly.
+
+- **NFL PHASE 1c SHIPPED 2026-09-06 (Sunday quiet slot):** (1) Kalshi sync
+  PARAMETERIZED, not copied — sync_kalshi_mlb gains sport + series_override;
+  the two-sided matcher (city collisions, ticker parse, in-play guard,
+  doubleheader handling) serves NFL unchanged; new cli sync-kalshi-nfl
+  passes Sport.NFL + "KXNFLGAME", and an empty result self-reports Kalshi's
+  available sports (the console IS the series-discovery probe).
+  (2) NFL list_injuries on the adapter (provider /injuries is a
+  current-status feed; service contract mirrored; the 14-day freshness
+  filter applies unchanged) — QB status now flows to the same Injury table
+  as soccer's team news. (3) Odds-map verification probe issued for the
+  moment Week-1 lines post. First-run verifications: sync-kalshi-nfl
+  console (series guess + matcher stats) and sync-injuries --competition
+  NFL console (provider response shape vs assumed keys) — both are
+  probe-shaped by design; either failing loudly is the plan working.
+
+- **NFL PHASE 1b COMPLETE 2026-09-05 (same day as 1a).** 989 games banked
+  across 3 seasons (701 FINISHED incl. quarter-parsed totals; 288 scheduled
+  = the 2026 season). 32 teams. Two same-day fixes en route: season-string
+  format collision (--seasons generated soccer-shaped "2026/27" for NFL;
+  generator now sport-aware AND adapter tolerates both — third format
+  lesson, structural fix) and a FALSE ALARM on statuses that was Claude's
+  receipt SQL querying enum VALUE ('finished') where SQLite stores the NAME
+  ('FINISHED') — a RECURRING trap now named (hedged correctly in the
+  rollover-fallback query weeks ago, forgotten in the receipt; hedge it
+  everywhere or don't write raw-SQL receipts). The conservative status map
+  worked as designed throughout. Residue RESOLVED same day: the 16
+  rows have NO status block upstream (short=None, full totals present) —
+  adapter now infers FINISHED when status is absent AND both totals exist
+  (score-presence beats status-absence; never overrides an explicit short).
+  Heals on the next --seasons 3 re-run. Aggregate skip line worked cross-sport
+  unmodified (7+1+1 skips, HOF-game-shaped). PHASE 1c NEXT (Claude, early
+  week): Kalshi KXNFLGAME sync, injuries/QB-status wiring, odds-map
+  verification probe on a Week-1 game once lines post.
+
+- **NFL PROJECT OPENED 2026-09-05 — phase 1a SHIPPED (user go-ahead; season
+  starts next week).** Foundation pre-existed (Sport.NFL in schema; player
+  table designed for QBs; Kalshi discovery multi-sport). Shipped today:
+  APIAmericanFootballAdapter (full DataAdapter: teams/games/odds vs
+  v1.american-football.api-sports.io, NFL league id 1, single-year seasons,
+  conservative status map — unknowns stay SCHEDULED); NormalizedOdds gains
+  optional `line` (spreads/totals; sign preserved — the -3.5/+3.5 bug was
+  caught by unit test before shipping); registry + cli routing (NFL code ->
+  nfl adapter). Unit suite passes (moneyline/totals/spreads normalization,
+  draw leg refused).
+  PLAN, pre-committed: Phase 1b (user, weekend): sync-competitions ->
+  sync-teams -> sync-matches --seasons 3 (~850 games) + one odds probe on
+  an upcoming game to verify the provider's actual bet names against
+  _MARKET_MAP. Phase 1c (Claude, early next week): Kalshi NFL sync
+  (KXNFLGAME discovery, thin variant of the MLB path) + injuries wiring
+  (QB status = the pitcher-confirmation of NFL, core input_quality from
+  day one). Phase 2: model (Elo+margin v1) built on backfill, BACKTESTED
+  with a gate WRITTEN BEFORE THE BACKTEST RUNS. Phase 3: Week-1 dress
+  rehearsal (predictions generated, verified, GPT dry read, NOT consumed);
+  live only after a pass — never rushed for kickoff. Tracking (market
+  captures, CLV anchors, injury snapshots) starts Week 1 REGARDLESS —
+  export-the-gap applies to a whole sport. Queue order for the break:
+  compression diagnosis -> NFL 1b/1c -> pyramid retrain+acceptance ->
+  NFL backtest.
+
+- **MW3 KALSHI GAP 09-04: not a bug — no MW3 listings exist.** The zero-
+  match Friday sync was the matcher being RIGHT: probe showed all 63 open
+  KXEPLGAME markets are Sept 13+ fixtures (MUN-MCI, LEE-NEW, BRE-CFC);
+  Kalshi simply has not listed this weekend's games (post-break listing
+  gap or marquee-early pattern). Books+API-Football agree MW3 is live this
+  weekend (full odds created). Books-only matchweek unless listings open;
+  Saturday refresh is the monitor — if matched jumps, they listed late.
+  No code change; "data-shape delta" hypothesis WRONG, logged as such.
+  Probe note: Claude's first probe accidentally took the MLB path
+  (hasattr short-circuit) — the soccer console's own sample line would
+  have answered faster; ask for it first next time.
+
+- **M-LEDGER 09-02 (graded 09-03): sides 4/15 — worst day of tracking,
+  absorbed cleanly.** v124 rejected on the 409-game holdout (15th straight;
+  the morning after the worst day is the gate's proof). Machinery all
+  green: aggregate skip line firing, backfill healed 1, zero nulls. GPT
+  14th audit: HOLD under maximum temptation. M16 BAND: 5/6 overs -> forward
+  10/13 vs historical 40% — BUT second consecutive elevated-scoring night
+  (5 blowups, means +3.04/+1.53): the streak rides the environment.
+  COVARIATE NOTE ADDED TO THE M16 READ (pre-committed now): at n=200,
+  condition band hit rate on league run environment so a scoring surge
+  cannot masquerade as calibration. Verdict unchanged, tally recorded.
+
+- **M13 v3 candidate [low priority, quiet-slot]:** v2's prefix heuristic
+  resolves name-prefix codes (HOU/MIL/TEX — Saturday's live pass) but not
+  INITIALISM codes (NYY/LAA scored zero on 09-01's collision -> correct
+  refusal, one_sided cost). Fix = small explicit code table for initialism
+  franchises (NYY, NYM, LAA, LAD, CWS, CHC, SD, SF, TB, KC...), used as an
+  additional exact-token check in _seg_hits. Refuse-safe posture unchanged.
+  Also 09-01: doubleheader-guarded fallback first clean single-game pass
+  (one id, once, honest empty); M12 aggregation verification deferred to
+  the morning chain (evening sync fetches slate-window only, skipped=0);
+  FOUR M16 over-lean rows flagged to consumer (BOS 0.579 = band max).
+
+- **BUILT 09-01 (pre-MLB quiet slot), four items:** (1) S17 SHIPPED —
+  results-export label now includes draw; draw_prob emitted; label/grade
+  assertion logs ERROR loudly on inconsistency. Test: re-export
+  --date 2026-08-29, Bournemouth row must read top_pick=draw 0.3389.
+  (2) M12 aggregation SHIPPED — per-match skip warnings demoted to DEBUG;
+  ONE summary WARNING with count + id range per sync. Test: tomorrow's
+  morning chain shows a single line instead of 53. (3) Gate rating-spread
+  guard SHIPPED — candidate Elo spread over common teams < 60% of
+  production's = reject ("fit collapsed toward the mean"); v19's ~19%
+  ratio would have tripped it even without the drift check. (4) EL->UEL
+  normalization: SQL issued to user (one UPDATE + cleanup of the empty
+  legacy competition row).
+
+- **MW2 CLOSED 2026-09-01: sides 8/10 (season 14/20).** THE TWO +19pp
+  ROWS BOTH HIT: Hull 1-0 at Coventry (close 4.92, CLV +20.9pp — ledger
+  max), Newcastle 2-0 at Spurs (CLV +19.3pp). Bournemouth draw lean hit;
+  Brentford +5.8 missed (1-1). Forward positive-edge cohort (>=+5pp picks):
+  4/6 across MW1-2 — opposite sign to the 680-game backtest. NO VERDICT
+  CHANGE ON n=6. PRE-COMMITTED: thermometer forward re-read at n=30
+  positive-edge picks (hit rate + mean CLV vs backtest 42-49% bands).
+  Consumer note unchanged.
+
+- **PYRAMID GATE 2026-09-01: v19 REJECTED — CORRECT.** Trained on 8,061
+  (4,574 league / 3,487 cup). SCOPE QUESTION ANSWERED: elo n=96 (was 27) —
+  trainer universe widens with data; phase 4 shrinks to the bonus fix.
+  REAL ISSUE REVEALED: rating range COLLAPSED 1368-1691 -> 1469-1532; the
+  179-pt drift on team_id=8 (Arsenal) is the symptom of a near-flat table,
+  not corrupted scores. Fit-dynamics diagnosis (scoping, K-factor,
+  iteration depth, cup/European feed into PL ratings) = phase-4 item (a),
+  Claude's, this week. Production v18. NO RE-RUN until diagnosed.
+  GATE DESIGN NOTE: range compression was visible but unchecked — add a
+  rating-spread guard beside the drift guard.
+
+- **S17. Results export mislabels draw top-picks [fix-session queue; GPT
+  layer caught it].** Bournemouth-Everton: true argmax = draw (0.3389 vs
+  0.3383 home); match drew; grading CORRECT (hit=true, CLV vs draw close
+  4.01) but export label says top_pick=home_win — label derived from
+  home/away only. Fix: include draw in label logic, emit draw_prob, add
+  assertion top_pick_hit == (top_pick matches result), fail loudly.
+
+- **S14 TALLY after MW2: 20/30 games.** Matchweek under-projected ~+1.0
+  goal (Chelsea 1.95->7, City 2.21->5, Liverpool 2.16->4, United 2.79->7)
+  — NOT bucket-shaped yet (two confident favorites among the misses).
+  GPT's "tail width at ~2 xG" framing added as a second cut at n=30.
+  Routed, not built.
+
+- **AUG-31 REVIEW VERDICT — full window (--since 2026-07-20, 509 games):**
+  run_shrink_frac=0.35 CONFIRMED: mean error -0.06 +/- 0.20 (unbiased
+  level). High-projection over-lean watch item CLOSED as noise: 8.5-9.5
+  band -0.38 +/- 0.26 (<1.5 SE), very-high band reverts to +0.06 — no
+  gradient. NEW CALIBRATION FINDING M16 — over-prob SHAPE: model over-prob
+  50-60% band (n=109) realized only 40% over (+/-5%, ~3 SE below stated
+  54%); 30-50% bands fine (41%, 48%); overall over-rate vs line 45.2%.
+  Model's over-leans are anti-predictive, mirroring positive side edges.
+  CONSUMER NOTE ISSUED: treat over_prob>50% as caution, not lean.
+  PRE-COMMITTED TEST: re-read at n=200 in the 50-60% band; if realized
+  over-rate still <45% -> Stage-1 backtest of distribution shape (NegBin
+  dispersion / line-relative read) before any production change.
+  Section-3 "normal games -0.79" noted as partly selection artifact
+  (conditioning on actual band); unconditional -0.06 is the level truth.
+  Section-4 market-edge screen: none, correct default.
+
+- **AUG-31 REVIEW (forward tail, 132 joined games Aug 20-30):**
+  LEDGER (1) starter effective-IP cap — CLOSED, working: capped n=28 hit
+  50.0% vs 59.6% rest, worse logloss (0.689 vs 0.668) but BETTER CLV
+  (-0.19 vs -0.99pp) = genuine uncertainty, no manufactured mispricing.
+  LEDGER (2) bullpen swing flag — CLOSED, keep 0.30: flagged n=52 hit
+  53.8% / logloss 0.696 vs 60.0% / 0.657 (flag identifies volatile games,
+  as consumed by the fragile tag); CLV similar across split (-0.74 vs
+  -0.88) = weight not mistuned.
+  LEDGER (3) totals preview — mean +0.14 (unbiased), median -0.73,
+  non-blowup -0.82 = right-skew, not bias; HIGH BAND DOES NOT STAND OUT
+  (>=9.0 n=35 non-blowup -0.57; mid band -1.16 is the worse one). Watch
+  item reads as noise on the tail; run_shrink_frac=0.35 reads correct.
+  Full-window --since 2026-07-20 issued as the verdict.
+  NEW TRACKING ITEM M15 — strong-tier under-rating: strong n=13 hit 12/13
+  (92%) with mean CLV -4.2pp (market priced favorites higher; outcomes
+  sided with market). PRE-COMMITTED TEST: at n=40 strong-tier games, if
+  realized rate > stated mean prob by >10pp AND mean CLV < -3pp ->
+  Stage-1 investigation of favorite compression in the Pythag blend.
+  Otherwise nothing. Toss-ups calibrated perfectly (50.0%, CLV -0.03).
+
+- **[ACTIVE LEDGERS — review late Aug 2026]** Three forward measurements now
+  accruing, all read from export/results files: (1) starter effective-IP cap —
+  games where starter_detail shows effective_ip < ip, graded vs rest (enabled
+  2026-08-14, expect a trickle; multi-week horizon); (2) bullpen swing-flag
+  games vs rest (tests whether the 0.30 recent-form weight is mistuned — the
+  only honest test available, no as-of-date history); (3) totals-calibration
+  --since 2026-07-20 — the REAL verdict on run_shrink_frac=0.35 and the
+  high-projection-band watch item (daily high-band reads ran −/+/− Aug 11-13 =
+  noise; stop reading dailies, wait for the --since sample).
+
+- **Lineup strength** (batter quality, not just team aggregate)
+  Sync each team's daily lineup, derive offensive power from individual batter
+  stats. Probably lower impact than bullpen given team RPG already captures
+  much of this. ~2-3 days. Requires API-Baseball or scraping (MLB Stats API
+  doesn't expose lineup easily pre-game).
+
+- **Wrigley wind direction** — **[SUPERSEDED by 2026-06-29 weather work]**
+  wind direction + park orientation shipped as a TRACKED signal
+  (park_wind.wind_effect in unused_context). Deliberately NOT wired into
+  predictions: wiring is gated on a totals-specific Stage-1 pass (the
+  tracking-first discipline). The remaining item is that Stage-1 test, not
+  plumbing.
+
+- **Park-pitcher interactions**
+  Flyball pitchers fare worse at Coors. Real signal but small effect-size,
+  hard to compute. **[DEFERRED]** — needs more season data first.
+
+- **Temperature effect on home runs**
+  Hot air = balls travel farther. ~2-3% per 20°F. Small. **[DEFERRED]** —
+  add after weather wiring confirms the baseline approach works.
+
+### Soccer
+
+- **League coverage closure (PREREQUISITE for CL/EL predictions)**
+  **[DISCOVERED 2026-05-30 on the CL final]** — La Liga, Serie A, Bundesliga,
+  Ligue 1 and every non-PL league show 0 matches in the DB; only PL is
+  populated. Any CL/EL match with a non-PL team applies a **-100 Elo
+  "unknown league" penalty** fallback. The PSG–Arsenal final came out
+  Arsenal 55.7% purely because PSG's Ligue 1 isn't ingested (PSG -100,
+  Arsenal 0), while the 13-book market had PSG favorite. Confidently wrong
+  on corrupted input.
+
+  **The requirement is a CLOSURE PROPERTY, not a league list:** the set of
+  ingested leagues must be a superset of every league that sources a team
+  into any competition we predict. CL alone pulls 36 teams from ~15-20
+  domestic leagues — ingesting only the Big Five still mis-rates teams from
+  Portugal, Netherlands, Belgium, Scotland, Greece, Turkey, etc. Derive the
+  required set from the competitions on the roadmap, don't enumerate
+  abstractly. Bounded and self-defining.
+
+  **But "track everything" is wrong** — a thinly-ingested league produces a
+  skewed Elo and weak cross-league calibration, i.e. a confident-looking
+  wrong number (worse than today's *visible* bug). So design as TIERED
+  confidence, not binary:
+    1. Fully rated — enough history for trustworthy cross-league Elo (Big
+       Five + strong secondaries that send deep CL runs: POR, NED, maybe BEL)
+    2. Lightly rated — ingested but thin → compute Elo BUT widen prediction
+       variance so the model expresses doubt (pulls toward draw/coin-flip),
+       not false confidence
+    3. Unknown (not ingested) — fallback must be **league-average Elo +
+       max uncertainty**, NOT -100. "I lack data about you" must never
+       render as "you are weak." This fix is cheap and strictly correct
+       regardless of what we ingest — do it FIRST, independent of the
+       ingestion work.
+
+  Note: World Cup needs national-team Elo — a SEPARATE rating pool from
+  club football, not covered by league ingestion (own workstream, mid-June).
+
+- **[FRAMING — revisit after June 7] Competition-context-aware uncertainty
+  (cups vs leagues).** The model's core assumptions are LEAGUE assumptions:
+  Elo accumulated over a long season, recent-form over last N games,
+  calibration over hundreds of matches, home-field advantage. Cups violate
+  these — and not uniformly. A "cup" is really a FAMILY of game-types, each
+  breaking league assumptions differently:
+    - Knockout (single elim): no regression-to-mean second chance, higher
+      variance by design, often neutral venue (home-field adj is wrong),
+      end-state behaviour differs (teams play 0-0 in the 80th differently).
+    - Two-legged tie: aggregate scoring, managing a lead across 180 min.
+    - Group stage: mini-table but tiny sample (3 games), resting once through.
+    - Cross-competition entrants: teams from un-ingested leagues → the
+      closure-property + tiered-confidence fallback above.
+    - International tournaments: national-team Elo pool + squad continuity
+      (assembled for weeks, club form doesn't transfer).
+  KEY INSIGHT: don't treat "cup" as a single mode, and don't build
+  competition-specific MODELS. Instead make "competition context" a
+  first-class input that adjusts the model's behaviour and ESPECIALLY its
+  expressed UNCERTAINTY: venue neutrality, single vs two-leg, sample-size
+  driven variance widening, squad continuity. A cup match shouldn't just get
+  a different Elo — it should get WIDER variance because we have less to go
+  on and the format is higher-variance. Same principle as the unknown-league
+  tiered-confidence fallback: when we know less, SAY less confidently. The
+  World Cup underdog-path idea and this cups-vs-leagues question are the same
+  question at different scales; the unifying answer is context-aware
+  uncertainty, not per-competition models.
+  (The World Cup underdog-path tool itself: read FAVORITE straight from the
+  market, build a qualitative underdog-scenario/scouting layer on top —
+  explicitly EXPLORATORY, NOT calibrated like MLB, likely a SEPARATE app so
+  it never pollutes the MLB calibration discipline. 64 games = no calibration
+  possible, so it must not set precedent for the core model.)
+
+- **[SCOPED — build next session] World Cup 2026 (market-derived, walled off)**
+  Feasibility confirmed 2026-06-07: API-Football (same vendor we use) carries
+  it as **league id=1, season=2026**, coverage object shows `odds: true`.
+  DESIGN (a "third pick" alongside mlb/soccer, walled off):
+    - It IS Sport.SOCCER, but a WORLD CUP COMPETITION flagged to route to a
+      MARKET-DERIVED predict path — NOT the club Elo/Poisson model. The wall
+      is a competition-level routing flag, not a fake Sport enum value (World
+      Cup is soccer; faking the sport would break soccer-generic logic). This
+      routing is what structurally prevents the −100 unknown-league penalty:
+      the club model never runs on these matches.
+    - No training, no promotion gate, no calibration. Market-derived only,
+      labeled "market-derived, not a model prediction" everywhere it shows.
+  DECISIONS LOCKED (2026-06-07):
+    1. NO winner shown when the market has none — if odds absent/thin (common
+       early per API-Football's per-match caveat), show nothing. No fallback.
+    2. Underdog-path layer stays MANUAL for now — qualitative matchup
+       reasoning on request, zero build. (Semi-structured/metrics version is
+       a later maybe, explicitly deferred.)
+    3. De-vig method = simple proportional (divide out the overround). Std,
+       sufficient, no need for anything fancier.
+    - Skip null-team knockout fixtures until both teams qualified (API returns
+      home/away_team null pre-knockout, with a source object).
+  BUILD = competition ingestion (reuse soccer odds path) + proportional de-vig
+  fn + routing flag + display label. ~1-2 days, no modeling risk. Bracket-sim
+  (see Monte Carlo note) is the natural later add for "who reaches each round."
+
+- **Travel & rest**
+  Days since last match + competition of last match → fatigue multiplier.
+  Midweek European games are known to hurt PL teams. Data we already have.
+  ~half day.
+
+- **Weather wiring into predictions**
+  Heavy rain/wind reduces xG. We display it on match preview already.
+  Coefficients are well-known in soccer analytics literature. ~half day per
+  sport.
+
+- **Holdout window expansion** (30 → 90 days)
+  Soccer holdout is 50 matches — too small for `improve` to detect real
+  signal. Bumping the window would improve calibration of model
+  improvements. ~2 hours but requires a backfill of historical predictions.
+  Mentioned previously, deferred for post-PL season.
+
+- **Player form weighting** (recent vs season-average)
+  Currently player power scores are season-aggregate. Hot/cold streaks
+  matter. **[DEFERRED]** — effect size small relative to noise; do after
+  travel/rest.
+
+- **Positional matchups**
+  Pace winger vs slow fullback gets no special treatment currently.
+  **[DEFERRED]** — complex feature engineering for modest gain over existing
+  XI strength signal.
+
+- **Manager / tactics / formation**
+  **[DEFERRED INDEFINITELY]** — data not available structurally; not worth
+  manual curation.
+
+### UI / presentation
+
+- **Prediction highlights in match overview**
+  Surface the 2-3 most important prediction drivers (pitcher edge, bullpen
+  edge, hot/cold streak, park factor) as highlights near the top of the
+  match page, rather than only inside the prediction panel lower down. Make
+  the "why" visible at a glance. ~half day. Layout decision: pick the top
+  drivers by magnitude and render as compact highlight chips.
+
+- **Player props (predicted)**
+  Predict individual player outcomes (pitcher K totals, batter hits, etc.)
+  not just team outcomes. **[DEFERRED — needs player-level modeling]**.
+  This is downstream of lineup strength + the player-level direction (see
+  "Long-term direction" below). The pitcher ERA/WHIP/K9 we surface now is
+  *input* to the team model, NOT a player prop prediction — props need
+  dedicated per-player projection models. Pairs naturally with NFL work.
+
+### Cross-sport / infrastructure
+
+- **Random Forest / ensemble modeling**
+  **[DEFERRED]** — interesting but premature. Three reasons:
+  1. Sample size too small (~800 MLB games this season, ~4000 historical
+     soccer matches). RFs typically want 5,000+ training instances per
+     feature dimension to be reliable.
+  2. The features an RF would use are already encoded in the structural
+     model. Adding RF on the same features mostly re-derives existing math
+     with worse interpretability.
+  3. Loss of factor-breakdown narrative — RF is a black box vs our current
+     transparent "Elo gap → xG → win prob" path.
+
+  When to revisit:
+  - End of MLB season (2+ year of data accumulated)
+  - Logistic regression baseline added first as data-efficient comparison
+  - Use case = "second opinion" / disagreement flagging, not replacement
+
+- **Global temperature scaling** (calibration correction)
+  Calibration diagnostic (2026-05-28) found 60-70% bins overconfident by
+  11-23pp. Fixed structural causes first (missing-starter 12.3, pitcher
+  double-count 12.5) rather than apply temperature.
+  **RE-CHECK 2026-05-31 (173 scored, full-season export of 879 confirmed
+  the same 173 have stored predictions):** 60-65% bin healed (-10.7 → -4.5pp).
+  65-70% bin STILL shows -22pp overconfident on 20 games — BUT splitting by
+  pitcher_anchor_mode revealed 17 of those 20 are PRE-12.5 (old `league`
+  anchor). Pre/post split across all high-conf (≥60%) picks:
+    • PRE-12.5 (52 games): predicted 66.6%, actual 53.8% → -12.8pp (the defect)
+    • POST-12.5 (12 games): predicted 65.7%, actual 75.0% → +9.3pp (fine/under)
+  CONCLUSION: the cumulative 65-70% overconfidence is largely a GHOST of the
+  pre-double-count model. The 12.5 fix appears to have resolved high-conf
+  overconfidence at the source. **NO temperature correction applied — would
+  have corrected an already-fixed defect and likely overcorrected the
+  current model.** Post-12.5 sample (12 high-conf games) is small; let it
+  grow and re-check ~2026-06-07.
+  **[CLOSED 2026-08-14]** — superseded by the June 14 recal clamp (60-70% band
+  compression) and run-shrink; the 2026-06-29 --since read showed the current
+  model no longer produces the inflated band. Global temperature scaling is
+  not needed and would double-correct.
+
+- **Logistic regression as second model**
+  Lower-risk path to "multiple model outputs" than RF. Interpretable
+  coefficients, data-efficient, would catch structural-model bugs by
+  cross-checking. ~1 day to build, ongoing maintenance light.
+  **[DEFERRED]** — pending baseball foundation work and soccer holdout
+  expansion.
+
+- **Confidence intervals via bootstrap**
+  Vary inputs (ERA ±10%, form weighting ±20%) and report the resulting
+  prediction band. "Home win 53% ± 8pp" tells you which calls to trust.
+  ~half day. Cheaper than a second model and arguably more useful for the
+  daily review workflow.
+
+- **Tail-risk probabilities**
+  We have a full score matrix already. Extracting P(blowout ≥ 4 margin),
+  P(close ≤ 1 margin), P(under 5 total) is computationally free.
+  ~2 hours to compute + surface in match preview.
+
+- **Closing-line value (CLV) for spreads/totals**
+  Currently 1X2 only. Extending to totals and run-line would give richer
+  post-mortem evaluation. ~half day per market.
+
+- **Doubleheader matching improvement** — **[HALF-SHIPPED 2026-07-20]**
+  start-time-proximity disambiguation built with a >=1h safety guard (see
+  shipped entry). STILL OPEN: confirm whether the API-Baseball odds feed
+  publishes separate lines per DH game at all; if it lumps them, flag DH games
+  "no reliable market context" rather than force a match. NOTE 2026-08-12: the
+  rewritten Kalshi matcher time-gates on occurrence_datetime, so Kalshi prices
+  DO resolve DH legs correctly — Kalshi may end up the more reliable market
+  source on DH days.
+
+- **Nightly scheduler**
+  Automated daily pipeline (sync-matches → evaluate → improve → predict)
+  instead of manual CLI invocations. **[DEFERRED]** — single-user app, the
+  manual flow is fine and gives Anthony a checkpoint for review.
+
+- **Timezone handling**
+  All times currently in UTC display. Could allow override to ET / local
+  via cookie. **[DEFERRED]** — convenience improvement, not blocking.
+
+---
+
+## Modeling philosophy notes
+
+**Why structural beats statistical at our scale:** the structural model encodes
+real domain knowledge (negative binomial for runs, Poisson for goals, park
+factors as multipliers). It needs less data because the math constraint does
+the work data would otherwise need to do. A random forest given 800 MLB games
+to learn 15+ features can't recover those constraints from raw outcomes.
+
+**Where ML will eventually win:** when we have enough data (2+ years), and the
+question becomes about edge cases the structural model can't articulate
+(e.g. specific batter-pitcher matchup patterns that don't fit a multiplier).
+
+**Where ML never wins for us:** the narrative / factor breakdown. We need to
+say "model picked Brentford because Liverpool has 8 injuries, weak XI strength,
+and recent form is mediocre." An RF can't tell you that — feature importance
+is global, not per-prediction.
+
+---
+
+## Long-term direction: player-level modeling
+
+**The vision (Anthony, 2026-05-28):** progress from team-level predictions
+to player-level predictions over time. Get to the point where the model
+reasons about individual players — their form, matchups, and contribution —
+not just team aggregates. Player props become a natural output. American
+Football (starting later in 2026) is a primary motivation, since NFL is
+heavily player-driven.
+
+**Sequencing principle (agreed):** exhaust team-level signal FIRST. Go to
+player-level when we hit a demonstrable bottleneck — when two teams with
+similar aggregates have genuinely different expected outcomes that the team
+model can't distinguish. Don't add player granularity speculatively; add it
+where the data supports it AND the team model provably falls short.
+
+**Why this ordering is right:**
+- Team aggregates capture most of the signal cheaply (run profiles, bullpen
+  ERA, Elo, XI strength). The marginal player-level lift is real but smaller
+  than the initial team-level lift.
+- Player-level means more parameters and less data per parameter — higher
+  overfitting risk. Doing it too early makes the model WORSE.
+- The bottleneck is real though: team models blur individual matchups. Two
+  rotations with identical season ERA can have very different expected
+  outcomes based on who's actually pitching to whom.
+
+**Shared architectural backbone:** MLB lineup strength, soccer player power
+ratings (already exist, Phase 6a/6b), and eventual NFL player modeling all
+want the same thing — a per-player projection layer that FEEDS the team
+prediction rather than replacing it. Build that backbone once, well; sport-
+specific player models sit on top. The team structural model stays as the
+spine; player-level adjusts it.
+
+**Sport-specific notes:**
+- **MLB**: next step is lineup strength (batter quality) — already in backlog.
+  Then batter-vs-pitcher matchup, then player props (K totals, hits, etc.).
+- **NFL** (later 2026): strongest case for player-level (one QB injury swings
+  everything) BUT the hardest — only 17 games/season means severe data
+  sparsity per player. Player-level matters most here and data scarcity hurts
+  most here. Will likely need heavy priors / position-level pooling rather
+  than pure per-player fitting. Separate workstream when NFL season approaches.
+- **Soccer**: player power ratings already feed XI strength. Extensions
+  (player form weighting, positional matchups) are smaller increments.
+
+**[DEFERRED — long-term direction, not a single phase]** — this is the
+through-line for many future phases, revisited as team-level hits ceilings.
+
+---
+
+## Monte Carlo simulation as a prediction engine
+
+**[FRAMING — not a near-term build]** Idea: run match/tournament simulations
+to capture variance, path-dependence, and tail outcomes. Worth doing for
+SPECIFIC things, NOT as a replacement for the current model.
+
+Key reframe — simulation is not a new prediction philosophy, it's the right
+ENGINE for two things already on the roadmap:
+
+1. **Bracket / tournament simulation (cheap, high-value, near-term-able).**
+   "P(team reaches semifinal)" is a tree of conditional matches — nearly
+   impossible analytically, natural for simulation. Crucially it can be
+   driven by MARKET-implied per-match win probs (free), so it needs NO
+   event-level model. This is the cheap entry point and pairs directly with
+   the World Cup underdog-path idea. Build this FIRST if simulation happens.
+
+2. **Per-event (per-at-bat / per-possession) simulation = the DELIVERY
+   MECHANISM for player-level modeling.** Not a separate idea: once player
+   projections exist, simulating at-bats/possessions is the natural way to
+   aggregate them into game outcomes WITH correlation (pitcher's bad night +
+   bullpen usage + run total are linked — closed-form can't do this well).
+   So this is downstream of the player-level direction above, not independent.
+
+IMPORTANT CAVEATS (why NOT to rush it):
+- The current NegBin/bivariate-Poisson model is ALREADY an analytic
+  simulation — it integrates over an outcome distribution. Explicit sim only
+  adds value if the PER-EVENT model captures something the per-GAME model
+  can't. Simulating from the same team-level rates = same answer, 1000x the
+  compute. "Garbage in, chaos out."
+- Sim produces outcome DISTRIBUTIONS, not narratives. The "narrative" (how an
+  underdog wins) is something a human reads into a cluster of sims — for
+  narrative/scenario output, the qualitative underdog-path analysis is more
+  direct. Don't expect sim to generate stories.
+- Compute is NOT the constraint (a few thousand sims/game = seconds). The real
+  cost is building a credible event-level model — which is the deferred
+  player-level work. So sim's deep version is gated on player-level anyway.
+
+Sequencing: (a) bracket-sim is the only near-term-reasonable piece, and only
+if World Cup work happens; (b) match-level sim waits for player-level modeling
+and is really part of that workstream. Neither precedes MLB calibration
+stability.
+
+---
+
+## How to update this file
+
+When shipping an item:
+1. Move it to a "Shipped" section at the bottom with a one-line summary and date
+2. Note any followup work created in the same session
+
+When adding a new item:
+1. Place under the relevant sport/cross-sport section
+2. Mark **[DEFERRED]** with reason if not immediate
+3. Include rough effort estimate
+
+When user (Anthony) brings up an idea that's not the current focus, capture
+here rather than push back on it. The conversation is the source of truth;
+this file is the persistence layer.
+
+---
+
+- **2026-06-23** — Run-input regression-to-mean (run_shrink). Post-blend
+  re-check (`recheck`, n=65): blend WORKED (disagreement gap -20pp→-7.8pp), no
+  over-correction, but a separate defect remained — high-offense-PROJECTION
+  favorites overconfident (-8.1pp at n=85). Ruled out three mechanisms:
+  stale RPG (cancels in win-prob), recency overshoot (hot≈steady in data),
+  fixed dispersion (wrong sign in math). The `offense-mechanism` second cut
+  found it COMPOUNDS: fav-offense-high alone -6.2pp, opp-weak alone -9.6pp,
+  BOTH -23.5pp (n=12), both-normal +7.3pp. home_xr=(RS*opp_RA)/league is a
+  PRODUCT of two regression-prone inputs; midseason the small-sample shrink
+  (n/(n+10)) is ~off so extremes multiply un-regressed. FIX: regress RS/RA
+  toward league mean (4.4) before multiplying, frac=0.25 (DERIVED from
+  luck/talent variance split ~0.41 reliability, defaulted conservative, NOT
+  fit to the n=12 cell). Leaves average inputs untouched (both-high p_home
+  0.754→0.702, both-normal 0.533→0.528). Config-driven run_shrink_enabled/
+  frac/mean, DISABLED by default, reversible. Three-way converged (calibration
+  + post-mortems + mechanism). CAVEAT: killer cell n=12, magnitude noisy —
+  measure 1-2 wks, watch normal games don't break.
+- **2026-06-29 (Bucket 1: total-gap + bet-suitability fields)** — Surfaced
+  explicit totals-edge data the card was previously inferring from over-prob.
+  Added to build_card(): model_total (proj_home+proj_away), market_total,
+  total_gap (signed), total_side, bettable_total_edge (bool). The bettable test
+  uses a CUSHION that scales with line height (_total_gap_cushion: 9.5+→0.75,
+  8.5→0.85, 8.0→1.00, ≤7.5→1.20) because low lines need a bigger gap (one-run
+  variance dominates, each run is a larger share). Derived from 6/28 thin-under
+  losses (BOS/NYY Under 8.0 gap −0.23; CLE/SEA Under 7.5 gap −0.36 — both lost,
+  both over-ranked). New rule correctly separates them: both losers flagged
+  "thin lean", both winners (STL/MIA −1.06, SD/LAD −1.00) clear as bettable.
+  Also added bet_suitability + recommended_market metadata (item 10) — derived
+  PURELY from existing flags (no new judgement), so "model likes it" can't
+  silently become "bet it". A totals-stronger game with thin gap now gets a
+  caution flag. Surfaced in CLI card render + card.html. CRITICAL FRAMING
+  UNCHANGED: cushion gates "worth tracking", NOT "+EV" — CLV still decides edge.
+  Thresholds are module constants in card.py.
+
+- **2026-06-25 (card UI + shared logic)** — Surfaced the card in the web UI.
+  Refactored card logic OUT of the CLI into src/walters/card.py `build_card()`
+  — ONE source of truth so CLI and web can't drift (the exact drift bug hit
+  twice: export computed flags one way, card read DB another). CLI `card` and
+  new web route /card both call build_card(). Added src/web/routes/card.py,
+  templates/card.html (Tailwind ladder + per-game fact cards, edge color-coded),
+  registered in app.py, nav link (baseball only). Same honest-flags design:
+  disagreement = caution not edge. Thresholds (MARKET_DISAGREE_PP=3.0,
+  BULLPEN_SWING_CAUTION=1.5, BETTABLE_MIN_PROB=0.525) are module constants in
+  card.py — change once, both surfaces update.
+- **2026-06-25 (card command)** — Built `card`: deterministic daily card
+  assembler (confidence ladder + per-game fact blocks + honest flags). Replaces
+  the manual assembly the external betting model did. KEY DESIGN: FACT
+  ASSEMBLER, not rationale generator — surfaces numbers the model already
+  computes (proj runs, SP ERAs, bullpen ERA+swing, recent RS/RA, market edge,
+  totals line/over-prob, tier) and tags cautions by EXPLICIT rules (|market
+  edge|≥3 → disagreement caution; bullpen swing ≥1.5 → not a parlay anchor;
+  close-game → single only; starter cap; sub-52.5% → prediction-only). Ranks by
+  a transparent sort score (NOT a probability, never feeds predictions).
+  CRITICAL: market disagreement flagged as CAUTION not EDGE — does NOT
+  manufacture "dog value" like the external model (won't present a model-below-
+  market dog as +Xpp value; that's the anti-predictive disagreement the blend
+  corrects). If CLV (July review) proves disagreements have closing-line value,
+  flip those flags caution→opportunity THEN, with evidence. Interpretation
+  human-in-the-loop. Read-only; reads live DB, computes edge like
+  market-alignment.
+- **2026-06-24 (CLV infrastructure)** — Built odds-snapshotting for closing-
+  line-value tracking, the measurement that speaks to the income question (does
+  the model beat the CLOSE, not just calibrate). Context: model is well-
+  calibrated but has NO demonstrated edge over market — the blend exists because
+  its disagreements were anti-predictive — so before any betting/slate/pipeline
+  tooling, we need to know if real edge exists. CLV is the test. Constraint:
+  odds aren't up much before the morning run, one sync/day, so open-vs-close
+  needs scheduled captures. Design (Anthony's call): 4 captures/day at 8/12/4/8
+  local (catches day + night games with lead + near-close), MARKET-ONLY
+  snapshots (model joined at analysis time, keeps market record independent),
+  de-vigged consensus. Built: OddsSnapshot table (append-only); `capture-odds`
+  (odds-only sync + de-vig write, does NOT predict/disturb live preds);
+  `clv-report` (per finished game: first→last move on model's pick, toward/away
+  tally — the key signal); scripts/setup_clv_capture.sh (4 launchd jobs,
+  catch-up-on-wake). EXPECTATION: first ~2 wks just establishes if a signal is
+  readable; movement is noisy, disagreement-games subset is what matters.
+  Honest framing held: likely outcome is "no edge, calibrated thermometer not
+  income engine" and we should be willing to find that. Parlays flagged as
+  HIGHER variance / lower repeatability than singles. NOTE: capture-odds auto-
+  creates odds_snapshots on first run.
+- **2026-06-24** — Totals-unavailable fix (from 6/23 betting post-mortem, the
+  Coors failure). When NO real market total exists, the model was falling back
+  to 8.5 AND still presenting it as actionable (Rockies/Red Sox flagged
+  stronger_expression=total, over_prob 63.33%, on a phantom 8.5). Fix:
+  predict_game sets totals_available=False when no market line passed; MLB
+  predict path stores over_under_line/over_prob/under_prob = None then; export
+  surfaces totals_available and side-vs-total expression can't pick "total"
+  when over_prob is None. "Unavailable" instead of a phantom line. No schema
+  change (null line = unavailable signal). Sides unaffected. NOTE first
+  run-shrink-live graded slate (6/23): raw sides 10-5, actionable 4-2, and per
+  Anthony the 10-5 came WITHOUT fake 65-70% favorites — right SHAPE (edge
+  intact, confidence compressed), but n=15 not significance; ~2-wk recheck is
+  the real test. Market-total fix validated live — killed 3 bad totals
+  (NYY/DET under 7.5→final 7, CLE/CWS under 7.5→2-1, MIL/CIN over 9.5→2-0).
+- **2026-06-23 (totals session)** — Fixed the hardcoded-8.5 over/under bug:
+  predict_game now takes market_total_line and computes O/U against the real
+  book total (median of synced TOTALS odds per match), falling back to 8.5 only
+  when no line exists. Confirmed live — export lines now span 7.5/8.0/8.5/9.5
+  per matchup instead of uniform 8.5. ALSO: investigated the RPG-lag "totals run
+  low" theory and CLOSED IT as a non-issue — built `totals-check`, which showed
+  projected total − actual = −0.12 mean / +0.39 median over n=247 (unbiased),
+  and O/U calibration +1.1pp. The league_runs_per_game 8.83-vs-9.3 "lag" is a
+  NORMALIZER (denominator), self-consistent with the team rates it divides;
+  raising it would LOWER projections and INTRODUCE a bias where none exists.
+  Bumping RPG via set-config was the WRONG fix (sign backwards) — measurement
+  caught it. RPG lag affects nothing measurable in totals or win-prob; do NOT
+  chase it again. New diagnostic: `totals-check` (projected vs actual totals +
+  O/U calibration). Caveat: O/U calibration was graded on old all-8.5
+  predictions; re-run totals-check after ~2 wks of real-line predictions for a
+  true read.
+- **2026-06-18** — Market-blend (the real fix for the post-recal -13pp).
+  Anthony noticed the recal only RELABELED bad 60-70% picks into 55-60% (same
+  wrong games, lower bucket) and suggested more aggressive recal. Testing
+  first (calibration-market command, using clv = model prob − market de-vigged
+  prob, NOT the never-populated best_value_edge_pct) showed it would've been
+  the WRONG lever: post-recal split (n=56) is +5pp when model AGREES with
+  market (calibrated!), -20pp when it disagrees, -35pp on >8pp disagreements.
+  The defect is MISDIRECTION not miscalibration — the model's edge over the
+  market is anti-predictive in this range (it's missing market info:
+  scratches, weather, sharp money), so compressing confidence can't fix a
+  wrong-SIDE problem. FIX: market blend p=(1-w)·p_model+w·p_market, which
+  self-targets disagreement (no-op when model≈market). Conservative w=0.5
+  PRESERVES the model as an independent voice — deliberately does NOT collapse
+  to market (Anthony: "I'd hate to just be picking the market every time" —
+  the goal is still to catch games the market gets wrong). At w=0.5 the model
+  keeps its side in ~all realistic cases, only moderating confidence; flips
+  need w>0.88. Config-driven (market_blend_enabled/_w), DISABLED by default,
+  enable via set-config. OPEN QUESTION once blend proven: does it make recal
+  redundant (both pull confident picks down)? Decide with data. SEPARATE
+  future project (needs n>>31): find a signal distinguishing the model's GOOD
+  disagreements (real market errors) from bad ones — that's how you actually
+  hunt market mistakes vs just discounting all disagreement.
+  code defaults. Re-check (n=355): overconfidence entirely in 60-70% (-11.6 /
+  -23.8pp); 50-60% and 70%+ calibrated. Ruled out FOUR mechanisms first
+  (bullpen-swing, series position [Anthony's hypothesis — gradient ran
+  BACKWARDS, game 1 worst], home/road, run environment) — all uniformly bad,
+  so it's a band-shape problem with no hidden variable. First fix attempt (a
+  single smooth shrink across the whole 60%+ range) was wrong: it dragged the
+  calibrated 70%+ band down too, because 65-70% (wins 44%) and 70%+ (wins 76%)
+  need to move in opposite directions and no single monotonic curve does that.
+  Anthony pushed back on the over-engineering; the resolution is a CLAMP:
+  recalibrate ONLY [0.60,0.70) — compress it into [0.555,0.60) — and leave
+  50-60% and 70%+ as exact identity. Small discontinuity at 0.70 is immaterial
+  (negligible mass there). Conservative target: maps 67% -> ~0.59, NOT the raw
+  noisy 43.6% (n=39) — corrects real overconfidence without overfitting the
+  thin extreme cell or inverting picks. Config-driven (recal_enabled/lo/hi/
+  target), tunable/reversible via set-config, applies to favorite side with
+  underdog as complement. NOTE: code default now enabled, but the LIVE model
+  reads STORED config — activate on production v2 via set-config (see below).
+
+- **2026-06-14 (earlier)** — Close-game flag, calibration-series command (4
+  slices), market-agreement slice pending edge_pct. [see entries below]
+
+- **2026-06-13** — Close-game transparency flag (reporting, NOT calibration).
+  The NegBin model already builds the full score matrix but discarded margin
+  info. Now computes `p_one_run` (P game decided by exactly one run) and
+  surfaces `close_game_flag` when a confident pick (≥58%) sits on a high
+  one-run-mass game (≥0.185). Motivation (Anthony, 6/13): a 63% pick that
+  loses a close 8-5 game isn't miscalibrated — 63% is supposed to lose 37% —
+  but it IS worth highlighting as high-variance/could-tip. Surfaces that
+  texture WITHOUT changing the probability (whether 63% itself is right is the
+  calibration re-check's job, answered in aggregate not per-game). Threshold
+  0.185 is a median-ish default; tune CLOSE_GAME_ONE_RUN_MIN after real slates.
+  Persisted in factor_breakdown + exported. Baseball only (soccer untouched).
+
+- **2026-06-08 (pt 3)** — Completed the season fix: `_apply_match_updates`
+  never updated `season` on existing rows, so the pt-2 fix didn't correct
+  already-stored matches on re-sync (they stayed "2026/27" despite the
+  adapter now producing "2026" — diagnostic confirmed all 72 WC rows correct
+  on status/date/external_id, ONLY season wrong). Fix: the update path now
+  rewrites season when the adapter reports a different non-empty value. A
+  re-sync of WC now corrects the rows. (General fix — applies to any re-sync
+  that needs to repair a season.)
+
+- **2026-06-08 (pt 2)** — Fixed single-year season-format bug blocking World
+  Cup (and any international tournament). `_parse_fixture` stamped EVERY
+  fixture's season as a two-year league span ("2026" → "2026/27"), correct
+  for domestic leagues but wrong for single-year tournaments. Result: 72 WC
+  matches got stored under "2026/27" while sync-odds/predict-worldcup query
+  "2026" → silent zero-match (looked like missing odds; was a season
+  mismatch). FIX: `_SINGLE_YEAR_SEASON_CODES` set (WC, UEFA_EURO, WCQ_*,
+  FRIENDLIES_INT) store the plain year; leagues keep "YYYY/YY". Request side
+  (`_season_to_year`) was already fine. NOTE: existing mis-stamped rows need a
+  re-sync to correct (sync-matches re-run after the fix).
+
+- **2026-06-08** — World Cup core (MARKET-DERIVED, walled off) — LIVE. New
+  self-contained `src/models/worldcup.py` (imports NOTHING from the club Elo/
+  Poisson model — the wall is physical) + `cli.py predict-worldcup`. For each
+  scheduled WC (competition WC = API-Football league 1) match it de-vigs the
+  1X2 bookmaker odds (simple proportional) into honest H/D/A probabilities and
+  reports the market favorite. Locked rules all implemented & unit-tested:
+  (1) NO winner when market absent/thin → returns None, never guesses;
+  (2) null-team knockout fixtures skipped; (3) proportional de-vig. Output
+  (console table + exports/worldcup_<date>.json) labelled "market-derived,
+  not a model prediction" throughout. Underdog-path stays MANUAL (no build).
+  STILL TODO (deferred, not blocking Thursday start): match-view UI
+  integration (currently CLI+JSON only); a daily sync step for WC odds.
+
+- **2026-06-06 (pt 2)** — Made the home-field fix actually LIVE + found a
+  config-architecture issue. The pt-1 change (lowering DEFAULT_HOME_RUN_BOOST)
+  did NOT affect the production model: BaseballConfig is frozen into each
+  model-version's stored `parameters` at train time, and predictions read
+  that frozen dict — so a code-default change only affects newly-trained
+  versions, which the log-loss promotion gate keeps rejecting. Production was
+  still predicting with 0.15 (confirmed: 6/6 slate avg home prob still 51.0%).
+  FIX: added `cli.py set-home-boost --value 0.08` to update the production
+  version's stored baseball_config.home_run_boost IN PLACE (reversible via
+  --value 0.15; keeps an audit trail in params.manual_config_edits). Also now
+  record home_run_boost in prediction factor_breakdown (was missing → showed
+  None). To activate: run set-home-boost then re-run predict.
+  **[ARCHITECTURE FLAG — see backlog]** the config-freeze + log-loss-only
+  promotion gate will block ANY calibration fix (calibration ≠ log-loss), not
+  just this one. Needs addressing before relying on more config changes.
+
+- **2026-06-06** — Home-field advantage recalibration (MODEL CHANGE, behind
+  config + revert). June 7 calibration (251 games) overturned last week's
+  read: post-12.5 high-conf is STILL -12.8pp overconfident (identical to
+  pre-12.5) — the double-count fix did NOT resolve high-conf overconfidence;
+  last week's +9.3pp was small-sample noise (12 games). Investigation found
+  the real driver: HOME picks overconfident (-4.5pp overall, -13pp high-conf)
+  while AWAY picks calibrated (+0.1pp); model implied 51.7% home win rate vs
+  49.1% actual. Root cause = home_run_boost too large (0.15) for 2026's
+  shrunken home advantage. FIX: home_run_boost 0.15 → 0.08. Revert: set back
+  to 0.15 (PRIOR_HOME_RUN_BOOST constant kept; recorded per-prediction via
+  cfg.as_dict in factor_breakdown for pre/post analysis). HONEST STATUS: this
+  is correct and addresses the CAUSE of the home/away asymmetry, but is a
+  MODEST correction (~0.9pp on avg game, ~0.8pp on strong home favorite) —
+  does NOT fully close the -13pp high-conf gap alone. Residual overconfidence
+  remains (high-total games -14.4pp, big market-edge games -12.6pp — likely
+  separate structural causes still to find). Bullpen-swing was NOT the main
+  driver (only ~6 of 45 overconfident 60-70% games had a swing).
+  NEXT: (a) the empirical piecewise upper-range shrink as a complementary
+  safety net for the residual (see below), (b) investigate high-total &
+  market-disagreement overconfidence for their structural causes.
+
+- **2026-06-05** — Bullpen recent-form swing flag (reporting only, NO
+  probability change). Surfaces predictions that lean on a large bullpen
+  recent-form swing (>=1.5 ERA divergence between 10-day recent and season).
+  Export gains `bullpen_swing_flag` + `max_bullpen_swing` (JSON + CSV); match
+  view gets an amber "⚑ Bullpen recent-form caution" badge. Verified: fires
+  on 6/4 Brewers 74% (Giants pen 6.37 vs 4.09 = 2.28 swing, the slate's worst
+  miss) and catches 15/173 historical predictions — the same set behind the
+  finding below. WHY: diagnostic on 2026-06-05 found big-swing predictions
+  overconfident — predicted 59.6%, actual 40.0% (-19.6pp; -13.3pp on 13
+  post-12.5 games, so a LIVE current-model issue, not a pre-12.5 ghost).
+  Mechanism: 10-day bullpen window (~30-40 IP) is noisy; a 2+ run divergence
+  is often small-sample noise that mean-reverts, but 12.4 weights it 30%.
+  Likely contributor to the 5-day log-loss rise (more divergent windows
+  accumulate as the season goes). Flagging now; model fix DEFERRED (below).
+
+- **2026-06-02** — Starter-aware tier cap (label coherence, NO probability
+  change). A pick with an unknown/null starter is now capped at "lean" tier
+  even if its post-shrink probability clears 60%. Surfaced as
+  `tier_capped_by_starter` in the export and an amber "⚑ starter
+  unconfirmed" badge in the match view. Rationale: follows directly from
+  12.3's premise (unknown starter = less trustworthy); calling such a pick
+  "strong" contradicted that. Verified on 6/1 slate: Reds 63% and Mariners
+  62% (both unknown-starter) dropped strong→lean; all confirmed-starter
+  strong picks unchanged. NOTE: deliberately did NOT apply the post-mortem's
+  statistical downgrade (lowering the probability further) — only n=2
+  confident unknown-starter games exist in history, far too thin to justify
+  a probability change. This is purely a labeling fix.
+
+- **2026-06-01** — Reporting clarity (NO model change): (1) confidence tiers
+  — every prediction labeled toss-up (<53%, not actionable) / lean
+  (53-60%) / strong (60%+), surfaced in export JSON+CSV and as a match-view
+  badge. Lets post-mortems separate actionable picks from coin-flips
+  (5/31 was 12-3 overall but 10-1 on actionable picks). (2) Side-vs-total
+  expression signal — flags when the model's total conviction (|over_prob
+  -0.5|) exceeds its side conviction by ≥8pp, i.e. "the real read is the
+  total, not the side" (the recurring Coors pattern). Both derive from
+  probabilities the model already produced; thresholds in preview.py are
+  tunable. Calibration unaffected.
+
+- **2026-05-29** — Phase 12.5: fixed pitcher double-count. The opposing
+  team's runs_allowed_per_game already encodes their pitching, but the
+  pitcher ERA multiplier was ALSO anchored to flat league ERA — counting
+  pitching twice and inflating confidence on pitching-edge games (likely
+  contributor to the 60-70% overconfidence the calibration diagnostic
+  found). Now the multiplier anchors to the team's own RA, so only the
+  deviation of this start from the team norm adjusts runs. Damping lowered
+  0.5 → 0.35 to match the tighter anchor.
+  **REVERT PATH** (if calibration re-check shows this hurt): in
+  BaseballConfig set `pitcher_anchor_mode="league"` and
+  `pitcher_damping=0.5` — exactly reproduces pre-12.5 behavior. Anchor mode
+  is recorded per-prediction in factor_breakdown for A/B traceability.
+  **VALIDATE**: re-run `cli.py calibration --sport mlb` in ~3-5 days; the
+  60-70% bins should move toward calibration without the 50-60% bins
+  degrading. If 60-70% improves → keep. If it overcorrects (60-70% now
+  UNDERconfident) → raise damping toward 0.42. If worse → revert.
+- **2026-05-28** — Phase 12.4: recent bullpen form. sync-bullpen-stats now
+  pulls a rolling 10-day relief window alongside season aggregate; predict
+  blends them 70/30 (effective bullpen ERA). Captures a bullpen caving or
+  locking in that the season number is too slow to reflect. Makes daily
+  bullpen sync meaningful. Narrative flags caving/locked-in when recent vs
+  season diverges ≥1.0 ERA. Sync logs the divergence too.
+- **2026-05-28** — Phase 12.3: missing-starter uncertainty. When a starter
+  is unknown (null or reliever-as-opener), win probabilities are shrunk
+  toward 50/50 (0.88 one side, 0.76 both) instead of silently treating the
+  missing data as league-average. Addresses overconfidence found in the
+  60-70% calibration bins. Also added `calibration` CLI command (reliability
+  table + ECE + temperature suggestion) as a read-only diagnostic.
+- **2026-05-27** — Phase 12.2: bullpen quality wired into MLB predictions.
+  New `bullpen_season_stats` table; sync-bullpen-stats CLI command;
+  effective_team_era blends starter (61%) + bullpen (39%) at predict time.
+  Surfaces `home_bullpen_era` / `away_bullpen_era` in factor breakdown +
+  narrative.
+- **2026-05-26** — Phase 12.1: recent-form weighting on MLB team run profiles
+  (70% season / 30% last 10 games). Surfaces season vs recent in factor
+  breakdown; narrative flags cold/hot streaks when |delta| >= 1.0 R/G.
+- **2026-05-25** — Park factors for MLB (Coors 1.21, Petco 0.91, etc.) with
+  venue name aliases (Camden Yards, Rate Field). Wired through
+  `FactorAdjustment` into predict_game. Narrative surfaces for extreme parks
+  only.
+- **2026-05-25** — Reliever-as-starter filter: pitchers with 0 games started
+  are treated as neutral ERA in predict to avoid using bullpen ERA inflation.
+- **2026-05-24** — Export tool with auto-status filter (past = finished,
+  future = scheduled, today = all).
+- **2026-05-24** — Prediction export CLI (JSON + CSV formats).
+- **2026-05-23** — MLB probable pitchers switched to schedule hydrate endpoint
+  (1 batch call per date vs 30 per-game calls). St. Louis name normalization
+  fix.
+- **2026-05-22** — Phase 11: pitcher ERA wiring into MLB predictions; CLV
+  tracking on PredictionOutcome.
+- **2026-05-22** — API-Baseball integration for MLB odds (filled the MLB Stats
+  API gap).
+- **2026-05-21** — Phase 10: source column on Odds for multi-provider coexistence.
+- **2026-05-20** — Phase 9: match preview (form, H2H, weather, narrative,
+  pitcher panel, starting XI).
+- **2026-05-19** — UI clarification work for value edges vs upcoming fixtures
+  vs most-likely-score (resolving the Liverpool-Brentford apparent
+  contradiction).
+
+- **2026-06-29 (Bucket 2 tracking: umpire instrument)** — Started the "track,
+  don't feed" data-collection layer. Added UmpireGame table (umpire_games,
+  append-only, unique by source_game_id), adapter.get_game_umpire_environment()
+  (reads plate ump from boxscore `officials` + run/K/BB from teamStats —
+  defensive, degrades to None), and CLI `sync-umpires` (--backfill seeds the
+  season, --recent tops up 3d; calls init_db to create the table) +
+  `umpire-report` (per-ump R/G vs league, ALWAYS shows n, flags small-n as
+  noise). NOTHING feeds the model — pure instrument, same pattern as
+  OddsSnapshot/CLV. Caveat baked into report: ~25-30 plate games/ump/season →
+  useless until large n. Next in chain: weather table, bullpen/starter tracker,
+  then prediction-context snapshot that freezes all unused signals onto each
+  prediction (Anthony's key idea) + validation report scoring which unused
+  signal moves results. See docs/bucket2_tracking_plan.md.
+
+- **2026-06-29 (Bucket 2 tracking: weather instrument)** — Added GameWeather
+  table (game_weather, append-only) + `capture-weather` command. KEY FINDING
+  reconfirmed: weather was DISPLAY-ONLY (src/web/weather.py powers a UI panel;
+  model never saw it). capture-weather reuses the existing Open-Meteo client +
+  venue coord/roof map (already complete for MLB) to snapshot temp/wind/precip/
+  condition near first pitch into a frozen record. Indoor venues recorded with
+  roof_state rather than dropped. GAP: fetch_weather() exposes wind SPEED but
+  not DIRECTION (out/in to CF is the real totals driver) — wind_dir_deg column
+  reserved (None for now), add when we extend the Open-Meteo call. Nothing feeds
+  the model. Run near first pitch; could add to launchd later. Chain remaining:
+  bullpen/starter usage tracker → prediction-context snapshot freezing all unused
+  signals onto each prediction + validation report.
+
+- **2026-06-29 (Bucket 2 tracking: bullpen/starter usage instrument)** — Added
+  PitcherAppearance table (pitcher_appearances, append-only, unique by
+  game+pitcher) + adapter.get_game_pitcher_appearances() (per-pitcher
+  pitches/outs/starter-flag from boxscore players block) + `sync-appearances`
+  (--backfill seeds season, --recent last 5d) + `bullpen-availability` report
+  (per-team relievers used / heavy outings / back-to-back arms, last N days,
+  DERIVED at read time from raw appearances). Stores RAW appearances, not a
+  computed gassed/available flag, so the rule is tunable later. Serves the
+  depleted-bullpen-favorite hypothesis both forward (this tracker) and
+  retroactively (diagnostic over these rows once backfilled). Nothing feeds the
+  model. NOTE: season-aggregate bullpen ERA endpoint already existed but can't
+  give per-game usage — this is the new pipeline.
+  CHAIN STATUS: umpire ✓, weather ✓, bullpen/starter ✓ — NEXT is the payoff:
+  prediction-context snapshot (freeze all unused signals onto each prediction at
+  predict time) + validation report (score which unused signal moves results).
+- **2026-06-29 (FOLLOW-UP queued, Anthony approved): wind direction + stadium
+  orientation.** Extend Open-Meteo call to pull wind_direction_10m; add per-park
+  field orientation (home plate→CF bearing) so we can compute wind out/in/cross
+  relative to the field — the actual totals driver (speed alone is ambiguous).
+  Fill the reserved game_weather.wind_dir_deg. Do as part of making weather a
+  real totals input (post-CLV).
+
+- **2026-06-29 (bullpen hypothesis: retroactive diagnostic)** — Built
+  `bullpen-diagnostic` (src/walters/bullpen_diagnostic.py) to test Anthony's
+  "depleted bullpens → overrated favorites" hypothesis on HISTORICAL data
+  before building any feature. For each graded favorite-prediction, reconstructs
+  the favorite's bullpen state in the prior N days (reliever appearances + heavy
+  outings from pitcher_appearances) and compares mean predicted win-prob vs
+  ACTUAL win-rate, bucketed rested vs depleted (median + tertile splits).
+  Hypothesis supported ONLY if depleted favorites show a more-negative gap.
+  Honest gating: "supports" message requires ≥4pp difference AND n≥60, with
+  small-sample + multiple-cut-fishing caveats printed. Read-only. This is the
+  aggressive-but-disciplined move — test the sharp idea on existing data now
+  rather than wait weeks for the forward tracker. Outcome will decide whether
+  bullpen availability earns a feature build.
+
+- **2026-06-29 (RESOLVED — bullpen taper REJECTED, run-shrink VALIDATED post-ship)**
+  Chased the "depleted bullpens → overrated favorites" hypothesis to ground with
+  data. (1) bullpen-diagnostic: depleted-vs-rested favorite gap was −2.5pp and
+  NON-MONOTONIC across tertiles (low −3.7, mid −6.4, high −4.6) → noise, not a
+  causal effect. (2) calibration-deep full history: overconfidence was REAL but
+  localized to the 60-70% bands (−10.9pp, −26.0pp). (3) calibration-deep --since
+  2026-06-23 (run-shrink era, n=84): the 60-70% bands are now nearly EMPTY (n=2)
+  — the current model no longer PRODUCES inflated favorites; 50-55% (+1.7pp) and
+  55-60% (−0.6pp) are well-calibrated, and big-swing post-shrink is +2.4pp
+  (n=30, if anything under-confident). CONCLUSION: the overrated-favorite defect
+  was the PRE-run-shrink model; run-shrink already fixed it. Do NOT build a
+  bullpen taper (would push calibrated games under water). Do NOT mine the old
+  −26pp band — it's a ghost of old versions. Run-shrink validated on independent
+  post-ship data (directional at n=84; confirm at July review). The tracking
+  instruments (umpire/weather/bullpen/starter) remain as append-only data
+  accruing toward the prediction-context experiment — NOT to be fed into a model
+  that currently shows no defect to fix.
+
+- **2026-06-29 (prediction-context: unused signals ride alongside predictions)**
+  Built src/walters/prediction_context.py build_unused_context() + wired into
+  export. Each exported prediction now carries an `unused_context` block:
+  weather (from game_weather), plate_umpire (+ that ump's tracked R/G and n),
+  bullpen_availability (home/away relievers used / appearances / heavy outings
+  in prior 3d, derived from pitcher_appearances). Every block stamped
+  `used_in_model: false` with a _note that these are tracked/unvalidated and NOT
+  in the model's probability — so the betting layer can SEE what we compute vs
+  what the model uses, and factor them in at its own discretion. Joined at
+  export time from the tracking tables (batched, no N+1); wrapped in try/except
+  so context never breaks the export. NOTHING changed in the model. This is the
+  bridge that makes the trackers visible without feeding them in. NEXT (the
+  payoff): validation report scoring which unused signal correlates with model
+  misses on frozen data — that's how a signal earns its way INTO the model
+  later, with evidence + baseline, rather than being force-fed into a currently-
+  calibrated model.
+
+- **2026-06-29 (weather FINISHED: wind direction + park orientation)** — Closed
+  the weather gap. (1) fetch_weather() now requests wind_direction_10m and
+  returns wind_dir_deg. (2) capture-weather now persists wind_dir_deg (was
+  None). (3) New src/walters/park_wind.py: PARK_CF_BEARING table (home-plate→CF
+  bearing per park, from public orientation refs, approximate ±10-15°; domed
+  parks omitted) + wind_effect() classifying wind as out/in/cross with the
+  component mph along the plate→CF axis (the number a totals model wants).
+  Convention handled carefully: Open-Meteo gives wind FROM-direction; "out" =
+  wind from behind the plate. Verified: Wrigley S-wind→out 13mph, N-wind→in,
+  E-wind→cross (matches the famous Wrigley wind behavior). (4) unused_context
+  weather block now carries wind_effect{component,out_mph,label,approx}. Still
+  used_in_model: false — this makes weather a PROPERLY-SHAPED signal for the
+  later validation/feature step, not an input yet. Bearings are approximate;
+  refine per-park from satellite if weather ever proves a real edge. Web panel
+  shows speed only (effect not surfaced in UI — data-layer focus).
+
+- **2026-07-02 (blowup-probability field: p_blowup)** — Built the one genuinely
+  useful idea from the 6/30 betting-model audit. p_blowup = P(either team ≥ 7
+  runs), read directly off the model's existing NegBin score distribution (the
+  same score_matrix that already yields over_prob/p_one_run) — so it's a new
+  OUTPUT, not a new input; the model's probabilities are unchanged. Threads
+  through all layers following p_one_run's exact path: computed in
+  models/baseball.py predict_game (marginal-tail formula, verified identical to
+  matrix read), stored in factor_breakdown at training, surfaced in export as
+  prediction.p_blowup, and flagged in the card. NEW CARD FLAG: an under lean
+  with p_blowup ≥ 0.45 → "fragile under: P(either ≥7) = X% — one-team blowup
+  risk". Threshold calibrated: p(either≥7) ≈ 0.23 for two 3.5-rpg teams, ~0.38
+  at league-avg 4.4, ~0.48+ when a side projects 5+ — so 0.45 fires only when
+  real scoring environment sits under an under lean (the 6/30 trap: Rays 10,
+  Marlins 14). Directly targets the fragile-under failure mode. Only populates
+  for predictions generated AFTER this ships (stored at predict time, not
+  retroactive). Still model-blind — routing signal only.
+
+- **2026-07-03 (tracking: won-last-game)** — Added per-team won_last_game
+  booleans to unused_context (Anthony request). For each side, True/False for
+  whether they won their most-recent completed game before this one; None if no
+  prior game on record (kept distinct from False). Derived from Match rows
+  (finished + scores) we already have — no new feed, batched per-team index, no
+  N+1. Rides in unused_context stamped used_in_model: false like everything
+  else. Populates from next export/predict forward. Pure tracking — accrues for
+  later validation (does streak/last-result carry signal the model lacks?).
+
+- **2026-07-05 (team KPI: avg winning streak length)** — Added streak KPIs as a
+  TEAM-PROFILE stat (Anthony request; explicitly NOT a prediction input). New
+  src/walters/team_streaks.py computes per-team from finished games: avg winning
+  streak length (mean length of winning runs), longest streak, current streak
+  (signed), win%. Surfaced two ways: CLI `team-streaks --sort avg|longest|
+  current|winpct` (all clubs, ranked) and on the existing /teams/{id} profile
+  page as KPI cards. Pure profile/tracking stat — does NOT touch the model or
+  card. (Kept scope tight: KPI only, no prediction wiring, per Anthony.)
+
+- **2026-07-05 (blowup split: per-team p_home_blowup / p_away_blowup)** — Fixed
+  the one-sided-risk blind spot the betting model found 7/4 (Seattle under lost
+  11-0; combined p_blowup was low because Toronto was quiet, but Seattle's own
+  blowup risk was high). Surfaced p_home_blowup + p_away_blowup as separate
+  exported fields (already computed inside predict_game as p_home_big/p_away_big
+  — just exposed). Card fragile-under flag now fires on MAX(home,away) ≥ 0.30
+  rather than combined ≥ 0.45 (0.30 single-team ≈ a 5.3+ rpg offense, the level
+  that blows up unders; league-avg 4.4 team sits at 0.21 and won't trip it).
+  Falls back to combined for older predictions lacking per-team fields. Still
+  model-blind. Populates from next predict forward.
+
+- **2026-07-05 (streak context in predict export)** — Per Anthony: surface
+  seasonal winning-streak KPIs in each prediction's unused_context, conditional
+  on a team being ON a winning streak (won last game). streak_context.{home,away}
+  = {on_winning_streak, current_streak (games into current run),
+  avg_win_streak_len (season), longest_win_streak (season)} — or None if that
+  side didn't win its last game. Reuses team_streaks.streak_kpis over the team's
+  prior games as-of the game date. Framed as a complement to bullpen form for
+  spotting how a club manages long runs of games (rest/rotation patterns beyond
+  players). used_in_model: false — tracking/validation only, NOT a model input.
+  Populates from next export forward.
+
+- **2026-07-06 (CLV aligned-vs-disagreement split)** — Extended clv-report with
+  a bucket split: each model pick classified aligned (model picked market's
+  favorite, first-capture devig ≥50%) vs disagree (picked market's underdog,
+  <50%). Toward/away/flat tally + mean move shown PER BUCKET, plus a Bucket
+  column in the per-game table. Tests the sharper question the interim report
+  (21 toward/38 away/50 flat, mean −0.31pp overall) hinted at: is the
+  anti-predictiveness concentrated in the DISAGREE bucket (the −5.6 Milwaukee-
+  type moves)? Expected reads: disagree away>>toward + negative mean = model's
+  market-fights are anti-predictive (confirms blend premise, and the "no edge"
+  verdict); aligned ≈0 = agreeing with market isn't edge either. Ready for the
+  July 8 rerun. Same honest framing: one window, confirm before concluding.
+
+- **2026-07-06 (historical backfill: backbone + weather archive)** — Groundwork
+  for a prior-season historical DB (gives the input-search idea a real training
+  runway; see docs/historical_backfill_assessment.md). FINDINGS: schedule/
+  results, umpires, and pitcher-appearances backfill for 2025 with NO code
+  change — sync-matches/sync-umpires/sync-appearances already take --season and
+  filter Match.season. The one real build: historical WEATHER. Added
+  fetch_weather_historical() (Open-Meteo ARCHIVE endpoint archive-api.open-
+  meteo.com/v1/archive, same vars incl. wind_direction, same return shape) +
+  `backfill-weather --season 2025` (walks finished games, skips existing,
+  rate-limited 0.4s, writes game_weather). TIER LIMITS (honest): odds/CLV canNOT
+  backfill (line movement not reconstructable — CLV stays forward-only);
+  re-running predict on 2025 = a BACKTEST (calibration/training only, not live
+  edge). Sequencing: backfill is safe groundwork; still gate hard model-change
+  decisions on the July 8 CLV review.
+
+- **2026-07-06 (pre-game umpire capture: sync-umpires --today)** — Confirmed via
+  live test that the MLB Stats API boxscore officials block populates PRE-game
+  once the crew checks in (~a few hours before first pitch): at 11:16 ET only
+  the 14:10 game had its ump (Jim Wolf), evening games pending — coverage is
+  time-to-first-pitch dependent, exactly as expected. Added --today flag to
+  sync-umpires: targets TODAY's SCHEDULED games, writes the plate umpire where
+  posted (partial row — run environment left null, fills in post-game via the
+  normal finished-game sync), and on re-run UPDATES null-umpire rows rather than
+  skipping (so running it closer to first pitch fills in late-posting games).
+  Slots into pre-game routine next to capture-weather (run after sync-pitchers).
+  Export's unused_context.plate_umpire then populates for games whose ump is
+  posted at run-time, carrying the season R/G we already track. Still model-
+  blind. Coverage is inherently partial (late games post later) — by design.
+
+- **2026-07-08 (CLV REVIEW COMPLETE + Stage 1 signal validation)** — CLV rerun
+  (n=187, --since 2026-06-24): overall toward 43/away 71/flat 73, mean −0.28pp
+  (interim was −0.31pp — STABLE). Aligned-vs-disagree split: DISAGREE bucket
+  toward 14/away 38, mean −0.71pp (anti-predictive, confirmed at sample);
+  aligned ≈ neutral. VERDICT: model is well-calibrated but does NOT beat the
+  close; its market disagreements are anti-predictive. "Calibrated thermometer,
+  not income engine." No demonstrated edge. Decision: keep model unchanged;
+  betting-income thesis set down pending any Stage-1 signal that proves out.
+  Anthony wants to test whether missing INPUTS explain it. Built Stage 1:
+  `signal-residuals` (src/walters/signal_residuals.py) — for each tracked signal
+  (bullpen fatigue, wind, temperature, umpire run-env), buckets the model's
+  RESIDUAL (actual − predicted on its pick) and reports mean±SE per bucket +
+  spread. A signal carries NEW info only if residual VARIES across buckets
+  beyond noise (spread ≥6pp flags a Stage-2 candidate). Honest framing baked in:
+  most signals expected flat (redundant w/ team quality); passing Stage 1 =
+  calibration info NOT market edge (market may already price it); historical =
+  hypothesis, confirm out-of-sample in Stage 2 before touching model. Bullpen
+  fatigue is the one to watch. Model stays untouched regardless until a signal
+  passes BOTH stages.
+
+- **2026-07-08 (miss-analysis: exploratory category sweep)** — Built
+  `miss-analysis` (src/walters/miss_analysis.py) — the disciplined version of
+  "categorize what we got wrong." Buckets ALL graded predictions across ~9
+  dimensions (confidence tier, favorite side, market agree/disagree, run
+  environment, day/night, one-run risk, starter known, totals availability,
+  park) and shows actual vs PREDICTED win rate + gap ± SE per bucket. Does NOT
+  bucket losses alone (that always finds spurious patterns) — compares to the
+  model's own predicted prob, controlling for base rates. Flags a bucket only if
+  gap < −2×SE AND n≥min. HARD multiple-comparisons discipline baked into output:
+  ~25 buckets tested → expect ~1 false positive; a flag is a HYPOTHESIS needing
+  gradient + out-of-sample confirmation, a lone flag is probably noise (the
+  lesson from the non-monotonic bullpen/umpire Stage-1 results). Prior: mostly
+  noise, given CLV verdict + flat Stage 1 — but it's the broad exploratory sweep
+  that catches anything the 4-signal test missed. Model stays untouched.
+
+- **2026-07-08 (backtest: leakage-free historical validation)** — Built
+  `backtest` (src/walters/backtest.py) to validate the confidence-tier
+  overconfidence gradient on 2025 (independent data) before tuning run-shrink.
+  Confirmed 2025 has NO predictions (backfill brought games/results only), so a
+  backtest must GENERATE them. CRITICAL: leakage-free — walks games in date
+  order, predicts each using ONLY prior games to build run profiles, adds the
+  game to history only AFTER predicting (verified ordering). Loads production
+  config so run-shrink/recal match live. Prints calibration-by-tier + an
+  explicit gradient verdict (monotonic + strong gap <−3pp = CONFIRMED, tune
+  run-shrink; else = recent-window artifact, don't tune). HONEST LIMITATION
+  (documented): team profiles are point-in-time but pitcher ERAs are NOT
+  reconstructed as-of-date — backtest runs without pitcher adjustment, so it
+  tests the structural/run-profile calibration (which is what the confidence-
+  tier gradient IS a property of), not the full pitcher-aware pipeline. Min 40
+  prior games before predicting (thin early-season history guard). Does NOT
+  write Prediction rows or touch the model. Foundation for Stage 2 input-testing
+  too.
+
+- **2026-07-08 (honest scenario layer)** — Built a what-if scenario layer AFTER
+  prediction (Anthony's idea), src/walters/scenarios.py build_scenarios().
+  Leaves the model untouched. Two parts: (a) distribution_scenarios — real
+  slices of the model's OWN score distribution (favorite-wins / upset / one-run
+  / blowout / per-team explosion), each carrying the model's actual probability;
+  (b) context_flags — tracked conditions (streak, bullpen fatigue, wind, umpire)
+  shown for awareness with effect=None and an explicit "context only, no
+  validated predictive effect" tag (bullpen even labels "failed Stage-1"). The
+  hard rule enforced + unit-verified: NO scenario or flag carries a fabricated
+  probability — (a) numbers are the model's, (b) numbers don't exist. Surfaced
+  via `scenarios [--date]` CLI (prob bars + basis per scenario) and attached to
+  each export row as row["scenarios"]. This is the honest version of Anthony's
+  "storytelling layer": richer what-if picture, real numbers only, and the
+  natural home for any condition that eventually VALIDATES (graduates from
+  context-flag to weighted) via Stage 2 / upset-log. Refused the generative
+  version (LLM/vibes confidence scores) — convincingly-wrong is worse than
+  obviously-wrong.
+
+- **2026-07-12 (venue rename fix: Rate Field + UNIQLO Dodger)** — Two parks
+  missing from weather coord map because the feed now sends renamed venues:
+  "Rate Field" (CWS, was Guaranteed Rate Field) and "UNIQLO Field at Dodger
+  Stadium" (LAD naming rights). Both were IN the maps under old names. Fixed via
+  explicit alias table in lookup_venue() + prefix-strip ("<Sponsor> Field at X"
+  → X) fallback, and added both new names to park_wind PARK_CF_BEARING so wind
+  classification also resolves. Same class as the earlier Daikin Park rename.
+
+- **2026-07-12 (calibration-fine: configurable bands + honest error bars)** —
+  Anthony wanted finer bands (1-point: 50/51/52%) over ~30 days. Built
+  `calibration-fine` (src/walters/fine_calibration.py) with --width (default
+  0.01), --days (default 30) / --since, --actionable-only. Manages the
+  resolution-vs-noise tension honestly: fine bands for texture, each with n +
+  Wilson 95% interval (thin bands <20 games dimmed, read as directional);
+  coarse 5pp bands alongside for the statistically honest read; monotonic-trend
+  check over well-sampled coarse bands (the signal that survives noise). Verified
+  a 25-game band → ±18pp interval (visible "don't over-read"), 400-game → ±5pp.
+  Guidance printed: run --days 30 (recent) AND --since 2025-03-01 (full ~3,900-
+  game history) — contrast shows drift vs noise. Read-only; no model change.
+
+- **2026-07-12 (input-candidate framework folded into improve, weekly cadence)**
+  Anthony's insight: "we never promote" + "can't test inputs" = ONE problem —
+  improve only proposes same-structure retrains. Widened the candidate axis:
+  improve now ALSO evaluates production+input candidates through the SAME
+  promotion gate, folded into the daily command but self-throttled to a WEEKLY
+  cadence (src/walters/input_candidates.py; state in ~/.sports_predictor_input_
+  candidates.json; --input-cadence-days, --force-input-eval). Daily = fast
+  same-structure check as before; weekly = input-candidate eval. Rationale:
+  inputs move slowly + daily testing is a multiple-comparisons machine that
+  eventually promotes noise (weekly cuts false-positive risk ~7x). HONEST SCOPE
+  (not hidden): the run-profile Pythag/NegBin model has no consumption slot for
+  weather/umpire/streak, and none is reconstructed as-of-date, so the consumable
+  set is currently EMPTY by design — the framework lists each input + why it's
+  not yet consumable (all failed Stage-1 or collinear w/ team quality). It's the
+  READY mechanism: when a signal passes validation + gets a slot, it plugs in
+  and flows through the same gate. Reminder: a promotion here = better-calibrated
+  PREDICTOR, not market edge (CLV verdict independent of model quality).
+
+- **2026-07-12 (bullpen EFFECTIVENESS tracking — reliever run-prevention)**
+  Anthony: track how relievers PERFORM, not just availability. Gap identified:
+  pitcher_appearances had usage (pitches/outs) but NOT effectiveness. Built:
+  (1) adapter now extracts per-appearance earned_runs/hits/walks/strikeouts from
+  the boxscore (same call, was already there); (2) 4 new nullable columns on
+  pitcher_appearances + migrate_bullpen_effectiveness.py (idempotent ALTER);
+  (3) sync-appearances --refresh (deletes+rewrites existing games to populate
+  new fields — needed since normal sync skips captured games); (4)
+  src/walters/bullpen_effectiveness.py: team reliever-only ERA/WHIP/K-9 over
+  trailing 30d, leakage-safe (strictly before as_of); (5) surfaced in
+  unused_context.bullpen_effectiveness (home/away) alongside availability; (6)
+  `bullpen-effectiveness` report (--window/--sort). Team-level now; per-appearance
+  rows keep pitcher_id so reliever-level (like starter tracking) can build on
+  same data later w/o re-capture. used_in_model: FALSE. HONEST CAVEAT stated
+  throughout: bullpen quality is PARTIALLY already in team RA (bullpen innings ARE
+  team runs-allowed); the real question is whether RECENT bullpen form adds signal
+  BEYOND season RA — test via Stage-1 (residuals controlling for RA) before it's
+  ever a model candidate. "Better predictor" possible; "edge" is the higher bar
+  (market prices bullpens too). Migration+refresh runbook: migrate → sync-
+  appearances --refresh --backfill for 2025 & 2026.
+
+- **2026-07-13 (cosmetic: verbose sync-matches progress)** — sync-matches could
+  run 5+ min silently; added a progress callback threaded through
+  IngestionService.sync_matches (optional `progress` param, back-compatible).
+  Now prints: fetch-phase announcement (flags it as the slow part), then a
+  running "…N/total (X%) — created/updated/skipped" ~10x through the DB write,
+  then Done. CLI passes a dim-printing callback. Purely cosmetic — no behavior
+  change. (All-Star break: no games 7/13, ASG 7/14, dark 7/15, 1 game 7/16, full
+  slate resumes 7/17.)
+
+- **2026-07-20 (bullpen_effectiveness added to input-candidate registry)** —
+  Fixed the omission: bullpen EFFECTIVENESS (reliever ERA/WHIP/K-9, trailing 30d)
+  is now a listed tracked input in input_candidates.TRACKED_INPUTS. Still
+  consumable=False (accruing, not Stage-1 tested, partially collinear w/ team RA,
+  no consumption slot) — but now formally in the weekly candidate report + queued
+  for eventual Stage-1 testing (does recent bullpen form add signal beyond season
+  RA?). Data was already capturing + riding in unused_context; this just
+  completes the registry.
+- **2026-07-20 (doubleheader logic — SCOPED, not yet built)** — Anthony asked re
+  better DH handling. Symptom: odds matcher keys on (date, teams) → collides for
+  same-day same-team games, so DH games lack odds/market context (predictions
+  still generate). Real but small (few per season, only market-join fails). Right
+  fix: include gameNumber/gamePk in match key (MLB API distinguishes; each DH game
+  has distinct gamePk + gameNumber 1/2). CAVEAT to check FIRST: whether the odds
+  feed (API-Baseball) separates the two games at all — if it lumps them, a better
+  match key only half-fixes it and the honest move is to FLAG DH games as "no
+  reliable market context" rather than force a fragile match. Decision: confirm
+  odds-feed behavior before building.
+
+- **2026-07-20 (doubleheader match-key fix — the safe half)** — Fixed the DH
+  collision in match_lookup.find_match_by_teams_and_time(). Was: 2 candidates
+  (same-day same-teams) → return None → both games skipped, no odds. Now:
+  disambiguate by START-TIME PROXIMITY — each DH game has a distinct utc_date;
+  the odds' commence_time is closest to its own game (G1 ~1pm, G2 ~7pm), so pick
+  the nearest. SAFETY GUARD: only disambiguates when the two games are ≥1h apart
+  AND the odds are ≥1h closer to one than the other; otherwise still returns None
+  (skip) rather than risk mis-attaching a line — mis-attribution would be WORSE
+  than no odds. Verified: odds@7pm→G2, odds@1pm→G1, games 30min apart→skip. This
+  is the match-side fix (correct regardless of odds-feed behavior). STILL OPEN:
+  whether the API-Baseball odds feed publishes separate lines per DH game at all
+  — if it lumps them, this helps only when it does separate; confirm on a live DH
+  before assuming full coverage.
+
+- **2026-07-20 (totals calibration — the accuracy work we never did)** — Anthony:
+  how much have we validated the totals NUMBER? Answer: almost none — all rigor
+  went to sides. Built `totals-calibration` (src/walters/totals_calibration.py),
+  3 reads on graded games with a REAL market line: (1) projected-vs-actual bias
+  (mean error ± SE, MAE, bucketed by projected level — is the number centered or
+  biased?); (2) over/under PROBABILITY calibration (says X% over → does over hit
+  X%? off-diagonal = NegBin dispersion/shape miscalibration); (3) run-environment
+  cut (with the honest caveat that ≤6/≥13 buckets MUST show error since point
+  projection can't predict blowups — look at NORMAL 7-9 for the real signal).
+  KEY framing: totals markets are softer than sides, so unlike the side (already
+  clean, market-efficient) a totals miscalibration could be real AND fixable —
+  this is the one place the investigation might turn up something actionable.
+  Measures ACCURACY; "beats the market" (totals CLV) is a separate later question.
+  Read-only, no model change.
+
+- **2026-07-20 (totals bias — backtest confirmation added)** — 2026 totals-
+  calibration surfaced a REAL, coherent low-projection bias: monotonic gradient
+  (low proj +1.06, mid +0.54, high ~0, all ≥2SE, n=781) confirmed independently
+  by the over-prob read (30-40% over-band: predicted 36% / actual 54%, n=134).
+  Same defect from 2 angles: model UNDER-projects low-scoring games. Unlike the
+  side (clean), this is fixable — BUT same-window risk as the confidence-tier
+  gradient that evaporated, so must confirm on 2025 first. Extended backtest:
+  now captures proj_total + actual_total per game, totals_bias_by_band() +
+  printed in `backtest --season 2025` with a reproduce/not-reproduce verdict
+  (low>+0.4, mid>+0.2, descending gradient = CONFIRMED → justify low-total upward
+  calibration / revisit run-shrink's effect on low totals; else = window
+  artifact, don't touch). Leakage-free (backtest builds proj from prior games
+  only). NEXT: run backtest --season 2025, read the totals verdict.
+
+- **2026-07-20 (shrink-tuning sweep — path from confirmed bias to fix)** — 2025
+  backtest CONFIRMED the totals bias AND revealed it's two-sided: low proj +0.84
+  (under-projects) AND very-high proj −0.91 (over-projects) on 2441 games. Real
+  diagnosis: projections are OVER-DISPERSED — both tails overshoot, want more
+  shrinkage toward league mean. Not a one-sided low nudge. Mechanism already
+  exists (run_shrink_frac=0.25); finding says it may be too WEAK. Built
+  `shrink-sweep --season 2025 --fracs 0.25,0.35,0.45`: re-runs leakage-free
+  backtest at each shrink strength, reports totals bias by band + win-prob tier
+  calibration for each, + a summary picking the frac that minimizes tail
+  imbalance (|low|+|very-high|) WHILE keeping worst side-tier gap small. Config
+  override via dataclasses.replace (doesn't mutate production). DISCIPLINE: the
+  backtest is the judge — pick the frac that flattens BOTH totals tails without
+  degrading side calibration; if flattening totals breaks sides, it's a trade-off
+  to weigh not an auto-change. Then set-config run_shrink_frac + verify forward.
+  NOTE: improves totals ACCURACY, not proven totals-market edge (separate CLV Q).
+  This is the FIRST actionable model finding of the whole investigation — real,
+  reproduced, fixable.
+
+- **2026-07-21 (bugfix: 500 on prediction detail — NameError _result_letter)**
+  UI prediction/match detail view 500'd with "NameError: name '_result_letter'
+  is not defined". Root cause: preview.py called _result_letter(match, team_id)
+  in two places (form summary + H2H) but the helper was never defined (lost in a
+  prior edit) — NOT related to the run_shrink config change (timing was
+  coincidental). Fix: defined _result_letter at module level — returns W/L/D from
+  the team's perspective, None for unplayed games (null scores, so they don't
+  miscount). Verified logic on all cases. Isolated one-function fix; no other
+  behavior touched.
+
+- **2026-07-29 (totals-calibration --since flag — verify-forward tooling)** —
+  Added --since YYYY-MM-DD to totals-calibration (filters _collect by
+  Prediction.computed_at). Purpose: isolate post run_shrink_frac=0.35 games
+  (--since 2026-07-20) so the pre-change 0.25-era bias doesn't dilute the read.
+  This is the verify-forward instrument for the shrink change: run it to check
+  whether the confirmed low/mid projection under-bias (+1.06/+0.54 pre-change)
+  has flattened on live post-change games. ~9 days / ~130 games accrued at build
+  time — directional not definitive yet, but the right moment to start looking.
+  Read-only, threaded since through _collect + totals_calibration + CLI.
+
+- **2026-07-29 (totals-calibration read #4: residual by MARKET line)** — Anthony's
+  addition. Prior reads bucket by the model's PROJECTED total (internal
+  calibration). This new read buckets by the MARKET's line and shows, per line
+  band: market resid (actual − line = did games at this line level go over/under
+  the market) AND model resid (actual − projection = model's own error there).
+  Divergence = where the model reads a line level differently than the market —
+  the betting-relevant cut the projection buckets can't show. Flags market resid
+  >2SE. Honest framing baked in: a biased market resid + centered model resid =
+  line-level EDGE CANDIDATE (track, don't bet, until sample confirms); still an
+  ACCURACY read, not proof of CLV. Data already in _collect (line/actual/
+  projected); works with --since too. Read-only.
+
+- **2026-07-29 (edge-candidate flag on read #4 — anti-noise guardrail)** —
+  Anthony's idea: auto-flag that refuses to cry "edge" until preconditions met.
+  Added model−market column (projection − line = model's DISAGREEMENT with the
+  line) and a per-band flag firing ONLY if all five hold: |market resid|>0.75,
+  |model resid|<0.40, |model−market|>0.50, SAME direction (model disagreed the
+  way the market missed — added, not in Anthony's original, essential to rule out
+  both-wrong-but-lucky), n≥150 (raised from his 75 — beating a market line is an
+  extraordinary claim). Prints "Candidate structural market bias detected"
+  (labeled TRACK-forward, not confirmed) or the honest default "No evidence of
+  persistent market-level edge." Unit-tested all 6 pass/fail cases. Guardrail
+  against future-us chasing noise, baked into the tool. Works with --since.
+
+- **2026-08-01 (export-results — yesterday's graded games for the GPT layer)** —
+  Gap: morning run EVALUATES yesterday's games (writes outcomes to DB) but never
+  EXPORTED them to a file the external prediction model could consume. Built
+  export_results() (src/walters/export.py) + `export-results` CLI. Backward-
+  looking companion to export-predictions: pairs each graded game's PREDICTION
+  (top pick, probs, projected total, o/u line, over prob) with ACTUAL (scores,
+  total, result) and GRADED (top_pick_hit, total_correct, total_error, log_loss,
+  brier, clv, closing_price), keyed by match_id so the consumer joins to the
+  prediction file it already has. Defaults to YESTERDAY (what the morning run
+  just evaluated), 08:00-UTC slate-day window (matches export-predictions),
+  writes exports/mlb_MLB_results_<date>.json. Add to morning chain after
+  evaluate: `export-results --sport mlb`. Record shown (top-pick n/N, totals
+  n/N) is labeled variance-not-signal, for the consumer to grade against.
+
+- **2026-08-02 (totals model — Step 1 scaffold + head-to-head)** — Anthony's
+  "two models competing" → scoped to the one defensible version: a totals-
+  specific model (totals is the soft market + where the real bias was found).
+  Built src/walters/totals_model.py project_total() — projects TOTAL runs
+  directly, park-factor-adjusted (park_factors.py already existed), as explicit
+  alternative to the incumbent byproduct total (home_xr+away_xr from the win-prob
+  model). Step 1 ONLY: minimal (team run rates + park + league env), must BEAT
+  incumbent on leakage-free OOS MAE/bias before adding anything. Extended
+  run_backtest with return_totals_rows flag (additive 10-tuple: p,won,inc_total,
+  actual_total,hrs,hra,ars,ara,lg,venue — existing 4-tuple results path
+  UNCHANGED so shrink-sweep/totals-bias unaffected). `totals-model-test --season
+  2025 --park-weight N` prints MAE/bias head-to-head + verdict (beats by >0.02
+  MAE = proceed to Step 2 totals-specific Stage-1 for weather/bullpen/umpire;
+  worse/tied = incumbent hard to beat, stop). Honest framing: park is the one new
+  input in Step 1; weather/bullpen/umpire are Step 2 and must pass a totals-
+  specific Stage-1 (predict TOTAL-runs residuals) to earn a slot IN THE TOTALS
+  MODEL. Better number ≠ totals-market edge (separate CLV). NEXT: run
+  totals-model-test, and sweep --park-weight to see if park helps.
+
+- **2026-08-04 (daily totals pulse — robust diagnostics on export-results)** —
+  Anthony's enhancement: the daily mean total_error is blowup-distorted (today
+  +1.93 from two 11-12 run explosions, while the TYPICAL game was slightly OVER-
+  projected). Added a 5-number pulse to the export-results summary (does NOT
+  change calibration logic — diagnostic only): mean · median · trimmed mean ·
+  blowups(>6)/n · typical-game MAE (on |err|<=6 games). Separates central
+  tendency / robustness / outlier frequency. Fix during build: 10% trim is 0
+  games at small slate sizes, so floor k at 1 when n>=6 so the trim actually
+  bites; typical-MAE explicitly excludes blowups rather than relying on trim.
+  Verified today: mean +1.93 → median -1.70, trimmed +1.35, typ-MAE 2.8, 3
+  blowups — honest picture. Standing reminder in output: mean/median divergence =
+  outlier day not bias; --since calibration read is the real verdict.
+
+- **2026-08-04 (totals_pulse SERIALIZED into results export — audit-layer fix)** —
+  Anthony caught that the pulse was console-print only, invisible to the audit
+  layer that reads the FILE. Fixed: _compute_totals_pulse() now runs inside
+  export_results() and the block is a top-level "totals_pulse" key in the JSON
+  payload: games, mean_error, median_error, trimmed_mean_error, blowup_count,
+  blowup_threshold(6.0), non_blowup_mean_error, non_blowup_mae. CLI now READS the
+  block back from the payload for its console print (single source of truth — file
+  and console identical). Confirmed on 8/3 data: mean +1.93 but non_blowup_mean
+  -2.84 (typical game OVER-projected; mean driven by 3 blowups). Audit layer can
+  now distinguish outlier-driven daily averages from real projection behavior
+  directly from the file.
+
+- **2026-08-10 (Kalshi Step 1 — second market source + disagreement read)** —
+  Anthony has Kalshi API access, asked if prediction-market prices add value on
+  top of bookmaker odds. Framed honestly: Kalshi price = implied prob, same as
+  de-vig book line; most likely REDUNDANT for liquid MLB, but potentially a
+  valuable SECOND independent market consensus (sharpens CLV; thinner markets
+  *might* be softer). Discipline: measure disagreement first, don't wire to model
+  or bet on it. Built Step 1: (a) src/adapters/kalshi.py — public market data, NO
+  auth needed (auth only for trading); discovers MLB series at runtime (never
+  hardcodes ticker — they change, e.g. KX* Klear prefix); implied_prob from
+  yes_bid/ask midpoint (cents/100). (b) src/ingestion/kalshi_sync.py — pulls open
+  MLB markets, matches to scheduled games by team name (best-effort, REPORTS
+  matched/unmatched not silent), stores each side as OddsSnapshot(source=
+  "kalshi") — reuses existing snapshot table (already has `source` col), so the
+  read is a clean self-join. (c) `sync-kalshi` + `kalshi-disagreement` CLI: the
+  read self-joins kalshi vs book consensus by match+selection, reports mean/median
+  signed diff, mean ABS diff, %≥3pp and %≥5pp gaps, with verdict: small/few =
+  REDUNDANT (stop); sizable = worth Step 2 (when they disagree, which is closer to
+  actual outcome — CLV-style). NOT wired to model/bets. NEXT: run sync-kalshi
+  alongside sync-odds for a few days, then kalshi-disagreement to see if it's a
+  second copy of the book or a genuinely different signal.
+
+- **2026-08-10 (Kalshi fix: wrong series endpoint path)** — sync-kalshi 404'd:
+  I'd built it as GET /series/list (from a search snippet) but the real endpoint
+  is GET /series (confirmed in API ref). Fixed the path; find_mlb_series now
+  tries category=Sports, tags=MLB, then unfiltered. Also added sports_filters()
+  using /search/filters_by_sport (Anthony's link — maps sports→competitions, a
+  cleaner discovery aid) and made the sync REPORT what it found (available
+  sports, MLB series tickers) so an empty result is diagnosable rather than
+  blank. Markets endpoint (GET /markets?series_ticker=) was already correct.
+
+- **2026-08-10 (Kalshi fix 2: target game series, kill 429s, diagnose matching)**
+  First real run exposed 3 issues: (1) keyword filter matched 207 "MLB" series
+  (HR derby, MVP, season wins, NPB/KBO/WBC/NCAA, props — all noise); (2) fetching
+  all 207 tripped Kalshi rate limit (429 Too Many Requests); (3) even fetched
+  markets matched 0 games (title-substring matching didn't catch Kalshi's team
+  encoding). Fix: target ONLY KXMLBGAME (daily game moneyline series) via
+  adapter.GAME_SERIES + game_series_markets(), which kills the 429s and the noise.
+  Matching now checks title+subtitle+ticker (normalized). Added a DIAGNOSTIC that
+  prints one sample market's keys + ticker/title/subtitle/bid/ask so we can see
+  how Kalshi actually encodes teams and finalize matching. NEXT: run sync-kalshi,
+  read the sample-market line to confirm KXMLBGAME structure + whether matching
+  now works.
+
+- **2026-08-10 (Kalshi fix 3: real field names + token matching — should work now)**
+  Sample market from the live API revealed the actual structure: prices are
+  yes_bid_dollars/yes_ask_dollars (already 0-1, NOT cents/100), and my old code
+  read yes_bid/yes_ask → got None → skipped every market (0 stored). Team is in
+  yes_sub_title (e.g. "Texas", "Los Angeles A"); ticker like
+  KXMLBGAME-26AUG122210TEXLAA-TEX (date+matchup+winner-side). Fixed implied_prob
+  to use *_dollars fields (+ handle one-sided quotes + last_price_dollars
+  fallback); added yes_team(). Matching now uses yes_sub_title token-overlap vs
+  our team names (so "Texas"→"Texas Rangers", "Los Angeles A"→"Los Angeles
+  Angels" via shared city/nickname tokens), requiring ≥1 shared token, best
+  overlap wins. Unit-verified prices + overlaps. NEXT: run sync-kalshi — should
+  now store >0; then sync alongside sync-odds a few days + kalshi-disagreement.
+
+- **2026-08-10 (Kalshi fix 4: dollar fields are STRINGS)** — sync failed with
+  "unsupported operand type(s) for /: 'str' and 'float'" — Kalshi returns
+  *_dollars as strings ("0.55") not floats. Added float coercion in implied_prob
+  (safe _f() helper, returns None on empty/garbage). Fixed diagnostic to print
+  the real *_dollars fields. Unit-verified string prices → 0.56 etc. NEXT: run
+  sync-kalshi — should finally store >0.
+
+- **2026-08-11 (SOCCER: leakage-free backtest — the load-bearing fix)** — Bringing
+  soccer up to MLB discipline for PL season (starts in 10 days). AUDIT FINDING:
+  the existing holdout eval (_score_model_on_holdout_soccer, training.py ~1601)
+  LEAKS BADLY — computes strengths from ALL finished season matches (incl. the
+  target game + everything after, no date filter line 1606) AND loads Elo from
+  FINAL trained state. So every soccer calibration number to date is contaminated
+  /untrustworthy. Production PREDICT path (predicting SCHEDULED games from all
+  finished) is leakage-SAFE — those predictions are legit. Only eval leaked.
+  FIX: built src/walters/soccer_backtest.py — walks season in DATE ORDER, predicts
+  each match using ONLY prior games: Elo walked game-by-game (update_after_match
+  AFTER each predict), strengths recomputed from strictly-prior finished matches,
+  min_prior=40 guard (like MLB). `soccer-backtest --competition PL --season` prints
+  1X2 calibration (home/draw/away bands, pred vs actual ±SE), multiclass log-loss
+  (vs 1.099 uninformed) + Brier, AND base-rate-vs-mean-pred (flags the classic
+  Poisson under-prediction of DRAWS). Verified walk ordering is strictly-prior
+  (0,1,2,3,4). Model itself (Elo+Poisson, soccer_elo_poisson family) is sound.
+  NEXT: run soccer-backtest on last PL season → first HONEST read on soccer
+  calibration; watch draw prediction especially.
+
+- **2026-08-11 (SOCCER: Dixon-Coles draw correction + sweep)** — Leakage-free
+  backtest (340 PL 2024/25 games) confirmed 2 real fixable issues: (1) DRAW
+  under-prediction — actual 24.4% vs pred 20.9%, model never predicts a draw >40%
+  (235 draw-preds cluster 20-30%); (2) favorite OVERCONFIDENCE — 70-90% home-win
+  bands actual only ~48-53% (well-sampled n=19/21). Model otherwise well-calibrated
+  in 20-70% middle + beats uninformed (log-loss 1.009 vs 1.099). Both likely flow
+  from independent-Poisson mishandling draws. FIX: added Dixon-Coles low-score
+  correction to poisson.predict_match — PoissonConfig.dixon_coles_rho (0=old pure
+  Poisson; rho<0 inflates 0-0 & 1-1, deflates 1-0/0-1). Standard DC tau on the 4
+  low cells, clip≥0, then existing normalization. Added run_soccer_backtest
+  dixon_coles_rho override + `dixon-coles-sweep --rhos` (reports per rho: log-loss,
+  pred vs actual draw%, draw gap, 70-90% favorite actual win%). Verified rho more
+  negative → draw prob up monotonically (25.5%→29.1% at lam1.5/mu1.2). NEXT: run
+  dixon-coles-sweep on 2024/25, pick rho that closes draw gap w/o hurting log-loss
+  + helps favorite bands, then soccer-backtest at that rho to confirm before
+  setting it in the soccer production config.
+
+- **2026-08-11 (SOCCER: rho decision + set-soccer-config)** — Dixon-Coles sweep
+  (PL 2024/25, leakage-free): draw gap closes monotonically 0→-0.15 (-3.5→-0.7pp)
+  AND log-loss improves through -0.10 (1.0092→1.0079) then ticks up at -0.15
+  (1.0083). DECISION: rho = -0.10 — largest correction at BEST log-loss (halves
+  draw gap -3.5→-1.6pp); -0.15 is over-correction (log-loss climbing), same logic
+  as picking 0.35 over 0.45 for MLB shrink. CRITICAL FINDING: Dixon-Coles did NOT
+  fix favorite overconfidence (70-90% band actual ~61-62% across whole sweep vs
+  predicted 74-84%) — that's a SEPARATE problem (Elo/strength spread too aggressive),
+  needs its own probability recalibration, deferred to weekend. Built
+  set-soccer-config CLI (edits production soccer model params['poisson'], audited
+  + reversible, whitelisted fields dixon_coles_rho[-0.30,0]/elo_goal_coeff/
+  default_total_line). Predict path already reads PoissonConfig(**params['poisson'])
+  so rho takes effect next predict run.
+  **APPLIED 2026-08-14:** rho = -0.10 set on production soccer_elo_poisson v13
+  (confirmed via CLI, audited). Weekend plan superseded by the full readiness
+  section below (added 2026-08-15).
+
+## SOCCER — PL 2026/27 READINESS (target: complete before opening weekend ~Aug 21-22)
+
+Ordered by (correctness risk x time pressure). S1 and S2 gate opening weekend;
+S3/S4 improve it; S5 is ops. All calibration numbers come from the leakage-free
+soccer-backtest ONLY (the old holdout eval is contaminated — see 2026-08-11).
+
+- **S1. Favorite-overconfidence recalibration [MODEL, blocks quality, ~half day]**
+  The one open calibration defect: 70-90% home-win bands land ~61-62% actual vs
+  74-84% predicted (well-sampled, stable across the whole rho sweep — Dixon-Coles
+  is orthogonal to it). Suspected mechanism: Elo/strength spread too aggressive
+  when mapped to goal lambdas. PLAN, mechanism-first (house style):
+  (a) sweep `elo_goal_coeff` (already set-soccer-config whitelisted) on
+  soccer-backtest PL 2024/25 — report per value: 70-90% band pred-vs-actual,
+  log-loss, draw gap (watch rho interaction — re-verify rho=-0.10 still right at
+  the chosen coeff, they both act on lambdas);
+  (b) only if damping the source can't close the band without hurting log-loss:
+  post-hoc band recalibration (MLB recal-clamp pattern) on 1X2 with draw
+  renormalization — more knobs, less mechanism, last resort.
+  ACCEPTANCE: 70-90% band gap within ~1 SE at n>=20; log-loss <= 1.0079
+  (current rho=-0.10 baseline). Then set-soccer-config, log decision here.
+  Uses only 2024/25 data — can run TODAY, no dependency on new-season sync.
+  **RESOLVED 2026-08-15 — elo_goal_coeff = 0.0008** (from default 0.0023), by
+  pre-committed rule (largest coeff where BOTH seasons pass pick-edge <= +2pp
+  AND draw gap in [-1.0,+0.3]): 24/25 edge +4.06 -> +0.56pp, 23/24 +6.00 ->
+  +1.94pp; log-loss 1.0079 -> 0.9956 and 0.9715 -> 0.9605; draw gaps -0.2 /
+  +0.1pp so rho=-0.10 is JOINTLY confirmed at the new coeff (no re-sweep
+  needed — nothing left to close). 0.0010 failed 23/24's edge bar; 0.0004-6
+  over-corrects draws on 23/24 and is grid-edge chasing. Two-season selection
+  (680 games, 2023/24 ingested as held-out check) — the overfit guard MLB
+  sweeps never had. NOT built: the recal band clamp — the 70-90% band
+  catastrophe did NOT replicate (23/24: 78%->71-76%, near 1 SE; pooled ~1.9
+  SE, borderline) so stacking a second correction is the bullpen-taper
+  mistake; re-examine only if the S6 weekly gate shows the band failing
+  in-season. STRUCTURAL RESIDUAL, both seasons, all coeffs: model-above-close
+  picks hit 42-49% vs claims of +8-11pp; model-below-close hit 56-70% — the
+  soccer thermometer verdict. CONSUMER NOTE for the GPT layer (S4 docs):
+  positive model-vs-market edges in soccer are historically ANTI-predictive;
+  treat market-disagreement as market-is-right by default, opposite of a
+  value signal. Sweep tooling: elo-coeff-sweep (market-scoreboard columns),
+  soccer-backtest now defaults to production rho.
+
+- **S2. Season 2026/27 cold start + promoted teams [CORRECTNESS, time-critical, ~half day]**
+  VERIFIED GOOD: predict path backfills strengths from prior season when <30
+  finished matches (training.py MIN_MATCHES_FOR_STRENGTHS) — opening weekend
+  won't run on empty strengths. OPEN SUBITEMS:
+  (a) sync PL 2026/27: teams first (three promoted clubs are new rows), then
+  fixtures; VERIFY the api-football season key format for the new season and
+  that matchweek-1 fixtures + odds actually land — dry-run THIS WEEKEND, not
+  opening day.
+  (b) Promoted-team priors: unseen teams get default Elo (1500) + no strength
+  rows -> confirm what the Poisson layer actually assigns (likely neutral 1.0),
+  and DECIDE: leave neutral (simple, slightly overrates promoted sides
+  historically) vs a conservative promoted-team prior. Whichever way: EXPORT
+  the fact (see S4 strengths_source) so the GPT layer can discount matchweek-1
+  rows involving promoted clubs rather than us silently guessing.
+  **DRY-RUN 2026-08-15:** teams created=0/updated=20 (all promoted clubs had
+  prior PL spells in DB — verify the 20 match the real 2026/27 table); 380
+  fixtures created clean; odds 6/20 (bookmaker timing); backfill ENGAGED
+  (0 finished -> 500 prior); predict wrote 306/380 — the 74-game gap =
+  exactly TWO clubs absent from the strengths window (2x38-2). Silent skip
+  fixed same day (predict warns with club names + counts). Soccer export
+  needs explicit window: --start 2026-08-21 --end 2026-08-24.
+  **(b) DECIDED + BUILT 2026-08-15 (prior-plus-label, Anthony approved):**
+  PoissonConfig.promoted_attack_prior=0.85 / promoted_defense_prior=1.15
+  (set-soccer-config whitelisted, 0.60-1.00 / 1.00-1.40): no-strengths clubs
+  get the conservative profile instead of dropped rows; predict logs which
+  clubs; factor_breakdown carries home/away_strengths_source
+  ("matches" | "promoted_default") per side — for the GPT layer AND our own
+  records: promoted_default rows are their own grading cohort once the
+  season starts; tune 0.85/1.15 only from that ledger. Integration-tested
+  (promoted game predicted H .47/D .25/A .28 vs established side, labels
+  correct, established games untouched). S4 lifts strengths_source into
+  input_quality.
+  (c) Confirm Elo state carried in v13 params covers all 17 returning clubs
+  (spot-check a few ratings are non-default).
+
+- **S3. Kalshi soccer extension [~half day, payload-first]**
+  Discover the EPL game series ticker (sports filter "Soccer" confirmed
+  available; do NOT assume KXEPLGAME — list series and INSPECT A REAL PAYLOAD
+  before writing any code; the MLB integration's surprises were all
+  payload-shape). Soccer is 3-WAY: expect per-team win markets and possibly an
+  explicit draw market — the MLB two-sided normalization DOES NOT TRANSFER.
+  Storage: OddsSnapshot(source="kalshi", market="1X2", selection
+  HOME/AWAY/DRAW). Export: normalize over legs only when ALL THREE present
+  (normalized flag semantics extend, not reuse); vs_book_pp against the 3-way
+  de-vigged book fair prob. Matcher: occurrence gating + both-teams-in-title +
+  refuse-ambiguity all transfer; club-name aliasing is WORSE than MLB
+  ("Man City"/"Spurs"/"Wolves" vs canonical names) — build the alias map
+  sport-generic and fold in the queued MLB sacramento/athletics fix in the
+  same pass (one mechanism, two sports).
+  **RECON 2026-08-17 (payload-first, via new kalshi-probe command):** spec
+  confirmed from real payloads — 54 soccer events across leagues + targeted
+  KXEPLGAME probe (60 open markets = 2 matchweeks incl. the opener).
+  (1) THREE binary markets per game sharing an event_ticker: Home / Away /
+  explicit "Tie" leg (resolves Yes on 90'+stoppage draw; cancel/reschedule
+  rules stated). Store HOME/AWAY/DRAW, normalize only when all 3 legs
+  present. (2) NAMING WIN: EPL uses FULL club names ("Manchester United",
+  "Aston Villa", "Ipswich Town"), titles "X vs Y Winner?" — alias map nearly
+  unnecessary for EPL (keep for Spurs/Wolves-style shorts if they appear).
+  (3) custom_strike.soccer_team = stable club UUID; the Tie legs share one
+  constant UUID (seen identical across leagues) — after one observation pass,
+  matching can go exact-ID, stronger than MLB's name matching. (4) NEW
+  REQUIREMENT — SPREAD GUARD: far-out/unliquid legs show bid/ask like
+  0.03/0.81; a midpoint on that spread is noise, not a price. Sync must skip
+  (and count) legs with spread above a bound (~0.10) — MLB never needed this
+  (its spreads ran 1-2c) but weekend-cluster soccer syncs days ahead will.
+  Ticker grammar: date+abbrs, no time component, no G-suffix. occurrence_
+  datetime present -> time gate + in-play gate transfer unchanged.
+  **BUILT 2026-08-18:** sync-kalshi-soccer (CLI) — 3 legs per game stored as
+  OddsSnapshot(source=kalshi, market=1X2, HOME/AWAY/DRAW); all four MLB gates
+  inherited + the NEW spread guard (skip-and-count legs with ask-bid >
+  max_spread, default 0.10); Tie legs detected by sub_title with the constant
+  Tie-UUID as cross-check; window now-1d..now+7d (weekend cadence). Export
+  _summarize_kalshi generalized: full outcome set = 3 when a DRAW leg exists,
+  partial sets ship raw with normalized=false (never inflate present legs);
+  model_edge/vs_book include DRAW. The MLB matcher tokenizer now routes
+  through team_aliases (sacramento/oakland -> athletics), closing the
+  TB@Athletics gap in the same pass — one alias mechanism, all sports.
+  Tested: full-3-leg normalize, wide-spread skip, in-play refusal, unmatched
+  fixture, partial-set export. Instrumentation-only per the Step-1 verdict.
+
+- **S4. Soccer export parity for the GPT layer [~2-3 hours]**
+  input_quality is currently baseball-gated (correctly — no starter garbage on
+  soccer rows) so soccer rows have NONE. Build the soccer variant: book_odds
+  count, kalshi status (three_way/partial/absent), strengths_source
+  (season / prior-season-backfill / none — the cold-start visibility from S2),
+  new_to_league flags per side. VERIFY (don't assume): tier thresholds make
+  sense for 3-way (a 45% favorite is strong in soccer; baseball thresholds may
+  mislabel), top_pick handling when draw is modal (rare but possible at
+  rho=-0.10), goals O/U line ingestion + over_prob path, and that evaluate /
+  export-results / CLV grade 3-way picks correctly (CLV against the pick's 1X2
+  closing price). Fix what fails; log what passes.
+  **BUILT 2026-08-19 (with S7 + S8 in the same pass):** soccer rows now carry
+  their own input_quality — strengths_source per side (matches |
+  promoted_default), new_to_league flags, lineups:"none" stated per S7,
+  book_odds count, kalshi three_way/partial/absent. Baseball-only fields
+  (bullpen_swing, tier_capped_by_starter, p_one_run/p_blowup, close_game)
+  REMOVED from soccer rows. S8 EXECUTED: totals_available=false with
+  over_under_line/over_prob nulled on soccer rows (values persist in DB for
+  future goals-pulse work; stronger_expression coerced off "totals"). Tier
+  thresholds VERIFIED sane for 3-way on the live opening-slate export (strong
+  at 61.7%/71.2% vs ~43% home base rate) — no change made. Tested incl. MLB
+  regression (unchanged shape). Thursday dress rehearsal exercises it
+  end-to-end.
+
+- **S5. Weekly cadence ops [~1 hour, written not coded]**
+  PL is weekend-clustered, not daily: define the routine (Fri sync + predict +
+  export ahead of Sat 12:30 BST kickoff; Sat morning re-run for team news;
+  results + grading Mon). Confirm MLB-only steps (umpires, weather, bullpen,
+  pitchers) are skipped gracefully by the soccer chain, and the Kalshi window
+  (now-1d/now+2d) covers a full weekend slate from a Friday run. Document in
+  README next to the MLB routine.
+  **WRITTEN 2026-08-20: docs/pl_weekly_routine.md** — Friday pre-matchweek
+  chain, Saturday pre-kickoff refresh (the closing-ish CLV capture), Monday
+  grading + soccer-refresh, midweek variant, consumer notes for the GPT
+  handoff, and the deliberate exclusions (totals, lineups, cups, config
+  changes). Soccer Kalshi window is now-1d..now+7d (weekend cadence), not the
+  MLB +2d. Validated by the Thursday dress rehearsal; amend from practice.
+  **DRESS REHEARSAL RUN 2026-08-20 — two findings, both amended into the doc
+  same day:** (1) PROCESS: the run executed on Wednesday's mid-session code
+  (re-extract skipped), shipping an export without strengths_backfilled /
+  current_season_matches — detected by key-diff against packaged source.
+  "Step zero: re-extract" now opens the routine doc. (2) SUBSTANTIVE: the
+  soccer predict path applies a live injury xG adjustment (e.g. "home
+  missing 3 (-9% xG)" on the Arsenal opener) but the Friday chain had NO
+  sync-injuries step — the model was adjusting on injury data of unknown
+  vintage while the export stayed silent about it. sync-injuries added to
+  Friday + Saturday chains; consumer note (3) rewritten to distinguish
+  lineups (absent by design) from injuries (live input, freshness by
+  routine). Everything else passed: 10/10 rows, three-way Kalshi across the
+  slate (wide-spread skips 28->25 as spreads tightened), promoted flags on
+  the right sides, totals nulled, no baseball fields, first live
+  soccer-refresh promotion clean (v15->v16, drift 0).
+  **RE-RUN SAME DAY (corrected chain, latest code):** both findings closed —
+  backfill keys present on 10/10; fresh injury sync (38 rows, reconciles
+  exactly to per-team export counts, no double-count vs old rows) replaced
+  Arsenal's STALE list (White/Merino -> Saliba/Timber) and moved
+  probabilities on 6 of 10 games. Hull City hit the injury cap (-25% xG, 9
+  out incl. keeper) — verified designed behavior (position-weighted, capped
+  in factors.py); the adjustment moves the model TOWARD the market, residual
+  Hull-optimism is the promoted_default prior's cohort to grade. Rehearsal
+  COMPLETE; practice export handed to the GPT layer for its dry read.
+  **DRY READ VERDICT 2026-08-20:** GPT layer parsed 10/10, all reads
+  numerically verified against the file (no fabrications). Consumer notes
+  DEMONSTRABLY ingested: rejected Hull despite model-actionable (promoted
+  prior + no current-season data + injury cap named as the reason), and
+  binned the two largest positive edges (Brentford +14.9pp, Ipswich
+  +13.5pp) as untrusted-by-default per the anti-predictive verdict — these
+  two rows open the forward pick-edge-sign ledger; Monday grades them.
+  NOTE: the GPT independently asked for XI confirmation as its primary
+  Friday check — the consumer just voted for S7 Stage-1 lineup ingestion
+  unprompted. Convergence logged as priority evidence for the post-launch
+  ordering. Thursday dress rehearsal CLOSED end to end.
+
+- **S6. In-season model refresh + gate [LOAD-BEARING — without it everything
+  goes stale, ~half day]** Soccer Elo is FROZEN in v13 params at train time;
+  nothing updates it as matches finish (verified: predict path loads static
+  EloState). MLB has nightly retrain + 0.005 log-loss gate; soccer has neither.
+  BUILD: weekly refresh after each matchweek (retrain Elo+strengths from all
+  finished matches) gated by the LEAKAGE-FREE soccer-backtest (the old holdout
+  eval is contaminated and must not be the gate). Same accept/reject discipline
+  and audit trail as MLB improve. Cadence: Mon after weekend grading.
+  **BUILT 2026-08-16 — and it uncovered a latent landmine in BOTH sports:**
+  _train_fresh_soccer AND _train_fresh_mlb stamped candidates with dataclass
+  DEFAULTS, not production's tuned config. Every MLB candidate v101-v105 has
+  carried run_shrink_frac=0.25/no cap — production's tuned values survived
+  only because every candidate kept LOSING; one promotion past the noisy
+  0.005 holdout gate would have silently reverted weeks of recalibration
+  (soccer: rho and the 0.0008 coeff likewise). FIXED: both trainers now
+  inherit production config (defaults only as base layer for new fields) and
+  carry manual_config_edits audit history through promotion; tested both
+  sports. THE REFRESH ITSELF: `soccer-refresh` (CLI) retrains Elo/contexts
+  weekly and promotes via a SANITY gate, not a performance gate — honest
+  reason: config-identical candidates score IDENTICALLY on the leakage-free
+  backtest (it re-walks Elo internally) and the legacy holdout is self-graded
+  homework, so for same-config/fresher-state the real risk is DATA CORRUPTION.
+  Gate: data monotonicity, byte-exact config inheritance, Elo health
+  (finite/band/mean-conservation), bounded per-team drift vs production
+  (default 80 pts/week — calibrated: normal week <~40, fabricated 19-0 run
+  measured 99; JSON key-type normalization required or drift silently reads 0
+  — found by test). Rejection leaves production untouched with named reason.
+  Performance verdicts remain forward grading + market-scored backtest for
+  config changes. Division of labor documented in the command help.
+
+- **M-LEDGER 2026-08-20 (graded 08-21): the +17.4pp game.** WSH@TEX — the
+  largest MLB model-vs-market disagreement recorded (model 56.9% Nationals;
+  Kalshi 60.5% Rangers; zero book odds, Kalshi sole anchor). Resolved
+  MARKET-RIGHT: deGrom shutout, 2-0 TEX. Driver was Texas's recent-RS slump
+  (2.8/g last 10) outweighing deGrom in the blend — legitimate output, wrong
+  argument to win. MLB counterpart to the soccer thermometer verdict; one
+  sample, logged not concluded. Same night: LAA 18-3 over HOU (model 59%
+  home, p_blowup 0.35 + swing flag 2.06 + close_game_flag all pre-flagged)
+  — GPT layer's "fragile favorite" tag born from it, consuming existing
+  export fields only. Scope split held: no model asks. Totals pulse for the
+  fix window: trimmed 0.00, non-blowup MAE 1.6, 4-blowup outlier day (mean
+  +0.61 / median -1.30 divergence = variance). v110 rejected at even
+  log-loss — gate held after a 5/9 day.
+
+- **M-LEDGER 2026-08-21 (graded 08-22): best sides day of tracking, 13/15.**
+  Gate rejected v111 at +0.0001 vs 0.0050 bar — second straight even-line
+  rejection, discipline held after the big day. TOTALS: uniform
+  over-projection day (mean -1.07 / median -0.85 / trimmed -1.11, ZERO
+  blowups, non-blowup MAE 2.5) — first clean forward appearance of the
+  high-projection over-lean watch item (HOU 9.63->4, MIA 8.79->5, TEX
+  8.18->3). Aug 31 --since read now has both shapes on file: outlier day
+  (08-20) and lean day (08-21). COSMETIC: export-results prints the
+  "outlier-driven, not bias" note unconditionally — inaccurate on this day
+  (all three centers agree); make the note conditional on mean/median
+  divergence. GPT audit verified numerically (CLV cites exact); Detroit =
+  2nd-best CLV on slate, lost — cleanest one-game case for price-vs-outcome
+  separation. Zero model asks; scope split held.
+
+- **S-NEGATIVE 2026-08-22: the injury "contamination" false alarm.** Matchday-1
+  export showed Bruno Guimaraes on Arsenal's injury list and Woolfenden on
+  Coventry's; Claude diagnosed cross-team attribution corruption in the
+  adapter (76 rows vs Thursday's 38 read as scrambled doubling). Raw-response
+  diagnostic DISPROVED it: every row carries the requested team's own id,
+  dedupe works (6 raw -> 3 stored), and the players genuinely moved in the
+  summer 2026 window — the live API was right and the reviewer's pre-summer
+  world knowledge was stale. 38->76 = matchday reporting depth; arithmetic
+  reconciles exactly. LESSON (now standing): consumer note (2) applies to
+  reviewers as well as the model — before declaring upstream data corrupt,
+  verify player-club facts against live sources, not memory. Zero code
+  changed; diagnostic-before-fix prevented a wrong matchday hotfix.
+  Harmless observation filed: /injuries returns each row twice on matchdays;
+  adapter dedupe absorbs it.
+
+- **S11. Export status semantics on past-inclusive windows.** cli auto
+  filter: past dates -> finished, future -> scheduled, today-inclusive ->
+  all. A Saturday run with Friday's window therefore exports "all" —
+  stale played-game rows included by design. Routine doc Saturday window
+  (--start SAT) plus explicit --status scheduled is the consumer-safe form;
+  consider making the Saturday doc line carry --status scheduled verbatim.
+  (Also: 08-22 chain re-run was issued with Friday's window by Claude —
+  process miss on our side, caught same morning.)
+
+- **M11. Two-game moneyline gap [OPEN — diagnostic mid-flight].** WSH@TEX
+  (5776) and LAA@HOU showed book_odds=0 at export AND null CLV at grading,
+  but 5776 holds 176 odds rows in the DB — date-window theory DISPROVEN
+  (rows pre-existed; retry sync was a no-op: sync-odds has no --date-from).
+  Remaining suspects: (a) no 1X2/moneyline rows for those games (API-side;
+  export-the-gap is correct behavior) or (b) market-label mismatch in the
+  matcher (one-line fix). Per-market GROUP BY on 5776 vs healthy 5775
+  decides it. No code until then.
+
+- **M11 UPDATE 08-22: pattern now 5/5.** Today's bookless games (5804 CIN@ARI,
+  5805 CLE@COL, 5806 MIN@SD) are all UTC-rollover starts (00:10-00:40 UTC),
+  matching Thursday's two exactly. Every book_odds=0 instance ever crosses
+  UTC midnight; none that don't. NEW THEORY (c): series games share a UTC
+  calendar date with the next day's game — a (teams, date) odds matcher
+  would collide them, one match row eating both games' rows (would explain
+  5776 holding 176 rows yet exporting 0 books). Expanded diagnostic issued:
+  per-market GROUP BY on all five + top-8 row counts as collision detector.
+
+- **S13 RESOLVED 2026-08-23 (was: triplicate snapshots).** Diagnostic
+  verdict: rows were v13/v15/v16 — ONE per model version, not per run. The
+  (match_id, model_version) upsert key orphans predictions from prior
+  production versions on every promotion; evaluate grades all rows.
+  Latent in MLB too (v2 all season — would fire on first promotion), same
+  invisibility class as the trainer-config bug. FIX: upsert keyed on
+  match_id only (both sports, training.py) — predictions current-only per
+  match, history lives in outcomes. One-time cleanup deletes soccer
+  non-v16 ghosts + their outcomes (preview-then-delete SQL issued); both
+  MW1 results files re-exported clean. Evaluate-side latest-only guard
+  noted as optional hardening, not done (minimal change).
+
+- **[superseded] S13 original entry follows:**
+- **S13. Triplicate prediction snapshots defeating grading [OPEN — diagnostic
+  issued, blocks clean soccer ledger].** First soccer results export
+  (08-22 file) held 3 rows/match: Fri run + Sat 09:53 + Sat recovery all
+  survived despite the (match_id, model_version) delete-then-insert upsert
+  (all v16 — those deletes should have fired). MLB never surfaced it
+  (one predict/slate); soccer's 3 same-day runs exposed it. evaluate graded
+  all 18 rows; export + totals_pulse triple-counted (console 6/15 = true
+  2/5). GPT layer independently detected and deduped-to-latest — correct
+  consumer behavior. Diagnostic: GROUP BY match_id, model_version on
+  predictions decides between version-string mismatch / session-ordering /
+  other. FIX AFTER DIAGNOSTIC ONLY — wrong fix corrupts ledger foundation.
+  Note: Arsenal 08-21 results file never exported (default --date =
+  yesterday); command issued.
+
+- **NO-ODDS TAXONOMY EXTENDED 08-29 + fallback doubleheader guard.**
+  Saturday doubleheaders revealed the provider's late-publication class is
+  broader than UTC-rollover: SAME-DAY second games and adjacent listings
+  also wait (BOS@NYY 23:15 and the ARI@SF opener both bookless). Coverage
+  non-event (5/5 two_sided Kalshi; closers via next bulk sync). PATCH: the
+  fallback name-matcher queried provider id 180062 for BOTH ARI@SF rows
+  (twins sit 6h apart, inside the 12h window) — bulk path safe (find_match
+  refuses ambiguity) but fallback would have cross-attached on publication
+  day. Added nearest-time selection + claimed-id uniqueness guard, logged
+  skip line. M12 REMINDER STANCE CHANGED: probe has slipped four sessions —
+  dropping the nags; item stays logged dormant. Independent mitigation
+  (aggregate the 53 daily WARNINGs into one line) queued for the next
+  quiet-slot build, needs no identification.
+
+- **M-LEDGER 08-28 (graded 08-29): sides 9/15; v119 rejected DESPITE
+  beating production (0.6899 vs 0.6900 — second sign-flip hold, 9th
+  consecutive rejection). Zero null CLV in the fresh file (backfill steady
+  state = normal mornings now). Totals shape #9: mild lean, 3 blowups,
+  conditional note fired correctly on the blowup condition. GPT 9th audit:
+  no model asks FROM A PROFITABLE SLATE (declining to change while winning
+  = the harder discipline). MONDAY: Aug-31 totals review runs
+  totals-calibration --since 2026-07-20 (pre-committed date) — adjudicates
+  run_shrink_frac=0.35 + the high-projection over-lean watch item on nine
+  forward shapes with full CLV context.
+
+- **MW2 FILE SHIPPED 08-28: all three build verifications GREEN.**
+  promoted_this_season T/T on exactly the derby row (F/F elsewhere);
+  injury stamps 10/10; fitted strengths + v18 + csm=10 throughout. FIRST
+  FULL-BOARD KALSHI MATCHWEEK: three_way 10/10, wide-spread 0. Hand-off
+  watchlist: FOUR anti-predictive-shape rows — Hull away +19.8pp (the
+  promoted derby, both sides cohort-flagged: the exact row the season-long
+  flag was built for), Newcastle away +19.6pp, Bournemouth draw +7.4pp,
+  Brentford away +5.9pp. Market-respect rows: Liverpool -20.4pp, Chelsea
+  -13.2pp. MLB same-day: patched fallback first live pass clean (5/5 ids,
+  zero duplicate queries, filled 0/5 honest). M12 probe slipped a third
+  session — folded into Saturday's paste.
+
+- **M13 v2 VERIFIED LIVE 08-27 (evening slate): ambiguous 0 on a
+  simultaneous NY collision** (NYY 7:05 / NYM 7:10 — the five-minute-apart
+  case time filters cannot touch; identical configuration produced
+  ambiguous 8 + one_sided rows two days prior). Both games two_sided;
+  opponent-prefix resolution working as unit-tested. City-collision
+  coverage tax repealed. All three 08-27 builds now verified or scheduled:
+  M13 v2 live-pass, registry exercised by phase 2, promoted flag verifies
+  in Friday's MW2 export.
+
+- **PHASE 2 CLOSED 08-27 (complete-with-annotation).** Final UEL 2025/26
+  pull: 271 fetched, all UPDATED yet absent from the UEL GROUP BY rows —
+  they pre-exist under a LEGACY competition code from the original
+  historical backfill (writer matches by external id without reassigning
+  competition). Named 08-27: legacy code EL
+  ("UEFA Europa League") from the original backfill — one competition under
+  two codes, seasons split (2024/25 under UEL, 2025/26 under EL).
+  Normalization = one UPDATE re-attributing EL rows to UEL; folded into the
+  phase-4 session (competition-scoped Elo work), NOT run pre-matchday.
+  Impact ~zero for current scope
+  (training pot is code-agnostic; team_to_league is league-only); costs
+  only competition-scoped Elo attribution IF Europa prediction ever ships —
+  normalization task for that day, annotated not urgent.
+
+- **PHASE 2 CERTIFICATE 08-27: complete pending one UEL season.** GROUP BY
+  reconciled: pyramid 3x3 seasons all present (552-558 each); CL four
+  seasons (2023/24 from the ORIGINAL historical backfill); EFL prior
+  seasons PRE-EXISTED via same backfill — the season-format suspicion was
+  WRONG (single-year "2025" aliases to "2025/26"; both formats fine;
+  earlier updated=93 lines were re-touches of old rows). UEL 2025/26
+  missing — one command issued. KEY REFRAME -> TUESDAY WATCH-ITEM: EFL
+  history was always in the pot, yet S16 showed pyramid clubs at exactly
+  1400 — because the trained Elo table is PL-scoped (gate line "elo: n=27"
+  all season). Tuesday's gate: if n jumps toward ~150, trainer universe
+  widens with data and phase 4 shrinks to the bonus fix; if n stays 27,
+  scope is hardcoded and widening joins phase 4. One gate line answers it.
+
+- **[superseded detail] PYRAMID PHASE 2 LANDED 08-27 (afternoon): 3,332 new league matches.**
+  EL1/EL2 each 552+557+557 across 3 seasons (identical-looking counts are
+  structural: three 24-team divisions) — CREATED not updated, so league ids
+  41/42 pulled distinct correct divisions. All pyramid clubs pre-existed
+  from FA Cup history; syncs attached league membership = team_to_league
+  feedstock. EUROPE (user-expanded scope): UEL newly registered (id 3);
+  CL/UEL prior seasons pre-existed via historical backfill (updated
+  281/279/196); current-season re-pull post-team-sync issued for the
+  52+67 foreign-team skips. OPEN: EFL prior-season format question
+  (updated=93 twice, created=0 — suspected single-year cup format; probe
+  issued) + GROUP BY completion certificate. Tuesday's gated refresh pot
+  heading toward ~7,600+; drift read with extra care, one run, no retry.
+
+- **BUILT 08-27 (pre-MW2 quiet slot):** (1) M13 v2 SHIPPED — simultaneous
+  city collisions resolved via ticker matchup-segment opponent prefixes;
+  strict-unique-maximum rule, five-case unit suite passes incl. the
+  degenerate both-supported case refusing. Tonight's slate = live test:
+  expect ambiguous to drop toward 0 when NY/CHI/LA collide. First edit
+  attempt shipped with scaffolding debris (caught by own syntax check,
+  rewritten clean; soccer block shares loop text — first-occurrence
+  scoping required). (2) Pyramid phase 1 SHIPPED: EL1(41)/EL2(42)
+  registered beside ELC — weekend backfill syncs unblocked.
+  (3) promoted_this_season SHIPPED same day (user decision: season-long).
+  Design: season-keyed registry ("PL:2026/27" -> {Coventry, Hull City}) so
+  the removal mechanism is the CALENDAR — flag expires automatically when
+  the season string rolls; maintenance = add new promoted set each August.
+  Both sides flagged independently in input_quality; new_to_league
+  unchanged (reflects current strengths source only). Consumer note 3b
+  added to routine doc. VERIFY in Friday's MW2 export: Hull-at-Coventry
+  derby row must show promoted_this_season true/true with
+  strengths_source matches/matches.
+
+- **M-LEDGER 08-26 (graded 08-27): sides 8/15, v116 rejected even (7th
+  straight), totals 7th shape (balanced: centers ~0, 3 blowups). CLV
+  STEADY STATE FULLY OPERATIONAL: backfill healed Tuesday's 6 on schedule
+  AND today's fresh file has ZERO nulls — the near-boundary rollover game
+  graded same-day. GPT audit (7th consecutive zero model asks) now uses
+  CLV-vs-outcome separation as native vocabulary throughout — the
+  backfill's downstream payoff, two days after shipping. M12 probe v3
+  folded into Friday's session.
+
+- **M11 BOUNDARY REFINED 08-26 (evening slate).** First rollover game ever
+  to arrive WITH books in the bulk pull: MIN@ATH 01:05 UTC, 9 books
+  (partial vs usual 12-13). All prior bookless games started 01:38+. The
+  provider's publication boundary is FUZZY (~01:00-01:35 UTC), not a hard
+  midnight — near-boundary games leak partial coverage. Patched fallback
+  behaved exactly right: nothing missing, so silence. Coverage 15/15
+  books, 14/15 two_sided — best day of the season. No action.
+
+- **LEDGER CLV-COMPLETE 2026-08-26.** Three re-exports delivered; every
+  historical null filled. HEADLINE FROM THE NULLS: 5776 (WSH@TEX, the
+  season's largest disagreement at +17.4pp) graded at +18.7pp CLV — the
+  ledger's largest — closing price drifted to 2.65 AGAINST the pick
+  (disagreement widened to the close), resolved market-right 2-0. The
+  anti-predictive cohort's anchor row, now fully priced. Permanent
+  asymmetry documented: backfill fills moneyline CLV only; rollover games'
+  total_correct stays null forever (no line existed at predict time —
+  retro-grading would be fabrication; "(N no line)" discloses).
+
+- **FIX SESSION FULLY VERIFIED 2026-08-26: six for six.** M11b's first run
+  backfilled 92 outcomes — the null-CLV debt was LEDGER-WIDE, not just the
+  eight tracked rollover games; paid in one pass. Steady state documented:
+  each morning's fresh file carries nulls on the prior night's rollover
+  games (closers arrive with the evening sync), self-healing next morning —
+  permanent one-day CLV lag, automatic. Conditional console note passed its
+  first live test on a genuine outlier day (divergence 1.04, 4 blowups —
+  correct branch). Re-exports issued for 08-20/08-22/08-24 to make the
+  downstream ledger CLV-complete. Weekly input-candidate report ran its
+  expanded honest-state output (six tracked, none consumable, all reasons
+  stated; bullpen_effectiveness sole accruer). M-LEDGER 08-25: sides 5/15
+  (worst day; variance), v115 rejected at even 0.6900 (6th straight),
+  totals 6th shape: outlier day. GPT audit -$95.55, correctly self-assigned
+  to portfolio construction; SIXTH consecutive zero model asks.
+
+- **M11 CLOSED 2026-08-25 (evening): fully characterized.** Live per-game
+  experiment: all 21 ids resolved, provider returned "no odds" for every
+  one — the data does not exist upstream until the provider's day rolls.
+  No request shape can fix it. Complete mitigation already shipped: Kalshi
+  = designed live coverage for rollover slots + M11b CLV backfill for
+  closers. Fallback retained as a sentinel (logs "filled" if provider
+  behavior ever changes). SAME-NIGHT PATCH: first live run exposed
+  name-only matching cross-attaching series neighbors (game 179999 queried
+  by two match rows) — added 12h date-proximity check (tz-correct) and
+  tightened window 28h->12h to stop querying tomorrow's slate. Caught by
+  the fallback's own logging, patched before any odds could mis-attach.
+
+- **M13 VERDICT 08-25: partial by design of the collision.** Time-based
+  disambiguation works only for STAGGERED city collisions; tonight's are
+  simultaneous (HOU@NYY 7:05 vs MIL@NYM 7:10 — 5 minutes apart), so the
+  refusal is correct and unavoidable by timestamp. ambiguous 6, Yankees +
+  White Sox + Cubs rows one_sided. v2 idea filed: tie-break via ticker
+  matchup segment vs the DIFFERING team's name prefix (refuse-safe: only
+  resolves when exactly one candidate matches) — small, post-MW2.
+
+- **S16. EFL CUP: NOT LAUNCH-READY — dress rehearsal hard fail 2026-08-25.**
+  First live run of the cup path produced systematically INVERTED
+  probabilities (Chelsea 19% home v Luton; lower-division side favored in
+  every cross-division tie). Three layered causes: (1) COLD START — zero
+  EFL Cup rows existed pre-run (all 60 created today); per-competition Elo
+  means every lower-league club at exactly 1400.0. The "trained on 3,069
+  cup matches" comfort was FAC/CL rows, not EFL — reviewer error, caught by
+  the rehearsal wrapper, file never reached the GPT layer. (2) The
+  promoted-default prior mechanically matched eleven PL clubs ("no matches
+  in this competition"). (3) REAL LATENT BUG: team_to_league resolves to
+  None for pyramid clubs -> league_bonus emits a -100.0 sentinel that lands
+  with INVERTED effect (penalized side favored throughout) — never surfaced
+  in backtests because those ran where league mapping resolves.
+  PATH TO READY — refined 08-25 into the PYRAMID PROJECT (user-proposed
+  data exercise; target = ROUND 3, mid-September):
+  (1) registry: add EL1/EL2 to adapter competition map (the league table
+  already carries "if we sync it" bonuses: ELC -130, EL1 -260, EL2 -360);
+  (2) data: sync-matches --seasons 2 for ELC/EL1/EL2 (~3,300 league
+  matches — THE signal: team_to_league builds from most-recent LEAGUE
+  match) + EFL --seasons 2 (cup Elo warms; promoted-prior stops misfiring);
+  (3) retrain DELIBERATELY: backfill+refresh is a model change via data —
+  gated step, drift watched, sequenced AFTER MW2 Friday, never casually;
+  (4) code fix: bonus application at predict time — Bradford(49%)>Burnley
+  with both sides real-sourced proves data alone cannot cure it ("-100" is
+  the documented unknown-league default, not a sentinel; earlier framing
+  corrected — the bug is in application);
+  (5) PRE-COMMITTED ACCEPTANCE (defined 08-25, before any fix): re-run the
+  round-2 export vs the 13 books stored on these ties — pass = zero
+  cross-division ties favoring the lower side against >60% book consensus,
+  AND model within +/-8pp of book fair on every cross-division favorite.
+  Then dress rehearsal -> GPT dry read -> live round 3.
+  Until pass: EFL Cup out of scope; PL-only remains the soccer product. Minor also-founds: soccer odds sync date window left the
+  three Wednesday games bookless (same family as M11); Kalshi correctly
+  absent (KXEPLGAME is PL-only).
+
+- **FIX SESSION SHIPPED 2026-08-25 (soccer dark day; MLB 5:30 chain = live
+  test bed).** Six items, all previously diagnosed, zero speculative:
+  M11a rollover fallback (bulk /odds has NO date param — provider-side
+  omission; added per-game targeted requests for upcoming zero-odds
+  matches, logged either way: tonight's console answers whether the
+  provider serves rollover odds on request or hasn't published);
+  M11b CLV backfill in evaluate (null-clv outcomes re-graded in place when
+  closers arrive; idempotent; heals 5776/5777/5804-6 tomorrow morning —
+  re-export 08-20 and 08-22 MLB results after);
+  M13 ticker-timestamp fallback (city ties form only when
+  occurrence_datetime is missing; ticker embeds ET start stamp — parse
+  verified against all three observed real tickers; unparseable = today's
+  refuse-safe behavior; expect ambiguous->0 on collision slates);
+  S10 injuries_synced_at in soccer input_quality (MAX refreshed_at across
+  both teams; null = no rows, itself informative);
+  S15 refresh skip-guard (pre-train count check; skip message instead of
+  twin versions; new cyan console branch);
+  Milwaukee rename aliased in ALL THREE park maps (weather coords,
+  park_wind exposure, park_factors — same park, new name);
+  console totals note now conditional (divergence>=0.75 or blowups>0 ->
+  outlier text, else uniform-lean text).
+
+- **S13 EXAM PASSED 2026-08-25.** First predict across a version promotion:
+  duplicates query EMPTY, end state v18|370 live + v16|10 preserved graded
+  history. The exact scenario that minted the v13/v15 ghosts now provably
+  clean.
+
+- **S15. Refresh skip-guard on unchanged data [fix-session queue].** From
+  user design question after the v18 twin: soccer-refresh promotes on
+  sane-retrain (correct for a refresh-flow model — an MLB-style improvement
+  bar would block absorbing real matchweek info; the two gates are shaped
+  differently on purpose). But retraining on UNCHANGED data can only mint a
+  deterministic twin (v18 vs v17: drift 0 proves it) and leaves phantom
+  versions in the ledger (v17 predicted nothing, ever). Guard: if
+  completed-match count hasn't grown since production trained, skip the
+  retrain with a message. Joins the fix session, not hotfixed.
+
+- **FIRST IN-SEASON REFRESH 2026-08-25: v17 PROMOTED — weekly loop closed
+  end to end.** +10 matches (exactly MW1), Elo pool 25->27 (Coventry, Hull
+  graduate from flat prior to fitted entries — MW2 promoted-club rows run
+  on blended real signal), drift max 53/80 — the drift check's first
+  encounter with real movement, passed with headroom. VERIFICATION: first
+  predict under the new version is the fixed upsert's real exam (a version
+  promotion is what minted the v13/v15 ghosts). CORRECTED CHECK 08-25 (the
+  original version-only GROUP BY was mis-specified and false-alarmed):
+  refresh writes NO predictions, so pre-predict the table legitimately
+  holds old-version rows; and finished games KEEP their graded old-version
+  rows forever (history, not ghosts). Real test: GROUP BY match_id HAVING
+  COUNT(*)>1 must return EMPTY after predict; version mix v_new|371 +
+  v16|9 is the correct end state. ALSO 08-25: refresh re-run minted v18
+  (no-op twin of v17: same data, drift 0) — refresh is not
+  version-idempotent; once weekly, never retry-if-unsure. Production: v18.
+
+- **MW1 CLOSED (2026-08-21..24): sides 6/10, mean pick-CLV ~ -3pp.** Fri 1/1,
+  Sat 2/5, Sun 2/3, Mon 1/1 (Chelsea 3-2 hit at 40.5%, liked LESS than
+  market, CLV -9.1pp). Outcomes fine, prices consistently worse than close —
+  the thermometer verdict's opening statement. Finale graded as exactly ONE
+  row: S13 fix verified end to end.
+
+- **S14. Totals under-compression in uncertain-winner games [TRACKING —
+  first genuine cross-boundary ask, from GPT MW1 audit].** Evidence:
+  Brighton 2.1->4, NUFC 2.4->4, Fulham 2.19->5 (all close side splits, all
+  big positive total error; internal totals, S8 keeps them unshipped).
+  PRE-COMMITTED TEST (defined 08-25, before more data): bucket PL games by
+  top-pick prob <45% vs >=45%; compare mean total error after 30 graded
+  games; promote to model work ONLY if uncertain bucket shows >= +0.75
+  mean error with the confident bucket near zero. GPT's asymmetric-injury
+  proposal (defender out -> raise opponent ceiling/variance, not lower own
+  mean) filed alongside S7 Stage-1 scope — good idea, same door as every
+  idea: tracked, not reactive.
+
+- **M-NOTE 08-25: v114 rejection was the gate's first sign-flip test** —
+  candidate BEAT production 0.6883 vs 0.6884, still 50x under the 0.0050
+  bar. Held. Also first 10/10 CLV day incl. rollover games (closers became
+  fetchable post-UTC-midnight = M11 mechanism favorably; confirm whether an
+  evening sync ran). Totals 5th shape: mixed (+0.36 mean / -1.71 median).
+
+- **M14 RESOLVED 08-24 (same evening): subscription renewed by user; sync
+  healthy at 17:38 (15,150 rows). Fastest open-to-close in backlog history
+  (~7 min). Original entry: [URGENT — user action:
+  api-sports dashboard/billing].** 08-24 17:31 sync rejected: "Free plans do
+  not have access to this season." Worked 21h earlier (Sun 00:10 UTC
+  capture). Soccer/API-Football unaffected (separate sub). Until restored:
+  Kalshi is MLB's only live market source (Step-1 redundancy verdict now a
+  real fallback), stale Sunday prices survive on early games only (failed
+  fetch doesn't wipe), CLV grading null for affected slates.
+
+- **M11 MECHANISM CONFIRMED 08-24 (accidentally, by the outage).** With
+  today's sync dead, Sunday evening's rows show the clean split: Monday's
+  early games hold books=12, Monday's UTC-rollover games hold 0 — the odds
+  request is UTC-day-scoped; rollover games get ZERO rows (not just missing
+  1X2 — also explains their null totals lines) until their UTC date becomes
+  "today", arriving as closers. FIX (post-restore, post-freeze session):
+  extend request window +1 UTC day; pair with the evaluate CLV backfill.
+
+- **S13 CODA 08-24: one sequencing straggler, healed by re-export.** The
+  Sunday (08-23) results file was graded at 11:56 UTC, three minutes BEFORE
+  the 11:59 cleanup — evaluate read the dirty table one last time (9
+  outcomes = 3 versions x 3 games). Not a fix failure: the cleanup deleted
+  those ghost outcomes moments later; re-export of --date 2026-08-23 issued
+  (expected 3 rows). LESSON for multi-step remediations: cleanup before any
+  same-morning grading, or re-export everything graded that morning.
+
+- **S-LEDGER 2026-08-23 (v16 only): Sunday 2/3. MW1 through Sunday: 5/9.**
+  City 2-1 (archetype behaved), Brighton 4-0 as a 35.2% toss-up pick (side
+  right, margin very wrong: +1.9 total error), Newcastle-Liverpool 2-2
+  drew past the away pick. First soccer under-projection totals day (0/9
+  internal, everything over). Finale tonight closes the matchweek.
+
+- **M-LEDGER 2026-08-23 (graded 08-24): sides 12/15 — 2nd best day.**
+  v113 rejected at even line, FOURTH consecutive; production 0.6908->0.6885
+  on data accrual alone. Totals 4th point: mixed (median 0.00, 2 blowups;
+  Cubs 19-2 was a city-collision one_sided game). GPT audit: fifth straight
+  with zero model asks.
+
+- **S13 CLEANUP CONFIRMED 08-24.** Preview revealed full archaeology (v3/v5/
+  v9 dev relics + v13/v15 season ghosts); all non-v16 soccer rows + outcomes
+  deleted. Re-exports clean: MW1 Friday 1/1 (Arsenal), Saturday 2/5 —
+  superseding files delivered to GPT layer. Upsert fix live; first exercised
+  by the 08-24 pre-game predict run.
+
+- **M11 REFRAMED 08-24: odds table is wipe-and-replace.** captured_at probe
+  showed MIN==MAX==last night's sync for BOTH healthy and broken games —
+  the sync replaces rows per match every run; no history retained;
+  Thursday's state unrecoverable. Consequence: 5776 HAS moneylines NOW
+  (closed-game final lines backfill on later syncs) but its outcome froze
+  with clv=null because evaluate grades once and never revisits. FIX
+  DIRECTION: CLV backfill pass in evaluate for null-clv outcomes whose
+  closers arrived late (next non-match session). Mechanism probe moved to
+  live observation: post-sync GROUP BY on future games issued for tonight's
+  slate.
+
+- **M11 UPDATE 08-23: theory (c) collision DEAD (top-8 counts are soccer
+  matches, no MLB doubling); moneylines EXIST in DB for all five games
+  (1X2|22-26, same shape as healthy games). Since _summarize_market has no
+  filter that could reject them, the remaining theory is ARRIVAL TIME:
+  1X2 rows for UTC-rollover games arrive with the NEXT morning's sync
+  (closing-line backfill), i.e. after both the prediction export AND the
+  7am results grading. Supporting: Sunday's all-daytime slate had zero
+  bookless games. captured_at MIN/MAX probe issued — decisive. If
+  confirmed, fix = re-grade CLV when closers arrive late (results-side),
+  not a sync change.
+
+- **S-LEDGER 2026-08-21 (graded 08-23, deduped to v16): Arsenal 3-0
+  Coventry — season's first row hit.** Sides 1/1, totals 1/1 (2.68 proj,
+  3 actual). CLV -8.2pp (model 72.2% vs 80.6% close) — market righter on
+  magnitude even when the model is right on direction; the promoted-prior
+  cohort's first graded row. Note: file as first exported was triplicated
+  (v13/v15/v16 ghosts) — superseded by post-cleanup re-export.
+
+- **S-LEDGER 2026-08-22 (PL matchweek 1 Saturday, deduped): sides 2/5.**
+  Thermometer's first forward split: Ipswich +13.5pp edge pick LOST (first
+  confirming point for anti-predictive verdict); Brentford +14.9pp edge WON
+  3-0 with +16.3pp CLV (counterpoint); Hull (unpicked home edge, max-caution
+  cohort) beat United 2-0. Verdict posture unchanged per GPT: diagnostic,
+  never promotional. Totals texture strong (Everton, Forest unders) —
+  internal totals grading is tracking-first working; stays excluded from
+  consumer export per S8. GPT hard rules all betting-layer; S7 (XI) now has
+  a FOURTH independent vote (every new hard rule cites missing XI).
+
+- **M-LEDGER 2026-08-22 (graded 08-23): sides 8/15.** Houston strong-tier
+  fragile favorite lost AGAIN (2nd straight day the fragile tag would have
+  paid). v112 rejected at even line — third consecutive. Totals 3rd forward
+  point: lean shape (median -2.44, 2 blowups). M11 data cost compounding:
+  5804-6 null CLV joins 5776-7 — five games unpriceable for CLV, diagnostic
+  STILL pending.
+
+- **M13. Kalshi city-collision disambiguation via ticker [post-freeze
+  enhancement].** 08-22: ambiguity guard's first live firing — 8 legs
+  refused on a day with NYY/NYM, CWS/CHC, LAA/LAD all active; four games
+  degraded to one_sided rather than risk wrong-franchise prices. Correct
+  behavior, but resolvable: event tickers encode both team codes
+  (KXMLBGAME-26AUG242145CINSF-SF), so the matcher can disambiguate by
+  ticker parse instead of title. Weekly recurrence expected (city
+  collisions every Saturday-shaped slate).
+
+- **M12. sync_matches skipped 53 unknown-team matches (ext IDs 849xxx),
+  first seen 2026-08-21.** Correct skip, nothing in DB; WATCH — if the same
+  53 warn daily, add an aggregate one-liner instead of 53 WARNING rows.
+  API-side listing oddity, low priority.
+  UPDATE 08-22: same 53 skipped again — persistent, not transient. GPT layer
+  flagged training-sample risk; direction corrected: skips can't contaminate
+  (nothing enters DB) but could MISS legit games. Identity diagnostic issued
+  (fetch one 849xxx game, read team/league names). If exhibition/alt-league:
+  correct skip, quiet the log. If MLB under variant names: alias fix.
+  08-24: per-id lookup returns empty (200, no errors — key fine, id not
+  standalone-queryable); probe v3 issued: filter the season listing locally,
+  print the 53 matches' team names.
+
+- **S10. Injury freshness in input_quality [small, post-launch — from the
+  2026-08-20 rehearsal]** Injuries are a live model input (xG adjustment in
+  the predict path) but input_quality doesn't state when they were last
+  synced. Export-the-gap rule applies: add injuries.last_synced (or a
+  staleness flag vs the predict timestamp) so the GPT layer can discount an
+  adjustment made on old data. Interim mitigation: sync-injuries is now a
+  mandatory step in the Friday/Saturday chains (S5 doc). NOT a rehearsal-day
+  change — code freeze held.
+
+- **S7. Team news = soccer's pitcher confirmation [export-the-gap now,
+  Stage-1 later]** The starting XI (announced ~1h pre-kickoff) is soccer's
+  biggest information asymmetry — rotation, European hangovers, rested
+  strikers. v1 tracks NONE of it, and that's fine ONLY if exported:
+  input_quality says lineups:none explicitly (house rule — missing information
+  gets exported, not hidden). DISCOVERY 2026-08-15: the API-Football adapter
+  ALREADY wraps /injuries and /fixtures/lineups — Stage-1 lineup/injury
+  ingestion needs no new integration, just consumption + tracking-first
+  plumbing (unused_context, NOT the model). Flagship post-launch Stage-1
+  candidate alongside xG strengths.
+
+- **S8. Soccer totals scope decision [decide before launch, ~1 hour]** MLB
+  totals ship with full instrumentation (projection, pulse, shrink config,
+  high-band ledger). Soccer O/U 2.5 has NONE of that machinery
+  (totals-calibration is baseball-flavored). Shipping side predictions with
+  half-instrumented totals violates measure-everything-you-emit. DECIDE:
+  extend the pulse to goals, or explicitly EXCLUDE totals from the soccer
+  export v1. LEAN: exclude-then-extend — over_prob/line fields null with a
+  totals_available:false flag, extend the pulse as a post-launch item.
+
+- **S9. Data sources beyond API-Football [survey done 2026-08-15]**
+  API-Football (ENABLED, tested locally by Anthony) is the primary: fixtures,
+  teams, odds, standings + already-wrapped injuries/lineups/statistics
+  (statistics typically includes per-team xG — VERIFY on the active key with
+  one finished 2025/26 fixture before counting on it). Gap-fillers, MLB-style:
+  (a) football-data.co.uk — free historical CSVs incl. CLOSING ODDS
+  (B365 etc.) back many seasons. HIGH VALUE: joins the leakage-free backtest
+  to real closing prices -> an honest historical model-vs-market read for
+  soccer BEFORE a single live bet — the MLB side never had this pre-launch.
+  ~Half day: CSV ingest + join on date+teams + backtest CLV column. Do this
+  one; it converts the July-8-style CLV verdict from "wait months" to
+  "compute this week."
+  **BUILT 2026-08-15:** `soccer-odds-history` (ingest, Pinnacle-close
+  preferred -> B365C -> AvgC, is_closing=True, date+both-teams matching via
+  the new sport-generic team_aliases module, ambiguity refused, unmatched
+  named) + `market_comparison` wired into soccer-backtest output (model vs
+  de-vigged close: log-loss gap, per-outcome |gap|, pick edge split by sign
+  with hit rates). team_aliases.py is the S3 alias home — MLB
+  sacramento/oakland entries already seeded. NEXT: run ingest for 2024/25,
+  then soccer-backtest — soccer's own thermometer verdict, pre-launch.
+  **VERDICT 2026-08-15 (PL 2024/25, n=340, rho=0 — see caveat):** the market
+  read is unambiguous and it is the MLB July-8 shape, worse: model log-loss
+  1.0092 vs close 0.9735 (+0.036); mean |model−close| 8.7pp(H)/8.4pp(A) —
+  the model sits FAR from consensus on win legs; mean pick edge vs close
+  +5.0pp with 70% of picks (237/340) claiming +10.9pp average edge and
+  hitting only 47.7%, while model-below-close picks hit 57.3%. BOTH tails of
+  the disagreement graded to the market. This is the favorite-overconfidence
+  defect expressed in market terms — S1 is not a nicety, it is THE launch
+  item. CAVEAT: run used rho=0 (soccer-backtest didn't load production
+  config — FIXED same day: --rho defaults to production's stored value);
+  rho=-0.10 improves log-loss to ~1.008 but the sweep already showed
+  overconfidence is rho-independent. S1 ACCEPTANCE now market-based, in
+  priority order: (1) mean pick edge vs close collapses +5.0pp -> within
+  ±2pp; (2) positive-edge bucket's claimed-vs-actual gap closes; (3) 70-90%
+  home bands within ~1 SE; (4) log-loss gap to close narrows from +0.036;
+  (5) draw gap stays <=2pp (don't undo rho). Re-run the market comparison at
+  each candidate elo_goal_coeff — the sweep now has a market-referenced
+  scoreboard, a luxury no MLB recalibration ever had.
+  (b) football-data.org free tier — fixtures/results redundancy (the
+  MLB-Stats-API analog: free second source when API-Football hiccups).
+  (c) Understat/FBref — free xG per match if API-Football's tier lacks it;
+  scraping-based, fragile, POST-LAUNCH only and only if (a)+S6 justify the
+  strengths upgrade.
+  (d) Open-Meteo — already integrated; soccer weather effect is marginal.
+  Skip for v1.
+
+- **TRANSFER WARNINGS (from the MLB discipline stack, written down so they're
+  not re-litigated):** (1) soccer earns its OWN CLV verdict — the July 8
+  "thermometer, not income engine" conclusion is an MLB finding; inheriting it
+  in either direction is unearned (S9a makes the soccer verdict computable
+  from history). (2) PL-ONLY scope guard — the cup/Elo machinery makes CL/FAC
+  tempting; multi-competition before PL discipline is proven is exactly the
+  creep the MLB side avoided.
+
+
+- **2026-08-11 (fix: set-soccer-config AttributeError)** — _current_production_version
+  returns the version STRING, not the ModelVersion object (I assumed the object).
+  Fixed to query the ModelVersion row by version (same 2-step the MLB
+  _apply_production_config_edit uses). Compiles; ModelVersion.parameters confirmed.
+
+- **2026-08-11 (Kalshi in exports — the missing serialization)** — Diagnosed why
+  export files showed no Kalshi despite sync storing prices: export's
+  _summarize_market read the Odds table only; sync-kalshi writes
+  OddsSnapshot(source="kalshi", market="ML"). Fix: collector loads latest Kalshi
+  snapshot per (match, selection); market block gains a "kalshi" sub-block —
+  raw_yes_prob + raw_sum, sum-normalized "prob" (two-sided only, normalized flag
+  otherwise), model_edge_pp vs normalized Kalshi, vs_book_pp (book-vs-Kalshi
+  disagreement, the classifier-relevant column), captured_at. Kalshi-only games
+  export the block even with no book odds. Kept STRUCTURALLY SEPARATE from book
+  consensus (never blended). Unit + scratch-DB integration tested.
+
+- **2026-08-12 (Kalshi matcher rewrite — date gating + refusing ambiguity)** —
+  First export with Kalshi blocks exposed the matcher assigning prices to WRONG
+  games: no date constraint (80 open markets span days; Friday STL market
+  matched tonight's STL game), shared-city ties resolved by iteration order
+  ("New York Y"/"New York M" both tokenize to {new,york} — a Mets ~44% price
+  landed on the Yankees), and the single-letter disambiguator Kalshi provides
+  was filtered out by the len>1 token rule. Rewrite: three-stage gate —
+  (1) occurrence_datetime within 5h of first pitch (also resolves DH legs);
+  (2) BOTH title teams must overlap different sides of the candidate game;
+  (3) side via yes_sub_title with initial-letter tiebreak (c→Cubs, w→White
+  Sox); ties REFUSED and counted as ambiguous, never guessed. Dedupe one price
+  per (game, side)/run. CLI reports ambiguous separately. "Matched 78" was
+  false confidence; honest counts are lower and correct. Pre-fix
+  source="kalshi" rows purged (untrustworthy record). Nine matcher tests.
+
+- **2026-08-13 (sync_pitchers business-date fix)** — Anthony spotted the daily
+  sync misbehaving past midnight UTC. Two defects, one root cause: batch
+  probables fetch bucketed by UTC date while MLB's schedule API interprets
+  dates as LOCAL business dates (log tell: "15/9", "14/19" batch/bucket
+  mismatches — worked only via accidental dict merging); and confirmed-vs-
+  projected was a <=4h countdown, permanently branding West Coast games
+  "projected" on afternoon runs. Both now use business date = UTC-8h (no MLB
+  game starts 00:00-08:00 UTC). confirmed = game is on today's slate. Audited
+  the rest of the daily chain: sync-matches, sync-umpires --today,
+  capture-weather all already correct (local-date comparisons). Tested at the
+  exact failing run time. Next-day verification: "15/15" clean logs, 15/15
+  confirmed in export.
+
+- **2026-08-14 (starter shrinkage on starter-RELEVANT innings, config-gated)** —
+  Code-read correction: the proposed "add starter shrinkage" ALREADY EXISTED
+  (30 IP halflife + 61/39 bullpen blend + opener handling). Real gap: shrink
+  denominates on TOTAL IP, so converted relievers (Drew Anderson: 67.3 IP but
+  3 GS, mostly relief innings) enter ~70% unshrunk on a sample that mostly
+  doesn't transfer (times-through-order). Built starter_eff_ip_enabled /
+  starter_ip_per_start on BaseballConfig (run_shrink template: off by default,
+  set-config whitelisted, flows into stored params). effective_ip =
+  min(ip, per_start x GS). Baseline slate data CORRECTED the default: 6.0
+  clipped workhorse aces (Yamamoto 6.63 IP/start); shipped at 7.0, which spares
+  every full-time starter and still bites relief-heavy profiles. Pure helper
+  starter_shrink_weight() unit-tested incl. legacy bit-identity. ENABLED on
+  production 2026-08-14 after a same-DB-state before/after diff (exactly one
+  starter capped — Pfaadt 85.7 IP/11 GS — matching the math to the digit).
+  VERIFICATION IS FORWARD-ONLY: backtest cannot see the pitcher layer (no
+  as-of-date pitcher stats — same constraint documented in input_candidates),
+  so this follows the set-config protocol: forward ledger of games where the
+  cap bit (visible in starter_detail) vs the rest, multi-week horizon, revert
+  to false if the ledger shows nothing.
+
+- **2026-08-14 (export visibility: starter_detail + input_quality)** — Two
+  export additions so the GPT layer sees what the model KNOWS, not just raw
+  stats: (1) factor_breakdown.home/away_starter_detail — raw ERA, IP, GS,
+  effective_ip, shrink_w, shrunk starter-component ERA (the raw→shrunk→blended
+  trail; the missing middle step is how both audit layers misread Anderson's
+  handling). (2) input_quality block per row — per-side starter listed/kind/
+  stats-present/ip/gs/shrink_w/ip_capped, starters_known, missing_starter_
+  shrink, book_odds count, kalshi two_sided/one_sided/absent. Motivating case:
+  two Kalshi-only games where the model said ~50/50 on thin inputs and nothing
+  in the row said "trust this less." Descriptive, NOT a score — consumer
+  applies its own discount. Also fixed export-results summary to count only
+  graded totals ("3/7 (2 no line)" not "3/9").
+
+- **2026-08-14 (bullpen recent-form: already-in-model correction)** — Second
+  code-read correction this week: "fold bullpen recent form into win
+  probability" was proposed and REFUSED because it's already there —
+  BullpenSeasonStats.recent_era blends at 0.30 into effective bullpen ERA
+  (Phase 12.4), ~12% of the recent-vs-season gap on whole-game ERA. Open
+  questions (weight tuning, partial double-count vs team RA) are historically
+  untestable (current-snapshot stats). Disposition: change nothing; grade
+  swing-flag games vs rest on the forward ledger via the exported
+  bullpen_detail. Pattern note for future sessions: three times this week a
+  proposed change already existed or the proposed test couldn't see the layer
+  — READ THE CODE FIRST before turning suggestions into commands.

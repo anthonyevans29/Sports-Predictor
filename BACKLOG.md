@@ -182,6 +182,13 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **DOCS REFRESHED 2026-09-14 (user request):** README rewritten to
+  current four-sport reality (was May-era soccer-only); CHANGELOG.md
+  created and seeded with the season's milestones. STANDING RULE going
+  forward: every drop updates CHANGELOG.md (summary) alongside BACKLOG.md
+  (detail) before packaging — documentation is part of the ship, not an
+  afterthought.
+
 - **U3 CLOSED 2026-09-14: GitHub repo live** (private,
   anthonyevans29/Sports-Predictor, first push 130 objects / 448 KiB =
   code+docs only, .gitignore verified working). Pre-push vulnerability

@@ -182,6 +182,19 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **NFL WEEK-1 GRADED 2026-09-14 (nfl-grade inaugural run, 15 games, MNF
+  pending):** sides 9/15, LOG-LOSS 0.6441 vs backtest 0.6361 — the
+  gate-passed performance TRANSFERRED live; mean pick-vs-close +3.91pp
+  (consistent off-market confidence, unpunished wk1). Extremes: >0.80
+  zone split (JAX 0.830 won 34-10; LAC 0.801 lost — market 0.792 missed
+  equally). BIGGEST DISAGREEMENT LOST: MIA@LV (model 65% MIA, market 59%
+  LV, Raiders won) — 2025-Elo-memory cautionary exhibit; twin row DEN@KC
+  resolves tonight. QB-FLAG VINDICATION: the SF@LAR miss (model 68.7%
+  Rams, SF won 27-7) carried Caldwell in qb_listed — the flag marked the
+  fragility that decided the game. REHEARSAL: proceed as sequenced
+  (Week-2 rehearsal + dry read; live Week 3 earliest). Injuries skips
+  179 (Monday churn; skip-cause characterization still casual-backlog).
+
 - **CLI CATALOG SHIPPED 2026-09-14 (user request):** docs/CLI.md —
   command inventory extracted FROM SOURCE (45 via regex + core chains),
   organized by workflow (setup / syncs / MLB daily / soccer weekly / NFL

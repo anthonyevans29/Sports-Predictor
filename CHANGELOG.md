@@ -5,6 +5,8 @@ reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
 ## 2026-09-14
+- NFL Week 1 graded via `nfl-grade` (first live read): 9/15 sides,
+  log-loss 0.6441 vs 0.6361 backtest — performance transferred live.
 - **`docs/CLI.md`**: full CLI catalog (~55 commands with options),
   organized by workflow, plus the required-services matrix (providers,
   endpoints, env vars, subscription notes) and local component

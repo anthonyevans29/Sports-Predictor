@@ -5,6 +5,8 @@ reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
 ## 2026-09-15
+- Hotfix: results-tally join corrected (outcomes link via prediction_id
+  → Prediction → Match, not match_id) — caught on first run.
 - **`results-tally`** → `RESULTS.md`: rolling 30-day per-sport record
   (sides, log-loss, CLV), auto-generated, linked from README; joins the
   morning rhythm.

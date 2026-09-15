@@ -1071,8 +1071,13 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
     with session_scope() as s:
         cutoff = datetime.utcnow() - timedelta(days=days)
         for sport, label in ((Sport.MLB, "MLB"), (Sport.SOCCER, "Soccer (PL)")):
+            # Outcomes link via prediction_id -> Prediction -> Match
+            # (2026-09-15 hotfix: first ship guessed match_id; read the
+            # schema, then write the join).
             q = (select(PredictionOutcome, Match)
-                 .join(Match, Match.id == PredictionOutcome.match_id)
+                 .join(Prediction,
+                       Prediction.id == PredictionOutcome.prediction_id)
+                 .join(Match, Match.id == Prediction.match_id)
                  .where(Match.sport == sport, Match.utc_date >= cutoff))
             rows = s.execute(q).all()
             n = len(rows)
@@ -1081,7 +1086,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
                 continue
             hits = sum(1 for oc, m in rows if oc.top_pick_hit)
             lls = [oc.log_loss for oc, m in rows if oc.log_loss is not None]
-            clvs = [oc.clv for oc, m in rows if oc.clv is not None]
+            clvs = [oc.clv for oc, m in rows
+                    if getattr(oc, "clv", None) is not None]
             lines.append(
                 f"## {label}\n\n- Sides: **{hits}/{n}** ({hits/n:.1%})\n"
                 f"- Mean log-loss: {sum(lls)/len(lls):.4f} (n={len(lls)})\n"

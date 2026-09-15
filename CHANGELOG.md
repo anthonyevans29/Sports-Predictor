@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-16
+- S14 verdict: soccer totals under-projection is bucket-shaped
+  (uncertain-winner games +1.17 goals, confident +0.08, n=46) — fix
+  hypothesis queued for Stage-1 backtest. CLI.md corrected:
+  totals-check/calibration-series are MLB-only.
+
 ## 2026-09-15
 - Hotfix: results-tally join corrected (outcomes link via prediction_id
   → Prediction → Match, not match_id) — caught on first run.

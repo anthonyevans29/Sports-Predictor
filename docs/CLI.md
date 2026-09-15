@@ -115,7 +115,7 @@ syncs run normally; the consumer receives market-only files:
 | `market-alignment` | `--sport --date` | Model pick/prob vs market per upcoming game. |
 | `clv-report` | `--sport --since --market` | Closing-line-value report over graded games. |
 | `kalshi-disagreement` | `--since` | How often/how much Kalshi disagrees with books. |
-| `totals-check` / `calibration-series` | `--sport --since / --lo --hi` | Totals grading; band calibration diagnosis. |
+| `totals-check` / `calibration-series` | `--sport {mlb} --since / --lo --hi` | Totals grading; band calibration diagnosis. **MLB-only** (soccer totals reads are computed from results exports pending S14 tooling). |
 | `model-report` | `--limit` | Recent outcomes post-mortem feed. |
 | `miss-analysis` | `--min-n` | Bucket all graded predictions across categories. |
 | `signal-residuals` | | Do tracked signals predict model residuals? |

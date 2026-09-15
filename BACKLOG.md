@@ -182,6 +182,19 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **S14 VERDICT 2026-09-16 (read at n=46, computed from results files
+  after the CLI diagnostics proved MLB-only): HYPOTHESIS CONFIRMED —
+  BUCKET-SHAPED.** Uncertain-winner games (top pick <45%) under-project
+  +1.17 goals (n=25); confident-winner +0.08 (n=21); all-games +0.67;
+  projection-band cut corroborates (<2.5: +0.85; >=2.5: -0.04). The
+  model couples winner-uncertainty with totals suppression. S-TRACK:
+  uncertainty-conditioned totals adjustment (NOT a blanket raise — the
+  +0.08 bucket would be punished), designed + Stage-1 backtested before
+  production; queued with the NFL cap variants. CATALOG CORRECTION:
+  totals-check / calibration-series are MLB-only (--sport choices
+  mlb/baseball) — docs/CLI.md rows corrected; soccer totals diagnostics
+  = future S-track tooling if the fix ships.
+
 - **HAND-OFF RITUAL RULE (user, 2026-09-15):** every packaged tarball is
   presented WITH the exact command block — extract + git add/commit/push
   with a descriptive commit message — so the repo history narrates every

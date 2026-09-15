@@ -182,6 +182,14 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **LAYOVER CONSOLE NOTE: sentinel coverage gap.** The matched-zero
+  alarm lives only in sync_kalshi_soccer; the NFL/MLB shared path lacks
+  it (today's NFL 0/32 was benign future-week listings, but the guard
+  should cover every sport that can go dark). Three-line add to the
+  shared function — next quiet slot. EFL roster shipped: 4 ties incl.
+  Coventry home-dog to Villa + Fleetwood 19% v Sheffield Utd — premium
+  cross-division acceptance evidence, 11-12 books each.
+
 - **S14 VERDICT 2026-09-16 (read at n=46, computed from results files
   after the CLI diagnostics proved MLB-only): HYPOTHESIS CONFIRMED —
   BUCKET-SHAPED.** Uncertain-winner games (top pick <45%) under-project

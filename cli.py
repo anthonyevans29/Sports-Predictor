@@ -3342,6 +3342,23 @@ def totals_model_test_cmd(season, park_weight):
                   "totals-market edge (separate CLV question).[/dim]\n")
 
 
+@cli.command("export-nfl-results")
+def export_nfl_results_cmd():
+    """Graded NFL results file for the consumer (rehearsal-flagged)."""
+    from src.walters.nfl_predict import export_nfl_results
+    path = export_nfl_results()
+    console.print(f"[green]✓ Wrote {path}[/green]")
+
+
+@cli.command("results-tally")
+@click.option("--days", default=30, type=int, help="Rolling window size.")
+def results_tally_cmd(days):
+    """Regenerate RESULTS.md — rolling per-sport record."""
+    from src.walters.export import results_tally
+    path = results_tally(days=days)
+    console.print(f"[green]✓ Wrote {path}[/green]")
+
+
 @cli.command("nfl-grade")
 def nfl_grade_cmd():
     """Grade NFL predictions vs finished games and banked closers (read-only)."""

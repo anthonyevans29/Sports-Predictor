@@ -245,3 +245,70 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
         report(f"  ── sides {hits}/{n} · log-loss {summary['logloss']} · "
                f"mean CLV {summary['mean_clv_pp']}pp (n={len(clvs)} priced)")
         return summary
+
+
+def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
+    """Graded NFL results file for the consumer rhythm (2026-09-15)."""
+    import json as _json
+    import math
+    import os as _os
+    from datetime import datetime, timedelta
+
+    from sqlalchemy import select
+
+    from src.db.database import session_scope
+    from src.db.schema import Match, MatchStatus, Odds, Prediction, Sport
+    from src.walters.value import MarketSnapshot
+
+    rows = []
+    with session_scope() as s:
+        now = datetime.utcnow()
+        q = (select(Prediction, Match)
+             .join(Match, Match.id == Prediction.match_id)
+             .where(Match.sport == Sport.NFL,
+                    Match.status == MatchStatus.FINISHED,
+                    Match.utc_date >= now - timedelta(days=days_back))
+             .order_by(Match.utc_date))
+        for pred, m in s.execute(q).all():
+            y = 1 if m.home_score > m.away_score else 0
+            p = pred.home_win_prob
+            pick_home = p >= 0.5
+            close_h = None
+            odds_rows = list(s.execute(select(Odds).where(
+                Odds.match_id == m.id, Odds.market == "1X2")).scalars())
+            if odds_rows:
+                by_sel = {}
+                for o in odds_rows:
+                    by_sel.setdefault(o.selection, []).append(
+                        (o.bookmaker, o.price_decimal))
+                imp = MarketSnapshot(market="1X2",
+                                     by_selection=by_sel).average_implied()
+                tot = sum(imp.values()) or 1.0
+                close_h = imp.get("HOME", 0) / tot
+            clv = None
+            if close_h is not None:
+                clv = (p if pick_home else 1 - p) - (close_h if pick_home else 1 - close_h)
+            rows.append({
+                "match_id": m.id, "utc_date": m.utc_date.isoformat(),
+                "week": m.matchday,
+                "home_team": m.home_team.name, "away_team": m.away_team.name,
+                "predicted": {"model_version": pred.model_version,
+                              "top_pick": "home_win" if pick_home else "away_win",
+                              "top_pick_prob": round(p if pick_home else 1 - p, 4),
+                              "home_win_prob": p},
+                "actual": {"home_score": m.home_score, "away_score": m.away_score,
+                           "result": "H" if y else "A"},
+                "graded": {"top_pick_hit": (pick_home and y == 1) or (not pick_home and y == 0),
+                           "log_loss": round(-(y * math.log(max(p, 1e-12))
+                                               + (1 - y) * math.log(max(1 - p, 1e-12))), 4),
+                           "close_home_prob": round(close_h, 4) if close_h is not None else None,
+                           "clv": round(clv, 4) if clv is not None else None},
+            })
+    _os.makedirs(out_dir, exist_ok=True)
+    path = _os.path.join(out_dir, f"nfl_NFL_results_{datetime.utcnow().strftime('%Y-%m-%d')}.json")
+    with open(path, "w") as f:
+        _json.dump({"exported_at": datetime.utcnow().isoformat() + "Z",
+                    "sport": "nfl", "rehearsal": True,
+                    "note": "record is variance, not signal — for the consumer to grade against",
+                    "count": len(rows), "results": rows}, f, indent=2)
+    return path

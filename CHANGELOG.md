@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-15
+- **`results-tally`** → `RESULTS.md`: rolling 30-day per-sport record
+  (sides, log-loss, CLV), auto-generated, linked from README; joins the
+  morning rhythm.
+- **`export-nfl-results`**: graded NFL results file in the standard
+  consumer shape (rehearsal-flagged) — NFL joins the results-file rhythm.
+- Week 1 NFL final: 9/16, log-loss 0.6755 (both max-conviction rows
+  lost); MW4 soccer: 5/10, giant edges split — Forest won, Hull and
+  Everton missed by draw (cohort 6/12, four misses-by-draw).
+
 ## 2026-09-14
 - NFL Week 1 graded via `nfl-grade` (first live read): 9/15 sides,
   log-loss 0.6441 vs 0.6361 backtest — performance transferred live.

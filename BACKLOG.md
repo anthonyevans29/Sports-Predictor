@@ -182,6 +182,21 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **MOUNTAIN MORNING 2026-09-15 + two rhythm builds.** MW4: 5/10 (season
+  22/40); GIANT EDGES SPLIT — Forest +20.6 WON, Hull +27.3 and Everton
+  +31.3 both MISSED BY DRAW -> cohort 6/12 with FOUR of six misses by
+  draw: the model's big away edges are right about underdog strength,
+  wrong about win conversion. Derby City +8.9 HIT; Leeds 4-1 HIT.
+  NFL Week 1 FINAL: 9/16, LL 0.6755 (Denver row lost — BOTH max-
+  conviction disagreements failed 0-2; the KC row alone moved LL past
+  backtest); CLV-convention caveat logged (positive pick-vs-close on
+  wrong-side rows is not a virtue — read jointly with results). MLB 7/10,
+  v136 = 27th rejection. BUILDS: export-nfl-results (consumer results
+  shape, rehearsal-flagged; joins the morning rhythm after nfl-grade) and
+  results-tally -> RESULTS.md (rolling 30d per-sport record, README-
+  linked, auto-generated; morning rhythm addition). Docs updated per
+  standing rule.
+
 - **NFL WEEK-1 GRADED 2026-09-14 (nfl-grade inaugural run, 15 games, MNF
   pending):** sides 9/15, LOG-LOSS 0.6441 vs backtest 0.6361 — the
   gate-passed performance TRANSFERRED live; mean pick-vs-close +3.91pp

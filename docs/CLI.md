@@ -84,6 +84,7 @@ passes.
 | `export-nfl-predictions` | | Rehearsal-format export (`rehearsal: true`; QB status in input_quality). |
 | `nfl-backtest` | | Walk-forward backtest against the frozen phase-2 gate. |
 | `nfl-grade` | | Grade predictions vs finished games + banked closer consensus (sides, log-loss, CLV). |
+| `export-nfl-results` | | Graded NFL results file for the consumer (standard results shape, rehearsal-flagged). |
 
 ## Gated competitions (cups)
 
@@ -104,6 +105,7 @@ syncs run normally; the consumer receives market-only files:
 | `backtest` | `--season --competition` | Leakage-free historical re-run of the current model. |
 | `export-predictions` | `--sport --competition --start --end --status` | Consumer prediction file with input_quality vocabulary. |
 | `export-results` | `--sport --competition --date` | Graded results file (top-pick, totals pulse annotations). |
+| `results-tally` | `--days` | Regenerate `RESULTS.md` — rolling per-sport record (sides, log-loss, CLV). |
 
 ## Diagnostics & research
 

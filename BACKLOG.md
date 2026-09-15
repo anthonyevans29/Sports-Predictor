@@ -182,6 +182,38 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **HAND-OFF RITUAL RULE (user, 2026-09-15):** every packaged tarball is
+  presented WITH the exact command block — extract + git add/commit/push
+  with a descriptive commit message — so the repo history narrates every
+  drop. No bare tarballs.
+
+- **NFL WEEK-1 AUDIT 2026-09-15: FIRST MODEL ASKS — and correctly so
+  (rehearsal phase = when consumer input belongs).** Their evidence: 4
+  biggest disagreements 0-4; positive-CLV picks 6-6 (their "CLV != win
+  equity" = our convention caveat, independently derived). ASKS: early-
+  season caps (72% general / 65% divisional / 58% road-inversion),
+  disagreement quarantine, margin layer before spreads. R-TRACK PLAN
+  (next session, BEFORE the Week-2 rehearsal file): backtest each cap
+  variant on the existing harness; PRE-COMMITTED ACCEPTANCE — a cap
+  ships iff backtest log-loss improves AND no calibration band degrades.
+  72% cap has directional support (70-80% band leaned over-confident;
+  >80% zone was never sample-validated — capping unvalidated
+  extrapolation = the tier-freeze principle on probabilities).
+  Divisional variant needs a division map (small build); road-inversion
+  testable now. Margin/spread layer: declined for now — sides-only v1,
+  logged as future phase. Survivors ship with receipts; rejects declined
+  with receipts.
+
+- **MW4 WEEKLY AUDIT 2026-09-15 (GPT layer): CONVERGENCE.** Their
+  Protection A- IS our misses-by-draw finding found independently —
+  double-chance converted the exact rows the ledger flagged (Forest X2,
+  Everton X2, avoided LIV/CHE MLs). Closing rec explicitly NOT "pick
+  winners better"; zero model asks again. Their Tail-calibration D+
+  (signed +0.42 vs absolute 1.90 = too NARROW, not too low) lands as
+  S14's PRE-COMMITTED READ COMES DUE: n=40 graded (needed 30). Read
+  issued (totals-check --since 2026-08-14 + calibration-series);
+  verdict against the filed rule; any change via backtest, S-track.
+
 - **MOUNTAIN MORNING 2026-09-15 + two rhythm builds.** MW4: 5/10 (season
   22/40); GIANT EDGES SPLIT — Forest +20.6 WON, Hull +27.3 and Everton
   +31.3 both MISSED BY DRAW -> cohort 6/12 with FOUR of six misses by

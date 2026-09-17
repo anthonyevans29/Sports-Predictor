@@ -182,6 +182,21 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **S14 STAGE-1 COMPLETE 2026-09-17 (in-container, counterfactual on the
+  46 graded games).** Baseline totals-direction was 39% (18/46) — the
+  bucket bias has cost the direction record all season (their D+ grades
+  vindicated). FLAT BEATS GRADED (bucket-shaped confirmed twice).
+  CANDIDATE SELECTED: flat +1.0 goals on uncertain-winner games
+  (top_pick<0.45) — residual +1.17->+0.17, confident bucket untouched,
+  direction 24/46 (within one of best). IN-SAMPLE caveat owned: fitted on
+  the diagnosing data. STAGE-2 ACCEPTANCE FROZEN NOW, before any number:
+  on held-out prior seasons via the backtest harness, the adjustment
+  ships iff (a) uncertain-bucket signed residual moves toward zero,
+  (b) overall totals-direction does not degrade, (c) confident-bucket
+  residual stays within ±0.15 of its unadjusted value. Implementation
+  (Stage-2 session): predict-time bump behind config
+  s14_uncertain_totals_bump, through the normal gates.
+
 - **CAP-VARIANT VERDICTS 2026-09-17 (same morning): ALL FOUR DECLINED —
   baseline v1 stands unchanged.** cap 0.72: LL 0.6382 (worse; its 70-80
   band nicety 4.3->3.5pp cost real information). cap 0.75: 0.6388. cap

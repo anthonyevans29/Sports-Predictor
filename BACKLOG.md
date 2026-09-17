@@ -182,6 +182,17 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **NFL EXPORT GAP (user exchange 2026-09-17): no Kalshi surface.** The
+  NFL rehearsal export's market block is books-only — MLB/soccer formats
+  carry input_quality.kalshi + prices; NFL doesn't, though snapshots are
+  already banked by sync-kalshi-nfl. Small add (read OddsSnapshot per
+  match, two-sided), queued for the next NFL build slot — NOT rushed on
+  opener day. Also: pre-kickoff re-export CONFIRMED as the standing NFL
+  matchday pattern (model rows identical without new results; market
+  blocks freshen — the Leeds-refresh precedent applied); the identity of
+  model probs across same-day regenerations doubles as an integrity
+  check.
+
 - **N1 PHASE 1 SHIPPED 2026-09-17 (same quiet slot):** capture-weather-nfl
   — 32-team stadium map KEYED BY HOME TEAM (venue strings untrusted for
   NFL; tuple contract matches VENUE_COORDS), 11 roofed entries (9 domes/

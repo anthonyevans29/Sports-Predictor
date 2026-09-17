@@ -80,6 +80,7 @@ passes.
 |---|---|---|
 | `sync-odds-nfl` | | Per-game book odds for upcoming NFL games (moneyline, spreads with sign, totals with lines). |
 | `sync-kalshi-nfl` | | Kalshi `KXNFLGAME` markets via the shared two-sided matcher. |
+| `capture-weather-nfl` | | Tracking-only weather snapshot for upcoming NFL games (team-keyed stadium map; roofed games stored as indoor). |
 | `predict-nfl` | | Write v1 Elo predictions for upcoming games (match-only upsert). |
 | `export-nfl-predictions` | | Rehearsal-format export (`rehearsal: true`; QB status in input_quality). |
 | `nfl-backtest` | | Walk-forward backtest against the frozen phase-2 gate. |

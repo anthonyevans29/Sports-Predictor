@@ -343,3 +343,65 @@ def _weather_code_label(code) -> str | None:
         return _WMO_LABELS.get(int(code), f"Code {code}")
     except (ValueError, TypeError):
         return None
+
+
+# ── NFL stadiums (N1 phase 1, 2026-09-17) ────────────────────────────────
+# Keyed by HOME TEAM name (always known; provider venue strings are not
+# trusted for NFL). Tuple contract matches VENUE_COORDS: (lat, lon, roofed).
+# Roofed = dome or functional canopy (SoFi counts: weather-irrelevant).
+NFL_TEAM_COORDS: dict[str, tuple[float, float, bool]] = {
+    "Buffalo Bills": (42.774, -78.787, False),
+    "Miami Dolphins": (25.958, -80.239, False),
+    "New England Patriots": (42.091, -71.264, False),
+    "New York Jets": (40.813, -74.074, False),
+    "New York Giants": (40.813, -74.074, False),
+    "Baltimore Ravens": (39.278, -76.623, False),
+    "Cincinnati Bengals": (39.095, -84.516, False),
+    "Cleveland Browns": (41.506, -81.699, False),
+    "Pittsburgh Steelers": (40.447, -80.016, False),
+    "Houston Texans": (29.685, -95.411, True),
+    "Indianapolis Colts": (39.760, -86.164, True),
+    "Jacksonville Jaguars": (30.324, -81.637, False),
+    "Tennessee Titans": (36.166, -86.771, False),
+    "Denver Broncos": (39.744, -105.020, False),
+    "Kansas City Chiefs": (39.049, -94.484, False),
+    "Las Vegas Raiders": (36.091, -115.184, True),
+    "Los Angeles Chargers": (33.953, -118.339, True),
+    "Los Angeles Rams": (33.953, -118.339, True),
+    "Dallas Cowboys": (32.748, -97.093, True),
+    "Philadelphia Eagles": (39.901, -75.168, False),
+    "Washington Commanders": (38.908, -76.864, False),
+    "Chicago Bears": (41.862, -87.617, False),
+    "Detroit Lions": (42.340, -83.046, True),
+    "Green Bay Packers": (44.501, -88.062, False),
+    "Minnesota Vikings": (44.974, -93.258, True),
+    "Atlanta Falcons": (33.755, -84.401, True),
+    "Carolina Panthers": (35.226, -80.853, False),
+    "New Orleans Saints": (29.951, -90.081, True),
+    "Tampa Bay Buccaneers": (27.976, -82.503, False),
+    "Arizona Cardinals": (33.528, -112.263, True),
+    "San Francisco 49ers": (37.403, -121.970, False),
+    "Seattle Seahawks": (47.595, -122.332, False),
+}
+
+
+def lookup_nfl_stadium(home_team: str | None) -> tuple[float, float, bool] | None:
+    if not home_team:
+        return None
+    return NFL_TEAM_COORDS.get(home_team)
+
+
+def fetch_weather_at(lat: float, lon: float, utc_dt: datetime,
+                     timeout: float = 4.0) -> dict | None:
+    """Coords-based variant of fetch_weather for callers that resolve
+    location themselves (NFL: by home team). Same swallow-and-None
+    contract."""
+    class _V:  # reuse fetch_weather by shimming a one-off venue
+        pass
+    # Simplest honest reuse: temporarily register a synthetic venue key.
+    key = f"__coords_{lat:.3f}_{lon:.3f}"
+    VENUE_COORDS[key] = (lat, lon, False)
+    try:
+        return fetch_weather(key, utc_dt, timeout=timeout)
+    finally:
+        VENUE_COORDS.pop(key, None)

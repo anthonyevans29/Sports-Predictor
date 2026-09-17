@@ -5,6 +5,8 @@ reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
 ## 2026-09-17
+- `capture-weather-nfl` (N1 phase 1): 32-stadium map keyed by home team,
+  roofed handling, Open-Meteo capture into GameWeather — tracking only.
 - S14 Stage-1: flat +1.0 uncertain-bucket totals correction selected
   counterfactually (direction 39%->52% in-sample); Stage-2 out-of-sample
   acceptance frozen pre-results.

@@ -182,6 +182,18 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **N1 PHASE 1 SHIPPED 2026-09-17 (same quiet slot):** capture-weather-nfl
+  — 32-team stadium map KEYED BY HOME TEAM (venue strings untrusted for
+  NFL; tuple contract matches VENUE_COORDS), 11 roofed entries (9 domes/
+  retractables + SoFi canopy + shared-stadium dupes), coords-based
+  fetch_weather_at reusing the MLB Open-Meteo path, GameWeather storage
+  mirrored. Tracking-only per the phase design — no model consumes it;
+  the banked history compounds toward the totals work. Chain placement:
+  after sync-odds-nfl in the weekly NFL rhythm. First-run verification:
+  captured≈window size, roofed games stored as indoor(roof). Coordinate
+  precision ±0.02deg (weather-adequate); corrections welcome if any
+  stadium reads wrong.
+
 - **S14 STAGE-1 COMPLETE 2026-09-17 (in-container, counterfactual on the
   46 graded games).** Baseline totals-direction was 39% (18/46) — the
   bucket bias has cost the direction record all season (their D+ grades

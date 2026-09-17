@@ -3419,6 +3419,49 @@ def nfl_backtest_cmd():
         console.print("[yellow]✗ GATE FAIL[/yellow] — model does not ship; iterate or park.")
 
 
+@cli.command("capture-weather-nfl")
+def capture_weather_nfl_cmd():
+    """Tracking-only weather capture for upcoming NFL games (N1 phase 1).
+
+    Keyed by home team (32 stadiums; 9 roofed + SoFi canopy). Roofed games
+    store roof_state only; open-air games get an Open-Meteo snapshot near
+    kickoff. Weather is banked history for the eventual totals work — no
+    model consumes it."""
+    from datetime import timedelta
+    from src.web.weather import fetch_weather_at, lookup_nfl_stadium
+    from src.db.schema import GameWeather
+    init_db()
+    captured = skipped = 0
+    with session_scope() as s2:
+        now = datetime.utcnow()
+        rows = list(s2.execute(
+            select(Match).where(Match.sport == Sport.NFL,
+                                Match.status == MatchStatus.SCHEDULED,
+                                Match.utc_date >= now,
+                                Match.utc_date <= now + timedelta(days=8))
+        ).scalars())
+        for m2 in rows:
+            info = lookup_nfl_stadium(m2.home_team.name if m2.home_team else None)
+            if info is None:
+                skipped += 1
+                continue
+            lat, lon, roofed = info
+            wx = None if roofed else fetch_weather_at(lat, lon, m2.utc_date)
+            s2.add(GameWeather(
+                match_id=m2.id,
+                source_game_id=str((m2.external_ids or {}).get("api_american_football") or ""),
+                game_date=m2.utc_date, venue=m2.home_team.name,
+                roof_state="indoor(roof)" if roofed else "outdoor",
+                temperature_f=(wx or {}).get("temperature_f"),
+                wind_mph=(wx or {}).get("wind_mph"),
+                wind_dir_deg=(wx or {}).get("wind_dir_deg"),
+                precipitation_in=(wx or {}).get("precipitation_in"),
+                condition=(wx or {}).get("condition") or ("indoor" if roofed else None),
+            ))
+            captured += 1
+    console.print(f"[green]✓ NFL weather: captured={captured} skipped={skipped}[/green]")
+
+
 @cli.command("sync-odds-nfl")
 def sync_odds_nfl_cmd():
     """Capture book odds for upcoming NFL games (per-game; Week-N tracking)."""

@@ -182,6 +182,26 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **CAP-VARIANT HARNESS SHIPPED 2026-09-17 (opener morning, before any
+  variant result exists).** nfl-backtest-caps tests baseline vs cap 0.72
+  (GPT ask) / 0.75 / 0.80 (our validated-zone edge) / logit-shrink 0.90,
+  applied at scoring time only (identical walked stream). ACCEPTANCE
+  FROZEN PRE-RESULTS: a variant ships iff LL beats baseline AND no n>=30
+  band's calibration gap worsens by >0.5pp. UNTESTABLE ASKS DECLINED
+  WITH REASON: road-inversion cap (defined vs market; backtest has no
+  historical odds) and divisional cap (no division map) — untestable =
+  unshippable; revisit when live market-anchored weeks accrue. Sentinel
+  extended to the shared MLB/NFL Kalshi path (soccer-only gap closed).
+  SEQUENCE: user runs caps this morning -> verdicts vs frozen bar ->
+  surviving variant (if any) wired into predict-nfl -> Week-2 rehearsal
+  file generated -> formal GPT dry read BEFORE tonight's opener.
+  CUP ANSWER KEY UPGRADED same morning: Wednesday 2/4 incl. Fleetwood
+  19% home-dog WIN and Brighton at Old Trafford — the key now contains
+  real upsets, so acceptance grades PRICING vs stored books, not
+  result-matching (a 19% price that loses passes; a 45% price that wins
+  fails). Key: 25/33 favorites across four cup slates. 7 next-round EFL
+  ties already created.
+
 - **EFL TUESDAY SLATE MISSED-WINDOW 2026-09-16 (Claude's error, owned):**
   the layover roster used --start 09-16; the actual slate was 09-15 —
   five ties (incl. Liverpool-Spurs, Ipswich-Arsenal) went un-rostered;

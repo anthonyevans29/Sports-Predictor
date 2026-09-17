@@ -62,7 +62,20 @@ def _update(cfg: NFLEloConfig, st: _State, home_id: int, away_id: int,
     st.ratings[away_id] = ra - delta
 
 
-def run_backtest(progress=None) -> dict:
+def _apply_variant(p: float, cap: float | None, shrink: float | None) -> float:
+    """R-track variants (2026-09-17): confidence cap and/or logit shrink,
+    applied at SCORING time only — ratings and updates are untouched, so
+    every variant walks the identical stream."""
+    if shrink is not None:
+        z = math.log(p / (1 - p)) * shrink
+        p = 1 / (1 + math.exp(-z))
+    if cap is not None:
+        p = min(max(p, 1 - cap), cap)
+    return p
+
+
+def run_backtest(progress=None, cap: float | None = None,
+                 shrink: float | None = None) -> dict:
     """Walk-forward per the frozen gate; returns verdict dict and prints it."""
     from sqlalchemy import select
 
@@ -109,7 +122,7 @@ def run_backtest(progress=None) -> dict:
     ll_model = ll_base = 0.0
     bands: dict[int, list[tuple[float, int]]] = {}
     for h, a, season, hs, as_, _ in scored:
-        p = _expected_home(cfg, st, h, a)
+        p = _apply_variant(_expected_home(cfg, st, h, a), cap, shrink)
         y = 1 if hs > as_ else 0  # ties count as home loss for scoring; rare
         ll_model += -(y * math.log(max(p, eps)) + (1 - y) * math.log(max(1 - p, eps)))
         ll_base += -(y * math.log(base_p) + (1 - y) * math.log(1 - base_p))

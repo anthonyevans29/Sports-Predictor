@@ -3384,6 +3384,28 @@ def export_nfl_predictions_cmd():
     console.print(f"[green]✓ Wrote {path}[/green] [dim](rehearsal flag set)[/dim]")
 
 
+@cli.command("nfl-backtest-caps")
+def nfl_backtest_caps_cmd():
+    """R-track: test confidence-cap/shrink variants vs the uncapped baseline.
+
+    Pre-committed acceptance (frozen 2026-09-17 BEFORE results): a variant
+    ships iff its log-loss beats baseline AND no n>=30 band's calibration
+    gap worsens by more than 0.5pp."""
+    from src.walters.nfl_backtest import run_backtest
+    variants = [("baseline", None, None), ("cap 0.72", 0.72, None),
+                ("cap 0.75", 0.75, None), ("cap 0.80", 0.80, None),
+                ("shrink 0.90", None, 0.90)]
+    rows = []
+    for label, cap, shrink in variants:
+        console.print(f"[bold]── {label} ──[/bold]")
+        r = run_backtest(progress=lambda msg: console.print(msg),
+                         cap=cap, shrink=shrink)
+        rows.append((label, r.get("ll_model")))
+    console.print("\n[bold]VARIANT SUMMARY (read bands above vs baseline):[/bold]")
+    for label, ll in rows:
+        console.print(f"  {label:12} log-loss {ll}")
+
+
 @cli.command("nfl-backtest")
 def nfl_backtest_cmd():
     """Walk-forward NFL v1 backtest against the frozen phase-2 gate."""

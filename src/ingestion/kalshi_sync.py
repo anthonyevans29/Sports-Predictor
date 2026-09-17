@@ -333,6 +333,12 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
             ))
             stored += 1
 
+    # Sentinel (2026-09-17, extending the soccer guard to the shared path):
+    # zero matches with BOTH sides present is an alarm, not a statistic.
+    if matched == 0 and games and all_markets:
+        report("  ⚠ MATCHED ZERO with games AND markets present — matcher may "
+               "be broken (see 2026-09-13 title-format incident). Probe the "
+               "payload before trusting 'absent'.")
     return {"ok": True, "series": _series_label,
             "markets": len(all_markets), "matched": matched,
             "unmatched": unmatched, "ambiguous": ambiguous,

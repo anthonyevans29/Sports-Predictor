@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-17
+- `nfl-backtest-caps`: R-track cap/shrink variant harness (acceptance
+  frozen pre-results); untestable asks (road-inversion, divisional)
+  declined with reasons. Matched-zero sentinel extended to the shared
+  MLB/NFL Kalshi path.
+
 ## 2026-09-16
 - S14 verdict: soccer totals under-projection is bucket-shaped
   (uncertain-winner games +1.17 goals, confident +0.08, n=46) — fix

@@ -182,6 +182,20 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **CAP-VARIANT VERDICTS 2026-09-17 (same morning): ALL FOUR DECLINED —
+  baseline v1 stands unchanged.** cap 0.72: LL 0.6382 (worse; its 70-80
+  band nicety 4.3->3.5pp cost real information). cap 0.75: 0.6388. cap
+  0.80: 0.6384. shrink 0.90: LL 0.6347 (BETTER) but 40-50 band 6.6->
+  7.6pp = degraded >0.5pp and breached 7pp — the gate printed FAIL
+  itself; the two-part bar caught exactly the LL-for-calibration trap it
+  was written for. BONUS FINDING: the 0.80 cap forced the first n=30
+  80-90 band — stated 0.800 REALIZED 0.833: the >0.80 zone was UNDER-
+  confident on 2025, not overheated; Week 1's 1-1 split on >0.80 rows =
+  noise. GPT's cap ask: tested and declined with receipts (their other
+  two asks untestable-declined earlier). Week-2 rehearsal file generates
+  from UNMODIFIED v1; dry-read note carries all five verdicts. The
+  rejection culture extends to the NFL R-track on its first trial.
+
 - **CAP-VARIANT HARNESS SHIPPED 2026-09-17 (opener morning, before any
   variant result exists).** nfl-backtest-caps tests baseline vs cap 0.72
   (GPT ask) / 0.75 / 0.80 (our validated-zone edge) / logit-shrink 0.90,

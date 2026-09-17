@@ -5,6 +5,9 @@ reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
 ## 2026-09-17
+- Cap-variant verdicts: all four declined (caps cost log-loss; shrink
+  degraded the weakest band) — v1 unchanged; bonus finding: the >0.80
+  zone was under-confident on 2025 (0.800 stated / 0.833 realized).
 - `nfl-backtest-caps`: R-track cap/shrink variant harness (acceptance
   frozen pre-results); untestable asks (road-inversion, divisional)
   declined with reasons. Matched-zero sentinel extended to the shared

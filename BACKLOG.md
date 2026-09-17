@@ -182,6 +182,14 @@ specific reason they're not being built now.
   disagreement columns ship as plain instrumentation — no prominence, no
   grading machinery.
 
+- **EFL TUESDAY SLATE MISSED-WINDOW 2026-09-16 (Claude's error, owned):**
+  the layover roster used --start 09-16; the actual slate was 09-15 —
+  five ties (incl. Liverpool-Spurs, Ipswich-Arsenal) went un-rostered;
+  GPT layer traded unassisted "really well" AGAIN (baseline grows).
+  Two-day export heals the record: consensus 4/5 graded with stored
+  books = five more answer-key pages. LESSON: cup rosters use two-day
+  windows by default (cup rounds straddle days).
+
 - **LAYOVER CONSOLE NOTE: sentinel coverage gap.** The matched-zero
   alarm lives only in sync_kalshi_soccer; the NFL/MLB shared path lacks
   it (today's NFL 0/32 was benign future-week listings, but the guard

@@ -22,6 +22,16 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **EXPANSION BACKFILL COMPLETE 2026-09-19 (same afternoon):** 4,468
+  matches, ZERO skips (per-season teams strategy perfect at scale);
+  league-size fingerprints verify authenticity (380x3 for 20-team
+  PD/SA; 306+308+308 for 18-team BL1/FL1 incl. relegation playoffs).
+  ~70 new clubs; weekend fixtures priced in all four countries (17-20
+  per window); ELC activated (11 odds, 138 injuries). DB now spans 15
+  competitions / 5 countries; Monday's refresh pot ~12,600. Doctrine
+  unchanged: refresh HELD to Monday's mountain as one gated transition;
+  foreign leagues shadow next matchweek; ELC enables at the refresh.
+
 - **COVERAGE EXPANSION DECIDED 2026-09-19 (user): PD, SA, BL1, FL1 + ELC
   activation.** Finding: ZERO code needed — adapter ids/meta and
   league_strength tiers (PD -10 / SA -20 / BL1 -25 / FL1 -50) pre-wired

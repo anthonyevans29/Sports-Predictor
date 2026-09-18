@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-19 (backfill)
+- Expansion backfill complete: 4,468 matches / 4 leagues, zero skips;
+  ELC activated. 15 competitions, 5 countries.
+
 ## 2026-09-19 (expansion)
 - Coverage expansion decided: La Liga, Serie A, Bundesliga, Ligue 1 +
   ELC activation — no code needed (pre-wired); backfill plan issued,

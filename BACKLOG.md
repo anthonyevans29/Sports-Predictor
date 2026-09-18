@@ -22,6 +22,22 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COMPRESSION PROBE SHIPPED 2026-09-19 (the instrumentation session,
+  delivered as a script):** scripts/compression_probe.py runs the EXACT
+  train() loop twice — pot A excludes pyramid comps (ELC/EL1/EL2), pot B
+  everything — dumping PL-team spread every 250 matches and marking every
+  season-regression firing inline. The collapse point becomes visible
+  directly: departure at a regression line = season-string interleaving;
+  gradual departure after pyramid entry = cross-pot rating flow through
+  cup ties; similar finals = mechanism elsewhere. Read-only, in-memory,
+  ~90s run. Container reset mid-build was recovered via git clone from
+  main in one command — the repo-as-state-recovery design working as
+  intended. U1 (daily cards + unified page) FORMALLY COMMITTED as the
+  next dedicated build session per user prioritization — multi-file UI
+  work deserving a non-matchday session; leads the queue after the probe
+  verdict. NFL-live reminder: Monday's table decides Week 3; every game
+  already predicted internally.
+
 - **[ACTIVE MEASUREMENT — started 2026-06-24, REVIEW ~2026-07-08] Closing-line-
   value: does the model actually beat the market?** This is THE question for
   the income thesis. The model is well-calibrated but has NO demonstrated edge

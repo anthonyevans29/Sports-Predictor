@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-19
+- `scripts/compression_probe.py`: instrumented double-train (pot A/B)
+  with inline regression markers — locates the Elo collapse empirically.
+- U1 (per-sport daily cards + unified page) committed as next dedicated
+  build session.
+
 ## 2026-09-17
 - `capture-weather-nfl` (N1 phase 1): 32-stadium map keyed by home team,
   roofed handling, Open-Meteo capture into GameWeather — tracking only.

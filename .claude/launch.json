@@ -1,0 +1,11 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "sports-predictor-web",
+      "runtimeExecutable": "/Users/katherinevargasmedina/Desktop/Sports-Predictor/venv/bin/python",
+      "runtimeArgs": ["main.py"],
+      "port": 8000
+    }
+  ]
+}

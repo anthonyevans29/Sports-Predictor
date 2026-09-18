@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-19 (v22)
+- **v22 promoted** — first soccer model change since v18: per-team
+  regression, 8,137-match pot (pyramid/Euro/WC), spread guard passed
+  99%; Southampton drift justified (50 ELC matches entered) with a
+  documented one-time --max-drift override. Refresh reopened.
+
 ## 2026-09-19 (later)
 - Compression CONVICTED by the probe (interleaved "2026"/"2026/27"
   season strings firing six tail regressions; pyramid exonerated) and

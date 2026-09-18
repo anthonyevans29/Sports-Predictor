@@ -22,6 +22,25 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **v22 PROMOTED 2026-09-19 — THE COMPRESSION SAGA CLOSES.** Culprit
+  confessed: WC, 100 matches, season "2026", June 11-July 12 — its rows
+  interleaving with "2026/27" qualifying produced the toggles; explains
+  v18-healthy-v19-collapsed exactly (v18 predates the WC sync). Fixed
+  train() passed the spread guard 320 vs 323 (99%). Drift rejection on
+  v21 investigated and JUSTIFIED: Southampton +201 = fifty Championship
+  matches entering the pot (50 ELC vs 38 PL) — evidence-based re-rating;
+  --max-drift 350 override documented for the one-time pot-doubling
+  transition; v22 promoted with all guards passing on merits. Production
+  soccer: v22 on 8,137 matches, per-team regression, pyramid + Euro +
+  WC history. REFRESH REOPENED after 3 parked weeks. CONSEQUENCES:
+  (1) 2pm MW5 refresh ships v22's first live rows — hand-off flags the
+  model change; the v18->v22 edge delta on identical fixtures (Hull
+  +23.4 row above all — their ELC history just landed too) is the first
+  direct measurement of the fix. (2) CUP ACCEPTANCE EXAM = next session
+  build: v22 cup-path vs stored books on the ~34-fixture answer key,
+  +/-8pp frozen bar; also adjudicates whether the league-bonus misapply
+  was independent or a compression symptom.
+
 - **COMPRESSION CONVICTED + FIX SHIPPED 2026-09-19 (probe verdict, same
   day).** The probe caught it directly: a block of soccer matches labeled
   season "2026" (single-year string) interleaves with "2026/27" fixtures

@@ -22,6 +22,20 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FEEDER-LEAGUE EXPANSION 2026-09-19 (evening, user-scoped): nine
+  CL/UEL feeder leagues wired DATA-ONLY** — NED POR BEL SCO TUR AUT SUI
+  GRE CZE (ids 88/94/144/179/203/218/207/197/345), meta + strength
+  priors (-55 to -130, pending the acceptance exam's pricing check).
+  Purpose: rating enrichment for European opponents we already price —
+  NO prediction/export obligations, no shadow burden. All enters
+  MONDAY'S SINGLE REFRESH (one transition absorbs everything; drift
+  adjudication will be busier — the documented-override precedent
+  stands). DEFERRED with reason: calendar-year leagues (NOR/SWE) use
+  single-year season strings — v22's per-team regression is immune, but
+  the --seasons helper would generate wrong strings; they wait for the
+  format accommodation, not a workaround. VERIFICATION: sync-teams
+  receipts (club names) instantly falsify any wrong league id.
+
 - **EXPANSION BACKFILL COMPLETE 2026-09-19 (same afternoon):** 4,468
   matches, ZERO skips (per-season teams strategy perfect at scale);
   league-size fingerprints verify authenticity (380x3 for 20-team

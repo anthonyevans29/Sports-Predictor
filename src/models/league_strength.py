@@ -44,6 +44,11 @@ LEAGUE_ELO_BONUS: dict[str, float] = {
     "EL1": -260.0,    # League One (if we sync it)
     "EL2": -360.0,    # League Two
     # Top European leagues (used when CL/EL teams face each other)
+    # CL/UEL feeders (2026-09-19): priors pending the acceptance exam's
+    # pricing check — these inform cup-tie bonuses only.
+    "NED": -60.0, "POR": -55.0, "BEL": -80.0, "SCO": -110.0,
+    "TUR": -90.0, "AUT": -110.0, "SUI": -110.0, "GRE": -120.0,
+    "CZE": -130.0,
     "PD": -10.0,      # La Liga
     "SA": -20.0,      # Serie A
     "BL1": -25.0,     # Bundesliga

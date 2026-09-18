@@ -70,6 +70,19 @@ _CODE_TO_LEAGUE_ID: dict[str, int] = {
     "UEL": 3,        # Europa League (added 2026-08-27, pyramid+Europe backfill)
     "EL": 3,         # Europa League
     "UECL": 848,     # Conference League
+    # CL/UEL feeder leagues (2026-09-19 scoped expansion: data-only,
+    # rating enrichment for European opponents we already price).
+    # Aug-May calendars only — calendar-year leagues (NOR/SWE) deferred
+    # pending single-year season-string support in the --seasons helper.
+    "NED": 88,       # Eredivisie
+    "POR": 94,       # Primeira Liga
+    "BEL": 144,      # Belgian Pro League
+    "SCO": 179,      # Scottish Premiership
+    "TUR": 203,      # Süper Lig
+    "AUT": 218,      # Austrian Bundesliga
+    "SUI": 207,      # Swiss Super League
+    "GRE": 197,      # Greek Super League
+    "CZE": 345,      # Czech Fortuna Liga
     # Spain / Italy / Germany / France
     "PD": 140,       # La Liga
     "SA": 135,       # Serie A
@@ -116,6 +129,15 @@ _CODE_TO_META: dict[str, tuple[str, str, str]] = {
     "UEL":  ("UEFA Europa League", "Europe", "INTL"),
     "EL":   ("UEFA Europa League", "Europe", "INTL"),
     "UECL": ("UEFA Conference League", "Europe", "INTL"),
+    "NED":  ("Eredivisie", "Netherlands", "LEAGUE"),
+    "POR":  ("Primeira Liga", "Portugal", "LEAGUE"),
+    "BEL":  ("Pro League", "Belgium", "LEAGUE"),
+    "SCO":  ("Premiership", "Scotland", "LEAGUE"),
+    "TUR":  ("Süper Lig", "Turkey", "LEAGUE"),
+    "AUT":  ("Bundesliga", "Austria", "LEAGUE"),
+    "SUI":  ("Super League", "Switzerland", "LEAGUE"),
+    "GRE":  ("Super League", "Greece", "LEAGUE"),
+    "CZE":  ("Fortuna Liga", "Czechia", "LEAGUE"),
     "PD":   ("La Liga", "Spain", "LEAGUE"),
     "SA":   ("Serie A", "Italy", "LEAGUE"),
     "BL1":  ("Bundesliga", "Germany", "LEAGUE"),

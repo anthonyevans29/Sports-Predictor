@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-19 (feeders)
+- Nine CL/UEL feeder leagues wired data-only (NED POR BEL SCO TUR AUT
+  SUI GRE CZE) with strength priors; Nordic calendar-year leagues
+  deferred pending season-string support.
+
 ## 2026-09-19 (backfill)
 - Expansion backfill complete: 4,468 matches / 4 leagues, zero skips;
   ELC activated. 15 competitions, 5 countries.

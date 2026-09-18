@@ -108,6 +108,20 @@ syncs run normally; the consumer receives market-only files:
 | `export-results` | `--sport --competition --date` | Graded results file (top-pick, totals pulse annotations). |
 | `results-tally` | `--days` | Regenerate `RESULTS.md` — rolling per-sport record (sides, log-loss, CLV). |
 
+## Player props (phase 13 — informational, no bet placement)
+
+Projects a player stat via rolling average of `player_game_logs` and
+grades it against a line you supply (e.g. from PrizePicks). Soccer only
+for now — the only adapter with per-fixture player stats wired
+(API-Football `/fixtures/players`); other sports need their own adapter
+work before this has data to project from.
+
+| Command | Options | Purpose |
+|---|---|---|
+| `sync-player-match-stats` | `--competition --season --limit` | Per-player, per-match stat lines for finished matches — the history projections are built from. |
+| `grade-props` | `--sport --player --stat --line` / `--file board.txt` | Grade one line, or a whole pasted board (`Player, stat_type, line` per line). |
+| `project-props` | `--sport --stat --days-ahead --limit` | Standalone projections for upcoming matches, no line needed. |
+
 ## Diagnostics & research
 
 | Command | Options | Purpose |
@@ -127,9 +141,10 @@ syncs run normally; the consumer receives market-only files:
 ## Web UI
 
 `python main.py` serves the local browser app (FastAPI on
-`localhost:8000`) — dashboard, competitions, teams, matches, and the MLB
-card. NFL and cup views are not yet built (backlog U1); the CLI is the
-complete interface for those.
+`localhost:8000`) — dashboard, competitions, teams, matches, the MLB
+card, and player props (`/props`, soccer only for now). NFL and cup
+views are not yet built (backlog U1); the CLI is the complete interface
+for those.
 
 ---
 

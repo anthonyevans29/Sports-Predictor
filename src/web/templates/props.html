@@ -1,0 +1,138 @@
+{% extends "base.html" %}
+{% block title %}Player Props{% endblock %}
+
+{% block content %}
+<div class="mb-6">
+  <h1 class="text-2xl font-bold text-slate-800">Player Props</h1>
+  <p class="text-sm text-slate-400 mt-1 max-w-3xl">
+    Informational only — paste in what a pick'em board (PrizePicks or similar)
+    is offering and see what the model's own rolling-average projection says.
+    This never talks to PrizePicks and never places anything; you still decide.
+  </p>
+</div>
+
+{# ---- Paste-a-board form ---- #}
+<div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm mb-8">
+  <h2 class="font-semibold text-slate-800 mb-2">Grade a board</h2>
+  <p class="text-xs text-slate-400 mb-3">
+    One pick per line: <code class="bg-slate-100 px-1 rounded">Player Name, stat_type, line</code>
+    — e.g. <code class="bg-slate-100 px-1 rounded">Erling Haaland, shots_on_target, 1.5</code>.
+    stat_type must match what's synced (e.g. shots, shots_on_target, goals, assists,
+    tackles, key_passes for soccer).
+  </p>
+  <form method="post" action="/props/grade">
+    <textarea name="board_text" rows="6"
+      class="w-full border border-slate-300 rounded p-2 text-sm font-mono"
+      placeholder="Erling Haaland, shots_on_target, 1.5&#10;Bukayo Saka, shots, 2.5"
+    >{{ board_text or '' }}</textarea>
+    <div class="flex items-center gap-3 mt-2">
+      <input type="hidden" name="board_source" value="prizepicks" />
+      <button type="submit"
+        class="bg-arsenal-red text-white text-sm px-4 py-1.5 rounded hover:opacity-90">
+        Grade board
+      </button>
+      {% if unparsed_count %}
+        <span class="text-xs text-amber-600">{{ unparsed_count }} line(s) didn't parse — skipped.</span>
+      {% endif %}
+    </div>
+  </form>
+</div>
+
+{% if picks is not none %}
+<div class="bg-white border border-slate-200 rounded-lg overflow-hidden mb-8 shadow-sm">
+  <table class="w-full text-sm">
+    <thead class="bg-slate-100 text-slate-600">
+      <tr>
+        <th class="text-left px-3 py-2">Player</th>
+        <th class="text-left px-3 py-2">Stat</th>
+        <th class="text-right px-3 py-2">Line</th>
+        <th class="text-right px-3 py-2">Model proj</th>
+        <th class="text-right px-3 py-2">n</th>
+        <th class="text-right px-3 py-2">Edge</th>
+        <th class="text-left px-3 py-2">Verdict</th>
+        <th class="text-left px-3 py-2">Confidence</th>
+        <th class="text-left px-3 py-2">Note</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for p in picks %}
+      <tr class="border-t border-slate-100 {% if loop.index0 % 2 %}bg-slate-50/50{% endif %}">
+        <td class="px-3 py-2 font-medium text-slate-800">{{ p.player_name_raw }}</td>
+        <td class="px-3 py-2 text-slate-500">{{ p.stat_type }}</td>
+        <td class="px-3 py-2 text-right">{{ p.line }}</td>
+        <td class="px-3 py-2 text-right">
+          {% if p.projected_mean is not none %}{{ '%.2f' | format(p.projected_mean) }}{% else %}—{% endif %}
+        </td>
+        <td class="px-3 py-2 text-right text-slate-400">{{ p.sample_size }}</td>
+        <td class="px-3 py-2 text-right
+          {% if p.edge_pct is not none and p.edge_pct > 0 %}text-emerald-600
+          {% elif p.edge_pct is not none and p.edge_pct < 0 %}text-rose-600
+          {% else %}text-slate-400{% endif %}">
+          {% if p.edge_pct is not none %}{{ '%+.1f' | format(p.edge_pct) }}%{% else %}—{% endif %}
+        </td>
+        <td class="px-3 py-2">
+          <span class="px-2 py-0.5 rounded text-xs font-semibold
+            {% if p.verdict == 'over' %}bg-emerald-100 text-emerald-700
+            {% elif p.verdict == 'under' %}bg-rose-100 text-rose-700
+            {% else %}bg-slate-100 text-slate-500{% endif %}">
+            {{ (p.verdict or 'pass') | upper }}
+          </span>
+        </td>
+        <td class="px-3 py-2 text-slate-500">{{ p.confidence or '—' }}</td>
+        <td class="px-3 py-2 text-xs text-slate-400">{{ p.note or '' }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+</div>
+{% endif %}
+
+{# ---- Standalone projections browser ---- #}
+<div class="bg-white border border-slate-200 rounded-lg p-4 shadow-sm">
+  <div class="flex items-baseline justify-between mb-2">
+    <h2 class="font-semibold text-slate-800">Upcoming projections — {{ stat_type }}</h2>
+    <form method="get" class="flex items-center gap-2 text-xs">
+      <input type="text" name="stat" value="{{ stat_type }}"
+        class="border border-slate-300 rounded px-2 py-1 w-40" placeholder="stat_type" />
+      <button type="submit" class="bg-slate-800 text-white px-3 py-1 rounded hover:opacity-90">
+        Update
+      </button>
+    </form>
+  </div>
+  <p class="text-xs text-slate-400 mb-3">
+    No line needed — just the model's own rolling average for players on
+    teams with a scheduled match in the next 7 days. Requires
+    <code class="bg-slate-100 px-1 rounded">sync-player-match-stats</code>
+    to have run recently for this sport.
+  </p>
+  {% if not projections %}
+    <div class="text-slate-400 text-sm">
+      No projections yet — either no scheduled matches in the window, or not
+      enough recent player-match-stat history synced.
+    </div>
+  {% else %}
+    <table class="w-full text-sm">
+      <thead class="text-slate-500 text-xs">
+        <tr>
+          <th class="text-left py-1">Player</th>
+          <th class="text-left py-1">Match</th>
+          <th class="text-left py-1">Date</th>
+          <th class="text-right py-1">Proj</th>
+          <th class="text-right py-1">n</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for row in projections %}
+        <tr class="border-t border-slate-100">
+          <td class="py-1.5 font-medium text-slate-800">{{ row.player_name }}</td>
+          <td class="py-1.5 text-slate-500">{{ row.match_label }}</td>
+          <td class="py-1.5 text-slate-400 text-xs">{{ row.utc_date.strftime('%a %d %b') }}</td>
+          <td class="py-1.5 text-right">{{ '%.2f' | format(row.projected_mean) }}</td>
+          <td class="py-1.5 text-right text-slate-400">{{ row.sample_size }}</td>
+        </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  {% endif %}
+</div>
+{% endblock %}

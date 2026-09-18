@@ -746,6 +746,81 @@ class APIFootballAdapter(DataAdapter):
             "pass_accuracy": (pass_acc_num / pass_acc_w) if pass_acc_w > 0 else None,
         }
 
+    def get_fixture_player_stats(self, fixture_source_id: str) -> list[dict]:
+        """
+        Per-player stats for ONE fixture, from /fixtures/players. This is the
+        per-game counterpart to list_players() (which is season-aggregate) —
+        the raw material for player-prop projections (Phase 13): a rolling
+        average needs individual game rows, not a season total.
+
+        Returns one dict per player who appeared (minutes > 0 or any stat
+        recorded), regardless of team:
+          {
+            "player_source_id": "1100",
+            "player_name": "E. Haaland",
+            "team_source_id": "50",
+            "minutes": 90.0,
+            "stats": {"shots": 4, "shots_on_target": 3, "goals": 2, ...},
+          }
+        Empty list for fixtures not yet played (no statistics posted).
+        """
+        data = self._get("fixtures/players", params={"fixture": fixture_source_id})
+        out: list[dict] = []
+        for team_block in data.get("response", []):
+            team = team_block.get("team") or {}
+            team_source_id = team.get("id")
+            for entry in team_block.get("players", []):
+                p = entry.get("player") or {}
+                pid = p.get("id")
+                name = p.get("name")
+                if not pid or not name or team_source_id is None:
+                    continue
+                stats_list = entry.get("statistics") or []
+                if not stats_list:
+                    continue
+                s = stats_list[0]  # one fixture = one block, no summing needed
+                games = s.get("games") or {}
+                minutes = games.get("minutes")
+                if minutes is None:
+                    # Did not actually play this fixture (unused sub etc.)
+                    continue
+
+                shots = s.get("shots") or {}
+                goals = s.get("goals") or {}
+                passes = s.get("passes") or {}
+                tackles = s.get("tackles") or {}
+                duels = s.get("duels") or {}
+                dribbles = s.get("dribbles") or {}
+                fouls = s.get("fouls") or {}
+                cards = s.get("cards") or {}
+
+                saves = goals.get("saves")
+                conceded = goals.get("conceded")
+
+                out.append({
+                    "player_source_id": str(pid),
+                    "player_name": name,
+                    "team_source_id": str(team_source_id),
+                    "minutes": _to_float(minutes),
+                    "stats": {
+                        "shots": _to_int(shots.get("total")) or 0,
+                        "shots_on_target": _to_int(shots.get("on")) or 0,
+                        "goals": _to_int(goals.get("total")) or 0,
+                        "assists": _to_int(goals.get("assists")) or 0,
+                        "key_passes": _to_int(passes.get("key")) or 0,
+                        "tackles": _to_int(tackles.get("total")) or 0,
+                        "interceptions": _to_int(tackles.get("interceptions")) or 0,
+                        "duels_won": _to_int(duels.get("won")) or 0,
+                        "dribbles_success": _to_int(dribbles.get("success")) or 0,
+                        "fouls_committed": _to_int(fouls.get("committed")) or 0,
+                        "yellow_cards": _to_int(cards.get("yellow")) or 0,
+                        "red_cards": _to_int(cards.get("red")) or 0,
+                        "saves": _to_int(saves) if saves is not None else None,
+                        "goals_conceded": _to_int(conceded) if conceded is not None else None,
+                    },
+                })
+        return out
+
     # ------------------------------------------------------------------
     # Parsers
     # ------------------------------------------------------------------

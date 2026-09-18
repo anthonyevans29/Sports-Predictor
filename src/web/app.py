@@ -20,7 +20,7 @@ from fastapi.templating import Jinja2Templates
 
 from config import settings
 from src.web import preferences
-from src.web.routes import admin, card, competitions, home, matches, players, predictions, teams
+from src.web.routes import admin, card, competitions, home, matches, players, predictions, props, teams
 
 log = logging.getLogger(__name__)
 
@@ -113,6 +113,7 @@ def create_app() -> FastAPI:
     app.include_router(predictions.router)
     app.include_router(card.router)
     app.include_router(players.router)
+    app.include_router(props.router)
     app.include_router(admin.router)
 
     # Quiet 204 for the browser's automatic favicon request — keeps logs clean

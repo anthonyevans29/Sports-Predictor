@@ -878,3 +878,94 @@ class BullpenSeasonStats(Base):
     __table_args__ = (
         Index("ix_bss_team_season", "team_id", "season", unique=True),
     )
+
+
+# ---------------------------------------------------------------------------
+# Player props (Phase 13 — PrizePicks-style prop projection & grading)
+# ---------------------------------------------------------------------------
+
+
+class PlayerGameLog(Base):
+    """
+    One row per (player, match): the player's actual per-game stat line.
+
+    Sport-agnostic on purpose — `stats` is a flat JSON dict of stat_type ->
+    value (e.g. {"receiving_yards": 78, "receptions": 5} for NFL,
+    {"shots_on_target": 3, "goals": 1} for soccer). This is the raw material
+    every prop projection is built from: pull a player's recent rows, average
+    the stat_type in question. No stat taxonomy is hardcoded here so new
+    sports/stat types need no migration — just new keys in the JSON.
+    """
+
+    __tablename__ = "player_game_logs"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    player_id: Mapped[int] = mapped_column(ForeignKey("players.id"), index=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), index=True)
+    team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True)
+    opponent_team_id: Mapped[int | None] = mapped_column(ForeignKey("teams.id"))
+    is_home: Mapped[bool] = mapped_column(Boolean, default=True)
+    game_date: Mapped[datetime] = mapped_column(DateTime, index=True)
+    minutes: Mapped[float | None] = mapped_column(Float)  # minutes/snaps played, when known
+    stats: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    source: Mapped[str] = mapped_column(String(64))
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+
+    player: Mapped[Player] = relationship()
+    match: Mapped[Match] = relationship()
+    team: Mapped[Team] = relationship(foreign_keys=[team_id])
+    opponent_team: Mapped[Team | None] = relationship(foreign_keys=[opponent_team_id])
+
+    __table_args__ = (
+        Index("ix_pgl_player_match", "player_id", "match_id", unique=True),
+        Index("ix_pgl_player_date", "player_id", "game_date"),
+    )
+
+
+class PropPick(Base):
+    """
+    A single player-prop line (PrizePicks or similar pick'em board) graded
+    against the model's own projection. INFORMATIONAL ONLY — this never
+    talks to PrizePicks, places a pick, or moves money; the user enters the
+    stat + line PrizePicks is offering and this table records what the
+    model thought, so accuracy can be tracked over time the same way match
+    predictions are (see PredictionOutcome).
+
+    `projected_mean` / `verdict` are None until `grade_prop()` (src/walters/
+    props.py) has enough PlayerGameLog rows to project from — an ungraded
+    pick is an honest gap, not a silently-defaulted 0.
+    """
+
+    __tablename__ = "prop_picks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    sport: Mapped[Sport] = mapped_column(Enum(Sport), index=True)
+    player_id: Mapped[int | None] = mapped_column(ForeignKey("players.id"), index=True)
+    player_name_raw: Mapped[str] = mapped_column(String(128))  # as entered, in case unmatched
+    match_id: Mapped[int | None] = mapped_column(ForeignKey("matches.id"), index=True)
+    stat_type: Mapped[str] = mapped_column(String(64), index=True)  # "receiving_yards", "shots_on_target"
+    line: Mapped[float] = mapped_column(Float)
+    board_source: Mapped[str] = mapped_column(String(32), default="prizepicks")
+
+    # The model's read, filled in by grade_prop()
+    projected_mean: Mapped[float | None] = mapped_column(Float)
+    sample_size: Mapped[int] = mapped_column(Integer, default=0)
+    method: Mapped[str | None] = mapped_column(String(32))  # e.g. "rolling_avg_l10"
+    edge_pct: Mapped[float | None] = mapped_column(Float)  # (projected - line) / line
+    verdict: Mapped[str | None] = mapped_column(String(16))  # "over" | "under" | "pass"
+    confidence: Mapped[str | None] = mapped_column(String(16))  # "low" | "medium" | "high"
+    note: Mapped[str | None] = mapped_column(String(255))
+
+    # Filled in once the game is final, for tracking hit rate over time
+    actual_value: Mapped[float | None] = mapped_column(Float)
+    hit: Mapped[bool | None] = mapped_column(Boolean)  # did the graded verdict side win
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    graded_at: Mapped[datetime | None] = mapped_column(DateTime)
+
+    player: Mapped[Player | None] = relationship()
+    match: Mapped[Match | None] = relationship()
+
+    __table_args__ = (
+        Index("ix_prop_sport_created", "sport", "created_at"),
+    )

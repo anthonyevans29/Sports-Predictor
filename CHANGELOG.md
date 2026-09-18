@@ -4,6 +4,20 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-18 (player props, phase 13)
+- New player-prop projection & grading module: `player_game_logs` and
+  `prop_picks` tables, a rolling-average projection engine
+  (`src/walters/props.py`), and a soccer per-fixture player-stats sync
+  (API-Football `/fixtures/players`) to feed it.
+- CLI: `sync-player-match-stats`, `grade-props` (single line or paste a
+  whole board), `project-props` (standalone browsing, no line needed).
+- Web: new `/props` page — paste a PrizePicks-style board and get it
+  graded against the model's projection, plus a standalone upcoming-
+  projections browser. Informational only; no bet placement anywhere.
+- Soccer only for now (only adapter with per-fixture player stats wired).
+  NFL/NBA/college football need their own data adapters before projections
+  are possible there — flagged as follow-up, not silently stubbed.
+
 ## 2026-09-19 (feeder backfill)
 - Nine feeder leagues backfilled: ~7,988 matches, zero skips. Monday
   refresh pot ~20,600 across 24 competitions.

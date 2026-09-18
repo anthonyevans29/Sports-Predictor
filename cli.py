@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import logging
 from datetime import datetime
+from pathlib import Path
 
 import click
 from rich.console import Console
@@ -403,6 +404,133 @@ def sync_players_cmd(competition_code: str, season: str):
     service = IngestionService(adapter)
     result = service.sync_players(competition_code, season=season)
     console.print(f"[green]✓ Players ({competition_code}): {result}[/green]")
+
+
+# ---------------------------------------------------------------------------
+# Player props (Phase 13 — PrizePicks-style projection & grading)
+# ---------------------------------------------------------------------------
+
+
+@cli.command("sync-player-match-stats")
+@click.option("--competition", "competition_code", required=True, help="e.g. PL")
+@click.option("--season", required=True, help="e.g. 2025/26")
+@click.option(
+    "--limit", default=50, show_default=True, type=int,
+    help="Max finished matches to fetch player stats for. Each = 1 API request.",
+)
+def sync_player_match_stats_cmd(competition_code: str, season: str, limit: int):
+    """
+    Pull per-player, per-match stat lines (shots, goals, cards, etc.) for
+    FINISHED matches. This is the history prop projections are built from —
+    run it regularly so the rolling average has recent games to work with.
+
+    Currently supported for soccer (API-Football) only.
+    """
+    adapter = _adapter_for_competition(competition_code)
+    if not hasattr(adapter, "get_fixture_player_stats"):
+        console.print(
+            f"[yellow]{adapter.source_name} doesn't support per-player match "
+            f"stats yet — player props aren't wired up for this sport/source.[/yellow]"
+        )
+        return
+    service = IngestionService(adapter)
+    result = service.sync_player_match_stats(competition_code, season=season, limit=limit)
+    console.print(f"[green]✓ Player match stats ({competition_code}): {result}[/green]")
+
+
+@cli.command("grade-props")
+@click.option("--sport", type=click.Choice(["soccer", "mlb", "nfl"]), required=True)
+@click.option("--player", "player_name", help="Player name, e.g. \"Erling Haaland\"")
+@click.option("--stat", "stat_type", help="e.g. shots_on_target, receiving_yards")
+@click.option("--line", type=float, help="The line PrizePicks (or any board) is offering")
+@click.option(
+    "--file", "board_file", type=click.Path(exists=True),
+    help="Grade a whole pasted board instead of one line. Each line: "
+         "\"Player Name, stat_type, line\" (comma or tab separated).",
+)
+@click.option("--board-source", default="prizepicks", show_default=True)
+def grade_props_cmd(
+    sport: str, player_name: str | None, stat_type: str | None,
+    line: float | None, board_file: str | None, board_source: str,
+):
+    """
+    Grade a player-prop line (or a whole pasted board) against the model's
+    own rolling-average projection. INFORMATIONAL ONLY — this reads what you
+    give it, it never talks to PrizePicks or places anything.
+
+    Single line:
+        cli.py grade-props --sport soccer --player "Erling Haaland" \\
+            --stat shots_on_target --line 1.5
+
+    Whole board:
+        cli.py grade-props --sport soccer --file today_board.txt
+    """
+    from src.walters.props import grade_board, grade_prop
+
+    sport_enum = Sport(sport)
+
+    def _print_pick(pick):
+        verdict_color = {"over": "green", "under": "red", "pass": "dim"}.get(pick.verdict, "white")
+        proj = f"{pick.projected_mean:.2f}" if pick.projected_mean is not None else "n/a"
+        edge = f"{pick.edge_pct:+.1f}%" if pick.edge_pct is not None else "n/a"
+        console.print(
+            f"  {pick.player_name_raw} — {pick.stat_type} {pick.line} → "
+            f"proj {proj} (n={pick.sample_size}) edge {edge} "
+            f"[{verdict_color}]{(pick.verdict or 'pass').upper()}[/{verdict_color}] "
+            f"({pick.confidence or 'low'} confidence)"
+            + (f" — {pick.note}" if pick.note else "")
+        )
+
+    with session_scope() as s:
+        if board_file:
+            text = Path(board_file).read_text()
+            picks = grade_board(s, sport_enum, text, board_source=board_source)
+            if not picks:
+                console.print("[yellow]No parseable lines found in that file.[/yellow]")
+                return
+            for pick in picks:
+                _print_pick(pick)
+            console.print(f"[green]✓ Graded {len(picks)} pick(s).[/green]")
+        else:
+            if not player_name or not stat_type or line is None:
+                console.print(
+                    "[red]Provide --player/--stat/--line, or --file for a whole board.[/red]"
+                )
+                return
+            pick = grade_prop(s, sport_enum, player_name, stat_type, line, board_source=board_source)
+            _print_pick(pick)
+
+
+@cli.command("project-props")
+@click.option("--sport", type=click.Choice(["soccer", "mlb", "nfl"]), required=True)
+@click.option("--stat", "stat_type", required=True, help="e.g. shots_on_target")
+@click.option("--days-ahead", default=7, show_default=True, type=int)
+@click.option("--limit", default=25, show_default=True, type=int)
+def project_props_cmd(sport: str, stat_type: str, days_ahead: int, limit: int):
+    """
+    Standalone projections for upcoming matches, no line needed — just the
+    model's own rolling-average number per player, sorted highest first.
+    Useful for browsing rather than checking one board entry at a time.
+    """
+    from src.walters.props import project_upcoming
+
+    sport_enum = Sport(sport)
+    with session_scope() as s:
+        rows = project_upcoming(s, sport_enum, stat_type, days_ahead=days_ahead)
+
+    if not rows:
+        console.print(
+            "[yellow]No projections available — need scheduled matches in the "
+            "window plus recent PlayerGameLog history for those teams.[/yellow]"
+        )
+        return
+
+    for row in rows[:limit]:
+        console.print(
+            f"  {row['projected_mean']:>5.2f}  {row['player_name']:<24} "
+            f"(n={row['sample_size']})  {row['match_label']} "
+            f"[{row['utc_date']:%a %d %b}]"
+        )
 
 
 # ---------------------------------------------------------------------------

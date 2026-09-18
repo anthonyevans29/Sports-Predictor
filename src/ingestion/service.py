@@ -36,6 +36,8 @@ from src.db.schema import (
     MatchParticipant,
     MatchStats,
     MatchStatus,
+    Player,
+    PlayerGameLog,
     Sport,
     Team,
 )
@@ -465,6 +467,147 @@ class IngestionService:
                     result.skipped += 1
         log.info("sync_match_stats(%s): %s", competition_code, result)
         return result
+
+    def sync_player_match_stats(
+        self,
+        competition_code: str,
+        season: str | None = None,
+        limit: int | None = None,
+    ) -> SyncResult:
+        """
+        Phase 13: per-player, per-match stat lines (PlayerGameLog) for
+        finished matches — the raw material player-prop projections are
+        built from. Mirrors sync_match_stats but at player granularity via
+        adapter.get_fixture_player_stats().
+
+        Only adapters that expose get_fixture_player_stats support this
+        (currently API-Football / soccer). Skips matches already logged.
+        """
+        if not hasattr(self.adapter, "get_fixture_player_stats"):
+            log.info("Adapter %s doesn't expose get_fixture_player_stats.", self.source)
+            return SyncResult()
+
+        result = SyncResult()
+        with session_scope() as s:
+            comp = self._get_competition(s, competition_code)
+            if not comp:
+                log.warning("Competition %s not in DB.", competition_code)
+                return result
+
+            stmt = select(Match).where(
+                Match.competition_id == comp.id,
+                Match.status == MatchStatus.FINISHED,
+            )
+            if season:
+                stmt = stmt.where(Match.season == season)
+
+            candidates: list[Match] = []
+            for match in s.execute(stmt).scalars():
+                source_id = (match.external_ids or {}).get(self.source)
+                if not source_id:
+                    continue
+                existing = s.execute(
+                    select(PlayerGameLog).where(PlayerGameLog.match_id == match.id)
+                ).first()
+                if existing:
+                    continue
+                candidates.append(match)
+
+            if limit:
+                candidates = candidates[:limit]
+
+            log.info(
+                "sync_player_match_stats: %d matches to fetch (competition=%s, season=%s)",
+                len(candidates), competition_code, season,
+            )
+
+            for match in candidates:
+                source_id = match.external_ids[self.source]
+                try:
+                    rows = self.adapter.get_fixture_player_stats(source_id)
+                except Exception as e:
+                    log.warning("Player stats fetch failed for match %d (%s): %s", match.id, source_id, e)
+                    result.skipped += 1
+                    continue
+                if not rows:
+                    result.skipped += 1
+                    continue
+
+                written = self._persist_player_game_logs(s, match, rows)
+                if written:
+                    result.created += written
+                else:
+                    result.skipped += 1
+        log.info("sync_player_match_stats(%s): %s", competition_code, result)
+        return result
+
+    def _persist_player_game_logs(self, s: Session, match: Match, rows: list[dict]) -> int:
+        """Get-or-create the Player (by sport+source+source_id, same rule as
+        sync_players) for each row, then upsert one PlayerGameLog per player
+        for this match."""
+        written = 0
+        for row in rows:
+            sid = row.get("player_source_id")
+            name = row.get("player_name")
+            team_source_id = row.get("team_source_id")
+            if not sid or not name or not team_source_id:
+                continue
+
+            team = s.execute(
+                select(Team).where(Team.external_ids[self.source].as_string() == team_source_id)
+            ).scalar_one_or_none()
+            if team is None:
+                continue
+
+            player = s.execute(
+                select(Player).where(
+                    Player.sport == match.sport,
+                    Player.external_ids[self.source].as_string() == sid,
+                )
+            ).scalar_one_or_none()
+            if player is None:
+                # SQLite's JSON operator doesn't always behave (same caveat
+                # as sync_players) — fall back to a Python-side filter by
+                # name before concluding this is really a new player.
+                for cand in s.execute(
+                    select(Player).where(Player.sport == match.sport, Player.name == name)
+                ).scalars():
+                    if (cand.external_ids or {}).get(self.source) == sid:
+                        player = cand
+                        break
+            if player is None:
+                player = Player(
+                    sport=match.sport,
+                    name=name,
+                    team_id=team.id,
+                    external_ids={self.source: sid},
+                )
+                s.add(player)
+                s.flush()
+
+            is_home = team.id == match.home_team_id
+            opponent_team_id = match.away_team_id if is_home else match.home_team_id
+
+            existing_log = s.execute(
+                select(PlayerGameLog).where(
+                    PlayerGameLog.player_id == player.id,
+                    PlayerGameLog.match_id == match.id,
+                )
+            ).scalar_one_or_none()
+            if existing_log is None:
+                s.add(PlayerGameLog(
+                    player_id=player.id,
+                    match_id=match.id,
+                    team_id=team.id,
+                    opponent_team_id=opponent_team_id,
+                    is_home=is_home,
+                    game_date=match.utc_date,
+                    minutes=row.get("minutes"),
+                    stats=row.get("stats") or {},
+                    source=self.source,
+                ))
+                written += 1
+        return written
 
     def sync_odds(
         self,

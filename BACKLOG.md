@@ -22,6 +22,14 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FEEDER BACKFILL COMPLETE 2026-09-19 (evening): ~7,988 matches, zero
+  skips; nine league-format fingerprints verify shape (Belgian split
+  306/321/315, Scottish post-split 234s, Austrian/Swiss championship
+  rounds, Czech playoff groups). Registry created=9. MONDAY'S POT:
+  ~20,600 matches / 24 competitions / 14 countries — one gated refresh.
+  Remaining check issued: famous-club-per-league SQL (receipts print
+  counts not names; a wrong id needs a name to falsify).
+
 - **FEEDER-LEAGUE EXPANSION 2026-09-19 (evening, user-scoped): nine
   CL/UEL feeder leagues wired DATA-ONLY** — NED POR BEL SCO TUR AUT SUI
   GRE CZE (ids 88/94/144/179/203/218/207/197/345), meta + strength

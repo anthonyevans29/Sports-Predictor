@@ -47,6 +47,7 @@ class Sport(str, enum.Enum):
     NFL = "nfl"
     MLB = "mlb"
     NHL = "nhl"
+    CFB = "cfb"  # NCAA Division I FBS football (Phase 13.1 — player props)
 
 
 class MatchStatus(str, enum.Enum):

@@ -37,11 +37,13 @@ _BASEBALL_COMP_CODES = {"MLB", "MLB_SPRING"}
 
 
 def _sport_for_competition(code: str) -> str:
-    """Returns 'soccer', 'baseball', or 'nfl' based on the competition code."""
+    """Returns 'soccer', 'baseball', 'nfl', or 'cfb' based on the competition code."""
     if code.upper() in _BASEBALL_COMP_CODES:
         return "baseball"
     if code.upper() == "NFL":  # NFL phase 1, 2026-09-05
         return "nfl"
+    if code.upper() == "CFB":  # CFB phase 13.1 (player props), 2026-09-18
+        return "cfb"
     return "soccer"
 
 
@@ -119,7 +121,7 @@ def sync_matches_cmd(
         # soccer uses "2026/27"; MLB and NFL use single years. The EFL
         # aliasing quirk showed both formats can work for cups, but leagues
         # are strict — generate the right shape per sport.
-        _single_year = _sport_for_competition(competition_code) in ("baseball", "nfl")
+        _single_year = _sport_for_competition(competition_code) in ("baseball", "nfl", "cfb")
         for offset in range(seasons):
             year = current_year - offset
             season_str = str(year) if _single_year else f"{year}/{str(year + 1)[-2:]}"
@@ -412,19 +414,21 @@ def sync_players_cmd(competition_code: str, season: str):
 
 
 @cli.command("sync-player-match-stats")
-@click.option("--competition", "competition_code", required=True, help="e.g. PL")
-@click.option("--season", required=True, help="e.g. 2025/26")
+@click.option("--competition", "competition_code", required=True, help="e.g. PL, CFB")
+@click.option("--season", required=True, help="e.g. 2025/26 (soccer), 2026 (CFB)")
 @click.option(
     "--limit", default=50, show_default=True, type=int,
-    help="Max finished matches to fetch player stats for. Each = 1 API request.",
+    help="Max finished matches to fetch player stats for. Each = 1+ API requests.",
 )
 def sync_player_match_stats_cmd(competition_code: str, season: str, limit: int):
     """
-    Pull per-player, per-match stat lines (shots, goals, cards, etc.) for
-    FINISHED matches. This is the history prop projections are built from —
-    run it regularly so the rolling average has recent games to work with.
+    Pull per-player, per-match stat lines (shots/goals/cards for soccer;
+    passing/rushing/receiving for CFB) for FINISHED matches. This is the
+    history prop projections are built from — run it regularly so the
+    rolling average has recent games to work with.
 
-    Currently supported for soccer (API-Football) only.
+    Supported: soccer (API-Football), college football (CollegeFootballData,
+    --competition CFB). NFL/NBA need their own adapter work still.
     """
     adapter = _adapter_for_competition(competition_code)
     if not hasattr(adapter, "get_fixture_player_stats"):
@@ -439,7 +443,7 @@ def sync_player_match_stats_cmd(competition_code: str, season: str, limit: int):
 
 
 @cli.command("grade-props")
-@click.option("--sport", type=click.Choice(["soccer", "mlb", "nfl"]), required=True)
+@click.option("--sport", type=click.Choice(["soccer", "mlb", "nfl", "cfb"]), required=True)
 @click.option("--player", "player_name", help="Player name, e.g. \"Erling Haaland\"")
 @click.option("--stat", "stat_type", help="e.g. shots_on_target, receiving_yards")
 @click.option("--line", type=float, help="The line PrizePicks (or any board) is offering")
@@ -502,7 +506,7 @@ def grade_props_cmd(
 
 
 @cli.command("project-props")
-@click.option("--sport", type=click.Choice(["soccer", "mlb", "nfl"]), required=True)
+@click.option("--sport", type=click.Choice(["soccer", "mlb", "nfl", "cfb"]), required=True)
 @click.option("--stat", "stat_type", required=True, help="e.g. shots_on_target")
 @click.option("--days-ahead", default=7, show_default=True, type=int)
 @click.option("--limit", default=25, show_default=True, type=int)

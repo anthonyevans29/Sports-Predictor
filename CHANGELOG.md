@@ -4,6 +4,18 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-18 (player props, phase 13.1 — college football)
+- Added `Sport.CFB` and a new `CollegeFootballData.com` adapter
+  (`src/adapters/cfbd.py`, verified against their live OpenAPI spec, not
+  guessed from memory): teams, games, and per-game player stats
+  (`/games/players`, requires only a free `CFBD_API_KEY`).
+- `sync-player-match-stats --competition CFB`, `grade-props --sport cfb`,
+  and `project-props --sport cfb` now work through the same
+  sport-agnostic props pipeline built for soccer — no engine changes
+  needed, only the adapter.
+- NFL and NBA still need their own adapter work — not stubbed to look
+  done, genuinely not built.
+
 ## 2026-09-18 (player props, phase 13)
 - New player-prop projection & grading module: `player_game_logs` and
   `prop_picks` tables, a rolling-average projection engine

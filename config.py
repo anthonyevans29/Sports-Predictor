@@ -21,6 +21,7 @@ class Settings:
     api_football_key: str
     api_football_host: str
     odds_api_key: str
+    cfbd_api_key: str
 
     # DB
     database_url: str
@@ -40,6 +41,7 @@ class Settings:
             api_football_key=os.getenv("API_FOOTBALL_KEY", ""),
             api_football_host=os.getenv("API_FOOTBALL_HOST", "v3.football.api-sports.io"),
             odds_api_key=os.getenv("ODDS_API_KEY", ""),
+            cfbd_api_key=os.getenv("CFBD_API_KEY", ""),
             database_url=os.getenv("DATABASE_URL", "sqlite:///./data/sports.db"),
             host=os.getenv("WEB_HOST", "127.0.0.1"),
             port=int(os.getenv("WEB_PORT", "8000")),

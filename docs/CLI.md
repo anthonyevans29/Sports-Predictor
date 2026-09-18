@@ -111,10 +111,16 @@ syncs run normally; the consumer receives market-only files:
 ## Player props (phase 13 — informational, no bet placement)
 
 Projects a player stat via rolling average of `player_game_logs` and
-grades it against a line you supply (e.g. from PrizePicks). Soccer only
-for now — the only adapter with per-fixture player stats wired
-(API-Football `/fixtures/players`); other sports need their own adapter
-work before this has data to project from.
+grades it against a line you supply (e.g. from PrizePicks). Supported:
+soccer (API-Football `/fixtures/players`) and college football
+(CollegeFootballData `/games/players`, `--competition CFB`; needs
+`CFBD_API_KEY` in `.env` — free key at collegefootballdata.com/key). NFL
+and NBA need their own adapter work before this has data to project from.
+
+CFB stat_type keys are `{category}_{type}` lowercased from CFBD's own
+labels, e.g. `passing_yds`, `rushing_td`, `receiving_rec`,
+`receiving_yds` — run `project-props --sport cfb --stat receiving_yds`
+to see what's actually populated before grading a board against it.
 
 | Command | Options | Purpose |
 |---|---|---|

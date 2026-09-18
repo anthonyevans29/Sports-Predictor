@@ -9,12 +9,14 @@ from __future__ import annotations
 from src.adapters.api_football import APIFootballAdapter
 from src.adapters.api_american_football import APIAmericanFootballAdapter
 from src.adapters.base import DataAdapter
+from src.adapters.cfbd import CFBDAdapter
 from src.adapters.mlb_stats_api import MLBStatsAPIAdapter
 
 _REGISTRY: dict[str, type[DataAdapter]] = {
     APIFootballAdapter.source_name: APIFootballAdapter,
     APIAmericanFootballAdapter.source_name: APIAmericanFootballAdapter,
     MLBStatsAPIAdapter.source_name: MLBStatsAPIAdapter,
+    CFBDAdapter.source_name: CFBDAdapter,
 }
 
 #: The default adapter for a given sport. CLI/web use this when no
@@ -25,6 +27,7 @@ DEFAULT_FOR_SPORT: dict[str, str] = {
     "baseball": MLBStatsAPIAdapter.source_name,
     "nfl": APIAmericanFootballAdapter.source_name,
     "mlb": MLBStatsAPIAdapter.source_name,
+    "cfb": CFBDAdapter.source_name,
 }
 
 

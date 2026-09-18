@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-19 (later)
+- Compression CONVICTED by the probe (interleaved "2026"/"2026/27"
+  season strings firing six tail regressions; pyramid exonerated) and
+  FIXED: per-team season regression in elo.train (NFL semantics).
+
 ## 2026-09-19
 - `scripts/compression_probe.py`: instrumented double-train (pot A/B)
   with inline regression markers — locates the Elo collapse empirically.

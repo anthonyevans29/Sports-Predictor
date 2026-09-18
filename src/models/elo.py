@@ -133,6 +133,21 @@ def update_after_match(
     return home_rating + delta, away_rating - delta
 
 
+def regress_team(state: EloState, team_id: int) -> None:
+    """Per-team season regression (2026-09-19, compression-probe verdict):
+    pull ONE team partway back to the mean when ITS OWN season changes.
+    The global variant below regresses everyone on any stream-level season
+    transition — which the probe convicted: interleaved single-year and
+    cross-year season strings ("2026" vs "2026/27") at the stream tail
+    fired it six times in ~120 matches, collapsing spread 333 -> ~70
+    exactly as v19/v20 showed. Per-team semantics are immune to
+    interleaving by construction (the NFL model has had them from birth)."""
+    if team_id in state.ratings:
+        cur = state.ratings[team_id]
+        mean = state.config.starting_rating
+        state.ratings[team_id] = cur + state.config.season_regression * (mean - cur)
+
+
 def apply_season_regression(state: EloState) -> None:
     """
     Pull each rating partway back to the starting rating. Called between
@@ -174,13 +189,17 @@ def train(
     out unfinished or score-less matches.
     """
     state = EloState(config=config or EloConfig())
-    last_season: str | None = None
+    # Per-team season tracking (probe verdict 2026-09-19): a team regresses
+    # when ITS season changes, never when the interleaved stream's label
+    # flickers. See regress_team docstring for the conviction evidence.
+    last_season_by_team: dict[int, str] = {}
 
     for m in matches:
-        # Between-season regression to the mean
-        if last_season is not None and m.season != last_season:
-            apply_season_regression(state)
-        last_season = m.season
+        for tid in (m.home_team_id, m.away_team_id):
+            prev = last_season_by_team.get(tid)
+            if prev is not None and prev != m.season:
+                regress_team(state, tid)
+            last_season_by_team[tid] = m.season
 
         home_r = state.get(m.home_team_id)
         away_r = state.get(m.away_team_id)

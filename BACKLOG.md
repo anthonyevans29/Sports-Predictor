@@ -22,6 +22,23 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COMPRESSION CONVICTED + FIX SHIPPED 2026-09-19 (probe verdict, same
+  day).** The probe caught it directly: a block of soccer matches labeled
+  season "2026" (single-year string) interleaves with "2026/27" fixtures
+  at the stream tail — the global last_season toggle fired SIX regressions
+  in ~120 matches (several ONE match apart), spread 333 -> 79 (0.75^6 ~
+  0.18 = the v19/v20 collapse exactly). PYRAMID EXONERATED: pot A (no
+  pyramid) collapses identically (185 vs 165) — the backfill was innocent;
+  v18's 323 predates the "2026" block's arrival. Culprit-naming SQL
+  issued (summer-2026 tournament with single-year labels — WC-shaped).
+  FIX: per-team season regression in elo.train (regress_team + per-team
+  last_season map; global apply_season_regression kept for back-compat) —
+  the NFL model's semantics from birth, immune to interleaving by
+  construction; smoke test proves uninvolved teams' spread survives
+  toggles. NEXT: user runs soccer-refresh — v21 faces the SAME gates
+  (spread guard should now pass ~300+; drift vs v18 adjudicates); a pass
+  reopens the refresh AND puts the cup acceptance exam on the table.
+
 - **COMPRESSION PROBE SHIPPED 2026-09-19 (the instrumentation session,
   delivered as a script):** scripts/compression_probe.py runs the EXACT
   train() loop twice — pot A excludes pyramid comps (ELC/EL1/EL2), pot B

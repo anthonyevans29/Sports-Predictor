@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-19 (expansion)
+- Coverage expansion decided: La Liga, Serie A, Bundesliga, Ligue 1 +
+  ELC activation — no code needed (pre-wired); backfill plan issued,
+  refresh held to Monday as one gated transition, shadow-matchweek
+  doctrine applies.
+
 ## 2026-09-19 (v22)
 - **v22 promoted** — first soccer model change since v18: per-team
   regression, 8,137-match pot (pyramid/Euro/WC), spread guard passed

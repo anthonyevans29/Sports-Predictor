@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COVERAGE EXPANSION DECIDED 2026-09-19 (user): PD, SA, BL1, FL1 + ELC
+  activation.** Finding: ZERO code needed — adapter ids/meta and
+  league_strength tiers (PD -10 / SA -20 / BL1 -25 / FL1 -50) pre-wired
+  since the Europe era; registry auto-includes. Ops plan: per-season
+  sync-teams x3 per league (promoted/relegated coverage — pyramid
+  lesson) + --seasons 3 matches + forward odds; ELC = odds+injuries
+  rhythm only (history already trained into v22). DOCTRINE: next
+  soccer-refresh (HELD until Monday's mountain) pulls ~4.5k matches in
+  as ONE gated transition — expect justified drift for CL/UEL clubs
+  gaining domestic history; foreign leagues SHADOW one matchweek
+  (exports verified vs books, unshipped) before going live; ELC can
+  enable at the refresh. Kalshi per-league series discovery = later
+  bonus. Strategic payoff: European opponents get domestically-informed
+  ratings — exactly what cup acceptance and CL/UEL pricing lacked.
+
 - **v22 PROMOTED 2026-09-19 — THE COMPRESSION SAGA CLOSES.** Culprit
   confessed: WC, 100 matches, season "2026", June 11-July 12 — its rows
   interleaving with "2026/27" qualifying produced the toggles; explains

@@ -22,6 +22,14 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NINE-CLUB ID CHECK COMPLETE 2026-09-20: all feeder ids CERTIFIED.**
+  Eight verified first pass (Salzburg/Brugge/Sparta Praha/Sparta
+  Rotterdam/Benfica/Celtic/Basel/Galatasaray in their right leagues);
+  GRE "miss" was the c/k transliteration in the query pattern —
+  Olympiakos Piraeus + PAOK + AEK + Panathinaikos confirm id 197.
+  Expansion fully verified: 24 competitions, every id proven by club
+  names, Monday's refresh trains on certified data.
+
 - **THE 2:04 METRONOME 2026-09-20 (user-spotted):** every odds sync took
   exactly 2:04 = 20 games x 6.0s spacing = the FREE-TIER 10/min pace
   hardcoded, throttling a paid plan ~50x below allowance. Fixed:

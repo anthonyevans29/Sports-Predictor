@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-20
+- API-Football request spacing now env-configurable (API_FOOTBALL_RPM;
+  default 10/min): the 2:04-per-odds-sync metronome was the free-tier
+  pace hardcoded — paid plans can cut the European sweep's odds legs
+  from ~12 minutes to ~30 seconds. 429 backoff unchanged as safety net.
+
 ## 2026-09-19 (feeder backfill)
 - Nine feeder leagues backfilled: ~7,988 matches, zero skips. Monday
   refresh pot ~20,600 across 24 competitions.

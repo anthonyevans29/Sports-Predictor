@@ -46,7 +46,13 @@ _HOST_RAPID = "api-football-v1.p.rapidapi.com"
 
 # Rate limit. Free tier is 100/day; we throttle to ~10/min which gives users
 # 6 minutes of work before they need to wait. Paid plans can override.
-_RATE_LIMIT_SECONDS = 6.5
+# Requests-per-minute is plan-dependent (free tier ~10/min; paid tiers up
+# to 300+/min). Spacing is env-configurable (2026-09-20, the 2:04-metronome
+# finding): set API_FOOTBALL_RPM in .env to your plan's allowance. Default
+# stays at the conservative free-tier pace; the 429 backoff below remains
+# the safety net either way.
+import os as _os
+_RATE_LIMIT_SECONDS = 60.0 / float(_os.getenv("API_FOOTBALL_RPM", "10"))
 
 # ----------------------------------------------------------------------
 # Competition code mapping

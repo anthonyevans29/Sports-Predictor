@@ -22,6 +22,13 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **THE 2:04 METRONOME 2026-09-20 (user-spotted):** every odds sync took
+  exactly 2:04 = 20 games x 6.0s spacing = the FREE-TIER 10/min pace
+  hardcoded, throttling a paid plan ~50x below allowance. Fixed:
+  API_FOOTBALL_RPM env (default 10, conservative); .env.example
+  documented; 429 backoff stays as the safety net. User sets their
+  plan's rate -> the sweep's odds legs drop from ~12 min to seconds.
+
 - **FEEDER BACKFILL COMPLETE 2026-09-19 (evening): ~7,988 matches, zero
   skips; nine league-format fingerprints verify shape (Belgian split
   306/321/315, Scottish post-split 234s, Austrian/Swiss championship

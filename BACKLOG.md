@@ -22,6 +22,24 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **SHADOW DAY 1, NFL EDITION + DESK v0.2 2026-09-20:** the desk's own
+  audit arm caught TWO REAL DEFECTS in policy v0.1 on its first 2-way
+  slate: (1) the ladder rule is a soccer artifact — double-chance has no
+  instrument without a draw leg; (2) sizing incoherence — ladder(>=10pp)
+  kept full units while haircut(>=15pp) halved, so 12.9pp out-sized
+  22.6pp. FIXED in v0.2 (republished, same URL, now versioned in-repo at
+  tools/betting_desk.html): sport-aware ladder (2-way boards route to
+  reduced-size straight, labeled honestly), monotone sizing (>= ladder
+  threshold = half units), near-floor tempering (edge within 1pp of
+  floor = half units, per the audit's Titans pushback), correlation
+  note in the summary (same team on multiple live rows flagged as one
+  exposure line). DIVERGENCE VS INCUMBENT: they filtered to Week-2 rows
+  themselves (good consumer behavior), landed near-identical passes on
+  the market-agreeing rows, and QUARANTINED Atlanta (+23.7) on live QB
+  news (Rush starting, Penix out) — input-freshness verification AGAIN
+  the structural differentiator, second slate running. B1 requirement
+  list unchanged and reconfirmed.
+
 - **FIRST DIVERGENCE REPORT 2026-09-20 (shadow ritual, day one):**
   CONVERGED on slate shape (Leeds lone candidate, 3 passes on price) —
   the codified doctrine transferred; the desk's own audit even

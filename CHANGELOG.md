@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-20 (desk v0.2)
+- Betting Desk v0.2: sport-aware ladder (no DC on 2-way boards),
+  monotone sizing, near-floor tempering, correlation flag — both day-1
+  NFL defects fixed by the desk's own audit arm; now versioned in-repo
+  (tools/betting_desk.html).
+
 ## 2026-09-20 (shadow day 1)
 - First divergence report: slate-shape convergence; three structural B1
   requirements identified (input freshness, consensus quality,

@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-20 (db)
+- `db-tune`: WAL mode, ANALYZE, composite indexes, optional VACUUM,
+  probe timing — first response to season-scale DB lag; snapshot
+  pruning/rollup queued as the structural fix.
+
 ## 2026-09-20
 - API-Football request spacing now env-configurable (API_FOOTBALL_RPM;
   default 10/min): the 2:04-per-odds-sync metronome was the free-tier

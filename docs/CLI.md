@@ -20,6 +20,7 @@ Conventions: soccer seasons are `"2026/27"`; MLB and NFL seasons are
 | `sync-teams` | `--competition --season` | Pull all teams for a competition-season. |
 | `status` | | What's in the local DB (row counts per table). |
 | `find-team` | `<name>` | Verify a team exists and see its ids. |
+| `db-tune` | `--vacuum` | One-shot DB health pass: WAL, ANALYZE, composite indexes, probe timing. |
 | `data-freshness` | `--sport --season` | Diagnose whether model inputs are current. |
 | `model-versions` | | Trained model versions and their status (production / rejected / shelved). |
 | `show-config` / `set-config` | `--sport --field --value --yes` | Inspect / edit the production model's frozen config (gated; logs manual overrides). |

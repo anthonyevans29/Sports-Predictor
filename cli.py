@@ -4630,6 +4630,46 @@ def data_freshness_cmd(sport: str, season: str):
         console.print()
 
 
+@cli.command("db-tune")
+@click.option("--vacuum", is_flag=True, help="Also VACUUM (rewrites the file; run occasionally, not daily).")
+def db_tune_cmd(vacuum):
+    """One-shot DB health pass (2026-09-20, lag investigation): WAL mode,
+    planner statistics, and composite indexes for the per-match
+    latest-snapshot pattern. Idempotent; safe mid-season."""
+    import sqlite3 as _sq
+    import time as _t
+    path = "data/sports.db"
+    con = _sq.connect(path)
+    cur = con.cursor()
+    t0 = _t.time()
+    probe = ("SELECT COUNT(*) FROM odds o WHERE o.match_id = "
+             "(SELECT id FROM matches ORDER BY utc_date DESC LIMIT 1)")
+    cur.execute(probe); n = cur.fetchone()[0]
+    before = _t.time() - t0
+    console.print(f"  probe before: {before*1000:.0f}ms ({n} odds rows on newest match)")
+    cur.execute("PRAGMA journal_mode=WAL")
+    console.print(f"  journal_mode -> {cur.fetchone()[0]}")
+    cur.execute("PRAGMA synchronous=NORMAL")
+    for ddl in (
+        "CREATE INDEX IF NOT EXISTS ix_odds_match_book_sel ON odds(match_id, bookmaker, selection, captured_at)",
+        "CREATE INDEX IF NOT EXISTS ix_snap_match_captured ON odds_snapshots(match_id, captured_at)",
+        "CREATE INDEX IF NOT EXISTS ix_pred_match_model ON predictions(match_id, model_version)",
+    ):
+        cur.execute(ddl)
+        console.print(f"  ✓ {ddl.split(' ON ')[0].split('EXISTS ')[1]}")
+    cur.execute("ANALYZE")
+    console.print("  ✓ ANALYZE (planner statistics built)")
+    if vacuum:
+        con.commit(); con.isolation_level = None
+        cur.execute("VACUUM")
+        console.print("  ✓ VACUUM complete")
+    con.commit()
+    t0 = _t.time(); cur.execute(probe); cur.fetchone()
+    console.print(f"  probe after: {(_t.time()-t0)*1000:.0f}ms")
+    con.close()
+    console.print("[green]✓ db-tune complete[/green]")
+
+
 @cli.command("status")
 def status_cmd():
     """Show what's in the local DB."""

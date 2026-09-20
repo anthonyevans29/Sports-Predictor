@@ -22,6 +22,18 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **DB LAG INVESTIGATED 2026-09-20 (user-reported):** single-column FK
+  indexes all EXIST — the story is (a) never-ANALYZEd planner, (b)
+  default journal mode (lock stalls under concurrent sync/read), (c)
+  STRUCTURAL: odds rows accumulate per match across capture days and
+  evaluators read all history per match to compute closes — work grows
+  linearly all season. SHIPPED: db-tune (WAL + synchronous=NORMAL +
+  ANALYZE + three composite indexes + optional --vacuum + before/after
+  probe timing). QUEUED for a proper session: snapshot pruning/rollup
+  design (keep latest-per-book-per-day + close; archive the rest) —
+  the real long-term fix for the accumulation curve. "Scale to
+  Postgres" = not yet warranted; SQLite+WAL+stats handles this era.
+
 - **NINE-CLUB ID CHECK COMPLETE 2026-09-20: all feeder ids CERTIFIED.**
   Eight verified first pass (Salzburg/Brugge/Sparta Praha/Sparta
   Rotterdam/Benfica/Celtic/Basel/Galatasaray in their right leagues);

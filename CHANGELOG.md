@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-20 (B-track)
+- B-track opened: native betting layer design committed (policy-as-code,
+  shadow-vs-GPT migration path, audits-as-requirements). Sequenced after
+  cup acceptance + U1 unless platform deadlines force it.
+
 ## 2026-09-20 (db)
 - `db-tune`: WAL mode, ANALYZE, composite indexes, optional VACUUM,
   probe timing — first response to season-scale DB lag; snapshot

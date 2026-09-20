@@ -22,6 +22,22 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **B-TRACK OPENED 2026-09-20 (user, prompted by ChatGPT Custom-GPT
+  retirement news): native betting layer.** Doctrine: the BOUNDARY was
+  always the asset; the GPT was its tenant. Design commitments:
+  policy-as-code (deterministic, versioned, gated like a model) in
+  src/betting/ consuming the same export contracts; the months of GPT
+  audits = the requirements doc (actionability gates, portfolio/ladder
+  construction, entry-price discipline, CLV-jointly-with-results);
+  LLM kept only as a replaceable API adapter for narrative audit.
+  MIGRATION: B1 codify current rules + paper-trade SHADOW alongside the
+  living GPT -> daily divergence report = acceptance test vs the
+  incumbent; B2 policy backtest harness over the season's graded
+  history (all data in hand); cutover only when shadow matches/beats.
+  Non-goals for now: order execution, real bankroll. Sequencing: after
+  the committed queue (cup acceptance exam, U1 cards) unless platform
+  deadline forces reprioritization.
+
 - **DB LAG INVESTIGATED 2026-09-20 (user-reported):** single-column FK
   indexes all EXIST — the story is (a) never-ANALYZEd planner, (b)
   default journal mode (lock stalls under concurrent sync/read), (c)

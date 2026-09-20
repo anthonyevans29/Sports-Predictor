@@ -22,6 +22,34 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FIRST DIVERGENCE REPORT 2026-09-20 (shadow ritual, day one):**
+  CONVERGED on slate shape (Leeds lone candidate, 3 passes on price) —
+  the codified doctrine transferred; the desk's own audit even
+  recovered incumbent conservatism (suggested DC-ladder-as-smaller).
+  DIVERGED on three STRUCTURAL rules no knob expresses — now B1 code
+  requirements: (1) INPUT-FRESHNESS VERIFICATION — incumbent caught the
+  export's stale Palace absences (Sarr/Nketiah back Thursday; file
+  still suppresses -25% xG) making the 16.3pp edge partly phantom;
+  (2) CONSENSUS-QUALITY GATE — all Leeds prices attributed to ONE book;
+  min-distinct-books-per-selection before trusting fair; (3) TWO-STAGE
+  CLEARANCE — selection quality vs entry-price quality graded
+  separately. Net divergence: desk 0.5u vs incumbent 0u-pending.
+  APP-SIDE ITEM from the same audit: "fresh timestamp != fresh inputs"
+  — provider injury-feed lag survives clean syncs; queue a big-edge
+  injury-recency flag in exports.
+
+- **B1 SHADOW VEHICLE SHIPPED 2026-09-20 (Claude artifact "Betting
+  Desk"):** browser-local policy engine over the daily exports — PLAY/
+  LADDER/PASS with explicit reasons, edge vs book fair, double-chance
+  routing (>=10pp away/draw), market-is-right half-unit haircut
+  (>=15pp), tunable persisted knobs, optional Claude narrative audit via
+  the artifact sample capability. Policy v0.1 = DRAFT codification of
+  the GPT's audited rules; the SHADOW RITUAL = run both layers on the
+  same export daily, tune knobs to close divergence, note rules knobs
+  can't express (-> B1 code requirements). Constants graduate into
+  src/betting/ when divergence stabilizes. Artifact lives outside the
+  repo; policy source of truth moves in-repo at B1-code time.
+
 - **B-TRACK OPENED 2026-09-20 (user, prompted by ChatGPT Custom-GPT
   retirement news): native betting layer.** Doctrine: the BOUNDARY was
   always the asset; the GPT was its tenant. Design commitments:

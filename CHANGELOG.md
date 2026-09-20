@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-20 (shadow day 1)
+- First divergence report: slate-shape convergence; three structural B1
+  requirements identified (input freshness, consensus quality,
+  two-stage clearance); app-side injury-recency flag queued.
+
+## 2026-09-20 (B1)
+- Betting Desk artifact shipped: browser-local policy engine + Claude
+  audit over daily exports — the B1 shadow vehicle.
+
 ## 2026-09-20 (B-track)
 - B-track opened: native betting layer design committed (policy-as-code,
   shadow-vs-GPT migration path, audits-as-requirements). Sequenced after

@@ -22,6 +22,18 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **SHADOW DAY 1 COMPLETE (3 sports) + AWAY-EDGE QUESTION ANSWERED
+  2026-09-20:** the desk's MLB audit asked whether MLB away edges 4-7pp
+  share the soccer die-by-draw pattern — answered same-day from 380
+  graded rows: in-band away 5/9 vs home 5/8 (n-tiny); ALL away picks
+  77/137 (56%) vs home 147/243 (60%) — away runs ~4pp cooler (PATTERN-
+  WATCH granted, continues with M15) but 56% winners is nothing like
+  the soccer cohort's failure; different animal CONFIRMED empirically.
+  Shadow day 1 final: three sports, three audits, two policy defects
+  found+fixed (v0.2), input-freshness confirmed twice as the incumbent's
+  structural edge, one calibration question asked and answered from
+  data in hand. The ritual works.
+
 - **SHADOW DAY 1, NFL EDITION + DESK v0.2 2026-09-20:** the desk's own
   audit arm caught TWO REAL DEFECTS in policy v0.1 on its first 2-way
   slate: (1) the ladder rule is a soccer artifact — double-chance has no

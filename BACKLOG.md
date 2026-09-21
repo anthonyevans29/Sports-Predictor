@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **WEEK 2 GRADED + LIVE-WEEK-3 TABLE 2026-09-21 (mountain block 2):**
+  Sunday 8/14 (Week 2 ~9/15 pre-MNF; rolling 17/29, LL 0.6831 vs
+  backtest 0.6361 — elevation entirely from mega-miss rows; middle
+  bands on-model). THE QUARANTINE DETONATION: Atlanta +23.7 lost 34-3
+  (66.4% on a 31-point loser) — incumbent benched it on live QB news =
+  freshness confirmation #4, the most emphatic. Houston +14.0 lost
+  20-6; Seattle +15.4 won; double-digit disagreements now 1-5 over two
+  weeks. Market-agreeing rows carried the day again. RECOMMENDATION
+  DELIVERED: GO LIVE Week 3 — model as-is (calibrated middle earned
+  it), rehearsal flag drops, market-disagreement quarantine formalized
+  as consumer-side contract rule (>=15pp = watch-flagged). Anthony to
+  ratify. Two weeks, zero pipeline defects.
+
 - **MW5 GRADED 2026-09-21 (mountain block 1): 3/9 — v22's debut week,
   the season's harshest.** HULL LOST OUTRIGHT 2-1 at Newcastle (+24.1pp
   all-time-record edge; X2 also lost; unbeaten run ended). Leeds 0-0

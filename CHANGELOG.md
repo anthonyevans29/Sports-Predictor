@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-21 (rebuild)
+- DB destroyed by packaging incident; restored from 09-17 backup and
+  fully rebuilt same morning. v22 re-promoted on the full 16,546-match
+  / 24-competition pot (spread 101%, documented drift override).
+  Packaging + backup laws now in force.
+
 ## 2026-09-21 (desk v0.3)
 - Betting Desk v0.3: multi-sport multi-file intake, cross-sport parlay
   builder (correlation-screened, positive-edge, 0.25u), audit expanded

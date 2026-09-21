@@ -22,6 +22,22 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **REBUILD COMPLETE + v22 RE-PROMOTED 2026-09-21 (the mountain,
+  climbed twice):** restore from 09-17 backup (integrity ok, 16,133
+  matches) -> Phase 2 backfills IDENTICAL to Friday's fingerprints
+  (all created, zero skips) -> Phase 3 banked everything since Thursday
+  (UEL league phase recreated; NFL block regenerated: 5,822 anchors,
+  17/17 weather, MNF prediction rewritten) -> Phase 4: spread guard
+  101%, Southampton drift replay (235 this time — feeders shift the fit
+  too), documented override -> v22 PROMOTED on 16,546 matches / 376
+  teams — the FULL 24-competition pot, i.e. the model the mountain
+  finale always intended; the incident merged two transitions into one.
+  Known permanent losses logged (Thu-Sun odds snapshots + in-DB
+  prediction/outcome rows for those days; graded record survives in
+  exports/git). Daily-backup era begins tomorrow; packaging law in
+  force. The system's worst day and its most disciplined recovery,
+  same morning.
+
 - **DATABASE DESTRUCTION INCIDENT 2026-09-21 — Claude's fault, full
   stop.** Mechanism: the morning pragma-verification connected the app
   engine IN THE CONTAINER -> SQLite created an empty 4KB data/sports.db

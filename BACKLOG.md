@@ -22,6 +22,20 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **MW5 GRADED 2026-09-21 (mountain block 1): 3/9 — v22's debut week,
+  the season's harshest.** HULL LOST OUTRIGHT 2-1 at Newcastle (+24.1pp
+  all-time-record edge; X2 also lost; unbeaten run ended). Leeds 0-0
+  (+16.3, the shadow-argued row) — INCUMBENT'S freshness quarantine
+  VALIDATED BY RESULT vs the desk's 0.5u loss = third freshness
+  confirmation, first with money-shaped grading. Spurs-Villa draw pick
+  (+13.9) lost 2-3; Forest (+6.0) lost home to Coventry. Hits = the
+  market-agreeing/cold rows (Everton, City, Liverpool). COHORT: 6/16
+  (37.5%), failure mode DIVERSIFIED (outright losses join die-by-draw);
+  negative-edge rows 3/4. Season 25/49. NO model action — the n=30
+  pre-committed read stands; but this is the strongest single-week
+  evidence yet for market-first discipline on double-digit
+  disagreements.
+
 - **SHADOW DAY 1 COMPLETE (3 sports) + AWAY-EDGE QUESTION ANSWERED
   2026-09-20:** the desk's MLB audit asked whether MLB away edges 4-7pp
   share the soccer die-by-draw pattern — answered same-day from 380

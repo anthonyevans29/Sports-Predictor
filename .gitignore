@@ -33,3 +33,7 @@ logs/
 
 # Exports
 exports/
+
+# 2026-09-21 incident: NEVER let a database travel in any form
+data/*
+!data/preferences.json

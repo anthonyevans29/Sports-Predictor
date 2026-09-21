@@ -22,6 +22,26 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **DATABASE DESTRUCTION INCIDENT 2026-09-21 — Claude's fault, full
+  stop.** Mechanism: the morning pragma-verification connected the app
+  engine IN THE CONTAINER -> SQLite created an empty 4KB data/sports.db
+  there -> the tarball packaged it -> extraction OVERWROTE the 83MB
+  production DB at 08:58; the old -wal/-shm against the new empty file
+  produced "database disk image is malformed." The --exclude='.git'
+  discipline existed; a data/ exclusion did not. PERMANENT FIXES:
+  container data/ purged; .gitignore hardened (data/* except
+  preferences.json); PACKAGING LAW — every tar now excludes BOTH .git
+  and data, and the tarball listing is verified data-free before
+  presenting. BACKUP LAW UPGRADED: daily .backup in the morning chain +
+  mandatory .backup immediately before any soccer-refresh (weekly
+  cadence just proved insufficient). RECOVERY: restore Thursday
+  2026-09-17 .backup (consistent by API); PERMANENTLY LOST: Thu-Sun
+  odds snapshots (Week-2 NFL closers, MW5 closers) — the graded record
+  SURVIVES in exported JSONs, RESULTS.md, and git history. REBUILD
+  (all steps documented in history): expansions re-backfill, refresh
+  re-adjudicates (v22-equivalent re-earned through the same gates),
+  current-day syncs re-run.
+
 - **DESK v0.3 SHIPPED 2026-09-21 (user asks: parlays, multi-sport,
   deeper audit):** (1) MULTI-FILE INTAKE — select all of a day's export
   JSONs at once; rows pool with per-row sport tags; policy stays

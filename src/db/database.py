@@ -32,6 +32,23 @@ _engine = create_engine(
     connect_args={"check_same_thread": False} if "sqlite" in settings.database_url else {},
 )
 
+# 2026-09-21 (morning-lag finding): journal_mode persists in the file but
+# synchronous is PER-CONNECTION — db-tune's NORMAL applied only to its own
+# session, so app connections ran WAL+FULL (fsync per commit; a 2,511-row
+# update loop = the minute-plus lag). Install the pragmas on EVERY
+# connection at the engine level.
+if "sqlite" in settings.database_url:
+    from sqlalchemy import event as _event
+
+    @_event.listens_for(_engine, "connect")
+    def _sqlite_pragmas(dbapi_conn, _record):
+        cur = dbapi_conn.cursor()
+        cur.execute("PRAGMA journal_mode=WAL")
+        cur.execute("PRAGMA synchronous=NORMAL")
+        cur.execute("PRAGMA busy_timeout=5000")
+        cur.close()
+
+
 SessionLocal = sessionmaker(
     bind=_engine,
     autoflush=False,

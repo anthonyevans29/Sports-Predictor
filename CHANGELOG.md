@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-21
+- Engine-level SQLite pragmas (WAL + synchronous=NORMAL + busy_timeout)
+  on every connection — fixes the morning-lag regression from db-tune's
+  per-connection NORMAL.
+
 ## 2026-09-20 (desk v0.2)
 - Betting Desk v0.2: sport-aware ladder (no DC on 2-way boards),
   monotone sizing, near-floor tempering, correlation flag — both day-1

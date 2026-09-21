@@ -22,6 +22,17 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **MORNING-LAG ROOT CAUSE + FIX 2026-09-21:** db-tune's WAL persisted
+  in the file but synchronous=NORMAL is PER-CONNECTION — app connections
+  since ran WAL+FULL (fsync per commit; the 2,511-row MLB update loop =
+  the minute-plus lag, WORSE than pre-tune). Fixed at the engine level:
+  connect-event pragmas (WAL + NORMAL + busy_timeout=5000) on every
+  SQLite connection. First patch attempt spliced create_engine via a
+  guessed anchor — caught by syntax check, reverted via git, re-applied
+  against read code (the container repo's .git earning its keep).
+  RECEIPT: tomorrow's sync-matches(MLB) write phase should drop well
+  under the old baseline, not just under today's.
+
 - **WEEK 2 GRADED + LIVE-WEEK-3 TABLE 2026-09-21 (mountain block 2):**
   Sunday 8/14 (Week 2 ~9/15 pre-MNF; rolling 17/29, LL 0.6831 vs
   backtest 0.6361 — elevation entirely from mega-miss rows; middle

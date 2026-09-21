@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **DESK v0.3 SHIPPED 2026-09-21 (user asks: parlays, multi-sport,
+  deeper audit):** (1) MULTI-FILE INTAKE — select all of a day's export
+  JSONs at once; rows pool with per-row sport tags; policy stays
+  sport-aware. (2) PARLAY BUILDER — 2-3 leg tickets from live (non-PASS)
+  rows only; shared-team legs screened; cross-sport combos ranked first
+  then combined edge (Π model − Π market); positive-edge tickets only;
+  top 3 rendered at 0.25u each (parlays are lottery-shaped — doctrine
+  sizing). (3) AUDIT v3 — game-by-game notes, PARLAY CRITIQUE (grade/
+  kill tickets, catch correlations the screen missed), and SIGNALS
+  FEEDBACK addressed to the prediction layer (per-row input-quality
+  digest — books/kalshi/injuries/QB flags — feeds the prompt).
+  Republished same URL; in-repo copy updated. MLB block 3 same morning:
+  11/15 Sunday, v143 = 34th rejection, away picks 5/7 (pattern-watch
+  answered same-day AGAIN: watch, not quarantine).
+
 - **MORNING-LAG ROOT CAUSE + FIX 2026-09-21:** db-tune's WAL persisted
   in the file but synchronous=NORMAL is PER-CONNECTION — app connections
   since ran WAL+FULL (fsync per commit; the 2,511-row MLB update loop =

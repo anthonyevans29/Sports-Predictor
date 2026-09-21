@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-21 (desk v0.3)
+- Betting Desk v0.3: multi-sport multi-file intake, cross-sport parlay
+  builder (correlation-screened, positive-edge, 0.25u), audit expanded
+  to per-game notes + parlay critique + prediction-layer signals
+  feedback.
+
 ## 2026-09-21
 - Engine-level SQLite pragmas (WAL + synchronous=NORMAL + busy_timeout)
   on every connection — fixes the morning-lag regression from db-tune's

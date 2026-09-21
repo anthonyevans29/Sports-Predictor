@@ -67,13 +67,13 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;
 </style>
 </head>
 <body>
-<h1>Betting Desk <span class="chip">B1 shadow · policy v0.2 DRAFT</span></h1>
+<h1>Betting Desk <span class="chip">B1 shadow · policy v0.3 DRAFT</span></h1>
 <div class="sub">Deterministic policy-as-code over the day's export file. Files stay in this page; the optional audit sends only the summarized slate to Claude. Tune the knobs until the calls match the incumbent layer, then the divergence closes.</div>
 
 <div class="card">
   <div class="row">
-    <div><label>Predictions export (JSON — MLB / soccer / NFL)</label><br>
-      <input type="file" id="predFile" accept=".json"></div>
+    <div><label>Predictions exports (JSON — select ALL of today's files, any sports)</label><br>
+      <input type="file" id="predFile" accept=".json" multiple></div>
     <div><label>GPT feedback (optional, .txt — for side-by-side reading)</label><br>
       <input type="file" id="gptFile" accept=".txt,.md"></div>
   </div>
@@ -108,6 +108,11 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;
   <pre id="auditOut" hidden></pre>
 </div>
 
+<div class="card" id="parlayCard" hidden>
+  <h2 style="margin-top:0">Suggested parlays <span class="note">(0.25u each · positive combined edge only · cross-sport preferred)</span></h2>
+  <div id="parlayOut"></div>
+</div>
+
 <div class="card" id="gptCard" hidden>
   <h2 style="margin-top:0">Incumbent's feedback (side-by-side)</h2>
   <pre id="gptOut"></pre>
@@ -127,7 +132,7 @@ loadKnobs();
 
 function normalize(doc){
   const out=[]; const preds=doc.predictions||[];
-  sportLabel=(doc.sport||"?").toUpperCase();
+  const sport=(doc.sport||"?").toUpperCase();
   for(const p of preds){
     const home=p.home_team||"?", away=p.away_team||"?";
     let probs=null;
@@ -148,7 +153,17 @@ function normalize(doc){
     out.push({game:`${away} @ ${home}`.length>34?`${home} v ${away}`:`${away} @ ${home}`,
       home,away,pick,prob:best,mkt:market[pick]??null,
       twoSided:market.HOME!=null&&market.AWAY!=null,
-      mktHasDraw:market.DRAW!=null,kal,
+      mktHasDraw:market.DRAW!=null,kal,sport,
+      iq:(function(){const q=p.input_quality||{};const bits=[];
+        if(q.book_odds!=null)bits.push(q.book_odds+" books");
+        if(q.kalshi)bits.push("kalshi "+q.kalshi);
+        const inj=q.injuries||p.injuries;
+        if(inj){const hc=inj.home_count??(inj.home&&inj.home.count);
+          const ac=inj.away_count??(inj.away&&inj.away.count);
+          if(hc!=null)bits.push("inj "+hc+"/"+ac);
+          const qb=[].concat((inj.home&&inj.home.qb_listed)||[],(inj.away&&inj.away.qb_listed)||[]);
+          if(qb.length)bits.push("QB: "+qb.join(","));}
+        return bits.join(" · ");})(),
       tier:pr.tier||null});
   }
   return out;
@@ -209,14 +224,57 @@ function policy(){
   $("summary").textContent=`${sportLabel} · ${rows.length} rows → ${plays} play · ${ladders} ladder · ${passes} pass`
     +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"");
   $("auditBtn").hidden=!(sampleNS&&rows.length);
+  buildParlays();
 }
 
-$("predFile").addEventListener("change",e=>{
-  const f=e.target.files[0]; if(!f)return;
-  const rd=new FileReader();
-  rd.onload=()=>{try{rows=normalize(JSON.parse(rd.result)); policy();}
-    catch(err){$("summary").textContent="Could not parse that file: "+err.message;}};
-  rd.readAsText(f);
+function buildParlays(){
+  const live=rows.map((r,i)=>({r,i,tr:$("slate").querySelectorAll("tbody tr")[i]}))
+    .filter(x=>x.tr&&!/PASS/.test(x.tr.children[5].textContent))
+    .map(x=>({...x.r,edge:(x.r.prob-(x.r.mkt??0))}));
+  const card=$("parlayCard"), out=$("parlayOut");
+  if(live.length<2){card.hidden=true;return;}
+  const combos=[];
+  const teamsOf=r=>[r.home,r.away];
+  for(let a=0;a<live.length;a++)for(let b=a+1;b<live.length;b++){
+    const A=live[a],B=live[b];
+    if(teamsOf(A).some(t=>teamsOf(B).includes(t)))continue;
+    const legs=[A,B];
+    combos.push(legs);
+    for(let c=b+1;c<live.length;c++){
+      const C=live[c];
+      if(teamsOf(C).some(t=>teamsOf(A).includes(t)||teamsOf(B).includes(t)))continue;
+      combos.push([A,B,C]);
+    }
+  }
+  const score=legs=>{
+    const sports=new Set(legs.map(l=>l.sport)).size;
+    const pm=legs.reduce((x,l)=>x*l.prob,1);
+    const pk=legs.reduce((x,l)=>x*(l.mkt??l.prob),1);
+    return {sports,pm,pk,edge:pm-pk};
+  };
+  const ranked=combos.map(l=>({legs:l,...score(l)}))
+    .filter(t=>t.edge>0)
+    .sort((x,y)=>(y.sports-x.sports)||(y.edge-x.edge)).slice(0,3);
+  if(!ranked.length){card.hidden=true;return;}
+  card.hidden=false;
+  out.innerHTML=ranked.map((t,i)=>{
+    const legs=t.legs.map(l=>`${l.sport}: ${l.game} — ${l.pick} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`).join("<br>");
+    return `<div style="margin-bottom:10px"><b>Ticket ${i+1}</b> · ${t.legs.length} legs · ${t.sports} sport(s) · 0.25u<br>${legs}<br>`
+      +`<span class="note">Π model ${t.pm.toFixed(3)} vs Π market ${t.pk.toFixed(3)} → combined edge ${(t.edge*100).toFixed(1)}pp · cross-game correlation screened (no shared teams)</span></div>`;
+  }).join("");
+}
+
+$("predFile").addEventListener("change",async e=>{
+  const fs=Array.from(e.target.files); if(!fs.length)return;
+  rows=[]; const sports=new Set();
+  for(const f of fs){
+    try{const doc=JSON.parse(await f.text());
+      const rr=normalize(doc); rr.forEach(r=>sports.add(r.sport));
+      rows=rows.concat(rr);}
+    catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`;return;}
+  }
+  sportLabel=Array.from(sports).join("+");
+  policy();
 });
 $("gptFile").addEventListener("change",e=>{
   const f=e.target.files[0]; if(!f)return;
@@ -240,6 +298,8 @@ $("auditBtn").addEventListener("click",async()=>{
   const table=Array.from($("slate").querySelectorAll("tbody tr"))
     .map(tr=>Array.from(tr.children).map(td=>td.textContent).join(" | "))
     .join("\n");
+  const iqLines=rows.map(r=>`${r.sport} ${r.game}: ${r.iq||"no quality data"}`).join("\n");
+  const parlayTxt=$("parlayCard").hidden?"(none)":$("parlayOut").innerText;
   const prompt=`You are the audit voice of a disciplined sports-betting desk.
 House doctrine: prediction quality, price quality, and realized results are
 separate ledgers; positive edge vs market is historically anti-predictive
@@ -249,8 +309,15 @@ deterministic policy's calls (PLAY / LADDER=double-chance / PASS, with
 reasons). Write a concise audit in the incumbent style: 1) bottom-line
 grades, 2) row-by-row notes ONLY where you'd push back on a call or flag
 risk, 3) portfolio shape (exposure concentration, correlated legs),
-4) explicit "what would change my mind". Keep under 350 words. Do not
-invent games or prices.\n\nSPORT: ${sportLabel}\n${table}`;
+4) PARLAY CRITIQUE — grade each suggested ticket (legs below): leg
+quality, correlation you see that the screen missed, whether 0.25u is
+right; kill tickets that deserve killing, 5) SIGNALS FEEDBACK — a short
+section addressed to the PREDICTION layer: which rows' input quality
+looks suspect (stale injuries, one-sided/absent kalshi, thin books, QB
+flags) and what signal improvements would most raise slate quality,
+6) explicit "what would change my mind". Keep under 500 words. Do not
+invent games or prices.\n\nSPORTS: ${sportLabel}\n${table}\n\nINPUT
+QUALITY PER ROW:\n${iqLines}\n\nSUGGESTED PARLAYS:\n${parlayTxt}`;
   try{
     await sampleNS(prompt,{onText:({text})=>{$("auditOut").textContent=text;},
       modelTier:"default"});

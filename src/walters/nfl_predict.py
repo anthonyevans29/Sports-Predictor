@@ -135,6 +135,9 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                 inj[side] = {"count": len(team_inj), "qb_listed": qb,
                              "synced_at": stamp.isoformat() if stamp else None}
             p_home = pred.home_win_prob
+            _fair = (mkt_block or {}).get("fair_prob") or {}
+            divergence_pp = (round((p_home - _fair["HOME"]) * 100, 1)
+                             if _fair.get("HOME") is not None else None)
             rows.append({
                 "match_id": m.id,
                 "utc_date": m.utc_date.isoformat(),
@@ -150,6 +153,8 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                     "tier": _tier(p_home),
                 },
                 "market": market,
+                "market_divergence_pp": divergence_pp,
+                "quarantine": (divergence_pp is not None and abs(divergence_pp) >= 15.0),
                 "input_quality": {
                     "book_odds": (market or {}).get("bookmaker_count", 0),
                     "injuries": inj,
@@ -163,9 +168,12 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
         "sport": "nfl",
         "model_version": MODEL_VERSION,
         "contains_predictions": True,
-        "rehearsal": True,
-        "note": ("DRESS-REHEARSAL FORMAT: gate-passed v1 Elo. Not for "
-                 "consumption until the Week-2 rehearsal and dry read pass."),
+        "rehearsal": False,
+        "live_since": "2026-09-22 (Week 3; ratified after two graded weeks)",
+        "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows with "
+                 "market_divergence_pp >= 15 carry quarantine=true — "
+                 "consumer treats them as watch-flagged, never straight "
+                 "plays (rule earned 1-5 across Weeks 1-2)."),
         "count": len(rows),
         "predictions": rows,
     }

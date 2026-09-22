@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-22
+- **NFL LIVE (Week 3 ratified):** rehearsal flag dropped; per-row
+  market_divergence_pp + quarantine field (>=15pp) implements the
+  contract rule structurally.
+
 ## 2026-09-21 (rebuild)
 - DB destroyed by packaging incident; restored from 09-17 backup and
   fully rebuilt same morning. v22 re-promoted on the full 16,546-match

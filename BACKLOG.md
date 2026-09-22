@@ -22,6 +22,17 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NFL LIVE — RATIFIED 2026-09-22 (Anthony: "we should move forward").**
+  The rehearsal era closes after its designed arc: gate-passed backtest
+  (0.6361 vs 0.6811), two graded weeks (19/33; calibrated middle
+  on-model; mega-edges 1-5), consumer dry read, asks tested-and-declined
+  with receipts, quarantine rule earned by detonation (ATL 34-3).
+  STRUCTURAL CHANGES: rehearsal flag -> false with live_since stamp;
+  every priced row now carries market_divergence_pp and quarantine=true
+  when |divergence| >= 15pp — the contract rule as a FIELD, not prose.
+  First live export: Thursday's Week-3 pre-opener chain. Fourth sport
+  reaches production 17 days after its first line of code.
+
 - **REBUILD COMPLETE + v22 RE-PROMOTED 2026-09-21 (the mountain,
   climbed twice):** restore from 09-17 backup (integrity ok, 16,133
   matches) -> Phase 2 backfills IDENTICAL to Friday's fingerprints

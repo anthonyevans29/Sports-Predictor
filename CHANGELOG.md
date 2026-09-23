@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-23 (cup exam prep)
+- scripts/extract_cup_key.py: read-only answer-key extractor for the
+  cup acceptance exam; report-only pricing mode scoped for next session.
+
 ## 2026-09-23 (perf)
 - Match-sync O(n^2) fixed: per-sync prefetch cache replaces per-row JSON
   full scans; morning chains move to 2-day sync windows (full-season

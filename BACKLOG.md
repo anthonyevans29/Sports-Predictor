@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **CUP EXAM: SAFE HALF SHIPPED, SURGICAL HALF SCOPED 2026-09-23.**
+  Reading the predict path settled the design: the pricing core lives in
+  _generate_predictions_soccer (scheduled-only, stateful) — the exam
+  needs an include_finished REPORT-ONLY mode (never writing Prediction
+  rows for played games, which would pollute the graded ledger). That
+  surgery is model-adjacent and stays the committed lead of the NEXT
+  fresh session, per doctrine (no rushed model-adjacent code on
+  live-launch eve). SHIPPED NOW: scripts/extract_cup_key.py — read-only
+  answer-key extractor (finished EFL/CL/UEL fixtures with pre-kickoff
+  books; latest-per-book-per-selection, median, overround-stripped fair
+  1X2, result, book count) -> exports/cup_answer_key.csv. User runs it
+  today; next session is pure scoring against the +/-8pp frozen bar.
+
 - **PERF ROOT CAUSE (structural) + FIX 2026-09-23:** the 10-minute MLB
   sync was O(n^2) — _find_match_by_source full-scans the table's JSON
   external_ids PER ROW ("fine for now" written at ~11k matches; the

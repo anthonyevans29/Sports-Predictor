@@ -41,6 +41,8 @@ def _sport_for_competition(code: str) -> str:
         return "baseball"
     if code.upper() == "NFL":  # NFL phase 1, 2026-09-05
         return "nfl"
+    if code.upper() == "NHL":  # NHL phase 1, 2026-09-23
+        return "nhl"
     return "soccer"
 
 
@@ -118,7 +120,7 @@ def sync_matches_cmd(
         # soccer uses "2026/27"; MLB and NFL use single years. The EFL
         # aliasing quirk showed both formats can work for cups, but leagues
         # are strict — generate the right shape per sport.
-        _single_year = _sport_for_competition(competition_code) in ("baseball", "nfl")
+        _single_year = _sport_for_competition(competition_code) in ("baseball", "nfl", "nhl")
         for offset in range(seasons):
             year = current_year - offset
             season_str = str(year) if _single_year else f"{year}/{str(year + 1)[-2:]}"

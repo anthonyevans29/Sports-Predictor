@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL PHASE 1 (DATA LAYER) SHIPPED 2026-09-23 evening — live-eve-safe
+  by design (isolated new files, zero shared paths with tomorrow's NFL
+  launch):** src/adapters/api_hockey.py cloned from the proven
+  american-football shape (id 57 hard-coded from the certified receipt;
+  key family API_HOCKEY_KEY -> AMERICAN_FOOTBALL -> FOOTBALL; hockey
+  status map with FT/AOT/ASO -> FINISHED per probe vocabulary, unknowns
+  stay SCHEDULED; score-presence-beats-status-absence inference
+  inherited; preseason captured NOT filtered — exclusion at train time
+  per the NFL law). Wired: registry (source + nhl/hockey defaults), cli
+  sport router (NHL -> nhl), --seasons int branch (nhl joins
+  baseball/nfl). Verified end-to-end in-container: get_adapter('nhl')
+  dispatches, enum + statuses assert. NEXT: user runs the Phase-1
+  backfill (teams x3 + matches --seasons 3, ~4k games incl. ~97
+  preseason); odds/Kalshi-discovery/injuries = the following block.
+
 - **NHL PHASE 0 COMPLETE — GO FOR PHASE 1 (2026-09-23 receipts):**
   plan covers hockey; ID 57 CERTIFIED by famous-club receipt (Bruins/
   Canadiens/Rangers/Maple Leafs; 32 teams); 4 Nations Face-Off at id

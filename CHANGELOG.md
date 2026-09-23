@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-23 (NHL Phase 1)
+- api_hockey adapter shipped (cloned from american-football; id 57,
+  AOT/ASO handling, preseason captured); registry, sport router, and
+  --seasons wired. Backfill block issued.
+
 ## 2026-09-23 (H-track)
 - NHL Phase 0 probe shipped: read-only plan/id/season-format recon with
   famous-club receipts.

@@ -22,6 +22,15 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ANSWER KEY BANKED 2026-09-23: 55 fixtures (EFL 36, CL 19, UEL 0).**
+  Richer than the ~34 estimate: EFL spans BOTH rounds — the round-2
+  inversion ties probe the league-bonus defect directly; CL 19 = the
+  full cross-league set with the extreme mismatches. UEL 0 = the
+  incident's concrete cost: those nine games' pre-kickoff books died
+  with the DB and are unrecoverable by nature; future matchdays add
+  pages. exports/cup_answer_key.csv reproducible via the extractor.
+  Next session: report-only pricing mode + the +/-8pp scoring.
+
 - **CUP EXAM: SAFE HALF SHIPPED, SURGICAL HALF SCOPED 2026-09-23.**
   Reading the predict path settled the design: the pricing core lives in
   _generate_predictions_soccer (scheduled-only, stateful) — the exam

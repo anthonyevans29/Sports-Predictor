@@ -22,6 +22,17 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL BACKFILL COMPLETE 2026-09-23 evening: 4,410 games / 3 seasons /
+  32 franchises, ZERO skips.** Counts fingerprint correctly (1,409
+  in-progress incl. ~97 preseason; 1,498 + 1,503 completed = regular +
+  playoffs). One bootstrap miss owned (sync-competitions absent from
+  the first block — the warning run doubled as an adapter dress
+  rehearsal: perfect fetches, correct skip behavior). Sync speed:
+  ~1s/season — the morning's prefetch cache's first new-sport
+  beneficiary. H-track state: Phase 1 data layer DONE; next sitting =
+  odds wiring + Kalshi KXNHLGAME discovery + injuries; then Phase 2
+  gate-frozen-before-model.
+
 - **NHL PHASE 1 (DATA LAYER) SHIPPED 2026-09-23 evening — live-eve-safe
   by design (isolated new files, zero shared paths with tomorrow's NFL
   launch):** src/adapters/api_hockey.py cloned from the proven

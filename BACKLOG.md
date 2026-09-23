@@ -22,6 +22,42 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **USER ENHANCEMENTS FILED 2026-09-23 night (three, with design):**
+  (1) U1-DH — MLB daily card must disambiguate DOUBLEHEADERS: today two
+  same-matchup rows render indistinguishable; card gets "Gm 1 (1:05)" /
+  "Gm 2 (7:05)" badges (ordinal by start time within matchup+date;
+  carry provider game-number into the export if available). Joins the
+  U1 card session. (2) DESK KNOBS RETIRED AT ROLLOUT — the sliders were
+  shadow-tuning scaffolding only; replace with VERSIONED POLICY CONFIGS
+  (policy v1.0 frozen from divergence evidence + audits; thereafter
+  changes ONLY via the B-track gate: audit-driven proposal -> backtest
+  on graded history -> version bump with receipts — the model-gate
+  culture applied to the consumer layer). UI shows active policy
+  version + provenance, not sliders. (3) DESK THREE-PART CLOSED LOOP —
+  the current gap is retrospection: add part three, REINFORCEMENT:
+  desk persists its own daily calls (artifact storage), intakes the
+  next day's RESULTS files, self-grades in units BY RULE (floor plays
+  vs ladders vs haircuts vs parlays vs passes-that-won), and emits TWO
+  feedback streams: (a) desk-layer — which rules earn/lose -> evidenced
+  policy-version proposals; (b) predictions-layer — systematic model
+  biases seen through the betting lens (extends SIGNALS FEEDBACK from
+  prospective to retrospective). This IS B2's graded-policy harness,
+  living in the desk. Sequencing: desk v0.4 (results intake +
+  persistence + self-grading) in a post-NFL-launch session; knob
+  removal ships WITH evidence-set policy v1.0 once shadow days
+  accumulate.
+
+- **GHOSTS NAMED + FINAL FIX 2026-09-23 night: AP (after
+  penalty-shootout), 79+128 = 207 real scored games held SCHEDULED by
+  the conservative-unknown rule doing its job. Root: ASO was a
+  memory-guessed status code; the vocabulary Counter names the real
+  one. LESSON FILED: enumerate provider vocabularies from data before
+  writing maps — the season's third guess-caught-by-receipt. AP mapped;
+  final re-sync + audit = certification round 3: expect 2024 =
+  1502 FINISHED + 1 CANC, 2025 = 1498 FINISHED, nulls 0. Shootout
+  games (AP) carry regulation+SO final scores — Phase 2's OT/SO
+  handling question now has its data classes explicit (FT/AOT/AP).
+
 - **NHL DEFECT SOLVED: THE FALSY-ZERO TRAP (2026-09-23 night).** The
   probe's contradiction cracked it — feed clean (1,502/1,503 parse) yet
   DB holds 302 nulls: the adapter's `or {}` turned a shutout side's

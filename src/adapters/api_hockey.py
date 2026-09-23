@@ -49,6 +49,11 @@ _STATUS = {
     "FT": MatchStatus.FINISHED,
     "AOT": MatchStatus.FINISHED,       # after overtime (Phase 0 receipt)
     "ASO": MatchStatus.FINISHED,       # after shootout
+    "AP": MatchStatus.FINISHED,        # after penalty-shootout — the REAL
+                                       # provider code (vocabulary Counter
+                                       # 2026-09-23: 79 in 2024 = the ghost
+                                       # count exactly; ASO was a memory
+                                       # guess, kept harmlessly)
     "POST": MatchStatus.POSTPONED, "PST": MatchStatus.POSTPONED,
     "CANC": MatchStatus.CANCELLED,
 }

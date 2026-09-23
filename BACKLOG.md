@@ -22,6 +22,20 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL CERTIFICATION FAILED — DEFECT CAUGHT BY USER'S SANITY INSTINCT
+  2026-09-23 late:** the corrected null-score check returns 302 FINISHED
+  games with missing scores (Claude's first check used lowercase status
+  values -> vacuous 0 declared "perfect" — owned; the user's push for
+  receipts forced the re-issue that found the truth). Ghost hypothesis
+  dead: completed-season SCHEDULED rows scatter Oct-Apr, not preseason
+  clusters. ONE suspected cause: hockey score-block shape variant the
+  cloned parser misreads (parse-null + status-present = the 302;
+  parse-null + status-absent = the scattered SCHEDULED). PHASE 2 HOLDS
+  until green. scripts/nhl_score_probe.py shipped: prints raw
+  status/scores JSON side-by-side for parsing vs failing games — the
+  shape names itself, then the adapter patch + re-sync heals in place
+  (updates path). NFL launch untouched (isolated paths, by design).
+
 - **NHL BACKFILL COMPLETE 2026-09-23 evening: 4,410 games / 3 seasons /
   32 franchises, ZERO skips.** Counts fingerprint correctly (1,409
   in-progress incl. ~97 preseason; 1,498 + 1,503 completed = regular +

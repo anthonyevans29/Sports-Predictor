@@ -22,6 +22,20 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL PHASE 0 COMPLETE — GO FOR PHASE 1 (2026-09-23 receipts):**
+  plan covers hockey; ID 57 CERTIFIED by famous-club receipt (Bruins/
+  Canadiens/Rangers/Maple Leafs; 32 teams); 4 Nations Face-Off at id
+  271 noted for EXCLUSION (EFL-Trophy instinct). SEASON FORMAT:
+  single-year int (2026 = the 26-27 season) — joins the MLB/NFL int
+  family in the --seasons helper; harmless to training (own pot +
+  per-team regression). GAMES: 1,409 listed, arithmetic fingerprints
+  check (1,312 regular + ~97 preseason); status vocabulary already
+  shows FT and AOT — the OT/SO handling question has concrete field
+  values pre-build; preseason tagging via stage/status = a Phase 1
+  capture requirement. Phase 1 (next major session): adapter clone,
+  registry, 3-season int backfill (~4k games), odds/injuries, Kalshi
+  KXNHLGAME discovery, preseason-excluded-but-shakedown.
+
 - **NHL PHASE 0 PROBE SHIPPED 2026-09-23 (afternoon):**
   scripts/nhl_phase0_probe.py — read-only recon answering Phase 1's
   three dependencies with receipts: plan coverage of the hockey

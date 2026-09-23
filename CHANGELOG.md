@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-23
+- H-track opened: NHL onboarding planned on the NFL playbook (phased,
+  gate-first, preseason-as-shakedown); sequenced behind the cup
+  acceptance exam.
+
 ## 2026-09-22
 - **NFL LIVE (Week 3 ratified):** rehearsal flag dropped; per-row
   market_divergence_pp + quarantine field (>=15pp) implements the

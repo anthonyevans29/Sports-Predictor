@@ -22,6 +22,24 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **H-TRACK OPENED 2026-09-23 (user): NHL — the fifth sport.** Preseason
+  underway; regular season ~early Oct = the same runway the NFL turned
+  into a 17-day launch. THE NFL PLAYBOOK APPLIES WHOLESALE: Phase 0
+  probes first (league-id famous-club check — Leafs/Bruins or stop;
+  season-string semantics verified BEFORE any sync, WC-lesson
+  mandatory); Phase 1 data (adapter cloned from american-football shape,
+  3-season backfill ~4k games, odds/injuries, Kalshi KXNHLGAME
+  discovery; PRESEASON EXCLUDED from training/backtest but USED as
+  live-fire pipeline shakedown); Phase 2 gate-frozen-before-model, then
+  Elo v1 (MOV + per-team regression from birth; hockey R-track
+  hypotheses held for evidence: OT/SO handling, back-to-back rest — the
+  strongest rest signal in sports, goalie-as-QB in the injury surface);
+  Phase 3 the proven arc (backtest ~Oct 1, internal week 1,
+  rehearsal+dry-read week 2, live decision on the Monday table) with
+  the quarantine-field contract available day one. SEQUENCING: cup
+  acceptance exam still leads the next session; NHL Phase 0+1 = the
+  major block behind it.
+
 - **NFL LIVE — RATIFIED 2026-09-22 (Anthony: "we should move forward").**
   The rehearsal era closes after its designed arc: gate-passed backtest
   (0.6361 vs 0.6811), two graded weeks (19/33; calibrated middle

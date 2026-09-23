@@ -22,6 +22,15 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL PHASE 0 PROBE SHIPPED 2026-09-23 (afternoon):**
+  scripts/nhl_phase0_probe.py — read-only recon answering Phase 1's
+  three dependencies with receipts: plan coverage of the hockey
+  product (key family: API_HOCKEY_KEY -> AMERICAN_FOOTBALL -> FOOTBALL,
+  mirroring the adapter pattern), the NHL league id verified by
+  famous-club check (Maple Leafs/Bruins or STOP — never memory), and
+  the season-string format from the API's own seasons list (the WC
+  law). Zero wiring; the pasted output is the Phase 1 go/no-go.
+
 - **ANSWER KEY BANKED 2026-09-23: 55 fixtures (EFL 36, CL 19, UEL 0).**
   Richer than the ~34 estimate: EFL spans BOTH rounds — the round-2
   inversion ties probe the league-bonus defect directly; CL 19 = the

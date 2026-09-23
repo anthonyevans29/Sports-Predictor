@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-23 (H-track)
+- NHL Phase 0 probe shipped: read-only plan/id/season-format recon with
+  famous-club receipts.
+
 ## 2026-09-23 (cup exam prep)
 - scripts/extract_cup_key.py: read-only answer-key extractor for the
   cup acceptance exam; report-only pricing mode scoped for next session.

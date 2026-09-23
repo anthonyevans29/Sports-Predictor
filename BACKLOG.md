@@ -22,6 +22,20 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL DEFECT SOLVED: THE FALSY-ZERO TRAP (2026-09-23 night).** The
+  probe's contradiction cracked it — feed clean (1,502/1,503 parse) yet
+  DB holds 302 nulls: the adapter's `or {}` turned a shutout side's
+  bare-int 0 into {} -> parsed None. 302/2,793 finished = 10.8% ~ the
+  NHL shutout rate exactly. Same root cause explains the scattered
+  SCHEDULED ghosts (0-score + absent status -> inference blocked). Also
+  owned: the probe's parse-mirror omitted the `or {}` — it validated
+  the FEED, not the parser; the ok-shapes + zero-fails contradiction
+  still named the bug. FIXED (bare gets; shutout-zero test passes).
+  HEAL: re-sync 3 seasons (updates in place), re-run the UPPERCASE
+  audit — expect nulls=0 for real and the ghosts collapsing to
+  FINISHED. Certification round 2 pending those receipts. Phase 2
+  still holds until green.
+
 - **NHL CERTIFICATION FAILED — DEFECT CAUGHT BY USER'S SANITY INSTINCT
   2026-09-23 late:** the corrected null-score check returns 302 FINISHED
   games with missing scores (Claude's first check used lowercase status

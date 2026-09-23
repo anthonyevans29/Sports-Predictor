@@ -166,8 +166,11 @@ class APIHockeyAdapter(DataAdapter):
             if week_raw is not None:
                 digits = "".join(c for c in str(week_raw) if c.isdigit())
                 matchday = int(digits) if digits else None
-            hs = (scores.get("home") or {})
-            as_ = (scores.get("away") or {})
+            # Falsy-zero trap fixed (2026-09-23): hockey scores are bare
+            # ints; `or {}` turned a shutout side's 0 into {} -> parsed
+            # None -> 302 FT-null rows + the scattered SCHEDULED ghosts.
+            hs = scores.get("home")
+            as_ = scores.get("away")
             _h_total = hs.get("total") if isinstance(hs, dict) else hs
             _a_total = as_.get("total") if isinstance(as_, dict) else as_
             status = _STATUS.get(short, MatchStatus.SCHEDULED)

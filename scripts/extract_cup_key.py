@@ -42,6 +42,7 @@ def main() -> None:
             odds = list(s.execute(
                 select(Odds).where(
                     Odds.match_id == m.id,
+                    Odds.market == "1X2",
                     Odds.captured_at < m.utc_date,
                 )
             ).scalars())
@@ -55,8 +56,8 @@ def main() -> None:
                     latest[key] = o
             per_sel = {}
             for (bk, sel), o in latest.items():
-                if o.price and o.price > 1.0:
-                    per_sel.setdefault(sel, []).append(1.0 / o.price)
+                if o.price_decimal and o.price_decimal > 1.0:
+                    per_sel.setdefault(sel, []).append(1.0 / o.price_decimal)
             if not all(k in per_sel for k in ("HOME", "DRAW", "AWAY")):
                 continue
             med = {k: statistics.median(v) for k, v in per_sel.items()}

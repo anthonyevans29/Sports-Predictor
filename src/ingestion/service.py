@@ -208,10 +208,21 @@ class IngestionService:
                 result.skipped = len(matches)
                 return result
 
+            # 2026-09-23 perf: _find_match_by_source full-scans the table's
+            # JSON per row — O(n^2) that "fine for now" outgrew when the
+            # expansion doubled the table. Prefetch this competition's
+            # matches ONCE into a source_id map; lookups become O(1).
+            _cache: dict[str, Match] = {}
+            for _m in s.execute(
+                select(Match).where(Match.competition_id == comp.id)
+            ).scalars():
+                _sid = (_m.external_ids or {}).get(matches[0].source if matches else "")
+                if _sid:
+                    _cache[_sid] = _m
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
             for i, nm in enumerate(matches, 1):
-                self._upsert_match(s, nm, comp, result)
+                self._upsert_match(s, nm, comp, result, cache=_cache)
                 if i % step == 0 or i == total:
                     pct = int(i / total * 100) if total else 100
                     _report(f"  …{i}/{total} ({pct}%) — "
@@ -230,7 +241,8 @@ class IngestionService:
         return result
 
     def _upsert_match(
-        self, s: Session, nm: NormalizedMatch, comp: Competition, result: SyncResult
+        self, s: Session, nm: NormalizedMatch, comp: Competition, result: SyncResult,
+        cache: dict | None = None,
     ) -> Match | None:
         home = self._find_team_by_source(s, nm.sport, nm.source, nm.home_team_source_id)
         away = self._find_team_by_source(s, nm.sport, nm.source, nm.away_team_source_id)
@@ -251,7 +263,8 @@ class IngestionService:
             result.skipped += 1
             return None
 
-        match = self._find_match_by_source(s, nm.source, nm.source_id)
+        match = (cache.get(nm.source_id) if cache is not None
+                 else self._find_match_by_source(s, nm.source, nm.source_id))
 
         if match:
             self._apply_match_updates(match, nm)
@@ -281,6 +294,8 @@ class IngestionService:
             external_ids={nm.source: nm.source_id},
         )
         s.add(match)
+        if cache is not None and nm.source_id:
+            cache[nm.source_id] = match
         result.created += 1
         return match
 

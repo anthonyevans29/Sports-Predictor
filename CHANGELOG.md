@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-23 (perf)
+- Match-sync O(n^2) fixed: per-sync prefetch cache replaces per-row JSON
+  full scans; morning chains move to 2-day sync windows (full-season
+  weekly).
+
 ## 2026-09-23
 - H-track opened: NHL onboarding planned on the NFL playbook (phased,
   gate-first, preseason-as-shakedown); sequenced behind the cup

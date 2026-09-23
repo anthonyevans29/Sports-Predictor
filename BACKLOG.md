@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **PERF ROOT CAUSE (structural) + FIX 2026-09-23:** the 10-minute MLB
+  sync was O(n^2) — _find_match_by_source full-scans the table's JSON
+  external_ids PER ROW ("fine for now" written at ~11k matches; the
+  expansion doubled the table and the quadratic expired): 2,512 lookups
+  x ~21k-row scans every morning. FIX: per-sync prefetch cache — one
+  competition-scoped scan builds a source_id map, lookups O(1);
+  creations join the cache; non-cached callers keep the old path.
+  Expected: the write phase drops to seconds AT ANY table size (NHL's
+  4k matches pre-absorbed). SEPARATE same-day items: (a) today's
+  extra slowness = environment (user diagnostics issued: wal size,
+  TRUNCATE checkpoint, lsof for a holding process); (b) CHAIN CHANGE —
+  morning grading uses a 2-day sync window (~30 rows), full-season
+  weekly only. Container note: even my greps timed out this session —
+  the 300s hang was container-side, unrelated to his machine.
+
 - **H-TRACK OPENED 2026-09-23 (user): NHL — the fifth sport.** Preseason
   underway; regular season ~early Oct = the same runway the NFL turned
   into a 17-day launch. THE NFL PLAYBOOK APPLIES WHOLESALE: Phase 0

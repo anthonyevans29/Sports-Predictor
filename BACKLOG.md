@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COCKPIT CONSOLIDATION 2026-09-24 night (user's architecture
+  challenge accepted — "three things is too many"):** the desk absorbed
+  the card as a TABBED SINGLE ARTIFACT at the desk's existing URL —
+  Card tab (model story: bars, per-outcome edges, quarantine badges,
+  QB/totals chips) + Desk tab (policy/parlays/audit), ONE intake
+  feeding both, per-game "signals & reasoning" expander (derived why-
+  line + the raw input_quality block, truncated). The standalone
+  predictions-card artifact is SUPERSEDED (link harmless but dead-end);
+  in-repo: tools/cockpit.html replaces both prior files. Surface count
+  post-GPT: TWO, each with a distinct job — the cockpit (browser,
+  file-fed, consumer story) and the DB web UI (operator console).
+  GRANULARITY LIMIT NAMED: exports carry signals, not model internals;
+  Elo-gap/factor "why" fields = U2 export enrichment, queued — the
+  cockpit displays them the day the files do.
+
 - **PREDICTIONS CARD SHIPPED 2026-09-24 evening (U1 bridge, user ask:
   "the desk doesn't tell half the information"):** second artifact —
   the desk's sibling, multi-file intake over the same exports,

@@ -135,7 +135,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                 inj[side] = {"count": len(team_inj), "qb_listed": qb,
                              "synced_at": stamp.isoformat() if stamp else None}
             p_home = pred.home_win_prob
-            _fair = (mkt_block or {}).get("fair_prob") or {}
+            _fair = (market or {}).get("fair_prob") or {}
             divergence_pp = (round((p_home - _fair["HOME"]) * 100, 1)
                              if _fair.get("HOME") is not None else None)
             rows.append({

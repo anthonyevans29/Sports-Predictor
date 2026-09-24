@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **LAUNCH-MORNING CRASH + FIX 2026-09-24: the live export died on
+  NameError mkt_block — Claude's ratification edit used a regex-assumed
+  variable name; the real scope name is `market` (None-initialized,
+  read this time). The season's FOURTH guessed-name incident, this one
+  on launch morning — the read-before-edit law now explicitly covers
+  regex-matched anchors: a regex hit is a HYPOTHESIS, not a read.
+  Predictions were unaffected (17 in DB); only the file build crashed;
+  fixed with scope-ordering verification. NHL certification round 3
+  still pending (tail not yet run). MLB same morning: 10/16, ZERO
+  nulls (Wednesday's 7 gaps all healed overnight), M16 2/7 (band
+  cooling continues), v142 rejected. RESULTS.md "(rehearsal)" header
+  = cosmetic, retitles at next tally after a live export exists.
+
 - **USER ENHANCEMENTS FILED 2026-09-23 night (three, with design):**
   (1) U1-DH — MLB daily card must disambiguate DOUBLEHEADERS: today two
   same-matchup rows render indistinguishable; card gets "Gm 1 (1:05)" /

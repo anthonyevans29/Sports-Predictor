@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-24 (predictions card)
+- Predictions Card artifact: sport-aware model viewer over the exports
+  (bars, edges, quarantine, QB, gaps) — the post-GPT cockpit's second
+  organ; in-repo copy versioned.
+
 ## 2026-09-24 (SDLC)
 - Community standards shipped (CONTRIBUTING = the laws, CoC, SECURITY,
   MIT LICENSE, issue/PR templates) + CI (parse + import smoke on every

@@ -22,6 +22,20 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **PREDICTIONS CARD SHIPPED 2026-09-24 evening (U1 bridge, user ask:
+  "the desk doesn't tell half the information"):** second artifact —
+  the desk's sibling, multi-file intake over the same exports,
+  rendering the MODEL's story sport-aware: probability bars (3-way for
+  soccer, 2-way else) with per-outcome market fair + edge, tier chips,
+  QUARANTINE badges + divergence, totals 50-60-band flag, QB flags,
+  books/kalshi presence with gaps highlighted red, LIVE-vs-internal
+  badge from the rehearsal flag, kickoff-sorted. Works for NHL exports
+  the day they exist (generic 2-way path). Versioned in-repo
+  (tools/predictions_card.html). POST-GPT COCKPIT = desk (policy) +
+  card (model). The in-app server-rendered U1 (unified page +
+  doubleheader badges) REMAINS the committed fresh session — this is
+  the bridge that makes tonight's live file visible.
+
 - **SDLC RIGOR DROP 2026-09-24 (user ask): community standards + CI +
   PR doctrine.** Files shipped: CONTRIBUTING.md = the project's laws
   codified (read-before-edit, receipts, gates, conservative unknowns,

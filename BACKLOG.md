@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **TWO CLOSING ITEMS 2026-09-24 midday:** (1) RESULTS.md NFL header
+  retitled "(rehearsal)" -> "(live since Week 3, 2026-09-22)" BEFORE
+  tomorrow's first live grading writes under it. (2) INTERNATIONAL
+  SEASON-FORMAT DOCTRINE SETTLED: international competitions store
+  whatever the soccer route produces; the STANDING RULE per competition
+  is documented at wiring time (WC="2026", UNL="2026/27" — both noted
+  in CLI.md's season-format table at next docs touch); no data churn,
+  no normalizer surgery — per-team regression made the formats
+  behaviorally equivalent, so the doctrine is documentation, not code.
+  BUILD QUEUE HONESTLY FRESH-SESSION-SHAPED beyond this: cup exam
+  surgery, NHL Phase 2 gate, desk v0.4, U1 cards, S14 Stage-2 — the
+  stop here is the discipline, same as Wednesday's.
+
 - **NHL FOUNDATION CERTIFIED (round 3) + KALSHI LIVE 2026-09-24:**
   2024 = 1502 FINISHED + 1 CANC (79 AP ghosts recovered), 2025 = 1498
   clean (all 128), nulls = TRUE ZERO. 4,410 complete-scored games,

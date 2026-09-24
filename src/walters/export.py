@@ -1098,12 +1098,12 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
             r = grade_nfl(days_back=days)
             if r.get("ok"):
                 lines.append(
-                    f"## NFL (rehearsal)\n\n- Sides: **{r['hits']}/{r['games']}**"
+                    f"## NFL (live since Week 3, 2026-09-22)\n\n- Sides: **{r['hits']}/{r['games']}**"
                     f" ({r['hits']/r['games']:.1%})\n"
                     f"- Mean log-loss: {r['logloss']:.4f}\n"
                     f"- Mean pick-vs-close: {r['mean_clv_pp']:+.2f}pp\n")
         except Exception:
-            lines.append("## NFL (rehearsal)\n\nGrade unavailable.\n")
+            lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")
     lines.append("\nDeep detail: `BACKLOG.md`. Change history: `CHANGELOG.md`.\n")
     with open(out_path, "w") as f:
         f.write("\n".join(lines))

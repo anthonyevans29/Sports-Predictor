@@ -22,6 +22,16 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **UNL SEASON-STRING FINDING 2026-09-24:** the soccer route normalized
+  the international single-year label to "2026/27" at sync time — the
+  odds filter on "2026" found zero (defect named by one row
+  inspection). UNBLOCK: UNL commands use "2026/27" (the stored truth).
+  INCONSISTENCY LOGGED: WC stores "2026" while UNL stores "2026/27" —
+  international comps' season-format policy needs one line of doctrine
+  at the next quiet slot (harmless to training post-v22 either way).
+  Nations roster: 54 entrants (16 WC-overlap updates), 156 fixtures,
+  famous-nation receipt passed on sight.
+
 - **UNL WIRED 2026-09-24 (user: Nations League kicks off today):**
   id 5, CUP-typed, MARKET-ONLY per cup doctrine (national teams, no
   club history -> no predictions); single-year "2026" season string =

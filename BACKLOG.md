@@ -22,6 +22,16 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL FOUNDATION CERTIFIED (round 3) + KALSHI LIVE 2026-09-24:**
+  2024 = 1502 FINISHED + 1 CANC (79 AP ghosts recovered), 2025 = 1498
+  clean (all 128), nulls = TRUE ZERO. 4,410 complete-scored games,
+  statuses fully mapped, FT/AOT/AP classes explicit. PHASE 2 UNFROZEN.
+  Kalshi: KXNHLGAME real on first guess — 54 markets, 30 matched
+  (Kalshi LISTS PRESEASON: the shakedown banks live two-sided snapshots
+  on stakes-free games), ambiguous 0, sentinel on watch. Books skip
+  preseason (expected; October prices). Phase 2 next: frozen gate
+  first, then Elo v1 — the NFL sequence, on certified data.
+
 - **NHL MARKET WIRING (phase 1c) 2026-09-24:** sync-kalshi-nhl added —
   the parameterized matcher's third sport (KXNHLGAME guess; the
   available-sports console line is the discovery probe, NFL pattern;

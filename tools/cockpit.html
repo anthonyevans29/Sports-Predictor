@@ -110,6 +110,14 @@ details.sig pre{max-height:220px;margin:6px 0 0}
   <div class="note" style="margin-top:6px">Rules: two-sided market required · edge = model − market fair on the pick · away/draw picks over the ladder threshold route to double-chance · edges past the haircut threshold act at half units with the market-is-right caution (cohort: big edges die by draw) · totals untouched (M16 caution stands).</div>
 </div>
 
+<div class="card" id="askCard" hidden>
+  <div class="row">
+    <input type="text" id="askBox" placeholder="Ask the Cockpit — parlays, cuts, sizing, anything about today's slate…" style="flex:1;min-width:220px;background:var(--chip);border:1px solid var(--line);color:var(--ink);border-radius:8px;padding:8px 10px">
+    <button id="askBtn">Ask</button>
+  </div>
+  <div id="askOut" class="note" style="margin-top:8px;white-space:pre-wrap"></div>
+</div>
+
 <div id="cardView" hidden></div>
 
 <div class="card deskonly">
@@ -253,6 +261,7 @@ function policy(){
     +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"");
   $("auditBtn").hidden=!(sampleNS&&rows.length);
   buildParlays();
+  perGameAudit();
 }
 
 function buildParlays(){
@@ -305,6 +314,36 @@ $("predFile").addEventListener("change",async e=>{
   policy();
   renderCard();
   setTab(true);
+  $("askCard").hidden=!sampleNS;
+});
+
+let gameReads={};
+async function perGameAudit(){
+  if(!sampleNS||!rows.length)return;
+  const lines=rows.map((r,i)=>`${i}|${r.sport}|${r.game}|pick ${r.pick} ${(r.prob*100).toFixed(1)}%${r.mkt!=null?` vs mkt ${(r.mkt*100).toFixed(1)}%`:""}${r.quar?" QUARANTINE":""}${r.qbs.length?" QB:"+r.qbs.join(","):""}`).join("\n");
+  const p=`You are a disciplined betting-desk auditor. For EACH numbered game
+below, return ONE short verdict + recommendation (max 18 words each):
+lean/pass/watch, the key risk or signal. Respond ONLY as JSON:
+{"reads":{"0":"...","1":"..."}}\n\n${lines}`;
+  try{
+    const res=await sampleNS.sample({prompt:p,maxTokens:1200});
+    const txt=(res&&(res.text||res.completion||res.content))||"";
+    const m=txt.match(/\{[\s\S]*\}/);
+    if(m){ gameReads=(JSON.parse(m[0]).reads)||{}; renderCard(); }
+  }catch(e){ console.error("per-game audit",e); }
+}
+$("askBtn")&&$("askBtn").addEventListener("click",async()=>{
+  if(!sampleNS||!rows.length){$("askOut").textContent="Load files first.";return;}
+  const q=$("askBox").value.trim(); if(!q)return;
+  $("askOut").textContent="…";
+  const ctx=rows.map(r=>`${r.sport} ${r.game}: pick ${r.pick} ${(r.prob*100).toFixed(1)}%${r.mkt!=null?` vs ${(r.mkt*100).toFixed(1)}%`:""}${r.quar?" QUAR":""}`).join("\n");
+  const parlayTxt=$("parlayCard").hidden?"(none)":$("parlayOut").innerText;
+  try{
+    const res=await sampleNS.sample({prompt:`Disciplined betting desk (house doctrine: floors, half-unit big edges,
+quarantine>=15pp never a straight play, parlays 0.25u max 3 legs, no
+threshold creep). Today's slate:\n${ctx}\n\nCurrent parlays:\n${parlayTxt}\n\nUser request: ${q}\n\nAnswer concretely; if proposing tickets, give legs+units+combined edge; never invent games.`,maxTokens:900});
+    $("askOut").textContent=(res&&(res.text||res.completion||res.content))||"(no reply)";
+  }catch(e){ $("askOut").textContent="Ask failed: "+e; }
 });
 $("gptFile").addEventListener("change",e=>{
   const f=e.target.files[0]; if(!f)return;
@@ -350,6 +389,7 @@ function renderCard(){
             <div class="note">${r.when} UTC · ${r.books||0} books</div></div>
           ${bars}
           <details class="sig"><summary>signals & reasoning</summary>
+            ${gameReads[String(rows.indexOf(r))]?`<div style="color:var(--ink)"><b>Claude read:</b> ${gameReads[String(rows.indexOf(r))]}</div>`:""}
             <div>${why.join(" · ")}</div>
             <pre>${JSON.stringify(r.rawIQ,null,1).slice(0,1500)}</pre>
           </details></div>`);

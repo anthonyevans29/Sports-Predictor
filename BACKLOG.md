@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COCKPIT GOES INTERACTIVE 2026-09-24 late (user asks 2 of 3
+  shipped):** (1) PER-GAME CLAUDE READS — the audit flow now also
+  requests a per-game verdict JSON (lean/pass/watch + key risk, 18
+  words) and appends each game's read into its signals expander;
+  (2) ASK THE COCKPIT — free-text box with full slate + parlay context
+  under house doctrine: dynamic parlay rebuilds, cuts, sizing questions
+  answered in place. (3) RESULTS INTAKE + SELF-GRADING deliberately
+  HELD for the committed desk-v0.4 session — honest grading requires
+  the call-persistence layer (artifact storage) so the desk grades what
+  it actually called; rushing it tonight would fake the reinforcement
+  organ. Cockpit remains ONE artifact at the same URL;
+  tools/cockpit.html updated.
+
 - **COCKPIT CONSOLIDATION 2026-09-24 night (user's architecture
   challenge accepted — "three things is too many"):** the desk absorbed
   the card as a TABBED SINGLE ARTIFACT at the desk's existing URL —

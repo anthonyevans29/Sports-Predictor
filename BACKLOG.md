@@ -22,6 +22,14 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **UNL WIRED 2026-09-24 (user: Nations League kicks off today):**
+  id 5, CUP-typed, MARKET-ONLY per cup doctrine (national teams, no
+  club history -> no predictions); single-year "2026" season string =
+  the WC format, harmless post-v22 (noted at the map). Famous-nation
+  receipt check on first sync (France/Spain/Germany or stop). Enters
+  the training pot as its own team-id island — soccer-refresh gates
+  adjudicate at the next weekly transition, not today.
+
 - **LAUNCH-MORNING CRASH + FIX 2026-09-24: the live export died on
   NameError mkt_block — Claude's ratification edit used a regex-assumed
   variable name; the real scope name is `market` (None-initialized,

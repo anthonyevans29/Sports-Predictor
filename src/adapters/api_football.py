@@ -80,6 +80,10 @@ _CODE_TO_LEAGUE_ID: dict[str, int] = {
     # rating enrichment for European opponents we already price).
     # Aug-May calendars only — calendar-year leagues (NOR/SWE) deferred
     # pending single-year season-string support in the --seasons helper.
+    # International (2026-09-24): market-only per cup doctrine; national
+    # teams = separate id space; SINGLE-YEAR season string ("2026") — the
+    # WC format, harmless since per-team regression (v22).
+    "UNL": 5,        # UEFA Nations League
     "NED": 88,       # Eredivisie
     "POR": 94,       # Primeira Liga
     "BEL": 144,      # Belgian Pro League
@@ -135,6 +139,7 @@ _CODE_TO_META: dict[str, tuple[str, str, str]] = {
     "UEL":  ("UEFA Europa League", "Europe", "INTL"),
     "EL":   ("UEFA Europa League", "Europe", "INTL"),
     "UECL": ("UEFA Conference League", "Europe", "INTL"),
+    "UNL":  ("UEFA Nations League", "World", "CUP"),
     "NED":  ("Eredivisie", "Netherlands", "LEAGUE"),
     "POR":  ("Primeira Liga", "Portugal", "LEAGUE"),
     "BEL":  ("Pro League", "Belgium", "LEAGUE"),

@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-24 (H-track 1c)
+- sync-kalshi-nhl (third sport on the shared matcher); export success
+  string updated to LIVE format.
+
 ## 2026-09-23 (NHL Phase 1)
 - api_hockey adapter shipped (cloned from american-football; id 57,
   AOT/ASO handling, preseason captured); registry, sport router, and

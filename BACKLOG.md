@@ -22,6 +22,15 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL MARKET WIRING (phase 1c) 2026-09-24:** sync-kalshi-nhl added —
+  the parameterized matcher's third sport (KXNHLGAME guess; the
+  available-sports console line is the discovery probe, NFL pattern;
+  the shared-path sentinel covers it from birth). Odds need ZERO new
+  code (adapter routes). First run today = preseason shakedown getting
+  market legs. Launch-morning cosmetic fixed: export success string
+  now says LIVE format. NOTE: sync-odds --competition NHL uses season
+  2026 (int-family).
+
 - **UNL SEASON-STRING FINDING 2026-09-24:** the soccer route normalized
   the international single-year label to "2026/27" at sync time — the
   odds filter on "2026" found zero (defect named by one row

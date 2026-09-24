@@ -3383,7 +3383,7 @@ def export_nfl_predictions_cmd():
     """Rehearsal-format NFL predictions export (NOT for consumption yet)."""
     from src.walters.nfl_predict import export_nfl_predictions
     path = export_nfl_predictions()
-    console.print(f"[green]✓ Wrote {path}[/green] [dim](rehearsal flag set)[/dim]")
+    console.print(f"[green]✓ Wrote {path}[/green] [dim](LIVE format: rehearsal=false, quarantine fields)[/dim]")
 
 
 @cli.command("nfl-backtest-caps")
@@ -3470,6 +3470,27 @@ def sync_odds_nfl_cmd():
     from src.ingestion.service import sync_odds_nfl
     r = sync_odds_nfl(progress=lambda msg: console.print(msg))
     console.print(f"[green]✓ NFL odds: created={r['created']} across {r['games']} games[/green]")
+
+
+@cli.command("sync-kalshi-nhl")
+def sync_kalshi_nhl_cmd():
+    """Pull open Kalshi NHL game markets (KXNHLGAME) and store snapshots.
+
+    H-track phase 1c: the parameterized two-sided matcher's third sport.
+    Preseason listings (if any) are shakedown material; the series guess
+    is verified by the console's available-sports line — that IS the
+    discovery probe (the NFL pattern)."""
+    from src.ingestion.kalshi_sync import sync_kalshi_mlb
+    from src.db.schema import Sport
+    r = sync_kalshi_mlb(progress=lambda m: console.print(m),
+                        sport=Sport.NHL, series_override="KXNHLGAME")
+    if r.get("ok"):
+        console.print(f"[green]✓ Kalshi NHL: {r.get('stored', 0)} prices stored[/green]")
+        console.print(f"  series {r.get('series')} · {r.get('markets')} markets · "
+                      f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
+                      f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
+    else:
+        console.print(f"[red]✗ Kalshi NHL: {r.get('error')}[/red]")
 
 
 @cli.command("sync-kalshi-nfl")

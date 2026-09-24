@@ -1,0 +1,26 @@
+name: ci
+on: [push, pull_request]
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Parse every source file
+        run: python -m compileall -q src cli.py config.py scripts
+      - name: Install deps
+        run: pip install -q -r requirements.txt
+      - name: Import smoke (catches NameError-class defects)
+        env:
+          API_FOOTBALL_KEY: ci-dummy
+        run: |
+          python - << 'PY'
+          import sys; sys.path.insert(0, ".")
+          import importlib
+          for mod in ("src.db.schema", "src.adapters.registry",
+                      "src.models.elo", "src.walters.nfl_predict",
+                      "src.ingestion.service"):
+              importlib.import_module(mod)
+          print("import smoke OK")
+          PY

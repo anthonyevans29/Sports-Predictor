@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-24 (SDLC)
+- Community standards shipped (CONTRIBUTING = the laws, CoC, SECURITY,
+  MIT LICENSE, issue/PR templates) + CI (parse + import smoke on every
+  push). PR doctrine: direct-to-main daily; branch+PR for gate-class.
+
 ## 2026-09-24 (H-track 1c)
 - sync-kalshi-nhl (third sport on the shared matcher); export success
   string updated to LIVE format.

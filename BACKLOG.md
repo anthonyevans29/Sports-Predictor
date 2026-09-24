@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **SDLC RIGOR DROP 2026-09-24 (user ask): community standards + CI +
+  PR doctrine.** Files shipped: CONTRIBUTING.md = the project's laws
+  codified (read-before-edit, receipts, gates, conservative unknowns,
+  packaging/backup laws, track-by-artifact); CODE_OF_CONDUCT (argue
+  from receipts); SECURITY (no secrets in repo, private advisories);
+  MIT LICENSE (Anthony Evans 2026 — swap if another license preferred);
+  issue templates (bug-with-receipts + finding/incident mirroring our
+  root-cause format); PR template with the receipts checklist; CI
+  workflow (compileall + dep install + IMPORT SMOKE — the mkt_block
+  class of defect now caught server-side on every push). PR DOCTRINE
+  SETTLED: direct-to-main for daily ops (cadence is a strength);
+  BRANCH+PR for gate-class changes (model logic, training, acceptance,
+  export contracts) with backtest receipts in the PR body; CI required
+  everywhere. First CI run = the push of this very drop.
+
 - **TWO CLOSING ITEMS 2026-09-24 midday:** (1) RESULTS.md NFL header
   retitled "(rehearsal)" -> "(live since Week 3, 2026-09-22)" BEFORE
   tomorrow's first live grading writes under it. (2) INTERNATIONAL

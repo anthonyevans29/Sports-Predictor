@@ -965,30 +965,55 @@ def _compute_totals_pulse(rows, blowup_threshold: float = 6.0):
     }
 
 
+# Why a competition's fixtures file carries no model output (payload note).
+_MARKET_ONLY_REASON = {
+    "NHL": ("NHL model track SUSPENDED (Phase 2 closed 2026-09-25: four "
+            "schedule-only candidates, floor ~0.691 vs the 0.6866 bar) — "
+            "market-only until the H2 goalie-feed probe reopens it."),
+    "NCAA": "College football is market-only by doctrine (own gate later).",
+    "UNL": "Nations League is market-only by doctrine.",
+}
+_CUP_REASON = ("Cup model track SUSPENDED 2026-09-25 (rotation information "
+               "floor) — market-only for the season.")
+
+
 def export_fixtures(
     competition_code: str,
     start: str | None = None,
     end: str | None = None,
     out_dir: str = "exports",
+    receipts: dict | None = None,
 ) -> str:
     """
     MARKET-ONLY fixtures export (U-request 2026-09-08): matches, results
-    where finished, book consensus where odds exist. Reads matches + odds
-    tables ONLY — physically incapable of carrying model output. Built for
-    competitions behind the cup acceptance gate (EFL, CL): gives the
-    consumer fixture awareness and market context with zero prediction
-    fields, top-level flag says so explicitly.
+    where finished, book consensus where odds exist, Kalshi presence. Reads
+    matches + odds + odds_snapshots ONLY — physically incapable of carrying
+    model output; the top-level flag says so explicitly. The fixtures shape
+    the Cockpit renders for gated/market-only competitions (UNL, NCAA, cups,
+    and — from 2026-10-07 — NHL).
+
+    Book consensus (2026-09-25): latest capture per (bookmaker, selection),
+    captures at/after kickoff excluded (in-game), then the de-vigged mean.
+    Kalshi: latest pre-kickoff OddsSnapshot(source="kalshi") per selection;
+    status two_sided / one_sided / absent (the predictions export's vocabulary).
+    `receipts`, if given, is filled with counts for the CLI to print —
+    including the odds (market, selection) labels actually seen (law 1).
     """
     import json as _json
     import os as _os
+    from collections import Counter as _Counter
     from datetime import datetime as _dt, timedelta as _td
 
     from sqlalchemy import select as _select
 
     from src.db.database import session_scope as _scope
-    from src.db.schema import Competition as _Comp, Match as _Match, Odds as _Odds
+    from src.db.schema import (Competition as _Comp, Match as _Match, Odds as _Odds,
+                               OddsSnapshot as _Snapshot)
     from src.walters.value import MarketSnapshot as _Snap
 
+    labels: _Counter = _Counter()
+    counts = {"fixtures": 0, "with_books": 0, "kalshi_two_sided": 0,
+              "kalshi_one_sided": 0, "kalshi_absent": 0}
     with _scope() as s:
         comp = s.execute(_select(_Comp).where(
             _Comp.code == competition_code)).scalars().first()
@@ -1000,26 +1025,47 @@ def export_fixtures(
         q = q.where(_Match.utc_date >= lo, _Match.utc_date < hi).order_by(_Match.utc_date)
         rows = []
         for m in s.execute(q).scalars():
-            odds_rows = list(s.execute(_select(_Odds).where(
-                _Odds.match_id == m.id, _Odds.market == "1X2")).scalars())
+            all_odds = list(s.execute(_select(_Odds).where(_Odds.match_id == m.id)).scalars())
+            labels.update((o.market, o.selection) for o in all_odds)
+            # latest pre-kickoff capture per (bookmaker, selection), 1X2 only
+            latest: dict[tuple[str, str], object] = {}
+            for o in all_odds:
+                if o.market != "1X2":
+                    continue
+                if o.captured_at is not None and o.captured_at >= m.utc_date:
+                    continue  # in-game price, never pre-game truth
+                key = (o.bookmaker, o.selection)
+                if key not in latest or o.captured_at > latest[key].captured_at:
+                    latest[key] = o
             market = None
-            if odds_rows:
+            if latest:
                 by_sel: dict[str, list[tuple[str, float]]] = {}
-                cap = None
-                for o in odds_rows:
-                    by_sel.setdefault(o.selection, []).append(
-                        (o.bookmaker, o.price_decimal))
-                    if cap is None or o.captured_at > cap:
-                        cap = o.captured_at
-                snap = _Snap(market="1X2", by_selection=by_sel)
-                implied = snap.average_implied()
+                for (bk, sel), o in latest.items():
+                    by_sel.setdefault(sel, []).append((bk, o.price_decimal))
+                implied = _Snap(market="1X2", by_selection=by_sel).average_implied()
                 over = sum(implied.values()) or 1.0
+                cap = max(o.captured_at for o in latest.values())
                 market = {
-                    "bookmaker_count": len({o.bookmaker for o in odds_rows}),
+                    "bookmaker_count": len({bk for bk, _ in latest}),
                     "captured_at": cap.isoformat() if cap else None,
-                    "fair_prob": {k: round(v / over, 4)
-                                  for k, v in implied.items()},
+                    "fair_prob": {k: round(v / over, 4) for k, v in implied.items()},
                 }
+                counts["with_books"] += 1
+            kal: dict[str, object] = {}
+            for snap in s.execute(_select(_Snapshot).where(
+                    _Snapshot.match_id == m.id, _Snapshot.source == "kalshi")
+                    .order_by(_Snapshot.captured_at.desc())).scalars():
+                if snap.captured_at is not None and snap.captured_at >= m.utc_date:
+                    continue
+                kal.setdefault(snap.selection, snap)
+            kal_status = ("two_sided" if {"HOME", "AWAY"} <= set(kal)
+                          else "one_sided" if kal else "absent")
+            counts[f"kalshi_{kal_status}"] += 1
+            kalshi = None
+            if kal:
+                kalshi = {"status": kal_status,
+                          "prob": {k: round(v.devig_prob, 4) for k, v in kal.items()},
+                          "captured_at": max(v.captured_at for v in kal.values()).isoformat()}
             rows.append({
                 "match_id": m.id,
                 "utc_date": m.utc_date.isoformat(),
@@ -1031,23 +1077,33 @@ def export_fixtures(
                 "home_score": m.home_score,
                 "away_score": m.away_score,
                 "market": market,
+                "kalshi": kalshi,
+                "input_quality": {"book_odds": market["bookmaker_count"] if market else 0,
+                                  "kalshi": kal_status},
             })
+        counts["fixtures"] = len(rows)
+        comp_type = (comp.type or "").upper()
     _os.makedirs(out_dir, exist_ok=True)
     label = (f"{start}_to_{end}" if start and end
              else _dt.utcnow().strftime("%Y-%m-%d"))
     path = _os.path.join(out_dir, f"fixtures_{competition_code}_{label}.json")
+    reason = _MARKET_ONLY_REASON.get(competition_code.upper(),
+                                     _CUP_REASON if comp_type in ("CUP", "INTL") else
+                                     "This competition is market-only.")
     payload = {
         "exported_at": _dt.utcnow().isoformat() + "Z",
         "competition_code": competition_code,
         "contains_predictions": False,
-        "note": ("Market-only fixtures file: schedule, results, book "
-                 "consensus. NO model output — this competition is behind "
-                 "the cup acceptance gate."),
+        "note": ("Market-only fixtures file: schedule, results, book consensus, "
+                 "Kalshi presence. NO model output. " + reason),
         "count": len(rows),
         "fixtures": rows,
     }
     with open(path, "w") as f:
         _json.dump(payload, f, indent=2)
+    if receipts is not None:
+        receipts.update(counts)
+        receipts["odds_labels"] = dict(sorted(labels.items()))
     return path
 
 

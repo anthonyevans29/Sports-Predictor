@@ -88,14 +88,23 @@ passes.
 | `nfl-grade` | | Grade predictions vs finished games + banked closer consensus (sides, log-loss, CLV). |
 | `export-nfl-results` | | Graded NFL results file for the consumer (standard results shape, rehearsal-flagged). |
 
-## Gated competitions (cups)
+## Market-only competitions (cups, UNL, NCAA, NHL)
 
-No predictions ship until the cup path passes its acceptance test. Data
+No model output ships for these: the cup and NHL model tracks are
+SUSPENDED (2026-09-25; cups at a rotation floor, NHL at the
+schedule-only floor), UNL and NCAA are market-only by doctrine. Data
 syncs run normally; the consumer receives market-only files:
 
 | Command | Options | Purpose |
 |---|---|---|
-| `export-fixtures` | `--competition --start --end` | Market-only fixtures file (matches + odds tables only; `contains_predictions: false`). |
+| `export-fixtures` | `--competition --start --end` | Market-only fixtures file: schedule, results, book consensus (latest pre-kickoff price per book), Kalshi presence; `contains_predictions: false`. Prints the odds (market, selection) labels it saw. |
+
+**NHL daily (from the 2026-10-07 market-only launch):**
+`sync-matches --competition NHL --season 2026 --date-from <yesterday>
+--date-to <tomorrow>` →
+`sync-odds --competition NHL --season 2026` → `sync-kalshi-nhl` →
+`export-fixtures --competition NHL`. The Cockpit renders the file as
+books' fair bars with a market-only chip and the Kalshi status.
 
 ## Prediction, evaluation, improvement
 

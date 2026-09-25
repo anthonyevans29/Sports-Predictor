@@ -5177,10 +5177,21 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
 @click.option("--start", default=None, help="YYYY-MM-DD")
 @click.option("--end", default=None, help="YYYY-MM-DD")
 def export_fixtures_cmd(competition_code, start, end):
-    """Market-only fixtures export (no predictions) for gated competitions."""
+    """Market-only fixtures export (no predictions) for market-only competitions:
+    UNL, NCAA, the suspended cups, and NHL (market-only launch 2026-10-07)."""
     from src.walters.export import export_fixtures
-    path = export_fixtures(competition_code, start=start, end=end)
+    rc: dict = {}
+    path = export_fixtures(competition_code, start=start, end=end, receipts=rc)
     console.print(f"[green]✓ Wrote market-only fixtures to {path}[/green]")
+    print(f"  fixtures {rc['fixtures']} · with book consensus {rc['with_books']} · "
+          f"kalshi two-sided {rc['kalshi_two_sided']} / one-sided "
+          f"{rc['kalshi_one_sided']} / absent {rc['kalshi_absent']}")
+    labels = rc["odds_labels"]
+    print(f"  odds (market, selection) labels seen: "
+          + (", ".join(f"{m}/{sel}×{n}" for (m, sel), n in labels.items()) or "none"))
+    if labels and not any(m == "1X2" for m, _ in labels):
+        print("  ⚠ odds rows exist but none are labelled 1X2 — the consensus join found "
+              "nothing; read the labels above before trusting this file")
 
 
 @cli.command("export-predictions")

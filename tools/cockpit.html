@@ -162,7 +162,7 @@ function normalize(doc){
   // Market-only exports (gated competitions: UNL, NCAA, cups) carry
   // "fixtures" with no predictions — render them from the books' fair.
   if(!doc.predictions && doc.fixtures){
-    const sport=(doc.sport||doc.competition||"?").toUpperCase();
+    const sport=(doc.sport||doc.competition||doc.competition_code||"?").toUpperCase();
     const _t=n=>n&&n.length>18?n.slice(0,16)+"…":n;
     for(const f of doc.fixtures){
       if(f.status && f.status!=="scheduled") continue;
@@ -170,7 +170,7 @@ function normalize(doc){
       out.push({game:`${_t(f.away_team||"?")} @ ${_t(f.home_team||"?")}`,
         home:f.home_team||"?",away:f.away_team||"?",
         pick:null,prob:null,mkt:null,twoSided:false,
-        mktHasDraw:fair.DRAW!=null,kal:null,sport,
+        mktHasDraw:fair.DRAW!=null,kal:(f.input_quality||{}).kalshi||null,sport,
         when:(f.utc_date||"").slice(0,16).replace("T"," "),utc:f.utc_date||"",
         probsAll:{},fairAll:fair,over:null,div:null,quar:false,
         books:mk.bookmaker_count,qbs:[],rawIQ:{market_only:true,

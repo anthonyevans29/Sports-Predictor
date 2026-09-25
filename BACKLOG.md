@@ -22,6 +22,28 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **CUP EXAM VERDICT: FAIL (architect, 2026-09-25) + DIAGNOSTIC PR:**
+  real-DB run FAILED all three axes — mean |Δ_H| 13.86pp, sign 60%;
+  CUPS STAY LOCKED. Architect's reading: NOT inversion. (1) every
+  mega-miss (>25pp) has an out-of-pot opponent (Sabah, Slovan
+  Bratislava, Viking, Bodo/Glimt, Shakhtar) — suspect default Elo /
+  unmapped-league bonus making minnows mid-table; (2) general cup-path
+  under-dispersion — same-tier favorites compress toward 0.5
+  (Newcastle-WBA -29, Spurs-Charlton -23.8, Liverpool-Atletico -16.2)
+  while true coin-flips price within 2pp. DIAGNOSTIC (daily-class, NO
+  pricing change): `cup-exam --detail` prints per row home/away
+  effective Elo, home/away league, home/away bonus (`*` = default
+  input), tier; summary splits mean |Δ_H| by in-pot vs out-of-pot and
+  same-/cross-tier/unmapped, and names the teams priced at exactly the
+  default league Elo. Report rows gained raw inputs (in_pot, league/cup
+  Elo, default); plain `cup-exam` output byte-identical. EXECUTOR READ
+  (code, not data — the detail run confirms): every LEAGUE-typed code
+  the adapter syncs (17) HAS a bonus entry, so the mega-miss clubs'
+  domestic leagues (NOR/SVK/AZE/UKR) are simply not synced -> no
+  team_to_league -> DEFAULT_LEAGUE_BONUS -100 on top of the 1500
+  starting rating = ~1400 effective. NEXT: Anthony runs
+  `python cli.py cup-exam --detail`; the fix spec follows the read.
+
 - **CUP ACCEPTANCE EXAM BUILT 2026-09-25 (gate-class PR; spec frozen by
   the architect BEFORE results, law 3):** `include_finished: bool = False`
   threaded to `_generate_predictions_soccer`; True = REPORT-ONLY (FINISHED

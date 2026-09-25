@@ -794,6 +794,16 @@ def _generate_predictions_soccer(
                     "away_league": team_to_league.get(m.away_team_id),
                     "home_league_bonus": round(league_bonus(team_to_league.get(m.home_team_id)), 1) if is_cup_competition else None,
                     "away_league_bonus": round(league_bonus(team_to_league.get(m.away_team_id)), 1) if is_cup_competition else None,
+                    # Diagnostics (cup-exam --detail): raw inputs to
+                    # _effective_elo. in_pot = the team has a trained league
+                    # rating; otherwise EloState.get fell back to the default.
+                    "home_in_pot": m.home_team_id in elo_league.ratings,
+                    "away_in_pot": m.away_team_id in elo_league.ratings,
+                    "home_league_elo": round(elo_league.get(m.home_team_id), 1),
+                    "away_league_elo": round(elo_league.get(m.away_team_id), 1),
+                    "home_cup_elo": round(elo_cup.get(m.home_team_id), 1),
+                    "away_cup_elo": round(elo_cup.get(m.away_team_id), 1),
+                    "default_elo": elo_league.config.starting_rating,
                 })
                 continue
 

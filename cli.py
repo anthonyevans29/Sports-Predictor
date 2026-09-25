@@ -4002,12 +4002,16 @@ def soccer_refresh_cmd(max_drift):
 @cli.command("cup-exam")
 @click.option("--key", "key_path", default="exports/cup_answer_key.csv", show_default=True,
               help="Answer key from scripts/extract_cup_key.py.")
-def cup_exam_cmd(key_path):
+@click.option("--detail", is_flag=True,
+              help="Diagnostics: per-row Elo/league/bonus inputs + |Δ_HOME| splits "
+                   "(pot, tier) + default-Elo teams. No pricing change.")
+def cup_exam_cmd(key_path, detail):
     """Cup acceptance exam (spec frozen 2026-09-25): price the answer key's
     FINISHED fixtures with production soccer pricing in REPORT-ONLY mode
     (nothing written) and score vs the books' fair: mean |Δ_HOME| <= 8.0pp,
     <= 13 fixtures over 8pp, EFL round-2 favorite agreement >= 80%."""
-    from src.walters.cup_exam import (MAX_MISSING, load_key, score_exam)
+    from src.walters.cup_exam import (MAX_MISSING, detail_splits, load_key,
+                                      score_exam, tier_of)
     from src.walters.training import _generate_predictions_soccer
 
     key = load_key(key_path)
@@ -4067,11 +4071,57 @@ def cup_exam_cmd(key_path):
     print(f"  sign check ({res.sign_selector}): {res.sign_agree}/{res.sign_n} "
           f"favorites agree = {share}  (pass >= 80%; < 50% = inversion) "
           f"{'ok' if res.sign_pass else 'MISS'}")
+    if detail:
+        _print_cup_exam_detail(res, detail_splits(res), tier_of)
+
     print(f"\nVERDICT: {res.verdict}")
     # Amended semantics (architect, 2026-09-25): necessary-not-sufficient.
     print("  (exam is necessary-not-sufficient: FAIL is damning; PASS certifies "
           "no gross cup-path defect only, NOT out-of-sample accuracy — pricing "
           "sees same-season results. The sign check is the decisive organ.)")
+
+
+def _print_cup_exam_detail(res, splits, tier_of):
+    """cup-exam --detail block. `*` marks a default input: league Elo at the
+    starting rating (team not in the trained pot), or a bonus from a league
+    code missing from LEAGUE_ELO_BONUS (DEFAULT_LEAGUE_BONUS)."""
+    from src.models.league_strength import LEAGUE_ELO_BONUS
+
+    def elo(r, side):
+        v = r.get(f"{side}_elo")
+        star = "*" if not r.get(f"{side}_in_pot") else " "
+        return "—" if v is None else f"{v:.0f}{star}"
+
+    def lg(r, side):
+        return r.get(f"{side}_league") or "—"
+
+    def bonus(r, side):
+        v = r.get(f"{side}_league_bonus")
+        code = r.get(f"{side}_league")
+        star = " " if code and code.upper() in LEAGUE_ELO_BONUS else "*"
+        return "—" if v is None else f"{v:+.0f}{star}"
+
+    hdr = (f"{'date':<10} {'home':<20} {'away':<20} {'delta_pp':>8} "
+           f"{'home_elo':>8} {'away_elo':>8} {'home_lg':<7} {'away_lg':<7} "
+           f"{'home_bon':>8} {'away_bon':>8}  tier")
+    print("\nDETAIL  (elo = effective cup Elo: 0.7·league + 0.3·cup + bonus; "
+          "* = default input)")
+    print(hdr + "\n" + "-" * len(hdr))
+    for r in res.rows:
+        print(f"{r['date']:<10} {r['home'][:20]:<20} {r['away'][:20]:<20} "
+              f"{r['delta_pp']:>+8.1f} {elo(r, 'home'):>8} {elo(r, 'away'):>8} "
+              f"{lg(r, 'home'):<7} {lg(r, 'away'):<7} "
+              f"{bonus(r, 'home'):>8} {bonus(r, 'away'):>8}  {tier_of(r)}")
+
+    fmt = lambda v: "—" if v is None else f"{v:.2f}pp"
+    print("\nDETAIL SPLITS  (mean |Δ_HOME|)")
+    for name, (n, m) in splits["pot"].items():
+        print(f"  {name:<24} n={n:<3} {fmt(m)}")
+    for name, (n, m) in splits["tier"].items():
+        print(f"  {name:<24} n={n:<3} {fmt(m)}")
+    teams = splits["default_elo_teams"]
+    print(f"  teams at exactly-default Elo: {len(teams)}"
+          + (f"  ({', '.join(teams)})" if teams else ""))
 
 
 @cli.command("kalshi-probe")

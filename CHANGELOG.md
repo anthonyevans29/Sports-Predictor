@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (cup exam diagnostics)
+- Cup exam verdict FAIL (mean |Δ_H| 13.86pp, sign 60%): cups stay locked.
+- `cup-exam --detail`: per-row Elo/league/bonus inputs, |Δ_H| splits
+  by pot membership and tier, default-Elo team count. No pricing change.
+
 ## 2026-09-25 (cup acceptance exam — gate-class)
 - `_generate_predictions_soccer(include_finished=True)`: report-only
   pricing of finished fixtures; returns rows, writes nothing.

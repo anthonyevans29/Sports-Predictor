@@ -43,6 +43,12 @@ ROUND2_FALLBACK_DATES = {"2026-09-16", "2026-09-17"}
 _ROUND2_RE = re.compile(r"\b(2nd|second)\s+round\b|\bround\s*(2|two)\b", re.I)
 
 
+# Report-row fields surfaced by `cup-exam --detail` (no pricing change).
+DETAIL_KEYS = ("home_elo", "away_elo", "home_league", "away_league",
+               "home_in_pot", "away_in_pot", "home_league_elo", "away_league_elo",
+               "home_cup_elo", "away_cup_elo", "default_elo")
+
+
 def load_key(path: str) -> list[dict]:
     with open(path, newline="") as f:
         rows = list(csv.DictReader(f))
@@ -125,6 +131,8 @@ def score_exam(key_rows: list[dict], priced: dict[int, dict],
             "fav_model": favorite(p["p_home"], p["p_away"]),
             "home_league_bonus": p.get("home_league_bonus"),
             "away_league_bonus": p.get("away_league_bonus"),
+            # --detail diagnostics, carried verbatim from the report row
+            **{k: p.get(k) for k in DETAIL_KEYS},
             "flag": "",
         })
 
@@ -170,3 +178,44 @@ def score_exam(key_rows: list[dict], priced: dict[int, dict],
                                ("sign check", res.sign_pass)) if not ok]
         res.verdict = "FAIL — " + ", ".join(why)
     return res
+
+
+def _mean_abs(rows: list[dict]) -> float | None:
+    return sum(abs(r["delta_pp"]) for r in rows) / len(rows) if rows else None
+
+
+def tier_of(row: dict) -> str:
+    """same-tier = both home leagues known and identical; cross-tier = both
+    known and different; unmapped = at least one side has no home league."""
+    hl, al = row.get("home_league"), row.get("away_league")
+    if not hl or not al:
+        return "unmapped"
+    return "same-tier" if hl == al else "cross-tier"
+
+
+def detail_splits(res: ExamResult) -> dict:
+    """
+    Diagnostic summary for `cup-exam --detail` (architect spec 2026-09-25):
+    mean |Δ_HOME| split by opponent pot membership and by tier, plus the
+    teams priced at exactly the default league Elo. Pure: reads scored rows.
+    """
+    rows = res.rows
+    in_pot = [r for r in rows if r.get("home_in_pot") and r.get("away_in_pot")]
+    out_pot = [r for r in rows if not (r.get("home_in_pot") and r.get("away_in_pot"))]
+    by_tier: dict[str, list[dict]] = {}
+    for r in rows:
+        by_tier.setdefault(tier_of(r), []).append(r)
+
+    default_teams: set[str] = set()
+    for r in rows:
+        d = r.get("default_elo")
+        for side in ("home", "away"):
+            if d is not None and r.get(f"{side}_league_elo") == d:
+                default_teams.add(r[side])
+    return {
+        "pot": {"in-pot": (len(in_pot), _mean_abs(in_pot)),
+                "out-of-pot": (len(out_pot), _mean_abs(out_pot))},
+        "tier": {t: (len(v), _mean_abs(v))
+                 for t, v in sorted(by_tier.items())},
+        "default_elo_teams": sorted(default_teams),
+    }

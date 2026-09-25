@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (NHL Phase 2 — gate, then Elo v1; gate-class)
+- `python cli.py nhl-backtest`: frozen NHL gate (train 2024, test 2025,
+  preseason excluded by stage/date, OT/SO-inclusive home win), both
+  baselines, three acceptance criteria, verdict. Writes nothing.
+- nhl_elo_v1: MOV + per-team season regression; parameters a priori,
+  home advantage from the 2024 home rate.
+
 ## 2026-09-25 (cup exam diagnostics)
 - Cup exam verdict FAIL (mean |Δ_H| 13.86pp, sign 60%): cups stay locked.
 - `cup-exam --detail`: per-row Elo/league/bonus inputs, |Δ_H| splits

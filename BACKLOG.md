@@ -22,6 +22,23 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL ELO v1 BUILT 2026-09-25 (after the gate; parameters FIXED A
+  PRIORI, before any real-data run, never tuned on 2025):**
+  src/models/nhl_elo.py — MOV + per-team season regression, nothing
+  else. k 6.0 (NFL's 20 scaled for 82-game seasons), mov_base 2.2 (NFL
+  form ln(|m|+1)·base/(base+gap·0.001); OT/SO wins = 1-goal margins,
+  no special weighting), regression 0.25 toward 1500 at a club's OWN
+  first game of a new season (NFL clone), home advantage DERIVED from
+  the 2024 train home rate (400·log10(p/(1-p))) — no memory constant.
+  Writes nothing; no ModelVersion row. EXECUTOR FINDING: the hockey
+  adapter's docstring claims the FT/AOT/AP distinction is kept "via
+  Match.stage capture", but stage stores the provider's game.stage,
+  not status.short — the DB cannot tell a regulation win from an
+  OT/SO win. Harmless for v1 (all decided); the R-track OT/SO
+  hypothesis needs a raw-status capture first. NEXT: Anthony runs
+  `python cli.py nhl-backtest` on the real DB (the output carries its
+  own preseason-boundary receipt), the architect rules.
+
 - **NHL PHASE 2 GATE FROZEN 2026-09-25 (architect; written BEFORE any
   model exists):** harness = NFL shape (src/walters/nhl_backtest.py,
   `python cli.py nhl-backtest`; writes nothing). Stream: NHL

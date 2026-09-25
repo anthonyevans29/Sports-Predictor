@@ -4137,7 +4137,18 @@ def nhl_backtest_cmd(season_starts):
         season, _, d = spec.partition("=")
         starts[season.strip()] = _date.fromisoformat(d.strip())
     stream = nb.build_stream(nb.load_games(), starts)
-    nb.report(stream, nb.baselines(stream))
+    base = nb.baselines(stream)
+    if base.verdict:  # INVALID stream: nothing to score a candidate against
+        nb.report(stream, base)
+        return
+    from src.models.nhl_elo import NHLEloConfig, NHLEloV1, home_advantage_from_rate
+    cfg = NHLEloConfig(home_advantage=home_advantage_from_rate(base.home_rate))
+    model = NHLEloV1(cfg)
+    result = nb.run_gate(stream, model)
+    nb.report(stream, result, model_name=(
+        f"{model.name} (k={cfg.k_factor}, mov_base={cfg.mov_base}, "
+        f"regression={cfg.season_regression}, home_adv={cfg.home_advantage:.1f} "
+        f"from {nb.TRAIN_SEASON} home rate)"))
 
 
 @cli.command("kalshi-probe")

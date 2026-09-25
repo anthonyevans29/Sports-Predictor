@@ -264,7 +264,9 @@ def report(stream: Stream, r: GateResult, out: Callable[[str], None] = print,
         out(f"  {season}: kept {len(stream.train if season == TRAIN_SEASON else stream.test)}"
             f" · preseason excluded by stage {ex.get('stage', 0)}, by date {ex.get('date', 0)}"
             f" (opener {b.get('start')})")
-        out(f"    last dropped days {b.get('last_dropped_days')} · first kept days {b.get('first_kept_days')}")
+        days = lambda xs: ", ".join(f"{d.isoformat()}×{n}" for d, n in xs or []) or "—"
+        out(f"    UTC days: last dropped [{days(b.get('last_dropped_days'))}] · "
+            f"first kept [{days(b.get('first_kept_days'))}]")
         out(f"    stage values: {dict(stream.stages.get(season, {}))}")
     if stream.ties:
         out(f"  ⚠ {stream.ties} tied finals skipped (a decided game can't tie — data defect)")

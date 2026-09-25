@@ -29,6 +29,7 @@ from __future__ import annotations
 import json
 import logging
 from dataclasses import asdict, dataclass, field
+from dataclasses import replace as dc_replace
 from datetime import datetime, timedelta
 from typing import Iterable
 
@@ -391,6 +392,8 @@ def _generate_predictions_soccer(
     model_version: str | None = None,
     only_match_id: int | None = None,
     include_finished: bool = False,
+    cup_coeffs: dict | None = None,
+    cup_coeff_grid: tuple | None = None,
 ) -> int | list[dict]:
     """Soccer prediction pipeline (Elo + Poisson).
 
@@ -404,6 +407,15 @@ def _generate_predictions_soccer(
     is persisted (no Prediction deletes/inserts, session rolled back), so
     the graded ledger never sees a prediction for a played game. The
     default path is unchanged and still returns the count written.
+
+    Cup fix-v2 (architect spec 2026-09-25): cup/intl fixtures take
+    elo_goal_coeff by CONTEXT — "same_league" (both clubs' domestic
+    leagues equal) or "cross_league" — from `cup_coeffs` (an in-memory
+    override, used by cup-exam's tuning) or, if absent, the model's
+    top-level parameters["cup_elo_goal_coeff"]; neither set = the base
+    poisson coeff, i.e. unchanged behavior. League competitions ignore
+    both. `cup_coeff_grid` (report-only) also prices each cup row at
+    every grid coeff, for tuning on the exact shipped path.
     """
     sport = Sport.SOCCER
     written = 0
@@ -668,6 +680,8 @@ def _generate_predictions_soccer(
             from src.models.cup_strengths import load_cup_strength_source
             cup_src = load_cup_strength_source(s, comp, season, contexts,
                                                set(elo_league.ratings))
+        # never read from params["poisson"]: PoissonConfig(**...) rejects unknown keys
+        cup_coeff_map = cup_coeffs if cup_coeffs is not None else (params.get("cup_elo_goal_coeff") or {})
 
         # Promoted-team default prior: clubs in the upcoming set with NO
         # strengths (no matches in the window) get a conservative
@@ -700,6 +714,7 @@ def _generate_predictions_soccer(
             home_elo = _effective_elo(m.home_team_id)
             away_elo = _effective_elo(m.away_team_id)
             cup_receipt: dict = {}
+            fixture_cfg = poisson_cfg          # league path: always the base config
             if cup_src is not None:
                 got = cup_src.for_fixture(m.home_team_id, m.away_team_id, m.utc_date)
                 if isinstance(got, str):          # ruling B: never priced
@@ -720,6 +735,12 @@ def _generate_predictions_soccer(
                     "home_dom_n": home_side.dom_n, "away_dom_n": away_side.dom_n,
                     "home_cup_w": round(home_side.cup_w, 3), "away_cup_w": round(away_side.cup_w, 3),
                 }
+                cup_context = ("same_league" if home_side.dom_league == away_side.dom_league
+                               else "cross_league")
+                fixture_cfg = dc_replace(poisson_cfg, elo_goal_coeff=cup_coeff_map.get(
+                    cup_context, poisson_cfg.elo_goal_coeff))
+                cup_receipt["cup_context"] = cup_context
+                cup_receipt["elo_goal_coeff"] = fixture_cfg.elo_goal_coeff
             else:
                 home_str = strengths.get(m.home_team_id)
                 away_str = strengths.get(m.away_team_id)
@@ -808,7 +829,7 @@ def _generate_predictions_soccer(
                 home_strength=home_str,
                 away_strength=away_str,
                 context=context,
-                config=poisson_cfg,
+                config=fixture_cfg,
                 factor_adjustment=factor,
             )
 
@@ -865,6 +886,14 @@ def _generate_predictions_soccer(
                     "away_defense": round(away_str.defense, 3),
                     "elo_goal_coeff": poisson_cfg.elo_goal_coeff,
                     **cup_receipt,
+                    **({"grid_probs": {
+                        c: (lambda q: (q.p_home, q.p_draw, q.p_away))(predict_match(
+                            home_elo=home_elo, away_elo=away_elo,
+                            home_strength=home_str, away_strength=away_str,
+                            context=context, config=dc_replace(poisson_cfg, elo_goal_coeff=c),
+                            factor_adjustment=factor))
+                        for c in cup_coeff_grid}}
+                       if (cup_coeff_grid and cup_src is not None) else {}),
                 })
                 continue
 

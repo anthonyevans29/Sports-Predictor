@@ -22,6 +22,76 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **DEEP-RESEARCH DISPOSITION (architect, 2026-09-25):** the literature
+  review validated core doctrine — layered architecture, proper scoring
+  rules + calibration bands, simple-models-survive, small-sample
+  threshold dangers. NEW DOCTRINE (CLAUDE.md notes): the market is a
+  reference, never a model feature — spread-blending improves forecasts
+  but kills edge detection; the product is the disagreement. QUEUE
+  ADDITIONS (tail, after cup unlock + NHL v3): S18 Dixon-Coles
+  low-score correction (soccer candidate, existing gate); S19 time-decay
+  match weighting (separate candidate, same gate); S20 RPS reported
+  alongside log-loss in soccer backtest output (metric addition, bars
+  unchanged); H2 NHL goalie track — probe the provider's starting-
+  goalie/lineup feed first (data item), goalie-aware candidate post-v3;
+  NHL context line: MoneyPuck public benchmark 0.648-0.661 (bar
+  unchanged — our gate certifies better-than-schedule-naive, not
+  market-competitive). DECLINED on record: xG/tracking/boosting (no
+  data ownership), threshold re-tuning from small graded samples.
+  EXECUTOR NOTE (law 1, for the architect): a Dixon-Coles low-score
+  correction already SHIPPED — PoissonConfig.dixon_coles_rho, "APPLIED
+  2026-08-14: rho = -0.10 set on production soccer_elo_poisson v13" and
+  "rho=-0.10 JOINTLY confirmed" at the 0.0008 coeff (2026-08-15). S18
+  may mean a rho re-examination or a different correction — scope it
+  before it becomes a candidate.
+
+- **CUP FIX-V2 BUILT 2026-09-25 (gate-class; spec FROZEN before any
+  run):** SPEC (architect): retune the cup path's elo_goal_coeff in TWO
+  contexts — same-league ties and cross-league ties — by as-of
+  leave-self-out log-loss on PRIOR cup matches in the pot EXCLUDING the
+  exam's competition-seasons (EFL/CL/UEL current seasons out; prior cup
+  seasons + other cups in); league (non-cup) pricing provably untouched;
+  rulings 5 and 6 unchanged; the frozen exam (unchanged bar, floor 45)
+  is the sole test. If cross-league context alone can't clear the bar,
+  the next candidate is a league-bonus refit — one candidate at a time.
+  FROZEN GRID (a priori, ascending from the status quo so ties keep the
+  smaller value): {0.0008, 0.0012, 0.0016, 0.0020, 0.0024, 0.0030,
+  0.0040, 0.0050}, same grid for both contexts. BUILT: context =
+  same_league when both clubs' DOMESTIC leagues (the cup strength
+  source's) are equal, else cross_league; the contexts are separable
+  (a fixture's coeff comes from its own context), so each takes its
+  own argmin of mean 3-way log-loss; tuning prices every pool fixture
+  on the EXACT shipped cup path (report-only, as-of, ruling B) at every
+  grid coeff in one pass; `cup-exam` tunes first (read-only, receipts
+  printed) then prices the exam at the chosen pair (`--cup-coeffs
+  base` reproduces the previous exam). Nothing persisted: live cup
+  pricing reads params["cup_elo_goal_coeff"] (TOP-LEVEL — never inside
+  "poisson", whose PoissonConfig(**) would reject the key), absent =
+  base coeff = unchanged; the unlock PR persists the chosen pair.
+  EXECUTOR CALLS (ARCHITECT-RULE in the PR): exclusion = every
+  EFL/CL/UEL + EL-alias competition in every season the key covers
+  (the key has 0 UEL rows; the adapter maps EL and UEL to the same
+  league); LABEL CONTAMINATION FOUND — API-Football `goals` (stored as
+  home/away_score) include EXTRA TIME (pens excluded), and neither
+  score.fulltime nor the raw AET/PEN status is stored, so knockout ties
+  level at 90' and decided in ET are labelled wins against a 90-minute
+  1X2 price (pens-decided ties stay draws; league-phase games clean) —
+  the target is as specified, the contamination is named, and a
+  vs-market target would be a small switch if ruled; residual
+  look-ahead = today's Elo state prices prior-season cup games (the
+  ruling-7 class, now inside the tuning pool too).
+
+- **CUP RE-EXAM VERDICT: FAIL (architect, 2026-09-25):** sign inversion
+  tripwire fired (2/5), mean 18.11pp. Structural receipts perfect (0/50
+  self-fit, 5 ruling-B rows, floor honored) — the honest exam unmasked
+  what self-fit hid. ANATOMY: (1) cross-tier inversion class — own-
+  league-relative strengths delegate cross-league separation to
+  Elo+bonus per ruling 6, but elo_goal_coeff 0.0008 (PL-tuned) mutes the
+  delegate: strong lower-division sides price as tier-equals (Fleetwood
+  42.9 vs mkt 18.8; City-Norwich 55.3 vs 85.8). (2) Early-season domestic
+  thinness (Aug rows n=1-2) — accepted under ruling 5, no change now.
+  -> FIX-V2 (above).
+
 - **CUP FIX — ARCHITECT RULINGS on the seven executor calls
   (2026-09-25):** (1) RATIFIED — the fix applies to live cup pricing;
   the exam must test what ships; cups stay locked regardless, unlock is

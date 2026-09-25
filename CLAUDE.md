@@ -89,6 +89,14 @@ ask.
 4. NCAA model (own gate, no deadline), U2 export enrichment
    (model-internals "why" fields + NFL kalshi field), S14 Stage-2,
    snapshot pruning design.
+5. Tail (architect deep-research disposition 2026-09-25; after cup
+   unlock + NHL v3): S18 Dixon-Coles low-score correction (soccer
+   candidate, existing gate); S19 time-decay match weighting (separate
+   candidate, same gate); S20 RPS reported alongside log-loss in the
+   soccer backtest (metric only, bars unchanged); H2 NHL goalie track
+   (probe the provider's starting-goalie/lineup feed first; goalie-aware
+   candidate post-v3). DECLINED: xG/tracking/boosting (no data
+   ownership), threshold re-tuning from small graded samples.
 
 ## Operational notes
 - Morning chains open with the backup line. 2-day sync windows daily;
@@ -101,3 +109,9 @@ ask.
   REFUSED by design (sentinel). Do not "fix" refusals into guesses.
 - BACKLOG.md newest-first is the project's memory. Read the top 30
   entries before starting anything.
+- **The market is a reference, never a model feature.** Spread-blending
+  improves forecasts but kills edge detection; the product is the
+  disagreement. (Architect doctrine, 2026-09-25.)
+- NHL context: the MoneyPuck public benchmark is 0.648-0.661 log-loss;
+  our gate certifies better-than-schedule-naive, not market-competitive
+  (bar unchanged).

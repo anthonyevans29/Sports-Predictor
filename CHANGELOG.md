@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (cup fix-v2 — gate-class)
+- Cup re-exam FAIL ratified (sign inversion 2/5, mean 18.11pp).
+- Cup elo_goal_coeff by context (same-/cross-league), tuned on prior
+  cup matches with the exam's seasons excluded; `cup-exam` tunes then
+  prices (`--cup-coeffs base` reproduces the old exam). League pricing
+  untouched; nothing persisted.
+- CLAUDE.md: market-is-a-reference doctrine; queue tail S18-S20, H2;
+  deep-research disposition logged.
+
 ## 2026-09-25 (cup fix — gate-class)
 - Cup/intl pricing: attack/defense from each team's domestic
   league-season fit (as-of-date), blended toward the cup fit by n/(n+5);

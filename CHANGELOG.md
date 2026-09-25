@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (NHL Phase 2 closed; market-only launch wiring)
+- nhl_elo_v4 FAIL ratified (0.6907). Ledger v1 0.6909 / v2 0.6921 /
+  v3 0.6952 / v4 0.6907 — schedule-only floor ~0.691 vs bar 0.6866.
+  NHL model track suspended; Oct 7 launch is market-only.
+- `export-fixtures`: Kalshi presence, latest pre-kickoff book consensus,
+  printed odds-label receipt; NHL-ready. Cockpit: fixtures header +
+  Kalshi fixed. Docs: NHL daily market-only chain.
+
 ## 2026-09-25 (NHL candidate v4 — last schedule-only; cup track suspended)
 - nhl_elo_v3 FAIL ratified (0.6952). `nhl-backtest --candidate v4`: v1
   form, 12-point shrink grid (k 3-6 x home adv 35/40/45), v3 selection,

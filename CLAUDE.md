@@ -59,11 +59,11 @@ ask.
   (mega-edges went 1-5 in weeks 1-2).
 - **NHL**: data certified (4,410 games, FT/AOT/AP mapped, true-zero
   nulls); Kalshi KXNHLGAME live. NO MODEL YET — the frozen gate stands
-  (`nhl-backtest`); v1, v2 and v3 FAILED (ledger in BACKLOG). **v4 is
-  the LAST schedule-only candidate**; if it fails there is no v5: NHL
-  opens Oct 7 MARKET-ONLY (NCAA/UNL pattern) and the model track
-  SUSPENDS until the H2 goalie-feed probe reopens it. The bar does not
-  move.
+  (`nhl-backtest`). **PHASE 2 CLOSED 2026-09-25:** v1-v4 all FAILED
+  (0.6909 / 0.6921 / 0.6952 / 0.6907 vs the 0.6866 bar — the
+  schedule-only floor is ~0.691). MODEL TRACK SUSPENDED; NHL launches
+  Oct 7 MARKET-ONLY via `export-fixtures --competition NHL`; the H2
+  goalie-feed probe is the reopening condition. The bar did not move.
 - **NCAA**: data certified (9,245 games, 743 programs); market-only
   doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,
   books post thin and near-kickoff. NO model; own gate later.
@@ -91,8 +91,8 @@ ask.
    for hockey (train 2024, test 2025; preseason EXCLUDED by status/
    date); freeze acceptance BEFORE building Elo v1; then the NFL
    sequence (internal week, rehearsal+dry read, live decision).
-   **STATUS: gate built; v1-v3 FAILED; v4 (last schedule-only) in
-   flight; Oct 7 market-only fallback logged.**
+   **STATUS: CLOSED — v1-v4 FAILED; track suspended; Oct 7 launch is
+   market-only; reopens via the H2 goalie-feed probe.**
 3. **Cockpit v0.4** (artifact-side — coordinate with the architect;
    the live artifact is chat-published): results intake +
    call-persistence + self-grading by rule; two feedback streams.

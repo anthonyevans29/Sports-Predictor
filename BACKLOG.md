@@ -22,6 +22,40 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL MARKET-ONLY LAUNCH WIRING 2026-09-25 (daily-class; the fifth
+  sport's launch vehicle, before Oct 6):** `export-fixtures --competition
+  NHL` = schedule + book consensus + Kalshi presence in the fixtures
+  shape the Cockpit renders (UNL/NCAA pattern). LAW 1 READ: the NHL odds
+  rows could not be read from here (no DB), so the WRITER was read —
+  api_hockey._MARKET_MAP stores the moneyline as market "1X2" ("Home/Away"
+  and "Moneyline" both), selections HOME/AWAY only (draw legs and
+  unmapped bets dropped) — and the command now PRINTS the (market,
+  selection) labels it actually finds and warns loudly if odds exist but
+  none are "1X2": Anthony's first run is the row-level receipt. CONSENSUS
+  HYGIENE (all fixtures files): latest capture per (book, selection),
+  captures at/after kickoff excluded (the predictions export's in-game
+  guard), then the de-vigged mean — the old join averaged every stale
+  capture. KALSHI: latest pre-kickoff OddsSnapshot(source="kalshi") per
+  selection -> two_sided / one_sided / absent (the predictions export's
+  vocabulary), under `kalshi` + `input_quality`. PER-COMPETITION NOTE:
+  NHL's file states the suspension; cups theirs. COCKPIT (repo copy;
+  republish = architect): fixtures cards now read input_quality.kalshi,
+  and the PRE-EXISTING header bug is fixed — the fixtures branch read
+  doc.sport||doc.competition while the export has always written
+  competition_code, so every market-only file rendered under a "?"
+  header (headless before/after: "?" -> "NHL"). DOCS: CLI.md market-only
+  section + the NHL daily chain; README market-only line.
+
+- **NHL PHASE 2 CLOSED — MODEL TRACK SUSPENDED (architect, 2026-09-25,
+  per the pre-logged ruling):** v4 FAIL ratified (0.6907, margin only;
+  selection CONVERGED TO v1's exact params). FOUR-LINE LEDGER (2025
+  log-loss vs the 0.6866 bar): v1 0.6909 / v2 0.6921 / v3 0.6952 /
+  v4 0.6907. FLOOR FINDING: the four-candidate ledger measures the
+  schedule-only floor at ~0.691 vs the 0.6866 bar — tuning cannot buy
+  the missing information. No v5; NHL launches Oct 7 MARKET-ONLY
+  (NCAA/UNL pattern); the H2 goalie-feed probe is the REOPENING
+  CONDITION. The bar did not move.
+
 - **INFORMATION-FLOOR SYMMETRY (architect, 2026-09-25):** both new-sport
   model tracks hit NAMED information floors the same day — NHL:
   goalies; cups: lineups — as the deep-research disposition predicted.

@@ -83,9 +83,10 @@ export-predictions`), morning-after grading, and a gated
 as lines post; `sync-matches` + `nfl-grade` after game days;
 `predict-nfl → export-nfl-predictions` (rehearsal-flagged until live).
 
-**Cups (EFL/CL):** data syncs and market-only `export-fixtures` files;
-model predictions are withheld until the cup path passes its
-pre-committed acceptance test.
+**Market-only (cups, UNL, NCAA, NHL):** data syncs and market-only
+`export-fixtures` files; no model output. The cup and NHL model tracks
+are suspended (2026-09-25) at named information floors — lineups and
+goaltending — until richer data reopens them.
 
 ## CLI reference
 

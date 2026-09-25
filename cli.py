@@ -4041,7 +4041,7 @@ def cup_exam_cmd(key_path, detail):
 
     res = score_exam(key, priced, known)
 
-    for m in res.missing:
+    for m in res.missing + res.market_only:
         print(f"  {m['why']}: match_id={m['match_id']} {m['date']} {m['comp']} "
               f"{m['home']} v {m['away']}")
 
@@ -4056,7 +4056,8 @@ def cup_exam_cmd(key_path, detail):
     fmt = lambda v: "—" if v is None else f"{v:.2f}pp"
     print("\nSUMMARY")
     print(f"  n scored                {res.n_scored}  (missing {len(res.missing)}; "
-          f"> {MAX_MISSING} = INVALID)")
+          f"> {MAX_MISSING} = INVALID; market-only by ruling B {len(res.market_only)}, "
+          f"excluded, not drift)")
     print(f"  mean |Δ_HOME|           {fmt(res.mae_home_pp)}  (bar <= 8.00pp) "
           f"{'ok' if res.mae_pass else 'MISS'}")
     print(f"  mean |Δ| all-outcomes   {fmt(res.mae_all_pp)}")
@@ -4132,17 +4133,19 @@ def _print_cup_exam_detail(res, splits, tier_of):
         if n is None:
             return "—"
         src = "P" if r.get(f"{side}_strengths_source") == "promoted_default" else ""
-        return f"n={n}{src} a{r[f'{side}_attack']:.2f} d{r[f'{side}_defense']:.2f}"
+        dom = r.get(f"{side}_dom_league")
+        dom_s = f"{dom}:{r.get(f'{side}_dom_n')} " if dom else ""
+        return f"{dom_s}n={n}{src} a{r[f'{side}_attack']:.2f} d{r[f'{side}_defense']:.2f}"
 
     hdr = (f"{'date':<10} {'home':<20} {'away':<20} {'delta_pp':>8}  "
-           f"{'home strengths':<22} {'away strengths':<22} self pool")
-    print("\nSTRENGTHS  (n = team's matches in the fit pool; a/d = attack/defense "
-          "after n/(n+5) shrinkage; P = promoted-default prior; self = fixture "
-          "is inside its own fit)")
+           f"{'home strengths':<30} {'away strengths':<30} self pool")
+    print("\nSTRENGTHS  (LG:k = domestic league + its as-of games; n = cup games in "
+          "the as-of fit; a/d = attack/defense after the n/(n+5) blend toward "
+          "domestic; P = promoted-default prior; self = fixture inside its own fit)")
     print(hdr + "\n" + "-" * len(hdr))
     for r in res.rows:
         print(f"{r['date']:<10} {r['home'][:20]:<20} {r['away'][:20]:<20} "
-              f"{r['delta_pp']:>+8.1f}  {st(r, 'home'):<22} {st(r, 'away'):<22} "
+              f"{r['delta_pp']:>+8.1f}  {st(r, 'home'):<30} {st(r, 'away'):<30} "
               f"{'Y' if r.get('self_in_fit') else 'n':<4} {r.get('fit_pool_n', '—')}"
               f"{'b' if r.get('strengths_backfilled') else ''}")
     fs = fit_summary(res)

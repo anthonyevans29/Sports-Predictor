@@ -658,6 +658,17 @@ def _generate_predictions_soccer(
             blended += league_bonus(home_league)
             return blended
 
+        # Cup fix (architect spec 2026-09-25): cup/intl strengths come from the
+        # as-of, leave-self-out domestic league-season fit blended toward the
+        # cup-season fit by n/(n+5); unrated / no-domestic-league teams are
+        # market-only (ruling B). League competitions never take this branch.
+        cup_src = None
+        market_only: dict[int, str] = {}
+        if is_cup_competition:
+            from src.models.cup_strengths import load_cup_strength_source
+            cup_src = load_cup_strength_source(s, comp, season, contexts,
+                                               set(elo_league.ratings))
+
         # Promoted-team default prior: clubs in the upcoming set with NO
         # strengths (no matches in the window) get a conservative
         # below-average profile instead of having every game dropped.
@@ -665,7 +676,7 @@ def _generate_predictions_soccer(
         # and we can grade these rows as their own cohort.
         from src.models.poisson import TeamStrength as _TS
         promoted_default_ids: set[int] = set()
-        for _tid in upcoming_team_ids:
+        for _tid in (upcoming_team_ids if cup_src is None else ()):
             if _tid not in strengths:
                 strengths[_tid] = _TS(
                     attack=poisson_cfg.promoted_attack_prior,
@@ -688,8 +699,30 @@ def _generate_predictions_soccer(
         for m in upcoming:
             home_elo = _effective_elo(m.home_team_id)
             away_elo = _effective_elo(m.away_team_id)
-            home_str = strengths.get(m.home_team_id)
-            away_str = strengths.get(m.away_team_id)
+            cup_receipt: dict = {}
+            if cup_src is not None:
+                got = cup_src.for_fixture(m.home_team_id, m.away_team_id, m.utc_date)
+                if isinstance(got, str):          # ruling B: never priced
+                    market_only[m.id] = got
+                    if include_finished:
+                        report_rows.append({"match_id": m.id, "model_version": mv.version,
+                                            "market_only": got})
+                    continue
+                home_side, away_side, cup_info = got
+                home_str, away_str = home_side.strength, away_side.strength
+                cup_receipt = {
+                    "fit_pool_n": cup_info["cup_pool_n"],
+                    "strengths_backfilled": False,
+                    "self_in_fit": m.id in cup_info["used_ids"],
+                    "home_fit_n": home_side.cup_n, "away_fit_n": away_side.cup_n,
+                    "home_strengths_source": "domestic+cup", "away_strengths_source": "domestic+cup",
+                    "home_dom_league": home_side.dom_league, "away_dom_league": away_side.dom_league,
+                    "home_dom_n": home_side.dom_n, "away_dom_n": away_side.dom_n,
+                    "home_cup_w": round(home_side.cup_w, 3), "away_cup_w": round(away_side.cup_w, 3),
+                }
+            else:
+                home_str = strengths.get(m.home_team_id)
+                away_str = strengths.get(m.away_team_id)
             if home_str is None or away_str is None:
                 # reported-not-silent: a promoted/new club with no matches in
                 # the strengths window drops ALL its games here — name it.
@@ -831,6 +864,7 @@ def _generate_predictions_soccer(
                     "away_attack": round(away_str.attack, 3),
                     "away_defense": round(away_str.defense, 3),
                     "elo_goal_coeff": poisson_cfg.elo_goal_coeff,
+                    **cup_receipt,
                 })
                 continue
 
@@ -904,6 +938,9 @@ def _generate_predictions_soccer(
             ))
             written += 1
 
+        if market_only:
+            log.warning("Market-only (ruling B, never priced): %d cup fixture(s) — %s",
+                        len(market_only), "; ".join(sorted(set(market_only.values()))))
         if skipped_no_strengths:
             detail = ", ".join(f"{n} ({c} games)" for n, c in
                                sorted(skipped_no_strengths.items()))

@@ -51,7 +51,10 @@ DETAIL_KEYS = ("home_elo", "away_elo", "home_league", "away_league",
                "fit_pool_n", "strengths_backfilled", "self_in_fit",
                "home_fit_n", "away_fit_n", "home_strengths_source", "away_strengths_source",
                "home_attack", "home_defense", "away_attack", "away_defense",
-               "elo_goal_coeff")
+               "elo_goal_coeff",
+               # cup fix: domestic borrow receipts
+               "home_dom_league", "away_dom_league", "home_dom_n", "away_dom_n",
+               "home_cup_w", "away_cup_w")
 
 
 def load_key(path: str) -> list[dict]:
@@ -77,6 +80,9 @@ def favorite(p_home: float, p_away: float) -> str:
 class ExamResult:
     rows: list[dict] = field(default_factory=list)       # scored fixtures
     missing: list[dict] = field(default_factory=list)    # UNMATCHED / UNPRICED
+    # Ruling B (architect 2026-09-25): policy exclusions, NOT data drift —
+    # reported, unscored, and outside the > MAX_MISSING INVALID budget.
+    market_only: list[dict] = field(default_factory=list)
     efl_stages_seen: list[str] = field(default_factory=list)
     sign_selector: str = ""
     sign_n: int = 0
@@ -123,6 +129,9 @@ def score_exam(key_rows: list[dict], priced: dict[int, dict],
         p = priced.get(mid)
         if p is None:
             res.missing.append({**k, "why": "UNPRICED"})
+            continue
+        if p.get("market_only"):
+            res.market_only.append({**k, "why": f"MARKET-ONLY (ruling B): {p['market_only']}"})
             continue
         d_home = (p["p_home"] - k["fair_home"]) * 100
         d_draw = (p["p_draw"] - k["fair_draw"]) * 100

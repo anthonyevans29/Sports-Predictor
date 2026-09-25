@@ -22,6 +22,37 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **CUP FIX BUILT 2026-09-25 (gate-class; architect CUP FIX SPEC after
+  the --detail receipts closed the diagnosis — 34/83 teams n=1, 29 n=2,
+  55/55 self-fit, mirrored n=1 pairs = noise symmetry).** SPEC (as ruled):
+  (1) EXAM HONESTY — as-of-date, leave-self-out fits: the priced match
+  and later matches never enter any fit (measurement fix; live already
+  sees only prior games). (2) STRENGTH SOURCE REFORM — cup attack/
+  defense = the team's DOMESTIC league-season fit (same season,
+  as-of-date), blended toward the cup-season fit by n/(n+K), K = 5
+  frozen a priori; no synced domestic league = ruling B, market-only.
+  (3) elo_goal_coeff STAYS 0.0008 — if the re-exam still fails MAE with
+  real strengths, the weight is fix-v2, its own candidate. Re-exam bar
+  UNCHANGED (8.0pp / 13 rows / 80% sign / INVALID > 2). BUILT:
+  src/models/cup_strengths.py (as-of fits, strictly before kickoff;
+  blend = estimate_strengths' existing n/(n+5) shrinkage with the
+  domestic fit as TARGET instead of 1.0 — one shrink, no double count;
+  cup n = 0 -> pure domestic); poisson.estimate_strengths gains an
+  optional prior (None = byte-identical for every existing caller);
+  training.py cup branch only (league competitions never enter it).
+  EXECUTOR CALLS (ARCHITECT-RULE in the PR): reform applies to cup
+  competitions in BOTH modes (one code path = the exam tests what the
+  unlock ships; cups stay locked); ruling B triggers on unrated (no
+  Elo) OR no domestic league-season, and in the exam is its own
+  MARKET-ONLY category outside the INVALID budget (policy, not drift);
+  domestic league = the LEAGUE competition with most fixtures this
+  season (any status); synced league with 0 games as-of -> neutral 1.0
+  prior (not ruling B); no prior-season domestic fallback; prior-season
+  CUP backfill dropped for cups; remaining exam look-ahead = v22 Elo
+  state + current injuries table (fits are now as-of, Elo is not).
+  NEXT: after merge Anthony runs `python cli.py cup-exam --detail`;
+  the architect rules.
+
 - **CUP PRICING HYPOTHESIS CHECK 2026-09-25 (architect item A; receipts,
   NO fix):** --detail FAIL stands, cups stay locked. CODE RECEIPTS:
   (1) WHERE CUP STRENGTHS COME FROM — training.py

@@ -92,6 +92,38 @@ specific reason they're not being built now.
   thinness (Aug rows n=1-2) — accepted under ruling 5, no change now.
   -> FIX-V2 (above).
 
+- **NHL STANDING FALLBACK (architect, 2026-09-25):** if no candidate
+  passes the frozen gate by Oct 6, NHL launches Oct 7 MARKET-ONLY (the
+  NCAA/UNL pattern); the model joins when it passes. The opener is a
+  date, not a gate.
+
+- **NHL PROTOCOL AMENDMENT — v3 SELECTION (architect, 2026-09-25;
+  logged BEFORE any v3 run, per gates-decide):** candidate parameters
+  are SELECTED BY WALK-FORWARD VALIDATION INSIDE 2024: fit on the first
+  60% of the 2024 sequence (chronological; warm-up, update only),
+  select by sequential loss on the remaining 40% (validation never in
+  the fit), REFIT on all of 2024 at the chosen params, then score 2025
+  ONCE through the unchanged gate. GRID (frozen, 8,400 points): the v2
+  ranges kept, extended DOWNWARD/CENTER only — nothing above the old
+  maxima (the corners already testified): k {2,3,4,5,6,7,8,10} ·
+  mov_base {0.5,1.0,1.6,2.2,3.0,4.0} · home_advantage {15,25,35,45,55}
+  (unchanged) · b2b_penalty {0,5,10,15,20,30,45} · rest_per_day
+  {0,2.5,5,7.5,10}. Regression stays 0.25. THE BAR IS NOT TOUCHED —
+  the calibration criterion is doing its job. Model form = v2's
+  (nhl_elo_v3 = v2 form, new selection). EXECUTOR CALL (ARCHITECT-RULE):
+  "sequential loss on the 40%" = predict-then-update through the
+  validation games (each priced BEFORE its own result updates the
+  ratings) — the same walk-forward protocol that scores 2025; frozen
+  ratings across the 40% would score stale Elo no deployed model uses.
+  Run: `python cli.py nhl-backtest --candidate v3` (~1 min).
+
+- **NHL REJECTION LEDGER — nhl_elo_v2 FAIL (architect, 2026-09-25):**
+  2024-internal 0.6741 -> 0.6699 but 2025 REGRESSED to 0.6921 (worse
+  than v1's 0.6909); calibration FAILED all three gated upper bands
+  (overconfident); 4/5 params at grid edges. DIAGNOSIS: full-internal
+  single-season tuning rewards sharpness with no counterweight —
+  selection overfit. -> v3 protocol amendment (above).
+
 - **CUP FIX — ARCHITECT RULINGS on the seven executor calls
   (2026-09-25):** (1) RATIFIED — the fix applies to live cup pricing;
   the exam must test what ships; cups stay locked regardless, unlock is

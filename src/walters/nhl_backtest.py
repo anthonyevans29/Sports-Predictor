@@ -302,6 +302,70 @@ def tune_v2(train: list[Game]) -> tuple[dict, list[tuple[float, dict]]]:
 
 
 # --------------------------------------------------------------------------
+# Candidate v3 (architect spec 2026-09-25, after v2's selection overfit)
+# --------------------------------------------------------------------------
+#
+# v2 selected on the WHOLE 2024 sequence, which rewards sharpness with no
+# counterweight (2024-internal improved, 2025 regressed, bands overconfident,
+# 4/5 params at grid edges). v3 changes only the SELECTION:
+#   * split 2024 chronologically: first VALIDATION_FIT_FRAC = fit (warm-up,
+#     update only), remainder = validation;
+#   * score each grid point by predict-then-update loss on the validation
+#     games only (the same walk-forward protocol that scores 2025 — each
+#     validation game is priced before its own result is seen);
+#   * refit on ALL of 2024 at the chosen params (run_gate's warm-up), then
+#     score 2025 once. Gate, model form and regression (0.25) unchanged.
+
+VALIDATION_FIT_FRAC = 0.60
+
+# FROZEN before any run. Every v2 value kept; options added only BELOW or
+# BETWEEN them — nothing above the old maxima (the corners already testified).
+# Ordered simplest-first so exact ties pick the simpler setting.
+V3_GRID: dict[str, tuple] = {
+    "k_factor": (2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0),
+    "mov_base": (0.5, 1.0, 1.6, 2.2, 3.0, 4.0),
+    "home_advantage": (15.0, 25.0, 35.0, 45.0, 55.0),
+    "b2b_penalty": (0.0, 5.0, 10.0, 15.0, 20.0, 30.0, 45.0),
+    "rest_per_day": (0.0, 2.5, 5.0, 7.5, 10.0),
+}
+
+
+def validation_split(train: list[Game], frac: float = VALIDATION_FIT_FRAC
+                     ) -> tuple[list[Game], list[Game]]:
+    """Chronological split of the train season: (fit, validation)."""
+    ordered = sorted(train, key=lambda g: g.utc_date)
+    cut = int(len(ordered) * frac)
+    return ordered[:cut], ordered[cut:]
+
+
+def validation_loss(fit: list[Game], val: list[Game], model: Predictor) -> float:
+    """Warm up on `fit` (update only), then walk-forward loss on `val`."""
+    for g in fit:
+        model.update(g)
+    return sequential_loss(val, model)
+
+
+def tune_v3(train: list[Game], grid: dict[str, tuple] | None = None
+            ) -> tuple[dict, list[tuple[float, dict]], tuple[list[Game], list[Game]]]:
+    """Select params by walk-forward validation INSIDE the train season.
+    Returns (best params, all (validation loss, params) rows best-first,
+    (fit, validation) split)."""
+    from itertools import product
+
+    from src.models.nhl_elo import NHLEloConfigV2, NHLEloV2
+
+    grid = grid or V3_GRID
+    fit, val = validation_split(train)
+    keys = list(grid)
+    rows = []
+    for values in product(*(grid[k] for k in keys)):
+        params = dict(zip(keys, values))
+        rows.append((validation_loss(fit, val, NHLEloV2(NHLEloConfigV2(**params))), params))
+    rows.sort(key=lambda r: r[0])   # stable: grid order breaks exact ties
+    return rows[0][1], rows, (fit, val)
+
+
+# --------------------------------------------------------------------------
 # DB loading + report
 # --------------------------------------------------------------------------
 

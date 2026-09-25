@@ -4192,9 +4192,10 @@ def _print_cup_exam_detail(res, splits, tier_of):
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")
-@click.option("--candidate", type=click.Choice(["v1", "v2"]), default="v1", show_default=True,
-              help="v1 = ratified baseline candidate; v2 = retuned params + rest days, "
-                   "tuned on 2024-internal loss only, 2025 scored once.")
+@click.option("--candidate", type=click.Choice(["v1", "v2", "v3"]), default="v1", show_default=True,
+              help="v1 = ratified baseline; v2 = retuned params + rest days selected on full "
+                   "2024-internal loss (FAILED, kept reproducible); v3 = v2's model form, params "
+                   "selected by walk-forward validation inside 2024. 2025 scored once each.")
 def nhl_backtest_cmd(season_starts, candidate):
     """NHL Phase 2 gate (frozen 2026-09-25): train 2024, test 2025, preseason
     excluded; prints the stream receipts, both baselines and — once a
@@ -4207,7 +4208,7 @@ def nhl_backtest_cmd(season_starts, candidate):
         season, _, d = spec.partition("=")
         starts[season.strip()] = _date.fromisoformat(d.strip())
     games = nb.load_games()
-    if candidate == "v2":
+    if candidate in ("v2", "v3"):
         games = nb.attach_rest(games)   # full schedule, before preseason is cut
     stream = nb.build_stream(games, starts)
     base = nb.baselines(stream)
@@ -4216,6 +4217,9 @@ def nhl_backtest_cmd(season_starts, candidate):
         return
     if candidate == "v2":
         _nhl_candidate_v2(nb, stream)
+        return
+    if candidate == "v3":
+        _nhl_candidate_v3(nb, stream)
         return
     from src.models.nhl_elo import NHLEloConfig, NHLEloV1, home_advantage_from_rate
     cfg = NHLEloConfig(home_advantage=home_advantage_from_rate(base.home_rate))
@@ -4253,6 +4257,42 @@ def _nhl_candidate_v2(nb, stream):
         f"{model.name} (" + ", ".join(f"{k}={v:g}" for k, v in best.items())
         + f", regression={cfg.season_regression:g} [not tunable on 2024-internal]) "
         f"— 2025 evaluated ONCE"), extra=tuning)
+
+
+def _nhl_candidate_v3(nb, stream):
+    """Candidate protocol v3 (amendment 2026-09-25): select params by walk-
+    forward validation inside 2024 (fit on the first 60%, score the last 40%
+    predict-then-update), refit on ALL of 2024 at the chosen params, then
+    score 2025 exactly once through the unchanged gate."""
+    import time
+    from src.models.nhl_elo import (NHLEloConfig, NHLEloConfigV2, NHLEloV1, NHLEloV3,
+                                    home_advantage_from_rate)
+
+    t0 = time.time()
+    best, rows, (fit, val) = nb.tune_v3(stream.train)
+    v1_val = nb.validation_loss(fit, val, NHLEloV1(NHLEloConfig(
+        home_advantage=home_advantage_from_rate(nb.baselines(stream).home_rate))))
+    fmt = lambda g: g.utc_date.date().isoformat()
+    tuning = [f"SELECTION (candidate v3 · {len(rows)}-point frozen grid · walk-forward "
+              f"validation inside {nb.TRAIN_SEASON}; 2025 not seen; {time.time() - t0:.0f}s)",
+              f"  split: fit n={len(fit)} ({fmt(fit[0])}..{fmt(fit[-1])}) · validation "
+              f"n={len(val)} ({fmt(val[0])}..{fmt(val[-1])}) · validation never in the fit",
+              f"  v1 params on validation: {v1_val:.4f}"]
+    tuning += [f"  #{i} {loss:.4f}  " + " ".join(f"{k}={v:g}" for k, v in params.items())
+               for i, (loss, params) in enumerate(rows[:5], 1)]
+    edges = [k for k, v in best.items()
+             if len(nb.V3_GRID[k]) > 1 and v in (min(nb.V3_GRID[k]), max(nb.V3_GRID[k]))]
+    if edges:
+        tuning.append(f"  ⚠ chosen value at a grid EDGE for: {', '.join(edges)} — the optimum may "
+                      f"lie outside the frozen grid; widening it = a new candidate, never this run")
+    tuning.append(f"  refit: all {len(stream.train)} {nb.TRAIN_SEASON} games at the chosen params, "
+                  f"then {nb.TEST_SEASON} scored once")
+    cfg = NHLEloConfigV2(**best)
+    model = NHLEloV3(cfg)
+    result = nb.run_gate(stream, model)   # full-2024 warm-up + the single 2025 evaluation
+    nb.report(stream, result, model_name=(
+        f"{model.name} (" + ", ".join(f"{k}={v:g}" for k, v in best.items())
+        + f", regression={cfg.season_regression:g}) — 2025 evaluated ONCE"), extra=tuning)
 
 
 @cli.command("kalshi-probe")

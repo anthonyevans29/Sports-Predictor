@@ -3999,6 +3999,81 @@ def soccer_refresh_cmd(max_drift):
         console.print("  [dim]Production unchanged. Investigate before re-running.[/dim]")
 
 
+@cli.command("cup-exam")
+@click.option("--key", "key_path", default="exports/cup_answer_key.csv", show_default=True,
+              help="Answer key from scripts/extract_cup_key.py.")
+def cup_exam_cmd(key_path):
+    """Cup acceptance exam (spec frozen 2026-09-25): price the answer key's
+    FINISHED fixtures with production soccer pricing in REPORT-ONLY mode
+    (nothing written) and score vs the books' fair: mean |Δ_HOME| <= 8.0pp,
+    <= 13 fixtures over 8pp, EFL round-2 favorite agreement >= 80%."""
+    from src.walters.cup_exam import (MAX_MISSING, load_key, score_exam)
+    from src.walters.training import _generate_predictions_soccer
+
+    key = load_key(key_path)
+    print(f"cup-exam · key {key_path} · {len(key)} rows")
+    ids = [k["match_id"] for k in key]
+    key_comp = {k["match_id"]: k["comp"] for k in key}
+    with session_scope() as s:
+        found = s.execute(
+            select(Match.id, Match.season, Competition.code)
+            .join(Competition, Match.competition_id == Competition.id)
+            .where(Match.id.in_(ids))
+        ).all()
+    # Exact match_id join; a comp disagreement is drift, not a match.
+    known = {mid for mid, _, code in found if code == key_comp[mid]}
+    groups = sorted({(code, season) for mid, season, code in found if mid in known})
+
+    priced: dict[int, dict] = {}
+    versions = set()
+    for code, season in groups:
+        rows = _generate_predictions_soccer(code, season, include_finished=True)
+        print(f"  priced {code} {season}: {len(rows)} fixtures (report-only)")
+        for r in rows:
+            versions.add(r["model_version"])
+            if r["match_id"] in known:
+                priced[r["match_id"]] = r
+    print(f"  model version(s): {', '.join(sorted(versions)) or '—'}")
+
+    res = score_exam(key, priced, known)
+
+    for m in res.missing:
+        print(f"  {m['why']}: match_id={m['match_id']} {m['date']} {m['comp']} "
+              f"{m['home']} v {m['away']}")
+
+    hdr = f"{'date':<10} {'comp':<4} {'stage':<18} {'home':<22} {'away':<22} " \
+          f"{'fair_H':>6} {'model_H':>7} {'delta_pp':>8}  flag"
+    print("\n" + hdr + "\n" + "-" * len(hdr))
+    for r in res.rows:
+        print(f"{r['date']:<10} {r['comp']:<4} {r['stage'][:18]:<18} {r['home'][:22]:<22} "
+              f"{r['away'][:22]:<22} {r['fair_H']:>6.3f} {r['model_H']:>7.3f} "
+              f"{r['delta_pp']:>+8.1f}  {r['flag']}")
+
+    fmt = lambda v: "—" if v is None else f"{v:.2f}pp"
+    print("\nSUMMARY")
+    print(f"  n scored                {res.n_scored}  (missing {len(res.missing)}; "
+          f"> {MAX_MISSING} = INVALID)")
+    print(f"  mean |Δ_HOME|           {fmt(res.mae_home_pp)}  (bar <= 8.00pp) "
+          f"{'ok' if res.mae_pass else 'MISS'}")
+    print(f"  mean |Δ| all-outcomes   {fmt(res.mae_all_pp)}")
+    print(f"  count >8pp              {res.n_over}  (bar <= 13) "
+          f"{'ok' if res.over_pass else 'MISS'}")
+    if res.worst:
+        w = res.worst
+        print(f"  worst row               {w['date']} {w['comp']} {w['home']} v {w['away']} "
+              f"Δ_HOME {w['delta_pp']:+.1f}pp")
+    print(f"  EFL stages seen         {res.efl_stages_seen or '—'}")
+    share = "—" if res.sign_share is None else f"{res.sign_share:.0%}"
+    print(f"  sign check ({res.sign_selector}): {res.sign_agree}/{res.sign_n} "
+          f"favorites agree = {share}  (pass >= 80%; < 50% = inversion) "
+          f"{'ok' if res.sign_pass else 'MISS'}")
+    print(f"\nVERDICT: {res.verdict}")
+    # Amended semantics (architect, 2026-09-25): necessary-not-sufficient.
+    print("  (exam is necessary-not-sufficient: FAIL is damning; PASS certifies "
+          "no gross cup-path defect only, NOT out-of-sample accuracy — pricing "
+          "sees same-season results. The sign check is the decisive organ.)")
+
+
 @cli.command("kalshi-probe")
 @click.option("--keywords", default="epl,premier league,soccer,football",
               help="Comma-separated keywords to match against series title/tags/ticker.")

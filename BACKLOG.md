@@ -22,6 +22,61 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **CUP ACCEPTANCE EXAM BUILT 2026-09-25 (gate-class PR; spec frozen by
+  the architect BEFORE results, law 3):** `include_finished: bool = False`
+  threaded to `_generate_predictions_soccer`; True = REPORT-ONLY (FINISHED
+  priced alongside SCHEDULED, rows returned, never persisted — no
+  Prediction delete/insert, session rolled back). New `cup-exam` command:
+  exact `match_id` join to exports/cup_answer_key.csv (no name matching);
+  UNMATCHED/UNPRICED rows print and are excluded, > 2 = exam INVALID
+  (data drift — stop and report). Pricing = production v22 as-is (no
+  parameter change, no retrain). Output per fixture: date, comp, stage,
+  home, away, fair_H, model_H, delta_pp, flag; summary: n scored, mean
+  |Δ_HOME|, mean |Δ| all-outcomes, count >8pp, worst row. FROZEN BAR:
+  PASS = mean |Δ_HOME| <= 8.0pp AND <= 13 of 55 fixtures over 8pp AND
+  sign check PASS — EFL round-2 subset (key `stage`; fallback Sept 16-17
+  date cluster, selector printed) model favorite == market favorite in
+  >= 80%; < 50% = systematic inversion = automatic FAIL regardless of
+  MAE (the league-bonus defect detector). RATIFIED CALLS: favorite =
+  home vs away only (draw never favorite; EVEN matches only EVEN); ">8pp"
+  count uses |Δ_HOME|; UNPRICED counts toward the > 2 budget; the 13 cap
+  stays absolute when n < 55; the command prints the model version for
+  the v22 confirmation; round-2 stage vocabulary resolved by the first
+  real run's printed values. ARCHITECT VERDICT SEMANTICS (verbatim,
+  2026-09-25, on the look-ahead item): "accepted as-designed with AMENDED
+  VERDICT SEMANTICS — the exam is necessary-not-sufficient; FAIL is
+  damning, PASS certifies "no gross cup-path defect" only (not
+  out-of-sample accuracy); the sign/inversion check is the decisive
+  organ; on PASS, cups unlock at cup-doctrine stakes (market-anchored,
+  conservative, divergence fields on every row), with honest forward
+  validation accruing from live cup predictions starting CL MD2."
+  (Look-ahead named: strengths window = the whole competition-season's
+  finished matches, v22 Elo may carry these results, current
+  injuries/lineups.) Receipts: 29 pytest (report-only leaves EVERY
+  table's count unchanged; twin proves the default path still writes;
+  report mode prices a scheduled match identically to production;
+  mutant that persists in report mode fails both guards). tools/
+  betting_desk.html + predictions_card.html DELETED (superseded,
+  known-XSS copies); tools/cockpit.html is the only live surface. FLOW:
+  Anthony runs `python cli.py cup-exam` on the real DB -> pastes to the
+  architect -> verdict -> merge. Unlock wiring (EFL/CL/UEL predict +
+  export) = a SECOND PR, existing only after a PASS.
+
+- **ARCHITECT DISPOSITION — stale-entry audit 2026-09-25 (architect,
+  verbatim; logged by the executor per the arrangement):** "ARCHITECT
+  DISPOSITION of the executor's stale-entry audit (2026-09-25): the
+  backlog is an append-only ledger — old entries are records, not
+  tickets, and stay untouched. Confirmed resolved-in-place: WC scoping,
+  CLV review, Kalshi aliases, kalshi-disagreement, M11, S10/S15/S17,
+  sentinel gap, temperature-scaling listing, weekly-backup (superseded
+  by daily law), league-coverage closure, competition-context framing
+  (date lapsed), holdout expansion (moot post-backtest), S13 duplicate
+  (second entry is the record). ID collision: the L142 'U2' is retired;
+  U2 = export enrichment henceforth. Two genuinely open items adopted
+  into the queue tail: NFL-export Kalshi field (folds into U2) and the
+  totals-model Step-1 verdict (owed a written verdict at the next MLB
+  deep-dive)."
+
 - **SECURITY WARM-UP PR 2026-09-25 (Claude Code's first PR; rulings 1+2):**
   scan receipts — pip-audit 0 known CVEs; history (50 commits) clean of
   keys/.env/DBs; bandit 8 LOW only (3 false positives, 5 swallowed

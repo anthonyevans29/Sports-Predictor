@@ -390,15 +390,24 @@ def _generate_predictions_soccer(
     season: str,
     model_version: str | None = None,
     only_match_id: int | None = None,
-) -> int:
+    include_finished: bool = False,
+) -> int | list[dict]:
     """Soccer prediction pipeline (Elo + Poisson).
 
     If only_match_id is set, predicts just that match instead of all
     scheduled matches in the competition+season. Used for per-match
     refresh button.
+
+    include_finished=True is the cup acceptance exam's REPORT-ONLY mode
+    (spec frozen 2026-09-25): FINISHED matches are priced alongside
+    SCHEDULED ones, and the computed rows are RETURNED as dicts — nothing
+    is persisted (no Prediction deletes/inserts, session rolled back), so
+    the graded ledger never sees a prediction for a played game. The
+    default path is unchanged and still returns the count written.
     """
     sport = Sport.SOCCER
     written = 0
+    report_rows: list[dict] = []
     with session_scope() as s:
         mv = _resolve_model_version(s, model_version, sport)
         params = mv.parameters or {}
@@ -490,13 +499,16 @@ def _generate_predictions_soccer(
         ]
         strengths = estimate_strengths(strength_input, context)
 
-        # Upcoming matches to predict
+        # Upcoming matches to predict (report-only mode widens to FINISHED)
+        priced_statuses = [MatchStatus.SCHEDULED]
+        if include_finished:
+            priced_statuses.append(MatchStatus.FINISHED)
         upcoming_q = (
             select(Match)
             .where(
                 Match.competition_id == comp.id,
                 Match.season == season,
-                Match.status == MatchStatus.SCHEDULED,
+                Match.status.in_(priced_statuses),
             )
             .order_by(Match.utc_date.asc())
         )
@@ -768,6 +780,23 @@ def _generate_predictions_soccer(
             else:
                 p_adv_home = p_adv_away = None
 
+            if include_finished:
+                # REPORT-ONLY: return the priced row; never touch Prediction.
+                report_rows.append({
+                    "match_id": m.id,
+                    "model_version": mv.version,
+                    "p_home": pred.p_home,
+                    "p_draw": pred.p_draw,
+                    "p_away": pred.p_away,
+                    "home_elo": round(home_elo, 1),
+                    "away_elo": round(away_elo, 1),
+                    "home_league": team_to_league.get(m.home_team_id),
+                    "away_league": team_to_league.get(m.away_team_id),
+                    "home_league_bonus": round(league_bonus(team_to_league.get(m.home_team_id)), 1) if is_cup_competition else None,
+                    "away_league_bonus": round(league_bonus(team_to_league.get(m.away_team_id)), 1) if is_cup_competition else None,
+                })
+                continue
+
             # Upsert: delete prior predictions for this (match, version) then insert
             existing = s.execute(
                 select(Prediction).where(
@@ -846,6 +875,13 @@ def _generate_predictions_soccer(
                 "matches in the strengths window): %s. These games have NO "
                 "prediction rows until the club has played (or a promoted-team "
                 "prior is added).", detail)
+        if include_finished:
+            # Belt and braces: whatever the pricing path touched in this
+            # session, the commit at session_scope exit writes nothing.
+            s.rollback()
+            log.info("Priced %d fixtures (report-only, nothing written) for %s %s using model %s",
+                     len(report_rows), competition_code, season, mv.version)
+            return report_rows
         log.info("Wrote %d predictions for %s %s using model %s",
                  written, competition_code, season, mv.version)
     return written

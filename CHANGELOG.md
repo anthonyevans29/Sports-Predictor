@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (cup acceptance exam — gate-class)
+- `_generate_predictions_soccer(include_finished=True)`: report-only
+  pricing of finished fixtures; returns rows, writes nothing.
+- `python cli.py cup-exam`: scores production pricing against
+  exports/cup_answer_key.csv on the frozen bar (±8pp MAE, <=13 over
+  8pp, EFL round-2 sign check); necessary-not-sufficient semantics.
+- Removed superseded tools/betting_desk.html and
+  tools/predictions_card.html (cockpit.html is the live surface).
+- BACKLOG: architect's stale-entry disposition logged verbatim.
+
 ## 2026-09-25 (security warm-up — first Claude Code PR)
 - Web UI: cross-site (CSRF) check on all state-changing requests;
   Host allowlist against DNS rebinding; Tailwind pre-built and

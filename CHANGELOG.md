@@ -11,6 +11,8 @@ Every drop adds an entry going forward.
 - Ruling B: unrated / no-domestic-league cup fixtures are market-only
   (never priced); the exam reports them separately, outside INVALID.
 - elo_goal_coeff unchanged (0.0008). League pricing untouched.
+- Coverage floor: fewer than 45 scored fixtures = exam INVALID
+  (architect amendment).
 
 ## 2026-09-25 (cup pricing hypothesis check)
 - `cup-exam --detail` adds strength-fit receipts: per-side fit n,

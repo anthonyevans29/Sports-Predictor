@@ -4010,7 +4010,7 @@ def cup_exam_cmd(key_path, detail):
     FINISHED fixtures with production soccer pricing in REPORT-ONLY mode
     (nothing written) and score vs the books' fair: mean |Δ_HOME| <= 8.0pp,
     <= 13 fixtures over 8pp, EFL round-2 favorite agreement >= 80%."""
-    from src.walters.cup_exam import (MAX_MISSING, detail_splits, load_key,
+    from src.walters.cup_exam import (MAX_MISSING, MIN_SCORED, detail_splits, load_key,
                                       score_exam, tier_of)
     from src.walters.training import _generate_predictions_soccer
 
@@ -4055,9 +4055,9 @@ def cup_exam_cmd(key_path, detail):
 
     fmt = lambda v: "—" if v is None else f"{v:.2f}pp"
     print("\nSUMMARY")
-    print(f"  n scored                {res.n_scored}  (missing {len(res.missing)}; "
-          f"> {MAX_MISSING} = INVALID; market-only by ruling B {len(res.market_only)}, "
-          f"excluded, not drift)")
+    print(f"  n scored                {res.n_scored}  (floor {MIN_SCORED}: fewer = INVALID; "
+          f"missing {len(res.missing)}, > {MAX_MISSING} = INVALID; market-only by ruling B "
+          f"{len(res.market_only)}, excluded, not drift)")
     print(f"  mean |Δ_HOME|           {fmt(res.mae_home_pp)}  (bar <= 8.00pp) "
           f"{'ok' if res.mae_pass else 'MISS'}")
     print(f"  mean |Δ| all-outcomes   {fmt(res.mae_all_pp)}")

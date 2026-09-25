@@ -22,6 +22,26 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **CUP FIX — ARCHITECT RULINGS on the seven executor calls
+  (2026-09-25):** (1) RATIFIED — the fix applies to live cup pricing;
+  the exam must test what ships; cups stay locked regardless, unlock is
+  a separate post-PASS PR. (2) RATIFIED WITH ONE AMENDMENT — market-only
+  rows are excluded from scoring and from the INVALID count (policy,
+  not missing data), BUT a COVERAGE FLOOR: scored n below 45 of 55 =
+  exam INVALID (insufficient coverage); the five known out-of-pot rows
+  leave n = 50, and the floor guards the exam's meaning if ruling B
+  ever eats more. BUILT: MIN_SCORED = 45 (inclusive — 45 is valid);
+  precedence drift-INVALID > coverage-INVALID > inversion > bar.
+  (3) RATIFIED — no Elo OR no synced league both trigger ruling B.
+  (4) RATIFIED — a synced-league team with no games yet prices at
+  neutral strength with its real Elo; honest, not excludable.
+  (5) RATIFIED — no last-season fallback; the removed same-cup
+  prior-season fallback was part of the noise; early-season thinness
+  is honest thinness. (6) RATIFIED — own-league-relative strengths;
+  cross-league separation belongs to Elo + bonus. (7) ACKNOWLEDGED —
+  residual Elo/injury look-ahead stays out of scope; already priced
+  into the exam's necessary-not-sufficient semantics.
+
 - **CUP FIX BUILT 2026-09-25 (gate-class; architect CUP FIX SPEC after
   the --detail receipts closed the diagnosis — 34/83 teams n=1, 29 n=2,
   55/55 self-fit, mirrored n=1 pairs = noise symmetry).** SPEC (as ruled):

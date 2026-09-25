@@ -152,7 +152,7 @@ def _world(n=10, delta=0.0, stages=("1st Round", "2nd Round")):
 
 
 def test_pass_when_close_to_market():
-    r = cup_exam.score_exam(*_world(delta=0.02))
+    r = cup_exam.score_exam(*_world(delta=0.02), min_scored=0)
     assert r.verdict == "PASS" and r.mae_home_pp == pytest.approx(2.0)
     assert r.sign_selector == "stage" and r.sign_share == 1.0
 
@@ -175,7 +175,7 @@ def test_systematic_inversion_fails_regardless_of_mae():
     # market favors home slightly; model favors away slightly: small MAE, flipped sign
     key = [_key(i, fh=0.40, fd=0.25, fa=0.35) for i in range(10)]
     priced = {i: _priced(0.36, 0.25, 0.39) for i in range(10)}
-    r = cup_exam.score_exam(key, priced, set(range(10)))
+    r = cup_exam.score_exam(key, priced, set(range(10)), min_scored=0)
     assert r.mae_pass and r.inversion
     assert r.verdict.startswith("FAIL — systematic sign inversion")
     assert all("SIGN" in row["flag"] for row in r.rows)
@@ -184,7 +184,7 @@ def test_systematic_inversion_fails_regardless_of_mae():
 def test_sign_check_between_50_and_80_fails():
     key = [_key(i, fh=0.40, fd=0.25, fa=0.35) for i in range(10)]
     priced = {i: (_priced(0.42, 0.25, 0.33) if i < 7 else _priced(0.36, 0.25, 0.39)) for i in range(10)}
-    r = cup_exam.score_exam(key, priced, set(range(10)))
+    r = cup_exam.score_exam(key, priced, set(range(10)), min_scored=0)
     assert r.sign_share == pytest.approx(0.7) and not r.inversion and not r.sign_pass
     assert r.verdict == "FAIL — sign check"
 
@@ -434,3 +434,34 @@ def test_market_only_rows_are_reported_not_scored_not_invalid():
     r = cup_exam.score_exam(key, priced, set(range(6)))
     assert r.n_scored == 2 and not r.invalid and not r.missing
     assert len(r.market_only) == 4 and r.market_only[0]["why"].startswith("MARKET-ONLY (ruling B)")
+
+
+# --- coverage floor (architect amendment 2026-09-25) --------------------------
+
+def _n_world(n_scored, n_market_only):
+    key = [_key(i) for i in range(n_scored + n_market_only)]
+    priced = {i: _priced(0.52) for i in range(n_scored)}
+    for i in range(n_scored, n_scored + n_market_only):
+        priced[i] = {"market_only": "away team unrated (no trained Elo)"}
+    return key, priced, set(range(len(key)))
+
+
+def test_coverage_floor_45_is_inclusive():
+    assert cup_exam.MIN_SCORED == 45
+    r = cup_exam.score_exam(*_n_world(45, 10))           # 45 of 55 scored: exam valid
+    assert not r.under_coverage and r.verdict == "PASS"
+    r = cup_exam.score_exam(*_n_world(44, 11))           # ruling B ate one too many
+    assert r.under_coverage and not r.invalid
+    assert r.verdict.startswith("INVALID — insufficient coverage: 44 fixtures scored (< 45)")
+
+
+def test_known_five_out_of_pot_rows_leave_the_exam_valid():
+    r = cup_exam.score_exam(*_n_world(50, 5))
+    assert r.n_scored == 50 and len(r.market_only) == 5 and not r.under_coverage
+
+
+def test_drift_invalid_takes_precedence_over_coverage():
+    key, priced, known = _n_world(40, 0)
+    r = cup_exam.score_exam(key, priced, known - {0, 1, 2})   # 3 unmatched AND < 45
+    assert r.invalid and r.under_coverage
+    assert r.verdict.startswith("INVALID — 3 key rows unmatched/unpriced")

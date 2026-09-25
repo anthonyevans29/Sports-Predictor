@@ -22,6 +22,26 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **SECURITY WARM-UP PR 2026-09-25 (Claude Code's first PR; rulings 1+2):**
+  scan receipts — pip-audit 0 known CVEs; history (50 commits) clean of
+  keys/.env/DBs; bandit 8 LOW only (3 false positives, 5 swallowed
+  exceptions — left). Four web-layer fixes, none on a prediction path:
+  (1) CSRF — require_localhost never stopped a hostile page in the
+  operator's own browser (its requests come FROM 127.0.0.1); every
+  unsafe method now needs Origin/Referer naming our host — covers
+  /admin/jobs/*, /pin-team, AND /matches/{id}/refresh (the unguarded
+  re-predict route, found during this read). (2) DNS rebinding —
+  TrustedHostMiddleware, loopback names + non-wildcard WEB_HOST.
+  (3) Zero third-party scripts — Tailwind Play CDN replaced by a
+  pre-built stylesheet (v3.4.17 CLI, config in src/web/), htmx 1.9.10
+  + Chart.js 4.4.0 vendored from npm (tarball integrity verified by
+  npm). (4) Cockpit XSS — repo copy escapes file/model text into
+  innerHTML (proven live on the old copy: tier payload executed, 4
+  injected nodes; new copy: 0). The LIVE cockpit is chat-published ->
+  republish is the architect's call. WORKFLOW AMENDED in CLAUDE.md:
+  Claude Code = branch+PR for everything, Anthony merges. tests/ born
+  (17 pytest, throwaway SQLite, data/ untouched) + CI runs them.
+
 - **WORKING ARRANGEMENT v2 2026-09-25 (user): Claude Code joins as the
   EXECUTOR.** Division: this chat = architect + institutional memory
   (doctrine, gate verdicts, receipt reads, backlog stewardship, the

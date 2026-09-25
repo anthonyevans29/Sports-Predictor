@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (security warm-up — first Claude Code PR)
+- Web UI: cross-site (CSRF) check on all state-changing requests;
+  Host allowlist against DNS rebinding; Tailwind pre-built and
+  htmx/Chart.js vendored — the UI loads no third-party scripts.
+- tools/cockpit.html: escapes file- and model-supplied text (XSS).
+- tests/ + pytest in CI; CLAUDE.md workflow: Claude Code works
+  branch + PR only, Anthony merges.
+
 ## 2026-09-25 (working arrangement v2)
 - CLAUDE.md shipped: Claude Code onboarded as repo executor; chat
   remains architect. Tarball era closes.

@@ -14,12 +14,14 @@ from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.exceptions import HTTPException
-from fastapi.responses import HTMLResponse, Response
+from fastapi.responses import HTMLResponse, PlainTextResponse, Response
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
+from starlette.middleware.trustedhost import TrustedHostMiddleware
 
 from config import settings
 from src.web import preferences
+from src.web.guards import allowed_hosts, is_cross_site
 from src.web.routes import admin, card, competitions, home, matches, players, predictions, teams
 
 log = logging.getLogger(__name__)
@@ -104,6 +106,23 @@ def create_app() -> FastAPI:
     async def attach_templates(request: Request, call_next):
         request.state.templates = templates
         return await call_next(request)
+
+    # Reject state-changing requests sent by other sites' pages (CSRF). See
+    # guards.is_cross_site for why require_localhost alone doesn't cover this.
+    @app.middleware("http")
+    async def reject_cross_site(request: Request, call_next):
+        if is_cross_site(
+            request.method,
+            request.headers.get("host"),
+            request.headers.get("origin"),
+            request.headers.get("referer"),
+        ):
+            return PlainTextResponse("Cross-site request rejected.", status_code=403)
+        return await call_next(request)
+
+    # Only answer to our own host names — blocks DNS-rebinding pages from
+    # reading the UI. Added last so it runs first.
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=allowed_hosts(settings.host))
 
     # Route modules
     app.include_router(home.router)

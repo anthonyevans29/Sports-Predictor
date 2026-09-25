@@ -269,11 +269,11 @@ function policy(){
     }
     if(call==="PASS")passes++; else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
-    tr.innerHTML=`<td>${r.game}</td><td title="${r.pick}">${sideName(r,r.pick)}</td>
+    tr.innerHTML=`<td>${esc(r.game)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
       <td>${r.prob.toFixed(3)}</td><td>${r.mkt!=null?r.mkt.toFixed(3):"—"}</td>
       <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}</td>
       <td class="${cls}">${call}</td><td>${units||"—"}</td>
-      <td class="reason">${reasons.join(" · ")}</td>`;
+      <td class="reason">${esc(reasons.join(" · "))}</td>`;
     tb.appendChild(tr);
   }
   $("slate").hidden=false;
@@ -323,7 +323,7 @@ function buildParlays(){
   if(!ranked.length){card.hidden=true;return;}
   card.hidden=false;
   out.innerHTML=ranked.map((t,i)=>{
-    const legs=t.legs.map(l=>`${l.sport}: ${l.game} — ${l.pick} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`).join("<br>");
+    const legs=t.legs.map(l=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`).join("<br>");
     return `<div style="margin-bottom:10px"><b>Ticket ${i+1}</b> · ${t.legs.length} legs · ${t.sports} sport(s) · 0.25u<br>${legs}<br>`
       +`<span class="note">Π model ${t.pm.toFixed(3)} vs Π market ${t.pk.toFixed(3)} → combined edge ${(t.edge*100).toFixed(1)}pp · cross-game correlation screened (no shared teams)</span></div>`;
   }).join("");
@@ -383,6 +383,9 @@ $("gptFile").addEventListener("change",e=>{
 });
 
 function sideName(r,k){return k==="HOME"?r.home:k==="AWAY"?r.away:"Draw";}
+// Escape file- and model-supplied text before it goes into innerHTML: team
+// names, statuses and Claude reads are data, never markup.
+function esc(v){return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"})[c]);}
 function renderCard(){
   const el=$("cardView"); el.innerHTML="";
   const bySport={};
@@ -390,23 +393,23 @@ function renderCard(){
   for(const [sport,rs] of Object.entries(bySport)){
     const live=rs.some(r=>r.live);
     el.insertAdjacentHTML("beforeend",
-      `<h2 style="margin:16px 0 6px">${sport} <span class="chip">${live?"LIVE":"internal"} · ${rs.length} games</span></h2>`);
+      `<h2 style="margin:16px 0 6px">${esc(sport)} <span class="chip">${live?"LIVE":"internal"} · ${rs.length} games</span></h2>`);
     for(const r of rs.slice().sort((a,b)=>a.utc.localeCompare(b.utc))){
       const keys=r.mktHasDraw||r.probsAll.DRAW!=null?["HOME","DRAW","AWAY"]:["HOME","AWAY"];
       const bars=keys.map(k=>{
         const mp=(r.marketOnly?(r.fairAll[k]??0):(r.probsAll[k]??0)), f=r.marketOnly?null:r.fairAll[k];
         const edge=f!=null?((mp-f)*100):null;
         const nm=sideName(r,k), nmS=nm.length>14?nm.slice(0,12)+"…":nm;
-        return `<div class="barrow" title="${nm}"><div>${nmS}${r.pick&&k===r.pick?" ◂":""}</div>
+        return `<div class="barrow" title="${esc(nm)}"><div>${esc(nmS)}${r.pick&&k===r.pick?" ◂":""}</div>
           <div class="bar"><i style="width:${Math.min(100,mp*100)}%"></i></div>
           <div style="text-align:right;color:var(--muted)">${(mp*100).toFixed(1)}%${f!=null?` · mkt ${(f*100).toFixed(1)}% <b>${edge>=0?"+":""}${edge.toFixed(1)}</b>`:""}</div></div>`;
       }).join("");
       const chips=[];
       if(r.marketOnly)chips.push(`<span class="gchip">market-only · books' fair</span>`);
-      if(r.tier)chips.push(`<span class="gchip ${r.tier==="strong"?"s":""}">${r.tier}</span>`);
-      if(r.quar)chips.push(`<span class="gchip q">QUARANTINE ${r.div>=0?"+":""}${r.div}pp</span>`);
+      if(r.tier)chips.push(`<span class="gchip ${r.tier==="strong"?"s":""}">${esc(r.tier)}</span>`);
+      if(r.quar)chips.push(`<span class="gchip q">QUARANTINE ${r.div>=0?"+":""}${esc(r.div)}pp</span>`);
       if(r.over!=null&&r.over>=0.5&&r.over<0.6)chips.push(`<span class="gchip">totals 50–60</span>`);
-      if(r.qbs.length)chips.push(`<span class="gchip">QB: ${r.qbs.join(", ")}</span>`);
+      if(r.qbs.length)chips.push(`<span class="gchip">QB: ${esc(r.qbs.join(", "))}</span>`);
       const why=[];
       if(r.marketOnly){ why.push(`gated competition — no predictions by doctrine; bars show the books' consensus fair (${r.books||0} books)`); }
       else why.push(`pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference"));
@@ -416,13 +419,13 @@ function renderCard(){
       el.insertAdjacentHTML("beforeend",
         `<div class="game${r.quar?" quar":""}">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
-            <div><div class="match">${r.game}</div><div class="gchips">${chips.join("")}</div></div>
-            <div class="note">${r.when} UTC · ${r.books||0} books</div></div>
+            <div><div class="match">${esc(r.game)}</div><div class="gchips">${chips.join("")}</div></div>
+            <div class="note">${esc(r.when)} UTC · ${esc(r.books||0)} books</div></div>
           ${bars}
           <details class="sig"><summary>signals & reasoning</summary>
-            ${gameReads[String(rows.indexOf(r))]?`<div style="color:var(--ink)"><b>Claude read:</b> ${gameReads[String(rows.indexOf(r))]}</div>`:""}
-            <div>${why.join(" · ")}</div>
-            <pre>${JSON.stringify(r.rawIQ,null,1).slice(0,1500)}</pre>
+            ${gameReads[String(rows.indexOf(r))]?`<div style="color:var(--ink)"><b>Claude read:</b> ${esc(gameReads[String(rows.indexOf(r))])}</div>`:""}
+            <div>${esc(why.join(" · "))}</div>
+            <pre>${esc(JSON.stringify(r.rawIQ,null,1).slice(0,1500))}</pre>
           </details></div>`);
     }
   }

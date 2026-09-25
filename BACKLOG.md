@@ -22,6 +22,17 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NCAA CERTIFIED FIRST-AUDIT 2026-09-25: 9,245 games / 743 programs /
+  3 seasons.** Null-score check TRUE ZERO immediately (nested score
+  dicts — no falsy trap in this family); 50 skips IDENTICAL on retry =
+  M12-class phantom listings (3% tail, logged, left); 132+6 SCHEDULED
+  ghosts in completed seasons = the None-status class staying out by
+  conservative design (correct, no fix). 2026 CURRENT: 533 finished =
+  weeks 0-4, Saturday's slate trackable. Scale note: modern coverage
+  sweeps ~743 programs / ~3,800 games/season — the biggest family in
+  the DB. The NHL's three-audit education compressed into ONE clean
+  pass here: the laws transfer.
+
 - **NCAA WIRED 2026-09-25 (on Phase 0 receipts):** adapter gains a
   code->league map (NFL=1, NCAA=2 receipted), list_competitions returns
   both, per-call league resolution, normalized rows carry their own

@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (working arrangement v2)
+- CLAUDE.md shipped: Claude Code onboarded as repo executor; chat
+  remains architect. Tarball era closes.
+
 ## 2026-09-25 (NCAA)
 - NCAA wired into the american-football adapter (league map, both
   competitions listed, per-code resolution); cli routes NCAA; data +

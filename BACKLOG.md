@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **WORKING ARRANGEMENT v2 2026-09-25 (user): Claude Code joins as the
+  EXECUTOR.** Division: this chat = architect + institutional memory
+  (doctrine, gate verdicts, receipt reads, backlog stewardship, the
+  Cockpit artifact, prescriptive specs); Claude Code = sole
+  implementer on the repo (direct filesystem access retires the
+  tarball round-trip and its entire failure class — the incident's
+  vector is gone). CLAUDE.md shipped at repo root = the constitution
+  Claude Code boots with: six laws, workflow (PR doctrine + CI),
+  production state per sport, the committed queue WITH SPECS (cup exam
+  first, exact bar), operational notes. Chat-side container copy goes
+  read-only-for-analysis (pull-first if ever touched); tarballs retire
+  except artifact updates. THIS is the last tarball of the old era.
+
 - **NCAA MARKET DISCOVERY 2026-09-25 (pre-4PM receipts):** an
   INVERSION — Kalshi is the PRIMARY college market source: KXNCAAFGAME
   real first-guess (fourth family on the shared matcher), 480 markets,

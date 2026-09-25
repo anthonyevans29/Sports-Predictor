@@ -1,0 +1,96 @@
+# CLAUDE.md — read this before touching anything
+
+You are working on **sports_predictor**: a multi-sport prediction and
+calibration system (Python/SQLite/SQLAlchemy, CLI-driven) feeding a
+browser Cockpit (tools/cockpit.html, published separately as a Claude
+artifact — do not treat the repo copy as the live one). The operator is
+Anthony; architectural decisions, gate verdicts, and enhancement specs
+come from his Claude chat ("the architect"). Your job is disciplined
+execution of those specs. When a spec and this file conflict, stop and
+ask.
+
+## The six laws (from CONTRIBUTING.md — they are incident-earned, not style)
+1. **Read before edit.** A regex/memory match is a hypothesis. Anchors,
+   column names, provider vocabularies: enumerate from the actual
+   file/schema/API response first. (Four guessed-name incidents last
+   week alone, one on launch morning.)
+2. **Receipts over claims.** Print counts, paste consoles, verify
+   listings. "Fast" or "fixed" without a receipt triggers an audit.
+3. **Gates decide.** Model changes promote ONLY through frozen,
+   pre-committed acceptance criteria written before results exist.
+   Never loosen a threshold after a good week. Ties are rejections.
+4. **Conservative unknowns.** Unmapped statuses stay SCHEDULED; missing
+   data stays null and labeled. Never fake completeness.
+5. **The database never travels and is never touched casually.**
+   `data/` is gitignored and stays that way. Backups are `.backup`-API
+   only: daily, plus mandatory before any `soccer-refresh`. NEVER
+   create, copy, or commit any file under data/. NEVER run destructive
+   SQL. The DB was destroyed once by a packaged empty file; the laws
+   here are its gravestone.
+6. **Track by artifact.** Every finding/change lands in BACKLOG.md
+   (decision record, newest first) and CHANGELOG.md. No silent changes.
+
+## Workflow
+- Daily/operational changes: direct commits to `main`, descriptive
+  messages carrying receipts. CI (parse + import smoke) must pass.
+- **Gate-class changes** (model logic, training, acceptance criteria,
+  export contracts): branch + PR with the template; backtest/gate
+  output pasted in the PR body BEFORE merge.
+- Never push a change that alters prediction outputs without running
+  the relevant backtest/gate and including its verdict.
+
+## Current production state (2026-09-25)
+- **MLB**: model v2 live; ~57% sides over 400+ graded; candidate
+  `improve` rejections are routine and CORRECT (bar: 0.0050 log-loss).
+- **Soccer**: soccer_elo_poisson **v22** on the 16,546-match / 24-comp
+  pot; PL predictions live; positive-edge cohort (>=+5pp vs market) is
+  6/16 — big anti-market edges are ANTI-PREDICTIVE; n=30 pre-committed
+  read pending. Market-first discipline is doctrine.
+- **NFL**: nfl_elo_v1 **LIVE since Week 3** (2026-09-22). Export
+  carries market_divergence_pp + quarantine (|div|>=15pp) — contract
+  fields; consumer treats quarantined rows as never-straight-plays
+  (mega-edges went 1-5 in weeks 1-2).
+- **NHL**: data certified (4,410 games, FT/AOT/AP mapped, true-zero
+  nulls); Kalshi KXNHLGAME live. NO MODEL YET — Phase 2 = frozen gate
+  FIRST, then Elo v1 (MOV + per-team regression; OT/SO, back-to-back
+  rest, goalie injuries are R-track hypotheses, not v1 features).
+- **NCAA**: data certified (9,245 games, 743 programs); market-only
+  doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,
+  books post thin and near-kickoff. NO model; own gate later.
+- **UNL / cups (EFL, CL, UEL)**: market-only. Cups unlock via the
+  acceptance exam (below). UNL likely market-only permanently.
+- Season strings: soccer clubs "2026/27"; WC "2026"; UNL "2026/27";
+  MLB/NFL/NHL/NCAA int-style "2026". Per-comp truth is what the DB
+  stores — check, don't assume.
+
+## Committed queue (execute in order; specs from the architect)
+1. **Cup acceptance exam** (gate-class -> branch+PR): add an
+   `include_finished` REPORT-ONLY mode to the soccer prediction path
+   (NEVER write Prediction rows for played games), then score v22
+   against `exports/cup_answer_key.csv` (regenerable via
+   scripts/extract_cup_key.py; 55 fixtures: EFL 36, CL 19). Frozen
+   bar: ±8pp mean absolute vs the books' fair, plus sign-sanity on the
+   round-2 EFL rows (the league-bonus defect probes). PASS unlocks
+   EFL/CL/UEL predictions.
+2. **NHL Phase 2** (gate-class): clone the NFL backtest harness shape
+   for hockey (train 2024, test 2025; preseason EXCLUDED by status/
+   date); freeze acceptance BEFORE building Elo v1; then the NFL
+   sequence (internal week, rehearsal+dry read, live decision).
+3. **Cockpit v0.4** (artifact-side — coordinate with the architect;
+   the live artifact is chat-published): results intake +
+   call-persistence + self-grading by rule; two feedback streams.
+4. NCAA model (own gate, no deadline), U2 export enrichment
+   (model-internals "why" fields + NFL kalshi field), S14 Stage-2,
+   snapshot pruning design.
+
+## Operational notes
+- Morning chains open with the backup line. 2-day sync windows daily;
+  full-season weekly. The O(n^2) match-sync was fixed via a per-sync
+  prefetch cache — do not regress it.
+- sync-competitions must run before a new sport's first team/match
+  sync (the NHL bootstrap lesson).
+- Kalshi: shared parameterized matcher, four series
+  (KXMLBGAME/KXNFLGAME/KXNHLGAME/KXNCAAFGAME); ambiguous matches are
+  REFUSED by design (sentinel). Do not "fix" refusals into guesses.
+- BACKLOG.md newest-first is the project's memory. Read the top 30
+  entries before starting anything.

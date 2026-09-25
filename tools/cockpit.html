@@ -81,7 +81,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 </style>
 </head>
 <body>
-<h1>Cockpit <span class="chip">card + desk · policy v0.3 DRAFT</span></h1>
+<h1>Cockpit <span class="chip">card + desk · policy v1.0</span></h1>
 <div class="row" style="margin-bottom:10px">
   <button id="tabCard" class="ghost">Card</button>
   <button id="tabDesk">Desk</button>
@@ -97,17 +97,14 @@ details.sig pre{max-height:220px;margin:6px 0 0}
   </div>
 </div>
 
-<div class="card">
-  <h2 style="margin-top:0">Policy knobs <span class="note">(persisted locally)</span></h2>
-  <div class="row">
-    <div class="knob"><label>Min edge (pp)</label><input id="kEdge" type="number" step="0.5" value="4"></div>
-    <div class="knob"><label>Ladder edge (pp)</label><input id="kLadder" type="number" step="0.5" value="10"></div>
-    <div class="knob"><label>Haircut edge (pp)</label><input id="kHair" type="number" step="0.5" value="15"></div>
-    <div class="knob"><label>Min prob</label><input id="kProb" type="number" step="0.01" value="0.50"></div>
-    <div class="knob"><label>Base units</label><input id="kUnit" type="number" step="0.25" value="1"></div>
-    <button class="ghost" id="rerun">Re-run policy</button>
+<div class="card deskonly">
+  <h2 style="margin-top:0">Policy v1.0 <span class="note">per-sport · evidence-set 2026-09-25 · changes only via audit-backed version bump</span></h2>
+  <div class="note" style="margin-top:4px;line-height:1.7">
+    <b>SOCCER</b> — floor 4pp · pick-prob ≥ 0.50 · away/draw edges ≥ 10pp → double-chance ladder 0.5u · any edge ≥ 10pp half-units <span style="opacity:.75">(cohort 6/16: big edges anti-predictive, die by draw)</span><br>
+    <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
+    <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
+    <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams.
   </div>
-  <div class="note" style="margin-top:6px">Rules: two-sided market required · edge = model − market fair on the pick · away/draw picks over the ladder threshold route to double-chance · edges past the haircut threshold act at half units with the market-is-right caution (cohort: big edges die by draw) · totals untouched (M16 caution stands).</div>
 </div>
 
 <div class="card" id="askCard" hidden>
@@ -151,12 +148,14 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 let rows=[], sportLabel="", sampleNS=null;
 
 const $=id=>document.getElementById(id);
-const knobs=["kEdge","kLadder","kHair","kProb","kUnit"];
-function loadKnobs(){try{const s=JSON.parse(localStorage.getItem("bd_knobs")||"{}");
-  knobs.forEach(k=>{if(s[k]!=null)$(k).value=s[k];});}catch(e){}}
-function saveKnobs(){try{const s={};knobs.forEach(k=>s[k]=$(k).value);
-  localStorage.setItem("bd_knobs",JSON.stringify(s));}catch(e){}}
-loadKnobs();
+const POLICY={
+  SOCCER:{eMin:4,eLad:10,eHair:10,pMin:0.50,qNever:false},
+  NFL:{eMin:4,eLad:Infinity,eHair:15,pMin:0,qNever:true},
+  MLB:{eMin:4,eLad:Infinity,eHair:15,pMin:0,qNever:false},
+  NHL:{passAll:true},
+  DEFAULT:{eMin:4,eLad:Infinity,eHair:15,pMin:0,qNever:false},
+};
+const BASE_UNITS=1;
 
 function normalize(doc){
   const out=[]; const preds=doc.predictions||[];
@@ -207,13 +206,12 @@ function normalize(doc){
 }
 
 function policy(){
-  const eMin=+$("kEdge").value, eLad=+$("kLadder").value,
-        eHair=+$("kHair").value, pMin=+$("kProb").value,
-        base=+$("kUnit").value;
-  saveKnobs();
+  const base=BASE_UNITS;
   let plays=0,ladders=0,passes=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
   for(const r of rows){
+    const P=POLICY[r.sport]||POLICY.DEFAULT;
+    const eMin=P.eMin??4, eLad=P.eLad??Infinity, eHair=P.eHair??15, pMin=P.pMin??0;
     const edge=r.mkt!=null?(r.prob-r.mkt)*100:null;
     const reasons=[]; let call="PASS",cls="pass",units=0;
     if(!r.twoSided||r.mkt==null){reasons.push("market not two-sided → no reference");}
@@ -222,6 +220,13 @@ function policy(){
     else{
       units=base; call="PLAY"; cls="play";
       reasons.push(`edge ${edge.toFixed(1)}pp ≥ floor`);
+      if(P.passAll){ call="PASS"; cls="pass"; units=0;
+        reasons.length=0; reasons.push("pre-gate sport: no production model — market display only"); }
+      if(P.qNever&&r.quar){ call="PASS"; cls="pass"; units=0;
+        reasons.length=0; reasons.push(`QUARANTINE ${r.div}pp — contract: never a straight play`); }
+      if(call==="PLAY"&&r.sport==="NFL"&&r.qbs&&r.qbs.length){
+        units=Math.min(units,base/2);
+        reasons.push(`QB-flagged (${r.qbs.join(", ")}) → half units`); }
       const threeWay = r.mktHasDraw;   // v0.2: ladder is a 3-way instrument
       if(edge>=eLad){
         units=base/2;                  // v0.2: sizing monotone — big edge never out-sizes bigger edge
@@ -354,7 +359,6 @@ $("gptFile").addEventListener("change",e=>{
     $("gptOut").textContent=String(rd.result).slice(0,20000);};
   rd.readAsText(f);
 });
-$("rerun").addEventListener("click",()=>{if(rows.length)policy();});
 
 function sideName(r,k){return k==="HOME"?r.home:k==="AWAY"?r.away:"Draw";}
 function renderCard(){

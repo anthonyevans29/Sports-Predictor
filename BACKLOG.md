@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **POLICY v1.0 — KNOBS RETIRED 2026-09-25 (user ratified the rollout):**
+  the sliders are gone; per-sport evidence-set configs in their place,
+  each number provenance-annotated in the Cockpit's policy card:
+  SOCCER floor 4pp / prob>=0.50 / >=10pp -> DC ladder + half-units
+  (cohort 6/16, die-by-draw); NFL floor 4pp / quarantine>=15pp NEVER a
+  straight play (wk1-2 mega-edges 1-5) / QB-flagged games half-units;
+  MLB floor 4pp, road unrestricted (380-row watch-not-penalty), totals
+  untouched; NHL pass-all pre-gate. Base 1u; parlays 0.25u <=3 legs.
+  CHANGES ONLY via audit-backed version bump — the model-gate culture
+  now governs the consumer layer. v0.4's reinforcement organ remains
+  the committed next Cockpit session (its self-grading is what
+  proposes v1.1).
+
 - **COCKPIT FEEDBACK ROUND 1 FIXED 2026-09-25 (four user findings):**
   (1) bars + why-lines + Desk pick cells now name TEAMS, never
   HOME/AWAY; (2) game labels always "Away @ Home" (the length-based

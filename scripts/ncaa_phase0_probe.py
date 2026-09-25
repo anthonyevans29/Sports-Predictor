@@ -41,8 +41,9 @@ def main():
         print("✗ No API key found. Stop.")
         sys.exit(1)
 
-    print("Q1 — /leagues search NCAA …")
-    leagues = get("leagues", search="NCAA")
+    print("Q1 — /leagues (full list; this API has no search param) …")
+    leagues = [lg for lg in get("leagues")
+               if "NCAA" in (((lg.get("league") or lg).get("name")) or "")]
     if not leagues:
         print("  ✗ No NCAA league found — plan or product gap. Stop.")
         sys.exit(1)

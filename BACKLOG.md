@@ -22,6 +22,17 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NCAA MARKET DISCOVERY 2026-09-25 (pre-4PM receipts):** an
+  INVERSION — Kalshi is the PRIMARY college market source: KXNCAAFGAME
+  real first-guess (fourth family on the shared matcher), 480 markets,
+  166 matched legs (~83 games two-sided), 67 ambiguous = the collision
+  class at college scale, sentinel refusing honestly. Books: thin+LATE
+  for college — 8/105 roster games priced (tonight's pair at 7 books
+  incl. Temple-Army 4PM; Saturday marquees 1-2 books or unposted) ->
+  college books post near kickoff; morning re-export catches the fill.
+  Window receipt: 160 upcoming family games. Roster (105 rows) ships
+  via the Cockpit's market-only path, gaps honest.
+
 - **COCKPIT: MARKET-ONLY FILES RENDER 2026-09-25 (user finding — UNL
   invisible):** normalize() only read "predictions"; the gated family's
   exports carry "fixtures". Fixed: fixtures-shaped docs render on the

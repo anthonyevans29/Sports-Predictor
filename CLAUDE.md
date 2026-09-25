@@ -31,11 +31,18 @@ ask.
    (decision record, newest first) and CHANGELOG.md. No silent changes.
 
 ## Workflow
-- Daily/operational changes: direct commits to `main`, descriptive
-  messages carrying receipts. CI (parse + import smoke) must pass.
+- **Claude Code: ALL work flows through branch + PR, daily-class
+  included; Anthony merges.** (Ruling 2026-09-25, trust-building
+  phase: CI exercises everything, the architect gets a review surface.)
+  Never push to `main`. CI (parse + import smoke + pytest) must pass.
+- Anthony's own hand-edits keep the direct-to-`main` lane for
+  daily/operational changes, descriptive messages carrying receipts.
 - **Gate-class changes** (model logic, training, acceptance criteria,
   export contracts): branch + PR with the template; backtest/gate
   output pasted in the PR body BEFORE merge.
+- Tests live in `tests/` and run against a throwaway SQLite file
+  (tests/conftest.py sets DATABASE_URL before any import) — never
+  against data/.
 - Never push a change that alters prediction outputs without running
   the relevant backtest/gate and including its verdict.
 

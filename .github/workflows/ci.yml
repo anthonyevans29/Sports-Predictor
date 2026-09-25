@@ -8,7 +8,7 @@ jobs:
       - uses: actions/setup-python@v5
         with: {python-version: "3.12"}
       - name: Parse every source file
-        run: python -m compileall -q src cli.py config.py scripts
+        run: python -m compileall -q src cli.py config.py scripts tests
       - name: Install deps
         run: pip install -q -r requirements.txt
       - name: Import smoke (catches NameError-class defects)
@@ -24,3 +24,5 @@ jobs:
               importlib.import_module(mod)
           print("import smoke OK")
           PY
+      - name: Tests (throwaway SQLite; never touches data/)
+        run: python -m pytest -q tests

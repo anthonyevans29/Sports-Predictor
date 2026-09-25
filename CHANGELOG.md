@@ -10,8 +10,9 @@ Every drop adds an entry going forward.
   cup matches with the exam's seasons excluded; `cup-exam` tunes then
   prices (`--cup-coeffs base` reproduces the old exam). League pricing
   untouched; nothing persisted.
-- CLAUDE.md: market-is-a-reference doctrine; queue tail S18-S20, H2;
-  deep-research disposition logged.
+- CLAUDE.md: market-is-a-reference doctrine; queue tail S19-S20, H2,
+  data items (football 90'/ET flag, NHL OT/SO); S18 retired as
+  already-shipped; deep-research disposition logged.
 
 ## 2026-09-25 (NHL candidate v3 — gate-class)
 - nhl_elo_v2 FAIL ratified (2025 0.6921, upper bands overconfident).

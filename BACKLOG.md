@@ -22,6 +22,17 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ARCHITECT RULINGS on fix-v2's two findings (2026-09-25):**
+  (1) ET LABEL CONTAMINATION — ACCEPTED: queue the 90-minute-score /
+  extra-time-flag DATA ITEM (store API-Football score.fulltime and the
+  raw AET/PEN status going forward) — the football twin of the NHL
+  OT/SO status-storage gap (H-track data item). TUNE-TO-MARKET DECLINED
+  on doctrine (the market is a reference, never a model feature — it
+  is not a tuning target either); fix-v2 keeps the outcome target.
+  (2) S18 RETIRED as already-shipped (dixon_coles_rho = -0.10, applied
+  2026-08-14) — architect's miss. Dynamic-rho only ever enters with a
+  motivating receipt.
+
 - **DEEP-RESEARCH DISPOSITION (architect, 2026-09-25):** the literature
   review validated core doctrine — layered architecture, proper scoring
   rules + calibration bands, simple-models-survive, small-sample

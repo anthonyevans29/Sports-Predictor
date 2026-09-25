@@ -4122,6 +4122,36 @@ def _print_cup_exam_detail(res, splits, tier_of):
     teams = splits["default_elo_teams"]
     print(f"  teams at exactly-default Elo: {len(teams)}"
           + (f"  ({', '.join(teams)})" if teams else ""))
+
+    # Strength-fit receipts (architect hypothesis check 2026-09-25): where the
+    # Poisson attack/defense behind each row came from.
+    from src.walters.cup_exam import fit_summary
+
+    def st(r, side):
+        n = r.get(f"{side}_fit_n")
+        if n is None:
+            return "—"
+        src = "P" if r.get(f"{side}_strengths_source") == "promoted_default" else ""
+        return f"n={n}{src} a{r[f'{side}_attack']:.2f} d{r[f'{side}_defense']:.2f}"
+
+    hdr = (f"{'date':<10} {'home':<20} {'away':<20} {'delta_pp':>8}  "
+           f"{'home strengths':<22} {'away strengths':<22} self pool")
+    print("\nSTRENGTHS  (n = team's matches in the fit pool; a/d = attack/defense "
+          "after n/(n+5) shrinkage; P = promoted-default prior; self = fixture "
+          "is inside its own fit)")
+    print(hdr + "\n" + "-" * len(hdr))
+    for r in res.rows:
+        print(f"{r['date']:<10} {r['home'][:20]:<20} {r['away'][:20]:<20} "
+              f"{r['delta_pp']:>+8.1f}  {st(r, 'home'):<22} {st(r, 'away'):<22} "
+              f"{'Y' if r.get('self_in_fit') else 'n':<4} {r.get('fit_pool_n', '—')}"
+              f"{'b' if r.get('strengths_backfilled') else ''}")
+    fs = fit_summary(res)
+    print("\nSTRENGTH-FIT SUMMARY")
+    print(f"  pools (comp, n matches, backfilled): {fs['pools']}")
+    print(f"  per-team fit n over {fs['teams']} teams: {fs['team_fit_n_buckets']}")
+    print(f"  fixtures inside their own fit: {fs['self_in_fit']}/{len(res.rows)}")
+    print(f"  promoted-default sides: {fs['promoted_default_sides']} · "
+          f"elo_goal_coeff: {fs['elo_goal_coeff']}")
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")

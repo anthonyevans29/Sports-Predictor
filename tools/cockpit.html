@@ -67,7 +67,7 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;
   padding:10px 12px;margin-bottom:8px}
 .game.quar{border-color:var(--danger)}
 .match{font-weight:600}
-.barrow{display:grid;grid-template-columns:52px 1fr 128px;gap:8px;
+.barrow{display:grid;grid-template-columns:110px 1fr 128px;gap:8px;
   align-items:center;font-size:12.5px;margin-top:3px}
 .bar{height:9px;background:var(--chip);border-radius:5px;overflow:hidden}
 .bar i{display:block;height:100%;background:var(--accent)}
@@ -178,7 +178,8 @@ function normalize(doc){
     const kal=(p.input_quality||{}).kalshi||null;
     let pick="HOME",best=-1;
     for(const k of ["HOME","DRAW","AWAY"]) if(probs[k]!=null&&probs[k]>best){best=probs[k];pick=k;}
-    out.push({game:`${away} @ ${home}`.length>34?`${home} v ${away}`:`${away} @ ${home}`,
+    const _t=n=>n&&n.length>18?n.slice(0,16)+"…":n;
+    out.push({game:`${_t(away)} @ ${_t(home)}`,
       home,away,pick,prob:best,mkt:market[pick]??null,
       twoSided:market.HOME!=null&&market.AWAY!=null,
       mktHasDraw:market.DRAW!=null,kal,sport,
@@ -241,7 +242,7 @@ function policy(){
     }
     if(call==="PASS")passes++; else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
-    tr.innerHTML=`<td>${r.game}</td><td>${r.pick}</td>
+    tr.innerHTML=`<td>${r.game}</td><td title="${r.pick}">${sideName(r,r.pick)}</td>
       <td>${r.prob.toFixed(3)}</td><td>${r.mkt!=null?r.mkt.toFixed(3):"—"}</td>
       <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}</td>
       <td class="${cls}">${call}</td><td>${units||"—"}</td>
@@ -323,14 +324,15 @@ async function perGameAudit(){
   const lines=rows.map((r,i)=>`${i}|${r.sport}|${r.game}|pick ${r.pick} ${(r.prob*100).toFixed(1)}%${r.mkt!=null?` vs mkt ${(r.mkt*100).toFixed(1)}%`:""}${r.quar?" QUARANTINE":""}${r.qbs.length?" QB:"+r.qbs.join(","):""}`).join("\n");
   const p=`You are a disciplined betting-desk auditor. For EACH numbered game
 below, return ONE short verdict + recommendation (max 18 words each):
-lean/pass/watch, the key risk or signal. Respond ONLY as JSON:
+lean/pass/watch, the key risk or signal, referring to teams BY NAME
+(never HOME/AWAY). Respond ONLY as JSON:
 {"reads":{"0":"...","1":"..."}}\n\n${lines}`;
   try{
-    const res=await sampleNS.sample({prompt:p,maxTokens:1200});
-    const txt=(res&&(res.text||res.completion||res.content))||"";
+    let txt="";
+    await sampleNS(p,{onText:({text})=>{txt=text;},modelTier:"default"});
     const m=txt.match(/\{[\s\S]*\}/);
     if(m){ gameReads=(JSON.parse(m[0]).reads)||{}; renderCard(); }
-  }catch(e){ console.error("per-game audit",e); }
+  }catch(e){ console.error("per-game audit",(e&&e.message)||e); }
 }
 $("askBtn")&&$("askBtn").addEventListener("click",async()=>{
   if(!sampleNS||!rows.length){$("askOut").textContent="Load files first.";return;}
@@ -339,11 +341,11 @@ $("askBtn")&&$("askBtn").addEventListener("click",async()=>{
   const ctx=rows.map(r=>`${r.sport} ${r.game}: pick ${r.pick} ${(r.prob*100).toFixed(1)}%${r.mkt!=null?` vs ${(r.mkt*100).toFixed(1)}%`:""}${r.quar?" QUAR":""}`).join("\n");
   const parlayTxt=$("parlayCard").hidden?"(none)":$("parlayOut").innerText;
   try{
-    const res=await sampleNS.sample({prompt:`Disciplined betting desk (house doctrine: floors, half-unit big edges,
+    await sampleNS(`Disciplined betting desk (house doctrine: floors, half-unit big edges,
 quarantine>=15pp never a straight play, parlays 0.25u max 3 legs, no
-threshold creep). Today's slate:\n${ctx}\n\nCurrent parlays:\n${parlayTxt}\n\nUser request: ${q}\n\nAnswer concretely; if proposing tickets, give legs+units+combined edge; never invent games.`,maxTokens:900});
-    $("askOut").textContent=(res&&(res.text||res.completion||res.content))||"(no reply)";
-  }catch(e){ $("askOut").textContent="Ask failed: "+e; }
+threshold creep). Today's slate:\n${ctx}\n\nCurrent parlays:\n${parlayTxt}\n\nUser request: ${q}\n\nAnswer concretely; if proposing tickets, give legs+units+combined edge; never invent games. Refer to teams by name, never HOME/AWAY.`,
+      {onText:({text})=>{$("askOut").textContent=text;},modelTier:"default"});
+  }catch(e){ $("askOut").textContent="Ask failed: "+((e&&(e.message||e.code))||JSON.stringify(e)); }
 });
 $("gptFile").addEventListener("change",e=>{
   const f=e.target.files[0]; if(!f)return;
@@ -354,7 +356,7 @@ $("gptFile").addEventListener("change",e=>{
 });
 $("rerun").addEventListener("click",()=>{if(rows.length)policy();});
 
-const KEYL={HOME:"Home",DRAW:"Draw",AWAY:"Away"};
+function sideName(r,k){return k==="HOME"?r.home:k==="AWAY"?r.away:"Draw";}
 function renderCard(){
   const el=$("cardView"); el.innerHTML="";
   const bySport={};
@@ -368,7 +370,8 @@ function renderCard(){
       const bars=keys.map(k=>{
         const mp=r.probsAll[k]??0, f=r.fairAll[k];
         const edge=f!=null?((mp-f)*100):null;
-        return `<div class="barrow"><div>${KEYL[k]}${k===r.pick?" ◂":""}</div>
+        const nm=sideName(r,k), nmS=nm.length>14?nm.slice(0,12)+"…":nm;
+        return `<div class="barrow" title="${nm}"><div>${nmS}${k===r.pick?" ◂":""}</div>
           <div class="bar"><i style="width:${Math.min(100,mp*100)}%"></i></div>
           <div style="text-align:right;color:var(--muted)">${(mp*100).toFixed(1)}%${f!=null?` · mkt ${(f*100).toFixed(1)}% <b>${edge>=0?"+":""}${edge.toFixed(1)}</b>`:""}</div></div>`;
       }).join("");
@@ -378,7 +381,7 @@ function renderCard(){
       if(r.over!=null&&r.over>=0.5&&r.over<0.6)chips.push(`<span class="gchip">totals 50–60</span>`);
       if(r.qbs.length)chips.push(`<span class="gchip">QB: ${r.qbs.join(", ")}</span>`);
       const why=[];
-      why.push(`pick ${r.pick} at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference"));
+      why.push(`pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference"));
       if(r.quar)why.push(`divergence ${r.div}pp ≥ 15 → contract quarantine (weeks 1–2: big edges 1-5)`);
       if(r.kal)why.push(`kalshi ${r.kal}`);
       if(!r.books)why.push("no books yet — gap labeled, not faked");

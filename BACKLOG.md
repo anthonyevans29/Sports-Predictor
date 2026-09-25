@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COCKPIT FEEDBACK ROUND 1 FIXED 2026-09-25 (four user findings):**
+  (1) bars + why-lines + Desk pick cells now name TEAMS, never
+  HOME/AWAY; (2) game labels always "Away @ Home" (the length-based
+  "home v away" flip removed — it caused the vs/@ inconsistency and
+  reversed reading order); (3) Ask + per-game reads were calling
+  sampleNS.sample(...) while the capability is CALLABLE —
+  sampleNS(prompt,{onText}) per the working audit button; both now
+  mirror it, errors stringify properly. The season's FIFTH
+  guessed-interface, caught by screenshot. (4) On the record: the
+  Desk's mechanical policy PASSED the Falcons game hours before the
+  model's 70.7% lost it — layers doing their jobs. Prompts instruct
+  team-name-only language.
+
 - **COCKPIT GOES INTERACTIVE 2026-09-24 late (user asks 2 of 3
   shipped):** (1) PER-GAME CLAUDE READS — the audit flow now also
   requests a per-game verdict JSON (lean/pass/watch + key risk, 18

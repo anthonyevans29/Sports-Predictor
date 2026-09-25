@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (NHL candidate v4 — last schedule-only; cup track suspended)
+- nhl_elo_v3 FAIL ratified (0.6952). `nhl-backtest --candidate v4`: v1
+  form, 12-point shrink grid (k 3-6 x home adv 35/40/45), v3 selection,
+  2025 once. If it fails: no v5, Oct 7 market-only, track suspends
+  pending the H2 goalie probe.
+- Cup fix-v2 re-exam FAIL (14.76pp; inversion cleared): cup model
+  track SUSPENDED for the season (rotation information floor); EFL/CL/
+  UEL market-only; machinery stays merged.
+- CLAUDE.md production state + queue status updated.
+
 ## 2026-09-25 (cup fix-v2 — gate-class)
 - Cup re-exam FAIL ratified (sign inversion 2/5, mean 18.11pp).
 - Cup elo_goal_coeff by context (same-/cross-league), tuned on prior

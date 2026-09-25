@@ -158,7 +158,28 @@ const POLICY={
 const BASE_UNITS=1;
 
 function normalize(doc){
-  const out=[]; const preds=doc.predictions||[];
+  const out=[];
+  // Market-only exports (gated competitions: UNL, NCAA, cups) carry
+  // "fixtures" with no predictions — render them from the books' fair.
+  if(!doc.predictions && doc.fixtures){
+    const sport=(doc.sport||doc.competition||"?").toUpperCase();
+    const _t=n=>n&&n.length>18?n.slice(0,16)+"…":n;
+    for(const f of doc.fixtures){
+      if(f.status && f.status!=="scheduled") continue;
+      const mk=f.market||{}; const fair=mk.fair_prob||{};
+      out.push({game:`${_t(f.away_team||"?")} @ ${_t(f.home_team||"?")}`,
+        home:f.home_team||"?",away:f.away_team||"?",
+        pick:null,prob:null,mkt:null,twoSided:false,
+        mktHasDraw:fair.DRAW!=null,kal:null,sport,
+        when:(f.utc_date||"").slice(0,16).replace("T"," "),utc:f.utc_date||"",
+        probsAll:{},fairAll:fair,over:null,div:null,quar:false,
+        books:mk.bookmaker_count,qbs:[],rawIQ:{market_only:true,
+          bookmaker_count:mk.bookmaker_count},live:false,
+        marketOnly:true,tier:null});
+    }
+    return out;
+  }
+  const preds=doc.predictions||[];
   const sport=(doc.sport||"?").toUpperCase();
   for(const p of preds){
     const home=p.home_team||"?", away=p.away_team||"?";
@@ -210,6 +231,7 @@ function policy(){
   let plays=0,ladders=0,passes=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
   for(const r of rows){
+    if(r.marketOnly) continue;  // gated comps: card display only
     const P=POLICY[r.sport]||POLICY.DEFAULT;
     const eMin=P.eMin??4, eLad=P.eLad??Infinity, eHair=P.eHair??15, pMin=P.pMin??0;
     const edge=r.mkt!=null?(r.prob-r.mkt)*100:null;
@@ -372,20 +394,22 @@ function renderCard(){
     for(const r of rs.slice().sort((a,b)=>a.utc.localeCompare(b.utc))){
       const keys=r.mktHasDraw||r.probsAll.DRAW!=null?["HOME","DRAW","AWAY"]:["HOME","AWAY"];
       const bars=keys.map(k=>{
-        const mp=r.probsAll[k]??0, f=r.fairAll[k];
+        const mp=(r.marketOnly?(r.fairAll[k]??0):(r.probsAll[k]??0)), f=r.marketOnly?null:r.fairAll[k];
         const edge=f!=null?((mp-f)*100):null;
         const nm=sideName(r,k), nmS=nm.length>14?nm.slice(0,12)+"…":nm;
-        return `<div class="barrow" title="${nm}"><div>${nmS}${k===r.pick?" ◂":""}</div>
+        return `<div class="barrow" title="${nm}"><div>${nmS}${r.pick&&k===r.pick?" ◂":""}</div>
           <div class="bar"><i style="width:${Math.min(100,mp*100)}%"></i></div>
           <div style="text-align:right;color:var(--muted)">${(mp*100).toFixed(1)}%${f!=null?` · mkt ${(f*100).toFixed(1)}% <b>${edge>=0?"+":""}${edge.toFixed(1)}</b>`:""}</div></div>`;
       }).join("");
       const chips=[];
+      if(r.marketOnly)chips.push(`<span class="gchip">market-only · books' fair</span>`);
       if(r.tier)chips.push(`<span class="gchip ${r.tier==="strong"?"s":""}">${r.tier}</span>`);
       if(r.quar)chips.push(`<span class="gchip q">QUARANTINE ${r.div>=0?"+":""}${r.div}pp</span>`);
       if(r.over!=null&&r.over>=0.5&&r.over<0.6)chips.push(`<span class="gchip">totals 50–60</span>`);
       if(r.qbs.length)chips.push(`<span class="gchip">QB: ${r.qbs.join(", ")}</span>`);
       const why=[];
-      why.push(`pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference"));
+      if(r.marketOnly){ why.push(`gated competition — no predictions by doctrine; bars show the books' consensus fair (${r.books||0} books)`); }
+      else why.push(`pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference"));
       if(r.quar)why.push(`divergence ${r.div}pp ≥ 15 → contract quarantine (weeks 1–2: big edges 1-5)`);
       if(r.kal)why.push(`kalshi ${r.kal}`);
       if(!r.books)why.push("no books yet — gap labeled, not faked");

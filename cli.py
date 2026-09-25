@@ -3472,6 +3472,26 @@ def sync_odds_nfl_cmd():
     console.print(f"[green]✓ NFL odds: created={r['created']} across {r['games']} games[/green]")
 
 
+@cli.command("sync-kalshi-ncaa")
+def sync_kalshi_ncaa_cmd():
+    """Pull open Kalshi NCAA football game markets (KXNCAAFGAME) and store
+    snapshots — fourth sport family on the shared matcher; the console's
+    available-sports line is the discovery probe if the series guess is
+    wrong (the NFL/NHL pattern). Market-only doctrine: these prices feed
+    the fixtures roster, no predictions."""
+    from src.ingestion.kalshi_sync import sync_kalshi_mlb
+    from src.db.schema import Sport
+    r = sync_kalshi_mlb(progress=lambda m: console.print(m),
+                        sport=Sport.NFL, series_override="KXNCAAFGAME")
+    if r.get("ok"):
+        console.print(f"[green]✓ Kalshi NCAA: {r.get('stored', 0)} prices stored[/green]")
+        console.print(f"  series {r.get('series')} · {r.get('markets')} markets · "
+                      f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
+                      f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
+    else:
+        console.print(f"[red]✗ Kalshi NCAA: {r.get('error')}[/red]")
+
+
 @cli.command("sync-kalshi-nhl")
 def sync_kalshi_nhl_cmd():
     """Pull open Kalshi NHL game markets (KXNHLGAME) and store snapshots.

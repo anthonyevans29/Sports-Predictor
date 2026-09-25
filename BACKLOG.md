@@ -22,6 +22,25 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COCKPIT: MARKET-ONLY FILES RENDER 2026-09-25 (user finding — UNL
+  invisible):** normalize() only read "predictions"; the gated family's
+  exports carry "fixtures". Fixed: fixtures-shaped docs render on the
+  Card as the BOOKS' FAIR bars with a market-only chip and a doctrine
+  why-line; the Desk excludes them from policy entirely (no model = no
+  calls). Covers UNL today, NCAA tonight, cups at unlock. The whole
+  gated family is now visible where the person looks.
+
+- **NCAA MARKET PLUMBING 2026-09-25 (Friday 4PM slate):** odds = ZERO
+  new code — sync_odds_nfl windows on Sport.NFL, the family enum NCAA
+  rows carry, so college games price alongside NFL (NOTE: the window
+  now holds ~350 games -> a couple minutes of per-game calls at the
+  paid RPM; empty-quick if the provider lacks college odds).
+  export-fixtures is selection-generic (no draw requirement) -> NCAA
+  roster works as-is. Built: sync-kalshi-ncaa (KXNCAAFGAME on the
+  shared matcher, signature READ this time — the competition kwarg I
+  first guessed does not exist; matcher name-matches within the sport
+  window). Read-before-edit caught my own kwarg guess pre-ship.
+
 - **NCAA CERTIFIED FIRST-AUDIT 2026-09-25: 9,245 games / 743 programs /
   3 seasons.** Null-score check TRUE ZERO immediately (nested score
   dicts — no falsy trap in this family); 50 skips IDENTICAL on retry =

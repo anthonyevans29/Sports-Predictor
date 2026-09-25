@@ -22,6 +22,38 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **CUP PRICING HYPOTHESIS CHECK 2026-09-25 (architect item A; receipts,
+  NO fix):** --detail FAIL stands, cups stay locked. CODE RECEIPTS:
+  (1) WHERE CUP STRENGTHS COME FROM — training.py
+  `_generate_predictions_soccer`: attack/defense are fit on FINISHED
+  matches of THIS competition + THIS season only; backfill (up to 500
+  matches of the SAME competition's prior seasons) fires only when the
+  pool < MIN_MATCHES_FOR_STRENGTHS=30 — league form never enters.
+  poisson.estimate_strengths = raw goals-for/against averages shrunk by
+  n/(n+5): a cup team with n=1-2 is 17-29% its own tiny cup record.
+  HYPOTHESIS CONFIRMED BY CODE. (2) EXAM ARTIFACT — in report-only mode
+  the priced fixture sits INSIDE its own fit window (plus any later
+  rounds): with n=1 a team's only data point IS the result being
+  scored. Production pre-kickoff pricing never has that row, so part of
+  the in-pot incoherence is exam look-ahead, not live behavior — the
+  new `self` column counts it. (3) UNDER-DISPERSION MECHANISM —
+  v22 elo_goal_coeff = 0.0008 (resolved 2026-08-15 on PL LEAGUE games,
+  where strengths do the separating). With neutral strengths (what n<=2
+  shrinks to), predict_match at 0.0008 prices a 351-pt effective Elo gap
+  (Ipswich 1534 v Leicester 1183) at H 51.2% vs the gap's own 88.3%
+  win-expectancy; 500 pts -> 55.4%. At the 0.0023 default: 69.2% /
+  79.2%. Elo is nearly muted exactly where strengths are empty. DB
+  RECEIPTS PENDING: `cup-exam --detail` now prints per row each side's
+  fit n / attack / defense / promoted-prior flag, self-in-fit, pool size
+  + backfill, and a summary (per-team n buckets, self-in-fit count,
+  coeff). Anthony re-runs it; the Watford / Ipswich / Fleetwood rows'
+  fitted values come from that output.
+
+- **ARCHITECT RULING B — OUT-OF-POT POLICY (architect, 2026-09-25, for
+  the eventual cup fix PR):** the model never prices an unrated team;
+  such cup fixtures export market-only rows permanently
+  (conservative-unknowns doctrine).
+
 - **NHL ELO v1 BUILT 2026-09-25 (after the gate; parameters FIXED A
   PRIORI, before any real-data run, never tuned on 2025):**
   src/models/nhl_elo.py — MOV + per-team season regression, nothing

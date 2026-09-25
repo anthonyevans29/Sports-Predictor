@@ -498,6 +498,16 @@ def _generate_predictions_soccer(
             if m.home_score is not None and m.away_score is not None
         ]
         strengths = estimate_strengths(strength_input, context)
+        if include_finished:
+            # cup-exam --detail receipts (read-only): the fit pool behind the
+            # strengths above, per-team sample sizes, and which fixtures sit
+            # inside their own fit window.
+            fit_ids = {fm.id for fm in finished_matches
+                       if fm.home_score is not None and fm.away_score is not None}
+            fit_n: dict[int, int] = {}
+            for row in strength_input:
+                for tid in (row["home_team_id"], row["away_team_id"]):
+                    fit_n[tid] = fit_n.get(tid, 0) + 1
 
         # Upcoming matches to predict (report-only mode widens to FINISHED)
         priced_statuses = [MatchStatus.SCHEDULED]
@@ -804,6 +814,23 @@ def _generate_predictions_soccer(
                     "home_cup_elo": round(elo_cup.get(m.home_team_id), 1),
                     "away_cup_elo": round(elo_cup.get(m.away_team_id), 1),
                     "default_elo": elo_league.config.starting_rating,
+                    # Strength-fit receipts: pool = this competition-season's
+                    # finished matches (+ prior seasons of the SAME competition
+                    # when < MIN_MATCHES_FOR_STRENGTHS).
+                    "fit_pool_n": len(strength_input),
+                    "strengths_backfilled": strengths_backfilled,
+                    "self_in_fit": m.id in fit_ids,
+                    "home_fit_n": fit_n.get(m.home_team_id, 0),
+                    "away_fit_n": fit_n.get(m.away_team_id, 0),
+                    "home_strengths_source": ("promoted_default"
+                        if m.home_team_id in promoted_default_ids else "matches"),
+                    "away_strengths_source": ("promoted_default"
+                        if m.away_team_id in promoted_default_ids else "matches"),
+                    "home_attack": round(home_str.attack, 3),
+                    "home_defense": round(home_str.defense, 3),
+                    "away_attack": round(away_str.attack, 3),
+                    "away_defense": round(away_str.defense, 3),
+                    "elo_goal_coeff": poisson_cfg.elo_goal_coeff,
                 })
                 continue
 

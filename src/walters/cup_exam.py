@@ -46,7 +46,12 @@ _ROUND2_RE = re.compile(r"\b(2nd|second)\s+round\b|\bround\s*(2|two)\b", re.I)
 # Report-row fields surfaced by `cup-exam --detail` (no pricing change).
 DETAIL_KEYS = ("home_elo", "away_elo", "home_league", "away_league",
                "home_in_pot", "away_in_pot", "home_league_elo", "away_league_elo",
-               "home_cup_elo", "away_cup_elo", "default_elo")
+               "home_cup_elo", "away_cup_elo", "default_elo",
+               # strength-fit receipts (architect hypothesis check 2026-09-25)
+               "fit_pool_n", "strengths_backfilled", "self_in_fit",
+               "home_fit_n", "away_fit_n", "home_strengths_source", "away_strengths_source",
+               "home_attack", "home_defense", "away_attack", "away_defense",
+               "elo_goal_coeff")
 
 
 def load_key(path: str) -> list[dict]:
@@ -218,4 +223,32 @@ def detail_splits(res: ExamResult) -> dict:
         "tier": {t: (len(v), _mean_abs(v))
                  for t, v in sorted(by_tier.items())},
         "default_elo_teams": sorted(default_teams),
+    }
+
+
+def fit_summary(res: ExamResult) -> dict:
+    """Strength-fit receipts across the scored rows: per-team fit sample
+    sizes (bucketed), fixtures priced from a fit that contains their own
+    result, backfilled pools, and promoted-default priors. Pure."""
+    team_n: dict[str, int] = {}
+    for r in res.rows:
+        for side in ("home", "away"):
+            n = r.get(f"{side}_fit_n")
+            if n is not None:
+                team_n[r[side]] = n
+    buckets = {"0": 0, "1": 0, "2": 0, "3-5": 0, "6+": 0}
+    for n in team_n.values():
+        key = str(n) if n <= 2 else ("3-5" if n <= 5 else "6+")
+        buckets[key] += 1
+    return {
+        "teams": len(team_n),
+        "team_fit_n_buckets": buckets,
+        "self_in_fit": sum(1 for r in res.rows if r.get("self_in_fit")),
+        "backfilled_rows": sum(1 for r in res.rows if r.get("strengths_backfilled")),
+        "promoted_default_sides": sum(1 for r in res.rows for side in ("home", "away")
+                                      if r.get(f"{side}_strengths_source") == "promoted_default"),
+        "pools": sorted({(r["comp"], r.get("fit_pool_n"), bool(r.get("strengths_backfilled")))
+                         for r in res.rows if r.get("fit_pool_n") is not None}),
+        "elo_goal_coeff": sorted({r.get("elo_goal_coeff") for r in res.rows
+                                  if r.get("elo_goal_coeff") is not None}),
     }

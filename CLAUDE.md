@@ -58,14 +58,21 @@ ask.
   fields; consumer treats quarantined rows as never-straight-plays
   (mega-edges went 1-5 in weeks 1-2).
 - **NHL**: data certified (4,410 games, FT/AOT/AP mapped, true-zero
-  nulls); Kalshi KXNHLGAME live. NO MODEL YET — Phase 2 = frozen gate
-  FIRST, then Elo v1 (MOV + per-team regression; OT/SO, back-to-back
-  rest, goalie injuries are R-track hypotheses, not v1 features).
+  nulls); Kalshi KXNHLGAME live. NO MODEL YET — the frozen gate stands
+  (`nhl-backtest`); v1, v2 and v3 FAILED (ledger in BACKLOG). **v4 is
+  the LAST schedule-only candidate**; if it fails there is no v5: NHL
+  opens Oct 7 MARKET-ONLY (NCAA/UNL pattern) and the model track
+  SUSPENDS until the H2 goalie-feed probe reopens it. The bar does not
+  move.
 - **NCAA**: data certified (9,245 games, 743 programs); market-only
   doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,
   books post thin and near-kickoff. NO model; own gate later.
-- **UNL / cups (EFL, CL, UEL)**: market-only. Cups unlock via the
-  acceptance exam (below). UNL likely market-only permanently.
+- **UNL / cups (EFL, CL, UEL)**: market-only. CUP MODEL TRACK
+  SUSPENDED 2026-09-25 (fix-v2 re-exam FAIL, 14.76pp: a rotation
+  information floor). EFL/CL/UEL stay market-only for the season; the
+  exam harness + fix-v2 machinery stay merged. Reopens only via a
+  rotation-aware candidate on as-of lineup data (R-track, winter).
+  UNL likely market-only permanently.
 - Season strings: soccer clubs "2026/27"; WC "2026"; UNL "2026/27";
   MLB/NFL/NHL/NCAA int-style "2026". Per-comp truth is what the DB
   stores — check, don't assume.
@@ -78,11 +85,14 @@ ask.
    scripts/extract_cup_key.py; 55 fixtures: EFL 36, CL 19). Frozen
    bar: ±8pp mean absolute vs the books' fair, plus sign-sanity on the
    round-2 EFL rows (the league-bonus defect probes). PASS unlocks
-   EFL/CL/UEL predictions.
+   EFL/CL/UEL predictions. **STATUS: built, run three times (FAIL ×3),
+   track SUSPENDED 2026-09-25 — see production state above.**
 2. **NHL Phase 2** (gate-class): clone the NFL backtest harness shape
    for hockey (train 2024, test 2025; preseason EXCLUDED by status/
    date); freeze acceptance BEFORE building Elo v1; then the NFL
    sequence (internal week, rehearsal+dry read, live decision).
+   **STATUS: gate built; v1-v3 FAILED; v4 (last schedule-only) in
+   flight; Oct 7 market-only fallback logged.**
 3. **Cockpit v0.4** (artifact-side — coordinate with the architect;
    the live artifact is chat-published): results intake +
    call-persistence + self-grading by rule; two feedback streams.

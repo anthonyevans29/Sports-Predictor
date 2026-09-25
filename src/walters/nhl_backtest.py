@@ -345,24 +345,54 @@ def validation_loss(fit: list[Game], val: list[Game], model: Predictor) -> float
     return sequential_loss(val, model)
 
 
-def tune_v3(train: list[Game], grid: dict[str, tuple] | None = None
+def tune_v3(train: list[Game], grid: dict[str, tuple] | None = None,
+            make_model: Callable[[dict], Predictor] | None = None,
             ) -> tuple[dict, list[tuple[float, dict]], tuple[list[Game], list[Game]]]:
     """Select params by walk-forward validation INSIDE the train season.
     Returns (best params, all (validation loss, params) rows best-first,
-    (fit, validation) split)."""
+    (fit, validation) split). `make_model` builds a fresh candidate from a
+    params dict (default: the v2/v3 rest-aware form)."""
     from itertools import product
 
     from src.models.nhl_elo import NHLEloConfigV2, NHLEloV2
 
     grid = grid or V3_GRID
+    make_model = make_model or (lambda p: NHLEloV2(NHLEloConfigV2(**p)))
     fit, val = validation_split(train)
     keys = list(grid)
     rows = []
     for values in product(*(grid[k] for k in keys)):
         params = dict(zip(keys, values))
-        rows.append((validation_loss(fit, val, NHLEloV2(NHLEloConfigV2(**params))), params))
+        rows.append((validation_loss(fit, val, make_model(params)), params))
     rows.sort(key=lambda r: r[0])   # stable: grid order breaks exact ties
     return rows[0][1], rows, (fit, val)
+
+
+# --------------------------------------------------------------------------
+# Candidate v4 — THE LAST SCHEDULE-ONLY CANDIDATE (architect, 2026-09-25)
+# --------------------------------------------------------------------------
+#
+# The ledger's structural read: single-season selection does not transfer in
+# this sport; large grids are done. v4 is shrink-direction only: the v1 model
+# form (MOV + regression, NO rest terms), mov_base fixed 2.2, regression 0.25,
+# a 12-point grid, v3's walk-forward selection, 2025 scored once. Hypothesis
+# = the calibration signature: less reactive ratings compress the
+# overconfident upper bands. If v4 fails there is no v5 (see BACKLOG).
+
+# FROZEN a priori (architect spec). Ordered smallest-first so an exact tie
+# resolves in the shrink direction.
+V4_GRID: dict[str, tuple] = {
+    "k_factor": (3.0, 4.0, 5.0, 6.0),
+    "home_advantage": (35.0, 40.0, 45.0),
+    "mov_base": (2.2,),
+}
+
+
+def tune_v4(train: list[Game]):
+    """v3's walk-forward selection over V4_GRID on the v1 model form."""
+    from src.models.nhl_elo import NHLEloConfig, NHLEloV4
+
+    return tune_v3(train, V4_GRID, lambda p: NHLEloV4(NHLEloConfig(**p)))
 
 
 # --------------------------------------------------------------------------

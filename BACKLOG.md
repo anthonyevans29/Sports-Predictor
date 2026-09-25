@@ -22,6 +22,51 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **INFORMATION-FLOOR SYMMETRY (architect, 2026-09-25):** both new-sport
+  model tracks hit NAMED information floors the same day — NHL:
+  goalies; cups: lineups — as the deep-research disposition predicted.
+  Schedule/identity-only models may sit below each bar's information
+  floor, and the bars do not move to meet them.
+
+- **CUP FIX-V2 RE-EXAM: FAIL — CUP MODEL TRACK SUSPENDED (architect,
+  2026-09-25):** 14.76pp, sign 60% — inversion CLEARED and the
+  improvement real (cross-league 19.51 -> 14.87, interior tuned coeffs).
+  RULING: the residual is uniform across contexts and concentrated in
+  mature-fit rows (ManU-Brighton -30.3 class) = ROTATION information
+  floor — the market prices expected XIs, we price league identities.
+  EFL/CL/UEL stay MARKET-ONLY for the season; fix-v2's machinery stays
+  merged; the exam harness stands ready. REOPENING CONDITION (verbatim):
+  "a rotation-aware candidate conditioned on as-of lineup data (R-track,
+  winter — requires historical lineup backfill)."
+
+- **NHL CANDIDATE v4 BUILT — THE LAST SCHEDULE-ONLY CANDIDATE
+  (protocol note logged BEFORE v4 runs; architect ruling 2026-09-25):**
+  the ledger's structural read — single-season selection does not
+  transfer in this sport; large grids are done. v4 = shrink-direction
+  only, tiny grid FROZEN a priori: k_factor {3,4,5,6} x home_advantage
+  {35,40,45} x mov_base fixed 2.2 x NO rest terms x regression 0.25 =
+  12 points; the v1 model form exactly (nhl_elo_v4); v3's walk-forward
+  selection (60% fit / 40% validation inside 2024), full-2024 refit,
+  2025 scored ONCE through the unchanged gate. HYPOTHESIS = the
+  calibration signature: less reactive ratings compress the
+  overconfident upper bands. IF V4 FAILS: NO v5 — the Oct 7
+  market-only fallback fires as already logged (NCAA/UNL pattern) and
+  the NHL model track SUSPENDS pending richer data; the H2 goalie-feed
+  probe becomes the REOPENING CONDITION (goaltending is the missing
+  signal class; schedule-only may sit below the bar's information
+  floor, and the bar does not move to meet it). Run: `python cli.py
+  nhl-backtest --candidate v4` (seconds).
+
+- **NHL REJECTION LEDGER — nhl_elo_v3 FAIL (architect, 2026-09-25):**
+  2025 log-loss 0.6952 — the third straight fail, and v1's untuned
+  params remain the best 2025 scorer; upper bands -10.3 / -12.0pp =
+  overconfidence only at the top. RECEIPT OWED (executor, from the
+  merged code): home_advantage = 55 WAS in v2's grid — V2_GRID
+  (commit 2154b30) = (15, 25, 35, 45, 55) — and v3 carried that axis
+  UNCHANGED (V3_GRID, bd49bcf); the v3 spec extended only k /
+  mov_base / b2b_penalty / rest_per_day, so nothing was added above an
+  old maximum.
+
 - **DEEP-RESEARCH DISPOSITION (architect, 2026-09-25):** the literature
   review validated core doctrine — layered architecture, proper scoring
   rules + calibration bands, simple-models-survive, small-sample

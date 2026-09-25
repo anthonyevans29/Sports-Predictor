@@ -155,3 +155,12 @@ class NHLEloV3(NHLEloV2):
     """Same model form as v2 (MOV + regression + rest); v3 differs only in
     how its parameters are SELECTED (walk-forward validation inside 2024)."""
     name = "nhl_elo_v3"
+
+
+@dataclass
+class NHLEloV4(NHLEloV1):
+    """The last schedule-only candidate (architect, 2026-09-25): the v1 form
+    exactly — MOV + per-team season regression, NO rest terms — with k and
+    home advantage chosen from a 12-point shrink-direction grid by v3's
+    walk-forward selection."""
+    name = "nhl_elo_v4"

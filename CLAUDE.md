@@ -100,13 +100,16 @@ ask.
    (model-internals "why" fields + NFL kalshi field), S14 Stage-2,
    snapshot pruning design.
 5. Tail (architect deep-research disposition 2026-09-25; after cup
-   unlock + NHL v3): S18 Dixon-Coles low-score correction (soccer
-   candidate, existing gate); S19 time-decay match weighting (separate
-   candidate, same gate); S20 RPS reported alongside log-loss in the
-   soccer backtest (metric only, bars unchanged); H2 NHL goalie track
-   (probe the provider's starting-goalie/lineup feed first; goalie-aware
-   candidate post-v3). DECLINED: xG/tracking/boosting (no data
-   ownership), threshold re-tuning from small graded samples.
+   unlock + NHL v3): S19 time-decay match weighting (soccer candidate,
+   existing gate); S20 RPS reported alongside log-loss in the soccer
+   backtest (metric only, bars unchanged); H2 NHL goalie track (probe
+   the provider's starting-goalie/lineup feed first; goalie-aware
+   candidate post-v3). DATA ITEMS: football 90-minute score + ET/PEN
+   flag (store score.fulltime + raw status); NHL OT/SO raw status.
+   RETIRED: S18 (Dixon-Coles already shipped, rho = -0.10; dynamic-rho
+   only with a motivating receipt). DECLINED: xG/tracking/boosting (no
+   data ownership), threshold re-tuning from small graded samples,
+   tuning to the market (doctrine).
 
 ## Operational notes
 - Morning chains open with the backup line. 2-day sync windows daily;

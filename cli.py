@@ -4122,6 +4122,22 @@ def _print_cup_exam_detail(res, splits, tier_of):
     teams = splits["default_elo_teams"]
     print(f"  teams at exactly-default Elo: {len(teams)}"
           + (f"  ({', '.join(teams)})" if teams else ""))
+@cli.command("nhl-backtest")
+@click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
+              help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")
+def nhl_backtest_cmd(season_starts):
+    """NHL Phase 2 gate (frozen 2026-09-25): train 2024, test 2025, preseason
+    excluded; prints the stream receipts, both baselines and — once a
+    candidate exists — the verdict. Writes nothing."""
+    from datetime import date as _date
+    from src.walters import nhl_backtest as nb
+
+    starts = dict(nb.SEASON_STARTS)
+    for spec in season_starts:
+        season, _, d = spec.partition("=")
+        starts[season.strip()] = _date.fromisoformat(d.strip())
+    stream = nb.build_stream(nb.load_games(), starts)
+    nb.report(stream, nb.baselines(stream))
 
 
 @cli.command("kalshi-probe")

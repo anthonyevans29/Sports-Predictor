@@ -22,6 +22,22 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL PHASE 2 GATE FROZEN 2026-09-25 (architect; written BEFORE any
+  model exists):** harness = NFL shape (src/walters/nhl_backtest.py,
+  `python cli.py nhl-backtest`; writes nothing). Stream: NHL
+  competition only, FINISHED + scored; FT/AOT/AP all decided games;
+  outcome = binary home win INCLUSIVE of OT/SO (moneyline); OT/SO
+  weighting = R-track, NOT v1. Preseason EXCLUDED by stage marker
+  ("pre") OR date before the season's opener. Train 2024 (warm-up,
+  update only), test 2025 (predict-then-update). Baselines printed on
+  the test season: constant 0.5 and league home rate (realized in
+  2024, frozen before scoring). FROZEN ACCEPTANCE: (1) candidate test
+  log-loss beats the home-rate baseline by >= 0.010 (inclusive; a tie
+  is a rejection); (2) every 10pp probability band with n >= 100
+  calibrates within ±5pp; (3) final ratings all within 1200-1800 —
+  any outlier FAILS unless the architect names a reason. Then Elo v1:
+  MOV + per-team season regression from birth, nothing else. Anthony
+  runs the gate on the real DB; the architect rules before promotion.
 - **CUP EXAM VERDICT: FAIL (architect, 2026-09-25) + DIAGNOSTIC PR:**
   real-DB run FAILED all three axes — mean |Δ_H| 13.86pp, sign 60%;
   CUPS STAY LOCKED. Architect's reading: NOT inversion. (1) every

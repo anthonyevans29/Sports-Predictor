@@ -148,3 +148,10 @@ class NHLEloV2(NHLEloV1):
         delta = self.cfg.k_factor * mov * (won - exp_h)
         self._ratings[g.home_id] = rh + delta
         self._ratings[g.away_id] = ra - delta
+
+
+@dataclass
+class NHLEloV3(NHLEloV2):
+    """Same model form as v2 (MOV + regression + rest); v3 differs only in
+    how its parameters are SELECTED (walk-forward validation inside 2024)."""
+    name = "nhl_elo_v3"

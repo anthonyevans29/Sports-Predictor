@@ -58,7 +58,9 @@ DETAIL_KEYS = ("home_elo", "away_elo", "home_league", "away_league",
                "elo_goal_coeff",
                # cup fix: domestic borrow receipts
                "home_dom_league", "away_dom_league", "home_dom_n", "away_dom_n",
-               "home_cup_w", "away_cup_w")
+               "home_cup_w", "away_cup_w",
+               # cup fix-v2: the elo_goal_coeff context each row was priced in
+               "cup_context")
 
 
 def load_key(path: str) -> list[dict]:

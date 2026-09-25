@@ -4005,7 +4005,12 @@ def soccer_refresh_cmd(max_drift):
 @click.option("--detail", is_flag=True,
               help="Diagnostics: per-row Elo/league/bonus inputs + |Δ_HOME| splits "
                    "(pot, tier) + default-Elo teams. No pricing change.")
-def cup_exam_cmd(key_path, detail):
+@click.option("--cup-coeffs", "coeff_mode", type=click.Choice(["tuned", "base"]), default="tuned",
+              show_default=True,
+              help="tuned = fix-v2: tune the cup elo_goal_coeff per context (same-/cross-league) "
+                   "on PRIOR cup matches, exam seasons excluded, then price the exam; "
+                   "base = the model's base coeff for every cup row (reproduces the prior exam).")
+def cup_exam_cmd(key_path, detail, coeff_mode):
     """Cup acceptance exam (spec frozen 2026-09-25): price the answer key's
     FINISHED fixtures with production soccer pricing in REPORT-ONLY mode
     (nothing written) and score vs the books' fair: mean |Δ_HOME| <= 8.0pp,
@@ -4028,10 +4033,32 @@ def cup_exam_cmd(key_path, detail):
     known = {mid for mid, _, code in found if code == key_comp[mid]}
     groups = sorted({(code, season) for mid, season, code in found if mid in known})
 
+    cup_coeffs = None
+    if coeff_mode == "tuned":
+        from src.walters.cup_coeff import CUP_COEFF_GRID, exam_exclusions, tune_cup_coeffs
+        excl = exam_exclusions(key, {season for _, season, _ in found})
+        tun = tune_cup_coeffs(excl)
+        cup_coeffs = dict(tun.best)
+        print(f"SELECTION (fix-v2 · cup elo_goal_coeff by context · frozen grid "
+              f"{list(CUP_COEFF_GRID)} · as-of leave-self-out 3-way log-loss on PRIOR cup "
+              f"matches; exam comp-seasons excluded)")
+        print(f"  excluded: {sorted(excl)}")
+        print(f"  pool ({len(tun.pool)} comp-seasons): {tun.pool} · market-only skipped "
+              f"{tun.market_only}")
+        for ctx in ("same_league", "cross_league"):
+            cells = " ".join(f"{c:g}:{'—' if m is None else f'{m:.4f}'}" for c, m, _ in tun.table[ctx])
+            chosen = tun.best.get(ctx)
+            print(f"  {ctx:<12} n={tun.n[ctx]:<4} {cells}  -> "
+                  + (f"{chosen:g}" if chosen is not None else "no rows: base coeff"))
+            if chosen == CUP_COEFF_GRID[-1]:
+                print(f"  ⚠ {ctx} chose the grid's UPPER edge — the optimum may lie above it; "
+                      f"widening = a new candidate, never this run")
+
     priced: dict[int, dict] = {}
     versions = set()
     for code, season in groups:
-        rows = _generate_predictions_soccer(code, season, include_finished=True)
+        rows = _generate_predictions_soccer(code, season, include_finished=True,
+                                            cup_coeffs=cup_coeffs)
         print(f"  priced {code} {season}: {len(rows)} fixtures (report-only)")
         for r in rows:
             versions.add(r["model_version"])
@@ -4148,6 +4175,13 @@ def _print_cup_exam_detail(res, splits, tier_of):
               f"{r['delta_pp']:>+8.1f}  {st(r, 'home'):<30} {st(r, 'away'):<30} "
               f"{'Y' if r.get('self_in_fit') else 'n':<4} {r.get('fit_pool_n', '—')}"
               f"{'b' if r.get('strengths_backfilled') else ''}")
+    ctx_rows: dict[str, list] = {}
+    for r in res.rows:
+        ctx_rows.setdefault(r.get("cup_context") or "—", []).append(r)
+    for ctx, rs in sorted(ctx_rows.items()):
+        coeffs = sorted({r.get("elo_goal_coeff") for r in rs if r.get("elo_goal_coeff") is not None})
+        print(f"  context {ctx:<12} n={len(rs):<3} mean |Δ_HOME| "
+              f"{sum(abs(r['delta_pp']) for r in rs) / len(rs):.2f}pp · coeff {coeffs}")
     fs = fit_summary(res)
     print("\nSTRENGTH-FIT SUMMARY")
     print(f"  pools (comp, n matches, backfilled): {fs['pools']}")

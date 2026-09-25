@@ -190,7 +190,9 @@ def calibration_bands(pairs: list[tuple[float, int]]) -> list[dict]:
         gated = len(obs) >= BAND_MIN_N
         out.append({"band": b, "n": len(obs), "stated": stated, "realized": realized,
                     "gap": realized - stated, "gated": gated,
-                    "ok": (abs(realized - stated) <= BAND_TOL) if gated else None})
+                    # inclusive ±5pp, float-safe: an exact 5.0pp gap passes on
+                    # every Python (3.12's exact float sum() lands it at 0.0500...04)
+                    "ok": (abs(realized - stated) <= BAND_TOL + 1e-12) if gated else None})
     return out
 
 

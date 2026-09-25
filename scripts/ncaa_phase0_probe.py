@@ -47,15 +47,25 @@ def main():
     if not leagues:
         print("  ✗ No NCAA league found — plan or product gap. Stop.")
         sys.exit(1)
+    def season_of(entry):
+        if isinstance(entry, dict):
+            for k in ("season", "year"):
+                if entry.get(k) is not None:
+                    return entry[k]
+            return None
+        return entry  # bare int/str season
+
     for lg in leagues[:4]:
         l = lg.get("league") or lg
-        seasons = [s.get("season") for s in (lg.get("seasons") or [])]
-        print(f"  candidate: id={l.get('id')} name={l.get('name')!r} "
-              f"seasons tail={seasons[-3:]}")
+        raw = (lg.get("seasons") or [])
+        print(f"  candidate: id={l.get('id')} name={l.get('name')!r}")
+        print(f"    seasons RAW tail: {raw[-2:]}")
+        print(f"    parsed tail: {[season_of(x) for x in raw[-3:]]}")
 
     ncaa_id = (leagues[0].get("league") or leagues[0]).get("id")
-    seasons = (leagues[0].get("seasons") or [])
-    season_val = seasons[-1].get("season") if seasons else 2026
+    raw = (leagues[0].get("seasons") or [])
+    season_val = next((season_of(x) for x in reversed(raw)
+                       if season_of(x) is not None), 2026)
 
     print(f"\nQ2 — famous-program receipt for id={ncaa_id}, season={season_val!r} …")
     teams = get("teams", league=ncaa_id, season=season_val)

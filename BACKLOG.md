@@ -22,6 +22,44 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL CANDIDATE v2 BUILT 2026-09-25 (architect scope; tuning grid
+  FROZEN before any run):** `python cli.py nhl-backtest --candidate v2`
+  (v1 stays the default = reproduces the ratified FAIL). Scope exactly
+  as ruled: retuned params + ONE feature, rest days. REST: hours between
+  each team's consecutive game STARTS over every loaded NHL game
+  (preseason INCLUDED — fatigue is physical; ARCHITECT-RULE), hours not
+  UTC dates (7pm ET then 7pm PT next day = 27h = back-to-back though two
+  UTC dates apart). Adjustment (additive Elo, inside the expected score
+  for predict AND update so ratings don't absorb fatigue): < 36h =
+  -b2b_penalty; else +rest_per_day per extra day beyond one day off
+  (half-up days, cap +2); no previous game / >= 5 days = +2 days.
+  FROZEN GRID (720 points, simplest-first so exact ties pick the simpler
+  setting): k {4,6,8,10} · mov_base {1.0,2.2,4.0} · home_advantage
+  {15,25,35,45,55} · b2b_penalty {0,15,30,45} · rest_per_day {0,5,10}.
+  season_regression NOT tunable on 2024-internal loss (2024 is the first
+  season in the DB — no transition inside it) -> stays 0.25
+  (ARCHITECT-RULE). Tuner receives the train games only (test proves
+  2025 data cannot move the chosen params); 2025 scored ONCE through
+  the unchanged gate. Output carries the top-5 grid rows, v1's params on
+  the same 2024 loss for reference, the chosen params and all three
+  criteria. LEDGER: v2's row lands here when Anthony's run is ruled.
+
+- **NHL CANDIDATE PROTOCOL + v1 REJECTION (architect, 2026-09-25):**
+  REJECTION LEDGER — nhl_elo_v1 (k 6, mov_base 2.2, regression 0.25,
+  home_adv from 2024 rate): FAIL on the real DB — test log-loss 0.6909
+  vs need <= 0.6866; calibration ALL PASS incl. the 50-60 band at
+  exactly -5.0pp (decided by the inclusive-boundary fix); ratings sane;
+  boundary receipts clean, opener rulings closed as verified. THE BAR
+  DOES NOT MOVE. PROTOCOL (effective now): (1) parameter tuning on
+  2024-internal sequential loss ONLY; 2025 evaluated ONCE per candidate;
+  every candidate's params + all three criteria land in the command
+  output and a rejection-ledger entry here (the MLB pattern). (2) v2
+  scope, nothing else: retuned K / mov_base / home_adv / regression +
+  ONE feature, rest days from the schedule already in the DB (zero new
+  data), simple additive Elo adjustment with back-to-back emphasis.
+  (3) The OT/SO status-storage PR stays queued as an H-track data item,
+  not part of v2.
+
 - **NHL ELO v1 BUILT 2026-09-25 (after the gate; parameters FIXED A
   PRIORI, before any real-data run, never tuned on 2025):**
   src/models/nhl_elo.py — MOV + per-team season regression, nothing

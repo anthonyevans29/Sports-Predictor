@@ -81,3 +81,70 @@ class NHLEloV1:
 
     def ratings(self) -> dict[int, float]:
         return dict(self._ratings)
+
+
+# --------------------------------------------------------------------------
+# v2 candidate (architect scope 2026-09-25): retuned params + ONE feature,
+# rest days. Nothing else.
+# --------------------------------------------------------------------------
+
+B2B_HOURS = 36.0      # < 36h since the previous start = back-to-back
+RESTED_HOURS = 120.0  # >= 5 days (or no previous game) = fully rested
+
+
+def rest_adjustment(rest_h: float | None, b2b_penalty: float, rest_per_day: float) -> float:
+    """Additive Elo adjustment for one team, back-to-back emphasised:
+    B2B -> -b2b_penalty; otherwise +rest_per_day per extra day off beyond
+    the standard one (2 days between starts = 0), capped at +2 days. No
+    previous game / a long break counts as fully rested (+2)."""
+    if rest_h is None or rest_h >= RESTED_HOURS:
+        return 2 * rest_per_day
+    if rest_h < B2B_HOURS:
+        return -b2b_penalty
+    days = int(rest_h / 24.0 + 0.5)   # half-up (Python's round() is banker's)
+    extra = min(max(days - 2, 0), 2)
+    return extra * rest_per_day
+
+
+@dataclass(frozen=True)
+class NHLEloConfigV2(NHLEloConfig):
+    b2b_penalty: float = 0.0
+    rest_per_day: float = 0.0
+
+
+@dataclass
+class NHLEloV2(NHLEloV1):
+    """v1 + rest. The adjustment sits inside the expected score used by BOTH
+    predict and update, so ratings don't absorb scheduling fatigue."""
+    cfg: NHLEloConfigV2 = field(default_factory=NHLEloConfigV2)
+
+    name = "nhl_elo_v2"
+
+    def _rest_diff(self, g) -> float:
+        h = rest_adjustment(getattr(g, "home_rest_h", None), self.cfg.b2b_penalty, self.cfg.rest_per_day)
+        a = rest_adjustment(getattr(g, "away_rest_h", None), self.cfg.b2b_penalty, self.cfg.rest_per_day)
+        return h - a
+
+    def _expected_game(self, g) -> float:
+        diff = (self.rating(g.away_id)
+                - (self.rating(g.home_id) + self.cfg.home_advantage + self._rest_diff(g)))
+        return 1.0 / (1.0 + 10 ** (diff / 400.0))
+
+    def predict(self, g) -> float:
+        for tid in (g.home_id, g.away_id):
+            self._regress_if_new_season(tid, g.season)
+        return self._expected_game(g)
+
+    def update(self, g) -> None:
+        for tid in (g.home_id, g.away_id):
+            self._regress_if_new_season(tid, g.season)
+        exp_h = self._expected_game(g)
+        won = 1.0 if g.home_score > g.away_score else 0.0
+        rh, ra = self.rating(g.home_id), self.rating(g.away_id)
+        edge = self.cfg.home_advantage + self._rest_diff(g)
+        gap = (rh + edge - ra) if won else (ra - rh - edge)
+        margin = abs(g.home_score - g.away_score)
+        mov = math.log(margin + 1.0) * (self.cfg.mov_base / (self.cfg.mov_base + max(gap, 0.0) * 0.001))
+        delta = self.cfg.k_factor * mov * (won - exp_h)
+        self._ratings[g.home_id] = rh + delta
+        self._ratings[g.away_id] = ra - delta

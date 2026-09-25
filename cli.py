@@ -4125,7 +4125,10 @@ def _print_cup_exam_detail(res, splits, tier_of):
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")
-def nhl_backtest_cmd(season_starts):
+@click.option("--candidate", type=click.Choice(["v1", "v2"]), default="v1", show_default=True,
+              help="v1 = ratified baseline candidate; v2 = retuned params + rest days, "
+                   "tuned on 2024-internal loss only, 2025 scored once.")
+def nhl_backtest_cmd(season_starts, candidate):
     """NHL Phase 2 gate (frozen 2026-09-25): train 2024, test 2025, preseason
     excluded; prints the stream receipts, both baselines and — once a
     candidate exists — the verdict. Writes nothing."""
@@ -4136,10 +4139,16 @@ def nhl_backtest_cmd(season_starts):
     for spec in season_starts:
         season, _, d = spec.partition("=")
         starts[season.strip()] = _date.fromisoformat(d.strip())
-    stream = nb.build_stream(nb.load_games(), starts)
+    games = nb.load_games()
+    if candidate == "v2":
+        games = nb.attach_rest(games)   # full schedule, before preseason is cut
+    stream = nb.build_stream(games, starts)
     base = nb.baselines(stream)
     if base.verdict:  # INVALID stream: nothing to score a candidate against
         nb.report(stream, base)
+        return
+    if candidate == "v2":
+        _nhl_candidate_v2(nb, stream)
         return
     from src.models.nhl_elo import NHLEloConfig, NHLEloV1, home_advantage_from_rate
     cfg = NHLEloConfig(home_advantage=home_advantage_from_rate(base.home_rate))
@@ -4149,6 +4158,34 @@ def nhl_backtest_cmd(season_starts):
         f"{model.name} (k={cfg.k_factor}, mov_base={cfg.mov_base}, "
         f"regression={cfg.season_regression}, home_adv={cfg.home_advantage:.1f} "
         f"from {nb.TRAIN_SEASON} home rate)"))
+
+
+def _nhl_candidate_v2(nb, stream):
+    """Candidate protocol: tune on 2024-internal sequential loss (the train
+    games only), then score 2025 exactly once through the frozen gate."""
+    from src.models.nhl_elo import (NHLEloConfig, NHLEloConfigV2, NHLEloV1, NHLEloV2,
+                                    home_advantage_from_rate)
+
+    best, rows = nb.tune_v2(stream.train)
+    v1_ref = nb.sequential_loss(stream.train, NHLEloV1(NHLEloConfig(
+        home_advantage=home_advantage_from_rate(nb.baselines(stream).home_rate))))
+    tuning = [f"TUNING (candidate v2 · {len(rows)}-point frozen grid · 2024-internal "
+              f"sequential log-loss, n={len(stream.train)}; 2025 not seen)",
+              f"  v1 params on 2024-internal: {v1_ref:.4f}"]
+    tuning += [f"  #{i} {loss:.4f}  " + " ".join(f"{k}={v:g}" for k, v in params.items())
+               for i, (loss, params) in enumerate(rows[:5], 1)]
+    edges = [k for k, v in best.items()
+             if len(nb.V2_GRID[k]) > 1 and v in (min(nb.V2_GRID[k]), max(nb.V2_GRID[k]))]
+    if edges:
+        tuning.append(f"  ⚠ chosen value at a grid EDGE for: {', '.join(edges)} — the optimum may "
+                      f"lie outside the frozen grid; widening it = a new candidate, never this run")
+    cfg = NHLEloConfigV2(**best)
+    model = NHLEloV2(cfg)
+    result = nb.run_gate(stream, model)   # the single 2025 evaluation
+    nb.report(stream, result, model_name=(
+        f"{model.name} (" + ", ".join(f"{k}={v:g}" for k, v in best.items())
+        + f", regression={cfg.season_regression:g} [not tunable on 2024-internal]) "
+        f"— 2025 evaluated ONCE"), extra=tuning)
 
 
 @cli.command("kalshi-probe")

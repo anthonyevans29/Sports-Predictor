@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (NHL candidate v2 — gate-class)
+- nhl_elo_v1 FAIL ratified (0.6909 vs <= 0.6866); bar unchanged.
+- `nhl-backtest --candidate v2`: frozen 720-point grid tuned on
+  2024-internal sequential loss only, then 2025 scored once. v2 = v1 +
+  rest days (back-to-back emphasis) from the existing schedule.
+
 ## 2026-09-25 (cup pricing hypothesis check)
 - `cup-exam --detail` adds strength-fit receipts: per-side fit n,
   attack/defense, promoted-prior flag, self-in-fit, pool/backfill,

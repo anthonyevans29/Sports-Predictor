@@ -64,6 +64,10 @@ class Game:
     home_score: int
     away_score: int
     stage: str = ""
+    # Hours since each team's previous game start (attach_rest); None = no
+    # earlier game in the loaded schedule. Used by candidate v2 only.
+    home_rest_h: float | None = None
+    away_rest_h: float | None = None
 
     @property
     def home_win(self) -> int:
@@ -128,6 +132,26 @@ def build_stream(games: list[Game], season_starts: dict[str, date] = SEASON_STAR
             "first_kept_days": sorted(kept.items())[:3],
         }
     return st
+
+
+def attach_rest(games: list[Game]) -> list[Game]:
+    """Rest from the schedule already in the DB: hours between each team's
+    consecutive game STARTS, over every loaded NHL game (preseason included —
+    physical fatigue doesn't care whether the game counted). Hours, not UTC
+    dates: a 7pm ET game then a 7pm PT game next day spans two UTC dates but
+    is a true back-to-back."""
+    from dataclasses import replace
+
+    last: dict[int, datetime] = {}
+    out = []
+    for g in sorted(games, key=lambda x: (x.utc_date, x.home_id)):
+        rest = {}
+        for tid in (g.home_id, g.away_id):
+            prev = last.get(tid)
+            rest[tid] = None if prev is None else (g.utc_date - prev).total_seconds() / 3600.0
+        out.append(replace(g, home_rest_h=rest[g.home_id], away_rest_h=rest[g.away_id]))
+        last[g.home_id] = last[g.away_id] = g.utc_date
+    return out
 
 
 # --------------------------------------------------------------------------
@@ -231,6 +255,53 @@ def run_gate(stream: Stream, model: Predictor) -> GateResult:
 
 
 # --------------------------------------------------------------------------
+# Candidate iteration (architect protocol 2026-09-25)
+# --------------------------------------------------------------------------
+#
+# Parameters are tuned on 2024-INTERNAL sequential loss only (predict-then-
+# update through the train season); 2025 is evaluated ONCE per candidate by
+# run_gate. tune_v2 is handed the train games and nothing else.
+
+# FROZEN before any run (logged in BACKLOG). Ordered simplest-first so an
+# exact loss tie resolves to the simpler setting. season_regression is NOT
+# tunable here: 2024 is the first season in the DB, so the train stream
+# contains no season transition for it to act on — it stays at v1's 0.25.
+V2_GRID: dict[str, tuple] = {
+    "k_factor": (4.0, 6.0, 8.0, 10.0),
+    "mov_base": (1.0, 2.2, 4.0),
+    "home_advantage": (15.0, 25.0, 35.0, 45.0, 55.0),
+    "b2b_penalty": (0.0, 15.0, 30.0, 45.0),
+    "rest_per_day": (0.0, 5.0, 10.0),
+}
+
+
+def sequential_loss(games: list[Game], model: Predictor) -> float:
+    """Mean log-loss of predict-then-update over `games` (one pass)."""
+    total = 0.0
+    for g in games:
+        total += _ll(model.predict(g), g.home_win)
+        model.update(g)
+    return total / len(games)
+
+
+def tune_v2(train: list[Game]) -> tuple[dict, list[tuple[float, dict]]]:
+    """Grid search on 2024-internal sequential loss. Returns (best params,
+    all (loss, params) rows sorted best-first)."""
+    from itertools import product
+
+    from src.models.nhl_elo import NHLEloConfigV2, NHLEloV2
+
+    keys = list(V2_GRID)
+    rows = []
+    for values in product(*(V2_GRID[k] for k in keys)):
+        params = dict(zip(keys, values))
+        loss = sequential_loss(train, NHLEloV2(NHLEloConfigV2(**params)))
+        rows.append((loss, params))
+    rows.sort(key=lambda r: r[0])   # stable: grid order breaks exact ties
+    return rows[0][1], rows
+
+
+# --------------------------------------------------------------------------
 # DB loading + report
 # --------------------------------------------------------------------------
 
@@ -258,7 +329,7 @@ def load_games() -> list[Game]:
 
 
 def report(stream: Stream, r: GateResult, out: Callable[[str], None] = print,
-           model_name: str | None = None) -> None:
+           model_name: str | None = None, extra: list[str] | None = None) -> None:
     out(f"NHL Phase 2 gate · train {TRAIN_SEASON} · test {TEST_SEASON}")
     for season in (TRAIN_SEASON, TEST_SEASON):
         ex = {why: n for (s_, why), n in stream.excluded.items() if s_ == season}
@@ -282,6 +353,8 @@ def report(stream: Stream, r: GateResult, out: Callable[[str], None] = print,
     if r.ll_model is None:
         out("  (baselines only — no candidate model scored)")
         return
+    for line in extra or []:          # e.g. candidate tuning receipts
+        out(line)
     out(f"CANDIDATE {model_name or ''}")
     out(f"  1) log-loss {r.ll_model:.4f} vs need <= {r.ll_home - LL_MARGIN:.4f} "
         f"-> {'PASS' if r.crit_ll else 'FAIL'}")

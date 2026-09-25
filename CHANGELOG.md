@@ -10,6 +10,14 @@ Every drop adds an entry going forward.
   2024-internal sequential loss only, then 2025 scored once. v2 = v1 +
   rest days (back-to-back emphasis) from the existing schedule.
 
+## 2026-09-25 (cup pricing hypothesis check)
+- `cup-exam --detail` adds strength-fit receipts: per-side fit n,
+  attack/defense, promoted-prior flag, self-in-fit, pool/backfill,
+  summary. No pricing change.
+- BACKLOG: code receipts for the cup strength window and the
+  elo_goal_coeff under-dispersion; architect ruling B (out-of-pot =
+  market-only) logged.
+
 ## 2026-09-25 (NHL Phase 2 — gate, then Elo v1; gate-class)
 - `python cli.py nhl-backtest`: frozen NHL gate (train 2024, test 2025,
   preseason excluded by stage/date, OT/SO-inclusive home win), both

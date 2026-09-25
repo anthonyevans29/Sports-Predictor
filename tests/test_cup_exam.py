@@ -285,3 +285,48 @@ def test_detail_flag_leaves_default_output_unchanged(cup_db, tmp_path):
     assert plain.output.startswith(head)
     verdict = lambda out: [l for l in out.splitlines() if l.startswith("VERDICT")]
     assert verdict(plain.output) == verdict(det.output)
+
+
+# --- strength-fit receipts (architect hypothesis check) --------------------------
+
+def test_report_rows_carry_strength_fit_receipts(cup_db):
+    from src.models.poisson import CompetitionScoringContext, estimate_strengths
+
+    rows = {r["match_id"]: r for r in
+            _generate_predictions_soccer("EFL", SEASON, include_finished=True)}
+    r = rows[cup_db["finished"][0]]            # Arsenal v Wrexham, a played game
+    # 6 finished cup games < 30 -> backfill attempted (no prior seasons exist)
+    assert r["fit_pool_n"] == 6 and r["strengths_backfilled"] is True
+    assert r["self_in_fit"] is True            # the priced result is in its own fit
+    assert (r["home_fit_n"], r["away_fit_n"]) == (3, 3)
+    assert r["home_strengths_source"] == r["away_strengths_source"] == "matches"
+    # the reported attack/defense are exactly what the pricing fit produced
+    with session_scope() as s:
+        fin = s.execute(select(Match).where(Match.id.in_(cup_db["finished"]))).scalars().all()
+        fit = estimate_strengths([{"home_team_id": m.home_team_id, "away_team_id": m.away_team_id,
+                                   "home_score": m.home_score, "away_score": m.away_score}
+                                  for m in fin], CompetitionScoringContext())
+        home_id = s.get(Match, cup_db["finished"][0]).home_team_id
+    assert r["home_attack"] == round(fit[home_id].attack, 3)
+    assert r["home_defense"] == round(fit[home_id].defense, 3)
+    # the scheduled fixture is NOT inside its own fit
+    assert rows[cup_db["scheduled"]]["self_in_fit"] is False
+
+
+def test_fit_summary_buckets():
+    res = cup_exam.ExamResult(rows=[
+        {"comp": "EFL", "home": "A", "away": "B", "home_fit_n": 1, "away_fit_n": 2,
+         "self_in_fit": True, "fit_pool_n": 36, "strengths_backfilled": False,
+         "home_strengths_source": "matches", "away_strengths_source": "matches",
+         "elo_goal_coeff": 0.0008},
+        {"comp": "CL", "home": "C", "away": "D", "home_fit_n": 0, "away_fit_n": 7,
+         "self_in_fit": False, "fit_pool_n": 500, "strengths_backfilled": True,
+         "home_strengths_source": "promoted_default", "away_strengths_source": "matches",
+         "elo_goal_coeff": 0.0008},
+    ])
+    fs = cup_exam.fit_summary(res)
+    assert fs["team_fit_n_buckets"] == {"0": 1, "1": 1, "2": 1, "3-5": 0, "6+": 1}
+    assert fs["self_in_fit"] == 1 and fs["backfilled_rows"] == 1
+    assert fs["promoted_default_sides"] == 1
+    assert fs["pools"] == [("CL", 500, True), ("EFL", 36, False)]
+    assert fs["elo_goal_coeff"] == [0.0008]

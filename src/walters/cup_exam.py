@@ -1,0 +1,172 @@
+"""
+Cup acceptance exam — scoring (spec frozen 2026-09-25, BEFORE results).
+
+Scores production soccer pricing of FINISHED cup fixtures against the
+books' consensus fair in exports/cup_answer_key.csv (built by
+scripts/extract_cup_key.py). Pricing comes from the report-only mode of
+training._generate_predictions_soccer(include_finished=True) — nothing is
+ever written to the Prediction table.
+
+The frozen bar:
+  * PASS needs mean |Δ_HOME| <= 8.0pp AND at most 13 fixtures with
+    |Δ_HOME| > 8pp.
+  * Sign check (pass/fail): on the EFL round-2 subset the model's favorite
+    must match the market's in >= 80% of rows; < 50% = systematic
+    inversion (the league-bonus defect) = automatic FAIL.
+  * Key rows are joined to the DB by match_id only (no name matching).
+    More than 2 key rows missing from the priced set = exam INVALID
+    (data drift — stop and report).
+
+Verdict semantics (architect, 2026-09-25): necessary-not-sufficient.
+Report-only pricing of finished fixtures sees same-season results (strengths
+window, v22 Elo, current injuries/lineups), so FAIL is damning but PASS
+certifies "no gross cup-path defect" only — not out-of-sample accuracy. The
+sign/inversion check is the decisive organ.
+
+Everything below is pure (no DB) so the verdict logic is unit-tested.
+"""
+from __future__ import annotations
+
+import csv
+import re
+from dataclasses import dataclass, field
+
+MAE_BAR_PP = 8.0
+MAX_OVER_BAR = 13
+ROW_BAR_PP = 8.0
+SIGN_PASS_SHARE = 0.80
+SIGN_INVERSION_SHARE = 0.50
+MAX_MISSING = 2
+
+# Fallback when the key's stage strings don't identify EFL round 2.
+ROUND2_FALLBACK_DATES = {"2026-09-16", "2026-09-17"}
+_ROUND2_RE = re.compile(r"\b(2nd|second)\s+round\b|\bround\s*(2|two)\b", re.I)
+
+
+def load_key(path: str) -> list[dict]:
+    with open(path, newline="") as f:
+        rows = list(csv.DictReader(f))
+    for r in rows:
+        r["match_id"] = int(r["match_id"])
+        for k in ("fair_home", "fair_draw", "fair_away"):
+            r[k] = float(r[k])
+    return rows
+
+
+def favorite(p_home: float, p_away: float) -> str:
+    """Two-way favorite; the draw is never the favorite for this check."""
+    if p_home > p_away:
+        return "HOME"
+    if p_away > p_home:
+        return "AWAY"
+    return "EVEN"
+
+
+@dataclass
+class ExamResult:
+    rows: list[dict] = field(default_factory=list)       # scored fixtures
+    missing: list[dict] = field(default_factory=list)    # UNMATCHED / UNPRICED
+    efl_stages_seen: list[str] = field(default_factory=list)
+    sign_selector: str = ""
+    sign_n: int = 0
+    sign_agree: int = 0
+    n_scored: int = 0
+    mae_home_pp: float | None = None
+    mae_all_pp: float | None = None
+    n_over: int = 0
+    worst: dict | None = None
+    invalid: bool = False
+    mae_pass: bool = False
+    over_pass: bool = False
+    sign_share: float | None = None
+    sign_pass: bool = False
+    inversion: bool = False
+    verdict: str = ""
+
+
+def select_round2(efl_rows: list[dict]) -> tuple[list[dict], str, list[str]]:
+    """EFL round-2 subset: by stage when stages distinguish rounds, else by
+    the Sept 16-17 date cluster. Returns (rows, selector used, stages seen)."""
+    stages = sorted({r["stage"] for r in efl_rows if r.get("stage")})
+    by_stage = [r for r in efl_rows if _ROUND2_RE.search(r.get("stage") or "")]
+    if len(stages) > 1 and by_stage:
+        return by_stage, "stage", stages
+    by_date = [r for r in efl_rows if r["date"] in ROUND2_FALLBACK_DATES]
+    return by_date, "date-fallback (2026-09-16/17)", stages
+
+
+def score_exam(key_rows: list[dict], priced: dict[int, dict],
+               known_match_ids: set[int]) -> ExamResult:
+    """
+    key_rows: answer-key rows (load_key). priced: match_id -> report row
+    from the report-only pricing path. known_match_ids: key match_ids that
+    exist in the DB (anything else is UNMATCHED; in the DB but not priced
+    is UNPRICED — e.g. no strengths).
+    """
+    res = ExamResult()
+    for k in key_rows:
+        mid = k["match_id"]
+        if mid not in known_match_ids:
+            res.missing.append({**k, "why": "UNMATCHED"})
+            continue
+        p = priced.get(mid)
+        if p is None:
+            res.missing.append({**k, "why": "UNPRICED"})
+            continue
+        d_home = (p["p_home"] - k["fair_home"]) * 100
+        d_draw = (p["p_draw"] - k["fair_draw"]) * 100
+        d_away = (p["p_away"] - k["fair_away"]) * 100
+        res.rows.append({
+            "match_id": mid, "date": k["date"], "comp": k["comp"],
+            "stage": k.get("stage", ""), "home": k["home"], "away": k["away"],
+            "fair_H": k["fair_home"], "model_H": p["p_home"],
+            "delta_pp": d_home, "abs_all": (abs(d_home), abs(d_draw), abs(d_away)),
+            "fav_market": favorite(k["fair_home"], k["fair_away"]),
+            "fav_model": favorite(p["p_home"], p["p_away"]),
+            "home_league_bonus": p.get("home_league_bonus"),
+            "away_league_bonus": p.get("away_league_bonus"),
+            "flag": "",
+        })
+
+    res.invalid = len(res.missing) > MAX_MISSING
+    res.n_scored = len(res.rows)
+    if res.rows:
+        res.mae_home_pp = sum(abs(r["delta_pp"]) for r in res.rows) / res.n_scored
+        res.mae_all_pp = sum(sum(r["abs_all"]) for r in res.rows) / (3 * res.n_scored)
+        res.n_over = sum(1 for r in res.rows if abs(r["delta_pp"]) > ROW_BAR_PP)
+        res.worst = max(res.rows, key=lambda r: abs(r["delta_pp"]))
+
+    efl = [r for r in res.rows if r["comp"] == "EFL"]
+    sign_rows, res.sign_selector, res.efl_stages_seen = select_round2(efl)
+    res.sign_n = len(sign_rows)
+    res.sign_agree = sum(1 for r in sign_rows if r["fav_model"] == r["fav_market"])
+    if res.sign_n:
+        res.sign_share = res.sign_agree / res.sign_n
+    sign_ids = {r["match_id"] for r in sign_rows}
+
+    for r in res.rows:
+        flags = []
+        if abs(r["delta_pp"]) > ROW_BAR_PP:
+            flags.append(">8pp")
+        if r["match_id"] in sign_ids and r["fav_model"] != r["fav_market"]:
+            flags.append("SIGN")
+        r["flag"] = ",".join(flags)
+
+    res.mae_pass = res.mae_home_pp is not None and res.mae_home_pp <= MAE_BAR_PP
+    res.over_pass = res.n_over <= MAX_OVER_BAR
+    # An empty round-2 subset cannot pass a pass/fail check.
+    res.sign_pass = res.sign_share is not None and res.sign_share >= SIGN_PASS_SHARE
+    res.inversion = res.sign_share is not None and res.sign_share < SIGN_INVERSION_SHARE
+
+    if res.invalid:
+        res.verdict = (f"INVALID — {len(res.missing)} key rows unmatched/unpriced "
+                       f"(> {MAX_MISSING}): data drift, stop and report")
+    elif res.inversion:
+        res.verdict = "FAIL — systematic sign inversion on EFL round 2 (league-bonus defect)"
+    elif res.mae_pass and res.over_pass and res.sign_pass:
+        res.verdict = "PASS"
+    else:
+        why = [n for n, ok in (("MAE", res.mae_pass), ("count>8pp", res.over_pass),
+                               ("sign check", res.sign_pass)) if not ok]
+        res.verdict = "FAIL — " + ", ".join(why)
+    return res

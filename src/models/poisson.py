@@ -131,6 +131,7 @@ class MatchPrediction:
 def estimate_strengths(
     matches: list[dict],
     context: CompetitionScoringContext,
+    prior: dict[int, "TeamStrength"] | None = None,
 ) -> dict[int, TeamStrength]:
     """
     Empirical attack/defense estimation from a season's worth of matches.
@@ -144,6 +145,11 @@ def estimate_strengths(
 
     This is a quick baseline. A proper MLE fit would jointly solve attack and
     defense parameters across all teams; we can upgrade in a later model version.
+
+    `prior` (cup fix 2026-09-25): per-team shrinkage TARGET instead of 1.0 —
+    the n/(n+5) confidence weight then blends this pool's fit toward the
+    team's prior (its domestic league-season fit). None = the original 1.0
+    target, byte-identical behavior for every existing caller.
     """
     league_avg = context.avg_goals_per_team_per_match
     if league_avg <= 0:
@@ -173,8 +179,11 @@ def estimate_strengths(
         # Light shrinkage toward 1.0 for teams with few games (regularization)
         n = min(len(gf), len(ga))
         weight = n / (n + 5)  # 5 games of regularization
-        attack = weight * attack + (1 - weight) * 1.0
-        defense = weight * defense + (1 - weight) * 1.0
+        target = prior.get(team_id) if prior else None
+        t_att = target.attack if target is not None else 1.0
+        t_def = target.defense if target is not None else 1.0
+        attack = weight * attack + (1 - weight) * t_att
+        defense = weight * defense + (1 - weight) * t_def
         # Floor so a 0-goal team doesn't kill predictions
         strengths[team_id] = TeamStrength(
             attack=max(0.25, attack),

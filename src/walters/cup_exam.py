@@ -37,6 +37,10 @@ ROW_BAR_PP = 8.0
 SIGN_PASS_SHARE = 0.80
 SIGN_INVERSION_SHARE = 0.50
 MAX_MISSING = 2
+# Coverage floor (architect amendment 2026-09-25): ruling-B market-only rows
+# are excluded, but if fewer than this many fixtures remain scored the exam
+# no longer means what it was frozen to mean -> INVALID (insufficient coverage).
+MIN_SCORED = 45
 
 # Fallback when the key's stage strings don't identify EFL round 2.
 ROUND2_FALLBACK_DATES = {"2026-09-16", "2026-09-17"}
@@ -51,7 +55,10 @@ DETAIL_KEYS = ("home_elo", "away_elo", "home_league", "away_league",
                "fit_pool_n", "strengths_backfilled", "self_in_fit",
                "home_fit_n", "away_fit_n", "home_strengths_source", "away_strengths_source",
                "home_attack", "home_defense", "away_attack", "away_defense",
-               "elo_goal_coeff")
+               "elo_goal_coeff",
+               # cup fix: domestic borrow receipts
+               "home_dom_league", "away_dom_league", "home_dom_n", "away_dom_n",
+               "home_cup_w", "away_cup_w")
 
 
 def load_key(path: str) -> list[dict]:
@@ -77,6 +84,9 @@ def favorite(p_home: float, p_away: float) -> str:
 class ExamResult:
     rows: list[dict] = field(default_factory=list)       # scored fixtures
     missing: list[dict] = field(default_factory=list)    # UNMATCHED / UNPRICED
+    # Ruling B (architect 2026-09-25): policy exclusions, NOT data drift —
+    # reported, unscored, and outside the > MAX_MISSING INVALID budget.
+    market_only: list[dict] = field(default_factory=list)
     efl_stages_seen: list[str] = field(default_factory=list)
     sign_selector: str = ""
     sign_n: int = 0
@@ -86,7 +96,8 @@ class ExamResult:
     mae_all_pp: float | None = None
     n_over: int = 0
     worst: dict | None = None
-    invalid: bool = False
+    invalid: bool = False           # data drift (> MAX_MISSING unmatched/unpriced)
+    under_coverage: bool = False    # scored n < MIN_SCORED
     mae_pass: bool = False
     over_pass: bool = False
     sign_share: float | None = None
@@ -107,7 +118,7 @@ def select_round2(efl_rows: list[dict]) -> tuple[list[dict], str, list[str]]:
 
 
 def score_exam(key_rows: list[dict], priced: dict[int, dict],
-               known_match_ids: set[int]) -> ExamResult:
+               known_match_ids: set[int], min_scored: int = MIN_SCORED) -> ExamResult:
     """
     key_rows: answer-key rows (load_key). priced: match_id -> report row
     from the report-only pricing path. known_match_ids: key match_ids that
@@ -123,6 +134,9 @@ def score_exam(key_rows: list[dict], priced: dict[int, dict],
         p = priced.get(mid)
         if p is None:
             res.missing.append({**k, "why": "UNPRICED"})
+            continue
+        if p.get("market_only"):
+            res.market_only.append({**k, "why": f"MARKET-ONLY (ruling B): {p['market_only']}"})
             continue
         d_home = (p["p_home"] - k["fair_home"]) * 100
         d_draw = (p["p_draw"] - k["fair_draw"]) * 100
@@ -143,6 +157,7 @@ def score_exam(key_rows: list[dict], priced: dict[int, dict],
 
     res.invalid = len(res.missing) > MAX_MISSING
     res.n_scored = len(res.rows)
+    res.under_coverage = res.n_scored < min_scored
     if res.rows:
         res.mae_home_pp = sum(abs(r["delta_pp"]) for r in res.rows) / res.n_scored
         res.mae_all_pp = sum(sum(r["abs_all"]) for r in res.rows) / (3 * res.n_scored)
@@ -174,6 +189,9 @@ def score_exam(key_rows: list[dict], priced: dict[int, dict],
     if res.invalid:
         res.verdict = (f"INVALID — {len(res.missing)} key rows unmatched/unpriced "
                        f"(> {MAX_MISSING}): data drift, stop and report")
+    elif res.under_coverage:
+        res.verdict = (f"INVALID — insufficient coverage: {res.n_scored} fixtures scored "
+                       f"(< {min_scored}); {len(res.market_only)} market-only by ruling B")
     elif res.inversion:
         res.verdict = "FAIL — systematic sign inversion on EFL round 2 (league-bonus defect)"
     elif res.mae_pass and res.over_pass and res.sign_pass:

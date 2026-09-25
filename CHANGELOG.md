@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (cup fix — gate-class)
+- Cup/intl pricing: attack/defense from each team's domestic
+  league-season fit (as-of-date), blended toward the cup fit by n/(n+5);
+  every fit leave-self-out, strictly before kickoff.
+- Ruling B: unrated / no-domestic-league cup fixtures are market-only
+  (never priced); the exam reports them separately, outside INVALID.
+- elo_goal_coeff unchanged (0.0008). League pricing untouched.
+- Coverage floor: fewer than 45 scored fixtures = exam INVALID
+  (architect amendment).
+
 ## 2026-09-25 (NHL candidate v2 — gate-class)
 - nhl_elo_v1 FAIL ratified (0.6909 vs <= 0.6866); bar unchanged.
 - `nhl-backtest --candidate v2`: frozen 720-point grid tuned on

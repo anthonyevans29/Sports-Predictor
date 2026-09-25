@@ -22,6 +22,18 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NCAA TRACK OPENED 2026-09-25 (user): college football, the sixth
+  competition family.** Enters by the now-standard door: Phase 0 probe
+  BEFORE wiring (scripts/ncaa_phase0_probe.py — league id by famous-
+  program receipt, season format + status/week vocabulary enumerated
+  from data, games-scale measured since FBS vs FBS+FCS changes the
+  size class). DOCTRINE SET: NCAA = DATA + MARKET-ONLY at entry;
+  nfl_elo_v1 does NOT transfer (NFL-trained); college model = its own
+  frozen gate later, with R-track notes pre-filed (huge spread,
+  neutral sites, FCS mismatches, 40+pt ranked blowouts). Kalshi series
+  discovery (KXNCAAFGAME guess) at wiring time via the console probe
+  pattern. Wiring lands on the pasted receipts, not before.
+
 - **POLICY v1.0 — KNOBS RETIRED 2026-09-25 (user ratified the rollout):**
   the sliders are gone; per-sport evidence-set configs in their place,
   each number provenance-annotated in the Cockpit's policy card:

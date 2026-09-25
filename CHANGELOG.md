@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (NHL candidate v3 — gate-class)
+- nhl_elo_v2 FAIL ratified (2025 0.6921, upper bands overconfident).
+- `nhl-backtest --candidate v3`: params selected by walk-forward
+  validation inside 2024 (60% fit / 40% validation), full-2024 refit,
+  2025 scored once; grid extended downward/center only. Gate unchanged.
+- Standing fallback logged: no pass by Oct 6 -> NHL opens Oct 7
+  market-only.
+
 ## 2026-09-25 (cup fix — gate-class)
 - Cup/intl pricing: attack/defense from each team's domestic
   league-season fit (as-of-date), blended toward the cup fit by n/(n+5);

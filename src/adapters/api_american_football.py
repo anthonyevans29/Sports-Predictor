@@ -52,6 +52,12 @@ DIRECT_BASE = "https://v1.american-football.api-sports.io"
 
 #: NFL league id in the provider's catalog. (id 2 is NCAA.)
 NFL_LEAGUE_ID = 1
+# 2026-09-25: second league in the family. id=2 receipted by Phase 0
+# probe (260 teams FBS+FCS, Michigan State/Nebraska in list, ~1,500
+# games/season, weeks numeric, FT/AOT/CANC + None-status class).
+_CODE_TO_LEAGUE = {"NFL": NFL_LEAGUE_ID, "NCAA": 2}
+def _league_for(code: str) -> int:
+    return _CODE_TO_LEAGUE.get((code or "NFL").upper(), NFL_LEAGUE_ID)
 
 #: Provider game statuses -> our MatchStatus. Conservative: unknowns stay
 #: SCHEDULED so the status filter never silently treats a live game as done.
@@ -108,15 +114,22 @@ class APIAmericanFootballAdapter(DataAdapter):
     def list_competitions(self, sport: Sport) -> list[NormalizedCompetition]:
         if sport != Sport.NFL:
             return []
-        return [NormalizedCompetition(
-            sport=Sport.NFL, code="NFL", name="National Football League",
-            area="USA", type="LEAGUE", source=self.source_name,
-            source_id=str(NFL_LEAGUE_ID),
-        )]
+        return [
+            NormalizedCompetition(
+                sport=Sport.NFL, code="NFL", name="National Football League",
+                area="USA", type="LEAGUE", source=self.source_name,
+                source_id=str(NFL_LEAGUE_ID),
+            ),
+            NormalizedCompetition(
+                sport=Sport.NFL, code="NCAA", name="NCAA Football",
+                area="USA", type="LEAGUE", source=self.source_name,
+                source_id=str(_CODE_TO_LEAGUE["NCAA"]),
+            ),
+        ]
 
     def list_teams(self, competition_code: str,
                    season: str | None = None) -> list[NormalizedTeam]:
-        params = {"league": NFL_LEAGUE_ID,
+        params = {"league": _league_for(competition_code),
                   "season": int(season) if season else datetime.utcnow().year}
         data = self._get("teams", params=params)
         out: list[NormalizedTeam] = []
@@ -140,7 +153,7 @@ class APIAmericanFootballAdapter(DataAdapter):
     def list_matches(self, competition_code: str, season: str | None = None,
                      date_from: str | None = None,
                      date_to: str | None = None) -> list[NormalizedMatch]:
-        params: dict[str, Any] = {"league": NFL_LEAGUE_ID}
+        params: dict[str, Any] = {"league": _league_for(competition_code)}
         if season:
             # Tolerate both "2026" and "2026/27" — the league year is the
             # first component either way (belt-and-braces vs format drift).
@@ -191,7 +204,7 @@ class APIAmericanFootballAdapter(DataAdapter):
                     and _a_total is not None):
                 status = MatchStatus.FINISHED
             out.append(NormalizedMatch(
-                sport=Sport.NFL, competition_code="NFL",
+                sport=Sport.NFL, competition_code=(competition_code or "NFL").upper(),
                 season=str(params.get("season", "")),
                 utc_date=utc,
                 status=status,

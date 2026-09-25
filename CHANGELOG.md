@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-25 (NCAA)
+- NCAA wired into the american-football adapter (league map, both
+  competitions listed, per-code resolution); cli routes NCAA; data +
+  market-only doctrine.
+
 ## 2026-09-24 (cockpit)
 - Card + Desk merged into one tabbed cockpit artifact (same URL);
   per-game signal expanders; tools/cockpit.html supersedes both files.

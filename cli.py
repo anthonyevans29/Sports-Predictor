@@ -39,7 +39,7 @@ def _sport_for_competition(code: str) -> str:
     """Returns 'soccer', 'baseball', or 'nfl' based on the competition code."""
     if code.upper() in _BASEBALL_COMP_CODES:
         return "baseball"
-    if code.upper() == "NFL":  # NFL phase 1, 2026-09-05
+    if code.upper() in ("NFL", "NCAA"):  # NFL 09-05; NCAA 09-25
         return "nfl"
     if code.upper() == "NHL":  # NHL phase 1, 2026-09-23
         return "nhl"

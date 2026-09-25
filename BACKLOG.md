@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NCAA WIRED 2026-09-25 (on Phase 0 receipts):** adapter gains a
+  code->league map (NFL=1, NCAA=2 receipted), list_competitions returns
+  both, per-call league resolution, normalized rows carry their own
+  code; cli routes NCAA into the nfl family (int seasons). DOCTRINE:
+  data + market-only; no model transfer. PHASE 1 CAVEATS: the
+  provider's seasons array runs NEWEST-FIRST (probe fallback grabbed
+  2022 — wiring unaffected, but the first backfill must verify how
+  current NCAA coverage runs; if it lags the live season, NCAA is
+  backfill-until-current, labeled); 260 teams = FBS+FCS mixed (kept,
+  size class noted, ~1,500 games/season); 69 None-status games =
+  handled by score-presence inference + conservative-unknown by
+  design. Kalshi KXNCAAFGAME discovery at first sync.
+
 - **NCAA TRACK OPENED 2026-09-25 (user): college football, the sixth
   competition family.** Enters by the now-standard door: Phase 0 probe
   BEFORE wiring (scripts/ncaa_phase0_probe.py — league id by famous-

@@ -22,6 +22,29 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **SPREAD->WIN-PROB FALLBACK (gate-class-lite, architect spec
+  2026-09-26) — built; acceptance receipt pending Anthony's real run;
+  bar 3.0pp frozen before results.** Where an american-football game
+  (NFL, NCAA — NCAA is Sport.NFL + Competition.code "NCAA") has NO 1X2
+  consensus but SPREADS exist, the market-reference fair is derived by
+  the normal-margin transform P(home) = Phi(-s/sigma), s = median across
+  books of each book's main HOME line (negative = home favoured; the
+  adapter stores "Home -3.5" as HOME/-3.5, sign preserved). Sigmas
+  frozen a-priori, never tuned: NFL 13.45, NCAA 16.5. Main line per book
+  = the HOME L / AWAY -L pair with the most balanced prices (alternates
+  ignored); pre-kickoff latest capture per (book, selection, line).
+  Export contract, additive only: every market block now carries
+  `fair_source` ("1X2" | "spread_derived"); derived blocks also carry
+  `consensus_home_spread` + `spread_sigma`. Applies in `export-fixtures`
+  (NFL/NCAA) and the NFL predictions export. DELIBERATE: the NFL
+  `market_divergence_pp` / `quarantine` contract stays computed on the
+  1X2 consensus only — spread-derived fair does NOT feed it (architect
+  to rule if it should). Receipt: `python cli.py spread-fallback-check
+  --competition NFL [--start YYYY-MM-DD --end YYYY-MM-DD]` (and NCAA) —
+  read-only; on games carrying BOTH markets prints the table + n, mean
+  |derived - 1X2 fair| pp, VERDICT vs <= 3.0pp. Code:
+  src/walters/spread_fallback.py; tests/test_spread_fallback.py.
+
 - **data/ mkdir moved import-time -> connect-time 2026-09-26 (lane 4 of
   the architect's expanded parallel authorization; the CI-hygiene nit
   from #19):** `src/db/database.py` created the SQLite directory at

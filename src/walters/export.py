@@ -994,6 +994,10 @@ def export_fixtures(
 
     Book consensus (2026-09-25): latest capture per (bookmaker, selection),
     captures at/after kickoff excluded (in-game), then the de-vigged mean.
+    Spread fallback (2026-09-26): american-football family (NFL/NCAA) with no
+    1X2 consensus but SPREADS present -> fair_prob derived from the median
+    book home spread via the normal-margin transform (spread_fallback.py);
+    every market block carries fair_source "1X2" | "spread_derived".
     Kalshi: latest pre-kickoff OddsSnapshot(source="kalshi") per selection;
     status two_sided / one_sided / absent (the predictions export's vocabulary).
     `receipts`, if given, is filled with counts for the CLI to print —
@@ -1009,10 +1013,12 @@ def export_fixtures(
     from src.db.database import session_scope as _scope
     from src.db.schema import (Competition as _Comp, Match as _Match, Odds as _Odds,
                                OddsSnapshot as _Snapshot)
+    from src.walters import spread_fallback as _fb
     from src.walters.value import MarketSnapshot as _Snap
 
     labels: _Counter = _Counter()
-    counts = {"fixtures": 0, "with_books": 0, "kalshi_two_sided": 0,
+    counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0,
+              "kalshi_two_sided": 0,
               "kalshi_one_sided": 0, "kalshi_absent": 0}
     with _scope() as s:
         comp = s.execute(_select(_Comp).where(
@@ -1049,8 +1055,21 @@ def export_fixtures(
                     "bookmaker_count": len({bk for bk, _ in latest}),
                     "captured_at": cap.isoformat() if cap else None,
                     "fair_prob": {k: round(v / over, 4) for k, v in implied.items()},
+                    "fair_source": _fb.FAIR_SOURCE_1X2,
                 }
                 counts["with_books"] += 1
+            elif _fb.sigma_for(competition_code) is not None:
+                # Spread->win-prob fallback (2026-09-26): american-football
+                # family only, 1X2 absent, spreads present. Labelled, never
+                # blended with a 1X2 consensus.
+                sp = _fb.latest_pre_kickoff(all_odds, m.utc_date, _fb.SPREAD_MARKET,
+                                            with_line=True)
+                market = _fb.derive_spread_market(sp.values(), competition_code)
+                if market is not None:
+                    cap = max((o.captured_at for o in sp.values() if o.captured_at),
+                              default=None)
+                    market["captured_at"] = cap.isoformat() if cap else None
+                    counts["with_spread_derived"] += 1
             kal: dict[str, object] = {}
             for snap in s.execute(_select(_Snapshot).where(
                     _Snapshot.match_id == m.id, _Snapshot.source == "kalshi")

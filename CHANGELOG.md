@@ -4,6 +4,17 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (spread->win-prob fallback, american football)
+- NFL/NCAA games with no 1X2 consensus but posted spreads now get a
+  spread-derived fair (normal margin; median book home line; sigma
+  frozen a-priori NFL 13.45 / NCAA 16.5). Additive export field
+  `fair_source` ("1X2" | "spread_derived") on every market block, plus
+  `consensus_home_spread` / `spread_sigma` on derived blocks. NFL
+  quarantine/divergence unchanged (1X2 only). Receipt command:
+  `python cli.py spread-fallback-check --competition NFL|NCAA`.
+  Acceptance receipt pending Anthony's real run; bar 3.0pp frozen
+  before results.
+
 ## 2026-09-26 (data/ created at connect time)
 - Importing the package no longer creates an empty data/ directory; the
   SQLite directory is created on first connection instead.

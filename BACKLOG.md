@@ -22,6 +22,24 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NCAA BOOK-MARKET FINDING + two queued items 2026-09-26 (architect,
+  from near-kickoff receipts):**
+  (1) FINDING: the provider DOES carry college odds — labels seen
+  1X2 x~45 vs SPREADS x665, TOTALS x1029 — but college books post
+  SPREADS, not moneylines (US convention; no ML on 20-point favorites,
+  e.g. Texas-Tennessee unpriced at T-60). Our consensus joins 1X2 only
+  -> 12/116 fixtures carry a book consensus while Kalshi covers 99/116
+  (154 prices, 59 two-sided). Kalshi-primary doctrine for college
+  CONFIRMED at matchday scale.
+  (2) RULED + QUEUED (K-track, architect-specced, AFTER Cockpit v0.4):
+  spread -> win-probability conversion as the fair-price FALLBACK where
+  1X2 is absent. It is an EXPORT-CONTRACT change; the spec comes from
+  the architect. NOT built now.
+  (3) COSMETIC QUEUED for the next daily batch: rename `sync-odds-nfl`
+  -> `sync-odds-football`, keeping the old name as an alias. Its
+  Sport.NFL family filter already covers NCAA; the name predates the
+  sixth family and caused an operator double-check today. Not done in
+  this docs-only PR.
 - **H2 GOALIE PROBE VERDICT — NEGATIVE, definitively (architect,
   2026-09-26, from Anthony's run of the fixed probe):** the hockey
   provider rejects /games/lineups, /games/players, /players, /injuries

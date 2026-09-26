@@ -289,6 +289,8 @@ class IngestionService:
             away_score=nm.away_score,
             home_score_ht=nm.home_score_ht,
             away_score_ht=nm.away_score_ht,
+            home_score_90=nm.home_score_90,
+            away_score_90=nm.away_score_90,
             full_time_result=nm.full_time_result,
             venue=nm.venue,
             referee=nm.referee,
@@ -323,6 +325,10 @@ class IngestionService:
             match.home_score_ht = nm.home_score_ht
         if nm.away_score_ht is not None:
             match.away_score_ht = nm.away_score_ht
+        if nm.home_score_90 is not None:
+            match.home_score_90 = nm.home_score_90
+        if nm.away_score_90 is not None:
+            match.away_score_90 = nm.away_score_90
         if nm.full_time_result is not None:
             match.full_time_result = nm.full_time_result
         if nm.referee:

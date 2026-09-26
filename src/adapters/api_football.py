@@ -768,7 +768,8 @@ class APIFootballAdapter(DataAdapter):
         goals = item.get("goals", {})
         score = item.get("score", {})
 
-        status_short = fixture.get("status", {}).get("short", "NS")
+        raw_short = (fixture.get("status") or {}).get("short")
+        status_short = raw_short or "NS"
         status = _STATUS_MAP.get(status_short, MatchStatus.SCHEDULED)
 
         # Result: API-Football marks winner via teams.home.winner / teams.away.winner
@@ -801,6 +802,9 @@ class APIFootballAdapter(DataAdapter):
 
         # Half-time score lives under score.halftime
         ht = score.get("halftime") or {}
+        # score.fulltime = the 90-minute score; `goals` include extra time
+        # (pens excluded). Stored verbatim, never derived (2026-09-26).
+        ft90 = score.get("fulltime") or {}
 
         venue = fixture.get("venue") or {}
 
@@ -816,10 +820,13 @@ class APIFootballAdapter(DataAdapter):
             source_id=str(fixture["id"]),
             matchday=_parse_round_to_matchday(league.get("round")),
             stage=league.get("round"),  # e.g. "Regular Season - 5", "Round of 16"
+            status_raw=raw_short or None,  # FT / AET / PEN ... verbatim; absent stays NULL
             home_score=goals.get("home"),
             away_score=goals.get("away"),
             home_score_ht=ht.get("home"),
             away_score_ht=ht.get("away"),
+            home_score_90=ft90.get("home"),
+            away_score_90=ft90.get("away"),
             full_time_result=result,
             venue=venue.get("name"),
             referee=fixture.get("referee"),

@@ -41,6 +41,15 @@ specific reason they're not being built now.
   weekly backup). 21 ARCHITECT-RULE questions. Nothing built or bought.
   Queue position unchanged (T-track groundwork behind v0.4/K/B).
 
+- **data/ mkdir moved import-time -> connect-time 2026-09-26 (lane 4 of
+  the architect's expanded parallel authorization; the CI-hygiene nit
+  from #19):** `src/db/database.py` created the SQLite directory at
+  IMPORT, so `import cli` (CI's import smoke) left an empty data/ behind.
+  The mkdir now runs in a `do_connect` engine event — before the first
+  DBAPI connect — so the first real connection still finds its
+  directory. Receipts: the new subprocess test fails on the old code
+  (import created the dir) and passes now; `import cli` leaves no data/.
+  Engine, pragmas and DATABASE_URL handling otherwise unchanged.
 - **`sync-odds-nfl` RENAMED -> `sync-odds-football` 2026-09-26 (lane 3
   of the architect's expanded parallel authorization; cosmetic):** the
   command's Sport.NFL family filter already covers NCAA (verified in

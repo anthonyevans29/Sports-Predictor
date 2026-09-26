@@ -282,6 +282,7 @@ class IngestionService:
             stage=nm.stage,
             utc_date=nm.utc_date,
             status=nm.status,
+            status_raw=nm.status_raw,
             home_team_id=home.id,
             away_team_id=away.id,
             home_score=nm.home_score,
@@ -302,6 +303,8 @@ class IngestionService:
     @staticmethod
     def _apply_match_updates(match: Match, nm: NormalizedMatch) -> None:
         match.status = nm.status
+        if nm.status_raw:  # never blank a stored code with an absent one
+            match.status_raw = nm.status_raw
         # Correct the season if the adapter now reports a different one. This
         # matters for re-syncs that fix a previously mis-stamped season (e.g.
         # the single-year-tournament fix: "2026/27" → "2026"). Guard against

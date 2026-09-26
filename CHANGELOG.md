@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (H2 probe fix; morning findings logged)
+- `scripts/h2_goalie_probe.py`: prints one raw /games object verbatim
+  first; date/timestamp parsing tolerant of the hockey string shape
+  (fixes the `_game_ids` crash).
+- BACKLOG: architect findings — NHL 20-25% past-regulation (status_raw
+  splits); lineup probe GREEN (XI from ~2015, minutes from ~2018).
+
 ## 2026-09-26 (soccer ET flag + 90-minute score)
 - Football adapter stores status_raw (FT/AET/PEN) and score.fulltime in
   new matches.home_score_90 / away_score_90. Storage only — scores and

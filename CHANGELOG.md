@@ -10,6 +10,12 @@ Every drop adds an entry going forward.
   results unchanged. Run `python migrate_score_90.py` after merge
   (receipt includes the 90-minute invariants).
 
+## 2026-09-26 (lineup-history probe)
+- `scripts/lineup_history_probe.py`: read-only probe of API-Football's
+  per-match lineup history — declared coverage per season plus spot
+  checks (lineups + per-player minutes). No DB access, no wiring.
+  Anthony runs it and pastes the output to the architect.
+
 ## 2026-09-26 (H2 goalie/lineup probe)
 - `scripts/h2_goalie_probe.py`: read-only probe of the hockey provider
   for starting-goalie / lineup data — endpoints, fields, historical

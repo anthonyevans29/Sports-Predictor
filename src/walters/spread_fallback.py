@@ -39,6 +39,19 @@ FAIR_SOURCE_SPREAD = "spread_derived"
 # Acceptance bar, frozen before any results exist (architect 2026-09-26).
 ACCEPTANCE_MEAN_ABS_PP = 3.0
 
+# DARK SWITCH (2026-09-26): acceptance FAILED x2 (NFL 5.54pp, NCAA 4.03pp);
+# the architect ruled the fallback stays DARK and ships ONLY on a vetted
+# PASS. While False, the exports never emit spread-derived fair prices (rows
+# without a 1X2 consensus keep market=null, the pre-fallback behaviour); the
+# check command still computes derived probabilities for the receipt.
+FALLBACK_LIVE = False
+
+# Reference vetting (tribunal revision, architect 2026-09-26): the BAR is
+# untouched; the ML reference a row is scored against must be trustworthy.
+VET_MIN_ML_BOOKS = 4          # ML consensus from >= 4 books
+VET_MAX_CAPTURE_GAP_H = 24.0  # ML vs spread latest-capture gap <= 24h
+VET_MIN_N = 10                # fewer vetted rows -> INSUFFICIENT-REF
+
 
 def _phi(x: float) -> float:
     """Standard normal CDF."""
@@ -185,7 +198,8 @@ def spread_fallback_check(competition_code: str, start: str | None = None,
             odds = list(s.execute(select(Odds).where(Odds.match_id == m.id)).scalars())
             if not odds:
                 continue
-            ml = ml_fair_home(latest_pre_kickoff(odds, m.utc_date, ML_MARKET))
+            ml_latest = latest_pre_kickoff(odds, m.utc_date, ML_MARKET)
+            ml = ml_fair_home(ml_latest)
             if ml is None:
                 continue
             sp = latest_pre_kickoff(odds, m.utc_date, SPREAD_MARKET, with_line=True)
@@ -193,20 +207,63 @@ def spread_fallback_check(competition_code: str, start: str | None = None,
             if cons is None:
                 continue
             derived = spread_to_home_prob(cons[0], sigma)
+            ml_books = len({o.bookmaker for o in ml_latest.values()})
+            ml_cap = _latest_capture(ml_latest.values())
+            sp_cap = _latest_capture(sp.values())
+            gap_h = (abs((ml_cap - sp_cap).total_seconds()) / 3600.0
+                     if ml_cap is not None and sp_cap is not None else None)
+            reasons = []
+            if ml_books < VET_MIN_ML_BOOKS:
+                reasons.append(f"ML_books<{VET_MIN_ML_BOOKS}")
+            if gap_h is None:
+                reasons.append("capture time unknown")
+            elif gap_h > VET_MAX_CAPTURE_GAP_H:
+                reasons.append(f"gap>{VET_MAX_CAPTURE_GAP_H:g}h")
             rows.append({
                 "match_id": m.id,
                 "date": m.utc_date.date().isoformat(),
                 "game": (f"{m.away_team.name if m.away_team else '?'} @ "
                          f"{m.home_team.name if m.home_team else '?'}"),
                 "spread": cons[0], "spread_books": cons[1],
+                "ml_books": ml_books, "ml_captured_at": ml_cap, "spread_captured_at": sp_cap,
+                "capture_gap_h": gap_h,
                 "ml_fair_home": ml, "derived_home": derived,
                 "abs_diff_pp": abs(derived - ml) * 100,
+                "vetted": not reasons, "unreliable_reasons": reasons,
             })
+    return summarize(competition_code.upper(), sigma, rows)
+
+
+def _latest_capture(rows):
+    """Most recent captured_at among the rows actually used (None if unknown)."""
+    caps = [o.captured_at for o in rows if o.captured_at is not None]
+    return max(caps) if caps else None
+
+
+def _stats(rows):
     n = len(rows)
     mean = sum(r["abs_diff_pp"] for r in rows) / n if n else None
-    fav_agree = sum(1 for r in rows
-                    if (r["derived_home"] - 0.5) * (r["ml_fair_home"] - 0.5) >= 0)
-    return {"competition": competition_code.upper(), "sigma": sigma, "rows": rows,
-            "n": n, "mean_abs_pp": mean, "favourite_agree": fav_agree,
-            "bar_pp": ACCEPTANCE_MEAN_ABS_PP,
-            "pass": (mean is not None and mean <= ACCEPTANCE_MEAN_ABS_PP)}
+    fav = sum(1 for r in rows if (r["derived_home"] - 0.5) * (r["ml_fair_home"] - 0.5) >= 0)
+    return n, mean, fav
+
+
+def summarize(competition: str, sigma: float, rows: list[dict]) -> dict:
+    """All-rows figures (as before, informational) + the VETTED verdict.
+
+    Verdict (tribunal revision): scored ONLY on vetted rows (ML_books >= 4 and
+    ML/spread capture gap <= 24h), same frozen 3.0pp bar; vetted n < 10 ->
+    INSUFFICIENT-REF, never PASS/FAIL."""
+    n, mean, fav = _stats(rows)
+    vetted = [r for r in rows if r.get("vetted")]
+    vn, vmean, vfav = _stats(vetted)
+    if vn < VET_MIN_N:
+        verdict = "INSUFFICIENT-REF"
+    elif vmean <= ACCEPTANCE_MEAN_ABS_PP:
+        verdict = "PASS"
+    else:
+        verdict = "FAIL"
+    return {"competition": competition, "sigma": sigma, "rows": rows,
+            "n": n, "mean_abs_pp": mean, "favourite_agree": fav,
+            "vetted_n": vn, "vetted_mean_abs_pp": vmean, "vetted_favourite_agree": vfav,
+            "bar_pp": ACCEPTANCE_MEAN_ABS_PP, "verdict": verdict,
+            "pass": verdict == "PASS"}

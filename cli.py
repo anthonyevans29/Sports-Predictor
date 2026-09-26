@@ -5213,24 +5213,43 @@ def spread_fallback_check_cmd(competition_code, start, end):
     (2026-09-26): on games carrying BOTH a two-sided 1X2 consensus and
     spreads (pre-kickoff captures), mean |derived - 1X2 fair| home prob in pp
     vs the frozen 3.0pp bar. Pasteable plain-text output."""
-    from src.walters.spread_fallback import spread_fallback_check
+    from src.walters.spread_fallback import (VET_MAX_CAPTURE_GAP_H, VET_MIN_ML_BOOKS,
+                                             VET_MIN_N, spread_fallback_check)
     r = spread_fallback_check(competition_code, start=start, end=end)
+
+    def ts(d):
+        return d.strftime("%m-%d %H:%M") if d else "?"
+
     print(f"spread-fallback-check {r['competition']} sigma={r['sigma']} "
           f"window={start or 'all'}..{end or 'all'}")
-    print(f"{'date':10}  {'game':44}  {'spread':>6}  {'bk':>2}  "
-          f"{'ML_fair_H':>9}  {'derived_H':>9}  {'|diff|pp':>8}")
+    print(f"vetting: ML_books >= {VET_MIN_ML_BOOKS} AND |ML - spread capture| <= "
+          f"{VET_MAX_CAPTURE_GAP_H:g}h (bar untouched; excluded rows marked UNRELIABLE-REF)")
+    print(f"{'date':10}  {'game':40}  {'spread':>6}  {'sbk':>3}  {'mlbk':>4}  "
+          f"{'ML_cap':>11}  {'SP_cap':>11}  {'gap_h':>6}  {'ML_fair_H':>9}  "
+          f"{'derived_H':>9}  {'|diff|pp':>8}  status")
     for x in r["rows"]:
-        print(f"{x['date']:10}  {x['game'][:44]:44}  {x['spread']:>+6.1f}  "
-              f"{x['spread_books']:>2}  {x['ml_fair_home']:>9.4f}  "
-              f"{x['derived_home']:>9.4f}  {x['abs_diff_pp']:>8.2f}")
-    print(f"n = {r['n']} games carrying both markets")
+        gap = f"{x['capture_gap_h']:6.1f}" if x["capture_gap_h"] is not None else "     ?"
+        status = ("scored" if x["vetted"]
+                  else "UNRELIABLE-REF (" + ", ".join(x["unreliable_reasons"]) + ")")
+        print(f"{x['date']:10}  {x['game'][:40]:40}  {x['spread']:>+6.1f}  "
+              f"{x['spread_books']:>3}  {x['ml_books']:>4}  {ts(x['ml_captured_at']):>11}  "
+              f"{ts(x['spread_captured_at']):>11}  {gap}  {x['ml_fair_home']:>9.4f}  "
+              f"{x['derived_home']:>9.4f}  {x['abs_diff_pp']:>8.2f}  {status}")
+    print(f"all rows: n = {r['n']} games carrying both markets"
+          + (f"; mean |diff| = {r['mean_abs_pp']:.2f}pp; favourite agreement = "
+             f"{r['favourite_agree']}/{r['n']} (informational)" if r["n"] else ""))
     if r["n"] == 0:
-        print("mean |diff| = n/a — NO DATA, verdict withheld")
+        print("NO DATA, verdict withheld")
         return
-    print(f"mean |diff| = {r['mean_abs_pp']:.2f}pp (bar <= {r['bar_pp']:.1f}pp, frozen)")
-    print(f"favourite agreement = {r['favourite_agree']}/{r['n']} (informational)")
-    print(f"VERDICT: {'PASS' if r['pass'] else 'FAIL'} "
-          f"({'<=' if r['pass'] else '>'} {r['bar_pp']:.1f}pp)")
+    print(f"vetted: n = {r['vetted_n']}"
+          + (f"; mean |diff| = {r['vetted_mean_abs_pp']:.2f}pp; favourite agreement = "
+             f"{r['vetted_favourite_agree']}/{r['vetted_n']}" if r["vetted_n"] else ""))
+    if r["verdict"] == "INSUFFICIENT-REF":
+        print(f"VERDICT: INSUFFICIENT-REF (vetted n {r['vetted_n']} < {VET_MIN_N}; "
+              f"bar {r['bar_pp']:.1f}pp, frozen)")
+    else:
+        print(f"VERDICT: {r['verdict']} (vetted mean "
+              f"{'<=' if r['pass'] else '>'} {r['bar_pp']:.1f}pp, frozen)")
 
 
 @cli.command("export-predictions")

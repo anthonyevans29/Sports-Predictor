@@ -1058,7 +1058,7 @@ def export_fixtures(
                     "fair_source": _fb.FAIR_SOURCE_1X2,
                 }
                 counts["with_books"] += 1
-            elif _fb.sigma_for(competition_code) is not None:
+            elif _fb.FALLBACK_LIVE and _fb.sigma_for(competition_code) is not None:
                 # Spread->win-prob fallback (2026-09-26): american-football
                 # family only, 1X2 absent, spreads present. Labelled, never
                 # blended with a 1X2 consensus.

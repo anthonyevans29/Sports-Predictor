@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (sync-odds-football rename)
+- `sync-odds-nfl` renamed `sync-odds-football` (covers NFL + NCAA); the
+  old name remains an alias — no chain changes needed.
+
 ## 2026-09-26 (H2 goalie probe verdict: NEGATIVE)
 - Docs only. The hockey provider has no goalie/lineup/player endpoints
   (only /games/events answers). H2 reopens only via an external data

@@ -78,7 +78,8 @@ INPUTS = {
     ]},
     "nfl_preds.json": {"sport": "nfl", "rehearsal": False, "predictions": [
         nfl_row("Chiefs", "Bills", 0.66, 0.60, 0.61),                     # n3 PLAY -> CANCELLED (void)
-        nfl_row("Browns", "Panthers", 0.75, 0.55, 0.50, quarantine=True), # n4 quarantine shadow + venue 5.0pp
+        nfl_row("Browns", "Panthers", 0.75, 0.55, 0.50, quarantine=True), # n4 quarantine shadow (5pp venue gap)
+        nfl_row("Jets", "Giants", 0.60, 0.72, 0.62),                       # n8 10pp book-Kalshi gap -> NO venue call
     ]},
     "fixtures_NCAA.json": {"competition_code": "NCAA", "fixtures": [
         fixture("Alabama", "Auburn", 5, (0.60, 0.40), (0.50, 0.52)),       # v1 venue: H div ~11pp -> call
@@ -168,7 +169,10 @@ def main():
               and sh[0]["shadow_units"] == 0.5, f"shadow_units={sh and sh[0].get('shadow_units')}")
         ven = by(engine="venue_edge")
         vg = sorted(c["game"] for c in ven)
-        check("venue_edge calls = NCAA Alabama + NFL Browns only", vg == ["Auburn @ Alabama", "Panthers @ Browns"], str(vg))
+        check("venue_edge calls = NCAA Alabama only (market-only charter)", vg == ["Auburn @ Alabama"], str(vg))
+        check("NFL row with a 10pp book-Kalshi gap emits NO venue call",
+              not [c for c in ven if c["sport"] == "NFL"] and
+              "model sport — model_edge only" in page.inner_text("#venueTable"))
         check("venue calls fixed 0.25u, tier shadow, hint kalshi",
               all(c["units"] == 0.25 and c["tier"] == "shadow" and c["venue_hint"] == "kalshi" for c in ven))
         legs = by(call_type="parlay_leg")

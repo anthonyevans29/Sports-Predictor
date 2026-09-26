@@ -22,6 +22,28 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#32 RULINGS 2026-09-26 (architect, attributed):** (1) RATIFIED —
+  the widened dedup key (engine + call_type + parlay slot; graded never
+  rewritten); the spec's key was underspecified. (2) RATIFIED — all extra
+  call fields; kickoff especially (grading matches game date, not log
+  date). (3) RATIFIED — the quarantine display fix. FOUND PRE-EXISTING
+  DEFECT (logged): in policy v1.0 a quarantined NFL PASS displayed 0.5
+  "caution" units because the big-edge / near-floor sizing branches ran
+  after the quarantine zeroed them; display-only (PASS rows were never
+  counted, parlayed or logged), fixed in v1.1 by applying quarantine
+  after the sizing chain. (4) RULED, SCOPE NARROWED: the venue-edge
+  engine's charter is the MARKET-ONLY family only — NHL, NCAA, cups when
+  priced. NFL and all model sports emit model_edge ONLY and are removed
+  from venue-edge candidacy entirely: the signal cannot distinguish
+  "books sharp, Kalshi soft" from "books dead", and for NFL we hold
+  direct evidence of dead books — a stale-zone venue call would buy the
+  corpse's side of the trade. The STALE-BOOK? zone tag stays for NCAA
+  attribution (college's vetted MLs looked honest where deep; the
+  >=4-book floor guards). AMENDED in #32: model rows are labelled "model
+  sport — model_edge only"; headless case added — an NFL row with a 10pp
+  book-Kalshi gap emits NO venue call (25/25). (5) RATIFIED — postponed
+  stays open; cancelled/abandoned voids. NCAA fallback disposition
+  acknowledged.
 - **COCKPIT v0.4 BUILT — THE P&L / SELF-GRADING ORGAN + VENUE-EDGE ENGINE
   (policy v1.1) 2026-09-26 (lane 1, architect spec committed verbatim as
   docs/specs/cockpit-v04-pnl-organ.md). READY TO PUBLISH (the architect

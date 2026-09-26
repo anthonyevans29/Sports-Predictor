@@ -3374,7 +3374,8 @@ def nfl_grade_cmd():
 def predict_nfl_cmd():
     """Write NFL v1 predictions for upcoming games (rehearsal machinery)."""
     from src.walters.nfl_predict import predict_nfl
-    n = predict_nfl()
+    # scope receipts via print(): pasteable, never rich-wrapped
+    n = predict_nfl(progress=print)
     console.print(f"[green]✓ Wrote {n} NFL predictions (nfl_elo_v1)[/green]")
 
 
@@ -3412,7 +3413,7 @@ def nfl_backtest_caps_cmd():
 def nfl_backtest_cmd():
     """Walk-forward NFL v1 backtest against the frozen phase-2 gate."""
     from src.walters.nfl_backtest import run_backtest
-    r = run_backtest(progress=lambda msg: console.print(msg))
+    r = run_backtest(progress=print)  # pasteable receipts incl. the scope line
     if not r.get("ok"):
         console.print(f"[yellow]✗ {r.get('reason')}[/yellow]")
     elif r["pass"]:

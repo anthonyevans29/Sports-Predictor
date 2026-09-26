@@ -31,6 +31,32 @@ specific reason they're not being built now.
   existing chains keep working. Console line now reads "Football odds
   (NFL+NCAA)". The service function name is unchanged (internal).
   docs/CLI.md + README updated.
+- **NFL MODEL PATHS HARD-SCOPED TO competition "NFL" 2026-09-26 (lane
+  6, architect PRIORITY, adjudicating #26's scope flag before Sunday's
+  predict-nfl):** READ receipts (pre-fix): NCAA football is stored under
+  Sport.NFL with Competition.code "NCAA", and EVERY NFL model path
+  filtered on `Match.sport == Sport.NFL` ONLY — rating build
+  (`nfl_predict._current_ratings`), the backtest/gate pot
+  (`nfl_backtest.run_backtest`), the prediction set (`predict_nfl`),
+  `export_nfl_predictions`, `grade_nfl`, `export_nfl_results`.
+  home_advantage is a FIXED config constant (48.0 Elo), not data-derived
+  — no contamination path there. Consequences had NCAA rows been present:
+  college games in the gate's baseline + scored sets (the synthetic
+  receipt reproduces it: 68 games = 64 NFL + 4 NCAA); NCAA fixtures
+  getting nfl_elo_v1 Prediction rows, exported and graded as NFL. NFL
+  games' OWN probabilities were not moved (Elo updates are pairwise and
+  the two team sets are disjoint), but the prediction/export/grade sets
+  and the backtest verdict were exposed. FIX: one helper,
+  `nfl_backtest.nfl_scoped()`, joins Competition and pins
+  `Competition.code == "NFL"` on every path above. RECEIPT: predict-nfl
+  prints `scope[ratings]` + `scope[prediction set]`, nfl-backtest prints
+  `scope[nfl-backtest]` — `teams=N, games=N, competitions={...}`, with a
+  SCOPE ALERT suffix whenever competitions != {NFL} or teams != 32.
+  TIMELINE (architect): the live Week-3/4 exports predate NCAA's
+  backfill — no polluted artifact exists; this closes the gap before
+  the first at-risk run (Sunday). Out of scope, left as-is: sync-odds-
+  football (family-wide by design), capture-weather-nfl (tracking only;
+  NCAA home teams already skip the stadium lookup).
 - **H2 GOALIE PROBE VERDICT — NEGATIVE, definitively (architect,
   2026-09-26, from Anthony's run of the fixed probe):** the hockey
   provider rejects /games/lineups, /games/players, /players, /injuries

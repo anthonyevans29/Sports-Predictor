@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (full-loop ruling logged: venue-edge engine)
+- Docs only. Architect ruling: a second recommendation engine
+  (venue_edge: book fair vs Kalshi, |div| >= 5.0pp, fixed 0.25u, shadow)
+  beside model_edge; ledger reports by engine; policy -> v1.1. Build
+  held for the v0.4 spec.
+
 ## 2026-09-26 (hosting H0 draft, for review)
 - Docs only. `docs/specs/hosting-h0.md`: VPS candidates, Tailscale-only
   posture, systemd unit inventory from the CLI.md chains, `.backup`-API

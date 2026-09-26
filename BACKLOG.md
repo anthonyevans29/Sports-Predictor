@@ -22,6 +22,39 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FULL-LOOP RULING 2026-09-26 (architect): the recommendation layer
+  gains a SECOND ENGINE so every dual-venue sport emits positions.
+  Extends the Cockpit v0.4 build; POLICY BUMPS v1.0 -> v1.1 (evidence-
+  set unchanged for model_edge; venue_edge added in SHADOW).**
+  (1) LEDGER SCHEMA: every call carries `engine: "model_edge" |
+  "venue_edge"`; all existing capture = model_edge.
+  (2) VENUE-EDGE ENGINE (Desk tab; market-only rows stop being
+  skipped): rows with BOTH a book consensus (bookmaker_count >= 4) AND
+  kalshi two_sided -> venue divergence = book_fair - kalshi_prob per
+  side; a candidate exists when |divergence| >= 5.0pp (FROZEN
+  a-priori). Call = the side books say Kalshi UNDERPRICES, FIXED 0.25u,
+  tier "shadow", venue_hint kalshi. UNL and any single-venue row:
+  excluded, labelled "single venue — no pair". In-play never. Parlays
+  remain model_edge-only (frozen).
+  (3) CAPTURE + GRADING: venue-edge calls log via the same button,
+  grade via the same results intake; the Ledger tab reports BY ENGINE
+  — the two income lines the mission needs, separated.
+  (4) NON-CLAIM footer addition: venue-edge P&L uses the stored kalshi
+  prob as a price proxy until the K-track delivers executable bid/ask
+  accounting; first 50 graded calls PER ENGINE before any sizing change
+  is proposable.
+  EXECUTOR NOTES (read-before-build): the fixtures export already
+  carries a top-level `kalshi` block per row (`status`, per-side `prob`
+  = de-vigged, `captured_at`) beside `market.bookmaker_count` +
+  `market.fair_prob`, so the venue divergence is computable from
+  existing export fields — no export-contract change needed. The repo
+  cockpit's normalize() currently reads only the kalshi STATUS
+  (`input_quality.kalshi`) for market-only rows; the build must read
+  `f.kalshi.prob`. Spread-derived fair never qualifies as book_fair
+  while the fallback is dark (FALLBACK_LIVE = False). BUILD STATUS:
+  held — docs/specs/cockpit-v04-pnl-organ.md (the v0.4 base spec) is
+  not yet in the repo; the venue-edge extension lands with or stacked
+  on the v0.4 build once it arrives.
 - **HOSTING H0 DRAFT 2026-09-26 (docs-only, for architect review — not
   a decision):** docs/specs/hosting-h0.md. VPS candidates (Hetzner /
   DigitalOcean / Akamai-Linode / Vultr, prices approx., verify at

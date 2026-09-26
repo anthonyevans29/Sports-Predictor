@@ -22,6 +22,25 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **MISSION DECLARED 2026-09-26 (architect):** "Generate consistent
+  income from sports predictions — sports as commodities, every game an
+  asset class, optimized for prediction markets (Kalshi-native).
+  Operationally: edge × stake × volume, survived — positive EV
+  measured, not felt; CLV the leading indicator; the P&L ledger the
+  income statement every policy change must cite. The gates become
+  MORE binding under an income goal, never less." Logged as CLAUDE.md's
+  top section. QUEUE RE-RANKS (mission consequences; specs to follow
+  from the architect one at a time): (1) Cockpit v0.4 P&L/self-grading
+  organ PROMOTED to the queue's head — it is the mission's measuring
+  instrument; (2) K-TRACK OPENED: Kalshi-executable edge accounting
+  (model_p vs stored ask, fee-adjusted floors, liquidity-aware sizing)
+  — spec after v0.4; (3) B-TRACK OPENED: bankroll doctrine (daily
+  exposure cap, drawdown circuit-breaker, cross-ticket correlation) —
+  spec after K. T-track scheduler and H2/lineup probes hold their
+  places behind these. No implementation yet. (CLAUDE.md queue: the
+  closed cup-exam and NHL Phase 2 items moved to a "Closed (record)"
+  list, status lines intact.)
+
 - **NHL MARKET-ONLY LAUNCH WIRING 2026-09-25 (daily-class; the fifth
   sport's launch vehicle, before Oct 6):** `export-fixtures --competition
   NHL` = schedule + book consensus + Kalshi presence in the fixtures

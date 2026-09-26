@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (migrate_score_90 invariant revised)
+- Receipt prints breaching rows verbatim + the AET/PEN stage table.
+  Revised law: FT 90'==score; AET/PEN 90'<=stored per side; level at
+  90' only for single-match ties (stage-based). No column changes —
+  re-run `python migrate_score_90.py` after merge.
+
 ## 2026-09-26 (H2 probe fix; morning findings logged)
 - `scripts/h2_goalie_probe.py`: prints one raw /games object verbatim
   first; date/timestamp parsing tolerant of the hockey string shape

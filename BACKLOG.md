@@ -22,6 +22,24 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **migrate_score_90 INVARIANT REVISED 2026-09-26 (architect ruling,
+  daily-class):** Anthony's first run printed BREACHED, but FT 370/370
+  (90' == stored) says score.fulltime = 90' semantics are LIKELY RIGHT
+  and the invariant LIKELY WRONG: the pot's AET/PEN rows include
+  TWO-LEGGED qualifying ties, where ET triggers on AGGREGATE level — a
+  second leg need not be level at 90'. Revised law: FT 90' == stored
+  stays MANDATORY; every AET/PEN row asserts 90' <= stored per side (ET
+  can only add goals); level-at-90' applies ONLY to SINGLE-match ties,
+  classified by STAGE (FAC/CS/WC/EURO every round; any "Final";
+  EFL all but the semis; UEFA club comps only "Preliminary Round";
+  UNL finals four). Unknown stages stay UNCLASSIFIED (universal check
+  only — never guessed into the strict law). The receipt now PRINTS
+  every breaching row verbatim (comp, season, stage, date, teams,
+  stored, fulltime, class, leg1 = a reverse fixture earlier in the
+  comp+season) plus the AET/PEN stage-classification vocabulary table,
+  and the verdict line re-prints HOLD/BREACHED under the revised law.
+  No column changes. Anthony re-runs the migration after merge; rows +
+  verdict go to the architect.
 - **MORNING FINDINGS 2026-09-26 (architect, from Anthony's real runs):**
   (1) STATUS_RAW SPLITS (after #16's migrate + full NHL sync): 20-25%
   of NHL games are decided past regulation — 2024: 1194 FT / 229 AOT /

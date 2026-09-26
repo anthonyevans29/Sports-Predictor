@@ -68,15 +68,31 @@ def _old_db(tmp_path, with_status_raw=True):
     eng = create_engine(f"sqlite:///{tmp_path / 'old.db'}")
     raw = ", status_raw VARCHAR(16)" if with_status_raw else ""
     with eng.begin() as c:
+        c.execute(text("CREATE TABLE competitions (id INTEGER PRIMARY KEY, code VARCHAR)"))
+        c.execute(text("CREATE TABLE teams (id INTEGER PRIMARY KEY, name VARCHAR)"))
         c.execute(text("CREATE TABLE matches (id INTEGER PRIMARY KEY, sport VARCHAR, status VARCHAR, "
-                       f"home_score INTEGER, away_score INTEGER{raw})"))
+                       "competition_id INTEGER, season VARCHAR, stage VARCHAR, utc_date DATETIME, "
+                       f"home_team_id INTEGER, away_team_id INTEGER, home_score INTEGER, away_score INTEGER{raw})"))
+        c.execute(text("INSERT INTO competitions VALUES (1,'CL'),(2,'FAC'),(3,'NHL')"))
+        c.execute(text("INSERT INTO teams VALUES (1,'Home FC'),(2,'Away FC')"))
         if with_status_raw:
-            c.execute(text("INSERT INTO matches VALUES (1,'SOCCER','FINISHED',2,1,'AET'),"
-                           "(2,'SOCCER','FINISHED',2,1,'FT'),(3,'NHL','FINISHED',3,2,'AOT')"))
+            c.execute(text(
+                "INSERT INTO matches VALUES "
+                # CL 2nd-qualifying tie: leg 1 (FT 1-0), leg 2 AET not level at 90' (0-1 -> 0-2 aet)
+                "(1,'SOCCER','FINISHED',1,'2025/26','2nd Qualifying Round','2025-07-22 18:00:00',1,2,1,0,'FT'),"
+                "(2,'SOCCER','FINISHED',1,'2025/26','2nd Qualifying Round','2025-07-29 18:00:00',2,1,2,0,'AET'),"
+                # FA Cup single match, AET
+                "(3,'SOCCER','FINISHED',2,'2025/26','3rd Round','2026-01-10 15:00:00',1,2,2,1,'AET'),"
+                "(4,'NHL','FINISHED',3,'2025',NULL,'2025-10-08 23:00:00',1,2,3,2,'AOT')"))
     return eng
 
 
-def test_migration_adds_columns_idempotently_and_checks_invariants(tmp_path, monkeypatch, capsys):
+def _set90(eng, mid, h, a):
+    with eng.begin() as c:
+        c.execute(text(f"UPDATE matches SET home_score_90={h}, away_score_90={a} WHERE id={mid}"))
+
+
+def test_migration_adds_columns_idempotently(tmp_path, monkeypatch, capsys):
     import migrate_score_90 as mig
 
     eng = _old_db(tmp_path)
@@ -86,14 +102,63 @@ def test_migration_adds_columns_idempotently_and_checks_invariants(tmp_path, mon
     assert "+ Adding matches.home_score_90" in out and "+ Adding matches.away_score_90" in out
     assert "AET" in out and "AOT" not in out                # soccer only
     assert "HOLD" in out                                    # nothing synced yet: vacuous
-    with eng.begin() as c:
+    with eng.connect() as c:
         assert c.execute(text("SELECT id, home_score FROM matches ORDER BY id")).all() == \
-            [(1, 2), (2, 2), (3, 3)]                        # data kept
-        c.execute(text("UPDATE matches SET home_score_90=1, away_score_90=1 WHERE id=1"))  # level: ok
-        c.execute(text("UPDATE matches SET home_score_90=1, away_score_90=1 WHERE id=2"))  # FT != score
+            [(1, 1), (2, 2), (3, 2), (4, 3)]                # data kept
+    assert mig.main() == 0
+    assert "already exists" in capsys.readouterr().out      # second run: no-op
+
+
+def test_revised_invariants_two_legged_tie_holds(tmp_path, monkeypatch, capsys):
+    """The architect's case: a two-legged 2nd leg AET is NOT level at 90' — that's fine."""
+    import migrate_score_90 as mig
+
+    eng = _old_db(tmp_path)
+    monkeypatch.setattr(mig, "get_engine", lambda: eng)
+    mig.main()
+    capsys.readouterr()
+    _set90(eng, 1, 1, 0)          # FT == stored
+    _set90(eng, 2, 1, 0)          # leg 2: 1-0 at 90' (agg 1-1), 2-0 aet
+    _set90(eng, 3, 1, 1)          # single match: level at 90'
     assert mig.main() == 0
     out = capsys.readouterr().out
-    assert "already exists" in out and "BREACHED — FT: 1 row(s)" in out and "AET:" not in out
+    assert "CL     2nd Qualifying Round             two-legged        1" in out
+    assert "FAC    3rd Round                        single            1" in out
+    assert "(none)" in out and out.rstrip().splitlines()[-2].endswith("HOLD")
+
+
+def test_revised_invariants_print_breaching_rows_verbatim(tmp_path, monkeypatch, capsys):
+    import migrate_score_90 as mig
+
+    eng = _old_db(tmp_path)
+    monkeypatch.setattr(mig, "get_engine", lambda: eng)
+    mig.main()
+    capsys.readouterr()
+    _set90(eng, 1, 0, 0)          # FT but 90' != stored
+    _set90(eng, 2, 3, 0)          # 90' home 3 > stored 2: ET can't remove goals
+    _set90(eng, 3, 2, 1)          # single-match AET not level at 90'
+    mig.main()
+    out = capsys.readouterr().out
+    assert ("[AET 90'>stored] #2 CL 2025/26 | 2nd Qualifying Round | 2025-07-29 18:00:00 | "
+            "Away FC v Home FC | AET stored 2-0 | fulltime 3-0 | class two-legged | leg1 Y") in out
+    assert "[AET single not level] #3 FAC" in out and "leg1 n" in out
+    assert "[FT 90'!=score] #1 CL" in out
+    assert "BREACHED — AET 90'>stored: 1; AET single not level: 1; FT 90'!=score: 1" in out
+
+
+def test_classify_stage():
+    c = mig_classify()
+    assert c("CL", "Final") == "single" and c("CL", "Preliminary Round") == "single"
+    assert c("CL", "Round of 16") == "two-legged" and c("UEL", "Play-offs") == "two-legged"
+    assert c("EFL", "Semi-finals") == "two-legged" and c("EFL", "2nd Round") == "single"
+    assert c("FAC", "Semi-finals") == "single" and c("WC", "Round of 16") == "single"
+    assert c("UNL", "Semi-finals") == "single" and c("UNL", "Quarter-finals") == "two-legged"
+    assert c("ELC", "Play-offs") == "unclassified" and c("CL", None) == "unclassified"
+
+
+def mig_classify():
+    import migrate_score_90 as mig
+    return mig.classify_stage
 
 
 def test_migration_requires_status_raw(tmp_path, monkeypatch, capsys):

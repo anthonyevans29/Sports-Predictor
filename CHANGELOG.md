@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (NHL raw status storage)
+- matches.status_raw: the provider's status code kept verbatim; the
+  hockey adapter stores FT/AOT/AP (OT/SO wins distinguishable). Run
+  `python migrate_status_raw.py` after merge, then a full NHL sync.
+
 ## 2026-09-26 (mission declared)
 - CLAUDE.md: Mission section (architect, verbatim) at the top; queue
   re-ranked — Cockpit v0.4 P&L/self-grading at the head, K-track

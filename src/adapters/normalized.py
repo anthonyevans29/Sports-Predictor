@@ -54,6 +54,7 @@ class NormalizedMatch:
 
     matchday: int | None = None
     stage: str | None = None
+    status_raw: str | None = None  # provider's status code verbatim (FT/AOT/AP/AET/PEN...)
     home_score: int | None = None
     away_score: int | None = None
     home_score_ht: int | None = None

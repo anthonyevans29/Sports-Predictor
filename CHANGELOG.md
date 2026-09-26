@@ -13,6 +13,13 @@ Every drop adds an entry going forward.
 - Logged: lane 6 closed (scope clean, gate 0.6361 PASS), score-90 HOLD,
   quarantine ruling ratified as built, #27 lands as a draft.
 
+## 2026-09-26 (hosting H0 draft, for review)
+- Docs only. `docs/specs/hosting-h0.md`: VPS candidates, Tailscale-only
+  posture, systemd unit inventory from the CLI.md chains, `.backup`-API
+  migration runbook (checksums, 7-day parallel run), receipts-log
+  format, CLI.md/cli.py discrepancies, ARCHITECT-RULE open questions.
+  Draft for architect review — not a decision; nothing deployed.
+
 ## 2026-09-26 (spread->win-prob fallback, american football)
 - NFL/NCAA games with no 1X2 consensus but posted spreads now get a
   spread-derived fair (normal margin; median book home line; sigma

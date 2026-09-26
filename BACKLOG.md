@@ -52,6 +52,25 @@ specific reason they're not being built now.
   BUILT — derived prices never feed the quarantine contract. (5) #27
   (hosting H0) merges AS A DRAFT: landing in-repo is not ratification;
   the architect reviews its content before any H1 work.
+- **HOSTING H0 DRAFT 2026-09-26 (docs-only, for architect review — not
+  a decision):** docs/specs/hosting-h0.md. VPS candidates (Hetzner /
+  DigitalOcean / Akamai-Linode / Vultr, prices approx., verify at
+  purchase); Tailscale-only posture (no public ports; web UI stays on
+  127.0.0.1 behind an SSH tunnel because guards.py's require_localhost
+  would be widened to the whole tailnet by `tailscale serve`); systemd
+  unit inventory mapped from docs/CLI.md + pl_weekly_routine.md chains
+  (backup-before-chain via Requires/After; soccer-refresh pulls its own
+  pre-refresh .backup; OnFailure notifier; flock'd DB lock); migration
+  runbook (.backup -> sha256 both ends -> scp over tailnet -> integrity
+  + row-count receipts; 7-day parallel run with the laptop as writer of
+  record and the host copy DISPOSABLE; cutover = a second fresh
+  .backup); receipts JSON-lines spec. LAW 1 RECEIPT: all CLI.md command
+  names exist among cli.py's 82 @cli.command decorators; discrepancies
+  D1-D8 logged in the doc (notably `sync-matches --date` has no such
+  option; `sync-kalshi-ncaa` undocumented in CLI.md; CLI.md still says
+  weekly backup). 21 ARCHITECT-RULE questions. Nothing built or bought.
+  Queue position unchanged (T-track groundwork behind v0.4/K/B).
+
 - **SPREAD->WIN-PROB FALLBACK (gate-class-lite, architect spec
   2026-09-26) — built; acceptance receipt pending Anthony's real run;
   bar 3.0pp frozen before results.** Where an american-football game

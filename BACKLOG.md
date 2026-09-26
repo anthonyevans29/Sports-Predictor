@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **H2 goalie/lineup PROBE shipped 2026-09-26 (authorization item 3
+  of 4, daily-class, read-only):** `scripts/h2_goalie_probe.py`, the
+  ncaa_phase0 pattern. Question: does the hockey provider
+  (v1.hockey.api-sports.io, NHL league 57) expose starting goalies /
+  lineups? Enumerates candidate endpoints (games/events, games/players,
+  games/lineups, games/statistics, games/players/statistics, players,
+  injuries) on the latest finished 2025 game, prints every field path
+  plus goalie-hinting paths, checks historical depth on the earliest
+  finished game of 2025/2024/2023 for endpoints that answered, and
+  checks the next upcoming game for pre-game availability. No writes,
+  no wiring, never raises past a failed endpoint. Receipt is Anthony's
+  real run pasted to the architect — the H2 reopening condition for the
+  NHL model track is judged there, not here.
 - **MISSION DECLARED 2026-09-26 (architect):** "Generate consistent
   income from sports predictions — sports as commodities, every game an
   asset class, optimized for prediction markets (Kalshi-native).

@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (full-loop ruling logged: venue-edge engine)
+- Docs only. Architect ruling: a second recommendation engine
+  (venue_edge: book fair vs Kalshi, |div| >= 5.0pp, fixed 0.25u, shadow)
+  beside model_edge; ledger reports by engine; policy -> v1.1. Build
+  held for the v0.4 spec.
+
 ## 2026-09-26 (spread-fallback check vetted; fallback dark)
 - `spread-fallback-check`: per-row ML_books + capture timestamps/gap;
   verdict on the vetted set only (ML_books >= 4, gap <= 24h; same 3.0pp

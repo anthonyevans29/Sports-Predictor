@@ -108,7 +108,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
     <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
-    <b>VENUE-EDGE</b> (shadow) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.
+    <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.
   </div>
 </div>
 
@@ -312,6 +312,11 @@ function kalFromPrediction(p,mk,fair){
 const VENUE={minBooks:4,minDivPP:5.0,units:0.25,staleGapPP:8.0};  // frozen a-priori
 function venueEdge(r,now){
   const out={eligible:false,reason:"",side:null,divPP:null,bookP:null,kalP:null,sides:{}};
+  // Charter (architect ruling 2026-09-26): the MARKET-ONLY family only (NHL,
+  // NCAA, cups when priced). Model sports emit model_edge ONLY — the signal
+  // cannot tell "books sharp, Kalshi soft" from "books dead", and NFL books
+  // were found stale at source.
+  if(!r.marketOnly){out.reason="model sport — model_edge only (venue charter: market-only family)";return out;}
   if(r.sport==="UNL"){out.reason="single venue — no pair (UNL)";return out;}
   if(r.utc&&new Date(r.utc).getTime()<=now){out.reason="in-play — never";return out;}
   const fair=r.fairAll||{}; const hasBook=(r.books||0)>0&&fair.HOME!=null&&fair.AWAY!=null;

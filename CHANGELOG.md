@@ -12,6 +12,8 @@ Every drop adds an entry going forward.
 - docs/specs/cockpit-v04-pnl-organ.md (spec, verbatim).
 - scripts/cockpit_v04_verify.py: headless capture -> grade -> report
   check (24/24).
+- Venue-edge charter narrowed (ruling): market-only family only (NHL,
+  NCAA, cups when priced); model sports (NFL etc.) emit model_edge only.
 - venue.py: doc line — fixtures' kalshi.prob is the raw stored value.
 
 ## 2026-09-26 (NFL export: STALE-BOOK? venue flag)

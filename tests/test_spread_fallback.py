@@ -115,10 +115,17 @@ def af():
     init_db()
     pre = KICK - timedelta(hours=3)
     with session_scope() as s:
-        nfl = Competition(sport=Sport.NFL, code="NFL", name="NFL", area="USA", type="LEAGUE")
-        ncaa = Competition(sport=Sport.NFL, code="NCAA", name="NCAA Football", area="USA",
-                           type="LEAGUE")
-        s.add_all([nfl, ncaa])
+        # get-or-create: other test modules share this throwaway DB and may
+        # already hold the NFL / NCAA competitions (unique on sport+code)
+        def comp(code, name):
+            c = s.execute(select(Competition).where(Competition.sport == Sport.NFL,
+                                                    Competition.code == code)).scalar_one_or_none()
+            if c is None:
+                c = Competition(sport=Sport.NFL, code=code, name=name, area="USA", type="LEAGUE")
+                s.add(c)
+            return c
+        nfl = comp("NFL", "NFL")
+        ncaa = comp("NCAA", "NCAA Football")
         t = [Team(sport=Sport.NFL, name=n) for n in
              ("Chiefs", "Bills", "Eagles", "Cowboys", "Bama", "Auburn", "Jets", "Pats")]
         s.add_all(t)
@@ -171,7 +178,8 @@ def test_fixtures_export_labels_source(af, tmp_path):
     assert rc["with_books"] == 1 and rc["with_spread_derived"] == 1
 
     doc = json.loads(open(export_fixtures("NCAA", out_dir=str(tmp_path))).read())
-    n = doc["fixtures"][0]["market"]
+    # by id: other modules sharing the throwaway DB may add NCAA fixtures
+    n = {r["match_id"]: r for r in doc["fixtures"]}[af["ncaa"]]["market"]
     assert n["fair_source"] == "spread_derived" and n["spread_sigma"] == 16.5
     assert n["fair_prob"]["HOME"] == pytest.approx(fb.spread_to_home_prob(-10.0, 16.5), abs=1e-4)
 

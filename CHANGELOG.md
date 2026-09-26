@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (lineup-history probe)
+- `scripts/lineup_history_probe.py`: read-only probe of API-Football's
+  per-match lineup history — declared coverage per season plus spot
+  checks (lineups + per-player minutes). No DB access, no wiring.
+  Anthony runs it and pastes the output to the architect.
+
 ## 2026-09-26 (mission declared)
 - CLAUDE.md: Mission section (architect, verbatim) at the top; queue
   re-ranked — Cockpit v0.4 P&L/self-grading at the head, K-track

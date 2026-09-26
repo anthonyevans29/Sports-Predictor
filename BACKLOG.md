@@ -31,6 +31,15 @@ specific reason they're not being built now.
   directory. Receipts: the new subprocess test fails on the old code
   (import created the dir) and passes now; `import cli` leaves no data/.
   Engine, pragmas and DATABASE_URL handling otherwise unchanged.
+- **`sync-odds-nfl` RENAMED -> `sync-odds-football` 2026-09-26 (lane 3
+  of the architect's expanded parallel authorization; cosmetic):** the
+  command's Sport.NFL family filter already covers NCAA (verified in
+  `sync_odds_nfl`: `Match.sport == Sport.NFL`; the Sport enum has no
+  separate NCAA member), so the old name misled an operator. The old
+  name stays registered as an ALIAS (same click Command object), so
+  existing chains keep working. Console line now reads "Football odds
+  (NFL+NCAA)". The service function name is unchanged (internal).
+  docs/CLI.md + README updated.
 - **NCAA BOOK-MARKET FINDING + two queued items 2026-09-26 (architect,
   from near-kickoff receipts):**
   (1) FINDING: the provider DOES carry college odds — labels seen

@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (spread-fallback check vetted; fallback dark)
+- `spread-fallback-check`: per-row ML_books + capture timestamps/gap;
+  verdict on the vetted set only (ML_books >= 4, gap <= 24h; same 3.0pp
+  bar); UNRELIABLE-REF rows printed; INSUFFICIENT-REF when vetted n < 10.
+- Spread fallback gated DARK (`FALLBACK_LIVE = False`): exports carry
+  1X2-sourced fair prices only until a vetted PASS.
+- Logged: lane 6 closed (scope clean, gate 0.6361 PASS), score-90 HOLD,
+  quarantine ruling ratified as built, #27 lands as a draft.
+
 ## 2026-09-26 (hosting H0 draft, for review)
 - Docs only. `docs/specs/hosting-h0.md`: VPS candidates, Tailscale-only
   posture, systemd unit inventory from the CLI.md chains, `.backup`-API

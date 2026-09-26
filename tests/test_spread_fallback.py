@@ -161,8 +161,25 @@ def af():
     Base.metadata.drop_all(get_engine())
 
 
-def test_fixtures_export_labels_source(af, tmp_path):
+def test_fallback_is_dark_by_default(af, tmp_path):
+    """Acceptance FAILED x2 -> the fallback stays dark: spread-only rows keep
+    market=null in both exports; 1X2 rows are still labelled."""
     from src.walters.export import export_fixtures
+    from src.walters.nfl_predict import export_nfl_predictions
+    assert fb.FALLBACK_LIVE is False
+    rc = {}
+    doc = json.loads(open(export_fixtures("NFL", out_dir=str(tmp_path), receipts=rc)).read())
+    rows = {r["match_id"]: r for r in doc["fixtures"]}
+    assert rows[af["both"]]["market"]["fair_source"] == "1X2"
+    assert rows[af["sp_only"]]["market"] is None and rc["with_spread_derived"] == 0
+    doc = json.loads(open(export_nfl_predictions(out_dir=str(tmp_path))).read())
+    rows = {r["match_id"]: r for r in doc["predictions"]}
+    assert rows[af["sp_only"]]["market"] is None
+
+
+def test_fixtures_export_labels_source(af, tmp_path, monkeypatch):
+    from src.walters.export import export_fixtures
+    monkeypatch.setattr(fb, "FALLBACK_LIVE", True)   # the (dark) live path, still tested
     before = _counts()
     rc = {}
     doc = json.loads(open(export_fixtures("NFL", out_dir=str(tmp_path), receipts=rc)).read())
@@ -184,8 +201,9 @@ def test_fixtures_export_labels_source(af, tmp_path):
     assert n["fair_prob"]["HOME"] == pytest.approx(fb.spread_to_home_prob(-10.0, 16.5), abs=1e-4)
 
 
-def test_nfl_predictions_export_fallback_does_not_touch_quarantine(af, tmp_path):
+def test_nfl_predictions_export_fallback_does_not_touch_quarantine(af, tmp_path, monkeypatch):
     from src.walters.nfl_predict import export_nfl_predictions
+    monkeypatch.setattr(fb, "FALLBACK_LIVE", True)
     doc = json.loads(open(export_nfl_predictions(out_dir=str(tmp_path))).read())
     rows = {r["match_id"]: r for r in doc["predictions"]}
     b = rows[af["both"]]
@@ -209,7 +227,10 @@ def test_receipt_check_and_cli(af):
     ia = (1 / 3.10 + 1 / 3.00) / 2
     assert row["ml_fair_home"] == pytest.approx(ih / (ih + ia), abs=1e-9)
     assert r["mean_abs_pp"] == pytest.approx(abs(row["derived_home"] - row["ml_fair_home"]) * 100)
-    assert r["pass"] is (r["mean_abs_pp"] <= 3.0)
+    # vetting evidence: 2 ML books (< 4) -> UNRELIABLE-REF, so vetted n = 0
+    assert row["ml_books"] == 2 and row["vetted"] is False
+    assert row["unreliable_reasons"] == ["ML_books<4"] and row["capture_gap_h"] is not None
+    assert r["vetted_n"] == 0 and r["verdict"] == "INSUFFICIENT-REF" and r["pass"] is False
     assert fb.spread_fallback_check("NCAA")["n"] == 0            # spreads only: not in receipt
     with pytest.raises(ValueError):
         fb.spread_fallback_check("NHL")
@@ -217,6 +238,35 @@ def test_receipt_check_and_cli(af):
     from cli import cli
     out = CliRunner().invoke(cli, ["spread-fallback-check", "--competition", "NFL"]).output
     assert "Bills @ Chiefs" in out and "n = 1 games" in out
-    assert "VERDICT: PASS" in out or "VERDICT: FAIL" in out
+    assert "UNRELIABLE-REF (ML_books<4)" in out and "mlbk" in out and "ML_cap" in out
+    assert "vetted: n = 0" in out
+    assert "VERDICT: INSUFFICIENT-REF (vetted n 0 < 10; bar 3.0pp, frozen)" in out
     out = CliRunner().invoke(cli, ["spread-fallback-check", "--competition", "NCAA"]).output
     assert "NO DATA, verdict withheld" in out
+
+
+def _row(diff_pp, books=5, gap=1.0, agree=True):
+    ml = 0.60
+    d = ml + diff_pp / 100 if agree else 0.40
+    reasons = ([] if books >= fb.VET_MIN_ML_BOOKS else ["ML_books<4"]) + \
+              ([] if gap <= fb.VET_MAX_CAPTURE_GAP_H else ["gap>24h"])
+    return {"ml_fair_home": ml, "derived_home": d, "abs_diff_pp": abs(d - ml) * 100,
+            "ml_books": books, "capture_gap_h": gap, "vetted": not reasons,
+            "unreliable_reasons": reasons}
+
+
+def test_vetted_verdict_excludes_unreliable_reference_rows():
+    # 10 clean rows at 2pp + catastrophic sign-disagreement rows on thin / stale MLs
+    rows = [_row(2.0) for _ in range(10)] + [_row(0, books=1, agree=False),
+                                             _row(0, books=6, gap=40.0, agree=False)]
+    r = fb.summarize("NFL", 13.45, rows)
+    assert r["n"] == 12 and r["mean_abs_pp"] > 3.0          # all-rows figure: would FAIL
+    assert r["vetted_n"] == 10 and r["vetted_mean_abs_pp"] == pytest.approx(2.0)
+    assert r["verdict"] == "PASS" and r["pass"] is True     # same 3.0pp bar, vetted set
+
+
+def test_vetted_verdict_fail_and_insufficient():
+    assert fb.summarize("NFL", 13.45, [_row(4.0) for _ in range(10)])["verdict"] == "FAIL"
+    r = fb.summarize("NCAA", 16.5, [_row(1.0) for _ in range(9)] + [_row(1.0, books=2)])
+    assert r["vetted_n"] == 9 and r["verdict"] == "INSUFFICIENT-REF" and r["pass"] is False
+    assert fb.ACCEPTANCE_MEAN_ABS_PP == 3.0                  # the bar did not move

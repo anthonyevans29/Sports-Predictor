@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (sync-odds-football rename)
+- `sync-odds-nfl` renamed `sync-odds-football` (covers NFL + NCAA); the
+  old name remains an alias — no chain changes needed.
+
 ## 2026-09-26 (NCAA book-market finding logged)
 - Docs only. College books post spreads, not moneylines: 12/116 book
   consensus vs Kalshi 99/116 — Kalshi-primary confirmed. Queued:

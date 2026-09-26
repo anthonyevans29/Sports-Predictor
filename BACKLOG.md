@@ -41,6 +41,24 @@ specific reason they're not being built now.
   weekly backup). 21 ARCHITECT-RULE questions. Nothing built or bought.
   Queue position unchanged (T-track groundwork behind v0.4/K/B).
 
+- **NCAA BOOK-MARKET FINDING + two queued items 2026-09-26 (architect,
+  from near-kickoff receipts):**
+  (1) FINDING: the provider DOES carry college odds — labels seen
+  1X2 x~45 vs SPREADS x665, TOTALS x1029 — but college books post
+  SPREADS, not moneylines (US convention; no ML on 20-point favorites,
+  e.g. Texas-Tennessee unpriced at T-60). Our consensus joins 1X2 only
+  -> 12/116 fixtures carry a book consensus while Kalshi covers 99/116
+  (154 prices, 59 two-sided). Kalshi-primary doctrine for college
+  CONFIRMED at matchday scale.
+  (2) RULED + QUEUED (K-track, architect-specced, AFTER Cockpit v0.4):
+  spread -> win-probability conversion as the fair-price FALLBACK where
+  1X2 is absent. It is an EXPORT-CONTRACT change; the spec comes from
+  the architect. NOT built now.
+  (3) COSMETIC QUEUED for the next daily batch: rename `sync-odds-nfl`
+  -> `sync-odds-football`, keeping the old name as an alias. Its
+  Sport.NFL family filter already covers NCAA; the name predates the
+  sixth family and caused an operator double-check today. Not done in
+  this docs-only PR.
 - **NFL MODEL PATHS HARD-SCOPED TO competition "NFL" 2026-09-26 (lane
   6, architect PRIORITY, adjudicating #26's scope flag before Sunday's
   predict-nfl):** READ receipts (pre-fix): NCAA football is stored under

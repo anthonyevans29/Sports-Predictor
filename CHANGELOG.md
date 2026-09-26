@@ -11,6 +11,12 @@ Every drop adds an entry going forward.
 - BACKLOG: architect findings — NHL 20-25% past-regulation (status_raw
   splits); lineup probe GREEN (XI from ~2015, minutes from ~2018).
 
+## 2026-09-26 (soccer ET flag + 90-minute score)
+- Football adapter stores status_raw (FT/AET/PEN) and score.fulltime in
+  new matches.home_score_90 / away_score_90. Storage only — scores and
+  results unchanged. Run `python migrate_score_90.py` after merge
+  (receipt includes the 90-minute invariants).
+
 ## 2026-09-26 (lineup-history probe)
 - `scripts/lineup_history_probe.py`: read-only probe of API-Football's
   per-match lineup history — declared coverage per season plus spot

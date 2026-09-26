@@ -156,6 +156,12 @@ class Match(Base):
     away_score: Mapped[int | None] = mapped_column(Integer)
     home_score_ht: Mapped[int | None] = mapped_column(Integer)
     away_score_ht: Mapped[int | None] = mapped_column(Integer)
+    # Soccer: API-Football score.fulltime verbatim — the 90-minute score
+    # (home/away_score are `goals`, which INCLUDE extra time). NULL = not
+    # synced since the column was added, or not a soccer row. The ET flag
+    # is status_raw in (AET, PEN). Added by migrate_score_90.py (2026-09-26).
+    home_score_90: Mapped[int | None] = mapped_column(Integer)
+    away_score_90: Mapped[int | None] = mapped_column(Integer)
     full_time_result: Mapped[Result | None] = mapped_column(Enum(Result))
 
     venue: Mapped[str | None] = mapped_column(String(128))

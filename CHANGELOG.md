@@ -8,6 +8,12 @@ Every drop adds an entry going forward.
 - `sync-odds-nfl` renamed `sync-odds-football` (covers NFL + NCAA); the
   old name remains an alias — no chain changes needed.
 
+## 2026-09-26 (NCAA book-market finding logged)
+- Docs only. College books post spreads, not moneylines: 12/116 book
+  consensus vs Kalshi 99/116 — Kalshi-primary confirmed. Queued:
+  spread->win-prob fallback (K-track, after Cockpit v0.4, architect
+  spec); `sync-odds-nfl` -> `sync-odds-football` rename (next daily batch).
+
 ## 2026-09-26 (NFL model paths scoped to competition NFL)
 - Ratings, backtest pot, prediction set, export and grading now select
   Competition.code == "NFL" explicitly (NCAA shares Sport.NFL).

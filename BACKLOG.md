@@ -22,6 +22,23 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **Lineup-history PROBE shipped 2026-09-26 (authorization item 4
+  of 4, daily-class, read-only):** `scripts/lineup_history_probe.py`.
+  Question: what historical soccer lineup data does API-Football hold
+  per match, how far back, which fields — the cup R-track's reopening
+  groundwork (rotation-aware candidate on as-of lineup data). League
+  ids come from the adapter's own `_CODE_TO_LEAGUE_ID` (law 1). Per
+  comp (default EFL, FAC, CL, UEL, UECL, PL, ELC; `--comps` overrides):
+  Q1 the provider's DECLARED per-season coverage flags (fixtures.lineups
+  / statistics_players / players) incl. gaps; Q2 SPOT CHECKS on one
+  finished fixture in the latest finished, middle and earliest declared
+  season — /fixtures/lineups (XI, subs, formation, coach, player id /
+  pos / grid counts) and /fixtures/players (minutes, position,
+  substitute flag). Throttled to API_FOOTBALL_RPM; ~10 requests/comp.
+  No writes, no wiring. Note for the architect: provider lineups are
+  published ~1h pre-kickoff, so history is post-hoc truth — "as-of" for
+  a candidate means the lineup known at prediction time, which the probe
+  does not (cannot) establish. Receipt is Anthony's real run.
 - **H2 goalie/lineup PROBE shipped 2026-09-26 (authorization item 3
   of 4, daily-class, read-only):** `scripts/h2_goalie_probe.py`, the
   ncaa_phase0 pattern. Question: does the hockey provider

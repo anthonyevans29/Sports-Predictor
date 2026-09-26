@@ -40,6 +40,27 @@ specific reason they're not being built now.
   and the verdict line re-prints HOLD/BREACHED under the revised law.
   No column changes. Anthony re-runs the migration after merge; rows +
   verdict go to the architect.
+- **MORNING FINDINGS 2026-09-26 (architect, from Anthony's real runs):**
+  (1) STATUS_RAW SPLITS (after #16's migrate + full NHL sync): 20-25%
+  of NHL games are decided past regulation — 2024: 1194 FT / 229 AOT /
+  79 AP; 2025: 1128 FT / 242 AOT / 128 AP. This is the MEASURED
+  mechanism behind the ~0.691 schedule-only floor, and H2's SECOND
+  conditioning variable (after the goalie). (2) LINEUP PROBE VERDICT
+  GREEN: XI + formation from ~2015 (EFL / CL / UEL / PL / ELC);
+  per-player minutes from ~2018, domestic-English only; FAC has
+  early-round holes. Winter rotation R-track FEASIBLE; the T-60
+  re-price architecture stands. No implementation implied — the
+  tracks' specs come from the architect.
+- **H2 PROBE FIX 2026-09-26 (architect-directed):** the probe crashed
+  in `_game_ids` — hockey /games items carry "date" as an ISO STRING
+  (with a top-level "timestamp"), not football's {"timestamp": ...}
+  dict. The probe violated law 1 on the very payload it was probing
+  (and its test fixture guessed the same wrong shape). Fix: print ONE
+  raw /games object verbatim FIRST (the vocabulary receipt), then parse
+  date/timestamp tolerant of both shapes (unparseable -> 0, never
+  raises); the test fixture now uses the real flat shape and
+  reproduces the crash on the old code. PR #17 had already merged, so
+  this rides a NEW PR from the same branch restarted on main.
 - **Soccer ET flag + 90-minute score STORED 2026-09-26 (authorization
   item 2 of 4, daily-class; the fix-v2 ET label-contamination data item,
   architect ruling 2026-09-25 "store API-Football score.fulltime and the

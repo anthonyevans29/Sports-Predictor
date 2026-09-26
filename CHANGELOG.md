@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (data/ created at connect time)
+- Importing the package no longer creates an empty data/ directory; the
+  SQLite directory is created on first connection instead.
+
 ## 2026-09-26 (H2 goalie probe verdict: NEGATIVE)
 - Docs only. The hockey provider has no goalie/lineup/player endpoints
   (only /games/events answers). H2 reopens only via an external data

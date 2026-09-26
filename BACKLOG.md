@@ -22,6 +22,15 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **data/ mkdir moved import-time -> connect-time 2026-09-26 (lane 4 of
+  the architect's expanded parallel authorization; the CI-hygiene nit
+  from #19):** `src/db/database.py` created the SQLite directory at
+  IMPORT, so `import cli` (CI's import smoke) left an empty data/ behind.
+  The mkdir now runs in a `do_connect` engine event — before the first
+  DBAPI connect — so the first real connection still finds its
+  directory. Receipts: the new subprocess test fails on the old code
+  (import created the dir) and passes now; `import cli` leaves no data/.
+  Engine, pragmas and DATABASE_URL handling otherwise unchanged.
 - **H2 GOALIE PROBE VERDICT — NEGATIVE, definitively (architect,
   2026-09-26, from Anthony's run of the fixed probe):** the hockey
   provider rejects /games/lineups, /games/players, /players, /injuries

@@ -15,6 +15,10 @@ Every drop adds an entry going forward.
   Acceptance receipt pending Anthony's real run; bar 3.0pp frozen
   before results.
 
+## 2026-09-26 (data/ created at connect time)
+- Importing the package no longer creates an empty data/ directory; the
+  SQLite directory is created on first connection instead.
+
 ## 2026-09-26 (sync-odds-football rename)
 - `sync-odds-nfl` renamed `sync-odds-football` (covers NFL + NCAA); the
   old name remains an alias — no chain changes needed.

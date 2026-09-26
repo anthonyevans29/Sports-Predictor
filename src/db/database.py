@@ -19,11 +19,6 @@ from sqlalchemy.orm import Session, sessionmaker
 from config import settings
 from src.db.schema import Base
 
-# Ensure the SQLite directory exists if using sqlite
-if settings.database_url.startswith("sqlite:///"):
-    db_path = settings.database_url.replace("sqlite:///", "")
-    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
-
 _engine = create_engine(
     settings.database_url,
     echo=False,
@@ -39,6 +34,17 @@ _engine = create_engine(
 # connection at the engine level.
 if "sqlite" in settings.database_url:
     from sqlalchemy import event as _event
+
+    # Create the SQLite directory at CONNECT time, not import time
+    # (2026-09-26): importing the package (e.g. CI's `import cli` smoke)
+    # must not create an empty data/ directory. do_connect fires before
+    # the DBAPI connect, so the first real connection still finds it.
+    @_event.listens_for(_engine, "do_connect")
+    def _ensure_sqlite_dir(dialect, conn_rec, cargs, cparams):
+        if settings.database_url.startswith("sqlite:///"):
+            db_path = settings.database_url.replace("sqlite:///", "")
+            if db_path and db_path != ":memory:":
+                Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     @_event.listens_for(_engine, "connect")
     def _sqlite_pragmas(dbapi_conn, _record):

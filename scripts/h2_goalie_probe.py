@@ -22,8 +22,10 @@ probe never stops on an error — a missing endpoint is a finding.
 Run:  python3 scripts/h2_goalie_probe.py
 Writes nothing. Prints receipts — paste the whole output to the architect.
 """
+import json
 import os
 import sys
+from datetime import datetime
 
 import requests
 from dotenv import load_dotenv
@@ -99,16 +101,41 @@ def goalie_hits(obj, prefix=""):
     return hits
 
 
+def _status_short(game):
+    st = game.get("status")
+    return (st.get("short") if isinstance(st, dict) else st) or ""
+
+
+def _game_ts(game):
+    """Epoch seconds, tolerant of both payload shapes (law 1, 2026-09-26):
+    hockey /games carries "date" as an ISO STRING plus a top-level
+    "timestamp"; the football-style {"date": {"timestamp": ...}} dict is
+    also accepted. Unparseable -> 0 (sorts first, never raises)."""
+    d = game.get("date")
+    ts = d.get("timestamp") if isinstance(d, dict) else game.get("timestamp")
+    if ts is not None:
+        try:
+            return int(ts)
+        except (TypeError, ValueError):
+            pass
+    raw = d.get("date") if isinstance(d, dict) else d
+    if isinstance(raw, str) and raw:
+        try:
+            return int(datetime.fromisoformat(raw.replace("Z", "+00:00")).timestamp())
+        except ValueError:
+            pass
+    return 0
+
+
 def _game_ids(rows, finished):
     out = []
     for g in rows:
         game = g.get("game") or g
-        short = ((game.get("status") or {}).get("short") or "")
+        short = _status_short(game)
         done = short in ("FT", "AOT", "AP", "ASO")
         if done == finished:
             home = ((g.get("teams") or {}).get("home") or {}).get("id")
-            ts = ((game.get("date") or {}).get("timestamp") or 0)
-            out.append((ts, game.get("id"), home, short))
+            out.append((_game_ts(game), game.get("id"), home, short))
     return sorted(out)
 
 
@@ -145,6 +172,12 @@ def main():
     print("\nQ1 — sample NHL games")
     _, e25, g25 = get("games", league=NHL_LEAGUE_ID, season=2025)
     _, e26, g26 = get("games", league=NHL_LEAGUE_ID, season=2026)
+    # Vocabulary receipt FIRST (law 1): one raw /games object, verbatim,
+    # before any field of it is parsed.
+    sample = g25[0] if g25 else (g26[0] if g26 else None)
+    print("  raw /games object (verbatim, the vocabulary receipt):")
+    print("  " + (json.dumps(sample, indent=2, default=str).replace("\n", "\n  ")
+                  if sample is not None else f"(none returned; errors {e25 or e26})"))
     fin = _game_ids(g25, finished=True)
     upc = _game_ids(g26, finished=False)
     if not fin:

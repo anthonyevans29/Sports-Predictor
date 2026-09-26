@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (NFL model paths scoped to competition NFL)
+- Ratings, backtest pot, prediction set, export and grading now select
+  Competition.code == "NFL" explicitly (NCAA shares Sport.NFL).
+  predict-nfl and nfl-backtest print a scope line (teams, games,
+  competitions) with a SCOPE ALERT on contamination.
+
 ## 2026-09-26 (H2 goalie probe verdict: NEGATIVE)
 - Docs only. The hockey provider has no goalie/lineup/player endpoints
   (only /games/events answers). H2 reopens only via an external data

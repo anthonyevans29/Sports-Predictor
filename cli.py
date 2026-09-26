@@ -5184,6 +5184,7 @@ def export_fixtures_cmd(competition_code, start, end):
     path = export_fixtures(competition_code, start=start, end=end, receipts=rc)
     console.print(f"[green]✓ Wrote market-only fixtures to {path}[/green]")
     print(f"  fixtures {rc['fixtures']} · with book consensus {rc['with_books']} · "
+          f"spread-derived fair {rc['with_spread_derived']} · "
           f"kalshi two-sided {rc['kalshi_two_sided']} / one-sided "
           f"{rc['kalshi_one_sided']} / absent {rc['kalshi_absent']}")
     labels = rc["odds_labels"]
@@ -5192,6 +5193,36 @@ def export_fixtures_cmd(competition_code, start, end):
     if labels and not any(m == "1X2" for m, _ in labels):
         print("  ⚠ odds rows exist but none are labelled 1X2 — the consensus join found "
               "nothing; read the labels above before trusting this file")
+
+
+@cli.command("spread-fallback-check")
+@click.option("--competition", "competition_code", required=True,
+              type=click.Choice(["NFL", "NCAA"], case_sensitive=False))
+@click.option("--start", default=None, help="YYYY-MM-DD (default: all stored games)")
+@click.option("--end", default=None, help="YYYY-MM-DD inclusive")
+def spread_fallback_check_cmd(competition_code, start, end):
+    """READ-ONLY acceptance receipt for the spread->win-prob fallback
+    (2026-09-26): on games carrying BOTH a two-sided 1X2 consensus and
+    spreads (pre-kickoff captures), mean |derived - 1X2 fair| home prob in pp
+    vs the frozen 3.0pp bar. Pasteable plain-text output."""
+    from src.walters.spread_fallback import spread_fallback_check
+    r = spread_fallback_check(competition_code, start=start, end=end)
+    print(f"spread-fallback-check {r['competition']} sigma={r['sigma']} "
+          f"window={start or 'all'}..{end or 'all'}")
+    print(f"{'date':10}  {'game':44}  {'spread':>6}  {'bk':>2}  "
+          f"{'ML_fair_H':>9}  {'derived_H':>9}  {'|diff|pp':>8}")
+    for x in r["rows"]:
+        print(f"{x['date']:10}  {x['game'][:44]:44}  {x['spread']:>+6.1f}  "
+              f"{x['spread_books']:>2}  {x['ml_fair_home']:>9.4f}  "
+              f"{x['derived_home']:>9.4f}  {x['abs_diff_pp']:>8.2f}")
+    print(f"n = {r['n']} games carrying both markets")
+    if r["n"] == 0:
+        print("mean |diff| = n/a — NO DATA, verdict withheld")
+        return
+    print(f"mean |diff| = {r['mean_abs_pp']:.2f}pp (bar <= {r['bar_pp']:.1f}pp, frozen)")
+    print(f"favourite agreement = {r['favourite_agree']}/{r['n']} (informational)")
+    print(f"VERDICT: {'PASS' if r['pass'] else 'FAIL'} "
+          f"({'<=' if r['pass'] else '>'} {r['bar_pp']:.1f}pp)")
 
 
 @cli.command("export-predictions")

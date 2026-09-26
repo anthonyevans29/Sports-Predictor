@@ -20,7 +20,10 @@ STALE_BOOK_FLAG = "STALE-BOOK?"
 def kalshi_home_prob(snapshots, kickoff) -> dict | None:
     """Latest PRE-KICKOFF Kalshi price per side (the fixtures-export rule);
     two-sided only. Returns {"home": P(home) normalized over HOME+AWAY,
-    "captured_at": latest capture} or None when not two-sided."""
+    "captured_at": latest capture} or None when not two-sided.
+    Sum-to-1 rescaling is the only form comparable to the de-vigged book fair
+    (ratified 2026-09-26). NOTE: the fixtures export's `kalshi.prob` is the
+    RAW stored per-side value, not rescaled — consumers normalize it."""
     latest: dict[str, object] = {}
     for snap in snapshots:
         if snap.source != "kalshi" or snap.selection not in ("HOME", "AWAY"):

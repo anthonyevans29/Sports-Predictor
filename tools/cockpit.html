@@ -81,10 +81,11 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 </style>
 </head>
 <body>
-<h1>Cockpit <span class="chip">card + desk · policy v1.0</span></h1>
+<h1>Cockpit <span class="chip">card + desk + ledger · policy v1.1</span></h1>
 <div class="row" style="margin-bottom:10px">
   <button id="tabCard" class="ghost">Card</button>
   <button id="tabDesk">Desk</button>
+  <button id="tabLedger" class="ghost">Ledger</button>
 </div>
 <div class="sub">Deterministic policy-as-code over the day's export file. Files stay in this page; the optional audit sends only the summarized slate to Claude. Tune the knobs until the calls match the incumbent layer, then the divergence closes.</div>
 
@@ -97,13 +98,17 @@ details.sig pre{max-height:220px;margin:6px 0 0}
   </div>
 </div>
 
+<div id="cardView" hidden></div>
+
+<div id="deskView">
 <div class="card deskonly">
-  <h2 style="margin-top:0">Policy v1.0 <span class="note">per-sport · evidence-set 2026-09-25 · changes only via audit-backed version bump</span></h2>
+  <h2 style="margin-top:0">Policy v1.1 <span class="note">per-sport · model_edge evidence-set 2026-09-25 unchanged · venue_edge added in shadow 2026-09-26 · changes only via audit-backed version bump</span></h2>
   <div class="note" style="margin-top:4px;line-height:1.7">
     <b>SOCCER</b> — floor 4pp · pick-prob ≥ 0.50 · away/draw edges ≥ 10pp → double-chance ladder 0.5u · any edge ≥ 10pp half-units <span style="opacity:.75">(cohort 6/16: big edges anti-predictive, die by draw)</span><br>
     <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
     <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
-    <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams.
+    <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
+    <b>VENUE-EDGE</b> (shadow) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.
   </div>
 </div>
 
@@ -115,10 +120,13 @@ details.sig pre{max-height:220px;margin:6px 0 0}
   <div id="askOut" class="note" style="margin-top:8px;white-space:pre-wrap"></div>
 </div>
 
-<div id="cardView" hidden></div>
 
 <div class="card deskonly">
-  <div class="summary" id="summary">No file loaded.</div>
+  <div class="row" style="justify-content:space-between">
+    <div class="summary" id="summary">No file loaded.</div>
+    <button id="logBtn" disabled>Log today's calls</button>
+  </div>
+  <div class="note" id="logNote"></div>
   <div class="tablewrap"><table id="slate" hidden>
     <thead><tr><th>Game</th><th>Pick</th><th>Model</th><th>Market</th><th>Edge</th><th>Call</th><th>Units</th><th class="reason">Reasons</th></tr></thead>
     <tbody></tbody>
@@ -141,6 +149,48 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 <div class="card" id="gptCard" hidden>
   <h2 style="margin-top:0">Incumbent's feedback (side-by-side)</h2>
   <pre id="gptOut"></pre>
+</div>
+
+<div class="card" id="venueCard" hidden>
+  <h2 style="margin-top:0">Venue-edge (shadow) <span class="note">engine venue_edge · book fair vs Kalshi · |div| ≥ 5.0pp · fixed 0.25u · logs with the same button</span></h2>
+  <div class="tablewrap"><table id="venueTable">
+    <thead><tr><th>Game</th><th>Side</th><th>Books fair</th><th>Kalshi</th><th>Div</th><th>Call</th><th class="reason">Reason</th></tr></thead>
+    <tbody></tbody>
+  </table></div>
+</div>
+</div><!-- /deskView -->
+
+<div id="ledgerView" hidden>
+  <div class="card">
+    <h2 style="margin-top:0">Ledger <span class="note">bd_ledger_v1 · this browser only · fair-odds P&amp;L, pre-fee</span></h2>
+    <div class="row">
+      <div><label>Results files / finished fixtures (JSON — same intake for both)</label><br>
+        <input type="file" id="resultsFile" accept=".json" multiple></div>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <button id="exportLedgerBtn" class="ghost">Export ledger (JSON)</button>
+      <label class="ghost" style="display:inline-flex;align-items:center;gap:6px">Import ledger
+        <input type="file" id="importLedgerFile" accept=".json"></label>
+      <button id="copyPnlBtn">Copy P&amp;L block</button>
+    </div>
+    <div class="note" id="ledgerNote" style="margin-top:8px"></div>
+  </div>
+  <div class="card"><div id="ledgerTotals" class="summary">No calls logged yet.</div>
+    <div id="ledgerTables"></div></div>
+  <div class="card"><h2 style="margin-top:0">Equity <span class="note">cumulative net units by graded date · dashed = + quarantine counterfactual (shadow calls at notional units)</span></h2>
+    <div id="equity"></div></div>
+  <div class="card"><h2 style="margin-top:0">Per-rule attribution <span class="note">feedback stream for policy v1.1 proposals — settled calls grouped by every rule that fired</span></h2>
+    <div id="ruleTable"></div></div>
+  <div class="card"><h2 style="margin-top:0">Open calls <span class="note">unmatched stays open — listed</span></h2>
+    <div id="openList"></div></div>
+  <div class="card"><h2 style="margin-top:0">P&amp;L block</h2><pre id="pnlBlock"></pre></div>
+</div>
+
+<div class="note" id="nonClaims" style="margin:16px 2px 4px;line-height:1.6">
+  <b>Non-claims.</b> Fair-odds pre-fee P&amp;L is an EV-realization proxy, not cash ·
+  venue-edge grades against the stored Kalshi prob until the K-track delivers executable bid/ask + fees ·
+  first 50 graded calls per engine before any sizing proposal ·
+  policy changes only via audit-backed version bump.
 </div>
 
 <script>
@@ -175,7 +225,8 @@ function normalize(doc){
         probsAll:{},fairAll:fair,over:null,div:null,quar:false,
         books:mk.bookmaker_count,qbs:[],rawIQ:{market_only:true,
           bookmaker_count:mk.bookmaker_count},live:false,
-        marketOnly:true,tier:null});
+        marketOnly:true,tier:null,
+        kalProb:kalFromFixture(f.kalshi,fair),threeWay:fair.DRAW!=null});
     }
     return out;
   }
@@ -211,6 +262,7 @@ function normalize(doc){
       qbs:(function(){const inj=(p.input_quality||{}).injuries||{};
         return [].concat((inj.home&&inj.home.qb_listed)||[],(inj.away&&inj.away.qb_listed)||[]);})(),
       rawIQ:p.input_quality||{},live:doc.rehearsal===false,
+      kalProb:kalFromPrediction(p,mk,market),threeWay:market.DRAW!=null||probs.DRAW!=null,
       iq:(function(){const q=p.input_quality||{};const bits=[];
         if(q.book_odds!=null)bits.push(q.book_odds+" books");
         if(q.kalshi)bits.push("kalshi "+q.kalshi);
@@ -226,47 +278,114 @@ function normalize(doc){
   return out;
 }
 
+// ---------------------------------------------------------------------
+// Kalshi per-side probabilities, sum-normalized over the FULL outcome set
+// (HOME/AWAY, + DRAW when the book market is 3-way). Partial sets -> null:
+// normalizing a partial set would inflate the present sides (export.py's rule).
+// ---------------------------------------------------------------------
+function kalNormalize(raw,needDraw){
+  if(!raw) return null;
+  const sides=needDraw?["HOME","DRAW","AWAY"]:["HOME","AWAY"];
+  if(sides.some(k=>raw[k]==null||!(raw[k]>=0))) return null;
+  const tot=sides.reduce((a,k)=>a+raw[k],0);
+  if(!(tot>0)) return null;
+  const out={}; sides.forEach(k=>out[k]=raw[k]/tot); return out;
+}
+function kalFromFixture(k,fair){
+  // fixtures' kalshi.prob is the RAW stored per-side value (not rescaled)
+  if(!k||k.status!=="two_sided") return null;
+  return kalNormalize(k.prob,fair&&fair.DRAW!=null);
+}
+function kalFromPrediction(p,mk,fair){
+  if(p.kalshi_prob!=null){               // NFL export (#31): home, already normalized
+    const h=+p.kalshi_prob; return {HOME:h,AWAY:1-h};
+  }
+  const k=mk&&mk.kalshi;                 // soccer/MLB export: market.kalshi
+  if(k&&k.normalized&&k.prob) return kalNormalize(k.prob,fair&&fair.DRAW!=null);
+  return null;
+}
+
+// ---------------------------------------------------------------------
+// VENUE-EDGE ENGINE (policy v1.1, shadow) — client-side mirror of
+// src/walters/venue.py: divergence = book fair − Kalshi, per side.
+// ---------------------------------------------------------------------
+const VENUE={minBooks:4,minDivPP:5.0,units:0.25,staleGapPP:8.0};  // frozen a-priori
+function venueEdge(r,now){
+  const out={eligible:false,reason:"",side:null,divPP:null,bookP:null,kalP:null,sides:{}};
+  if(r.sport==="UNL"){out.reason="single venue — no pair (UNL)";return out;}
+  if(r.utc&&new Date(r.utc).getTime()<=now){out.reason="in-play — never";return out;}
+  const fair=r.fairAll||{}; const hasBook=(r.books||0)>0&&fair.HOME!=null&&fair.AWAY!=null;
+  if(!hasBook||!r.kalProb){out.reason="single venue — no pair";return out;}
+  if((r.books||0)<VENUE.minBooks){out.reason=`books ${r.books} < ${VENUE.minBooks} — pair too thin`;return out;}
+  let best=null;
+  for(const k of Object.keys(r.kalProb)){
+    if(fair[k]==null) continue;
+    const d=(fair[k]-r.kalProb[k])*100; out.sides[k]=d;
+    if(best==null||d>best.d) best={k,d};
+  }
+  if(!best){out.reason="single venue — no pair";return out;}
+  out.side=best.k; out.divPP=best.d; out.bookP=fair[best.k]; out.kalP=r.kalProb[best.k];
+  if(best.d>=VENUE.minDivPP){ out.eligible=true;
+    out.reason=`books ${(out.bookP*100).toFixed(1)}% vs Kalshi ${(out.kalP*100).toFixed(1)}% → Kalshi underprices by ${best.d.toFixed(1)}pp`; }
+  else out.reason=`max divergence ${best.d.toFixed(1)}pp < ${VENUE.minDivPP}pp`;
+  return out;
+}
+
+let deskCalls=[], deskParlays=[], deskVenue=[];
+
 function policy(){
   const base=BASE_UNITS;
   let plays=0,ladders=0,passes=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
+  deskCalls=[];
   for(const r of rows){
-    if(r.marketOnly) continue;  // gated comps: card display only
+    if(r.marketOnly) continue;  // gated comps: model policy n/a (venue engine below)
     const P=POLICY[r.sport]||POLICY.DEFAULT;
     const eMin=P.eMin??4, eLad=P.eLad??Infinity, eHair=P.eHair??15, pMin=P.pMin??0;
     const edge=r.mkt!=null?(r.prob-r.mkt)*100:null;
-    const reasons=[]; let call="PASS",cls="pass",units=0;
+    const reasons=[]; let call="PASS",cls="pass",units=0; const tags=[]; let shadowUnits=0;
     if(!r.twoSided||r.mkt==null){reasons.push("market not two-sided → no reference");}
     else if(r.prob<pMin){reasons.push(`pick prob ${r.prob.toFixed(3)} < ${pMin}`);}
     else if(edge<eMin){reasons.push(`edge ${edge.toFixed(1)}pp < ${eMin}pp floor`);}
     else{
       units=base; call="PLAY"; cls="play";
-      reasons.push(`edge ${edge.toFixed(1)}pp ≥ floor`);
+      reasons.push(`edge ${edge.toFixed(1)}pp ≥ floor`); tags.push("edge ≥ floor");
       if(P.passAll){ call="PASS"; cls="pass"; units=0;
         reasons.length=0; reasons.push("pre-gate sport: no production model — market display only"); }
-      if(P.qNever&&r.quar){ call="PASS"; cls="pass"; units=0;
-        reasons.length=0; reasons.push(`QUARANTINE ${r.div}pp — contract: never a straight play`); }
+      // v1.1: quarantine is applied AFTER the sizing chain (below), so the
+      // shadow entry records what the row would have staked absent the
+      // contract — and a quarantined PASS no longer displays caution units.
+      const quarantined=!!(P.qNever&&r.quar);
       if(call==="PLAY"&&r.sport==="NFL"&&r.qbs&&r.qbs.length){
         units=Math.min(units,base/2);
-        reasons.push(`QB-flagged (${r.qbs.join(", ")}) → half units`); }
+        reasons.push(`QB-flagged (${r.qbs.join(", ")}) → half units`); tags.push("QB-flagged half units"); }
       const threeWay = r.mktHasDraw;   // v0.2: ladder is a 3-way instrument
       if(edge>=eLad){
         units=base/2;                  // v0.2: sizing monotone — big edge never out-sizes bigger edge
         if(threeWay&&(r.pick==="AWAY"||r.pick==="DRAW")){
           call="LADDER"; cls="ladder";
           reasons.push(`edge ≥ ${eLad}pp on away/draw (3-way) → double-chance (${r.pick==="AWAY"?"X2":"1X/X2"}), half units`);
+          tags.push("ladder: big away/draw edge → DC");
         } else {
           cls="caution";
           reasons.push(`edge ≥ ${eLad}pp → reduced-size straight (2-way board: no DC instrument), half units`);
+          tags.push("ladder-size on 2-way board");
         }
       }
       if(edge>=eHair){ units=base/2; cls="caution";
-        reasons.push(`edge ≥ ${eHair}pp → market-is-right caution (cohort: big edges historically anti-predictive)`); }
+        reasons.push(`edge ≥ ${eHair}pp → market-is-right caution (cohort: big edges historically anti-predictive)`);
+        tags.push("big-edge caution half units"); }
       if(edge < eMin + 1){ units=Math.min(units, base/2);
-        reasons.push(`edge within 1pp of floor → half units (near-floor noise, not conviction)`); }
-      if(r.tier==="strong") reasons.push("strong tier");
+        reasons.push(`edge within 1pp of floor → half units (near-floor noise, not conviction)`);
+        tags.push("near-floor half units"); }
+      if(r.tier==="strong"){ reasons.push("strong tier"); tags.push("strong tier"); }
       if(r.kal&&r.kal!=="absent") reasons.push(`kalshi ${r.kal}`);
+      if(quarantined&&call!=="PASS"){
+        shadowUnits=units; call="PASS"; cls="pass"; units=0;
+        reasons.length=0; reasons.push(`QUARANTINE ${r.div}pp — contract: never a straight play`);
+        tags.push("quarantine ≥ 15pp (shadow)"); }
     }
+    deskCalls.push({r,call,units,edge,tags:tags.slice(),shadowUnits});
     if(call==="PASS")passes++; else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
     tr.innerHTML=`<td>${esc(r.game)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
@@ -289,14 +408,348 @@ function policy(){
     +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"");
   $("auditBtn").hidden=!(sampleNS&&rows.length);
   buildParlays();
+  renderVenue();
+  $("logBtn").disabled=!rows.length;
   perGameAudit();
 }
+
+function renderVenue(){
+  const now=Date.now(); deskVenue=[];
+  const tb=$("venueTable").querySelector("tbody"); tb.innerHTML="";
+  for(const r of rows){
+    const v=venueEdge(r,now); deskVenue.push({r,v});
+    const side=v.side?sideName(r,v.side):"—";
+    const stale=v.divPP!=null&&Math.abs(v.divPP)>=VENUE.staleGapPP;
+    const tr=document.createElement("tr");
+    tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}</td><td>${esc(side)}</td>
+      <td>${v.bookP!=null?v.bookP.toFixed(3):"—"}</td><td>${v.kalP!=null?v.kalP.toFixed(3):"—"}</td>
+      <td>${v.divPP!=null?(v.divPP>0?"+":"")+v.divPP.toFixed(1)+"pp":"—"}</td>
+      <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"}</td>
+      <td class="reason">${esc(v.reason+(v.eligible&&stale?" · gap ≥ 8pp: STALE-BOOK? zone — distrust the book side":""))}</td>`;
+    tb.appendChild(tr);
+  }
+  $("venueCard").hidden=!rows.length;
+}
+
+// ---------------------------------------------------------------------
+// LEDGER (bd_ledger_v1) — localStorage, per-viewer, every access guarded.
+// ---------------------------------------------------------------------
+const LEDGER_KEY="bd_ledger_v1", POLICY_VERSION="v1.1";
+let storageOK=true;
+function emptyLedger(){return {meta:{policy_version:POLICY_VERSION},calls:[]};}
+function loadLedger(){
+  try{ const raw=localStorage.getItem(LEDGER_KEY);
+    if(!raw) return emptyLedger();
+    const L=JSON.parse(raw); if(!L||!Array.isArray(L.calls)) return emptyLedger();
+    L.meta=L.meta||{}; L.meta.policy_version=POLICY_VERSION; return L;
+  }catch(e){ storageOK=false; return window.__ledgerMem||emptyLedger(); }
+}
+function saveLedger(L){
+  window.__ledgerMem=L;   // in-page fallback when storage is blocked
+  try{ localStorage.setItem(LEDGER_KEY,JSON.stringify(L)); storageOK=true; }
+  catch(e){ storageOK=false; }
+}
+function localDate(d){d=d||new Date();
+  return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
+// Idempotency: (sport, game, log_date) — extended by engine / call_type /
+// parlay slot so a straight, a venue call and a parlay leg on one game are
+// distinct instruments that never overwrite each other.
+function callKey(c){return [c.sport,c.game,c.log_date,c.engine,c.call_type,c.parlay_id||""].join("|");}
+function upsertCalls(L,fresh){
+  const byId=new Map(L.calls.map(c=>[c.id,c])); let added=0,updated=0,kept=0;
+  for(const c of fresh){ c.id=callKey(c);
+    const cur=byId.get(c.id);
+    if(!cur){byId.set(c.id,c);added++;}
+    else if(cur.status==="graded"){kept++;}          // graded history is never rewritten
+    else {byId.set(c.id,{...cur,...c});updated++;}
+  }
+  L.calls=[...byId.values()]; return {added,updated,kept};
+}
+function baseCall(r,logDate){
+  return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
+    kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:!!r.quar};
+}
+function snapshotCalls(){
+  const d=localDate(), out=[];
+  for(const x of deskCalls){
+    const r=x.r;
+    if(x.call==="PLAY"||x.call==="LADDER"){
+      const lad=x.call==="LADDER";
+      const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
+      const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):r.mkt;
+      out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
+        call_type:lad?"ladder":"straight",units:x.units,model_p:mp,market_p:kp,
+        venue_hint:"books",rules:x.tags});
+    } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
+      out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
+        call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
+        model_p:r.prob,market_p:r.mkt,venue_hint:"books",rules:x.tags});
+    }
+  }
+  for(const t of deskParlays){          // parlays: model_edge only (frozen)
+    const pid="P-"+d+"-"+t.legs.map(l=>`${l.sport}:${l.away}@${l.home}:${l.pick}`).sort().join("+");
+    for(const l of t.legs){
+      out.push({...baseCall(l,d),pick:l.pick,tier:"parlay",engine:"model_edge",
+        call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:l.mkt,
+        venue_hint:"books",rules:["parlay 0.25u"]});
+    }
+  }
+  for(const {r,v} of deskVenue){
+    if(!v.eligible) continue;
+    const rules=["venue div ≥ 5.0pp"];
+    if(v.divPP>=VENUE.staleGapPP) rules.push("venue gap ≥ 8pp (STALE-BOOK? zone)");
+    out.push({...baseCall(r,d),pick:v.side,tier:"shadow",engine:"venue_edge",
+      call_type:"straight",units:VENUE.units,model_p:v.bookP,market_p:v.kalP,
+      venue_hint:"kalshi",divergence_pp:+v.divPP.toFixed(2),rules});
+  }
+  return out;
+}
+$("logBtn").addEventListener("click",()=>{
+  const L=loadLedger(); const fresh=snapshotCalls();
+  const r=upsertCalls(L,fresh); saveLedger(L);
+  const byEng={}; fresh.forEach(c=>{const k=c.engine+(c.call_type==="quarantine_shadow"?" (shadow)":"");byEng[k]=(byEng[k]||0)+1;});
+  $("logNote").textContent=`Logged ${fresh.length} entries (${Object.entries(byEng).map(([k,n])=>`${k} ${n}`).join(" · ")||"none"}) — `
+    +`${r.added} new · ${r.updated} updated · ${r.kept} already graded (kept).`
+    +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+  renderLedger();
+});
+
+// ---------------------------------------------------------------------
+// GRADING — results exports + finished fixtures through ONE intake.
+// ---------------------------------------------------------------------
+function normTeam(s){
+  return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase()
+    .replace(/&/g," and ").replace(/[^a-z0-9 ]+/g," ")
+    .split(/\s+/).filter(w=>w&&!["fc","afc","cf","sc","the","club"].includes(w)).join(" ");
+}
+function outcomesFromDoc(doc){
+  const out=[];
+  const sport=String(doc.sport||doc.competition_code||doc.competition||"?").toUpperCase();
+  const push=(o,home,away,date,hs,as,res,status)=>{
+    let winner=null;
+    if(hs!=null&&as!=null) winner=hs>as?"HOME":hs<as?"AWAY":"DRAW";
+    else if(res) winner={H:"HOME",A:"AWAY",D:"DRAW"}[String(res).toUpperCase()]||null;
+    const st=String(status||"finished").toLowerCase();
+    if(["cancelled","canceled","abandoned","void"].includes(st)) out.push({sport,home,away,date,void:true});
+    else if(st==="finished"&&winner) out.push({sport,home,away,date,winner,hs,as});
+  };
+  for(const x of (doc.results||[])){
+    const a=x.actual||{};
+    push(x,x.home_team,x.away_team,x.date||x.utc_date,a.home_score,a.away_score,a.result,"finished");
+  }
+  for(const f of (doc.fixtures||[])) push(f,f.home_team,f.away_team,f.utc_date,f.home_score,f.away_score,null,f.status);
+  return out;
+}
+function dayDiff(a,b){
+  if(!a||!b) return Infinity;
+  const d=x=>Date.UTC(+x.slice(0,4),+x.slice(5,7)-1,+x.slice(8,10));
+  return Math.abs(d(a)-d(b))/86400000;
+}
+function findOutcome(c,outs){
+  const cd=(c.kickoff||c.log_date||"").slice(0,10);
+  const near=outs.filter(o=>dayDiff(cd,(o.date||"").slice(0,10))<=1);
+  for(const cmp of [(x,y)=>x===y,(x,y)=>normTeam(x)===normTeam(y)]){   // exact first, then normalized
+    const hit=near.filter(o=>cmp(o.home,c.home)&&cmp(o.away,c.away));
+    if(!hit.length) continue;
+    const same=hit.filter(o=>o.sport===c.sport);
+    const pool=same.length?same:hit;
+    if(pool.length===1) return pool[0];
+    return null;                                   // ambiguous → stays open
+  }
+  return null;
+}
+function legResult(c,o){
+  if(o.void) return "void";
+  const w=o.winner;
+  if(c.call_type==="ladder") return (w===c.pick||w==="DRAW")?"win":"loss";
+  if(w===c.pick) return "win";
+  if(w==="DRAW"&&!c.three_way) return "push";      // 2-way tie (e.g. NFL): stake back
+  return "loss";                                   // soccer draw loses a side pick
+}
+function settleReturn(units,result,market_p){
+  if(result==="win") return market_p>0?units/market_p:0;   // fair odds: decimal = 1/market_p
+  if(result==="push"||result==="void") return units;
+  return 0;
+}
+function gradeLedger(L,outs){
+  const today=localDate(); let graded=0;
+  for(const c of L.calls){
+    if(c.status==="graded"||c.result) continue;
+    const o=findOutcome(c,outs); if(!o) continue;
+    c.result=legResult(c,o); c.graded_date=today;
+    if(c.call_type!=="parlay_leg"){
+      c.status="graded";
+      const u=c.call_type==="quarantine_shadow"?0:c.units;
+      c.units_returned=+settleReturn(u,c.result,c.market_p).toFixed(4);
+      if(c.call_type==="quarantine_shadow")
+        c.shadow_returned=+settleReturn(c.shadow_units||0,c.result,c.market_p).toFixed(4);
+      graded++;
+    }
+  }
+  // parlay tickets settle when every leg has a result
+  const tickets={}; L.calls.filter(c=>c.call_type==="parlay_leg").forEach(c=>(tickets[c.parlay_id]=tickets[c.parlay_id]||[]).push(c));
+  for(const legs of Object.values(tickets)){
+    if(legs.every(l=>l.status==="graded")) continue;
+    // settles when every leg has a result — or at once on a losing leg
+    // ("all legs win" is then impossible; later legs keep their own result)
+    if(legs.some(l=>!l.result)&&!legs.some(l=>l.result==="loss")) continue;
+    const stake=legs[0].units;
+    let ret;
+    if(legs.some(l=>l.result==="loss")) ret=0;
+    else{ const live=legs.filter(l=>l.result==="win");          // void/push legs drop
+      ret=live.length?live.reduce((x,l)=>x/(l.market_p||1),stake):stake; }
+    const res=ret===0?"loss":(legs.every(l=>l.result!=="win")?"void":"win");
+    legs.forEach(l=>{l.status="graded";l.units_returned=+ret.toFixed(4);l.ticket_result=res;
+      l.graded_date=legs.map(x=>x.graded_date).sort().pop();});
+    graded++;
+  }
+  return graded;
+}
+$("resultsFile").addEventListener("change",async e=>{
+  const fs=Array.from(e.target.files); if(!fs.length)return;
+  let outs=[];
+  for(const f of fs){
+    try{ outs=outs.concat(outcomesFromDoc(JSON.parse(await f.text()))); }
+    catch(err){ $("ledgerNote").textContent=`Could not parse ${f.name}: ${err.message}`; return; }
+  }
+  const L=loadLedger(); const n=gradeLedger(L,outs); saveLedger(L);
+  const open=L.calls.filter(c=>c.status==="open").length;
+  $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below).`
+    +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+  renderLedger();
+});
+
+// ---------------------------------------------------------------------
+// REPORTS — settled bets (a parlay ticket counts once), by dimension.
+// ---------------------------------------------------------------------
+function settledBets(L){
+  const bets=[], seen=new Set();
+  for(const c of L.calls){
+    if(c.status!=="graded") continue;
+    if(c.call_type==="parlay_leg"){
+      if(seen.has(c.parlay_id)) continue; seen.add(c.parlay_id);
+      const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id);
+      bets.push({engine:"model_edge",sport:[...new Set(legs.map(l=>l.sport))].sort().join("+"),
+        tier:"parlay",call_type:"parlay",staked:c.units,returned:c.units_returned,
+        result:c.ticket_result,date:c.graded_date,rules:["parlay 0.25u"],shadow:false});
+    } else if(c.call_type==="quarantine_shadow"){
+      bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
+        staked:c.shadow_units||0,returned:c.shadow_returned||0,result:c.result,
+        date:c.graded_date,rules:c.rules||[],shadow:true});
+    } else {
+      bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
+        staked:c.units,returned:c.units_returned,result:c.result,date:c.graded_date,
+        rules:c.rules||[],shadow:false});
+    }
+  }
+  return bets;
+}
+function agg(bets){
+  const n=bets.length, st=bets.reduce((a,b)=>a+b.staked,0), rt=bets.reduce((a,b)=>a+b.returned,0);
+  const w=bets.filter(b=>b.result==="win").length, l=bets.filter(b=>b.result==="loss").length;
+  return {n,staked:st,returned:rt,net:rt-st,roi:st>0?(rt-st)/st*100:null,hit:(w+l)?w/(w+l)*100:null,w,l};
+}
+function fmt(v,d=2){return v==null?"—":(+v).toFixed(d);}
+function groupTable(title,bets,keyFn){
+  const g={}; bets.forEach(b=>{const k=keyFn(b);(g[k]=g[k]||[]).push(b);});
+  const rowsH=Object.entries(g).sort().map(([k,bs])=>{const a=agg(bs);
+    return `<tr><td>${esc(k)}</td><td>${a.n}</td><td>${fmt(a.staked)}</td><td>${fmt(a.returned)}</td>
+      <td class="${a.net>=0?"play":"caution"}">${a.net>=0?"+":""}${fmt(a.net)}</td><td>${a.roi==null?"—":fmt(a.roi,1)+"%"}</td>
+      <td>${a.hit==null?"—":fmt(a.hit,1)+"%"}</td></tr>`;}).join("");
+  return `<h2>${esc(title)}</h2><div class="tablewrap"><table><thead><tr><th>${esc(title.replace(/^by /,""))}</th><th>n</th><th>staked</th><th>returned</th><th>net</th><th>ROI</th><th>hit</th></tr></thead><tbody>${rowsH||'<tr><td colspan="7" class="note">none settled</td></tr>'}</tbody></table></div>`;
+}
+function equitySVG(bets){
+  const real=bets.filter(b=>!b.shadow).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
+  const shad=bets.filter(b=>b.shadow);
+  if(!real.length&&!shad.length) return '<div class="note">No settled calls yet.</div>';
+  const dates=[...new Set(bets.map(b=>b.date))].sort();
+  let cum=0,cf=0; const A=[0],C=[0];
+  for(const d of dates){
+    cum+=real.filter(b=>b.date===d).reduce((a,b)=>a+b.returned-b.staked,0);
+    cf+=shad.filter(b=>b.date===d).reduce((a,b)=>a+b.returned-b.staked,0);
+    A.push(cum); C.push(cum+cf);
+  }
+  const W=640,H=180,pad=24, all=A.concat(C), lo=Math.min(0,...all), hi=Math.max(0,...all), span=(hi-lo)||1;
+  const x=i=>pad+(W-2*pad)*i/Math.max(1,A.length-1), y=v=>H-pad-(H-2*pad)*(v-lo)/span;
+  const line=arr=>arr.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  return `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" aria-label="equity line">
+    <line x1="${pad}" x2="${W-pad}" y1="${y(0)}" y2="${y(0)}" stroke="var(--line)"/>
+    <polyline fill="none" stroke="var(--warn)" stroke-width="1.5" stroke-dasharray="5 4" points="${line(C)}"/>
+    <polyline fill="none" stroke="var(--accent)" stroke-width="2.2" points="${line(A)}"/>
+    <text x="${pad}" y="14" font-size="11" fill="var(--muted)">net ${cum>=0?"+":""}${cum.toFixed(2)}u · counterfactual ${(cum+cf)>=0?"+":""}${(cum+cf).toFixed(2)}u · ${dates[0]||""} → ${dates[dates.length-1]||""}</text>
+  </svg>`;
+}
+function pnlBlock(L){
+  const bets=settledBets(L), real=bets.filter(b=>!b.shadow), shad=bets.filter(b=>b.shadow);
+  const today=localDate(), wkStart=localDate(new Date(Date.now()-6*86400000));
+  const wk=real.filter(b=>(b.date||"")>=wkStart);
+  const line=(k,a)=>`${k.padEnd(14)}${String(a.n).padStart(4)}${fmt(a.staked).padStart(9)}${fmt(a.returned).padStart(10)}${((a.net>=0?"+":"")+fmt(a.net)).padStart(9)}${(a.roi==null?"—":fmt(a.roi,1)+"%").padStart(9)}${(a.hit==null?"—":fmt(a.hit,1)+"%").padStart(8)}`;
+  const hdr=`${"".padEnd(14)}${"n".padStart(4)}${"staked".padStart(9)}${"returned".padStart(10)}${"net".padStart(9)}${"ROI".padStart(9)}${"hit".padStart(8)}`;
+  const section=(title,bs)=>[title,hdr,...["model_edge","venue_edge"].map(e=>line(e,agg(bs.filter(b=>b.engine===e)))),line("TOTAL",agg(bs))].join("\n");
+  const cf=agg(shad);
+  return [`COCKPIT LEDGER — income statement · fair-odds P&L, pre-fee · policy ${POLICY_VERSION}`,
+    `generated ${today} · units = 1u base`, "",
+    section(`WEEK ${wkStart} .. ${today} (by graded date)`,wk), "",
+    section("ALL-TIME",real), "",
+    `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
+    `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
+    `Sizing gate: model_edge ${real.filter(b=>b.engine==="model_edge").length}/50 · venue_edge ${real.filter(b=>b.engine==="venue_edge").length}/50 graded before any sizing proposal`,
+    "Non-claims: EV-realization proxy, not cash; venue_edge graded vs stored Kalshi prob until K-track bid/ask + fees; policy changes only via audit-backed version bump."
+  ].join("\n");
+}
+function renderLedger(){
+  const L=loadLedger(), bets=settledBets(L), real=bets.filter(b=>!b.shadow), shad=bets.filter(b=>b.shadow);
+  const a=agg(real);
+  $("ledgerTotals").innerHTML=L.calls.length
+    ? `<b>${L.calls.length}</b> logged · <b>${a.n}</b> settled bets · staked ${fmt(a.staked)}u · returned ${fmt(a.returned)}u · `
+      +`net <b class="${a.net>=0?"play":"caution"}">${a.net>=0?"+":""}${fmt(a.net)}u</b> · ROI ${a.roi==null?"—":fmt(a.roi,1)+"%"} · hit ${a.hit==null?"—":fmt(a.hit,1)+"%"}`
+      +` <span class="note">(fair-odds P&amp;L, pre-fee)</span>`
+    : "No calls logged yet.";
+  $("ledgerTables").innerHTML=groupTable("by engine",real,b=>b.engine)+groupTable("by sport",real,b=>b.sport)
+    +groupTable("by tier",real,b=>b.tier)+groupTable("by call type",real,b=>b.call_type)
+    +groupTable("quarantine counterfactual (shadow, notional units)",shad,b=>b.engine);
+  $("equity").innerHTML=equitySVG(bets);
+  const rb=[]; bets.forEach(b=>(b.rules.length?b.rules:["(no rule tag)"]).forEach(t=>rb.push({...b,rule:t})));
+  $("ruleTable").innerHTML=groupTable("by rule",rb,b=>b.rule+(b.shadow?" [shadow]":""));
+  const open=L.calls.filter(c=>c.status==="open"&&!c.result);
+  const waiting=L.calls.filter(c=>c.status==="open"&&c.result).length;
+  $("openList").innerHTML=(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th></tr></thead><tbody>`
+    +open.map(c=>`<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td></tr>`).join("")
+    +"</tbody></table></div>":'<div class="note">No unmatched open calls.</div>');
+  $("pnlBlock").textContent=pnlBlock(L);
+}
+$("copyPnlBtn").addEventListener("click",async()=>{
+  const txt=pnlBlock(loadLedger()); $("pnlBlock").textContent=txt;
+  try{ await navigator.clipboard.writeText(txt); $("ledgerNote").textContent="P&L block copied."; }
+  catch(e){ $("ledgerNote").textContent="Clipboard unavailable — select the P&L block below and copy."; }
+});
+$("exportLedgerBtn").addEventListener("click",()=>{
+  const blob=new Blob([JSON.stringify(loadLedger(),null,1)],{type:"application/json"});
+  const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
+  a.download=`bd_ledger_v1_${localDate()}.json`; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
+});
+$("importLedgerFile").addEventListener("change",async e=>{
+  const f=e.target.files[0]; if(!f)return;
+  try{
+    const inc=JSON.parse(await f.text());
+    if(!inc||!Array.isArray(inc.calls)) throw new Error("not a bd_ledger_v1 file (no calls array)");
+    const L=loadLedger(); const byId=new Map(L.calls.map(c=>[c.id,c])); let n=0;
+    for(const c of inc.calls){ if(!c.id) c.id=callKey(c);
+      const cur=byId.get(c.id);
+      if(!cur||cur.status!=="graded"||c.status==="graded"){byId.set(c.id,c);n++;} }
+    L.calls=[...byId.values()]; saveLedger(L);
+    $("ledgerNote").textContent=`Imported ${n} calls (merged by id; graded entries never downgraded).`;
+    renderLedger();
+  }catch(err){ $("ledgerNote").textContent="Import failed: "+err.message; }
+});
 
 function buildParlays(){
   const live=rows.map((r,i)=>({r,i,tr:$("slate").querySelectorAll("tbody tr")[i]}))
     .filter(x=>x.tr&&!/PASS/.test(x.tr.children[5].textContent))
     .map(x=>({...x.r,edge:(x.r.prob-(x.r.mkt??0))}));
   const card=$("parlayCard"), out=$("parlayOut");
+  deskParlays=[];
   if(live.length<2){card.hidden=true;return;}
   const combos=[];
   const teamsOf=r=>[r.home,r.away];
@@ -321,6 +774,7 @@ function buildParlays(){
     .filter(t=>t.edge>0)
     .sort((x,y)=>(y.sports-x.sports)||(y.edge-x.edge)).slice(0,3);
   if(!ranked.length){card.hidden=true;return;}
+  deskParlays=ranked;
   card.hidden=false;
   out.innerHTML=ranked.map((t,i)=>{
     const legs=t.legs.map(l=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`).join("<br>");
@@ -430,23 +884,20 @@ function renderCard(){
     }
   }
 }
-function setTab(card){
-  $("cardView").hidden=!card;
-  document.querySelectorAll(".deskonly,#slate,#parlayCard,#gptCard").forEach(x=>{
-    if(x.classList&&x.classList.contains("deskonly")) x.hidden=card;
-  });
-  document.querySelectorAll(".card").forEach(x=>{
-    if(!x.classList.contains("deskonly")&&x.querySelector("#predFile")) return;
-  });
-  ["summary"].forEach(()=>{});
-  // hide desk cards (policy knobs, slate, parlays, audit, gpt) in card view
-  for(const id of ["slate"]) {}
-  const deskCards=[...document.querySelectorAll(".card")].filter(c=>!c.querySelector("#predFile"));
-  deskCards.forEach(c=>c.hidden=card);
-  $("tabCard").className=card?"":"ghost"; $("tabDesk").className=card?"ghost":"";
+function setTab(mode){
+  if(mode===true) mode="card"; if(mode===false) mode="desk";
+  $("cardView").hidden=mode!=="card";
+  $("deskView").hidden=mode!=="desk";
+  $("ledgerView").hidden=mode!=="ledger";
+  $("tabCard").className=mode==="card"?"":"ghost";
+  $("tabDesk").className=mode==="desk"?"":"ghost";
+  $("tabLedger").className=mode==="ledger"?"":"ghost";
+  if(mode==="ledger") renderLedger();
 }
-$("tabCard").addEventListener("click",()=>setTab(true));
-$("tabDesk").addEventListener("click",()=>setTab(false));
+$("tabCard").addEventListener("click",()=>setTab("card"));
+$("tabDesk").addEventListener("click",()=>setTab("desk"));
+$("tabLedger").addEventListener("click",()=>setTab("ledger"));
+setTab("desk");
 
 (async()=>{
   try{ sampleNS=await claude.use("sample"); }catch(e){ sampleNS=null; }

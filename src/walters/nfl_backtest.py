@@ -27,6 +27,41 @@ class NFLEloConfig:
     default_rating: float = 1500.0
 
 
+# ---------------------------------------------------------------------------
+# Hard scope (2026-09-26, architect lane 6): NCAA football is stored under
+# the same Sport.NFL family (Competition.code "NCAA"), so a sport-only filter
+# lets college games into the NFL pot. Every NFL model path — ratings walk,
+# backtest, prediction selection, grading — selects through nfl_scoped(),
+# which pins Competition.code == "NFL" explicitly. scope_line() is the
+# receipt each run prints so contamination stays visible forever.
+# ---------------------------------------------------------------------------
+NFL_COMPETITION_CODE = "NFL"
+NFL_EXPECTED_TEAMS = 32
+
+
+def nfl_scoped(stmt):
+    """Restrict a select() over Match to the NFL competition only."""
+    from src.db.schema import Competition, Match, Sport
+    return (stmt.join(Competition, Competition.id == Match.competition_id)
+            .where(Match.sport == Sport.NFL,
+                   Competition.code == NFL_COMPETITION_CODE))
+
+
+def scope_line(label: str, games) -> str:
+    """'scope[label]: teams=32, games=N, competitions={NFL}' from the rows
+    actually selected; appends SCOPE ALERT when either set is off-model."""
+    teams: set[int] = set()
+    comps: set[str] = set()
+    for m in games:
+        teams.update((m.home_team_id, m.away_team_id))
+        comps.add(m.competition.code if m.competition else "?")
+    line = (f"scope[{label}]: teams={len(teams)}, games={len(games)}, "
+            f"competitions={{{', '.join(sorted(comps))}}}")
+    if comps - {NFL_COMPETITION_CODE} or (games and len(teams) != NFL_EXPECTED_TEAMS):
+        line += f"  ⚠ SCOPE ALERT (expected teams={NFL_EXPECTED_TEAMS}, competitions={{NFL}})"
+    return line
+
+
 @dataclass
 class _State:
     ratings: dict[int, float] = field(default_factory=dict)
@@ -80,7 +115,7 @@ def run_backtest(progress=None, cap: float | None = None,
     from sqlalchemy import select
 
     from src.db.database import session_scope
-    from src.db.schema import Match, MatchStatus, Sport
+    from src.db.schema import Match, MatchStatus
 
     def report(msg: str) -> None:
         if progress:
@@ -91,13 +126,14 @@ def run_backtest(progress=None, cap: float | None = None,
 
     with session_scope() as s:
         games = list(s.execute(
-            select(Match).where(
-                Match.sport == Sport.NFL,
+            nfl_scoped(select(Match)).where(
                 Match.status == MatchStatus.FINISHED,
                 Match.home_score.is_not(None),
                 Match.away_score.is_not(None),
             ).order_by(Match.utc_date, Match.id)
         ).scalars())
+        games = [m for m in games if "pre" not in (m.stage or "").lower()]
+        report(scope_line("nfl-backtest", games))
         rows = [(m.home_team_id, m.away_team_id, m.season,
                  m.home_score, m.away_score,
                  (m.stage or "")) for m in games]

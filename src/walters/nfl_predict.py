@@ -24,28 +24,29 @@ from sqlalchemy import select
 
 from src.db.database import session_scope
 from src.db.schema import Injury, Match, MatchStatus, Odds, Prediction, Sport
-from src.walters.nfl_backtest import NFLEloConfig, _State, _expected_home, _update
+from src.walters.nfl_backtest import (NFLEloConfig, _State, _expected_home, _update,
+                                      nfl_scoped, scope_line)
 
 log = logging.getLogger(__name__)
 
 MODEL_VERSION = "nfl_elo_v1"
 
 
-def _current_ratings() -> _State:
+def _current_ratings(progress=None) -> _State:
     cfg = NFLEloConfig()
     st = _State()
     with session_scope() as s:
         games = list(s.execute(
-            select(Match).where(
-                Match.sport == Sport.NFL,
+            nfl_scoped(select(Match)).where(
                 Match.status == MatchStatus.FINISHED,
                 Match.home_score.is_not(None),
                 Match.away_score.is_not(None),
             ).order_by(Match.utc_date, Match.id)
         ).scalars())
+        games = [m for m in games if "pre" not in (m.stage or "").lower()]
+        if progress:
+            progress(scope_line("ratings", games))
         for m in games:
-            if "pre" in (m.stage or "").lower():
-                continue
             _update(cfg, st, m.home_team_id, m.away_team_id, m.season,
                     m.home_score, m.away_score)
     return st
@@ -64,20 +65,21 @@ def _tier(p: float) -> str:
     return "toss-up"
 
 
-def predict_nfl(days_ahead: int = 8) -> int:
+def predict_nfl(days_ahead: int = 8, progress=None) -> int:
     cfg = NFLEloConfig()
-    st = _current_ratings()
+    st = _current_ratings(progress)
     written = 0
     with session_scope() as s:
         now = datetime.utcnow()
         upcoming = list(s.execute(
-            select(Match).where(
-                Match.sport == Sport.NFL,
+            nfl_scoped(select(Match)).where(
                 Match.status == MatchStatus.SCHEDULED,
                 Match.utc_date >= now,
                 Match.utc_date <= now + timedelta(days=days_ahead),
             ).order_by(Match.utc_date)
         ).scalars())
+        if progress:
+            progress(scope_line("prediction set", upcoming))
         for m in upcoming:
             p_home = _expected_home(cfg, st, m.home_team_id, m.away_team_id)
             # Match-only upsert (S13): one prediction row per match, ever.
@@ -98,10 +100,9 @@ def predict_nfl(days_ahead: int = 8) -> int:
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str:
     with session_scope() as s:
         now = datetime.utcnow()
-        q = (select(Prediction, Match)
-             .join(Match, Match.id == Prediction.match_id)
-             .where(Match.sport == Sport.NFL,
-                    Match.status == MatchStatus.SCHEDULED,
+        q = (nfl_scoped(select(Prediction, Match)
+                        .join(Match, Match.id == Prediction.match_id))
+             .where(Match.status == MatchStatus.SCHEDULED,
                     Match.utc_date >= now,
                     Match.utc_date <= now + timedelta(days=days_ahead))
              .order_by(Match.utc_date))
@@ -220,10 +221,9 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
 
     with session_scope() as s:
         now = datetime.utcnow()
-        q = (select(Prediction, Match)
-             .join(Match, Match.id == Prediction.match_id)
-             .where(Match.sport == Sport.NFL,
-                    Match.status == MatchStatus.FINISHED,
+        q = (nfl_scoped(select(Prediction, Match)
+                        .join(Match, Match.id == Prediction.match_id))
+             .where(Match.status == MatchStatus.FINISHED,
                     Match.utc_date >= now - timedelta(days=days_back))
              .order_by(Match.utc_date))
         hits = n = 0
@@ -287,10 +287,9 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
     rows = []
     with session_scope() as s:
         now = datetime.utcnow()
-        q = (select(Prediction, Match)
-             .join(Match, Match.id == Prediction.match_id)
-             .where(Match.sport == Sport.NFL,
-                    Match.status == MatchStatus.FINISHED,
+        q = (nfl_scoped(select(Prediction, Match)
+                        .join(Match, Match.id == Prediction.match_id))
+             .where(Match.status == MatchStatus.FINISHED,
                     Match.utc_date >= now - timedelta(days=days_back))
              .order_by(Match.utc_date))
         for pred, m in s.execute(q).all():

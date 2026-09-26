@@ -22,6 +22,36 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **SPREAD-FALLBACK MEASUREMENT REVISION + DARK SWITCH 2026-09-26
+  (architect tribunal ruling, daily-class):** acceptance FAIL x2
+  RATIFIED (NFL 5.54pp, NCAA 4.03pp vs the frozen 3.0pp bar). DIAGNOSIS
+  (architect): every catastrophic row is a favourite-DISAGREEMENT
+  between ML fair and spread (CAR@CLE 26.8, PHI@CHI 16.0, LAR@DEN 14.8,
+  HOU@IND 13.9, CHI@CAR 17.7) — suspected thin/stale ML reference on
+  exactly the games where MLs are scarce; NCAA's 20/20 agreement at
+  4.03pp vs 1-2-book MLs supports it. REVISION (the bar is untouched;
+  the REFERENCE gets vetted): the check's table adds ML_books and both
+  latest-capture timestamps + their gap per row; the SCORED set
+  requires ML_books >= 4 AND |ML - spread capture| <= 24h; excluded
+  rows still print, marked UNRELIABLE-REF (with the reason); verdict
+  re-computed on the vetted set with the same 3.0pp bar; vetted n < 10
+  -> INSUFFICIENT-REF instead of PASS/FAIL. DOCTRINE: the fallback
+  ships ONLY on a vetted PASS; if the vetted set still fails, sigma
+  faces the evidence next — but sign disagreements are DATA problems,
+  not sigma problems. DARK SWITCH: #26 merged the fallback LIVE in both
+  exports; `spread_fallback.FALLBACK_LIVE = False` now gates both call
+  sites, so live exports emit fair_source "1X2" only (spread-only rows
+  keep market=null) until a vetted PASS flips it (a one-line PR).
+- **STATE-SYNC 2026-09-26 (architect, from Anthony's runs):**
+  (1) nfl-backtest post-#28: `scope[nfl-backtest]: teams=32, games=587,
+  competitions={NFL}`, no alert; gate reproduced 0.6361 PASS —
+  provenance clean, LANE 6 CLOSED. (2) migrate_score_90 post-#21: 18/19
+  AET-PEN rows in two-legged stages, no breaching rows, VERDICT HOLD —
+  the 90-minute columns are ACTIVE, tribunal CLOSED. (3) spread fallback
+  FAIL x2 -> the revision above. (4) QUARANTINE RULING: RATIFIED AS
+  BUILT — derived prices never feed the quarantine contract. (5) #27
+  (hosting H0) merges AS A DRAFT: landing in-repo is not ratification;
+  the architect reviews its content before any H1 work.
 - **SPREAD->WIN-PROB FALLBACK (gate-class-lite, architect spec
   2026-09-26) — built; acceptance receipt pending Anthony's real run;
   bar 3.0pp frozen before results.** Where an american-football game

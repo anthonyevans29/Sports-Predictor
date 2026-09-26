@@ -52,6 +52,12 @@ def _current_ratings(progress=None) -> _State:
     return st
 
 
+def _fb_live() -> bool:
+    """Spread fallback dark switch (acceptance FAILED; ships only on a vetted PASS)."""
+    from src.walters import spread_fallback as _fb
+    return _fb.FALLBACK_LIVE
+
+
 def _tier(p: float) -> str:
     # NFL-SPECIFIC thresholds, FROZEN 2026-09-10 pre-Week-1-results (backlog:
     # tier pre-commitment). Elo's NFL distribution is wider than MLB's and
@@ -126,7 +132,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                     "fair_prob": {k: round(v / over, 4) for k, v in implied.items()},
                     "fair_source": "1X2",
                 }
-            else:
+            elif _fb_live():
                 # Spread->win-prob fallback (2026-09-26): no 1X2 consensus but
                 # SPREADS present -> labelled spread-derived fair (reference
                 # only). NOT fed to market_divergence_pp / quarantine below:

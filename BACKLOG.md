@@ -22,6 +22,22 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **H2 GOALIE PROBE VERDICT — NEGATIVE, definitively (architect,
+  2026-09-26, from Anthony's run of the fixed probe):** the hockey
+  provider rejects /games/lineups, /games/players, /players, /injuries
+  and every statistics endpoint ("do not exist"); only /games/events
+  answers (goals/penalties, NO goalies), deep to 2023+.
+  (1) H2 REOPENING CONDITION RESTATED: an EXTERNAL goalie/lineup data
+  source entering the stack — a future sourcing decision; there is no
+  queued item against the current provider. NHL stays MARKET-ONLY
+  INDEFINITELY.
+  (2) NEGATIVE-RESULT DOCTRINE: a probe returning "no" is a success —
+  26 requests closed a track's open question.
+  (3) LEDGER ONLY (not queued): /games carries per-period score splits,
+  currently unstored — a possible future data item.
+  The 2026-09-26 bounded authorization is FULLY CLOSED (items 1-4
+  done). Stand down: next architect contact is the revised score-90
+  tribunal PR reported green, then nothing until the Cockpit v0.4 spec.
 - **migrate_score_90 INVARIANT REVISED 2026-09-26 (architect ruling,
   daily-class):** Anthony's first run printed BREACHED, but FT 370/370
   (90' == stored) says score.fulltime = 90' semantics are LIKELY RIGHT

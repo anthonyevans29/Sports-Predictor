@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (H2 goalie probe verdict: NEGATIVE)
+- Docs only. The hockey provider has no goalie/lineup/player endpoints
+  (only /games/events answers). H2 reopens only via an external data
+  source; NHL market-only indefinitely. Bounded authorization closed.
+
 ## 2026-09-26 (migrate_score_90 invariant revised)
 - Receipt prints breaching rows verbatim + the AET/PEN stage table.
   Revised law: FT 90'==score; AET/PEN 90'<=stored per side; level at

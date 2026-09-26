@@ -160,8 +160,11 @@ class APIHockeyAdapter(DataAdapter):
                 utc = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                 utc = utc.astimezone(timezone.utc).replace(tzinfo=None) if utc.tzinfo else utc
             status_block = game.get("status") or {}
-            short = (status_block.get("short") if isinstance(status_block, dict)
-                     else str(status_block)) or "NS"
+            # raw provider code BEFORE the "NS" default: an absent status must
+            # stay absent in status_raw (conservative unknowns), not become "NS"
+            raw_short = (status_block.get("short") if isinstance(status_block, dict)
+                         else (str(status_block) if status_block else None))
+            short = raw_short or "NS"
             home = (teams.get("home") or {})
             away = (teams.get("away") or {})
             if gid is None or home.get("id") is None or away.get("id") is None:
@@ -197,6 +200,9 @@ class APIHockeyAdapter(DataAdapter):
                 source=self.source_name, source_id=str(gid),
                 matchday=matchday,
                 stage=str(game.get("stage") or "") or None,
+                # the raw code the _STATUS map collapses (FT vs AOT vs AP):
+                # OT/SO wins become distinguishable (H2 groundwork, 2026-09-26)
+                status_raw=(raw_short if raw_short not in (None, "", "None") else None),
                 home_score=hs.get("total") if isinstance(hs, dict) else hs,
                 away_score=as_.get("total") if isinstance(as_, dict) else as_,
             ))

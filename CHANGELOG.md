@@ -10,6 +10,11 @@ Every drop adds an entry going forward.
   checks (lineups + per-player minutes). No DB access, no wiring.
   Anthony runs it and pastes the output to the architect.
 
+## 2026-09-26 (NHL raw status storage)
+- matches.status_raw: the provider's status code kept verbatim; the
+  hockey adapter stores FT/AOT/AP (OT/SO wins distinguishable). Run
+  `python migrate_status_raw.py` after merge, then a full NHL sync.
+
 ## 2026-09-26 (mission declared)
 - CLAUDE.md: Mission section (architect, verbatim) at the top; queue
   re-ranked — Cockpit v0.4 P&L/self-grading at the head, K-track

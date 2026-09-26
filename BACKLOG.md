@@ -39,6 +39,27 @@ specific reason they're not being built now.
   published ~1h pre-kickoff, so history is post-hoc truth — "as-of" for
   a candidate means the lineup known at prediction time, which the probe
   does not (cannot) establish. Receipt is Anthony's real run.
+- **ARCHITECT BOUNDED AUTHORIZATION 2026-09-26 (daily-class, in order,
+  branch+PR each, NOTHING beyond):** (1) NHL raw status storage; (2)
+  soccer 90-minute/extra-time storage; (3) H2 probe script (hockey
+  starting goalies/lineups, read-only); (4) lineup-history probe script
+  (soccer, read-only). Guardrails: no model/pricing changes, no
+  export-contract changes, no threshold/queue edits, no policy files.
+
+- **ITEM 1 — NHL RAW STATUS STORAGE 2026-09-26:** new nullable column
+  matches.status_raw (VARCHAR 16) = the provider's status code verbatim;
+  NormalizedMatch.status_raw; ingestion writes it on create and on
+  update (never blanks a stored code with an absent one); the hockey
+  adapter now passes FT / AOT / AP through — OT/SO wins become
+  distinguishable (H2 reopening groundwork). LAW-1 CATCH: the parser
+  defaults a missing status to "NS", so the raw code is captured BEFORE
+  that default — the 16 status-less 2024 games stay NULL, not a faked
+  "NS". Mapped vocabulary + score-presence inference unchanged.
+  MIGRATION: `python migrate_status_raw.py` (additive ADD COLUMN,
+  idempotent) MUST run after merge, before any chain (the ORM maps the
+  column). BACKFILL: the next full NHL sync populates existing rows;
+  re-running the migration prints the per-season FT/AOT/AP receipt.
+
 - **MISSION DECLARED 2026-09-26 (architect):** "Generate consistent
   income from sports predictions — sports as commodities, every game an
   asset class, optimized for prediction markets (Kalshi-native).

@@ -142,6 +142,11 @@ class Match(Base):
 
     utc_date: Mapped[datetime] = mapped_column(DateTime, index=True)
     status: Mapped[MatchStatus] = mapped_column(Enum(MatchStatus), index=True)
+    # The provider's own status code, verbatim (e.g. hockey FT / AOT / AP,
+    # soccer FT / AET / PEN). `status` is our mapped vocabulary; this keeps
+    # the distinction the mapping collapses (2026-09-26). NULL = not synced
+    # since the column was added. Added by migrate_status_raw.py.
+    status_raw: Mapped[str | None] = mapped_column(String(16))
 
     home_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True)
     away_team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True)

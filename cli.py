@@ -3465,12 +3465,19 @@ def capture_weather_nfl_cmd():
     console.print(f"[green]✓ NFL weather: captured={captured} skipped={skipped}[/green]")
 
 
-@cli.command("sync-odds-nfl")
-def sync_odds_nfl_cmd():
-    """Capture book odds for upcoming NFL games (per-game; Week-N tracking)."""
+@cli.command("sync-odds-football")
+def sync_odds_football_cmd():
+    """Capture book odds for upcoming American-football games — NFL and NCAA
+    (the Sport.NFL family) — per-game; Week-N tracking. Renamed from
+    sync-odds-nfl (2026-09-26); the old name stays as an alias."""
     from src.ingestion.service import sync_odds_nfl
     r = sync_odds_nfl(progress=lambda msg: console.print(msg))
-    console.print(f"[green]✓ NFL odds: created={r['created']} across {r['games']} games[/green]")
+    console.print(f"[green]✓ Football odds (NFL+NCAA): created={r['created']} "
+                  f"across {r['games']} games[/green]")
+
+
+# Old name kept as an alias so existing chains keep working (2026-09-26).
+cli.add_command(sync_odds_football_cmd, name="sync-odds-nfl")
 
 
 @cli.command("sync-kalshi-ncaa")

@@ -79,7 +79,7 @@ sync-odds → sync-injuries → sync-kalshi-soccer → predict →
 export-predictions`), morning-after grading, and a gated
 `soccer-refresh` after each matchweek. See `docs/pl_weekly_routine.md`.
 
-**NFL (weekly):** `sync-odds-nfl` / `sync-kalshi-nfl` through the week
+**NFL (weekly):** `sync-odds-football` / `sync-kalshi-nfl` through the week
 as lines post; `sync-matches` + `nfl-grade` after game days;
 `predict-nfl → export-nfl-predictions` (rehearsal-flagged until live).
 

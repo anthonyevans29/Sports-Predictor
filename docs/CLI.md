@@ -72,14 +72,14 @@ Pre-matchday chain: `sync-matches` → `sync-odds` → `sync-injuries` →
 
 ## NFL operation (rehearsal phase)
 
-Weekly rhythm: `sync-odds-nfl` + `sync-kalshi-nfl` every day or two as
+Weekly rhythm: `sync-odds-football` + `sync-kalshi-nfl` every day or two as
 lines post; after game days `sync-matches --competition NFL` then
 `nfl-grade`. Prediction generation is internal until the dress rehearsal
 passes.
 
 | Command | Options | Purpose |
 |---|---|---|
-| `sync-odds-nfl` | | Per-game book odds for upcoming NFL games (moneyline, spreads with sign, totals with lines). |
+| `sync-odds-football` | | Per-game book odds for upcoming American-football games, NFL and NCAA (moneyline, spreads with sign, totals with lines). Old name `sync-odds-nfl` still works as an alias. |
 | `sync-kalshi-nfl` | | Kalshi `KXNFLGAME` markets via the shared two-sided matcher. |
 | `capture-weather-nfl` | | Tracking-only weather snapshot for upcoming NFL games (team-keyed stadium map; roofed games stored as indoor). |
 | `predict-nfl` | | Write v1 Elo predictions for upcoming games (match-only upsert). |

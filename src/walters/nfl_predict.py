@@ -124,7 +124,22 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                 market = {
                     "bookmaker_count": len({o.bookmaker for o in odds_rows}),
                     "fair_prob": {k: round(v / over, 4) for k, v in implied.items()},
+                    "fair_source": "1X2",
                 }
+            else:
+                # Spread->win-prob fallback (2026-09-26): no 1X2 consensus but
+                # SPREADS present -> labelled spread-derived fair (reference
+                # only). NOT fed to market_divergence_pp / quarantine below:
+                # that contract rule was earned on the 1X2 consensus.
+                from src.walters import spread_fallback as _fb
+                sp_rows = list(s.execute(select(Odds).where(
+                    Odds.match_id == m.id,
+                    Odds.market == _fb.SPREAD_MARKET)).scalars())
+                if sp_rows:
+                    sp = _fb.latest_pre_kickoff(sp_rows, m.utc_date,
+                                                _fb.SPREAD_MARKET, with_line=True)
+                    market = _fb.derive_spread_market(
+                        sp.values(), m.competition.code if m.competition else "NFL")
             # QB status front and center: injuries for both teams
             inj = {}
             for side, tid in (("home", m.home_team_id), ("away", m.away_team_id)):
@@ -136,7 +151,8 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                 inj[side] = {"count": len(team_inj), "qb_listed": qb,
                              "synced_at": stamp.isoformat() if stamp else None}
             p_home = pred.home_win_prob
-            _fair = (market or {}).get("fair_prob") or {}
+            _fair = ((market or {}).get("fair_prob") or {}
+                     if (market or {}).get("fair_source") == "1X2" else {})
             divergence_pp = (round((p_home - _fair["HOME"]) * 100, 1)
                              if _fair.get("HOME") is not None else None)
             rows.append({

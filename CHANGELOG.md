@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (soccer ET flag + 90-minute score)
+- Football adapter stores status_raw (FT/AET/PEN) and score.fulltime in
+  new matches.home_score_90 / away_score_90. Storage only — scores and
+  results unchanged. Run `python migrate_score_90.py` after merge
+  (receipt includes the 90-minute invariants).
+
 ## 2026-09-26 (NHL raw status storage)
 - matches.status_raw: the provider's status code kept verbatim; the
   hockey adapter stores FT/AOT/AP (OT/SO wins distinguishable). Run

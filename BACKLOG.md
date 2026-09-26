@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **Soccer ET flag + 90-minute score STORED 2026-09-26 (authorization
+  item 2 of 4, daily-class; the fix-v2 ET label-contamination data item,
+  architect ruling 2026-09-25 "store API-Football score.fulltime and the
+  raw AET/PEN status going forward"):** the football adapter now sets
+  matches.status_raw (FT / AET / PEN ... verbatim; absent stays NULL —
+  captured before the parser's "NS" default) and stores score.fulltime
+  in NEW nullable matches.home_score_90 / away_score_90. The ET flag IS
+  status_raw in (AET, PEN) — no extra column. home/away_score (`goals`,
+  incl. ET) and full_time_result are UNCHANGED: storage only, nothing
+  reads the new columns (labels/model/export untouched). Ingestion
+  never blanks a stored 90' score. `migrate_score_90.py` (idempotent
+  ADD COLUMN) prints soccer FINISHED rows by status_raw plus two
+  law-1 INVARIANTS verifying that score.fulltime really is 90': AET/PEN
+  rows level at 90', FT rows 90' == stored score. Populates going
+  forward; any competition re-sync backfills it.
 - **ARCHITECT BOUNDED AUTHORIZATION 2026-09-26 (daily-class, in order,
   branch+PR each, NOTHING beyond):** (1) NHL raw status storage; (2)
   soccer 90-minute/extra-time storage; (3) H2 probe script (hockey

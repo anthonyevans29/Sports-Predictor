@@ -59,6 +59,8 @@ class NormalizedMatch:
     away_score: int | None = None
     home_score_ht: int | None = None
     away_score_ht: int | None = None
+    home_score_90: int | None = None  # soccer score.fulltime (90'); scores above include ET
+    away_score_90: int | None = None
     full_time_result: Result | None = None
     venue: str | None = None
     referee: str | None = None

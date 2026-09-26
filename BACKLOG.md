@@ -22,6 +22,30 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **STALE-BOOK? LIE DETECTOR on the NFL predictions export 2026-09-26
+  (architect URGENT, before Sunday's predict-nfl) + VETTED VERDICTS +
+  MAJOR FINDING (architect, attributed):** vetted spread-fallback
+  verdicts RATIFIED — NFL FAIL (fallback stays dark), NCAA
+  INSUFFICIENT-REF (n=8, 3.05pp; accumulates naturally). MAJOR
+  FINDING: NFL catastrophic rows SURVIVED vetting (7-book MLs,
+  same-minute captures) — favourite-disagreement between deep
+  simultaneous markets implies the provider's football MONEYLINES are
+  stale AT SOURCE (book-side, invisible to capture timestamps; the
+  efficient-market argument is the proof). This impugns the NFL live
+  pipeline's market reference itself — the same 1X2 rows feed fair /
+  divergence / quarantine; CAR@CLE is on Sunday's slate with a
+  manufactured ~25pp book-vs-reality gap. BUILT: `src/walters/venue.py`
+  (kalshi_home_prob: latest PRE-KICKOFF Kalshi per side, two-sided
+  only, normalized HOME/(HOME+AWAY); venue_gap: |book_fair - kalshi|
+  in pp; STALE_BOOK_GAP_PP = 8.0 frozen). The NFL predictions export
+  adds per row `kalshi_prob` (home), `kalshi_captured_at`,
+  `venue_gap_pp`, `venue_flag` ("STALE-BOOK?" at >= 8pp) —
+  DISPLAY AND WARNING ONLY, additive, NO contract change: quarantine
+  still keys on the book divergence exactly as ratified; the flag tells
+  the operator which quarantines and edges to distrust.
+  `export-nfl-predictions` prints a venue-check line + every flagged
+  game. The venue-edge engine's divergence math arriving early; v0.4
+  reuses venue.py.
 - **SPREAD-FALLBACK MEASUREMENT REVISION + DARK SWITCH 2026-09-26
   (architect tribunal ruling, daily-class):** acceptance FAIL x2
   RATIFIED (NFL 5.54pp, NCAA 4.03pp vs the frozen 3.0pp bar). DIAGNOSIS

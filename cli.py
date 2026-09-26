@@ -3384,6 +3384,16 @@ def export_nfl_predictions_cmd():
     """Rehearsal-format NFL predictions export (NOT for consumption yet)."""
     from src.walters.nfl_predict import export_nfl_predictions
     path = export_nfl_predictions()
+    import json as _json
+    rows = _json.load(open(path))["predictions"]
+    flagged = [r for r in rows if r.get("venue_flag")]
+    paired = sum(1 for r in rows if r.get("venue_gap_pp") is not None)
+    print(f"venue check: {paired}/{len(rows)} rows with book fair + kalshi two-sided; "
+          f"STALE-BOOK? flagged: {len(flagged)}")
+    for r in flagged:
+        print(f"  STALE-BOOK?  {r['away_team']} @ {r['home_team']}  book_fair_H="
+              f"{(r['market'] or {}).get('fair_prob', {}).get('HOME')}  kalshi_H="
+              f"{r['kalshi_prob']}  gap={r['venue_gap_pp']}pp  quarantine={r['quarantine']}")
     console.print(f"[green]✓ Wrote {path}[/green] [dim](LIVE format: rehearsal=false, quarantine fields)[/dim]")
 
 

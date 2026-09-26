@@ -23,7 +23,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 
 from src.db.database import session_scope
-from src.db.schema import Injury, Match, MatchStatus, Odds, Prediction, Sport
+from src.db.schema import Injury, Match, MatchStatus, Odds, OddsSnapshot, Prediction, Sport
 from src.walters.nfl_backtest import (NFLEloConfig, _State, _expected_home, _update,
                                       nfl_scoped, scope_line)
 
@@ -161,6 +161,15 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                      if (market or {}).get("fair_source") == "1X2" else {})
             divergence_pp = (round((p_home - _fair["HOME"]) * 100, 1)
                              if _fair.get("HOME") is not None else None)
+            # Venue lie detector (2026-09-26): book fair vs Kalshi two-sided.
+            # DISPLAY/WARNING ONLY — quarantine below still keys on the book
+            # divergence exactly as ratified.
+            from src.walters.venue import kalshi_home_prob, venue_gap
+            kal = kalshi_home_prob(s.execute(select(OddsSnapshot).where(
+                OddsSnapshot.match_id == m.id,
+                OddsSnapshot.source == "kalshi")).scalars(), m.utc_date)
+            gap_pp, venue_flag = venue_gap(_fair.get("HOME"),
+                                           kal["home"] if kal else None)
             rows.append({
                 "match_id": m.id,
                 "utc_date": m.utc_date.isoformat(),
@@ -178,6 +187,11 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                 "market": market,
                 "market_divergence_pp": divergence_pp,
                 "quarantine": (divergence_pp is not None and abs(divergence_pp) >= 15.0),
+                "kalshi_prob": round(kal["home"], 4) if kal else None,
+                "kalshi_captured_at": (kal["captured_at"].isoformat()
+                                       if kal and kal["captured_at"] else None),
+                "venue_gap_pp": gap_pp,
+                "venue_flag": venue_flag,
                 "input_quality": {
                     "book_odds": (market or {}).get("bookmaker_count", 0),
                     "injuries": inj,
@@ -196,7 +210,11 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
         "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows with "
                  "market_divergence_pp >= 15 carry quarantine=true — "
                  "consumer treats them as watch-flagged, never straight "
-                 "plays (rule earned 1-5 across Weeks 1-2)."),
+                 "plays (rule earned 1-5 across Weeks 1-2). "
+                 "venue_flag 'STALE-BOOK?' (|book fair - kalshi_prob| >= 8pp) "
+                 "is a WARNING ONLY: it marks rows whose book reference — and "
+                 "so their divergence/quarantine/edge — should be distrusted; "
+                 "it does not change quarantine."),
         "count": len(rows),
         "predictions": rows,
     }

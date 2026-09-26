@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (NFL export: STALE-BOOK? venue flag)
+- NFL predictions export adds kalshi_prob, venue_gap_pp and venue_flag
+  ("STALE-BOOK?" when |book fair - Kalshi| >= 8pp). Warning only —
+  quarantine unchanged. export-nfl-predictions prints the flagged games.
+- Logged: vetted verdicts (NFL FAIL, NCAA INSUFFICIENT-REF) and the
+  stale-at-source football moneyline finding.
+
 ## 2026-09-26 (spread-fallback check vetted; fallback dark)
 - `spread-fallback-check`: per-row ML_books + capture timestamps/gap;
   verdict on the vetted set only (ML_books >= 4, gap <= 24h; same 3.0pp

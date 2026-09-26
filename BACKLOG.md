@@ -22,6 +22,55 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COCKPIT v0.4 BUILT — THE P&L / SELF-GRADING ORGAN + VENUE-EDGE ENGINE
+  (policy v1.1) 2026-09-26 (lane 1, architect spec committed verbatim as
+  docs/specs/cockpit-v04-pnl-organ.md). READY TO PUBLISH (the architect
+  publishes the artifact; the repo copy is not the live one).**
+  CONSOLIDATED RULINGS (architect, attributed): (1) #31 decisions
+  RATIFIED — sum-to-1 Kalshi rescaling is correct (the only form
+  comparable to book fair); latest-pre-kickoff, both-sides, in-play-never,
+  market="ML" read ratified as built; doc line added (venue.py): the
+  fixtures export's `kalshi.prob` is the RAW stored value. (2) NCAA
+  fallback INSUFFICIENT-REF disposition = accumulate naturally; re-run
+  the check when vetted-n >= 10; no action. (3) Lane 1 unblocked.
+  BUILD (tools/cockpit.html): Ledger tab (third tab); localStorage
+  `bd_ledger_v1` {meta.policy_version, calls[]}, every access try/catch-
+  guarded with an in-page fallback + warning; Export/Import JSON (import
+  merges by id, never downgrades a graded entry). "Log today's calls"
+  (Desk) snapshots PLAY + LADDER rows, parlay tickets (legs share a
+  deterministic parlay_id), NFL quarantine PASSes as `quarantine_shadow`
+  at units 0 with `shadow_units` (the size the row would have staked),
+  and venue-edge calls (engine venue_edge: >=4 books + two-sided Kalshi,
+  |book - Kalshi| >= 5.0pp frozen, fixed 0.25u, tier shadow, UNL /
+  single-venue / thin / in-play excluded and labelled; parlays
+  model_edge-only). Kalshi per-side probs are read from all three export
+  shapes and sum-normalized over the FULL outcome set (partial sets ->
+  no pair). Grading: one intake for results exports + finished/cancelled
+  fixtures; match on (sport, home, away, kickoff date +/-1), exact names
+  first then normalized; ambiguous or unmatched stays open, listed.
+  Straight: pick vs winner (soccer draw loses a side pick; a 2-way tie
+  pushes); ladder: pick or draw wins; parlay: all legs win, void legs
+  drop, a losing leg settles the ticket at once; returns at fair odds
+  1/market_p ("fair-odds P&L, pre-fee"); cancelled = void (stake back);
+  postponed stays open (conservative). Reports: totals + by engine /
+  sport / tier / call type (n, staked, returned, net, ROI, hit), equity
+  SVG with the quarantine counterfactual line, per-rule attribution (rule
+  tags stored on each call), Copy P&L block (weekly + all-time by engine,
+  counterfactual, 50-call sizing gate), non-claims footer.
+  RECEIPT: scripts/cockpit_v04_verify.py (headless Chromium, synthetic
+  files, independent Python re-grader) 24/24 checks, stable across runs.
+  EXECUTOR CALLS (ARCHITECT-RULE): idempotency key = (sport, game,
+  log_date) + engine + call_type + parlay slot, so a straight, a venue
+  call and a parlay leg on one game never overwrite each other; graded
+  calls are never rewritten by a re-log. Additive call fields beyond the
+  spec schema: kickoff (the grader's date), three_way (draw semantics),
+  rules (attribution), shadow_units / shadow_returned, divergence_pp,
+  ticket_result. Pre-existing display quirk fixed: a quarantined NFL
+  PASS no longer shows caution units (quarantine now applies after the
+  sizing chain). OPEN QUESTION: venue-edge on NFL rides the same book
+  moneylines the architect found stale at source — such calls carry the
+  rule tag "venue gap >= 8pp (STALE-BOOK? zone)" so attribution separates
+  them; whether to exclude them outright is the architect's call.
 - **STALE-BOOK? LIE DETECTOR on the NFL predictions export 2026-09-26
   (architect URGENT, before Sunday's predict-nfl) + VETTED VERDICTS +
   MAJOR FINDING (architect, attributed):** vetted spread-fallback

@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (Cockpit v0.4 — P&L / self-grading organ, policy v1.1)
+- tools/cockpit.html: Ledger tab (localStorage bd_ledger_v1, export/
+  import), "Log today's calls", venue-edge engine (shadow, 0.25u),
+  results/fixtures grading intake, by-engine reports, equity + quarantine
+  counterfactual, per-rule attribution, Copy P&L block, non-claims.
+- docs/specs/cockpit-v04-pnl-organ.md (spec, verbatim).
+- scripts/cockpit_v04_verify.py: headless capture -> grade -> report
+  check (24/24).
+- venue.py: doc line — fixtures' kalshi.prob is the raw stored value.
+
 ## 2026-09-26 (NFL export: STALE-BOOK? venue flag)
 - NFL predictions export adds kalshi_prob, venue_gap_pp and venue_flag
   ("STALE-BOOK?" when |book fair - Kalshi| >= 8pp). Warning only —

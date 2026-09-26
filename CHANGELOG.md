@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-26 (hosting H0 draft, for review)
+- Docs only. `docs/specs/hosting-h0.md`: VPS candidates, Tailscale-only
+  posture, systemd unit inventory from the CLI.md chains, `.backup`-API
+  migration runbook (checksums, 7-day parallel run), receipts-log
+  format, CLI.md/cli.py discrepancies, ARCHITECT-RULE open questions.
+  Draft for architect review — not a decision; nothing deployed.
+
 ## 2026-09-26 (spread->win-prob fallback, american football)
 - NFL/NCAA games with no 1X2 consensus but posted spreads now get a
   spread-derived fair (normal margin; median book home line; sigma

@@ -595,3 +595,31 @@ def test_monday_refresh_syncs_el1_el2_first():
     assert steps[0] == ["sync-matches", "--competition", "EL1", "--season", "2026/27"]
     assert steps[1] == ["sync-matches", "--competition", "EL2", "--season", "2026/27"]
     assert steps[-1] == ["soccer-refresh"]
+
+
+# ------------------- fingerprint version guard (architect finding 09-27) ----
+
+def test_fingerprint_stamps_bootstrap_blob_sha_equal_to_git(tmp_path):
+    import subprocess
+    fp = bootstrap.fingerprint(_fp_db(tmp_path / "x.db", NHL_CERT))
+    want = subprocess.run(["git", "hash-object", str(HOSTING / "bootstrap.py")],
+                          capture_output=True, text=True, check=True).stdout.strip()
+    assert fp["producer"]["bootstrap_blob_sha"] == want
+
+
+def test_compare_refuses_version_skew_and_unstamped(sandbox, tmp_path):
+    base = bootstrap.fingerprint(_fp_db(tmp_path / "l.db", NHL_CERT))
+    skew = json.loads(json.dumps(base))
+    skew["producer"]["bootstrap_blob_sha"] = "0" * 40
+    old = {k: v for k, v in base.items() if k != "producer"}  # a pre-guard fingerprint
+    for lap, host, msg in ((base, skew, "different bootstrap.py versions"),
+                           (old, base, "laptop fingerprint carries no bootstrap version stamp")):
+        lp, hp = tmp_path / "a.json", tmp_path / "b.json"
+        lp.write_text(json.dumps(lap))
+        hp.write_text(json.dumps(host))
+        assert bootstrap.main(["compare", str(lp), str(hp)]) == 2
+        rec = receipts(sandbox)[-1]
+        assert rec["refused"] == "version_mismatch" and "games" not in json.dumps(rec)
+    assert bootstrap.version_mismatch(base, json.loads(json.dumps(base))) is None
+    assert "no bootstrap version stamp" in bootstrap.version_mismatch(old, base)
+    assert "different bootstrap.py versions" in bootstrap.version_mismatch(base, skew)

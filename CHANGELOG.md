@@ -10,6 +10,9 @@ Every drop adds an entry going forward.
 - bootstrap compare --waive COMP:SEASON:reason: row still printed as
   WAIVED, recorded in the receipt.
 - Monday soccer-refresh (chain + routine doc) syncs EL1/EL2 2026/27 first.
+- Fingerprints embed the producing bootstrap.py git blob SHA; compare
+  refuses version-mismatched or unstamped fingerprints (the UEL 269 vs 202
+  delta was version skew, not data).
 
 ## 2026-09-27 (bootstrap --skip-family: MLB Stats API blocks datacenter ASNs)
 - bootstrap.py --skip-family MLB: MLB sync-teams/sync-matches receipted

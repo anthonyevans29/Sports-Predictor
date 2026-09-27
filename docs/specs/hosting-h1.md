@@ -257,10 +257,18 @@ completed season is waived with `--waive COMP:SEASON:reason`.
 - The row still prints, with both counts, marked `~ … WAIVED: <reason>`.
 - The waiver is recorded in the compare receipt, with `applied` true or
   false. A waiver on a matching row prints `waiver unused`.
-- First H1a run: UEL 2024/25 was host 202 vs laptop 269. Re-sync it once
-  on the host
-  (`sync-matches --competition UEL --season 2024/25`). If the count holds,
-  waive it: `--waive "UEL:2024/25:provider serves N after one host re-sync"`.
+- **Version guard (architect finding, 2026-09-27).** Both fingerprints
+  must come from the same `bootstrap.py`. Every fingerprint embeds the
+  producing file's git blob SHA, and `compare` REFUSES a mismatch, or an
+  unstamped fingerprint, before comparing any row.
+  - First H1a run: UEL 2024/25 read host 202 vs laptop 269, while sqlite
+    held 269 on BOTH machines. That was fingerprint version skew (a
+    pre-#42 laptop fingerprint against a post-#42 host one), not data.
+  - So: pull `main` on both machines, regenerate BOTH fingerprints
+    (laptop B1, host B3), then re-compare.
+  - Only a delta that survives a same-version compare and one host
+    re-sync is a waiver candidate, for example
+    `--waive "UEL:2024/25:provider serves N after one host re-sync"`.
 - NFL: the Pro Bowl rows (AFC v NFC, +1 game per season, 34 teams) are
   now excluded at the adapter, and each exclusion prints a receipt. The
   scope_line SCOPE ALERT (teams != 32) was the protection that would have

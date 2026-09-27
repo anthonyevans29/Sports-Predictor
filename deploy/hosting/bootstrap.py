@@ -30,6 +30,12 @@ database from the providers. No data travels.
     HOST    bootstrap.py fingerprint --out fp_host.json
     EITHER  bootstrap.py compare fp_laptop.json fp_host.json [--skip-family MLB]  -> PASS/FAIL
             A skipped family is N/A-host (laptop-only), never a failure.
+            VERSION GUARD (architect finding, 2026-09-27): every fingerprint
+            embeds the producing bootstrap.py's git blob SHA. compare REFUSES
+            fingerprints from different bootstrap versions, or unstamped ones,
+            before comparing a single row. A pre-#42 laptop fingerprint against
+            a post-#42 host one showed UEL 2024/25 as 269 vs 202 while sqlite
+            held 269 on both machines: version skew, not data.
             --waive COMP:SEASON:reason (repeatable; architect ruling 2026-09-27):
             an explained provider difference on a completed season. The row
             still PRINTS, with both counts and the reason, marked WAIVED. The
@@ -144,6 +150,34 @@ def _mkey(r: dict) -> tuple:
     return (str(r.get("sport")), str(r.get("model_family")))
 
 
+def producer_version() -> dict:
+    """The producing bootstrap.py's git blob SHA (identical to `git hash-object`,
+    computed from the file bytes so a local edit shows too) plus the checkout's
+    commit SHA for human reference."""
+    import hashlib
+    data = Path(__file__).read_bytes()
+    blob = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+    return {"bootstrap_blob_sha": blob, "git_commit": c.git_sha()}
+
+
+def version_mismatch(lap: dict, host: dict) -> str | None:
+    """Refusal message when the two fingerprints were made by different
+    bootstrap.py versions (or either is unstamped), else None."""
+    a, b = lap.get("producer") or {}, host.get("producer") or {}
+    if not a.get("bootstrap_blob_sha") or not b.get("bootstrap_blob_sha"):
+        who = [n for n, x in (("laptop", a), ("host", b)) if not x.get("bootstrap_blob_sha")]
+        return (f"✗ REFUSED: {' and '.join(who)} fingerprint carries no bootstrap version stamp "
+                f"(made before the version guard). Regenerate it on current main: "
+                f"`bootstrap.py fingerprint --out ...`, then re-compare.")
+    if a["bootstrap_blob_sha"] != b["bootstrap_blob_sha"]:
+        return (f"✗ REFUSED: fingerprints come from different bootstrap.py versions "
+                f"(laptop {a['bootstrap_blob_sha'][:12]} @ {a.get('git_commit')}, host "
+                f"{b['bootstrap_blob_sha'][:12]} @ {b.get('git_commit')}). Counting rules may differ, "
+                f"so a row delta could be version skew, not data. Pull main on both machines, "
+                f"regenerate both fingerprints, re-compare.")
+    return None
+
+
 def fingerprint(db: Path) -> dict:
     con = c.ro_connect(db)
     try:
@@ -162,7 +196,8 @@ def fingerprint(db: Path) -> dict:
         models = model_rows(con)
     finally:
         con.close()
-    return {"created": c.iso(), "host": c.host_name(), "games": games, "teams": teams,
+    return {"created": c.iso(), "host": c.host_name(), "producer": producer_version(),
+            "games": games, "teams": teams,
             "family_teams": family_teams, "odds_snapshots_by_source": odds,
             "model_registry": models}
 
@@ -334,14 +369,24 @@ def main(argv=None) -> int:
         fp = fingerprint(c.db_path())
         a.out.write_text(json.dumps(fp, indent=1))
         tot = sum(g["n"] for g in fp["games"])
+        print(f"  producer: bootstrap.py blob {fp['producer']['bootstrap_blob_sha'][:12]} @ "
+              f"{fp['producer']['git_commit']}")
         print(f"✓ fingerprint {a.out}: {tot} games, {len({(g['comp'], g['season']) for g in fp['games']})} "
               f"competition-seasons, odds_snapshots {fp['odds_snapshots_by_source']}, production "
               f"models {[r['version'] + ' ' + str(r['model_family']) for r in fp['model_registry']]}")
         return 0
     if a.cmd == "compare":
         waivers = dict(parse_waiver(w) for w in a.waive)
-        ok, lines = compare(json.loads(a.laptop.read_text()), json.loads(a.host.read_text()), skip,
-                            waivers)
+        lap_fp, host_fp = json.loads(a.laptop.read_text()), json.loads(a.host.read_text())
+        refusal = version_mismatch(lap_fp, host_fp)
+        if refusal:
+            print(refusal)
+            c.append_receipt({"kind": "bootstrap", "step": "compare", "exit": 2,
+                              "refused": "version_mismatch",
+                              "laptop_producer": lap_fp.get("producer"),
+                              "host_producer": host_fp.get("producer")})
+            return 2
+        ok, lines = compare(lap_fp, host_fp, skip, waivers)
         print("\n".join(lines))
         print(f"\n{'PASS' if ok else 'FAIL'} — H1a phase-1 acceptance (completed seasons exact + anchors)")
         c.append_receipt({"kind": "bootstrap", "step": "compare", "exit": 0 if ok else 1,

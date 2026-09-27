@@ -22,6 +22,20 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FINDING (4) 2026-09-27 (architect): FINGERPRINT VERSION SKEW, NOT
+  DATA.** fp_laptop.json (made pre-#42) vs fp_host.json (post-#42) counted
+  UEL 2024/25 as 269 vs 202 while sqlite shows 269 on BOTH machines. FIX
+  (folded into #43): every fingerprint embeds `producer` =
+  {bootstrap_blob_sha: the producing bootstrap.py's git blob SHA —
+  computed from the file bytes, identical to `git hash-object`, so a local
+  edit shows too; git_commit for humans}; `compare` REFUSES (exit 2,
+  receipted as refused=version_mismatch) fingerprints from different
+  bootstrap versions or unstamped ones, BEFORE comparing a single row,
+  with a message naming both SHAs and the fix (pull main on both,
+  regenerate both, re-compare). Runbook: the UEL row is re-classified as
+  version skew — no waiver pre-emptively; only a delta surviving a
+  same-version compare + one host re-sync is a waiver candidate.
+  pytest 185 passed.
 - **H1a COMPARE RESULT + THREE RULINGS 2026-09-27 (architect):** anchors
   10/10, models match, 61/64 comp-seasons exact. (1) NFL +1 game/season
   with 34 teams = the Pro Bowl (AFC/NFC) filed inside the NFL league.

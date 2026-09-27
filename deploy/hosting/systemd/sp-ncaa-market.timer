@@ -1,4 +1,4 @@
-# NCAA market-only (Kalshi primary). Shipped; enable only on ratification (hosting-h1.md open list).
+# NCAA market-only (Kalshi primary). Enabled with the rest (H0-11: live sport, Saturday slates).
 # H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
 [Unit]
 Description=sports-predictor timer: sp-ncaa-market

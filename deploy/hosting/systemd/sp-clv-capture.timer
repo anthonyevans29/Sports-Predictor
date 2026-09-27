@@ -1,4 +1,4 @@
-# Replaces the four launchd CLV jobs one-for-one; zone America/New_York pending H0-7.
+# Replaces the four launchd CLV jobs one-for-one; America/New_York CONFIRMED (H0-7: the operation clock is Eastern).
 # H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
 [Unit]
 Description=sports-predictor timer: sp-clv-capture

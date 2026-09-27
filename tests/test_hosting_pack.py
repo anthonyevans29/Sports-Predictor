@@ -37,7 +37,7 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(c, "REPO", repo)
     monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
     monkeypatch.setattr(c, "_DOTENV_CACHE", None)
-    for k in ("SP_PARALLEL_MODE", "SP_DESIGNATED_DAYS", "SP_NOTIFY_URL", "SP_FULLSEASON_LIST"):
+    for k in ("SP_PARALLEL_MODE", "SP_DESIGNATED_DAYS", "NTFY_TOPIC", "NTFY_SERVER", "SP_FULLSEASON_LIST"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "log" / "receipts.jsonl"))
     monkeypatch.setenv("SP_LOCK", str(tmp_path / "lib" / "db.lock"))
@@ -302,3 +302,81 @@ def test_redact(monkeypatch):
     monkeypatch.setenv("API_HOCKEY_KEY", "hk-verysecretvalue")
     assert "verysecret" not in c.redact("url?key=x hk-verysecretvalue token: abc")
     assert c.redact("token: abc") == "token: [REDACTED]"
+
+
+# ---------------------------------------- final-four rulings (2026-09-27) ----
+
+import pull_backup  # noqa: E402
+import sp_notify  # noqa: E402
+
+
+def test_ntfy_page_posts_to_private_topic_and_logs(sandbox, monkeypatch):
+    (c.REPO / ".env").write_text("NTFY_TOPIC=sp-secret-topic-xyz\n")
+    monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    sent = {}
+
+    class R:
+        status = 200
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout):
+        sent.update(url=req.full_url, body=req.data.decode(), title=req.headers["Title"])
+        return R()
+    monkeypatch.setattr(sp_notify.urllib.request, "urlopen", fake_urlopen)
+    assert sp_notify.deliver("page", "sports-predictor: operator action",
+                             "SP-PAGE: improve --sport mlb PASS HELD — candidate v9") is True
+    assert sent["url"] == "https://ntfy.sh/sp-secret-topic-xyz"
+    assert "PASS HELD" in sent["body"]
+    r = receipts(sandbox)[-1]  # pages AND logs
+    assert r["kind"] == "page" and r["delivered"] is True and r["channel"] == "ntfy"
+    assert "sp-secret-topic-xyz" not in json.dumps(receipts(sandbox))
+
+
+def test_no_topic_logs_undelivered(sandbox):
+    assert sp_notify.ntfy_url() is None
+    assert sp_notify.deliver("failure", "t", "b") is False
+    assert receipts(sandbox)[-1]["delivered"] is False
+
+
+def test_retention_default_is_14_dailies_report_only(sandbox, monkeypatch):
+    bk = sandbox / "backups"
+    bk.mkdir()
+    for i in range(1, 31):
+        (bk / f"sports_2026-11-{i:02d}.db").write_text("x")
+    monkeypatch.setattr(c, "utc_now", lambda: datetime(2026, 11, 30, 12, tzinfo=timezone.utc))
+    assert sp_prune.main() == 0
+    r = receipts(sandbox)[-1]
+    assert r["applied"] is False and len(r["files"]) == 16  # 30 - newest 14
+    assert "sports_2026-11-16.db" in r["files"] and "sports_2026-11-17.db" not in r["files"]
+    assert len(list(bk.glob("*.db"))) == 30  # report-only: nothing deleted
+
+
+def test_pull_selects_newest_daily_and_verifies(sandbox):
+    names = ["sports_2026-10-07.db", "sports_2026-10-08.db", "sports_2026-10-08.db.sha256",
+             "sports_2026-10-09_prerefresh_0900.db", "sports_2026-10-08_101500.db", "junk"]
+    assert pull_backup.newest_daily(names) == "sports_2026-10-08_101500.db"
+    assert pull_backup.newest_daily(["junk"]) is None
+    src = sandbox / "live" / "sports.db"
+    part, side = sandbox / "x.db.partial", sandbox / "x.db.sha256.partial"
+    part.write_bytes(src.read_bytes())
+    side.write_text(f"{c.sha256_file(src)}  x.db\n")
+    out = pull_backup.verify_and_place(part, side, sandbox / "x.db")
+    assert out["integrity"] == "ok" and (sandbox / "x.db.sha256").exists()
+    part.write_bytes(b"corrupt")
+    side.write_text("0" * 64 + "  y.db\n")
+    with pytest.raises(RuntimeError, match="sha256 mismatch"):
+        pull_backup.verify_and_place(part, side, sandbox / "y.db")
+    with pytest.raises(SystemExit, match="law 5"):
+        pull_backup.main(["--dest", str(c.REPO / "data" / "bk")])
+
+
+def test_ncaa_timer_ships_enabled_in_runbook():
+    rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]
+    for f in (HOSTING / "systemd").glob("*.timer"):
+        assert f.name in t11, f"{f.name} missing from the T11 enable list"

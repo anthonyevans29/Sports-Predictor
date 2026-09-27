@@ -4,11 +4,13 @@
     sp_notify.py failure <instance>     # from sp-notify@.service
     sp_notify.py page "<message>"
 
-Always writes a receipt (kind "failure" / "page") and prints to the journal.
-Delivery beyond that: if SP_NOTIFY_URL is set, HTTP POST of the text body
-(ntfy-style topic URL or any webhook that takes a plain-text body). The
-channel itself is ARCHITECT-RULE H0-13 — until ruled, receipts + journal only,
-and the receipt says `delivered: false` (never claims a page that didn't go).
+Always writes a receipt (kind "failure" / "page") and prints to the journal —
+the receipts log is the permanent record; a held PASS pages AND logs.
+Delivery (H0-13, ruled 2026-09-27): ntfy.sh. POST of the text body to
+https://ntfy.sh/<NTFY_TOPIC>, the private topic name read from the checkout's
+.env (Anthony subscribes on his phone; no account, zero cost). NTFY_SERVER
+overrides the base URL. No topic = receipts + journal only, and the receipt
+says `delivered: false` (never claims a page that didn't go).
 """
 from __future__ import annotations
 
@@ -35,8 +37,16 @@ def journal_tail(unit: str, n: int = 30) -> list[str]:
     return [c.redact(x) for x in out.splitlines()]
 
 
+def ntfy_url() -> str | None:
+    topic = (c.setting("NTFY_TOPIC") or c._dotenv().get("NTFY_TOPIC") or "").strip()
+    if not topic:
+        return None
+    base = (c.setting("NTFY_SERVER") or c._dotenv().get("NTFY_SERVER") or "https://ntfy.sh")
+    return f"{base.rstrip('/')}/{topic}"
+
+
 def deliver(kind: str, title: str, body: str, extra: dict | None = None) -> bool:
-    url = c.setting("SP_NOTIFY_URL")
+    url = ntfy_url()
     delivered, err = False, None
     if url:
         try:
@@ -47,7 +57,7 @@ def deliver(kind: str, title: str, body: str, extra: dict | None = None) -> bool
         except Exception as e:  # noqa: BLE001 — a failed page must still be receipted
             err = f"{type(e).__name__}"
     c.append_receipt({"kind": kind, "title": title, "body": c.redact(body)[:2000],
-                      "delivered": delivered, "channel": "url" if url else None,
+                      "delivered": delivered, "channel": "ntfy" if url else None,
                       **({"error": err} if err else {}), **(extra or {})})
     print(f"[{kind}] {title}: {c.redact(body)[:300]} (delivered={delivered})", flush=True)
     return delivered

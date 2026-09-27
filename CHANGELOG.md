@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (Hosting H0 final four; FOUND SAFETY GAP logged)
+- Paging via ntfy.sh (NTFY_TOPIC in .env); held PASS pages and logs.
+- Backups: DO weekly on + nightly laptop pull (deploy/hosting/pull_backup.py,
+  scripts/setup_backup_pull.sh); host retention 14 dailies, prune
+  report-only until the first manual prune is reviewed.
+- CLV captures confirmed on America/New_York; NCAA timer enabled.
+- On the record: improve auto-promoted on PASS (masked by 36 rejections);
+  closed by hold-on-pass + ratify-candidate.
+
 ## 2026-09-27 (Hosting H1: systemd pack + runbook, inert until provisioning)
 - deploy/hosting/: chain definitions (CI-checked against cli.py), sp_run
   receipts writer, .backup/prune/notify/boot-receipt/deploy scripts,

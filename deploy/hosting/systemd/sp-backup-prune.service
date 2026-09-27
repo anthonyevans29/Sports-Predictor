@@ -1,4 +1,4 @@
-# Backup retention. REPORT-ONLY unless SP_PRUNE_APPLY=1 in host.env (H0-14 open).
+# Backup retention. REPORT-ONLY unless SP_PRUNE_APPLY=1 in host.env (H0-14: until the first manual prune is reviewed).
 [Unit]
 Description=sports-predictor backup retention
 OnFailure=sp-notify@prune.service

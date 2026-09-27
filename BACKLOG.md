@@ -22,6 +22,35 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FOUND SAFETY GAP (H0-5), on the record with emphasis (architect
+  2026-09-27):** reading `improve` for the H0-5 hold found that a gate
+  PASS AUTO-PROMOTED in the same call (training.improve:
+  `_shelve_current_production` + `_set_status(..., "production")`; the
+  no-production path likewise). 36 CONSECUTIVE REJECTIONS MASKED A LIVE
+  AUTO-PROMOTION TRIGGER — unattended on the host, one PASS would have
+  swapped the model serving that day's pre-slate chain with no human
+  reading the verdict. CLOSED by #40: `improve --hold-on-pass` (forced on
+  the host by SP_IMPROVE_HOLD_ON_PASS=1 in sp-chain@.service) marks a
+  PASS "held" + pages (ntfy) + logs; `ratify-candidate` is the only
+  promotion path and refuses a stale baseline. Gate unchanged. The
+  architect cites this as the H0 process's proof of value.
+- **H0 FINAL FOUR RULED 2026-09-27 (architect; folded into #40):** H0-7
+  CONFIRMED odds captures 08/12/16/20 America/New_York (the operation's
+  clock is Eastern; DST follows the zone; CI's reboot-window check already
+  proves zone-awareness). H0-13 paging = ntfy.sh private topic, name in
+  .env (NTFY_TOPIC; redacted from receipts), Anthony subscribes on his
+  phone; zero cost, no account, any unit; receipts log remains the
+  permanent record — a held PASS pages AND logs. H0-14 BOTH LAYERS: DO
+  weekly backups ON (~$4.80, total ~$28.80; droplet DR — a restore
+  DISCARDS the imaged live DB in favour of the newest .backup, runbook
+  says so) PLUS a nightly laptop pull of the latest .backup over the
+  tailnet ($0, off-provider; deploy/hosting/pull_backup.py + launchd
+  scripts/setup_backup_pull.sh, 22:00 local, sha256-sidecar + integrity
+  verified, receipted, never under data/, never auto-pruned). Host
+  retention 14 dailies (SP_KEEP_DAILY=14); prune stays REPORT-ONLY until
+  the first manual prune is reviewed. H0-11 NCAA timer ON, enabled with
+  the rest (CI now asserts every shipped timer is on the T11 enable
+  list). Open list: none. pytest 172 passed.
 - **HOSTING H0 RULED + H1 PACK BUILT 2026-09-27 (architect; branch+PR,
   INERT until Anthony provisions).** RULINGS: H0-1 US-East required (DO NYC
   2vCPU/4GB ~$24 default; Hetzner US CPX acceptable; verify live price at

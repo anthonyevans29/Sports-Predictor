@@ -26,9 +26,10 @@ Every step below carries a label:
 | `sp_migrate.py` | The sanctioned move in three steps: `pack` (laptop), `verify`, `install` (host). Manifest per H0-15. |
 | `compare_exports.py` | Parallel-week export diff (masks timestamps). |
 | `sp_receipts.py` | The paste-ready table (H0-19). |
-| `sp_notify.py` | Failure and PASS-hold paging. Receipt and journal always; HTTP only if `SP_NOTIFY_URL` is set (H0-13 open). |
+| `sp_notify.py` | Failure and PASS-hold paging (H0-13): a push to the private ntfy.sh topic `NTFY_TOPIC` from `.env`. The receipt and journal are always written, so a held PASS pages AND logs. |
 | `sp_boot_receipt.py` | One receipt per boot (H0-3). |
-| `sp_prune.py` | Backup retention. Report-only until H0-14 is ruled. |
+| `sp_prune.py` | Backup retention: 14 dailies (H0-14). Report-only until the first manual prune has been reviewed. |
+| `pull_backup.py` + `scripts/setup_backup_pull.sh` | **Laptop side.** Nightly pull of the host's newest daily `.backup` over the tailnet into `~/sp-backups`. Verified against the sha256 sidecar plus an integrity check, and receipted (H0-14 second layer, $0). |
 | `sp_deploy.py` | Fast-forward to merged `origin/main` only, with a receipt. |
 | `systemd/` | `sp-chain@.service` template, 14 timers, backup, prune, notify@, boot-receipt, web, and `sp-soccer-refresh.service` (no timer). |
 | `etc/` | host.env template, full-season list template, unattended-upgrades reboot window, logrotate. |
@@ -57,9 +58,9 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-mlb-preslate | mlb-preslate | daily 14:30 UTC | — |
 | sp-nfl-lines | nfl-lines | daily 15:00 UTC | — |
 | sp-nhl-daily | nhl-daily (inactive before 2026-10-07) | daily 16:00 UTC | daily |
-| sp-ncaa-market | ncaa-market (**not enabled**: open item 4) | Fri 16:00, Sat 13:00 UTC | — |
+| sp-ncaa-market | ncaa-market (H0-11: enabled with the rest) | Fri 16:00, Sat 13:00 UTC | — |
 | sp-nfl-predict | nfl-predict | Thu 18:00, Sun 14:00 UTC | — |
-| sp-clv-capture | clv-capture | 08/12/16/20 America/New_York (open item 1) | — |
+| sp-clv-capture | clv-capture | 08/12/16/20 America/New_York (H0-7 confirmed; DST follows the zone) | — |
 | sp-weekly-fullseason | weekly-fullseason | Sun 06:00 UTC | daily |
 | sp-backup-prune | (retention, report-only) | daily 05:30 UTC | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
@@ -82,8 +83,18 @@ chain holds the lock waits; it is not skipped.
   (upload the Mac's public key); hostname `sp-vps-1`.
 - If you prefer Hetzner: a CPX-line plan in Ashburn is the acceptable
   substitute.
-- **Receipt:** screenshot the live price at checkout. It must be at or
-  under **$30/mo all-in**, including any off-host backup (open item 3).
+- **Backups: ON** (H0-14, weekly, +20%, about $4.80). This is
+  droplet-level disaster recovery. With it the total is about $28.80.
+- **Receipt:** screenshot the live price at checkout, droplet plus
+  backups. It must be at or under **$30/mo all-in** (H0-2).
+- **Restoring from a DO droplet backup:** the image carries a live
+  `data/sports.db` captured mid-write, so **discard it**.
+  - Before enabling any timer on the restored droplet, move
+    `data/sports.db` (and any `-wal`/`-shm`) aside.
+  - Restore from the newest file in `/var/backups/sports-predictor/`, or
+    from the laptop's `~/sp-backups/` copy if that one is newer: build a
+    pack from it and run M4's `verify` / `install --replace`.
+  - The `.backup` files are consistent; the live file in an image is not.
 
 **P2. BROWSER: cloud firewall.**
 - Networking → Firewalls → Create.
@@ -147,6 +158,12 @@ Receipt: the list of `sp-*` unit files, all `disabled`.
 
 The laptop stays writer of record for the whole parallel week (H0-17).
 The host's copy is a rehearsal copy and is thrown away at cutover (see C).
+
+**M0. Paging (H0-13).**
+- BROWSER/phone: install the ntfy app. Pick an unguessable topic name
+  (for example `sp-` plus 20 random characters) and subscribe to it.
+- TERMINAL (laptop): add `NTFY_TOPIC=<that name>` to the laptop `.env`.
+  It travels to the host inside the M2 pack, and only there.
 
 **M1. TERMINAL (laptop):**
 - Stop the launchd CLV jobs: `bash scripts/setup_clv_capture.sh --uninstall`.
@@ -221,18 +238,36 @@ for c in mlb-morning mlb-preslate soccer-prematch nfl-grade nhl-daily weekly-ful
   sudo -u sp venv/bin/python deploy/hosting/sp_run.py $c --dry-run; done
 ```
 
+**T10b. TERMINAL (host): page test (H0-13).**
+```
+sudo -u sp venv/bin/python deploy/hosting/sp_notify.py page "H1 page test"
+```
+Receipt: the push arrives on the phone, and the printed line says
+`delivered=True`.
+
 **T11. TERMINAL (host): enable.**
 ```
 TIMERS="sp-backup.timer sp-backup-prune.timer sp-mlb-morning.timer sp-mlb-preslate.timer
   sp-clv-capture.timer sp-soccer-friday.timer sp-soccer-saturday.timer sp-soccer-morning-after.timer
-  sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer sp-nhl-daily.timer sp-weekly-fullseason.timer"
+  sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer sp-nhl-daily.timer sp-weekly-fullseason.timer
+  sp-ncaa-market.timer"
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list C2/C4 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
 systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
-- Not enabled: `sp-ncaa-market.timer` (open item 4).
+- Every shipped timer is on the list; CI checks it. That includes
+  `sp-ncaa-market.timer` (H0-11).
 - No timer exists for soccer-refresh (H0-6).
+
+**T12. TERMINAL (laptop): the nightly backup pull (H0-14 second layer).**
+```
+bash scripts/setup_backup_pull.sh sp-vps-1
+venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ pull ... sha256=...
+```
+- Runs at 22:00 local via launchd, catching up on wake.
+- Copies land in `~/sp-backups` (the laptop's own backed-up disk), never
+  in `data/`. They are not pruned automatically.
 
 **Each parallel-week morning:**
 - TERMINAL (host): `sudo -u sp venv/bin/python deploy/hosting/sp_receipts.py --since 24h`,
@@ -293,6 +328,12 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
 ## O. Operations after cutover
 
+- **Retention (H0-14).** 14 dailies. `sp-backup-prune` only reports
+  (`kind: prune`, `applied: false`).
+  - After the first time it lists files, delete those files by hand and
+    review the result.
+  - Only after that review, set `SP_PRUNE_APPLY=1` in host.env and record
+    it in BACKLOG.
 - **Monday ritual (H0-6).** TERMINAL (host):
   `sudo systemctl start sp-soccer-refresh.service; journalctl -u sp-soccer-refresh -n 80 --no-pager`.
   A fresh prerefresh `.backup` is taken first, and a failed backup stops
@@ -332,14 +373,14 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 | H0-4 | SSH tunnel (H1). tailscale-serve is an H3 question. |
 | H0-5 | improve unattended with a hard guard: PASS is HELD and pages; `ratify-candidate` is the only promotion path on the host. |
 | H0-6 | soccer-refresh is operator-started. No timer; `sp-chain@soccer-refresh` refuses without `--operator`. |
-| H0-7 | **Open (item 1).** Shipped America/New_York. |
+| H0-7 | CONFIRMED: 08/12/16/20 America/New_York. The operation's clock is Eastern, and DST follows the zone. |
 | H0-8 | Resolved per H0-6's principle (operator control). NHL is encoded as `active_from` 2026-10-07; MLB off is an operator `systemctl disable` after the World Series, BACKLOG-recorded. |
 | H0-9 | results-tally at the end of mlb-morning. |
 | H0-10 | Resolved: operator-started `soccer-prematch --set` runs; no midweek timers. |
-| H0-11 | **Open (item 4).** Unit shipped, not enabled. |
+| H0-11 | NCAA timer ON, enabled with the rest (a live sport with Saturday slates). |
 | H0-12 | Resolved per law 1: the list is generated from a read-only DB query (T9), never assumed. A missing list fails loudly. |
-| H0-13 | **Open (item 2).** |
-| H0-14 | **Open (item 3).** Prune is report-only. |
+| H0-13 | ntfy.sh private topic (`NTFY_TOPIC` in `.env`): zero cost, no account, works from any unit. The receipts log stays the permanent record; a held PASS pages AND logs. |
+| H0-14 | Both layers. (1) DO weekly backups ON (droplet disaster recovery; a restore discards the live DB in favour of the newest `.backup`). (2) A nightly laptop pull of the latest `.backup` over the tailnet ($0, off-provider). Host retention is 14 dailies; prune stays report-only until the first manual prune is reviewed. |
 | H0-15 | Manifest = .backup DB + .env + exports/ + receipts log. Row-count receipts cover every table (sqlite_master), so no hand list is needed. The laptop's `~/.sports_predictor_input_candidates.json` cadence stamp is outside the manifest, so the weekly input evaluation runs on the first host morning (nothing is consumable, so no effect). |
 | H0-16 | (a) only on a dashboard headroom receipt, else (b) designated days. Never (c). Encoded as `SP_PARALLEL_MODE`, with conservative default (b) and no days. |
 | H0-17 | Laptop is writer of record all week. |
@@ -351,14 +392,20 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
 ## Open (return to the architect)
 
-1. **H0-7:** the CLV captures ship at 08/12/16/20 **America/New_York**
-   (slate clock). Confirm, or name Anthony's launchd zone.
-2. **H0-13:** paging channel for failures and held PASSes. H0-5 depends on
-   it: until `SP_NOTIFY_URL` is set, a held PASS pages only to the receipts
-   log and journal.
-3. **H0-14:** backup retention (shipped report-only: 7 newest dailies,
-   14 days, prerefresh 30 days), and the off-host copy inside $30. Options:
-   DO weekly droplet backups at +20% (about $4.80, so about $28.80 total;
-   they capture the consistent `.backup` files, not the live DB), or a
-   laptop pull over the tailnet ($0).
-4. **H0-11:** enable `sp-ncaa-market.timer` (market-only, Kalshi primary)?
+None. The final four (H0-7, H0-11, H0-13, H0-14) were ruled on
+2026-09-27.
+
+## On the record: FOUND SAFETY GAP (H0-5)
+
+Reading `improve` for H0-5 found that a gate PASS **auto-promoted** in the
+same call (`_shelve_current_production` then `_set_status("production")`),
+and the no-production path did the same. 36 consecutive rejections had
+masked a live auto-promotion trigger. In an unattended unit, a single PASS
+would have changed the model serving the pre-slate chain with no human
+reading the verdict. **Closed in this PR:**
+- `--hold-on-pass`, forced on the host by `SP_IMPROVE_HOLD_ON_PASS=1`,
+  marks a PASS `held` and pages.
+- `ratify-candidate` is the only promotion path, and only against an
+  unchanged baseline.
+- The gate itself is unchanged. The architect cites this finding as the H0
+  process's proof of value.

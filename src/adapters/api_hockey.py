@@ -4,8 +4,9 @@ american-football adapter's proven shape.
 
   - Base: v1.hockey.api-sports.io; NHL league id 57 (famous-club
     certified). Seasons are single-year ints (2026 = the 26-27 season).
-  - Auth: API_HOCKEY_KEY, falling back to API_AMERICAN_FOOTBALL_KEY then
-    API_FOOTBALL_KEY (bundled-plan key family).
+  - Auth: API_HOCKEY_KEY, falling back to API_FOOTBALL_KEY (the code, as
+    built; an intermediate API_AMERICAN_FOOTBALL_KEY step was described here
+    but never implemented — doc corrected 2026-09-27, behaviour unchanged).
   - Statuses: FT/AOT/ASO all map to FINISHED — scores include OT/SO by
     provider convention; the AOT/ASO distinction is preserved upstream in
     the raw status for Phase 2's OT-handling work via Match.stage capture.

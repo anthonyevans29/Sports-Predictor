@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (cosmetics batch)
+- nfl-backtest verdict text for the live era (provenance/regression);
+  stale rehearsal docstrings updated.
+- export-nfl-results no longer writes the fossil `"rehearsal": true`.
+- docs/CLI.md: sync-matches options, sync-kalshi-ncaa, daily backup,
+  NFL LIVE section, full Kalshi series list. .env.example: football and
+  hockey API keys. api_hockey docstring matches its actual key fallback.
+
 ## 2026-09-27 (U2: NFL export "why" fields)
 - NFL predictions export adds elo_home, elo_away, elo_gap,
   home_adv_applied, rest_days_home, rest_days_away. Additive only.

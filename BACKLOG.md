@@ -22,6 +22,25 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **SUNDAY AUTHORIZATION 2026-09-27 (architect): three lanes — K0/K1
+  (Kalshi executable-edge data layer, the K-track's opening), U2 (NFL
+  export "why" fields), C (cosmetics). Guardrails unchanged; NO cockpit
+  changes today (v0.4 breathes through its first live day untouched).
+  K0 RECEIPT (code read, this PR):** kalshi_sync stores ONE derived
+  number per side — `OddsSnapshot.devig_prob` from
+  `KalshiAdapter.implied_prob`: the yes bid/ask MIDPOINT when both are
+  quoted, else the single present side (bid OR ask — not a mid), else
+  `last_price_dollars`. `yes_bid_dollars` / `yes_ask_dollars` are read
+  (the spread guard uses ask - bid) but are NOT persisted; the
+  odds_snapshots schema has no bid/ask/price column (id, match_id,
+  market, selection, devig_prob, line, n_books, captured_at, source).
+  Also: the stored value is NOT de-vigged despite the column name — it is
+  a raw per-contract mid (the exports' sum-normalization is where the
+  overround goes). `scripts/k0_kalshi_storage_probe.py` (read-only,
+  SQLite mode=ro) prints the live schema, kalshi counts by market and one
+  real stored row per market — Anthony runs it and the receipt goes to
+  the architect BEFORE K1 builds (additive bid/ask columns + exports'
+  kalshi_bid / kalshi_ask / kalshi_exec_cost).
 - **#32 RULINGS 2026-09-26 (architect, attributed):** (1) RATIFIED —
   the widened dedup key (engine + call_type + parlay slot; graded never
   rewritten); the spec's key was underspecified. (2) RATIFIED — all extra

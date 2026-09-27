@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (K0: Kalshi storage receipt)
+- `scripts/k0_kalshi_storage_probe.py`: read-only probe of what a stored
+  Kalshi snapshot holds. Code read: only a derived prob (bid/ask mid,
+  single side, or last price) — bid/ask are not persisted.
+
 ## 2026-09-26 (Cockpit v0.4 — P&L / self-grading organ, policy v1.1)
 - tools/cockpit.html: Ledger tab (localStorage bd_ledger_v1, export/
   import), "Log today's calls", venue-edge engine (shadow, 0.25u),

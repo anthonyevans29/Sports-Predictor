@@ -41,6 +41,19 @@ specific reason they're not being built now.
   real stored row per market — Anthony runs it and the receipt goes to
   the architect BEFORE K1 builds (additive bid/ask columns + exports'
   kalshi_bid / kalshi_ask / kalshi_exec_cost).
+- **U2 — NFL EXPORT "WHY" FIELDS 2026-09-27 (Sunday authorization,
+  lane U2; additive only):** the NFL predictions export gains per row
+  `elo_home`, `elo_away`, `elo_gap` (raw home − away rating),
+  `home_adv_applied` (the fixed 48.0 Elo bonus inside the expectation),
+  `rest_days_home`, `rest_days_away` (days since each side's previous
+  NFL game on the schedule, preseason included, cancelled/postponed
+  excluded; null = no earlier game). Ratings come from the same
+  `_current_ratings()` walk predict-nfl prices from (NFL-scoped,
+  preseason excluded), taken at export time — so they reproduce the
+  stored home_win_prob when no game finished between predict and export
+  (test asserts it). Nothing existing changes. These are the fields the
+  Cockpit's signals pane has been missing; soccer/MLB equivalents are a
+  later lane.
 - **#32 RULINGS 2026-09-26 (architect, attributed):** (1) RATIFIED —
   the widened dedup key (engine + call_type + parlay slot; graded never
   rewritten); the spec's key was underspecified. (2) RATIFIED — all extra

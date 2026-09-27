@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (K0: Kalshi storage receipt)
+- `scripts/k0_kalshi_storage_probe.py`: read-only probe of what a stored
+  Kalshi snapshot holds. Code read: only a derived prob (bid/ask mid,
+  single side, or last price) — bid/ask are not persisted.
+
 ## 2026-09-27 (cosmetics batch)
 - nfl-backtest verdict text for the live era (provenance/regression);
   stale rehearsal docstrings updated.
@@ -15,8 +20,6 @@ Every drop adds an entry going forward.
 ## 2026-09-27 (U2: NFL export "why" fields)
 - NFL predictions export adds elo_home, elo_away, elo_gap,
   home_adv_applied, rest_days_home, rest_days_away. Additive only.
-- export-nfl-predictions warns (ELO DRIFT) when an NFL game finished
-  after the predictions were written; silent otherwise.
 
 ## 2026-09-26 (Cockpit v0.4 — P&L / self-grading organ, policy v1.1)
 - tools/cockpit.html: Ledger tab (localStorage bd_ledger_v1, export/

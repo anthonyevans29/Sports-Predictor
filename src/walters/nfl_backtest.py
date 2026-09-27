@@ -3,8 +3,9 @@ NFL v1 model + walk-forward backtest (phase 2, 2026-09-09).
 
 THE GATE WAS WRITTEN FIRST — see BACKLOG "NFL PHASE 2 GATE". This module
 implements exactly that protocol and prints a PASS/FAIL verdict against the
-frozen numbers. Nothing here writes predictions; a pass earns a Week-2
-dress rehearsal, nothing more.
+frozen numbers. Nothing here writes predictions. Live era (nfl_elo_v1
+LIVE since Week 3, 2026-09-22): a re-run is a PROVENANCE / REGRESSION check —
+PASS means the live model still clears the gate it was promoted on.
 
 Model: plain Elo with margin-of-victory multiplier (FiveThirtyEight-style),
 self-contained on purpose (no dependency on the soccer Elo internals while
@@ -187,6 +188,6 @@ def run_backtest(progress=None, cap: float | None = None,
                f"realized {realized:.3f} gap {gap*100:.1f}pp -> {'ok' if ok else 'FAIL'}")
 
     verdict = crit1 and crit2
-    report(f"GATE VERDICT: {'PASS — Week-2 dress rehearsal earned' if verdict else 'FAIL — model does not ship'}")
+    report(f"GATE VERDICT: {'PASS — provenance/regression check: the live model still clears its frozen gate' if verdict else 'FAIL — REGRESSION: the live model no longer clears its frozen gate; investigate before the next predict-nfl'}")
     return {"ok": True, "pass": verdict, "ll_model": round(ll_model, 4),
             "ll_baseline": round(ll_base, 4), "scored_games": n}

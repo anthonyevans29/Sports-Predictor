@@ -22,6 +22,27 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **LANE C — COSMETICS BATCH 2026-09-27 (Sunday authorization; strings
+  and docs only, nothing behavioral):** (1) nfl-backtest's verdict text
+  moved to the live era: PASS = "provenance/regression check: the live
+  model still clears its frozen gate"; FAIL = "REGRESSION … investigate
+  before the next predict-nfl" (module docstring + CLI lines too). Stale
+  "rehearsal" docstrings on predict-nfl / export-nfl-predictions /
+  nfl_predict.py updated to LIVE. (2) Self-flagged doc nits from the
+  hosting-H0 draft's discrepancy list: D1 CLI.md `sync-matches --date`
+  (no such option) -> `--date-from <today> --date-to <today>`; D2
+  `sync-kalshi-ncaa` added to CLI.md; D3 backup cadence corrected to
+  DAILY + mandatory before soccer-refresh; D4 NFL section marked LIVE;
+  D5 Kalshi series list adds KXNHLGAME + KXNCAAFGAME; D6 .env.example
+  gains API_AMERICAN_FOOTBALL_KEY + API_HOCKEY_KEY. LAW-1 CATCH while
+  writing D6: api_hockey's docstring claimed a fallback chain HOCKEY ->
+  AMERICAN_FOOTBALL -> FOOTBALL, but the code implements HOCKEY ->
+  FOOTBALL only; the docstring (and the new .env.example comment) now
+  describe the code. Whether the intermediate step SHOULD exist is a
+  behaviour change — not made (ARCHITECT-RULE if wanted). Left as-is on
+  purpose: export-nfl-results still writes the data field
+  `"rehearsal": true` — a file field, not a string; changing it is a
+  consumer-visible contract edit (ARCHITECT-RULE).
 - **#32 RULINGS 2026-09-26 (architect, attributed):** (1) RATIFIED —
   the widened dedup key (engine + call_type + parlay slot; graded never
   rewritten); the spec's key was underspecified. (2) RATIFIED — all extra

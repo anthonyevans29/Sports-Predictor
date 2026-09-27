@@ -3372,7 +3372,7 @@ def nfl_grade_cmd():
 
 @cli.command("predict-nfl")
 def predict_nfl_cmd():
-    """Write NFL v1 predictions for upcoming games (rehearsal machinery)."""
+    """Write NFL v1 predictions for upcoming games (LIVE since Week 3)."""
     from src.walters.nfl_predict import predict_nfl
     # scope receipts via print(): pasteable, never rich-wrapped
     n = predict_nfl(progress=print)
@@ -3381,7 +3381,7 @@ def predict_nfl_cmd():
 
 @cli.command("export-nfl-predictions")
 def export_nfl_predictions_cmd():
-    """Rehearsal-format NFL predictions export (NOT for consumption yet)."""
+    """NFL predictions export (LIVE: rehearsal=false; quarantine, venue and Elo fields)."""
     from src.walters.nfl_predict import export_nfl_predictions
     path = export_nfl_predictions()
     import json as _json
@@ -3427,9 +3427,9 @@ def nfl_backtest_cmd():
     if not r.get("ok"):
         console.print(f"[yellow]✗ {r.get('reason')}[/yellow]")
     elif r["pass"]:
-        console.print("[green]✓ GATE PASS[/green] — next: Week-2 dress rehearsal (NOT live).")
+        console.print("[green]✓ GATE PASS[/green] — provenance/regression check clean (live model reproduces its gate).")
     else:
-        console.print("[yellow]✗ GATE FAIL[/yellow] — model does not ship; iterate or park.")
+        console.print("[yellow]✗ GATE FAIL[/yellow] — regression: the live model no longer clears its gate; investigate before the next predict-nfl.")
 
 
 @cli.command("capture-weather-nfl")

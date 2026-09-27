@@ -22,6 +22,31 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ARCHITECT RULINGS ON #47 2026-09-27 (window service follow-on).** (1)
+  FRESHEN CHAINS defined — they already existed as documented operator
+  sequences; now in chains.py as freshen:<family>: freshen:NFL
+  (sync-injuries NFL → sync-odds-football → sync-kalshi-nfl → predict-nfl
+  → export-nfl-predictions), freshen:MLB (= the 10-command mlb-preslate
+  chain; laptop-only per the ASN ruling — the host logs freshen_needed,
+  never runs it), freshen:SOCCER (sync-odds PL → sync-injuries PL →
+  sync-kalshi-soccer → predict soccer PL → export-predictions soccer PL,
+  today → +3d scheduled — executor's window choice, the ruling named no
+  dates); market-only families have none (the repricing IS their freshen).
+  The window run triggers freshen:<family> on freshen_needed inside T-90:
+  under the chain lock, receipted (kind freshen), rate-guarded to one per
+  family per hour (freshen_state.json), families in SP_SKIP_FAMILIES logged
+  and never run, card rebuilt after a freshen. FRESHEN_FAMILY maps only the
+  live-model competitions (NFL, MLB, PL); canonical-claim semantics
+  unchanged (the ledger's idempotent re-log absorbs a re-written slot). (2)
+  Baseline-first pager RATIFIED. (3) Null provider-call counts ACCEPTED
+  (api-football exposes no quota headers). (4) PROXIMITY TIERS: per
+  competition by time to ITS next kickoff — far (>6h) schedule check only;
+  near (2-6h) + odds (--limit = its games within 6h) + Kalshi; imminent
+  (<2h) same repricing + the T-90 detection. Zero steps for competitions
+  with no game in 24h (already true). Chain receipt `proximity`: tiers +
+  steps skipped by proximity (flat plan minus tiered plan). sp_run's step
+  loop extracted into run_steps (shared by chains and freshens).
+  sp-window stays on the H1b day-1 enable list. pytest 204 passed.
 - **WINDOW SERVICE BUILT 2026-09-27 (architect spec; timer ships with the
   pack, enabled on H1b day 1).** Hourly chain `window` (sp-window.timer,
   :05 every hour except 04/05 UTC — H0-3). Steps PLANNED at run time from

@@ -738,12 +738,18 @@ def test_window_plan_is_scoped_single_day_and_model_free(sandbox, monkeypatch):
     assert "sync-matches --competition PL --season 2026/27 --date-from 2026-10-03 --date-to 2026-10-03" in steps
     assert "sync-matches --competition PL --season 2026/27 --date-from 2026-10-04 --date-to 2026-10-04" in steps
     assert not any(s.startswith("sync-matches --competition CL") for s in steps)  # outside window
-    assert "sync-odds --competition PL --season 2026/27 --limit 2" in steps       # window count
+    assert "sync-odds --competition PL --season 2026/27 --limit 2" in steps       # games <= 6h
     assert "sync-odds --competition MLB --season 2026 --limit 1" in steps
-    assert steps.count("sync-odds-football") == 1                                # NFL + NCAA once
-    assert not any(s.startswith("sync-odds --competition NFL") for s in steps)
-    assert {"sync-kalshi-nfl", "sync-kalshi-ncaa", "sync-kalshi-soccer --competition PL",
+    # PROXIMITY: NFL (+20h) and NCAA (+22h) are FAR -> schedule check only
+    assert "sync-matches --competition NFL --season 2026 --date-from 2026-10-04 --date-to 2026-10-04" in steps
+    assert "sync-odds-football" not in steps
+    assert not any(s.startswith(("sync-kalshi-nfl", "sync-kalshi-ncaa")) for s in steps)
+    assert {"sync-kalshi-soccer --competition PL",
             "sync-kalshi --date-from {today} --date-to {tomorrow}"} <= set(steps)
+    plan = sp_run.window_plan(now)
+    assert plan["tiers"] == {"far": ["NFL", "NCAA"], "near": ["MLB", "PL"], "imminent": []}
+    # flat plan would add sync-odds-football + two Kalshi syncs
+    assert plan["skipped_by_proximity"] == 3
     assert steps[-1] == "window-card --hours 24"
     assert not any(s.split()[0] in ("predict", "predict-nfl", "improve", "soccer-refresh")
                    for s in steps)
@@ -822,7 +828,8 @@ def test_pager_baseline_then_deltas_quiet_hours_and_digest(sandbox, monkeypatch)
     # T-90 news: signature seen last run, changed now -> freshen needed (report + page)
     card["t90_signatures"] = {"1": "sig-d"}
     rec, sent = _page(sandbox, monkeypatch, card, day.replace(day=5))
-    assert rec["freshen_needed"] == ["1"] and any("freshen needed" in s[2] for s in sent)
+    assert rec["freshen_needed"] == [{"id": "1", "sport": "nfl", "competition": "NFL"}]
+    assert any("freshen triggered" in s[2] for s in sent)
 
 
 def test_window_timer_avoids_reboot_hours_and_is_on_t11():
@@ -831,3 +838,78 @@ def test_window_timer_avoids_reboot_hours_and_is_on_t11():
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
     enabled = rb[rb.index("TIMERS=\""):rb.index("MLB_LAPTOP_ONLY=")]
     assert "sp-window.timer" in enabled
+
+
+# ------------------ freshen chains + proximity tiers (ruling 2026-09-27) ----
+
+def test_freshen_chains_are_the_ruled_sequences():
+    ch = chains.CHAINS
+    assert [s[0] for s in ch["freshen:NFL"]["steps"]] == [
+        "sync-injuries", "sync-odds-football", "sync-kalshi-nfl", "predict-nfl", "export-nfl-predictions"]
+    assert ch["freshen:NFL"]["steps"][0] == ["sync-injuries", "--competition", "NFL", "--season", "2026"]
+    assert ch["freshen:MLB"]["steps"] == ch["mlb-preslate"]["steps"] and len(ch["freshen:MLB"]["steps"]) == 10
+    assert [s[0] for s in ch["freshen:SOCCER"]["steps"]] == [
+        "sync-odds", "sync-injuries", "sync-kalshi-soccer", "predict", "export-predictions"]
+    assert all("PL" in s for s in ch["freshen:SOCCER"]["steps"])
+    # market-only families have no freshen: the window repricing IS their freshen
+    assert set(chains.FRESHEN_FAMILY.values()) == {"NFL", "MLB", "SOCCER"}
+    assert not any(comp in ("NCAA", "NHL", "CL", "UEL", "EFL", "UNL")
+                   for _, comp in chains.FRESHEN_FAMILY)
+    assert not any("freshen" in unit for _, unit in _timers().values())  # triggered, never timed
+
+
+def test_imminent_tier(sandbox, monkeypatch):
+    now = datetime(2026, 10, 3, 20, 0)
+    _window_db(sandbox / "w.db", now)
+    con = sqlite3.connect(sandbox / "w.db")
+    con.execute("INSERT INTO matches(competition_id, season, status, utc_date) VALUES "
+                "(2, '2026', 'SCHEDULED', ?)", ((now + timedelta(minutes=70)).strftime("%Y-%m-%d %H:%M:%S"),))
+    con.commit()
+    con.close()
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sandbox / 'w.db'}")
+    plan = sp_run.window_plan(now)
+    assert plan["tiers"]["imminent"] == ["NFL"]                 # next NFL kickoff in 70 min
+    steps = [" ".join(s) for s in plan["steps"]]
+    assert "sync-odds-football" in steps and "sync-kalshi-nfl" in steps
+
+
+def test_run_freshens_family_map_skip_and_rate_guard(sandbox, monkeypatch):
+    (c.REPO / "cli.py").write_text(FAKE_CLI)
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "MLB")
+    now = datetime(2026, 10, 4, 17, 0)
+    needed = [{"id": "1", "sport": "nfl", "competition": "NFL"},
+              {"id": "2", "sport": "nfl", "competition": "NCAA"},   # market-only: no family
+              {"id": "3", "sport": "mlb", "competition": "MLB"}]    # host: logged, never run
+    out = sp_run.run_freshens(needed, "win-1", now, now.date())
+    by = {r["chain"]: r for r in out}
+    assert set(by) == {"freshen:NFL", "freshen:MLB"}
+    assert by["freshen:NFL"]["ran"] and by["freshen:NFL"]["exit"] == 0
+    assert by["freshen:NFL"]["steps_ok"] == 5 and by["freshen:NFL"]["games"] == ["1"]
+    assert not by["freshen:MLB"]["ran"] and "SP_SKIP_FAMILIES" in by["freshen:MLB"]["skipped"]
+    steps = [r for r in receipts(sandbox) if r["kind"] == "step"]
+    assert [s["command"].split()[2] for s in steps] == [
+        "sync-injuries", "sync-odds-football", "sync-kalshi-nfl", "predict-nfl", "export-nfl-predictions"]
+    # a second trigger inside the hour is rate-guarded
+    again = sp_run.run_freshens(needed[:1], "win-2", now + timedelta(minutes=30), now.date())
+    assert not again[0]["ran"] and again[0]["skipped"].startswith("rate-guard")
+    later = sp_run.run_freshens(needed[:1], "win-3", now + timedelta(minutes=61), now.date())
+    assert later[0]["ran"]
+
+
+def test_window_run_triggers_freshen_and_recards(sandbox, monkeypatch):
+    (c.REPO / "cli.py").write_text(FAKE_CLI)
+    import sp_window_page
+    plan = {"steps": [["window-card", "--hours", "24"]],
+            "tiers": {"far": ["NCAA"], "near": [], "imminent": ["NFL"]}, "skipped_by_proximity": 2}
+    monkeypatch.setattr(sp_run, "window_plan", lambda now: plan)
+    monkeypatch.setattr(sp_window_page, "run", lambda p: {
+        "deltas": {"t90_news": 1}, "paged": True, "digest": False, "suppressed": 0,
+        "freshen_needed": [{"id": "9", "sport": "nfl", "competition": "NFL"}]})
+    assert sp_run.main(["window"]) == 0
+    rs = receipts(sandbox)
+    fr = [r for r in rs if r["kind"] == "freshen"]
+    assert len(fr) == 1 and fr[0]["chain"] == "freshen:NFL" and fr[0]["ran"]
+    assert any(r["kind"] == "step" and r["run_id"].endswith("-recard") for r in rs)
+    chain = rs[-1]
+    assert chain["kind"] == "chain" and chain["freshens"][0]["chain"] == "freshen:NFL"
+    assert chain["proximity"] == {"tiers": plan["tiers"], "steps_skipped_by_proximity": 2}

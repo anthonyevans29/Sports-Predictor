@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (window service: freshen chains + proximity tiers)
+- freshen:NFL / freshen:MLB / freshen:SOCCER defined; the window service
+  triggers them on T-90 news (chain lock, one per family per hour, MLB
+  never on the host), then rebuilds the card.
+- Proximity tiers: far (>6h) schedule check only, near (2-6h) + odds and
+  Kalshi, imminent (<2h) + T-90 detection; receipt counts steps skipped.
+
 ## 2026-09-27 (window service: Next-24h card + delta pages)
 - Hourly `window` chain (sp-window.timer, enabled on H1b day 1): single-day
   match syncs, window-scoped odds + Kalshi, then `window-card` →

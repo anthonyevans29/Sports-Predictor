@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (bootstrap --skip-family: MLB Stats API blocks datacenter ASNs)
+- bootstrap.py --skip-family MLB: MLB sync-teams/sync-matches receipted
+  SKIPPED-ASN, numbering unchanged (resume --from 8); compare reports the
+  family N/A-host.
+- Runbook: MLB is a laptop duty; host MLB timers off; post-cutover egress
+  is an H2-era decision.
+
 ## 2026-09-27 (Hosting H1 phasing: fresh bootstrap first)
 - Runbook re-ordered: H1a fresh bootstrap (host syncs its own DB;
   acceptance = BACKLOG fingerprints reproduced), H1b independent parallel

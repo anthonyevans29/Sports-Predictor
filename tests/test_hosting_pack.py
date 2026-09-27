@@ -377,8 +377,11 @@ def test_pull_selects_newest_daily_and_verifies(sandbox):
 
 def test_ncaa_timer_ships_enabled_in_runbook():
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
-    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]
+    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + MLB_LAPTOP_ONLY
     assert "HELD_B4" not in rb  # B4 ruled: the model-bearing timers enable with the rest
+    enabled = t11[:t11.index("MLB_LAPTOP_ONLY=")]
+    for mlb in ("sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"):
+        assert mlb not in enabled, f"{mlb} must stay OFF the host enable list (statsapi ASN block)"
     for f in (HOSTING / "systemd").glob("*.timer"):
         assert f.name in t11, f"{f.name} missing from the T11 enable list"
 
@@ -513,3 +516,48 @@ def test_model_registry_seed_roundtrip_and_identity(tmp_path):
 def test_seed_refuses_empty_registry(tmp_path):
     with pytest.raises(SystemExit, match="no production model rows"):
         bootstrap.seed_models(_real_schema_db(tmp_path / "h.db", []), [])
+
+
+# --------------------------- --skip-family (statsapi 406 on DO ASN, 09-27) ----
+
+def test_skip_family_run_keeps_numbering_and_receipts(sandbox, monkeypatch):
+    (c.REPO / "cli.py").write_text(FAKE_CLI)
+    ref = {"games": [
+        {"sport": "MLB", "comp": "MLB", "season": "2025", "status": "FINISHED", "n": 2430},
+        {"sport": "MLB", "comp": "MLB", "season": "2026", "status": "SCHEDULED", "n": 10},
+        {"sport": "NHL", "comp": "NHL", "season": "2025", "status": "FINISHED", "n": 1498}],
+        "model_registry": []}
+    rp = sandbox / "ref.json"
+    rp.write_text(json.dumps(ref))
+    steps = bootstrap.plan(ref)
+    flat = [" ".join(s) for s in steps]
+    i8 = flat.index("sync-matches --competition MLB --season 2025") + 1
+    # resume past init/seed exactly like the host: --from N with the flag
+    assert bootstrap.main(["run", "--reference", str(rp), "--from", "3",
+                           "--skip-family", "mlb"]) == 0
+    rs = [r for r in receipts(sandbox) if r["kind"] == "step"]
+    by_step = {r["step"]: r for r in rs}
+    assert by_step[i8]["skipped"] == "SKIPPED-ASN" and by_step[i8]["exit"] is None
+    mlb_sync = [r for r in rs if r["command"].split()[2] in ("sync-teams", "sync-matches")
+                and "MLB" in r["command"]]
+    assert len(mlb_sync) == 4 and all(r["skipped"] == "SKIPPED-ASN" for r in mlb_sync)
+    nhl = [r for r in rs if "--competition NHL" in r["command"] and "sync-matches" in r["command"]]
+    assert nhl and nhl[0]["exit"] == 0
+    # market + Kalshi steps still run (commercial / public providers)
+    assert any("sync-odds --competition MLB" in r["command"] and r["exit"] == 0 for r in rs)
+    assert any(r["command"].endswith("sync-kalshi") and r["exit"] == 0 for r in rs)
+    assert sorted(by_step) == list(range(3, len(steps) + 1))  # numbering unchanged
+    chain = receipts(sandbox)[-1]
+    assert chain["steps_skipped"] == 4 and chain["skipped_families"] == ["MLB"]
+
+
+def test_compare_skipped_family_is_na_host_not_failure(tmp_path):
+    lap = bootstrap.fingerprint(_fp_db(tmp_path / "l.db", NHL_CERT, [("NHL", "2025", 32)]))
+    no_mlb = [r for r in NHL_CERT if r[0] != "MLB"]
+    host = bootstrap.fingerprint(_fp_db(tmp_path / "h.db", no_mlb, [("NHL", "2025", 32)]))
+    _, plain = bootstrap.compare(lap, host)
+    assert any(x.startswith("✗ MLB   2025") for x in plain)  # without the flag: a failure
+    _, lines = bootstrap.compare(lap, host, {"MLB"})
+    assert not any(x.startswith("✗ MLB") for x in lines)
+    assert any(x.startswith("· MLB   2025") and "N/A-host (SKIPPED-ASN" in x for x in lines)
+    assert any(x.startswith("✓ NHL   2025") for x in lines)  # other families still exact

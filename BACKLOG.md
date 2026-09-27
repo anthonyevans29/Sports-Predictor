@@ -22,6 +22,40 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **WINDOW SERVICE BUILT 2026-09-27 (architect spec; timer ships with the
+  pack, enabled on H1b day 1).** Hourly chain `window` (sp-window.timer,
+  :05 every hour except 04/05 UTC — H0-3). Steps PLANNED at run time from
+  the DB (read-only), so adding a competition adds rows, not code:
+  sync-matches ONE UTC day per call (LAW-1 FINDING: api_hockey and
+  api_american_football honour a date window only when from == to — a
+  range silently fetches the whole league listing), sync-odds --limit
+  <window game count> (sync_odds prices the next N scheduled), one
+  sync-odds-football for the NFL family, Kalshi per WINDOW_KALSHI (CI-
+  pinned to kalshi.SOCCER_GAME_SERIES — only PL has a soccer series), then
+  `window-card`. NO predict/improve step (test asserts it). NEW CLI
+  `window-card`: src/walters/window.py builds exports/window_24h.json —
+  export_fixtures' row builder extracted verbatim into _fixture_row (the
+  20 fixtures/spread/K1 tests unchanged) + sport/competition + model fields
+  COPIED from the canonical chain-slot exports joined on match_id (every
+  export carries it) + venue gap / STALE-BOOK? via venue.kalshi_home_prob +
+  venue_gap + edge vs the book fair for the model's top pick; atomic write;
+  T-90 injury/lineup signatures embedded. PAGER sp_window_page (stdlib,
+  JSON-only): second private topic NTFY_CARD_TOPIC; delta classes
+  new_priced / tier / quarantine / stale / kickoff (incl. postponed) /
+  t90_news; quiet hours 00-07 ET page quarantine flips only (rest receipted
+  as suppressed); one 08:00-ET digest per day; first run = silent baseline
+  (executor's choice, flagged). QUOTA line on every chain receipt: metered/
+  unmetered steps run + skipped; provider call counts null (not
+  instrumented — 3 adapters capture the remaining-quota header but nothing
+  surfaces it). SP_SKIP_FAMILIES=MLB (host.env) drops MLB sync-matches only
+  (ASN ruling). COCKPIT: "Next 24h" tab renders the card; the venue column
+  calls the EXISTING venueEdge() via the same kalFromFixture path (one
+  charter, not two); headless receipt scripts/cockpit_window_verify.py
+  12/12; v04 25/25 and fills 20/20 still green. ARCHITECT-RULE (open): (a)
+  NO "freshen chain" exists anywhere in the pack/CLI/docs — T-90 news is
+  detected, receipted as freshen_needed and paged, never auto-run; name
+  the chain per sport to close it. (b) engine = model_edge | market_only;
+  the venue charter stays Cockpit policy v1.1 (not duplicated in Python).
 - **H1a CERTIFIED PASS 2026-09-27 (architect): compare clean, NO
   waivers.** (1) LAPTOP was short 67 UEL 2024/25 games since July —
   sync-matches skips listings whose teams are not in the DB, and the

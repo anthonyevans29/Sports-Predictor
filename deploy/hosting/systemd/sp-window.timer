@@ -1,0 +1,16 @@
+# Next-24h WINDOW SERVICE (architect spec 2026-09-27): hourly repricing of the
+# consolidated card + delta pages (NTFY_CARD_TOPIC). Shipped DISABLED like
+# every timer; enabled on H1b day 1 (T11). Hours 04 and 05 UTC are skipped
+# so a run never overlaps the 04:30 reboot (H0-3).
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-window
+
+[Timer]
+OnCalendar=*-*-* 00..03,06..23:05:00 UTC
+Unit=sp-chain@window.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

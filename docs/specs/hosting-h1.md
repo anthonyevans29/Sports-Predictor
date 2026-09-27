@@ -391,6 +391,66 @@ PASS requires all three of the following:
 
 ---
 
+## Window service: `sp-window` (architect spec 2026-09-27; enabled on H1b day 1)
+
+This hourly chain reprices the next 24 hours across every competition in
+the DB and writes `exports/window_24h.json`, the consolidated card.
+- The card uses the fixtures grammar, plus model p, book fair, Kalshi,
+  edge, tier, quarantine, venue flag and engine.
+- The Cockpit renders it in the **Next 24h** tab.
+- `sp-window.timer` ships with the pack and is on the T11 enable list, so
+  it starts with H1b day 1.
+- It fires at :05 every hour except 04 and 05 UTC (H0-3 reboot window).
+
+**What each run does**, with steps planned at run time from the DB,
+read-only:
+1. `sync-matches --competition C --season S --date-from D --date-to D`,
+   ONE UTC day per call, for every competition with non-finished games in
+   the window. The hockey and american-football adapters honour a date
+   window only when from == to; a range silently fetches the whole league.
+2. `sync-odds --competition C --season S --limit <window game count>` per
+   competition (`sync_odds` prices the next N scheduled games). The
+   american-football family (NFL + NCAA) gets one `sync-odds-football`.
+   Then the Kalshi sync for each competition in `WINDOW_KALSHI` (CI-pinned
+   to the adapter's series). Bid/ask are stored by the K1 path.
+3. **No model runs.** `window-card` copies model p, tier and quarantine
+   from the canonical chain-slot exports (joined on `match_id`) and
+   reprices only the market side: book fair, Kalshi, venue gap and
+   STALE-BOOK? (venue.py), and edge vs the book fair.
+4. Writes the card atomically.
+5. `sp_window_page` pages **card deltas** to the SECOND private topic
+   `NTFY_CARD_TOPIC`:
+   - Delta classes: new game priced / tier change / quarantine flip /
+     STALE-BOOK? change / kickoff moved (or postponed) / T-90 news.
+   - One daily digest on the first run at or after 08:00 ET.
+   - Quiet hours are 00:00–07:00 ET: only quarantine flips page; the rest
+     are receipted as suppressed.
+   - The first run only records a baseline; it pages nothing.
+
+**Receipts:**
+- The chain line carries a `quota` block: metered / unmetered steps run and
+  skipped. Provider call counts are `null`: not instrumented, never 0.
+- The pager appends `kind: window_page` with the delta counts per class,
+  suppressed count, paged/digest flags and `freshen_needed`.
+
+**Host settings:**
+- `SP_SKIP_FAMILIES=MLB` in host.env on a DO host. This drops MLB's
+  `sync-matches` only (statsapi ASN block).
+- `NTFY_CARD_TOPIC=<second unguessable topic>` in `.env`. Subscribe to it
+  in the ntfy app separately from `NTFY_TOPIC`.
+- Test the pager: `sudo -u sp venv/bin/python deploy/hosting/sp_window_page.py`.
+
+**Open for the architect:**
+- **Freshen chain (ARCHITECT-RULE).** The spec says a T-90
+  injury/lineup change "triggers that sport's existing freshen chain", but
+  no freshen chain exists in the pack, CLI or docs. Until one is named,
+  the service DETECTS T-90 news, receipts it as `freshen_needed`, and
+  pages it. It never predicts itself.
+- **Engine vs venue charter.** The card's `engine` is `model_edge` or
+  `market_only`. The venue-edge charter stays in Cockpit policy v1.1, and
+  the Next 24h tab calls the same `venueEdge()`, so there is one copy of
+  the policy.
+
 ## H1b. Parallel week (two independent pipelines)
 
 - Both machines sync independently and both run their chains.
@@ -455,7 +515,7 @@ Receipt: the push arrives on the phone, and the printed line says
 ```
 TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-saturday.timer
   sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer
-  sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer"
+  sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service

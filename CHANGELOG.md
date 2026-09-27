@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (window service: Next-24h card + delta pages)
+- Hourly `window` chain (sp-window.timer, enabled on H1b day 1): single-day
+  match syncs, window-scoped odds + Kalshi, then `window-card` →
+  exports/window_24h.json. No model runs; model fields copied from the
+  canonical exports.
+- Delta pages to a second ntfy topic (NTFY_CARD_TOPIC), quiet hours
+  00-07 ET except quarantine flips, one 08:00 ET digest.
+- Quota line on every chain receipt.
+- Cockpit "Next 24h" tab (headless receipt 12/12).
+
 ## 2026-09-27 (H1a CERTIFIED PASS)
 - Host bootstrap certified: compare clean, no waivers. The laptop was the
   side short 67 UEL 2024/25 games (clubs never team-synced), now fixed.

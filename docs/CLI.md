@@ -119,6 +119,7 @@ books' fair bars with a market-only chip and the Kalshi status.
 | `export-predictions` | `--sport --competition --start --end --status` | Consumer prediction file with input_quality vocabulary. |
 | `export-results` | `--sport --competition --date` | Graded results file (top-pick, totals pulse annotations). |
 | `results-tally` | `--days` | Regenerate `RESULTS.md` — rolling per-sport record (sides, log-loss, CLV). |
+| `window-card` | `--hours --t90` | Next-24h consolidated card → `exports/window_24h.json`: every game in the window, kickoff-sorted, fixtures grammar + model p / edge / tier / quarantine / venue flag / engine. Model fields copied from the canonical exports (no model runs); market side repriced. Read-only against the DB. |
 
 ## Diagnostics & research
 

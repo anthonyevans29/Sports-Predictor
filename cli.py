@@ -5260,6 +5260,30 @@ def export_fixtures_cmd(competition_code, start, end):
               "nothing; read the labels above before trusting this file")
 
 
+@cli.command("window-card")
+@click.option("--hours", default=24, show_default=True, type=int,
+              help="Window length from now (UTC).")
+@click.option("--t90", default=90, show_default=True, type=int,
+              help="Minutes before kickoff inside which injury/lineup changes are tracked.")
+def window_card_cmd(hours: int, t90: int):
+    """Next-24h window card -> exports/window_24h.json (architect spec 2026-09-27).
+    Market fields repriced from stored odds/Kalshi; model fields copied from the
+    canonical chain-slot exports (NO model re-runs). Read-only against the DB."""
+    from src.walters.window import build_card, t90_signatures, write_card
+    card = build_card(hours=hours)
+    card["t90_minutes"] = t90
+    card["t90_signatures"] = t90_signatures([r["match_id"] for r in card["fixtures"]],
+                                            minutes=t90)
+    path = write_card(card)
+    r = card["receipts"]
+    console.print(f"[green]✓ Wrote window card to {path}[/green]")
+    print(f"  window {card['window']['from']} -> {card['window']['to']}: games {card['count']} · "
+          f"with model {r['with_model']} · with book consensus {r['with_books']} · kalshi "
+          f"two-sided {r['kalshi_two_sided']} / one-sided {r['kalshi_one_sided']} / absent "
+          f"{r['kalshi_absent']} · STALE-BOOK? {r['stale_flags']} · quarantined "
+          f"{r['quarantined']} · inside T-{t90}: {len(card['t90_signatures'])}", flush=True)
+
+
 @cli.command("spread-fallback-check")
 @click.option("--competition", "competition_code", required=True,
               type=click.Choice(["NFL", "NCAA"], case_sensitive=False))

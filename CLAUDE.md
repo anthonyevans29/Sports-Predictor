@@ -138,6 +138,11 @@ become MORE binding under an income goal, never less."
   prefetch cache — do not regress it.
 - sync-competitions must run before a new sport's first team/match
   sync (the NHL bootstrap lesson).
+- sync-teams before sync-matches for EVERY new competition-season.
+  sync-matches skips listings whose clubs are not in the DB. The laptop
+  was short 67 UEL 2024/25 games since July (qualifying-round clubs never
+  team-synced; H1a finding 2026-09-27). The host bootstrap already does
+  this; laptop routines must match.
 - Kalshi: shared parameterized matcher, four series
   (KXMLBGAME/KXNFLGAME/KXNHLGAME/KXNCAAFGAME); ambiguous matches are
   REFUSED by design (sentinel). Do not "fix" refusals into guesses.

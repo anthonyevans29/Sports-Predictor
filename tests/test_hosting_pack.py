@@ -579,7 +579,7 @@ def test_waive_prints_row_records_receipt_and_never_hides(sandbox, tmp_path):
               bootstrap.parse_waiver("PL:2025/26:not needed")])
     _, lines = bootstrap.compare(lap, host, waivers=w)
     row = [x for x in lines if "UEL   2024/25" in x][0]
-    assert row.startswith("~ ") and "269 vs    202" in row and "WAIVED: provider serves 202" in row
+    assert row.startswith("~ ") and "laptop    269 | host    202" in row and "WAIVED: provider serves 202" in row
     assert any(x.startswith("· waiver unused PL:2025/26") for x in lines)
     assert not any(x.startswith("✗ UEL") for x in lines)
     with pytest.raises(SystemExit, match="COMP:SEASON:reason"):
@@ -669,7 +669,7 @@ def test_compare_index_sums_duplicate_status_entries():
                     lap["games"][2]]
     _, lines = bootstrap.compare(lap, fp)
     row = [x for x in lines if "UEL   2024/25" in x][0]
-    assert row.startswith("✓") and "269 vs    269" in row  # 202 + 67 summed, not overwritten
+    assert row.startswith("✓") and "laptop    269 | host    269" in row  # 202 + 67 summed, not overwritten
 
 
 def test_explain_prints_predicate_and_flags_uncounted_rows(sandbox, tmp_path, capsys):

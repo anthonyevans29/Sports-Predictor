@@ -29,7 +29,7 @@ Conventions: soccer seasons are `"2026/27"`; MLB and NFL seasons are
 
 | Command | Options | Purpose |
 |---|---|---|
-| `sync-matches` | `--competition --season --seasons N --date-from --date-to` | Schedules, scores, statuses. `--seasons N` backfills N seasons (sport-aware season strings). |
+| `sync-matches` | `--competition --season --seasons N --date-from --date-to` | Schedules, scores, statuses. `--seasons N` backfills N seasons (sport-aware season strings). **Run `sync-teams` for the same competition-season first:** listings whose clubs are not in the DB are skipped (the skip line names the id range). |
 | `sync-odds` | `--competition --season` | Book odds for upcoming games (soccer & MLB bulk path). |
 | `sync-injuries` | `--competition --season` | Current injury/status report per team. NFL: positions joined from the roster endpoint. |
 | `capture-odds` | `--sport --competition --season` | Lightweight odds-only capture for CLV tracking. |

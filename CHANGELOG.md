@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (H1a CERTIFIED PASS)
+- Host bootstrap certified: compare clean, no waivers. The laptop was the
+  side short 67 UEL 2024/25 games (clubs never team-synced), now fixed.
+- Law recorded: sync-teams before sync-matches for every new
+  competition-season (CLAUDE.md, CLI.md).
+- compare rows label each count laptop / host.
+
 ## 2026-09-27 (fingerprint receipts + hardening)
 - bootstrap explain / explain-diff: the counting predicate, the same rows
   counted four ways, and every uncounted row's status/status_raw/stage/

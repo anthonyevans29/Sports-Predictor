@@ -394,12 +394,15 @@ def compare(lap: dict, host: dict, skip: set = frozenset(),
         good = (lt == ht and lf == hf) if completed else True
         if not good and key in waivers:
             used.add(key)
-            lines.append(f"~ {key[0]:5s} {key[1]:8s} total {lt:>6} vs {ht:>6}  FINISHED {lf:>6} vs "
+            lines.append(f"~ {key[0]:5s} {key[1]:8s} total laptop {lt:>6} | host {ht:>6}  FINISHED laptop {lf:>6} | host "
                          f"{hf:>6}  WAIVED: {waivers[key]}")
             continue
         ok &= good
         tag = ("✓" if good else "✗") if completed else "·"
-        lines.append(f"{tag} {key[0]:5s} {key[1]:8s} total {lt:>6} vs {ht:>6}  FINISHED {lf:>6} vs {hf:>6}"
+        # Every number is labelled with its machine (2026-09-27: an unlabelled
+        # "269 vs 202" was read host-first and cost an hour on the wrong box).
+        lines.append(f"{tag} {key[0]:5s} {key[1]:8s} total laptop {lt:>6} | host {ht:>6}  "
+                     f"FINISHED laptop {lf:>6} | host {hf:>6}"
                      + ("" if completed else "  (current season, informational)"))
     for key in sorted(set(waivers) - used):
         lines.append(f"· waiver unused {key[0]}:{key[1]} (row matched or absent): {waivers[key]}")

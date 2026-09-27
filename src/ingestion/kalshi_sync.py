@@ -134,6 +134,7 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
             return score
 
         matched_rows: dict[tuple[int, str], float] = {}  # (match_id, side) -> prob
+        quotes: dict[tuple[int, str], tuple] = {}        # K-track: (yes_bid, yes_ask)
         ambiguous = 0
         in_play = 0
         for mk in all_markets:
@@ -323,13 +324,16 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
                 unmatched += 1
                 continue
             matched_rows[key] = round(prob, 4)
+            quotes[key] = adapter.yes_quotes(mk)
             matched += 1
 
         for (match_id, side), prob in matched_rows.items():
+            bid, ask = quotes.get((match_id, side), (None, None))
             sess.add(OddsSnapshot(
                 match_id=match_id, market="ML", selection=side,
                 devig_prob=prob, line=None, n_books=1,
                 captured_at=now, source="kalshi",
+                yes_bid=bid, yes_ask=ask,
             ))
             stored += 1
 
@@ -417,6 +421,7 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
 
         MAX_START_DRIFT = timedelta(hours=5)
         matched_rows: dict[tuple[int, str], float] = {}
+        quotes: dict[tuple[int, str], tuple] = {}        # K-track: (yes_bid, yes_ask)
 
         # 2026-09-13: Kalshi changed market titles from "A vs B Winner?" to
         # single-side "A wins" — title_teams() returned None for every
@@ -504,13 +509,16 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
                 unmatched += 1
                 continue
             matched_rows[key] = round(prob, 4)
+            quotes[key] = KalshiAdapter.yes_quotes(mk)
             matched += 1
 
         for (match_id, sel), prob in matched_rows.items():
+            bid, ask = quotes.get((match_id, sel), (None, None))
             sess.add(OddsSnapshot(
                 match_id=match_id, market="1X2", selection=sel,
                 devig_prob=prob, line=None, n_books=1,
                 captured_at=now, source="kalshi",
+                yes_bid=bid, yes_ask=ask,
             ))
             stored += 1
 

@@ -5,6 +5,9 @@ PRAGMA integrity_check on the COPY, sha256, a `.sha256` sidecar and a receipt.
 
     sp_backup.py daily        -> sports_YYYY-MM-DD.db   (second run same day: _HHMM suffix)
     sp_backup.py prerefresh   -> sports_YYYY-MM-DD_prerefresh_HHMM.db
+    (precleanup               -> sports_YYYY-MM-DD_precleanup_HHMM.db, taken by
+                                 remove_allstar_rows.py before its delete)
+Event backups (any `_pre…` suffix) never count as the day's daily backup.
 
 Never `cp` of the live file; never writes under data/ (law 5). The source is
 opened read-only. Exit 0 only when the copy is complete and integrity is ok.
@@ -27,8 +30,8 @@ def backup_dir() -> Path:
 
 def target_name(kind: str, now) -> str:
     day = now.strftime("%Y-%m-%d")
-    if kind == "prerefresh":
-        return f"sports_{day}_prerefresh_{now.strftime('%H%M')}.db"
+    if kind in ("prerefresh", "precleanup"):
+        return f"sports_{day}_{kind}_{now.strftime('%H%M')}.db"
     return f"sports_{day}.db"
 
 
@@ -83,7 +86,7 @@ def todays_daily() -> Path | None:
     d = backup_dir()
     day = c.utc_now().strftime("%Y-%m-%d")
     for p in sorted(d.glob(f"sports_{day}*.db")):
-        if "prerefresh" in p.name:
+        if "_pre" in p.name:  # event backups (prerefresh / precleanup) are not dailies
             continue
         side = p.with_name(p.name + ".sha256")
         if side.exists() and side.read_text().split()[0] == c.sha256_file(p):

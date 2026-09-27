@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (H1a compare rulings: Pro Bowl exclusion, waivers, EL1/EL2 refresh)
+- NFL adapter excludes Pro Bowl / all-star games and teams, printing each
+  excluded row.
+- bootstrap compare --waive COMP:SEASON:reason: row still printed as
+  WAIVED, recorded in the receipt.
+- Monday soccer-refresh (chain + routine doc) syncs EL1/EL2 2026/27 first.
+- Fingerprints embed the producing bootstrap.py git blob SHA; compare
+  refuses version-mismatched or unstamped fingerprints (the UEL 269 vs 202
+  delta was version skew, not data).
+
 ## 2026-09-27 (bootstrap --skip-family: MLB Stats API blocks datacenter ASNs)
 - bootstrap.py --skip-family MLB: MLB sync-teams/sync-matches receipted
   SKIPPED-ASN, numbering unchanged (resume --from 8); compare reports the

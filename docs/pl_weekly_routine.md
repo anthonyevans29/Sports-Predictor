@@ -87,10 +87,17 @@ matchday mornings run the same chain WITHOUT soccer-refresh to grade the
 previous day's games: sync-matches -> evaluate -> export-results.)
 
 ```
+python cli.py sync-matches --competition EL1 --season "2026/27"
+python cli.py sync-matches --competition EL2 --season "2026/27"
 python cli.py evaluate --sport soccer
 python cli.py export-results --sport soccer --competition PL
 python cli.py soccer-refresh
 ```
+
+* EL1/EL2 sync first (added 2026-09-27, architect ruling). They feed the
+  refresh pot, and nothing else in the weekly routine syncs them. The H1a
+  host compare found the laptop's 2026/27 rows stale: 24 finished vs 87/94
+  on a fresh sync.
 
 Notes:
 * Order matters: grade first (refresh calls evaluate too, but the results

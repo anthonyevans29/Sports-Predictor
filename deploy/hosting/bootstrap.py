@@ -30,6 +30,17 @@ database from the providers. No data travels.
     HOST    bootstrap.py fingerprint --out fp_host.json
     EITHER  bootstrap.py compare fp_laptop.json fp_host.json [--skip-family MLB]  -> PASS/FAIL
             A skipped family is N/A-host (laptop-only), never a failure.
+            VERSION GUARD (architect finding, 2026-09-27): every fingerprint
+            embeds the producing bootstrap.py's git blob SHA. compare REFUSES
+            fingerprints from different bootstrap versions, or unstamped ones,
+            before comparing a single row. A pre-#42 laptop fingerprint against
+            a post-#42 host one showed UEL 2024/25 as 269 vs 202 while sqlite
+            held 269 on both machines: version skew, not data.
+            --waive COMP:SEASON:reason (repeatable; architect ruling 2026-09-27):
+            an explained provider difference on a completed season. The row
+            still PRINTS, with both counts and the reason, marked WAIVED. The
+            waiver is recorded in the receipt. It is never hidden, and never
+            applies to a matching row, which prints "waiver unused".
 
 Phase-1 acceptance (compare):
 - Every COMPLETED (competition, season) must match the laptop EXACTLY, on
@@ -139,6 +150,34 @@ def _mkey(r: dict) -> tuple:
     return (str(r.get("sport")), str(r.get("model_family")))
 
 
+def producer_version() -> dict:
+    """The producing bootstrap.py's git blob SHA (identical to `git hash-object`,
+    computed from the file bytes so a local edit shows too) plus the checkout's
+    commit SHA for human reference."""
+    import hashlib
+    data = Path(__file__).read_bytes()
+    blob = hashlib.sha1(b"blob %d\0" % len(data) + data).hexdigest()
+    return {"bootstrap_blob_sha": blob, "git_commit": c.git_sha()}
+
+
+def version_mismatch(lap: dict, host: dict) -> str | None:
+    """Refusal message when the two fingerprints were made by different
+    bootstrap.py versions (or either is unstamped), else None."""
+    a, b = lap.get("producer") or {}, host.get("producer") or {}
+    if not a.get("bootstrap_blob_sha") or not b.get("bootstrap_blob_sha"):
+        who = [n for n, x in (("laptop", a), ("host", b)) if not x.get("bootstrap_blob_sha")]
+        return (f"✗ REFUSED: {' and '.join(who)} fingerprint carries no bootstrap version stamp "
+                f"(made before the version guard). Regenerate it on current main: "
+                f"`bootstrap.py fingerprint --out ...`, then re-compare.")
+    if a["bootstrap_blob_sha"] != b["bootstrap_blob_sha"]:
+        return (f"✗ REFUSED: fingerprints come from different bootstrap.py versions "
+                f"(laptop {a['bootstrap_blob_sha'][:12]} @ {a.get('git_commit')}, host "
+                f"{b['bootstrap_blob_sha'][:12]} @ {b.get('git_commit')}). Counting rules may differ, "
+                f"so a row delta could be version skew, not data. Pull main on both machines, "
+                f"regenerate both fingerprints, re-compare.")
+    return None
+
+
 def fingerprint(db: Path) -> dict:
     con = c.ro_connect(db)
     try:
@@ -157,7 +196,8 @@ def fingerprint(db: Path) -> dict:
         models = model_rows(con)
     finally:
         con.close()
-    return {"created": c.iso(), "host": c.host_name(), "games": games, "teams": teams,
+    return {"created": c.iso(), "host": c.host_name(), "producer": producer_version(),
+            "games": games, "teams": teams,
             "family_teams": family_teams, "odds_snapshots_by_source": odds,
             "model_registry": models}
 
@@ -219,7 +259,18 @@ def plan(ref: dict) -> list[list[str]]:
     return steps
 
 
-def compare(lap: dict, host: dict, skip: set = frozenset()) -> tuple[bool, list[str]]:
+def parse_waiver(s: str) -> tuple[tuple[str, str], str]:
+    """COMP:SEASON:reason. Seasons may contain '/', and reasons may contain ':'."""
+    parts = s.split(":", 2)
+    if len(parts) != 3 or not all(p.strip() for p in parts):
+        raise SystemExit(f"✗ --waive expects COMP:SEASON:reason, got {s!r}")
+    return (parts[0].strip(), parts[1].strip()), parts[2].strip()
+
+
+def compare(lap: dict, host: dict, skip: set = frozenset(),
+            waivers: dict | None = None) -> tuple[bool, list[str]]:
+    waivers = dict(waivers or {})
+    used: set = set()
     lines, ok = [], True
     sports = {**comp_sport(host), **comp_sport(lap)}
 
@@ -239,10 +290,17 @@ def compare(lap: dict, host: dict, skip: set = frozenset()) -> tuple[bool, list[
         lf, hf = L[key].get("FINISHED", 0), H.get(key, {}).get("FINISHED", 0)
         completed = key[1] != newest[key[0]]
         good = (lt == ht and lf == hf) if completed else True
+        if not good and key in waivers:
+            used.add(key)
+            lines.append(f"~ {key[0]:5s} {key[1]:8s} total {lt:>6} vs {ht:>6}  FINISHED {lf:>6} vs "
+                         f"{hf:>6}  WAIVED: {waivers[key]}")
+            continue
         ok &= good
         tag = ("✓" if good else "✗") if completed else "·"
         lines.append(f"{tag} {key[0]:5s} {key[1]:8s} total {lt:>6} vs {ht:>6}  FINISHED {lf:>6} vs {hf:>6}"
                      + ("" if completed else "  (current season, informational)"))
+    for key in sorted(set(waivers) - used):
+        lines.append(f"· waiver unused {key[0]}:{key[1]} (row matched or absent): {waivers[key]}")
     for key in sorted(set(H) - set(L)):
         lines.append(f"· {key[0]:5s} {key[1]:8s} host-only ({sum(H[key].values())} games)")
 
@@ -300,6 +358,8 @@ def main(argv=None) -> int:
     cmp.add_argument("host", type=Path)
     cmp.add_argument("--skip-family", action="append", default=[], type=str.upper,
                      choices=FAMILY_ORDER, help="report the family as N/A-host, not a failure")
+    cmp.add_argument("--waive", action="append", default=[], metavar="COMP:SEASON:reason",
+                     help="explained provider difference; the row still prints, marked WAIVED")
     a = ap.parse_args(argv)
     skip = set(a.skip_family) if a.cmd != "fingerprint" else set()
     c.load_host_env()
@@ -309,16 +369,32 @@ def main(argv=None) -> int:
         fp = fingerprint(c.db_path())
         a.out.write_text(json.dumps(fp, indent=1))
         tot = sum(g["n"] for g in fp["games"])
+        print(f"  producer: bootstrap.py blob {fp['producer']['bootstrap_blob_sha'][:12]} @ "
+              f"{fp['producer']['git_commit']}")
         print(f"✓ fingerprint {a.out}: {tot} games, {len({(g['comp'], g['season']) for g in fp['games']})} "
               f"competition-seasons, odds_snapshots {fp['odds_snapshots_by_source']}, production "
               f"models {[r['version'] + ' ' + str(r['model_family']) for r in fp['model_registry']]}")
         return 0
     if a.cmd == "compare":
-        ok, lines = compare(json.loads(a.laptop.read_text()), json.loads(a.host.read_text()), skip)
+        waivers = dict(parse_waiver(w) for w in a.waive)
+        lap_fp, host_fp = json.loads(a.laptop.read_text()), json.loads(a.host.read_text())
+        refusal = version_mismatch(lap_fp, host_fp)
+        if refusal:
+            print(refusal)
+            c.append_receipt({"kind": "bootstrap", "step": "compare", "exit": 2,
+                              "refused": "version_mismatch",
+                              "laptop_producer": lap_fp.get("producer"),
+                              "host_producer": host_fp.get("producer")})
+            return 2
+        ok, lines = compare(lap_fp, host_fp, skip, waivers)
         print("\n".join(lines))
         print(f"\n{'PASS' if ok else 'FAIL'} — H1a phase-1 acceptance (completed seasons exact + anchors)")
         c.append_receipt({"kind": "bootstrap", "step": "compare", "exit": 0 if ok else 1,
                           "skipped_families": sorted(skip),
+                          "waivers": [{"comp": k[0], "season": k[1], "reason": r,
+                                       "applied": any(x.startswith(f"~ {k[0]:5s} {k[1]:8s}")
+                                                      for x in lines)}
+                                      for k, r in sorted(waivers.items())],
                           "fails": [x for x in lines if x.startswith("✗")][:40]})
         return 0 if ok else 1
 

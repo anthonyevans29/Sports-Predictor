@@ -252,6 +252,33 @@ TERMINAL (host):
 sudo -u sp venv/bin/python deploy/hosting/bootstrap.py fingerprint --out /home/sp/fp_host.json
 sudo -u sp venv/bin/python deploy/hosting/bootstrap.py compare /home/sp/fp_laptop.json /home/sp/fp_host.json --skip-family MLB
 ```
+**Waivers (ruling 2026-09-27).** An explained provider difference on a
+completed season is waived with `--waive COMP:SEASON:reason`.
+- The row still prints, with both counts, marked `~ … WAIVED: <reason>`.
+- The waiver is recorded in the compare receipt, with `applied` true or
+  false. A waiver on a matching row prints `waiver unused`.
+- **Version guard (architect finding, 2026-09-27).** Both fingerprints
+  must come from the same `bootstrap.py`. Every fingerprint embeds the
+  producing file's git blob SHA, and `compare` REFUSES a mismatch, or an
+  unstamped fingerprint, before comparing any row.
+  - First H1a run: UEL 2024/25 read host 202 vs laptop 269, while sqlite
+    held 269 on BOTH machines. That was fingerprint version skew (a
+    pre-#42 laptop fingerprint against a post-#42 host one), not data.
+  - So: pull `main` on both machines, regenerate BOTH fingerprints
+    (laptop B1, host B3), then re-compare.
+  - Only a delta that survives a same-version compare and one host
+    re-sync is a waiver candidate, for example
+    `--waive "UEL:2024/25:provider serves N after one host re-sync"`.
+- NFL: the Pro Bowl rows (AFC v NFC, +1 game per season, 34 teams) are
+  now excluded at the adapter, and each exclusion prints a receipt. The
+  scope_line SCOPE ALERT (teams != 32) was the protection that would have
+  flagged them in any NFL model path.
+  - Rows the host ingested BEFORE this fix remain. A re-sync updates in
+    place and never deletes.
+  - Removing them is destructive SQL. That needs an explicit architect
+    ruling; otherwise waive those seasons with the reason
+    "Pro Bowl ingested pre-exclusion".
+
 A skipped family prints as `N/A-host` (laptop-only). It is neither checked
 nor counted as a failure. The model-identity check still covers MLB's
 seeded production row: the seed is local and needs no statsapi call.

@@ -12,6 +12,10 @@ Every drop adds an entry going forward.
   NFL LIVE section, full Kalshi series list. .env.example: football and
   hockey API keys. api_hockey docstring matches its actual key fallback.
 
+## 2026-09-27 (U2: NFL export "why" fields)
+- NFL predictions export adds elo_home, elo_away, elo_gap,
+  home_adv_applied, rest_days_home, rest_days_away. Additive only.
+
 ## 2026-09-26 (Cockpit v0.4 — P&L / self-grading organ, policy v1.1)
 - tools/cockpit.html: Ledger tab (localStorage bd_ledger_v1, export/
   import), "Log today's calls", venue-edge engine (shadow, 0.25u),

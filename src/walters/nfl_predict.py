@@ -101,7 +101,29 @@ def predict_nfl(days_ahead: int = 8, progress=None) -> int:
     return written
 
 
+def _rest_days(s, m) -> dict[str, float | None]:
+    """Days since each side's previous NFL game (any non-cancelled/postponed
+    status, preseason included — rest is physical), from the schedule.
+    None = no earlier game on record."""
+    out = {}
+    for side, tid in (("home", m.home_team_id), ("away", m.away_team_id)):
+        prev = s.execute(
+            nfl_scoped(select(Match.utc_date)).where(
+                Match.utc_date < m.utc_date,
+                Match.status.notin_([MatchStatus.CANCELLED, MatchStatus.POSTPONED]),
+                (Match.home_team_id == tid) | (Match.away_team_id == tid),
+            ).order_by(Match.utc_date.desc()).limit(1)
+        ).scalar()
+        out[side] = round((m.utc_date - prev).total_seconds() / 86400.0, 1) if prev else None
+    return out
+
+
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str:
+    # U2 "why" fields (2026-09-27): the ratings the model prices from — the
+    # same _current_ratings() walk predict-nfl uses (finished NFL games,
+    # preseason excluded), taken at export time.
+    elo_cfg = NFLEloConfig()
+    elo = _current_ratings()
     with session_scope() as s:
         now = datetime.utcnow()
         q = (nfl_scoped(select(Prediction, Match)
@@ -185,6 +207,15 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                 "market": market,
                 "market_divergence_pp": divergence_pp,
                 "quarantine": (divergence_pp is not None and abs(divergence_pp) >= 15.0),
+                # U2 "why" fields (additive, display only): elo_gap is the raw
+                # rating difference; home_adv_applied is the Elo bonus the
+                # home side gets inside the expectation (fixed config).
+                "elo_home": round(elo.ratings.get(m.home_team_id, elo_cfg.default_rating), 1),
+                "elo_away": round(elo.ratings.get(m.away_team_id, elo_cfg.default_rating), 1),
+                "elo_gap": round(elo.ratings.get(m.home_team_id, elo_cfg.default_rating)
+                                 - elo.ratings.get(m.away_team_id, elo_cfg.default_rating), 1),
+                "home_adv_applied": elo_cfg.home_advantage,
+                **{f"rest_days_{k}": v for k, v in _rest_days(s, m).items()},
                 "kalshi_prob": round(kal["home"], 4) if kal else None,
                 "kalshi_captured_at": (kal["captured_at"].isoformat()
                                        if kal and kal["captured_at"] else None),

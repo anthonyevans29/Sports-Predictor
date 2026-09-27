@@ -48,6 +48,30 @@ from src.db.schema import MatchStatus, Sport
 
 log = logging.getLogger(__name__)
 
+# Non-competitive exclusion (architect ruling 2026-09-27, H1a compare): the
+# provider files the Pro Bowl (AFC vs NFC) inside the NFL league. It showed up
+# as +1 game/season and 34 teams on the fresh host. These rows are exhibitions:
+# they would enter the Elo walk, grading and scope counts. nfl_backtest's
+# scope_line already raises a SCOPE ALERT when teams != 32, so they could not
+# pass silently, but the right fix is not ingesting them. Markers are generic
+# on purpose (conference all-star sides, "pro bowl" / "all-star" in the team
+# name, week or stage). Every excluded row is printed as a receipt.
+_ALLSTAR_TEAM_NAMES = {"AFC", "NFC"}
+_ALLSTAR_MARKERS = ("PRO BOWL", "PROBOWL", "ALL-STAR", "ALL STAR", "ALLSTAR")
+
+
+def _non_competitive(*texts, team_names=()) -> str | None:
+    """Reason string when a game/team is an all-star exhibition, else None."""
+    for n in team_names:
+        if str(n or "").strip().upper() in _ALLSTAR_TEAM_NAMES:
+            return f"all-star side {str(n).strip()!r}"
+    for s in (*team_names, *texts):
+        u = str(s or "").upper()
+        for m in _ALLSTAR_MARKERS:
+            if m in u:
+                return f"marker {m.lower()!r} in {str(s).strip()!r}"
+    return None
+
 DIRECT_BASE = "https://v1.american-football.api-sports.io"
 
 #: NFL league id in the provider's catalog. (id 2 is NCAA.)
@@ -139,6 +163,10 @@ class APIAmericanFootballAdapter(DataAdapter):
             tid, name = t.get("id"), t.get("name")
             if tid is None or not name:
                 continue
+            why = _non_competitive(team_names=(name,))
+            if why:
+                print(f"  excluded non-competitive team: id={tid} {name!r} ({why})", flush=True)
+                continue
             out.append(NormalizedTeam(
                 sport=Sport.NFL, name=name, source=self.source_name,
                 source_id=str(tid), short_name=t.get("code"),
@@ -186,6 +214,13 @@ class APIAmericanFootballAdapter(DataAdapter):
             if gid is None or home.get("id") is None or away.get("id") is None:
                 continue
             week_raw = game.get("week")
+            why = _non_competitive(week_raw, game.get("stage"),
+                                   team_names=(home.get("name"), away.get("name")))
+            if why:
+                print(f"  excluded non-competitive game: id={gid} {utc:%Y-%m-%d} "
+                      f"{home.get('name')!r} v {away.get('name')!r} "
+                      f"(week={week_raw!r}, stage={game.get('stage')!r}; {why})", flush=True)
+                continue
             matchday = None
             if week_raw is not None:
                 digits = "".join(c for c in str(week_raw) if c.isdigit())

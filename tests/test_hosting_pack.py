@@ -561,3 +561,37 @@ def test_compare_skipped_family_is_na_host_not_failure(tmp_path):
     assert not any(x.startswith("✗ MLB") for x in lines)
     assert any(x.startswith("· MLB   2025") and "N/A-host (SKIPPED-ASN" in x for x in lines)
     assert any(x.startswith("✓ NHL   2025") for x in lines)  # other families still exact
+
+
+# ------------------------------- compare --waive (architect ruling 09-27) ----
+
+def test_waive_prints_row_records_receipt_and_never_hides(sandbox, tmp_path):
+    rows = [("SOCCER", "UEL", "2024/25", "FINISHED", 269), ("SOCCER", "UEL", "2026/27", "SCHEDULED", 9),
+            ("SOCCER", "PL", "2025/26", "FINISHED", 380), ("SOCCER", "PL", "2026/27", "SCHEDULED", 9)]
+    host_rows = [("SOCCER", "UEL", "2024/25", "FINISHED", 202)] + rows[1:]
+    lp, hp = tmp_path / "l.json", tmp_path / "h.json"
+    lp.write_text(json.dumps(bootstrap.fingerprint(_fp_db(tmp_path / "l.db", rows))))
+    hp.write_text(json.dumps(bootstrap.fingerprint(_fp_db(tmp_path / "h.db", host_rows))))
+    lap, host = json.loads(lp.read_text()), json.loads(hp.read_text())
+    _, plain = bootstrap.compare(lap, host)
+    assert any(x.startswith("✗ UEL   2024/25") for x in plain)
+    w = dict([bootstrap.parse_waiver("UEL:2024/25:provider serves 202 after one host re-sync"),
+              bootstrap.parse_waiver("PL:2025/26:not needed")])
+    _, lines = bootstrap.compare(lap, host, waivers=w)
+    row = [x for x in lines if "UEL   2024/25" in x][0]
+    assert row.startswith("~ ") and "269 vs    202" in row and "WAIVED: provider serves 202" in row
+    assert any(x.startswith("· waiver unused PL:2025/26") for x in lines)
+    assert not any(x.startswith("✗ UEL") for x in lines)
+    with pytest.raises(SystemExit, match="COMP:SEASON:reason"):
+        bootstrap.parse_waiver("UEL:2024/25")
+    bootstrap.main(["compare", str(lp), str(hp), "--waive", "UEL:2024/25:provider difference"])
+    rec = receipts(sandbox)[-1]
+    assert rec["waivers"] == [{"comp": "UEL", "season": "2024/25",
+                               "reason": "provider difference", "applied": True}]
+
+
+def test_monday_refresh_syncs_el1_el2_first():
+    steps = chains.CHAINS["soccer-refresh"]["steps"]
+    assert steps[0] == ["sync-matches", "--competition", "EL1", "--season", "2026/27"]
+    assert steps[1] == ["sync-matches", "--competition", "EL2", "--season", "2026/27"]
+    assert steps[-1] == ["soccer-refresh"]

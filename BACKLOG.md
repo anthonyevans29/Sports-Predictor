@@ -22,6 +22,30 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **H1a COMPARE RESULT + THREE RULINGS 2026-09-27 (architect):** anchors
+  10/10, models match, 61/64 comp-seasons exact. (1) NFL +1 game/season
+  with 34 teams = the Pro Bowl (AFC/NFC) filed inside the NFL league.
+  BUILT: api_american_football excludes non-competitive rows at the
+  adapter — games AND teams — on generic markers (a team named AFC/NFC,
+  or "pro bowl"/"all-star" in a team name, week or stage); every excluded
+  row PRINTS a receipt (id, date, sides, week, stage, reason); playoff
+  games untouched (test). Scope-alert protection noted: nfl_backtest's
+  scope_line raises SCOPE ALERT when teams != 32, so these rows could not
+  have passed silently through an NFL model path. FLAGGED (not decided):
+  rows the host ingested before the fix remain — re-sync never deletes,
+  and removing them is destructive SQL; architect to rule a targeted
+  delete on the rehearsal DB or a waiver ("Pro Bowl ingested
+  pre-exclusion"). NCAA all-star bowls are caught only where the provider
+  labels them with a marker (no name guessing). (2) UEL 2024/25 host 202
+  vs laptop 269 = explained provider difference after one host re-sync;
+  BUILT: compare --waive COMP:SEASON:reason (repeatable) — the row still
+  prints with both counts, marked WAIVED + reason; waivers recorded in the
+  compare receipt with applied true/false; a waiver on a matching row
+  prints "waiver unused"; never hides a row. (3) FINDING: laptop EL1/EL2
+  2026/27 are stale (24 finished vs host 87/94) — they feed the pot.
+  BUILT: the soccer-refresh chain syncs EL1 + EL2 2026/27 first;
+  docs/pl_weekly_routine.md Monday block gains the same two lines.
+  pytest 183 passed.
 - **FINDING (architect, 2026-09-27): statsapi.mlb.com is DATACENTER-
   HOSTILE.** H1a bootstrap step 8 (MLB sync-matches) failed on the DO host:
   statsapi.mlb.com returns 406 for BOTH the default and a browser

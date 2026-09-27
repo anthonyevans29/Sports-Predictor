@@ -30,6 +30,11 @@ database from the providers. No data travels.
     HOST    bootstrap.py fingerprint --out fp_host.json
     EITHER  bootstrap.py compare fp_laptop.json fp_host.json [--skip-family MLB]  -> PASS/FAIL
             A skipped family is N/A-host (laptop-only), never a failure.
+            --waive COMP:SEASON:reason (repeatable; architect ruling 2026-09-27):
+            an explained provider difference on a completed season. The row
+            still PRINTS, with both counts and the reason, marked WAIVED. The
+            waiver is recorded in the receipt. It is never hidden, and never
+            applies to a matching row, which prints "waiver unused".
 
 Phase-1 acceptance (compare):
 - Every COMPLETED (competition, season) must match the laptop EXACTLY, on
@@ -219,7 +224,18 @@ def plan(ref: dict) -> list[list[str]]:
     return steps
 
 
-def compare(lap: dict, host: dict, skip: set = frozenset()) -> tuple[bool, list[str]]:
+def parse_waiver(s: str) -> tuple[tuple[str, str], str]:
+    """COMP:SEASON:reason. Seasons may contain '/', and reasons may contain ':'."""
+    parts = s.split(":", 2)
+    if len(parts) != 3 or not all(p.strip() for p in parts):
+        raise SystemExit(f"✗ --waive expects COMP:SEASON:reason, got {s!r}")
+    return (parts[0].strip(), parts[1].strip()), parts[2].strip()
+
+
+def compare(lap: dict, host: dict, skip: set = frozenset(),
+            waivers: dict | None = None) -> tuple[bool, list[str]]:
+    waivers = dict(waivers or {})
+    used: set = set()
     lines, ok = [], True
     sports = {**comp_sport(host), **comp_sport(lap)}
 
@@ -239,10 +255,17 @@ def compare(lap: dict, host: dict, skip: set = frozenset()) -> tuple[bool, list[
         lf, hf = L[key].get("FINISHED", 0), H.get(key, {}).get("FINISHED", 0)
         completed = key[1] != newest[key[0]]
         good = (lt == ht and lf == hf) if completed else True
+        if not good and key in waivers:
+            used.add(key)
+            lines.append(f"~ {key[0]:5s} {key[1]:8s} total {lt:>6} vs {ht:>6}  FINISHED {lf:>6} vs "
+                         f"{hf:>6}  WAIVED: {waivers[key]}")
+            continue
         ok &= good
         tag = ("✓" if good else "✗") if completed else "·"
         lines.append(f"{tag} {key[0]:5s} {key[1]:8s} total {lt:>6} vs {ht:>6}  FINISHED {lf:>6} vs {hf:>6}"
                      + ("" if completed else "  (current season, informational)"))
+    for key in sorted(set(waivers) - used):
+        lines.append(f"· waiver unused {key[0]}:{key[1]} (row matched or absent): {waivers[key]}")
     for key in sorted(set(H) - set(L)):
         lines.append(f"· {key[0]:5s} {key[1]:8s} host-only ({sum(H[key].values())} games)")
 
@@ -300,6 +323,8 @@ def main(argv=None) -> int:
     cmp.add_argument("host", type=Path)
     cmp.add_argument("--skip-family", action="append", default=[], type=str.upper,
                      choices=FAMILY_ORDER, help="report the family as N/A-host, not a failure")
+    cmp.add_argument("--waive", action="append", default=[], metavar="COMP:SEASON:reason",
+                     help="explained provider difference; the row still prints, marked WAIVED")
     a = ap.parse_args(argv)
     skip = set(a.skip_family) if a.cmd != "fingerprint" else set()
     c.load_host_env()
@@ -314,11 +339,17 @@ def main(argv=None) -> int:
               f"models {[r['version'] + ' ' + str(r['model_family']) for r in fp['model_registry']]}")
         return 0
     if a.cmd == "compare":
-        ok, lines = compare(json.loads(a.laptop.read_text()), json.loads(a.host.read_text()), skip)
+        waivers = dict(parse_waiver(w) for w in a.waive)
+        ok, lines = compare(json.loads(a.laptop.read_text()), json.loads(a.host.read_text()), skip,
+                            waivers)
         print("\n".join(lines))
         print(f"\n{'PASS' if ok else 'FAIL'} — H1a phase-1 acceptance (completed seasons exact + anchors)")
         c.append_receipt({"kind": "bootstrap", "step": "compare", "exit": 0 if ok else 1,
                           "skipped_families": sorted(skip),
+                          "waivers": [{"comp": k[0], "season": k[1], "reason": r,
+                                       "applied": any(x.startswith(f"~ {k[0]:5s} {k[1]:8s}")
+                                                      for x in lines)}
+                                      for k, r in sorted(waivers.items())],
                           "fails": [x for x in lines if x.startswith("✗")][:40]})
         return 0 if ok else 1
 

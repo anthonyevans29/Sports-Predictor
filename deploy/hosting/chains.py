@@ -78,6 +78,11 @@ CHAINS: dict[str, dict] = {
         "backup": "prerefresh",
         "operator_only": True,
         "steps": [
+            # EL1/EL2 feed the refresh pot. The laptop's 2026/27 rows were
+            # found stale at the H1a compare (24 finished vs the host's
+            # 87/94); architect ruling 2026-09-27: sync them before every refresh.
+            ["sync-matches", "--competition", "EL1", "--season", "2026/27"],
+            ["sync-matches", "--competition", "EL2", "--season", "2026/27"],
             ["evaluate", "--sport", "soccer"],
             ["export-results", "--sport", "soccer", "--competition", "PL"],
             ["soccer-refresh"],

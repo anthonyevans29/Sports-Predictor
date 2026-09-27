@@ -22,6 +22,43 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **KALSHI FILLS IMPORT + TWO-BOOK ACCOUNTING 2026-09-27 (architect NEW
+  LANE, Cockpit Ledger tab) + HISTORICAL NOTE + K-TRACK PRIORITY RAISED.**
+  HISTORICAL (architect, from the real Kalshi YTD realized-P&L export:
+  2,058 fills): -$292 with fees, -$37 pre-fee, $255 of fees = 87% of
+  the loss. By month: Aug +$293 / Sept -$486, Sept's damage concentrated
+  OFF-BOOK. FEES are identified as the operation's largest single cost.
+  K-TRACK PRIORITY RAISED (logged): fee-aware edge floors are now
+  EVIDENCE-MANDATED; the K1 fee formula's ARCHITECT-VERIFY is
+  outstanding; avg-fill-size and fee-per-dollar-staked join K1's export
+  fields when they land (ARCHITECT-RULE on semantics: per-game exports
+  hold no fills — proposed as book-level constants from the realized
+  ledger, e.g. trailing-30-day values). BUILD (tools/cockpit.html,
+  Ledger tab): "Import Kalshi CSV" — header columns mapped by KEYWORD
+  (market_ticker, side, quantity, entry/exit price, open/close fees,
+  realized P&L with/without fees, open/close timestamps, market_title);
+  the import prints the mapping and refuses with the headers it saw if a
+  required column is missing. EXACT HEADER NAMES ARE ARCHITECT-VERIFY
+  (no real CSV seen yet). Ticker grammar KX{FAMILY}GAME-{yyMONdd}[hhmm]
+  {teams}-{side}; families MLB/NFL/NCAAF/NHL/EPL/UCL/FACUP/UEFANL;
+  KXMVESPORTSMULTIGAMEEXTENDED = kalshi-native parlays; everything else =
+  non_sport. Side resolution: the side code is fitted to the
+  market_title's two teams (initials / prefix); NO on a team = backing
+  the other side; the TIE leg = Draw (NO on the tie leg is not a single
+  outcome). MATCHING: a sports fill is system_matched when a logged call
+  (not a parlay leg, units > 0) has the family's sport, kickoff date +/-1,
+  both title teams in the game, and the same backed side — it carries
+  the call's engine/tier; otherwise off_book (a quarantine-SHADOW match or
+  a disagreeing side are listed as UNMATCHED-BUT-PLAUSIBLE for manual
+  review). Parlays and non_sport are always off_book_other. REPORTING: a
+  REALIZED card — three books (system_matched / off_book_sports /
+  off_book_other) with n, staked (qty x entry), fees, pre-fee P&L, net,
+  avg fill, fees-%-of-loss; a by-category table; the plausible list; the
+  same section in the Copy P&L block. Fills are stored in the ledger
+  object (`L.fills`, additive), so Export/Import carry them; re-import
+  is duplicate-safe. NON-CLAIM: matching is a name/date heuristic.
+  RECEIPT: scripts/cockpit_fills_verify.py 18/18 (synthetic CSV);
+  cockpit_v04_verify.py still 25/25.
 - **ARCHITECT RULINGS ON LANE C 2026-09-27:** (3) api_hockey fallback —
   the docstring fix is RATIFIED; the missing intermediate
   API_AMERICAN_FOOTBALL_KEY hop is DECLINED and INTENTIONAL: current

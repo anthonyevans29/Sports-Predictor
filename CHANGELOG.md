@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (Cockpit: Kalshi fills import, two-book accounting)
+- Ledger tab: "Import Kalshi CSV" -> REALIZED section (system-matched /
+  off-book sports / off-book other; staked, fees, pre-fee, net, avg fill,
+  fees % of loss) + plausible-match review list; in the Copy P&L block.
+- scripts/cockpit_fills_verify.py (18/18).
+
 ## 2026-09-27 (cosmetics batch)
 - nfl-backtest verdict text for the live era (provenance/regression);
   stale rehearsal docstrings updated.

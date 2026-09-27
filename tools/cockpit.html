@@ -173,10 +173,16 @@ details.sig pre{max-height:220px;margin:6px 0 0}
         <input type="file" id="importLedgerFile" accept=".json"></label>
       <button id="copyPnlBtn">Copy P&amp;L block</button>
     </div>
+    <div class="row" style="margin-top:10px">
+      <div><label>Import Kalshi CSV (fills export — realized P&amp;L, two-book accounting)</label><br>
+        <input type="file" id="kalshiCsvFile" accept=".csv,text/csv"></div>
+    </div>
     <div class="note" id="ledgerNote" style="margin-top:8px"></div>
   </div>
   <div class="card"><div id="ledgerTotals" class="summary">No calls logged yet.</div>
     <div id="ledgerTables"></div></div>
+  <div class="card"><h2 style="margin-top:0">Realized (Kalshi fills) <span class="note">real money, fees included · matching is a name/date heuristic</span></h2>
+    <div id="realized"><div class="note">No Kalshi fills imported.</div></div></div>
   <div class="card"><h2 style="margin-top:0">Equity <span class="note">cumulative net units by graded date · dashed = + quarantine counterfactual (shadow calls at notional units)</span></h2>
     <div id="equity"></div></div>
   <div class="card"><h2 style="margin-top:0">Per-rule attribution <span class="note">feedback stream for policy v1.1 proposals — settled calls grouped by every rule that fired</span></h2>
@@ -698,6 +704,7 @@ function pnlBlock(L){
     section("ALL-TIME",real), "",
     `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
+    ...realizedLines(L),
     `Sizing gate: model_edge ${real.filter(b=>b.engine==="model_edge").length}/50 · venue_edge ${real.filter(b=>b.engine==="venue_edge").length}/50 graded before any sizing proposal`,
     "Non-claims: EV-realization proxy, not cash; venue_edge graded vs stored Kalshi prob until K-track bid/ask + fees; policy changes only via audit-backed version bump."
   ].join("\n");
@@ -721,6 +728,7 @@ function renderLedger(){
   $("openList").innerHTML=(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th></tr></thead><tbody>`
     +open.map(c=>`<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td></tr>`).join("")
     +"</tbody></table></div>":'<div class="note">No unmatched open calls.</div>');
+  $("realized").innerHTML=realizedHTML(L);
   $("pnlBlock").textContent=pnlBlock(L);
 }
 $("copyPnlBtn").addEventListener("click",async()=>{
@@ -743,10 +751,190 @@ $("importLedgerFile").addEventListener("change",async e=>{
     for(const c of inc.calls){ if(!c.id) c.id=callKey(c);
       const cur=byId.get(c.id);
       if(!cur||cur.status!=="graded"||c.status==="graded"){byId.set(c.id,c);n++;} }
-    L.calls=[...byId.values()]; saveLedger(L);
-    $("ledgerNote").textContent=`Imported ${n} calls (merged by id; graded entries never downgraded).`;
+    L.calls=[...byId.values()];
+    let nf=0;
+    if(Array.isArray(inc.fills)){ const fm=new Map((L.fills||[]).map(x=>[x.id,x]));
+      inc.fills.forEach(x=>{ if(x&&x.id&&!fm.has(x.id)){fm.set(x.id,x);nf++;} }); L.fills=[...fm.values()]; }
+    saveLedger(L);
+    $("ledgerNote").textContent=`Imported ${n} calls${nf?` + ${nf} Kalshi fills`:""} (merged by id; graded entries never downgraded).`;
     renderLedger();
   }catch(err){ $("ledgerNote").textContent="Import failed: "+err.message; }
+});
+
+// ---------------------------------------------------------------------
+// KALSHI FILLS — realized P&L, two-book accounting (architect 2026-09-27).
+// Fills live in the same ledger object (L.fills, additive), so Export/Import
+// carry them. Matching to logged calls is a NAME/DATE HEURISTIC (non-claim).
+// ---------------------------------------------------------------------
+const FAMILY_SPORTS={MLB:["MLB"],NFL:["NFL"],NCAAF:["NCAA"],NHL:["NHL"],
+  EPL:["SOCCER","PL"],UCL:["CL","SOCCER"],FACUP:["FAC","SOCCER"],UEFANL:["UNL"]};
+const MONTHS={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
+function parseCSV(text){
+  const rows=[]; let row=[], f="", q=false;
+  for(let i=0;i<text.length;i++){ const ch=text[i];
+    if(q){ if(ch==='"'){ if(text[i+1]==='"'){f+='"';i++;} else q=false; } else f+=ch; }
+    else if(ch==='"') q=true;
+    else if(ch===","){ row.push(f); f=""; }
+    else if(ch==="\n"||ch==="\r"){ if(ch==="\r"&&text[i+1]==="\n") i++; row.push(f); f="";
+      if(row.some(x=>x!=="")) rows.push(row); row=[]; }
+    else f+=ch; }
+  row.push(f); if(row.some(x=>x!=="")) rows.push(row);
+  return rows;
+}
+// Header detection by keyword (law 1: the export's exact header names are
+// ARCHITECT-VERIFY until a real header row is seen; the import prints what it mapped).
+function mapHeaders(hdr){
+  const n=hdr.map(h=>String(h).toLowerCase().replace(/[^a-z0-9]+/g,"_"));
+  const find=(pred)=>{const i=n.findIndex(pred);return i<0?null:i;};
+  const has=(h,...ks)=>ks.every(k=>h.includes(k));
+  return {
+    ticker:find(h=>has(h,"ticker")&&!has(h,"event")) ?? find(h=>has(h,"ticker")),
+    side:find(h=>h==="side"||h.endsWith("_side")),
+    qty:find(h=>h.startsWith("quantity")||h.startsWith("qty")||has(h,"contracts")||h==="count"),
+    entry:find(h=>has(h,"entry")&&has(h,"price")),
+    exit:find(h=>has(h,"exit")&&has(h,"price")),
+    openFee:find(h=>has(h,"open")&&has(h,"fee")),
+    closeFee:find(h=>has(h,"close")&&has(h,"fee")),
+    pnlPre:find(h=>has(h,"pnl")&&(has(h,"without")||has(h,"wo_fee")||has(h,"pre_fee")||has(h,"before"))),
+    pnlNet:find(h=>has(h,"pnl")&&!(has(h,"without")||has(h,"wo_fee")||has(h,"pre_fee")||has(h,"before"))),
+    openTs:find(h=>has(h,"open")&&(has(h,"time")||has(h,"ts")||has(h,"date"))&&!has(h,"fee")),
+    closeTs:find(h=>has(h,"close")&&(has(h,"time")||has(h,"ts")||has(h,"date"))&&!has(h,"fee")),
+    title:find(h=>has(h,"title")),
+  };
+}
+function num(v){ if(v==null||v==="") return null; const x=parseFloat(String(v).replace(/[$,]/g,"")); return isFinite(x)?x:null; }
+// KX{FAMILY}GAME-{yyMONdd}[hhmm]{teams}-{side}
+function parseTicker(t){
+  t=String(t||"").trim().toUpperCase();
+  if(t.startsWith("KXMVESPORTSMULTIGAMEEXTENDED")) return {kind:"parlay",category:"kalshi-native parlay (MVE multigame)"};
+  const m=t.match(/^KX([A-Z]+?)GAME-(\d{2})([A-Z]{3})(\d{2})(\d{4})?([A-Z0-9]+)-([A-Z0-9]+)$/);
+  if(!m||!FAMILY_SPORTS[m[1]]||!MONTHS[m[3]]) return {kind:"non_sport",category:"non-sport / unrecognised market"};
+  const date=`20${m[2]}-${String(MONTHS[m[3]]).padStart(2,"0")}-${m[4]}`;
+  return {kind:"sport",family:m[1],sports:FAMILY_SPORTS[m[1]],date,teams:m[6],sideCode:m[7]};
+}
+function titleTeams(title){
+  const t=String(title||"").replace(/winner\??/i,"").trim();
+  for(const sep of [" vs "," vs. "," v "," at "," @ "]){ const i=t.toLowerCase().indexOf(sep);
+    if(i>0) return [t.slice(0,i).trim(), t.slice(i+sep.length).trim()]; }
+  return null;
+}
+function codeFits(code,name){
+  const w=normTeam(name).split(" ").filter(Boolean); if(!w.length) return 0;
+  const ini=w.map(x=>x[0]).join(""); const c=code.toLowerCase();
+  if(ini===c) return 3;
+  if(w.join("").startsWith(c)||w[0].startsWith(c)) return 2;
+  if(c.length>=2&&ini.startsWith(c.slice(0,2))) return 1;
+  return 0;
+}
+function backedTeam(p,title,side){
+  const tt=titleTeams(title); if(!tt) return {team:null,why:"title not 'A vs B'"};
+  let pick=null;
+  if(p.sideCode==="TIE") pick="Draw";
+  else { const s=tt.map(n=>codeFits(p.sideCode,n));
+    if(s[0]!==s[1]&&Math.max(...s)>0) pick=s[0]>s[1]?tt[0]:tt[1]; }
+  if(!pick) return {team:null,teams:tt,why:`side code ${p.sideCode} not resolvable to a team`};
+  if(String(side||"yes").toLowerCase().startsWith("n")){
+    if(pick==="Draw") return {team:null,teams:tt,why:"NO on the tie leg (not a single outcome)"};
+    const other=pick===tt[0]?tt[1]:tt[0];
+    return {team:other,teams:tt,why:"NO on "+pick,noOn:pick};
+  }
+  return {team:pick,teams:tt};
+}
+function tokOverlap(a,b){const A=new Set(normTeam(a).split(" ").filter(Boolean)), B=normTeam(b).split(" ").filter(Boolean);
+  return B.filter(x=>A.has(x)).length;}
+function sameTeam(a,b){ if(!a||!b) return false; if(a==="Draw"||b==="Draw") return a===b;
+  return tokOverlap(a,b)>0; }
+function matchFill(fx,calls){
+  if(fx.kind!=="sport") return {book:"off_book_other",category:fx.category};
+  const cands=calls.filter(c=>c.call_type!=="parlay_leg"&&fx.sports.includes(c.sport)
+    &&dayDiff((c.kickoff||c.log_date||"").slice(0,10),fx.date)<=1
+    &&fx.teams_title&&fx.teams_title.every(t=>sameTeam(t,c.home)||sameTeam(t,c.away)));
+  if(!cands.length) return {book:"off_book_sports",category:"no logged call for this game"};
+  const pickName=c=>c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:"Draw";
+  const agree=cands.filter(c=>sameTeam(fx.backed,pickName(c)));
+  const real=agree.filter(c=>c.call_type!=="quarantine_shadow"&&(c.units||0)>0);
+  if(real.length){ const c=real[0];
+    return {book:"system_matched",category:`${c.engine} · ${c.tier}`,engine:c.engine,tier:c.tier,call_id:c.id}; }
+  if(agree.length) return {book:"off_book_sports",category:"matches a quarantine SHADOW (off-policy play)",plausible:true};
+  return {book:"off_book_sports",category:"logged call exists but the side disagrees",plausible:true};
+}
+function importKalshiCSV(text,L){
+  const rows=parseCSV(text); if(rows.length<2) throw new Error("no data rows");
+  const hdr=rows[0], H=mapHeaders(hdr);
+  const need=["ticker","qty","entry"].filter(k=>H[k]==null);
+  if(need.length) throw new Error(`required column(s) not found: ${need.join(", ")} — headers seen: ${hdr.join(" | ")}`);
+  if(H.pnlNet==null&&H.pnlPre==null) throw new Error(`no realized-P&L column — headers seen: ${hdr.join(" | ")}`);
+  const g=(r,k)=>H[k]==null?null:r[H[k]];
+  L.fills=L.fills||[]; const have=new Set(L.fills.map(x=>x.id)); let added=0,dup=0;
+  for(const r of rows.slice(1)){
+    const id=r.join("\u241f"); if(have.has(id)){dup++;continue;}
+    const p=parseTicker(g(r,"ticker"));
+    const qty=num(g(r,"qty"))||0, entry=num(g(r,"entry"))||0;
+    const of=num(g(r,"openFee")), cf=num(g(r,"closeFee"));
+    const pre=num(g(r,"pnlPre")), net=num(g(r,"pnlNet"));
+    const fees=(of!=null||cf!=null)?(of||0)+(cf||0):(pre!=null&&net!=null?pre-net:0);
+    const fx={id,ticker:g(r,"ticker"),side:g(r,"side"),qty,entry,exit:num(g(r,"exit")),
+      staked:+(qty*entry).toFixed(4),fees:+fees.toFixed(4),
+      pnl_pre:pre!=null?pre:(net!=null?net+fees:0),pnl_net:net!=null?net:(pre!=null?pre-fees:0),
+      opened:g(r,"openTs"),closed:g(r,"closeTs"),title:g(r,"title"),...p};
+    if(p.kind==="sport"){ const b=backedTeam(p,fx.title,fx.side); fx.backed=b.team; fx.teams_title=b.teams||null; fx.resolve_note=b.why||null; }
+    L.fills.push(fx); have.add(id); added++;
+  }
+  return {added,dup,mapped:Object.entries(H).filter(([k,v])=>v!=null).map(([k,v])=>`${k}←${hdr[v]}`),
+          unmapped:Object.entries(H).filter(([k,v])=>v==null).map(([k])=>k)};
+}
+function classifyFills(L){
+  const calls=L.calls||[];
+  return (L.fills||[]).map(fx=>({...fx,...(fx.kind==="sport"&&!fx.backed
+      ?{book:"off_book_sports",category:"side not resolvable ("+(fx.resolve_note||"?")+")",plausible:true}
+      :matchFill(fx,calls))}));
+}
+function fillAgg(fs){
+  const n=fs.length, st=fs.reduce((a,x)=>a+x.staked,0), fe=fs.reduce((a,x)=>a+x.fees,0);
+  const pre=fs.reduce((a,x)=>a+x.pnl_pre,0), net=fs.reduce((a,x)=>a+x.pnl_net,0);
+  return {n,staked:st,fees:fe,pre,net,avg:n?st/n:null,feePct:net<0?fe/(-net)*100:null,feePerDollar:st>0?fe/st:null};
+}
+const BOOKS=[["system_matched","system-matched"],["off_book_sports","off-book sports"],["off_book_other","off-book other"]];
+function realizedHTML(L){
+  const fs=classifyFills(L); if(!fs.length) return '<div class="note">No Kalshi fills imported.</div>';
+  const $$=v=>(v<0?"−$":"$")+Math.abs(v).toFixed(2);
+  const row=(k,a)=>`<tr><td>${esc(k)}</td><td>${a.n}</td><td>${$$(a.staked)}</td><td>${$$(a.fees)}</td>
+    <td class="${a.pre>=0?"play":"caution"}">${$$(a.pre)}</td><td class="${a.net>=0?"play":"caution"}">${$$(a.net)}</td>
+    <td>${a.avg==null?"—":$$(a.avg)}</td><td>${a.feePct==null?"—":a.feePct.toFixed(0)+"%"}</td></tr>`;
+  const all=fillAgg(fs);
+  const cats={}; fs.forEach(x=>{const k=`${x.book} · ${x.category}`;(cats[k]=cats[k]||[]).push(x);});
+  const plaus=fs.filter(x=>x.plausible);
+  return `<div class="summary">${all.n} fills · staked ${$$(all.staked)} · fees ${$$(all.fees)} · pre-fee ${$$(all.pre)} · net <b class="${all.net>=0?"play":"caution"}">${$$(all.net)}</b>`
+    +(all.feePct!=null?` · <b>fees = ${all.feePct.toFixed(0)}% of the loss</b>`:"")+` · avg fill ${$$(all.avg)} · fee per $ staked ${(all.feePerDollar*100).toFixed(1)}¢</div>`
+    +`<div class="tablewrap"><table><thead><tr><th>book</th><th>n</th><th>staked</th><th>fees</th><th>pre-fee P&amp;L</th><th>net</th><th>avg fill</th><th>fees % of loss</th></tr></thead><tbody>`
+    +BOOKS.map(([k,lab])=>row(lab,fillAgg(fs.filter(x=>x.book===k)))).join("")+row("TOTAL",all)+"</tbody></table></div>"
+    +`<h2>by category</h2><div class="tablewrap"><table><thead><tr><th>book · category</th><th>n</th><th>staked</th><th>fees</th><th>pre-fee P&amp;L</th><th>net</th><th>avg fill</th><th>fees % of loss</th></tr></thead><tbody>`
+    +Object.entries(cats).sort().map(([k,v])=>row(k,fillAgg(v))).join("")+"</tbody></table></div>"
+    +`<h2>Unmatched-but-plausible — manual review (${plaus.length})</h2>`
+    +(plaus.length?`<div class="tablewrap"><table><thead><tr><th>ticker</th><th>side</th><th>title</th><th>backed</th><th>why</th><th>net</th></tr></thead><tbody>`
+      +plaus.map(x=>`<tr><td>${esc(x.ticker)}</td><td>${esc(x.side)}</td><td>${esc(x.title)}</td><td>${esc(x.backed||"—")}</td><td class="reason">${esc(x.category)}</td><td>${$$(x.pnl_net)}</td></tr>`).join("")
+      +"</tbody></table></div>":'<div class="note">none</div>')
+    +'<div class="note" style="margin-top:6px">Non-claim: fill↔call matching is a name/date heuristic (ticker family + date ±1 + team-in-game + side agrees); review the list above by hand.</div>';
+}
+function realizedLines(L){
+  const fs=classifyFills(L); if(!fs.length) return ["REALIZED (Kalshi fills): none imported"];
+  const m=v=>(v<0?"-":"+")+"$"+Math.abs(v).toFixed(2);
+  const ln=(k,a)=>`${k.padEnd(16)}${String(a.n).padStart(5)}${("$"+a.staked.toFixed(2)).padStart(11)}${("$"+a.fees.toFixed(2)).padStart(9)}${m(a.pre).padStart(11)}${m(a.net).padStart(11)}`;
+  const all=fillAgg(fs);
+  return ["","REALIZED (Kalshi fills, real money, fees included — matching is a name/date heuristic)",
+    `${"book".padEnd(16)}${"n".padStart(5)}${"staked".padStart(11)}${"fees".padStart(9)}${"pre-fee".padStart(11)}${"net".padStart(11)}`,
+    ...BOOKS.map(([k,lab])=>ln(lab,fillAgg(fs.filter(x=>x.book===k)))), ln("TOTAL",all),
+    `fees = ${all.feePct==null?"n/a (not a loss)":all.feePct.toFixed(0)+"% of the loss"} · avg fill $${(all.avg||0).toFixed(2)} · fee per $ staked ${((all.feePerDollar||0)*100).toFixed(1)}c`,
+    `unmatched-but-plausible for manual review: ${fs.filter(x=>x.plausible).length}`,""];
+}
+$("kalshiCsvFile").addEventListener("change",async e=>{
+  const f=e.target.files[0]; if(!f)return;
+  try{ const L=loadLedger(); const r=importKalshiCSV(await f.text(),L); saveLedger(L);
+    $("ledgerNote").textContent=`Kalshi CSV: ${r.added} fills added, ${r.dup} duplicates skipped · columns mapped: ${r.mapped.join(", ")}`
+      +(r.unmapped.length?` · not found: ${r.unmapped.join(", ")}`:"")+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+    renderLedger();
+  }catch(err){ $("ledgerNote").textContent="Kalshi CSV import failed: "+err.message; }
+  e.target.value="";
 });
 
 function buildParlays(){

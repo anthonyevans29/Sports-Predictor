@@ -3383,7 +3383,12 @@ def predict_nfl_cmd():
 def export_nfl_predictions_cmd():
     """NFL predictions export (LIVE: rehearsal=false; quarantine, venue and Elo fields)."""
     from src.walters.nfl_predict import export_nfl_predictions
-    path = export_nfl_predictions()
+    rc: dict = {}
+    path = export_nfl_predictions(receipts=rc)
+    if rc.get("elo_drift_games"):
+        print(f"⚠ ELO DRIFT: {len(rc['elo_drift_games'])} NFL game(s) finished after the "
+              f"predictions were written — elo_* fields lead the stored probabilities; "
+              f"re-run predict-nfl then export: {', '.join(rc['elo_drift_games'])}")
     import json as _json
     rows = _json.load(open(path))["predictions"]
     flagged = [r for r in rows if r.get("venue_flag")]

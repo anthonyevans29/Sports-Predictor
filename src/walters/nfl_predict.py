@@ -5,13 +5,11 @@ predict_nfl(): walks the full finished stream (preseason excluded) with the
 gate-passed v1 Elo to current ratings, then writes win probabilities for
 upcoming games. Match-only upsert (the S13 lesson: one row per match, ever).
 
-export_nfl_predictions(): lean rehearsal-format file — fixtures, model
-probabilities, tier, and an input_quality block with QB status front and
-center. contains_predictions: true, model_version stamped, and a rehearsal
-flag until the dress rehearsal passes.
-
-NOTHING here ships to the GPT layer until the Week-2 rehearsal + dry read
-pass, per the frozen sequence.
+export_nfl_predictions(): the LIVE file (nfl_elo_v1 live since Week 3,
+2026-09-22; rehearsal=false) — fixtures, model probabilities, tier, the
+market block with the quarantine contract, the STALE-BOOK? venue check, the
+Elo/rest "why" fields, and an input_quality block with QB status front and
+center.
 """
 from __future__ import annotations
 
@@ -390,7 +388,7 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
     path = _os.path.join(out_dir, f"nfl_NFL_results_{datetime.utcnow().strftime('%Y-%m-%d')}.json")
     with open(path, "w") as f:
         _json.dump({"exported_at": datetime.utcnow().isoformat() + "Z",
-                    "sport": "nfl", "rehearsal": True,
+                    "sport": "nfl",
                     "note": "record is variance, not signal — for the consumer to grade against",
                     "count": len(rows), "results": rows}, f, indent=2)
     return path

@@ -45,6 +45,37 @@ specific reason they're not being built now.
   RUN ORDER after merge: .backup -> `python migrate_kalshi_quotes.py`
   BEFORE any chain (the ORM maps the columns) -> the next sync-kalshi-*
   fills them -> re-run the migration for the receipt.
+- **ARCHITECT RULINGS ON LANE C 2026-09-27:** (3) api_hockey fallback —
+  the docstring fix is RATIFIED; the missing intermediate
+  API_AMERICAN_FOOTBALL_KEY hop is DECLINED and INTENTIONAL: current
+  behaviour (API_HOCKEY_KEY -> API_FOOTBALL_KEY) works, all keys are one
+  account, and adding a hop is change without benefit. (4)
+  export-nfl-results `"rehearsal": true` DROPPED (rides this PR): the
+  results export is live-era and the field was a fossil that misinformed
+  consumers. Consumers checked: the Cockpit reads `rehearsal` only on
+  PREDICTIONS files (its live chip), never on results; nothing in src/
+  reads it. (5) Merge order ruled: #35, then #36, then #34.
+- **LANE C — COSMETICS BATCH 2026-09-27 (Sunday authorization; strings
+  and docs only, nothing behavioral):** (1) nfl-backtest's verdict text
+  moved to the live era: PASS = "provenance/regression check: the live
+  model still clears its frozen gate"; FAIL = "REGRESSION … investigate
+  before the next predict-nfl" (module docstring + CLI lines too). Stale
+  "rehearsal" docstrings on predict-nfl / export-nfl-predictions /
+  nfl_predict.py updated to LIVE. (2) Self-flagged doc nits from the
+  hosting-H0 draft's discrepancy list: D1 CLI.md `sync-matches --date`
+  (no such option) -> `--date-from <today> --date-to <today>`; D2
+  `sync-kalshi-ncaa` added to CLI.md; D3 backup cadence corrected to
+  DAILY + mandatory before soccer-refresh; D4 NFL section marked LIVE;
+  D5 Kalshi series list adds KXNHLGAME + KXNCAAFGAME; D6 .env.example
+  gains API_AMERICAN_FOOTBALL_KEY + API_HOCKEY_KEY. LAW-1 CATCH while
+  writing D6: api_hockey's docstring claimed a fallback chain HOCKEY ->
+  AMERICAN_FOOTBALL -> FOOTBALL, but the code implements HOCKEY ->
+  FOOTBALL only; the docstring (and the new .env.example comment) now
+  describe the code. Whether the intermediate step SHOULD exist is a
+  behaviour change — not made (ARCHITECT-RULE if wanted). Left as-is on
+  purpose: export-nfl-results still writes the data field
+  `"rehearsal": true` — a file field, not a string; changing it is a
+  consumer-visible contract edit (ARCHITECT-RULE).
 - **U2 — NFL EXPORT "WHY" FIELDS 2026-09-27 (Sunday authorization,
   lane U2; additive only):** the NFL predictions export gains per row
   `elo_home`, `elo_away`, `elo_gap` (raw home − away rating),

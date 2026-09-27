@@ -266,18 +266,41 @@ completed season is waived with `--waive COMP:SEASON:reason`.
     pre-#42 laptop fingerprint against a post-#42 host one), not data.
   - So: pull `main` on both machines, regenerate BOTH fingerprints
     (laptop B1, host B3), then re-compare.
-  - Only a delta that survives a same-version compare and one host
-    re-sync is a waiver candidate, for example
-    `--waive "UEL:2024/25:provider serves N after one host re-sync"`.
+  - UEL 2024/25: **NO WAIVER** (architect ruling). The host's sqlite holds
+    269, the same as the laptop.
+  - **Waiver policy:** `--waive` stays, for real provider drift only. It is
+    never used to paper over an instrument bug. Only a delta that survives
+    a same-version compare and one host re-sync is a waiver candidate.
+  - **Before ANY compare:** the laptop regenerates its fingerprint on
+    current `main` (B1). The host does the same (B3).
 - NFL: the Pro Bowl rows (AFC v NFC, +1 game per season, 34 teams) are
   now excluded at the adapter, and each exclusion prints a receipt. The
   scope_line SCOPE ALERT (teams != 32) was the protection that would have
   flagged them in any NFL model path.
-  - Rows the host ingested BEFORE this fix remain. A re-sync updates in
+  - Rows the host ingested BEFORE this fix remain; a re-sync updates in
     place and never deletes.
-  - Removing them is destructive SQL. That needs an explicit architect
-    ruling; otherwise waive those seasons with the reason
-    "Pro Bowl ingested pre-exclusion".
+  - Removing them is a **targeted delete, AUTHORIZED** (architect ruling
+    2026-09-27). The host DB is a rehearsal database by design, replaced
+    wholesale at cutover, so this is not destruction of truth. The laptop
+    is untouched; it never had these rows.
+  - TERMINAL (host), dry-run first, then apply:
+    ```
+    cd /opt/sports-predictor && sudo -u sp git pull --ff-only origin main
+    sudo -u sp venv/bin/python deploy/hosting/remove_allstar_rows.py            # prints every row it would remove
+    sudo -u sp venv/bin/python deploy/hosting/remove_allstar_rows.py --apply    # backup -> delete -> post-counts
+    ```
+  - The script uses the adapter's own exhibition rule to find the AFC/NFC
+    team rows and their games. It cascades through the DECLARED foreign
+    keys (predictions, outcomes, odds, snapshots…), deleting children
+    first, in one transaction under the DB lock.
+  - `--apply` first takes a `_precleanup_` `.backup`. That is an event
+    backup: never counted as a daily, kept 30 days.
+  - It refuses to run without the host marker, so it cannot run on the
+    laptop.
+  - **Receipt:** the printed rows, plus pre/post counts. Expect -1 game
+    per NFL season that had a Pro Bowl (e.g. 335 -> 334) and NFL teams
+    34 -> 32. Paste them, then regenerate the host fingerprint and
+    re-compare.
 
 A skipped family prints as `N/A-host` (laptop-only). It is neither checked
 nor counted as a failure. The model-identity check still covers MLB's

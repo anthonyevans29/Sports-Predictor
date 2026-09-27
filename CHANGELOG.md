@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (host Pro Bowl cleanup, authorized)
+- deploy/hosting/remove_allstar_rows.py: host-only, receipted removal of
+  pre-exclusion Pro Bowl rows (dry-run default; --apply backs up first,
+  cascades through declared FKs in one transaction, prints post-counts).
+- Event backups (_precleanup_, _prerefresh_) never count as the daily.
+- Waiver policy: real provider drift only; UEL 2024/25 needs none.
+
 ## 2026-09-27 (H1a compare rulings: Pro Bowl exclusion, waivers, EL1/EL2 refresh)
 - NFL adapter excludes Pro Bowl / all-star games and teams, printing each
   excluded row.

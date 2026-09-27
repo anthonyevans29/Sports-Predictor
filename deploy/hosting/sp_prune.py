@@ -6,7 +6,8 @@ until then the receipt lists what would be deleted.
 Rules (defaults overridable in host.env):
 - the newest SP_KEEP_DAILY (14) daily backups are never deleted;
 - other dailies older than SP_RETAIN_DAYS (14) are eligible;
-- a _prerefresh_ backup younger than 30 days is never deleted.
+- an event backup (_prerefresh_ / _precleanup_) younger than 30 days is
+  never deleted.
 Only files named sports_YYYY-MM-DD*.db (+ their .sha256) in SP_BACKUP_DIR are
 ever considered.
 """
@@ -31,7 +32,7 @@ def plan(d: Path, now: datetime, keep_daily: int, retain_days: int) -> list[Path
         if not m:
             continue
         day = datetime.strptime(m.group(1), "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        (pre if "prerefresh" in m.group(2) else dailies).append((day, p))
+        (pre if "_pre" in m.group(2) else dailies).append((day, p))
     dailies.sort(reverse=True)
     protected = {p for _, p in dailies[:keep_daily]}
     doomed = [p for day, p in dailies if p not in protected and now - day > timedelta(days=retain_days)]

@@ -39,7 +39,10 @@ database from the providers. No data travels.
             --waive COMP:SEASON:reason (repeatable; architect ruling 2026-09-27):
             an explained provider difference on a completed season. The row
             still PRINTS, with both counts and the reason, marked WAIVED. The
-            waiver is recorded in the receipt. It is never hidden, and never
+            waiver is recorded in the receipt. It is for real provider drift
+            ONLY, never to paper over an instrument bug (ruling 2026-09-27:
+            UEL 2024/25 was fingerprint version skew, so no waiver). It is
+            never hidden, and never
             applies to a matching row, which prints "waiver unused".
 
 Phase-1 acceptance (compare):

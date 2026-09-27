@@ -22,6 +22,30 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ARCHITECT RULINGS ON #43 2026-09-27:** (1) PRO BOWL ROWS ON HOST:
+  targeted delete AUTHORIZED — the host DB is a rehearsal database by
+  design (replaced wholesale at cutover; disposal already in the runbook),
+  so not destruction of truth; laptop untouched (never had them). BUILT:
+  deploy/hosting/remove_allstar_rows.py — dry-run by default (prints every
+  row); --apply takes a `_precleanup_` .backup first (integrity + sha256;
+  an event backup like _prerefresh_: never counted as the daily, pruned
+  at 30 days — sp_backup/sp_prune generalized to any `_pre…` suffix),
+  then deletes in ONE transaction under the DB lock, cascading through
+  the DECLARED foreign-key graph (PRAGMA foreign_key_list: games, their
+  predictions -> outcomes, odds, snapshots…; children first), using the
+  adapter's own _non_competitive rule (one definition); refuses without
+  the host marker (cannot run on the laptop); prints pre/post NFL game
+  counts per season + NFL team counts (expected -1/season, 34 -> 32);
+  receipted kind "cleanup"; idempotent. Tests on the real schema (the
+  fixture's rows are built from PRAGMA table_info — one guessed column
+  name caught and removed while writing it, law 1). (2) UEL 2024/25: NO
+  WAIVER — host sqlite = 269 = laptop; the 202 was fingerprint version
+  skew, fixed in #43 (fingerprints embed the producing bootstrap.py SHA;
+  compare refuses mismatches). --waive STAYS for real provider drift,
+  never to paper over an instrument bug (runbook + bootstrap docstring
+  say so). Runbook B3: the laptop regenerates its fingerprint on current
+  main before any compare. (3) EL1/EL2 in the Monday refresh: RATIFIED
+  (shipped in #43).
 - **FINDING (4) 2026-09-27 (architect): FINGERPRINT VERSION SKEW, NOT
   DATA.** fp_laptop.json (made pre-#42) vs fp_host.json (post-#42) counted
   UEL 2024/25 as 269 vs 202 while sqlite shows 269 on BOTH machines. FIX

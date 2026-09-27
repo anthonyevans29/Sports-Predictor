@@ -623,3 +623,76 @@ def test_compare_refuses_version_skew_and_unstamped(sandbox, tmp_path):
     assert bootstrap.version_mismatch(base, json.loads(json.dumps(base))) is None
     assert "no bootstrap version stamp" in bootstrap.version_mismatch(old, base)
     assert "different bootstrap.py versions" in bootstrap.version_mismatch(base, skew)
+
+
+# -------------------- fingerprint receipts: explain / self-check (09-27) ----
+
+def _uel_db(path):
+    db = _real_schema_db(path, [])
+    con = sqlite3.connect(db)
+    con.execute("INSERT INTO competitions(id, sport, code, name, area, type, external_ids) "
+                "VALUES (5, 'SOCCER', 'UEL', 'UEFA Europa League', 'Europe', 'INTL', '{}')")
+    con.execute("INSERT INTO teams(id, sport, name, external_ids) VALUES (1,'SOCCER','A','{}'),"
+                "(2,'SOCCER','B','{}')")
+    rows = ([("2024/25", "FINISHED", "FT", "League Stage")] * 3
+            + [("2024/25", "FINISHED", "AET", "Knockout Round Play-offs")]
+            + [("2024", "FINISHED", "FT", "League Stage")] * 2)  # off-format season string
+    for i, (season, st, raw, stage) in enumerate(rows, 1):
+        con.execute("INSERT INTO matches(sport, competition_id, season, utc_date, status, status_raw, "
+                    "stage, home_team_id, away_team_id, external_ids) VALUES "
+                    "('SOCCER', 5, ?, '2025-01-01', ?, ?, ?, 1, 2, ?)",
+                    (season, st, raw, stage, json.dumps({"api_football": str(1000 + i)})))
+    # an orphan competition_id: counted as '?#99', never dropped
+    con.execute("INSERT INTO matches(sport, competition_id, season, utc_date, status, home_team_id, "
+                "away_team_id, external_ids) VALUES ('SOCCER', 99, '2024/25', '2025-01-01', "
+                "'FINISHED', 1, 2, '{}')")
+    con.commit()
+    con.close()
+    return db
+
+
+def test_fingerprint_counts_every_row_and_self_checks(tmp_path):
+    fp = bootstrap.fingerprint(_uel_db(tmp_path / "u.db"))
+    assert fp["raw_match_total"] == 7 == sum(g["n"] for g in fp["games"])
+    got = {(g["comp"], g["season"]): g["n"] for g in fp["games"]}
+    assert got[("UEL", "2024/25")] == 4 and got[("UEL", "2024")] == 2 and got[("?#99", "2024/25")] == 1
+
+
+def test_compare_index_sums_duplicate_status_entries():
+    fp = {"games": [{"sport": "SOCCER", "comp": "UEL", "season": "2024/25", "status": "FINISHED", "n": 202},
+                    {"sport": "OTHER", "comp": "UEL", "season": "2024/25", "status": "FINISHED", "n": 67},
+                    {"sport": "SOCCER", "comp": "UEL", "season": "2026/27", "status": "SCHEDULED", "n": 1}],
+          "family_teams": {}, "model_registry": [{"sport": "S", "model_family": "f", "version": "v",
+                                                  "_params_sha256": "h"}]}
+    lap = json.loads(json.dumps(fp))
+    lap["games"] = [{"sport": "SOCCER", "comp": "UEL", "season": "2024/25", "status": "FINISHED", "n": 269},
+                    lap["games"][2]]
+    _, lines = bootstrap.compare(lap, fp)
+    row = [x for x in lines if "UEL   2024/25" in x][0]
+    assert row.startswith("✓") and "269 vs    269" in row  # 202 + 67 summed, not overwritten
+
+
+def test_explain_prints_predicate_and_flags_uncounted_rows(sandbox, tmp_path, capsys):
+    import sp_common
+    lap = _uel_db(tmp_path / "lap.db")
+    out_l = tmp_path / "ex_l.json"
+    sandbox_db = sp_common.db_path
+    sp_common.db_path = lambda: lap
+    try:
+        assert bootstrap.main(["explain", "--comp", "UEL", "--season", "2024/25",
+                               "--out", str(out_l)]) == 0
+    finally:
+        sp_common.db_path = sandbox_db
+    text = capsys.readouterr().out
+    assert bootstrap.FINGERPRINT_SQL in text
+    assert "fingerprint 4  raw(season exact) 4  raw by season string {'2024': 2, '2024/25': 4}" in text
+    assert "(b) rows NOT counted by the fingerprint for UEL 2024/25: 2" in text
+    e = json.loads(out_l.read_text())
+    assert e["by_status_raw"] == {"AET": 1, "FT": 3} and "status_raw" in e["fields_present"]
+    # (c): a host whose rows carry a different stored attribute
+    host = json.loads(out_l.read_text())
+    host["rows"][0]["status_raw"] = "FT_SYNCED_TODAY"
+    host["rows"] = host["rows"][:-1]
+    lines = bootstrap.explain_diff(e, host)
+    assert any("differs" in x and "status_raw: 'FT' -> 'FT_SYNCED_TODAY'" in x for x in lines)
+    assert any(x.strip().startswith("laptop-only:") for x in lines)

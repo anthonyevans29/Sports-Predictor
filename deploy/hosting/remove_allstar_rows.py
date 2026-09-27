@@ -83,6 +83,15 @@ def allstar_teams(con) -> list[tuple]:
         if (why := _non_competitive(team_names=(name,)))]
 
 
+def fewest_game_teams(con, n: int = 6) -> list[tuple]:
+    """NFL-family teams with the fewest games: the receipt that shows the
+    provider's actual names if the all-star rule matched nothing."""
+    return con.execute(
+        "SELECT t.id, t.name, COUNT(m.id) AS g FROM teams t "
+        "LEFT JOIN matches m ON t.id IN (m.home_team_id, m.away_team_id) "
+        "WHERE t.sport = 'NFL' GROUP BY t.id ORDER BY g, t.id LIMIT ?", (n,)).fetchall()
+
+
 def plan(con) -> tuple[list, list]:
     teams = allstar_teams(con)
     if not teams:
@@ -125,6 +134,11 @@ def main(argv=None) -> int:
             pre = nfl_counts(con)
             teams, order = plan(con)
             print(f"all-star teams: {[(t[0], t[1]) for t in teams] or 'none'}")
+            print("NFL-family teams with the fewest games (id, name, games): "
+                  f"{fewest_game_teams(con)}")
+            if not teams and pre["teams"].get("NFL", 0) > 32:
+                print("! NFL has more than 32 teams but the all-star rule matched none. The "
+                      "names above are the receipt: report them; no guess is made.")
             for t in teams:
                 print(f"  team id={t[0]} {t[1]!r}: {t[2]}")
             show(con, order)

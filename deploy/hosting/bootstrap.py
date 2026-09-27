@@ -181,13 +181,27 @@ def version_mismatch(lap: dict, host: dict) -> str | None:
     return None
 
 
+# The fingerprint's counting predicate, printed verbatim by `explain` (receipt
+# request 2026-09-27). It groups by the match's own competition_id, so every row
+# in `matches` lands in exactly one group. The LEFT JOIN means an orphan
+# competition_id is counted under "?#<id>", never dropped. fingerprint()
+# self-checks the grouped total against a raw COUNT(*) FROM matches.
+FINGERPRINT_SQL = (
+    "SELECT COALESCE(c.sport, '?'), COALESCE(c.code, '?#' || m.competition_id), "
+    "m.season, m.status, COUNT(*) FROM matches m "
+    "LEFT JOIN competitions c ON c.id = m.competition_id "
+    "GROUP BY m.competition_id, m.season, m.status ORDER BY 1, 2, 3, 4")
+
+
 def fingerprint(db: Path) -> dict:
     con = c.ro_connect(db)
     try:
-        games = [dict(zip(("sport", "comp", "season", "status", "n"), r)) for r in con.execute(
-            "SELECT c.sport, c.code, m.season, m.status, COUNT(*) FROM matches m "
-            "JOIN competitions c ON c.id = m.competition_id "
-            "GROUP BY c.sport, c.code, m.season, m.status ORDER BY 1, 2, 3, 4")]
+        games = [dict(zip(("sport", "comp", "season", "status", "n"), r))
+                 for r in con.execute(FINGERPRINT_SQL)]
+        raw_total = con.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+        if sum(g["n"] for g in games) != raw_total:
+            raise SystemExit(f"✗ fingerprint self-check failed: grouped {sum(g['n'] for g in games)} "
+                             f"!= raw COUNT(*) {raw_total}")
         teams = [dict(zip(("comp", "season", "n"), r)) for r in con.execute(
             "SELECT c.code, ct.season, COUNT(DISTINCT ct.team_id) FROM competition_teams ct "
             "JOIN competitions c ON c.id = ct.competition_id GROUP BY c.code, ct.season")]
@@ -200,7 +214,7 @@ def fingerprint(db: Path) -> dict:
     finally:
         con.close()
     return {"created": c.iso(), "host": c.host_name(), "producer": producer_version(),
-            "games": games, "teams": teams,
+            "games": games, "raw_match_total": raw_total, "teams": teams,
             "family_teams": family_teams, "odds_snapshots_by_source": odds,
             "model_registry": models}
 
@@ -262,6 +276,90 @@ def plan(ref: dict) -> list[list[str]]:
     return steps
 
 
+EXPLAIN_FIELDS = ("id", "competition_id", "season", "status", "status_raw", "stage",
+                  "utc_date", "external_ids")
+
+
+def explain(db: Path, comp: str, season: str) -> dict:
+    """Receipt for one competition-season (request 2026-09-27): the exact
+    counting predicate, the same rows counted four ways, and every row's
+    identity and status fields, each flagged counted or not. Read-only.
+    Columns are taken from PRAGMA table_info: status_raw exists only where
+    migrate_status_raw.py has run, so it is never assumed."""
+    con = c.ro_connect(db)
+    try:
+        have = {r[1] for r in con.execute("PRAGMA table_info(matches)")}
+        fields = [f for f in EXPLAIN_FIELDS if f in have]
+        comps = [dict(zip(("id", "sport", "code", "name"), r)) for r in con.execute(
+            "SELECT id, sport, code, name FROM competitions WHERE code = ? ORDER BY id", (comp,))]
+        ids = [x["id"] for x in comps] or [-1]
+        q = ",".join("?" * len(ids))
+        prefix = season[:4] + "%"
+        fp_rows = [dict(zip(("sport", "comp", "season", "status", "n"), r))
+                   for r in con.execute(FINGERPRINT_SQL)
+                   if r[1] == comp and r[2] == season]
+        raw_exact = con.execute(f"SELECT COUNT(*) FROM matches WHERE competition_id IN ({q}) "
+                                f"AND season = ?", [*ids, season]).fetchone()[0]
+        by_season = {r[0]: r[1] for r in con.execute(
+            f"SELECT season, COUNT(*) FROM matches WHERE competition_id IN ({q}) "
+            f"AND season LIKE ? GROUP BY season", [*ids, prefix])}
+
+        def group(col):
+            if col not in have:
+                return None
+            return {str(r[0]): r[1] for r in con.execute(
+                f"SELECT {col}, COUNT(*) FROM matches WHERE competition_id IN ({q}) "
+                f"AND season = ? GROUP BY {col}", [*ids, season])}
+        rows = []
+        for r in con.execute(
+                f"SELECT {', '.join('m.' + f for f in fields)}, c.code FROM matches m "
+                f"LEFT JOIN competitions c ON c.id = m.competition_id "
+                f"WHERE m.competition_id IN ({q}) AND m.season LIKE ? ORDER BY m.utc_date, m.id",
+                [*ids, prefix]):
+            row = dict(zip(fields + ["code"], r))
+            row["counted"] = row["code"] == comp and row["season"] == season
+            rows.append(row)
+        groups = {k: group(k) for k in ("status", "status_raw", "stage")}
+    finally:
+        con.close()
+    return {"producer": producer_version(), "host": c.host_name(), "comp": comp, "season": season,
+            "predicate": FINGERPRINT_SQL, "competitions": comps,
+            "fingerprint_count": sum(x["n"] for x in fp_rows), "fingerprint_rows": fp_rows,
+            "raw_count_exact_season": raw_exact, "raw_count_by_season_string": by_season,
+            "by_status": groups["status"], "by_status_raw": groups["status_raw"],
+            "by_stage": groups["stage"], "fields_present": fields, "rows": rows}
+
+
+def _ext_key(row: dict) -> str:
+    ext = row.get("external_ids")
+    try:
+        ext = json.loads(ext) if isinstance(ext, str) else (ext or {})
+    except ValueError:
+        return str(ext)
+    return json.dumps(sorted(ext.items()))
+
+
+def explain_diff(lap: dict, host: dict) -> list[str]:
+    """Join two explain dumps on external_ids; print every field difference."""
+    L = {_ext_key(r): r for r in lap["rows"]}
+    H = {_ext_key(r): r for r in host["rows"]}
+    out = [f"laptop: {len(L)} rows (fingerprint counts {lap['fingerprint_count']}, raw "
+           f"{lap['raw_count_exact_season']})  host: {len(H)} rows (fingerprint counts "
+           f"{host['fingerprint_count']}, raw {host['raw_count_exact_season']})"]
+    for side, a, b in (("laptop-only", L, H), ("host-only", H, L)):
+        for k in sorted(set(a) - set(b)):
+            r = a[k]
+            out.append(f"  {side}: {k} season={r.get('season')!r} status={r.get('status')!r} "
+                       f"status_raw={r.get('status_raw')!r} stage={r.get('stage')!r}")
+    for k in sorted(set(L) & set(H)):
+        diffs = [f"{f}: {L[k].get(f)!r} -> {H[k].get(f)!r}"
+                 for f in ("code", "season", "status", "status_raw", "stage", "counted")
+                 if L[k].get(f) != H[k].get(f)]
+        if diffs:
+            out.append(f"  differs {k}: " + "; ".join(diffs))
+    return out
+
+
 def parse_waiver(s: str) -> tuple[tuple[str, str], str]:
     """COMP:SEASON:reason. Seasons may contain '/', and reasons may contain ':'."""
     parts = s.split(":", 2)
@@ -280,7 +378,8 @@ def compare(lap: dict, host: dict, skip: set = frozenset(),
     def idx(fp):
         d: dict = {}
         for g in fp["games"]:
-            d.setdefault((g["comp"], g["season"]), {})[g["status"]] = g["n"]
+            s = d.setdefault((g["comp"], g["season"]), {})
+            s[g["status"]] = s.get(g["status"], 0) + g["n"]  # sum, never overwrite
         return d
     L, H = idx(lap), idx(host)
     newest = newest_season(lap)
@@ -356,6 +455,13 @@ def main(argv=None) -> int:
                        choices=FAMILY_ORDER, help=skip_help)
         if name == "run":
             p.add_argument("--from", dest="start", type=int, default=1)
+    ex = sub.add_parser("explain", help="receipt for one competition-season (read-only)")
+    ex.add_argument("--comp", required=True)
+    ex.add_argument("--season", required=True)
+    ex.add_argument("--out", type=Path, required=True)
+    exd = sub.add_parser("explain-diff", help="join laptop and host explain dumps")
+    exd.add_argument("laptop", type=Path)
+    exd.add_argument("host", type=Path)
     cmp = sub.add_parser("compare")
     cmp.add_argument("laptop", type=Path)
     cmp.add_argument("host", type=Path)
@@ -364,7 +470,7 @@ def main(argv=None) -> int:
     cmp.add_argument("--waive", action="append", default=[], metavar="COMP:SEASON:reason",
                      help="explained provider difference; the row still prints, marked WAIVED")
     a = ap.parse_args(argv)
-    skip = set(a.skip_family) if a.cmd != "fingerprint" else set()
+    skip = set(getattr(a, "skip_family", []) or [])
     c.load_host_env()
 
     if a.cmd == "fingerprint":
@@ -377,6 +483,29 @@ def main(argv=None) -> int:
         print(f"✓ fingerprint {a.out}: {tot} games, {len({(g['comp'], g['season']) for g in fp['games']})} "
               f"competition-seasons, odds_snapshots {fp['odds_snapshots_by_source']}, production "
               f"models {[r['version'] + ' ' + str(r['model_family']) for r in fp['model_registry']]}")
+        return 0
+    if a.cmd == "explain":
+        c.refuse_under_data(a.out.parent)
+        e = explain(c.db_path(), a.comp, a.season)
+        a.out.write_text(json.dumps(e, indent=1, default=str))
+        print(f"(a) counting predicate:\n    {e['predicate']}")
+        print(f"    fields present in matches: {e['fields_present']}")
+        print(f"competitions with code {a.comp!r}: {e['competitions']}")
+        print(f"counts for {a.comp} {a.season}: fingerprint {e['fingerprint_count']}  "
+              f"raw(season exact) {e['raw_count_exact_season']}  "
+              f"raw by season string {e['raw_count_by_season_string']}")
+        print(f"  by status {e['by_status']}\n  by status_raw {e['by_status_raw']}\n"
+              f"  by stage {e['by_stage']}")
+        excluded = [r for r in e["rows"] if not r["counted"]]
+        print(f"(b) rows NOT counted by the fingerprint for {a.comp} {a.season}: {len(excluded)}")
+        for r in excluded:
+            print(f"    {r}")
+        print(f"✓ explain written to {a.out} ({len(e['rows'])} rows); run explain-diff "
+              f"laptop.json host.json for (c)")
+        return 0
+    if a.cmd == "explain-diff":
+        print("\n".join(explain_diff(json.loads(a.laptop.read_text()),
+                                      json.loads(a.host.read_text()))))
         return 0
     if a.cmd == "compare":
         waivers = dict(parse_waiver(w) for w in a.waive)

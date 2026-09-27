@@ -22,6 +22,32 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ARCHITECT RULINGS ON #41's TWO QUESTIONS 2026-09-27:** (1) RATIFIED —
+  the production model_versions rows copy to the host as part of H1a: a
+  CONFIG-ONLY seed (production model identities + parameters; no odds, no
+  predictions, no grades — the host's BOOKS stay empty and the H2
+  migration's necessity is untouched). Rationale (architect): the model
+  registry is code-adjacent configuration, not history; without it the
+  parallel week can't compare the very thing cutover certifies (MLB/soccer
+  prediction parity), and a fresh-host improve paging daily on default
+  candidates is noise engineered into the pager. BUILT: fingerprint
+  carries every column of the production rows (columns enumerated via
+  PRAGMA table_info) + a canonical parameters sha256; `run` seeds them
+  right after init-db (refuses a non-empty registry — a seed, never a
+  merge; hash-verified after insert); `compare` adds MODEL IDENTITY
+  (same production version per sport/family, identical parameters hash)
+  to the phase-1 acceptance. The four model-bearing timers now enable
+  with the rest (HELD_B4 retired; CI asserts it). Noted: host candidate
+  numbering follows the seeded production row, not the laptop's full
+  history — harmless (held, never promoted; host DB replaced at H2). (2)
+  RATIFIED — criterion 3 now reads "differences only from capture timing
+  or explained provider pagination, each explained", logged as an
+  amendment to the frozen criteria BEFORE the parallel run begins (law 3
+  compliant: the freeze binds at day 1, which has not started); the
+  runbook prints the previous text beside the amendment. ON THE RECORD
+  (architect, with approval): the no-model wrinkle was caught by reading
+  the predict paths before writing the runbook — law 1 applied to a
+  machine that does not exist yet. pytest 177 passed.
 - **H1 PHASING AMENDED 2026-09-27 (operator proposal, architect-ratified
   with a guard):** H1a FRESH BOOTSTRAP — the host builds its OWN DB from
   providers, no data transfer (the .env config file is copied; counts-only

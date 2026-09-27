@@ -11,8 +11,11 @@ Every drop adds an entry going forward.
 - deploy/hosting/bootstrap.py: fingerprint / plan / run / compare.
 - compare_exports: divergence classes = capture timing + provider
   pagination.
-- Flagged: fresh host has no model registry — four model-bearing timers
-  held pending ruling.
+- Model registry seed (ratified): production model_versions rows seeded
+  at bootstrap (config only; books stay empty); compare verifies model
+  identity; the four model-bearing timers enable with the rest.
+- Cutover criterion 3 amended before day 1: "capture timing or explained
+  provider pagination, each explained".
 
 ## 2026-09-27 (Hosting H0 final four; FOUND SAFETY GAP logged)
 - Paging via ntfy.sh (NTFY_TOPIC in .env); held PASS pages and logs.

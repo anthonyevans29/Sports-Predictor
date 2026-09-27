@@ -377,8 +377,8 @@ def test_pull_selects_newest_daily_and_verifies(sandbox):
 
 def test_ncaa_timer_ships_enabled_in_runbook():
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
-    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + HELD_B4
-    assert "HELD_B4=" in t11
+    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]
+    assert "HELD_B4" not in rb  # B4 ruled: the model-bearing timers enable with the rest
     for f in (HOSTING / "systemd").glob("*.timer"):
         assert f.name in t11, f"{f.name} missing from the T11 enable list"
 
@@ -420,13 +420,16 @@ def test_bootstrap_plan_is_cli_valid_and_ordered(tmp_path):
     ref = bootstrap.fingerprint(_fp_db(tmp_path / "l.db", NHL_CERT, [("NHL", "2025", 32)]))
     steps = bootstrap.plan(ref)
     cli = _cli()
+    assert steps[1] == [bootstrap.SEED]  # model registry seeded right after init-db
     for st in steps:
+        if st == [bootstrap.SEED]:
+            continue
         cmd = cli.commands[st[0]]
         opts = {o for p in cmd.params for o in (*p.opts, *p.secondary_opts)}
         assert all(t in opts for t in st[1:] if t.startswith("--")), st
     flat = [" ".join(s) for s in steps]
     assert flat[0] == "init-db"
-    assert flat[1:5] == ["sync-competitions --sport mlb", "sync-competitions --sport nfl",
+    assert flat[2:6] == ["sync-competitions --sport mlb", "sync-competitions --sport nfl",
                          "sync-competitions --sport nhl", "sync-competitions --sport soccer"]
     i_teams = flat.index("sync-teams --competition NHL --season 2024")
     assert flat[i_teams + 1] == "sync-matches --competition NHL --season 2024"
@@ -440,8 +443,10 @@ def test_bootstrap_compare_completed_exact_and_anchors(tmp_path):
     same = bootstrap.fingerprint(_fp_db(tmp_path / "h.db", NHL_CERT, [("NHL", "2025", 32)]))
     ok, lines = bootstrap.compare(lap, same)
     fails = [x for x in lines if x.startswith("✗")]
-    # only the families this synthetic pot lacks fail (NCAA/NFL-total/soccer pot floors)
-    assert not ok and all("ANCHOR" in x and ("NCAA" in x or "NFL" in x or "Soccer" in x) for x in fails)
+    # only the families this synthetic pot lacks fail (NCAA/NFL-total/soccer pot
+    # floors), plus the model check: this synthetic DB has no model registry
+    assert not ok and all(("ANCHOR" in x and ("NCAA" in x or "NFL" in x or "Soccer" in x))
+                          or "MODEL laptop reference carries no production" in x for x in fails)
     assert any(x.startswith("✓ ANCHOR NHL 2024 FINISHED") for x in lines)
     drift = [r if r[:4] != ("NHL", "NHL", "2025", "FINISHED") else ("NHL", "NHL", "2025", "FINISHED", 1497)
              for r in NHL_CERT]
@@ -459,3 +464,52 @@ def test_bootstrap_run_refuses_existing_db(sandbox):
                                           "status": "FINISHED", "n": 1}]}))
     with pytest.raises(SystemExit, match="FRESH host"):
         bootstrap.main(["run", "--reference", str(ref)])
+
+
+def _real_schema_db(path, models):
+    from sqlalchemy import create_engine
+    from src.db.schema import Base
+    eng = create_engine(f"sqlite:///{path}")
+    Base.metadata.create_all(eng)
+    eng.dispose()
+    con = sqlite3.connect(path)
+    for sport, fam, ver, status, params in models:
+        con.execute("INSERT INTO model_versions(sport, model_family, version, status, parameters, "
+                    "train_size, created_at) VALUES (?,?,?,?,?,?,?)",
+                    (sport, fam, ver, status, json.dumps(params), 100, "2026-09-21 09:00:00.000000"))
+    con.commit()
+    con.close()
+    return path
+
+
+MODELS = [("MLB", "mlb_pythag_negbin", "v2", "production", {"k": 1, "manual_config_edits": [{"f": "x"}]}),
+          ("MLB", "mlb_pythag_negbin", "v7", "rejected", {"k": 2}),
+          ("SOCCER", "soccer_elo_poisson", "v22", "production", {"rho": -0.10, "k": 20})]
+
+
+def test_model_registry_seed_roundtrip_and_identity(tmp_path):
+    lap = bootstrap.fingerprint(_real_schema_db(tmp_path / "lap.db", MODELS))
+    reg = lap["model_registry"]
+    assert [(r["sport"], r["version"]) for r in reg] == [("MLB", "v2"), ("SOCCER", "v22")]  # production only
+    host = _real_schema_db(tmp_path / "host.db", [])
+    out = bootstrap.seed_models(host, reg)
+    assert out["seeded"] == ["MLB/mlb_pythag_negbin/v2", "SOCCER/soccer_elo_poisson/v22"]
+    con = sqlite3.connect(host)
+    assert con.execute("SELECT COUNT(*) FROM odds_snapshots").fetchone()[0] == 0  # books stay empty
+    assert con.execute("SELECT COUNT(*) FROM predictions").fetchone()[0] == 0
+    assert con.execute("SELECT COUNT(*) FROM prediction_outcomes").fetchone()[0] == 0
+    con.close()
+    with pytest.raises(SystemExit, match="already has"):
+        bootstrap.seed_models(host, reg)  # a seed, never a merge
+    _, lines = bootstrap.compare(lap, bootstrap.fingerprint(host))
+    assert any(x.startswith("✓ MODEL MLB/mlb_pythag_negbin") for x in lines)
+    assert any(x.startswith("✓ MODEL SOCCER/soccer_elo_poisson") for x in lines)
+    # a parameters drift is a model-identity FAIL
+    drift = _real_schema_db(tmp_path / "drift.db", [MODELS[0], MODELS[2][:4] + ({"rho": -0.12, "k": 20},)])
+    ok, lines = bootstrap.compare(lap, bootstrap.fingerprint(drift))
+    assert not ok and any(x.startswith("✗ MODEL SOCCER/soccer_elo_poisson") for x in lines)
+
+
+def test_seed_refuses_empty_registry(tmp_path):
+    with pytest.raises(SystemExit, match="no production model rows"):
+        bootstrap.seed_models(_real_schema_db(tmp_path / "h.db", []), [])

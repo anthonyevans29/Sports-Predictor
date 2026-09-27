@@ -187,7 +187,9 @@ the host's rehearsal DB.
   going on.
 
 **B1. TERMINAL (laptop): the reference fingerprint.**
-Counts only, never rows; read-only:
+Read-only. Games and teams are counts only, never rows. It also carries the
+production `model_versions` rows: the config-only seed ratified in B4.
+The printed line names them.
 ```
 python deploy/hosting/bootstrap.py fingerprint --out /tmp/fp_laptop.json
 scp /tmp/fp_laptop.json sp@sp-vps-1:/home/sp/
@@ -199,6 +201,11 @@ so the host syncs exactly what the laptop holds. Nothing is assumed
 **B2. TERMINAL (host): plan, then run.**
 The standard wiring sequence per family:
 - `init-db`
+- **seed the model registry.** Install the reference's production
+  `model_versions` rows (every column) and verify them by hash. These are
+  production model identities and parameters, config only (B4). No odds, no
+  predictions and no grades travel, so the host's books stay empty. The
+  seed refuses a non-empty registry.
 - `sync-competitions` per sport
 - then, per (competition, season): `sync-teams`, then `sync-matches`
   (about 3 seasons per family, as stored on the laptop)
@@ -229,10 +236,12 @@ TERMINAL (host):
 sudo -u sp venv/bin/python deploy/hosting/bootstrap.py fingerprint --out /home/sp/fp_host.json
 sudo -u sp venv/bin/python deploy/hosting/bootstrap.py compare /home/sp/fp_laptop.json /home/sp/fp_host.json
 ```
-PASS requires both of the following:
+PASS requires all three of the following:
 1. Every **completed** (competition, season) equals the laptop exactly, on
    total games and on FINISHED games.
-2. The **BACKLOG certification anchors** hold:
+2. **Model identity matches**: the same production version per (sport,
+   family), with an identical parameters hash.
+3. The **BACKLOG certification anchors** hold:
 
 | Anchor | Source | Requirement |
 |---|---|---|
@@ -255,17 +264,25 @@ PASS requires both of the following:
   pagination) and a BACKLOG entry before H1b starts.
 - Paste the compare output. **That is the H1a acceptance.**
 
-**B4. ARCHITECT-RULE before model-bearing timers (open).**
-- A fresh DB has **no `model_versions` rows**.
-  - `predict` for MLB and soccer raises "No production model yet".
-    Verified in `training._resolve_model_version`.
-  - On the host, `improve --hold-on-pass` would HOLD a default-config
-    candidate every morning, and page each time.
-- NFL is unaffected. `nfl_elo_v1` is code-defined (`MODEL_VERSION`,
-  parameters in code) and rebuilds from synced games.
-- Until this is ruled, the model-bearing timers (`sp-mlb-morning`,
-  `sp-mlb-preslate`, `sp-soccer-friday`, `sp-soccer-saturday`) stay out of
-  the T11 enable list. Enable every other timer.
+**B4. The model registry seed (RATIFIED 2026-09-27).**
+- A fresh DB has no `model_versions` rows.
+  - `predict` for MLB and soccer would raise "No production model yet"
+    (`training._resolve_model_version`).
+  - `improve --hold-on-pass` would HOLD and page on a default-config
+    candidate every morning.
+- Ruling: the production rows are seeded in B2, as a config-only seed.
+  - The model registry is code-adjacent configuration, not history.
+  - Without it, the parallel week cannot compare the very thing cutover
+    certifies: MLB and soccer prediction parity.
+  - The H2 migration stays necessary: the books (odds, predictions,
+    grades) are not seeded.
+- NFL is code-defined (`nfl_elo_v1`) and rebuilds from synced games either
+  way.
+- On the host, the next candidate version number follows the seeded
+  production row, not the laptop's full history. Candidates are held on the
+  host, never promoted, and the host DB is replaced at H2, so the numbering
+  gap is harmless.
+- All four model-bearing timers are enabled with the rest (T11).
 
 ---
 
@@ -317,19 +334,18 @@ Receipt: the push arrives on the phone, and the printed line says
 
 **T11. TERMINAL (host): enable.**
 ```
-TIMERS="sp-backup.timer sp-backup-prune.timer sp-clv-capture.timer sp-soccer-morning-after.timer
+TIMERS="sp-backup.timer sp-backup-prune.timer sp-mlb-morning.timer sp-mlb-preslate.timer
+  sp-clv-capture.timer sp-soccer-friday.timer sp-soccer-saturday.timer sp-soccer-morning-after.timer
   sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer sp-nhl-daily.timer sp-weekly-fullseason.timer
   sp-ncaa-market.timer"
-HELD_B4="sp-mlb-morning.timer sp-mlb-preslate.timer sp-soccer-friday.timer sp-soccer-saturday.timer"   # enable only once B4 is ruled
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
 systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
-- Every shipped timer is on `TIMERS` or `HELD_B4`; CI checks it. That
-  includes `sp-ncaa-market.timer` (H0-11).
-- Once B4 is ruled: `systemctl enable --now $HELD_B4`, then append
-  `$HELD_B4` to `timers.enabled`.
+- Every shipped timer is on the list; CI checks it. That includes the four
+  model-bearing timers (B4, seeded registry) and `sp-ncaa-market.timer`
+  (H0-11).
 - No timer exists for soccer-refresh (H0-6).
 
 **T12. TERMINAL (laptop): the nightly backup pull (H0-14 second layer).**
@@ -368,21 +384,29 @@ the laptop:
   record);
 - every prediction row;
 - the graded ledger (prediction outcomes);
-- the model registry with its audited config edits.
+- the model registry's full history: every candidate, rejection and
+  shelved version. The B4 seed carries production identities only.
 
 A fresh host keeps no books. So at cutover the laptop's history
 **replaces** the host's rehearsal DB. The rehearsal DB is disposed of as
 drafted, and the host's parallel-week snapshots go with it. The laptop's
 own captures cover that week.
 
-### Cutover criteria (FROZEN, H0-18, approved as drafted 2026-09-27)
+### Cutover criteria (FROZEN, H0-18, approved as drafted 2026-09-27; criterion 3 amended 2026-09-27 before day 1)
 
 - 7/7 days with every host timer firing on schedule (the receipts log shows
   each expected unit line).
 - Zero unexplained host-side failures; any `OnFailure` notification was
   received and triaged the same day.
 - Export diffs clean on the last 3 days (differences only from capture
-  timing, each explained).
+  timing or explained provider pagination, each explained).
+
+  **AMENDMENT (architect, 2026-09-27).** Criterion 3 was re-worded before
+  the parallel run began. It is law-3 compliant: the freeze binds at day 1,
+  which has not started. The previous text read "(differences only from
+  capture timing, each explained)". The new text follows the H1b
+  independent-pipeline design, whose explained divergence classes are
+  capture timing and provider pagination. No other criterion changed.
 - A test restore performed on the host: pick one daily host backup,
   `integrity_check` = ok, sha256 matches its receipt.
 - Anthony has pulled at least one export from the host via the tailnet and
@@ -428,8 +452,6 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
    `.env`.
 6. TERMINAL (host), in order:
    - Set `SP_PARALLEL_MODE=full` in host.env.
-   - Enable any timers that B4 held back, once that is ruled, and add them
-     to `timers.enabled`.
    - Run `systemctl start $(cat /etc/sports-predictor/timers.enabled)`.
    - Run `systemctl start sp-backup.service` and paste its receipt.
 7. The laptop keeps its last `.backup` file cold for 30 days (the rollback
@@ -502,8 +524,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 | H0-15 | Manifest = .backup DB + .env + exports/ + receipts log. Row-count receipts cover every table (sqlite_master), so no hand list is needed. The laptop's `~/.sports_predictor_input_candidates.json` cadence stamp is outside the manifest, so the weekly input evaluation runs on the first host morning (nothing is consumable, so no effect). |
 | H0-16 | (a) only on a dashboard headroom receipt, else (b) designated days. Never (c). Encoded as `SP_PARALLEL_MODE`, with conservative default (b) and no days. |
 | H0-17 | Laptop is writer of record all week. |
-| H0-18 | Cutover criteria frozen (section H2, verbatim). |
-| H1 phasing | Amended 2026-09-27 (operator proposal, ratified with a guard): H1a fresh bootstrap (acceptance = the host reproduces the BACKLOG fingerprints), H1b independent parallel week, H2 = the one `.backup` migration. Cutover criteria unchanged. |
+| H0-18 | Cutover criteria frozen (section H2). Criterion 3 amended 2026-09-27, BEFORE day 1: "capture timing or explained provider pagination, each explained". |
+| H1 phasing | Amended 2026-09-27 (operator proposal, ratified with a guard): H1a fresh bootstrap (acceptance = the host reproduces the BACKLOG fingerprints and the model identity), H1b independent parallel week, H2 = the one `.backup` migration. |
+| B4 | RATIFIED 2026-09-27: the production `model_versions` rows are seeded in H1a (config only; the books stay empty). Compare verifies model identity. All four model-bearing timers are enabled with the rest. |
 | H0-19 | Pasted table (`sp_receipts.py`). An exports-ingestible file is H2. |
 | H0-20 | Pull over the tailnet (scp/Taildrop). Push is H2. |
 | H0-21 | Resolved by the H1 authorization: artifacts now, provisioning at Anthony's timing. |
@@ -511,25 +534,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
 ## Open (return to the architect)
 
-1. **B4: model registry on a fresh host.** A bootstrapped DB has no
-   `model_versions`. The MLB and soccer `predict` steps fail, and `improve`
-   would hold (and page) a default-config candidate daily. Options:
-   - (a) Keep the model-bearing timers off through H1b, comparing data,
-     market, NFL and fixtures pipelines only.
-   - (b) Carry the model registry alone (the `model_versions` rows: config
-     only, no odds or grades) to the host for H1b, so model exports are
-     comparable.
-   - (c) Let the host train its own. **Not recommended:** it would run the
-     default config, not v2/v22's audited edits.
-
-   **Recommendation: (b).** Frozen criterion 3 (export diffs) otherwise
-   cannot cover MLB or soccer predictions. Until this is ruled, the four
-   timers stay in `HELD_B4`.
-2. **Criterion 3 wording vs the H1b divergence classes.** The frozen text
-   reads "differences only from capture timing". H1b adds
-   provider-pagination as an explained class. Criteria stay unchanged as
-   ruled. Confirm that an explained pagination difference satisfies
-   criterion 3, or that it does not.
+None. B4 and the criterion-3 wording were ruled on 2026-09-27.
 
 ## On the record: FOUND SAFETY GAP (H0-5)
 

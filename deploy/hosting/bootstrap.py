@@ -4,13 +4,18 @@ database from the providers. No data travels.
 
     LAPTOP  bootstrap.py fingerprint --out fp_laptop.json
             Read-only counts per (sport, competition, season, status) and teams
-            per (competition, season). Counts only, never rows: it is a receipt,
-            not data. It is also the stored truth for which (competition, season)
+            per (competition, season). Games and teams are counts only, never
+            rows: it is a receipt, not data. It is also the stored truth for which (competition, season)
             pairs exist and their season strings (law 1: never assumed).
+            It also carries the MODEL REGISTRY SEED (architect-ratified): the
+            production model_versions rows, every column. These are model
+            identities and parameters; config, not history.
     HOST    bootstrap.py plan --reference fp_laptop.json         (prints; runs nothing)
     HOST    bootstrap.py run  --reference fp_laptop.json [--from N]
             The standard wiring sequence per family:
-              init-db -> sync-competitions per sport -> per (comp, season):
+              init-db -> seed the production model rows (no odds, no
+              predictions, no grades: the host's BOOKS stay empty) ->
+              sync-competitions per sport -> per (comp, season):
               sync-teams -> sync-matches -> the market day-one block.
             The market day-one block: a first sync-odds for every in-season
             competition, plus every Kalshi sync. Bid/ask are stored by the K1
@@ -25,6 +30,8 @@ Phase-1 acceptance (compare):
   total games and on FINISHED games. "Completed" means not the newest season
   that competition has in the reference.
 - The BACKLOG certification anchors must hold (see ANCHORS).
+- Model identity must match: the same production version per (sport,
+  family), with an identical parameters hash.
 - Current seasons are reported but informational: both sides move.
 - Ties and partials are FAIL; each mismatch needs an explanation (provider
   correction or pagination) logged in BACKLOG.
@@ -64,6 +71,66 @@ ANCHORS = [
 SPORT_CLI = {"SOCCER": "soccer", "MLB": "mlb", "NFL": "nfl", "NHL": "nhl"}  # sync-competitions choices
 FAMILY_ORDER = ["MLB", "NFL", "NHL", "SOCCER"]
 IN_PLAY = ("SCHEDULED", "LIVE", "POSTPONED")
+SEED = "__seed-model-registry__"  # a bootstrap-internal step, not a cli command
+
+
+def _params_hash(raw) -> str:
+    """Canonical hash of a stored parameters JSON (text in SQLite)."""
+    import hashlib
+    try:
+        obj = json.loads(raw) if isinstance(raw, str) else raw
+        canon = json.dumps(obj, sort_keys=True, separators=(",", ":"))
+    except (TypeError, ValueError):
+        canon = str(raw)
+    return hashlib.sha256(canon.encode()).hexdigest()
+
+
+def model_rows(con: sqlite3.Connection) -> list[dict]:
+    """Every column of the PRODUCTION model_versions rows, as stored.
+    Columns are enumerated from the table itself (law 1)."""
+    cols = [r[1] for r in con.execute("PRAGMA table_info(model_versions)")]
+    if not cols:
+        return []
+    rows = [dict(zip(cols, r)) for r in con.execute(
+        "SELECT * FROM model_versions WHERE status = 'production' ORDER BY sport, model_family")]
+    for r in rows:
+        r.pop("id", None)
+        r["_params_sha256"] = _params_hash(r.get("parameters"))
+    return rows
+
+
+def seed_models(db: Path, rows: list[dict]) -> dict:
+    """Install the reference's production model rows into the fresh DB.
+    Refuses unless model_versions is empty (a seed, never a merge)."""
+    if not rows:
+        raise SystemExit("✗ the reference carries no production model rows — refusing to "
+                         "bootstrap a host that cannot predict (re-run fingerprint on the laptop).")
+    con = sqlite3.connect(db)
+    try:
+        have = con.execute("SELECT COUNT(*) FROM model_versions").fetchone()[0]
+        if have:
+            raise SystemExit(f"✗ model_versions already has {have} rows — the seed is for a fresh DB.")
+        cols = {r[1] for r in con.execute("PRAGMA table_info(model_versions)")}
+        for r in rows:
+            keep = {k: v for k, v in r.items() if k in cols}
+            missing = set(r) - cols - {"_params_sha256"}
+            if missing:
+                raise SystemExit(f"✗ host schema lacks model_versions columns {missing} — deploy main first.")
+            con.execute(f"INSERT INTO model_versions ({', '.join(keep)}) VALUES "
+                        f"({', '.join('?' * len(keep))})", list(keep.values()))
+        con.commit()
+        got = model_rows(con)
+    finally:
+        con.close()
+    bad = [r["version"] for r, g in zip(sorted(rows, key=_mkey), sorted(got, key=_mkey))
+           if r["_params_sha256"] != g["_params_sha256"]]
+    if len(got) != len(rows) or bad:
+        raise SystemExit(f"✗ seed verification failed: {len(got)}/{len(rows)} rows, hash mismatch {bad}")
+    return {"seeded": [f"{r['sport']}/{r['model_family']}/{r['version']}" for r in got]}
+
+
+def _mkey(r: dict) -> tuple:
+    return (str(r.get("sport")), str(r.get("model_family")))
 
 
 def fingerprint(db: Path) -> dict:
@@ -81,10 +148,12 @@ def fingerprint(db: Path) -> dict:
             "JOIN competitions c ON c.id = ct.competition_id GROUP BY c.code")}
         odds = {r[0] or "?": r[1] for r in con.execute(
             "SELECT source, COUNT(*) FROM odds_snapshots GROUP BY source")}
+        models = model_rows(con)
     finally:
         con.close()
     return {"created": c.iso(), "host": c.host_name(), "games": games, "teams": teams,
-            "family_teams": family_teams, "odds_snapshots_by_source": odds}
+            "family_teams": family_teams, "odds_snapshots_by_source": odds,
+            "model_registry": models}
 
 
 def pairs(ref: dict) -> list[tuple[str, str, str]]:
@@ -103,7 +172,7 @@ def newest_season(ref: dict) -> dict:
 
 
 def plan(ref: dict) -> list[list[str]]:
-    steps = [["init-db"]]
+    steps = [["init-db"], [SEED]]
     sports = [s for s in FAMILY_ORDER if any(p[0] == s for p in pairs(ref))]
     unknown = {p[0] for p in pairs(ref)} - set(SPORT_CLI)
     if unknown:
@@ -164,6 +233,20 @@ def compare(lap: dict, host: dict) -> tuple[bool, list[str]]:
             rel = "==" if "eq" in a else ">="
         ok &= good
         lines.append(f"{'✓' if good else '✗'} ANCHOR {a['label']}: host {got} {rel} {want}")
+
+    lm = {_mkey(r): r for r in lap.get("model_registry", [])}
+    hm = {_mkey(r): r for r in host.get("model_registry", [])}
+    if not lm:
+        ok = False
+        lines.append("✗ MODEL laptop reference carries no production model rows")
+    for k in sorted(set(lm) | set(hm)):
+        a, b = lm.get(k), hm.get(k)
+        good = bool(a and b and a["version"] == b["version"]
+                    and a["_params_sha256"] == b["_params_sha256"])
+        ok &= good
+        lines.append(f"{'✓' if good else '✗'} MODEL {k[0]}/{k[1]}: laptop "
+                     f"{a and a['version']} vs host {b and b['version']}  params "
+                     f"{'match' if good else 'DIFFER/MISSING'}")
     return ok, lines
 
 
@@ -189,7 +272,8 @@ def main(argv=None) -> int:
         a.out.write_text(json.dumps(fp, indent=1))
         tot = sum(g["n"] for g in fp["games"])
         print(f"✓ fingerprint {a.out}: {tot} games, {len({(g['comp'], g['season']) for g in fp['games']})} "
-              f"competition-seasons, odds_snapshots {fp['odds_snapshots_by_source']}")
+              f"competition-seasons, odds_snapshots {fp['odds_snapshots_by_source']}, production "
+              f"models {[r['version'] + ' ' + str(r['model_family']) for r in fp['model_registry']]}")
         return 0
     if a.cmd == "compare":
         ok, lines = compare(json.loads(a.laptop.read_text()), json.loads(a.host.read_text()))
@@ -203,7 +287,11 @@ def main(argv=None) -> int:
     steps = plan(ref)
     if a.cmd == "plan":
         for i, st in enumerate(steps, 1):
-            print(f"{i:3d}. python cli.py {' '.join(st)}")
+            if st == [SEED]:
+                print(f"{i:3d}. [seed] install {len(ref.get('model_registry', []))} production "
+                      f"model_versions rows from the reference (config only)")
+            else:
+                print(f"{i:3d}. python cli.py {' '.join(st)}")
         return 0
 
     import sp_run
@@ -215,6 +303,13 @@ def main(argv=None) -> int:
     with c.db_lock():
         for i, st in enumerate(steps, 1):
             if i < a.start:
+                continue
+            if st == [SEED]:
+                out = seed_models(c.db_path(), ref.get("model_registry", []))
+                print(f"\n=== [bootstrap {i}/{len(steps)}] seed model registry: {out['seeded']}")
+                c.append_receipt({"kind": "step", "unit": "bootstrap", "run_id": run_id, "step": i,
+                                  "command": "seed-model-registry", "exit": 0, **out})
+                ok += 1
                 continue
             line = f"python cli.py {' '.join(st)}"
             print(f"\n=== [bootstrap {i}/{len(steps)}] {line}", flush=True)

@@ -27,7 +27,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sp_common as c  # noqa: E402
-from chains import CHAINS, UNMETERED  # noqa: E402
+from chains import CHAINS, UNMETERED, WINDOW_HOURS, WINDOW_KALSHI  # noqa: E402
 
 TAIL = 5
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -61,9 +61,62 @@ def fullseason_steps() -> list[list[str]]:
     return steps
 
 
-def resolve(name: str, overrides: dict, today: date) -> list[list[str]]:
+def window_steps(now) -> list[list[str]]:
+    """The window chain's plan, read-only from the DB (see chains.py)."""
+    from datetime import timedelta
+    hi = now + timedelta(hours=WINDOW_HOURS)
+    skip = {s.strip().upper() for s in (c.setting("SP_SKIP_FAMILIES") or "").split(",") if s.strip()}
+    fmt = "%Y-%m-%d %H:%M:%S"
+    import sqlite3
+    try:
+        con = c.ro_connect(c.db_path())
+    except (FileNotFoundError, sqlite3.Error):
+        return [["window-card", "--hours", str(WINDOW_HOURS)]]
+    try:
+        comps = con.execute(
+            "SELECT c.code, c.sport, m.season, COUNT(*) FROM matches m "
+            "JOIN competitions c ON c.id = m.competition_id "
+            "WHERE m.utc_date >= ? AND m.utc_date < ? AND m.status != 'FINISHED' "
+            "GROUP BY c.code, c.sport, m.season ORDER BY MIN(m.utc_date), c.code",
+            (now.strftime(fmt), hi.strftime(fmt))).fetchall()
+    except sqlite3.Error:
+        # a DB without the schema (host not bootstrapped): plan only the card
+        # step, which then fails loudly and pages via OnFailure
+        return [["window-card", "--hours", str(WINDOW_HOURS)]]
+    finally:
+        con.close()
+    days = sorted({now.date().isoformat(), hi.date().isoformat()})
+    steps: list[list[str]] = []
+    for code, sport, season, _n in comps:
+        if str(sport).upper() in skip:
+            continue
+        for d in days:
+            steps.append(["sync-matches", "--competition", code, "--season", season,
+                          "--date-from", d, "--date-to", d])
+    football = False
+    for code, sport, season, n in comps:
+        if str(sport).upper() == "NFL":
+            football = True
+            continue
+        steps.append(["sync-odds", "--competition", code, "--season", season, "--limit", str(n)])
+    if football:
+        steps.append(["sync-odds-football"])
+    seen = set()
+    for code, *_ in comps:
+        for st in WINDOW_KALSHI.get(code, []):
+            if tuple(st) not in seen:
+                seen.add(tuple(st))
+                steps.append(list(st))
+    steps.append(["window-card", "--hours", str(WINDOW_HOURS)])
+    return steps
+
+
+def resolve(name: str, overrides: dict, today: date, now=None) -> list[list[str]]:
     chain = CHAINS[name]
-    steps = fullseason_steps() if chain.get("fullseason") else chain["steps"]
+    if chain.get("window_plan"):
+        steps = window_steps(now or c.utc_now().replace(tzinfo=None))
+    else:
+        steps = fullseason_steps() if chain.get("fullseason") else chain["steps"]
     v = {**date_vars(today), **overrides}
     return [[a.format(**v) for a in st] for st in steps]
 
@@ -118,7 +171,7 @@ def main(argv=None) -> int:
     overrides = dict(kv.split("=", 1) for kv in a.set)
     unit = a.unit or f"sp-chain@{a.chain}.service"
     run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{a.chain}"
-    steps = resolve(a.chain, overrides, today)
+    steps = resolve(a.chain, overrides, today, now=now.replace(tzinfo=None))
 
     if a.dry_run:
         for i, st in enumerate(steps, 1):
@@ -143,6 +196,9 @@ def main(argv=None) -> int:
     exports_before = {p: p.stat().st_mtime for p in (c.REPO / "exports").glob("*")} \
         if (c.REPO / "exports").exists() else {}
     backup_rec, chain_exit, ok = None, 0, 0
+    quota = {"metered_run": 0, "metered_skipped": 0, "unmetered_run": 0, "provider_calls": None,
+             "provider_calls_note": "not instrumented: api-sports call counts are not surfaced "
+                                    "by the CLI (null, never 0)"}
     with c.db_lock():
         need = chain.get("backup")
         if need == "prerefresh" or (need == "daily" and sp_backup.todays_daily() is None):
@@ -159,7 +215,9 @@ def main(argv=None) -> int:
                 if metered_skip(st[0], today):
                     c.append_receipt({"kind": "step", "unit": unit, "run_id": run_id, "step": i,
                                       "command": line, "exit": None, "skipped": "H0-16b"})
+                    quota["metered_skipped"] += 1
                     continue
+                quota["metered_run" if st[0] not in UNMETERED else "unmetered_run"] += 1
                 print(f"\n=== [{a.chain} {i}/{len(steps)}] {line}", flush=True)
                 rc, tail, dur = run_step(st, run_id)
                 c.append_receipt({"kind": "step", "unit": unit, "run_id": run_id, "step": i,
@@ -173,13 +231,21 @@ def main(argv=None) -> int:
     exports = sorted(str(p.relative_to(c.REPO)) for p in (c.REPO / "exports").glob("*")
                      if exports_before.get(p) != p.stat().st_mtime) \
         if (c.REPO / "exports").exists() else []
+    page_rec = None
+    if chain_exit == 0 and chain.get("post") == "window_page":
+        import sp_window_page
+        page_rec = sp_window_page.run(c.REPO / "exports" / "window_24h.json")
     rec = {"kind": "chain", "unit": unit, "run_id": run_id, "exit": chain_exit,
-           "steps_ok": ok, "steps_total": len(steps),
+           "steps_ok": ok, "steps_total": len(steps), "quota": quota,
            "duration_s": round(time.monotonic() - t0, 1),
            "counts": c.table_counts(c.db_path(), c.CHAIN_COUNT_TABLES), "exports": exports}
     if backup_rec is not None:
         rec["backup"] = {k: backup_rec.get(k) for k in ("file", "sha256", "integrity")}
+    if page_rec is not None:
+        rec["page"] = {k: page_rec.get(k) for k in ("deltas", "paged", "digest", "suppressed")}
     c.append_receipt(rec)
+    print(f"  quota: metered steps run {quota['metered_run']} · skipped {quota['metered_skipped']} "
+          f"· unmetered run {quota['unmetered_run']} · provider calls: not instrumented")
     print(f"\n{'✓' if chain_exit == 0 else '✗'} {a.chain}: exit={chain_exit} "
           f"steps {ok}/{len(steps)} in {rec['duration_s']}s")
     return chain_exit

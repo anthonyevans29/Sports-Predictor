@@ -81,11 +81,12 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 </style>
 </head>
 <body>
-<h1>Cockpit <span class="chip">card + desk + ledger · policy v1.1</span></h1>
+<h1>Cockpit <span class="chip">card + desk + ledger + next 24h · policy v1.1</span></h1>
 <div class="row" style="margin-bottom:10px">
   <button id="tabCard" class="ghost">Card</button>
   <button id="tabDesk">Desk</button>
   <button id="tabLedger" class="ghost">Ledger</button>
+  <button id="tabNext" class="ghost">Next 24h</button>
 </div>
 <div class="sub">Deterministic policy-as-code over the day's export file. Files stay in this page; the optional audit sends only the summarized slate to Claude. Tune the knobs until the calls match the incumbent layer, then the divergence closes.</div>
 
@@ -159,6 +160,18 @@ details.sig pre{max-height:220px;margin:6px 0 0}
   </table></div>
 </div>
 </div><!-- /deskView -->
+
+<div id="nextView" hidden>
+  <div class="card">
+    <div><label>Window card (exports/window_24h.json, repriced hourly by the window service)</label><br>
+      <input type="file" id="windowFile" accept=".json"></div>
+    <div id="nextSummary" class="summary">No window card loaded.</div>
+    <div class="note">Model fields are the canonical chain-slot predictions (no re-runs). Venue column: the SAME policy-v1.1 venue engine as the Desk (charter: market-only family, ≥4 books, two-sided, ≥5pp). Flags: QUARANTINE (NFL contract), STALE-BOOK? (≥8pp book vs Kalshi).</div>
+  </div>
+  <div class="tablewrap"><table id="nextTable" hidden><thead><tr>
+    <th>Kickoff</th><th>Sport</th><th>Game</th><th>Model</th><th>Book fair</th><th>Kalshi</th>
+    <th>Edge</th><th>Tier</th><th>Flags</th><th>Engine</th></tr></thead><tbody></tbody></table></div>
+</div>
 
 <div id="ledgerView" hidden>
   <div class="card">
@@ -1090,19 +1103,70 @@ function renderCard(){
     }
   }
 }
+// ---------------------------------------------------------------------
+// NEXT 24H (window service, 2026-09-27): renders exports/window_24h.json —
+// the fixtures grammar + model/edge/tier/flag fields. Venue eligibility comes
+// from the existing venueEdge() via the same kalFromFixture() path the Desk
+// uses for fixtures files: one charter, not two.
+// ---------------------------------------------------------------------
+function windowRows(doc){
+  const now=Date.now();
+  return (doc.fixtures||[]).map(f=>{
+    const mk=f.market||{}, fair=mk.fair_prob||{};
+    const v=venueEdge({marketOnly:f.engine!=="model_edge",
+      sport:(f.competition||f.sport||"?").toUpperCase(),utc:f.utc_date||"",
+      fairAll:fair,books:mk.bookmaker_count||0,kalProb:kalFromFixture(f.kalshi,fair)},now);
+    const m=f.model||null, pick=m&&m.top_pick;
+    return {f,v,m,pick,fair,
+      model:m&&m.top_pick_prob!=null?`${pick} ${(m.top_pick_prob*100).toFixed(1)}%`:"—",
+      book:pick&&fair[pick]!=null?`${(fair[pick]*100).toFixed(1)}%`:
+           (fair.HOME!=null?`H ${(fair.HOME*100).toFixed(1)}%`:"—"),
+      kal:f.kalshi_home_norm!=null?`H ${(f.kalshi_home_norm*100).toFixed(1)}%`:
+          ((f.kalshi||{}).status||"absent"),
+      edge:f.edge_pp!=null?`${f.edge_pp>0?"+":""}${f.edge_pp.toFixed(1)}pp`:"—",
+      flags:[f.quarantine?"QUARANTINE":null,f.venue_flag||null].filter(Boolean),
+      engine:f.engine==="model_edge"?"model_edge":(v.eligible?"VENUE 0.25u (shadow)":"market-only")};
+  });
+}
+function renderWindow(doc){
+  const rows=windowRows(doc), w=doc.window||{}, rc=doc.receipts||{};
+  $("nextSummary").textContent=`${rows.length} games · ${(w.from||"").slice(0,16).replace("T"," ")} → ${(w.to||"").slice(0,16).replace("T"," ")} UTC · model ${rc.with_model??"—"} · quarantined ${rc.quarantined??"—"} · STALE-BOOK? ${rc.stale_flags??"—"} · card ${(doc.exported_at||"").slice(0,16).replace("T"," ")}Z`;
+  const tb=$("nextTable").querySelector("tbody");
+  tb.innerHTML=rows.map(r=>{
+    const ko=r.f.utc_date?new Date(r.f.utc_date+(r.f.utc_date.endsWith("Z")?"":"Z")).toLocaleString([], {weekday:"short",hour:"2-digit",minute:"2-digit"}):"?";
+    return `<tr><td>${esc(ko)}</td><td>${esc(String(r.f.sport||"").toUpperCase())} · ${esc(r.f.competition)}</td>
+      <td>${esc(r.f.away_team)} @ ${esc(r.f.home_team)}</td><td>${esc(r.model)}</td><td>${esc(r.book)}</td>
+      <td>${esc(r.kal)}</td><td>${esc(r.edge)}</td><td>${esc(r.f.tier||"—")}</td>
+      <td class="${r.flags.length?"caution":""}">${esc(r.flags.join(" · ")||"—")}</td>
+      <td class="${r.engine.startsWith("VENUE")?"play":""}" title="${esc(r.v.reason)}">${esc(r.engine)}</td></tr>`;
+  }).join("");
+  $("nextTable").hidden=!rows.length;
+}
+$("windowFile").addEventListener("change",async e=>{
+  const f=e.target.files[0]; if(!f) return;
+  try{ const doc=JSON.parse(await f.text());
+    if(!doc.window||!Array.isArray(doc.fixtures)) throw new Error("not a window card (needs window + fixtures)");
+    renderWindow(doc);
+  }catch(err){ $("nextSummary").textContent="Could not read window card: "+err.message; $("nextTable").hidden=true; }
+  e.target.value="";
+});
+
 function setTab(mode){
   if(mode===true) mode="card"; if(mode===false) mode="desk";
   $("cardView").hidden=mode!=="card";
   $("deskView").hidden=mode!=="desk";
   $("ledgerView").hidden=mode!=="ledger";
+  $("nextView").hidden=mode!=="next";
   $("tabCard").className=mode==="card"?"":"ghost";
   $("tabDesk").className=mode==="desk"?"":"ghost";
   $("tabLedger").className=mode==="ledger"?"":"ghost";
+  $("tabNext").className=mode==="next"?"":"ghost";
   if(mode==="ledger") renderLedger();
 }
 $("tabCard").addEventListener("click",()=>setTab("card"));
 $("tabDesk").addEventListener("click",()=>setTab("desk"));
 $("tabLedger").addEventListener("click",()=>setTab("ledger"));
+$("tabNext").addEventListener("click",()=>setTab("next"));
 setTab("desk");
 
 (async()=>{

@@ -31,7 +31,7 @@ CHAIN_COUNT_TABLES = ("matches", "predictions", "prediction_outcomes",
 
 # Env names whose VALUES are secrets and must never reach a receipt.
 SECRET_ENV = ("API_FOOTBALL_KEY", "API_BASEBALL_KEY", "API_AMERICAN_FOOTBALL_KEY",
-              "API_HOCKEY_KEY", "ODDS_API_KEY", "NTFY_TOPIC")
+              "API_HOCKEY_KEY", "ODDS_API_KEY", "NTFY_TOPIC", "NTFY_CARD_TOPIC")
 _KEYISH = re.compile(r"(?i)\b(api[_-]?key|token|secret|password|authorization)\b(\s*[=:]\s*)\S+")
 
 

@@ -129,6 +129,35 @@ CHAINS: dict[str, dict] = {
     },
 }
 
+# --- Next-24h WINDOW SERVICE (architect spec 2026-09-27) ---
+# Hourly; the timer ships in the pack and is enabled on H1b day 1. The steps
+# are PLANNED at run time from the DB (read-only), so adding a competition
+# adds rows, not code:
+#   per competition with non-finished games in the next WINDOW_HOURS:
+#     sync-matches --season S --date-from D --date-to D, ONE UTC day per call
+#       (the hockey/american-football adapters honour a date window ONLY when
+#       from == to; a range silently fetches the whole league listing);
+#     sync-odds --competition C --season S --limit <that competition's window
+#       game count> (sync_odds takes the next N scheduled games), except the
+#       american-football family (sport NFL: NFL + NCAA), which is priced once
+#       by sync-odds-football;
+#   then the Kalshi syncs for the competitions in WINDOW_KALSHI, then
+#   `window-card`. After a clean run, sp_window_page pages CARD DELTAS (post).
+# NO predict/improve step, ever: model fields stay canonical from their slot.
+# SP_SKIP_FAMILIES (host.env, e.g. "MLB") drops a family's sync-matches only
+# (statsapi.mlb.com 406s the DO ASN; MLB syncing is a laptop duty).
+WINDOW_HOURS = 24
+WINDOW_KALSHI: dict[str, list[list[str]]] = {
+    # competition code -> its Kalshi sync. CI pins the soccer entries to
+    # src/adapters/kalshi.py SOCCER_GAME_SERIES (only PL has a series).
+    "MLB": [["sync-kalshi", "--date-from", "{today}", "--date-to", "{tomorrow}"]],
+    "NFL": [["sync-kalshi-nfl"]],
+    "NCAA": [["sync-kalshi-ncaa"]],
+    "NHL": [["sync-kalshi-nhl"]],
+    "PL": [["sync-kalshi-soccer", "--competition", "PL"]],
+}
+CHAINS["window"] = {"window_plan": True, "post": "window_page", "steps": []}
+
 # Commands verified NOT to call a metered api-sports product (2026-09-27: the
 # cli.py command bodies construct no IngestionService / adapter / requests
 # call, and src/walters/ does no network I/O; Kalshi is public). Everything
@@ -137,6 +166,6 @@ CHAINS: dict[str, dict] = {
 UNMETERED = frozenset({
     "sync-kalshi", "sync-kalshi-soccer", "sync-kalshi-nfl", "sync-kalshi-nhl",
     "sync-kalshi-ncaa", "evaluate", "nfl-grade", "predict", "predict-nfl",
-    "improve", "results-tally", "export-results", "export-predictions",
+    "improve", "results-tally", "export-results", "export-predictions", "window-card",
     "export-nfl-predictions", "export-nfl-results", "export-fixtures",
 })

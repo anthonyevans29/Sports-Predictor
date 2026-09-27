@@ -37,21 +37,24 @@ def journal_tail(unit: str, n: int = 30) -> list[str]:
     return [c.redact(x) for x in out.splitlines()]
 
 
-def ntfy_url() -> str | None:
-    topic = (c.setting("NTFY_TOPIC") or c._dotenv().get("NTFY_TOPIC") or "").strip()
+def ntfy_url(topic_var: str = "NTFY_TOPIC") -> str | None:
+    """topic_var: NTFY_TOPIC (operator pages) or NTFY_CARD_TOPIC (the
+    window-card deltas, a SECOND private topic, spec 2026-09-27)."""
+    topic = (c.setting(topic_var) or c._dotenv().get(topic_var) or "").strip()
     if not topic:
         return None
     base = (c.setting("NTFY_SERVER") or c._dotenv().get("NTFY_SERVER") or "https://ntfy.sh")
     return f"{base.rstrip('/')}/{topic}"
 
 
-def deliver(kind: str, title: str, body: str, extra: dict | None = None) -> bool:
-    url = ntfy_url()
+def deliver(kind: str, title: str, body: str, extra: dict | None = None,
+            topic_var: str = "NTFY_TOPIC", priority: str = "high") -> bool:
+    url = ntfy_url(topic_var)
     delivered, err = False, None
     if url:
         try:
             req = urllib.request.Request(url, data=body.encode()[:4000], method="POST",
-                                         headers={"Title": title[:200], "Priority": "high"})
+                                         headers={"Title": title[:200], "Priority": priority})
             with urllib.request.urlopen(req, timeout=20) as r:
                 delivered = 200 <= r.status < 300
         except Exception as e:  # noqa: BLE001 — a failed page must still be receipted

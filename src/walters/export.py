@@ -977,6 +977,95 @@ _CUP_REASON = ("Cup model track SUSPENDED 2026-09-25 (rotation information "
                "floor) — market-only for the season.")
 
 
+def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
+    """One market-only fixtures row (the grammar the Cockpit renders). Shared by
+    export_fixtures and the Next-24h window card (2026-09-27), extracted
+    verbatim so both files speak the same row shape. Reads matches, odds and
+    odds_snapshots only."""
+    from sqlalchemy import select as _select
+
+    from src.db.schema import Odds as _Odds, OddsSnapshot as _Snapshot
+    from src.walters import spread_fallback as _fb
+    from src.walters.value import MarketSnapshot as _Snap
+    from src.walters.venue import kalshi_exec as _kexec
+
+    all_odds = list(s.execute(_select(_Odds).where(_Odds.match_id == m.id)).scalars())
+    labels.update((o.market, o.selection) for o in all_odds)
+    # latest pre-kickoff capture per (bookmaker, selection), 1X2 only
+    latest: dict[tuple[str, str], object] = {}
+    for o in all_odds:
+        if o.market != "1X2":
+            continue
+        if o.captured_at is not None and o.captured_at >= m.utc_date:
+            continue  # in-game price, never pre-game truth
+        key = (o.bookmaker, o.selection)
+        if key not in latest or o.captured_at > latest[key].captured_at:
+            latest[key] = o
+    market = None
+    if latest:
+        by_sel: dict[str, list[tuple[str, float]]] = {}
+        for (bk, sel), o in latest.items():
+            by_sel.setdefault(sel, []).append((bk, o.price_decimal))
+        implied = _Snap(market="1X2", by_selection=by_sel).average_implied()
+        over = sum(implied.values()) or 1.0
+        cap = max(o.captured_at for o in latest.values())
+        market = {
+            "bookmaker_count": len({bk for bk, _ in latest}),
+            "captured_at": cap.isoformat() if cap else None,
+            "fair_prob": {k: round(v / over, 4) for k, v in implied.items()},
+            "fair_source": _fb.FAIR_SOURCE_1X2,
+        }
+        counts["with_books"] += 1
+    elif _fb.FALLBACK_LIVE and _fb.sigma_for(competition_code) is not None:
+        # Spread->win-prob fallback (2026-09-26): american-football
+        # family only, 1X2 absent, spreads present. Labelled, never
+        # blended with a 1X2 consensus.
+        sp = _fb.latest_pre_kickoff(all_odds, m.utc_date, _fb.SPREAD_MARKET,
+                                    with_line=True)
+        market = _fb.derive_spread_market(sp.values(), competition_code)
+        if market is not None:
+            cap = max((o.captured_at for o in sp.values() if o.captured_at),
+                      default=None)
+            market["captured_at"] = cap.isoformat() if cap else None
+            counts["with_spread_derived"] += 1
+    kal: dict[str, object] = {}
+    for snap in s.execute(_select(_Snapshot).where(
+            _Snapshot.match_id == m.id, _Snapshot.source == "kalshi")
+            .order_by(_Snapshot.captured_at.desc())).scalars():
+        if snap.captured_at is not None and snap.captured_at >= m.utc_date:
+            continue
+        kal.setdefault(snap.selection, snap)
+    kal_status = ("two_sided" if {"HOME", "AWAY"} <= set(kal)
+                  else "one_sided" if kal else "absent")
+    counts[f"kalshi_{kal_status}"] += 1
+    kalshi = None
+    if kal:
+        kalshi = {"status": kal_status,
+                  "prob": {k: round(v.devig_prob, 4) for k, v in kal.items()},
+                  "captured_at": max(v.captured_at for v in kal.values()).isoformat()}
+    return {
+        "match_id": m.id,
+        "utc_date": m.utc_date.isoformat(),
+        "status": m.status.value if hasattr(m.status, "value") else str(m.status),
+        "stage": m.stage,
+        "matchday": m.matchday,
+        "home_team": m.home_team.name if m.home_team else None,
+        "away_team": m.away_team.name if m.away_team else None,
+        "home_score": m.home_score,
+        "away_score": m.away_score,
+        "market": market,
+        "kalshi": kalshi,
+        # K-track (K1, additive): home-side quotes + executable cost,
+        # two-sided Kalshi only (informational until the ruling).
+        **(_kexec(getattr(kal.get("HOME"), "yes_bid", None),
+                  getattr(kal.get("HOME"), "yes_ask", None))
+           if kal_status == "two_sided" else
+           {"kalshi_bid": None, "kalshi_ask": None, "kalshi_exec_cost": None}),
+        "input_quality": {"book_odds": market["bookmaker_count"] if market else 0,
+                          "kalshi": kal_status},
+    }
+
+
 def export_fixtures(
     competition_code: str,
     start: str | None = None,
@@ -1011,11 +1100,7 @@ def export_fixtures(
     from sqlalchemy import select as _select
 
     from src.db.database import session_scope as _scope
-    from src.db.schema import (Competition as _Comp, Match as _Match, Odds as _Odds,
-                               OddsSnapshot as _Snapshot)
-    from src.walters import spread_fallback as _fb
-    from src.walters.value import MarketSnapshot as _Snap
-    from src.walters.venue import kalshi_exec as _kexec
+    from src.db.schema import Competition as _Comp, Match as _Match
 
     labels: _Counter = _Counter()
     counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0,
@@ -1032,81 +1117,7 @@ def export_fixtures(
         q = q.where(_Match.utc_date >= lo, _Match.utc_date < hi).order_by(_Match.utc_date)
         rows = []
         for m in s.execute(q).scalars():
-            all_odds = list(s.execute(_select(_Odds).where(_Odds.match_id == m.id)).scalars())
-            labels.update((o.market, o.selection) for o in all_odds)
-            # latest pre-kickoff capture per (bookmaker, selection), 1X2 only
-            latest: dict[tuple[str, str], object] = {}
-            for o in all_odds:
-                if o.market != "1X2":
-                    continue
-                if o.captured_at is not None and o.captured_at >= m.utc_date:
-                    continue  # in-game price, never pre-game truth
-                key = (o.bookmaker, o.selection)
-                if key not in latest or o.captured_at > latest[key].captured_at:
-                    latest[key] = o
-            market = None
-            if latest:
-                by_sel: dict[str, list[tuple[str, float]]] = {}
-                for (bk, sel), o in latest.items():
-                    by_sel.setdefault(sel, []).append((bk, o.price_decimal))
-                implied = _Snap(market="1X2", by_selection=by_sel).average_implied()
-                over = sum(implied.values()) or 1.0
-                cap = max(o.captured_at for o in latest.values())
-                market = {
-                    "bookmaker_count": len({bk for bk, _ in latest}),
-                    "captured_at": cap.isoformat() if cap else None,
-                    "fair_prob": {k: round(v / over, 4) for k, v in implied.items()},
-                    "fair_source": _fb.FAIR_SOURCE_1X2,
-                }
-                counts["with_books"] += 1
-            elif _fb.FALLBACK_LIVE and _fb.sigma_for(competition_code) is not None:
-                # Spread->win-prob fallback (2026-09-26): american-football
-                # family only, 1X2 absent, spreads present. Labelled, never
-                # blended with a 1X2 consensus.
-                sp = _fb.latest_pre_kickoff(all_odds, m.utc_date, _fb.SPREAD_MARKET,
-                                            with_line=True)
-                market = _fb.derive_spread_market(sp.values(), competition_code)
-                if market is not None:
-                    cap = max((o.captured_at for o in sp.values() if o.captured_at),
-                              default=None)
-                    market["captured_at"] = cap.isoformat() if cap else None
-                    counts["with_spread_derived"] += 1
-            kal: dict[str, object] = {}
-            for snap in s.execute(_select(_Snapshot).where(
-                    _Snapshot.match_id == m.id, _Snapshot.source == "kalshi")
-                    .order_by(_Snapshot.captured_at.desc())).scalars():
-                if snap.captured_at is not None and snap.captured_at >= m.utc_date:
-                    continue
-                kal.setdefault(snap.selection, snap)
-            kal_status = ("two_sided" if {"HOME", "AWAY"} <= set(kal)
-                          else "one_sided" if kal else "absent")
-            counts[f"kalshi_{kal_status}"] += 1
-            kalshi = None
-            if kal:
-                kalshi = {"status": kal_status,
-                          "prob": {k: round(v.devig_prob, 4) for k, v in kal.items()},
-                          "captured_at": max(v.captured_at for v in kal.values()).isoformat()}
-            rows.append({
-                "match_id": m.id,
-                "utc_date": m.utc_date.isoformat(),
-                "status": m.status.value if hasattr(m.status, "value") else str(m.status),
-                "stage": m.stage,
-                "matchday": m.matchday,
-                "home_team": m.home_team.name if m.home_team else None,
-                "away_team": m.away_team.name if m.away_team else None,
-                "home_score": m.home_score,
-                "away_score": m.away_score,
-                "market": market,
-                "kalshi": kalshi,
-                # K-track (K1, additive): home-side quotes + executable cost,
-                # two-sided Kalshi only (informational until the ruling).
-                **(_kexec(getattr(kal.get("HOME"), "yes_bid", None),
-                          getattr(kal.get("HOME"), "yes_ask", None))
-                   if kal_status == "two_sided" else
-                   {"kalshi_bid": None, "kalshi_ask": None, "kalshi_exec_cost": None}),
-                "input_quality": {"book_odds": market["bookmaker_count"] if market else 0,
-                                  "kalshi": kal_status},
-            })
+            rows.append(_fixture_row(s, m, competition_code, labels, counts))
         counts["fixtures"] = len(rows)
         comp_type = (comp.type or "").upper()
     _os.makedirs(out_dir, exist_ok=True)

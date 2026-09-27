@@ -69,7 +69,9 @@ def test_every_chain_command_and_option_exists_in_cli():
     cli = _cli()
     checked = 0
     for name, ch in chains.CHAINS.items():
-        for st in sp_run.resolve(name, {}, date(2026, 10, 9)) if not ch.get("fullseason") else []:
+        if ch.get("fullseason") or ch.get("window_plan"):
+            continue  # DB-planned chains: covered by their own seeded-DB tests
+        for st in sp_run.resolve(name, {}, date(2026, 10, 9)):
             cmd = cli.commands.get(st[0])
             assert cmd is not None, f"{name}: no cli command {st[0]!r}"
             opts = {o for p in cmd.params for o in (*p.opts, *p.secondary_opts)}
@@ -109,14 +111,19 @@ def test_no_timer_in_reboot_buffer_and_targets_exist():
         else:
             assert (HOSTING / "systemd" / unit).exists(), unit
         for cal in cals:
-            mm = re.fullmatch(r"(?:([A-Za-z,]+) )?\*-\*-\* (\d\d):(\d\d):00 (\S+)", cal)
+            mm = re.fullmatch(r"(?:([A-Za-z,]+) )?\*-\*-\* ([\d.,]+):(\d\d):00 (\S+)", cal)
             assert mm, f"{fname}: unexpected calendar {cal!r}"
-            hh, mi, tz = int(mm.group(2)), int(mm.group(3)), ZoneInfo(mm.group(4))
-            for probe in (date(2026, 1, 15), date(2026, 7, 15)):  # both DST states
-                local = datetime(probe.year, probe.month, probe.day, hh, mi, tzinfo=tz)
-                u = local.astimezone(timezone.utc)
-                minutes = u.hour * 60 + u.minute
-                assert not (4 * 60 + 15 <= minutes <= 5 * 60 + 15), f"{fname} {cal} -> {u:%H:%M}Z"
+            hours = []  # "00..03,06..23" -> every hour, each one checked
+            for part in mm.group(2).split(","):
+                lo, _, hi = part.partition("..")
+                hours += list(range(int(lo), int(hi or lo) + 1))
+            mi, tz = int(mm.group(3)), ZoneInfo(mm.group(4))
+            for hh in hours:
+                for probe in (date(2026, 1, 15), date(2026, 7, 15)):  # both DST states
+                    local = datetime(probe.year, probe.month, probe.day, hh, mi, tzinfo=tz)
+                    u = local.astimezone(timezone.utc)
+                    minutes = u.hour * 60 + u.minute
+                    assert not (4 * 60 + 15 <= minutes <= 5 * 60 + 15), f"{fname} {cal} -> {u:%H:%M}Z"
             if mm.group(1):
                 assert all(d in days for d in mm.group(1).split(","))
 
@@ -696,3 +703,131 @@ def test_explain_prints_predicate_and_flags_uncounted_rows(sandbox, tmp_path, ca
     lines = bootstrap.explain_diff(e, host)
     assert any("differs" in x and "status_raw: 'FT' -> 'FT_SYNCED_TODAY'" in x for x in lines)
     assert any(x.strip().startswith("laptop-only:") for x in lines)
+
+
+# ------------------------- Next-24h WINDOW SERVICE (spec 2026-09-27) ----
+
+import sp_window_page  # noqa: E402
+
+
+def _window_db(path, now):
+    con = sqlite3.connect(path)
+    con.executescript("""CREATE TABLE competitions(id INTEGER PRIMARY KEY, sport TEXT, code TEXT);
+        CREATE TABLE matches(id INTEGER PRIMARY KEY, competition_id INT, season TEXT, status TEXT,
+                             utc_date TEXT);""")
+    con.executemany("INSERT INTO competitions VALUES (?,?,?)",
+                    [(1, "SOCCER", "PL"), (2, "NFL", "NFL"), (3, "NFL", "NCAA"),
+                     (4, "MLB", "MLB"), (5, "SOCCER", "CL")])
+    fmt = "%Y-%m-%d %H:%M:%S"
+    rows = [(1, "2026/27", "SCHEDULED", 3), (1, "2026/27", "SCHEDULED", 5),
+            (2, "2026", "SCHEDULED", 20), (3, "2026", "SCHEDULED", 22),
+            (4, "2026", "SCHEDULED", 2), (5, "2026/27", "SCHEDULED", 30),   # CL outside 24h
+            (1, "2026/27", "FINISHED", 1)]                                 # finished: ignored
+    con.executemany("INSERT INTO matches(competition_id, season, status, utc_date) VALUES (?,?,?,?)",
+                    [(cid, s, st, (now + timedelta(hours=h)).strftime(fmt)) for cid, s, st, h in rows])
+    con.commit()
+    con.close()
+
+
+def test_window_plan_is_scoped_single_day_and_model_free(sandbox, monkeypatch):
+    now = datetime(2026, 10, 3, 20, 0)
+    _window_db(sandbox / "w.db", now)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sandbox / 'w.db'}")
+    steps = [" ".join(s) for s in sp_run.window_steps(now)]
+    # one single-day sync per UTC date the window touches (adapter law)
+    assert "sync-matches --competition PL --season 2026/27 --date-from 2026-10-03 --date-to 2026-10-03" in steps
+    assert "sync-matches --competition PL --season 2026/27 --date-from 2026-10-04 --date-to 2026-10-04" in steps
+    assert not any(s.startswith("sync-matches --competition CL") for s in steps)  # outside window
+    assert "sync-odds --competition PL --season 2026/27 --limit 2" in steps       # window count
+    assert "sync-odds --competition MLB --season 2026 --limit 1" in steps
+    assert steps.count("sync-odds-football") == 1                                # NFL + NCAA once
+    assert not any(s.startswith("sync-odds --competition NFL") for s in steps)
+    assert {"sync-kalshi-nfl", "sync-kalshi-ncaa", "sync-kalshi-soccer --competition PL",
+            "sync-kalshi --date-from {today} --date-to {tomorrow}"} <= set(steps)
+    assert steps[-1] == "window-card --hours 24"
+    assert not any(s.split()[0] in ("predict", "predict-nfl", "improve", "soccer-refresh")
+                   for s in steps)
+    # every planned command/option exists in cli.py (law 1)
+    cli = _cli()
+    for s in steps:
+        st = s.split()
+        opts = {o for p in cli.commands[st[0]].params for o in (*p.opts, *p.secondary_opts)}
+        assert all(tok in opts for tok in st[1:] if tok.startswith("--")), s
+    # the DO host: MLB sync-matches dropped (ASN), MLB odds/Kalshi untouched
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "MLB")
+    steps = [" ".join(s) for s in sp_run.window_steps(now)]
+    assert not any(s.startswith("sync-matches --competition MLB") for s in steps)
+    assert "sync-odds --competition MLB --season 2026 --limit 1" in steps
+
+
+def test_window_kalshi_table_pinned_to_adapter_series():
+    from src.adapters.kalshi import KalshiAdapter
+    soccer = {code for code, steps in chains.WINDOW_KALSHI.items()
+              if steps and steps[0][0] == "sync-kalshi-soccer"}
+    assert soccer == set(KalshiAdapter.SOCCER_GAME_SERIES)
+    cli = _cli()
+    for steps in chains.WINDOW_KALSHI.values():
+        for st in steps:
+            assert st[0] in cli.commands
+
+
+def _card(games, t90=None):
+    return {"fixtures": [dict({"match_id": i, "home_team": f"H{i}", "away_team": f"A{i}",
+                               "sport": "nfl", "competition": "NFL",
+                               "utc_date": "2026-10-04T17:00:00", "status": "scheduled",
+                               "market": {"fair_prob": {"HOME": 0.6}}, "kalshi": None,
+                               "tier": "lean", "quarantine": False, "venue_flag": None,
+                               "edge_pp": 3.0, "engine": "model_edge"}, **g)
+                         for i, g in games.items()],
+            "t90_signatures": t90 or {}}
+
+
+def _page(sandbox, monkeypatch, card, when):
+    sent = []
+    import sp_notify
+    monkeypatch.setattr(sp_notify, "deliver",
+                        lambda kind, title, body, extra=None, topic_var="NTFY_TOPIC",
+                        priority="high": sent.append((topic_var, title, body, priority)) or True)
+    p = sandbox / "card.json"
+    p.write_text(json.dumps(card))
+    return sp_window_page.run(p, now_utc=when), sent
+
+
+def test_pager_baseline_then_deltas_quiet_hours_and_digest(sandbox, monkeypatch):
+    monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / "ws.json"))
+    day = datetime(2026, 10, 4, 15, 0, tzinfo=timezone.utc)          # 11:00 ET
+    rec, sent = _page(sandbox, monkeypatch, _card({1: {}, 2: {"market": None}}), day)
+    assert rec["first_run"] and sum(rec["deltas"].values()) == 0
+    assert [s[1] for s in sent] == ["Next 24h digest 2026-10-04"]    # first run after 08:00 ET
+    assert all(s[0] == "NTFY_CARD_TOPIC" for s in sent)
+    # unchanged card: silent (no digest twice a day)
+    rec, sent = _page(sandbox, monkeypatch, _card({1: {}, 2: {"market": None}}), day)
+    assert sent == [] and sum(rec["deltas"].values()) == 0
+    # every delta class
+    card = _card({1: {"tier": "strong", "venue_flag": "STALE-BOOK?", "quarantine": True,
+                      "utc_date": "2026-10-04T18:00:00"},
+                  2: {}, 3: {}}, t90={"1": "sig-b"})
+    rec, sent = _page(sandbox, monkeypatch, card, day)
+    assert rec["deltas"] == {"new_priced": 2, "tier": 1, "quarantine": 1, "stale": 1,
+                             "kickoff": 1, "t90_news": 0}
+    assert len(sent) == 1 and sent[0][3] == "high" and "QUARANTINE ON" in sent[0][2]
+    # quiet hours (02:00 ET): only the quarantine flip pages; the rest suppressed
+    night = datetime(2026, 10, 5, 6, 0, tzinfo=timezone.utc)
+    card = _card({1: {"tier": "lean", "quarantine": False, "utc_date": "2026-10-04T18:00:00",
+                      "venue_flag": "STALE-BOOK?"}, 2: {}, 3: {}}, t90={"1": "sig-c"})
+    rec, sent = _page(sandbox, monkeypatch, card, night)
+    # tier change + T-90 news (sig-b -> sig-c) are suppressed; the flip is not
+    assert rec["quiet_hours"] and rec["suppressed"] == 2 and rec["deltas"]["t90_news"] == 1
+    assert len(sent) == 1 and "QUARANTINE off" in sent[0][2] and "tier" not in sent[0][2]
+    # T-90 news: signature seen last run, changed now -> freshen needed (report + page)
+    card["t90_signatures"] = {"1": "sig-d"}
+    rec, sent = _page(sandbox, monkeypatch, card, day.replace(day=5))
+    assert rec["freshen_needed"] == ["1"] and any("freshen needed" in s[2] for s in sent)
+
+
+def test_window_timer_avoids_reboot_hours_and_is_on_t11():
+    t = (HOSTING / "systemd" / "sp-window.timer").read_text()
+    assert "Unit=sp-chain@window.service" in t and "00..03,06..23:05:00 UTC" in t
+    rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
+    enabled = rb[rb.index("TIMERS=\""):rb.index("MLB_LAPTOP_ONLY=")]
+    assert "sp-window.timer" in enabled

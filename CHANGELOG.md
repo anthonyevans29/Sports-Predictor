@@ -4,6 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (K0: Kalshi storage receipt)
+- `scripts/k0_kalshi_storage_probe.py`: read-only probe of what a stored
+  Kalshi snapshot holds. Code read: only a derived prob (bid/ask mid,
+  single side, or last price) — bid/ask are not persisted.
+
 ## 2026-09-27 (cosmetics batch)
 - nfl-backtest verdict text for the live era (provenance/regression);
   stale rehearsal docstrings updated.

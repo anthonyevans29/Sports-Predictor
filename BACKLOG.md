@@ -22,6 +22,15 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **U2 DRIFT RECEIPT 2026-09-27 (architect ruling on #35):** the
+  recompute-at-export drift window is ACCEPTED WITH A RECEIPT —
+  `export-nfl-predictions` prints "⚠ ELO DRIFT: N NFL game(s) finished
+  after the predictions were written …" when any NFL game (ratings-walk
+  rules: finished, scored, non-preseason) kicked off in [earliest
+  exported prediction's computed_at − 4h, now] — i.e. results that can
+  have entered the Elo walk after predict-nfl ran (the 4h lookback covers
+  a game in progress at predict time). Silent in the normal back-to-back
+  chain (test asserts both).
 - **U2 — NFL EXPORT "WHY" FIELDS 2026-09-27 (Sunday authorization,
   lane U2; additive only):** the NFL predictions export gains per row
   `elo_home`, `elo_away`, `elo_gap` (raw home − away rating),

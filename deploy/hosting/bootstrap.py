@@ -22,8 +22,14 @@ database from the providers. No data travels.
             sync path. Accumulation then continues via the timers.
             Metered calls are used freely here as a ONE-TIME spend. Daily
             metered mode still waits on the H0-16 dashboard receipt.
+            --skip-family MLB (repeatable): the family's sync-teams and
+            sync-matches steps are SKIPPED and receipted as SKIPPED-ASN. Step
+            numbers never change, so --from N still means the same step. This
+            exists because statsapi.mlb.com returns 406 to datacenter ASNs
+            (architect finding, 2026-09-27); MLB syncing stays a LAPTOP duty.
     HOST    bootstrap.py fingerprint --out fp_host.json
-    EITHER  bootstrap.py compare fp_laptop.json fp_host.json  -> PASS/FAIL
+    EITHER  bootstrap.py compare fp_laptop.json fp_host.json [--skip-family MLB]  -> PASS/FAIL
+            A skipped family is N/A-host (laptop-only), never a failure.
 
 Phase-1 acceptance (compare):
 - Every COMPLETED (competition, season) must match the laptop EXACTLY, on
@@ -171,6 +177,23 @@ def newest_season(ref: dict) -> dict:
     return out
 
 
+SKIP_TAG = "SKIPPED-ASN"
+SKIPPABLE = ("sync-teams", "sync-matches")
+
+
+def comp_sport(ref: dict) -> dict:
+    return {g["comp"]: g["sport"] for g in ref["games"]}
+
+
+def is_skipped(st: list[str], sports: dict, skip: set) -> bool:
+    """A family's provider-sync steps (sync-teams / sync-matches for one of
+    its competitions) when that family is skipped. Market, Kalshi and seed
+    steps always run."""
+    if not skip or st[0] not in SKIPPABLE or "--competition" not in st:
+        return False
+    return sports.get(st[st.index("--competition") + 1]) in skip
+
+
 def plan(ref: dict) -> list[list[str]]:
     steps = [["init-db"], [SEED]]
     sports = [s for s in FAMILY_ORDER if any(p[0] == s for p in pairs(ref))]
@@ -196,8 +219,9 @@ def plan(ref: dict) -> list[list[str]]:
     return steps
 
 
-def compare(lap: dict, host: dict) -> tuple[bool, list[str]]:
+def compare(lap: dict, host: dict, skip: set = frozenset()) -> tuple[bool, list[str]]:
     lines, ok = [], True
+    sports = {**comp_sport(host), **comp_sport(lap)}
 
     def idx(fp):
         d: dict = {}
@@ -208,6 +232,10 @@ def compare(lap: dict, host: dict) -> tuple[bool, list[str]]:
     newest = newest_season(lap)
     for key in sorted(L):
         lt, ht = sum(L[key].values()), sum(H.get(key, {}).values())
+        if sports.get(key[0]) in skip:
+            lines.append(f"· {key[0]:5s} {key[1]:8s} N/A-host ({SKIP_TAG}: laptop-only family; "
+                         f"laptop {lt} games)")
+            continue
         lf, hf = L[key].get("FINISHED", 0), H.get(key, {}).get("FINISHED", 0)
         completed = key[1] != newest[key[0]]
         good = (lt == ht and lf == hf) if completed else True
@@ -219,6 +247,10 @@ def compare(lap: dict, host: dict) -> tuple[bool, list[str]]:
         lines.append(f"· {key[0]:5s} {key[1]:8s} host-only ({sum(H[key].values())} games)")
 
     for a in ANCHORS:
+        fam = a.get("sport") or sports.get(a.get("comp"))
+        if fam in skip:
+            lines.append(f"· ANCHOR {a['label']}: N/A-host ({SKIP_TAG})")
+            continue
         rows = [g for g in host["games"]
                 if (a.get("comp") in (None, g["comp"])) and (a.get("sport") in (None, g["sport"]))
                 and (a.get("season") in (None, g["season"])) and (a.get("status") in (None, g["status"]))]
@@ -255,15 +287,21 @@ def main(argv=None) -> int:
     sub = ap.add_subparsers(dest="cmd", required=True)
     f = sub.add_parser("fingerprint")
     f.add_argument("--out", type=Path, required=True)
+    skip_help = f"skip a family's sync-teams/sync-matches ({SKIP_TAG}); e.g. MLB"
     for name in ("plan", "run"):
         p = sub.add_parser(name)
         p.add_argument("--reference", type=Path, required=True)
+        p.add_argument("--skip-family", action="append", default=[], type=str.upper,
+                       choices=FAMILY_ORDER, help=skip_help)
         if name == "run":
             p.add_argument("--from", dest="start", type=int, default=1)
     cmp = sub.add_parser("compare")
     cmp.add_argument("laptop", type=Path)
     cmp.add_argument("host", type=Path)
+    cmp.add_argument("--skip-family", action="append", default=[], type=str.upper,
+                     choices=FAMILY_ORDER, help="report the family as N/A-host, not a failure")
     a = ap.parse_args(argv)
+    skip = set(a.skip_family) if a.cmd != "fingerprint" else set()
     c.load_host_env()
 
     if a.cmd == "fingerprint":
@@ -276,22 +314,25 @@ def main(argv=None) -> int:
               f"models {[r['version'] + ' ' + str(r['model_family']) for r in fp['model_registry']]}")
         return 0
     if a.cmd == "compare":
-        ok, lines = compare(json.loads(a.laptop.read_text()), json.loads(a.host.read_text()))
+        ok, lines = compare(json.loads(a.laptop.read_text()), json.loads(a.host.read_text()), skip)
         print("\n".join(lines))
         print(f"\n{'PASS' if ok else 'FAIL'} — H1a phase-1 acceptance (completed seasons exact + anchors)")
         c.append_receipt({"kind": "bootstrap", "step": "compare", "exit": 0 if ok else 1,
+                          "skipped_families": sorted(skip),
                           "fails": [x for x in lines if x.startswith("✗")][:40]})
         return 0 if ok else 1
 
     ref = json.loads(a.reference.read_text())
     steps = plan(ref)
+    sports = comp_sport(ref)
     if a.cmd == "plan":
         for i, st in enumerate(steps, 1):
             if st == [SEED]:
                 print(f"{i:3d}. [seed] install {len(ref.get('model_registry', []))} production "
                       f"model_versions rows from the reference (config only)")
             else:
-                print(f"{i:3d}. python cli.py {' '.join(st)}")
+                tag = f"   [{SKIP_TAG}]" if is_skipped(st, sports, skip) else ""
+                print(f"{i:3d}. python cli.py {' '.join(st)}{tag}")
         return 0
 
     import sp_run
@@ -299,7 +340,7 @@ def main(argv=None) -> int:
         raise SystemExit(f"✗ {c.db_path()} already exists — bootstrap is for a FRESH host. "
                          f"Resume a partial run with --from N.")
     run_id = f"{c.utc_now().strftime('%Y%m%dT%H%M%SZ')}-bootstrap"
-    ok = 0
+    ok = skipped = 0
     with c.db_lock():
         for i, st in enumerate(steps, 1):
             if i < a.start:
@@ -312,22 +353,31 @@ def main(argv=None) -> int:
                 ok += 1
                 continue
             line = f"python cli.py {' '.join(st)}"
+            if is_skipped(st, sports, skip):
+                print(f"\n=== [bootstrap {i}/{len(steps)}] {line}   -> {SKIP_TAG}", flush=True)
+                c.append_receipt({"kind": "step", "unit": "bootstrap", "run_id": run_id, "step": i,
+                                  "command": line, "exit": None, "skipped": SKIP_TAG})
+                skipped += 1
+                continue
             print(f"\n=== [bootstrap {i}/{len(steps)}] {line}", flush=True)
             rc, tail, dur = sp_run.run_step(st, run_id)
             c.append_receipt({"kind": "step", "unit": "bootstrap", "run_id": run_id, "step": i,
                               "command": line, "exit": rc, "duration_s": round(dur, 1),
                               "tail": tail})
             if rc != 0:
+                again = "".join(f" --skip-family {s}" for s in sorted(skip))
                 print(f"\n✗ step {i} failed (exit {rc}). Fix, then resume: bootstrap.py run "
-                      f"--reference {a.reference} --from {i}")
+                      f"--reference {a.reference} --from {i}{again}")
                 c.append_receipt({"kind": "chain", "unit": "bootstrap", "run_id": run_id,
                                   "exit": rc, "steps_ok": ok, "steps_total": len(steps)})
                 return rc
             ok += 1
     c.append_receipt({"kind": "chain", "unit": "bootstrap", "run_id": run_id, "exit": 0,
-                      "steps_ok": ok, "steps_total": len(steps),
+                      "steps_ok": ok, "steps_skipped": skipped, "skipped_families": sorted(skip),
+                      "steps_total": len(steps),
                       "counts": c.table_counts(c.db_path(), c.CHAIN_COUNT_TABLES)})
-    print(f"\n✓ bootstrap: {ok} steps. Next: fingerprint --out fp_host.json, then compare.")
+    print(f"\n✓ bootstrap: {ok} steps run, {skipped} {SKIP_TAG}. Next: fingerprint --out "
+          f"fp_host.json, then compare" + ("".join(f" --skip-family {s}" for s in sorted(skip))) + ".")
     return 0
 
 

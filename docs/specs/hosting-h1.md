@@ -219,11 +219,27 @@ Bootstrap uses metered calls freely as a **one-time spend**. Daily metered
 mode still waits on the H0-16 dashboard receipt (T8).
 ```
 cd /opt/sports-predictor
-sudo -u sp venv/bin/python deploy/hosting/bootstrap.py plan --reference /home/sp/fp_laptop.json   # receipt: the step list
+sudo -u sp venv/bin/python deploy/hosting/bootstrap.py plan --reference /home/sp/fp_laptop.json --skip-family MLB   # receipt: the step list
 sudo systemd-run --unit=sp-bootstrap --uid=sp --working-directory=/opt/sports-predictor \
-  /opt/sports-predictor/venv/bin/python deploy/hosting/bootstrap.py run --reference /home/sp/fp_laptop.json
+  /opt/sports-predictor/venv/bin/python deploy/hosting/bootstrap.py run --reference /home/sp/fp_laptop.json --skip-family MLB
 journalctl -fu sp-bootstrap
 ```
+- **`--skip-family MLB` is required on a DigitalOcean host.**
+  statsapi.mlb.com returns 406 to the DO ASN (see the H1b notes).
+  - MLB's `sync-teams` and `sync-matches` steps are receipted as
+    `SKIPPED-ASN`.
+  - Step numbers never change. The first bootstrap stopped at step 8 (MLB
+    `sync-matches`), so it resumes with the same number:
+    ```
+    cd /opt/sports-predictor && sudo -u sp git pull --ff-only origin main
+    sudo systemd-run --unit=sp-bootstrap-resume --uid=sp --working-directory=/opt/sports-predictor \
+      /opt/sports-predictor/venv/bin/python deploy/hosting/bootstrap.py run \
+      --reference /home/sp/fp_laptop.json --from 8 --skip-family MLB
+    journalctl -fu sp-bootstrap-resume
+    ```
+  - The MLB market steps (`sync-odds --competition MLB` via api-sports,
+    and `sync-kalshi`) still run. With no MLB games on the host they
+    match nothing. They are harmless.
 - `run` refuses if `data/sports.db` already exists (this is for a FRESH
   host).
 - A failed step stops the run and prints the exact
@@ -234,8 +250,11 @@ journalctl -fu sp-bootstrap
 TERMINAL (host):
 ```
 sudo -u sp venv/bin/python deploy/hosting/bootstrap.py fingerprint --out /home/sp/fp_host.json
-sudo -u sp venv/bin/python deploy/hosting/bootstrap.py compare /home/sp/fp_laptop.json /home/sp/fp_host.json
+sudo -u sp venv/bin/python deploy/hosting/bootstrap.py compare /home/sp/fp_laptop.json /home/sp/fp_host.json --skip-family MLB
 ```
+A skipped family prints as `N/A-host` (laptop-only). It is neither checked
+nor counted as a failure. The model-identity check still covers MLB's
+seeded production row: the seed is local and needs no statsapi call.
 PASS requires all three of the following:
 1. Every **completed** (competition, season) equals the laptop exactly, on
    total games and on FINISHED games.
@@ -254,7 +273,7 @@ PASS requires all three of the following:
 | NFL 3 seasons = 989 games | phase 1b, 2026-09-05 | at least |
 | NFL teams = 32 | same | at least |
 | Soccer FINISHED pot = 16,546 (24 competitions) | v22 promotion, 2026-09-21 | at least |
-| MLB | no fingerprint on record | completed seasons equal the laptop exactly |
+| MLB | no fingerprint on record | N/A-host (laptop duty, ASN block); where a host can reach statsapi, completed seasons equal the laptop exactly |
 
 - Current seasons print as informational; both sides move.
 - Ties and partials are FAIL. Re-sync the named (competition, season) with
@@ -293,6 +312,20 @@ PASS requires all three of the following:
   classes are **capture timing** AND **provider-pagination differences**.
 - The laptop remains writer of record (H0-17).
 - The frozen cutover criteria are unchanged.
+
+**H1b note: MLB is a LAPTOP duty (ruling 2026-09-27).**
+- FINDING, attributed to the architect: bootstrap step 8 failed because
+  statsapi.mlb.com returns **406** to the host for both the default and a
+  browser User-Agent (curl receipts).
+  - MLB blocks the DigitalOcean ASN outright; the laptop is unaffected.
+  - The free MLB Stats API is datacenter-hostile.
+  - The five commercial providers (api-sports x4, Kalshi) are unaffected.
+- RULING:
+  - MLB syncing remains a laptop duty for now.
+  - The host MLB timers (`sp-mlb-morning`, `sp-mlb-preslate`,
+    `sp-clv-capture`) stay OFF the enable list (T11).
+  - Candidate fixes for after cutover (a Tailscale exit node via the Mac,
+    or a residential egress) are H2-era decisions, deliberately deferred.
 
 **T8. TERMINAL (host): H0-16 quota mode.**
 - **BROWSER first:** open the api-sports dashboard and screenshot the
@@ -334,18 +367,20 @@ Receipt: the push arrives on the phone, and the printed line says
 
 **T11. TERMINAL (host): enable.**
 ```
-TIMERS="sp-backup.timer sp-backup-prune.timer sp-mlb-morning.timer sp-mlb-preslate.timer
-  sp-clv-capture.timer sp-soccer-friday.timer sp-soccer-saturday.timer sp-soccer-morning-after.timer
-  sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer sp-nhl-daily.timer sp-weekly-fullseason.timer
-  sp-ncaa-market.timer"
+TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-saturday.timer
+  sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer
+  sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer"
+MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
 systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
-- Every shipped timer is on the list; CI checks it. That includes the four
-  model-bearing timers (B4, seeded registry) and `sp-ncaa-market.timer`
-  (H0-11).
+- Every shipped timer is on `TIMERS` or `MLB_LAPTOP_ONLY`; CI checks it.
+- `TIMERS` includes the soccer model-bearing timers (B4, seeded registry)
+  and `sp-ncaa-market.timer` (H0-11).
+- The MLB timers stay off. They are shipped and CI-validated, ready for
+  whichever H2-era egress decision is made.
 - No timer exists for soccer-refresh (H0-6).
 
 **T12. TERMINAL (laptop): the nightly backup pull (H0-14 second layer).**
@@ -456,6 +491,11 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
    - Run `systemctl start sp-backup.service` and paste its receipt.
 7. The laptop keeps its last `.backup` file cold for 30 days (the rollback
    point). Its `data/sports.db` is not written again.
+   - **H2-era decision, deliberately deferred:** how MLB reaches the host
+     DB after cutover, given the statsapi ASN block (H1b note). Options
+     named: a Tailscale exit node via the Mac, or a residential egress.
+     Settle it before this step. Until then MLB stays on the laptop, and
+     cutover must not strand it.
 
 **Rollback** uses the same protocol in reverse:
 1. Stop the host timers.
@@ -526,7 +566,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 | H0-17 | Laptop is writer of record all week. |
 | H0-18 | Cutover criteria frozen (section H2). Criterion 3 amended 2026-09-27, BEFORE day 1: "capture timing or explained provider pagination, each explained". |
 | H1 phasing | Amended 2026-09-27 (operator proposal, ratified with a guard): H1a fresh bootstrap (acceptance = the host reproduces the BACKLOG fingerprints and the model identity), H1b independent parallel week, H2 = the one `.backup` migration. |
-| B4 | RATIFIED 2026-09-27: the production `model_versions` rows are seeded in H1a (config only; the books stay empty). Compare verifies model identity. All four model-bearing timers are enabled with the rest. |
+| B4 | RATIFIED 2026-09-27: the production `model_versions` rows are seeded in H1a (config only; the books stay empty). Compare verifies model identity. All four model-bearing timers are enabled with the rest, except the two MLB ones (see the ASN row). |
+| MLB / ASN | 2026-09-27: statsapi.mlb.com returns 406 to the DO ASN (architect finding). MLB syncing is a LAPTOP duty. The host MLB timers (mlb-morning, mlb-preslate, clv-capture) stay OFF. Bootstrap uses `--skip-family MLB` (SKIPPED-ASN receipts; compare reports N/A-host). The post-cutover fix (Tailscale exit node via the Mac, or residential egress) is an H2-era decision, deferred. |
 | H0-19 | Pasted table (`sp_receipts.py`). An exports-ingestible file is H2. |
 | H0-20 | Pull over the tailnet (scp/Taildrop). Push is H2. |
 | H0-21 | Resolved by the H1 authorization: artifacts now, provisioning at Anthony's timing. |

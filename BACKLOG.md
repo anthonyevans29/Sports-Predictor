@@ -22,6 +22,28 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FINDING (architect, 2026-09-27): statsapi.mlb.com is DATACENTER-
+  HOSTILE.** H1a bootstrap step 8 (MLB sync-matches) failed on the DO host:
+  statsapi.mlb.com returns 406 for BOTH the default and a browser
+  User-Agent (curl receipts) = MLB blocks the DigitalOcean ASN outright;
+  the laptop is unaffected. The five commercial providers (api-sports x4,
+  Kalshi) are unaffected. RULING: MLB syncing remains a LAPTOP duty for
+  now; host MLB timers (sp-mlb-morning, sp-mlb-preslate, sp-clv-capture)
+  stay OFF the enable list; post-cutover candidates (tailscale exit node
+  via the Mac, or a residential egress) are H2-era decisions,
+  deliberately deferred. URGENT SMALL PR: bootstrap.py gains
+  --skip-family MLB (repeatable; plan/run/compare): the family's
+  sync-teams/sync-matches steps are receipted SKIPPED-ASN (exit null),
+  step numbering untouched so --from still addresses the same step
+  (host resumes `--from 8 --skip-family MLB`); the failure hint reprints
+  the flag; compare reports the family's comp-seasons and anchors as
+  N/A-host (laptop-only), not failures; model identity still checks the
+  seeded MLB row (the seed is local). MLB market steps (sync-odds via
+  api-baseball, sync-kalshi) still run and match nothing on the host —
+  harmless. Runbook: B2/B3 commands carry the flag + the resume block;
+  H1b MLB note; T11 splits TIMERS / MLB_LAPTOP_ONLY (CI asserts the MLB
+  timers stay off); H2 step 7 names the deferred egress decision so
+  cutover cannot strand MLB. pytest 179 passed.
 - **ARCHITECT RULINGS ON #41's TWO QUESTIONS 2026-09-27:** (1) RATIFIED —
   the production model_versions rows copy to the host as part of H1a: a
   CONFIG-ONLY seed (production model identities + parameters; no odds, no

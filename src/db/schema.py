@@ -280,11 +280,22 @@ class OddsSnapshot(Base):
     match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), index=True)
     market: Mapped[str] = mapped_column(String(32))      # "1X2", "TOTALS"
     selection: Mapped[str] = mapped_column(String(32))   # "HOME","AWAY","OVER","UNDER"
-    devig_prob: Mapped[float] = mapped_column(Float)     # consensus implied prob, vig removed
+    # SEMANTICS (K0 receipt, 2026-09-27 — NOT renamed, to avoid churn): for
+    # BOOK rows this is the de-vigged consensus prob. For source="kalshi"
+    # rows it is NOT de-vigged: it is the yes bid/ask MIDPOINT when both are
+    # quoted, else the single quoted side (a raw bid OR ask), else the last
+    # price — one contract's raw price; the exports sum-normalize the sides.
+    devig_prob: Mapped[float] = mapped_column(Float)
     line: Mapped[float | None] = mapped_column(Float)    # totals line; NULL for 1X2
     n_books: Mapped[int] = mapped_column(Integer, default=0)  # how many books in the consensus
     captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
     source: Mapped[str | None] = mapped_column(String(32), index=True)
+    # K-track (2026-09-27): the executable quotes behind a kalshi snapshot, in
+    # dollars (0.00-1.00). NULL for book rows, for kalshi rows captured before
+    # this column existed (no backfill is possible), or when a side wasn't
+    # quoted. Added by migrate_kalshi_quotes.py.
+    yes_bid: Mapped[float | None] = mapped_column(Float)
+    yes_ask: Mapped[float | None] = mapped_column(Float)
 
     match: Mapped[Match] = relationship()
 

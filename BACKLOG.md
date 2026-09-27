@@ -59,6 +59,29 @@ specific reason they're not being built now.
   is duplicate-safe. NON-CLAIM: matching is a name/date heuristic.
   RECEIPT: scripts/cockpit_fills_verify.py 18/18 (synthetic CSV);
   cockpit_v04_verify.py still 25/25.
+- **K1 — KALSHI BID/ASK STORED + EXECUTABLE-COST EXPORT FIELDS 2026-09-27
+  (architect: K1 proceeds NOW on the K0 code receipt; the DB probe is
+  color, not a gate. Priority: today's afternoon syncs collect bid/ask):**
+  `odds_snapshots` gains nullable `yes_bid`, `yes_ask` (dollars), filled on
+  EVERY kalshi sync going forward — both store sites (shared two-sided
+  matcher: MLB/NFL/NHL/NCAA; soccer 3-way) via `KalshiAdapter.yes_quotes`.
+  Backfill impossible and not attempted (pre-migration rows stay NULL).
+  `devig_prob` NOT renamed (churn); a schema comment now names its true
+  kalshi semantics (bid/ask midpoint, else a single raw side, else last —
+  not de-vigged). Exports (additive, "K-track: informational until the
+  executable-edge ruling"): the NFL predictions export and the fixtures
+  export gain `kalshi_bid`, `kalshi_ask` (HOME contract), and
+  `kalshi_exec_cost = ask + fee` where Kalshi is two-sided (null
+  otherwise), plus a `k_track` label. FEE (venue.py `kalshi_fee`):
+  Kalshi's published schedule, roundup(0.07 x C x P x (1-P)) to the cent,
+  per ONE contract, in probability points — ARCHITECT-VERIFY (constant +
+  per-contract rounding) before anything consumes it. Receipts: a stubbed
+  end-to-end sync (NFL, two-sided) stores 0.53/0.55 + 0.45/0.47 with the
+  midpoint unchanged; both exports carry 0.53 / 0.55 / 0.57;
+  `migrate_kalshi_quotes.py` idempotent with a quotes-coverage receipt.
+  RUN ORDER after merge: .backup -> `python migrate_kalshi_quotes.py`
+  BEFORE any chain (the ORM maps the columns) -> the next sync-kalshi-*
+  fills them -> re-run the migration for the receipt.
 - **U2 DRIFT RECEIPT 2026-09-27 (architect ruling on #35):** the
   recompute-at-export drift window is ACCEPTED WITH A RECEIPT —
   `export-nfl-predictions` prints "⚠ ELO DRIFT: N NFL game(s) finished

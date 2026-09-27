@@ -193,6 +193,18 @@ class KalshiAdapter:
     TIE_STRIKE_UUID = "111193d4-9b1f-4bd8-ab7c-9de252737f05"
 
     @staticmethod
+    def yes_quotes(market: dict) -> tuple[float | None, float | None]:
+        """(yes_bid, yes_ask) in dollars (0.00-1.00), each None when absent.
+        K-track (2026-09-27): stored per snapshot so executable edge can be
+        computed against the ask, not the midpoint."""
+        def _f(v):
+            try:
+                return float(v)
+            except (TypeError, ValueError):
+                return None
+        return _f(market.get("yes_bid_dollars")), _f(market.get("yes_ask_dollars"))
+
+    @staticmethod
     def spread_dollars(market: dict) -> float | None:
         """Ask minus bid, in dollars. None if either side missing."""
         def _f(v):

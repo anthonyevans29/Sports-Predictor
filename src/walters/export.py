@@ -1015,6 +1015,7 @@ def export_fixtures(
                                OddsSnapshot as _Snapshot)
     from src.walters import spread_fallback as _fb
     from src.walters.value import MarketSnapshot as _Snap
+    from src.walters.venue import kalshi_exec as _kexec
 
     labels: _Counter = _Counter()
     counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0,
@@ -1097,6 +1098,12 @@ def export_fixtures(
                 "away_score": m.away_score,
                 "market": market,
                 "kalshi": kalshi,
+                # K-track (K1, additive): home-side quotes + executable cost,
+                # two-sided Kalshi only (informational until the ruling).
+                **(_kexec(getattr(kal.get("HOME"), "yes_bid", None),
+                          getattr(kal.get("HOME"), "yes_ask", None))
+                   if kal_status == "two_sided" else
+                   {"kalshi_bid": None, "kalshi_ask": None, "kalshi_exec_cost": None}),
                 "input_quality": {"book_odds": market["bookmaker_count"] if market else 0,
                                   "kalshi": kal_status},
             })

@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (K1: Kalshi bid/ask stored; executable-cost fields)
+- odds_snapshots.yes_bid / yes_ask filled by every Kalshi sync going
+  forward. Run `python migrate_kalshi_quotes.py` after merge, before any
+  chain.
+- NFL predictions + fixtures exports add kalshi_bid, kalshi_ask,
+  kalshi_exec_cost (ask + fee; fee formula ARCHITECT-VERIFY) —
+  informational until the executable-edge ruling.
+
 ## 2026-09-27 (K0: Kalshi storage receipt)
 - `scripts/k0_kalshi_storage_probe.py`: read-only probe of what a stored
   Kalshi snapshot holds. Code read: only a derived prob (bid/ask mid,

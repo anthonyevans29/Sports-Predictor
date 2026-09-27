@@ -22,6 +22,66 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ARCHITECT RULINGS ON THE FILLS LANE 2026-09-27 (#39):** (1) CSV
+  HEADERS CONFIRMED from the real Kalshi YTD export, verbatim: subtrader_id,
+  type, quantity_fp, market_ticker, side, entry_price_dollars,
+  exit_price_dollars, open_fees_dollars, close_fees_dollars,
+  realized_pnl_without_fees_dollars, realized_pnl_with_fees_dollars,
+  close_timestamp, open_timestamp, product, period_start, market_title.
+  Values: side yes/no lowercase; ISO timestamps with -05:00 offset;
+  8-decimal dollar strings; type "trade"; product "predictions". The
+  keyword mapping is VERIFIED on exactly these names — the headless
+  harness now uses the verbatim header and asserts every field maps to
+  its exact column (the earlier ARCHITECT-VERIFY on header names is
+  CLOSED). (2) FILLS METRICS RATIFIED: ledger-level TRAILING-30-DAY avg
+  fill size and fee per dollar staked (by close timestamp) — per-game is
+  structurally impossible and not wanted; now shown in the REALIZED card
+  and the Copy P&L block. (3) #39 DISPOSITION: MERGE when green
+  (repo-side); the PUBLISH HOLDS until after today's slate (v0.4 breathes
+  through its first live day untouched) — the architect publishes the
+  fills-capable Cockpit tonight or tomorrow morning; the YTD CSV is its
+  first real import. (4) ON THE RECORD (architect, with approval): the
+  resolver saga — a CHANGELOG line dropped during a main merge, caught by
+  the executor's own lost-line check, root-caused (CHANGELOG rebuilt when
+  only BACKLOG conflicted), fixed to touch only conflicted files — "the
+  law-loop running end to end inside your own tooling."
+- **KALSHI FILLS IMPORT + TWO-BOOK ACCOUNTING 2026-09-27 (architect NEW
+  LANE, Cockpit Ledger tab) + HISTORICAL NOTE + K-TRACK PRIORITY RAISED.**
+  HISTORICAL (architect, from the real Kalshi YTD realized-P&L export:
+  2,058 fills): -$292 with fees, -$37 pre-fee, $255 of fees = 87% of
+  the loss. By month: Aug +$293 / Sept -$486, Sept's damage concentrated
+  OFF-BOOK. FEES are identified as the operation's largest single cost.
+  K-TRACK PRIORITY RAISED (logged): fee-aware edge floors are now
+  EVIDENCE-MANDATED; the K1 fee formula's ARCHITECT-VERIFY is
+  outstanding; avg-fill-size and fee-per-dollar-staked join K1's export
+  fields when they land (ARCHITECT-RULE on semantics: per-game exports
+  hold no fills — proposed as book-level constants from the realized
+  ledger, e.g. trailing-30-day values). BUILD (tools/cockpit.html,
+  Ledger tab): "Import Kalshi CSV" — header columns mapped by KEYWORD
+  (market_ticker, side, quantity, entry/exit price, open/close fees,
+  realized P&L with/without fees, open/close timestamps, market_title);
+  the import prints the mapping and refuses with the headers it saw if a
+  required column is missing. EXACT HEADER NAMES ARE ARCHITECT-VERIFY
+  (no real CSV seen yet). Ticker grammar KX{FAMILY}GAME-{yyMONdd}[hhmm]
+  {teams}-{side}; families MLB/NFL/NCAAF/NHL/EPL/UCL/FACUP/UEFANL;
+  KXMVESPORTSMULTIGAMEEXTENDED = kalshi-native parlays; everything else =
+  non_sport. Side resolution: the side code is fitted to the
+  market_title's two teams (initials / prefix); NO on a team = backing
+  the other side; the TIE leg = Draw (NO on the tie leg is not a single
+  outcome). MATCHING: a sports fill is system_matched when a logged call
+  (not a parlay leg, units > 0) has the family's sport, kickoff date +/-1,
+  both title teams in the game, and the same backed side — it carries
+  the call's engine/tier; otherwise off_book (a quarantine-SHADOW match or
+  a disagreeing side are listed as UNMATCHED-BUT-PLAUSIBLE for manual
+  review). Parlays and non_sport are always off_book_other. REPORTING: a
+  REALIZED card — three books (system_matched / off_book_sports /
+  off_book_other) with n, staked (qty x entry), fees, pre-fee P&L, net,
+  avg fill, fees-%-of-loss; a by-category table; the plausible list; the
+  same section in the Copy P&L block. Fills are stored in the ledger
+  object (`L.fills`, additive), so Export/Import carry them; re-import
+  is duplicate-safe. NON-CLAIM: matching is a name/date heuristic.
+  RECEIPT: scripts/cockpit_fills_verify.py 18/18 (synthetic CSV);
+  cockpit_v04_verify.py still 25/25.
 - **K1 — KALSHI BID/ASK STORED + EXECUTABLE-COST EXPORT FIELDS 2026-09-27
   (architect: K1 proceeds NOW on the K0 code receipt; the DB probe is
   color, not a gate. Priority: today's afternoon syncs collect bid/ask):**

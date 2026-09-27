@@ -1,0 +1,17 @@
+# Pages the operator for a failed unit (OnFailure=sp-notify@<instance>.service).
+# Receipt + journal always; HTTP delivery only when SP_NOTIFY_URL is set (H0-13).
+# The sp user needs the systemd-journal group to read other units' journals.
+[Unit]
+Description=sports-predictor failure page for %i
+
+[Service]
+Type=oneshot
+User=sp
+Group=sp
+WorkingDirectory=/opt/sports-predictor
+EnvironmentFile=-/etc/sports-predictor/host.env
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ExecStart=/opt/sports-predictor/venv/bin/python deploy/hosting/sp_notify.py failure %i

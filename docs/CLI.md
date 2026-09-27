@@ -22,7 +22,7 @@ Conventions: soccer seasons are `"2026/27"`; MLB and NFL seasons are
 | `find-team` | `<name>` | Verify a team exists and see its ids. |
 | `db-tune` | `--vacuum` | One-shot DB health pass: WAL, ANALYZE, composite indexes, probe timing. |
 | `data-freshness` | `--sport --season` | Diagnose whether model inputs are current. |
-| `model-versions` | | Trained model versions and their status (production / rejected / shelved). |
+| `model-versions` | | Trained model versions and their status (production / held / rejected / shelved). |
 | `show-config` / `set-config` | `--sport --field --value --yes` | Inspect / edit the production model's frozen config (gated; logs manual overrides). |
 
 ## Core data syncs (all sports)
@@ -39,7 +39,7 @@ Conventions: soccer seasons are `"2026/27"`; MLB and NFL seasons are
 
 Pre-slate chain, in order: `sync-matches --competition MLB --date-from <today> --date-to <today>` → `sync-bullpen-stats` →
 `sync-pitchers` → `sync-pitcher-stats` → `sync-odds` → `sync-kalshi` →
-`predict` → `sync-umpires` → `capture-weather` → `export-predictions`.
+`predict` → `sync-umpires --today` → `capture-weather` → `export-predictions`.
 
 Morning grading: `sync-matches` → `evaluate` → `improve` →
 `sync-appearances --recent` → `sync-umpires --recent` → `export-results`.
@@ -50,7 +50,7 @@ Morning grading: `sync-matches` → `evaluate` → `improve` →
 | `sync-pitcher-stats` | `--season` | Season-to-date stats for probables. |
 | `sync-bullpen-stats` | `--season` | Bullpen aggregates for all 30 teams. |
 | `sync-appearances` | `--competition --season --recent` | Pitcher appearances (feeds bullpen availability). |
-| `sync-umpires` | `--competition --season --recent` | Umpire assignments + environment. |
+| `sync-umpires` | `--competition --season --recent --today` | Umpire assignments + environment. `--today` = today's scheduled games (pre-slate); `--recent` = recent finished games (morning). |
 | `capture-weather` | `--date` | Tracking-only weather snapshot near first pitch. |
 | `backfill-weather` | `--competition --season --limit` | Historical weather via Open-Meteo. |
 | `sync-kalshi` | `--date-from --date-to` | Kalshi MLB game markets (second market source). |
@@ -113,7 +113,8 @@ books' fair bars with a market-only chip and the Kalshi status.
 |---|---|---|
 | `predict` | `--sport --competition --season` | Write predictions for upcoming games (production model). |
 | `evaluate` | `--sport` | Grade finished games (sides, totals, CLV; overnight closer backfill). |
-| `improve` | `--sport --force-input-eval` | Train a candidate and gate it vs production on the frozen holdout. Rejection is the normal outcome. |
+| `improve` | `--sport --force-input-eval --hold-on-pass` | Train a candidate and gate it vs production on the frozen holdout. Rejection is the normal outcome. `--hold-on-pass` (or env `SP_IMPROVE_HOLD_ON_PASS=1`, set by the host units — H0-5): a PASS is HELD, not promoted, and prints an `SP-PAGE:` line. |
+| `ratify-candidate` | `--sport --version --yes` | Promote a HELD candidate on explicit operator ratification; refused unless the production version it beat is still production. |
 | `backtest` | `--season --competition` | Leakage-free historical re-run of the current model. |
 | `export-predictions` | `--sport --competition --start --end --status` | Consumer prediction file with input_quality vocabulary. |
 | `export-results` | `--sport --competition --date` | Graded results file (top-pick, totals pulse annotations). |

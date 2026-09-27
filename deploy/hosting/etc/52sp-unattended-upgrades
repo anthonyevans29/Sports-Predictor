@@ -1,0 +1,6 @@
+// /etc/apt/apt.conf.d/52sp-unattended-upgrades — H0-3 (ruled 2026-09-27):
+// automatic reboot ALLOWED, only at 04:30 host time (host TZ is UTC). No sp
+// timer fires 04:15-05:15 UTC; every boot writes a receipt (sp-boot-receipt).
+Unattended-Upgrade::Automatic-Reboot "true";
+Unattended-Upgrade::Automatic-Reboot-WithUsers "true";
+Unattended-Upgrade::Automatic-Reboot-Time "04:30";

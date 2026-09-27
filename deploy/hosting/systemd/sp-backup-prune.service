@@ -1,0 +1,16 @@
+# Backup retention. REPORT-ONLY unless SP_PRUNE_APPLY=1 in host.env (H0-14 open).
+[Unit]
+Description=sports-predictor backup retention
+OnFailure=sp-notify@prune.service
+
+[Service]
+Type=oneshot
+User=sp
+Group=sp
+WorkingDirectory=/opt/sports-predictor
+EnvironmentFile=-/etc/sports-predictor/host.env
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+ExecStart=/opt/sports-predictor/venv/bin/python deploy/hosting/sp_prune.py

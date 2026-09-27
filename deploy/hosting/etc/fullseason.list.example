@@ -1,0 +1,4 @@
+# /etc/sports-predictor/fullseason.list — one "CODE|SEASON" per line, for the
+# weekly full-season sync. Generate from the DB, never by hand (hosting-h1.md
+# step T9); season strings are what the DB stores (CLAUDE.md), not assumed.
+# PL|2026/27

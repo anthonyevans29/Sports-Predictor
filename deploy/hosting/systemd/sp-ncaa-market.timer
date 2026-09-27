@@ -1,0 +1,14 @@
+# NCAA market-only (Kalshi primary). Shipped; enable only on ratification (hosting-h1.md open list).
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-ncaa-market
+
+[Timer]
+OnCalendar=Fri *-*-* 16:00:00 UTC
+OnCalendar=Sat *-*-* 13:00:00 UTC
+Unit=sp-chain@ncaa-market.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

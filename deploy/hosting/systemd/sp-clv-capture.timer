@@ -1,0 +1,16 @@
+# Replaces the four launchd CLV jobs one-for-one; zone America/New_York pending H0-7.
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-clv-capture
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 America/New_York
+OnCalendar=*-*-* 12:00:00 America/New_York
+OnCalendar=*-*-* 16:00:00 America/New_York
+OnCalendar=*-*-* 20:00:00 America/New_York
+Unit=sp-chain@clv-capture.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

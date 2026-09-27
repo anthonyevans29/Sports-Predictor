@@ -4,6 +4,17 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (Hosting H1: systemd pack + runbook, inert until provisioning)
+- deploy/hosting/: chain definitions (CI-checked against cli.py), sp_run
+  receipts writer, .backup/prune/notify/boot-receipt/deploy scripts,
+  migration pack/verify/install, parallel-week export diff, 21 systemd
+  unit/timer files, install.sh (enables nothing).
+- docs/specs/hosting-h1.md: provisioning runbook (BROWSER/TERMINAL),
+  frozen cutover criteria, H0 rulings record, 4 open items.
+- H0-5 guard: `improve --hold-on-pass` holds a PASS and pages;
+  `ratify-candidate` promotes on explicit ratification. Default unchanged.
+- CLI.md: pre-slate `sync-umpires --today`; improve/ratify rows.
+
 ## 2026-09-27 (Cockpit: Kalshi fills import, two-book accounting)
 - Ledger tab: "Import Kalshi CSV" -> REALIZED section (system-matched /
   off-book sports / off-book other; staked, fees, pre-fee, net, avg fill,

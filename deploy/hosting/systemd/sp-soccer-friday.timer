@@ -1,0 +1,13 @@
+# PL pre-matchweek run (pl_weekly_routine FRIDAY).
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-soccer-friday
+
+[Timer]
+OnCalendar=Fri *-*-* 14:00:00 UTC
+Unit=sp-chain@soccer-prematch.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -1,0 +1,13 @@
+# Retention (report-only until H0-14).
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-backup-prune
+
+[Timer]
+OnCalendar=*-*-* 05:30:00 UTC
+Unit=sp-backup-prune.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

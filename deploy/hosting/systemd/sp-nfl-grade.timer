@@ -1,0 +1,13 @@
+# Mornings after SNF-Sunday / MNF / TNF.
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-nfl-grade
+
+[Timer]
+OnCalendar=Mon,Tue,Fri *-*-* 10:00:00 UTC
+Unit=sp-chain@nfl-grade.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

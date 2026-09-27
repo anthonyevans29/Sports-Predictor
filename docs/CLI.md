@@ -29,7 +29,7 @@ Conventions: soccer seasons are `"2026/27"`; MLB and NFL seasons are
 
 | Command | Options | Purpose |
 |---|---|---|
-| `sync-matches` | `--competition --season --seasons N --date-from --date-to --date` | Schedules, scores, statuses. `--seasons N` backfills N seasons (sport-aware season strings). |
+| `sync-matches` | `--competition --season --seasons N --date-from --date-to` | Schedules, scores, statuses. `--seasons N` backfills N seasons (sport-aware season strings). |
 | `sync-odds` | `--competition --season` | Book odds for upcoming games (soccer & MLB bulk path). |
 | `sync-injuries` | `--competition --season` | Current injury/status report per team. NFL: positions joined from the roster endpoint. |
 | `capture-odds` | `--sport --competition --season` | Lightweight odds-only capture for CLV tracking. |
@@ -37,7 +37,7 @@ Conventions: soccer seasons are `"2026/27"`; MLB and NFL seasons are
 
 ## MLB daily operation
 
-Pre-slate chain, in order: `sync-matches --date` → `sync-bullpen-stats` →
+Pre-slate chain, in order: `sync-matches --competition MLB --date-from <today> --date-to <today>` → `sync-bullpen-stats` →
 `sync-pitchers` → `sync-pitcher-stats` → `sync-odds` → `sync-kalshi` →
 `predict` → `sync-umpires` → `capture-weather` → `export-predictions`.
 
@@ -70,12 +70,12 @@ Pre-matchday chain: `sync-matches` → `sync-odds` → `sync-injuries` →
 | `soccer-odds-history` | `--competition --season --csv --url` | Ingest historical closing 1X2 odds (football-data.co.uk). |
 | `predict-worldcup` | `--season --competition --out` | Market-derived tournament sheet — not the club model. |
 
-## NFL operation (rehearsal phase)
+## NFL operation (LIVE since Week 3, 2026-09-22)
 
 Weekly rhythm: `sync-odds-football` + `sync-kalshi-nfl` every day or two as
 lines post; after game days `sync-matches --competition NFL` then
-`nfl-grade`. Prediction generation is internal until the dress rehearsal
-passes.
+`nfl-grade`. Predictions are LIVE (nfl_elo_v1): `predict-nfl` →
+`export-nfl-predictions` before each slate.
 
 | Command | Options | Purpose |
 |---|---|---|
@@ -83,10 +83,10 @@ passes.
 | `sync-kalshi-nfl` | | Kalshi `KXNFLGAME` markets via the shared two-sided matcher. |
 | `capture-weather-nfl` | | Tracking-only weather snapshot for upcoming NFL games (team-keyed stadium map; roofed games stored as indoor). |
 | `predict-nfl` | | Write v1 Elo predictions for upcoming games (match-only upsert). |
-| `export-nfl-predictions` | | Rehearsal-format export (`rehearsal: true`; QB status in input_quality). |
-| `nfl-backtest` | | Walk-forward backtest against the frozen phase-2 gate. |
+| `export-nfl-predictions` | | LIVE export (`rehearsal: false`): quarantine contract, STALE-BOOK? venue check, Elo/rest "why" fields, QB status in input_quality. Prints scope + venue-check lines. |
+| `nfl-backtest` | | Walk-forward backtest against the frozen phase-2 gate — in the live era a provenance/regression check; prints a scope line. |
 | `nfl-grade` | | Grade predictions vs finished games + banked closer consensus (sides, log-loss, CLV). |
-| `export-nfl-results` | | Graded NFL results file for the consumer (standard results shape, rehearsal-flagged). |
+| `export-nfl-results` | | Graded NFL results file for the consumer (standard results shape; live era — no rehearsal flag). |
 
 ## Market-only competitions (cups, UNL, NCAA, NHL)
 
@@ -97,6 +97,7 @@ syncs run normally; the consumer receives market-only files:
 
 | Command | Options | Purpose |
 |---|---|---|
+| `sync-kalshi-ncaa` | | Kalshi `KXNCAAFGAME` markets via the shared two-sided matcher (the primary college market source). |
 | `export-fixtures` | `--competition --start --end` | Market-only fixtures file: schedule, results, book consensus (latest pre-kickoff price per book), Kalshi presence; `contains_predictions: false`. Prints the odds (market, selection) labels it saw. |
 
 **NHL daily (from the 2026-10-07 market-only launch):**
@@ -151,7 +152,7 @@ complete interface for those.
 | **MLB Stats API** (statsapi.mlb.com) | MLB schedules, scores, probables, appearances, umpires | `/schedule`, `/game/.../boxscore`, probables feed | none (public) |
 | **API-Baseball** (api-sports.io v1) | MLB odds only | `/odds` per game window | `API_BASEBALL_KEY` (falls back to `API_FOOTBALL_KEY`) |
 | **API-American-Football** (api-sports.io v1) | NFL teams, games, odds, injuries, rosters | `/teams`, `/games`, `/odds`, `/injuries`, `/players` | `API_AMERICAN_FOOTBALL_KEY` (falls back to `API_FOOTBALL_KEY`) |
-| **Kalshi** (public market API) | Second market source: MLB (`KXMLBGAME`), NFL (`KXNFLGAME`), EPL (`KXEPLGAME`) | series/markets listing | none (public read) |
+| **Kalshi** (public market API) | Second market source: MLB (`KXMLBGAME`), NFL (`KXNFLGAME`), NHL (`KXNHLGAME`), NCAA football (`KXNCAAFGAME`), EPL (`KXEPLGAME`) | series/markets listing | none (public read) |
 | **Open-Meteo** | Weather capture/backfill (MLB; NFL is backlog N1) | forecast + archive | none (public) |
 
 Subscription notes: api-sports products are licensed separately —
@@ -165,6 +166,7 @@ your plan (a bundled key may serve all three; the clients fall back to
   (CLI core) plus `fastapi uvicorn jinja2` (web UI).
 - SQLite (bundled with Python) — `data/sports.db`, created by `init-db`,
   **gitignored and irreplaceable** (point-in-time odds snapshots cannot
-  be re-synced). Back up weekly:
+  be re-synced). Back up DAILY, and mandatorily before any
+  `soccer-refresh` (CLAUDE.md law 5; `.backup` API only):
   `sqlite3 data/sports.db ".backup ~/backups/sports_$(date +%F).db"`.
 - `.env` from `.env.example` (gitignored).

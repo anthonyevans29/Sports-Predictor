@@ -118,7 +118,30 @@ def _rest_days(s, m) -> dict[str, float | None]:
     return out
 
 
-def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str:
+# A game in progress when predict-nfl ran can finish (and enter the rating
+# walk) afterwards, so the drift window opens a game-length before the
+# earliest prediction write.
+_DRIFT_LOOKBACK = timedelta(hours=4)
+
+
+def elo_drift_games(s, since) -> list:
+    """NFL games FINISHED (by the ratings walk's rules) with kickoff in
+    [since - lookback, now]: results that may have entered the Elo walk after
+    the predictions were written, so export-time elo_* fields can lead the
+    stored home_win_prob. Empty in the normal back-to-back chain."""
+    if since is None:
+        return []
+    return [m for m in s.execute(
+        nfl_scoped(select(Match)).where(
+            Match.status == MatchStatus.FINISHED,
+            Match.home_score.is_not(None),
+            Match.utc_date >= since - _DRIFT_LOOKBACK,
+            Match.utc_date <= datetime.utcnow(),
+        )).scalars() if "pre" not in (m.stage or "").lower()]
+
+
+def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
+                           receipts: dict | None = None) -> str:
     # U2 "why" fields (2026-09-27): the ratings the model prices from — the
     # same _current_ratings() walk predict-nfl uses (finished NFL games,
     # preseason excluded), taken at export time.
@@ -191,6 +214,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
             gap_pp, venue_flag = venue_gap(_fair.get("HOME"),
                                            kal["home"] if kal else None)
             rows.append({
+                "_computed_at": pred.computed_at,   # drift receipt only; popped
                 "match_id": m.id,
                 "utc_date": m.utc_date.isoformat(),
                 "week": m.matchday,
@@ -230,6 +254,15 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports") -> str
                     "injuries": inj,
                 },
             })
+        # U2 drift receipt (architect 2026-09-27): games that finished after
+        # the earliest exported prediction was written.
+        if receipts is not None:
+            written = [r.get("_computed_at") for r in rows if r.get("_computed_at")]
+            drift = elo_drift_games(s, min(written) if written else None)
+            receipts["elo_drift_games"] = [f"{m.away_team.name} @ {m.home_team.name}"
+                                           for m in drift]
+    for r in rows:
+        r.pop("_computed_at", None)
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir,
                         f"nfl_predictions_{datetime.utcnow().strftime('%Y-%m-%d')}.json")

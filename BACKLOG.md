@@ -45,6 +45,15 @@ specific reason they're not being built now.
   RUN ORDER after merge: .backup -> `python migrate_kalshi_quotes.py`
   BEFORE any chain (the ORM maps the columns) -> the next sync-kalshi-*
   fills them -> re-run the migration for the receipt.
+- **U2 DRIFT RECEIPT 2026-09-27 (architect ruling on #35):** the
+  recompute-at-export drift window is ACCEPTED WITH A RECEIPT —
+  `export-nfl-predictions` prints "⚠ ELO DRIFT: N NFL game(s) finished
+  after the predictions were written …" when any NFL game (ratings-walk
+  rules: finished, scored, non-preseason) kicked off in [earliest
+  exported prediction's computed_at − 4h, now] — i.e. results that can
+  have entered the Elo walk after predict-nfl ran (the 4h lookback covers
+  a game in progress at predict time). Silent in the normal back-to-back
+  chain (test asserts both).
 - **SUNDAY AUTHORIZATION 2026-09-27 (architect): three lanes — K0/K1
   (Kalshi executable-edge data layer, the K-track's opening), U2 (NFL
   export "why" fields), C (cosmetics). Guardrails unchanged; NO cockpit

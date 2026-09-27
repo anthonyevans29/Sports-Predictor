@@ -61,3 +61,27 @@ def test_export_carries_elo_rest_and_home_adv(game, tmp_path):
     # additive: existing contract fields untouched
     for k in ("market_divergence_pp", "quarantine", "kalshi_prob", "venue_flag", "prediction"):
         assert k in row
+
+
+def test_drift_receipt_silent_in_normal_chain_and_warns_on_drift(game, tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from cli import cli
+    from src.db.schema import Prediction
+    from src.walters.nfl_predict import export_nfl_predictions
+    rc = {}
+    export_nfl_predictions(out_dir=str(tmp_path), receipts=rc)
+    assert rc["elo_drift_games"] == []                         # back-to-back: silent
+    monkeypatch.chdir(tmp_path)
+    assert "ELO DRIFT" not in CliRunner().invoke(cli, ["export-nfl-predictions"]).output
+    # predictions written 3 days ago -> the game finished 2 days ago post-dates them
+    with session_scope() as s:
+        p = s.execute(select(Prediction).where(Prediction.match_id == game["up"])).scalar_one()
+        p.computed_at = datetime.utcnow() - timedelta(days=3)
+    rc = {}
+    export_nfl_predictions(out_dir=str(tmp_path), receipts=rc)
+    assert rc["elo_drift_games"] == ["U2-1 @ U2-2"]
+    out = CliRunner().invoke(cli, ["export-nfl-predictions"]).output
+    assert "⚠ ELO DRIFT: 1 NFL game(s) finished after the predictions were written" in out
+    doc = json.loads(open(export_nfl_predictions(out_dir=str(tmp_path))).read())
+    assert all("_computed_at" not in r for r in doc["predictions"])   # internal key never ships

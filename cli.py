@@ -604,8 +604,13 @@ def evaluate_cmd(sport: str):
               help="How often (days) the input-candidate evaluation runs within improve.")
 @click.option("--force-input-eval", is_flag=True, default=False,
               help="Run the input-candidate evaluation now regardless of cadence.")
+@click.option("--hold-on-pass", is_flag=True, default=False,
+              envvar="SP_IMPROVE_HOLD_ON_PASS",
+              help="H0-5 unattended guard: a PASS is HELD (never promoted) and "
+                   "emits an SP-PAGE line; promote later with ratify-candidate. "
+                   "Also set by env SP_IMPROVE_HOLD_ON_PASS=1 (host units).")
 def improve_cmd(sport: str, holdout_days: int, min_delta: float,
-                input_cadence_days: int, force_input_eval: bool):
+                input_cadence_days: int, force_input_eval: bool, hold_on_pass: bool):
     """
     Full improvement loop: evaluate → train candidate → compare → promote if
     better. The same-structure retrain runs daily (fast). The INPUT-CANDIDATE
@@ -616,11 +621,18 @@ def improve_cmd(sport: str, holdout_days: int, min_delta: float,
     from src.walters.training import improve
     from src.db.schema import Sport
     sport_enum = Sport.SOCCER if sport == "soccer" else Sport.MLB
-    result = improve(sport=sport_enum, holdout_days=holdout_days, min_delta=min_delta)
-    color = "green" if result.promoted else "yellow"
-    label = "PROMOTED" if result.promoted else "REJECTED"
+    result = improve(sport=sport_enum, holdout_days=holdout_days, min_delta=min_delta,
+                     hold_on_pass=hold_on_pass)
+    color = "green" if result.promoted else ("magenta" if result.held else "yellow")
+    label = "PROMOTED" if result.promoted else ("HELD" if result.held else "REJECTED")
     console.print(f"[{color}]✓ Candidate {result.candidate_version}: {label}[/{color}]")
     console.print(f"  [dim]{result.reasoning}[/dim]")
+    if result.held:
+        # Plain print (no rich markup/wrapping): sp-run greps this exact prefix.
+        print(f"SP-PAGE: improve --sport {sport} PASS HELD — candidate "
+              f"{result.candidate_version} vs production {result.production_version}; "
+              f"ratify with: python cli.py ratify-candidate --sport {sport} "
+              f"--version {result.candidate_version} --yes", flush=True)
     if result.candidate_log_loss is not None and result.production_log_loss is not None:
         t = Table(show_header=True)
         t.add_column("Model")
@@ -658,11 +670,40 @@ def improve_cmd(sport: str, holdout_days: int, min_delta: float,
                     verdict = "PROMOTE" if s.beat_production else "reject"
                     console.print(f"    • {s.name}: candidate {s.holdout_log_loss:.4f} vs "
                                   f"prod {s.production_log_loss:.4f} → {verdict}")
+                    if hold_on_pass and s.beat_production:
+                        print(f"SP-PAGE: improve input candidate {s.name} PASS — "
+                              f"operator review required (hold_on_pass)", flush=True)
             mark_input_eval_done()
         else:
             console.print("\n[dim]Input-candidate evaluation: not due "
                           f"(runs every {input_cadence_days}d; use --force-input-eval to run "
                           "now).[/dim]")
+
+
+@cli.command("ratify-candidate")
+@click.option("--sport", required=True, type=click.Choice(["soccer", "mlb"]))
+@click.option("--version", "version", required=True,
+              help="The HELD candidate version named in the SP-PAGE line.")
+@click.option("--yes", is_flag=True, default=False,
+              help="Required: explicit operator ratification.")
+def ratify_candidate_cmd(sport: str, version: str, yes: bool):
+    """Promote a candidate that improve HELD on PASS (H0-5 guard).
+
+    Refuses unless the version is status "held" and the production version it
+    was gated against is still production. Nothing is written on refusal.
+    """
+    from src.walters.training import ratify_candidate
+    from src.db.schema import Sport
+    if not yes:
+        console.print("[red]✗ Ratification is explicit: re-run with --yes.[/red]")
+        raise SystemExit(2)
+    sport_enum = Sport.SOCCER if sport == "soccer" else Sport.MLB
+    try:
+        receipt = ratify_candidate(sport_enum, version)
+    except ValueError as e:
+        console.print(f"[red]✗ REFUSED: {e}[/red]")
+        raise SystemExit(1)
+    console.print(f"[green]✓ {receipt}[/green]")
 
 
 # --------------------------------------------------------------------------
@@ -894,6 +935,7 @@ def model_versions_cmd():
             status_color = {
                 "production": "green",
                 "candidate": "cyan",
+                "held": "magenta",
                 "rejected": "yellow",
                 "shelved": "dim",
             }.get(mv.status, "white")

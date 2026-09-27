@@ -22,6 +22,85 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FOUND SAFETY GAP (H0-5), on the record with emphasis (architect
+  2026-09-27):** reading `improve` for the H0-5 hold found that a gate
+  PASS AUTO-PROMOTED in the same call (training.improve:
+  `_shelve_current_production` + `_set_status(..., "production")`; the
+  no-production path likewise). 36 CONSECUTIVE REJECTIONS MASKED A LIVE
+  AUTO-PROMOTION TRIGGER — unattended on the host, one PASS would have
+  swapped the model serving that day's pre-slate chain with no human
+  reading the verdict. CLOSED by #40: `improve --hold-on-pass` (forced on
+  the host by SP_IMPROVE_HOLD_ON_PASS=1 in sp-chain@.service) marks a
+  PASS "held" + pages (ntfy) + logs; `ratify-candidate` is the only
+  promotion path and refuses a stale baseline. Gate unchanged. The
+  architect cites this as the H0 process's proof of value.
+- **H0 FINAL FOUR RULED 2026-09-27 (architect; folded into #40):** H0-7
+  CONFIRMED odds captures 08/12/16/20 America/New_York (the operation's
+  clock is Eastern; DST follows the zone; CI's reboot-window check already
+  proves zone-awareness). H0-13 paging = ntfy.sh private topic, name in
+  .env (NTFY_TOPIC; redacted from receipts), Anthony subscribes on his
+  phone; zero cost, no account, any unit; receipts log remains the
+  permanent record — a held PASS pages AND logs. H0-14 BOTH LAYERS: DO
+  weekly backups ON (~$4.80, total ~$28.80; droplet DR — a restore
+  DISCARDS the imaged live DB in favour of the newest .backup, runbook
+  says so) PLUS a nightly laptop pull of the latest .backup over the
+  tailnet ($0, off-provider; deploy/hosting/pull_backup.py + launchd
+  scripts/setup_backup_pull.sh, 22:00 local, sha256-sidecar + integrity
+  verified, receipted, never under data/, never auto-pruned). Host
+  retention 14 dailies (SP_KEEP_DAILY=14); prune stays REPORT-ONLY until
+  the first manual prune is reviewed. H0-11 NCAA timer ON, enabled with
+  the rest (CI now asserts every shipped timer is on the T11 enable
+  list). Open list: none. pytest 172 passed.
+- **HOSTING H0 RULED + H1 PACK BUILT 2026-09-27 (architect; branch+PR,
+  INERT until Anthony provisions).** RULINGS: H0-1 US-East required (DO NYC
+  2vCPU/4GB ~$24 default; Hetzner US CPX acceptable; verify live price at
+  purchase). H0-2 $30/mo ceiling all-in incl. off-host backup. H0-3
+  auto-reboot ALLOWED at 04:30 UTC; all timers outside it; reboots in the
+  receipts log. H0-4 SSH tunnel (tailscale-serve = H3). H0-5 improve runs
+  UNATTENDED with a HARD GUARD: a PASS never auto-promotes, it pages and
+  holds for explicit ratification ("36 consecutive rejections are its
+  safety record"). H0-6 soccer-refresh stays OPERATOR-STARTED (the Monday
+  ritual is load-bearing). H0-9 results-tally at chain end. H0-15 manifest =
+  .backup DB + .env + current exports/ + receipts log, nothing else. H0-16
+  (a) 2x only on a dashboard headroom receipt, else (b) designated days,
+  never (c). H0-17 laptop is writer of record all parallel week. H0-18
+  cutover criteria FROZEN as drafted. H0-19 pasted table (ingestible file =
+  H2). H0-20 pull over the tailnet (push = H2). D1-D6 fix in the H1 PR.
+  BUILT (deploy/hosting/): chains.py (single source of chain commands;
+  CI checks every command + option against cli.py's click params — law 1),
+  sp_run.py (flock, stop-at-first-failure, step+chain receipts, backup
+  enforcement inside the runner so it holds however a chain starts:
+  daily-verified or fresh prerefresh, SP-PAGE paging, operator-only
+  refusal, active_from, H0-16(b) designated-days skip of METERED steps),
+  sp_backup.py (online-backup API + integrity + sha256 sidecar; refuses
+  data/), sp_migrate.py pack/verify/install (every table counted from
+  sqlite_master; S1=S2, R1=R2; install refuses an existing DB without
+  --replace -> rehearsal_<ts>.db), compare_exports.py, sp_receipts.py,
+  sp_notify.py, sp_boot_receipt.py, sp_prune.py (report-only), sp_deploy.py
+  (ff-only), 21 systemd files (sp-chain@ template + 14 timers; NO timer for
+  soccer-refresh; sp-soccer-refresh.service passes --operator), etc/
+  templates, install.sh (enables nothing); docs/specs/hosting-h1.md runbook
+  (BROWSER/TERMINAL labelled). H0-5 GUARD (code): `improve --hold-on-pass`
+  / env SP_IMPROVE_HOLD_ON_PASS=1 -> PASS marked "held", production
+  untouched, `SP-PAGE:` line; `ratify-candidate --sport --version --yes`
+  promotes only if the beaten production is still production (stale
+  verdict refused). Default laptop behaviour unchanged; gate
+  threshold/holdout/scoring unchanged. RESOLVED PER PRINCIPLE: H0-8 (NHL
+  active_from 2026-10-07; MLB off = operator disable after the WS), H0-10
+  (midweek PL = operator `--set` runs), H0-12 (full-season list generated
+  from a read-only DB query; missing list fails loudly), H0-15 counts (every
+  table), H0-21 (H1 authorized). RECEIPTS: D1-D6 were ALREADY fixed on main
+  by dbd9322 (re-verified: no `sync-matches --date` in any doc;
+  sync-kalshi-ncaa, daily backup, NFL LIVE, 4 series, both keys in
+  .env.example). NEW D9: CLI.md's pre-slate `sync-umpires` is
+  `sync-umpires --today` per BACKLOG 2026-07-06 / 2026-08-13 audit (bare
+  = finished-game backfill) — CLI.md corrected. Metered map: 16 commands
+  verified network-free (no IngestionService/adapter/requests in the
+  command body; src/walters does no network I/O); all others METERED by
+  default (law 4). OPEN to architect: H0-7 CLV zone (shipped
+  America/New_York), H0-13 paging channel (H0-5 depends on it), H0-14
+  retention + off-host copy inside $30, H0-11 NCAA timer (shipped, not
+  enabled).
 - **ARCHITECT RULINGS ON THE FILLS LANE 2026-09-27 (#39):** (1) CSV
   HEADERS CONFIRMED from the real Kalshi YTD export, verbatim: subtrader_id,
   type, quantity_fp, market_ticker, side, entry_price_dollars,

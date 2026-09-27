@@ -1,0 +1,25 @@
+# Local web UI, loopback only; reached over the tailnet by
+#   ssh -L 8000:127.0.0.1:8000 sp@<host>   (H0-4: SSH tunnel; tailscale-serve is an H3 question)
+[Unit]
+Description=sports-predictor web UI (127.0.0.1:8000)
+After=network.target
+
+[Service]
+Type=simple
+User=sp
+Group=sp
+WorkingDirectory=/opt/sports-predictor
+EnvironmentFile=-/etc/sports-predictor/host.env
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+Environment=WEB_HOST=127.0.0.1
+Environment=WEB_PORT=8000
+Environment=OPEN_BROWSER=false
+ExecStart=/opt/sports-predictor/venv/bin/python main.py
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=multi-user.target

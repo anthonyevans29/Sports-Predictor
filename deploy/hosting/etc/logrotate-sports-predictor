@@ -1,0 +1,12 @@
+# /etc/logrotate.d/sports-predictor — receipts are append-only; rotation is by
+# rename (never truncate in place, so no copytruncate).
+/var/log/sports-predictor/receipts.jsonl {
+    monthly
+    rotate 12
+    compress
+    delaycompress
+    dateext
+    missingok
+    notifempty
+    create 0640 sp sp
+}

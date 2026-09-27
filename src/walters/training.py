@@ -1636,12 +1636,22 @@ class ImproveResult:
     production_log_loss: float | None
     holdout_size: int
     reasoning: str
+    # H0-5 (2026-09-27): True when the candidate PASSED the gate but was held
+    # for operator ratification instead of promoted (hold_on_pass).
+    held: bool = False
+
+
+# Status for a candidate that passed the gate under hold_on_pass. Only
+# ratify_candidate() moves it to production, and only if the production
+# version it beat (its parent_version) is still production.
+HELD_STATUS = "held"
 
 
 def improve(
     sport: Sport = Sport.SOCCER,
     holdout_days: int = DEFAULT_HOLDOUT_DAYS,
     min_delta: float = DEFAULT_PROMOTION_DELTA,
+    hold_on_pass: bool = False,
 ) -> ImproveResult:
     """
     The model improvement loop.
@@ -1653,6 +1663,11 @@ def improve(
          matches (those we have actual outcomes for).
       4. Compare candidate vs production on the holdout.
       5. Promote if candidate beats production by min_delta in log loss.
+
+    hold_on_pass (H0-5, the unattended-host guard): a PASS never promotes.
+    The candidate is marked "held" and production is untouched; the operator
+    ratifies explicitly via ratify_candidate(). The gate itself (threshold,
+    holdout, scoring) is identical either way.
     """
     # Step 1: bring evaluation up to date
     evaluate_finished(sport=sport)
@@ -1672,6 +1687,19 @@ def improve(
 
         # If no production model yet, just promote the candidate
         if production_version is None:
+            if hold_on_pass:
+                _set_status(s, sport, candidate_version, HELD_STATUS)
+                return ImproveResult(
+                    candidate_version=candidate_version,
+                    production_version=None,
+                    promoted=False,
+                    candidate_log_loss=None,
+                    production_log_loss=None,
+                    holdout_size=holdout_size,
+                    reasoning=("No existing production model — candidate HELD "
+                               "for operator ratification (hold_on_pass)."),
+                    held=True,
+                )
             _set_status(s, sport, candidate_version, "production")
             return ImproveResult(
                 candidate_version=candidate_version,
@@ -1716,6 +1744,23 @@ def improve(
 
         delta = prod_loss - cand_loss  # positive = candidate better (lower loss)
         if delta >= min_delta:
+            if hold_on_pass:
+                _set_status(s, sport, candidate_version, HELD_STATUS)
+                return ImproveResult(
+                    candidate_version=candidate_version,
+                    production_version=production_version,
+                    promoted=False,
+                    candidate_log_loss=cand_loss,
+                    production_log_loss=prod_loss,
+                    holdout_size=holdout_size,
+                    reasoning=(
+                        f"Candidate log-loss {cand_loss:.4f} beats production "
+                        f"{prod_loss:.4f} by {delta:.4f} (threshold {min_delta:.4f}). "
+                        f"PASS — HELD for operator ratification (hold_on_pass); "
+                        f"{production_version} remains production."
+                    ),
+                    held=True,
+                )
             _shelve_current_production(s, sport)
             _set_status(s, sport, candidate_version, "production", promote=True)
             return ImproveResult(
@@ -1857,6 +1902,38 @@ def _set_status(
     mv.status = status
     if promote:
         mv.promoted_at = datetime.utcnow()
+
+
+def ratify_candidate(sport: Sport, version: str) -> str:
+    """Promote a HELD candidate on explicit operator ratification (H0-5).
+
+    Refuses unless the row is status "held" AND the production version it was
+    gated against (parent_version) is still production — a verdict against a
+    baseline that has since changed is stale and must be re-earned. Returns
+    the receipt line; raises ValueError on refusal (nothing is written).
+    """
+    with session_scope() as s:
+        mv = s.execute(
+            select(ModelVersion).where(
+                ModelVersion.sport == sport,
+                ModelVersion.model_family == _family_for(sport),
+                ModelVersion.version == version,
+            )
+        ).scalar_one_or_none()
+        if mv is None:
+            raise ValueError(f"No {_family_for(sport)} version {version!r}.")
+        if mv.status != HELD_STATUS:
+            raise ValueError(f"{version} is status {mv.status!r}, not {HELD_STATUS!r} "
+                             f"— only a held PASS can be ratified.")
+        prod = _current_production_version(s, sport)
+        if prod != mv.parent_version:
+            raise ValueError(f"{version} was gated against {mv.parent_version}, but "
+                             f"production is now {prod} — stale verdict, refused.")
+        _shelve_current_production(s, sport)
+        _set_status(s, sport, version, "production", promote=True)
+        stamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%MZ")
+        mv.notes = ((mv.notes or "") + f" | ratified by operator {stamp}")[:1024]
+        return f"{version} RATIFIED -> production ({prod or 'none'} shelved) at {stamp}"
 
 
 def _shelve_current_production(s: Session, sport: Sport) -> None:

@@ -4,6 +4,26 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (Hosting H0 final four; FOUND SAFETY GAP logged)
+- Paging via ntfy.sh (NTFY_TOPIC in .env); held PASS pages and logs.
+- Backups: DO weekly on + nightly laptop pull (deploy/hosting/pull_backup.py,
+  scripts/setup_backup_pull.sh); host retention 14 dailies, prune
+  report-only until the first manual prune is reviewed.
+- CLV captures confirmed on America/New_York; NCAA timer enabled.
+- On the record: improve auto-promoted on PASS (masked by 36 rejections);
+  closed by hold-on-pass + ratify-candidate.
+
+## 2026-09-27 (Hosting H1: systemd pack + runbook, inert until provisioning)
+- deploy/hosting/: chain definitions (CI-checked against cli.py), sp_run
+  receipts writer, .backup/prune/notify/boot-receipt/deploy scripts,
+  migration pack/verify/install, parallel-week export diff, 21 systemd
+  unit/timer files, install.sh (enables nothing).
+- docs/specs/hosting-h1.md: provisioning runbook (BROWSER/TERMINAL),
+  frozen cutover criteria, H0 rulings record, 4 open items.
+- H0-5 guard: `improve --hold-on-pass` holds a PASS and pages;
+  `ratify-candidate` promotes on explicit ratification. Default unchanged.
+- CLI.md: pre-slate `sync-umpires --today`; improve/ratify rows.
+
 ## 2026-09-27 (Cockpit: Kalshi fills import, two-book accounting)
 - Ledger tab: "Import Kalshi CSV" -> REALIZED section (system-matched /
   off-book sports / off-book other; staked, fees, pre-fee, net, avg fill,

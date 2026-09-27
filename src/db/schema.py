@@ -508,6 +508,8 @@ class ModelVersion(Base):
       - "production" — currently serving live predictions
       - "shelved" — used to be live, kept for reproducibility
       - "rejected" — trained but never promoted (lost the holdout test)
+      - "held" — PASSED the gate under improve's hold_on_pass (H0-5): not
+        promoted; only `ratify-candidate` moves it to production
 
     Only ONE row per (sport, model_family) should have status="production"
     at any time. Enforcing that as a constraint is overkill; the promotion

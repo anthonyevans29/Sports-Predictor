@@ -1,6 +1,8 @@
 # Hosting H0 — always-on host for the chains (draft)
 
-**Status: DRAFT for architect review — not a decision.** Nothing here is
+**Status (2026-09-27): RULED — see `docs/specs/hosting-h1.md` for the rulings record and the H1 runbook; D1-D6 fixed on main (`dbd9322`). Original draft text below, unchanged.**
+
+~~Status: DRAFT for architect review — not a decision.~~ Nothing here is
 built, bought, or scheduled. Every open choice is marked
 **ARCHITECT-RULE** and collected at the end. Written 2026-09-26 from the
 repo as it stands on `main` (docs/CLI.md, docs/pl_weekly_routine.md,

@@ -1,0 +1,13 @@
+# MLB grading; improve runs unattended with the H0-5 hold; results-tally at chain end (H0-9).
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-mlb-morning
+
+[Timer]
+OnCalendar=*-*-* 09:45:00 UTC
+Unit=sp-chain@mlb-morning.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

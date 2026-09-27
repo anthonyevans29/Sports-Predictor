@@ -1,0 +1,24 @@
+# One chain from deploy/hosting/chains.py, run by sp_run.py under the DB lock
+# with receipts. Started by the sp-<chain>.timer units; never edited per chain.
+[Unit]
+Description=sports-predictor chain %i
+Wants=network-online.target
+After=network-online.target
+OnFailure=sp-notify@%i.service
+
+[Service]
+Type=oneshot
+User=sp
+Group=sp
+WorkingDirectory=/opt/sports-predictor
+EnvironmentFile=-/etc/sports-predictor/host.env
+Environment=PYTHONUNBUFFERED=1
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=full
+Environment=OPEN_BROWSER=false
+# H0-5 hard guard, belt and braces: even an improve step without the flag holds on PASS.
+Environment=SP_IMPROVE_HOLD_ON_PASS=1
+ExecStart=/opt/sports-predictor/venv/bin/python deploy/hosting/sp_run.py %i --unit sp-chain@%i.service
+TimeoutStartSec=3h
+Nice=5

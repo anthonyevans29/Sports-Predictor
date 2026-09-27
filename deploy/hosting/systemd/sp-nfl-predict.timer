@@ -1,0 +1,14 @@
+# Before TNF and the Sunday slate (London games: start by hand earlier).
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-nfl-predict
+
+[Timer]
+OnCalendar=Thu *-*-* 18:00:00 UTC
+OnCalendar=Sun *-*-* 14:00:00 UTC
+Unit=sp-chain@nfl-predict.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

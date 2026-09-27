@@ -1,0 +1,13 @@
+# PL pre-kickoff refresh, ~2h before 12:30 UK; the closing-ish CLV capture.
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-soccer-saturday
+
+[Timer]
+OnCalendar=Sat *-*-* 10:30:00 Europe/London
+Unit=sp-chain@soccer-prematch.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

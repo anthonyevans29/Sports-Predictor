@@ -22,6 +22,36 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **H1 PHASING AMENDED 2026-09-27 (operator proposal, architect-ratified
+  with a guard):** H1a FRESH BOOTSTRAP — the host builds its OWN DB from
+  providers, no data transfer (the .env config file is copied; counts-only
+  fingerprint as the reference). deploy/hosting/bootstrap.py: fingerprint
+  (read-only GROUP BY sport/comp/season/status + teams; the laptop's stored
+  (comp, season) pairs and season strings drive the host — law 1), plan,
+  run (init-db -> sync-competitions per sport -> per comp-season
+  sync-teams -> sync-matches -> market day-one block: first sync-odds per
+  in-season comp, sync-odds-football, all five Kalshi syncs; one-time
+  metered spend; receipted; resumable with --from N; refuses an existing
+  DB), compare = PHASE-1 ACCEPTANCE: completed comp-seasons EXACT vs the
+  laptop + the BACKLOG certification anchors (NHL 2024 = 1,502 FINISHED +
+  1 CANCELLED, 2025 = 1,498; NHL >= 4,410 / 32; NCAA >= 9,245 / 743
+  programs; NFL >= 989 / 32; soccer FINISHED pot >= 16,546; MLB: no
+  fingerprint on record — laptop-exact on completed seasons). H1b
+  PARALLEL WEEK = independent pipelines; comparator note amended
+  (divergence classes: capture timing AND provider pagination); laptop
+  writer of record; cutover criteria unchanged. H2 CUTOVER = the ONE
+  .backup migration (5.2-5.7 steps, install --replace; rehearsal-DB
+  disposal as drafted); runbook states WHY it cannot be skipped (odds/
+  Kalshi snapshots, predictions, the graded ledger and the model registry
+  are non-resyncable — a fresh host keeps no books). FOUND + FLAGGED
+  (ARCHITECT-RULE): a fresh DB has no model_versions — MLB/soccer predict
+  raise "No production model yet" (training._resolve_model_version) and
+  improve would hold+page a default-config candidate daily; NFL is
+  code-defined and unaffected. The four model-bearing timers are held
+  (HELD_B4) pending the ruling; recommendation = carry the model registry
+  alone for H1b. Also flagged: frozen criterion 3 says "capture timing"
+  only — confirm whether explained pagination differences satisfy it.
+  pytest 175 passed.
 - **FOUND SAFETY GAP (H0-5), on the record with emphasis (architect
   2026-09-27):** reading `improve` for the H0-5 hold found that a gate
   PASS AUTO-PROMOTED in the same call (training.improve:

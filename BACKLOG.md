@@ -22,6 +22,29 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ARCHITECT RULINGS ON THE FILLS LANE 2026-09-27 (#39):** (1) CSV
+  HEADERS CONFIRMED from the real Kalshi YTD export, verbatim: subtrader_id,
+  type, quantity_fp, market_ticker, side, entry_price_dollars,
+  exit_price_dollars, open_fees_dollars, close_fees_dollars,
+  realized_pnl_without_fees_dollars, realized_pnl_with_fees_dollars,
+  close_timestamp, open_timestamp, product, period_start, market_title.
+  Values: side yes/no lowercase; ISO timestamps with -05:00 offset;
+  8-decimal dollar strings; type "trade"; product "predictions". The
+  keyword mapping is VERIFIED on exactly these names — the headless
+  harness now uses the verbatim header and asserts every field maps to
+  its exact column (the earlier ARCHITECT-VERIFY on header names is
+  CLOSED). (2) FILLS METRICS RATIFIED: ledger-level TRAILING-30-DAY avg
+  fill size and fee per dollar staked (by close timestamp) — per-game is
+  structurally impossible and not wanted; now shown in the REALIZED card
+  and the Copy P&L block. (3) #39 DISPOSITION: MERGE when green
+  (repo-side); the PUBLISH HOLDS until after today's slate (v0.4 breathes
+  through its first live day untouched) — the architect publishes the
+  fills-capable Cockpit tonight or tomorrow morning; the YTD CSV is its
+  first real import. (4) ON THE RECORD (architect, with approval): the
+  resolver saga — a CHANGELOG line dropped during a main merge, caught by
+  the executor's own lost-line check, root-caused (CHANGELOG rebuilt when
+  only BACKLOG conflicted), fixed to touch only conflicted files — "the
+  law-loop running end to end inside your own tooling."
 - **KALSHI FILLS IMPORT + TWO-BOOK ACCOUNTING 2026-09-27 (architect NEW
   LANE, Cockpit Ledger tab) + HISTORICAL NOTE + K-TRACK PRIORITY RAISED.**
   HISTORICAL (architect, from the real Kalshi YTD realized-P&L export:

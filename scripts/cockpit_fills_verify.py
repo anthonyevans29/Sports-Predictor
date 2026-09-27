@@ -47,9 +47,11 @@ LEDGER = {"meta": {"policy_version": "v1.1"}, "calls": [
          kick="2026-09-27T19:30:00"),
     call("c3", "NFL", "Cleveland Browns", "Carolina Panthers", "HOME", ct="quarantine_shadow", units=0),
 ]}
-HDR = ("market_ticker,side,quantity_fp,entry_price_dollars,exit_price_dollars,open_fees_dollars,"
-       "close_fees_dollars,realized_pnl_with_fees_dollars,realized_pnl_without_fees_dollars,"
-       "open_ts,close_ts,market_title")
+# The REAL Kalshi export header, verbatim and in order (architect-confirmed
+# 2026-09-27 from the YTD export), including the columns the importer ignores.
+HDR = ("subtrader_id,type,quantity_fp,market_ticker,side,entry_price_dollars,exit_price_dollars,"
+       "open_fees_dollars,close_fees_dollars,realized_pnl_without_fees_dollars,"
+       "realized_pnl_with_fees_dollars,close_timestamp,open_timestamp,product,period_start,market_title")
 # ticker, side, qty, entry, exit, open fee, close fee, net, pre, title
 FILLS = [
     ("KXNFLGAME-26SEP28BUFKC-KC", "yes", 10, 0.55, 1.00, 0.18, 0.00, 4.32, 4.50, "Buffalo vs Kansas City Winner?"),   # matched model_edge
@@ -70,7 +72,9 @@ def main():
     with open(csv_path, "w") as f:
         f.write(HDR + "\n")
         for t, sd, q, en, ex, of, cf, net, pre, title in FILLS:
-            f.write(f'{t},{sd},{q},{en},{ex},{of},{cf},{net},{pre},2026-09-27T12:00:00Z,2026-09-28T23:00:00Z,"{title}"\n')
+            # values as seen in the real export: 8-decimal dollar strings, ISO -05:00 timestamps
+            f.write(f'sub-1,trade,{q:.2f},{t},{sd},{en:.8f},{ex:.8f},{of:.8f},{cf:.8f},{pre:.8f},{net:.8f},'
+                    f'2026-09-28T18:00:00-05:00,2026-09-27T07:00:00-05:00,predictions,2026-09-01,"{title}"\n')
 
     class Quiet(http.server.SimpleHTTPRequestHandler):
         def log_message(self, *a):
@@ -90,7 +94,15 @@ def main():
         page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('Kalshi CSV')")
         note = page.inner_text("#ledgerNote")
         print("   ", note[:220])
-        check("9 fills added; all 11 columns mapped by keyword", "9 fills added" in note and "not found" not in note)
+        mapped = page.evaluate("mapHeaders(" + json.dumps(HDR.split(",")) + ")")
+        want = {"ticker": "market_ticker", "side": "side", "qty": "quantity_fp", "entry": "entry_price_dollars",
+                "exit": "exit_price_dollars", "openFee": "open_fees_dollars", "closeFee": "close_fees_dollars",
+                "pnlPre": "realized_pnl_without_fees_dollars", "pnlNet": "realized_pnl_with_fees_dollars",
+                "openTs": "open_timestamp", "closeTs": "close_timestamp", "title": "market_title"}
+        got = {k: (HDR.split(",")[v] if v is not None else None) for k, v in mapped.items()}
+        check("REAL export header: every field maps to exactly the right column", got == want,
+              "; ".join(f"{k}->{got[k]}" for k in want if got[k] != want[k]))
+        check("9 fills added; nothing reported missing", "9 fills added" in note and "not found" not in note)
         cls = page.evaluate("classifyFills(loadLedger())")
         by = {(f["ticker"], f["side"]): f for f in cls}
         f1 = by[("KXNFLGAME-26SEP28BUFKC-KC", "yes")]
@@ -133,8 +145,13 @@ def main():
         check("REALIZED section renders the three books + plausible list",
               all(t in html for t in ("system-matched", "off-book sports", "off-book other", "fees =",
                                       "Unmatched-but-plausible — manual review (3)")))
+        t30 = page.evaluate("(()=>{const fs=classifyFills(loadLedger());"
+                            "return [trailing30(fs,Date.parse('2026-10-05T00:00:00Z')).length,"
+                            "trailing30(fs,Date.parse('2026-11-30T00:00:00Z')).length]})()")
+        check("trailing-30-day window by close time (9 in window, 0 two months later)", t30 == [9, 0], str(t30))
         block = page.inner_text("#pnlBlock")
-        check("Copy P&L block carries the REALIZED section", "REALIZED (Kalshi fills" in block and "fees =" in block)
+        check("Copy P&L block carries the REALIZED section + trailing-30d line",
+              "REALIZED (Kalshi fills" in block and "fees =" in block and "trailing 30d:" in block)
         page.evaluate("document.getElementById('kalshiCsvFile').value='';"
                       "document.getElementById('ledgerNote').textContent=''")
         page.set_input_files("#kalshiCsvFile", csv_path)

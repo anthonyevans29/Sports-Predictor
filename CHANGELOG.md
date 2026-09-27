@@ -8,7 +8,9 @@ Every drop adds an entry going forward.
 - Ledger tab: "Import Kalshi CSV" -> REALIZED section (system-matched /
   off-book sports / off-book other; staked, fees, pre-fee, net, avg fill,
   fees % of loss) + plausible-match review list; in the Copy P&L block.
-- scripts/cockpit_fills_verify.py (18/18).
+- CSV mapping verified on the real Kalshi export header; trailing-30-day
+  avg fill + fee per $ staked (ledger-level).
+- scripts/cockpit_fills_verify.py (20/20, real header).
 
 ## 2026-09-27 (K1: Kalshi bid/ask stored; executable-cost fields)
 - odds_snapshots.yes_bid / yes_ask filled by every Kalshi sync going

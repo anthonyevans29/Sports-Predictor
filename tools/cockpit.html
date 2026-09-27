@@ -781,8 +781,13 @@ function parseCSV(text){
   row.push(f); if(row.some(x=>x!=="")) rows.push(row);
   return rows;
 }
-// Header detection by keyword (law 1: the export's exact header names are
-// ARCHITECT-VERIFY until a real header row is seen; the import prints what it mapped).
+// Header detection by keyword. CONFIRMED against the real Kalshi export
+// (architect, 2026-09-27), verbatim: subtrader_id, type, quantity_fp,
+// market_ticker, side, entry_price_dollars, exit_price_dollars,
+// open_fees_dollars, close_fees_dollars, realized_pnl_without_fees_dollars,
+// realized_pnl_with_fees_dollars, close_timestamp, open_timestamp, product,
+// period_start, market_title. Keyword matching stays tolerant of renames; the
+// import prints what it mapped.
 function mapHeaders(hdr){
   const n=hdr.map(h=>String(h).toLowerCase().replace(/[^a-z0-9]+/g,"_"));
   const find=(pred)=>{const i=n.findIndex(pred);return i<0?null:i;};
@@ -889,6 +894,12 @@ function classifyFills(L){
       ?{book:"off_book_sports",category:"side not resolvable ("+(fx.resolve_note||"?")+")",plausible:true}
       :matchFill(fx,calls))}));
 }
+// Trailing-30-day window (ratified 2026-09-27: ledger-level, not per game),
+// by the fill's close timestamp (ISO with offset, e.g. -05:00).
+function trailing30(fs,now){
+  const cut=(now||Date.now())-30*86400000;
+  return fs.filter(x=>{const t=Date.parse(x.closed||x.opened||""); return isFinite(t)&&t>=cut;});
+}
 function fillAgg(fs){
   const n=fs.length, st=fs.reduce((a,x)=>a+x.staked,0), fe=fs.reduce((a,x)=>a+x.fees,0);
   const pre=fs.reduce((a,x)=>a+x.pnl_pre,0), net=fs.reduce((a,x)=>a+x.pnl_net,0);
@@ -906,6 +917,7 @@ function realizedHTML(L){
   const plaus=fs.filter(x=>x.plausible);
   return `<div class="summary">${all.n} fills · staked ${$$(all.staked)} · fees ${$$(all.fees)} · pre-fee ${$$(all.pre)} · net <b class="${all.net>=0?"play":"caution"}">${$$(all.net)}</b>`
     +(all.feePct!=null?` · <b>fees = ${all.feePct.toFixed(0)}% of the loss</b>`:"")+` · avg fill ${$$(all.avg)} · fee per $ staked ${(all.feePerDollar*100).toFixed(1)}¢</div>`
+    +(()=>{const t=fillAgg(trailing30(fs)); return `<div class="note">Trailing 30 days (by close time): ${t.n} fills · avg fill ${t.avg==null?"—":$$(t.avg)} · fee per $ staked ${t.feePerDollar==null?"—":(t.feePerDollar*100).toFixed(1)+"¢"}</div>`;})()
     +`<div class="tablewrap"><table><thead><tr><th>book</th><th>n</th><th>staked</th><th>fees</th><th>pre-fee P&amp;L</th><th>net</th><th>avg fill</th><th>fees % of loss</th></tr></thead><tbody>`
     +BOOKS.map(([k,lab])=>row(lab,fillAgg(fs.filter(x=>x.book===k)))).join("")+row("TOTAL",all)+"</tbody></table></div>"
     +`<h2>by category</h2><div class="tablewrap"><table><thead><tr><th>book · category</th><th>n</th><th>staked</th><th>fees</th><th>pre-fee P&amp;L</th><th>net</th><th>avg fill</th><th>fees % of loss</th></tr></thead><tbody>`
@@ -925,6 +937,7 @@ function realizedLines(L){
     `${"book".padEnd(16)}${"n".padStart(5)}${"staked".padStart(11)}${"fees".padStart(9)}${"pre-fee".padStart(11)}${"net".padStart(11)}`,
     ...BOOKS.map(([k,lab])=>ln(lab,fillAgg(fs.filter(x=>x.book===k)))), ln("TOTAL",all),
     `fees = ${all.feePct==null?"n/a (not a loss)":all.feePct.toFixed(0)+"% of the loss"} · avg fill $${(all.avg||0).toFixed(2)} · fee per $ staked ${((all.feePerDollar||0)*100).toFixed(1)}c`,
+    (()=>{const t=fillAgg(trailing30(fs)); return `trailing 30d: ${t.n} fills · avg fill ${t.avg==null?"n/a":"$"+t.avg.toFixed(2)} · fee per $ staked ${t.feePerDollar==null?"n/a":(t.feePerDollar*100).toFixed(1)+"c"}`;})(),
     `unmatched-but-plausible for manual review: ${fs.filter(x=>x.plausible).length}`,""];
 }
 $("kalshiCsvFile").addEventListener("change",async e=>{

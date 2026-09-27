@@ -1,7 +1,8 @@
 # Hosting H1: the unit pack and Anthony's provisioning runbook
 
 **Status: artifacts only. Nothing runs anywhere until Anthony provisions the
-host.** This PR ships files. It buys nothing, schedules nothing and moves
+host.** Phase order amended 2026-09-27: H1a fresh bootstrap, then H1b
+parallel week, then H2 cutover (the one migration). This PR ships files. It buys nothing, schedules nothing and moves
 nothing. H0 rulings were made 2026-09-27 (see the table at the end). Design
 source: `docs/specs/hosting-h0.md`.
 
@@ -34,6 +35,7 @@ Every step below carries a label:
 | `systemd/` | `sp-chain@.service` template, 14 timers, backup, prune, notify@, boot-receipt, web, and `sp-soccer-refresh.service` (no timer). |
 | `etc/` | host.env template, full-season list template, unattended-upgrades reboot window, logrotate. |
 | `install.sh` | Copies units and config into place. **Enables nothing.** |
+| `bootstrap.py` | H1a: `fingerprint` (read-only counts), `plan`, `run` (the wiring sequence, receipted and resumable), and `compare` (phase-1 acceptance: completed seasons exact plus the BACKLOG anchors). |
 
 Code change riding along (H0-5 hard guard): `improve --hold-on-pass`, also
 set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
@@ -93,7 +95,7 @@ chain holds the lock waits; it is not skipped.
     `data/sports.db` (and any `-wal`/`-shm`) aside.
   - Restore from the newest file in `/var/backups/sports-predictor/`, or
     from the laptop's `~/sp-backups/` copy if that one is newer: build a
-    pack from it and run M4's `verify` / `install --replace`.
+    pack from it and run H2 step 4's `verify` / `install --replace`.
   - The `.backup` files are consistent; the live file in an image is not.
 
 **P2. BROWSER: cloud firewall.**
@@ -143,7 +145,7 @@ sudo -u sp venv/bin/pip install -r requirements.txt
 sudo -u sp venv/bin/python -m pytest -q     # receipt: "N passed" (throwaway SQLite)
 ls data 2>&1                                  # receipt: "No such file or directory"
 ```
-`data/` must not exist before M4. `import cli` no longer creates it; that was
+`data/` must not exist before B2 (the bootstrap's `init-db` creates the DB). `import cli` no longer creates it; that was
 fixed 2026-09-27. If `data/` does exist, run `rmdir data` (it would be empty).
 
 **P7. TERMINAL (host): install the pack. It enables nothing.**
@@ -154,58 +156,143 @@ Receipt: the list of `sp-*` unit files, all `disabled`.
 
 ---
 
-## M. The migration (H0-15 manifest: .backup DB, .env, exports/, receipts log)
+## Phase order (amended 2026-09-27, operator proposal ratified with a guard)
 
-The laptop stays writer of record for the whole parallel week (H0-17).
-The host's copy is a rehearsal copy and is thrown away at cutover (see C).
+**H1a: fresh bootstrap.** The host builds its own database from the
+providers. No data transfer. Acceptance: the host's syncs reproduce the
+certification fingerprints.
 
-**M0. Paging (H0-13).**
-- BROWSER/phone: install the ntfy app. Pick an unguessable topic name
-  (for example `sp-` plus 20 random characters) and subscribe to it.
-- TERMINAL (laptop): add `NTFY_TOPIC=<that name>` to the laptop `.env`.
-  It travels to the host inside the M2 pack, and only there.
+**H1b: parallel week.** Two independent pipelines. The laptop remains
+writer of record.
 
-**M1. TERMINAL (laptop):**
-- Stop the launchd CLV jobs: `bash scripts/setup_clv_capture.sh --uninstall`.
-- Run no chain.
-- Run any pending `migrate_*.py` named in the merge notes (after that
-  morning's backup) so the laptop DB is on current schema.
-
-**M2. TERMINAL (laptop), from the repo root with the venv active:**
-```
-python deploy/hosting/sp_migrate.py pack --out /tmp/sp_pack_$(date -u +%Y%m%dT%H%M)
-```
-- **Receipt S1/R1:** the printed db sha256, integrity=ok, and row counts
-  for **every** table (enumerated from sqlite_master).
-- `absent:` lists any manifest item that did not exist (for example, no
-  laptop receipts log yet). It is labelled, never faked.
-
-**M3. TERMINAL (laptop): transfer over the tailnet only.**
-```
-scp -r /tmp/sp_pack_<stamp> sp@sp-vps-1:/home/sp/
-```
-No cloud bucket, email or chat upload.
-
-**M4. TERMINAL (host):**
-```
-cd /opt/sports-predictor
-sudo -u sp venv/bin/python deploy/hosting/sp_migrate.py verify  --pack /home/sp/sp_pack_<stamp>
-sudo -u sp venv/bin/python deploy/hosting/sp_migrate.py install --pack /home/sp/sp_pack_<stamp>
-sudo -u sp venv/bin/python cli.py status
-```
-- **Receipt S2/R2:** `✓ PASS verify` and `✓ PASS install`. S2 = S1, and
-  every table's R2 = R1.
-- Any `✗` means: delete the pack on the host and repeat from M2.
-
-**M5. Clean up and resume.**
-- Delete the pack on both machines (`rm -rf`). It holds a DB copy and
-  `.env`.
-- Laptop: `bash scripts/setup_clv_capture.sh`. The laptop resumes as
-  authoritative.
+**H2: cutover.** The ONE `.backup` migration: the laptop's history replaces
+the host's rehearsal DB.
 
 ---
 
-## T. Turn the host on (parallel week)
+## H1a. Fresh bootstrap (no data transfer)
+
+**B0. Paging and config (H0-13).**
+- BROWSER/phone: install the ntfy app. Pick an unguessable topic name (for
+  example `sp-` plus 20 random characters) and subscribe to it.
+- TERMINAL (laptop): add `NTFY_TOPIC=<that name>` to the laptop `.env`.
+- Copy the `.env` to the host over the tailnet. It is config, not data: the
+  API keys, `API_FOOTBALL_RPM` and the topic.
+  ```
+  scp .env sp@sp-vps-1:/opt/sports-predictor/.env
+  ssh sp@sp-vps-1 'chmod 600 /opt/sports-predictor/.env; grep ^DATABASE_URL /opt/sports-predictor/.env'
+  ```
+  The receipt must read `DATABASE_URL=sqlite:///./data/sports.db`, or show
+  no line at all (the default). Fix any absolute laptop path before
+  going on.
+
+**B1. TERMINAL (laptop): the reference fingerprint.**
+Read-only. Games and teams are counts only, never rows. It also carries the
+production `model_versions` rows: the config-only seed ratified in B4.
+The printed line names them.
+```
+python deploy/hosting/bootstrap.py fingerprint --out /tmp/fp_laptop.json
+scp /tmp/fp_laptop.json sp@sp-vps-1:/home/sp/
+```
+It lists every stored (competition, season) pair and its season string,
+so the host syncs exactly what the laptop holds. Nothing is assumed
+(law 1).
+
+**B2. TERMINAL (host): plan, then run.**
+The standard wiring sequence per family:
+- `init-db`
+- **seed the model registry.** Install the reference's production
+  `model_versions` rows (every column) and verify them by hash. These are
+  production model identities and parameters, config only (B4). No odds, no
+  predictions and no grades travel, so the host's books stay empty. The
+  seed refuses a non-empty registry.
+- `sync-competitions` per sport
+- then, per (competition, season): `sync-teams`, then `sync-matches`
+  (about 3 seasons per family, as stored on the laptop)
+- then the **market day-one block**: a first `sync-odds` for every
+  in-season competition, `sync-odds-football`, and all five Kalshi syncs.
+
+Odds and Kalshi accumulate from day one, bid/ask included (the K1 sync
+path).
+
+Bootstrap uses metered calls freely as a **one-time spend**. Daily metered
+mode still waits on the H0-16 dashboard receipt (T8).
+```
+cd /opt/sports-predictor
+sudo -u sp venv/bin/python deploy/hosting/bootstrap.py plan --reference /home/sp/fp_laptop.json   # receipt: the step list
+sudo systemd-run --unit=sp-bootstrap --uid=sp --working-directory=/opt/sports-predictor \
+  /opt/sports-predictor/venv/bin/python deploy/hosting/bootstrap.py run --reference /home/sp/fp_laptop.json
+journalctl -fu sp-bootstrap
+```
+- `run` refuses if `data/sports.db` already exists (this is for a FRESH
+  host).
+- A failed step stops the run and prints the exact
+  `--from N` resume line.
+- Every step is receipted.
+
+**B3. Phase-1 acceptance: the host reproduces the fingerprints.**
+TERMINAL (host):
+```
+sudo -u sp venv/bin/python deploy/hosting/bootstrap.py fingerprint --out /home/sp/fp_host.json
+sudo -u sp venv/bin/python deploy/hosting/bootstrap.py compare /home/sp/fp_laptop.json /home/sp/fp_host.json
+```
+PASS requires all three of the following:
+1. Every **completed** (competition, season) equals the laptop exactly, on
+   total games and on FINISHED games.
+2. **Model identity matches**: the same production version per (sport,
+   family), with an identical parameters hash.
+3. The **BACKLOG certification anchors** hold:
+
+| Anchor | Source | Requirement |
+|---|---|---|
+| NHL 2024 = 1,502 FINISHED + 1 CANCELLED | round-3 certification, 2026-09-24 | exact |
+| NHL 2025 = 1,498 FINISHED | round-3 certification | exact |
+| NHL 3 seasons = 4,410 games | backfill, 2026-09-23 | at least; live season grows |
+| NHL franchises = 32 | same | at least |
+| NCAA 3 seasons = 9,245 games | first-audit certification, 2026-09-25 | at least |
+| NCAA programs = 743 | same | at least |
+| NFL 3 seasons = 989 games | phase 1b, 2026-09-05 | at least |
+| NFL teams = 32 | same | at least |
+| Soccer FINISHED pot = 16,546 (24 competitions) | v22 promotion, 2026-09-21 | at least |
+| MLB | no fingerprint on record | completed seasons equal the laptop exactly |
+
+- Current seasons print as informational; both sides move.
+- Ties and partials are FAIL. Re-sync the named (competition, season) with
+  `sync-matches --competition C --season S`, which updates in place, and
+  re-compare.
+- A residual mismatch needs a named cause (a provider correction, or
+  pagination) and a BACKLOG entry before H1b starts.
+- Paste the compare output. **That is the H1a acceptance.**
+
+**B4. The model registry seed (RATIFIED 2026-09-27).**
+- A fresh DB has no `model_versions` rows.
+  - `predict` for MLB and soccer would raise "No production model yet"
+    (`training._resolve_model_version`).
+  - `improve --hold-on-pass` would HOLD and page on a default-config
+    candidate every morning.
+- Ruling: the production rows are seeded in B2, as a config-only seed.
+  - The model registry is code-adjacent configuration, not history.
+  - Without it, the parallel week cannot compare the very thing cutover
+    certifies: MLB and soccer prediction parity.
+  - The H2 migration stays necessary: the books (odds, predictions,
+    grades) are not seeded.
+- NFL is code-defined (`nfl_elo_v1`) and rebuilds from synced games either
+  way.
+- On the host, the next candidate version number follows the seeded
+  production row, not the laptop's full history. Candidates are held on the
+  host, never promoted, and the host DB is replaced at H2, so the numbering
+  gap is harmless.
+- All four model-bearing timers are enabled with the rest (T11).
+
+---
+
+## H1b. Parallel week (two independent pipelines)
+
+- Both machines sync independently and both run their chains.
+- The export diffs compare INDEPENDENT pipelines. Explained divergence
+  classes are **capture timing** AND **provider-pagination differences**.
+- The laptop remains writer of record (H0-17).
+- The frozen cutover criteria are unchanged.
 
 **T8. TERMINAL (host): H0-16 quota mode.**
 - **BROWSER first:** open the api-sports dashboard and screenshot the
@@ -251,13 +338,14 @@ TIMERS="sp-backup.timer sp-backup-prune.timer sp-mlb-morning.timer sp-mlb-presla
   sp-clv-capture.timer sp-soccer-friday.timer sp-soccer-saturday.timer sp-soccer-morning-after.timer
   sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer sp-nhl-daily.timer sp-weekly-fullseason.timer
   sp-ncaa-market.timer"
-echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list C2/C4 reuse
+echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
 systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
-- Every shipped timer is on the list; CI checks it. That includes
-  `sp-ncaa-market.timer` (H0-11).
+- Every shipped timer is on the list; CI checks it. That includes the four
+  model-bearing timers (B4, seeded registry) and `sp-ncaa-market.timer`
+  (H0-11).
 - No timer exists for soccer-refresh (H0-6).
 
 **T12. TERMINAL (laptop): the nightly backup pull (H0-14 second layer).**
@@ -277,21 +365,48 @@ venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ p
   scp -r sp@sp-vps-1:/opt/sports-predictor/exports ~/sp_host_exports
   python deploy/hosting/compare_exports.py exports ~/sp_host_exports --glob '*<date>*'
   ```
-  Paste the result. Each `✗` needs a capture-timing explanation or a
-  BACKLOG entry.
+  - Paste the result.
+  - Each `✗` needs one of two explanations: capture timing (the two
+    pipelines synced at different moments), or provider pagination (a
+    different page/list boundary from the provider).
+  - Otherwise it needs a BACKLOG entry.
 - Only **laptop** exports go to the Cockpit this week (H0-17). Host
   exports are comparison-only.
 
 ---
 
-## C. Cutover (criteria FROZEN, H0-18, approved as drafted 2026-09-27)
+## H2. Cutover: the ONE `.backup` migration
+
+**Why it cannot be skipped.** The host's bootstrapped DB holds only what
+providers still serve today. These are non-resyncable, and exist only on
+the laptop:
+- the point-in-time odds and Kalshi snapshots (the CLV and closing-line
+  record);
+- every prediction row;
+- the graded ledger (prediction outcomes);
+- the model registry's full history: every candidate, rejection and
+  shelved version. The B4 seed carries production identities only.
+
+A fresh host keeps no books. So at cutover the laptop's history
+**replaces** the host's rehearsal DB. The rehearsal DB is disposed of as
+drafted, and the host's parallel-week snapshots go with it. The laptop's
+own captures cover that week.
+
+### Cutover criteria (FROZEN, H0-18, approved as drafted 2026-09-27; criterion 3 amended 2026-09-27 before day 1)
 
 - 7/7 days with every host timer firing on schedule (the receipts log shows
   each expected unit line).
 - Zero unexplained host-side failures; any `OnFailure` notification was
   received and triaged the same day.
 - Export diffs clean on the last 3 days (differences only from capture
-  timing, each explained).
+  timing or explained provider pagination, each explained).
+
+  **AMENDMENT (architect, 2026-09-27).** Criterion 3 was re-worded before
+  the parallel run began. It is law-3 compliant: the freeze binds at day 1,
+  which has not started. The previous text read "(differences only from
+  capture timing, each explained)". The new text follows the H1b
+  independent-pipeline design, whose explained divergence classes are
+  capture timing and provider pagination. No other criterion changed.
 - A test restore performed on the host: pick one daily host backup,
   `integrity_check` = ok, sha256 matches its receipt.
 - Anthony has pulled at least one export from the host via the tailnet and
@@ -305,16 +420,41 @@ f=$(ls /var/backups/sports-predictor/sports_*.db | grep -v prerefresh | tail -1)
 sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256"
 ```
 
-**Cutover morning, before any chain:**
-1. TERMINAL (laptop): `bash scripts/setup_clv_capture.sh --uninstall`. Run no chains.
+**Cutover morning, before any chain.** The manifest is H0-15: the
+`.backup` DB, `.env`, `exports/` and the receipts log.
+1. TERMINAL (laptop):
+   - Uninstall the CLV jobs: `bash scripts/setup_clv_capture.sh --uninstall`.
+   - Run no chains.
+   - Run any pending `migrate_*.py` named in the merge notes (after that
+     morning's backup), so the laptop DB is on current schema.
 2. TERMINAL (host): `systemctl stop $(cat /etc/sports-predictor/timers.enabled)`.
-3. Repeat M2 to M4 with a **fresh** pack, installing with
-   `install --replace`. This moves the rehearsal DB aside as
-   `data/rehearsal_<ts>.db`; delete it after the receipts.
-4. TERMINAL (host): set `SP_PARALLEL_MODE=full` in host.env. Then
-   `systemctl start $(cat /etc/sports-predictor/timers.enabled)`. Then `systemctl start sp-backup.service`
-   and paste its receipt.
-5. The laptop keeps its last `.backup` file cold for 30 days (the rollback
+3. TERMINAL (laptop), from the repo root with the venv active:
+   ```
+   python deploy/hosting/sp_migrate.py pack --out /tmp/sp_pack_$(date -u +%Y%m%dT%H%M)
+   scp -r /tmp/sp_pack_<stamp> sp@sp-vps-1:/home/sp/          # tailnet only; no bucket/email/chat
+   ```
+   - **Receipt S1/R1:** the db sha256, integrity=ok, and row counts for
+     **every** table.
+   - `absent:` labels any manifest item that did not exist.
+4. TERMINAL (host):
+   ```
+   cd /opt/sports-predictor
+   sudo -u sp venv/bin/python deploy/hosting/sp_migrate.py verify  --pack /home/sp/sp_pack_<stamp>
+   sudo -u sp venv/bin/python deploy/hosting/sp_migrate.py install --pack /home/sp/sp_pack_<stamp> --replace
+   sudo -u sp venv/bin/python cli.py status
+   ```
+   - **Receipt S2/R2:** `✓ PASS verify` and `✓ PASS install`. S2 = S1,
+     and every table's R2 = R1.
+   - `--replace` moves the rehearsal DB aside as `data/rehearsal_<ts>.db`.
+     Delete it after the receipts.
+   - Any `✗` means: delete the pack and repeat from step 3.
+5. Delete the pack on both machines (`rm -rf`). It holds a DB copy and
+   `.env`.
+6. TERMINAL (host), in order:
+   - Set `SP_PARALLEL_MODE=full` in host.env.
+   - Run `systemctl start $(cat /etc/sports-predictor/timers.enabled)`.
+   - Run `systemctl start sp-backup.service` and paste its receipt.
+7. The laptop keeps its last `.backup` file cold for 30 days (the rollback
    point). Its `data/sports.db` is not written again.
 
 **Rollback** uses the same protocol in reverse:
@@ -384,7 +524,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 | H0-15 | Manifest = .backup DB + .env + exports/ + receipts log. Row-count receipts cover every table (sqlite_master), so no hand list is needed. The laptop's `~/.sports_predictor_input_candidates.json` cadence stamp is outside the manifest, so the weekly input evaluation runs on the first host morning (nothing is consumable, so no effect). |
 | H0-16 | (a) only on a dashboard headroom receipt, else (b) designated days. Never (c). Encoded as `SP_PARALLEL_MODE`, with conservative default (b) and no days. |
 | H0-17 | Laptop is writer of record all week. |
-| H0-18 | Cutover criteria frozen (section C, verbatim). |
+| H0-18 | Cutover criteria frozen (section H2). Criterion 3 amended 2026-09-27, BEFORE day 1: "capture timing or explained provider pagination, each explained". |
+| H1 phasing | Amended 2026-09-27 (operator proposal, ratified with a guard): H1a fresh bootstrap (acceptance = the host reproduces the BACKLOG fingerprints and the model identity), H1b independent parallel week, H2 = the one `.backup` migration. |
+| B4 | RATIFIED 2026-09-27: the production `model_versions` rows are seeded in H1a (config only; the books stay empty). Compare verifies model identity. All four model-bearing timers are enabled with the rest. |
 | H0-19 | Pasted table (`sp_receipts.py`). An exports-ingestible file is H2. |
 | H0-20 | Pull over the tailnet (scp/Taildrop). Push is H2. |
 | H0-21 | Resolved by the H1 authorization: artifacts now, provisioning at Anthony's timing. |
@@ -392,8 +534,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 
 ## Open (return to the architect)
 
-None. The final four (H0-7, H0-11, H0-13, H0-14) were ruled on
-2026-09-27.
+None. B4 and the criterion-3 wording were ruled on 2026-09-27.
 
 ## On the record: FOUND SAFETY GAP (H0-5)
 

@@ -9,6 +9,11 @@ longest list value in a top-level object) and a field-level diff with
 timestamp-like keys ignored (*_at, ts, timestamp, generated*, captured*).
 Files present on one side only are listed. Output is paste-ready; exit 0 only
 when every compared file is identical after the timestamp mask. Read-only.
+
+H1b (amended 2026-09-27): the two sides are INDEPENDENT pipelines (each
+syncs from the providers itself). The explained divergence classes are
+capture timing AND provider-pagination differences. Anything else is a
+BACKLOG entry.
 """
 from __future__ import annotations
 
@@ -79,7 +84,8 @@ def main(argv=None) -> int:
         for line in d[:15]:
             print(f"    {line}")
     print(f"\n{'CLEAN' if clean else 'DIVERGENT'} ({len(set(la) & set(ho))} compared) — "
-          f"each divergence needs a capture-timing explanation or a BACKLOG entry.")
+          f"each divergence needs an explanation (capture timing | provider pagination) "
+          f"or a BACKLOG entry.")
     return 0 if clean else 1
 
 

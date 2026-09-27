@@ -160,7 +160,9 @@ Receipt: the list of `sp-*` unit files, all `disabled`.
 
 **H1a: fresh bootstrap.** The host builds its own database from the
 providers. No data transfer. Acceptance: the host's syncs reproduce the
-certification fingerprints.
+certification fingerprints. **CERTIFIED PASS 2026-09-27** (compare
+clean, no waivers). Timers remain OFF; the H1b start is a midweek
+decision.
 
 **H1b: parallel week.** Two independent pipelines. The laptop remains
 writer of record.

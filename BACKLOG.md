@@ -22,6 +22,23 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **H1a CERTIFIED PASS 2026-09-27 (architect): compare clean, NO
+  waivers.** (1) LAPTOP was short 67 UEL 2024/25 games since July —
+  sync-matches skips listings whose teams are not in the DB, and the
+  qualifying-round clubs had never been team-synced; fixed on the laptop
+  via sync-teams then sync-matches. LAW: sync-teams BEFORE sync-matches
+  for every new competition-season (the bootstrap already does; laptop
+  routines must match) — written into CLAUDE.md operational notes and
+  the CLI.md sync-matches row. The fresh host was right; the laptop — the
+  "reference" — was the one short. (2) FINDING: historical cup seasons on
+  the laptop may be similarly under-synced; H1b's independent-pipeline
+  comparison is the detector. (3) ARCHITECT'S OWN ERROR ON RECORD:
+  compare printed laptop-then-host unlabelled; reading the columns in the
+  wrong order cost an hour hunting the wrong machine — the explain tool
+  resolved it by reporting the host's truth directly. FOLLOW-ON (this
+  PR, executor's addition): every compare row now labels each number with
+  its machine ("total laptop N | host M"), so the order cannot be misread
+  again. Timers remain OFF; H1b start is a midweek decision.
 - **FINGERPRINT RECEIPT REQUEST 2026-09-27 (architect): post-#43, pinned
   fingerprints still read UEL 2024/25 host 202 vs laptop 269 while host
   sqlite counts 269 — the counting predicate excludes 67 host rows.

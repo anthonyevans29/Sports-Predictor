@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-27 (fingerprint receipts + hardening)
+- bootstrap explain / explain-diff: the counting predicate, the same rows
+  counted four ways, and every uncounted row's status/status_raw/stage/
+  external_ids, diffed laptop vs host.
+- Fingerprint groups by competition_id (LEFT JOIN, orphans labelled),
+  self-checks against raw COUNT(*); compare sums duplicate status entries.
+- remove_allstar_rows dry-run prints the NFL teams with the fewest games.
+
 ## 2026-09-27 (host Pro Bowl cleanup, authorized)
 - deploy/hosting/remove_allstar_rows.py: host-only, receipted removal of
   pre-exclusion Pro Bowl rows (dry-run default; --apply backs up first,

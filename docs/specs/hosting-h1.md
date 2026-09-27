@@ -273,6 +273,30 @@ completed season is waived with `--waive COMP:SEASON:reason`.
     a same-version compare and one host re-sync is a waiver candidate.
   - **Before ANY compare:** the laptop regenerates its fingerprint on
     current `main` (B1). The host does the same (B3).
+  - **Receipt for a competition-season delta** (request 2026-09-27: UEL
+    2024/25 still read host 202 vs laptop 269 on pinned fingerprints,
+    while host sqlite counted 269). Run on BOTH machines, on the same
+    `main`:
+    ```
+    python deploy/hosting/bootstrap.py explain --comp UEL --season 2024/25 --out /tmp/ex_<machine>.json
+    ```
+    It prints:
+    - (a) the fingerprint's exact counting SQL;
+    - the rows counted four ways: the predicate, raw by `competition_id`,
+      by season-string variant, and by status / `status_raw` / stage;
+    - (b) every row the fingerprint does NOT count, with status,
+      `status_raw`, stage and `external_ids`.
+
+    Copy one dump to the other machine (tailnet scp), then:
+    `python deploy/hosting/bootstrap.py explain-diff /tmp/ex_laptop.json /tmp/ex_host.json`
+    - (c) This joins the rows on `external_ids` and prints every stored
+      field that differs.
+  - **Fingerprint hardening in the same change:**
+    - The predicate groups by the match's own `competition_id` with a LEFT
+      JOIN, so an orphan row counts as `?#<id>` and is never dropped.
+    - The fingerprint self-checks its grouped total against a raw
+      `COUNT(*) FROM matches`, and refuses on a mismatch.
+    - `compare` sums duplicate status entries instead of overwriting them.
 - NFL: the Pro Bowl rows (AFC v NFC, +1 game per season, 34 teams) are
   now excluded at the adapter, and each exclusion prints a receipt. The
   scope_line SCOPE ALERT (teams != 32) was the protection that would have
@@ -301,6 +325,16 @@ completed season is waived with `--waive COMP:SEASON:reason`.
     per NFL season that had a Pro Bowl (e.g. 335 -> 334) and NFL teams
     34 -> 32. Paste them, then regenerate the host fingerprint and
     re-compare.
+  - **If teams still read 34:**
+    - The script's DEFAULT is a dry-run. Only `--apply` deletes.
+    - Check the host receipts log:
+      `grep '"kind": "cleanup"' /var/log/sports-predictor/receipts.jsonl`.
+      No line means the script never ran (did the host pull `main`?).
+      `"applied": false` means dry-run only, so re-issue with `--apply`.
+    - The dry-run also prints the NFL teams with the fewest games. If it
+      reports `all-star teams: none` while NFL has more than 32 teams, the
+      provider's names differ from the AFC/NFC rule. Paste those names; no
+      guess is made.
 
 A skipped family prints as `N/A-host` (laptop-only). It is neither checked
 nor counted as a failure. The model-identity check still covers MLB's

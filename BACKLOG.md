@@ -22,6 +22,37 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FINGERPRINT RECEIPT REQUEST 2026-09-27 (architect): post-#43, pinned
+  fingerprints still read UEL 2024/25 host 202 vs laptop 269 while host
+  sqlite counts 269 — the counting predicate excludes 67 host rows.
+  Hypothesis (architect): a stored-attribute difference between
+  July-synced and today-synced rows (status vocabulary / stage / status_raw
+  on cup ET games). BUILT (receipts first, law 2): `bootstrap.py explain
+  --comp --season --out` prints (a) the fingerprint's exact counting SQL
+  (now a named constant, FINGERPRINT_SQL), the same rows counted four ways
+  (predicate / raw by competition_id / by season-string variant / by
+  status, status_raw, stage), and (b) every row NOT counted with status,
+  status_raw, stage, external_ids (columns from PRAGMA table_info —
+  status_raw exists only where migrate_status_raw.py ran); `explain-diff
+  laptop.json host.json` joins on external_ids and prints every differing
+  stored field = (c). HARDENED the two drop paths visible in code: the
+  predicate groups by the match's own competition_id with a LEFT JOIN (an
+  orphan row counts as '?#<id>', never dropped) and self-checks its
+  grouped total against raw COUNT(*) FROM matches (refuses on mismatch);
+  compare's index SUMS duplicate (comp, season, status) entries instead of
+  overwriting (the old assignment could silently drop a group). HONEST
+  STATUS: neither path is yet PROVEN to be the UEL cause — the explain
+  receipt from both machines decides, and the predicate fix follows it if
+  it is something else. (A season-string variant would already have shown
+  as a separate host-only line in compare.) PRO BOWL: #44 IS merged
+  (f181df1 in main; I misread a stale fetch mid-investigation and
+  corrected it before reporting). Teams still 34 = not yet applied on the
+  host: the script's DEFAULT is dry-run; the receipts log's kind=cleanup
+  line shows applied true/false (or absent = never ran / host not
+  pulled). Dry-run now also prints the NFL-family teams with the fewest
+  games, so if the all-star rule matched nothing the provider's actual
+  names are on the receipt (the AFC/NFC names came from the ruling, not
+  from host data). pytest 192 passed.
 - **ARCHITECT RULINGS ON #43 2026-09-27:** (1) PRO BOWL ROWS ON HOST:
   targeted delete AUTHORIZED — the host DB is a rehearsal database by
   design (replaced wholesale at cutover; disposal already in the runbook),

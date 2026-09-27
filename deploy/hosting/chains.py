@@ -158,6 +158,51 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
 }
 CHAINS["window"] = {"window_plan": True, "post": "window_page", "steps": []}
 
+# PROXIMITY TIERS (architect ruling 2026-09-27): each competition's steps
+# scale with the time to ITS next kickoff inside the window.
+#   far       (> PROX_FAR_H)                 schedule check only (sync-matches:
+#                                            status / postponement), no odds
+#   near      (PROX_IMMINENT_H .. PROX_FAR_H) + odds (--limit = its games
+#                                            within PROX_FAR_H) + Kalshi
+#   imminent  (< PROX_IMMINENT_H)            same repricing as near, plus the
+#                                            T-90 freshen_needed detection
+#                                            (the card tracks games inside T-90)
+# A competition with no game inside the window contributes zero steps. The
+# chain receipt carries the competitions per tier and the steps skipped by
+# proximity (flat plan minus tiered plan).
+PROX_FAR_H = 6
+PROX_IMMINENT_H = 2
+
+# FRESHEN CHAINS (architect ruling 2026-09-27): the documented operator
+# sequences, run by the window service on freshen_needed inside T-90. Each
+# run is under the chain lock, receipted, and rate-guarded to at most one
+# freshen per family per FRESHEN_MIN_INTERVAL_S. A freshen re-writes that
+# slot's prediction exactly as the laptop's T-60 freshens do today (the
+# ledger's idempotent re-log absorbs it). Market-only families have no
+# freshen: the window repricing IS their freshen. Families in
+# SP_SKIP_FAMILIES (MLB on the DO host, ASN ruling) are logged as
+# freshen_needed and never run.
+CHAINS["freshen:NFL"] = {"steps": [
+    ["sync-injuries", "--competition", "NFL", "--season", "2026"],
+    ["sync-odds-football"],
+    ["sync-kalshi-nfl"],
+    ["predict-nfl"],
+    ["export-nfl-predictions"],
+]}
+CHAINS["freshen:MLB"] = {"steps": [list(s) for s in CHAINS["mlb-preslate"]["steps"]]}  # the 10
+CHAINS["freshen:SOCCER"] = {"steps": [
+    ["sync-odds", *PL],
+    ["sync-injuries", *PL],
+    ["sync-kalshi-soccer", "--competition", "PL"],
+    ["predict", "--sport", "soccer", *PL],
+    ["export-predictions", "--sport", "soccer", "--competition", "PL",
+     "--start", "{today}", "--end", "{today_plus3}", "--status", "scheduled"],
+]}
+# (sport, competition) of a card row -> its freshen family. Only the
+# competitions with a live model: NCAA, NHL, the cups and UNL are market-only.
+FRESHEN_FAMILY = {("nfl", "NFL"): "NFL", ("mlb", "MLB"): "MLB", ("soccer", "PL"): "SOCCER"}
+FRESHEN_MIN_INTERVAL_S = 3600
+
 # Commands verified NOT to call a metered api-sports product (2026-09-27: the
 # cli.py command bodies construct no IngestionService / adapter / requests
 # call, and src/walters/ does no network I/O; Kalshi is public). Everything

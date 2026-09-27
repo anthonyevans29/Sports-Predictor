@@ -13,9 +13,8 @@ run. The delta classes:
     stale        the venue flag changed (STALE-BOOK? appeared or cleared)
     kickoff      the kickoff time moved, or the status moved to
                  POSTPONED / CANCELLED
-    t90_news     injury/lineup state changed for a game inside T-90
-                 (report + page only: no freshen chain exists yet,
-                 ARCHITECT-RULE)
+    t90_news     injury/lineup state changed for a game inside T-90; the
+                 window chain then triggers freshen:<family> (sp_run)
 Quiet hours are 00:00-07:00 America/New_York: everything except quarantine
 flips is suppressed there, and still receipted. Plus ONE fixed daily digest
 on the first run at or after 08:00 ET. State lives in SP_WINDOW_STATE
@@ -96,7 +95,7 @@ def line(d: dict) -> str:
             "quarantine": f"QUARANTINE {'ON' if g['quarantine'] else 'off'}",
             "stale": f"venue {d.get('was') or 'ok'} -> {g['venue_flag'] or 'ok'}",
             "kickoff": f"kickoff moved from {d.get('was')} (status {g['status']})",
-            "t90_news": "injury/lineup news inside T-90: freshen needed (no freshen chain yet)"}[d["cls"]]
+            "t90_news": "injury/lineup news inside T-90: freshen triggered"}[d["cls"]]
     return f"{head}: {what}"
 
 
@@ -158,7 +157,9 @@ def run(card_path: Path, now_utc: datetime | None = None) -> dict:
     rec = {"kind": "window_page", "exit": 0, "games": len(cur), "first_run": first_run,
            "deltas": counts, "quiet_hours": quiet, "suppressed": suppressed,
            "paged": paged, "digest": did_digest,
-           "freshen_needed": [d["id"] for d in ds if d["cls"] == "t90_news"]}
+           "freshen_needed": [{"id": d["id"], "sport": d["g"]["sport"],
+                               "competition": d["g"]["competition"]}
+                              for d in ds if d["cls"] == "t90_news"]}
     c.append_receipt(rec)
     return rec
 

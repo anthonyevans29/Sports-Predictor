@@ -402,6 +402,19 @@ the DB and writes `exports/window_24h.json`, the consolidated card.
   it starts with H1b day 1.
 - It fires at :05 every hour except 04 and 05 UTC (H0-3 reboot window).
 
+**Proximity tiers** (ruling 2026-09-27). Each competition's steps scale
+with the time to its next kickoff inside the window:
+
+| Tier | Next kickoff | What runs |
+|---|---|---|
+| far | more than 6h away | schedule check only (`sync-matches`: status and postponement); no odds |
+| near | 2–6h away | the schedule check, plus odds (`--limit` = its games within 6h) and Kalshi |
+| imminent | under 2h away | the same repricing, plus T-90 freshen detection |
+
+A competition with no game inside 24h contributes zero steps. The chain
+receipt carries `proximity`: the competitions per tier and the steps
+skipped by proximity (flat plan minus tiered plan).
+
 **What each run does**, with steps planned at run time from the DB,
 read-only:
 1. `sync-matches --competition C --season S --date-from D --date-to D`,
@@ -440,16 +453,36 @@ read-only:
   in the ntfy app separately from `NTFY_TOPIC`.
 - Test the pager: `sudo -u sp venv/bin/python deploy/hosting/sp_window_page.py`.
 
-**Open for the architect:**
-- **Freshen chain (ARCHITECT-RULE).** The spec says a T-90
-  injury/lineup change "triggers that sport's existing freshen chain", but
-  no freshen chain exists in the pack, CLI or docs. Until one is named,
-  the service DETECTS T-90 news, receipts it as `freshen_needed`, and
-  pages it. It never predicts itself.
-- **Engine vs venue charter.** The card's `engine` is `model_edge` or
-  `market_only`. The venue-edge charter stays in Cockpit policy v1.1, and
-  the Next 24h tab calls the same `venueEdge()`, so there is one copy of
-  the policy.
+**Freshen chains** (ruling 2026-09-27). These are the documented operator
+sequences, defined in `chains.py` as `freshen:<family>`:
+- `freshen:NFL`: `sync-injuries` NFL → `sync-odds-football` →
+  `sync-kalshi-nfl` → `predict-nfl` → `export-nfl-predictions`.
+- `freshen:MLB`: the documented 10-command pre-game chain. It is a laptop
+  duty: on a host with `SP_SKIP_FAMILIES=MLB` it is logged as
+  `freshen_needed` and never run.
+- `freshen:SOCCER`: `sync-odds` PL → `sync-injuries` PL →
+  `sync-kalshi-soccer` → `predict` soccer PL → `export-predictions` soccer
+  PL (today → +3 days, scheduled).
+- Market-only families (NCAA, NHL, cups, UNL) have no freshen. The
+  window repricing is their freshen.
+
+On `freshen_needed` inside T-90, the window service triggers the family's
+freshen:
+- under the chain lock, receipted as `kind: freshen`;
+- rate-guarded to at most one per family per hour, with state in
+  `freshen_state.json` beside the receipts log;
+- then it rebuilds the card.
+
+A freshen re-writes that slot's prediction exactly as the laptop's T-60
+freshens do today; the ledger's idempotent re-log absorbs it.
+
+**Rulings:**
+- The baseline-first pager is RATIFIED: no "everything is new" storm.
+- Null provider-call counts are ACCEPTED. api-football exposes no quota
+  headers, so the metered/unmetered step count is the honest accounting.
+- The card's `engine` is `model_edge` or `market_only`. The venue-edge
+  charter stays in Cockpit policy v1.1, and the Next 24h tab calls the
+  same `venueEdge()`, so there is one copy of the policy.
 
 ## H1b. Parallel week (two independent pipelines)
 

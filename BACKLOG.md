@@ -22,6 +22,16 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ARCHITECT RULINGS ON LANE C 2026-09-27:** (3) api_hockey fallback —
+  the docstring fix is RATIFIED; the missing intermediate
+  API_AMERICAN_FOOTBALL_KEY hop is DECLINED and INTENTIONAL: current
+  behaviour (API_HOCKEY_KEY -> API_FOOTBALL_KEY) works, all keys are one
+  account, and adding a hop is change without benefit. (4)
+  export-nfl-results `"rehearsal": true` DROPPED (rides this PR): the
+  results export is live-era and the field was a fossil that misinformed
+  consumers. Consumers checked: the Cockpit reads `rehearsal` only on
+  PREDICTIONS files (its live chip), never on results; nothing in src/
+  reads it. (5) Merge order ruled: #35, then #36, then #34.
 - **LANE C — COSMETICS BATCH 2026-09-27 (Sunday authorization; strings
   and docs only, nothing behavioral):** (1) nfl-backtest's verdict text
   moved to the live era: PASS = "provenance/regression check: the live

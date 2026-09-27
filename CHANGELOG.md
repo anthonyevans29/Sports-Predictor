@@ -7,6 +7,7 @@ Every drop adds an entry going forward.
 ## 2026-09-27 (cosmetics batch)
 - nfl-backtest verdict text for the live era (provenance/regression);
   stale rehearsal docstrings updated.
+- export-nfl-results no longer writes the fossil `"rehearsal": true`.
 - docs/CLI.md: sync-matches options, sync-kalshi-ncaa, daily backup,
   NFL LIVE section, full Kalshi series list. .env.example: football and
   hockey API keys. api_hockey docstring matches its actual key fallback.

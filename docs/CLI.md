@@ -86,7 +86,7 @@ lines post; after game days `sync-matches --competition NFL` then
 | `export-nfl-predictions` | | LIVE export (`rehearsal: false`): quarantine contract, STALE-BOOK? venue check, Elo/rest "why" fields, QB status in input_quality. Prints scope + venue-check lines. |
 | `nfl-backtest` | | Walk-forward backtest against the frozen phase-2 gate — in the live era a provenance/regression check; prints a scope line. |
 | `nfl-grade` | | Grade predictions vs finished games + banked closer consensus (sides, log-loss, CLV). |
-| `export-nfl-results` | | Graded NFL results file for the consumer (standard results shape, rehearsal-flagged). |
+| `export-nfl-results` | | Graded NFL results file for the consumer (standard results shape; live era — no rehearsal flag). |
 
 ## Market-only competitions (cups, UNL, NCAA, NHL)
 

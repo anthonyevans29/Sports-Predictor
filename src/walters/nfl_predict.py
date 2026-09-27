@@ -353,7 +353,7 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
     path = _os.path.join(out_dir, f"nfl_NFL_results_{datetime.utcnow().strftime('%Y-%m-%d')}.json")
     with open(path, "w") as f:
         _json.dump({"exported_at": datetime.utcnow().isoformat() + "Z",
-                    "sport": "nfl", "rehearsal": True,
+                    "sport": "nfl",
                     "note": "record is variance, not signal — for the consumer to grade against",
                     "count": len(rows), "results": rows}, f, indent=2)
     return path

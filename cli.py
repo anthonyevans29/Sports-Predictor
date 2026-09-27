@@ -3346,7 +3346,7 @@ def totals_model_test_cmd(season, park_weight):
 
 @cli.command("export-nfl-results")
 def export_nfl_results_cmd():
-    """Graded NFL results file for the consumer (rehearsal-flagged)."""
+    """Graded NFL results file for the consumer (live era)."""
     from src.walters.nfl_predict import export_nfl_results
     path = export_nfl_results()
     console.print(f"[green]✓ Wrote {path}[/green]")

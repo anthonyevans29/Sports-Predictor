@@ -92,6 +92,7 @@ def test_flag_fires_on_stale_book_and_quarantine_is_untouched(slate, tmp_path):
 def test_cli_prints_the_venue_check(slate, tmp_path, monkeypatch):
     from cli import cli
     monkeypatch.chdir(tmp_path)          # the CLI writes exports/ relative to cwd
-    out = CliRunner().invoke(cli, ["export-nfl-predictions"]).output
+    # the game is +2 days out: beyond the 36h slate default, so ask for the week
+    out = CliRunner().invoke(cli, ["export-nfl-predictions", "--week"]).output
     assert "STALE-BOOK? flagged: 1" in out
     assert "VF Panthers @ VF Browns" in out and "gap=27.0pp" in out and "quarantine=True" in out

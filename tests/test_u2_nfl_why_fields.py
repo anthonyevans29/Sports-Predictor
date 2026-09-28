@@ -81,7 +81,8 @@ def test_drift_receipt_silent_in_normal_chain_and_warns_on_drift(game, tmp_path,
     rc = {}
     export_nfl_predictions(out_dir=str(tmp_path), receipts=rc)
     assert rc["elo_drift_games"] == ["U2-1 @ U2-2"]
-    out = CliRunner().invoke(cli, ["export-nfl-predictions"]).output
+    # the game is +2 days out: beyond the 36h slate default, so ask for the week
+    out = CliRunner().invoke(cli, ["export-nfl-predictions", "--week"]).output
     assert "⚠ ELO DRIFT: 1 NFL game(s) finished after the predictions were written" in out
     doc = json.loads(open(export_nfl_predictions(out_dir=str(tmp_path))).read())
     assert all("_computed_at" not in r for r in doc["predictions"])   # internal key never ships

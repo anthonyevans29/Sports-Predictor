@@ -195,8 +195,9 @@ CHAINS["freshen:SOCCER"] = {"steps": [
     ["sync-injuries", *PL],
     ["sync-kalshi-soccer", "--competition", "PL"],
     ["predict", "--sport", "soccer", *PL],
-    ["export-predictions", "--sport", "soccer", "--competition", "PL",
-     "--start", "{today}", "--end", "{today_plus3}", "--status", "scheduled"],
+    # export windowing (architect 2026-09-28): no dates -> the 36h current
+    # slate, so a closing freshen yields a one-slate file
+    ["export-predictions", "--sport", "soccer", "--competition", "PL", "--status", "scheduled"],
 ]}
 # (sport, competition) of a card row -> its freshen family. Only the
 # competitions with a live model: NCAA, NHL, the cups and UNL are market-only.

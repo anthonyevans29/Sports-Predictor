@@ -913,3 +913,154 @@ def test_window_run_triggers_freshen_and_recards(sandbox, monkeypatch):
     chain = rs[-1]
     assert chain["kind"] == "chain" and chain["freshens"][0]["chain"] == "freshen:NFL"
     assert chain["proximity"] == {"tiers": plan["tiers"], "steps_skipped_by_proximity": 2}
+
+
+# ------------------------------- pull-exports lane (architect 2026-09-28) ----
+# Laptop pulls host artifacts over the tailnet into exports/host/ (push is H2).
+# A fake `ssh` on PATH runs the "remote" command locally, so REAL rsync makes
+# a genuine round trip without a network; a fake `scp` covers the fallback.
+
+import os  # noqa: E402
+import shutil  # noqa: E402
+
+import pull_exports  # noqa: E402
+
+FAKE_SSH = """#!{py}
+import subprocess, sys
+a = sys.argv[1:]
+while a and a[0].startswith("-"):
+    a = a[2:] if a[0] in ("-o", "-p", "-l", "-i") else a[1:]
+host, cmd = a[0], " ".join(a[1:])
+{mode}
+sys.exit(subprocess.run(["sh", "-c", cmd]).returncode)
+"""
+FAKE_SCP = """#!{py}
+import os, shutil, sys
+a = [x for x in sys.argv[1:] if not x.startswith("-")]
+a = [x for x in a if x not in ("BatchMode=yes", "ConnectTimeout=15")]
+*srcs, dst = a
+for s in srcs:
+    shutil.copy2(s.split(":", 1)[1], os.path.join(dst, os.path.basename(s)))
+"""
+
+
+def _fake_bin(tmp, monkeypatch, ssh_mode="", scp=False):
+    b = tmp / "fakebin"
+    b.mkdir(exist_ok=True)
+    tools = {"ssh": FAKE_SSH.format(py=sys.executable, mode=ssh_mode)}
+    if scp:
+        tools["scp"] = FAKE_SCP.format(py=sys.executable)
+    for name, body in tools.items():
+        (b / name).write_text(body)
+        (b / name).chmod(0o755)
+    monkeypatch.setenv("PATH", f"{b}{os.pathsep}{os.environ['PATH']}")
+
+
+def _host_exports(tmp):
+    h = tmp / "host" / "exports"
+    h.mkdir(parents=True)
+    (h / "window_24h.json").write_text(json.dumps({"exported_at": "2026-10-08T14:05:00Z", "fixtures": []}))
+    (h / "predictions_PL_2026-10-08.json").write_text('{"predictions": []}')
+    (h / "bad name;rm -rf x.json").write_text("{}")          # unsafe name: skipped, never quoted into a shell
+    for i, p in enumerate(sorted(h.iterdir())):
+        os.utime(p, (1_790_000_000 + i, 1_790_000_000 + i))
+    return h
+
+
+def _laptop_exports():
+    own = c.REPO / "exports"
+    own.mkdir(parents=True, exist_ok=True)
+    (own / "window_24h.json").write_text('{"exported_at": "LAPTOP-OWN"}')
+    (own / "predictions_PL_2026-10-08.json").write_text('{"laptop": true}')
+    return {p.name: (p.read_bytes(), p.stat().st_mtime) for p in own.iterdir() if p.is_file()}
+
+
+def _args(h, *extra):
+    return ["--host", "sp-vps-1", "--remote-dir", str(h), *extra]
+
+
+@pytest.mark.skipif(shutil.which("rsync") is None, reason="rsync not installed")
+def test_pull_exports_rsync_round_trip_idempotent_newest_wins(sandbox, monkeypatch):
+    _fake_bin(sandbox, monkeypatch)
+    h = _host_exports(sandbox)
+    before = _laptop_exports()
+    assert pull_exports.main(_args(h, "--transport", "rsync")) == 0
+    got = c.REPO / "exports" / "host"
+    assert sorted(p.name for p in got.iterdir()) == ["predictions_PL_2026-10-08.json", "window_24h.json"]
+    assert (got / "window_24h.json").read_bytes() == (h / "window_24h.json").read_bytes()
+    assert int((got / "window_24h.json").stat().st_mtime) == int((h / "window_24h.json").stat().st_mtime)
+    r = receipts(sandbox)[-1]
+    assert r["kind"] == "pull_exports" and r["exit"] == 0 and r["transport"] == "rsync"
+    assert (r["pulled"], r["unchanged"]) == (2, 0) and r["window_24h"] == "2026-10-08T14:05:00Z"
+    assert r["skipped_names"] == ["bad name;rm -rf x.json"]
+    # idempotent: nothing new -> pulls 0
+    assert pull_exports.main(_args(h)) == 0
+    assert (receipts(sandbox)[-1]["pulled"], receipts(sandbox)[-1]["unchanged"]) == (0, 2)
+    # newest wins: a newer host card is pulled; an OLDER host file never overwrites a newer local one
+    (h / "window_24h.json").write_text(json.dumps({"exported_at": "2026-10-08T15:05:00Z"}))
+    os.utime(h / "window_24h.json", (1_790_003_600, 1_790_003_600))
+    os.utime(got / "predictions_PL_2026-10-08.json", (1_790_009_999, 1_790_009_999))
+    assert pull_exports.main(_args(h)) == 0
+    r = receipts(sandbox)[-1]
+    assert (r["pulled"], r["unchanged"], r["kept_local_newer"]) == (1, 0, 1)
+    assert r["window_24h"] == "2026-10-08T15:05:00Z"
+    # isolation: the laptop's own exports/ are byte- and mtime-identical
+    after = {p.name: (p.read_bytes(), p.stat().st_mtime) for p in (c.REPO / "exports").iterdir() if p.is_file()}
+    assert after == before
+    assert not (got / pull_exports.STAGING).exists()
+
+
+def test_pull_exports_scp_fallback(sandbox, monkeypatch):
+    _fake_bin(sandbox, monkeypatch, scp=True)
+    h = _host_exports(sandbox)
+    assert pull_exports.main(_args(h, "--transport", "scp")) == 0
+    r = receipts(sandbox)[-1]
+    assert r["transport"] == "scp" and r["pulled"] == 2
+    assert (c.REPO / "exports" / "host" / "window_24h.json").read_bytes() == (h / "window_24h.json").read_bytes()
+
+
+def test_pull_exports_unreachable_host_places_nothing(sandbox, monkeypatch, capsys):
+    _fake_bin(sandbox, monkeypatch, ssh_mode=(
+        'sys.stderr.write("ssh: connect to host sp-vps-1 port 22: Operation timed out\\n"); sys.exit(255)'))
+    h = _host_exports(sandbox)
+    before = _laptop_exports()
+    got = c.REPO / "exports" / "host"
+    got.mkdir()
+    (got / "window_24h.json").write_text('{"exported_at": "PREVIOUS"}')
+    assert pull_exports.main(_args(h)) == 1
+    err = capsys.readouterr().err
+    assert "host unreachable" in err and "Operation timed out" in err and "nothing placed" in err
+    r = receipts(sandbox)[-1]
+    assert r["exit"] == 1 and r["pulled"] == 0 and r["window_24h"] == "PREVIOUS"
+    assert sorted(p.name for p in got.iterdir()) == ["window_24h.json"]   # no partial files
+    assert {p.name: (p.read_bytes(), p.stat().st_mtime)
+            for p in (c.REPO / "exports").iterdir() if p.is_file()} == before
+
+
+@pytest.mark.skipif(shutil.which("rsync") is None, reason="rsync not installed")
+def test_pull_exports_failed_transfer_is_all_or_nothing(sandbox, monkeypatch):
+    # listing works, the transfer dies: nothing is placed, staging is gone
+    _fake_bin(sandbox, monkeypatch, ssh_mode='if cmd.startswith("rsync"): sys.exit(12)')
+    h = _host_exports(sandbox)
+    assert pull_exports.main(_args(h, "--transport", "rsync")) == 1
+    got = c.REPO / "exports" / "host"
+    assert list(got.iterdir()) == []
+    assert "rsync failed" in receipts(sandbox)[-1]["error"]
+
+
+def test_pull_exports_isolation_and_config(sandbox, monkeypatch, capsys):
+    monkeypatch.delenv("SP_HOST_ADDR", raising=False)
+    assert pull_exports.main([]) == 2                                    # no address: clear refusal
+    assert "SP_HOST_ADDR" in capsys.readouterr().err
+    with pytest.raises(SystemExit, match="own exports"):
+        pull_exports.main(["--host", "x", "--dest", str(c.REPO / "exports")])
+    with pytest.raises(SystemExit, match="own exports"):
+        pull_exports.main(["--host", "x", "--dest", str(c.REPO)])        # a parent of exports/
+    with pytest.raises(SystemExit, match="law 5"):
+        pull_exports.main(["--host", "x", "--dest", str(c.REPO / "data" / "host")])
+    (c.REPO / ".env").write_text("SP_HOST_ADDR=sp-vps-1.tail1234.ts.net\n")
+    monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    assert pull_exports.host_addr(None) == "sp-vps-1.tail1234.ts.net"
+    assert pull_exports.host_addr("override") == "override"
+    src = (HOSTING / "pull_exports.py").read_text()
+    assert "sp-vps-1" not in src.split('"""', 2)[2]                    # never hardcoded (docstring aside)

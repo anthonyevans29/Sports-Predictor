@@ -50,17 +50,23 @@ specific reason they're not being built now.
   - (2) "Dedupe ledger" repair: it reports removed N (same key · later-day
     re-log · fills). It keeps graded over open, then the earliest capture.
     The Ledger tab warns while duplicates are stored.
-  - (3) scripts/cockpit_ledger_verify.py 20/20: import ×2, self-duplicated
+  - (3) scripts/cockpit_ledger_verify.py 21/21: import ×2, self-duplicated
     import, Kalshi CSV ×2 and paste-import all give identical totals.
   - Multi-week capture: a call is captured only BEFORE its kickoff. A
     parlay ticket with a started leg is not captured.
   - Clipboard-export fallback: Copy ledger (JSON) falls back to a selected
     text box. Import pasted takes it back.
-  ARCHITECT-RULE (flagged, not decided): the later-day re-log collapse
-  treats one game + side + instrument as ONE bet regardless of log_date.
-  This is the only reading under which the reported ×2 is a duplicate. It
-  differs from a strict per-log_date key; ratify or veto before publish.
-  Also flagged: the capture cut-off is kickoff (not T-x).
+  ARCHITECT RULINGS ON #49 (2026-09-28). (a) RATIFIED: the ledger's unit
+  of account is the POSITION (game, side, bet type), not the log event. A
+  re-log on any day updates that position's price context and never
+  creates a second one. That was the spec's intent; the log-date key was
+  the defect. SHIPPED to match: a later-day re-log REPRICES the open
+  position in place. It keeps the id, the first log_date and the parlay
+  ticket id, and stamps last_logged. A graded position is never rewritten.
+  Verifier check: Eagles market_p 0.58 → 0.56, same id and log_date.
+  (b) RATIFIED: capture runs up to kickoff, with no earlier cut-off; a
+  started game is never a new call. Merge on green; the architect
+  republishes.
 
 - **ARCHITECT RULINGS ON #47 2026-09-27 (window service follow-on).** (1)
   FRESHEN CHAINS defined — they already existed as documented operator

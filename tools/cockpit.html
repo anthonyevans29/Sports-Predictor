@@ -542,23 +542,44 @@ function upsertCalls(L,fresh,opts){
     if(!idx.has(k)&&opts.relog&&pos.has(instKey(c))){      // same position, earlier log day
       const i=pos.get(instKey(c)), cur=L.calls[i];
       if(cur.status==="graded"){kept++;continue;}
-      L.calls[i]={...cur,...c,id:cur.id,log_date:cur.log_date,
-        ...(cur.parlay_id?{parlay_id:cur.parlay_id}:{}),last_logged:c.log_date};
+      L.calls[i]=stampTiming({...cur,...c,id:cur.id,log_date:cur.log_date,
+        ...(cur.parlay_id?{parlay_id:cur.parlay_id}:{}),last_logged:c.log_date},c,false);
       repriced++; continue; }
     if(!idx.has(k)){
-      idx.set(k,L.calls.length); pos.set(instKey(c),L.calls.length); L.calls.push(c); added++; continue; }
+      idx.set(k,L.calls.length); pos.set(instKey(c),L.calls.length);
+      L.calls.push(opts.relog?stampTiming(c,c,true):c); added++; continue; }
     const i=idx.get(k), cur=L.calls[i];
     if(cur.status==="graded"&&c.status!=="graded"){kept++;}   // graded history is never rewritten
     else if(opts.incoming&&JSON.stringify(cur)===JSON.stringify({...c,id:cur.id})){kept++;}
     else if(opts.incoming){L.calls[i]={...c,id:cur.id};updated++;}
-    else {L.calls[i]={...cur,...c,id:cur.id};updated++;}
+    else {L.calls[i]=stampTiming({...cur,...c,id:cur.id},c,false);updated++;}
   }
   return {added,updated,kept,repriced};
 }
 function baseCall(r,logDate){
   return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
-    kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:!!r.quar};
+    kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:!!r.quar,
+    captured_at:new Date().toISOString(),qb_listed:(r.qbs||[]).slice()};
 }
+// EXECUTION TIMING (policy v1.1 addendum, architect 2026-09-28). A position
+// carries TWO timestamps: claim_at (the first prediction that created it; its
+// claim_market_p / claim_model_p are FROZEN) and executed_at (the freshen at
+// which the operator placed it). Default doctrine: claim early, EXECUTE AT
+// CLOSE: exec_mode "close_default" follows every re-log before kickoff, so it
+// ends at the last freshen before kickoff. The operator may execute early
+// (exec_mode "operator_early", recorded with its inputs); that locks it.
+// Positions logged before this rule have no claim: null + labelled, never
+// backfilled (law 4). No sizing changes.
+function stampTiming(pos,fresh,isNew){
+  const at=fresh.captured_at||new Date().toISOString();
+  if(isNew){ pos.claim_at=at; pos.claim_market_p=fresh.market_p??null; pos.claim_model_p=fresh.model_p??null;
+    pos.exec_mode="close_default"; }
+  if(pos.exec_mode!=="operator_early"){
+    pos.exec_mode=pos.exec_mode||"close_default";
+    pos.executed_at=at; pos.exec_market_p=fresh.market_p??null; }
+  return pos;
+}
+function execP(c){return c.exec_market_p??c.market_p;}
 // Capture window (multi-week fix, 2026-09-28): a call is captured only
 // BEFORE its kickoff. A multi-day/week file loaded after some games started
 // would otherwise log played games and grade them with hindsight. Rows with
@@ -685,9 +706,14 @@ function gradeLedger(L,outs){
     if(c.call_type!=="parlay_leg"){
       c.status="graded";
       const u=c.call_type==="quarantine_shadow"?0:c.units;
-      c.units_returned=+settleReturn(u,c.result,c.market_p).toFixed(4);
+      c.units_returned=+settleReturn(u,c.result,execP(c)).toFixed(4);       // at the EXECUTION price
       if(c.call_type==="quarantine_shadow")
-        c.shadow_returned=+settleReturn(c.shadow_units||0,c.result,c.market_p).toFixed(4);
+        c.shadow_returned=+settleReturn(c.shadow_units||0,c.result,execP(c)).toFixed(4);
+      if(c.claim_market_p!=null){                                           // claim-price counterfactual
+        c.claim_units_returned=+settleReturn(u,c.result,c.claim_market_p).toFixed(4);
+        if(c.call_type==="quarantine_shadow")
+          c.claim_shadow_returned=+settleReturn(c.shadow_units||0,c.result,c.claim_market_p).toFixed(4);
+      }
       graded++;
     }
   }
@@ -699,12 +725,14 @@ function gradeLedger(L,outs){
     // ("all legs win" is then impossible; later legs keep their own result)
     if(legs.some(l=>!l.result)&&!legs.some(l=>l.result==="loss")) continue;
     const stake=legs[0].units;
-    let ret;
-    if(legs.some(l=>l.result==="loss")) ret=0;
-    else{ const live=legs.filter(l=>l.result==="win");          // void/push legs drop
-      ret=live.length?live.reduce((x,l)=>x/(l.market_p||1),stake):stake; }
+    const pay=price=>{ if(legs.some(l=>l.result==="loss")) return 0;
+      const live=legs.filter(l=>l.result==="win");            // void/push legs drop
+      return live.length?live.reduce((x,l)=>x/(price(l)||1),stake):stake; };
+    const ret=pay(execP);
+    const cret=legs.every(l=>l.claim_market_p!=null)?pay(l=>l.claim_market_p):null;
     const res=ret===0?"loss":(legs.every(l=>l.result!=="win")?"void":"win");
     legs.forEach(l=>{l.status="graded";l.units_returned=+ret.toFixed(4);l.ticket_result=res;
+      if(cret!=null) l.claim_units_returned=+cret.toFixed(4);
       l.graded_date=legs.map(x=>x.graded_date).sort().pop();});
     graded++;
   }
@@ -736,15 +764,21 @@ function settledBets(L){
       const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id);
       bets.push({engine:"model_edge",sport:[...new Set(legs.map(l=>l.sport))].sort().join("+"),
         tier:"parlay",call_type:"parlay",staked:c.units,returned:c.units_returned,
-        result:c.ticket_result,date:c.graded_date,rules:["parlay 0.25u"],shadow:false});
+        result:c.ticket_result,date:c.graded_date,rules:["parlay 0.25u"],shadow:false,
+        claimReturned:c.claim_units_returned??null,exec_mode:legs.some(l=>l.exec_mode==="operator_early")?"operator_early":(c.exec_mode||null),
+        claim_p:null,exec_p:null});
     } else if(c.call_type==="quarantine_shadow"){
       bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
         staked:c.shadow_units||0,returned:c.shadow_returned||0,result:c.result,
-        date:c.graded_date,rules:c.rules||[],shadow:true});
+        date:c.graded_date,rules:c.rules||[],shadow:true,
+        claimReturned:c.claim_shadow_returned??null,exec_mode:c.exec_mode||null,
+        claim_p:c.claim_market_p??null,exec_p:execP(c)??null});
     } else {
       bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
         staked:c.units,returned:c.units_returned,result:c.result,date:c.graded_date,
-        rules:c.rules||[],shadow:false});
+        rules:c.rules||[],shadow:false,
+        claimReturned:c.claim_units_returned??null,exec_mode:c.exec_mode||null,
+        claim_p:c.claim_market_p??null,exec_p:execP(c)??null});
     }
   }
   return bets;
@@ -784,18 +818,43 @@ function equitySVG(bets){
     <text x="${pad}" y="14" font-size="11" fill="var(--muted)">net ${cum>=0?"+":""}${cum.toFixed(2)}u · counterfactual ${(cum+cf)>=0?"+":""}${(cum+cf).toFixed(2)}u · ${dates[0]||""} → ${dates[dates.length-1]||""}</text>
   </svg>`;
 }
+// EXECUTION TIMING section of the P&L block (policy v1.1 addendum): per
+// execution mode, the average claim vs execution price and the net each would
+// have earned, over settled bets whose claim is known (straight/ladder carry
+// prices; parlay tickets carry nets only).
+function timingLines(real){
+  const known=real.filter(b=>b.claimReturned!=null), legacy=real.length-known.length;
+  const row=(k,bs)=>{const pr=bs.filter(b=>b.claim_p!=null&&b.exec_p!=null);
+    const avg=f=>pr.length?pr.reduce((a,b)=>a+f(b),0)/pr.length:null;
+    const nc=bs.reduce((a,b)=>a+b.claimReturned-b.staked,0), ne=bs.reduce((a,b)=>a+b.returned-b.staked,0);
+    const cp=avg(b=>b.claim_p), ep=avg(b=>b.exec_p), dr=avg(b=>(b.exec_p-b.claim_p)*100);
+    return `${k.padEnd(16)}${String(bs.length).padStart(4)}${(cp==null?"—":cp.toFixed(3)).padStart(10)}${(ep==null?"—":ep.toFixed(3)).padStart(10)}`
+      +`${(dr==null?"—":(dr>=0?"+":"")+dr.toFixed(1)).padStart(9)}${((nc>=0?"+":"")+nc.toFixed(2)).padStart(11)}${((ne>=0?"+":"")+ne.toFixed(2)).padStart(10)}${(((ne-nc)>=0?"+":"")+(ne-nc).toFixed(2)).padStart(12)}`;};
+  return ["EXECUTION TIMING — claim early, execute at close (policy v1.1 addendum; no sizing changes)",
+    `${"mode".padEnd(16)}${"n".padStart(4)}${"claim p".padStart(10)}${"exec p".padStart(10)}${"drift pp".padStart(9)}${"net@claim".padStart(11)}${"net@exec".padStart(10)}${"exec−claim".padStart(12)}`,
+    ...["close_default","operator_early"].map(m=>row(m,known.filter(b=>b.exec_mode===m))),
+    row("TOTAL",known),
+    `drift = exec p − claim p (negative = executed at a longer price). exec−claim > 0: executing when we did earned more than at the claim.`
+      +(legacy?` Claim unknown (logged before the rule): ${legacy} settled bet(s) excluded, never backfilled.`:"")];
+}
 function pnlBlock(L){
   const bets=settledBets(L), real=bets.filter(b=>!b.shadow), shad=bets.filter(b=>b.shadow);
   const today=localDate(), wkStart=localDate(new Date(Date.now()-6*86400000));
   const wk=real.filter(b=>(b.date||"")>=wkStart);
-  const line=(k,a)=>`${k.padEnd(14)}${String(a.n).padStart(4)}${fmt(a.staked).padStart(9)}${fmt(a.returned).padStart(10)}${((a.net>=0?"+":"")+fmt(a.net)).padStart(9)}${(a.roi==null?"—":fmt(a.roi,1)+"%").padStart(9)}${(a.hit==null?"—":fmt(a.hit,1)+"%").padStart(8)}`;
-  const hdr=`${"".padEnd(14)}${"n".padStart(4)}${"staked".padStart(9)}${"returned".padStart(10)}${"net".padStart(9)}${"ROI".padStart(9)}${"hit".padStart(8)}`;
-  const section=(title,bs)=>[title,hdr,...["model_edge","venue_edge"].map(e=>line(e,agg(bs.filter(b=>b.engine===e)))),line("TOTAL",agg(bs))].join("\n");
+  // "claim vs exec": net at the execution price minus net at the claim price,
+  // over bets whose claim is known (k = how many). + = executing when we did
+  // earned more than executing at the claim.
+  const cve=bs=>{const k=bs.filter(b=>b.claimReturned!=null);
+    return k.length?`${(()=>{const d=k.reduce((a,b)=>a+b.returned-b.claimReturned,0);return (d>=0?"+":"")+d.toFixed(2);})()}/${k.length}`:"—";};
+  const line=(k,a,bs)=>`${k.padEnd(14)}${String(a.n).padStart(4)}${fmt(a.staked).padStart(9)}${fmt(a.returned).padStart(10)}${((a.net>=0?"+":"")+fmt(a.net)).padStart(9)}${(a.roi==null?"—":fmt(a.roi,1)+"%").padStart(9)}${(a.hit==null?"—":fmt(a.hit,1)+"%").padStart(8)}${cve(bs).padStart(16)}`;
+  const hdr=`${"".padEnd(14)}${"n".padStart(4)}${"staked".padStart(9)}${"returned".padStart(10)}${"net".padStart(9)}${"ROI".padStart(9)}${"hit".padStart(8)}${"claim vs exec".padStart(16)}`;
+  const section=(title,bs)=>[title,hdr,...["model_edge","venue_edge"].map(e=>{const s=bs.filter(b=>b.engine===e);return line(e,agg(s),s);}),line("TOTAL",agg(bs),bs)].join("\n");
   const cf=agg(shad);
   return [`COCKPIT LEDGER — income statement · fair-odds P&L, pre-fee · policy ${POLICY_VERSION}`,
     `generated ${today} · units = 1u base`, "",
     section(`WEEK ${wkStart} .. ${today} (by graded date)`,wk), "",
     section("ALL-TIME",real), "",
+    ...timingLines(real), "",
     `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
     ...realizedLines(L),
@@ -821,12 +880,44 @@ function renderLedger(){
   $("ruleTable").innerHTML=groupTable("by rule",rb,b=>b.rule+(b.shadow?" [shadow]":""));
   const open=L.calls.filter(c=>c.status==="open"&&!c.result);
   const waiting=L.calls.filter(c=>c.status==="open"&&c.result).length;
-  $("openList").innerHTML=(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th></tr></thead><tbody>`
-    +open.map(c=>`<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td></tr>`).join("")
+  const px=v=>v==null?"—":(+v).toFixed(3), hm=s=>s?String(s).slice(5,16).replace("T"," "):"";
+  $("openList").innerHTML=(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th></th></tr></thead><tbody>`
+    +open.map(c=>{const early=c.exec_mode==="operator_early";
+      const canExec=!early&&c.call_type!=="quarantine_shadow"&&!kickedOff({utc:c.kickoff},Date.now());
+      return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`
+      +`<td>${c.claim_at?`${px(c.claim_market_p)} <span class="note">${esc(hm(c.claim_at))}</span>`:'<span class="note">unknown (pre-rule)</span>'}</td>`
+      +`<td>${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
+      +`<td>${canExec?`<button class="ghost execBtn" data-id="${esc(c.id)}">Execute now</button>`:""}</td></tr>`;}).join("")
     +"</tbody></table></div>":'<div class="note">No unmatched open calls.</div>');
   $("realized").innerHTML=realizedHTML(L);
   $("pnlBlock").textContent=pnlBlock(L);
 }
+// Operator EARLY execution (policy v1.1 addendum): the default is "execute
+// at close"; executing early is an explicit, recorded act. It locks
+// executed_at / exec_market_p at the position's current stored price and
+// records the inputs the doctrine names (edge size, QB listed). A parlay
+// ticket executes as a whole. Sizing is untouched.
+function executeEarly(id){
+  const L=loadLedger(), c=L.calls.find(x=>x.id===id);
+  if(!c||c.status!=="open"||c.exec_mode==="operator_early") return "Nothing to execute.";
+  if(kickedOff({utc:c.kickoff},Date.now())) return "Past kickoff — not executable.";
+  const at=new Date().toISOString();
+  const group=c.parlay_id?L.calls.filter(x=>x.parlay_id===c.parlay_id&&x.status==="open"):[c];
+  for(const x of group){
+    x.exec_mode="operator_early"; x.executed_at=at; x.exec_market_p=x.market_p??null;
+    x.early_inputs={edge_pp:(x.model_p!=null&&x.market_p!=null)?+((x.model_p-x.market_p)*100).toFixed(1):null,
+      qb_listed:(x.qb_listed||[]).slice(),quarantine:!!x.quarantine};
+  }
+  const dd=saveLedger(L);
+  const qb=group.flatMap(x=>x.qb_listed||[]);
+  return `Executed EARLY (recorded as operator_early): ${c.game}${c.parlay_id?` + ticket (${group.length} legs)`:""} @ ${(+execP(c)).toFixed(3)}`
+    +` · edge ${c.early_inputs.edge_pp==null?"—":(c.early_inputs.edge_pp>=0?"+":"")+c.early_inputs.edge_pp+"pp"} · QB listed: ${qb.length?qb.join(", "):"none"}`
+    +(qb.length?" · ⚠ outside the doctrine's input-stable condition (recorded as such)":"")+dedupeNote(dd);
+}
+$("openList").addEventListener("click",e=>{
+  const b=e.target.closest(".execBtn"); if(!b) return;
+  $("ledgerNote").textContent=executeEarly(b.dataset.id); renderLedger();
+});
 $("copyPnlBtn").addEventListener("click",async()=>{
   const txt=pnlBlock(loadLedger()); $("pnlBlock").textContent=txt;
   try{ await navigator.clipboard.writeText(txt); $("ledgerNote").textContent="P&L block copied."; }

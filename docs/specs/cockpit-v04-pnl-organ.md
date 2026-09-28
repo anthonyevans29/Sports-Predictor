@@ -44,3 +44,49 @@ proxy, not cash; venue-edge grades against stored kalshi prob
 until the K-track delivers executable bid/ask + fees; first 50
 graded calls per engine before any sizing proposal; policy changes
 only via audit-backed version bump.
+
+---
+
+## Policy v1.1 addendum — EXECUTION TIMING (architect, 2026-09-28)
+
+A position carries TWO timestamps.
+
+**claim_at: the first prediction that created the position.**
+- `claim_market_p` and `claim_model_p` are frozen at that capture.
+
+**executed_at: the freshen at which the operator placed it.**
+- `exec_mode: "close_default"`, the doctrine default, means *execute at close*.
+  Every re-log before kickoff moves `executed_at` and `exec_market_p`, so they
+  end at the last freshen before kickoff.
+- `exec_mode: "operator_early"` is set by the operator's explicit **Execute now**
+  (Ledger → Open calls). It is recorded with
+  `early_inputs {edge_pp, qb_listed, quarantine}`, and it LOCKS: later
+  freshens update the price context (`market_p`) but not the execution.
+- A parlay ticket executes as a whole.
+- Quarantine shadows are never executed; they are not placed.
+
+**Doctrine.** Claim early, execute at close. The one exception is an operator
+who explicitly executes early on a large, input-stable edge (no QB listed),
+recorded as such. The Cockpit flags an early execution on a QB-listed game as
+"outside the doctrine's input-stable condition (recorded as such)". **No sizing
+changes.**
+
+**Grading.**
+- Returns settle at the EXECUTION price: `exec_market_p`, falling back to
+  `market_p` for a position logged before this rule.
+- The claim-price counterfactual is booked alongside, as
+  `claim_units_returned` / `claim_shadow_returned`.
+
+**P&L block.**
+- A new **"claim vs exec"** column on the engine lines shows net@exec − net@claim
+  over bets whose claim is known, as `+x.xx/k`.
+- A new **EXECUTION TIMING** section breaks this down per mode (close_default,
+  operator_early): n, average claim p, average exec p, drift pp,
+  net@claim, net@exec, and exec − claim.
+- Over time this measures whether early or late execution earns more.
+
+**Pre-rule positions.** These carry no claim. They stay null and are labelled
+("claim unknown … excluded, never backfilled"; law 4).
+
+**Open (ARCHITECT-RULE).** "Large edge" has no pinned threshold. The Cockpit
+records `edge_pp` at early execution and does not block or judge by size.

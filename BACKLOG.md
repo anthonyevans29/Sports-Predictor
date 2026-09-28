@@ -22,6 +22,38 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **EXECUTION-TIMING RULE: POLICY v1.1 ADDENDUM (architect, 2026-09-28;
+  Cockpit + docs).** A position now carries two timestamps.
+  - claim_at: the first prediction, with claim_market_p and claim_model_p
+    FROZEN.
+  - executed_at: the default `close_default` follows every re-log before
+    kickoff, ending at the last freshen before kickoff. `operator_early`
+    comes from the new Ledger "Execute now" action. It locks and records
+    early_inputs {edge_pp, qb_listed, quarantine}, and a QB-listed early
+    execution is flagged as outside the doctrine, recorded as such.
+  - Grading settles at the EXECUTION price and books the claim-price
+    counterfactual.
+  - The P&L block gains a "claim vs exec" column (net@exec − net@claim, +x/k)
+    and an EXECUTION TIMING section per mode (claim p, exec p, drift,
+    net@claim, net@exec, exec−claim).
+  - Pre-rule positions stay null and labelled, never backfilled.
+  - No sizing changes.
+  - For default positions exec price == the latest market_p (the
+    ruling-(a) reprice), so existing P&L numbers are unchanged. The existing
+    Cockpit verifiers are unchanged: v04 25/25, fills 20/20, window 12/12,
+    ledger 21/21.
+  - New `scripts/cockpit_timing_verify.py` 15/15: claim frozen across a
+    freshen; default execution moves 0.58 → 0.56; early execution locked at
+    0.60 while the close moved to 0.55; the QB-listed flag; settlement at
+    1/0.56 with a claim counterfactual at 1/0.58; the P&L column and
+    section; the legacy label.
+  - Spec addendum in docs/specs/cockpit-v04-pnl-organ.md.
+  - ARCHITECT-RULE (open): "large edge" has no pinned threshold; edge_pp is
+    recorded, not enforced. Also my own choices, to veto if wrong: a parlay
+    ticket executes as a whole, and quarantine shadows are never
+    executable.
+  - Republish the Cockpit after merge.
+
 - **NCAA-MARKET THURSDAY RUN (architect, 2026-09-28).** `sp-ncaa-market.timer`
   gains `Thu 16:00 UTC` for Thursday-night slates, alongside Fri 16:00 and
   Sat 13:00.

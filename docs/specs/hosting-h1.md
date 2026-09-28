@@ -579,6 +579,14 @@ criterion 3):
     files predate the `git_sha` stamp. From the next pull, the class is
     claimable only through the comparator's guard, which requires both
     files to carry `git_sha` and the comparator to name the mismatch.
+  - **CLOSED 2026-09-28 (architect).** The host `nfl-predict` was re-run at
+    21:50 UTC, after the #58 pull:
+    - injuries 6/5, equal to the laptop (the chain gap is fixed);
+    - `git_sha` stamped;
+    - model probabilities identical;
+    - venues converged to 0.0pp at T-45 (the capture timing resolved as
+      the syncs aligned).
+    Nothing remains open.
 
 - Both machines sync independently and both run their chains.
 - The export diffs compare INDEPENDENT pipelines. Explained divergence

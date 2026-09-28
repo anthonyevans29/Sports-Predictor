@@ -40,6 +40,43 @@ specific reason they're not being built now.
     checked for this first.
   - The runbook status line now reads H1b LIVE.
 
+- **PULL-EXPORTS LANE 2026-09-28 (architect spec; laptop pulls host
+  artifacts, push is H2).** `deploy/hosting/pull_exports.py` has the same
+  shape as pull_backup.py. It pulls the host's `exports/` over the tailnet
+  into the laptop's `exports/host/`. That is a SEPARATE folder, never the
+  laptop's own `exports/` (writer-of-record isolation through H1b, H0-17).
+  - Host address: `--host`, else `SP_HOST_ADDR` (env, then the laptop
+    `.env`; documented in .env.example); never hardcoded. Unset → exit 2
+    with a clear message.
+  - Flow: ssh listing (name / mtime / size), then newest-wins by mtime.
+    Missing or newer on the host → pulled. Same mtime and size →
+    unchanged. An OLDER host file never overwrites a newer local copy.
+  - Transport: rsync -t (fallback scp -p) into a staging dir. Sizes are
+    verified, and only after every file has landed are they renamed into
+    place: all-or-nothing, so there are no partial files.
+  - An unreachable host prints a clear `✗` line, exits non-zero and places
+    nothing.
+  - Idempotent: nothing new → pulled 0.
+  - Receipt (kind pull_exports): pulled / unchanged / kept_local_newer and
+    the newest window_24h.json `exported_at`.
+  - Refuses a dest that is (or contains) the laptop's own exports/, or is
+    under data/ (law 5).
+  - Export names are regex-checked; unsafe ones are skipped and listed.
+  - `scripts/setup_export_pull.sh`: an OPTIONAL hourly launchd job at :10,
+    five minutes after the host's :05 window run. On-demand invocation is
+    first-class.
+  - Docs: CLI.md "Hosting — laptop side" table; runbook T12b under H1b;
+    the parallel-week compare now reads `exports/host`.
+  - Tests:
+    - real-rsync round trip through a fake-ssh shim (idempotent,
+      newest-wins both ways);
+    - scp fallback;
+    - unreachable host → nothing placed;
+    - a failed transfer is all-or-nothing;
+    - isolation: the laptop exports/ is byte- and mtime-identical;
+      config/refusals.
+  - No Cockpit change: the Next 24h tab reads the card from any path.
+
 - **COCKPIT LEDGER DOUBLING — FIX 2026-09-28 (architect report: after
   Import Kalshi CSV every ledger row showed twice — model_edge 7→14,
   staked 5.50→11.00, shadows 2→4, open 10→20).** ROOT CAUSE (read from the

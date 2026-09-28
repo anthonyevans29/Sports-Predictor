@@ -137,6 +137,13 @@ books' fair bars with a market-only chip and the Kalshi status.
 | `bullpen-availability` / `bullpen-effectiveness` / `bullpen-diagnostic` | various | Bullpen usage, effectiveness, and hypothesis tests. |
 | `scenarios` | `--date` | What-if decomposition of a day's predictions. |
 
+## Hosting — laptop side (scripts, not cli.py)
+
+| Command | Options | Purpose |
+|---|---|---|
+| `python deploy/hosting/pull_exports.py` | `--host --dest --transport {auto,rsync,scp}` | Pull the host's `exports/` over the tailnet into **`exports/host/`**, never the laptop's own `exports/` (writer of record through H1b). Host from `SP_HOST_ADDR` in `.env`. Newest-wins by mtime, idempotent, all-or-nothing (an unreachable host places nothing, exit ≠ 0). Receipt: pulled / unchanged / newest `window_24h.json`. On demand first; optional hourly launchd at :10 via `bash scripts/setup_export_pull.sh`. Laptop pulls; push is H2. |
+| `python deploy/hosting/pull_backup.py` | `--host --dest` | Nightly pull of the host's newest daily `.backup` into `~/sp-backups` (sha256 + integrity verified); launchd via `scripts/setup_backup_pull.sh`. |
+
 ## Web UI
 
 `python main.py` serves the local browser app (FastAPI on

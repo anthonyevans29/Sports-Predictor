@@ -36,6 +36,7 @@ Every step below carries a label:
 | `sp_boot_receipt.py` | One receipt per boot (H0-3). |
 | `sp_prune.py` | Backup retention: 14 dailies (H0-14). Report-only until the first manual prune has been reviewed. |
 | `pull_backup.py` + `scripts/setup_backup_pull.sh` | **Laptop side.** Nightly pull of the host's newest daily `.backup` over the tailnet into `~/sp-backups`. Verified against the sha256 sidecar plus an integrity check, and receipted (H0-14 second layer, $0). |
+| `pull_exports.py` + `scripts/setup_export_pull.sh` | **Laptop side.** Pulls the host's `exports/` over the tailnet into the laptop's `exports/host/`, never its own `exports/`. Host from `SP_HOST_ADDR`. Newest-wins by mtime, idempotent, all-or-nothing on an unreachable host. Receipted (pulled / unchanged / newest `window_24h.json`). On demand; the hourly launchd job at :10 is optional. |
 | `sp_deploy.py` | Fast-forward to merged `origin/main` only, with a receipt. |
 | `systemd/` | `sp-chain@.service` template, 14 timers, backup, prune, notify@, boot-receipt, web, and `sp-soccer-refresh.service` (no timer). |
 | `etc/` | host.env template, full-season list template, unattended-upgrades reboot window, logrotate. |
@@ -612,13 +613,35 @@ venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ p
 - Copies land in `~/sp-backups` (the laptop's own backed-up disk), never
   in `data/`. They are not pruned automatically.
 
+**T12b. TERMINAL (laptop): the host-exports pull (pull-exports lane, 2026-09-28).**
+**Laptop pulls host artifacts; push is H2.**
+- Set `SP_HOST_ADDR` in the laptop's `.env` to the host's tailnet address.
+  See `.env.example`; the address is never hardcoded.
+- Pull on demand (first-class):
+  ```
+  venv/bin/python deploy/hosting/pull_exports.py
+  ```
+  Receipt: `✓ pull-exports from <host>: pulled N · unchanged M · newest window_24h.json <exported_at>`.
+- Optional: an hourly launchd job at :10, five minutes after the host's :05
+  window run:
+  ```
+  bash scripts/setup_export_pull.sh
+  ```
+- Copies land in `exports/host/`, a SEPARATE folder. The laptop's own
+  `exports/` stays the writer of record (H0-17) and is never touched.
+- The Cockpit's Next 24h tab can load `exports/host/window_24h.json`
+  directly (no Cockpit change).
+- An unreachable host is not an error to chase. The run prints a clear `✗`
+  line, exits non-zero and places nothing; the previous pull stays as it
+  was.
+
 **Each parallel-week morning:**
 - TERMINAL (host): `sudo -u sp venv/bin/python deploy/hosting/sp_receipts.py --since 24h`,
   then paste the table (H0-19).
 - Exports (H0-20, pull over the tailnet). TERMINAL (laptop):
   ```
-  scp -r sp@sp-vps-1:/opt/sports-predictor/exports ~/sp_host_exports
-  python deploy/hosting/compare_exports.py exports ~/sp_host_exports --glob '*<date>*'
+  venv/bin/python deploy/hosting/pull_exports.py
+  python deploy/hosting/compare_exports.py exports exports/host --glob '*<date>*'
   ```
   - Paste the result.
   - Each `✗` needs one of two explanations: capture timing (the two

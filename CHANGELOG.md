@@ -12,6 +12,14 @@ Every drop adds an entry going forward.
   root is sealed. The console is emergency-only after P4. Mac VPN clients
   conflict with Tailscale (quit them before tailnet steps).
 
+## 2026-09-28 (hosting: pull-exports lane)
+- `deploy/hosting/pull_exports.py`: the laptop pulls the host's exports/
+  over the tailnet into exports/host/ (never its own exports/). The host
+  comes from SP_HOST_ADDR. Newest-wins, idempotent, all-or-nothing on an
+  unreachable host, receipted (pulled / unchanged / newest window_24h.json).
+- `scripts/setup_export_pull.sh`: optional hourly launchd job at :10.
+- Docs: CLI.md hosting table, runbook T12b (laptop pulls; push is H2).
+
 ## 2026-09-28 (Cockpit: ledger doubling fix)
 - Root cause: re-logging a multi-day file on a later day re-captured every
   call under a new log_date key (reproduced: 12 → 24). Import ledger merged

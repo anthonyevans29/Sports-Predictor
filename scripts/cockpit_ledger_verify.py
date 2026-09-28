@@ -137,13 +137,29 @@ def main(html):
         base = len(C)
         page.click("#logBtn")
         check("re-Log same day adds nothing", len(ledger()["calls"]) == base, f"{base} -> {len(ledger()['calls'])}")
-        # the incident path: the same file loaded again on a LATER local day
+        # the incident path: the same file loaded again on a LATER local day,
+        # prices moved overnight (Eagles book fair 0.58 -> 0.56)
+        first = {c["game"]: c for c in C}["Dallas Cowboys @ Philadelphia Eagles"]
+        moved = json.loads(json.dumps(INPUTS["nfl_multiweek.json"]))
+        moved["predictions"][1]["market"]["fair_prob"] = {"HOME": 0.56, "AWAY": 0.44}
+        with open(os.path.join(tmp, "nfl_multiweek_day2.json"), "w") as f:
+            json.dump(moved, f)
+        page.evaluate("document.getElementById('summary').textContent=''")
+        page.set_input_files("#predFile", [os.path.join(tmp, "nfl_multiweek_day2.json"), os.path.join(tmp, "soccer.json")])
+        page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
+        page.click("#tabDesk")
         page.evaluate("localDate=(d)=>{d=d||new Date(Date.now()+86400000);"
                       "return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}")
         n2 = note_after(lambda: page.click("#logBtn"), "#logNote")
         after = len(ledger()["calls"])
         print("   ", n2)
         check("re-Log on a LATER day adds nothing (no doubling)", after == base, f"calls {base} -> {after}")
+        pos = {c["game"]: c for c in ledger()["calls"]}["Dallas Cowboys @ Philadelphia Eagles"]
+        tomorrow = (datetime.now() + timedelta(days=1)).strftime("%Y-%m-%d")
+        check("ruling (a): the position is REPRICED in place (market_p 0.58 -> 0.56; id + first log_date kept)",
+              pos["market_p"] == 0.56 and pos["id"] == first["id"] and pos["log_date"] == first["log_date"]
+              and pos.get("last_logged") == tomorrow,
+              f"market_p {first['market_p']} -> {pos['market_p']} · last_logged {pos.get('last_logged')}")
         page.evaluate("localDate=(d)=>{d=d||new Date();"
                       "return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}`;}")
 

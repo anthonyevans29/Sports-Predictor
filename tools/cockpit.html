@@ -492,10 +492,11 @@ function localDate(d){d=d||new Date();
 // distinct instruments that never overwrite each other. Identity is always
 // RECOMPUTED from the fields, never trusted from a stored/imported id.
 function callKey(c){return [c.sport,c.game,c.log_date,c.engine,c.call_type,c.parlay_id||""].join("|");}
-// Instrument identity across log dates (ledger-doubling fix, 2026-09-28): the
-// same bet re-captured on a later day (a multi-day file loaded again) is ONE
-// instrument. Anchored on the kickoff; a call with no kickoff can't be proven
-// the same game, so it keeps its log_date (never collapsed on a guess).
+// POSITION identity (architect ruling 2026-09-28 on #49): the ledger's unit of
+// account is the position — game, side, bet type — not the log event. A
+// re-log on any day updates that position's price context and never creates
+// a second one. Anchored on the kickoff; a call with no kickoff can't be
+// proven the same game, so it keeps its log_date (never collapsed on a guess).
 function parlaySig(c){return c.parlay_id?String(c.parlay_id).replace(/^P-\d{4}-\d{2}-\d{2}-/,""):"";}
 function instKey(c){return [c.sport,c.game,c.kickoff||("log:"+c.log_date),c.engine,c.call_type,c.pick,parlaySig(c)].join("|");}
 // Which copy survives a collapse: graded beats open (graded history is never
@@ -526,25 +527,33 @@ function dedupeNote(d){
 }
 // Merge fresh/incoming calls into L by the RECOMPUTED key. Works in place on
 // L.calls (pre-existing duplicates are left for enforceLedger to collapse and
-// report). opts.relog: fresh captures — a call already captured on an earlier
-// day (same instrument) is skipped, not re-logged. opts.incoming: an imported
-// graded call may replace an open one; an open one never downgrades graded.
+// report). opts.relog: fresh captures — a position already captured on an
+// earlier day is REPRICED in place (price context updated; its id, first
+// log_date and parlay ticket id stay; last_logged records the re-log), never
+// added twice. opts.incoming: an imported graded call may replace an open
+// one; an open one never downgrades graded.
 function upsertCalls(L,fresh,opts){
   opts=opts||{};
-  const idx=new Map(), inst=new Set();
-  L.calls.forEach((c,i)=>{ const k=callKey(c); if(!idx.has(k)) idx.set(k,i); inst.add(instKey(c)); });
-  let added=0,updated=0,kept=0,earlier=0;
+  const idx=new Map(), pos=new Map();
+  L.calls.forEach((c,i)=>{ const k=callKey(c); if(!idx.has(k)) idx.set(k,i);
+    const p=instKey(c); if(!pos.has(p)) pos.set(p,i); });
+  let added=0,updated=0,kept=0,repriced=0;
   for(const c of fresh){ const k=callKey(c); c.id=c.id||k;
+    if(!idx.has(k)&&opts.relog&&pos.has(instKey(c))){      // same position, earlier log day
+      const i=pos.get(instKey(c)), cur=L.calls[i];
+      if(cur.status==="graded"){kept++;continue;}
+      L.calls[i]={...cur,...c,id:cur.id,log_date:cur.log_date,
+        ...(cur.parlay_id?{parlay_id:cur.parlay_id}:{}),last_logged:c.log_date};
+      repriced++; continue; }
     if(!idx.has(k)){
-      if(opts.relog&&inst.has(instKey(c))){earlier++;continue;}
-      idx.set(k,L.calls.length); inst.add(instKey(c)); L.calls.push(c); added++; continue; }
+      idx.set(k,L.calls.length); pos.set(instKey(c),L.calls.length); L.calls.push(c); added++; continue; }
     const i=idx.get(k), cur=L.calls[i];
     if(cur.status==="graded"&&c.status!=="graded"){kept++;}   // graded history is never rewritten
     else if(opts.incoming&&JSON.stringify(cur)===JSON.stringify({...c,id:cur.id})){kept++;}
     else if(opts.incoming){L.calls[i]={...c,id:cur.id};updated++;}
     else {L.calls[i]={...cur,...c,id:cur.id};updated++;}
   }
-  return {added,updated,kept,earlier};
+  return {added,updated,kept,repriced};
 }
 function baseCall(r,logDate){
   return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
@@ -603,7 +612,7 @@ $("logBtn").addEventListener("click",()=>{
   const r=upsertCalls(L,fresh,{relog:true}); const dd=saveLedger(L);
   const byEng={}; fresh.forEach(c=>{const k=c.engine+(c.call_type==="quarantine_shadow"?" (shadow)":"");byEng[k]=(byEng[k]||0)+1;});
   $("logNote").textContent=`Logged ${fresh.length} entries (${Object.entries(byEng).map(([k,n])=>`${k} ${n}`).join(" · ")||"none"}) — `
-    +`${r.added} new · ${r.updated} updated · ${r.kept} already graded (kept) · ${r.earlier} already logged on an earlier day (not re-logged)`
+    +`${r.added} new · ${r.updated} updated · ${r.kept} already graded (kept) · ${r.repriced} positions from an earlier day repriced (not duplicated)`
     +` · ${lastCapture.started} past kickoff (not captured)`+(lastCapture.noKickoff?` · ${lastCapture.noKickoff} with no kickoff time`:"")+"."
     +dedupeNote(dd)
     +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");

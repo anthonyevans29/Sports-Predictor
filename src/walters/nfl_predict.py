@@ -141,7 +141,12 @@ def elo_drift_games(s, since) -> list:
 
 
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
-                           receipts: dict | None = None) -> str:
+                           receipts: dict | None = None,
+                           hours_ahead: float | None = None) -> str:
+    # Export windowing (architect 2026-09-28): the FILE's rows are scoped to
+    # kickoffs in [now, now + window]; predictions are generated and stored
+    # exactly as before (early-week claims stay for CLV). hours_ahead wins
+    # over days_ahead; the CLI defaults to the 36h current slate.
     # U2 "why" fields (2026-09-27): the ratings the model prices from — the
     # same _current_ratings() walk predict-nfl uses (finished NFL games,
     # preseason excluded), taken at export time.
@@ -149,11 +154,16 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
     elo = _current_ratings()
     with session_scope() as s:
         now = datetime.utcnow()
+        hi = now + (timedelta(hours=hours_ahead) if hours_ahead is not None
+                    else timedelta(days=days_ahead))
+        if receipts is not None:
+            receipts["window"] = {"from": now, "to": hi,
+                                  "hours": round((hi - now).total_seconds() / 3600, 1)}
         q = (nfl_scoped(select(Prediction, Match)
                         .join(Match, Match.id == Prediction.match_id))
              .where(Match.status == MatchStatus.SCHEDULED,
                     Match.utc_date >= now,
-                    Match.utc_date <= now + timedelta(days=days_ahead))
+                    Match.utc_date <= hi)
              .order_by(Match.utc_date))
         rows = []
         for pred, m in s.execute(q).all():

@@ -83,7 +83,7 @@ lines post; after game days `sync-matches --competition NFL` then
 | `sync-kalshi-nfl` | | Kalshi `KXNFLGAME` markets via the shared two-sided matcher. |
 | `capture-weather-nfl` | | Tracking-only weather snapshot for upcoming NFL games (team-keyed stadium map; roofed games stored as indoor). |
 | `predict-nfl` | | Write v1 Elo predictions for upcoming games (match-only upsert). |
-| `export-nfl-predictions` | | LIVE export (`rehearsal: false`): quarantine contract, STALE-BOOK? venue check, Elo/rest "why" fields, QB status in input_quality. Prints scope + venue-check lines. |
+| `export-nfl-predictions` | `--week` / `--days N` | LIVE export (`rehearsal: false`): quarantine contract, STALE-BOOK? venue check, Elo/rest "why" fields, QB status in input_quality. **Rows default to the current slate: kickoffs in the next 36h.** `--week` is the full 8-day look-ahead; `--days N` sets it explicitly. Prediction generation is unchanged; `predict-nfl` still stores the whole week for CLV. Prints venue-check lines plus a `window:` receipt line. |
 | `nfl-backtest` | | Walk-forward backtest against the frozen phase-2 gate — in the live era a provenance/regression check; prints a scope line. |
 | `nfl-grade` | | Grade predictions vs finished games + banked closer consensus (sides, log-loss, CLV). |
 | `export-nfl-results` | | Graded NFL results file for the consumer (standard results shape; live era — no rehearsal flag). |
@@ -116,7 +116,7 @@ books' fair bars with a market-only chip and the Kalshi status.
 | `improve` | `--sport --force-input-eval --hold-on-pass` | Train a candidate and gate it vs production on the frozen holdout. Rejection is the normal outcome. `--hold-on-pass` (or env `SP_IMPROVE_HOLD_ON_PASS=1`, set by the host units — H0-5): a PASS is HELD, not promoted, and prints an `SP-PAGE:` line. |
 | `ratify-candidate` | `--sport --version --yes` | Promote a HELD candidate on explicit operator ratification; refused unless the production version it beat is still production. |
 | `backtest` | `--season --competition` | Leakage-free historical re-run of the current model. |
-| `export-predictions` | `--sport --competition --start --end --status` | Consumer prediction file with input_quality vocabulary. |
+| `export-predictions` | `--sport --competition --days --date --start --end --status` | Consumer prediction file with input_quality vocabulary. **Default rows: the current slate.** Soccer: kickoffs in the next 36h. **MLB: today's one 08:00-UTC slate-day** (ruling 2026-09-28: it plays daily, so 36h would drag in tomorrow's games before pitchers and lineups are confirmed). `--days N` is the explicit look-ahead. `--date` / `--start --end` keep their 08:00-UTC slate-day meaning (post-mortems, the soccer weekend chains). Prints a `window:` receipt line. |
 | `export-results` | `--sport --competition --date` | Graded results file (top-pick, totals pulse annotations). |
 | `results-tally` | `--days` | Regenerate `RESULTS.md` — rolling per-sport record (sides, log-loss, CLV). |
 | `window-card` | `--hours --t90` | Next-24h consolidated card → `exports/window_24h.json`: every game in the window, kickoff-sorted, fixtures grammar + model p / edge / tier / quarantine / venue flag / engine. Model fields copied from the canonical exports (no model runs); market side repriced. Read-only against the DB. |

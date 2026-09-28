@@ -3421,12 +3421,37 @@ def predict_nfl_cmd():
     console.print(f"[green]✓ Wrote {n} NFL predictions (nfl_elo_v1)[/green]")
 
 
+SLATE_WINDOW_H = 36   # export windowing (architect 2026-09-28): the current slate
+
+
+def _window_line(lo, hi, how: str) -> str:
+    return (f"window: {lo:%Y-%m-%d %H:%M} → {hi:%Y-%m-%d %H:%M} UTC "
+            f"({(hi - lo).total_seconds() / 3600:.0f}h · {how})")
+
+
 @cli.command("export-nfl-predictions")
-def export_nfl_predictions_cmd():
-    """NFL predictions export (LIVE: rehearsal=false; quarantine, venue and Elo fields)."""
+@click.option("--week", is_flag=True,
+              help="Full look-ahead (8 days: the whole NFL week) instead of the 36h current slate.")
+@click.option("--days", "days", type=click.IntRange(min=1), default=None,
+              help="Explicit look-ahead of N days instead of the 36h current slate.")
+def export_nfl_predictions_cmd(week, days):
+    """NFL predictions export (LIVE: rehearsal=false; quarantine, venue and Elo fields).
+
+    Rows default to the CURRENT SLATE: kickoffs in the next 36 hours, so a
+    closing freshen yields a one-slate file. --week / --days N widen it.
+    Prediction generation is unchanged (predict-nfl still stores the whole
+    week for CLV); only the file's rows are scoped."""
     from src.walters.nfl_predict import export_nfl_predictions
+    if week and days:
+        raise click.UsageError("--week and --days are exclusive")
     rc: dict = {}
-    path = export_nfl_predictions(receipts=rc)
+    if week:
+        path, how = export_nfl_predictions(days_ahead=8, receipts=rc), "--week: full look-ahead"
+    elif days:
+        path, how = export_nfl_predictions(days_ahead=days, receipts=rc), f"--days {days}"
+    else:
+        path = export_nfl_predictions(hours_ahead=SLATE_WINDOW_H, receipts=rc)
+        how = "default: current slate; --week / --days N for more"
     if rc.get("elo_drift_games"):
         print(f"⚠ ELO DRIFT: {len(rc['elo_drift_games'])} NFL game(s) finished after the "
               f"predictions were written — elo_* fields lead the stored probabilities; "
@@ -3441,7 +3466,9 @@ def export_nfl_predictions_cmd():
         print(f"  STALE-BOOK?  {r['away_team']} @ {r['home_team']}  book_fair_H="
               f"{(r['market'] or {}).get('fair_prob', {}).get('HOME')}  kalshi_H="
               f"{r['kalshi_prob']}  gap={r['venue_gap_pp']}pp  quarantine={r['quarantine']}")
-    console.print(f"[green]✓ Wrote {path}[/green] [dim](LIVE format: rehearsal=false, quarantine fields)[/dim]")
+    w = rc["window"]
+    console.print(f"[green]✓ Wrote {len(rows)} rows to {path}[/green] [dim](LIVE format: rehearsal=false, "
+                  f"quarantine fields)[/dim] · {_window_line(w['from'], w['to'], how)}")
 
 
 @cli.command("nfl-backtest-caps")
@@ -5337,7 +5364,10 @@ def spread_fallback_check_cmd(competition_code, start, end):
 @click.option("--sport", type=click.Choice(["soccer", "mlb", "baseball"]), required=True,
               help="Sport to export.")
 @click.option("--date", "date_str", default=None,
-              help="Single UTC date YYYY-MM-DD. Defaults to today.")
+              help="Single slate-day YYYY-MM-DD (08:00 UTC → 08:00 UTC). Without --date/--start/"
+                   "--end/--days the file is the CURRENT SLATE: kickoffs in the next 36h.")
+@click.option("--days", "days", type=click.IntRange(min=1), default=None,
+              help="Explicit look-ahead: kickoffs from now through N days (full look-ahead).")
 @click.option("--start", "start_str", default=None,
               help="Range start YYYY-MM-DD (overrides --date).")
 @click.option("--end", "end_str", default=None,
@@ -5352,15 +5382,20 @@ def spread_fallback_check_cmd(competition_code, start, end):
               help="Output format. JSON preserves all structure; CSV is flat headline columns.")
 @click.option("--out", "out_path", default=None,
               help="File path to write to. Defaults to exports/<sport>_<date>.<ext>.")
-def export_predictions_cmd(sport, date_str, start_str, end_str, competition_code,
+def export_predictions_cmd(sport, date_str, days, start_str, end_str, competition_code,
                            status_filter, output_format, out_path):
     """
     Export a day's (or date range's) predictions, with prediction probabilities,
     factor breakdown, market data with edge math, and recent form. Use to bulk
     review what the model thinks across a slate.
 
+    Rows default to the CURRENT SLATE — kickoffs in the next 36 hours — so a
+    closing freshen yields a one-slate file (architect 2026-09-28).
+    Prediction generation is unchanged; only the file's rows are scoped.
+
     Examples:
-      python cli.py export-predictions --sport mlb
+      python cli.py export-predictions --sport mlb            (next 36h)
+      python cli.py export-predictions --sport mlb --days 3   (full look-ahead)
       python cli.py export-predictions --sport soccer --competition PL --format csv
       python cli.py export-predictions --sport mlb --start 2026-05-23 --end 2026-05-24
       python cli.py export-predictions --sport mlb --status finished  (for post-mortem)
@@ -5386,7 +5421,12 @@ def export_predictions_cmd(sport, date_str, start_str, end_str, competition_code
     # window as the East Coast afternoon games of the same calendar day.
     DAY_START_HOUR_UTC = 8
 
+    window_how = None
+    if days and (date_str or start_str or end_str):
+        console.print("[red]✗ --days is exclusive with --date/--start/--end[/red]")
+        return
     if start_str and end_str:
+        window_how = f"--start {start_str} --end {end_str}"
         try:
             start_date = datetime.strptime(start_str, "%Y-%m-%d").replace(
                 hour=DAY_START_HOUR_UTC
@@ -5397,16 +5437,33 @@ def export_predictions_cmd(sport, date_str, start_str, end_str, competition_code
         except ValueError as e:
             console.print(f"[red]✗ Date parse error: {e}[/red]")
             return
-    else:
-        target = date_str or datetime.utcnow().strftime("%Y-%m-%d")
+    elif date_str:
+        window_how = f"--date {date_str} slate-day"
         try:
-            start_date = datetime.strptime(target, "%Y-%m-%d").replace(
+            start_date = datetime.strptime(date_str, "%Y-%m-%d").replace(
                 hour=DAY_START_HOUR_UTC
             )
         except ValueError as e:
             console.print(f"[red]✗ Date parse error: {e}[/red]")
             return
         end_date = start_date + timedelta(days=1)
+    else:
+        # The CURRENT SLATE (architect 2026-09-28): kickoffs from now through
+        # the next 36h, or --days N for the explicit full look-ahead.
+        start_date = datetime.utcnow().replace(microsecond=0)
+        if days:
+            end_date, window_how = start_date + timedelta(days=days), f"--days {days}"
+        elif sport_enum == Sport.MLB:
+            # Ruling 2026-09-28: MLB keeps its ONE slate-day (the old default).
+            # It plays daily, so 36h from a morning run would drag in
+            # tomorrow's games before pitchers and lineups are confirmed.
+            start_date = datetime.strptime(datetime.utcnow().strftime("%Y-%m-%d"),
+                                           "%Y-%m-%d").replace(hour=DAY_START_HOUR_UTC)
+            end_date = start_date + timedelta(days=1)
+            window_how = "default: MLB one slate-day; --days N for more"
+        else:
+            end_date = start_date + timedelta(hours=SLATE_WINDOW_H)
+            window_how = "default: current slate; --days N for more"
 
     # Auto status: past dates → finished, future → scheduled, today's
     # range → all. The previous default of 'scheduled' silently returned
@@ -5476,6 +5533,7 @@ def export_predictions_cmd(sport, date_str, start_str, end_str, competition_code
     else:
         lines = payload.count("\n")
         console.print(f"[green]✓ Wrote {max(lines - 1, 0)} rows to {out_path}[/green]")
+    console.print(_window_line(start_date, end_date, window_how))
 
 
 if __name__ == "__main__":

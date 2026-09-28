@@ -512,7 +512,7 @@ sequences, defined in `chains.py` as `freshen:<family>`:
   `freshen_needed` and never run.
 - `freshen:SOCCER`: `sync-odds` PL → `sync-injuries` PL →
   `sync-kalshi-soccer` → `predict` soccer PL → `export-predictions` soccer
-  PL (today → +3 days, scheduled).
+  PL (the 36h current slate, scheduled — export windowing 2026-09-28).
 - Market-only families (NCAA, NHL, cups, UNL) have no freshen. The
   window repricing is their freshen.
 

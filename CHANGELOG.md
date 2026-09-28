@@ -10,6 +10,16 @@ Every drop adds an entry going forward.
   receipt is dropped. Client-side verification is pending (Mac MagicDNS);
   the tailnet-IP door is the proven standard, and the P4 receipt uses it.
 
+## 2026-09-28 (exports: current-slate windowing)
+- Prediction exports default to the current slate: kickoffs in the next
+  36h for NFL and soccer. MLB keeps its one 08:00-UTC slate-day (ruling:
+  it plays daily). Use
+  `--week` (NFL) / `--days N` for the full look-ahead. Explicit dates keep
+  their slate-day meaning. Generation is unchanged; only the file's rows
+  are scoped.
+- A `window:` receipt line is printed. freshen:SOCCER now uses the 36h
+  default (a one-slate closing file).
+
 ## 2026-09-28 (hosting: H1b day one + runbook field amendments)
 - H1b parallel week started 2026-09-28 13:45 UTC: 12 host timers,
   SP_PARALLEL_MODE=full, MLB timers off by ruling. The earliest cutover

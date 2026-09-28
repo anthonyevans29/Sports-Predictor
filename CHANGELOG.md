@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (hosting: H1b day one + runbook field amendments)
+- H1b parallel week started 2026-09-28 13:45 UTC: 12 host timers,
+  SP_PARALLEL_MODE=full, MLB timers off by ruling. The earliest cutover
+  decision is after 2026-10-05 13:45 UTC (criterion 1: 7/7 days).
+- Runbook P4: sp gets NOPASSWD sudo + Tailscale SSH (receipt-gated) before
+  root is sealed. The console is emergency-only after P4. Mac VPN clients
+  conflict with Tailscale (quit them before tailnet steps).
+
 ## 2026-09-28 (hosting: pull-exports lane)
 - `deploy/hosting/pull_exports.py`: the laptop pulls the host's exports/
   over the tailnet into exports/host/ (never its own exports/). The host

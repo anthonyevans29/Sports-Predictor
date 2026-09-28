@@ -22,6 +22,24 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **H1b DAY ONE 2026-09-28 13:45 UTC (architect record) + RUNBOOK FIELD
+  AMENDMENTS.** The parallel-week clock started. The 12 T11 `TIMERS` are
+  enabled, `SP_PARALLEL_MODE=full` (T8 option a), and the MLB timers are
+  OFF by ruling (statsapi 406 on the DO ASN). The frozen H0-18 criteria
+  count from this moment. Criterion 1 is 7/7 days, so the earliest cutover
+  decision is after 2026-10-05 13:45 UTC; a tie or partial pass extends
+  the run. FIELD AMENDMENTS (docs/specs/hosting-h1.md):
+  - (1) P4 reordered. `sp` gets NOPASSWD sudo (`/etc/sudoers.d/sp`,
+    visudo-checked) and Tailscale SSH (`tailscale set --ssh`) BEFORE root
+    is sealed. A new receipt gate, `ssh sp@sp-vps-1 'sudo -n true'` →
+    SUDO_OK, must pass before `PermitRootLogin no`.
+  - (2) The provider console is emergency-only after P4 (break-glass when
+    the tailnet is down, not a working terminal).
+  - (3) Mac VPN clients conflict with Tailscale. Quit, not just disconnect,
+    any other VPN client before tailnet steps. "Host stops answering" is
+    checked for this first.
+  - The runbook status line now reads H1b LIVE.
+
 - **PULL-EXPORTS LANE 2026-09-28 (architect spec; laptop pulls host
   artifacts, push is H2).** `deploy/hosting/pull_exports.py` has the same
   shape as pull_backup.py. It pulls the host's `exports/` over the tailnet

@@ -1,16 +1,21 @@
 # Hosting H1: the unit pack and Anthony's provisioning runbook
 
-**Status: artifacts only. Nothing runs anywhere until Anthony provisions the
-host.** Phase order amended 2026-09-27: H1a fresh bootstrap, then H1b
-parallel week, then H2 cutover (the one migration). This PR ships files. It buys nothing, schedules nothing and moves
-nothing. H0 rulings were made 2026-09-27 (see the table at the end). Design
-source: `docs/specs/hosting-h0.md`.
+**Status: H1b LIVE.** The parallel week started 2026-09-28 13:45 UTC: 12
+host timers are enabled, `SP_PARALLEL_MODE=full`, and the MLB timers stay
+off by ruling. See the H1b day-one record. H1a was CERTIFIED PASS on
+2026-09-27. Phase order amended 2026-09-27: H1a fresh bootstrap, then H1b
+parallel week, then H2 cutover (the one migration). H0 rulings were made
+2026-09-27 (see the table at the end). Design source:
+`docs/specs/hosting-h0.md`.
 
 Every step below carries a label:
 - **BROWSER** means you click it in a provider or GitHub web UI.
 - **TERMINAL (laptop)** means you type it on the Mac.
 - **TERMINAL (host)** means you type it on the VPS. Use the provider's web
-  console until Tailscale is up, then SSH over the tailnet.
+  console only until P4 is done, then SSH over the tailnet as `sp`.
+  **After P4 the console is emergency-only** (field amendment 2026-09-28).
+  It is the break-glass path when the tailnet is down, not a working
+  terminal.
 
 `<host>` is the droplet's Tailscale MagicDNS name. The runbook assumes
 `sp-vps-1`.
@@ -118,12 +123,32 @@ ufw default deny incoming && ufw default allow outgoing
 ufw allow in on tailscale0
 ufw enable && ufw status verbose          # receipt: only tailscale0 allowed
 ```
+**Mac VPN clients conflict with Tailscale** (field amendment 2026-09-28).
+Before any tailnet step from the laptop (P4 onward, and every later
+`ssh sp@sp-vps-1`), quit any other VPN client on the Mac: disconnecting
+it is not enough if it keeps its tunnel or DNS hooks. A host that
+"stops answering" over the tailnet is checked for this first, before
+anything on the host is touched.
 
 **P4. TERMINAL (host): SSH hardening (H0-4).**
-- Put your Mac's key in `/home/sp/.ssh/authorized_keys` (mode 0600, owned
-  by sp).
-- In `/etc/ssh/sshd_config` set `PasswordAuthentication no` and
-  `PermitRootLogin no`, then `systemctl reload ssh`.
+**Amended from the field 2026-09-28: `sp` gets working admin access BEFORE
+root is sealed.** Otherwise sealing root leaves only the console, which is
+emergency-only.
+1. Give `sp` NOPASSWD sudo (sp has no password; `--disabled-password` in P3):
+   ```
+   echo 'sp ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sp && chmod 0440 /etc/sudoers.d/sp
+   visudo -cf /etc/sudoers.d/sp            # receipt: "parsed OK"
+   ```
+2. Enable Tailscale SSH: `tailscale set --ssh`.
+   - The tailnet policy's `ssh` rule decides who may connect as `sp`.
+   - Under a `check`-mode rule, expect an occasional browser re-auth.
+3. Put your Mac's key in `/home/sp/.ssh/authorized_keys` (mode 0600, owned
+   by sp). OpenSSH over the tailnet stays as the second path.
+4. **Receipt (laptop), BEFORE sealing root:**
+   - `ssh sp@sp-vps-1 'sudo -n true && echo SUDO_OK'` prints `SUDO_OK`.
+   - If it does not, stop here and fix it; do not seal root.
+5. Seal root: in `/etc/ssh/sshd_config` set `PasswordAuthentication no` and
+   `PermitRootLogin no`, then `systemctl reload ssh`.
 - Public port 22 is closed at both firewall layers, so SSH is reachable
   over the tailnet only.
 - **Receipt (laptop):** `ssh sp@sp-vps-1 hostname` succeeds.
@@ -166,7 +191,8 @@ clean, no waivers). Timers remain OFF; the H1b start is a midweek
 decision.
 
 **H1b: parallel week.** Two independent pipelines. The laptop remains
-writer of record.
+writer of record. **STARTED 2026-09-28 13:45 UTC** (day-one record under
+H1b).
 
 **H2: cutover.** The ONE `.backup` migration: the laptop's history replaces
 the host's rehearsal DB.
@@ -486,6 +512,21 @@ freshens do today; the ledger's idempotent re-log absorbs it.
   same `venueEdge()`, so there is one copy of the policy.
 
 ## H1b. Parallel week (two independent pipelines)
+
+**Day one: 2026-09-28 13:45 UTC** (architect record). The parallel-week
+clock started here; the frozen cutover criteria (H0-18) count from this
+moment.
+- **Timers:** the 12 `TIMERS` of T11 are enabled: backup, backup-prune,
+  soccer friday/saturday/morning-after, nfl lines/grade/predict,
+  nhl-daily, weekly-fullseason, ncaa-market and window. That count equals
+  the T11 list.
+- **MLB:** the `MLB_LAPTOP_ONLY` timers are OFF by ruling (statsapi 406 on
+  the DO ASN).
+- **Quota:** `SP_PARALLEL_MODE=full` (T8 option a).
+- **Criterion 1** reads "7/7 days with every host timer firing on
+  schedule". So the earliest possible cutover decision is after
+  2026-10-05 13:45 UTC. A tie or partial pass extends the run; it is not
+  a cutover.
 
 - Both machines sync independently and both run their chains.
 - The export diffs compare INDEPENDENT pipelines. Explained divergence

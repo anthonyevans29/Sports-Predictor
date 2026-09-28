@@ -134,19 +134,33 @@ anything on the host is touched.
 **Amended from the field 2026-09-28: `sp` gets working admin access BEFORE
 root is sealed.** Otherwise sealing root leaves only the console, which is
 emergency-only.
-1. Give `sp` NOPASSWD sudo (sp has no password; `--disabled-password` in P3):
+1. Give `sp` NOPASSWD sudo (sp has no password; `--disabled-password` in P3).
+   This is the exact form run on the host, 2026-09-28:
    ```
-   echo 'sp ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sp && chmod 0440 /etc/sudoers.d/sp
-   visudo -cf /etc/sudoers.d/sp            # receipt: "parsed OK"
+   echo 'sp ALL=(ALL) NOPASSWD:ALL' > /etc/sudoers.d/sp && chmod 440 /etc/sudoers.d/sp && visudo -c
    ```
-2. Enable Tailscale SSH: `tailscale set --ssh`.
+   Receipt: `parsed OK`.
+2. Enable Tailscale SSH:
+   ```
+   tailscale set --ssh=true
+   tailscale status --json | grep -i ssh     # receipt: the SSH setting shows as on
+   ```
+   - **Console paste hazard:** the provider's web console can mangle pasted
+     flags. `tailscale up --ssh` was rejected there as "invalid option". Type
+     the command by hand, or run it over tailnet SSH once `sp` can sudo.
+     Trust the receipt line, not the absence of an error.
    - The tailnet policy's `ssh` rule decides who may connect as `sp`.
    - Under a `check`-mode rule, expect an occasional browser re-auth.
 3. Put your Mac's key in `/home/sp/.ssh/authorized_keys` (mode 0600, owned
    by sp). OpenSSH over the tailnet stays as the second path.
 4. **Receipt (laptop), BEFORE sealing root:**
    - `ssh sp@sp-vps-1 'sudo -n true && echo SUDO_OK'` prints `SUDO_OK`.
-   - If it does not, stop here and fix it; do not seal root.
+   - The step-2 receipt `tailscale status --json | grep -i ssh` shows SSH on.
+   - If either fails, stop here and fix it; do not seal root.
+   - **Host status 2026-09-28:** sudo is confirmed (parsed OK, working).
+     Tailscale SSH is UNCONFIRMED: `tailscale set --ssh=true` was offered
+     after `up --ssh` was rejected, and the operator moved on once sudo
+     worked. Run the step-2 receipt on the live host and paste it.
 5. Seal root: in `/etc/ssh/sshd_config` set `PasswordAuthentication no` and
    `PermitRootLogin no`, then `systemctl reload ssh`.
 - Public port 22 is closed at both firewall layers, so SSH is reachable

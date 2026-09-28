@@ -85,6 +85,14 @@ specific reason they're not being built now.
     any other VPN client before tailnet steps. "Host stops answering" is
     checked for this first.
   - The runbook status line now reads H1b LIVE.
+  - ARCHITECT CONFIRMATION (2026-09-28, against what ran on the host). The
+    sudoers line is the exact form run (`chmod 440 … && visudo -c` → parsed
+    OK). Tailscale SSH: `tailscale up --ssh` was REJECTED by the console
+    ("invalid option", likely paste-mangling). The runbook now gives
+    `tailscale set --ssh=true` as the primary form, notes the console paste
+    hazard, and adds the P4 receipt `tailscale status --json | grep -i ssh`.
+    OPEN: on the live host, Tailscale SSH is UNCONFIRMED (the operator moved
+    on once sudo worked). Run that receipt and paste it.
 
 - **PULL-EXPORTS LANE 2026-09-28 (architect spec; laptop pulls host
   artifacts, push is H2).** `deploy/hosting/pull_exports.py` has the same

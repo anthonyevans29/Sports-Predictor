@@ -11,6 +11,8 @@
   operator via sp_notify and is receipted; the chain continues.
 - `operator_only` chains (soccer-refresh, H0-6) refuse without --operator.
 - `active_from` chains outside their window log a skipped receipt, exit 0.
+  The date is overridable per chain via its `active_from_env` variable
+  (e.g. SP_NHL_ACTIVE_FROM in host.env); every run prints and receipts it.
 - H0-16(b): SP_PARALLEL_MODE=designated + SP_DESIGNATED_DAYS=Fri,Sat,...
   skips METERED steps on other days (receipted as skipped). Default: full.
 """
@@ -264,6 +266,26 @@ def run_freshens(needed: list, window_run_id: str, now, today: date) -> list[dic
     return out
 
 
+def active_from(name: str) -> dict | None:
+    """A season-gated chain's effective start date and where it came from:
+    the chain's `active_from_env` variable (host.env) if set, else the ruled
+    default in chains.py. A malformed override fails loudly, never skips."""
+    ch = CHAINS[name]
+    if not ch.get("active_from"):
+        return None
+    var = ch.get("active_from_env")
+    val = (c.setting(var) or "").strip() if var else ""
+    if val:
+        try:
+            date.fromisoformat(val)
+        except ValueError:
+            raise SystemExit(f"{var}={val!r} is not a YYYY-MM-DD date — fix host.env "
+                             f"(ruled default for {name}: {ch['active_from']})")
+        return {"date": val, "source": var}
+    return {"date": ch["active_from"], "source": "chains.py default"
+            + (f" (override: {var})" if var else "")}
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Run a sports-predictor chain with receipts.")
     ap.add_argument("chain", choices=sorted(CHAINS))
@@ -284,6 +306,10 @@ def main(argv=None) -> int:
     run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{a.chain}"
     steps = resolve(a.chain, overrides, today, now=now.replace(tzinfo=None))
 
+    gate = active_from(a.chain)
+    if gate:
+        print(f"· {a.chain} active from {gate['date']} [{gate['source']}]")
+
     if a.dry_run:
         for i, st in enumerate(steps, 1):
             tag = " [skip: H0-16b]" if metered_skip(st[0], today) else ""
@@ -296,10 +322,10 @@ def main(argv=None) -> int:
         c.append_receipt({"kind": "chain", "unit": unit, "run_id": run_id, "exit": 2,
                           "refused": "operator_only"})
         return 2
-    if chain.get("active_from") and today.isoformat() < chain["active_from"]:
-        print(f"· {a.chain} inactive until {chain['active_from']} — skipped.")
+    if gate and today.isoformat() < gate["date"]:
+        print(f"· {a.chain} inactive until {gate['date']} — skipped.")
         c.append_receipt({"kind": "chain", "unit": unit, "run_id": run_id, "exit": 0,
-                          "skipped": f"inactive_until_{chain['active_from']}"})
+                          "skipped": f"inactive_until_{gate['date']}", "active_from": gate})
         return 0
 
     import sp_backup
@@ -339,6 +365,8 @@ def main(argv=None) -> int:
            "steps_ok": ok, "steps_total": len(steps), "quota": quota,
            "duration_s": round(time.monotonic() - t0, 1),
            "counts": c.table_counts(c.db_path(), c.CHAIN_COUNT_TABLES), "exports": exports}
+    if gate:
+        rec["active_from"] = gate
     if backup_rec is not None:
         rec["backup"] = {k: backup_rec.get(k) for k in ("file", "sha256", "integrity")}
     if page_rec is not None:

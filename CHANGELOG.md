@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (hosting: NHL opening-day gate + season gates as config)
+- nhl-daily activates 2026-09-29 (2026-27 opening day; was the 2025-derived
+  2026-10-07).
+- Season gates are configurable per chain (`SP_NHL_ACTIVE_FROM` in
+  host.env; malformed fails loudly). Every run prints and receipts
+  `active from <date> [<source>]`.
+
 ## 2026-09-28 (hosting: P4 Tailscale SSH status)
 - Tailscale SSH is enabled server-side (`sudo tailscale set --ssh=true`
   returned silently). The invalid `tailscale status --json | grep -i ssh`

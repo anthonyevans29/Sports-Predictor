@@ -67,7 +67,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-soccer-saturday | soccer-prematch | Sat 10:30 Europe/London | — |
 | sp-mlb-preslate | mlb-preslate | daily 14:30 UTC | — |
 | sp-nfl-lines | nfl-lines | daily 15:00 UTC | — |
-| sp-nhl-daily | nhl-daily (inactive before 2026-10-07) | daily 16:00 UTC | daily |
+| sp-nhl-daily | nhl-daily (inactive before 2026-09-29; override `SP_NHL_ACTIVE_FROM`) | daily 16:00 UTC | daily |
 | sp-ncaa-market | ncaa-market (H0-11: enabled with the rest) | Fri 16:00, Sat 13:00 UTC | — |
 | sp-nfl-predict | nfl-predict | Thu 18:00, Sun 14:00 UTC | — |
 | sp-clv-capture | clv-capture | 08/12/16/20 America/New_York (H0-7 confirmed; DST follows the zone) | — |
@@ -797,7 +797,16 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 - **Midweek PL round (H0-10), operator-started.**
   `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch --set sat=<first-day> --set sat_plus3=<day-after-last>`.
 - **Seasons (H0-8).**
-  - NHL turns itself on at 2026-10-07 (`active_from`).
+  - NHL turns itself on at 2026-09-29, the 2026-27 opening day (operator-confirmed
+    2026-09-28; the old 2026-10-07 was 2025-derived).
+  - Season gates are CONFIG: set `SP_NHL_ACTIVE_FROM=YYYY-MM-DD` in
+    `/etc/sports-predictor/host.env` to move a start, with no code change.
+  - Every run prints `· nhl-daily active from <date> [<source>]` and
+    receipts it (`active_from` on the chain line).
+  - A malformed value fails the chain loudly (OnFailure pages); it never
+    silently skips.
+  - **Before the first real run:** `sync-teams --competition NHL --season 2026`
+    (law: sync-teams before sync-matches for EVERY new competition-season).
   - After the World Series:
     `systemctl disable --now sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer`.
     Record it in BACKLOG.
@@ -820,7 +829,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 | H0-5 | improve unattended with a hard guard: PASS is HELD and pages; `ratify-candidate` is the only promotion path on the host. |
 | H0-6 | soccer-refresh is operator-started. No timer; `sp-chain@soccer-refresh` refuses without `--operator`. |
 | H0-7 | CONFIRMED: 08/12/16/20 America/New_York. The operation's clock is Eastern, and DST follows the zone. |
-| H0-8 | Resolved per H0-6's principle (operator control). NHL is encoded as `active_from` 2026-10-07; MLB off is an operator `systemctl disable` after the World Series, BACKLOG-recorded. |
+| H0-8 | Resolved per H0-6's principle (operator control). NHL is encoded as `active_from` (ruled 2026-09-29, the 2026-27 opening day; host override `SP_NHL_ACTIVE_FROM`, amended 2026-09-28); MLB off is an operator `systemctl disable` after the World Series, BACKLOG-recorded. |
 | H0-9 | results-tally at the end of mlb-morning. |
 | H0-10 | Resolved: operator-started `soccer-prematch --set` runs; no midweek timers. |
 | H0-11 | NCAA timer ON, enabled with the rest (a live sport with Saturday slates). |

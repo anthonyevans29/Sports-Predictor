@@ -22,6 +22,45 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL SEASON GATE → 2026-09-29, AND SEASON GATES ARE CONFIG (architect
+  2026-09-28).** The NHL 2026-27 opening day is 2026-09-29
+  (operator-confirmed); the old 2026-10-07 gate was 2025-derived.
+  - `nhl-daily` now has `active_from: 2026-09-29` and `active_from_env:
+    SP_NHL_ACTIVE_FROM`.
+  - `sp_run.active_from()` resolves the effective start: the host.env
+    variable if set, else the ruled chains.py default.
+    - A malformed value raises: the chain fails loudly and OnFailure pages;
+      it never silently skips.
+    - Every run (dry-run included) prints
+      `· nhl-daily active from 2026-09-29 [chains.py default (override: SP_NHL_ACTIVE_FROM)]`,
+      and both the skipped receipt and the chain receipt carry
+      `active_from {date, source}`.
+  - "Same treatment for any other season-gated chain": nhl-daily is the
+    ONLY chain with an `active_from` today (enumerated from chains.py). A
+    CI test now requires every future gated chain to declare an
+    `SP_*_ACTIVE_FROM` variable documented in host.env.example.
+  - host.env.example documents `SP_NHL_ACTIVE_FROM=` (empty = the ruled
+    default).
+  - The runbook (schedule table, Seasons H0-8, the H0-8 rulings row), the
+    timer comment and the CLI.md NHL section are updated.
+  - Tests: the gate default and override, skip on 09-28, run on 09-29, the
+    receipt source, the malformed-value failure, and the dry-run line.
+  - FLAGS for the operator/architect (not changed here):
+    - (1) LAW: sync-teams before sync-matches for EVERY new
+      competition-season. Before the first real run on opening day, run
+      `sync-teams --competition NHL --season 2026` on the host (and on the
+      laptop if it syncs NHL). Otherwise sync-matches skips listings whose
+      teams aren't in the DB.
+    - (2) FINDING: nhl-daily's `sync-matches --date-from {yesterday}
+      --date-to {tomorrow}` is IGNORED by the hockey adapter.
+      `api_hockey.list_matches` only sends a `date` when from == to, so each
+      run requests the WHOLE 2026 season in one call. The upserts are still
+      correct, just larger than intended. This is the same adapter trait
+      found in #47. No change without a ruling.
+    - (3) CLAUDE.md's production-state line still says "NHL launches Oct 7
+      MARKET-ONLY". CLAUDE.md was not edited here; update it on the next
+      state refresh.
+
 - **EXPORT WINDOWING 2026-09-28 (architect spec; small PR).** Prediction
   exports default to the CURRENT SLATE: kickoffs in the next 36 hours.
   EVIDENCE (architect): Sunday's Oct-4 rows and tonight's 17-row MNF file.

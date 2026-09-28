@@ -18,7 +18,9 @@ Every step below carries a label:
   terminal.
 
 `<host>` is the droplet's Tailscale MagicDNS name. The runbook assumes
-`sp-vps-1`.
+`sp-vps-1`. If MagicDNS names don't resolve on the Mac, use the host's
+tailnet IP (100.x) wherever `sp-vps-1` appears. The tailnet-IP door is the
+proven standard (2026-09-28).
 
 ---
 
@@ -142,25 +144,32 @@ emergency-only.
    Receipt: `parsed OK`.
 2. Enable Tailscale SSH:
    ```
-   tailscale set --ssh=true
-   tailscale status --json | grep -i ssh     # receipt: the SSH setting shows as on
+   sudo tailscale set --ssh=true             # success is SILENT (no output, exit 0)
    ```
    - **Console paste hazard:** the provider's web console can mangle pasted
      flags. `tailscale up --ssh` was rejected there as "invalid option". Type
      the command by hand, or run it over tailnet SSH once `sp` can sudo.
-     Trust the receipt line, not the absence of an error.
+   - There is no server-side status receipt. `tailscale status --json` has
+     no key containing "ssh", so grepping it proves nothing (the earlier
+     receipt was dropped 2026-09-28). The proof is client-side: an
+     `ssh sp@<tailnet-ip>` from the Mac that Tailscale SSH answers.
    - The tailnet policy's `ssh` rule decides who may connect as `sp`.
    - Under a `check`-mode rule, expect an occasional browser re-auth.
 3. Put your Mac's key in `/home/sp/.ssh/authorized_keys` (mode 0600, owned
    by sp). OpenSSH over the tailnet stays as the second path.
 4. **Receipt (laptop), BEFORE sealing root:**
-   - `ssh sp@sp-vps-1 'sudo -n true && echo SUDO_OK'` prints `SUDO_OK`.
-   - The step-2 receipt `tailscale status --json | grep -i ssh` shows SSH on.
-   - If either fails, stop here and fix it; do not seal root.
-   - **Host status 2026-09-28:** sudo is confirmed (parsed OK, working).
-     Tailscale SSH is UNCONFIRMED: `tailscale set --ssh=true` was offered
-     after `up --ssh` was rejected, and the operator moved on once sudo
-     worked. Run the step-2 receipt on the live host and paste it.
+   - `ssh sp@<tailnet-ip> 'sudo -n true && echo SUDO_OK'` prints `SUDO_OK`.
+   - Use the host's tailnet IP (`tailscale ip -4` on the host). **The
+     tailnet-IP door is proven and is the standard** (architect,
+     2026-09-28); MagicDNS names are a convenience on top.
+   - If it fails, stop here and fix it; do not seal root.
+   - **Host status 2026-09-28:**
+     - sudo is confirmed (parsed OK, working).
+     - Tailscale SSH is **enabled server-side**: `sudo tailscale set
+       --ssh=true` ran and returned silently (success).
+     - **Client-side verification pending:** the Mac's MagicDNS isn't
+       resolving tailnet names. This is a Mac-side issue; retest after a
+       reboot. The tailnet-IP door works meanwhile.
 5. Seal root: in `/etc/ssh/sshd_config` set `PasswordAuthentication no` and
    `PermitRootLogin no`, then `systemctl reload ssh`.
 - Public port 22 is closed at both firewall layers, so SSH is reachable

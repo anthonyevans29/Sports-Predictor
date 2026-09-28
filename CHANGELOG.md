@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (hosting: P4 Tailscale SSH status)
+- Tailscale SSH is enabled server-side (`sudo tailscale set --ssh=true`
+  returned silently). The invalid `tailscale status --json | grep -i ssh`
+  receipt is dropped. Client-side verification is pending (Mac MagicDNS);
+  the tailnet-IP door is the proven standard, and the P4 receipt uses it.
+
 ## 2026-09-28 (hosting: H1b day one + runbook field amendments)
 - H1b parallel week started 2026-09-28 13:45 UTC: 12 host timers,
   SP_PARALLEL_MODE=full, MLB timers off by ruling. The earliest cutover

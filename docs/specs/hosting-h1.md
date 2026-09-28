@@ -68,7 +68,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-mlb-preslate | mlb-preslate | daily 14:30 UTC | — |
 | sp-nfl-lines | nfl-lines | daily 15:00 UTC | — |
 | sp-nhl-daily | nhl-daily (inactive before 2026-09-29; override `SP_NHL_ACTIVE_FROM`) | daily 16:00 UTC | daily |
-| sp-ncaa-market | ncaa-market (H0-11: enabled with the rest) | Fri 16:00, Sat 13:00 UTC | — |
+| sp-ncaa-market | ncaa-market (H0-11: enabled with the rest) | Thu 16:00 (Thursday-night slates, added 2026-09-28), Fri 16:00, Sat 13:00 UTC | — |
 | sp-nfl-predict | nfl-predict | Thu 18:00, Sun 14:00 UTC | — |
 | sp-clv-capture | clv-capture | 08/12/16/20 America/New_York (H0-7 confirmed; DST follows the zone) | — |
 | sp-weekly-fullseason | weekly-fullseason | Sun 06:00 UTC | daily |

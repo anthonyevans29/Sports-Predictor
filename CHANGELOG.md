@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (hosting: ncaa-market Thursday run)
+- sp-ncaa-market adds Thu 16:00 UTC (Thursday-night slates' fixtures
+  file). On the host: re-run install.sh after the pull.
+
 ## 2026-09-28 (hosting: exhibit 1 fixes — injuries, keyed comparator, SHA-stamped exports)
 - nfl-predict syncs NFL injuries first (chain gap); a CI guard audits every
   prediction chain (MLB exempt: no injury source).

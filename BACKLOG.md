@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NCAA-MARKET THURSDAY RUN (architect, 2026-09-28).** `sp-ncaa-market.timer`
+  gains `Thu 16:00 UTC` for Thursday-night slates, alongside Fri 16:00 and
+  Sat 13:00.
+  - The window service already reprices those games hourly. This adds the
+    fixtures (roster) file.
+  - Validated with `systemd-analyze calendar`: next elapse Thu 2026-10-01
+    16:00 UTC. It is outside the H0-3 reboot buffer (CI).
+  - The runbook schedule table is updated; a test pins the three slots.
+  - APPLY ON THE HOST (the timer is already enabled): after the pull, run
+    `sudo bash deploy/hosting/install.sh`. It is idempotent: it copies
+    units, runs daemon-reload, enables nothing, and never overwrites
+    host.env.
+  - Receipt: `systemctl list-timers sp-ncaa-market.timer` shows the next
+    elapse Thu 16:00.
+
 - **EXHIBIT 1 RULED: THREE FIXES (architect, 2026-09-28).**
   - (1) CHAIN GAP.
     - `nfl-predict` now runs `sync-injuries --competition NFL --season

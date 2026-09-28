@@ -22,6 +22,81 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **EXHIBIT 1 RULED: THREE FIXES (architect, 2026-09-28).**
+  - (1) CHAIN GAP.
+    - `nfl-predict` now runs `sync-injuries --competition NFL --season
+      2026` as step 1. The host had predicted with 0 injury inputs versus
+      the laptop's 280.
+    - AUDIT of every prediction-producing chain:
+      - soccer-prematch, freshen:SOCCER and freshen:NFL already sync
+        injuries first.
+      - mlb-preslate and freshen:MLB are EXEMPT: `sync-injuries MLB` is a
+        no-op, since no provider exposes MLB injuries.
+      - nfl-predict was the only gap.
+    - Kept as a CI guard (`test_prediction_chains_sync_injuries_first_mlb_exempt`).
+    - NOTE: sync-injuries is METERED, so in `designated` mode it would skip
+      on off-days. The host runs `full`.
+  - (2) COMPARATOR (`compare_exports.py`).
+    - Game rows are KEYED on (kickoff, home, away), never match_id
+      (machine-local). They are compared field-by-field only after keying.
+    - Rows on one side only are reported BY NAME. match_id is masked.
+    - Receipt replay of exhibit 1's shape: `only on laptop (16): …` plus 5
+      matched-row diffs.
+  - (3) DIVERGENCE LOG + CODE-VERSION SKEW.
+    - Exhibit 1's explanations are recorded in the runbook (H1b
+      "Parallel-week exhibits"):
+      - count 17 vs 1 = code-version skew (pre/post #53);
+      - fair_prob, divergence and venue_gap = capture timing (13:52 vs
+        18:19 UTC);
+      - injuries = chain gap (fixed by 1);
+      - model probabilities identical (neither team played Sunday).
+    - "code-version skew" joins the explained classes WITH its guard:
+      - every JSON export now carries the producing `git_sha`
+        (`src/walters/provenance.py`; `SP_GIT_SHA` overrides). The six
+        writers are predictions, results and fixtures in export.py, NFL
+        predictions and NFL results, and the window card;
+      - the comparator prints `code-version skew: laptop X ≠ host Y`, or
+        `git_sha missing on … — NOT claimable`, and lists the files where
+        the class was named.
+    - Exhibit 1 itself predates the stamp, so its skew classification rests
+      on the architect's receipts.
+  - Tests +4. The host must pull before Tue 2026-09-29 10:00 UTC (the first
+    nfl-grade).
+
+- **H1b PARALLEL-WEEK EXHIBIT 1 (architect record, 2026-09-28).** The host
+  `nfl-predict` manual run produced a 1-row 36h file (the #53 window works
+  on the host), and scope was clean.
+  - The ratings pool is 588 on the host versus 601 on the laptop. The
+    difference is Sunday's results, not yet synced on the host.
+  - Classed as **capture timing**: an expected divergence class under
+    frozen criterion 3.
+  - Mechanics (read from `sp-nfl-grade.timer`): it fires Mon/Tue/Fri
+    10:00 UTC with `Persistent=true`, but a newly enabled timer has no
+    stamp, so Monday's 10:00 slot (before the 13:45 enable) was never
+    caught up. The host's first nfl-grade is Tue 2026-09-29 10:00 UTC,
+    which syncs Sunday + Monday.
+  - Expect convergence then; re-check the pool counts on the next exhibit.
+  - Recorded in the runbook under H1b "Parallel-week exhibits".
+
+- **NHL-DAILY SINGLE-DAY SYNCS (architect ruling 2026-09-28, follow-on to
+  #56).** RULED on flag (2): nhl-daily's `sync-matches --date-from
+  {yesterday} --date-to {tomorrow}` was silently a whole-season pull.
+  `api_hockey.list_matches` sends `date` only when from == to. The chain now
+  issues THREE single-day calls (yesterday, today, tomorrow), matching the
+  window service's approach. Data was correct either way; this is quota
+  hygiene, not urgent.
+  - Test `test_nhl_daily_syncs_single_days_the_adapter_honours` pins the
+    three from==to pairs and the adapter trait they rely on, so a change to
+    api_hockey re-opens this.
+  - The CLI.md NHL routine is updated.
+  - NOTE for the record: api-sports meters REQUESTS. The run goes from one
+    whole-season request (~1,400 games returned) to three single-day
+    requests (a handful each). That is +2 requests per run, but a far
+    smaller payload and upsert.
+  - ALSO RULED (2): CLAUDE.md's "NHL launches Oct 7" becomes "NHL launched
+    2026-09-29 market-only; venue-edge charter" on the NEXT state refresh.
+    Queued, not edited here.
+
 - **NHL SEASON GATE → 2026-09-29, AND SEASON GATES ARE CONFIG (architect
   2026-09-28).** The NHL 2026-27 opening day is 2026-09-29
   (operator-confirmed); the old 2026-10-07 gate was 2025-derived.

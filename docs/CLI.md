@@ -101,8 +101,9 @@ syncs run normally; the consumer receives market-only files:
 | `export-fixtures` | `--competition --start --end` | Market-only fixtures file: schedule, results, book consensus (latest pre-kickoff price per book), Kalshi presence; `contains_predictions: false`. Prints the odds (market, selection) labels it saw. |
 
 **NHL daily (from the 2026-09-29 market-only launch: the 2026-27 opening day; on the host the start is `SP_NHL_ACTIVE_FROM` in host.env):**
-`sync-matches --competition NHL --season 2026 --date-from <yesterday>
---date-to <tomorrow>` →
+`sync-matches --competition NHL --season 2026 --date-from D --date-to D` for
+each of D = yesterday, today, tomorrow (single-day calls: the hockey adapter
+only honours a date when from == to, so a range pulls the whole season) →
 `sync-odds --competition NHL --season 2026` → `sync-kalshi-nhl` →
 `export-fixtures --competition NHL`. The Cockpit renders the file as
 books' fair bars with a market-only chip and the Kalshi status.

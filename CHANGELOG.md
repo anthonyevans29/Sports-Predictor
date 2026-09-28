@@ -4,6 +4,19 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (hosting: exhibit 1 fixes — injuries, keyed comparator, SHA-stamped exports)
+- nfl-predict syncs NFL injuries first (chain gap); a CI guard audits every
+  prediction chain (MLB exempt: no injury source).
+- compare_exports keys game rows on (kickoff, home, away), not match_id,
+  and names unmatched rows.
+- Every JSON export carries its producing `git_sha`. "Code-version skew"
+  is an explained class only when both SHAs are present and named.
+- Exhibit 1's divergence log is recorded in the runbook.
+
+## 2026-09-28 (hosting: nhl-daily single-day syncs)
+- nhl-daily syncs yesterday/today/tomorrow as three single-day calls that
+  the hockey adapter honours, instead of one silent whole-season pull.
+
 ## 2026-09-28 (hosting: NHL opening-day gate + season gates as config)
 - nhl-daily activates 2026-09-29 (2026-27 opening day; was the 2025-derived
   2026-10-07).

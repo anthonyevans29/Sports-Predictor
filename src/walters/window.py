@@ -81,6 +81,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, OddsSnapshot
     from src.walters.export import _fixture_row
+    from src.walters.provenance import git_sha as _git_sha
     from src.walters.venue import kalshi_home_prob, venue_gap
 
     now = now or datetime.utcnow()
@@ -123,6 +124,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     counts["fixtures"] = len(rows)
     return {
         "exported_at": now.isoformat() + "Z",
+        "git_sha": _git_sha(),
         "window": {"from": now.isoformat() + "Z", "to": hi.isoformat() + "Z", "hours": hours},
         "contains_predictions": any(r["model"] for r in rows),
         "note": ("Next-24h window card: book fair, Kalshi and venue flags repriced hourly; "

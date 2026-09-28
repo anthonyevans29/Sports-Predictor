@@ -101,7 +101,12 @@ CHAINS: dict[str, dict] = {
         ],
     },
     "nfl-predict": {
-        "steps": [["capture-weather-nfl"], ["predict-nfl"], ["export-nfl-predictions"]],
+        # Exhibit 1 ruling (2026-09-28): injuries first — the host predicted
+        # with 0 injury inputs vs the laptop's 280 (CHAIN GAP). freshen:NFL
+        # already had it; the audit found no other gap (MLB has no injury
+        # source: sync-injuries MLB is a no-op).
+        "steps": [["sync-injuries", "--competition", "NFL", "--season", "2026"],
+                  ["capture-weather-nfl"], ["predict-nfl"], ["export-nfl-predictions"]],
     },
     # --- Market-only (docs/CLI.md "Market-only competitions") ---
     "nhl-daily": {
@@ -112,8 +117,13 @@ CHAINS: dict[str, dict] = {
         "active_from": "2026-09-29",
         "active_from_env": "SP_NHL_ACTIVE_FROM",
         "steps": [
-            ["sync-matches", "--competition", "NHL", "--season", "2026",
-             "--date-from", "{yesterday}", "--date-to", "{tomorrow}"],
+            # Single-day calls (ruling 2026-09-28): api_hockey only sends a
+            # `date` when from == to, so a yesterday->tomorrow range silently
+            # became one whole-season pull per run. Three from==to calls, the
+            # window service's approach (quota hygiene; data was correct).
+            *[["sync-matches", "--competition", "NHL", "--season", "2026",
+               "--date-from", d, "--date-to", d]
+              for d in ("{yesterday}", "{today}", "{tomorrow}")],
             ["sync-odds", "--competition", "NHL", "--season", "2026"],
             ["sync-kalshi-nhl"],
             ["export-fixtures", "--competition", "NHL"],

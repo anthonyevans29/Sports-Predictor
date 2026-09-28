@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (Cockpit: execution-timing rule, policy v1.1 addendum)
+- Positions carry claim_at (frozen claim price) and executed_at (default:
+  last freshen before kickoff; or an explicit, recorded "Execute now").
+- Grading settles at the execution price, with a claim-price counterfactual.
+  The P&L block gains a "claim vs exec" column and an EXECUTION TIMING
+  section. No sizing changes.
+
 ## 2026-09-28 (hosting: ncaa-market Thursday run)
 - sp-ncaa-market adds Thu 16:00 UTC (Thursday-night slates' fixtures
   file). On the host: re-run install.sh after the pull.

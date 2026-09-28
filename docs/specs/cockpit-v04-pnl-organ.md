@@ -44,3 +44,62 @@ proxy, not cash; venue-edge grades against stored kalshi prob
 until the K-track delivers executable bid/ask + fees; first 50
 graded calls per engine before any sizing proposal; policy changes
 only via audit-backed version bump.
+
+---
+
+## Policy v1.1 addendum — EXECUTION TIMING (architect, 2026-09-28)
+
+A position carries TWO timestamps.
+
+**claim_at: the first prediction that created the position.**
+- `claim_market_p` and `claim_model_p` are frozen at that capture.
+
+**executed_at: the freshen at which the operator placed it.**
+- `exec_mode: "close_default"`, the doctrine default, means *execute at close*.
+  Every re-log before kickoff moves `executed_at` and `exec_market_p`, so they
+  end at the last freshen before kickoff.
+- `exec_mode: "operator_early"` is set by the operator's explicit **Execute now**
+  (Ledger → Open calls). It is recorded with
+  `early_inputs {edge_pp, qb_listed, quarantine}`, and it LOCKS: later
+  freshens update the price context (`market_p`) but not the execution.
+- A parlay ticket executes as a whole.
+- Quarantine shadows are never executed; they are not placed.
+
+**Doctrine.** Claim early, execute at close. The one exception is an operator
+who explicitly executes early on a large, input-stable edge (no QB listed),
+recorded as such. The Cockpit flags an early execution on a QB-listed game as
+"outside the doctrine's input-stable condition (recorded as such)". **No sizing
+changes.**
+
+**Grading.**
+- Returns settle at the EXECUTION price: `exec_market_p`, falling back to
+  `market_p` for a position logged before this rule.
+- The claim-price counterfactual is booked alongside, as
+  `claim_units_returned` / `claim_shadow_returned`.
+
+**P&L block.**
+- A new **"claim vs exec"** column on the engine lines shows net@exec − net@claim
+  over bets whose claim is known, as `+x.xx/k`.
+- A new **EXECUTION TIMING** section breaks this down per mode (close_default,
+  operator_early): n, average claim p, average exec p, drift pp,
+  net@claim, net@exec, and exec − claim.
+- Over time this measures whether early or late execution earns more.
+
+**Pre-rule positions.** These carry no claim. They stay null and are labelled
+("claim unknown … excluded, never backfilled"; law 4).
+
+**Rulings (architect, 2026-09-28).**
+1. **"Large edge": RECORD, DON'T ENFORCE, for now.** The instrument exists to
+   learn where the threshold belongs. A provisional **8pp marker** is written
+   into each early execution's record: `early_inputs.marker_pp: 8`, and
+   `below_marker: true|false` (null when the edge is unknown). An execution
+   below it is flagged "below the provisional 8pp marker (recorded, not
+   enforced)". The P&L block tallies
+   `Early executions: n position(s) · below the provisional 8pp marker: k ·
+   threshold revisit at 50 executed positions (n/50)`. **Revisit the
+   threshold after 50 executed positions**, with a parlay ticket counting as
+   one.
+2. **Early execution on a parlay leg applies to the whole ticket:
+   RATIFIED.** A ticket is one position.
+3. **Quarantine shadows cannot be executed: RATIFIED.** By contract they
+   are never placed.

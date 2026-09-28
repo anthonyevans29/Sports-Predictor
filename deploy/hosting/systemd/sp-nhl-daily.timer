@@ -1,4 +1,4 @@
-# NHL market-only daily; the chain itself is inactive before 2026-10-07.
+# NHL market-only daily; the chain itself is inactive before its active_from (2026-09-29, override SP_NHL_ACTIVE_FROM).
 # H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
 [Unit]
 Description=sports-predictor timer: sp-nhl-daily

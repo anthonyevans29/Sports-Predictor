@@ -1064,3 +1064,52 @@ def test_pull_exports_isolation_and_config(sandbox, monkeypatch, capsys):
     assert pull_exports.host_addr("override") == "override"
     src = (HOSTING / "pull_exports.py").read_text()
     assert "sp-vps-1" not in src.split('"""', 2)[2]                    # never hardcoded (docstring aside)
+
+
+# ------------------ season gates are config (architect 2026-09-28) ----------
+
+def test_nhl_gate_is_the_ruled_opening_day_and_every_gate_is_overridable():
+    assert chains.CHAINS["nhl-daily"]["active_from"] == "2026-09-29"       # 2026-27 opening day
+    assert chains.CHAINS["nhl-daily"]["active_from_env"] == "SP_NHL_ACTIVE_FROM"
+    gated = [n for n, ch in chains.CHAINS.items() if ch.get("active_from")]
+    assert gated == ["nhl-daily"]                                          # the only season gate today
+    for n in gated:                                                        # same treatment for any future one
+        var = chains.CHAINS[n].get("active_from_env")
+        assert var and var.startswith("SP_") and var.endswith("_ACTIVE_FROM"), n
+        assert var in (HOSTING / "etc" / "host.env.example").read_text(), f"{var} undocumented"
+
+
+def test_season_gate_default_override_receipt_and_malformed(sandbox, monkeypatch, capsys):
+    (c.REPO / "cli.py").write_text(FAKE_CLI)
+    monkeypatch.setitem(chains.CHAINS, "t-season", {"active_from": "2026-09-29",
+                                                     "active_from_env": "SP_T_ACTIVE_FROM",
+                                                     "steps": [["x"]]})
+    monkeypatch.delenv("SP_T_ACTIVE_FROM", raising=False)
+    # the day before opening day: skipped, gate receipted with its source
+    monkeypatch.setattr(c, "utc_now", lambda: datetime(2026, 9, 28, 16, tzinfo=timezone.utc))
+    assert sp_run.main(["t-season"]) == 0
+    r = receipts(sandbox)[-1]
+    assert r["skipped"] == "inactive_until_2026-09-29"
+    assert r["active_from"] == {"date": "2026-09-29",
+                                "source": "chains.py default (override: SP_T_ACTIVE_FROM)"}
+    assert "· t-season active from 2026-09-29 [chains.py default" in capsys.readouterr().out
+    # opening day: it runs, and the chain receipt carries the gate
+    monkeypatch.setattr(c, "utc_now", lambda: datetime(2026, 9, 29, 16, tzinfo=timezone.utc))
+    assert sp_run.main(["t-season"]) == 0
+    r = receipts(sandbox)[-1]
+    assert r["kind"] == "chain" and r["steps_ok"] == 1 and r["active_from"]["date"] == "2026-09-29"
+    # a config edit moves the start — no code change
+    monkeypatch.setenv("SP_T_ACTIVE_FROM", "2026-10-01")
+    assert sp_run.main(["t-season"]) == 0
+    r = receipts(sandbox)[-1]
+    assert r["skipped"] == "inactive_until_2026-10-01" and r["active_from"]["source"] == "SP_T_ACTIVE_FROM"
+    # malformed fails loudly (OnFailure pages), never a silent skip
+    monkeypatch.setenv("SP_T_ACTIVE_FROM", "Oct 1")
+    with pytest.raises(SystemExit, match="SP_T_ACTIVE_FROM='Oct 1' is not a YYYY-MM-DD date"):
+        sp_run.main(["t-season"])
+    # dry-run prints the gate too
+    monkeypatch.delenv("SP_T_ACTIVE_FROM")
+    capsys.readouterr()
+    assert sp_run.main(["nhl-daily", "--dry-run"]) == 0
+    assert "· nhl-daily active from 2026-09-29 [chains.py default (override: SP_NHL_ACTIVE_FROM)]" \
+        in capsys.readouterr().out

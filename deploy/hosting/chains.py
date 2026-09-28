@@ -106,7 +106,11 @@ CHAINS: dict[str, dict] = {
     # --- Market-only (docs/CLI.md "Market-only competitions") ---
     "nhl-daily": {
         "backup": "daily",
-        "active_from": "2026-10-07",  # market-only launch
+        # Season gate: 2026-27 opening day, operator-confirmed 2026-09-29 (the
+        # old 2026-10-07 was 2025-derived). Host override: SP_NHL_ACTIVE_FROM
+        # in host.env, so next season's start is a config edit, not code.
+        "active_from": "2026-09-29",
+        "active_from_env": "SP_NHL_ACTIVE_FROM",
         "steps": [
             ["sync-matches", "--competition", "NHL", "--season", "2026",
              "--date-from", "{yesterday}", "--date-to", "{tomorrow}"],

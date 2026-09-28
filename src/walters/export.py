@@ -30,6 +30,7 @@ from src.db.schema import (
 )
 from src.web.preview import compute_team_form
 from src.walters.value import MarketSnapshot
+from src.walters.provenance import git_sha as _git_sha
 
 log = logging.getLogger(__name__)
 
@@ -80,6 +81,7 @@ def export_predictions(
     if output_format == "json":
         return json.dumps({
             "exported_at": datetime.utcnow().isoformat() + "Z",
+            "git_sha": _git_sha(),
             "sport": sport.value,
             "start_date": start_date.isoformat(),
             "end_date": end_date.isoformat(),
@@ -917,6 +919,7 @@ def export_results(
     rows.sort(key=lambda r: (r["date"] or "", r["match_id"]))
     payload = {
         "exported_at": datetime.utcnow().isoformat() + "Z",
+        "git_sha": _git_sha(),
         "sport": sport.value,
         "start_date": start_date.isoformat(),
         "end_date": end_date.isoformat(),
@@ -1129,6 +1132,7 @@ def export_fixtures(
                                      "This competition is market-only.")
     payload = {
         "exported_at": _dt.utcnow().isoformat() + "Z",
+        "git_sha": _git_sha(),
         "competition_code": competition_code,
         "contains_predictions": False,
         "note": ("Market-only fixtures file: schedule, results, book consensus, "

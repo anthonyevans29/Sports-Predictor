@@ -22,6 +22,47 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **EXHIBIT 1 RULED: THREE FIXES (architect, 2026-09-28).**
+  - (1) CHAIN GAP.
+    - `nfl-predict` now runs `sync-injuries --competition NFL --season
+      2026` as step 1. The host had predicted with 0 injury inputs versus
+      the laptop's 280.
+    - AUDIT of every prediction-producing chain:
+      - soccer-prematch, freshen:SOCCER and freshen:NFL already sync
+        injuries first.
+      - mlb-preslate and freshen:MLB are EXEMPT: `sync-injuries MLB` is a
+        no-op, since no provider exposes MLB injuries.
+      - nfl-predict was the only gap.
+    - Kept as a CI guard (`test_prediction_chains_sync_injuries_first_mlb_exempt`).
+    - NOTE: sync-injuries is METERED, so in `designated` mode it would skip
+      on off-days. The host runs `full`.
+  - (2) COMPARATOR (`compare_exports.py`).
+    - Game rows are KEYED on (kickoff, home, away), never match_id
+      (machine-local). They are compared field-by-field only after keying.
+    - Rows on one side only are reported BY NAME. match_id is masked.
+    - Receipt replay of exhibit 1's shape: `only on laptop (16): …` plus 5
+      matched-row diffs.
+  - (3) DIVERGENCE LOG + CODE-VERSION SKEW.
+    - Exhibit 1's explanations are recorded in the runbook (H1b
+      "Parallel-week exhibits"):
+      - count 17 vs 1 = code-version skew (pre/post #53);
+      - fair_prob, divergence and venue_gap = capture timing (13:52 vs
+        18:19 UTC);
+      - injuries = chain gap (fixed by 1);
+      - model probabilities identical (neither team played Sunday).
+    - "code-version skew" joins the explained classes WITH its guard:
+      - every JSON export now carries the producing `git_sha`
+        (`src/walters/provenance.py`; `SP_GIT_SHA` overrides). The six
+        writers are predictions, results and fixtures in export.py, NFL
+        predictions and NFL results, and the window card;
+      - the comparator prints `code-version skew: laptop X ≠ host Y`, or
+        `git_sha missing on … — NOT claimable`, and lists the files where
+        the class was named.
+    - Exhibit 1 itself predates the stamp, so its skew classification rests
+      on the architect's receipts.
+  - Tests +4. The host must pull before Tue 2026-09-29 10:00 UTC (the first
+    nfl-grade).
+
 - **H1b PARALLEL-WEEK EXHIBIT 1 (architect record, 2026-09-28).** The host
   `nfl-predict` manual run produced a 1-row 36h file (the #53 window works
   on the host), and scope was clean.

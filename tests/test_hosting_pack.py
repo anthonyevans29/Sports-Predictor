@@ -1123,3 +1123,70 @@ def test_nhl_daily_syncs_single_days_the_adapter_honours():
         ("2026-09-28", "2026-09-28"), ("2026-09-29", "2026-09-29"), ("2026-09-30", "2026-09-30")]
     from src.adapters.api_hockey import APIHockeyAdapter    # the adapter trait this relies on
     assert "date_from == date_to" in inspect.getsource(APIHockeyAdapter.list_matches)
+
+
+# --------------- parallel-week exhibit 1 ruling (architect 2026-09-28) ------
+
+import compare_exports  # noqa: E402
+
+
+def test_prediction_chains_sync_injuries_first_mlb_exempt():
+    ch = chains.CHAINS
+    assert ch["nfl-predict"]["steps"][0] == ["sync-injuries", "--competition", "NFL", "--season", "2026"]
+    for name, c_ in ch.items():                 # the audit, kept as a guard
+        cmds = [s[0] for s in c_.get("steps") or []]
+        if not {"predict", "predict-nfl"} & set(cmds):
+            continue
+        if any(s[:2] == ["predict", "--sport"] and "mlb" in s for s in c_["steps"]):
+            continue                            # MLB: no injury source (sync-injuries MLB is a no-op)
+        first_pred = min(i for i, x in enumerate(cmds) if x in ("predict", "predict-nfl"))
+        assert "sync-injuries" in cmds[:first_pred], f"{name}: predicts without syncing injuries"
+
+
+def _pred(home, away, ko, mid, fair=0.58, inj=280):
+    return {"match_id": mid, "utc_date": ko, "home_team": home, "away_team": away,
+            "prediction": {"home_win_prob": 0.64},
+            "market": {"fair_prob": {"HOME": fair}}, "input_quality": {"injuries": inj}}
+
+
+def test_comparator_keys_rows_names_unmatched_and_guards_skew(tmp_path, capsys):
+    la, ho = tmp_path / "laptop", tmp_path / "host"
+    la.mkdir(); ho.mkdir()
+    mnf = ("Philadelphia Eagles", "Dallas Cowboys", "2026-09-29T00:15:00")
+    lap = {"exported_at": "x", "git_sha": "aaa1111", "predictions": [
+        _pred("Kansas City Chiefs", "Buffalo Bills", "2026-10-04T17:00:00", 11),
+        _pred(*mnf, 12),
+        _pred("Baltimore Ravens", "Pittsburgh Steelers", "2026-10-04T20:25:00", 13)]}
+    host = {"exported_at": "y", "git_sha": "bbb2222", "predictions": [
+        _pred(*mnf, 907, fair=0.56, inj=0)]}          # different machine-local id
+    (la / "nfl_predictions_2026-09-28.json").write_text(json.dumps(lap))
+    (ho / "nfl_predictions_2026-09-28.json").write_text(json.dumps(host))
+    assert compare_exports.main([str(la), str(ho)]) == 1
+    out = capsys.readouterr().out
+    assert "code-version skew: laptop aaa1111 ≠ host bbb2222" in out
+    assert "only on laptop (2): Buffalo Bills @ Kansas City Chiefs 2026-10-04T17:00; " \
+           "Pittsburgh Steelers @ Baltimore Ravens 2026-10-04T20:25" in out
+    key = "[Dallas Cowboys @ Philadelphia Eagles 2026-09-29T00:15]"
+    assert f"$.predictions{key}.market.fair_prob.HOME: '0.58' vs '0.56'" in out
+    assert f"$.predictions{key}.input_quality.injuries: '280' vs '0'" in out
+    assert "match_id" not in out                                    # never compared
+    assert "prediction.home_win_prob" not in out                   # identical model probability
+    assert "Code-version skew named for: nfl_predictions_2026-09-28.json" in out
+    # guard: a file without its SHA cannot claim the class
+    host.pop("git_sha")
+    (ho / "nfl_predictions_2026-09-28.json").write_text(json.dumps(host))
+    compare_exports.main([str(la), str(ho)])
+    out = capsys.readouterr().out
+    assert "git_sha missing on host — code-version skew NOT claimable" in out
+    assert "Code-version skew named for" not in out
+
+
+def test_comparator_row_order_and_ids_do_not_matter(tmp_path, capsys):
+    la, ho = tmp_path / "l", tmp_path / "h"
+    la.mkdir(); ho.mkdir()
+    rows = [_pred("A", "B", "2026-10-01T00:00:00", 1), _pred("C", "D", "2026-10-02T00:00:00", 2)]
+    (la / "f.json").write_text(json.dumps({"git_sha": "s1", "predictions": rows}))
+    (ho / "f.json").write_text(json.dumps({"git_sha": "s1", "predictions": [
+        dict(rows[1], match_id=77), dict(rows[0], match_id=88)]}))
+    assert compare_exports.main([str(la), str(ho)]) == 0
+    assert "✓ f.json" in capsys.readouterr().out

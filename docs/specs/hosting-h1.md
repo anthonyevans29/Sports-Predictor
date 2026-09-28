@@ -566,6 +566,19 @@ criterion 3):
     which syncs Sunday + Monday results.
   - Expect the pools to converge after that run. Re-check the pool counts
     on the next exhibit.
+  - **Divergence log (architect ruling, 2026-09-28):**
+
+    | Divergence | Class | Explanation |
+    |---|---|---|
+    | Row count 17 (laptop) vs 1 (host) | **code-version skew** | The laptop file was produced pre-#53 (8-day window) and the host file post-#53 (36h window). |
+    | `fair_prob`, `market_divergence_pp`, `venue_gap_pp` | **capture timing** | The two sides synced at 13:52 UTC and 18:19 UTC respectively. |
+    | Injury inputs 280 (laptop) vs 0 (host) | **chain gap** (not an explained class) | Host `nfl-predict` lacked `sync-injuries`. FIXED: it is now step 1, and a CI guard audits every prediction chain. |
+    | Model probabilities | identical | Neither team played Sunday, so the Elo inputs agree. |
+
+  - The skew class above was ruled on the architect's receipts: exhibit 1's
+    files predate the `git_sha` stamp. From the next pull, the class is
+    claimable only through the comparator's guard, which requires both
+    files to carry `git_sha` and the comparator to name the mismatch.
 
 - Both machines sync independently and both run their chains.
 - The export diffs compare INDEPENDENT pipelines. Explained divergence
@@ -683,10 +696,18 @@ venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ p
   python deploy/hosting/compare_exports.py exports exports/host --glob '*<date>*'
   ```
   - Paste the result.
-  - Each `✗` needs one of two explanations: capture timing (the two
-    pipelines synced at different moments), or provider pagination (a
-    different page/list boundary from the provider).
-  - Otherwise it needs a BACKLOG entry.
+  - Each `✗` needs one of the explained classes:
+    - **capture timing:** the two pipelines synced at different moments;
+    - **provider pagination:** a different page/list boundary from the
+      provider;
+    - **code-version skew (guarded, exhibit 1 ruling):** only when both files
+      carry `git_sha` and the comparator prints
+      `code-version skew: laptop <sha> ≠ host <sha>`. A missing SHA prints
+      `NOT claimable`.
+  - The comparator keys game rows on (kickoff, home, away), never
+    `match_id`, which is machine-local. It prints rows present on one side
+    only BY NAME, and compares fields only between matched rows.
+  - Otherwise the divergence needs a BACKLOG entry.
 - Only **laptop** exports go to the Cockpit this week (H0-17). Host
   exports are comparison-only.
 

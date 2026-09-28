@@ -101,7 +101,12 @@ CHAINS: dict[str, dict] = {
         ],
     },
     "nfl-predict": {
-        "steps": [["capture-weather-nfl"], ["predict-nfl"], ["export-nfl-predictions"]],
+        # Exhibit 1 ruling (2026-09-28): injuries first — the host predicted
+        # with 0 injury inputs vs the laptop's 280 (CHAIN GAP). freshen:NFL
+        # already had it; the audit found no other gap (MLB has no injury
+        # source: sync-injuries MLB is a no-op).
+        "steps": [["sync-injuries", "--competition", "NFL", "--season", "2026"],
+                  ["capture-weather-nfl"], ["predict-nfl"], ["export-nfl-predictions"]],
     },
     # --- Market-only (docs/CLI.md "Market-only competitions") ---
     "nhl-daily": {

@@ -133,3 +133,20 @@ def test_mlb_export_default_stays_one_slate_day(games, tmp_path, monkeypatch):
     r = _run(tmp_path, monkeypatch, base + ["--days", "2", "--date", today])
     assert "exclusive" in r.output
     assert _pred_count() == before
+
+
+def test_exports_carry_the_producing_git_sha(games, tmp_path, monkeypatch):
+    """Exhibit 1 ruling: every export names its producing SHA (the
+    comparator's code-version-skew guard)."""
+    from src.walters import provenance
+    provenance.git_sha.cache_clear()
+    monkeypatch.setenv("SP_GIT_SHA", "abc1234")
+    try:
+        _run(tmp_path, monkeypatch, ["export-nfl-predictions", "--week"])
+        f = sorted((tmp_path / "exports").glob("nfl_predictions_*.json"))[-1]
+        assert json.loads(f.read_text())["git_sha"] == "abc1234"
+        _run(tmp_path, monkeypatch, ["export-predictions", "--sport", "soccer", "--competition", "EWSOC"])
+        f = sorted((tmp_path / "exports").glob("soccer_EWSOC_*.json"))[-1]
+        assert json.loads(f.read_text())["git_sha"] == "abc1234"
+    finally:
+        provenance.git_sha.cache_clear()

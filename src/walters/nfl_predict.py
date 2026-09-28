@@ -24,6 +24,7 @@ from src.db.database import session_scope
 from src.db.schema import Injury, Match, MatchStatus, Odds, OddsSnapshot, Prediction, Sport
 from src.walters.nfl_backtest import (NFLEloConfig, _State, _expected_home, _update,
                                       nfl_scoped, scope_line)
+from src.walters.provenance import git_sha as _git_sha
 
 log = logging.getLogger(__name__)
 
@@ -278,6 +279,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                         f"nfl_predictions_{datetime.utcnow().strftime('%Y-%m-%d')}.json")
     payload = {
         "exported_at": datetime.utcnow().isoformat() + "Z",
+        "git_sha": _git_sha(),
         "sport": "nfl",
         "model_version": MODEL_VERSION,
         "contains_predictions": True,
@@ -431,6 +433,7 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
     path = _os.path.join(out_dir, f"nfl_NFL_results_{datetime.utcnow().strftime('%Y-%m-%d')}.json")
     with open(path, "w") as f:
         _json.dump({"exported_at": datetime.utcnow().isoformat() + "Z",
+                    "git_sha": _git_sha(),
                     "sport": "nfl",
                     "note": "record is variance, not signal — for the consumer to grade against",
                     "count": len(rows), "results": rows}, f, indent=2)

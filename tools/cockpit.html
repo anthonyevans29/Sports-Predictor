@@ -187,6 +187,12 @@ details.sig pre{max-height:220px;margin:6px 0 0}
       <button id="copyPnlBtn">Copy P&amp;L block</button>
     </div>
     <div class="row" style="margin-top:10px">
+      <button id="copyLedgerBtn" class="ghost">Copy ledger (JSON)</button>
+      <button id="importPastedBtn" class="ghost">Import pasted</button>
+      <button id="dedupeBtn" class="ghost">Dedupe ledger</button>
+    </div>
+    <textarea id="ledgerJson" hidden spellcheck="false" style="width:100%;box-sizing:border-box;min-height:120px;margin-top:8px;font:12px ui-monospace,monospace;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px"></textarea>
+    <div class="row" style="margin-top:10px">
       <div><label>Import Kalshi CSV (fills export — realized P&amp;L, two-book accounting)</label><br>
         <input type="file" id="kalshiCsvFile" accept=".csv,text/csv"></div>
     </div>
@@ -468,35 +474,98 @@ function loadLedger(){
     L.meta=L.meta||{}; L.meta.policy_version=POLICY_VERSION; return L;
   }catch(e){ storageOK=false; return window.__ledgerMem||emptyLedger(); }
 }
+// EVERY write goes through saveLedger, and saveLedger enforces the key
+// (enforceLedger below) — Log, results grading, Import ledger (file or
+// pasted), Kalshi CSV and Dedupe alike. Returns what it collapsed so each
+// caller reports it (no silent changes).
 function saveLedger(L){
+  const d=enforceLedger(L);
   window.__ledgerMem=L;   // in-page fallback when storage is blocked
   try{ localStorage.setItem(LEDGER_KEY,JSON.stringify(L)); storageOK=true; }
   catch(e){ storageOK=false; }
+  return d;
 }
 function localDate(d){d=d||new Date();
   return `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,"0")}-${String(d.getDate()).padStart(2,"0")}`;}
 // Idempotency: (sport, game, log_date) — extended by engine / call_type /
 // parlay slot so a straight, a venue call and a parlay leg on one game are
-// distinct instruments that never overwrite each other.
+// distinct instruments that never overwrite each other. Identity is always
+// RECOMPUTED from the fields, never trusted from a stored/imported id.
 function callKey(c){return [c.sport,c.game,c.log_date,c.engine,c.call_type,c.parlay_id||""].join("|");}
-function upsertCalls(L,fresh){
-  const byId=new Map(L.calls.map(c=>[c.id,c])); let added=0,updated=0,kept=0;
-  for(const c of fresh){ c.id=callKey(c);
-    const cur=byId.get(c.id);
-    if(!cur){byId.set(c.id,c);added++;}
-    else if(cur.status==="graded"){kept++;}          // graded history is never rewritten
-    else {byId.set(c.id,{...cur,...c});updated++;}
+// Instrument identity across log dates (ledger-doubling fix, 2026-09-28): the
+// same bet re-captured on a later day (a multi-day file loaded again) is ONE
+// instrument. Anchored on the kickoff; a call with no kickoff can't be proven
+// the same game, so it keeps its log_date (never collapsed on a guess).
+function parlaySig(c){return c.parlay_id?String(c.parlay_id).replace(/^P-\d{4}-\d{2}-\d{2}-/,""):"";}
+function instKey(c){return [c.sport,c.game,c.kickoff||("log:"+c.log_date),c.engine,c.call_type,c.pick,parlaySig(c)].join("|");}
+// Which copy survives a collapse: graded beats open (graded history is never
+// lost), then the earliest capture (the original log_date).
+function better(a,b){
+  const g=x=>x.status==="graded"?1:0;
+  if(g(a)!==g(b)) return g(a)>g(b)?a:b;
+  return (b.log_date||"")<(a.log_date||"")?b:a;
+}
+function enforceLedger(L){
+  const d={exact:0,relogged:0,fills:0};
+  const pass=(keyFn,field)=>{
+    const m=new Map();
+    for(const c of L.calls){ const k=keyFn(c), cur=m.get(k);
+      if(!cur) m.set(k,c); else { m.set(k,better(cur,c)); d[field]++; } }
+    L.calls=[...m.values()];
+  };
+  pass(callKey,"exact");
+  pass(instKey,"relogged");
+  if(Array.isArray(L.fills)){ const fm=new Map();
+    for(const x of L.fills){ if(fm.has(x.id)) d.fills++; else fm.set(x.id,x); }
+    L.fills=[...fm.values()]; }
+  d.total=d.exact+d.relogged+d.fills;
+  return d;
+}
+function dedupeNote(d){
+  return d&&d.total?` · ⚠ ${d.total} duplicate(s) collapsed (same key ${d.exact} · re-logged on a later day ${d.relogged} · fills ${d.fills})`:"";
+}
+// Merge fresh/incoming calls into L by the RECOMPUTED key. Works in place on
+// L.calls (pre-existing duplicates are left for enforceLedger to collapse and
+// report). opts.relog: fresh captures — a call already captured on an earlier
+// day (same instrument) is skipped, not re-logged. opts.incoming: an imported
+// graded call may replace an open one; an open one never downgrades graded.
+function upsertCalls(L,fresh,opts){
+  opts=opts||{};
+  const idx=new Map(), inst=new Set();
+  L.calls.forEach((c,i)=>{ const k=callKey(c); if(!idx.has(k)) idx.set(k,i); inst.add(instKey(c)); });
+  let added=0,updated=0,kept=0,earlier=0;
+  for(const c of fresh){ const k=callKey(c); c.id=c.id||k;
+    if(!idx.has(k)){
+      if(opts.relog&&inst.has(instKey(c))){earlier++;continue;}
+      idx.set(k,L.calls.length); inst.add(instKey(c)); L.calls.push(c); added++; continue; }
+    const i=idx.get(k), cur=L.calls[i];
+    if(cur.status==="graded"&&c.status!=="graded"){kept++;}   // graded history is never rewritten
+    else if(opts.incoming&&JSON.stringify(cur)===JSON.stringify({...c,id:cur.id})){kept++;}
+    else if(opts.incoming){L.calls[i]={...c,id:cur.id};updated++;}
+    else {L.calls[i]={...cur,...c,id:cur.id};updated++;}
   }
-  L.calls=[...byId.values()]; return {added,updated,kept};
+  return {added,updated,kept,earlier};
 }
 function baseCall(r,logDate){
   return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
     kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:!!r.quar};
 }
-function snapshotCalls(){
+// Capture window (multi-week fix, 2026-09-28): a call is captured only
+// BEFORE its kickoff. A multi-day/week file loaded after some games started
+// would otherwise log played games and grade them with hindsight. Rows with
+// no parseable kickoff are captured as before (labelled in the note).
+function kickedOff(r,now){const t=Date.parse(r.utc||""); return isFinite(t)&&t<=now;}
+let lastCapture={started:0,noKickoff:0};
+function snapshotCalls(now){
+  now=now??Date.now();
   const d=localDate(), out=[];
+  lastCapture={started:0,noKickoff:0};
+  const live=r=>{ if(kickedOff(r,now)){lastCapture.started++;return false;}
+    if(!isFinite(Date.parse(r.utc||""))) lastCapture.noKickoff++;
+    return true; };
   for(const x of deskCalls){
     const r=x.r;
+    if((x.call==="PLAY"||x.call==="LADDER"||(x.shadowUnits>0&&r.quar&&r.sport==="NFL"))&&!live(r)) continue;
     if(x.call==="PLAY"||x.call==="LADDER"){
       const lad=x.call==="LADDER";
       const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
@@ -511,6 +580,7 @@ function snapshotCalls(){
     }
   }
   for(const t of deskParlays){          // parlays: model_edge only (frozen)
+    if(t.legs.some(l=>kickedOff(l,now))){lastCapture.started++;continue;}   // whole ticket or nothing
     const pid="P-"+d+"-"+t.legs.map(l=>`${l.sport}:${l.away}@${l.home}:${l.pick}`).sort().join("+");
     for(const l of t.legs){
       out.push({...baseCall(l,d),pick:l.pick,tier:"parlay",engine:"model_edge",
@@ -530,10 +600,12 @@ function snapshotCalls(){
 }
 $("logBtn").addEventListener("click",()=>{
   const L=loadLedger(); const fresh=snapshotCalls();
-  const r=upsertCalls(L,fresh); saveLedger(L);
+  const r=upsertCalls(L,fresh,{relog:true}); const dd=saveLedger(L);
   const byEng={}; fresh.forEach(c=>{const k=c.engine+(c.call_type==="quarantine_shadow"?" (shadow)":"");byEng[k]=(byEng[k]||0)+1;});
   $("logNote").textContent=`Logged ${fresh.length} entries (${Object.entries(byEng).map(([k,n])=>`${k} ${n}`).join(" · ")||"none"}) — `
-    +`${r.added} new · ${r.updated} updated · ${r.kept} already graded (kept).`
+    +`${r.added} new · ${r.updated} updated · ${r.kept} already graded (kept) · ${r.earlier} already logged on an earlier day (not re-logged)`
+    +` · ${lastCapture.started} past kickoff (not captured)`+(lastCapture.noKickoff?` · ${lastCapture.noKickoff} with no kickoff time`:"")+"."
+    +dedupeNote(dd)
     +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
 });
@@ -636,10 +708,10 @@ $("resultsFile").addEventListener("change",async e=>{
     try{ outs=outs.concat(outcomesFromDoc(JSON.parse(await f.text()))); }
     catch(err){ $("ledgerNote").textContent=`Could not parse ${f.name}: ${err.message}`; return; }
   }
-  const L=loadLedger(); const n=gradeLedger(L,outs); saveLedger(L);
+  const L=loadLedger(); const n=gradeLedger(L,outs); const dd=saveLedger(L);
   const open=L.calls.filter(c=>c.status==="open").length;
   $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below).`
-    +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+    +dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
 });
 
@@ -729,6 +801,8 @@ function renderLedger(){
     ? `<b>${L.calls.length}</b> logged · <b>${a.n}</b> settled bets · staked ${fmt(a.staked)}u · returned ${fmt(a.returned)}u · `
       +`net <b class="${a.net>=0?"play":"caution"}">${a.net>=0?"+":""}${fmt(a.net)}u</b> · ROI ${a.roi==null?"—":fmt(a.roi,1)+"%"} · hit ${a.hit==null?"—":fmt(a.hit,1)+"%"}`
       +` <span class="note">(fair-odds P&amp;L, pre-fee)</span>`
+      +(()=>{const d=enforceLedger(JSON.parse(JSON.stringify(L)));   // dry run on a copy
+        return d.total?`<div class="caution">⚠ ${d.total} duplicate(s) in the stored ledger (same key ${d.exact} · re-logged on a later day ${d.relogged} · fills ${d.fills}) — totals above include them; press Dedupe ledger.</div>`:"";})()
     : "No calls logged yet.";
   $("ledgerTables").innerHTML=groupTable("by engine",real,b=>b.engine)+groupTable("by sport",real,b=>b.sport)
     +groupTable("by tier",real,b=>b.tier)+groupTable("by call type",real,b=>b.call_type)
@@ -754,24 +828,54 @@ $("exportLedgerBtn").addEventListener("click",()=>{
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
   a.download=`bd_ledger_v1_${localDate()}.json`; document.body.appendChild(a); a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
+  $("ledgerNote").textContent="Export started — if no file appears (downloads can be blocked in this view), use Copy ledger (JSON).";
 });
+// Clipboard-export fallback: the embedded view can block downloads, so the
+// same JSON goes to the clipboard — and, when the clipboard is refused too,
+// into the text box below, selected, for a manual copy. The same box takes a
+// pasted ledger back in (Import pasted), through the same merge as a file.
+$("copyLedgerBtn").addEventListener("click",async()=>{
+  const txt=JSON.stringify(loadLedger(),null,1), box=$("ledgerJson");
+  try{ await navigator.clipboard.writeText(txt); box.hidden=true;
+    $("ledgerNote").textContent=`Ledger JSON copied (${txt.length} chars).`; }
+  catch(e){ box.hidden=false; box.value=txt; box.focus(); box.select();
+    $("ledgerNote").textContent="Clipboard unavailable — the ledger JSON is in the box below, selected: copy it by hand (Ctrl/Cmd+C)."; }
+});
+function importLedgerDoc(inc){
+  if(!inc||!Array.isArray(inc.calls)) throw new Error("not a bd_ledger_v1 file (no calls array)");
+  const L=loadLedger();
+  const r=upsertCalls(L,inc.calls.map(c=>({...c})),{incoming:true});
+  let nf=0;
+  if(Array.isArray(inc.fills)){ L.fills=L.fills||[]; const have=new Set(L.fills.map(x=>x.id));
+    inc.fills.forEach(x=>{ if(x&&x.id&&!have.has(x.id)){L.fills.push(x);have.add(x.id);nf++;} }); }
+  const dd=saveLedger(L);
+  $("ledgerNote").textContent=`Imported ${inc.calls.length} calls: ${r.added} new · ${r.updated} updated · ${r.kept} unchanged/kept`
+    +` (merged by key; graded entries never downgraded)${nf?` · ${nf} Kalshi fills added`:""}`+dedupeNote(dd)
+    +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+  renderLedger();
+}
 $("importLedgerFile").addEventListener("change",async e=>{
   const f=e.target.files[0]; if(!f)return;
-  try{
-    const inc=JSON.parse(await f.text());
-    if(!inc||!Array.isArray(inc.calls)) throw new Error("not a bd_ledger_v1 file (no calls array)");
-    const L=loadLedger(); const byId=new Map(L.calls.map(c=>[c.id,c])); let n=0;
-    for(const c of inc.calls){ if(!c.id) c.id=callKey(c);
-      const cur=byId.get(c.id);
-      if(!cur||cur.status!=="graded"||c.status==="graded"){byId.set(c.id,c);n++;} }
-    L.calls=[...byId.values()];
-    let nf=0;
-    if(Array.isArray(inc.fills)){ const fm=new Map((L.fills||[]).map(x=>[x.id,x]));
-      inc.fills.forEach(x=>{ if(x&&x.id&&!fm.has(x.id)){fm.set(x.id,x);nf++;} }); L.fills=[...fm.values()]; }
-    saveLedger(L);
-    $("ledgerNote").textContent=`Imported ${n} calls${nf?` + ${nf} Kalshi fills`:""} (merged by id; graded entries never downgraded).`;
-    renderLedger();
-  }catch(err){ $("ledgerNote").textContent="Import failed: "+err.message; }
+  try{ importLedgerDoc(JSON.parse(await f.text())); }
+  catch(err){ $("ledgerNote").textContent="Import failed: "+err.message; }
+  e.target.value="";
+});
+$("importPastedBtn").addEventListener("click",()=>{
+  const box=$("ledgerJson");
+  if(box.hidden||!box.value.trim()){ box.hidden=false; box.value=""; box.focus();
+    $("ledgerNote").textContent="Paste a ledger JSON into the box, then press Import pasted again."; return; }
+  try{ importLedgerDoc(JSON.parse(box.value)); box.value=""; box.hidden=true; }
+  catch(err){ $("ledgerNote").textContent="Import failed: "+err.message; }
+});
+// Repair: collapse duplicates already in storage (e.g. from before the key
+// was enforced on every path) and say exactly how many went.
+$("dedupeBtn").addEventListener("click",()=>{
+  const L=loadLedger(), n0=L.calls.length, f0=(L.fills||[]).length;
+  const dd=saveLedger(L);
+  $("ledgerNote").textContent=dd.total
+    ? `Dedupe: removed ${dd.total} — calls ${n0} → ${L.calls.length} (same key ${dd.exact} · re-logged on a later day ${dd.relogged}) · fills ${f0} → ${(L.fills||[]).length}. Kept: graded over open, then the earliest capture.`
+    : `Dedupe: no duplicates found (${n0} calls · ${f0} fills).`;
+  renderLedger();
 });
 
 // ---------------------------------------------------------------------
@@ -955,9 +1059,9 @@ function realizedLines(L){
 }
 $("kalshiCsvFile").addEventListener("change",async e=>{
   const f=e.target.files[0]; if(!f)return;
-  try{ const L=loadLedger(); const r=importKalshiCSV(await f.text(),L); saveLedger(L);
+  try{ const L=loadLedger(); const r=importKalshiCSV(await f.text(),L); const dd=saveLedger(L);
     $("ledgerNote").textContent=`Kalshi CSV: ${r.added} fills added, ${r.dup} duplicates skipped · columns mapped: ${r.mapped.join(", ")}`
-      +(r.unmapped.length?` · not found: ${r.unmapped.join(", ")}`:"")+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
+      +(r.unmapped.length?` · not found: ${r.unmapped.join(", ")}`:"")+dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
     renderLedger();
   }catch(err){ $("ledgerNote").textContent="Kalshi CSV import failed: "+err.message; }
   e.target.value="";

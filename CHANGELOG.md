@@ -4,6 +4,18 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (Cockpit: ledger doubling fix)
+- Root cause: re-logging a multi-day file on a later day re-captured every
+  call under a new log_date key (reproduced: 12 → 24). Import ledger merged
+  by stored id. The Kalshi CSV import only re-rendered the doubled totals.
+- The ledger key is enforced on every write path; a bet already captured
+  on an earlier day is not re-logged; import merges by recomputed key.
+- New "Dedupe ledger" repair (reports how many it removed) + a stored-
+  duplicates warning on the Ledger tab.
+- Capture only before kickoff (multi-week files no longer log played
+  games); "Copy ledger (JSON)" with a text-box fallback + "Import pasted".
+- scripts/cockpit_ledger_verify.py: 20/20 (import twice → identical totals).
+
 ## 2026-09-27 (window service: freshen chains + proximity tiers)
 - freshen:NFL / freshen:MLB / freshen:SOCCER defined; the window service
   triggers them on T-90 news (chain lock, one per family per hour, MLB

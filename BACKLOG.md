@@ -22,6 +22,16 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **H1b EXHIBIT 1 CLOSED (architect, 2026-09-28).** Host `nfl-predict` was
+  re-run at 21:50 UTC on #58's code:
+  - injuries 6/5, equal to the laptop, which confirms the chain-gap fix;
+  - `git_sha` stamped, so the comparator guard is live;
+  - model probabilities identical;
+  - venue gap converged to 0.0pp at T-45, so the capture-timing divergence
+    resolved as expected.
+  All three ruled explanations held, and nothing is open on exhibit 1.
+  Recorded in the runbook's H1b exhibits list.
+
 - **NCAA-MARKET THURSDAY RUN (architect, 2026-09-28).** `sp-ncaa-market.timer`
   gains `Thu 16:00 UTC` for Thursday-night slates, alongside Fri 16:00 and
   Sat 13:00.

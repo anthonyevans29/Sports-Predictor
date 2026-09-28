@@ -5453,6 +5453,14 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
         start_date = datetime.utcnow().replace(microsecond=0)
         if days:
             end_date, window_how = start_date + timedelta(days=days), f"--days {days}"
+        elif sport_enum == Sport.MLB:
+            # Ruling 2026-09-28: MLB keeps its ONE slate-day (the old default).
+            # It plays daily, so 36h from a morning run would drag in
+            # tomorrow's games before pitchers and lineups are confirmed.
+            start_date = datetime.strptime(datetime.utcnow().strftime("%Y-%m-%d"),
+                                           "%Y-%m-%d").replace(hour=DAY_START_HOUR_UTC)
+            end_date = start_date + timedelta(days=1)
+            window_how = "default: MLB one slate-day; --days N for more"
         else:
             end_date = start_date + timedelta(hours=SLATE_WINDOW_H)
             window_how = "default: current slate; --days N for more"

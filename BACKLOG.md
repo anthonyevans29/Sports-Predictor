@@ -51,17 +51,22 @@ specific reason they're not being built now.
     - Prediction row count unchanged throughout.
     - Two CLI tests whose fixture game sits +2d out (their subject is the
       drift/venue lines, not windowing) now pass `--week`.
-  - ARCHITECT-RULE (flagged, implemented as specified):
-    - (a) MLB. The OLD `export-predictions` default was one 08:00-UTC
-      slate-day. 36h from a ~14:00 UTC preslate run reaches 02:00 UTC
-      two days later, so the MLB file now carries ALL of tomorrow's slate
-      too. Receipt: `window: 2026-09-28 14:00 → 2026-09-30 02:00 UTC`.
-      The ledger reprices (ruling a), so there is no doubling, but it is
-      two slates, not one. The alternative is a one-line change: MLB
-      keeps the slate-day default.
-    - (b) The Friday/Saturday `soccer-prematch` chain keeps its explicit
-      Sat→+3 window (the documented weekend routine). Only the freshen was
-      moved.
+  - ARCHITECT RULING (2026-09-28) on flag (a): **MLB stays on its ONE
+    SLATE-DAY window** (the old 08:00-UTC default). 36h is right for NFL
+    and soccer, whose slates are sparse. MLB plays every day, so a morning
+    run would drag in tomorrow's games before pitchers and lineups are
+    confirmed.
+    - The flag had shown `window: 2026-09-28 14:00 → 2026-09-30 02:00 UTC`,
+      i.e. all of tomorrow's slate.
+    - SHIPPED: the one-line change. The MLB default is today's slate-day
+      (receipt `24h · default: MLB one slate-day`); `--days N` still
+      widens it.
+    - Test: `test_mlb_export_default_stays_one_slate_day`, which computes
+      the expected rows from the slate-day bounds so it holds at any hour.
+      A soccer 36h test was added alongside.
+  - (b) The Friday/Saturday `soccer-prematch` chain keeps its explicit
+    Sat→+3 window (the documented weekend routine). Only the freshen was
+    moved.
 
 - **H1b DAY ONE 2026-09-28 13:45 UTC (architect record) + RUNBOOK FIELD
   AMENDMENTS.** The parallel-week clock started. The 12 T11 `TIMERS` are

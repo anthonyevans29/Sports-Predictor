@@ -1,6 +1,8 @@
 """Export windowing (architect 2026-09-28): prediction exports default to the
 CURRENT SLATE — kickoffs in the next 36 hours — with --week (NFL) / --days N
-as the explicit full look-ahead. Prediction generation is unchanged: only the
+as the explicit full look-ahead. Ruling 2026-09-28: MLB keeps its ONE
+08:00-UTC slate-day (it plays daily; 36h would drag in tomorrow's games before
+pitchers and lineups are confirmed). Prediction generation is unchanged: only the
 file's rows are scoped. The receipt line prints the window."""
 import json
 from datetime import datetime, timedelta
@@ -29,7 +31,8 @@ def games():
     ids = {}
     with session_scope() as s:
         for sport, code, offsets in ((Sport.NFL, "NFL", {"h10": 10, "h30": 30, "h50": 50, "d7": 168}),
-                                     (Sport.MLB, "EWMLB", {"h5": 5, "h30": 30, "h60": 60})):
+                                     (Sport.MLB, "EWMLB", {"h5": 5, "h30": 30, "h60": 60}),
+                                     (Sport.SOCCER, "EWSOC", {"h5": 5, "h30": 30, "h60": 60})):
             comp = _comp(s, sport, code)
             for key, h in offsets.items():
                 a, b = (Team(sport=sport, name=f"EW-{code}-{key}-{x}", external_ids={"ew": f"{code}{key}{x}"})
@@ -44,6 +47,7 @@ def games():
                 s.add(Prediction(match_id=m.id, model_version="ew-test", home_win_prob=0.6,
                                  draw_prob=None, away_win_prob=0.4))
                 ids[f"{code}:{key}"] = m.id
+                ids[f"{code}:{key}:ko"] = m.utc_date
     return ids
 
 
@@ -64,7 +68,7 @@ def _nfl_ids(tmp_path):
 
 
 def test_nfl_default_is_the_36h_slate_and_week_days_widen(games, tmp_path, monkeypatch):
-    mine = {k: v for k, v in games.items() if k.startswith("NFL:")}
+    mine = {k: v for k, v in games.items() if k.startswith("NFL:") and not k.endswith(":ko")}
     before = _pred_count()
     r = _run(tmp_path, monkeypatch, ["export-nfl-predictions"])
     assert r.exit_code == 0, r.output
@@ -83,21 +87,44 @@ def test_nfl_default_is_the_36h_slate_and_week_days_widen(games, tmp_path, monke
     assert _pred_count() == before                                # generation untouched
 
 
-def _mlb_ids(tmp_path):
-    f = sorted((tmp_path / "exports").glob("mlb_EWMLB_*.json"))[-1]
+def _ids(tmp_path, pattern):
+    f = sorted((tmp_path / "exports").glob(pattern))[-1]
     return {r["match_id"] for r in json.loads(f.read_text())["predictions"]}
 
 
-def test_mlb_soccer_export_default_is_the_36h_slate(games, tmp_path, monkeypatch):
-    mine = {k: v for k, v in games.items() if k.startswith("EWMLB:")}
+def _mine(games, code):
+    return {k: v for k, v in games.items() if k.startswith(code + ":") and not k.endswith(":ko")}
+
+
+def test_soccer_export_default_is_the_36h_slate(games, tmp_path, monkeypatch):
+    mine = _mine(games, "EWSOC")
+    before = _pred_count()
+    base = ["export-predictions", "--sport", "soccer", "--competition", "EWSOC"]
+    r = _run(tmp_path, monkeypatch, base)
+    assert r.exit_code == 0, r.output
+    assert _ids(tmp_path, "soccer_EWSOC_*.json") == {mine["EWSOC:h5"], mine["EWSOC:h30"]}
+    assert "(36h · default: current slate" in " ".join(r.output.split())
+    r = _run(tmp_path, monkeypatch, base + ["--days", "3"])
+    assert _ids(tmp_path, "soccer_EWSOC_*.json") == set(mine.values())
+    assert _pred_count() == before
+
+
+def test_mlb_export_default_stays_one_slate_day(games, tmp_path, monkeypatch):
+    """Ruling 2026-09-28: MLB's default is today's 08:00-UTC slate-day, not 36h."""
+    mine = _mine(games, "EWMLB")
     before = _pred_count()
     base = ["export-predictions", "--sport", "mlb", "--competition", "EWMLB"]
     r = _run(tmp_path, monkeypatch, base)
     assert r.exit_code == 0, r.output
-    assert _mlb_ids(tmp_path) == {mine["EWMLB:h5"], mine["EWMLB:h30"]}
-    assert "(36h · default: current slate" in " ".join(r.output.split())
+    lo = datetime.strptime(datetime.utcnow().strftime("%Y-%m-%d"), "%Y-%m-%d").replace(hour=8)
+    hi = lo + timedelta(days=1)
+    want = {mine[k] for k in mine if lo <= games[k + ":ko"] < hi}
+    assert _ids(tmp_path, "mlb_EWMLB_*.json") == want
+    assert mine["EWMLB:h60"] not in want                          # never 2.5 days out
+    out = " ".join(r.output.split())
+    assert "(24h · default: MLB one slate-day" in out and "36h" not in out
     r = _run(tmp_path, monkeypatch, base + ["--days", "3"])
-    assert _mlb_ids(tmp_path) == set(mine.values())
+    assert _ids(tmp_path, "mlb_EWMLB_*.json") == set(mine.values())
     assert "(72h · --days 3)" in " ".join(r.output.split())
     # explicit dates keep their slate-day meaning (post-mortems, the soccer chains)
     today = datetime.utcnow().strftime("%Y-%m-%d")

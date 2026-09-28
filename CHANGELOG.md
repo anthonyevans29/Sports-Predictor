@@ -6,7 +6,8 @@ Every drop adds an entry going forward.
 
 ## 2026-09-28 (exports: current-slate windowing)
 - Prediction exports default to the current slate: kickoffs in the next
-  36h (`export-nfl-predictions`, `export-predictions` mlb/soccer). Use
+  36h for NFL and soccer. MLB keeps its one 08:00-UTC slate-day (ruling:
+  it plays daily). Use
   `--week` (NFL) / `--days N` for the full look-ahead. Explicit dates keep
   their slate-day meaning. Generation is unchanged; only the file's rows
   are scoped.

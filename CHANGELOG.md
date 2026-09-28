@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (exports: current-slate windowing)
+- Prediction exports default to the current slate: kickoffs in the next
+  36h (`export-nfl-predictions`, `export-predictions` mlb/soccer). Use
+  `--week` (NFL) / `--days N` for the full look-ahead. Explicit dates keep
+  their slate-day meaning. Generation is unchanged; only the file's rows
+  are scoped.
+- A `window:` receipt line is printed. freshen:SOCCER now uses the 36h
+  default (a one-slate closing file).
+
 ## 2026-09-28 (hosting: pull-exports lane)
 - `deploy/hosting/pull_exports.py`: the laptop pulls the host's exports/
   over the tailnet into exports/host/ (never its own exports/). The host

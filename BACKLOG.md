@@ -91,8 +91,17 @@ specific reason they're not being built now.
     ("invalid option", likely paste-mangling). The runbook now gives
     `tailscale set --ssh=true` as the primary form, notes the console paste
     hazard, and adds the P4 receipt `tailscale status --json | grep -i ssh`.
-    OPEN: on the live host, Tailscale SSH is UNCONFIRMED (the operator moved
-    on once sudo worked). Run that receipt and paste it.
+    SUPERSEDED same day (architect, below): the grep receipt is dropped.
+  - ARCHITECT UPDATE (2026-09-28): on the live host,
+    `sudo tailscale set --ssh=true` ran and returned silently (success),
+    so Tailscale SSH is ENABLED SERVER-SIDE. `tailscale status --json` has
+    no key containing "ssh", so the grep was not a valid receipt; it is
+    DROPPED from P4.
+    - CLIENT-SIDE VERIFICATION PENDING: the Mac's MagicDNS isn't resolving
+      tailnet names. This is a Mac-side issue; retest after a reboot.
+    - The tailnet-IP door is proven and is the STANDARD. P4's SUDO_OK
+      receipt now addresses `sp@<tailnet-ip>`, and the runbook legend says
+      to use the 100.x IP wherever MagicDNS fails.
 
 - **PULL-EXPORTS LANE 2026-09-28 (architect spec; laptop pulls host
   artifacts, push is H2).** `deploy/hosting/pull_exports.py` has the same

@@ -88,5 +88,18 @@ changes.**
 **Pre-rule positions.** These carry no claim. They stay null and are labelled
 ("claim unknown … excluded, never backfilled"; law 4).
 
-**Open (ARCHITECT-RULE).** "Large edge" has no pinned threshold. The Cockpit
-records `edge_pp` at early execution and does not block or judge by size.
+**Rulings (architect, 2026-09-28).**
+1. **"Large edge": RECORD, DON'T ENFORCE, for now.** The instrument exists to
+   learn where the threshold belongs. A provisional **8pp marker** is written
+   into each early execution's record: `early_inputs.marker_pp: 8`, and
+   `below_marker: true|false` (null when the edge is unknown). An execution
+   below it is flagged "below the provisional 8pp marker (recorded, not
+   enforced)". The P&L block tallies
+   `Early executions: n position(s) · below the provisional 8pp marker: k ·
+   threshold revisit at 50 executed positions (n/50)`. **Revisit the
+   threshold after 50 executed positions**, with a parlay ticket counting as
+   one.
+2. **Early execution on a parlay leg applies to the whole ticket:
+   RATIFIED.** A ticket is one position.
+3. **Quarantine shadows cannot be executed: RATIFIED.** By contract they
+   are never placed.

@@ -48,10 +48,20 @@ specific reason they're not being built now.
     1/0.56 with a claim counterfactual at 1/0.58; the P&L column and
     section; the legacy label.
   - Spec addendum in docs/specs/cockpit-v04-pnl-organ.md.
-  - ARCHITECT-RULE (open): "large edge" has no pinned threshold; edge_pp is
-    recorded, not enforced. Also my own choices, to veto if wrong: a parlay
-    ticket executes as a whole, and quarantine shadows are never
-    executable.
+  - ARCHITECT RULINGS on #61 (2026-09-28):
+    - (1) "Large edge": RECORD, DON'T ENFORCE. A provisional 8pp marker is
+      stamped on each early execution (`marker_pp`, `below_marker`), and
+      executions below it are flagged "below the provisional 8pp marker
+      (recorded, not enforced)". The P&L block tallies early positions and
+      how many sit below the marker, with progress toward the REVISIT AFTER
+      50 EXECUTED POSITIONS (a ticket counts once).
+    - (2) Early execution on a parlay leg applies to the whole ticket:
+      RATIFIED (a ticket is one position).
+    - (3) Quarantine shadows cannot be executed: RATIFIED (never placed by
+      contract).
+    - Verifier: `cockpit_timing_verify` now 18/18, covering 6pp below the
+      marker, 9pp not below, and the tally.
+    - Merge order: #60 then #61. The architect republishes after #61.
   - Republish the Cockpit after merge.
 
 - **NCAA-MARKET THURSDAY RUN (architect, 2026-09-28).** `sp-ncaa-market.timer`

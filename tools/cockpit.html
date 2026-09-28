@@ -822,6 +822,17 @@ function equitySVG(bets){
 // execution mode, the average claim vs execution price and the net each would
 // have earned, over settled bets whose claim is known (straight/ladder carry
 // prices; parlay tickets carry nets only).
+// The provisional-marker tally (ruling 2026-09-28): executed early positions
+// (a ticket counts once), how many sat below the marker, progress to the
+// 50-position revisit.
+function earlyMarkerLine(){
+  const seen=new Set(), pos=[];
+  for(const c of loadLedger().calls){ if(c.exec_mode!=="operator_early") continue;
+    const k=c.parlay_id||c.id; if(seen.has(k)) continue; seen.add(k); pos.push(c); }
+  const below=pos.filter(c=>(c.early_inputs||{}).below_marker===true).length;
+  return `Early executions: ${pos.length} position(s) · below the provisional ${EARLY_MARKER_PP}pp marker: ${below}`
+    +` · threshold revisit at ${EARLY_REVIEW_N} executed positions (${Math.min(pos.length,EARLY_REVIEW_N)}/${EARLY_REVIEW_N}) · recorded, not enforced.`;
+}
 function timingLines(real){
   const known=real.filter(b=>b.claimReturned!=null), legacy=real.length-known.length;
   const row=(k,bs)=>{const pr=bs.filter(b=>b.claim_p!=null&&b.exec_p!=null);
@@ -835,7 +846,8 @@ function timingLines(real){
     ...["close_default","operator_early"].map(m=>row(m,known.filter(b=>b.exec_mode===m))),
     row("TOTAL",known),
     `drift = exec p − claim p (negative = executed at a longer price). exec−claim > 0: executing when we did earned more than at the claim.`
-      +(legacy?` Claim unknown (logged before the rule): ${legacy} settled bet(s) excluded, never backfilled.`:"")];
+      +(legacy?` Claim unknown (logged before the rule): ${legacy} settled bet(s) excluded, never backfilled.`:""),
+    earlyMarkerLine()];
 }
 function pnlBlock(L){
   const bets=settledBets(L), real=bets.filter(b=>!b.shadow), shad=bets.filter(b=>b.shadow);
@@ -897,6 +909,10 @@ function renderLedger(){
 // executed_at / exec_market_p at the position's current stored price and
 // records the inputs the doctrine names (edge size, QB listed). A parlay
 // ticket executes as a whole. Sizing is untouched.
+// Ruling 2026-09-28: "large edge" is RECORDED, NOT ENFORCED. A provisional
+// 8pp marker flags early executions below it; revisit after 50 executed
+// positions (a parlay ticket is one position).
+const EARLY_MARKER_PP=8, EARLY_REVIEW_N=50;
 function executeEarly(id){
   const L=loadLedger(), c=L.calls.find(x=>x.id===id);
   if(!c||c.status!=="open"||c.exec_mode==="operator_early") return "Nothing to execute.";
@@ -905,13 +921,15 @@ function executeEarly(id){
   const group=c.parlay_id?L.calls.filter(x=>x.parlay_id===c.parlay_id&&x.status==="open"):[c];
   for(const x of group){
     x.exec_mode="operator_early"; x.executed_at=at; x.exec_market_p=x.market_p??null;
-    x.early_inputs={edge_pp:(x.model_p!=null&&x.market_p!=null)?+((x.model_p-x.market_p)*100).toFixed(1):null,
-      qb_listed:(x.qb_listed||[]).slice(),quarantine:!!x.quarantine};
+    const edge=(x.model_p!=null&&x.market_p!=null)?+((x.model_p-x.market_p)*100).toFixed(1):null;
+    x.early_inputs={edge_pp:edge,qb_listed:(x.qb_listed||[]).slice(),quarantine:!!x.quarantine,
+      marker_pp:EARLY_MARKER_PP,below_marker:edge==null?null:edge<EARLY_MARKER_PP};
   }
   const dd=saveLedger(L);
   const qb=group.flatMap(x=>x.qb_listed||[]);
   return `Executed EARLY (recorded as operator_early): ${c.game}${c.parlay_id?` + ticket (${group.length} legs)`:""} @ ${(+execP(c)).toFixed(3)}`
     +` · edge ${c.early_inputs.edge_pp==null?"—":(c.early_inputs.edge_pp>=0?"+":"")+c.early_inputs.edge_pp+"pp"} · QB listed: ${qb.length?qb.join(", "):"none"}`
+    +(c.early_inputs.below_marker?` · below the provisional ${EARLY_MARKER_PP}pp marker (recorded, not enforced)`:"")
     +(qb.length?" · ⚠ outside the doctrine's input-stable condition (recorded as such)":"")+dedupeNote(dd);
 }
 $("openList").addEventListener("click",e=>{

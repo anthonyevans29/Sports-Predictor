@@ -53,7 +53,7 @@ def doc(eagles_fair, bears_fair):
     return {"sport": "nfl", "rehearsal": False, "predictions": [
         nfl("Philadelphia Eagles", "Dallas Cowboys", 0.64, eagles_fair),                    # default: execute at close
         nfl("Chicago Bears", "Detroit Lions", 0.66, bears_fair),                            # operator executes EARLY
-        nfl("Miami Dolphins", "New York Jets", 0.65, 0.58, qbs=("T. Tagovailoa",)),         # early on a QB-listed game
+        nfl("Miami Dolphins", "New York Jets", 0.65, 0.56, qbs=("T. Tagovailoa",)),         # early on a QB-listed game, 9pp
     ]}
 
 
@@ -108,12 +108,18 @@ def main():
         b1 = pos()["Detroit Lions @ Chicago Bears"]
         check("Execute now → operator_early at the current price, inputs recorded",
               b1["exec_mode"] == "operator_early" and b1["exec_market_p"] == 0.60
-              and b1["early_inputs"] == {"edge_pp": 6.0, "qb_listed": [], "quarantine": False}, n1)
+              and b1["early_inputs"] == {"edge_pp": 6.0, "qb_listed": [], "quarantine": False,
+                                         "marker_pp": 8, "below_marker": True}, n1)
+        check("ruling (1): 6pp early execution flagged below the provisional 8pp marker (not blocked)",
+              "below the provisional 8pp marker (recorded, not enforced)" in n1)
         check("input-stable early execution is not flagged", "outside the doctrine" not in n1)
         page.click(f"button.execBtn[data-id='{P['New York Jets @ Miami Dolphins']['id']}']")
         n2 = page.inner_text("#ledgerNote")
         check("early execution on a QB-listed game is RECORDED AS SUCH",
               "QB listed: T. Tagovailoa" in n2 and "outside the doctrine's input-stable condition" in n2, n2)
+        check("9pp early execution is NOT below the marker",
+              "below the provisional" not in n2
+              and pos()["New York Jets @ Miami Dolphins"]["early_inputs"]["below_marker"] is False)
         rows = page.inner_text("#openList")
         check("open list shows claim + execution (early / at close)", "early 0.600" in rows and "at close 0.580" in rows)
 
@@ -167,6 +173,9 @@ def main():
               f"expected {delta:+.2f}/{len(known)}")
         check("P&L block: EXECUTION TIMING section with both modes",
               "EXECUTION TIMING" in block and "close_default" in block and "operator_early" in block)
+        check("P&L block: early-execution tally with marker + 50-position revisit",
+              "Early executions: 2 position(s) · below the provisional 8pp marker: 1 · "
+              "threshold revisit at 50 executed positions (2/50)" in block)
         check("pre-rule position labelled, never backfilled",
               "Claim unknown (logged before the rule): 1 settled bet(s) excluded" in block)
         check("no page errors", not errors, "; ".join(errors))

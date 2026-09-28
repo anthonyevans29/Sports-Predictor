@@ -1190,3 +1190,9 @@ def test_comparator_row_order_and_ids_do_not_matter(tmp_path, capsys):
         dict(rows[1], match_id=77), dict(rows[0], match_id=88)]}))
     assert compare_exports.main([str(la), str(ho)]) == 0
     assert "✓ f.json" in capsys.readouterr().out
+
+
+def test_ncaa_market_covers_thursday_night_slates():
+    cals, unit = _timers()["sp-ncaa-market.timer"]
+    assert unit == "sp-chain@ncaa-market.service"
+    assert cals == ["Thu *-*-* 16:00:00 UTC", "Fri *-*-* 16:00:00 UTC", "Sat *-*-* 13:00:00 UTC"]

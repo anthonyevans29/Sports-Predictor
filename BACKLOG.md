@@ -22,6 +22,46 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COCKPIT LEDGER DOUBLING — FIX 2026-09-28 (architect report: after
+  Import Kalshi CSV every ledger row showed twice — model_edge 7→14,
+  staked 5.50→11.00, shadows 2→4, open 10→20).** ROOT CAUSE (read from the
+  live artifact, version 1790597018-826d, and confirmed identical to the
+  repo copy): the Kalshi CSV handler never touches `L.calls`. It appends
+  fills (row-id dedup) and re-renders, which is where the doubling was SEEN.
+  The doubling path is `Log today's calls` on a LATER local day with a
+  multi-day file loaded again. The key `(sport, game, log_date, engine,
+  call_type, parlay slot)` changes with log_date, so every call is
+  re-captured, already-played games included, and they grade again.
+  REPRODUCED headless on the pre-fix code: 12 → 24 calls, exact ×2 in every
+  category. Second merge-path defect: Import ledger merged by the STORED
+  id, so a ledger whose ids differ from the recomputed key doubled on
+  import. FINDING on the "±1 capture window" in the report: no such filter
+  exists in either copy. `snapshotCalls()` captured EVERY row in the file,
+  including games already kicked off (hindsight capture). SHIPPED:
+  - (1) Key enforced on EVERY write path. saveLedger → enforceLedger
+    collapses the recomputed callKey, then the same INSTRUMENT
+    re-captured on a later day (sport, game, kickoff, engine, call_type,
+    pick, parlay-leg signature; no kickoff → never collapsed), then
+    duplicate fill ids. It covers Log, grading, Import ledger (file +
+    pasted), Kalshi CSV and Dedupe, and each reports what it collapsed.
+  - Import merges by recomputed key, never the stored id.
+  - Log skips a call already captured on an earlier day, with a count in
+    the note.
+  - (2) "Dedupe ledger" repair: it reports removed N (same key · later-day
+    re-log · fills). It keeps graded over open, then the earliest capture.
+    The Ledger tab warns while duplicates are stored.
+  - (3) scripts/cockpit_ledger_verify.py 20/20: import ×2, self-duplicated
+    import, Kalshi CSV ×2 and paste-import all give identical totals.
+  - Multi-week capture: a call is captured only BEFORE its kickoff. A
+    parlay ticket with a started leg is not captured.
+  - Clipboard-export fallback: Copy ledger (JSON) falls back to a selected
+    text box. Import pasted takes it back.
+  ARCHITECT-RULE (flagged, not decided): the later-day re-log collapse
+  treats one game + side + instrument as ONE bet regardless of log_date.
+  This is the only reading under which the reported ×2 is a duplicate. It
+  differs from a strict per-log_date key; ratify or veto before publish.
+  Also flagged: the capture cut-off is kickoff (not T-x).
+
 - **ARCHITECT RULINGS ON #47 2026-09-27 (window service follow-on).** (1)
   FRESHEN CHAINS defined — they already existed as documented operator
   sequences; now in chains.py as freshen:<family>: freshen:NFL

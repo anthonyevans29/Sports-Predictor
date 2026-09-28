@@ -112,8 +112,13 @@ CHAINS: dict[str, dict] = {
         "active_from": "2026-09-29",
         "active_from_env": "SP_NHL_ACTIVE_FROM",
         "steps": [
-            ["sync-matches", "--competition", "NHL", "--season", "2026",
-             "--date-from", "{yesterday}", "--date-to", "{tomorrow}"],
+            # Single-day calls (ruling 2026-09-28): api_hockey only sends a
+            # `date` when from == to, so a yesterday->tomorrow range silently
+            # became one whole-season pull per run. Three from==to calls, the
+            # window service's approach (quota hygiene; data was correct).
+            *[["sync-matches", "--competition", "NHL", "--season", "2026",
+               "--date-from", d, "--date-to", d]
+              for d in ("{yesterday}", "{today}", "{tomorrow}")],
             ["sync-odds", "--competition", "NHL", "--season", "2026"],
             ["sync-kalshi-nhl"],
             ["export-fixtures", "--competition", "NHL"],

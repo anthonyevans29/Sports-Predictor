@@ -22,6 +22,25 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL-DAILY SINGLE-DAY SYNCS (architect ruling 2026-09-28, follow-on to
+  #56).** RULED on flag (2): nhl-daily's `sync-matches --date-from
+  {yesterday} --date-to {tomorrow}` was silently a whole-season pull.
+  `api_hockey.list_matches` sends `date` only when from == to. The chain now
+  issues THREE single-day calls (yesterday, today, tomorrow), matching the
+  window service's approach. Data was correct either way; this is quota
+  hygiene, not urgent.
+  - Test `test_nhl_daily_syncs_single_days_the_adapter_honours` pins the
+    three from==to pairs and the adapter trait they rely on, so a change to
+    api_hockey re-opens this.
+  - The CLI.md NHL routine is updated.
+  - NOTE for the record: api-sports meters REQUESTS. The run goes from one
+    whole-season request (~1,400 games returned) to three single-day
+    requests (a handful each). That is +2 requests per run, but a far
+    smaller payload and upsert.
+  - ALSO RULED (2): CLAUDE.md's "NHL launches Oct 7" becomes "NHL launched
+    2026-09-29 market-only; venue-edge charter" on the NEXT state refresh.
+    Queued, not edited here.
+
 - **NHL SEASON GATE → 2026-09-29, AND SEASON GATES ARE CONFIG (architect
   2026-09-28).** The NHL 2026-27 opening day is 2026-09-29
   (operator-confirmed); the old 2026-10-07 gate was 2025-derived.

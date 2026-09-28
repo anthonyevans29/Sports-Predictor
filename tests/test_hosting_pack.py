@@ -1113,3 +1113,13 @@ def test_season_gate_default_override_receipt_and_malformed(sandbox, monkeypatch
     assert sp_run.main(["nhl-daily", "--dry-run"]) == 0
     assert "· nhl-daily active from 2026-09-29 [chains.py default (override: SP_NHL_ACTIVE_FROM)]" \
         in capsys.readouterr().out
+
+
+def test_nhl_daily_syncs_single_days_the_adapter_honours():
+    # api_hockey sends `date` only when from == to; a range = a whole-season pull
+    steps = sp_run.resolve("nhl-daily", {}, date(2026, 9, 29))
+    sm = [s for s in steps if s[0] == "sync-matches"]
+    assert [(s[s.index("--date-from") + 1], s[s.index("--date-to") + 1]) for s in sm] == [
+        ("2026-09-28", "2026-09-28"), ("2026-09-29", "2026-09-29"), ("2026-09-30", "2026-09-30")]
+    from src.adapters.api_hockey import APIHockeyAdapter    # the adapter trait this relies on
+    assert "date_from == date_to" in inspect.getsource(APIHockeyAdapter.list_matches)

@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (hosting: nhl-daily single-day syncs)
+- nhl-daily syncs yesterday/today/tomorrow as three single-day calls that
+  the hockey adapter honours, instead of one silent whole-season pull.
+
 ## 2026-09-28 (hosting: NHL opening-day gate + season gates as config)
 - nhl-daily activates 2026-09-29 (2026-27 opening day; was the 2025-derived
   2026-10-07).

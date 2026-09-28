@@ -551,6 +551,22 @@ moment.
   2026-10-05 13:45 UTC. A tie or partial pass extends the run; it is not
   a cutover.
 
+**Parallel-week exhibits** (each divergence is classed as it lands; see
+criterion 3):
+- **Exhibit 1: 2026-09-28, host `nfl-predict` manual run.**
+  - Result: a 1-row file under the 36h default. Scope was clean.
+  - The Elo ratings pool had 588 games on the host versus 601 on the
+    laptop. The gap is Sunday's results, which were not yet synced on the
+    host.
+  - Class: **capture timing**, an expected divergence (architect).
+  - Mechanics: `sp-nfl-grade` fires Mon/Tue/Fri 10:00 UTC, but the timers
+    were enabled at 13:45 UTC Monday, after that day's slot. A newly
+    enabled timer has no stamp for `Persistent=true` to catch up. The
+    host's first `nfl-grade` is therefore **Tue 2026-09-29 10:00 UTC**,
+    which syncs Sunday + Monday results.
+  - Expect the pools to converge after that run. Re-check the pool counts
+    on the next exhibit.
+
 - Both machines sync independently and both run their chains.
 - The export diffs compare INDEPENDENT pipelines. Explained divergence
   classes are **capture timing** AND **provider-pagination differences**.

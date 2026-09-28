@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **H1b PARALLEL-WEEK EXHIBIT 1 (architect record, 2026-09-28).** The host
+  `nfl-predict` manual run produced a 1-row 36h file (the #53 window works
+  on the host), and scope was clean.
+  - The ratings pool is 588 on the host versus 601 on the laptop. The
+    difference is Sunday's results, not yet synced on the host.
+  - Classed as **capture timing**: an expected divergence class under
+    frozen criterion 3.
+  - Mechanics (read from `sp-nfl-grade.timer`): it fires Mon/Tue/Fri
+    10:00 UTC with `Persistent=true`, but a newly enabled timer has no
+    stamp, so Monday's 10:00 slot (before the 13:45 enable) was never
+    caught up. The host's first nfl-grade is Tue 2026-09-29 10:00 UTC,
+    which syncs Sunday + Monday.
+  - Expect convergence then; re-check the pool counts on the next exhibit.
+  - Recorded in the runbook under H1b "Parallel-week exhibits".
+
 - **NHL-DAILY SINGLE-DAY SYNCS (architect ruling 2026-09-28, follow-on to
   #56).** RULED on flag (2): nhl-daily's `sync-matches --date-from
   {yesterday} --date-to {tomorrow}` was silently a whole-season pull.

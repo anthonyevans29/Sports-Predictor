@@ -69,6 +69,90 @@ specific reason they're not being built now.
     - the other 5 Cockpit verifies are unchanged and green;
     - full suite 238 passed.
 
+- **KALSHI FEE SCHEDULE: VERIFY RECEIPT + K2 JOIN BID / ORDER TYPE + FILL
+  (architect, 2026-09-29).**
+  - (1) FEE SCHEDULE. Kalshi's published docs were read via the web
+    search index. Direct fetch of kalshi.com / docs.kalshi.com /
+    help.kalshi.com is BLOCKED by this build environment's network egress
+    policy, so these are the published texts as indexed, not a download.
+    - Source: "Fee Schedule for July 2026 - 7.7.26 Update"
+      (kalshi.com/docs/kalshi-fee-schedule.pdf), plus the help center
+      "Fees" article and docs.kalshi.com "Fee Rounding".
+    - TAKER = round up(M × 0.07 × C × P × (1−P)), M default 1. **Our
+      KALSHI_FEE_RATE 0.07 is CONFIRMED.**
+    - MAKER = round up(M × 0.0175 × C × P × (1−P)), where "M … default
+      is 0 for maker fees unless otherwise indicated". That is a quarter
+      of the taker rate, and ZERO unless the series is listed with a
+      multiplier.
+    - Maker fees are charged only when a resting order fills;
+      cancelling is free.
+    - ROUNDING: "fees are rounded up such that the fee + position cost is
+      rounded to a centicent". A per-order accumulator issues whole-cent
+      rebates, so many small fills converge to one equivalent fill.
+  - **FINDING: our model rounds differently.** `venue.kalshi_fee` ceils
+    PER CONTRACT TO THE CENT, so it OVERSTATES the fee by up to about
+    1¢ per contract.
+    - Example at P = 0.60: the exact fee is 1.68¢, we model 2¢, so
+      exec_cost is +0.32pp too high.
+    - Code is unchanged (informational K-track) pending ARCHITECT-RULE:
+      move to the exact per-contract 0.07·P·(1−P), the limit a per-order
+      centicent rounding converges to?
+  - **NOT VERIFIED (the number every execution decision rests on): the
+    maker multiplier M for the game series** (KXNFLGAME, KXNCAAFGAME,
+    KXMLBGAME, KXNHLGAME, soccer game series). It lives in the PDF's
+    per-series table, which this environment cannot open.
+    - Secondary sources (OddsShopper, gamingamerica.com) say: resting
+      orders pay at most a quarter of the taker rate and nothing on many
+      markets; Kalshi "began charging maker fees recently"; NFL-only
+      combos are exempt from maker fees.
+    - OPERATOR ACTION: open the PDF and paste the multiplier rows for
+      those series, or allow kalshi.com in the environment's network
+      settings so the next build reads it directly.
+  - (2) K2 JOIN BID (Cockpit): each Desk row with Kalshi quotes now shows
+    "join 0.51 (+x.xpp pre-fee; maker fee M unverified)".
+    - Join bid = bid + 1¢, the resting LIMIT price.
+    - When the spread is 1¢, bid + 1¢ is the ask, so the row shows "join
+      — (spread 1¢ — joining = taking)", never a price.
+    - Home contract only, as for the exec edge.
+    - Positions record the join bid seen at capture
+      (`kalshi_join_bid`).
+  - ORDER TYPE + FILL: open positions get an Order / fill control
+    (limit | market + price; accepts 0.51 or 51¢).
+    - It records `order_type`, `fill_price` and `fill_recorded_at`.
+    - A parlay records on the whole ticket.
+    - Re-recording replaces the previous record and says so.
+    - A malformed price is refused (strict parse).
+    - Shadows can never take a fill.
+    - This is operator-recorded, never inferred. Informational: no
+      sizing / tier / call change.
+  - Receipts:
+    - `scripts/cockpit_exec_verify.py` 18/18 (new: 1¢ spread → joining =
+      taking; 4¢ spread join 0.51 with pre-fee edge; join bid recorded;
+      "0.99x" refused; limit @ 51¢ recorded; re-record to market @ 0.54
+      "replaces limit @ 0.51"; open list shows it);
+    - the other 6 Cockpit verifies are unchanged and green;
+    - full suite 241 passed.
+
+- **K2: EXECUTABLE-EDGE DISPLAY (Cockpit, K-track; architect Tuesday
+  authorization, 2026-09-29).** INFORMATIONAL ONLY.
+  - Where a Desk row carries `kalshi_bid`/`kalshi_ask`/`kalshi_exec_cost`
+    (the NFL export, since K1), the Edge cell shows "exec +x.xpp @
+    cost" beside the fair edge: exec edge = model p − kalshi_exec_cost.
+  - It adds a "fee-clears?" marker at ≥ 4pp.
+  - Calls, units and tiers are unchanged. The verify proves they are
+    identical with and without quotes. The executable-edge RULING comes
+    after 2 weeks of ladders.
+  - The ledger records `claim_exec_cost` at claim (frozen) and
+    `exec_cost` at execution: the default follows each re-log, and an
+    operator-early execution locks it. The open list shows "k 0.620".
+  - The exported quotes are the HOME contract's (ask + fee), so an AWAY
+    side shows "exec —" and its position records null.
+  - ARCHITECT-RULE: a NO-side price (1 − home bid + fee) could be
+    derived. It is not built, because it would be a guess until the
+    away contract's own quotes are stored.
+  - Receipts: `scripts/cockpit_exec_verify.py` 12/12; the other 6
+    Cockpit verifies are unchanged and green; full suite 234 passed.
+
 - **MNF QB AUDIT VERDICT + LINE-MOVE ALARM + T-60 CLOSING-FRESHEN
   DOCTRINE (architect, 2026-09-29).**
   - **Verdict (logged): CAUSE = SYNC TIMING + PROVIDER LATENCY.** The

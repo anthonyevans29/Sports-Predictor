@@ -280,10 +280,12 @@ def run_freshens(needed: list, window_run_id: str, now, today: date) -> list[dic
     import json as _json
     skip = {s.strip().upper() for s in (c.setting("SP_SKIP_FAMILIES") or "").split(",") if s.strip()}
     fams: dict[str, list] = {}
+    why: dict[str, set] = {}
     for d in needed:
         fam = FRESHEN_FAMILY.get((str(d.get("sport")).lower(), str(d.get("competition"))))
         if fam:
             fams.setdefault(fam, []).append(d.get("id"))
+            why.setdefault(fam, set()).add(d.get("reason") or "t90_news")
     sp = freshen_state_path()
     try:
         state = _json.loads(sp.read_text())
@@ -293,7 +295,7 @@ def run_freshens(needed: list, window_run_id: str, now, today: date) -> list[dic
     for fam, ids in sorted(fams.items()):
         name = f"freshen:{fam}"
         base = {"kind": "freshen", "chain": name, "family": fam, "games": ids,
-                "triggered_by": window_run_id}
+                "reasons": sorted(why[fam]), "triggered_by": window_run_id}
         if fam in skip:
             out.append(c.append_receipt({**base, "exit": 0, "ran": False,
                                          "skipped": "family skipped on this host (SP_SKIP_FAMILIES)"}))

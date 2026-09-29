@@ -484,7 +484,10 @@ read-only:
 5. `sp_window_page` pages **card deltas** to the SECOND private topic
    `NTFY_CARD_TOPIC`:
    - Delta classes: new game priced / tier change / quarantine flip /
-     STALE-BOOK? change / kickoff moved (or postponed) / T-90 news.
+     STALE-BOOK? change / kickoff moved (or postponed) / T-90 news /
+     line move (a row turned `late-news?`: ≥ 6pp net move on the book
+     consensus or Kalshi inside T-3h, from stored snapshots; ruling
+     2026-09-29).
    - One daily digest on the first run at or after 08:00 ET.
    - Quiet hours are 00:00–07:00 ET: only quarantine flips page; the rest
      are receipted as suppressed.
@@ -516,9 +519,10 @@ sequences, defined in `chains.py` as `freshen:<family>`:
 - Market-only families (NCAA, NHL, cups, UNL) have no freshen. The
   window repricing is their freshen.
 
-On `freshen_needed` inside T-90, the window service triggers the family's
-freshen:
+On `freshen_needed` (T-90 news, or a line-move alarm), the window service
+triggers the family's freshen:
 - under the chain lock, receipted as `kind: freshen`;
+- the `freshen` receipt names its `reasons` (`t90_news` / `line_move`);
 - rate-guarded to at most one per family per hour, with state in
   `freshen_state.json` beside the receipts log;
 - then it rebuilds the card.

@@ -230,6 +230,8 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                 OddsSnapshot.source == "kalshi")).scalars(), m.utc_date)
             gap_pp, venue_flag = venue_gap(_fair.get("HOME"),
                                            kal["home"] if kal else None)
+            from src.walters.line_move import line_move_for_match
+            lm = line_move_for_match(s, m, now)
             rows.append({
                 "_computed_at": pred.computed_at,   # drift receipt only; popped
                 "match_id": m.id,
@@ -262,6 +264,10 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                                        if kal and kal["captured_at"] else None),
                 "venue_gap_pp": gap_pp,
                 "venue_flag": venue_flag,
+                # LINE-MOVE ALARM (additive, ruling 2026-09-29): inside T-3h,
+                # >= 6pp on book or Kalshi -> "late-news?" (null otherwise)
+                "line_move": lm,
+                "late_news_flag": lm["flag"] if lm else None,
                 # K-track (K1, additive): home-side Kalshi quotes + fee-adjusted
                 # executable cost; only where Kalshi is two-sided.
                 **(kalshi_exec(kal["home_bid"], kal["home_ask"]) if kal else

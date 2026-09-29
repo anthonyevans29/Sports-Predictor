@@ -23,11 +23,18 @@ STALE_BOOK_FLAG = "STALE-BOOK?"
 # Kalshi's published trading-fee schedule: fees = roundup(0.07 x C x P x (1-P))
 # to the next cent, for C contracts at price P (dollars). Per ONE contract that
 # is ceil(0.07 x P x (1-P) x 100) / 100 dollars = probability points.
-# ARCHITECT-VERIFY: the 0.07 constant and the per-contract rounding are to be
-# checked against Kalshi's current fee schedule before anything consumes
-# these fields. K-TRACK: INFORMATIONAL UNTIL THE EXECUTABLE-EDGE RULING.
+# VERIFY RECEIPT (2026-09-29, BACKLOG "KALSHI FEE SCHEDULE"): the published
+# schedule ("Fee Schedule for July 2026 - 7.7.26 Update") gives taker =
+# roundup(M x 0.07 x C x P x (1-P)), M default 1, so the 0.07 constant is
+# CONFIRMED. Maker = roundup(M x 0.0175 x C x P x (1-P)), M default 0 unless
+# the series is listed; the per-series table is NOT yet verified. ROUNDING
+# DIFFERS: Kalshi rounds fee + position cost UP TO THE CENTICENT, with a
+# per-order accumulator that rebates whole cents. The per-contract ceil to the
+# cent below OVERSTATES the fee (by up to ~1c; +0.32pp at P = 0.60). Left
+# unchanged pending the architect's ruling. K-TRACK: INFORMATIONAL UNTIL THE
+# EXECUTABLE-EDGE RULING.
 # ---------------------------------------------------------------------------
-KALSHI_FEE_RATE = 0.07      # ARCHITECT-VERIFY
+KALSHI_FEE_RATE = 0.07      # taker rate: VERIFIED 2026-09-29 (rounding: see above)
 K_TRACK_NOTE = "K-track: informational until the executable-edge ruling"
 
 

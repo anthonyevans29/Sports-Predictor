@@ -22,6 +22,56 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **MLB-PROBE VERDICT (architect, 2026-09-29) + probe follow-up: score
+  parity, unpaired finished games.**
+  - VERDICT (architect's ruling on the operator's laptop run of
+    `scripts/mlb_apisports_probe.py`):
+    - GREEN for schedule/results. 2026 coverage is 99.63%, with 0
+      ambiguous; 1732/1732 odds-join ids pair.
+    - 2025 gaps are the postponed class plus our staleness.
+    - AMBER for predictions: /games carries no pitcher, umpire or
+      bullpen data.
+  - RULINGS:
+    - (1) This follow-up.
+    - (2) PHASE A is built only after (1) passes score parity
+      ≥ 99.5%. It is an api-sports Baseball fallback adapter for MLB
+      sync-matches/results, used where SP_SKIP_FAMILIES names MLB's
+      statsapi path: the host grades MLB and keeps its history from
+      api-sports, and the laptop keeps statsapi. The postseason stage
+      comes from OUR gameType mapping, never the provider's `week`
+      (Wild Card and World Series both label "Final").
+    - (3) PHASE B: a read-only probe of api-sports Baseball's
+      player/pitcher endpoints, to decide whether MLB predictions can
+      ever run from the host. Next-spring planning; the offseason is 5
+      weeks out.
+  - **FINDING (law 1; my error):** the first probe compared our status
+    to "FINISHED", but the DB stores `MatchStatus.FINISHED.value ==
+    "finished"`. So `finished_pairs_scored` was always 0 and the score
+    verdict never printed.
+    - The probe's synthetic tests used the same guessed string, so they
+      could not catch it.
+    - Fixed: `_finished()` reads the enum value. The tests now take
+      `MatchStatus.FINISHED.value` from the enum, plus a regression test
+      pinning it.
+  - FOLLOW-UP (1): the probe now prints `score_parity_pct` against the
+    PHASE A gate (≥ 99.5%, "PASS/FAIL"), and up to 15 disagreeing games
+    (ours vs provider score, both ids).
+  - Every unpaired FINISHED game of ours is listed by name, date, stage
+    and score, with a read that looks ±48h for the same teams:
+    - DOUBLEHEADER suspect: the provider game near it is already paired
+      to another of our games.
+    - UTC-BOUNDARY/date suspect: a same-teams provider game sits outside
+      the ±12h window.
+    - Otherwise "no same-teams provider game within ±48h".
+  - The architect's 5 unpaired 2025 finished games (4 R + 1 W) will
+    print by name.
+  - **RECEIPT PENDING:** the operator re-runs the probe on the laptop.
+    PHASE A starts only on "PHASE A gate … PASS".
+  - Receipts: `tests/test_mlb_apisports_probe.py` 7 passed (new:
+    enum-vocabulary regression; the gate at exactly 99.5% PASS and at
+    99.0% FAIL, with the disagreement listed; doubleheader,
+    UTC-boundary and none reads, where a scheduled game is not listed).
+
 - **LANE C: COSMETICS (architect Tuesday authorization, 2026-09-29).**
   - (1) `utcnow()` → `now(UTC)` sweep: 111 references in 28 files,
     including 15 column/field defaults and one `utcfromtimestamp`.

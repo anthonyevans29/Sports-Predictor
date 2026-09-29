@@ -255,7 +255,11 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
 @cli.command("sync-injuries")
 @click.option("--competition", "competition_code", required=True)
 @click.option("--season", required=True, help="e.g. 2025/26 (soccer), 2026 (MLB)")
-def sync_injuries_cmd(competition_code: str, season: str):
+@click.option("--kickoff-within-hours", "within_h", type=float, default=None,
+              help="Scope to the teams of this competition's SCHEDULED games kicking off within "
+                   "N hours (the window service's imminent tier, ruling 2026-09-29). No such games: "
+                   "no provider call.")
+def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None):
     """
     Refresh current injury list for every team in a competition/season.
 
@@ -275,7 +279,22 @@ def sync_injuries_cmd(competition_code: str, season: str):
 
     adapter = _adapter_for_competition(competition_code)
     service = IngestionService(adapter)
-    result = service.sync_injuries(competition_code, season=season)
+    if within_h is not None:
+        from datetime import timedelta, timezone
+        now = datetime.now(timezone.utc).replace(tzinfo=None)
+        with session_scope() as s:
+            games = s.execute(select(Match).join(Competition, Competition.id == Match.competition_id).where(
+                Competition.code == competition_code, Match.status == MatchStatus.SCHEDULED,
+                Match.utc_date >= now, Match.utc_date <= now + timedelta(hours=within_h))).scalars().all()
+            team_ids = sorted({t for g in games for t in (g.home_team_id, g.away_team_id)})
+        print(f"  scope: {len(games)} game(s) of {competition_code} kicking off within {within_h:g}h "
+              f"-> {len(team_ids)} team(s)", flush=True)
+        if not team_ids:
+            console.print(f"[green]✓ Injuries ({competition_code}): nothing inside the window, no provider call[/green]")
+            return
+        result = service.sync_injuries_for_teams(team_ids, season=season)
+    else:
+        result = service.sync_injuries(competition_code, season=season)
     console.print(f"[green]✓ Injuries ({competition_code}): {result}[/green]")
 
 

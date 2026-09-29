@@ -167,3 +167,83 @@ def test_freshen_receipt_names_the_reason(tmp_path, monkeypatch):
                               "win-1", datetime(2026, 10, 4, 15, 30), datetime(2026, 10, 4).date())
     assert out[0]["chain"] == "freshen:NFL" and out[0]["ran"]
     assert out[0]["reasons"] == ["line_move", "t90_news"] and out[0]["games"] == ["7", "8"]
+
+
+def test_t90_signature_tracks_injury_content_not_refresh_time():
+    """Ruling 2026-09-29 on #65: the imminent tier re-syncs injuries every run
+    (wipe + re-insert); the signature must change only when the CONTENT does."""
+    from src.db.schema import Injury
+    from src.walters.window import t90_signatures
+    init_db()
+    now = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    with session_scope() as s:
+        m = _nfl_game(s, "sig", now + timedelta(minutes=60))
+        mid, tid = m.id, m.home_team_id
+        s.add(Injury(team_id=tid, player_name="Caleb Williams", player_position="QB", type="Questionable",
+                     refreshed_at=now - timedelta(hours=2)))
+    sig0 = t90_signatures([mid], now=now)[str(mid)]
+    with session_scope() as s:                                              # same content, new refresh
+        s.query(Injury).filter(Injury.team_id == tid).delete()
+        s.add(Injury(team_id=tid, player_name="Caleb Williams", player_position="QB", type="Questionable",
+                     refreshed_at=now))
+    assert t90_signatures([mid], now=now)[str(mid)] == sig0
+    with session_scope() as s:                                              # news: status changes
+        s.query(Injury).filter(Injury.team_id == tid).update({"type": "Out"})
+    assert t90_signatures([mid], now=now)[str(mid)] != sig0
+
+
+def test_mlb_and_soccer_prediction_exports_carry_the_flag():
+    from src.walters.export import _collect_rows
+    init_db()
+    now = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    ko = now + timedelta(hours=2)
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.code == "LMSOC")).scalars().first()
+        if comp is None:
+            comp = Competition(sport=Sport.SOCCER, code="LMSOC", name="LMSOC", area="X", type="LEAGUE")
+            s.add(comp)
+            s.flush()
+        h = Team(sport=Sport.SOCCER, name="LM Soc Home", external_ids={"lm": "sh"})
+        a = Team(sport=Sport.SOCCER, name="LM Soc Away", external_ids={"lm": "sa"})
+        s.add_all([h, a])
+        s.flush()
+        m = Match(sport=Sport.SOCCER, competition_id=comp.id, season="2026/27", utc_date=ko,
+                  status=MatchStatus.SCHEDULED, home_team_id=h.id, away_team_id=a.id, external_ids={"lm": "soc"})
+        s.add(m)
+        s.flush()
+        for t, home in ((ko - timedelta(hours=4), 0.40), (now - timedelta(minutes=5), 0.47)):
+            for sel, p in (("HOME", home), ("AWAY", 1 - home)):
+                s.add(OddsSnapshot(match_id=m.id, market="ML", selection=sel, devig_prob=p,
+                                   captured_at=t, source="kalshi"))
+        mid = m.id
+    rows = _collect_rows(sport=Sport.SOCCER, start_date=now, end_date=now + timedelta(hours=6),
+                         competition_code="LMSOC", statuses=None)
+    row = next(r for r in rows if r["match_id"] == mid)
+    assert row["late_news_flag"] == LATE_NEWS_FLAG and row["line_move"]["venues"]["kalshi"]["move_pp"] == 7.0
+
+
+def test_sync_injuries_kickoff_scope_calls_only_imminent_teams(monkeypatch):
+    import cli as cli_mod
+    from click.testing import CliRunner
+    init_db()
+    now = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
+    with session_scope() as s:
+        soon = _nfl_game(s, "scope1", now + timedelta(minutes=80))
+        later = _nfl_game(s, "scope2", now + timedelta(hours=5))
+        want = {soon.home_team_id, soon.away_team_id}
+        other = {later.home_team_id, later.away_team_id}
+    calls = []
+    monkeypatch.setattr(cli_mod, "_adapter_for_competition", lambda code: NS(source_name="fake"))
+    monkeypatch.setattr(cli_mod.IngestionService, "sync_injuries_for_teams",
+                        lambda self, ids, season: calls.append(set(ids)) or "ok")
+    monkeypatch.setattr(cli_mod.IngestionService, "sync_injuries",
+                        lambda self, *a, **k: calls.append("FULL") or "ok")
+    r = CliRunner().invoke(cli_mod.cli, ["sync-injuries", "--competition", "NFL", "--season", "2026",
+                                         "--kickoff-within-hours", "2"])
+    assert r.exit_code == 0, r.output
+    assert len(calls) == 1 and want <= calls[0] and not (other & calls[0])     # scoped, never the full sweep
+    assert "kicking off within 2h" in r.output
+    calls.clear()
+    r = CliRunner().invoke(cli_mod.cli, ["sync-injuries", "--competition", "NFL", "--season", "2026",
+                                         "--kickoff-within-hours", "0.01"])
+    assert r.exit_code == 0 and calls == [] and "no provider call" in r.output

@@ -30,8 +30,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import sp_common as c  # noqa: E402
-from chains import (CHAINS, FRESHEN_FAMILY, FRESHEN_MIN_INTERVAL_S, PROX_FAR_H,  # noqa: E402
-                    PROX_IMMINENT_H, UNMETERED, WINDOW_HOURS, WINDOW_KALSHI)
+from chains import (CHAINS, FRESHEN_FAMILY, FRESHEN_MIN_INTERVAL_S, IMMINENT_INJURY_FAMILIES,  # noqa: E402
+                    PROX_FAR_H, PROX_IMMINENT_H, UNMETERED, WINDOW_HOURS, WINDOW_KALSHI)
 
 TAIL = 5
 DAYS = ("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")
@@ -135,6 +135,16 @@ def window_plan(now) -> dict:
                 if tuple(st) not in seen:
                     seen.add(tuple(st))
                     steps.append(list(st))
+        # T-90 hole (ruling 2026-09-29): injuries for the model families' games
+        # inside the imminent tier, BEFORE the card computes its T-90 signatures.
+        for code, sport, season, _f, _n6 in comps:
+            fam = FRESHEN_FAMILY.get((str(sport).lower(), code))
+            if fam not in IMMINENT_INJURY_FAMILIES or str(sport).upper() in skip:
+                continue
+            if tiered and tier_of[(code, season)] != "imminent":
+                continue
+            steps.append(["sync-injuries", "--competition", code, "--season", season,
+                          "--kickoff-within-hours", str(PROX_IMMINENT_H)])
         return steps + card
 
     steps, flat = build(True), build(False)

@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (late-news follow-on: T-90 injuries in the imminent tier, quarantine-class line moves)
+- The window service's imminent tier syncs injuries for the NFL/soccer
+  games kicking off within 2h. The sync is scoped per team, and the
+  T-90 check now compares injury content.
+- Line-move pages ignore quiet hours and go out at high priority.
+- `late-news?` is also on the MLB and soccer prediction exports.
+- Known limits logged: soccer line-move is Kalshi-only; MLB follows
+  capture cadence.
+
 ## 2026-09-29 (MLB-PROBE: api-sports Baseball vs statsapi, read-only)
 - `scripts/mlb_apisports_probe.py` reports coverage vs our 2025/2026
   MLB matches, ID mapping via the odds join, status vocabulary and

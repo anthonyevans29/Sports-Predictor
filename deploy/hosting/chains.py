@@ -186,6 +186,11 @@ CHAINS["window"] = {"window_plan": True, "post": "window_page", "steps": []}
 # proximity (flat plan minus tiered plan).
 PROX_FAR_H = 6
 PROX_IMMINENT_H = 2
+# T-90 HOLE (ruling 2026-09-29 on #65): the imminent tier re-syncs injuries for
+# the MODEL families' competitions, scoped to the teams kicking off inside the
+# tier (sync-injuries --kickoff-within-hours), so the T-90 signature has
+# something to compare. MLB stays laptop-only (no injury source; ASN).
+IMMINENT_INJURY_FAMILIES = ("NFL", "SOCCER")
 
 # FRESHEN CHAINS (architect ruling 2026-09-27): the documented operator
 # sequences, run by the window service on freshen_needed inside T-90. Each

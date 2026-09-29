@@ -748,8 +748,10 @@ def test_window_plan_is_scoped_single_day_and_model_free(sandbox, monkeypatch):
             "sync-kalshi --date-from {today} --date-to {tomorrow}"} <= set(steps)
     plan = sp_run.window_plan(now)
     assert plan["tiers"] == {"far": ["NFL", "NCAA"], "near": ["MLB", "PL"], "imminent": []}
-    # flat plan would add sync-odds-football + two Kalshi syncs
-    assert plan["skipped_by_proximity"] == 3
+    # flat plan would add sync-odds-football + two Kalshi syncs + the two
+    # model-family injury syncs (NFL, PL) the imminent tier carries (2026-09-29)
+    assert plan["skipped_by_proximity"] == 5
+    assert not any(s.startswith("sync-injuries") for s in steps)       # nothing imminent here
     assert steps[-1] == "window-card --hours 24"
     assert not any(s.split()[0] in ("predict", "predict-nfl", "improve", "soccer-refresh")
                    for s in steps)
@@ -1293,6 +1295,41 @@ def test_transient_class_vocabulary():
     assert t(1, ["Connection reset while paging", "KeyError: 'fixture'"]) is None  # terminal line decides
     assert t(1, ["✗ sync failed: ('Connection aborted.', RemoteDisconnected(...))"]) == "Connection aborted"
     assert t(0, ["ConnectionError"]) is None and t(-9, ["ConnectionError"]) is None
+
+
+# -------- T-90 hole + quarantine-class line moves (rulings 2026-09-29 on #65) ----
+
+def test_imminent_tier_syncs_model_family_injuries_before_the_card(sandbox, monkeypatch):
+    base = datetime(2026, 10, 3, 20, 0)
+    _window_db(sandbox / "w.db", base)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sandbox / 'w.db'}")
+    now = base + timedelta(hours=1, minutes=30)          # PL next at +1.5h, MLB +0.5h: imminent; NFL far
+    plan = sp_run.window_plan(now)
+    assert set(plan["tiers"]["imminent"]) == {"MLB", "PL"}
+    steps = [" ".join(s) for s in plan["steps"]]
+    inj = [s for s in steps if s.startswith("sync-injuries")]
+    assert inj == ["sync-injuries --competition PL --season 2026/27 --kickoff-within-hours 2"]   # MLB never
+    assert steps.index(inj[0]) < steps.index("window-card --hours 24")                          # before the card
+    cli = _cli()
+    opts = {o for p in cli.commands["sync-injuries"].params for o in (*p.opts, *p.secondary_opts)}
+    assert "--kickoff-within-hours" in opts
+    assert "sync-injuries" not in chains.UNMETERED                  # metered: H0-16(b) days skip it
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "SOCCER")
+    assert not any(s[0] == "sync-injuries" for s in sp_run.window_plan(now)["steps"])
+
+
+def test_line_move_pages_through_quiet_hours_high_priority(sandbox, monkeypatch):
+    monkeypatch.setenv("SP_WINDOW_STATE", str(sandbox / "ws.json"))
+    day = datetime(2026, 10, 4, 15, 0, tzinfo=timezone.utc)
+    _page(sandbox, monkeypatch, _card({1: {}, 2: {}}), day)                    # baseline
+    night = datetime(2026, 10, 5, 7, 30, tzinfo=timezone.utc)                  # 03:30 ET: quiet hours
+    lm = {"flag": "late-news?", "venues": {"kalshi": {"from": 0.40, "to": 0.33, "move_pp": -7.5, "alarm": True}}}
+    card = _card({1: {"late_news_flag": "late-news?", "line_move": lm, "tier": "strong"}, 2: {}})
+    rec, sent = _page(sandbox, monkeypatch, card, night)
+    assert rec["quiet_hours"] and rec["deltas"]["line_move"] == 1 and rec["suppressed"] == 1   # tier change held
+    assert len(sent) == 1 and sent[0][3] == "high" and "LINE MOVE inside T-3h" in sent[0][2]
+    assert "tier" not in sent[0][2]
+    assert rec["freshen_needed"][0]["reason"] == "line_move"
 
 
 # --------------------------------- catch-up (architect 2026-09-29) ----

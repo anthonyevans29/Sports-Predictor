@@ -459,7 +459,7 @@ with the time to its next kickoff inside the window:
 |---|---|---|
 | far | more than 6h away | schedule check only (`sync-matches`: status and postponement); no odds |
 | near | 2–6h away | the schedule check, plus odds (`--limit` = its games within 6h) and Kalshi |
-| imminent | under 2h away | the same repricing, plus T-90 freshen detection |
+| imminent | under 2h away | the same repricing, plus T-90 freshen detection. For the model families (NFL, soccer; never MLB) it also runs `sync-injuries --kickoff-within-hours 2` BEFORE the card, so the T-90 signature has fresh injuries to compare (ruling 2026-09-29). |
 
 A competition with no game inside 24h contributes zero steps. The chain
 receipt carries `proximity`: the competitions per tier and the steps
@@ -489,8 +489,10 @@ read-only:
      consensus or Kalshi inside T-3h, from stored snapshots; ruling
      2026-09-29).
    - One daily digest on the first run at or after 08:00 ET.
-   - Quiet hours are 00:00–07:00 ET: only quarantine flips page; the rest
-     are receipted as suppressed.
+   - Quiet hours are 00:00–07:00 ET. Only the QUARANTINE-CLASS deltas page
+     then, at high priority: quarantine flips, and line moves (ruling
+     2026-09-29: early European kickoffs put T-3h inside quiet hours). The
+     rest are receipted as suppressed.
    - The first run only records a baseline; it pages nothing.
 
 **Receipts:**

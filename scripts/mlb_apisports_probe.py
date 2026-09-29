@@ -35,7 +35,7 @@ import json
 import os
 import sys
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -190,7 +190,7 @@ def main(argv=None) -> int:
     seasons_avail = [x.get("season") for x in (lg.get("seasons") or [])]
     print(f"Q0 league id={MLB_LEAGUE_ID} name={(lg.get('league') or lg).get('name')!r} "
           f"seasons tail={seasons_avail[-4:]} (format receipt)")
-    report = {"generated": datetime.utcnow().isoformat() + "Z", "league_id": MLB_LEAGUE_ID,
+    report = {"generated": datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"), "league_id": MLB_LEAGUE_ID,
               "seasons_available": seasons_avail, "seasons": []}
     for season in a.seasons:
         games = cl._get("games", params={"league": MLB_LEAGUE_ID, "season": int(season)}).get("response") or []

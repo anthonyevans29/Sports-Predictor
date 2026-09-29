@@ -10,6 +10,15 @@ Every drop adds an entry going forward.
   sizing, tier or call change.
 - Positions record the Kalshi exec cost at claim and at execution.
 
+## 2026-09-29 (#63 rulings: value-side anchor timestamp on every grade)
+- The architect ratified all four #63 decisions: all-sport scope, the
+  earliest pre-kickoff book anchor, tagged quarantine shadows, and
+  snapshot growth deferred to pruning.
+- `nfl-grade` value-side lines now show the anchor and prediction
+  timestamps, and flag an anchor that came after the prediction.
+- `export-nfl-results` rows carry the value-side fields and anchor
+  timestamp (additive).
+
 ## 2026-09-29 (Week 4 MNF rulings: value-side shadow, value-side CLV, QB feed audit)
 - Cockpit: the Desk evaluates edge on every side. A value side that is
   not the top pick and clears 4pp logs a `value_shadow` at 0.25u

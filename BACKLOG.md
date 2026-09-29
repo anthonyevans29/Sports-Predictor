@@ -42,6 +42,37 @@ specific reason they're not being built now.
   - Receipts: `scripts/cockpit_exec_verify.py` 12/12; the other 6
     Cockpit verifies are unchanged and green; full suite 234 passed.
 
+- **#63 DECISIONS RULED + ANCHOR TIMESTAMP ON EVERY GRADE (architect,
+  2026-09-29).** The four ARCHITECT-RULE flags on #63 were ruled:
+  - (a) Shadow scope: all model sports, including soccer's draw value
+    side. Ratified as built: the ledger is for measuring, and more graded
+    shadows reach the 30-gate sooner.
+  - (b) Anchor: the earliest pre-kickoff book snapshot. Ratified: it is
+    the market at claim time in every chain where sync precedes predict
+    (all of them). The ruling adds that each grade records the anchor
+    timestamp, so the equivalence is visible. Built here:
+    - `nfl-grade` prints `anchor=MM-DD HH:MMZ pred=MM-DD HH:MMZ` on each
+      value-side line;
+    - an anchor later than the prediction's `computed_at` is flagged
+      `⚠ ANCHOR AFTER PREDICTION`;
+    - the summary line counts them (`anchor after prediction: k/n`,
+      also `value_anchor_after_prediction_n`);
+    - `export-nfl-results` persists `value_side`, `value_side_clv`,
+      `value_shadow`, `value_anchor_at` and `value_prediction_at` on
+      every graded row (additive; null when unanchored).
+  - Note: `computed_at` is the latest predict run, so a counted flag
+    means the book snapshot first appeared after the prediction. It is a
+    receipt, not a correction.
+  - (c) A quarantined row still logs its value shadow, tagged. Ratified:
+    never discard data.
+  - (d) Snapshot growth is accepted. The cap rides the queued
+    snapshot-pruning work.
+  - Merge order held: #62 (85ba00d), then #63 (a059868). The Cockpit
+    republish follows #63 (architect).
+  - Receipts: `tests/test_value_side_and_qb_audit.py` 10 passed (new: an
+    anchor stamp on the line, the after-prediction flag, and export
+    fields); full suite 235 passed.
+
 - **VALUE-SIDE SHADOW (policy v1.2 CANDIDATE) + VALUE-SIDE CLV + QB FEED
   AUDIT (architect rulings, 2026-09-29, after Week 4 MNF).** The trigger:
   PHI@CHI had model CHI 48.9 vs market 35.5, which is +13.4pp of value on

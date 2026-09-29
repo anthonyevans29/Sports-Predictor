@@ -10,6 +10,23 @@ Every drop adds an entry going forward.
   postseason game types. No wiring.
 - To be run on the laptop. The receipt is pending.
 
+## 2026-09-29 (K-track: Kalshi fee schedule receipt; K2 join bid + order type/fill)
+- Fee schedule receipt (July 2026 schedule): taker 0.07 is confirmed.
+  Maker is 0.0175 × M, with M = 0 unless the series is listed.
+  - The game-series maker multiplier is NOT verified: the PDF is
+    unreadable from the build environment.
+  - Kalshi rounds to the centicent per order, so our per-contract cent
+    rounding overstates the fee (logged; unchanged pending a ruling).
+- Desk: join bid (bid + 1¢) beside exec cost. A 1¢ spread shows
+  "joining = taking".
+- Positions record order type (limit/market) and fill price.
+
+## 2026-09-29 (Cockpit K2: executable-edge display)
+- The Desk shows exec edge = model − Kalshi (ask + fee) beside the fair
+  edge, with "fee-clears?" at ≥ 4pp. It is informational only: no
+  sizing, tier or call change.
+- Positions record the Kalshi exec cost at claim and at execution.
+
 ## 2026-09-29 (MNF QB verdict; line-move alarm; T-60 closing-freshen doctrine)
 - QB audit verdict logged: the cause was sync timing plus provider
   latency. The Chicago starter was absent from the provider's report at

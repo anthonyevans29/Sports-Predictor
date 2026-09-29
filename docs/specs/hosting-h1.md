@@ -639,6 +639,21 @@ criterion 3):
   (SP_SKIP_FAMILIES) and keeps the already-ruled MLB odds/Kalshi steps,
   which become live now that the host has MLB rows. freshen:MLB stays
   logged-never-run.
+- RULED (2026-09-29, on #73): the stage NULL is ratified; the three-status
+  map stands (the probe saw only FT / CANC / NS across 4,916 rows); MLB
+  market-only card rows on the host are accepted (the venue-edge charter
+  excludes model sports).
+- COMPARE (ruling (4)): the doubleheader game-2 rows are a provider-difference
+  class, WAIVED with a receipt. Once the host holds MLB history, compare
+  WITHOUT `--skip-family MLB` and with the waiver (the current season prints
+  informationally and needs none):
+```
+python3 deploy/hosting/bootstrap.py compare fp_laptop.json fp_host.json \
+  --waive "MLB:2025:apisports doubleheader gap"
+```
+  The waived row still prints both counts: the laptop-minus-host
+  difference must equal that season's doubleheader game-2 count, and
+  nothing more.
 - ONE-TIME on a live host (receipts: the `MLB-FALLBACK-RECEIPT` lines):
 ```
 sudo -u sp venv/bin/python deploy/hosting/sp_backup.py daily

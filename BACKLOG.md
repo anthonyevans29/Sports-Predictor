@@ -22,6 +22,115 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ISSUES LEDGER + PROJECT BOARD (architect rulings, 2026-09-29).**
+  - RULINGS (three messages, attributed):
+    - GitHub Issues are the STATE ledger. BACKLOG.md stays the
+      append-only HISTORY of rulings and verdicts. ONE Project (v2) is
+      the queue's single source of ORDER.
+    - Every known limitation, finding and queued lane becomes an Issue
+      at the moment it is logged. Each carries fixed-set labels, a
+      "Reopening condition" section where one exists, and a link to its
+      BACKLOG entry (commit + heading).
+    - A resolving PR says "Closes #N". An Issue never closes by hand
+      without a linked PR or a quoted architect ruling. A merged PR
+      never closes a class:limitation Issue unless its body says
+      "Resolves limitation".
+    - "Log attributed in BACKLOG" in a ruling now means BACKLOG entry +
+      Issue. The architect's review reads the Issue list, not the file.
+    - Taxonomy (fixed, prefixed, no ad-hoc labels): track:K|B|T|H|R|
+      policy|model|ops; class:lane|limitation|finding|doctrine|
+      operator-action|probe; sport:mlb|nfl|ncaa|nhl|soccer|cups|unl|all;
+      size:S|M|L; flow flags needs-ruling / needs-operator. Exactly one
+      of each dimension; a CI lint comments, never blocks.
+    - Six milestones, dated or condition-bound only. The board has
+      columns Queue / In progress / Waiting on condition / Done, fields
+      Track / Class / Sport (+ Reopening condition, Due date), and six
+      saved views.
+    - Automation: a new Issue joins Queue (a limitation joins Waiting);
+      a linked PR opening moves its card to In progress; merge moves it
+      to Done; the PR title prefix maps to the track label.
+    - CLAUDE.md's numbered queue becomes a one-line pointer to the
+      board; the mission / doctrine sections stay (constitution, not
+      backlog). The architect re-ranks by dragging; order is read from
+      the board, never from chat.
+  - RATIFIED (architect, 2026-09-29, after review): #74 is the SOLE
+    ledger mechanism; the architect's github_setup.sh is withdrawn;
+    taxonomy.json is the source of truth for the labels, milestones and
+    board shape. Merge order: #73 then #74. The #73 rulings closed two
+    items before the backfill ran: the window-prices-MLB veto (ACCEPTED)
+    is not opened, and the Phase A operator item no longer asks for the
+    status_vocab line (answered: FT / CANC / NS).
+    - #73 merged at eed69bd a moment before its rulings commit (7777d24)
+      reached the branch. That commit (the four rulings + the runbook's
+      waived compare line) is carried here, cherry-picked unchanged.
+  - BUILT:
+    - `.github/ledger/taxonomy.json` (the one definition) and
+      `.github/ledger/backfill.json` (the ordered backfill manifest;
+      every BACKLOG link resolved from git, commit + line).
+    - `scripts/ledger.py` (stdlib only) + `.github/workflows/ledger.yml`
+      (issues / pull_request events, and a workflow_dispatch bootstrap).
+      The bootstrap is idempotent: an issue body marker
+      `<!-- ledger:KEY -->` prevents duplicates; statuses the architect
+      has moved are never reset; labels outside the set are reported,
+      never deleted.
+    - `docs/LEDGER.md` (the rules, the taxonomy, the six views with
+      their exact filters, operator setup); CLAUDE.md (queue -> board
+      pointer; law 6 and the workflow gain the ledger; the NHL line
+      refreshed: the season gate is 2026-09-29 and the goalie probe
+      was negative); CONTRIBUTING law 6; the PR template gains the
+      "Closes #N" line.
+  - LIMITS OF THIS ENVIRONMENT (stated, not worked around):
+    - Claude Code has no API route to create milestones or a Project,
+      so the workflow does it.
+    - A user-owned Project needs a project-scoped token: the secret
+      `LEDGER_PROJECT_TOKEN`, an operator action. Without it the
+      repository side still runs and says the board was skipped.
+    - Saved views cannot be created by any API: the operator creates
+      the six from docs/LEDGER.md.
+  - BACKFILL (manifest order = the queue order): the CLAUDE.md queue
+    (K, B, T, the lineup-probe receipt, NCAA model, U2, S14 Stage-2,
+    snapshot pruning, S19, S20), then the cutover / policy v1.2 /
+    exec-edge lanes, the open rulings, the operator actions and the
+    known limitations, including today's eight (doubleheader game 2,
+    MLB predictions laptop-only, soccer line-move Kalshi-only, MLB
+    line-move cadence, injury-report latency, Mac MagicDNS, NCAA spread
+    fallback INSUFFICIENT-REF, unresolved positions).
+    - Not backfilled, as closed: Cockpit v0.4 (built 2026-09-26); the
+      H2 goalie probe (verdict NEGATIVE; its reopening condition lives
+      on the NHL limitation); the football 90-minute score and NHL raw
+      status data items (shipped 2026-09-26). Not backfilled, by
+      ruling: NHL per-period score splits ("LEDGER ONLY, not queued").
+  - Receipts: `tests/test_ledger.py`: the taxonomy pinned to the
+    ruling; lint / prefix / Closes parsing; the limitation rule and
+    rule 2; every manifest item lints clean and its BACKLOG link
+    resolves in git; bootstrap idempotence and queue order on a fake
+    board; event routing.
+
+- **MLB PHASE A: THE FOUR ARCHITECT-RULE ITEMS RULED (architect,
+  2026-09-29, on #73).**
+  - (1) Empty stage on host-created rows: RATIFIED.
+  - (2) The probe receipt's status_vocab: {FT|Finished, CANC|Cancelled,
+    NS|Not Started}. Nothing else was observed across 4,916 rows. Keep
+    the three-status map (FT / POST / CANC) and count unknowns in the
+    receipt, as built.
+  - (3) Veto point ACCEPTED: MLB rows may appear on the host's window
+    card as market-only. The venue-edge charter already excludes model
+    sports, so no calls arise.
+  - (4) Doubleheader game-2 rows: WAIVE in the compare with reason
+    "apisports doubleheader gap", a provider-difference class,
+    receipted per the --waive rule.
+    - The runbook's compare line is now `--waive "MLB:2025:apisports
+      doubleheader gap"`, without `--skip-family MLB` once the host has
+      MLB history.
+    - The current season prints informationally, so it needs no waiver
+      until it completes.
+    - The waived row still prints both counts. OPERATOR check: the
+      laptop-minus-host difference equals that season's doubleheader
+      game-2 count, and nothing more.
+  - Merge order ruled: #73, then #74. The ledger's (#74) Phase A items
+    are updated to match: the window veto item is dropped (ruled), and
+    the status_vocab ask is answered.
+
 - **MLB PHASE A BUILT: the api-sports Baseball fallback for MLB
   sync-matches / results + PHASE B CLOSED NEGATIVE (architect,
   2026-09-29).**

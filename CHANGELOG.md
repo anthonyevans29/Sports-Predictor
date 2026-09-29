@@ -4,6 +4,34 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (the ledger: Issues = state, BACKLOG = history, one Project board = order)
+- A fixed label taxonomy (track: / class: / sport: / size: plus
+  needs-ruling / needs-operator) and six dated or condition-bound
+  milestones, in `.github/ledger/taxonomy.json`.
+- `scripts/ledger.py` + the `ledger` workflow:
+  - an idempotent bootstrap (labels, milestones, the backfill Issues,
+    the board in queue order);
+  - an Issue label lint (comments, never blocks);
+  - PR title prefix -> track label;
+  - `Closes #N` -> In progress / Done;
+  - limitations close only with "Resolves limitation"; no closing by
+    hand without a PR or a quoted ruling.
+- The backfill manifest covers the queue, the open rulings, the
+  operator actions and every known limitation, each linked to its
+  BACKLOG commit + line.
+- CLAUDE.md's queue is now a pointer to the board; `docs/LEDGER.md`
+  holds the rules and the six views.
+
+## 2026-09-29 (MLB PHASE A rulings)
+- The four PHASE A rulings are logged:
+  - empty stage on host-created rows is ratified;
+  - the three-status map stands (the observed vocabulary was FT / CANC /
+    NS);
+  - MLB market-only rows on the host window card are accepted;
+  - the doubleheader game-2 difference is waived in the compare
+    ("apisports doubleheader gap"). The runbook carries the compare
+    line.
+
 ## 2026-09-29 (MLB PHASE A: api-sports fallback for host MLB history; PHASE B closed negative)
 - `sync-matches` / `sync-teams --competition MLB` use api-sports Baseball
   wherever `SP_SKIP_FAMILIES` names MLB (the DO host); the laptop keeps

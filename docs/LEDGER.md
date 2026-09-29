@@ -1,0 +1,115 @@
+# The ledger: Issues, the board, BACKLOG
+
+Architect rulings, 2026-09-29:
+- **GitHub Issues** are the STATE ledger: what is open, now.
+- **BACKLOG.md** stays the append-only HISTORY of rulings and verdicts.
+- **One GitHub Project (v2)** is the queue's single source of ORDER.
+
+The architect reviews the Issue list, not the file. The architect
+re-ranks by dragging cards in the Queue column. Claude Code reads the
+order from the board, never from chat.
+
+`.github/ledger/taxonomy.json` is the source of truth for the labels,
+the milestones and the board shape. #74 is the sole ledger mechanism
+(ratified 2026-09-29).
+
+## Rules
+1. **Every known limitation, finding and queued lane becomes an Issue
+   when it is logged.** Each Issue carries:
+   - the labels below;
+   - a `## Reopening condition` section, where one exists ("Accepted
+     limit" when the limit is ruled as accepted);
+   - a `## BACKLOG entry` link to the commit and line of its heading.
+2. **An Issue closes only through a linked PR or a quoted ruling.**
+   - A PR that resolves an item carries `Closes #N` in its body.
+   - An Issue never closes by hand without a linked PR, or an architect
+     ruling quoted in the closing comment (a line with "ARCHITECT").
+   - The bot reopens any other close.
+3. **Limitations only close on purpose.** A merged PR that touches a
+   `class:limitation` Issue never closes it unless the PR body says
+   `Resolves limitation`. Otherwise the bot reopens the Issue and returns
+   it to *Waiting on condition*.
+4. **"Log attributed in BACKLOG" means BACKLOG entry + Issue**, from now
+   on.
+
+## Taxonomy (fixed set, prefixed, no ad-hoc labels)
+`.github/ledger/taxonomy.json` is the one definition. CI tests pin it.
+
+| Dimension | Values |
+|---|---|
+| `track:` | `K` `B` `T` `H` `R` `policy` `model` `ops` |
+| `class:` | `lane` `limitation` `finding` `doctrine` `operator-action` `probe` |
+| `sport:` | `mlb` `nfl` `ncaa` `nhl` `soccer` `cups` `unl` `all` |
+| `size:` | `S` (docs / one-liner) · `M` (one PR) · `L` (multi-PR lane) |
+| flow flags | `needs-ruling` (blocked on the architect) · `needs-operator` (blocked on a laptop/host receipt) |
+
+**Hygiene:**
+- An Issue carries exactly one `track:`, one `class:`, one `sport:` and
+  one `size:`.
+- The ledger workflow lints the labels when an Issue opens. A missing or
+  extra dimension gets a bot comment, not a block.
+
+**Milestones** are dated or condition-bound only, never "someday":
+
+| Milestone | Bound by |
+|---|---|
+| Cutover ~Oct 8 | due 2026-10-08 |
+| Policy v1.2 promotion (30 value shadows) | condition: ≥ 30 graded value shadows |
+| Executable-edge ruling (2 wks of ladders) | due 2026-10-13 |
+| Offseason decisions (MLB egress/provider) | condition: the MLB offseason |
+| NHL reopening (goalie source) | condition: an external goalie/lineup source |
+| Cup reopening (rotation R-track) | condition: a rotation-aware candidate passes the exam |
+
+## The board ("sports_predictor queue", user-owned Project v2)
+- **Status columns:** Queue (ordered) · In progress · Waiting on
+  condition · Done.
+- **Fields:** Track, Class and Sport (single select, mirrored from the
+  labels), Reopening condition (text), Due date (date). Milestone is the
+  Issue's own field.
+
+**Automation** (`.github/workflows/ledger.yml` → `scripts/ledger.py`):
+
+| Event | Effect |
+|---|---|
+| A new Issue | Joins Queue; `class:limitation` joins Waiting on condition. |
+| A label change | The fields follow. `class:limitation` moves a Queue card to Waiting. |
+| A PR opens with `Closes #N` | Card N moves to In progress. |
+| PR title prefix | Labels the PR: `[K2] …` → `track:K`; `[B…]` `[T…]` `[H…]` `[R…]` likewise; `[policy]` `[model]` `[ops]`. |
+| Closed by a merged PR | Done (limitation rule above). |
+| Closed by hand | Reopened (rule 2). |
+
+## Saved views (create once, by hand: the API cannot create views)
+
+| # | View | Layout | Filter | Sort / group |
+|---|---|---|---|---|
+| 1 | Architect review | table | `is:open label:needs-ruling` | newest first* |
+| 2 | Operator today | table | `is:open label:needs-operator,"class:operator-action"` | sort by Due date |
+| 3 | Queue | board | (none) | columns = Status, in the order above; drag to re-rank |
+| 4 | Open limitations | table | `is:open label:"class:limitation"` | group by Sport; show Reopening condition, Milestone |
+| 5 | Cutover checklist | board | `milestone:"Cutover ~Oct 8"` | columns = Status |
+| 6 | By sport | table | `is:open` | group by Sport (the season-rotation view) |
+
+\* Projects cannot sort by creation date. The same list, newest first, as
+a repository search: `is:issue is:open label:needs-ruling sort:created-desc`.
+
+## Setup (operator, once)
+1. **Token.** Create a token that can write Projects on your account:
+   either a classic PAT with the `project` + `repo` scopes, or a
+   fine-grained token with *Projects: read and write* and this
+   repository's *Issues: read and write*. Add it as the repository secret
+   `LEDGER_PROJECT_TOKEN`. A user-owned Project cannot be reached with
+   the workflow's `GITHUB_TOKEN`.
+2. **Bootstrap.** Actions → `ledger` → *Run workflow* (mode
+   `bootstrap`). It is idempotent. It creates:
+   - the fixed labels (it reports any other label, and never deletes
+     one);
+   - the six milestones;
+   - one Issue per `.github/ledger/backfill.json` item (each carries
+     `<!-- ledger:KEY -->`, so a re-run never duplicates);
+   - the board, its fields, and the cards in manifest order.
+   Receipt: the `LEDGER-BOOTSTRAP {…}` line in the job log.
+3. **Views.** Create the six views above in the Project UI.
+
+Without the secret, step 2 still does the repository side: labels,
+milestones, Issues and lint. The log says that the board steps were
+skipped.

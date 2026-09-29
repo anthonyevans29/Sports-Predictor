@@ -1,0 +1,54 @@
+{
+ "ruled": "architect 2026-09-29: GitHub Issues = the STATE ledger; BACKLOG.md = the append-only HISTORY; one Project (v2) = the queue's single source of ORDER. Fixed set, prefixed, no ad-hoc labels.",
+ "dimensions": {
+  "track": {"color": "1d76db", "values": {
+   "K": "Kalshi-executable edge accounting", "B": "bankroll doctrine", "T": "scheduler",
+   "H": "hosting", "R": "rotation / lineup (cup R-track)", "policy": "Cockpit policy",
+   "model": "model / gate work", "ops": "operations, data, pipeline"}},
+  "class": {"color": "5319e7", "values": {
+   "lane": "queued work", "limitation": "known limitation (waits on a condition)",
+   "finding": "a finding or open question", "doctrine": "standing doctrine",
+   "operator-action": "a step only the operator can take", "probe": "read-only probe"}},
+  "sport": {"color": "0e8a16", "values": {
+   "mlb": "MLB", "nfl": "NFL", "ncaa": "NCAA football", "nhl": "NHL", "soccer": "soccer leagues",
+   "cups": "EFL / CL / UEL", "unl": "UEFA Nations League", "all": "cross-sport"}},
+  "size": {"color": "c5def5", "values": {
+   "S": "docs / one-liner", "M": "one PR", "L": "multi-PR lane"}}
+ },
+ "flags": {
+  "needs-ruling": {"color": "d93f0b", "description": "blocked on the architect"},
+  "needs-operator": {"color": "fbca04", "description": "blocked on a laptop/host receipt"}
+ },
+ "milestones": [
+  {"title": "Cutover ~Oct 8", "due_on": "2026-10-08", "description": "H1b parallel week -> the H2 cutover decision (earliest after 2026-10-05 13:45 UTC; frozen criteria)."},
+  {"title": "Policy v1.2 promotion (30 value shadows)", "due_on": null, "description": "Condition: >= 30 graded value_shadow calls, then a POLICY_VERSION bump."},
+  {"title": "Executable-edge ruling (2 wks of ladders)", "due_on": "2026-10-13", "description": "Two weeks of ladders after K2 (2026-09-29), then the executable-edge ruling."},
+  {"title": "Offseason decisions (MLB egress/provider)", "due_on": null, "description": "Condition: the MLB offseason (about 5 weeks out from 2026-09-29): residential egress for statsapi or a new provider."},
+  {"title": "NHL reopening (goalie source)", "due_on": null, "description": "Condition: an external goalie/lineup data source enters the stack."},
+  {"title": "Cup reopening (rotation R-track)", "due_on": null, "description": "Condition: a rotation-aware candidate on as-of lineup data passes the frozen cup exam."}
+ ],
+ "title_prefix": {
+  "K": "track:K", "B": "track:B", "T": "track:T", "H": "track:H", "R": "track:R",
+  "POLICY": "track:policy", "MODEL": "track:model", "OPS": "track:ops"
+ },
+ "project": {
+  "title": "sports_predictor queue",
+  "status_field": "Status",
+  "statuses": ["Queue", "In progress", "Waiting on condition", "Done"],
+  "single_select": {
+   "Track": ["K", "B", "T", "H", "R", "policy", "model", "ops"],
+   "Class": ["lane", "limitation", "finding", "doctrine", "operator-action", "probe"],
+   "Sport": ["mlb", "nfl", "ncaa", "nhl", "soccer", "cups", "unl", "all"]
+  },
+  "text": ["Reopening condition"],
+  "date": ["Due date"]
+ },
+ "views": [
+  {"name": "Architect review", "layout": "table", "filter": "is:open label:needs-ruling", "sort": "newest first (repo search: is:issue is:open label:needs-ruling sort:created-desc)"},
+  {"name": "Operator today", "layout": "table", "filter": "is:open label:needs-operator,\"class:operator-action\"", "sort": "Due date ascending"},
+  {"name": "Queue", "layout": "board", "filter": "", "group": "Status (column order: Queue, In progress, Waiting on condition, Done); drag to re-rank"},
+  {"name": "Open limitations", "layout": "table", "filter": "is:open label:\"class:limitation\"", "group": "Sport", "fields": "Title, Sport, Reopening condition, Milestone"},
+  {"name": "Cutover checklist", "layout": "board", "filter": "milestone:\"Cutover ~Oct 8\"", "group": "Status"},
+  {"name": "By sport", "layout": "table", "filter": "is:open", "group": "Sport"}
+ ]
+}

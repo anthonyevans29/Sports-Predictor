@@ -1,0 +1,639 @@
+{
+ "generated_by": "a one-time script; every link resolved from git (law 1)",
+ "items": [
+  {
+   "key": "k-track",
+   "title": "K-track: Kalshi-executable edge accounting (fee-adjusted floors, liquidity-aware sizing)",
+   "track": "K",
+   "cls": "lane",
+   "sport": "all",
+   "size": "L",
+   "flags": [],
+   "milestone": "Executable-edge ruling (2 wks of ladders)",
+   "due": null,
+   "summary": "Queue #2 (opened 2026-09-26). The K1 data layer and the informational K2 exec-edge display have shipped. Remaining: model_p vs the stored ask, fee-adjusted edge floors, and liquidity-aware sizing. The spec comes from the architect.",
+   "reopening": null,
+   "backlog": {
+    "commit": "efd21587966d172f64de4852a099dcc7e290b69f",
+    "line": 25,
+    "heading": "MISSION DECLARED 2026-09-26"
+   }
+  },
+  {
+   "key": "b-track",
+   "title": "B-track: bankroll doctrine (daily exposure cap, drawdown circuit-breaker, cross-ticket correlation)",
+   "track": "B",
+   "cls": "lane",
+   "sport": "all",
+   "size": "L",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Queue #3 (opened 2026-09-26). The spec comes after K.",
+   "reopening": null,
+   "backlog": {
+    "commit": "efd21587966d172f64de4852a099dcc7e290b69f",
+    "line": 25,
+    "heading": "MISSION DECLARED 2026-09-26"
+   }
+  },
+  {
+   "key": "t-track",
+   "title": "T-track: scheduler spec",
+   "track": "T",
+   "cls": "lane",
+   "sport": "all",
+   "size": "L",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Queue #4. It holds its place behind K and B.",
+   "reopening": null,
+   "backlog": {
+    "commit": "66d0aaa34fc8ab6f6a098b61f66d3a5efa598c78",
+    "line": 25,
+    "heading": "HOSTING H0 DRAFT 2026-09-26"
+   }
+  },
+  {
+   "key": "lineup-probe",
+   "title": "Lineup-history probe receipt (cup R-track reopening groundwork)",
+   "track": "R",
+   "cls": "probe",
+   "sport": "cups",
+   "size": "S",
+   "flags": [
+    "needs-operator"
+   ],
+   "milestone": "Cup reopening (rotation R-track)",
+   "due": null,
+   "summary": "Queue #5. `scripts/lineup_history_probe.py` shipped read-only. The receipt (Anthony's real run) decides what as-of lineup data a rotation-aware cup candidate could use.",
+   "reopening": null,
+   "backlog": {
+    "commit": "cb908d35d7aa7883574d60844b53966ed671f710",
+    "line": 25,
+    "heading": "Lineup-history PROBE shipped 2026-09-26"
+   }
+  },
+  {
+   "key": "ncaa-model",
+   "title": "NCAA model (own gate, no deadline)",
+   "track": "model",
+   "cls": "lane",
+   "sport": "ncaa",
+   "size": "L",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Queue #6. Market-only doctrine stands (Kalshi is the primary college market). A model needs its own frozen gate first.",
+   "reopening": null,
+   "backlog": {
+    "commit": "5cd6057b54033a3a208a5b2800461e1c8dcf3fbf",
+    "line": 25,
+    "heading": "NCAA TRACK OPENED 2026-09-25"
+   }
+  },
+  {
+   "key": "u2-enrichment",
+   "title": "U2 export enrichment: model-internals \"why\" fields + NFL kalshi field",
+   "track": "ops",
+   "cls": "lane",
+   "sport": "nfl",
+   "size": "M",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Queue #6. The additive NFL why-fields shipped 2026-09-27; the remaining model-internals fields and the NFL kalshi field are queued.",
+   "reopening": null,
+   "backlog": {
+    "commit": "7077ae2aee4b3bee7483506b94dac5085488a403",
+    "line": 25,
+    "heading": "U2 — NFL EXPORT \"WHY\" FIELDS 2026-09-27"
+   }
+  },
+  {
+   "key": "s14-stage2",
+   "title": "S14 Stage-2: totals under-compression in uncertain-winner games",
+   "track": "model",
+   "cls": "lane",
+   "sport": "soccer",
+   "size": "M",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Queue #6. Stage 1 is complete; Stage 2 follows the pre-committed test.",
+   "reopening": null,
+   "backlog": {
+    "commit": "f6a8dd599b7f10de2c28ddf2264fd9b03a8b27e3",
+    "line": 2840,
+    "heading": "S14. Totals under-compression in uncertain-winner games"
+   }
+  },
+  {
+   "key": "snapshot-pruning",
+   "title": "Snapshot pruning / rollup design",
+   "track": "ops",
+   "cls": "lane",
+   "sport": "all",
+   "size": "M",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Queue #6. Snapshot growth was accepted (ruling (d) on #63); the cap rides this queued design.",
+   "reopening": null,
+   "backlog": {
+    "commit": "8039858642b68c703762e29eccb4dd740902f5ff",
+    "line": 25,
+    "heading": "#63 DECISIONS RULED + ANCHOR TIMESTAMP ON EVERY GRADE"
+   }
+  },
+  {
+   "key": "s19-time-decay",
+   "title": "S19: time-decay match weighting (soccer candidate, existing gate)",
+   "track": "model",
+   "cls": "lane",
+   "sport": "soccer",
+   "size": "M",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Queue #7 (tail). A soccer candidate through the existing gate, after the cup unlock + NHL v3.",
+   "reopening": null,
+   "backlog": {
+    "commit": "f2e6f3602989c1554cf72de241fa3730e96b4e2a",
+    "line": 25,
+    "heading": "DEEP-RESEARCH DISPOSITION (architect, 2026-09-25)"
+   }
+  },
+  {
+   "key": "s20-rps",
+   "title": "S20: RPS reported alongside log-loss in the soccer backtest (metric only)",
+   "track": "model",
+   "cls": "lane",
+   "sport": "soccer",
+   "size": "S",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Queue #7 (tail). A reported metric only: the bars are unchanged.",
+   "reopening": null,
+   "backlog": {
+    "commit": "f2e6f3602989c1554cf72de241fa3730e96b4e2a",
+    "line": 25,
+    "heading": "DEEP-RESEARCH DISPOSITION (architect, 2026-09-25)"
+   }
+  },
+  {
+   "key": "cutover",
+   "title": "H2 cutover: the decision after the parallel week + the ONE .backup migration",
+   "track": "ops",
+   "cls": "lane",
+   "sport": "all",
+   "size": "L",
+   "flags": [],
+   "milestone": "Cutover ~Oct 8",
+   "due": null,
+   "summary": "The parallel week started 2026-09-28 13:45 UTC. The earliest cutover decision is after 2026-10-05 13:45 UTC (criterion 1: 7/7 days with every host timer firing). The frozen criteria are unchanged; the laptop stays writer of record until then.",
+   "reopening": null,
+   "backlog": {
+    "commit": "64a4bbb7f68c387a092ba0d4b7e77efe5fade383",
+    "line": 25,
+    "heading": "H1b DAY ONE 2026-09-28 13:45 UTC"
+   }
+  },
+  {
+   "key": "policy-v12",
+   "title": "Policy v1.2 promotion: value-side shadow after 30 graded",
+   "track": "policy",
+   "cls": "lane",
+   "sport": "all",
+   "size": "M",
+   "flags": [],
+   "milestone": "Policy v1.2 promotion (30 value shadows)",
+   "due": null,
+   "summary": "The Desk logs `value_shadow` calls at 0 units. Promotion only via a POLICY_VERSION bump after >= 30 graded value shadows (the counter is in the P&L block).",
+   "reopening": null,
+   "backlog": {
+    "commit": "e2d727421c9e9c4840ae2583b85813b335fd6c11",
+    "line": 25,
+    "heading": "VALUE-SIDE SHADOW (policy v1.2 CANDIDATE)"
+   }
+  },
+  {
+   "key": "exec-edge-ruling",
+   "title": "Executable-edge ruling after 2 weeks of ladders",
+   "track": "K",
+   "cls": "lane",
+   "sport": "all",
+   "size": "M",
+   "flags": [
+    "needs-ruling"
+   ],
+   "milestone": "Executable-edge ruling (2 wks of ladders)",
+   "due": null,
+   "summary": "K2's exec edge (model p - kalshi_exec_cost) is INFORMATIONAL: calls, units and tiers are unchanged. The ruling on using it comes after 2 weeks of ladders.",
+   "reopening": null,
+   "backlog": {
+    "commit": "74ddc95a62fe0153e86cacd382ba7bec1d7b626a",
+    "line": 25,
+    "heading": "K2: EXECUTABLE-EDGE DISPLAY"
+   }
+  },
+  {
+   "key": "fee-rounding",
+   "title": "Kalshi fee rounding: per-contract cent ceiling overstates the fee by up to ~1c",
+   "track": "K",
+   "cls": "finding",
+   "sport": "all",
+   "size": "S",
+   "flags": [
+    "needs-ruling"
+   ],
+   "milestone": "Executable-edge ruling (2 wks of ladders)",
+   "due": null,
+   "summary": "`venue.kalshi_fee` ceils per contract to the cent; Kalshi rounds per order to the centicent. At P = 0.60 the exact fee is 1.68c and we model 2c (exec_cost +0.32pp too high). Code unchanged pending the ruling: move to the exact 0.07*P*(1-P)?",
+   "reopening": null,
+   "backlog": {
+    "commit": "5b7b969f6357c746a304b0b1c9839b978afa47b6",
+    "line": 25,
+    "heading": "KALSHI FEE SCHEDULE: VERIFY RECEIPT + K2 JOIN BID"
+   }
+  },
+  {
+   "key": "no-side-price",
+   "title": "Derived NO-side exec price for away picks",
+   "track": "K",
+   "cls": "finding",
+   "sport": "all",
+   "size": "S",
+   "flags": [
+    "needs-ruling"
+   ],
+   "milestone": "Executable-edge ruling (2 wks of ladders)",
+   "due": null,
+   "summary": "Exported quotes are the HOME contract's, so an AWAY side shows \"exec —\". A NO-side price (1 - home bid + fee) could be derived; not built, because it is a guess until the away contract's own quotes are stored.",
+   "reopening": null,
+   "backlog": {
+    "commit": "5b7b969f6357c746a304b0b1c9839b978afa47b6",
+    "line": 25,
+    "heading": "KALSHI FEE SCHEDULE: VERIFY RECEIPT + K2 JOIN BID"
+   }
+  },
+  {
+   "key": "mve-combos",
+   "title": "MVE combos: mixed legs stay off_book_other; verify the MVE title grammar",
+   "track": "K",
+   "cls": "finding",
+   "sport": "all",
+   "size": "S",
+   "flags": [
+    "needs-ruling"
+   ],
+   "milestone": null,
+   "due": null,
+   "summary": "MVE combo fills are classified by leg content. ARCHITECT-VERIFY: the title grammar (no real MVE CSV seen). ARCHITECT-RULE: do mixed combos stay off_book_other?",
+   "reopening": null,
+   "backlog": {
+    "commit": "bfa5f9fb1711f6e448fba0a1050a03f0dd1ad59c",
+    "line": 25,
+    "heading": "LANE C: COSMETICS (architect Tuesday authorization, 2026-09-29)"
+   }
+  },
+  {
+   "key": "venue-edge-stale",
+   "title": "Venue-edge on NFL rides possibly stale book moneylines: exclude outright?",
+   "track": "policy",
+   "cls": "finding",
+   "sport": "nfl",
+   "size": "S",
+   "flags": [
+    "needs-ruling"
+   ],
+   "milestone": null,
+   "due": null,
+   "summary": "v0.4 OPEN QUESTION: such calls carry the rule tag \"venue gap >= 8pp (STALE-BOOK? zone)\" so attribution separates them; excluding them outright is the architect's call.",
+   "reopening": null,
+   "backlog": {
+    "commit": "76edfa3819917c019e65239c0cc6d176dbadd1b8",
+    "line": 25,
+    "heading": "COCKPIT v0.4 BUILT"
+   }
+  },
+  {
+   "key": "soccer-n30",
+   "title": "Soccer positive-edge cohort: the n=30 pre-committed read",
+   "track": "model",
+   "cls": "finding",
+   "sport": "soccer",
+   "size": "S",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "The positive-edge cohort (>= +5pp vs market) stood at 6/16; big anti-market edges are anti-predictive. The pre-committed read happens at n=30. Market-first discipline is doctrine meanwhile.",
+   "reopening": null,
+   "backlog": {
+    "commit": "3d250aef02ca87b728aefb527887038cf4969421",
+    "line": 25,
+    "heading": "POLICY v1.0 — KNOBS RETIRED 2026-09-25"
+   }
+  },
+  {
+   "key": "kalshi-maker-m",
+   "title": "Kalshi maker multiplier M for the game series: paste the PDF rows",
+   "track": "K",
+   "cls": "operator-action",
+   "sport": "all",
+   "size": "S",
+   "flags": [
+    "needs-operator"
+   ],
+   "milestone": "Executable-edge ruling (2 wks of ladders)",
+   "due": null,
+   "summary": "NOT VERIFIED: the maker multiplier for KXNFLGAME / KXNCAAFGAME / KXMLBGAME / KXNHLGAME / the soccer series lives in the fee PDF's per-series table, which this environment cannot open. Paste the rows, or allow kalshi.com in the environment's network settings.",
+   "reopening": null,
+   "backlog": {
+    "commit": "5b7b969f6357c746a304b0b1c9839b978afa47b6",
+    "line": 25,
+    "heading": "KALSHI FEE SCHEDULE: VERIFY RECEIPT + K2 JOIN BID"
+   }
+  },
+  {
+   "key": "t90-journal",
+   "title": "Host journal receipt for Monday's T-90 check",
+   "track": "ops",
+   "cls": "operator-action",
+   "sport": "nfl",
+   "size": "S",
+   "flags": [
+    "needs-operator"
+   ],
+   "milestone": "Cutover ~Oct 8",
+   "due": null,
+   "summary": "Expected: window_page at 22:05 / 23:05 / 00:05 with t90_news 0, empty freshen_needed, no freshen receipt. Commands are in #65.",
+   "reopening": null,
+   "backlog": {
+    "commit": "388cc5dfb19ee733e94f16e876e38b8ea28512fe",
+    "line": 25,
+    "heading": "MNF QB AUDIT VERDICT + LINE-MOVE ALARM"
+   }
+  },
+  {
+   "key": "phase-a-host",
+   "title": "MLB PHASE A: run the one-time live-host sequence + paste the status_vocab line",
+   "track": "ops",
+   "cls": "operator-action",
+   "sport": "mlb",
+   "size": "S",
+   "flags": [
+    "needs-operator"
+   ],
+   "milestone": "Cutover ~Oct 8",
+   "due": null,
+   "summary": "After #73 merges: the runbook's one-time sequence (backup, seasons 2025 + 2026, enable sp-mlb-history.timer); paste both MLB-FALLBACK-RECEIPT lines; then the fingerprint compare without --skip-family MLB, with --waive \"MLB:2025:apisports doubleheader gap\" (ruling (4) on #73).",
+   "reopening": null,
+   "backlog": {
+    "commit": "eed69bd3b83c4d152ca475b896499dc3ae1d01e6",
+    "line": 25,
+    "heading": "MLB PHASE A BUILT"
+   }
+  },
+  {
+   "key": "dh-game2",
+   "title": "api-sports omits doubleheader game 2 (13 games, 2025-2026)",
+   "track": "ops",
+   "cls": "limitation",
+   "sport": "mlb",
+   "size": "S",
+   "flags": [],
+   "milestone": "Offseason decisions (MLB egress/provider)",
+   "due": null,
+   "summary": "api-sports /games lists no doubleheader game 2 (13 games across two seasons, all confirmed same-date / same-teams). The fallback never fabricates them; existing rows are marked \"apisports-unavailable\"; the laptop's statsapi remains the record. On the host they are simply absent; the compare WAIVES them with reason \"apisports doubleheader gap\" (ruled on #73, a provider-difference class).",
+   "reopening": "The provider starts listing doubleheader game 2, or the host gains statsapi egress (a residential exit node) — the offseason egress/provider decision.",
+   "backlog": {
+    "commit": "eed69bd3b83c4d152ca475b896499dc3ae1d01e6",
+    "line": 25,
+    "heading": "MLB PHASE A BUILT"
+   }
+  },
+  {
+   "key": "mlb-laptop-only",
+   "title": "MLB predictions are laptop-only (PHASE B negative)",
+   "track": "ops",
+   "cls": "limitation",
+   "sport": "mlb",
+   "size": "M",
+   "flags": [],
+   "milestone": "Offseason decisions (MLB egress/provider)",
+   "due": null,
+   "summary": "PHASE B closed NEGATIVE: api-sports Baseball has no pitcher / bullpen / umpire / lineup / injury endpoints (control passed). The host holds no MLB predictions; the host MLB timers stay off.",
+   "reopening": "Residential egress for statsapi (a home exit node) or a new provider — decided in the offseason.",
+   "backlog": {
+    "commit": "eed69bd3b83c4d152ca475b896499dc3ae1d01e6",
+    "line": 25,
+    "heading": "MLB PHASE A BUILT"
+   }
+  },
+  {
+   "key": "soccer-lm-kalshi",
+   "title": "Soccer line-move alarm is Kalshi-only (no book snapshots)",
+   "track": "ops",
+   "cls": "limitation",
+   "sport": "soccer",
+   "size": "S",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "The line-move alarm reads stored snapshots; soccer has no book consensus snapshots, so only Kalshi moves count.",
+   "reopening": "Accepted limit. Reopens if soccer sync-odds starts appending a book consensus to odds_snapshots (the NFL #63 pattern).",
+   "backlog": {
+    "commit": "462c38896d055035d3c7fd029f3d7725e5ed3a33",
+    "line": 25,
+    "heading": "LATE-NEWS FOLLOW-ON: T-90 HOLE"
+   }
+  },
+  {
+   "key": "mlb-lm-cadence",
+   "title": "MLB line-move resolution follows the capture-odds cadence",
+   "track": "ops",
+   "cls": "limitation",
+   "sport": "mlb",
+   "size": "S",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "MLB book snapshots exist only at capture-odds runs, so a move between captures is seen late or netted out.",
+   "reopening": "Accepted limit. Reopens with a denser MLB capture cadence or a per-sync consensus append.",
+   "backlog": {
+    "commit": "462c38896d055035d3c7fd029f3d7725e5ed3a33",
+    "line": 25,
+    "heading": "LATE-NEWS FOLLOW-ON: T-90 HOLE"
+   }
+  },
+  {
+   "key": "injury-latency",
+   "title": "Provider injury-report latency (MNF QB audit)",
+   "track": "ops",
+   "cls": "limitation",
+   "sport": "nfl",
+   "size": "S",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Verdict: CAUSE = SYNC TIMING + PROVIDER LATENCY (Williams absent from the report at both syncs). Mitigations shipped: imminent-tier injury sync, the line-move alarm, the T-60 closing-freshen doctrine.",
+   "reopening": "Accepted limit. Reopens with a faster injury source.",
+   "backlog": {
+    "commit": "388cc5dfb19ee733e94f16e876e38b8ea28512fe",
+    "line": 25,
+    "heading": "MNF QB AUDIT VERDICT + LINE-MOVE ALARM"
+   }
+  },
+  {
+   "key": "magicdns",
+   "title": "Mac MagicDNS does not resolve tailnet names (unverified client side)",
+   "track": "ops",
+   "cls": "limitation",
+   "sport": "all",
+   "size": "S",
+   "flags": [
+    "needs-operator"
+   ],
+   "milestone": "Cutover ~Oct 8",
+   "due": null,
+   "summary": "Tailscale SSH is enabled server-side; the tailnet-IP door is proven and is the STANDARD. MagicDNS on the Mac is unverified.",
+   "reopening": "Retest after a Mac reboot; the 100.x IP stays the standard meanwhile.",
+   "backlog": {
+    "commit": "0a66ebb73160a1e47fa2e74ab1753d808ae73030",
+    "line": 25,
+    "heading": "H1b DAY ONE 2026-09-28 13:45 UTC"
+   }
+  },
+  {
+   "key": "ncaa-spread-ref",
+   "title": "NCAA spread fallback at INSUFFICIENT-REF",
+   "track": "K",
+   "cls": "limitation",
+   "sport": "ncaa",
+   "size": "S",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Vetted verdict NCAA INSUFFICIENT-REF (n=8, 3.05pp vs the frozen 3.0pp bar); disposition: accumulate naturally. FALLBACK_LIVE stays False.",
+   "reopening": "Vetted n >= 10: re-run `spread-fallback-check --competition NCAA`; a vetted PASS flips the switch (a one-line PR).",
+   "backlog": {
+    "commit": "6a7004ec8b5fbe9c459c90938a5d539f5542a833",
+    "line": 25,
+    "heading": "STALE-BOOK? LIE DETECTOR"
+   }
+  },
+  {
+   "key": "nfl-spread-dark",
+   "title": "NFL spread fallback dark (FAIL; moneylines stale at source)",
+   "track": "K",
+   "cls": "limitation",
+   "sport": "nfl",
+   "size": "S",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Acceptance FAIL ratified (NFL 5.54pp vs 3.0pp); catastrophic rows survived vetting, implying stale moneylines at source. FALLBACK_LIVE = False.",
+   "reopening": "Only a vetted PASS flips it; sign disagreements are data problems, not sigma problems.",
+   "backlog": {
+    "commit": "4a950a41c319b48fa69bb8739f03619e3a161bfe",
+    "line": 25,
+    "heading": "SPREAD-FALLBACK MEASUREMENT REVISION + DARK SWITCH"
+   }
+  },
+  {
+   "key": "unresolved-positions",
+   "title": "Unresolved-position players outside the roster lookup",
+   "track": "ops",
+   "cls": "limitation",
+   "sport": "nfl",
+   "size": "S",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Ruling (4): the 9 unresolved positions are practice-squad/IR players outside the roster lookup; the export's `positions_unresolved` makes them visible.",
+   "reopening": "Accepted limit. Reopens if the provider's /injuries carries position or the roster covers PS/IR.",
+   "backlog": {
+    "commit": "388cc5dfb19ee733e94f16e876e38b8ea28512fe",
+    "line": 25,
+    "heading": "MNF QB AUDIT VERDICT + LINE-MOVE ALARM"
+   }
+  },
+  {
+   "key": "nhl-model-suspended",
+   "title": "NHL model track suspended (schedule-only floor ~0.691)",
+   "track": "model",
+   "cls": "limitation",
+   "sport": "nhl",
+   "size": "L",
+   "flags": [],
+   "milestone": "NHL reopening (goalie source)",
+   "due": null,
+   "summary": "v1-v4 all FAILED vs the 0.6866 bar; NHL runs MARKET-ONLY. The goalie probe was NEGATIVE: the hockey provider has no goalie/lineup data.",
+   "reopening": "An EXTERNAL goalie/lineup data source enters the stack (H2 restated 2026-09-26). The bar does not move.",
+   "backlog": {
+    "commit": "7b0ca66be9c129608615e4b6cffaa240094bc227",
+    "line": 49,
+    "heading": "NHL PHASE 2 CLOSED — MODEL TRACK SUSPENDED"
+   }
+  },
+  {
+   "key": "cup-model-suspended",
+   "title": "Cup model track suspended (EFL / CL / UEL market-only)",
+   "track": "R",
+   "cls": "limitation",
+   "sport": "cups",
+   "size": "L",
+   "flags": [],
+   "milestone": "Cup reopening (rotation R-track)",
+   "due": null,
+   "summary": "The fix-v2 re-exam FAILED (14.76pp): a rotation information floor. The exam harness + fix-v2 machinery stay merged.",
+   "reopening": "A rotation-aware candidate on as-of lineup data (the R-track, winter), passing the frozen exam.",
+   "backlog": {
+    "commit": "638c99536ca7b84c60ca661fbdf24548e31bbaa6",
+    "line": 31,
+    "heading": "CUP FIX-V2 RE-EXAM: FAIL — CUP MODEL TRACK SUSPENDED"
+   }
+  },
+  {
+   "key": "unl-market-only",
+   "title": "UNL market-only (likely permanently)",
+   "track": "model",
+   "cls": "limitation",
+   "sport": "unl",
+   "size": "S",
+   "flags": [],
+   "milestone": null,
+   "due": null,
+   "summary": "Nations League runs market-only.",
+   "reopening": "Accepted limit (likely permanent).",
+   "backlog": {
+    "commit": "4805d83ccb62b5683bbcb5d4b87cc9c72b5ac04d",
+    "line": 25,
+    "heading": "UNL WIRED 2026-09-24"
+   }
+  },
+  {
+   "key": "ledger-setup",
+   "title": "Ledger setup: project token, bootstrap run, the six saved views",
+   "track": "ops",
+   "cls": "operator-action",
+   "sport": "all",
+   "size": "S",
+   "flags": [
+    "needs-operator"
+   ],
+   "milestone": "Cutover ~Oct 8",
+   "due": null,
+   "summary": "Add the LEDGER_PROJECT_TOKEN secret (a classic PAT with the `project` scope, or a fine-grained token with Projects read/write), run the `ledger` workflow's bootstrap, then create the six saved views from docs/LEDGER.md (the API cannot create views).",
+   "reopening": null,
+   "backlog": {
+    "commit": "56e7b263b6e2f78a5d1497ed4f749912cdeb7eeb",
+    "line": 25,
+    "heading": "ISSUES LEDGER + PROJECT BOARD"
+   }
+  }
+ ]
+}

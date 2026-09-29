@@ -1,5 +1,7 @@
 ## What & why
 
+Ledger: Closes #N (a `class:limitation` Issue also needs "Resolves limitation"). Title prefix `[K2]` / `[ops]` / … sets the track label.
+
 ## Receipts (required)
 - [ ] Read-before-edit: anchors/columns/vocabularies from actual sources
 - [ ] Syntax + import smoke pass locally

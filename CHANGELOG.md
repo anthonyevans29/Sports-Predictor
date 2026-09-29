@@ -10,6 +10,16 @@ Every drop adds an entry going forward.
   fields, with a verdict per need.
 - To be run on the laptop. The receipt is pending.
 
+## 2026-09-29 (MLB-PROBE verdict + follow-up)
+- Architect verdict logged: api-sports Baseball is GREEN for MLB
+  schedule/results and AMBER for predictions (no pitcher, umpire or
+  bullpen data).
+- The probe fix: our DB stores status "finished" (lowercase), so score
+  parity was never computed.
+- It now prints score parity against the 99.5% PHASE A gate, a sample of
+  disagreements, and every unpaired finished game with a doubleheader /
+  UTC-boundary suspect read.
+
 ## 2026-09-29 (cosmetics lane C: utcnow sweep, MVE combo fills, ntfy topic validation)
 - `datetime.utcnow()` / `utcfromtimestamp()` are replaced everywhere by
   `src/timeutil.py` helpers. These are built on `now(timezone.utc)` and

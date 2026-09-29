@@ -269,3 +269,44 @@ def test_nfl_qb_audit_cli_stored_is_read_only(monkeypatch):
         assert s.execute(select(func.count(Injury.id))).scalar_one() == before
     res = CliRunner().invoke(cli, ["nfl-qb-audit", "--team", "VS"])
     assert res.exit_code != 0 and "be specific" in res.output
+
+
+def test_each_grade_records_the_anchor_timestamp(tmp_path):
+    """Ruling 2026-09-29 on #63 (b): the anchor is ratified as the market at
+    claim time (sync precedes predict in every chain); each grade records the
+    anchor timestamp beside the prediction's, so the equivalence is visible."""
+    import json
+    from src.walters.nfl_predict import export_nfl_results, grade_nfl
+    init_db()
+    ko = NOW - timedelta(days=1)
+    with session_scope() as s:
+        ok = _game(s, "sok", ko, MatchStatus.FINISHED, scores=(27, 7))
+        s.add(Prediction(match_id=ok.id, model_version="t", home_win_prob=0.489, away_win_prob=0.511,
+                         computed_at=ko - timedelta(days=2, hours=23)))
+        _consensus(s, ok, 0.355, ko - timedelta(days=3))         # synced BEFORE predict
+        _close(s, ok, 0.355)
+        late = _game(s, "slt", ko, MatchStatus.FINISHED, scores=(7, 27))
+        s.add(Prediction(match_id=late.id, model_version="t", home_win_prob=0.60, away_win_prob=0.40,
+                         computed_at=ko - timedelta(days=3)))
+        _consensus(s, late, 0.50, ko - timedelta(days=1))        # first snapshot AFTER predict
+        _close(s, late, 0.50)
+    lines = []
+    r = grade_nfl(days_back=3, progress=lines.append)
+    stamp = lambda dt: dt.strftime("%m-%d %H:%MZ")
+    ok_line = next(x for x in lines if "VS sok Away" in x)
+    assert (f"anchor={stamp(ko - timedelta(days=3))} pred={stamp(ko - timedelta(days=2, hours=23))}" in ok_line
+            and "ANCHOR AFTER PREDICTION" not in ok_line)
+    assert "⚠ ANCHOR AFTER PREDICTION" in next(x for x in lines if "VS slt Away" in x)
+    assert r["value_anchor_after_prediction_n"] >= 1
+    assert any("anchor after prediction:" in x for x in lines)
+    # the results file persists it per graded row (additive fields)
+    path = export_nfl_results(days_back=3, out_dir=str(tmp_path))
+    rows = {x["home_team"]: x["graded"] for x in json.load(open(path))["results"]}
+    g = rows["VS sok Home"]
+    assert g["value_side"] == "HOME" and g["value_shadow"] is True and g["value_side_clv"] == 0.134
+    assert g["value_anchor_at"] == (ko - timedelta(days=3)).isoformat()
+    assert g["value_prediction_at"] == (ko - timedelta(days=2, hours=23)).isoformat()
+    assert "clv" in g and "close_home_prob" in g                    # existing fields unchanged
+    unanchored = rows.get("VS bare Home")
+    if unanchored is not None:                                      # created by the earlier test in this module
+        assert unanchored["value_side"] is None and unanchored["value_anchor_at"] is None

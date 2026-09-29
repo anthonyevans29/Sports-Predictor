@@ -22,6 +22,21 @@ Every drop adds an entry going forward.
 - CLAUDE.md's queue is now a pointer to the board; `docs/LEDGER.md`
   holds the rules and the six views.
 
+## 2026-09-29 (MLB PHASE A: api-sports fallback for host MLB history; PHASE B closed negative)
+- `sync-matches` / `sync-teams --competition MLB` use api-sports Baseball
+  wherever `SP_SKIP_FAMILIES` names MLB (the DO host); the laptop keeps
+  statsapi. Gate met: 100.0% score parity.
+- Stage is never read from the provider's `week`: created rows carry
+  stage NULL, and paired statsapi rows keep theirs. Status mapping is
+  conservative, and a finished row is never downgraded.
+- Known limitation, receipted every run: doubleheader game 2 is absent
+  from api-sports. Existing rows are marked "apisports-unavailable",
+  never fabricated.
+- Host chain `mlb-history` + `sp-mlb-history.timer` (10:30 UTC): sync
+  only, no MLB predictions on the host.
+- PHASE B verdict logged: api-sports Baseball has no pitcher, bullpen
+  or umpire feed. MLB predictions stay on the laptop.
+
 ## 2026-09-29 (MLB PHASE B probe: pitchers / bullpen / umpires from api-sports?)
 - `scripts/mlb_phase_b_probe.py` is read-only. It classifies candidate
   api-sports Baseball endpoints and flags pitcher / bullpen / umpire

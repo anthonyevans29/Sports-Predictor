@@ -51,6 +51,19 @@ CHAINS: dict[str, dict] = {
             ["export-predictions", "--sport", "mlb", "--competition", "MLB"],
         ],
     },
+    # MLB PHASE A (architect 2026-09-29): the HOST's MLB history. Sync only:
+    # no predict / evaluate / improve (the host holds no MLB predictions; MLB
+    # predictions stay a laptop duty, PHASE B negative). With SP_SKIP_FAMILIES
+    # naming MLB, sync-matches MLB runs the api-sports fallback
+    # (src/ingestion/mlb_apisports.py): teams first, then the season's /games
+    # in ONE provider call, receipted with the doubleheader-game-2 limitation.
+    "mlb-history": {
+        "backup": "daily",
+        "steps": [
+            ["sync-competitions", "--sport", "mlb"],   # static list, no provider call
+            ["sync-matches", *MLB],
+        ],
+    },
     "clv-capture": {  # one-for-one with scripts/setup_clv_capture.sh
         "steps": [["capture-odds", "--sport", "mlb", *MLB]],
     },

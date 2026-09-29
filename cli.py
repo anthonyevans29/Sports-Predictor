@@ -52,6 +52,50 @@ def _adapter_for_competition(code: str):
     return get_adapter(sport=_sport_for_competition(code))
 
 
+def _mlb_fallback(code: str) -> bool:
+    from src.ingestion.mlb_apisports import fallback_engaged
+    return fallback_engaged(code)
+
+
+def _mlb_fallback_run(kind: str, season, date_from=None, date_to=None) -> None:
+    """MLB PHASE A (architect 2026-09-29): api-sports Baseball instead of
+    statsapi where the host skips MLB (statsapi 406s the datacenter ASN).
+    Prints the run receipt; the chain's receipt carries the tail."""
+    import json as _json
+
+    from src.adapters.api_baseball import APIBaseballClient
+    from src.ingestion import mlb_apisports as fb
+    if not season:
+        raise click.UsageError("the MLB api-sports fallback needs --season (or a date window)")
+    client = APIBaseballClient.from_env()
+    if client is None:
+        raise click.ClickException("MLB fallback engaged (SP_SKIP_FAMILIES names MLB) but no "
+                                   "API_BASEBALL_KEY / API_FOOTBALL_KEY is set")
+    console.print("[cyan]MLB via api-sports Baseball FALLBACK (SP_SKIP_FAMILIES names MLB; "
+                  "statsapi is the laptop's path)[/cyan]")
+    if kind == "teams":
+        r = fb.sync_teams(client, str(season))
+        print(f"  teams {r['season']}: provider {r['provider_teams']} · created {r['created']} · "
+              f"stamped {r['stamped']} · existing {r['existing']} · linked {r['linked']} · "
+              f"non-club skipped {r['non_club_skipped']} · ambiguous name {r['ambiguous_name']}")
+    else:
+        r = fb.sync_matches(client, str(season), date_from, date_to)
+        print(f"  matches {r['season']} window {r['window']}: provider {r['provider_games']} · "
+              f"created {r['created']} · updated {r['updated']} · linked to existing "
+              f"{r['linked_existing']} · finished {r['finished']} · ambiguous {r['ambiguous']} · "
+              f"held near unkeyed {r['held_near_unkeyed']} · team missing {r['team_missing']} · "
+              f"exhibition skipped {r['exhibition_skipped']} · FINISHED downgrades refused "
+              f"{r['downgrade_refused']} · stage NULL (created) {r['stage_null_created']}")
+        print(f"  status vocab {r['status_vocab']} · UNMAPPED (stay scheduled) {r['unmapped_status']}")
+        print(f"  KNOWN LIMITATION: {r['known_limitation']} · rows marked "
+              f"{fb.UNAVAILABLE} this run: {len(r['dh_marked'])}")
+        for d in r["dh_marked"]:
+            print(f"    {fb.UNAVAILABLE}: {d['game']} {d['utc'][:16]} (match #{d['match_id']})")
+    print("MLB-FALLBACK-RECEIPT " + _json.dumps(
+        {k: v for k, v in r.items() if k not in ("teams",)}, default=str, sort_keys=True))
+    print(f"  provider requests remaining: {client.requests_remaining}")
+
+
 def _setup_logging():
     logging.basicConfig(
         level=settings.log_level,
@@ -92,6 +136,9 @@ def sync_competitions_cmd(sport: str):
 @click.option("--season", default=None, help="e.g. 2024/25 (soccer), 2026 (MLB)")
 def sync_teams_cmd(competition_code: str, season: str | None):
     """Pull all teams for a competition (in a given season)."""
+    if _mlb_fallback(competition_code):
+        _mlb_fallback_run("teams", season)
+        return
     service = IngestionService(_adapter_for_competition(competition_code))
     result = service.sync_teams(competition_code, season)
     console.print(f"[green]✓ Teams ({competition_code}): {result}[/green]")
@@ -110,7 +157,14 @@ def sync_matches_cmd(
     date_from: str | None,
     date_to: str | None,
 ):
-    """Pull matches by season or date range."""
+    """Pull matches by season or date range. MLB on a host whose
+    SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A)."""
+    if _mlb_fallback(competition_code):
+        if seasons > 0:
+            raise click.UsageError("the MLB api-sports fallback takes --season (one season per run)")
+        _mlb_fallback_run("matches", season or (date_from or date_to or "")[:4] or None,
+                          date_from, date_to)
+        return
     service = IngestionService(_adapter_for_competition(competition_code))
 
     if seasons > 0:

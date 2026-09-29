@@ -103,6 +103,96 @@ specific reason they're not being built now.
     resolves in git; bootstrap idempotence and queue order on a fake
     board; event routing.
 
+- **MLB PHASE A BUILT: the api-sports Baseball fallback for MLB
+  sync-matches / results + PHASE B CLOSED NEGATIVE (architect,
+  2026-09-29).**
+  - VERDICTS (architect, on the operator's laptop runs of both probes):
+    - PHASE A AUTHORIZED. Gate met: score parity 100.0% on finished
+      pairs (2476/2476 and 2426/2426).
+    - KNOWN LIMITATION, logged and receipted per run: doubleheader
+      game 2 is absent from api-sports /games (13 games across two
+      seasons, all confirmed same-date / same-teams). Such rows are
+      marked "apisports-unavailable", never fabricated; the laptop's
+      statsapi remains the record for them.
+    - Postseason stage from OUR gameType mapping only (the provider's
+      `week` labels the Wild Card round and the World Series both
+      "Final").
+    - The host gains an `mlb-history` chain: sync only, no predict or
+      evaluate (the host holds no MLB predictions), so its MLB history
+      stays current for cutover-era continuity and the comparator.
+    - PHASE B CLOSED, NEGATIVE: no pitcher / bullpen / umpire / lineup /
+      injury endpoints exist on api-sports Baseball (the /timezone
+      control passed). MLB predictions remain a LAPTOP duty. Reopening
+      condition: residential egress for statsapi (a home exit node) or a
+      new provider, decided in the offseason.
+  - BUILT (`src/ingestion/mlb_apisports.py`):
+    - Engagement: `sync-matches` / `sync-teams --competition MLB` route
+      here whenever `SP_SKIP_FAMILIES` names MLB (host.env). No flag;
+      MLB_SPRING never falls back; the laptop is untouched.
+    - Teams first (the ruled order), then the season's /games in ONE
+      provider call; a date window filters locally. A statsapi team is
+      found by a unique normalized-name match and stamped with
+      `external_ids.api_baseball`, never renamed; a non-club side
+      (all-star) is never created.
+    - A statsapi row is linked by the probe's pairing rule (moved here,
+      so the probe and the fallback share one definition) and keeps its
+      stage. A row the fallback creates carries stage NULL.
+    - Status, conservatively (law 4): FT with both run totals ->
+      finished; POST -> postponed; CANC -> cancelled. Everything else
+      stays scheduled, is stored verbatim in `status_raw`, and is
+      counted as unmapped in the receipt. A finished row is never
+      downgraded.
+    - Exhibitions (all-star sides; spring / pre-season / exhibition
+      labels) are never ingested. A provider game near one of our
+      still-unkeyed rows (ambiguous or unpaired) is held, never created.
+    - Doubleheader game 2: one of our rows that finds no provider
+      partner while its same-teams provider game is already paired gets
+      `external_ids.api_baseball_note = "apisports-unavailable"`;
+      status and score are untouched.
+    - Every run prints an `MLB-FALLBACK-RECEIPT {json}` line (counts,
+      status vocabulary, unmapped codes, the limitation text, rows
+      marked); the chain receipt's tail carries it.
+  - HOSTING: chain `mlb-history` (backup first; `sync-competitions
+    --sport mlb`, a static list with no provider call; `sync-matches`
+    MLB 2026), `sp-mlb-history.timer` at 10:30 UTC daily, on the T11
+    list. The runbook carries the one-time live-host sequence (backup,
+    then seasons 2025 and 2026, then the timer).
+  - ARCHITECT-RULE (four items, defaults in force until ruled):
+    - (a) Stage on host-created rows is NULL: the host has no statsapi
+      gameType to copy, and the ruling forbids the provider's `week`.
+      Harmless while the host neither predicts nor evaluates MLB.
+      Proposal if a stage is ever needed there: derive it from our
+      postseason calendar (the round dates), never from `week`.
+    - (b) The provider status vocabulary was not enumerated by me (law
+      1): only FT / POST / CANC are mapped, and the unmapped codes print
+      on every run. OPERATOR: paste the probe receipt's `status_vocab`
+      line, so any other finished-class code can be ruled in.
+    - (c) The window service is unchanged. It drops MLB `sync-matches`
+      (SP_SKIP_FAMILIES) but keeps the already-ruled MLB odds and
+      Kalshi steps, which were moot with zero MLB rows and now go live
+      on the host: MLB card rows render market_only, and freshen:MLB
+      stays logged-never-run. Veto point if the host should not price
+      MLB.
+    - (d) The doubleheader marking acts only on rows that exist. The
+      host has no statsapi rows, so there it marks nothing: the 13
+      games are simply absent, and the laptop-vs-host comparator sees
+      them as laptop-only (proposal: a `--waive MLB:<season>:<reason>`
+      on the fingerprint compare, which is the ruled mechanism for
+      explained provider drift).
+  - Receipts: `tests/test_mlb_apisports_fallback.py` 5 passed, covering:
+    - engagement by SP_SKIP_FAMILIES;
+    - a host-shaped run: one /games call after teams; 6 rows created
+      with stage NULL (including a "Final"-week postseason game);
+      FT / POST / INTR / FT-without-totals mapped conservatively;
+      all-star and spring games skipped; an idempotent re-run with the
+      FINISHED downgrade refused; a local date window;
+    - a laptop-shaped run: team stamped not renamed; the DH game-1
+      pair keeps stage "F"; game 2 marked, untouched, nothing
+      fabricated; an equidistant pair ambiguous and held;
+    - CLI routing only when engaged; the chain is sync-only.
+  - The probe tests (7) still pass on the shared pairing module. Full
+    suite: 269 passed.
+
 - **MLB PHASE B PROBE: can api-sports Baseball feed pitchers, bullpen,
   umpires? (architect ruling (3), 2026-09-29; read-only, next-spring
   planning).** `scripts/mlb_phase_b_probe.py` runs on the laptop, where

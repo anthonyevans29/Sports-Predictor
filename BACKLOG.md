@@ -60,6 +60,9 @@ specific reason they're not being built now.
     items before the backfill ran: the window-prices-MLB veto (ACCEPTED)
     is not opened, and the Phase A operator item no longer asks for the
     status_vocab line (answered: FT / CANC / NS).
+    - #73 merged at eed69bd a moment before its rulings commit (7777d24)
+      reached the branch. That commit (the four rulings + the runbook's
+      waived compare line) is carried here, cherry-picked unchanged.
   - BUILT:
     - `.github/ledger/taxonomy.json` (the one definition) and
       `.github/ledger/backfill.json` (the ordered backfill manifest;

@@ -20,6 +20,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import re
 import subprocess
 import sys
 import time
@@ -195,9 +196,41 @@ def new_quota() -> dict:
                                    "by the CLI (null, never 0)"}
 
 
+# Per-step RETRY for TRANSIENT failures only (architect ruling 2026-09-28,
+# after the first live page: a UNL sync-matches died on an api-football
+# ConnectionResetError). Classes: connection errors, timeouts, HTTP 5xx and
+# 429. Two retries, 15s then 45s. A step that still fails pages as before
+# (the chain exits non-zero; systemd OnFailure). Never retried: other 4xx and
+# exceptions in our own code. The class is read from the step's TERMINAL
+# exception line (the traceback's last line) when there is one, so an earlier
+# log mention of a connection never masks a KeyError.
+RETRY_BACKOFF_S = (15, 45)
+_sleep = time.sleep
+_EXC_LINE = re.compile(r"^([A-Za-z_][\w.]*(?:Error|Exception|Timeout|Warning)\b)(?::|$)")
+_TRANSIENT = re.compile(
+    r"(ConnectionError|ConnectionResetError|ConnectionAbortedError|ConnectionRefusedError|"
+    r"RemoteDisconnected|Connection aborted|Connection reset|BrokenPipeError|"
+    r"ReadTimeout|ConnectTimeout|\bTimeout\b|TimeoutError|socket\.timeout|timed out|"
+    r"\b5\d\d Server Error|\b429 Client Error|Too Many Requests)")
+
+
+def transient_class(rc: int, tail: list[str]) -> str | None:
+    """The transient class of a failed step, or None (never retried)."""
+    if rc == 0 or rc < 0:                       # success, or killed by a signal
+        return None
+    terminal = [s for s in tail if _EXC_LINE.match(s.strip())]
+    scope = terminal[-1:] or tail              # the terminal exception line decides
+    for s in scope:
+        m = _TRANSIENT.search(s)
+        if m:
+            return m.group(1)
+    return None
+
+
 def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dict) -> tuple[int, int]:
     """Run steps in order (caller holds the DB lock); receipt each; stop at the
-    first failure. Returns (exit, steps_ok)."""
+    first failure. Transient failures are retried (RETRY_BACKOFF_S) and the
+    receipt says "retried N". Returns (exit, steps_ok)."""
     ok = 0
     for i, st in enumerate(steps, 1):
         line = f"python cli.py {' '.join(st)}"
@@ -208,10 +241,27 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
             continue
         quota["metered_run" if st[0] not in UNMETERED else "unmetered_run"] += 1
         print(f"\n=== [{label} {i}/{len(steps)}] {line}", flush=True)
-        rc, tail, dur = run_step(st, run_id)
-        c.append_receipt({"kind": "step", "unit": unit, "run_id": run_id, "step": i,
-                          "command": line, "exit": rc, "duration_s": round(dur, 1),
-                          "git_sha": c.git_sha(), "tail": tail})
+        attempts, total = [], 0.0
+        while True:
+            rc, tail, dur = run_step(st, run_id)
+            total += dur
+            cls = transient_class(rc, tail)
+            attempts.append({"exit": rc, "duration_s": round(dur, 1), "transient": cls})
+            n = len(attempts) - 1
+            if not cls or n >= len(RETRY_BACKOFF_S):
+                break
+            wait = RETRY_BACKOFF_S[n]
+            print(f"↻ transient failure ({cls}) — retry {n + 1}/{len(RETRY_BACKOFF_S)} in {wait}s",
+                  flush=True)
+            _sleep(wait)
+        rec = {"kind": "step", "unit": unit, "run_id": run_id, "step": i,
+               "command": line, "exit": rc, "duration_s": round(total, 1),
+               "git_sha": c.git_sha(), "tail": tail}
+        if len(attempts) > 1:
+            rec.update(retried=len(attempts) - 1, attempts=attempts)
+            print(f"· retried {len(attempts) - 1}: {'ok' if rc == 0 else f'still failing (exit {rc})'}",
+                  flush=True)
+        c.append_receipt(rec)
         if rc != 0:
             return rc, ok
         ok += 1

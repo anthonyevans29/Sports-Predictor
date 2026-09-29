@@ -22,6 +22,31 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **MLB PHASE A: THE FOUR ARCHITECT-RULE ITEMS RULED (architect,
+  2026-09-29, on #73).**
+  - (1) Empty stage on host-created rows: RATIFIED.
+  - (2) The probe receipt's status_vocab: {FT|Finished, CANC|Cancelled,
+    NS|Not Started}. Nothing else was observed across 4,916 rows. Keep
+    the three-status map (FT / POST / CANC) and count unknowns in the
+    receipt, as built.
+  - (3) Veto point ACCEPTED: MLB rows may appear on the host's window
+    card as market-only. The venue-edge charter already excludes model
+    sports, so no calls arise.
+  - (4) Doubleheader game-2 rows: WAIVE in the compare with reason
+    "apisports doubleheader gap", a provider-difference class,
+    receipted per the --waive rule.
+    - The runbook's compare line is now `--waive "MLB:2025:apisports
+      doubleheader gap"`, without `--skip-family MLB` once the host has
+      MLB history.
+    - The current season prints informationally, so it needs no waiver
+      until it completes.
+    - The waived row still prints both counts. OPERATOR check: the
+      laptop-minus-host difference equals that season's doubleheader
+      game-2 count, and nothing more.
+  - Merge order ruled: #73, then #74. The ledger's (#74) Phase A items
+    are updated to match: the window veto item is dropped (ruled), and
+    the status_vocab ask is answered.
+
 - **MLB PHASE A BUILT: the api-sports Baseball fallback for MLB
   sync-matches / results + PHASE B CLOSED NEGATIVE (architect,
   2026-09-29).**

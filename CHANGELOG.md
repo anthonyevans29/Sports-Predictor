@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (MLB PHASE A rulings)
+- The four PHASE A rulings are logged:
+  - empty stage on host-created rows is ratified;
+  - the three-status map stands (the observed vocabulary was FT / CANC /
+    NS);
+  - MLB market-only rows on the host window card are accepted;
+  - the doubleheader game-2 difference is waived in the compare
+    ("apisports doubleheader gap"). The runbook carries the compare
+    line.
+
 ## 2026-09-29 (MLB PHASE A: api-sports fallback for host MLB history; PHASE B closed negative)
 - `sync-matches` / `sync-teams --competition MLB` use api-sports Baseball
   wherever `SP_SKIP_FAMILIES` names MLB (the DO host); the laptop keeps

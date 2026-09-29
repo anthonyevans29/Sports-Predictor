@@ -10,6 +10,20 @@ Every drop adds an entry going forward.
   postseason game types. No wiring.
 - To be run on the laptop. The receipt is pending.
 
+## 2026-09-29 (MNF QB verdict; line-move alarm; T-60 closing-freshen doctrine)
+- QB audit verdict logged: the cause was sync timing plus provider
+  latency. The Chicago starter was absent from the provider's report at
+  both pre-game syncs. The detection code is exonerated.
+- New line-move alarm:
+  - inside T-3h, a ≥ 6pp net move on book or Kalshi (stored snapshots,
+    no provider calls) marks the row `late-news?` in the window card
+    and the NFL export;
+  - it pages on the card topic and triggers `freshen:<family>`.
+- CLI.md doctrine: the game-day T-60 closing freshen is mandatory for
+  model sports while the laptop is writer of record.
+- The host-journal receipt for Monday's T-90 check is pending, to be run
+  on the host (commands in the PR).
+
 ## 2026-09-29 (#63 rulings: value-side anchor timestamp on every grade)
 - The architect ratified all four #63 decisions: all-sport scope, the
   earliest pre-kickoff book anchor, tagged quarantine shadows, and

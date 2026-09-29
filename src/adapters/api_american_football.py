@@ -45,6 +45,7 @@ from src.adapters.normalized import (
     NormalizedTeam,
 )
 from src.db.schema import MatchStatus, Sport
+from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
@@ -154,7 +155,7 @@ class APIAmericanFootballAdapter(DataAdapter):
     def list_teams(self, competition_code: str,
                    season: str | None = None) -> list[NormalizedTeam]:
         params = {"league": _league_for(competition_code),
-                  "season": int(season) if season else datetime.utcnow().year}
+                  "season": int(season) if season else utc_now_naive().year}
         data = self._get("teams", params=params)
         out: list[NormalizedTeam] = []
         for item in data.get("response") or []:
@@ -275,7 +276,7 @@ class APIAmericanFootballAdapter(DataAdapter):
 
     def list_odds(self, match_source_id: str) -> list[NormalizedOdds]:
         data = self._get("odds", params={"game": match_source_id})
-        now = datetime.utcnow()
+        now = utc_now_naive()
         out: list[NormalizedOdds] = []
         for block in data.get("response") or []:
             for book in block.get("bookmakers") or []:

@@ -61,6 +61,7 @@ from src.models.poisson import (
     predict_match,
 )
 from src.walters.evaluation import aggregate, score_1x2, score_over_under
+from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
@@ -1677,7 +1678,7 @@ def improve(
     candidate_version = train_result.version
 
     # Step 3+4: compare on holdout
-    cutoff = datetime.utcnow() - timedelta(days=holdout_days)
+    cutoff = utc_now_naive() - timedelta(days=holdout_days)
 
     with session_scope() as s:
         production_version = _current_production_version(s, sport)
@@ -1901,7 +1902,7 @@ def _set_status(
     ).scalar_one()
     mv.status = status
     if promote:
-        mv.promoted_at = datetime.utcnow()
+        mv.promoted_at = utc_now_naive()
 
 
 def ratify_candidate(sport: Sport, version: str) -> str:
@@ -1931,7 +1932,7 @@ def ratify_candidate(sport: Sport, version: str) -> str:
                              f"production is now {prod} — stale verdict, refused.")
         _shelve_current_production(s, sport)
         _set_status(s, sport, version, "production", promote=True)
-        stamp = datetime.utcnow().strftime("%Y-%m-%dT%H:%MZ")
+        stamp = utc_now_naive().strftime("%Y-%m-%dT%H:%MZ")
         mv.notes = ((mv.notes or "") + f" | ratified by operator {stamp}")[:1024]
         return f"{version} RATIFIED -> production ({prod or 'none'} shelved) at {stamp}"
 

@@ -24,6 +24,7 @@ from src.db.schema import Competition, Match, MatchStats, MatchStatus, Sport, Te
 from src.web import preferences
 from src.web.dependencies import LEAGUE_COOKIE, resolve_league_code, set_league_cookie
 from src.web.standings import compute_standings
+from src.timeutil import utc_now_naive
 
 router = APIRouter()
 
@@ -33,7 +34,7 @@ async def home(request: Request):
     """The league dashboard. Default league = PL unless cookie/prefs override."""
     templates = request.state.templates
     league_code = resolve_league_code(request)
-    now = datetime.utcnow()
+    now = utc_now_naive()
 
     with session_scope() as s:
         # Auto-pin the focus team (Arsenal) on first run if it exists and

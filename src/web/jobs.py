@@ -29,6 +29,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Any, Callable
+from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
@@ -51,14 +52,14 @@ class Job:
     description: str
     status: JobStatus = JobStatus.PENDING
     log_lines: deque = field(default_factory=lambda: deque(maxlen=MAX_LOG_LINES_PER_JOB))
-    created_at: datetime = field(default_factory=datetime.utcnow)
+    created_at: datetime = field(default_factory=utc_now_naive)
     started_at: datetime | None = None
     finished_at: datetime | None = None
     result: Any = None
     error: str | None = None
 
     def append_log(self, msg: str) -> None:
-        self.log_lines.append(f"{datetime.utcnow().strftime('%H:%M:%S')} {msg}")
+        self.log_lines.append(f"{utc_now_naive().strftime('%H:%M:%S')} {msg}")
 
     def as_dict(self) -> dict:
         return {
@@ -78,7 +79,7 @@ class Job:
     def _elapsed(self) -> float | None:
         if not self.started_at:
             return None
-        end = self.finished_at or datetime.utcnow()
+        end = self.finished_at or utc_now_naive()
         return (end - self.started_at).total_seconds()
 
 
@@ -110,7 +111,7 @@ class JobRunner:
 
     def _run(self, job: Job, fn: Callable, args: tuple, kwargs: dict) -> None:
         job.status = JobStatus.RUNNING
-        job.started_at = datetime.utcnow()
+        job.started_at = utc_now_naive()
         job.append_log("started")
         try:
             # Pass the job itself as a kwarg so the function can write log lines
@@ -129,7 +130,7 @@ class JobRunner:
                 job.append_log(f"  {line}")
             log.exception("Job %s failed", job.name)
         finally:
-            job.finished_at = datetime.utcnow()
+            job.finished_at = utc_now_naive()
 
     def get(self, job_id: str) -> Job | None:
         return self._jobs.get(job_id)

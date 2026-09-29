@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (cosmetics lane C: utcnow sweep, MVE combo fills, ntfy topic validation)
+- `datetime.utcnow()` / `utcfromtimestamp()` are replaced everywhere by
+  `src/timeutil.py` helpers. These are built on `now(timezone.utc)` and
+  stay naive UTC, so there is no behavior change.
+- The fills importer classifies Kalshi MVE combos by leg content:
+  sports legs → off-book sports parlays.
+- An ntfy topic containing whitespace is refused at startup: chains fail
+  loudly and never page the wrong topic.
+
 ## 2026-09-29 (Week 4 MNF rulings: value-side shadow, value-side CLV, QB feed audit)
 - Cockpit: the Desk evaluates edge on every side. A value side that is
   not the top pick and clears 4pp logs a `value_shadow` at 0.25u

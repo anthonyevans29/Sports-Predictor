@@ -17,6 +17,7 @@ from typing import Any
 import logging
 
 import requests
+from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
@@ -139,7 +140,7 @@ def fetch_weather(
     # Open-Meteo split: forecast endpoint covers ±~14 days; past_days param
     # also works for very recent history. We'll use the forecast endpoint
     # and let the API decide what's available.
-    now = datetime.utcnow()
+    now = utc_now_naive()
     delta = utc_dt - now
     if delta.days > 14:
         return None

@@ -26,6 +26,7 @@ from src.walters.nfl_backtest import (NFLEloConfig, _State, _expected_home, _upd
                                       nfl_scoped, scope_line)
 from src.walters.provenance import git_sha as _git_sha
 from src.walters.qb_audit import is_qb
+from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
@@ -76,7 +77,7 @@ def predict_nfl(days_ahead: int = 8, progress=None) -> int:
     st = _current_ratings(progress)
     written = 0
     with session_scope() as s:
-        now = datetime.utcnow()
+        now = utc_now_naive()
         upcoming = list(s.execute(
             nfl_scoped(select(Match)).where(
                 Match.status == MatchStatus.SCHEDULED,
@@ -96,7 +97,7 @@ def predict_nfl(days_ahead: int = 8, progress=None) -> int:
                 home_win_prob=round(p_home, 4),
                 away_win_prob=round(1 - p_home, 4),
                 draw_prob=None,
-                computed_at=datetime.utcnow(),
+                computed_at=utc_now_naive(),
             ))
             written += 1
     log.info("Wrote %d NFL predictions using %s", written, MODEL_VERSION)
@@ -138,7 +139,7 @@ def elo_drift_games(s, since) -> list:
             Match.status == MatchStatus.FINISHED,
             Match.home_score.is_not(None),
             Match.utc_date >= since - _DRIFT_LOOKBACK,
-            Match.utc_date <= datetime.utcnow(),
+            Match.utc_date <= utc_now_naive(),
         )).scalars() if "pre" not in (m.stage or "").lower()]
 
 
@@ -155,7 +156,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
     elo_cfg = NFLEloConfig()
     elo = _current_ratings()
     with session_scope() as s:
-        now = datetime.utcnow()
+        now = utc_now_naive()
         hi = now + (timedelta(hours=hours_ahead) if hours_ahead is not None
                     else timedelta(days=days_ahead))
         if receipts is not None:
@@ -281,9 +282,9 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
         r.pop("_computed_at", None)
     os.makedirs(out_dir, exist_ok=True)
     path = os.path.join(out_dir,
-                        f"nfl_predictions_{datetime.utcnow().strftime('%Y-%m-%d')}.json")
+                        f"nfl_predictions_{utc_now_naive().strftime('%Y-%m-%d')}.json")
     payload = {
-        "exported_at": datetime.utcnow().isoformat() + "Z",
+        "exported_at": utc_now_naive().isoformat() + "Z",
         "git_sha": _git_sha(),
         "sport": "nfl",
         "model_version": MODEL_VERSION,
@@ -370,7 +371,7 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
             progress(msg)
 
     with session_scope() as s:
-        now = datetime.utcnow()
+        now = utc_now_naive()
         q = (nfl_scoped(select(Prediction, Match)
                         .join(Match, Match.id == Prediction.match_id))
              .where(Match.status == MatchStatus.FINISHED,
@@ -451,7 +452,7 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
 
     rows = []
     with session_scope() as s:
-        now = datetime.utcnow()
+        now = utc_now_naive()
         q = (nfl_scoped(select(Prediction, Match)
                         .join(Match, Match.id == Prediction.match_id))
              .where(Match.status == MatchStatus.FINISHED,
@@ -493,9 +494,9 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
                            "clv": round(clv, 4) if clv is not None else None},
             })
     _os.makedirs(out_dir, exist_ok=True)
-    path = _os.path.join(out_dir, f"nfl_NFL_results_{datetime.utcnow().strftime('%Y-%m-%d')}.json")
+    path = _os.path.join(out_dir, f"nfl_NFL_results_{utc_now_naive().strftime('%Y-%m-%d')}.json")
     with open(path, "w") as f:
-        _json.dump({"exported_at": datetime.utcnow().isoformat() + "Z",
+        _json.dump({"exported_at": utc_now_naive().isoformat() + "Z",
                     "git_sha": _git_sha(),
                     "sport": "nfl",
                     "note": "record is variance, not signal — for the consumer to grade against",

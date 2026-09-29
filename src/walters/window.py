@@ -26,6 +26,7 @@ import os
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
+from src.timeutil import utc_now_naive, utc_naive_fromtimestamp
 
 CARD_NAME = "window_24h.json"
 _SKIP_PREFIXES = ("window_", "fixtures_")
@@ -53,7 +54,7 @@ def canonical_models(export_dir: str | os.PathLike) -> dict[int, dict]:
             continue
         if not isinstance(doc, dict) or not isinstance(doc.get("predictions"), list):
             continue
-        stamp = doc.get("exported_at") or datetime.utcfromtimestamp(f.stat().st_mtime).isoformat()
+        stamp = doc.get("exported_at") or utc_naive_fromtimestamp(f.stat().st_mtime).isoformat()
         for r in doc["predictions"]:
             pred, mid = (r or {}).get("prediction"), (r or {}).get("match_id")
             if not pred or mid is None:
@@ -84,7 +85,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     from src.walters.provenance import git_sha as _git_sha
     from src.walters.venue import kalshi_home_prob, venue_gap
 
-    now = now or datetime.utcnow()
+    now = now or utc_now_naive()
     hi = now + timedelta(hours=hours)
     models = canonical_models(export_dir)
     labels: Counter = Counter()
@@ -159,7 +160,7 @@ def t90_signatures(match_ids, now: datetime | None = None, minutes: int = 90) ->
     from src.db.database import session_scope
     from src.db.schema import Injury, Lineup, Match
 
-    now = now or datetime.utcnow()
+    now = now or utc_now_naive()
     out: dict[str, str] = {}
     with session_scope() as s:
         for m in s.execute(select(Match).where(

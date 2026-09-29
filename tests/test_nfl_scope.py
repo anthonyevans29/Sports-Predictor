@@ -10,12 +10,13 @@ from sqlalchemy import select
 
 from src.db.database import init_db, session_scope
 from src.db.schema import Competition, Match, MatchStatus, Prediction, Sport, Team
+from src.timeutil import utc_now_naive
 
 
 @pytest.fixture(scope="module")
 def pot():
     init_db()
-    now = datetime.utcnow()
+    now = utc_now_naive()
     with session_scope() as s:
         # clean slate for the american-football family inside the shared test DB
         for m in s.execute(select(Match).where(Match.sport == Sport.NFL)).scalars():

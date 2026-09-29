@@ -7,12 +7,13 @@ from sqlalchemy import select
 
 from src.db.database import init_db, session_scope
 from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+from src.timeutil import utc_now_naive
 
 
 @pytest.fixture(scope="module")
 def game():
     init_db()
-    now = datetime.utcnow()
+    now = utc_now_naive()
     with session_scope() as s:
         comp = s.execute(select(Competition).where(Competition.sport == Sport.NFL,
                                                    Competition.code == "NFL")).scalar_one_or_none()
@@ -77,7 +78,7 @@ def test_drift_receipt_silent_in_normal_chain_and_warns_on_drift(game, tmp_path,
     # predictions written 3 days ago -> the game finished 2 days ago post-dates them
     with session_scope() as s:
         p = s.execute(select(Prediction).where(Prediction.match_id == game["up"])).scalar_one()
-        p.computed_at = datetime.utcnow() - timedelta(days=3)
+        p.computed_at = utc_now_naive() - timedelta(days=3)
     rc = {}
     export_nfl_predictions(out_dir=str(tmp_path), receipts=rc)
     assert rc["elo_drift_games"] == ["U2-1 @ U2-2"]

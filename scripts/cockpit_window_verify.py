@@ -22,7 +22,7 @@ import os
 import sys
 import tempfile
 import threading
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from playwright.sync_api import sync_playwright
 
@@ -36,7 +36,7 @@ def check(label, ok, detail=""):
 
 
 def ko(h):
-    return (datetime.utcnow() + timedelta(hours=h)).replace(microsecond=0).isoformat()
+    return (datetime.now(timezone.utc).replace(tzinfo=None) + timedelta(hours=h)).replace(microsecond=0).isoformat()
 
 
 def row(mid, sport, comp, home, away, h, fair, books, kal=None, kal_norm=None, model=None,
@@ -50,7 +50,7 @@ def row(mid, sport, comp, home, away, h, fair, books, kal=None, kal_norm=None, m
 
 
 CARD = {
-    "exported_at": datetime.utcnow().isoformat() + "Z",
+    "exported_at": datetime.now(timezone.utc).replace(tzinfo=None).isoformat() + "Z",
     "window": {"from": ko(0) + "Z", "to": ko(24) + "Z", "hours": 24},
     "receipts": {"with_model": 2, "quarantined": 1, "stale_flags": 1},
     "fixtures": [

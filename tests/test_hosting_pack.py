@@ -1292,3 +1292,29 @@ def test_transient_class_vocabulary():
     assert t(1, ["Connection reset while paging", "KeyError: 'fixture'"]) is None  # terminal line decides
     assert t(1, ["✗ sync failed: ('Connection aborted.', RemoteDisconnected(...))"]) == "Connection aborted"
     assert t(0, ["ConnectionError"]) is None and t(-9, ["ConnectionError"]) is None
+
+
+# ---------------------------- ntfy topic validation (lane C, 2026-09-29) ----
+
+def test_topic_with_whitespace_refused_at_startup_and_never_paged(sandbox, monkeypatch):
+    monkeypatch.setenv("NTFY_TOPIC", "sp-private topic")          # a space inside
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "sp-card-ok")
+    probs = sp_notify.topic_problems()
+    assert len(probs) == 1 and probs[0].startswith("NTFY_TOPIC contains whitespace")
+    assert "sp-private" not in probs[0]                            # the secret topic is never printed
+    assert sp_notify.ntfy_url("NTFY_TOPIC") is None
+    posted = []
+    monkeypatch.setattr(sp_notify.urllib.request, "urlopen", lambda *a, **k: posted.append(a))
+    assert sp_notify.deliver("page", "t", "body") is False and posted == []
+    rec = receipts(sandbox)[-1]
+    assert rec["delivered"] is False and rec["error"] == "invalid_topic_whitespace"
+    # sp_run refuses to start a chain (fails loudly, receipted)
+    monkeypatch.setitem(chains.CHAINS, "t-ok", {"steps": [["one"]]})
+    assert sp_run.main(["t-ok"]) == 2
+    rec = receipts(sandbox)[-1]
+    assert rec["kind"] == "config_error" and rec["chain"] == "t-ok" and rec["exit"] == 2
+    # a trailing newline (the classic paste) is whitespace too; a clean topic passes
+    monkeypatch.setenv("NTFY_TOPIC", "sp-private-topic\n")
+    assert sp_notify.topic_problems()
+    monkeypatch.setenv("NTFY_TOPIC", "sp-private-topic")
+    assert sp_notify.topic_problems() == [] and sp_notify.ntfy_url().endswith("/sp-private-topic")

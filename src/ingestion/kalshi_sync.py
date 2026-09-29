@@ -19,6 +19,7 @@ from sqlalchemy import select
 from src.adapters.kalshi import KalshiAdapter
 from src.db.database import session_scope
 from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Sport, Team
+from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
@@ -80,7 +81,7 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
                f"last={s0.get('last_price_dollars')!r}")
 
     # load candidate scheduled games in the window
-    now = datetime.utcnow()
+    now = utc_now_naive()
     lo = date_from or (now - timedelta(days=1))
     hi = date_to or (now + timedelta(days=2))
     matched, unmatched = 0, 0
@@ -396,7 +397,7 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
         return {"ok": False, "reason": f"no open markets in {series}"}
     report(f"  {len(all_markets)} open game markets")
 
-    now = datetime.utcnow()
+    now = utc_now_naive()
     lo = date_from or (now - timedelta(days=1))
     hi = date_to or (now + timedelta(days=7))   # weekend cadence: cover the matchweek
 

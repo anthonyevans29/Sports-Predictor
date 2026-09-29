@@ -13,8 +13,9 @@ from src.db.database import get_engine, init_db, session_scope
 from src.db.schema import (Base, Competition, Match, MatchStatus, Odds, Prediction, Sport,
                            Team)
 from src.walters import spread_fallback as fb
+from src.timeutil import utc_now_naive
 
-KICK = datetime.utcnow().replace(microsecond=0) + timedelta(days=2)
+KICK = utc_now_naive().replace(microsecond=0) + timedelta(days=2)
 
 
 # ---------------------------------------------------------------- pure math

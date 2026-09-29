@@ -31,6 +31,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+from src.timeutil import utc_now_naive
 
 
 class Base(DeclarativeBase):
@@ -249,7 +250,7 @@ class Odds(Base):
     line: Mapped[float | None] = mapped_column(Float)
     is_opening: Mapped[bool] = mapped_column(Boolean, default=False)
     is_closing: Mapped[bool] = mapped_column(Boolean, default=False)
-    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive, index=True)
     # Phase 10: which data source produced this row. Lets us coexist
     # multiple odds providers without overlap (e.g. soccer from API-Football,
     # MLB from API-Baseball) and replace odds per-source idempotently.
@@ -288,7 +289,7 @@ class OddsSnapshot(Base):
     devig_prob: Mapped[float] = mapped_column(Float)
     line: Mapped[float | None] = mapped_column(Float)    # totals line; NULL for 1X2
     n_books: Mapped[int] = mapped_column(Integer, default=0)  # how many books in the consensus
-    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive, index=True)
     source: Mapped[str | None] = mapped_column(String(32), index=True)
     # K-track (2026-09-27): the executable quotes behind a kalshi snapshot, in
     # dollars (0.00-1.00). NULL for book rows, for kalshi rows captured before
@@ -328,7 +329,7 @@ class UmpireGame(Base):
     strikeouts: Mapped[int | None] = mapped_column(Integer)  # both teams
     walks: Mapped[int | None] = mapped_column(Integer)       # both teams
     home_runs: Mapped[int | None] = mapped_column(Integer)   # both teams
-    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     match: Mapped[Match | None] = relationship()
 
@@ -364,7 +365,7 @@ class GameWeather(Base):
     wind_dir_deg: Mapped[float | None] = mapped_column(Float)  # reserved; None for now
     precipitation_in: Mapped[float | None] = mapped_column(Float)
     condition: Mapped[str | None] = mapped_column(String(48))
-    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     match: Mapped[Match | None] = relationship()
 
@@ -406,7 +407,7 @@ class PitcherAppearance(Base):
     hits_allowed: Mapped[int | None] = mapped_column(Integer)
     walks_allowed: Mapped[int | None] = mapped_column(Integer)
     strikeouts: Mapped[int | None] = mapped_column(Integer)
-    captured_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     match: Mapped[Match | None] = relationship()
 
@@ -442,7 +443,7 @@ class Prediction(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), index=True)
     model_version: Mapped[str] = mapped_column(String(64))
-    computed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    computed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     # 1X2 probabilities (soccer) / win probabilities (other sports)
     home_win_prob: Mapped[float] = mapped_column(Float)
@@ -539,7 +540,7 @@ class ModelVersion(Base):
     holdout_brier: Mapped[float | None] = mapped_column(Float)
     holdout_top_pick_acc: Mapped[float | None] = mapped_column(Float)
 
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
     promoted_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     __table_args__ = (
@@ -562,7 +563,7 @@ class PredictionOutcome(Base):
     prediction_id: Mapped[int] = mapped_column(
         ForeignKey("predictions.id"), unique=True, index=True
     )
-    evaluated_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    evaluated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     # Actuals
     actual_result: Mapped[Result | None] = mapped_column(Enum(Result))
@@ -626,7 +627,7 @@ class Injury(Base):
     type: Mapped[str | None] = mapped_column(String(32))  # "Missing Fixture", "Questionable"
     fixture_source_id: Mapped[str | None] = mapped_column(String(64))  # which fixture this applies to (if any)
     source: Mapped[str] = mapped_column(String(64), default="api_football")
-    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive, index=True)
 
     __table_args__ = (Index("ix_injury_team_refreshed", "team_id", "refreshed_at"),)
 
@@ -662,7 +663,7 @@ class Lineup(Base):
     shirt_number: Mapped[int | None] = mapped_column(Integer)
 
     source: Mapped[str] = mapped_column(String(64), default="api_football")
-    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow, index=True)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive, index=True)
 
     __table_args__ = (
         Index("ix_lineup_match_team_kind", "match_id", "team_id", "kind"),
@@ -700,7 +701,7 @@ class MatchParticipant(Base):
     player_source_id: Mapped[str | None] = mapped_column(String(64))
     player_name: Mapped[str] = mapped_column(String(128))
     source: Mapped[str] = mapped_column(String(64), default="mlb_stats_api")
-    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     __table_args__ = (
         Index("ix_participant_match_team_role", "match_id", "team_id", "role"),
@@ -772,7 +773,7 @@ class PlayerSeasonStats(Base):
     rating_avg: Mapped[float | None] = mapped_column(Float)
 
     source: Mapped[str] = mapped_column(String(64), default="api_football")
-    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     player: Mapped[Player] = relationship()
     team: Mapped[Team] = relationship()
@@ -833,7 +834,7 @@ class PitcherSeasonStats(Base):
     bb_per_9: Mapped[float | None] = mapped_column(Float)
 
     source: Mapped[str] = mapped_column(String(64), default="mlb_stats_api")
-    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     team: Mapped[Team | None] = relationship()
 
@@ -895,7 +896,7 @@ class BullpenSeasonStats(Base):
     recent_refreshed_at: Mapped[datetime | None] = mapped_column(DateTime)
 
     source: Mapped[str] = mapped_column(String(64), default="mlb_stats_api")
-    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    refreshed_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
     team: Mapped[Team] = relationship()
 

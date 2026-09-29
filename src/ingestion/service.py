@@ -39,6 +39,7 @@ from src.db.schema import (
     Sport,
     Team,
 )
+from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
@@ -520,7 +521,7 @@ class IngestionService:
             if upcoming_only:
                 stmt = stmt.where(
                     Match.status == MatchStatus.SCHEDULED,
-                    Match.utc_date >= datetime.utcnow(),
+                    Match.utc_date >= utc_now_naive(),
                 )
             candidates: list[Match] = []
             for match in s.execute(stmt).scalars():
@@ -593,7 +594,7 @@ class IngestionService:
             )
             teams = list(s.execute(teams_q).scalars())
 
-            now = datetime.utcnow()
+            now = utc_now_naive()
             for team in teams:
                 self._sync_injuries_for_team(s, team, season, now, result)
 
@@ -618,7 +619,7 @@ class IngestionService:
             teams = list(s.execute(
                 select(Team).where(Team.id.in_(team_ids))
             ).scalars())
-            now = datetime.utcnow()
+            now = utc_now_naive()
             for team in teams:
                 self._sync_injuries_for_team(s, team, season, now, result)
         log.info("sync_injuries_for_teams(%s): %s", team_ids, result)
@@ -736,7 +737,7 @@ class IngestionService:
                 _log(f"competition {competition_code} not in DB")
                 return result
 
-            now = datetime.utcnow()
+            now = utc_now_naive()
             window_end = now + timedelta(days=PROJECTED_LINEUP_LOOKAHEAD_DAYS)
             confirmed_cutoff = now + timedelta(minutes=CONFIRMED_LINEUP_WINDOW_MINUTES)
 
@@ -841,7 +842,7 @@ class IngestionService:
                         player_position=row.get("player_position"),
                         shirt_number=row.get("shirt_number"),
                         source=self.source,
-                        refreshed_at=datetime.utcnow(),
+                        refreshed_at=utc_now_naive(),
                     ))
                     written_this_match += 1
 
@@ -914,7 +915,7 @@ class IngestionService:
                 _log(f"Competition {competition_code} not in DB.")
                 return result
 
-            now = datetime.utcnow()
+            now = utc_now_naive()
             horizon = now + timedelta(days=14)
 
             stmt = (
@@ -1096,7 +1097,7 @@ class IngestionService:
             teams = list(s.execute(teams_q).scalars())
             _log(f"Will fetch players for {len(teams)} teams ({competition_code} {season}).")
 
-            now = _dt.utcnow()
+            now = utc_now_naive()
             for team in teams:
                 team_source_id = (team.external_ids or {}).get(self.source)
                 if not team_source_id:
@@ -1318,7 +1319,7 @@ class IngestionService:
                         price_decimal=ow.price_decimal,
                         line=ow.line,
                         source="api_baseball",
-                        captured_at=datetime.utcnow(),
+                        captured_at=utc_now_naive(),
                     ))
                     result.created += 1
                 result.updated += 1
@@ -1344,7 +1345,7 @@ class IngestionService:
         from src.ingestion.match_lookup import normalize_team_name
 
         with session_scope() as s:
-            now = datetime.utcnow()
+            now = utc_now_naive()
             missing = list(s.execute(
                 select(Match).where(
                     Match.sport == Sport.MLB,
@@ -1446,7 +1447,7 @@ class IngestionService:
                             price_decimal=ow.price_decimal,
                             line=ow.line,
                             source="api_baseball",
-                            captured_at=datetime.utcnow(),
+                            captured_at=utc_now_naive(),
                         ))
                         result.created += 1
                     filled += 1
@@ -1488,7 +1489,7 @@ class IngestionService:
         result = SyncResult()
         with session_scope() as s:
             # Find all unique pitcher source_ids in MatchParticipant for upcoming games
-            now = _dt.utcnow()
+            now = utc_now_naive()
             pitcher_rows = list(s.execute(
                 select(MatchParticipant)
                 .join(Match, Match.id == MatchParticipant.match_id)
@@ -1555,7 +1556,7 @@ class IngestionService:
                     "whip": parsed["whip"],
                     "k_per_9": parsed["k_per_9"],
                     "bb_per_9": parsed["bb_per_9"],
-                    "refreshed_at": _dt.utcnow(),
+                    "refreshed_at": utc_now_naive(),
                 }
 
                 if existing:
@@ -1613,7 +1614,7 @@ class IngestionService:
 
         has_recent = hasattr(self.adapter, "get_team_bullpen_recent")
         # Recent window bounds
-        today = _dt.utcnow().date()
+        today = utc_now_naive().date()
         start_date = (today - _td(days=recent_window_days)).strftime("%Y-%m-%d")
         end_date = today.strftime("%Y-%m-%d")
 
@@ -1696,8 +1697,8 @@ class IngestionService:
                     "recent_era": recent_era,
                     "recent_innings_pitched": recent_ip,
                     "recent_window_days": recent_window_days if recent_era is not None else None,
-                    "recent_refreshed_at": _dt.utcnow() if recent_era is not None else None,
-                    "refreshed_at": _dt.utcnow(),
+                    "recent_refreshed_at": utc_now_naive() if recent_era is not None else None,
+                    "refreshed_at": utc_now_naive(),
                 }
 
                 if existing:
@@ -1781,7 +1782,7 @@ def sync_odds_nfl(progress=None) -> dict:
     ad = APIAmericanFootballAdapter()
     created = games = snapshots = 0
     with session_scope() as s:
-        now = datetime.utcnow()
+        now = utc_now_naive()
         upcoming = list(s.execute(select(Match).where(
             Match.sport == Sport.NFL,
             Match.status == MatchStatus.SCHEDULED,
@@ -1809,7 +1810,7 @@ def sync_odds_nfl(progress=None) -> dict:
                            selection=ow.selection, bookmaker=ow.bookmaker,
                            price_decimal=ow.price_decimal, line=ow.line,
                            source=ad.source_name,
-                           captured_at=datetime.utcnow()))
+                           captured_at=utc_now_naive()))
                 created += 1
             games += 1
             by_sel: dict[str, list[tuple[str, float]]] = {}
@@ -1819,7 +1820,7 @@ def sync_odds_nfl(progress=None) -> dict:
             implied = MarketSnapshot(market="1X2", by_selection=by_sel).average_implied() if by_sel else {}
             over = sum(implied.values())
             if over > 0:
-                stamp = datetime.utcnow()
+                stamp = utc_now_naive()
                 n_books = max(len(v) for v in by_sel.values())
                 for sel, prob in implied.items():
                     s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel,

@@ -27,6 +27,7 @@ from src.adapters.registry import get_adapter
 from src.db.database import drop_db, init_db, session_scope
 from src.db.schema import Competition, Match, MatchStats, MatchStatus, Sport, Team
 from src.ingestion.service import IngestionService
+from src.timeutil import utc_now_naive
 
 console = Console()
 
@@ -113,8 +114,8 @@ def sync_matches_cmd(
     service = IngestionService(_adapter_for_competition(competition_code))
 
     if seasons > 0:
-        current_year = datetime.utcnow().year
-        if datetime.utcnow().month < 7:
+        current_year = utc_now_naive().year
+        if utc_now_naive().month < 7:
             current_year -= 1
         # Season-string format is sport-shaped (2026-09-05, NFL phase 1b):
         # soccer uses "2026/27"; MLB and NFL use single years. The EFL
@@ -473,7 +474,7 @@ def predict_cmd(sport: str, competition_code: str, season: str, version: str | N
                 f"(found {total} total, all finished/postponed).[/yellow]"
             )
             console.print(
-                f"[dim]Tip: today is {datetime.utcnow().strftime('%Y-%m-%d')}. "
+                f"[dim]Tip: today is {utc_now_naive().strftime('%Y-%m-%d')}. "
                 f"Try a more recent season.[/dim]"
             )
         else:
@@ -819,7 +820,7 @@ def _apply_production_config_edit(sport_enum, field, value, yes):
         params["baseball_config"] = bc
         edits = list(params.get("manual_config_edits", []))
         edits.append({"field": field, "from": old, "to": coerced,
-                      "at": datetime.utcnow().isoformat()})
+                      "at": utc_now_naive().isoformat()})
         params["manual_config_edits"] = edits
         mv.parameters = params
         s.add(mv)
@@ -1613,7 +1614,7 @@ def recheck_cmd(sport: str, since: str):
             model_rpg = bc.get("league_runs_per_game")
 
         def actual_rpg(days):
-            cutoff = datetime.utcnow() - timedelta(days=days)
+            cutoff = utc_now_naive() - timedelta(days=days)
             played = s.execute(
                 select(Match).where(Match.sport == Sport.MLB,
                                     Match.status == MatchStatus.FINISHED,
@@ -2113,7 +2114,7 @@ def capture_odds_cmd(sport: str, competition: str, season: str):
     except Exception as e:
         console.print(f"[yellow]odds sync warning: {e} — snapshotting whatever is in DB[/yellow]")
 
-    now = datetime.utcnow()
+    now = utc_now_naive()
     written = 0
     games = 0
     with session_scope() as s:
@@ -2386,7 +2387,7 @@ def sync_umpires_cmd(competition_code, season, limit, backfill, today):
             have_ump = set(s.execute(select(UmpireGame.source_game_id)).scalars())
 
         if not backfill and not today:
-            cutoff = datetime.utcnow() - timedelta(days=3)
+            cutoff = utc_now_naive() - timedelta(days=3)
             matches = [m for m in matches if m.utc_date and m.utc_date >= cutoff]
 
         targets = []
@@ -2434,7 +2435,7 @@ def sync_umpires_cmd(competition_code, season, limit, backfill, today):
                     continue
                 s2.add(UmpireGame(
                     match_id=m.id, source_game_id=str(sid),
-                    game_date=m.utc_date or datetime.utcnow(),
+                    game_date=m.utc_date or utc_now_naive(),
                     plate_umpire=ump,
                     home_team=env.get("home_team"), away_team=env.get("away_team"),
                     # run environment left null — fills in post-game
@@ -2446,7 +2447,7 @@ def sync_umpires_cmd(competition_code, season, limit, backfill, today):
                 continue
             s2.add(UmpireGame(
                 match_id=m.id, source_game_id=str(sid),
-                game_date=m.utc_date or datetime.utcnow(),
+                game_date=m.utc_date or utc_now_naive(),
                 plate_umpire=env.get("plate_umpire"),
                 home_team=env.get("home_team"), away_team=env.get("away_team"),
                 total_runs=env.get("total_runs"), strikeouts=env.get("strikeouts"),
@@ -2567,7 +2568,7 @@ def sync_appearances_cmd(competition_code, season, limit, backfill, refresh):
         ).scalars())
 
         if not backfill:
-            cutoff = datetime.utcnow() - timedelta(days=5)
+            cutoff = utc_now_naive() - timedelta(days=5)
             matches = [m for m in matches if m.utc_date and m.utc_date >= cutoff]
 
         targets = []
@@ -2620,7 +2621,7 @@ def sync_appearances_cmd(competition_code, season, limit, backfill, refresh):
                     continue
                 s2.add(PitcherAppearance(
                     match_id=m.id, source_game_id=str(sid),
-                    game_date=m.utc_date or datetime.utcnow(),
+                    game_date=m.utc_date or utc_now_naive(),
                     team_source_id=a.get("team_source_id"),
                     pitcher_id=a.get("pitcher_id"), pitcher_name=a.get("pitcher_name"),
                     pitches=a.get("pitches"), outs=a.get("outs"),
@@ -3424,7 +3425,7 @@ def nfl_qb_audit_cmd(team, season, live):
     from datetime import datetime
     from src.db.schema import Injury, Match, Sport, Team
     from src.walters.qb_audit import audit_live, audit_stored
-    now = datetime.utcnow()
+    now = utc_now_naive()
     with session_scope() as s:
         t = s.execute(select(Team).where(Team.sport == Sport.NFL,
                                          Team.name.ilike(f"%{team}%"))).scalars().all()
@@ -3583,7 +3584,7 @@ def capture_weather_nfl_cmd():
     init_db()
     captured = skipped = 0
     with session_scope() as s2:
-        now = datetime.utcnow()
+        now = utc_now_naive()
         rows = list(s2.execute(
             select(Match).where(Match.sport == Sport.NFL,
                                 Match.status == MatchStatus.SCHEDULED,
@@ -4608,7 +4609,7 @@ def set_soccer_config_cmd(field, value, yes):
         poisson[field] = coerced
         params["poisson"] = poisson
         edits = params.get("manual_config_edits", [])
-        edits.append({"ts": datetime.utcnow().isoformat(), "field": f"poisson.{field}",
+        edits.append({"ts": utc_now_naive().isoformat(), "field": f"poisson.{field}",
                       "from": old, "to": coerced})
         params["manual_config_edits"] = edits
         prod.parameters = params
@@ -4704,7 +4705,7 @@ def calibration_fine_cmd(sport, days, since, width, actionable_only):
         since_dt = datetime.fromisoformat(since)
         label = f"since {since}"
     else:
-        since_dt = datetime.utcnow() - timedelta(days=days)
+        since_dt = utc_now_naive() - timedelta(days=days)
         label = f"last {days} days"
 
     res = fine_calibration(since=since_dt, width=width,
@@ -5050,7 +5051,7 @@ def data_freshness_cmd(sport: str, season: str):
     from src.db.schema import (
         Match, MatchStatus, Sport, BullpenSeasonStats, PitcherSeasonStats,
     )
-    now = datetime.utcnow()
+    now = utc_now_naive()
     stale_cut = now - timedelta(days=2)
 
     console.print(f"\n[bold]Data freshness — {sport.upper()} {season}[/bold]")
@@ -5515,14 +5516,14 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
     else:
         # The CURRENT SLATE (architect 2026-09-28): kickoffs from now through
         # the next 36h, or --days N for the explicit full look-ahead.
-        start_date = datetime.utcnow().replace(microsecond=0)
+        start_date = utc_now_naive().replace(microsecond=0)
         if days:
             end_date, window_how = start_date + timedelta(days=days), f"--days {days}"
         elif sport_enum == Sport.MLB:
             # Ruling 2026-09-28: MLB keeps its ONE slate-day (the old default).
             # It plays daily, so 36h from a morning run would drag in
             # tomorrow's games before pitchers and lineups are confirmed.
-            start_date = datetime.strptime(datetime.utcnow().strftime("%Y-%m-%d"),
+            start_date = datetime.strptime(utc_now_naive().strftime("%Y-%m-%d"),
                                            "%Y-%m-%d").replace(hour=DAY_START_HOUR_UTC)
             end_date = start_date + timedelta(days=1)
             window_how = "default: MLB one slate-day; --days N for more"
@@ -5535,7 +5536,7 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
     # empty exports for past dates and confused the UX.
     # Use 08:00 UTC as the day boundary so "today" lines up with the ET
     # operational day (matches the start_date / end_date logic above).
-    now_utc = datetime.utcnow()
+    now_utc = utc_now_naive()
     today = now_utc.replace(hour=DAY_START_HOUR_UTC, minute=0, second=0, microsecond=0)
     if now_utc.hour < DAY_START_HOUR_UTC:
         today = today - timedelta(days=1)

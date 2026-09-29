@@ -28,6 +28,7 @@ from src.db.schema import Competition, Sport
 from src.ingestion.service import IngestionService
 from src.web.guards import require_localhost
 from src.web.jobs import Job, runner
+from src.timeutil import utc_now_naive
 
 log = logging.getLogger(__name__)
 
@@ -71,10 +72,10 @@ def _job_sync_matches(
     is_mlb = competition_code.upper() in _BASEBALL_COMP_CODES
     job: Job = kwargs.get("job")  # type: ignore[assignment]
     if seasons > 0:
-        current_year = datetime.utcnow().year
+        current_year = utc_now_naive().year
         # Soccer seasons span two years (e.g. 2025/26); MLB seasons are single-year.
         # For soccer, we adjust by month — anything before July is "last season".
-        if not is_mlb and datetime.utcnow().month < 7:
+        if not is_mlb and utc_now_naive().month < 7:
             current_year -= 1
         totals = {"created": 0, "updated": 0, "skipped": 0}
         for offset in range(seasons):
@@ -388,7 +389,7 @@ async def admin_page(request: Request):
             "actions": visible_actions,
             "active_sport": active_sport,
             "recent_jobs": recent_jobs,
-            "current_year": datetime.utcnow().year,
+            "current_year": utc_now_naive().year,
         },
     )
 

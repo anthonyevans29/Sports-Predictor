@@ -1106,7 +1106,7 @@ function num(v){ if(v==null||v==="") return null; const x=parseFloat(String(v).r
 // KX{FAMILY}GAME-{yyMONdd}[hhmm]{teams}-{side}
 function parseTicker(t){
   t=String(t||"").trim().toUpperCase();
-  if(t.startsWith("KXMVESPORTSMULTIGAMEEXTENDED")) return {kind:"parlay",category:"kalshi-native parlay (MVE multigame)"};
+  if(t.startsWith("KXMVE")) return {kind:"parlay",family:t.split("-")[0],category:"kalshi-native parlay (MVE combo)"};
   const m=t.match(/^KX([A-Z]+?)GAME-(\d{2})([A-Z]{3})(\d{2})(\d{4})?([A-Z0-9]+)-([A-Z0-9]+)$/);
   if(!m||!FAMILY_SPORTS[m[1]]||!MONTHS[m[3]]) return {kind:"non_sport",category:"non-sport / unrecognised market"};
   const date=`20${m[2]}-${String(MONTHS[m[3]]).padStart(2,"0")}-${m[4]}`;
@@ -1183,9 +1183,39 @@ function importKalshiCSV(text,L){
   return {added,dup,mapped:Object.entries(H).filter(([k,v])=>v!=null).map(([k,v])=>`${k}←${hdr[v]}`),
           unmapped:Object.entries(H).filter(([k,v])=>v==null).map(([k])=>k)};
 }
+// MVE COMBOS (Kalshi multivariate-event tickers, KXMVE…; cosmetics lane C,
+// 2026-09-29): classified by LEG CONTENT. The legs come from the fill's
+// market_title ("yes Chicago,yes Buffalo,yes Over 44.5 points"): split on , ; &
+// +, with a leading yes/no dropped. A leg is a sports leg when it carries
+// sports-market words (win/points/runs/goals/spread/over/under…) or names a
+// team from a logged call. Title grammar is ARCHITECT-VERIFY (no real MVE
+// CSV seen yet).
+//   every leg sports                        -> off_book_sports "off-book sports parlay"
+//   no legs in the title, KXMVESPORTS… family -> off_book_sports (the ticker family says sports)
+//   mixed sports / non-sport legs           -> off_book_other (counted, labelled)
+//   otherwise                               -> off_book_other
+// Never system_matched: the ledger's parlays are 0.25u model tickets, not
+// Kalshi-native combos.
+const MVE_SPORT_WORDS=/\b(wins?|winner|points?|runs?|goals?|touchdowns?|yards?|spread|moneyline|over|under|scores?|beats?|defeats?)\b/i;
+function mveLegs(title){
+  const parts=String(title||"").split(/\s*[,;]\s*|\s+&\s+|\s+\+\s+/)
+    .map(x=>x.replace(/^(yes|no)\s+/i,"").trim()).filter(Boolean);
+  return parts.length>=2?parts:[];
+}
+function mveClass(fx,calls){
+  const teamWords=new Set(calls.flatMap(c=>[c.home,c.away]).flatMap(n=>normTeam(n).split(" ")).filter(w=>w.length>=4));
+  const legs=mveLegs(fx.title);
+  const isSport=l=>MVE_SPORT_WORDS.test(l)||normTeam(l).split(" ").some(w=>teamWords.has(w));
+  const nS=legs.filter(isSport).length;
+  const fam=fx.family||String(fx.ticker||"").toUpperCase().split("-")[0];
+  if(legs.length&&nS===legs.length) return {book:"off_book_sports",category:`off-book sports parlay (MVE combo, ${legs.length} legs)`};
+  if(!legs.length&&fam.startsWith("KXMVESPORTS")) return {book:"off_book_sports",category:"off-book sports parlay (MVE combo; legs not in title, ticker family SPORTS)"};
+  if(nS) return {book:"off_book_other",category:`MVE combo, mixed legs (${nS}/${legs.length} sports)`};
+  return {book:"off_book_other",category:legs.length?`MVE combo, non-sport legs (${legs.length})`:"MVE combo, legs not identified"};
+}
 function classifyFills(L){
   const calls=L.calls||[];
-  return (L.fills||[]).map(fx=>({...fx,...(fx.kind==="sport"&&!fx.backed
+  return (L.fills||[]).map(fx=>({...fx,...(fx.kind==="parlay"?mveClass(fx,calls):fx.kind==="sport"&&!fx.backed
       ?{book:"off_book_sports",category:"side not resolvable ("+(fx.resolve_note||"?")+")",plausible:true}
       :matchFill(fx,calls))}));
 }

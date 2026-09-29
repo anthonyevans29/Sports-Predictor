@@ -10,6 +10,7 @@ from src.adapters.kalshi import KalshiAdapter
 from src.db.database import init_db, session_scope
 from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Prediction, Sport, Team
 from src.walters import venue
+from src.timeutil import utc_now_naive
 
 
 def test_fee_formula_and_exec_cost():
@@ -32,7 +33,7 @@ def test_yes_quotes_parses_dollar_strings():
 @pytest.fixture(scope="module")
 def nfl_game():
     init_db()
-    kick = datetime.utcnow() + timedelta(days=1)
+    kick = utc_now_naive() + timedelta(days=1)
     with session_scope() as s:
         comp = s.execute(select(Competition).where(Competition.sport == Sport.NFL,
                                                    Competition.code == "NFL")).scalar_one_or_none()

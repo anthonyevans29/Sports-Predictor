@@ -31,6 +31,7 @@ import json
 import os
 from dataclasses import dataclass
 from datetime import datetime, timedelta
+from src.timeutil import utc_now_naive
 
 STATE_PATH = os.path.expanduser("~/.sports_predictor_input_candidates.json")
 DEFAULT_CADENCE_DAYS = 7
@@ -95,12 +96,12 @@ def due_for_input_eval(cadence_days: int = DEFAULT_CADENCE_DAYS) -> bool:
         last_dt = datetime.fromisoformat(last)
     except Exception:
         return True
-    return datetime.utcnow() - last_dt >= timedelta(days=cadence_days)
+    return utc_now_naive() - last_dt >= timedelta(days=cadence_days)
 
 
 def mark_input_eval_done():
     state = _load_state()
-    state["last_input_eval"] = datetime.utcnow().isoformat()
+    state["last_input_eval"] = utc_now_naive().isoformat()
     _save_state(state)
 
 

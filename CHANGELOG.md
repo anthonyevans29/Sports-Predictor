@@ -4,6 +4,25 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (Week 4 MNF rulings: value-side shadow, value-side CLV, QB feed audit)
+- Cockpit: the Desk evaluates edge on every side. A value side that is
+  not the top pick and clears 4pp logs a `value_shadow` at 0.25u
+  notional.
+  - It is graded like quarantine shadows and never staked.
+  - It has its own counterfactual line, with promotion review at 30
+    graded (policy v1.2 candidate).
+- `nfl-grade` and RESULTS.md print value-side-vs-close beside
+  pick-vs-close.
+  - `sync-odds-football` now appends a book-consensus snapshot on every
+    sync, which serves as the anchor.
+  - Games without one are counted as unanchored.
+- NFL QB detection: positions resolve by id, then name, then a unique
+  initial+surname. QB/Quarterback both count. Still-listed players are
+  no longer dropped by the 14-day filter.
+- The export gains `positions_unresolved`.
+- New read-only `nfl-qb-audit` (with `--live` for the H1/H2/H3 verdict).
+  The receipt on MNF data must run on the host/laptop.
+
 ## 2026-09-28 (hosting: sp_run transient-step retry)
 - sp_run retries a step that fails TRANSIENTLY (connection errors,
   timeouts, HTTP 5xx/429) twice, 15s then 45s. The receipt says

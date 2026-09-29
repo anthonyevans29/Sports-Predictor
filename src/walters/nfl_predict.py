@@ -25,6 +25,7 @@ from src.db.schema import Injury, Match, MatchStatus, Odds, OddsSnapshot, Predic
 from src.walters.nfl_backtest import (NFLEloConfig, _State, _expected_home, _update,
                                       nfl_scoped, scope_line)
 from src.walters.provenance import git_sha as _git_sha
+from src.walters.qb_audit import is_qb
 
 log = logging.getLogger(__name__)
 
@@ -205,10 +206,14 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
             for side, tid in (("home", m.home_team_id), ("away", m.away_team_id)):
                 team_inj = list(s.execute(select(Injury).where(
                     Injury.team_id == tid)).scalars())
-                qb = [i.player_name for i in team_inj
-                      if (i.player_position or "").upper() == "QB"]
+                qb = [i.player_name for i in team_inj if is_qb(i.player_position)]
                 stamp = max((i.refreshed_at for i in team_inj), default=None)
+                # positions_unresolved (additive, QB audit 2026-09-29): injured
+                # players whose position never resolved — qb_listed cannot see
+                # them, so an empty qb_listed beside these is NOT "no QB out".
                 inj[side] = {"count": len(team_inj), "qb_listed": qb,
+                             "positions_unresolved": [i.player_name for i in team_inj
+                                                      if not i.player_position],
                              "synced_at": stamp.isoformat() if stamp else None}
             p_home = pred.home_win_prob
             _fair = ((market or {}).get("fair_prob") or {}
@@ -301,6 +306,49 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
     return path
 
 
+VALUE_FLOOR_PP = 4.0   # the Desk's NFL floor; the value-shadow cohort uses the same
+
+
+def _book_anchor_home(s, m):
+    """The value-side ANCHOR (architect 2026-09-29): the earliest pre-kickoff
+    de-vigged 1X2 BOOK consensus snapshot (never Kalshi) — the claim-time
+    analog, since a position is claimed at its first capture. Home prob
+    normalized over that capture's selections, or None when the game has no
+    book snapshot (games before sync-odds-football appended them). None is
+    honest: the value side is then unknown, never guessed from the close."""
+    snaps = list(s.execute(select(OddsSnapshot).where(
+        OddsSnapshot.match_id == m.id, OddsSnapshot.market == "1X2",
+        OddsSnapshot.source != "kalshi", OddsSnapshot.captured_at <= m.utc_date)
+        .order_by(OddsSnapshot.captured_at)).scalars())
+    if not snaps:
+        return None
+    first = [x for x in snaps if x.captured_at == snaps[0].captured_at]
+    tot = sum(x.devig_prob for x in first) or 0.0
+    home = next((x.devig_prob for x in first if x.selection == "HOME"), None)
+    return home / tot if home is not None and tot > 0 else None
+
+
+def value_side_grade(p_home: float, anchor_home: float | None, close_home: float | None) -> dict | None:
+    """value_side_clv = model p − close p on the VALUE side: the side where
+    model − market was positive at the anchor. Beside pick-vs-close (the
+    model's top pick vs the close), never replacing it. shadow = the value
+    side is not the top pick and cleared the floor at the anchor (the
+    Cockpit's v1.2-candidate value_shadow cohort). None without an anchor
+    and a close, or when the anchor edge is exactly zero."""
+    if anchor_home is None or close_home is None:
+        return None
+    edge_home = p_home - anchor_home
+    if edge_home == 0:
+        return None
+    v_home = edge_home > 0
+    side_p = p_home if v_home else 1 - p_home
+    side_close = close_home if v_home else 1 - close_home
+    return {"side": "HOME" if v_home else "AWAY",
+            "edge_at_anchor_pp": round(abs(edge_home) * 100, 1),
+            "value_side_clv": side_p - side_close,
+            "shadow": (v_home != (p_home >= 0.5)) and abs(edge_home) * 100 >= VALUE_FLOOR_PP}
+
+
 def grade_nfl(days_back: int = 8, progress=None) -> dict:
     """
     NFL grading (2026-09-14, built for Week 1's first read): joins
@@ -331,6 +379,7 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
         hits = n = 0
         ll = 0.0
         clvs = []
+        vclvs, vshadow = [], []
         for pred, m in s.execute(q).all():
             y = 1 if m.home_score > m.away_score else 0
             p = pred.home_win_prob
@@ -358,18 +407,32 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
                 close_p = close_h if pick_home else 1 - close_h
                 clv = (pick_p - close_p)
                 clvs.append(clv)
+            vg = value_side_grade(p, _book_anchor_home(s, m), close_h)
+            if vg:
+                vclvs.append(vg["value_side_clv"])
+                if vg["shadow"]:
+                    vshadow.append(vg["value_side_clv"])
             report(f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
                    f"{m.away_score:>2}-{m.home_score:<2} model_H={p:.3f} "
                    f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                    f"{'HIT ' if hit else 'miss'} "
-                   f"clv={'%+.1fpp' % (clv*100) if clv is not None else '—'}")
+                   f"clv={'%+.1fpp' % (clv*100) if clv is not None else '—'} "
+                   f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100) + (' [shadow]' if vg['shadow'] else '')) if vg else '— (no anchor)'}")
         if n == 0:
             return {"ok": False, "reason": "no finished NFL games with predictions in window"}
         summary = {"ok": True, "games": n, "hits": hits,
                    "logloss": round(ll / n, 4),
-                   "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None}
+                   "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None,
+                   # value side (architect 2026-09-29) — beside, never replacing, pick-vs-close
+                   "value_side_n": len(vclvs),
+                   "mean_value_side_clv_pp": round(sum(vclvs) / len(vclvs) * 100, 2) if vclvs else None,
+                   "value_shadow_n": len(vshadow),
+                   "mean_value_shadow_clv_pp": round(sum(vshadow) / len(vshadow) * 100, 2) if vshadow else None}
         report(f"  ── sides {hits}/{n} · log-loss {summary['logloss']} · "
                f"mean CLV {summary['mean_clv_pp']}pp (n={len(clvs)} priced)")
+        report(f"  ── value side vs close {summary['mean_value_side_clv_pp']}pp "
+               f"(n={len(vclvs)} anchored; {n - len(vclvs)} unanchored — no pre-kickoff book snapshot) · "
+               f"value-shadow cohort {summary['mean_value_shadow_clv_pp']}pp (n={len(vshadow)})")
         return summary
 
 

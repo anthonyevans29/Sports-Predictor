@@ -3412,6 +3412,69 @@ def nfl_grade_cmd():
         console.print(f"[yellow]{r.get('reason')}[/yellow]")
 
 
+@cli.command("nfl-qb-audit")
+@click.option("--team", required=True, help='NFL team name (substring), e.g. "Chicago Bears".')
+@click.option("--season", default="2026")
+@click.option("--live", is_flag=True,
+              help="Also fetch the provider's raw /injuries + roster for the team (2 requests) "
+                   "and classify each listed player (H1 not listed / H2 position miss / H3 14-day drop).")
+def nfl_qb_audit_cmd(team, season, live):
+    """QB-feed audit (architect 2026-09-29): why qb_listed was empty. READ-ONLY
+    on the DB; --live spends 2 provider requests and writes nothing."""
+    from datetime import datetime
+    from src.db.schema import Injury, Match, Sport, Team
+    from src.walters.qb_audit import audit_live, audit_stored
+    now = datetime.utcnow()
+    with session_scope() as s:
+        t = s.execute(select(Team).where(Team.sport == Sport.NFL,
+                                         Team.name.ilike(f"%{team}%"))).scalars().all()
+        if len(t) != 1:
+            console.print(f"[red]✗ '{team}' matches {len(t)} NFL teams: "
+                          f"{', '.join(x.name for x in t) or 'none'} — be specific.[/red]")
+            raise SystemExit(1)
+        t = t[0]
+        last = s.execute(select(Match).where(
+            Match.sport == Sport.NFL, Match.utc_date <= now,
+            (Match.home_team_id == t.id) | (Match.away_team_id == t.id))
+            .order_by(Match.utc_date.desc())).scalars().first()
+        kickoff = last.utc_date if last else None
+        st = audit_stored(list(s.execute(select(Injury).where(Injury.team_id == t.id)).scalars()), kickoff)
+        print(f"NFL QB AUDIT — {t.name} (team id {t.id}) · last kickoff "
+              f"{kickoff.isoformat() if kickoff else '—'}"
+              + (f" ({last.away_team.name} @ {last.home_team.name})" if last else ""))
+        print(f"STORED (DB, read-only): {st['count']} injury rows · synced_at "
+              f"{st['synced_at'].isoformat() if st['synced_at'] else '—'}"
+              + (f" ({st['synced_before_kickoff_h']:+.1f}h before kickoff)" if st['synced_before_kickoff_h'] is not None else ""))
+        for r in st["rows"]:
+            print(f"  {r['name'][:26]:26} pos={str(r['position']):6} status={str(r['status'])[:14]:14} "
+                  f"reason={str(r['reason'])[:30]}")
+        print(f"  qb_listed pre-fix (== 'QB'): {st['qb_old']} · fixed read: {st['qb_fixed']}"
+              f" · positions unresolved: {len(st['unresolved'])} {st['unresolved']}")
+        source_id = (t.external_ids or {}).get("api_american_football")
+    if not live:
+        print("(add --live to classify the provider's current report: H1 / H2 / H3)")
+        return
+    if not source_id:
+        console.print("[red]✗ team has no api_american_football id — cannot query the provider.[/red]")
+        raise SystemExit(1)
+    from src.adapters.api_american_football import APIAmericanFootballAdapter
+    ad = APIAmericanFootballAdapter()
+    inj = ad._get("injuries", params={"team": source_id}).get("response") or []
+    roster = ad._get("players", params={"team": source_id,
+                                        "season": int(str(season).split("/")[0])}).get("response") or []
+    r = audit_live(inj, roster, now)
+    print(f"LIVE (provider, {now.strftime('%Y-%m-%d %H:%M')}Z): {len(inj)} on the injury report · "
+          f"roster {r['roster_size']} players · roster QBs: {', '.join(n for n in r['roster_qbs'] if n) or 'none'}")
+    for i in r["items"]:
+        print(f"  {str(i['name'])[:26]:26} id={str(i['id']):8} status={str(i['status'])[:12]:12} "
+              f"date={str(i['date'])[:10]:10} pos={str(i['position']):6} via={str(i['resolved_by']):14} "
+              f"pre-fix pos={str(i['old_position']):6}{' 14d-DROP(pre-fix)' if i['old_filter_drops'] else ''}"
+              f"{'  ← QB' if i['qb'] else ''}")
+    print("VERDICT:")
+    for v in r["verdict"]:
+        print(f"  · {v}")
+
+
 @cli.command("predict-nfl")
 def predict_nfl_cmd():
     """Write NFL v1 predictions for upcoming games (LIVE since Week 3)."""
@@ -3557,7 +3620,9 @@ def sync_odds_football_cmd():
     from src.ingestion.service import sync_odds_nfl
     r = sync_odds_nfl(progress=lambda msg: console.print(msg))
     console.print(f"[green]✓ Football odds (NFL+NCAA): created={r['created']} "
-                  f"across {r['games']} games[/green]")
+                  f"across {r['games']} games"
+                  + (f" · book-consensus snapshots appended={r['snapshots']}" if "snapshots" in r else "")
+                  + "[/green]")
 
 
 # Old name kept as an alias so existing chains keep working (2026-09-26).

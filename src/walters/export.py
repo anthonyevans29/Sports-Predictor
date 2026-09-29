@@ -1198,7 +1198,13 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
                     f"## NFL (live since Week 3, 2026-09-22)\n\n- Sides: **{r['hits']}/{r['games']}**"
                     f" ({r['hits']/r['games']:.1%})\n"
                     f"- Mean log-loss: {r['logloss']:.4f}\n"
-                    f"- Mean pick-vs-close: {r['mean_clv_pp']:+.2f}pp\n")
+                    f"- Mean pick-vs-close: {r['mean_clv_pp']:+.2f}pp\n"
+                    + (f"- Mean value-side-vs-close: {r['mean_value_side_clv_pp']:+.2f}pp"
+                       f" (n={r['value_side_n']} anchored; value-shadow cohort "
+                       + (f"{r['mean_value_shadow_clv_pp']:+.2f}pp" if r['mean_value_shadow_clv_pp'] is not None else "—")
+                       + f", n={r['value_shadow_n']})\n"
+                       if r.get("mean_value_side_clv_pp") is not None else
+                       "- Mean value-side-vs-close: — (no games with a pre-kickoff book snapshot yet)\n"))
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")
     lines.append("\nDeep detail: `BACKLOG.md`. Change history: `CHANGELOG.md`.\n")

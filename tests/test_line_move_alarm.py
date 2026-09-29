@@ -89,7 +89,7 @@ def test_window_card_and_nfl_export_carry_the_flag(tmp_path):
     from src.walters.nfl_predict import export_nfl_predictions
     from src.walters.window import build_card
     init_db()
-    now = datetime.utcnow().replace(microsecond=0)
+    now = datetime.now(timezone.utc).replace(tzinfo=None, microsecond=0)
     ko = now + timedelta(hours=2)
     with session_scope() as s:
         moved = _nfl_game(s, "moved", ko)

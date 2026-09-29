@@ -19,7 +19,7 @@ kickoff). In-play captures never count.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 LINE_MOVE_PP = 6.0
 LINE_MOVE_WINDOW_H = 3
@@ -87,7 +87,7 @@ def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:
     from sqlalchemy import select
 
     from src.db.schema import OddsSnapshot
-    now = now or datetime.utcnow()
+    now = now or datetime.now(timezone.utc).replace(tzinfo=None)   # naive UTC (the storage convention)
     if m.utc_date is None or not (m.utc_date - timedelta(hours=LINE_MOVE_WINDOW_H) <= now < m.utc_date):
         return None
     snaps = s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars()

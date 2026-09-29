@@ -545,10 +545,11 @@ freshens do today; the ledger's idempotent re-log absorbs it.
 **Day one: 2026-09-28 13:45 UTC** (architect record). The parallel-week
 clock started here; the frozen cutover criteria (H0-18) count from this
 moment.
-- **Timers:** the 12 `TIMERS` of T11 are enabled: backup, backup-prune,
+- **Timers:** the 12 `TIMERS` of T11 were enabled on day one (sp-mlb-history
+  joined the list 2026-09-29, MLB PHASE A): backup, backup-prune,
   soccer friday/saturday/morning-after, nfl lines/grade/predict,
-  nhl-daily, weekly-fullseason, ncaa-market and window. That count equals
-  the T11 list.
+  nhl-daily, weekly-fullseason, ncaa-market and window. The T11 list now
+  holds 13.
 - **MLB:** the `MLB_LAPTOP_ONLY` timers are OFF by ruling (statsapi 406 on
   the DO ASN).
 - **Quota:** `SP_PARALLEL_MODE=full` (T8 option a).
@@ -614,6 +615,39 @@ criterion 3):
   - Candidate fixes for after cutover (a Tailscale exit node via the Mac,
     or a residential egress) are H2-era decisions, deliberately deferred.
 
+**MLB PHASE A: the host's MLB history from api-sports (ruling 2026-09-29).**
+- GATE MET: score parity 100.0% on finished pairs (2476/2476, 2426/2426,
+  the laptop probe). The host GRADES and KEEPS MLB history from api-sports
+  Baseball; the laptop keeps statsapi; MLB predictions stay a laptop duty
+  (PHASE B negative: no pitcher/bullpen/umpire/lineup endpoints).
+- ENGAGEMENT: `sync-matches` / `sync-teams --competition MLB` route to
+  `src/ingestion/mlb_apisports.py` whenever `SP_SKIP_FAMILIES` names MLB
+  (host.env, already `MLB` on the DO host). No flag, no laptop change.
+- Chain `mlb-history` (timer 10:30 UTC daily, backup first): sync-competitions
+  `--sport mlb` (static list, no provider call), then `sync-matches` MLB
+  2026 (teams, then the season's /games in ONE call). No predict, evaluate
+  or improve step.
+- STAGE: rows the fallback creates carry stage NULL. The provider's `week`
+  labels the Wild Card round and the World Series both "Final", so it is
+  never read into stage; a row paired to a statsapi row keeps that stage.
+- KNOWN LIMITATION, receipted every run: doubleheader game 2 is absent
+  from api-sports /games (13 games across 2025-2026). Never fabricated;
+  where one of our rows exists for one it is marked
+  `external_ids.api_baseball_note = "apisports-unavailable"`; the laptop's
+  statsapi remains the record.
+- The window service is unchanged: it still drops MLB `sync-matches`
+  (SP_SKIP_FAMILIES) and keeps the already-ruled MLB odds/Kalshi steps,
+  which become live now that the host has MLB rows. freshen:MLB stays
+  logged-never-run.
+- ONE-TIME on a live host (receipts: the `MLB-FALLBACK-RECEIPT` lines):
+```
+sudo -u sp venv/bin/python deploy/hosting/sp_backup.py daily
+sudo -u sp venv/bin/python cli.py sync-competitions --sport mlb
+sudo -u sp venv/bin/python cli.py sync-matches --competition MLB --season 2025
+sudo -u sp venv/bin/python cli.py sync-matches --competition MLB --season 2026
+sudo systemctl enable --now sp-mlb-history.timer && echo sp-mlb-history.timer | sudo tee -a /etc/sports-predictor/timers.enabled
+```
+
 **T8. TERMINAL (host): H0-16 quota mode.**
 - **BROWSER first:** open the api-sports dashboard and screenshot the
   quota headroom. This is the receipt.
@@ -656,7 +690,8 @@ Receipt: the push arrives on the phone, and the printed line says
 ```
 TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-saturday.timer
   sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer
-  sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer"
+  sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
+  sp-mlb-history.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
@@ -668,6 +703,9 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   and `sp-ncaa-market.timer` (H0-11).
 - The MLB timers stay off. They are shipped and CI-validated, ready for
   whichever H2-era egress decision is made.
+- `sp-mlb-history.timer` (MLB PHASE A, 2026-09-29) is ON: it syncs MLB
+  history only, from the api-sports fallback. On a live host that
+  predates it, see "MLB PHASE A" below.
 - No timer exists for soccer-refresh (H0-6).
 
 **T12. TERMINAL (laptop): the nightly backup pull (H0-14 second layer).**

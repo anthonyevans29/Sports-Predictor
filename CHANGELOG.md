@@ -13,6 +13,12 @@ Every drop adds an entry going forward.
 - Known limits logged: soccer line-move is Kalshi-only; MLB follows
   capture cadence.
 
+## 2026-09-29 (MLB-PROBE: api-sports Baseball vs statsapi, read-only)
+- `scripts/mlb_apisports_probe.py` reports coverage vs our 2025/2026
+  MLB matches, ID mapping via the odds join, status vocabulary and
+  postseason game types. No wiring.
+- To be run on the laptop. The receipt is pending.
+
 ## 2026-09-29 (hosting: bootstrap catch-up — laptop completeness sweep)
 - `bootstrap.py catch-up --reference <host fingerprint>`: for each
   competition-season where the laptop counts fewer games, it runs

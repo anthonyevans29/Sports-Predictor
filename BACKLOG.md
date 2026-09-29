@@ -22,6 +22,74 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **MNF QB AUDIT VERDICT + LINE-MOVE ALARM + T-60 CLOSING-FRESHEN
+  DOCTRINE (architect, 2026-09-29).**
+  - **Verdict (logged): CAUSE = SYNC TIMING + PROVIDER LATENCY.** The
+    detection code is exonerated.
+    - Williams was absent from the provider's injury report at the laptop
+      sync (13:51 UTC, 10.4h pre-kickoff) and at the host sync
+      (21:49 UTC). He appears on it now, dated 09-28.
+    - The audit resolves him via `roster_id` both before and after the
+      #63 fix.
+    - Ruling (4): the 9 unresolved positions in the live report are
+      practice-squad/IR players outside the roster lookup. Acceptable:
+      the export's `positions_unresolved` list already makes that
+      visible.
+  - **(1) Host journal receipt — PENDING (this container cannot reach
+    the host).** A code reading says what the receipt should show:
+    - The window chain (sync-matches / sync-odds / Kalshi / window-card)
+      never syncs injuries. Its T-90 signature can only change if another
+      chain writes injury rows between two window runs.
+    - On Monday nothing did: nfl-predict runs Thu/Sun only, nfl-lines
+      syncs odds and Kalshi only, and freshen:NFL is what the check
+      would trigger.
+    - With the 00:15 kickoff, only the 23:05 and 00:05 runs fall inside
+      T-90. The first of them has no previous T-90 signature for the
+      game. So the only possible comparison is 23:05 → 00:05, over
+      unchanged rows.
+    - Expected receipt: `window_page` at 22:05 / 23:05 / 00:05 with
+      `t90_news: 0` and empty `freshen_needed`, and no `freshen` receipt.
+      The injury count seen is whatever the 21:49 sync wrote.
+    - Commands are in the PR. This is a STRUCTURAL gap:
+      injury-driven T-90 detection is blind unless an injury sync lands
+      inside T-90. That is the reason for (2) and (3).
+  - **(2) LINE-MOVE ALARM (new, small; `src/walters/line_move.py`).**
+    Snapshot-based, with no provider calls. It uses the NFL book
+    consensus that sync-odds-football appends (#63) and the Kalshi
+    captures.
+    - Inside [kickoff − 3h, kickoff), it takes the net move of the home
+      probability per venue. The reference is the price as of T-3h, or
+      the first capture inside the window. It is compared with the
+      latest pre-kickoff capture.
+    - A move of ≥ 6pp on either venue marks the row
+      `late_news_flag: "late-news?"`, with a per-venue `line_move`
+      (from/to/at/move_pp).
+    - The flag appears in the window card (every sport with snapshots;
+      receipt `late_news`) and in `export-nfl-predictions` (additive).
+    - `sp_window_page` adds a `line_move` delta class. It fires once
+      when a row turns late-news?, pages on the card topic, and puts the
+      game in `freshen_needed`.
+    - `sp_run` then runs freshen:<family> under the existing
+      one-per-hour rate guard. Freshen receipts now name their `reasons`.
+  - **(3) DOCTRINE, recorded in CLI.md:** the game-day T-60 closing
+    freshen is MANDATORY for model sports on the laptop while it is
+    writer of record.
+  - ARCHITECT-RULE flags (built as described; each a one-line change):
+    - (a) Quiet hours (00–07 ET) suppress a line-move page like every
+      class except quarantine. The freshen still runs, and it is
+      receipted. Early-kickoff soccer's T-3h falls in quiet hours.
+    - (b) The move is NET (latest vs reference), not the maximum
+      intraday excursion.
+    - (c) The flag is on the window card and the NFL export only. The
+      MLB/soccer exports rely on the card.
+    - (d) Soccer has no book snapshots (Kalshi only). MLB book snapshots
+      follow the capture-odds cadence.
+  - Receipts:
+    - `tests/test_line_move_alarm.py` 6 passed;
+    - pager test expectations gain the new `line_move` class and the
+      `reason` field;
+    - full suite 240 passed.
+
 - **#63 DECISIONS RULED + ANCHOR TIMESTAMP ON EVERY GRADE (architect,
   2026-09-29).** The four ARCHITECT-RULE flags on #63 were ruled:
   - (a) Shadow scope: all model sports, including soccer's draw value

@@ -22,6 +22,84 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **VALUE-SIDE SHADOW (policy v1.2 CANDIDATE) + VALUE-SIDE CLV + QB FEED
+  AUDIT (architect rulings, 2026-09-29, after Week 4 MNF).** The trigger:
+  PHI@CHI had model CHI 48.9 vs market 35.5, which is +13.4pp of value on
+  the dog. The Desk emitted PASS, because its edge is anchored on the top
+  pick. CHI won 27-7.
+  - (1) Cockpit, shadow mode. The Desk now computes edge = model − market
+    on every side.
+    - When the best-edged side is NOT the top pick and clears the
+      sport's floor (4pp), it emits `value_shadow`: engine `model_edge`,
+      0.25u notional, units 0.
+    - It is logged and graded like quarantine shadows. It is never
+      staked, never a parlay leg, and has no Execute button.
+    - It renders as a `↳` row under the slate, e.g. "value on dog:
+      +13.4pp (Chicago Bears model 48.9% vs market 35.5%)".
+    - The P&L block has its own "Value-side counterfactual" line with a
+      30-graded promotion counter. The ledger has a value-side table.
+    - The equity dashed line stays quarantine-only, as labelled.
+    - POLICY_VERSION stays v1.1. Promotion only via a version bump after
+      ≥30 graded.
+  - (2) `value_side_clv` = model p − close p on the value side, printed
+    beside pick-vs-close in `nfl-grade` and RESULTS.md. Existing metrics
+    are unchanged.
+    - The value side needs a call-time market. NFL kept none: the `Odds`
+      rows are wipe-and-replace.
+    - So `sync-odds-football` now APPENDS the de-vigged 1X2 book
+      consensus to `odds_snapshots` on every sync (source
+      `api_american_football`; every Kalshi reader filters
+      `source == "kalshi"`).
+    - The anchor is the earliest pre-kickoff book snapshot (the
+      claim-time analog).
+    - Games without one are counted as unanchored and never guessed.
+      Anchoring on the close would make the metric |model − close|,
+      always ≥0.
+    - MNF itself and all earlier games are unanchored. The metric
+      accrues from the next sync.
+  - (3) QB audit. The provider's /injuries has no position; the adapter
+    joins it from the roster by provider id. An injured QB can vanish
+    from `qb_listed` three ways:
+    - H1: he is not on the report;
+    - H2: his position did not resolve (empty roster, id miss, or a
+      spelling other than "QB");
+    - H3: the service's 14-day fixture-date filter (a soccer
+      fixture-history rule) drops a still-listed player with an old
+      report date.
+  - QB fixes (one shared resolver in `src/walters/qb_audit.py`):
+    - resolve by id, then exact name, then a UNIQUE initial+surname
+      match (ambiguous stays None);
+    - `is_qb` accepts QB/Quarterback;
+    - NFL rows carry `current_status=True`, so the 14-day filter skips
+      them (soccer is unchanged);
+    - an empty roster logs a warning;
+    - the export gains `positions_unresolved` (additive), and the
+      Cockpit shows "position unresolved: n".
+  - New read-only `nfl-qb-audit --team NAME [--live]` prints:
+    - stored rows, the pre-fix vs fixed read, and sync timing vs the
+      last kickoff;
+    - with `--live` (2 provider requests), the H1/H2/H3 verdict per
+      listed player.
+  - **RECEIPT PENDING (law 5): the DB never travels**, so the cause on
+    last night's data is NOT yet determined. The operator runs
+    `python cli.py nfl-qb-audit --team "Chicago Bears" --live` on the
+    host/laptop. The stored section is what the DB held for MNF; the live
+    section is today's report.
+  - ARCHITECT-RULE (flagged, built as described; one-line changes if
+    ruled otherwise):
+    - (a) scope: every model sport (NFL, MLB, soccer incl. a DRAW value
+      side on 3-way boards); NHL pass-all and market-only are excluded;
+    - (b) anchor: the earliest pre-kickoff book snapshot;
+    - (c) a quarantined row's value side is still logged, tagged
+      `quarantine ≥ 15pp`.
+  - No prediction output changes: the NFL model reads no injuries, and
+    soccer injury filtering is unchanged.
+  - Receipts:
+    - `scripts/cockpit_value_verify.py` 19/19;
+    - the other 5 Cockpit verifies are unchanged and green;
+    - `tests/test_value_side_and_qb_audit.py` 9 passed;
+    - full suite 229 passed.
+
 - **EXECUTION-TIMING RULE: POLICY v1.1 ADDENDUM (architect, 2026-09-28;
   Cockpit + docs).** A position now carries two timestamps.
   - claim_at: the first prediction, with claim_market_p and claim_model_p

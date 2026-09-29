@@ -663,9 +663,12 @@ class IngestionService:
                 result.skipped += 1
                 continue
 
-            # Filter stale
+            # Filter stale — fixture-HISTORY feeds only (soccer). A
+            # current-status feed (NFL, current_status=True) lists who is out
+            # NOW; an old report date there means a long absence, not a
+            # recovered player (QB audit, architect 2026-09-29).
             fixture_date_str = inj.get("fixture_date")
-            if fixture_date_str:
+            if fixture_date_str and not inj.get("current_status"):
                 try:
                     fdate = _dt.fromisoformat(fixture_date_str.replace("Z", "+00:00"))
                     # Make naive (drop tz) so we can compare to `now`, which is naive
@@ -1755,6 +1758,12 @@ def sync_odds_nfl(progress=None) -> dict:
     adapter — the provider's NFL odds endpoint is per-game, so this is the
     designed shape, not a fallback. Wipe-and-replace per match, same as
     every other odds path. ~16 requests per weekly slate.
+
+    Each sync also APPENDS the de-vigged 1X2 book consensus to odds_snapshots
+    (architect 2026-09-29, value-side grading): the Odds rows are replaced
+    every sync, so without this NFL kept no call-time book market to anchor
+    a value side against. Same shape as the MLB capture-odds path; every
+    Kalshi reader filters source == "kalshi", so these rows never mix in.
     """
     from datetime import datetime, timedelta
 
@@ -1762,14 +1771,15 @@ def sync_odds_nfl(progress=None) -> dict:
 
     from src.adapters.api_american_football import APIAmericanFootballAdapter
     from src.db.database import session_scope
-    from src.db.schema import Match, MatchStatus, Odds, Sport
+    from src.db.schema import Match, MatchStatus, Odds, OddsSnapshot, Sport
+    from src.walters.value import MarketSnapshot
 
     def report(msg):
         if progress:
             progress(msg)
 
     ad = APIAmericanFootballAdapter()
-    created = games = 0
+    created = games = snapshots = 0
     with session_scope() as s:
         now = datetime.utcnow()
         upcoming = list(s.execute(select(Match).where(
@@ -1802,4 +1812,18 @@ def sync_odds_nfl(progress=None) -> dict:
                            captured_at=datetime.utcnow()))
                 created += 1
             games += 1
-    return {"created": created, "games": games}
+            by_sel: dict[str, list[tuple[str, float]]] = {}
+            for ow in rows:
+                if ow.market == "1X2":
+                    by_sel.setdefault(ow.selection, []).append((ow.bookmaker, ow.price_decimal))
+            implied = MarketSnapshot(market="1X2", by_selection=by_sel).average_implied() if by_sel else {}
+            over = sum(implied.values())
+            if over > 0:
+                stamp = datetime.utcnow()
+                n_books = max(len(v) for v in by_sel.values())
+                for sel, prob in implied.items():
+                    s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel,
+                                       devig_prob=prob / over, line=None, n_books=n_books,
+                                       captured_at=stamp, source=ad.source_name))
+                    snapshots += 1
+    return {"created": created, "games": games, "snapshots": snapshots}

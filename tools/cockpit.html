@@ -56,6 +56,7 @@ th{color:var(--muted);font-weight:600;font-size:12px;
 .ladder{color:var(--warn);font-weight:700}
 .pass{color:var(--pass)}
 .caution{color:var(--danger);font-weight:600}
+tr.vshadow td{font-style:italic;opacity:.9}
 .chip{display:inline-block;background:var(--chip);border-radius:20px;
   padding:1px 9px;font-size:12px;margin-left:6px}
 .reason{color:var(--muted);font-size:12px;white-space:normal;max-width:340px}
@@ -109,6 +110,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
     <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
+    <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.
   </div>
 </div>
@@ -296,7 +298,11 @@ function normalize(doc){
           const ac=inj.away_count??(inj.away&&inj.away.count);
           if(hc!=null)bits.push("inj "+hc+"/"+ac);
           const qb=[].concat((inj.home&&inj.home.qb_listed)||[],(inj.away&&inj.away.qb_listed)||[]);
-          if(qb.length)bits.push("QB: "+qb.join(","));}
+          if(qb.length)bits.push("QB: "+qb.join(","));
+          // QB audit (2026-09-29): injured players whose position never resolved —
+          // an empty QB list beside these is NOT "no QB out"
+          const un=[].concat((inj.home&&inj.home.positions_unresolved)||[],(inj.away&&inj.away.positions_unresolved)||[]);
+          if(un.length)bits.push("position unresolved: "+un.length);}
         return bits.join(" · ");})(),
       tier:pr.tier||null});
   }
@@ -361,13 +367,44 @@ function venueEdge(r,now){
   return out;
 }
 
-let deskCalls=[], deskParlays=[], deskVenue=[];
+// ---------------------------------------------------------------------
+// VALUE-SIDE ENGINE (policy v1.2 CANDIDATE, shadow — architect 2026-09-29,
+// after Week 4 MNF: model CHI 48.9 vs market 35.5 = +13.4pp on the dog while
+// the top-pick-anchored Desk said PASS). Edge = model p − market p on EVERY
+// side; when the best-edged side is NOT the model's top pick and clears the
+// sport's floor (4pp), the Desk emits a value_shadow at 0.25u notional:
+// logged and graded like quarantine shadows, never staked, never a parlay
+// leg. Promotion to real sizing only via a version bump after >= 30 graded.
+// ---------------------------------------------------------------------
+const VALUE={units:0.25,reviewN:30};
+function valueSide(r,P){
+  if(r.marketOnly||P.passAll||!r.twoSided) return null;
+  const eMin=P.eMin??4; let best=null;
+  for(const k of ["HOME","DRAW","AWAY"]){
+    if(k===r.pick||r.probsAll[k]==null||r.fairAll[k]==null) continue;
+    const e=(r.probsAll[k]-r.fairAll[k])*100;
+    if(best==null||e>best.edge) best={side:k,edge:e,modelP:r.probsAll[k],marketP:r.fairAll[k]};
+  }
+  if(!best||!(best.edge>=eMin)) return null;
+  const pickMkt=r.fairAll[r.pick];
+  best.role=best.side==="DRAW"?"draw":(pickMkt!=null&&best.marketP<pickMkt?"dog":"favorite");
+  best.reason=`value on ${best.role}: ${best.edge>=0?"+":""}${best.edge.toFixed(1)}pp`
+    +` (${sideName(r,best.side)} model ${(best.modelP*100).toFixed(1)}% vs market ${(best.marketP*100).toFixed(1)}%)`
+    +` · not the top pick → v1.2 candidate shadow ${VALUE.units}u, NOT staked`;
+  const tags=["value-side shadow (v1.2 candidate)"];
+  if(r.quar){tags.push("quarantine ≥ 15pp"); best.reason+=` · row quarantined ${r.div}pp`;}
+  if(r.qbs&&r.qbs.length){tags.push("QB-flagged"); best.reason+=` · QB listed: ${r.qbs.join(", ")}`;}
+  best.tags=tags;
+  return best;
+}
+
+let deskCalls=[], deskParlays=[], deskVenue=[], deskValue=[];
 
 function policy(){
   const base=BASE_UNITS;
   let plays=0,ladders=0,passes=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
-  deskCalls=[];
+  deskCalls=[]; deskValue=[];
   for(const r of rows){
     if(r.marketOnly) continue;  // gated comps: model policy n/a (venue engine below)
     const P=POLICY[r.sport]||POLICY.DEFAULT;
@@ -416,6 +453,7 @@ function policy(){
         tags.push("quarantine ≥ 15pp (shadow)"); }
     }
     deskCalls.push({r,call,units,edge,tags:tags.slice(),shadowUnits});
+    const vs=valueSide(r,P); if(vs) deskValue.push({r,v:vs});
     if(call==="PASS")passes++; else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
     tr.innerHTML=`<td>${esc(r.game)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
@@ -425,16 +463,26 @@ function policy(){
       <td class="reason">${esc(reasons.join(" · "))}</td>`;
     tb.appendChild(tr);
   }
+  for(const {r,v} of deskValue){        // appended after the main rows: row order of the policy table is unchanged
+    const tr=document.createElement("tr"); tr.className="vshadow";
+    tr.innerHTML=`<td>↳ ${esc(r.game)}</td><td title="${esc(v.side)}">${esc(sideName(r,v.side))}</td>
+      <td>${v.modelP.toFixed(3)}</td><td>${v.marketP.toFixed(3)}</td>
+      <td>+${v.edge.toFixed(1)}pp</td>
+      <td class="caution">VALUE ${VALUE.units}u (shadow)</td><td>—</td>
+      <td class="reason">${esc(v.reason)}</td>`;
+    tb.appendChild(tr);
+  }
   $("slate").hidden=false;
   // v0.2: correlation note — same team on multiple live rows = one exposure line
   const teamCount={};
   Array.from($("slate").querySelectorAll("tbody tr")).forEach(tr=>{
-    if(!/PASS/.test(tr.children[5].textContent)){
+    if(!tr.classList.contains("vshadow")&&!/PASS/.test(tr.children[5].textContent)){
       const g=tr.children[0].textContent;
       g.split(/ @ | v /).forEach(t=>{teamCount[t]=(teamCount[t]||0)+1;});
     }});
   const corr=Object.entries(teamCount).filter(([t,n])=>n>1).map(([t,n])=>`${t}×${n}`);
   $("summary").textContent=`${sportLabel} · ${rows.length} rows → ${plays} play · ${ladders} ladder · ${passes} pass`
+    +(deskValue.length?` · ${deskValue.length} value shadow (not staked)`:"")
     +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"");
   $("auditBtn").hidden=!(sampleNS&&rows.length);
   buildParlays();
@@ -609,6 +657,13 @@ function snapshotCalls(now){
         model_p:r.prob,market_p:r.mkt,venue_hint:"books",rules:x.tags});
     }
   }
+  for(const {r,v} of deskValue){        // value-side shadows (v1.2 candidate): notional, never staked
+    if(!live(r)) continue;
+    out.push({...baseCall(r,d),pick:v.side,tier:"shadow",engine:"model_edge",
+      call_type:"value_shadow",units:0,shadow_units:VALUE.units,
+      model_p:v.modelP,market_p:v.marketP,value_edge_pp:+v.edge.toFixed(2),value_role:v.role,
+      top_pick:r.pick,venue_hint:"books",rules:v.tags.slice()});
+  }
   for(const t of deskParlays){          // parlays: model_edge only (frozen)
     if(t.legs.some(l=>kickedOff(l,now))){lastCapture.started++;continue;}   // whole ticket or nothing
     const pid="P-"+d+"-"+t.legs.map(l=>`${l.sport}:${l.away}@${l.home}:${l.pick}`).sort().join("+");
@@ -631,7 +686,7 @@ function snapshotCalls(now){
 $("logBtn").addEventListener("click",()=>{
   const L=loadLedger(); const fresh=snapshotCalls();
   const r=upsertCalls(L,fresh,{relog:true}); const dd=saveLedger(L);
-  const byEng={}; fresh.forEach(c=>{const k=c.engine+(c.call_type==="quarantine_shadow"?" (shadow)":"");byEng[k]=(byEng[k]||0)+1;});
+  const byEng={}; fresh.forEach(c=>{const k=c.engine+(c.call_type==="quarantine_shadow"?" (shadow)":c.call_type==="value_shadow"?" (value shadow)":"");byEng[k]=(byEng[k]||0)+1;});
   $("logNote").textContent=`Logged ${fresh.length} entries (${Object.entries(byEng).map(([k,n])=>`${k} ${n}`).join(" · ")||"none"}) — `
     +`${r.added} new · ${r.updated} updated · ${r.kept} already graded (kept) · ${r.repriced} positions from an earlier day repriced (not duplicated)`
     +` · ${lastCapture.started} past kickoff (not captured)`+(lastCapture.noKickoff?` · ${lastCapture.noKickoff} with no kickoff time`:"")+"."
@@ -697,6 +752,9 @@ function settleReturn(units,result,market_p){
   if(result==="push"||result==="void") return units;
   return 0;
 }
+// Shadow instruments: logged and graded at notional shadow_units, never staked
+// (quarantine shadows, v1.1; value-side shadows, v1.2 candidate).
+function isShadow(c){return c.call_type==="quarantine_shadow"||c.call_type==="value_shadow";}
 function gradeLedger(L,outs){
   const today=localDate(); let graded=0;
   for(const c of L.calls){
@@ -705,13 +763,13 @@ function gradeLedger(L,outs){
     c.result=legResult(c,o); c.graded_date=today;
     if(c.call_type!=="parlay_leg"){
       c.status="graded";
-      const u=c.call_type==="quarantine_shadow"?0:c.units;
+      const u=isShadow(c)?0:c.units;
       c.units_returned=+settleReturn(u,c.result,execP(c)).toFixed(4);       // at the EXECUTION price
-      if(c.call_type==="quarantine_shadow")
+      if(isShadow(c))
         c.shadow_returned=+settleReturn(c.shadow_units||0,c.result,execP(c)).toFixed(4);
       if(c.claim_market_p!=null){                                           // claim-price counterfactual
         c.claim_units_returned=+settleReturn(u,c.result,c.claim_market_p).toFixed(4);
-        if(c.call_type==="quarantine_shadow")
+        if(isShadow(c))
           c.claim_shadow_returned=+settleReturn(c.shadow_units||0,c.result,c.claim_market_p).toFixed(4);
       }
       graded++;
@@ -767,7 +825,7 @@ function settledBets(L){
         result:c.ticket_result,date:c.graded_date,rules:["parlay 0.25u"],shadow:false,
         claimReturned:c.claim_units_returned??null,exec_mode:legs.some(l=>l.exec_mode==="operator_early")?"operator_early":(c.exec_mode||null),
         claim_p:null,exec_p:null});
-    } else if(c.call_type==="quarantine_shadow"){
+    } else if(isShadow(c)){
       bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
         staked:c.shadow_units||0,returned:c.shadow_returned||0,result:c.result,
         date:c.graded_date,rules:c.rules||[],shadow:true,
@@ -799,7 +857,7 @@ function groupTable(title,bets,keyFn){
 }
 function equitySVG(bets){
   const real=bets.filter(b=>!b.shadow).sort((a,b)=>(a.date||"").localeCompare(b.date||""));
-  const shad=bets.filter(b=>b.shadow);
+  const shad=bets.filter(b=>b.shadow&&b.call_type==="quarantine_shadow");
   if(!real.length&&!shad.length) return '<div class="note">No settled calls yet.</div>';
   const dates=[...new Set(bets.map(b=>b.date))].sort();
   let cum=0,cf=0; const A=[0],C=[0];
@@ -861,13 +919,14 @@ function pnlBlock(L){
   const line=(k,a,bs)=>`${k.padEnd(14)}${String(a.n).padStart(4)}${fmt(a.staked).padStart(9)}${fmt(a.returned).padStart(10)}${((a.net>=0?"+":"")+fmt(a.net)).padStart(9)}${(a.roi==null?"—":fmt(a.roi,1)+"%").padStart(9)}${(a.hit==null?"—":fmt(a.hit,1)+"%").padStart(8)}${cve(bs).padStart(16)}`;
   const hdr=`${"".padEnd(14)}${"n".padStart(4)}${"staked".padStart(9)}${"returned".padStart(10)}${"net".padStart(9)}${"ROI".padStart(9)}${"hit".padStart(8)}${"claim vs exec".padStart(16)}`;
   const section=(title,bs)=>[title,hdr,...["model_edge","venue_edge"].map(e=>{const s=bs.filter(b=>b.engine===e);return line(e,agg(s),s);}),line("TOTAL",agg(bs),bs)].join("\n");
-  const cf=agg(shad);
+  const cf=agg(shad.filter(b=>b.call_type==="quarantine_shadow")), vf=agg(shad.filter(b=>b.call_type==="value_shadow"));
   return [`COCKPIT LEDGER — income statement · fair-odds P&L, pre-fee · policy ${POLICY_VERSION}`,
     `generated ${today} · units = 1u base`, "",
     section(`WEEK ${wkStart} .. ${today} (by graded date)`,wk), "",
     section("ALL-TIME",real), "",
     ...timingLines(real), "",
     `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
+    `Value-side counterfactual (v1.2 candidate shadow, NOT staked): n ${vf.n} · notional staked ${fmt(vf.staked)} · net ${vf.net>=0?"+":""}${fmt(vf.net)} · hit ${vf.hit==null?"—":fmt(vf.hit,1)+"%"} · promotion review at ${VALUE.reviewN} graded (${Math.min(vf.n,VALUE.reviewN)}/${VALUE.reviewN}), version bump only`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
     ...realizedLines(L),
     `Sizing gate: model_edge ${real.filter(b=>b.engine==="model_edge").length}/50 · venue_edge ${real.filter(b=>b.engine==="venue_edge").length}/50 graded before any sizing proposal`,
@@ -886,7 +945,8 @@ function renderLedger(){
     : "No calls logged yet.";
   $("ledgerTables").innerHTML=groupTable("by engine",real,b=>b.engine)+groupTable("by sport",real,b=>b.sport)
     +groupTable("by tier",real,b=>b.tier)+groupTable("by call type",real,b=>b.call_type)
-    +groupTable("quarantine counterfactual (shadow, notional units)",shad,b=>b.engine);
+    +groupTable("quarantine counterfactual (shadow, notional units)",shad.filter(b=>b.call_type==="quarantine_shadow"),b=>b.engine)
+    +groupTable("value-side counterfactual (v1.2 candidate shadow, notional units)",shad.filter(b=>b.call_type==="value_shadow"),b=>b.sport);
   $("equity").innerHTML=equitySVG(bets);
   const rb=[]; bets.forEach(b=>(b.rules.length?b.rules:["(no rule tag)"]).forEach(t=>rb.push({...b,rule:t})));
   $("ruleTable").innerHTML=groupTable("by rule",rb,b=>b.rule+(b.shadow?" [shadow]":""));
@@ -895,7 +955,7 @@ function renderLedger(){
   const px=v=>v==null?"—":(+v).toFixed(3), hm=s=>s?String(s).slice(5,16).replace("T"," "):"";
   $("openList").innerHTML=(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th></th></tr></thead><tbody>`
     +open.map(c=>{const early=c.exec_mode==="operator_early";
-      const canExec=!early&&c.call_type!=="quarantine_shadow"&&!kickedOff({utc:c.kickoff},Date.now());
+      const canExec=!early&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
       return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`
       +`<td>${c.claim_at?`${px(c.claim_market_p)} <span class="note">${esc(hm(c.claim_at))}</span>`:'<span class="note">unknown (pre-rule)</span>'}</td>`
       +`<td>${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
@@ -1187,7 +1247,7 @@ $("kalshiCsvFile").addEventListener("change",async e=>{
 
 function buildParlays(){
   const live=rows.map((r,i)=>({r,i,tr:$("slate").querySelectorAll("tbody tr")[i]}))
-    .filter(x=>x.tr&&!/PASS/.test(x.tr.children[5].textContent))
+    .filter(x=>x.tr&&!x.tr.classList.contains("vshadow")&&!/PASS/.test(x.tr.children[5].textContent))
     .map(x=>({...x.r,edge:(x.r.prob-(x.r.mkt??0))}));
   const card=$("parlayCard"), out=$("parlayOut");
   deskParlays=[];

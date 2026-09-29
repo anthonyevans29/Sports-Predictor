@@ -347,7 +347,8 @@ class APIAmericanFootballAdapter(DataAdapter):
         fixture_date. The provider's /injuries is a current-status feed (not
         fixture history), so no per-fixture dedupe is needed; we stamp
         fixture_date with the report date the provider gives (or None) and
-        let the service's 14-day freshness filter do its normal job.
+        marks each row current_status=True: membership in this feed is the
+        truth, so the service's 14-day fixture-date filter does not apply.
         """
         # Provider quirks (verified live 2026-09-06/09): /injuries REJECTS a
         # season param ("The Season field do not exist") AND carries NO
@@ -356,19 +357,24 @@ class APIAmericanFootballAdapter(DataAdapter):
         # the team's roster alongside and join by provider player id. One
         # extra request per team (~64/sync total); roster misses leave
         # position None, which the export treats honestly.
-        pos_by_id: dict[int, str] = {}
+        # QB audit (architect 2026-09-29): positions resolve through
+        # src/walters/qb_audit (by id, then exact name, then a UNIQUE
+        # initial+surname); the feed is current-status, so each row carries
+        # current_status=True and the service's 14-day fixture-date filter
+        # (a fixture-history rule) no longer drops a player still listed.
+        from src.walters.qb_audit import resolve_position, roster_index
+        roster: list = []
         try:
             roster = self._get("players", params={
                 "team": team_source_id,
                 "season": int(str(season).split("/")[0]),
             }).get("response") or []
-            for rp in roster:
-                p = rp.get("player") if isinstance(rp.get("player"), dict) else rp
-                pid, pos = p.get("id"), (p.get("position") or p.get("group"))
-                if pid is not None and pos:
-                    pos_by_id[pid] = str(pos)
         except Exception as e:  # roster enrichment is best-effort
             log.warning("roster fetch failed for team %s: %s", team_source_id, e)
+        if not roster:
+            log.warning("NFL roster empty for team %s — injured players' positions "
+                        "stay None (qb_listed cannot see a QB)", team_source_id)
+        idx = roster_index(roster)
         data = self._get("injuries", params={"team": team_source_id})
         out: list[dict] = []
         seen: set[str] = set()
@@ -378,13 +384,15 @@ class APIAmericanFootballAdapter(DataAdapter):
             if not name or name in seen:
                 continue
             seen.add(name)
+            position, _how = resolve_position(player, idx)
             out.append({
                 "player_name": name,
-                "player_position": pos_by_id.get(player.get("id")),
+                "player_position": position,
                 "reason": item.get("description") or item.get("reason"),
                 "type": item.get("status") or item.get("type"),
                 "fixture_source_id": None,
                 "fixture_date": item.get("date"),
+                "current_status": True,
             })
         return out
 

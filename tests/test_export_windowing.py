@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 
 from src.db.database import init_db, session_scope
 from src.db.schema import Competition, Match, MatchStatus, Prediction, Sport, Team
+from src.timeutil import utc_now_naive
 
 
 def _comp(s, sport, code):
@@ -27,7 +28,7 @@ def _comp(s, sport, code):
 @pytest.fixture(scope="module")
 def games():
     init_db()
-    now = datetime.utcnow().replace(microsecond=0)
+    now = utc_now_naive().replace(microsecond=0)
     ids = {}
     with session_scope() as s:
         for sport, code, offsets in ((Sport.NFL, "NFL", {"h10": 10, "h30": 30, "h50": 50, "d7": 168}),
@@ -116,7 +117,7 @@ def test_mlb_export_default_stays_one_slate_day(games, tmp_path, monkeypatch):
     base = ["export-predictions", "--sport", "mlb", "--competition", "EWMLB"]
     r = _run(tmp_path, monkeypatch, base)
     assert r.exit_code == 0, r.output
-    lo = datetime.strptime(datetime.utcnow().strftime("%Y-%m-%d"), "%Y-%m-%d").replace(hour=8)
+    lo = datetime.strptime(utc_now_naive().strftime("%Y-%m-%d"), "%Y-%m-%d").replace(hour=8)
     hi = lo + timedelta(days=1)
     want = {mine[k] for k in mine if lo <= games[k + ":ko"] < hi}
     assert _ids(tmp_path, "mlb_EWMLB_*.json") == want
@@ -127,7 +128,7 @@ def test_mlb_export_default_stays_one_slate_day(games, tmp_path, monkeypatch):
     assert _ids(tmp_path, "mlb_EWMLB_*.json") == set(mine.values())
     assert "(72h · --days 3)" in " ".join(r.output.split())
     # explicit dates keep their slate-day meaning (post-mortems, the soccer chains)
-    today = datetime.utcnow().strftime("%Y-%m-%d")
+    today = utc_now_naive().strftime("%Y-%m-%d")
     r = _run(tmp_path, monkeypatch, base + ["--start", today, "--end", today])
     assert r.exit_code == 0 and f"--start {today} --end {today}" in " ".join(r.output.split())
     r = _run(tmp_path, monkeypatch, base + ["--days", "2", "--date", today])

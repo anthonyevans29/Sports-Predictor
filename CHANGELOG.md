@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (cosmetics lane C: utcnow sweep, MVE combo fills, ntfy topic validation)
+- `datetime.utcnow()` / `utcfromtimestamp()` are replaced everywhere by
+  `src/timeutil.py` helpers. These are built on `now(timezone.utc)` and
+  stay naive UTC, so there is no behavior change.
+- The fills importer classifies Kalshi MVE combos by leg content:
+  sports legs → off-book sports parlays.
+- An ntfy topic containing whitespace is refused at startup: chains fail
+  loudly and never page the wrong topic.
+
 ## 2026-09-29 (late-news follow-on: T-90 injuries in the imminent tier, quarantine-class line moves)
 - The window service's imminent tier syncs injuries for the NFL/soccer
   games kicking off within 2h. The sync is scoped per team, and the

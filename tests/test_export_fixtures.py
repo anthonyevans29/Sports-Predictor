@@ -10,8 +10,9 @@ from src.db.database import get_engine, init_db, session_scope
 from src.db.schema import (Base, Competition, Match, MatchStatus, Odds, OddsSnapshot, Sport,
                            Team)
 from src.walters.export import export_fixtures
+from src.timeutil import utc_now_naive
 
-KICK = datetime.utcnow().replace(microsecond=0) + timedelta(days=2)
+KICK = utc_now_naive().replace(microsecond=0) + timedelta(days=2)
 
 
 def _counts():

@@ -11,6 +11,7 @@ from src.db.database import init_db, session_scope
 from src.db.schema import (Competition, Match, MatchStatus, Odds, OddsSnapshot, Prediction,
                            Sport, Team)
 from src.walters import venue
+from src.timeutil import utc_now_naive
 
 
 def test_kalshi_home_prob_rules():
@@ -30,7 +31,7 @@ def test_kalshi_home_prob_rules():
 @pytest.fixture(scope="module")
 def slate():
     init_db()
-    now = datetime.utcnow()
+    now = utc_now_naive()
     kick = now + timedelta(days=2)
     with session_scope() as s:
         comp = s.execute(select(Competition).where(Competition.sport == Sport.NFL,

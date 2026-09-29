@@ -3,6 +3,7 @@ from src.db.database import session_scope
 from src.db.schema import Competition, Match
 from sqlalchemy import select, func
 from datetime import datetime
+from src.timeutil import utc_now_naive
 
 with session_scope() as s:
     comp = s.execute(select(Competition).where(Competition.code=="WC")).scalar_one_or_none()
@@ -14,7 +15,7 @@ with session_scope() as s:
     from collections import Counter
     print("season values:", Counter(m.season for m in rows))
     print("status values:", Counter(str(m.status) for m in rows))
-    now = datetime.utcnow()
+    now = utc_now_naive()
     future = sum(1 for m in rows if m.utc_date and m.utc_date >= now)
     print(f"matches with utc_date >= now: {future}")
     # earliest few dates

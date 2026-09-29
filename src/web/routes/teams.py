@@ -17,6 +17,7 @@ from src.db.database import session_scope
 from src.db.schema import Match, MatchStatus, Sport, Team
 from src.web import preferences
 from src.web.dependencies import resolve_sport
+from src.timeutil import utc_now_naive
 
 router = APIRouter(prefix="/teams")
 
@@ -53,7 +54,7 @@ async def team_detail(request: Request, team_id: int):
         if not team:
             raise HTTPException(status_code=404, detail=f"Team {team_id} not found.")
 
-        now = datetime.utcnow()
+        now = utc_now_naive()
 
         match_load = (
             selectinload(Match.competition),

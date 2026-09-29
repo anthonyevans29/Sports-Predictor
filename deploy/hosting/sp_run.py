@@ -359,6 +359,13 @@ def main(argv=None) -> int:
     ap.add_argument("--unit", default=None, help="unit name for the receipt")
     a = ap.parse_args(argv)
     c.load_host_env()
+    import sp_notify
+    bad = sp_notify.topic_problems()     # startup validation: fail loudly, never page the wrong topic
+    if bad:
+        for p in bad:
+            print(f"✗ {p}", flush=True)
+        c.append_receipt({"kind": "config_error", "chain": a.chain, "exit": 2, "problems": bad})
+        return 2
 
     chain = CHAINS[a.chain]
     now = c.utc_now()

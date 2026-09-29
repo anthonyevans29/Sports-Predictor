@@ -37,10 +37,35 @@ def journal_tail(unit: str, n: int = 30) -> list[str]:
     return [c.redact(x) for x in out.splitlines()]
 
 
+TOPIC_VARS = ("NTFY_TOPIC", "NTFY_CARD_TOPIC")
+
+
+def _raw_topic(var: str) -> str:
+    return c.setting(var) or c._dotenv().get(var) or ""
+
+
+def topic_problems() -> list[str]:
+    """Startup validation (cosmetics lane C, 2026-09-29): an ntfy topic with
+    whitespace anywhere (a pasted trailing space or newline, a space inside)
+    would page a DIFFERENT topic, or none. The value is never printed: the
+    topic name is the only secret on a public ntfy server."""
+    out = []
+    for var in TOPIC_VARS:
+        raw = _raw_topic(var)
+        if raw and any(ch.isspace() for ch in raw):
+            out.append(f"{var} contains whitespace ({len(raw)} chars; value not shown) — "
+                       f"fix it in .env: ntfy would page a different topic, or none")
+    return out
+
+
 def ntfy_url(topic_var: str = "NTFY_TOPIC") -> str | None:
     """topic_var: NTFY_TOPIC (operator pages) or NTFY_CARD_TOPIC (the
-    window-card deltas, a SECOND private topic, spec 2026-09-27)."""
-    topic = (c.setting(topic_var) or c._dotenv().get(topic_var) or "").strip()
+    window-card deltas, a SECOND private topic, spec 2026-09-27). A topic
+    with whitespace is refused (None), never silently trimmed."""
+    raw = _raw_topic(topic_var)
+    if any(ch.isspace() for ch in raw):
+        return None
+    topic = raw
     if not topic:
         return None
     base = (c.setting("NTFY_SERVER") or c._dotenv().get("NTFY_SERVER") or "https://ntfy.sh")
@@ -51,6 +76,8 @@ def deliver(kind: str, title: str, body: str, extra: dict | None = None,
             topic_var: str = "NTFY_TOPIC", priority: str = "high") -> bool:
     url = ntfy_url(topic_var)
     delivered, err = False, None
+    if url is None and any(ch.isspace() for ch in _raw_topic(topic_var)):
+        err = "invalid_topic_whitespace"
     if url:
         try:
             req = urllib.request.Request(url, data=body.encode()[:4000], method="POST",
@@ -69,6 +96,8 @@ def deliver(kind: str, title: str, body: str, extra: dict | None = None,
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     c.load_host_env()
+    for p in topic_problems():
+        print(f"✗ {p}", flush=True)
     if len(argv) != 2 or argv[0] not in ("failure", "page"):
         print(__doc__)
         return 2

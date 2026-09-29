@@ -52,6 +52,7 @@ _HOST_RAPID = "api-football-v1.p.rapidapi.com"
 # stays at the conservative free-tier pace; the 429 backoff below remains
 # the safety net either way.
 import os as _os
+from src.timeutil import utc_now_naive
 _RATE_LIMIT_SECONDS = 60.0 / float(_os.getenv("API_FOOTBALL_RPM", "10"))
 
 # ----------------------------------------------------------------------
@@ -361,7 +362,7 @@ class APIFootballAdapter(DataAdapter):
 
         data = self._get("odds", params={"fixture": match_source_id})
         out: list[NormalizedOdds] = []
-        captured_at = datetime.utcnow()
+        captured_at = utc_now_naive()
 
         for response_item in data.get("response", []):
             for bookmaker_block in response_item.get("bookmakers", []):
@@ -850,7 +851,7 @@ class APIFootballAdapter(DataAdapter):
     def _season_to_year(season: str | None) -> int:
         """'2024/25' -> 2024. None -> current year (best guess)."""
         if not season:
-            now = datetime.utcnow()
+            now = utc_now_naive()
             return now.year if now.month >= 7 else now.year - 1
         return int(season.split("/")[0])
 

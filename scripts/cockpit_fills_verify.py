@@ -61,7 +61,14 @@ FILLS = [
     ("KXNFLGAME-26SEP28BUFKC-KC", "no", 4, 0.45, 0.00, 0.07, 0.00, -1.87, -1.80, "Buffalo vs Kansas City Winner?"),    # NO on KC = Buffalo
     ("KXMLBGAME-26SEP27NYYBOS-NYY", "yes", 8, 0.60, 1.00, 0.14, 0.00, 3.06, 3.20, "New York Y vs Boston Winner?"),    # no call -> off-book sports
     ("KXEPLGAME-26SEP27ARSCHE-TIE", "yes", 6, 0.25, 0.00, 0.08, 0.00, -1.58, -1.50, "Arsenal vs Chelsea Winner?"),    # tie leg, no call
-    ("KXMVESPORTSMULTIGAMEEXTENDED-S2026ABC", "yes", 30, 0.10, 0.00, 0.19, 0.00, -3.19, -3.00, "Multi-game parlay"),  # parlay
+    ("KXMVESPORTSMULTIGAMEEXTENDED-S2026ABC", "yes", 30, 0.10, 0.00, 0.19, 0.00, -3.19, -3.00, "Multi-game parlay"),  # parlay, legs not in title
+    # MVE combos classified by LEG CONTENT (lane C, 2026-09-29)
+    ("KXMVECROSSCATEGORY-S2026DEF", "yes", 20, 0.08, 0.00, 0.10, 0.00, -1.70, -1.60,
+     "yes Buffalo,yes Kansas City,yes Over 44.5 points scored"),                                                    # all sports legs
+    ("KXMVECROSSCATEGORY-S2026GHI", "yes", 10, 0.12, 0.00, 0.08, 0.00, -1.28, -1.20,
+     "yes Buffalo,yes Fed rate above 4.25%"),                                                                        # mixed legs
+    ("KXMVECROSSCATEGORY-S2026JKL", "yes", 10, 0.15, 0.00, 0.08, 0.00, -1.58, -1.50,
+     "yes CPI above 3%,yes Fed rate above 4.25%"),                                                                   # non-sport legs
     ("KXFEDRATE-26OCT-T4.25", "yes", 50, 0.30, 0.00, 1.05, 0.00, -16.05, -15.00, "Fed rate above 4.25%?"),           # non-sport
 ]
 
@@ -102,7 +109,7 @@ def main():
         got = {k: (HDR.split(",")[v] if v is not None else None) for k, v in mapped.items()}
         check("REAL export header: every field maps to exactly the right column", got == want,
               "; ".join(f"{k}->{got[k]}" for k in want if got[k] != want[k]))
-        check("9 fills added; nothing reported missing", "9 fills added" in note and "not found" not in note)
+        check("12 fills added; nothing reported missing", "12 fills added" in note and "not found" not in note)
         cls = page.evaluate("classifyFills(loadLedger())")
         by = {(f["ticker"], f["side"]): f for f in cls}
         f1 = by[("KXNFLGAME-26SEP28BUFKC-KC", "yes")]
@@ -122,9 +129,21 @@ def main():
         check("MLB fill with no logged call -> off_book_sports", f6["book"] == "off_book_sports" and not f6.get("plausible"))
         f7 = by[("KXEPLGAME-26SEP27ARSCHE-TIE", "yes")]
         check("EPL tie leg backs the Draw", f7["backed"] == "Draw" and f7["book"] == "off_book_sports")
-        check("MVE multigame -> off_book_other (kalshi-native parlay)",
-              by[("KXMVESPORTSMULTIGAMEEXTENDED-S2026ABC", "yes")]["book"] == "off_book_other"
-              and "parlay" in by[("KXMVESPORTSMULTIGAMEEXTENDED-S2026ABC", "yes")]["category"])
+        m0 = by[("KXMVESPORTSMULTIGAMEEXTENDED-S2026ABC", "yes")]
+        check("MVE SPORTS family, legs not in the title -> off-book sports parlay (ticker family)",
+              m0["book"] == "off_book_sports" and "legs not in title, ticker family SPORTS" in m0["category"], m0["category"])
+        m1 = by[("KXMVECROSSCATEGORY-S2026DEF", "yes")]
+        check("MVE combo, every leg sports (team names + 'points') -> off-book sports parlay, 3 legs",
+              m1["book"] == "off_book_sports" and m1["category"] == "off-book sports parlay (MVE combo, 3 legs)", m1["category"])
+        m2 = by[("KXMVECROSSCATEGORY-S2026GHI", "yes")]
+        check("MVE combo, mixed legs -> off_book_other, labelled 1/2 sports",
+              m2["book"] == "off_book_other" and m2["category"] == "MVE combo, mixed legs (1/2 sports)", m2["category"])
+        m3 = by[("KXMVECROSSCATEGORY-S2026JKL", "yes")]
+        check("MVE combo, non-sport legs -> off_book_other",
+              m3["book"] == "off_book_other" and m3["category"] == "MVE combo, non-sport legs (2)", m3["category"])
+        check("no MVE combo is ever system_matched",
+              all(by[(t, "yes")]["book"] != "system_matched" for t in
+                  ("KXMVESPORTSMULTIGAMEEXTENDED-S2026ABC", "KXMVECROSSCATEGORY-S2026DEF")))
         check("non-sport ticker -> off_book_other", by[("KXFEDRATE-26OCT-T4.25", "yes")]["category"].startswith("non-sport"))
 
         # independent three-book arithmetic
@@ -140,7 +159,7 @@ def main():
               f"net {agg['net']:.2f} fees {agg['fees']:.2f} staked {agg['staked']:.2f}")
         check("fees-as-%-of-loss = fees / |net|", abs(agg["feePct"] - tot_fees / -tot_net * 100) < 1e-6,
               f"{agg['feePct']:.1f}%")
-        check("book sizes 2 / 5 / 2", [len(books[k]) for k in books] == [2, 5, 2])
+        check("book sizes 2 / 7 / 3 (MVE combos by leg content)", [len(books[k]) for k in books] == [2, 7, 3])
         html = page.inner_text("#realized")
         check("REALIZED section renders the three books + plausible list",
               all(t in html for t in ("system-matched", "off-book sports", "off-book other", "fees =",
@@ -148,7 +167,7 @@ def main():
         t30 = page.evaluate("(()=>{const fs=classifyFills(loadLedger());"
                             "return [trailing30(fs,Date.parse('2026-10-05T00:00:00Z')).length,"
                             "trailing30(fs,Date.parse('2026-11-30T00:00:00Z')).length]})()")
-        check("trailing-30-day window by close time (9 in window, 0 two months later)", t30 == [9, 0], str(t30))
+        check("trailing-30-day window by close time (12 in window, 0 two months later)", t30 == [12, 0], str(t30))
         block = page.inner_text("#pnlBlock")
         check("Copy P&L block carries the REALIZED section + trailing-30d line",
               "REALIZED (Kalshi fills" in block and "fees =" in block and "trailing 30d:" in block)
@@ -156,9 +175,9 @@ def main():
                       "document.getElementById('ledgerNote').textContent=''")
         page.set_input_files("#kalshiCsvFile", csv_path)
         page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('duplicates')")
-        check("re-import is duplicate-safe", "0 fills added, 9 duplicates skipped" in page.inner_text("#ledgerNote"))
+        check("re-import is duplicate-safe", "0 fills added, 12 duplicates skipped" in page.inner_text("#ledgerNote"))
         L = page.evaluate("loadLedger()")
-        check("fills live in the ledger (exported with it)", len(L.get("fills", [])) == 9 and len(L["calls"]) == 3)
+        check("fills live in the ledger (exported with it)", len(L.get("fills", [])) == 12 and len(L["calls"]) == 3)
         check("no page errors", not errors, "; ".join(errors))
         print("\n----- REALIZED lines in the P&L block -----")
         print("\n".join(line for line in block.splitlines() if line.strip() and

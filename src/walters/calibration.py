@@ -28,6 +28,7 @@ from src.db.database import session_scope
 from src.db.schema import (
     Match, Prediction, PredictionOutcome, Sport,
 )
+from src.timeutil import utc_now_naive
 
 
 @dataclass
@@ -102,7 +103,7 @@ def compute_calibration(
 
     cutoff = None
     if window_days is not None:
-        cutoff = datetime.utcnow() - timedelta(days=window_days)
+        cutoff = utc_now_naive() - timedelta(days=window_days)
 
     total = 0
     hit_total = 0

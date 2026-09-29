@@ -21,8 +21,9 @@ from src.db.schema import (Competition, Injury, Match, MatchStatus, Odds, OddsSn
                            Prediction, Sport, Team)
 from src.walters import qb_audit
 from src.walters.nfl_predict import value_side_grade
+from src.timeutil import utc_now_naive
 
-NOW = datetime.utcnow().replace(microsecond=0)
+NOW = utc_now_naive().replace(microsecond=0)
 
 
 # ------------------------------------------------ (2) value-side grading ----

@@ -22,6 +22,53 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **LANE C: COSMETICS (architect Tuesday authorization, 2026-09-29).**
+  - (1) `utcnow()` → `now(UTC)` sweep: 111 references in 28 files,
+    including 15 column/field defaults and one `utcfromtimestamp`.
+    - They now go through `src/timeutil.py`: `utc_now_naive()` /
+      `utc_naive_fromtimestamp()`, built on
+      `datetime.now(timezone.utc)` but returning NAIVE UTC.
+    - Why not a literal aware `now(UTC)`: SQLite stores naive UTC,
+      comparisons are naive-vs-naive, and exports append "Z" to
+      `.isoformat()`. An aware value would raise TypeError on those
+      comparisons and export "+00:00Z".
+    - The sweep is behavior-neutral: the suite is unchanged and the
+      window verify is 12/12.
+    - `scripts/cockpit_window_verify.py` can't import `src`, so it uses
+      the inline stdlib form.
+    - A regression test asserts no deprecated call remains. CI runs
+      3.12, where utcnow warns.
+  - (2) Fills importer: every `KXMVE…` ticker is an MVE combo,
+    classified by LEG CONTENT (legs parsed from market_title):
+    - every leg a sports leg (sports-market words, or a team from a
+      logged call) → off_book_sports "off-book sports parlay (MVE
+      combo, n legs)";
+    - a KXMVESPORTS… family with no legs in the title →
+      off_book_sports (from the ticker family);
+    - mixed legs → off_book_other "mixed legs (k/n sports)";
+    - non-sport legs → off_book_other;
+    - never system_matched.
+    - Before this, only KXMVESPORTSMULTIGAMEEXTENDED was recognised,
+      and always as off_book_other.
+    - ARCHITECT-VERIFY: the MVE title grammar (no real MVE CSV seen).
+      ARCHITECT-RULE: mixed combos stay off_book_other.
+  - (3) NTFY topic validation at startup:
+    - a topic containing whitespace (a space inside, a pasted trailing
+      newline) is refused;
+    - `sp_run` fails loudly (`config_error` receipt, exit 2) instead of
+      running a chain whose alarms would go to the wrong topic;
+    - `deliver` never posts to it (`invalid_topic_whitespace`), and the
+      topic value is never printed.
+    - Previously leading and trailing whitespace was silently stripped,
+      and an inner space built a bad URL.
+  - Receipts:
+    - `tests/test_timeutil_sweep.py` 3 passed;
+    - topic test in `tests/test_hosting_pack.py`;
+    - `scripts/cockpit_fills_verify.py` 24/24 (3 new MVE rows, book
+      sizes 2/7/3);
+    - the other 5 Cockpit verifies are unchanged and green;
+    - full suite 238 passed.
+
 - **LATE-NEWS FOLLOW-ON: T-90 HOLE, QUARANTINE-CLASS LINE MOVES, FLAG ON
   EVERY PREDICTION EXPORT (architect rulings on #65, 2026-09-29; #65
   merged as is).**

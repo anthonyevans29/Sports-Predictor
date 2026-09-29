@@ -34,7 +34,7 @@ proven standard (2026-09-28).
 | `sp_migrate.py` | The sanctioned move in three steps: `pack` (laptop), `verify`, `install` (host). Manifest per H0-15. |
 | `compare_exports.py` | Parallel-week export diff (masks timestamps). |
 | `sp_receipts.py` | The paste-ready table (H0-19). |
-| `sp_notify.py` | Failure and PASS-hold paging (H0-13): a push to the private ntfy.sh topic `NTFY_TOPIC` from `.env`. The receipt and journal are always written, so a held PASS pages AND logs. |
+| `sp_notify.py` | Failure and PASS-hold paging (H0-13): a push to the private ntfy.sh topic `NTFY_TOPIC` from `.env`. The receipt and journal are always written, so a held PASS pages AND logs. Startup validation (2026-09-29): an `NTFY_TOPIC` / `NTFY_CARD_TOPIC` containing whitespace is refused. `sp_run` fails loudly (`kind: config_error`, exit 2) and `deliver` never posts to it (`error: invalid_topic_whitespace`). The topic value is never printed. |
 | `sp_boot_receipt.py` | One receipt per boot (H0-3). |
 | `sp_prune.py` | Backup retention: 14 dailies (H0-14). Report-only until the first manual prune has been reviewed. |
 | `pull_backup.py` + `scripts/setup_backup_pull.sh` | **Laptop side.** Nightly pull of the host's newest daily `.backup` over the tailnet into `~/sp-backups`. Verified against the sha256 sidecar plus an integrity check, and receipted (H0-14 second layer, $0). |

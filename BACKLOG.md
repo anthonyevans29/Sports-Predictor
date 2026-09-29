@@ -53,6 +53,13 @@ specific reason they're not being built now.
       board; the mission / doctrine sections stay (constitution, not
       backlog). The architect re-ranks by dragging; order is read from
       the board, never from chat.
+  - RATIFIED (architect, 2026-09-29, after review): #74 is the SOLE
+    ledger mechanism; the architect's github_setup.sh is withdrawn;
+    taxonomy.json is the source of truth for the labels, milestones and
+    board shape. Merge order: #73 then #74. The #73 rulings closed two
+    items before the backfill ran: the window-prices-MLB veto (ACCEPTED)
+    is not opened, and the Phase A operator item no longer asks for the
+    status_vocab line (answered: FT / CANC / NS).
   - BUILT:
     - `.github/ledger/taxonomy.json` (the one definition) and
       `.github/ledger/backfill.json` (the ordered backfill manifest;

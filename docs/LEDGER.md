@@ -9,6 +9,10 @@ The architect reviews the Issue list, not the file. The architect
 re-ranks by dragging cards in the Queue column. Claude Code reads the
 order from the board, never from chat.
 
+`.github/ledger/taxonomy.json` is the source of truth for the labels,
+the milestones and the board shape. #74 is the sole ledger mechanism
+(ratified 2026-09-29).
+
 ## Rules
 1. **Every known limitation, finding and queued lane becomes an Issue
    when it is logged.** Each Issue carries:

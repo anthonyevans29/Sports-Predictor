@@ -84,11 +84,6 @@ ITEMS = [
       "finding", "nfl", "S", "COCKPIT v0.4 BUILT",
       "v0.4 OPEN QUESTION: such calls carry the rule tag \"venue gap >= 8pp (STALE-BOOK? zone)\" so attribution "
       "separates them; excluding them outright is the architect's call.", flags=["needs-ruling"]),
-    I("phase-a-window", "Host window prices MLB now that the host has MLB rows (veto point)", "ops", "finding", "mlb",
-      "S", "MLB PHASE A BUILT", ref=PHASE_A,
-      summary="PHASE A ARCHITECT-RULE (c): the window keeps the already-ruled MLB odds/Kalshi steps, which were moot with "
-      "zero MLB rows and now run on the host; MLB card rows render market_only; freshen:MLB stays logged-never-run. "
-      "Also (a): stage is NULL on host-created rows.", flags=["needs-ruling"], milestone=CUT),
     I("soccer-n30", "Soccer positive-edge cohort: the n=30 pre-committed read", "model", "finding", "soccer", "S",
       "POLICY v1.0 — KNOBS RETIRED 2026-09-25",
       "The positive-edge cohort (>= +5pp vs market) stood at 6/16; big anti-market edges are anti-predictive. The "
@@ -106,15 +101,15 @@ ITEMS = [
     I("phase-a-host", "MLB PHASE A: run the one-time live-host sequence + paste the status_vocab line", "ops",
       "operator-action", "mlb", "S", "MLB PHASE A BUILT", ref=PHASE_A,
       summary="After #73 merges: the runbook's one-time sequence (backup, seasons 2025 + 2026, enable "
-      "sp-mlb-history.timer); paste both MLB-FALLBACK-RECEIPT lines, plus the probe receipt's status_vocab line "
-      "(ARCHITECT-RULE (b): only FT / POST / CANC are mapped).", milestone=CUT, flags=["needs-operator"]),
+      "sp-mlb-history.timer); paste both MLB-FALLBACK-RECEIPT lines; then the fingerprint compare without "
+      "--skip-family MLB, with --waive \"MLB:2025:apisports doubleheader gap\" (ruling (4) on #73).", milestone=CUT, flags=["needs-operator"]),
     # ---- known limitations (Waiting on condition) ----
     I("dh-game2", "api-sports omits doubleheader game 2 (13 games, 2025-2026)", "ops", "limitation", "mlb", "S",
       "MLB PHASE A BUILT", ref=PHASE_A,
       summary="api-sports /games lists no doubleheader game 2 (13 games across two seasons, all confirmed same-date / "
       "same-teams). The fallback never fabricates them; existing rows are marked \"apisports-unavailable\"; the "
-      "laptop's statsapi remains the record. On the host they are simply absent (ARCHITECT-RULE (d): a fingerprint "
-      "--waive is proposed).",
+      "laptop's statsapi remains the record. On the host they are simply absent; the compare WAIVES them with "
+      "reason \"apisports doubleheader gap\" (ruled on #73, a provider-difference class).",
       reopening="The provider starts listing doubleheader game 2, or the host gains statsapi egress (a residential "
       "exit node) — the offseason egress/provider decision.", milestone=OFF),
     I("mlb-laptop-only", "MLB predictions are laptop-only (PHASE B negative)", "ops", "limitation", "mlb", "M",

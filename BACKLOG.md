@@ -22,6 +22,37 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **MLB-PROBE: CAN API-SPORTS BASEBALL REPLACE STATSAPI ON THE HOST?
+  (architect Tuesday authorization, 2026-09-29).** Read-only probe
+  script, no wiring: `scripts/mlb_apisports_probe.py`. This is the
+  durable-fix reconnaissance for MLB from a datacenter: statsapi returns
+  406 to datacenter ASNs.
+  - Q0: plan reach and the season-string format, from
+    `/leagues?id=1`.
+  - Q1: coverage per season. Our MLB matches are paired with provider
+    `/games` by kickoff ±12h and normalized names (the sync-odds MLB
+    join). Doubleheaders pair on the nearest start; an equidistant tie
+    is AMBIGUOUS, counted and never guessed. It reports ours-only
+    (by stage/status) and provider-only (by status).
+  - Q2: ID mapping via the odds join. The matches already carrying
+    api_baseball odds must pair 1:1 here as well. It prints a
+    provider-id → match-id sample.
+  - Q3: the status vocabulary (short|long), cross-tabbed against our
+    status, plus score agreement on finished pairs.
+  - Q4: postseason. Our gameType stage (R/F/D/L/W) is cross-tabbed
+    against every candidate type field the provider returns. Item keys
+    are enumerated from the response (law 1).
+  - Verdict lines: coverage ≥ 99.5%, scores agree, postseason paired,
+    odds-join ids paired.
+  - Cost: 1 + one call per season (3 for 2025+2026). The DB is
+    read-only; `--out` refuses data/.
+  - **RECEIPT PENDING:** this container has no API key and no DB. The
+    operator runs it on the laptop and pastes the output.
+  - Receipts: `tests/test_mlb_apisports_probe.py` 4 passed (pairing
+    across name spellings plus doubleheaders; an equidistant tie is
+    ambiguous; summary vocab/scores/postseason/odds-join; clean stop
+    without a key). Full suite 238 passed.
+
 - **VALUE-SIDE SHADOW (policy v1.2 CANDIDATE) + VALUE-SIDE CLV + QB FEED
   AUDIT (architect rulings, 2026-09-29, after Week 4 MNF).** The trigger:
   PHI@CHI had model CHI 48.9 vs market 35.5, which is +13.4pp of value on

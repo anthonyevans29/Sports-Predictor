@@ -138,6 +138,7 @@ books' fair bars with a market-only chip and the Kalshi status.
 | `umpire-report` | `--min-games` | Per-umpire run environment (tracked data only). |
 | `bullpen-availability` / `bullpen-effectiveness` / `bullpen-diagnostic` | various | Bullpen usage, effectiveness, and hypothesis tests. |
 | `scenarios` | `--date` | What-if decomposition of a day's predictions. |
+| `python3 scripts/mlb_apisports_probe.py` | `--seasons 2025 2026` · `--out` | MLB-PROBE (2026-09-29), a script not a cli command. It is read-only: can api-sports Baseball `/games` replace statsapi for MLB on the host? It reports coverage vs our matches, the odds-join id mapping, the status vocabulary and postseason game types. It costs 1 + one call per season; run it on the laptop. No wiring. |
 
 ## Hosting — laptop side (scripts, not cli.py)
 

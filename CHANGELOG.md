@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (MLB-PROBE: api-sports Baseball vs statsapi, read-only)
+- `scripts/mlb_apisports_probe.py` reports coverage vs our 2025/2026
+  MLB matches, ID mapping via the odds join, status vocabulary and
+  postseason game types. No wiring.
+- To be run on the laptop. The receipt is pending.
+
 ## 2026-09-29 (Week 4 MNF rulings: value-side shadow, value-side CLV, QB feed audit)
 - Cockpit: the Desk evaluates edge on every side. A value side that is
   not the top pick and clears 4pp logs a `value_shadow` at 0.25u

@@ -315,23 +315,45 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
 VALUE_FLOOR_PP = 4.0   # the Desk's NFL floor; the value-shadow cohort uses the same
 
 
-def _book_anchor_home(s, m):
+def _book_anchor(s, m):
     """The value-side ANCHOR (architect 2026-09-29): the earliest pre-kickoff
     de-vigged 1X2 BOOK consensus snapshot (never Kalshi) — the claim-time
     analog, since a position is claimed at its first capture. Home prob
     normalized over that capture's selections, or None when the game has no
     book snapshot (games before sync-odds-football appended them). None is
-    honest: the value side is then unknown, never guessed from the close."""
+    honest: the value side is then unknown, never guessed from the close.
+    Returns (home_prob, captured_at) — the timestamp is recorded on every
+    grade (ruling 2026-09-29) so "anchor == market at claim time" is
+    visible, not asserted — or (None, None)."""
     snaps = list(s.execute(select(OddsSnapshot).where(
         OddsSnapshot.match_id == m.id, OddsSnapshot.market == "1X2",
         OddsSnapshot.source != "kalshi", OddsSnapshot.captured_at <= m.utc_date)
         .order_by(OddsSnapshot.captured_at)).scalars())
     if not snaps:
-        return None
-    first = [x for x in snaps if x.captured_at == snaps[0].captured_at]
+        return None, None
+    at = snaps[0].captured_at
+    first = [x for x in snaps if x.captured_at == at]
     tot = sum(x.devig_prob for x in first) or 0.0
     home = next((x.devig_prob for x in first if x.selection == "HOME"), None)
-    return home / tot if home is not None and tot > 0 else None
+    return (home / tot, at) if home is not None and tot > 0 else (None, None)
+
+
+def value_grade_for(s, m, pred, close_home) -> dict | None:
+    """value_side_grade plus the anchor's provenance (ruling 2026-09-29 on
+    #63 (b)): anchor_at, the prediction's computed_at, and whether the
+    anchor preceded it (sync precedes predict in every chain, so it should)."""
+    anchor_home, anchor_at = _book_anchor(s, m)
+    vg = value_side_grade(pred.home_win_prob, anchor_home, close_home)
+    if vg is not None:
+        vg["anchor_at"] = anchor_at
+        vg["prediction_at"] = pred.computed_at
+        vg["anchor_before_prediction"] = (anchor_at <= pred.computed_at
+                                          if anchor_at and pred.computed_at else None)
+    return vg
+
+
+def _hm(dt) -> str:
+    return dt.strftime("%m-%d %H:%MZ") if dt else "—"
 
 
 def value_side_grade(p_home: float, anchor_home: float | None, close_home: float | None) -> dict | None:
@@ -386,6 +408,7 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
         ll = 0.0
         clvs = []
         vclvs, vshadow = [], []
+        anchor_after = 0
         for pred, m in s.execute(q).all():
             y = 1 if m.home_score > m.away_score else 0
             p = pred.home_win_prob
@@ -413,8 +436,9 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
                 close_p = close_h if pick_home else 1 - close_h
                 clv = (pick_p - close_p)
                 clvs.append(clv)
-            vg = value_side_grade(p, _book_anchor_home(s, m), close_h)
+            vg = value_grade_for(s, m, pred, close_h)
             if vg:
+                anchor_after += vg["anchor_before_prediction"] is False
                 vclvs.append(vg["value_side_clv"])
                 if vg["shadow"]:
                     vshadow.append(vg["value_side_clv"])
@@ -423,7 +447,10 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
                    f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                    f"{'HIT ' if hit else 'miss'} "
                    f"clv={'%+.1fpp' % (clv*100) if clv is not None else '—'} "
-                   f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100) + (' [shadow]' if vg['shadow'] else '')) if vg else '— (no anchor)'}")
+                   f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100) + (' [shadow]' if vg['shadow'] else '')) if vg else '— (no anchor)'}"
+                   + (f" anchor={_hm(vg['anchor_at'])} pred={_hm(vg['prediction_at'])}"
+                      + (" ⚠ ANCHOR AFTER PREDICTION" if vg["anchor_before_prediction"] is False else "")
+                      if vg else ""))
         if n == 0:
             return {"ok": False, "reason": "no finished NFL games with predictions in window"}
         summary = {"ok": True, "games": n, "hits": hits,
@@ -433,12 +460,14 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
                    "value_side_n": len(vclvs),
                    "mean_value_side_clv_pp": round(sum(vclvs) / len(vclvs) * 100, 2) if vclvs else None,
                    "value_shadow_n": len(vshadow),
-                   "mean_value_shadow_clv_pp": round(sum(vshadow) / len(vshadow) * 100, 2) if vshadow else None}
+                   "mean_value_shadow_clv_pp": round(sum(vshadow) / len(vshadow) * 100, 2) if vshadow else None,
+                   "value_anchor_after_prediction_n": anchor_after}
         report(f"  ── sides {hits}/{n} · log-loss {summary['logloss']} · "
                f"mean CLV {summary['mean_clv_pp']}pp (n={len(clvs)} priced)")
         report(f"  ── value side vs close {summary['mean_value_side_clv_pp']}pp "
                f"(n={len(vclvs)} anchored; {n - len(vclvs)} unanchored — no pre-kickoff book snapshot) · "
-               f"value-shadow cohort {summary['mean_value_shadow_clv_pp']}pp (n={len(vshadow)})")
+               f"value-shadow cohort {summary['mean_value_shadow_clv_pp']}pp (n={len(vshadow)}) · "
+               f"anchor after prediction: {anchor_after}/{len(vclvs)}")
         return summary
 
 
@@ -482,6 +511,7 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
             clv = None
             if close_h is not None:
                 clv = (p if pick_home else 1 - p) - (close_h if pick_home else 1 - close_h)
+            vg = value_grade_for(s, m, pred, close_h)
             rows.append({
                 "match_id": m.id, "utc_date": m.utc_date.isoformat(),
                 "week": m.matchday,
@@ -496,7 +526,15 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
                            "log_loss": round(-(y * math.log(max(p, 1e-12))
                                                + (1 - y) * math.log(max(1 - p, 1e-12))), 4),
                            "close_home_prob": round(close_h, 4) if close_h is not None else None,
-                           "clv": round(clv, 4) if clv is not None else None},
+                           "clv": round(clv, 4) if clv is not None else None,
+                           # value side (additive, rulings 2026-09-29): null when unanchored
+                           "value_side": vg["side"] if vg else None,
+                           "value_side_clv": round(vg["value_side_clv"], 4) if vg else None,
+                           "value_shadow": vg["shadow"] if vg else None,
+                           "value_anchor_at": (vg["anchor_at"].isoformat()
+                                               if vg and vg["anchor_at"] else None),
+                           "value_prediction_at": (vg["prediction_at"].isoformat()
+                                                   if vg and vg["prediction_at"] else None)},
             })
     _os.makedirs(out_dir, exist_ok=True)
     path = _os.path.join(out_dir, f"nfl_NFL_results_{datetime.utcnow().strftime('%Y-%m-%d')}.json")

@@ -45,6 +45,23 @@ database from the providers. No data travels.
             never hidden, and never
             applies to a matching row, which prints "waiver unused".
 
+CATCH-UP (architect, 2026-09-29: the pre-cutover completeness sweep)
+    LAPTOP  bootstrap.py catch-up --reference fp_host.json [--apply] [--skip-family F]
+            For every (competition, season) where the LAPTOP counts fewer games
+            than the reference fingerprint (usually the host's), run
+            sync-teams then sync-matches: the ruled order, since sync-matches
+            skips listings whose clubs were never team-synced (the H1a finding:
+            the laptop was 67 UEL 2024/25 games short). A competition the laptop
+            has no games for at all gets sync-competitions for its sport first.
+            DRY-RUN BY DEFAULT: it prints the plan and a receipt, runs nothing.
+            --apply takes today's daily backup if there is none (.backup API),
+            then runs under the DB lock and receipts each season before/after
+            (kind "catch_up"). It stops at the first failing step; a re-run
+            recomputes the plan, so it resumes where the counts still lag.
+            The version guard applies: the reference must come from this
+            bootstrap.py. Seasons where the laptop is AHEAD are listed as
+            informational, never touched.
+
 Phase-1 acceptance (compare):
 - Every COMPLETED (competition, season) must match the laptop EXACTLY, on
   total games and on FINISHED games. "Completed" means not the newest season
@@ -276,6 +293,130 @@ def plan(ref: dict) -> list[list[str]]:
     return steps
 
 
+def _season_totals(fp: dict) -> dict:
+    t: dict = {}
+    for g in fp["games"]:
+        k = (g["sport"], g["comp"], g["season"])
+        t[k] = t.get(k, 0) + g["n"]
+    return t
+
+
+def catch_up_plan(lap: dict, ref: dict, skip: set = frozenset()) -> dict:
+    """{"behind": [...], "ahead": [...], "steps": [[...], ...]} — behind rows
+    are the (sport, comp, season) where the laptop counts fewer games than the
+    reference; each gets sync-teams then sync-matches, in family order, oldest
+    season first. A skipped family is listed with skipped=True and no steps."""
+    L, R = _season_totals(lap), _season_totals(ref)
+    lap_comps = {k[1] for k in L}
+    key = lambda k: (FAMILY_ORDER.index(k[0]) if k[0] in FAMILY_ORDER else 99, k[1], k[2])
+    behind, ahead, steps, comps_done = [], [], [], set()
+    for k in sorted(set(R) | set(L), key=key):
+        sport, comp, season = k
+        lap_n, ref_n = L.get(k, 0), R.get(k, 0)
+        if lap_n > ref_n:
+            ahead.append({"sport": sport, "comp": comp, "season": season,
+                          "laptop": lap_n, "reference": ref_n})
+            continue
+        if lap_n == ref_n:
+            continue
+        row = {"sport": sport, "comp": comp, "season": season, "laptop": lap_n,
+               "reference": ref_n, "short": ref_n - lap_n, "new_comp": comp not in lap_comps,
+               "skipped": sport in skip, "steps": []}
+        if not row["skipped"]:
+            if row["new_comp"] and sport in SPORT_CLI and sport not in comps_done:
+                row["steps"].append(["sync-competitions", "--sport", SPORT_CLI[sport]])
+                comps_done.add(sport)
+            row["steps"] += [["sync-teams", "--competition", comp, "--season", season],
+                             ["sync-matches", "--competition", comp, "--season", season]]
+            steps += row["steps"]
+        behind.append(row)
+    return {"behind": behind, "ahead": ahead, "steps": steps}
+
+
+def _season_count(db: Path, comp: str, season: str) -> int:
+    con = c.ro_connect(db)
+    try:
+        return con.execute("SELECT COUNT(*) FROM matches m JOIN competitions c "
+                           "ON c.id = m.competition_id WHERE c.code = ? AND m.season = ?",
+                           (comp, season)).fetchone()[0]
+    finally:
+        con.close()
+
+
+def catch_up(ref: dict, apply: bool, skip: set = frozenset()) -> int:
+    lap = fingerprint(c.db_path())
+    refusal = version_mismatch(lap, ref)
+    if refusal:
+        print(refusal)
+        c.append_receipt({"kind": "catch_up", "step": "plan", "exit": 2, "refused": "version_mismatch"})
+        return 2
+    p = catch_up_plan(lap, ref, skip)
+    mode = "APPLY" if apply else "DRY-RUN"
+    print(f"CATCH-UP ({mode}) vs reference from {ref.get('host')} @ {ref.get('created')}: "
+          f"{len(p['behind'])} competition-season(s) behind, {len(p['ahead'])} ahead, "
+          f"{len(p['steps'])} step(s)")
+    for r in p["behind"]:
+        tag = f"   [{SKIP_TAG}: family skipped]" if r["skipped"] else ""
+        print(f"  ✗ {r['comp']:6s} {r['season']:8s} laptop {r['laptop']:5d} < reference "
+              f"{r['reference']:5d} (short {r['short']}){' · new competition' if r['new_comp'] else ''}{tag}")
+        for st in r["steps"]:
+            print(f"      python cli.py {' '.join(st)}")
+    for r in p["ahead"]:
+        print(f"  · {r['comp']:6s} {r['season']:8s} laptop {r['laptop']:5d} > reference "
+              f"{r['reference']:5d} (laptop ahead: informational, untouched)")
+    if not apply:
+        c.append_receipt({"kind": "catch_up", "step": "plan", "exit": 0, "applied": False,
+                          "behind": [{k: r[k] for k in ("comp", "season", "laptop", "reference", "skipped")}
+                                     for r in p["behind"]],
+                          "ahead": p["ahead"], "steps": len(p["steps"])})
+        print("(dry run: nothing ran. Re-run with --apply to sync.)" if p["steps"] else "✓ nothing to catch up.")
+        return 0
+    if not p["steps"]:
+        print("✓ nothing to catch up.")
+        return 0
+    import sp_backup
+    import sp_run
+    if sp_backup.todays_daily() is None:
+        b = sp_backup.run_backup("daily")
+        print(f"  backup daily: {b['file']} integrity={b['integrity']}")
+        if b["exit"] != 0:
+            print("✗ backup failed — catch-up not started.")
+            return 1
+    run_id = f"{c.utc_now().strftime('%Y%m%dT%H%M%SZ')}-catch-up"
+    closed = 0
+    with c.db_lock():
+        for r in p["behind"]:
+            if r["skipped"]:
+                c.append_receipt({"kind": "catch_up", "run_id": run_id, "comp": r["comp"],
+                                  "season": r["season"], "laptop_before": r["laptop"],
+                                  "reference": r["reference"], "skipped": SKIP_TAG})
+                continue
+            done = []
+            for st in r["steps"]:
+                line = f"python cli.py {' '.join(st)}"
+                print(f"\n=== [catch-up {r['comp']} {r['season']}] {line}", flush=True)
+                rc, tail, dur = sp_run.run_step(st, run_id)
+                done.append({"command": line, "exit": rc, "duration_s": round(dur, 1), "tail": tail})
+                if rc != 0:
+                    break
+            after = _season_count(c.db_path(), r["comp"], r["season"])
+            ok = all(d["exit"] == 0 for d in done)
+            rec = c.append_receipt({"kind": "catch_up", "run_id": run_id, "comp": r["comp"],
+                                    "season": r["season"], "laptop_before": r["laptop"],
+                                    "reference": r["reference"], "laptop_after": after,
+                                    "closed": after >= r["reference"], "exit": 0 if ok else done[-1]["exit"],
+                                    "steps": done})
+            print(f"  → {r['comp']} {r['season']}: {r['laptop']} -> {after} (reference {r['reference']})"
+                  f" {'CLOSED' if rec['closed'] else 'STILL SHORT'}")
+            closed += rec["closed"]
+            if not ok:
+                print(f"✗ step failed (exit {rec['exit']}); fix and re-run catch-up (it recomputes the plan).")
+                return rec["exit"]
+    todo = sum(1 for r in p["behind"] if not r["skipped"])
+    print(f"\n✓ catch-up: {closed}/{todo} season(s) closed. Re-fingerprint and compare to confirm.")
+    return 0
+
+
 EXPLAIN_FIELDS = ("id", "competition_id", "season", "status", "status_raw", "stage",
                   "utc_date", "external_ids")
 
@@ -465,6 +606,11 @@ def main(argv=None) -> int:
     exd = sub.add_parser("explain-diff", help="join laptop and host explain dumps")
     exd.add_argument("laptop", type=Path)
     exd.add_argument("host", type=Path)
+    cu = sub.add_parser("catch-up", help="laptop completeness sweep vs a reference fingerprint")
+    cu.add_argument("--reference", type=Path, required=True)
+    cu.add_argument("--apply", action="store_true", help="run the syncs (default: dry run)")
+    cu.add_argument("--skip-family", action="append", default=[], type=str.upper,
+                    choices=FAMILY_ORDER, help="list the family's short seasons but never sync them")
     cmp = sub.add_parser("compare")
     cmp.add_argument("laptop", type=Path)
     cmp.add_argument("host", type=Path)
@@ -506,6 +652,8 @@ def main(argv=None) -> int:
         print(f"✓ explain written to {a.out} ({len(e['rows'])} rows); run explain-diff "
               f"laptop.json host.json for (c)")
         return 0
+    if a.cmd == "catch-up":
+        return catch_up(json.loads(a.reference.read_text()), a.apply, skip)
     if a.cmd == "explain-diff":
         print("\n".join(explain_diff(json.loads(a.laptop.read_text()),
                                       json.loads(a.host.read_text()))))

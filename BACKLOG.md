@@ -100,6 +100,30 @@ specific reason they're not being built now.
     - `tests/test_value_side_and_qb_audit.py` 9 passed;
     - full suite 229 passed.
 
+- **SP_RUN TRANSIENT-STEP RETRY (architect ruling, 2026-09-28; hosting).**
+  Trigger: the first live page (2026-09-28 ~22:05 UTC). The window chain
+  failed on a transient api-football `ConnectionResetError` during a UNL
+  sync-matches. The alarm path was verified end to end.
+  - `run_steps` retries a step only when its failure is TRANSIENT:
+    connection errors (reset/aborted/refused, RemoteDisconnected,
+    BrokenPipe), timeouts (Read/ConnectTimeout, TimeoutError, "timed
+    out"), HTTP 5xx and 429.
+  - 2 retries, with 15s then 45s backoff (`RETRY_BACKOFF_S`).
+  - The class is read from the step's TERMINAL exception line (the
+    traceback's last line) when there is one. An earlier log mention of a
+    connection never turns a `KeyError` into a retry.
+  - Never retried: other 4xx (401/403/404…), exceptions in our own code,
+    and signal kills.
+  - Receipt: the step row gains `retried: N` and `attempts[]` (exit,
+    duration, class per attempt) only when a retry happened. The console
+    prints `↻ transient failure (…) — retry n/2 in Ns` and `· retried N:
+    ok | still failing`.
+  - A step still failing after the retries stops the chain non-zero, so
+    OnFailure pages exactly as today.
+  - Tests: transient-then-success runs clean and logs `retried 1`;
+    persistent failure retries 2 then pages; 404 and our own bug never
+    retry; vocabulary unit test.
+
 - **EXECUTION-TIMING RULE: POLICY v1.1 ADDENDUM (architect, 2026-09-28;
   Cockpit + docs).** A position now carries two timestamps.
   - claim_at: the first prediction, with claim_market_p and claim_model_p

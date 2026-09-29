@@ -29,7 +29,7 @@ proven standard (2026-09-28).
 | File | Role |
 |---|---|
 | `chains.py` | The one place chain commands live. Each step is verbatim from docs/CLI.md and pl_weekly_routine.md, with options made explicit. CI checks every command and every option against cli.py (law 1). |
-| `sp_run.py` | Runs a chain under the DB lock. Stops at the first failing step. Writes a receipt per step and per chain. Enforces the backup rule (daily, or a fresh prerefresh). Pages on `SP-PAGE:` lines. Refuses operator-only chains without `--operator`. Handles `active_from` windows and H0-16(b) designated days. `--dry-run` prints the resolved commands. |
+| `sp_run.py` | Runs a chain under the DB lock. Retries a step that failed TRANSIENTLY (connection errors, timeouts, HTTP 5xx/429 — read from the traceback's terminal line) twice, 15s then 45s, and receipts it as `retried N`. Other 4xx and exceptions in our own code never retry. Stops at the first step still failing (it pages as before). Writes a receipt per step and per chain. Enforces the backup rule (daily, or a fresh prerefresh). Pages on `SP-PAGE:` lines. Refuses operator-only chains without `--operator`. Handles `active_from` windows and H0-16(b) designated days. `--dry-run` prints the resolved commands. |
 | `sp_backup.py` | SQLite online-backup API (`Connection.backup`, the same mechanism as the CLI's `.backup`). Then integrity_check on the copy, sha256, a `.sha256` sidecar and a receipt. Never `cp`; refuses any target under `data/`. |
 | `sp_migrate.py` | The sanctioned move in three steps: `pack` (laptop), `verify`, `install` (host). Manifest per H0-15. |
 | `compare_exports.py` | Parallel-week export diff (masks timestamps). |

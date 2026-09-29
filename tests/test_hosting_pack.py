@@ -1196,3 +1196,99 @@ def test_ncaa_market_covers_thursday_night_slates():
     cals, unit = _timers()["sp-ncaa-market.timer"]
     assert unit == "sp-chain@ncaa-market.service"
     assert cals == ["Thu *-*-* 16:00:00 UTC", "Fri *-*-* 16:00:00 UTC", "Sat *-*-* 13:00:00 UTC"]
+
+
+# ------------------------------------------------ transient-step retry ----
+# Architect ruling 2026-09-28 (first live page: a UNL sync-matches died on an
+# api-football ConnectionResetError): transient classes only, 2 retries,
+# 15s/45s, receipted "retried N"; still failing -> pages as today.
+
+RETRY_CLI = '''import sys
+from pathlib import Path
+a = sys.argv[1:]
+n_file = Path("attempts_" + a[0])
+n = int(n_file.read_text()) + 1 if n_file.exists() else 1
+n_file.write_text(str(n))
+print("attempt", n)
+if a[0] == "flaky" and n == 1:
+    raise ConnectionResetError(104, "Connection reset by peer")
+if a[0] == "down":
+    print("requests.exceptions.ConnectionError: ('Connection aborted.', "
+          "ConnectionResetError(104, 'Connection reset by peer'))")
+    sys.exit(1)
+if a[0] == "http503" and n == 1:
+    print("requests.exceptions.HTTPError: 503 Server Error: Service Unavailable for url: x")
+    sys.exit(1)
+if a[0] == "http404":
+    print("requests.exceptions.HTTPError: 404 Client Error: Not Found for url: x")
+    sys.exit(1)
+if a[0] == "bug":
+    print("fetching fixtures (a Connection reset earlier is only a log mention)")
+    raise KeyError("fixture")
+print("ok")
+'''
+
+
+@pytest.fixture
+def retry_sandbox(sandbox, monkeypatch):
+    (c.REPO / "cli.py").write_text(RETRY_CLI)
+    waits = []
+    monkeypatch.setattr(sp_run, "_sleep", waits.append)
+    return sandbox, waits
+
+
+def _attempts(name):
+    p = c.REPO / f"attempts_{name}"
+    return int(p.read_text()) if p.exists() else 0
+
+
+def test_transient_then_success_runs_clean_and_receipts_the_retry(retry_sandbox, monkeypatch, capsys):
+    sandbox, waits = retry_sandbox
+    monkeypatch.setitem(chains.CHAINS, "t-flaky", {"steps": [["flaky"], ["after"]]})
+    assert sp_run.main(["t-flaky"]) == 0
+    assert waits == [15] and _attempts("flaky") == 2
+    rs = receipts(sandbox)
+    step = [r for r in rs if r["kind"] == "step"][0]
+    assert step["exit"] == 0 and step["retried"] == 1
+    assert [a["transient"] for a in step["attempts"]] == ["ConnectionResetError", None]
+    assert [r["kind"] for r in rs].count("page") == 0 and rs[-1]["exit"] == 0
+    assert rs[-1]["steps_ok"] == 2
+    out = capsys.readouterr().out
+    assert "retry 1/2 in 15s" in out and "retried 1: ok" in out
+    monkeypatch.setitem(chains.CHAINS, "t-503", {"steps": [["http503"]]})
+    assert sp_run.main(["t-503"]) == 0 and waits == [15, 15]
+
+
+def test_persistent_transient_failure_still_pages_after_two_retries(retry_sandbox, monkeypatch):
+    sandbox, waits = retry_sandbox
+    monkeypatch.setitem(chains.CHAINS, "t-down", {"steps": [["down"], ["never"]]})
+    assert sp_run.main(["t-down"]) == 1                 # non-zero -> OnFailure pages
+    assert waits == [15, 45] and _attempts("down") == 3 and _attempts("never") == 0
+    rs = receipts(sandbox)
+    step = [r for r in rs if r["kind"] == "step"][0]
+    assert step["exit"] == 1 and step["retried"] == 2 and len(step["attempts"]) == 3
+    assert rs[-1]["kind"] == "chain" and rs[-1]["exit"] == 1 and rs[-1]["steps_ok"] == 0
+
+
+@pytest.mark.parametrize("name", ["http404", "bug"])
+def test_non_transient_failures_never_retry(retry_sandbox, monkeypatch, name):
+    sandbox, waits = retry_sandbox
+    monkeypatch.setitem(chains.CHAINS, "t-hard", {"steps": [[name]]})
+    assert sp_run.main(["t-hard"]) == 1
+    assert waits == [] and _attempts(name) == 1
+    step = [r for r in receipts(sandbox) if r["kind"] == "step"][0]
+    assert "retried" not in step and "attempts" not in step
+
+
+def test_transient_class_vocabulary():
+    t = sp_run.transient_class
+    assert t(1, ["requests.exceptions.ConnectionError: ('Connection aborted.', "
+                 "ConnectionResetError(104, 'Connection reset by peer'))"]) == "ConnectionError"
+    assert t(1, ["requests.exceptions.ReadTimeout: HTTPSConnectionPool(...): Read timed out."]) == "ReadTimeout"
+    assert t(1, ["requests.exceptions.HTTPError: 502 Server Error: Bad Gateway"]) == "502 Server Error"
+    assert t(1, ["requests.exceptions.HTTPError: 429 Client Error: Too Many Requests"]) == "429 Client Error"
+    assert t(1, ["requests.exceptions.HTTPError: 401 Client Error: Unauthorized"]) is None
+    assert t(1, ["requests.exceptions.HTTPError: 404 Client Error: Not Found"]) is None
+    assert t(1, ["Connection reset while paging", "KeyError: 'fixture'"]) is None  # terminal line decides
+    assert t(1, ["✗ sync failed: ('Connection aborted.', RemoteDisconnected(...))"]) == "Connection aborted"
+    assert t(0, ["ConnectionError"]) is None and t(-9, ["ConnectionError"]) is None

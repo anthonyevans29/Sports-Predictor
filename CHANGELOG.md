@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-28 (hosting: sp_run transient-step retry)
+- sp_run retries a step that fails TRANSIENTLY (connection errors,
+  timeouts, HTTP 5xx/429) twice, 15s then 45s. The receipt says
+  `retried N`.
+- A step still failing pages as before. Other 4xx and exceptions in our
+  own code never retry.
+
 ## 2026-09-28 (Cockpit: execution-timing rule, policy v1.1 addendum)
 - Positions carry claim_at (frozen claim price) and executed_at (default:
   last freshen before kickoff; or an explicit, recorded "Execute now").

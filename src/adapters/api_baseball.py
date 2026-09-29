@@ -8,6 +8,10 @@ Designed to fill specific gaps in MLB Stats API coverage:
 This intentionally is NOT a full DataAdapter subclass. The MLB Stats API
 adapter is the canonical source for matches, scores, schedules, pitchers,
 and standings — those fields are NEVER overwritten by API-Baseball data.
+EXCEPTION (MLB PHASE A, architect 2026-09-29): on a host whose
+SP_SKIP_FAMILIES names MLB (statsapi 406s the datacenter ASN), MLB schedule
+and results come from this client via src/ingestion/mlb_apisports.py. The
+laptop keeps statsapi.
 
 Design principles:
   - MLB Stats API is source of truth where both APIs cover the same field.

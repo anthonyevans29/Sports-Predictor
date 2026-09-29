@@ -1,0 +1,13 @@
+# MLB PHASE A: the host's MLB history from the api-sports fallback (sync only; no MLB predictions on the host).
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-mlb-history
+
+[Timer]
+OnCalendar=*-*-* 10:30:00 UTC
+Unit=sp-chain@mlb-history.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

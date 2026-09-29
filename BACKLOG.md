@@ -69,6 +69,53 @@ specific reason they're not being built now.
     - the other 5 Cockpit verifies are unchanged and green;
     - full suite 238 passed.
 
+- **LATE-NEWS FOLLOW-ON: T-90 HOLE, QUARANTINE-CLASS LINE MOVES, FLAG ON
+  EVERY PREDICTION EXPORT (architect rulings on #65, 2026-09-29; #65
+  merged as is).**
+  - (1) T-90 HOLE: the window service's IMMINENT tier (< 2h) now runs
+    `sync-injuries --competition C --season S --kickoff-within-hours 2`
+    for the MODEL families (NFL, soccer; MLB stays laptop-only). It runs
+    BEFORE the card, so the T-90 signature has fresh injuries to compare.
+    Line-move is the second detector; both feed `freshen_needed`.
+    - COST NOTE (law 1, flagged): the ruling assumed one metered call per
+      family per run. The providers are per-TEAM: soccer is 1 request
+      per team, NFL is 2 (roster + injuries). A family-wide sync every
+      imminent run would be about 20 (PL) or 64 (NFL) requests. So the
+      new `--kickoff-within-hours` option scopes it to the teams of games
+      inside the tier, via the existing `sync_injuries_for_teams`. That
+      is 2 teams per game (for example a 13:00 ET NFL window of 9 games
+      is 18 teams, 36 requests per run), and no call when nothing is
+      inside the window.
+    - `sync-injuries` stays metered, so H0-16(b) designated-days mode
+      skips it.
+    - REQUIRED companion fix: the T-90 signature now uses the injury
+      CONTENT (count + a digest of name/position/status/reason), not
+      max(refreshed_at). The sync wipes and re-inserts every run, so the
+      old signature would have changed every run and fired a freshen
+      with no news.
+  - (2) Line-move pages are QUARANTINE-CLASS: exempt from quiet hours,
+    at high priority, because early European kickoffs put T-3h inside
+    00–07 ET. The freshen runs regardless (ratified).
+  - (3) RATIFIED: the net move against the T-3h anchor. A spike that
+    reverts is not news.
+  - (4) `line_move` / `late_news_flag` now also appear on the MLB and
+    soccer prediction exports (additive; `_build_row`). The CSV output
+    is unchanged (fixed columns).
+  - (5) KNOWN LIMITS, accepted and logged:
+    - soccer's line-move is Kalshi-only (no book snapshots);
+    - MLB book snapshots follow the capture-odds cadence.
+  - Receipts:
+    - window-plan test: the imminent PL game gets the scoped injury sync
+      before the card, and MLB never does. The flat-plan proximity
+      savings grow 3 → 5 (the two model-family injury syncs).
+    - T-90 signature: re-inserted identical rows give the same
+      signature; a status change gives a new one.
+    - The CLI scope hits only imminent teams, and makes no provider call
+      when the window is empty.
+    - A quiet-hours line move pages at high while a tier change is held.
+    - The soccer export row carries late-news? on a +7.0pp Kalshi move.
+    - Full suite 246 passed.
+
 - **MLB-PROBE: CAN API-SPORTS BASEBALL REPLACE STATSAPI ON THE HOST?
   (architect Tuesday authorization, 2026-09-29).** Read-only probe
   script, no wiring: `scripts/mlb_apisports_probe.py`. This is the

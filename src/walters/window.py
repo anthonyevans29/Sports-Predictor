@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import os
+import hashlib
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -159,7 +160,8 @@ def write_card(payload: dict, export_dir: str = "exports") -> str:
 
 def t90_signatures(match_ids, now: datetime | None = None, minutes: int = 90) -> dict:
     """Injury/lineup state for games kicking off within T-minutes, as
-    comparable signatures: injuries per team (count, max refreshed_at) and
+    comparable signatures: injuries per team (count + a digest of the rows'
+    content, never the refresh time) and
     lineups per match (count, kinds). A change versus the previous run means
     news landed inside T-90."""
     from sqlalchemy import func, select
@@ -176,9 +178,14 @@ def t90_signatures(match_ids, now: datetime | None = None, minutes: int = 90) ->
                 Match.utc_date < now + timedelta(minutes=minutes))).scalars():
             inj = []
             for tid in (m.home_team_id, m.away_team_id):
-                n, last = s.execute(select(func.count(Injury.id), func.max(Injury.refreshed_at))
-                                    .where(Injury.team_id == tid)).one()
-                inj.append(f"{tid}:{n}:{last}")
+                # CONTENT, not refresh time (ruling 2026-09-29 on #65): the
+                # imminent tier now re-syncs injuries every run (wipe and
+                # re-insert), so a max(refreshed_at) signature would change
+                # every run and fire freshens with no news.
+                rows = sorted((i.player_name or "", i.player_position or "", i.type or "", i.reason or "")
+                              for i in s.execute(select(Injury).where(Injury.team_id == tid)).scalars())
+                digest = hashlib.sha1(repr(rows).encode()).hexdigest()[:12]
+                inj.append(f"{tid}:{len(rows)}:{digest}")
             ln, kinds = s.execute(select(func.count(Lineup.id),
                                          func.group_concat(Lineup.kind.distinct()))
                                   .where(Lineup.match_id == m.id)).one()

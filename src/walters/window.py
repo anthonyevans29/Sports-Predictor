@@ -82,6 +82,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     from src.db.schema import Match, MatchStatus, OddsSnapshot
     from src.walters.export import _fixture_row
     from src.walters.provenance import git_sha as _git_sha
+    from src.walters.line_move import line_move_for_match
     from src.walters.venue import kalshi_home_prob, venue_gap
 
     now = now or datetime.utcnow()
@@ -104,6 +105,10 @@ def build_card(now: datetime | None = None, hours: int = 24,
                 OddsSnapshot.match_id == m.id, OddsSnapshot.source == "kalshi")).scalars())
             kal = kalshi_home_prob(snaps, m.utc_date)
             gap_pp, flag = venue_gap(fair.get("HOME"), kal["home"] if kal else None)
+            # LINE-MOVE ALARM (ruling 2026-09-29): >= 6pp on either venue inside
+            # T-3h marks the row "late-news?"; sp_window_page pages it and
+            # requests freshen:<family>. Stored snapshots only, no provider calls.
+            lm = line_move_for_match(s, m, now)
             model = models.get(m.id)
             edge = None
             if model and model["top_pick"] and model["top_pick_prob"] is not None \
@@ -118,6 +123,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
                 "quarantine": bool(model and model.get("quarantine")),
                 "kalshi_home_norm": round(kal["home"], 4) if kal else None,
                 "venue_gap_pp": gap_pp, "venue_flag": flag,
+                "line_move": lm, "late_news_flag": lm["flag"] if lm else None,
                 "engine": "model_edge" if model else "market_only",
             })
             rows.append(row)
@@ -134,7 +140,8 @@ def build_card(now: datetime | None = None, hours: int = 24,
         "count": len(rows),
         "receipts": {**counts, "with_model": sum(1 for r in rows if r["model"]),
                      "stale_flags": sum(1 for r in rows if r["venue_flag"]),
-                     "quarantined": sum(1 for r in rows if r["quarantine"])},
+                     "quarantined": sum(1 for r in rows if r["quarantine"]),
+                     "late_news": sum(1 for r in rows if r["late_news_flag"])},
         "fixtures": rows,
     }
 

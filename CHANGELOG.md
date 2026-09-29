@@ -4,6 +4,20 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (MNF QB verdict; line-move alarm; T-60 closing-freshen doctrine)
+- QB audit verdict logged: the cause was sync timing plus provider
+  latency. The Chicago starter was absent from the provider's report at
+  both pre-game syncs. The detection code is exonerated.
+- New line-move alarm:
+  - inside T-3h, a ≥ 6pp net move on book or Kalshi (stored snapshots,
+    no provider calls) marks the row `late-news?` in the window card
+    and the NFL export;
+  - it pages on the card topic and triggers `freshen:<family>`.
+- CLI.md doctrine: the game-day T-60 closing freshen is mandatory for
+  model sports while the laptop is writer of record.
+- The host-journal receipt for Monday's T-90 check is pending, to be run
+  on the host (commands in the PR).
+
 ## 2026-09-29 (Week 4 MNF rulings: value-side shadow, value-side CLV, QB feed audit)
 - Cockpit: the Desk evaluates edge on every side. A value side that is
   not the top pick and clears 4pp logs a `value_shadow` at 0.25u

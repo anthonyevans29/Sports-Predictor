@@ -20,7 +20,11 @@ It answers, with receipts:
       pair 1:1 here too, and prints the provider id -> match id sample (a durable
       external id the host could key on).
   Q3  STATUS VOCABULARY: provider status short/long values, cross-tabbed
-      against our status on paired games, plus score agreement on finished pairs.
+      against our status on paired games, plus SCORE PARITY on finished pairs
+      (scores.home/away.total vs ours) — the PHASE A gate (>= 99.5%, architect
+      2026-09-29) — with a sample of any disagreements, and every unpaired
+      FINISHED game of ours by name/date with a doubleheader / UTC-boundary
+      suspect read.
   Q4  POSTSEASON: our stage (gameType R/F/D/L/W) cross-tabbed against every
       provider field that could carry a game type. The fields are enumerated
       from the response (law 1), never assumed.
@@ -42,6 +46,15 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 TOL_H = 12
+SUSPECT_H = 48          # unpaired finished games: look this far for a same-teams provider game
+SCORE_GATE_PCT = 99.5   # architect 2026-09-29: score parity >= 99.5% gates PHASE A
+
+
+def _finished(status) -> bool:
+    """Our status as the DB stores it: MatchStatus.FINISHED.value == "finished"
+    (lowercase). The first probe compared against "FINISHED" and so never
+    scored a pair (receipt 2026-09-29): the vocabulary is read, not assumed."""
+    return str(getattr(status, "value", status)).lower() == "finished"
 OUR_POSTSEASON = {"F", "D", "L", "W"}          # statsapi gameType: wildcard/division/LCS/WS
 CANDIDATE_TYPE_FIELDS = ("week", "stage", "type", "round", "game_type")
 
@@ -103,15 +116,45 @@ def pair(ours: list[dict], prov: list[dict]) -> dict:
         used.add(cands[0]["id"])
         pairs.append((o, cands[0]))
     return {"pairs": pairs, "ours_unmatched": unmatched, "ambiguous": ambiguous,
-            "provider_unmatched": [p for p in prov if p["id"] not in used]}
+            "provider_unmatched": [p for p in prov if p["id"] not in used],
+            "paired_to": {p["id"]: o["id"] for o, p in pairs}}
+
+
+def suspects(unpaired: list[dict], prov: list[dict], paired_to: dict) -> list[dict]:
+    """Why an unpaired FINISHED game of ours found no partner: a same-teams
+    provider game within +/-SUSPECT_H hours that was either already paired to
+    another of our games (DOUBLEHEADER suspect) or sits outside the +/-12h
+    window (UTC-BOUNDARY / date suspect); else none."""
+    out = []
+    for o in unpaired:
+        h, a = _norm(o["home"]), _norm(o["away"])
+        near = sorted((p for p in prov if p["utc"] is not None and _names_match(h, _norm(p["home"]))
+                       and _names_match(a, _norm(p["away"]))
+                       and abs((p["utc"] - o["utc"]).total_seconds()) <= SUSPECT_H * 3600),
+                      key=lambda p: abs((p["utc"] - o["utc"]).total_seconds()))
+        why = "no same-teams provider game within ±48h"
+        for p in near:
+            dh = (p["utc"] - o["utc"]).total_seconds() / 3600
+            if p["id"] in paired_to:
+                why = (f"DOUBLEHEADER suspect: provider #{p['id']} at {p['utc'].isoformat()} ({dh:+.1f}h) "
+                       f"already paired to our match #{paired_to[p['id']]}")
+                break
+            if abs(dh) > TOL_H:
+                why = f"UTC-BOUNDARY/date suspect: provider #{p['id']} at {p['utc'].isoformat()} ({dh:+.1f}h)"
+                break
+        out.append({"match_id": o["id"], "game": f"{o['away']} @ {o['home']}", "utc": o["utc"].isoformat(),
+                    "stage": o["stage"], "score": f"{o['away_score']}-{o['home_score']}", "why": why})
+    return out
 
 
 def summarize(season: str, ours: list[dict], prov: list[dict], odds_match_ids: set) -> dict:
     r = pair(ours, prov)
     P = r["pairs"]
-    fin = [(o, p) for o, p in P if o["status"] == "FINISHED" and o["home_score"] is not None
+    fin = [(o, p) for o, p in P if _finished(o["status"]) and o["home_score"] is not None
            and p["home_runs"] is not None]
-    score_ok = sum(1 for o, p in fin if (o["home_score"], o["away_score"]) == (p["home_runs"], p["away_runs"]))
+    agree = lambda o, p: (o["home_score"], o["away_score"]) == (p["home_runs"], p["away_runs"])
+    score_ok = sum(1 for o, p in fin if agree(o, p))
+    unpaired_fin = [o for o in r["ours_unmatched"] + r["ambiguous"] if _finished(o["status"])]
     paired_ids = {o["id"] for o, _ in P}
     stage_x = Counter((o["stage"] or "?", json.dumps(p["extra"], sort_keys=True, default=str)) for o, p in P)
     return {
@@ -125,6 +168,12 @@ def summarize(season: str, ours: list[dict], prov: list[dict], odds_match_ids: s
         "status_vocab": dict(Counter(f"{p['status_short']}|{p['status_long']}" for p in prov)),
         "status_crosstab": dict(Counter(f"{o['status']} <- {p['status_short']}" for o, p in P)),
         "finished_pairs_scored": len(fin), "score_agree": score_ok,
+        "score_parity_pct": round(100 * score_ok / len(fin), 2) if fin else None,
+        "score_disagree_sample": [{"match_id": o["id"], "provider_id": p["id"], "game": f"{o['away']} @ {o['home']}",
+                                   "utc": o["utc"].isoformat(), "ours": f"{o['away_score']}-{o['home_score']}",
+                                   "provider": f"{p['away_runs']}-{p['home_runs']}"}
+                                  for o, p in fin if not agree(o, p)][:15],
+        "ours_unpaired_finished": suspects(unpaired_fin, prov, r["paired_to"]),
         "postseason_ours": sum(1 for o in ours if o["stage"] in OUR_POSTSEASON),
         "postseason_paired": sum(1 for o, _ in P if o["stage"] in OUR_POSTSEASON),
         "stage_vs_provider_fields": {f"{k[0]} | {k[1]}": n for k, n in sorted(stage_x.items())},
@@ -141,8 +190,14 @@ def verdict(s: dict) -> list[str]:
     out.append(f"{'✓' if cov is not None and cov >= 99.5 else '✗'} coverage {s['season']}: "
                f"{s['paired']}/{s['ours']} ({cov}%) · ambiguous {s['ambiguous']} · provider-only {s['provider_unmatched']}")
     if s["finished_pairs_scored"]:
-        out.append(f"{'✓' if s['score_agree'] == s['finished_pairs_scored'] else '✗'} scores {s['season']}: "
-                   f"{s['score_agree']}/{s['finished_pairs_scored']} finished pairs agree")
+        pct = s["score_parity_pct"]
+        out.append(f"{'✓' if pct >= SCORE_GATE_PCT else '✗'} scores {s['season']}: "
+                   f"{s['score_agree']}/{s['finished_pairs_scored']} finished pairs agree ({pct}%) — "
+                   f"PHASE A gate >= {SCORE_GATE_PCT}%: {'PASS' if pct >= SCORE_GATE_PCT else 'FAIL'}")
+    else:
+        out.append(f"✗ scores {s['season']}: no finished pair scored — the PHASE A gate cannot be evaluated")
+    if s.get("ours_unpaired_finished"):
+        out.append(f"· {len(s['ours_unpaired_finished'])} of our FINISHED games unpaired (listed above)")
     if s["postseason_ours"]:
         out.append(f"{'✓' if s['postseason_paired'] == s['postseason_ours'] else '✗'} postseason {s['season']}: "
                    f"{s['postseason_paired']}/{s['postseason_ours']} of our F/D/L/W games paired")
@@ -201,9 +256,15 @@ def main(argv=None) -> int:
         s["provider_item_keys"] = keys
         for k in ("paired", "coverage_pct", "ours_unmatched", "ours_unmatched_by_stage_status", "ambiguous",
                   "provider_unmatched", "provider_unmatched_by_status", "status_vocab", "status_crosstab",
-                  "finished_pairs_scored", "score_agree", "postseason_ours", "postseason_paired",
+                  "finished_pairs_scored", "score_agree", "score_parity_pct", "postseason_ours", "postseason_paired",
                   "stage_vs_provider_fields", "odds_joined_matches", "odds_joined_paired", "id_sample"):
             print(f"  {k}: {s[k]}")
+        for d in s["score_disagree_sample"]:
+            print(f"  ✗ score differs: {d['game']} {d['utc'][:16]} ours {d['ours']} vs provider {d['provider']} "
+                  f"(match #{d['match_id']}, provider #{d['provider_id']})")
+        for u in s["ours_unpaired_finished"]:
+            print(f"  ? unpaired FINISHED: {u['game']} {u['utc'][:16]} stage {u['stage']} {u['score']} "
+                  f"(match #{u['match_id']}) — {u['why']}")
         for v in verdict(s):
             print(f"  {v}")
         report["seasons"].append(s)

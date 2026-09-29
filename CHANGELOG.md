@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (MLB PHASE B probe: pitchers / bullpen / umpires from api-sports?)
+- `scripts/mlb_phase_b_probe.py` is read-only. It classifies candidate
+  api-sports Baseball endpoints and flags pitcher / bullpen / umpire
+  fields, with a verdict per need.
+- To be run on the laptop. The receipt is pending.
+
 ## 2026-09-29 (MLB-PROBE verdict + follow-up)
 - Architect verdict logged: api-sports Baseball is GREEN for MLB
   schedule/results and AMBER for predictions (no pitcher, umpire or

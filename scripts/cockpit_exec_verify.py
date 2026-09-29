@@ -38,7 +38,7 @@ def check(label, ok, detail=""):
     print(f"  {'PASS' if ok else 'FAIL'}  {label}" + (f"  — {detail}" if detail else ""))
 
 
-def nfl(home, away, p_home, fair_home, ask=None, cost=None):
+def nfl(home, away, p_home, fair_home, ask=None, cost=None, bid=None):
     r = {"home_team": home, "away_team": away, "utc_date": D1,
          "prediction": {"home_win_prob": p_home, "away_win_prob": round(1 - p_home, 4), "tier": "lean"},
          "market": {"bookmaker_count": 7, "fair_prob": {"HOME": fair_home, "AWAY": round(1 - fair_home, 4)}},
@@ -46,7 +46,7 @@ def nfl(home, away, p_home, fair_home, ask=None, cost=None):
          "input_quality": {"book_odds": 7, "injuries": {"home": {"qb_listed": []}, "away": {"qb_listed": []}}},
          "kalshi_bid": None, "kalshi_ask": None, "kalshi_exec_cost": None}
     if ask is not None:
-        r.update(kalshi_bid=round(ask - 0.01, 2), kalshi_ask=ask, kalshi_exec_cost=cost)
+        r.update(kalshi_bid=bid if bid is not None else round(ask - 0.01, 2), kalshi_ask=ask, kalshi_exec_cost=cost)
     return r
 
 
@@ -56,6 +56,7 @@ def doc(bills_cost):
         nfl("Green Bay Packers", "Detroit Lions", 0.62, 0.57, ask=0.58, cost=0.60),       # HOME pick, exec +2.0
         nfl("Dallas Cowboys", "Philadelphia Eagles", 0.36, 0.42, ask=0.41, cost=0.43),    # AWAY pick
         nfl("Chicago Bears", "Minnesota Vikings", 0.65, 0.58),                            # no quotes
+        nfl("Denver Broncos", "Las Vegas Raiders", 0.62, 0.55, ask=0.54, cost=0.56, bid=0.50),  # 4¢ spread: join 0.51
     ]}
 
 
@@ -105,14 +106,17 @@ def main():
         load("day1.json")
         rows = {r[0]: r for r in table()}
         bills = next(v for k, v in rows.items() if "Buffalo" in k)
-        check("HOME pick with quotes: fair edge + 'exec +4.0pp @ 0.62 · fee-clears?'",
-              bills[4] == "+6.0pp" + "exec +4.0pp @ 0.62 · fee-clears?", bills[4])
+        check("HOME pick with quotes: fair edge + 'exec +4.0pp @ 0.62 · fee-clears?' + 1¢ spread: joining = taking",
+              bills[4] == "+6.0pp" + "exec +4.0pp @ 0.62 · fee-clears? · join — (spread 1¢ — joining = taking)", bills[4])
         gb = next(v for k, v in rows.items() if "Green Bay" in k)
         check("exec edge +2.0pp: shown, no fee-clears? marker",
               "exec +2.0pp @ 0.60" in gb[4] and "fee-clears?" not in gb[4], gb[4])
         dal = next(v for k, v in rows.items() if "Dallas" in k)
         check("AWAY pick: 'exec —' (home-contract quotes), never a derived price",
               "exec — (quotes are the home contract's)" in dal[4], dal[4])
+        den = next(v for k, v in rows.items() if "Denver" in k)
+        check("join bid = bid + 1¢ (0.51) with its pre-fee edge; maker fee flagged unverified",
+              "join 0.51 (+11.0pp pre-fee; maker fee M unverified)" in den[4], den[4])
         chi = next(v for k, v in rows.items() if "Chicago" in k)
         check("no quotes: nothing extra", chi[4] == "+7.0pp", chi[4])
         check("informational only: every call and unit identical with and without quotes",
@@ -132,6 +136,30 @@ def main():
         page.click(f"button.execBtn[data-id='{gid}']")
         check("operator-early execution locks exec_cost at the current 0.60",
               pos()["Detroit Lions @ Green Bay Packers"]["exec_cost"] == 0.60)
+
+        print("ORDER TYPE + FILL")
+        did = P["Las Vegas Raiders @ Denver Broncos"]["id"]
+        check("position records the join bid seen at capture (0.51)",
+              P["Las Vegas Raiders @ Denver Broncos"]["kalshi_join_bid"] == 0.51)
+        page.select_option(f"select.fillType[data-id='{did}']", "limit")
+        page.fill(f"input.fillPx[data-id='{did}']", "0.99x")
+        page.click(f"button.fillBtn[data-id='{did}']")
+        check("a malformed fill price is refused, nothing recorded",
+              "Fill price must be" in page.inner_text("#ledgerNote") and "order_type" not in pos()["Las Vegas Raiders @ Denver Broncos"])
+        page.select_option(f"select.fillType[data-id='{did}']", "limit")
+        page.fill(f"input.fillPx[data-id='{did}']", "51")
+        page.click(f"button.fillBtn[data-id='{did}']")
+        dp = pos()["Las Vegas Raiders @ Denver Broncos"]
+        note = page.inner_text("#ledgerNote")
+        check("limit fill @ 51¢ recorded as order_type limit / fill_price 0.51, note cites the join bid",
+              dp["order_type"] == "limit" and dp["fill_price"] == 0.51 and "join bid at capture was 0.51" in note, note)
+        page.select_option(f"select.fillType[data-id='{did}']", "market")
+        page.fill(f"input.fillPx[data-id='{did}']", "0.54")
+        page.click(f"button.fillBtn[data-id='{did}']")
+        check("re-recording replaces the fill and says so (market @ 0.54, replaces limit @ 0.51)",
+              pos()["Las Vegas Raiders @ Denver Broncos"]["order_type"] == "market"
+              and "replaces limit @ 0.51" in page.inner_text("#ledgerNote"))
+        check("open list shows the recorded order", "market @ 0.540" in page.inner_text("#openList"))
         rows_txt = page.inner_text("#openList")
         check("open list shows the recorded Kalshi cost ('k 0.620')", "k 0.620" in rows_txt)
         page.evaluate("localDate=(d)=>{d=d||new Date(Date.now()+86400000);"

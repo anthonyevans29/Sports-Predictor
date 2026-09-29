@@ -19,7 +19,10 @@ This project runs on laws earned from incidents. They are not optional.
    before any refresh.
 6. **Track by artifact.** BACKLOG.md is the decision record; CHANGELOG.md
    the change record; incident entries name root cause and the law that
-   changed. Findings without a log entry didn't happen.
+   changed. Findings without a log entry didn't happen. Every known
+   limitation, finding and queued lane is also an Issue: Issues are the
+   STATE ledger, BACKLOG.md the history, the Project board the order
+   (docs/LEDGER.md).
 
 ## Workflow
 - Daily/operational changes: direct commits to `main` with descriptive

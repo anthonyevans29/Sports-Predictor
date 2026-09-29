@@ -1,0 +1,41 @@
+# THE LEDGER (architect 2026-09-29): Issues = state, BACKLOG.md = history,
+# one Project (v2) = order. scripts/ledger.py does the work; docs/LEDGER.md
+# has the rules. GITHUB_TOKEN covers labels, milestones, issues and comments.
+# The board is user-owned, so it needs the LEDGER_PROJECT_TOKEN secret (a
+# project-scoped token); without it the board steps are skipped, loudly.
+name: ledger
+
+on:
+  issues:
+    types: [opened, labeled, unlabeled, reopened, edited, closed]
+  pull_request:
+    types: [opened, edited, reopened]
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "bootstrap: labels, milestones, the backfill Issues, the board (idempotent)"
+        required: true
+        default: bootstrap
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+concurrency:
+  group: ledger-${{ github.event.issue.number || github.event.pull_request.number || 'bootstrap' }}
+  cancel-in-progress: false
+
+jobs:
+  ledger:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Ledger
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LEDGER_PROJECT_TOKEN: ${{ secrets.LEDGER_PROJECT_TOKEN }}
+        run: python scripts/ledger.py ${{ github.event_name == 'workflow_dispatch' && 'bootstrap' || 'event' }}

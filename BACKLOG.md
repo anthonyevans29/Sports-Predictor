@@ -69,6 +69,39 @@ specific reason they're not being built now.
     - The soccer export row carries late-news? on a +7.0pp Kalshi move.
     - Full suite 246 passed.
 
+- **CATCH-UP: LAPTOP COMPLETENESS SWEEP (architect Tuesday
+  authorization, 2026-09-29; hosting).** The command is
+  `bootstrap.py catch-up --reference <host-fingerprint> [--apply]
+  [--skip-family F]`.
+  - What it does: the laptop fingerprints itself, then compares totals
+    per (competition, season) with the reference. For each season where
+    it counts fewer games, it runs sync-teams then sync-matches, the
+    ruled order. That order is the H1a lesson: the laptop was 67 UEL
+    2024/25 games short because qualifying-round clubs were never
+    team-synced.
+  - A competition with no laptop games at all gets
+    `sync-competitions --sport` first.
+  - Seasons where the laptop is AHEAD are listed as informational and
+    never touched. A skipped family is listed with no steps.
+  - Dry run is the default: it prints the plan and a receipt
+    (`kind: catch_up`, `applied: false`) and runs nothing.
+  - `--apply`:
+    - takes today's daily backup first if none exists (.backup API) and
+      aborts if that fails;
+    - runs under the DB lock;
+    - receipts each season (laptop_before / reference / laptop_after /
+      closed / steps);
+    - stops at the first failure. A re-run recomputes the plan, so it
+      resumes where counts still lag.
+  - The version guard applies: the reference must come from this
+    bootstrap.py blob. After this merges, the host re-fingerprints on
+    main.
+  - Receipts: 4 new tests in `tests/test_hosting_pack.py` (plan:
+    behind/ahead/new-competition/skip plus CLI validity; dry run changes
+    nothing; apply backs up, runs teams→matches, 3/3 closed, then a re-run
+    says nothing to do; stops at failure; refuses version skew). Full
+    suite 238 passed.
+
 - **KALSHI FEE SCHEDULE: VERIFY RECEIPT + K2 JOIN BID / ORDER TYPE + FILL
   (architect, 2026-09-29).**
   - (1) FEE SCHEDULE. Kalshi's published docs were read via the web

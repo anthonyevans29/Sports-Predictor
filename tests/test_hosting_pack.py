@@ -1330,3 +1330,114 @@ def test_line_move_pages_through_quiet_hours_high_priority(sandbox, monkeypatch)
     assert len(sent) == 1 and sent[0][3] == "high" and "LINE MOVE inside T-3h" in sent[0][2]
     assert "tier" not in sent[0][2]
     assert rec["freshen_needed"][0]["reason"] == "line_move"
+
+
+# --------------------------------- catch-up (architect 2026-09-29) ----
+# Laptop completeness sweep vs the host fingerprint: sync-teams then
+# sync-matches for every competition-season the laptop is short on.
+
+CATCHUP_CLI = '''import os, sqlite3, sys
+a = sys.argv[1:]
+open("calls.log", "a").write(" ".join(a) + "\\n")
+if os.environ.get("CU_FAIL") and a[0] == "sync-matches":
+    print("requests.exceptions.HTTPError: 404 Client Error: Not Found"); sys.exit(1)
+if a[0] == "sync-matches":
+    comp, season = a[a.index("--competition") + 1], a[a.index("--season") + 1]
+    con = sqlite3.connect(os.environ["DATABASE_URL"].replace("sqlite:///", ""))
+    row = con.execute("SELECT id FROM competitions WHERE code = ?", (comp,)).fetchone()
+    cid = row[0] if row else con.execute("INSERT INTO competitions(sport, code) VALUES ('SOCCER', ?)",
+                                         (comp,)).lastrowid
+    have = con.execute("SELECT COUNT(*) FROM matches WHERE competition_id = ? AND season = ?",
+                       (cid, season)).fetchone()[0]
+    want = int(os.environ.get("CU_" + comp.replace("/", "_"), have))
+    con.executemany("INSERT INTO matches(competition_id, season, status) VALUES (?,?,'FINISHED')",
+                    [(cid, season)] * max(want - have, 0))
+    con.commit()
+print("ok", " ".join(a))
+'''
+
+LAPTOP_ROWS = [("SOCCER", "UEL", "2024/25", "FINISHED", 202), ("SOCCER", "PL", "2025/26", "FINISHED", 380),
+               ("NHL", "NHL", "2025", "FINISHED", 1498), ("MLB", "MLB", "2025", "FINISHED", 2430),
+               ("NFL", "NFL", "2025", "FINISHED", 280)]
+HOST_ROWS = [("SOCCER", "UEL", "2024/25", "FINISHED", 269), ("SOCCER", "PL", "2025/26", "FINISHED", 380),
+             ("NHL", "NHL", "2025", "FINISHED", 1498), ("SOCCER", "EL1", "2025/26", "FINISHED", 552),
+             ("NFL", "NFL", "2025", "FINISHED", 285)]      # MLB absent: the host skips MLB (ASN)
+
+
+def test_catch_up_plan_behind_ahead_new_comp_and_skip(tmp_path):
+    lap = bootstrap.fingerprint(_fp_db(tmp_path / "l.db", LAPTOP_ROWS))
+    ref = bootstrap.fingerprint(_fp_db(tmp_path / "h.db", HOST_ROWS))
+    p = bootstrap.catch_up_plan(lap, ref, skip={"NFL"})
+    behind = {(r["comp"], r["season"]): r for r in p["behind"]}
+    assert set(behind) == {("UEL", "2024/25"), ("EL1", "2025/26"), ("NFL", "2025")}
+    assert behind[("UEL", "2024/25")]["short"] == 67 and not behind[("UEL", "2024/25")]["new_comp"]
+    assert behind[("NFL", "2025")]["skipped"] and behind[("NFL", "2025")]["steps"] == []
+    flat = [" ".join(s) for s in p["steps"]]
+    assert flat == ["sync-competitions --sport soccer",                 # EL1: laptop has no games at all
+                    "sync-teams --competition EL1 --season 2025/26",
+                    "sync-matches --competition EL1 --season 2025/26",
+                    "sync-teams --competition UEL --season 2024/25",    # the ruled order: teams first
+                    "sync-matches --competition UEL --season 2024/25"]
+    assert [(r["comp"], r["laptop"], r["reference"]) for r in p["ahead"]] == [("MLB", 2430, 0)]
+    cli = _cli()
+    for st in p["steps"]:
+        opts = {o for q in cli.commands[st[0]].params for o in (*q.opts, *q.secondary_opts)}
+        assert all(t in opts for t in st[1:] if t.startswith("--")), st
+
+
+def _catchup_env(sandbox, monkeypatch):
+    lap_db = _fp_db(sandbox / "live" / "laptop.db", LAPTOP_ROWS)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{lap_db}")
+    ref = sandbox / "fp_host.json"
+    ref.write_text(json.dumps(bootstrap.fingerprint(_fp_db(sandbox / "h.db", HOST_ROWS))))
+    (c.REPO / "cli.py").write_text(CATCHUP_CLI)
+    return lap_db, ref
+
+
+def test_catch_up_dry_run_changes_nothing(sandbox, monkeypatch, capsys):
+    lap_db, ref = _catchup_env(sandbox, monkeypatch)
+    assert bootstrap.main(["catch-up", "--reference", str(ref)]) == 0
+    out = capsys.readouterr().out
+    assert "CATCH-UP (DRY-RUN)" in out and "UEL    2024/25  laptop   202 < reference   269 (short 67)" in out
+    assert "python cli.py sync-teams --competition UEL --season 2024/25" in out
+    assert "laptop ahead: informational, untouched" in out
+    assert not (c.REPO / "calls.log").exists()                        # nothing ran
+    rec = receipts(sandbox)[-1]
+    assert rec["kind"] == "catch_up" and rec["applied"] is False and rec["steps"] == 7   # NFL 2 + soccer 1+2+2
+    assert not list((sandbox / "backups").glob("*.db")) if (sandbox / "backups").exists() else True
+
+
+def test_catch_up_apply_backs_up_runs_in_order_and_receipts(sandbox, monkeypatch, capsys):
+    lap_db, ref = _catchup_env(sandbox, monkeypatch)
+    monkeypatch.setenv("CU_UEL", "269")
+    monkeypatch.setenv("CU_EL1", "552")
+    monkeypatch.setenv("CU_NFL", "285")
+    assert bootstrap.main(["catch-up", "--reference", str(ref), "--apply"]) == 0
+    calls = (c.REPO / "calls.log").read_text().splitlines()
+    assert calls[:2] == ["sync-teams --competition NFL --season 2025",           # family order: NFL first
+                         "sync-matches --competition NFL --season 2025"]
+    assert calls.index("sync-competitions --sport soccer") < calls.index("sync-teams --competition EL1 --season 2025/26")
+    assert calls.index("sync-teams --competition UEL --season 2024/25") + 1 == \
+        calls.index("sync-matches --competition UEL --season 2024/25")
+    rs = receipts(sandbox)
+    assert rs[0]["kind"] == "backup" and rs[0]["integrity"] == "ok"   # daily backup before any write
+    cu = {(r["comp"], r["season"]): r for r in rs if r["kind"] == "catch_up"}
+    assert cu[("UEL", "2024/25")]["laptop_before"] == 202 and cu[("UEL", "2024/25")]["laptop_after"] == 269
+    assert all(r["closed"] for r in cu.values())
+    assert "3/3 season(s) closed" in capsys.readouterr().out
+    # re-run: nothing left to do
+    assert bootstrap.main(["catch-up", "--reference", str(ref), "--apply"]) == 0
+    assert "nothing to catch up" in capsys.readouterr().out
+
+
+def test_catch_up_stops_at_failure_and_refuses_version_skew(sandbox, monkeypatch):
+    lap_db, ref = _catchup_env(sandbox, monkeypatch)
+    monkeypatch.setenv("CU_FAIL", "1")
+    assert bootstrap.main(["catch-up", "--reference", str(ref), "--apply"]) == 1
+    cu = [r for r in receipts(sandbox) if r["kind"] == "catch_up"]
+    assert len(cu) == 1 and cu[0]["exit"] == 1 and cu[0]["closed"] is False     # stopped at the first season
+    fp = json.loads(ref.read_text())
+    fp["producer"]["bootstrap_blob_sha"] = "0" * 40
+    ref.write_text(json.dumps(fp))
+    assert bootstrap.main(["catch-up", "--reference", str(ref)]) == 2
+    assert receipts(sandbox)[-1]["refused"] == "version_mismatch"

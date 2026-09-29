@@ -22,6 +22,26 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **K2: EXECUTABLE-EDGE DISPLAY (Cockpit, K-track; architect Tuesday
+  authorization, 2026-09-29).** INFORMATIONAL ONLY.
+  - Where a Desk row carries `kalshi_bid`/`kalshi_ask`/`kalshi_exec_cost`
+    (the NFL export, since K1), the Edge cell shows "exec +x.xpp @
+    cost" beside the fair edge: exec edge = model p − kalshi_exec_cost.
+  - It adds a "fee-clears?" marker at ≥ 4pp.
+  - Calls, units and tiers are unchanged. The verify proves they are
+    identical with and without quotes. The executable-edge RULING comes
+    after 2 weeks of ladders.
+  - The ledger records `claim_exec_cost` at claim (frozen) and
+    `exec_cost` at execution: the default follows each re-log, and an
+    operator-early execution locks it. The open list shows "k 0.620".
+  - The exported quotes are the HOME contract's (ask + fee), so an AWAY
+    side shows "exec —" and its position records null.
+  - ARCHITECT-RULE: a NO-side price (1 − home bid + fee) could be
+    derived. It is not built, because it would be a guess until the
+    away contract's own quotes are stored.
+  - Receipts: `scripts/cockpit_exec_verify.py` 12/12; the other 6
+    Cockpit verifies are unchanged and green; full suite 234 passed.
+
 - **VALUE-SIDE SHADOW (policy v1.2 CANDIDATE) + VALUE-SIDE CLV + QB FEED
   AUDIT (architect rulings, 2026-09-29, after Week 4 MNF).** The trigger:
   PHI@CHI had model CHI 48.9 vs market 35.5, which is +13.4pp of value on

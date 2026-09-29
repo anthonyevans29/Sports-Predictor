@@ -111,6 +111,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
+    <b>EXEC EDGE</b> (K2, informational, 2026-09-29) — where Kalshi quotes exist: model − (ask + fee) beside the fair edge · "fee-clears?" at ≥ 4pp · home contract only · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.
   </div>
 </div>
@@ -290,6 +291,7 @@ function normalize(doc){
         return [].concat((inj.home&&inj.home.qb_listed)||[],(inj.away&&inj.away.qb_listed)||[]);})(),
       rawIQ:p.input_quality||{},live:doc.rehearsal===false,
       kalProb:kalFromPrediction(p,mk,market),threeWay:market.DRAW!=null||probs.DRAW!=null,
+      kExec:{bid:p.kalshi_bid??null,ask:p.kalshi_ask??null,cost:p.kalshi_exec_cost??null},
       iq:(function(){const q=p.input_quality||{};const bits=[];
         if(q.book_odds!=null)bits.push(q.book_odds+" books");
         if(q.kalshi)bits.push("kalshi "+q.kalshi);
@@ -377,6 +379,25 @@ function venueEdge(r,now){
 // leg. Promotion to real sizing only via a version bump after >= 30 graded.
 // ---------------------------------------------------------------------
 const VALUE={units:0.25,reviewN:30};
+// ---------------------------------------------------------------------
+// K2 — EXECUTABLE-EDGE DISPLAY (K-track, architect 2026-09-29). Where a row
+// carries kalshi_bid/ask/exec_cost, the Desk shows exec edge = model p −
+// kalshi_exec_cost beside the fair edge, and "fee-clears?" at >= 4pp.
+// INFORMATIONAL ONLY: no sizing, tier or call change; the executable-edge
+// ruling comes after 2 weeks of ladders. The quotes are the HOME contract's
+// (ask + fee), so an exec edge exists only for a HOME side; an away side
+// shows "—" (a NO-side price is not derived — never guessed).
+// ---------------------------------------------------------------------
+const K2={feeClearsPP:4};
+function execCostFor(r,side){return side==="HOME"&&r.kExec&&r.kExec.cost!=null?r.kExec.cost:null;}
+function execEdgePP(r,side,modelP){const c=execCostFor(r,side);return c==null||modelP==null?null:(modelP-c)*100;}
+function execEdgeHTML(r,side,modelP){
+  if(!r.kExec||(r.kExec.cost==null&&r.kExec.ask==null)) return "";
+  const e=execEdgePP(r,side,modelP);
+  if(e==null) return `<div class="note">exec — (quotes are the home contract's)</div>`;
+  return `<div class="note">exec ${e>=0?"+":""}${e.toFixed(1)}pp @ ${execCostFor(r,side).toFixed(2)}`
+    +(e>=K2.feeClearsPP?` · <b class="play">fee-clears?</b>`:"")+`</div>`;
+}
 function valueSide(r,P){
   if(r.marketOnly||P.passAll||!r.twoSided) return null;
   const eMin=P.eMin??4; let best=null;
@@ -458,7 +479,7 @@ function policy(){
     const tr=document.createElement("tr");
     tr.innerHTML=`<td>${esc(r.game)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
       <td>${r.prob.toFixed(3)}</td><td>${r.mkt!=null?r.mkt.toFixed(3):"—"}</td>
-      <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}</td>
+      <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execEdgeHTML(r,r.pick,r.prob)}</td>
       <td class="${cls}">${call}</td><td>${units||"—"}</td>
       <td class="reason">${esc(reasons.join(" · "))}</td>`;
     tb.appendChild(tr);
@@ -467,7 +488,7 @@ function policy(){
     const tr=document.createElement("tr"); tr.className="vshadow";
     tr.innerHTML=`<td>↳ ${esc(r.game)}</td><td title="${esc(v.side)}">${esc(sideName(r,v.side))}</td>
       <td>${v.modelP.toFixed(3)}</td><td>${v.marketP.toFixed(3)}</td>
-      <td>+${v.edge.toFixed(1)}pp</td>
+      <td>+${v.edge.toFixed(1)}pp${execEdgeHTML(r,v.side,v.modelP)}</td>
       <td class="caution">VALUE ${VALUE.units}u (shadow)</td><td>—</td>
       <td class="reason">${esc(v.reason)}</td>`;
     tb.appendChild(tr);
@@ -621,10 +642,12 @@ function baseCall(r,logDate){
 function stampTiming(pos,fresh,isNew){
   const at=fresh.captured_at||new Date().toISOString();
   if(isNew){ pos.claim_at=at; pos.claim_market_p=fresh.market_p??null; pos.claim_model_p=fresh.model_p??null;
+    pos.claim_exec_cost=fresh.kalshi_exec_cost??null;       // K2: Kalshi ask+fee at claim (null: none quoted / away side)
     pos.exec_mode="close_default"; }
   if(pos.exec_mode!=="operator_early"){
     pos.exec_mode=pos.exec_mode||"close_default";
-    pos.executed_at=at; pos.exec_market_p=fresh.market_p??null; }
+    pos.executed_at=at; pos.exec_market_p=fresh.market_p??null;
+    pos.exec_cost=fresh.kalshi_exec_cost??null; }             // K2: … and at execution
   return pos;
 }
 function execP(c){return c.exec_market_p??c.market_p;}
@@ -650,11 +673,11 @@ function snapshotCalls(now){
       const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):r.mkt;
       out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:lad?"ladder":"straight",units:x.units,model_p:mp,market_p:kp,
-        venue_hint:"books",rules:x.tags});
+        kalshi_exec_cost:lad?null:execCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
     } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
       out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
-        model_p:r.prob,market_p:r.mkt,venue_hint:"books",rules:x.tags});
+        model_p:r.prob,market_p:r.mkt,kalshi_exec_cost:execCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
     }
   }
   for(const {r,v} of deskValue){        // value-side shadows (v1.2 candidate): notional, never staked
@@ -662,6 +685,7 @@ function snapshotCalls(now){
     out.push({...baseCall(r,d),pick:v.side,tier:"shadow",engine:"model_edge",
       call_type:"value_shadow",units:0,shadow_units:VALUE.units,
       model_p:v.modelP,market_p:v.marketP,value_edge_pp:+v.edge.toFixed(2),value_role:v.role,
+      kalshi_exec_cost:execCostFor(r,v.side),
       top_pick:r.pick,venue_hint:"books",rules:v.tags.slice()});
   }
   for(const t of deskParlays){          // parlays: model_edge only (frozen)
@@ -957,8 +981,8 @@ function renderLedger(){
     +open.map(c=>{const early=c.exec_mode==="operator_early";
       const canExec=!early&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
       return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`
-      +`<td>${c.claim_at?`${px(c.claim_market_p)} <span class="note">${esc(hm(c.claim_at))}</span>`:'<span class="note">unknown (pre-rule)</span>'}</td>`
-      +`<td>${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
+      +`<td>${c.claim_at?`${px(c.claim_market_p)}${c.claim_exec_cost!=null?` <span class="note">k ${px(c.claim_exec_cost)}</span>`:""} <span class="note">${esc(hm(c.claim_at))}</span>`:'<span class="note">unknown (pre-rule)</span>'}</td>`
+      +`<td>${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
       +`<td>${canExec?`<button class="ghost execBtn" data-id="${esc(c.id)}">Execute now</button>`:""}</td></tr>`;}).join("")
     +"</tbody></table></div>":'<div class="note">No unmatched open calls.</div>');
   $("realized").innerHTML=realizedHTML(L);
@@ -981,6 +1005,7 @@ function executeEarly(id){
   const group=c.parlay_id?L.calls.filter(x=>x.parlay_id===c.parlay_id&&x.status==="open"):[c];
   for(const x of group){
     x.exec_mode="operator_early"; x.executed_at=at; x.exec_market_p=x.market_p??null;
+    x.exec_cost=x.kalshi_exec_cost??null;                    // K2: the current Kalshi ask+fee, locked with it
     const edge=(x.model_p!=null&&x.market_p!=null)?+((x.model_p-x.market_p)*100).toFixed(1):null;
     x.early_inputs={edge_pp:edge,qb_listed:(x.qb_listed||[]).slice(),quarantine:!!x.quarantine,
       marker_pp:EARLY_MARKER_PP,below_marker:edge==null?null:edge<EARLY_MARKER_PP};

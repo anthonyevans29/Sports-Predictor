@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (Cockpit K2: executable-edge display)
+- The Desk shows exec edge = model − Kalshi (ask + fee) beside the fair
+  edge, with "fee-clears?" at ≥ 4pp. It is informational only: no
+  sizing, tier or call change.
+- Positions record the Kalshi exec cost at claim and at execution.
+
 ## 2026-09-29 (Week 4 MNF rulings: value-side shadow, value-side CLV, QB feed audit)
 - Cockpit: the Desk evaluates edge on every side. A value side that is
   not the top pick and clears 4pp logs a `value_shadow` at 0.25u

@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (hosting: bootstrap catch-up — laptop completeness sweep)
+- `bootstrap.py catch-up --reference <host fingerprint>`: for each
+  competition-season where the laptop counts fewer games, it runs
+  sync-teams then sync-matches.
+- Dry run by default. `--apply` backs up first, receipts each season
+  before and after, and stops at the first failure.
+
 ## 2026-09-29 (K-track: Kalshi fee schedule receipt; K2 join bid + order type/fill)
 - Fee schedule receipt (July 2026 schedule): taker 0.07 is confirmed.
   Maker is 0.0175 × M, with M = 0 unless the series is listed.

@@ -295,6 +295,13 @@ def _build_row(
         "actual_home_score": m.home_score,
         "actual_away_score": m.away_score,
     }
+    # LINE-MOVE ALARM (ruling 2026-09-29 on #65, item 4): the MLB and soccer
+    # prediction exports carry the same additive fields as the NFL export —
+    # the operator reads game-day rows here, not only on the window card.
+    from src.walters.line_move import line_move_for_match
+    lm = line_move_for_match(s, m)
+    row["line_move"] = lm
+    row["late_news_flag"] = lm["flag"] if lm else None
 
     # ----- Prediction
     if pred is None:

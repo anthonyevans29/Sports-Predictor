@@ -15,6 +15,9 @@ run. The delta classes:
                  POSTPONED / CANCELLED
     t90_news     injury/lineup state changed for a game inside T-90; the
                  window chain then triggers freshen:<family> (sp_run)
+    line_move    LINE-MOVE ALARM (ruling 2026-09-29): the card row turned
+                 "late-news?" (>= 6pp on book or Kalshi inside T-3h, from
+                 stored snapshots); pages and triggers freshen:<family>
 Quiet hours are 00:00-07:00 America/New_York: everything except quarantine
 flips is suppressed there, and still receipted. Plus ONE fixed daily digest
 on the first run at or after 08:00 ET. State lives in SP_WINDOW_STATE
@@ -35,7 +38,8 @@ import sp_common as c  # noqa: E402
 ET = ZoneInfo("America/New_York")
 QUIET = (0, 7)          # [00:00, 07:00) ET
 DIGEST_HOUR = 8         # first run at/after 08:00 ET
-CLASSES = ("new_priced", "tier", "quarantine", "stale", "kickoff", "t90_news")
+CLASSES = ("new_priced", "tier", "quarantine", "stale", "kickoff", "t90_news", "line_move")
+FRESHEN_CLASSES = ("t90_news", "line_move")
 
 
 def state_path() -> Path:
@@ -52,8 +56,18 @@ def snapshot(card: dict) -> dict:
             "priced": bool(r.get("market") or r.get("kalshi")),
             "tier": r.get("tier"), "quarantine": bool(r.get("quarantine")),
             "venue_flag": r.get("venue_flag"), "edge_pp": r.get("edge_pp"),
-            "engine": r.get("engine")}
+            "engine": r.get("engine"),
+            "late_news": r.get("late_news_flag"), "line_move": _move_text(r.get("line_move"))}
     return out
+
+
+def _move_text(lm) -> str | None:
+    """'book 0.489->0.560 (+7.1pp)' for the venues that crossed the alarm."""
+    if not lm:
+        return None
+    bits = [f"{k} {v['from']:.3f}->{v['to']:.3f} ({v['move_pp']:+.1f}pp)"
+            for k, v in (lm.get("venues") or {}).items() if v.get("alarm")]
+    return " · ".join(bits) or None
 
 
 def deltas(prev: dict, cur: dict, prev_t90: dict, cur_t90: dict) -> list[dict]:
@@ -62,6 +76,8 @@ def deltas(prev: dict, cur: dict, prev_t90: dict, cur_t90: dict) -> list[dict]:
         p = prev.get(mid)
         if g["priced"] and (p is None or not p["priced"]):
             out.append({"cls": "new_priced", "id": mid, "g": g})
+        if g.get("late_news") and (p is None or not p.get("late_news")):
+            out.append({"cls": "line_move", "id": mid, "g": g})
         if p is None:
             continue
         if g["tier"] != p["tier"]:
@@ -95,7 +111,8 @@ def line(d: dict) -> str:
             "quarantine": f"QUARANTINE {'ON' if g['quarantine'] else 'off'}",
             "stale": f"venue {d.get('was') or 'ok'} -> {g['venue_flag'] or 'ok'}",
             "kickoff": f"kickoff moved from {d.get('was')} (status {g['status']})",
-            "t90_news": "injury/lineup news inside T-90: freshen triggered"}[d["cls"]]
+            "t90_news": "injury/lineup news inside T-90: freshen triggered",
+            "line_move": f"LINE MOVE inside T-3h: {g.get('line_move')}: {g.get('late_news')} freshen triggered"}[d["cls"]]
     return f"{head}: {what}"
 
 
@@ -158,8 +175,8 @@ def run(card_path: Path, now_utc: datetime | None = None) -> dict:
            "deltas": counts, "quiet_hours": quiet, "suppressed": suppressed,
            "paged": paged, "digest": did_digest,
            "freshen_needed": [{"id": d["id"], "sport": d["g"]["sport"],
-                               "competition": d["g"]["competition"]}
-                              for d in ds if d["cls"] == "t90_news"]}
+                               "competition": d["g"]["competition"], "reason": d["cls"]}
+                              for d in ds if d["cls"] in FRESHEN_CLASSES]}
     c.append_receipt(rec)
     return rec
 

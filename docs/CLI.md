@@ -77,6 +77,17 @@ lines post; after game days `sync-matches --competition NFL` then
 `nfl-grade`. Predictions are LIVE (nfl_elo_v1): `predict-nfl` →
 `export-nfl-predictions` before each slate.
 
+> **DOCTRINE (architect, 2026-09-29): the game-day T-60 closing freshen is
+> MANDATORY for model sports (NFL, MLB, soccer) on the laptop while it is
+> writer of record.** Run the family's freshen sequence (the same steps as
+> `freshen:<family>` in `deploy/hosting/chains.py`: injuries/odds/Kalshi →
+> predict → export) about 60 minutes before each game-day slate. Earned by
+> Week 4 MNF: the provider's injury report did not list the Chicago starter
+> at either pre-game sync, and no closing freshen ran. The host's
+> window-service freshen is NOT a substitute: its T-90 check only sees
+> injury changes some other chain already synced, and the line-move alarm
+> only fires on a >= 6pp market move.
+
 | Command | Options | Purpose |
 |---|---|---|
 | `sync-odds-football` | | Per-game book odds for upcoming American-football games, NFL and NCAA (moneyline, spreads with sign, totals with lines). Old name `sync-odds-nfl` still works as an alias. |
@@ -121,7 +132,7 @@ books' fair bars with a market-only chip and the Kalshi status.
 | `export-predictions` | `--sport --competition --days --date --start --end --status` | Consumer prediction file with input_quality vocabulary. **Default rows: the current slate.** Soccer: kickoffs in the next 36h. **MLB: today's one 08:00-UTC slate-day** (ruling 2026-09-28: it plays daily, so 36h would drag in tomorrow's games before pitchers and lineups are confirmed). `--days N` is the explicit look-ahead. `--date` / `--start --end` keep their 08:00-UTC slate-day meaning (post-mortems, the soccer weekend chains). Prints a `window:` receipt line. |
 | `export-results` | `--sport --competition --date` | Graded results file (top-pick, totals pulse annotations). |
 | `results-tally` | `--days` | Regenerate `RESULTS.md` — rolling per-sport record (sides, log-loss, CLV). |
-| `window-card` | `--hours --t90` | Next-24h consolidated card → `exports/window_24h.json`: every game in the window, kickoff-sorted, fixtures grammar + model p / edge / tier / quarantine / venue flag / engine. Model fields copied from the canonical exports (no model runs); market side repriced. Read-only against the DB. |
+| `window-card` | `--hours --t90` | Next-24h consolidated card → `exports/window_24h.json`: every game in the window, kickoff-sorted, fixtures grammar + model p / edge / tier / quarantine / venue flag / engine. Model fields copied from the canonical exports (no model runs); market side repriced. Read-only against the DB. **Line-move alarm** (2026-09-29): inside T-3h, a net move ≥ 6pp in the home probability on the book consensus or Kalshi (from stored snapshots, no provider calls) sets `late_news_flag: "late-news?"` with the per-venue `line_move`; the window pager pages it and requests `freshen:<family>`. `export-nfl-predictions` carries the same two fields. |
 
 ## Diagnostics & research
 

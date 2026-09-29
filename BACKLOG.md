@@ -22,6 +22,40 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **MLB PHASE B PROBE: can api-sports Baseball feed pitchers, bullpen,
+  umpires? (architect ruling (3), 2026-09-29; read-only, next-spring
+  planning).** `scripts/mlb_phase_b_probe.py` runs on the laptop, where
+  the key lives.
+  - It finds a recent FINISHED game via /games by date and dumps every
+    key path of that item.
+  - It flags key NAMES (not values) that suggest a pitcher, bullpen,
+    umpire or lineup/player field.
+  - It calls each of ~12 candidate paths once and classifies each:
+    - EXISTS: response items and their flagged keys;
+    - NO-SUCH-ENDPOINT: the API says it does not exist;
+    - EXISTS-PARAMS: the API rejects our params, so the endpoint is
+      real;
+    - ERROR: HTTP, network or auth.
+  - The candidates: players, players/statistics, players/squads,
+    games/statistics(/players|/teams), games/players, games/events,
+    games/lineups, injuries, umpires.
+  - `/timezone` is the control: a documented endpoint must come back
+    EXISTS, or the run is flagged untrustworthy.
+  - Verdict per need: FEEDABLE (where the fields were found) or NOT FROM
+    API-SPORTS BASEBALL.
+  - Law 1: the adapter's docs note lists no player endpoint, so the
+    probe tests the list rather than assuming it.
+  - Cost: 1–4 + 12 calls.
+  - **RECEIPT PENDING** (operator, laptop). It decides whether MLB
+    predictions ever run from the host.
+  - Receipts: `tests/test_mlb_phase_b_probe.py` 3 passed:
+    - the documented shape gives nothing feedable, with one call per
+      candidate;
+    - a param rejection classifies as EXISTS-PARAMS and a 500 as ERROR;
+    - bullpen fields found on players/statistics give FEEDABLE, with
+      the location;
+    - with no finished game, the game-scoped paths are skipped.
+
 - **LANE C: COSMETICS (architect Tuesday authorization, 2026-09-29).**
   - (1) `utcnow()` → `now(UTC)` sweep: 111 references in 28 files,
     including 15 column/field defaults and one `utcfromtimestamp`.

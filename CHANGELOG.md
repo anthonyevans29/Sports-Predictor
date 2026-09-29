@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (MLB PHASE B probe: pitchers / bullpen / umpires from api-sports?)
+- `scripts/mlb_phase_b_probe.py` is read-only. It classifies candidate
+  api-sports Baseball endpoints and flags pitcher / bullpen / umpire
+  fields, with a verdict per need.
+- To be run on the laptop. The receipt is pending.
+
 ## 2026-09-29 (cosmetics lane C: utcnow sweep, MVE combo fills, ntfy topic validation)
 - `datetime.utcnow()` / `utcfromtimestamp()` are replaced everywhere by
   `src/timeutil.py` helpers. These are built on `now(timezone.utc)` and

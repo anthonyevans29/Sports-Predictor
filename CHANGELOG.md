@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-29 (hosting: bootstrap catch-up — laptop completeness sweep)
+- `bootstrap.py catch-up --reference <host fingerprint>`: for each
+  competition-season where the laptop counts fewer games, it runs
+  sync-teams then sync-matches.
+- Dry run by default. `--apply` backs up first, receipts each season
+  before and after, and stops at the first failure.
+
 ## 2026-09-29 (Week 4 MNF rulings: value-side shadow, value-side CLV, QB feed audit)
 - Cockpit: the Desk evaluates edge on every side. A value side that is
   not the top pick and clears 4pp logs a `value_shadow` at 0.25u

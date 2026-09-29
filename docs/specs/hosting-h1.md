@@ -43,7 +43,7 @@ proven standard (2026-09-28).
 | `systemd/` | `sp-chain@.service` template, 14 timers, backup, prune, notify@, boot-receipt, web, and `sp-soccer-refresh.service` (no timer). |
 | `etc/` | host.env template, full-season list template, unattended-upgrades reboot window, logrotate. |
 | `install.sh` | Copies units and config into place. **Enables nothing.** |
-| `bootstrap.py` | H1a: `fingerprint` (read-only counts), `plan`, `run` (the wiring sequence, receipted and resumable), and `compare` (phase-1 acceptance: completed seasons exact plus the BACKLOG anchors). |
+| `bootstrap.py` | H1a: `fingerprint` (read-only counts), `plan`, `run` (the wiring sequence, receipted and resumable), and `compare` (phase-1 acceptance: completed seasons exact plus the BACKLOG anchors). `catch-up --reference fp_host.json [--apply]` (laptop, 2026-09-29): the pre-cutover completeness sweep — sync-teams then sync-matches for every competition-season the laptop counts fewer games than the reference; dry run by default; `--apply` takes the daily backup first, receipts each season before/after (`kind: catch_up`), stops at the first failure. |
 
 Code change riding along (H0-5 hard guard): `improve --hold-on-pass`, also
 set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.

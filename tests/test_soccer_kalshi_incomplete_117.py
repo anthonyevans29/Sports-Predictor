@@ -65,7 +65,7 @@ def test_fixtures_export_marks_a_soccer_set_missing_a_leg_partial(tmp_path):
     rc = {}
     fx = {r["match_id"]: r for r in json.loads(open(export_fixtures(
         "K117CUP", start="2032-03-01", end="2032-03-05", out_dir=str(tmp_path), receipts=rc)).read())["fixtures"]}
-    assert fx[full]["kalshi"]["status"] == "two_sided" and fx[full]["kalshi_exec_cost"] == 0.53
+    assert fx[full]["kalshi"]["status"] == "two_sided" and fx[full]["kalshi_exec_cost"] == 0.528   # #88: per-fill (was 0.53)
     n = fx[notie]
     assert n["kalshi"]["status"] == "partial" and n["input_quality"]["kalshi"] == "partial"
     assert (n["kalshi_bid"], n["kalshi_ask"], n["kalshi_exec_cost"]) == (None, None, None)
@@ -111,7 +111,7 @@ def test_117_receipt_script_prints_before_after(capsys):
     out = capsys.readouterr().out
     assert "matches 2 · with Kalshi 2 · CHANGED 2 · now partial 1" in out
     # full set: H/(H+A) 0.6667 -> H/(H+D+A) 0.4902; book fair H ~0.4972 -> the old read flagged STALE-BOOK?
-    assert "BEFORE status=two_sided kalshi_home=0.6667 exec=0.53" in out and "flag=STALE-BOOK?" in out
-    assert "AFTER  status=two_sided kalshi_home=0.4902 exec=0.53" in out
+    assert "BEFORE status=two_sided kalshi_home=0.6667 exec=0.528" in out and "flag=STALE-BOOK?" in out
+    assert "AFTER  status=two_sided kalshi_home=0.4902 exec=0.528" in out   # #88: per-fill fee (was 0.53)
     # TIE missing: two_sided -> partial, the price, exec and gap all go
     assert "AFTER  status=partial kalshi_home=None exec=None gap=None flag=None" in out

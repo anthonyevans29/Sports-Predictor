@@ -53,12 +53,12 @@ def test_mlb_and_soccer_rows_carry_home_contract_exec_cost():
     lo, hi = kick - timedelta(days=1), kick + timedelta(days=1)
     mlb = {r["match_id"]: r for r in json.loads(export_predictions(
         sport=Sport.MLB, start_date=lo, end_date=hi, competition_code="KXMLB"))["predictions"]}
-    assert (mlb[two]["kalshi_bid"], mlb[two]["kalshi_ask"], mlb[two]["kalshi_exec_cost"]) == (0.54, 0.56, 0.58)
+    assert (mlb[two]["kalshi_bid"], mlb[two]["kalshi_ask"], mlb[two]["kalshi_exec_cost"]) == (0.54, 0.56, 0.578)   # #88: per-fill (was 0.58)
     assert mlb[two]["k_track"].startswith("K-track: informational")
     assert (mlb[one]["kalshi_bid"], mlb[one]["kalshi_ask"], mlb[one]["kalshi_exec_cost"]) == (None, None, None)
     sc = {r["match_id"]: r for r in json.loads(export_predictions(
         sport=Sport.SOCCER, start_date=lo, end_date=hi, competition_code="KXSOC"))["predictions"]}
-    assert (sc[soc]["kalshi_bid"], sc[soc]["kalshi_ask"], sc[soc]["kalshi_exec_cost"]) == (0.47, 0.49, 0.51)
+    assert (sc[soc]["kalshi_bid"], sc[soc]["kalshi_ask"], sc[soc]["kalshi_exec_cost"]) == (0.47, 0.49, 0.508)   # #88: per-fill (was 0.51)
     # The exec fields follow the export's OWN two-sided flag (market.kalshi.normalized).
     for mid in (soc, soc2):
         assert (sc[mid]["kalshi_exec_cost"] is not None) == bool(sc[mid]["market"]["kalshi"]["normalized"])
@@ -96,5 +96,5 @@ def test_113_receipt_script_reports_before_after_on_the_affected_rows(capsys):
     out = capsys.readouterr().out
     assert "rows 2 · with Kalshi 2 · incomplete now 1 · CHANGED (were normalized two-way) 1" in out
     assert f"#{mid} " in out and "missing ['DRAW']" in out
-    assert "BEFORE normalized=True prob={'HOME': 0.6575, 'AWAY': 0.3425} exec_cost=0.51" in out
+    assert "BEFORE normalized=True prob={'HOME': 0.6575, 'AWAY': 0.3425} exec_cost=0.508" in out   # #88: per-fill fee (was 0.51)
     assert "AFTER  normalized=False prob=None input_quality=partial exec_cost=None" in out

@@ -119,8 +119,8 @@ def main():
         # These fixtures are PRE-SPLIT exports (kalshi_exec_cost only, no
         # exec_cost_maker): the Desk falls back to the taker cost and says so
         # (#93 split; the maker path is checked in cockpit_maker_taker_verify.py).
-        check("HOME pick with quotes: fair edge + 'exec +4.0pp @ 0.62 taker' + 1¢ spread: joining = taking + fee-clears?",
-              bills[4] == "+6.0pp" + "exec +4.0pp @ 0.62 taker (spread 1¢ — joining = taking) · fee-clears?", bills[4])
+        check("HOME pick with quotes: fair edge + 'exec +4.0pp @ 0.620 taker' + 1¢ spread: joining = taking + fee-clears?",
+              bills[4] == "+6.0pp" + "exec +4.0pp @ 0.620 taker (spread 1¢ — joining = taking) · fee-clears?", bills[4])
         gb = next(v for k, v in rows.items() if "Green Bay" in k)
         check("exec edge +2.0pp: shown, no fee-clears? marker",
               "exec +2.0pp @ 0.60" in gb[4] and "fee-clears?" not in gb[4], gb[4])
@@ -189,7 +189,7 @@ def main():
         load("mlb.json")
         nyy = next(v for k, v in {r[0]: r for r in table()}.items() if "Yankees" in k)
         check("MLB HOME pick: exec edge + join bid render from the MLB export's fields",
-              "exec +3.0pp @ 0.59 taker" in nyy[4] and "join 0.56" in nyy[4], nyy[4])
+              "exec +3.0pp @ 0.590 taker" in nyy[4] and "join 0.56" in nyy[4], nyy[4])
         check("no page errors", not errors, "; ".join(errors))
         browser.close()
     srv.shutdown()

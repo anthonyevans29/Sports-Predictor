@@ -58,17 +58,17 @@ def nfl(home, away, p_home, fair_home, bid=None, ask=None):
 def main():
     print("EXPORT (venue.kalshi_exec, ruling 1)")
     sea = kalshi_exec(0.55, 0.58, "NFL")
-    check("NFL 0.55/0.58: taker 0.60 (0.58 + 2c at M=1), maker 0.57 (join 0.56 + 1c at M=0.25), alias = taker",
-          (sea["exec_cost_taker"], sea["exec_cost_maker"], sea["kalshi_exec_cost"]) == (0.60, 0.57, 0.60), json.dumps(sea))
+    check("NFL 0.55/0.58: taker 0.598 (0.58 + 18c/10 at M=1), maker 0.562 (join 0.56 + 2c/10 at M=0.25; #88 per fill), alias = taker",
+          (sea["exec_cost_taker"], sea["exec_cost_maker"], sea["kalshi_exec_cost"]) == (0.598, 0.562, 0.598), json.dumps(sea))
     mlb = kalshi_exec(0.55, 0.57, "MLB")
-    check("MLB pre-live 0.55/0.57: M=0.5 both; taker 0.58, maker 0.57",
-          (mlb["exec_cost_taker"], mlb["exec_cost_maker"], mlb["fee_m_taker"], mlb["fee_m_maker"]) == (0.58, 0.57, 0.5, 0.5),
+    check("MLB pre-live 0.55/0.57: M=0.5 both; taker 0.579, maker 0.563",
+          (mlb["exec_cost_taker"], mlb["exec_cost_maker"], mlb["fee_m_taker"], mlb["fee_m_maker"]) == (0.579, 0.563, 0.5, 0.5),
           json.dumps(mlb))
     one = kalshi_exec(0.57, 0.58, "NFL")
-    check("1c spread: no maker price (joining = taking)", one["exec_cost_maker"] is None and one["exec_cost_taker"] == 0.60)
+    check("1c spread: no maker price (joining = taking)", one["exec_cost_maker"] is None and one["exec_cost_taker"] == 0.598)
 
     D = {"sport": "nfl", "rehearsal": False, "predictions": [
-        nfl("Seattle Seahawks", "Los Angeles Rams", 0.62, 0.56, bid=0.55, ask=0.58),   # maker +5.0 clears, taker +2.0
+        nfl("Seattle Seahawks", "Los Angeles Rams", 0.62, 0.56, bid=0.55, ask=0.58),   # maker +5.8 clears, taker +2.2
         nfl("Buffalo Bills", "Miami Dolphins", 0.66, 0.60, bid=0.59, ask=0.60),        # 1c spread: taker basis
         nfl("Dallas Cowboys", "Philadelphia Eagles", 0.36, 0.42, bid=0.40, ask=0.43),  # AWAY pick
     ]}
@@ -139,11 +139,11 @@ def main():
         load("nfl.json")
         rows = table()
         s = next(v for k, v in rows.items() if "Seattle" in k)
-        check("maker basis: 'exec +5.0pp @ 0.57 maker (join 0.56) · fee-clears? · taker 0.60 (+2.0pp)'",
-              s[4] == "+6.0pp" + "exec +5.0pp @ 0.57 maker (join 0.56) · fee-clears? · taker 0.60 (+2.0pp)", s[4])
+        check("maker basis: 'exec +5.8pp @ 0.562 maker (join 0.56) · fee-clears? · taker 0.598 (+2.2pp)'",
+              s[4] == "+6.0pp" + "exec +5.8pp @ 0.562 maker (join 0.56) · fee-clears? · taker 0.598 (+2.2pp)", s[4])
         b = next(v for k, v in rows.items() if "Buffalo" in k)
         check("1c spread: taker is the basis, labelled 'joining = taking'",
-              "exec +4.0pp @ 0.62 taker (spread 1¢ — joining = taking) · fee-clears?" in b[4], b[4])
+              "exec +4.3pp @ 0.617 taker (spread 1¢ — joining = taking) · fee-clears?" in b[4], b[4])
         d = next(v for k, v in rows.items() if "Dallas" in k)
         check("AWAY pick: 'exec —', never a derived price", "exec — (quotes are the home contract's)" in d[4], d[4])
         check("informational only: calls and units identical with and without quotes",
@@ -156,24 +156,24 @@ def main():
         page.click("#logBtn")
         P = pos()
         sp = P["Los Angeles Rams @ Seattle Seahawks"]
-        check("call records taker (kalshi_exec_cost 0.60) and maker (kalshi_exec_cost_maker 0.57)",
-              sp["kalshi_exec_cost"] == 0.60 and sp["kalshi_exec_cost_maker"] == 0.57,
+        check("call records taker (kalshi_exec_cost 0.598) and maker (kalshi_exec_cost_maker 0.562)",
+              sp["kalshi_exec_cost"] == 0.598 and sp["kalshi_exec_cost_maker"] == 0.562,
               json.dumps({k: sp.get(k) for k in ("kalshi_exec_cost", "kalshi_exec_cost_maker")}))
-        check("claim + default execution carry both (claim 0.60/0.57, exec 0.60/0.57)",
-              (sp["claim_exec_cost"], sp["claim_exec_cost_maker"], sp["exec_cost"], sp["exec_cost_maker"]) == (0.60, 0.57, 0.60, 0.57))
+        check("claim + default execution carry both (claim 0.598/0.562, exec 0.598/0.562)",
+              (sp["claim_exec_cost"], sp["claim_exec_cost_maker"], sp["exec_cost"], sp["exec_cost_maker"]) == (0.598, 0.562, 0.598, 0.562))
         bp = P["Miami Dolphins @ Buffalo Bills"]
-        check("1c spread position: maker cost null (no maker price), taker 0.62",
-              bp["kalshi_exec_cost_maker"] is None and bp["kalshi_exec_cost"] == 0.62)
+        check("1c spread position: maker cost null (no maker price), taker 0.617",
+              bp["kalshi_exec_cost_maker"] is None and bp["kalshi_exec_cost"] == 0.617)
         page.click("#tabLedger")
         page.click(f"button.execBtn[data-id='{sp['id']}']")
         e = pos()["Los Angeles Rams @ Seattle Seahawks"]
-        check("operator-early execution locks both costs (0.60 / 0.57)", (e["exec_cost"], e["exec_cost_maker"]) == (0.60, 0.57))
+        check("operator-early execution locks both costs (0.598 / 0.562)", (e["exec_cost"], e["exec_cost_maker"]) == (0.598, 0.562))
 
         print("MLB (M=0.5 from the real export math)")
         load("mlb.json")
         nyy = next(v for k, v in table().items() if "Yankees" in k)
-        check("MLB: 'exec +5.0pp @ 0.57 maker (join 0.56) · fee-clears? · taker 0.58 (+4.0pp)'",
-              "exec +5.0pp @ 0.57 maker (join 0.56) · fee-clears? · taker 0.58 (+4.0pp)" in nyy[4], nyy[4])
+        check("MLB: 'exec +5.7pp @ 0.563 maker (join 0.56) · fee-clears? · taker 0.579 (+4.1pp)'",
+              "exec +5.7pp @ 0.563 maker (join 0.56) · fee-clears? · taker 0.579 (+4.1pp)" in nyy[4], nyy[4])
 
         print("FILLS (ruling 3: maker/taker from the CSV fee vs the formula)")
         page.click("#tabLedger")

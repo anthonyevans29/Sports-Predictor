@@ -4,6 +4,19 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (#79 NCAA v1: frozen gate + Elo candidate)
+- `python cli.py ncaa-backtest` — the NCAA v1 gate, frozen before any run:
+  train 2025, test = the finished 2026 games at run time (n and date range
+  printed), pre/postseason excluded. Pass = log-loss <= the 2025 home-rate
+  baseline − 0.010, every 10pp band with n >= 100 within ±5pp, final
+  ratings 1000-2000; fewer than 500 test games = INVALID. `--baselines-only`
+  prints the bar before any candidate is scored.
+- Candidate `ncaa_elo_v1` (src/models/ncaa_elo.py): plain Elo, MOV + season
+  regression, constants fixed a priori (k 24, home 55, mov_base 2.2,
+  regression 0.25, default 1500), no selection. Read-only: nothing is
+  written, no export changes; NCAA stays market-only until the architect
+  rules on a verdict.
+
 ## 2026-09-30 (#88 re-fit: Kalshi fee rounding is fitted, not assumed)
 - The per-fill ceiling failed its receipt (253/629 legs; the misses sat 1¢
   below it). `scripts/kalshi_fee_fill_receipt.py` now scores ceil /

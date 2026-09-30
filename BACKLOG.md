@@ -22,6 +22,110 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#79 NCAA v1: THE FROZEN GATE + AN ELO CANDIDATE (architect 2026-09-30; model track).**
+  - SPEC (architect ruling 2026-09-30): "an NCAA Elo candidate through its
+    own frozen gate (declare the bar from the naive baseline before the
+    first run, as we did for NHL); the DB holds 2025 + 2026 seasons. No
+    deadline; report the gate verdict when it lands."
+  - THE GATE (written FIRST, frozen BEFORE any run; `src/walters/ncaa_backtest.py`,
+    `python cli.py ncaa-backtest`; the NHL Phase 2 harness shape; writes
+    nothing):
+    - STREAM: Sport.NFL + Competition.code "NCAA" (college football lives
+      in the NFL family; the NFL paths pin "NFL", this pins "NCAA"),
+      FINISHED, both scores present; FT/AOT both decided. Preseason (stage
+      marker "pre") and postseason (stage marker "post") EXCLUDED. A tied
+      final is a data defect: skipped, counted.
+    - TRAIN (warm-up, update only) = "2025"; TEST (predict-then-update) =
+      "2026" — IN PROGRESS: whatever 2026 games are FINISHED at run time;
+      the report prints n and the UTC date range. Other seasons ignored,
+      counted.
+    - BASELINES on the test season: constant 0.5, and the home rate
+      REALIZED IN 2025 (frozen before scoring). Brier printed for both.
+    - FROZEN ACCEPTANCE (ties are rejections):
+      0. COVERAGE: test n >= 500 finished 2026 games, else INVALID (not
+         scored; re-run later; the bar does not move).
+      1. candidate test log-loss <= home-rate baseline − 0.010 (the NHL
+         margin verbatim; float-safe inclusive: an exact 0.010 improvement
+         passes, a tie with the baseline is a rejection).
+      2. every 10pp probability band with n >= 100 calibrates within ±5pp
+         (inclusive, float-safe; the NHL rule verbatim).
+      3. final ratings all within 1000-2000 (1500 ± 500) — any outlier
+         FAILS unless the architect names a reason.
+      Brier / RPS / cold-start counts print for INFORMATION ONLY (binary
+      outcome: RPS = Brier).
+  - THE CANDIDATE (`src/models/ncaa_elo.py`, `ncaa_elo_v1`; constants FIXED
+    A PRIORI, frozen in code + here before any real-data run; NO selection
+    of any kind — no grid, no walk-forward; 2026 scored ONCE): MOV +
+    per-team season regression, nothing else. NFL Elo update form verbatim;
+    NHL v1 pricing semantics (a team regresses at ITS first game of a new
+    season, and that game prices on the regressed rating). The market is
+    never an input.
+    - k_factor **24** — NFL's 20 × sqrt(17/12) = 23.8 → 24 (12-game
+      seasons, far more programs starting from default). ARCHITECT-RULE.
+    - home_advantage **55 Elo** — NFL's 48 Elo ≈ 2.5 pts (19.2 Elo/pt); the
+      conventional college home edge ≈ 3 pts → 57.6, rounded DOWN toward
+      the NFL value. NOT derived from the 2025 home rate (the NHL v1 way):
+      college home rates are inflated by scheduling (FBS hosts FCS "buy
+      games") that the rating gap already carries — deriving it would count
+      the mismatch twice. ARCHITECT-RULE.
+    - mov_base **2.2** — the NFL multiplier verbatim (ln(|m|+1) ·
+      base/(base + winner_gap·0.001)); its autocorrelation term damps the
+      40-point favourite blowouts. ARCHITECT-RULE.
+    - season_regression **0.25** toward 1500 — the NFL clone; college's
+      bigger roster turnover (more) and divisional stratification (less)
+      pull in opposite directions, so the house value stands.
+      ARCHITECT-RULE.
+    - default_rating **1500** for a program with no prior game.
+      ARCHITECT-RULE (below).
+  - CHOICES MADE UNDER LAW 4 (ARCHITECT-RULE if any should differ):
+    - POSTSEASON EXCLUDED (train and test): bowls / most CFP games are
+      neutral-site and the DB stores NO neutral flag and NO venue for this
+      family (the american-football adapter never sets `venue`; read), so a
+      postseason home/away label is arbitrary. Keyed on the stage marker
+      "post"; the report prints each season's stage vocabulary so the run
+      itself verifies the marker (the NCAA stage vocabulary was never
+      enumerated on the real DB — law 1: the receipt is in the output).
+    - REGULAR-SEASON NEUTRAL SITES (kickoff classics, Army-Navy, neutral
+      rivalries) cannot be identified from stored fields: KEPT, as the
+      provider labels them. Known limitation; it pulls the home rate toward
+      0.5 for baseline and candidate alike. The report says so.
+    - FCS / LOWER DIVISIONS KEPT: the 743 programs are FBS + FCS + lower
+      divisions mixed and no division field is stored, so every finished
+      NCAA game is scored (no FBS-only filter can be built without
+      guessing). A program with no prior game prices at the default 1500
+      (no information = no claim); cold-start test games are counted in
+      the output. Known weakness: lower-division bubbles centre near 1500
+      and relink only through cross-division games.
+    - COVERAGE FLOOR 500: the test season is in progress; a verdict on a
+      handful of weeks is noise. The cup exam's MIN_SCORED precedent.
+    - RATING BOUND 1000-2000, wider than the NHL's 1200-1800: college's
+      true spread (FBS to lower divisions) dwarfs a 32-team league's;
+      ±500 Elo = a 95% win expectancy vs an average program.
+    - LL_MARGIN 0.010 = the NHL margin verbatim (nothing in the code or
+      BACKLOG argues for another; the architect's "as we did for NHL").
+    - `--baselines-only` added (the NHL harness had none): it prints the
+      receipts, both baselines and the bar and stops, so the bar is on
+      record before the candidate is ever scored.
+  - OPERATOR SEQUENCE (laptop, the real DB):
+    1. backup line (CLAUDE.md law 5; `.backup` API only):
+       `sqlite3 data/sports.db ".backup ~/backups/sports_$(date +%F).db"`
+    2. `python cli.py ncaa-backtest --baselines-only` → paste the receipts
+       and the bar ("need <= X") to the architect; the bar is recorded
+       BEFORE step 3.
+    3. `python cli.py ncaa-backtest --candidate v1` → paste the verdict; the
+       architect rules. A FAIL lands in a rejection ledger here; the bar
+       does not move. A PASS earns a promotion RULING, not wiring: NCAA
+       stays market-only until then.
+  - RECEIPTS: tests/test_ncaa_backtest.py 21 passed (frozen constants,
+    stream pre/post exclusions, other seasons + ties, baselines + bar,
+    coverage floor inclusive at 500, margin inclusive at exactly 0.010, tie
+    rejected, bands gated at n >= 100 and ±5pp, spread outliers, PASS and
+    FAIL paths, the Elo's zero-sum / HFA / MOV / regression / cold start,
+    load_games scope (NFL rows out) + no writes, the CLI's baselines-only
+    output and full run write nothing); full suite 328 passed. The real
+    gate is NOT run here (the DB is not in this container) — steps 2-3
+    are the operator's.
+
 - **#88 RE-FIT RECEIPT: KALSHI ROUNDS THE FEE PER FILL TO THE NEAREST CENT
   (architect 2026-09-30; ADOPTED — the founding evidence for every fee
   number the Desk shows).**

@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (#89: NO-side exec cost for away picks)
+- On two-way markets (NFL/NHL/NCAA/MLB) the exports now carry the AWAY side's
+  Kalshi cost: the NO side of the home contract (NO ask = 1 − home bid, NO
+  bid = 1 − home ask), taker and maker, with the same per-fill fee as the home
+  side (`away_bid`, `away_ask`, `exec_cost_taker_away`, `exec_cost_maker_away`).
+- Soccer (1X2) away fields stay null: NO on HOME is draw-or-away, not an away bet.
+- The Desk prices an AWAY pick from it ("… maker (join 0.xx, NO side)") and
+  the ledger records those costs; pre-#89 exports and soccer still show
+  "exec —". Informational only: no call, unit or tier change.
+
 ## 2026-09-30 (#88 re-fit: Kalshi fee rounding is fitted, not assumed)
 - The per-fill ceiling failed its receipt (253/629 legs; the misses sat 1¢
   below it). `scripts/kalshi_fee_fill_receipt.py` now scores ceil /

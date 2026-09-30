@@ -3,7 +3,9 @@ Cockpit K2 EXECUTABLE-EDGE DISPLAY headless verification (K-track, architect
 2026-09-29). Checks, over SYNTHETIC files:
 - a HOME pick with Kalshi quotes shows "exec +x.xpp @ cost" beside the fair
   edge, and "fee-clears?" only when exec edge >= 4pp;
-- an AWAY pick with (home-contract) quotes shows "exec —", never a derived price;
+- an AWAY pick with (home-contract) quotes and NO away fields (a pre-#89
+  export) shows "exec —", never a derived price (the #89 NO-side path is
+  checked in cockpit_no_side_verify.py);
 - rows without quotes show nothing extra;
 - calls, units and tiers are IDENTICAL with and without the quotes
   (informational only: no sizing / tier / call change);
@@ -125,7 +127,9 @@ def main():
         check("exec edge +2.0pp: shown, no fee-clears? marker",
               "exec +2.0pp @ 0.60" in gb[4] and "fee-clears?" not in gb[4], gb[4])
         dal = next(v for k, v in rows.items() if "Dallas" in k)
-        check("AWAY pick: 'exec —' (home-contract quotes), never a derived price",
+        # #89: these rows carry no away_* fields (pre-#89 shape), so the Desk
+        # still derives nothing; the NO-side path is cockpit_no_side_verify.py.
+        check("AWAY pick, pre-#89 export (no away fields): 'exec —', never a derived price",
               "exec — (quotes are the home contract's)" in dal[4], dal[4])
         den = next(v for k, v in rows.items() if "Denver" in k)
         check("pre-split export: join bid = bid + 1¢ (0.51) with its pre-fee edge, labelled as having no maker cost",

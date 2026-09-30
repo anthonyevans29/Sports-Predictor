@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (#93 ruled: Kalshi maker and taker costs)
+- Exports carry `exec_cost_taker` and `exec_cost_maker` (the ruled fee
+  multipliers: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5).
+  `kalshi_exec_cost` stays as the taker alias.
+- The Desk's exec edge and "fee-clears?" use the maker cost by default,
+  with the taker cost as the fallback. Calls and units are unchanged.
+- The ledger records both costs; imported fills are classified maker /
+  taker from their fee, with an alarm for MLB fills at the live rate
+  (doctrine: MLB is never executed live).
+
 ## 2026-09-30 (NHL-API-PROBE: the H2 goalie-source probe)
 - `scripts/nhl_api_probe.py` is read-only. It probes api-web.nhle.com
   (schedule, boxscore goalie stats, roster, pre-game starter and lead time,

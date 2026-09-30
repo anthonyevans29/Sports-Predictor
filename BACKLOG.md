@@ -22,6 +22,65 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#93 RESOLVED: KALSHI MAKER / TAKER COSTS (architect ruling 2026-09-30;
+  K-track).**
+  - RULING (from Kalshi's fee schedule):
+    - game series (NFL / NHL / EPL / UCL / NCAAF / MLB): taker M=1, maker
+      M=0.25;
+    - MLB pre-live M=0.5 (taker $0.04–$0.88, maker $0.01–$0.22 per 100
+      contracts); MLB live M=1;
+    - combos: maker = 50% of taker.
+    - K-track rulings: (1) the export's `kalshi_exec_cost` becomes two fields,
+      `exec_cost_taker` and `exec_cost_maker`; (2) the Desk's exec edge and
+      "fee-clears?" use the MAKER cost by default (the doctrine is join-bid),
+      taker as the fallback; (3) ledger fills record maker/taker from the
+      CSV's fee vs the formula; (4) doctrine: **MLB is never executed live**.
+    - The architect directed #93 closed with the ruling quoted (done).
+  - BUILT:
+    - `venue.py`: `KALSHI_FEE_M` (series → taker/maker M, pre-live),
+      `KALSHI_SERIES_BY_COMPETITION` (NFL / NHL / NCAA / PL / MLB → series),
+      `kalshi_fee(price, m, rate)`, and `kalshi_exec(bid, ask, competition)`
+      returning `exec_cost_taker` = ask + 0.07·M·P(1−P) and `exec_cost_maker`
+      = (bid+1¢) + 0.0175·M·P(1−P), plus `fee_series` / `fee_m_taker` /
+      `fee_m_maker`. The MLB / soccer prediction export, the fixtures export
+      and the NFL export pass their competition code.
+    - Cockpit Desk: exec edge + "fee-clears?" on the maker cost ("exec +5.0pp
+      @ 0.57 maker (join 0.56) · fee-clears? · taker 0.60 (+2.0pp)"); taker
+      is the basis when no maker price exists. Calls, units and tiers are
+      unchanged (still informational until the executable-edge ruling).
+    - Cockpit ledger: calls / claims / executions record
+      `kalshi_exec_cost_maker`, `claim_exec_cost_maker`, `exec_cost_maker`
+      beside the existing taker fields.
+    - Cockpit fills: `fee_class_open` / `fee_class_close` = maker / taker /
+      taker_live / ambiguous / unknown (fee within 1¢ of the unrounded
+      formula); the REALIZED card and text export print the counts and an
+      MLB live-rate alarm. Re-importing the same CSV backfills the per-leg
+      fees of pre-split imports.
+    - Policy card: the maker default, the multipliers and "MLB is never
+      executed live".
+  - CHOICES MADE UNDER LAW 4 (ARCHITECT-RULE if any should differ):
+    - `kalshi_exec_cost` is KEPT as a deprecated alias of
+      `exec_cost_taker`: the published Cockpit reads it until it is
+      republished; the ledger's `kalshi_exec_cost` keeps its pre-split
+      meaning (taker), so stored history stays one meaning.
+    - No maker price when bid + 1¢ reaches the ask (1¢ spread: joining =
+      taking), when there is no bid, or for an unlisted series (maker M not
+      assumed; taker uses the schedule's default M=1).
+    - Rounding UNCHANGED (per-contract cent ceiling, #88 pending). It now
+      matters more: the exact maker fee is under 0.2¢ but is modelled as 1¢,
+      so the maker cost is overstated by up to ~1¢ (conservative).
+    - UCL: no UCL series is wired in the exports, so no ticker is guessed;
+      the Cockpit's fills table knows the UCL family from real tickers.
+    - Combos (fills only): taker at the schedule's default M=1, maker = 50%.
+    - Fills: an MLB fee that matches only the live rate (M=1) is
+      `taker_live` — a doctrine alarm, not a correction.
+  - CONTRACT CHANGE (additive + one value change): MLB exec costs now price
+    at M=0.5 (e.g. 0.54/0.56 quotes: taker 0.58 → 0.57). No prediction,
+    call, unit or tier changes.
+  - RECEIPTS: pytest 300 passed (7 new); `cockpit_maker_taker_verify.py`
+    26/26; every other Cockpit verify green. Receipt pending (the
+    architect's): the first live Desk row showing both costs.
+
 - **NHL-API-PROBE: CAN api-web.nhle.com FEED A GOALIE-AWARE CANDIDATE?
   (architect lane, 2026-09-30; read-only).**
   - SPEC (architect): `scripts/nhl_api_probe.py` against api-web.nhle.com

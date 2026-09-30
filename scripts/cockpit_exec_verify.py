@@ -116,8 +116,11 @@ def main():
         load("day1.json")
         rows = {r[0]: r for r in table()}
         bills = next(v for k, v in rows.items() if "Buffalo" in k)
-        check("HOME pick with quotes: fair edge + 'exec +4.0pp @ 0.62 · fee-clears?' + 1¢ spread: joining = taking",
-              bills[4] == "+6.0pp" + "exec +4.0pp @ 0.62 · fee-clears? · join — (spread 1¢ — joining = taking)", bills[4])
+        # These fixtures are PRE-SPLIT exports (kalshi_exec_cost only, no
+        # exec_cost_maker): the Desk falls back to the taker cost and says so
+        # (#93 split; the maker path is checked in cockpit_maker_taker_verify.py).
+        check("HOME pick with quotes: fair edge + 'exec +4.0pp @ 0.62 taker' + 1¢ spread: joining = taking + fee-clears?",
+              bills[4] == "+6.0pp" + "exec +4.0pp @ 0.62 taker (spread 1¢ — joining = taking) · fee-clears?", bills[4])
         gb = next(v for k, v in rows.items() if "Green Bay" in k)
         check("exec edge +2.0pp: shown, no fee-clears? marker",
               "exec +2.0pp @ 0.60" in gb[4] and "fee-clears?" not in gb[4], gb[4])
@@ -125,8 +128,8 @@ def main():
         check("AWAY pick: 'exec —' (home-contract quotes), never a derived price",
               "exec — (quotes are the home contract's)" in dal[4], dal[4])
         den = next(v for k, v in rows.items() if "Denver" in k)
-        check("join bid = bid + 1¢ (0.51) with its pre-fee edge; maker fee flagged unverified",
-              "join 0.51 (+11.0pp pre-fee; maker fee M unverified)" in den[4], den[4])
+        check("pre-split export: join bid = bid + 1¢ (0.51) with its pre-fee edge, labelled as having no maker cost",
+              "join 0.51 (+11.0pp pre-fee; no maker cost in this export)" in den[4], den[4])
         chi = next(v for k, v in rows.items() if "Chicago" in k)
         check("no quotes: nothing extra", chi[4] == "+7.0pp", chi[4])
         check("informational only: every call and unit identical with and without quotes",
@@ -186,7 +189,7 @@ def main():
         load("mlb.json")
         nyy = next(v for k, v in {r[0]: r for r in table()}.items() if "Yankees" in k)
         check("MLB HOME pick: exec edge + join bid render from the MLB export's fields",
-              "exec +3.0pp @ 0.59" in nyy[4] and "join 0.56" in nyy[4], nyy[4])
+              "exec +3.0pp @ 0.59 taker" in nyy[4] and "join 0.56" in nyy[4], nyy[4])
         check("no page errors", not errors, "; ".join(errors))
         browser.close()
     srv.shutdown()

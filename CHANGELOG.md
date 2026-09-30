@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (#155: MLB postseason night-game odds coverage)
+- `python cli.py mlb-odds-timing --start D [--end D] [--only-missing]`
+  (read-only): shows when api-sports first priced each MLB game, from our
+  odds_snapshots. It flags UTC-rollover and night starts and gives each
+  game a verdict: PRICED_PRE_START, PRICED_ONLY_AFTER_START or
+  NO_BOOKS_CAPTURED. It is the receipt for the finding that postseason
+  night games got no books.
+
 ## 2026-09-30 (#148: release model — main = BETA, production = tags)
 - `deploy/hosting/sp_deploy.py` deploys the latest `vX.Y.Z` tag (detached)
   or an exact `--tag`. It never pulls `main` and refuses when no tag exists.

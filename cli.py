@@ -2239,6 +2239,45 @@ def capture_odds_cmd(sport: str, competition: str, season: str):
                   f"{local_str}")
 
 
+@cli.command("mlb-odds-timing")
+@click.option("--start", "start_s", required=True, help="First ET game date (YYYY-MM-DD).")
+@click.option("--end", "end_s", default=None, help="Last ET game date (default: --start).")
+@click.option("--only-missing", is_flag=True, help="List only games NOT priced before first pitch.")
+def mlb_odds_timing_cmd(start_s, end_s, only_missing):
+    """Read-only receipt: WHEN api-sports first priced each MLB game, from
+    our append-only odds_snapshots (capture-odds, 08/12/16/20 ET). Flags
+    UTC-rollover starts (the M11 family) and night games; verdict per game
+    PRICED_PRE_START / PRICED_ONLY_AFTER_START / NO_BOOKS_CAPTURED. Writes
+    nothing. (Postseason night-game odds finding, 2026-09-30.)"""
+    from datetime import date as _date
+    from src.walters import mlb_odds_timing as mt
+
+    start = _date.fromisoformat(start_s)
+    end = _date.fromisoformat(end_s) if end_s else start
+    r = mt.timing(start, end)
+    lo, hi = r["window_utc"]
+    click.echo(f"MLB ODDS TIMING · ET dates {start} .. {end} (UTC {lo:%m-%d %H:%M} .. {hi:%m-%d %H:%M}) · "
+               f"{len(r['games'])} games · book captures = odds_snapshots source api_baseball")
+    for g in r["games"]:
+        if only_missing and g["verdict"] == "PRICED_PRE_START":
+            continue
+        tag = ("NIGHT" if g["night"] else "day") + (" ROLLOVER" if g["rollover"] else "")
+        first = f"{g['first_capture']:%m-%d %H:%M}Z" if g["first_capture"] else "—"
+        after = {True: " (after the start's UTC midnight)", False: " (before its UTC day)", None: ""}[
+            g["first_pre_start_after_utc_midnight"]]
+        lead = f" lead {g['lead_hours']}h" if g["lead_hours"] is not None else ""
+        click.echo(f"  {g['start_et']:%m-%d %H:%M} ET / {g['start_utc']:%m-%d %H:%M}Z  {g['game']:<42} "
+                   f"[{tag}{' · ' + g['stage'] if g['stage'] else ''}] {g['verdict']} · captures "
+                   f"{g['captures_pre_start']}/{g['captures']} pre-start · first {first}{after}{lead} · "
+                   f"max books {g['max_books']} · odds table {g['odds_table_books']} books"
+                   f" · kalshi pre-start {'yes' if g['kalshi_pre_start'] else 'no'}")
+    click.echo("  SUMMARY (start class, verdict): "
+               + (" · ".join(f"{k} {v}" for k, v in r["summary"].items()) or "no games"))
+    click.echo("  Read: NO_BOOKS_CAPTURED on every capture across days = the provider did not price it "
+               "pre-game in our window; PRICED_PRE_START only after the UTC midnight = priced once its UTC "
+               "date arrived (M11). Captures are 08/12/16/20 ET — finer timing is not claimable.")
+
+
 @cli.command("clv-report")
 @click.option("--sport", type=click.Choice(["mlb", "baseball"]), default="mlb")
 @click.option("--since", default="2026-06-24")

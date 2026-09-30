@@ -22,6 +22,37 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#155 FINDING: MLB postseason night-game odds coverage (architect 2026-09-30; limitation).**
+  - FINDING (verbatim): "api-sports Baseball odds absent for the two
+    postseason night games (BOS@NYY, CHC@SD) on three consecutive days
+    while day games are priced; open an Issue (limitation, sport:mlb) —
+    postseason night-game odds coverage; check whether the provider prices
+    them only on game day ET or not at all."
+  - PRIOR (from the record, NOT yet a receipt): this is probably the M11
+    family. The provider's /odds window is UTC-day-scoped; games crossing
+    UTC midnight get zero rows until their UTC date arrives; the per-game
+    request also returned nothing (21/21 on 08-25); the boundary is fuzzy,
+    about 01:00-01:35 UTC. A night game at 8 pm ET or later starts after
+    00:00 UTC; day games do not. Mitigation already live: Kalshi covers
+    rollover slots and M11b backfills the closers. The postseason could
+    still differ (e.g. never priced at all), so this is not assumed.
+  - BUILT (read-only receipt): `python cli.py mlb-odds-timing --start D
+    [--end D] [--only-missing]` (`src/walters/mlb_odds_timing.py`). From
+    OUR append-only odds_snapshots (source api_baseball, capture-odds at
+    08/12/16/20 ET), per game:
+    - ET and UTC start, with ROLLOVER / NIGHT flags;
+    - captures before first pitch, first capture, and whether it came only
+      after the start's UTC midnight;
+    - max books, odds-table books, and whether Kalshi had a pre-start
+      snapshot;
+    - a verdict: PRICED_PRE_START / PRICED_ONLY_AFTER_START /
+      NO_BOOKS_CAPTURED.
+    The capture cadence bounds any claim ("never" = never in our captures).
+    The command writes nothing and makes no provider call.
+  - OPEN (needs-operator): run it over the three days. The verdict decides
+    between "UTC-day-scoped (M11)" and "not priced pre-game at all". Tests:
+    `tests/test_mlb_odds_timing.py` (3).
+
 - **#148 RELEASE MODEL (architect 2026-09-30): main = BETA, production = tags.**
   - RULING (verbatim core): "`main` = BETA (the laptop tracks it; fast
     iteration continues as now). PRODUCTION = tagged releases only: the

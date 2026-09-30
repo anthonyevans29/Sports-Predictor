@@ -79,6 +79,38 @@ specific reason they're not being built now.
       other six Cockpit verifies are green.
     - Full suite: 281 passed.
 
+- **LEDGER AUTO-CLOSE (architect GO, 2026-09-30; [ops]).**
+  - FINDING: GitHub never registered the `Closes #N` links of the PRs
+    opened through the Claude connection. #110 (Closes #109) and #114
+    (Closes #111 #112 #90 #109) merged with 0 linked PRs on each Issue,
+    so nothing closed. Ledger rule 2 (no hand-closing without a linked
+    PR or a quoted ruling) held the four Issues open, correctly.
+  - RULING: the ledger bot reads a merged PR's "Closes #N" lines and
+    closes them itself: Done for ordinary Issues; limitations only with
+    "Resolves limitation"; the manual-close guard stays.
+  - BUILT (`scripts/ledger.py` `close_on_merge`; the workflow gains
+    `pull_request: closed`):
+    - on merge, each referenced open Issue gets a "Closed by #PR (merged
+      as <sha>)" comment and is closed as completed, and its card moves
+      to Done;
+    - a class:limitation Issue without "Resolves limitation" in the PR
+      body gets a comment and stays open;
+    - already-closed Issues are skipped, and an unmerged close does
+      nothing.
+    - The bot closes with GITHUB_TOKEN, which starts no workflow, so the
+      issues.closed guard still judges only human closes.
+    - A `close-merged <PR>` dispatch mode replays a merged PR (for #110 /
+      #114). It refuses an unmerged PR.
+    - The dispatch inputs travel as env vars, never interpolated into the
+      shell line.
+  - AFTER MERGE (planned): replay #114 (#111, #112, #90, #109) and #110
+    (#109, then already closed). Receipt: the LEDGER-CLOSE-MERGED line.
+  - Receipts: `tests/test_ledger.py` 10 passed (3 new: the merge path
+    closes the ordinary refs + Done, keeps a limitation open with a
+    comment, skips an already-closed one; the phrase closes a
+    limitation; an unmerged PR writes nothing; the replay refuses an
+    unmerged PR; the workflow wiring). Full suite: 280 passed.
+
 - **COCKPIT FOLLOW-ON: THE FUN BOOK + K-TRACK FIELDS ON MLB / SOCCER
   EXPORTS (architect, 2026-09-30).**
   - RULING (1), THE FUN BOOK: the fills importer reports a "fun" line.

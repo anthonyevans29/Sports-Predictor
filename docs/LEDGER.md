@@ -75,7 +75,8 @@ the milestones and the board shape. #74 is the sole ledger mechanism
 | A label change | The fields follow. `class:limitation` moves a Queue card to Waiting. |
 | A PR opens with `Closes #N` | Card N moves to In progress. |
 | PR title prefix | Labels the PR: `[K2] …` → `track:K`; `[B…]` `[T…]` `[H…]` `[R…]` likewise; `[policy]` `[model]` `[ops]`. |
-| Closed by a merged PR | Done (limitation rule above). |
+| A PR with `Closes #N` MERGES | The bot closes #N itself (completed, with a "Closed by #PR" comment) and moves the card to Done. A `class:limitation` Issue closes only if the PR body says "Resolves limitation"; otherwise it gets a comment and stays open. (Ruling 2026-09-30: GitHub did not register the links of PRs opened through the Claude connection.) |
+| Closed by a merged PR (GitHub's own close) | Done (limitation rule above). |
 | Closed by hand | Reopened (rule 2). |
 
 ## Saved views (create once, by hand: the API cannot create views)
@@ -109,6 +110,11 @@ a repository search: `is:issue is:open label:needs-ruling sort:created-desc`.
    - the board, its fields, and the cards in manifest order.
    Receipt: the `LEDGER-BOOTSTRAP {…}` line in the job log.
 3. **Views.** Create the six views above in the Project UI.
+
+**Replay a merged PR's closes** (for PRs merged before auto-close landed,
+or if a run failed): Actions → `ledger` → Run workflow, mode
+`close-merged`, pr `<number>`. It refuses an unmerged PR; Issues already
+closed are skipped.
 
 Without the secret, step 2 still does the repository side: labels,
 milestones, Issues and lint. The log says that the board steps were

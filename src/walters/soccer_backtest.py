@@ -31,11 +31,44 @@ from src.db.schema import Competition, Match, MatchStatus, Sport
 from src.models.elo import EloState, EloConfig, update_after_match, apply_season_regression
 from src.models.poisson import (estimate_strengths, predict_match, PoissonConfig,
                                  CompetitionScoringContext)
+from src.walters.evaluation import rps_1x2
+
+
+# --------------------------------------------------------------------------
+# S19 time-decay CANDIDATE (architect 2026-09-30, Issue #83) — BACKTEST ONLY
+# --------------------------------------------------------------------------
+# FROZEN A PRIORI, declared before any run (BACKLOG "S19 + S20"): ONE value,
+# no grid, no selection. Dixon & Coles (1997, Appl. Statist. 46:265-280) fitted
+# their time-weighting xi = 0.0065 per HALF-WEEK on English league data, i.e.
+# a half-life of ln(2)/0.0065 = 106.6 half-weeks = 373 days; rounded to one
+# calendar year. Not fitted on any of our data. ARCHITECT-RULE for ratification.
+TIME_DECAY_HALF_LIFE_DAYS = 365.0
+
+#: The candidate's name on the CLI (`soccer-backtest --candidate time-decay`).
+TIME_DECAY_CANDIDATE = "time-decay"
+
+#: The pre-declared evaluation set for the S19 verdict (frozen with the
+#: half-life, ARCHITECT-RULE): PL, the three most recent COMPLETE seasons
+#: (the S1 two-season overfit guard, plus the season that has finished since).
+#: Pooled over all three; a missing season makes the verdict INVALID, never a
+#: pass on a partial set.
+S19_GATE_COMPETITION = "PL"
+S19_GATE_SEASONS = ("2023/24", "2024/25", "2025/26")
+
+
+def time_decay_weight(age_days: float, half_life_days: float) -> float:
+    """w = 0.5 ** (age_days / half_life_days). A match played at the
+    prediction instant weighs 1.0; one half-life earlier, 0.5. Negative ages
+    (cannot occur in the leakage-free walk) clamp to 1.0."""
+    if half_life_days <= 0:
+        raise ValueError("half_life_days must be > 0")
+    return 0.5 ** (max(0.0, age_days) / half_life_days)
 
 
 def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         min_prior: int = 40, dixon_coles_rho: float | None = None,
-                        elo_goal_coeff: float | None = None):
+                        elo_goal_coeff: float | None = None,
+                        decay_half_life_days: float | None = None):
     """
     Walk `competition_code`/`season` in date order, predict each match using only
     prior matches (leakage-free). Returns a list of per-match result dicts:
@@ -48,6 +81,13 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
 
     min_prior: skip matches until this many finished prior matches exist in the
     season (early-season strengths are noise). MLB used 40.
+
+    decay_half_life_days (S19 candidate): if set, each prior match's weight in
+    the attack/defense fit is time_decay_weight(its age at M's kickoff). Elo is
+    NOT decayed (its K-updates are already recency-weighted by construction).
+    None = the baseline walk, unchanged. The SET of scored matches is
+    identical either way (it depends only on the prior count and team
+    presence), so both arms score the same games.
     """
     with session_scope() as s:
         comp = s.execute(
@@ -92,7 +132,15 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                      "home_score": p.home_score, "away_score": p.away_score}
                     for p in prior
                 ]
-                strengths = estimate_strengths(strength_input, context)
+                weights = None
+                if decay_half_life_days is not None:
+                    weights = [
+                        time_decay_weight(
+                            (m.utc_date - p.utc_date).total_seconds() / 86400.0,
+                            decay_half_life_days)
+                        for p in prior
+                    ]
+                strengths = estimate_strengths(strength_input, context, weights=weights)
                 hs = strengths.get(m.home_team_id)
                 as_ = strengths.get(m.away_team_id)
                 if hs and as_:
@@ -158,13 +206,14 @@ def soccer_calibration(results):
         return rows
 
     # log-loss + brier (multiclass over H/D/A)
-    ll, br, n = 0.0, 0.0, 0
+    ll, br, rps, n = 0.0, 0.0, 0.0, 0
     for r in results:
         probs = {"H": r["p_home"], "D": r["p_draw"], "A": r["p_away"]}
         tot = sum(probs.values()) or 1.0
         probs = {k: v / tot for k, v in probs.items()}
         p_true = max(1e-12, probs[r["actual"]])
         ll += -math.log(p_true)
+        rps += rps_1x2(probs["H"], probs["D"], probs["A"], r["actual"])
         for k in ("H", "D", "A"):
             y = 1.0 if r["actual"] == k else 0.0
             br += (probs[k] - y) ** 2
@@ -182,6 +231,7 @@ def soccer_calibration(results):
     return {
         "n": n,
         "log_loss": ll / n,
+        "rps": rps / n,  # S20: REPORTED ONLY — in no acceptance criterion
         "brier": br / n,
         "home_bins": bins_for("p_home", "H"),
         "draw_bins": bins_for("p_draw", "D"),
@@ -242,12 +292,15 @@ def market_comparison(results):
     KEY = {"H": ("p_home", "HOME"), "D": ("p_draw", "DRAW"), "A": ("p_away", "AWAY")}
     n = len(joined)
     model_ll = market_ll = 0.0
+    model_rps = market_rps = 0.0  # S20: reported only
     gaps = {"HOME": 0.0, "DRAW": 0.0, "AWAY": 0.0}
     edges = []  # (edge_pp on model top pick, pick_hit)
     for r, mkt in joined:
         mk_key, sel = KEY[r["actual"]]
         model_ll += logloss(r[mk_key])
         market_ll += logloss(mkt[sel])
+        model_rps += rps_1x2(r["p_home"], r["p_draw"], r["p_away"], r["actual"])
+        market_rps += rps_1x2(mkt["HOME"], mkt["DRAW"], mkt["AWAY"], r["actual"])
         for sel2, rk in (("HOME", "p_home"), ("DRAW", "p_draw"), ("AWAY", "p_away")):
             gaps[sel2] += abs(r[rk] - mkt[sel2])
         # model's top pick and its edge vs market fair prob
@@ -265,6 +318,8 @@ def market_comparison(results):
         "games": n,
         "model_log_loss": model_ll / n,
         "market_log_loss": market_ll / n,
+        "model_rps": model_rps / n,
+        "market_rps": market_rps / n,
         "mean_abs_gap_pp": {k: 100.0 * v / n for k, v in gaps.items()},
         "mean_pick_edge_pp": sum(e for e, _ in edges) / n,
         "positive_edge": {"n": len(pos),
@@ -274,3 +329,85 @@ def market_comparison(results):
                               "mean_edge_pp": (sum(e for e, _ in neg) / len(neg)) if neg else None,
                               "hit_rate": (sum(h for _, h in neg) / len(neg)) if neg else None},
     }
+
+
+# --------------------------------------------------------------------------
+# S19 candidate vs production on the SAME splits — the existing soccer gate
+# --------------------------------------------------------------------------
+
+
+#: improve's holdout floor, carried over verbatim (training.improve rejects a
+#: holdout under 30 matches); here a thinner set is INVALID.
+MIN_GATE_N = 30
+
+
+def candidate_gate_verdict(prod_log_loss: float, cand_log_loss: float,
+                           min_delta: float) -> tuple[str, float]:
+    """The existing promotion rule, verbatim from training.improve:
+        delta = prod_loss - cand_loss  # positive = candidate better
+        if delta >= min_delta: <pass>
+    Anything else REJECTS, so an exact tie (delta 0) rejects. Returns
+    (verdict, delta). RPS plays no part."""
+    delta = prod_log_loss - cand_log_loss
+    return ("PASS" if delta >= min_delta else "REJECT"), delta
+
+
+def compare_candidate(base_results, cand_results, min_delta: float) -> dict:
+    """Score production (base) and candidate on the identical match set.
+    Refuses to compare different or empty sets (verdict INVALID): the gate is
+    only meaningful when both arms scored exactly the same games."""
+    base_ids = sorted(r["match_id"] for r in base_results or [])
+    cand_ids = sorted(r["match_id"] for r in cand_results or [])
+    if not base_ids or base_ids != cand_ids:
+        return {"verdict": "INVALID", "n": len(base_ids),
+                "reason": (f"match sets differ or empty (production {len(base_ids)}, "
+                           f"candidate {len(cand_ids)})")}
+    if len(base_ids) < MIN_GATE_N:
+        # improve's own floor (training.py: holdout_size < 30 -> reject)
+        return {"verdict": "INVALID", "n": len(base_ids),
+                "reason": f"too few scored matches ({len(base_ids)} < {MIN_GATE_N})"}
+    b = soccer_calibration(base_results)
+    c = soccer_calibration(cand_results)
+    verdict, delta = candidate_gate_verdict(b["log_loss"], c["log_loss"], min_delta)
+    return {"verdict": verdict, "delta": delta, "min_delta": min_delta, "n": b["n"],
+            "prod_log_loss": b["log_loss"], "cand_log_loss": c["log_loss"],
+            "prod_rps": b["rps"], "cand_rps": c["rps"],
+            "prod_brier": b["brier"], "cand_brier": c["brier"]}
+
+
+def run_time_decay_comparison(competition_code: str, seasons, *, min_prior: int = 40,
+                              dixon_coles_rho: float, elo_goal_coeff: float,
+                              half_life_days: float = TIME_DECAY_HALF_LIFE_DAYS,
+                              min_delta: float | None = None) -> dict:
+    """Run production (no decay) and the S19 candidate (frozen half-life) on
+    the same competition/season splits with the SAME poisson config, pool all
+    seasons, and apply the existing gate. Read-only: writes nothing.
+
+    Any missing season makes the pooled verdict INVALID (never a pass on a
+    partial set)."""
+    if min_delta is None:
+        from src.walters.training import DEFAULT_PROMOTION_DELTA
+        min_delta = DEFAULT_PROMOTION_DELTA
+    kw = dict(min_prior=min_prior, dixon_coles_rho=dixon_coles_rho,
+              elo_goal_coeff=elo_goal_coeff)
+    per, base_all, cand_all, missing = [], [], [], []
+    for season in seasons:
+        base = run_soccer_backtest(competition_code, season, **kw)
+        cand = run_soccer_backtest(competition_code, season,
+                                   decay_half_life_days=half_life_days, **kw)
+        if not base or not cand:
+            missing.append(season)
+            per.append({"season": season, "verdict": "MISSING", "n": 0})
+            continue
+        row = compare_candidate(base, cand, min_delta)
+        row["season"] = season
+        per.append(row)
+        base_all.extend(base)
+        cand_all.extend(cand)
+    pooled = compare_candidate(base_all, cand_all, min_delta)
+    if missing:
+        pooled = {**pooled, "verdict": "INVALID",
+                  "reason": f"season(s) not found / nothing scored: {', '.join(missing)}"}
+    return {"competition": competition_code, "seasons": list(seasons),
+            "half_life_days": half_life_days, "per_season": per,
+            "pooled": pooled, "missing": missing}

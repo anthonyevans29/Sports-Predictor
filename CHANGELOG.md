@@ -17,6 +17,25 @@ Every drop adds an entry going forward.
   written, no export changes; NCAA stays market-only until the architect
   rules on a verdict.
 
+## 2026-09-30 (S19 + S20: soccer time-decay candidate, RPS reported)
+- S20 (#84): the soccer backtest reports the Ranked Probability Score
+  (H<D<A ordered) beside log-loss: `soccer-backtest` (calibration and
+  model-vs-close blocks), an RPS column in `dixon-coles-sweep` and
+  `elo-coeff-sweep`, and both arms of the S19 comparison. It is reported
+  only and is in no acceptance criterion.
+- S19 (#83): `soccer-backtest --candidate time-decay` scores production
+  and a time-decay candidate on the same matches. The candidate weights
+  the attack/defense fit by 0.5^(age_days/365); the 365-day half-life
+  (Dixon & Coles 1997, ~373 days) was frozen before any run. The existing
+  gate decides: candidate log-loss better by >= 0.0050, ties reject.
+  It is evaluated on PL 2023/24 + 2024/25 + 2025/26, pooled. Backtest-only:
+  nothing is written and production (v22) is unchanged. The frozen
+  half-life, the evaluation set and four more choices wait on architect
+  ratification.
+- FINDING: plain `soccer-backtest` scores at the default elo_goal_coeff
+  (0.0023), not production's 0.0008. It is left unchanged here; the S19
+  comparison uses production's value.
+
 ## 2026-09-30 (#89: NO-side exec cost for away picks)
 - On two-way markets (NFL/NHL/NCAA/MLB) the exports now carry the AWAY side's
   Kalshi cost: the NO side of the home contract (NO ask = 1 − home bid, NO

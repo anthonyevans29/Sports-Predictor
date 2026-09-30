@@ -132,6 +132,7 @@ def estimate_strengths(
     matches: list[dict],
     context: CompetitionScoringContext,
     prior: dict[int, "TeamStrength"] | None = None,
+    weights: list[float] | None = None,
 ) -> dict[int, TeamStrength]:
     """
     Empirical attack/defense estimation from a season's worth of matches.
@@ -150,15 +151,27 @@ def estimate_strengths(
     the n/(n+5) confidence weight then blends this pool's fit toward the
     team's prior (its domestic league-season fit). None = the original 1.0
     target, byte-identical behavior for every existing caller.
+
+    `weights` (S19 time-decay CANDIDATE, 2026-09-30; backtest-only): one
+    weight per match, parallel to `matches`. Attack/defense become WEIGHTED
+    means (sum(w*x)/sum(w)); the n/(n+5) shrinkage keeps the RAW match count
+    so the candidate changes exactly one thing. None = the original
+    unweighted path, byte-identical for every existing caller (production
+    never passes weights).
     """
+    if weights is not None and len(weights) != len(matches):
+        raise ValueError(f"weights ({len(weights)}) must parallel matches ({len(matches)})")
     league_avg = context.avg_goals_per_team_per_match
     if league_avg <= 0:
         league_avg = 1.4
 
     goals_for: dict[int, list[float]] = {}
     goals_against: dict[int, list[float]] = {}
+    # parallel per-team weight lists; only populated on the weighted path
+    w_for: dict[int, list[float]] = {}
+    w_against: dict[int, list[float]] = {}
 
-    for m in matches:
+    for idx, m in enumerate(matches):
         h = m["home_team_id"]
         a = m["away_team_id"]
         hs = m["home_score"]
@@ -169,13 +182,33 @@ def estimate_strengths(
         goals_against.setdefault(h, []).append(as_)
         goals_for.setdefault(a, []).append(as_)
         goals_against.setdefault(a, []).append(hs / boost)
+        if weights is not None:
+            w = float(weights[idx])
+            for d, tid in ((w_for, h), (w_against, h), (w_for, a), (w_against, a)):
+                d.setdefault(tid, []).append(w)
+
+    def _mean(vals: list[float], ws: list[float] | None) -> float | None:
+        if not vals:
+            return None
+        if ws is None:
+            return sum(vals) / len(vals)
+        tw = sum(ws)
+        if tw <= 0:
+            return None  # conservative: no usable mass = no evidence
+        return sum(w * v for w, v in zip(ws, vals)) / tw
 
     strengths: dict[int, TeamStrength] = {}
     for team_id in set(goals_for) | set(goals_against):
         gf = goals_for.get(team_id, [])
         ga = goals_against.get(team_id, [])
-        attack = (sum(gf) / len(gf) / league_avg) if gf else 1.0
-        defense = (sum(ga) / len(ga) / league_avg) if ga else 1.0
+        if weights is None:
+            attack = (sum(gf) / len(gf) / league_avg) if gf else 1.0
+            defense = (sum(ga) / len(ga) / league_avg) if ga else 1.0
+        else:
+            mf = _mean(gf, w_for.get(team_id))
+            ma = _mean(ga, w_against.get(team_id))
+            attack = (mf / league_avg) if mf is not None else 1.0
+            defense = (ma / league_avg) if ma is not None else 1.0
         # Light shrinkage toward 1.0 for teams with few games (regularization)
         n = min(len(gf), len(ga))
         weight = n / (n + 5)  # 5 games of regularization

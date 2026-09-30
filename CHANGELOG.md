@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (NHL-API-PROBE: the H2 goalie-source probe)
+- `scripts/nhl_api_probe.py` is read-only. It probes api-web.nhle.com
+  (schedule, boxscore goalie stats, roster, pre-game starter and lead time,
+  2023–2025 depth) and MoneyPuck's projected-starters CSV, then prints
+  FEEDABLE / NOT per need and the H2 reopening line.
+- Run it on the laptop and on the host (the datacenter-IP receipt).
+
 ## 2026-09-30 (NHL shadow: the failed v1 as a greyed reference model)
 - `export-nhl-predictions` writes the FAILED `nhl_elo_v1` for every NHL
   game in the next 36h. Every row is stamped `engine: model_shadow` and

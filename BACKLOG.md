@@ -22,6 +22,51 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL-API-PROBE: CAN api-web.nhle.com FEED A GOALIE-AWARE CANDIDATE?
+  (architect lane, 2026-09-30; read-only).**
+  - SPEC (architect): `scripts/nhl_api_probe.py` against api-web.nhle.com
+    covers:
+    - schedule, the gamecenter boxscore (goalie stats), roster;
+    - pre-game lineup / starting-goalie availability and its lead time
+      before puck drop;
+    - historical depth 2023-2025;
+    - whether the host's datacenter IP is accepted (one curl from the
+      host is part of the receipt);
+    - the fallback: MoneyPuck's daily projected-starters CSV.
+    - Verdict per need: FEEDABLE / NOT. GREEN meets the H2 reopening
+      condition, and a goalie-aware v5 candidate then proceeds through
+      the FROZEN gate.
+  - LAW 1 IN THIS BUILD: this container cannot reach api-web.nhle.com or
+    moneypuck.com (proxy CONNECT 403, receipted). So no field name is
+    assumed:
+    - games are found as dicts with an integer id plus a start-time key;
+    - goalie lists as lists under a goalie-named key;
+    - starters as a starter-named key set true;
+    - goalie stats as save / shots-against keys;
+    - and every response's key paths are dumped.
+    - Endpoint paths and the MoneyPuck URLs are CANDIDATES
+      (`--moneypuck-url` overrides); each one's HTTP answer is the
+      receipt.
+  - LEAD TIME is sampled, not guessed: each run records every upcoming
+    game's minutes-to-puck-drop and whether a starter is identified yet.
+    `--out` appends runs as JSON lines, so T-6h / T-3h / T-90 / T-30 runs
+    on one game day give the lead time.
+  - HOST IP (N6): the script is stdlib-only, so it runs as-is on the host,
+    and N1's HTTP status there is the receipt. It also prints the
+    one-line curl.
+  - GREEN = a starting goalie before puck drop (NHL API or MoneyPuck) +
+    goalie game stats + depth 2023-2025.
+  - RECEIPT PENDING (operator): run on the laptop and on the host, and
+    paste. The v5 decision is the architect's, through the frozen gate
+    (the bar does not move).
+  - Receipts: `tests/test_nhl_api_probe.py` 4 passed:
+    - a GREEN world (a starter named at T-90 on the landing; goalie stat
+      keys; roster 2 goalies; history 3/3; MoneyPuck NOT) gives h2_green;
+    - no pre-game starter but a MoneyPuck CSV with goalie columns gives
+      green via the fallback;
+    - a blocked host (403 everywhere) gives all NOT, never green;
+    - `--out` refuses data/ and appends one JSON line.
+
 - **NHL-SHADOW: THE FAILED v1 AS A GREYED REFERENCE MODEL (architect lane,
   2026-09-30).**
   - SPEC (architect):

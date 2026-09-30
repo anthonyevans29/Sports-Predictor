@@ -46,7 +46,11 @@ def test_lint_and_prefix_and_refs():
     assert any("`size:`" in x for x in p) and any("outside the fixed set: bug" in x for x in p)
     assert L.prefix_labels("[K2] exec edge", TAX) == ["track:K"]
     assert L.prefix_labels("[ops] timer", TAX) == ["track:ops"] and L.prefix_labels("MLB PHASE A", TAX) == []
-    assert L.closes_refs("Closes #12, fixes #3 and resolves: #12. See #99") == [3, 12]
+    assert L.closes_refs("Closes #12\nfixes #3\n- resolves: #7\nSee #99") == [3, 7, 12]
+    assert L.closes_refs("Ledger: Closes #111, #112 and #90") == [90, 111, 112]      # the PR template form
+    # prose never counts (#116's description: "...which closes #111, #112...")
+    assert L.closes_refs("After merge I replay #114, which closes #111, #112 and #90.") == []
+    assert L.closes_refs("Closes #96. Resolves limitation.") == [96]
     assert L.resolves_limitation("... Resolves limitation #7") and not L.resolves_limitation("Closes #7")
 
 

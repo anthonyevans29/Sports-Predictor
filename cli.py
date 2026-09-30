@@ -4065,22 +4065,21 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
 
     console.print(f"[cyan]Leakage-free soccer backtest: {competition_code} "
                   f"{season or '(all seasons)'}, min_prior={min_prior}…[/cyan]")
+    # PRODUCTION params, not the dataclass defaults — otherwise the backtest
+    # quietly evaluates a model we don't ship. #138 (ruled 2026-09-30): the
+    # plain report used production's rho but the DEFAULT elo_goal_coeff
+    # (0.0023, not production's 0.0008); it now resolves both, as S19 does.
+    prod = _soccer_prod_poisson()
     if rho is None:
-        # default to PRODUCTION config, not the dataclass default (0.0) —
-        # otherwise the backtest quietly evaluates a model we don't ship.
-        from src.walters.training import _resolve_model_version
-        from src.db.database import session_scope as _scope
-        try:
-            with _scope() as _s:
-                _mv = _resolve_model_version(_s, None, Sport.SOCCER)
-                rho = float(((_mv.parameters or {}).get("poisson") or {})
-                            .get("dixon_coles_rho", 0.0))
-        except Exception:
-            rho = 0.0
+        rho = prod[1] if prod else 0.0
+    coeff = prod[2] if prod else None
     console.print(f"  [dim]dixon_coles_rho = {rho} "
-                  "(production default; override with --rho)[/dim]")
+                  f"({'override' if prod is None or rho != prod[1] else 'production'}; "
+                  "override with --rho) · elo_goal_coeff = "
+                  + (f"{coeff} (production {prod[0]})" if prod else
+                     "config default — NO production model resolved") + "[/dim]")
     results = run_soccer_backtest(competition_code, season, min_prior,
-                                  dixon_coles_rho=rho)
+                                  dixon_coles_rho=rho, elo_goal_coeff=coeff)
     if not results:
         console.print("[yellow]No results — competition/season not found or too few "
                       "finished matches.[/yellow]")

@@ -98,6 +98,45 @@ specific reason they're not being built now.
     381 passed. The real audit is NOT run here (the DB is not in this
     container) — step 2 is the operator's.
 
+- **PRE-COMMITMENTS RATIFIED (#137 / #140 / #141 / #139) + #138 RULED AND
+  BUILT: THE PLAIN SOCCER-BACKTEST USES PRODUCTION PARAMS (architect
+  2026-09-30).**
+  - RATIFIED, frozen before any run (verbatim):
+    - "#137 v5: half-life 180d, prior 2,000 shots, Pythagorean exponent
+      2.0, 6h as-of gap, league starting values as built — RATIFIED; bar
+      unchanged <= 0.6866; calibration bands as v1; RPS reported."
+    - "#140 S19: half-life 365d (Dixon-Coles) — RATIFIED; gate = the
+      improve rule (>= 0.0050, ties reject, n >= 30) on the leak-free
+      backtest with production params."
+    - "#141 NCAA: k 24, home adv 55, bounds 1000-2000, coverage floor 500
+      test games, postseason excluded (no neutral-site field) — RATIFIED;
+      the bar is declared from the baselines run and printed BEFORE the
+      candidate runs, never after."
+    - "#139: away costs only where the caller declares two-way; soccer
+      null — RATIFIED."
+    - All three gates are now runnable as frozen (operator sequences in
+      their entries below). NCAA order: `ncaa-backtest --baselines-only`
+      pasted BEFORE `--candidate v1` is ever run.
+  - #138 RULING: "the plain soccer-backtest report must use production
+    params (0.0008), not the default; note in CHANGELOG that historical
+    plain-report numbers shift; S19's verdict is unaffected (already on
+    production params)."
+  - BUILT: the plain `soccer-backtest` path resolves BOTH production
+    values through the same helper S19 uses (`cli._soccer_prod_poisson`):
+    `dixon_coles_rho` (still overridable with `--rho`) and
+    `elo_goal_coeff`. The header line prints both and their source. With
+    no production model it keeps the old fallback (rho 0.0, config
+    default coefficient) and says "NO production model resolved" — never
+    faked.
+  - EFFECT: plain-report log-loss / RPS / calibration numbers produced
+    before this change were computed at elo_goal_coeff 0.0023 and are not
+    comparable with later runs (CHANGELOG notes it). The S19 verdict path
+    was already on production params and is unchanged.
+  - RECEIPTS: pytest 375 passed (3 new in
+    `tests/test_soccer_backtest_prod_params_138.py`: production rho +
+    coefficient reach the backtest; `--rho` overrides rho only; no
+    production model = the labelled fallback).
+
 - **#79 NCAA v1: THE FROZEN GATE + AN ELO CANDIDATE (architect 2026-09-30; model track).**
   - SPEC (architect ruling 2026-09-30): "an NCAA Elo candidate through its
     own frozen gate (declare the bar from the naive baseline before the

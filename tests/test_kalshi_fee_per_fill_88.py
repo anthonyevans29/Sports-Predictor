@@ -1,7 +1,8 @@
 """#88 RULED (architect 2026-09-30): Kalshi rounds the fee per FILL, not per
-contract. Model: order fee = ceil(N x rate x M x P(1-P) x 100) / 100; the Desk
-prices an order of K_ORDER_CONTRACTS (provisional 10). The receipt script
-reproduces multi-contract fills' fees from the CSV to the cent."""
+contract; the Desk prices an order of K_ORDER_CONTRACTS (provisional 10).
+RE-FIT (same day): the ceiling receipt was NOT met, so the per-fill rounding
+rule is re-fitted over the full CSV (ceil / nearest / floor / bankers) and
+adopted only at >= 95%."""
 from src.walters import venue
 from scripts import kalshi_fee_fill_receipt as rcpt
 
@@ -10,11 +11,11 @@ HDR = ("subtrader_id,type,quantity_fp,market_ticker,side,entry_price_dollars,exi
        "realized_pnl_with_fees_dollars,close_timestamp,open_timestamp,product,period_start,market_title")
 
 
-def test_order_fee_is_one_ceiling_per_fill():
+def test_order_fee_is_one_nearest_rounding_per_fill():
     assert venue.K_ORDER_CONTRACTS == 10
-    assert venue.kalshi_order_fee(0.60, 8) == 0.14          # 8 x 1.68c = 13.44c -> 14c (per contract: 8 x 2c = 16c)
-    assert venue.kalshi_order_fee(0.60, 1) == 0.02
-    assert venue.kalshi_order_fee(0.60, 10, 0.25, venue.KALSHI_MAKER_RATE) == 0.02   # 1.05c -> 2c
+    assert venue.kalshi_order_fee(0.60, 8) == 0.13          # 8 x 1.68c = 13.44c -> 13c (per contract: 8 x 2c = 16c)
+    assert venue.kalshi_order_fee(0.60, 1) == 0.02          # 1.68c -> 2c
+    assert venue.kalshi_order_fee(0.60, 10, 0.25, venue.KALSHI_MAKER_RATE) == 0.01   # 1.05c -> 1c
     assert venue.kalshi_order_fee(0.60, 0) is None and venue.kalshi_order_fee(None, 5) is None
     # maker within ~0.1c of exact at N=10 (the ruling's point): exact 0.105c/contract
     assert abs(venue.kalshi_fee(0.60, 0.25, venue.KALSHI_MAKER_RATE) - 0.0175 * 0.25 * 0.24) < 0.001
@@ -31,23 +32,66 @@ def _csv(tmp_path, rows):
     return str(p)
 
 
-def test_receipt_reproduces_multi_contract_fills_to_the_cent(tmp_path, capsys):
-    rows = [
-        ("KXNFLGAME-26SEP28BUFKC-KC", 8, 0.60, 1.0, 0.14, 0.0),     # taker per fill 13.44c -> 14c (old model 16c)
-        ("KXNFLGAME-26SEP28BUFKC-BUF", 10, 0.45, 0.0, 0.18, 0.0),   # 17.33c -> 18c (old 20c)
-        ("KXMLBGAME-26SEP27NYYBOS-NYY", 20, 0.55, 1.0, 0.18, 0.0),  # MLB pre-live M=0.5: 17.33c -> 18c
-        ("KXNHLGAME-26OCT07BOSFLA-FLA", 25, 0.50, 1.0, 0.03, 0.0),  # maker M=0.25: 25 x 0.109c = 2.73c -> 3c
-        ("KXEPLGAME-26SEP27ARSCHE-TIE", 6, 0.25, 0.40, 0.08, 0.05),  # open taker 7.9c -> 8c; close sale 6 @ 0.40: fee 0.05 fits neither model (a miss)
-        ("KXNCAAFGAME-26SEP27AUBALA-ALA", 1, 0.49, 0.0, 0.02, 0.0),  # single contract: not multi, skipped
-        ("KXWNBAGAME-26SEP27LVANYL-LV", 5, 0.50, 1.0, 0.09, 0.0),    # no ruled M: skipped, never guessed
+def test_round_cents_modes():
+    r = venue.round_cents
+    assert [r(17.33, m) for m in venue.ROUNDING_MODES] == [18, 17, 17, 17]
+    assert [r(17.5, m) for m in venue.ROUNDING_MODES] == [18, 18, 17, 18]     # half: up / up / down / to even
+    assert [r(16.5, m) for m in venue.ROUNDING_MODES] == [17, 17, 16, 16]
+    assert [r(17.0, m) for m in venue.ROUNDING_MODES] == [17, 17, 17, 17]
+    assert venue.KALSHI_FEE_ROUNDING == "nearest"                             # ADOPTED: re-fit 542/548 = 98.9%
+    assert venue.kalshi_order_fee(0.45, 10, rounding="ceil") == 0.18          # 17.33c
+    assert venue.kalshi_order_fee(0.45, 10) == 0.17
+
+
+# (ticker, qty, entry, raw-generating rate/M) — fees are generated below under a chosen rule
+LEGS = [("KXNFLGAME-26SEP28BUFKC-KC", 8, 0.60), ("KXNFLGAME-26SEP28BUFKC-BUF", 10, 0.45),
+        ("KXNHLGAME-26OCT07BOSFLA-FLA", 25, 0.33), ("KXEPLGAME-26SEP27ARSCHE-TIE", 6, 0.27),
+        ("KXNCAAFGAME-26SEP27AUBALA-ALA", 13, 0.41), ("KXNFLGAME-26OCT04LARSEA-SEA", 7, 0.52),
+        ("KXNFLGAME-26OCT05DETGB-GB", 30, 0.50)]          # 52.5c exactly: nearest 53, bankers 52 (decides)
+
+
+def _fees(rule):
+    return [(t, q, p, 1.0, venue.round_cents(q * 0.07 * p * (1 - p) * 100, rule) / 100, 0.0) for t, q, p in LEGS]
+
+
+def test_refit_adopts_the_rule_that_reproduces_the_full_set(tmp_path, capsys):
+    rows = _fees("nearest") + [
+        ("KXMVESPORTS-26OCT04-SHARD", 909.09, 0.001, 0.0, 0.01, 0.0),     # prints "@ 0.00": shard, out of the fit
+        ("KXWNBAGAME-26SEP27LVANYL-LV", 5, 0.50, 1.0, 0.09, 0.0),          # no ruled M: never guessed
+        ("KXNFLGAME-26SEP28BUFKC-KC", 1, 0.60, 1.0, 0.02, 0.0),            # single contract: not multi
     ]
     rc = rcpt.main(["--csv", _csv(tmp_path, rows)])
     out = capsys.readouterr().out
-    assert "series without a ruled M (skipped, never guessed): 1" in out
-    assert "per-FILL model reproduces 5/6 to the cent · old per-contract model 0/6" in out
-    assert "OK   KXNFLGAME-26SEP28BUFKC-KC open 8 @ 0.60: fee $0.14 = taker ceil -> $0.14 (per-contract model $0.16)" in out
-    assert "MISS KXEPLGAME-26SEP27ARSCHE-TIE close 6 @ 0.40" in out
-    assert "RECEIPT: 5/5 multi-contract fills reproduced to the cent — MEETS the #88 receipt" in out and rc == 0
+    assert "excluded: 1 priced 0.00 (combo-shard artifacts) · 1 series without a ruled M (never guessed) · IN THE FIT: 7" in out
+    assert "    nearest      7/7  100.0%" in out
+    assert "'nearest' reproduces 7/7 = 100.0% — MEETS (>= 95%). ADOPT: KALSHI_FEE_ROUNDING = \"nearest\"" in out
+    assert "frac   down     up  other" in out and rc == 0
+
+
+def test_refit_not_met_prints_the_residuals(tmp_path, capsys):
+    rows = _fees("floor")[:3] + _fees("ceil")[3:]      # a mixed world: no rule reaches 95%
+    rc = rcpt.main(["--csv", _csv(tmp_path, rows)])
+    out = capsys.readouterr().out
+    assert "NOT MET (< 95%). Residuals follow." in out and rc == 1
+    assert "residual = fee - raw, cents, against the nearest candidate" in out
+    assert "nearest candidate: taker 7" in out
+
+
+def test_refit_indistinguishable_rules_adopt_the_first_and_flag_halves(tmp_path, capsys):
+    rows = _fees("nearest")[:-1]           # no exact-half leg: nearest and bankers agree everywhere
+    rc = rcpt.main(["--csv", _csv(tmp_path, rows)])
+    out = capsys.readouterr().out
+    assert ("ADOPT: KALSHI_FEE_ROUNDING = \"nearest\" (nearest ≡ bankers on this data: 0 exact-half legs"
+            " — halves UNDETERMINED, ruled 2026-09-30)") in out and rc == 0
+
+
+def test_refit_split_halves_are_not_met(tmp_path, capsys):
+    # the same 17.5c raw rounded up once and down once: no single rule reproduces both
+    rows = [("KXNFLGAME-26SEP28BUFKC-KC", 10, 0.50, 1.0, 0.18, 0.0),
+            ("KXNFLGAME-26SEP28BUFKC-BUF", 10, 0.50, 1.0, 0.17, 0.0)]
+    rc = rcpt.main(["--csv", _csv(tmp_path, rows)])
+    out = capsys.readouterr().out
+    assert "NOT MET (< 95%). Residuals follow." in out and "   .5x      1      1      0" in out and rc == 1
 
 
 def test_receipt_refuses_an_unknown_header(tmp_path, capsys):

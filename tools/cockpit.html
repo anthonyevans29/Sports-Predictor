@@ -115,7 +115,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
-    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5; one ceiling per FILL, costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · home contract only · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
+    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5; one rounding per FILL to the NEAREST cent (fitted 542/548 on the YTD fills), costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · home contract only · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.<br>
     <b>PASS CLASSES</b> (presentation only, 2026-09-30) — <b>no reference</b>: no two-sided book market or &lt; 3 books (model table), no book/Kalshi pair or books below 4 (venue table) — greyed, with a "re-run at T-60" hint, because books and Kalshi post thin and late · <b>below floor</b>: a real edge measured and declined · other PASSes (pre-gate, quarantine, charter) keep their own reason.
   </div>
@@ -439,8 +439,8 @@ const K2={feeClearsPP:4,tick:0.01};
 // The Desk's exec edge and "fee-clears?" use the MAKER cost by default (the
 // doctrine is join-bid); the taker cost is shown as the fallback, and is the
 // basis when no maker price exists (1¢ spread, no bid, pre-split export).
-// FEE ROUNDING (#88 ruled 2026-09-30): the export's fees are one ceiling per
-// FILL of N contracts (N = 10, provisional until the B-track sizes units), so
+// FEE ROUNDING (#88 ruled 2026-09-30; re-fit #134): the export's fees are one
+// NEAREST-cent rounding per FILL of N contracts (N = 10, provisional until the B-track sizes units), so
 // costs carry fractions of a cent and display to 3 decimals.
 // The ledger's kalshi_exec_cost keeps its pre-split meaning (ask + fee = taker);
 // the maker cost rides beside it as kalshi_exec_cost_maker.

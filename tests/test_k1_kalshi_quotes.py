@@ -14,18 +14,18 @@ from src.timeutil import utc_now_naive
 
 
 def test_fee_formula_and_exec_cost():
-    # n=1: the pre-#88 per-contract ceiling (kept as a documented case)
-    assert venue.kalshi_fee(0.50, n=1) == 0.02     # 0.07*.25 = 1.75c -> 2c
-    assert venue.kalshi_fee(0.90, n=1) == 0.01     # 0.63c -> 1c
-    assert venue.kalshi_fee(0.01, n=1) == 0.01     # 0.0693c -> 1c (rounded UP)
-    # #88 (2026-09-30): one ceiling per FILL of N = 10 contracts
+    # the pre-#88 model, a per-contract CEILING (kept as a documented case)
+    assert venue.kalshi_order_fee(0.50, 1, rounding="ceil") == 0.02   # 0.07*.25 = 1.75c -> 2c
+    assert venue.kalshi_order_fee(0.90, 1, rounding="ceil") == 0.01   # 0.63c -> 1c
+    assert venue.kalshi_order_fee(0.01, 1, rounding="ceil") == 0.01   # 0.0693c -> 1c (rounded UP)
+    # #88 (2026-09-30): one NEAREST-cent rounding per FILL of N = 10 contracts (re-fit, #134)
     assert venue.kalshi_fee(0.50) == 0.018         # 17.5c -> 18c / 10
-    assert venue.kalshi_fee(0.90) == 0.007         # 6.3c -> 7c / 10
+    assert venue.kalshi_fee(0.90) == 0.006         # 6.3c -> 6c / 10
     assert venue.kalshi_fee(0.01) == 0.001         # 0.693c -> 1c / 10
     assert venue.kalshi_fee(0.0) == 0.0 and venue.kalshi_fee(1.0) == 0.0
     assert venue.kalshi_fee(None) is None and venue.kalshi_fee(1.2) is None
-    e = venue.kalshi_exec(0.53, 0.55)               # 10 x 1.7325c = 17.3c -> 18c / 10 (was 0.57)
-    assert e["kalshi_exec_cost"] == 0.568 and e["kalshi_bid"] == 0.53
+    e = venue.kalshi_exec(0.53, 0.55)               # 10 x 1.7325c = 17.3c -> 17c / 10 (was 0.57)
+    assert e["kalshi_exec_cost"] == 0.567 and e["kalshi_bid"] == 0.53
     assert e["k_track"] == "K-track: informational until the executable-edge ruling"
     assert venue.kalshi_exec(0.5, None)["kalshi_exec_cost"] is None
 
@@ -83,13 +83,13 @@ def test_sync_stores_quotes_and_exports_carry_exec_cost(nfl_game, monkeypatch, t
     from src.walters.nfl_predict import export_nfl_predictions
     row = {r["match_id"]: r for r in json.loads(open(
         export_nfl_predictions(out_dir=str(tmp_path))).read())["predictions"]}[nfl_game["id"]]
-    assert (row["kalshi_bid"], row["kalshi_ask"], row["kalshi_exec_cost"]) == (0.53, 0.55, 0.568)
+    assert (row["kalshi_bid"], row["kalshi_ask"], row["kalshi_exec_cost"]) == (0.53, 0.55, 0.567)
     assert row["k_track"].startswith("K-track: informational")
     assert row["kalshi_prob"] == pytest.approx(0.54 / (0.54 + 0.46), abs=1e-4)   # untouched
     from src.walters.export import export_fixtures
     fx = {r["match_id"]: r for r in json.loads(open(
         export_fixtures("NFL", out_dir=str(tmp_path))).read())["fixtures"]}[nfl_game["id"]]
-    assert (fx["kalshi_bid"], fx["kalshi_ask"], fx["kalshi_exec_cost"]) == (0.53, 0.55, 0.568)
+    assert (fx["kalshi_bid"], fx["kalshi_ask"], fx["kalshi_exec_cost"]) == (0.53, 0.55, 0.567)
 
 
 def test_migration_adds_columns_idempotently(tmp_path, monkeypatch, capsys):

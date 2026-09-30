@@ -33,8 +33,8 @@ STALE_BOOK_FLAG = "STALE-BOOK?"
 # per-order accumulator that rebates whole cents. The old per-contract ceil
 # to the cent OVERSTATED the fee (by up to ~1c; +0.32pp at P = 0.60).
 # #88 RULED (architect 2026-09-30): Kalshi rounds the fee per FILL, not per
-# contract (the YTD CSV's multi-contract fills carry ONE ceiling, not N).
-# Model: order fee = ceil(N x rate x M x P(1-P) x 100) / 100 for an order of
+# contract (the YTD CSV's multi-contract fills carry ONE rounding, not N).
+# Model: order fee = round(N x rate x M x P(1-P) x 100) / 100 for an order of
 # N contracts; the per-contract cost is P + order fee / N. The Desk assumes N
 # = the unit's contract count at the row's price, PROVISIONAL 10 until the
 # B-track sizes units (K_ORDER_CONTRACTS). K-TRACK: INFORMATIONAL UNTIL THE
@@ -43,6 +43,16 @@ STALE_BOOK_FLAG = "STALE-BOOK?"
 KALSHI_FEE_RATE = 0.07      # taker rate: VERIFIED 2026-09-29 (rounding: see above)
 KALSHI_MAKER_RATE = 0.0175  # maker rate: the same published schedule
 K_ORDER_CONTRACTS = 10      # #88: N for the Desk's cost (PROVISIONAL until the B-track sizes units)
+# #88 RE-FIT (architect 2026-09-30): the first receipt was NOT met (253/629
+# to the cent under the ceiling; the misses sat exactly 1c BELOW it), so the
+# per-fill rounding rule is re-fitted over the full CSV by
+# scripts/kalshi_fee_fill_receipt.py and adopted only at >= 95%.
+# ADOPTED (architect 2026-09-30, #134): NEAREST per fill, 542/548 = 98.9%
+# (ceil 45.3%, floor 54.7%, the old per-contract ceiling 1.3%). Halves are
+# UNDETERMINED (0 exact-half legs in the YTD CSV): revisit banker's only if
+# one ever appears.
+ROUNDING_MODES = ("ceil", "nearest", "floor", "bankers")
+KALSHI_FEE_ROUNDING = "nearest"   # ADOPTED 2026-09-30: re-fit 542/548 = 98.9% (#134)
 K_TRACK_NOTE = "K-track: informational until the executable-edge ruling"
 
 # #93 RESOLVED (architect 2026-09-30, from Kalshi's fee schedule): the game
@@ -67,21 +77,45 @@ KALSHI_SERIES_BY_COMPETITION = {
 }
 
 
-def kalshi_order_fee(price: float | None, n: int, m: float = 1.0,
-                     rate: float = KALSHI_FEE_RATE) -> float | None:
+def round_cents(cents: float, mode: str) -> int:
+    """Round raw cents to whole cents: ceil / nearest (half up) / floor
+    (truncate) / bankers (half to even). The 1e-9 epsilon keeps float noise
+    from moving a value across an integer or a half."""
+    eps = 1e-9
+    if mode == "ceil":
+        return math.ceil(cents - eps)
+    if mode == "floor":
+        return math.floor(cents + eps)
+    fl = math.floor(cents + eps)
+    frac = cents - fl
+    if frac > 0.5 + eps:
+        return fl + 1
+    if frac < 0.5 - eps:
+        return fl
+    if mode == "nearest":
+        return fl + 1
+    if mode == "bankers":
+        return fl if fl % 2 == 0 else fl + 1
+    raise ValueError(f"unknown rounding mode {mode!r}")
+
+
+def kalshi_order_fee(price: float | None, n: float, m: float = 1.0,
+                     rate: float = KALSHI_FEE_RATE, rounding: str | None = None) -> float | None:
     """#88: the fee in dollars for ONE fill of n contracts at price P:
-    ceil(n x rate x M x P x (1-P) x 100) / 100 (one ceiling per fill)."""
-    if price is None or not (0.0 <= price <= 1.0) or not n or n < 1:
+    n x rate x M x P x (1-P) x 100 cents, rounded ONCE per fill by
+    KALSHI_FEE_ROUNDING (see the re-fit note above)."""
+    if price is None or not (0.0 <= price <= 1.0) or not n or n <= 0:
         return None
     raw = n * rate * m * price * (1.0 - price) * 100.0
-    return math.ceil(raw - 1e-9) / 100.0   # epsilon: float noise must not add a cent
+    return round_cents(raw, rounding or KALSHI_FEE_ROUNDING) / 100.0
 
 
 def kalshi_fee(price: float | None, m: float = 1.0, rate: float = KALSHI_FEE_RATE,
                n: int = K_ORDER_CONTRACTS) -> float | None:
     """Per-contract fee in dollars (= probability points) when the order is
     n contracts: kalshi_order_fee / n (#88). n=1 is the old per-contract
-    ceiling, which overstated the fee by up to ~1c."""
+    ceiling, which overstated the fee by up to ~1c; with nearest rounding a
+    1-lot maker fee under 0.5c is 0."""
     fee = kalshi_order_fee(price, n, m, rate)
     return None if fee is None else round(fee / n, 6)
 
@@ -90,7 +124,8 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     """The HOME contract's quotes + both executable costs (ruling 2026-09-30 on #93):
       exec_cost_taker = ask + fee(0.07, M_taker, P = ask)
       exec_cost_maker = (bid + 1c) + fee(0.0175, M_maker, P = bid + 1c)
-    fee = ceil(N x rate x M x P(1-P) x 100) / 100 / N, N = K_ORDER_CONTRACTS (#88).
+    fee = round(N x rate x M x P(1-P) x 100) / 100 / N, N = K_ORDER_CONTRACTS,
+    rounded by KALSHI_FEE_ROUNDING (nearest, #88 re-fit).
     exec_cost_maker is null when there is no bid, when bid + 1c reaches the
     ask (a 1c spread: joining = taking, so no maker price exists), or when the
     series' maker M is unknown. kalshi_exec_cost is kept as a DEPRECATED alias

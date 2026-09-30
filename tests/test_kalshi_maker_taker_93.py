@@ -25,34 +25,34 @@ def test_ruled_multipliers_per_series():
 
 
 def test_fee_formula_takes_m_and_rate():
-    # #88: one ceiling per fill of N = 10 (n=1 = the pre-#88 per-contract ceiling)
+    # #88: one NEAREST-cent rounding per fill of N = 10 (re-fit #134, 98.9%)
     assert venue.kalshi_fee(0.50) == 0.018                                  # 17.5c -> 18c / 10
-    assert venue.kalshi_fee(0.56, 0.5) == 0.009                             # 8.6c -> 9c / 10 (n=1: 1c)
-    assert venue.kalshi_fee(0.56, 0.25, venue.KALSHI_MAKER_RATE) == 0.002   # 1.08c -> 2c / 10 (n=1: 1c)
-    assert venue.kalshi_fee(0.56, 0.25, venue.KALSHI_MAKER_RATE, n=1) == 0.01
+    assert venue.kalshi_fee(0.56, 0.5) == 0.009                             # 8.6c -> 9c / 10
+    assert venue.kalshi_fee(0.56, 0.25, venue.KALSHI_MAKER_RATE) == 0.001   # 1.08c -> 1c / 10
+    assert venue.kalshi_fee(0.56, 0.25, venue.KALSHI_MAKER_RATE, n=1) == 0.0  # 0.108c -> 0c on a 1-lot
 
 
 def test_exec_nfl_taker_and_maker():
     e = venue.kalshi_exec(0.55, 0.58, "NFL")
-    assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.598, 0.562)  # 0.58+1.8c ; join 0.56 + 0.2c
+    assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.597, 0.561)  # 0.58+1.7c ; join 0.56 + 0.1c
     assert e["kalshi_exec_cost"] == e["exec_cost_taker"]                    # deprecated alias
     assert (e["fee_series"], e["fee_m_taker"], e["fee_m_maker"]) == ("KXNFLGAME", 1.0, 0.25)
 
 
 def test_exec_mlb_pre_live_half_multiplier():
     e = venue.kalshi_exec(0.54, 0.56, "MLB")
-    assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.569, 0.553)  # M=0.5: 0.56+0.9c ; 0.55+0.3c
+    assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.569, 0.552)  # M=0.5: 0.56+0.9c ; 0.55+0.2c
     # the same quotes at M=1
-    assert venue.kalshi_exec(0.54, 0.56, "NFL")["exec_cost_taker"] == 0.578
+    assert venue.kalshi_exec(0.54, 0.56, "NFL")["exec_cost_taker"] == 0.577
 
 
 def test_no_maker_price_cases():
     assert venue.kalshi_exec(0.57, 0.58, "NFL")["exec_cost_maker"] is None   # 1c spread: joining = taking
     assert venue.kalshi_exec(None, 0.58, "NFL")["exec_cost_maker"] is None   # no bid
     u = venue.kalshi_exec(0.50, 0.55, "UNKNOWN")                             # unlisted: maker M not assumed
-    assert u["exec_cost_maker"] is None and u["exec_cost_taker"] == 0.568 and u["fee_m_taker"] == 1.0
+    assert u["exec_cost_maker"] is None and u["exec_cost_taker"] == 0.567 and u["fee_m_taker"] == 1.0
     n = venue.kalshi_exec(0.50, None, "NFL")                                 # bid only
-    assert n["exec_cost_taker"] is None and n["exec_cost_maker"] == 0.512
+    assert n["exec_cost_taker"] is None and n["exec_cost_maker"] == 0.511
     assert set(venue.KALSHI_EXEC_NULL) <= set(u)                             # null block: same cost keys
 
 
@@ -87,8 +87,8 @@ def test_fixtures_export_carries_both_costs_per_series(tmp_path, monkeypatch):
         "M93NHL", start="2033-04-05", end="2033-04-06", out_dir=str(tmp_path))).read())["fixtures"]}
     r = fx[nhl]
     assert (r["kalshi_bid"], r["kalshi_ask"], r["exec_cost_taker"], r["exec_cost_maker"],
-            r["kalshi_exec_cost"]) == (0.55, 0.58, 0.598, 0.562, 0.598)
-    assert fx[tight]["exec_cost_maker"] is None and fx[tight]["exec_cost_taker"] == 0.598
+            r["kalshi_exec_cost"]) == (0.55, 0.58, 0.597, 0.561, 0.597)
+    assert fx[tight]["exec_cost_maker"] is None and fx[tight]["exec_cost_taker"] == 0.597
 
 
 def test_mlb_prediction_export_prices_at_the_pre_live_multiplier(monkeypatch):
@@ -103,4 +103,4 @@ def test_mlb_prediction_export_prices_at_the_pre_live_multiplier(monkeypatch):
     rows = {r["match_id"]: r for r in json.loads(export_predictions(
         sport=Sport.MLB, start_date=lo, end_date=hi, competition_code="M93MLB"))["predictions"]}
     r = rows[mid]
-    assert (r["exec_cost_taker"], r["exec_cost_maker"], r["fee_series"], r["fee_m_taker"]) == (0.569, 0.553, "KXMLBGAME", 0.5)
+    assert (r["exec_cost_taker"], r["exec_cost_maker"], r["fee_series"], r["fee_m_taker"]) == (0.569, 0.552, "KXMLBGAME", 0.5)

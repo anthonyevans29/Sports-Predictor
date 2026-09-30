@@ -22,6 +22,90 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL-GOALIE LANE BUILT: THE NHL API ADAPTER + v5 (v1 + A STARTING-GOALIE
+  TERM) THROUGH THE FROZEN GATE (architect 2026-09-30; model track; the H2
+  reopening).**
+  - SPEC (architect): "(a) NHL API adapter — map our NHL match rows to
+    api-web.nhle.com game ids (date + teams), ingest per-game goalie
+    appearances with starter flag and save/shots stats for 2023-24 through
+    now into a new nhl_goalie_appearances table (receipt: coverage % of our
+    finished NHL games with both starters identified). (b) v5 CANDIDATE: v1
+    Elo + a goalie term — each starter's rolling save% over expected
+    (shrunk toward league mean, decayed), applied as a rating adjustment;
+    walk-forward, same splits, same bar (<= 0.6866), calibration bands, RPS
+    reported. The frozen gate rules; no tuning to it. If v5 passes, the live
+    question (starter lead time, tonight's #124) decides the T-60/T-30
+    re-price architecture; if it fails, the goalie information floor is
+    measured and logged."
+  - (a) BUILT:
+    - Table `nhl_goalie_appearances` (additive; `init-db` / the sync create
+      it): one row per goalie per NHL game — nhl_game_id, match_id (NULL
+      when the game is not in our DB), game_start, game_type, side,
+      team_abbrev, goalie_id (NHL playerId), goalie_name, is_starter (the
+      API's flag; NULL if not found, never inferred), shots_against, saves,
+      goals_against, toi_seconds, decision. Unique on (game, goalie).
+    - `src/ingestion/nhl_goalies.py` + `cli.py nhl-goalie-sync`: walks
+      `/v1/schedule/<date>` week by week, keeps gameType 2/3, maps each game
+      to our match with the shared refusal-on-ambiguity matcher
+      (`match_lookup.find_match`, ± 12h, accents stripped), fetches finished
+      games' `/v1/gamecenter/<id>/boxscore`, upserts. Idempotent (complete
+      games are skipped unless `--refresh`); `--dry-run` writes nothing.
+    - LAW 1: this container cannot reach api-web.nhle.com (proxy 403). No
+      field name is assumed: the NHL-API-PROBE's discovery rules (proved
+      live, #124) find games, sides, goalie lists and the starter flag;
+      stats are matched on exact key names (saves / shotsAgainst /
+      goalsAgainst / toi / decision, or saveShotsAgainst "25/27"). The
+      receipt prints the keys actually used; a game whose goalie lists
+      cannot be sided home/away is REFUSED and listed.
+    - `nhl-goalie-coverage`: the lane-(a) receipt by season.
+  - (b) BUILT:
+    - `src/models/nhl_goalie.py` `GoalieTracker`: per goalie, strictly as of
+      each game (appearances that started >= 6h earlier), gsaa_rate =
+      Σw(saves − m·shots) / (Σw·shots + PRIOR_SHOTS), with w = 0.5^(age /
+      HALF_LIFE) and m the as-of league save%. To Elo: goals_edge =
+      gsaa_rate × league shots per team-game; ELO_PER_GOAL = (400/ln10) ×
+      PYTH_EXP / league goals per team-game (the Pythagorean slope at
+      league scoring; ≈ 116 Elo per goal/game at 3.0). No fitted scale.
+    - `NHLEloV5` = v1 exactly (k 6, mov_base 2.2, regression 0.25, home
+      advantage from the 2024 home rate) + (home starter − away starter)
+      inside the expected score for predict AND update (the v2 pattern:
+      ratings don't absorb goalie quality). Unknown starter = 0, counted.
+    - `nhl-backtest --candidate v5`: same stream, same frozen gate, same bar;
+      2025 scored once. Also prints: goalie inputs (appearances, span,
+      both-starters coverage train/test, unknown sides), v1 on the same
+      stream, GOALIE INFORMATION = v1 − v5 log-loss (the floor measurement
+      if v5 fails), and RPS (two-outcome = Brier) for home rate / v1 / v5.
+  - FROZEN A PRIORI (declared here BEFORE any run; ARCHITECT-RULE — ratify
+    before the operator scores v5, since the gate is pre-committed):
+    - HALF_LIFE_DAYS 180 (≈ one season of memory, recent form weighted);
+    - PRIOR_SHOTS 2000 (save% stabilises around 1,000–3,000 shots; middle);
+    - PYTH_EXP 2.0 (the classic hockey Pythagorean exponent);
+    - league priors while history is thin: save% .900 on 5,000
+      pseudo-shots, 30 shots and 3.0 goals per team-game on 50 pseudo-games;
+    - AS_OF_GAP_H 6 (no goalie plays twice inside 6 hours; our match clock
+      and the API's can differ by minutes).
+  - CHOICES UNDER LAW 4 (ARCHITECT-RULE):
+    - Relief appearances count toward a goalie's history; only the flagged
+      STARTER prices a game. A side with zero or two flagged starters is
+      unknown (0), never picked by TOI.
+    - Preseason (gameType 1) is not ingested; a game with no gameType key is
+      kept and counted.
+    - Games outside our DB are stored (match_id NULL) because they are the
+      2023-24 warm-up history for the goalie tracker.
+  - OPERATOR SEQUENCE (laptop = writer of record until the H2 cutover):
+    1. the backup line (law 5);
+    2. `python cli.py nhl-goalie-sync --start 2023-10-01` → paste the
+       counts, the keys-used line and the COVERAGE receipt;
+    3. after the architect ratifies the frozen constants:
+       `python cli.py nhl-backtest --candidate v5` → paste the whole report.
+  - RECEIPTS: pytest 320 passed (13 new in `tests/test_nhl_goalie.py`:
+    discovery parsing incl. accents and the combined stat string; unsided =
+    refused; the sync end to end on a fake API — mapping, preseason skip,
+    not-in-our-DB kept, idempotent second run, dry run; the tracker's as-of
+    gap, shrinkage, decay, sign and the Pythagorean slope; v5 ≡ v1 without
+    goalie history; a hot starter prices up and ratings stay clean; the v5
+    gate report and coverage receipt through the CLI).
+
 - **#88 RE-FIT RECEIPT: KALSHI ROUNDS THE FEE PER FILL TO THE NEAREST CENT
   (architect 2026-09-30; ADOPTED — the founding evidence for every fee
   number the Desk shows).**

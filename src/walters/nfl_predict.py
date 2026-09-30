@@ -224,7 +224,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
             # Venue lie detector (2026-09-26): book fair vs Kalshi two-sided.
             # DISPLAY/WARNING ONLY — quarantine below still keys on the book
             # divergence exactly as ratified.
-            from src.walters.venue import kalshi_exec, kalshi_home_prob, venue_gap
+            from src.walters.venue import KALSHI_EXEC_NULL, kalshi_exec, kalshi_home_prob, venue_gap
             kal = kalshi_home_prob(s.execute(select(OddsSnapshot).where(
                 OddsSnapshot.match_id == m.id,
                 OddsSnapshot.source == "kalshi")).scalars(), m.utc_date)
@@ -270,8 +270,10 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                 "late_news_flag": lm["flag"] if lm else None,
                 # K-track (K1, additive): home-side Kalshi quotes + fee-adjusted
                 # executable cost; only where Kalshi is two-sided.
-                **(kalshi_exec(kal["home_bid"], kal["home_ask"]) if kal else
-                   {"kalshi_bid": None, "kalshi_ask": None, "kalshi_exec_cost": None}),
+                # #93 ruling (2026-09-30): taker AND maker costs, per the series' M.
+                **(kalshi_exec(kal["home_bid"], kal["home_ask"],
+                               m.competition.code if m.competition else None) if kal else
+                   dict(KALSHI_EXEC_NULL)),
                 "input_quality": {
                     "book_odds": (market or {}).get("bookmaker_count", 0),
                     "injuries": inj,

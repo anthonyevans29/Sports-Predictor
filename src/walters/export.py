@@ -428,11 +428,13 @@ def _build_row(
     # carry since K1, so the Desk's exec-edge / join-bid columns work for MLB
     # and soccer too. Only where Kalshi is two-sided (the full outcome set),
     # else null. Informational until the executable-edge ruling.
-    from src.walters.venue import kalshi_exec
+    # #93 ruling (2026-09-30): taker AND maker costs, per the series' M.
+    from src.walters.venue import KALSHI_EXEC_NULL, kalshi_exec
     _home = (kalshi or {}).get("HOME")
-    row.update(kalshi_exec(getattr(_home, "yes_bid", None), getattr(_home, "yes_ask", None))
+    row.update(kalshi_exec(getattr(_home, "yes_bid", None), getattr(_home, "yes_ask", None),
+                           row["competition"])
                if _home is not None and ((row["market"] or {}).get("kalshi") or {}).get("normalized")
-               else {"kalshi_bid": None, "kalshi_ask": None, "kalshi_exec_cost": None})
+               else dict(KALSHI_EXEC_NULL))
 
     # ----- Form (last 5 results per team) — uses preview helper
     if m.home_team:
@@ -1021,7 +1023,7 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
     from src.db.schema import Odds as _Odds, OddsSnapshot as _Snapshot
     from src.walters import spread_fallback as _fb
     from src.walters.value import MarketSnapshot as _Snap
-    from src.walters.venue import kalshi_exec as _kexec
+    from src.walters.venue import KALSHI_EXEC_NULL as _KNULL, kalshi_exec as _kexec
 
     all_odds = list(s.execute(_select(_Odds).where(_Odds.match_id == m.id)).scalars())
     labels.update((o.market, o.selection) for o in all_odds)
@@ -1097,10 +1099,10 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
         "kalshi": kalshi,
         # K-track (K1, additive): home-side quotes + executable cost,
         # two-sided Kalshi only (informational until the ruling).
+        # #93 ruling (2026-09-30): taker AND maker costs, per the series' M.
         **(_kexec(getattr(kal.get("HOME"), "yes_bid", None),
-                  getattr(kal.get("HOME"), "yes_ask", None))
-           if kal_status == "two_sided" else
-           {"kalshi_bid": None, "kalshi_ask": None, "kalshi_exec_cost": None}),
+                  getattr(kal.get("HOME"), "yes_ask", None), competition_code)
+           if kal_status == "two_sided" else dict(_KNULL)),
         "input_quality": {"book_odds": market["bookmaker_count"] if market else 0,
                           "kalshi": kal_status},
     }

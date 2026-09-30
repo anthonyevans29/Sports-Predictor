@@ -112,7 +112,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
-    <b>EXEC EDGE</b> (K2, informational, 2026-09-29) — where Kalshi quotes exist: model − (ask + fee) beside the fair edge · "fee-clears?" at ≥ 4pp · home contract only · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
+    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5 · <b>MLB is never executed live</b> · home contract only · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.
   </div>
 </div>
@@ -320,7 +320,8 @@ function normalize(doc){
         return [].concat((inj.home&&inj.home.qb_listed)||[],(inj.away&&inj.away.qb_listed)||[]);})(),
       rawIQ:p.input_quality||{},live:doc.rehearsal===false,
       kalProb:kalFromPrediction(p,mk,market),threeWay:market.DRAW!=null||probs.DRAW!=null,
-      kExec:{bid:p.kalshi_bid??null,ask:p.kalshi_ask??null,cost:p.kalshi_exec_cost??null},
+      kExec:{bid:p.kalshi_bid??null,ask:p.kalshi_ask??null,cost:p.exec_cost_taker??p.kalshi_exec_cost??null,
+        maker:p.exec_cost_maker??null},   // #93 ruling: taker + maker (pre-split exports: taker only)
       iq:(function(){const q=p.input_quality||{};const bits=[];
         if(q.book_odds!=null)bits.push(q.book_odds+" books");
         if(q.kalshi)bits.push("kalshi "+q.kalshi);
@@ -421,31 +422,43 @@ const VALUE={units:0.25,reviewN:30};
 // (ask + fee), so an exec edge exists only for a HOME side; an away side
 // shows "—" (a NO-side price is not derived — never guessed).
 // ---------------------------------------------------------------------
-const K2={feeClearsPP:4,tick:0.01,makerRate:0.0175,makerMultiplierVerified:false};
+const K2={feeClearsPP:4,tick:0.01};
 // JOIN BID (architect 2026-09-29): the suggested resting LIMIT price = bid + 1¢,
 // the maker's side of the spread. When the spread is 1¢, bid + 1¢ is the ask,
 // so there is nothing to join: joining = taking (shown as such, never a price).
-// Maker fee = roundup(M x 0.0175 x C x P x (1-P)); Kalshi's default M is 0, and
-// the per-series multiplier for the game series is NOT yet verified (fee
-// schedule PDF unreadable from the build environment), so the join line shows
-// its edge PRE-fee and says so. Informational only, like the exec edge.
+// MAKER / TAKER COSTS (#93 ruling, architect 2026-09-30): the export carries
+// exec_cost_taker = ask + 0.07·M·P(1−P) and exec_cost_maker = (bid+1¢) +
+// 0.0175·M·P(1−P) (game series taker M=1 / maker M=0.25; MLB pre-live M=0.5).
+// The Desk's exec edge and "fee-clears?" use the MAKER cost by default (the
+// doctrine is join-bid); the taker cost is shown as the fallback, and is the
+// basis when no maker price exists (1¢ spread, no bid, pre-split export).
+// The ledger's kalshi_exec_cost keeps its pre-split meaning (ask + fee = taker);
+// the maker cost rides beside it as kalshi_exec_cost_maker.
 function joinBidFor(r,side){
   if(side!=="HOME"||!r.kExec||r.kExec.bid==null) return null;
   const j=Math.round((r.kExec.bid+K2.tick)*100)/100;
   if(r.kExec.ask!=null&&j>=r.kExec.ask-1e-9) return {price:null,note:"spread 1¢ — joining = taking"};
   return {price:j};
 }
-function execCostFor(r,side){return side==="HOME"&&r.kExec&&r.kExec.cost!=null?r.kExec.cost:null;}
-function execEdgePP(r,side,modelP){const c=execCostFor(r,side);return c==null||modelP==null?null:(modelP-c)*100;}
+function execCostFor(r,side){return side==="HOME"&&r.kExec&&r.kExec.cost!=null?r.kExec.cost:null;}        // taker
+function makerCostFor(r,side){return side==="HOME"&&r.kExec&&r.kExec.maker!=null?r.kExec.maker:null;}
+function deskCostFor(r,side){const m=makerCostFor(r,side);
+  if(m!=null) return {cost:m,basis:"maker"};
+  const t=execCostFor(r,side); return t==null?null:{cost:t,basis:"taker"};}
+function execEdgePP(r,side,modelP){const c=deskCostFor(r,side);return c==null||modelP==null?null:(modelP-c.cost)*100;}
 function execEdgeHTML(r,side,modelP){
-  if(!r.kExec||(r.kExec.cost==null&&r.kExec.ask==null)) return "";
-  const e=execEdgePP(r,side,modelP);
+  if(!r.kExec||(r.kExec.cost==null&&r.kExec.ask==null&&r.kExec.maker==null)) return "";
+  const dc=deskCostFor(r,side), e=execEdgePP(r,side,modelP);
   if(e==null) return `<div class="note">exec — (quotes are the home contract's)</div>`;
-  const jb=joinBidFor(r,side);
-  const join=!jb?"":jb.price==null?` · join — (${jb.note})`
-    :` · join ${jb.price.toFixed(2)} (${((modelP-jb.price)*100>=0?"+":"")+((modelP-jb.price)*100).toFixed(1)}pp pre-fee; maker fee M unverified)`;
-  return `<div class="note">exec ${e>=0?"+":""}${e.toFixed(1)}pp @ ${execCostFor(r,side).toFixed(2)}`
-    +(e>=K2.feeClearsPP?` · <b class="play">fee-clears?</b>`:"")+join+`</div>`;
+  const pp=v=>(v>=0?"+":"")+v.toFixed(1)+"pp";
+  const jb=joinBidFor(r,side), t=execCostFor(r,side);
+  const head=dc.basis==="maker"
+    ?`exec ${pp(e)} @ ${dc.cost.toFixed(2)} maker (join ${jb&&jb.price!=null?jb.price.toFixed(2):"—"})`
+    :`exec ${pp(e)} @ ${dc.cost.toFixed(2)} taker`+(jb&&jb.price==null?` (${jb.note})`
+      :jb&&jb.price!=null?` · join ${jb.price.toFixed(2)} (${pp((modelP-jb.price)*100)} pre-fee; no maker cost in this export)`
+      :" (no maker price)");
+  const fallback=dc.basis==="maker"&&t!=null?` · taker ${t.toFixed(2)} (${pp((modelP-t)*100)})`:"";
+  return `<div class="note">${head}`+(e>=K2.feeClearsPP?` · <b class="play">fee-clears?</b>`:"")+fallback+`</div>`;
 }
 function valueSide(r,P){
   if(r.marketOnly||P.passAll||!r.twoSided) return null;
@@ -691,12 +704,14 @@ function baseCall(r,logDate){
 function stampTiming(pos,fresh,isNew){
   const at=fresh.captured_at||new Date().toISOString();
   if(isNew){ pos.claim_at=at; pos.claim_market_p=fresh.market_p??null; pos.claim_model_p=fresh.model_p??null;
-    pos.claim_exec_cost=fresh.kalshi_exec_cost??null;       // K2: Kalshi ask+fee at claim (null: none quoted / away side)
+    pos.claim_exec_cost=fresh.kalshi_exec_cost??null;       // K2: Kalshi ask+fee (taker) at claim (null: none quoted / away side)
+    pos.claim_exec_cost_maker=fresh.kalshi_exec_cost_maker??null;   // #93: join bid + maker fee at claim
     pos.exec_mode="close_default"; }
   if(pos.exec_mode!=="operator_early"){
     pos.exec_mode=pos.exec_mode||"close_default";
     pos.executed_at=at; pos.exec_market_p=fresh.market_p??null;
-    pos.exec_cost=fresh.kalshi_exec_cost??null; }             // K2: … and at execution
+    pos.exec_cost=fresh.kalshi_exec_cost??null;               // K2: … and at execution
+    pos.exec_cost_maker=fresh.kalshi_exec_cost_maker??null; }  // #93: maker cost at execution
   return pos;
 }
 function execP(c){return c.exec_market_p??c.market_p;}
@@ -722,12 +737,13 @@ function snapshotCalls(now){
       const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):r.mkt;
       out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:lad?"ladder":"straight",units:x.units,model_p:mp,market_p:kp,
-        kalshi_exec_cost:lad?null:execCostFor(r,r.pick),
+        kalshi_exec_cost:lad?null:execCostFor(r,r.pick),kalshi_exec_cost_maker:lad?null:makerCostFor(r,r.pick),
         kalshi_join_bid:lad?null:((joinBidFor(r,r.pick)||{}).price??null),venue_hint:"books",rules:x.tags});
     } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
       out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
-        model_p:r.prob,market_p:r.mkt,kalshi_exec_cost:execCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
+        model_p:r.prob,market_p:r.mkt,kalshi_exec_cost:execCostFor(r,r.pick),
+        kalshi_exec_cost_maker:makerCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
     }
   }
   for(const {r,v} of deskValue){        // value-side shadows (v1.2 candidate): notional, never staked
@@ -735,7 +751,7 @@ function snapshotCalls(now){
     out.push({...baseCall(r,d),pick:v.side,tier:"shadow",engine:"model_edge",
       call_type:"value_shadow",units:0,shadow_units:VALUE.units,
       model_p:v.modelP,market_p:v.marketP,value_edge_pp:+v.edge.toFixed(2),value_role:v.role,
-      kalshi_exec_cost:execCostFor(r,v.side),
+      kalshi_exec_cost:execCostFor(r,v.side),kalshi_exec_cost_maker:makerCostFor(r,v.side),
       top_pick:r.pick,venue_hint:"books",rules:v.tags.slice()});
   }
   for(const t of deskParlays){          // parlays: model_edge only (frozen)
@@ -1075,7 +1091,8 @@ function recordFill(id,type,priceText){
   return `Recorded ${type} fill @ ${price.toFixed(2)} for ${c.game}${c.parlay_id?` + ticket (${group.length} legs)`:""}`
     +(prev?` (replaces ${prev})`:"")
     +(type==="limit"&&jb!=null?` · join bid at capture was ${(+jb).toFixed(2)}`:"")
-    +(c.exec_cost!=null?` · exec cost (ask+fee) at execution ${(+c.exec_cost).toFixed(2)}`:"")+dedupeNote(dd);
+    +(c.exec_cost_maker!=null?` · maker cost at execution ${(+c.exec_cost_maker).toFixed(2)}`:"")
+    +(c.exec_cost!=null?` · taker cost (ask+fee) at execution ${(+c.exec_cost).toFixed(2)}`:"")+dedupeNote(dd);
 }
 function executeEarly(id){
   const L=loadLedger(), c=L.calls.find(x=>x.id===id);
@@ -1086,6 +1103,7 @@ function executeEarly(id){
   for(const x of group){
     x.exec_mode="operator_early"; x.executed_at=at; x.exec_market_p=x.market_p??null;
     x.exec_cost=x.kalshi_exec_cost??null;                    // K2: the current Kalshi ask+fee, locked with it
+    x.exec_cost_maker=x.kalshi_exec_cost_maker??null;        // #93: and the maker cost
     const edge=(x.model_p!=null&&x.market_p!=null)?+((x.model_p-x.market_p)*100).toFixed(1):null;
     x.early_inputs={edge_pp:edge,qb_listed:(x.qb_listed||[]).slice(),quarantine:!!x.quarantine,
       marker_pp:EARLY_MARKER_PP,below_marker:edge==null?null:edge<EARLY_MARKER_PP};
@@ -1374,14 +1392,17 @@ function importKalshiCSV(text,L){
   const g=(r,k)=>H[k]==null?null:r[H[k]];
   L.fills=L.fills||[]; const have=new Set(L.fills.map(x=>x.id)); let added=0,dup=0;
   for(const r of rows.slice(1)){
-    const id=r.join("\u241f"); if(have.has(id)){dup++;continue;}
+    const id=r.join("\u241f");
+    if(have.has(id)){ const old=L.fills.find(x=>x.id===id);        // #93: pre-split imports gain the per-leg fees
+      if(old&&old.open_fee===undefined){ old.open_fee=num(g(r,"openFee")); old.close_fee=num(g(r,"closeFee")); }
+      dup++; continue; }
     const p=parseTicker(g(r,"ticker"));
     const qty=num(g(r,"qty"))||0, entry=num(g(r,"entry"))||0;
     const of=num(g(r,"openFee")), cf=num(g(r,"closeFee"));
     const pre=num(g(r,"pnlPre")), net=num(g(r,"pnlNet"));
     const fees=(of!=null||cf!=null)?(of||0)+(cf||0):(pre!=null&&net!=null?pre-net:0);
     const fx={id,ticker:g(r,"ticker"),side:g(r,"side"),qty,entry,exit:num(g(r,"exit")),
-      staked:+(qty*entry).toFixed(4),fees:+fees.toFixed(4),
+      staked:+(qty*entry).toFixed(4),fees:+fees.toFixed(4),open_fee:of,close_fee:cf,
       pnl_pre:pre!=null?pre:(net!=null?net+fees:0),pnl_net:net!=null?net:(pre!=null?pre-fees:0),
       opened:g(r,"openTs"),closed:g(r,"closeTs"),title:g(r,"title"),...p};
     if(p.kind==="sport") Object.assign(fx,sideFields(p,fx.title,fx.side));
@@ -1426,7 +1447,50 @@ function classifyFills(L){
   const calls=L.calls||[], picks=(L.system_picks||[]).concat(deskPicks());
   return (L.fills||[]).map(f=>{
     const fx=f.kind==="sport"?{...f,...sideFields(f,f.title,f.side)}:f;   // re-derived: old imports re-classify
-    return {...fx,...(fx.kind==="parlay"?mveClass(fx,calls):matchFill(fx,calls,picks))};});
+    return {...fx,...(fx.kind==="parlay"?mveClass(fx,calls):matchFill(fx,calls,picks)),...fillFeeClass(fx)};});
+}
+// MAKER / TAKER PER FILL (#93 ruling (3), architect 2026-09-30): the CSV's fee
+// amount vs the schedule's formula at the fill's price and quantity:
+// taker = 0.07·M·C·P(1−P), maker = 0.0175·M·C·P(1−P) (game series taker M=1 /
+// maker M=0.25; MLB pre-live M=0.5 for both; combos: taker at the schedule's
+// default M=1, maker = 50% of taker). A leg matches a formula when its fee is
+// within 1¢ of the unrounded value (Kalshi rounds per order). Exactly one match
+// decides; both = "ambiguous" (tiny orders), neither = "unknown", an unlisted
+// series = null (no M assumed). MLB fees that match only the LIVE rate (M=1)
+// are "taker_live": a doctrine alarm, since MLB is never executed live. The
+// open leg is classified at the entry price; the close leg only when it paid
+// a fee (a sale before settlement), at the exit price. Re-derived at every
+// classification. Fills imported before this split carry no per-leg fee
+// ("n/a"); re-importing the same CSV fills those fees in (the dedupe keeps
+// the rows, it adds nothing twice).
+const FEE_M_BY_FAMILY={NFL:[1,0.25],NHL:[1,0.25],NCAAF:[1,0.25],EPL:[1,0.25],UCL:[1,0.25],MLB:[0.5,0.5]};
+function feeLegClass(fee,price,qty,fam,combo){
+  if(fee==null||price==null||!qty||price<=0||price>=1) return null;
+  const pq=qty*price*(1-price);
+  let mt,mm;
+  if(combo){ mt=1; }
+  else { const m=FEE_M_BY_FAMILY[fam]; if(!m) return null; [mt,mm]=m; }
+  const taker=0.07*mt*pq, maker=combo?taker*0.5:0.0175*mm*pq;
+  const near=v=>Math.abs(fee-v)<=0.01+1e-9;
+  const t=near(taker), m=near(maker);
+  if(t&&m) return "ambiguous";
+  if(t) return "taker";
+  if(m) return "maker";
+  if(fam==="MLB"&&!combo&&near(0.07*pq)) return "taker_live";
+  return "unknown";
+}
+function fillFeeClass(f){
+  const combo=f.kind==="parlay", fam=combo?null:f.family;
+  const open=feeLegClass(f.open_fee??null,f.entry,f.qty,fam,combo);
+  const close=(f.close_fee!=null&&f.close_fee>0)?feeLegClass(f.close_fee,f.exit,f.qty,fam,combo):null;
+  return {fee_class_open:open,fee_class_close:close};
+}
+function feeClassSummary(fs){
+  const c={}; fs.forEach(x=>{const k=x.fee_class_open??"n/a"; c[k]=(c[k]||0)+1;});
+  const order=["maker","taker","taker_live","ambiguous","unknown","n/a"];
+  const txt=order.filter(k=>c[k]).map(k=>`${k} ${c[k]}`).join(" · ")||"none";
+  const live=fs.filter(x=>x.fee_class_open==="taker_live"||x.fee_class_close==="taker_live").length;
+  return {txt,live};
 }
 // Trailing-30-day window (ratified 2026-09-27: ledger-level, not per game),
 // by the fill's close timestamp (ISO with offset, e.g. -05:00).
@@ -1452,6 +1516,8 @@ function realizedHTML(L){
   const plaus=fs.filter(x=>x.plausible);
   return `<div class="summary">${all.n} fills · staked ${$$(all.staked)} · fees ${$$(all.fees)} · pre-fee ${$$(all.pre)} · net <b class="${all.net>=0?"play":"caution"}">${$$(all.net)}</b>`
     +(all.feePct!=null?` · <b>fees = ${all.feePct.toFixed(0)}% of the loss</b>`:"")+` · avg fill ${$$(all.avg)} · fee per $ staked ${(all.feePerDollar*100).toFixed(1)}¢</div>`
+    +(()=>{const fc=feeClassSummary(fs); return `<div class="note">Fee class (open legs, fee vs formula — #93): ${fc.txt}`
+      +(fc.live?` · <b class="caution">${fc.live} MLB fill(s) at the LIVE rate — doctrine: MLB is never executed live</b>`:"")+`</div>`;})()
     +(()=>{const t=fillAgg(trailing30(fs)); return `<div class="note">Trailing 30 days (by close time): ${t.n} fills · avg fill ${t.avg==null?"—":$$(t.avg)} · fee per $ staked ${t.feePerDollar==null?"—":(t.feePerDollar*100).toFixed(1)+"¢"}</div>`;})()
     +`<div class="tablewrap"><table><thead><tr><th>book</th><th>n</th><th>staked</th><th>fees</th><th>pre-fee P&amp;L</th><th>net</th><th>avg fill</th><th>fees % of loss</th></tr></thead><tbody>`
     +BOOKS.map(([k,lab])=>row(lab,fillAgg(fs.filter(x=>x.book===k)))).join("")+row("TOTAL",all)+"</tbody></table></div>"
@@ -1473,6 +1539,8 @@ function realizedLines(L){
     ...BOOKS.map(([k,lab])=>ln(lab,fillAgg(fs.filter(x=>x.book===k)))), ln("TOTAL",all),
     `fees = ${all.feePct==null?"n/a (not a loss)":all.feePct.toFixed(0)+"% of the loss"} · avg fill $${(all.avg||0).toFixed(2)} · fee per $ staked ${((all.feePerDollar||0)*100).toFixed(1)}c`,
     (()=>{const t=fillAgg(trailing30(fs)); return `trailing 30d: ${t.n} fills · avg fill ${t.avg==null?"n/a":"$"+t.avg.toFixed(2)} · fee per $ staked ${t.feePerDollar==null?"n/a":(t.feePerDollar*100).toFixed(1)+"c"}`;})(),
+    (()=>{const fc=feeClassSummary(fs); return `fee class (open legs, fee vs formula): ${fc.txt}`
+      +(fc.live?` · ${fc.live} MLB fill(s) at the LIVE rate (doctrine: MLB is never executed live)`:"");})(),
     `unmatched-but-plausible for manual review: ${fs.filter(x=>x.plausible).length}`,""];
 }
 $("kalshiCsvFile").addEventListener("change",async e=>{

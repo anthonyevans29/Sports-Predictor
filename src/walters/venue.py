@@ -27,34 +27,80 @@ STALE_BOOK_FLAG = "STALE-BOOK?"
 # schedule ("Fee Schedule for July 2026 - 7.7.26 Update") gives taker =
 # roundup(M x 0.07 x C x P x (1-P)), M default 1, so the 0.07 constant is
 # CONFIRMED. Maker = roundup(M x 0.0175 x C x P x (1-P)), M default 0 unless
-# the series is listed; the per-series table is NOT yet verified. ROUNDING
+# the series is listed; the game series' M values were RULED on #93
+# (2026-09-30, KALSHI_FEE_M below). ROUNDING
 # DIFFERS: Kalshi rounds fee + position cost UP TO THE CENTICENT, with a
 # per-order accumulator that rebates whole cents. The per-contract ceil to the
 # cent below OVERSTATES the fee (by up to ~1c; +0.32pp at P = 0.60). Left
-# unchanged pending the architect's ruling. K-TRACK: INFORMATIONAL UNTIL THE
+# unchanged pending the architect's ruling (#88). K-TRACK: INFORMATIONAL UNTIL THE
 # EXECUTABLE-EDGE RULING.
 # ---------------------------------------------------------------------------
 KALSHI_FEE_RATE = 0.07      # taker rate: VERIFIED 2026-09-29 (rounding: see above)
+KALSHI_MAKER_RATE = 0.0175  # maker rate: the same published schedule
 K_TRACK_NOTE = "K-track: informational until the executable-edge ruling"
 
+# #93 RESOLVED (architect 2026-09-30, from Kalshi's fee schedule): the game
+# series' multipliers M. Game series (NFL/NHL/EPL/UCL/NCAAF/MLB): taker M=1,
+# maker M=0.25; MLB PRE-LIVE M=0.5 for both (taker $0.04-$0.88, maker
+# $0.01-$0.22 per 100 contracts); MLB live M=1 is never priced here, because
+# MLB is never executed live (doctrine, ruling (4)). Combos: maker = 50% of
+# taker (fills classification only). Our exports are pre-kickoff captures
+# only (in-play never), so the pre-live M applies. UCL is in the ruling, but
+# no UCL series is wired, so no ticker is guessed for it.
+KALSHI_FEE_M = {                       # series -> (taker M, maker M), pre-live
+    "KXNFLGAME": (1.0, 0.25), "KXNHLGAME": (1.0, 0.25), "KXNCAAFGAME": (1.0, 0.25),
+    "KXEPLGAME": (1.0, 0.25), "KXMLBGAME": (0.5, 0.5),
+}
+# Competition code -> the Kalshi game series its quotes come from (cli
+# sync-kalshi-* and adapters/kalshi.py SOCCER_GAME_SERIES). A code missing
+# here gets the schedule's default taker M=1 and NO maker cost: the maker M of
+# an unlisted series is not assumed (conservative unknowns).
+KALSHI_SERIES_BY_COMPETITION = {
+    "NFL": "KXNFLGAME", "NHL": "KXNHLGAME", "NCAA": "KXNCAAFGAME",
+    "PL": "KXEPLGAME", "MLB": "KXMLBGAME",
+}
 
-def kalshi_fee(price: float | None) -> float | None:
-    """Per-contract taker fee in dollars (= probability points), rounded UP
-    to the cent. ARCHITECT-VERIFY (see above)."""
+
+def kalshi_fee(price: float | None, m: float = 1.0, rate: float = KALSHI_FEE_RATE) -> float | None:
+    """Per-contract fee in dollars (= probability points): rate x M x P x (1-P),
+    rounded UP to the cent. The rounding is unchanged and still pending the
+    ruling on #88. It overstates both costs; the maker fee most, because it is
+    under 0.2c exact and is modelled as 1c."""
     if price is None or not (0.0 <= price <= 1.0):
         return None
-    raw = KALSHI_FEE_RATE * price * (1.0 - price) * 100.0
+    raw = rate * m * price * (1.0 - price) * 100.0
     return math.ceil(raw - 1e-9) / 100.0   # epsilon: float noise must not add a cent
 
 
-def kalshi_exec(bid: float | None, ask: float | None) -> dict:
-    """{kalshi_bid, kalshi_ask, kalshi_exec_cost (= ask + fee), k_track} —
-    exec cost is null when no ask was quoted."""
-    fee = kalshi_fee(ask)
+def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = None) -> dict:
+    """The HOME contract's quotes + both executable costs (ruling 2026-09-30 on #93):
+      exec_cost_taker = ask + 0.07 x M_taker x P(1-P), P = ask
+      exec_cost_maker = (bid + 1c) + 0.0175 x M_maker x P(1-P), P = bid + 1c
+    exec_cost_maker is null when there is no bid, when bid + 1c reaches the
+    ask (a 1c spread: joining = taking, so no maker price exists), or when the
+    series' maker M is unknown. kalshi_exec_cost is kept as a DEPRECATED alias
+    of exec_cost_taker (the pre-split meaning) until the published Cockpit
+    reads the two fields."""
+    series = KALSHI_SERIES_BY_COMPETITION.get(competition or "")
+    m_taker, m_maker = KALSHI_FEE_M.get(series, (1.0, None))
+    fee_t = kalshi_fee(ask, m_taker)
+    taker = round(ask + fee_t, 4) if ask is not None and fee_t is not None else None
+    maker = None
+    if bid is not None and m_maker is not None:
+        join = round(bid + 0.01, 2)
+        if (ask is None or join < ask - 1e-9) and join <= 1.0:
+            fee_m = kalshi_fee(join, m_maker, KALSHI_MAKER_RATE)
+            maker = round(join + fee_m, 4) if fee_m is not None else None
     return {"kalshi_bid": bid, "kalshi_ask": ask,
-            "kalshi_exec_cost": (round(ask + fee, 4) if ask is not None and fee is not None
-                                 else None),
+            "exec_cost_taker": taker, "exec_cost_maker": maker,
+            "kalshi_exec_cost": taker,            # deprecated alias (= taker)
+            "fee_series": series, "fee_m_taker": m_taker, "fee_m_maker": m_maker,
             "k_track": K_TRACK_NOTE}
+
+
+# The null block for rows without a two-sided Kalshi set (same keys as kalshi_exec).
+KALSHI_EXEC_NULL = {"kalshi_bid": None, "kalshi_ask": None, "exec_cost_taker": None,
+                    "exec_cost_maker": None, "kalshi_exec_cost": None}
 
 
 def kalshi_home_prob(snapshots, kickoff, three_way: bool = False) -> dict | None:

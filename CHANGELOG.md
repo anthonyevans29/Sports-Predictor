@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (CORRECTION: soccer Kalshi sets missing a leg were normalized as two-way)
+- CORRECTION, not a feature (#113). A soccer prediction row whose Kalshi
+  capture lacked a leg (usually the TIE) was normalized over HOME + AWAY
+  and marked two-sided, so its exported Kalshi `prob` was inflated.
+- Such rows now ship `normalized: false`, `prob: null`, `missing_legs`,
+  `input_quality.kalshi: "partial"` and null Kalshi cost fields. Complete
+  1X2 sets and MLB rows are unchanged.
+- The before/after receipt is `scripts/kalshi_soccer_incomplete_receipt.py`.
+
 ## 2026-09-30 (Cockpit: the fun book; Kalshi quotes on MLB/soccer exports)
 - The fills importer has a "fun" book: NHL and UNL singles with no
   system call, MVE combos, and non-sport markets. "Off-book other" is

@@ -59,10 +59,42 @@ def test_mlb_and_soccer_rows_carry_home_contract_exec_cost():
     sc = {r["match_id"]: r for r in json.loads(export_predictions(
         sport=Sport.SOCCER, start_date=lo, end_date=hi, competition_code="KXSOC"))["predictions"]}
     assert (sc[soc]["kalshi_bid"], sc[soc]["kalshi_ask"], sc[soc]["kalshi_exec_cost"]) == (0.47, 0.49, 0.51)
-    # The exec fields follow the export's OWN two-sided flag (market.kalshi.normalized),
-    # never a second definition. FINDING (logged, not fixed here): _summarize_kalshi
-    # counts HOME+AWAY without a DRAW snapshot as a full set on soccer.
+    # The exec fields follow the export's OWN two-sided flag (market.kalshi.normalized).
     for mid in (soc, soc2):
         assert (sc[mid]["kalshi_exec_cost"] is not None) == bool(sc[mid]["market"]["kalshi"]["normalized"])
+    # CORRECTION #113 (architect 2026-09-30): a soccer game with no TIE snapshot is
+    # INCOMPLETE — never normalized two-way: prob null, not quoted, cost fields null.
+    k2 = sc[soc2]["market"]["kalshi"]
+    assert k2["normalized"] is False and k2["prob"] is None and k2["missing_legs"] == ["DRAW"]
+    assert k2["model_edge_pp"] is None and "vs_book_pp" not in k2
+    assert k2["raw_yes_prob"] == {"HOME": 0.48, "AWAY": 0.25}          # the raw capture stays visible
+    assert sc[soc2]["input_quality"]["kalshi"] == "partial"
+    assert (sc[soc2]["kalshi_bid"], sc[soc2]["kalshi_ask"], sc[soc2]["kalshi_exec_cost"]) == (None, None, None)
+    k1 = sc[soc]["market"]["kalshi"]                                      # the complete 1X2 set is untouched
+    assert k1["normalized"] is True and set(k1["prob"]) == {"HOME", "DRAW", "AWAY"} and "missing_legs" not in k1
+    assert sc[soc]["input_quality"]["kalshi"] == "three_way"
+    assert mlb[one]["market"]["kalshi"]["prob"] == {"HOME": 0.55}          # MLB one-sided: unchanged (raw)
     # additive: the existing market/kalshi block is unchanged
     assert mlb[two]["market"]["kalshi"]["normalized"] is True
+
+
+def test_113_receipt_script_reports_before_after_on_the_affected_rows(capsys):
+    import importlib.util
+    from pathlib import Path
+    spec = importlib.util.spec_from_file_location(
+        "rcpt", Path(__file__).resolve().parents[1] / "scripts" / "kalshi_soccer_incomplete_receipt.py")
+    rc = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(rc)
+    kick = (utc_now_naive() + timedelta(days=5)).replace(microsecond=0)
+    with session_scope() as s:
+        mid = _game(s, Sport.SOCCER, "KXRC", "rc", kick, (0.5, 0.25, 0.25),
+                    [("HOME", 0.48, 0.47, 0.49), ("AWAY", 0.25, 0.24, 0.26)])
+        _game(s, Sport.SOCCER, "KXRC", "rcfull", kick, (0.5, 0.25, 0.25),
+              [("HOME", 0.48, 0.47, 0.49), ("DRAW", 0.27, 0.26, 0.28), ("AWAY", 0.25, 0.24, 0.26)])
+    lo, hi = (kick - timedelta(days=1)).isoformat(), (kick + timedelta(days=1)).isoformat()
+    assert rc.main(["--start", lo, "--end", hi, "--competition", "KXRC"]) == 0
+    out = capsys.readouterr().out
+    assert "rows 2 · with Kalshi 2 · incomplete now 1 · CHANGED (were normalized two-way) 1" in out
+    assert f"#{mid} " in out and "missing ['DRAW']" in out
+    assert "BEFORE normalized=True prob={'HOME': 0.6575, 'AWAY': 0.3425} exec_cost=0.51" in out
+    assert "AFTER  normalized=False prob=None input_quality=partial exec_cost=None" in out

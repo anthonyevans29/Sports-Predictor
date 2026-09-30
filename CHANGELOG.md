@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (#148: release model — main = BETA, production = tags)
+- `deploy/hosting/sp_deploy.py` deploys the latest `vX.Y.Z` tag (detached)
+  or an exact `--tag`. It never pulls `main` and refuses when no tag exists.
+- Every receipts line carries `release` (`v1.0.0` / `BETA main@sha` /
+  `UNTAGGED@sha`). Boot, chain and `sp_receipts.py` output print it.
+- `scripts/release_notes.py`: the CHANGELOG slice since the previous tag.
+- Ledger: `release` label and a per-release milestone (`v1.0.0`).
+  `docs/RELEASES.md` holds the promotion ritual and the hotfix path.
+- Fixed #149: the deploy read a host-rewritten RESULTS.md as `ESULTS.md`
+  and refused.
 ## 2026-09-30 (#79: NCAA data audit)
 - `python cli.py ncaa-audit` (read-only; `--season`, `--limit`) — the audit
   the architect ordered before any NCAA v2 (v1 verdict PROVISIONAL: log-loss

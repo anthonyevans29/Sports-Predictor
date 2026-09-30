@@ -22,6 +22,57 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#148 RELEASE MODEL (architect 2026-09-30): main = BETA, production = tags.**
+  - RULING (verbatim core): "`main` = BETA (the laptop tracks it; fast
+    iteration continues as now). PRODUCTION = tagged releases only: the
+    host never pulls `main` again — `deploy.sh` checks out the latest `v*`
+    tag, and the boot receipt / every chain receipt prints the running tag.
+    Promotion ritual: a tag is cut by the architect's ruling after the
+    day's laptop-vs-host compare passes (the parallel week's comparator
+    becomes the release gate); release notes = the CHANGELOG slice since
+    the previous tag; the ledger gains a "Release" label and a per-release
+    milestone. Cut v1.0.0 from current main once the host is pinned to it.
+    Hotfix path: a patch tag, same ritual, no exceptions." Order: release
+    model first; F1 (#151) next; F2 (#152) after F1's row-for-row receipt.
+  - BUILT:
+    - `deploy/hosting/sp_deploy.py` (LAW 1: the repo has no `deploy.sh`;
+      the host's deploy is this script). It fetches tags and checks out
+      the latest strict `vX.Y.Z` (numeric order, detached), or an exact
+      `--tag` for a rollback or pin. `--dry-run` names the target.
+    - The deploy REFUSES when there is no release tag (the host stays put
+      and never falls back to main), for an unknown or malformed tag, for
+      a branch other than main (main is accepted once, for the first pin),
+      for a moved tag (git will not clobber), and for local edits other
+      than RESULTS.md.
+    - `sp_common.running_release()`: `vX.Y.Z` / `BETA main@sha` /
+      `UNTAGGED@sha` / null (law 4). `append_receipt` stamps `release` on
+      EVERY receipts line (boot, chain, step, backup, page, deploy).
+    - The boot receipt and each chain's final line print `running <tag>`.
+      `sp_receipts.py` shows it in the header and in the chain, boot and
+      deploy key lines.
+    - `scripts/release_notes.py` (read-only): the CHANGELOG `## ` sections
+      at `--to` whose headings are absent at the previous tag. Changed
+      bodies are listed AMENDED. The first release prints a baseline line.
+    - Ledger: flag `release` + milestone `v1.0.0` in taxonomy.json (lowercase
+      like the fixed set; the ruling says "Release" — ARCHITECT-RULE if the
+      capital matters). docs/RELEASES.md = the ritual; hosting-h1.md
+      "Deploying a release"; CLAUDE.md workflow line. Claude Code never
+      cuts or pushes a tag.
+  - FINDING #149 (fixed here): the pre-release deploy stripped `git status
+    --porcelain` before `ln[3:]`, so a first line ` M RESULTS.md` read as
+    `ESULTS.md` and the deploy REFUSED the one case it meant to allow.
+    Receipt: OLD ['ESULTS.md'] vs NEW ['RESULTS.md']. It was loud, not
+    silent. `dirty_paths()` now reads unstripped; pinned by a test.
+  - OPEN: #150, cut v1.0.0 and pin the host (needs-ruling + needs-operator;
+    the label and milestone attach after the ledger bootstrap on merge).
+  - The NHL-xG ingest (#153) is parked on `claude/nhl-shot-events` behind
+    this, per the ordering.
+  - TESTS: `tests/test_release_model.py`, 6 tests on throwaway bare-origin
+    + clone repos in tmp (never pulls main without a tag; deploys the
+    latest tag and skips beta commits; rollback; refusals; RESULTS.md
+    restore; the receipt `release` field; the notes slice).
+    `test_ledger.py` pins the new flag and milestone.
+
 - **#79 NCAA DATA AUDIT (architect 2026-09-30; read-only; v1 verdict PROVISIONAL).**
   - RULING (architect 2026-09-30, verbatim): "NCAA v1 — NOT RATIFIED:
     log-loss PASS (0.5570 vs 0.6925) but calibration FAIL, and the 2025

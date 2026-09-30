@@ -28,11 +28,11 @@ def test_taxonomy_is_the_ruled_fixed_set():
     assert {x for x in labels if x.startswith("sport:")} == {f"sport:{v}" for v in (
         "mlb", "nfl", "ncaa", "nhl", "soccer", "cups", "unl", "all")}
     assert {x for x in labels if x.startswith("size:")} == {"size:S", "size:M", "size:L"}
-    assert labels - {x for x in labels if ":" in x} == {"needs-ruling", "needs-operator"}
+    assert labels - {x for x in labels if ":" in x} == {"needs-ruling", "needs-operator", "release"}
     assert [m["title"] for m in TAX["milestones"]] == [
         "Cutover ~Oct 8", "Policy v1.2 promotion (30 value shadows)", "Executable-edge ruling (2 wks of ladders)",
         "Offseason decisions (MLB egress/provider)", "NHL reopening (goalie source)",
-        "Cup reopening (rotation R-track)"]
+        "Cup reopening (rotation R-track)", "v1.0.0"]
     assert TAX["project"]["statuses"] == ["Queue", "In progress", "Waiting on condition", "Done"]
     assert [v["name"] for v in TAX["views"]] == ["Architect review", "Operator today", "Queue",
                                                   "Open limitations", "Cutover checklist", "By sport"]
@@ -154,7 +154,7 @@ def test_bootstrap_is_idempotent_and_keeps_queue_order():
     assert made == set(L.labels_of(TAX))                                     # exactly the fixed set
     assert any("outside the fixed set" in x and "bug" in x for x in log)     # reported, never deleted
     assert not any(c[0] == "DELETE" for c in gh.calls)
-    assert len({c[2]["title"] for c in gh.calls if c[1].endswith("/milestones")}) == 6
+    assert len({c[2]["title"] for c in gh.calls if c[1].endswith("/milestones")}) == 7
     assert proj.order == [f"item-I{100 + i}" for i in range(len(ITEMS))]      # the manifest's order
     lim = next(i for i, it in enumerate(ITEMS) if it["cls"] == "limitation")
     assert proj.status[f"item-I{100 + lim}"] == "Waiting on condition"

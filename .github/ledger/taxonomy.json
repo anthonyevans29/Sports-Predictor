@@ -17,7 +17,8 @@
  },
  "flags": {
   "needs-ruling": {"color": "d93f0b", "description": "blocked on the architect"},
-  "needs-operator": {"color": "fbca04", "description": "blocked on a laptop/host receipt"}
+  "needs-operator": {"color": "fbca04", "description": "blocked on a laptop/host receipt"},
+  "release": {"color": "0052cc", "description": "a production release (vX.Y.Z tag) or its ritual; release model 2026-09-30"}
  },
  "milestones": [
   {"title": "Cutover ~Oct 8", "due_on": "2026-10-08", "description": "H1b parallel week -> the H2 cutover decision (earliest after 2026-10-05 13:45 UTC; frozen criteria)."},
@@ -25,7 +26,8 @@
   {"title": "Executable-edge ruling (2 wks of ladders)", "due_on": "2026-10-13", "description": "Two weeks of ladders after K2 (2026-09-29), then the executable-edge ruling."},
   {"title": "Offseason decisions (MLB egress/provider)", "due_on": null, "description": "Condition: the MLB offseason (about 5 weeks out from 2026-09-29): residential egress for statsapi or a new provider."},
   {"title": "NHL reopening (goalie source)", "due_on": null, "description": "Condition: an external goalie/lineup data source enters the stack."},
-  {"title": "Cup reopening (rotation R-track)", "due_on": null, "description": "Condition: a rotation-aware candidate on as-of lineup data passes the frozen cup exam."}
+  {"title": "Cup reopening (rotation R-track)", "due_on": null, "description": "Condition: a rotation-aware candidate on as-of lineup data passes the frozen cup exam."},
+  {"title": "v1.0.0", "due_on": null, "description": "Release v1.0.0: the first production tag, cut from main by the architect's ruling once the host is pinned to tags (release model 2026-09-30). One milestone per release."}
  ],
  "title_prefix": {
   "K": "track:K", "B": "track:B", "T": "track:T", "H": "track:H", "R": "track:R",

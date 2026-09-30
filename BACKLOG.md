@@ -22,6 +22,39 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **DESK PASS-REASON CLASSES (architect 2026-09-30; presentation only, no
+  policy change).**
+  - SPEC: Desk PASS reasons split into two visible classes: "no reference"
+    (books < 3 or Kalshi not two-sided — rendered greyed with a "re-run at
+    T-60" hint) vs "below floor" (a real edge measured and declined).
+  - BUILT (`tools/cockpit.html`):
+    - Model table: "no reference" = market not two-sided, or a declined row
+      on < 3 books ("books N < 3 → thin reference"). "below floor" = edge
+      below the floor or pick prob below the sport's minimum.
+    - Venue table: "no reference" = no book/Kalshi pair, or books below the
+      engine's frozen minimum of 4. "below floor" = max divergence < 5pp.
+    - A no-reference row is greyed and tagged; while the game is ahead it
+      carries "re-run at T-60 (HH:MM local)". A below-floor row is tagged,
+      not greyed. The summary reads "N pass (a no reference · b below floor
+      · c other)". The policy card states the classes.
+    - Calls, units, tiers, the ledger and parlays are untouched (the class
+      rides on `deskCalls[].passKind` for display only).
+  - CHOICES MADE UNDER LAW 4 (ARCHITECT-RULE if any should differ):
+    - The model table's reference is the BOOK market (the model edge is
+      measured against books), so "Kalshi not two-sided" applies to the
+      venue table only; a model row with two-sided books and no Kalshi is a
+      measured decline ("below floor").
+    - The venue table's "thin" line is its frozen minBooks = 4, not 3: that
+      engine never measures a 3-book pair.
+    - Books < 3 marks only a DECLINED model row "no reference"; a PLAY on
+      < 3 books stays a PLAY (no policy change).
+    - Quarantine, pre-gate (NHL) and venue charter / UNL / in-play PASSes
+      are neither class: their own reason text stays, no tag. UNL never
+      gets the re-run hint (no pair will ever post).
+  - RECEIPTS: `scripts/cockpit_pass_class_verify.py` 16/16; every other
+    Cockpit verify green (value verify's exact "PASS" cell now reads "PASS"
+    + "below floor"); pytest green.
+
 - **#88 RULED: KALSHI FEES ROUND PER FILL (architect 2026-09-30; K-track;
   + ARCHITECT-RULE answers on #129).**
   - RULINGS on #129's law-4 choices:

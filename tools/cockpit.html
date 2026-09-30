@@ -57,6 +57,9 @@ th{color:var(--muted);font-weight:600;font-size:12px;
 .pass{color:var(--pass)}
 .caution{color:var(--danger);font-weight:600}
 tr.vshadow td{font-style:italic;opacity:.9}
+tr.noref td{opacity:.5}
+.passkind{display:inline-block;margin-left:6px;padding:0 5px;border:1px solid currentColor;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:.02em;white-space:nowrap}
+.rerun{color:var(--muted);font-style:italic}
 .chip{display:inline-block;background:var(--chip);border-radius:20px;
   padding:1px 9px;font-size:12px;margin-left:6px}
 .reason{color:var(--muted);font-size:12px;white-space:normal;max-width:340px}
@@ -113,7 +116,8 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
     <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5; one ceiling per FILL, costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · home contract only · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
-    <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.
+    <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.<br>
+    <b>PASS CLASSES</b> (presentation only, 2026-09-30) — <b>no reference</b>: no two-sided book market or &lt; 3 books (model table), no book/Kalshi pair or books below 4 (venue table) — greyed, with a "re-run at T-60" hint, because books and Kalshi post thin and late · <b>below floor</b>: a real edge measured and declined · other PASSes (pre-gate, quarantine, charter) keep their own reason.
   </div>
 </div>
 
@@ -383,23 +387,26 @@ function venueEdge(r,now){
   // NCAA, cups when priced). Model sports emit model_edge ONLY — the signal
   // cannot tell "books sharp, Kalshi soft" from "books dead", and NFL books
   // were found stale at source.
+  // out.kind (PASS-REASON CLASSES, presentation only): "noref" = no pair / pair
+  // too thin (re-run later: books and Kalshi post near kickoff); "floor" = a
+  // divergence measured and declined; null = never eligible (charter, UNL, in-play).
   if(!r.marketOnly){out.reason="model sport — model_edge only (venue charter: market-only family)";return out;}
   if(r.sport==="UNL"){out.reason="single venue — no pair (UNL)";return out;}
   if(r.utc&&new Date(r.utc).getTime()<=now){out.reason="in-play — never";return out;}
   const fair=r.fairAll||{}; const hasBook=(r.books||0)>0&&fair.HOME!=null&&fair.AWAY!=null;
-  if(!hasBook||!r.kalProb){out.reason="single venue — no pair";return out;}
-  if((r.books||0)<VENUE.minBooks){out.reason=`books ${r.books} < ${VENUE.minBooks} — pair too thin`;return out;}
+  if(!hasBook||!r.kalProb){out.reason="single venue — no pair"; out.kind="noref"; return out;}
+  if((r.books||0)<VENUE.minBooks){out.reason=`books ${r.books} < ${VENUE.minBooks} — pair too thin`; out.kind="noref"; return out;}
   let best=null;
   for(const k of Object.keys(r.kalProb)){
     if(fair[k]==null) continue;
     const d=(fair[k]-r.kalProb[k])*100; out.sides[k]=d;
     if(best==null||d>best.d) best={k,d};
   }
-  if(!best){out.reason="single venue — no pair";return out;}
+  if(!best){out.reason="single venue — no pair"; out.kind="noref"; return out;}
   out.side=best.k; out.divPP=best.d; out.bookP=fair[best.k]; out.kalP=r.kalProb[best.k];
   if(best.d>=VENUE.minDivPP){ out.eligible=true;
     out.reason=`books ${(out.bookP*100).toFixed(1)}% vs Kalshi ${(out.kalP*100).toFixed(1)}% → Kalshi underprices by ${best.d.toFixed(1)}pp`; }
-  else out.reason=`max divergence ${best.d.toFixed(1)}pp < ${VENUE.minDivPP}pp`;
+  else { out.reason=`max divergence ${best.d.toFixed(1)}pp < ${VENUE.minDivPP}pp`; out.kind="floor"; }
   return out;
 }
 
@@ -485,10 +492,29 @@ function valueSide(r,P){
 }
 
 let deskCalls=[], deskParlays=[], deskVenue=[], deskValue=[];
+// PASS-REASON CLASSES (architect 2026-09-30; presentation only, no policy
+// change). A PASS is either "no reference" (the reference was missing or too
+// thin to measure: model table = market not two-sided or books < 3; venue
+// table = no book/Kalshi pair or books below its frozen minimum) — greyed,
+// with a "re-run at T-60" hint while the game is still ahead, because books
+// and Kalshi post thin and late — or "below floor" (a real edge measured and
+// declined). Other PASSes (pre-gate sport, quarantine, venue charter / UNL /
+// in-play) keep their own reason text and no class tag.
+const PASSCLASS={minBooks:3,rerunMin:60};
+function passKindTag(k){
+  return k==="noref"?'<span class="passkind">no reference</span>'
+    :k==="floor"?'<span class="passkind">below floor</span>':"";
+}
+function rerunHint(r){
+  const t=Date.parse(r.utc||""); if(!isFinite(t)||t<=Date.now()) return "";
+  const at=new Date(t-PASSCLASS.rerunMin*60000);
+  const hm=`${String(at.getHours()).padStart(2,"0")}:${String(at.getMinutes()).padStart(2,"0")}`;
+  return ` <span class="rerun">· re-run at T-60 (${hm} local)</span>`;
+}
 
 function policy(){
   const base=BASE_UNITS;
-  let plays=0,ladders=0,passes=0;
+  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
   deskCalls=[]; deskValue=[];
   for(const r of rows){
@@ -497,9 +523,10 @@ function policy(){
     const eMin=P.eMin??4, eLad=P.eLad??Infinity, eHair=P.eHair??15, pMin=P.pMin??0;
     const edge=r.mkt!=null?(r.prob-r.mkt)*100:null;
     const reasons=[]; let call="PASS",cls="pass",units=0; const tags=[]; let shadowUnits=0;
-    if(!r.twoSided||r.mkt==null){reasons.push("market not two-sided → no reference");}
-    else if(r.prob<pMin){reasons.push(`pick prob ${r.prob.toFixed(3)} < ${pMin}`);}
-    else if(edge<eMin){reasons.push(`edge ${edge.toFixed(1)}pp < ${eMin}pp floor`);}
+    let passKind=null;    // PASS-REASON CLASSES (presentation only): "noref" | "floor" | null (other)
+    if(!r.twoSided||r.mkt==null){reasons.push("market not two-sided → no reference"); passKind="noref";}
+    else if(r.prob<pMin){reasons.push(`pick prob ${r.prob.toFixed(3)} < ${pMin}`); passKind="floor";}
+    else if(edge<eMin){reasons.push(`edge ${edge.toFixed(1)}pp < ${eMin}pp floor`); passKind="floor";}
     else{
       units=base; call="PLAY"; cls="play";
       reasons.push(`edge ${edge.toFixed(1)}pp ≥ floor`); tags.push("edge ≥ floor");
@@ -538,15 +565,22 @@ function policy(){
         reasons.length=0; reasons.push(`QUARANTINE ${r.div}pp — contract: never a straight play`);
         tags.push("quarantine ≥ 15pp (shadow)"); }
     }
-    deskCalls.push({r,call,units,edge,tags:tags.slice(),shadowUnits});
+    // A declined row on a THIN book reference (< 3 books) is "no reference",
+    // not a measured decline. PLAY rows are untouched (presentation only).
+    if(call==="PASS"&&passKind==="floor"&&r.books!=null&&r.books<PASSCLASS.minBooks){
+      passKind="noref"; reasons.push(`books ${r.books} < ${PASSCLASS.minBooks} → thin reference`); }
+    if(call!=="PASS") passKind=null;
+    deskCalls.push({r,call,units,edge,tags:tags.slice(),shadowUnits,passKind});
     const vs=valueSide(r,P); if(vs) deskValue.push({r,v:vs});
-    if(call==="PASS")passes++; else if(call==="LADDER")ladders++; else plays++;
+    if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++;}
+    else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
+    if(passKind==="noref") tr.className="noref";
     tr.innerHTML=`<td>${esc(r.game)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
       <td>${r.prob.toFixed(3)}</td><td>${r.mkt!=null?r.mkt.toFixed(3):"—"}</td>
       <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execEdgeHTML(r,r.pick,r.prob)}</td>
-      <td class="${cls}">${call}</td><td>${units||"—"}</td>
-      <td class="reason">${esc(reasons.join(" · "))}</td>`;
+      <td class="${cls}">${call}${passKindTag(passKind)}</td><td>${units||"—"}</td>
+      <td class="reason">${esc(reasons.join(" · "))}${passKind==="noref"?rerunHint(r):""}</td>`;
     tb.appendChild(tr);
   }
   for(const {r,v} of deskValue){        // appended after the main rows: row order of the policy table is unchanged
@@ -568,6 +602,7 @@ function policy(){
     }});
   const corr=Object.entries(teamCount).filter(([t,n])=>n>1).map(([t,n])=>`${t}×${n}`);
   $("summary").textContent=`${sportLabel} · ${rows.length} rows → ${plays} play · ${ladders} ladder · ${passes} pass`
+    +(passes?` (${passNoRef} no reference · ${passFloor} below floor${passes-passNoRef-passFloor?` · ${passes-passNoRef-passFloor} other`:""})`:"")
     +(deskValue.length?` · ${deskValue.length} value shadow (not staked)`:"")
     +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"");
   $("auditBtn").hidden=!(sampleNS&&rows.length);
@@ -585,11 +620,13 @@ function renderVenue(){
     const side=v.side?sideName(r,v.side):"—";
     const stale=v.divPP!=null&&Math.abs(v.divPP)>=VENUE.staleGapPP;
     const tr=document.createElement("tr");
+    const vk=v.eligible?null:(v.kind||null);
+    if(vk==="noref") tr.className="noref";
     tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}</td><td>${esc(side)}</td>
       <td>${v.bookP!=null?v.bookP.toFixed(3):"—"}</td><td>${v.kalP!=null?v.kalP.toFixed(3):"—"}</td>
       <td>${v.divPP!=null?(v.divPP>0?"+":"")+v.divPP.toFixed(1)+"pp":"—"}</td>
-      <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"}</td>
-      <td class="reason">${esc(v.reason+(v.eligible&&stale?" · gap ≥ 8pp: STALE-BOOK? zone — distrust the book side":""))}</td>`;
+      <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"+passKindTag(vk)}</td>
+      <td class="reason">${esc(v.reason+(v.eligible&&stale?" · gap ≥ 8pp: STALE-BOOK? zone — distrust the book side":""))}${vk==="noref"?rerunHint(r):""}</td>`;
     tb.appendChild(tr);
   }
   $("venueCard").hidden=!rows.length;

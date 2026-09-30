@@ -109,7 +109,7 @@ def main():
         vrows = [r for r in rows if r["v"]]
         mnf = next(r for r in main_rows if "Chicago Bears" in r["cells"][0])
         check("top pick (Philadelphia) is PASS: the top-pick-anchored edge is -13.4pp",
-              "Philadelphia" in mnf["cells"][1] and mnf["cells"][5] == "PASS" and mnf["cells"][4] == "-13.4pp", str(mnf["cells"][:6]))
+              "Philadelphia" in mnf["cells"][1] and mnf["cells"][5] == "PASSbelow floor" and mnf["cells"][4] == "-13.4pp", str(mnf["cells"][:6]))
         check("exactly one value-shadow row, on the dog (Chicago)", len(vrows) == 1 and vrows[0]["cells"][1] == "Chicago Bears",
               str([r["cells"][:2] for r in vrows]))
         v = vrows[0]["cells"]

@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (Desk: PASS reasons in two classes)
+- A Desk PASS is now tagged "no reference" (no two-sided reference, or too
+  few books: greyed, with a "re-run at T-60" hint) or "below floor" (a real
+  edge measured and declined). Presentation only: no call, unit or policy
+  change. The summary splits the pass count.
+
 ## 2026-09-30 (#88 ruled: Kalshi fees round per fill)
 - Fees are modelled as one ceiling per FILL of N contracts; the Desk
   assumes N = 10 (provisional until the B-track sizes units). Exec costs

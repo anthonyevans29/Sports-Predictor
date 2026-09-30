@@ -211,15 +211,30 @@ def test_mlb_and_soccer_prediction_exports_carry_the_flag():
                   status=MatchStatus.SCHEDULED, home_team_id=h.id, away_team_id=a.id, external_ids={"lm": "soc"})
         s.add(m)
         s.flush()
+        # soccer = a 1X2 set: the move is P(home) over HOME+DRAW+AWAY (#117, 2026-09-30)
         for t, home in ((ko - timedelta(hours=4), 0.40), (now - timedelta(minutes=5), 0.47)):
-            for sel, p in (("HOME", home), ("AWAY", 1 - home)):
+            for sel, p in (("HOME", home), ("DRAW", 0.25), ("AWAY", 0.75 - home)):
                 s.add(OddsSnapshot(match_id=m.id, market="ML", selection=sel, devig_prob=p,
                                    captured_at=t, source="kalshi"))
         mid = m.id
+        # the same moves WITHOUT the TIE leg: incomplete -> no Kalshi series, no flag
+        m2 = Match(sport=Sport.SOCCER, competition_id=comp.id, season="2026/27", utc_date=ko,
+                   status=MatchStatus.SCHEDULED, home_team_id=h.id, away_team_id=a.id,
+                   external_ids={"lm": "soc-notie"})
+        s.add(m2)
+        s.flush()
+        for t, home in ((ko - timedelta(hours=4), 0.40), (now - timedelta(minutes=5), 0.47)):
+            for sel, p in (("HOME", home), ("AWAY", 0.75 - home)):
+                s.add(OddsSnapshot(match_id=m2.id, market="ML", selection=sel, devig_prob=p,
+                                   captured_at=t, source="kalshi"))
+        mid2 = m2.id
     rows = _collect_rows(sport=Sport.SOCCER, start_date=now, end_date=now + timedelta(hours=6),
                          competition_code="LMSOC", statuses=None)
     row = next(r for r in rows if r["match_id"] == mid)
     assert row["late_news_flag"] == LATE_NEWS_FLAG and row["line_move"]["venues"]["kalshi"]["move_pp"] == 7.0
+    row2 = next(r for r in rows if r["match_id"] == mid2)
+    assert row2["late_news_flag"] is None and "kalshi" not in row2["line_move"]["venues"]
+    # the pre-#117 read of that pair, H/(H+A): 0.40/0.75 -> 0.47/0.75, a +9.3pp "move" that was not real
 
 
 def test_sync_injuries_kickoff_scope_calls_only_imminent_teams(monkeypatch):

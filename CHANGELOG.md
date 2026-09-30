@@ -4,6 +4,18 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (CORRECTION: soccer Kalshi read as two-way in the fixtures export, window card and line-move)
+- CORRECTION, not a feature (#117). On soccer rows the window card's Kalshi
+  home price was H/(H+A) even with the TIE leg present. So its venue gap
+  and STALE-BOOK? flag compared a two-way number with a three-way book fair.
+- A soccer set missing a leg was also labelled two-sided in the fixtures
+  export (cups, UNL).
+- Soccer now reads P(home) over HOME + DRAW + AWAY. A set missing a leg is
+  "partial": no Kalshi price, exec fields, venue gap or Kalshi line-move.
+  The Cockpit reads Kalshi-only 1X2 fixtures three-way.
+- NFL, NCAA, NHL and MLB are unchanged. Receipt:
+  `scripts/kalshi_soccer_twoway_receipt.py`.
+
 ## 2026-09-30 (Cockpit: the fun book; Kalshi quotes on MLB/soccer exports)
 - The fills importer has a "fun" book: NHL and UNL singles with no
   system call, MVE combos, and non-sport markets. "Off-book other" is

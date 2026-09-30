@@ -82,7 +82,7 @@ def test_refit_indistinguishable_rules_adopt_the_first_and_flag_halves(tmp_path,
     rc = rcpt.main(["--csv", _csv(tmp_path, rows)])
     out = capsys.readouterr().out
     assert ("ADOPT: KALSHI_FEE_ROUNDING = \"nearest\" (nearest ≡ bankers on this data: 0 exact-half legs"
-            " — ARCHITECT-RULE on halves)") in out and rc == 0
+            " — halves UNDETERMINED, ruled 2026-09-30)") in out and rc == 0
 
 
 def test_refit_split_halves_are_not_met(tmp_path, capsys):

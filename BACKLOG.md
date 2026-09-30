@@ -49,9 +49,13 @@ specific reason they're not being built now.
       histogram (fee − raw, 0.1¢ bins, against the nearest candidate).
     - Tied rules that reproduce exactly the same legs (nearest vs bankers
       differ only on exact half-cents) are indistinguishable on the data:
-      the first in order is adopted and the half-cent count printed,
-      flagged ARCHITECT-RULE on halves. Rules that tie while disagreeing on
-      some leg are not adopted.
+      the first in order is adopted and the half-cent count printed.
+      RULED (architect 2026-09-30): a nearest/banker's tie with ZERO
+      exact-half legs adopts "nearest" and logs the halves as
+      UNDETERMINED ("a half-cent ambiguity on a sub-cent fee is not a
+      decision worth blocking on"). Any other indistinguishable tie is still
+      flagged ARCHITECT-RULE. Rules that tie while disagreeing on some leg
+      are not adopted.
   - The five-fill "MEETS" line is gone.
   - RECEIPTS: pytest 307 passed (the receipt tests rewritten: a
     synthetic world generated under "nearest" is adopted at 7/7; a mixed

@@ -168,7 +168,7 @@ def main(argv=None):
     top = [m_ for m_ in ROUNDING_MODES if hits[m_] == hits[best]]
     # Tied rules that predict EVERY leg identically are indistinguishable on this
     # data (nearest vs bankers differ only on exact half-cents): adopt the first
-    # in ROUNDING_MODES order and say the halves stay unresolved. Tied rules that
+    # in ROUNDING_MODES order and log the halves as undetermined. Tied rules that
     # disagree on some leg are a real tie: no adoption.
     def hit(x, md):
         return any(round_cents(raw_cents(x, rt, m), md) == x["fee_c"] for _, rt, m in x["cands"])
@@ -176,8 +176,15 @@ def main(argv=None):
     if rate >= ADOPT_AT and same:
         halves = sum(1 for x in xs for _, rt, m in x["cands"]
                      if abs(raw_cents(x, rt, m) % 1 - 0.5) < 1e-9)
-        note = (f" ({' ≡ '.join(top)} on this data: {halves} exact-half legs — ARCHITECT-RULE on halves)"
-                if len(top) > 1 else "")
+        # Ruled 2026-09-30: a nearest/bankers tie with ZERO exact-half legs adopts
+        # "nearest" and logs the halves as undetermined (a half-cent ambiguity on a
+        # sub-cent fee does not block). Any other indistinguishable tie is flagged.
+        if len(top) == 1:
+            note = ""
+        elif set(top) == {"nearest", "bankers"} and halves == 0:
+            note = " (nearest ≡ bankers on this data: 0 exact-half legs — halves UNDETERMINED, ruled 2026-09-30)"
+        else:
+            note = f" ({' ≡ '.join(top)} on this data: {halves} exact-half legs — ARCHITECT-RULE)"
         print(f"RECEIPT (#88 re-fit, full set): '{best}' reproduces {hits[best]}/{n} = {rate * 100:.1f}% "
               f"— MEETS (>= {ADOPT_AT * 100:.0f}%). ADOPT: KALSHI_FEE_ROUNDING = \"{best}\"{note}")
         return 0

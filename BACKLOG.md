@@ -22,6 +22,77 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **NHL-SHADOW: THE FAILED v1 AS A GREYED REFERENCE MODEL (architect lane,
+  2026-09-30).**
+  - SPEC (architect):
+    - `export-nhl-predictions` gives v1 Elo predictions for every NHL game
+      in the 36h window. Every row is stamped model_version=nhl_elo_v1,
+      gate_verdict="FAILED 0.6909 vs 0.6866 (Phase 2 closed 2026-09-25)",
+      engine "model_shadow".
+    - The Cockpit renders them greyed under "reference model — failed
+      gate". They can never produce a Desk call, feed the venue engine or
+      log to the ledger.
+    - Grading records live CLV only (pick-vs-close and value-side) into a
+      shadow section of RESULTS.md.
+    - The host chain nhl-daily gains the export step.
+  - BUILT (`src/walters/nhl_shadow.py`):
+    - THE MODEL IS v1 EXACTLY AS GATED (law 3; nothing tuned here): the
+      NHLEloConfig defaults, the home advantage from the 2024 train
+      season's realized home rate, and the gate's stream rules
+      (competition NHL, decided games, preseason by stage or by date,
+      ties skipped).
+    - The stream is extended to the live season with its ruled opener
+      (the nhl-daily season gate, 2026-09-29), then walked forward to now.
+    - Preseason games in the window are never priced (counted in the
+      export's `skipped`).
+    - Rows reuse the fixtures row (`_fixture_row`: books' fair, Kalshi),
+      plus the stamps and a `prediction` block. The doc carries
+      `contains_predictions: false`, the NOTE, and the fit receipt (games
+      walked, home_adv, preseason excluded, ties).
+    - NO DB WRITES: nothing goes to the Prediction table (no NHL model
+      exists by doctrine). Grading reads the ARTIFACTS: a game's call is
+      the last shadow export written before its puck drop (the
+      execute-at-close default). A file written after puck drop never
+      counts.
+    - GRADE (`nhl-shadow-grade`; `results-tally` writes "## NHL —
+      REFERENCE MODEL, FAILED GATE" with "Live CLV only; not a record"):
+      - pick-vs-close against the stored 1X2 book close (nfl-grade's
+        rule);
+      - value-side via `value_side_grade` with the earliest pre-kickoff
+        book snapshot as anchor. NHL books do not append snapshots today,
+        so games are counted unanchored, never guessed (law 4).
+      - No hit rate, no log-loss.
+    - FENCES:
+      - the window card's `canonical_models` skips engine "model_shadow"
+        docs, so NHL stays market_only there and pages nothing as a model;
+      - Cockpit: a model_shadow file goes to `shadowRows`, never `rows`.
+        `rows` is the only input to policy(), venueEdge() and the ledger's
+        Log button. The shadow renders in a greyed `.shadowref` card;
+      - nhl-daily gains `export-nhl-predictions` (UNMETERED: no provider
+        call).
+  - Receipts:
+    - `tests/test_nhl_shadow.py` 4 passed:
+      - every row stamped; the doc NOTE and `contains_predictions: false`;
+      - only the in-window, non-preseason game priced; the skip count
+        receipted;
+      - p equals an independent v1 recompute; home_adv > 0 from the train
+        rate;
+      - no NHL Prediction rows; the window card ignores the shadow;
+      - the grade uses the last call before puck drop and ignores a file
+        written after it;
+      - CLV equals the hand-computed value, 1 unanchored, and no
+        hits/logloss keys;
+      - the RESULTS.md section text; the chain step, no predict, and
+        UNMETERED.
+    - `scripts/cockpit_nhl_shadow_verify.py` 9/9:
+      - the shadow card is greyed, with the model and gate verdict and
+        both games;
+      - rows == [NFL] only; no NHL call, venue or value entry, even for a
+        +20pp "edge";
+      - the Desk slate shows no NHL; Log logs the NFL call and no NHL row;
+      - a shadow file alone gives 0 rows / 0 calls.
+    - The other seven Cockpit verifies are green. Full suite: 285 passed.
+
 - **CORRECTION #117: THE SOCCER TWO-WAY SHORTCUT IN THE FIXTURES EXPORT,
   THE WINDOW CARD AND THE LINE-MOVE READ (architect AUTHORIZED
   2026-09-30, HIGH: cups are on the venue-edge charter).**

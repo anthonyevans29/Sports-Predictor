@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (NHL shadow: the failed v1 as a greyed reference model)
+- `export-nhl-predictions` writes the FAILED `nhl_elo_v1` for every NHL
+  game in the next 36h. Every row is stamped `engine: model_shadow` and
+  `gate_verdict: FAILED 0.6909 vs 0.6866`. Nothing is written to the DB.
+- The Cockpit shows them greyed under "Reference model — failed gate".
+  They never become a Desk call, a venue input or a ledger entry, and the
+  window card ignores them.
+- `nhl-shadow-grade` and a RESULTS.md shadow section report live CLV only
+  (pick-vs-close, value-side). The `nhl-daily` host chain gains the export.
+
 ## 2026-09-30 (CORRECTION: soccer Kalshi read as two-way in the fixtures export, window card and line-move)
 - CORRECTION, not a feature (#117). On soccer rows the window card's Kalshi
   home price was H/(H+A) even with the TIE leg present. So its venue gap

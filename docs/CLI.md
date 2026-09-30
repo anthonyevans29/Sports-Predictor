@@ -111,6 +111,8 @@ syncs run normally; the consumer receives market-only files:
 |---|---|---|
 | `sync-kalshi-ncaa` | | Kalshi `KXNCAAFGAME` markets via the shared two-sided matcher (the primary college market source). |
 | `export-fixtures` | `--competition --start --end` | Market-only fixtures file: schedule, results, book consensus (latest pre-kickoff price per book), Kalshi presence; `contains_predictions: false`. Prints the odds (market, selection) labels it saw. |
+| `export-nhl-predictions` | `--hours 36` | NHL SHADOW (2026-09-30): the FAILED `nhl_elo_v1` as a greyed REFERENCE MODEL for every NHL game in the window. Every row carries `engine: model_shadow`, `model_version: nhl_elo_v1` and `gate_verdict: "FAILED 0.6909 vs 0.6866 …"`. It writes `exports/nhl_shadow_<stamp>.json` and nothing to the DB. It is never a Desk call, never a venue input and never logged; the window card ignores it. On `nhl-daily`. |
+| `nhl-shadow-grade` | `--days 30` | Live CLV of the NHL shadow calls (pick-vs-close + value-side), from the last shadow export before each puck drop. Read-only, with no hit rate or log-loss (not a record). `results-tally` writes the same numbers into a RESULTS.md shadow section. |
 
 **NHL daily (from the 2026-09-29 market-only launch: the 2026-27 opening day; on the host the start is `SP_NHL_ACTIVE_FROM` in host.env):**
 `sync-matches --competition NHL --season 2026 --date-from D --date-to D` for

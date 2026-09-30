@@ -198,8 +198,10 @@ def boxscore_goalies(payload: dict | None) -> tuple[list[dict] | None, dict]:
     return rows, receipt
 
 
-def match_game(s, game: dict):
-    """Our Match for an API game, or None (no match / ambiguous: refused)."""
+def match_game(s, game: dict, tolerance_hours: int = 12):
+    """Our Match for an API game, or None (no match / ambiguous: refused).
+    The ± window is 12h unless the operator widens it after an audit
+    (`nhl-goalie-sync --tolerance-hours`); ambiguity is refused at any width."""
     from src.db.schema import Sport
     from src.ingestion.match_lookup import find_match
 
@@ -207,7 +209,7 @@ def match_game(s, game: dict):
         return None
     for hn in game["home_names"]:
         for an in game["away_names"]:
-            m = find_match(s, Sport.NHL, hn, an, game["start"], tolerance_hours=12)
+            m = find_match(s, Sport.NHL, hn, an, game["start"], tolerance_hours=tolerance_hours)
             if m is not None:
                 return m
     return None
@@ -215,6 +217,7 @@ def match_game(s, game: dict):
 
 def sync(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
          refresh: bool = False, dry_run: bool = False, now: datetime | None = None,
+         tolerance_hours: int = 12,
          progress: Callable[[str], None] | None = None) -> dict:
     """Walk the schedule week by week from `start` to `end`, map each kept
     game to our match, fetch finished games' boxscores and upsert goalie
@@ -262,7 +265,7 @@ def sync(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
             rc["skipped_not_finished"] += 1
             continue
         with session_scope() as s:
-            m = match_game(s, g)
+            m = match_game(s, g, tolerance_hours)
             match_id = m.id if m is not None else None
         rc["mapped_to_our_match" if match_id else "not_in_our_db"] += 1
         if match_id is None:
@@ -361,3 +364,133 @@ def coverage() -> dict:
         b["linked"] += mid in linked
         b["both_starters"] += starters[(mid, "home")] == 1 and starters[(mid, "away")] == 1
     return {"by_season": {k: dict(v) for k, v in sorted(by.items())}, "rows": total_rows}
+
+
+# --------------------------------------------------------------------------
+# Unlinked-games AUDIT (architect 2026-09-30): "audit the ~290 unlinked
+# regular-season games (UTC-boundary suspects) so coverage nears 100%".
+# Read-only: re-walks the schedule, reads our matches + the stored links,
+# writes nothing. It classifies each unlinked game by CAUSE and counts what a
+# wider window would link uniquely, so the fix is chosen from the receipt.
+# --------------------------------------------------------------------------
+
+AUDIT_WINDOW_H = 48
+WHAT_IF_TOLERANCES = (18, 24, 36, 48)
+
+
+def _norm(name: str) -> str:
+    from src.ingestion.match_lookup import normalize_team_name
+    return normalize_team_name(strip_accents(name or ""))
+
+
+def _our_nhl_matches(s) -> list[dict]:
+    """Our finished NHL (competition NHL) matches with normalized names."""
+    from sqlalchemy import select
+    from sqlalchemy.orm import aliased
+
+    from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+
+    H, A = aliased(Team), aliased(Team)
+    rows = s.execute(select(Match.id, Match.utc_date, Match.season, Match.stage, H.name, A.name)
+                     .join(Competition, Match.competition_id == Competition.id)
+                     .join(H, Match.home_team_id == H.id).join(A, Match.away_team_id == A.id)
+                     .where(Match.sport == Sport.NHL, Competition.code == "NHL",
+                            Match.status == MatchStatus.FINISHED)).all()
+    return [{"id": i, "t": t, "season": se, "stage": st or "", "home": h, "away": a,
+             "hn": _norm(h), "an": _norm(a)} for i, t, se, st, h, a in rows]
+
+
+def classify(game: dict, ours: list[dict], linked_ids: set[int]) -> dict:
+    """Why an API game has no link to our match. Pure (testable)."""
+    hs, as_ = {_norm(n) for n in game["home_names"]}, {_norm(n) for n in game["away_names"]}
+    near = [(abs((o["t"] - game["start"]).total_seconds()) / 3600.0, o) for o in ours
+            if o["t"] is not None and abs((o["t"] - game["start"]).total_seconds()) <= AUDIT_WINDOW_H * 3600]
+    same = [(dh, o) for dh, o in near if o["hn"] in hs and o["an"] in as_]
+    swapped = [(dh, o) for dh, o in near if o["hn"] in as_ and o["an"] in hs]
+    out = {"cause": None, "offset_h": None, "match_id": None, "detail": ""}
+    within12 = [x for x in same if x[0] <= 12]
+    if len(within12) > 1:
+        out.update(cause="ambiguous_within_12h", detail=f"{len(within12)} of our matches")
+    elif within12:
+        dh, o = within12[0]
+        out.update(cause="unlinked_within_12h", offset_h=round(dh, 1), match_id=o["id"],
+                   detail="matchable now: never synced, or its boxscore was refused")
+    elif same:
+        dh, o = min(same, key=lambda x: x[0])
+        out.update(cause="utc_boundary" if len(same) == 1 else "ambiguous_beyond_12h",
+                   offset_h=round(dh, 1), match_id=o["id"],
+                   detail=f"ours {o['t']:%Y-%m-%d %H:%M} vs API {game['start']:%Y-%m-%d %H:%M} UTC"
+                          + ("" if o["id"] not in linked_ids else " (our match already linked elsewhere)"))
+    elif swapped:
+        dh, o = min(swapped, key=lambda x: x[0])
+        out.update(cause="home_away_swapped", offset_h=round(dh, 1), match_id=o["id"],
+                   detail=f"ours {o['away']} @ {o['home']}")
+    else:
+        one = [o for dh, o in near if dh <= 12 and ({o["hn"], o["an"]} & (hs | as_))]
+        if one:
+            o = one[0]
+            out.update(cause="name_mismatch",
+                       detail=f"API {'/'.join(game['away_names'])} @ {'/'.join(game['home_names'])} vs ours "
+                              f"{o['away']} @ {o['home']}")
+        else:
+            out.update(cause="not_in_our_db")
+    return out
+
+
+def audit(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
+          now: datetime | None = None) -> dict:
+    """Receipt: API-side and our-side unlinked games by cause, the offset
+    distribution, and how many a wider window would link uniquely."""
+    from sqlalchemy import select
+
+    from src.db.database import session_scope
+    from src.db.schema import NHLGoalieAppearance
+    from src.timeutil import utc_now_naive
+
+    now = now or utc_now_naive()
+    seen: dict[int, dict] = {}
+    d, calls = start, 0
+    while d <= end:
+        code, payload = fetch(f"{BASE}/v1/schedule/{d.isoformat()}")
+        calls += 1
+        for g in schedule_games(payload):
+            if g["start"] and start <= g["start"].date() <= end + timedelta(days=1):
+                seen.setdefault(g["id"], g)
+        d += timedelta(days=7)
+        if sleep:
+            time.sleep(sleep)
+    with session_scope() as s:
+        ours = _our_nhl_matches(s)
+        links = dict(s.execute(select(NHLGoalieAppearance.nhl_game_id, NHLGoalieAppearance.match_id)
+                               .where(NHLGoalieAppearance.match_id.is_not(None)).distinct()).all())
+    linked_ids = set(links.values())
+    api = [g for g in seen.values() if (g["game_type"] in KEEP_GAME_TYPES or g["game_type"] is None)
+           and g["start"] is not None and g["start"] <= now - timedelta(hours=6)]
+    causes, by_type, offsets, samples = Counter(), Counter(), Counter(), {}
+    what_if = Counter()
+    for g in api:
+        if g["id"] in links:
+            continue
+        c = classify(g, ours, linked_ids)
+        causes[c["cause"]] += 1
+        by_type[(c["cause"], g["game_type"])] += 1
+        if c["offset_h"] is not None and c["cause"] in ("utc_boundary", "ambiguous_beyond_12h"):
+            offsets[int(c["offset_h"])] += 1
+        if c["cause"] == "utc_boundary" and c["match_id"] not in linked_ids:
+            for t in WHAT_IF_TOLERANCES:
+                if c["offset_h"] <= t:
+                    what_if[t] += 1
+        samples.setdefault(c["cause"], []).append(
+            f"{g['start']:%Y-%m-%d %H:%M} game {g['id']} {'/'.join(g['away_names'])} @ "
+            f"{'/'.join(g['home_names'])}" + (f" · {c['detail']}" if c["detail"] else ""))
+    # our side: finished matches with no link, by season
+    our_unlinked = [o for o in ours if o["id"] not in linked_ids]
+    our_by_season = Counter(o["season"] for o in our_unlinked)
+    our_total = Counter(o["season"] for o in ours)
+    return {"schedule_calls": calls, "api_games": len(api), "api_linked": sum(1 for g in api if g["id"] in links),
+            "api_unlinked_by_cause": dict(causes),
+            "api_unlinked_by_cause_type": {f"{k[0]}|gameType {k[1]}": v for k, v in sorted(by_type.items(), key=str)},
+            "offset_hours": dict(sorted(offsets.items())), "would_link_uniquely": dict(sorted(what_if.items())),
+            "ours_unlinked_by_season": dict(sorted(our_by_season.items())),
+            "ours_total_by_season": dict(sorted(our_total.items())),
+            "samples": samples}

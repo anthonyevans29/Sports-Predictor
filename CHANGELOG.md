@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (#138: plain soccer-backtest evaluates production params)
+- `soccer-backtest` (plain report) now uses production's `elo_goal_coeff`
+  (0.0008) as well as its `dixon_coles_rho`; it used the default 0.0023.
+  **Historical plain-report numbers shift**: runs before this change are
+  not comparable. The S19 gate verdict was already on production params
+  and is unaffected.
+- The #137 / #140 / #141 / #139 pre-commitments are ratified (BACKLOG).
+
 ## 2026-09-30 (#79 NCAA v1: frozen gate + Elo candidate)
 - `python cli.py ncaa-backtest` — the NCAA v1 gate, frozen before any run:
   train 2025, test = the finished 2026 games at run time (n and date range

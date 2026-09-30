@@ -4548,6 +4548,36 @@ def _print_cup_exam_detail(res, splits, tier_of):
     print(f"  fixtures inside their own fit: {fs['self_in_fit']}/{len(res.rows)}")
     print(f"  promoted-default sides: {fs['promoted_default_sides']} · "
           f"elo_goal_coeff: {fs['elo_goal_coeff']}")
+@cli.command("ncaa-backtest")
+@click.option("--baselines-only", is_flag=True,
+              help="Print the stream receipts, both baselines and the frozen bar "
+                   "('need <= X') WITHOUT scoring any candidate — record the bar first.")
+@click.option("--candidate", type=click.Choice(["v1"]), default="v1", show_default=True,
+              help="v1 = plain Elo (MOV + season regression), constants fixed a priori; "
+                   "2026 scored once.")
+def ncaa_backtest_cmd(baselines_only, candidate):
+    """#79 NCAA v1 gate (frozen 2026-09-30): train 2025, test = finished 2026
+    games, pre/postseason excluded; prints the stream receipts, both
+    baselines, the bar and — unless --baselines-only — the candidate's
+    verdict. Read-only: writes nothing; NCAA stays market-only."""
+    from src.walters import ncaa_backtest as nb
+
+    stream = nb.build_stream(nb.load_games())
+    base = nb.baselines(stream)
+    if baselines_only or base.verdict:   # INVALID: nothing to score against
+        nb.report(stream, base)
+        return
+    from src.models.ncaa_elo import NCAAEloConfig, NCAAEloV1
+    cfg = NCAAEloConfig()
+    model = NCAAEloV1(cfg)
+    result = nb.run_gate(stream, model)
+    nb.report(stream, result, model_name=(
+        f"{model.name} (k={cfg.k_factor:g}, home_adv={cfg.home_advantage:g}, "
+        f"mov_base={cfg.mov_base:g}, regression={cfg.season_regression:g}, "
+        f"default={cfg.default_rating:g}; all a priori, no selection) — "
+        f"{nb.TEST_SEASON} evaluated ONCE"))
+
+
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")

@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (Cockpit: the fun book; Kalshi quotes on MLB/soccer exports)
+- The fills importer has a "fun" book: NHL and UNL singles with no
+  system call, MVE combos, and non-sport markets. "Off-book other" is
+  retired; the REALIZED table and the Copy P&L block print every book.
+- MLB and soccer prediction exports gain `kalshi_bid` / `kalshi_ask` /
+  `kalshi_exec_cost` (HOME contract, two-sided only; additive), so the
+  Desk's exec-edge and join-bid columns work for baseball and soccer.
+
 ## 2026-09-30 (Cockpit fills: side from the ticker suffix; a fourth book; no default order)
 - The Kalshi fills importer resolves the side from the ticker suffix first
   (`KX{FAM}GAME-{date}{AWAY}{HOME}-{SIDE}`, TIE = draw) and the title second

@@ -60,6 +60,15 @@ def doc(bills_cost):
     ]}
 
 
+# An MLB prediction export row as export-predictions now writes it (architect
+# 2026-09-30: MLB/soccer rows carry kalshi_bid/ask/exec_cost like NFL).
+MLB = {"sport": "mlb", "predictions": [
+    {"home_team": "New York Yankees", "away_team": "Boston Red Sox", "utc_date": D1, "competition": "MLB",
+     "prediction": {"home_win_prob": 0.62, "draw_prob": None, "away_win_prob": 0.38},
+     "market": {"bookmaker_count": 6, "selections": {"HOME": {"fair_prob": 0.56}, "AWAY": {"fair_prob": 0.44}}},
+     "kalshi_bid": 0.55, "kalshi_ask": 0.57, "kalshi_exec_cost": 0.59}]}
+
+
 def strip(d):
     d = copy.deepcopy(d)
     for r in d["predictions"]:
@@ -69,7 +78,8 @@ def strip(d):
 
 def main():
     tmp = tempfile.mkdtemp(prefix="cockpit-exec-")
-    files = {"day1.json": doc(0.62), "day2.json": doc(0.63), "noquotes.json": strip(doc(0.62))}
+    files = {"day1.json": doc(0.62), "day2.json": doc(0.63), "noquotes.json": strip(doc(0.62)),
+             "mlb.json": MLB}
     for n, d in files.items():
         with open(os.path.join(tmp, n), "w") as f:
             json.dump(d, f)
@@ -172,6 +182,11 @@ def main():
               b2["claim_exec_cost"] == 0.62 and b2["exec_cost"] == 0.63, json.dumps({k: b2.get(k) for k in ("claim_exec_cost", "exec_cost")}))
         check("operator-early exec_cost stays locked (0.60) through the re-log",
               P2["Detroit Lions @ Green Bay Packers"]["exec_cost"] == 0.60)
+        print("MLB (exports carry the K-track fields since 2026-09-30)")
+        load("mlb.json")
+        nyy = next(v for k, v in {r[0]: r for r in table()}.items() if "Yankees" in k)
+        check("MLB HOME pick: exec edge + join bid render from the MLB export's fields",
+              "exec +3.0pp @ 0.59" in nyy[4] and "join 0.56" in nyy[4], nyy[4])
         check("no page errors", not errors, "; ".join(errors))
         browser.close()
     srv.shutdown()

@@ -6,7 +6,7 @@ the Ledger tab's "Import Kalshi CSV" input, and checks: ticker grammar
 (sport families, MVE parlays, non-sport), side resolution (incl. NO and the
 tie leg), matching to calls (system_matched carrying engine/tier; a
 quarantine-shadow match and a disagreeing side listed as plausible), the
-three books' n / staked / fees / pre-fee / net, fees-as-%-of-loss, avg fill,
+four books' n / staked / fees / pre-fee / net, fees-as-%-of-loss, avg fill,
 duplicate-safe re-import, the Copy P&L REALIZED section, and that the ledger
 export carries the fills.
 
@@ -101,6 +101,7 @@ FILLS = [
     ("KXNFLGAME-26SEP28CARCLE-CAR", "yes", 2, 0.50, 0.00, 0.04, 0.00, -1.04, -1.00, "Carolina wins — Cleveland"), # vs c3 (HOME): disagrees
     ("KXNFLGAME-26SEP28BUFKC-BUF", "no", 2, 0.44, 1.00, 0.04, 0.00, 1.08, 1.12, "Buffalo wins — Kansas City"),    # NO on BUF = KC: matched
     ("KXNHLGAME-26OCT01TORMTL-MTL", "yes", 4, 0.52, 0.00, 0.07, 0.00, -2.15, -2.08, "Montreal wins — Toronto"),   # no call, no prediction
+    ("KXUEFANLGAME-26OCT01ENGESP-ENG", "yes", 5, 0.40, 0.00, 0.08, 0.00, -2.08, -2.00, "England wins — Spain"),  # UNL single: fun
     ("KXMLBGAME-26SEP27NYYBOS-BOS", "yes", 3, 0.45, 0.00, 0.05, 0.00, -1.40, -1.35, "Boston wins — New York Y"),  # stored pick disagrees
     ("KXNFLGAME-26SEP28BUFKC-KC", "yes", 1, 0.58, 1.00, 0.02, 0.00, 0.40, 0.42, ""),                             # no title: ticker + codes
 ]
@@ -142,7 +143,7 @@ def main():
         got = {k: (HDR.split(",")[v] if v is not None else None) for k, v in mapped.items()}
         check("REAL export header: every field maps to exactly the right column", got == want,
               "; ".join(f"{k}->{got[k]}" for k in want if got[k] != want[k]))
-        check("18 fills added; nothing reported missing", "18 fills added" in note and "not found" not in note)
+        check("19 fills added; nothing reported missing", "19 fills added" in note and "not found" not in note)
         cls = page.evaluate("classifyFills(loadLedger())")
         by = {}
         for f in cls:                                   # first CSV occurrence per (ticker, side)
@@ -184,29 +185,34 @@ def main():
         check("no title at all: the ticker role + {AWAY}{HOME} codes still match the call",
               n4["book"] == "system_matched" and n4["backed"] is None and n4["backed_role"] == "HOME")
         n5 = by[("KXNHLGAME-26OCT01TORMTL-MTL", "yes")]
-        check("no call, no stored prediction -> off_book_sports 'no logged call'",
-              n5["book"] == "off_book_sports" and n5["category"] == "no logged call for this game")
+        check("NHL single, no system call -> the FUN book (market-only family)",
+              n5["book"] == "fun" and n5["category"] == "NHL single (market-only, no system call)", n5["category"])
+        u1 = by[("KXUEFANLGAME-26OCT01ENGESP-ENG", "yes")]
+        check("UNL single, no system call -> the FUN book",
+              u1["book"] == "fun" and u1["category"].startswith("UNL single"), u1["category"])
         check("nothing is 'side not resolvable' any more",
               not any("side not resolvable" in f.get("category", "") for f in cls))
         m0 = by[("KXMVESPORTSMULTIGAMEEXTENDED-S2026ABC", "yes")]
-        check("MVE SPORTS family, legs not in the title -> off-book sports parlay (ticker family)",
-              m0["book"] == "off_book_sports" and "legs not in title, ticker family SPORTS" in m0["category"], m0["category"])
+        check("MVE SPORTS family, legs not in the title -> fun, labelled by the ticker family",
+              m0["book"] == "fun" and m0["category"] == "MVE combo, sports family (legs not in title)", m0["category"])
         m1 = by[("KXMVECROSSCATEGORY-S2026DEF", "yes")]
-        check("MVE combo, every leg sports (team names + 'points') -> off-book sports parlay, 3 legs",
-              m1["book"] == "off_book_sports" and m1["category"] == "off-book sports parlay (MVE combo, 3 legs)", m1["category"])
+        check("MVE combo, every leg sports -> fun, labelled 3 sports legs",
+              m1["book"] == "fun" and m1["category"] == "MVE combo, 3 sports legs", m1["category"])
         m2 = by[("KXMVECROSSCATEGORY-S2026GHI", "yes")]
-        check("MVE combo, mixed legs -> off_book_other, labelled 1/2 sports",
-              m2["book"] == "off_book_other" and m2["category"] == "MVE combo, mixed legs (1/2 sports)", m2["category"])
+        check("MVE combo, mixed legs -> fun, labelled 1/2 sports",
+              m2["book"] == "fun" and m2["category"] == "MVE combo, mixed legs (1/2 sports)", m2["category"])
         m3 = by[("KXMVECROSSCATEGORY-S2026JKL", "yes")]
-        check("MVE combo, non-sport legs -> off_book_other",
-              m3["book"] == "off_book_other" and m3["category"] == "MVE combo, non-sport legs (2)", m3["category"])
+        check("MVE combo, non-sport legs -> fun",
+              m3["book"] == "fun" and m3["category"] == "MVE combo, non-sport legs (2)", m3["category"])
         check("no MVE combo is ever system_matched",
               all(by[(t, "yes")]["book"] != "system_matched" for t in
                   ("KXMVESPORTSMULTIGAMEEXTENDED-S2026ABC", "KXMVECROSSCATEGORY-S2026DEF")))
-        check("non-sport ticker -> off_book_other", by[("KXFEDRATE-26OCT-T4.25", "yes")]["category"].startswith("non-sport"))
+        fed = by[("KXFEDRATE-26OCT-T4.25", "yes")]
+        check("non-sport ticker -> fun", fed["book"] == "fun" and fed["category"].startswith("non-sport"))
+        check("the 'off-book other' book is retired", not any(f["book"] == "off_book_other" for f in cls))
 
         # independent three-book arithmetic
-        books = {"system_matched": [], "system_pick_unlogged": [], "off_book_sports": [], "off_book_other": []}
+        books = {"system_matched": [], "system_pick_unlogged": [], "off_book_sports": [], "fun": []}
         for f in cls:
             books[f["book"]].append(f)
         tot_net = sum(x[7] for x in FILLS) + LEGACY["pnl_net"]
@@ -218,26 +224,30 @@ def main():
               f"net {agg['net']:.2f} fees {agg['fees']:.2f} staked {agg['staked']:.2f}")
         check("fees-as-%-of-loss = fees / |net|", abs(agg["feePct"] - tot_fees / -tot_net * 100) < 1e-6,
               f"{agg['feePct']:.1f}%")
-        check("book sizes 6 / 0 / 10 / 3 before any stored predictions", [len(books[k]) for k in books] == [6, 0, 10, 3],
+        check("book sizes 6 / 0 / 7 / 7 before any stored predictions", [len(books[k]) for k in books] == [6, 0, 7, 7],
               str([len(books[k]) for k in books]))
         html = page.inner_text("#realized")
-        check("REALIZED section renders the three books + plausible list",
-              all(t in html for t in ("system-matched", "off-book sports", "off-book other", "fees =",
-                                      "Unmatched-but-plausible — manual review (4)")))
+        check("REALIZED section renders the four books + plausible list; no 'off-book other'",
+              all(t in html for t in ("system-matched", "system-pick, unlogged", "off-book sports", "fun", "fees =",
+                                      "Unmatched-but-plausible — manual review (4)")) and "off-book other" not in html)
         t30 = page.evaluate("(()=>{const fs=classifyFills(loadLedger());"
                             "return [trailing30(fs,Date.parse('2026-10-05T00:00:00Z')).length,"
                             "trailing30(fs,Date.parse('2026-11-30T00:00:00Z')).length]})()")
-        check("trailing-30-day window by close time (19 in window, 0 two months later)", t30 == [19, 0], str(t30))
+        check("trailing-30-day window by close time (20 in window, 0 two months later)", t30 == [20, 0], str(t30))
         block = page.inner_text("#pnlBlock")
         check("Copy P&L block carries the REALIZED section + trailing-30d line",
               "REALIZED (Kalshi fills" in block and "fees =" in block and "trailing 30d:" in block)
+        lines = [ln.split("  ")[0].strip() for ln in block.splitlines()]
+        check("Copy P&L block prints every book line + TOTAL (no 'off-book other')",
+              all(b in lines for b in ("system-matched", "system-pick, unlogged", "off-book sports", "fun", "TOTAL"))
+              and "off-book other" not in block)
         page.evaluate("document.getElementById('kalshiCsvFile').value='';"
                       "document.getElementById('ledgerNote').textContent=''")
         page.set_input_files("#kalshiCsvFile", csv_path)
         page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('duplicates')")
-        check("re-import is duplicate-safe", "0 fills added, 18 duplicates skipped" in page.inner_text("#ledgerNote"))
+        check("re-import is duplicate-safe", "0 fills added, 19 duplicates skipped" in page.inner_text("#ledgerNote"))
         L = page.evaluate("loadLedger()")
-        check("fills live in the ledger (exported with it)", len(L.get("fills", [])) == 19 and len(L["calls"]) == 5)
+        check("fills live in the ledger (exported with it)", len(L.get("fills", [])) == 20 and len(L["calls"]) == 5)
         # --- (2) the pre-ledger era: STORED PREDICTIONS from a results export ---
         res_path = os.path.join(tmp, "mlb_results.json")
         with open(res_path, "w") as f:
@@ -259,7 +269,7 @@ def main():
               bo["book"] == "off_book_sports" and bo.get("plausible") and "stored prediction" in bo["category"])
         check("never system_matched without a logged call", y.get("call_id") is None)
         sizes = [sum(1 for f in cls2 if f["book"] == k) for k in books]
-        check("book sizes 6 / 1 / 9 / 3 after the harvest", sizes == [6, 1, 9, 3], str(sizes))
+        check("book sizes 6 / 1 / 6 / 7 after the harvest", sizes == [6, 1, 6, 7], str(sizes))
         check("the REALIZED table shows the fourth book", "system-pick, unlogged" in page.inner_text("#realized"))
         check("stored picks travel in the ledger (Export carries them)",
               len(page.evaluate("loadLedger()").get("system_picks", [])) == 1)
@@ -274,7 +284,7 @@ def main():
         check("no page errors", not errors, "; ".join(errors))
         print("\n----- REALIZED lines in the P&L block -----")
         print("\n".join(line for line in block.splitlines() if line.strip() and
-                        ("REALIZED" in line or line.startswith(("book", "system", "off-book", "TOTAL", "fees", "unmatched")))))
+                        ("REALIZED" in line or line.startswith(("book", "system", "off-book", "fun", "TOTAL", "fees", "unmatched")))))
         browser.close()
     srv.shutdown()
     ok = all(CHECKS)

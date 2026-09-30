@@ -22,6 +22,33 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **LEDGER AUTO-CLOSE: FIRST LIVE RUN + MATCHER FIX (2026-09-30).**
+  - LIVE RECEIPTS (architect: "merge, replay #114 and #110, report which
+    Issues closed"):
+    - #116's own merge -> #115 closed by the bot ("Closed by #116
+      (merged as bd8e0ba)").
+    - Replay `close-merged 114` -> `LEDGER-CLOSE-MERGED ['#90:closed',
+      '#90:Done', '#109:already closed', '#111:already closed',
+      '#112:closed', '#112:Done']`.
+    - Replay `close-merged 110` -> #109 already closed, so a no-op.
+  - FINDING (my defect in #116): #111 was closed at #116's merge, under
+    #116's name.
+    - #116's description said "…which closes #111, #112…" in PROSE, and
+      the matcher accepted the keyword anywhere.
+    - The outcome was right (#114 resolved #111), but the attribution
+      was wrong. It is corrected by a comment on #111.
+    - The ruling reads "Closes #N" LINES. The matcher now requires the
+      keyword to start the line (after whitespace, a list marker, or the
+      template's "Ledger:"), and it accepts "Closes #1, #2 and #3".
+  - OBSERVED: #109 was closed by hand at 13:59 by the operator. GitHub
+    now lists #110 and #114 as its closing PRs, so GitHub's own links DID
+    register, but late: they read 0 at 12:22 and 12:30. The bot stays as
+    the deterministic path.
+  - Receipts: `tests/test_ledger.py` 10 passed. The refs tests now pin:
+    line-start keywords; the template "Ledger: Closes #111, #112 and
+    #90" -> [90, 111, 112]; #116's prose -> []; "Closes #96. Resolves
+    limitation." -> [96]. Full suite: 280 passed.
+
 - **LEDGER AUTO-CLOSE (architect GO, 2026-09-30; [ops]).**
   - FINDING: GitHub never registered the `Closes #N` links of the PRs
     opened through the Claude connection. #110 (Closes #109) and #114

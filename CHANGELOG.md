@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (ledger: auto-close reads "Closes #N" lines only)
+- The ledger bot matched a closing keyword anywhere in a PR description,
+  so a prose mention ("…which closes #111…") closed #111 under the wrong
+  PR's name.
+- It now reads only lines that start with the keyword (optionally after
+  "Ledger:" or a list marker), such as "Closes #1, #2 and #3".
+
 ## 2026-09-30 (ledger: the bot closes a merged PR's "Closes #N" itself)
 - GitHub did not register the `Closes #N` links of Claude-opened PRs, so
   merged work left its Issues open. The ledger bot now closes them on

@@ -431,8 +431,13 @@ def _build_row(
     # #93 ruling (2026-09-30): taker AND maker costs, per the series' M.
     from src.walters.venue import KALSHI_EXEC_NULL, kalshi_exec
     _home = (kalshi or {}).get("HOME")
+    # #89: away (NO-side) costs only on a TWO-WAY market. This builder serves
+    # MLB and soccer; soccer is 1X2, where NO on HOME is draw-or-away, so its
+    # away fields stay null. Two-way = MLB with no DRAW leg captured (any
+    # other sport here is not assumed two-way: law 4).
     row.update(kalshi_exec(getattr(_home, "yes_bid", None), getattr(_home, "yes_ask", None),
-                           row["competition"])
+                           row["competition"],
+                           two_way=(sport == Sport.MLB and "DRAW" not in (kalshi or {})))
                if _home is not None and ((row["market"] or {}).get("kalshi") or {}).get("normalized")
                else dict(KALSHI_EXEC_NULL))
 
@@ -1100,8 +1105,11 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
         # K-track (K1, additive): home-side quotes + executable cost,
         # two-sided Kalshi only (informational until the ruling).
         # #93 ruling (2026-09-30): taker AND maker costs, per the series' M.
+        # #89: away (NO-side) costs only on a two-way market; a soccer fixture
+        # is 1X2 (NO on HOME = draw-or-away), so its away fields stay null.
         **(_kexec(getattr(kal.get("HOME"), "yes_bid", None),
-                  getattr(kal.get("HOME"), "yes_ask", None), competition_code)
+                  getattr(kal.get("HOME"), "yes_ask", None), competition_code,
+                  two_way=(not _soccer and "DRAW" not in kal))
            if kal_status == "two_sided" else dict(_KNULL)),
         "input_quality": {"book_odds": market["bookmaker_count"] if market else 0,
                           "kalshi": kal_status},

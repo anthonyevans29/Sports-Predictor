@@ -11,6 +11,13 @@ Every drop adds an entry going forward.
   FEEDABLE / NOT per need and the H2 reopening line.
 - Run it on the laptop and on the host (the datacenter-IP receipt).
 
+## 2026-09-30 (ledger: auto-close reads "Closes #N" lines only)
+- The ledger bot matched a closing keyword anywhere in a PR description,
+  so a prose mention ("…which closes #111…") closed #111 under the wrong
+  PR's name.
+- It now reads only lines that start with the keyword (optionally after
+  "Ledger:" or a list marker), such as "Closes #1, #2 and #3".
+
 ## 2026-09-30 (CORRECTION: soccer Kalshi sets missing a leg were normalized as two-way)
 - CORRECTION, not a feature (#113). A soccer prediction row whose Kalshi
   capture lacked a leg (usually the TIE) was normalized over HOME + AWAY

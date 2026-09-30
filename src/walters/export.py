@@ -1069,8 +1069,14 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
         if snap.captured_at is not None and snap.captured_at >= m.utc_date:
             continue
         kal.setdefault(snap.selection, snap)
-    kal_status = ("two_sided" if {"HOME", "AWAY"} <= set(kal)
-                  else "one_sided" if kal else "absent")
+    # CORRECTION #117 (architect 2026-09-30): a soccer market is complete only
+    # with HOME, DRAW and AWAY. A soccer fixture missing a leg (usually the TIE)
+    # is "partial" (the predictions export's soccer word): never "two_sided",
+    # so no exec fields and no two-way normalization downstream.
+    _soccer = str(getattr(m.sport, "value", m.sport)).lower() == "soccer"
+    _legs = {"HOME", "DRAW", "AWAY"} if _soccer else {"HOME", "AWAY"}
+    kal_status = ("two_sided" if _legs <= set(kal)
+                  else ("partial" if _soccer else "one_sided") if kal else "absent")
     counts[f"kalshi_{kal_status}"] += 1
     kalshi = None
     if kal:
@@ -1139,7 +1145,7 @@ def export_fixtures(
     labels: _Counter = _Counter()
     counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0,
               "kalshi_two_sided": 0,
-              "kalshi_one_sided": 0, "kalshi_absent": 0}
+              "kalshi_one_sided": 0, "kalshi_partial": 0, "kalshi_absent": 0}
     with _scope() as s:
         comp = s.execute(_select(_Comp).where(
             _Comp.code == competition_code)).scalars().first()

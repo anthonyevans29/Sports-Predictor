@@ -26,12 +26,14 @@ LINE_MOVE_WINDOW_H = 3
 LATE_NEWS_FLAG = "late-news?"
 
 
-def _series(snaps, venue: str, kickoff: datetime, now: datetime) -> list[tuple[datetime, float]]:
+def _series(snaps, venue: str, kickoff: datetime, now: datetime,
+            three_way: bool = False) -> list[tuple[datetime, float]]:
     """[(captured_at, P(home))] for one venue, ascending, pre-kickoff and
     <= now. Book: home de-vig normalized over that capture's selections.
     Kalshi: sides are stored separately, so each capture time uses the
-    latest price per side as of then, normalized over HOME+AWAY (the
-    exports' rule), and only once both sides exist."""
+    latest price per side as of then, normalized over the full outcome set
+    (HOME+AWAY; soccer: HOME+DRAW+AWAY — CORRECTION #117, 2026-09-30), and
+    only once every leg exists."""
     rows = [x for x in snaps
             if x.captured_at is not None and x.captured_at < kickoff and x.captured_at <= now
             and ((x.source == "kalshi") == (venue == "kalshi"))
@@ -47,18 +49,21 @@ def _series(snaps, venue: str, kickoff: datetime, now: datetime) -> list[tuple[d
             if h is not None and tot > 0:
                 out.append((t, h / tot))
         return out
+    legs = {"HOME", "DRAW", "AWAY"} if three_way else {"HOME", "AWAY"}
     latest: dict[str, float] = {}
     for t in sorted({x.captured_at for x in rows}):
         for x in rows:
-            if x.captured_at == t and x.selection in ("HOME", "AWAY") and x.devig_prob is not None:
+            if x.captured_at == t and x.selection in legs and x.devig_prob is not None:
                 latest[x.selection] = x.devig_prob
-        if set(latest) == {"HOME", "AWAY"} and latest["HOME"] + latest["AWAY"] > 0:
-            out.append((t, latest["HOME"] / (latest["HOME"] + latest["AWAY"])))
+        tot = sum(latest.values())
+        if set(latest) == legs and tot > 0:
+            out.append((t, latest["HOME"] / tot))
     return out
 
 
 def line_move(snaps, kickoff: datetime, now: datetime,
-              threshold_pp: float = LINE_MOVE_PP, window_h: int = LINE_MOVE_WINDOW_H) -> dict | None:
+              threshold_pp: float = LINE_MOVE_PP, window_h: int = LINE_MOVE_WINDOW_H,
+              three_way: bool = False) -> dict | None:
     """None outside [kickoff - window_h, kickoff). Else {"flag", "venues"}.
     Each venue with >= 2 points reports {from, to, move_pp, from_at, to_at,
     alarm}; flag = LATE_NEWS_FLAG when any venue's |move| >= threshold."""
@@ -68,7 +73,7 @@ def line_move(snaps, kickoff: datetime, now: datetime,
     snaps = list(snaps)
     venues = {}
     for venue in ("book", "kalshi"):
-        ser = _series(snaps, venue, kickoff, now)
+        ser = _series(snaps, venue, kickoff, now, three_way=three_way)
         before = [p for p in ser if p[0] <= start]
         inside = [p for p in ser if p[0] > start]
         ref = before[-1] if before else (inside[0] if inside else None)
@@ -91,7 +96,11 @@ def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:
     if m.utc_date is None or not (m.utc_date - timedelta(hours=LINE_MOVE_WINDOW_H) <= now < m.utc_date):
         return None
     snaps = s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars()
-    return line_move(snaps, m.utc_date, now)
+    return line_move(snaps, m.utc_date, now, three_way=_is_soccer(m))
+
+
+def _is_soccer(m) -> bool:
+    return str(getattr(m.sport, "value", m.sport)).lower() == "soccer"
 
 
 def describe(lm: dict | None) -> str:

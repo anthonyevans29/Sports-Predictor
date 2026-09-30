@@ -11,11 +11,11 @@ HDR = ("subtrader_id,type,quantity_fp,market_ticker,side,entry_price_dollars,exi
        "realized_pnl_with_fees_dollars,close_timestamp,open_timestamp,product,period_start,market_title")
 
 
-def test_order_fee_is_one_ceiling_per_fill():
+def test_order_fee_is_one_nearest_rounding_per_fill():
     assert venue.K_ORDER_CONTRACTS == 10
-    assert venue.kalshi_order_fee(0.60, 8) == 0.14          # 8 x 1.68c = 13.44c -> 14c (per contract: 8 x 2c = 16c)
-    assert venue.kalshi_order_fee(0.60, 1) == 0.02
-    assert venue.kalshi_order_fee(0.60, 10, 0.25, venue.KALSHI_MAKER_RATE) == 0.02   # 1.05c -> 2c
+    assert venue.kalshi_order_fee(0.60, 8) == 0.13          # 8 x 1.68c = 13.44c -> 13c (per contract: 8 x 2c = 16c)
+    assert venue.kalshi_order_fee(0.60, 1) == 0.02          # 1.68c -> 2c
+    assert venue.kalshi_order_fee(0.60, 10, 0.25, venue.KALSHI_MAKER_RATE) == 0.01   # 1.05c -> 1c
     assert venue.kalshi_order_fee(0.60, 0) is None and venue.kalshi_order_fee(None, 5) is None
     # maker within ~0.1c of exact at N=10 (the ruling's point): exact 0.105c/contract
     assert abs(venue.kalshi_fee(0.60, 0.25, venue.KALSHI_MAKER_RATE) - 0.0175 * 0.25 * 0.24) < 0.001
@@ -38,9 +38,9 @@ def test_round_cents_modes():
     assert [r(17.5, m) for m in venue.ROUNDING_MODES] == [18, 18, 17, 18]     # half: up / up / down / to even
     assert [r(16.5, m) for m in venue.ROUNDING_MODES] == [17, 17, 16, 16]
     assert [r(17.0, m) for m in venue.ROUNDING_MODES] == [17, 17, 17, 17]
-    assert venue.KALSHI_FEE_ROUNDING == "ceil"                                # in force until the re-fit names a rule
-    assert venue.kalshi_order_fee(0.45, 10, rounding="floor") == 0.17         # 17.33c
-    assert venue.kalshi_order_fee(0.45, 10) == 0.18
+    assert venue.KALSHI_FEE_ROUNDING == "nearest"                             # ADOPTED: re-fit 542/548 = 98.9%
+    assert venue.kalshi_order_fee(0.45, 10, rounding="ceil") == 0.18          # 17.33c
+    assert venue.kalshi_order_fee(0.45, 10) == 0.17
 
 
 # (ticker, qty, entry, raw-generating rate/M) — fees are generated below under a chosen rule

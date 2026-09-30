@@ -10,7 +10,9 @@ Every drop adds an entry going forward.
   nearest / floor / banker's over every multi-contract leg (shards priced
   0.00 excluded), prints each rule's rate, and adopts one only at >= 95%;
   otherwise it prints the residuals.
-- The fee rule stays "ceil" until the operator's run names the winner.
+- ADOPTED: Kalshi rounds each fill's fee to the NEAREST cent (542/548 =
+  98.9%; ceil 45.3%, floor 54.7%). Exec costs move down by at most 0.1¢
+  per contract (NFL 0.55/0.58: taker 0.597, maker 0.561).
 
 ## 2026-09-30 (Desk: PASS reasons in two classes)
 - A Desk PASS is now tagged "no reference" (no two-sided reference, or too

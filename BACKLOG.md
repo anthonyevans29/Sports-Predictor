@@ -22,6 +22,28 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#88 RE-FIT RECEIPT: KALSHI ROUNDS THE FEE PER FILL TO THE NEAREST CENT
+  (architect 2026-09-30; ADOPTED — the founding evidence for every fee
+  number the Desk shows).**
+  - RECEIPT (operator's full-set run of `scripts/kalshi_fee_fill_receipt.py`
+    on the YTD CSV, relayed by the architect), reproduction to the cent:
+    - nearest 542/548 = **98.9%** — MEETS (>= 95%);
+    - floor 54.7% · ceil 45.3% · the pre-#88 per-contract ceiling 1.3%.
+    - Exact-half legs: 0 → halves UNDETERMINED; banker's is revisited only
+      if an exact-half leg ever appears.
+  - FRACTIONAL-CENT TABLE (raw's fractional cent vs how Kalshi rounded it):
+    PENDING the operator's verbatim paste of the receipt's table. It is not
+    reconstructed here; it lands in this entry as pasted.
+  - RULING: ADOPT `KALSHI_FEE_ROUNDING = "nearest"` per fill. Flip the
+    switch, update the exec-cost tests, take #135 out of draft.
+  - EFFECT (informational K-track costs; no call / unit / tier change):
+    every exec cost drops by 0–1¢ per 10-contract fill (0–0.1¢ per
+    contract) vs the ceiling: NFL 0.55/0.58 taker 0.598 → 0.597, maker
+    0.562 → 0.561; MLB 0.54/0.56 maker 0.553 → 0.552. A 1-lot maker fee
+    under 0.5¢ rounds to 0.
+  - NOTE: #131 (the per-fill ceiling) had already merged before the re-fit;
+    this PR supersedes its rounding rule.
+
 - **#88 RE-FIT: KALSHI FEE ROUNDING IS NOT A CEILING (architect 2026-09-30;
   K-track; CORRECTION of the #131 model).**
   - FINDING (architect, from the operator's real run of the #131 receipt):

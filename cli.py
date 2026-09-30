@@ -3953,6 +3953,86 @@ def kalshi_disagreement_cmd(since):
                   "This is instrumentation; not a bet signal until Step 2.[/dim]\n")
 
 
+#: S20 (2026-09-30): RPS is printed beside log-loss and decides nothing.
+_RPS_NOTE = "RPS reported only — not an acceptance criterion"
+
+
+def _soccer_prod_poisson():
+    """(version, rho, elo_goal_coeff) of the PRODUCTION soccer model's stored
+    poisson config, or None when there is no production model (never faked)."""
+    from src.walters.training import _resolve_model_version
+    from src.db.database import session_scope as _scope
+    from src.models.poisson import PoissonConfig
+    try:
+        with _scope() as _s:
+            mv = _resolve_model_version(_s, None, Sport.SOCCER)
+            pz = {**PoissonConfig().as_dict(), **((mv.parameters or {}).get("poisson") or {})}
+            return mv.version, float(pz["dixon_coles_rho"]), float(pz["elo_goal_coeff"])
+    except Exception:
+        return None
+
+
+def _soccer_time_decay_candidate(competition_code, season, min_prior):
+    """S19: production vs the time-decay candidate on the same splits, the
+    existing gate applied to the pooled leakage-free log-loss. Writes nothing."""
+    from src.walters import soccer_backtest as sb
+    from src.walters.training import DEFAULT_PROMOTION_DELTA
+    from rich.table import Table
+
+    prod = _soccer_prod_poisson()
+    if prod is None:
+        print("S19-GATE: INVALID — no production soccer model to evaluate against "
+              "(nothing resolved; nothing faked).", flush=True)
+        return
+    version, rho, coeff = prod
+    gate_mode = season is None and competition_code == sb.S19_GATE_COMPETITION
+    seasons = list(sb.S19_GATE_SEASONS) if gate_mode else [season]
+    console.print(f"[cyan]S19 time-decay candidate vs production {version} — "
+                  f"{competition_code} {', '.join(s or '(all seasons)' for s in seasons)}, "
+                  f"min_prior={min_prior}[/cyan]")
+    console.print(f"  [dim]both arms: production poisson config rho={rho} "
+                  f"elo_goal_coeff={coeff}; Elo walked identically (not decayed). "
+                  f"Candidate: attack/defense fit weighted w = 0.5^(age_days/"
+                  f"{sb.TIME_DECAY_HALF_LIFE_DAYS:g}) — half-life FROZEN a priori.[/dim]")
+    r = sb.run_time_decay_comparison(competition_code, seasons, min_prior=min_prior,
+                                     dixon_coles_rho=rho, elo_goal_coeff=coeff,
+                                     min_delta=DEFAULT_PROMOTION_DELTA)
+    t = Table(show_header=True, header_style="bold")
+    for c in ("split", "n", "prod log-loss", "cand log-loss", "delta",
+              "prod RPS", "cand RPS"):
+        t.add_column(c, justify="left" if c == "split" else "right")
+
+    def _row(label, x):
+        if x.get("verdict") in ("MISSING",) or "prod_log_loss" not in x:
+            t.add_row(label, str(x.get("n", 0)), "—", "—", x.get("verdict", "—"), "—", "—")
+            return
+        t.add_row(label, str(x["n"]), f"{x['prod_log_loss']:.4f}", f"{x['cand_log_loss']:.4f}",
+                  f"{x['delta']:+.4f}", f"{x['prod_rps']:.4f}", f"{x['cand_rps']:.4f}")
+
+    for x in r["per_season"]:
+        _row(f"{competition_code} {x['season'] or '(all)'}", x)
+    _row("POOLED", r["pooled"])
+    console.print(t)
+    console.print(f"  [dim]{_RPS_NOTE}. Per-season rows are informational; the gate reads "
+                  "the POOLED row only.[/dim]")
+    p = r["pooled"]
+    # plain print (no rich wrapping): the receipt line the operator pastes
+    if not gate_mode:
+        print(f"S19-INFORMATIONAL: not the pre-declared gate set "
+              f"({sb.S19_GATE_COMPETITION} {', '.join(sb.S19_GATE_SEASONS)}, pooled) — "
+              f"no verdict. pooled {p.get('verdict')} would-be delta "
+              f"{p.get('delta', float('nan')):+.4f}", flush=True)
+        return
+    if p["verdict"] == "INVALID":
+        print(f"S19-GATE: INVALID — {p.get('reason')}", flush=True)
+        return
+    print(f"S19-GATE: {p['verdict']} — candidate time-decay(half_life="
+          f"{sb.TIME_DECAY_HALF_LIFE_DAYS:g}d) log-loss {p['cand_log_loss']:.4f} vs "
+          f"production {version} {p['prod_log_loss']:.4f}, delta {p['delta']:+.4f} "
+          f"(bar >= {p['min_delta']:.4f}; ties reject) over n={p['n']} · RPS "
+          f"{p['cand_rps']:.4f} vs {p['prod_rps']:.4f} (reported only)", flush=True)
+
+
 @cli.command("soccer-backtest")
 @click.option("--competition", "competition_code", default="PL")
 @click.option("--season", default=None, help="e.g. 2024/25; omit for all seasons")
@@ -3960,7 +4040,14 @@ def kalshi_disagreement_cmd(since):
 @click.option("--rho", "rho", default=None, type=float,
               help="Dixon-Coles rho override. Default: the PRODUCTION soccer model's "
                    "stored value, so the backtest evaluates the model you'd actually ship.")
-def soccer_backtest_cmd(competition_code, season, min_prior, rho):
+@click.option("--candidate", type=click.Choice(["time-decay"]), default=None,
+              help="S19 (2026-09-30, backtest-only): score production AND the time-decay "
+                   "candidate (FROZEN half-life, no override) on the same splits and apply "
+                   "the existing gate (log-loss delta >= 0.0050). With no --season and "
+                   "--competition PL: the pre-declared gate set (PL 2023/24, 2024/25, "
+                   "2025/26, pooled) and a verdict; otherwise INFORMATIONAL, no verdict. "
+                   "Writes nothing; production is untouched.")
+def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     """
     LEAKAGE-FREE soccer backtest — the disciplined equivalent of the MLB backtest.
     Walks the season in date order, predicts each match using ONLY prior matches
@@ -3971,6 +4058,10 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho):
     """
     from src.walters.soccer_backtest import run_soccer_backtest, soccer_calibration
     from rich.table import Table
+
+    if candidate == "time-decay":
+        _soccer_time_decay_candidate(competition_code, season, min_prior)
+        return
 
     console.print(f"[cyan]Leakage-free soccer backtest: {competition_code} "
                   f"{season or '(all seasons)'}, min_prior={min_prior}…[/cyan]")
@@ -3999,6 +4090,8 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho):
                   f"({cal['n']} leakage-free predictions)[/bold]\n")
     console.print(f"  multiclass log-loss: {cal['log_loss']:.4f}  "
                   f"[dim](lower=better; 1.099 = uninformed 3-way guess)[/dim]")
+    console.print(f"  RPS (H<D<A ordered): {cal['rps']:.4f}  [dim](lower=better; "
+                  f"{_RPS_NOTE})[/dim]")
     console.print(f"  Brier score: {cal['brier']:.4f}  [dim](lower=better)[/dim]\n")
 
     # base-rate vs mean-prediction sanity
@@ -4046,6 +4139,9 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho):
                       f"market {mc['market_log_loss']:.4f} "
                       f"[dim](gap {mc['model_log_loss']-mc['market_log_loss']:+.4f}; "
                       "beating the close is rare — the question is how close)[/dim]")
+        console.print(f"  RPS      — model {mc['model_rps']:.4f} vs "
+                      f"market {mc['market_rps']:.4f} "
+                      f"[dim](gap {mc['model_rps']-mc['market_rps']:+.4f}; {_RPS_NOTE})[/dim]")
         g = mc['mean_abs_gap_pp']
         console.print(f"  mean |model−market|: H {g['HOME']:.1f}pp · D {g['DRAW']:.1f}pp · "
                       f"A {g['AWAY']:.1f}pp")
@@ -4086,7 +4182,7 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
                   f"rho = {rho_list}[/cyan]\n")
 
     t = Table(show_header=True, header_style="bold")
-    for c in ("rho", "n", "log-loss", "pred draw%", "actual draw%", "draw gap",
+    for c in ("rho", "n", "log-loss", "RPS", "pred draw%", "actual draw%", "draw gap",
               "fav 70-90% actual"):
         t.add_column(c, justify="left" if c == "rho" else "right")
 
@@ -4109,7 +4205,7 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
         fav_actual = (fav_hits / fav_n * 100) if fav_n else None
         tag = "  ← baseline" if rho == 0.0 else ""
         t.add_row(f"{rho}{tag}", str(cal["n"]), f"{cal['log_loss']:.4f}",
-                  f"{pred_draw:.1f}%", f"{actual_draw:.1f}%",
+                  f"{cal['rps']:.4f}", f"{pred_draw:.1f}%", f"{actual_draw:.1f}%",
                   f"{gap:+.1f}pp",
                   f"{fav_actual:.0f}% (n={fav_n})" if fav_actual is not None else "—")
         # track best by |draw gap| then log-loss
@@ -4117,6 +4213,7 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
         if best is None or score < best[0]:
             best = (score, rho, cal["log_loss"], gap)
     console.print(t)
+    console.print(f"[dim]{_RPS_NOTE} (selection above is unchanged).[/dim]")
     if best:
         _, rho_b, ll_b, gap_b = best
         console.print(f"\n[green]→ Best draw calibration at rho={rho_b} "
@@ -4194,7 +4291,7 @@ def elo_coeff_sweep_cmd(competition_code, season, coeffs, rho):
                   f"{season or '(all)'} at rho={rho}[/cyan]")
 
     t = Table(show_header=True, header_style="bold")
-    for c in ("coeff", "log-loss", "vs close", "draw gap", "70-90% home",
+    for c in ("coeff", "log-loss", "RPS", "vs close", "draw gap", "70-90% home",
               "pick edge", "+edge bucket", "-edge bucket"):
         t.add_column(c, justify="right")
 
@@ -4226,9 +4323,10 @@ def elo_coeff_sweep_cmd(competition_code, season, coeffs, rho):
                    if ne["n"] else "—")
         else:
             vs_close = edge = peb = neb = "no odds"
-        t.add_row(f"{coeff:.4f}", f"{cal['log_loss']:.4f}", vs_close,
+        t.add_row(f"{coeff:.4f}", f"{cal['log_loss']:.4f}", f"{cal['rps']:.4f}", vs_close,
                   f"{draw_gap:+.1f}pp", band, edge, peb, neb)
     console.print(t)
+    console.print(f"[dim]{_RPS_NOTE}.[/dim]")
     console.print("[dim]Pick the coeff that collapses pick-edge toward 0 and closes the "
                   "70-90% band WITHOUT log-loss regressing or the draw gap reopening. "
                   "Then set-soccer-config --field elo_goal_coeff and log the decision. "

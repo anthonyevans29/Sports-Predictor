@@ -34,6 +34,23 @@ class OutcomeScore:
     notes: str
 
 
+def rps_1x2(p_home: float, p_draw: float, p_away: float, actual: str) -> float:
+    """Ranked Probability Score for one ordered 3-way prediction (H < D < A).
+
+    RPS = 1/(r-1) * sum_{k=1}^{r-1} (cum_pred_k - cum_obs_k)^2, r = 3.
+    0 = perfect; a certain HOME call on an AWAY result = 1.0 (the ordinal
+    worst case). Pure; the same arithmetic score_1x2 stores (S20, 2026-09-30:
+    exposed standalone so the soccer backtest can report it beside log-loss).
+    `p_away` is implied by the cumulative form (cum_3 = 1 on both sides) and is
+    accepted for signature symmetry only."""
+    obs = {"H": (1.0, 0.0, 0.0), "D": (0.0, 1.0, 0.0), "A": (0.0, 0.0, 1.0)}.get(actual)
+    if obs is None:
+        raise ValueError(f"Unknown actual result: {actual!r}")
+    cum_pred = (p_home, p_home + p_draw)
+    cum_obs = (obs[0], obs[0] + obs[1])
+    return sum((cp - co) ** 2 for cp, co in zip(cum_pred, cum_obs)) / 2.0
+
+
 def _log_loss_one(p: float) -> float:
     """Log loss for a single-outcome probability. Floor to avoid -inf on 0."""
     return -math.log(max(p, 1e-12))

@@ -22,6 +22,123 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **S19 + S20: SOCCER TIME-DECAY CANDIDATE + RPS IN THE BACKTEST (architect 2026-09-30; backtest-only).**
+  - SPEC (architect ruling 2026-09-30, Issues #83 and #84): "time-decay
+    match weighting as a soccer candidate through the existing gate, and
+    RPS beside log-loss in the soccer backtest report. Backtest-only; no
+    production change."
+  - FROZEN BEFORE ANY RUN (this entry and the code constants land in the
+    same commit; no real-DB number exists yet — the executor has no DB):
+    - HALF-LIFE = **365 days**, ONE value, no grid, no selection
+      (`soccer_backtest.TIME_DECAY_HALF_LIFE_DAYS`). WHY: Dixon & Coles
+      (1997, Appl. Statist. 46:265-280), the paper our model family
+      descends from, fitted their time weight xi = 0.0065 per HALF-WEEK on
+      English league data = a half-life of ln 2 / 0.0065 = 106.6 half-weeks
+      = 373 days; rounded to one calendar year. It is a literature prior,
+      fitted on none of our data. A single value makes selection
+      impossible, so the NHL v3/v4 internal-validation machinery is not
+      needed (and a grid picked on the gate set would be tuning to the
+      test). ARCHITECT-RULE.
+    - EVALUATION SET = PL, seasons "2023/24", "2024/25", "2025/26",
+      POOLED (`S19_GATE_COMPETITION`, `S19_GATE_SEASONS`). ARCHITECT-RULE.
+  - THE GATE THAT DECIDES (the existing soccer/MLB promotion rule, quoted
+    from the code, applied verbatim):
+    - `src/walters/training.py:87` — `DEFAULT_PROMOTION_DELTA = 0.005`
+    - `src/walters/training.py:1746-1747` —
+      `delta = prod_loss - cand_loss  # positive = candidate better (lower loss)`
+      / `if delta >= min_delta:` (anything else is REJECTED; a tie, delta 0,
+      rejects).
+    - `src/walters/training.py:1715` — `if holdout_size < 30:` (reject).
+    - Applied in `soccer_backtest.candidate_gate_verdict` to the POOLED
+      LEAKAGE-FREE backtest log-loss of the two arms on the identical match
+      set. PASS iff v22 log-loss − candidate log-loss >= 0.0050. RPS and
+      Brier are printed and decide nothing.
+  - BUILT:
+    - S20 (#84): `evaluation.rps_1x2(p_home, p_draw, p_away, actual)` —
+      RPS = 1/(r−1)·Σ_{k=1}^{r−1}(cum_pred_k − cum_obs_k)², r = 3, H<D<A.
+      The same arithmetic `score_1x2` already stores in
+      `prediction_outcomes.rps` (pinned equal by test; `score_1x2` itself
+      untouched). `soccer_calibration` returns `rps` (on the same
+      normalized probs as log-loss); `market_comparison` returns
+      `model_rps` / `market_rps`. Printed beside log-loss in
+      `soccer-backtest` (calibration block + model-vs-close block), as an
+      RPS column in `dixon-coles-sweep` and `elo-coeff-sweep`, and in both
+      arms (per season + pooled) of the S19 comparison. Every RPS line
+      says "RPS reported only — not an acceptance criterion". The soccer
+      backtest has no per-competition breakdown (it runs one competition
+      per call), so there was no other log-loss site to extend.
+    - S19 (#83): `poisson.estimate_strengths(..., weights=None)` — an
+      optional per-match weight list; attack/defense become weighted means
+      sum(w·x)/sum(w). `weights=None` keeps the original arithmetic
+      (byte-identical; pinned by test, and unit weights give the exact same
+      floats). `soccer_backtest.time_decay_weight(age_days, half_life)` =
+      0.5^(age/half_life). `run_soccer_backtest(..., decay_half_life_days=None)`
+      weights each strictly-prior match by its age at the predicted
+      match's kickoff. `run_time_decay_comparison` runs both arms per
+      season with the SAME poisson config, refuses different match sets
+      (INVALID), pools, and applies the gate.
+    - CLI: `soccer-backtest --candidate time-decay` (no half-life option —
+      the value cannot be overridden from the command line). Gate mode =
+      `--competition PL` and no `--season`: prints the per-season +
+      POOLED table and one plain `S19-GATE: PASS|REJECT|INVALID …` line.
+      Any other split prints `S19-INFORMATIONAL … no verdict`.
+    - PRODUCTION UNTOUCHED: no model_version row, config, predict path,
+      trainer or export changes; the command writes nothing (test pins the
+      ModelVersion table byte-for-byte before/after; test pins that
+      `_train_fresh_soccer` / `_generate_predictions_soccer` pass no
+      weights).
+  - CHOICES MADE UNDER LAW 4 (each ARCHITECT-RULE):
+    1. Decay applies to the attack/defense (Poisson strengths) fit only,
+       NOT to Elo. Elo K-updates are already recency-weighted by
+       construction; the Dixon-Coles time weight is defined on the
+       strengths likelihood. ARCHITECT-RULE.
+    2. The n/(n+5) shrinkage keeps the RAW match count (not an effective
+       sum of weights), so the candidate changes exactly one thing, the
+       weighted mean. ARCHITECT-RULE.
+    3. The gate is improve's rule (>= 0.0050 log-loss, ties reject, n >=
+       30) applied to the LEAKAGE-FREE backtest, not to improve's 30-day
+       holdout replay. S6 (2026-08-16) ruled the old holdout eval
+       contaminated ("must not be the gate"); the leakage-free backtest is
+       soccer's judge. ARCHITECT-RULE.
+    4. Evaluation set: PL 2023/24 + 2024/25 (the S1 two-season set) + 2025/26
+       (the season finished since), pooled into ONE delta vs the bar, as
+       improve reads one holdout number. Per-season rows are
+       informational. A missing season (e.g. a different stored season
+       string) makes the verdict INVALID, never a pass on a partial set.
+       The in-progress 2026/27 is excluded (live, thin). ARCHITECT-RULE.
+    5. "v22" arm = the harness with production's STORED poisson config:
+       both dixon_coles_rho AND elo_goal_coeff (resolved from the
+       production ModelVersion; no production model → INVALID, nothing
+       faked). Both arms share it; the harness's Elo config and default
+       scoring context are identical in both arms. ARCHITECT-RULE.
+    6. The per-season walk keeps the existing harness's scope (strengths
+       and Elo from that season's prior matches only), so within a season
+       the oldest weight is ~0.5^(290/365) ≈ 0.58: the candidate is a
+       modest perturbation there, by design of the frozen value, not
+       tuned to be larger. ARCHITECT-RULE.
+  - FINDING (law 1; Issue owed — the executor cannot touch GitHub): the
+    PLAIN `soccer-backtest` (no `--candidate`) resolves production's rho
+    but NOT its elo_goal_coeff; it evaluates at the dataclass default
+    0.0023, not the production 0.0008 (S1, 2026-08-15). Left unchanged
+    here (it would move the existing report's numbers outside this lane's
+    scope); the S19 comparison resolves both.
+  - OPERATOR COMMAND (laptop, real DB, read-only; seconds to minutes):
+    `python cli.py soccer-backtest --candidate time-decay`
+    Paste the table and the `S19-GATE:` line into the PR / architect
+    chat. REJECT is a normal, correct outcome.
+  - RECEIPTS: `tests/test_soccer_s19_s20.py` 26 tests — RPS hand values
+    (1,0,0)/A = 1.0, uniform/H = 5/18, uniform/D = 1/9, (.5,.3,.2)/A =
+    0.445; RPS == score_1x2().rps over 600 random cases; decay weights
+    (0 → 1, 365 → 0.5, 730 → 0.25); weighted strengths by hand; the gate
+    rule (delta == bar passes, tie rejects, n < 30 INVALID); end to end on
+    a synthetic 8-club two-season world: both arms score the same 72
+    matches, log-loss + RPS for both, one `S19-GATE:` line, ModelVersion
+    table unchanged. Full suite: 333 passed. Synthetic console receipt
+    (meaningless numbers, shape only): `S19-GATE: REJECT — candidate
+    time-decay(half_life=365d) log-loss 1.1288 vs production v22 1.1296,
+    delta +0.0008 (bar >= 0.0050; ties reject) over n=72 · RPS 0.2338 vs
+    0.2341 (reported only)`. PENDING: the operator's real run.
+
 - **#89 BUILT: NO-SIDE EXEC COST FOR AWAY PICKS (architect 2026-09-30; K-track).**
   - SPEC (architect ruling 2026-09-30): "derived NO-side exec cost for AWAY
     picks — the Desk shows exec/maker costs only on the home contract; an

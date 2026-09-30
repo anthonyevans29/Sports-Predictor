@@ -206,3 +206,68 @@ def test_workflow_wires_the_script():
     assert "scripts/ledger.py" in wf and "LEDGER_PROJECT_TOKEN" in wf and "workflow_dispatch" in wf
     for ev in ("issues:", "pull_request:"):
         assert ev in wf
+
+
+class MergeGH:
+    """Issues with labels/state; records writes."""
+    repo = "o/r"
+
+    def __init__(self, issues):
+        self.issues, self.calls = issues, []
+
+    def rest(self, method, path, body=None):
+        self.calls.append((method, path, body))
+        if method == "GET" and "/issues/" in path:
+            n = int(path.rsplit("/", 1)[1])
+            x = self.issues[n]
+            return {"number": n, "node_id": f"I{n}", "state": x["state"],
+                    "labels": [{"name": lab} for lab in x["labels"]]}
+        if method == "GET" and "/pulls/" in path:
+            return self.pr
+        return {}
+
+
+def test_merged_pr_closes_its_refs_itself_limitation_rule_kept():
+    gh = MergeGH({111: {"state": "open", "labels": ["class:lane"]},
+                  90: {"state": "open", "labels": ["class:finding"]},
+                  96: {"state": "open", "labels": ["class:limitation"]},
+                  109: {"state": "closed", "labels": ["class:finding"]}})
+    proj = FakeProject()
+    for n in (111, 90, 96):
+        proj.add(f"I{n}")
+    pr = {"number": 114, "merged": True, "merge_commit_sha": "0128299abc",
+          "body": "Closes #111\nCloses #90\nCloses #96\nCloses #109"}
+    got = L.handle(gh, proj, TAX, "pull_request", {"action": "closed", "pull_request": pr})
+    assert got == ["#90:closed", "#90:Done", "#96:limitation kept open", "#109:already closed",
+                   "#111:closed", "#111:Done"], got                          # closes_refs sorts the refs
+    assert {c[1] for c in gh.calls if c[0] == "PATCH"} == {"repos/o/r/issues/90", "repos/o/r/issues/111"}
+    assert proj.status["item-I111"] == "Done" and "item-I96" not in proj.status
+    close = next(c for c in gh.calls if c[1] == "repos/o/r/issues/111" and c[0] == "PATCH")[2]
+    assert close == {"state": "closed", "state_reason": "completed"}
+    note = next(c[2]["body"] for c in gh.calls if c[1] == "repos/o/r/issues/111/comments")
+    assert "Closed by #114 (merged as 0128299)" in note
+def test_limitation_needs_the_phrase_and_unmerged_prs_close_nothing():
+    gh = MergeGH({96: {"state": "open", "labels": ["class:limitation"]}})
+    got = L.handle(gh, None, TAX, "pull_request", {"action": "closed", "pull_request": {
+        "number": 5, "merged": True, "body": "Closes #96"}})
+    assert got == ["#96:limitation kept open"] and not any(c[0] == "PATCH" for c in gh.calls)
+    assert "Resolves limitation" in next(c[2]["body"] for c in gh.calls if c[0] == "POST")
+    gh2 = MergeGH({96: {"state": "open", "labels": ["class:limitation"]}})
+    got = L.handle(gh2, None, TAX, "pull_request", {"action": "closed", "pull_request": {
+        "number": 6, "merged": True, "body": "Closes #96. Resolves limitation."}})
+    assert got == ["#96:closed"]
+    gh3 = MergeGH({111: {"state": "open", "labels": ["class:lane"]}})
+    assert L.handle(gh3, None, TAX, "pull_request", {"action": "closed", "pull_request": {
+        "number": 7, "merged": False, "body": "Closes #111"}}) == [] and gh3.calls == []
+
+
+def test_close_merged_replay_refuses_an_unmerged_pr(monkeypatch, capsys):
+    gh = MergeGH({})
+    gh.pr = {"number": 8, "merged": False, "body": "Closes #1"}
+    monkeypatch.setenv("GITHUB_REPOSITORY", "o/r")
+    monkeypatch.setenv("GITHUB_TOKEN", "t")
+    monkeypatch.delenv("LEDGER_PROJECT_TOKEN", raising=False)
+    monkeypatch.setattr(L, "GH", lambda token, repo: gh)
+    assert L.main(["close-merged", "8"]) == 1 and "not merged" in capsys.readouterr().out
+    wf = (ROOT / ".github" / "workflows" / "ledger.yml").read_text()
+    assert "closed]" in wf and '"$LEDGER_MODE" "$LEDGER_PR"' in wf and "${{ inputs.pr }}\n" not in wf.split("run:")[-1]

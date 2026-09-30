@@ -22,6 +22,63 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **CORRECTION #117: THE SOCCER TWO-WAY SHORTCUT IN THE FIXTURES EXPORT,
+  THE WINDOW CARD AND THE LINE-MOVE READ (architect AUTHORIZED
+  2026-09-30, HIGH: cups are on the venue-edge charter).**
+  - FINDING (#117): "HOME + AWAY present = two-sided" also lived in
+    `_fixture_row` (fixtures export: cups, UNL) and in
+    `venue.kalshi_home_prob` (the window card's venue gap / STALE-BOOK?).
+    #113 corrected only the predictions export.
+  - READ WHILE FIXING (law 1): the shortcut was wider than "a leg
+    missing". `kalshi_home_prob` and the line-move Kalshi series computed
+    home as H/(H+A) EVEN WITH the TIE leg present. On a 1X2 market that is
+    not a home-win probability, and the window card compared it against a
+    three-way book fair.
+    - So the server-side venue gap and the STALE-BOOK? flag were wrong on
+      EVERY soccer row with Kalshi. The synthetic receipt shows it: book
+      fair H about 0.497, old Kalshi read 0.667, a false STALE-BOOK?.
+    - The Cockpit's `kalFromFixture` normalized with the draw only when a
+      book fair existed. So Kalshi-only cup / UNL rows were read two-way.
+    - The Cockpit's venue-edge ENGINE itself needs 4 books, so it always
+      had a fair and was protected. The window card's own flag and pages
+      were not.
+  - BUILT (soccer only; NFL / NCAA / NHL / MLB two-way reads unchanged):
+    - `venue.kalshi_home_prob(..., three_way)`: soccer needs HOME, DRAW
+      and AWAY, and home = H/(H+D+A). A missing leg gives None, so there
+      is no venue gap and no flag.
+    - `line_move` (`three_way`, set from `m.sport` in
+      `line_move_for_match`): the soccer Kalshi series is normalized over
+      the full set and exists only when every leg does.
+    - `_fixture_row`: a soccer set missing a leg gets `status` and
+      `input_quality.kalshi` = "partial" (the predictions export's soccer
+      word) and null exec fields. `kalshi.prob` stays raw. There are new
+      `kalshi_partial` receipt counters (fixtures + window card) in the
+      CLI lines.
+    - Cockpit `kalFromFixture`: normalizes with the draw leg whenever the
+      fixture carries one. "partial" is never two-sided.
+  - RECEIPT PENDING (law 5): the operator runs `python3
+    scripts/kalshi_soccer_twoway_receipt.py --start 2026-08-01 --end
+    2026-10-15` on the laptop. Every changed soccer row prints BEFORE /
+    AFTER (status, Kalshi home, exec, venue gap, flag), plus the
+    STALE-BOOK? before->after tally.
+  - Receipts:
+    - `tests/test_soccer_kalshi_incomplete_117.py` 4 passed: the
+      three-way home price; the missing TIE gives None; NFL two-way is
+      unchanged; the fixtures "partial" row has null exec with the raw
+      prob kept, and the counters are two_sided 1 / partial 1; on the
+      window card the full set reads 0.4902 and the no-TIE row has no
+      price, gap or flag; the receipt script prints 0.6667 ->
+      0.4902 and the false STALE-BOOK? before.
+    - All four FAIL on the pre-fix code (reproduced).
+    - `tests/test_line_move_alarm.py`: the soccer case now seeds a full
+      1X2 set (the move is still +7.0pp), and the same prices without
+      the TIE produce no Kalshi series and no flag (the old read called
+      it +9.3pp).
+    - `scripts/cockpit_window_verify.py` 15/15 (3 new: Kalshi-only 1X2 is
+      three-way; "partial" gives no price; two-way is unchanged). The
+      other six Cockpit verifies are green.
+    - Full suite: 281 passed.
+
 - **LEDGER AUTO-CLOSE: FIRST LIVE RUN + MATCHER FIX (2026-09-30).**
   - LIVE RECEIPTS (architect: "merge, replay #114 and #110, report which
     Issues closed"):

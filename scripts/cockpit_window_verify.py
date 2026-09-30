@@ -118,6 +118,15 @@ def main():
               and "STALE-BOOK? 1" in summ, summ)
         page.click("#tabDesk")
         check("back to Desk: Next 24h hidden", page.is_visible("#deskView") and not page.is_visible("#nextView"))
+        # #117 (2026-09-30): a Kalshi-only 1X2 fixture (no book fair) normalizes over
+        # all three legs; a "partial" soccer set (a leg missing) is never two-sided
+        k3 = page.evaluate("kalFromFixture({status:'two_sided',prob:{HOME:0.5,DRAW:0.27,AWAY:0.25}},null)")
+        check("#117: Kalshi-only 1X2 fixture normalizes over HOME+DRAW+AWAY (not H/(H+A))",
+              k3 is not None and abs(k3["HOME"] - 0.5 / 1.02) < 1e-9 and "DRAW" in k3, str(k3))
+        kp = page.evaluate("kalFromFixture({status:'partial',prob:{HOME:0.5,AWAY:0.25}},{HOME:0.5,DRAW:0.27,AWAY:0.23})")
+        check("#117: a 'partial' soccer set yields no Kalshi price", kp is None, str(kp))
+        k2 = page.evaluate("kalFromFixture({status:'two_sided',prob:{HOME:0.54,AWAY:0.46}},null)")
+        check("#117: two-way fixtures (NFL/NHL/NCAA) unchanged", abs(k2["HOME"] - 0.54) < 1e-9, str(k2))
         check("no page errors", not errors, "; ".join(errors))
         browser.close()
     srv.shutdown()

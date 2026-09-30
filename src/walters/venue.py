@@ -57,16 +57,21 @@ def kalshi_exec(bid: float | None, ask: float | None) -> dict:
             "k_track": K_TRACK_NOTE}
 
 
-def kalshi_home_prob(snapshots, kickoff) -> dict | None:
+def kalshi_home_prob(snapshots, kickoff, three_way: bool = False) -> dict | None:
     """Latest PRE-KICKOFF Kalshi price per side (the fixtures-export rule);
-    two-sided only. Returns {"home": P(home) normalized over HOME+AWAY,
-    "captured_at": latest capture} or None when not two-sided.
+    complete sets only. Returns {"home": P(home) normalized over the FULL
+    outcome set, "captured_at": latest capture} or None when a leg is missing.
     Sum-to-1 rescaling is the only form comparable to the de-vigged book fair
     (ratified 2026-09-26). NOTE: the fixtures export's `kalshi.prob` is the
-    RAW stored per-side value, not rescaled — consumers normalize it."""
+    RAW stored per-side value, not rescaled — consumers normalize it.
+    CORRECTION #117 (architect 2026-09-30): soccer (three_way) needs HOME,
+    DRAW and AWAY and normalizes over all three. H/(H+A) on a 1X2 market is
+    not a home-win probability, and a missing TIE leg is incomplete, never
+    a two-way set."""
+    legs = ("HOME", "DRAW", "AWAY") if three_way else ("HOME", "AWAY")
     latest: dict[str, object] = {}
     for snap in snapshots:
-        if snap.source != "kalshi" or snap.selection not in ("HOME", "AWAY"):
+        if snap.source != "kalshi" or snap.selection not in legs:
             continue
         if kickoff is not None and snap.captured_at is not None and snap.captured_at >= kickoff:
             continue  # in-play never
@@ -74,14 +79,14 @@ def kalshi_home_prob(snapshots, kickoff) -> dict | None:
         if (cur is None or (snap.captured_at is not None
                             and (cur.captured_at is None or snap.captured_at > cur.captured_at))):
             latest[snap.selection] = snap
-    if set(latest) != {"HOME", "AWAY"}:
+    if set(latest) != set(legs):
         return None
-    h, a = latest["HOME"].devig_prob, latest["AWAY"].devig_prob
-    if h is None or a is None or h + a <= 0:
+    vals = [latest[k].devig_prob for k in legs]
+    if any(v is None for v in vals) or sum(vals) <= 0:
         return None
     caps = [s.captured_at for s in latest.values() if s.captured_at is not None]
     home = latest["HOME"]
-    return {"home": h / (h + a), "captured_at": max(caps) if caps else None,
+    return {"home": home.devig_prob / sum(vals), "captured_at": max(caps) if caps else None,
             # K-track: the HOME contract's quotes (None on pre-K1 snapshots)
             "home_bid": getattr(home, "yes_bid", None),
             "home_ask": getattr(home, "yes_ask", None)}

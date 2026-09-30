@@ -13,6 +13,12 @@ Every drop adds an entry going forward.
   1X2 sets and MLB rows are unchanged.
 - The before/after receipt is `scripts/kalshi_soccer_incomplete_receipt.py`.
 
+## 2026-09-30 (ledger: the bot closes a merged PR's "Closes #N" itself)
+- GitHub did not register the `Closes #N` links of Claude-opened PRs, so
+  merged work left its Issues open. The ledger bot now closes them on
+  merge (Done), keeps a limitation open unless the PR says "Resolves
+  limitation", and can replay an already-merged PR (`close-merged`).
+
 ## 2026-09-30 (Cockpit: the fun book; Kalshi quotes on MLB/soccer exports)
 - The fills importer has a "fun" book: NHL and UNL singles with no
   system call, MVE combos, and non-sport markets. "Off-book other" is

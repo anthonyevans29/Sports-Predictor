@@ -9,13 +9,17 @@ on:
   issues:
     types: [opened, labeled, unlabeled, reopened, edited, closed]
   pull_request:
-    types: [opened, edited, reopened]
+    types: [opened, edited, reopened, closed]
   workflow_dispatch:
     inputs:
       mode:
-        description: "bootstrap: labels, milestones, the backfill Issues, the board (idempotent)"
+        description: "bootstrap (labels, milestones, backfill Issues, board; idempotent) or close-merged (replay a merged PR's Closes #N)"
         required: true
         default: bootstrap
+      pr:
+        description: "close-merged only: the merged PR number"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -38,4 +42,7 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LEDGER_PROJECT_TOKEN: ${{ secrets.LEDGER_PROJECT_TOKEN }}
-        run: python scripts/ledger.py ${{ github.event_name == 'workflow_dispatch' && 'bootstrap' || 'event' }}
+          # inputs travel as env, never interpolated into the shell line
+          LEDGER_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'event' }}
+          LEDGER_PR: ${{ inputs.pr }}
+        run: python scripts/ledger.py "$LEDGER_MODE" "$LEDGER_PR"

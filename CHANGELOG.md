@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (Cockpit fills: side from the ticker suffix; a fourth book; no default order)
+- The Kalshi fills importer resolves the side from the ticker suffix first
+  (`KX{FAM}GAME-{date}{AWAY}{HOME}-{SIDE}`, TIE = draw) and the title second
+  ("{Team} wins — {Team}"). Stored fills are re-derived at classification,
+  so the 33 "side not resolvable" fills re-classify.
+- A fourth book, "system-pick, unlogged": fills that match a stored
+  prediction (harvested from results exports) when no ledger call exists.
+- The Open calls table shows "—" instead of a default "limit 0.59" on rows
+  without a Kalshi ladder.
+
 ## 2026-09-29 (the ledger: Issues = state, BACKLOG = history, one Project board = order)
 - A fixed label taxonomy (track: / class: / sport: / size: plus
   needs-ruling / needs-operator) and six dated or condition-bound

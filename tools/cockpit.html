@@ -839,14 +839,14 @@ function gradeLedger(L,outs){
 }
 $("resultsFile").addEventListener("change",async e=>{
   const fs=Array.from(e.target.files); if(!fs.length)return;
-  let outs=[];
+  let outs=[], picks=[];
   for(const f of fs){
-    try{ outs=outs.concat(outcomesFromDoc(JSON.parse(await f.text()))); }
+    try{ const doc=JSON.parse(await f.text()); outs=outs.concat(outcomesFromDoc(doc)); picks=picks.concat(picksFromDoc(doc,f.name)); }
     catch(err){ $("ledgerNote").textContent=`Could not parse ${f.name}: ${err.message}`; return; }
   }
-  const L=loadLedger(); const n=gradeLedger(L,outs); const dd=saveLedger(L);
+  const L=loadLedger(); const n=gradeLedger(L,outs); const np=harvestPicks(L,picks); const dd=saveLedger(L);
   const open=L.calls.filter(c=>c.status==="open").length;
-  $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below).`
+  $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
     +dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
 });
@@ -1001,8 +1001,10 @@ function renderLedger(){
       +`<td>${c.claim_at?`${px(c.claim_market_p)}${c.claim_exec_cost!=null?` <span class="note">k ${px(c.claim_exec_cost)}</span>`:""} <span class="note">${esc(hm(c.claim_at))}</span>`:'<span class="note">unknown (pre-rule)</span>'}</td>`
       +`<td>${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
       +`<td>${c.order_type?`${esc(c.order_type)} @ ${px(c.fill_price)}`:""}${!isShadow(c)
-          ?` <select class="fillType" data-id="${esc(c.id)}"><option value="limit">limit</option><option value="market">market</option></select>`
-            +`<input class="fillPx" data-id="${esc(c.id)}" size="5" placeholder="0.59"><button class="ghost fillBtn" data-id="${esc(c.id)}">Record fill</button>`
+          // No default: a row without a Kalshi ladder shows "—", never a suggested
+          // order (architect 2026-09-30: "limit 0.59" sat on every Week 5 row).
+          ?` <select class="fillType" data-id="${esc(c.id)}"><option value="">—</option><option value="limit">limit</option><option value="market">market</option></select>`
+            +`<input class="fillPx" data-id="${esc(c.id)}" size="5" placeholder="${c.kalshi_join_bid!=null?(+c.kalshi_join_bid).toFixed(2):"—"}"><button class="ghost fillBtn" data-id="${esc(c.id)}">Record fill</button>`
           :'<span class="note">shadow — never filled</span>'}</td>`
       +`<td>${canExec?`<button class="ghost execBtn" data-id="${esc(c.id)}">Execute now</button>`:""}</td></tr>`;}).join("")
     +"</tbody></table></div>":'<div class="note">No unmatched open calls.</div>');
@@ -1185,11 +1187,33 @@ function parseTicker(t){
   const date=`20${m[2]}-${String(MONTHS[m[3]]).padStart(2,"0")}-${m[4]}`;
   return {kind:"sport",family:m[1],sports:FAMILY_SPORTS[m[1]],date,teams:m[6],sideCode:m[7]};
 }
+// SIDE RESOLUTION (architect 2026-09-30; 33 fills were "side not resolvable
+// (title not 'A vs B')"). Kalshi's game grammar: ticker
+// KX{FAM}GAME-{date}{AWAY}{HOME}-{SIDE}, title "{Team} wins — {Team}", TIE = the
+// draw. The TICKER SUFFIX decides first: the side code is the away code
+// (prefix of the teams block) or the home code (suffix), so the backed ROLE is
+// known without any name. The title comes second: it supplies names (and the
+// old "A vs B" form still parses). Re-derived for every stored fill at
+// classification, so earlier imports re-classify without re-importing.
 function titleTeams(title){
   const t=String(title||"").replace(/winner\??/i,"").trim();
   for(const sep of [" vs "," vs. "," v "," at "," @ "]){ const i=t.toLowerCase().indexOf(sep);
     if(i>0) return [t.slice(0,i).trim(), t.slice(i+sep.length).trim()]; }
   return null;
+}
+function titleParse(title){
+  const t=String(title||"").trim();
+  const parts=t.split(/\s+[—–-]\s+/);
+  if(parts.length>=2){
+    const m=parts[0].match(/^(.*?)\s+wins?\b/i);
+    const rest=parts.slice(1).join(" - ").trim();
+    const pair=titleTeams(rest);
+    if(m){ const backed=m[1].trim();
+      if(/^(tie|draw)$/i.test(backed)) return {backed:"Draw",teams:pair};
+      return {backed,teams:pair||[backed,rest]}; }
+  }
+  const pair=titleTeams(t);
+  return pair?{backed:null,teams:pair}:null;
 }
 function codeFits(code,name){
   const w=normTeam(name).split(" ").filter(Boolean); if(!w.length) return 0;
@@ -1199,37 +1223,106 @@ function codeFits(code,name){
   if(c.length>=2&&ini.startsWith(c.slice(0,2))) return 1;
   return 0;
 }
-function backedTeam(p,title,side){
-  const tt=titleTeams(title); if(!tt) return {team:null,why:"title not 'A vs B'"};
-  let pick=null;
-  if(p.sideCode==="TIE") pick="Draw";
-  else { const s=tt.map(n=>codeFits(p.sideCode,n));
-    if(s[0]!==s[1]&&Math.max(...s)>0) pick=s[0]>s[1]?tt[0]:tt[1]; }
-  if(!pick) return {team:null,teams:tt,why:`side code ${p.sideCode} not resolvable to a team`};
-  if(String(side||"yes").toLowerCase().startsWith("n")){
-    if(pick==="Draw") return {team:null,teams:tt,why:"NO on the tie leg (not a single outcome)"};
-    const other=pick===tt[0]?tt[1]:tt[0];
-    return {team:other,teams:tt,why:"NO on "+pick,noOn:pick};
+function tickerRole(p){
+  const T=p.teams||"", S=p.sideCode||"";
+  if(S==="TIE") return {role:"DRAW",codes:null};
+  if(!S||T.length<=S.length) return {role:null,codes:null};
+  const e=T.endsWith(S), b=T.startsWith(S);
+  if(e&&!b) return {role:"HOME",codes:{away:T.slice(0,-S.length),home:S}};
+  if(b&&!e) return {role:"AWAY",codes:{away:S,home:T.slice(S.length)}};
+  return {role:null,codes:null};                    // both or neither: never guessed
+}
+function resolveSide(p,title,side){
+  const tr=tickerRole(p), tp=titleParse(title);
+  const no=String(side||"yes").toLowerCase().startsWith("n");
+  const r={role:tr.role,codes:tr.codes,teams:tp?tp.teams:null,backed:null,via:tr.role?"ticker":null,why:null};
+  if(tr.role==="DRAW") r.backed="Draw";
+  else if(tr.role&&r.teams){                         // name the backed role from the title, by code
+    const s=r.teams.map(n=>codeFits(p.sideCode,n));
+    if(s[0]!==s[1]&&Math.max(...s)>0) r.backed=s[0]>s[1]?r.teams[0]:r.teams[1];
   }
-  return {team:pick,teams:tt};
+  if(!tr.role&&tp&&tp.backed){ r.backed=tp.backed; r.via="title"; }
+  if(!tr.role&&!r.backed&&r.teams&&p.sideCode){      // legacy: "A vs B" + side code
+    const s=r.teams.map(n=>codeFits(p.sideCode,n));
+    if(s[0]!==s[1]&&Math.max(...s)>0){ r.backed=s[0]>s[1]?r.teams[0]:r.teams[1]; r.via="title"; }
+  }
+  if(!r.role&&!r.backed){ r.why=`side ${p.sideCode||"?"} not resolvable from the ticker or the title`; return r; }
+  if(no){
+    if(r.role==="DRAW"||r.backed==="Draw") return {...r,role:null,backed:null,why:"NO on the tie leg (not a single outcome)"};
+    const flip={HOME:"AWAY",AWAY:"HOME"}[r.role]||null;
+    const other=r.backed&&r.teams?(sameTeam(r.backed,r.teams[0])?r.teams[1]:r.teams[0]):null;
+    return {...r,role:flip,backed:other,noOn:r.backed||r.role,why:"NO on "+(r.backed||r.role)};
+  }
+  return r;
+}
+function codesFit(T,c){                             // the ticker's {AWAY}{HOME} block fits this game
+  for(let i=2;i<=Math.min(4,T.length-2);i++)
+    if(codeFits(T.slice(0,i),c.away)>0&&codeFits(T.slice(i),c.home)>0) return true;
+  return false;
 }
 function tokOverlap(a,b){const A=new Set(normTeam(a).split(" ").filter(Boolean)), B=normTeam(b).split(" ").filter(Boolean);
   return B.filter(x=>A.has(x)).length;}
 function sameTeam(a,b){ if(!a||!b) return false; if(a==="Draw"||b==="Draw") return a===b;
   return tokOverlap(a,b)>0; }
-function matchFill(fx,calls){
+function gameFits(fx,g){
+  if(fx.teams_title&&fx.teams_title.every(t=>sameTeam(t,g.home)||sameTeam(t,g.away))) return true;
+  return !!fx.teams&&codesFit(fx.teams,g);
+}
+function backedIn(fx,g){                            // the fill's backed side, named in this game
+  if(fx.backed_role==="HOME") return g.home;
+  if(fx.backed_role==="AWAY") return g.away;
+  if(fx.backed_role==="DRAW") return "Draw";
+  return fx.backed;
+}
+function matchFill(fx,calls,picks){
   if(fx.kind!=="sport") return {book:"off_book_other",category:fx.category};
-  const cands=calls.filter(c=>c.call_type!=="parlay_leg"&&fx.sports.includes(c.sport)
-    &&dayDiff((c.kickoff||c.log_date||"").slice(0,10),fx.date)<=1
-    &&fx.teams_title&&fx.teams_title.every(t=>sameTeam(t,c.home)||sameTeam(t,c.away)));
-  if(!cands.length) return {book:"off_book_sports",category:"no logged call for this game"};
+  const near=g=>fx.sports.includes(g.sport)&&dayDiff((g.kickoff||g.log_date||g.date||"").slice(0,10),fx.date)<=1;
+  const cands=calls.filter(c=>c.call_type!=="parlay_leg"&&near(c)&&gameFits(fx,c));
   const pickName=c=>c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:"Draw";
-  const agree=cands.filter(c=>sameTeam(fx.backed,pickName(c)));
+  if(!cands.length){
+    // PRE-LEDGER ERA (architect 2026-09-30): no logged call, but a STORED
+    // PREDICTION for the game -> the fourth book, "system-pick, unlogged".
+    const ps=(picks||[]).filter(g=>near(g)&&gameFits(fx,g));
+    if(!ps.length) return {book:"off_book_sports",category:"no logged call for this game"};
+    const agree=ps.filter(g=>sameTeam(backedIn(fx,g),pickName(g)));
+    if(agree.length) return {book:"system_pick_unlogged",category:`system-pick, unlogged (${agree[0].source})`};
+    return {book:"off_book_sports",category:"stored prediction exists but the side disagrees",plausible:true};
+  }
+  const agree=cands.filter(c=>sameTeam(backedIn(fx,c),pickName(c)));
   const real=agree.filter(c=>c.call_type!=="quarantine_shadow"&&(c.units||0)>0);
   if(real.length){ const c=real[0];
     return {book:"system_matched",category:`${c.engine} · ${c.tier}`,engine:c.engine,tier:c.tier,call_id:c.id}; }
   if(agree.length) return {book:"off_book_sports",category:"matches a quarantine SHADOW (off-policy play)",plausible:true};
   return {book:"off_book_sports",category:"logged call exists but the side disagrees",plausible:true};
+}
+// STORED PREDICTIONS (the pre-ledger era): the model's pick per game, harvested
+// from results exports (predicted.top_pick) and prediction exports as they are
+// loaded, kept in the ledger object (L.system_picks, additive) so Export/Import
+// carry them. Key: sport|date|home|away; a later harvest replaces an earlier one.
+function picksFromDoc(doc,source){
+  const sport=String(doc.sport||doc.competition_code||doc.competition||"?").toUpperCase();
+  const map={home_win:"HOME",away_win:"AWAY",draw:"DRAW",HOME:"HOME",AWAY:"AWAY",DRAW:"DRAW"};
+  const out=[];
+  for(const x of (doc.results||[])){ const pk=map[(x.predicted||{}).top_pick];
+    if(pk) out.push({sport,date:String(x.date||x.utc_date||"").slice(0,10),home:x.home_team,away:x.away_team,pick:pk,source}); }
+  return out;
+}
+function harvestPicks(L,picks){
+  L.system_picks=L.system_picks||[]; const idx={};
+  L.system_picks.forEach((g,i)=>idx[[g.sport,g.date,g.home,g.away].join("|")]=i);
+  let n=0;
+  for(const g of picks){ if(!g.home||!g.away||!g.date) continue;
+    const k=[g.sport,g.date,g.home,g.away].join("|");
+    if(k in idx) L.system_picks[idx[k]]=g; else { idx[k]=L.system_picks.length; L.system_picks.push(g); n++; } }
+  return n;
+}
+function deskPicks(){                               // the currently loaded prediction export
+  return (typeof rows!=="undefined"?rows:[]).filter(r=>r.pick&&r.home&&r.away&&r.utc)
+    .map(r=>({sport:r.sport,date:String(r.utc).slice(0,10),home:r.home,away:r.away,pick:r.pick,source:"loaded predictions"}));
+}
+function sideFields(p,title,side){
+  const r=resolveSide(p,title,side);
+  return {backed:r.backed,backed_role:r.role,teams_title:r.teams||null,resolve_note:r.why||null,resolved_via:r.via};
 }
 function importKalshiCSV(text,L){
   const rows=parseCSV(text); if(rows.length<2) throw new Error("no data rows");
@@ -1250,7 +1343,7 @@ function importKalshiCSV(text,L){
       staked:+(qty*entry).toFixed(4),fees:+fees.toFixed(4),
       pnl_pre:pre!=null?pre:(net!=null?net+fees:0),pnl_net:net!=null?net:(pre!=null?pre-fees:0),
       opened:g(r,"openTs"),closed:g(r,"closeTs"),title:g(r,"title"),...p};
-    if(p.kind==="sport"){ const b=backedTeam(p,fx.title,fx.side); fx.backed=b.team; fx.teams_title=b.teams||null; fx.resolve_note=b.why||null; }
+    if(p.kind==="sport") Object.assign(fx,sideFields(p,fx.title,fx.side));
     L.fills.push(fx); have.add(id); added++;
   }
   return {added,dup,mapped:Object.entries(H).filter(([k,v])=>v!=null).map(([k,v])=>`${k}←${hdr[v]}`),
@@ -1287,10 +1380,12 @@ function mveClass(fx,calls){
   return {book:"off_book_other",category:legs.length?`MVE combo, non-sport legs (${legs.length})`:"MVE combo, legs not identified"};
 }
 function classifyFills(L){
-  const calls=L.calls||[];
-  return (L.fills||[]).map(fx=>({...fx,...(fx.kind==="parlay"?mveClass(fx,calls):fx.kind==="sport"&&!fx.backed
+  const calls=L.calls||[], picks=(L.system_picks||[]).concat(deskPicks());
+  return (L.fills||[]).map(f=>{
+    const fx=f.kind==="sport"?{...f,...sideFields(f,f.title,f.side)}:f;   // re-derived: old imports re-classify
+    return {...fx,...(fx.kind==="parlay"?mveClass(fx,calls):fx.kind==="sport"&&!fx.backed&&!fx.backed_role
       ?{book:"off_book_sports",category:"side not resolvable ("+(fx.resolve_note||"?")+")",plausible:true}
-      :matchFill(fx,calls))}));
+      :matchFill(fx,calls,picks))};});
 }
 // Trailing-30-day window (ratified 2026-09-27: ledger-level, not per game),
 // by the fill's close timestamp (ISO with offset, e.g. -05:00).
@@ -1303,7 +1398,8 @@ function fillAgg(fs){
   const pre=fs.reduce((a,x)=>a+x.pnl_pre,0), net=fs.reduce((a,x)=>a+x.pnl_net,0);
   return {n,staked:st,fees:fe,pre,net,avg:n?st/n:null,feePct:net<0?fe/(-net)*100:null,feePerDollar:st>0?fe/st:null};
 }
-const BOOKS=[["system_matched","system-matched"],["off_book_sports","off-book sports"],["off_book_other","off-book other"]];
+const BOOKS=[["system_matched","system-matched"],["system_pick_unlogged","system-pick, unlogged"],
+  ["off_book_sports","off-book sports"],["off_book_other","off-book other"]];
 function realizedHTML(L){
   const fs=classifyFills(L); if(!fs.length) return '<div class="note">No Kalshi fills imported.</div>';
   const $$=v=>(v<0?"−$":"$")+Math.abs(v).toFixed(2);
@@ -1324,15 +1420,15 @@ function realizedHTML(L){
     +(plaus.length?`<div class="tablewrap"><table><thead><tr><th>ticker</th><th>side</th><th>title</th><th>backed</th><th>why</th><th>net</th></tr></thead><tbody>`
       +plaus.map(x=>`<tr><td>${esc(x.ticker)}</td><td>${esc(x.side)}</td><td>${esc(x.title)}</td><td>${esc(x.backed||"—")}</td><td class="reason">${esc(x.category)}</td><td>${$$(x.pnl_net)}</td></tr>`).join("")
       +"</tbody></table></div>":'<div class="note">none</div>')
-    +'<div class="note" style="margin-top:6px">Non-claim: fill↔call matching is a name/date heuristic (ticker family + date ±1 + team-in-game + side agrees); review the list above by hand.</div>';
+    +'<div class="note" style="margin-top:6px">Non-claim: fill↔call matching is a heuristic (ticker family + date ±1 + team-in-game by name or ticker code + side agrees; the side comes from the ticker suffix first, the title second); review the list above by hand.</div>';
 }
 function realizedLines(L){
   const fs=classifyFills(L); if(!fs.length) return ["REALIZED (Kalshi fills): none imported"];
   const m=v=>(v<0?"-":"+")+"$"+Math.abs(v).toFixed(2);
-  const ln=(k,a)=>`${k.padEnd(16)}${String(a.n).padStart(5)}${("$"+a.staked.toFixed(2)).padStart(11)}${("$"+a.fees.toFixed(2)).padStart(9)}${m(a.pre).padStart(11)}${m(a.net).padStart(11)}`;
+  const ln=(k,a)=>`${k.padEnd(22)}${String(a.n).padStart(5)}${("$"+a.staked.toFixed(2)).padStart(11)}${("$"+a.fees.toFixed(2)).padStart(9)}${m(a.pre).padStart(11)}${m(a.net).padStart(11)}`;
   const all=fillAgg(fs);
   return ["","REALIZED (Kalshi fills, real money, fees included — matching is a name/date heuristic)",
-    `${"book".padEnd(16)}${"n".padStart(5)}${"staked".padStart(11)}${"fees".padStart(9)}${"pre-fee".padStart(11)}${"net".padStart(11)}`,
+    `${"book".padEnd(22)}${"n".padStart(5)}${"staked".padStart(11)}${"fees".padStart(9)}${"pre-fee".padStart(11)}${"net".padStart(11)}`,
     ...BOOKS.map(([k,lab])=>ln(lab,fillAgg(fs.filter(x=>x.book===k)))), ln("TOTAL",all),
     `fees = ${all.feePct==null?"n/a (not a loss)":all.feePct.toFixed(0)+"% of the loss"} · avg fill $${(all.avg||0).toFixed(2)} · fee per $ staked ${((all.feePerDollar||0)*100).toFixed(1)}c`,
     (()=>{const t=fillAgg(trailing30(fs)); return `trailing 30d: ${t.n} fills · avg fill ${t.avg==null?"n/a":"$"+t.avg.toFixed(2)} · fee per $ staked ${t.feePerDollar==null?"n/a":(t.feePerDollar*100).toFixed(1)+"c"}`;})(),

@@ -22,6 +22,60 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **FILLS IMPORTER: SIDE FROM THE TICKER SUFFIX + A FOURTH BOOK + NO
+  DEFAULT ORDER (architect, 2026-09-30).**
+  - FINDING (architect): 33 fills were classified "side not resolvable
+    (title not 'A vs B')". Kalshi's grammar is ticker
+    `KX{FAM}GAME-{date}{AWAY}{HOME}-{SIDE}` with title "{Team} wins —
+    {Team}" (TIE = the draw). The importer only parsed "A vs B" titles.
+  - RULING (1): resolve the side from the ticker suffix first and the
+    title second; TIE = draw; re-run matching so the 33 re-classify.
+    - BUILT (`tools/cockpit.html`): `tickerRole` reads the side code as
+      the AWAY code (a prefix of the teams block) or the HOME code (a
+      suffix); both-or-neither is never guessed.
+    - `titleParse` reads "{X} wins — {Y}" (and the old "A vs B").
+    - A NO side flips the role; a NO on the tie leg stays unresolvable.
+    - Matching fits a game by title names OR by the ticker's
+      {AWAY}{HOME} codes against the call's teams, and names the backed
+      side from the call by role.
+    - The side is RE-DERIVED for every stored fill at classification,
+      so fills imported before the fix re-classify without a re-import.
+  - RULING (2): match fills against STORED PREDICTIONS when no ledger
+    call exists (the pre-ledger era), reported as "system-pick,
+    unlogged": a fourth book, never system-matched.
+    - BUILT: the results intake now harvests each results export's
+      `predicted.top_pick` into `L.system_picks` (additive; keyed
+      sport|date|home|away; Export/Import carry it). The currently
+      loaded prediction export also counts.
+    - A pick that disagrees with the fill's side is listed "stored
+      prediction exists but the side disagrees" (plausible, manual
+      review).
+    - The fourth book appears in the REALIZED table and in the Copy P&L
+      block (its column width fixed for the longer label).
+  - RULING (3): the Open calls table showed "limit 0.59" on every Week 5
+    row, which have no Kalshi ladder yet. It now shows "—" for both the
+    order type and the price. The price hint is the stored join bid when
+    one exists. Recording with no order type chosen is refused.
+  - Receipts (headless Chromium): `scripts/cockpit_fills_verify.py`
+    41/41 (was 23 checks):
+    - a legacy stored fill re-classifies to system_matched c1 via the
+      ticker;
+    - "Kansas City wins — Buffalo" is matched;
+    - the suffix CAR (away) disagrees with a shadow;
+    - a NO on the away code backs HOME and is matched;
+    - a fill with no title still matches by codes;
+    - nothing is "side not resolvable" any more;
+    - after a results export is loaded, NYY moves into "system-pick,
+      unlogged" and BOS disagrees (plausible). Book sizes go 6/0/10/3 ->
+      6/1/9/3;
+    - Week 5 rows show "—"; a join bid of 0.47 is shown; a blank order
+      type is refused.
+    - The other six Cockpit verifies are unchanged and green: exec
+      18/18, ledger 21/21, timing 18/18, v04 25/25, value 19/19,
+      window 12/12.
+  - READY TO PUBLISH (the architect publishes the artifact; the repo copy
+    is not the live one).
+
 - **ISSUES LEDGER + PROJECT BOARD (architect rulings, 2026-09-29).**
   - RULINGS (three messages, attributed):
     - GitHub Issues are the STATE ledger. BACKLOG.md stays the

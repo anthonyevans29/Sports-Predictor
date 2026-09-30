@@ -22,6 +22,72 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **COCKPIT FOLLOW-ON: THE FUN BOOK + K-TRACK FIELDS ON MLB / SOCCER
+  EXPORTS (architect, 2026-09-30).**
+  - RULING (1), THE FUN BOOK: the fills importer reports a "fun" line.
+    It holds UNL and NHL singles (market-only families with no system
+    call), MVE combos, and non-sport markets, with its own n / staked /
+    fees / net beside system-matched, system-pick unlogged, and
+    off-book sports. The "off-book other" label retires. No moralizing
+    copy: it is a category. The Copy P&L block prints every book.
+    - BUILT (`tools/cockpit.html`):
+      - `FUN_SPORTS = {NHL, UNL}`: a single in those families with no
+        logged call for its game goes to fun ("NHL single (market-only,
+        no system call)"). One that does have a call is matched as
+        before.
+      - Every MVE combo goes to fun; the leg read only labels the
+        category ("MVE combo, 3 sports legs", "mixed legs (1/2 sports)",
+        …).
+      - Non-sport markets go to fun.
+      - BOOKS = system-matched · system-pick, unlogged · off-book sports
+        · fun, plus TOTAL. The REALIZED table and the Copy P&L block
+        print all of them.
+    - NOTE on the count: the ruling says "all five books". With "off-book
+      other" retired there are four books plus the TOTAL line, which
+      makes five lines. Built as four + TOTAL.
+    - Consequence: #90's question (do mixed MVE combos stay
+      off_book_other?) is answered by this ruling, so it closes with
+      this PR. The MVE title grammar still has no real CSV behind it,
+      but it now only labels a category inside fun.
+  - RULING (2): the MLB / soccer prediction exports gain `kalshi_bid` /
+    `kalshi_ask` / `kalshi_exec_cost` (additive). The Wild Card file
+    showed None on every row: the fields did not exist there, and the
+    Desk read the absence as null.
+    - BUILT (`src/walters/export.py` `_build_row`): the same
+      `venue.kalshi_exec` the NFL and fixtures exports use. It carries
+      the HOME contract's yes_bid / yes_ask + fee-adjusted cost (plus
+      `k_track`), only where the row's own Kalshi block is two-sided
+      (`market.kalshi.normalized`); null otherwise.
+    - No prediction value or existing field changes. The CSV output is
+      unchanged (fixed columns).
+  - FINDING (logged; Issue opened, not fixed here):
+    `_summarize_kalshi`'s full-set test is `3 if "DRAW" in kalshi else
+    2`, so a SOCCER game whose TIE market has no snapshot is normalized
+    over HOME + AWAY as if two-way. Its `prob` is then inflated, and it
+    counts as two-sided, which is the case its own comment warns
+    against.
+    - The new exec fields follow that flag rather than a second
+      definition. The fix (use the competition's outcome count) changes
+      exported `prob` values, so it needs its own PR and ruling.
+  - Receipts:
+    - `tests/test_kalshi_exec_mlb_soccer.py`: MLB two-sided -> (0.54,
+      0.56, 0.58) + k_track; MLB one-sided -> all null; soccer 1X2
+      three-legged -> (0.47, 0.49, 0.51); the exec fields always follow
+      market.kalshi.normalized; the market block is unchanged.
+    - `scripts/cockpit_fills_verify.py` 44/44:
+      - the NHL and UNL singles -> fun;
+      - every MVE combo -> fun (labelled by legs);
+      - non-sport -> fun;
+      - "off-book other" absent from the fills, the table and the Copy
+        P&L block;
+      - book sizes 6/0/7/7 -> 6/1/6/7 after the stored-prediction
+        harvest.
+    - `scripts/cockpit_exec_verify.py` 19/19: an MLB export row renders
+      "exec +3.0pp @ 0.59 · join 0.56".
+    - The other five Cockpit verifies are unchanged and green.
+    - Full suite: 277 passed.
+  - READY TO PUBLISH (the architect publishes the artifact).
+
 - **FILLS IMPORTER: SIDE FROM THE TICKER SUFFIX + A FOURTH BOOK + NO
   DEFAULT ORDER (architect, 2026-09-30).**
   - FINDING (architect): 33 fills were classified "side not resolvable

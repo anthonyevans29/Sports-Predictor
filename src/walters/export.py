@@ -423,6 +423,16 @@ def _build_row(
     # and Kalshi (OddsSnapshot source="kalshi"), so the betting layer can read
     # book/Kalshi disagreement per game instead of a single blended number.
     row["market"] = _summarize_market(pred, odds, kalshi=kalshi)
+    # K-track (additive, architect 2026-09-30): the HOME contract's Kalshi
+    # quotes + fee-adjusted executable cost, as the NFL and fixtures exports
+    # carry since K1, so the Desk's exec-edge / join-bid columns work for MLB
+    # and soccer too. Only where Kalshi is two-sided (the full outcome set),
+    # else null. Informational until the executable-edge ruling.
+    from src.walters.venue import kalshi_exec
+    _home = (kalshi or {}).get("HOME")
+    row.update(kalshi_exec(getattr(_home, "yes_bid", None), getattr(_home, "yes_ask", None))
+               if _home is not None and ((row["market"] or {}).get("kalshi") or {}).get("normalized")
+               else {"kalshi_bid": None, "kalshi_ask": None, "kalshi_exec_cost": None})
 
     # ----- Form (last 5 results per team) — uses preview helper
     if m.home_team:

@@ -1274,10 +1274,18 @@ function backedIn(fx,g){                            // the fill's backed side, n
   if(fx.backed_role==="DRAW") return "Draw";
   return fx.backed;
 }
+// THE FUN BOOK (architect 2026-09-30): non-sport markets, MVE combos, and
+// singles in the market-only families that carry no system call (NHL, UNL).
+// Its own line; the "off-book other" label is retired.
+const FUN_SPORTS=new Set(["NHL","UNL"]);
 function matchFill(fx,calls,picks){
-  if(fx.kind!=="sport") return {book:"off_book_other",category:fx.category};
+  if(fx.kind!=="sport") return {book:"fun",category:fx.category};
   const near=g=>fx.sports.includes(g.sport)&&dayDiff((g.kickoff||g.log_date||g.date||"").slice(0,10),fx.date)<=1;
   const cands=calls.filter(c=>c.call_type!=="parlay_leg"&&near(c)&&gameFits(fx,c));
+  if(!cands.length&&fx.sports.some(x=>FUN_SPORTS.has(x)))
+    return {book:"fun",category:`${fx.sports.find(x=>FUN_SPORTS.has(x))} single (market-only, no system call)`};
+  if(!fx.backed&&!fx.backed_role)
+    return {book:"off_book_sports",category:"side not resolvable ("+(fx.resolve_note||"?")+")",plausible:true};
   const pickName=c=>c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:"Draw";
   if(!cands.length){
     // PRE-LEDGER ERA (architect 2026-09-30): no logged call, but a STORED
@@ -1356,10 +1364,12 @@ function importKalshiCSV(text,L){
 // sports-market words (win/points/runs/goals/spread/over/under…) or names a
 // team from a logged call. Title grammar is ARCHITECT-VERIFY (no real MVE
 // CSV seen yet).
-//   every leg sports                        -> off_book_sports "off-book sports parlay"
-//   no legs in the title, KXMVESPORTS… family -> off_book_sports (the ticker family says sports)
-//   mixed sports / non-sport legs           -> off_book_other (counted, labelled)
-//   otherwise                               -> off_book_other
+// Every MVE combo is in the FUN book (architect 2026-09-30); the leg read
+// only labels the category:
+//   every leg sports                          -> "MVE combo, n sports legs"
+//   no legs in the title, KXMVESPORTS… family -> "MVE combo, sports family (legs not in title)"
+//   mixed sports / non-sport legs             -> "MVE combo, mixed legs (k/n sports)"
+//   otherwise                                 -> "MVE combo, non-sport legs (n)" / "legs not identified"
 // Never system_matched: the ledger's parlays are 0.25u model tickets, not
 // Kalshi-native combos.
 const MVE_SPORT_WORDS=/\b(wins?|winner|points?|runs?|goals?|touchdowns?|yards?|spread|moneyline|over|under|scores?|beats?|defeats?)\b/i;
@@ -1374,18 +1384,16 @@ function mveClass(fx,calls){
   const isSport=l=>MVE_SPORT_WORDS.test(l)||normTeam(l).split(" ").some(w=>teamWords.has(w));
   const nS=legs.filter(isSport).length;
   const fam=fx.family||String(fx.ticker||"").toUpperCase().split("-")[0];
-  if(legs.length&&nS===legs.length) return {book:"off_book_sports",category:`off-book sports parlay (MVE combo, ${legs.length} legs)`};
-  if(!legs.length&&fam.startsWith("KXMVESPORTS")) return {book:"off_book_sports",category:"off-book sports parlay (MVE combo; legs not in title, ticker family SPORTS)"};
-  if(nS) return {book:"off_book_other",category:`MVE combo, mixed legs (${nS}/${legs.length} sports)`};
-  return {book:"off_book_other",category:legs.length?`MVE combo, non-sport legs (${legs.length})`:"MVE combo, legs not identified"};
+  if(legs.length&&nS===legs.length) return {book:"fun",category:`MVE combo, ${legs.length} sports legs`};
+  if(!legs.length&&fam.startsWith("KXMVESPORTS")) return {book:"fun",category:"MVE combo, sports family (legs not in title)"};
+  if(nS) return {book:"fun",category:`MVE combo, mixed legs (${nS}/${legs.length} sports)`};
+  return {book:"fun",category:legs.length?`MVE combo, non-sport legs (${legs.length})`:"MVE combo, legs not identified"};
 }
 function classifyFills(L){
   const calls=L.calls||[], picks=(L.system_picks||[]).concat(deskPicks());
   return (L.fills||[]).map(f=>{
     const fx=f.kind==="sport"?{...f,...sideFields(f,f.title,f.side)}:f;   // re-derived: old imports re-classify
-    return {...fx,...(fx.kind==="parlay"?mveClass(fx,calls):fx.kind==="sport"&&!fx.backed&&!fx.backed_role
-      ?{book:"off_book_sports",category:"side not resolvable ("+(fx.resolve_note||"?")+")",plausible:true}
-      :matchFill(fx,calls,picks))};});
+    return {...fx,...(fx.kind==="parlay"?mveClass(fx,calls):matchFill(fx,calls,picks))};});
 }
 // Trailing-30-day window (ratified 2026-09-27: ledger-level, not per game),
 // by the fill's close timestamp (ISO with offset, e.g. -05:00).
@@ -1399,7 +1407,7 @@ function fillAgg(fs){
   return {n,staked:st,fees:fe,pre,net,avg:n?st/n:null,feePct:net<0?fe/(-net)*100:null,feePerDollar:st>0?fe/st:null};
 }
 const BOOKS=[["system_matched","system-matched"],["system_pick_unlogged","system-pick, unlogged"],
-  ["off_book_sports","off-book sports"],["off_book_other","off-book other"]];
+  ["off_book_sports","off-book sports"],["fun","fun"]];
 function realizedHTML(L){
   const fs=classifyFills(L); if(!fs.length) return '<div class="note">No Kalshi fills imported.</div>';
   const $$=v=>(v<0?"−$":"$")+Math.abs(v).toFixed(2);

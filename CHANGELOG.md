@@ -10,6 +10,17 @@ Every drop adds an entry going forward.
   edge measured and declined). Presentation only: no call, unit or policy
   change. The summary splits the pass count.
 
+## 2026-09-30 (#88 ruled: Kalshi fees round per fill)
+- Fees are modelled as one ceiling per FILL of N contracts; the Desk
+  assumes N = 10 (provisional until the B-track sizes units). Exec costs
+  now carry fractions of a cent (NFL 0.55/0.58: taker 0.598, maker 0.562)
+  and the Cockpit shows them to 3 decimals.
+- `scripts/kalshi_fee_fill_receipt.py --csv` reproduces multi-contract
+  fill fees from the Kalshi CSV (the receipt: five to the cent).
+- DEPRECATION: the export's `kalshi_exec_cost` (= `exec_cost_taker`) is
+  retired two Cockpit republishes from now (architect 2026-09-30). Read
+  `exec_cost_taker` / `exec_cost_maker`.
+
 ## 2026-09-30 (#93 ruled: Kalshi maker and taker costs)
 - Exports carry `exec_cost_taker` and `exec_cost_maker` (the ruled fee
   multipliers: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5).

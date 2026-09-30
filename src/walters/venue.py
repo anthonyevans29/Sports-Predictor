@@ -30,13 +30,19 @@ STALE_BOOK_FLAG = "STALE-BOOK?"
 # the series is listed; the game series' M values were RULED on #93
 # (2026-09-30, KALSHI_FEE_M below). ROUNDING
 # DIFFERS: Kalshi rounds fee + position cost UP TO THE CENTICENT, with a
-# per-order accumulator that rebates whole cents. The per-contract ceil to the
-# cent below OVERSTATES the fee (by up to ~1c; +0.32pp at P = 0.60). Left
-# unchanged pending the architect's ruling (#88). K-TRACK: INFORMATIONAL UNTIL THE
+# per-order accumulator that rebates whole cents. The old per-contract ceil
+# to the cent OVERSTATED the fee (by up to ~1c; +0.32pp at P = 0.60).
+# #88 RULED (architect 2026-09-30): Kalshi rounds the fee per FILL, not per
+# contract (the YTD CSV's multi-contract fills carry ONE ceiling, not N).
+# Model: order fee = ceil(N x rate x M x P(1-P) x 100) / 100 for an order of
+# N contracts; the per-contract cost is P + order fee / N. The Desk assumes N
+# = the unit's contract count at the row's price, PROVISIONAL 10 until the
+# B-track sizes units (K_ORDER_CONTRACTS). K-TRACK: INFORMATIONAL UNTIL THE
 # EXECUTABLE-EDGE RULING.
 # ---------------------------------------------------------------------------
 KALSHI_FEE_RATE = 0.07      # taker rate: VERIFIED 2026-09-29 (rounding: see above)
 KALSHI_MAKER_RATE = 0.0175  # maker rate: the same published schedule
+K_ORDER_CONTRACTS = 10      # #88: N for the Desk's cost (PROVISIONAL until the B-track sizes units)
 K_TRACK_NOTE = "K-track: informational until the executable-edge ruling"
 
 # #93 RESOLVED (architect 2026-09-30, from Kalshi's fee schedule): the game
@@ -61,26 +67,36 @@ KALSHI_SERIES_BY_COMPETITION = {
 }
 
 
-def kalshi_fee(price: float | None, m: float = 1.0, rate: float = KALSHI_FEE_RATE) -> float | None:
-    """Per-contract fee in dollars (= probability points): rate x M x P x (1-P),
-    rounded UP to the cent. The rounding is unchanged and still pending the
-    ruling on #88. It overstates both costs; the maker fee most, because it is
-    under 0.2c exact and is modelled as 1c."""
-    if price is None or not (0.0 <= price <= 1.0):
+def kalshi_order_fee(price: float | None, n: int, m: float = 1.0,
+                     rate: float = KALSHI_FEE_RATE) -> float | None:
+    """#88: the fee in dollars for ONE fill of n contracts at price P:
+    ceil(n x rate x M x P x (1-P) x 100) / 100 (one ceiling per fill)."""
+    if price is None or not (0.0 <= price <= 1.0) or not n or n < 1:
         return None
-    raw = rate * m * price * (1.0 - price) * 100.0
+    raw = n * rate * m * price * (1.0 - price) * 100.0
     return math.ceil(raw - 1e-9) / 100.0   # epsilon: float noise must not add a cent
+
+
+def kalshi_fee(price: float | None, m: float = 1.0, rate: float = KALSHI_FEE_RATE,
+               n: int = K_ORDER_CONTRACTS) -> float | None:
+    """Per-contract fee in dollars (= probability points) when the order is
+    n contracts: kalshi_order_fee / n (#88). n=1 is the old per-contract
+    ceiling, which overstated the fee by up to ~1c."""
+    fee = kalshi_order_fee(price, n, m, rate)
+    return None if fee is None else round(fee / n, 6)
 
 
 def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = None) -> dict:
     """The HOME contract's quotes + both executable costs (ruling 2026-09-30 on #93):
-      exec_cost_taker = ask + 0.07 x M_taker x P(1-P), P = ask
-      exec_cost_maker = (bid + 1c) + 0.0175 x M_maker x P(1-P), P = bid + 1c
+      exec_cost_taker = ask + fee(0.07, M_taker, P = ask)
+      exec_cost_maker = (bid + 1c) + fee(0.0175, M_maker, P = bid + 1c)
+    fee = ceil(N x rate x M x P(1-P) x 100) / 100 / N, N = K_ORDER_CONTRACTS (#88).
     exec_cost_maker is null when there is no bid, when bid + 1c reaches the
     ask (a 1c spread: joining = taking, so no maker price exists), or when the
     series' maker M is unknown. kalshi_exec_cost is kept as a DEPRECATED alias
     of exec_cost_taker (the pre-split meaning) until the published Cockpit
-    reads the two fields."""
+    reads the two fields. Fees are per FILL of K_ORDER_CONTRACTS contracts
+    (#88), so the costs carry fractions of a cent."""
     series = KALSHI_SERIES_BY_COMPETITION.get(competition or "")
     m_taker, m_maker = KALSHI_FEE_M.get(series, (1.0, None))
     fee_t = kalshi_fee(ask, m_taker)
@@ -95,6 +111,7 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
             "exec_cost_taker": taker, "exec_cost_maker": maker,
             "kalshi_exec_cost": taker,            # deprecated alias (= taker)
             "fee_series": series, "fee_m_taker": m_taker, "fee_m_maker": m_maker,
+            "fee_order_contracts": K_ORDER_CONTRACTS,
             "k_track": K_TRACK_NOTE}
 
 

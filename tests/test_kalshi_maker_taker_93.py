@@ -25,33 +25,34 @@ def test_ruled_multipliers_per_series():
 
 
 def test_fee_formula_takes_m_and_rate():
-    assert venue.kalshi_fee(0.50) == 0.02                                   # unchanged default (taker, M=1)
-    assert venue.kalshi_fee(0.56, 0.5) == 0.01                              # 0.07*.5*.2464 = 0.86c -> 1c
-    assert venue.kalshi_fee(0.56, 0.25, venue.KALSHI_MAKER_RATE) == 0.01    # 0.11c -> 1c (ceil; #88 pending)
-    assert venue.kalshi_fee(0.5, 0.25, venue.KALSHI_MAKER_RATE) == 0.01
+    # #88: one ceiling per fill of N = 10 (n=1 = the pre-#88 per-contract ceiling)
+    assert venue.kalshi_fee(0.50) == 0.018                                  # 17.5c -> 18c / 10
+    assert venue.kalshi_fee(0.56, 0.5) == 0.009                             # 8.6c -> 9c / 10 (n=1: 1c)
+    assert venue.kalshi_fee(0.56, 0.25, venue.KALSHI_MAKER_RATE) == 0.002   # 1.08c -> 2c / 10 (n=1: 1c)
+    assert venue.kalshi_fee(0.56, 0.25, venue.KALSHI_MAKER_RATE, n=1) == 0.01
 
 
 def test_exec_nfl_taker_and_maker():
     e = venue.kalshi_exec(0.55, 0.58, "NFL")
-    assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.60, 0.57)    # 0.58+2c ; join 0.56 + 1c
+    assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.598, 0.562)  # 0.58+1.8c ; join 0.56 + 0.2c
     assert e["kalshi_exec_cost"] == e["exec_cost_taker"]                    # deprecated alias
     assert (e["fee_series"], e["fee_m_taker"], e["fee_m_maker"]) == ("KXNFLGAME", 1.0, 0.25)
 
 
 def test_exec_mlb_pre_live_half_multiplier():
     e = venue.kalshi_exec(0.54, 0.56, "MLB")
-    assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.57, 0.56)    # M=0.5: 0.56+1c ; 0.55+1c
-    # the same quotes at M=1 (the pre-split number) were 0.58
-    assert venue.kalshi_exec(0.54, 0.56, "NFL")["exec_cost_taker"] == 0.58
+    assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.569, 0.553)  # M=0.5: 0.56+0.9c ; 0.55+0.3c
+    # the same quotes at M=1
+    assert venue.kalshi_exec(0.54, 0.56, "NFL")["exec_cost_taker"] == 0.578
 
 
 def test_no_maker_price_cases():
     assert venue.kalshi_exec(0.57, 0.58, "NFL")["exec_cost_maker"] is None   # 1c spread: joining = taking
     assert venue.kalshi_exec(None, 0.58, "NFL")["exec_cost_maker"] is None   # no bid
     u = venue.kalshi_exec(0.50, 0.55, "UNKNOWN")                             # unlisted: maker M not assumed
-    assert u["exec_cost_maker"] is None and u["exec_cost_taker"] == 0.57 and u["fee_m_taker"] == 1.0
+    assert u["exec_cost_maker"] is None and u["exec_cost_taker"] == 0.568 and u["fee_m_taker"] == 1.0
     n = venue.kalshi_exec(0.50, None, "NFL")                                 # bid only
-    assert n["exec_cost_taker"] is None and n["exec_cost_maker"] == 0.52
+    assert n["exec_cost_taker"] is None and n["exec_cost_maker"] == 0.512
     assert set(venue.KALSHI_EXEC_NULL) <= set(u)                             # null block: same cost keys
 
 
@@ -86,8 +87,8 @@ def test_fixtures_export_carries_both_costs_per_series(tmp_path, monkeypatch):
         "M93NHL", start="2033-04-05", end="2033-04-06", out_dir=str(tmp_path))).read())["fixtures"]}
     r = fx[nhl]
     assert (r["kalshi_bid"], r["kalshi_ask"], r["exec_cost_taker"], r["exec_cost_maker"],
-            r["kalshi_exec_cost"]) == (0.55, 0.58, 0.60, 0.57, 0.60)
-    assert fx[tight]["exec_cost_maker"] is None and fx[tight]["exec_cost_taker"] == 0.60
+            r["kalshi_exec_cost"]) == (0.55, 0.58, 0.598, 0.562, 0.598)
+    assert fx[tight]["exec_cost_maker"] is None and fx[tight]["exec_cost_taker"] == 0.598
 
 
 def test_mlb_prediction_export_prices_at_the_pre_live_multiplier(monkeypatch):
@@ -102,4 +103,4 @@ def test_mlb_prediction_export_prices_at_the_pre_live_multiplier(monkeypatch):
     rows = {r["match_id"]: r for r in json.loads(export_predictions(
         sport=Sport.MLB, start_date=lo, end_date=hi, competition_code="M93MLB"))["predictions"]}
     r = rows[mid]
-    assert (r["exec_cost_taker"], r["exec_cost_maker"], r["fee_series"], r["fee_m_taker"]) == (0.57, 0.56, "KXMLBGAME", 0.5)
+    assert (r["exec_cost_taker"], r["exec_cost_maker"], r["fee_series"], r["fee_m_taker"]) == (0.569, 0.553, "KXMLBGAME", 0.5)

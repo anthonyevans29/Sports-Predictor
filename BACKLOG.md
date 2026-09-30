@@ -55,6 +55,44 @@ specific reason they're not being built now.
     Cockpit verify green (value verify's exact "PASS" cell now reads "PASS"
     + "below floor"); pytest green.
 
+- **#88 RULED: KALSHI FEES ROUND PER FILL (architect 2026-09-30; K-track;
+  + ARCHITECT-RULE answers on #129).**
+  - RULINGS on #129's law-4 choices:
+    1. `kalshi_exec_cost` as the taker alias: RATIFIED. Retire it TWO
+       Cockpit republishes from now, with a CHANGELOG note (the note is in
+       this drop's CHANGELOG; tracked as its own Issue).
+    2. No maker price on a 1¢ spread, no bid, or an out-of-scope series:
+       RATIFIED ("joining a 1c spread IS taking").
+    3. Rounding: #88 PROMOTED and ruled (below).
+    4. Combos taker M=1: RATIFIED.
+    5. Re-import backfills maker/taker on existing fills: RATIFIED; an
+       operator action.
+  - #88 RULING: Kalshi rounds the fee per FILL, not per contract (the YTD
+    CSV's multi-contract fills carry ONE ceiling, not N). Model fee =
+    ceil(N·0.07·M·P(1−P)·100)/100 for an order of N contracts. For the
+    Desk: N = the unit's contract count at the row's price, PROVISIONAL 10
+    until the B-track sizes units. This puts the maker cost within ~0.1¢ of
+    true instead of ~1¢ high. Receipt: reproduce five multi-contract fills'
+    fees from the CSV to the cent.
+  - BUILT:
+    - `venue.kalshi_order_fee(price, n, m, rate)` = one ceiling per fill;
+      `kalshi_fee(..., n=K_ORDER_CONTRACTS)` = that / n per contract
+      (`n=1` = the old per-contract ceiling). `K_ORDER_CONTRACTS = 10`
+      (provisional). Rows carry `fee_order_contracts: 10`.
+    - Every export exec cost now carries fractions of a cent (e.g. NFL
+      0.55/0.58: taker 0.60 → 0.598, maker 0.57 → 0.562; MLB 0.54/0.56:
+      taker 0.57 → 0.569, maker 0.56 → 0.553). The Cockpit shows costs to 3
+      decimals; the policy card states the fee model.
+    - `scripts/kalshi_fee_fill_receipt.py --csv PATH`: every multi-contract
+      leg with a fee, the per-fill model vs the old per-contract model, per
+      ruled series (MLB also at the live rate, labelled; combos per ruling
+      (4); other series skipped, never guessed); prints "RECEIPT: n/5".
+    - The Cockpit's fills maker/taker classification is unchanged (it
+      already compares the fee to the unrounded formula within 1¢).
+  - RECEIPTS: pytest 303 passed (3 new); Cockpit verifies all green
+    (maker_taker 26/26 with the new values, exec 19/19). The operator's
+    receipt is pending: the script on the real YTD CSV.
+
 - **#93 RESOLVED: KALSHI MAKER / TAKER COSTS (architect ruling 2026-09-30;
   K-track).**
   - RULING (from Kalshi's fee schedule):

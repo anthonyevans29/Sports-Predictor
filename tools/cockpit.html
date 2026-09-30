@@ -115,7 +115,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
-    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5; one rounding per FILL to the NEAREST cent (fitted 542/548 on the YTD fills), costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · home contract only · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
+    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5; one rounding per FILL to the NEAREST cent (fitted 542/548 on the YTD fills), costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · quotes are the home contract's; an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: no derived price (NO on HOME is draw-or-away) · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.<br>
     <b>PASS CLASSES</b> (presentation only, 2026-09-30) — <b>no reference</b>: no two-sided book market or &lt; 3 books (model table), no book/Kalshi pair or books below 4 (venue table) — greyed, with a "re-run at T-60" hint, because books and Kalshi post thin and late · <b>below floor</b>: a real edge measured and declined · other PASSes (pre-gate, quarantine, charter) keep their own reason.
   </div>
@@ -325,7 +325,11 @@ function normalize(doc){
       rawIQ:p.input_quality||{},live:doc.rehearsal===false,
       kalProb:kalFromPrediction(p,mk,market),threeWay:market.DRAW!=null||probs.DRAW!=null,
       kExec:{bid:p.kalshi_bid??null,ask:p.kalshi_ask??null,cost:p.exec_cost_taker??p.kalshi_exec_cost??null,
-        maker:p.exec_cost_maker??null},   // #93 ruling: taker + maker (pre-split exports: taker only)
+        maker:p.exec_cost_maker??null,    // #93 ruling: taker + maker (pre-split exports: taker only)
+        // #89: the AWAY side = the NO side of the home contract (two-way exports
+        // only; null on soccer 1X2 and absent on pre-#89 exports)
+        bidAway:p.away_bid??null,askAway:p.away_ask??null,
+        costAway:p.exec_cost_taker_away??null,makerAway:p.exec_cost_maker_away??null},
       iq:(function(){const q=p.input_quality||{};const bits=[];
         if(q.book_odds!=null)bits.push(q.book_odds+" books");
         if(q.kalshi)bits.push("kalshi "+q.kalshi);
@@ -426,8 +430,12 @@ const VALUE={units:0.25,reviewN:30};
 // kalshi_exec_cost beside the fair edge, and "fee-clears?" at >= 4pp.
 // INFORMATIONAL ONLY: no sizing, tier or call change; the executable-edge
 // ruling comes after 2 weeks of ladders. The quotes are the HOME contract's
-// (ask + fee), so an exec edge exists only for a HOME side; an away side
-// shows "—" (a NO-side price is not derived — never guessed).
+// (ask + fee). NO SIDE (#89, architect 2026-09-30): on a TWO-WAY market the
+// export also carries the AWAY side = the NO side of the home contract (NO ask
+// = 1 − home bid, NO bid = 1 − home ask, the same fee formula per fill), and
+// the Desk prices an AWAY pick from it, labelled "NO side". Soccer (1X2: NO on
+// HOME is draw-or-away) and pre-#89 exports carry no away cost: that side and
+// DRAW still show "—" (never guessed).
 // ---------------------------------------------------------------------
 const K2={feeClearsPP:4,tick:0.01};
 // JOIN BID (architect 2026-09-29): the suggested resting LIMIT price = bid + 1¢,
@@ -444,14 +452,24 @@ const K2={feeClearsPP:4,tick:0.01};
 // costs carry fractions of a cent and display to 3 decimals.
 // The ledger's kalshi_exec_cost keeps its pre-split meaning (ask + fee = taker);
 // the maker cost rides beside it as kalshi_exec_cost_maker.
+// kSide: the quotes + costs of the contract that backs a side. HOME = the home
+// YES; AWAY = the NO side of the home contract, only when the export carries
+// it (#89: two-way markets) and the row is not three-way; anything else null.
+function kSide(r,side){
+  const k=r.kExec; if(!k) return null;
+  if(side==="HOME") return {bid:k.bid,ask:k.ask,cost:k.cost,maker:k.maker,no:false};
+  if(side==="AWAY"&&!r.threeWay&&(k.costAway!=null||k.makerAway!=null))
+    return {bid:k.bidAway??null,ask:k.askAway??null,cost:k.costAway??null,maker:k.makerAway??null,no:true};
+  return null;
+}
 function joinBidFor(r,side){
-  if(side!=="HOME"||!r.kExec||r.kExec.bid==null) return null;
-  const j=Math.round((r.kExec.bid+K2.tick)*100)/100;
-  if(r.kExec.ask!=null&&j>=r.kExec.ask-1e-9) return {price:null,note:"spread 1¢ — joining = taking"};
+  const k=kSide(r,side); if(!k||k.bid==null) return null;
+  const j=Math.round((k.bid+K2.tick)*100)/100;
+  if(k.ask!=null&&j>=k.ask-1e-9) return {price:null,note:"spread 1¢ — joining = taking"};
   return {price:j};
 }
-function execCostFor(r,side){return side==="HOME"&&r.kExec&&r.kExec.cost!=null?r.kExec.cost:null;}        // taker
-function makerCostFor(r,side){return side==="HOME"&&r.kExec&&r.kExec.maker!=null?r.kExec.maker:null;}
+function execCostFor(r,side){const k=kSide(r,side);return k&&k.cost!=null?k.cost:null;}        // taker
+function makerCostFor(r,side){const k=kSide(r,side);return k&&k.maker!=null?k.maker:null;}
 function deskCostFor(r,side){const m=makerCostFor(r,side);
   if(m!=null) return {cost:m,basis:"maker"};
   const t=execCostFor(r,side); return t==null?null:{cost:t,basis:"taker"};}
@@ -462,9 +480,10 @@ function execEdgeHTML(r,side,modelP){
   if(e==null) return `<div class="note">exec — (quotes are the home contract's)</div>`;
   const pp=v=>(v>=0?"+":"")+v.toFixed(1)+"pp";
   const jb=joinBidFor(r,side), t=execCostFor(r,side);
+  const no=(kSide(r,side)||{}).no;       // #89: an AWAY pick priced on the NO side
   const head=dc.basis==="maker"
-    ?`exec ${pp(e)} @ ${dc.cost.toFixed(3)} maker (join ${jb&&jb.price!=null?jb.price.toFixed(2):"—"})`
-    :`exec ${pp(e)} @ ${dc.cost.toFixed(3)} taker`+(jb&&jb.price==null?` (${jb.note})`
+    ?`exec ${pp(e)} @ ${dc.cost.toFixed(3)} maker (join ${jb&&jb.price!=null?jb.price.toFixed(2):"—"}${no?", NO side":""})`
+    :`exec ${pp(e)} @ ${dc.cost.toFixed(3)} taker${no?" (NO side)":""}`+(jb&&jb.price==null?` (${jb.note})`
       :jb&&jb.price!=null?` · join ${jb.price.toFixed(2)} (${pp((modelP-jb.price)*100)} pre-fee; no maker cost in this export)`
       :" (no maker price)");
   const fallback=dc.basis==="maker"&&t!=null?` · taker ${t.toFixed(3)} (${pp((modelP-t)*100)})`:"";
@@ -744,7 +763,7 @@ function baseCall(r,logDate){
 function stampTiming(pos,fresh,isNew){
   const at=fresh.captured_at||new Date().toISOString();
   if(isNew){ pos.claim_at=at; pos.claim_market_p=fresh.market_p??null; pos.claim_model_p=fresh.model_p??null;
-    pos.claim_exec_cost=fresh.kalshi_exec_cost??null;       // K2: Kalshi ask+fee (taker) at claim (null: none quoted / away side)
+    pos.claim_exec_cost=fresh.kalshi_exec_cost??null;       // K2: Kalshi ask+fee (taker) at claim (away pick: the NO side, #89; null: none quoted / soccer away / DRAW)
     pos.claim_exec_cost_maker=fresh.kalshi_exec_cost_maker??null;   // #93: join bid + maker fee at claim
     pos.exec_mode="close_default"; }
   if(pos.exec_mode!=="operator_early"){

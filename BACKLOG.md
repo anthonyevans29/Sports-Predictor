@@ -22,6 +22,68 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#89 BUILT: NO-SIDE EXEC COST FOR AWAY PICKS (architect 2026-09-30; K-track).**
+  - SPEC (architect ruling 2026-09-30): "derived NO-side exec cost for AWAY
+    picks — the Desk shows exec/maker costs only on the home contract; an
+    away pick's cost is the NO side (1 − home bid/ask mirrored), same fee
+    formula per fill. Small; extends the receipt to every row."
+  - BUILT:
+    - `venue.kalshi_exec(bid, ask, competition, two_way=False)` adds
+      `away_ask` (NO ask = 1 − home YES bid), `away_bid` (NO bid = 1 − home
+      YES ask), `exec_cost_taker_away` (NO ask + taker fee at P = NO ask) and
+      `exec_cost_maker_away` (NO bid + 1¢ + maker fee), the home rules
+      mirrored exactly: same series M, same #88 per-fill nearest fee (N = 10),
+      maker null with no NO bid, on a 1¢ NO spread (joining = taking) or an
+      unknown maker M. `KALSHI_EXEC_NULL` carries the four new keys.
+    - TWO-WAY ONLY: `nfl_predict` passes `two_way=True`; `_build_row` passes
+      it for MLB with no DRAW leg; `_fixture_row` for non-soccer with no DRAW
+      leg. Soccer (1X2) away fields stay null: NO on HOME is draw-or-away.
+    - Cockpit: `kExec` gains `bidAway/askAway/costAway/makerAway`; a new
+      `kSide(r, side)` backs `joinBidFor` / `execCostFor` / `makerCostFor`
+      (and so `deskCostFor`, the exec edge and the ledger's
+      `kalshi_exec_cost` / `kalshi_exec_cost_maker` / `kalshi_join_bid` at
+      capture, claim and execution). An AWAY pick reads "exec +x.xpp @ 0.xxx
+      maker (join 0.xx, NO side) · …" (taker basis: "taker (NO side)"). A
+      pre-#89 export, a soccer AWAY and DRAW keep "exec — (quotes are the
+      home contract's)". The policy card's "home contract only" now states
+      the NO side and the soccer exclusion.
+    - No call / unit / tier change (informational K-track, as before).
+  - CHOICES MADE UNDER LAW 4 (ARCHITECT-RULE if any should differ):
+    - ARCHITECT-RULE: `two_way` defaults to False: a caller that does not
+      state the market is two-way gets null away fields (never NO-on-HOME
+      assumed to be the away bet).
+    - ARCHITECT-RULE: a non-soccer market with a DRAW leg captured is treated
+      as NOT two-way (away null), in both prediction and fixtures exports;
+      NFL passes two_way=True unconditionally (its Kalshi read is HOME/AWAY
+      legs only, KXNFLGAME is a winner market).
+    - ARCHITECT-RULE: `_build_row` (MLB + soccer) marks only MLB two-way; any
+      other sport routed through it later is not assumed two-way.
+    - ARCHITECT-RULE: the NO quotes are rounded to 4 dp (1 − bid, 1 − ask),
+      not to the cent, so a sub-cent quote is never moved; the join is
+      rounded to the cent as on the home side.
+    - ARCHITECT-RULE: the Cockpit also refuses the NO-side price on a row it
+      reads as three-way (`r.threeWay`), even if a future export carried away
+      fields there (belt and braces with the export's null).
+    - ARCHITECT-RULE: a soccer AWAY pick keeps the old "exec —" text rather
+      than a new wording (no NO-on-HOME price exists for it, the text is still
+      true).
+  - RECEIPTS:
+    - NFL home 0.40/0.43 → NO 0.57/0.60: taker 0.617 (0.60 + 17¢/10), maker
+      0.581 (join 0.58 + 1¢/10); 1¢ spread 0.41/0.42 → NO maker null, taker
+      0.607; MLB 0.54/0.56 (M = 0.5) → NO 0.44/0.46: taker 0.469, maker 0.452.
+    - `scripts/cockpit_no_side_verify.py` 15/15 (AWAY pick "exec +5.9pp @
+      0.581 maker (join 0.58, NO side) · fee-clears? · taker 0.617 (+2.3pp)";
+      ledger AWAY call 0.617 / 0.581 / join 0.58 at capture, claim and
+      execution; soccer AWAY and pre-#89 AWAY still "exec —"; picks, calls,
+      units identical with and without quotes).
+    - Every other Cockpit verify green (exec 19/19, fills 44/44, ledger
+      21/21, maker/taker 26/26, NHL shadow 9/9, pass-class 16/16, timing
+      18/18, v0.4 25/25, value 19/19, window 15/15); two AWAY-"exec —" check
+      LABELS reworded (expectations unchanged: those rows carry no away fields).
+    - pytest 312 passed (`tests/test_kalshi_no_side_89.py` 5 new: two-way
+      costs, away maker null cases, soccer / unstated null, fixtures export
+      NHL vs soccer, predictions export MLB vs soccer).
+
 - **NHL-GOALIE LANE BUILT: THE NHL API ADAPTER + v5 (v1 + A STARTING-GOALIE
   TERM) THROUGH THE FROZEN GATE (architect 2026-09-30; model track; the H2
   reopening).**

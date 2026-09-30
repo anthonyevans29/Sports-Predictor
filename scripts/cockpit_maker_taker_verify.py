@@ -145,7 +145,11 @@ def main():
         check("1c spread: taker is the basis, labelled 'joining = taking'",
               "exec +4.3pp @ 0.617 taker (spread 1¢ — joining = taking) · fee-clears?" in b[4], b[4])
         d = next(v for k, v in rows.items() if "Dallas" in k)
-        check("AWAY pick: 'exec —', never a derived price", "exec — (quotes are the home contract's)" in d[4], d[4])
+        # #89: nfl() calls kalshi_exec without two_way=True, so the away fields
+        # are null (the conservative default): still "exec —". The NO-side
+        # path (two_way=True) is checked in cockpit_no_side_verify.py.
+        check("AWAY pick, away fields null (two_way unstated): 'exec —', never a derived price",
+              "exec — (quotes are the home contract's)" in d[4], d[4])
         check("informational only: calls and units identical with and without quotes",
               {k: (r[5], r[6]) for k, r in rows.items()} == base, str(base))
         pol = page.inner_text("#deskView")

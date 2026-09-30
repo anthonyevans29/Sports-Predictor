@@ -68,6 +68,11 @@ class Game:
     # earlier game in the loaded schedule. Used by candidate v2 only.
     home_rest_h: float | None = None
     away_rest_h: float | None = None
+    # NHL-GOALIE (v5): our match id and each side's STARTER (the NHL playerId
+    # flagged starter in nhl_goalie_appearances); None = unknown, never guessed.
+    match_id: int | None = None
+    home_goalie: int | None = None
+    away_goalie: int | None = None
 
     @property
     def home_win(self) -> int:
@@ -187,6 +192,7 @@ class GateResult:
     crit_bands: bool = False
     crit_spread: bool = False
     verdict: str = ""
+    pairs: list[tuple[float, int]] = field(default_factory=list)   # (p_home, home_win) per test game
 
 
 def baselines(stream: Stream) -> GateResult:
@@ -234,6 +240,7 @@ def run_gate(stream: Stream, model: Predictor) -> GateResult:
         ll += _ll(p, g.home_win)
         model.update(g)
     r.ll_model = ll / len(stream.test)
+    r.pairs = pairs
     r.bands = calibration_bands(pairs)
 
     ratings = model.ratings()
@@ -419,7 +426,64 @@ def load_games() -> list[Game]:
             ).order_by(Match.utc_date, Match.id)
         ).scalars().all()
         return [Game(m.home_team_id, m.away_team_id, m.season, m.utc_date,
-                     m.home_score, m.away_score, m.stage or "") for m in rows]
+                     m.home_score, m.away_score, m.stage or "", match_id=m.id) for m in rows]
+
+
+# --------------------------------------------------------------------------
+# NHL-GOALIE lane (b): v5 inputs + the RPS line (architect 2026-09-30)
+# --------------------------------------------------------------------------
+
+
+def rps_binary(pairs: list[tuple[float, int]]) -> float:
+    """Ranked probability score for a two-outcome forecast: with r = 2 it is
+    (p - y)^2, i.e. the Brier score. Reported, never gated."""
+    return sum((p - y) ** 2 for p, y in pairs) / len(pairs) if pairs else float("nan")
+
+
+def load_goalie_appearances():
+    """Every stored appearance with shots + saves (all seasons, relief
+    included) as tracker input, oldest first."""
+    from sqlalchemy import select
+
+    from src.db.database import session_scope
+    from src.db.schema import NHLGoalieAppearance
+    from src.models.nhl_goalie import Appearance
+
+    with session_scope() as s:
+        rows = s.execute(select(NHLGoalieAppearance).where(
+            NHLGoalieAppearance.shots_against.is_not(None),
+            NHLGoalieAppearance.saves.is_not(None)).order_by(NHLGoalieAppearance.game_start)).scalars().all()
+        return [Appearance(r.game_start, r.nhl_game_id, r.side, r.goalie_id, r.shots_against, r.saves)
+                for r in rows]
+
+
+def attach_goalies(games: list[Game]) -> list[Game]:
+    """Each game's two starters from nhl_goalie_appearances (is_starter TRUE,
+    linked to the match). A side with zero or more than one flagged starter
+    stays None."""
+    from dataclasses import replace
+
+    from sqlalchemy import select
+
+    from src.db.database import session_scope
+    from src.db.schema import NHLGoalieAppearance
+
+    starters: dict[tuple[int, str], list[int]] = {}
+    with session_scope() as s:
+        for mid, side, gid in s.execute(select(NHLGoalieAppearance.match_id, NHLGoalieAppearance.side,
+                                               NHLGoalieAppearance.goalie_id)
+                                        .where(NHLGoalieAppearance.match_id.is_not(None),
+                                               NHLGoalieAppearance.is_starter.is_(True))):
+            starters.setdefault((mid, side), []).append(gid)
+    one = lambda mid, side: (starters.get((mid, side)) or [None, None])[0] \
+        if len(starters.get((mid, side)) or []) == 1 else None
+    return [replace(g, home_goalie=one(g.match_id, "home"), away_goalie=one(g.match_id, "away"))
+            if g.match_id is not None else g for g in games]
+
+
+def starter_coverage(games: list[Game]) -> tuple[int, int]:
+    """(games with BOTH starters known, games)."""
+    return sum(1 for g in games if g.home_goalie is not None and g.away_goalie is not None), len(games)
 
 
 def report(stream: Stream, r: GateResult, out: Callable[[str], None] = print,

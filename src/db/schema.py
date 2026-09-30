@@ -417,6 +417,47 @@ class PitcherAppearance(Base):
     )
 
 
+class NHLGoalieAppearance(Base):
+    """
+    NHL-GOALIE lane (architect 2026-09-30): one row per goalie per NHL game,
+    from the NHL's own API (api-web.nhle.com gamecenter boxscore). The H2
+    reopening source: api-sports' hockey product has no goalie data.
+
+    Append-and-refresh, never deleted. `match_id` links to OUR NHL match when
+    the game maps uniquely (date ± 12h + both team names); games outside our
+    DB (e.g. 2023-24 warm-up history) keep match_id NULL and still feed a
+    goalie's as-of history. `is_starter` is the API's own starter flag —
+    NULL when the flag was not found (never inferred). Stats stay NULL when
+    not found (law 4). Nothing here is a model feature until a candidate
+    passes the frozen NHL gate.
+    """
+
+    __tablename__ = "nhl_goalie_appearances"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nhl_game_id: Mapped[int] = mapped_column(Integer, index=True)
+    match_id: Mapped[int | None] = mapped_column(ForeignKey("matches.id"), index=True)
+    game_start: Mapped[datetime] = mapped_column(DateTime, index=True)   # UTC, naive
+    game_type: Mapped[int | None] = mapped_column(Integer)               # the API's gameType (2 regular, 3 playoffs)
+    side: Mapped[str] = mapped_column(String(4))                         # "home" / "away"
+    team_abbrev: Mapped[str | None] = mapped_column(String(8))
+    goalie_id: Mapped[int] = mapped_column(Integer, index=True)          # the NHL playerId
+    goalie_name: Mapped[str | None] = mapped_column(String(96))
+    is_starter: Mapped[bool | None] = mapped_column(Boolean)
+    shots_against: Mapped[int | None] = mapped_column(Integer)
+    saves: Mapped[int | None] = mapped_column(Integer)
+    goals_against: Mapped[int | None] = mapped_column(Integer)
+    toi_seconds: Mapped[int | None] = mapped_column(Integer)
+    decision: Mapped[str | None] = mapped_column(String(4))
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+    match: Mapped[Match | None] = relationship()
+
+    __table_args__ = (
+        Index("ix_nhl_goalie_game_goalie", "nhl_game_id", "goalie_id", unique=True),
+    )
+
+
 class TeamRating(Base):
     """Time-series of team ratings (Elo, xG attack/defense, etc.)"""
 

@@ -4,6 +4,13 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (NHL-API-PROBE: the H2 goalie-source probe)
+- `scripts/nhl_api_probe.py` is read-only. It probes api-web.nhle.com
+  (schedule, boxscore goalie stats, roster, pre-game starter and lead time,
+  2023–2025 depth) and MoneyPuck's projected-starters CSV, then prints
+  FEEDABLE / NOT per need and the H2 reopening line.
+- Run it on the laptop and on the host (the datacenter-IP receipt).
+
 ## 2026-09-30 (CORRECTION: soccer Kalshi sets missing a leg were normalized as two-way)
 - CORRECTION, not a feature (#113). A soccer prediction row whose Kalshi
   capture lacked a leg (usually the TIE) was normalized over HOME + AWAY

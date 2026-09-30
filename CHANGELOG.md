@@ -11,6 +11,18 @@ Every drop adds an entry going forward.
   FEEDABLE / NOT per need and the H2 reopening line.
 - Run it on the laptop and on the host (the datacenter-IP receipt).
 
+## 2026-09-30 (CORRECTION: soccer Kalshi read as two-way in the fixtures export, window card and line-move)
+- CORRECTION, not a feature (#117). On soccer rows the window card's Kalshi
+  home price was H/(H+A) even with the TIE leg present. So its venue gap
+  and STALE-BOOK? flag compared a two-way number with a three-way book fair.
+- A soccer set missing a leg was also labelled two-sided in the fixtures
+  export (cups, UNL).
+- Soccer now reads P(home) over HOME + DRAW + AWAY. A set missing a leg is
+  "partial": no Kalshi price, exec fields, venue gap or Kalshi line-move.
+  The Cockpit reads Kalshi-only 1X2 fixtures three-way.
+- NFL, NCAA, NHL and MLB are unchanged. Receipt:
+  `scripts/kalshi_soccer_twoway_receipt.py`.
+
 ## 2026-09-30 (ledger: auto-close reads "Closes #N" lines only)
 - The ledger bot matched a closing keyword anywhere in a PR description,
   so a prose mention ("…which closes #111…") closed #111 under the wrong

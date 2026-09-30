@@ -5417,7 +5417,8 @@ def export_fixtures_cmd(competition_code, start, end):
     print(f"  fixtures {rc['fixtures']} · with book consensus {rc['with_books']} · "
           f"spread-derived fair {rc['with_spread_derived']} · "
           f"kalshi two-sided {rc['kalshi_two_sided']} / one-sided "
-          f"{rc['kalshi_one_sided']} / absent {rc['kalshi_absent']}")
+          f"{rc['kalshi_one_sided']} / partial (soccer, a leg missing) {rc['kalshi_partial']} / "
+          f"absent {rc['kalshi_absent']}")
     labels = rc["odds_labels"]
     print(f"  odds (market, selection) labels seen: "
           + (", ".join(f"{m}/{sel}×{n}" for (m, sel), n in labels.items()) or "none"))
@@ -5445,8 +5446,8 @@ def window_card_cmd(hours: int, t90: int):
     console.print(f"[green]✓ Wrote window card to {path}[/green]")
     print(f"  window {card['window']['from']} -> {card['window']['to']}: games {card['count']} · "
           f"with model {r['with_model']} · with book consensus {r['with_books']} · kalshi "
-          f"two-sided {r['kalshi_two_sided']} / one-sided {r['kalshi_one_sided']} / absent "
-          f"{r['kalshi_absent']} · STALE-BOOK? {r['stale_flags']} · quarantined "
+          f"two-sided {r['kalshi_two_sided']} / one-sided {r['kalshi_one_sided']} / partial "
+          f"{r.get('kalshi_partial', 0)} / absent {r['kalshi_absent']} · STALE-BOOK? {r['stale_flags']} · quarantined "
           f"{r['quarantined']} · inside T-{t90}: {len(card['t90_signatures'])}", flush=True)
 
 

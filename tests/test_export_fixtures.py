@@ -89,7 +89,7 @@ def test_cli_prints_label_receipt_and_warns_without_1x2(nhl, tmp_path, monkeypat
     from cli import cli
     monkeypatch.chdir(tmp_path)
     out = CliRunner().invoke(cli, ["export-fixtures", "--competition", "NHL"]).output
-    assert "1X2/HOME×5" in out and "kalshi two-sided 1 / one-sided 1 / absent 0" in out
+    assert "1X2/HOME×5" in out and "kalshi two-sided 1 / one-sided 1 / partial (soccer, a leg missing) 0 / absent 0" in out
     assert "none are labelled 1X2" not in out
     with session_scope() as s:                              # relabel: the join now finds nothing
         for o in s.execute(select(Odds).where(Odds.market == "1X2")).scalars():

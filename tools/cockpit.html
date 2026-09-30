@@ -325,9 +325,13 @@ function kalNormalize(raw,needDraw){
   const out={}; sides.forEach(k=>out[k]=raw[k]/tot); return out;
 }
 function kalFromFixture(k,fair){
-  // fixtures' kalshi.prob is the RAW stored per-side value (not rescaled)
+  // fixtures' kalshi.prob is the RAW stored per-side value (not rescaled).
+  // #117 (2026-09-30): a 1X2 set normalizes over all three legs whenever the
+  // fixture carries a DRAW leg, not only when a book fair exists (Kalshi-only
+  // cup/UNL rows were normalized H/(H+A)); "partial" (a soccer leg missing)
+  // is never two-sided.
   if(!k||k.status!=="two_sided") return null;
-  return kalNormalize(k.prob,fair&&fair.DRAW!=null);
+  return kalNormalize(k.prob,(fair&&fair.DRAW!=null)||(k.prob&&k.prob.DRAW!=null));
 }
 function kalFromPrediction(p,mk,fair){
   if(p.kalshi_prob!=null){               // NFL export (#31): home, already normalized

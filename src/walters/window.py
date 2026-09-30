@@ -84,7 +84,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     from src.db.schema import Match, MatchStatus, OddsSnapshot
     from src.walters.export import _fixture_row
     from src.walters.provenance import git_sha as _git_sha
-    from src.walters.line_move import line_move_for_match
+    from src.walters.line_move import _is_soccer, line_move_for_match
     from src.walters.venue import kalshi_home_prob, venue_gap
 
     now = now or utc_now_naive()
@@ -92,7 +92,8 @@ def build_card(now: datetime | None = None, hours: int = 24,
     models = canonical_models(export_dir)
     labels: Counter = Counter()
     counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0,
-              "kalshi_two_sided": 0, "kalshi_one_sided": 0, "kalshi_absent": 0}
+              "kalshi_two_sided": 0, "kalshi_one_sided": 0, "kalshi_partial": 0,
+              "kalshi_absent": 0}
     rows = []
     with session_scope() as s:
         q = (select(Match).where(Match.utc_date >= now, Match.utc_date < hi,
@@ -105,7 +106,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
             fair = ((row.get("market") or {}).get("fair_prob") or {})
             snaps = list(s.execute(select(OddsSnapshot).where(
                 OddsSnapshot.match_id == m.id, OddsSnapshot.source == "kalshi")).scalars())
-            kal = kalshi_home_prob(snaps, m.utc_date)
+            kal = kalshi_home_prob(snaps, m.utc_date, three_way=_is_soccer(m))   # #117
             gap_pp, flag = venue_gap(fair.get("HOME"), kal["home"] if kal else None)
             # LINE-MOVE ALARM (ruling 2026-09-29): >= 6pp on either venue inside
             # T-3h marks the row "late-news?"; sp_window_page pages it and

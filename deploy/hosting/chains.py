@@ -140,6 +140,9 @@ CHAINS: dict[str, dict] = {
             ["sync-odds", "--competition", "NHL", "--season", "2026"],
             ["sync-kalshi-nhl"],
             ["export-fixtures", "--competition", "NHL"],
+            # NHL SHADOW (architect 2026-09-30): the failed v1 as a greyed
+            # reference model — never a call (engine model_shadow)
+            ["export-nhl-predictions"],
         ],
     },
     "ncaa-market": {
@@ -246,4 +249,5 @@ UNMETERED = frozenset({
     "sync-kalshi-ncaa", "evaluate", "nfl-grade", "predict", "predict-nfl",
     "improve", "results-tally", "export-results", "export-predictions", "window-card",
     "export-nfl-predictions", "export-nfl-results", "export-fixtures",
+    "export-nhl-predictions",
 })

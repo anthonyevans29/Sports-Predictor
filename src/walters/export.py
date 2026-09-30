@@ -1238,6 +1238,13 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
                        "- Mean value-side-vs-close: — (no games with a pre-kickoff book snapshot yet)\n"))
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")
+    # NHL SHADOW (architect 2026-09-30): the failed reference model's live CLV,
+    # in its own section, never a record line beside the live sports.
+    try:
+        from src.walters.nhl_shadow import results_section
+        lines.append(results_section(days))
+    except Exception:
+        lines.append("## NHL — REFERENCE MODEL, FAILED GATE (shadow)\n\nGrade unavailable.\n")
     lines.append("\nDeep detail: `BACKLOG.md`. Change history: `CHANGELOG.md`.\n")
     with open(out_path, "w") as f:
         f.write("\n".join(lines))

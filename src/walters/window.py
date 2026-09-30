@@ -55,6 +55,8 @@ def canonical_models(export_dir: str | os.PathLike) -> dict[int, dict]:
             continue
         if not isinstance(doc, dict) or not isinstance(doc.get("predictions"), list):
             continue
+        if doc.get("engine") == "model_shadow":
+            continue   # NHL shadow (failed gate): never a model on the card
         stamp = doc.get("exported_at") or utc_naive_fromtimestamp(f.stat().st_mtime).isoformat()
         for r in doc["predictions"]:
             pred, mid = (r or {}).get("prediction"), (r or {}).get("match_id")

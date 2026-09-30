@@ -3566,6 +3566,36 @@ def _window_line(lo, hi, how: str) -> str:
             f"({(hi - lo).total_seconds() / 3600:.0f}h · {how})")
 
 
+@cli.command("export-nhl-predictions")
+@click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
+def export_nhl_predictions_cmd(hours):
+    """NHL SHADOW (architect 2026-09-30): the FAILED nhl_elo_v1 as a REFERENCE
+    MODEL for every NHL game in the window. Every row: engine model_shadow,
+    gate_verdict FAILED. Never a call, never a venue input, never logged.
+    Writes exports/nhl_shadow_<stamp>.json; nothing to the DB."""
+    from src.walters.nhl_shadow import export
+    path, doc = export(hours=hours)
+    console.print(f"[green]✓ Wrote NHL shadow (reference model — failed gate) to {path}[/green]")
+    f = doc["fit"]
+    print(f"  {doc['count']} games in the next {hours}h · model {doc['model_version']} · "
+          f"{doc['gate_verdict']} · engine {doc['engine']}")
+    print(f"  fit: {f['games_used']} decided games walked · home_adv {f['home_advantage']} "
+          f"(2024 home rate {f['home_rate_train']}) · preseason excluded {f['preseason_excluded']} · "
+          f"ties skipped {f['ties_skipped']} · window skips {doc['skipped'] or 'none'}")
+
+
+@cli.command("nhl-shadow-grade")
+@click.option("--days", default=30, show_default=True, type=int)
+def nhl_shadow_grade_cmd(days):
+    """Live CLV of the NHL SHADOW calls (pick-vs-close + value-side) from the
+    shadow exports on disk. Read-only; no hit rate, no log-loss: not a record."""
+    from src.walters.nhl_shadow import grade
+    r = grade(days=days, progress=print)
+    print(f"  ── graded {r['graded']} (calls on file {r['calls_on_file']}) · mean pick-vs-close "
+          f"{r['mean_clv_pp']}pp (n={r['priced']}) · value-side {r['mean_value_side_clv_pp']}pp "
+          f"(n={r['value_side_n']}; unanchored {r['unanchored']})")
+
+
 @cli.command("export-nfl-predictions")
 @click.option("--week", is_flag=True,
               help="Full look-ahead (8 days: the whole NFL week) instead of the 36h current slate.")

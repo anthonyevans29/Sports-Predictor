@@ -67,6 +67,7 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;
 .game{background:var(--card);border:1px solid var(--line);border-radius:10px;
   padding:10px 12px;margin-bottom:8px}
 .game.quar{border-color:var(--danger)}
+.shadowref{opacity:.55;filter:grayscale(1)}
 .match{font-weight:600}
 .barrow{display:grid;grid-template-columns:110px 1fr 128px;gap:8px;
   align-items:center;font-size:12.5px;margin-top:3px}
@@ -143,6 +144,12 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <span class="note" id="auditNote"></span>
   </div>
   <pre id="auditOut" hidden></pre>
+</div>
+
+<div class="card deskonly shadowref" id="shadowCard" hidden>
+  <h2 style="margin-top:0">Reference model — failed gate <span class="note" id="shadowNote"></span></h2>
+  <div class="note">Shadow only: never a Desk call, never a venue input, never logged to the ledger. Graded on live CLV only (RESULTS.md shadow section).</div>
+  <div class="tablewrap"><table id="shadowTable"><thead><tr><th>Game</th><th>When (UTC)</th><th>Reference pick</th><th>Books' fair</th><th>Kalshi</th><th>Engine</th></tr></thead><tbody></tbody></table></div>
 </div>
 
 <div class="card" id="parlayCard" hidden>
@@ -224,6 +231,28 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 <script>
 "use strict";
 let rows=[], sportLabel="", sampleNS=null;
+// NHL SHADOW (architect 2026-09-30): rows from an engine "model_shadow" export
+// (the FAILED nhl_elo_v1) live HERE, never in `rows`. `rows` is the only input
+// to policy() (Desk calls), venueEdge() and the ledger's Log button, so a
+// shadow row cannot become a call, a venue input or a ledger entry.
+let shadowRows=[];
+function normalizeShadow(doc){
+  const _t=n=>n&&n.length>18?n.slice(0,16)+"…":n;
+  return (doc.predictions||[]).map(p=>{const pr=p.prediction||{}, fair=(p.market||{}).fair_prob||{};
+    const home=pr.top_pick==="home_win";
+    return {game:`${_t(p.away_team||"?")} @ ${_t(p.home_team||"?")}`,when:(p.utc_date||"").slice(0,16).replace("T"," "),
+      pick:home?p.home_team:p.away_team,prob:pr.top_pick_prob,fairH:fair.HOME??null,
+      kal:kalFromFixture(p.kalshi,fair),engine:p.engine||doc.engine,gate:p.gate_verdict||doc.gate_verdict,
+      model:p.model_version||doc.model_version};});
+}
+function renderShadow(){
+  const card=$("shadowCard"); card.hidden=!shadowRows.length; if(!shadowRows.length) return;
+  $("shadowNote").textContent=`${shadowRows[0].model} · ${shadowRows[0].gate} · ${shadowRows.length} games`;
+  const pct=v=>v==null?"—":(v*100).toFixed(1)+"%";
+  $("shadowTable").querySelector("tbody").innerHTML=shadowRows.map(r=>`<tr><td>${esc(r.game)}</td><td>${esc(r.when)}</td>`
+    +`<td>${esc(r.pick)} ${pct(r.prob)}</td><td>${r.fairH==null?"—":"H "+pct(r.fairH)}</td>`
+    +`<td>${r.kal?"H "+pct(r.kal.HOME):"—"}</td><td>${esc(r.engine)}</td></tr>`).join("");
+}
 
 const $=id=>document.getElementById(id);
 const POLICY={
@@ -1493,9 +1522,10 @@ function buildParlays(){
 
 $("predFile").addEventListener("change",async e=>{
   const fs=Array.from(e.target.files); if(!fs.length)return;
-  rows=[]; const sports=new Set();
+  rows=[]; shadowRows=[]; const sports=new Set();
   for(const f of fs){
     try{const doc=JSON.parse(await f.text());
+      if(doc.engine==="model_shadow"){ shadowRows=shadowRows.concat(normalizeShadow(doc)); continue; }
       const rr=normalize(doc); rr.forEach(r=>sports.add(r.sport));
       rows=rows.concat(rr);}
     catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`;return;}
@@ -1503,6 +1533,7 @@ $("predFile").addEventListener("change",async e=>{
   sportLabel=Array.from(sports).join("+");
   policy();
   renderCard();
+  renderShadow();
   setTab(true);
   $("askCard").hidden=!sampleNS;
 });

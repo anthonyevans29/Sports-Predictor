@@ -399,6 +399,8 @@ def handle(gh: GH, proj: Project | None, tax: dict, name: str, ev: dict, log=pri
             sync_fields(proj, item, labels, iss.get("body"))
     elif name == "pull_request":
         pr = ev["pull_request"]
+        if ev.get("action") == "closed" and pr.get("merged"):
+            return close_on_merge(gh, proj, repo, pr)
         if ev.get("action") in ("opened", "edited", "reopened"):
             want = prefix_labels(pr.get("title"), tax)
             have = {x["name"] for x in pr.get("labels", [])}
@@ -419,6 +421,56 @@ def handle(gh: GH, proj: Project | None, tax: dict, name: str, ev: dict, log=pri
     return done
 
 
+def _board(proj):
+    if proj is None:
+        return None
+    d = proj.gh.graphql("query($l:String!){user(login:$l){projectsV2(first:100){nodes{id title}}}}",
+                        {"l": proj.owner})["user"]["projectsV2"]["nodes"]
+    hit = [p["id"] for p in d if p["title"] == proj.title]
+    if not hit:
+        print("· board not bootstrapped yet: board steps skipped")
+        return None
+    proj.id = hit[0]
+    proj._fields()
+    return proj
+
+
+def close_on_merge(gh: GH, proj: "Project | None", repo: str, pr: dict) -> list[str]:
+    """AUTO-CLOSE (architect ruling 2026-09-30): GitHub did not register the
+    "Closes #N" links of PRs opened through the Claude connection (#110, #114),
+    so the bot closes them itself when the PR MERGES. An ordinary Issue closes
+    (completed) and its card goes to Done. A class:limitation Issue closes only
+    when the PR body says "Resolves limitation"; otherwise it stays open and
+    Waiting. The bot's own close uses GITHUB_TOKEN, which starts no workflow,
+    so the manual-close guard (issues.closed) is untouched for human closes."""
+    done = []
+    body = pr.get("body") or ""
+    for n in closes_refs(body):
+        iss = gh.rest("GET", f"repos/{repo}/issues/{n}")
+        if "pull_request" in iss:
+            continue
+        labels = [x["name"] for x in iss.get("labels", [])]
+        if iss.get("state") != "open":
+            done.append(f"#{n}:already closed")
+            continue
+        if "class:limitation" in labels and not resolves_limitation(body):
+            gh.rest("POST", f"repos/{repo}/issues/{n}/comments", {"body": (
+                f"#{pr['number']} merged and references this limitation, but its description does not say "
+                "\"Resolves limitation\", so it stays open (ledger rule).\n\n---\n_ledger bot_")})
+            done.append(f"#{n}:limitation kept open")
+            continue
+        gh.rest("POST", f"repos/{repo}/issues/{n}/comments", {"body": (
+            f"Closed by #{pr['number']} (merged{' as ' + pr['merge_commit_sha'][:7] if pr.get('merge_commit_sha') else ''}).\n\n---\n_ledger bot_")})
+        gh.rest("PATCH", f"repos/{repo}/issues/{n}", {"state": "closed", "state_reason": "completed"})
+        done.append(f"#{n}:closed")
+        if proj is not None:
+            item, _ = proj.find(iss["node_id"])
+            if item is not None:
+                proj.set(item, "Status", "Done")
+                done.append(f"#{n}:Done")
+    return done
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     mode = argv[0] if argv else "event"
@@ -427,21 +479,20 @@ def main(argv=None) -> int:
     gh = GH(os.environ["GITHUB_TOKEN"], repo)
     ptok = os.environ.get("LEDGER_PROJECT_TOKEN")
     proj = Project(GH(ptok, repo), repo.split("/")[0], tax["project"]["title"]) if ptok else None
+    if mode == "close-merged":                  # replay: python scripts/ledger.py close-merged <PR>
+        pr = gh.rest("GET", f"repos/{repo}/pulls/{int(argv[1])}")
+        if not pr.get("merged"):
+            print(f"✗ PR #{argv[1]} is not merged: nothing closed")
+            return 1
+        proj = _board(proj)
+        print("LEDGER-CLOSE-MERGED", close_on_merge(gh, proj, repo, pr))
+        return 0
     if mode == "bootstrap":
         items = json.loads(BACKFILL.read_text())["items"]
         r = bootstrap(gh, proj, tax, items)
         print(f"LEDGER-BOOTSTRAP {json.dumps(r, sort_keys=True)}")
         return 0
-    if proj is not None:
-        d = proj.gh.graphql("query($l:String!){user(login:$l){projectsV2(first:100){nodes{id title}}}}",
-                            {"l": proj.owner})["user"]["projectsV2"]["nodes"]
-        hit = [p["id"] for p in d if p["title"] == proj.title]
-        if hit:
-            proj.id = hit[0]
-            proj._fields()
-        else:
-            print("· board not bootstrapped yet: board steps skipped")
-            proj = None
+    proj = _board(proj)
     ev = json.loads(Path(os.environ["GITHUB_EVENT_PATH"]).read_text())
     print("LEDGER-EVENT", handle(gh, proj, tax, os.environ["GITHUB_EVENT_NAME"], ev))
     return 0

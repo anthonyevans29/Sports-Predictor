@@ -422,7 +422,7 @@ def _build_row(
     # Two independent sources side by side: bookmaker consensus (Odds table)
     # and Kalshi (OddsSnapshot source="kalshi"), so the betting layer can read
     # book/Kalshi disagreement per game instead of a single blended number.
-    row["market"] = _summarize_market(pred, odds, kalshi=kalshi)
+    row["market"] = _summarize_market(pred, odds, kalshi=kalshi, three_way=(sport == Sport.SOCCER))
     # K-track (additive, architect 2026-09-30): the HOME contract's Kalshi
     # quotes + fee-adjusted executable cost, as the NFL and fixtures exports
     # carry since K1, so the Desk's exec-edge / join-bid columns work for MLB
@@ -587,6 +587,7 @@ def _summarize_market(
     pred: Prediction | None,
     odds: list[Odds],
     kalshi: dict[str, "OddsSnapshot"] | None = None,
+    three_way: bool = False,
 ) -> dict | None:
     """
     Per-selection summary: best price, de-vigged fair probability, edge vs model.
@@ -598,7 +599,7 @@ def _summarize_market(
     with the latest capture per side — kept SEPARATE from the book consensus
     (never blended) so book-vs-Kalshi disagreement stays readable downstream.
     """
-    kalshi_block = _summarize_kalshi(pred, kalshi)
+    kalshi_block = _summarize_kalshi(pred, kalshi, three_way=three_way)
     if not odds:
         # Kalshi may still have priced the game even when book odds are absent.
         if kalshi_block:
@@ -665,6 +666,7 @@ def _summarize_market(
 def _summarize_kalshi(
     pred: Prediction | None,
     kalshi: dict[str, "OddsSnapshot"] | None,
+    three_way: bool = False,
 ) -> dict | None:
     """
     Serialize the latest Kalshi capture per side.
@@ -683,18 +685,28 @@ def _summarize_kalshi(
     if not raw:
         return None
     total = sum(raw.values())
-    # Full outcome set: 3 legs when a DRAW market exists (soccer 1X2),
-    # else 2 (MLB moneyline). Normalizing a PARTIAL set would silently
-    # inflate the present legs, so partial sets ship raw + normalized=False.
-    expected = 3 if "DRAW" in kalshi else 2
-    two_sided = len(raw) >= expected and total > 0
-    prob = ({sel: round(v / total, 4) for sel, v in raw.items()}
-            if two_sided else dict(raw))
+    # Full outcome set: 3 legs for soccer 1X2 (three_way) or when a DRAW
+    # market exists, else 2 (MLB moneyline). Normalizing a PARTIAL set would
+    # silently inflate the present legs, so partial sets ship normalized=False.
+    # CORRECTION (#113, architect 2026-09-30): the set size came only from
+    # which snapshots existed, so a SOCCER game with no TIE snapshot was
+    # normalized over HOME + AWAY as if two-way. Soccer now always needs all
+    # three legs; an incomplete soccer set ships prob null (never raw — a
+    # raw two-leg pair reads like a price) and names the missing legs.
+    legs = {"HOME", "DRAW", "AWAY"} if (three_way or "DRAW" in kalshi) else {"HOME", "AWAY"}
+    two_sided = legs <= set(raw) and total > 0
+    missing = sorted(legs - set(raw))
+    if two_sided:
+        prob = {sel: round(v / total, 4) for sel, v in raw.items()}
+    elif three_way:
+        prob = None
+    else:
+        prob = dict(raw)
     model_edge = {}
     if pred:
         model_by_sel = {"HOME": pred.home_win_prob, "AWAY": pred.away_win_prob,
                         "DRAW": getattr(pred, "draw_prob", None)}
-        for sel, kprob in prob.items():
+        for sel, kprob in (prob or {}).items():
             mp = model_by_sel.get(sel)
             if mp is not None and kprob is not None:
                 model_edge[sel] = round((mp - kprob) * 100, 2)
@@ -707,6 +719,7 @@ def _summarize_kalshi(
         "raw_sum": round(total, 4),
         "prob": prob,
         "normalized": two_sided,
+        **({"missing_legs": missing} if missing else {}),
         "model_edge_pp": model_edge or None,
         "captured_at": captured.isoformat() if captured else None,
     }

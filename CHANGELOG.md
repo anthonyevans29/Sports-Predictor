@@ -11,6 +11,15 @@ Every drop adds an entry going forward.
 - It now reads only lines that start with the keyword (optionally after
   "Ledger:" or a list marker), such as "Closes #1, #2 and #3".
 
+## 2026-09-30 (CORRECTION: soccer Kalshi sets missing a leg were normalized as two-way)
+- CORRECTION, not a feature (#113). A soccer prediction row whose Kalshi
+  capture lacked a leg (usually the TIE) was normalized over HOME + AWAY
+  and marked two-sided, so its exported Kalshi `prob` was inflated.
+- Such rows now ship `normalized: false`, `prob: null`, `missing_legs`,
+  `input_quality.kalshi: "partial"` and null Kalshi cost fields. Complete
+  1X2 sets and MLB rows are unchanged.
+- The before/after receipt is `scripts/kalshi_soccer_incomplete_receipt.py`.
+
 ## 2026-09-30 (ledger: the bot closes a merged PR's "Closes #N" itself)
 - GitHub did not register the `Closes #N` links of Claude-opened PRs, so
   merged work left its Issues open. The ledger bot now closes them on

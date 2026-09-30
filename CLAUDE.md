@@ -46,6 +46,11 @@ become MORE binding under an income goal, never less."
   included; Anthony merges.** (Ruling 2026-09-25, trust-building
   phase: CI exercises everything, the architect gets a review surface.)
   Never push to `main`. CI (parse + import smoke + pytest) must pass.
+- **Release model (ruling 2026-09-30):** `main` = BETA (the laptop);
+  PRODUCTION = tagged releases only (`vX.Y.Z`; the host deploys tags,
+  never `main`). A tag is cut only by the architect's ruling after the
+  day's laptop-vs-host compare passes; hotfix = a patch tag, same ritual.
+  Claude Code never cuts or pushes a tag. docs/RELEASES.md.
 - Anthony's own hand-edits keep the direct-to-`main` lane for
   daily/operational changes, descriptive messages carrying receipts.
 - **Gate-class changes** (model logic, training, acceptance criteria,

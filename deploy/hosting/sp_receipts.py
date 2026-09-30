@@ -34,7 +34,8 @@ def key_line(r: dict) -> str:
     if k == "chain":
         if r.get("skipped") or r.get("refused"):
             return r.get("skipped") or f"refused: {r['refused']}"
-        return f"steps {r.get('steps_ok')}/{r.get('steps_total')}; exports {len(r.get('exports') or [])}"
+        return (f"steps {r.get('steps_ok')}/{r.get('steps_total')}; exports {len(r.get('exports') or [])}"
+                + (f"; {r['release']}" if r.get("release") else ""))
     if k == "backup":
         return f"{r.get('file')} integrity={r.get('integrity')}" + (
             f" ERROR {r['error']}" if r.get("error") else "")
@@ -45,9 +46,11 @@ def key_line(r: dict) -> str:
     if k in ("page", "failure"):
         return f"{r.get('title')} (delivered={r.get('delivered')})"
     if k == "boot":
-        return f"boot {r.get('boot_id', '')[:8]} kernel {r.get('kernel')} {r.get('reason') or ''}"
+        return (f"boot {(r.get('boot_id') or '')[:8]} {r.get('release') or 'release ?'} kernel {r.get('kernel')} "
+                f"{r.get('reason') or ''}")
     if k == "deploy":
-        return f"{r.get('from_sha')} -> {r.get('to_sha')}"
+        return (f"{r.get('from_release') or r.get('from_sha')} -> {r.get('to_release') or r.get('to_sha')}"
+                f" ({r.get('to_sha')})")
     return ""
 
 
@@ -99,8 +102,8 @@ def main(argv=None) -> int:
     c.load_host_env()
     rs = rows(parse_since(a.since, c.utc_now()), a.steps)
     nfail = sum(failed(r) for r in rs)
-    print(f"receipts since {a.since} on {c.host_name()}: {len(rs)} lines, {nfail} failing "
-          f"(source {c.receipts_path()})\n")
+    print(f"receipts since {a.since} on {c.host_name()} · running {c.running_release() or 'release ?'}: "
+          f"{len(rs)} lines, {nfail} failing (source {c.receipts_path()})\n")
     print(table(rs) if rs else "(no receipts in window)")
     return 0
 

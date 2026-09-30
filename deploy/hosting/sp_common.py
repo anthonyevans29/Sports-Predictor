@@ -94,6 +94,46 @@ def git_sha() -> str | None:
         return None
 
 
+# RELEASE MODEL (architect 2026-09-30): main = BETA, production = tagged
+# releases only. A production tag is vMAJOR.MINOR.PATCH, nothing else.
+RELEASE_TAG = re.compile(r"^v(\d+)\.(\d+)\.(\d+)$")
+
+
+def release_key(tag: str) -> tuple[int, int, int] | None:
+    m = RELEASE_TAG.match(tag or "")
+    return (int(m.group(1)), int(m.group(2)), int(m.group(3))) if m else None
+
+
+def latest_release(tags: list[str]) -> str | None:
+    """The highest vX.Y.Z among `tags` (numeric, not lexical: v1.10.0 > v1.9.0)."""
+    rel = [t for t in tags if release_key(t)]
+    return max(rel, key=release_key) if rel else None
+
+
+def _git(*args: str) -> str | None:
+    try:
+        r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return r.stdout.strip() if r.returncode == 0 else None
+
+
+def running_release() -> str | None:
+    """What this checkout is running, for every receipt line:
+    'v1.0.0' when HEAD sits exactly on a release tag (production);
+    'BETA main@<sha>' (or 'BETA <branch>@<sha>') on a branch;
+    'UNTAGGED@<sha>' when detached off any release tag.
+    None when git is unreadable (law 4: never a guessed tag)."""
+    sha = _git("rev-parse", "--short", "HEAD")
+    if not sha:
+        return None
+    tag = latest_release((_git("tag", "--points-at", "HEAD") or "").split())
+    if tag:
+        return tag
+    branch = _git("rev-parse", "--abbrev-ref", "HEAD")
+    return f"UNTAGGED@{sha}" if branch in (None, "HEAD") else f"BETA {branch}@{sha}"
+
+
 def redact(line: str) -> str:
     for name in SECRET_ENV:
         val = os.environ.get(name) or _dotenv().get(name)
@@ -113,8 +153,9 @@ def _dotenv() -> dict:
 
 
 def append_receipt(rec: dict) -> dict:
-    """Append one JSON line (ts/host first). Append-only; never rewrites."""
-    line = {"ts": iso(), "host": host_name(), **rec}
+    """Append one JSON line (ts/host/release first — every receipt names the
+    running tag, release model 2026-09-30). Append-only; never rewrites."""
+    line = {"ts": iso(), "host": host_name(), "release": running_release(), **rec}
     p = receipts_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:

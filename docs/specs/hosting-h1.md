@@ -894,10 +894,13 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   - To ratify: `sudo -u sp venv/bin/python cli.py ratify-candidate --sport mlb --version <v> --yes`.
   - Otherwise leave it held. The next morning's candidate is gated against
     the same production.
-- **Deploying a merge.** TERMINAL (host):
-  `sudo -u sp venv/bin/python deploy/hosting/sp_deploy.py`. It
-  fast-forwards only and lists any new `migrate_*.py`. For those: first
-  `systemctl start sp-backup.service`, then run each migration by hand.
+- **Deploying a release** (release model, 2026-09-30: `main` = BETA,
+  production = tags; docs/RELEASES.md). TERMINAL (host):
+  `sudo -u sp venv/bin/python deploy/hosting/sp_deploy.py [--tag vX.Y.Z]`.
+  It checks out the latest `vX.Y.Z` tag (detached) — never `main` — and
+  refuses when no tag exists. It lists any new `migrate_*.py`. For those:
+  first `systemctl start sp-backup.service`, then run each migration by
+  hand. Every receipt line names the running tag.
 - **Midweek PL round (H0-10), operator-started.**
   `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch --set sat=<first-day> --set sat_plus3=<day-after-last>`.
 - **Seasons (H0-8).**

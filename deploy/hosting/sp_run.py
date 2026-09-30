@@ -453,7 +453,7 @@ def main(argv=None) -> int:
     print(f"  quota: metered steps run {quota['metered_run']} · skipped {quota['metered_skipped']} "
           f"· unmetered run {quota['unmetered_run']} · provider calls: not instrumented")
     print(f"\n{'✓' if chain_exit == 0 else '✗'} {a.chain}: exit={chain_exit} "
-          f"steps {ok}/{len(steps)} in {rec['duration_s']}s")
+          f"steps {ok}/{len(steps)} in {rec['duration_s']}s · running {c.running_release() or 'release ?'}")
     return chain_exit
 
 

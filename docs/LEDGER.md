@@ -42,6 +42,7 @@ the milestones and the board shape. #74 is the sole ledger mechanism
 | `sport:` | `mlb` `nfl` `ncaa` `nhl` `soccer` `cups` `unl` `all` |
 | `size:` | `S` (docs / one-liner) · `M` (one PR) · `L` (multi-PR lane) |
 | flow flags | `needs-ruling` (blocked on the architect) · `needs-operator` (blocked on a laptop/host receipt) |
+| release flag | `release` — a production release (vX.Y.Z tag) or its ritual (release model 2026-09-30; docs/RELEASES.md) |
 
 **Hygiene:**
 - An Issue carries exactly one `track:`, one `class:`, one `sport:` and
@@ -59,6 +60,7 @@ the milestones and the board shape. #74 is the sole ledger mechanism
 | Offseason decisions (MLB egress/provider) | condition: the MLB offseason |
 | NHL reopening (goalie source) | condition: an external goalie/lineup source |
 | Cup reopening (rotation R-track) | condition: a rotation-aware candidate passes the exam |
+| v1.0.0 (and one per release: `vX.Y.Z`) | condition: the architect's ruling cuts the tag after the day's laptop-vs-host compare passes |
 
 ## The board ("sports_predictor queue", user-owned Project v2)
 - **Status columns:** Queue (ordered) · In progress · Waiting on

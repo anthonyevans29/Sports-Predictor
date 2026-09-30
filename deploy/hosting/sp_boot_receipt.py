@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """Boot receipt (H0-3: reboots appear in the receipts log). Run once per boot
 by sp-boot-receipt.service. Records the boot id, kernel, uptime, the previous
-boot's last journal time, and the last unattended-upgrades log line (the
-usual reason for a 04:30 reboot). Anything unreadable is null (law 4)."""
+boot's last journal time, the last unattended-upgrades log line (the
+usual reason for a 04:30 reboot) and the running release tag (release model
+2026-09-30). Anything unreadable is null (law 4)."""
 from __future__ import annotations
 
 import platform
@@ -47,7 +48,7 @@ def main() -> int:
         "prev_boot_last_entry": _prev_boot_end(),
         "reason": _uu_last(),
     })
-    print(f"boot receipt: {rec['boot_id']} kernel {rec['kernel']}")
+    print(f"boot receipt: {rec['boot_id']} · running {rec['release'] or 'release ?'} · kernel {rec['kernel']}")
     return 0
 
 

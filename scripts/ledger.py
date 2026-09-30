@@ -49,7 +49,13 @@ ROOT = Path(__file__).resolve().parents[1]
 TAXONOMY = ROOT / ".github" / "ledger" / "taxonomy.json"
 BACKFILL = ROOT / ".github" / "ledger" / "backfill.json"
 DIMENSIONS = ("track", "class", "sport", "size")
-CLOSES = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\s*:?\s+#(\d+)\b", re.I)
+# "Closes #N" LINES only (ruling 2026-09-30): the keyword starts the line (after
+# optional whitespace, a list marker, or the PR template's "Ledger:"), then one
+# or more refs ("Closes #1, #2 and #3"). Prose like "...which closes #111..."
+# never counts: #116's own description did that and closed #111 under the
+# wrong PR's name.
+CLOSES = re.compile(r"^[ \t]*(?:[-*][ \t]+)?(?:ledger:[ \t]*)?(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)"
+                    r"[ \t]*:?[ \t]+((?:#\d+\b(?:[ \t]*(?:,|and)[ \t]*)?)+)", re.I | re.M)
 RESOLVES_LIMITATION = re.compile(r"\bresolves\s+limitation\b", re.I)
 ARCHITECT_QUOTE = re.compile(r"\bARCHITECT\b")
 MARKER = "<!-- ledger:{} -->"
@@ -97,7 +103,7 @@ def prefix_labels(title: str, tax: dict) -> list[str]:
 
 
 def closes_refs(body: str) -> list[int]:
-    return sorted({int(n) for n in CLOSES.findall(body or "")})
+    return sorted({int(n) for refs in CLOSES.findall(body or "") for n in re.findall(r"#(\d+)", refs)})
 
 
 def resolves_limitation(body: str) -> bool:

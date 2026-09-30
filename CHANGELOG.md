@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (Desk: PASS reasons in two classes)
+- A Desk PASS is now tagged "no reference" (no two-sided reference, or too
+  few books: greyed, with a "re-run at T-60" hint) or "below floor" (a real
+  edge measured and declined). Presentation only: no call, unit or policy
+  change. The summary splits the pass count.
+
 ## 2026-09-30 (#93 ruled: Kalshi maker and taker costs)
 - Exports carry `exec_cost_taker` and `exec_cost_maker` (the ruled fee
   multipliers: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5).

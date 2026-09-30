@@ -4,6 +4,18 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (#79: NCAA data audit)
+- `python cli.py ncaa-audit` (read-only; `--season`, `--limit`) — the audit
+  the architect ordered before any NCAA v2 (v1 verdict PROVISIONAL: log-loss
+  PASS, calibration FAIL, 2025 home rate 0.489 implausible vs 2026's 0.708).
+  Over the gate's stream WITHOUT its exclusions, per season: home rate by
+  verbatim stage and by UTC month, repeated/reversed pairings with dates,
+  two labelled HEURISTICS (home side had fewer prior-season games; home rate
+  when both sides are "established" >= 8 games vs not), an inventory of
+  every stored field that could indicate a neutral site or division, and a
+  suspects list. Infers nothing; writes nothing. Module
+  `src/walters/ncaa_audit.py`; tests `tests/test_ncaa_audit.py`.
+
 ## 2026-09-30 (gate verdicts; NHL shot-quality probe + unlinked-games audit)
 - Verdicts logged: S19 REJECT (+0.0005 vs 0.0050, #83 closed); NHL v5 FAIL
   (0.6912 vs 0.6866; goalie information −0.0003 = the goalie floor; NHL

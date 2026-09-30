@@ -22,6 +22,82 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#79 NCAA DATA AUDIT (architect 2026-09-30; read-only; v1 verdict PROVISIONAL).**
+  - RULING (architect 2026-09-30, verbatim): "NCAA v1 — NOT RATIFIED:
+    log-loss PASS (0.5570 vs 0.6925) but calibration FAIL, and the 2025
+    train home rate of 0.489 is implausible for college football (2026
+    test: 0.708). AUDIT FIRST: home/away labeling and neutral sites in the
+    2025 pool, by stage (D2/D3 suspected); print home rate by stage and by
+    month for both seasons. Verdict stands as provisional; the gate re-runs
+    at season end regardless (test set is September only). If the data is
+    sound, a v2 with A-PRIORI stage-tiered initial ratings (FBS/FCS/D2-3
+    declared before the run) is the next candidate."
+  - BUILT: `python cli.py ncaa-audit [--season YYYY ...] [--limit 20]`
+    (`src/walters/ncaa_audit.py`, pure functions + one read-only loader).
+    STREAM = the gate's (Sport.NFL + Competition.code "NCAA", FINISHED,
+    both scores) WITHOUT its exclusions: every scored row is audited; rows
+    the gate would drop (stage marker "pre"/"post" via
+    `ncaa_backtest.exclusion_reason`, tied finals) are listed with the
+    reason and a GATE-KEPT subset line is printed beside the full season.
+    Writes NOTHING (SELECTs only; the test asserts every table's row count
+    is identical before/after).
+  - SECTIONS (per season; default 2025 and 2026):
+    - CENSUS + SCORED STREAM: every NCAA row by season x status; the scored
+      n, UTC date range and teams-per-season.
+    - (1) home rate BY STAGE (every distinct stage string verbatim, empty =
+      `<empty>`) and BY MONTH (UTC year-month): n, home wins, home rate
+      (home wins / decided games — the gate's binary outcome), ties, mean
+      home margin (over all n). This is the ruling's core ask: where does
+      the 0.489 come from.
+    - (2a) REPEATED PAIRINGS: A hosted B AND B hosted A in the same season
+      (listed with dates, scores, stage) — in college football a same-season
+      home-and-home is unusual, so each one is a flipped label or a neutral
+      rematch (e.g. a conference title game) until read otherwise; plus
+      same-host repeats. A LIST, not a verdict.
+    - (2b) HEURISTIC: share of games where the provider's "home" team had
+      FEWER prior-season games in the DB than the away team (a weak signal
+      that small programs are being listed as hosts). Prints "not
+      computable" when the prior season has no rows (2025's prior, 2024, may
+      not be in the DB). NOT a site or division label.
+    - (2c) HEURISTIC: home rate when BOTH sides are "established" (>= 8
+      games in THAT season in the DB) vs home-only / away-only / neither,
+      plus an "either side not" roll-up — the D2/D3/FCS suspicion as a
+      proxy. The threshold 8 is a HEURISTIC, NOT a division. Because 2026
+      is in progress (September only: nobody has 8 games yet), a VARIANT
+      counts the PRIOR season's games instead (also labelled HEURISTIC).
+    - (d) FIELD INVENTORY: every Match column is enumerated from the schema
+      (not remembered); the non-core ones print non-null / distinct / top
+      values over the scored stream, plus external_ids keys and the Team
+      columns over the programs in the stream. Columns whose NAME suggests
+      site/division are listed (on the current schema: `venue`,
+      `team.venue`). The report states explicitly: NO neutral-site flag
+      column exists on Match; NO division/conference column exists on
+      Match or Team. (Read: the american-football adapter sets only `stage`
+      and `matchday` among these — `venue` is expected all-NULL; the audit
+      prints the real count.)
+    - (3) SUSPECTS: stage/month rows with home rate < 0.52 and n >= 50
+      (both thresholds from the ruling's brief, not tuned), and the top
+      `--limit` teams by provider-"home" share of their season games.
+  - LAW 4: nothing here infers a neutral site or a division; every derived
+    signal is labelled HEURISTIC with its threshold in the output line.
+  - OPERATOR SEQUENCE (laptop, the real DB):
+    1. backup line (CLAUDE.md law 5; `.backup` API only):
+       `sqlite3 data/sports.db ".backup ~/backups/sports_$(date +%F).db"`
+    2. `python cli.py ncaa-audit` → paste the whole output to the architect
+       (add `--limit 50` if the pairing/suspect lists truncate).
+    The v1 verdict stays PROVISIONAL; no v2 constants are declared in this
+    lane (a stage-tiered v2 is declared a priori only after the audit reads
+    sound).
+  - RECEIPTS: tests/test_ncaa_audit.py 9 passed (stage table verbatim incl.
+    `<empty>`, ties out of the rate, mean margin; UTC month buckets; all-tie
+    row = n/a; reversed + same-host pairing detector; established split at
+    the >= 8 boundary + the prior-count variant; prior-season heuristic
+    counts; suspects thresholds; top home-share ordering; gate-exclusion
+    reasons match the gate; load scope (NFL row and unscored rows out,
+    postseason IN) and the CLI incl. `--season` writes nothing); full suite
+    381 passed. The real audit is NOT run here (the DB is not in this
+    container) — step 2 is the operator's.
+
 - **GATE VERDICTS 2026-09-30 (S19 REJECT · NHL v5 FAIL = the goalie floor ·
   NCAA v1 PROVISIONAL) + NHL SHOT-QUALITY PROBE + UNLINKED-GAMES AUDIT
   BUILT (architect 2026-09-30).**

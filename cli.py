@@ -4577,6 +4577,23 @@ def ncaa_backtest_cmd(baselines_only, candidate):
         f"{nb.TEST_SEASON} evaluated ONCE"))
 
 
+@cli.command("ncaa-audit")
+@click.option("--season", "seasons", multiple=True, metavar="YYYY",
+              help="Restrict the per-season sections (repeatable). Default: 2025 and 2026.")
+@click.option("--limit", type=int, default=20, show_default=True,
+              help="Length of every list (exclusions, pairings, top home-share teams, top values).")
+def ncaa_audit_cmd(seasons, limit):
+    """#79 NCAA DATA AUDIT (architect 2026-09-30), read-only: the gate's stream
+    (FINISHED, both scores) WITHOUT its exclusions. Per season: home rate by
+    stage and by UTC month, repeated/reversed pairings, the prior-season and
+    'established' HEURISTICS, the stored-field inventory (neutral site /
+    division indicators), and a suspects list. Writes nothing."""
+    from src.walters import ncaa_audit as na
+
+    data = na.load(top=limit)
+    na.report(data, seasons=tuple(seasons) or na.AUDIT_SEASONS, limit=limit, out=click.echo)
+
+
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")

@@ -271,8 +271,10 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                 # K-track (K1, additive): home-side Kalshi quotes + fee-adjusted
                 # executable cost; only where Kalshi is two-sided.
                 # #93 ruling (2026-09-30): taker AND maker costs, per the series' M.
+                # #89: NFL is two-way, so the away pick's cost is the NO side.
                 **(kalshi_exec(kal["home_bid"], kal["home_ask"],
-                               m.competition.code if m.competition else None) if kal else
+                               m.competition.code if m.competition else None,
+                               two_way=True) if kal else
                    dict(KALSHI_EXEC_NULL)),
                 "input_quality": {
                     "book_odds": (market or {}).get("bookmaker_count", 0),

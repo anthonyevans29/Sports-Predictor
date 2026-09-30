@@ -120,7 +120,8 @@ def kalshi_fee(price: float | None, m: float = 1.0, rate: float = KALSHI_FEE_RAT
     return None if fee is None else round(fee / n, 6)
 
 
-def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = None) -> dict:
+def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = None,
+                two_way: bool = False) -> dict:
     """The HOME contract's quotes + both executable costs (ruling 2026-09-30 on #93):
       exec_cost_taker = ask + fee(0.07, M_taker, P = ask)
       exec_cost_maker = (bid + 1c) + fee(0.0175, M_maker, P = bid + 1c)
@@ -131,7 +132,21 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     series' maker M is unknown. kalshi_exec_cost is kept as a DEPRECATED alias
     of exec_cost_taker (the pre-split meaning) until the published Cockpit
     reads the two fields. Fees are per FILL of K_ORDER_CONTRACTS contracts
-    (#88), so the costs carry fractions of a cent."""
+    (#88), so the costs carry fractions of a cent.
+
+    #89 (architect 2026-09-30): the AWAY side of a TWO-WAY market is the NO
+    side of the HOME contract. Buying NO at q costs q, where
+      away_ask (NO ask) = 1 - home YES bid,  away_bid (NO bid) = 1 - home YES ask
+      exec_cost_taker_away = away_ask + fee(0.07, M_taker, P = away_ask)
+      exec_cost_maker_away = (away_bid + 1c) + fee(0.0175, M_maker, P = away_bid + 1c)
+    with exactly the home rules mirrored: same M, same per-fill fee, maker null
+    when there is no NO bid (no home ask), when the join reaches the NO ask (a
+    1c spread: joining = taking), or when the maker M is unknown.
+    TWO-WAY ONLY (two_way=True: NFL / NHL / NCAA / MLB). On a three-way 1X2
+    market (soccer HOME/DRAW/AWAY) NO on HOME is DRAW-OR-AWAY, not an away bet,
+    so every away field stays null. The caller states two_way from the row's
+    own sport; the default False keeps the away fields null when the caller
+    does not know (conservative unknowns, law 4)."""
     series = KALSHI_SERIES_BY_COMPETITION.get(competition or "")
     m_taker, m_maker = KALSHI_FEE_M.get(series, (1.0, None))
     fee_t = kalshi_fee(ask, m_taker)
@@ -142,8 +157,23 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
         if (ask is None or join < ask - 1e-9) and join <= 1.0:
             fee_m = kalshi_fee(join, m_maker, KALSHI_MAKER_RATE)
             maker = round(join + fee_m, 4) if fee_m is not None else None
+    # #89: the NO side of the HOME contract = the AWAY side, two-way only.
+    away_ask = away_bid = taker_away = maker_away = None
+    if two_way:
+        away_ask = round(1.0 - bid, 4) if bid is not None else None     # NO ask = 1 - YES bid
+        away_bid = round(1.0 - ask, 4) if ask is not None else None     # NO bid = 1 - YES ask
+        fee_ta = kalshi_fee(away_ask, m_taker)
+        taker_away = (round(away_ask + fee_ta, 4)
+                      if away_ask is not None and fee_ta is not None else None)
+        if away_bid is not None and m_maker is not None:
+            join_a = round(away_bid + 0.01, 2)
+            if (away_ask is None or join_a < away_ask - 1e-9) and join_a <= 1.0:
+                fee_ma = kalshi_fee(join_a, m_maker, KALSHI_MAKER_RATE)
+                maker_away = round(join_a + fee_ma, 4) if fee_ma is not None else None
     return {"kalshi_bid": bid, "kalshi_ask": ask,
             "exec_cost_taker": taker, "exec_cost_maker": maker,
+            "away_bid": away_bid, "away_ask": away_ask,          # #89: NO side (two-way only)
+            "exec_cost_taker_away": taker_away, "exec_cost_maker_away": maker_away,
             "kalshi_exec_cost": taker,            # deprecated alias (= taker)
             "fee_series": series, "fee_m_taker": m_taker, "fee_m_maker": m_maker,
             "fee_order_contracts": K_ORDER_CONTRACTS,
@@ -152,7 +182,10 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
 
 # The null block for rows without a two-sided Kalshi set (same keys as kalshi_exec).
 KALSHI_EXEC_NULL = {"kalshi_bid": None, "kalshi_ask": None, "exec_cost_taker": None,
-                    "exec_cost_maker": None, "kalshi_exec_cost": None}
+                    "exec_cost_maker": None, "kalshi_exec_cost": None,
+                    # #89: the away (NO-side) block
+                    "away_bid": None, "away_ask": None,
+                    "exec_cost_taker_away": None, "exec_cost_maker_away": None}
 
 
 def kalshi_home_prob(snapshots, kickoff, three_way: bool = False) -> dict | None:

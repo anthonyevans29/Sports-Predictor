@@ -4483,11 +4483,13 @@ def ncaa_backtest_cmd(baselines_only, candidate):
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")
-@click.option("--candidate", type=click.Choice(["v1", "v2", "v3", "v4"]), default="v1", show_default=True,
+@click.option("--candidate", type=click.Choice(["v1", "v2", "v3", "v4", "v5"]), default="v1", show_default=True,
               help="v1 = ratified baseline; v2 = retuned params + rest days selected on full "
                    "2024-internal loss (FAILED, kept reproducible); v3 = v2's model form, params "
                    "selected by walk-forward validation inside 2024; v4 = the LAST schedule-only "
-                   "candidate: v1 form, 12-point shrink grid, v3 selection. 2025 scored once each.")
+                   "candidate: v1 form, 12-point shrink grid, v3 selection; v5 = v1 + the as-of "
+                   "starting-goalie term (NHL-GOALIE lane, a-priori constants; needs "
+                   "nhl-goalie-sync first). 2025 scored once each.")
 def nhl_backtest_cmd(season_starts, candidate):
     """NHL Phase 2 gate (frozen 2026-09-25): train 2024, test 2025, preseason
     excluded; prints the stream receipts, both baselines and — once a
@@ -4516,6 +4518,9 @@ def nhl_backtest_cmd(season_starts, candidate):
     if candidate == "v4":
         _nhl_candidate_v3(nb, stream, which="v4")
         return
+    if candidate == "v5":
+        _nhl_candidate_v5(nb, starts)
+        return
     from src.models.nhl_elo import NHLEloConfig, NHLEloV1, home_advantage_from_rate
     cfg = NHLEloConfig(home_advantage=home_advantage_from_rate(base.home_rate))
     model = NHLEloV1(cfg)
@@ -4524,6 +4529,101 @@ def nhl_backtest_cmd(season_starts, candidate):
         f"{model.name} (k={cfg.k_factor}, mov_base={cfg.mov_base}, "
         f"regression={cfg.season_regression}, home_adv={cfg.home_advantage:.1f} "
         f"from {nb.TRAIN_SEASON} home rate)"))
+
+
+def _nhl_candidate_v5(nb, starts):
+    """NHL-GOALIE lane (b): v1 + the as-of starting-goalie term, all constants
+    a priori (src/models/nhl_goalie.py). Same stream, same frozen gate, same
+    bar; 2025 scored once. v1 is scored on the same stream as the reference,
+    so a FAIL still measures the goalie information (v1 − v5 log-loss)."""
+    from src.models import nhl_goalie as ng
+    from src.models.nhl_elo import NHLEloConfig, NHLEloV1, NHLEloV5, home_advantage_from_rate
+
+    games = nb.attach_goalies(nb.load_games())
+    stream = nb.build_stream(games, starts)
+    base = nb.baselines(stream)
+    apps = nb.load_goalie_appearances()
+    cfg = NHLEloConfig(home_advantage=home_advantage_from_rate(base.home_rate))
+    ref = nb.run_gate(stream, NHLEloV1(cfg))
+    model = NHLEloV5(cfg, tracker=ng.GoalieTracker(apps))
+    result = nb.run_gate(stream, model)
+    tr, te = nb.starter_coverage(stream.train), nb.starter_coverage(stream.test)
+    span = (f"{apps[0].start:%Y-%m-%d} .. {apps[-1].start:%Y-%m-%d}" if apps else "none")
+    extra = [
+        "GOALIE INPUTS (nhl_goalie_appearances, as of each game; only appearances that "
+        f"started >= {ng.AS_OF_GAP_H:g}h earlier)",
+        f"  appearances with shots+saves: {len(apps)} ({span})",
+        f"  both starters known: train {tr[0]}/{tr[1]} · test {te[0]}/{te[1]}"
+        + (f" ({te[0] / te[1] * 100:.1f}%)" if te[1] else ""),
+        f"  test sides priced with an unknown starter (adjustment 0): {model.unknown_starters}",
+        f"  frozen constants: half-life {ng.HALF_LIFE_DAYS:g}d · prior {ng.PRIOR_SHOTS:g} shots · "
+        f"Pythagorean exponent {ng.PYTH_EXP:g} · as-of gap {ng.AS_OF_GAP_H:g}h",
+        f"REFERENCE v1 on this stream: log-loss {ref.ll_model:.4f}",
+        f"GOALIE INFORMATION (v1 − v5 log-loss): {ref.ll_model - result.ll_model:+.4f}",
+        "RPS (two-outcome = Brier; reported, not gated): "
+        f"home rate {nb.rps_binary([(base.home_rate, g.home_win) for g in stream.test]):.4f} · "
+        f"v1 {nb.rps_binary(ref.pairs):.4f} · v5 {nb.rps_binary(result.pairs):.4f}",
+    ]
+    nb.report(stream, result, extra=extra, model_name=(
+        f"{model.name} (v1 k={cfg.k_factor}, mov_base={cfg.mov_base}, regression={cfg.season_regression}, "
+        f"home_adv={cfg.home_advantage:.1f} + as-of starting-goalie term) — 2025 evaluated ONCE"))
+
+
+@cli.command("nhl-goalie-sync")
+@click.option("--start", "start_s", default="2023-10-01", show_default=True, help="First schedule date (YYYY-MM-DD).")
+@click.option("--end", "end_s", default=None, help="Last schedule date (default: today).")
+@click.option("--sleep", default=0.25, show_default=True, help="Seconds between API calls (be polite).")
+@click.option("--refresh", is_flag=True, help="Re-fetch games that already have both starters stored.")
+@click.option("--dry-run", is_flag=True, help="Fetch and parse, write nothing.")
+@click.option("--verbose", is_flag=True, help="One line per game.")
+def nhl_goalie_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose):
+    """NHL-GOALIE (a): map our NHL matches to api-web.nhle.com games and
+    upsert per-game goalie appearances (starter flag, shots/saves/GA, TOI)
+    into nhl_goalie_appearances. Take the .backup first. Idempotent."""
+    from datetime import date as _date
+    from src.db.database import init_db
+    from src.ingestion import nhl_goalies as ngs
+
+    init_db()   # additive: creates nhl_goalie_appearances if missing, touches nothing else
+    end = _date.fromisoformat(end_s) if end_s else _date.today()
+    r = ngs.sync(_date.fromisoformat(start_s), end, sleep=sleep, refresh=refresh, dry_run=dry_run,
+                 progress=click.echo if verbose else None)
+    c = r["counts"]
+    click.echo(f"NHL-GOALIE-SYNC {start_s} .. {end.isoformat()}{' (DRY RUN)' if dry_run else ''}")
+    click.echo("  counts: " + " · ".join(f"{k} {v}" for k, v in sorted(c.items())))
+    click.echo("  keys used (law-1 receipt): " + (" · ".join(f"{k}<-{v}" for k, v in sorted(r["keys_used"].items()))
+                                                  or "none found"))
+    for x in r["refused"]:
+        click.echo(f"  REFUSED game {x['game']}: goalie lists {x['goalie_lists']}")
+    if r["unmatched_sample"]:
+        click.echo("  not in our DB (sample): " + " · ".join(f"{k} ×{n}" for k, n in r["unmatched_sample"]))
+    _nhl_goalie_coverage_lines()
+
+
+@cli.command("nhl-goalie-coverage")
+def nhl_goalie_coverage_cmd():
+    """NHL-GOALIE (a) receipt: of our finished NHL games, how many have both
+    starters identified — by season. Read-only."""
+    from src.db.database import init_db
+    init_db()
+    _nhl_goalie_coverage_lines()
+
+
+def _nhl_goalie_coverage_lines():
+    from src.ingestion import nhl_goalies as ngs
+
+    cov = ngs.coverage()
+    click.echo(f"NHL-GOALIE COVERAGE · {cov['rows']} appearance rows")
+    tot = {"finished": 0, "linked": 0, "both_starters": 0}
+    for season, b in cov["by_season"].items():
+        for k in tot:
+            tot[k] += b.get(k, 0)
+        pct = b.get("both_starters", 0) / b["finished"] * 100 if b.get("finished") else 0.0
+        click.echo(f"  {season}: finished {b.get('finished', 0)} · linked {b.get('linked', 0)} · "
+                   f"both starters {b.get('both_starters', 0)} ({pct:.1f}%)")
+    if tot["finished"]:
+        click.echo(f"  ALL: both starters identified on {tot['both_starters']}/{tot['finished']} "
+                   f"= {tot['both_starters'] / tot['finished'] * 100:.1f}% of our finished NHL games")
 
 
 def _nhl_candidate_v2(nb, stream):

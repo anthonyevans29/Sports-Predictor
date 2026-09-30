@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (gate verdicts; NHL shot-quality probe + unlinked-games audit)
+- Verdicts logged: S19 REJECT (+0.0005 vs 0.0050, #83 closed); NHL v5 FAIL
+  (0.6912 vs 0.6866; goalie information −0.0003 = the goalie floor; NHL
+  stays market-only, reopening now needs xG-class shot data); NCAA v1
+  provisional pending a data audit.
+- `scripts/nhl_pbp_probe.py`: read-only probe of NHL play-by-play shot
+  events (location, type, shooter, situation), 2023-24 onward.
+- `nhl-goalie-audit`: why NHL games are unlinked (UTC-boundary offsets and
+  more), with an opt-in `nhl-goalie-sync --tolerance-hours`.
+
 ## 2026-09-30 (#79 NCAA v1: frozen gate + Elo candidate)
 - `python cli.py ncaa-backtest` — the NCAA v1 gate, frozen before any run:
   train 2025, test = the finished 2026 games at run time (n and date range

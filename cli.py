@@ -4674,7 +4674,10 @@ def _nhl_candidate_v5(nb, starts):
 @click.option("--refresh", is_flag=True, help="Re-fetch games that already have both starters stored.")
 @click.option("--dry-run", is_flag=True, help="Fetch and parse, write nothing.")
 @click.option("--verbose", is_flag=True, help="One line per game.")
-def nhl_goalie_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose):
+@click.option("--tolerance-hours", default=12, show_default=True,
+              help="± hours for mapping an API game to our match. Widen ONLY after "
+                   "nhl-goalie-audit shows UTC-boundary offsets; ambiguity is refused at any width.")
+def nhl_goalie_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose, tolerance_hours):
     """NHL-GOALIE (a): map our NHL matches to api-web.nhle.com games and
     upsert per-game goalie appearances (starter flag, shots/saves/GA, TOI)
     into nhl_goalie_appearances. Take the .backup first. Idempotent."""
@@ -4685,7 +4688,7 @@ def nhl_goalie_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose):
     init_db()   # additive: creates nhl_goalie_appearances if missing, touches nothing else
     end = _date.fromisoformat(end_s) if end_s else _date.today()
     r = ngs.sync(_date.fromisoformat(start_s), end, sleep=sleep, refresh=refresh, dry_run=dry_run,
-                 progress=click.echo if verbose else None)
+                 progress=click.echo if verbose else None, tolerance_hours=tolerance_hours)
     c = r["counts"]
     click.echo(f"NHL-GOALIE-SYNC {start_s} .. {end.isoformat()}{' (DRY RUN)' if dry_run else ''}")
     click.echo("  counts: " + " · ".join(f"{k} {v}" for k, v in sorted(c.items())))
@@ -4696,6 +4699,42 @@ def nhl_goalie_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose):
     if r["unmatched_sample"]:
         click.echo("  not in our DB (sample): " + " · ".join(f"{k} ×{n}" for k, n in r["unmatched_sample"]))
     _nhl_goalie_coverage_lines()
+
+
+@cli.command("nhl-goalie-audit")
+@click.option("--start", "start_s", default="2023-10-01", show_default=True)
+@click.option("--end", "end_s", default=None, help="Default: today.")
+@click.option("--sleep", default=0.25, show_default=True)
+@click.option("--limit", default=8, show_default=True, help="Sample lines per cause.")
+def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit):
+    """Read-only audit of NHL games with no goalie link (architect 2026-09-30):
+    each unlinked API game classified by cause (UTC-boundary offset, home/away
+    swapped, ambiguous, name mismatch, not in our DB), the offset histogram,
+    how many a wider window would link uniquely, and our unlinked matches by
+    season. Writes nothing."""
+    from datetime import date as _date
+    from src.db.database import init_db
+    from src.ingestion import nhl_goalies as ngs
+
+    init_db()
+    end = _date.fromisoformat(end_s) if end_s else _date.today()
+    r = ngs.audit(_date.fromisoformat(start_s), end, sleep=sleep)
+    click.echo(f"NHL-GOALIE AUDIT {start_s} .. {end.isoformat()} · schedule calls {r['schedule_calls']}")
+    click.echo(f"  API games (regular/playoff, finished): {r['api_games']} · linked {r['api_linked']} · "
+               f"unlinked {r['api_games'] - r['api_linked']}")
+    click.echo("  unlinked by cause: " + (" · ".join(f"{k} {v}" for k, v in sorted(r["api_unlinked_by_cause"].items()))
+                                          or "none"))
+    click.echo("  by cause and gameType: " + " · ".join(f"{k} {v}" for k, v in r["api_unlinked_by_cause_type"].items()))
+    click.echo("  UTC-boundary offsets (hours, floor): " + (" · ".join(f"{k}h ×{v}" for k, v in r["offset_hours"].items())
+                                                           or "none"))
+    click.echo("  would link uniquely at ± window: " + (" · ".join(f"{k}h {v}" for k, v in r["would_link_uniquely"].items())
+                                                       or "none"))
+    click.echo("  OUR finished NHL matches with no link, by season: "
+               + " · ".join(f"{k} {v}/{r['ours_total_by_season'].get(k, 0)}" for k, v in r["ours_unlinked_by_season"].items()))
+    for cause, lines in sorted(r["samples"].items()):
+        click.echo(f"  {cause} (sample):")
+        for ln in lines[:limit]:
+            click.echo(f"    {ln}")
 
 
 @cli.command("nhl-goalie-coverage")

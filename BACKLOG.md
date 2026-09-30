@@ -22,6 +22,70 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **GATE VERDICTS 2026-09-30 (S19 REJECT · NHL v5 FAIL = the goalie floor ·
+  NCAA v1 PROVISIONAL) + NHL SHOT-QUALITY PROBE + UNLINKED-GAMES AUDIT
+  BUILT (architect 2026-09-30).**
+  - VERDICTS (architect, verbatim; all gates frozen and pre-committed):
+    - "S19 — REJECT (+0.0005 vs 0.0050, n=1020). Close #83; Dixon-Coles
+      low-score stays a separate candidate." → #83 closed with the ruling
+      quoted. Production unchanged; the candidate machinery stays.
+    - "NHL v5 — FAIL 0.6912 vs 0.6866; goalie information −0.0003 at 100%
+      starter coverage. LOG as the goalie-quality floor: starter identity +
+      rolling save% adds nothing to schedule Elo at this spec. NHL stays
+      market-only. REOPENING CONDITION RESTATED: shot-quality data
+      (xG-class) entering the stack — NEW LANE, read-only: probe
+      api-web.nhle.com play-by-play for shot events with location/type
+      2023-present, coverage vs our games, host IP already 200. No v6
+      without it. Also: audit the ~290 unlinked regular-season games
+      (UTC-boundary suspects) so coverage nears 100%."
+      → THE GOALIE FLOOR (logged): at the ratified spec (half-life 180d,
+      prior 2,000 shots, Pythagorean 2.0, 6h as-of gap) and 100% starter
+      coverage, v5 − v1 = −0.0003 log-loss: no goalie information above
+      schedule Elo. #105 stays open with the restated condition.
+    - "NCAA v1 — NOT RATIFIED: log-loss PASS (0.5570 vs 0.6925) but
+      calibration FAIL, and the 2025 train home rate of 0.489 is
+      implausible for college football (2026 test: 0.708). AUDIT FIRST
+      [...]. Verdict stands as provisional; the gate re-runs at season end
+      regardless (test set is September only)." → #79 stays open; the
+      data audit is its own lane/PR.
+  - BUILT (NHL):
+    - `scripts/nhl_pbp_probe.py` (read-only, stdlib, host-runnable): samples
+      `/v1/gamecenter/<id>/play-by-play` per season (2023-24 .. now; by the
+      schedule, or `--from-db` = OUR linked games → coverage vs our games).
+      Discovery, no assumed names: the plays list, the event-type key,
+      shot events (types containing shot/goal), x/y, shot type, shooter,
+      situation; the first response's key paths are dumped. Needs P1–P8,
+      FEEDABLE at: shot events in >= 95% of games; x+y on >= 95% of shot
+      events; shot type >= 90%; shooter >= 95%; situation >= 90%; P1+P2 in
+      every season. GREEN = P1–P4 + P6 → the reopening condition is met
+      and a v6 may go to the frozen gate (no v6 before it).
+    - `nhl-goalie-audit` (read-only): re-walks the schedule and classifies
+      each unlinked API game — utc_boundary (same pair, our clock 12–48h
+      off), home_away_swapped, ambiguous_within_12h / _beyond_12h,
+      name_mismatch (e.g. a renamed club), unlinked_within_12h (matchable
+      now), not_in_our_db — with the offset histogram, how many a wider
+      window would link UNIQUELY (18/24/36/48h), our unlinked finished
+      matches by season, and samples per cause.
+    - `nhl-goalie-sync --tolerance-hours` (default 12, unchanged): widens
+      the match window only when the operator chooses it from the audit;
+      ambiguity is still refused at any width, and a re-run links the
+      stored rows (no refetch needed for complete games).
+  - CHOICES UNDER LAW 4 (ARCHITECT-RULE): the probe's FEEDABLE thresholds
+    (95/95/90/95/90) are declared here before any run; the audit window is
+    48h; the fix is NOT applied automatically — the tolerance is the
+    operator's choice from the receipt.
+  - OPERATOR SEQUENCE: (1) `python cli.py nhl-goalie-audit` → paste;
+    (2) if UTC-boundary dominates and links uniquely: `python cli.py
+    nhl-goalie-sync --start 2023-10-01 --tolerance-hours <from receipt>`
+    then `nhl-goalie-coverage` → paste; (3) ON THE HOST and the laptop:
+    `python3 scripts/nhl_pbp_probe.py` (+ `--from-db` on the laptop) →
+    paste.
+  - RECEIPTS: pytest (6 new in `tests/test_nhl_pbp_probe_audit.py`: the
+    cause classifier incl. swapped / renamed / ambiguous / absent; the
+    audit end to end on a fake API (a 15h offset found, would-link counts,
+    nothing written) and the widened sync linking the stored rows; the
+    probe's discovery read, GREEN vs NOT MET (no x/y), data/ refused).
+
 - **#79 NCAA v1: THE FROZEN GATE + AN ELO CANDIDATE (architect 2026-09-30; model track).**
   - SPEC (architect ruling 2026-09-30): "an NCAA Elo candidate through its
     own frozen gate (declare the bar from the naive baseline before the

@@ -22,6 +22,43 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#88 RE-FIT: KALSHI FEE ROUNDING IS NOT A CEILING (architect 2026-09-30;
+  K-track; CORRECTION of the #131 model).**
+  - FINDING (architect, from the operator's real run of the #131 receipt):
+    receipt NOT met — 253/629 multi-contract legs to the cent under the
+    per-fill ceiling, and the 376 misses were ~all exactly 1¢ BELOW the
+    ceiling model, which a ceiling cannot produce. Kalshi rounds per fill to
+    NEAREST (or truncates), not up. The #131 receipt's "five chosen fills"
+    verdict was the wrong bar; the receipt is the full set.
+  - RULING: re-fit over all legs, scoring ceil / nearest / floor /
+    banker's; report each rule's reproduction rate; adopt the rule that
+    reproduces >= 95%; if none does, print the residual distribution.
+    Exclude legs priced 0.00 (combo-shard artifacts, e.g. "909.09 @ 0.00").
+    Re-issue the receipt on the full set. Not merge-ready until the rate is
+    printed.
+  - BUILT:
+    - `venue.round_cents(cents, mode)` (ceil / nearest half-up / floor /
+      bankers half-to-even); `kalshi_order_fee(..., rounding=None)` rounds
+      once per fill by `KALSHI_FEE_ROUNDING`, which STAYS "ceil" until the
+      re-fit names the rule (then a one-line change in this PR).
+    - `scripts/kalshi_fee_fill_receipt.py` rewritten as the re-fit: the
+      population, the exclusions (shards priced < 0.005, series without a
+      ruled M), each rule's rate, the pre-#88 per-contract model's rate for
+      reference, a table of raw's fractional cent vs how Kalshi rounded it,
+      and the verdict: ADOPT at >= 95%, else NOT MET + the residual
+      histogram (fee − raw, 0.1¢ bins, against the nearest candidate).
+    - Tied rules that reproduce exactly the same legs (nearest vs bankers
+      differ only on exact half-cents) are indistinguishable on the data:
+      the first in order is adopted and the half-cent count printed,
+      flagged ARCHITECT-RULE on halves. Rules that tie while disagreeing on
+      some leg are not adopted.
+  - The five-fill "MEETS" line is gone.
+  - RECEIPTS: pytest 307 passed (the receipt tests rewritten: a
+    synthetic world generated under "nearest" is adopted at 7/7; a mixed
+    world is NOT MET with residuals; indistinguishable rules adopt the first
+    and flag halves; split halves are NOT MET). PENDING: the operator's run
+    on the real YTD CSV.
+
 - **DESK PASS-REASON CLASSES (architect 2026-09-30; presentation only, no
   policy change).**
   - SPEC: Desk PASS reasons split into two visible classes: "no reference"

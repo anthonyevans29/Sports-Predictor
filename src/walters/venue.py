@@ -43,6 +43,13 @@ STALE_BOOK_FLAG = "STALE-BOOK?"
 KALSHI_FEE_RATE = 0.07      # taker rate: VERIFIED 2026-09-29 (rounding: see above)
 KALSHI_MAKER_RATE = 0.0175  # maker rate: the same published schedule
 K_ORDER_CONTRACTS = 10      # #88: N for the Desk's cost (PROVISIONAL until the B-track sizes units)
+# #88 RE-FIT (architect 2026-09-30): the first receipt was NOT met (253/629
+# to the cent under the ceiling; the misses sat exactly 1c BELOW it), so the
+# per-fill rounding rule is re-fitted over the full CSV by
+# scripts/kalshi_fee_fill_receipt.py and adopted only at >= 95%. "ceil"
+# stays in force until that receipt names the rule.
+ROUNDING_MODES = ("ceil", "nearest", "floor", "bankers")
+KALSHI_FEE_ROUNDING = "ceil"
 K_TRACK_NOTE = "K-track: informational until the executable-edge ruling"
 
 # #93 RESOLVED (architect 2026-09-30, from Kalshi's fee schedule): the game
@@ -67,14 +74,37 @@ KALSHI_SERIES_BY_COMPETITION = {
 }
 
 
-def kalshi_order_fee(price: float | None, n: int, m: float = 1.0,
-                     rate: float = KALSHI_FEE_RATE) -> float | None:
+def round_cents(cents: float, mode: str) -> int:
+    """Round raw cents to whole cents: ceil / nearest (half up) / floor
+    (truncate) / bankers (half to even). The 1e-9 epsilon keeps float noise
+    from moving a value across an integer or a half."""
+    eps = 1e-9
+    if mode == "ceil":
+        return math.ceil(cents - eps)
+    if mode == "floor":
+        return math.floor(cents + eps)
+    fl = math.floor(cents + eps)
+    frac = cents - fl
+    if frac > 0.5 + eps:
+        return fl + 1
+    if frac < 0.5 - eps:
+        return fl
+    if mode == "nearest":
+        return fl + 1
+    if mode == "bankers":
+        return fl if fl % 2 == 0 else fl + 1
+    raise ValueError(f"unknown rounding mode {mode!r}")
+
+
+def kalshi_order_fee(price: float | None, n: float, m: float = 1.0,
+                     rate: float = KALSHI_FEE_RATE, rounding: str | None = None) -> float | None:
     """#88: the fee in dollars for ONE fill of n contracts at price P:
-    ceil(n x rate x M x P x (1-P) x 100) / 100 (one ceiling per fill)."""
-    if price is None or not (0.0 <= price <= 1.0) or not n or n < 1:
+    n x rate x M x P x (1-P) x 100 cents, rounded ONCE per fill by
+    KALSHI_FEE_ROUNDING (see the re-fit note above)."""
+    if price is None or not (0.0 <= price <= 1.0) or not n or n <= 0:
         return None
     raw = n * rate * m * price * (1.0 - price) * 100.0
-    return math.ceil(raw - 1e-9) / 100.0   # epsilon: float noise must not add a cent
+    return round_cents(raw, rounding or KALSHI_FEE_ROUNDING) / 100.0
 
 
 def kalshi_fee(price: float | None, m: float = 1.0, rate: float = KALSHI_FEE_RATE,

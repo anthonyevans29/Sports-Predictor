@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-09-30 (#88 re-fit: Kalshi fee rounding is fitted, not assumed)
+- The per-fill ceiling failed its receipt (253/629 legs; the misses sat 1¢
+  below it). `scripts/kalshi_fee_fill_receipt.py` now scores ceil /
+  nearest / floor / banker's over every multi-contract leg (shards priced
+  0.00 excluded), prints each rule's rate, and adopts one only at >= 95%;
+  otherwise it prints the residuals.
+- The fee rule stays "ceil" until the operator's run names the winner.
+
 ## 2026-09-30 (Desk: PASS reasons in two classes)
 - A Desk PASS is now tagged "no reference" (no two-sided reference, or too
   few books: greyed, with a "re-run at T-60" hint) or "below floor" (a real

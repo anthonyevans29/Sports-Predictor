@@ -23,6 +23,15 @@ Every drop adds an entry going forward.
   (0.0023), not production's 0.0008. It is left unchanged here; the S19
   comparison uses production's value.
 
+## 2026-09-30 (NHL-GOALIE: NHL API goalie ingest + v5 candidate)
+- New `nhl_goalie_appearances` table and `nhl-goalie-sync`: per-game goalie
+  appearances (starter flag, shots / saves / goals against) from
+  api-web.nhle.com, mapped to our NHL matches, 2023-24 onward.
+  `nhl-goalie-coverage` is the receipt.
+- `nhl-backtest --candidate v5`: v1 + each starter's shrunk, decayed save%
+  over league average as an Elo adjustment, through the frozen NHL gate.
+  Constants are fixed a priori and await ratification before the run.
+
 ## 2026-09-30 (#88 re-fit: Kalshi fee rounding is fitted, not assumed)
 - The per-fill ceiling failed its receipt (253/629 legs; the misses sat 1¢
   below it). `scripts/kalshi_fee_fill_receipt.py` now scores ceil /

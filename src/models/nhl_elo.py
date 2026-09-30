@@ -164,3 +164,57 @@ class NHLEloV4(NHLEloV1):
     home advantage chosen from a 12-point shrink-direction grid by v3's
     walk-forward selection."""
     name = "nhl_elo_v4"
+
+
+# --------------------------------------------------------------------------
+# v5 CANDIDATE (architect, NHL-GOALIE lane, 2026-09-30): the v1 form exactly
+# + a goalie term. The H2 reopening source (api-web.nhle.com goalie data) is
+# what separates v5 from the schedule-only v1-v4.
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class NHLEloV5(NHLEloV1):
+    """v1 (k 6.0, mov_base 2.2, regression 0.25, home advantage from the
+    train home rate) + each starter's as-of goalie adjustment
+    (src/models/nhl_goalie.py). Like v2's rest term, the adjustment sits
+    inside the expected score used by BOTH predict and update, so team
+    ratings don't absorb goalie quality. A game whose starter is unknown
+    prices that side at 0 (counted in the report, never guessed)."""
+    tracker: object = None
+    unknown_starters: int = 0
+    priced: int = 0
+
+    name = "nhl_elo_v5"
+
+    def _goalie_diff(self, g) -> float:
+        self.tracker.advance_to(g.utc_date)
+        h = self.tracker.elo_adjustment(getattr(g, "home_goalie", None), g.utc_date)
+        a = self.tracker.elo_adjustment(getattr(g, "away_goalie", None), g.utc_date)
+        return h - a
+
+    def _expected_game(self, g) -> float:
+        diff = (self.rating(g.away_id)
+                - (self.rating(g.home_id) + self.cfg.home_advantage + self._goalie_diff(g)))
+        return 1.0 / (1.0 + 10 ** (diff / 400.0))
+
+    def predict(self, g) -> float:
+        for tid in (g.home_id, g.away_id):
+            self._regress_if_new_season(tid, g.season)
+        self.priced += 1
+        self.unknown_starters += (getattr(g, "home_goalie", None) is None) + (getattr(g, "away_goalie", None) is None)
+        return self._expected_game(g)
+
+    def update(self, g) -> None:
+        for tid in (g.home_id, g.away_id):
+            self._regress_if_new_season(tid, g.season)
+        exp_h = self._expected_game(g)
+        won = 1.0 if g.home_score > g.away_score else 0.0
+        rh, ra = self.rating(g.home_id), self.rating(g.away_id)
+        edge = self.cfg.home_advantage + self._goalie_diff(g)
+        gap = (rh + edge - ra) if won else (ra - rh - edge)
+        margin = abs(g.home_score - g.away_score)
+        mov = math.log(margin + 1.0) * (self.cfg.mov_base / (self.cfg.mov_base + max(gap, 0.0) * 0.001))
+        delta = self.cfg.k_factor * mov * (won - exp_h)
+        self._ratings[g.home_id] = rh + delta
+        self._ratings[g.away_id] = ra - delta

@@ -22,6 +22,58 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **CORRECTION #113: SOCCER KALSHI SETS MISSING A LEG ARE INCOMPLETE,
+  NEVER NORMALIZED TWO-WAY (architect AUTHORIZED 2026-09-30,
+  gate-class-lite).**
+  - FINDING (#113, logged 2026-09-30): `_summarize_kalshi` decided the
+    outcome set from the snapshots present (`3 if "DRAW" in kalshi else
+    2`). So a SOCCER game with no TIE snapshot was normalized over HOME +
+    AWAY as if two-way, and marked `normalized: true`. That inflated its
+    `prob` and made it "two-sided" for the new exec fields and the
+    Cockpit's venue read.
+  - RULING: treat it as incomplete: prob null, not quoted, cost fields
+    null. It changes exported probabilities, so it ships with a
+    before/after receipt on the affected rows from a real export, and it
+    goes in CHANGELOG as a correction.
+  - BUILT (`src/walters/export.py`): `_summarize_market` /
+    `_summarize_kalshi` take `three_way` (soccer rows pass True).
+    - Soccer needs all three legs. An incomplete soccer set ships
+      `normalized: false`, `prob: null`, `model_edge_pp: null`, no
+      `vs_book_pp`, and `missing_legs` (additive, e.g. ["DRAW"]).
+      `raw_yes_prob` stays, so the capture is still visible.
+    - Downstream: `input_quality.kalshi` = "partial" (the existing
+      soccer vocabulary); `kalshi_bid/ask/exec_cost` are null (they
+      follow `normalized`); the Cockpit's `kalFromPrediction` returns
+      null, so no venue read is made on an incomplete set.
+    - MLB is unchanged (a one-sided set still ships raw prob). A complete
+      soccer 1X2 set is unchanged.
+    - "quoted=false" (the ruling's word) maps onto the existing fields
+      `normalized: false` + `input_quality.kalshi: "partial"`. No field
+      named `quoted` exists in any export (law 1), and none was added.
+  - SIBLING FINDING (Issue opened, NOT changed here: other contracts):
+    the same "HOME + AWAY = two-sided" test also lives in two places.
+    - The fixtures export (`_fixture_row`: status "two_sided" and the
+      exec fields). The Cockpit only normalizes it with a draw leg when a
+      book fair exists.
+    - `venue.kalshi_home_prob`, used by the window card's venue gap and
+      the line-move read, on soccer rows.
+  - RECEIPT PENDING (law 5: the DB never travels): the operator runs
+    `python3 scripts/kalshi_soccer_incomplete_receipt.py --start
+    2026-08-01 --end 2026-10-15` on the laptop and pastes it. It prints
+    every affected row with BEFORE (the old rule on the same raw capture)
+    and AFTER, and the count that actually changed.
+  - Receipts:
+    - `tests/test_kalshi_exec_mlb_soccer.py` 2 passed. The two-legged
+      soccer row is normalized false, prob null, missing_legs ["DRAW"],
+      raw kept, "partial", exec null. The three-legged row and MLB are
+      unchanged.
+    - The receipt script on synthetic rows prints "CHANGED 1", BEFORE
+      normalized=True prob {HOME 0.6575, AWAY 0.3425} exec_cost 0.51,
+      AFTER normalized=False prob=None partial exec_cost=None.
+    - The new assertions FAIL on the pre-fix code (reproduced), and pass
+      after.
+    - Full suite: 278 passed.
+
 - **LEDGER AUTO-CLOSE (architect GO, 2026-09-30; [ops]).**
   - FINDING: GitHub never registered the `Closes #N` links of the PRs
     opened through the Claude connection. #110 (Closes #109) and #114

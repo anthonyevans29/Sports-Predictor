@@ -78,9 +78,12 @@ def _consensus(s, m, home, at, source="api_american_football"):
 
 
 def _close(s, m, home):
+    # captured BEFORE kickoff: the close is the last PRE-kickoff capture (#167);
+    # NFL odds are only ever synced for upcoming games
     for sel, p in (("HOME", home), ("AWAY", 1 - home)):
         s.add(Odds(match_id=m.id, bookmaker="bk", market="1X2", selection=sel,
-                   price_decimal=1 / p, source="api_american_football"))
+                   price_decimal=1 / p, source="api_american_football",
+                   captured_at=m.utc_date - timedelta(hours=1)))
 
 
 def test_grade_nfl_prints_value_side_beside_pick_vs_close():

@@ -100,6 +100,61 @@ specific reason they're not being built now.
     5. `clv-restate --apply --backup <fresh .backup>`;
     6. `results-tally`.
 
+- **#163 SOCCER-CANDIDATES LANE (architect 2026-10-01): Dixon-Coles rho fit + S14 Stage-2 — pre-committed, built, operator runs owed.**
+  - RULING (verbatim): "LANE SOCCER-CANDIDATES (backtest-only, frozen a
+    priori): (a) Dixon-Coles low-score correction (rho fitted on 2023/24
+    only, frozen) and (b) S14 Stage-2 — uncertainty-conditioned totals
+    adjustment (top-pick < 45% bucket, offset declared from the S14
+    verdict's +1.17 before the run). Each through the existing soccer gate
+    (improve rule, pooled PL 2023/24-2025/26, production params, RPS
+    reported). Verdicts only; no production change."
+  - DECLARED BEFORE ANY RUN (`src/walters/soccer_candidates.py`):
+    - (a) `dixon-coles-fit`. Production already carries DC (S18, ρ =
+      −0.10). The candidate replaces that ρ with an MLE fit on PL 2023/24
+      alone:
+      - inputs: the leakage-free walk's λ, μ at production params (ρ does
+        not enter them);
+      - the likelihood reduces to Σ log τ (the τ-adjusted matrix sums to 1);
+      - grid [−0.300, +0.200] step 0.001; infeasible points (any τ ≤ 0) are
+        skipped; ties go to the smallest |ρ|.
+      The fitted ρ is printed and frozen, then gated against production's ρ
+      on the ruled pool.
+    - (b) `s14-totals`:
+      - Bucket: the UNADJUSTED top pick < 0.45.
+      - Offset: +1.17 goals (the S14 verdict's measured under-projection,
+        n=25, 2026-09-16).
+      - Mechanism: both λ scale by (T+1.17)/T and the full score matrix
+        (DC included) is recomputed, so 1X2 moves too.
+      - Verdict = the improve rule AND the S14 Stage-2 acceptance frozen
+        2026-09-17: (i) uncertain-bucket signed residual |cand| < |prod|
+        (a tie rejects); (ii) totals-direction hits at 2.5 cand ≥ prod;
+        (iii) confident-bucket residual within ±0.15. Buckets come from the
+        production arm.
+    - Gate: `training.DEFAULT_PROMOTION_DELTA` = 0.0050 on the pooled
+      leakage-free 1X2 log-loss; ties reject. A missing season or n < 30
+      = INVALID. RPS reported only.
+  - ARCHITECT-RULE (flagged, none silently assumed):
+    1. The ruled pool contains 2023/24, the fit season of (a), so 1/3 is
+       in-sample. The out-of-sample pool (2024/25 + 2025/26) is REPORTED
+       beside it and decides nothing.
+    2. The offset is +1.17 (the verdict figure), not Stage-1's in-sample
+       +1.0.
+    3. The λ-scaling mechanism.
+    4. (b) needs both gates (the binding reading).
+  - BUILT:
+    - `run_soccer_backtest` gains `detail` (additive keys) and
+      `s14_uncertain_offset`. Both default off, which is byte-identical
+      for every existing caller (tested).
+    - `soccer-backtest --candidate dixon-coles-fit|s14-totals` runs the
+      fixed gate set only and REFUSES other splits.
+    - Tests: `tests/test_soccer_candidates.py` (11), covering the frozen
+      constants, τ, the fit (signs, flat-likelihood tie-break, infeasible
+      points), the S14 hand case, the walk extensions, both candidates
+      end to end, INVALID on a missing season, and the CLI (verdict lines,
+      refusal, production untouched).
+  - OWED (operator): `python cli.py soccer-backtest --candidate
+    dixon-coles-fit` and `--candidate s14-totals`. Paste both gate lines.
+
 - **#159 #160 #161 POLICY v1.1 ADDENDA (architect 2026-10-01): postseason sizing caution; kalshi-only provisional reference; Desk kickoff + n/30 counters; NHL venue finding.**
   - RULINGS (verbatim):
     - (1) "exports carry stage=postseason for MLB from our gameType

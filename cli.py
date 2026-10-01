@@ -4093,8 +4093,9 @@ def _soccer_lane_candidate(candidate, competition_code, season, min_prior):
     version, rho, coeff = prod
     fn = sc.run_dixon_coles_candidate if candidate == sc.DC_CANDIDATE else sc.run_s14_candidate
     r = fn(prod_rho=rho, elo_goal_coeff=coeff, min_prior=min_prior, min_delta=DEFAULT_PROMOTION_DELTA)
-    print(f"{tag} candidate vs production {version} (rho={rho}, elo_goal_coeff={coeff}) · "
-          f"{sc.GATE_COMPETITION} {', '.join(sc.GATE_SEASONS)} pooled · min_prior={min_prior}", flush=True)
+    pool = sc.DC_VERDICT_SEASONS if candidate == sc.DC_CANDIDATE else sc.GATE_SEASONS
+    print(f"{tag} candidate vs production {version} (rho={rho}, elo_goal_coeff={coeff}) · verdict pool "
+          f"{sc.GATE_COMPETITION} {', '.join(pool)} pooled · min_prior={min_prior}", flush=True)
     if candidate == sc.DC_CANDIDATE:
         fit = r.get("fit") or {}
         print(f"  FIT (frozen procedure): season {sc.DC_FIT_SEASON} · n={fit.get('n')} · grid "
@@ -4115,12 +4116,13 @@ def _soccer_lane_candidate(candidate, competition_code, season, min_prior):
             f"(bar >= {p['min_delta']:.4f}; ties reject) over n={p['n']} · RPS {p['cand_rps']:.4f} vs "
             f"{p['prod_rps']:.4f} ({_RPS_NOTE})")
     if candidate == sc.DC_CANDIDATE:
-        o = r.get("oos_pooled") or {}
+        o = r.get("in_sample") or {}
         if "delta" in o:
-            print(f"  out-of-sample pool {', '.join(sc.OOS_SEASONS)} (REPORTED ONLY, decides nothing): "
-                  f"n={o['n']} delta {o['delta']:+.4f} would-be {o['verdict']}", flush=True)
-        print(f"{tag}-GATE: {p['verdict']} — rho {r['fit']['rho']} (fitted on {sc.DC_FIT_SEASON}) vs "
-              f"production rho {rho}: {line}", flush=True)
+            print(f"  in-sample {sc.DC_FIT_SEASON} (the fit season — INFORMATION ONLY, decides nothing): "
+                  f"n={o['n']} delta {o['delta']:+.4f}", flush=True)
+        print(f"{tag}-GATE: {p['verdict']} — rho {r['fit']['rho']} (fitted on {sc.DC_FIT_SEASON}, "
+              f"judged out of sample on {', '.join(sc.DC_VERDICT_SEASONS)}) vs production rho {rho}: {line}",
+              flush=True)
         return
     s = r["s14"]
     print(f"  improve rule (1X2): {p['verdict']} — {line}", flush=True)
@@ -4155,7 +4157,7 @@ def _soccer_lane_candidate(candidate, competition_code, season, min_prior):
                    "2025/26, pooled) and a verdict; otherwise INFORMATIONAL, no verdict. "
                    "SOCCER-CANDIDATES (2026-10-01, backtest-only, always the PL pooled gate "
                    "set): dixon-coles-fit = rho fitted on 2023/24 only, frozen, vs production "
-                   "rho; s14-totals = +1.17 goals on uncertain-winner games (top pick < 0.45), "
+                   "rho, judged on 2024/25+2025/26 (out of sample); s14-totals = +1.17 goals on uncertain-winner games (top pick < 0.45), "
                    "improve rule AND the S14 Stage-2 criteria. Writes nothing; production is "
                    "untouched.")
 def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):

@@ -21,7 +21,7 @@ SEASONS = ("2081/82", "2082/83", "2083/84")
 
 def test_constants_frozen_a_priori():
     assert sc.GATE_COMPETITION == "PL" and sc.GATE_SEASONS == ("2023/24", "2024/25", "2025/26")
-    assert sc.DC_FIT_SEASON == "2023/24" and sc.OOS_SEASONS == ("2024/25", "2025/26")
+    assert sc.DC_FIT_SEASON == "2023/24" and sc.DC_VERDICT_SEASONS == ("2024/25", "2025/26")
     assert (sc.DC_RHO_LO, sc.DC_RHO_HI, sc.DC_RHO_STEP) == (-0.300, 0.200, 0.001)
     assert sc.S14_UNCERTAIN_TOP_PICK == 0.45 and sc.S14_OFFSET_GOALS == 1.17
     assert sc.S14_CONFIDENT_TOL == 0.15 and sc.S14_TOTAL_LINE_GOALS == 3
@@ -124,7 +124,7 @@ def gate_on_world(world, monkeypatch):
     monkeypatch.setattr(sc, "GATE_COMPETITION", world)
     monkeypatch.setattr(sc, "GATE_SEASONS", SEASONS)
     monkeypatch.setattr(sc, "DC_FIT_SEASON", SEASONS[0])
-    monkeypatch.setattr(sc, "OOS_SEASONS", SEASONS[1:])
+    monkeypatch.setattr(sc, "DC_VERDICT_SEASONS", SEASONS[1:])
     return world
 
 
@@ -132,9 +132,10 @@ def test_dixon_coles_candidate_end_to_end(gate_on_world):
     r = sc.run_dixon_coles_candidate(prod_rho=-0.10, elo_goal_coeff=0.0008, min_prior=20)
     assert r["fit"]["rho"] is not None and sc.DC_RHO_LO <= r["fit"]["rho"] <= sc.DC_RHO_HI
     p = r["pooled"]
-    assert p["verdict"] in ("PASS", "REJECT") and p["n"] == 3 * 36
+    assert r["seasons"] == list(SEASONS[1:])                          # the fit season is OUT of the verdict
+    assert p["verdict"] in ("PASS", "REJECT") and p["n"] == 2 * 36
     assert p["verdict"] == ("PASS" if p["delta"] >= 0.005 else "REJECT")
-    assert r["oos_pooled"]["n"] == 2 * 36 and "_arms" not in r
+    assert r["in_sample"]["n"] == 36 and "_arms" not in r
 
 
 def test_s14_candidate_end_to_end(gate_on_world):
@@ -147,6 +148,7 @@ def test_s14_candidate_end_to_end(gate_on_world):
 
 def test_missing_season_is_invalid(gate_on_world, monkeypatch):
     monkeypatch.setattr(sc, "GATE_SEASONS", (SEASONS[0], "1900/01"))
+    monkeypatch.setattr(sc, "DC_VERDICT_SEASONS", (SEASONS[1], "1900/01"))
     assert sc.run_s14_candidate(prod_rho=-0.1, elo_goal_coeff=0.0008, min_prior=20)["verdict"] == "INVALID"
     assert sc.run_dixon_coles_candidate(prod_rho=-0.1, elo_goal_coeff=0.0008,
                                         min_prior=20)["pooled"]["verdict"] == "INVALID"

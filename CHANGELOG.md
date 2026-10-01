@@ -18,6 +18,17 @@ Every drop adds an entry going forward.
 - `tests/test_desk_policy.py` (8 tests). Finding #181 (NHL PASS rows can
   show 0.5u).
 
+## 2026-10-01 (#178: ledger kickoff audit in the Cockpit)
+- `tools/cockpit.html`: every position's claim, execution and reprices are
+  checked against the true UTC kickoff. Post-kickoff prices are flagged
+  "post-kickoff (tz bug)" and left out of the P&L, which falls back to the
+  last pre-kickoff reprice or the claim, or excludes the position. Stored
+  fields are never rewritten; flagged positions carry a `tz_audit` mark.
+  The P&L block shows a one-line count.
+- Reprice history is now logged per position (`reprices`); before this it
+  was overwritten on each re-log.
+- `scripts/cockpit_ledger_audit_verify.py`: 19 checks.
+
 ## 2026-10-01 (#178: Cockpit reads kickoff times as UTC)
 - `tools/cockpit.html`: new `utcMs()` reads the exports' naive `utc_date`
   as UTC. The capture window, Kalshi-only T-60, the venue in-play check

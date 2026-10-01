@@ -94,6 +94,49 @@ specific reason they're not being built now.
     `--desk` exports + ledger summary). Then the Cockpit render switch:
     desk calls from the file, ledger as the only overlay. Then F2.
 
+- **#178 LEDGER KICKOFF AUDIT in the Cockpit (ARCHITECT 2026-10-01, #179 follow-on).**
+  - RULING (verbatim): "a LEDGER AUDIT in the Cockpit — for every position,
+    compare claim_at, executed_at and each reprice timestamp against true
+    UTC kickoff; flag any capture or reprice after kickoff as "post-kickoff
+    (tz bug)" and exclude those prices from the P&L (fall back to the last
+    pre-kickoff reprice, or the claim price if none), with a one-line count
+    in the P&L block. Never delete; mark and recompute."
+  - LAW-1 FINDING: the ledger kept NO per-reprice history. `stampTiming`
+    overwrote `executed_at` / `exec_market_p` / `market_p` on each re-log,
+    so for existing positions only the claim (frozen) and the latest
+    execution survive.
+    - Existing positions therefore fall back to the CLAIM price.
+    - From now on, `stampTiming` appends every capture to `reprices`
+      ({at, market_p, model_p}), so "last pre-kickoff reprice" is real data
+      going forward.
+  - BUILT (`tools/cockpit.html`):
+    - `auditCall(c)` compares claim_at, executed_at (legacy: captured_at)
+      and every logged reprice against `utcMs(kickoff)`. A timestamp at or
+      after kickoff is post-kickoff.
+    - Price used: the execution if it was before kickoff, else the last
+      pre-kickoff reprice, else the claim if the claim was before kickoff,
+      else EXCLUDED (no pre-kickoff price exists).
+    - A claim after kickoff also voids the claim counterfactual. No
+      kickoff means never flagged (law 4).
+    - `settledBets` recomputes returns at the audited price: straights,
+      shadows at notional units, and parlay tickets at audited leg prices
+      (any leg excluded → the ticket leaves the P&L).
+    - Excluded positions are counted, never dropped from storage.
+    - `saveLedger` marks `tz_audit` {flag, claim_post, exec_post,
+      post_reprices, price_used, basis, excluded} on flagged
+      positions/legs. NO stored field is rewritten.
+    - The P&L block and the ledger totals carry one line: "Kickoff audit
+      (#178): n settled position(s) … · k re-priced at a pre-kickoff price
+      · j excluded · marked, never deleted." The open list tags flagged
+      positions.
+  - RECEIPT: `scripts/cockpit_ledger_audit_verify.py` 19/19, run in
+    America/New_York. It covers every path, plus "save changes no stored
+    field, count unchanged". All 14 other Cockpit verifies stay green; 439
+    pytest pass.
+  - OPERATOR: republish the Cockpit, open it, and paste the P&L block's
+    "Kickoff audit" line. If it reads 0 flagged, the laptop browser was on
+    UTC and #178 had no ledger impact.
+
 - **#178 COCKPIT KICKOFF PARSING: naive utc_date read as LOCAL time (finding + fix, 2026-10-01).**
   - FOUND while reading `tools/cockpit.html` for F1 (#151), law 1.
   - Every export writes `utc_date` as naive UTC (`isoformat()`, no `Z`).

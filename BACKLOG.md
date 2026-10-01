@@ -22,6 +22,51 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#82 SNAPSHOT RETENTION — DESIGN FOR RULING (architect 2026-10-01; doc only, no code).**
+  - RULING (verbatim): "LANE #82 (design doc only): snapshot pruning/rollup
+    — odds and Kalshi snapshots now grow by thousands of rows a day;
+    propose a retention policy (raw 30d, hourly rollups beyond, closes kept
+    forever) for ruling before any code."
+  - DOC: `docs/specs/snapshot-retention.md`.
+    - Inventory of every odds_snapshots writer, with growth formulas and
+      season-bounded maxima. Real game counts are labelled UNKNOWN, with
+      read-only SQL R1–R4 to measure them.
+    - Every reader, and exactly which rows it needs.
+    - The policy:
+      - eligibility per MATCH: FINISHED, kicked off > 30d, every prediction
+        graded, past a guard;
+      - kept raw forever: the FIRST capture set and the CLOSE (for book
+        sources, the last pre-kickoff set; for Kalshi, the last pre-kickoff
+        row per selection WITH yes_bid/yes_ask);
+      - hourly rollups split at kickoff.
+    - DDL sketch for `odds_snapshot_rollups` / `odds_snapshot_prune_log`.
+    - Safety:
+      - a preprune `.backup`;
+      - dry-run by default, with `--apply` plus an env opt-in to write;
+      - one transaction per day bucket, deleting by explicit id;
+      - receipts;
+      - VACUUM noted (DELETE alone does not shrink the file).
+  - READERS THE POLICY WOULD CHANGE:
+    - `mlb-odds-timing` reads raw rows, so it must be moved to the rollups
+      before any applied prune;
+    - `clv-report`'s "last" includes post-kickoff captures, so keep the
+      last capture overall or accept a change;
+    - chain-receipt row counts drop by design.
+    Everything else is preserved: the Kalshi exports, window card, venue,
+    value anchor and line-move. evaluate's CLV reads `odds`, not snapshots.
+  - ARCHITECT-RULE (9 in the doc), including: bucket width (hourly saves
+    little, since the window already captures about hourly); keeping the
+    T-3h reference and final-3h captures raw for line-move replay; host vs
+    laptop pruning; no applied prune before the H2 cutover + one clean
+    week; VACUUM cadence; 30/30 days.
+  - FINDINGS from the review → Issue #167: `odds` APPENDS on the general
+    sync_odds path (soccer, cups, NHL); `sync_odds` drops `line`; the
+    evaluate/nhl_shadow "close" averages every capture on those sources;
+    capture-odds is unbounded for stale SCHEDULED MLB; and a MLB Kalshi
+    window-step boundary. All are read from code; receipts are owed.
+  - No pruning code, no migration, nothing deleted. #82 stays open for the
+    ruling.
+
 - **#159 #160 #161 POLICY v1.1 ADDENDA (architect 2026-10-01): postseason sizing caution; kalshi-only provisional reference; Desk kickoff + n/30 counters; NHL venue finding.**
   - RULINGS (verbatim):
     - (1) "exports carry stage=postseason for MLB from our gameType

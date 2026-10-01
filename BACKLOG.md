@@ -64,8 +64,18 @@ specific reason they're not being built now.
     evaluate/nhl_shadow "close" averages every capture on those sources;
     capture-odds is unbounded for stale SCHEDULED MLB; and a MLB Kalshi
     window-step boundary. All are read from code; receipts are owed.
-  - No pruning code, no migration, nothing deleted. #82 stays open for the
-    ruling.
+  - RULED (ARCHITECT-RULE 2026-10-01): "Retention: NO hourly rollups — raw
+    30 days, first + closing captures forever with Kalshi bid/ask; the
+    window's hourly captures already are the rollup. Revisit only if raw
+    growth exceeds 1 GB/month. Close the other eight questions with that."
+    The doc now opens with a RULED section:
+    - the rollup table is dropped;
+    - the nine questions are closed in a table (4/5/7/9 take the doc's own
+      defaults, flagged);
+    - reader impact is restated: mlb-odds-timing must label pruned matches
+      and clv-report's "last" becomes CLOSE before any applied prune.
+  - No pruning code, no migration, nothing deleted. The implementation is a
+    later lane. #82 stays open until that lane (or a ruling) closes it.
 
 - **#159 #160 #161 POLICY v1.1 ADDENDA (architect 2026-10-01): postseason sizing caution; kalshi-only provisional reference; Desk kickoff + n/30 counters; NHL venue finding.**
   - RULINGS (verbatim):

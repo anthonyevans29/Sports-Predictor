@@ -1,6 +1,6 @@
-# Snapshot retention: pruning and rollup (#82), DESIGN ONLY
+# Snapshot retention (#82): RULED 2026-10-01 (design; implementation is a later lane)
 
-**Status: PROPOSAL for the architect's ruling. Nothing here is built.** No
+**Status: RULED 2026-10-01 (see "RULED" below; the original proposal follows for the record). Nothing here is built.** No
 pruning code, no migration and no deleting command exist or ship with this
 document. Every number below is either read from code (file and line cited),
 derived from it with the arithmetic shown, or labelled UNKNOWN with the
@@ -27,6 +27,51 @@ market, selection, devig_prob, line, n_books, captured_at, source, yes_bid,
 yes_ask`. Table `odds` (class `Odds`) has `id, match_id, bookmaker, market,
 selection, price_decimal, line, is_opening, is_closing, captured_at,
 source`. `matches.utc_date` is the kickoff (naive UTC).
+
+## RULED 2026-10-01 — this section supersedes the proposal below
+
+ARCHITECT-RULE (verbatim): "Retention: NO hourly rollups — raw 30 days,
+first + closing captures forever with Kalshi bid/ask; the window's hourly
+captures already are the rollup. Revisit only if raw growth exceeds 1
+GB/month. Close the other eight questions with that."
+
+**The ruled policy:**
+- **Raw rows are kept 30 days.** Eligibility is per match, as in §3.1.
+- **Kept forever, raw:** FIRST (the earliest capture set per series) and
+  CLOSE. For book sources, CLOSE is the last pre-kickoff capture set. For
+  `kalshi`, it is the latest pre-kickoff row per selection, kept WITH its
+  `yes_bid`/`yes_ask`.
+- **Everything else** for an eligible match is deletable.
+- **NO rollup table.** §3.2(B), §3.3 and the `odds_snapshot_rollups` DDL in
+  §4 are NOT ADOPTED. The prune log stays useful for receipts.
+- **Revisit trigger:** raw `odds_snapshots` growth above 1 GB/month (measure
+  with §7's receipts plus the DB file size).
+
+**The nine §6 questions, closed under the ruling:**
+
+| # | Question | Disposition |
+|---|---|---|
+| 1 | Bucket width | Moot: no rollups. |
+| 2 | Keep the T-3h reference / final-3h raw | Not kept. Historical line-move replay older than 30 days is lost; live use is unaffected (always inside 30 days). |
+| 3 | Keep LAST OVERALL for `clv-report` | Not kept. For pruned matches, `clv-report`'s "last" becomes CLOSE (the last pre-kickoff capture). The implementation lane must label that in its output. |
+| 4 | Host vs laptop pruning | Not decided by the ruling's text. The §6 proposal stands as the default: no applied prune before H2 completes, then the host prunes. Flag if wrong. |
+| 5 | Timing vs H2 | As 4: no applied prune before the H2 cutover plus one clean week. |
+| 6 | Does `odds` need anything | Yes, as its own lane: **#167** (priority, 2026-10-01). It is out of this policy. |
+| 7 | VACUUM cadence / timer | The §5.6 default: operator-only VACUUM after a reviewed apply. No timer. |
+| 8 | RAW_DAYS / GUARD_DAYS | 30 / 30 as proposed. |
+| 9 | Eligibility by kickoff vs capture age | By kickoff date (§3.1), matching the "raw 30 days" intent per match. |
+
+**Reader impact under the ruled policy** (replacing §3.4's rollup
+assumptions):
+
+| Reader | Effect |
+|---|---|
+| `mlb-odds-timing` | Older than 30 days, capture counts / pre-start counts / max books undercount. First capture and first pre-start survive only if they equal FIRST. Its output must label pruned matches **before the first applied prune** (an implementation-lane item). |
+| `clv-report` | "last" becomes CLOSE for pruned matches (question 3). |
+| line-move history replay | Lost beyond 30 days. |
+| Everything else in §3.4 | Unchanged: the Kalshi exports, card, venue, kalshi-disagreement, value anchor, live line-move, evaluate, Cockpit ledger. |
+
+Implementation is a separate lane. Nothing here is built.
 
 ---
 

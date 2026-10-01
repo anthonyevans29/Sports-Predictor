@@ -88,6 +88,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     from src.walters.provenance import git_sha as _git_sha
     from src.walters.line_move import _is_soccer, line_move_for_match
     from src.walters.venue import kalshi_home_prob, venue_gap
+    from src.ingestion.mlb_apisports import time_unconfirmed
 
     now = now or utc_now_naive()
     hi = now + timedelta(hours=hours)
@@ -130,6 +131,9 @@ def build_card(now: datetime | None = None, hours: int = 24,
                 "venue_gap_pp": gap_pp, "venue_flag": flag,
                 "line_move": lm, "late_news_flag": lm["flag"] if lm else None,
                 "engine": "model_edge" if model else "market_only",
+                # MLB start time not confirmed by statsapi (finding 2026-10-01: api-sports
+                # placeholder times for TBD postseason starts); None = confirmed
+                "time_flag": time_unconfirmed(m) if code.upper() == "MLB" else None,
             })
             rows.append(row)
     counts["fixtures"] = len(rows)
@@ -146,7 +150,8 @@ def build_card(now: datetime | None = None, hours: int = 24,
         "receipts": {**counts, "with_model": sum(1 for r in rows if r["model"]),
                      "stale_flags": sum(1 for r in rows if r["venue_flag"]),
                      "quarantined": sum(1 for r in rows if r["quarantine"]),
-                     "late_news": sum(1 for r in rows if r["late_news_flag"])},
+                     "late_news": sum(1 for r in rows if r["late_news_flag"]),
+                     "time_unconfirmed": sum(1 for r in rows if r["time_flag"])},
         "fixtures": rows,
     }
 

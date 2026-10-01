@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#187: MLB start times — statsapi kept, card flags unconfirmed, audit)
+- `mlb_apisports`: the api-sports fallback never overwrites a
+  statsapi-sourced start time. Disagreements are receipted and stamped on
+  the row.
+- Window card / pager: MLB rows whose time statsapi has not confirmed show
+  "⚠ time unconfirmed".
+- `mlb-time-audit`: read-only statsapi vs api-sports postseason start-time
+  comparison (laptop).
+
 ## 2026-10-01 (#151 F1b: the Cockpit renders desk calls from the file)
 - `tools/cockpit.html`: rows from `--desk` exports are rendered from their
   `desk` blocks (calls, value shadows, venue, exec text); parlay tickets

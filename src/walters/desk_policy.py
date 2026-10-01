@@ -537,7 +537,7 @@ def build_parlays(calls) -> list[dict]:
 def parlay_block(t) -> dict:
     """One ticket for the file (the ledger keys a ticket on sport:away@home:pick)."""
     return {"units": PARLAY["units"], "sports": t["sports"], "model_p": _num(t["pm"]), "market_p": _num(t["pk"]),
-            "edge_pp": _num(t["edge"] * 100),
+            "edge": t["edge"], "edge_pp": _num(t["edge"] * 100),
             "signature": "+".join(sorted(f"{l['sport']}:{l['away']}@{l['home']}:{l['pick']}" for l in t["legs"])),
             "legs": [{"sport": l["sport"], "game": l["game"], "home": l["home"], "away": l["away"],
                       "kickoff": l["utc"] or None, "pick": l["pick"], "model_p": _num(l["prob"]),
@@ -564,24 +564,35 @@ def evaluate(doc: dict, now_ms: float, counts: dict | None = None) -> dict:
 # ------------------------------------------------------------ the export --
 
 def _num(v):
-    return None if v is None else (round(v, 6) if isinstance(v, float) else v)
+    """Numbers go into the file UNROUNDED (F1b: the Cockpit renders them as-is,
+    bit-identical to computing them)."""
+    return v
+
+
+def venue_block(ven) -> dict:
+    return {"eligible": ven["eligible"], "side": ven["side"], "div_pp": _num(ven["divPP"]),
+            "book_p": _num(ven["bookP"]), "kalshi_p": _num(ven["kalP"]), "kind": ven["kind"],
+            "reason": ven["reason"]}
 
 
 def desk_block(r, c, v, ven) -> dict:
     """The per-row `desk` field (model rows: the call + any value shadow;
-    market-only rows: the venue engine)."""
+    market-only rows: the venue engine). Every row also carries `venue`, the
+    venue engine's verdict as the Cockpit's venue table shows it."""
     if r["marketOnly"]:
         return {"engine": "venue_edge", "call": ("VENUE" if ven["eligible"] else "PASS"),
                 "units": VENUE["units"] if ven["eligible"] else 0, "side": ven["side"],
                 "div_pp": _num(ven["divPP"]), "book_p": _num(ven["bookP"]), "kalshi_p": _num(ven["kalP"]),
                 "pass_kind": None if ven["eligible"] else ven["kind"], "reason": ven["reason"],
-                "stale_book_zone": ven["divPP"] is not None and abs(ven["divPP"]) >= VENUE["staleGapPP"]}
+                "stale_book_zone": ven["divPP"] is not None and abs(ven["divPP"]) >= VENUE["staleGapPP"],
+                "venue": venue_block(ven)}
     out = {"engine": "model_edge", "call": c["call"], "units": c["units"], "cls": c["cls"],
            "tier": r["tier"], "pick": r["pick"], "model_p": _num(r["prob"]), "market_ref": _num(c["mktRef"]),
            "reference": ("kalshi_only" if c["kalOnly"] else "books") if c["mktRef"] is not None else None,
            "edge_pp": _num(c["edge"]), "pass_kind": c["passKind"], "tags": c["tags"],
            "reasons": c["reasons"], "reason": " · ".join(c["reasons"]),
-           "shadow_units": c["shadowUnits"], "exec": exec_block(r, r["pick"], r["prob"]), "value_shadow": None}
+           "shadow_units": c["shadowUnits"], "exec": exec_block(r, r["pick"], r["prob"]), "value_shadow": None,
+           "venue": venue_block(ven)}
     if v:
         out["value_shadow"] = {"side": v["side"], "edge_pp": _num(v["edge"]), "model_p": _num(v["modelP"]),
                                "market_p": _num(v["marketP"]), "role": v["role"], "units": VALUE["units"],

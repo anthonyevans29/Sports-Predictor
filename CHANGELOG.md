@@ -4,6 +4,18 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#151 F1b: the Cockpit renders desk calls from the file)
+- `tools/cockpit.html`: rows from `--desk` exports are rendered from their
+  `desk` blocks (calls, value shadows, venue, exec text); parlay tickets
+  come only from a loaded `desk_parlays` file. The summary names the source
+  and flags legacy rows or a policy-version mismatch. Legacy files without
+  desk blocks still compute in the browser, labelled as such.
+- `desk_policy`: unrounded desk numbers, `desk.venue` on every row, raw
+  ticket edge.
+- `scripts/cockpit_render_verify.py`: computed vs rendered identical
+  (calls, shadows, venue, tickets, table text, ledger capture); the policy
+  functions are never called in render mode. 16/16.
+
 ## 2026-10-01 (#183: parlay-leg audit in the Cockpit ledger)
 - "Audit parlay legs (#183)" checks each logged parlay leg against the
   Desk call of its game in the export files loaded for the leg's day. A

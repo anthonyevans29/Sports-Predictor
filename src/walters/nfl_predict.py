@@ -145,7 +145,7 @@ def elo_drift_games(s, since) -> list:
 
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                            receipts: dict | None = None,
-                           hours_ahead: float | None = None) -> str:
+                           hours_ahead: float | None = None, desk: bool | None = None) -> str:
     # Export windowing (architect 2026-09-28): the FILE's rows are scoped to
     # kickoffs in [now, now + window]; predictions are generated and stored
     # exactly as before (early-week claims stay for CLV). hours_ahead wins
@@ -306,6 +306,8 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
         "count": len(rows),
         "predictions": rows,
     }
+    from src.walters.desk_policy import maybe_annotate     # F1: the Desk per row (opt-in)
+    payload = maybe_annotate(payload, desk)   # off: unchanged
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
     return path

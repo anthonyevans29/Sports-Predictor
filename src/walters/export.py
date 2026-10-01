@@ -57,6 +57,7 @@ def export_predictions(
     competition_code: str | None = None,
     statuses: list[MatchStatus] | None = None,
     output_format: str = "json",
+    desk: bool | None = None,
 ) -> str:
     """
     Build a structured export of predictions in a date range.
@@ -80,7 +81,7 @@ def export_predictions(
         statuses=statuses,
     )
     if output_format == "json":
-        return json.dumps({
+        doc = {
             "exported_at": utc_now_naive().isoformat() + "Z",
             "git_sha": _git_sha(),
             "sport": sport.value,
@@ -89,7 +90,12 @@ def export_predictions(
             "competition_code": competition_code,
             "count": len(rows),
             "predictions": rows,
-        }, indent=2, default=_json_safe)
+        }
+        # F1 (#151): the Desk's call per row — OFF unless --desk / SP_DESK_CALLS=1
+        from src.walters.desk_policy import desk_enabled, maybe_annotate
+        if desk_enabled(desk):                 # off: the file is byte-identical to before F1
+            doc = maybe_annotate(json.loads(json.dumps(doc, default=_json_safe)), True)
+        return json.dumps(doc, indent=2, default=_json_safe)
     if output_format == "csv":
         return _to_csv(rows, sport)
     raise ValueError(f"Unknown output_format: {output_format!r}")
@@ -1147,6 +1153,7 @@ def export_fixtures(
     end: str | None = None,
     out_dir: str = "exports",
     receipts: dict | None = None,
+    desk: bool | None = None,
 ) -> str:
     """
     MARKET-ONLY fixtures export (U-request 2026-09-08): matches, results
@@ -1212,6 +1219,9 @@ def export_fixtures(
         "count": len(rows),
         "fixtures": rows,
     }
+    from src.walters.desk_policy import desk_enabled, maybe_annotate   # F1: venue Desk per row (opt-in)
+    if desk_enabled(desk):
+        payload = maybe_annotate(_json.loads(_json.dumps(payload, default=_json_safe)), True)
     with open(path, "w") as f:
         _json.dump(payload, f, indent=2)
     if receipts is not None:

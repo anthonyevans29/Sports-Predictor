@@ -133,7 +133,7 @@ def main():
         check("value shadow recomputed at the claim .30 (notional 0.25u → 0.8333)",
               len(sh) == 1 and sh[0]["returned"] == round(0.25 / 0.3, 4) and sh[0]["staked"] == 0.25, json.dumps(sh))
         check("counts: 7 flagged · 5 re-priced · 2 excluded",
-              audit == {"flagged": 7, "fallback": 5, "excluded": 2}, json.dumps(audit))
+              audit == {"flagged": 7, "fallback": 5, "excluded": 2, "legNotPlay": 0}, json.dumps(audit))
         pnl = page.evaluate("pnlBlock(loadLedger())")
         line = next((ln for ln in pnl.splitlines() if ln.startswith("Kickoff audit (#178)")), "")
         check("P&L block carries the one-line count", "7 settled position(s)" in line and "post-kickoff (tz bug)" in line

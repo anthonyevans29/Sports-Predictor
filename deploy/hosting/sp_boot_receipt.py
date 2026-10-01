@@ -48,7 +48,8 @@ def main() -> int:
         "prev_boot_last_entry": _prev_boot_end(),
         "reason": _uu_last(),
     })
-    print(f"boot receipt: {rec['boot_id']} · running {rec['release'] or 'release ?'} · kernel {rec['kernel']}")
+    print(f"boot receipt: {rec['boot_id']} · running {rec['release'] or 'release ?'} · writer of record "
+          f"{rec['writer_of_record'] or '?'} · kernel {rec['kernel']}")
     return 0
 
 

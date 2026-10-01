@@ -40,6 +40,9 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import sp_common as c  # noqa: E402
+
 TS_KEY = re.compile(r"(_at$|^ts$|timestamp|^generated|^captured|^as_of)", re.I)
 # machine-local or reported separately — never a field diff
 MASKED = {"match_id", "git_sha"}
@@ -150,6 +153,10 @@ def main(argv=None) -> int:
     la = {n: p for n, p in la_all.items() if in_window(n, a.since, today)}
     ho = {n: p for n, p in ho_all.items() if in_window(n, a.since, today)}
     settled = len(set(la_all) | set(ho_all)) - len(set(la) | set(ho))
+    wor = c.writer_of_record()
+    print(f"writer of record: {wor or 'UNKNOWN (SP_WRITER_OF_RECORD unset/invalid)'} — canonical side: "
+          f"{wor or '?'}" + (f"; divergences are read as the {'host' if wor == 'laptop' else 'laptop'} "
+                              f"side departing from it" if wor else ""))
     if a.since > 0:
         print(f"window: --since {a.since} → files dated {today - timedelta(days=a.since - 1)} .. {today} "
               f"(UTC) + undated; {settled} settled file(s) earlier not re-printed")

@@ -22,6 +22,86 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#159 #160 #161 POLICY v1.1 ADDENDA (architect 2026-10-01): postseason sizing caution; kalshi-only provisional reference; Desk kickoff + n/30 counters; NHL venue finding.**
+  - RULINGS (verbatim):
+    - (1) "exports carry stage=postseason for MLB from our gameType
+      mapping; Desk halves units on postseason rows until 30 graded (sizing
+      caution rule, policy v1.1 addendum)."
+    - (4) "Desk rows show kickoff + "re-run by" (T-60); value-shadow
+      progress (n/30) on the policy card."
+    - (2) RULED the same day: "KALSHI-ONLY PROVISIONAL REFERENCE for model
+      sports — when books are absent at T-60 and Kalshi is two-sided with
+      spread <= 2c and the series is in the ruled fee table, the Desk uses
+      the Kalshi mid as the market reference, flags the row "kalshi-only",
+      and sizes at HALF units (0.5 of tier); value-side and quarantine
+      logic unchanged; the ledger records the flag; review at 30 graded
+      kalshi-only calls (promote to full units or retire). Shadow nothing —
+      this is a real call at half size, because the price is real and
+      two-sided."
+    - (3) Finding: "NHL venue gaps <= 3.2pp over 18 games; threshold
+      unchanged."
+  - BUILT (export, additive): MLB prediction rows carry `stage`
+    (`src/walters/export.py mlb_stage`).
+    - R maps to "regular"; F/D/L/W map to "postseason".
+    - Anything else, and the host's api-sports fallback rows (stage NULL),
+      map to null: never guessed (law 4). `stage_raw` carries the stored
+      gameType.
+    - Prediction outputs are unchanged: no gate run applies.
+  - BUILT (Cockpit Desk, `tools/cockpit.html`).
+    - POSTSEASON
+      - `stage="postseason"` → min(units, ½ base) until 30 postseason calls
+        are graded in this ledger (model_edge straight + ladder, counted
+        by the logged `stage`).
+      - The reason shows "(n/30)"; at 30 the halving lifts and the card
+        reads "review due".
+      - stage null → labelled "stage unknown — postseason caution not
+        applied". Older exports with no key → untouched.
+      - Logged calls record `stage`.
+    - KALSHI-ONLY
+      - Applies to model-sport rows with NO two-sided book reference, in
+        the window [T-60, kickoff), on a two-way board, in a series from
+        the ruled fee table (MLB KXMLBGAME, NFL KXNFLGAME, PL KXEPLGAME —
+        venue.py KALSHI_FEE_M; market-only sports are not model sports),
+        with Kalshi bid AND ask present and spread ≤ 2c.
+      - Reference = mid (HOME), 1 − mid (AWAY). The usual floor/tier chain
+        then runs on that reference.
+      - Sizing: units × 0.5 at the end of the sizing chain, so it composes
+        with the other halvings; postseason + kalshi-only = 0.25u.
+      - The row is flagged "kalshi-only" in the market cell, the reason
+        names the bid/ask/spread, and the call is tagged "kalshi-only half
+        units".
+      - Ineligible rows stay PASS "no reference", with the reason ("before
+        T-60 — books may still post", "spread 3c > 2c", "Kalshi not
+        two-sided", "3-way board", "series not in the ruled fee table").
+      - A measured decline on the mid is "below floor": the thin-books
+        reclass skips kalshi-only rows, because their reference is not
+        books.
+      - Value-side and quarantine are untouched. The ledger records
+        `reference: "kalshi_only"`, `market_p` = the mid and
+        venue_hint=kalshi; book rows record `reference: "books"`.
+      - Review at 30 graded kalshi-only calls; #160 stays open as that
+        review.
+      - JUDGEMENT CALLS (flag if wrong): "books absent" = no two-sided book
+        reference (a thin but two-sided book market stays the reference);
+        3-way soccer boards are never eligible (no derived away/draw price,
+        the #89 doctrine); "0.5 of tier" = multiply the chain's units by
+        0.5.
+    - KICKOFF: every Desk row (model, value-shadow and venue tables) shows
+      "KO HH:MM · re-run by HH:MM" (T-60, local), or "· started" once it
+      has kicked off. The correlation note reads the game from a data
+      attribute so the KO line never leaks into team names.
+    - POLICY CARD: new POSTSEASON, KALSHI-ONLY and KICKOFF lines.
+      "graded n/30" counters for value shadows, postseason and kalshi-only
+      calls, refreshed on every ledger render.
+  - FINDING #161 (logged): over 18 NHL games the largest venue gap was
+    3.2pp, below the frozen 5.0pp threshold. The threshold does not move
+    (law 3).
+  - RECEIPTS:
+    - `scripts/cockpit_postseason_verify.py` 13/13 and
+      `scripts/cockpit_kalshi_only_verify.py` 15/15, both new.
+    - The 11 existing Cockpit verifies are all green.
+    - `tests/test_export_mlb_stage.py` (2).
+
 - **#157 MORNING CHAIN IN TWO NETWORK PHASES + compare_exports --since (architect 2026-10-01).**
   - RULING (verbatim): "CLI.md morning chain splits into two phases by
     network mode — statsapi steps under VPN, host pull/compare under

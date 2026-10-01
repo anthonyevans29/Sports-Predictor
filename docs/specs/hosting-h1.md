@@ -884,6 +884,10 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     review the result.
   - Only after that review, set `SP_PRUNE_APPLY=1` in host.env and record
     it in BACKLOG.
+- **Snapshot retention (#82): DESIGN ONLY, awaiting ruling.** The plan for
+  `odds_snapshots` pruning and rollup is in
+  [snapshot-retention.md](snapshot-retention.md). No prune exists; none
+  runs before the ruling, and none before the H2 cutover.
 - **Monday ritual (H0-6).** TERMINAL (host):
   `sudo systemctl start sp-soccer-refresh.service; journalctl -u sp-soccer-refresh -n 80 --no-pager`.
   A fresh prerefresh `.backup` is taken first, and a failed backup stops

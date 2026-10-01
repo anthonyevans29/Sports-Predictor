@@ -3821,6 +3821,9 @@ def desk_parlays_cmd(files, now_s, summary, out_path):
           f"deduped {b['deduped']} · v1.2 would build {len(b['v12_tickets'])} ticket(s)")
     for c in b["cuts"]:
         print(f"    would cut ({c['rule']}): {c['detail']}")
+    for q in b.get("qb_shared_risk") or []:
+        print(f"    QB shared risk (#192, logged): {q['player']} on {len(q['games'])} games · "
+              f"straights {q['straight_units']:g}u · tickets touching {q['tickets_touching']}")
 
 
 @cli.command("export-nhl-predictions")

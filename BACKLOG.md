@@ -22,6 +22,52 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#151 F1 PARLAYS PORTED + #183 parlay-leg misalignment fixed (ARCHITECT-RULE 2026-10-01).**
+  - RULING (verbatim): "(1) #181 NHL 0.5u-on-PASS quirk — parity-preserved
+    for now, ratified; it dies in the policy v1.2 bump (the value-side
+    promotion), not before. (2) Parlays — PORT them to Python under the
+    same parity discipline (seeded fuzz, non-UTC browser, row-for-row); F1
+    is not complete and the Cockpit does not switch to render-only until
+    parlays match. (3) After the real-export parity passes on the laptop,
+    F1b: the Cockpit renders desk calls from the file with the ledger as
+    its only overlay."
+  - (1) is recorded on #181 (ARCHITECT comment; `needs-ruling` dropped). It
+    stays open until the v1.2 PR.
+  - LAW-1 FINDING #183: `buildParlays` picked live legs by pairing
+    `rows[i]` with the i-th Desk `<tr>`, but market-only rows have no
+    `<tr>`.
+    - With a fixtures file loaded BEFORE a predictions file, tickets were
+      built from the wrong rows.
+    - Receipt (headless): fixtures-first → legs ['P1','P2'], two PASS rows,
+      vs ['Play1','Play2'] in the other order.
+    - `snapshotCalls` logs those tickets as real 0.25u parlay_leg
+      positions. Past cases can't be identified from the ledger alone
+      (#183).
+    - FIX: live legs = `deskCalls` with call ≠ PASS, in row order.
+  - PORT: `desk_policy.build_parlays` (#183 semantics, same arithmetic
+    order, a stable sort equivalent to the JS comparator) + `parlay_block`
+    (legs, Π model/market, edge_pp, the ledger signature) + `parlays_doc`.
+  - New CLI `desk-parlays FILES…` writes `exports/desk_parlays_<date>.json`
+    (`desk_parlays_v1`). The clock defaults to the first file's
+    `desk_meta.as_of`.
+    - FLAG: tickets are cross-sport, so they live in ONE combined file
+      built from the set the Cockpit loads, not inside the per-sport
+      exports. That is the shape F1b would render. Your call if another
+      shape is wanted.
+  - PARITY (`scripts/desk_parity_verify.py`, non-UTC browser, clock and
+    counts pinned): 31/31.
+    - Ticket parity in all three battery runs, including a FIXTURES-FIRST
+      load order.
+    - "every leg is a PLAY/LADDER row".
+    - A 600-slate parlay fuzz (shared-team clashes, PASS/LADDER legs, null
+      markets, near-ties) run through the Cockpit's own buildParlays: 889
+      tickets identical (legs, order, Π model, Π market, edge).
+  - Tests: `tests/test_desk_policy.py` 10 (+2: parlay rules, the CLI file
+    with fixtures first). Full suite 449. All 15 Cockpit verifies green.
+  - F1 STATUS: the port is complete (calls, value shadows, venue, exec,
+    kalshi-only, parlays). OPEN: the real-export parity receipt on the
+    laptop. Then F1b.
+
 - **#151 F1 — POLICY IN THE EXPORT: Python Desk v1.1, export hook (off by default), ledger summary, parity verify (2026-10-01).**
   - RULING (verbatim, defaults): "F1 DEFAULTS — RULED: (1) graded-call
     counts passed as a parameter, default 0 (cautious side) — ratified; the

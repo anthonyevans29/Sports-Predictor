@@ -495,6 +495,55 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
             "shadowUnits": shadow_units, "passKind": pass_kind, "mktRef": mkt_ref, "kalOnly": kal_only}
 
 
+# ---------------------------------------------------------------- parlays --
+
+PARLAY = {"units": 0.25, "maxLegs": 3, "top": 3}
+
+
+def build_parlays(calls) -> list[dict]:
+    """The Cockpit's buildParlays (fixed #183): live legs = non-PASS calls in
+    row order; every 2- and 3-leg combo with no shared team; Π model vs Π
+    market (market = mkt, else the model p); edge > 0; ranked by distinct
+    sports, then edge (stable); the top 3. `calls` = [(row, call)] across
+    every file loaded, in load order."""
+    live = [r for r, c in calls if c["call"] != "PASS"]
+    teams = lambda r: (r["home"], r["away"])
+    combos = []
+    for a in range(len(live)):
+        for b in range(a + 1, len(live)):
+            A, B = live[a], live[b]
+            if any(t in teams(B) for t in teams(A)):
+                continue
+            combos.append([A, B])
+            for c in range(b + 1, len(live)):
+                C = live[c]
+                if any(t in teams(A) or t in teams(B) for t in teams(C)):
+                    continue
+                combos.append([A, B, C])
+    ranked = []
+    for legs in combos:
+        pm = pk = 1
+        for l in legs:
+            pm = pm * l["prob"]
+        for l in legs:
+            pk = pk * (l["mkt"] if l["mkt"] is not None else l["prob"])
+        t = {"legs": legs, "sports": len({l["sport"] for l in legs}), "pm": pm, "pk": pk, "edge": pm - pk}
+        if t["edge"] > 0:
+            ranked.append(t)
+    ranked.sort(key=lambda t: (-t["sports"], -t["edge"]))
+    return ranked[:PARLAY["top"]]
+
+
+def parlay_block(t) -> dict:
+    """One ticket for the file (the ledger keys a ticket on sport:away@home:pick)."""
+    return {"units": PARLAY["units"], "sports": t["sports"], "model_p": _num(t["pm"]), "market_p": _num(t["pk"]),
+            "edge_pp": _num(t["edge"] * 100),
+            "signature": "+".join(sorted(f"{l['sport']}:{l['away']}@{l['home']}:{l['pick']}" for l in t["legs"])),
+            "legs": [{"sport": l["sport"], "game": l["game"], "home": l["home"], "away": l["away"],
+                      "kickoff": l["utc"] or None, "pick": l["pick"], "model_p": _num(l["prob"]),
+                      "market_p": _num(l["mkt"])} for l in t["legs"]]}
+
+
 def evaluate(doc: dict, now_ms: float, counts: dict | None = None) -> dict:
     """Desk output for one export document, row order as the Cockpit's:
     calls (model rows), value shadows, venue (every row)."""
@@ -582,6 +631,29 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "counts": ev["counts"], "counts_source": counts_source,
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
     return doc
+
+
+def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None = None,
+                counts_source: str = "parameter") -> dict:
+    """Parlay tickets across EVERY file loaded (they are cross-sport: ranked by
+    distinct sports first), as one file — the shape the Cockpit renders in
+    F1b. `named_docs` = [(file name, doc)] in load order."""
+    now = now or datetime.now(timezone.utc)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=timezone.utc)
+    now_ms = float((now - datetime(1970, 1, 1, tzinfo=timezone.utc)) // _MS)
+    calls = []
+    for _, d in named_docs:
+        calls += evaluate(d, now_ms, counts)["calls"]
+    tickets = build_parlays(calls)
+    return {"kind": "desk_parlays_v1", "files": [n for n, _ in named_docs],
+            "live_legs": sum(1 for _, c in calls if c["call"] != "PASS"),
+            "desk_meta": {"policy_version": POLICY_VERSION,
+                          "as_of": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
+                          "counts": {k: int((counts or {}).get(k) or 0) for k in COUNT_KEYS},
+                          "counts_source": counts_source,
+                          "source": "src/walters/desk_policy.py build_parlays (F1 port, #183 semantics)"},
+            "tickets": [parlay_block(t) for t in tickets]}
 
 
 DESK_ENV = "SP_DESK_CALLS"          # "1" = emit; OFF until the parity receipt is ruled

@@ -4,6 +4,17 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#151 F1: parlays ported; #183 parlay legs fixed)
+- `tools/cockpit.html`: parlay legs come from the Desk's non-PASS calls.
+  Before this, a fixtures file loaded ahead of a predictions file could
+  build tickets from PASS rows (#183).
+- `desk_policy.build_parlays` + `desk-parlays FILES…` write
+  `exports/desk_parlays_<date>.json` (cross-sport tickets in one file).
+- Parity verify: tickets row-for-row in every run, plus a 600-slate parlay
+  fuzz (889 tickets identical). 31/31.
+- #181 (NHL 0.5u on PASS) is parity-preserved until the v1.2 bump, as
+  ruled.
+
 ## 2026-10-01 (#151 F1: the Desk's call in the export, off by default)
 - `src/walters/desk_policy.py`: a Python port of the Cockpit Desk v1.1, the
   single source of truth once parity is proven. `--desk` (or

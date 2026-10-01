@@ -181,3 +181,50 @@ def test_fixtures_export_hook_and_cli_receipt(fixtures_world, tmp_path, monkeypa
     monkeypatch.chdir(tmp_path)
     out = CliRunner().invoke(cli, ["export-fixtures", "--competition", fixtures_world, "--desk"]).output
     assert "desk v1.1 as of" in out and "1 rows → PASS 1" in out and "default 0 (no ledger summary)" in out
+
+
+# ------------------------------------------------- parlays (ARCHITECT 2026-10-01) --
+
+def _leg(home, away, sport, prob, mkt, call="PLAY", pick="HOME"):
+    return ({"home": home, "away": away, "sport": sport, "prob": prob, "mkt": mkt, "pick": pick,
+             "game": f"{away} @ {home}", "utc": "2026-10-01T20:00:00"}, {"call": call})
+
+
+def test_build_parlays_rules():
+    calls = [_leg("A", "B", "MLB", 0.6, 0.5), _leg("C", "D", "NFL", 0.6, 0.5), _leg("A", "E", "NFL", 0.9, 0.5),
+             _leg("F", "G", "SOCCER", 0.6, None), _leg("H", "I", "MLB", 0.9, 0.5, call="PASS"),
+             _leg("J", "K", "MLB", 0.5, 0.6)]
+    t = dp.build_parlays(calls)
+    assert t and len(t) <= 3 and all(x["edge"] > 0 for x in t)
+    for x in t:
+        assert "H" not in {l["home"] for l in x["legs"]}             # a PASS row is never a leg (#183)
+        teams = [tm for l in x["legs"] for tm in (l["home"], l["away"])]
+        assert len(teams) == len(set(teams))                         # no shared team on one ticket
+    assert [x["sports"] for x in t] == sorted([x["sports"] for x in t], reverse=True)   # sports first
+    # a null market contributes the model p (Π market uses mkt ?? prob): edge from the other legs only
+    two = dp.build_parlays([_leg("C", "D", "NFL", 0.6, 0.5), _leg("F", "G", "SOCCER", 0.6, None)])
+    assert len(two) == 1 and two[0]["pk"] == 0.5 * 0.6 and two[0]["pm"] == 0.6 * 0.6
+    # shared team → never on one ticket
+    assert dp.build_parlays([_leg("A", "B", "MLB", 0.7, 0.5), _leg("B", "C", "NFL", 0.7, 0.5)]) == []
+
+
+def test_desk_parlays_cli_file(tmp_path, monkeypatch):
+    from cli import cli
+    mlb = {"sport": "mlb", "desk_meta": {"as_of": "2026-10-01T18:00:00Z"}, "predictions": [
+        row("Yankees", 0.65, fair_h=0.56, when=300), row("Dodgers", 0.66, fair_h=0.56, when=300)]}
+    nfl = {"sport": "nfl", "predictions": [row("Chiefs", 0.70, fair_h=0.62, when=300, comp=None)]}
+    fx = {"competition_code": "NHL", "fixtures": [{"home_team": "Bruins", "away_team": "Leafs",
+                                                   "utc_date": ko(300), "status": "scheduled"}]}
+    paths = []
+    for n, d in (("fixtures_NHL.json", fx), ("mlb.json", mlb), ("nfl.json", nfl)):   # fixtures FIRST (#183)
+        paths.append(str(tmp_path / n))
+        (tmp_path / n).write_text(json.dumps(d))
+    monkeypatch.chdir(tmp_path)
+    out = CliRunner().invoke(cli, ["desk-parlays", *paths]).output
+    assert "as of 2026-10-01T18:00:00Z" in out and "3 live legs" in out, out
+    doc = json.load(open(tmp_path / "exports" / "desk_parlays_2026-10-01.json"))
+    assert doc["kind"] == "desk_parlays_v1" and doc["tickets"]
+    top = doc["tickets"][0]
+    assert top["sports"] == 2 and top["units"] == 0.25 and len(top["legs"]) == 2
+    assert {l["home"] for l in top["legs"]} & {"Yankees", "Dodgers"} and "Chiefs" in {l["home"] for l in top["legs"]}
+    assert top["signature"] == "+".join(sorted(f"{l['sport']}:{l['away']}@{l['home']}:{l['pick']}" for l in top["legs"]))

@@ -3737,6 +3737,41 @@ def _window_line(lo, hi, how: str) -> str:
             f"({(hi - lo).total_seconds() / 3600:.0f}h · {how})")
 
 
+@cli.command("desk-parlays")
+@click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--now", "now_s", default=None,
+              help="Pin the Desk clock (ISO UTC). Default: the first file's desk_meta.as_of, else now.")
+@click.option("--ledger-summary", "summary", default=None,
+              help="Graded counts (bd_ledger_summary_v1). Default: exports/ledger_summary.json if present, else 0.")
+@click.option("--out", "out_path", default=None, help="Default: exports/desk_parlays_<UTC date>.json")
+def desk_parlays_cmd(files, now_s, summary, out_path):
+    """F1 (#151): the Desk's parlay tickets across the given export files (the
+    set the Cockpit loads; tickets are cross-sport), as ONE file. Python port of
+    the Cockpit's buildParlays, parity-verified. Reads files only; no DB."""
+    import json as _json
+    import os
+    from datetime import timezone
+    from src.walters import desk_policy as dp
+    named = [(os.path.basename(f), _json.load(open(f))) for f in files]
+    if now_s:
+        now = datetime.fromisoformat(now_s.replace("Z", "+00:00"))
+    else:
+        asof = next(((d.get("desk_meta") or {}).get("as_of") for _, d in named
+                     if (d.get("desk_meta") or {}).get("as_of")), None)
+        now = datetime.fromisoformat(asof.replace("Z", "+00:00")) if asof else datetime.now(timezone.utc)
+    counts, src = dp.read_ledger_summary(summary or os.environ.get(dp.SUMMARY_ENV) or dp.DEFAULT_SUMMARY)
+    doc = dp.parlays_doc(named, now=now, counts=counts, counts_source=src)
+    out_path = out_path or os.path.join("exports", f"desk_parlays_{doc['desk_meta']['as_of'][:10]}.json")
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with open(out_path, "w") as f:
+        _json.dump(doc, f, indent=2)
+    print(f"desk parlays {doc['desk_meta']['policy_version']} as of {doc['desk_meta']['as_of']}: "
+          f"{len(named)} file(s) · {doc['live_legs']} live legs → {len(doc['tickets'])} ticket(s) → {out_path}")
+    for i, t in enumerate(doc["tickets"], 1):
+        print(f"  Ticket {i} · {len(t['legs'])} legs · {t['sports']} sport(s) · {t['units']}u · "
+              f"Π model {t['model_p']:.3f} vs Π market {t['market_p']:.3f} → +{t['edge_pp']:.1f}pp · {t['signature']}")
+
+
 @cli.command("export-nhl-predictions")
 @click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
 def export_nhl_predictions_cmd(hours):

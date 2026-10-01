@@ -60,10 +60,14 @@ ideas, and RFCs. It sits behind a fence:
 | Q&A | "has anyone seen X?" questions about data and models | — |
 | Ideas | open-ended "who has data on X?" | — |
 | RFC | proposals | **"A proposal must name the gate it would pass (the frozen acceptance criteria and the bar). A proposal without a gate is an idea, not an RFC."** |
+| Receipts | published gate verdicts and findings from the record (numbers only), so outside eyes can check our reads | — |
 
 The seed threads (2026-10-01) are drafted in
 `docs/discussions/seed-2026-10-01.md`. Posting them is the operator's
 step: the Discussions API is not wired into Code or the ledger bot.
+Code's tools cannot enable Discussions, create categories, pin or post
+(checked 2026-10-01: no Discussions tool; direct API access is not
+permitted from Code's session), so all four are operator steps.
 
 ## Taxonomy (fixed set, prefixed, no ad-hoc labels)
 `.github/ledger/taxonomy.json` is the one definition. CI tests pin it.

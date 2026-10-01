@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#170: Discussions — Receipts category + S14 receipts post)
+- `docs/LEDGER.md` adds the Receipts category. Discussions setup is all
+  operator steps (Code has no Discussions tool).
+- `docs/discussions/seed-2026-10-01.md`: four categories, and post 4 is the
+  S14 residual receipt (+1.17 live vs +0.18 pooled).
+
 ## 2026-10-01 (#193 B-track cross-book rules, shadow; #192 QB finding)
 - `desk_policy.b_track_shadow`: an exposure cap of 1.25u per team-outcome
   and ticket dedup, pre-committed and shadow only. `desk_parlays` reports

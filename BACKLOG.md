@@ -22,6 +22,29 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#170 DISCUSSIONS: four categories (Receipts added) + the S14 receipts post; operator posts (ARCHITECT 2026-10-01).**
+  - RULING (verbatim): "Discussions permissions granted. Complete #170:
+    enable Discussions if the API allows (otherwise say so and Anthony flips
+    the repo-settings toggle), create the four categories (Ideas, Q&A, RFC,
+    Receipts), pin the RFC description line, and post the three seed threads
+    from docs/discussions/seed-2026-10-01.md as written — add the S14
+    residual finding (+0.18 pooled vs +1.17 live) to the receipts post. The
+    fence stands: threads are input, never rulings; you read a thread only
+    when the architect links it; adoption = ruling + Issue with "Source:
+    Discussion #N"."
+  - CHECKED (law 2, said plainly): Code's tools have NO Discussions
+    capability (no tool to enable, create categories, pin or post), and
+    direct GitHub API access is not permitted from this session. So all of
+    it is operator steps, recorded in docs/LEDGER.md.
+  - READING (flagged): no seed thread was a receipts post, so the S14
+    finding is a 4th post in the new Receipts category. The three seeds are
+    unchanged ("as written").
+  - CHANGED: `docs/LEDGER.md` gains the Receipts category row and the
+    "operator steps" note. The seed file's setup step lists four categories,
+    and post 4 is "Receipts — S14 totals: +1.17 live (n=25), +0.18 pooled".
+    Numbers are from BACKLOG (the S14 verdict 2026-09-16; the #163 verdict
+    ruling).
+
 - **#193 B-TRACK: two cross-book rules, pre-committed, SHADOW-logged (ARCHITECT 2026-10-01) + #192 QB cross-game finding + #183/#178 closed.**
   - RULING (verbatim): "B-track opens with two cross-book rules,
     pre-committed: (1) EXPOSURE CAP per outcome: total units on any single

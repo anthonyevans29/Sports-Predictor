@@ -134,6 +134,19 @@ def running_release() -> str | None:
     return f"UNTAGGED@{sha}" if branch in (None, "HEAD") else f"BETA {branch}@{sha}"
 
 
+# WRITER OF RECORD (ARCHITECT-RULE 2026-10-01): the REAL flag, laptop|host,
+# from host.env (host) or the checkout's .env (laptop). Anything else = None
+# (unknown, labelled — law 4). Consumed by receipts and compare_exports; no
+# behavior is gated on it yet. SP_PARALLEL_MODE stays the H0-16 quota mode.
+WRITERS = ("laptop", "host")
+
+
+def writer_of_record() -> str | None:
+    v = (os.environ.get("SP_WRITER_OF_RECORD") or parse_env_file(HOST_ENV).get("SP_WRITER_OF_RECORD")
+         or _dotenv().get("SP_WRITER_OF_RECORD") or "").strip()
+    return v if v in WRITERS else None
+
+
 def redact(line: str) -> str:
     for name in SECRET_ENV:
         val = os.environ.get(name) or _dotenv().get(name)
@@ -155,7 +168,8 @@ def _dotenv() -> dict:
 def append_receipt(rec: dict) -> dict:
     """Append one JSON line (ts/host/release first — every receipt names the
     running tag, release model 2026-09-30). Append-only; never rewrites."""
-    line = {"ts": iso(), "host": host_name(), "release": running_release(), **rec}
+    line = {"ts": iso(), "host": host_name(), "release": running_release(),
+            "writer_of_record": writer_of_record(), **rec}
     p = receipts_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:

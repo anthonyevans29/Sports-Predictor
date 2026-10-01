@@ -182,13 +182,15 @@ JS_EXTRACT = """(()=>{
      kalOnly:x.kalOnly,exec:ex(x.r,x.r.pick,x.r.prob)})),
    values: deskValue.map(({r,v})=>({key:r.game+"|"+r.utc,side:v.side,edge:v.edge,modelP:v.modelP,marketP:v.marketP,
      role:v.role,reason:v.reason,tags:v.tags,exec:ex(r,v.side,v.modelP)})),
+   parlays: deskParlays.map(t=>({legs:t.legs.map(l=>l.game+"|"+l.utc+"|"+l.pick),sports:t.sports,pm:t.pm,pk:t.pk,
+     edge:t.edge})),
    venue: deskVenue.map(({r,v})=>({key:r.game+"|"+r.utc,eligible:v.eligible,side:n(v.side),divPP:n(v.divPP),
      bookP:n(v.bookP),kalP:n(v.kalP),kind:n(v.kind),reason:v.reason})),
   };})()"""
 
 
 def py_extract(docs_in_order, now_ms, counts):
-    calls, values, venue = [], [], []
+    calls, values, venue, all_calls = [], [], [], []
     for doc in docs_in_order:
         ev = dp.evaluate(doc, now_ms, counts)
         key = lambda r: f"{r['game']}|{r['utc']}"
@@ -198,6 +200,7 @@ def py_extract(docs_in_order, now_ms, counts):
             return {"edge": dp.exec_edge_pp(r, side, p), "cost": dc["cost"] if dc else None,
                     "basis": dc["basis"] if dc else None, "taker": dp.exec_cost_for(r, side),
                     "join": jb.get("price") if jb else None, "note": jb.get("note") if jb else None}
+        all_calls += ev["calls"]
         for r, c in ev["calls"]:
             calls.append({"key": key(r), "call": c["call"], "units": c["units"], "cls": c["cls"], "edge": c["edge"],
                           "tags": c["tags"], "reasons": c["reasons"], "shadowUnits": c["shadowUnits"],
@@ -210,7 +213,9 @@ def py_extract(docs_in_order, now_ms, counts):
         for r, v in ev["venue"]:
             venue.append({"key": key(r), "eligible": v["eligible"], "side": v["side"], "divPP": v["divPP"],
                           "bookP": v["bookP"], "kalP": v["kalP"], "kind": v["kind"], "reason": v["reason"]})
-    return {"calls": calls, "values": values, "venue": venue}
+    parlays = [{"legs": [f"{l['game']}|{l['utc']}|{l['pick']}" for l in t["legs"]], "sports": t["sports"],
+                "pm": t["pm"], "pk": t["pk"], "edge": t["edge"]} for t in dp.build_parlays(all_calls)]
+    return {"calls": calls, "values": values, "venue": venue, "parlays": parlays}
 
 
 def same(a, b):
@@ -305,7 +310,12 @@ def run(docs: dict, now: datetime, counts: dict, label: str):
         js = page.evaluate(JS_EXTRACT)
         py = py_extract(list(docs.values()), now_ms, counts)
         ok = all([compare("calls", js["calls"], py["calls"]), compare("value shadows", js["values"], py["values"]),
-                  compare("venue", js["venue"], py["venue"])])
+                  compare("venue", js["venue"], py["venue"]),
+                  compare("parlay tickets", js["parlays"], py["parlays"])])
+        live = {c["key"] for c in js["calls"] if c["call"] != "PASS"}
+        legs_ok = all(l.rsplit("|", 1)[0] in live for t in js["parlays"] for l in t["legs"])
+        check(f"every parlay leg is a Desk PLAY/LADDER row (#183) — {len(js['parlays'])} ticket(s)",
+              legs_ok and (len(js["parlays"]) > 0 or len(live) < 2), json.dumps(js["parlays"])[:200])
         # the export path: annotate() → desk.call / units / reason equal the JS
         jc = {c["key"]: c for c in js["calls"]}
         bad = []
@@ -329,6 +339,31 @@ def run(docs: dict, now: datetime, counts: dict, label: str):
         print(f"            tags {dict(sorted(tags.items()))}")
         print(f"            value shadows {len(py['values'])} · venue {dict(sorted(vk.items()))}")
         check("no page errors", not errors, "; ".join(errors))
+        if label.startswith("synthetic battery, counts 0"):
+            # PARLAY FUZZ: the Cockpit's own buildParlays on 600 small slates
+            rnd = random.Random(183)
+            teams = [f"T{i}" for i in range(9)]
+            scen = []
+            for _ in range(600):
+                sl = []
+                for j in range(rnd.randint(2, 9)):
+                    h, a2 = rnd.sample(teams, 2)
+                    sl.append({"r": {"home": h, "away": a2, "sport": rnd.choice(["MLB", "NFL", "SOCCER"]),
+                                     "game": f"{a2} @ {h}", "utc": f"2026-10-0{rnd.randint(1, 3)}T1{j}:00:00",
+                                     "pick": rnd.choice(["HOME", "AWAY", "DRAW"]),
+                                     "prob": round(rnd.uniform(0.3, 0.8), rnd.choice([2, 3, 6])),
+                                     "mkt": None if rnd.random() < 0.2 else round(rnd.uniform(0.3, 0.8), rnd.choice([2, 3]))},
+                               "call": rnd.choice(["PLAY", "PLAY", "LADDER", "PASS"])})
+                scen.append(sl)
+            jt = page.evaluate("""sc=>sc.map(s=>{deskCalls=s.map(x=>({r:x.r,call:x.call})); buildParlays();
+                return deskParlays.map(t=>({legs:t.legs.map(l=>l.game+"|"+l.utc+"|"+l.pick),sports:t.sports,pm:t.pm,pk:t.pk,edge:t.edge}));})""", scen)
+            pt = [[{"legs": [f"{l['game']}|{l['utc']}|{l['pick']}" for l in t["legs"]], "sports": t["sports"],
+                    "pm": t["pm"], "pk": t["pk"], "edge": t["edge"]}
+                   for t in dp.build_parlays([(x["r"], {"call": x["call"]}) for x in sl])] for sl in scen]
+            nt = sum(len(x) for x in jt)
+            bad = [i for i, (a3, b3) in enumerate(zip(jt, pt)) if not same(a3, b3)]
+            check(f"parlay fuzz: 600 slates, {nt} tickets identical (legs, order, Π model/market, edge)",
+                  not bad and nt > 0, f"first mismatch slate {bad[:1]}: JS {jt[bad[0]] if bad else ''} PY {pt[bad[0]] if bad else ''}"[:300])
         if label.startswith("synthetic"):
             # JS toFixed vs js_fixed on random doubles (the reasons' formatting)
             rnd = random.Random(7)
@@ -372,6 +407,9 @@ def main(argv=None):
             "synthetic battery, counts 0")
         run(fuzz_docs(now, seed=152), now, {"postseason_graded": 31, "value_shadow_graded": 4,
                                             "kalshi_only_graded": 2}, "synthetic battery, postseason 31 (full units)")
+        rev = dict(reversed(list(fuzz_docs(now, seed=153).items())))       # fixtures files FIRST (#183)
+        run(rev, now, {"postseason_graded": 0, "value_shadow_graded": 0, "kalshi_only_graded": 0},
+            "synthetic battery, fixtures loaded first")
     print(f"\n{sum(CHECKS)}/{len(CHECKS)} checks passed" + (" — PARITY: ALL GREEN" if all(CHECKS) else " — PARITY FAILED"))
     return 0 if all(CHECKS) else 1
 

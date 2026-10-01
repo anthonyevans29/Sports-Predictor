@@ -1792,8 +1792,12 @@ $("kalshiCsvFile").addEventListener("change",async e=>{
 });
 
 function buildParlays(){
-  const live=rows.map((r,i)=>({r,i,tr:$("slate").querySelectorAll("tbody tr")[i]}))
-    .filter(x=>x.tr&&!x.tr.classList.contains("vshadow")&&!/PASS/.test(x.tr.children[5].textContent))
+  // Live legs = the Desk's non-PASS calls, in row order (#183, 2026-10-01). The
+  // old DOM-index pairing (rows[i] ↔ the i-th slate <tr>) shifted onto the
+  // wrong rows whenever a market-only file (no <tr>) loaded ahead of a
+  // predictions file, building tickets from PASS rows. Python port:
+  // desk_policy.build_parlays (parity-verified).
+  const live=deskCalls.filter(x=>x.call!=="PASS")
     .map(x=>({...x.r,edge:(x.r.prob-(x.r.mkt??0))}));
   const card=$("parlayCard"), out=$("parlayOut");
   deskParlays=[];

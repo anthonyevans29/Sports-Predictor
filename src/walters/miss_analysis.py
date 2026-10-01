@@ -129,9 +129,9 @@ def run_miss_analysis():
             # --- dimension: market agreement vs disagreement ---
             odds = odds_by_match.get(m.id)
             if odds:
-                from src.walters.close import close_1x2
-                _cl = close_1x2(odds, m.utc_date)                  # #167: last pre-kickoff session
-                imp = _cl["fair"] if _cl else {}
+                from src.walters.close import close_1x2, outcomes_for, priced
+                _cl = close_1x2(odds, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+                imp = _cl["fair"] if priced(_cl) else {}
                 over = sum(imp.values())
                 sel = "HOME" if side == "home" else "AWAY"
                 if over > 0 and sel in imp:

@@ -517,7 +517,7 @@ class IngestionService:
         """
         from datetime import datetime
         from src.db.schema import Odds, OddsSnapshot
-        from src.walters.close import close_1x2
+        from src.walters.close import close_1x2, outcomes_for, priced
 
         result = SyncResult()
         with session_scope() as s:
@@ -574,8 +574,8 @@ class IngestionService:
                     )
                     s.add(o)
                     fresh.append(o)
-                cl = close_1x2(fresh, None)
-                if cl is not None:
+                cl = close_1x2(fresh, None, outcomes_for(match.sport))   # #207: complete books only
+                if priced(cl):
                     stamp = cl["captured_at"]
                     for sel, prob in cl["fair"].items():
                         s.add(OddsSnapshot(match_id=match.id, market="1X2", selection=sel,

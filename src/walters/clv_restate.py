@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from src.walters.close import CAPTURE_SESSION, close_1x2
+from src.walters.close import CAPTURE_SESSION, close_1x2, outcomes_for, priced
 
 LINE_MARKETS_HINT = ("TOTALS", "SPREADS", "OU_", "SPREAD")
 
@@ -63,7 +63,9 @@ def audit() -> dict:
     per = defaultdict(Counter)
     gap = defaultdict(list)
     with session_scope() as s:
-        kick = dict(s.execute(select(Match.id, Match.utc_date)).all())
+        kick, sport_of = {}, {}
+        for mid_, ko_, sp_ in s.execute(select(Match.id, Match.utc_date, Match.sport)).all():
+            kick[mid_], sport_of[mid_] = ko_, sp_
         by_match: dict = defaultdict(list)
         for o in s.execute(select(Odds)).scalars():
             by_match[(o.source, o.match_id)].append(o)
@@ -79,8 +81,8 @@ def audit() -> dict:
         lm = [o for o in rows if o.market != "1X2" and any(h in (o.market or "") for h in LINE_MARKETS_HINT)]
         c["line_market_rows"] += len(lm)
         c["line_market_null_line"] += sum(1 for o in lm if o.line is None)
-        old, new = legacy_fair(rows), close_1x2(rows, ko)
-        if old and new and "HOME" in old and "HOME" in new["fair"]:
+        old, new = legacy_fair(rows), close_1x2(rows, ko, outcomes_for(sport_of.get(mid)))
+        if old and priced(new) and "HOME" in old and "HOME" in new["fair"]:
             gap[src or "(none)"].append(abs(old["HOME"] - new["fair"]["HOME"]) * 100)
     out = {}
     for src, c in sorted(per.items()):
@@ -95,6 +97,23 @@ def _top(pred) -> str | None:
              "AWAY": pred.away_win_prob or 0.0}
     probs = {k: v for k, v in probs.items() if v > 0}
     return max(probs, key=probs.get) if probs else None
+
+
+def clv_cohort(oc, pred, match, odds_rows) -> str | None:
+    """P0-2 (#207): which cohort a STORED CLV belongs to. "verified" when the
+    contract close (complete books, src/walters/close.py) prices the top pick
+    and reproduces the stored value; "legacy" for any other stored CLV
+    (graded under an older close and retained); None when nothing is stored.
+    Read-only: the stored value is never changed here."""
+    if oc.clv is None:
+        return None
+    top = _top(pred)
+    cl = close_1x2(odds_rows, match.utc_date, outcomes_for(match.sport))
+    if top and priced(cl) and top in cl["fair"]:
+        p = {"HOME": pred.home_win_prob, "DRAW": pred.draw_prob, "AWAY": pred.away_win_prob}[top]
+        if p is not None and abs((p - cl["fair"][top]) - oc.clv) <= 1e-6:
+            return "verified"
+    return "legacy"
 
 
 def restate(apply: bool = False) -> dict:
@@ -121,10 +140,10 @@ def restate(apply: bool = False) -> dict:
             a = agg[key]
             a["n"] += 1
             top = _top(pred)
-            cl = close_1x2(odds_by.get(m.id, []), m.utc_date)
+            cl = close_1x2(odds_by.get(m.id, []), m.utc_date, outcomes_for(m.sport))
             new = None
             price, book = None, None
-            if top and cl is not None and top in cl["fair"]:
+            if top and priced(cl) and top in cl["fair"]:
                 p = {"HOME": pred.home_win_prob, "DRAW": pred.draw_prob, "AWAY": pred.away_win_prob}[top]
                 new = p - cl["fair"][top]
                 best = cl["best"].get(top)

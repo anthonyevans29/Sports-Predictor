@@ -1251,7 +1251,11 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
              "Soccer CLV before 2026-10-01 was computed on an AVERAGE of every stored capture (the "
              "general odds sync appended) and is re-stated by `clv-restate --apply`. MLB keeps one "
              "capture per game (replace-on-sync); it differs only where that capture landed after "
-             "first pitch (M11 rollover games), which is now unpriced, never an in-game 'close'._\n"]
+             "first pitch (M11 rollover games), which is now unpriced, never an in-game 'close'. "
+             "CLOSE CONTRACT (#207): a book counts only with a complete same-session outcome set "
+             "(soccer HOME/DRAW/AWAY, others HOME/AWAY), de-vigged per book then averaged. A stored "
+             "CLV the contract reproduces is VERIFIED; any other stored CLV is RETAINED-LEGACY and is "
+             "reported separately, never pooled into the headline._\n"]
     with session_scope() as s:
         cutoff = utc_now_naive() - timedelta(days=days)
         for sport, label in ((Sport.MLB, "MLB"), (Sport.SOCCER, "Soccer (PL)")):
@@ -1270,12 +1274,30 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
                 continue
             hits = sum(1 for oc, m in rows if oc.top_pick_hit)
             lls = [oc.log_loss for oc, m in rows if oc.log_loss is not None]
-            clvs = [oc.clv for oc, m in rows
-                    if getattr(oc, "clv", None) is not None]
+            # P0-2 (#207): the verified-close and retained-legacy CLV cohorts
+            # are reported SEPARATELY, never pooled in the headline.
+            from src.db.schema import Odds as _Odds
+            from src.walters.clv_restate import clv_cohort
+            preds = {p.id: p for p in s.execute(select(Prediction).where(
+                Prediction.id.in_([oc.prediction_id for oc, _ in rows]))).scalars()}
+            odds_by: dict = {}
+            for o in s.execute(select(_Odds).where(_Odds.market == "1X2", _Odds.match_id.in_(
+                    [m.id for _, m in rows]))).scalars():
+                odds_by.setdefault(o.match_id, []).append(o)
+            coh = {"verified": [], "legacy": []}
+            for oc, m in rows:
+                c = clv_cohort(oc, preds.get(oc.prediction_id), m, odds_by.get(m.id, [])) \
+                    if preds.get(oc.prediction_id) is not None else ("legacy" if oc.clv is not None else None)
+                if c:
+                    coh[c].append(oc.clv)
+            ver, leg = coh["verified"], coh["legacy"]
             lines.append(
                 f"## {label}\n\n- Sides: **{hits}/{n}** ({hits/n:.1%})\n"
                 f"- Mean log-loss: {sum(lls)/len(lls):.4f} (n={len(lls)})\n"
-                f"- Mean CLV: {sum(clvs)/len(clvs)*100:+.2f}pp (n={len(clvs)} priced)\n")
+                + (f"- Mean CLV, verified close: {sum(ver)/len(ver)*100:+.2f}pp (n={len(ver)})\n" if ver
+                   else "- Mean CLV, verified close: — (n=0)\n")
+                + (f"- Retained-legacy CLV (separate cohort, not in the headline): "
+                   f"{sum(leg)/len(leg)*100:+.2f}pp (n={len(leg)})\n" if leg else ""))
         # NFL from the grade join (no outcome rows during rehearsal)
         try:
             from src.walters.nfl_predict import grade_nfl

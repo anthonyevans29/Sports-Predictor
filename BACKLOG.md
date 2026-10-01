@@ -22,6 +22,9 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-01 — #207 (P0-2, external review) BUILT: the close contract.**
+`close_1x2` pooled implied probabilities per selection across whatever books quoted each one. A 3-way board with a book missing its draw, a one-sided book, or two books covering opposite sides all produced a "fair" price. Now the caller names the outcome set, and only books with a complete same-session set count, de-vigged per book and then averaged. Anything else is UNPRICED, with a missing-leg receipt and quoted-vs-complete counts. results-tally splits stored CLV into verified-close (reproduced by the contract) and retained-legacy, and the headline is verified only. **Gate-class:** the NFL export's market block (`fair_prob`, so `market_divergence_pp` and quarantine) comes from this close. A game whose only books are incomplete loses its 1X2 fair price and falls to the labelled spread fallback. **Receipts owed by the laptop** (the DB never travels): `clv-restate` dry-run (the grades the contract re-prices or leaves as stored), and a today-vs-yesterday NFL export compare. **Open, needs a ruling:** the MLB/soccer prediction export and the fixtures export de-vig `last_capture` directly, outside `close_1x2`, so they have the same pooling. They are left as is (export contract) pending a ruling.
+
 - **#201 DISCUSSIONS POSTING INSIDE THE LEDGER WORKFLOW (ARCHITECT 2026-10-01) + #170 closed.**
   - RULING (verbatim): "Discussions posting runs INSIDE the ledger
     workflow, using the existing LEDGER_PROJECT_TOKEN secret (classic PAT,

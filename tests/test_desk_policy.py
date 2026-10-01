@@ -228,3 +228,64 @@ def test_desk_parlays_cli_file(tmp_path, monkeypatch):
     assert top["sports"] == 2 and top["units"] == 0.25 and len(top["legs"]) == 2
     assert {l["home"] for l in top["legs"]} & {"Yankees", "Dodgers"} and "Chiefs" in {l["home"] for l in top["legs"]}
     assert top["signature"] == "+".join(sorted(f"{l['sport']}:{l['away']}@{l['home']}:{l['pick']}" for l in top["legs"]))
+
+
+# ------------------------------------- B-track shadow rules (ARCHITECT 2026-10-01) --
+
+def _row(home, away, sport, prob, mkt, pick="HOME", utc="2026-10-01T20:00:00"):
+    return {"home": home, "away": away, "sport": sport, "prob": prob, "mkt": mkt, "pick": pick,
+            "game": f"{away} @ {home}", "utc": utc}
+
+
+def test_b_track_exposure_cap_shadow():
+    # A is a 1u straight; a second ticket on A would put it at 1.5u > 1.25u
+    calls = [(_row("A", "a", "MLB", 0.70, 0.50), {"call": "PLAY", "units": 1}),
+             (_row("B", "b", "NFL", 0.70, 0.50), {"call": "PLAY", "units": 0.5}),
+             (_row("C", "c", "SOCCER", 0.70, 0.50), {"call": "PLAY", "units": 0.5})]
+    v11 = dp.build_parlays(calls)
+    assert len(v11) == 3 and all(any(l["home"] == "A" for l in t["legs"]) for t in v11[:2])
+    sh = dp.b_track_shadow(calls)
+    assert sh["applied"] is False and sh["rules"]["exposure_cap_units"] == 1.25
+    assert sh["exposure_capped"] >= 1 and sh["deduped"] == 0
+    assert all(c["rule"] == "capped" and "A HOME at 1.25u" in c["detail"] for c in sh["cuts"])
+    assert dp.build_parlays(calls) == v11                                      # nothing applied
+    # the v1.2 set never puts an outcome over the cap
+    exp = dict(dp._straight_exposure(calls))
+    for sig in sh["v12_tickets"]:
+        for o in sig.split("+"):
+            exp[o] = exp.get(o, 0) + 0.25
+    assert max(exp.values()) <= 1.25 + 1e-9
+
+
+def test_b_track_dedup_keeps_the_better_priced_and_counts_once_per_position():
+    # the same two games from a morning and a T-60 file (different prices)
+    m = [(_row("A", "a", "MLB", 0.62, 0.55), {"call": "PLAY", "units": 0.5}),
+         (_row("B", "b", "NFL", 0.62, 0.55), {"call": "PLAY", "units": 0.5})]
+    t60 = [(_row("A", "a", "MLB", 0.62, 0.50), {"call": "PLAY", "units": 0.5}),
+           (_row("B", "b", "NFL", 0.62, 0.52), {"call": "PLAY", "units": 0.5})]
+    calls = m + t60
+    assert dp._straight_exposure(calls) == {"MLB|a@A|2026-10-01T20:00:00|HOME": 0.5,
+                                            "NFL|b@B|2026-10-01T20:00:00|HOME": 0.5}   # one position each
+    sh = dp.b_track_shadow(calls)
+    assert sh["deduped"] >= 1
+    kept_sig = sh["v12_tickets"]
+    assert len(set(kept_sig)) == len(kept_sig)                                  # no duplicate leg set in v1.2
+    tickets = dp.rank_parlays(calls)
+    best = min((t for t in tickets if dp._legset(t) == kept_sig[0]), key=lambda t: t["pk"])
+    assert best["pk"] == 0.50 * 0.52                                            # the lower Π market is kept
+
+
+def test_desk_parlays_file_carries_the_shadow(tmp_path):
+    named = [("mlb.json", {"sport": "mlb", "predictions": [
+        row("Yankees", 0.62, fair_h=0.55, when=300), row("Dodgers", 0.63, fair_h=0.55, when=300)]}),
+        ("nfl.json", {"sport": "nfl", "predictions": [row("Chiefs", 0.64, fair_h=0.55, when=300, comp=None)]})]
+    doc = dp.parlays_doc(named, now=NOW)
+    b = doc["b_track_shadow"]
+    assert set(b) >= {"rules", "applied", "exposure_capped", "deduped", "cuts", "v12_tickets"} and not b["applied"]
+    assert all("b_shadow" in t for t in doc["tickets"])
+    assert b["exposure_capped"] + b["deduped"] >= 1                             # this slate is cut (1u straights)
+    assert sum(1 for t in doc["tickets"] if t["b_shadow"]) == b["exposure_capped"] + b["deduped"]
+    now_ms = float((NOW - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(milliseconds=1))
+    calls = [x for _, d in named for x in dp.evaluate(d, now_ms)["calls"]]
+    assert [t["signature"] for t in doc["tickets"]] == [dp.parlay_block(t)["signature"] for t in dp.build_parlays(calls)]
+    json.dumps(doc)                                                             # serializable (no ids leak)

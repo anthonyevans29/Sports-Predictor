@@ -22,6 +22,60 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#193 B-TRACK: two cross-book rules, pre-committed, SHADOW-logged (ARCHITECT 2026-10-01) + #192 QB cross-game finding + #183/#178 closed.**
+  - RULING (verbatim): "B-track opens with two cross-book rules,
+    pre-committed: (1) EXPOSURE CAP per outcome: total units on any single
+    team-outcome across straights + parlay legs <= 1.25u; the parlay builder
+    skips legs that would breach it and says so. (2) TICKET DEDUP: two
+    tickets with the same leg set (ignoring price) are one ticket; keep the
+    better-priced one. Both reported in the Desk's parlay card and the P&L
+    block ("exposure-capped N · deduped N"). Shadow-logged first (what the
+    rules WOULD have cut, for 30 slates), promoted in the v1.2 bump. Also
+    log the audit's QB-flag cross-game point as a finding (same player
+    flagged on two games = one news item, not two)."
+  - FROZEN (`desk_policy.B_TRACK`):
+    - cap 1.25u per team-outcome (game + side): the Desk's straights plus
+      0.25u per ticket;
+    - dedup key = sport, teams, kickoff, pick;
+    - better-priced = the lower Π market;
+    - review at 30 slates; `applied: False`.
+  - INTERPRETATIONS flagged on #193:
+    - a ticket containing a breaching leg is not built;
+    - "better-priced" = the lower Π market;
+    - a game from two loaded files is one straight position (the later
+      file's units).
+  - BUILT:
+    - `rank_parlays` (build_parlays = its top 3, so parity is unchanged).
+    - `b_track_shadow(calls, ranked)`: the cuts among the v1.1 tickets (rule
+      + detail) and the v1.2 ticket set.
+    - `desk_parlays` gains `b_track_shadow` and a per-ticket `b_shadow`; the
+      `desk-parlays` CLI prints them.
+    - Cockpit:
+      - the parlay card note "B-track shadow (not applied): exposure-capped N
+        · deduped N", with the would-cut tickets marked;
+      - Log marks their legs `b_shadow_cut`;
+      - `ledger.meta.b_shadow[as_of]` holds a per-slate tally (a re-log does
+        not double-count);
+      - the P&L line "exposure-capped N · deduped N over S/30 slate(s) ·
+        would-cut tickets settled n, net ±x u".
+  - BUG CAUGHT BY THE VERIFY (before push): the per-ticket marks were keyed
+    by object identity, but the shadow re-ranked, so no mark matched. Fixed:
+    rank once, share the list. The Python test now uses a slate the cap
+    actually cuts.
+  - RECEIPTS:
+    - `scripts/cockpit_btrack_verify.py` 8/8 (Chicago browser, three 1u
+      straights shared by parlays: capped 2, card + marks + Log + meta +
+      re-log + P&L net +1.50u).
+    - `tests/test_desk_policy.py` 13 (+3 B-track).
+    - `cockpit_render_verify` now ignores the file-mode `b_shadow_cut` mark
+      (the legacy path never computes it).
+    - All Cockpit verifies green; parity 31/31; 452 pytest.
+  - #192 (finding): QB flags come from the TEAM's injury list, so one QB
+    marks every game that team has in the file, and T-90 signatures are per
+    team. Counting is per game, not per player. Ruling pending.
+  - #183 and #178 closed by ARCHITECT ruling (operator receipts: leg audit
+    11 checked / 0 not a play / 0 unchecked; kickoff audit 0 flagged).
+
 - **CARD PAGE CONTENT (F2 slice 1) + #189 NCAA label (ARCHITECT 2026-10-01).**
   - RULINGS (verbatim): "(2) Card labels NCAA games "NFL" (family) — show
     the competition." / "CARD PAGE CONTENT (F2 slice 1, small PR). Every

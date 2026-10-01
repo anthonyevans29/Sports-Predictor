@@ -1024,7 +1024,7 @@ function snapshotCalls(now){
     for(const l of t.legs){
       out.push({...baseCall(l,d),pick:l.pick,tier:"parlay",engine:"model_edge",
         call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:l.mkt,
-        venue_hint:"books",rules:["parlay 0.25u"]});
+        venue_hint:"books",rules:["parlay 0.25u"],...(t.bShadow?{b_shadow_cut:t.bShadow}:{})});
     }
   }
   for(const {r,v} of deskVenue){
@@ -1039,7 +1039,7 @@ function snapshotCalls(now){
 }
 $("logBtn").addEventListener("click",()=>{
   const L=loadLedger(); const fresh=snapshotCalls();
-  const r=upsertCalls(L,fresh,{relog:true}); const dd=saveLedger(L);
+  const r=upsertCalls(L,fresh,{relog:true}); recordBShadow(L); const dd=saveLedger(L);
   const byEng={}; fresh.forEach(c=>{const k=c.engine+(c.call_type==="quarantine_shadow"?" (shadow)":c.call_type==="value_shadow"?" (value shadow)":"");byEng[k]=(byEng[k]||0)+1;});
   $("logNote").textContent=`Logged ${fresh.length} entries (${Object.entries(byEng).map(([k,n])=>`${k} ${n}`).join(" · ")||"none"}) — `
     +`${r.added} new · ${r.updated} updated · ${r.kept} already graded (kept) · ${r.repriced} positions from an earlier day repriced (not duplicated)`
@@ -1193,7 +1193,7 @@ function settledBets(L){
         tier:"parlay",call_type:"parlay",staked:c.units,returned,
         result:c.ticket_result,date:c.graded_date,rules:["parlay 0.25u"],shadow:false,
         claimReturned,exec_mode:legs.some(l=>l.exec_mode==="operator_early")?"operator_early":(c.exec_mode||null),
-        claim_p:null,exec_p:null,tz:flagged});
+        claim_p:null,exec_p:null,tz:flagged,bShadow:(legs.find(l=>l.b_shadow_cut)||{}).b_shadow_cut||null});
       continue;
     }
     const a=auditCall(c); tally(a);
@@ -1303,6 +1303,7 @@ function pnlBlock(L){
     `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
     `Value-side counterfactual (v1.2 candidate shadow, NOT staked): n ${vf.n} · notional staked ${fmt(vf.staked)} · net ${vf.net>=0?"+":""}${fmt(vf.net)} · hit ${vf.hit==null?"—":fmt(vf.hit,1)+"%"} · promotion review at ${VALUE.reviewN} graded (${Math.min(vf.n,VALUE.reviewN)}/${VALUE.reviewN}), version bump only`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
+    bShadowLine(L,bets),
     auditLine(),
     ...realizedLines(L),
     `Sizing gate: model_edge ${real.filter(b=>b.engine==="model_edge").length}/50 · venue_edge ${real.filter(b=>b.engine==="venue_edge").length}/50 graded before any sizing proposal`,
@@ -1917,11 +1918,35 @@ function parlaysFromFile(){
     const legs=(t.legs||[]).map(l=>rows.find(r=>!r.marketOnly&&r.sport===l.sport&&r.home===l.home&&r.away===l.away
       &&(r.utc||null)===(l.kickoff||null)&&r.pick===l.pick));
     if(!legs.length||legs.some(x=>!x)){miss++;continue;}
-    out.push({legs,sports:t.sports,pm:t.model_p,pk:t.market_p,edge:t.edge??t.edge_pp/100});
+    out.push({legs,sports:t.sports,pm:t.model_p,pk:t.market_p,edge:t.edge??t.edge_pp/100,bShadow:t.b_shadow||null});
   }
   const asof=(fileParlays.desk_meta||{}).as_of||"?";
-  parlayNote=`tickets from desk_parlays (as of ${asof})`+(miss?` · ${miss} ticket(s) skipped: a leg's row is not in the loaded files`:"");
+  parlayNote=`tickets from desk_parlays (as of ${asof})`+(miss?` · ${miss} ticket(s) skipped: a leg's row is not in the loaded files`:"")
+    +bShadowCardNote(fileParlays.b_track_shadow);
   return out;
+}
+// B-TRACK cross-book rules (ARCHITECT 2026-10-01; pre-committed, SHADOW until the
+// v1.2 bump): (1) exposure cap 1.25u per team-outcome across straights + parlay
+// legs; (2) ticket dedup (same legs, keep the better-priced). Computed in Python
+// (desk_policy.b_track_shadow) and carried by the desk_parlays file; the Cockpit
+// shows it, marks the logged legs it would cut, and keeps a per-slate tally.
+const BTRACK={reviewN:30};
+function bShadowCardNote(b){
+  return b?` · B-track shadow (not applied): exposure-capped ${b.exposure_capped} · deduped ${b.deduped}`:"";
+}
+function recordBShadow(L){
+  if(!fileParlays||!fileParlays.b_track_shadow) return;
+  const b=fileParlays.b_track_shadow, asof=(fileParlays.desk_meta||{}).as_of||"?";
+  L.meta.b_shadow=L.meta.b_shadow||{};
+  L.meta.b_shadow[asof]={as_of:asof,log_date:localDate(),capped:b.exposure_capped,deduped:b.deduped,
+    cuts:(b.cuts||[]).map(c=>({rule:c.rule,signature:c.signature}))};
+}
+function bShadowLine(L,bets){
+  const sl=Object.values((L.meta||{}).b_shadow||{});
+  const cap=sl.reduce((a,x)=>a+(x.capped||0),0), dd=sl.reduce((a,x)=>a+(x.deduped||0),0);
+  const cut=bets.filter(b=>b.call_type==="parlay"&&b.bShadow), net=cut.reduce((a,b)=>a+b.returned-b.staked,0);
+  return `B-track shadow (pre-committed, NOT applied; v1.2 review at ${BTRACK.reviewN} slates): exposure-capped ${cap} · deduped ${dd}`
+    +` over ${Math.min(sl.length,BTRACK.reviewN)}/${BTRACK.reviewN} slate(s) · would-cut tickets settled ${cut.length}, net ${net>=0?"+":""}${net.toFixed(2)}u`;
 }
 function renderParlays(ranked,card,out){
   deskParlays=ranked;
@@ -1929,7 +1954,8 @@ function renderParlays(ranked,card,out){
   card.hidden=false;
   out.innerHTML=(parlayNote?`<div class="note">${esc(parlayNote)}</div>`:"")+ranked.map((t,i)=>{
     const legs=t.legs.map(l=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`).join("<br>");
-    return `<div style="margin-bottom:10px"><b>Ticket ${i+1}</b> · ${t.legs.length} legs · ${t.sports} sport(s) · 0.25u<br>${legs}<br>`
+    return `<div style="margin-bottom:10px"><b>Ticket ${i+1}</b> · ${t.legs.length} legs · ${t.sports} sport(s) · 0.25u`
+      +(t.bShadow?` · <span class="caution">B-track shadow: would be ${t.bShadow==="capped"?"exposure-capped":"deduped"} (not applied)</span>`:"")+`<br>${legs}<br>`
       +`<span class="note">Π model ${t.pm.toFixed(3)} vs Π market ${t.pk.toFixed(3)} → combined edge ${(t.edge*100).toFixed(1)}pp · cross-game correlation screened (no shared teams)</span></div>`;
   }).join("");
 }

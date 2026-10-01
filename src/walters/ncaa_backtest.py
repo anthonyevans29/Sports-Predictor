@@ -62,6 +62,15 @@ NCAA_COMPETITION_CODE = "NCAA"
 TRAIN_SEASON = "2025"
 TEST_SEASON = "2026"
 
+# ARCHITECT ruling 2026-10-01 (NCAA audit): the 2025 home/away labels are
+# UNRELIABLE (FBS home rate 0.404 / margin −6.05; August 0.335; vs 2026 FBS
+# 0.773 / +19). The gate is SUSPENDED-PENDING-DATA — not failed — until a
+# season with sane stage-level home rates exists on BOTH sides of the split;
+# v1's verdict is VOID (trained on corrupted labels). NCAA stays market-only.
+GATE_STATUS = "SUSPENDED-PENDING-DATA"
+GATE_STATUS_LINE = ("NCAA GATE: SUSPENDED-PENDING-DATA (ruling 2026-10-01) — 2025 home/away labels "
+                    "unreliable; v1's verdict VOID; NCAA stays market-only.")
+
 # FROZEN (architect ruling 2026-09-30 + BACKLOG "#79 NCAA v1").
 LL_MARGIN = 0.010
 BAND_MIN_N = 100

@@ -194,6 +194,45 @@ def sync_matches_cmd(
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
 
 
+@cli.command("resync-diff")
+@click.option("--competition", "competition_code", required=True, help="Code, e.g. NCAA")
+@click.option("--season", default=None, help="The season string as stored, e.g. 2025")
+@click.option("--date-from", default=None)
+@click.option("--date-to", default=None)
+@click.option("--sample", default=12, show_default=True, help="Sample lines per disagreement class.")
+def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
+    """READ-ONLY (ruling 2026-10-01, NCAA audit): fetch the provider's CURRENT
+    listing and compare it to our STORED rows by provider match id — home/away
+    team labels (same / swapped / different), scores, moved dates, and the home
+    win rate under ours vs the provider's labels. Writes nothing. Run this
+    INSTEAD of a re-sync to answer "bad copy or bad at source": sync-matches
+    never rewrites home/away on existing rows (it would only overwrite scores)."""
+    from src.ingestion import resync_diff as rd
+
+    r = rd.diff(_adapter_for_competition(competition_code), competition_code, season,
+                date_from, date_to, sample)
+    if r.get("error"):
+        click.echo(f"RESYNC-DIFF: {r['error']}")
+        return
+    c = r["counts"]
+    click.echo(f"RESYNC-DIFF {competition_code} {season or '(all)'} · source {r['source']} · provider "
+               f"listing {r['listing']} · matched {c.get('matched', 0)} · provider-only "
+               f"{c.get('provider_only', 0)} · ours not in listing {c.get('ours_not_in_listing', 0)}")
+    click.echo("  teams: " + " · ".join(f"{k[6:]} {c.get(k, 0)}" for k in
+                                         ("teams_same", "teams_swapped", "teams_different")))
+    click.echo("  scores: " + " · ".join(f"{k[7:]} {c.get(k, 0)}" for k in
+                                          ("scores_same", "scores_swapped", "scores_different",
+                                           "scores_provider_missing", "scores_ours_missing"))
+               + f" · dates moved > 1h {c.get('date_moved', 0)}")
+    (ro, no), (rp, np_) = r["home_rate"]["ours"], r["home_rate"]["provider"]
+    click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
+    for k, lines in sorted(r["samples"].items()):
+        click.echo(f"  {k} (sample):")
+        for ln in lines:
+            click.echo(f"    {ln}")
+    click.echo("RESYNC-DIFF VERDICT: " + rd.verdict(c))
+
+
 @cli.command("sync-stats")
 @click.option("--competition", "competition_code", required=True, help="Code, e.g. PL")
 @click.option("--season", required=True, help="e.g. 2024/25")
@@ -4600,6 +4639,12 @@ def ncaa_backtest_cmd(baselines_only, candidate):
     verdict. Read-only: writes nothing; NCAA stays market-only."""
     from src.walters import ncaa_backtest as nb
 
+    # ARCHITECT ruling 2026-10-01 (NCAA audit): 2025 home/away labels are
+    # UNRELIABLE; the gate is SUSPENDED-PENDING-DATA (not failed) until a season
+    # with sane stage-level home rates exists on BOTH sides of the split; v1's
+    # verdict is VOID (trained on corrupted labels). The command still runs —
+    # diagnostic only — and says so first and last.
+    print(nb.GATE_STATUS_LINE, flush=True)
     stream = nb.build_stream(nb.load_games())
     base = nb.baselines(stream)
     if baselines_only or base.verdict:   # INVALID: nothing to score against
@@ -4614,6 +4659,7 @@ def ncaa_backtest_cmd(baselines_only, candidate):
         f"mov_base={cfg.mov_base:g}, regression={cfg.season_regression:g}, "
         f"default={cfg.default_rating:g}; all a priori, no selection) — "
         f"{nb.TEST_SEASON} evaluated ONCE"))
+    print(nb.GATE_STATUS_LINE + " The verdict above is DIAGNOSTIC, not a ruling.", flush=True)
 
 
 @cli.command("ncaa-audit")
@@ -4761,7 +4807,10 @@ def nhl_goalie_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose, tolera
 @click.option("--end", "end_s", default=None, help="Default: today.")
 @click.option("--sleep", default=0.25, show_default=True)
 @click.option("--limit", default=8, show_default=True, help="Sample lines per cause.")
-def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit):
+@click.option("--list-ours", "list_ours", multiple=True,
+              help="Season(s) (e.g. 2024 2025): list EVERY one of our unlinked finished games by "
+                   "date with the nearest API game, its delta and a named cause (ruling 2026-10-01).")
+def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit, list_ours):
     """Read-only audit of NHL games with no goalie link (architect 2026-09-30):
     each unlinked API game classified by cause (UTC-boundary offset, home/away
     swapped, ambiguous, name mismatch, not in our DB), the offset histogram,
@@ -4773,7 +4822,8 @@ def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit):
 
     init_db()
     end = _date.fromisoformat(end_s) if end_s else _date.today()
-    r = ngs.audit(_date.fromisoformat(start_s), end, sleep=sleep)
+    r = ngs.audit(_date.fromisoformat(start_s), end, sleep=sleep,
+                  list_seasons=set(list_ours) if list_ours else None)
     click.echo(f"NHL-GOALIE AUDIT {start_s} .. {end.isoformat()} · schedule calls {r['schedule_calls']}")
     click.echo(f"  API games (regular/playoff, finished): {r['api_games']} · linked {r['api_linked']} · "
                f"unlinked {r['api_games'] - r['api_linked']}")
@@ -4790,6 +4840,17 @@ def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit):
         click.echo(f"  {cause} (sample):")
         for ln in lines[:limit]:
             click.echo(f"    {ln}")
+    if r.get("ours_listing") is not None:
+        from collections import Counter as _C
+        lst = r["ours_listing"]
+        tally = _C(x["cause"] for x in lst)
+        click.echo(f"OUR UNLINKED GAMES, seasons {', '.join(sorted(list_ours))}: {len(lst)} · by cause: "
+                   + (" · ".join(f"{k} {v}" for k, v in tally.most_common()) or "none"))
+        for x in lst:
+            d = "—" if x["delta_h"] is None else f"{x['delta_h']:+.1f}h"
+            click.echo(f"  {x['t']:%Y-%m-%d %H:%M} [{x['season']}] match {x['match_id']} {x['ours']} · "
+                       f"{x['cause']} · nearest API: {x['api'] or 'none within ±7d'} · delta {d}"
+                       + (f" · API game linked to match {x['api_linked_to']}" if x['api_linked_to'] else ""))
 
 
 @cli.command("nhl-goalie-coverage")

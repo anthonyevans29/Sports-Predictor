@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#166: H2-PREP — cutover orchestrator, dry run, runbook)
+- `deploy/hosting/sp_cutover.py`: the ruled H2 sequence (preflight, pause,
+  install, flip, resume, receipt), each step receipted and refusing on
+  failure. `--dry-run --scratch DIR` runs it against a scratch copy.
+- `scripts/h2_dry_run.py` proves the sequence on a scratch DB.
+- `docs/specs/h2-cutover-runbook.md`: the operator steps, the
+  fresh-fingerprint compare, the MLB doubleheader/postponed waivers and
+  rollback.
+
 ## 2026-10-01 (#159/#160/#161: postseason sizing; kalshi-only reference; Desk kickoff + n/30)
 - MLB prediction exports carry `stage` (`regular` / `postseason` from our
   statsapi gameType mapping; null when unknown) and `stage_raw`.

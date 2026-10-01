@@ -22,6 +22,58 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#166 H2-PREP (architect 2026-10-01): cutover orchestrator, scratch dry run, fresh-fingerprint runbook.**
+  - RULING (verbatim): "LANE H2-PREP (hosting, a week before cutover): the
+    ONE .backup migration as a script (laptop .backup -> host, integrity +
+    sha, chains paused, writer-of-record flag flipped, boot receipt),
+    fresh-fingerprint compare runbook with the MLB doubleheader/postponed
+    waivers, and a dry-run that proves the sequence on a scratch DB.
+    Cutover itself stays an architect ruling on the parallel-week criteria."
+  - BUILT:
+    - `deploy/hosting/sp_cutover.py` runs preflight → pause → install →
+      flip → resume → receipt (or `run`, all in order).
+      - Every step writes a `kind: cutover` receipt with a cutover id and
+        refuses on any failure.
+      - preflight catches every install failure BEFORE a timer is stopped.
+      - install reuses `sp_migrate.install` under the DB lock and refuses
+        unless S2 = S1 and every R2 = R1.
+      - flip is a line-preserving edit of host.env, with a timestamped
+        `.pre-cutover-*` copy and a post-check that every other key is
+        unchanged.
+      - resume restarts the timers, then requires a clean backup receipt.
+    - `--dry-run --scratch DIR` re-points REPO / env / receipts / lock /
+      backups into DIR. It refuses if anything resolves outside DIR, or if
+      DIR is under data/; systemctl calls are recorded, not run.
+    - `scripts/h2_dry_run.py` proves the whole sequence on a scratch DB,
+      including the fresh-fingerprint compare.
+    - `sp_migrate.pack_env_problem` was factored out (same refusal text) so
+      preflight can reuse it.
+    - `docs/specs/h2-cutover-runbook.md` holds the operator sequence; the
+      fresh-fingerprint compare (`compare_exports --since 1`) with expected
+      classes; waivers W1 (MLB doubleheader game 2, the #96 limitation)
+      and W2 (MLB postponed, evidence per row); rollback; and open
+      questions. It is linked from hosting-h1 H2.
+  - ARCHITECT-RULE (Issue #166, needs-ruling):
+    1. There is NO writer-of-record setting in code. `SP_PARALLEL_MODE`
+       (full / designated) is the H0-16 quota mode, and H0-17's writer of
+       record is procedural. The host has run `full` since H1b day 1, so
+       the flip is a receipted no-op (`changed: false`). Add a real flag,
+       or does the procedure stand?
+    2. W2 (MLB postponed) has no earlier ruling and needs ratification and
+       a scope.
+    3. Waivers are claimed line by line in the paste; the comparator has no
+       `--waive` flag.
+  - RECEIPTS:
+    - `tests/test_h2_cutover.py` (13; fake systemctl; real env, receipts
+      and DB byte-identical);
+    - full suite 415 passed;
+    - `python scripts/h2_dry_run.py` → `DRY-RUN PASS — 6/6 steps
+      receipted` and `H2 DRY RUN: PASS`; the scratch host.env changed only
+      `SP_PARALLEL_MODE=designated` → `full`.
+    - Not exercised on a real host: the sudo / runuser privilege path.
+  - The cutover itself remains an architect ruling on the frozen parallel-week
+    criteria. Nothing here triggers it.
+
 - **#159 #160 #161 POLICY v1.1 ADDENDA (architect 2026-10-01): postseason sizing caution; kalshi-only provisional reference; Desk kickoff + n/30 counters; NHL venue finding.**
   - RULINGS (verbatim):
     - (1) "exports carry stage=postseason for MLB from our gameType

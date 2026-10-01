@@ -598,6 +598,33 @@ def _apply_rules(tickets, exp0, want=None):
     return kept, cuts
 
 
+def qb_shared_risk(calls, tickets) -> list[dict]:
+    """#192 (ruling 2026-10-01): one injured QB is ONE news item. Half units
+    still apply on every game his team plays (policy v1.1, unchanged), but
+    for the B-track those games share one risk factor: LOGGED here, no cap
+    change. A QB listed on >= 2 live games (non-PASS Desk calls): the games,
+    their straight units and the v1.1 tickets touching them."""
+    by_qb: dict[str, list] = {}
+    for r, c in calls:
+        if c["call"] == "PASS":
+            continue
+        for q in dict.fromkeys(r.get("qbs") or []):
+            by_qb.setdefault(q, [])
+            key = f"{r['game']}|{r['utc']}"
+            if key not in [k for k, _, _ in by_qb[q]]:
+                by_qb[q].append((key, r, c))
+    out = []
+    for q, games in sorted(by_qb.items()):
+        if len(games) < 2:
+            continue
+        keys = {_outcome(r).rsplit("|", 1)[0] for _, r, _ in games}
+        touching = [t for t in tickets if any(_outcome(l).rsplit("|", 1)[0] in keys for l in t["legs"])]
+        out.append({"player": q, "games": [k for k, _, _ in games],
+                    "straight_units": sum(c["units"] for _, _, c in games),
+                    "tickets_touching": len(touching)})
+    return out
+
+
 def b_track_shadow(calls, ranked=None) -> dict:
     """What the B-track rules WOULD do on this slate (nothing is applied):
     the cuts among the v1.1 tickets, and the tickets v1.2 would build.
@@ -615,6 +642,7 @@ def b_track_shadow(calls, ranked=None) -> dict:
             "deduped": sum(1 for _, r, _ in cuts if r == "deduped"),
             "cuts": [{"signature": _legset(t), "rule": r, "detail": d} for t, r, d in cuts],
             "v12_tickets": [_legset(t) for t in v12],
+            "qb_shared_risk": qb_shared_risk(calls, v11),
             "_cut_by_id": {id(t): r for t, r, _ in cuts}}
 
 

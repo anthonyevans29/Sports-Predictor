@@ -1932,13 +1932,15 @@ function parlaysFromFile(){
 // shows it, marks the logged legs it would cut, and keeps a per-slate tally.
 const BTRACK={reviewN:30};
 function bShadowCardNote(b){
-  return b?` · B-track shadow (not applied): exposure-capped ${b.exposure_capped} · deduped ${b.deduped}`:"";
+  return b?` · B-track shadow (not applied): exposure-capped ${b.exposure_capped} · deduped ${b.deduped}`
+    +((b.qb_shared_risk||[]).length?` · QB shared risk ${b.qb_shared_risk.map(q=>`${q.player}×${q.games.length}`).join(", ")} (#192, logged)`:""):"";
 }
 function recordBShadow(L){
   if(!fileParlays||!fileParlays.b_track_shadow) return;
   const b=fileParlays.b_track_shadow, asof=(fileParlays.desk_meta||{}).as_of||"?";
   L.meta.b_shadow=L.meta.b_shadow||{};
   L.meta.b_shadow[asof]={as_of:asof,log_date:localDate(),capped:b.exposure_capped,deduped:b.deduped,
+    qb_shared:(b.qb_shared_risk||[]).map(q=>({player:q.player,games:q.games.length})),
     cuts:(b.cuts||[]).map(c=>({rule:c.rule,signature:c.signature}))};
 }
 function bShadowLine(L,bets){

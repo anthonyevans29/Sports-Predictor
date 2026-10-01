@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (card page content, F2 slice 1; #189 NCAA label)
+- Card pager: every line and digest row reads "competition · away @ home ·
+  kickoff ET · model pick prob (tier) · reference · edge · Desk call ·
+  flags". Market-only rows say so. Each delta adds a "↳" line.
+- New delta classes "model updated" and "call changed". The digest lists
+  Desk calls first.
+- NCAA games show "NCAA", not the "NFL" family (#189).
+- `tests/test_card_page.py` (6).
+
 ## 2026-10-01 (#187: MLB start times — statsapi kept, card flags unconfirmed, audit)
 - `mlb_apisports`: the api-sports fallback never overwrites a
   statsapi-sourced start time. Disagreements are receipted and stamped on

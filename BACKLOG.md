@@ -52,6 +52,51 @@ specific reason they're not being built now.
   - OPERATOR: `python cli.py mlb-time-audit --season 2026` on the laptop;
     paste the output (#187).
 
+- **#151 F1b — the Cockpit RENDERS desk calls from the file (ARCHITECT 2026-10-01).**
+  - RULING (verbatim): "(3) Once F1 lands, the Cockpit RENDERS desk calls
+    from the file and never recomputes policy; its only overlay is the
+    ledger (counts, claims, fills)." Plus 2026-10-01: "Parity 9/9 on
+    today's real exports with desk-parlays (1 live leg, 0 tickets). F1 port
+    complete; rich-slate gate Sunday; proceed to F1b."
+  - BUILT (`tools/cockpit.html`):
+    - Rows from a file carrying `desk` (export --desk) are rendered, never
+      recomputed:
+      - `fileCall`: call, units, cls, edge, tags, reasons, shadow units,
+        pass class, market reference, kalshi-only;
+      - `fileValue`: value shadows;
+      - `fileVenue`: the venue verdict (every row now carries `desk.venue`);
+      - `execHTMLFrom(desk.exec)`: one exec formatter shared by both paths
+        (`execFacts` is the legacy source).
+    - Parlay tickets come ONLY from a loaded `desk_parlays_v1` file, legs
+      matched to the loaded rows. A missing file shows "no desk_parlays file
+      loaded"; a ticket with an unloaded leg is skipped and counted.
+    - The summary shows "desk: rendered from file (as of …)", or flags
+      legacy rows and a policy-version mismatch.
+    - The in-browser policy (`computeCall`, the old body verbatim) runs ONLY
+      for rows from legacy files without desk blocks, labelled "computed in
+      browser (legacy files)".
+  - Python: desk numbers are written UNROUNDED (rendering is bit-identical);
+    `desk.venue` on every row; the raw `edge` on each ticket.
+  - RECEIPT: `scripts/cockpit_render_verify.py` 16/16 (Los_Angeles browser,
+    clock and counts pinned). The same 9-file slate, computed vs rendered,
+    gives identical results for:
+    - 270 calls, 66 value shadows, 370 venue verdicts and 3 tickets;
+    - the Desk table text (336 rows incl. exec notes and KO lines), the
+      venue table, the parlay card, the summary counts;
+    - the LEDGER CAPTURE (108 entries).
+    - In render mode `computeCall` / `valueSide` / `venueEdge` /
+      `kalshiOnlyRef` are called 0 times.
+    - A tampered `desk.call` is shown as the file says.
+    - No parlays file means no tickets; mixed files and a version mismatch
+      are flagged.
+    - All 16 Cockpit verifies green (the legacy path unchanged), parity
+      31/31, 449 pytest.
+  - FLAG (needs ruling): the legacy in-browser path stays while `--desk` is
+    opt-in (the rich-slate gate is Sunday). Proposed F1c: once the host
+    emits desk calls, refuse desk-less prediction files and delete
+    `computeCall` / `valueSide` / `venueEdge` / `kalshiOnlyRef` /
+    buildParlays-compute from the Cockpit.
+
 - **#183 PARLAY-LEG AUDIT in the Cockpit ledger (ARCHITECT-RULE 2026-10-01) + desk_parlays shape ratified.**
   - RULING (verbatim): "(1) the combined exports/desk_parlays_<date>.json
     shape is ratified — parlays span sports, so a cross-file ticket file is

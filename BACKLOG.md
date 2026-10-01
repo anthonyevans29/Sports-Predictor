@@ -22,6 +22,61 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#163 VERDICTS + NCAA SOURCE FINDING + NHL 2024 UTAH ALIAS + H2 REHEARSAL (architect 2026-10-01).**
+  - RULING (verbatim): "DC-FIT REJECT (−0.0003 OOS), S14-STAGE2 REJECT
+    (criterion (i) overshoot +0.18→−0.99 at +1.17; no re-tune — log the
+    diagnosis, close #81's candidate). NCAA: resync-diff shows the
+    provider's current 2025 labels match ours (0.489 at source) — gate
+    SUSPENDED-PENDING-DATA stands; open an offseason probe lane for an
+    alternative college source with neutral-site flags (CFBD or similar),
+    read-only. NHL: add the 2024 alias form "Utah Utah Hockey Club"
+    (doubled token) → Utah Mammoth; re-sync; target coverage 2024 >= 90%.
+    H2 dry run PASS logged as the cutover rehearsal receipt."
+  - (a) DC-FIT: REJECT. The out-of-sample pool (PL 2024/25 + 2025/26)
+    delta is −0.0003 against a bar of +0.0050; the fitted ρ does not beat
+    production's ρ = −0.10. Production unchanged. The S18 ρ stays.
+  - (b) S14-STAGE2: REJECT on criterion (i).
+    - Diagnosis, logged per the ruling: the pooled 2023/24–2025/26
+      uncertain-bucket residual under production is only +0.18 goals, not
+      the +1.17 the n=25 live S14 read measured (2026-09-16).
+    - The declared +1.17 offset therefore overshoots, to −0.99: |−0.99| >
+      |+0.18|, so the residual moves away from zero.
+    - The live under-projection did not reproduce on the three-season pool.
+      It reads as a small-sample effect, not a structural compression.
+    - NO RE-TUNE. Fitting an offset to the pool's +0.18 would be threshold
+      re-tuning on the evaluated set, which the 2026-09-25 disposition
+      declined.
+    - #81's Stage-2 candidate is closed. S14 Stage 1 stays history.
+  - NCAA:
+    - `resync-diff --competition NCAA --season 2025` shows the provider's
+      CURRENT 2025 labels match ours: a home-label rate of 0.489 at the
+      source.
+    - So the fault is the provider's, not our copy, and a re-sync cannot
+      repair it. (The `_apply_match_updates` hazard stays moot: no re-sync
+      runs.)
+    - The gate stays SUSPENDED-PENDING-DATA. The `GATE_STATUS_LINE` banner
+      now says the fault is at the provider and names the reopening route.
+    - Opened #176: an offseason, read-only probe of an alternative college
+      source with neutral-site flags (CFBD or similar).
+  - NHL:
+    - The 2024-25 NHL schedule serves placeName "Utah" + commonName "Utah
+      Hockey Club", so place + common builds "Utah Utah Hockey Club" (a
+      doubled token).
+    - `NAME_ALIASES` maps that form to Utah Mammoth AND Utah Hockey Club.
+      Aliases do not chain, and our DB row is named "Utah Hockey Club".
+    - The matcher still refuses ambiguity at every candidate name.
+    - Operator re-sync owed (#144): `nhl-goalie-sync` (2024 window), then
+      `nhl-goalie-coverage`. The 2024 target is >= 90%.
+  - H2:
+    - `python3 scripts/h2_dry_run.py` → `H2 DRY RUN: PASS`, logged as the
+      CUTOVER REHEARSAL RECEIPT.
+    - The cutover itself stays an architect ruling on the parallel-week
+      criteria (#166).
+  - Ledger: Closes #163 and #81 (verdicts rendered; the candidate is
+    closed by ruling). Refs #144 (re-sync receipt owed), #166 (cutover
+    ruling), #79 and #176.
+  - RECEIPTS: alias test plus the full suite, in the PR body.
+
 - **#170 GITHUB DISCUSSIONS = THE INPUT CHANNEL (architect 2026-10-01).**
   - RULING (verbatim): "GitHub Discussions adopted as the INPUT channel,
     with the fence: a thread is never a ruling, an Issue, or an

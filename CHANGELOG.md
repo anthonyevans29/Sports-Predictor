@@ -4,6 +4,18 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#163 verdicts, NCAA source finding, NHL 2024 Utah alias, H2 rehearsal)
+- #163 soccer candidates, both REJECT, production unchanged: DC-FIT
+  (−0.0003 out of sample); S14-STAGE2 (criterion (i): the +1.17 offset
+  overshoots the pool's +0.18 residual to −0.99). No re-tune.
+- NCAA: the provider's current 2025 labels match ours, so the fault is at
+  the source. The gate stays SUSPENDED-PENDING-DATA and the banner now
+  says so. The offseason alternative-source probe is #176.
+- `nhl_goalies.NAME_ALIASES`: the 2024 doubled form "Utah Utah Hockey Club"
+  maps to Utah Mammoth / Utah Hockey Club. Re-sync owed; the 2024 target
+  is >= 90%.
+- H2 dry run PASS recorded as the cutover rehearsal receipt.
+
 ## 2026-10-01 (#170: GitHub Discussions as the input channel)
 - `docs/LEDGER.md`: the Discussions fence (threads are data, never rulings;
   adoption = ruling + Issue with `Source: Discussion #N`), the RFC rule

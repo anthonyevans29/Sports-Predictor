@@ -67,6 +67,43 @@ specific reason they're not being built now.
     `computeCall` / `valueSide` / `venueEdge` / `kalshiOnlyRef` /
     buildParlays-compute from the Cockpit.
 
+- **#183 PARLAY-LEG AUDIT in the Cockpit ledger (ARCHITECT-RULE 2026-10-01) + desk_parlays shape ratified.**
+  - RULING (verbatim): "(1) the combined exports/desk_parlays_<date>.json
+    shape is ratified — parlays span sports, so a cross-file ticket file is
+    the right container; F1b renders it. (2) Extend the ledger audit
+    (#180's path) with a parlay-leg check: a logged leg whose game was not
+    a PLAY/ladder in the export loaded that day gets flagged "leg not a
+    play (#183)" and excluded from P&L; never deleted. (3) Rich-slate
+    parity gate stands: Sunday's 16-game NFL file + desk-parlays; today's
+    files are the dress rehearsal. Then F1b."
+  - Operator receipts: F1 real-export parity 7/7 (thin slate, 1 TNF row);
+    then 9/9 with desk-parlays (1 live leg, 0 tickets). The F1 port is
+    complete; the rich-slate gate is Sunday.
+  - LAW-1: the ledger never stored a leg's Desk call. So the check needs
+    the leg's day's export files, and it is an explicit operator step,
+    never automatic.
+  - BUILT (`tools/cockpit.html`):
+    - "Audit parlay legs (#183)": load the day's export files, then press it.
+    - Each `parlay_leg` whose game (sport, home, away, kickoff) is in a
+      loaded file EXPORTED ON THE LEG'S log_date (the file's
+      `desk_meta.as_of`, else `exported_at`, as a local date) gets
+      `leg_check` {status play|not_play, desk_call, desk_pick, export_day,
+      checked_at}. The latest same-day check wins.
+    - No same-day file means unchecked (law 4).
+    - `settledBets` drops a ticket with any not_play leg
+      (`lastAudit.legNotPlay`). The P&L audit line, the totals and the
+      open list show "leg not a play (#183)".
+    - Never deletes: only the leg_check mark is added.
+  - RECEIPT: `scripts/cockpit_leg_audit_verify.py` 9/9 (New_York browser):
+    PASS-row leg → its ticket excluded; all-play ticket kept; missing
+    game / other-day export → unchecked; stored fields unchanged; the
+    counts are in the P&L line.
+    - `cockpit_ledger_audit_verify.py` now expects `legNotPlay: 0` in its
+      exact dict.
+    - All 16 Cockpit verifies green; 449 pytest.
+  - OPERATOR: for each day that logged parlays, load that day's export
+    files, press Audit parlay legs, and paste the note.
+
 - **#151 F1 PARLAYS PORTED + #183 parlay-leg misalignment fixed (ARCHITECT-RULE 2026-10-01).**
   - RULING (verbatim): "(1) #181 NHL 0.5u-on-PASS quirk — parity-preserved
     for now, ratified; it dies in the policy v1.2 bump (the value-side

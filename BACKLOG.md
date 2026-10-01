@@ -22,6 +22,9 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-01 — #209 (P1-1, external review) BUILT: legacy `improve --sport soccer` refused before any write.**
+The legacy loop (rolling-holdout retrain) is not the soccer gate. Soccer model changes go through the chronological market-scored harness (`soccer-backtest`, frozen `--candidate` gates) and `set-soccer-config`; state goes through `soccer-refresh`. The refusal sits in `improve()` itself, ahead of `evaluate_finished`, so it covers both the CLI and the admin web job. The bare `improve` defaulted to soccer, so it is refused too. Callers checked: the host chain runs only `--sport mlb`.
+
 - **#201 DISCUSSIONS POSTING INSIDE THE LEDGER WORKFLOW (ARCHITECT 2026-10-01) + #170 closed.**
   - RULING (verbatim): "Discussions posting runs INSIDE the ledger
     workflow, using the existing LEDGER_PROJECT_TOKEN secret (classic PAT,

@@ -99,9 +99,14 @@ def strip_accents(s: str) -> str:
 # bridge the two ("utah hockey" vs "utah mammoth"), so the goalie mapping
 # carries the alias both ways as extra CANDIDATE names. The matcher still
 # refuses ambiguity at every candidate; an alias only adds a name to try.
+# 2024 form (architect ruling 2026-10-01, re-audit): the 2024-25 schedule
+# serves placeName "Utah" + commonName "Utah Hockey Club", so place + common
+# builds the doubled token "Utah Utah Hockey Club"; it maps to the franchise
+# (Utah Mammoth, plus Utah Hockey Club since aliases do not chain).
 NAME_ALIASES = {
     "Utah Mammoth": ("Utah Hockey Club",),
     "Utah Hockey Club": ("Utah Mammoth",),
+    "Utah Utah Hockey Club": ("Utah Mammoth", "Utah Hockey Club"),
 }
 
 

@@ -20,6 +20,12 @@ def test_team_names_carry_the_utah_alias_both_ways():
     assert ngs.team_names(side("BOS", "Boston", "Bruins")) == ["Boston Bruins"]   # others untouched
 
 
+def test_team_names_map_the_2024_doubled_utah_token():
+    # 2024-25 schedule: placeName "Utah" + commonName "Utah Hockey Club"
+    assert ngs.team_names(side("UTA", "Utah", "Utah Hockey Club")) == [
+        "Utah Utah Hockey Club", "Utah Mammoth", "Utah Hockey Club"]
+
+
 def _comp(s):
     c = s.execute(select(Competition).where(Competition.sport == Sport.NHL, Competition.code == "NHL")).scalar_one_or_none()
     if c is None:

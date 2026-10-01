@@ -69,7 +69,8 @@ TEST_SEASON = "2026"
 # v1's verdict is VOID (trained on corrupted labels). NCAA stays market-only.
 GATE_STATUS = "SUSPENDED-PENDING-DATA"
 GATE_STATUS_LINE = ("NCAA GATE: SUSPENDED-PENDING-DATA (ruling 2026-10-01) — 2025 home/away labels "
-                    "unreliable; v1's verdict VOID; NCAA stays market-only.")
+                    "unreliable AT THE PROVIDER (resync-diff: source matches ours); v1's verdict VOID; "
+                    "NCAA stays market-only; reopens via an alternative source (#176).")
 
 # FROZEN (architect ruling 2026-09-30 + BACKLOG "#79 NCAA v1").
 LL_MARGIN = 0.010

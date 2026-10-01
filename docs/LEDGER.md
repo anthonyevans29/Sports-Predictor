@@ -69,6 +69,23 @@ Code's tools cannot enable Discussions, create categories, pin or post
 (checked 2026-10-01: no Discussions tool; direct API access is not
 permitted from Code's session), so all four are operator steps.
 
+**Posting through the ledger workflow (ARCHITECT 2026-10-01).** Posting
+runs inside `ledger.yml` with the `LEDGER_PROJECT_TOKEN` secret (a classic
+PAT with repo scope). If a call is refused, the operator adds the
+`write:discussion` scope to that token in GitHub settings, and never pastes
+it anywhere. Actions → ledger → Run workflow, mode `discussions`:
+
+| action | inputs | does |
+|---|---|---|
+| `list` (default) | none | prints the categories (the receipt) and every thread's number, title, URL and category; metadata only, no thread body is read |
+| `post` | `file`, `category` | posts ONE markdown file under `docs/discussions/` (first line `# Title`, the rest is the body) into the NAMED existing category; refuses a duplicate title in that category |
+| `reply` | `file`, `thread` | replies to thread #N with the file's text |
+
+Nothing posts without a dispatch that names the file and the category or
+thread. Each post ends with a provenance line (the file and commit). The
+run prints a `LEDGER-DISCUSSIONS {...}` receipt. The fence is unchanged:
+what a thread says is input, never a ruling.
+
 ## Taxonomy (fixed set, prefixed, no ad-hoc labels)
 `.github/ledger/taxonomy.json` is the one definition. CI tests pin it.
 

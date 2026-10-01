@@ -477,6 +477,122 @@ def close_on_merge(gh: GH, proj: "Project | None", repo: str, pr: dict) -> list[
     return done
 
 
+# ----------------------------------------------------------- discussions --
+# ARCHITECT 2026-10-01: Discussions posting runs INSIDE the ledger workflow,
+# with the LEDGER_PROJECT_TOKEN secret (classic PAT; repo scope, plus
+# write:discussion if a call is refused: the operator edits the token's
+# scopes and never pastes it). workflow_dispatch mode "discussions":
+#   list   the categories (the receipt) + the threads' number/title/url/category
+#          (metadata only: the fence holds, a thread's BODY is never read here)
+#   post   a thread from ONE markdown file under docs/discussions/ ("# Title"
+#          first line, the rest is the body) into a NAMED existing category
+#   reply  to a thread by NUMBER, the body from a file under docs/discussions/
+# Nothing posts without a dispatch that names the file (and the category or the
+# thread). The default action is list. Threads are input, never rulings.
+
+DISCUSSIONS_DIR = ROOT / "docs" / "discussions"
+SCOPE_HINT = ("the token was refused: add the write:discussion scope to the LEDGER_PROJECT_TOKEN classic PAT "
+              "(the operator edits the token's scopes in GitHub settings; never paste the token anywhere)")
+
+
+def discussion_file(path: str) -> tuple[str, str, str]:
+    """(relative path, title, body) of a post file. Refuses anything outside
+    docs/discussions/, non-markdown, or without a '# Title' first line."""
+    if not path:
+        raise ValueError("no file named: a post/reply dispatch must name a file under docs/discussions/")
+    f = (ROOT / path).resolve()
+    if DISCUSSIONS_DIR.resolve() not in f.parents or f.suffix != ".md" or not f.is_file():
+        raise ValueError(f"refused: {path!r} is not a markdown file under docs/discussions/")
+    text = f.read_text()
+    first, _, rest = text.lstrip("\n").partition("\n")
+    if first.startswith("# "):
+        return str(f.relative_to(ROOT)), first[2:].strip(), rest.strip()
+    return str(f.relative_to(ROOT)), "", text.strip()          # no title: the whole file is the body
+
+
+def _repo_discussions(gh, repo: str) -> dict:
+    owner, name = repo.split("/")
+    return gh.graphql("query($o:String!,$n:String!){repository(owner:$o,name:$n){id hasDiscussionsEnabled "
+                      "discussionCategories(first:50){nodes{id name slug isAnswerable description}} "
+                      "discussions(first:100,orderBy:{field:CREATED_AT,direction:ASC}){nodes{id number title url "
+                      "category{name}}}}}", {"o": owner, "n": name})["repository"]
+
+
+def discussions(gh, repo: str, action: str, path: str = "", category: str = "", thread: str = "",
+                sha: str = "", log=print) -> dict:
+    action = (action or "list").strip().lower()
+    try:
+        r = _repo_discussions(gh, repo)
+    except RuntimeError as e:
+        log(f"✗ {e}")
+        log(f"✗ {SCOPE_HINT}")
+        return {"action": action, "error": "token refused"}
+    cats = r["discussionCategories"]["nodes"]
+    threads = r["discussions"]["nodes"]
+    if action == "list":
+        out = {"action": "list", "enabled": r["hasDiscussionsEnabled"],
+               "categories": [{"name": c["name"], "slug": c["slug"], "answerable": c["isAnswerable"],
+                               "description": c["description"]} for c in cats],
+               "threads": [{"number": t["number"], "title": t["title"], "url": t["url"],
+                            "category": (t.get("category") or {}).get("name")} for t in threads]}
+        for c in out["categories"]:
+            log(f"  category {c['name']!r} ({c['slug']}{', Q&A' if c['answerable'] else ''}): {c['description']}")
+        for t in out["threads"]:
+            log(f"  #{t['number']} [{t['category']}] {t['title']} — {t['url']}")
+        return out
+    try:
+        rel, title, body = discussion_file(path)
+    except ValueError as e:
+        log(f"✗ {e}")
+        return {"action": action, "error": str(e)}
+    prov = f"\n\n---\n_Posted by the ledger workflow from `{rel}`" + (f" @ {sha[:7]}" if sha else "") + "._"
+    if action == "post":
+        cat = next((c for c in cats if c["name"].lower() == (category or "").strip().lower()), None)
+        if cat is None:
+            msg = f"refused: category {category!r} not found (have: {', '.join(c['name'] for c in cats) or 'none'})"
+            log(f"✗ {msg}")
+            return {"action": "post", "error": msg}
+        if not title:
+            msg = f"refused: {rel} has no '# Title' first line"
+            log(f"✗ {msg}")
+            return {"action": "post", "error": msg}
+        dup = next((t for t in threads if t["title"] == title and (t.get("category") or {}).get("name") == cat["name"]),
+                   None)
+        if dup:
+            msg = f"refused: already posted as #{dup['number']} ({dup['url']})"
+            log(f"✗ {msg}")
+            return {"action": "post", "error": msg}
+        try:
+            d = gh.graphql("mutation($r:ID!,$c:ID!,$t:String!,$b:String!){createDiscussion(input:{repositoryId:$r,"
+                           "categoryId:$c,title:$t,body:$b}){discussion{number url}}}",
+                           {"r": r["id"], "c": cat["id"], "t": title, "b": body + prov})["createDiscussion"]["discussion"]
+        except RuntimeError as e:
+            log(f"✗ {e}")
+            log(f"✗ {SCOPE_HINT}")
+            return {"action": "post", "error": "token refused"}
+        log(f"✓ posted #{d['number']} [{cat['name']}] {title} — {d['url']}")
+        return {"action": "post", "number": d["number"], "url": d["url"], "category": cat["name"], "file": rel}
+    if action == "reply":
+        t = next((t for t in threads if str(t["number"]) == str(thread).strip()), None) if str(thread).strip() else None
+        if t is None:
+            msg = f"refused: thread {thread!r} not found"
+            log(f"✗ {msg}")
+            return {"action": "reply", "error": msg}
+        text = (f"# {title}\n\n" if title else "") + body
+        try:
+            c = gh.graphql("mutation($d:ID!,$b:String!){addDiscussionComment(input:{discussionId:$d,body:$b})"
+                           "{comment{url}}}", {"d": t["id"], "b": text + prov})["addDiscussionComment"]["comment"]
+        except RuntimeError as e:
+            log(f"✗ {e}")
+            log(f"✗ {SCOPE_HINT}")
+            return {"action": "reply", "error": "token refused"}
+        log(f"✓ replied on #{t['number']} — {c['url']}")
+        return {"action": "reply", "number": t["number"], "url": c["url"], "file": rel}
+    msg = f"refused: unknown action {action!r} (list | post | reply)"
+    log(f"✗ {msg}")
+    return {"action": action, "error": msg}
+
+
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     mode = argv[0] if argv else "event"
@@ -493,6 +609,15 @@ def main(argv=None) -> int:
         proj = _board(proj)
         print("LEDGER-CLOSE-MERGED", close_on_merge(gh, proj, repo, pr))
         return 0
+    if mode == "discussions":                    # ARCHITECT 2026-10-01: the Discussions channel
+        if not ptok:
+            print("✗ LEDGER_PROJECT_TOKEN not set: the discussions mode needs it (classic PAT, repo scope)")
+            return 1
+        e = os.environ
+        r = discussions(GH(ptok, repo), repo, e.get("LEDGER_D_ACTION", "list"), e.get("LEDGER_D_FILE", ""),
+                        e.get("LEDGER_D_CATEGORY", ""), e.get("LEDGER_D_THREAD", ""), e.get("GITHUB_SHA", ""))
+        print(f"LEDGER-DISCUSSIONS {json.dumps(r, sort_keys=True)}")
+        return 1 if r.get("error") else 0
     if mode == "bootstrap":
         items = json.loads(BACKFILL.read_text())["items"]
         r = bootstrap(gh, proj, tax, items)

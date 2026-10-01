@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#201: Discussions posting via the ledger workflow)
+- `ledger.yml` + `scripts/ledger.py`: a workflow_dispatch mode
+  `discussions`. `list` (the default) prints categories and thread links;
+  `post` sends a `docs/discussions/` file to a named category; `reply`
+  answers by thread number. It uses `LEDGER_PROJECT_TOKEN`, and nothing
+  posts without a dispatch that names the file.
+- `tests/test_ledger_discussions.py` (5).
+
 ## 2026-10-01 (#170: Discussions — Receipts category + S14 receipts post)
 - `docs/LEDGER.md` adds the Receipts category. Discussions setup is all
   operator steps (Code has no Discussions tool).

@@ -12,6 +12,15 @@ Every drop adds an entry going forward.
 - `docs/discussions/seed-2026-10-01.md`: three seed threads for the
   operator to post.
 
+## 2026-10-01 (#163: soccer candidates — Dixon-Coles rho fit, S14 Stage-2)
+- `soccer-backtest --candidate dixon-coles-fit` (backtest-only): ρ fitted
+  on PL 2023/24 only, frozen, gated against production's ρ on PL 2023/24 to
+  2025/26 pooled.
+- `soccer-backtest --candidate s14-totals` (backtest-only): +1.17 goals on
+  uncertain-winner games. The verdict needs both the improve rule and S14's
+  frozen Stage-2 criteria.
+- Both are pre-committed, write nothing and change no production model.
+
 ## 2026-10-01 (#159/#160/#161: postseason sizing; kalshi-only reference; Desk kickoff + n/30)
 - MLB prediction exports carry `stage` (`regular` / `postseason` from our
   statsapi gameType mapping; null when unknown) and `stage_raw`.

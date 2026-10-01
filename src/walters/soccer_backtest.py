@@ -68,7 +68,9 @@ def time_decay_weight(age_days: float, half_life_days: float) -> float:
 def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         min_prior: int = 40, dixon_coles_rho: float | None = None,
                         elo_goal_coeff: float | None = None,
-                        decay_half_life_days: float | None = None):
+                        decay_half_life_days: float | None = None,
+                        detail: bool = False,
+                        s14_uncertain_offset: float | None = None):
     """
     Walk `competition_code`/`season` in date order, predict each match using only
     prior matches (leakage-free). Returns a list of per-match result dicts:
@@ -88,6 +90,15 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
     None = the baseline walk, unchanged. The SET of scored matches is
     identical either way (it depends only on the prior count and team
     presence), so both arms score the same games.
+
+    detail (SOCCER-CANDIDATES, 2026-10-01): each result also carries
+    home_xg / away_xg / p_over and the actual score — additive keys, off by
+    default (byte-identical results for every existing caller).
+
+    s14_uncertain_offset (S14 Stage-2 candidate, backtest-only): when the
+    UNADJUSTED prediction's top pick is < 0.45, both expected-goal rates scale
+    by (T + offset) / T (T = home_xg + away_xg) and the match is re-predicted.
+    Confident games are untouched; the scored set is identical.
     """
     with session_scope() as s:
         comp = s.execute(
@@ -150,17 +161,34 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         home_strength=hs, away_strength=as_,
                         context=context, config=poisson_cfg,
                     )
+                    if (s14_uncertain_offset is not None
+                            and max(pred.p_home, pred.p_draw, pred.p_away) < 0.45):
+                        from types import SimpleNamespace
+                        tot = pred.home_xg + pred.away_xg
+                        mult = (tot + s14_uncertain_offset) / tot
+                        pred = predict_match(
+                            home_elo=elo.get(m.home_team_id),
+                            away_elo=elo.get(m.away_team_id),
+                            home_strength=hs, away_strength=as_,
+                            context=context, config=poisson_cfg,
+                            factor_adjustment=SimpleNamespace(home_xg_multiplier=mult,
+                                                              away_xg_multiplier=mult),
+                        )
                     if m.home_score > m.away_score:
                         actual = "H"
                     elif m.home_score < m.away_score:
                         actual = "A"
                     else:
                         actual = "D"
-                    results.append({
+                    row = {
                         "match_id": m.id,
                         "p_home": pred.p_home, "p_draw": pred.p_draw,
                         "p_away": pred.p_away, "actual": actual,
-                    })
+                    }
+                    if detail:
+                        row.update(home_xg=pred.home_xg, away_xg=pred.away_xg, p_over=pred.p_over,
+                                   home_score=m.home_score, away_score=m.away_score)
+                    results.append(row)
 
             # --- AFTER predicting, update Elo + add to prior (order matters!) ---
             nh, na = update_after_match(

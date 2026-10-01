@@ -817,7 +817,8 @@ def test_pager_baseline_then_deltas_quiet_hours_and_digest(sandbox, monkeypatch)
                   2: {}, 3: {}}, t90={"1": "sig-b"})
     rec, sent = _page(sandbox, monkeypatch, card, day)
     assert rec["deltas"] == {"new_priced": 2, "tier": 1, "quarantine": 1, "stale": 1,
-                             "kickoff": 1, "t90_news": 0, "line_move": 0, "model": 0, "call": 0}
+                             "kickoff": 1, "t90_news": 0, "line_move": 0, "model": 0, "call": 0,
+                             "qb_news": 0}
     assert len(sent) == 1 and sent[0][3] == "high" and "QUARANTINE ON" in sent[0][2]
     # quiet hours (02:00 ET): only the quarantine flip pages; the rest suppressed
     night = datetime(2026, 10, 5, 6, 0, tzinfo=timezone.utc)

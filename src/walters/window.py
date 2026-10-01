@@ -109,6 +109,8 @@ def build_card(now: datetime | None = None, hours: int = 24,
     from src.walters.line_move import _is_soccer, line_move_for_match
     from src.walters.venue import kalshi_home_prob, venue_gap
     from src.ingestion.mlb_apisports import time_unconfirmed
+    from src.db.schema import Injury
+    from src.walters.qb_audit import is_qb
 
     now = now or utc_now_naive()
     hi = now + timedelta(hours=hours)
@@ -155,6 +157,13 @@ def build_card(now: datetime | None = None, hours: int = 24,
                 # MLB start time not confirmed by statsapi (finding 2026-10-01: api-sports
                 # placeholder times for TBD postseason starts); None = confirmed
                 "time_flag": time_unconfirmed(m) if code.upper() == "MLB" else None,
+                # #192 (ruling 2026-10-01): injured QBs on either side, so the pager can
+                # page ONE news item per player across every game that team plays
+                "qb_news": [{"team_id": i.team_id, "team": short_name(t), "player": i.player_name,
+                             "status": i.type or ""}
+                            for t in (m.home_team, m.away_team) if t is not None
+                            for i in s.execute(select(Injury).where(Injury.team_id == t.id)).scalars()
+                            if is_qb(i.player_position)],
             })
             rows.append(row)
     counts["fixtures"] = len(rows)

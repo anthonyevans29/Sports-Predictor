@@ -22,6 +22,9 @@ run. The delta classes:
                  or the model version changed (card page, 2026-10-01)
     call         call changed: the Desk's call or units in the file changed
                  (F1 desk on the export; 2026-10-01)
+    qb_news      an injured QB's status changed (#192, ruling 2026-10-01): ONE
+                 news item PER PLAYER, listing every game that team plays in the
+                 window; never one page per game
 PAGE CONTENT (architect 2026-10-01, F2 slice 1): every page line and digest
 row reads "competition · away @ home · kickoff ET · model pick prob (tier) ·
 reference (books, or Kalshi when kalshi-only) · edge · Desk call/units when the
@@ -49,7 +52,8 @@ import sp_common as c  # noqa: E402
 ET = ZoneInfo("America/New_York")
 QUIET = (0, 7)          # [00:00, 07:00) ET
 DIGEST_HOUR = 8         # first run at/after 08:00 ET
-CLASSES = ("new_priced", "tier", "quarantine", "stale", "kickoff", "t90_news", "line_move", "model", "call")
+CLASSES = ("new_priced", "tier", "quarantine", "stale", "kickoff", "t90_news", "line_move", "model", "call",
+           "qb_news")
 FRESHEN_CLASSES = ("t90_news", "line_move")
 URGENT = ("quarantine", "line_move")
 
@@ -84,7 +88,10 @@ def snapshot(card: dict) -> dict:
             "ref_p": desk.get("market_ref") if desk else (fair.get(pick) if pick else None),
             "desk_edge": desk.get("edge_pp") if desk else None,
             "call": desk.get("call"), "units": desk.get("units"), "pass_kind": desk.get("pass_kind"),
-            "fair": fair or None, "kalshi_home": r.get("kalshi_home_norm")}
+            "fair": fair or None, "kalshi_home": r.get("kalshi_home_norm"),
+            "qbs": {f"{q.get('team_id')}|{q.get('player')}": {"team": q.get("team"), "player": q.get("player"),
+                                                              "status": q.get("status") or ""}
+                    for q in (r.get("qb_news") or [])}}
     return out
 
 
@@ -121,9 +128,45 @@ def deltas(prev: dict, cur: dict, prev_t90: dict, cur_t90: dict) -> list[dict]:
         if g["utc_date"] != p["utc_date"] or (
                 g["status"] != p["status"] and str(g["status"]).lower() in ("postponed", "cancelled")):
             out.append({"cls": "kickoff", "id": mid, "g": g, "was": p["utc_date"]})
+    out += qb_deltas(prev, cur)
     for mid, sig in cur_t90.items():
         if mid in prev_t90 and prev_t90[mid] != sig and mid in cur:
             out.append({"cls": "t90_news", "id": mid, "g": cur[mid]})
+    return out
+
+
+def _players(games: dict) -> dict:
+    """player key -> {team, player, status, ids: {match ids}, games: [snapshots]} across the window."""
+    out = {}
+    for mid, g in games.items():
+        for k, q in (g.get("qbs") or {}).items():
+            e = out.setdefault(k, {**q, "ids": set(), "games": []})
+            e["ids"].add(mid)
+            e["games"].append(g)
+    return out
+
+
+def qb_deltas(prev: dict, cur: dict) -> list[dict]:
+    """#192: one delta per PLAYER whose QB injury status appeared, changed or
+    cleared, however many games his team has in the window. A change is news
+    only on a game that was already on the card (a game entering or leaving
+    the window is not news). Silent until the previous state carries QB data
+    (no flood on the upgrade)."""
+    if not any("qbs" in g for g in prev.values()):
+        return []
+    was, now = _players(prev), _players(cur)
+    out = []
+    for k in sorted(set(was) | set(now)):
+        a, b = was.get(k), now.get(k)
+        if a and b and a["status"] == b["status"]:
+            continue
+        stayed = [mid for mid in (b or a)["ids"] if mid in prev and mid in cur]
+        if not stayed:
+            continue
+        q = b or a
+        out.append({"cls": "qb_news", "id": k, "g": cur[stayed[0]], "player": q["player"], "team": q["team"],
+                    "was": a["status"] if a else None, "now": b["status"] if b else None,
+                    "games": [cur[mid] for mid in sorted(stayed)]})
     return out
 
 
@@ -207,6 +250,10 @@ def line(d: dict) -> str:
         what = "injury/lineup news inside T-90: freshen triggered"
     elif cls == "line_move":
         what = f"LINE MOVE inside T-3h: {g.get('line_move')}: {g.get('late_news')} freshen triggered"
+    elif cls == "qb_news":
+        st = lambda v: "off the list" if v is None else (v or "listed")
+        head = f"QB NEWS {d['team']} {d['player']}: {st(d['was'])} -> {st(d['now'])} · {len(d['games'])} game(s)"
+        return head + "".join(f"\n  ↳ {row_text(x)}" for x in d["games"])
     elif cls == "model":
         p = was or {}
         what = (f"model updated: {_side(p, p.get('pick'))} {_pct(p.get('prob'))} -> "

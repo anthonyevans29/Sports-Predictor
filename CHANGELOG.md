@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#192: one injured QB = one news item)
+- Card pager: a QB's injury status change pages ONCE per player, listing
+  every game his team has in the window (new class `qb_news`). Half units
+  per game are unchanged.
+- B-track shadow logs `qb_shared_risk` (a QB flag spanning two or more live
+  games), with no cap change. It appears in the `desk-parlays` CLI, the
+  parlay card and the ledger tally.
+
 ## 2026-10-01 (#193 B-track cross-book rules, shadow; #192 QB finding)
 - `desk_policy.b_track_shadow`: an exposure cap of 1.25u per team-outcome
   and ticket dedup, pre-committed and shadow only. `desk_parlays` reports

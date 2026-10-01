@@ -22,6 +22,45 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#192 ONE INJURED QB = ONE NEWS ITEM; #193 readings ratified; #187 closed; v1.0.1 deployed (ARCHITECT 2026-10-01).**
+  - RULING (verbatim): "#193 — all three readings ratified (no ticket
+    containing a breaching leg; "better-priced" = lower combined market
+    probability; a game in both the morning and T-60 file is one straight
+    at the later file's units). #192 — one injured QB is ONE news item: the
+    half-unit sizing still applies to every game that team plays (the
+    uncertainty is real in each), but the pager emits one page per player,
+    and the B-track treats those games' QB flags as a shared risk factor
+    (logged, no cap change yet). #187 — CLOSE: mlb-time-audit shows 15/15
+    confirmed games exact (tonight's PHI@ATL 20:00 ET on both providers); the
+    3 mismatches are placeholders on both sides (statsapi 03:33 TBD vs
+    api-sports 20:00 UTC default), now guarded "time unconfirmed"; the
+    unpaired rows are statsapi's seeded bracket. v1.0.1 is CUT AND DEPLOYED
+    (v1.0.0 -> v1.0.1, 57 files)."
+  - BUILT (#192):
+    - Window card rows carry `qb_news`: the injured QBs on either side,
+      via `qb_audit.is_qb`, the export's own rule.
+    - Pager class `qb_news`: ONE delta per PLAYER whose status appeared,
+      changed or cleared. The page lists every game of his team still on the
+      card, as one "QB NEWS CHI C. Williams: Questionable -> Out · 2 game(s)"
+      item with a ↳ row per game.
+    - A game merely entering or leaving the window is not news. The upgrade
+      is silent.
+    - B-track shadow: `qb_shared_risk` lists a QB on >= 2 live games, with
+      the games, straight units and v1.1 tickets touching them. LOGGED only;
+      no cap change.
+    - Also shown in the `desk-parlays` CLI, the parlay-card note and the
+      per-slate ledger tally.
+    - Half units per game unchanged.
+  - #193: the shipped shadow already implements the ratified readings; it
+    stays open for the 30-slate review. #187 closed by ARCHITECT ruling.
+    No v1.0.1 sibling Issue exists to close. The `release` label still
+    doesn't exist (the ledger bootstrap has not run on the merged
+    taxonomy), so #150's label/milestone stay pending.
+  - RECEIPTS: `tests/test_qb_one_news_item.py` 4 (one page for two games;
+    cleared / window-entry / upgrade; shared risk logged with no cap change;
+    card rows from the DB, QB-only). Spec-change: the exact delta dict gains
+    `qb_news: 0`. 466 pytest; btrack 8/8 and render 16/16 verifies green.
+
 - **#193 B-TRACK: two cross-book rules, pre-committed, SHADOW-logged (ARCHITECT 2026-10-01) + #192 QB cross-game finding + #183/#178 closed.**
   - RULING (verbatim): "B-track opens with two cross-book rules,
     pre-committed: (1) EXPOSURE CAP per outcome: total units on any single

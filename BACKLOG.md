@@ -53,6 +53,77 @@ specific reason they're not being built now.
     enable Discussions, create the categories, pin the RFC description and
     post the three threads.
 
+- **ARCHITECT-RULE 2026-10-01 on #172 (the close) and #169 (retention).**
+  - RULING (verbatim): "(1) grades with no pre-kickoff price — reported,
+    left as stored, never nulled: ratified. (2) MLB M11 rollover games
+    whose only price is post-first-pitch — unpriced: ratified; an in-game
+    price is not a close. (3) The writer's side effect (soccer/cups/NHL book
+    history into odds_snapshots) is welcome: it anchors value-side CLV and
+    the soccer line-move alarm. (4) The two uncovered findings (unbounded
+    capture-odds, MLB Kalshi window boundary) get their own Issues. (5)
+    #169's four flagged questions: the doc's defaults are ratified as
+    written. Merge order: #172, then the rest."
+  - RECORDED: (1)-(3) need no code change; #172 already behaves this way.
+    (4) Issues #174 (unbounded capture-odds) and #175 (MLB Kalshi window
+    boundary). (5) `docs/specs/snapshot-retention.md` rows 4/5/7/9 now read
+    RATIFIED. #172 merged first (b5c285b); every open branch was merged up
+    from main the same hour.
+
+- **#82 SNAPSHOT RETENTION — DESIGN FOR RULING (architect 2026-10-01; doc only, no code).**
+  - RULING (verbatim): "LANE #82 (design doc only): snapshot pruning/rollup
+    — odds and Kalshi snapshots now grow by thousands of rows a day;
+    propose a retention policy (raw 30d, hourly rollups beyond, closes kept
+    forever) for ruling before any code."
+  - DOC: `docs/specs/snapshot-retention.md`.
+    - Inventory of every odds_snapshots writer, with growth formulas and
+      season-bounded maxima. Real game counts are labelled UNKNOWN, with
+      read-only SQL R1–R4 to measure them.
+    - Every reader, and exactly which rows it needs.
+    - The policy:
+      - eligibility per MATCH: FINISHED, kicked off > 30d, every prediction
+        graded, past a guard;
+      - kept raw forever: the FIRST capture set and the CLOSE (for book
+        sources, the last pre-kickoff set; for Kalshi, the last pre-kickoff
+        row per selection WITH yes_bid/yes_ask);
+      - hourly rollups split at kickoff.
+    - DDL sketch for `odds_snapshot_rollups` / `odds_snapshot_prune_log`.
+    - Safety:
+      - a preprune `.backup`;
+      - dry-run by default, with `--apply` plus an env opt-in to write;
+      - one transaction per day bucket, deleting by explicit id;
+      - receipts;
+      - VACUUM noted (DELETE alone does not shrink the file).
+  - READERS THE POLICY WOULD CHANGE:
+    - `mlb-odds-timing` reads raw rows, so it must be moved to the rollups
+      before any applied prune;
+    - `clv-report`'s "last" includes post-kickoff captures, so keep the
+      last capture overall or accept a change;
+    - chain-receipt row counts drop by design.
+    Everything else is preserved: the Kalshi exports, window card, venue,
+    value anchor and line-move. evaluate's CLV reads `odds`, not snapshots.
+  - ARCHITECT-RULE (9 in the doc), including: bucket width (hourly saves
+    little, since the window already captures about hourly); keeping the
+    T-3h reference and final-3h captures raw for line-move replay; host vs
+    laptop pruning; no applied prune before the H2 cutover + one clean
+    week; VACUUM cadence; 30/30 days.
+  - FINDINGS from the review → Issue #167: `odds` APPENDS on the general
+    sync_odds path (soccer, cups, NHL); `sync_odds` drops `line`; the
+    evaluate/nhl_shadow "close" averages every capture on those sources;
+    capture-odds is unbounded for stale SCHEDULED MLB; and a MLB Kalshi
+    window-step boundary. All are read from code; receipts are owed.
+  - RULED (ARCHITECT-RULE 2026-10-01): "Retention: NO hourly rollups — raw
+    30 days, first + closing captures forever with Kalshi bid/ask; the
+    window's hourly captures already are the rollup. Revisit only if raw
+    growth exceeds 1 GB/month. Close the other eight questions with that."
+    The doc now opens with a RULED section:
+    - the rollup table is dropped;
+    - the nine questions are closed in a table (4/5/7/9 take the doc's own
+      defaults, flagged);
+    - reader impact is restated: mlb-odds-timing must label pruned matches
+      and clv-report's "last" becomes CLOSE before any applied prune.
+  - No pruning code, no migration, nothing deleted. The implementation is a
+    later lane. #82 stays open until that lane (or a ruling) closes it.
+
 - **#166 H2-PREP (architect 2026-10-01): cutover orchestrator, scratch dry run, fresh-fingerprint runbook.**
   - RULING (verbatim): "LANE H2-PREP (hosting, a week before cutover): the
     ONE .backup migration as a script (laptop .backup -> host, integrity +

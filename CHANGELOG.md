@@ -12,6 +12,13 @@ Every drop adds an entry going forward.
 - `docs/discussions/seed-2026-10-01.md`: three seed threads for the
   operator to post.
 
+## 2026-10-01 (#82: snapshot retention design, for ruling)
+- `docs/specs/snapshot-retention.md`: proposed retention for odds/Kalshi
+  snapshots. Raw rows are kept 30 days; first captures and closes are kept
+  forever; hourly rollups are kept beyond that. It includes a reader-by-reader
+  impact check, a DDL sketch and safety design. Design only; no code
+  deletes anything.
+
 ## 2026-10-01 (#166: H2-PREP — cutover orchestrator, dry run, runbook)
 - `deploy/hosting/sp_cutover.py`: the ruled H2 sequence (preflight, pause,
   install, flip, resume, receipt), each step receipted and refusing on

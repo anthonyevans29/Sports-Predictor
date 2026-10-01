@@ -21,6 +21,13 @@ Rules (ruled 2026-09-29):
     game, it is marked external_ids["api_baseball_note"] =
     "apisports-unavailable" and otherwise left alone: the laptop's statsapi
     remains the record. Every run's receipt restates the limitation.
+  - START TIMES (architect 2026-10-01, card finding PHI@ATL G3: host 14:00 ET
+    vs statsapi 20:00 ET): a row carrying a statsapi id (`mlb_stats_api`) keeps
+    ITS time; the fallback never overwrites it. A disagreement is recorded
+    (receipt `time_conflicts`, row external_ids[TIME_KEY] = the provider's
+    time) and the card flags the row "time unconfirmed". A time that only
+    api-sports supplies (no statsapi id) is likewise unconfirmed on the card:
+    api-sports may carry placeholder times for TBD postseason starts.
   - Conservative unknowns (law 4): only FT (with both run totals), POST and
     CANC are mapped. Every other provider status stays SCHEDULED, is stored
     verbatim in status_raw, and is counted in the receipt as unmapped. A
@@ -41,6 +48,8 @@ SUSPECT_H = 48
 CANDIDATE_TYPE_FIELDS = ("week", "stage", "type", "round", "game_type")
 SOURCE = "api_baseball"                  # the key odds/weather already use for provider game ids
 NOTE_KEY = "api_baseball_note"
+STATSAPI = "mlb_stats_api"               # statsapi's source key (the laptop's record of start times)
+TIME_KEY = "api_baseball_utc"            # the provider's time where it disagrees with statsapi
 UNAVAILABLE = "apisports-unavailable"
 KNOWN_LIMITATION = ("doubleheader game 2 is absent from api-sports /games (13 games across "
                     "2025-2026, architect 2026-09-29); never fabricated; the laptop's statsapi "
@@ -251,7 +260,8 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
            "exhibition_skipped": 0, "team_missing": 0, "held_near_unkeyed": 0, "downgrade_refused": 0,
            "status_vocab": dict(Counter(f"{p['status_short']}|{p['status_long']}" for p in prov_all)),
            "unmapped_status": {}, "finished": 0, "stage_null_created": 0,
-           "dh_marked": [], "known_limitation": KNOWN_LIMITATION}
+           "dh_marked": [], "time_conflicts": [], "time_kept_statsapi": 0,
+           "known_limitation": KNOWN_LIMITATION}
     prov = []
     for p in prov_all:
         if not in_window(p, date_from, date_to):
@@ -321,7 +331,19 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
                     rec["downgrade_refused"] += 1
                     continue
                 m.status = MatchStatus[status]
-                m.utc_date = p["utc"]
+                if (m.external_ids or {}).get(STATSAPI):
+                    # statsapi's time stands (finding 2026-10-01); a disagreement is recorded, never applied
+                    rec["time_kept_statsapi"] += 1
+                    if p["utc"] is not None and p["utc"] != m.utc_date:
+                        m.external_ids = {**(m.external_ids or {}), TIME_KEY: p["utc"].isoformat()}
+                        rec["time_conflicts"].append({
+                            "match_id": m.id, "game": f"{p['away']} @ {p['home']}",
+                            "statsapi": m.utc_date.isoformat(), "api_sports": p["utc"].isoformat(),
+                            "delta_h": round((p["utc"] - m.utc_date).total_seconds() / 3600, 2)})
+                    elif (m.external_ids or {}).get(TIME_KEY):
+                        m.external_ids = {k: v for k, v in m.external_ids.items() if k != TIME_KEY}
+                else:
+                    m.utc_date = p["utc"]
                 rec["updated"] += 1
             if p["status_short"]:
                 m.status_raw = str(p["status_short"])[:16]
@@ -331,6 +353,66 @@ def sync_matches(client, season: str, date_from: str | None = None, date_to: str
                                       Result.AWAY if p["away_runs"] > p["home_runs"] else None)
                 rec["finished"] += 1
     return rec
+
+
+POSTSEASON_TYPES = ("F", "D", "L", "W")   # statsapi gameType: wild card / division / LCS / World Series
+
+
+def statsapi_rows(schedule: dict) -> list[dict]:
+    """Flatten a statsapi /schedule payload: {id (gamePk), utc, home, away,
+    game_type, tbd (status.startTimeTBD), state}."""
+    out = []
+    for d in (schedule or {}).get("dates", []):
+        for gm in d.get("games", []):
+            try:
+                dt = datetime.fromisoformat(str(gm.get("gameDate")).replace("Z", "+00:00"))
+                utc = dt.astimezone(timezone.utc).replace(tzinfo=None)
+            except ValueError:
+                continue
+            t = gm.get("teams") or {}
+            st = gm.get("status") or {}
+            out.append({"id": gm.get("gamePk"), "utc": utc,
+                        "home": ((t.get("home") or {}).get("team") or {}).get("name"),
+                        "away": ((t.get("away") or {}).get("team") or {}).get("name"),
+                        "game_type": gm.get("gameType"), "tbd": bool(st.get("startTimeTBD")),
+                        "state": st.get("detailedState")})
+    return out
+
+
+def time_audit(stats: list[dict], prov: list[dict]) -> dict:
+    """READ-ONLY start-time audit (architect 2026-10-01): every statsapi
+    postseason game paired to api-sports (the shared pairing rule) with the
+    start-time delta. Placeholder signature = the api-sports UTC times of day
+    among mismatches. Unpaired games carry the suspect reading."""
+    pr = pair(stats, [p for p in prov if p["utc"] is not None])
+    rows = []
+    for o, p in pr["pairs"]:
+        rows.append({"game": f"{o['away']} @ {o['home']}", "type": o["game_type"], "statsapi": o["utc"],
+                     "tbd": o["tbd"], "state": o["state"], "api_sports": p["utc"],
+                     "api_status": p["status_short"],
+                     "delta_h": round((p["utc"] - o["utc"]).total_seconds() / 3600, 2)})
+    rows.sort(key=lambda r: r["statsapi"])
+    mis = [r for r in rows if r["delta_h"] != 0]
+    return {"paired": len(rows), "exact": len(rows) - len(mis), "mismatched": len(mis),
+            "mismatched_tbd": sum(1 for r in mis if r["tbd"]),
+            "tbd_total": sum(1 for r in rows if r["tbd"]),
+            "placeholder_times_utc": dict(Counter(r["api_sports"].strftime("%H:%M") for r in mis)),
+            "rows": rows,
+            "unpaired": suspects(pr["ours_unmatched"] + pr["ambiguous"], prov, pr["paired_to"])}
+
+
+def time_unconfirmed(match) -> str | None:
+    """The card's flag for an MLB start time (finding 2026-10-01): None when
+    statsapi supplied the time and api-sports agrees (or never saw the game);
+    else why it is unconfirmed."""
+    ext = match.external_ids or {}
+    if ext.get(STATSAPI):
+        if ext.get(TIME_KEY):
+            return f"time unconfirmed (api-sports says {ext[TIME_KEY][:16]}Z)"
+        return None
+    if ext.get(SOURCE):
+        return "time unconfirmed (api-sports only)"
+    return None
 
 
 def _near(o: dict, p: dict) -> bool:

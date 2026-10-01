@@ -76,6 +76,79 @@ specific reason they're not being built now.
   - #183 and #178 closed by ARCHITECT ruling (operator receipts: leg audit
     11 checked / 0 not a play / 0 unchecked; kickoff audit 0 flagged).
 
+- **CARD PAGE CONTENT (F2 slice 1) + #189 NCAA label (ARCHITECT 2026-10-01).**
+  - RULINGS (verbatim): "(2) Card labels NCAA games "NFL" (family) — show
+    the competition." / "CARD PAGE CONTENT (F2 slice 1, small PR). Every
+    page line and digest row carries, when available: competition · away @
+    home · kickoff ET · the model's pick, probability and tier · the
+    reference probability (books, or Kalshi if kalshi-only) · edge pp · the
+    Desk call and units when the file carries desk (F1 on the host) ·
+    venue/late-news flags. … Delta classes gain "model updated" and "call
+    changed"; digest sorted calls first. Market-only rows say so. Keep each
+    line under ~100 chars for the phone. Receipt: tonight's 7:05pm page."
+  - LAW-1 (#189): `line()` / `digest()` printed `sport.upper()` (the family),
+    so NCAA (sport nfl) read "NFL". Every line now leads with the
+    competition code.
+  - BUILT:
+    - `window.py`: `home_short` / `away_short` (tla → short_name → last
+      word, or the last two when short: "Red Sox"). The canonical model row
+      carries the export's `desk` subset (call, units, pass_kind, reference,
+      market_ref, edge_pp) when the file has it.
+    - `sp_window_page.py`: `row_text()` is one formatter for page lines and
+      the digest.
+      - Content: "Thu 8:15p NFL PIT @ CLE · model PIT 56.7% (toss-up) · books
+        — · PASS no-ref".
+      - Reference: with a Desk call, the reference the call was made on
+        (books, or Kalshi when kalshi-only); without one, the card's
+        repriced books.
+      - Market-only rows read "market-only · books GER 79%" (else Kalshi,
+        else unpriced).
+      - Flags: QUARANTINE, STALE-BOOK?, late-news?, ⚠ time unconfirmed.
+    - A delta adds one "  ↳ <change>" line.
+    - New classes "model" (pick, prob to 0.1%, or version changed) and
+      "call" (Desk call or units changed). Both are silent on the first run
+      after the upgrade (the old state lacks the keys).
+    - The digest lists the Desk calls first, then by kickoff.
+  - RECEIPTS:
+    - `tests/test_card_page.py` 6: the three ruled examples VERBATIM; NCAA
+      shows its competition; kalshi-only; market-only Kalshi/unpriced;
+      flags; delta lines; model/call deltas with a silent upgrade;
+      calls-first digest; the window card's short names + desk passthrough.
+    - Spec-change test updates: the exact delta dict gains model/call; the
+      time-flag line test reads the first line.
+    - 459 pytest. Longest sample line 87 chars.
+  - OPERATOR: tonight's 7:05pm page is the receipt.
+
+- **#187 MLB START TIMES: the api-sports fallback no longer overwrites statsapi; the card flags unconfirmed times; postseason audit (ARCHITECT 2026-10-01).**
+  - RULING (verbatim): "Host MLB start time for PHI@ATL game 3 reads 14:00
+    ET; statsapi (laptop) says 20:00 ET. Compare api-sports vs statsapi
+    utc_date for all 2026 postseason rows and report deltas; if api-sports
+    carries placeholder times for TBD postseason starts, the Phase A adapter
+    must not overwrite a statsapi-sourced time and the card must flag "time
+    unconfirmed"."
+  - LAW-1 READING:
+    - `sync_matches` set `m.utc_date = p["utc"]` on every keyed or paired
+      row, so api-sports overwrote statsapi's time.
+    - statsapi's `status.startTimeTBD` was never stored.
+    - The host's MLB times come only from api-sports.
+  - BUILT:
+    - Guard: a row carrying `mlb_stats_api` keeps its time. A disagreement
+      is receipted (`time_conflicts`, CLI `TIME CONFLICT` lines) and stamped
+      as `external_ids.api_baseball_utc`; it clears when api-sports agrees
+      again.
+    - `time_unconfirmed(match)` → the window card's `time_flag` (MLB) and the
+      `receipts.time_unconfirmed` count. The pager's lines and digest show
+      "⚠ time unconfirmed". Flagged cases: a disagreement, or an
+      api-sports-only time (law 4, until the audit names the placeholder
+      signature).
+    - `mlb-time-audit` (read-only, laptop): statsapi postseason games vs
+      api-sports, with TBD, deltas, the placeholder signature and unpaired
+      suspects.
+  - RECEIPTS: `tests/test_mlb_time_guard.py` 4 (guard + conflict + clear;
+    audit pairing + signature; card flag + pager text; CLI). 453 pytest.
+  - OPERATOR: `python cli.py mlb-time-audit --season 2026` on the laptop;
+    paste the output (#187).
+
 - **#151 F1b — the Cockpit RENDERS desk calls from the file (ARCHITECT 2026-10-01).**
   - RULING (verbatim): "(3) Once F1 lands, the Cockpit RENDERS desk calls
     from the file and never recomputes policy; its only overlay is the

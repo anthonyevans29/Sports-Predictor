@@ -91,8 +91,50 @@ def _mlb_fallback_run(kind: str, season, date_from=None, date_to=None) -> None:
               f"{fb.UNAVAILABLE} this run: {len(r['dh_marked'])}")
         for d in r["dh_marked"]:
             print(f"    {fb.UNAVAILABLE}: {d['game']} {d['utc'][:16]} (match #{d['match_id']})")
+        print(f"  start times: statsapi kept on {r['time_kept_statsapi']} row(s) · api-sports DISAGREES on "
+              f"{len(r['time_conflicts'])} (never applied; card flags 'time unconfirmed')")
+        for d in r["time_conflicts"]:
+            print(f"    TIME CONFLICT {d['game']}: statsapi {d['statsapi'][:16]} vs api-sports "
+                  f"{d['api_sports'][:16]} ({d['delta_h']:+.2f}h, match #{d['match_id']})")
     print("MLB-FALLBACK-RECEIPT " + _json.dumps(
         {k: v for k, v in r.items() if k not in ("teams",)}, default=str, sort_keys=True))
+    print(f"  provider requests remaining: {client.requests_remaining}")
+
+
+@click.command("mlb-time-audit")
+@click.option("--season", default="2026", show_default=True)
+def mlb_time_audit_cmd(season):
+    """READ-ONLY (architect 2026-10-01, card finding PHI@ATL G3): statsapi vs
+    api-sports start times for every postseason game of the season, with
+    statsapi's startTimeTBD flag, the delta and the api-sports placeholder
+    signature. LAPTOP command (statsapi 406s the host). No DB, no writes."""
+    import json as _json
+
+    from src.adapters.api_baseball import APIBaseballClient
+    from src.adapters.mlb_stats_api import MLBStatsAPIAdapter
+    from src.ingestion import mlb_apisports as fb
+    from zoneinfo import ZoneInfo
+    client = APIBaseballClient.from_env()
+    if client is None:
+        raise click.ClickException("no API_BASEBALL_KEY / API_FOOTBALL_KEY set")
+    sched = MLBStatsAPIAdapter()._get("schedule", params={
+        "sportId": 1, "gameType": ",".join(fb.POSTSEASON_TYPES), "season": int(season)})
+    stats = fb.statsapi_rows(sched)
+    games = client._get("games", params={"league": fb._league_id(), "season": int(season)}).get("response") or []
+    r = fb.time_audit(stats, fb.provider_rows(games))
+    et = lambda d: d.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/New_York")).strftime("%a %m-%d %H:%M ET")
+    print(f"MLB start-time audit {season} postseason: statsapi games {len(stats)} · paired {r['paired']} · "
+          f"exact {r['exact']} · MISMATCHED {r['mismatched']} (statsapi TBD among them {r['mismatched_tbd']} · "
+          f"TBD overall {r['tbd_total']})")
+    for x in r["rows"]:
+        print(f"  {'≠' if x['delta_h'] else '='} {x['type']} {x['game']:<44} statsapi {et(x['statsapi'])}"
+              f"{' (TBD)' if x['tbd'] else ''} · api-sports {et(x['api_sports'])} ({x['delta_h']:+.2f}h, "
+              f"{x['api_status']}) · {x['state']}")
+    print(f"  api-sports times (UTC) among mismatches: {r['placeholder_times_utc'] or 'none'}")
+    for u in r["unpaired"]:
+        print(f"  UNPAIRED {u['game']} {u['utc'][:16]}: {u['why']}")
+    print("MLB-TIME-AUDIT " + _json.dumps({k: v for k, v in r.items() if k not in ("rows", "unpaired")},
+                                          sort_keys=True))
     print(f"  provider requests remaining: {client.requests_remaining}")
 
 
@@ -108,6 +150,9 @@ def _setup_logging():
 def cli():
     """Sports Predictor — data ingestion CLI."""
     _setup_logging()
+
+
+cli.add_command(mlb_time_audit_cmd)
 
 
 @cli.command("init-db")

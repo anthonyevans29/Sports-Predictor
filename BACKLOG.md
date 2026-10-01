@@ -22,6 +22,22 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **ARCHITECT-RULE 2026-10-01 on #172 (the close) and #169 (retention).**
+  - RULING (verbatim): "(1) grades with no pre-kickoff price — reported,
+    left as stored, never nulled: ratified. (2) MLB M11 rollover games
+    whose only price is post-first-pitch — unpriced: ratified; an in-game
+    price is not a close. (3) The writer's side effect (soccer/cups/NHL book
+    history into odds_snapshots) is welcome: it anchors value-side CLV and
+    the soccer line-move alarm. (4) The two uncovered findings (unbounded
+    capture-odds, MLB Kalshi window boundary) get their own Issues. (5)
+    #169's four flagged questions: the doc's defaults are ratified as
+    written. Merge order: #172, then the rest."
+  - RECORDED: (1)-(3) need no code change; #172 already behaves this way.
+    (4) Issues #174 (unbounded capture-odds) and #175 (MLB Kalshi window
+    boundary). (5) `docs/specs/snapshot-retention.md` rows 4/5/7/9 now read
+    RATIFIED. #172 merged first (b5c285b); every open branch was merged up
+    from main the same hour.
+
 - **#82 SNAPSHOT RETENTION — DESIGN FOR RULING (architect 2026-10-01; doc only, no code).**
   - RULING (verbatim): "LANE #82 (design doc only): snapshot pruning/rollup
     — odds and Kalshi snapshots now grow by thousands of rows a day;

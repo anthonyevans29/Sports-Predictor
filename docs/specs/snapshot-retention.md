@@ -54,12 +54,12 @@ GB/month. Close the other eight questions with that."
 | 1 | Bucket width | Moot: no rollups. |
 | 2 | Keep the T-3h reference / final-3h raw | Not kept. Historical line-move replay older than 30 days is lost; live use is unaffected (always inside 30 days). |
 | 3 | Keep LAST OVERALL for `clv-report` | Not kept. For pruned matches, `clv-report`'s "last" becomes CLOSE (the last pre-kickoff capture). The implementation lane must label that in its output. |
-| 4 | Host vs laptop pruning | Not decided by the ruling's text. The §6 proposal stands as the default: no applied prune before H2 completes, then the host prunes. Flag if wrong. |
-| 5 | Timing vs H2 | As 4: no applied prune before the H2 cutover plus one clean week. |
+| 4 | Host vs laptop pruning | RATIFIED 2026-10-01 (the doc's default): no applied prune before H2 completes, then the host prunes. |
+| 5 | Timing vs H2 | RATIFIED 2026-10-01: no applied prune before the H2 cutover plus one clean week. |
 | 6 | Does `odds` need anything | Yes, as its own lane: **#167** (priority, 2026-10-01). It is out of this policy. |
-| 7 | VACUUM cadence / timer | The §5.6 default: operator-only VACUUM after a reviewed apply. No timer. |
+| 7 | VACUUM cadence / timer | RATIFIED 2026-10-01: operator-only VACUUM after a reviewed apply. No timer. |
 | 8 | RAW_DAYS / GUARD_DAYS | 30 / 30 as proposed. |
-| 9 | Eligibility by kickoff vs capture age | By kickoff date (§3.1), matching the "raw 30 days" intent per match. |
+| 9 | Eligibility by kickoff vs capture age | RATIFIED 2026-10-01: by kickoff date (§3.1). |
 
 **Reader impact under the ruled policy** (replacing §3.4's rollup
 assumptions):

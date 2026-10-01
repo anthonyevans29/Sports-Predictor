@@ -33,6 +33,7 @@ Conventions: soccer seasons are `"2026/27"`; MLB and NFL seasons are
 | `sync-odds` | `--competition --season` | Book odds for upcoming games (soccer & MLB bulk path). |
 | `sync-injuries` | `--competition --season` · `--kickoff-within-hours N` | Current injury/status report per team. NFL: positions joined from the roster endpoint. `--kickoff-within-hours N` (2026-09-29) scopes the sync to the teams in this competition's scheduled games kicking off within N hours. That is the window service's imminent-tier step. It makes no provider call when nothing is inside the window. |
 | `capture-odds` | `--sport --competition --season` | Lightweight odds-only capture for CLV tracking. |
+| `mlb-odds-timing` | `--start --end --only-missing` | Read-only: when api-sports first priced each MLB game (from odds_snapshots), with UTC-rollover/night flags and a per-game verdict (#155). |
 | `wipe-injuries` | `--confirm` | Destructive reset of the injuries table. |
 
 ## MLB daily operation

@@ -41,8 +41,28 @@ Pre-slate chain, in order: `sync-matches --competition MLB --date-from <today> -
 `sync-pitchers` → `sync-pitcher-stats` → `sync-odds` → `sync-kalshi` →
 `predict` → `sync-umpires --today` → `capture-weather` → `export-predictions`.
 
-Morning grading: `sync-matches` → `evaluate` → `improve` →
-`sync-appearances --recent` → `sync-umpires --recent` → `export-results`.
+Morning chain (laptop), split into **two phases by network mode**
+(architect 2026-10-01). The two modes conflict, so never run them together.
+
+1. **Phase 1, VPN on (the statsapi steps).** Open with the backup line,
+   then run the morning grading: `sync-matches` → `evaluate` → `improve` →
+   `sync-appearances --recent` → `sync-umpires --recent` →
+   `export-results`. The statsapi calls are `sync-matches`,
+   `sync-appearances` and `sync-umpires`. The rest is local, so it runs
+   in this phase too.
+2. **Switch.** QUIT the VPN client; disconnecting is not enough, because
+   it can keep its tunnel or DNS hooks (hosting-h1 field amendment
+   2026-09-28). Then bring Tailscale up.
+3. **Phase 2, Tailscale on (the host steps).** Run
+   `python deploy/hosting/pull_exports.py`, then
+   `python deploy/hosting/compare_exports.py exports exports/host`. The
+   compare defaults to `--since 3`, so settled exhibits stop re-printing.
+   Then paste the host receipts table
+   (`ssh sp@sp-vps-1 'sudo -u sp venv/bin/python deploy/hosting/sp_receipts.py --since 24h'`).
+
+The pre-slate chain's statsapi steps (`sync-matches`, `sync-bullpen-stats`,
+`sync-pitchers`, `sync-pitcher-stats`, `sync-umpires --today`) also run
+under the VPN.
 
 | Command | Options | Purpose |
 |---|---|---|
@@ -172,6 +192,7 @@ books' fair bars with a market-only chip and the Kalshi status.
 | Command | Options | Purpose |
 |---|---|---|
 | `python deploy/hosting/pull_exports.py` | `--host --dest --transport {auto,rsync,scp}` | Pull the host's `exports/` over the tailnet into **`exports/host/`**, never the laptop's own `exports/` (writer of record through H1b). Host from `SP_HOST_ADDR` in `.env`. Newest-wins by mtime, idempotent, all-or-nothing (an unreachable host places nothing, exit ≠ 0). Receipt: pulled / unchanged / newest `window_24h.json`. On demand first; optional hourly launchd at :10 via `bash scripts/setup_export_pull.sh`. Laptop pulls; push is H2. |
+| `python deploy/hosting/compare_exports.py` | `<laptop_dir> <host_dir> --glob --since N` | Parallel-week laptop-vs-host export diff (timestamps masked; game rows keyed on kickoff/home/away; code-version skew only with both `git_sha`s). `--since N` (default 3, 2026-10-01) compares only files whose name date is within the last N UTC days. Undated files (`window_24h.json`, `fixtures_*`) are always compared, the skipped settled files are counted on the header line, and `--since 0` compares everything. Phase 2 of the morning chain (Tailscale). It is the release gate (docs/RELEASES.md). |
 | `python deploy/hosting/pull_backup.py` | `--host --dest` | Nightly pull of the host's newest daily `.backup` into `~/sp-backups` (sha256 + integrity verified); launchd via `scripts/setup_backup_pull.sh`. |
 
 ## Web UI

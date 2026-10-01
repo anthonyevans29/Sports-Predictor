@@ -60,6 +60,7 @@ tr.vshadow td{font-style:italic;opacity:.9}
 tr.noref td{opacity:.5}
 .passkind{display:inline-block;margin-left:6px;padding:0 5px;border:1px solid currentColor;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:.02em;white-space:nowrap}
 .rerun{color:var(--muted);font-style:italic}
+.ko{display:block;color:var(--muted);font-size:11px;white-space:nowrap}
 .chip{display:inline-block;background:var(--chip);border-radius:20px;
   padding:1px 9px;font-size:12px;margin-left:6px}
 .reason{color:var(--muted);font-size:12px;white-space:normal;max-width:340px}
@@ -114,9 +115,12 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
     <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
-    <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
+    <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded · <b id="vsProgress">graded —/30</b> <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
+    <b>POSTSEASON</b> (sizing caution, v1.1 addendum 2026-10-01) — rows the export marks <code>stage = postseason</code> (MLB, from our gameType mapping F/D/L/W) get HALF units until 30 postseason calls are graded · <b id="psProgress">graded —/30</b> · stage unknown (null) = labelled, not halved<br>
     <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5; one rounding per FILL to the NEAREST cent (fitted 542/548 on the YTD fills), costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · quotes are the home contract's; an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: no derived price (NO on HOME is draw-or-away) · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.<br>
+    <b>KALSHI-ONLY</b> (provisional reference, v1.1 addendum RULED 2026-10-01; model sports, two-way boards) — books absent at T-60 + Kalshi two-sided, spread ≤ 2c, series in the ruled fee table → the Kalshi MID is the market reference · row flagged "kalshi-only" · HALF units (0.5 × tier) · a real call, not a shadow · value-side and quarantine unchanged · ledger records reference=kalshi_only · review at 30 graded (promote or retire) · <b id="koProgress">graded —/30</b><br>
+    <b>KICKOFF</b> (presentation only, 2026-10-01) — every Desk row shows its kickoff and "re-run by" = T-60 (local clock).<br>
     <b>PASS CLASSES</b> (presentation only, 2026-09-30) — <b>no reference</b>: no two-sided book market or &lt; 3 books (model table), no book/Kalshi pair or books below 4 (venue table) — greyed, with a "re-run at T-60" hint, because books and Kalshi post thin and late · <b>below floor</b>: a real edge measured and declined · other PASSes (pre-gate, quarantine, charter) keep their own reason.
   </div>
 </div>
@@ -323,6 +327,8 @@ function normalize(doc){
       qbs:(function(){const inj=(p.input_quality||{}).injuries||{};
         return [].concat((inj.home&&inj.home.qb_listed)||[],(inj.away&&inj.away.qb_listed)||[]);})(),
       rawIQ:p.input_quality||{},live:doc.rehearsal===false,
+      stage:p.stage===undefined?undefined:p.stage,
+      comp:(p.competition||doc.sport||"").toUpperCase(),   // fee-table key for the Kalshi-only reference   // MLB: "postseason" | "regular" | null (unknown); absent on older exports
       kalProb:kalFromPrediction(p,mk,market),threeWay:market.DRAW!=null||probs.DRAW!=null,
       kExec:{bid:p.kalshi_bid??null,ask:p.kalshi_ask??null,cost:p.exec_cost_taker??p.kalshi_exec_cost??null,
         maker:p.exec_cost_maker??null,    // #93 ruling: taker + maker (pre-split exports: taker only)
@@ -531,8 +537,68 @@ function rerunHint(r){
   return ` <span class="rerun">· re-run at T-60 (${hm} local)</span>`;
 }
 
+// KICKOFF + "RE-RUN BY" (architect 2026-10-01, presentation only): every Desk
+// row shows its kickoff and T-60 on the local clock.
+function hm(t){const d=new Date(t);return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;}
+function koLine(r){
+  const t=Date.parse(r.utc||""); if(!isFinite(t)) return '<span class="ko">kickoff unknown</span>';
+  if(t<=Date.now()) return `<span class="ko">KO ${hm(t)} · started</span>`;
+  return `<span class="ko">KO ${hm(t)} · re-run by ${hm(t-PASSCLASS.rerunMin*60000)}</span>`;
+}
+// POSTSEASON SIZING CAUTION (policy v1.1 addendum, architect 2026-10-01): a
+// row the export marks stage="postseason" plays at HALF units until 30
+// postseason calls are graded in this ledger (sized model_edge calls:
+// straight + ladder). stage null = unknown: labelled, never guessed.
+const POSTSEASON={reviewN:30};
+function gradedCount(pred){
+  try{ return loadLedger().calls.filter(c=>c.result&&pred(c)).length; }catch(e){ return 0; }
+}
+function postseasonGraded(){
+  return gradedCount(c=>c.stage==="postseason"&&c.engine==="model_edge"
+    &&(c.call_type==="straight"||c.call_type==="ladder"));
+}
+function valueShadowGraded(){ return gradedCount(c=>c.call_type==="value_shadow"); }
+function renderProgress(){
+  const ps=postseasonGraded(), vs=valueShadowGraded();
+  const set=(id,n,N)=>{const el=document.getElementById(id); if(el) el.textContent=`graded ${n}/${N}`+(n>=N?" — review due":"");};
+  set("psProgress",ps,POSTSEASON.reviewN); set("vsProgress",vs,VALUE.reviewN);
+  set("koProgress",kalshiOnlyGraded(),KALSHI_ONLY.reviewN);
+  return {ps,vs};
+}
+
+// KALSHI-ONLY PROVISIONAL REFERENCE (policy v1.1 addendum, RULED architect
+// 2026-10-01). Model sports only: when books are ABSENT (no two-sided book
+// reference) at T-60, the Kalshi game market is two-sided with spread <= 2c,
+// and the series is in the ruled fee table, the Desk uses the Kalshi MID as
+// the market reference, flags the row "kalshi-only" and sizes at HALF units
+// (0.5 x the tier's units). A REAL call at half size — the price is real and
+// two-sided; nothing is shadowed. Value-side and quarantine logic unchanged.
+// The ledger records reference="kalshi_only"; review at 30 graded calls
+// (promote to full units or retire). Two-way boards only: the quotes are the
+// HOME contract's and AWAY = 1 − mid; a 3-way (soccer 1X2) board has no
+// derived away/draw price (the #89 doctrine), so it is never eligible.
+const KALSHI_ONLY={maxSpreadC:2,sizeMult:0.5,reviewN:30,
+  // competition -> ruled game series (src/walters/venue.py KALSHI_FEE_M; model sports)
+  series:{MLB:"KXMLBGAME",NFL:"KXNFLGAME",PL:"KXEPLGAME"}};
+function kalshiOnlyRef(r,now){
+  if(r.threeWay) return {ok:false,why:"3-way board — no Kalshi-only reference (no derived away/draw price)"};
+  if(!KALSHI_ONLY.series[r.comp]) return {ok:false,why:`series for ${r.comp||"?"} not in the ruled fee table`};
+  const k=r.kExec||{}, bid=k.bid, ask=k.ask;
+  if(bid==null||ask==null) return {ok:false,why:"Kalshi not two-sided"};
+  const spreadC=Math.round((ask-bid)*100);
+  if(spreadC>KALSHI_ONLY.maxSpreadC) return {ok:false,why:`Kalshi spread ${spreadC}c > ${KALSHI_ONLY.maxSpreadC}c`};
+  const t=Date.parse(r.utc||"");
+  if(!isFinite(t)) return {ok:false,why:"kickoff unknown"};
+  if(now>=t) return {ok:false,why:"in-play"};
+  if(now<t-PASSCLASS.rerunMin*60000) return {ok:false,why:"before T-60 — books may still post"};
+  const mid=(bid+ask)/2;
+  return {ok:true,mid,refs:{HOME:mid,AWAY:1-mid},spreadC,bid,ask};
+}
+function kalshiOnlyGraded(){ return gradedCount(c=>c.reference==="kalshi_only"); }
+
 function policy(){
-  const base=BASE_UNITS;
+  const base=BASE_UNITS, now=Date.now();
+  const psN=renderProgress().ps, psHalf=psN<POSTSEASON.reviewN;
   let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
   deskCalls=[]; deskValue=[];
@@ -540,10 +606,17 @@ function policy(){
     if(r.marketOnly) continue;  // gated comps: model policy n/a (venue engine below)
     const P=POLICY[r.sport]||POLICY.DEFAULT;
     const eMin=P.eMin??4, eLad=P.eLad??Infinity, eHair=P.eHair??15, pMin=P.pMin??0;
-    const edge=r.mkt!=null?(r.prob-r.mkt)*100:null;
     const reasons=[]; let call="PASS",cls="pass",units=0; const tags=[]; let shadowUnits=0;
+    let mktRef=r.mkt, kalOnly=false, koWhy=null;
+    if(!r.twoSided||r.mkt==null){
+      const ko=P.passAll?null:kalshiOnlyRef(r,now);
+      if(ko&&ko.ok){ mktRef=ko.refs[r.pick]??null; kalOnly=mktRef!=null;
+        if(kalOnly) reasons.push(`kalshi-only reference: mid ${ko.mid.toFixed(3)} (bid ${ko.bid.toFixed(2)} / ask ${ko.ask.toFixed(2)}, spread ${ko.spreadC}c)`); }
+      else if(ko) koWhy=ko.why;
+    }
+    const edge=mktRef!=null?(r.prob-mktRef)*100:null;
     let passKind=null;    // PASS-REASON CLASSES (presentation only): "noref" | "floor" | null (other)
-    if(!r.twoSided||r.mkt==null){reasons.push("market not two-sided → no reference"); passKind="noref";}
+    if(!kalOnly&&(!r.twoSided||r.mkt==null)){reasons.push("market not two-sided → no reference"+(koWhy?` (kalshi-only: ${koWhy})`:"")); passKind="noref";}
     else if(r.prob<pMin){reasons.push(`pick prob ${r.prob.toFixed(3)} < ${pMin}`); passKind="floor";}
     else if(edge<eMin){reasons.push(`edge ${edge.toFixed(1)}pp < ${eMin}pp floor`); passKind="floor";}
     else{
@@ -577,6 +650,13 @@ function policy(){
       if(edge < eMin + 1){ units=Math.min(units, base/2);
         reasons.push(`edge within 1pp of floor → half units (near-floor noise, not conviction)`);
         tags.push("near-floor half units"); }
+      if(call!=="PASS"&&r.stage==="postseason"&&psHalf){ units=Math.min(units,base/2);
+        reasons.push(`postseason → half units until ${POSTSEASON.reviewN} graded (${psN}/${POSTSEASON.reviewN})`);
+        tags.push("postseason half units"); }
+      if(call!=="PASS"&&r.stage===null&&r.sport==="MLB") reasons.push("stage unknown — postseason caution not applied");
+      if(kalOnly&&call!=="PASS"){ units=+(units*KALSHI_ONLY.sizeMult).toFixed(4);
+        reasons.push(`kalshi-only → ${KALSHI_ONLY.sizeMult} × units (provisional; review at ${KALSHI_ONLY.reviewN} graded)`);
+        tags.push("kalshi-only half units"); }
       if(r.tier==="strong"){ reasons.push("strong tier"); tags.push("strong tier"); }
       if(r.kal&&r.kal!=="absent") reasons.push(`kalshi ${r.kal}`);
       if(quarantined&&call!=="PASS"){
@@ -586,17 +666,18 @@ function policy(){
     }
     // A declined row on a THIN book reference (< 3 books) is "no reference",
     // not a measured decline. PLAY rows are untouched (presentation only).
-    if(call==="PASS"&&passKind==="floor"&&r.books!=null&&r.books<PASSCLASS.minBooks){
+    // (A kalshi-only row's reference is the Kalshi mid, not books: never reclassed here.)
+    if(call==="PASS"&&passKind==="floor"&&!kalOnly&&r.books!=null&&r.books<PASSCLASS.minBooks){
       passKind="noref"; reasons.push(`books ${r.books} < ${PASSCLASS.minBooks} → thin reference`); }
     if(call!=="PASS") passKind=null;
-    deskCalls.push({r,call,units,edge,tags:tags.slice(),shadowUnits,passKind});
+    deskCalls.push({r,call,units,edge,tags:tags.slice(),shadowUnits,passKind,mktRef,kalOnly});
     const vs=valueSide(r,P); if(vs) deskValue.push({r,v:vs});
     if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++;}
     else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
     if(passKind==="noref") tr.className="noref";
-    tr.innerHTML=`<td>${esc(r.game)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
-      <td>${r.prob.toFixed(3)}</td><td>${r.mkt!=null?r.mkt.toFixed(3):"—"}</td>
+    tr.innerHTML=`<td data-game="${esc(r.game)}">${esc(r.game)}${koLine(r)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
+      <td>${r.prob.toFixed(3)}</td><td>${mktRef!=null?mktRef.toFixed(3)+(kalOnly?' <span class="passkind">kalshi-only</span>':""):"—"}</td>
       <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execEdgeHTML(r,r.pick,r.prob)}</td>
       <td class="${cls}">${call}${passKindTag(passKind)}</td><td>${units||"—"}</td>
       <td class="reason">${esc(reasons.join(" · "))}${passKind==="noref"?rerunHint(r):""}</td>`;
@@ -604,7 +685,7 @@ function policy(){
   }
   for(const {r,v} of deskValue){        // appended after the main rows: row order of the policy table is unchanged
     const tr=document.createElement("tr"); tr.className="vshadow";
-    tr.innerHTML=`<td>↳ ${esc(r.game)}</td><td title="${esc(v.side)}">${esc(sideName(r,v.side))}</td>
+    tr.innerHTML=`<td>↳ ${esc(r.game)}${koLine(r)}</td><td title="${esc(v.side)}">${esc(sideName(r,v.side))}</td>
       <td>${v.modelP.toFixed(3)}</td><td>${v.marketP.toFixed(3)}</td>
       <td>+${v.edge.toFixed(1)}pp${execEdgeHTML(r,v.side,v.modelP)}</td>
       <td class="caution">VALUE ${VALUE.units}u (shadow)</td><td>—</td>
@@ -616,7 +697,7 @@ function policy(){
   const teamCount={};
   Array.from($("slate").querySelectorAll("tbody tr")).forEach(tr=>{
     if(!tr.classList.contains("vshadow")&&!/PASS/.test(tr.children[5].textContent)){
-      const g=tr.children[0].textContent;
+      const g=tr.children[0].dataset.game||tr.children[0].textContent;
       g.split(/ @ | v /).forEach(t=>{teamCount[t]=(teamCount[t]||0)+1;});
     }});
   const corr=Object.entries(teamCount).filter(([t,n])=>n>1).map(([t,n])=>`${t}×${n}`);
@@ -641,7 +722,7 @@ function renderVenue(){
     const tr=document.createElement("tr");
     const vk=v.eligible?null:(v.kind||null);
     if(vk==="noref") tr.className="noref";
-    tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}</td><td>${esc(side)}</td>
+    tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}${koLine(r)}</td><td>${esc(side)}</td>
       <td>${v.bookP!=null?v.bookP.toFixed(3):"—"}</td><td>${v.kalP!=null?v.kalP.toFixed(3):"—"}</td>
       <td>${v.divPP!=null?(v.divPP>0?"+":"")+v.divPP.toFixed(1)+"pp":"—"}</td>
       <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"+passKindTag(vk)}</td>
@@ -749,7 +830,8 @@ function upsertCalls(L,fresh,opts){
 function baseCall(r,logDate){
   return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
     kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:!!r.quar,
-    captured_at:new Date().toISOString(),qb_listed:(r.qbs||[]).slice()};
+    captured_at:new Date().toISOString(),qb_listed:(r.qbs||[]).slice(),
+    stage:r.stage??null};
 }
 // EXECUTION TIMING (policy v1.1 addendum, architect 2026-09-28). A position
 // carries TWO timestamps: claim_at (the first prediction that created it; its
@@ -793,11 +875,12 @@ function snapshotCalls(now){
     if(x.call==="PLAY"||x.call==="LADDER"){
       const lad=x.call==="LADDER";
       const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
-      const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):r.mkt;
+      const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):(x.mktRef??r.mkt);
       out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:lad?"ladder":"straight",units:x.units,model_p:mp,market_p:kp,
         kalshi_exec_cost:lad?null:execCostFor(r,r.pick),kalshi_exec_cost_maker:lad?null:makerCostFor(r,r.pick),
-        kalshi_join_bid:lad?null:((joinBidFor(r,r.pick)||{}).price??null),venue_hint:"books",rules:x.tags});
+        kalshi_join_bid:lad?null:((joinBidFor(r,r.pick)||{}).price??null),
+        venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",rules:x.tags});
     } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
       out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
@@ -1083,6 +1166,7 @@ function pnlBlock(L){
   ].join("\n");
 }
 function renderLedger(){
+  renderProgress();   // the policy card's n/30 counters follow every ledger change
   const L=loadLedger(), bets=settledBets(L), real=bets.filter(b=>!b.shadow), shad=bets.filter(b=>b.shadow);
   const a=agg(real);
   $("ledgerTotals").innerHTML=L.calls.length

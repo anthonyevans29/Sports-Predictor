@@ -267,6 +267,24 @@ def _collect_rows(
     return out
 
 
+# POSTSEASON STAGE (architect 2026-10-01, policy v1.1 addendum): MLB rows
+# carry `stage` from OUR statsapi gameType mapping (Match.stage stores the
+# gameType verbatim): R = regular season; F / D / L / W = wild card /
+# division / championship / World Series = postseason. Anything else, and the
+# host's api-sports fallback rows (stage NULL), export stage = null — never
+# guessed (law 4); `stage_raw` carries the stored value. The Desk halves units
+# on postseason rows until 30 are graded.
+MLB_POSTSEASON_GAME_TYPES = frozenset({"F", "D", "L", "W"})
+
+
+def mlb_stage(raw: str | None) -> str | None:
+    if raw == "R":
+        return "regular"
+    if raw in MLB_POSTSEASON_GAME_TYPES:
+        return "postseason"
+    return None
+
+
 def _build_row(
     s,
     m: Match,
@@ -296,6 +314,9 @@ def _build_row(
         "actual_home_score": m.home_score,
         "actual_away_score": m.away_score,
     }
+    if is_baseball:
+        row["stage"] = mlb_stage(m.stage)
+        row["stage_raw"] = m.stage
     # LINE-MOVE ALARM (ruling 2026-09-29 on #65, item 4): the MLB and soccer
     # prediction exports carry the same additive fields as the NFL export —
     # the operator reads game-day rows here, not only on the window card.

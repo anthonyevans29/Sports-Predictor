@@ -4,6 +4,20 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#159/#160/#161: postseason sizing; kalshi-only reference; Desk kickoff + n/30)
+- MLB prediction exports carry `stage` (`regular` / `postseason` from our
+  statsapi gameType mapping; null when unknown) and `stage_raw`.
+- Desk: postseason rows play at half units until 30 postseason calls are
+  graded.
+- Desk: KALSHI-ONLY provisional reference (ruled). Model sports with no
+  books at T-60, a two-sided Kalshi market (spread ≤ 2c) and a series in
+  the fee table use the Kalshi mid as the reference, are flagged
+  "kalshi-only", and size at 0.5 ×. The ledger records
+  `reference: kalshi_only`. Review at 30 graded calls.
+- Desk rows show the kickoff and "re-run by" (T-60). The policy card shows
+  "graded n/30" for value shadows, postseason and kalshi-only calls.
+- Finding logged: NHL venue gaps ≤ 3.2pp over 18 games; threshold unchanged.
+
 ## 2026-10-01 (#157: morning chain in two network phases; compare_exports --since)
 - `docs/CLI.md`: the laptop morning chain runs in two phases. Phase 1 runs
   the statsapi steps under the VPN. Then quit the VPN and bring Tailscale

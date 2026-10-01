@@ -55,21 +55,21 @@ specific reason they're not being built now.
     - Gate: `training.DEFAULT_PROMOTION_DELTA` = 0.0050 on the pooled
       leakage-free 1X2 log-loss; ties reject. A missing season or n < 30
       = INVALID. RPS reported only.
-  - ARCHITECT-RULE (flagged, none silently assumed):
-    1. The ruled pool contains 2023/24, the fit season of (a), so 1/3 is
-       in-sample. The out-of-sample pool (2024/25 + 2025/26) is REPORTED
-       beside it and decides nothing.
-    2. The offset is +1.17 (the verdict figure), not Stage-1's in-sample
-       +1.0.
-    3. The λ-scaling mechanism.
-    4. (b) needs both gates (the binding reading).
+  - RULED (ARCHITECT-RULE 2026-10-01, on the five-PR batch):
+    1. (a)'s fit season 2023/24 is EXCLUDED from the verdict pool. The gate
+       reads 2024/25 + 2025/26 pooled, out of sample (`DC_VERDICT_SEASONS`),
+       and the in-sample 2023/24 row prints for information only. S14 has
+       no fit, so (b)'s full three-season pool stands.
+    2. The +1.17 offset scaling both teams' xG is RATIFIED, and (b) must
+       pass BOTH gates, as built.
   - BUILT:
     - `run_soccer_backtest` gains `detail` (additive keys) and
       `s14_uncertain_offset`. Both default off, which is byte-identical
       for every existing caller (tested).
     - `soccer-backtest --candidate dixon-coles-fit|s14-totals` runs the
       fixed gate set only and REFUSES other splits.
-    - Tests: `tests/test_soccer_candidates.py` (11), covering the frozen
+    - Tests: `tests/test_soccer_candidates.py` (9; the PR first said 11 —
+      corrected), covering the frozen
       constants, τ, the fit (signs, flat-likelihood tie-break, infeasible
       points), the S14 hand case, the walk extensions, both candidates
       end to end, INVALID on a missing season, and the CLI (verdict lines,

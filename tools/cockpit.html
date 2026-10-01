@@ -209,6 +209,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
       <button id="copyLedgerBtn" class="ghost">Copy ledger (JSON)</button>
       <button id="importPastedBtn" class="ghost">Import pasted</button>
       <button id="dedupeBtn" class="ghost">Dedupe ledger</button>
+      <button id="legAuditBtn" class="ghost" title="Check logged parlay legs against the Desk calls of the export files loaded for their log day">Audit parlay legs (#183)</button>
     </div>
     <textarea id="ledgerJson" hidden spellcheck="false" style="width:100%;box-sizing:border-box;min-height:120px;margin-top:8px;font:12px ui-monospace,monospace;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px"></textarea>
     <div class="row" style="margin-top:10px">
@@ -351,7 +352,7 @@ function normalize(doc){
           const un=[].concat((inj.home&&inj.home.positions_unresolved)||[],(inj.away&&inj.away.positions_unresolved)||[]);
           if(un.length)bits.push("position unresolved: "+un.length);}
         return bits.join(" · ");})(),
-      tier:pr.tier||null});
+      tier:pr.tier||null,exportedAt:(doc.desk_meta&&doc.desk_meta.as_of)||doc.exported_at||null});
   }
   return out;
 }
@@ -908,7 +909,33 @@ function markAudit(L){
       post_reprices:a.postReprices,price_used:a.price,basis:a.basis,excluded:a.excluded};
     else if(c.tz_audit) delete c.tz_audit; }
 }
-let lastAudit={flagged:0,fallback:0,excluded:0};
+let lastAudit={flagged:0,fallback:0,excluded:0,legNotPlay:0};
+// PARLAY-LEG AUDIT (ARCHITECT 2026-10-01, #183). Before the #183 fix,
+// buildParlays could take legs from PASS rows when a fixtures file loaded
+// first. The ledger never stored a leg's Desk call, so the check needs the
+// export files of the leg's day: load them, press "Audit parlay legs". Each
+// parlay_leg whose game (sport, home, away, kickoff) appears in a loaded file
+// exported on the leg's log_date is marked leg_check {status play|not_play};
+// a ticket with any "not_play" leg is flagged "leg not a play (#183)" and
+// EXCLUDED from the P&L. Legs with no same-day export loaded stay unchecked
+// (law 4). Never deletes; the latest same-day check wins.
+const LEG_FLAG="leg not a play (#183)";
+function exportDay(r){ const t=utcMs(r.exportedAt); return isFinite(t)?localDate(new Date(t)):null; }
+function auditParlayLegs(){
+  const L=loadLedger(), at=new Date().toISOString(), byGame=new Map();
+  for(const x of deskCalls){ const r=x.r, k=[r.sport,r.home,r.away,r.utc].join("|");
+    if(!byGame.has(k)) byGame.set(k,[]); byGame.get(k).push({x,day:exportDay(r)}); }
+  let checked=0,notPlay=0,unchecked=0; const tickets=new Set();
+  for(const c of L.calls){ if(c.call_type!=="parlay_leg") continue;
+    const hit=(byGame.get([c.sport,c.home,c.away,c.kickoff||""].join("|"))||[]).filter(h=>h.day===c.log_date);
+    if(!hit.length){unchecked++; continue;}
+    const x=hit[hit.length-1].x, play=x.call!=="PASS"; checked++;
+    c.leg_check={status:play?"play":"not_play",desk_call:x.call,desk_pick:x.r.pick,export_day:c.log_date,checked_at:at};
+    if(!play){notPlay++; tickets.add(c.parlay_id);} }
+  const dd=saveLedger(L);
+  return `Parlay-leg audit (#183): ${checked} leg(s) checked against the export(s) loaded for their log day · `
+    +`${notPlay} ${LEG_FLAG} → ${tickets.size} ticket(s) excluded from the P&L · ${unchecked} unchecked (no same-day export loaded) · marked, never deleted.`+dedupeNote(dd);
+}
 // Capture window (multi-week fix, 2026-09-28): a call is captured only
 // BEFORE its kickoff. A multi-day/week file loaded after some games started
 // would otherwise log played games and grade them with hindsight. Rows with
@@ -1099,13 +1126,14 @@ $("resultsFile").addEventListener("change",async e=>{
 // REPORTS — settled bets (a parlay ticket counts once), by dimension.
 // ---------------------------------------------------------------------
 function settledBets(L){
-  const bets=[], seen=new Set(); lastAudit={flagged:0,fallback:0,excluded:0};
+  const bets=[], seen=new Set(); lastAudit={flagged:0,fallback:0,excluded:0,legNotPlay:0};
   const tally=a=>{ if(!a.flagged) return; lastAudit.flagged++; if(a.excluded) lastAudit.excluded++; else lastAudit.fallback++; };
   for(const c of L.calls){
     if(c.status!=="graded") continue;
     if(c.call_type==="parlay_leg"){
       if(seen.has(c.parlay_id)) continue; seen.add(c.parlay_id);
       const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id);
+      if(legs.some(l=>l.leg_check&&l.leg_check.status==="not_play")){lastAudit.legNotPlay++; continue;}   // #183: out of the P&L
       const au=new Map(legs.map(l=>[l,auditCall(l)]));
       const flagged=legs.some(l=>au.get(l).flagged);
       if(flagged){ const ex=legs.some(l=>au.get(l).excluded);
@@ -1143,7 +1171,8 @@ function settledBets(L){
 function auditLine(){
   const A=lastAudit;
   return `Kickoff audit (#178): ${A.flagged} settled position(s) captured or repriced after true UTC kickoff — ${TZ_FLAG}`
-    +` · ${A.fallback} re-priced at a pre-kickoff price (last reprice, else claim) · ${A.excluded} excluded (no pre-kickoff price) · marked, never deleted.`;
+    +` · ${A.fallback} re-priced at a pre-kickoff price (last reprice, else claim) · ${A.excluded} excluded (no pre-kickoff price) · marked, never deleted.`
+    +` Parlay tickets with a ${LEG_FLAG}: ${A.legNotPlay} excluded.`;
 }
 function agg(bets){
   const n=bets.length, st=bets.reduce((a,b)=>a+b.staked,0), rt=bets.reduce((a,b)=>a+b.returned,0);
@@ -1246,7 +1275,7 @@ function renderLedger(){
     ? `<b>${L.calls.length}</b> logged · <b>${a.n}</b> settled bets · staked ${fmt(a.staked)}u · returned ${fmt(a.returned)}u · `
       +`net <b class="${a.net>=0?"play":"caution"}">${a.net>=0?"+":""}${fmt(a.net)}u</b> · ROI ${a.roi==null?"—":fmt(a.roi,1)+"%"} · hit ${a.hit==null?"—":fmt(a.hit,1)+"%"}`
       +` <span class="note">(fair-odds P&amp;L, pre-fee)</span>`
-      +(lastAudit.flagged?`<div class="caution" id="tzAudit">⚠ ${esc(auditLine())}</div>`:"")
+      +(lastAudit.flagged||lastAudit.legNotPlay?`<div class="caution" id="tzAudit">⚠ ${esc(auditLine())}</div>`:"")
       +(()=>{const d=enforceLedger(JSON.parse(JSON.stringify(L)));   // dry run on a copy
         return d.total?`<div class="caution">⚠ ${d.total} duplicate(s) in the stored ledger (same key ${d.exact} · re-logged on a later day ${d.relogged} · fills ${d.fills}) — totals above include them; press Dedupe ledger.</div>`:"";})()
     : "No calls logged yet.";
@@ -1265,7 +1294,7 @@ function renderLedger(){
       const canExec=!early&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
       return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`
       +`<td>${c.claim_at?`${px(c.claim_market_p)}${c.claim_exec_cost!=null?` <span class="note">k ${px(c.claim_exec_cost)}</span>`:""} <span class="note">${esc(hm(c.claim_at))}</span>`:'<span class="note">unknown (pre-rule)</span>'}</td>`
-      +`<td>${auditCall(c).flagged?`<b class="caution">${TZ_FLAG}</b> `:""}${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
+      +`<td>${auditCall(c).flagged?`<b class="caution">${TZ_FLAG}</b> `:""}${c.leg_check&&c.leg_check.status==="not_play"?`<b class="caution">${LEG_FLAG}</b> `:""}${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
       +`<td>${c.order_type?`${esc(c.order_type)} @ ${px(c.fill_price)}`:""}${!isShadow(c)
           // No default: a row without a Kalshi ladder shows "—", never a suggested
           // order (architect 2026-09-30: "limit 0.59" sat on every Week 5 row).
@@ -1411,6 +1440,11 @@ $("importPastedBtn").addEventListener("click",()=>{
 });
 // Repair: collapse duplicates already in storage (e.g. from before the key
 // was enforced on every path) and say exactly how many went.
+$("legAuditBtn").addEventListener("click",()=>{
+  $("ledgerNote").textContent=deskCalls.length?auditParlayLegs()
+    :"Load the export files of the day(s) to check first (Desk tab), then press Audit parlay legs.";
+  renderLedger();
+});
 $("dedupeBtn").addEventListener("click",()=>{
   const L=loadLedger(), n0=L.calls.length, f0=(L.fills||[]).length;
   const dd=saveLedger(L);

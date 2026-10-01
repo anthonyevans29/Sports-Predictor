@@ -22,6 +22,13 @@ Every drop adds an entry going forward.
 - `mlb-time-audit`: read-only statsapi vs api-sports postseason start-time
   comparison (laptop).
 
+## 2026-10-01 (#183: parlay-leg audit in the Cockpit ledger)
+- "Audit parlay legs (#183)" checks each logged parlay leg against the
+  Desk call of its game in the export files loaded for the leg's day. A
+  ticket with a leg that was not a play is flagged "leg not a play
+  (#183)" and left out of the P&L. Nothing is deleted.
+- `scripts/cockpit_leg_audit_verify.py`: 9 checks.
+
 ## 2026-10-01 (#151 F1: parlays ported; #183 parlay legs fixed)
 - `tools/cockpit.html`: parlay legs come from the Desk's non-PASS calls.
   Before this, a fixtures file loaded ahead of a predictions file could

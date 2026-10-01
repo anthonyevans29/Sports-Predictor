@@ -22,6 +22,78 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#151 F1 — POLICY IN THE EXPORT: Python Desk v1.1, export hook (off by default), ledger summary, parity verify (2026-10-01).**
+  - RULING (verbatim, defaults): "F1 DEFAULTS — RULED: (1) graded-call
+    counts passed as a parameter, default 0 (cautious side) — ratified; the
+    laptop's ledger export gains a small summary JSON (counts per rule)
+    that the export can read when present, so the host's files carry real
+    counts after cutover. (2) Desk decided as of export time with
+    desk.as_of stamped — ratified; T-60 re-export is the doctrine, and F2's
+    hourly feed produces it automatically. (3) Once F1 lands, the Cockpit
+    RENDERS desk calls from the file and never recomputes policy; its only
+    overlay is the ledger (counts, claims, fills). Row-for-row parity
+    verify with clock and counts pinned before any host chain emits desk
+    calls."
+  - BUILT:
+    - `src/walters/desk_policy.py`: a line-for-line port of the Cockpit
+      Desk: normalize, kalNormalize/kalFrom*, venueEdge, valueSide,
+      kSide/joinBid/desk cost/exec edge, kalshiOnlyRef, and the policy()
+      body.
+      - JS semantics are reproduced exactly: `toFixed` (`js_fixed`), number
+        to string (`js_str`, including "null"), `Math.round`, and JS
+        truthiness ([] / {} are truthy).
+      - Naive kickoffs are UTC (#178). `model_shadow` docs are never Desk
+        input.
+    - `annotate(doc, now, counts)` adds `desk` per row: call, units, cls,
+      tier, pick, model_p, market_ref, reference books/kalshi_only, edge_pp,
+      pass_kind, tags, reasons + reason, shadow_units, exec (K2), and
+      value_shadow. Market-only rows get the venue engine's call. The file
+      gets `desk_meta` {policy_version, as_of, counts, counts_source}.
+    - Export hook in `export_predictions`, `export_nfl_predictions` and
+      `export_fixtures`, enabled by `--desk` (or `SP_DESK_CALLS=1`). It is
+      **OFF by default** (ruling 3: no host chain emits desk calls before
+      the parity receipt); off, every file is byte-identical. The CLI
+      prints a `desk …` receipt line.
+    - Cockpit:
+      - "Export ledger summary" → `bd_ledger_summary_v1` {counts:
+        postseason / value_shadow / kalshi_only graded, graded_per_rule}.
+        The export reads `exports/ledger_summary.json` (env
+        `SP_LEDGER_SUMMARY`) when present, else 0. Counts only, no
+        positions.
+      - `deskCalls` now carries `reasons` and `cls`, so parity is checked
+        on the full text.
+    - `scripts/desk_parity_verify.py` runs JS vs Python on the same files
+      with the clock pinned (`page.clock`) and counts pinned (the ledger
+      seeded with exactly that many graded calls), in a NON-UTC browser.
+      - It compares calls, value shadows, venue, the exec numbers, and the
+        export path (desk.call/units/reason), every field in row order,
+        floats exact.
+      - It also checks the summary round-trip and `js_fixed` against
+        `toFixed` on 1,508 doubles.
+      - With file arguments it is the REAL-EXPORT receipt.
+  - RECEIPTS:
+    - The synthetic fuzz battery (9 files: MLB, NFL, soccer, NHL,
+      model_shadow, and fixtures for NHL/NCAA/UNL/CL) is 16/16 at counts 0
+      and counts 31/4/2: 270 calls, 66 / 58 value shadows and 370 / 362
+      venue rows identical.
+    - 8 more seeds (postseason counts 0..35, across the 30 boundary):
+      48/48.
+    - The fuzz caught one divergence before the fix: the JS prints
+      "nullpp" for a quarantined row with no divergence value (Python
+      printed "Nonepp"). `js_str(None)` now renders "null".
+    - `tests/test_desk_policy.py`: 8 tests. Full suite 447 passed. All 14
+      Cockpit verifies green.
+  - FINDINGS:
+    - #181 (needs-ruling): pre-gate NHL PASS rows with edge ≥ 15pp carry
+      units 0.5 / class caution in the JS. Display only; ported faithfully
+      for parity.
+    - Parlays (`buildParlays`) are cross-row and NOT ported. Under ruling
+      (3) the Cockpit must not recompute policy, so they need a port (or
+      a ruling) before the render switch.
+  - NEXT (F1b): the operator runs the real-export parity receipt (laptop,
+    `--desk` exports + ledger summary). Then the Cockpit render switch:
+    desk calls from the file, ledger as the only overlay. Then F2.
+
 - **#178 LEDGER KICKOFF AUDIT in the Cockpit (ARCHITECT 2026-10-01, #179 follow-on).**
   - RULING (verbatim): "a LEDGER AUDIT in the Cockpit — for every position,
     compare claim_at, executed_at and each reprice timestamp against true

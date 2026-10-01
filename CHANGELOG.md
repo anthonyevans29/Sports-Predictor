@@ -4,6 +4,20 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#151 F1: the Desk's call in the export, off by default)
+- `src/walters/desk_policy.py`: a Python port of the Cockpit Desk v1.1, the
+  single source of truth once parity is proven. `--desk` (or
+  `SP_DESK_CALLS=1`) on `export-predictions` / `export-nfl-predictions` /
+  `export-fixtures` adds `desk` per row and `desk_meta` (as_of, counts).
+  Off by default; with it off, files are unchanged.
+- Cockpit: "Export ledger summary" writes `ledger_summary.json` (graded
+  counts per rule), which the export reads when present; otherwise it
+  counts 0, the cautious side.
+- `scripts/desk_parity_verify.py`: JS vs Python row-for-row, with the clock
+  and counts pinned (synthetic battery 16/16; real exports by argument).
+- `tests/test_desk_policy.py` (8 tests). Finding #181 (NHL PASS rows can
+  show 0.5u).
+
 ## 2026-10-01 (#178: ledger kickoff audit in the Cockpit)
 - `tools/cockpit.html`: every position's claim, execution and reprices are
   checked against the true UTC kickoff. Post-kickoff prices are flagged

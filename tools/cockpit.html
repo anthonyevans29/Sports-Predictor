@@ -200,6 +200,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     </div>
     <div class="row" style="margin-top:10px">
       <button id="exportLedgerBtn" class="ghost">Export ledger (JSON)</button>
+      <button id="exportSummaryBtn" class="ghost" title="Graded-call counts for the export's Desk (F1): save as exports/ledger_summary.json">Export ledger summary</button>
       <label class="ghost" style="display:inline-flex;align-items:center;gap:6px">Import ledger
         <input type="file" id="importLedgerFile" accept=".json"></label>
       <button id="copyPnlBtn">Copy P&amp;L block</button>
@@ -677,7 +678,7 @@ function policy(){
     if(call==="PASS"&&passKind==="floor"&&!kalOnly&&r.books!=null&&r.books<PASSCLASS.minBooks){
       passKind="noref"; reasons.push(`books ${r.books} < ${PASSCLASS.minBooks} → thin reference`); }
     if(call!=="PASS") passKind=null;
-    deskCalls.push({r,call,units,edge,tags:tags.slice(),shadowUnits,passKind,mktRef,kalOnly});
+    deskCalls.push({r,call,units,edge,tags:tags.slice(),reasons:reasons.slice(),cls,shadowUnits,passKind,mktRef,kalOnly});
     const vs=valueSide(r,P); if(vs) deskValue.push({r,v:vs});
     if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++;}
     else if(call==="LADDER")ladders++; else plays++;
@@ -1349,6 +1350,27 @@ $("exportLedgerBtn").addEventListener("click",()=>{
   a.download=`bd_ledger_v1_${localDate()}.json`; document.body.appendChild(a); a.click();
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
   $("ledgerNote").textContent="Export started — if no file appears (downloads can be blocked in this view), use Copy ledger (JSON).";
+});
+// LEDGER SUMMARY (F1, ARCHITECT 2026-10-01): the graded-call counts the
+// export's Python Desk needs (postseason / value-shadow / kalshi-only n/30),
+// plus graded counts per rule tag. Saved beside the exports as
+// exports/ledger_summary.json, the export reads it when present (else 0, the
+// cautious default). Counts only: no positions, no prices.
+function ledgerSummary(){
+  const per={};
+  for(const c of loadLedger().calls){ if(!c.result) continue;
+    for(const t of (c.rules&&c.rules.length?c.rules:["(no rule tag)"])) per[t]=(per[t]||0)+1; }
+  return {kind:"bd_ledger_summary_v1",generated_at:new Date().toISOString(),policy_version:POLICY_VERSION,
+    counts:{postseason_graded:postseasonGraded(),value_shadow_graded:valueShadowGraded(),
+      kalshi_only_graded:kalshiOnlyGraded()},graded_per_rule:per};
+}
+$("exportSummaryBtn").addEventListener("click",()=>{
+  const txt=JSON.stringify(ledgerSummary(),null,1), box=$("ledgerJson");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([txt],{type:"application/json"}));
+  a.download="ledger_summary.json"; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
+  box.hidden=false; box.value=txt;
+  $("ledgerNote").textContent="Ledger summary exported (also in the box below) — save it as exports/ledger_summary.json beside the exports.";
 });
 // Clipboard-export fallback: the embedded view can block downloads, so the
 // same JSON goes to the clipboard — and, when the clipboard is refused too,

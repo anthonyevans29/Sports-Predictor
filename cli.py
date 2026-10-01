@@ -3712,6 +3712,26 @@ def predict_nfl_cmd():
 SLATE_WINDOW_H = 36   # export windowing (architect 2026-09-28): the current slate
 
 
+def _desk_line(path: str) -> str | None:
+    """F1 receipt: the Desk calls a file carries (None when it carries none)."""
+    import json as _json
+    try:
+        doc = _json.load(open(path))
+    except (OSError, ValueError):
+        return None
+    meta = doc.get("desk_meta")
+    if not meta:
+        return None
+    from collections import Counter
+    rows = [r.get("desk") for r in (doc.get("predictions") or doc.get("fixtures") or []) if r.get("desk")]
+    calls = Counter(d["call"] for d in rows)
+    vs = sum(1 for d in rows if d.get("value_shadow"))
+    return (f"desk {meta['policy_version']} as of {meta['as_of']}: {len(rows)} rows → "
+            + " · ".join(f"{k} {v}" for k, v in sorted(calls.items()))
+            + (f" · value shadow {vs}" if vs else "")
+            + f" · counts {meta['counts']} ({meta['counts_source']})")
+
+
 def _window_line(lo, hi, how: str) -> str:
     return (f"window: {lo:%Y-%m-%d %H:%M} → {hi:%Y-%m-%d %H:%M} UTC "
             f"({(hi - lo).total_seconds() / 3600:.0f}h · {how})")
@@ -3752,7 +3772,10 @@ def nhl_shadow_grade_cmd(days):
               help="Full look-ahead (8 days: the whole NFL week) instead of the 36h current slate.")
 @click.option("--days", "days", type=click.IntRange(min=1), default=None,
               help="Explicit look-ahead of N days instead of the 36h current slate.")
-def export_nfl_predictions_cmd(week, days):
+@click.option("--desk", is_flag=True, default=False,
+              help="F1 (#151): add the Desk's call per row (desk + desk_meta). Off by default "
+                   "until the parity receipt is ruled; SP_DESK_CALLS=1 also enables it.")
+def export_nfl_predictions_cmd(week, days, desk):
     """NFL predictions export (LIVE: rehearsal=false; quarantine, venue and Elo fields).
 
     Rows default to the CURRENT SLATE: kickoffs in the next 36 hours, so a
@@ -3764,11 +3787,11 @@ def export_nfl_predictions_cmd(week, days):
         raise click.UsageError("--week and --days are exclusive")
     rc: dict = {}
     if week:
-        path, how = export_nfl_predictions(days_ahead=8, receipts=rc), "--week: full look-ahead"
+        path, how = export_nfl_predictions(days_ahead=8, receipts=rc, desk=desk or None), "--week: full look-ahead"
     elif days:
-        path, how = export_nfl_predictions(days_ahead=days, receipts=rc), f"--days {days}"
+        path, how = export_nfl_predictions(days_ahead=days, receipts=rc, desk=desk or None), f"--days {days}"
     else:
-        path = export_nfl_predictions(hours_ahead=SLATE_WINDOW_H, receipts=rc)
+        path = export_nfl_predictions(hours_ahead=SLATE_WINDOW_H, receipts=rc, desk=desk or None)
         how = "default: current slate; --week / --days N for more"
     if rc.get("elo_drift_games"):
         print(f"⚠ ELO DRIFT: {len(rc['elo_drift_games'])} NFL game(s) finished after the "
@@ -3787,6 +3810,8 @@ def export_nfl_predictions_cmd(week, days):
     w = rc["window"]
     console.print(f"[green]✓ Wrote {len(rows)} rows to {path}[/green] [dim](LIVE format: rehearsal=false, "
                   f"quarantine fields)[/dim] · {_window_line(w['from'], w['to'], how)}")
+    if (dl := _desk_line(path)):
+        print(dl)
 
 
 @cli.command("nfl-backtest-caps")
@@ -5970,13 +5995,18 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
 @click.option("--competition", "competition_code", required=True, help="e.g. EFL, CL")
 @click.option("--start", default=None, help="YYYY-MM-DD")
 @click.option("--end", default=None, help="YYYY-MM-DD")
-def export_fixtures_cmd(competition_code, start, end):
+@click.option("--desk", is_flag=True, default=False,
+              help="F1 (#151): add the Desk's call per row (desk + desk_meta). Off by default "
+                   "until the parity receipt is ruled; SP_DESK_CALLS=1 also enables it.")
+def export_fixtures_cmd(competition_code, start, end, desk):
     """Market-only fixtures export (no predictions) for market-only competitions:
     UNL, NCAA, the suspended cups, and NHL (market-only launch 2026-10-07)."""
     from src.walters.export import export_fixtures
     rc: dict = {}
-    path = export_fixtures(competition_code, start=start, end=end, receipts=rc)
+    path = export_fixtures(competition_code, start=start, end=end, receipts=rc, desk=desk or None)
     console.print(f"[green]✓ Wrote market-only fixtures to {path}[/green]")
+    if (dl := _desk_line(path)):
+        print("  " + dl)
     print(f"  fixtures {rc['fixtures']} · with book consensus {rc['with_books']} · "
           f"spread-derived fair {rc['with_spread_derived']} · "
           f"kalshi two-sided {rc['kalshi_two_sided']} / one-sided "
@@ -6085,8 +6115,11 @@ def spread_fallback_check_cmd(competition_code, start, end):
               help="Output format. JSON preserves all structure; CSV is flat headline columns.")
 @click.option("--out", "out_path", default=None,
               help="File path to write to. Defaults to exports/<sport>_<date>.<ext>.")
+@click.option("--desk", is_flag=True, default=False,
+              help="F1 (#151): add the Desk's call per row (desk + desk_meta). Off by default "
+                   "until the parity receipt is ruled; SP_DESK_CALLS=1 also enables it.")
 def export_predictions_cmd(sport, date_str, days, start_str, end_str, competition_code,
-                           status_filter, output_format, out_path):
+                           status_filter, output_format, out_path, desk):
     """
     Export a day's (or date range's) predictions, with prediction probabilities,
     factor breakdown, market data with edge math, and recent form. Use to bulk
@@ -6203,6 +6236,7 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
             competition_code=competition_code,
             statuses=statuses,
             output_format=output_format,
+            desk=desk or None,
         )
     except ValueError as e:
         console.print(f"[red]✗ Export failed: {e}[/red]")
@@ -6233,6 +6267,8 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
                           f"Try --status all or check date range.[/yellow]")
         else:
             console.print(f"[green]✓ Wrote {count} predictions to {out_path}[/green]")
+            if (dl := _desk_line(out_path)):
+                print(dl)
     else:
         lines = payload.count("\n")
         console.print(f"[green]✓ Wrote {max(lines - 1, 0)} rows to {out_path}[/green]")

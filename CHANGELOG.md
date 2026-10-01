@@ -4,6 +4,17 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#193 B-track cross-book rules, shadow; #192 QB finding)
+- `desk_policy.b_track_shadow`: an exposure cap of 1.25u per team-outcome
+  and ticket dedup, pre-committed and shadow only. `desk_parlays` reports
+  what the rules would cut and the tickets v1.2 would build.
+- Cockpit: the parlay card shows "exposure-capped N · deduped N" and marks
+  the would-cut tickets. Logged legs carry `b_shadow_cut`. The ledger keeps
+  a per-slate tally, and the P&L block gets the B-track shadow line (n/30
+  slates, net of the would-cut tickets).
+- `scripts/cockpit_btrack_verify.py` (8 checks). Finding #192 (QB flags
+  counted per game, not per player).
+
 ## 2026-10-01 (#151 F1b: the Cockpit renders desk calls from the file)
 - `tools/cockpit.html`: rows from `--desk` exports are rendered from their
   `desk` blocks (calls, value shadows, venue, exec text); parlay tickets

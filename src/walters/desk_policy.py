@@ -506,6 +506,11 @@ def build_parlays(calls) -> list[dict]:
     market (market = mkt, else the model p); edge > 0; ranked by distinct
     sports, then edge (stable); the top 3. `calls` = [(row, call)] across
     every file loaded, in load order."""
+    return rank_parlays(calls)[:PARLAY["top"]]
+
+
+def rank_parlays(calls) -> list[dict]:
+    """Every edge > 0 ticket, ranked (build_parlays is its top 3)."""
     live = [r for r, c in calls if c["call"] != "PASS"]
     teams = lambda r: (r["home"], r["away"])
     combos = []
@@ -531,7 +536,86 @@ def build_parlays(calls) -> list[dict]:
         if t["edge"] > 0:
             ranked.append(t)
     ranked.sort(key=lambda t: (-t["sports"], -t["edge"]))
-    return ranked[:PARLAY["top"]]
+    return ranked
+
+
+# B-TRACK cross-book rules (ARCHITECT 2026-10-01), PRE-COMMITTED, frozen before
+# any result. SHADOW ONLY: tickets are built and logged exactly as v1.1; the
+# rules record what they WOULD cut, for 30 slates, then promote in the v1.2 bump.
+#   (1) EXPOSURE CAP: total units on one team-outcome (game + side) across the
+#       Desk's straights and parlay legs (0.25u per ticket) <= 1.25u; a ticket
+#       whose leg would breach it is skipped.
+#   (2) TICKET DEDUP: tickets with the same leg set (sport, teams, kickoff, pick;
+#       price ignored) are one ticket; the better-priced one (the LOWER Π market:
+#       the bigger fair-odds payout) is kept.
+B_TRACK = {"exposure_cap_units": 1.25, "review_slates": 30, "applied": False}
+
+
+def _outcome(l) -> str:
+    return f"{l['sport']}|{l['away']}@{l['home']}|{l['utc']}|{l['pick']}"
+
+
+def _legset(t) -> str:
+    return "+".join(sorted(_outcome(l) for l in t["legs"]))
+
+
+def _straight_exposure(calls) -> dict:
+    """Units per team-outcome from the Desk's straights. The same game in two
+    loaded files (a morning and a T-60 export) is ONE position, as in the
+    ledger: the later file's units stand."""
+    exp = {}
+    for r, c in calls:
+        if c["call"] != "PASS":
+            exp[_outcome(r)] = c["units"]
+    return exp
+
+
+def _apply_rules(tickets, exp0, want=None):
+    """Walk tickets in rank order through dedup then the exposure cap. Returns
+    (kept, cuts) where cuts = [(ticket, rule, detail)]. `want` stops after that
+    many kept (the v1.2 builder's top 3)."""
+    cap, u = B_TRACK["exposure_cap_units"], PARLAY["units"]
+    best = {}
+    for t in tickets:                                   # (2) dedup: the lowest Π market per leg set
+        k = _legset(t)
+        if k not in best or t["pk"] < best[k]["pk"]:
+            best[k] = t
+    exp, kept, cuts = dict(exp0), [], []
+    for t in tickets:
+        if best[_legset(t)] is not t:
+            cuts.append((t, "deduped", f"same legs as a better-priced ticket (Π market {best[_legset(t)]['pk']:.4f})"))
+            continue
+        breach = [o for o in (_outcome(l) for l in t["legs"]) if exp.get(o, 0) + u > cap + 1e-9]
+        if breach:
+            cuts.append((t, "capped", "; ".join(f"{o.split('|')[1]} {o.split('|')[3]} at {exp.get(o, 0):g}u"
+                                                 for o in breach)))
+            continue
+        for l in t["legs"]:
+            exp[_outcome(l)] = exp.get(_outcome(l), 0) + u
+        kept.append(t)
+        if want and len(kept) >= want:
+            break
+    return kept, cuts
+
+
+def b_track_shadow(calls, ranked=None) -> dict:
+    """What the B-track rules WOULD do on this slate (nothing is applied):
+    the cuts among the v1.1 tickets, and the tickets v1.2 would build.
+    `ranked` = rank_parlays(calls) when the caller already has it (its top 3
+    ARE the v1.1 tickets, so the cut marks map onto them)."""
+    ranked = rank_parlays(calls) if ranked is None else ranked
+    v11 = ranked[:PARLAY["top"]]
+    exp0 = _straight_exposure(calls)
+    _, cuts = _apply_rules(v11, exp0)
+    v12, _ = _apply_rules(ranked, exp0, want=PARLAY["top"])
+    return {"rules": {"exposure_cap_units": B_TRACK["exposure_cap_units"],
+                      "dedup": "same legs (sport, teams, kickoff, pick), keep the lower Π market"},
+            "applied": B_TRACK["applied"], "review_slates": B_TRACK["review_slates"],
+            "exposure_capped": sum(1 for _, r, _ in cuts if r == "capped"),
+            "deduped": sum(1 for _, r, _ in cuts if r == "deduped"),
+            "cuts": [{"signature": _legset(t), "rule": r, "detail": d} for t, r, d in cuts],
+            "v12_tickets": [_legset(t) for t in v12],
+            "_cut_by_id": {id(t): r for t, r, _ in cuts}}
 
 
 def parlay_block(t) -> dict:
@@ -656,7 +740,15 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
     calls = []
     for _, d in named_docs:
         calls += evaluate(d, now_ms, counts)["calls"]
-    tickets = build_parlays(calls)
+    ranked = rank_parlays(calls)
+    tickets = ranked[:PARLAY["top"]]                      # == build_parlays(calls)
+    shadow = b_track_shadow(calls, ranked)
+    cut = shadow.pop("_cut_by_id")
+    blocks = []
+    for t in tickets:
+        b = parlay_block(t)
+        b["b_shadow"] = cut.get(id(t))        # "capped" | "deduped" | None — NOT applied (shadow)
+        blocks.append(b)
     return {"kind": "desk_parlays_v1", "files": [n for n, _ in named_docs],
             "live_legs": sum(1 for _, c in calls if c["call"] != "PASS"),
             "desk_meta": {"policy_version": POLICY_VERSION,
@@ -664,7 +756,8 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
                           "counts": {k: int((counts or {}).get(k) or 0) for k in COUNT_KEYS},
                           "counts_source": counts_source,
                           "source": "src/walters/desk_policy.py build_parlays (F1 port, #183 semantics)"},
-            "tickets": [parlay_block(t) for t in tickets]}
+            "b_track_shadow": shadow,
+            "tickets": blocks}
 
 
 DESK_ENV = "SP_DESK_CALLS"          # "1" = emit; OFF until the parity receipt is ruled

@@ -141,8 +141,10 @@ def main():
               next((f"{x!r} vs {y!r}" for x, y in zip(A["slate"], B["slate"]) if x != y), "")[:300])
         check(f"venue table text identical ({len(A['venueTable'])} rows)", A["venueTable"] == B["venueTable"], "")
         check(f"parlay card tickets identical ({len(A['parlayText'])})", A["parlayText"] == B["parlayText"], "")
+        # b_shadow_cut (B-track shadow, 2026-10-01) is a file-mode mark: the legacy path never computes it
+        nocut = lambda cap: [{k: v for k, v in c.items() if k != "b_shadow_cut"} for c in cap]
         check(f"ledger capture identical ({len(A['capture'])} entries: straights, shadows, venue, parlay legs)",
-              pv.same(A["capture"], B["capture"]),
+              pv.same(nocut(A["capture"]), nocut(B["capture"])),
               next((json.dumps([x, y])[:300] for x, y in zip(A["capture"], B["capture"]) if not pv.same(x, y)), ""))
         strip = lambda s: re.sub(r" · desk: .*$", "", s)
         check("summary counts identical (desk-source note aside)", strip(A["summary"]) == strip(B["summary"]),

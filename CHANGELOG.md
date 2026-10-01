@@ -4,6 +4,17 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (audit rulings: NCAA gate suspended + resync-diff; NHL Utah alias + unlinked listing)
+- `resync-diff` (read-only): compares the provider's current listing with
+  our stored rows (labels, scores, home rate on both copies).
+  `sync-matches` never rewrites home/away on existing rows, so a re-sync
+  cannot repair labels and could flip stored results.
+- `ncaa-backtest` announces the NCAA gate as SUSPENDED-PENDING-DATA; v1's
+  verdict is void.
+- NHL goalie mapping: "Utah Hockey Club" ↔ "Utah Mammoth" alias.
+  `nhl-goalie-audit --list-ours` lists every one of our unlinked games with
+  the nearest API game, its delta and a named cause.
+
 ## 2026-10-01 (#167 CORRECTION: the soccer/NHL "close" was an average of every capture)
 - **Correction.** The general odds sync (soccer, cups, NHL) appended a full
   book set on every run. Every reader then de-vigged ALL of a match's rows

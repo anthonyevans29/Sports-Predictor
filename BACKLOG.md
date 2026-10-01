@@ -22,6 +22,42 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#178 COCKPIT KICKOFF PARSING: naive utc_date read as LOCAL time (finding + fix, 2026-10-01).**
+  - FOUND while reading `tools/cockpit.html` for F1 (#151), law 1.
+  - Every export writes `utc_date` as naive UTC (`isoformat()`, no `Z`).
+    Six Cockpit sites parsed it with `Date.parse` / `new Date`, and
+    ECMAScript reads a zone-less date-time as LOCAL time.
+  - In any non-UTC browser, every kickoff moves by the viewer's offset.
+    Receipt: Chromium in America/New_York → +4 h.
+  - IMPACT (west of UTC, e.g. US Eastern):
+    - the ledger capture window ("captured only BEFORE kickoff") still
+      captures games that started up to |offset| h ago, so they are graded
+      with hindsight;
+    - the ruled Kalshi-only T-60 window lands on the real T+3h..T+4h, so a
+      REAL half-unit call could reference an in-play mid;
+    - the venue engine's "in-play — never" check fires late;
+    - KO / re-run-by print the UTC clock labelled "local".
+  - East of UTC it inverts: games ahead are refused as started.
+  - The window view (L1871) already appended `Z`, which shows the intent.
+  - FIX: one `utcMs()` parser that appends `Z` when a date-time has no
+    zone; date-only strings and strings with a zone pass through. It is
+    used at all six sites: venueEdge, rerunHint, koLine, kalshiOnlyRef,
+    kickedOff, and the noKickoff count.
+  - RECEIPT: `scripts/cockpit_utc_verify.py` runs synthetic files under
+    UTC, New_York, Los_Angeles and Tokyo.
+    - main's Cockpit: 14/28. Every non-UTC timezone fails; in New_York a
+      2h-started game is captured and an in-play fixture is
+      venue-eligible.
+    - fixed: 28/28.
+    - All 13 existing Cockpit verifies stay green.
+  - UNKNOWN (not guessed): the laptop browser's timezone. If it isn't UTC,
+    ledger calls since the capture window shipped (2026-09-28) may include
+    post-kickoff captures. Checking needs the ledger export plus kickoff
+    times (operator).
+  - The live Cockpit is the published artifact, so it must be republished
+    from the fixed repo copy. F1's Python port parses kickoffs as UTC from
+    the start.
+
 - **#163 VERDICTS + NCAA SOURCE FINDING + NHL 2024 UTAH ALIAS + H2 REHEARSAL (architect 2026-10-01).**
   - RULING (verbatim): "DC-FIT REJECT (−0.0003 OOS), S14-STAGE2 REJECT
     (criterion (i) overshoot +0.18→−0.99 at +1.17; no re-tune — log the

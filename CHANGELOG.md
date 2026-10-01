@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#178: Cockpit reads kickoff times as UTC)
+- `tools/cockpit.html`: new `utcMs()` reads the exports' naive `utc_date`
+  as UTC. The capture window, Kalshi-only T-60, the venue in-play check
+  and KO / re-run-by were shifted by the viewer's UTC offset in any non-UTC
+  browser. The live artifact needs republishing.
+- `scripts/cockpit_utc_verify.py`: 28 checks across four timezones
+  (main: 14/28; fixed: 28/28).
+
 ## 2026-10-01 (#163 verdicts, NCAA source finding, NHL 2024 Utah alias, H2 rehearsal)
 - #163 soccer candidates, both REJECT, production unchanged: DC-FIT
   (−0.0003 out of sample); S14-STAGE2 (criterion (i): the +1.17 offset

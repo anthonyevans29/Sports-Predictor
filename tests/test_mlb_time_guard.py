@@ -122,7 +122,7 @@ def test_card_carries_the_time_flag_and_the_pager_shows_it(tmp_path):
     snap = page.snapshot({"fixtures": [dict(row, time_flag="time unconfirmed (api-sports only)")]})
     g0 = next(iter(snap.values()))
     assert "⚠ time unconfirmed" in page.digest(snap)
-    assert page.line({"cls": "new_priced", "id": "1", "g": g0}).endswith("· ⚠ time unconfirmed")
+    assert page.line({"cls": "new_priced", "id": "1", "g": g0}).split("\n")[0].endswith("· ⚠ time unconfirmed")
 
 
 def test_cli_time_audit_prints_receipt(monkeypatch):

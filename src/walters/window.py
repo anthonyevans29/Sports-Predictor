@@ -67,14 +67,34 @@ def canonical_models(export_dir: str | os.PathLike) -> dict[int, dict]:
                  "DRAW": probs.get("draw"),
                  "AWAY": probs.get("away_win", pred.get("away_win_prob"))}
             top = _norm_pick(pred.get("top_pick"))
+            dk = r.get("desk") or {}
             row = {"model_version": pred.get("model_version"), "p": p, "top_pick": top,
                    "top_pick_prob": pred.get("top_pick_prob", p.get(top) if top else None),
                    "tier": pred.get("tier"), "quarantine": r.get("quarantine"),
                    "market_divergence_pp": r.get("market_divergence_pp"),
-                   "source_file": f.name, "exported_at": stamp}
+                   "source_file": f.name, "exported_at": stamp,
+                   # F1: the Desk's call when the export carries it (--desk); else None
+                   "desk": ({k: dk.get(k) for k in ("call", "units", "pass_kind", "reference",
+                                                    "market_ref", "edge_pp")}
+                            if dk.get("engine") == "model_edge" else None)}
             if mid not in out or stamp >= out[mid]["exported_at"]:
                 out[mid] = row
     return out
+
+
+def short_name(team) -> str | None:
+    """The phone card's team label: the three-letter code, else the short
+    name, else the club's last word for long names (card page, 2026-10-01)."""
+    if team is None:
+        return None
+    if team.tla:
+        return team.tla
+    if team.short_name and len(team.short_name) <= 14:
+        return team.short_name
+    words = (team.name or "?").split()
+    if len(words) == 1:
+        return words[0]
+    return " ".join(words[-2:]) if len(words[-1]) <= 4 else words[-1]   # "Red Sox", "Blue Jays"; "Braves"
 
 
 def build_card(now: datetime | None = None, hours: int = 24,
@@ -124,6 +144,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
                 comp.sport if comp else "?")
             row.update({
                 "sport": sport, "competition": code,
+                "home_short": short_name(m.home_team), "away_short": short_name(m.away_team),
                 "model": model, "edge_pp": edge,
                 "tier": model["tier"] if model else None,
                 "quarantine": bool(model and model.get("quarantine")),

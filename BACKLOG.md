@@ -22,6 +22,47 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#201 DISCUSSIONS POSTING INSIDE THE LEDGER WORKFLOW (ARCHITECT 2026-10-01) + #170 closed.**
+  - RULING (verbatim): "Discussions posting runs INSIDE the ledger
+    workflow, using the existing LEDGER_PROJECT_TOKEN secret (classic PAT,
+    repo scope; add write:discussion if the first call is refused — Anthony
+    edits the token's scopes, never pastes it). Add a workflow_dispatch mode
+    "discussions" to scripts/ledger.py: (a) list categories as the receipt,
+    (b) post a thread from a markdown file in docs/discussions/ into a named
+    category, (c) reply by thread number. Inputs are the file path and
+    category; nothing posts without a dispatch that names them. First
+    dispatch: list only."
+  - Also: "#170 DONE — Discussions enabled; categories Q&A, Ideas, RFC,
+    Receipts created with descriptions; four seed threads posted (S14 finding
+    under Receipts — reading confirmed)." #170 was still open on GitHub, so
+    it was closed with an ARCHITECT comment and `needs-operator` dropped. The
+    thread links come from the first list dispatch (#201); Code's tools can't
+    read Discussions.
+  - BUILT:
+    - `ledger.yml` dispatch inputs: `action` (default list), `file`,
+      `category`, `thread`, passed as env vars, never interpolated into the
+      shell.
+    - `scripts/ledger.py` mode `discussions`, run with
+      `LEDGER_PROJECT_TOKEN` (refuses without it):
+      - `list`: the categories plus each thread's number, title, URL and
+        category. Metadata only: no thread body is read (the fence).
+      - `post`: one markdown file under docs/discussions/ (a resolved path;
+        `..` escapes refused) with a `# Title` first line, into a NAMED
+        existing category. Refuses a duplicate title in that category.
+      - `reply`: by thread number.
+      - Each post ends with a provenance line (file @ commit).
+      - A refused token prints the write:discussion scope hint, never the
+        token.
+      - The receipt line is `LEDGER-DISCUSSIONS {...}`.
+  - BUG CAUGHT BY THE TESTS: a titleless reply file lost its first line.
+    The whole file is now the body.
+  - RECEIPTS: `tests/test_ledger_discussions.py` 5 (list default +
+    metadata-only; every refusal; post variables + provenance; reply by
+    number; token refusal hint, no-token refusal, token never printed; the
+    workflow inputs). 471 pytest; the workflow YAML parses.
+  - OPERATOR (#201): merge, then dispatch mode discussions / action list and
+    paste the receipt.
+
 - **#170 DISCUSSIONS: four categories (Receipts added) + the S14 receipts post; operator posts (ARCHITECT 2026-10-01).**
   - RULING (verbatim): "Discussions permissions granted. Complete #170:
     enable Discussions if the API allows (otherwise say so and Anthony flips

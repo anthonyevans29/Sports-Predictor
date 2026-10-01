@@ -22,6 +22,9 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-01 — #206 (P0-1, external review) FIXED: the Kalshi maker fee counted the 25% twice.**
+Audit, read from code: `KALSHI_MAKER_RATE = 0.0175` (already ¼ of taker) AND maker M = 0.25 in `KALSHI_FEE_M` for every non-MLB game series. The maker fee came out ¼ of the published one: NFL maker, 100 contracts at 50c, was $0.11 against the schedule's $0.44. MLB (0.0175 × M 0.5) was right. Fix: game-series maker M = 1, in venue.py and in the Cockpit's fill classifier. Tests come from the schedule's dollar figures, not the implementation. Re-stated Desk maker costs: +0.2 to +0.3pp per contract (10-lot). K2 stays informational: calls and units are unaffected. **Follow-on (operator): re-run `scripts/kalshi_fee_fill_receipt.py` on the YTD CSV.** The #134 per-fill re-fit classified maker legs against the 4×-too-small fee, so its maker share is suspect. The NEAREST rounding was fitted mostly on taker legs and needs that receipt before it is trusted for makers.
+
 - **#201 DISCUSSIONS POSTING INSIDE THE LEDGER WORKFLOW (ARCHITECT 2026-10-01) + #170 closed.**
   - RULING (verbatim): "Discussions posting runs INSIDE the ledger
     workflow, using the existing LEDGER_PROJECT_TOKEN secret (classic PAT,

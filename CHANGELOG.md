@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#170: Discussions — Receipts category + S14 receipts post)
+- `docs/LEDGER.md` adds the Receipts category. Discussions setup is all
+  operator steps (Code has no Discussions tool).
+- `docs/discussions/seed-2026-10-01.md`: four categories, and post 4 is the
+  S14 residual receipt (+1.17 live vs +0.18 pooled).
+
 ## 2026-10-01 (#192: one injured QB = one news item)
 - Card pager: a QB's injury status change pages ONCE per player, listing
   every game his team has in the window (new class `qb_news`). Half units

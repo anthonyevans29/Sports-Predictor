@@ -782,6 +782,8 @@ venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ p
 
 ## H2. Cutover: the ONE `.backup` migration
 
+**Operator runbook (H2-PREP):** [`h2-cutover-runbook.md`](h2-cutover-runbook.md) covers `sp_cutover.py`, the scratch dry run, the fresh-fingerprint compare with waivers W1 and W2, and rollback. The cutover itself remains an architect ruling.
+
 **Why it cannot be skipped.** The host's bootstrapped DB holds only what
 providers still serve today. These are non-resyncable, and exist only on
 the laptop:

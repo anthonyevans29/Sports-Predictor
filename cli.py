@@ -4111,6 +4111,73 @@ def _soccer_time_decay_candidate(competition_code, season, min_prior):
           f"{p['cand_rps']:.4f} vs {p['prod_rps']:.4f} (reported only)", flush=True)
 
 
+def _soccer_lane_candidate(candidate, competition_code, season, min_prior):
+    """SOCCER-CANDIDATES lane (architect 2026-10-01): (a) dixon-coles-fit and
+    (b) s14-totals, each vs production on the PL pooled gate set. The set is
+    FIXED (PL 2023/24-2025/26): --competition/--season other than the defaults
+    are refused, never silently swapped. Writes nothing."""
+    from src.walters import soccer_candidates as sc
+    from src.walters.training import DEFAULT_PROMOTION_DELTA
+
+    tag = "DC-FIT" if candidate == sc.DC_CANDIDATE else "S14-STAGE2"
+    if competition_code != sc.GATE_COMPETITION or season is not None:
+        print(f"{tag}-GATE: REFUSED — the gate set is fixed ({sc.GATE_COMPETITION} "
+              f"{', '.join(sc.GATE_SEASONS)}, pooled); drop --competition/--season.", flush=True)
+        return
+    prod = _soccer_prod_poisson()
+    if prod is None:
+        print(f"{tag}-GATE: INVALID — no production soccer model to evaluate against "
+              "(nothing resolved; nothing faked).", flush=True)
+        return
+    version, rho, coeff = prod
+    fn = sc.run_dixon_coles_candidate if candidate == sc.DC_CANDIDATE else sc.run_s14_candidate
+    r = fn(prod_rho=rho, elo_goal_coeff=coeff, min_prior=min_prior, min_delta=DEFAULT_PROMOTION_DELTA)
+    print(f"{tag} candidate vs production {version} (rho={rho}, elo_goal_coeff={coeff}) · "
+          f"{sc.GATE_COMPETITION} {', '.join(sc.GATE_SEASONS)} pooled · min_prior={min_prior}", flush=True)
+    if candidate == sc.DC_CANDIDATE:
+        fit = r.get("fit") or {}
+        print(f"  FIT (frozen procedure): season {sc.DC_FIT_SEASON} · n={fit.get('n')} · grid "
+              f"[{sc.DC_RHO_LO}, {sc.DC_RHO_HI}] step {sc.DC_RHO_STEP} · fitted rho = {fit.get('rho')} "
+              f"(loglik {fit.get('loglik')}, at rho=0 {fit.get('loglik_at_zero')})", flush=True)
+    for x in r.get("per_season") or []:
+        if "prod_log_loss" in x:
+            print(f"  {x['season']}: n={x['n']} prod LL {x['prod_log_loss']:.4f} cand LL "
+                  f"{x['cand_log_loss']:.4f} delta {x['delta']:+.4f} · RPS {x['prod_rps']:.4f} -> "
+                  f"{x['cand_rps']:.4f}", flush=True)
+        else:
+            print(f"  {x['season']}: {x.get('verdict')}", flush=True)
+    p = r.get("pooled") or {}
+    if r.get("verdict") == "INVALID" or p.get("verdict") == "INVALID":
+        print(f"{tag}-GATE: INVALID — {r.get('reason') or p.get('reason')}", flush=True)
+        return
+    line = (f"log-loss {p['cand_log_loss']:.4f} vs {p['prod_log_loss']:.4f}, delta {p['delta']:+.4f} "
+            f"(bar >= {p['min_delta']:.4f}; ties reject) over n={p['n']} · RPS {p['cand_rps']:.4f} vs "
+            f"{p['prod_rps']:.4f} ({_RPS_NOTE})")
+    if candidate == sc.DC_CANDIDATE:
+        o = r.get("oos_pooled") or {}
+        if "delta" in o:
+            print(f"  out-of-sample pool {', '.join(sc.OOS_SEASONS)} (REPORTED ONLY, decides nothing): "
+                  f"n={o['n']} delta {o['delta']:+.4f} would-be {o['verdict']}", flush=True)
+        print(f"{tag}-GATE: {p['verdict']} — rho {r['fit']['rho']} (fitted on {sc.DC_FIT_SEASON}) vs "
+              f"production rho {rho}: {line}", flush=True)
+        return
+    s = r["s14"]
+    print(f"  improve rule (1X2): {p['verdict']} — {line}", flush=True)
+    ub, uc = s["uncertain_residual"]
+    cb, cc = s["confident_residual"]
+    hb, hc = s["direction_hits"]
+    fmt = lambda v: "—" if v is None else f"{v:+.3f}"
+    print(f"  S14 (i) uncertain-bucket residual (n={s['n_uncertain']}): {fmt(ub)} -> {fmt(uc)} "
+          f"toward zero: {'YES' if s['i_toward_zero'] else 'NO'}", flush=True)
+    print(f"  S14 (ii) totals direction at 2.5 (n={s['n']}): {hb} -> {hc} not worse: "
+          f"{'YES' if s['ii_direction_not_worse'] else 'NO'}", flush=True)
+    print(f"  S14 (iii) confident-bucket residual (n={s['n_confident']}): {fmt(cb)} -> {fmt(cc)} "
+          f"within ±{sc.S14_CONFIDENT_TOL}: {'YES' if s['iii_confident_within_tol'] else 'NO'}", flush=True)
+    print(f"{tag}-GATE: {r['verdict']} — offset +{sc.S14_OFFSET_GOALS} goals on top pick < "
+          f"{sc.S14_UNCERTAIN_TOP_PICK}: improve rule {p['verdict']} AND S14 criteria "
+          f"{'PASS' if s['pass'] else 'FAIL'}", flush=True)
+
+
 @cli.command("soccer-backtest")
 @click.option("--competition", "competition_code", default="PL")
 @click.option("--season", default=None, help="e.g. 2024/25; omit for all seasons")
@@ -4118,13 +4185,18 @@ def _soccer_time_decay_candidate(competition_code, season, min_prior):
 @click.option("--rho", "rho", default=None, type=float,
               help="Dixon-Coles rho override. Default: the PRODUCTION soccer model's "
                    "stored value, so the backtest evaluates the model you'd actually ship.")
-@click.option("--candidate", type=click.Choice(["time-decay"]), default=None,
+@click.option("--candidate", type=click.Choice(["time-decay", "dixon-coles-fit", "s14-totals"]),
+              default=None,
               help="S19 (2026-09-30, backtest-only): score production AND the time-decay "
                    "candidate (FROZEN half-life, no override) on the same splits and apply "
                    "the existing gate (log-loss delta >= 0.0050). With no --season and "
                    "--competition PL: the pre-declared gate set (PL 2023/24, 2024/25, "
                    "2025/26, pooled) and a verdict; otherwise INFORMATIONAL, no verdict. "
-                   "Writes nothing; production is untouched.")
+                   "SOCCER-CANDIDATES (2026-10-01, backtest-only, always the PL pooled gate "
+                   "set): dixon-coles-fit = rho fitted on 2023/24 only, frozen, vs production "
+                   "rho; s14-totals = +1.17 goals on uncertain-winner games (top pick < 0.45), "
+                   "improve rule AND the S14 Stage-2 criteria. Writes nothing; production is "
+                   "untouched.")
 def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     """
     LEAKAGE-FREE soccer backtest — the disciplined equivalent of the MLB backtest.
@@ -4139,6 +4211,9 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
 
     if candidate == "time-decay":
         _soccer_time_decay_candidate(competition_code, season, min_prior)
+        return
+    if candidate in ("dixon-coles-fit", "s14-totals"):
+        _soccer_lane_candidate(candidate, competition_code, season, min_prior)
         return
 
     console.print(f"[cyan]Leakage-free soccer backtest: {competition_code} "

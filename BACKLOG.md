@@ -22,6 +22,38 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#157 MORNING CHAIN IN TWO NETWORK PHASES + compare_exports --since (architect 2026-10-01).**
+  - RULING (verbatim): "CLI.md morning chain splits into two phases by
+    network mode — statsapi steps under VPN, host pull/compare under
+    Tailscale; and compare_exports gains --since N days (default 3) so
+    settled exhibits stop re-printing."
+  - BUILT (docs): `docs/CLI.md` MLB daily operation.
+    - Phase 1, VPN on: the backup line, then sync-matches → evaluate →
+      improve → sync-appearances --recent → sync-umpires --recent →
+      export-results. The statsapi calls are sync-matches,
+      sync-appearances and sync-umpires; the rest is local.
+    - The switch: QUIT the VPN client (field amendment 2026-09-28:
+      disconnecting leaves tunnel/DNS hooks), then bring Tailscale up.
+    - Phase 2, Tailscale on: pull_exports.py → compare_exports.py → the
+      host receipts table.
+    - The pre-slate chain's statsapi steps are named as VPN steps too.
+  - BUILT (code): `deploy/hosting/compare_exports.py --since N` (default 3).
+    - Compared: files whose name carries a YYYY-MM-DD within the last N UTC
+      days (today and the N-1 days before).
+    - UNDATED names (`window_24h.json`, `fixtures_<comp>_<label>.json`)
+      are always compared and never hidden by the window (law 4).
+    - The header line names the window and COUNTS the settled files not
+      re-printed. `--since 0` = everything.
+    - Also documented in the CLI.md hosting table and the hosting-h1
+      morning step (the old `--glob '*<date>*'` line now runs on the
+      default window).
+  - BEHAVIOUR NOTE: an old divergent exhibit no longer fails the default
+    run. Re-checking one is `--since 0` (or `--glob`). The release gate
+    reads the default window.
+  - TESTS: `test_comparator_since_window_skips_settled_dated_files`. The
+    existing skew test now passes `--since 0`: its 2026-09-28 fixture
+    would otherwise depend on today's date.
+
 - **#155 FINDING: MLB postseason night-game odds coverage (architect 2026-09-30; limitation).**
   - FINDING (verbatim): "api-sports Baseball odds absent for the two
     postseason night games (BOS@NYY, CHC@SD) on three consecutive days

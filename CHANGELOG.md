@@ -4,6 +4,15 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#157: morning chain in two network phases; compare_exports --since)
+- `docs/CLI.md`: the laptop morning chain runs in two phases. Phase 1 runs
+  the statsapi steps under the VPN. Then quit the VPN and bring Tailscale
+  up. Phase 2 runs the host pull/compare under Tailscale.
+- `compare_exports.py --since N` (default 3) compares only exports dated
+  within the last N UTC days, plus undated files, so settled exhibits stop
+  re-printing. The skipped count is printed, and `--since 0` compares
+  everything.
+
 ## 2026-09-30 (#155: MLB postseason night-game odds coverage)
 - `python cli.py mlb-odds-timing --start D [--end D] [--only-missing]`
   (read-only): shows when api-sports first priced each MLB game, from our
@@ -22,6 +31,7 @@ Every drop adds an entry going forward.
   `docs/RELEASES.md` holds the promotion ritual and the hotfix path.
 - Fixed #149: the deploy read a host-rewritten RESULTS.md as `ESULTS.md`
   and refused.
+
 ## 2026-09-30 (#79: NCAA data audit)
 - `python cli.py ncaa-audit` (read-only; `--season`, `--limit`) — the audit
   the architect ordered before any NCAA v2 (v1 verdict PROVISIONAL: log-loss

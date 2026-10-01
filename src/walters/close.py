@@ -25,6 +25,20 @@ and miss analysis:
   3. per (bookmaker, selection, line): the latest row of the session.
 A book missing from the last session contributes nothing (a stale price from
 an earlier run is never the close).
+
+THE CLOSE CONTRACT (P0-2, #207, ARCHITECT 2026-10-01, external review):
+  4. the caller names the OUTCOME SET — binary (HOME/AWAY: MLB, NFL, NCAA,
+     NHL moneylines — the api-sports adapters map Home/Away/Moneyline only)
+     or 3-way (HOME/DRAW/AWAY: soccer, api-football "Match Winner");
+     `outcomes_for(sport)` is the one mapping;
+  5. a BOOK counts only when it quoted EVERY outcome in the last session; each
+     complete book is de-vigged on its own, then the books are averaged.
+     A book quoting a subset (a 3-way board without its draw, one side only)
+     is QUOTED but not COMPLETE and contributes nothing;
+  6. no complete book -> UNPRICED: `fair` is None, `missing` names each quoted
+     book's absent legs (the receipt), never a partial de-vig;
+  7. `books` = complete books, `books_quoted` = every book in the session.
+`close_1x2` returns None only when there is no pre-cutoff capture at all.
 """
 from __future__ import annotations
 
@@ -50,29 +64,52 @@ def last_capture(rows, before: datetime | None):
     return list(latest.values())
 
 
-def by_selection(rows) -> dict[str, list[tuple[str, float]]]:
-    out: dict[str, list[tuple[str, float]]] = {}
-    for o in rows:
-        out.setdefault(o.selection, []).append((o.bookmaker, o.price_decimal))
-    return out
+BINARY = ("HOME", "AWAY")
+THREE_WAY = ("HOME", "DRAW", "AWAY")
 
 
-def close_1x2(rows, before: datetime | None) -> dict | None:
-    """De-vigged fair probabilities of the last pre-cutoff 1X2 capture
-    session, plus its book count, timestamp and best price per selection.
-    None when there is no such row."""
-    from src.walters.value import MarketSnapshot
+def outcomes_for(sport) -> tuple[str, ...]:
+    """The 1X2 outcome set our stored odds carry for a sport (read from the
+    adapters, 2026-10-01): soccer boards are 3-way, every other sport's
+    1X2 market is the two-way moneyline."""
+    v = getattr(sport, "value", sport)
+    return THREE_WAY if str(v).lower() == "soccer" else BINARY
 
+
+def priced(cl) -> bool:
+    """True when a close carries a fair price (at least one complete book)."""
+    return cl is not None and cl.get("fair") is not None
+
+
+def close_1x2(rows, before: datetime | None, outcomes: tuple[str, ...]) -> dict | None:
+    """The close of the last pre-cutoff 1X2 capture session under the contract
+    above. None when there is no pre-cutoff capture; otherwise a dict whose
+    `fair` is None (UNPRICED, with the missing-leg receipt) unless at least one
+    book quoted the whole outcome set."""
     sess = last_capture([o for o in rows if o.market == "1X2"], before)
     if not sess:
         return None
-    snap = MarketSnapshot(market="1X2", by_selection=by_selection(sess))
-    implied = snap.average_implied()
-    over = sum(implied.values())
-    if over <= 0:
-        return None
-    return {"fair": {k: v / over for k, v in implied.items()},
-            "books": len({o.bookmaker for o in sess}),
-            "captured_at": max(o.captured_at for o in sess),
-            "best": {sel: snap.best_price(sel) for sel in implied},
-            "rows": sess}
+    outcomes = tuple(outcomes)
+    books: dict[str, dict[str, float]] = {}
+    for o in sess:
+        if o.selection in outcomes and o.price_decimal and o.price_decimal > 1.0:
+            books.setdefault(o.bookmaker, {})[o.selection] = o.price_decimal
+    quoted = {o.bookmaker for o in sess}
+    complete = {bk: px for bk, px in books.items() if all(k in px for k in outcomes)}
+    missing = {bk: [k for k in outcomes if k not in books.get(bk, {})]
+               for bk in sorted(quoted) if bk not in complete}
+    out = {"fair": None, "books": len(complete), "books_quoted": len(quoted),
+           "captured_at": max(o.captured_at for o in sess), "best": {},
+           "rows": sess, "outcomes": outcomes, "missing": missing}
+    if not complete:
+        return out
+    fair = {k: 0.0 for k in outcomes}
+    for px in complete.values():
+        imp = {k: 1.0 / px[k] for k in outcomes}
+        over = sum(imp.values())
+        for k in outcomes:
+            fair[k] += imp[k] / over
+    out["fair"] = {k: v / len(complete) for k, v in fair.items()}
+    out["best"] = {k: max(((bk, px[k]) for bk, px in complete.items()), key=lambda x: x[1])
+                   for k in outcomes}
+    return out

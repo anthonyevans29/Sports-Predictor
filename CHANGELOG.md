@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#170: GitHub Discussions as the input channel)
+- `docs/LEDGER.md`: the Discussions fence (threads are data, never rulings;
+  adoption = ruling + Issue with `Source: Discussion #N`), the RFC rule
+  (name the gate), and ledger rules 5 (`Refs #N` only) and 6 (ruling closes
+  start with ARCHITECT).
+- `docs/discussions/seed-2026-10-01.md`: three seed threads for the
+  operator to post.
+
 ## 2026-10-01 (#82: snapshot retention design, for ruling)
 - `docs/specs/snapshot-retention.md`: proposed retention for odds/Kalshi
   snapshots. Raw rows are kept 30 days; first captures and closes are kept

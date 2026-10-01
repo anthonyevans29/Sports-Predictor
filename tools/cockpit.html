@@ -758,6 +758,7 @@ function loadLedger(){
 // caller reports it (no silent changes).
 function saveLedger(L){
   const d=enforceLedger(L);
+  markAudit(L);
   window.__ledgerMem=L;   // in-page fallback when storage is blocked
   try{ localStorage.setItem(LEDGER_KEY,JSON.stringify(L)); storageOK=true; }
   catch(e){ storageOK=false; }
@@ -851,6 +852,11 @@ function baseCall(r,logDate){
 // backfilled (law 4). No sizing changes.
 function stampTiming(pos,fresh,isNew){
   const at=fresh.captured_at||new Date().toISOString();
+  // REPRICE LOG (#178 audit, 2026-10-01): every capture of a position is
+  // appended here, so an audit can fall back to the last pre-kickoff price.
+  // Positions logged before this have no log (claim + execution only).
+  pos.reprices=(Array.isArray(pos.reprices)?pos.reprices:[]).concat([{at,market_p:fresh.market_p??null,
+    model_p:fresh.model_p??null}]);
   if(isNew){ pos.claim_at=at; pos.claim_market_p=fresh.market_p??null; pos.claim_model_p=fresh.model_p??null;
     pos.claim_exec_cost=fresh.kalshi_exec_cost??null;       // K2: Kalshi ask+fee (taker) at claim (away pick: the NO side, #89; null: none quoted / soccer away / DRAW)
     pos.claim_exec_cost_maker=fresh.kalshi_exec_cost_maker??null;   // #93: join bid + maker fee at claim
@@ -863,6 +869,45 @@ function stampTiming(pos,fresh,isNew){
   return pos;
 }
 function execP(c){return c.exec_market_p??c.market_p;}
+// LEDGER KICKOFF AUDIT (ARCHITECT 2026-10-01, #178 follow-on). Before #179 the
+// Cockpit read naive utc_date kickoffs as LOCAL time, so a non-UTC browser
+// could capture or reprice a position AFTER the true kickoff. Every position's
+// claim_at, executed_at (legacy: captured_at) and each logged reprice is
+// compared with the TRUE UTC kickoff; anything at/after it is flagged
+// "post-kickoff (tz bug)" and its price is EXCLUDED from the P&L. Fallback:
+// the last pre-kickoff reprice, else the claim price if the claim was
+// pre-kickoff, else the position leaves the P&L (no pre-kickoff price exists).
+// NEVER DELETES: stored fields are untouched; the P&L is recomputed from the
+// audited price and the position carries a tz_audit mark.
+const TZ_FLAG="post-kickoff (tz bug)";
+function auditCall(c){
+  const ko=utcMs(c.kickoff);
+  if(!isFinite(ko)) return {checked:false,flagged:false};
+  const post=t=>{const x=utcMs(t); return isFinite(x)&&x>=ko;};
+  const claimPost=c.claim_at!=null&&post(c.claim_at);
+  const execAt=c.executed_at??c.captured_at??null;
+  const execPost=execAt!=null&&post(execAt);
+  const reps=(Array.isArray(c.reprices)?c.reprices:[]).filter(x=>x&&x.at!=null);
+  const postReprices=reps.filter(x=>post(x.at)).length;
+  const claimP=claimPost?null:(c.claim_market_p??null);
+  if(!claimPost&&!execPost&&!postReprices) return {checked:true,flagged:false,price:execP(c),claimP};
+  let price=null,basis=null;
+  if(!execPost){price=execP(c);basis="execution (pre-kickoff)";}
+  else{
+    const pre=reps.filter(x=>!post(x.at)&&x.market_p!=null).sort((a,b)=>utcMs(a.at)-utcMs(b.at)).pop();
+    if(pre){price=pre.market_p;basis="last pre-kickoff reprice";}
+    else if(c.claim_at!=null&&!claimPost&&c.claim_market_p!=null){price=c.claim_market_p;basis="claim";}
+  }
+  return {checked:true,flagged:true,claimPost,execPost,postReprices,price,basis,excluded:price==null,claimP};
+}
+// The stored mark (set on every save; stored fields are never rewritten).
+function markAudit(L){
+  for(const c of L.calls){ const a=auditCall(c);
+    if(a.flagged) c.tz_audit={flag:TZ_FLAG,claim_post:a.claimPost,exec_post:a.execPost,
+      post_reprices:a.postReprices,price_used:a.price,basis:a.basis,excluded:a.excluded};
+    else if(c.tz_audit) delete c.tz_audit; }
+}
+let lastAudit={flagged:0,fallback:0,excluded:0};
 // Capture window (multi-week fix, 2026-09-28): a call is captured only
 // BEFORE its kickoff. A multi-day/week file loaded after some games started
 // would otherwise log played games and grade them with hindsight. Rows with
@@ -1053,32 +1098,51 @@ $("resultsFile").addEventListener("change",async e=>{
 // REPORTS — settled bets (a parlay ticket counts once), by dimension.
 // ---------------------------------------------------------------------
 function settledBets(L){
-  const bets=[], seen=new Set();
+  const bets=[], seen=new Set(); lastAudit={flagged:0,fallback:0,excluded:0};
+  const tally=a=>{ if(!a.flagged) return; lastAudit.flagged++; if(a.excluded) lastAudit.excluded++; else lastAudit.fallback++; };
   for(const c of L.calls){
     if(c.status!=="graded") continue;
     if(c.call_type==="parlay_leg"){
       if(seen.has(c.parlay_id)) continue; seen.add(c.parlay_id);
       const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id);
+      const au=new Map(legs.map(l=>[l,auditCall(l)]));
+      const flagged=legs.some(l=>au.get(l).flagged);
+      if(flagged){ const ex=legs.some(l=>au.get(l).excluded);
+        lastAudit.flagged++; if(ex){lastAudit.excluded++; continue;} lastAudit.fallback++; }
+      let returned=c.units_returned, claimReturned=c.claim_units_returned??null;
+      if(flagged){                                  // recompute the ticket at audited leg prices
+        const stake=legs[0].units;
+        const pay=price=>{ if(legs.some(l=>l.result==="loss")) return 0;
+          const live=legs.filter(l=>l.result==="win");
+          return live.length?live.reduce((x,l)=>x/(price(l)||1),stake):stake; };
+        returned=+pay(l=>au.get(l).price).toFixed(4);
+        claimReturned=legs.every(l=>au.get(l).claimP!=null)?+pay(l=>au.get(l).claimP).toFixed(4):null;
+      }
       bets.push({engine:"model_edge",sport:[...new Set(legs.map(l=>l.sport))].sort().join("+"),
-        tier:"parlay",call_type:"parlay",staked:c.units,returned:c.units_returned,
+        tier:"parlay",call_type:"parlay",staked:c.units,returned,
         result:c.ticket_result,date:c.graded_date,rules:["parlay 0.25u"],shadow:false,
-        claimReturned:c.claim_units_returned??null,exec_mode:legs.some(l=>l.exec_mode==="operator_early")?"operator_early":(c.exec_mode||null),
-        claim_p:null,exec_p:null});
-    } else if(isShadow(c)){
-      bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
-        staked:c.shadow_units||0,returned:c.shadow_returned||0,result:c.result,
-        date:c.graded_date,rules:c.rules||[],shadow:true,
-        claimReturned:c.claim_shadow_returned??null,exec_mode:c.exec_mode||null,
-        claim_p:c.claim_market_p??null,exec_p:execP(c)??null});
-    } else {
-      bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
-        staked:c.units,returned:c.units_returned,result:c.result,date:c.graded_date,
-        rules:c.rules||[],shadow:false,
-        claimReturned:c.claim_units_returned??null,exec_mode:c.exec_mode||null,
-        claim_p:c.claim_market_p??null,exec_p:execP(c)??null});
+        claimReturned,exec_mode:legs.some(l=>l.exec_mode==="operator_early")?"operator_early":(c.exec_mode||null),
+        claim_p:null,exec_p:null,tz:flagged});
+      continue;
     }
+    const a=auditCall(c); tally(a);
+    if(a.excluded) continue;                        // no pre-kickoff price: out of the P&L, never deleted
+    const sh=isShadow(c), u=sh?(c.shadow_units||0):c.units;
+    const stored=sh?(c.shadow_returned||0):c.units_returned;
+    const storedClaim=sh?(c.claim_shadow_returned??null):(c.claim_units_returned??null);
+    const returned=a.flagged?+settleReturn(u,c.result,a.price).toFixed(4):stored;
+    const claimReturned=a.flagged?(a.claimP!=null?+settleReturn(u,c.result,a.claimP).toFixed(4):null):storedClaim;
+    bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
+      staked:u,returned,result:c.result,date:c.graded_date,rules:c.rules||[],shadow:sh,
+      claimReturned,exec_mode:c.exec_mode||null,
+      claim_p:a.flagged?a.claimP:(c.claim_market_p??null),exec_p:a.flagged?a.price:(execP(c)??null),tz:a.flagged});
   }
   return bets;
+}
+function auditLine(){
+  const A=lastAudit;
+  return `Kickoff audit (#178): ${A.flagged} settled position(s) captured or repriced after true UTC kickoff — ${TZ_FLAG}`
+    +` · ${A.fallback} re-priced at a pre-kickoff price (last reprice, else claim) · ${A.excluded} excluded (no pre-kickoff price) · marked, never deleted.`;
 }
 function agg(bets){
   const n=bets.length, st=bets.reduce((a,b)=>a+b.staked,0), rt=bets.reduce((a,b)=>a+b.returned,0);
@@ -1167,6 +1231,7 @@ function pnlBlock(L){
     `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
     `Value-side counterfactual (v1.2 candidate shadow, NOT staked): n ${vf.n} · notional staked ${fmt(vf.staked)} · net ${vf.net>=0?"+":""}${fmt(vf.net)} · hit ${vf.hit==null?"—":fmt(vf.hit,1)+"%"} · promotion review at ${VALUE.reviewN} graded (${Math.min(vf.n,VALUE.reviewN)}/${VALUE.reviewN}), version bump only`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
+    auditLine(),
     ...realizedLines(L),
     `Sizing gate: model_edge ${real.filter(b=>b.engine==="model_edge").length}/50 · venue_edge ${real.filter(b=>b.engine==="venue_edge").length}/50 graded before any sizing proposal`,
     "Non-claims: EV-realization proxy, not cash; venue_edge graded vs stored Kalshi prob until K-track bid/ask + fees; policy changes only via audit-backed version bump."
@@ -1180,6 +1245,7 @@ function renderLedger(){
     ? `<b>${L.calls.length}</b> logged · <b>${a.n}</b> settled bets · staked ${fmt(a.staked)}u · returned ${fmt(a.returned)}u · `
       +`net <b class="${a.net>=0?"play":"caution"}">${a.net>=0?"+":""}${fmt(a.net)}u</b> · ROI ${a.roi==null?"—":fmt(a.roi,1)+"%"} · hit ${a.hit==null?"—":fmt(a.hit,1)+"%"}`
       +` <span class="note">(fair-odds P&amp;L, pre-fee)</span>`
+      +(lastAudit.flagged?`<div class="caution" id="tzAudit">⚠ ${esc(auditLine())}</div>`:"")
       +(()=>{const d=enforceLedger(JSON.parse(JSON.stringify(L)));   // dry run on a copy
         return d.total?`<div class="caution">⚠ ${d.total} duplicate(s) in the stored ledger (same key ${d.exact} · re-logged on a later day ${d.relogged} · fills ${d.fills}) — totals above include them; press Dedupe ledger.</div>`:"";})()
     : "No calls logged yet.";
@@ -1198,7 +1264,7 @@ function renderLedger(){
       const canExec=!early&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
       return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`
       +`<td>${c.claim_at?`${px(c.claim_market_p)}${c.claim_exec_cost!=null?` <span class="note">k ${px(c.claim_exec_cost)}</span>`:""} <span class="note">${esc(hm(c.claim_at))}</span>`:'<span class="note">unknown (pre-rule)</span>'}</td>`
-      +`<td>${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
+      +`<td>${auditCall(c).flagged?`<b class="caution">${TZ_FLAG}</b> `:""}${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
       +`<td>${c.order_type?`${esc(c.order_type)} @ ${px(c.fill_price)}`:""}${!isShadow(c)
           // No default: a row without a Kalshi ladder shows "—", never a suggested
           // order (architect 2026-09-30: "limit 0.59" sat on every Week 5 row).

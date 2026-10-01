@@ -94,10 +94,22 @@ def strip_accents(s: str) -> str:
     return "".join(c for c in unicodedata.normalize("NFKD", s) if not unicodedata.combining(c))
 
 
+# NAME ALIASES (architect ruling 2026-10-01, NHL audit): the franchise
+# renamed "Utah Hockey Club" -> "Utah Mammoth"; the shared normaliser cannot
+# bridge the two ("utah hockey" vs "utah mammoth"), so the goalie mapping
+# carries the alias both ways as extra CANDIDATE names. The matcher still
+# refuses ambiguity at every candidate; an alias only adds a name to try.
+NAME_ALIASES = {
+    "Utah Mammoth": ("Utah Hockey Club",),
+    "Utah Hockey Club": ("Utah Mammoth",),
+}
+
+
 def team_names(t: dict) -> list[str]:
     """Candidate full names for one side, most specific first: the API's
-    full name if present, then place + common name. Accents stripped
-    ("Montréal" -> "Montreal") so the shared normaliser can compare."""
+    full name if present, then place + common name, then ruled aliases.
+    Accents stripped ("Montréal" -> "Montreal") so the shared normaliser can
+    compare."""
     out = []
     full = _text(t.get("name")) or _text(t.get("fullName"))
     if full:
@@ -105,7 +117,10 @@ def team_names(t: dict) -> list[str]:
     place, common = _text(t.get("placeName")), _text(t.get("commonName"))
     if place and common:
         out.append(f"{place} {common}")
-    return [strip_accents(n) for n in dict.fromkeys(out)]
+    names = [strip_accents(n) for n in dict.fromkeys(out)]
+    for n in list(names):
+        names += [a for a in NAME_ALIASES.get(n, ()) if a not in names]
+    return names
 
 
 def schedule_games(payload: dict | None) -> list[dict]:
@@ -437,8 +452,69 @@ def classify(game: dict, ours: list[dict], linked_ids: set[int]) -> dict:
     return out
 
 
+# OUR-SIDE LISTING (architect ruling 2026-10-01): "List the ~200 remaining
+# unlinked OUR games for 2024/2025 by date with the nearest API game and its
+# delta — cause unknown, name it." For each of OUR finished, unlinked matches
+# the nearest API game (any gameType, ±LIST_WINDOW_D days) is found in order of
+# preference — the same pair, the pair swapped, one shared team — and the
+# cause is NAMED from what was found (a label from evidence, never a guess):
+#   api_preseason          the same pair, but the API calls it gameType 1 (not ingested)
+#   api_game_not_synced    the same pair within 12h, API game never linked
+#   utc_offset_beyond_12h  the same pair, |delta| > 12h (a widened window links it)
+#   linked_to_other_match  the same pair's API game is linked to a DIFFERENT match of ours
+#   home_away_swapped      only the swapped pair exists
+#   one_team_only          nearest API game shares one team (a name mismatch?)
+#   no_api_game            nothing within the window (postponed / phantom in our DB?)
+LIST_WINDOW_D = 7
+
+
+def list_unlinked_ours(api_games: list[dict], ours: list[dict], links: dict[int, int],
+                       seasons: set[str] | None) -> list[dict]:
+    """Pure: our unlinked matches with the nearest API game and a named cause."""
+    linked_ids = set(links.values())
+    rows = []
+    for o in sorted(ours, key=lambda x: x["t"] or datetime.min):
+        if o["id"] in linked_ids or o["t"] is None or (seasons and str(o["season"]) not in seasons):
+            continue
+        best = {}
+        for g in api_games:
+            if g["start"] is None:
+                continue
+            dh = (g["start"] - o["t"]).total_seconds() / 3600.0
+            if abs(dh) > LIST_WINDOW_D * 24:
+                continue
+            hs, as_ = {_norm(n) for n in g["home_names"]}, {_norm(n) for n in g["away_names"]}
+            kind = ("same" if o["hn"] in hs and o["an"] in as_ else
+                    "swapped" if o["hn"] in as_ and o["an"] in hs else
+                    "one" if {o["hn"], o["an"]} & (hs | as_) else None)
+            if kind and (kind not in best or abs(dh) < abs(best[kind][0])):
+                best[kind] = (dh, g)
+        if "same" in best:
+            dh, g = best["same"]
+            other = links.get(g["id"])
+            cause = ("api_preseason" if g["game_type"] == 1 else
+                     "linked_to_other_match" if other is not None and other != o["id"] else
+                     "utc_offset_beyond_12h" if abs(dh) > 12 else "api_game_not_synced")
+        elif "swapped" in best:
+            dh, g = best["swapped"]
+            cause = "home_away_swapped"
+        elif "one" in best:
+            dh, g = best["one"]
+            cause = "one_team_only"
+        else:
+            dh, g, cause = None, None, "no_api_game"
+        rows.append({"match_id": o["id"], "season": o["season"], "t": o["t"],
+                     "ours": f"{o['away']} @ {o['home']}", "cause": cause,
+                     "delta_h": round(dh, 1) if dh is not None else None,
+                     "api": (None if g is None else
+                             f"game {g['id']} type {g['game_type']} {g['start']:%Y-%m-%d %H:%M} "
+                             f"{'/'.join(g['away_names'])} @ {'/'.join(g['home_names'])}"),
+                     "api_linked_to": links.get(g["id"]) if g is not None else None})
+    return rows
+
+
 def audit(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
-          now: datetime | None = None) -> dict:
+          now: datetime | None = None, list_seasons: set[str] | None = None) -> dict:
     """Receipt: API-side and our-side unlinked games by cause, the offset
     distribution, and how many a wider window would link uniquely."""
     from sqlalchemy import select
@@ -484,6 +560,8 @@ def audit(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
             f"{g['start']:%Y-%m-%d %H:%M} game {g['id']} {'/'.join(g['away_names'])} @ "
             f"{'/'.join(g['home_names'])}" + (f" · {c['detail']}" if c["detail"] else ""))
     # our side: finished matches with no link, by season
+    listing = (list_unlinked_ours(list(seen.values()), ours, links, list_seasons)
+               if list_seasons is not None else None)
     our_unlinked = [o for o in ours if o["id"] not in linked_ids]
     our_by_season = Counter(o["season"] for o in our_unlinked)
     our_total = Counter(o["season"] for o in ours)
@@ -493,4 +571,4 @@ def audit(start: date, end: date, fetch: Fetch = http_json, sleep: float = 0.25,
             "offset_hours": dict(sorted(offsets.items())), "would_link_uniquely": dict(sorted(what_if.items())),
             "ours_unlinked_by_season": dict(sorted(our_by_season.items())),
             "ours_total_by_season": dict(sorted(our_total.items())),
-            "samples": samples}
+            "samples": samples, "ours_listing": listing}

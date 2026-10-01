@@ -59,7 +59,8 @@ def snapshot(card: dict) -> dict:
             "tier": r.get("tier"), "quarantine": bool(r.get("quarantine")),
             "venue_flag": r.get("venue_flag"), "edge_pp": r.get("edge_pp"),
             "engine": r.get("engine"),
-            "late_news": r.get("late_news_flag"), "line_move": _move_text(r.get("line_move"))}
+            "late_news": r.get("late_news_flag"), "line_move": _move_text(r.get("line_move")),
+            "time_flag": r.get("time_flag")}
     return out
 
 
@@ -115,7 +116,7 @@ def line(d: dict) -> str:
             "kickoff": f"kickoff moved from {d.get('was')} (status {g['status']})",
             "t90_news": "injury/lineup news inside T-90: freshen triggered",
             "line_move": f"LINE MOVE inside T-3h: {g.get('line_move')}: {g.get('late_news')} freshen triggered"}[d["cls"]]
-    return f"{head}: {what}"
+    return f"{head}: {what}" + (" · ⚠ time unconfirmed" if g.get("time_flag") else "")
 
 
 def digest(cur: dict) -> str:
@@ -127,6 +128,8 @@ def digest(cur: dict) -> str:
     for g in games[:15]:
         bits = [x for x in (g["tier"], f"edge {g['edge_pp']:+.1f}pp" if g["edge_pp"] is not None else None,
                             "QUARANTINE" if g["quarantine"] else None, g["venue_flag"]) if x]
+        if g.get("time_flag"):
+            bits.append("⚠ time unconfirmed")
         lines.append(f"{_ko(g)} {str(g['sport']).upper()} {g['label']}" + (f" [{', '.join(bits)}]" if bits else ""))
     if len(games) > 15:
         lines.append(f"... {len(games) - 15} more on the card")

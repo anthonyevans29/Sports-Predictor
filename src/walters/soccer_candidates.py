@@ -20,10 +20,10 @@ EVERY CONSTANT AND PROCEDURE BELOW IS DECLARED BEFORE ANY RUN (law 3).
         1 + lambda*rho (0-1), 1 - rho (1-1), 1 otherwise;
       * rho = argmax over the grid [-0.300, +0.200] step 0.001; a grid point
         that makes any tau <= 0 is infeasible; ties go to the smallest |rho|.
-    The fitted rho is printed and frozen for the evaluation. NOTE (owned): the
-    ruled evaluation set includes 2023/24, the fit season, so 1/3 of the pooled
-    set is in-sample; the out-of-sample pool (2024/25 + 2025/26) is REPORTED
-    beside it and decides nothing (ARCHITECT-RULE if it should).
+    The fitted rho is printed and frozen for the evaluation. ARCHITECT-RULE
+    2026-10-01: the fit season is EXCLUDED from the verdict pool — the gate
+    reads PL 2024/25 + 2025/26 pooled, out of sample; the in-sample 2023/24
+    row is printed for information only and decides nothing.
 
 (b) S14 STAGE-2 — UNCERTAINTY-CONDITIONED TOTALS ADJUSTMENT.
     Bucket: the UNADJUSTED prediction's top-pick probability < 0.45 (the S14
@@ -40,8 +40,9 @@ EVERY CONSTANT AND PROCEDURE BELOW IS DECLARED BEFORE ANY RUN (law 3).
       (ii)  overall totals-direction at the 2.5 line does not degrade:
             cand hits >= prod hits (direction = p_over > 0.5 vs actual >= 3);
       (iii) the confident-bucket residual stays within ±0.15 of production.
-    Requiring both is the binding reading (gates more binding, never less);
-    ARCHITECT-RULE if only the improve rule was meant.
+    Both gates required — RATIFIED (ARCHITECT-RULE 2026-10-01), as is the
+    +1.17 offset scaling both teams' xG. S14 has no fit, so the full
+    three-season pool stands for (b).
 """
 from __future__ import annotations
 
@@ -52,7 +53,7 @@ GATE_SEASONS = ("2023/24", "2024/25", "2025/26")
 
 DC_FIT_SEASON = "2023/24"
 DC_RHO_LO, DC_RHO_HI, DC_RHO_STEP = -0.300, 0.200, 0.001
-OOS_SEASONS = ("2024/25", "2025/26")         # reported beside the ruled pool; decides nothing
+DC_VERDICT_SEASONS = ("2024/25", "2025/26")  # (a)'s verdict pool: out of sample (ruled 2026-10-01)
 
 S14_UNCERTAIN_TOP_PICK = 0.45
 S14_OFFSET_GOALS = 1.17
@@ -125,17 +126,17 @@ def run_dixon_coles_candidate(*, prod_rho: float, elo_goal_coeff: float, min_pri
     fit = fit_rho(fit_rows)
     if fit["rho"] is None:
         return {"verdict": "INVALID", "reason": "no feasible rho on the grid", "fit": fit}
-    out = _pooled(lambda season: (
+    arms = lambda season: (
         run_soccer_backtest(GATE_COMPETITION, season, min_prior,
                             dixon_coles_rho=prod_rho, elo_goal_coeff=elo_goal_coeff),
         run_soccer_backtest(GATE_COMPETITION, season, min_prior,
-                            dixon_coles_rho=fit["rho"], elo_goal_coeff=elo_goal_coeff)),
-        min_delta)
+                            dixon_coles_rho=fit["rho"], elo_goal_coeff=elo_goal_coeff))
+    out = _pooled(arms, min_delta, seasons=DC_VERDICT_SEASONS)          # the verdict: out of sample
     out["fit"] = fit
     out["prod_rho"] = prod_rho
-    oos_b = [r for x in out["_arms"] if x[0] in OOS_SEASONS for r in x[1]]
-    oos_c = [r for x in out["_arms"] if x[0] in OOS_SEASONS for r in x[2]]
-    out["oos_pooled"] = compare_candidate(oos_b, oos_c, min_delta)     # REPORTED ONLY
+    ib, ic = arms(DC_FIT_SEASON)
+    out["in_sample"] = (compare_candidate(ib, ic, min_delta) if ib and ic else
+                        {"verdict": "MISSING", "n": 0})                   # INFORMATION ONLY
     out.pop("_arms")
     return out
 
@@ -195,9 +196,10 @@ def run_s14_candidate(*, prod_rho: float, elo_goal_coeff: float, min_prior: int 
 
 # ---------------------------------------------------------------- shared --
 
-def _pooled(arms_for_season, min_delta: float) -> dict:
+def _pooled(arms_for_season, min_delta: float, seasons=None) -> dict:
+    seasons = tuple(seasons or GATE_SEASONS)
     per, arms, missing, base_all, cand_all = [], [], [], [], []
-    for season in GATE_SEASONS:
+    for season in seasons:
         base, cand = arms_for_season(season)
         if not base or not cand:
             missing.append(season)
@@ -213,6 +215,6 @@ def _pooled(arms_for_season, min_delta: float) -> dict:
     if missing:
         pooled = {**pooled, "verdict": "INVALID",
                   "reason": f"season(s) not found / nothing scored: {', '.join(missing)}"}
-    return {"competition": GATE_COMPETITION, "seasons": list(GATE_SEASONS), "per_season": per,
+    return {"competition": GATE_COMPETITION, "seasons": list(seasons), "per_season": per,
             "pooled": pooled, "missing": missing, "_arms": arms,
             "verdict": pooled["verdict"]}

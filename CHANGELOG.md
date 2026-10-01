@@ -13,6 +13,23 @@ Every drop adds an entry going forward.
   fresh-fingerprint compare, the MLB doubleheader/postponed waivers and
   rollback.
 
+## 2026-10-01 (#167 CORRECTION: the soccer/NHL "close" was an average of every capture)
+- **Correction.** The general odds sync (soccer, cups, NHL) appended a full
+  book set on every run. Every reader then de-vigged ALL of a match's rows
+  at once, so the "closing price" behind soccer CLV, NFL grading's close,
+  the NHL shadow close and the prediction export's market reference was a
+  mean over every capture, not the close. **Soccer CLV figures published
+  before 2026-10-01 are not closing-line value**; they are re-stated by
+  `clv-restate --apply` and `results-tally`.
+- The close is now ONE definition (`src/walters/close.py`): the last
+  pre-kickoff capture session, latest row per book. In-game prices are
+  never the close; MLB rollover games captured after first pitch become
+  unpriced.
+- The odds sync now replaces per match, stores the totals/spread line, and
+  appends history to odds_snapshots.
+- New: `odds-audit` (read-only receipt) and `clv-restate` (dry-run by
+  default; `--apply` only with a verified backup).
+
 ## 2026-10-01 (#163: soccer candidates — Dixon-Coles rho fit, S14 Stage-2)
 - `soccer-backtest --candidate dixon-coles-fit` (backtest-only): ρ fitted
   on PL 2023/24 only, frozen, gated against production's ρ on PL 2023/24 to

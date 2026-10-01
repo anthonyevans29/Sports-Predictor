@@ -2,13 +2,20 @@
 """Parallel-week export comparison (H0 5.4 step 12; cutover criterion
 "export diffs clean on the last 3 days").
 
-    compare_exports.py <laptop_exports_dir> <host_exports_dir> [--glob '*2026-10-08*']
+    compare_exports.py <laptop_exports_dir> <host_exports_dir> [--glob '*2026-10-08*'] [--since 3]
 
 For every same-named JSON file in both: record counts (top-level list, or the
 longest list value in a top-level object) and a field-level diff with
 timestamp-like keys ignored (*_at, ts, timestamp, generated*, captured*).
 Files present on one side only are listed. Output is paste-ready; exit 0 only
 when every compared file is identical after the timestamp mask. Read-only.
+
+--since N (architect 2026-10-01; default 3): only files whose name carries a
+YYYY-MM-DD date within the last N UTC days (today and the N-1 days before)
+are compared, so settled exhibits stop re-printing. Files with NO date in
+their name (window_24h.json, fixtures_<comp>_<label>.json) are always
+compared — never hidden by the window (law 4). The skipped files are counted
+on the header line, never silently dropped. --since 0 compares everything.
 
 H1b (amended 2026-09-27): the two sides are INDEPENDENT pipelines (each
 syncs from the providers itself). The explained divergence classes are
@@ -30,12 +37,33 @@ import argparse
 import json
 import re
 import sys
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
 TS_KEY = re.compile(r"(_at$|^ts$|timestamp|^generated|^captured|^as_of)", re.I)
 # machine-local or reported separately — never a field diff
 MASKED = {"match_id", "git_sha"}
 KICKOFF, HOME, AWAY = ("utc_date", "kickoff", "date"), ("home_team", "home"), ("away_team", "away")
+
+
+NAME_DATE = re.compile(r"(\d{4}-\d{2}-\d{2})")
+
+
+def name_date(name: str) -> date | None:
+    """The first valid YYYY-MM-DD in a file name, else None (undated)."""
+    for m in NAME_DATE.finditer(name):
+        try:
+            return date.fromisoformat(m.group(1))
+        except ValueError:
+            continue
+    return None
+
+
+def in_window(name: str, since: int, today: date) -> bool:
+    """True when the file is compared under --since: undated files always;
+    dated files when today - date < since days; since <= 0 = everything."""
+    d = name_date(name)
+    return since <= 0 or d is None or (today - d) < timedelta(days=since)
 
 
 def _first(d: dict, keys):
@@ -111,9 +139,20 @@ def main(argv=None) -> int:
     ap.add_argument("laptop", type=Path)
     ap.add_argument("host", type=Path)
     ap.add_argument("--glob", default="*.json")
+    ap.add_argument("--since", type=int, default=3,
+                    help="Compare only files dated (YYYY-MM-DD in the name) within the last N UTC days; "
+                         "undated files always compared; 0 = everything. Default 3.")
+    ap.add_argument("--today", default=None, help=argparse.SUPPRESS)   # tests pin the clock
     a = ap.parse_args(argv)
-    la = {p.name: p for p in a.laptop.glob(a.glob)}
-    ho = {p.name: p for p in a.host.glob(a.glob)}
+    today = date.fromisoformat(a.today) if a.today else datetime.now(timezone.utc).date()
+    la_all = {p.name: p for p in a.laptop.glob(a.glob)}
+    ho_all = {p.name: p for p in a.host.glob(a.glob)}
+    la = {n: p for n, p in la_all.items() if in_window(n, a.since, today)}
+    ho = {n: p for n, p in ho_all.items() if in_window(n, a.since, today)}
+    settled = len(set(la_all) | set(ho_all)) - len(set(la) | set(ho))
+    if a.since > 0:
+        print(f"window: --since {a.since} → files dated {today - timedelta(days=a.since - 1)} .. {today} "
+              f"(UTC) + undated; {settled} settled file(s) earlier not re-printed")
     clean, skew_names = True, set()
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:

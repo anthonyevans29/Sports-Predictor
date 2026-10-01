@@ -760,7 +760,7 @@ venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ p
 - Exports (H0-20, pull over the tailnet). TERMINAL (laptop):
   ```
   venv/bin/python deploy/hosting/pull_exports.py
-  python deploy/hosting/compare_exports.py exports exports/host --glob '*<date>*'
+  python deploy/hosting/compare_exports.py exports exports/host   # --since 3 by default (2026-10-01)
   ```
   - Paste the result.
   - Each `✗` needs one of the explained classes:

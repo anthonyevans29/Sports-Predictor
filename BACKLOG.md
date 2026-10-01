@@ -22,6 +22,9 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-01 — #213 HYGIENE (external review) DONE.**
+(1) #83 was reopened by the ledger bot because its close comment opened with "Gate verdict". It is re-closed with an `ARCHITECT` comment quoting the S19 REJECT. (2) #98 is refreshed. Read from code: since #167, `sync_odds` appends a book-consensus `OddsSnapshot` per run, and the alarm's book series reads exactly those rows. So the reopening condition is met in code, pending one live PL receipt. (3) RESULTS.md is now labelled regenerated, not authoritative in git. The committed copy was 2 weeks stale (2026-09-17).
+
 - **#201 DISCUSSIONS POSTING INSIDE THE LEDGER WORKFLOW (ARCHITECT 2026-10-01) + #170 closed.**
   - RULING (verbatim): "Discussions posting runs INSIDE the ledger
     workflow, using the existing LEDGER_PROJECT_TOKEN secret (classic PAT,

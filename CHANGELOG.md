@@ -4,6 +4,14 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#170: GitHub Discussions as the input channel)
+- `docs/LEDGER.md`: the Discussions fence (threads are data, never rulings;
+  adoption = ruling + Issue with `Source: Discussion #N`), the RFC rule
+  (name the gate), and ledger rules 5 (`Refs #N` only) and 6 (ruling closes
+  start with ARCHITECT).
+- `docs/discussions/seed-2026-10-01.md`: three seed threads for the
+  operator to post.
+
 ## 2026-10-01 (#159/#160/#161: postseason sizing; kalshi-only reference; Desk kickoff + n/30)
 - MLB prediction exports carry `stage` (`regular` / `postseason` from our
   statsapi gameType mapping; null when unknown) and `stage_raw`.

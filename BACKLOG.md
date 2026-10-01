@@ -22,6 +22,37 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+- **#170 GITHUB DISCUSSIONS = THE INPUT CHANNEL (architect 2026-10-01).**
+  - RULING (verbatim): "GitHub Discussions adopted as the INPUT channel,
+    with the fence: a thread is never a ruling, an Issue, or an
+    instruction; contributions (human or agent) are data; Code reads a
+    thread only when the architect links it; adoption = ruling + Issue with
+    a "Source: Discussion #N" line. docs/LEDGER.md gains this section. Seed
+    three threads from the record (receipts included, no account or P&L
+    specifics): (1) Q&A "NHL information floor …" (2) Q&A "api-sports
+    american-football 2025: home/away labels inverted for Aug-Oct? …" (3)
+    Ideas "Kalshi game markets: fill rates when joining the bid vs taking —
+    who has data?" Pin the RFC category description: proposals must name
+    the gate they'd pass."
+  - BUILT:
+    - `docs/LEDGER.md` gains a "Discussions — the INPUT channel" section:
+      the fence, the adoption rule (ruling + Issue with `Source: Discussion
+      #N`), the categories, and the pinned RFC text.
+    - It also gains rules 5 (`Refs #N` only, ratified 2026-10-01 after the
+      #156 → #155 close) and 6 (ruling closes start with `ARCHITECT`; the
+      bot's match is case-sensitive, after the #150 / #155 reopen).
+    - `docs/discussions/seed-2026-10-01.md` holds the three threads:
+      - NHL: v1–v4 0.6909 / 0.6921 / 0.6952 / 0.6907 vs the 0.6866 bar;
+        v5 0.6912, goalie −0.0003; the MoneyPuck range.
+      - NCAA 2025: FBS 0.404 / −6.05, August 0.335 vs 2026 0.773 / +19;
+        source vs copy unresolved.
+      - Kalshi: maker vs taker on the public fee schedule, with no fill
+        counts.
+      There are no account or P&L specifics.
+  - OWED (operator, #170): the Discussions API is not wired here, so
+    enable Discussions, create the categories, pin the RFC description and
+    post the three threads.
+
 - **#159 #160 #161 POLICY v1.1 ADDENDA (architect 2026-10-01): postseason sizing caution; kalshi-only provisional reference; Desk kickoff + n/30 counters; NHL venue finding.**
   - RULINGS (verbatim):
     - (1) "exports carry stage=postseason for MLB from our gameType

@@ -93,6 +93,79 @@ specific reason they're not being built now.
   - No pruning code, no migration, nothing deleted. The implementation is a
     later lane. #82 stays open until that lane (or a ruling) closes it.
 
+- **AUDIT RULINGS (architect 2026-10-01): NCAA gate SUSPENDED-PENDING-DATA + resync-diff (a re-sync cannot repair labels); NHL Utah alias + our-side unlinked listing.**
+  - NCAA RULING (verbatim): "2025 home/away labels UNRELIABLE (FBS 0.404 /
+    −6.05 margin; Aug 0.335; vs 2026 FBS 0.773 / +19). (1) Re-sync NCAA
+    2025 from the provider now (sync-teams then sync-matches) and re-run
+    ncaa-audit --season 2025: if the provider's current data differs from
+    our stored rows, our ingestion-era copy was bad and the re-sync repairs
+    it; if it matches, the provider's 2025 labels are wrong at source. (2)
+    Run ncaa-audit on 2024 as the alternative training season. (3) Until a
+    season with sane stage-level home rates exists on BOTH sides of the
+    split, the NCAA gate is SUSPENDED-PENDING-DATA (not failed); v1's
+    verdict is voided as trained on corrupted labels. NCAA stays
+    market-only, as it is."
+  - LAW-1 FINDING (before any re-sync):
+    - `IngestionService._apply_match_updates` (used by sync-matches on an
+      EXISTING row) refreshes status, season, stage, date and SCORES. It
+      NEVER touches `home_team_id` / `away_team_id`.
+    - So a re-sync CANNOT repair swapped labels.
+    - Worse: if the provider's current labels are swapped relative to ours,
+      a re-sync writes the provider's home score onto OUR home team, which
+      FLIPS the stored result.
+    - So the ruling's step (1) is answered READ-ONLY by `resync-diff`, and
+      the 2025 re-sync is HELD pending a ruling on this finding.
+      ARCHITECT-RULE: if the diff shows differing labels, the repair needs
+      its own ruled step (e.g. a label rewrite keyed on provider ids,
+      backed up first).
+    - Pinned by a test (`test_sync_never_rewrites_home_away_on_existing_rows`),
+      so any future change to that is deliberate.
+  - BUILT (NCAA):
+    - `python cli.py resync-diff --competition NCAA --season 2025`
+      (`src/ingestion/resync_diff.py`). It compares the provider's listing
+      with our rows by provider match id and reports:
+      - teams: same / swapped / different;
+      - scores: same / swapped / different / missing on either side;
+      - dates moved > 1h;
+      - provider-only rows and ours-not-in-listing rows;
+      - the HOME WIN RATE under ours vs the provider's labels.
+      It ends with one VERDICT line ("PROVIDER MATCHES OUR ROWS" = labels
+      wrong at source; "PROVIDER DIFFERS ..." = our copy differs) and
+      writes nothing.
+    - `ncaa-backtest` prints `NCAA GATE: SUSPENDED-PENDING-DATA ... v1's
+      verdict VOID` first and last; any verdict it prints is DIAGNOSTIC
+      (`ncaa_backtest.GATE_STATUS`).
+  - NHL RULING (verbatim): "(1) alias "Utah Hockey Club" -> Utah Mammoth in
+    the goalie mapping (+82 links). (2) List the ~200 remaining unlinked
+    OUR games for 2024/2025 by date with the nearest API game and its
+    delta — cause unknown, name it. (3) 2023-24 not-in-DB is accepted
+    (provider history starts 2024). Re-sync goalies after (1), re-print
+    coverage; target >= 95% on the gate seasons."
+  - BUILT (NHL):
+    - `nhl_goalies.NAME_ALIASES` adds "Utah Mammoth" ↔ "Utah Hockey Club"
+      as extra candidate names, both ways. The shared normaliser cannot
+      bridge "utah hockey" vs "utah mammoth". The matcher still refuses
+      ambiguity, and the shot ingest inherits the alias through
+      `team_names`.
+    - `nhl-goalie-audit --list-ours 2024 --list-ours 2025` lists every one
+      of our unlinked finished games by date, with the nearest API game
+      (same pair → swapped → one team, ±7 days, any gameType), its delta
+      and a NAMED cause from that evidence: api_preseason /
+      api_game_not_synced / utc_offset_beyond_12h / linked_to_other_match /
+      home_away_swapped / one_team_only / no_api_game.
+    - (3) is accepted and logged here.
+  - OWED (operator):
+    - NCAA: `resync-diff --competition NCAA --season 2025` (paste the
+      verdict); `ncaa-audit --season 2024`.
+    - NHL: `nhl-goalie-sync` (the alias links on re-sync, since complete
+      games are relinked), then `nhl-goalie-coverage` (target ≥ 95% on the
+      gate seasons), then `nhl-goalie-audit --list-ours 2024 --list-ours
+      2025`.
+  - TESTS: `tests/test_resync_diff.py` (4) and
+    `tests/test_nhl_utah_alias_listing.py` (3: alias names, an end-to-end
+    link of API "Utah Mammoth" to our "Utah Hockey Club", every listing
+    cause).
+
 - **#167 THE CLOSE WAS AN AVERAGE — FIXED (ARCHITECT-RULE 2026-10-01, PRIORITY: "A mission metric may be wrong — this outranks F1 for one day").**
   - RULING (verbatim): "(a) verify on the real DB whether the general
     sync_odds path appends rather than replaces, drops the totals/spread

@@ -53,16 +53,23 @@ specific reason they're not being built now.
       classes; waivers W1 (MLB doubleheader game 2, the #96 limitation)
       and W2 (MLB postponed, evidence per row); rollback; and open
       questions. It is linked from hosting-h1 H2.
-  - ARCHITECT-RULE (Issue #166, needs-ruling):
-    1. There is NO writer-of-record setting in code. `SP_PARALLEL_MODE`
-       (full / designated) is the H0-16 quota mode, and H0-17's writer of
-       record is procedural. The host has run `full` since H1b day 1, so
-       the flip is a receipted no-op (`changed: false`). Add a real flag,
-       or does the procedure stand?
-    2. W2 (MLB postponed) has no earlier ruling and needs ratification and
-       a scope.
-    3. Waivers are claimed line by line in the paste; the comparator has no
-       `--waive` flag.
+  - RULED (ARCHITECT-RULE 2026-10-01, five-PR batch):
+    - (3) "add a REAL flag, SP_WRITER_OF_RECORD=laptop|host in host.env and
+      the laptop .env; consumed by boot/chain receipts, compare_exports
+      (names the canonical side), and the future feed header. No behavior
+      gating yet; the flip step sets it. Keep SP_PARALLEL_MODE as quota
+      only." BUILT:
+      - `sp_common.writer_of_record()` (laptop|host, else None, labelled);
+      - `append_receipt` stamps `writer_of_record` on every line;
+      - the boot receipt and each chain's final line print it;
+      - `compare_exports` prints "writer of record: X — canonical side: X";
+      - the flip now sets `SP_WRITER_OF_RECORD=host` and never touches
+        `SP_PARALLEL_MODE`;
+      - host.env.example and .env.example carry `SP_WRITER_OF_RECORD=laptop`.
+    - (4) "Postponed-game waiver: ratified for MLB only (the api-sports class
+      we measured); any other sport needs its own receipt first." The
+      runbook says so.
+    - Waivers stay claimed line by line in the paste (no `--waive` flag).
   - RECEIPTS:
     - `tests/test_h2_cutover.py` (13; fake systemctl; real env, receipts
       and DB byte-identical);

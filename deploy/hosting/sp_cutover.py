@@ -10,15 +10,16 @@ decides or triggers it; this only executes the sequence once ruled.
 Steps (in order; `run` = all six, the first failure stops):
   preflight  pack present; sp_migrate verify PASS (sha256 + integrity + every
              table count); the pack's DATABASE_URL relative; timers list
-             readable; host.env present, writable, one unambiguous
-             SP_PARALLEL_MODE line with a known value; no target under data/.
+             readable; host.env present, writable, at most one
+             SP_WRITER_OF_RECORD line with a known value; no target under data/.
              Everything that could fail install is refused HERE, before pause.
   pause      systemctl stop <timers.enabled>; every timer must read inactive.
              Running sp-chain@ services are listed (install waits on the DB lock).
   install    sp_migrate install --replace (verify again, place, re-verify),
              under the DB lock; S2 = S1 and R2 = R1 for every table, or refuse.
-  flip       SP_PARALLEL_MODE=full in host.env (the H2 step-6 setting, the
-             existing H0-16 name; values full|designated). Line-preserving;
+  flip       SP_WRITER_OF_RECORD=host in host.env (ARCHITECT-RULE 2026-10-01:
+             the REAL writer-of-record flag, laptop|host; SP_PARALLEL_MODE
+             stays the H0-16 quota mode and is never touched). Line-preserving;
              the old file is kept beside it as host.env.pre-cutover-<ts>.
   resume     systemctl start <timers>; every timer active; then
              systemctl start sp-backup.service and its backup receipt must
@@ -70,7 +71,7 @@ TIMER_NAME = re.compile(r"^sp-[a-z0-9-]+\.timer$")
 BACKUP_UNIT = "sp-backup.service"
 # The writer-of-record setting H2 step 6 names: the existing H0-16 variable
 # (grep: sp_run.metered_skip, etc/host.env.example). Values: full | designated.
-FLAG, FLAG_VALUE, FLAG_KNOWN = "SP_PARALLEL_MODE", "full", ("full", "designated")
+FLAG, FLAG_VALUE, FLAG_KNOWN = "SP_WRITER_OF_RECORD", "host", ("laptop", "host")
 FLAG_LINE = re.compile(r"^(\s*(?:export\s+)?)" + FLAG + r"\s*=(.*?)(\r?\n)?$")
 
 Runner = Callable[[list], "tuple[int, str]"]
@@ -367,6 +368,8 @@ def step_flip(ctx: Ctx) -> dict:
             os.chown(tmp, st.st_uid, st.st_gid)
         os.replace(tmp, p)
     after = c.parse_env_file(p)
+    if after.get(FLAG) in FLAG_KNOWN:          # this process's receipts name the NEW writer from here on
+        os.environ[FLAG] = after[FLAG]
     old = c.parse_env_file(keep)
     others_kept = {k: v for k, v in after.items() if k != FLAG} == {k: v for k, v in old.items() if k != FLAG}
     if after.get(FLAG) != FLAG_VALUE or not others_kept:
@@ -525,7 +528,7 @@ def dry_run(pack: Path | None, scratch: Path, timers_seed: Path | None, runner: 
                           SP_LOCK=str(scratch / "lib" / "db.lock"),
                           SP_BACKUP_DIR=str(scratch / "backups"),
                           DATABASE_URL="sqlite:///./data/sports.db")
-        for k in ("SP_PARALLEL_MODE", "SP_DESIGNATED_DAYS"):
+        for k in ("SP_PARALLEL_MODE", "SP_DESIGNATED_DAYS", "SP_WRITER_OF_RECORD"):
             os.environ.pop(k, None)
         resolved = {"db": c.db_path(), "receipts": c.receipts_path(), "lock": c.lock_path(),
                     "host_env": c.HOST_ENV, "timers": etc / "timers.enabled",

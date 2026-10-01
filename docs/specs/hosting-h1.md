@@ -858,7 +858,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 5. Delete the pack on both machines (`rm -rf`). It holds a DB copy and
    `.env`.
 6. TERMINAL (host), in order:
-   - Set `SP_PARALLEL_MODE=full` in host.env.
+   - Set `SP_WRITER_OF_RECORD=host` in host.env (ARCHITECT-RULE 2026-10-01; `sp_cutover.py flip`
+     does it), then the same in the laptop's `.env`. `SP_PARALLEL_MODE` stays the quota mode.
    - Run `systemctl start $(cat /etc/sports-predictor/timers.enabled)`.
    - Run `systemctl start sp-backup.service` and paste its receipt.
 7. The laptop keeps its last `.backup` file cold for 30 days (the rollback

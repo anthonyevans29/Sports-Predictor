@@ -20,7 +20,7 @@ import sp_common as c  # noqa: E402
 import sp_cutover  # noqa: E402
 import sp_migrate  # noqa: E402
 
-REAL_ENV_TEXT = "# real host.env (sandbox stand-in)\nSP_PARALLEL_MODE=designated\nSP_SKIP_FAMILIES=MLB\n"
+REAL_ENV_TEXT = "# real host.env (sandbox stand-in)\nSP_WRITER_OF_RECORD=laptop\nSP_SKIP_FAMILIES=MLB\n"
 
 
 class FakeSystemctl:
@@ -85,7 +85,7 @@ def world(tmp_path, monkeypatch):
     monkeypatch.setattr(c, "REPO", laptop)
     monkeypatch.setattr(c, "HOST_ENV", real_env)
     monkeypatch.setattr(c, "_DOTENV_CACHE", None)
-    for k in ("SP_PARALLEL_MODE", "SP_DESIGNATED_DAYS", "SP_TIMERS_ENABLED", "SP_SERVICE_USER"):
+    for k in ("SP_PARALLEL_MODE", "SP_WRITER_OF_RECORD", "SP_DESIGNATED_DAYS", "SP_TIMERS_ENABLED", "SP_SERVICE_USER"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("SP_RECEIPTS", str(real_receipts))
     monkeypatch.setenv("SP_LOCK", str(tmp_path / "real-lib" / "db.lock"))
@@ -126,7 +126,7 @@ def test_dry_run_full_sequence_passes_on_scratch_only(world, capsys):
     assert [r["step"] for r in rs] == list(sp_cutover.STEPS)
     assert all(r["exit"] == 0 and r["dry_run"] is True for r in rs)
     summary = rs[-1]
-    assert summary["s2_eq_s1"] and summary["r2_eq_r1"] and summary["flag"] == "SP_PARALLEL_MODE=full"
+    assert summary["s2_eq_s1"] and summary["r2_eq_r1"] and summary["flag"] == "SP_WRITER_OF_RECORD=host"
     man = json.loads((world["pack"] / "MANIFEST.json").read_text())
     assert summary["db_sha256"] == man["files"]["sports.db"]
 
@@ -136,7 +136,7 @@ def test_dry_run_full_sequence_passes_on_scratch_only(world, capsys):
     assert len(kept) == 1
     old, new = kept[0].read_text().splitlines(), env.read_text().splitlines()
     changed = [(a, b) for a, b in zip(old, new) if a != b]
-    assert len(old) == len(new) and changed == [("SP_PARALLEL_MODE=designated", "SP_PARALLEL_MODE=full")]
+    assert len(old) == len(new) and changed == [("SP_WRITER_OF_RECORD=laptop", "SP_WRITER_OF_RECORD=host")]
 
     # installed into the SCRATCH checkout; rehearsal moved aside
     host_db = scratch / "repo" / "data" / "sports.db"
@@ -164,7 +164,7 @@ def test_verify_fail_refuses_before_pause_and_never_flips(world, capsys):
     assert "REFUSED preflight" in out and "verify FAIL" in out and "FAIL at preflight" in out
     assert "stop" not in fake.verbs()                      # chains never paused
     env = scratch / "etc" / "host.env"
-    assert "SP_PARALLEL_MODE=designated" in env.read_text()
+    assert "SP_WRITER_OF_RECORD=laptop" in env.read_text()
     assert not list(env.parent.glob("host.env.pre-cutover-*"))
     rs = [r for r in _lines(scratch / "log" / "receipts.jsonl") if r["kind"] == "cutover"]
     assert [(r["step"], r["exit"]) for r in rs] == [("preflight", 1)]
@@ -223,7 +223,7 @@ def test_real_mode_sequence_with_fake_systemctl(world, host):
     fake = FakeSystemctl(active=host["timers"].read_text().split())
     assert _real(world, host, runner=fake) == 0
     env = world["real_env"].read_text()
-    assert env == REAL_ENV_TEXT.replace("=designated", "=full")
+    assert env == REAL_ENV_TEXT.replace("=laptop", "=host")
     kept = list(world["real_env"].parent.glob("host.env.pre-cutover-*"))
     assert len(kept) == 1 and kept[0].read_text() == REAL_ENV_TEXT
     rs = [r for r in _lines(world["real_receipts"]) if r["kind"] == "cutover"]
@@ -232,25 +232,25 @@ def test_real_mode_sequence_with_fake_systemctl(world, host):
     assert fake.active == set(host["timers"].read_text().split())
 
 
-def test_flip_is_idempotent_when_already_full(world, host):
-    world["real_env"].write_text("SP_PARALLEL_MODE=full\n")
+def test_flip_is_idempotent_when_already_host(world, host):
+    world["real_env"].write_text("SP_WRITER_OF_RECORD=host\n")
     assert _real(world, host, step="flip") == 0
     r = _lines(world["real_receipts"])[-1]
-    assert r["step"] == "flip" and r["changed"] is False and r["before"] == "full"
-    assert world["real_env"].read_text() == "SP_PARALLEL_MODE=full\n"
+    assert r["step"] == "flip" and r["changed"] is False and r["before"] == "host"
+    assert world["real_env"].read_text() == "SP_WRITER_OF_RECORD=host\n"
 
 
 def test_flip_appends_when_absent_and_refuses_ambiguity(world, host):
     world["real_env"].write_text("SP_SKIP_FAMILIES=MLB")       # no trailing newline
     assert _real(world, host, step="flip") == 0
-    assert world["real_env"].read_text() == "SP_SKIP_FAMILIES=MLB\nSP_PARALLEL_MODE=full\n"
-    world["real_env"].write_text("SP_PARALLEL_MODE=full\nexport SP_PARALLEL_MODE=designated\n")
+    assert world["real_env"].read_text() == "SP_SKIP_FAMILIES=MLB\nSP_WRITER_OF_RECORD=host\n"
+    world["real_env"].write_text("SP_WRITER_OF_RECORD=host\nexport SP_WRITER_OF_RECORD=laptop\n")
     assert _real(world, host, step="flip") == 1
-    assert _lines(world["real_receipts"])[-1]["refused"].startswith("SP_PARALLEL_MODE set on 2 lines")
+    assert _lines(world["real_receipts"])[-1]["refused"].startswith("SP_WRITER_OF_RECORD set on 2 lines")
 
 
 def test_preflight_refuses_unknown_flag_value_and_bad_timer_names(world, host):
-    world["real_env"].write_text("SP_PARALLEL_MODE=both\n")
+    world["real_env"].write_text("SP_WRITER_OF_RECORD=both\n")
     assert _real(world, host, step="preflight") == 1
     assert "not one of" in _lines(world["real_receipts"])[-1]["refused"]
     world["real_env"].write_text(REAL_ENV_TEXT)
@@ -293,3 +293,25 @@ def test_runbook_names_waivers_and_is_linked():
         assert needle in rb, needle
     h1 = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
     assert "h2-cutover-runbook.md" in h1[h1.index("## H2. Cutover"):]
+
+
+def test_flip_sets_writer_and_never_touches_parallel_mode(world, host):
+    """ARCHITECT-RULE 2026-10-01: the REAL flag is SP_WRITER_OF_RECORD; SP_PARALLEL_MODE
+    stays the quota mode and is never edited by the flip."""
+    world["real_env"].write_text("SP_PARALLEL_MODE=designated\nSP_WRITER_OF_RECORD=laptop\n")
+    assert _real(world, host, step="flip") == 0
+    assert world["real_env"].read_text() == "SP_PARALLEL_MODE=designated\nSP_WRITER_OF_RECORD=host\n"
+
+
+def test_writer_of_record_stamped_on_receipts_and_named_by_compare(tmp_path, monkeypatch, capsys):
+    import compare_exports
+    monkeypatch.setattr(c, "_DOTENV_CACHE", {})
+    monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "r.jsonl"))
+    monkeypatch.setenv("SP_WRITER_OF_RECORD", "host")
+    assert c.writer_of_record() == "host" and c.append_receipt({"kind": "chain"})["writer_of_record"] == "host"
+    monkeypatch.setenv("SP_WRITER_OF_RECORD", "somewhere")
+    assert c.writer_of_record() is None                       # unknown values are never guessed
+    monkeypatch.setenv("SP_WRITER_OF_RECORD", "laptop")
+    (tmp_path / "l").mkdir(); (tmp_path / "h").mkdir()
+    compare_exports.main([str(tmp_path / "l"), str(tmp_path / "h"), "--since", "0"])
+    assert "writer of record: laptop — canonical side: laptop" in capsys.readouterr().out

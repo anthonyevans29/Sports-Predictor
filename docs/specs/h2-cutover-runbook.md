@@ -74,10 +74,10 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 
      | Step | Does | Refuses on |
      |---|---|---|
-     | preflight | `sp_migrate verify` (sha256, integrity, every table count); checks the pack's `DATABASE_URL` is relative; reads the timers list and host.env | missing pack; verify FAIL; an absolute `DATABASE_URL`; a missing or empty timers list, or a non-`sp-*.timer` name in it; host.env missing or not writable; `SP_PARALLEL_MODE` on more than one line or with an unknown value; any target under `data/` |
+     | preflight | `sp_migrate verify` (sha256, integrity, every table count); checks the pack's `DATABASE_URL` is relative; reads the timers list and host.env | missing pack; verify FAIL; an absolute `DATABASE_URL`; a missing or empty timers list, or a non-`sp-*.timer` name in it; host.env missing or not writable; `SP_WRITER_OF_RECORD` on more than one line or with a value other than `laptop`/`host`; any target under `data/` |
      | pause | `systemctl stop` on the list, then `is-active` for each timer; lists any `sp-chain@` still running | stop failed; any timer not `inactive` |
      | install | `sp_migrate install --replace` under the DB lock (waits for a running chain) | verify FAIL; S2 ≠ S1; any R2 ≠ R1; lock timeout |
-     | flip | sets `SP_PARALLEL_MODE=full` in host.env, line-preserving; keeps `host.env.pre-cutover-<ts>` beside it | ambiguous flag lines; any other key changed |
+     | flip | sets `SP_WRITER_OF_RECORD=host` in host.env (never touches `SP_PARALLEL_MODE`), line-preserving; keeps `host.env.pre-cutover-<ts>` beside it | ambiguous flag lines; any other key changed |
      | resume | `systemctl start` on the list; each `active`; `systemctl start sp-backup.service` | a timer not active; the backup failed or has no `integrity=ok` receipt |
      | receipt | a boot-receipt-style summary: running release, db sha (S2 = S1), R2 = R1, flag, timers, first backup | any earlier step without a successful receipt, or receipts out of order |
 
@@ -131,7 +131,7 @@ the paste):
 | provider pagination | a row on one side only at a provider list/page boundary | the frozen criterion-3 class |
 | code-version skew (guarded) | the comparator prints `code-version skew: laptop <sha> ≠ host <sha>` | only when both files carry `git_sha` and the line is printed; `NOT claimable` otherwise |
 | WAIVER W1 | see below | ruled waiver |
-| WAIVER W2 | see below | waiver named in the H2-PREP lane |
+| WAIVER W2 | see below | RATIFIED for MLB only (2026-10-01) |
 
 **Not allowed:** model probabilities that differ on a matched row with no
 new input on the host side (results, injuries, lineups). The host now
@@ -159,7 +159,13 @@ roll anything back by itself; the architect rules.
   and nothing more (the same operator check as ruling (4)).
 - Paste each one as `W1 doubleheader-game-2: <row key>`.
 
-### WAIVER W2: MLB postponed games
+### WAIVER W2: MLB postponed games (RATIFIED 2026-10-01, MLB only)
+
+Ruled: "Postponed-game waiver: ratified for MLB only (the api-sports class
+we measured); any other sport needs its own receipt first." A postponed
+game in any other sport is a plain divergence until its own receipt and
+ruling exist.
+
 
 - Why: a postponement reaches the two sides at different moments, and the
   providers report it differently: statsapi on the laptop; api-sports
@@ -218,17 +224,16 @@ The laptop's 30-day cold `.backup` stays the last-resort rollback point.
 
 ## 4. Open (return to the architect)
 
-- **The writer-of-record setting.** H2 step 6 names `SP_PARALLEL_MODE=full`.
-  That is the H0-16 quota variable (values `full` and `designated`; read
-  only by `sp_run.metered_skip`). No variable encodes writer of record
-  (H0-17 is procedural: which machine's exports feed the Cockpit). The
-  host has run `SP_PARALLEL_MODE=full` since H1b day one (T8 option a), so
-  on the live host `flip` is a receipted no-op (`changed: false`). Should
-  H2 add a distinct writer-of-record setting, or does the procedural
-  switch (Cockpit loads host exports; laptop runs no chains) stand?
-- **Waiver W2** is named by the H2-PREP lane; no earlier ruling defines
-  it. Ratify its shapes and evidence rule, and decide whether it should
-  extend beyond MLB.
+- **RESOLVED 2026-10-01 — writer of record.** ARCHITECT-RULE: a REAL flag,
+  `SP_WRITER_OF_RECORD=laptop|host`, lives in host.env AND in the laptop's
+  `.env`. It is `laptop` until the flip; `sp_cutover.py flip` sets
+  `host`. It is consumed by every receipt line (boot and chain included)
+  and by `compare_exports` (which names the canonical side), and later by
+  the feed header. No behavior is gated on it yet. `SP_PARALLEL_MODE` stays
+  the H0-16 quota mode and is never touched by the flip. **After the flip,
+  set the laptop's `.env` to `SP_WRITER_OF_RECORD=host` by hand**, so both
+  sides agree.
+- **RESOLVED 2026-10-01 — W2** is ratified for MLB only (see section 2).
 - **MLB after cutover:** MLB predictions are a laptop duty (PHASE B
   negative). After cutover, MLB prediction files appear as
   `only on laptop` until the H2-era MLB decision lands. That is not a

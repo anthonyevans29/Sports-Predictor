@@ -233,6 +233,79 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
     click.echo("RESYNC-DIFF VERDICT: " + rd.verdict(c))
 
 
+@cli.command("odds-audit")
+def odds_audit_cmd():
+    """#167 (a), READ-ONLY: per odds source — matches holding MORE THAN ONE
+    capture session (append evidence), NULL lines on line markets, rows
+    captured at/after kickoff, and how far the legacy 'average of every row'
+    1X2 fair sits from the last pre-kickoff session. Writes nothing."""
+    from src.walters import clv_restate as cr
+
+    r = cr.audit()
+    click.echo("ODDS-AUDIT (#167 a) · per source: matches · rows · multi-session matches (max) · rows at/after "
+               "kickoff · line-market rows with NULL line · |legacy − last-session| HOME fair (mean / max pp, n)")
+    for src, c in r.items():
+        click.echo(f"  {src}: {c.get('matches', 0)} · {c.get('rows', 0)} · {c.get('matches_multi_session', 0)} "
+                   f"(max {c.get('max_sessions', 0)}) · {c.get('rows_at_or_after_kickoff', 0)} · "
+                   f"{c.get('line_market_null_line', 0)}/{c.get('line_market_rows', 0)} · "
+                   f"{c['home_gap_pp_mean']} / {c['home_gap_pp_max']} (n={c['home_gap_n']})")
+    appending = [s for s, c in r.items() if c.get("matches_multi_session", 0)]
+    click.echo("ODDS-AUDIT VERDICT: " + (f"APPEND CONFIRMED on {', '.join(appending)}" if appending
+                                         else "no source holds more than one capture session per match"))
+
+
+@cli.command("clv-restate")
+@click.option("--apply", is_flag=True, help="WRITE the restated CLV (default: dry-run, writes nothing).")
+@click.option("--backup", "backup_path", default=None,
+              help="Required with --apply: a .backup file taken just before (integrity checked; "
+                   "its prediction_outcomes count must equal the live DB's).")
+def clv_restate_cmd(apply, backup_path):
+    """#167 (b): every stored CLV grade recomputed with the RULED close (the
+    last pre-kickoff capture session) vs the stored value, by sport and
+    competition — counts changed, mean / max delta, old vs new mean CLV.
+    Dry-run by default. --apply --backup PATH writes clv / closing_price /
+    closing_bookmaker in one transaction; grades with no pre-kickoff capture
+    are reported and left as stored."""
+    import sqlite3
+    from pathlib import Path
+    from src.walters import clv_restate as cr
+
+    if apply:
+        if not backup_path or not Path(backup_path).is_file():
+            raise click.UsageError("--apply needs --backup PATH to an existing .backup file (law 5).")
+        bp = Path(backup_path).resolve()
+        if "data" in bp.parts:
+            raise click.UsageError("REFUSED: the backup must not live under data/ (law 5).")
+        con = sqlite3.connect(f"file:{bp}?mode=ro", uri=True)
+        try:
+            ok = [r[0] for r in con.execute("PRAGMA integrity_check")] == ["ok"]
+            n_bk = con.execute("SELECT COUNT(*) FROM prediction_outcomes").fetchone()[0]
+        finally:
+            con.close()
+        from sqlalchemy import func, select as _sel
+        from src.db.database import session_scope as _ss
+        from src.db.schema import PredictionOutcome as _PO
+        with _ss() as _s:
+            n_live = _s.execute(_sel(func.count(_PO.id))).scalar()
+        if not ok or n_bk != n_live:
+            raise click.UsageError(f"REFUSED: backup integrity={'ok' if ok else 'FAIL'}, prediction_outcomes "
+                                   f"backup {n_bk} vs live {n_live} — take a fresh .backup first.")
+        click.echo(f"backup verified: {bp} integrity ok · prediction_outcomes {n_bk} = live")
+    r = cr.restate(apply=apply)
+    click.echo(f"CLV-RESTATE (#167 b) · close = LAST pre-kickoff capture session · "
+               f"{'APPLIED' if apply else 'DRY-RUN (nothing written)'}")
+    for scope, a in r["by_scope"].items():
+        click.echo(f"  {scope}: graded {a['graded']} · changed {a['changed']} · mean Δ {a['mean_delta_pp']}pp · "
+                   f"mean |Δ| {a['mean_abs_delta_pp']}pp · max |Δ| {a['max_abs_delta_pp']}pp · mean CLV "
+                   f"{a['mean_clv_old_pp']} -> {a['mean_clv_new_pp']}pp (changed rows) · closing price changed "
+                   f"{a['closing_price_changed']} · newly priced {a['newly_priced']} · unpriceable (left as "
+                   f"stored) {a['became_null']}")
+    for ln in r["examples"]:
+        click.echo(f"    e.g. {ln}")
+    for k, v in r["not_stored"].items():
+        click.echo(f"  {k}: not stored — {v}")
+
+
 @cli.command("sync-stats")
 @click.option("--competition", "competition_code", required=True, help="Code, e.g. PL")
 @click.option("--season", required=True, help="e.g. 2024/25")

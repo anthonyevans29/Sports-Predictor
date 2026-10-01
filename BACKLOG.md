@@ -95,6 +95,84 @@ specific reason they're not being built now.
     link of API "Utah Mammoth" to our "Utah Hockey Club", every listing
     cause).
 
+- **#167 THE CLOSE WAS AN AVERAGE — FIXED (ARCHITECT-RULE 2026-10-01, PRIORITY: "A mission metric may be wrong — this outranks F1 for one day").**
+  - RULING (verbatim): "(a) verify on the real DB whether the general
+    sync_odds path appends rather than replaces, drops the totals/spread
+    line, and averages captures for the "close"; (b) if confirmed, closing
+    price = LAST pre-kickoff capture, with a receipt of how many stored
+    soccer/NHL/NCAA CLV grades change and by how much; (c) fix
+    append→snapshot semantics with a before/after on a real export; (d)
+    CHANGELOG correction note; RESULTS.md soccer CLV re-stated."
+  - (a) CONFIRMED IN CODE (law 1, file and line read 2026-10-01); the
+    real-DB receipt is `odds-audit` (operator):
+    - `IngestionService.sync_odds` (soccer, cups, NHL via the window job,
+      hourly) did `s.add(Odds(...))` per row with no delete, so it APPENDED
+      a full book set every run.
+    - It never passed `line=`, so TOTALS/SPREADS lines were stored NULL.
+    - evaluate's CLV and its M11b backfill, NFL grading (both paths), the
+      NFL predict market block, `nhl_shadow`, the prediction export's
+      market block (the Desk's reference), the market blend and
+      miss_analysis all de-vigged EVERY stored 1X2 row of a match at once
+      (`MarketSnapshot.average_implied` over all captures). The "close"
+      was a mean over every capture, and `best_price` was the best price
+      ever seen.
+    - MLB (api_baseball) and NFL (api_american_football) were already
+      replace-on-sync.
+  - (b) THE CLOSE, one definition (`src/walters/close.py`):
+    - candidate rows have captured_at strictly before kickoff;
+    - take the LAST CAPTURE SESSION (the newest such row, plus every row
+      within 10 minutes of it);
+    - take the latest row per (bookmaker, selection, line);
+    - a book absent from that session contributes nothing.
+    Every reader listed above now uses it. Fixtures already took the
+    latest per book before kickoff; they now also apply the session.
+    RECEIPT: `clv-restate` (a dry-run by default) reports, per
+    sport/competition, how many stored grades change and by how much.
+    `--apply --backup PATH` (a verified .backup) re-states them. Grades with
+    no pre-kickoff capture are reported and LEFT AS STORED (ARCHITECT-RULE
+    if they should be nulled).
+    - NFL / NHL-shadow CLV is not stored (it is graded on the fly), so it
+      re-grades through the new close on the next run.
+    - NCAA has no model CLV.
+    - MLB keeps one capture per game. Where that capture landed after
+      first pitch (M11 rollover games), the ruled close now leaves it
+      UNPRICED instead of counting an in-game price as the close.
+  - (c) WRITER FIXED: `sync_odds` now REPLACES this source's `odds` rows per
+    match on a non-empty fetch (an empty or failed fetch never wipes),
+    stores `line`, and APPENDS the de-vigged 1X2 consensus to
+    `odds_snapshots` (source = the adapter), as the NFL path does.
+    Consequences, flagged:
+    - soccer / cups / NHL gain book history in odds_snapshots, so NHL
+      value-side grades can gain anchors and the soccer line-move alarm
+      sees book data;
+    - snapshot growth is about 3 rows per match per sync.
+    Receipt owed: a before/after on a real export (the operator runs
+    `export-predictions` for the same date on main vs this branch and
+    compares the `market` blocks).
+  - (d) CORRECTION NOTE:
+    - CHANGELOG 2026-10-01;
+    - RESULTS.md carries a "CORRECTION PENDING" note under Soccer, and
+      `results-tally` now prints the CLV basis line on every regeneration;
+    - re-statement = `clv-restate --apply --backup …` then `results-tally`.
+  - TESTS: `tests/test_odds_close_semantics.py` (5):
+    - the session rule (stale book dropped, in-game excluded, a NULL
+      timestamp excluded);
+    - close vs legacy average;
+    - sync_odds replaces, keeps the line, appends history, and an empty
+      fetch never wipes;
+    - restate dry-run vs apply, and an unpriceable grade left as stored;
+    - the CLI backup gate.
+    `test_value_side_and_qb_audit.py`'s fixture close is now captured
+    before kickoff: its rows had been stamped at insert time, after
+    kickoff, which the ruled close correctly treats as in-game.
+  - OWED (operator, in order):
+    1. `odds-audit` (paste the verdict);
+    2. `clv-restate` (paste the dry-run table);
+    3. the before/after export;
+    4. ruling on apply;
+    5. `clv-restate --apply --backup <fresh .backup>`;
+    6. `results-tally`.
+
 - **#163 SOCCER-CANDIDATES LANE (architect 2026-10-01): Dixon-Coles rho fit + S14 Stage-2 — pre-committed, built, operator runs owed.**
   - RULING (verbatim): "LANE SOCCER-CANDIDATES (backtest-only, frozen a
     priori): (a) Dixon-Coles low-score correction (rho fitted on 2023/24

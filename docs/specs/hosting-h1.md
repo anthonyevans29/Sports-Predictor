@@ -782,6 +782,8 @@ venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ p
 
 ## H2. Cutover: the ONE `.backup` migration
 
+**Operator runbook (H2-PREP):** [`h2-cutover-runbook.md`](h2-cutover-runbook.md) covers `sp_cutover.py`, the scratch dry run, the fresh-fingerprint compare with waivers W1 and W2, and rollback. The cutover itself remains an architect ruling.
+
 **Why it cannot be skipped.** The host's bootstrapped DB holds only what
 providers still serve today. These are non-resyncable, and exist only on
 the laptop:
@@ -856,7 +858,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 5. Delete the pack on both machines (`rm -rf`). It holds a DB copy and
    `.env`.
 6. TERMINAL (host), in order:
-   - Set `SP_PARALLEL_MODE=full` in host.env.
+   - Set `SP_WRITER_OF_RECORD=host` in host.env (ARCHITECT-RULE 2026-10-01; `sp_cutover.py flip`
+     does it), then the same in the laptop's `.env`. `SP_PARALLEL_MODE` stays the quota mode.
    - Run `systemctl start $(cat /etc/sports-predictor/timers.enabled)`.
    - Run `systemctl start sp-backup.service` and paste its receipt.
 7. The laptop keeps its last `.backup` file cold for 30 days (the rollback

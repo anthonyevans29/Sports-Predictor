@@ -22,6 +22,9 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-01 — #201 DONE: the Discussions `list` receipt is in, and the seed-thread links are recorded.**
+The operator ran the first dispatch (mode `discussions`, action `list`). The receipt is on #201: Discussions are enabled, with six categories (Q&A, Ideas, RFC and Receipts as ruled, plus GitHub's default Announcements and Polls). The four seed threads are #197 (Q&A, NHL information floor), #198 (Q&A, api-sports NFL home/away labels), #199 (Ideas, Kalshi fill rates) and #200 (Receipts, S14 totals). The links are now in docs/LEDGER.md. Open point: the read succeeded with the current token scopes, but write access is untested until the first `post` or `reply`. The fence is unchanged: threads are input, never rulings.
+
 - **#201 DISCUSSIONS POSTING INSIDE THE LEDGER WORKFLOW (ARCHITECT 2026-10-01) + #170 closed.**
   - RULING (verbatim): "Discussions posting runs INSIDE the ledger
     workflow, using the existing LEDGER_PROJECT_TOKEN secret (classic PAT,

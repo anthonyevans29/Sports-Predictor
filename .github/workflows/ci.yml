@@ -26,3 +26,18 @@ jobs:
           PY
       - name: Tests (throwaway SQLite; never touches data/)
         run: python -m pytest -q tests
+  fragments:
+    # ARCHITECT-RULE 2026-10-02: per-PR ledger fragments. A PR adds
+    # changelog.d/<PR>-<slug>.md + docs/ledger/entries/<date>-<slug>.md and never
+    # edits CHANGELOG.md / BACKLOG.md (only `ledger.py compile` folds them).
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with: {fetch-depth: 0}
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Install deps
+        run: pip install -q -r requirements.txt
+      - name: Fragments added; shared ledger files untouched
+        run: python scripts/ledger.py check-fragments --base "origin/${{ github.base_ref }}" --pr "${{ github.event.pull_request.number }}"

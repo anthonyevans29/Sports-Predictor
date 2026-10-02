@@ -77,13 +77,21 @@ def main(argv=None) -> int:
             git("checkout", "--", "RESULTS.md")
         git("checkout", "--quiet", "--detach", f"{target}^{{commit}}")
         after, after_rel = git("rev-parse", "--short", "HEAD"), c.running_release()
+        # ARCHITECT-RULE 2026-10-02 (per-PR fragments): the fold runs in the tag ritual on main
+        # (`ledger.py compile --commit`); the host never commits, so this step only REPORTS what the
+        # deployed tag still carries uncompiled (expected 0).
+        pending = sorted(str(p.relative_to(c.REPO)) for d in ("changelog.d", "docs/ledger/entries")
+                         for p in (Path(c.REPO) / d).glob("*.md") if p.name != "README.md")
         changed = git("diff", "--name-only", before, after).splitlines() if before != after else []
     migs = [p for p in changed if p.startswith("migrate_") and p.endswith(".py")]
     c.append_receipt({"kind": "deploy", "exit": 0, "from_sha": before, "to_sha": after,
                       "from_release": before_rel, "to_release": after_rel, "tag": target,
-                      "files_changed": len(changed), "new_migrations": migs})
+                      "files_changed": len(changed), "new_migrations": migs,
+                      "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
-          + (f"\n  ! migrations in this range (backup first, then run by hand): {migs}" if migs else ""))
+          + (f"\n  ! migrations in this range (backup first, then run by hand): {migs}" if migs else "")
+          + (f"\n  ! {len(pending)} ledger fragment(s) uncompiled in {target} — the tag was cut without "
+             "`ledger.py compile` (docs/RELEASES.md step 2)" if pending else ""))
     return 0
 
 

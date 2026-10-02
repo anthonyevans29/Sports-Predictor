@@ -18,7 +18,7 @@ from __future__ import annotations
 from collections import Counter, defaultdict
 
 INTL_CODES = ("UNL", "WC", "UEFA_EURO", "WCQ_EU", "WCQ_SA", "WCQ_AF", "WCQ_AS", "WCQ_NA", "WCQ_OC",
-              "FRIENDLIES_INT", "WCQ_IC", "UEFA_EURO_Q", "CONCACAF_NL")
+              "FRIENDLIES_INT", "WCQ_IC", "UEFA_EURO_Q", "CNL", "CNL_Q")
 
 
 def inventory(s) -> dict:

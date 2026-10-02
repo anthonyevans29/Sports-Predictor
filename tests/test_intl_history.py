@@ -138,3 +138,14 @@ def test_cli_prints_exclusions_and_refuses_data_dir(tmp_path):
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     res = CliRunner().invoke(cli, ["intl-sync", "--save", os.path.join(root, "data", "x"), "--dry-run"])
     assert res.exit_code == 2 and "under data/" in res.output
+
+
+def test_concacaf_nations_league_and_its_qualification_are_coded():
+    """ARCHITECT 2026-10-02: intl-sync REFUSED on id 808 (CONCACAF NL
+    Qualification, no code). Ruled: CNL (536) and CNL_Q (808)."""
+    p = ih.plan([league(536, "CONCACAF Nations League", 2019, 2023),
+                 league(808, "CONCACAF Nations League - Qualification", 2018)], SINCE)
+    assert [(x["code"], x["league_id"], x["year"]) for x in p] == [("CNL", 536, 2019), ("CNL", 536, 2023),
+                                                                   ("CNL_Q", 808, 2018)]
+    with pytest.raises(ih.IntlError, match="adapter maps 808"):
+        ih.plan([league(999, "CONCACAF Nations League - Qualification", 2018)], SINCE)

@@ -32,7 +32,7 @@ Conventions: soccer seasons are `"2026/27"`; MLB and NFL seasons are
 | `sync-matches` | `--competition --season --seasons N --date-from --date-to` | Schedules, scores, statuses. `--seasons N` backfills N seasons (sport-aware season strings). **Run `sync-teams` for the same competition-season first:** listings whose clubs are not in the DB are skipped (the skip line names the id range). **MLB on a host whose `SP_SKIP_FAMILIES` names MLB** (PHASE A, 2026-09-29) syncs from the api-sports Baseball fallback instead of statsapi: teams first, then the season's `/games` in one call (`--season` required; a date window filters locally); stage stays NULL on rows it creates; prints an `MLB-FALLBACK-RECEIPT` line with the doubleheader-game-2 limitation. `sync-teams --competition MLB` routes the same way. |
 | `sync-odds` | `--competition --season` | Book odds for upcoming games (soccer & MLB bulk path). |
 | `sync-injuries` | `--competition --season` · `--kickoff-within-hours N` | Current injury/status report per team. NFL: positions joined from the roster endpoint. `--kickoff-within-hours N` (2026-09-29) scopes the sync to the teams in this competition's scheduled games kicking off within N hours. That is the window service's imminent-tier step. It makes no provider call when nothing is inside the window. |
-| `capture-odds` | `--sport --competition --season` | Lightweight odds-only capture for CLV tracking. |
+| `capture-odds` | `--sport --competition --season` | Lightweight odds-only capture for CLV tracking. Runs the MLB odds sync, which appends the 1X2 book-consensus snapshot itself (2026-10-02), then snapshots TOTALS. Only games before first pitch are captured (#174). |
 | `mlb-odds-timing` | `--start --end --only-missing` | Read-only: when api-sports first priced each MLB game (from odds_snapshots), with UTC-rollover/night flags and a per-game verdict (#155). |
 | `wipe-injuries` | `--confirm` | Destructive reset of the injuries table. |
 
@@ -156,7 +156,8 @@ books' fair bars with a market-only chip and the Kalshi status.
 | Command | Options | Purpose |
 |---|---|---|
 | `predict` | `--sport --competition --season` | Write predictions for upcoming games (production model). |
-| `evaluate` | `--sport` | Grade finished games (sides, totals, CLV; overnight closer backfill). |
+| `evaluate` | `--sport` | Grade finished games (sides, totals, CLV; overnight closer backfill). The close is the odds table's last pre-kickoff session under the #207 contract, falling back to the last complete pre-kickoff book-consensus snapshot (MLB odds history, 2026-10-02). |
+| `close-probe` | `--match ID` | READ-ONLY receipt of one match's close: the snapshot sessions (pre-game or in-game), the grading close (source, time, books, fair) and the stored CLV. |
 | `improve` | `--sport --force-input-eval --hold-on-pass` | Train a candidate and gate it vs production on the frozen holdout. Rejection is the normal outcome. `--hold-on-pass` (or env `SP_IMPROVE_HOLD_ON_PASS=1`, set by the host units — H0-5): a PASS is HELD, not promoted, and prints an `SP-PAGE:` line. **`--sport soccer` (also the bare default) is REFUSED before any write** (P1-1 #209, exit 2): soccer goes through `soccer-backtest` + `set-soccer-config` and `soccer-refresh`. |
 | `ratify-candidate` | `--sport --version --yes` | Promote a HELD candidate on explicit operator ratification; refused unless the production version it beat is still production. |
 | `backtest` | `--season --competition` | Leakage-free historical re-run of the current model. |

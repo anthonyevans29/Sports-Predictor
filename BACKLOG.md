@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — NHL v6 DECLARED (#153 part 2; corrected manifest #210): frozen and NOT RUN, awaiting ratification.**
+Everything the rulings left open is fixed in `docs/specs/nhl-xg-v6.md` before any data:
+- **Events:** eligible = shot-on-goal / missed-shot / goal (Fenwick); target = goal; the event code is never a feature.
+- **Rules:** R1 blocked shots excluded (coordinates are the block site); R2 shootout excluded; R3 shooter side (roster, else owner); R4 situation code required; R5 empty net (defending goalie digit 0) excluded; R6 missing coordinates excluded; R7 orientation from homeTeamDefendingSide.
+- **Features:** distance, angle, EV/PP/SH and a nullable shot type (levels with >= 100 fit events, plus `other` and `na`).
+- **Fit:** IRLS logistic with ridge 1.0, on 2023-10-01..2024-10-08 only, asserted.
+- **v6:** v1 with the margin inside ln(margin + 1) = |xG_home − xG_away|; the result stays the game result (the ruling's first reading). Games without xG fall back to the goal margin, counted. Rolling team xG is reported only.
+- **Proof:** a test shows a game's own shots never change its own prediction.
+- **Registry:** `nhl-v6` is declared; NHL 2025 has 5 prior reads.
+- **Confirmation window, PROPOSED:** the first 150 NHL 2026 regular-season games after the verdict; CONFIRMED only if log-loss <= 0.6866 AND below v1 on the same games.
+- **Run order:** `.backup` → `nhl-shot-sync` + coverage receipt → ratification → `nhl-backtest --candidate v6` once.
+- **Still open on #210:** the #197 "eventual-starter (oracle identity) replay" label (an operator edit to the Discussions thread) and the deployable projected/confirmed/unknown replay.
+
 **2026-10-02 — #212 BUILT: the experiment registry and the confirmation doctrine.**
 Ruled (2026-10-01): "experiment registry (candidate, training cutoff, scored match ids, prior reads) + DOCTRINE: a gate pass is followed by a declared future-confirmation window before production (NFL's two-week ratification generalized). Existing verdicts unchanged." 2026-10-02: "the registry records every candidate from here."
 - The ledger is in git (`docs/registry/experiments.json`) so every declaration and run is reviewed in a PR.

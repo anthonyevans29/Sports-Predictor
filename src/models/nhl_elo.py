@@ -218,3 +218,41 @@ class NHLEloV5(NHLEloV1):
         delta = self.cfg.k_factor * mov * (won - exp_h)
         self._ratings[g.home_id] = rh + delta
         self._ratings[g.away_id] = ra - delta
+
+
+# --------------------------------------------------------------------------
+# v6 candidate (NHL-xG lane #153; declaration docs/specs/nhl-xg-v6.md):
+# v1 with ONE change — the margin inside ln(margin + 1) is the game's xG
+# margin |xG_home − xG_away| (src/models/nhl_xg.py, frozen 2023-24 fit).
+# The result term stays the game result. The xG margin is read ONLY in
+# update(g), after predict(g): a game's own shots never price that game
+# (the no-same-game-leakage proof, tests/test_nhl_xg_v6.py).
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class NHLEloV6(NHLEloV1):
+    xg_by_match: dict = field(default_factory=dict)   # match_id -> (xG_home, xG_away)
+    goal_margin_fallbacks: int = 0
+    xg_updates: int = 0
+
+    name = "nhl_elo_v6_xg_margin"
+
+    def update(self, g) -> None:
+        for tid in (g.home_id, g.away_id):
+            self._regress_if_new_season(tid, g.season)
+        exp_h = self._expected_home(g.home_id, g.away_id)
+        won = 1.0 if g.home_score > g.away_score else 0.0
+        rh, ra = self.rating(g.home_id), self.rating(g.away_id)
+        gap = (rh + self.cfg.home_advantage - ra) if won else (ra - rh - self.cfg.home_advantage)
+        xa = self.xg_by_match.get(getattr(g, "match_id", None))
+        if xa is None:
+            margin = abs(g.home_score - g.away_score)
+            self.goal_margin_fallbacks += 1
+        else:
+            margin = abs(xa[0] - xa[1])
+            self.xg_updates += 1
+        mov = math.log(margin + 1.0) * (self.cfg.mov_base / (self.cfg.mov_base + max(gap, 0.0) * 0.001))
+        delta = self.cfg.k_factor * mov * (won - exp_h)
+        self._ratings[g.home_id] = rh + delta
+        self._ratings[g.away_id] = ra - delta

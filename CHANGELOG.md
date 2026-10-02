@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#153 part 2: NHL v6 declared — frozen, not run)
+- `docs/specs/nhl-xg-v6.md`: the frozen declaration under the corrected manifest (#210), awaiting ratification. The event code is eligibility/target only; shot type is a nullable feature; rules R1–R7 (blocked, shootout, side, situation, empty net, coordinates, orientation); fit on 2023-24 only; v6 = v1 with the margin input = |xG_home − xG_away|; rolling team xG is reported only; same gate; a proposed confirmation window.
+- `src/models/nhl_xg.py` (rules, IRLS logistic fit with window assertion, game xG, rolling team xG) and `NHLEloV6` (`src/models/nhl_elo.py`).
+- `nhl-backtest --candidate v6`: refused unless the registry holds `nhl-v6` and it has not run (the refusal comes before any data load); asserts the fit ended before the first train game; reports v1 beside v6, shot information, RPS and the exclusions; records the ONE run in the registry.
+- Registry: `nhl-v6` declared (status declared; 5 prior reads of NHL 2025 shown). tests/test_nhl_xg_v6.py: 7 tests, including the no-same-game-leakage proof.
+
 ## 2026-10-02 (#212: experiment registry + confirmation doctrine)
 - `src/walters/registry.py` and the git-tracked ledger `docs/registry/experiments.json`. Each candidate goes through declare (before any run; the confirmation window is required), run (once per id; scored ids in a sidecar `docs/registry/ids/<id>.txt` with count and sha256; prior reads computed), verdict (verbatim), then confirmation. `production_allowed()` encodes the doctrine: a PASS is not production until a declared confirmation window closes CONFIRMED.
 - Seeded with the pre-registry verdicts, unchanged: NHL v1–v5, S19, DC-fit, S14 stage 2 and cups fix-v2. Their ids are "not recorded" and are never reconstructed. NHL's 2025 test set shows 5 prior reads.

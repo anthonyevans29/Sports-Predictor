@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#220: UNL lane step 1 — national-team results inventory)
+- `src/walters/intl_inventory.py` + `python cli.py intl-inventory` (read-only). For UNL, WC, UEFA_EURO, WCQ_* and FRIENDLIES_INT, per competition and season: finished+scored matches, date span, teams, raw home/draw/away shares and venue completeness. Also each UNL team's prior international results before its first UNL match.
+- No neutral site is inferred (law 4). tests/test_intl_inventory.py.
+
 ## 2026-10-01 (#207: P0-2 the close contract)
 - `close_1x2(rows, before, outcomes)` now requires the outcome set: binary HOME/AWAY or 3-way HOME/DRAW/AWAY. `outcomes_for(sport)` is the one mapping (soccer is 3-way, every other sport binary, as read from the adapters).
 - A book counts only with a COMPLETE same-session set. Each complete book is de-vigged on its own, then the books are averaged. With no complete book the result is UNPRICED: `fair` is None and `missing` names each quoted book's absent legs. `books` counts complete books, `books_quoted` every book in the session. `priced(cl)` is the caller check.

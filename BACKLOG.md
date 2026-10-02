@@ -22,6 +22,12 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — #220 UNL LANE STEP 1 BUILT: the national-team results inventory (read before the pre-commitment).**
+The ruling's candidate is an international Elo on STORED results with the home advantage declared a priori and a gate of naive − 0.010 in the same bands. Law 1 comes first: `intl-inventory` reports what the DB holds (UNL / WC / Euro / WC qualifiers / friendlies, per season), the raw home/draw/away shares and how much prior history each UNL team has.
+- **No neutral flag is stored:** the receipt says so and nothing infers one. This matters for the home-advantage declaration, since tournament games are often neutral.
+- **Receipt owed (laptop):** `python cli.py intl-inventory`.
+- **Next:** the pre-commitment (naive baseline definition, home term and its neutral rule, splits, bands), written from the receipt and declared in the registry (#212) before any fit.
+
 **2026-10-02 — ARCHITECT-RULE on #207: the exports adopt the SAME close contract. Maker validation PENDING (#218).**
 (1) RULED: "the MLB/soccer prediction exports and the fixtures export adopt the SAME close contract (one definition; the export block IS the Desk's reference — #117 showed what pooled de-vig does to it)." This lands in the same PR (#215).
 - `_summarize_market` and `_fixture_row` now call `close_1x2`. `bookmaker_count` means complete books, so the thin-book rule reads stricter, conservatively.

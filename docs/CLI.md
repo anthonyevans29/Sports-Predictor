@@ -156,6 +156,7 @@ books' fair bars with a market-only chip and the Kalshi status.
 | Command | Options | Purpose |
 |---|---|---|
 | `predict` | `--sport --competition --season` | Write predictions for upcoming games (production model). |
+| `intl-inventory` | — | #220 UNL lane step 1, read-only: national-team results stored per competition/season (finished+scored, span, teams, raw H/D/A, venue completeness) and each UNL team's prior international history. The UNL Elo pre-commitment is written from this receipt. No neutral site inferred. |
 | `evaluate` | `--sport` | Grade finished games (sides, totals, CLV; overnight closer backfill). |
 | `improve` | `--sport --force-input-eval --hold-on-pass` | Train a candidate and gate it vs production on the frozen holdout. Rejection is the normal outcome. `--hold-on-pass` (or env `SP_IMPROVE_HOLD_ON_PASS=1`, set by the host units — H0-5): a PASS is HELD, not promoted, and prints an `SP-PAGE:` line. **`--sport soccer` (also the bare default) is REFUSED before any write** (P1-1 #209, exit 2): soccer goes through `soccer-backtest` + `set-soccer-config` and `soccer-refresh`. |
 | `ratify-candidate` | `--sport --version --yes` | Promote a HELD candidate on explicit operator ratification; refused unless the production version it beat is still production. |

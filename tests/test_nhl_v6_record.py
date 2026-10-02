@@ -68,3 +68,12 @@ def test_intl_elo_v1_record_failed_on_calibration_with_one_read():
     assert r["crit_ll"] is True and r["crit_bands"] is False and r["neutral_rule"] == "intl-neutral-v2"
     assert round(r["ll_model"], 4) == 0.8507 and round(r["bar"], 4) == 1.0431
     assert len(reg.prior_reads(e["test_set"], None, before_id="intl-elo-v2")) == 1
+
+
+def test_v7_run_record_is_never_rewritten_and_carries_the_ledger_annotation():
+    """ARCHITECT 2026-10-02: nhl-v7's recorded prior-reads=5 stays as written (never rewrite a run record);
+    the annotation ledger_count_at_record: 6 explains the laptop/ledger lag; the live count is the ledger's."""
+    e = reg.get("nhl-v7")
+    assert e["run"]["prior_read_count"] == 5 and e["ledger_count_at_record"] == 6
+    assert "never" in e["ledger_count_note"] and "rewritten" in e["ledger_count_note"]
+    assert len(reg.prior_reads(e["test_set"], None, before_id="nhl-v7")) == 6

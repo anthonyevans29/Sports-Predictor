@@ -1,0 +1,4 @@
+**2026-10-02 — ARCHITECT: AET/PEN release ratified; nhl-v7's run record stays, annotated with the ledger count.**
+- **Ruling (verbatim):** "(1) AET/PEN without a stored 90-minute score are unscoreable → released, as built (literal reading ratified; the cohort is league-style play anyway). (2) nhl-v7's recorded prior-reads=5 stays as written — never rewrite a run record; add an annotation field "ledger_count_at_record: 6" with one line explaining the laptop/ledger lag. The live count is the ledger's."
+- **(1):** no change. #252's `_unscoreable` already releases AET / PEN rows without a 90-minute score.
+- **(2):** nhl-v7 has `run.prior_read_count` 5, untouched. The laptop computed it before nhl-v6's run was in its ledger. The entry gains `ledger_count_at_record: 6` (v1–v6, re-verified with `registry.prior_reads`) and a one-line `ledger_count_note`. `docs/REGISTRY.md` gains "Run records are never rewritten".

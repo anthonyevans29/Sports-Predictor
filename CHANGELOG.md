@@ -11,6 +11,9 @@ Every drop adds an entry going forward.
 - `docs/specs/intl-elo-v1.md` RATIFIED (draws S=0.5 with max(margin,1); no regression; unknown venue +100; RULE CHECK 10% with the pre-declared intl-neutral-v2; naive symmetric at neutral). Registry entry carries `ratified`; still unrun.
 - `python cli.py intl-elo-backtest [--preflight]` (`src/walters/intl_elo.py`): registry refusal before any data load; walk-forward Elo with the soccer Elo→Poisson three-way; naive − 0.010 + bands; RPS; one recorded run. Refuses while CNL_Q's K class is unruled (#234). tests/test_intl_elo.py (11).
 
+## 2026-10-02 (#230: CONCACAF Nations League codes — intl-sync refused on id 808)
+- Adapter codes `CNL` (536, CONCACAF Nations League) and `CNL_Q` (808, its 2018 qualification), ruled. The ingest codes both by name; the provisional, never-written `CONCACAF_NL` is renamed `CNL`. `intl-inventory` includes both. A regression test reproduces the refusal.
+
 ## 2026-10-02 (#220 lane 2: international Elo v1 declared — frozen, not run, awaiting ratification)
 - `docs/specs/intl-elo-v1.md`: the frozen pre-commitment (H +100 / 0 at derived-neutral; K 20/40/50/60 by class; ln(|margin|+1) with our Elos' 2.2 gap factor; the soccer Elo→Poisson draw mapping with ρ −0.10; train 2018–2024-08, test UNL 2024/25 + WCQ_EU 2025-26; bar = naive − 0.010; bands; RPS). Five RATIFY items, including the draw update (ln(0+1) = 0 would freeze ratings on every draw).
 - Registry: `intl-elo-v1` declared (unrun, 0 prior reads) with a 60-game executable confirmation plan. tests/test_intl_elo_declaration.py.

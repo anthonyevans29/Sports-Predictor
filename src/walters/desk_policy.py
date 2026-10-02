@@ -687,6 +687,19 @@ def venue_block(ven) -> dict:
             "reason": ven["reason"]}
 
 
+def window_venue(row: dict, now_ms: float) -> dict:
+    """F1c (#191): the venue verdict for one Next-24h card row (the fixtures
+    grammar + engine), computed here so the Cockpit only renders it — the same
+    inputs the card's in-browser venueEdge() read before F1c."""
+    fair = (row.get("market") or {}).get("fair_prob") or {}
+    ven = venue_edge({"marketOnly": row.get("engine") != "model_edge",
+                      "sport": str(row.get("competition") or row.get("sport") or "?").upper(),
+                      "utc": row.get("utc_date") or "", "fairAll": fair,
+                      "books": (row.get("market") or {}).get("bookmaker_count") or 0,
+                      "kalProb": kal_from_fixture(row.get("kalshi"), fair)}, now_ms)
+    return venue_block(ven)
+
+
 def desk_block(r, c, v, ven) -> dict:
     """The per-row `desk` field (model rows: the call + any value shadow;
     market-only rows: the venue engine). Every row also carries `venue`, the

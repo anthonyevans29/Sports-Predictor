@@ -243,7 +243,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 let rows=[], sportLabel="", sampleNS=null;
 // NHL SHADOW (architect 2026-09-30): rows from an engine "model_shadow" export
 // (the FAILED nhl_elo_v1) live HERE, never in `rows`. `rows` is the only input
-// to policy() (Desk calls), venueEdge() and the ledger's Log button, so a
+// to policy() (Desk calls), the venue table and the ledger's Log button, so a
 // shadow row cannot become a call, a venue input or a ledger entry.
 let shadowRows=[];
 function normalizeShadow(doc){
@@ -265,14 +265,11 @@ function renderShadow(){
 }
 
 const $=id=>document.getElementById(id);
-const POLICY={
-  SOCCER:{eMin:4,eLad:10,eHair:10,pMin:0.50,qNever:false},
-  NFL:{eMin:4,eLad:Infinity,eHair:15,pMin:0,qNever:true},
-  MLB:{eMin:4,eLad:Infinity,eHair:15,pMin:0,qNever:false},
-  NHL:{passAll:true},
-  DEFAULT:{eMin:4,eLad:Infinity,eHair:15,pMin:0,qNever:false},
-};
-const BASE_UNITS=1;
+// F1c (ARCHITECT-RULE 2026-10-01, #191): the Desk policy lives ONLY in
+// src/walters/desk_policy.py. The Cockpit renders the `desk` blocks of the
+// files (export --desk) and refuses prediction/fixtures files without them.
+// The deleted JS's last known outputs are the regression golden:
+// tests/golden/desk_js_v1_1.json.gz (tests/test_desk_golden.py).
 
 function normalize(doc){
   const out=[];
@@ -393,7 +390,7 @@ function kalFromPrediction(p,mk,fair){
 // VENUE-EDGE ENGINE (policy v1.1, shadow) — client-side mirror of
 // src/walters/venue.py: divergence = book fair − Kalshi, per side.
 // ---------------------------------------------------------------------
-const VENUE={minBooks:4,minDivPP:5.0,units:0.25,staleGapPP:8.0};  // frozen a-priori
+const VENUE={units:0.25,staleGapPP:8.0};   // display + ledger only (the engine is desk_policy.venue_edge)
 // KICKOFF PARSING (#178, 2026-10-01): exports write utc_date as NAIVE UTC
 // ("2026-10-01T19:05:00", no zone). Date.parse reads a zone-less date-time as
 // LOCAL time, which shifted every kickoff by the viewer's UTC offset. utcMs()
@@ -401,34 +398,6 @@ const VENUE={minBooks:4,minDivPP:5.0,units:0.25,staleGapPP:8.0};  // frozen a-pr
 function utcMs(s){ if(!s) return NaN; s=String(s);
   const naive=/T\d\d:\d\d/.test(s)&&!/([zZ]|[+-]\d\d:?\d\d)$/.test(s);   // date-only is UTC already
   return Date.parse(naive?s+"Z":s); }
-function venueEdge(r,now){
-  const out={eligible:false,reason:"",side:null,divPP:null,bookP:null,kalP:null,sides:{}};
-  // Charter (architect ruling 2026-09-26): the MARKET-ONLY family only (NHL,
-  // NCAA, cups when priced). Model sports emit model_edge ONLY — the signal
-  // cannot tell "books sharp, Kalshi soft" from "books dead", and NFL books
-  // were found stale at source.
-  // out.kind (PASS-REASON CLASSES, presentation only): "noref" = no pair / pair
-  // too thin (re-run later: books and Kalshi post near kickoff); "floor" = a
-  // divergence measured and declined; null = never eligible (charter, UNL, in-play).
-  if(!r.marketOnly){out.reason="model sport — model_edge only (venue charter: market-only family)";return out;}
-  if(r.sport==="UNL"){out.reason="single venue — no pair (UNL)";return out;}
-  if(r.utc&&utcMs(r.utc)<=now){out.reason="in-play — never";return out;}
-  const fair=r.fairAll||{}; const hasBook=(r.books||0)>0&&fair.HOME!=null&&fair.AWAY!=null;
-  if(!hasBook||!r.kalProb){out.reason="single venue — no pair"; out.kind="noref"; return out;}
-  if((r.books||0)<VENUE.minBooks){out.reason=`books ${r.books} < ${VENUE.minBooks} — pair too thin`; out.kind="noref"; return out;}
-  let best=null;
-  for(const k of Object.keys(r.kalProb)){
-    if(fair[k]==null) continue;
-    const d=(fair[k]-r.kalProb[k])*100; out.sides[k]=d;
-    if(best==null||d>best.d) best={k,d};
-  }
-  if(!best){out.reason="single venue — no pair"; out.kind="noref"; return out;}
-  out.side=best.k; out.divPP=best.d; out.bookP=fair[best.k]; out.kalP=r.kalProb[best.k];
-  if(best.d>=VENUE.minDivPP){ out.eligible=true;
-    out.reason=`books ${(out.bookP*100).toFixed(1)}% vs Kalshi ${(out.kalP*100).toFixed(1)}% → Kalshi underprices by ${best.d.toFixed(1)}pp`; }
-  else { out.reason=`max divergence ${best.d.toFixed(1)}pp < ${VENUE.minDivPP}pp`; out.kind="floor"; }
-  return out;
-}
 
 // ---------------------------------------------------------------------
 // VALUE-SIDE ENGINE (policy v1.2 CANDIDATE, shadow — architect 2026-09-29,
@@ -469,6 +438,10 @@ const K2={feeClearsPP:4,tick:0.01};
 // costs carry fractions of a cent and display to 3 decimals.
 // The ledger's kalshi_exec_cost keeps its pre-split meaning (ask + fee = taker);
 // the maker cost rides beside it as kalshi_exec_cost_maker.
+// F1c: the DISPLAYED exec facts arrive in the file's desk.exec block
+// (desk_policy.exec_block) and execHTMLFrom renders them. The quote ACCESSORS
+// below stay: they read the export's own quote fields (no policy) for the
+// LEDGER's kalshi_exec_cost / _maker / join bid, exactly as before F1c.
 // kSide: the quotes + costs of the contract that backs a side. HOME = the home
 // YES; AWAY = the NO side of the home contract, only when the export carries
 // it (#89: two-way markets) and the row is not three-way; anything else null.
@@ -487,18 +460,8 @@ function joinBidFor(r,side){
 }
 function execCostFor(r,side){const k=kSide(r,side);return k&&k.cost!=null?k.cost:null;}        // taker
 function makerCostFor(r,side){const k=kSide(r,side);return k&&k.maker!=null?k.maker:null;}
-function deskCostFor(r,side){const m=makerCostFor(r,side);
-  if(m!=null) return {cost:m,basis:"maker"};
-  const t=execCostFor(r,side); return t==null?null:{cost:t,basis:"taker"};}
-function execEdgePP(r,side,modelP){const c=deskCostFor(r,side);return c==null||modelP==null?null:(modelP-c.cost)*100;}
+        // taker
 // The K2 exec facts for a side (also what the export's desk.exec carries).
-function execFacts(r,side,modelP){
-  if(!r.kExec||(r.kExec.cost==null&&r.kExec.ask==null&&r.kExec.maker==null)) return null;
-  const dc=deskCostFor(r,side), jb=joinBidFor(r,side);
-  return {edge_pp:execEdgePP(r,side,modelP),cost:dc?dc.cost:null,basis:dc?dc.basis:null,taker_cost:execCostFor(r,side),
-    join_price:jb?(jb.price??null):null,join_note:jb?(jb.note??null):null,no_side:!!(kSide(r,side)||{}).no};
-}
-function execEdgeHTML(r,side,modelP){ return execHTMLFrom(execFacts(r,side,modelP),modelP); }
 function execHTMLFrom(fx,modelP){
   if(!fx) return "";
   const e=fx.edge_pp;
@@ -514,26 +477,6 @@ function execHTMLFrom(fx,modelP){
   const fallback=fx.basis==="maker"&&t!=null?` · taker ${t.toFixed(3)} (${pp((modelP-t)*100)})`:"";
   return `<div class="note">${head}`+(e>=K2.feeClearsPP?` · <b class="play">fee-clears?</b>`:"")+fallback+`</div>`;
 }
-function valueSide(r,P){
-  if(r.marketOnly||P.passAll||!r.twoSided) return null;
-  const eMin=P.eMin??4; let best=null;
-  for(const k of ["HOME","DRAW","AWAY"]){
-    if(k===r.pick||r.probsAll[k]==null||r.fairAll[k]==null) continue;
-    const e=(r.probsAll[k]-r.fairAll[k])*100;
-    if(best==null||e>best.edge) best={side:k,edge:e,modelP:r.probsAll[k],marketP:r.fairAll[k]};
-  }
-  if(!best||!(best.edge>=eMin)) return null;
-  const pickMkt=r.fairAll[r.pick];
-  best.role=best.side==="DRAW"?"draw":(pickMkt!=null&&best.marketP<pickMkt?"dog":"favorite");
-  best.reason=`value on ${best.role}: ${best.edge>=0?"+":""}${best.edge.toFixed(1)}pp`
-    +` (${sideName(r,best.side)} model ${(best.modelP*100).toFixed(1)}% vs market ${(best.marketP*100).toFixed(1)}%)`
-    +` · not the top pick → v1.2 candidate shadow ${VALUE.units}u, NOT staked`;
-  const tags=["value-side shadow (v1.2 candidate)"];
-  if(r.quar){tags.push("quarantine ≥ 15pp"); best.reason+=` · row quarantined ${r.div}pp`;}
-  if(r.qbs&&r.qbs.length){tags.push("QB-flagged"); best.reason+=` · QB listed: ${r.qbs.join(", ")}`;}
-  best.tags=tags;
-  return best;
-}
 
 let deskCalls=[], deskParlays=[], deskVenue=[], deskValue=[];
 // PASS-REASON CLASSES (architect 2026-09-30; presentation only, no policy
@@ -544,7 +487,7 @@ let deskCalls=[], deskParlays=[], deskVenue=[], deskValue=[];
 // and Kalshi post thin and late — or "below floor" (a real edge measured and
 // declined). Other PASSes (pre-gate sport, quarantine, venue charter / UNL /
 // in-play) keep their own reason text and no class tag.
-const PASSCLASS={minBooks:3,rerunMin:60};
+const PASSCLASS={rerunMin:60};   // the T-60 "re-run by" hint (presentation only)
 function passKindTag(k){
   return k==="noref"?'<span class="passkind">no reference</span>'
     :k==="floor"?'<span class="passkind">below floor</span>':"";
@@ -596,96 +539,12 @@ function renderProgress(){
 // (promote to full units or retire). Two-way boards only: the quotes are the
 // HOME contract's and AWAY = 1 − mid; a 3-way (soccer 1X2) board has no
 // derived away/draw price (the #89 doctrine), so it is never eligible.
-const KALSHI_ONLY={maxSpreadC:2,sizeMult:0.5,reviewN:30,
-  // competition -> ruled game series (src/walters/venue.py KALSHI_FEE_M; model sports)
-  series:{MLB:"KXMLBGAME",NFL:"KXNFLGAME",PL:"KXEPLGAME"}};
-function kalshiOnlyRef(r,now){
-  if(r.threeWay) return {ok:false,why:"3-way board — no Kalshi-only reference (no derived away/draw price)"};
-  if(!KALSHI_ONLY.series[r.comp]) return {ok:false,why:`series for ${r.comp||"?"} not in the ruled fee table`};
-  const k=r.kExec||{}, bid=k.bid, ask=k.ask;
-  if(bid==null||ask==null) return {ok:false,why:"Kalshi not two-sided"};
-  const spreadC=Math.round((ask-bid)*100);
-  if(spreadC>KALSHI_ONLY.maxSpreadC) return {ok:false,why:`Kalshi spread ${spreadC}c > ${KALSHI_ONLY.maxSpreadC}c`};
-  const t=utcMs(r.utc);
-  if(!isFinite(t)) return {ok:false,why:"kickoff unknown"};
-  if(now>=t) return {ok:false,why:"in-play"};
-  if(now<t-PASSCLASS.rerunMin*60000) return {ok:false,why:"before T-60 — books may still post"};
-  const mid=(bid+ask)/2;
-  return {ok:true,mid,refs:{HOME:mid,AWAY:1-mid},spreadC,bid,ask};
-}
+const KALSHI_ONLY={reviewN:30};   // the review counter (the reference itself is desk_policy.kalshi_only_ref)
 function kalshiOnlyGraded(){ return gradedCount(c=>c.reference==="kalshi_only"); }
 
 // DESK v1.1 — the in-browser policy (LEGACY path since F1b: used only for
 // rows from files that carry no `desk` blocks). Python port, parity-verified:
 // src/walters/desk_policy.py desk_call().
-function computeCall(r,P,now,base,psN,psHalf){
-    const eMin=P.eMin??4, eLad=P.eLad??Infinity, eHair=P.eHair??15, pMin=P.pMin??0;
-    const reasons=[]; let call="PASS",cls="pass",units=0; const tags=[]; let shadowUnits=0;
-    let mktRef=r.mkt, kalOnly=false, koWhy=null;
-    if(!r.twoSided||r.mkt==null){
-      const ko=P.passAll?null:kalshiOnlyRef(r,now);
-      if(ko&&ko.ok){ mktRef=ko.refs[r.pick]??null; kalOnly=mktRef!=null;
-        if(kalOnly) reasons.push(`kalshi-only reference: mid ${ko.mid.toFixed(3)} (bid ${ko.bid.toFixed(2)} / ask ${ko.ask.toFixed(2)}, spread ${ko.spreadC}c)`); }
-      else if(ko) koWhy=ko.why;
-    }
-    const edge=mktRef!=null?(r.prob-mktRef)*100:null;
-    let passKind=null;    // PASS-REASON CLASSES (presentation only): "noref" | "floor" | null (other)
-    if(!kalOnly&&(!r.twoSided||r.mkt==null)){reasons.push("market not two-sided → no reference"+(koWhy?` (kalshi-only: ${koWhy})`:"")); passKind="noref";}
-    else if(r.prob<pMin){reasons.push(`pick prob ${r.prob.toFixed(3)} < ${pMin}`); passKind="floor";}
-    else if(edge<eMin){reasons.push(`edge ${edge.toFixed(1)}pp < ${eMin}pp floor`); passKind="floor";}
-    else{
-      units=base; call="PLAY"; cls="play";
-      reasons.push(`edge ${edge.toFixed(1)}pp ≥ floor`); tags.push("edge ≥ floor");
-      if(P.passAll){ call="PASS"; cls="pass"; units=0;
-        reasons.length=0; reasons.push("pre-gate sport: no production model — market display only"); }
-      // v1.1: quarantine is applied AFTER the sizing chain (below), so the
-      // shadow entry records what the row would have staked absent the
-      // contract — and a quarantined PASS no longer displays caution units.
-      const quarantined=!!(P.qNever&&r.quar);
-      if(call==="PLAY"&&r.sport==="NFL"&&r.qbs&&r.qbs.length){
-        units=Math.min(units,base/2);
-        reasons.push(`QB-flagged (${r.qbs.join(", ")}) → half units`); tags.push("QB-flagged half units"); }
-      const threeWay = r.mktHasDraw;   // v0.2: ladder is a 3-way instrument
-      if(edge>=eLad){
-        units=base/2;                  // v0.2: sizing monotone — big edge never out-sizes bigger edge
-        if(threeWay&&(r.pick==="AWAY"||r.pick==="DRAW")){
-          call="LADDER"; cls="ladder";
-          reasons.push(`edge ≥ ${eLad}pp on away/draw (3-way) → double-chance (${r.pick==="AWAY"?"X2":"1X/X2"}), half units`);
-          tags.push("ladder: big away/draw edge → DC");
-        } else {
-          cls="caution";
-          reasons.push(`edge ≥ ${eLad}pp → reduced-size straight (2-way board: no DC instrument), half units`);
-          tags.push("ladder-size on 2-way board");
-        }
-      }
-      if(edge>=eHair){ units=base/2; cls="caution";
-        reasons.push(`edge ≥ ${eHair}pp → market-is-right caution (cohort: big edges historically anti-predictive)`);
-        tags.push("big-edge caution half units"); }
-      if(edge < eMin + 1){ units=Math.min(units, base/2);
-        reasons.push(`edge within 1pp of floor → half units (near-floor noise, not conviction)`);
-        tags.push("near-floor half units"); }
-      if(call!=="PASS"&&r.stage==="postseason"&&psHalf){ units=Math.min(units,base/2);
-        reasons.push(`postseason → half units until ${POSTSEASON.reviewN} graded (${psN}/${POSTSEASON.reviewN})`);
-        tags.push("postseason half units"); }
-      if(call!=="PASS"&&r.stage===null&&r.sport==="MLB") reasons.push("stage unknown — postseason caution not applied");
-      if(kalOnly&&call!=="PASS"){ units=+(units*KALSHI_ONLY.sizeMult).toFixed(4);
-        reasons.push(`kalshi-only → ${KALSHI_ONLY.sizeMult} × units (provisional; review at ${KALSHI_ONLY.reviewN} graded)`);
-        tags.push("kalshi-only half units"); }
-      if(r.tier==="strong"){ reasons.push("strong tier"); tags.push("strong tier"); }
-      if(r.kal&&r.kal!=="absent") reasons.push(`kalshi ${r.kal}`);
-      if(quarantined&&call!=="PASS"){
-        shadowUnits=units; call="PASS"; cls="pass"; units=0;
-        reasons.length=0; reasons.push(`QUARANTINE ${r.div}pp — contract: never a straight play`);
-        tags.push("quarantine ≥ 15pp (shadow)"); }
-    }
-    // A declined row on a THIN book reference (< 3 books) is "no reference",
-    // not a measured decline. PLAY rows are untouched (presentation only).
-    // (A kalshi-only row's reference is the Kalshi mid, not books: never reclassed here.)
-    if(call==="PASS"&&passKind==="floor"&&!kalOnly&&r.books!=null&&r.books<PASSCLASS.minBooks){
-      passKind="noref"; reasons.push(`books ${r.books} < ${PASSCLASS.minBooks} → thin reference`); }
-    if(call!=="PASS") passKind=null;
-    return {call,cls,units,edge,tags,reasons,shadowUnits,passKind,mktRef,kalOnly};
-}
 // F1b (ARCHITECT 2026-10-01): a row whose file carries `desk` (export --desk)
 // is RENDERED from the file — the Cockpit never recomputes it.
 function fileCall(r){ const d=r.fileDesk;
@@ -699,26 +558,23 @@ function fileVenue(r){ const v=r.fileDesk.venue||{};
     kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{}}; }
 
 function policy(){
-  const base=BASE_UNITS, now=Date.now();
-  const psN=renderProgress().ps, psHalf=psN<POSTSEASON.reviewN;
+  renderProgress();
   let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
   deskCalls=[]; deskValue=[];
   for(const r of rows){
     if(r.marketOnly) continue;  // gated comps: model policy n/a (venue engine below)
-    const P=POLICY[r.sport]||POLICY.DEFAULT;
-    // F1b: a row from a desk file is RENDERED (never recomputed); legacy rows compute.
-    const {call,cls,units,edge,tags,reasons,shadowUnits,passKind,mktRef,kalOnly}=
-      r.fileDesk?fileCall(r):computeCall(r,P,now,base,psN,psHalf);
+    // F1c: every row is RENDERED from its file's desk block (never computed here).
+    const {call,cls,units,edge,tags,reasons,shadowUnits,passKind,mktRef,kalOnly}=fileCall(r);
     deskCalls.push({r,call,units,edge,tags:tags.slice(),reasons:reasons.slice(),cls,shadowUnits,passKind,mktRef,kalOnly});
-    const vs=r.fileDesk?fileValue(r):valueSide(r,P); if(vs) deskValue.push({r,v:vs});
+    const vs=fileValue(r); if(vs) deskValue.push({r,v:vs});
     if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++;}
     else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
     if(passKind==="noref") tr.className="noref";
     tr.innerHTML=`<td data-game="${esc(r.game)}">${esc(r.game)}${koLine(r)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
       <td>${r.prob.toFixed(3)}</td><td>${mktRef!=null?mktRef.toFixed(3)+(kalOnly?' <span class="passkind">kalshi-only</span>':""):"—"}</td>
-      <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${r.fileDesk?execHTMLFrom(r.fileDesk.exec,r.prob):execEdgeHTML(r,r.pick,r.prob)}</td>
+      <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execHTMLFrom(r.fileDesk.exec,r.prob)}</td>
       <td class="${cls}">${call}${passKindTag(passKind)}</td><td>${units||"—"}</td>
       <td class="reason">${esc(reasons.join(" · "))}${passKind==="noref"?rerunHint(r):""}</td>`;
     tb.appendChild(tr);
@@ -727,7 +583,7 @@ function policy(){
     const tr=document.createElement("tr"); tr.className="vshadow";
     tr.innerHTML=`<td>↳ ${esc(r.game)}${koLine(r)}</td><td title="${esc(v.side)}">${esc(sideName(r,v.side))}</td>
       <td>${v.modelP.toFixed(3)}</td><td>${v.marketP.toFixed(3)}</td>
-      <td>+${v.edge.toFixed(1)}pp${v.fileExec!==undefined?execHTMLFrom(v.fileExec,v.modelP):execEdgeHTML(r,v.side,v.modelP)}</td>
+      <td>+${v.edge.toFixed(1)}pp${execHTMLFrom(v.fileExec,v.modelP)}</td>
       <td class="caution">VALUE ${VALUE.units}u (shadow)</td><td>—</td>
       <td class="reason">${esc(v.reason)}</td>`;
     tb.appendChild(tr);
@@ -755,20 +611,22 @@ function policy(){
 
 // F1b: where the Desk came from — the file (rendered) or the browser (legacy).
 function deskSourceNote(){
-  const nFile=rows.filter(r=>r.fileDesk).length, nLegacy=rows.length-nFile;
-  if(!nFile) return rows.length?" · desk: computed in browser (legacy files — export with --desk)":"";
+  if(!rows.length) return refusedNote();
   const metas=rows.filter(r=>r.deskMeta).map(r=>r.deskMeta);
   const asof=[...new Set(metas.map(m=>m.as_of))].join(", ");
   const vers=[...new Set(metas.map(m=>m.policy_version))].filter(v=>v!==POLICY_VERSION);
   return ` · desk: rendered from file (as of ${asof})`
-    +(vers.length?` · ⚠ file policy ${vers.join(",")} ≠ Cockpit ${POLICY_VERSION}`:"")
-    +(nLegacy?` · ⚠ ${nLegacy} row(s) from legacy files: Desk computed in browser`:"");
+    +(vers.length?` · ⚠ file policy ${vers.join(",")} ≠ Cockpit ${POLICY_VERSION}`:"")+refusedNote();
+}
+let refusedFiles=[];
+function refusedNote(){
+  return refusedFiles.length?` · ⚠ REFUSED ${refusedFiles.length} file(s) without desk blocks (${refusedFiles.join(", ")}) — export with --desk`:"";
 }
 function renderVenue(){
-  const now=Date.now(); deskVenue=[];
+  deskVenue=[];
   const tb=$("venueTable").querySelector("tbody"); tb.innerHTML="";
   for(const r of rows){
-    const v=r.fileDesk?fileVenue(r):venueEdge(r,now); deskVenue.push({r,v});
+    const v=fileVenue(r); deskVenue.push({r,v});
     const side=v.side?sideName(r,v.side):"—";
     const stale=v.divPP!=null&&Math.abs(v.divPP)>=VENUE.staleGapPP;
     const tr=document.createElement("tr");
@@ -1870,41 +1728,10 @@ $("kalshiCsvFile").addEventListener("change",async e=>{
 });
 
 function buildParlays(){
-  // Live legs = the Desk's non-PASS calls, in row order (#183, 2026-10-01). The
-  // old DOM-index pairing (rows[i] ↔ the i-th slate <tr>) shifted onto the
-  // wrong rows whenever a market-only file (no <tr>) loaded ahead of a
-  // predictions file, building tickets from PASS rows. Python port:
-  // desk_policy.build_parlays (parity-verified).
-  const card=$("parlayCard"), out=$("parlayOut");
+  // F1c: tickets come ONLY from the loaded desk_parlays_v1 file (desk-parlays);
+  // the Cockpit never builds them (desk_policy.build_parlays, #183 semantics).
   deskParlays=[];
-  if(rows.some(r=>r.fileDesk)){ renderParlays(parlaysFromFile(),card,out); return; }   // F1b: never built here
-  const live=deskCalls.filter(x=>x.call!=="PASS")
-    .map(x=>({...x.r,edge:(x.r.prob-(x.r.mkt??0))}));
-  if(live.length<2){card.hidden=true;return;}
-  const combos=[];
-  const teamsOf=r=>[r.home,r.away];
-  for(let a=0;a<live.length;a++)for(let b=a+1;b<live.length;b++){
-    const A=live[a],B=live[b];
-    if(teamsOf(A).some(t=>teamsOf(B).includes(t)))continue;
-    const legs=[A,B];
-    combos.push(legs);
-    for(let c=b+1;c<live.length;c++){
-      const C=live[c];
-      if(teamsOf(C).some(t=>teamsOf(A).includes(t)||teamsOf(B).includes(t)))continue;
-      combos.push([A,B,C]);
-    }
-  }
-  const score=legs=>{
-    const sports=new Set(legs.map(l=>l.sport)).size;
-    const pm=legs.reduce((x,l)=>x*l.prob,1);
-    const pk=legs.reduce((x,l)=>x*(l.mkt??l.prob),1);
-    return {sports,pm,pk,edge:pm-pk};
-  };
-  const ranked=combos.map(l=>({legs:l,...score(l)}))
-    .filter(t=>t.edge>0)
-    .sort((x,y)=>(y.sports-x.sports)||(y.edge-x.edge)).slice(0,3);
-  parlayNote="";
-  renderParlays(ranked,card,out);
+  renderParlays(parlaysFromFile(),$("parlayCard"),$("parlayOut"));
 }
 // F1b (ARCHITECT 2026-10-01; shape ratified): with desk files loaded, tickets
 // come ONLY from the loaded desk_parlays_v1 file (`desk-parlays`), each leg
@@ -1965,12 +1792,17 @@ function renderParlays(ranked,card,out){
 
 $("predFile").addEventListener("change",async e=>{
   const fs=Array.from(e.target.files); if(!fs.length)return;
-  rows=[]; shadowRows=[]; fileParlays=null; const sports=new Set();
+  rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; const sports=new Set();
   for(const f of fs){
     try{const doc=JSON.parse(await f.text());
       if(doc.kind==="desk_parlays_v1"){ fileParlays=doc; continue; }   // F1b: tickets file
       if(doc.engine==="model_shadow"){ shadowRows=shadowRows.concat(normalizeShadow(doc)); continue; }
-      const rr=normalize(doc); rr.forEach(r=>sports.add(r.sport));
+      const rr=normalize(doc);
+      // F1c (#191): a prediction/fixtures file whose rows carry no desk block
+      // is REFUSED whole — the Cockpit never computes policy. model_shadow
+      // and desk_parlays files keep their own paths (above).
+      if(rr.some(r=>!r.fileDesk)){ refusedFiles.push(f.name); continue; }
+      rr.forEach(r=>sports.add(r.sport));
       rows=rows.concat(rr);}
     catch(err){$("summary").textContent=`Could not parse ${f.name}: ${err.message}`;return;}
   }
@@ -2070,16 +1902,17 @@ function renderCard(){
 // ---------------------------------------------------------------------
 // NEXT 24H (window service, 2026-09-27): renders exports/window_24h.json —
 // the fixtures grammar + model/edge/tier/flag fields. Venue eligibility comes
-// from the existing venueEdge() via the same kalFromFixture() path the Desk
-// uses for fixtures files: one charter, not two.
+// from the file: window.py stamps each fixture's desk_venue (desk_policy.venue_edge,
+// as of the card's exported_at) — one charter, computed in Python only (F1c).
 // ---------------------------------------------------------------------
 function windowRows(doc){
-  const now=Date.now();
   return (doc.fixtures||[]).map(f=>{
     const mk=f.market||{}, fair=mk.fair_prob||{};
-    const v=venueEdge({marketOnly:f.engine!=="model_edge",
-      sport:(f.competition||f.sport||"?").toUpperCase(),utc:f.utc_date||"",
-      fairAll:fair,books:mk.bookmaker_count||0,kalProb:kalFromFixture(f.kalshi,fair)},now);
+    // F1c: the venue verdict is the file's (window.py stamps desk_venue from
+    // desk_policy.venue_edge as of the card's exported_at); none = ineligible.
+    const dv=f.desk_venue||null;
+    const v=dv?{eligible:!!dv.eligible,reason:dv.reason||"",side:dv.side??null,divPP:dv.div_pp??null}
+      :{eligible:false,reason:"no desk_venue in this card (pre-F1c export)",side:null,divPP:null};
     const m=f.model||null, pick=m&&m.top_pick;
     return {f,v,m,pick,fair,
       model:m&&m.top_pick_prob!=null?`${pick} ${(m.top_pick_prob*100).toFixed(1)}%`:"—",

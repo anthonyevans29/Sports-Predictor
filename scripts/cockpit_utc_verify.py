@@ -27,6 +27,8 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from playwright.sync_api import sync_playwright
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cockpit_desk_files as cdf  # noqa: E402  (F1c: the Cockpit renders desk files only)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOW = datetime.now(timezone.utc).replace(second=0, microsecond=0)
@@ -79,7 +81,7 @@ def run_tz(browser, url, files, tz):
     page.goto(url)
     page.evaluate("localStorage.clear()")
     page.goto(url)
-    page.set_input_files("#predFile", files)
+    cdf.upload(page, files)
     page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
     page.click("#tabDesk")
     calls = {c["home"]: c for c in page.evaluate(

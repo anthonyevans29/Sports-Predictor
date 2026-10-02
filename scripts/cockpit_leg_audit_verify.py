@@ -25,6 +25,8 @@ from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 from playwright.sync_api import sync_playwright
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cockpit_desk_files as cdf  # noqa: E402  (F1c: the Cockpit renders desk files only)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TZ = "America/New_York"
@@ -93,7 +95,7 @@ def main():
         check("no files loaded → refuses, asks for the day's exports",
               "Load the export files" in page.inner_text("#ledgerNote"), page.inner_text("#ledgerNote"))
         before = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1')).calls")
-        page.set_input_files("#predFile", [path])
+        cdf.upload(page, [path])
         page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
         plays = page.evaluate("deskCalls.map(x=>[x.r.home,x.call])")
         check("the loaded export: Apass PASS, the others PLAY", dict(plays) == {

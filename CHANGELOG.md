@@ -4,6 +4,16 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#191: F1c — the Cockpit renders desk files only; the in-browser policy is deleted)
+- **Golden first** (a separate commit, before any deletion): `scripts/desk_golden_capture.py` drove the pre-F1c `tools/cockpit.html` (sha256 37250ba4…, = main) on the seeded battery (clock and counts pinned, America/New_York), the 600-slate parlay fuzz and the toFixed sample, writing `tests/golden/desk_js_v1_1.json.gz`. `tests/test_desk_golden.py` and `scripts/desk_parity_verify.py` check the Python Desk against it row for row with no browser (14/14).
+- **`tools/cockpit.html`:**
+  - Deleted: `computeCall`, `valueSide`, `venueEdge`, `kalshiOnlyRef`, the parlay builder, `execFacts`/`execEdgeHTML`/`deskCostFor`/`execEdgePP`, and the policy constants (POLICY, BASE_UNITS, the policy halves of VENUE/PASSCLASS/KALSHI_ONLY).
+  - Prediction and fixtures files without `desk` blocks are **REFUSED whole**: "REFUSED n file(s) without desk blocks (…) — export with --desk". `model_shadow` and `desk_parlays` files keep their own paths.
+  - Tickets come only from the `desk_parlays` file.
+  - Kept: the ledger, fills, audits, rendering and the export-quote accessors the ledger capture reads.
+- **The Next-24h card's venue verdict** is stamped by `window.py` as `desk_venue` via the new `desk_policy.window_venue`; the card renders it.
+- **Verifies:** `cockpit_render_verify` is rewritten: rendered == the deleted JS's frozen outputs in all three scenarios, plus tamper, refusal, no-parlays and version-mismatch checks. 13 legacy-path verifies now load through `scripts/cockpit_desk_files.upload()` (the Python Desk with the page's own ledger-summary counts, plus the desk_parlays file). `cockpit_window_verify` stamps `desk_venue`. All 18 verifies are green.
+
 ## 2026-10-01 (#207: P0-2 the close contract)
 - `close_1x2(rows, before, outcomes)` now requires the outcome set: binary HOME/AWAY or 3-way HOME/DRAW/AWAY. `outcomes_for(sport)` is the one mapping (soccer is 3-way, every other sport binary, as read from the adapters).
 - A book counts only with a COMPLETE same-session set. Each complete book is de-vigged on its own, then the books are averaged. With no complete book the result is UNPRICED: `fair` is None and `missing` names each quoted book's absent legs. `books` counts complete books, `books_quoted` every book in the session. `priced(cl)` is the caller check.

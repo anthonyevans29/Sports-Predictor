@@ -10,6 +10,11 @@ Every drop adds an entry going forward.
 - Desk maker costs re-state through the export's `exec_cost_maker`: +0.2 to +0.3pp per contract on a 10-lot (NFL join 0.56: 0.561 → 0.564). K2 stays informational: no call, unit or tier effect.
 - tests/test_kalshi_maker_fee_published_206.py (published-schedule fixtures: $0.44 and $1.75 per 100 at 50c; MLB taker $0.04–$0.88, maker $0.01–$0.22). Two older tests are re-derived by hand. Two Cockpit verifies get corrected synthetic fees and costs.
 
+## 2026-10-01 (#201: seed-thread links recorded)
+- The first `discussions` / `list` dispatch receipt is on #201. Discussions are enabled with six categories. The four seed threads are #197 and #198 (Q&A), #199 (Ideas) and #200 (Receipts).
+- docs/LEDGER.md gains a table of the posted seed threads. The seed file's header points to it.
+- The `list` call ran with the token's current scopes. `write:discussion` is added only if the first `post` or `reply` is refused.
+
 ## 2026-10-01 (#201: Discussions posting via the ledger workflow)
 - `ledger.yml` + `scripts/ledger.py`: a workflow_dispatch mode
   `discussions`. `list` (the default) prints categories and thread links;

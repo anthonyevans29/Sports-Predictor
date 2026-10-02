@@ -4267,31 +4267,73 @@ def unl_shadow_grade_cmd(days):
 
 
 @cli.command("intl-elo-confirm")
-@click.option("--record", is_flag=True, help="Record the confirmation (needs the full window and --ruling).")
+@click.option("--freeze-cohort", is_flag=True,
+              help="Freeze the first 60 eligible fixture ids into the registry (once; needs >= 60 stored).")
+@click.option("--record", is_flag=True, help="Record the confirmation (needs the frozen cohort complete and --ruling).")
 @click.option("--ruling", default=None, help="The architect's ruling text, verbatim (with --record).")
-def intl_elo_confirm_cmd(record, ruling):
+def intl_elo_confirm_cmd(freeze_cohort, record, ruling):
     """intl-elo-v2 CONFIRMATION READ (doctrine #212, ARCHITECT 2026-10-02): the
     first 60 senior competitive national-team matches after the verdict,
     priced predict-then-update, scored by the plan (log-loss <= ln 3 AND <
-    naive − 0.010 on the same games). Without --record: progress only. With
-    --record: registry.record_confirmation computes CONFIRMED / NOT_CONFIRMED."""
+    naive − 0.010 on the same games). The 60 are FIXTURE ids chosen whatever
+    their status and frozen once (--freeze-cohort; review on #248): a pending
+    or unscoreable cohort fixture leaves the read incomplete, never replaced.
+    Without flags: progress only. --record: registry.record_confirmation
+    computes CONFIRMED / NOT_CONFIRMED on exactly the frozen cohort."""
+    from collections import Counter
+
+    from src.db.database import session_scope
+    from src.timeutil import utc_now_naive
     from src.walters import intl_elo as ie
     from src.walters import intl_shadow as us
     from src.walters import registry as reg
     try:
+        if freeze_cohort:
+            e, _, _ = us.frozen()
+            with session_scope() as s:
+                co = us.cohort(e, s)
+                s.rollback()
+            if co["state"] == "frozen":
+                click.echo("REFUSED: the cohort is already frozen — a frozen cohort never changes")
+                raise SystemExit(2)
+            if len(co["ids"]) < co["n_games"]:
+                click.echo(f"REFUSED: {co['eligible_stored']} eligible fixtures stored < {co['n_games']} — sync the "
+                           "schedule (intl-sync) before freezing")
+                raise SystemExit(2)
+            fx = co["fixtures"]
+            basis = {"selected_at": utc_now_naive().strftime("%Y-%m-%dT%H:%M:%SZ"),
+                     "rule": "first n eligible stored fixtures by (kickoff, id): competitive stream code, kickoff "
+                             "after the verdict, not in the test set, ANY status (result availability never enters)",
+                     "eligible_stored": co["eligible_stored"],
+                     "first_kickoff": fx[0]["kickoff"].strftime("%Y-%m-%dT%H:%M:%SZ"),
+                     "last_kickoff": fx[-1]["kickoff"].strftime("%Y-%m-%dT%H:%M:%SZ"),
+                     "status_at_freeze": dict(Counter(f["status"] for f in fx)),
+                     "by_code": dict(Counter(f["code"] for f in fx))}
+            e = reg.freeze_confirmation_cohort(ie.EID_V2, co["ids"], basis)
+            c = e["confirmation_cohort"]
+            click.echo(f"FROZEN: {c['n']} fixtures · sha256 {c['ids_sha256'][:16]}… · {basis['first_kickoff']} .. "
+                       f"{basis['last_kickoff']} · {basis['status_at_freeze']} — commit docs/registry/ in a PR")
+            return
         r = us.confirmation_read()
-    except us.ShadowRefused as e:
+    except (us.ShadowRefused, reg.RegistryError) as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
-    click.echo(f"INTL-ELO-V2 CONFIRMATION · {r['n']}/{r['n_games']} games played since the verdict"
+    click.echo(f"INTL-ELO-V2 CONFIRMATION · cohort {r['cohort_state'].upper()} ({r['cohort_size']}/{r['n_games']} "
+               f"fixtures; {r['eligible_stored']} eligible stored) · {r['n']}/{r['n_games']} labelled"
                + (f" · first {r['first_game_at']}" if r["first_game_at"] else ""))
+    if r["pending"]:
+        click.echo(f"  pending {len(r['pending'])}: {dict(Counter(p['status'] for p in r['pending']))}")
     if r["n"]:
         click.echo(f"  so far: log-loss {r['log_loss']:.4f} · naive {r['naive_log_loss']:.4f} · reference (naive − 0.010) "
-                   f"{r['reference_log_loss']:.4f} · bar {r['bar']:.4f} — not a verdict until {r['n_games']} games")
+                   f"{r['reference_log_loss']:.4f} · bar {r['bar']:.4f} — not a verdict until the cohort is complete")
     if not record:
         return
     if not ruling:
         click.echo("REFUSED: --record needs --ruling (the architect's text, verbatim)")
+        raise SystemExit(2)
+    if not r["complete"]:
+        click.echo("REFUSED: the read is incomplete — " + ("the cohort is not frozen (--freeze-cohort)"
+                   if r["cohort_state"] != "frozen" else f"{len(r['pending'])} cohort fixture(s) lack a label"))
         raise SystemExit(2)
     try:
         e = reg.record_confirmation(ie.EID_V2, r["scored_ids"], {

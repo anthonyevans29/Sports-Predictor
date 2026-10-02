@@ -27,6 +27,12 @@ export-unl-predictions writes intl-elo-v2 rows labelled "PASS — confirmation
   after the verdict and are not in the test set, each priced
   predict-then-update; CONFIRMED iff log-loss <= ln 3 AND < naive − 0.010 on
   the same games (registry.record_confirmation computes it).
+- COHORT (review on #248, 2026-10-02): the 60 are chosen from the stored
+  FIXTURES, whatever their status, never from the scored stream, then FROZEN
+  in the registry (intl-elo-confirm --freeze-cohort). A pending, postponed,
+  cancelled or unscoreable cohort fixture leaves the read incomplete; it is
+  never replaced by game 61. Until frozen the selection is labelled
+  provisional and cannot be recorded.
 """
 from __future__ import annotations
 
@@ -71,14 +77,55 @@ def _verdict_at(e) -> datetime:
     return datetime.fromisoformat(e["verdict"]["at"].replace("Z", "+00:00")).replace(tzinfo=None)
 
 
-def confirmation_games(games, e, n: int | None = None) -> list:
-    """The plan's set: competitive (not friendlies), kickoff after the verdict,
-    not in the test set; the first n in kickoff order."""
+def eligible_fixtures(s, e) -> list[dict]:
+    """Every STORED fixture eligible for the confirmation set, WHATEVER ITS
+    STATUS (scheduled, live, postponed, cancelled, finished with or without a
+    usable score): competitive stream code, kickoff after the verdict, not in
+    the test set; kickoff order. Result availability never enters."""
+    from sqlalchemy import select
+
+    from src.db.schema import Competition, Match
     from src.walters import intl_elo as ie
+
     at = _verdict_at(e)
-    out = [g for g in games if g.code != ie.FRIENDLY and g.kickoff > at and not ie.is_test(g)]
-    out.sort(key=lambda g: (g.kickoff, g.id))
-    return out[:n or e["confirmation_plan"]["n_games"]]
+    comps = {c.id: c.code for c in s.execute(select(Competition).where(
+        Competition.code.in_([c for c in ie.STREAM_CODES if c != ie.FRIENDLY]))).scalars()}
+    if not comps:
+        return []
+    out = []
+    for m in s.execute(select(Match).where(Match.competition_id.in_(list(comps)), Match.utc_date > at)
+                       .order_by(Match.utc_date, Match.id)).scalars():
+        g = ie.Game(m.id, comps[m.competition_id], m.season, m.utc_date, None, None, None, None, None)
+        if ie.is_test(g):
+            continue
+        out.append({"id": m.id, "kickoff": m.utc_date, "code": g.code,
+                    "status": m.status.value if hasattr(m.status, "value") else str(m.status)})
+    return out
+
+
+def cohort(e, s) -> dict:
+    """The confirmation cohort: the FROZEN ids from the registry when frozen;
+    otherwise the provisional first n eligible fixtures (possibly fewer than n
+    while the schedule is short). Never depends on results."""
+    from src.walters import registry as reg
+
+    n = e["confirmation_plan"]["n_games"]
+    elig = eligible_fixtures(s, e)
+    try:
+        frozen_ids = reg.frozen_cohort(e)
+    except reg.RegistryError as err:
+        raise ShadowRefused(str(err))
+    if frozen_ids is not None:
+        return {"state": "frozen", "ids": frozen_ids, "n_games": n, "eligible_stored": len(elig)}
+    return {"state": "provisional", "ids": [f["id"] for f in elig[:n]], "n_games": n,
+            "eligible_stored": len(elig), "fixtures": elig[:n]}
+
+
+def _labelled(cohort_ids, games) -> set[int]:
+    """Cohort fixtures with a scoreable label (finished, 90-minute score: the
+    stream's own rule, ie.load)."""
+    have = {g.id for g in games}
+    return {i for i in cohort_ids if i in have}
 
 
 def fit(now: datetime, s=None):
@@ -91,9 +138,11 @@ def fit(now: datetime, s=None):
         from src.db.database import session_scope
         with session_scope() as s2:
             games, c = ie.load(s2, rule="v3")
+            co = cohort(e, s2)
             s2.rollback()
     else:
         games, c = ie.load(s, rule="v3")
+        co = cohort(e, s)
     train = [g for g in games if ie.TRAIN_FROM <= g.kickoff < ie.TRAIN_TO]
     if not train:
         raise ShadowRefused("no training-stream games stored: run intl-sync first")
@@ -104,9 +153,10 @@ def fit(now: datetime, s=None):
         if g.kickoff < now:
             m.update(g)
             used += 1
-    done = [g for g in confirmation_games(games, e) if g.kickoff < now]
+    done = _labelled(co["ids"], [g for g in games if g.kickoff < now])
     return m, games, {"games_used": used, "mu": round(mu, 4), "c_mult": c_mult, "k_mult": k_mult,
                       "confirmation_played": len(done), "confirmation_n": e["confirmation_plan"]["n_games"],
+                      "cohort_state": co["state"],
                       **{k: v for k, v in c.items()}}
 
 
@@ -245,13 +295,16 @@ def confirmation_read(now: datetime | None = None) -> dict:
     e, c_mult, k_mult = frozen()
     with session_scope() as s:
         games, _ = ie.load(s, rule="v3")
+        co = cohort(e, s)
+        status = {f["id"]: f["status"] for f in eligible_fixtures(s, e)}
         s.rollback()
     train = [g for g in games if ie.TRAIN_FROM <= g.kickoff < ie.TRAIN_TO]
     if not train:
         raise ShadowRefused("no training-stream games stored: run intl-sync first")
     mu = sum(g.hg + g.ag for g in train) / (2 * len(train))
     base = ie.naive(train)
-    want = {g.id for g in confirmation_games(games, e) if g.kickoff < now}
+    games = [g for g in games if g.kickoff < now]
+    want = _labelled(co["ids"], games)
     m = ie.IntlElo(mu=mu, c_mult=c_mult, k_mult=k_mult)
     ll_m = ll_n = 0.0
     scored, first = [], None
@@ -265,8 +318,13 @@ def confirmation_read(now: datetime | None = None) -> dict:
         m.update(g)
     n = len(scored)
     plan = e["confirmation_plan"]
+    pending = sorted(set(co["ids"]) - set(scored))
     out = {"n": n, "n_games": plan["n_games"], "bar": plan["bar"], "scored_ids": scored,
-           "first_game_at": first.strftime("%Y-%m-%dT%H:%M:%SZ") if first else None}
+           "first_game_at": first.strftime("%Y-%m-%dT%H:%M:%SZ") if first else None,
+           "cohort_state": co["state"], "cohort_size": len(co["ids"]), "eligible_stored": co["eligible_stored"],
+           "pending": [{"id": i, "status": status.get(i, "not stored")} for i in pending],
+           # recordable only as the WHOLE frozen cohort, every fixture labelled
+           "complete": co["state"] == "frozen" and not pending and n == plan["n_games"]}
     if n:
         out.update({"log_loss": ll_m / n, "naive_log_loss": ll_n / n,
                     "reference_log_loss": ll_n / n - ie.LL_MARGIN})

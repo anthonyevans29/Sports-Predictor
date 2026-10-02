@@ -3,7 +3,9 @@ as a greyed three-way shadow. Pins: it refuses without the registry's run
 record + PASS; its multipliers are READ from the record (never refit); rows are
 engine model_shadow, labelled "PASS — confirmation n/60", three-way, never in
 the Prediction table; grading is the top pick vs the three-way close; the
-confirmation set is competitive, after the verdict, first n; the intl-daily
+confirmation set is competitive, after the verdict, the first n FIXTURES
+whatever their status, frozen once (review on #248: a pending earlier fixture
+leaves the read incomplete, never replaced by a later game); the intl-daily
 chain syncs incrementally, then the venue step, then the export. The real
 ledger is never touched (the registry is monkeypatched)."""
 import json
@@ -59,6 +61,8 @@ def world():
         ids = {"after1": m(unl, 0, 1, datetime(2096, 2, 1), 2, 0), "after2": m(unl, 2, 3, datetime(2096, 2, 2), 1, 1),
                "friendly": m(fr, 0, 2, datetime(2096, 2, 3), 0, 0), "after3": m(unl, 1, 3, datetime(2096, 2, 4), 0, 1),
                "after4": m(unl, 3, 0, datetime(2096, 2, 5), 1, 0),
+               # the #248 review's case: an EARLIER eligible fixture still unplayed (pending)
+               "late": m(unl, 2, 0, datetime(2096, 2, 1, 12), status=MatchStatus.SCHEDULED),
                "up": m(unl, 0, 3, NOW + timedelta(hours=6), status=MatchStatus.SCHEDULED),
                "far": m(unl, 1, 2, NOW + timedelta(hours=60), status=MatchStatus.SCHEDULED)}
         s.add(IntlMatchVenue(match_id=ids["up"], venue_id=1, venue_country="Nowhere", home_country="Probeland",
@@ -90,19 +94,19 @@ def test_multipliers_are_read_from_the_record(frozen_ok):
     assert (c, k) == (2.0, 1.25)
 
 
-def test_confirmation_set_is_competitive_after_the_verdict_first_n(world, frozen_ok):
-    g = lambda i, code, when: ie.Game(i, code, "x", when, 1, 2, 1, 0, False)  # noqa: E731
-    games = [g(1, "UNL", datetime(2095, 12, 31)), g(2, "UNL", datetime(2096, 1, 2)),
-             g(3, "FRIENDLIES_INT", datetime(2096, 1, 3)), g(4, "WCQ_EU", datetime(2096, 1, 4)),
-             g(5, "UNL", datetime(2096, 1, 5)), g(6, "UNL", datetime(2096, 1, 6))]
-    assert [x.id for x in us.confirmation_games(games, ENTRY)] == [2, 4, 5]    # n = 3; friendly and pre-verdict out
+def test_cohort_is_the_first_n_fixtures_whatever_their_status(world, frozen_ok):
+    with session_scope() as s:
+        co = us.cohort(ENTRY, s)
+        s.rollback()
+    # friendly out; the SCHEDULED "late" fixture is IN (result availability never enters); after3 is game n+1
+    assert co["state"] == "provisional" and co["ids"] == [world["after1"], world["late"], world["after2"]]
 
 
 def test_export_rows_are_three_way_shadow_labelled_and_never_predictions(world, frozen_ok, tmp_path):
     path, doc = us.export(now=NOW, out_dir=str(tmp_path))
     assert Path(path).name == "unl_shadow_2096-03-10_1200.json"
     assert (doc["engine"], doc["model_version"], doc["contains_predictions"]) == ("model_shadow", "intl_elo_v2", False)
-    assert doc["gate_verdict"] == "PASS — confirmation 3/3"                     # 4 played, capped at n
+    assert doc["gate_verdict"] == "PASS — confirmation 2/3"                     # cohort: 2 labelled, "late" pending
     rows = {r["match_id"]: r for r in doc["predictions"]}
     assert world["up"] in rows and world["far"] not in rows                     # the 36h window
     p = rows[world["up"]]["prediction"]
@@ -128,11 +132,45 @@ def test_grade_is_top_pick_vs_the_three_way_close(world, frozen_ok, tmp_path):
     assert md.startswith("## UNL — SHADOW, CONFIRMATION WINDOW") and "not a record" in md
 
 
-def test_confirmation_read_scores_the_first_n_predict_then_update(world, frozen_ok):
+def test_a_pending_cohort_fixture_leaves_the_read_incomplete_never_replaced(world, frozen_ok):
+    """The #248 review's reproduction: game n+1 (after3) completes while an
+    earlier eligible fixture is still SCHEDULED. The read stays 2/3 and
+    incomplete; after3 is never admitted; when the result arrives the cohort
+    is unchanged."""
     r = us.confirmation_read(now=NOW)
-    assert r["n"] == 3 and r["n_games"] == 3 and r["first_game_at"] == "2096-02-01T00:00:00Z"
-    assert set(r["scored_ids"]) == {world["after1"], world["after2"], world["after3"]}
+    assert (r["n"], r["cohort_size"], r["complete"]) == (2, 3, False)
+    assert set(r["scored_ids"]) == {world["after1"], world["after2"]} and world["after3"] not in r["scored_ids"]
+    assert r["pending"] == [{"id": world["late"], "status": "scheduled"}]
+    assert r["first_game_at"] == "2096-02-01T00:00:00Z"
     assert r["reference_log_loss"] == pytest.approx(r["naive_log_loss"] - 0.010)
+    with session_scope() as s:
+        late = s.get(Match, world["late"])
+        late.status, late.status_raw, late.home_score, late.away_score = MatchStatus.FINISHED, "FT", 1, 1
+    try:
+        r2 = us.confirmation_read(now=NOW)
+        assert set(r2["scored_ids"]) == {world["after1"], world["late"], world["after2"]} and not r2["pending"]
+        assert r2["complete"] is False                       # provisional: never recordable until frozen
+    finally:
+        with session_scope() as s:
+            late = s.get(Match, world["late"])
+            late.status, late.status_raw, late.home_score, late.away_score = MatchStatus.SCHEDULED, None, None, None
+
+
+def test_frozen_cohort_binds_the_read_and_record_refuses_until_complete(world, monkeypatch, tmp_path):
+    ids = [world["after1"], world["late"], world["after2"]]
+    (tmp_path / "intl-elo-v2.cohort.txt").write_text("\n".join(str(i) for i in sorted(ids)) + "\n")
+    e = {**ENTRY, "confirmation_cohort": {"n": 3, "ids_sha256": reg._ids_sha(ids),
+                                          "ids_file": "docs/registry/ids/intl-elo-v2.cohort.txt"}}
+    monkeypatch.setattr(reg, "get", lambda eid, path=None: e if eid == "intl-elo-v2" else None)
+    monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path))
+    r = us.confirmation_read(now=NOW)
+    assert r["cohort_state"] == "frozen" and r["n"] == 2 and r["complete"] is False
+    from click.testing import CliRunner
+    from cli import cli
+    out = CliRunner().invoke(cli, ["intl-elo-confirm", "--record", "--ruling", "ARCHITECT: x"])
+    assert out.exit_code == 2 and "cohort fixture(s) lack a label" in out.output       # real clock: 2096 is pending
+    out = CliRunner().invoke(cli, ["intl-elo-confirm", "--freeze-cohort"])
+    assert out.exit_code == 2 and "already frozen" in out.output
 
 
 def test_intl_daily_chain_and_cli_refusal(monkeypatch):

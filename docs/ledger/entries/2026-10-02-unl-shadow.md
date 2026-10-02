@@ -5,3 +5,10 @@
 - **Grading:** top pick vs the de-vigged three-way close (`close_1x2`), CLV only — not a record (no hit rate, no log-loss in RESULTS.md).
 - **Chain `intl-daily`** (backup daily; 07:20 UTC): `intl-sync --since {today} --save exports/intl_daily` → `intl-venue-sync` on that save → `export-unl-predictions`. Finding while wiring it: an incremental sync sees only current seasons, so the senior-side filter would have dropped friendlies of sides with no competitive fixture this season; it now unions the senior teams already stored.
 - **Operator/architect owed:** enable `sp-intl-daily.timer` on the host (T11 list updated); republish the Cockpit (the shadow card now renders three-way picks and per-model gate labels); push `laptop/intl-elo-v2-run-record` so the PASS is spliced and the shadow unlocks.
+- **Review fix (Anthony on #248, 2026-10-02):** "Please select and freeze the first 60 eligible fixture IDs independently of result availability. Pending or missing labels must leave that cohort incomplete, rather than admit replacements." The first build chose the 60 from `ie.load()` (finished and scoreable only). An earlier eligible SCHEDULED game was skipped while game 61 completed the read, and the cohort changed when that result arrived. Fixed:
+  - `eligible_fixtures` reads the stored fixtures in any status.
+  - `registry.freeze_confirmation_cohort` freezes the first n once (sha256 sidecar). A second freeze, a wrong count or a test-set id is refused.
+  - `record_confirmation` refuses unless the scored set is exactly the frozen cohort.
+  - `intl-elo-confirm --record` refuses while the cohort is provisional or any fixture is pending.
+  - The label's n is the number of labelled cohort fixtures.
+  - **Open for a ruling:** a CANCELLED cohort fixture keeps the read incomplete indefinitely, as asked. Whether that ever releases needs a ruling; nothing replaces it automatically.

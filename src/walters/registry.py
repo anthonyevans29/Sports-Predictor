@@ -232,6 +232,58 @@ def production_allowed(eid: str, path: str = LEDGER) -> tuple[bool, str]:
     return (c["outcome"] == "CONFIRMED"), f"confirmation {c['outcome']}"
 
 
+def frozen_cohort(e: dict, ids_dir: str | None = None) -> list[int] | None:
+    """The FROZEN confirmation cohort's ids (verified against its sha256), or
+    None when no cohort was frozen. A tampered or missing file refuses."""
+    c = e.get("confirmation_cohort")
+    if not c:
+        return None
+    ids_dir = ids_dir or IDS_DIR
+    p = os.path.join(ids_dir, os.path.basename(c["ids_file"]))
+    if not os.path.exists(p):
+        raise RegistryError(f"{e['id']}: frozen cohort file {c['ids_file']} is missing")
+    with open(p) as fh:
+        ids = sorted(int(x) for x in fh.read().split())
+    if _ids_sha(ids) != c["ids_sha256"] or len(ids) != c["n"]:
+        raise RegistryError(f"{e['id']}: frozen cohort file does not match its sha256/count — refused")
+    return ids
+
+
+def freeze_confirmation_cohort(eid: str, cohort_ids: list[int], basis: dict,
+                               path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
+    """FREEZE the confirmation cohort (review on #248, 2026-10-02): the first
+    n_games ELIGIBLE fixture ids, chosen independently of result availability,
+    fixed once. A later confirmation must score exactly this set; a pending or
+    missing label leaves it incomplete, never admits a replacement. Refused
+    outside a window, when already frozen, unless exactly n_games distinct ids,
+    or when any id was in the scored test set."""
+    entries = load(path)
+    e = next((x for x in entries if x["id"] == eid), None)
+    if e is None or e.get("status") != "confirming":
+        raise RegistryError(f"{eid} is not in a confirmation window (needs a PASS verdict)")
+    plan = e.get("confirmation_plan")
+    if not plan:
+        raise RegistryError(f"{eid} has no executable confirmation_plan")
+    if e.get("confirmation_cohort"):
+        raise RegistryError(f"{eid}: the confirmation cohort is already frozen ({e['confirmation_cohort']['ids_sha256'][:12]}…)"
+                            " — a frozen cohort never changes")
+    ids = sorted(set(int(i) for i in cohort_ids))
+    if len(ids) != plan["n_games"] or len(ids) != len(cohort_ids):
+        raise RegistryError(f"{eid}: a cohort is exactly {plan['n_games']} distinct fixtures (got {len(cohort_ids)}, "
+                            f"{len(ids)} distinct)")
+    overlap = len((_ids_of(e, ids_dir) or set()) & set(ids))
+    if overlap:
+        raise RegistryError(f"{eid}: {overlap} cohort fixture(s) were in the scored test set — not future games")
+    os.makedirs(ids_dir, exist_ok=True)
+    fname = f"{eid}.cohort.txt"
+    with open(os.path.join(ids_dir, fname), "w") as f:
+        f.write("\n".join(str(i) for i in ids) + "\n")
+    e["confirmation_cohort"] = {"n": len(ids), "ids_sha256": _ids_sha(ids), "ids_file": f"docs/registry/ids/{fname}",
+                                "frozen_at": _now(), "basis": basis}
+    save(entries, path)
+    return e
+
+
 def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: str,
                         path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
     """The confirmation READ, executed against the declared plan (never a
@@ -249,6 +301,11 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     if not plan:
         raise RegistryError(f"{eid} has no executable confirmation_plan: it cannot be confirmed")
     ids = sorted(set(int(i) for i in scored_ids))
+    cohort = frozen_cohort(e, ids_dir)
+    if cohort is not None and ids != cohort:
+        missing, extra = len(set(cohort) - set(ids)), len(set(ids) - set(cohort))
+        raise RegistryError(f"{eid}: the read must score exactly the frozen cohort ({missing} cohort fixture(s) "
+                            f"unscored, {extra} outside it) — incomplete, never a replacement")
     if len(ids) < plan["n_games"]:
         raise RegistryError(f"{eid}: confirmation scored {len(ids)} games < the plan's {plan['n_games']} — incomplete")
     first = result.get("first_game_at")

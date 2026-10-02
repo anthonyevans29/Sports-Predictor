@@ -165,6 +165,12 @@ def build_card(now: datetime | None = None, hours: int = 24,
                             for i in s.execute(select(Injury).where(Injury.team_id == t.id)).scalars()
                             if is_qb(i.player_position)],
             })
+            # F1c (#191): the venue verdict comes from the Python Desk (the
+            # Cockpit no longer computes policy) — same inputs the card's
+            # JS read before: book fair, books, Kalshi two-sided, kickoff.
+            from src.walters import desk_policy as _dp
+            row["desk_venue"] = _dp.window_venue(
+                row, float((now - datetime(1970, 1, 1)) // timedelta(milliseconds=1)))
             rows.append(row)
     counts["fixtures"] = len(rows)
     return {
@@ -174,8 +180,8 @@ def build_card(now: datetime | None = None, hours: int = 24,
         "contains_predictions": any(r["model"] for r in rows),
         "note": ("Next-24h window card: book fair, Kalshi and venue flags repriced hourly; "
                  "model fields copied from the canonical chain-slot exports (no model re-runs). "
-                 "engine=model_edge rows carry a model; market_only rows are for the "
-                 "Cockpit venue engine (charter evaluated client-side, policy v1.1)."),
+                 "engine=model_edge rows carry a model; every row carries desk_venue, the "
+                 "venue verdict from the Python Desk as of exported_at (F1c: the Cockpit renders it)."),
         "count": len(rows),
         "receipts": {**counts, "with_model": sum(1 for r in rows if r["model"]),
                      "stale_flags": sum(1 for r in rows if r["venue_flag"]),

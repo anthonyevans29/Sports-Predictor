@@ -8,6 +8,16 @@ Every drop adds an entry going forward.
 - `src/walters/intl_inventory.py` + `python cli.py intl-inventory` (read-only). For UNL, WC, UEFA_EURO, WCQ_* and FRIENDLIES_INT, per competition and season: finished+scored matches, date span, teams, raw home/draw/away shares and venue completeness. Also each UNL team's prior international results before its first UNL match.
 - No neutral site is inferred (law 4). tests/test_intl_inventory.py.
 
+## 2026-10-02 (#191: F1c — the Cockpit renders desk files only; the in-browser policy is deleted)
+- **Golden first** (a separate commit, before any deletion): `scripts/desk_golden_capture.py` drove the pre-F1c `tools/cockpit.html` (sha256 37250ba4…, = main) on the seeded battery (clock and counts pinned, America/New_York), the 600-slate parlay fuzz and the toFixed sample, writing `tests/golden/desk_js_v1_1.json.gz`. `tests/test_desk_golden.py` and `scripts/desk_parity_verify.py` check the Python Desk against it row for row with no browser (14/14).
+- **`tools/cockpit.html`:**
+  - Deleted: `computeCall`, `valueSide`, `venueEdge`, `kalshiOnlyRef`, the parlay builder, `execFacts`/`execEdgeHTML`/`deskCostFor`/`execEdgePP`, and the policy constants (POLICY, BASE_UNITS, the policy halves of VENUE/PASSCLASS/KALSHI_ONLY).
+  - Prediction and fixtures files without `desk` blocks are **REFUSED whole**: "REFUSED n file(s) without desk blocks (…) — export with --desk". `model_shadow` and `desk_parlays` files keep their own paths.
+  - Tickets come only from the `desk_parlays` file.
+  - Kept: the ledger, fills, audits, rendering and the export-quote accessors the ledger capture reads.
+- **The Next-24h card's venue verdict** is stamped by `window.py` as `desk_venue` via the new `desk_policy.window_venue`; the card renders it.
+- **Verifies:** `cockpit_render_verify` is rewritten: rendered == the deleted JS's frozen outputs in all three scenarios, plus tamper, refusal, no-parlays and version-mismatch checks. 13 legacy-path verifies now load through `scripts/cockpit_desk_files.upload()` (the Python Desk with the page's own ledger-summary counts, plus the desk_parlays file). `cockpit_window_verify` stamps `desk_venue`. All 18 verifies are green.
+
 ## 2026-10-02 (#212: experiment registry + confirmation doctrine)
 - `src/walters/registry.py` and the git-tracked ledger `docs/registry/experiments.json`. Each candidate goes through declare (before any run; the confirmation window is required), run (once per id; scored ids in a sidecar `docs/registry/ids/<id>.txt` with count and sha256; prior reads computed), verdict (verbatim), then confirmation. `production_allowed()` encodes the doctrine: a PASS is not production until a declared confirmation window closes CONFIRMED.
 - Seeded with the pre-registry verdicts, unchanged: NHL v1–v5, S19, DC-fit, S14 stage 2 and cups fix-v2. Their ids are "not recorded" and are never reconstructed. NHL's 2025 test set shows 5 prior reads.

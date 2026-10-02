@@ -71,6 +71,25 @@ def get(eid: str, path: str = LEDGER) -> dict | None:
 
 PLAN_METRICS = ("log_loss",)
 
+# RETIRED TEST SETS (DOCTRINE, ARCHITECT 2026-10-02, from the external review,
+# binding): "the 2025 test season has been read 7 times. After v8 it is
+# RETIRED as a test set; any later NHL candidate declares 2026-27 (as it
+# accrues, >=600 games) as its test season." test_set -> (the LAST id allowed
+# on it, what to declare instead). declare() and record_run() refuse anything
+# else on a retired test set.
+RETIRED_TEST_SETS = {
+    "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)":
+        ("nhl-v8", "NHL 2026-27 regular season as it accrues (>= 600 games)"),
+}
+
+
+def _retired_refusal(test_set: str, eid: str) -> str | None:
+    last = RETIRED_TEST_SETS.get(test_set)
+    if last and eid != last[0]:
+        return (f"{test_set!r} is RETIRED as a test set (doctrine 2026-10-02; {last[0]} was its last candidate): "
+                f"declare {last[1]} instead")
+    return None
+
 
 def check_plan(plan) -> dict:
     """The EXECUTABLE confirmation plan (review on #222, 2026-10-02): the window
@@ -103,6 +122,9 @@ def declare(entry: dict, path: str = LEDGER) -> dict:
     if missing:
         raise RegistryError(f"declaration incomplete: {', '.join(missing)}")
     plan = check_plan(entry.get("confirmation_plan"))
+    why = _retired_refusal(entry["test_set"], entry["id"])
+    if why:
+        raise RegistryError(why)
     entries = load(path)
     if any(e["id"] == entry["id"] for e in entries):
         raise RegistryError(f"{entry['id']} is already declared")
@@ -161,6 +183,9 @@ def record_run(eid: str, scored_ids: list[int], result: dict, path: str = LEDGER
         raise RegistryError(f"{eid} was never declared: declare it (frozen) before any run")
     if e.get("run"):
         raise RegistryError(f"{eid} already ran at {e['run'].get('run_at')}: the test set is evaluated once")
+    why = _retired_refusal(e["test_set"], eid)
+    if why:
+        raise RegistryError(why)
     ids = sorted(set(int(i) for i in scored_ids))
     os.makedirs(ids_dir, exist_ok=True)
     fname = f"{eid}.txt"

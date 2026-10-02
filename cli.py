@@ -5323,7 +5323,7 @@ def ncaa_audit_cmd(seasons, limit):
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")
-@click.option("--candidate", type=click.Choice(["v1", "v2", "v3", "v4", "v5", "v6", "v7"]), default="v1", show_default=True,
+@click.option("--candidate", type=click.Choice(["v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8"]), default="v1", show_default=True,
               help="v1 = ratified baseline; v2 = retuned params + rest days selected on full "
                    "2024-internal loss (FAILED, kept reproducible); v3 = v2's model form, params "
                    "selected by walk-forward validation inside 2024; v4 = the LAST schedule-only "
@@ -5332,7 +5332,9 @@ def ncaa_audit_cmd(seasons, limit):
                    "nhl-goalie-sync first); v6 = v1 with the xG margin as its margin input (NHL-xG #153; "
                    "frozen declaration docs/specs/nhl-xg-v6.md; refuses unless the registry holds the "
                    "nhl-v6 declaration; records its ONE run); v7 = v6 with the xG 'na' shot-type level "
-                   "removed (label-leak fix; docs/specs/nhl-xg-v7.md; registry nhl-v7). 2025 scored once each.")
+                   "removed (label-leak fix; docs/specs/nhl-xg-v7.md; registry nhl-v7); v8 = v7 with the Elo's "
+                   "scale (logistic divisor) and k fitted by maximum likelihood on 2024 ONLY over the declared grid "
+                   "(docs/specs/nhl-xg-v8.md; registry nhl-v8; the LAST candidate on 2025). 2025 scored once each.")
 def nhl_backtest_cmd(season_starts, candidate):
     """NHL Phase 2 gate (frozen 2026-09-25): train 2024, test 2025, preseason
     excluded; prints the stream receipts, both baselines and — once a
@@ -5344,7 +5346,7 @@ def nhl_backtest_cmd(season_starts, candidate):
     for spec in season_starts:
         season, _, d = spec.partition("=")
         starts[season.strip()] = _date.fromisoformat(d.strip())
-    if candidate in ("v6", "v7"):    # registry refusal comes before any data is loaded
+    if candidate in ("v6", "v7", "v8"):  # registry refusal comes before any data is loaded
         _nhl_candidate_v6(nb, starts, which=candidate)
         return
     games = nb.load_games()
@@ -5388,7 +5390,8 @@ def _nhl_candidate_v6(nb, starts, which: str = "v6"):
     path with the xG model's "na" shot-type level removed (the label-leak
     correctness fix) and its own registry id nhl-v7. Nothing else differs."""
     from src.models import nhl_xg as nx
-    from src.models.nhl_elo import NHLEloConfig, NHLEloV1, NHLEloV6, NHLEloV7, home_advantage_from_rate
+    from dataclasses import replace as _replace
+    from src.models.nhl_elo import NHLEloConfig, NHLEloV1, NHLEloV6, NHLEloV7, NHLEloV8, home_advantage_from_rate
     from src.walters import registry as reg
 
     eid = f"nhl-{which}"
@@ -5407,7 +5410,7 @@ def _nhl_candidate_v6(nb, starts, which: str = "v6"):
         return
     shots = nx.load_shots()
     fit_set = [x for x in shots if nx.FIT_FROM <= x.game_start < nx.FIT_TO]
-    model = nx.fit(fit_set, na_level=(which == "v6"))
+    model = nx.fit(fit_set, na_level=(which == "v6"))      # v7 and v8: no "na" level
     first_train = min(g.utc_date for g in stream.train)
     if not model.fit_last_game < first_train:
         click.echo(f"REFUSED: leakage — the xG fit's last game {model.fit_last_game} is not before the first "
@@ -5415,8 +5418,20 @@ def _nhl_candidate_v6(nb, starts, which: str = "v6"):
         raise SystemExit(2)
     xg, excl = nx.game_xg(model, [x for x in shots if x.game_start >= nx.FIT_TO])
     cfg = NHLEloConfig(home_advantage=home_advantage_from_rate(base.home_rate))
-    ref = nb.run_gate(stream, NHLEloV1(cfg))
-    v6 = (NHLEloV6 if which == "v6" else NHLEloV7)(cfg, xg_by_match=xg)
+    fit_lines = []
+    if which == "v8":
+        # the train-only maximum-likelihood fit: 2024 ONLY, chosen BEFORE any 2025 game is scored
+        sel, rows = nb.fit_v8_scale_k(stream.train, xg, cfg.home_advantage)
+        fit_lines = [f"v8 TRAIN-ONLY FIT (2024 walk-forward, mean log-loss over {len(stream.train)} games; "
+                     f"chosen before any 2025 read): scale {sel['scale']:g} · k {sel['k']:g} · "
+                     f"loss {sel['loss']:.5f}" + (" · ON THE GRID EDGE" if sel["on_grid_edge"] else ""),
+                     "  grid (best 10): " + " · ".join(f"({sc:g},{k:g}) {l:.5f}" for l, sc, k in rows[:10])]
+        for line in fit_lines:
+            click.echo(line)
+        v6 = NHLEloV8(_replace(cfg, k_factor=sel["k"]), xg_by_match=xg, scale=sel["scale"])
+    else:
+        v6 = (NHLEloV6 if which == "v6" else NHLEloV7)(cfg, xg_by_match=xg)
+    ref = nb.run_gate(stream, NHLEloV1(cfg))        # v1 reference (2025 read) — AFTER v8's train-only fit
     result = nb.run_gate(stream, v6)
     cov = lambda gs: (sum(1 for g in gs if g.match_id in xg), len(gs))
     tr, te = cov(stream.train), cov(stream.test)
@@ -5432,6 +5447,7 @@ def _nhl_candidate_v6(nb, starts, which: str = "v6"):
         "  scored-season exclusions: " + " · ".join(f"{k} {v}" for k, v in sorted(excl.items())),
         f"  games with xG: train {tr[0]}/{tr[1]} · test {te[0]}/{te[1]} · goal-margin fallbacks in {which} "
         f"{v6.goal_margin_fallbacks}",
+        *fit_lines,
         f"REFERENCE v1 on this stream: log-loss {ref.ll_model:.4f}",
         f"SHOT INFORMATION (v1 − {which} log-loss): {info:+.4f}",
         "RPS (two-outcome = Brier; reported, not gated): "
@@ -5444,7 +5460,8 @@ def _nhl_candidate_v6(nb, starts, which: str = "v6"):
     run = reg.record_run(eid, [g.match_id for g in stream.test if g.match_id is not None], {
         "log_loss": round(result.ll_model, 4), "v1_same_stream": round(ref.ll_model, 4),
         "shot_information": round(info, 4), "verdict_line": result.verdict,
-        "bands_ok": result.crit_bands, "n_test": len(stream.test), "test_games_with_xg": te[0]})["run"]
+        "bands_ok": result.crit_bands, "n_test": len(stream.test), "test_games_with_xg": te[0],
+        **({"fit_scale": v6.scale, "fit_k": v6.cfg.k_factor} if which == "v8" else {})})["run"]
     click.echo(f"REGISTRY: {eid} run recorded · {run['n_scored']} scored ids (sha256 {run['ids_sha256'][:12]}…) · "
                f"prior reads of this test set: {run['prior_read_count']} ("
                + ", ".join(p["id"] for p in run["prior_reads"]) + ") — commit docs/registry/ in the receipt PR")

@@ -271,3 +271,28 @@ class NHLEloV6(NHLEloV1):
 @dataclass
 class NHLEloV7(NHLEloV6):
     name = "nhl_elo_v7_xg_margin_no_na"
+
+
+# --------------------------------------------------------------------------
+# v8 (ARCHITECT 2026-10-02; declaration docs/specs/nhl-xg-v8.md; the LAST
+# candidate on the 2025 test season): v7's xG and Elo, with the two scale
+# parameters — the logistic divisor (rating-to-probability) and k — FITTED BY
+# MAXIMUM LIKELIHOOD ON THE 2024 TRAINING SEASON ONLY (walk-forward within
+# 2024 over the declared grid, chosen before any 2025 read). home_advantage
+# stays v7's (45.6, derived from the 2024 home rate exactly as before);
+# regression 0.25. v1-v7 keep their fixed 400.
+# --------------------------------------------------------------------------
+
+V8_SCALE_GRID = (300.0, 350.0, 400.0, 450.0, 500.0, 550.0, 600.0)
+V8_K_GRID = (3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 10.0, 12.0)
+
+
+@dataclass
+class NHLEloV8(NHLEloV7):
+    scale: float = 400.0
+
+    name = "nhl_elo_v8_xg_margin_fitted_scale_k"
+
+    def _expected_home(self, home_id: int, away_id: int) -> float:
+        diff = self.rating(away_id) - (self.rating(home_id) + self.cfg.home_advantage)
+        return 1.0 / (1.0 + 10 ** (diff / self.scale))

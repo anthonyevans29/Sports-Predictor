@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#228: national-team source probe — read-only; UNL lane #220 SUSPENDED-PENDING-DATA)
+- `scripts/intl_source_probe.py`: can API-Football serve national-team history 2018-present (WCQ all confederations, Euro + qualifiers, Nations League, friendlies)? League ids are discovered by name and cross-checked against the adapter; a coverage receipt per competition-season (scored, 90-minute, venue shares, neutral keys detected, never inferred); `--plan` cost in calls; `--max-calls` budget refusal; `--save` / `--from-dir` replay; never touches data/.
+- tests/test_intl_source_probe.py (5, synthetic replay; the API is never reached).
+
 ## 2026-10-02 (#153: NHL v6 declaration RATIFIED — the update direction follows the xG margin)
 - `NHLEloV6.update`: the result term is the sign of xG_home − xG_away (1 / 0; an exact tie moves nothing); the magnitude is |xG margin| through the same ln(margin + 1); the mov gap is taken from the xG winner. The actual result only scores the prediction. Games without xG fall back to v1 on goals (counted).
 - `docs/specs/nhl-xg-v6.md` is marked RATIFIED with the ruling quoted; the confirmation window is ratified. The registry entry `nhl-v6` is updated before any run (still `declared`, unrun).

@@ -22,16 +22,29 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
-**2026-10-02 — NHL v7 FAIL (ARCHITECT); v8 DECLARED (train-only fit of scale and k); the 2025 test set RETIRES after v8 (doctrine, enforced).**
-- **Ruling (verbatim):** "v7 VERDICT STANDS — FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands −6.2/−6.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced. v8 DECLARATION (last candidate on this test season): v7's xG unchanged; the Elo's two scale parameters — the logistic divisor (rating-to-probability) and k — are FITTED BY MAXIMUM LIKELIHOOD ON THE 2024 TRAINING SEASON ONLY (walk-forward within 2024, grid declared in the doc, chosen before any 2025 read); home_adv stays 45.6; regression 0.25. This is a train-only fit, not a tune. Same bar, same bands. One run. DOCTRINE (from the external review, now binding): the 2025 test season has been read 7 times. After v8 it is RETIRED as a test set; any later NHL candidate declares 2026-27 (as it accrues, >=600 games) as its test season. Record in docs/REGISTRY.md."
-- **v7's record:** spliced with its FAIL in #239 (with v6's). Main then shows 7 prior reads.
-- **v8 (`docs/specs/nhl-xg-v8.md`, registry `nhl-v8`):**
-  - `NHLEloV8` = v7 with a fitted divisor (v1–v7 keep 400).
-  - `nhl_backtest.fit_v8_scale_k` walks 2024 only (it refuses any other season) over the DECLARED grid: scale 300..600 by 50 × k {3,4,5,6,7,8,10,12} = 56 pairs. Selection is by min mean log-loss; a tie goes to the pair closest to (400, 6); a grid-edge choice is flagged, never widened.
-  - The harness prints the choice and the best 10 BEFORE any model scores 2025 (the v1 reference is moved after the fit). The run records `fit_scale` / `fit_k`.
-  - home_adv is v7's derivation (45.6); regression 0.25; same bar/bands/plan.
-- **Doctrine:** `docs/REGISTRY.md` gains "Retired test sets". `registry.RETIRED_TEST_SETS` makes `declare()` / `record_run()` refuse any id but `nhl-v8` on the NHL 2025 test set, naming 2026-27 (≥ 600 games) instead.
-- **Tests:** the v7 repo test is relaxed like v6's (accepts the coming record); new `tests/test_nhl_xg_v8.py` (6).
+**2026-10-02 — nhl-v7 run record spliced; FAIL recorded (ARCHITECT). NHL 2025: 7 reads.**
+- **Ruling (verbatim):** "v7 VERDICT STANDS — FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands −6.2/−6.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced."
+- **Source:** `laptop/nhl-v7-run-record`.
+- **Verified:**
+  - the declaration fields are identical to main's;
+  - 1,394 unique sorted ids with sha256 = the run record's (`ab890242…`, the same scored set as v6);
+  - result: 0.6885 vs v1 0.6909 on the same stream.
+- **Spliced verbatim:** only the nhl-v7 entry and its ids file. `record_verdict("nhl-v7", "FAIL", <ruling>)` closes it.
+- **Discrepancy, kept as written:** v7's stored `prior_read_count` is 5 (v1–v5). The laptop's ledger did not hold v6's run when v7 ran, so the true count at that moment was 6. The record is not rewritten (law 4). The LIVE count, computed from the ledger, is 7, as ruled.
+- **In #239,** together with v6's record. Tests: the v7 record test, the counts 6 (before v7) and 7 (now), and the v7 repo test relaxed identically to the v8 branch.
+
+**2026-10-02 — nhl-v6 run record spliced into the ledger; FAIL verdict recorded (ARCHITECT). NHL 2025 now has 6 reads.**
+- **Source:** the laptop branch `laptop/nhl-v6-run-record` (`docs/registry/ids/nhl-v6.txt` as written, plus the laptop's ledger snapshot `experiments_laptop_v6.json`).
+- **Verified before splicing:**
+  - the nhl-v6 declaration fields are identical to main's;
+  - the ids file holds 1,394 unique, sorted ids whose sha256 equals the run record's `ab890242…`, and `n_scored` = 1,394;
+  - result: log-loss 0.6886, v1 on the same stream 0.6909, shot information +0.0023, bands not ok.
+- **Spliced:** ONLY the nhl-v6 entry. The snapshot's `intl-elo-v1` is an older copy and main's stands. The snapshot file itself is not committed, so the repo keeps one ledger.
+- **Verdict recorded** via `registry.record_verdict("nhl-v6", "FAIL", <ruling verbatim>)`: status closed; `production_allowed` → (False, "no PASS verdict").
+- **Tests:**
+  - new `tests/test_nhl_v6_record.py` pins the sidecar sha/count, the FAIL and the 6 reads;
+  - `test_registry_212`'s seed test keeps "the five seeds" (before v6) and adds the total of 6;
+  - the nhl-v6 repo test is relaxed exactly as on #237, so the two branches merge cleanly.
 
 **2026-10-02 — intl-elo-v1 runs under v2 as built; its known LIMITATION is DECLARED (ARCHITECT) — #240.**
 - **Ruling (verbatim):** "intl-elo-v1 runs under v2 as built, with its known limitation DECLARED in the doc and registry entry: "home-and-away competition play-offs and finals at neutral venues are priced with the home edge; v2's 10% check is vacuous under the HOME ruling". v3 (venue country) is the fix for the next candidate; run scripts/intl_venue_route_probe.py --from-dir on the laptop for its cost (0 calls). Merge #239 then #238."

@@ -4,9 +4,11 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
-## 2026-10-02 (#153: NHL v8 declared — train-only fit of scale and k; the 2025 test set retired after it)
-- `nhl-backtest --candidate v8`: v7's xG + Elo with the logistic divisor and k fitted by maximum likelihood on 2024 only over the declared grid (56 pairs; tie → (400, 6)); chosen and printed before any 2025 read. Registry `nhl-v8` declared; doc `docs/specs/nhl-xg-v8.md`.
-- Doctrine: `registry.RETIRED_TEST_SETS` — after v8 the NHL 2025 test set refuses any declaration or run; later NHL candidates declare 2026-27 (≥ 600 games). `docs/REGISTRY.md` updated. (v6/v7 FAIL records: #239.)
+## 2026-10-02 (#153: nhl-v7 run record + FAIL verdict in the registry)
+- The laptop's v7 run record (1,394 scored ids, sha verified; the same set as v6) is spliced with `docs/registry/ids/nhl-v7.txt`; FAIL recorded verbatim. NHL 2025: 7 prior reads. v7's stored prior_read_count (5) is kept as written.
+
+## 2026-10-02 (#153: nhl-v6 run record + FAIL verdict in the registry)
+- The laptop's v6 run record (1,394 scored ids, sha verified) is spliced into `docs/registry/experiments.json` with `docs/registry/ids/nhl-v6.txt`; the FAIL verdict is recorded verbatim (status closed). NHL 2025: 6 prior reads. tests/test_nhl_v6_record.py.
 
 ## 2026-10-02 (#220/#240: intl-elo-v1 known limitation declared)
 - `docs/specs/intl-elo-v1.md` and the registry entry carry the declared limitation (neutral-venue play-offs/finals priced with the home edge; v2's 10% check vacuous under the HOME ruling). The fix, v3 (venue country), is for the next candidate.

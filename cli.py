@@ -838,6 +838,35 @@ def intl_inventory_cmd():
     click.echo("  (no neutral flag is stored; nothing here infers one — law 4)")
 
 
+@cli.command("registry")
+@click.option("--id", "eid", default=None, help="Show one entry in full (with its prior reads).")
+def registry_cmd(eid):
+    """EXPERIMENT REGISTRY (#212), read-only: every candidate from declaration
+    to verdict and confirmation, with the prior reads of its test set.
+    docs/REGISTRY.md."""
+    import json as _json
+    from src.walters import registry as reg
+    entries = reg.load()
+    if eid:
+        e = reg.get(eid)
+        if e is None:
+            click.echo(f"{eid}: not in the registry")
+            raise SystemExit(1)
+        click.echo(_json.dumps(e, indent=2))
+        if e.get("run") is None:
+            pr = reg.prior_reads(e["test_set"], None, before_id=eid)
+            click.echo(f"prior reads of its test set so far: {len(pr)} — " + ", ".join(p["id"] for p in pr))
+        return
+    click.echo(f"EXPERIMENT REGISTRY · {len(entries)} entries · docs/registry/experiments.json")
+    for e in entries:
+        run = e.get("run") or {}
+        res = run.get("result") or {}
+        v = (e.get("verdict") or {}).get("verdict") or "—"
+        reads = run.get("prior_read_count")
+        click.echo(f"  {e['id']:<24} {e['sport']:<7} {e['status']:<10} verdict {v:<8} "
+                   f"result {_json.dumps(res)[:60]:<60} prior reads {'—' if reads is None else reads}")
+
+
 @cli.command("close-probe")
 @click.option("--match", "match_id", required=True, type=int, help="Match id.")
 def close_probe_cmd(match_id):

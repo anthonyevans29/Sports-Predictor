@@ -1,0 +1,276 @@
+[
+  {
+    "id": "nhl-v1",
+    "sport": "nhl",
+    "lane": "#105",
+    "candidate": "schedule Elo v1",
+    "declaration": "pre-registry (frozen in BACKLOG at the time)",
+    "training_cutoff": "as recorded in BACKLOG",
+    "test_set": "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)",
+    "gate": "log-loss <= 0.6866 (beats home-rate by 0.010) + calibration bands (10pp, n>=100, \u00b15pp) + ratings 1200-1800",
+    "confirmation_window": "n/a (pre-registry; FAIL/REJECT)",
+    "declared_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+    "status": "closed",
+    "run": {
+      "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "log_loss": 0.6909
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "pre-registry: scored match ids not recorded"
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "v1 0.6909 vs the 0.6866 bar (Phase 2)",
+      "at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)"
+    }
+  },
+  {
+    "id": "nhl-v2",
+    "sport": "nhl",
+    "lane": "#105",
+    "candidate": "schedule Elo v2 (tuned on 2024-internal)",
+    "declaration": "pre-registry (frozen in BACKLOG at the time)",
+    "training_cutoff": "as recorded in BACKLOG",
+    "test_set": "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)",
+    "gate": "log-loss <= 0.6866 (beats home-rate by 0.010) + calibration bands (10pp, n>=100, \u00b15pp) + ratings 1200-1800",
+    "confirmation_window": "n/a (pre-registry; FAIL/REJECT)",
+    "declared_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+    "status": "closed",
+    "run": {
+      "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "log_loss": 0.6921
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "pre-registry: scored match ids not recorded"
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "v2 0.6921 vs 0.6866",
+      "at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)"
+    }
+  },
+  {
+    "id": "nhl-v3",
+    "sport": "nhl",
+    "lane": "#105",
+    "candidate": "schedule Elo v3 (walk-forward selection)",
+    "declaration": "pre-registry (frozen in BACKLOG at the time)",
+    "training_cutoff": "as recorded in BACKLOG",
+    "test_set": "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)",
+    "gate": "log-loss <= 0.6866 (beats home-rate by 0.010) + calibration bands (10pp, n>=100, \u00b15pp) + ratings 1200-1800",
+    "confirmation_window": "n/a (pre-registry; FAIL/REJECT)",
+    "declared_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+    "status": "closed",
+    "run": {
+      "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "log_loss": 0.6952
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "pre-registry: scored match ids not recorded"
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "v3 0.6952 vs 0.6866",
+      "at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)"
+    }
+  },
+  {
+    "id": "nhl-v4",
+    "sport": "nhl",
+    "lane": "#105",
+    "candidate": "schedule Elo v4 (last schedule-only)",
+    "declaration": "pre-registry (frozen in BACKLOG at the time)",
+    "training_cutoff": "as recorded in BACKLOG",
+    "test_set": "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)",
+    "gate": "log-loss <= 0.6866 (beats home-rate by 0.010) + calibration bands (10pp, n>=100, \u00b15pp) + ratings 1200-1800",
+    "confirmation_window": "n/a (pre-registry; FAIL/REJECT)",
+    "declared_at": "2026-09-25",
+    "status": "closed",
+    "run": {
+      "run_at": "2026-09-25",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "log_loss": 0.6907
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "pre-registry: scored match ids not recorded"
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "v4 FAIL ratified (0.6907); PHASE 2 CLOSED 2026-09-25",
+      "at": "2026-09-25"
+    }
+  },
+  {
+    "id": "nhl-v5",
+    "sport": "nhl",
+    "lane": "#105",
+    "candidate": "v1 + goalie term (half-life 180d, prior 2,000 shots)",
+    "declaration": "pre-registry (frozen in BACKLOG at the time)",
+    "training_cutoff": "as recorded in BACKLOG",
+    "test_set": "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)",
+    "gate": "log-loss <= 0.6866 (beats home-rate by 0.010) + calibration bands (10pp, n>=100, \u00b15pp) + ratings 1200-1800",
+    "confirmation_window": "n/a (pre-registry; FAIL/REJECT)",
+    "declared_at": "2026-09-30",
+    "status": "closed",
+    "run": {
+      "run_at": "2026-09-30",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "log_loss": 0.6912,
+        "goalie_information": -0.0003
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "pre-registry: scored match ids not recorded"
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "NHL v5 \u2014 FAIL 0.6912 vs 0.6866; goalie information \u22120.0003 at 100% starter coverage",
+      "at": "2026-09-30"
+    }
+  },
+  {
+    "id": "soccer-s19-time-decay",
+    "sport": "soccer",
+    "lane": "#83",
+    "candidate": "S19 time-decay weighting (365d half-life)",
+    "declaration": "pre-registry (frozen in BACKLOG at the time)",
+    "training_cutoff": "as recorded in BACKLOG",
+    "test_set": "PL pooled 2023/24 + 2024/25 + 2025/26 (soccer-backtest leakage-free)",
+    "gate": "log-loss improvement >= 0.0050",
+    "confirmation_window": "n/a (pre-registry; FAIL/REJECT)",
+    "declared_at": "2026-09-30",
+    "status": "closed",
+    "run": {
+      "run_at": "2026-09-30",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "delta": 0.0005,
+        "n": 1020
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "pre-registry: scored match ids not recorded"
+    },
+    "verdict": {
+      "verdict": "REJECT",
+      "ruling": "S19 \u2014 REJECT (+0.0005 vs 0.0050, n=1020)",
+      "at": "2026-09-30"
+    }
+  },
+  {
+    "id": "soccer-dc-fit",
+    "sport": "soccer",
+    "lane": "#81",
+    "candidate": "Dixon-Coles rho fitted on 2023/24, frozen",
+    "declaration": "pre-registry (frozen in BACKLOG at the time)",
+    "training_cutoff": "as recorded in BACKLOG",
+    "test_set": "PL out-of-sample pool 2024/25 + 2025/26",
+    "gate": "log-loss improvement >= 0.0050",
+    "confirmation_window": "n/a (pre-registry; FAIL/REJECT)",
+    "declared_at": "2026-10-01",
+    "status": "closed",
+    "run": {
+      "run_at": "2026-10-01",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "delta": -0.0003
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "pre-registry: scored match ids not recorded"
+    },
+    "verdict": {
+      "verdict": "REJECT",
+      "ruling": "DC-FIT REJECT (\u22120.0003 OOS)",
+      "at": "2026-10-01"
+    }
+  },
+  {
+    "id": "soccer-s14-stage2",
+    "sport": "soccer",
+    "lane": "#81",
+    "candidate": "S14 totals offset +1.17 (uncertain-winner bucket)",
+    "declaration": "pre-registry (frozen in BACKLOG at the time)",
+    "training_cutoff": "as recorded in BACKLOG",
+    "test_set": "PL pooled 2023/24 + 2024/25 + 2025/26 (soccer-backtest leakage-free)",
+    "gate": "criterion (i): residual moves toward zero",
+    "confirmation_window": "n/a (pre-registry; FAIL/REJECT)",
+    "declared_at": "2026-10-01",
+    "status": "closed",
+    "run": {
+      "run_at": "2026-10-01",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "residual_before": 0.18,
+        "residual_after": -0.99
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "pre-registry: scored match ids not recorded"
+    },
+    "verdict": {
+      "verdict": "REJECT",
+      "ruling": "S14-STAGE2 REJECT (criterion (i) overshoot +0.18\u2192\u22120.99 at +1.17; no re-tune)",
+      "at": "2026-10-01"
+    }
+  },
+  {
+    "id": "cups-fix-v2",
+    "sport": "cups",
+    "lane": "cups R-track (suspended 2026-09-25)",
+    "candidate": "cup model fix-v2 (re-exam)",
+    "declaration": "pre-registry (frozen in BACKLOG at the time)",
+    "training_cutoff": "as recorded in BACKLOG",
+    "test_set": "cup exam set (EFL/CL/UEL)",
+    "gate": "cup exam bar (frozen)",
+    "confirmation_window": "n/a (pre-registry; FAIL/REJECT)",
+    "declared_at": "2026-09-25",
+    "status": "closed",
+    "run": {
+      "run_at": "2026-09-25",
+      "n_scored": null,
+      "ids_sha256": null,
+      "ids_file": null,
+      "result": {
+        "exam_pp": 14.76,
+        "sign": 0.6
+      },
+      "prior_reads": [],
+      "prior_read_count": null,
+      "note": "pre-registry: scored match ids not recorded"
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "CUP FIX-V2 RE-EXAM: FAIL \u2014 CUP MODEL TRACK SUSPENDED",
+      "at": "2026-09-25"
+    }
+  }
+]

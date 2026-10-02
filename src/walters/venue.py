@@ -56,16 +56,19 @@ KALSHI_FEE_ROUNDING = "nearest"   # ADOPTED 2026-09-30: re-fit 542/548 = 98.9% (
 K_TRACK_NOTE = "K-track: informational until the executable-edge ruling"
 
 # #93 RESOLVED (architect 2026-09-30, from Kalshi's fee schedule): the game
-# series' multipliers M. Game series (NFL/NHL/EPL/UCL/NCAAF/MLB): taker M=1,
-# maker M=0.25; MLB PRE-LIVE M=0.5 for both (taker $0.04-$0.88, maker
-# $0.01-$0.22 per 100 contracts); MLB live M=1 is never priced here, because
+# series' multipliers M. Game series (NFL/NHL/EPL/UCL/NCAAF): M=1 for taker
+# AND maker; MLB PRE-LIVE M=0.5 for both (taker $0.04-$0.88, maker
+# $0.01-$0.22 per 100 contracts). The maker discount IS the 0.0175 rate
+# (= 0.25 x 0.07); it is never applied twice. P0-1 (#206, external review
+# 2026-10-01): the table carried maker M=0.25 ON TOP of 0.0175, a fee 4x too
+# small (NFL maker 100 @ 50c: $0.11 vs the published $0.44). MLB live M=1 is never priced here, because
 # MLB is never executed live (doctrine, ruling (4)). Combos: maker = 50% of
 # taker (fills classification only). Our exports are pre-kickoff captures
 # only (in-play never), so the pre-live M applies. UCL is in the ruling, but
 # no UCL series is wired, so no ticker is guessed for it.
 KALSHI_FEE_M = {                       # series -> (taker M, maker M), pre-live
-    "KXNFLGAME": (1.0, 0.25), "KXNHLGAME": (1.0, 0.25), "KXNCAAFGAME": (1.0, 0.25),
-    "KXEPLGAME": (1.0, 0.25), "KXMLBGAME": (0.5, 0.5),
+    "KXNFLGAME": (1.0, 1.0), "KXNHLGAME": (1.0, 1.0), "KXNCAAFGAME": (1.0, 1.0),
+    "KXEPLGAME": (1.0, 1.0), "KXMLBGAME": (0.5, 0.5),
 }
 # Competition code -> the Kalshi game series its quotes come from (cli
 # sync-kalshi-* and adapters/kalshi.py SOCCER_GAME_SERIES). A code missing

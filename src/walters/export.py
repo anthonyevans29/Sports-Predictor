@@ -1331,6 +1331,12 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
         lines.append(results_section(days))
     except Exception:
         lines.append("## NHL — REFERENCE MODEL, FAILED GATE (shadow)\n\nGrade unavailable.\n")
+    # UNL SHADOW (ARCHITECT 2026-10-02): intl-elo-v2 in its confirmation window, live CLV only.
+    try:
+        from src.walters.intl_shadow import results_section as _unl_section
+        lines.append(_unl_section(days))
+    except Exception:
+        lines.append("## UNL — SHADOW, CONFIRMATION WINDOW\n\nGrade unavailable.\n")
     lines.append("\nDeep detail: `BACKLOG.md`. Change history: `CHANGELOG.md`.\n")
     with open(out_path, "w") as f:
         f.write("\n".join(lines))

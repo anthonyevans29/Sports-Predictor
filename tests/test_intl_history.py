@@ -106,7 +106,7 @@ def test_ingest_dry_run_then_real_then_idempotent(tmp_path):
     write_dir(tmp_path)
     r = ih.ingest(ih.Source(from_dir=str(tmp_path)), SINCE, dry_run=True)
     assert _counts() == (0, 0)                                    # the dry run wrote nothing
-    assert r["senior_teams"] == 4 and r["excluded_total"] == 1
+    assert r["senior_teams"] >= 4 and r["excluded_total"] == 1          # >= : stored seniors from the shared DB count too
     assert dict(r["excluded_teams"]) == {"Probe Regional XI (id 880099)": 1}
     r = ih.ingest(ih.Source(from_dir=str(tmp_path)), SINCE)
     assert _counts() == (6, 6)
@@ -149,3 +149,24 @@ def test_concacaf_nations_league_and_its_qualification_are_coded():
                                                                    ("CNL_Q", 808, 2018)]
     with pytest.raises(ih.IntlError, match="adapter maps 808"):
         ih.plan([league(999, "CONCACAF Nations League - Qualification", 2018)], SINCE)
+
+
+def test_incremental_sync_keeps_friendlies_of_stored_senior_teams(tmp_path):
+    """The daily sync fetches current seasons only (--since {today}): a friendly
+    between two sides with no competitive fixture IN THIS FETCH is kept when
+    both already play stored UNL/WCQ/EURO matches (stored_senior)."""
+    init_db()
+    write_dir(tmp_path)
+    ih.ingest(ih.Source(from_dir=str(tmp_path)), SINCE)              # stores the UNL / WCQ / EURO_Q sides
+    only = tmp_path / "only_friendlies"
+    only.mkdir()
+    lg = [league(10, "Friendlies", 2072)]
+    json.dump({"response": lg}, open(only / "leagues.json", "w"))
+    json.dump({"response": [fx(9900099, 880001, 880003, 2, 2, "Probe City", when="2072-06-07T18:45:00+00:00",
+                               league_season=2072),
+                            fx(9900098, 880099, 880001, 0, 1, "Bilbao", when="2072-06-08T18:45:00+00:00",
+                               league_season=2072)]}, open(only / "fixtures_10_2072.json", "w"))
+    json.dump({"response": GROUNDS + [team(880099, "Bilbao")]}, open(only / "teams_10_2072.json", "w"))
+    assert {"880001", "880003"} <= ih.stored_senior()
+    r = ih.ingest(ih.Source(from_dir=str(only)), SINCE, dry_run=True)
+    assert r["per_cs"][("FRIENDLIES_INT", 2072)]["kept"] == 1 and r["excluded_total"] == 1

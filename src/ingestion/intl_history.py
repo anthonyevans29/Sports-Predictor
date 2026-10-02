@@ -142,6 +142,32 @@ def senior_set(fixtures: dict) -> set[str]:
     return out
 
 
+def stored_senior(source: str = "api_football") -> set[str]:
+    """Provider ids of teams in STORED UNL / WCQ_* / UEFA_EURO / UEFA_EURO_Q
+    matches. The incremental daily sync (--since {today}, ARCHITECT 2026-10-02)
+    fetches current seasons only; without this, a friendly against a senior
+    side with no competitive fixture THIS season would be dropped."""
+    from sqlalchemy import select
+
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, Team
+
+    out = set()
+    with session_scope() as s:
+        comps = [c.id for c in s.execute(select(Competition)).scalars() if in_filter_source(c.code)]
+        if not comps:
+            return out
+        ids = set()
+        for h, a in s.execute(select(Match.home_team_id, Match.away_team_id).where(Match.competition_id.in_(comps))):
+            ids.update((h, a))
+        for t in s.execute(select(Team).where(Team.id.in_(ids))).scalars():
+            sid = (t.external_ids or {}).get(source)
+            if sid:
+                out.add(str(sid))
+        s.rollback()
+    return out
+
+
 def norm_city(s) -> str | None:
     if not s or not str(s).strip():
         return None
@@ -249,7 +275,7 @@ def ingest(src: Source, since: date, max_calls: int = 80, dry_run: bool = False)
         fixtures[key] = src.get(f"fixtures_{p['league_id']}_{p['year']}.json", "fixtures", q).get("response") or []
         teams[key] = src.get(f"teams_{p['league_id']}_{p['year']}.json", "teams", q).get("response") or []
 
-    senior = senior_set(fixtures)
+    senior = senior_set(fixtures) | stored_senior(src.cl.source_name)
     if not senior:
         raise IntlError("REFUSED: no team in any UNL/WCQ/EURO/EURO_Q fixture — the filter would drop everything")
     excluded_by_cs, excluded_teams = Counter(), Counter()

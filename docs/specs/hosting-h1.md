@@ -706,7 +706,7 @@ Receipt: the push arrives on the phone, and the printed line says
 TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-saturday.timer
   sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
-  sp-mlb-history.timer"
+  sp-mlb-history.timer sp-intl-daily.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
@@ -722,6 +722,11 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   history only, from the api-sports fallback. On a live host that
   predates it, see "MLB PHASE A" below.
 - No timer exists for soccer-refresh (H0-6).
+- `sp-intl-daily.timer` (2026-10-02, 07:20 UTC): the incremental intl sync,
+  the v3 venue step and the UNL shadow export (intl-elo-v2's confirmation
+  window). On a live host that predates it: install the unit, then
+  `systemctl enable --now sp-intl-daily.timer` and add it to
+  `/etc/sports-predictor/timers.enabled`.
 
 **T12. TERMINAL (laptop): the nightly backup pull (H0-14 second layer).**
 ```

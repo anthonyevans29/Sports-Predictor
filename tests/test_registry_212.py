@@ -127,3 +127,67 @@ def test_cli_lists_the_ledger():
     import cli
     out = CliRunner().invoke(cli.cli, ["registry"]).output
     assert "EXPERIMENT REGISTRY · " in out and "nhl-v5" in out
+
+
+def test_frozen_cohort_is_exact_once_and_binds_the_read(tmp_path):
+    """Review on #248 (2026-10-02): the cohort is the first n ELIGIBLE fixture
+    ids, frozen once; the read must score exactly that set — a pending label
+    leaves it incomplete, never admits a replacement."""
+    kw, ids = _passed(tmp_path)
+    plan_n = DECL["confirmation_plan"]["n_games"]
+    cohort = list(range(1000, 1000 + plan_n))
+    with pytest.raises(reg.RegistryError, match="exactly 150 distinct"):
+        reg.freeze_confirmation_cohort("nhl-v6", cohort[:-1], {}, ids_dir=ids, **kw)
+    with pytest.raises(reg.RegistryError, match="exactly 150 distinct"):
+        reg.freeze_confirmation_cohort("nhl-v6", cohort[:-1] + [1000], {}, ids_dir=ids, **kw)
+    with pytest.raises(reg.RegistryError, match="test set"):
+        reg.freeze_confirmation_cohort("nhl-v6", [1] + cohort[1:], {}, ids_dir=ids, **kw)
+    e = reg.freeze_confirmation_cohort("nhl-v6", cohort, {"rule": "r"}, ids_dir=ids, **kw)
+    assert e["confirmation_cohort"]["n"] == plan_n and reg.frozen_cohort(e, ids) == cohort
+    with pytest.raises(reg.RegistryError, match="never changes"):
+        reg.freeze_confirmation_cohort("nhl-v6", cohort, {}, ids_dir=ids, **kw)
+    # game 151 replacing a pending cohort fixture: refused, the entry stays confirming
+    swapped = cohort[:-1] + [9999]
+    with pytest.raises(reg.RegistryError, match="exactly the frozen cohort"):
+        reg.record_confirmation("nhl-v6", swapped, GOOD, "ARCHITECT: confirmed", ids_dir=ids, **kw)
+    assert reg.get("nhl-v6", **kw)["status"] == "confirming"
+    e = reg.record_confirmation("nhl-v6", cohort, GOOD, "ARCHITECT: confirmed", ids_dir=ids, **kw)
+    assert e["confirmation"]["outcome"] == "CONFIRMED"
+
+
+def test_a_tampered_cohort_file_refuses(tmp_path):
+    kw, ids = _passed(tmp_path)
+    cohort = list(range(1000, 1150))
+    e = reg.freeze_confirmation_cohort("nhl-v6", cohort, {}, ids_dir=ids, **kw)
+    with open(f"{ids}/nhl-v6.cohort.txt", "w") as f:
+        f.write("\n".join(str(i) for i in cohort[:-1] + [9999]) + "\n")
+    with pytest.raises(reg.RegistryError, match="does not match"):
+        reg.frozen_cohort(e, ids)
+
+
+def test_cancelled_or_abandoned_cohort_fixtures_are_substituted_with_reason(tmp_path):
+    """ARCHITECT 2026-10-02 (2): CANCELLED/ABANDONED games in the frozen cohort
+    are RELEASED and replaced, recorded as a substitution with reason; a
+    postponed or unplayed game is never swapped."""
+    kw, ids = _passed(tmp_path)
+    cohort = list(range(1000, 1150))
+    reg.freeze_confirmation_cohort("nhl-v6", cohort, {}, ids_dir=ids, **kw)
+    ev = {"status": "cancelled", "status_raw": "ABD"}
+    for bad, msg in ((("1000", 2000, "postponed", ev), "postponed or unplayed game stays"),
+                     ((1000, 2000, "cancelled", {}), "evidence"),
+                     ((5, 2000, "cancelled", ev), "not in the effective cohort"),
+                     ((1000, 1001, "cancelled", ev), "already in the cohort"),
+                     ((1000, 2, "cancelled", ev), "test set")):
+        with pytest.raises(reg.RegistryError, match=msg):
+            reg.substitute_cohort_fixture("nhl-v6", *bad, ids_dir=ids, **kw)
+    e = reg.substitute_cohort_fixture("nhl-v6", 1000, 2000, "abandoned", ev, ids_dir=ids, **kw)
+    eff = reg.frozen_cohort(e, ids)
+    assert 1000 not in eff and 2000 in eff and len(eff) == 150
+    assert e["confirmation_cohort"]["substitutions"][0]["reason"] == "abandoned"
+    assert e["confirmation_cohort"]["ids_sha256"] == reg._ids_sha(cohort)          # the frozen file never changes
+    with pytest.raises(reg.RegistryError, match="released from it"):           # a released id never returns
+        reg.substitute_cohort_fixture("nhl-v6", 2000, 1000, "cancelled", ev, ids_dir=ids, **kw)
+    with pytest.raises(reg.RegistryError, match="exactly the frozen cohort"):  # the pre-substitution set no longer reads
+        reg.record_confirmation("nhl-v6", cohort, GOOD, "ARCHITECT: confirmed", ids_dir=ids, **kw)
+    assert reg.record_confirmation("nhl-v6", eff, GOOD, "ARCHITECT: confirmed", ids_dir=ids,
+                                   **kw)["confirmation"]["outcome"] == "CONFIRMED"

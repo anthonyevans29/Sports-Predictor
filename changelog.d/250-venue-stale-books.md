@@ -1,3 +1,3 @@
-## 2026-10-02 (#91 RULED: a venue-edge book capture older than 3h at decision time is NO reference)
+## 2026-10-02 (#250, closes #91 RULED: a venue-edge book capture older than 3h at decision time is NO reference)
 - `desk_policy.venue_edge`: when the row's `market.captured_at` is more than 3h (`VENUE["maxBookAgeH"]`) before the Desk's as-of, the row is PASS / `noref` ("books captured X.Xh ago > 3h — no reference"). It is excluded, not stale-flagged: no side, no divergence, `stale_book_zone` false. This is the same class as absent books. The Next-24h card (`window_venue`) obeys the same rule.
 - Exactly 3h and fresher are judged as before. A row with no capture time keeps the pre-ruling path (the fixtures export stamps `market.captured_at` on every priced board). tests/test_venue_stale_books_91.py (5); the desk golden is unchanged (810/810).

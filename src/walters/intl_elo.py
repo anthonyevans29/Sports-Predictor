@@ -56,10 +56,11 @@ TRAIN_TO = datetime(2024, 9, 1)            # exclusive: kickoff 2018-01-01 .. 20
 TEST_UNL_SEASON = "2024/25"
 TEST_WCQ_FROM, TEST_WCQ_TO = datetime(2025, 3, 1), datetime(2026, 4, 1)   # 2025-03-01 .. 2026-03-31
 
-RULE_V2 = ("intl-neutral-v2 (ARCHITECT-RULE on #232, pre-declared; #234 ruling 2 fix): neutral = the venue "
-           "city is not among the cities where the home team hosted >= 1 match of a home-and-away competition "
-           "(UNL, WCQ_*, UEFA_EURO_Q, CNL) in the pool, the match itself LEFT OUT of its own host-city set; "
-           "friendlies and finals tournaments never seed a host city; either city unknown -> unknown.")
+RULE_V2 = ("intl-neutral-v2 (ARCHITECT-RULE on #232; #234 ruling 2; preflight ruling 2026-10-02): neutral = "
+           "the venue city is not among the cities where the home team hosted >= 1 match of a home-and-away "
+           "competition (UNL, WCQ_*, UEFA_EURO_Q, CNL) in the pool — a team hosting a competitive match is at "
+           "home even if that city appears once; friendlies and finals tournaments never seed a host city; "
+           "either city unknown -> unknown.")
 
 
 @dataclass(frozen=True)
@@ -150,9 +151,16 @@ def rule_check(games: list[Game]) -> dict:
 
 
 def apply_v2(games: list[Game], norm) -> tuple[list[Game], Counter]:
-    """intl-neutral-v2 (#234 fix): host-city sets from home-and-away
-    competitions only, each match LEFT OUT of its own set (leave-one-out over
-    city counts), so a match never makes its own venue a host city."""
+    """intl-neutral-v2: host-city sets from home-and-away competitions only
+    (#234 ruling 2); friendlies and finals tournaments never seed a host city.
+
+    ARCHITECT 2026-10-02 (intl preflight): "the
+    "neutral_city_hosted_only_this_match" category is HOME, not neutral — a
+    team hosting a competitive match is at home even if that city appears
+    once; leave-one-out was meant to catch finals, which never seed anyway."
+    So a home-and-away match's own venue counts toward its team's host set.
+    The reclassified matches (their city hosted only this match) are counted
+    as `home_city_hosted_only_this_match` (formerly neutral or unknown)."""
     hosts: dict[int, Counter] = defaultdict(Counter)
     for g in games:
         if g.code in HOST_SET_CODES and norm(g.venue_city):
@@ -160,12 +168,10 @@ def apply_v2(games: list[Game], norm) -> tuple[list[Game], Counter]:
     out, c = [], Counter()
     for g in games:
         v = norm(g.venue_city)
-        own = 1 if (g.code in HOST_SET_CODES and v) else 0
-        others = {city: n - (own if city == v else 0) for city, n in hosts.get(g.home, {}).items()}
-        others = {city for city, n in others.items() if n > 0}
-        flag = None if v is None or not others else (v not in others)
-        if flag and own and hosts[g.home].get(v) == 1:
-            c["neutral_city_hosted_only_this_match"] += 1        # the leave-one-out cost, measured
+        mine = hosts.get(g.home, {})
+        flag = None if v is None or not mine else (v not in mine)
+        if flag is False and g.code in HOST_SET_CODES and mine.get(v) == 1:
+            c["home_city_hosted_only_this_match"] += 1           # reclassified HOME by the ruling
         c["unknown" if flag is None else "neutral" if flag else "home"] += 1
         out.append(Game(g.id, g.code, g.season, g.kickoff, g.home, g.away, g.hg, g.ag, flag, g.venue_city))
     return out, c

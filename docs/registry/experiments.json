@@ -373,7 +373,8 @@
     "status": "declared",
     "run": null,
     "verdict": null,
-    "ratified": "ARCHITECT-RULE on #232 2026-10-02 (pre-run, frozen): draws S=0.5 with max(margin,1); no season regression; unknown venue +100 counted; RULE CHECK gate 10% with the pre-declared intl-neutral-v2 refinement; naive = frozen train H/D/A, symmetric at derived-neutral. #234 rulings 2026-10-02: CNL_Q K=40 (Nations League class); v2 = leave-one-out host-city sets from home-and-away competitions only."
+    "ratified": "ARCHITECT-RULE on #232 2026-10-02 (pre-run, frozen): draws S=0.5 with max(margin,1); no season regression; unknown venue +100 counted; RULE CHECK gate 10% with the pre-declared intl-neutral-v2 refinement; naive = frozen train H/D/A, symmetric at derived-neutral. #234 rulings 2026-10-02: CNL_Q K=40 (Nations League class); v2 = leave-one-out host-city sets from home-and-away competitions only. Preflight rulings 2026-10-02: v1 RULE CHECK 63% -> v2; a city hosted only by this competitive match is HOME (replaces leave-one-out); v2's check printed on the same denominator and gated at 10%; gap games update ratings; v3 (venue country != home country) pre-declared, engages only if v2 > 10%.",
+    "limitation": "DECLARED (ARCHITECT 2026-10-02): home-and-away competition play-offs and finals at neutral venues are priced with the home edge; v2's 10% check is vacuous under the HOME ruling. The fix, v3 (venue country), is for the next candidate."
   },
   {
     "id": "nhl-v7",

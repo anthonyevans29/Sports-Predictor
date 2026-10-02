@@ -61,8 +61,9 @@ def test_naive_baseline_frozen_and_symmetric_at_neutral():
 
 
 def test_rule_check_and_the_v2_host_city_rule():
-    """#234 ruling 2: leave-one-out host-city sets from home-and-away
-    competitions only (friendlies and finals tournaments never seed)."""
+    """#234 ruling 2 + the preflight ruling: host-city sets from home-and-away
+    competitions only (friendlies and finals tournaments never seed); a team
+    hosting a competitive match is at home even if that city appears once."""
     from src.ingestion.intl_history import norm_city
     t = datetime(2019, 1, 1)
     games = [G(1, "WCQ_EU", 10, 20, 1, 0, t, neutral=True, city="Munich"),     # v1: Munich != Berlin ground
@@ -76,10 +77,11 @@ def test_rule_check_and_the_v2_host_city_rule():
     assert (rc["neutral"], rc["known"], rc["breached"]) == (3, 4, True)
     v2, c = ie.apply_v2(games, norm_city)
     flags = {g.id: g.neutral for g in v2}
-    # 1/6: Munich hosted twice -> each sees the other; 2: Dortmund hosted only by itself -> neutral (measured);
-    # 3: team 20's only host city is this match -> unknown; 4/7: friendly / finals venue -> neutral; 5: home
-    assert flags == {1: False, 2: True, 3: None, 4: True, 5: False, 6: False, 7: True}
-    assert c["neutral_city_hosted_only_this_match"] == 1
+    # ARCHITECT 2026-10-02 (preflight): a city hosted only by this competitive match is HOME (2: Dortmund,
+    # 3: Paris), not neutral/unknown; friendlies (4) and finals (7) never seed a host city -> neutral
+    assert flags == {1: False, 2: False, 3: False, 4: True, 5: False, 6: False, 7: True}
+    assert c["home_city_hosted_only_this_match"] == 2
+    assert ie.rule_check(v2)["neutral"] == 0          # same H&A denominator: 0/4 — every H&A match seeds itself
     assert ie.apply_v2([G(9, "FRIENDLIES_INT", 50, 10, 1, 0, t, city="Rome")], norm_city)[0][0].neutral is None
 
 
@@ -178,3 +180,35 @@ def test_cli_preflight_scores_and_records_nothing(monkeypatch):
     res = CliRunner().invoke(cli, ["intl-elo-backtest", "--preflight"])
     assert res.exit_code == 0, res.output
     assert "RULE CHECK" in res.output and "PREFLIGHT only" in res.output and "splits: train" in res.output
+
+
+def test_gap_games_update_ratings_before_the_test_games():
+    """ARCHITECT 2026-10-02 (preflight, 3): the gap games are not scored but
+    MUST update ratings — they are information before the test games."""
+    games = _stream()
+    gap = [g for g in games if g.kickoff >= ie.TRAIN_TO and not ie.is_test(g)]
+    assert gap
+    without = [g for g in games if g not in gap]
+    r1, r2 = ie.run(games), ie.run(without)
+    assert r1["n_test"] == r2["n_test"] and r1["counts"]["gap"] == len(gap)
+    assert r1["ll_model"] != r2["ll_model"]                         # dropping the gap games changes test predictions
+    m = ie.IntlElo(mu=r1["mu"])
+    for g in games:
+        if g is gap[0]:
+            before = dict(m.ratings)
+            m.update(g)
+            assert m.ratings != before                              # a gap game moves ratings
+            break
+        m.update(g)
+
+
+def test_cli_preflight_prints_v2_check_on_the_same_denominator(monkeypatch):
+    from cli import cli
+    from src.walters import registry as reg
+    t = datetime(2019, 1, 1)
+    games = [G(i, "UNL", 10, 20, 1, 0, t, neutral=True, city="Munich" if i % 2 else "Dortmund") for i in range(1, 9)]
+    monkeypatch.setattr(reg, "get", lambda eid: {"status": "declared", "run": None})
+    monkeypatch.setattr(ie, "load", lambda s: (games, {}))
+    out = CliRunner().invoke(cli, ["intl-elo-backtest", "--preflight"]).output
+    assert "RULE CHECK (intl-neutral-v1" in out and "8/8 = 100.0%" in out and "BREACHED" in out
+    assert "RULE CHECK (intl-neutral-v2, same home-and-away denominator): derived neutral 0/8 = 0.0%" in out

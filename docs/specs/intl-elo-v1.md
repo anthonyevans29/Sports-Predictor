@@ -2,6 +2,12 @@
 
 **Status: RATIFIED 2026-10-02 (five items, below). Harness: `python cli.py intl-elo-backtest` (built from this document). Not run.**
 
+**DECLARED LIMITATION (ARCHITECT 2026-10-02, verbatim):** "intl-elo-v1 runs
+under v2 as built, with its known limitation DECLARED in the doc and registry
+entry: "home-and-away competition play-offs and finals at neutral venues are priced with the home edge; v2's 10% check is vacuous under the HOME ruling". v3 (venue country) is the fix for the next candidate; run
+scripts/intl_venue_route_probe.py --from-dir on the laptop for its cost (0
+calls)."
+
 ARCHITECT-RULE on #232 (pre-run, frozen; verbatim): "(1) DRAWS — actual
 score S=0.5 for both sides; the margin multiplier uses max(margin,1), so a
 draw moves ratings like a one-goal result toward the expected-draw point:
@@ -19,6 +25,23 @@ the harness is built from the ratified doc."
 League class). (2) v2 neutral rule — ratified with your fix: a match is left
 out of its own host-city set, and the set is built from home-and-away
 competitions only."
+
+PREFLIGHT RULINGS (ARCHITECT 2026-10-02, verbatim): "RULE CHECK v1 = 63% (city
+rule reads multi-city hosts as neutral, as predicted). v2 applies. Pre-declare
+v3 now so no further ruling blocks the run: neutral_v3 = venue COUNTRY ≠ home
+team's country (national teams' home is their country; a venue abroad is
+neutral or away). Needs venue country per fixture — report the cheapest route
+(fixture venue fields vs /venues) and its call count; derive, label, never a
+provider fact. v3 engages only if v2 also exceeds 10% in the preflight."
+Then: "(1) print v2's RULE CHECK on the same home-and-away denominator as v1
+(currently absent) — the 10% gate must be checked on v2 before the run. (2)
+RULED: the "neutral_city_hosted_only_this_match" category is HOME, not neutral
+— a team hosting a competitive match is at home even if that city appears
+once; leave-one-out was meant to catch finals, which never seed anyway.
+Reclassify the 397 and re-print the check. (3) Confirm the 1,174 "gap" games
+UPDATE ratings in the walk-forward even though they're not scored (they're
+information before the test games); if they don't, fix before the run. Then,
+if v2's check is <= 10%: the one run."
 Registry id `intl-elo-v1` (#212). Every choice below is fixed before any fit
 and before the test set is read (law 3). The run harness is a separate PR
 written FROM this document after ratification. It refuses to run unless this
@@ -144,12 +167,33 @@ convert this into a 3-way distribution via the Poisson model").
     team hosted ≥ 1 match of a **home-and-away competition** in the pool.
     - The host-city set is built from UNL, WCQ_*, UEFA_EURO_Q and CNL, at
       every stage (the stage vocabulary is not filtered).
-    - **The match itself is left out of its own set** (#234 ruling 2).
+    - **A team hosting a competitive match is at home even if that city
+      appears once** (preflight ruling 2026-10-02, which replaces
+      leave-one-out). Those matches are counted as
+      `home_city_hosted_only_this_match`.
     - Friendlies and finals tournaments never seed a host city.
     - If either side is unknown, the flag is unknown (priced +100, §3).
-    - **Measured cost of leaving the match out:** a venue city that hosted
-      only this one match reads neutral. The count is printed
-      (`neutral_city_hosted_only_this_match`).
+  - **v2's RULE CHECK** is printed on the same home-and-away denominator and
+    gated at 10% before the run. Each home-and-away match now seeds its own
+    venue city, so with a known city it cannot read neutral under v2: the
+    check is ~0% by construction.
+  - **intl-neutral-v3 (pre-declared):** this engages only if v2 also exceeds
+    10% in the preflight.
+    - Neutral = venue **country** ≠ the home team's country. The venue
+      country comes from `/venues`; the home team's country comes from
+      `/teams` team.country.
+    - It is derived and labelled, never treated as a provider fact. Either
+      country unknown → unknown.
+    - **Route:** `scripts/intl_venue_route_probe.py --from-dir <the
+      intl-sync save>` reports the cheapest route with zero calls: a country
+      served under fixture.venue (0 calls), `/venues?id` (one call per
+      distinct venue id), or `/venues?country` (one call per distinct
+      home-team country).
+    - The loader for v3 is a separate PR, needed only if v3 engages. Until
+      then, a v2 breach refuses the run.
+  - **Gap games:** matches from 2024-09-01 that are not in the test set are
+    predicted and **update ratings**; only the test games are scored. A test
+    pins this.
   - The rule in force is printed and recorded with the run. The bar is never
     adjusted.
 

@@ -22,6 +22,12 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — #176 NCAA SOURCE PROBE BUILT (moved to THIS WEEK by ruling): read-only, row-level, CFBD.**
+- **Probe:** `scripts/ncaa_source_probe.py` joins each CFBD game to ours with the shared matcher in both orientations. Per game it reports the label (same or swapped), the score (agree or disagree, in our orientation) and the neutral flag (source only; our DB has none, law 4).
+- **Comparison:** the source's home rate and margin, non-neutral and neutral separately, against ours on the same joined games. This answers whether the 0.489 is a provider fault or real neutral-site share.
+- **Not run here:** CFBD is unreachable from Code's container (the connection fails). The receipt is owed by the laptop or host with a free `CFBD_API_KEY` in .env: `python3 scripts/ncaa_source_probe.py --year 2025 --year 2026`.
+- **Exit (unchanged):** a pasted receipt plus an architect ruling on whether CFBD becomes an ingest lane (its own Issue). Until then the gate stays SUSPENDED-PENDING-DATA and NCAA stays market-only.
+
 **2026-10-02 — ARCHITECT-RULE on #207: the exports adopt the SAME close contract. Maker validation PENDING (#218).**
 (1) RULED: "the MLB/soccer prediction exports and the fixtures export adopt the SAME close contract (one definition; the export block IS the Desk's reference — #117 showed what pooled de-vig does to it)." This lands in the same PR (#215).
 - `_summarize_market` and `_fixture_row` now call `close_1x2`. `bookmaker_count` means complete books, so the thin-book rule reads stricter, conservatively.

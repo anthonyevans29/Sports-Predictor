@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#176: NCAA source probe — read-only, row-level)
+- `scripts/ncaa_source_probe.py`: CollegeFootballData (CFBD) `/games` by year, FBS by default. Field names are discovered from the first record and printed; a missing required field refuses the run.
+- Each completed game is joined to OUR NCAA matches through the shared matcher (ambiguity refused), in the source's orientation, else swapped. It compares labels and scores (in our orientation); neutral games are counted separately and never relabel ours.
+- It reports the source's home rate and margin (non-neutral / neutral), ours on the same joined games, the join rate, swapped / score-mismatch / unmatched samples and the access receipt (HTTP status, rate-limit headers).
+- Key from `CFBD_API_KEY` (.env, never printed); `--from-file` for offline re-runs; refuses `--save` under data/; writes nothing. tests/test_ncaa_source_probe.py: 3 tests.
+
 ## 2026-10-01 (#207: P0-2 the close contract)
 - `close_1x2(rows, before, outcomes)` now requires the outcome set: binary HOME/AWAY or 3-way HOME/DRAW/AWAY. `outcomes_for(sport)` is the one mapping (soccer is 3-way, every other sport binary, as read from the adapters).
 - A book counts only with a COMPLETE same-session set. Each complete book is de-vigged on its own, then the books are averaged. With no complete book the result is UNPRICED: `fair` is None and `missing` names each quoted book's absent legs. `books` counts complete books, `books_quoted` every book in the session. `priced(cl)` is the caller check.

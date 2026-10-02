@@ -54,6 +54,43 @@ class SyncResult:
         return f"created={self.created} updated={self.updated} skipped={self.skipped}"
 
 
+def _mlb_store_odds(s, match, rows) -> tuple[int, bool] | None:
+    """MLB ODDS HISTORY (ARCHITECT 2026-10-02, priority; PHI@ATL game 3 was
+    graded unpriceable after the morning sync replaced its 22:55Z 8-book
+    pre-game capture). Per game, at one capture stamp:
+      * a game at/after first pitch (our utc_date) is NEVER touched: no wipe,
+        no insert — the last pre-first-pitch session stays the close and an
+        in-game price is never stored (returns None);
+      * otherwise the api_baseball rows are replaced (the odds table holds
+        the CURRENT board) and ONE book-consensus OddsSnapshot per outcome is
+        APPENDED (market 1X2, source api_baseball, n_books = complete books),
+        de-vigged under the #207 contract — the history the close falls back
+        to (src/walters/close.py grading_close), as sync-odds-football does
+        for NFL. An incomplete board (no book with both sides) appends nothing.
+    Returns (odds rows written, snapshot appended)."""
+    from src.db.schema import Odds, OddsSnapshot
+    from src.walters.close import BINARY, close_1x2, priced
+
+    now = utc_now_naive()
+    if match.utc_date is not None and match.utc_date <= now:
+        return None
+    s.flush()        # a bulk delete does not see rows still pending in this session
+    s.query(Odds).filter(Odds.match_id == match.id, Odds.source == "api_baseball").delete()
+    fresh = []
+    for ow in rows:
+        o = Odds(match_id=match.id, market=ow.market, selection=ow.selection,
+                 bookmaker=ow.bookmaker, price_decimal=ow.price_decimal, line=ow.line,
+                 source="api_baseball", captured_at=now)
+        s.add(o)
+        fresh.append(o)
+    cl = close_1x2(fresh, None, BINARY)
+    if priced(cl):
+        for sel, prob in cl["fair"].items():
+            s.add(OddsSnapshot(match_id=match.id, market="1X2", selection=sel, devig_prob=prob,
+                               line=None, n_books=cl["books"], captured_at=now, source="api_baseball"))
+    return len(fresh), priced(cl)
+
+
 class IngestionService:
     def __init__(self, adapter: DataAdapter):
         self.adapter = adapter
@@ -1305,6 +1342,7 @@ class IngestionService:
         _log(f"Pulled {len(odds_rows)} odds rows, "
              f"{client.requests_remaining} requests remaining")
 
+        post_first_pitch = snapshots = 0
         with session_scope() as s:
             # Group by api_baseball_game_id so we delete-then-insert per game atomically
             by_game: dict[int, list] = {}
@@ -1327,29 +1365,17 @@ class IngestionService:
                     result.skipped += 1
                     continue
 
-                # Wipe previous API-Baseball odds for this match,
-                # leaving any other-source odds alone.
-                s.query(Odds).filter(
-                    Odds.match_id == match.id,
-                    Odds.source == "api_baseball",
-                ).delete()
-
-                for ow in rows:
-                    s.add(Odds(
-                        match_id=match.id,
-                        market=ow.market,
-                        selection=ow.selection,
-                        bookmaker=ow.bookmaker,
-                        price_decimal=ow.price_decimal,
-                        line=ow.line,
-                        source="api_baseball",
-                        captured_at=utc_now_naive(),
-                    ))
-                    result.created += 1
+                stored = _mlb_store_odds(s, match, rows)
+                if stored is None:
+                    post_first_pitch += 1
+                    continue
+                result.created += stored[0]
+                snapshots += stored[1]
                 result.updated += 1
 
         _log(f"Matched {result.updated} games / "
-             f"unmatched {len(unmatched_events)}")
+             f"unmatched {len(unmatched_events)} · book-consensus snapshots {snapshots} · "
+             f"post-first-pitch kept (pre-game session never replaced) {post_first_pitch}")
         if unmatched_events:
             for ev in unmatched_events[:5]:
                 _log(f"    - {ev}")
@@ -1458,22 +1484,10 @@ class IngestionService:
                              f"{m.away_team.name} @ {m.home_team.name} "
                              f"(game {gid})")
                         continue
-                    s.query(Odds).filter(
-                        Odds.match_id == m.id,
-                        Odds.source == "api_baseball",
-                    ).delete()
-                    for ow in rows:
-                        s.add(Odds(
-                            match_id=m.id,
-                            market=ow.market,
-                            selection=ow.selection,
-                            bookmaker=ow.bookmaker,
-                            price_decimal=ow.price_decimal,
-                            line=ow.line,
-                            source="api_baseball",
-                            captured_at=utc_now_naive(),
-                        ))
-                        result.created += 1
+                    stored = _mlb_store_odds(s, m, rows)
+                    if stored is None:
+                        continue
+                    result.created += stored[0]
                     filled += 1
                     result.updated += 1
                 _log(f"  rollover fallback: filled {filled}/{len(missing)}")

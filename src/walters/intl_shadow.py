@@ -98,18 +98,35 @@ def eligible_fixtures(s, e) -> list[dict]:
         g = ie.Game(m.id, comps[m.competition_id], m.season, m.utc_date, None, None, None, None, None)
         if ie.is_test(g):
             continue
+        status = m.status.value if hasattr(m.status, "value") else str(m.status)
         out.append({"id": m.id, "kickoff": m.utc_date, "code": g.code, "status_raw": m.status_raw,
-                    "status": m.status.value if hasattr(m.status, "value") else str(m.status)})
+                    "status": status, "unscoreable": _unscoreable(m, status)})
     return out
 
 
+def _unscoreable(m, status: str) -> bool:
+    """Can this fixture NEVER be scored (ARCHITECT 2026-10-02: "unscoreable is
+    the criterion, not the status label")? Cancelled (CANC / ABD), or finished
+    under a non-FT code (AWD / WO, or AET / PEN) without a 90-minute score —
+    the stream's own rule (ie.load) can never admit it. A FT row still waiting
+    for its score is data lag, not unscoreable: it stays pending."""
+    if status == "cancelled":
+        return True
+    if status != "finished":
+        return False
+    if m.home_score_90 is not None and m.away_score_90 is not None:
+        return False
+    return (m.status_raw or "").upper() != "FT"
+
+
 def substitutions_due(e, s) -> list[dict]:
-    """ARCHITECT 2026-10-02 (2): every CANCELLED cohort fixture (provider CANC,
-    or ABD = abandoned) is released and replaced by the next eligible fixture
-    AFTER the cohort (61st, 62nd …): kickoff order, after every fixture that
-    is or was in the cohort, never cancelled itself, never one already used.
-    POSTPONED / scheduled / live fixtures are never released. Read-only: the
-    registry write is intl-elo-confirm --substitute."""
+    """ARCHITECT 2026-10-02 (2): every UNSCOREABLE cohort fixture (cancelled
+    CANC / ABD; finished AWD / WO, or AET / PEN without a 90-minute score) is
+    released and replaced by the next eligible fixture AFTER the cohort (61st,
+    62nd …): kickoff order, after every fixture that is or was in the cohort,
+    never unscoreable itself, never one already used. The reason is the raw
+    provider code. POSTPONED / scheduled / live fixtures are never released.
+    Read-only: the registry write is intl-elo-confirm --substitute."""
     c = e.get("confirmation_cohort")
     if not c:
         return []
@@ -118,18 +135,15 @@ def substitutions_due(e, s) -> list[dict]:
     by_id = {f["id"]: f for f in elig}
     ever = set(co["ids"]) | {int(x["released"]) for x in c.get("substitutions") or []}
     last = max(((by_id[i]["kickoff"], i) for i in ever if i in by_id), default=None)
-    pool = [f for f in elig if f["id"] not in ever and f["status"] != "cancelled"
+    pool = [f for f in elig if f["id"] not in ever and not f["unscoreable"]
             and (last is None or (f["kickoff"], f["id"]) > last)]
     out = []
     for i in co["ids"]:
         f = by_id.get(i)
-        if f is None or f["status"] != "cancelled":
+        if f is None or not f["unscoreable"]:
             continue
-        if not pool:
-            out.append({"released": f, "replacement": None, "reason": None})
-            continue
-        out.append({"released": f, "replacement": pool.pop(0),
-                    "reason": "abandoned" if (f["status_raw"] or "").upper() == "ABD" else "cancelled"})
+        reason = (f["status_raw"] or f["status"]).upper()            # the raw provider code
+        out.append({"released": f, "replacement": pool.pop(0) if pool else None, "reason": reason})
     return out
 
 
@@ -326,7 +340,9 @@ def confirmation_read(now: datetime | None = None) -> dict:
     with session_scope() as s:
         games, _ = ie.load(s, rule="v3")
         co = cohort(e, s)
-        status = {f["id"]: f["status"] for f in eligible_fixtures(s, e)}
+        elig = eligible_fixtures(s, e)
+        status = {f["id"]: f["status"] for f in elig}
+        unscoreable = {f["id"]: f["unscoreable"] for f in elig}
         s.rollback()
     train = [g for g in games if ie.TRAIN_FROM <= g.kickoff < ie.TRAIN_TO]
     if not train:
@@ -353,7 +369,7 @@ def confirmation_read(now: datetime | None = None) -> dict:
            "first_game_at": first.strftime("%Y-%m-%dT%H:%M:%SZ") if first else None,
            "cohort_state": co["state"], "cohort_size": len(co["ids"]), "eligible_stored": co["eligible_stored"],
            "pending": [{"id": i, "status": status.get(i, "not stored")} for i in pending],
-           "release_due": sum(1 for i in pending if status.get(i) == "cancelled" and co["state"] == "frozen"),
+           "release_due": sum(1 for i in pending if unscoreable.get(i) and co["state"] == "frozen"),
            # recordable only as the WHOLE frozen cohort, every fixture labelled
            "complete": co["state"] == "frozen" and not pending and n == plan["n_games"]}
     if n:

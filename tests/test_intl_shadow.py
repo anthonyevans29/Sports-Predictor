@@ -173,43 +173,41 @@ def test_frozen_cohort_binds_the_read_and_record_refuses_until_complete(world, m
     assert out.exit_code == 2 and "already frozen" in out.output
 
 
-def test_only_cancelled_cohort_fixtures_are_released_next_after_the_cohort(world, monkeypatch, tmp_path):
-    """ARCHITECT 2026-10-02 (2): a CANCELLED (CANC) or ABANDONED (ABD) cohort
-    fixture is released and replaced by the next eligible fixture AFTER the
-    cohort; a postponed or scheduled one stays."""
+def test_only_unscoreable_cohort_fixtures_are_released_next_after_the_cohort(world, monkeypatch, tmp_path):
+    """ARCHITECT 2026-10-02: an UNSCOREABLE cohort fixture (CANC / ABD; AWD / WO
+    — "unscoreable is the criterion, not the status label") is released and
+    replaced by the next eligible fixture AFTER the cohort, the raw code as
+    reason; a postponed fixture, or a FT row still waiting for its score, stays."""
     ids = [world["after1"], world["late"], world["after2"]]
     (tmp_path / "intl-elo-v2.cohort.txt").write_text("\n".join(str(i) for i in sorted(ids)) + "\n")
     e = {**ENTRY, "confirmation_cohort": {"n": 3, "ids_sha256": reg._ids_sha(ids),
                                           "ids_file": "docs/registry/ids/intl-elo-v2.cohort.txt"}}
     monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path))
 
-    def set_status(mid, status, raw):
+    def set_row(mid, status, raw, hs=None, as_=None):
         with session_scope() as s:
             m = s.get(Match, mid)
-            m.status, m.status_raw = status, raw
+            m.status, m.status_raw, m.home_score, m.away_score = status, raw, hs, as_
+
+    def due():
+        with session_scope() as s:
+            out = us.substitutions_due(e, s)
+            s.rollback()
+        return [(d["released"]["id"], d["replacement"]["id"], d["reason"]) for d in out]
     try:
-        set_status(world["late"], MatchStatus.POSTPONED, "PST")                # postponed: stays
-        with session_scope() as s:
-            assert us.substitutions_due(e, s) == []
-            s.rollback()
-        set_status(world["after2"], MatchStatus.CANCELLED, "ABD")              # abandoned: released
-        with session_scope() as s:
-            due = us.substitutions_due(e, s)
-            s.rollback()
-        assert [(d["released"]["id"], d["replacement"]["id"], d["reason"]) for d in due] == \
-            [(world["after2"], world["after3"], "abandoned")]                     # after3 = the 4th eligible (friendly out)
-        # once recorded, the next cancellation takes the NEXT one (after4), never after3 again
+        set_row(world["late"], MatchStatus.POSTPONED, "PST")                   # postponed: stays
+        set_row(world["after1"], MatchStatus.FINISHED, "FT")                   # FT, score not in yet: lag, stays
+        assert due() == []
+        set_row(world["after2"], MatchStatus.CANCELLED, "ABD")                 # abandoned: released
+        assert due() == [(world["after2"], world["after3"], "ABD")]            # after3 = the 4th eligible (friendly out)
+        # once recorded, the next unscoreable one takes the NEXT fixture (after4), never after3 again
         e["confirmation_cohort"]["substitutions"] = [{"released": world["after2"], "replacement": world["after3"]}]
-        set_status(world["after1"], MatchStatus.CANCELLED, "CANC")
-        with session_scope() as s:
-            due = us.substitutions_due(e, s)
-            s.rollback()
-        assert [(d["released"]["id"], d["replacement"]["id"], d["reason"]) for d in due] == \
-            [(world["after1"], world["after4"], "cancelled")]
+        set_row(world["after1"], MatchStatus.FINISHED, "AWD", 3, 0)            # awarded: finished, unscoreable
+        assert due() == [(world["after1"], world["after4"], "AWD")]
     finally:
-        set_status(world["late"], MatchStatus.SCHEDULED, None)
-        set_status(world["after2"], MatchStatus.FINISHED, "FT")
-        set_status(world["after1"], MatchStatus.FINISHED, "FT")
+        set_row(world["late"], MatchStatus.SCHEDULED, None)
+        set_row(world["after2"], MatchStatus.FINISHED, "FT", 1, 1)
+        set_row(world["after1"], MatchStatus.FINISHED, "FT", 2, 0)
 
 
 def test_intl_daily_chain_and_cli_refusal(monkeypatch):

@@ -155,6 +155,14 @@ only honours a date when from == to, so a range pulls the whole season) →
 `export-fixtures --competition NHL`. The Cockpit renders the file as
 books' fair bars with a market-only chip and the Kalshi status.
 
+**NCAA market (Thu / Fri / Sat; laptop and host `sp-ncaa-market`):**
+`sync-matches --competition NCAA --season 2026 --date-from D --date-to D` for
+each of D = yesterday, today (single-day calls, as for NHL), then
+`sync-kalshi-ncaa`, then `export-fixtures --competition NCAA`. ARCHITECT
+2026-10-02 (#254): the result sync comes first so that games finished since
+the last run (Thursday's slate before Friday's export) leave the window
+instead of reading SCHEDULED.
+
 ## Prediction, evaluation, improvement
 
 | Command | Options | Purpose |

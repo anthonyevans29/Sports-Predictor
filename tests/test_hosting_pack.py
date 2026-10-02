@@ -1226,6 +1226,16 @@ def test_ncaa_market_covers_thursday_night_slates():
     assert cals == ["Thu *-*-* 16:00:00 UTC", "Fri *-*-* 16:00:00 UTC", "Sat *-*-* 13:00:00 UTC"]
 
 
+def test_ncaa_market_syncs_results_before_the_export():
+    """ARCHITECT 2026-10-02 (#254): Thursday games read SCHEDULED in Friday's export — sync-matches NCAA
+    (single-day calls, yesterday + today) runs before the export so finished games leave the window."""
+    steps = chains.CHAINS["ncaa-market"]["steps"]
+    assert [s[0] for s in steps] == ["sync-matches", "sync-matches", "sync-kalshi-ncaa", "export-fixtures"]
+    for st, d in zip(steps[:2], ("{yesterday}", "{today}")):
+        assert st == ["sync-matches", "--competition", "NCAA", "--season", "2026", "--date-from", d, "--date-to", d]
+    assert "sync-matches" not in chains.UNMETERED
+
+
 # ------------------------------------------------ transient-step retry ----
 # Architect ruling 2026-09-28 (first live page: a UNL sync-matches died on an
 # api-football ConnectionResetError): transient classes only, 2 retries,

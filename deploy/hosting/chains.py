@@ -163,7 +163,18 @@ CHAINS: dict[str, dict] = {
         ],
     },
     "ncaa-market": {
-        "steps": [["sync-kalshi-ncaa"], ["export-fixtures", "--competition", "NCAA"]],
+        "steps": [
+            # ARCHITECT 2026-10-02 (#254 residue): Thursday games still read
+            # SCHEDULED 20h after finishing — no NCAA result sync ran between
+            # them and Friday's export. Single-day calls, yesterday and today
+            # (the american-football adapter sends a `date` only when
+            # from == to), BEFORE the export, so finished games leave the window.
+            *[["sync-matches", "--competition", "NCAA", "--season", "2026",
+               "--date-from", d, "--date-to", d]
+              for d in ("{yesterday}", "{today}")],
+            ["sync-kalshi-ncaa"],
+            ["export-fixtures", "--competition", "NCAA"],
+        ],
     },
     # --- Weekly full-season sync (CLAUDE.md: "full-season weekly") ---
     # Steps come from SP_FULLSEASON_LIST (one "CODE|SEASON" per line), written

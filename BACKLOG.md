@@ -22,6 +22,16 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — UNL lane SUSPENDED-PENDING-DATA (ARCHITECT); national-team source probe opened (#228, read-only).**
+- **Ruling (verbatim):** "intl-inventory — 157 scored results total (UNL 60, WC 97); 38/54 UNL teams have 0 prior results; WCQ/EURO/friendlies registered but empty. UNL model lane SUSPENDED-PENDING-DATA; no pre-commitment yet. Probe lane (read-only): can the football provider supply national-team history 2018-present (WCQ all confederations, Euro + qualifiers, Nations League 2018-19 onward, friendlies) with scores and venue/neutral flags? Coverage receipt per competition-season; cost estimate in calls. A national-team Elo needs ~6 years of results before its first gate run."
+- **Built:** `scripts/intl_source_probe.py` (API-Football through the existing adapter client).
+  - League ids are DISCOVERED by name from `/leagues?country=World` (law 1) and cross-checked against the adapter's mapped ids. A target with no match is MISSING; women/youth/club leagues are never counted.
+  - Per competition-season: fixtures, finished (FT/AET/PEN), scored, 90-minute share, venue id/name/city shares, teams, span, raw keys matching /neutral/.
+  - Pool summary: provider teams with >= 30 / >= 60 results; our UNL teams (by stored api_football id) bucketed by results each would have.
+  - Cost: `--plan` = one `/fixtures` per competition-season + 1 discovery (`/status` free); `--max-calls` refuses an over-budget plan. Leagues outside the ruling (WC, Copa América, ...) are listed with their cost, not fetched.
+- **Law 4:** no neutral site is inferred. A venue-vs-home-ground derivation would be its own ruled lane (cost printed, not spent).
+- **Owed (laptop; api-sports is unreachable from the agent container):** `--plan`, then `--save <dir outside data/>`; paste both. An ingest lane is proposed only after a ruling on the receipt.
+
 **2026-10-02 — NHL v6 DECLARATION RATIFIED (ARCHITECT), with one clarification applied before the run.**
 - **Ruling (verbatim):** "the Elo update's DIRECTION comes from the sign of the xG margin and its MAGNITUDE from |xG_home − xG_away| through the same ln(margin+1); the actual result is the scoring label only. (Replacing outcome noise is the whole hypothesis; keeping the actual winner as the update direction would be a half-measure.) Exclusions (blocked, empty-net, missing coords, shootouts), home-defending-side orientation, 2023-24-only fit with the predates-training check, the no-same-game-leakage proof, and the confirmation window (first 150 games of 2026-27 after the verdict) — all ratified. Bar unchanged 0.6866."
 - **Applied:** `NHLEloV6` now takes its direction from the xG winner; the doc, the registry entry and a direction test are updated. Still not run.

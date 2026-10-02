@@ -109,6 +109,9 @@ _CODE_TO_LEAGUE_ID: dict[str, int] = {
     "WCQ_OC":  33,   # World Cup Qualifying - Oceania
     "FRIENDLIES_INT": 10,  # International friendlies
     "UEFA_EURO": 4,  # UEFA Euro
+    # #230 (ARCHITECT 2026-10-02, after intl-sync REFUSED on id 808): ruled ids.
+    "CNL": 536,      # CONCACAF Nations League
+    "CNL_Q": 808,    # CONCACAF Nations League - Qualification (2018)
 }
 
 _LEAGUE_ID_TO_CODE = {v: k for k, v in _CODE_TO_LEAGUE_ID.items()}
@@ -167,6 +170,8 @@ _CODE_TO_META: dict[str, tuple[str, str, str]] = {
     "WCQ_OC":         ("World Cup Qualifying — Oceania", "International", "INTL"),
     "FRIENDLIES_INT": ("International Friendlies", "International", "INTL"),
     "UEFA_EURO":      ("UEFA European Championship", "International", "INTL"),
+    "CNL":            ("CONCACAF Nations League", "International", "INTL"),
+    "CNL_Q":          ("CONCACAF Nations League — Qualification", "International", "INTL"),
 }
 
 # Status code translation

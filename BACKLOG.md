@@ -22,6 +22,17 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — #230 intl-sync REFUSED on id 808; ruled codes CNL (536) and CNL_Q (808).**
+- **Ruling (verbatim):** "intl-sync REFUSED on id 808 (CONCACAF NL Qualification, no code). RULED: add adapter codes CNL (536, CONCACAF Nations League) and CNL_Q (808, its 2018 qualification), both in the ruled set; the team filter already keeps only pool teams. Small PR; the sync re-runs after."
+- **Refusal working as designed (law 1):** the target regex ("nations league") matched 808, but no code rule did, so the run stopped before any write.
+- **Change:**
+  - adapter `_CODE_TO_LEAGUE_ID` gets `CNL: 536` and `CNL_Q: 808` (with metadata);
+  - the ingest's name rules map "CONCACAF Nations League" → CNL and "...Qualification" → CNL_Q (the unused provisional code CONCACAF_NL is renamed to CNL; no rows carried it, since the run refused before writing);
+  - `intl-inventory` sees both.
+  - Both codes keep the two-year season string, like UNL.
+- **Regression:** the new test reproduces the exact refusal on the old code ("target league(s) with no code: id 808 ...") and passes on the fix. An id other than 536/808 under those names is refused as an adapter clash.
+- **For the #220 harness (the international Elo):** CNL is Nations League (K 40). CNL_Q is the Nations League's qualification round, and its K class (40 Nations League or 50 qualifiers) needs a ruling before the run; the ratified doc names neither code.
+
 **2026-10-02 — #220 lane 2: international Elo v1 DECLARED (`docs/specs/intl-elo-v1.md`, registry `intl-elo-v1`). Frozen, NOT RUN, awaiting ratification.**
 - **Ruling (verbatim):** "(2) PRE-COMMITMENT (write for ratification, no run): international Elo — home advantage a priori +100 Elo, 0 at derived-neutral; match weights by competition class a priori (friendlies 20, Nations League 40, qualifiers 50, finals 60 — the public Elo convention); margin via ln(margin+1) as our other Elos; three-way outcome via the soccer draw mapping. Train 2018-2024, test 2024-25 UNL + 2025-26 WCQ_EU; bar = naive-baseline log-loss − 0.010; calibration bands; RPS reported; registry entry with a 60-game confirmation window."
 - **Frozen as ruled:**

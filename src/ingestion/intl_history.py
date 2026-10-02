@@ -63,7 +63,8 @@ CODE_BY_NAME = (
     (re.compile(r"^(uefa )?euro(pean)? championship$", re.I), "UEFA_EURO"),
     (re.compile(r"euro(pean)? championship.*qualif", re.I), "UEFA_EURO_Q"),
     (re.compile(r"^uefa nations league$", re.I), "UNL"),
-    (re.compile(r"^concacaf nations league$", re.I), "CONCACAF_NL"),
+    (re.compile(r"^concacaf nations league.*qualif", re.I), "CNL_Q"),   # ruled 2026-10-02 (id 808)
+    (re.compile(r"^concacaf nations league$", re.I), "CNL"),            # ruled 2026-10-02 (id 536)
     (re.compile(r"^friendlies$", re.I), "FRIENDLIES_INT"),
 )
 # The ruling's team-filter source: "senior national teams present in

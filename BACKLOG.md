@@ -22,6 +22,30 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — nhl-v7 run record spliced; FAIL recorded (ARCHITECT). NHL 2025: 7 reads.**
+- **Ruling (verbatim):** "v7 VERDICT STANDS — FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands −6.2/−6.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced."
+- **Source:** `laptop/nhl-v7-run-record`.
+- **Verified:**
+  - the declaration fields are identical to main's;
+  - 1,394 unique sorted ids with sha256 = the run record's (`ab890242…`, the same scored set as v6);
+  - result: 0.6885 vs v1 0.6909 on the same stream.
+- **Spliced verbatim:** only the nhl-v7 entry and its ids file. `record_verdict("nhl-v7", "FAIL", <ruling>)` closes it.
+- **Discrepancy, kept as written:** v7's stored `prior_read_count` is 5 (v1–v5). The laptop's ledger did not hold v6's run when v7 ran, so the true count at that moment was 6. The record is not rewritten (law 4). The LIVE count, computed from the ledger, is 7, as ruled.
+- **In #239,** together with v6's record. Tests: the v7 record test, the counts 6 (before v7) and 7 (now), and the v7 repo test relaxed identically to the v8 branch.
+
+**2026-10-02 — nhl-v6 run record spliced into the ledger; FAIL verdict recorded (ARCHITECT). NHL 2025 now has 6 reads.**
+- **Source:** the laptop branch `laptop/nhl-v6-run-record` (`docs/registry/ids/nhl-v6.txt` as written, plus the laptop's ledger snapshot `experiments_laptop_v6.json`).
+- **Verified before splicing:**
+  - the nhl-v6 declaration fields are identical to main's;
+  - the ids file holds 1,394 unique, sorted ids whose sha256 equals the run record's `ab890242…`, and `n_scored` = 1,394;
+  - result: log-loss 0.6886, v1 on the same stream 0.6909, shot information +0.0023, bands not ok.
+- **Spliced:** ONLY the nhl-v6 entry. The snapshot's `intl-elo-v1` is an older copy and main's stands. The snapshot file itself is not committed, so the repo keeps one ledger.
+- **Verdict recorded** via `registry.record_verdict("nhl-v6", "FAIL", <ruling verbatim>)`: status closed; `production_allowed` → (False, "no PASS verdict").
+- **Tests:**
+  - new `tests/test_nhl_v6_record.py` pins the sidecar sha/count, the FAIL and the 6 reads;
+  - `test_registry_212`'s seed test keeps "the five seeds" (before v6) and adds the total of 6;
+  - the nhl-v6 repo test is relaxed exactly as on #237, so the two branches merge cleanly.
+
 **2026-10-02 — intl-elo-v1 runs under v2 as built; its known LIMITATION is DECLARED (ARCHITECT) — #240.**
 - **Ruling (verbatim):** "intl-elo-v1 runs under v2 as built, with its known limitation DECLARED in the doc and registry entry: "home-and-away competition play-offs and finals at neutral venues are priced with the home edge; v2's 10% check is vacuous under the HOME ruling". v3 (venue country) is the fix for the next candidate; run scripts/intl_venue_route_probe.py --from-dir on the laptop for its cost (0 calls). Merge #239 then #238."
 - **Applied (#238):** a DECLARED LIMITATION paragraph under the doc's status line, and a `limitation` field on the registry entry (still unrun). A test pins both texts.

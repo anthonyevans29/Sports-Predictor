@@ -22,6 +22,21 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — STATE SYNC (ARCHITECT): v1.1.0 CUT AND DEPLOYED; #215/#219 receipts; model-coverage order; NHL-xG ingest resumes (#153).**
+- **v1.1.0** "v1.0.1 -> v1.1.0 (ebb7f51, 43 files)". #191's gates are all met, so F1c proceeds.
+- **#215 receipts** (run before merge): `clv-restate` dry run changed 0; `export_close_compare` on MLB/PL/NFL/NHL showed 0 newly unpriced, 0 book-count changes, max fair move 0.04pp (PL). The contract changed nothing on current data and now guards the incomplete-board cases.
+- **#219 receipt:** `close-probe 41279` found 3 sessions; the pre-first-pitch 20:00Z session was selected (8 books, ATL 0.494) and the two IN-GAME sessions were excluded. `evaluate` backfilled CLV from NULL to **+4.53pp**, which is model-close divergence until P0-3 (#208) relabels it.
+- **Model-coverage order (ruled):**
+  - (1) NHL-xG (#153) now, under the corrected manifest (#210): the shot-event ingest and coverage receipt, then the v6 candidate at the frozen bar (<= 0.6866).
+  - (2) NCAA source probe (#176) this week: read-only, a row-level home/away and score comparison against an independent source with neutral-site flags.
+  - (3) UNL international-team Elo lane opened as #220: national teams, stored results, home advantage declared a priori, gate = naive − 0.010, same bands.
+  - (4) Cups R-track in winter.
+  - The registry (#212) records every candidate from here.
+- **BUILT (#153 part 1):** `nhl_shot_events`, `nhl-shot-sync` and `nhl-shot-coverage`.
+  - Read under the corrected manifest: the event type is stored for eligibility/target only. Shot type is nullable. Goalie-in-net, situation code, home defending side and owner vs shooter side are stored raw, so the pre-committed empty-net / blocked-shot / orientation / missing-coordinate rules of the v6 declaration can be applied without refetching.
+  - No feature is derived here.
+  - Receipt owed (host or laptop, after the .backup): `python cli.py nhl-shot-sync --start 2023-10-01`, then the coverage block (P1–P6).
+
 **2026-10-02 — MLB ODDS HISTORY (ARCHITECT, PRIORITY) BUILT: MLB odds snapshot like the general path; the close is the last pre-first-pitch session.**
 Live proof (architect): PHI@ATL game 3 captured 8 books at 22:55Z, before first pitch, and was graded unpriceable this morning. Read from code: `sync_odds_mlb` wiped and rewrote a game's `api_baseball` rows on EVERY sync, even after first pitch (the provider keeps listing the game), and only `capture-odds` appended snapshots (pooled, laptop launchd).
 Fix:

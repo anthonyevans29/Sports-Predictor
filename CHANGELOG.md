@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#153 part 1: NHL-xG shot-event ingest)
+- New table `nhl_shot_events` (additive; `init_db` creates it). One row per shot-type play (shot on goal, missed, blocked, goal) from api-web play-by-play, 2023-24 onward. Raw values only: event type (stored for eligibility and target only, never a feature, per #210), nullable shot type, x/y, shooter, goalie in net (NULL = empty net or absent), situation code, period, time, zone, home defending side, and shooter side vs play-owner side.
+- `src/ingestion/nhl_shots.py`: discovery-based parsing (law 1); links through the goalie-sync mapping, else the refusal-on-ambiguity matcher; upserts without deleting and never blanks a stored value on refetch; relinks unlinked rows; coverage receipt.
+- CLI `nhl-shot-sync` and `nhl-shot-coverage`. The receipt reports P1–P6 against the probe's frozen FEEDABLE bars (95/95/90/95/90, plus every season).
+- tests/test_nhl_shot_events.py: 3 tests.
+
 ## 2026-10-01 (#207: P0-2 the close contract)
 - `close_1x2(rows, before, outcomes)` now requires the outcome set: binary HOME/AWAY or 3-way HOME/DRAW/AWAY. `outcomes_for(sport)` is the one mapping (soccer is 3-way, every other sport binary, as read from the adapters).
 - A book counts only with a COMPLETE same-session set. Each complete book is de-vigged on its own, then the books are averaged. With no complete book the result is UNPRICED: `fair` is None and `missing` names each quoted book's absent legs. `books` counts complete books, `books_quoted` every book in the session. `priced(cl)` is the caller check.

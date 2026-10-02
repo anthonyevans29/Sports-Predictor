@@ -370,6 +370,42 @@ def _upsert(g: dict, match_id: int | None, rows: list[dict]) -> None:
 FIELDS = ("x", "y", "shot_type", "shooter_id", "situation_code", "side", "owner_side", "period",
           "time_in_period_s", "goalie_id")
 
+# The probe's FEEDABLE thresholds (scripts/nhl_pbp_probe.py P1-P6, declared
+# 2026-09-30 before any run; denominators: P1 our finished games, P2-P5 ALL
+# stored shot events). The ingest receipt reports against the SAME bars.
+FEEDABLE = {"games_with_events": 95.0, "xy": 95.0, "shot_type": 90.0, "shooter_id": 95.0,
+            "situation_code": 90.0}
+
+
+def feedable_lines(cov: dict) -> list[str]:
+    """P1-P6 against the frozen bars, over the stored rows (the coverage
+    receipt's verdict lines). Shot type is OPTIONAL by ruling (absent on
+    blocked shots by nature): P3 is reported over all events and, for
+    reading, over the non-blocked ones."""
+    tot = Counter()
+    for et, c in cov["by_type"].items():
+        for k in ("n", "xy", "shot_type", "shooter_id", "situation_code"):
+            tot[k] += c.get(k, 0)
+        if "block" not in et.lower():
+            tot["n_unblocked"] += c.get("n", 0)
+            tot["shot_type_unblocked"] += c.get("shot_type", 0)
+    pct = lambda a, b: (tot[a] / tot[b] * 100) if tot[b] else 0.0
+    fin = sum(b.get("finished", 0) for b in cov["by_season"].values())
+    withs = sum(b.get("with_shots", 0) for b in cov["by_season"].values())
+    p1 = withs / fin * 100 if fin else 0.0
+    rows = [("P1 shot events (games)", p1, FEEDABLE["games_with_events"]),
+            ("P2 location x+y", pct("xy", "n"), FEEDABLE["xy"]),
+            ("P3 shot type (all events)", pct("shot_type", "n"), FEEDABLE["shot_type"]),
+            ("P4 shooter", pct("shooter_id", "n"), FEEDABLE["shooter_id"]),
+            ("P5 situation", pct("situation_code", "n"), FEEDABLE["situation_code"])]
+    out = [f"{k}: {v:.1f}% [{'FEEDABLE' if v >= bar else 'NOT'} >= {bar:g}%]" for k, v, bar in rows]
+    out.append(f"P3 read: shot type on non-blocked events {pct('shot_type_unblocked', 'n_unblocked'):.1f}% "
+               "(optional by ruling; blocked shots carry none by nature)")
+    p6 = [season for season, b in cov["by_season"].items()
+          if b.get("finished") and b.get("with_shots", 0) / b["finished"] * 100 < FEEDABLE["games_with_events"]]
+    out.append("P6 depth (P1 in every season): " + ("FEEDABLE" if not p6 else "NOT — " + ", ".join(p6)))
+    return out
+
 
 def coverage() -> dict:
     """Receipt (lane (1)): of OUR finished NHL games (competition NHL), how
@@ -396,6 +432,7 @@ def coverage() -> dict:
             c["n"] += 1
             for f, v in zip(FIELDS, row[1:]):
                 c[f] += v is not None
+            c["xy"] += row[1 + FIELDS.index("x")] is not None and row[1 + FIELDS.index("y")] is not None
             side, owner = row[1 + FIELDS.index("side")], row[1 + FIELDS.index("owner_side")]
             if side and owner:
                 c["side_agrees_owner" if side == owner else "side_disagrees_owner"] += 1

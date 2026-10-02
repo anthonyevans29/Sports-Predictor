@@ -5135,6 +5135,82 @@ def nhl_goalie_coverage_cmd():
     _nhl_goalie_coverage_lines()
 
 
+@cli.command("nhl-shot-sync")
+@click.option("--start", "start_s", default="2023-10-01", show_default=True, help="First schedule date (YYYY-MM-DD).")
+@click.option("--end", "end_s", default=None, help="Last schedule date (default: today).")
+@click.option("--sleep", default=0.25, show_default=True, help="Seconds between API calls (be polite).")
+@click.option("--refresh", is_flag=True, help="Re-fetch games that already have shot events stored.")
+@click.option("--dry-run", is_flag=True, help="Fetch and parse, write nothing.")
+@click.option("--verbose", is_flag=True, help="One line per game.")
+@click.option("--tolerance-hours", default=12, show_default=True,
+              help="± hours for the matcher fallback (games without a goalie link). Ambiguity is refused at any width.")
+def nhl_shot_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose, tolerance_hours):
+    """NHL-xG lane (1) INGEST (#153): per-game shot events (shot on goal /
+    missed / blocked / goal) from api-web.nhle.com play-by-play into
+    nhl_shot_events, keyed to our matches through the goalie-sync mapping.
+    Raw values only; field names discovered per payload (law 1). Upsert,
+    never deletes, a refetch never blanks a stored value. Take the .backup
+    first. Host-runnable. Ends with the coverage receipt."""
+    from datetime import date as _date
+    from src.db.database import init_db
+    from src.ingestion import nhl_shots as nsh
+
+    init_db()   # additive: creates nhl_shot_events if missing, touches nothing else
+    end = _date.fromisoformat(end_s) if end_s else _date.today()
+    r = nsh.sync(_date.fromisoformat(start_s), end, sleep=sleep, refresh=refresh, dry_run=dry_run,
+                 progress=click.echo if verbose else None, tolerance_hours=tolerance_hours)
+    click.echo(f"NHL-SHOT-SYNC {start_s} .. {end.isoformat()}{' (DRY RUN)' if dry_run else ''}")
+    click.echo("  counts: " + " · ".join(f"{k} {v}" for k, v in sorted(r["counts"].items())))
+    click.echo("  event types: " + (" · ".join(f"{k} {v}" for k, v in sorted(r["event_types"].items())) or "none"))
+    click.echo("  keys used (law-1 receipt): " + (" · ".join(f"{k} ×{v}" for k, v in r["keys_used"].items())
+                                                  or "none found"))
+    for et, c in r["side_vs_owner"].items():
+        click.echo(f"  shooter side vs play owner, {et}: agree {c.get('agree', 0)} · disagree {c.get('disagree', 0)}")
+    if r["refused"]:
+        click.echo("  REFUSED (no plays / no type key): " + " ".join(str(g) for g in r["refused"]))
+    _nhl_shot_coverage_lines()
+
+
+@cli.command("nhl-shot-coverage")
+def nhl_shot_coverage_cmd():
+    """NHL-xG lane (1) receipt (#153): of our finished NHL games, how many
+    carry shot events by season, field completeness by event type against
+    the probe's frozen FEEDABLE thresholds, the shooter-side vs play-owner
+    agreement, and stored games with no link. Read-only."""
+    from src.db.database import init_db
+    init_db()
+    _nhl_shot_coverage_lines()
+
+
+def _nhl_shot_coverage_lines():
+    from src.ingestion import nhl_shots as nsh
+
+    cov = nsh.coverage()
+    click.echo(f"NHL-SHOT COVERAGE · {cov['rows']} shot-event rows · {cov['games']} API games")
+    tot = {"finished": 0, "with_shots": 0}
+    for season, b in cov["by_season"].items():
+        for k in tot:
+            tot[k] += b.get(k, 0)
+        pct = b.get("with_shots", 0) / b["finished"] * 100 if b.get("finished") else 0.0
+        click.echo(f"  {season}: finished {b.get('finished', 0)} · with shot events {b.get('with_shots', 0)} "
+                   f"({pct:.1f}%) · events {b.get('events', 0)} · goalie-linked but no shots "
+                   f"{b.get('goalie_linked_no_shots', 0)}")
+    if tot["finished"]:
+        pct = tot["with_shots"] / tot["finished"] * 100
+        click.echo(f"  ALL: {tot['with_shots']}/{tot['finished']} = {pct:.1f}% of our finished NHL games "
+                   f"[{'PASS' if pct >= nsh.FEEDABLE['games_with_events'] else 'BELOW'} "
+                   f">= {nsh.FEEDABLE['games_with_events']:g}%]")
+    for et, c in cov["by_type"].items():
+        n = c.get("n", 0) or 1
+        parts = [f"{f} {c.get(f, 0) / n * 100:.1f}%" for f in nsh.FIELDS]
+        click.echo(f"  {et} (n={c.get('n', 0)}): " + " · ".join(parts))
+    for line in nsh.feedable_lines(cov):
+        click.echo("  " + line)
+    if cov["unlinked_games_by_game_type"]:
+        click.echo("  stored games with no match link, by game type: "
+                   + " · ".join(f"{k} {v}" for k, v in cov["unlinked_games_by_game_type"].items()))
+
+
 def _nhl_goalie_coverage_lines():
     from src.ingestion import nhl_goalies as ngs
 

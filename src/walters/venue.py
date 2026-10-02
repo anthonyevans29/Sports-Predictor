@@ -132,9 +132,10 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
     rounded by KALSHI_FEE_ROUNDING (nearest, #88 re-fit).
     exec_cost_maker is null when there is no bid, when bid + 1c reaches the
     ask (a 1c spread: joining = taking, so no maker price exists), or when the
-    series' maker M is unknown. kalshi_exec_cost is kept as a DEPRECATED alias
-    of exec_cost_taker (the pre-split meaning) until the published Cockpit
-    reads the two fields. Fees are per FILL of K_ORDER_CONTRACTS contracts
+    series' maker M is unknown. The pre-split alias kalshi_exec_cost (= taker)
+    was RETIRED after two Cockpit republishes (#130); the ledger's own
+    kalshi_exec_cost field is a different thing and keeps its taker meaning.
+    Fees are per FILL of K_ORDER_CONTRACTS contracts
     (#88), so the costs carry fractions of a cent.
 
     #89 (architect 2026-09-30): the AWAY side of a TWO-WAY market is the NO
@@ -177,7 +178,6 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
             "exec_cost_taker": taker, "exec_cost_maker": maker,
             "away_bid": away_bid, "away_ask": away_ask,          # #89: NO side (two-way only)
             "exec_cost_taker_away": taker_away, "exec_cost_maker_away": maker_away,
-            "kalshi_exec_cost": taker,            # deprecated alias (= taker)
             "fee_series": series, "fee_m_taker": m_taker, "fee_m_maker": m_maker,
             "fee_order_contracts": K_ORDER_CONTRACTS,
             "k_track": K_TRACK_NOTE}
@@ -185,7 +185,7 @@ def kalshi_exec(bid: float | None, ask: float | None, competition: str | None = 
 
 # The null block for rows without a two-sided Kalshi set (same keys as kalshi_exec).
 KALSHI_EXEC_NULL = {"kalshi_bid": None, "kalshi_ask": None, "exec_cost_taker": None,
-                    "exec_cost_maker": None, "kalshi_exec_cost": None,
+                    "exec_cost_maker": None,
                     # #89: the away (NO-side) block
                     "away_bid": None, "away_ask": None,
                     "exec_cost_taker_away": None, "exec_cost_maker_away": None}

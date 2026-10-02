@@ -218,8 +218,7 @@ def normalize(doc: dict) -> list[dict]:
             "kalProb": kal_from_prediction(p, mk, market),
             "threeWay": market.get("DRAW") is not None or probs.get("DRAW") is not None,
             "kExec": {"bid": p.get("kalshi_bid"), "ask": p.get("kalshi_ask"),
-                      "cost": p.get("exec_cost_taker") if p.get("exec_cost_taker") is not None
-                      else p.get("kalshi_exec_cost"),
+                      "cost": p.get("exec_cost_taker"),     # #130: the pre-split alias is retired
                       "maker": p.get("exec_cost_maker"),
                       "bidAway": p.get("away_bid"), "askAway": p.get("away_ask"),
                       "costAway": p.get("exec_cost_taker_away"), "makerAway": p.get("exec_cost_maker_away")},

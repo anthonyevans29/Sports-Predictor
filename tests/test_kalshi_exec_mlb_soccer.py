@@ -53,15 +53,15 @@ def test_mlb_and_soccer_rows_carry_home_contract_exec_cost():
     lo, hi = kick - timedelta(days=1), kick + timedelta(days=1)
     mlb = {r["match_id"]: r for r in json.loads(export_predictions(
         sport=Sport.MLB, start_date=lo, end_date=hi, competition_code="KXMLB"))["predictions"]}
-    assert (mlb[two]["kalshi_bid"], mlb[two]["kalshi_ask"], mlb[two]["kalshi_exec_cost"]) == (0.54, 0.56, 0.577)   # #88: per fill, nearest (was 0.58)
+    assert (mlb[two]["kalshi_bid"], mlb[two]["kalshi_ask"], mlb[two]["exec_cost_taker"]) == (0.54, 0.56, 0.577)   # #88: per fill, nearest (was 0.58)
     assert mlb[two]["k_track"].startswith("K-track: informational")
-    assert (mlb[one]["kalshi_bid"], mlb[one]["kalshi_ask"], mlb[one]["kalshi_exec_cost"]) == (None, None, None)
+    assert (mlb[one]["kalshi_bid"], mlb[one]["kalshi_ask"], mlb[one]["exec_cost_taker"]) == (None, None, None)
     sc = {r["match_id"]: r for r in json.loads(export_predictions(
         sport=Sport.SOCCER, start_date=lo, end_date=hi, competition_code="KXSOC"))["predictions"]}
-    assert (sc[soc]["kalshi_bid"], sc[soc]["kalshi_ask"], sc[soc]["kalshi_exec_cost"]) == (0.47, 0.49, 0.507)   # #88: per fill, nearest (was 0.51)
+    assert (sc[soc]["kalshi_bid"], sc[soc]["kalshi_ask"], sc[soc]["exec_cost_taker"]) == (0.47, 0.49, 0.507)   # #88: per fill, nearest (was 0.51)
     # The exec fields follow the export's OWN two-sided flag (market.kalshi.normalized).
     for mid in (soc, soc2):
-        assert (sc[mid]["kalshi_exec_cost"] is not None) == bool(sc[mid]["market"]["kalshi"]["normalized"])
+        assert (sc[mid]["exec_cost_taker"] is not None) == bool(sc[mid]["market"]["kalshi"]["normalized"])
     # CORRECTION #113 (architect 2026-09-30): a soccer game with no TIE snapshot is
     # INCOMPLETE — never normalized two-way: prob null, not quoted, cost fields null.
     k2 = sc[soc2]["market"]["kalshi"]
@@ -69,7 +69,7 @@ def test_mlb_and_soccer_rows_carry_home_contract_exec_cost():
     assert k2["model_edge_pp"] is None and "vs_book_pp" not in k2
     assert k2["raw_yes_prob"] == {"HOME": 0.48, "AWAY": 0.25}          # the raw capture stays visible
     assert sc[soc2]["input_quality"]["kalshi"] == "partial"
-    assert (sc[soc2]["kalshi_bid"], sc[soc2]["kalshi_ask"], sc[soc2]["kalshi_exec_cost"]) == (None, None, None)
+    assert (sc[soc2]["kalshi_bid"], sc[soc2]["kalshi_ask"], sc[soc2]["exec_cost_taker"]) == (None, None, None)
     k1 = sc[soc]["market"]["kalshi"]                                      # the complete 1X2 set is untouched
     assert k1["normalized"] is True and set(k1["prob"]) == {"HOME", "DRAW", "AWAY"} and "missing_legs" not in k1
     assert sc[soc]["input_quality"]["kalshi"] == "three_way"

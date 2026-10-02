@@ -65,10 +65,10 @@ def test_fixtures_export_marks_a_soccer_set_missing_a_leg_partial(tmp_path):
     rc = {}
     fx = {r["match_id"]: r for r in json.loads(open(export_fixtures(
         "K117CUP", start="2032-03-01", end="2032-03-05", out_dir=str(tmp_path), receipts=rc)).read())["fixtures"]}
-    assert fx[full]["kalshi"]["status"] == "two_sided" and fx[full]["kalshi_exec_cost"] == 0.527   # #88: per fill, nearest (was 0.53)
+    assert fx[full]["kalshi"]["status"] == "two_sided" and fx[full]["exec_cost_taker"] == 0.527   # #88: per fill, nearest (was 0.53)
     n = fx[notie]
     assert n["kalshi"]["status"] == "partial" and n["input_quality"]["kalshi"] == "partial"
-    assert (n["kalshi_bid"], n["kalshi_ask"], n["kalshi_exec_cost"]) == (None, None, None)
+    assert (n["kalshi_bid"], n["kalshi_ask"], n["exec_cost_taker"]) == (None, None, None)
     assert n["kalshi"]["prob"] == {"HOME": 0.5, "AWAY": 0.25}                             # raw capture kept
     assert rc["kalshi_two_sided"] == 1 and rc["kalshi_partial"] == 1 and rc["kalshi_one_sided"] == 0
 

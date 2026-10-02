@@ -25,7 +25,7 @@ def test_two_way_away_costs_mirror_the_home_rules():
     # maker: join 0.43 + round(10 x 0.0175 x 1 x 0.43 x 0.57 x 100 = 4.29c -> 4c) / 10 (P0-1 #206)
     assert e["exec_cost_maker_away"] == 0.434
     # the home block is unchanged by the away block
-    assert (e["exec_cost_taker"], e["exec_cost_maker"], e["kalshi_exec_cost"]) == (0.597, 0.564, 0.597)
+    assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.597, 0.564) and "kalshi_exec_cost" not in e
     # MLB pre-live M = 0.5 applies to the NO side too
     m = venue.kalshi_exec(0.54, 0.56, "MLB", two_way=True)
     assert (m["away_ask"], m["away_bid"], m["exec_cost_taker_away"], m["exec_cost_maker_away"]) == (

@@ -63,11 +63,26 @@ ideas, and RFCs. It sits behind a fence:
 | Receipts | published gate verdicts and findings from the record (numbers only), so outside eyes can check our reads | — |
 
 The seed threads (2026-10-01) are drafted in
-`docs/discussions/seed-2026-10-01.md`. Posting them is the operator's
-step: the Discussions API is not wired into Code or the ledger bot.
+`docs/discussions/seed-2026-10-01.md`. The operator posted all four by hand.
 Code's tools cannot enable Discussions, create categories, pin or post
-(checked 2026-10-01: no Discussions tool; direct API access is not
-permitted from Code's session), so all four are operator steps.
+(checked 2026-10-01: no Discussions tool, and direct API access is not
+permitted from Code's session).
+
+**Posted seed threads.** These links come from the first `discussions` /
+`list` dispatch receipt, pasted on #201 on 2026-10-01:
+
+| # | Category | Thread |
+|---|---|---|
+| 197 | Q&A | [NHL information floor: schedule Elo ~0.691, goalie quality adds 0](https://github.com/anthonyevans29/Sports-Predictor/discussions/197) |
+| 198 | Q&A | [api-sports american-football 2025: home/away labels inverted for Aug–Oct?](https://github.com/anthonyevans29/Sports-Predictor/discussions/198) |
+| 199 | Ideas | [Kalshi game markets: fill rates when joining the bid vs taking](https://github.com/anthonyevans29/Sports-Predictor/discussions/199) |
+| 200 | Receipts | [S14 totals: uncertain-winner under-projection +1.17 goals live (n=25), +0.18 pooled](https://github.com/anthonyevans29/Sports-Predictor/discussions/200) |
+
+The same receipt lists six categories: Announcements, Ideas, Polls, Q&A,
+Receipts and RFC. Announcements and Polls are GitHub's defaults and are not
+used by ruling. The `list` call succeeded with the token's current scopes,
+but a read does not prove write access. If the first `post` or `reply` is
+refused, the operator adds `write:discussion` to the token.
 
 **Posting through the ledger workflow (ARCHITECT 2026-10-01).** Posting
 runs inside `ledger.yml` with the `LEDGER_PROJECT_TOKEN` secret (a classic

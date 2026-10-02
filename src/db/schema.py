@@ -509,6 +509,32 @@ class NHLShotEvent(Base):
     )
 
 
+class MatchNeutralDerived(Base):
+    """
+    National-team lane (#220, ARCHITECT 2026-10-02): "Neutral derivation RULED
+    YES: ... derive neutral = venue city != home team's ground city, store as
+    `neutral_derived` with the rule stated — never as a provider fact."
+
+    One row per match the intl ingest stored. `neutral_derived` is OUR
+    inference under `rule` (the full rule text, verbatim, so a row explains
+    itself); NULL when either city is missing (law 4: unknown stays unknown).
+    The two inputs are kept as served, so a re-derivation needs no new calls.
+    Nothing here is a provider field.
+    """
+
+    __tablename__ = "match_neutral_derived"
+
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), primary_key=True)
+    neutral_derived: Mapped[bool | None] = mapped_column(Boolean)
+    rule: Mapped[str] = mapped_column(String(512))
+    venue_city: Mapped[str | None] = mapped_column(String(128))         # fixture.venue.city, as served
+    home_ground_city: Mapped[str | None] = mapped_column(String(128))   # /teams venue.city, same comp-season
+    source: Mapped[str] = mapped_column(String(32), default="api_football")
+    derived_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+    match: Mapped[Match] = relationship()
+
+
 class TeamRating(Base):
     """Time-series of team ratings (Elo, xG attack/defense, etc.)"""
 

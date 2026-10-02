@@ -123,6 +123,9 @@ _SINGLE_YEAR_SEASON_CODES = {
     "WC", "UEFA_EURO",
     "WCQ_EU", "WCQ_SA", "WCQ_AF", "WCQ_AS", "WCQ_NA", "WCQ_OC",
     "FRIENDLIES_INT",
+    # #220 intl ingest (2026-10-02): league ids DISCOVERED by name at run
+    # time (src/ingestion/intl_history.py), not mapped here.
+    "WCQ_IC", "UEFA_EURO_Q",
 }
 
 # Default competition metadata when a code isn't pre-mapped — used in

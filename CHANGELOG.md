@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#220 lane 2: international Elo v1 declared — frozen, not run, awaiting ratification)
+- `docs/specs/intl-elo-v1.md`: the frozen pre-commitment (H +100 / 0 at derived-neutral; K 20/40/50/60 by class; ln(|margin|+1) with our Elos' 2.2 gap factor; the soccer Elo→Poisson draw mapping with ρ −0.10; train 2018–2024-08, test UNL 2024/25 + WCQ_EU 2025-26; bar = naive − 0.010; bands; RPS). Five RATIFY items, including the draw update (ln(0+1) = 0 would freeze ratings on every draw).
+- Registry: `intl-elo-v1` declared (unrun, 0 prior reads) with a 60-game executable confirmation plan. tests/test_intl_elo_declaration.py.
+
 ## 2026-10-02 (#230: national-team history ingest — UNL lane reopened, data-ready)
 - `python cli.py intl-sync` (`src/ingestion/intl_history.py`): the ruled set from 2018 (WCQ all confederations, Euro + qualifiers, Nations League, friendlies). Leagues are discovered by name and coded by name (new: WCQ_IC, UEFA_EURO_Q, CONCACAF_NL); an adapter-id clash or unmapped name is refused. `/fixtures` + `/teams` per competition-season; `--max-calls`, `--dry-run`, `--save` / `--from-dir`; never touches data/.
 - Senior-team filter: a fixture is kept only when both teams play in UNL / WCQ_* / UEFA_EURO / UEFA_EURO_Q; exclusions are printed.

@@ -14,6 +14,12 @@ Every drop adds an entry going forward.
 - **The Next-24h card's venue verdict** is stamped by `window.py` as `desk_venue` via the new `desk_policy.window_venue`; the card renders it.
 - **Verifies:** `cockpit_render_verify` is rewritten: rendered == the deleted JS's frozen outputs in all three scenarios, plus tamper, refusal, no-parlays and version-mismatch checks. 13 legacy-path verifies now load through `scripts/cockpit_desk_files.upload()` (the Python Desk with the page's own ledger-summary counts, plus the desk_parlays file). `cockpit_window_verify` stamps `desk_venue`. All 18 verifies are green.
 
+## 2026-10-02 (#153 part 1: NHL-xG shot-event ingest)
+- New table `nhl_shot_events` (additive; `init_db` creates it). One row per shot-type play (shot on goal, missed, blocked, goal) from api-web play-by-play, 2023-24 onward. Raw values only: event type (stored for eligibility and target only, never a feature, per #210), nullable shot type, x/y, shooter, goalie in net (NULL = empty net or absent), situation code, period, time, zone, home defending side, and shooter side vs play-owner side.
+- `src/ingestion/nhl_shots.py`: discovery-based parsing (law 1); links through the goalie-sync mapping, else the refusal-on-ambiguity matcher; upserts without deleting and never blanks a stored value on refetch; relinks unlinked rows; coverage receipt.
+- CLI `nhl-shot-sync` and `nhl-shot-coverage`. The receipt reports P1–P6 against the probe's frozen FEEDABLE bars (95/95/90/95/90, plus every season).
+- tests/test_nhl_shot_events.py: 3 tests.
+
 ## 2026-10-02 (MLB odds history: snapshot per sync, close = last pre-first-pitch session)
 - `sync_odds_mlb` (bulk window and rollover fallback, via `_mlb_store_odds`):
   - A game at or after first pitch is never touched: no wipe, no insert. The pre-game session survives and no in-game price is stored.

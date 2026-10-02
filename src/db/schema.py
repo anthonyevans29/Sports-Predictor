@@ -458,6 +458,57 @@ class NHLGoalieAppearance(Base):
     )
 
 
+class NHLShotEvent(Base):
+    """
+    NHL-xG lane (1) INGEST, architect 2026-09-30: one row per shot-type
+    event (shot on goal / missed / blocked / goal — any play whose event type
+    names a shot or goal) from the NHL's own play-by-play
+    (api-web.nhle.com /v1/gamecenter/<id>/play-by-play), 2023-24 onward.
+
+    Keyed to OUR matches through the goalie-sync mapping: `match_id` is the
+    nhl_goalie_appearances link for the same nhl_game_id when one exists,
+    else the same refusal-on-ambiguity matcher; NULL when neither maps.
+    Raw values only — no derived distance/angle/situation class here (those
+    belong to the frozen v6 declaration). Every field the API did not carry
+    stays NULL (law 4): shot type is OPTIONAL by ruling (absent on blocked
+    shots by nature). `side` is the SHOOTER's side from the game's roster;
+    `owner_side` is the play's owner team, kept separately because the two
+    need not agree (e.g. on blocked shots) — never reconciled by guessing.
+    Nothing here is a model feature until a candidate passes the frozen gate.
+    """
+
+    __tablename__ = "nhl_shot_events"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    nhl_game_id: Mapped[int] = mapped_column(Integer, index=True)
+    event_id: Mapped[int] = mapped_column(Integer)                        # the API's per-game event id
+    match_id: Mapped[int | None] = mapped_column(ForeignKey("matches.id"), index=True)
+    game_start: Mapped[datetime] = mapped_column(DateTime, index=True)   # UTC, naive
+    game_type: Mapped[int | None] = mapped_column(Integer)
+    period: Mapped[int | None] = mapped_column(Integer)
+    period_type: Mapped[str | None] = mapped_column(String(8))           # REG / OT / SO as the API says
+    time_in_period_s: Mapped[int | None] = mapped_column(Integer)
+    event_type: Mapped[str] = mapped_column(String(32))                  # e.g. shot-on-goal / missed-shot / goal
+    shot_type: Mapped[str | None] = mapped_column(String(24))            # OPTIONAL (ruling)
+    side: Mapped[str | None] = mapped_column(String(4))                  # shooter's side, from the roster
+    owner_side: Mapped[str | None] = mapped_column(String(4))            # the play's owner team side
+    team_abbrev: Mapped[str | None] = mapped_column(String(8))           # of `side`
+    shooter_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    goalie_id: Mapped[int | None] = mapped_column(Integer)               # goalie in net (NULL = empty net or absent)
+    x: Mapped[float | None] = mapped_column(Float)
+    y: Mapped[float | None] = mapped_column(Float)
+    zone_code: Mapped[str | None] = mapped_column(String(4))
+    home_defending_side: Mapped[str | None] = mapped_column(String(8))
+    situation_code: Mapped[str | None] = mapped_column(String(8))
+    captured_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+    match: Mapped[Match | None] = relationship()
+
+    __table_args__ = (
+        Index("ix_nhl_shot_game_event", "nhl_game_id", "event_id", unique=True),
+    )
+
+
 class TeamRating(Base):
     """Time-series of team ratings (Elo, xG attack/defense, etc.)"""
 

@@ -9,6 +9,12 @@ Every drop adds an entry going forward.
 - Seeded with the pre-registry verdicts, unchanged: NHL v1–v5, S19, DC-fit, S14 stage 2 and cups fix-v2. Their ids are "not recorded" and are never reconstructed. NHL's 2025 test set shows 5 prior reads.
 - `python cli.py registry [--id ID]` (read-only). docs/REGISTRY.md. tests/test_registry_212.py: 5 tests.
 
+## 2026-10-02 (#153 part 1: NHL-xG shot-event ingest)
+- New table `nhl_shot_events` (additive; `init_db` creates it). One row per shot-type play (shot on goal, missed, blocked, goal) from api-web play-by-play, 2023-24 onward. Raw values only: event type (stored for eligibility and target only, never a feature, per #210), nullable shot type, x/y, shooter, goalie in net (NULL = empty net or absent), situation code, period, time, zone, home defending side, and shooter side vs play-owner side.
+- `src/ingestion/nhl_shots.py`: discovery-based parsing (law 1); links through the goalie-sync mapping, else the refusal-on-ambiguity matcher; upserts without deleting and never blanks a stored value on refetch; relinks unlinked rows; coverage receipt.
+- CLI `nhl-shot-sync` and `nhl-shot-coverage`. The receipt reports P1–P6 against the probe's frozen FEEDABLE bars (95/95/90/95/90, plus every season).
+- tests/test_nhl_shot_events.py: 3 tests.
+
 ## 2026-10-02 (MLB odds history: snapshot per sync, close = last pre-first-pitch session)
 - `sync_odds_mlb` (bulk window and rollover fallback, via `_mlb_store_odds`):
   - A game at or after first pitch is never touched: no wipe, no insert. The pre-game session survives and no in-game price is stored.

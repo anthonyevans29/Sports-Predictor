@@ -29,6 +29,8 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 from playwright.sync_api import sync_playwright
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cockpit_desk_files as cdf  # noqa: E402  (F1c: the Cockpit renders desk files only)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
@@ -100,7 +102,7 @@ def main():
         page.goto(url)
         page.evaluate(f"localStorage.setItem('bd_ledger_v1', {json.dumps(json.dumps(seeded(4)))})")
         page.goto(url)
-        page.set_input_files("#predFile", [os.path.join(tmp, n) for n in ("mlb.json", "soccer.json", "nhl.json")])
+        cdf.upload(page, [os.path.join(tmp, n) for n in ("mlb.json", "soccer.json", "nhl.json")])
         page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
         page.click("#tabDesk")
         calls = {c["home"]: c for c in page.evaluate(

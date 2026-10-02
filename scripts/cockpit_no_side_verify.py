@@ -34,6 +34,8 @@ from playwright.sync_api import sync_playwright
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 from src.walters.venue import kalshi_exec  # noqa: E402
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cockpit_desk_files as cdf  # noqa: E402  (F1c: the Cockpit renders desk files only)
 
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
 D1 = (NOW + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -114,7 +116,7 @@ def main():
 
         def load(name):
             page.evaluate("document.getElementById('summary').textContent=''")
-            page.set_input_files("#predFile", os.path.join(tmp, name))
+            cdf.upload(page, os.path.join(tmp, name))
             page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
             page.click("#tabDesk")
 

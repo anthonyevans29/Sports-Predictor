@@ -49,6 +49,15 @@ Everything the rulings left open is fixed in `docs/specs/nhl-xg-v6.md` before an
   - Regressions: the three new tests fail on the old code.
   - #223's `nhl-v6` entry gains its plan (150 games, log-loss <= 0.6866 and < v1 on the same games) in its own merge-up.
 
+**2026-10-02 — F1c BUILT (#191): one source of truth; the Cockpit is a viewer with a ledger.**
+Sequence held: Sunday rich-slate receipt 9/9 → `SP_DESK_CALLS=1` on the host → v1.1.0 cut and deployed → this PR.
+- **Golden:** captured from the pre-F1c JS (Cockpit sha256 37250ba4…, = main at capture) BEFORE the deletion, in its own commit. The Python Desk matches it row for row (14/14).
+- **Deleted:** the in-browser policy (computeCall, valueSide, venueEdge, kalshiOnlyRef, the parlay builder, the exec-display derivation and the policy constants).
+- **Refused:** desk-less prediction and fixtures files, with "export with --desk".
+- **Next-24h card:** its venue verdict now comes from Python (`window_venue`).
+- **Finding during the build (law 1):** the old ledger capture read the per-side quote accessors directly, so it logged taker/join prices on edge rows the Desk never displayed (away-only quotes, bid-only rows). Those accessors read export fields, not policy, so they stay. Ledger capture is unchanged, and the display follows the old rule (`desk.exec` null when the home contract carries no cost/ask/maker).
+- **Verifies:** 1 rewritten (render), 13 moved onto desk files, 1 stamps desk_venue, 0 retired. All 18 are green.
+
 **2026-10-02 — #212 BUILT: the experiment registry and the confirmation doctrine.**
 Ruled (2026-10-01): "experiment registry (candidate, training cutoff, scored match ids, prior reads) + DOCTRINE: a gate pass is followed by a declared future-confirmation window before production (NFL's two-week ratification generalized). Existing verdicts unchanged." 2026-10-02: "the registry records every candidate from here."
 - The ledger is in git (`docs/registry/experiments.json`) so every declaration and run is reviewed in a PR.

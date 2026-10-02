@@ -25,6 +25,8 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 from playwright.sync_api import sync_playwright
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cockpit_desk_files as cdf  # noqa: E402  (F1c: the Cockpit renders desk files only)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 KICK = (datetime.now(timezone.utc) + timedelta(days=1)).replace(microsecond=0)
@@ -148,7 +150,7 @@ def main():
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(url)
-        page.set_input_files("#predFile", [os.path.join(tmp, n) for n in INPUTS])
+        cdf.upload(page, [os.path.join(tmp, n) for n in INPUTS])
         # the loader parses asynchronously, then switches to the Card tab — wait for it
         page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
         page.click("#tabDesk")

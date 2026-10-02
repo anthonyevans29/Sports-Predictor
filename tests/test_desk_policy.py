@@ -105,7 +105,7 @@ def test_value_shadow_and_venue():
     assert (v["side"], v["role"]) == ("AWAY", "dog") and v["reason"].startswith("value on dog: +15.0pp")
     fx = {"competition_code": "NHL", "fixtures": [
         {"home_team": "H", "away_team": "A", "utc_date": ko(120), "status": "scheduled",
-         "market": {"bookmaker_count": 6, "fair_prob": {"HOME": 0.60, "AWAY": 0.40}},
+         "market": {"bookmaker_count": 6, "fair_prob": {"HOME": 0.60, "AWAY": 0.40}, "captured_at": ko(-30)},
          "kalshi": {"status": "two_sided", "prob": {"HOME": 0.52, "AWAY": 0.48}}},
         {"home_team": "F", "away_team": "G", "utc_date": ko(-60), "status": "finished"}]}   # skipped
     ven = dp.evaluate(fx, NOW_MS)["venue"]

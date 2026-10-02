@@ -44,7 +44,8 @@ def row(mid, sport, comp, home, away, h, fair, books, kal=None, kal_norm=None, m
         edge=None, tier=None, quar=False, flag=None):
     return {"match_id": mid, "utc_date": ko(h), "status": "scheduled", "home_team": home,
             "away_team": away, "sport": sport, "competition": comp,
-            "market": {"bookmaker_count": books, "fair_prob": fair, "fair_source": "1X2"},
+            "market": {"bookmaker_count": books, "fair_prob": fair, "fair_source": "1X2",
+                       "captured_at": ko(-0.5)},                       # fresh book capture (#91)
             "kalshi": kal, "kalshi_home_norm": kal_norm, "model": model, "edge_pp": edge,
             "tier": tier, "quarantine": quar, "venue_flag": flag,
             "engine": "model_edge" if model else "market_only"}

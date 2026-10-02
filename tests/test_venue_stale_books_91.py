@@ -2,8 +2,10 @@
 older than 3h at decision time has NO reference (not stale-flagged, excluded)
 — same PASS/no-ref class as absent books." Decision time = the Desk's as-of.
 Pins: > 3h -> PASS / noref (never VENUE, never stale-flagged); exactly 3h and
-fresher -> the pair is judged as before; no capture time -> the pre-ruling
-path; the Next-24h card (window_venue) obeys the same rule."""
+fresher -> the pair is judged as before; review on #250: a capture after the
+decision time is unavailable (noref) and an unknown age (missing / malformed)
+is noref, PROVISIONAL pending an explicit ruling; the Next-24h card
+(window_venue) obeys the same rules."""
 from datetime import datetime, timedelta, timezone
 
 from src.walters import desk_policy as dp
@@ -46,9 +48,22 @@ def test_exactly_3h_and_fresher_books_are_judged_as_before():
         assert abs(d["div_pp"] - 10.0) < 1e-9 and d["stale_book_zone"] is True
 
 
-def test_no_capture_time_keeps_the_pre_ruling_path():
-    d = desk(None)
-    assert d["call"] == "VENUE" and d["pass_kind"] is None
+def test_unknown_capture_age_is_no_reference_pending_the_ruling():
+    """Review on #250: missing / malformed captured_at produced VENUE calls.
+    Unknown age -> no reference (law 4), PROVISIONAL pending the architect's
+    explicit ruling on unknown age."""
+    for cap in (None, "", "not-a-time", "2026-13-45T99:00:00"):
+        d = desk(cap)
+        assert (d["call"], d["units"], d["pass_kind"]) == ("PASS", 0, "noref"), cap
+        assert d["reason"] == "book capture time unknown — no reference" and d["side"] is None
+
+
+def test_a_future_capture_is_unavailable_at_decision_time():
+    for mins in (-1, -60):                                   # captured 1 min / 1h AFTER the as-of
+        d = desk(at(mins))
+        assert (d["call"], d["pass_kind"]) == ("PASS", "noref"), mins
+        assert d["reason"] == "book capture after decision time — unavailable, no reference"
+    assert desk(at(0))["call"] == "VENUE"                    # captured AT the decision time: available
 
 
 def test_absent_books_still_say_single_venue():
@@ -64,3 +79,6 @@ def test_window_card_obeys_the_same_rule():
     assert (v["eligible"], v["kind"]) == (False, "noref") and "no reference" in v["reason"]
     row["market"]["captured_at"] = at(30)
     assert dp.window_venue(row, MS)["eligible"] is True
+    for cap in (None, "garbage", at(-5)):
+        row["market"]["captured_at"] = cap
+        assert dp.window_venue(row, MS)["kind"] == "noref", cap

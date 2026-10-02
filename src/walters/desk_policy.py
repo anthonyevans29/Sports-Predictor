@@ -256,10 +256,19 @@ def venue_edge(r, now_ms: float) -> dict:
     # #91 RULED (ARCHITECT 2026-10-02): "a venue-edge row whose book capture is
     # older than 3h at decision time has NO reference (not stale-flagged,
     # excluded) — same PASS/no-ref class as absent books." Decision time = the
-    # Desk's as-of (now_ms). A row without a capture time keeps the pre-ruling
-    # path (the fixtures export stamps market.captured_at on every priced board).
-    age_ms = now_ms - utc_ms(r.get("booksAt"))
-    if age_ms > VENUE["maxBookAgeH"] * 3600000:      # NaN (no/unparseable time) compares False
+    # Desk's as-of (now_ms). Review on #250: a capture AFTER the decision time
+    # was not available then -> no reference. UNKNOWN age (missing or
+    # unparseable captured_at) -> no reference too: law 4's conservative side,
+    # PROVISIONAL pending the architect's explicit ruling on unknown age.
+    cap_ms = utc_ms(r.get("booksAt"))
+    if math.isnan(cap_ms):
+        out.update(reason="book capture time unknown — no reference", kind="noref")
+        return out
+    if cap_ms > now_ms:
+        out.update(reason="book capture after decision time — unavailable, no reference", kind="noref")
+        return out
+    age_ms = now_ms - cap_ms
+    if age_ms > VENUE["maxBookAgeH"] * 3600000:
         out.update(reason=f"books captured {js_fixed(age_ms / 3600000, 1)}h ago > {VENUE['maxBookAgeH']}h"
                           " — no reference", kind="noref")
         return out

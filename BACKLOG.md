@@ -31,6 +31,14 @@ Sequence held: Sunday rich-slate receipt 9/9 → `SP_DESK_CALLS=1` on the host �
 - **Finding during the build (law 1):** the old ledger capture read the per-side quote accessors directly, so it logged taker/join prices on edge rows the Desk never displayed (away-only quotes, bid-only rows). Those accessors read export fields, not policy, so they stay. Ledger capture is unchanged, and the display follows the old rule (`desk.exec` null when the home contract carries no cost/ask/maker).
 - **Verifies:** 1 rewritten (render), 13 moved onto desk files, 1 stamps desk_venue, 0 retired. All 18 are green.
 
+**2026-10-02 — #212 BUILT: the experiment registry and the confirmation doctrine.**
+Ruled (2026-10-01): "experiment registry (candidate, training cutoff, scored match ids, prior reads) + DOCTRINE: a gate pass is followed by a declared future-confirmation window before production (NFL's two-week ratification generalized). Existing verdicts unchanged." 2026-10-02: "the registry records every candidate from here."
+- The ledger is in git (`docs/registry/experiments.json`) so every declaration and run is reviewed in a PR.
+- The test set is read once per id: a second run is refused. Prior reads are computed per run, so a winner on a much-read test set says so. NHL 2025 already has 5 reads (v1–v5).
+- A PASS enters `confirming`; production needs a CONFIRMED ruling at the close of the declared window.
+- The seeds are the recorded verdicts, unchanged; ids are marked "not recorded" (law 4).
+- NHL v6 (#153) is the first candidate declared under it, in its own PR.
+
 **2026-10-02 — STATE SYNC (ARCHITECT): v1.1.0 CUT AND DEPLOYED; #215/#219 receipts; model-coverage order; NHL-xG ingest resumes (#153).**
 - **v1.1.0** "v1.0.1 -> v1.1.0 (ebb7f51, 43 files)". #191's gates are all met, so F1c proceeds.
 - **#215 receipts** (run before merge): `clv-restate` dry run changed 0; `export_close_compare` on MLB/PL/NFL/NHL showed 0 newly unpriced, 0 book-count changes, max fair move 0.04pp (PL). The contract changed nothing on current data and now guards the incomplete-board cases.

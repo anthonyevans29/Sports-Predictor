@@ -314,8 +314,30 @@
       "reference": "naive baseline (frozen train frequencies, spec section 6) on the same 60 games, minus 0.010"
     },
     "declared_at": "2026-10-02T15:27:27Z",
-    "status": "declared",
-    "run": null,
+    "status": "run",
+    "run": {
+      "run_at": "2026-10-02T16:26:31Z",
+      "n_scored": 392,
+      "ids_sha256": "cf5197b1c71da9b61135adc00bf5c1adbbd714a5dc6932c4d05754af1ee7ddef",
+      "ids_file": "docs/registry/ids/intl-elo-v1.txt",
+      "result": {
+        "n_test": 392,
+        "ll_model": 0.8506956951174715,
+        "ll_naive": 1.0531183442966414,
+        "bar": 1.0431183442966414,
+        "rps_model": 0.16693993084119116,
+        "rps_naive": 0.23700730099071754,
+        "crit_ll": true,
+        "crit_bands": false,
+        "verdict": "FAIL \u2014 calibration",
+        "mu": 1.3366735775167011,
+        "neutral_rule": "intl-neutral-v2",
+        "rule_check_v1": 0.6335,
+        "rule_check_v2": 0.0
+      },
+      "prior_reads": [],
+      "prior_read_count": 0
+    },
     "verdict": null,
     "ratified": "ARCHITECT-RULE on #232 2026-10-02 (pre-run, frozen): draws S=0.5 with max(margin,1); no season regression; unknown venue +100 counted; RULE CHECK gate 10% with the pre-declared intl-neutral-v2 refinement; naive = frozen train H/D/A, symmetric at derived-neutral. #234 rulings 2026-10-02: CNL_Q K=40 (Nations League class); v2 = leave-one-out host-city sets from home-and-away competitions only. Preflight rulings 2026-10-02: v1 RULE CHECK 63% -> v2; a city hosted only by this competitive match is HOME (replaces leave-one-out); v2's check printed on the same denominator and gated at 10%; gap games update ratings; v3 (venue country != home country) pre-declared, engages only if v2 > 10%.",
     "limitation": "DECLARED (ARCHITECT 2026-10-02): home-and-away competition play-offs and finals at neutral venues are priced with the home edge; v2's 10% check is vacuous under the HOME ruling. The fix, v3 (venue country), is for the next candidate."

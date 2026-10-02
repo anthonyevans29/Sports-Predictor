@@ -131,7 +131,7 @@ def test_v2_cli_refuses_unless_declared_and_without_venue_rows(monkeypatch):
 def test_repo_declaration_v2_on_v1s_test_set():
     from src.walters import registry as reg
     e, v1 = reg.get("intl-elo-v2"), reg.get("intl-elo-v1")
-    assert e["status"] == "declared" and e["run"] is None and e["declaration"] == "docs/specs/intl-elo-v2.md"
+    assert e["declaration"] == "docs/specs/intl-elo-v2.md"
     for k in ("test_set", "gate", "confirmation_plan"):
         assert e[k] == v1[k]
     assert len(reg.prior_reads(e["test_set"], None, before_id="intl-elo-v2")) == (1 if v1["run"] else 0)
@@ -157,3 +157,25 @@ def test_venue_payload_with_none_fields_does_not_crash(tmp_path):
     r = iv.sync(str(save), venues_dir=str(tmp_path / "v"), client=RealShapedClient())
     assert r["venue_keys"]["capacity"] >= 3 and r["venue_keys"]["id"] >= 3        # key COUNTS, not summed values
     assert set(r["venue_keys"]) >= {"id", "country", "capacity", "image"}
+
+
+def test_v2_record_passed_and_is_in_its_confirmation_window():
+    """ARCHITECT 2026-10-02 (verbatim in the ledger): intl-elo-v2 PASS 0.7889 vs bar 1.0424; prior reads = 2
+    counting this read (the registry stores the 1 EARLIER read, intl-elo-v1); declared limitations; production
+    only on CONFIRMED."""
+    import hashlib
+
+    from src.walters import registry as reg
+    e = reg.get("intl-elo-v2")
+    run, r = e["run"], e["run"]["result"]
+    ids = [int(x) for x in open(os.path.join(ROOT, run["ids_file"])).read().split()]
+    assert len(ids) == run["n_scored"] == 392 == len(set(ids))
+    assert hashlib.sha256(",".join(str(i) for i in sorted(ids)).encode()).hexdigest() == run["ids_sha256"]
+    assert ids == [int(x) for x in open(os.path.join(ROOT, reg.get("intl-elo-v1")["run"]["ids_file"])).read().split()]
+    assert round(r["ll_model"], 4) == 0.7889 and round(r["bar"], 4) == 1.0424 and r["neutral_rule"] == "intl-neutral-v3"
+    assert (r["fit_c_mult"], r["fit_k_mult"]) == (1.5, 2.0) and r["crit_ll"] and r["crit_bands"]
+    assert [p["id"] for p in run["prior_reads"]] == ["intl-elo-v1"] and run["prior_read_count"] == 1
+    assert e["verdict"]["verdict"] == "PASS" and e["status"] == "confirming"
+    assert e["verdict"]["ruling"].startswith("ARCHITECT 2026-10-02: intl-elo-v2 VERDICT — PASS under the frozen gate")
+    assert all(x in e["limitation"] for x in ("grid-edge", "13.7%", "57%"))
+    assert reg.production_allowed("intl-elo-v2")[0] is False

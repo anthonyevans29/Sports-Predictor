@@ -593,9 +593,50 @@
       "reference": "naive baseline (frozen train frequencies, spec section 6) on the same 60 games, minus 0.010"
     },
     "declared_at": "2026-10-02T16:31:13Z",
-    "status": "declared",
-    "run": null,
-    "verdict": null,
-    "ratified": "ARCHITECT 2026-10-02: interpretation RATIFIED \u2014 the fitted scale is a multiplier on c; the update divisor stays 400."
+    "status": "confirming",
+    "run": {
+      "run_at": "2026-10-02T16:59:39Z",
+      "n_scored": 392,
+      "ids_sha256": "cf5197b1c71da9b61135adc00bf5c1adbbd714a5dc6932c4d05754af1ee7ddef",
+      "ids_file": "docs/registry/ids/intl-elo-v2.txt",
+      "result": {
+        "n_test": 392,
+        "ll_model": 0.7889432823659717,
+        "ll_naive": 1.0523683095044296,
+        "bar": 1.0423683095044296,
+        "rps_model": 0.15326803096331837,
+        "rps_naive": 0.23678511271098537,
+        "crit_ll": true,
+        "crit_bands": true,
+        "verdict": "PASS",
+        "mu": 1.3366735775167011,
+        "neutral_rule": "intl-neutral-v3",
+        "fit_c_mult": 1.5,
+        "fit_k_mult": 2.0,
+        "train_attribution": {
+          "v1 params + v2 neutral (v1 as run)": 0.97977,
+          "(a) only: fitted params + v2 neutral": 0.9402,
+          "(b) only: v1 params + v3 neutral": 0.97736,
+          "(a)+(b): fitted params + v3 neutral": 0.93883
+        }
+      },
+      "prior_reads": [
+        {
+          "id": "intl-elo-v1",
+          "candidate": "international Elo: H +100 (0 at derived-neutral); K by class friendlies 20 / Nations League 40 (UNL, CNL, CNL_Q) / qualifiers 50 / finals 60; mov = ln(max(|margin|,1)+1) (draw S 0.5, gap factor 1) with the 2.2 gap factor (our other Elos); three-way via the soccer Elo->Poisson mapping (c 0.0023, DC rho -0.10, mu from train)",
+          "run_at": "2026-10-02T16:26:31Z",
+          "why": "same test set",
+          "overlap": 392
+        }
+      ],
+      "prior_read_count": 1
+    },
+    "verdict": {
+      "verdict": "PASS",
+      "ruling": "ARCHITECT 2026-10-02: intl-elo-v2 VERDICT \u2014 PASS under the frozen gate (0.7889 vs bar 1.0424; gated bands ok; RPS 0.153 vs 0.237). Ratified. Record (prior reads = 2 once v1 is spliced). Grid-edge pick, 13.7% v3 neutral share, and 57% unflagged venues recorded as declared limitations. CONFIRMATION WINDOW: 60 games after 2026-10-02 (UNL matchday 4 this weekend + November's WCQ_EU), scored by the plan; production allowed only on CONFIRMED.",
+      "at": "2026-10-02T18:11:47Z"
+    },
+    "ratified": "ARCHITECT 2026-10-02: interpretation RATIFIED \u2014 the fitted scale is a multiplier on c; the update divisor stays 400.",
+    "limitation": "DECLARED (ARCHITECT 2026-10-02): grid-edge pick (fit_k_mult 2.0 is the top of the declared 0.5..2.0 k grid); 13.7% v3 neutral share; 57% unflagged venues."
   }
 ]

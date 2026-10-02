@@ -94,6 +94,11 @@ def home_term(g: Game) -> float:
 class IntlElo:
     mu: float
     ratings: dict[int, float] = field(default_factory=dict)
+    # intl-elo-v2 (a): the rating-to-probability scale (a multiplier on the Elo->goals coefficient c,
+    # the only place a rating difference becomes a probability) and a global K multiplier.
+    # v1 = 1.0 / 1.0 exactly.
+    c_mult: float = 1.0
+    k_mult: float = 1.0
 
     def r(self, t: int) -> float:
         return self.ratings.get(t, START)
@@ -106,7 +111,7 @@ class IntlElo:
 
         p = predict_match(self.r(g.home) + home_term(g), self.r(g.away), TeamStrength(), TeamStrength(),
                           CompetitionScoringContext(avg_goals_per_team_per_match=self.mu, home_field_goal_boost=1.0),
-                          PoissonConfig(elo_goal_coeff=ELO_GOAL_COEFF, dixon_coles_rho=DC_RHO))
+                          PoissonConfig(elo_goal_coeff=ELO_GOAL_COEFF * self.c_mult, dixon_coles_rho=DC_RHO))
         return p.p_home, p.p_draw, p.p_away
 
     def update(self, g: Game) -> None:
@@ -120,7 +125,7 @@ class IntlElo:
             gap = (rh + h - ra) if s == 1.0 else (ra - rh - h)
             factor = MOV_BASE / (MOV_BASE + max(gap, 0.0) * 0.001)
         mov = math.log(max(margin, 1) + 1.0) * factor
-        delta = K_BY_CODE[g.code] * mov * (s - exp_h)
+        delta = K_BY_CODE[g.code] * self.k_mult * mov * (s - exp_h)
         self.ratings[g.home] = rh + delta
         self.ratings[g.away] = ra - delta
 
@@ -177,16 +182,19 @@ def apply_v2(games: list[Game], norm) -> tuple[list[Game], Counter]:
     return out, c
 
 
-def load(s) -> tuple[list[Game], Counter]:
+def load(s, rule: str = "v1") -> tuple[list[Game], Counter]:
     """The stream (law 4: a finished AET/PEN row without a 90-minute score is
     excluded and counted; so is a row with no status code to vouch for its
-    score)."""
+    score). rule "v1": neutral from match_neutral_derived (v2 is applied on
+    top by the caller); rule "v3" (intl-elo-v2): neutral_v3 from
+    intl_match_venue — no row, or a NULL flag, is unknown."""
     from sqlalchemy import select
 
-    from src.db.schema import Competition, Match, MatchNeutralDerived, MatchStatus
+    from src.db.schema import Competition, IntlMatchVenue, Match, MatchNeutralDerived, MatchStatus
 
     comps = {c.id: c.code for c in s.execute(select(Competition).where(Competition.code.in_(STREAM_CODES))).scalars()}
     nd = {r.match_id: r for r in s.execute(select(MatchNeutralDerived)).scalars()}
+    v3 = {r.match_id: r.neutral_v3 for r in s.execute(select(IntlMatchVenue)).scalars()} if rule == "v3" else {}
     games, c = [], Counter()
     rows = s.execute(select(Match).where(Match.competition_id.in_(list(comps)), Match.status == MatchStatus.FINISHED)
                      .order_by(Match.utc_date, Match.id)).scalars() if comps else []
@@ -201,13 +209,14 @@ def load(s) -> tuple[list[Game], Counter]:
             c["excluded_no_90min_score"] += 1
             continue
         r = nd.get(m.id)
+        flag = (v3.get(m.id) if rule == "v3" else (r.neutral_derived if r else None))
         games.append(Game(m.id, comps[m.competition_id], m.season, m.utc_date, m.home_team_id, m.away_team_id,
-                          hg, ag, r.neutral_derived if r else None, r.venue_city if r else None))
-        c["no_neutral_row"] += r is None
+                          hg, ag, flag, r.venue_city if r else None))
+        c["no_neutral_row"] += (m.id not in v3) if rule == "v3" else (r is None)
     return games, c
 
 
-def run(games: list[Game]) -> dict:
+def run(games: list[Game], c_mult: float = 1.0, k_mult: float = 1.0) -> dict:
     """Walk-forward over the whole stream: predict, then update; only the
     test games are scored. Pure — the CLI handles the registry."""
     from src.walters.evaluation import rps_1x2
@@ -223,7 +232,7 @@ def run(games: list[Game]) -> dict:
         raise ValueError(f"empty split: train {len(train)}, test {len(test)}")
     mu = sum(g.hg + g.ag for g in train) / (2 * len(train))
     base = naive(train)
-    m = IntlElo(mu=mu)
+    m = IntlElo(mu=mu, c_mult=c_mult, k_mult=k_mult)
     pairs, ll_m, ll_n, rps_m, rps_n = [], 0.0, 0.0, 0.0, 0.0
     per = defaultdict(lambda: [0, 0.0, 0.0])
     counts = Counter()
@@ -262,3 +271,42 @@ def run(games: list[Game]) -> dict:
             "counts": dict(counts), "wcq_eu_test_seasons": seasons,
             "unknown_venue_all": sum(g.neutral is None for g in games),
             "scored_ids": [g.id for g in test], "ratings": dict(m.ratings)}
+
+
+# --------------------------------------------------------------------------
+# intl-elo-v2 (ARCHITECT 2026-10-02; docs/specs/intl-elo-v2.md): v1 with (a)
+# the rating-to-probability scale and a global K multiplier FITTED BY MAXIMUM
+# LIKELIHOOD ON THE TRAINING STREAM ONLY (walk-forward within 2018-2024,
+# declared grid, chosen before any test read) and (b) neutral rule v3 (venue
+# country) in place of v2. Same bar, same bands, same test set. One run.
+# --------------------------------------------------------------------------
+
+EID_V2 = "intl-elo-v2"
+V2_C_MULT_GRID = (0.75, 1.0, 1.25, 1.5, 1.75, 2.0, 2.5, 3.0)
+V2_K_MULT_GRID = (0.5, 0.75, 1.0, 1.25, 1.5, 2.0)
+
+
+def train_loss(train: list[Game], mu: float, c_mult: float, k_mult: float) -> float:
+    """Mean three-way log-loss of predict-then-update over the training stream
+    from fresh ratings (the walk-forward negative log-likelihood)."""
+    m = IntlElo(mu=mu, c_mult=c_mult, k_mult=k_mult)
+    total = 0.0
+    for g in train:
+        total += ll3(m.probs(g), g.outcome)
+        m.update(g)
+    return total / len(train)
+
+
+def fit_v2(train: list[Game]) -> tuple[dict, list]:
+    """intl-elo-v2 (a): the declared grid, TRAINING STREAM ONLY (kickoff before
+    TRAIN_TO; any other game is refused). Minimum mean log-loss wins; an exact
+    tie goes to the pair closest to v1's (1.0, 1.0), c first. A grid-edge
+    choice is flagged, never widened."""
+    if any(g.kickoff >= TRAIN_TO or g.kickoff < TRAIN_FROM for g in train):
+        raise ValueError("fit_v2 reads the training stream only (2018-01-01 .. 2024-08-31)")
+    mu = sum(g.hg + g.ag for g in train) / (2 * len(train))
+    rows = sorted(((train_loss(train, mu, c, k), c, k) for c in V2_C_MULT_GRID for k in V2_K_MULT_GRID),
+                  key=lambda r: (round(r[0], 12), abs(r[1] - 1.0), abs(r[2] - 1.0)))
+    loss, c, k = rows[0]
+    edge = c in (V2_C_MULT_GRID[0], V2_C_MULT_GRID[-1]) or k in (V2_K_MULT_GRID[0], V2_K_MULT_GRID[-1])
+    return {"c_mult": c, "k_mult": k, "loss": loss, "mu": mu, "on_grid_edge": edge}, rows

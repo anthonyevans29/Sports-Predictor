@@ -535,6 +535,34 @@ class MatchNeutralDerived(Base):
     match: Mapped[Match] = relationship()
 
 
+class IntlMatchVenue(Base):
+    """
+    intl-neutral-v3 (ARCHITECT 2026-10-02; intl-elo-v2 (b)): "neutral rule v3
+    (venue country != home team's country) replaces v2 — route B, 218 calls,
+    run on the laptop as an ingest step before v2's run; derived, labelled."
+
+    One row per stored national-team match: the fixture's venue id as served
+    (from the saved /fixtures response), the venue's COUNTRY as served by
+    /venues?country=<home country> (route B), and the home team's /teams
+    country (teams.area). `neutral_v3` is OUR derivation under `rule`
+    (stated in full), NULL when either country is unknown. Never a provider
+    fact.
+    """
+
+    __tablename__ = "intl_match_venue"
+
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), primary_key=True)
+    venue_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    venue_country: Mapped[str | None] = mapped_column(String(64))       # /venues country, as served
+    home_country: Mapped[str | None] = mapped_column(String(64))        # /teams team.country (teams.area)
+    neutral_v3: Mapped[bool | None] = mapped_column(Boolean)
+    rule: Mapped[str] = mapped_column(String(512))
+    source: Mapped[str] = mapped_column(String(32), default="api_football")
+    derived_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+    match: Mapped[Match] = relationship()
+
+
 class TeamRating(Base):
     """Time-series of team ratings (Elo, xG attack/defense, etc.)"""
 

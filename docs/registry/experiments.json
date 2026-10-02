@@ -337,8 +337,60 @@
       "reference": "v1 (nhl_elo_v1, same constants) scored on the same 150 games"
     },
     "declared_at": "2026-10-02T16:02:08Z",
-    "status": "declared",
-    "run": null,
+    "status": "run",
+    "run": {
+      "run_at": "2026-10-02T16:21:13Z",
+      "n_scored": 1394,
+      "ids_sha256": "ab890242fe22077580cdb7495e90f58c519a2ddae96445de508f04b99b4de229",
+      "ids_file": "docs/registry/ids/nhl-v7.txt",
+      "result": {
+        "log_loss": 0.6885,
+        "v1_same_stream": 0.6909,
+        "shot_information": 0.0023,
+        "verdict_line": "FAIL \u2014 log-loss margin, calibration",
+        "bands_ok": false,
+        "n_test": 1394,
+        "test_games_with_xg": 1394
+      },
+      "prior_reads": [
+        {
+          "id": "nhl-v1",
+          "candidate": "schedule Elo v1",
+          "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v2",
+          "candidate": "schedule Elo v2 (tuned on 2024-internal)",
+          "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v3",
+          "candidate": "schedule Elo v3 (walk-forward selection)",
+          "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v4",
+          "candidate": "schedule Elo v4 (last schedule-only)",
+          "run_at": "2026-09-25",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v5",
+          "candidate": "v1 + goalie term (half-life 180d, prior 2,000 shots)",
+          "run_at": "2026-09-30",
+          "why": "same test set",
+          "overlap": null
+        }
+      ],
+      "prior_read_count": 5
+    },
     "verdict": null
   }
 ]

@@ -341,5 +341,27 @@
     "status": "declared",
     "run": null,
     "verdict": null
+  },
+  {
+    "id": "intl-elo-v2",
+    "sport": "unl",
+    "lane": "#220",
+    "candidate": "intl-elo-v1 + (a) the rating-to-probability scale (multiplier on the Elo->goals coefficient c) and a global K multiplier FITTED BY MAXIMUM LIKELIHOOD on the training stream only (2018-01-01..2024-08-31 walk-forward; grid c_mult {0.75..3.0} x k_mult {0.5..2.0}; tie -> (1,1)) + (b) neutral rule v3 (venue country != home team's country; route B ingest) in place of v2",
+    "declaration": "docs/specs/intl-elo-v2.md",
+    "training_cutoff": "warm-up 2018-01-01..2024-08-31 (mu and naive frequencies from train only); predict-then-update stream; v2 (a) fit on the training stream only",
+    "test_set": "UNL 2024/25 (all stages) + WCQ_EU 2025-03-01..2026-03-31 (2026 cycle)",
+    "gate": "log-loss <= naive-baseline log-loss - 0.010 on the same matches (tie rejects) + calibration bands (10pp, n>=100, +-5pp, three pairs per match); RPS reported",
+    "confirmation_window": "RATIFIED (doc 2026-10-02; ruling: 60 games): first 60 senior competitive national-team matches after the verdict, not in the test set; CONFIRMED iff log-loss <= ln 3 AND < naive baseline on the same games - 0.010",
+    "confirmation_plan": {
+      "n_games": 60,
+      "metric": "log_loss",
+      "bar": 1.0986,
+      "must_beat_reference": true,
+      "reference": "naive baseline (frozen train frequencies, spec section 6) on the same 60 games, minus 0.010"
+    },
+    "declared_at": "2026-10-02T16:31:13Z",
+    "status": "declared",
+    "run": null,
+    "verdict": null
   }
 ]

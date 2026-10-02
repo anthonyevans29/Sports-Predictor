@@ -905,9 +905,45 @@ def intl_coverage_cmd():
         click.echo(line)
 
 
+@cli.command("intl-venue-sync")
+@click.option("--from-dir", "save_dir", required=True, help="The intl-sync --save directory (venue ids, 0 calls).")
+@click.option("--venues-dir", default=None, help="Save (and replay) the /venues responses here (never under data/).")
+@click.option("--plan", "plan_only", is_flag=True, help="Print the route-B call count; fetch nothing, write nothing.")
+@click.option("--max-calls", default=230, show_default=True, help="Refuse a plan needing more /venues calls.")
+def intl_venue_sync_cmd(save_dir, venues_dir, plan_only, max_calls):
+    """intl-neutral-v3 INGEST (intl-elo-v2 (b), ARCHITECT 2026-10-02): venue ids
+    from the saved /fixtures, /venues?country=<home country> per distinct home
+    country (route B), neutral_v3 = venue country != home country into
+    intl_match_venue (derived, labelled; never a provider fact). Take the
+    .backup first. Upsert, never deletes."""
+    from src.db.database import init_db
+    from src.ingestion import intl_venues as iv
+
+    init_db()   # additive: creates intl_match_venue if missing
+    try:
+        r = iv.sync(save_dir, venues_dir=venues_dir, plan_only=plan_only, max_calls=max_calls)
+    except iv.VenueError as e:
+        click.echo(str(e))
+        raise SystemExit(2)
+    p = r["plan"]
+    click.echo(f"INTL-VENUE-SYNC (v3, route B){' · PLAN' if plan_only else ''} · stored intl matches in the save "
+               f"{p['matches']} · with a venue id {p['with_venue_id']} · home country known {p['home_country_known']} "
+               f"· /venues?country calls {p['calls']}")
+    if plan_only:
+        return
+    click.echo(f"  provider calls this run {r['calls']} · venues resolved {r['venues_resolved']} · /venues keys "
+               "(law 1): " + ", ".join(sorted(r["venue_keys"])))
+    click.echo("  neutral_v3: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral_v3"].items())))
+    click.echo(f"  RULE: {iv.NEUTRAL_V3_RULE}")
+
+
 @cli.command("intl-elo-backtest")
 @click.option("--preflight", is_flag=True, help="Data checks only (stream, splits, RULE CHECK); scores nothing, records nothing.")
-def intl_elo_backtest_cmd(preflight):
+@click.option("--candidate", type=click.Choice(["v1", "v2"]), default="v1", show_default=True,
+              help="v1 = docs/specs/intl-elo-v1.md; v2 = v1 + the train-only fit of the rating-to-probability "
+                   "scale and a global K multiplier + neutral rule v3 (docs/specs/intl-elo-v2.md; needs "
+                   "intl-venue-sync first).")
+def intl_elo_backtest_cmd(preflight, candidate):
     """#220 lane 2: the international Elo v1 gate, built FROM the ratified
     declaration docs/specs/intl-elo-v1.md (registry intl-elo-v1). Refused
     before any data load unless the registry holds intl-elo-v1 declared and
@@ -921,12 +957,16 @@ def intl_elo_backtest_cmd(preflight):
     from src.walters import intl_elo as ie
     from src.walters import registry as reg
 
-    e = reg.get(ie.EID)
+    eid = ie.EID if candidate == "v1" else ie.EID_V2
+    e = reg.get(eid)
     if e is None or e.get("status") != "declared" or e.get("run") is not None:
-        click.echo(f"REFUSED: {ie.EID} must be declared and unrun in the registry "
+        click.echo(f"REFUSED: {eid} must be declared and unrun in the registry "
                    f"(status {e.get('status') if e else 'absent'}): the test set is read once.")
         raise SystemExit(2)
     init_db()
+    if candidate == "v2":
+        _intl_elo_v2(ie, reg, preflight)
+        return
     with session_scope() as s:
         games, c = ie.load(s)
         s.rollback()
@@ -993,6 +1033,70 @@ def intl_elo_backtest_cmd(preflight):
     if rc2 is not None:
         result["rule_check_v2"] = round(rc2["share"], 4)
     entry = reg.record_run(ie.EID, r["scored_ids"], result)
+    click.echo(f"  REGISTRY: run recorded · {entry['run']['n_scored']} scored ids · sha256 "
+               f"{entry['run']['ids_sha256'][:12]}… · prior reads {entry['run']['prior_read_count']} · "
+               "commit docs/registry/ in a PR with this output")
+
+
+def _intl_elo_v2(ie, reg, preflight):
+    """intl-elo-v2 (docs/specs/intl-elo-v2.md): neutral rule v3 from
+    intl_match_venue; (a) fitted on the TRAINING STREAM ONLY and printed
+    before any test read; train-season attribution of (a) vs (b); then the
+    ONE scored run, recorded."""
+    from collections import Counter
+    from src.db.database import session_scope
+    from src.ingestion.intl_history import norm_city
+
+    with session_scope() as s:
+        games, c = ie.load(s, rule="v3")
+        v1games, _ = ie.load(s, rule="v1")
+        s.rollback()
+    n = Counter("unknown" if g.neutral is None else "neutral" if g.neutral else "home" for g in games)
+    click.echo(f"INTL ELO v2 (#220) · {'PREFLIGHT · ' if preflight else ''}stream {len(games)} games 2018+ · "
+               "neutral_v3 " + " · ".join(f"{k} {v}" for k, v in sorted(n.items())) + " · "
+               + " · ".join(f"{k} {v}" for k, v in sorted(c.items())))
+    if c.get("no_neutral_row", 0) == len(games):
+        click.echo("REFUSED: no intl_match_venue rows — run intl-venue-sync (route B) first.")
+        raise SystemExit(2)
+    rc = ie.rule_check(games)
+    click.echo(f"  RULE CHECK (intl-neutral-v3, same home-and-away denominator; reported): derived neutral "
+               f"{rc['neutral']}/{rc['known']} = {rc['share'] * 100:.1f}%")
+    train = [g for g in games if ie.TRAIN_FROM <= g.kickoff < ie.TRAIN_TO]
+    click.echo(f"  splits: train {len(train)} · test {sum(1 for g in games if ie.is_test(g))}")
+    if preflight:
+        click.echo("PREFLIGHT only: nothing fitted, nothing scored, nothing recorded.")
+        return
+    sel, rows = ie.fit_v2(train)                          # TRAINING STREAM ONLY, before any test read
+    click.echo(f"  (a) TRAIN-ONLY FIT ({len(train)} games, walk-forward, chosen before any test read): "
+               f"c x{sel['c_mult']:g} · K x{sel['k_mult']:g} · train log-loss {sel['loss']:.5f}"
+               + (" · ON THE GRID EDGE" if sel["on_grid_edge"] else ""))
+    click.echo("     grid (best 10): " + " · ".join(f"({c_:g},{k_:g}) {l:.5f}" for l, c_, k_ in rows[:10]))
+    v2train = [g for g in ie.apply_v2(v1games, norm_city)[0] if ie.TRAIN_FROM <= g.kickoff < ie.TRAIN_TO]
+    mu = sel["mu"]
+    att = {"v1 params + v2 neutral (v1 as run)": ie.train_loss(v2train, mu, 1.0, 1.0),
+           "(a) only: fitted params + v2 neutral": ie.train_loss(v2train, mu, sel["c_mult"], sel["k_mult"]),
+           "(b) only: v1 params + v3 neutral": ie.train_loss(train, mu, 1.0, 1.0),
+           "(a)+(b): fitted params + v3 neutral": sel["loss"]}
+    click.echo("  ATTRIBUTION on the TRAINING stream (no test read): "
+               + " · ".join(f"{k} {v:.5f}" for k, v in att.items()))
+    try:
+        r = ie.run(games, c_mult=sel["c_mult"], k_mult=sel["k_mult"])
+    except ValueError as err:
+        click.echo(f"REFUSED: {err}")
+        raise SystemExit(2)
+    click.echo(f"  TEST n {r['n_test']} · log-loss model {r['ll_model']:.4f} · naive {r['ll_naive']:.4f} · "
+               f"bar {r['bar']:.4f} · RPS model {r['rps_model']:.4f} / naive {r['rps_naive']:.4f}")
+    for code, v in r["per_competition"].items():
+        click.echo(f"    {code}: n {v['n']} · log-loss model {v['ll_model']:.4f} / naive {v['ll_naive']:.4f}")
+    for b in r["bands"]:
+        click.echo(f"    band {b['band'] * 10:>2}-{b['band'] * 10 + 10}%: n {b['n']:>4} · stated {b['stated']:.3f} "
+                   f"· realized {b['realized']:.3f}" + ("" if not b["gated"] else (" · ok" if b["ok"] else " · MISS")))
+    click.echo(f"  VERDICT (computed; the architect rules): {r['verdict']}")
+    result = {k: r[k] for k in ("n_test", "ll_model", "ll_naive", "bar", "rps_model", "rps_naive",
+                                "crit_ll", "crit_bands", "verdict", "mu")}
+    result.update({"neutral_rule": "intl-neutral-v3", "fit_c_mult": sel["c_mult"], "fit_k_mult": sel["k_mult"],
+                   "train_attribution": {k: round(v, 5) for k, v in att.items()}})
+    entry = reg.record_run(ie.EID_V2, r["scored_ids"], result)
     click.echo(f"  REGISTRY: run recorded · {entry['run']['n_scored']} scored ids · sha256 "
                f"{entry['run']['ids_sha256'][:12]}… · prior reads {entry['run']['prior_read_count']} · "
                "commit docs/registry/ in a PR with this output")

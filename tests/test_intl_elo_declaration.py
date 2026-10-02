@@ -11,10 +11,13 @@ ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 def test_intl_elo_v1_declared_unrun_with_an_executable_plan():
     e = reg.get("intl-elo-v1")
-    assert e is not None and e["status"] == "declared" and e["run"] is None and e["verdict"] is None
+    # v1 RAN on the laptop (FAIL, ARCHITECT 2026-10-02): its record lands by splice
+    assert e is not None and e["status"] in ("declared", "run", "closed")
+    if e["run"] is not None:
+        assert e["run"]["n_scored"] > 0 and len(e["run"]["ids_sha256"]) == 64
     assert reg.check_plan(e["confirmation_plan"])["n_games"] == 60
     assert e["confirmation_plan"]["must_beat_reference"] is True
-    assert reg.prior_reads(e["test_set"], None, before_id="intl-elo-v1") == []
+    assert reg.prior_reads(e["test_set"], None, before_id="intl-elo-v1") == []          # v1 was the first read
     doc = open(os.path.join(ROOT, e["declaration"])).read()
     assert "Status: RATIFIED" in doc and "[RATIFY" not in doc and e.get("ratified")
     assert "| Nations League | UNL, CNL, CNL_Q" in doc and "at home even if that city" in doc and "intl-neutral-v3 (pre-declared)" in doc
@@ -29,6 +32,6 @@ def test_known_limitation_is_declared_in_doc_and_registry():
     lim = ("home-and-away competition play-offs and finals at neutral venues are priced with the home edge; "
            "v2's 10% check is vacuous under the HOME ruling")
     e = reg.get("intl-elo-v1")
-    assert lim in e["limitation"] and e["run"] is None
+    assert lim in e["limitation"]
     doc = " ".join(open(os.path.join(ROOT, e["declaration"])).read().split())
     assert "DECLARED LIMITATION" in doc and lim in doc

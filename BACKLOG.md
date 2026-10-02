@@ -22,6 +22,14 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — #212 BUILT: the experiment registry and the confirmation doctrine.**
+Ruled (2026-10-01): "experiment registry (candidate, training cutoff, scored match ids, prior reads) + DOCTRINE: a gate pass is followed by a declared future-confirmation window before production (NFL's two-week ratification generalized). Existing verdicts unchanged." 2026-10-02: "the registry records every candidate from here."
+- The ledger is in git (`docs/registry/experiments.json`) so every declaration and run is reviewed in a PR.
+- The test set is read once per id: a second run is refused. Prior reads are computed per run, so a winner on a much-read test set says so. NHL 2025 already has 5 reads (v1–v5).
+- A PASS enters `confirming`; production needs a CONFIRMED ruling at the close of the declared window.
+- The seeds are the recorded verdicts, unchanged; ids are marked "not recorded" (law 4).
+- NHL v6 (#153) is the first candidate declared under it, in its own PR.
+
 **2026-10-02 — ARCHITECT-RULE on #207: the exports adopt the SAME close contract. Maker validation PENDING (#218).**
 (1) RULED: "the MLB/soccer prediction exports and the fixtures export adopt the SAME close contract (one definition; the export block IS the Desk's reference — #117 showed what pooled de-vig does to it)." This lands in the same PR (#215).
 - `_summarize_market` and `_fixture_row` now call `close_1x2`. `bookmaker_count` means complete books, so the thin-book rule reads stricter, conservatively.

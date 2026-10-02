@@ -22,6 +22,25 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — NHL v6 DECLARATION RATIFIED (ARCHITECT), with one clarification applied before the run.**
+- **Ruling (verbatim):** "the Elo update's DIRECTION comes from the sign of the xG margin and its MAGNITUDE from |xG_home − xG_away| through the same ln(margin+1); the actual result is the scoring label only. (Replacing outcome noise is the whole hypothesis; keeping the actual winner as the update direction would be a half-measure.) Exclusions (blocked, empty-net, missing coords, shootouts), home-defending-side orientation, 2023-24-only fit with the predates-training check, the no-same-game-leakage proof, and the confirmation window (first 150 games of 2026-27 after the verdict) — all ratified. Bar unchanged 0.6866."
+- **Applied:** `NHLEloV6` now takes its direction from the xG winner; the doc, the registry entry and a direction test are updated. Still not run.
+- **Merge order (ruled):** #219, #221, #222, #224 (the architect republishes the Cockpit after F1c), #225, #226, then #223.
+- **Run:** after #223 merges and the shot-sync coverage receipt is in, `nhl-backtest --candidate v6`, once.
+
+**2026-10-02 — NHL v6 DECLARED (#153 part 2; corrected manifest #210): frozen and NOT RUN, awaiting ratification.**
+Everything the rulings left open is fixed in `docs/specs/nhl-xg-v6.md` before any data:
+- **Events:** eligible = shot-on-goal / missed-shot / goal (Fenwick); target = goal; the event code is never a feature.
+- **Rules:** R1 blocked shots excluded (coordinates are the block site); R2 shootout excluded; R3 shooter side (roster, else owner); R4 situation code required; R5 empty net (defending goalie digit 0) excluded; R6 missing coordinates excluded; R7 orientation from homeTeamDefendingSide.
+- **Features:** distance, angle, EV/PP/SH and a nullable shot type (levels with >= 100 fit events, plus `other` and `na`).
+- **Fit:** IRLS logistic with ridge 1.0, on 2023-10-01..2024-10-08 only, asserted.
+- **v6:** v1 with the margin inside ln(margin + 1) = |xG_home − xG_away|; the result stays the game result (the ruling's first reading). Games without xG fall back to the goal margin, counted. Rolling team xG is reported only.
+- **Proof:** a test shows a game's own shots never change its own prediction.
+- **Registry:** `nhl-v6` is declared; NHL 2025 has 5 prior reads.
+- **Confirmation window, PROPOSED:** the first 150 NHL 2026 regular-season games after the verdict; CONFIRMED only if log-loss <= 0.6866 AND below v1 on the same games.
+- **Run order:** `.backup` → `nhl-shot-sync` + coverage receipt → ratification → `nhl-backtest --candidate v6` once.
+- **Still open on #210:** the #197 "eventual-starter (oracle identity) replay" label (an operator edit to the Discussions thread) and the deployable projected/confirmed/unknown replay.
+
 **2026-10-02 — #222 REVIEW FIX (operator review): the confirmation window was prose; now it is executable.**
 - **Finding (reproduced by the reviewer):** `record_confirmation()` accepted CONFIRMED immediately after a PASS, with no games or metrics, and `production_allowed()` then returned true. The doctrine was documented but not enforced.
 - **Fix:** every declaration carries an executable `confirmation_plan` (games, metric, bar, must beat the reference).

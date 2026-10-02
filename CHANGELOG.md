@@ -4,6 +4,17 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#153: NHL v6 declaration RATIFIED — the update direction follows the xG margin)
+- `NHLEloV6.update`: the result term is the sign of xG_home − xG_away (1 / 0; an exact tie moves nothing); the magnitude is |xG margin| through the same ln(margin + 1); the mov gap is taken from the xG winner. The actual result only scores the prediction. Games without xG fall back to v1 on goals (counted).
+- `docs/specs/nhl-xg-v6.md` is marked RATIFIED with the ruling quoted; the confirmation window is ratified. The registry entry `nhl-v6` is updated before any run (still `declared`, unrun).
+- New test: a home team that wins on goals but loses on xG moves DOWN.
+
+## 2026-10-02 (#153 part 2: NHL v6 declared — frozen, not run)
+- `docs/specs/nhl-xg-v6.md`: the frozen declaration under the corrected manifest (#210), awaiting ratification. The event code is eligibility/target only; shot type is a nullable feature; rules R1–R7 (blocked, shootout, side, situation, empty net, coordinates, orientation); fit on 2023-24 only; v6 = v1 with the margin input = |xG_home − xG_away|; rolling team xG is reported only; same gate; a proposed confirmation window.
+- `src/models/nhl_xg.py` (rules, IRLS logistic fit with window assertion, game xG, rolling team xG) and `NHLEloV6` (`src/models/nhl_elo.py`).
+- `nhl-backtest --candidate v6`: refused unless the registry holds `nhl-v6` and it has not run (the refusal comes before any data load); asserts the fit ended before the first train game; reports v1 beside v6, shot information, RPS and the exclusions; records the ONE run in the registry.
+- Registry: `nhl-v6` declared (status declared; 5 prior reads of NHL 2025 shown). tests/test_nhl_xg_v6.py: 7 tests, including the no-same-game-leakage proof.
+
 ## 2026-10-02 (#212 review fix: the confirmation is executable and cannot be recorded early)
 - `declare()` requires a structured `confirmation_plan` {n_games, metric, bar, must_beat_reference, reference} (`check_plan`).
 - `record_confirmation(eid, scored_ids, result, ruling)` executes the plan and computes CONFIRMED/NOT_CONFIRMED (metric <= bar and, when required, strictly below the reference; a tie fails). The scored ids are stored in a `<id>.confirm.txt` sidecar with sha256, and the result is kept.

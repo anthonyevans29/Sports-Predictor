@@ -218,3 +218,43 @@ class NHLEloV5(NHLEloV1):
         delta = self.cfg.k_factor * mov * (won - exp_h)
         self._ratings[g.home_id] = rh + delta
         self._ratings[g.away_id] = ra - delta
+
+
+# --------------------------------------------------------------------------
+# v6 candidate (NHL-xG lane #153; declaration docs/specs/nhl-xg-v6.md):
+# v1 updated ON THE xG MARGIN (RATIFIED 2026-10-02): the update's DIRECTION
+# is the sign of xG_home − xG_away and its MAGNITUDE |xG_home − xG_away|
+# through the same ln(margin + 1) (src/models/nhl_xg.py, frozen 2023-24 fit);
+# the actual result is the scoring label only. The xG margin is read ONLY in
+# update(g), after predict(g): a game's own shots never price that game
+# (the no-same-game-leakage proof, tests/test_nhl_xg_v6.py).
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class NHLEloV6(NHLEloV1):
+    xg_by_match: dict = field(default_factory=dict)   # match_id -> (xG_home, xG_away)
+    goal_margin_fallbacks: int = 0
+    xg_updates: int = 0
+
+    name = "nhl_elo_v6_xg_margin"
+
+    def update(self, g) -> None:
+        for tid in (g.home_id, g.away_id):
+            self._regress_if_new_season(tid, g.season)
+        exp_h = self._expected_home(g.home_id, g.away_id)
+        rh, ra = self.rating(g.home_id), self.rating(g.away_id)
+        xa = self.xg_by_match.get(getattr(g, "match_id", None))
+        if xa is None:                      # coverage miss: v1 on goals (counted)
+            won = 1.0 if g.home_score > g.away_score else 0.0
+            margin = abs(g.home_score - g.away_score)
+            self.goal_margin_fallbacks += 1
+        else:                               # direction = sign of the xG margin; an exact tie moves nothing
+            won = 1.0 if xa[0] > xa[1] else (0.0 if xa[0] < xa[1] else 0.5)
+            margin = abs(xa[0] - xa[1])
+            self.xg_updates += 1
+        gap = (rh + self.cfg.home_advantage - ra) if won >= 0.5 else (ra - rh - self.cfg.home_advantage)
+        mov = math.log(margin + 1.0) * (self.cfg.mov_base / (self.cfg.mov_base + max(gap, 0.0) * 0.001))
+        delta = self.cfg.k_factor * mov * (won - exp_h)
+        self._ratings[g.home_id] = rh + delta
+        self._ratings[g.away_id] = ra - delta

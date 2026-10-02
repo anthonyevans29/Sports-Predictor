@@ -113,15 +113,16 @@ def test_pass_then_a_complete_confirmation_allows_production(tmp_path):
 
 
 def test_repo_ledger_seeds_are_unchanged_verdicts_and_nhl_test_set_has_five_reads():
-    entries = reg.load()
+    entries = [e for e in reg.load() if (e.get("run") or {}).get("note", "").startswith("pre-registry")]
     by = {e["id"]: e for e in entries}
+    assert len(entries) == 9
     assert [by[f"nhl-v{i}"]["run"]["result"]["log_loss"] for i in range(1, 6)] == [0.6909, 0.6921, 0.6952, 0.6907, 0.6912]
     assert all(e["verdict"]["verdict"] in ("FAIL", "REJECT") for e in entries)
-    assert all(e["run"]["note"].startswith("pre-registry") for e in entries)       # ids never reconstructed
+    assert all(e["run"]["ids_file"] is None for e in entries)                        # ids never reconstructed
     assert len(reg.prior_reads(by["nhl-v1"]["test_set"], None)) == 5
 
 
 def test_cli_lists_the_ledger():
     import cli
     out = CliRunner().invoke(cli.cli, ["registry"]).output
-    assert "EXPERIMENT REGISTRY · 9 entries" in out and "nhl-v5" in out
+    assert "EXPERIMENT REGISTRY · " in out and "nhl-v5" in out

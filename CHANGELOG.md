@@ -8,6 +8,12 @@ Every drop adds an entry going forward.
 - `src/walters/intl_inventory.py` + `python cli.py intl-inventory` (read-only). For UNL, WC, UEFA_EURO, WCQ_* and FRIENDLIES_INT, per competition and season: finished+scored matches, date span, teams, raw home/draw/away shares and venue completeness. Also each UNL team's prior international results before its first UNL match.
 - No neutral site is inferred (law 4). tests/test_intl_inventory.py.
 
+## 2026-10-02 (#176: NCAA source probe — read-only, row-level)
+- `scripts/ncaa_source_probe.py`: CollegeFootballData (CFBD) `/games` by year, FBS by default. Field names are discovered from the first record and printed; a missing required field refuses the run.
+- Each completed game is joined to OUR NCAA matches through the shared matcher (ambiguity refused), in the source's orientation, else swapped. It compares labels and scores (in our orientation); neutral games are counted separately and never relabel ours.
+- It reports the source's home rate and margin (non-neutral / neutral), ours on the same joined games, the join rate, swapped / score-mismatch / unmatched samples and the access receipt (HTTP status, rate-limit headers).
+- Key from `CFBD_API_KEY` (.env, never printed); `--from-file` for offline re-runs; refuses `--save` under data/; writes nothing. tests/test_ncaa_source_probe.py: 3 tests.
+
 ## 2026-10-02 (#191: F1c — the Cockpit renders desk files only; the in-browser policy is deleted)
 - **Golden first** (a separate commit, before any deletion): `scripts/desk_golden_capture.py` drove the pre-F1c `tools/cockpit.html` (sha256 37250ba4…, = main) on the seeded battery (clock and counts pinned, America/New_York), the 600-slate parlay fuzz and the toFixed sample, writing `tests/golden/desk_js_v1_1.json.gz`. `tests/test_desk_golden.py` and `scripts/desk_parity_verify.py` check the Python Desk against it row for row with no browser (14/14).
 - **`tools/cockpit.html`:**

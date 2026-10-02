@@ -28,6 +28,12 @@ The ruling's candidate is an international Elo on STORED results with the home a
 - **Receipt owed (laptop):** `python cli.py intl-inventory`.
 - **Next:** the pre-commitment (naive baseline definition, home term and its neutral rule, splits, bands), written from the receipt and declared in the registry (#212) before any fit.
 
+**2026-10-02 — #176 NCAA SOURCE PROBE BUILT (moved to THIS WEEK by ruling): read-only, row-level, CFBD.**
+- **Probe:** `scripts/ncaa_source_probe.py` joins each CFBD game to ours with the shared matcher in both orientations. Per game it reports the label (same or swapped), the score (agree or disagree, in our orientation) and the neutral flag (source only; our DB has none, law 4).
+- **Comparison:** the source's home rate and margin, non-neutral and neutral separately, against ours on the same joined games. This answers whether the 0.489 is a provider fault or real neutral-site share.
+- **Not run here:** CFBD is unreachable from Code's container (the connection fails). The receipt is owed by the laptop or host with a free `CFBD_API_KEY` in .env: `python3 scripts/ncaa_source_probe.py --year 2025 --year 2026`.
+- **Exit (unchanged):** a pasted receipt plus an architect ruling on whether CFBD becomes an ingest lane (its own Issue). Until then the gate stays SUSPENDED-PENDING-DATA and NCAA stays market-only.
+
 **2026-10-02 — F1c BUILT (#191): one source of truth; the Cockpit is a viewer with a ledger.**
 Sequence held: Sunday rich-slate receipt 9/9 → `SP_DESK_CALLS=1` on the host → v1.1.0 cut and deployed → this PR.
 - **Golden:** captured from the pre-F1c JS (Cockpit sha256 37250ba4…, = main at capture) BEFORE the deletion, in its own commit. The Python Desk matches it row for row (14/14).

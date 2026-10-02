@@ -2,6 +2,12 @@
 
 **Status: RATIFIED 2026-10-02 (five items, below). Harness: `python cli.py intl-elo-backtest` (built from this document). Not run.**
 
+**DECLARED LIMITATION (ARCHITECT 2026-10-02, verbatim):** "intl-elo-v1 runs
+under v2 as built, with its known limitation DECLARED in the doc and registry
+entry: "home-and-away competition play-offs and finals at neutral venues are priced with the home edge; v2's 10% check is vacuous under the HOME ruling". v3 (venue country) is the fix for the next candidate; run
+scripts/intl_venue_route_probe.py --from-dir on the laptop for its cost (0
+calls)."
+
 ARCHITECT-RULE on #232 (pre-run, frozen; verbatim): "(1) DRAWS — actual
 score S=0.5 for both sides; the margin multiplier uses max(margin,1), so a
 draw moves ratings like a one-goal result toward the expected-draw point:

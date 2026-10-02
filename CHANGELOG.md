@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#212 review fix: the confirmation is executable and cannot be recorded early)
+- `declare()` requires a structured `confirmation_plan` {n_games, metric, bar, must_beat_reference, reference} (`check_plan`).
+- `record_confirmation(eid, scored_ids, result, ruling)` executes the plan and computes CONFIRMED/NOT_CONFIRMED (metric <= bar and, when required, strictly below the reference; a tie fails). The scored ids are stored in a `<id>.confirm.txt` sidecar with sha256, and the result is kept.
+- It refuses: no PASS; fewer games than planned; any game starting before the verdict; any game from the scored test set; a missing metric or reference.
+- `production_allowed()` also requires a complete confirmation record. Regression tests: immediate confirmation fails (fails on the old code: 3 failed).
+
 ## 2026-10-02 (#212: experiment registry + confirmation doctrine)
 - `src/walters/registry.py` and the git-tracked ledger `docs/registry/experiments.json`. Each candidate goes through declare (before any run; the confirmation window is required), run (once per id; scored ids in a sidecar `docs/registry/ids/<id>.txt` with count and sha256; prior reads computed), verdict (verbatim), then confirmation. `production_allowed()` encodes the doctrine: a PASS is not production until a declared confirmation window closes CONFIRMED.
 - Seeded with the pre-registry verdicts, unchanged: NHL v1–v5, S19, DC-fit, S14 stage 2 and cups fix-v2. Their ids are "not recorded" and are never reconstructed. NHL's 2025 test set shows 5 prior reads.

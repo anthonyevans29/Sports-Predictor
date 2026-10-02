@@ -133,7 +133,7 @@ def check_pr(changes: list[tuple[str, str]], pr: int | None) -> list[str]:
     if not cl:
         fails.append(f"adds no {CHANGELOG_D}/<PR>-<slug>.md fragment")
     elif pr is not None and not any(CL_NAME.match(Path(p).name).group(1) == str(pr) for p in cl):
-        fails.append(f"no {CHANGELOG_D} fragment is named for this PR ({pr}-<slug>.md)")
+        fails.append(f"names no {CHANGELOG_D} fragment for itself ({pr}-<slug>.md)")
     if not en:
         fails.append(f"adds no {ENTRIES_D}/<YYYY-MM-DD>-<slug>.md fragment")
     return fails

@@ -1,3 +1,3 @@
-## 2026-10-02 (per-PR ledger fragments — CHANGELOG/BACKLOG are compiled, never edited by a PR)
+## 2026-10-02 (#243: per-PR ledger fragments — CHANGELOG/BACKLOG are compiled, never edited by a PR)
 - `python scripts/ledger.py compile [--commit] [--dry-run]` folds `changelog.d/<PR>-<slug>.md` and `docs/ledger/entries/<date>-<slug>.md` into CHANGELOG.md / BACKLOG.md newest first, deletes them, and commits the fold alone; `ledger.py pending` counts what is uncompiled.
 - CI `fragments` job: a PR that edits CHANGELOG.md / BACKLOG.md (except a pure compile) or lacks its fragments fails. The tag ritual compiles before the release notes; `sp_deploy` reports uncompiled fragments in the deployed tag (read-only). tests/test_ledger_fragments.py (6). Retires the merge-up ritual.

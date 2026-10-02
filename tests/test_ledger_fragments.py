@@ -65,7 +65,7 @@ def test_ci_rule():
     ok = [("A", "changelog.d/243-x.md"), ("A", "docs/ledger/entries/2026-10-02-x.md"), ("M", "src/a.py")]
     assert lf.check_pr(ok, 243) == []
     assert any("directly" in f for f in lf.check_pr(ok + [("M", "BACKLOG.md")], 243))
-    assert any("named for this PR" in f for f in lf.check_pr(ok, 999))
+    assert any("names no changelog.d fragment for itself" in f for f in lf.check_pr(ok, 999))
     assert any("no docs/ledger/entries" in f for f in lf.check_pr(ok[:1], 243))
     assert any("no changelog.d" in f for f in lf.check_pr(ok[1:], 243))
     assert lf.check_pr([("A", "changelog.d/README.md"), ("A", "docs/ledger/entries/2026-10-02-x.md")], 5)

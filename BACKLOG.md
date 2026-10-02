@@ -64,6 +64,15 @@ Ruled (2026-10-01): "experiment registry (candidate, training cutoff, scored mat
   - No feature is derived here.
   - Receipt owed (host or laptop, after the .backup): `python cli.py nhl-shot-sync --start 2023-10-01`, then the coverage block (P1–P6).
 
+**2026-10-02 — MLB ODDS HISTORY (ARCHITECT, PRIORITY) BUILT: MLB odds snapshot like the general path; the close is the last pre-first-pitch session.**
+Live proof (architect): PHI@ATL game 3 captured 8 books at 22:55Z, before first pitch, and was graded unpriceable this morning. Read from code: `sync_odds_mlb` wiped and rewrote a game's `api_baseball` rows on EVERY sync, even after first pitch (the provider keeps listing the game), and only `capture-odds` appended snapshots (pooled, laptop launchd).
+Fix:
+- A post-first-pitch sync never touches the game.
+- Every pre-game sync appends a contract book-consensus snapshot (the NFL pattern; TNF graded with a priced close and the first anchored value-side row, +0.57pp).
+- Grading falls back to the last complete pre-first-pitch snapshot session when the odds table cannot price.
+- `capture-odds` is bounded to pre-first-pitch games (#174) and leaves 1X2 to the sync.
+Receipt owed (laptop): `close-probe --match <PHI@ATL g3 id>`, then `evaluate --sport mlb`; the M11b backfill re-grades the NULL CLV. **Caveat, read from code:** the 22:55Z rows themselves were deleted by the morning sync. The re-grade therefore prices from the last pre-first-pitch SNAPSHOT that exists (a `capture-odds` run). If none was taken before first pitch, the game stays unpriced (law 4), and the 22:55Z prices live only in the pre-morning .backup. Supersedes the timestamp-audit lane (the ruling). #175 (the `--date-to {tomorrow}` boundary) is fixed by #205.
+
 **2026-10-02 — ARCHITECT-RULE on #207: the exports adopt the SAME close contract. Maker validation PENDING (#218).**
 (1) RULED: "the MLB/soccer prediction exports and the fixtures export adopt the SAME close contract (one definition; the export block IS the Desk's reference — #117 showed what pooled de-vig does to it)." This lands in the same PR (#215).
 - `_summarize_market` and `_fixture_row` now call `close_1x2`. `bookmaker_count` means complete books, so the thin-book rule reads stricter, conservatively.

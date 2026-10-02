@@ -8,6 +8,11 @@ Every drop adds an entry going forward.
 - RESULTS.md is marked REGENERATED, NOT AUTHORITATIVE IN GIT: in the `results-tally` header (every regeneration), README, docs/CLI.md, and a banner on the stale committed copy (2026-09-17).
 - #83 re-closed with an `ARCHITECT`-opening comment (S19 REJECT, 2026-09-30). #98's description is refreshed: #167 met its reopening condition in code, and it waits on a live PL receipt.
 
+## 2026-10-01 (#201: seed-thread links recorded)
+- The first `discussions` / `list` dispatch receipt is on #201. Discussions are enabled with six categories. The four seed threads are #197 and #198 (Q&A), #199 (Ideas) and #200 (Receipts).
+- docs/LEDGER.md gains a table of the posted seed threads. The seed file's header points to it.
+- The `list` call ran with the token's current scopes. `write:discussion` is added only if the first `post` or `reply` is refused.
+
 ## 2026-10-01 (#201: Discussions posting via the ledger workflow)
 - `ledger.yml` + `scripts/ledger.py`: a workflow_dispatch mode
   `discussions`. `list` (the default) prints categories and thread links;

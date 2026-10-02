@@ -173,6 +173,30 @@ class KalshiAdapter:
         return dt
 
     @staticmethod
+    def ticker_start(market: dict):
+        """
+        Game start (naive UTC) from the ticker's ET stamp, or None. MLB tickers
+        carry the scheduled first pitch: KXMLBGAME-26OCT012000PHIATL-PHI is
+        2026-10-01 20:00 ET = 2026-10-02 00:00Z (M13, 2026-08-25; verified on
+        the observed tickers). Unparseable -> None, never a guess.
+        """
+        import re
+        from datetime import datetime
+        from zoneinfo import ZoneInfo
+        m = re.search(r"-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)"
+                      r"(\d{2})(\d{2})(\d{2})[A-Z]", market.get("ticker") or "")
+        if not m:
+            return None
+        mon = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP",
+               "OCT", "NOV", "DEC"].index(m.group(2)) + 1
+        try:
+            et = datetime(2000 + int(m.group(1)), mon, int(m.group(3)), int(m.group(4)),
+                          int(m.group(5)), tzinfo=ZoneInfo("America/New_York"))
+        except ValueError:
+            return None
+        return et.astimezone(ZoneInfo("UTC")).replace(tzinfo=None)
+
+    @staticmethod
     def title_teams(market: dict) -> tuple[str, str] | None:
         """
         Both team strings from the market title, e.g.

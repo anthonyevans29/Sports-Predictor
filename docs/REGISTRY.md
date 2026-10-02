@@ -39,6 +39,15 @@ has five prior reads already (v1 through v5).
    CONFIRMED in one second; the regression test pins that it now fails.
 4. A NOT_CONFIRMED outcome closes the entry. The bar does not move.
 
+## Run records are never rewritten
+
+**ARCHITECT 2026-10-02:** "never rewrite a run record". A run record's stored
+prior-read count is what its machine computed at record time. When a laptop
+computed it before an earlier run was spliced into its ledger, the entry gains
+an annotation, `ledger_count_at_record` (plus a one-line `ledger_count_note`),
+beside the untouched run block. **The live count is the ledger's**
+(`registry.prior_reads`). The first case is nhl-v7: 5 recorded, 6 in the ledger.
+
 ## Retired test sets (doctrine, binding)
 
 **ARCHITECT 2026-10-02** (verbatim; from the external review, now binding):

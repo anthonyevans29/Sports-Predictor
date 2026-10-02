@@ -478,7 +478,9 @@
       "verdict": "FAIL",
       "ruling": "ARCHITECT 2026-10-02: v7 VERDICT STANDS \u2014 FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands \u22126.2/\u22126.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced.",
       "at": "2026-10-02T16:26:50Z"
-    }
+    },
+    "ledger_count_at_record": 6,
+    "ledger_count_note": "ARCHITECT 2026-10-02: run.prior_read_count 5 stays as written (a run record is never rewritten); the laptop computed it before nhl-v6's run was spliced into its ledger, so the ledger held 6 earlier reads (v1-v6) at record time. The live count is the ledger's."
   },
   {
     "id": "nhl-v8",

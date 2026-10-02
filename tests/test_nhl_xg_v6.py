@@ -137,4 +137,6 @@ def test_repo_declaration_is_frozen_and_unrun():
     from src.walters import registry as reg
     e = reg.get("nhl-v6")
     assert e["status"] == "declared" and e["run"] is None and e["declaration"] == "docs/specs/nhl-xg-v6.md"
+    assert e["confirmation_plan"] == {"n_games": 150, "metric": "log_loss", "bar": 0.6866, "must_beat_reference": True,
+                                      "reference": "v1 (nhl_elo_v1, same constants) scored on the same 150 games"}
     assert len(reg.prior_reads(e["test_set"], None, before_id="nhl-v6")) == 5

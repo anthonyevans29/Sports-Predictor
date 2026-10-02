@@ -107,6 +107,7 @@ the league mean with a 10-game prior, per game at regulation length) is
   - **CONFIRMED** only if its log-loss on those games is <= 0.6866 **and**
     strictly below v1's on the same games.
   - Anything else is NOT_CONFIRMED, and the bar does not move.
+  - **Executable plan** (registry, #222 review fix): `{n_games: 150, metric: log_loss, bar: 0.6866, must_beat_reference: true, reference: v1 on the same games}`. The confirmation read records its 150 scored ids and both log-losses, and the outcome is computed. A read before the verdict, with fewer than 150 games, or containing any 2025 test-set game is refused.
 
 ## 7. Run order (operator)
 

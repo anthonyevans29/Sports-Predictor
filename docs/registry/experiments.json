@@ -287,6 +287,13 @@
     "status": "declared",
     "run": null,
     "verdict": null,
-    "ratified": "ARCHITECT 2026-10-02: RATIFIED with the update-direction clarification (direction from the sign of the xG margin); bar unchanged 0.6866"
+    "ratified": "ARCHITECT 2026-10-02: RATIFIED with the update-direction clarification (direction from the sign of the xG margin); bar unchanged 0.6866",
+    "confirmation_plan": {
+      "n_games": 150,
+      "metric": "log_loss",
+      "bar": 0.6866,
+      "must_beat_reference": true,
+      "reference": "v1 (nhl_elo_v1, same constants) scored on the same 150 games"
+    }
   }
 ]

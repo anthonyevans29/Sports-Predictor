@@ -22,6 +22,9 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-01 — #209 (P1-1, external review) BUILT: legacy `improve --sport soccer` refused before any write.**
+The legacy loop (rolling-holdout retrain) is not the soccer gate. Soccer model changes go through the chronological market-scored harness (`soccer-backtest`, frozen `--candidate` gates) and `set-soccer-config`; state goes through `soccer-refresh`. The refusal sits in `improve()` itself, ahead of `evaluate_finished`, so it covers both the CLI and the admin web job. The bare `improve` defaulted to soccer, so it is refused too. Callers checked: the host chain runs only `--sport mlb`.
+
 **2026-10-01 — #204 FIXED (merged in #205; this entry backfilled 2026-10-02): the Kalshi in-play guard now uses OUR start time.**
 PHI@ATL (00:00Z) was skipped as in-play at 22:55Z, 65 minutes before first pitch ("in-play skipped 2, matched 0"). The shared US-sport path skipped any market with `occurrence_datetime <= now`, and it did so before matching. Occurrence is not the start (the 2026-09-14 derby lesson). The guard now runs after matching and checks the matched game's `utc_date`. The same root caused two further faults, both fixed: (1) a started game whose occurrence was still in the future had its in-play prices STORED; (2) `sync-kalshi --date-to {tomorrow}` read as midnight and dropped night games after 00:00Z from the window's T-60 step (#175). The raw-field receipt (`kalshi-probe --series KXMLBGAME --grep PHIATL`) is still owed by the operator. **Process note:** #205 merged without its BACKLOG/CHANGELOG entry. The records edit sat inside a command that was refused, and the commit went ahead without it. This entry backfills it (law 6).
 

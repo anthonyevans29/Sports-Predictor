@@ -37,6 +37,24 @@ has five prior reads already (v1 through v5).
    CONFIRMED in one second; the regression test pins that it now fails.
 4. A NOT_CONFIRMED outcome closes the entry. The bar does not move.
 
+## Retired test sets (doctrine, binding)
+
+**ARCHITECT 2026-10-02** (verbatim; from the external review, now binding):
+"the 2025 test season has been read 7 times. After v8 it is RETIRED as a test
+set; any later NHL candidate declares 2026-27 (as it accrues, >=600 games) as
+its test season."
+
+| Test set | Reads | Last candidate allowed | Declare instead |
+|---|---|---|---|
+| NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024) | 7 before v8 (v1–v5 seeds, v6, v7); v8 is the 8th | `nhl-v8` | NHL 2026-27 regular season, as it accrues (≥ 600 games) |
+
+- **Enforced in code:** `registry.RETIRED_TEST_SETS`. `declare()` and
+  `record_run()` refuse any id other than the last allowed one on a retired
+  test set, and the refusal names what to declare instead.
+- **Why:** each read of a test set spends it. After many reads, a "pass" on
+  that set is selection, not evidence. The prior-read count shows the cost;
+  retirement stops the spending.
+
 ## Pre-registry verdicts
 
 The verdicts already on record are seeded unchanged: NHL v1–v5, S19, DC-fit,

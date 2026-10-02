@@ -453,5 +453,28 @@
       "ruling": "ARCHITECT 2026-10-02: v7 VERDICT STANDS \u2014 FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands \u22126.2/\u22126.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced.",
       "at": "2026-10-02T16:26:50Z"
     }
+  },
+  {
+    "id": "nhl-v8",
+    "sport": "nhl",
+    "lane": "#153",
+    "candidate": "v7's xG and Elo with the logistic divisor (scale) and k FITTED BY MAXIMUM LIKELIHOOD on the 2024 training season only (walk-forward, declared grid scale {300..600 by 50} x k {3,4,5,6,7,8,10,12}; tie -> closest to (400, 6)); home_adv 45.6 (v7's derivation), regression 0.25 \u2014 the LAST candidate on the 2025 test set",
+    "declaration": "docs/specs/nhl-xg-v8.md",
+    "training_cutoff": "xG fit 2023-10-01..2024-10-08 (2023-24); Elo warm-up 2024; test 2025; v8 scale/k fit on 2024 only",
+    "test_set": "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)",
+    "gate": "log-loss <= 0.6866 (beats home-rate by 0.010) + calibration bands (10pp, n>=100, \u00b15pp) + ratings 1200-1800",
+    "confirmation_window": "first 150 NHL 2026-27 regular-season games after the verdict; CONFIRMED iff log-loss <= 0.6866 AND < v1 on the same games (v6's window, unchanged)",
+    "confirmation_plan": {
+      "n_games": 150,
+      "metric": "log_loss",
+      "bar": 0.6866,
+      "must_beat_reference": true,
+      "reference": "v1 (nhl_elo_v1, same constants) scored on the same 150 games"
+    },
+    "declared_at": "2026-10-02T16:25:10Z",
+    "status": "declared",
+    "run": null,
+    "verdict": null,
+    "ratified": "ARCHITECT 2026-10-02: v8 grid, tie rule, edge flag, and the code-enforced retirement of the NHL 2025 test set \u2014 ratified."
   }
 ]

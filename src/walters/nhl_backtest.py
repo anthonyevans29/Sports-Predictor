@@ -524,3 +524,28 @@ def report(stream: Stream, r: GateResult, out: Callable[[str], None] = print,
     out(f"  3) final ratings {r.rating_min:.0f}-{r.rating_max:.0f} (bound {RATING_MIN:.0f}-{RATING_MAX:.0f})"
         + (f" OUTLIERS {r.outliers}" if r.outliers else "") + f" -> {'PASS' if r.crit_spread else 'FAIL'}")
     out(f"GATE VERDICT: {r.verdict}")
+
+
+def fit_v8_scale_k(train: list[Game], xg_by_match: dict, home_advantage: float) -> tuple[dict, list]:
+    """v8's train-only maximum-likelihood fit (ARCHITECT 2026-10-02): for every
+    (scale, k) on the DECLARED grid, a fresh v8 model walks the 2024 training
+    stream predict-then-update; the mean log-loss is the negative log
+    likelihood. The minimum wins; an exact tie goes to the pair closest to
+    v1's (400, 6). Reads ONLY `train` — the 2025 season is never touched here.
+    Returns (chosen {scale, k, loss, on_grid_edge}, all rows sorted best-first)."""
+    from dataclasses import replace
+
+    from src.models.nhl_elo import V8_K_GRID, V8_SCALE_GRID, NHLEloConfig, NHLEloV8
+
+    if any(g.season != TRAIN_SEASON for g in train):
+        raise ValueError("fit_v8_scale_k reads the training season only")
+    base = NHLEloConfig(home_advantage=home_advantage)
+    rows = []
+    for scale in V8_SCALE_GRID:
+        for k in V8_K_GRID:
+            m = NHLEloV8(replace(base, k_factor=k), xg_by_match=dict(xg_by_match), scale=scale)
+            rows.append((sequential_loss(train, m), scale, k))
+    rows.sort(key=lambda r: (round(r[0], 12), abs(r[1] - 400.0), abs(r[2] - 6.0)))
+    loss, scale, k = rows[0]
+    edge = scale in (V8_SCALE_GRID[0], V8_SCALE_GRID[-1]) or k in (V8_K_GRID[0], V8_K_GRID[-1])
+    return {"scale": scale, "k": k, "loss": loss, "on_grid_edge": edge}, rows

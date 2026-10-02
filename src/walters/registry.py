@@ -21,6 +21,10 @@ never under data/). One entry per candidate:
             many-times-read test set says so.
   VERDICT   the architect's ruling, verbatim. A PASS enters the declared
             confirmation window; production follows only after it.
+  CONFIRM   the window's READ, executed against the declaration's
+            confirmation_plan: >= n_games future games (after the verdict,
+            none from the test set), the plan's metric (and the reference's),
+            the outcome COMPUTED, never stated (review on #222, 2026-10-02).
 
 Pre-registry verdicts are seeded as recorded (ids "not recorded"); their
 verdicts are unchanged and count as prior reads of their test sets.
@@ -65,16 +69,45 @@ def get(eid: str, path: str = LEDGER) -> dict | None:
     return next((e for e in load(path) if e["id"] == eid), None)
 
 
+PLAN_METRICS = ("log_loss",)
+
+
+def check_plan(plan) -> dict:
+    """The EXECUTABLE confirmation plan (review on #222, 2026-10-02): the window
+    is not prose. Required: n_games (> 0) future games scored after the
+    verdict, the metric (lower is better), the bar the metric must meet, and
+    whether it must also beat a named reference scored on the SAME games."""
+    if not isinstance(plan, dict):
+        raise RegistryError("confirmation_plan must be a dict {n_games, metric, bar, must_beat_reference, reference}")
+    n, metric, bar = plan.get("n_games"), plan.get("metric"), plan.get("bar")
+    if not isinstance(n, int) or isinstance(n, bool) or n <= 0:
+        raise RegistryError("confirmation_plan.n_games must be a positive integer")
+    if metric not in PLAN_METRICS:
+        raise RegistryError(f"confirmation_plan.metric must be one of {PLAN_METRICS}")
+    if not isinstance(bar, (int, float)) or isinstance(bar, bool):
+        raise RegistryError("confirmation_plan.bar must be a number")
+    beat = plan.get("must_beat_reference")
+    if not isinstance(beat, bool):
+        raise RegistryError("confirmation_plan.must_beat_reference must be true or false")
+    if beat and not plan.get("reference"):
+        raise RegistryError("confirmation_plan.reference must name the reference model")
+    return {"n_games": n, "metric": metric, "bar": float(bar), "must_beat_reference": beat,
+            "reference": plan.get("reference")}
+
+
 def declare(entry: dict, path: str = LEDGER) -> dict:
     """Record a candidate BEFORE its run. Every DECLARE_FIELDS key is
-    required; the confirmation window is required by doctrine."""
+    required; the confirmation window is required by doctrine, as prose AND
+    as an executable confirmation_plan (check_plan)."""
     missing = [k for k in DECLARE_FIELDS if not entry.get(k)]
     if missing:
         raise RegistryError(f"declaration incomplete: {', '.join(missing)}")
+    plan = check_plan(entry.get("confirmation_plan"))
     entries = load(path)
     if any(e["id"] == entry["id"] for e in entries):
         raise RegistryError(f"{entry['id']} is already declared")
-    e = {**{k: entry[k] for k in DECLARE_FIELDS}, "declared_at": entry.get("declared_at") or _now(),
+    e = {**{k: entry[k] for k in DECLARE_FIELDS}, "confirmation_plan": plan,
+         "declared_at": entry.get("declared_at") or _now(),
          "status": "declared", "run": None, "verdict": None}
     entries.append(e)
     save(entries, path)
@@ -169,18 +202,55 @@ def production_allowed(eid: str, path: str = LEDGER) -> tuple[bool, str]:
     c = e.get("confirmation")
     if not c:
         return False, f"PASS, confirmation window open ({e['confirmation_window']})"
+    if c.get("outcome") == "CONFIRMED" and not (c.get("n_scored") and c.get("ids_sha256") and c.get("result")):
+        return False, "confirmation record incomplete (no scored ids / result)"
     return (c["outcome"] == "CONFIRMED"), f"confirmation {c['outcome']}"
 
 
-def record_confirmation(eid: str, outcome: str, ruling: str, path: str = LEDGER) -> dict:
-    outcome = outcome.upper()
-    if outcome not in ("CONFIRMED", "NOT_CONFIRMED"):
-        raise RegistryError(f"unknown outcome {outcome!r}")
+def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: str,
+                        path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
+    """The confirmation READ, executed against the declared plan (never a
+    stated outcome). Refused unless the entry is `confirming` (a PASS), the
+    read scores >= plan.n_games games, every game started AFTER the verdict
+    (`result["first_game_at"]`, ISO UTC), none of them was in the scored test
+    set, and the result carries the plan's metric (and the reference's when
+    the plan requires beating it). The outcome is COMPUTED: CONFIRMED iff
+    metric <= bar and, when required, metric < reference (a tie fails)."""
     entries = load(path)
     e = next((x for x in entries if x["id"] == eid), None)
     if e is None or e.get("status") != "confirming":
-        raise RegistryError(f"{eid} is not in a confirmation window")
-    e["confirmation"] = {"outcome": outcome, "ruling": ruling, "at": _now()}
-    e["status"] = "production" if outcome == "CONFIRMED" else "closed"
+        raise RegistryError(f"{eid} is not in a confirmation window (needs a PASS verdict)")
+    plan = e.get("confirmation_plan")
+    if not plan:
+        raise RegistryError(f"{eid} has no executable confirmation_plan: it cannot be confirmed")
+    ids = sorted(set(int(i) for i in scored_ids))
+    if len(ids) < plan["n_games"]:
+        raise RegistryError(f"{eid}: confirmation scored {len(ids)} games < the plan's {plan['n_games']} — incomplete")
+    first = result.get("first_game_at")
+    verdict_at = (e.get("verdict") or {}).get("at")
+    if not first or not verdict_at or str(first) <= str(verdict_at):
+        raise RegistryError(f"{eid}: confirmation games must all start AFTER the verdict ({verdict_at}); "
+                            f"first_game_at {first!r}")
+    seen = _ids_of(e, ids_dir) or set()
+    overlap = len(seen & set(ids))
+    if overlap:
+        raise RegistryError(f"{eid}: {overlap} confirmation game(s) were in the scored test set — not future games")
+    metric = result.get(plan["metric"])
+    if not isinstance(metric, (int, float)):
+        raise RegistryError(f"{eid}: result lacks the plan's metric {plan['metric']!r}")
+    ref = result.get("reference_" + plan["metric"])
+    if plan["must_beat_reference"] and not isinstance(ref, (int, float)):
+        raise RegistryError(f"{eid}: the plan requires beating {plan['reference']}; result lacks "
+                            f"'reference_{plan['metric']}'")
+    ok = metric <= plan["bar"] and (not plan["must_beat_reference"] or metric < ref)
+    outcome = "CONFIRMED" if ok else "NOT_CONFIRMED"
+    os.makedirs(ids_dir, exist_ok=True)
+    fname = f"{eid}.confirm.txt"
+    with open(os.path.join(ids_dir, fname), "w") as f:
+        f.write("\n".join(str(i) for i in ids) + "\n")
+    e["confirmation"] = {"outcome": outcome, "ruling": ruling, "at": _now(), "n_scored": len(ids),
+                         "ids_sha256": _ids_sha(ids), "ids_file": f"docs/registry/ids/{fname}",
+                         "result": result, "plan": plan}
+    e["status"] = "production" if ok else "closed"
     save(entries, path)
     return e

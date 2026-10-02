@@ -8,6 +8,9 @@ Every drop adds an entry going forward.
 - `intl-elo-backtest`: v2's RULE CHECK printed on the same home-and-away denominator and gated at 10% (a breach refuses); a city hosted only by this competitive match is HOME (ruled); `rule_check_v1/v2` recorded with the run. Gap games update ratings (pinned by a test).
 - intl-neutral-v3 (venue country ≠ home country) pre-declared; `scripts/intl_venue_route_probe.py` reports its cheapest route from the saved responses with zero calls.
 
+## 2026-10-02 (#153: NHL shot coverage receipt — both denominators, thresholds on the gate stream)
+- `nhl-shot-coverage` / the `nhl-shot-sync` receipt report all finished games (preseason included; not judged) AND the v6 gate stream (nhl-backtest's own stream). P1/P6 thresholds apply to the gate stream (ruled 2026-10-02). Regression test with the ruling's numbers. v6 may run.
+
 ## 2026-10-02 (#234 rulings: CNL_Q K 40; intl-neutral-v2 leave-one-out)
 - `intl_elo`: CNL_Q is Nations League class (K 40). v2 host-city sets are built from home-and-away competitions only, with each match left out of its own set; the "hosted only this match" count is printed. Doc, registry and tests updated (still unrun).
 

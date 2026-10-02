@@ -371,10 +371,22 @@ FIELDS = ("x", "y", "shot_type", "shooter_id", "situation_code", "side", "owner_
           "time_in_period_s", "goalie_id")
 
 # The probe's FEEDABLE thresholds (scripts/nhl_pbp_probe.py P1-P6, declared
-# 2026-09-30 before any run; denominators: P1 our finished games, P2-P5 ALL
-# stored shot events). The ingest receipt reports against the SAME bars.
+# 2026-09-30 before any run; denominators: P1/P6 the v6 GATE stream's games —
+# ruled 2026-10-02; all finished games are reported beside it, not judged —
+# P2-P5 ALL stored shot events). The ingest receipt reports against the SAME bars.
 FEEDABLE = {"games_with_events": 95.0, "xy": 95.0, "shot_type": 90.0, "shooter_id": 95.0,
             "situation_code": 90.0}
+
+
+def gate_stream_ids() -> dict[str, set[int]]:
+    """The v6 GATE stream's games by season: nhl_backtest's own load_games +
+    build_stream (train 2024, test 2025, preseason cut), so the receipt's gate
+    denominator is the gate's, never a re-derivation."""
+    from src.walters.nhl_backtest import TEST_SEASON, TRAIN_SEASON, build_stream, load_games
+
+    st = build_stream(load_games())
+    return {TRAIN_SEASON: {g.match_id for g in st.train if g.match_id is not None},
+            TEST_SEASON: {g.match_id for g in st.test if g.match_id is not None}}
 
 
 def feedable_lines(cov: dict) -> list[str]:
@@ -390,20 +402,31 @@ def feedable_lines(cov: dict) -> list[str]:
             tot["n_unblocked"] += c.get("n", 0)
             tot["shot_type_unblocked"] += c.get("shot_type", 0)
     pct = lambda a, b: (tot[a] / tot[b] * 100) if tot[b] else 0.0
+    # ARCHITECT 2026-10-02 (shot-sync receipt): "the coverage receipt reports
+    # both denominators (all finished; gate stream) and the thresholds apply to
+    # the gate stream." All-finished includes PRESEASON games the gate excludes
+    # by construction; it is reported, never judged.
     fin = sum(b.get("finished", 0) for b in cov["by_season"].values())
     withs = sum(b.get("with_shots", 0) for b in cov["by_season"].values())
-    p1 = withs / fin * 100 if fin else 0.0
-    rows = [("P1 shot events (games)", p1, FEEDABLE["games_with_events"]),
+    gate = cov.get("gate_stream") or {}
+    gfin = sum(b["games"] for b in gate.values())
+    gwith = sum(b["with_shots"] for b in gate.values())
+    p1 = gwith / gfin * 100 if gfin else 0.0
+    rows = [("P1 shot events (games, GATE stream)", p1, FEEDABLE["games_with_events"]),
             ("P2 location x+y", pct("xy", "n"), FEEDABLE["xy"]),
             ("P3 shot type (all events)", pct("shot_type", "n"), FEEDABLE["shot_type"]),
             ("P4 shooter", pct("shooter_id", "n"), FEEDABLE["shooter_id"]),
             ("P5 situation", pct("situation_code", "n"), FEEDABLE["situation_code"])]
     out = [f"{k}: {v:.1f}% [{'FEEDABLE' if v >= bar else 'NOT'} >= {bar:g}%]" for k, v, bar in rows]
+    out.insert(1, f"P1 read, ALL finished (preseason included; not judged): {withs}/{fin} = "
+                  f"{(withs / fin * 100) if fin else 0.0:.1f}%")
     out.append(f"P3 read: shot type on non-blocked events {pct('shot_type_unblocked', 'n_unblocked'):.1f}% "
                "(optional by ruling; blocked shots carry none by nature)")
-    p6 = [season for season, b in cov["by_season"].items()
-          if b.get("finished") and b.get("with_shots", 0) / b["finished"] * 100 < FEEDABLE["games_with_events"]]
-    out.append("P6 depth (P1 in every season): " + ("FEEDABLE" if not p6 else "NOT — " + ", ".join(p6)))
+    p6 = [season for season, b in gate.items()
+          if not b["games"] or b["with_shots"] / b["games"] * 100 < FEEDABLE["games_with_events"]]
+    out.append("P6 depth (P1 in every GATE-stream season: "
+               + ", ".join(f"{k} {b['with_shots']}/{b['games']}" for k, b in sorted(gate.items())) + "): "
+               + ("FEEDABLE" if gate and not p6 else "NOT — " + (", ".join(p6) or "no gate stream")))
     return out
 
 
@@ -448,7 +471,9 @@ def coverage() -> dict:
         b["with_shots"] += mid in per_match
         b["events"] += per_match.get(mid, 0)
         b["goalie_linked_no_shots"] += mid in goalie_linked and mid not in per_match
-    return {"by_season": {k: dict(v) for k, v in sorted(by.items())},
+    gate = {season: {"games": len(ids), "with_shots": sum(1 for m in ids if m in per_match)}
+            for season, ids in sorted(gate_stream_ids().items())}
+    return {"by_season": {k: dict(v) for k, v in sorted(by.items())}, "gate_stream": gate,
             "by_type": {k: dict(v) for k, v in sorted(by_type.items())},
             "unlinked_games_by_game_type": {str(k): v for k, v in sorted(unlinked.items(), key=str)},
             "games": games, "rows": total}

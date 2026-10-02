@@ -31,6 +31,14 @@ specific reason they're not being built now.
 - **(3) Confirmed from the code:** `run()` calls `update()` on every stream game; only test games are scored. Pinned by a new test: dropping the gap games changes the test log-loss, and a gap game moves ratings.
 - **v3:** pre-declared in the doc (venue country ≠ /teams home country; derived, labelled). `scripts/intl_venue_route_probe.py --from-dir <save>` reports the cheapest route with 0 calls (a served venue country / `/venues?id` per distinct venue id / `/venues?country` per distinct home-team country). The loader is built only if v3 engages.
 
+**2026-10-02 — NHL shot-sync RECEIPT ruled (ARCHITECT): v6 may run. The coverage receipt reports both denominators; the thresholds apply to the gate stream.**
+- **Ruling (verbatim):** "shot-sync receipt — 504,449 events / 4,208 games; all P2/P4/P5 at 100%; shot_type 100% on non-blocked (optional by ruling). P1/P6 read BELOW only because the denominator includes PRESEASON games the gate excludes by construction; on the gate stream coverage is 1398/1398 (2024) and 1394/1394 (2025). RULED: the coverage receipt reports both denominators (all finished; gate stream) and the thresholds apply to the gate stream. v6 may run. Log the receipt on #153/#210."
+- **Change:** `nhl_shots.coverage()` adds `gate_stream`, built from nhl-backtest's OWN `load_games` + `build_stream` (train 2024, test 2025, preseason cut), never re-derived.
+  - `feedable_lines`: P1 and P6 are judged on the gate stream. The all-finished P1 is printed as a read line, "not judged".
+  - The receipt prints the all-finished line (reported only) and one GATE-stream line per season with PASS/BELOW.
+- **Regression test:** the ruling's own numbers. All-finished 93.7% is reported, not judged; the gate stream at 100% is FEEDABLE; a gate season below 95% reads NOT; an empty gate stream reads NOT.
+- **Logged:** the receipt is on #153 and #210. **Next (operator):** `nhl-backtest --candidate v6`, once.
+
 **2026-10-02 — #234 RULINGS applied to intl-elo-v1 (pre-run): CNL_Q K 40; v2 = leave-one-out, home-and-away host sets.**
 - **Ruling (verbatim):** "(1) CNL_Q K=40 (Nations League class). (2) v2 neutral rule — ratified with your fix: a match is left out of its own host-city set, and the set is built from home-and-away competitions only. Merge #233 then #235."
 - **Applied (#235):**

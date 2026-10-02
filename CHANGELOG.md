@@ -8,6 +8,11 @@ Every drop adds an entry going forward.
 - `training.improve(sport=SOCCER)` raises `LegacySoccerImproveRefused` before its first write (`evaluate_finished`). The message points to `soccer-backtest` (the chronological, market-scored gates) with `set-soccer-config`, and to `soccer-refresh`.
 - `cli.py improve --sport soccer`, and the bare `improve` (whose default is soccer), print the refusal and exit 2. The admin web job returns "REFUSED: …". MLB is unchanged, including the host chain's `improve --sport mlb --hold-on-pass`.
 
+## 2026-10-01 (#201: seed-thread links recorded)
+- The first `discussions` / `list` dispatch receipt is on #201. Discussions are enabled with six categories. The four seed threads are #197 and #198 (Q&A), #199 (Ideas) and #200 (Receipts).
+- docs/LEDGER.md gains a table of the posted seed threads. The seed file's header points to it.
+- The `list` call ran with the token's current scopes. `write:discussion` is added only if the first `post` or `reply` is refused.
+
 ## 2026-10-01 (#201: Discussions posting via the ledger workflow)
 - `ledger.yml` + `scripts/ledger.py`: a workflow_dispatch mode
   `discussions`. `list` (the default) prints categories and thread links;

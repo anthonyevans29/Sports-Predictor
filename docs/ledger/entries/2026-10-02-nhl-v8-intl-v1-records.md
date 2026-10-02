@@ -1,0 +1,11 @@
+**2026-10-02 — nhl-v8 and intl-elo-v1 run records spliced; both FAIL verdicts recorded. NHL 2025 RETIRED at 8 reads; the intl test set has 1.**
+- **Rulings (verbatim):**
+  - "v8 VERDICT STANDS — FAIL 0.6963 (worse than v1; shot info −0.0055); the train-only fit chose k=12 on the grid edge and over-sharpened. Record; NHL 2025 test set RETIRED (8 reads). NHL model track stays SUSPENDED."
+  - "intl-elo-v1 VERDICT STANDS — FAIL on calibration; log-loss criterion PASSED by 0.19 (0.8507 vs bar 1.0431; RPS 0.167 vs 0.237); bands show systematic UNDER-confidence (favorites 50-90% realize +20-30pp above stated). Record; prior reads of this test set = 1."
+- **Sources:** `laptop/nhl-v8-run-record` and `laptop/intl-elo-v1-run-record`.
+- **Verified before splicing (each):** the declaration fields are identical to main's.
+  - **nhl-v8:** 1,394 unique sorted ids, sha256 = the run record's. Result 0.6963 vs v1 0.6909, shot information −0.0055, fit scale 400 / k 12 (grid edge). Stored prior_read_count 7 (correct).
+  - **intl-elo-v1:** 392 unique sorted ids, sha matches. ll 0.8507 vs bar 1.0431 (crit_ll true), bands false. Neutral rule v2; RULE CHECK v1 0.6335, v2 0.0.
+  - The intl branch's copy of nhl-v6/v7 is an older laptop copy, ignored. Only the two target entries are spliced.
+- **Recorded:** `record_verdict(..., "FAIL", <ruling>)` closes both. NHL 2025 = 8 reads (retired; `nhl-v9` refused, pinned by a test). The intl test set has 1 read before intl-elo-v2.
+- **Tests:** v8 and intl-elo-v1 record pins added. The v7 count is pinned "7 before v8", the registry seed test total is 8, and the v8 repo test accepts its record.

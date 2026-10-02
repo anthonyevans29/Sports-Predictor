@@ -66,9 +66,9 @@ def test_retired_test_set_refuses_any_candidate_after_v8(tmp_path):
     reg.declare(_decl("nhl-v9", "NHL 2026-27 regular season"), **kw)  # the new test season is open
 
 
-def test_repo_v8_declared_unrun_on_v7s_test_set_and_v9_refused():
+def test_repo_v8_on_v7s_test_set_and_v9_refused():
     e, v7 = reg.get("nhl-v8"), reg.get("nhl-v7")
-    assert e["status"] == "declared" and e["run"] is None and e["declaration"] == "docs/specs/nhl-xg-v8.md"
+    assert e["status"] in ("declared", "run", "closed") and e["declaration"] == "docs/specs/nhl-xg-v8.md"
     for k in ("test_set", "gate", "confirmation_plan"):
         assert e[k] == v7[k]
     assert e["test_set"] == RETIRED and reg.RETIRED_TEST_SETS[RETIRED][0] == "nhl-v8"

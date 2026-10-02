@@ -1619,6 +1619,20 @@ class ImproveResult:
 HELD_STATUS = "held"
 
 
+SOCCER_IMPROVE_REFUSAL = (
+    "legacy `improve --sport soccer` is REFUSED (P1-1, #209, ARCHITECT 2026-10-01): its "
+    "rolling-holdout retrain is not the soccer gate. Model changes go through the "
+    "chronological, market-scored harness (`python cli.py soccer-backtest`, frozen "
+    "--candidate gates) and `set-soccer-config`; the weekly state refresh is "
+    "`python cli.py soccer-refresh` (inherits production config, sanity-gated). "
+    "Nothing was written.")
+
+
+class LegacySoccerImproveRefused(RuntimeError):
+    """Raised by improve() for soccer BEFORE any write (evaluation, training,
+    promotion): the legacy loop is not a soccer path any more."""
+
+
 def improve(
     sport: Sport = Sport.SOCCER,
     holdout_days: int = DEFAULT_HOLDOUT_DAYS,
@@ -1641,6 +1655,10 @@ def improve(
     ratifies explicitly via ratify_candidate(). The gate itself (threshold,
     holdout, scoring) is identical either way.
     """
+    # P1-1 (#209): refused before the first write below (evaluate_finished)
+    if sport == Sport.SOCCER:
+        raise LegacySoccerImproveRefused(SOCCER_IMPROVE_REFUSAL)
+
     # Step 1: bring evaluation up to date
     evaluate_finished(sport=sport)
 

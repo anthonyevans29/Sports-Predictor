@@ -892,11 +892,15 @@ def improve_cmd(sport: str, holdout_days: int, min_delta: float,
     gate — is folded in but self-throttles to a weekly cadence (inputs move
     slowly; daily testing manufactures false positives).
     """
-    from src.walters.training import improve
+    from src.walters.training import LegacySoccerImproveRefused, improve
     from src.db.schema import Sport
     sport_enum = Sport.SOCCER if sport == "soccer" else Sport.MLB
-    result = improve(sport=sport_enum, holdout_days=holdout_days, min_delta=min_delta,
-                     hold_on_pass=hold_on_pass)
+    try:
+        result = improve(sport=sport_enum, holdout_days=holdout_days, min_delta=min_delta,
+                         hold_on_pass=hold_on_pass)
+    except LegacySoccerImproveRefused as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise SystemExit(2)
     color = "green" if result.promoted else ("magenta" if result.held else "yellow")
     label = "PROMOTED" if result.promoted else ("HELD" if result.held else "REJECTED")
     console.print(f"[{color}]✓ Candidate {result.candidate_version}: {label}[/{color}]")

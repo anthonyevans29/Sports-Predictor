@@ -174,9 +174,9 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             market = None
-            from src.walters.close import close_1x2
-            _cl = close_1x2(odds_rows, m.utc_date) if odds_rows else None   # #167: latest session
-            if _cl is not None:
+            from src.walters.close import close_1x2, outcomes_for, priced
+            _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport)) if odds_rows else None   # #167 + #207
+            if priced(_cl):
                 market = {
                     "bookmaker_count": _cl["books"],
                     "fair_prob": {k: round(v, 4) for k, v in _cl["fair"].items()},
@@ -422,9 +422,9 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
             close_h = None
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
-            from src.walters.close import close_1x2
-            _cl = close_1x2(odds_rows, m.utc_date)              # #167: last pre-kickoff session
-            if _cl is not None:
+            from src.walters.close import close_1x2, outcomes_for, priced
+            _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+            if priced(_cl):
                 close_h = _cl["fair"].get("HOME", 0)
             clv = None
             if close_h is not None:
@@ -495,9 +495,9 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
             close_h = None
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
-            from src.walters.close import close_1x2
-            _cl = close_1x2(odds_rows, m.utc_date)              # #167: last pre-kickoff session
-            if _cl is not None:
+            from src.walters.close import close_1x2, outcomes_for, priced
+            _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+            if priced(_cl):
                 close_h = _cl["fair"].get("HOME", 0)
             clv = None
             if close_h is not None:

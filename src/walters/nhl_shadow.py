@@ -190,9 +190,9 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             pick_home = p >= 0.5
             odds = list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             close_h = None
-            from src.walters.close import close_1x2
-            _cl = close_1x2(odds, m.utc_date)                   # #167: last pre-kickoff session
-            if _cl is not None:
+            from src.walters.close import close_1x2, outcomes_for, priced
+            _cl = close_1x2(odds, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+            if priced(_cl):
                 close_h = _cl["fair"].get("HOME", 0)
             clv = None
             if close_h is not None:

@@ -1329,9 +1329,9 @@ def _generate_predictions_mlb(
                     select(_Odds).where(_Odds.match_id == m.id,
                                         _Odds.market == "1X2")
                 ).scalars())
-                from src.walters.close import close_1x2 as _close
-                _cl = _close(_odds, m.utc_date) if _odds else None      # #167: latest session
-                if _cl is not None:
+                from src.walters.close import close_1x2 as _close, outcomes_for as _oc, priced as _priced
+                _cl = _close(_odds, m.utc_date, _oc(m.sport)) if _odds else None   # #167 + #207
+                if _priced(_cl):
                     _implied, _over = _cl["fair"], 1.0
                     if "HOME" in _implied and "AWAY" in _implied:
                         _mkt_home = _implied["HOME"] / _over
@@ -1529,9 +1529,9 @@ def evaluate_finished(sport: Sport = Sport.SOCCER) -> int:
                 # #167 (ruled 2026-10-01): the close is the LAST pre-kickoff
                 # capture session (src/walters/close.py), never an average of
                 # every capture the table ever accumulated.
-                from src.walters.close import close_1x2
-                cl = close_1x2(odds_rows, match.utc_date)
-                if cl is not None and top_pick_sel in cl["fair"]:
+                from src.walters.close import close_1x2, outcomes_for, priced
+                cl = close_1x2(odds_rows, match.utc_date, outcomes_for(match.sport))   # #207 contract
+                if priced(cl) and top_pick_sel in cl["fair"]:
                     clv = pred_probs[top_pick_sel] - cl["fair"][top_pick_sel]
                     best = cl["best"].get(top_pick_sel)
                     if best:
@@ -1590,9 +1590,9 @@ def evaluate_finished(sport: Sport = Sport.SOCCER) -> int:
             ).scalars())
             if not odds_rows:
                 continue
-            from src.walters.close import close_1x2
-            cl = close_1x2(odds_rows, match.utc_date)        # #167: last pre-kickoff session
-            if cl is None or top_pick_sel not in cl["fair"]:
+            from src.walters.close import close_1x2, outcomes_for, priced
+            cl = close_1x2(odds_rows, match.utc_date, outcomes_for(match.sport))   # #167 + #207
+            if not priced(cl) or top_pick_sel not in cl["fair"]:
                 continue
             outcome.clv = pred_probs[top_pick_sel] - cl["fair"][top_pick_sel]
             best = cl["best"].get(top_pick_sel)

@@ -43,7 +43,7 @@ def test_close_1x2_is_the_last_session_not_the_average():
     early, late = KO - timedelta(days=2), KO - timedelta(hours=1)
     rows = [row("a", "HOME", 1.5, early), row("a", "AWAY", 3.0, early),
             row("a", "HOME", 2.5, late), row("a", "AWAY", 1.6, late)]
-    cl = close_1x2(rows, KO)
+    cl = close_1x2(rows, KO, ("HOME", "AWAY"))
     assert cl["fair"]["HOME"] == pytest.approx((1 / 2.5) / (1 / 2.5 + 1 / 1.6))
     legacy = cr.legacy_fair(rows)
     assert abs(legacy["HOME"] - cl["fair"]["HOME"]) > 0.05      # the averaging bug, measured

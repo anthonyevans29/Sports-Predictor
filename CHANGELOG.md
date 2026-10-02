@@ -4,6 +4,18 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#207: P0-2 the close contract)
+- `close_1x2(rows, before, outcomes)` now requires the outcome set: binary HOME/AWAY or 3-way HOME/DRAW/AWAY. `outcomes_for(sport)` is the one mapping (soccer is 3-way, every other sport binary, as read from the adapters).
+- A book counts only with a COMPLETE same-session set. Each complete book is de-vigged on its own, then the books are averaged. With no complete book the result is UNPRICED: `fair` is None and `missing` names each quoted book's absent legs. `books` counts complete books, `books_quoted` every book in the session. `priced(cl)` is the caller check.
+- All 11 call sites pass the outcome set and check `priced`: evaluate CLV, the M11b backfill, the market blend, NFL export/grade (3 sites), nhl_shadow, miss_analysis, clv_restate (2 sites) and the sync_odds snapshot.
+- results-tally reports the **verified-close** CLV cohort as the headline and the **retained-legacy** cohort on its own line, never pooled (`clv_restate.clv_cohort`, read-only).
+- tests/test_close_contract_207.py: missing draw, one-sided, mismatched coverage, post-kickoff replacement, same-session completeness, per-book de-vig, cohorts, no pooled headline.
+- **Exports (ARCHITECT-RULE 2026-10-01):** the MLB/soccer prediction export's market block and the fixtures export (incl. the window card's rows) use the same contract, so there is one definition.
+  - `bookmaker_count` now means complete books; `bookmaker_count_quoted` is added.
+  - `overround_pct` is the mean per-book booksum.
+  - An unpriced close ships the no-1X2 shape plus an additive `close_unpriced` receipt. Fixtures receipts gain a `close_unpriced` count.
+  - `scripts/export_close_compare.py BEFORE AFTER` is the read-only receipt for a real export of each kind.
+
 ## 2026-10-01 (#209: P1-1 legacy soccer improve refused)
 - `training.improve(sport=SOCCER)` raises `LegacySoccerImproveRefused` before its first write (`evaluate_finished`). The message points to `soccer-backtest` (the chronological, market-scored gates) with `set-soccer-config`, and to `soccer-refresh`.
 - `cli.py improve --sport soccer`, and the bare `improve` (whose default is soccer), print the refusal and exit 2. The admin web job returns "REFUSED: …". MLB is unchanged, including the host chain's `improve --sport mlb --hold-on-pass`.

@@ -645,26 +645,24 @@ def _summarize_market(
         if kalshi_block:
             return {"selections": {}, "bookmaker_count": 0, "kalshi": kalshi_block}
         return None
-    from src.walters.close import last_capture
-    one_x_two = last_capture([o for o in odds if o.market == "1X2"], before)
-    if not one_x_two:
+    # P0-2 (#207, ARCHITECT-RULE 2026-10-01): the ONE close contract
+    # (src/walters/close.py) — complete same-session books only, de-vigged
+    # per book then averaged; the export block IS the Desk's reference.
+    from src.walters.close import BINARY, THREE_WAY, close_1x2, priced
+    cl = close_1x2(odds, before, THREE_WAY if three_way else BINARY)
+    if not priced(cl):
         out = {"selections": {}, "bookmaker_count": 0}
+        if cl is not None:      # quoted, but no book carried the full outcome set
+            out["bookmaker_count_quoted"] = cl["books_quoted"]
+            out["close_unpriced"] = {"books_quoted": cl["books_quoted"], "missing": cl["missing"]}
         if kalshi_block:
             out["kalshi"] = kalshi_block
         return out
 
-    by_selection: dict[str, list[tuple[str, float]]] = {}
-    for o in one_x_two:
-        by_selection.setdefault(o.selection, []).append((o.bookmaker, o.price_decimal))
-
-    snap = MarketSnapshot(market="1X2", by_selection=by_selection)
-    implied = snap.average_implied()
-    overround = sum(implied.values()) or 1.0
-
     selections = {}
-    for sel, books in by_selection.items():
-        bookmaker, best_price = max(books, key=lambda b: b[1])
-        fair_prob = (implied.get(sel, 0) / overround) if overround > 0 else None
+    for sel in cl["outcomes"]:
+        bookmaker, best_price = cl["best"][sel]
+        fair_prob = cl["fair"][sel]
         # Model prob for this selection (HOME → home_win_prob, etc.)
         model_prob = None
         if pred:
@@ -686,8 +684,9 @@ def _summarize_market(
         }
     out = {
         "selections": selections,
-        "bookmaker_count": len({bm for books in by_selection.values() for bm, _ in books}),
-        "overround_pct": round((overround - 1) * 100, 2),
+        "bookmaker_count": cl["books"],
+        "bookmaker_count_quoted": cl["books_quoted"],
+        "overround_pct": round((cl["overround"] - 1) * 100, 2),
     }
     if kalshi_block:
         # Book-vs-Kalshi disagreement per side (Kalshi normalized prob minus
@@ -1061,30 +1060,27 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
 
     from src.db.schema import Odds as _Odds, OddsSnapshot as _Snapshot
     from src.walters import spread_fallback as _fb
-    from src.walters.value import MarketSnapshot as _Snap
     from src.walters.venue import KALSHI_EXEC_NULL as _KNULL, kalshi_exec as _kexec
 
     all_odds = list(s.execute(_select(_Odds).where(_Odds.match_id == m.id)).scalars())
     labels.update((o.market, o.selection) for o in all_odds)
-    # the LAST pre-kickoff capture session, one row per (bookmaker, selection),
-    # 1X2 only (#167, src/walters/close.py: in-game prices are never pre-game
-    # truth, and a book absent from the last session contributes nothing)
-    from src.walters.close import last_capture as _last
-    latest: dict[tuple[str, str], object] = {
-        (o.bookmaker, o.selection): o
-        for o in _last([o for o in all_odds if o.market == "1X2"], m.utc_date)}
+    # the LAST pre-kickoff capture session under the ONE close contract (#167;
+    # P0-2 #207, ARCHITECT-RULE 2026-10-01): complete same-session books only,
+    # de-vigged per book then averaged; incomplete boards are unpriced
+    from src.walters.close import close_1x2 as _close, outcomes_for as _oc, priced as _priced
+    _cl = _close(all_odds, m.utc_date, _oc(m.sport))
+    close_unpriced = None
+    if _cl is not None and not _priced(_cl):
+        close_unpriced = {"books_quoted": _cl["books_quoted"], "missing": _cl["missing"]}
+        counts["close_unpriced"] += 1
     market = None
-    if latest:
-        by_sel: dict[str, list[tuple[str, float]]] = {}
-        for (bk, sel), o in latest.items():
-            by_sel.setdefault(sel, []).append((bk, o.price_decimal))
-        implied = _Snap(market="1X2", by_selection=by_sel).average_implied()
-        over = sum(implied.values()) or 1.0
-        cap = max(o.captured_at for o in latest.values())
+    if _priced(_cl):
+        cap = _cl["captured_at"]
         market = {
-            "bookmaker_count": len({bk for bk, _ in latest}),
+            "bookmaker_count": _cl["books"],
+            "bookmaker_count_quoted": _cl["books_quoted"],
             "captured_at": cap.isoformat() if cap else None,
-            "fair_prob": {k: round(v / over, 4) for k, v in implied.items()},
+            "fair_prob": {k: round(v, 4) for k, v in _cl["fair"].items()},
             "fair_source": _fb.FAIR_SOURCE_1X2,
         }
         counts["with_books"] += 1
@@ -1121,7 +1117,7 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
         kalshi = {"status": kal_status,
                   "prob": {k: round(v.devig_prob, 4) for k, v in kal.items()},
                   "captured_at": max(v.captured_at for v in kal.values()).isoformat()}
-    return {
+    row = {
         "match_id": m.id,
         "utc_date": m.utc_date.isoformat(),
         "status": m.status.value if hasattr(m.status, "value") else str(m.status),
@@ -1145,6 +1141,9 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
         "input_quality": {"book_odds": market["bookmaker_count"] if market else 0,
                           "kalshi": kal_status},
     }
+    if close_unpriced is not None:   # P0-2 (#207): quoted books, but no complete outcome set
+        row["close_unpriced"] = close_unpriced
+    return row
 
 
 def export_fixtures(
@@ -1185,7 +1184,7 @@ def export_fixtures(
     from src.db.schema import Competition as _Comp, Match as _Match
 
     labels: _Counter = _Counter()
-    counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0,
+    counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0, "close_unpriced": 0,
               "kalshi_two_sided": 0,
               "kalshi_one_sided": 0, "kalshi_partial": 0, "kalshi_absent": 0}
     with _scope() as s:
@@ -1254,7 +1253,11 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
              "Soccer CLV before 2026-10-01 was computed on an AVERAGE of every stored capture (the "
              "general odds sync appended) and is re-stated by `clv-restate --apply`. MLB keeps one "
              "capture per game (replace-on-sync); it differs only where that capture landed after "
-             "first pitch (M11 rollover games), which is now unpriced, never an in-game 'close'._\n"]
+             "first pitch (M11 rollover games), which is now unpriced, never an in-game 'close'. "
+             "CLOSE CONTRACT (#207): a book counts only with a complete same-session outcome set "
+             "(soccer HOME/DRAW/AWAY, others HOME/AWAY), de-vigged per book then averaged. A stored "
+             "CLV the contract reproduces is VERIFIED; any other stored CLV is RETAINED-LEGACY and is "
+             "reported separately, never pooled into the headline._\n"]
     with session_scope() as s:
         cutoff = utc_now_naive() - timedelta(days=days)
         for sport, label in ((Sport.MLB, "MLB"), (Sport.SOCCER, "Soccer (PL)")):
@@ -1273,12 +1276,30 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
                 continue
             hits = sum(1 for oc, m in rows if oc.top_pick_hit)
             lls = [oc.log_loss for oc, m in rows if oc.log_loss is not None]
-            clvs = [oc.clv for oc, m in rows
-                    if getattr(oc, "clv", None) is not None]
+            # P0-2 (#207): the verified-close and retained-legacy CLV cohorts
+            # are reported SEPARATELY, never pooled in the headline.
+            from src.db.schema import Odds as _Odds
+            from src.walters.clv_restate import clv_cohort
+            preds = {p.id: p for p in s.execute(select(Prediction).where(
+                Prediction.id.in_([oc.prediction_id for oc, _ in rows]))).scalars()}
+            odds_by: dict = {}
+            for o in s.execute(select(_Odds).where(_Odds.market == "1X2", _Odds.match_id.in_(
+                    [m.id for _, m in rows]))).scalars():
+                odds_by.setdefault(o.match_id, []).append(o)
+            coh = {"verified": [], "legacy": []}
+            for oc, m in rows:
+                c = clv_cohort(oc, preds.get(oc.prediction_id), m, odds_by.get(m.id, [])) \
+                    if preds.get(oc.prediction_id) is not None else ("legacy" if oc.clv is not None else None)
+                if c:
+                    coh[c].append(oc.clv)
+            ver, leg = coh["verified"], coh["legacy"]
             lines.append(
                 f"## {label}\n\n- Sides: **{hits}/{n}** ({hits/n:.1%})\n"
                 f"- Mean log-loss: {sum(lls)/len(lls):.4f} (n={len(lls)})\n"
-                f"- Mean CLV: {sum(clvs)/len(clvs)*100:+.2f}pp (n={len(clvs)} priced)\n")
+                + (f"- Mean CLV, verified close: {sum(ver)/len(ver)*100:+.2f}pp (n={len(ver)})\n" if ver
+                   else "- Mean CLV, verified close: — (n=0)\n")
+                + (f"- Retained-legacy CLV (separate cohort, not in the headline): "
+                   f"{sum(leg)/len(leg)*100:+.2f}pp (n={len(leg)})\n" if leg else ""))
         # NFL from the grade join (no outcome rows during rehearsal)
         try:
             from src.walters.nfl_predict import grade_nfl

@@ -1,4 +1,4 @@
-## 2026-10-02 (#220: UNL shadow engine — intl-elo-v2 greyed in its confirmation window; daily intl chain)
+## 2026-10-02 (#248: UNL shadow engine — intl-elo-v2 greyed in its confirmation window; daily intl chain)
 - `export-unl-predictions`: intl-elo-v2 three-way rows for scheduled competitive internationals (36h), `engine: model_shadow`, labelled "PASS — confirmation n/60"; multipliers read from the registry run record; refuses until the run record + PASS are spliced. Never a Desk call, never in the Prediction table.
 - `unl-shadow-grade` (top pick vs the three-way close) and a RESULTS.md shadow section; `intl-elo-confirm [--record --ruling]` scores the declared window (first 60 competitive after the verdict) predict-then-update vs naive − 0.010.
 - Host chain `intl-daily` (07:20 UTC, `sp-intl-daily.timer`): `intl-sync --since {today}` → `intl-venue-sync` → `export-unl-predictions`. `intl-sync` keeps friendlies of senior sides already stored (incremental sync). Cockpit shadow card shows three-way picks ("Draw") and each model's gate label. tests/test_intl_shadow.py (7), test_intl_history (+1).

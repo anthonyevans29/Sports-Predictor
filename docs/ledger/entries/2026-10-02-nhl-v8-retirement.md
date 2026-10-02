@@ -8,3 +8,4 @@
   - home_adv is v7's derivation (45.6); regression 0.25; same bar/bands/plan.
 - **Doctrine:** `docs/REGISTRY.md` gains "Retired test sets". `registry.RETIRED_TEST_SETS` makes `declare()` / `record_run()` refuse any id but `nhl-v8` on the NHL 2025 test set, naming 2026-27 (≥ 600 games) instead.
 - **Tests:** the v7 repo test is relaxed like v6's (accepts the coming record); new `tests/test_nhl_xg_v8.py` (6).
+- **RATIFIED (ARCHITECT 2026-10-02):** "v8 grid, tie rule, edge flag, and the code-enforced retirement of the NHL 2025 test set — ratified." The registry entry carries a `ratified` field. v8's run sees 7 prior reads (v6/v7 spliced in #239).

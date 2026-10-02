@@ -284,9 +284,65 @@
     "gate": "log-loss <= 0.6866 (beats home-rate by 0.010) + calibration bands (10pp, n>=100, \u00b15pp) + ratings 1200-1800",
     "confirmation_window": "RATIFIED: first 150 NHL 2026-27 regular-season games after the verdict; CONFIRMED iff log-loss <= 0.6866 AND < v1 on the same games",
     "declared_at": "2026-10-02T13:24:35Z",
-    "status": "declared",
-    "run": null,
-    "verdict": null,
+    "status": "closed",
+    "run": {
+      "run_at": "2026-10-02T15:56:44Z",
+      "n_scored": 1394,
+      "ids_sha256": "ab890242fe22077580cdb7495e90f58c519a2ddae96445de508f04b99b4de229",
+      "ids_file": "docs/registry/ids/nhl-v6.txt",
+      "result": {
+        "log_loss": 0.6886,
+        "v1_same_stream": 0.6909,
+        "shot_information": 0.0023,
+        "verdict_line": "FAIL \u2014 log-loss margin, calibration",
+        "bands_ok": false,
+        "n_test": 1394,
+        "test_games_with_xg": 1394
+      },
+      "prior_reads": [
+        {
+          "id": "nhl-v1",
+          "candidate": "schedule Elo v1",
+          "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v2",
+          "candidate": "schedule Elo v2 (tuned on 2024-internal)",
+          "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v3",
+          "candidate": "schedule Elo v3 (walk-forward selection)",
+          "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v4",
+          "candidate": "schedule Elo v4 (last schedule-only)",
+          "run_at": "2026-09-25",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v5",
+          "candidate": "v1 + goalie term (half-life 180d, prior 2,000 shots)",
+          "run_at": "2026-09-30",
+          "why": "same test set",
+          "overlap": null
+        }
+      ],
+      "prior_read_count": 5
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "ARCHITECT 2026-10-02: v6 VERDICT STANDS \u2014 FAIL 0.6886 vs 0.6866, calibration FAIL (50-70% bands \u22126.4/\u22126.5pp); SHOT INFORMATION +0.0023, the first positive increment of six NHL candidates. Record in the registry (prior reads now 6). DEFECT: xG level shot:na (+3.02) is a label leak \u2014 missing shot type occurs only on ~0.3% of goals.",
+      "at": "2026-10-02T16:11:42Z"
+    },
     "ratified": "ARCHITECT 2026-10-02: RATIFIED with the update-direction clarification (direction from the sign of the xG margin); bar unchanged 0.6866",
     "confirmation_plan": {
       "n_games": 150,
@@ -338,9 +394,65 @@
       "reference": "v1 (nhl_elo_v1, same constants) scored on the same 150 games"
     },
     "declared_at": "2026-10-02T16:02:08Z",
-    "status": "declared",
-    "run": null,
-    "verdict": null
+    "status": "closed",
+    "run": {
+      "run_at": "2026-10-02T16:21:13Z",
+      "n_scored": 1394,
+      "ids_sha256": "ab890242fe22077580cdb7495e90f58c519a2ddae96445de508f04b99b4de229",
+      "ids_file": "docs/registry/ids/nhl-v7.txt",
+      "result": {
+        "log_loss": 0.6885,
+        "v1_same_stream": 0.6909,
+        "shot_information": 0.0023,
+        "verdict_line": "FAIL \u2014 log-loss margin, calibration",
+        "bands_ok": false,
+        "n_test": 1394,
+        "test_games_with_xg": 1394
+      },
+      "prior_reads": [
+        {
+          "id": "nhl-v1",
+          "candidate": "schedule Elo v1",
+          "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v2",
+          "candidate": "schedule Elo v2 (tuned on 2024-internal)",
+          "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v3",
+          "candidate": "schedule Elo v3 (walk-forward selection)",
+          "run_at": "before 2026-09-25 (Phase 2; exact date in BACKLOG)",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v4",
+          "candidate": "schedule Elo v4 (last schedule-only)",
+          "run_at": "2026-09-25",
+          "why": "same test set",
+          "overlap": null
+        },
+        {
+          "id": "nhl-v5",
+          "candidate": "v1 + goalie term (half-life 180d, prior 2,000 shots)",
+          "run_at": "2026-09-30",
+          "why": "same test set",
+          "overlap": null
+        }
+      ],
+      "prior_read_count": 5
+    },
+    "verdict": {
+      "verdict": "FAIL",
+      "ruling": "ARCHITECT 2026-10-02: v7 VERDICT STANDS \u2014 FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands \u22126.2/\u22126.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced.",
+      "at": "2026-10-02T16:26:50Z"
+    }
   },
   {
     "id": "nhl-v8",
@@ -362,6 +474,7 @@
     "declared_at": "2026-10-02T16:25:10Z",
     "status": "declared",
     "run": null,
-    "verdict": null
+    "verdict": null,
+    "ratified": "ARCHITECT 2026-10-02: v8 grid, tie rule, edge flag, and the code-enforced retirement of the NHL 2025 test set \u2014 ratified."
   }
 ]

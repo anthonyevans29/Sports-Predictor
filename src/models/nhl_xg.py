@@ -146,6 +146,11 @@ class XGModel:
     coef: list[float]
     shot_levels: list[str]
     baseline_level: str
+    # v6: True (a missing shot type is its own level, "na"). v7 (ARCHITECT
+    # 2026-10-02, a correctness fix): False — "na" was a label leak (+3.02;
+    # a missing shot type occurs on ~0.3% of goals), so an event without a
+    # shot type takes the BASELINE level (all shot dummies 0).
+    na_level: bool = True
     n_fit: int = 0
     goals_fit: int = 0
     fit_last_game: datetime | None = None
@@ -153,20 +158,23 @@ class XGModel:
 
     def row(self, p: Prepared) -> list[float]:
         st = p.shot.shot_type
-        lvl = "na" if st is None else (st if st in self.shot_levels else "other")
+        if st is None:
+            lvl = "na" if self.na_level else self.baseline_level
+        else:
+            lvl = st if st in self.shot_levels else "other"
         x = [1.0, p.distance, p.angle, 1.0 if p.situation == "PP" else 0.0, 1.0 if p.situation == "SH" else 0.0]
         x += [1.0 if lvl == L else 0.0 for L in self.shot_levels_all() if L != self.baseline_level]
         return x
 
     def shot_levels_all(self) -> list[str]:
-        return list(self.shot_levels) + ["other", "na"]
+        return list(self.shot_levels) + (["other", "na"] if self.na_level else ["other"])
 
     def xg(self, p: Prepared) -> float:
         z = sum(c * v for c, v in zip(self.coef, self.row(p)))
         return 1.0 / (1.0 + math.exp(-max(min(z, 40.0), -40.0)))
 
 
-def fit(shots: list[Shot]) -> XGModel:
+def fit(shots: list[Shot], na_level: bool = True) -> XGModel:
     """Fit on the 2023-24 window ONLY (FIT_FROM <= start < FIT_TO, game
     types 2/3). Shots outside the window are refused here, not filtered
     silently: the caller hands the window, the fit asserts it."""
@@ -182,13 +190,14 @@ def fit(shots: list[Shot]) -> XGModel:
         raise ValueError("no eligible 2023-24 shot after the rules")
     counts = Counter("na" if p.shot.shot_type is None else p.shot.shot_type for p in use)
     levels = sorted(k for k, n in counts.items() if k != "na" and n >= SHOT_TYPE_MIN)
-    all_levels = levels + ["other", "na"]
+    all_levels = levels + (["other", "na"] if na_level else ["other"])
+    # v7: the baseline is chosen among the TYPED levels; untyped events then join it
     lvl_counts = Counter("na" if p.shot.shot_type is None else (p.shot.shot_type if p.shot.shot_type in levels
                                                                 else "other") for p in use)
     baseline = max(all_levels, key=lambda L: (lvl_counts.get(L, 0), L))
     m = XGModel(names=["intercept", "distance", "angle", "PP", "SH"]
                 + [f"shot:{L}" for L in all_levels if L != baseline],
-                coef=[], shot_levels=levels, baseline_level=baseline)
+                coef=[], shot_levels=levels, baseline_level=baseline, na_level=na_level)
     X = np.array([m.row(p) for p in use], dtype=float)
     y = np.array([p.goal for p in use], dtype=float)
     beta = np.zeros(X.shape[1])

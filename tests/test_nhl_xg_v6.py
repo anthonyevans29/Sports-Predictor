@@ -133,10 +133,15 @@ def test_harness_refuses_without_declaration_or_after_a_run(monkeypatch):
     assert r.exit_code == 2 and "evaluated once" in r.output
 
 
-def test_repo_declaration_is_frozen_and_unrun():
+def test_repo_declaration_is_frozen_and_ran_at_most_once():
+    """v6 RAN on the laptop (FAIL 0.6886, ARCHITECT 2026-10-02): the run record
+    lands in docs/registry/ by its own commit, so the entry may be declared,
+    run or closed — but a run, when present, is complete (ids + sha)."""
     from src.walters import registry as reg
     e = reg.get("nhl-v6")
-    assert e["status"] == "declared" and e["run"] is None and e["declaration"] == "docs/specs/nhl-xg-v6.md"
+    assert e["status"] in ("declared", "run", "closed") and e["declaration"] == "docs/specs/nhl-xg-v6.md"
+    if e["run"] is not None:
+        assert e["run"]["n_scored"] > 0 and len(e["run"]["ids_sha256"]) == 64
     assert e["confirmation_plan"] == {"n_games": 150, "metric": "log_loss", "bar": 0.6866, "must_beat_reference": True,
                                       "reference": "v1 (nhl_elo_v1, same constants) scored on the same 150 games"}
     assert len(reg.prior_reads(e["test_set"], None, before_id="nhl-v6")) == 5

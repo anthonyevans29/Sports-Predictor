@@ -22,6 +22,18 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — NHL v6 VERDICT: FAIL (ARCHITECT). Defect found: the xG `na` level is a label leak. v7 DECLARED (= v6 without `na`), not run.**
+- **Ruling (verbatim):** "v6 VERDICT STANDS — FAIL 0.6886 vs 0.6866, calibration FAIL (50-70% bands −6.4/−6.5pp); SHOT INFORMATION +0.0023, the first positive increment of six NHL candidates. Record in the registry (prior reads now 6). DEFECT: xG level shot:na (+3.02) is a label leak — missing shot type occurs only on ~0.3% of goals. Correctness fix, not a tune: declare v7 = v6 with the "na" level REMOVED (events without shot type take the baseline level), nothing else changed, same bar, same splits. One run after declaration. If v7 still fails, the shot-quality floor is measured at this representation; the next information class is goalie × shot quality (goals saved above expected per goalie, as-of), declared separately as v8."
+- **v6 in the registry:** the run record exists only on the laptop. On main, `nhl-v6` is still `declared`: the run wrote `docs/registry/` locally. The verdict cannot be recorded until that record (scored ids + result) is committed; it is never reconstructed here (law 4). After the commit: `record_verdict("nhl-v6", "FAIL", <ruling>)`.
+- **v7 (`docs/specs/nhl-xg-v7.md`, registry `nhl-v7`):**
+  - `nhl_xg.fit(..., na_level=False)`: an untyped event takes the baseline level, chosen among the typed levels + other.
+  - `NHLEloV7` is v6's Elo, renamed.
+  - `nhl-backtest --candidate v7` is v6's harness path with its own registry id (refusal before any data load; one recorded run).
+  - Test set, gate, training cutoff and confirmation plan are v6's verbatim.
+  - The entry follows `nhl-v6` in the ledger, so v6's run counts as the 6th prior read.
+- **Test fix ahead of the record:** `test_repo_declaration_is_frozen_and_unrun` (nhl-v6) would turn red the moment the laptop's run lands. It now accepts declared/run/closed, and a present run must be complete.
+- **If v7 fails:** the floor is measured at this representation; v8 = goalie × shot quality (GSAx per goalie, as-of), declared separately.
+
 **2026-10-02 — #220 lane 2: international Elo v1 DECLARED (`docs/specs/intl-elo-v1.md`, registry `intl-elo-v1`). Frozen, NOT RUN, awaiting ratification.**
 - **Ruling (verbatim):** "(2) PRE-COMMITMENT (write for ratification, no run): international Elo — home advantage a priori +100 Elo, 0 at derived-neutral; match weights by competition class a priori (friendlies 20, Nations League 40, qualifiers 50, finals 60 — the public Elo convention); margin via ln(margin+1) as our other Elos; three-way outcome via the soccer draw mapping. Train 2018-2024, test 2024-25 UNL + 2025-26 WCQ_EU; bar = naive-baseline log-loss − 0.010; calibration bands; RPS reported; registry entry with a 60-game confirmation window."
 - **Frozen as ruled:**

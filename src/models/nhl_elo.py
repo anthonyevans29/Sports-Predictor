@@ -258,3 +258,16 @@ class NHLEloV6(NHLEloV1):
         delta = self.cfg.k_factor * mov * (won - exp_h)
         self._ratings[g.home_id] = rh + delta
         self._ratings[g.away_id] = ra - delta
+
+
+# --------------------------------------------------------------------------
+# v7 (ARCHITECT 2026-10-02; declaration docs/specs/nhl-xg-v7.md): v6 with
+# the xG model's "na" shot-type level REMOVED — a correctness fix (label
+# leak), not a tune. The Elo is v6's, unchanged; only the xG margins it is
+# fed differ (nhl_xg.fit(..., na_level=False)).
+# --------------------------------------------------------------------------
+
+
+@dataclass
+class NHLEloV7(NHLEloV6):
+    name = "nhl_elo_v7_xg_margin_no_na"

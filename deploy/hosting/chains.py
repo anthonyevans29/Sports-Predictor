@@ -140,8 +140,12 @@ CHAINS: dict[str, dict] = {
             ["sync-odds", "--competition", "NHL", "--season", "2026"],
             ["sync-kalshi-nhl"],
             ["export-fixtures", "--competition", "NHL"],
-            # NHL SHADOW (architect 2026-09-30): the failed v1 as a greyed
-            # reference model — never a call (engine model_shadow)
+            # NHL SHADOW (architect 2026-09-30; v7 from 2026-10-02): v7 updates on
+            # the xG margin, so the live season's shot events are synced first
+            # (api-web.nhle.com, the NHL's own free API; stored games are skipped)
+            ["nhl-shot-sync", "--start", "{yesterday}", "--end", "{today}"],
+            # the best failed candidate (v7) as a greyed reference model, v1 beside
+            # it — never a call (engine model_shadow)
             ["export-nhl-predictions"],
         ],
     },
@@ -250,4 +254,5 @@ UNMETERED = frozenset({
     "improve", "results-tally", "export-results", "export-predictions", "window-card",
     "export-nfl-predictions", "export-nfl-results", "export-fixtures",
     "export-nhl-predictions",
+    "nhl-shot-sync",          # api-web.nhle.com (the NHL's free API), never api-sports
 })

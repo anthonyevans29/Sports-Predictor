@@ -1,5 +1,5 @@
-"""NHL SHADOW (architect 2026-09-30): the FAILED nhl_elo_v1 as a greyed
-reference model. Pins:
+"""NHL SHADOW (architect 2026-09-30; v7 from 2026-10-02): the best FAILED
+candidate (v7) as a greyed reference model, v1 beside it. Pins:
 - every row is stamped (model_version, gate_verdict, engine model_shadow);
 - the model is v1 as gated (the 2024 home rate, walk-forward);
 - preseason is never priced;
@@ -62,20 +62,26 @@ def nhl():
 def test_export_stamps_every_row_and_prices_only_the_window(nhl, tmp_path):
     path, doc = sh.export(now=NOW, out_dir=str(tmp_path))
     assert Path(path).name == "nhl_shadow_2033-01-10_1200.json"
-    assert (doc["engine"], doc["model_version"]) == ("model_shadow", "nhl_elo_v1")
-    assert doc["gate_verdict"] == "FAILED 0.6909 vs 0.6866 (Phase 2 closed 2026-09-25)"
+    # ARCHITECT 2026-10-02: the engine switches to v7, labelled with its verdict; v1 rides as the reference
+    assert (doc["engine"], doc["model_version"]) == ("model_shadow", "nhl_elo_v7_xg_margin_no_na")
+    assert doc["gate_verdict"] == "FAILED 0.6885 vs 0.6866"
+    assert doc["reference_model"] == {"model_version": "nhl_elo_v1",
+                                      "gate_verdict": "FAILED 0.6909 vs 0.6866 (Phase 2 closed 2026-09-25)"}
     assert doc["contains_predictions"] is False and "REFERENCE MODEL — FAILED GATE" in doc["note"]
     rows = {r["match_id"]: r for r in doc["predictions"]}
     assert set(rows) == {nhl["up"]}                          # preseason and >36h never priced
     assert doc["skipped"] == {"preseason_stage": 1}
     r = rows[nhl["up"]]
     assert (r["engine"], r["model_version"], r["gate_verdict"]) == (doc["engine"], doc["model_version"], doc["gate_verdict"])
-    # v1 exactly as gated: recompute independently
+    # v7 and v1 exactly as gated: recompute independently
     from src.walters import nhl_backtest as nb
-    model, fit = sh.fit(nb.load_games(), NOW)
+    model, ref, fit = sh.fit(nb.load_games(), NOW)
     g = nb.Game(nhl["home_team"], nhl["away_team"], "2032", NOW + timedelta(hours=7), 0, 0)
     assert r["prediction"]["home_win_prob"] == round(model.predict(g), 4)
+    assert r["reference"] == {"model_version": "nhl_elo_v1", "gate_verdict": sh.REFERENCE_VERDICT,
+                              "home_win_prob": round(ref.predict(g), 4)}
     assert doc["fit"] == fit and fit["home_advantage"] > 0   # from the train season's home rate
+    assert fit["goal_margin_fallbacks"] == fit["games_used"] - fit["xg_updates"]   # no shots here: all fall back
     assert r["market"]["fair_prob"]["HOME"] > 0.5            # the books' reference rides along
 
 
@@ -108,9 +114,12 @@ def test_grade_is_live_clv_only_from_the_last_call_before_puck_drop(nhl, tmp_pat
     want = (p - close) if p >= 0.5 else ((1 - p) - (1 - close))
     assert r["mean_clv_pp"] == round(want * 100, 2)
     assert set(r) >= {"mean_clv_pp", "mean_value_side_clv_pp"} and "hits" not in r and "logloss" not in r
+    pr = doc["predictions"][0]["reference"]["home_win_prob"]                     # v1 beside it, same close
+    assert r["reference_mean_clv_pp"] == round(((pr - close) if pr >= 0.5 else ((1 - pr) - (1 - close))) * 100, 2)
+    assert "ref v1_H=" in r["lines"][0] and "v7_xg_margin_no_na_H=" in r["lines"][0]
     md = sh.results_section(10000, export_dir=str(tmp_path))
     assert md.startswith("## NHL — REFERENCE MODEL, FAILED GATE") and "Live CLV only; not a record" in md
-    assert "unanchored" in md
+    assert "unanchored" in md and "Reference nhl_elo_v1" in md
 
 
 def test_nhl_daily_chain_exports_the_shadow_and_never_predicts():
@@ -118,5 +127,20 @@ def test_nhl_daily_chain_exports_the_shadow_and_never_predicts():
     import chains
     steps = [st[0] for st in chains.CHAINS["nhl-daily"]["steps"]]
     assert steps[-1] == "export-nhl-predictions" and "export-fixtures" in steps
+    assert steps[-2] == "nhl-shot-sync" and "nhl-shot-sync" in chains.UNMETERED   # v7's live xG, then the export
     assert not any(st.startswith(("predict", "evaluate", "improve")) for st in steps)
     assert "export-nhl-predictions" in chains.UNMETERED
+
+
+def test_v7_with_xg_moves_on_the_xg_margin_and_without_it_equals_v1():
+    """v7 = the frozen declaration: with an xG margin it updates on it; without
+    stored shots it falls back to v1 on goals (so the reference and v7 agree)."""
+    from src.walters import nhl_backtest as nb
+    games = nb.load_games()
+    m_no, r_no, _ = sh.fit(games, NOW, xg={})
+    gx = [g for g in games if g.utc_date < NOW and g.season == "2032"]
+    g = nb.Game(gx[0].home_id, gx[0].away_id, "2032", NOW + timedelta(hours=1), 0, 0)
+    assert m_no.predict(g) == r_no.predict(g)
+    flip = {gx[0].match_id: (0.5, 3.0)}                      # the home side won on goals but lost on xG
+    m_xg, r_xg, rc = sh.fit(games, NOW, xg=flip)
+    assert rc["xg_updates"] == 1 and m_xg.predict(g) < r_xg.predict(g)

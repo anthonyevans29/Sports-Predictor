@@ -1,24 +1,34 @@
 """
-NHL SHADOW (architect lane NHL-SHADOW, 2026-09-30): the FAILED v1 Elo as a
-REFERENCE MODEL beside the market-only NHL launch. It is never a call.
+NHL SHADOW (architect lane NHL-SHADOW, 2026-09-30; engine switched to v7 on
+2026-10-02): the best measured FAILED NHL candidate as a REFERENCE MODEL beside
+the market-only NHL launch. It is never a call.
 
     export-nhl-predictions   -> exports/nhl_shadow_<YYYY-MM-DD_HHMM>.json
 
-- Every row is stamped: model_version "nhl_elo_v1", gate_verdict "FAILED
-  0.6909 vs 0.6866 (Phase 2 closed 2026-09-25)", engine "model_shadow".
+- ARCHITECT 2026-10-02: "the shadow engine switches from v1 to v7 (best
+  measured candidate, 0.6885, labelled "FAILED 0.6885 vs 0.6866") so live CLV
+  accrues on the best read; v1 stays as reference in the grade line."
+- Every row is stamped: model_version "nhl_elo_v7_xg_margin_no_na",
+  gate_verdict "FAILED 0.6885 vs 0.6866", engine "model_shadow", and a
+  `reference` block carrying v1's probability ("FAILED 0.6909 vs 0.6866").
 - The Cockpit renders them greyed under "reference model — failed gate".
   They never produce a Desk call, never feed the venue engine, and never
   log to the ledger.
 - The window card skips engine "model_shadow" docs, so NHL rows stay
   market_only there.
 - Grading records live CLV only, pick-vs-close and value-side, into a
-  shadow section of RESULTS.md. No hit rate and no log-loss: this is not a
-  record.
+  shadow section of RESULTS.md, with v1's pick-vs-close beside it. No hit
+  rate and no log-loss: this is not a record.
 
-THE MODEL IS v1 EXACTLY AS GATED (law 3: nothing is tuned here):
-- NHLEloConfig defaults (k 6.0, mov_base 2.2, regression 0.25).
-- home_advantage from the TRAIN season's (2024) realized home rate — the
-  gate's own derivation.
+THE MODELS ARE AS GATED (law 3: nothing is tuned here):
+- v7 = the frozen declaration (docs/specs/nhl-xg-v7.md): the 2023-24 xG fit
+  WITHOUT the "na" level, the Elo updated on the xG margin; a game without
+  stored shots updates on goals (v1's rule), counted in the receipt. The
+  nhl-daily chain runs nhl-shot-sync (yesterday..today) before the export so
+  the live season carries xG.
+- v1 = NHLEloConfig defaults (k 6.0, mov_base 2.2, regression 0.25).
+- Both: home_advantage from the TRAIN season's (2024) realized home rate —
+  the gate's own derivation.
 - The stream is the gate's (competition NHL, finished, both scores,
   preseason excluded by stage or by date, ties skipped), extended to the
   live season with its ruled opener (the nhl-daily season gate:
@@ -43,16 +53,21 @@ from pathlib import Path
 from src.timeutil import utc_now_naive
 
 ENGINE = "model_shadow"
-MODEL_VERSION = "nhl_elo_v1"
-GATE_VERDICT = "FAILED 0.6909 vs 0.6866 (Phase 2 closed 2026-09-25)"
+# ARCHITECT 2026-10-02: "the shadow engine switches from v1 to v7 (best measured
+# candidate, 0.6885, labelled "FAILED 0.6885 vs 0.6866") so live CLV accrues on
+# the best read; v1 stays as reference in the grade line."
+MODEL_VERSION = "nhl_elo_v7_xg_margin_no_na"
+GATE_VERDICT = "FAILED 0.6885 vs 0.6866"
+REFERENCE_VERSION = "nhl_elo_v1"
+REFERENCE_VERDICT = "FAILED 0.6909 vs 0.6866 (Phase 2 closed 2026-09-25)"
 WINDOW_HOURS = 36
 FILE_PREFIX = "nhl_shadow_"
 # the live season's opener = the nhl-daily season gate (ruled 2026-09-29)
 LIVE_SEASON_STARTS = {"2026": date(2026, 9, 29)}
-NOTE = ("REFERENCE MODEL — FAILED GATE. nhl_elo_v1 failed the frozen Phase 2 gate "
-        "(0.6909 vs the 0.6866 bar; the schedule-only floor is ~0.691). Shadow only: never a "
-        "call, never a venue input, never logged to the ledger. NHL runs MARKET-ONLY. "
-        "Graded on live CLV only.")
+NOTE = ("REFERENCE MODEL — FAILED GATE. nhl_elo_v7 (xG margin, no 'na' level) is the best measured NHL "
+        "candidate and FAILED the frozen gate (0.6885 vs the 0.6866 bar); nhl_elo_v1 (0.6909) rides "
+        "along as the reference. Shadow only: never a call, never a venue input, never logged to the "
+        "ledger. NHL runs MARKET-ONLY. Graded on live CLV only.")
 
 
 def _season_starts() -> dict:
@@ -60,10 +75,27 @@ def _season_starts() -> dict:
     return {**nb.SEASON_STARTS, **LIVE_SEASON_STARTS}
 
 
-def fit(games, now: datetime):
-    """(model, receipt): v1 with the gate's home advantage, walked forward
-    over every decided regular-season game before `now`."""
-    from src.models.nhl_elo import NHLEloConfig, NHLEloV1, home_advantage_from_rate
+def live_xg() -> tuple[dict, dict]:
+    """v7's xG margins: the frozen 2023-24 fit WITHOUT the "na" level (exactly
+    the v7 declaration), applied to every stored shot from the 2024 opener on —
+    the live season included once nhl-shot-sync has run. A game without shots
+    falls back to v1 on goals inside the model (counted in the receipt)."""
+    from src.models import nhl_xg as nx
+
+    shots = nx.load_shots()
+    fit_set = [x for x in shots if nx.FIT_FROM <= x.game_start < nx.FIT_TO]
+    try:
+        model = nx.fit(fit_set, na_level=False)
+    except ValueError as e:                    # no 2023-24 shots stored: v7 runs on its goal fallback
+        return {}, {"xg_model": f"unavailable ({e})"}
+    xg, _ = nx.game_xg(model, [x for x in shots if x.game_start >= nx.FIT_TO])
+    return xg, {"xg_model": f"2023-24 fit, {model.n_fit} attempts, no na level", "games_with_xg": len(xg)}
+
+
+def fit(games, now: datetime, xg: dict | None = None):
+    """(v7 model, v1 reference, receipt): both with the gate's home advantage,
+    walked forward over every decided regular-season game before `now`."""
+    from src.models.nhl_elo import NHLEloConfig, NHLEloV1, NHLEloV7, home_advantage_from_rate
     from src.walters import nhl_backtest as nb
 
     starts = _season_starts()
@@ -72,7 +104,11 @@ def fit(games, now: datetime):
     if not train:
         raise RuntimeError(f"no {nb.TRAIN_SEASON} NHL games: the gate's home advantage cannot be derived")
     home_rate = sum(g.home_win for g in train) / len(train)
-    model = NHLEloV1(NHLEloConfig(home_advantage=home_advantage_from_rate(home_rate)))
+    cfg = NHLEloConfig(home_advantage=home_advantage_from_rate(home_rate))
+    xg_rc = {}
+    if xg is None:
+        xg, xg_rc = live_xg()
+    model, ref = NHLEloV7(cfg, xg_by_match=xg), NHLEloV1(cfg)
     used = excluded = ties = 0
     for g in sorted(games, key=lambda x: x.utc_date):
         if g.utc_date >= now:
@@ -84,10 +120,12 @@ def fit(games, now: datetime):
             ties += 1
             continue
         model.update(g)
+        ref.update(g)
         used += 1
-    return model, {"games_used": used, "preseason_excluded": excluded, "ties_skipped": ties,
-                   "home_rate_train": round(home_rate, 4),
-                   "home_advantage": round(model.cfg.home_advantage, 1)}
+    return model, ref, {"games_used": used, "preseason_excluded": excluded, "ties_skipped": ties,
+                        "home_rate_train": round(home_rate, 4), "home_advantage": round(cfg.home_advantage, 1),
+                        "xg_updates": model.xg_updates, "goal_margin_fallbacks": model.goal_margin_fallbacks,
+                        **xg_rc}
 
 
 def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS) -> dict:
@@ -101,7 +139,7 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS) -> dict:
     from src.walters.export import _fixture_row
 
     now = now or utc_now_naive()
-    model, rc = fit(nb.load_games(), now)
+    model, ref, rc = fit(nb.load_games(), now)
     starts = _season_starts()
     rows, skipped = [], Counter()
     with session_scope() as s:
@@ -117,6 +155,7 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS) -> dict:
                 skipped[f"preseason_{why}"] += 1
                 continue
             p = model.predict(g)
+            p_ref = ref.predict(g)
             row = _fixture_row(s, m, "NHL", Counter(), Counter())
             pick_home = p >= 0.5
             row.update({
@@ -127,6 +166,8 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS) -> dict:
                                "elo_home": round(model.rating(m.home_team_id), 1),
                                "elo_away": round(model.rating(m.away_team_id), 1),
                                "home_adv_applied": rc["home_advantage"]},
+                "reference": {"model_version": REFERENCE_VERSION, "gate_verdict": REFERENCE_VERDICT,
+                              "home_win_prob": round(p_ref, 4)},
             })
             rows.append(row)
     return {"rows": rows, "fit": rc, "skipped": dict(skipped), "now": now}
@@ -138,6 +179,7 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
     doc = {"sport": "nhl", "engine": ENGINE, "model_version": MODEL_VERSION, "gate_verdict": GATE_VERDICT,
+           "reference_model": {"model_version": REFERENCE_VERSION, "gate_verdict": REFERENCE_VERDICT},
            "contains_predictions": False,   # nothing here is a live prediction (doctrine)
            "exported_at": now.isoformat(), "window_hours": hours, "note": NOTE,
            "fit": r["fit"], "skipped": r["skipped"], "count": len(r["rows"]), "predictions": r["rows"]}
@@ -178,7 +220,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
 
     now = now or utc_now_naive()
     calls = last_calls(export_dir)
-    clvs, vclvs, lines = [], [], []
+    clvs, vclvs, lines, ref_clvs = [], [], [], []
     graded = unpriced = unanchored = 0
     with session_scope() as s:
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
@@ -200,16 +242,25 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 clvs.append(clv)
             else:
                 unpriced += 1
+            # v1 rides along as the reference (ruled 2026-10-02); older v1-only rows carry none
+            pr = (c.get("reference") or {}).get("home_win_prob")
+            ref_clv = None
+            if pr is not None and close_h is not None:
+                ref_clv = (pr if pr >= 0.5 else 1 - pr) - (close_h if pr >= 0.5 else 1 - close_h)
+                ref_clvs.append(ref_clv)
             anchor_h, _ = _book_anchor(s, m)
             vg = value_side_grade(p, anchor_h, close_h)
             if vg:
                 vclvs.append(vg["value_side_clv"])
             elif anchor_h is None:
                 unanchored += 1
-            line = (f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} shadow_H={p:.3f} "
+            line = (f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
+                    f"{c.get('model_version', '?').replace('nhl_elo_', '')}_H={p:.3f} "
                     f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                     f"clv={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
-                    f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else '— (no anchor)'}")
+                    f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else '— (no anchor)'}"
+                    + (f" · ref v1_H={pr:.3f} clv={'%+.1fpp' % (ref_clv * 100) if ref_clv is not None else '—'}"
+                       if pr is not None else ""))
             lines.append(line)
             if progress:
                 progress(line)
@@ -217,7 +268,9 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None,
             "value_side_n": len(vclvs), "unanchored": unanchored,
             "mean_value_side_clv_pp": round(sum(vclvs) / len(vclvs) * 100, 2) if vclvs else None,
-            "calls_on_file": len(calls), "lines": lines}
+            "calls_on_file": len(calls), "lines": lines,
+            "reference_priced": len(ref_clvs),
+            "reference_mean_clv_pp": round(sum(ref_clvs) / len(ref_clvs) * 100, 2) if ref_clvs else None}
 
 
 def results_section(days: int, export_dir: str = "exports") -> str:
@@ -234,4 +287,7 @@ def results_section(days: int, export_dir: str = "exports") -> str:
         + "- Mean value-side-vs-close: "
         + (f"{r['mean_value_side_clv_pp']:+.2f}pp (n={r['value_side_n']} anchored)"
            if r["mean_value_side_clv_pp"] is not None
-           else f"— ({r['unanchored']} unanchored: no pre-kickoff book snapshot)") + "\n")
+           else f"— ({r['unanchored']} unanchored: no pre-kickoff book snapshot)") + "\n"
+        + f"- Reference {REFERENCE_VERSION} ({REFERENCE_VERDICT}) pick-vs-close: "
+        + (f"{r['reference_mean_clv_pp']:+.2f}pp (n={r['reference_priced']})" if r["reference_mean_clv_pp"] is not None
+           else "— (no reference rows priced yet)") + "\n")

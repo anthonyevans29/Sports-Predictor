@@ -4201,10 +4201,11 @@ def desk_parlays_cmd(files, now_s, summary, out_path):
 @cli.command("export-nhl-predictions")
 @click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
 def export_nhl_predictions_cmd(hours):
-    """NHL SHADOW (architect 2026-09-30): the FAILED nhl_elo_v1 as a REFERENCE
-    MODEL for every NHL game in the window. Every row: engine model_shadow,
-    gate_verdict FAILED. Never a call, never a venue input, never logged.
-    Writes exports/nhl_shadow_<stamp>.json; nothing to the DB."""
+    """NHL SHADOW (architect 2026-09-30; v7 from 2026-10-02): the best FAILED
+    candidate, nhl_elo_v7 (0.6885 vs 0.6866), as a REFERENCE MODEL for every
+    NHL game in the window, with v1's probability beside it. Every row: engine
+    model_shadow, gate_verdict FAILED. Never a call, never a venue input,
+    never logged. Writes exports/nhl_shadow_<stamp>.json; nothing to the DB."""
     from src.walters.nhl_shadow import export
     path, doc = export(hours=hours)
     console.print(f"[green]✓ Wrote NHL shadow (reference model — failed gate) to {path}[/green]")
@@ -4214,6 +4215,8 @@ def export_nhl_predictions_cmd(hours):
     print(f"  fit: {f['games_used']} decided games walked · home_adv {f['home_advantage']} "
           f"(2024 home rate {f['home_rate_train']}) · preseason excluded {f['preseason_excluded']} · "
           f"ties skipped {f['ties_skipped']} · window skips {doc['skipped'] or 'none'}")
+    print(f"  v7 xG: {f.get('xg_model', 'loaded')} · updates on xG {f['xg_updates']} · goal fallbacks "
+          f"{f['goal_margin_fallbacks']} · reference {doc['reference_model']['model_version']}")
 
 
 @cli.command("nhl-shadow-grade")
@@ -4225,7 +4228,8 @@ def nhl_shadow_grade_cmd(days):
     r = grade(days=days, progress=print)
     print(f"  ── graded {r['graded']} (calls on file {r['calls_on_file']}) · mean pick-vs-close "
           f"{r['mean_clv_pp']}pp (n={r['priced']}) · value-side {r['mean_value_side_clv_pp']}pp "
-          f"(n={r['value_side_n']}; unanchored {r['unanchored']})")
+          f"(n={r['value_side_n']}; unanchored {r['unanchored']}) · reference v1 pick-vs-close "
+          f"{r['reference_mean_clv_pp']}pp (n={r['reference_priced']})")
 
 
 @cli.command("export-nfl-predictions")

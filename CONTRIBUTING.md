@@ -23,6 +23,13 @@ This project runs on laws earned from incidents. They are not optional.
    limitation, finding and queued lane is also an Issue: Issues are the
    STATE ledger, BACKLOG.md the history, the Project board the order
    (docs/LEDGER.md).
+   **Per-PR fragments (ARCHITECT-RULE 2026-10-02):** a PR never edits
+   CHANGELOG.md or BACKLOG.md. It adds `changelog.d/<PR>-<slug>.md` (one
+   `## YYYY-MM-DD (...)` section) and `docs/ledger/entries/<date>-<slug>.md`
+   (one `**YYYY-MM-DD — ...**` entry); `python scripts/ledger.py compile
+   --commit` folds them in date order in its own commit (the tag ritual,
+   docs/RELEASES.md). CI fails a PR that edits the shared files or lacks a
+   fragment.
 
 ## Workflow
 - Daily/operational changes: direct commits to `main` with descriptive

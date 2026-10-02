@@ -596,6 +596,10 @@ def discussions(gh, repo: str, action: str, path: str = "", category: str = "", 
 def main(argv=None) -> int:
     argv = sys.argv[1:] if argv is None else argv
     mode = argv[0] if argv else "event"
+    if mode in ("compile", "check-fragments", "pending"):   # ARCHITECT-RULE 2026-10-02: per-PR fragments
+        sys.path.insert(0, str(Path(__file__).resolve().parent))   # local and offline: no token needed
+        import ledger_fragments
+        return ledger_fragments.main(argv)
     tax = load()
     repo = os.environ["GITHUB_REPOSITORY"]
     gh = GH(os.environ["GITHUB_TOKEN"], repo)

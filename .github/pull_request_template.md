@@ -6,7 +6,7 @@ Ledger: Closes #N (a `class:limitation` Issue also needs "Resolves limitation").
 - [ ] Read-before-edit: anchors/columns/vocabularies from actual sources
 - [ ] Syntax + import smoke pass locally
 - [ ] Gate-class change? Backtest/gate output pasted below
-- [ ] BACKLOG.md / CHANGELOG.md updated
+- [ ] Fragments added: `changelog.d/<PR>-<slug>.md` + `docs/ledger/entries/<date>-<slug>.md` (never edit CHANGELOG.md / BACKLOG.md; CI checks)
 - [ ] Packaging law respected (no data/, no .git in artifacts)
 
 ## Gate / backtest output (if applicable)

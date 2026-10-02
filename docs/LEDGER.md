@@ -2,7 +2,9 @@
 
 Architect rulings, 2026-09-29:
 - **GitHub Issues** are the STATE ledger: what is open, now.
-- **BACKLOG.md** stays the append-only HISTORY of rulings and verdicts.
+- **BACKLOG.md** stays the append-only HISTORY of rulings and verdicts. Since
+  2026-10-02 it is written through **per-PR fragments** (below), never edited
+  by a feature PR.
 - **One GitHub Project (v2)** is the queue's single source of ORDER.
 
 The architect reviews the Issue list, not the file. The architect
@@ -190,3 +192,31 @@ closed are skipped.
 Without the secret, step 2 still does the repository side: labels,
 milestones, Issues and lint. The log says that the board steps were
 skipped.
+
+
+## Per-PR fragments (ARCHITECT-RULE 2026-10-02)
+
+"CHANGELOG/BACKLOG move to per-PR FRAGMENTS. Each PR adds
+changelog.d/<PR>-<slug>.md and docs/ledger/entries/<date>-<slug>.md (same
+content as today's entries); the shared files are never edited by a feature
+PR. A `ledger compile` mode (and a step in sp_deploy's tag path) folds
+fragments into CHANGELOG.md / BACKLOG.md in date order and deletes them, in
+its own commit. CI fails a PR that edits CHANGELOG.md or BACKLOG.md directly
+or lacks a fragment. Migrate open PRs on the way in. This retires the
+merge-up ritual."
+
+| Piece | What it is |
+|---|---|
+| `changelog.d/<PR>-<slug>.md` | one CHANGELOG section, starting `## YYYY-MM-DD (...)`. `<PR>` is the PR's own number; rename the file once the PR exists. |
+| `docs/ledger/entries/<YYYY-MM-DD>-<slug>.md` | one BACKLOG entry, starting `**YYYY-MM-DD — ...**` |
+| `python scripts/ledger.py compile [--commit] [--dry-run]` | folds every fragment, newest first (date, then PR number / name). CHANGELOG sections go before the first `## ` section; BACKLOG entries go right after the `### MLB / baseball` anchor. Then it deletes the fragments. `--commit` makes the fold its OWN commit. |
+| `python scripts/ledger.py pending` | read-only count of uncompiled fragments |
+| CI `fragments` job (`.github/workflows/ci.yml`, pull requests) | `ledger.py check-fragments`: fails a PR that edits CHANGELOG.md / BACKLOG.md (except a pure compile: the shared files plus deleted fragments only), or that adds no changelog fragment named for the PR, or no ledger entry |
+
+- **Where compile runs:** `sp_deploy` runs on the host from a detached tag
+  checkout. It never commits or pushes, and it refuses to deploy over a
+  modified tree.
+  - So the fold itself runs in the **tag ritual on main**, before the
+    release notes are drafted (docs/RELEASES.md step 2).
+  - `sp_deploy`'s tag path carries the read-only step: it prints and
+    receipts the fragments still uncompiled in the deployed tag (expected 0).

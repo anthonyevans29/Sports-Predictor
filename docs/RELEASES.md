@@ -38,8 +38,15 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
 1. **The day's laptop-vs-host compare passes.** The parallel week's
    comparator, `deploy/hosting/compare_exports.py`, becomes the release
    gate. Paste its verdict.
-2. **Draft the release notes.** They are the CHANGELOG slice since the
-   previous tag:
+2. **Compile the ledger fragments, then draft the release notes.** On `main`
+   (Anthony's lane, or a PR whose only change is the fold):
+   ```
+   python3 scripts/ledger.py compile --commit
+   ```
+   This folds `changelog.d/` and `docs/ledger/entries/` into CHANGELOG.md /
+   BACKLOG.md in date order, deletes them, and commits that alone
+   (ARCHITECT-RULE 2026-10-02; docs/LEDGER.md). The notes are then the
+   CHANGELOG slice since the previous tag:
    ```
    python3 scripts/release_notes.py --to <sha>
    ```

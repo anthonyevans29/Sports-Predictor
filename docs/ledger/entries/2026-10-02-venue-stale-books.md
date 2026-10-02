@@ -4,5 +4,5 @@
 - **Boundary:** the ruling says "older than 3h", so exactly 3h is still judged.
 - **Review on #250 (Anthony):** "Missing, malformed and future captured_at values still produce VENUE calls. Please obtain an explicit ruling for unknown age and reject future captures as unavailable at decision time."
   - **Future capture** (after the Desk's as-of) gives PASS / `noref`: "book capture after decision time — unavailable, no reference". A capture exactly AT the decision time is available.
-  - **Unknown age** (missing or unparseable) gives PASS / `noref`: "book capture time unknown — no reference". This is law 4's conservative side and is **PROVISIONAL**: an explicit architect ruling on unknown age is requested and pending.
+  - **Unknown age** (missing or unparseable) gives PASS / `noref`: "book capture time unknown — no reference". **RATIFIED** (ARCHITECT 2026-10-02, verbatim): "UNKNOWN capture age = NO REFERENCE — ratified, no longer provisional."
 - **Receipts:** pytest 610 passed (+5). The desk golden is unchanged (the battery carries no capture times), and all Cockpit verifies plus desk parity are green. The Cockpit needs no change, because it renders `pass_kind: noref` from the desk files.

@@ -4,7 +4,7 @@ older than 3h at decision time has NO reference (not stale-flagged, excluded)
 Pins: > 3h -> PASS / noref (never VENUE, never stale-flagged); exactly 3h and
 fresher -> the pair is judged as before; review on #250: a capture after the
 decision time is unavailable (noref) and an unknown age (missing / malformed)
-is noref, PROVISIONAL pending an explicit ruling; the Next-24h card
+is noref (ARCHITECT 2026-10-02: ratified); the Next-24h card
 (window_venue) obeys the same rules."""
 from datetime import datetime, timedelta, timezone
 
@@ -48,10 +48,10 @@ def test_exactly_3h_and_fresher_books_are_judged_as_before():
         assert abs(d["div_pp"] - 10.0) < 1e-9 and d["stale_book_zone"] is True
 
 
-def test_unknown_capture_age_is_no_reference_pending_the_ruling():
+def test_unknown_capture_age_is_no_reference():
     """Review on #250: missing / malformed captured_at produced VENUE calls.
-    Unknown age -> no reference (law 4), PROVISIONAL pending the architect's
-    explicit ruling on unknown age."""
+    ARCHITECT 2026-10-02: "UNKNOWN capture age = NO REFERENCE — ratified, no
+    longer provisional.""""
     for cap in (None, "", "not-a-time", "2026-13-45T99:00:00"):
         d = desk(cap)
         assert (d["call"], d["units"], d["pass_kind"]) == ("PASS", 0, "noref"), cap

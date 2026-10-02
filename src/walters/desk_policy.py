@@ -258,8 +258,8 @@ def venue_edge(r, now_ms: float) -> dict:
     # excluded) — same PASS/no-ref class as absent books." Decision time = the
     # Desk's as-of (now_ms). Review on #250: a capture AFTER the decision time
     # was not available then -> no reference. UNKNOWN age (missing or
-    # unparseable captured_at) -> no reference too: law 4's conservative side,
-    # PROVISIONAL pending the architect's explicit ruling on unknown age.
+    # unparseable captured_at) -> no reference too. ARCHITECT 2026-10-02:
+    # "UNKNOWN capture age = NO REFERENCE — ratified, no longer provisional."
     cap_ms = utc_ms(r.get("booksAt"))
     if math.isnan(cap_ms):
         out.update(reason="book capture time unknown — no reference", kind="noref")

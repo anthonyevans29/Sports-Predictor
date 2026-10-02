@@ -232,7 +232,11 @@ def production_allowed(eid: str, path: str = LEDGER) -> tuple[bool, str]:
     return (c["outcome"] == "CONFIRMED"), f"confirmation {c['outcome']}"
 
 
-SUBSTITUTION_REASONS = ("cancelled", "abandoned")
+# ARCHITECT 2026-10-02: "unscoreable is the criterion, not the status label;
+# record the raw code as reason." A release needs evidence that the fixture
+# can NEVER be scored: stored as cancelled, or finished without a scoreable
+# result. A postponed / scheduled / live fixture is never released.
+RELEASABLE_STATUSES = ("cancelled", "finished")
 
 
 def frozen_cohort(e: dict, ids_dir: str | None = None) -> list[int] | None:
@@ -268,11 +272,14 @@ def substitute_cohort_fixture(eid: str, released: int, replacement: int, reason:
     RELEASED and replaced by the next eligible fixture after the cohort (61st,
     62nd …), recorded as a substitution with reason; a merely postponed game
     stays in the cohort until it is played or cancelled; never a swap of a
-    scheduled-but-unplayed game." The registry checks the bookkeeping (the
-    released id is in the effective cohort, the replacement is new, never
-    released before and not from the test set; the reason is cancelled /
-    abandoned; evidence carries the stored status); the caller
-    (intl-elo-confirm --substitute) checks the stored status and picks the
+    scheduled-but-unplayed game." And: "AWD/WO (forfeit, walkover) games are
+    RELEASED and substituted exactly like cancelled/abandoned — unscoreable is
+    the criterion, not the status label; record the raw code as reason." The
+    registry checks the bookkeeping (the released id is in the effective
+    cohort, the replacement is new, never released before and not from the
+    test set; the reason is the provider's raw code; the evidence shows a
+    cancelled or finished fixture marked unscoreable); the caller
+    (intl-elo-confirm --substitute) checks the stored rows and picks the
     replacement in order."""
     entries = load(path)
     e = next((x for x in entries if x["id"] == eid), None)
@@ -281,11 +288,14 @@ def substitute_cohort_fixture(eid: str, released: int, replacement: int, reason:
     c = e.get("confirmation_cohort")
     if not c:
         raise RegistryError(f"{eid}: no frozen cohort to substitute in — freeze it first")
-    if reason not in SUBSTITUTION_REASONS:
-        raise RegistryError(f"{eid}: a cohort fixture is released only when {' / '.join(SUBSTITUTION_REASONS)} "
-                            f"(got {reason!r}); a postponed or unplayed game stays")
     if not evidence or not evidence.get("status"):
         raise RegistryError(f"{eid}: a substitution records its evidence (the stored status)")
+    if evidence["status"] not in RELEASABLE_STATUSES or evidence.get("unscoreable") is not True:
+        raise RegistryError(f"{eid}: a cohort fixture is released only when it can never be scored (cancelled, or "
+                            f"finished without a scoreable result); got status {evidence['status']!r} — a postponed "
+                            "or unplayed game stays")
+    if not reason or not str(reason).strip():
+        raise RegistryError(f"{eid}: the reason is the provider's raw status code")
     released, replacement = int(released), int(replacement)
     effective = set(frozen_cohort(e, ids_dir))
     ever_out = {int(s["released"]) for s in c.get("substitutions") or []}

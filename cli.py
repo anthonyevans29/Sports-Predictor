@@ -4113,7 +4113,7 @@ def sync_kalshi_nfl_cmd():
 
 @cli.command("sync-kalshi")
 @click.option("--date-from", "date_from", default=None, help="YYYY-MM-DD lower bound")
-@click.option("--date-to", "date_to", default=None, help="YYYY-MM-DD upper bound")
+@click.option("--date-to", "date_to", default=None, help="YYYY-MM-DD upper bound (the whole UTC day, inclusive)")
 def sync_kalshi_cmd(date_from, date_to):
     """
     Pull Kalshi MLB game markets as a SECOND market source (stored as
@@ -4124,8 +4124,13 @@ def sync_kalshi_cmd(date_from, date_to):
     from datetime import datetime
     from src.ingestion.kalshi_sync import sync_kalshi_mlb
 
+    from datetime import timedelta
+
     df = datetime.strptime(date_from, "%Y-%m-%d") if date_from else None
-    dt = datetime.strptime(date_to, "%Y-%m-%d") if date_to else None
+    # --date-to is a whole UTC day (2026-10-01: the window's
+    # `--date-to {tomorrow}` read as midnight dropped 00:05Z+ night games)
+    dt = (datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1, microseconds=-1)
+          if date_to else None)
 
     def prog(m):
         console.print(f"[dim]{m}[/dim]")

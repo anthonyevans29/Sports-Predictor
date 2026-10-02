@@ -214,9 +214,12 @@ def _job_evaluate(*, sport: str = "soccer", **kwargs) -> str:
 
 
 def _job_improve(*, sport: str = "soccer", **kwargs) -> str:
-    from src.walters.training import improve
+    from src.walters.training import LegacySoccerImproveRefused, improve
     sport_enum = Sport.SOCCER if sport == "soccer" else Sport.MLB
-    r = improve(sport=sport_enum)
+    try:
+        r = improve(sport=sport_enum)
+    except LegacySoccerImproveRefused as e:
+        return f"REFUSED: {e}"
     promoted = "PROMOTED" if r.promoted else "REJECTED"
     return f"candidate {r.candidate_version} {promoted}: {r.reasoning}"
 

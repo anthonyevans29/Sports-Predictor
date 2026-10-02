@@ -8,6 +8,13 @@ Every drop adds an entry going forward.
 - v6 ruled FAIL (0.6886 vs 0.6866; calibration FAIL; shot information +0.0023). The verdict is recorded once the laptop's run record is committed.
 - `docs/specs/nhl-xg-v7.md` + registry `nhl-v7`: v6 with the xG model's `na` shot-type level removed (a label leak: missing shot type occurs on ~0.3% of goals); untyped events take the baseline level. Same bar, splits, gate and confirmation plan. `nhl-backtest --candidate v7` (one recorded run). tests/test_nhl_xg_v7.py (4); the nhl-v6 repo test accepts the coming run record.
 
+## 2026-10-02 (#234 rulings: CNL_Q K 40; intl-neutral-v2 leave-one-out)
+- `intl_elo`: CNL_Q is Nations League class (K 40). v2 host-city sets are built from home-and-away competitions only, with each match left out of its own set; the "hosted only this match" count is printed. Doc, registry and tests updated (still unrun).
+
+## 2026-10-02 (#220 lane 2: intl-elo-v1 RATIFIED; harness built, not run)
+- `docs/specs/intl-elo-v1.md` RATIFIED (draws S=0.5 with max(margin,1); no regression; unknown venue +100; RULE CHECK 10% with the pre-declared intl-neutral-v2; naive symmetric at neutral). Registry entry carries `ratified`; still unrun.
+- `python cli.py intl-elo-backtest [--preflight]` (`src/walters/intl_elo.py`): registry refusal before any data load; walk-forward Elo with the soccer Elo→Poisson three-way; naive − 0.010 + bands; RPS; one recorded run. Refuses while CNL_Q's K class is unruled (#234). tests/test_intl_elo.py (11).
+
 ## 2026-10-02 (#230: CONCACAF Nations League codes — intl-sync refused on id 808)
 - Adapter codes `CNL` (536, CONCACAF Nations League) and `CNL_Q` (808, its 2018 qualification), ruled. The ingest codes both by name; the provisional, never-written `CONCACAF_NL` is renamed `CNL`. `intl-inventory` includes both. A regression test reproduces the refusal.
 

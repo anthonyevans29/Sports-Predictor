@@ -813,6 +813,31 @@ def predict_worldcup_cmd(season: str, competition_code: str, out: str | None):
     console.print(f"[green]✓ Wrote {len(results)} market-derived reads to {out_path}.[/green]")
 
 
+@cli.command("intl-inventory")
+def intl_inventory_cmd():
+    """#220 UNL lane STEP 1 (read-only): the national-team results the DB
+    stores — per competition and season: finished+scored matches, span,
+    teams, raw home/draw/away shares, venue completeness — and each UNL team's
+    prior international history. The UNL Elo pre-commitment is written FROM
+    this receipt, before any fit. No neutral site is inferred (law 4)."""
+    from src.db.database import init_db, session_scope
+    from src.walters import intl_inventory as ii
+    init_db()
+    with session_scope() as s:
+        r = ii.inventory(s)
+        s.rollback()
+    f = lambda x: "—" if x is None else f"{x:.3f}"
+    click.echo(f"INTL INVENTORY (#220) · competitions found: {', '.join(r['competitions_found']) or 'none'} "
+               f"· finished+scored results: {r['total_scored']}")
+    for t in r["table"]:
+        click.echo(f"  {t['code']:<15} {t['season']:<8} matches {t['matches']:>4} · scored {t['finished_scored']:>4} · "
+                   f"teams {t['teams']:>3} · {t['from']} .. {t['to']} · H/D/A {f(t['home_rate'])}/{f(t['draw_rate'])}/"
+                   f"{f(t['away_rate'])} · venue populated {f(t['venue_populated'])}")
+    click.echo(f"  UNL teams: {r['unl_teams']} · prior international results before each team's first UNL match: "
+               + " · ".join(f"{k}: {v}" for k, v in sorted(r["unl_teams_prior_history"].items())))
+    click.echo("  (no neutral flag is stored; nothing here infers one — law 4)")
+
+
 @cli.command("registry")
 @click.option("--id", "eid", default=None, help="Show one entry in full (with its prior reads).")
 def registry_cmd(eid):

@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#220: UNL lane step 1 — national-team results inventory)
+- `src/walters/intl_inventory.py` + `python cli.py intl-inventory` (read-only). For UNL, WC, UEFA_EURO, WCQ_* and FRIENDLIES_INT, per competition and season: finished+scored matches, date span, teams, raw home/draw/away shares and venue completeness. Also each UNL team's prior international results before its first UNL match.
+- No neutral site is inferred (law 4). tests/test_intl_inventory.py.
+
 ## 2026-10-02 (#176: NCAA source probe — read-only, row-level)
 - `scripts/ncaa_source_probe.py`: CollegeFootballData (CFBD) `/games` by year, FBS by default. Field names are discovered from the first record and printed; a missing required field refuses the run.
 - Each completed game is joined to OUR NCAA matches through the shared matcher (ambiguity refused), in the source's orientation, else swapped. It compares labels and scores (in our orientation); neutral games are counted separately and never relabel ours.

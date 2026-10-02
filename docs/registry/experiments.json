@@ -495,8 +495,36 @@
       "reference": "naive baseline (frozen train frequencies, spec section 6) on the same 60 games, minus 0.010"
     },
     "declared_at": "2026-10-02T16:31:13Z",
-    "status": "declared",
-    "run": null,
+    "status": "run",
+    "run": {
+      "run_at": "2026-10-02T16:59:39Z",
+      "n_scored": 392,
+      "ids_sha256": "cf5197b1c71da9b61135adc00bf5c1adbbd714a5dc6932c4d05754af1ee7ddef",
+      "ids_file": "docs/registry/ids/intl-elo-v2.txt",
+      "result": {
+        "n_test": 392,
+        "ll_model": 0.7889432823659717,
+        "ll_naive": 1.0523683095044296,
+        "bar": 1.0423683095044296,
+        "rps_model": 0.15326803096331837,
+        "rps_naive": 0.23678511271098537,
+        "crit_ll": true,
+        "crit_bands": true,
+        "verdict": "PASS",
+        "mu": 1.3366735775167011,
+        "neutral_rule": "intl-neutral-v3",
+        "fit_c_mult": 1.5,
+        "fit_k_mult": 2.0,
+        "train_attribution": {
+          "v1 params + v2 neutral (v1 as run)": 0.97977,
+          "(a) only: fitted params + v2 neutral": 0.9402,
+          "(b) only: v1 params + v3 neutral": 0.97736,
+          "(a)+(b): fitted params + v3 neutral": 0.93883
+        }
+      },
+      "prior_reads": [],
+      "prior_read_count": 0
+    },
     "verdict": null,
     "ratified": "ARCHITECT 2026-10-02: interpretation RATIFIED \u2014 the fitted scale is a multiplier on c; the update divisor stays 400."
   }

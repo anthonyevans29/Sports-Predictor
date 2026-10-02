@@ -16,6 +16,16 @@ Every drop adds an entry going forward.
   - An unpriced close ships the no-1X2 shape plus an additive `close_unpriced` receipt. Fixtures receipts gain a `close_unpriced` count.
   - `scripts/export_close_compare.py BEFORE AFTER` is the read-only receipt for a real export of each kind.
 
+## 2026-10-01 (#204 / #175: Kalshi in-play guard on OUR start time — merged in #205; record backfilled)
+- `sync_kalshi_mlb` (the shared path for MLB, NFL, NHL and NCAA): the in-play guard now runs after matching and checks the matched game's `utc_date`, not the market's `occurrence_datetime`. A game with no start time on record is never treated as pre-game.
+- Gate 1 (time) has two anchors: games within 5h of the occurrence OR within 2h of the ticker's ET start stamp (`KalshiAdapter.ticker_start`, the M13 parse). The fallback for a missing occurrence is kept.
+- `sync-kalshi --date-to D` covers the whole UTC day D. The window's `--date-to {tomorrow}` had dropped first pitches after 00:00Z (#175).
+- tests/test_kalshi_inplay_guard.py: 4 tests. Run against the old code, they reproduce "matched 0 / in-play 2" and the stored in-play leak.
+
+## 2026-10-01 (#213: review hygiene)
+- RESULTS.md is marked REGENERATED, NOT AUTHORITATIVE IN GIT: in the `results-tally` header (every regeneration), README, docs/CLI.md, and a banner on the stale committed copy (2026-09-17).
+- #83 re-closed with an `ARCHITECT`-opening comment (S19 REJECT, 2026-09-30). #98's description is refreshed: #167 met its reopening condition in code, and it waits on a live PL receipt.
+
 ## 2026-10-01 (#206: P0-1 maker fee no longer double-counts the 25%)
 - `venue.KALSHI_FEE_M`: game series (NFL/NHL/NCAAF/EPL) maker M changes from 0.25 to 1.0; MLB pre-live stays (0.5, 0.5). The maker discount is the 0.0175 rate (= ¼ × 0.07), applied once. Before: NFL maker, 100 contracts at 50c, cost $0.11. Published: $0.44.
 - Cockpit `FEE_M_BY_FAMILY` (the fill classifier) gets the same fix, and the policy card text is corrected. `scripts/kalshi_fee_fill_receipt.py` reads the fixed table.

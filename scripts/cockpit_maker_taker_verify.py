@@ -5,7 +5,7 @@ Python fee math and the Cockpit read are checked together. Checks, over
 SYNTHETIC files:
 - ruling (1): the export carries exec_cost_taker + exec_cost_maker (NFL taker
   M=1 / maker M=1 at the 0.0175 rate (#206); MLB pre-live M=0.5 for both); a 1c spread has no maker
-  price; kalshi_exec_cost stays as the taker alias;
+  price; the kalshi_exec_cost alias is retired (#130);
 - ruling (2): the Desk's exec edge and "fee-clears?" use the MAKER cost by
   default, with the taker cost shown as the fallback; the taker cost is the
   basis when no maker price exists; calls and units are unchanged;
@@ -60,8 +60,8 @@ def nfl(home, away, p_home, fair_home, bid=None, ask=None):
 def main():
     print("EXPORT (venue.kalshi_exec, ruling 1)")
     sea = kalshi_exec(0.55, 0.58, "NFL")
-    check("NFL 0.55/0.58: taker 0.597 (0.58 + 17c/10 at M=1), maker 0.564 (join 0.56 + 4c/10 at the 0.0175 rate, M=1 (#206); #88 nearest per fill), alias = taker",
-          (sea["exec_cost_taker"], sea["exec_cost_maker"], sea["kalshi_exec_cost"]) == (0.597, 0.564, 0.597), json.dumps(sea))
+    check("NFL 0.55/0.58: taker 0.597 (0.58 + 17c/10 at M=1), maker 0.564 (join 0.56 + 4c/10 at the 0.0175 rate, M=1 (#206); #88 nearest per fill); the alias is retired (#130)",
+          (sea["exec_cost_taker"], sea["exec_cost_maker"]) == (0.597, 0.564) and "kalshi_exec_cost" not in sea, json.dumps(sea))
     mlb = kalshi_exec(0.55, 0.57, "MLB")
     check("MLB pre-live 0.55/0.57: M=0.5 both; taker 0.579, maker 0.562",
           (mlb["exec_cost_taker"], mlb["exec_cost_maker"], mlb["fee_m_taker"], mlb["fee_m_maker"]) == (0.579, 0.562, 0.5, 0.5),
@@ -81,7 +81,7 @@ def main():
          **mlb}]}
     NOQ = json.loads(json.dumps(D))
     for r in NOQ["predictions"]:
-        for k in ("kalshi_bid", "kalshi_ask", "exec_cost_taker", "exec_cost_maker", "kalshi_exec_cost"):
+        for k in ("kalshi_bid", "kalshi_ask", "exec_cost_taker", "exec_cost_maker"):
             r[k] = None
 
     # ticker, side, qty, entry, exit, open fee, close fee, pre, net, title — all settled (close fee 0)

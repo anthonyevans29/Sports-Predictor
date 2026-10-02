@@ -93,7 +93,10 @@ def fuzz_docs(now: datetime, seed: int = 151, n: int = 120) -> dict:
         if rnd.random() < 0.5:
             q["exec_cost_maker"] = round(bid + 0.01 + rnd.uniform(0.001, 0.006), 4)
         if rnd.random() < 0.15:
-            q["kalshi_exec_cost"] = round((ask or bid) + 0.011, 4)
+            # Pre-split rows carried only the alias kalshi_exec_cost (retired, #130). The
+            # deleted JS read exec_cost_taker ?? kalshi_exec_cost, so the alias's value lands
+            # in exec_cost_taker when that is absent: same draws, same frozen outputs.
+            q.setdefault("exec_cost_taker", round((ask or bid) + 0.011, 4))
         if rnd.random() < 0.4:
             q.update(away_bid=round(1 - (ask or 0.5), 2), away_ask=round(1 - bid, 2),
                      exec_cost_taker_away=round(1 - bid + 0.012, 4) if rnd.random() < 0.8 else None,

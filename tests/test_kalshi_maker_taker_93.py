@@ -2,7 +2,7 @@
 kalshi_exec_cost becomes exec_cost_taker (ask + 0.07*M*P(1-P)) and
 exec_cost_maker ((bid + 1c) + 0.0175*M*P(1-P)). Game series: M=1 for taker and
 maker (P0-1 #206: the maker discount is the 0.0175 rate, never a second 0.25 M);
-MLB pre-live M=0.5 for both. kalshi_exec_cost stays as the taker alias.
+MLB pre-live M=0.5 for both. The kalshi_exec_cost alias was retired (#130).
 Rounding is unchanged (per-contract cent ceiling, pending the ruling on #88)."""
 import json
 from datetime import datetime, timedelta
@@ -36,7 +36,7 @@ def test_fee_formula_takes_m_and_rate():
 def test_exec_nfl_taker_and_maker():
     e = venue.kalshi_exec(0.55, 0.58, "NFL")
     assert (e["exec_cost_taker"], e["exec_cost_maker"]) == (0.597, 0.564)  # 0.58+1.7c ; join 0.56 + round(10x0.0175x0.56x0.44 = 4.3c -> 4c)/10
-    assert e["kalshi_exec_cost"] == e["exec_cost_taker"]                    # deprecated alias
+    assert "kalshi_exec_cost" not in e                                       # alias retired (#130)
     assert (e["fee_series"], e["fee_m_taker"], e["fee_m_maker"]) == ("KXNFLGAME", 1.0, 1.0)
 
 
@@ -87,8 +87,8 @@ def test_fixtures_export_carries_both_costs_per_series(tmp_path, monkeypatch):
     fx = {r["match_id"]: r for r in json.loads(open(export_fixtures(
         "M93NHL", start="2033-04-05", end="2033-04-06", out_dir=str(tmp_path))).read())["fixtures"]}
     r = fx[nhl]
-    assert (r["kalshi_bid"], r["kalshi_ask"], r["exec_cost_taker"], r["exec_cost_maker"],
-            r["kalshi_exec_cost"]) == (0.55, 0.58, 0.597, 0.564, 0.597)
+    assert (r["kalshi_bid"], r["kalshi_ask"], r["exec_cost_taker"], r["exec_cost_maker"]) == (0.55, 0.58, 0.597, 0.564)
+    assert "kalshi_exec_cost" not in r                                       # alias retired (#130)
     assert fx[tight]["exec_cost_maker"] is None and fx[tight]["exec_cost_taker"] == 0.597
 
 

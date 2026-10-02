@@ -4,7 +4,7 @@
 The correction: a SOCCER game whose Kalshi capture lacks a leg (usually the
 TIE) is INCOMPLETE — no longer normalized as a two-way set. After the fix the
 export ships prob null, normalized false, input_quality.kalshi "partial" and
-null kalshi_bid / kalshi_ask / kalshi_exec_cost.
+null kalshi_bid / kalshi_ask / exec_cost_taker.
 
 This runs the REAL soccer prediction export (export_predictions, current
 code) over a window, takes every row now marked incomplete
@@ -50,7 +50,7 @@ def old_exec(match_id: int) -> float | None:
             OddsSnapshot.selection == "HOME").order_by(OddsSnapshot.captured_at.desc())).scalars()
         home = next((x for x in snaps if x.captured_at is None or m.utc_date is None
                      or x.captured_at < m.utc_date), None)
-        return kalshi_exec(home.yes_bid, home.yes_ask)["kalshi_exec_cost"] if home else None
+        return kalshi_exec(home.yes_bid, home.yes_ask)["exec_cost_taker"] if home else None
 
 
 def receipt(start: datetime, end: datetime, competition: str | None) -> dict:
@@ -71,7 +71,7 @@ def receipt(start: datetime, end: datetime, competition: str | None) -> dict:
                     "before": {**before, "exec_cost": old_exec(r["match_id"]) if before["normalized"] else None},
                     "after": {"normalized": k["normalized"], "prob": k["prob"],
                               "input_quality": (r.get("input_quality") or {}).get("kalshi"),
-                              "exec_cost": r.get("kalshi_exec_cost")}})
+                              "exec_cost": r.get("exec_cost_taker")}})
     return {"rows": len(rows), "with_kalshi": len(with_k), "affected": out,
             "changed": sum(1 for x in out if x["before"]["normalized"])}
 

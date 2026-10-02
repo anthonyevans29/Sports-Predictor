@@ -41,7 +41,7 @@ NOW = datetime.now(timezone.utc).replace(microsecond=0)
 D1 = (NOW + timedelta(days=1)).strftime("%Y-%m-%dT%H:%M:%S")
 CHECKS = []
 AWAY_KEYS = ("away_bid", "away_ask", "exec_cost_taker_away", "exec_cost_maker_away")
-ALL_K = ("kalshi_bid", "kalshi_ask", "exec_cost_taker", "exec_cost_maker", "kalshi_exec_cost") + AWAY_KEYS
+ALL_K = ("kalshi_bid", "kalshi_ask", "exec_cost_taker", "exec_cost_maker") + AWAY_KEYS
 
 
 def check(label, ok, detail=""):

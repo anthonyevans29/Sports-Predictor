@@ -48,9 +48,9 @@ def nfl(home, away, p_home, fair_home, ask=None, cost=None, bid=None):
          "market": {"bookmaker_count": 7, "fair_prob": {"HOME": fair_home, "AWAY": round(1 - fair_home, 4)}},
          "market_divergence_pp": round((p_home - fair_home) * 100, 1), "quarantine": False,
          "input_quality": {"book_odds": 7, "injuries": {"home": {"qb_listed": []}, "away": {"qb_listed": []}}},
-         "kalshi_bid": None, "kalshi_ask": None, "kalshi_exec_cost": None}
+         "kalshi_bid": None, "kalshi_ask": None, "exec_cost_taker": None}
     if ask is not None:
-        r.update(kalshi_bid=bid if bid is not None else round(ask - 0.01, 2), kalshi_ask=ask, kalshi_exec_cost=cost)
+        r.update(kalshi_bid=bid if bid is not None else round(ask - 0.01, 2), kalshi_ask=ask, exec_cost_taker=cost)
     return r
 
 
@@ -70,13 +70,13 @@ MLB = {"sport": "mlb", "predictions": [
     {"home_team": "New York Yankees", "away_team": "Boston Red Sox", "utc_date": D1, "competition": "MLB",
      "prediction": {"home_win_prob": 0.62, "draw_prob": None, "away_win_prob": 0.38},
      "market": {"bookmaker_count": 6, "selections": {"HOME": {"fair_prob": 0.56}, "AWAY": {"fair_prob": 0.44}}},
-     "kalshi_bid": 0.55, "kalshi_ask": 0.57, "kalshi_exec_cost": 0.59}]}
+     "kalshi_bid": 0.55, "kalshi_ask": 0.57, "exec_cost_taker": 0.59}]}
 
 
 def strip(d):
     d = copy.deepcopy(d)
     for r in d["predictions"]:
-        r.update(kalshi_bid=None, kalshi_ask=None, kalshi_exec_cost=None)
+        r.update(kalshi_bid=None, kalshi_ask=None, exec_cost_taker=None)
     return d
 
 
@@ -120,8 +120,8 @@ def main():
         load("day1.json")
         rows = {r[0]: r for r in table()}
         bills = next(v for k, v in rows.items() if "Buffalo" in k)
-        # These fixtures are PRE-SPLIT exports (kalshi_exec_cost only, no
-        # exec_cost_maker): the Desk falls back to the taker cost and says so
+        # These fixtures carry the taker cost only (exec_cost_taker, no
+        # exec_cost_maker; the pre-split alias is retired, #130): the Desk falls back to the taker cost and says so
         # (#93 split; the maker path is checked in cockpit_maker_taker_verify.py).
         check("HOME pick with quotes: fair edge + 'exec +4.0pp @ 0.620 taker' + 1¢ spread: joining = taking + fee-clears?",
               bills[4] == "+6.0pp" + "exec +4.0pp @ 0.620 taker (spread 1¢ — joining = taking) · fee-clears?", bills[4])

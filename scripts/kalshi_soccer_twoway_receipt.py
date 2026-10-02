@@ -61,7 +61,7 @@ def receipt(start: datetime, end: datetime, competition: str | None) -> dict:
             pre = [x for x in snaps if x.captured_at is None or m.utc_date is None or x.captured_at < m.utc_date]
             legs = sorted({x.selection for x in pre})
             old_status = "two_sided" if {"HOME", "AWAY"} <= set(legs) else ("one_sided" if legs else "absent")
-            old_exec = (kalshi_exec(old_k["home_bid"], old_k["home_ask"])["kalshi_exec_cost"]
+            old_exec = (kalshi_exec(old_k["home_bid"], old_k["home_ask"])["exec_cost_taker"]
                         if old_status == "two_sided" and old_k else None)
             og, of = venue_gap(fair, old_k["home"] if old_k else None)
             ng, nf = venue_gap(fair, new_k["home"] if new_k else None)
@@ -69,7 +69,7 @@ def receipt(start: datetime, end: datetime, competition: str | None) -> dict:
                       "exec_cost": old_exec, "venue_gap_pp": og, "flag": of}
             after = {"status": (row.get("kalshi") or {}).get("status", "absent"),
                      "kalshi_home": round(new_k["home"], 4) if new_k else None,
-                     "exec_cost": row.get("kalshi_exec_cost"), "venue_gap_pp": ng, "flag": nf}
+                     "exec_cost": row.get("exec_cost_taker"), "venue_gap_pp": ng, "flag": nf}
             if before != after:
                 out.append({"match_id": m.id, "competition": code, "utc": m.utc_date.isoformat(),
                             "game": f"{row['away_team']} @ {row['home_team']}", "legs": legs,

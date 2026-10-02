@@ -329,7 +329,7 @@ function normalize(doc){
       stage:p.stage===undefined?undefined:p.stage,
       comp:(p.competition||doc.sport||"").toUpperCase(),   // fee-table key for the Kalshi-only reference   // MLB: "postseason" | "regular" | null (unknown); absent on older exports
       kalProb:kalFromPrediction(p,mk,market),threeWay:market.DRAW!=null||probs.DRAW!=null,
-      kExec:{bid:p.kalshi_bid??null,ask:p.kalshi_ask??null,cost:p.exec_cost_taker??p.kalshi_exec_cost??null,
+      kExec:{bid:p.kalshi_bid??null,ask:p.kalshi_ask??null,cost:p.exec_cost_taker??null,   // #130: pre-split alias retired
         maker:p.exec_cost_maker??null,    // #93 ruling: taker + maker (pre-split exports: taker only)
         // #89: the AWAY side = the NO side of the home contract (two-way exports
         // only; null on soccer 1X2 and absent on pre-#89 exports)

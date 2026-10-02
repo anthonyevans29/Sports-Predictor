@@ -12,7 +12,8 @@ KO = "2026-10-02T21:00:00"
 
 def row(engine="market_only", comp="NHL", books=5, fair=None, kal=None, ko=KO):
     return {"engine": engine, "competition": comp, "utc_date": ko,
-            "market": {"bookmaker_count": books, "fair_prob": fair or {"HOME": 0.58, "AWAY": 0.42}},
+            "market": {"bookmaker_count": books, "fair_prob": fair or {"HOME": 0.58, "AWAY": 0.42},
+                       "captured_at": "2026-10-02T15:30:00"},                     # fresh (#91)
             "kalshi": kal if kal is not None else {"status": "two_sided", "prob": {"HOME": 0.50, "AWAY": 0.50}}}
 
 

@@ -180,7 +180,10 @@ def fuzz_docs(now: datetime, seed: int = 151, n: int = 120) -> dict:
                 kp.pop("DRAW" if draw else "AWAY", None)
             fx.append({"home_team": f"{code} H{i}", "away_team": f"{code} A{i}", "utc_date": ko(),
                        "status": pick("scheduled", "scheduled", "scheduled", "finished", None),
-                       "market": {"bookmaker_count": books, "fair_prob": fair if books else {}},
+                       # #91 (2026-10-02): a fresh book capture (no draw consumed). The deleted JS
+                       # never read it, so the frozen outputs stand; the Python Desk needs a known age.
+                       "market": {"bookmaker_count": books, "fair_prob": fair if books else {},
+                                  "captured_at": iso(now - timedelta(minutes=30))},
                        "kalshi": {"status": pick("two_sided", "two_sided", "one_sided", "partial"), "prob": kp},
                        "input_quality": {"kalshi": "two_sided"}})
         fixtures.append({"competition_code": code, "contains_predictions": False, "fixtures": fx})

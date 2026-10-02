@@ -54,10 +54,14 @@ def nfl(home, away, p_home, fair_h, books=7, when=K, quarantine=False):
             "input_quality": {"book_odds": books, "injuries": {"home": {"qb_listed": []}, "away": {"qb_listed": []}}}}
 
 
+# #91: a fresh book capture (30 min before now) — the Desk excludes unknown / stale ages.
+CAP = (datetime.now(timezone.utc).replace(tzinfo=None) - timedelta(minutes=30)).replace(microsecond=0).isoformat()
+
+
 def fixture(home, away, books, fair, kal):
     return {"home_team": home, "away_team": away, "utc_date": K, "status": "scheduled",
             "market": ({"bookmaker_count": books, "fair_prob": {"HOME": fair[0], "AWAY": fair[1]},
-                        "fair_source": "1X2"} if books else None),
+                        "fair_source": "1X2", "captured_at": CAP} if books else None),   # fresh capture (#91)
             "kalshi": ({"status": "two_sided", "prob": {"HOME": kal[0], "AWAY": kal[1]}} if kal else None),
             "input_quality": {"book_odds": books, "kalshi": "two_sided" if kal else "absent"}}
 

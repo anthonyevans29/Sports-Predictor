@@ -42,7 +42,8 @@ POLICY = {
     "DEFAULT": {"eMin": 4, "eLad": INF, "eHair": 15, "pMin": 0, "qNever": False},
 }
 BASE_UNITS = 1
-VENUE = {"minBooks": 4, "minDivPP": 5.0, "units": 0.25, "staleGapPP": 8.0}
+VENUE = {"minBooks": 4, "minDivPP": 5.0, "units": 0.25, "staleGapPP": 8.0,
+         "maxBookAgeH": 3}       # #91 RULED 2026-10-02: an older book capture is NO reference
 VALUE = {"units": 0.25, "reviewN": 30}
 K2 = {"feeClearsPP": 4, "tick": 0.01}
 PASSCLASS = {"minBooks": 3, "rerunMin": 60}
@@ -174,7 +175,8 @@ def normalize(doc: dict) -> list[dict]:
                         "mktHasDraw": fair.get("DRAW") is not None,
                         "kal": (f.get("input_quality") or {}).get("kalshi") or None, "sport": sport,
                         "utc": f.get("utc_date") or "", "probsAll": {}, "fairAll": fair, "div": None,
-                        "quar": False, "books": mk.get("bookmaker_count"), "qbs": [], "marketOnly": True,
+                        "quar": False, "books": mk.get("bookmaker_count"), "booksAt": mk.get("captured_at"),
+                        "qbs": [], "marketOnly": True,
                         "tier": None, "kalProb": kal_from_fixture(f.get("kalshi"), fair),
                         "threeWay": fair.get("DRAW") is not None, "stage": MISSING, "comp": "", "kExec": None})
         return out
@@ -249,6 +251,25 @@ def venue_edge(r, now_ms: float) -> dict:
     has_book = books > 0 and fair.get("HOME") is not None and fair.get("AWAY") is not None
     if not has_book or not r["kalProb"]:
         out.update(reason="single venue — no pair", kind="noref")
+        return out
+    # #91 RULED (ARCHITECT 2026-10-02): "a venue-edge row whose book capture is
+    # older than 3h at decision time has NO reference (not stale-flagged,
+    # excluded) — same PASS/no-ref class as absent books." Decision time = the
+    # Desk's as-of (now_ms). Review on #250: a capture AFTER the decision time
+    # was not available then -> no reference. UNKNOWN age (missing or
+    # unparseable captured_at) -> no reference too. ARCHITECT 2026-10-02:
+    # "UNKNOWN capture age = NO REFERENCE — ratified, no longer provisional."
+    cap_ms = utc_ms(r.get("booksAt"))
+    if math.isnan(cap_ms):
+        out.update(reason="book capture time unknown — no reference", kind="noref")
+        return out
+    if cap_ms > now_ms:
+        out.update(reason="book capture after decision time — unavailable, no reference", kind="noref")
+        return out
+    age_ms = now_ms - cap_ms
+    if age_ms > VENUE["maxBookAgeH"] * 3600000:
+        out.update(reason=f"books captured {js_fixed(age_ms / 3600000, 1)}h ago > {VENUE['maxBookAgeH']}h"
+                          " — no reference", kind="noref")
         return out
     if books < VENUE["minBooks"]:
         out.update(reason=f"books {js_str(r['books'])} < {VENUE['minBooks']} — pair too thin", kind="noref")
@@ -695,6 +716,7 @@ def window_venue(row: dict, now_ms: float) -> dict:
                       "sport": str(row.get("competition") or row.get("sport") or "?").upper(),
                       "utc": row.get("utc_date") or "", "fairAll": fair,
                       "books": (row.get("market") or {}).get("bookmaker_count") or 0,
+                      "booksAt": (row.get("market") or {}).get("captured_at"),
                       "kalProb": kal_from_fixture(row.get("kalshi"), fair)}, now_ms)
     return venue_block(ven)
 

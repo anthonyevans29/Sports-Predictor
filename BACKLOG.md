@@ -30,6 +30,12 @@ specific reason they're not being built now.
   - Regressions: the three new tests fail on the old code.
   - #223's `nhl-v6` entry gains its plan (150 games, log-loss <= 0.6866 and < v1 on the same games) in its own merge-up.
 
+**2026-10-02 — #220 UNL LANE STEP 1 BUILT: the national-team results inventory (read before the pre-commitment).**
+The ruling's candidate is an international Elo on STORED results with the home advantage declared a priori and a gate of naive − 0.010 in the same bands. Law 1 comes first: `intl-inventory` reports what the DB holds (UNL / WC / Euro / WC qualifiers / friendlies, per season), the raw home/draw/away shares and how much prior history each UNL team has.
+- **No neutral flag is stored:** the receipt says so and nothing infers one. This matters for the home-advantage declaration, since tournament games are often neutral.
+- **Receipt owed (laptop):** `python cli.py intl-inventory`.
+- **Next:** the pre-commitment (naive baseline definition, home term and its neutral rule, splits, bands), written from the receipt and declared in the registry (#212) before any fit.
+
 **2026-10-02 — #176 NCAA SOURCE PROBE BUILT (moved to THIS WEEK by ruling): read-only, row-level, CFBD.**
 - **Probe:** `scripts/ncaa_source_probe.py` joins each CFBD game to ours with the shared matcher in both orientations. Per game it reports the label (same or swapped), the score (agree or disagree, in our orientation) and the neutral flag (source only; our DB has none, law 4).
 - **Comparison:** the source's home rate and margin, non-neutral and neutral separately, against ours on the same joined games. This answers whether the 0.489 is a provider fault or real neutral-site share.

@@ -41,18 +41,11 @@ from datetime import date
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-# The ruling's targets: name regex over /leagues?country=World (first-class
-# discovery, law 1). One target may match several leagues (WCQ: one per
-# confederation plus the intercontinental play-offs).
-TARGETS = {
-    "WCQ": re.compile(r"world cup.*qualif", re.I),
-    "EURO": re.compile(r"^(uefa )?euro(pean)? championship$", re.I),
-    "EURO_Q": re.compile(r"euro(pean)? championship.*qualif", re.I),
-    "NATIONS_LEAGUE": re.compile(r"nations league", re.I),
-    "FRIENDLIES": re.compile(r"^friendlies$", re.I),
-}
-# Never national senior men's football: shown nowhere, fetched never.
-NOT_SENIOR = re.compile(r"women|\bu-?\d\d\b|youth|olympic|club|beach|futsal|esports|amateur", re.I)
+# The ruling's targets and the never-senior filter live with the ingest
+# (src/ingestion/intl_history.py) so the probe and the ingest discover the
+# same leagues.
+from src.ingestion.intl_history import NOT_SENIOR, TARGETS  # noqa: E402
+
 FINISHED = ("FT", "AET", "PEN")
 NEUTRAL_KEY = re.compile(r"neutral", re.I)
 

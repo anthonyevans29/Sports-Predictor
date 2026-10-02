@@ -22,6 +22,18 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — #228 probe GREEN (ARCHITECT); UNL lane REOPENED, data-ready. Lane 1: national-team history INGEST (#230).**
+- **Ruling (verbatim):** "intl source probe GREEN — 6,957 scored results 2018+, 37 competition-seasons, 54/54 UNL teams at 60+ results. UNL lane REOPENED: data-ready. Two lanes, in order: (1) INGEST (#228 → new lane): the ruled competition set 2018-present, restricted to senior national teams present in UNL/WCQ/EURO/EURO_Q (filters the wide Friendlies bucket; print what was excluded). Neutral derivation RULED YES: fetch /teams per competition-season (37 calls), derive neutral = venue city ≠ home team's ground city, store as `neutral_derived` with the rule stated — never as a provider fact. Coverage receipt per competition-season after ingest. (2) PRE-COMMITMENT (write for ratification, no run): international Elo [...]"
+- **Built:** `src/ingestion/intl_history.py`, `python cli.py intl-sync` and `intl-coverage`.
+  - Discovery is the probe's own (the regexes moved here; the probe imports them). Each league gets a code BY NAME: WCQ_EU/SA/AF/AS/NA/OC, new WCQ_IC (intercontinental play-offs), UEFA_EURO, new UEFA_EURO_Q, UNL, new CONCACAF_NL, FRIENDLIES_INT.
+  - A code the adapter already maps must carry the same id; an unmapped target name is refused (law 1).
+  - Team filter: a fixture is kept only when BOTH teams appear in a UNL / WCQ_* / UEFA_EURO / UEFA_EURO_Q fixture; every excluded fixture is counted and the excluded teams printed with counts.
+  - Writes go through the normal upsert path (idempotent; a refetch never blanks a score), with a per-run team map (no O(n^2) team scan). New codes get a Competition row; existing rows are never modified.
+  - `neutral_derived` lives in a NEW table `match_neutral_derived` (created by init_db; no migration, `matches` is untouched) with the rule text verbatim and both cities as served. Either city missing gives NULL (law 4).
+  - The coverage receipt adds a RULE CHECK: the derived-neutral share in home-and-away competitions (UNL / WCQ_* / UEFA_EURO_Q), which should be near 0.
+- **Risk stated before the run:** many national teams play home games in several cities (Germany, Italy, Spain, England's non-Wembley games, ...). The ruled rule compares the venue city to ONE ground city, so those home games derive as neutral. The RULE CHECK line measures it; if it is high, the rule needs a ruling before the Elo uses the flag (e.g. a venue-country comparison: /venues per country, cost to be estimated).
+- **Owed (laptop):** `.backup`; `intl-sync --dry-run --save <dir>` (1 + 2×37 = 75 calls); then `intl-sync --from-dir <dir>` (0 calls) and paste the receipt on #230.
+
 **2026-10-02 — UNL lane SUSPENDED-PENDING-DATA (ARCHITECT); national-team source probe opened (#228, read-only).**
 - **Ruling (verbatim):** "intl-inventory — 157 scored results total (UNL 60, WC 97); 38/54 UNL teams have 0 prior results; WCQ/EURO/friendlies registered but empty. UNL model lane SUSPENDED-PENDING-DATA; no pre-commitment yet. Probe lane (read-only): can the football provider supply national-team history 2018-present (WCQ all confederations, Euro + qualifiers, Nations League 2018-19 onward, friendlies) with scores and venue/neutral flags? Coverage receipt per competition-season; cost estimate in calls. A national-team Elo needs ~6 years of results before its first gate run."
 - **Built:** `scripts/intl_source_probe.py` (API-Football through the existing adapter client).

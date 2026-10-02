@@ -1,3 +1,3 @@
-## 2026-10-02 (#220: intl-elo-v2 run record spliced; PASS recorded — confirmation window open)
+## 2026-10-02 (#251: intl-elo-v2 run record spliced; PASS recorded — confirmation window open)
 - `docs/registry/`: the laptop's intl-elo-v2 run (392 scored ids, the same ids as v1, sha256 verified; log-loss 0.7889 vs bar 1.0424; RPS 0.153 vs 0.237; fit c×1.5, K×2.0; neutral rule v3) is spliced. Its prior reads are recomputed against main's ledger: intl-elo-v1, so 2 reads counting this one, as ruled.
 - Verdict PASS recorded verbatim. Status is `confirming`, and production is refused until a CONFIRMED read. The declared limitations are recorded: grid-edge pick, 13.7% v3 neutral share, 57% unflagged venues. tests/test_intl_elo_v2.py (+1).

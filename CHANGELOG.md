@@ -8,6 +8,10 @@ Every drop adds an entry going forward.
 - `intl-elo-backtest`: v2's RULE CHECK printed on the same home-and-away denominator and gated at 10% (a breach refuses); a city hosted only by this competitive match is HOME (ruled); `rule_check_v1/v2` recorded with the run. Gap games update ratings (pinned by a test).
 - intl-neutral-v3 (venue country ≠ home country) pre-declared; `scripts/intl_venue_route_probe.py` reports its cheapest route from the saved responses with zero calls.
 
+## 2026-10-02 (#153: NHL v6 FAIL; v7 declared — the xG `na` level removed)
+- v6 ruled FAIL (0.6886 vs 0.6866; calibration FAIL; shot information +0.0023). The verdict is recorded once the laptop's run record is committed.
+- `docs/specs/nhl-xg-v7.md` + registry `nhl-v7`: v6 with the xG model's `na` shot-type level removed (a label leak: missing shot type occurs on ~0.3% of goals); untyped events take the baseline level. Same bar, splits, gate and confirmation plan. `nhl-backtest --candidate v7` (one recorded run). tests/test_nhl_xg_v7.py (4); the nhl-v6 repo test accepts the coming run record.
+
 ## 2026-10-02 (#153: NHL shot coverage receipt — both denominators, thresholds on the gate stream)
 - `nhl-shot-coverage` / the `nhl-shot-sync` receipt report all finished games (preseason included; not judged) AND the v6 gate stream (nhl-backtest's own stream). P1/P6 thresholds apply to the gate stream (ruled 2026-10-02). Regression test with the ruling's numbers. v6 may run.
 

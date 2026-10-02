@@ -31,6 +31,18 @@ specific reason they're not being built now.
 - **(3) Confirmed from the code:** `run()` calls `update()` on every stream game; only test games are scored. Pinned by a new test: dropping the gap games changes the test log-loss, and a gap game moves ratings.
 - **v3:** pre-declared in the doc (venue country ≠ /teams home country; derived, labelled). `scripts/intl_venue_route_probe.py --from-dir <save>` reports the cheapest route with 0 calls (a served venue country / `/venues?id` per distinct venue id / `/venues?country` per distinct home-team country). The loader is built only if v3 engages.
 
+**2026-10-02 — NHL v6 VERDICT: FAIL (ARCHITECT). Defect found: the xG `na` level is a label leak. v7 DECLARED (= v6 without `na`), not run.**
+- **Ruling (verbatim):** "v6 VERDICT STANDS — FAIL 0.6886 vs 0.6866, calibration FAIL (50-70% bands −6.4/−6.5pp); SHOT INFORMATION +0.0023, the first positive increment of six NHL candidates. Record in the registry (prior reads now 6). DEFECT: xG level shot:na (+3.02) is a label leak — missing shot type occurs only on ~0.3% of goals. Correctness fix, not a tune: declare v7 = v6 with the "na" level REMOVED (events without shot type take the baseline level), nothing else changed, same bar, same splits. One run after declaration. If v7 still fails, the shot-quality floor is measured at this representation; the next information class is goalie × shot quality (goals saved above expected per goalie, as-of), declared separately as v8."
+- **v6 in the registry:** the run record exists only on the laptop. On main, `nhl-v6` is still `declared`: the run wrote `docs/registry/` locally. The verdict cannot be recorded until that record (scored ids + result) is committed; it is never reconstructed here (law 4). After the commit: `record_verdict("nhl-v6", "FAIL", <ruling>)`.
+- **v7 (`docs/specs/nhl-xg-v7.md`, registry `nhl-v7`):**
+  - `nhl_xg.fit(..., na_level=False)`: an untyped event takes the baseline level, chosen among the typed levels + other.
+  - `NHLEloV7` is v6's Elo, renamed.
+  - `nhl-backtest --candidate v7` is v6's harness path with its own registry id (refusal before any data load; one recorded run).
+  - Test set, gate, training cutoff and confirmation plan are v6's verbatim.
+  - The entry follows `nhl-v6` in the ledger, so v6's run counts as the 6th prior read.
+- **Test fix ahead of the record:** `test_repo_declaration_is_frozen_and_unrun` (nhl-v6) would turn red the moment the laptop's run lands. It now accepts declared/run/closed, and a present run must be complete.
+- **If v7 fails:** the floor is measured at this representation; v8 = goalie × shot quality (GSAx per goalie, as-of), declared separately.
+
 **2026-10-02 — NHL shot-sync RECEIPT ruled (ARCHITECT): v6 may run. The coverage receipt reports both denominators; the thresholds apply to the gate stream.**
 - **Ruling (verbatim):** "shot-sync receipt — 504,449 events / 4,208 games; all P2/P4/P5 at 100%; shot_type 100% on non-blocked (optional by ruling). P1/P6 read BELOW only because the denominator includes PRESEASON games the gate excludes by construction; on the gate stream coverage is 1398/1398 (2024) and 1394/1394 (2025). RULED: the coverage receipt reports both denominators (all finished; gate stream) and the thresholds apply to the gate stream. v6 may run. Log the receipt on #153/#210."
 - **Change:** `nhl_shots.coverage()` adds `gate_stream`, built from nhl-backtest's OWN `load_games` + `build_stream` (train 2024, test 2025, preseason cut), never re-derived.

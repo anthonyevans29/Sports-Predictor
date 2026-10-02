@@ -5219,7 +5219,7 @@ def ncaa_audit_cmd(seasons, limit):
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")
-@click.option("--candidate", type=click.Choice(["v1", "v2", "v3", "v4", "v5", "v6"]), default="v1", show_default=True,
+@click.option("--candidate", type=click.Choice(["v1", "v2", "v3", "v4", "v5", "v6", "v7"]), default="v1", show_default=True,
               help="v1 = ratified baseline; v2 = retuned params + rest days selected on full "
                    "2024-internal loss (FAILED, kept reproducible); v3 = v2's model form, params "
                    "selected by walk-forward validation inside 2024; v4 = the LAST schedule-only "
@@ -5227,7 +5227,8 @@ def ncaa_audit_cmd(seasons, limit):
                    "starting-goalie term (NHL-GOALIE lane, a-priori constants; needs "
                    "nhl-goalie-sync first); v6 = v1 with the xG margin as its margin input (NHL-xG #153; "
                    "frozen declaration docs/specs/nhl-xg-v6.md; refuses unless the registry holds the "
-                   "nhl-v6 declaration; records its ONE run). 2025 scored once each.")
+                   "nhl-v6 declaration; records its ONE run); v7 = v6 with the xG 'na' shot-type level "
+                   "removed (label-leak fix; docs/specs/nhl-xg-v7.md; registry nhl-v7). 2025 scored once each.")
 def nhl_backtest_cmd(season_starts, candidate):
     """NHL Phase 2 gate (frozen 2026-09-25): train 2024, test 2025, preseason
     excluded; prints the stream receipts, both baselines and — once a
@@ -5239,8 +5240,8 @@ def nhl_backtest_cmd(season_starts, candidate):
     for spec in season_starts:
         season, _, d = spec.partition("=")
         starts[season.strip()] = _date.fromisoformat(d.strip())
-    if candidate == "v6":            # registry refusal comes before any data is loaded
-        _nhl_candidate_v6(nb, starts)
+    if candidate in ("v6", "v7"):    # registry refusal comes before any data is loaded
+        _nhl_candidate_v6(nb, starts, which=candidate)
         return
     games = nb.load_games()
     if candidate in ("v2", "v3"):
@@ -5272,22 +5273,27 @@ def nhl_backtest_cmd(season_starts, candidate):
         f"from {nb.TRAIN_SEASON} home rate)"))
 
 
-def _nhl_candidate_v6(nb, starts):
+def _nhl_candidate_v6(nb, starts, which: str = "v6"):
     """NHL-xG v6 (#153): the frozen 2023-24 xG model, v1 Elo updated on the
     game's xG margin. Refused unless the registry holds the nhl-v6
     declaration and it has not run; the run is recorded (scored ids, result,
     prior reads). v1 is scored on the same stream: shot information =
-    v1 − v6 log-loss."""
+    v1 − v6 log-loss.
+
+    which="v7" (ARCHITECT 2026-10-02, docs/specs/nhl-xg-v7.md): the SAME
+    path with the xG model's "na" shot-type level removed (the label-leak
+    correctness fix) and its own registry id nhl-v7. Nothing else differs."""
     from src.models import nhl_xg as nx
-    from src.models.nhl_elo import NHLEloConfig, NHLEloV1, NHLEloV6, home_advantage_from_rate
+    from src.models.nhl_elo import NHLEloConfig, NHLEloV1, NHLEloV6, NHLEloV7, home_advantage_from_rate
     from src.walters import registry as reg
 
-    e = reg.get("nhl-v6")
+    eid = f"nhl-{which}"
+    e = reg.get(eid)
     if e is None:
-        click.echo("REFUSED: nhl-v6 is not declared in docs/registry/experiments.json — declare it (frozen) first.")
+        click.echo(f"REFUSED: {eid} is not declared in docs/registry/experiments.json — declare it (frozen) first.")
         raise SystemExit(2)
     if e.get("run"):
-        click.echo(f"REFUSED: nhl-v6 already ran at {e['run']['run_at']} — the 2025 test set is evaluated once.")
+        click.echo(f"REFUSED: {eid} already ran at {e['run']['run_at']} — the 2025 test set is evaluated once.")
         raise SystemExit(2)
     games = nb.load_games()
     stream = nb.build_stream(games, starts)
@@ -5297,7 +5303,7 @@ def _nhl_candidate_v6(nb, starts):
         return
     shots = nx.load_shots()
     fit_set = [x for x in shots if nx.FIT_FROM <= x.game_start < nx.FIT_TO]
-    model = nx.fit(fit_set)
+    model = nx.fit(fit_set, na_level=(which == "v6"))
     first_train = min(g.utc_date for g in stream.train)
     if not model.fit_last_game < first_train:
         click.echo(f"REFUSED: leakage — the xG fit's last game {model.fit_last_game} is not before the first "
@@ -5306,35 +5312,36 @@ def _nhl_candidate_v6(nb, starts):
     xg, excl = nx.game_xg(model, [x for x in shots if x.game_start >= nx.FIT_TO])
     cfg = NHLEloConfig(home_advantage=home_advantage_from_rate(base.home_rate))
     ref = nb.run_gate(stream, NHLEloV1(cfg))
-    v6 = NHLEloV6(cfg, xg_by_match=xg)
+    v6 = (NHLEloV6 if which == "v6" else NHLEloV7)(cfg, xg_by_match=xg)
     result = nb.run_gate(stream, v6)
     cov = lambda gs: (sum(1 for g in gs if g.match_id in xg), len(gs))
     tr, te = cov(stream.train), cov(stream.test)
     info = ref.ll_model - result.ll_model
     extra = [
-        "xG MODEL (frozen; docs/specs/nhl-xg-v6.md)",
+        f"xG MODEL (frozen; docs/specs/nhl-xg-{which}.md)",
         f"  fit: {model.n_fit} unblocked attempts · {model.goals_fit} goals · 2023-24 only · last fit game "
         f"{model.fit_last_game:%Y-%m-%d} < first train game {first_train:%Y-%m-%d} (no leakage)",
         "  fit exclusions: " + " · ".join(f"{k} {v}" for k, v in sorted(model.exclusions.items())),
         "  coefficients: " + " · ".join(f"{n} {c:+.4f}" for n, c in zip(model.names, model.coef)),
-        f"  shot-type levels: {', '.join(model.shot_levels)} + other + na (baseline {model.baseline_level})",
+        f"  shot-type levels: {', '.join(model.shot_levels)} + other" + (" + na" if model.na_level else
+        " (no na level: an untyped event takes the baseline)") + f" (baseline {model.baseline_level})",
         "  scored-season exclusions: " + " · ".join(f"{k} {v}" for k, v in sorted(excl.items())),
-        f"  games with xG: train {tr[0]}/{tr[1]} · test {te[0]}/{te[1]} · goal-margin fallbacks in v6 "
+        f"  games with xG: train {tr[0]}/{tr[1]} · test {te[0]}/{te[1]} · goal-margin fallbacks in {which} "
         f"{v6.goal_margin_fallbacks}",
         f"REFERENCE v1 on this stream: log-loss {ref.ll_model:.4f}",
-        f"SHOT INFORMATION (v1 − v6 log-loss): {info:+.4f}",
+        f"SHOT INFORMATION (v1 − {which} log-loss): {info:+.4f}",
         "RPS (two-outcome = Brier; reported, not gated): "
         f"home rate {nb.rps_binary([(base.home_rate, g.home_win) for g in stream.test]):.4f} · "
-        f"v1 {nb.rps_binary(ref.pairs):.4f} · v6 {nb.rps_binary(result.pairs):.4f}",
+        f"v1 {nb.rps_binary(ref.pairs):.4f} · {which} {nb.rps_binary(result.pairs):.4f}",
     ]
     nb.report(stream, result, extra=extra, model_name=(
         f"{v6.name} (v1 k={cfg.k_factor}, mov_base={cfg.mov_base}, regression={cfg.season_regression}, "
         f"home_adv={cfg.home_advantage:.1f}; margin = |xG_home − xG_away|) — 2025 evaluated ONCE"))
-    run = reg.record_run("nhl-v6", [g.match_id for g in stream.test if g.match_id is not None], {
+    run = reg.record_run(eid, [g.match_id for g in stream.test if g.match_id is not None], {
         "log_loss": round(result.ll_model, 4), "v1_same_stream": round(ref.ll_model, 4),
         "shot_information": round(info, 4), "verdict_line": result.verdict,
         "bands_ok": result.crit_bands, "n_test": len(stream.test), "test_games_with_xg": te[0]})["run"]
-    click.echo(f"REGISTRY: nhl-v6 run recorded · {run['n_scored']} scored ids (sha256 {run['ids_sha256'][:12]}…) · "
+    click.echo(f"REGISTRY: {eid} run recorded · {run['n_scored']} scored ids (sha256 {run['ids_sha256'][:12]}…) · "
                f"prior reads of this test set: {run['prior_read_count']} ("
                + ", ".join(p["id"] for p in run["prior_reads"]) + ") — commit docs/registry/ in the receipt PR")
 

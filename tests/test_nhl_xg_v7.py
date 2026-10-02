@@ -60,10 +60,14 @@ def test_harness_v7_refuses_without_declaration_or_after_a_run(monkeypatch):
     assert r.exit_code == 2 and "nhl-v7 already ran" in r.output
 
 
-def test_repo_declaration_v7_frozen_unrun_and_v6s_test_set():
+def test_repo_declaration_v7_frozen_and_v6s_test_set():
+    """v7 RAN on the laptop (FAIL 0.6885, ARCHITECT 2026-10-02); its record lands
+    by splice, so the entry may be declared, run or closed — a present run is complete."""
     from src.walters import registry as reg
     e, v6 = reg.get("nhl-v7"), reg.get("nhl-v6")
-    assert e["status"] == "declared" and e["run"] is None and e["declaration"] == "docs/specs/nhl-xg-v7.md"
+    assert e["status"] in ("declared", "run", "closed") and e["declaration"] == "docs/specs/nhl-xg-v7.md"
+    if e["run"] is not None:
+        assert e["run"]["n_scored"] > 0 and len(e["run"]["ids_sha256"]) == 64
     for k in ("test_set", "gate", "training_cutoff", "confirmation_plan"):
         assert e[k] == v6[k]
     ids = [x["id"] for x in reg.load()]

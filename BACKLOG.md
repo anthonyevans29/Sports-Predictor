@@ -22,6 +22,17 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — NHL v7 FAIL (ARCHITECT); v8 DECLARED (train-only fit of scale and k); the 2025 test set RETIRES after v8 (doctrine, enforced).**
+- **Ruling (verbatim):** "v7 VERDICT STANDS — FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands −6.2/−6.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced. v8 DECLARATION (last candidate on this test season): v7's xG unchanged; the Elo's two scale parameters — the logistic divisor (rating-to-probability) and k — are FITTED BY MAXIMUM LIKELIHOOD ON THE 2024 TRAINING SEASON ONLY (walk-forward within 2024, grid declared in the doc, chosen before any 2025 read); home_adv stays 45.6; regression 0.25. This is a train-only fit, not a tune. Same bar, same bands. One run. DOCTRINE (from the external review, now binding): the 2025 test season has been read 7 times. After v8 it is RETIRED as a test set; any later NHL candidate declares 2026-27 (as it accrues, >=600 games) as its test season. Record in docs/REGISTRY.md."
+- **v7's record:** spliced with its FAIL in #239 (with v6's). Main then shows 7 prior reads.
+- **v8 (`docs/specs/nhl-xg-v8.md`, registry `nhl-v8`):**
+  - `NHLEloV8` = v7 with a fitted divisor (v1–v7 keep 400).
+  - `nhl_backtest.fit_v8_scale_k` walks 2024 only (it refuses any other season) over the DECLARED grid: scale 300..600 by 50 × k {3,4,5,6,7,8,10,12} = 56 pairs. Selection is by min mean log-loss; a tie goes to the pair closest to (400, 6); a grid-edge choice is flagged, never widened.
+  - The harness prints the choice and the best 10 BEFORE any model scores 2025 (the v1 reference is moved after the fit). The run records `fit_scale` / `fit_k`.
+  - home_adv is v7's derivation (45.6); regression 0.25; same bar/bands/plan.
+- **Doctrine:** `docs/REGISTRY.md` gains "Retired test sets". `registry.RETIRED_TEST_SETS` makes `declare()` / `record_run()` refuse any id but `nhl-v8` on the NHL 2025 test set, naming 2026-27 (≥ 600 games) instead.
+- **Tests:** the v7 repo test is relaxed like v6's (accepts the coming record); new `tests/test_nhl_xg_v8.py` (6).
+
 **2026-10-02 — NHL v6 VERDICT: FAIL (ARCHITECT). Defect found: the xG `na` level is a label leak. v7 DECLARED (= v6 without `na`), not run.**
 - **Ruling (verbatim):** "v6 VERDICT STANDS — FAIL 0.6886 vs 0.6866, calibration FAIL (50-70% bands −6.4/−6.5pp); SHOT INFORMATION +0.0023, the first positive increment of six NHL candidates. Record in the registry (prior reads now 6). DEFECT: xG level shot:na (+3.02) is a label leak — missing shot type occurs only on ~0.3% of goals. Correctness fix, not a tune: declare v7 = v6 with the "na" level REMOVED (events without shot type take the baseline level), nothing else changed, same bar, same splits. One run after declaration. If v7 still fails, the shot-quality floor is measured at this representation; the next information class is goalie × shot quality (goals saved above expected per goalie, as-of), declared separately as v8."
 - **v6 in the registry:** the run record exists only on the laptop. On main, `nhl-v6` is still `declared`: the run wrote `docs/registry/` locally. The verdict cannot be recorded until that record (scored ids + result) is committed; it is never reconstructed here (law 4). After the commit: `record_verdict("nhl-v6", "FAIL", <ruling>)`.

@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from src.walters.close import CAPTURE_SESSION, close_1x2, outcomes_for, priced
+from src.walters.close import CAPTURE_SESSION, close_1x2, close_from_snapshots, outcomes_for, priced
 
 LINE_MARKETS_HINT = ("TOTALS", "SPREADS", "OU_", "SPREAD")
 
@@ -99,7 +99,17 @@ def _top(pred) -> str | None:
     return max(probs, key=probs.get) if probs else None
 
 
-def clv_cohort(oc, pred, match, odds_rows) -> str | None:
+def _close_for(odds_rows, snaps, match):
+    """grading_close (src/walters/close.py) over pre-fetched rows: the odds
+    table's contract close, else the last complete pre-kickoff snapshot."""
+    oc_ = outcomes_for(match.sport)
+    cl = close_1x2(odds_rows, match.utc_date, oc_) if odds_rows else None
+    if priced(cl):
+        return cl
+    return close_from_snapshots(snaps or [], match.utc_date, oc_) or cl
+
+
+def clv_cohort(oc, pred, match, odds_rows, snaps=()) -> str | None:
     """P0-2 (#207): which cohort a STORED CLV belongs to. "verified" when the
     contract close (complete books, src/walters/close.py) prices the top pick
     and reproduces the stored value; "legacy" for any other stored CLV
@@ -108,7 +118,7 @@ def clv_cohort(oc, pred, match, odds_rows) -> str | None:
     if oc.clv is None:
         return None
     top = _top(pred)
-    cl = close_1x2(odds_rows, match.utc_date, outcomes_for(match.sport))
+    cl = _close_for(odds_rows, snaps, match)
     if top and priced(cl) and top in cl["fair"]:
         p = {"HOME": pred.home_win_prob, "DRAW": pred.draw_prob, "AWAY": pred.away_win_prob}[top]
         if p is not None and abs((p - cl["fair"][top]) - oc.clv) <= 1e-6:
@@ -121,7 +131,7 @@ def restate(apply: bool = False) -> dict:
     from sqlalchemy import select
 
     from src.db.database import session_scope
-    from src.db.schema import Competition, Match, Odds, Prediction, PredictionOutcome
+    from src.db.schema import Competition, Match, Odds, OddsSnapshot, Prediction, PredictionOutcome
 
     agg: dict = defaultdict(lambda: {"n": 0, "changed": 0, "to_null": 0, "from_null": 0,
                                      "d": [], "old": [], "new": [], "price_changed": 0})
@@ -135,12 +145,17 @@ def restate(apply: bool = False) -> dict:
         ids = {m.id for _, _, m in rows}
         for o in s.execute(select(Odds).where(Odds.market == "1X2", Odds.match_id.in_(ids))).scalars():
             odds_by[o.match_id].append(o)
+        snaps_by: dict = defaultdict(list)
+        for x in s.execute(select(OddsSnapshot).where(OddsSnapshot.market == "1X2",
+                                                      OddsSnapshot.source != "kalshi",
+                                                      OddsSnapshot.match_id.in_(ids))).scalars():
+            snaps_by[x.match_id].append(x)
         for oc, pred, m in rows:
             key = (m.sport.value if m.sport else "?", comp_code.get(m.competition_id, "?"))
             a = agg[key]
             a["n"] += 1
             top = _top(pred)
-            cl = close_1x2(odds_by.get(m.id, []), m.utc_date, outcomes_for(m.sport))
+            cl = _close_for(odds_by.get(m.id, []), snaps_by.get(m.id, []), m)
             new = None
             price, book = None, None
             if top and priced(cl) and top in cl["fair"]:

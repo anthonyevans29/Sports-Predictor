@@ -1286,9 +1286,15 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
             for o in s.execute(select(_Odds).where(_Odds.market == "1X2", _Odds.match_id.in_(
                     [m.id for _, m in rows]))).scalars():
                 odds_by.setdefault(o.match_id, []).append(o)
+            from src.db.schema import OddsSnapshot as _Snp
+            snaps_by: dict = {}
+            for x in s.execute(select(_Snp).where(_Snp.market == "1X2", _Snp.source != "kalshi",
+                                                  _Snp.match_id.in_([m.id for _, m in rows]))).scalars():
+                snaps_by.setdefault(x.match_id, []).append(x)
             coh = {"verified": [], "legacy": []}
             for oc, m in rows:
-                c = clv_cohort(oc, preds.get(oc.prediction_id), m, odds_by.get(m.id, [])) \
+                c = clv_cohort(oc, preds.get(oc.prediction_id), m, odds_by.get(m.id, []),
+                               snaps_by.get(m.id, [])) \
                     if preds.get(oc.prediction_id) is not None else ("legacy" if oc.clv is not None else None)
                 if c:
                     coh[c].append(oc.clv)

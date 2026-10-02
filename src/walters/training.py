@@ -1520,17 +1520,13 @@ def evaluate_finished(sport: Sport = Sport.SOCCER) -> int:
             top_pick_sel = max(pred_probs, key=pred_probs.get) if pred_probs else None
 
             if top_pick_sel is not None:
-                odds_rows = list(s.execute(
-                    select(Odds).where(
-                        Odds.match_id == match.id,
-                        Odds.market == "1X2",
-                    )
-                ).scalars())
                 # #167 (ruled 2026-10-01): the close is the LAST pre-kickoff
                 # capture session (src/walters/close.py), never an average of
-                # every capture the table ever accumulated.
-                from src.walters.close import close_1x2, outcomes_for, priced
-                cl = close_1x2(odds_rows, match.utc_date, outcomes_for(match.sport))   # #207 contract
+                # every capture the table ever accumulated; #207 contract; MLB
+                # odds history (2026-10-02): a replaced odds table falls back to
+                # the last complete pre-kickoff book-consensus snapshot.
+                from src.walters.close import grading_close, priced
+                cl = grading_close(s, match)
                 if priced(cl) and top_pick_sel in cl["fair"]:
                     clv = pred_probs[top_pick_sel] - cl["fair"][top_pick_sel]
                     best = cl["best"].get(top_pick_sel)
@@ -1582,16 +1578,8 @@ def evaluate_finished(sport: Sport = Sport.SOCCER) -> int:
             if not pred_probs:
                 continue
             top_pick_sel = max(pred_probs, key=pred_probs.get)
-            odds_rows = list(s.execute(
-                select(Odds).where(
-                    Odds.match_id == match.id,
-                    Odds.market == "1X2",
-                )
-            ).scalars())
-            if not odds_rows:
-                continue
-            from src.walters.close import close_1x2, outcomes_for, priced
-            cl = close_1x2(odds_rows, match.utc_date, outcomes_for(match.sport))   # #167 + #207
+            from src.walters.close import grading_close, priced
+            cl = grading_close(s, match)        # #167 + #207 + the snapshot fallback (2026-10-02)
             if not priced(cl) or top_pick_sel not in cl["fair"]:
                 continue
             outcome.clv = pred_probs[top_pick_sel] - cl["fair"][top_pick_sel]

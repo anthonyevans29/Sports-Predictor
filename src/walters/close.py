@@ -37,7 +37,13 @@ THE CLOSE CONTRACT (P0-2, #207, ARCHITECT 2026-10-01, external review):
      is QUOTED but not COMPLETE and contributes nothing;
   6. no complete book -> UNPRICED: `fair` is None, `missing` names each quoted
      book's absent legs (the receipt), never a partial de-vig;
-  7. `books` = complete books, `books_quoted` = every book in the session.
+  7. `books` = complete books, `books_quoted` = every book in the session;
+     `overround` = the mean per-book booksum of the complete books.
+EXPORTS (ARCHITECT-RULE 2026-10-01): the MLB/soccer prediction export's
+market block and the fixtures export's market use THIS contract — one
+definition; the export block is the Desk's reference (#117 showed what a
+pooled de-vig does to it). An unpriced close ships the no-1X2 shape plus an
+additive `close_unpriced` receipt (quoted books + missing legs).
 `close_1x2` returns None only when there is no pre-cutoff capture at all.
 """
 from __future__ import annotations
@@ -104,12 +110,15 @@ def close_1x2(rows, before: datetime | None, outcomes: tuple[str, ...]) -> dict 
     if not complete:
         return out
     fair = {k: 0.0 for k in outcomes}
+    overs = []
     for px in complete.values():
         imp = {k: 1.0 / px[k] for k in outcomes}
         over = sum(imp.values())
+        overs.append(over)
         for k in outcomes:
             fair[k] += imp[k] / over
     out["fair"] = {k: v / len(complete) for k, v in fair.items()}
+    out["overround"] = sum(overs) / len(overs)            # mean per-book booksum
     out["best"] = {k: max(((bk, px[k]) for bk, px in complete.items()), key=lambda x: x[1])
                    for k in outcomes}
     return out

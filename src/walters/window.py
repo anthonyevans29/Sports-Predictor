@@ -116,7 +116,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     hi = now + timedelta(hours=hours)
     models = canonical_models(export_dir)
     labels: Counter = Counter()
-    counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0,
+    counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0, "close_unpriced": 0,
               "kalshi_two_sided": 0, "kalshi_one_sided": 0, "kalshi_partial": 0,
               "kalshi_absent": 0}
     rows = []

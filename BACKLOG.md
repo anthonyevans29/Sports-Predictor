@@ -22,6 +22,13 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — ARCHITECT-RULE on #207: the exports adopt the SAME close contract. Maker validation PENDING (#218).**
+(1) RULED: "the MLB/soccer prediction exports and the fixtures export adopt the SAME close contract (one definition; the export block IS the Desk's reference — #117 showed what pooled de-vig does to it)." This lands in the same PR (#215).
+- `_summarize_market` and `_fixture_row` now call `close_1x2`. `bookmaker_count` means complete books, so the thin-book rule reads stricter, conservatively.
+- Gate-class receipt owed by the laptop: before/after on a real export of each kind (MLB predictions, PL predictions, NFL predictions, one fixtures file), via `scripts/export_close_compare.py`.
+(2) RULED: "all 548 historical fills are TAKER, so the rounding re-fit stands for taker; the maker branch is validated only when real maker fills exist — the first join-bid orders this week are that receipt. Log it as pending, not failed." Logged as #218 (pending, needs-operator).
+(3) Merge-ready, approved: #205, #214, #216, #217. #215 is approved pending the laptop receipts. v1.1.0 is cut after #214 and #215 land and the morning compare passes.
+
 **2026-10-01 — #207 (P0-2, external review) BUILT: the close contract.**
 `close_1x2` pooled implied probabilities per selection across whatever books quoted each one. A 3-way board with a book missing its draw, a one-sided book, or two books covering opposite sides all produced a "fair" price. Now the caller names the outcome set, and only books with a complete same-session set count, de-vigged per book and then averaged. Anything else is UNPRICED, with a missing-leg receipt and quoted-vs-complete counts. results-tally splits stored CLV into verified-close (reproduced by the contract) and retained-legacy, and the headline is verified only. **Gate-class:** the NFL export's market block (`fair_prob`, so `market_divergence_pp` and quarantine) comes from this close. A game whose only books are incomplete loses its 1X2 fair price and falls to the labelled spread fallback. **Receipts owed by the laptop** (the DB never travels): `clv-restate` dry-run (the grades the contract re-prices or leaves as stored), and a today-vs-yesterday NFL export compare. **Open, needs a ruling:** the MLB/soccer prediction export and the fixtures export de-vig `last_capture` directly, outside `close_1x2`, so they have the same pooling. They are left as is (export contract) pending a ruling.
 

@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#212 review fix: the confirmation is executable and cannot be recorded early)
+- `declare()` requires a structured `confirmation_plan` {n_games, metric, bar, must_beat_reference, reference} (`check_plan`).
+- `record_confirmation(eid, scored_ids, result, ruling)` executes the plan and computes CONFIRMED/NOT_CONFIRMED (metric <= bar and, when required, strictly below the reference; a tie fails). The scored ids are stored in a `<id>.confirm.txt` sidecar with sha256, and the result is kept.
+- It refuses: no PASS; fewer games than planned; any game starting before the verdict; any game from the scored test set; a missing metric or reference.
+- `production_allowed()` also requires a complete confirmation record. Regression tests: immediate confirmation fails (fails on the old code: 3 failed).
+
 ## 2026-10-02 (#220: UNL lane step 1 — national-team results inventory)
 - `src/walters/intl_inventory.py` + `python cli.py intl-inventory` (read-only). For UNL, WC, UEFA_EURO, WCQ_* and FRIENDLIES_INT, per competition and season: finished+scored matches, date span, teams, raw home/draw/away shares and venue completeness. Also each UNL team's prior international results before its first UNL match.
 - No neutral site is inferred (law 4). tests/test_intl_inventory.py.

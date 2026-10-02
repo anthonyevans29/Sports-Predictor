@@ -22,6 +22,14 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — #222 REVIEW FIX (operator review): the confirmation window was prose; now it is executable.**
+- **Finding (reproduced by the reviewer):** `record_confirmation()` accepted CONFIRMED immediately after a PASS, with no games or metrics, and `production_allowed()` then returned true. The doctrine was documented but not enforced.
+- **Fix:** every declaration carries an executable `confirmation_plan` (games, metric, bar, must beat the reference).
+  - The confirmation READ records its scored ids and result, and its outcome is COMPUTED from the plan.
+  - Early (before the verdict), incomplete (< n_games), overlapping (test-set ids) and metric-less reads are refused.
+  - Regressions: the three new tests fail on the old code.
+  - #223's `nhl-v6` entry gains its plan (150 games, log-loss <= 0.6866 and < v1 on the same games) in its own merge-up.
+
 **2026-10-02 — #220 UNL LANE STEP 1 BUILT: the national-team results inventory (read before the pre-commitment).**
 The ruling's candidate is an international Elo on STORED results with the home advantage declared a priori and a gate of naive − 0.010 in the same bands. Law 1 comes first: `intl-inventory` reports what the DB holds (UNL / WC / Euro / WC qualifiers / friendlies, per season), the raw home/draw/away shares and how much prior history each UNL team has.
 - **No neutral flag is stored:** the receipt says so and nothing infers one. This matters for the home-advantage declaration, since tournament games are often neutral.

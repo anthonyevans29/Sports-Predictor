@@ -91,8 +91,50 @@ def _mlb_fallback_run(kind: str, season, date_from=None, date_to=None) -> None:
               f"{fb.UNAVAILABLE} this run: {len(r['dh_marked'])}")
         for d in r["dh_marked"]:
             print(f"    {fb.UNAVAILABLE}: {d['game']} {d['utc'][:16]} (match #{d['match_id']})")
+        print(f"  start times: statsapi kept on {r['time_kept_statsapi']} row(s) · api-sports DISAGREES on "
+              f"{len(r['time_conflicts'])} (never applied; card flags 'time unconfirmed')")
+        for d in r["time_conflicts"]:
+            print(f"    TIME CONFLICT {d['game']}: statsapi {d['statsapi'][:16]} vs api-sports "
+                  f"{d['api_sports'][:16]} ({d['delta_h']:+.2f}h, match #{d['match_id']})")
     print("MLB-FALLBACK-RECEIPT " + _json.dumps(
         {k: v for k, v in r.items() if k not in ("teams",)}, default=str, sort_keys=True))
+    print(f"  provider requests remaining: {client.requests_remaining}")
+
+
+@click.command("mlb-time-audit")
+@click.option("--season", default="2026", show_default=True)
+def mlb_time_audit_cmd(season):
+    """READ-ONLY (architect 2026-10-01, card finding PHI@ATL G3): statsapi vs
+    api-sports start times for every postseason game of the season, with
+    statsapi's startTimeTBD flag, the delta and the api-sports placeholder
+    signature. LAPTOP command (statsapi 406s the host). No DB, no writes."""
+    import json as _json
+
+    from src.adapters.api_baseball import APIBaseballClient
+    from src.adapters.mlb_stats_api import MLBStatsAPIAdapter
+    from src.ingestion import mlb_apisports as fb
+    from zoneinfo import ZoneInfo
+    client = APIBaseballClient.from_env()
+    if client is None:
+        raise click.ClickException("no API_BASEBALL_KEY / API_FOOTBALL_KEY set")
+    sched = MLBStatsAPIAdapter()._get("schedule", params={
+        "sportId": 1, "gameType": ",".join(fb.POSTSEASON_TYPES), "season": int(season)})
+    stats = fb.statsapi_rows(sched)
+    games = client._get("games", params={"league": fb._league_id(), "season": int(season)}).get("response") or []
+    r = fb.time_audit(stats, fb.provider_rows(games))
+    et = lambda d: d.replace(tzinfo=ZoneInfo("UTC")).astimezone(ZoneInfo("America/New_York")).strftime("%a %m-%d %H:%M ET")
+    print(f"MLB start-time audit {season} postseason: statsapi games {len(stats)} · paired {r['paired']} · "
+          f"exact {r['exact']} · MISMATCHED {r['mismatched']} (statsapi TBD among them {r['mismatched_tbd']} · "
+          f"TBD overall {r['tbd_total']})")
+    for x in r["rows"]:
+        print(f"  {'≠' if x['delta_h'] else '='} {x['type']} {x['game']:<44} statsapi {et(x['statsapi'])}"
+              f"{' (TBD)' if x['tbd'] else ''} · api-sports {et(x['api_sports'])} ({x['delta_h']:+.2f}h, "
+              f"{x['api_status']}) · {x['state']}")
+    print(f"  api-sports times (UTC) among mismatches: {r['placeholder_times_utc'] or 'none'}")
+    for u in r["unpaired"]:
+        print(f"  UNPAIRED {u['game']} {u['utc'][:16]}: {u['why']}")
+    print("MLB-TIME-AUDIT " + _json.dumps({k: v for k, v in r.items() if k not in ("rows", "unpaired")},
+                                          sort_keys=True))
     print(f"  provider requests remaining: {client.requests_remaining}")
 
 
@@ -108,6 +150,9 @@ def _setup_logging():
 def cli():
     """Sports Predictor — data ingestion CLI."""
     _setup_logging()
+
+
+cli.add_command(mlb_time_audit_cmd)
 
 
 @cli.command("init-db")
@@ -192,6 +237,118 @@ def sync_matches_cmd(
         progress=_progress,
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
+
+
+@cli.command("resync-diff")
+@click.option("--competition", "competition_code", required=True, help="Code, e.g. NCAA")
+@click.option("--season", default=None, help="The season string as stored, e.g. 2025")
+@click.option("--date-from", default=None)
+@click.option("--date-to", default=None)
+@click.option("--sample", default=12, show_default=True, help="Sample lines per disagreement class.")
+def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
+    """READ-ONLY (ruling 2026-10-01, NCAA audit): fetch the provider's CURRENT
+    listing and compare it to our STORED rows by provider match id — home/away
+    team labels (same / swapped / different), scores, moved dates, and the home
+    win rate under ours vs the provider's labels. Writes nothing. Run this
+    INSTEAD of a re-sync to answer "bad copy or bad at source": sync-matches
+    never rewrites home/away on existing rows (it would only overwrite scores)."""
+    from src.ingestion import resync_diff as rd
+
+    r = rd.diff(_adapter_for_competition(competition_code), competition_code, season,
+                date_from, date_to, sample)
+    if r.get("error"):
+        click.echo(f"RESYNC-DIFF: {r['error']}")
+        return
+    c = r["counts"]
+    click.echo(f"RESYNC-DIFF {competition_code} {season or '(all)'} · source {r['source']} · provider "
+               f"listing {r['listing']} · matched {c.get('matched', 0)} · provider-only "
+               f"{c.get('provider_only', 0)} · ours not in listing {c.get('ours_not_in_listing', 0)}")
+    click.echo("  teams: " + " · ".join(f"{k[6:]} {c.get(k, 0)}" for k in
+                                         ("teams_same", "teams_swapped", "teams_different")))
+    click.echo("  scores: " + " · ".join(f"{k[7:]} {c.get(k, 0)}" for k in
+                                          ("scores_same", "scores_swapped", "scores_different",
+                                           "scores_provider_missing", "scores_ours_missing"))
+               + f" · dates moved > 1h {c.get('date_moved', 0)}")
+    (ro, no), (rp, np_) = r["home_rate"]["ours"], r["home_rate"]["provider"]
+    click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
+    for k, lines in sorted(r["samples"].items()):
+        click.echo(f"  {k} (sample):")
+        for ln in lines:
+            click.echo(f"    {ln}")
+    click.echo("RESYNC-DIFF VERDICT: " + rd.verdict(c))
+
+
+@cli.command("odds-audit")
+def odds_audit_cmd():
+    """#167 (a), READ-ONLY: per odds source — matches holding MORE THAN ONE
+    capture session (append evidence), NULL lines on line markets, rows
+    captured at/after kickoff, and how far the legacy 'average of every row'
+    1X2 fair sits from the last pre-kickoff session. Writes nothing."""
+    from src.walters import clv_restate as cr
+
+    r = cr.audit()
+    click.echo("ODDS-AUDIT (#167 a) · per source: matches · rows · multi-session matches (max) · rows at/after "
+               "kickoff · line-market rows with NULL line · |legacy − last-session| HOME fair (mean / max pp, n)")
+    for src, c in r.items():
+        click.echo(f"  {src}: {c.get('matches', 0)} · {c.get('rows', 0)} · {c.get('matches_multi_session', 0)} "
+                   f"(max {c.get('max_sessions', 0)}) · {c.get('rows_at_or_after_kickoff', 0)} · "
+                   f"{c.get('line_market_null_line', 0)}/{c.get('line_market_rows', 0)} · "
+                   f"{c['home_gap_pp_mean']} / {c['home_gap_pp_max']} (n={c['home_gap_n']})")
+    appending = [s for s, c in r.items() if c.get("matches_multi_session", 0)]
+    click.echo("ODDS-AUDIT VERDICT: " + (f"APPEND CONFIRMED on {', '.join(appending)}" if appending
+                                         else "no source holds more than one capture session per match"))
+
+
+@cli.command("clv-restate")
+@click.option("--apply", is_flag=True, help="WRITE the restated CLV (default: dry-run, writes nothing).")
+@click.option("--backup", "backup_path", default=None,
+              help="Required with --apply: a .backup file taken just before (integrity checked; "
+                   "its prediction_outcomes count must equal the live DB's).")
+def clv_restate_cmd(apply, backup_path):
+    """#167 (b): every stored CLV grade recomputed with the RULED close (the
+    last pre-kickoff capture session) vs the stored value, by sport and
+    competition — counts changed, mean / max delta, old vs new mean CLV.
+    Dry-run by default. --apply --backup PATH writes clv / closing_price /
+    closing_bookmaker in one transaction; grades with no pre-kickoff capture
+    are reported and left as stored."""
+    import sqlite3
+    from pathlib import Path
+    from src.walters import clv_restate as cr
+
+    if apply:
+        if not backup_path or not Path(backup_path).is_file():
+            raise click.UsageError("--apply needs --backup PATH to an existing .backup file (law 5).")
+        bp = Path(backup_path).resolve()
+        if "data" in bp.parts:
+            raise click.UsageError("REFUSED: the backup must not live under data/ (law 5).")
+        con = sqlite3.connect(f"file:{bp}?mode=ro", uri=True)
+        try:
+            ok = [r[0] for r in con.execute("PRAGMA integrity_check")] == ["ok"]
+            n_bk = con.execute("SELECT COUNT(*) FROM prediction_outcomes").fetchone()[0]
+        finally:
+            con.close()
+        from sqlalchemy import func, select as _sel
+        from src.db.database import session_scope as _ss
+        from src.db.schema import PredictionOutcome as _PO
+        with _ss() as _s:
+            n_live = _s.execute(_sel(func.count(_PO.id))).scalar()
+        if not ok or n_bk != n_live:
+            raise click.UsageError(f"REFUSED: backup integrity={'ok' if ok else 'FAIL'}, prediction_outcomes "
+                                   f"backup {n_bk} vs live {n_live} — take a fresh .backup first.")
+        click.echo(f"backup verified: {bp} integrity ok · prediction_outcomes {n_bk} = live")
+    r = cr.restate(apply=apply)
+    click.echo(f"CLV-RESTATE (#167 b) · close = LAST pre-kickoff capture session · "
+               f"{'APPLIED' if apply else 'DRY-RUN (nothing written)'}")
+    for scope, a in r["by_scope"].items():
+        click.echo(f"  {scope}: graded {a['graded']} · changed {a['changed']} · mean Δ {a['mean_delta_pp']}pp · "
+                   f"mean |Δ| {a['mean_abs_delta_pp']}pp · max |Δ| {a['max_abs_delta_pp']}pp · mean CLV "
+                   f"{a['mean_clv_old_pp']} -> {a['mean_clv_new_pp']}pp (changed rows) · closing price changed "
+                   f"{a['closing_price_changed']} · newly priced {a['newly_priced']} · unpriceable (left as "
+                   f"stored) {a['became_null']}")
+    for ln in r["examples"]:
+        click.echo(f"    e.g. {ln}")
+    for k, v in r["not_stored"].items():
+        click.echo(f"  {k}: not stored — {v}")
 
 
 @cli.command("sync-stats")
@@ -692,11 +849,15 @@ def improve_cmd(sport: str, holdout_days: int, min_delta: float,
     gate — is folded in but self-throttles to a weekly cadence (inputs move
     slowly; daily testing manufactures false positives).
     """
-    from src.walters.training import improve
+    from src.walters.training import LegacySoccerImproveRefused, improve
     from src.db.schema import Sport
     sport_enum = Sport.SOCCER if sport == "soccer" else Sport.MLB
-    result = improve(sport=sport_enum, holdout_days=holdout_days, min_delta=min_delta,
-                     hold_on_pass=hold_on_pass)
+    try:
+        result = improve(sport=sport_enum, holdout_days=holdout_days, min_delta=min_delta,
+                         hold_on_pass=hold_on_pass)
+    except LegacySoccerImproveRefused as e:
+        console.print(f"[red]✗ {e}[/red]")
+        raise SystemExit(2)
     color = "green" if result.promoted else ("magenta" if result.held else "yellow")
     label = "PROMOTED" if result.promoted else ("HELD" if result.held else "REJECTED")
     console.print(f"[{color}]✓ Candidate {result.candidate_version}: {label}[/{color}]")
@@ -2239,6 +2400,45 @@ def capture_odds_cmd(sport: str, competition: str, season: str):
                   f"{local_str}")
 
 
+@cli.command("mlb-odds-timing")
+@click.option("--start", "start_s", required=True, help="First ET game date (YYYY-MM-DD).")
+@click.option("--end", "end_s", default=None, help="Last ET game date (default: --start).")
+@click.option("--only-missing", is_flag=True, help="List only games NOT priced before first pitch.")
+def mlb_odds_timing_cmd(start_s, end_s, only_missing):
+    """Read-only receipt: WHEN api-sports first priced each MLB game, from
+    our append-only odds_snapshots (capture-odds, 08/12/16/20 ET). Flags
+    UTC-rollover starts (the M11 family) and night games; verdict per game
+    PRICED_PRE_START / PRICED_ONLY_AFTER_START / NO_BOOKS_CAPTURED. Writes
+    nothing. (Postseason night-game odds finding, 2026-09-30.)"""
+    from datetime import date as _date
+    from src.walters import mlb_odds_timing as mt
+
+    start = _date.fromisoformat(start_s)
+    end = _date.fromisoformat(end_s) if end_s else start
+    r = mt.timing(start, end)
+    lo, hi = r["window_utc"]
+    click.echo(f"MLB ODDS TIMING · ET dates {start} .. {end} (UTC {lo:%m-%d %H:%M} .. {hi:%m-%d %H:%M}) · "
+               f"{len(r['games'])} games · book captures = odds_snapshots source api_baseball")
+    for g in r["games"]:
+        if only_missing and g["verdict"] == "PRICED_PRE_START":
+            continue
+        tag = ("NIGHT" if g["night"] else "day") + (" ROLLOVER" if g["rollover"] else "")
+        first = f"{g['first_capture']:%m-%d %H:%M}Z" if g["first_capture"] else "—"
+        after = {True: " (after the start's UTC midnight)", False: " (before its UTC day)", None: ""}[
+            g["first_pre_start_after_utc_midnight"]]
+        lead = f" lead {g['lead_hours']}h" if g["lead_hours"] is not None else ""
+        click.echo(f"  {g['start_et']:%m-%d %H:%M} ET / {g['start_utc']:%m-%d %H:%M}Z  {g['game']:<42} "
+                   f"[{tag}{' · ' + g['stage'] if g['stage'] else ''}] {g['verdict']} · captures "
+                   f"{g['captures_pre_start']}/{g['captures']} pre-start · first {first}{after}{lead} · "
+                   f"max books {g['max_books']} · odds table {g['odds_table_books']} books"
+                   f" · kalshi pre-start {'yes' if g['kalshi_pre_start'] else 'no'}")
+    click.echo("  SUMMARY (start class, verdict): "
+               + (" · ".join(f"{k} {v}" for k, v in r["summary"].items()) or "no games"))
+    click.echo("  Read: NO_BOOKS_CAPTURED on every capture across days = the provider did not price it "
+               "pre-game in our window; PRICED_PRE_START only after the UTC midnight = priced once its UTC "
+               "date arrived (M11). Captures are 08/12/16/20 ET — finer timing is not claimable.")
+
+
 @cli.command("clv-report")
 @click.option("--sport", type=click.Choice(["mlb", "baseball"]), default="mlb")
 @click.option("--since", default="2026-06-24")
@@ -3561,9 +3761,73 @@ def predict_nfl_cmd():
 SLATE_WINDOW_H = 36   # export windowing (architect 2026-09-28): the current slate
 
 
+def _desk_line(path: str) -> str | None:
+    """F1 receipt: the Desk calls a file carries (None when it carries none)."""
+    import json as _json
+    try:
+        doc = _json.load(open(path))
+    except (OSError, ValueError):
+        return None
+    meta = doc.get("desk_meta")
+    if not meta:
+        return None
+    from collections import Counter
+    rows = [r.get("desk") for r in (doc.get("predictions") or doc.get("fixtures") or []) if r.get("desk")]
+    calls = Counter(d["call"] for d in rows)
+    vs = sum(1 for d in rows if d.get("value_shadow"))
+    return (f"desk {meta['policy_version']} as of {meta['as_of']}: {len(rows)} rows → "
+            + " · ".join(f"{k} {v}" for k, v in sorted(calls.items()))
+            + (f" · value shadow {vs}" if vs else "")
+            + f" · counts {meta['counts']} ({meta['counts_source']})")
+
+
 def _window_line(lo, hi, how: str) -> str:
     return (f"window: {lo:%Y-%m-%d %H:%M} → {hi:%Y-%m-%d %H:%M} UTC "
             f"({(hi - lo).total_seconds() / 3600:.0f}h · {how})")
+
+
+@cli.command("desk-parlays")
+@click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False))
+@click.option("--now", "now_s", default=None,
+              help="Pin the Desk clock (ISO UTC). Default: the first file's desk_meta.as_of, else now.")
+@click.option("--ledger-summary", "summary", default=None,
+              help="Graded counts (bd_ledger_summary_v1). Default: exports/ledger_summary.json if present, else 0.")
+@click.option("--out", "out_path", default=None, help="Default: exports/desk_parlays_<UTC date>.json")
+def desk_parlays_cmd(files, now_s, summary, out_path):
+    """F1 (#151): the Desk's parlay tickets across the given export files (the
+    set the Cockpit loads; tickets are cross-sport), as ONE file. Python port of
+    the Cockpit's buildParlays, parity-verified. Reads files only; no DB."""
+    import json as _json
+    import os
+    from datetime import timezone
+    from src.walters import desk_policy as dp
+    named = [(os.path.basename(f), _json.load(open(f))) for f in files]
+    if now_s:
+        now = datetime.fromisoformat(now_s.replace("Z", "+00:00"))
+    else:
+        asof = next(((d.get("desk_meta") or {}).get("as_of") for _, d in named
+                     if (d.get("desk_meta") or {}).get("as_of")), None)
+        now = datetime.fromisoformat(asof.replace("Z", "+00:00")) if asof else datetime.now(timezone.utc)
+    counts, src = dp.read_ledger_summary(summary or os.environ.get(dp.SUMMARY_ENV) or dp.DEFAULT_SUMMARY)
+    doc = dp.parlays_doc(named, now=now, counts=counts, counts_source=src)
+    out_path = out_path or os.path.join("exports", f"desk_parlays_{doc['desk_meta']['as_of'][:10]}.json")
+    os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+    with open(out_path, "w") as f:
+        _json.dump(doc, f, indent=2)
+    print(f"desk parlays {doc['desk_meta']['policy_version']} as of {doc['desk_meta']['as_of']}: "
+          f"{len(named)} file(s) · {doc['live_legs']} live legs → {len(doc['tickets'])} ticket(s) → {out_path}")
+    for i, t in enumerate(doc["tickets"], 1):
+        print(f"  Ticket {i} · {len(t['legs'])} legs · {t['sports']} sport(s) · {t['units']}u · "
+              f"Π model {t['model_p']:.3f} vs Π market {t['market_p']:.3f} → +{t['edge_pp']:.1f}pp · {t['signature']}"
+              + (f" · B-track shadow: would be {t['b_shadow']}" if t.get("b_shadow") else ""))
+    b = doc["b_track_shadow"]
+    print(f"  B-track shadow (pre-committed, NOT applied): exposure-capped {b['exposure_capped']} · "
+          f"deduped {b['deduped']} · v1.2 would build {len(b['v12_tickets'])} ticket(s)")
+    for c in b["cuts"]:
+        print(f"    would cut ({c['rule']}): {c['detail']}")
+    for q in b.get("qb_shared_risk") or []:
+        print(f"    QB shared risk (#192, logged): {q['player']} on {len(q['games'])} games · "
+              f"straights {q['straight_units']:g}u · tickets touching {q['tickets_touching']}")
 
 
 @cli.command("export-nhl-predictions")
@@ -3601,7 +3865,10 @@ def nhl_shadow_grade_cmd(days):
               help="Full look-ahead (8 days: the whole NFL week) instead of the 36h current slate.")
 @click.option("--days", "days", type=click.IntRange(min=1), default=None,
               help="Explicit look-ahead of N days instead of the 36h current slate.")
-def export_nfl_predictions_cmd(week, days):
+@click.option("--desk", is_flag=True, default=False,
+              help="F1 (#151): add the Desk's call per row (desk + desk_meta). Off by default "
+                   "until the parity receipt is ruled; SP_DESK_CALLS=1 also enables it.")
+def export_nfl_predictions_cmd(week, days, desk):
     """NFL predictions export (LIVE: rehearsal=false; quarantine, venue and Elo fields).
 
     Rows default to the CURRENT SLATE: kickoffs in the next 36 hours, so a
@@ -3613,11 +3880,11 @@ def export_nfl_predictions_cmd(week, days):
         raise click.UsageError("--week and --days are exclusive")
     rc: dict = {}
     if week:
-        path, how = export_nfl_predictions(days_ahead=8, receipts=rc), "--week: full look-ahead"
+        path, how = export_nfl_predictions(days_ahead=8, receipts=rc, desk=desk or None), "--week: full look-ahead"
     elif days:
-        path, how = export_nfl_predictions(days_ahead=days, receipts=rc), f"--days {days}"
+        path, how = export_nfl_predictions(days_ahead=days, receipts=rc, desk=desk or None), f"--days {days}"
     else:
-        path = export_nfl_predictions(hours_ahead=SLATE_WINDOW_H, receipts=rc)
+        path = export_nfl_predictions(hours_ahead=SLATE_WINDOW_H, receipts=rc, desk=desk or None)
         how = "default: current slate; --week / --days N for more"
     if rc.get("elo_drift_games"):
         print(f"⚠ ELO DRIFT: {len(rc['elo_drift_games'])} NFL game(s) finished after the "
@@ -3636,6 +3903,8 @@ def export_nfl_predictions_cmd(week, days):
     w = rc["window"]
     console.print(f"[green]✓ Wrote {len(rows)} rows to {path}[/green] [dim](LIVE format: rehearsal=false, "
                   f"quarantine fields)[/dim] · {_window_line(w['from'], w['to'], how)}")
+    if (dl := _desk_line(path)):
+        print(dl)
 
 
 @cli.command("nfl-backtest-caps")
@@ -3798,7 +4067,7 @@ def sync_kalshi_nfl_cmd():
 
 @cli.command("sync-kalshi")
 @click.option("--date-from", "date_from", default=None, help="YYYY-MM-DD lower bound")
-@click.option("--date-to", "date_to", default=None, help="YYYY-MM-DD upper bound")
+@click.option("--date-to", "date_to", default=None, help="YYYY-MM-DD upper bound (the whole UTC day, inclusive)")
 def sync_kalshi_cmd(date_from, date_to):
     """
     Pull Kalshi MLB game markets as a SECOND market source (stored as
@@ -3809,8 +4078,13 @@ def sync_kalshi_cmd(date_from, date_to):
     from datetime import datetime
     from src.ingestion.kalshi_sync import sync_kalshi_mlb
 
+    from datetime import timedelta
+
     df = datetime.strptime(date_from, "%Y-%m-%d") if date_from else None
-    dt = datetime.strptime(date_to, "%Y-%m-%d") if date_to else None
+    # --date-to is a whole UTC day (2026-10-01: the window's
+    # `--date-to {tomorrow}` read as midnight dropped 00:05Z+ night games)
+    dt = (datetime.strptime(date_to, "%Y-%m-%d") + timedelta(days=1, microseconds=-1)
+          if date_to else None)
 
     def prog(m):
         console.print(f"[dim]{m}[/dim]")
@@ -4033,6 +4307,75 @@ def _soccer_time_decay_candidate(competition_code, season, min_prior):
           f"{p['cand_rps']:.4f} vs {p['prod_rps']:.4f} (reported only)", flush=True)
 
 
+def _soccer_lane_candidate(candidate, competition_code, season, min_prior):
+    """SOCCER-CANDIDATES lane (architect 2026-10-01): (a) dixon-coles-fit and
+    (b) s14-totals, each vs production on the PL pooled gate set. The set is
+    FIXED (PL 2023/24-2025/26): --competition/--season other than the defaults
+    are refused, never silently swapped. Writes nothing."""
+    from src.walters import soccer_candidates as sc
+    from src.walters.training import DEFAULT_PROMOTION_DELTA
+
+    tag = "DC-FIT" if candidate == sc.DC_CANDIDATE else "S14-STAGE2"
+    if competition_code != sc.GATE_COMPETITION or season is not None:
+        print(f"{tag}-GATE: REFUSED — the gate set is fixed ({sc.GATE_COMPETITION} "
+              f"{', '.join(sc.GATE_SEASONS)}, pooled); drop --competition/--season.", flush=True)
+        return
+    prod = _soccer_prod_poisson()
+    if prod is None:
+        print(f"{tag}-GATE: INVALID — no production soccer model to evaluate against "
+              "(nothing resolved; nothing faked).", flush=True)
+        return
+    version, rho, coeff = prod
+    fn = sc.run_dixon_coles_candidate if candidate == sc.DC_CANDIDATE else sc.run_s14_candidate
+    r = fn(prod_rho=rho, elo_goal_coeff=coeff, min_prior=min_prior, min_delta=DEFAULT_PROMOTION_DELTA)
+    pool = sc.DC_VERDICT_SEASONS if candidate == sc.DC_CANDIDATE else sc.GATE_SEASONS
+    print(f"{tag} candidate vs production {version} (rho={rho}, elo_goal_coeff={coeff}) · verdict pool "
+          f"{sc.GATE_COMPETITION} {', '.join(pool)} pooled · min_prior={min_prior}", flush=True)
+    if candidate == sc.DC_CANDIDATE:
+        fit = r.get("fit") or {}
+        print(f"  FIT (frozen procedure): season {sc.DC_FIT_SEASON} · n={fit.get('n')} · grid "
+              f"[{sc.DC_RHO_LO}, {sc.DC_RHO_HI}] step {sc.DC_RHO_STEP} · fitted rho = {fit.get('rho')} "
+              f"(loglik {fit.get('loglik')}, at rho=0 {fit.get('loglik_at_zero')})", flush=True)
+    for x in r.get("per_season") or []:
+        if "prod_log_loss" in x:
+            print(f"  {x['season']}: n={x['n']} prod LL {x['prod_log_loss']:.4f} cand LL "
+                  f"{x['cand_log_loss']:.4f} delta {x['delta']:+.4f} · RPS {x['prod_rps']:.4f} -> "
+                  f"{x['cand_rps']:.4f}", flush=True)
+        else:
+            print(f"  {x['season']}: {x.get('verdict')}", flush=True)
+    p = r.get("pooled") or {}
+    if r.get("verdict") == "INVALID" or p.get("verdict") == "INVALID":
+        print(f"{tag}-GATE: INVALID — {r.get('reason') or p.get('reason')}", flush=True)
+        return
+    line = (f"log-loss {p['cand_log_loss']:.4f} vs {p['prod_log_loss']:.4f}, delta {p['delta']:+.4f} "
+            f"(bar >= {p['min_delta']:.4f}; ties reject) over n={p['n']} · RPS {p['cand_rps']:.4f} vs "
+            f"{p['prod_rps']:.4f} ({_RPS_NOTE})")
+    if candidate == sc.DC_CANDIDATE:
+        o = r.get("in_sample") or {}
+        if "delta" in o:
+            print(f"  in-sample {sc.DC_FIT_SEASON} (the fit season — INFORMATION ONLY, decides nothing): "
+                  f"n={o['n']} delta {o['delta']:+.4f}", flush=True)
+        print(f"{tag}-GATE: {p['verdict']} — rho {r['fit']['rho']} (fitted on {sc.DC_FIT_SEASON}, "
+              f"judged out of sample on {', '.join(sc.DC_VERDICT_SEASONS)}) vs production rho {rho}: {line}",
+              flush=True)
+        return
+    s = r["s14"]
+    print(f"  improve rule (1X2): {p['verdict']} — {line}", flush=True)
+    ub, uc = s["uncertain_residual"]
+    cb, cc = s["confident_residual"]
+    hb, hc = s["direction_hits"]
+    fmt = lambda v: "—" if v is None else f"{v:+.3f}"
+    print(f"  S14 (i) uncertain-bucket residual (n={s['n_uncertain']}): {fmt(ub)} -> {fmt(uc)} "
+          f"toward zero: {'YES' if s['i_toward_zero'] else 'NO'}", flush=True)
+    print(f"  S14 (ii) totals direction at 2.5 (n={s['n']}): {hb} -> {hc} not worse: "
+          f"{'YES' if s['ii_direction_not_worse'] else 'NO'}", flush=True)
+    print(f"  S14 (iii) confident-bucket residual (n={s['n_confident']}): {fmt(cb)} -> {fmt(cc)} "
+          f"within ±{sc.S14_CONFIDENT_TOL}: {'YES' if s['iii_confident_within_tol'] else 'NO'}", flush=True)
+    print(f"{tag}-GATE: {r['verdict']} — offset +{sc.S14_OFFSET_GOALS} goals on top pick < "
+          f"{sc.S14_UNCERTAIN_TOP_PICK}: improve rule {p['verdict']} AND S14 criteria "
+          f"{'PASS' if s['pass'] else 'FAIL'}", flush=True)
+
+
 @cli.command("soccer-backtest")
 @click.option("--competition", "competition_code", default="PL")
 @click.option("--season", default=None, help="e.g. 2024/25; omit for all seasons")
@@ -4040,13 +4383,18 @@ def _soccer_time_decay_candidate(competition_code, season, min_prior):
 @click.option("--rho", "rho", default=None, type=float,
               help="Dixon-Coles rho override. Default: the PRODUCTION soccer model's "
                    "stored value, so the backtest evaluates the model you'd actually ship.")
-@click.option("--candidate", type=click.Choice(["time-decay"]), default=None,
+@click.option("--candidate", type=click.Choice(["time-decay", "dixon-coles-fit", "s14-totals"]),
+              default=None,
               help="S19 (2026-09-30, backtest-only): score production AND the time-decay "
                    "candidate (FROZEN half-life, no override) on the same splits and apply "
                    "the existing gate (log-loss delta >= 0.0050). With no --season and "
                    "--competition PL: the pre-declared gate set (PL 2023/24, 2024/25, "
                    "2025/26, pooled) and a verdict; otherwise INFORMATIONAL, no verdict. "
-                   "Writes nothing; production is untouched.")
+                   "SOCCER-CANDIDATES (2026-10-01, backtest-only, always the PL pooled gate "
+                   "set): dixon-coles-fit = rho fitted on 2023/24 only, frozen, vs production "
+                   "rho, judged on 2024/25+2025/26 (out of sample); s14-totals = +1.17 goals on uncertain-winner games (top pick < 0.45), "
+                   "improve rule AND the S14 Stage-2 criteria. Writes nothing; production is "
+                   "untouched.")
 def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     """
     LEAKAGE-FREE soccer backtest — the disciplined equivalent of the MLB backtest.
@@ -4061,6 +4409,9 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
 
     if candidate == "time-decay":
         _soccer_time_decay_candidate(competition_code, season, min_prior)
+        return
+    if candidate in ("dixon-coles-fit", "s14-totals"):
+        _soccer_lane_candidate(candidate, competition_code, season, min_prior)
         return
 
     console.print(f"[cyan]Leakage-free soccer backtest: {competition_code} "
@@ -4561,6 +4912,12 @@ def ncaa_backtest_cmd(baselines_only, candidate):
     verdict. Read-only: writes nothing; NCAA stays market-only."""
     from src.walters import ncaa_backtest as nb
 
+    # ARCHITECT ruling 2026-10-01 (NCAA audit): 2025 home/away labels are
+    # UNRELIABLE; the gate is SUSPENDED-PENDING-DATA (not failed) until a season
+    # with sane stage-level home rates exists on BOTH sides of the split; v1's
+    # verdict is VOID (trained on corrupted labels). The command still runs —
+    # diagnostic only — and says so first and last.
+    print(nb.GATE_STATUS_LINE, flush=True)
     stream = nb.build_stream(nb.load_games())
     base = nb.baselines(stream)
     if baselines_only or base.verdict:   # INVALID: nothing to score against
@@ -4575,6 +4932,7 @@ def ncaa_backtest_cmd(baselines_only, candidate):
         f"mov_base={cfg.mov_base:g}, regression={cfg.season_regression:g}, "
         f"default={cfg.default_rating:g}; all a priori, no selection) — "
         f"{nb.TEST_SEASON} evaluated ONCE"))
+    print(nb.GATE_STATUS_LINE + " The verdict above is DIAGNOSTIC, not a ruling.", flush=True)
 
 
 @cli.command("ncaa-audit")
@@ -4722,7 +5080,10 @@ def nhl_goalie_sync_cmd(start_s, end_s, sleep, refresh, dry_run, verbose, tolera
 @click.option("--end", "end_s", default=None, help="Default: today.")
 @click.option("--sleep", default=0.25, show_default=True)
 @click.option("--limit", default=8, show_default=True, help="Sample lines per cause.")
-def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit):
+@click.option("--list-ours", "list_ours", multiple=True,
+              help="Season(s) (e.g. 2024 2025): list EVERY one of our unlinked finished games by "
+                   "date with the nearest API game, its delta and a named cause (ruling 2026-10-01).")
+def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit, list_ours):
     """Read-only audit of NHL games with no goalie link (architect 2026-09-30):
     each unlinked API game classified by cause (UTC-boundary offset, home/away
     swapped, ambiguous, name mismatch, not in our DB), the offset histogram,
@@ -4734,7 +5095,8 @@ def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit):
 
     init_db()
     end = _date.fromisoformat(end_s) if end_s else _date.today()
-    r = ngs.audit(_date.fromisoformat(start_s), end, sleep=sleep)
+    r = ngs.audit(_date.fromisoformat(start_s), end, sleep=sleep,
+                  list_seasons=set(list_ours) if list_ours else None)
     click.echo(f"NHL-GOALIE AUDIT {start_s} .. {end.isoformat()} · schedule calls {r['schedule_calls']}")
     click.echo(f"  API games (regular/playoff, finished): {r['api_games']} · linked {r['api_linked']} · "
                f"unlinked {r['api_games'] - r['api_linked']}")
@@ -4751,6 +5113,17 @@ def nhl_goalie_audit_cmd(start_s, end_s, sleep, limit):
         click.echo(f"  {cause} (sample):")
         for ln in lines[:limit]:
             click.echo(f"    {ln}")
+    if r.get("ours_listing") is not None:
+        from collections import Counter as _C
+        lst = r["ours_listing"]
+        tally = _C(x["cause"] for x in lst)
+        click.echo(f"OUR UNLINKED GAMES, seasons {', '.join(sorted(list_ours))}: {len(lst)} · by cause: "
+                   + (" · ".join(f"{k} {v}" for k, v in tally.most_common()) or "none"))
+        for x in lst:
+            d = "—" if x["delta_h"] is None else f"{x['delta_h']:+.1f}h"
+            click.echo(f"  {x['t']:%Y-%m-%d %H:%M} [{x['season']}] match {x['match_id']} {x['ours']} · "
+                       f"{x['cause']} · nearest API: {x['api'] or 'none within ±7d'} · delta {d}"
+                       + (f" · API game linked to match {x['api_linked_to']}" if x['api_linked_to'] else ""))
 
 
 @cli.command("nhl-goalie-coverage")
@@ -5720,13 +6093,18 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
 @click.option("--competition", "competition_code", required=True, help="e.g. EFL, CL")
 @click.option("--start", default=None, help="YYYY-MM-DD")
 @click.option("--end", default=None, help="YYYY-MM-DD")
-def export_fixtures_cmd(competition_code, start, end):
+@click.option("--desk", is_flag=True, default=False,
+              help="F1 (#151): add the Desk's call per row (desk + desk_meta). Off by default "
+                   "until the parity receipt is ruled; SP_DESK_CALLS=1 also enables it.")
+def export_fixtures_cmd(competition_code, start, end, desk):
     """Market-only fixtures export (no predictions) for market-only competitions:
     UNL, NCAA, the suspended cups, and NHL (market-only launch 2026-10-07)."""
     from src.walters.export import export_fixtures
     rc: dict = {}
-    path = export_fixtures(competition_code, start=start, end=end, receipts=rc)
+    path = export_fixtures(competition_code, start=start, end=end, receipts=rc, desk=desk or None)
     console.print(f"[green]✓ Wrote market-only fixtures to {path}[/green]")
+    if (dl := _desk_line(path)):
+        print("  " + dl)
     print(f"  fixtures {rc['fixtures']} · with book consensus {rc['with_books']} · "
           f"spread-derived fair {rc['with_spread_derived']} · "
           f"kalshi two-sided {rc['kalshi_two_sided']} / one-sided "
@@ -5835,8 +6213,11 @@ def spread_fallback_check_cmd(competition_code, start, end):
               help="Output format. JSON preserves all structure; CSV is flat headline columns.")
 @click.option("--out", "out_path", default=None,
               help="File path to write to. Defaults to exports/<sport>_<date>.<ext>.")
+@click.option("--desk", is_flag=True, default=False,
+              help="F1 (#151): add the Desk's call per row (desk + desk_meta). Off by default "
+                   "until the parity receipt is ruled; SP_DESK_CALLS=1 also enables it.")
 def export_predictions_cmd(sport, date_str, days, start_str, end_str, competition_code,
-                           status_filter, output_format, out_path):
+                           status_filter, output_format, out_path, desk):
     """
     Export a day's (or date range's) predictions, with prediction probabilities,
     factor breakdown, market data with edge math, and recent form. Use to bulk
@@ -5953,6 +6334,7 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
             competition_code=competition_code,
             statuses=statuses,
             output_format=output_format,
+            desk=desk or None,
         )
     except ValueError as e:
         console.print(f"[red]✗ Export failed: {e}[/red]")
@@ -5983,6 +6365,8 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
                           f"Try --status all or check date range.[/yellow]")
         else:
             console.print(f"[green]✓ Wrote {count} predictions to {out_path}[/green]")
+            if (dl := _desk_line(out_path)):
+                print(dl)
     else:
         lines = payload.count("\n")
         console.print(f"[green]✓ Wrote {max(lines - 1, 0)} rows to {out_path}[/green]")

@@ -18,6 +18,19 @@ run. The delta classes:
     line_move    LINE-MOVE ALARM (ruling 2026-09-29): the card row turned
                  "late-news?" (>= 6pp on book or Kalshi inside T-3h, from
                  stored snapshots); pages and triggers freshen:<family>
+    model        model updated: the canonical pick, its probability (to 0.1%)
+                 or the model version changed (card page, 2026-10-01)
+    call         call changed: the Desk's call or units in the file changed
+                 (F1 desk on the export; 2026-10-01)
+    qb_news      an injured QB's status changed (#192, ruling 2026-10-01): ONE
+                 news item PER PLAYER, listing every game that team plays in the
+                 window; never one page per game
+PAGE CONTENT (architect 2026-10-01, F2 slice 1): every page line and digest
+row reads "competition · away @ home · kickoff ET · model pick prob (tier) ·
+reference (books, or Kalshi when kalshi-only) · edge · Desk call/units when the
+file carries desk · flags"; market-only rows say so. A delta adds one "↳" line
+with the change. Lines stay near 100 characters for the phone. The digest lists
+the Desk's calls first.
 Quiet hours are 00:00-07:00 America/New_York: everything except the
 quarantine-class deltas (quarantine flips and line moves, ruling 2026-09-29) is
 suppressed there, and still receipted. Plus ONE fixed daily digest
@@ -39,7 +52,8 @@ import sp_common as c  # noqa: E402
 ET = ZoneInfo("America/New_York")
 QUIET = (0, 7)          # [00:00, 07:00) ET
 DIGEST_HOUR = 8         # first run at/after 08:00 ET
-CLASSES = ("new_priced", "tier", "quarantine", "stale", "kickoff", "t90_news", "line_move")
+CLASSES = ("new_priced", "tier", "quarantine", "stale", "kickoff", "t90_news", "line_move", "model", "call",
+           "qb_news")
 FRESHEN_CLASSES = ("t90_news", "line_move")
 URGENT = ("quarantine", "line_move")
 
@@ -51,15 +65,33 @@ def state_path() -> Path:
 def snapshot(card: dict) -> dict:
     out = {}
     for r in card.get("fixtures", []):
+        model = r.get("model") or {}
+        desk = model.get("desk") or {}
+        fair = (r.get("market") or {}).get("fair_prob") or {}
+        pick = model.get("top_pick")
+        kal_only = desk.get("reference") == "kalshi_only"
         out[str(r["match_id"])] = {
             "label": f"{r.get('away_team')} @ {r.get('home_team')}",
+            "home": r.get("home_short") or r.get("home_team"), "away": r.get("away_short") or r.get("away_team"),
             "sport": r.get("sport"), "competition": r.get("competition"),
             "utc_date": r.get("utc_date"), "status": r.get("status"),
             "priced": bool(r.get("market") or r.get("kalshi")),
             "tier": r.get("tier"), "quarantine": bool(r.get("quarantine")),
             "venue_flag": r.get("venue_flag"), "edge_pp": r.get("edge_pp"),
             "engine": r.get("engine"),
-            "late_news": r.get("late_news_flag"), "line_move": _move_text(r.get("line_move"))}
+            "late_news": r.get("late_news_flag"), "line_move": _move_text(r.get("line_move")),
+            "time_flag": r.get("time_flag"),
+            # card page (2026-10-01)
+            "pick": pick, "prob": model.get("top_pick_prob"), "model_version": model.get("model_version"),
+            "ref_src": "kalshi" if kal_only else "books",
+            # with a Desk call, the reference the call was made on; else the card's repriced books
+            "ref_p": desk.get("market_ref") if desk else (fair.get(pick) if pick else None),
+            "desk_edge": desk.get("edge_pp") if desk else None,
+            "call": desk.get("call"), "units": desk.get("units"), "pass_kind": desk.get("pass_kind"),
+            "fair": fair or None, "kalshi_home": r.get("kalshi_home_norm"),
+            "qbs": {f"{q.get('team_id')}|{q.get('player')}": {"team": q.get("team"), "player": q.get("player"),
+                                                              "status": q.get("status") or ""}
+                    for q in (r.get("qb_news") or [])}}
     return out
 
 
@@ -88,46 +120,163 @@ def deltas(prev: dict, cur: dict, prev_t90: dict, cur_t90: dict) -> list[dict]:
             out.append({"cls": "quarantine", "id": mid, "g": g, "was": p["quarantine"]})
         if g["venue_flag"] != p["venue_flag"]:
             out.append({"cls": "stale", "id": mid, "g": g, "was": p["venue_flag"]})
+        if "prob" in p and (g.get("pick") != p.get("pick") or g.get("model_version") != p.get("model_version")
+                            or _r3(g.get("prob")) != _r3(p.get("prob"))) and g.get("prob") is not None:
+            out.append({"cls": "model", "id": mid, "g": g, "was": p})
+        if "call" in p and (g.get("call"), g.get("units")) != (p.get("call"), p.get("units")) and g.get("call"):
+            out.append({"cls": "call", "id": mid, "g": g, "was": p})
         if g["utc_date"] != p["utc_date"] or (
                 g["status"] != p["status"] and str(g["status"]).lower() in ("postponed", "cancelled")):
             out.append({"cls": "kickoff", "id": mid, "g": g, "was": p["utc_date"]})
+    out += qb_deltas(prev, cur)
     for mid, sig in cur_t90.items():
         if mid in prev_t90 and prev_t90[mid] != sig and mid in cur:
             out.append({"cls": "t90_news", "id": mid, "g": cur[mid]})
     return out
 
 
+def _players(games: dict) -> dict:
+    """player key -> {team, player, status, ids: {match ids}, games: [snapshots]} across the window."""
+    out = {}
+    for mid, g in games.items():
+        for k, q in (g.get("qbs") or {}).items():
+            e = out.setdefault(k, {**q, "ids": set(), "games": []})
+            e["ids"].add(mid)
+            e["games"].append(g)
+    return out
+
+
+def qb_deltas(prev: dict, cur: dict) -> list[dict]:
+    """#192: one delta per PLAYER whose QB injury status appeared, changed or
+    cleared, however many games his team has in the window. A change is news
+    only on a game that was already on the card (a game entering or leaving
+    the window is not news). Silent until the previous state carries QB data
+    (no flood on the upgrade)."""
+    if not any("qbs" in g for g in prev.values()):
+        return []
+    was, now = _players(prev), _players(cur)
+    out = []
+    for k in sorted(set(was) | set(now)):
+        a, b = was.get(k), now.get(k)
+        if a and b and a["status"] == b["status"]:
+            continue
+        stayed = [mid for mid in (b or a)["ids"] if mid in prev and mid in cur]
+        if not stayed:
+            continue
+        q = b or a
+        out.append({"cls": "qb_news", "id": k, "g": cur[stayed[0]], "player": q["player"], "team": q["team"],
+                    "was": a["status"] if a else None, "now": b["status"] if b else None,
+                    "games": [cur[mid] for mid in sorted(stayed)]})
+    return out
+
+
+def _r3(v):
+    return None if v is None else round(v, 3)
+
+
 def _ko(g) -> str:
+    """'Thu 8:15p' on the ET clock."""
     try:
-        return datetime.fromisoformat(g["utc_date"]).replace(tzinfo=ZoneInfo("UTC")) \
-            .astimezone(ET).strftime("%a %H:%M ET")
+        t = datetime.fromisoformat(g["utc_date"]).replace(tzinfo=ZoneInfo("UTC")).astimezone(ET)
     except (TypeError, ValueError):
         return "?"
+    return f"{t:%a} {t.hour % 12 or 12}:{t:%M}{'a' if t.hour < 12 else 'p'}"
+
+
+def _side(g, k) -> str:
+    return g.get("home") if k == "HOME" else g.get("away") if k == "AWAY" else "Draw" if k == "DRAW" else "?"
+
+
+def _call_text(g) -> str | None:
+    if not g.get("call"):
+        return None
+    if g["call"] == "PASS":
+        return "PASS" + {"noref": " no-ref", "floor": " floor"}.get(g.get("pass_kind") or "", "")
+    u = g.get("units")
+    return f"{g['call']} {u:g}u" if isinstance(u, (int, float)) else g["call"]
+
+
+def _market_text(g) -> str:
+    fair = g.get("fair") or {}
+    if fair:
+        k = max(fair, key=lambda x: fair[x] if fair[x] is not None else -1)
+        if fair[k] is not None:
+            return f"books {_side(g, k)} {fair[k] * 100:.0f}%"
+    kh = g.get("kalshi_home")
+    if kh is not None:
+        return f"kalshi {g.get('home')} {kh * 100:.0f}%" if kh >= 0.5 else f"kalshi {g.get('away')} {(1 - kh) * 100:.0f}%"
+    return "unpriced"
+
+
+def row_text(g) -> str:
+    """One card row for the phone (architect 2026-10-01): competition, teams,
+    kickoff ET, model pick/prob/tier, reference, edge, Desk call, flags."""
+    parts = [f"{_ko(g)} {g.get('competition') or str(g.get('sport')).upper()} {g.get('away')} @ {g.get('home')}"]
+    if g.get("engine") == "model_edge" and g.get("pick"):
+        prob = g.get("prob")
+        parts.append(f"model {_side(g, g['pick'])} " + (f"{prob * 100:.1f}%" if prob is not None else "?")
+                     + (f" ({g['tier']})" if g.get("tier") else ""))
+        ref = g.get("ref_p")
+        parts.append(f"{g.get('ref_src') or 'books'} " + (f"{ref * 100:.1f}%" if ref is not None else "—"))
+        edge = g.get("desk_edge") if g.get("desk_edge") is not None else g.get("edge_pp")
+        if edge is not None and ref is not None:
+            parts.append(f"{edge:+.1f}pp")
+        if (c := _call_text(g)):
+            parts.append(c)
+    else:
+        parts += ["market-only", _market_text(g)]
+    flags = [x for x in ("QUARANTINE" if g.get("quarantine") else None, g.get("venue_flag"),
+                         g.get("late_news"), "⚠ time unconfirmed" if g.get("time_flag") else None) if x]
+    return " · ".join(parts + flags)
+
+
+def _pct(v) -> str:
+    return f"{v * 100:.1f}%" if v is not None else "?"
 
 
 def line(d: dict) -> str:
-    g = d["g"]
-    head = f"{_ko(g)} {str(g['sport']).upper()} {g['label']}"
-    what = {"new_priced": "priced" + (f" (edge {g['edge_pp']:+.1f}pp)" if g["edge_pp"] is not None else ""),
-            "tier": f"tier {d.get('was')} -> {g['tier']}",
-            "quarantine": f"QUARANTINE {'ON' if g['quarantine'] else 'off'}",
-            "stale": f"venue {d.get('was') or 'ok'} -> {g['venue_flag'] or 'ok'}",
-            "kickoff": f"kickoff moved from {d.get('was')} (status {g['status']})",
-            "t90_news": "injury/lineup news inside T-90: freshen triggered",
-            "line_move": f"LINE MOVE inside T-3h: {g.get('line_move')}: {g.get('late_news')} freshen triggered"}[d["cls"]]
-    return f"{head}: {what}"
+    g, was, cls = d["g"], d.get("was"), d["cls"]
+    if cls == "new_priced":
+        what = "newly priced"
+    elif cls == "tier":
+        what = f"tier {was} -> {g['tier']}"
+    elif cls == "quarantine":
+        what = f"QUARANTINE {'ON' if g['quarantine'] else 'off'}"
+    elif cls == "stale":
+        what = f"venue {was or 'ok'} -> {g['venue_flag'] or 'ok'}"
+    elif cls == "kickoff":
+        what = f"kickoff moved from {_ko({'utc_date': was})} (status {g['status']})"
+    elif cls == "t90_news":
+        what = "injury/lineup news inside T-90: freshen triggered"
+    elif cls == "line_move":
+        what = f"LINE MOVE inside T-3h: {g.get('line_move')}: {g.get('late_news')} freshen triggered"
+    elif cls == "qb_news":
+        st = lambda v: "off the list" if v is None else (v or "listed")
+        head = f"QB NEWS {d['team']} {d['player']}: {st(d['was'])} -> {st(d['now'])} · {len(d['games'])} game(s)"
+        return head + "".join(f"\n  ↳ {row_text(x)}" for x in d["games"])
+    elif cls == "model":
+        p = was or {}
+        what = (f"model updated: {_side(p, p.get('pick'))} {_pct(p.get('prob'))} -> "
+                f"{_side(g, g.get('pick'))} {_pct(g.get('prob'))}")
+    else:                                                    # call
+        what = f"call changed: {_call_text(was or {}) or 'none'} -> {_call_text(g)}"
+    return f"{row_text(g)}\n  ↳ {what}"
+
+
+def _is_call(g) -> bool:
+    return g.get("call") in ("PLAY", "LADDER")
 
 
 def digest(cur: dict) -> str:
-    games = sorted(cur.values(), key=lambda g: g["utc_date"] or "")
+    games = sorted(cur.values(), key=lambda g: (not _is_call(g), g["utc_date"] or ""))   # calls first
+    calls = sum(1 for g in games if _is_call(g))
     lines = [f"{len(games)} games in the next 24h; "
              f"{sum(1 for g in games if g['engine'] == 'model_edge')} with a model, "
-             f"{sum(1 for g in games if g['quarantine'])} quarantined, "
+             + (f"{calls} Desk call(s), " if any(g.get("call") for g in games) else "")
+             + f"{sum(1 for g in games if g['quarantine'])} quarantined, "
              f"{sum(1 for g in games if g['venue_flag'])} STALE-BOOK?"]
     for g in games[:15]:
-        bits = [x for x in (g["tier"], f"edge {g['edge_pp']:+.1f}pp" if g["edge_pp"] is not None else None,
-                            "QUARANTINE" if g["quarantine"] else None, g["venue_flag"]) if x]
-        lines.append(f"{_ko(g)} {str(g['sport']).upper()} {g['label']}" + (f" [{', '.join(bits)}]" if bits else ""))
+        lines.append(row_text(g))
     if len(games) > 15:
         lines.append(f"... {len(games) - 15} more on the card")
     return "\n".join(lines)

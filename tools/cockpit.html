@@ -60,6 +60,7 @@ tr.vshadow td{font-style:italic;opacity:.9}
 tr.noref td{opacity:.5}
 .passkind{display:inline-block;margin-left:6px;padding:0 5px;border:1px solid currentColor;border-radius:3px;font-size:10px;font-weight:600;letter-spacing:.02em;white-space:nowrap}
 .rerun{color:var(--muted);font-style:italic}
+.ko{display:block;color:var(--muted);font-size:11px;white-space:nowrap}
 .chip{display:inline-block;background:var(--chip);border-radius:20px;
   padding:1px 9px;font-size:12px;margin-left:6px}
 .reason{color:var(--muted);font-size:12px;white-space:normal;max-width:340px}
@@ -114,9 +115,12 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
     <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
-    <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
-    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5; one rounding per FILL to the NEAREST cent (fitted 542/548 on the YTD fills), costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · quotes are the home contract's; an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: no derived price (NO on HOME is draw-or-away) · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
+    <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded · <b id="vsProgress">graded —/30</b> <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
+    <b>POSTSEASON</b> (sizing caution, v1.1 addendum 2026-10-01) — rows the export marks <code>stage = postseason</code> (MLB, from our gameType mapping F/D/L/W) get HALF units until 30 postseason calls are graded · <b id="psProgress">graded —/30</b> · stage unknown (null) = labelled, not halved<br>
+    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series M=1 (taker 0.07, maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5; one rounding per FILL to the NEAREST cent (fitted 542/548 on the YTD fills), costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · quotes are the home contract's; an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: no derived price (NO on HOME is draw-or-away) · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.<br>
+    <b>KALSHI-ONLY</b> (provisional reference, v1.1 addendum RULED 2026-10-01; model sports, two-way boards) — books absent at T-60 + Kalshi two-sided, spread ≤ 2c, series in the ruled fee table → the Kalshi MID is the market reference · row flagged "kalshi-only" · HALF units (0.5 × tier) · a real call, not a shadow · value-side and quarantine unchanged · ledger records reference=kalshi_only · review at 30 graded (promote or retire) · <b id="koProgress">graded —/30</b><br>
+    <b>KICKOFF</b> (presentation only, 2026-10-01) — every Desk row shows its kickoff and "re-run by" = T-60 (local clock).<br>
     <b>PASS CLASSES</b> (presentation only, 2026-09-30) — <b>no reference</b>: no two-sided book market or &lt; 3 books (model table), no book/Kalshi pair or books below 4 (venue table) — greyed, with a "re-run at T-60" hint, because books and Kalshi post thin and late · <b>below floor</b>: a real edge measured and declined · other PASSes (pre-gate, quarantine, charter) keep their own reason.
   </div>
 </div>
@@ -196,6 +200,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     </div>
     <div class="row" style="margin-top:10px">
       <button id="exportLedgerBtn" class="ghost">Export ledger (JSON)</button>
+      <button id="exportSummaryBtn" class="ghost" title="Graded-call counts for the export's Desk (F1): save as exports/ledger_summary.json">Export ledger summary</button>
       <label class="ghost" style="display:inline-flex;align-items:center;gap:6px">Import ledger
         <input type="file" id="importLedgerFile" accept=".json"></label>
       <button id="copyPnlBtn">Copy P&amp;L block</button>
@@ -204,6 +209,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
       <button id="copyLedgerBtn" class="ghost">Copy ledger (JSON)</button>
       <button id="importPastedBtn" class="ghost">Import pasted</button>
       <button id="dedupeBtn" class="ghost">Dedupe ledger</button>
+      <button id="legAuditBtn" class="ghost" title="Check logged parlay legs against the Desk calls of the export files loaded for their log day">Audit parlay legs (#183)</button>
     </div>
     <textarea id="ledgerJson" hidden spellcheck="false" style="width:100%;box-sizing:border-box;min-height:120px;margin-top:8px;font:12px ui-monospace,monospace;background:var(--bg);color:var(--ink);border:1px solid var(--line);border-radius:8px;padding:8px"></textarea>
     <div class="row" style="margin-top:10px">
@@ -286,7 +292,7 @@ function normalize(doc){
         probsAll:{},fairAll:fair,over:null,div:null,quar:false,
         books:mk.bookmaker_count,qbs:[],rawIQ:{market_only:true,
           bookmaker_count:mk.bookmaker_count},live:false,
-        marketOnly:true,tier:null,
+        marketOnly:true,tier:null,fileDesk:f.desk||null,deskMeta:doc.desk_meta||null,
         kalProb:kalFromFixture(f.kalshi,fair),threeWay:fair.DRAW!=null});
     }
     return out;
@@ -323,6 +329,8 @@ function normalize(doc){
       qbs:(function(){const inj=(p.input_quality||{}).injuries||{};
         return [].concat((inj.home&&inj.home.qb_listed)||[],(inj.away&&inj.away.qb_listed)||[]);})(),
       rawIQ:p.input_quality||{},live:doc.rehearsal===false,
+      stage:p.stage===undefined?undefined:p.stage,
+      comp:(p.competition||doc.sport||"").toUpperCase(),   // fee-table key for the Kalshi-only reference   // MLB: "postseason" | "regular" | null (unknown); absent on older exports
       kalProb:kalFromPrediction(p,mk,market),threeWay:market.DRAW!=null||probs.DRAW!=null,
       kExec:{bid:p.kalshi_bid??null,ask:p.kalshi_ask??null,cost:p.exec_cost_taker??p.kalshi_exec_cost??null,
         maker:p.exec_cost_maker??null,    // #93 ruling: taker + maker (pre-split exports: taker only)
@@ -344,7 +352,8 @@ function normalize(doc){
           const un=[].concat((inj.home&&inj.home.positions_unresolved)||[],(inj.away&&inj.away.positions_unresolved)||[]);
           if(un.length)bits.push("position unresolved: "+un.length);}
         return bits.join(" · ");})(),
-      tier:pr.tier||null});
+      tier:pr.tier||null,fileDesk:p.desk||null,deskMeta:doc.desk_meta||null,
+      exportedAt:(doc.desk_meta&&doc.desk_meta.as_of)||doc.exported_at||null});
   }
   return out;
 }
@@ -385,6 +394,13 @@ function kalFromPrediction(p,mk,fair){
 // src/walters/venue.py: divergence = book fair − Kalshi, per side.
 // ---------------------------------------------------------------------
 const VENUE={minBooks:4,minDivPP:5.0,units:0.25,staleGapPP:8.0};  // frozen a-priori
+// KICKOFF PARSING (#178, 2026-10-01): exports write utc_date as NAIVE UTC
+// ("2026-10-01T19:05:00", no zone). Date.parse reads a zone-less date-time as
+// LOCAL time, which shifted every kickoff by the viewer's UTC offset. utcMs()
+// appends "Z" when no zone is present; every kickoff parse goes through it.
+function utcMs(s){ if(!s) return NaN; s=String(s);
+  const naive=/T\d\d:\d\d/.test(s)&&!/([zZ]|[+-]\d\d:?\d\d)$/.test(s);   // date-only is UTC already
+  return Date.parse(naive?s+"Z":s); }
 function venueEdge(r,now){
   const out={eligible:false,reason:"",side:null,divPP:null,bookP:null,kalP:null,sides:{}};
   // Charter (architect ruling 2026-09-26): the MARKET-ONLY family only (NHL,
@@ -396,7 +412,7 @@ function venueEdge(r,now){
   // divergence measured and declined; null = never eligible (charter, UNL, in-play).
   if(!r.marketOnly){out.reason="model sport — model_edge only (venue charter: market-only family)";return out;}
   if(r.sport==="UNL"){out.reason="single venue — no pair (UNL)";return out;}
-  if(r.utc&&new Date(r.utc).getTime()<=now){out.reason="in-play — never";return out;}
+  if(r.utc&&utcMs(r.utc)<=now){out.reason="in-play — never";return out;}
   const fair=r.fairAll||{}; const hasBook=(r.books||0)>0&&fair.HOME!=null&&fair.AWAY!=null;
   if(!hasBook||!r.kalProb){out.reason="single venue — no pair"; out.kind="noref"; return out;}
   if((r.books||0)<VENUE.minBooks){out.reason=`books ${r.books} < ${VENUE.minBooks} — pair too thin`; out.kind="noref"; return out;}
@@ -443,7 +459,8 @@ const K2={feeClearsPP:4,tick:0.01};
 // so there is nothing to join: joining = taking (shown as such, never a price).
 // MAKER / TAKER COSTS (#93 ruling, architect 2026-09-30): the export carries
 // exec_cost_taker = ask + 0.07·M·P(1−P) and exec_cost_maker = (bid+1¢) +
-// 0.0175·M·P(1−P) (game series taker M=1 / maker M=0.25; MLB pre-live M=0.5).
+// 0.0175·M·P(1−P) (game series M=1 taker and maker — the maker discount is the
+// 0.0175 rate, never a second M (P0-1 #206); MLB pre-live M=0.5).
 // The Desk's exec edge and "fee-clears?" use the MAKER cost by default (the
 // doctrine is join-bid); the taker cost is shown as the fallback, and is the
 // basis when no maker price exists (1¢ spread, no bid, pre-split export).
@@ -474,19 +491,27 @@ function deskCostFor(r,side){const m=makerCostFor(r,side);
   if(m!=null) return {cost:m,basis:"maker"};
   const t=execCostFor(r,side); return t==null?null:{cost:t,basis:"taker"};}
 function execEdgePP(r,side,modelP){const c=deskCostFor(r,side);return c==null||modelP==null?null:(modelP-c.cost)*100;}
-function execEdgeHTML(r,side,modelP){
-  if(!r.kExec||(r.kExec.cost==null&&r.kExec.ask==null&&r.kExec.maker==null)) return "";
-  const dc=deskCostFor(r,side), e=execEdgePP(r,side,modelP);
+// The K2 exec facts for a side (also what the export's desk.exec carries).
+function execFacts(r,side,modelP){
+  if(!r.kExec||(r.kExec.cost==null&&r.kExec.ask==null&&r.kExec.maker==null)) return null;
+  const dc=deskCostFor(r,side), jb=joinBidFor(r,side);
+  return {edge_pp:execEdgePP(r,side,modelP),cost:dc?dc.cost:null,basis:dc?dc.basis:null,taker_cost:execCostFor(r,side),
+    join_price:jb?(jb.price??null):null,join_note:jb?(jb.note??null):null,no_side:!!(kSide(r,side)||{}).no};
+}
+function execEdgeHTML(r,side,modelP){ return execHTMLFrom(execFacts(r,side,modelP),modelP); }
+function execHTMLFrom(fx,modelP){
+  if(!fx) return "";
+  const e=fx.edge_pp;
   if(e==null) return `<div class="note">exec — (quotes are the home contract's)</div>`;
   const pp=v=>(v>=0?"+":"")+v.toFixed(1)+"pp";
-  const jb=joinBidFor(r,side), t=execCostFor(r,side);
-  const no=(kSide(r,side)||{}).no;       // #89: an AWAY pick priced on the NO side
-  const head=dc.basis==="maker"
-    ?`exec ${pp(e)} @ ${dc.cost.toFixed(3)} maker (join ${jb&&jb.price!=null?jb.price.toFixed(2):"—"}${no?", NO side":""})`
-    :`exec ${pp(e)} @ ${dc.cost.toFixed(3)} taker${no?" (NO side)":""}`+(jb&&jb.price==null?` (${jb.note})`
+  const jb=fx.join_price!=null?{price:fx.join_price}:fx.join_note!=null?{price:null,note:fx.join_note}:null;
+  const t=fx.taker_cost, no=fx.no_side;
+  const head=fx.basis==="maker"
+    ?`exec ${pp(e)} @ ${fx.cost.toFixed(3)} maker (join ${jb&&jb.price!=null?jb.price.toFixed(2):"—"}${no?", NO side":""})`
+    :`exec ${pp(e)} @ ${fx.cost.toFixed(3)} taker${no?" (NO side)":""}`+(jb&&jb.price==null?` (${jb.note})`
       :jb&&jb.price!=null?` · join ${jb.price.toFixed(2)} (${pp((modelP-jb.price)*100)} pre-fee; no maker cost in this export)`
       :" (no maker price)");
-  const fallback=dc.basis==="maker"&&t!=null?` · taker ${t.toFixed(3)} (${pp((modelP-t)*100)})`:"";
+  const fallback=fx.basis==="maker"&&t!=null?` · taker ${t.toFixed(3)} (${pp((modelP-t)*100)})`:"";
   return `<div class="note">${head}`+(e>=K2.feeClearsPP?` · <b class="play">fee-clears?</b>`:"")+fallback+`</div>`;
 }
 function valueSide(r,P){
@@ -525,25 +550,87 @@ function passKindTag(k){
     :k==="floor"?'<span class="passkind">below floor</span>':"";
 }
 function rerunHint(r){
-  const t=Date.parse(r.utc||""); if(!isFinite(t)||t<=Date.now()) return "";
+  const t=utcMs(r.utc); if(!isFinite(t)||t<=Date.now()) return "";
   const at=new Date(t-PASSCLASS.rerunMin*60000);
   const hm=`${String(at.getHours()).padStart(2,"0")}:${String(at.getMinutes()).padStart(2,"0")}`;
   return ` <span class="rerun">· re-run at T-60 (${hm} local)</span>`;
 }
 
-function policy(){
-  const base=BASE_UNITS;
-  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0;
-  const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
-  deskCalls=[]; deskValue=[];
-  for(const r of rows){
-    if(r.marketOnly) continue;  // gated comps: model policy n/a (venue engine below)
-    const P=POLICY[r.sport]||POLICY.DEFAULT;
+// KICKOFF + "RE-RUN BY" (architect 2026-10-01, presentation only): every Desk
+// row shows its kickoff and T-60 on the local clock.
+function hm(t){const d=new Date(t);return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;}
+function koLine(r){
+  const t=utcMs(r.utc); if(!isFinite(t)) return '<span class="ko">kickoff unknown</span>';
+  if(t<=Date.now()) return `<span class="ko">KO ${hm(t)} · started</span>`;
+  return `<span class="ko">KO ${hm(t)} · re-run by ${hm(t-PASSCLASS.rerunMin*60000)}</span>`;
+}
+// POSTSEASON SIZING CAUTION (policy v1.1 addendum, architect 2026-10-01): a
+// row the export marks stage="postseason" plays at HALF units until 30
+// postseason calls are graded in this ledger (sized model_edge calls:
+// straight + ladder). stage null = unknown: labelled, never guessed.
+const POSTSEASON={reviewN:30};
+function gradedCount(pred){
+  try{ return loadLedger().calls.filter(c=>c.result&&pred(c)).length; }catch(e){ return 0; }
+}
+function postseasonGraded(){
+  return gradedCount(c=>c.stage==="postseason"&&c.engine==="model_edge"
+    &&(c.call_type==="straight"||c.call_type==="ladder"));
+}
+function valueShadowGraded(){ return gradedCount(c=>c.call_type==="value_shadow"); }
+function renderProgress(){
+  const ps=postseasonGraded(), vs=valueShadowGraded();
+  const set=(id,n,N)=>{const el=document.getElementById(id); if(el) el.textContent=`graded ${n}/${N}`+(n>=N?" — review due":"");};
+  set("psProgress",ps,POSTSEASON.reviewN); set("vsProgress",vs,VALUE.reviewN);
+  set("koProgress",kalshiOnlyGraded(),KALSHI_ONLY.reviewN);
+  return {ps,vs};
+}
+
+// KALSHI-ONLY PROVISIONAL REFERENCE (policy v1.1 addendum, RULED architect
+// 2026-10-01). Model sports only: when books are ABSENT (no two-sided book
+// reference) at T-60, the Kalshi game market is two-sided with spread <= 2c,
+// and the series is in the ruled fee table, the Desk uses the Kalshi MID as
+// the market reference, flags the row "kalshi-only" and sizes at HALF units
+// (0.5 x the tier's units). A REAL call at half size — the price is real and
+// two-sided; nothing is shadowed. Value-side and quarantine logic unchanged.
+// The ledger records reference="kalshi_only"; review at 30 graded calls
+// (promote to full units or retire). Two-way boards only: the quotes are the
+// HOME contract's and AWAY = 1 − mid; a 3-way (soccer 1X2) board has no
+// derived away/draw price (the #89 doctrine), so it is never eligible.
+const KALSHI_ONLY={maxSpreadC:2,sizeMult:0.5,reviewN:30,
+  // competition -> ruled game series (src/walters/venue.py KALSHI_FEE_M; model sports)
+  series:{MLB:"KXMLBGAME",NFL:"KXNFLGAME",PL:"KXEPLGAME"}};
+function kalshiOnlyRef(r,now){
+  if(r.threeWay) return {ok:false,why:"3-way board — no Kalshi-only reference (no derived away/draw price)"};
+  if(!KALSHI_ONLY.series[r.comp]) return {ok:false,why:`series for ${r.comp||"?"} not in the ruled fee table`};
+  const k=r.kExec||{}, bid=k.bid, ask=k.ask;
+  if(bid==null||ask==null) return {ok:false,why:"Kalshi not two-sided"};
+  const spreadC=Math.round((ask-bid)*100);
+  if(spreadC>KALSHI_ONLY.maxSpreadC) return {ok:false,why:`Kalshi spread ${spreadC}c > ${KALSHI_ONLY.maxSpreadC}c`};
+  const t=utcMs(r.utc);
+  if(!isFinite(t)) return {ok:false,why:"kickoff unknown"};
+  if(now>=t) return {ok:false,why:"in-play"};
+  if(now<t-PASSCLASS.rerunMin*60000) return {ok:false,why:"before T-60 — books may still post"};
+  const mid=(bid+ask)/2;
+  return {ok:true,mid,refs:{HOME:mid,AWAY:1-mid},spreadC,bid,ask};
+}
+function kalshiOnlyGraded(){ return gradedCount(c=>c.reference==="kalshi_only"); }
+
+// DESK v1.1 — the in-browser policy (LEGACY path since F1b: used only for
+// rows from files that carry no `desk` blocks). Python port, parity-verified:
+// src/walters/desk_policy.py desk_call().
+function computeCall(r,P,now,base,psN,psHalf){
     const eMin=P.eMin??4, eLad=P.eLad??Infinity, eHair=P.eHair??15, pMin=P.pMin??0;
-    const edge=r.mkt!=null?(r.prob-r.mkt)*100:null;
     const reasons=[]; let call="PASS",cls="pass",units=0; const tags=[]; let shadowUnits=0;
+    let mktRef=r.mkt, kalOnly=false, koWhy=null;
+    if(!r.twoSided||r.mkt==null){
+      const ko=P.passAll?null:kalshiOnlyRef(r,now);
+      if(ko&&ko.ok){ mktRef=ko.refs[r.pick]??null; kalOnly=mktRef!=null;
+        if(kalOnly) reasons.push(`kalshi-only reference: mid ${ko.mid.toFixed(3)} (bid ${ko.bid.toFixed(2)} / ask ${ko.ask.toFixed(2)}, spread ${ko.spreadC}c)`); }
+      else if(ko) koWhy=ko.why;
+    }
+    const edge=mktRef!=null?(r.prob-mktRef)*100:null;
     let passKind=null;    // PASS-REASON CLASSES (presentation only): "noref" | "floor" | null (other)
-    if(!r.twoSided||r.mkt==null){reasons.push("market not two-sided → no reference"); passKind="noref";}
+    if(!kalOnly&&(!r.twoSided||r.mkt==null)){reasons.push("market not two-sided → no reference"+(koWhy?` (kalshi-only: ${koWhy})`:"")); passKind="noref";}
     else if(r.prob<pMin){reasons.push(`pick prob ${r.prob.toFixed(3)} < ${pMin}`); passKind="floor";}
     else if(edge<eMin){reasons.push(`edge ${edge.toFixed(1)}pp < ${eMin}pp floor`); passKind="floor";}
     else{
@@ -577,6 +664,13 @@ function policy(){
       if(edge < eMin + 1){ units=Math.min(units, base/2);
         reasons.push(`edge within 1pp of floor → half units (near-floor noise, not conviction)`);
         tags.push("near-floor half units"); }
+      if(call!=="PASS"&&r.stage==="postseason"&&psHalf){ units=Math.min(units,base/2);
+        reasons.push(`postseason → half units until ${POSTSEASON.reviewN} graded (${psN}/${POSTSEASON.reviewN})`);
+        tags.push("postseason half units"); }
+      if(call!=="PASS"&&r.stage===null&&r.sport==="MLB") reasons.push("stage unknown — postseason caution not applied");
+      if(kalOnly&&call!=="PASS"){ units=+(units*KALSHI_ONLY.sizeMult).toFixed(4);
+        reasons.push(`kalshi-only → ${KALSHI_ONLY.sizeMult} × units (provisional; review at ${KALSHI_ONLY.reviewN} graded)`);
+        tags.push("kalshi-only half units"); }
       if(r.tier==="strong"){ reasons.push("strong tier"); tags.push("strong tier"); }
       if(r.kal&&r.kal!=="absent") reasons.push(`kalshi ${r.kal}`);
       if(quarantined&&call!=="PASS"){
@@ -586,27 +680,54 @@ function policy(){
     }
     // A declined row on a THIN book reference (< 3 books) is "no reference",
     // not a measured decline. PLAY rows are untouched (presentation only).
-    if(call==="PASS"&&passKind==="floor"&&r.books!=null&&r.books<PASSCLASS.minBooks){
+    // (A kalshi-only row's reference is the Kalshi mid, not books: never reclassed here.)
+    if(call==="PASS"&&passKind==="floor"&&!kalOnly&&r.books!=null&&r.books<PASSCLASS.minBooks){
       passKind="noref"; reasons.push(`books ${r.books} < ${PASSCLASS.minBooks} → thin reference`); }
     if(call!=="PASS") passKind=null;
-    deskCalls.push({r,call,units,edge,tags:tags.slice(),shadowUnits,passKind});
-    const vs=valueSide(r,P); if(vs) deskValue.push({r,v:vs});
+    return {call,cls,units,edge,tags,reasons,shadowUnits,passKind,mktRef,kalOnly};
+}
+// F1b (ARCHITECT 2026-10-01): a row whose file carries `desk` (export --desk)
+// is RENDERED from the file — the Cockpit never recomputes it.
+function fileCall(r){ const d=r.fileDesk;
+  return {call:d.call,cls:d.cls,units:d.units,edge:d.edge_pp,tags:(d.tags||[]).slice(),reasons:(d.reasons||[]).slice(),
+    shadowUnits:d.shadow_units||0,passKind:d.pass_kind??null,mktRef:d.market_ref??null,kalOnly:d.reference==="kalshi_only"}; }
+function fileValue(r){ const v=r.fileDesk.value_shadow; if(!v) return null;
+  return {side:v.side,edge:v.edge_pp,modelP:v.model_p,marketP:v.market_p,role:v.role,reason:v.reason,
+    tags:(v.tags||[]).slice(),fileExec:v.exec??null}; }
+function fileVenue(r){ const v=r.fileDesk.venue||{};
+  return {eligible:!!v.eligible,reason:v.reason||"",side:v.side??null,divPP:v.div_pp??null,bookP:v.book_p??null,
+    kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{}}; }
+
+function policy(){
+  const base=BASE_UNITS, now=Date.now();
+  const psN=renderProgress().ps, psHalf=psN<POSTSEASON.reviewN;
+  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0;
+  const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
+  deskCalls=[]; deskValue=[];
+  for(const r of rows){
+    if(r.marketOnly) continue;  // gated comps: model policy n/a (venue engine below)
+    const P=POLICY[r.sport]||POLICY.DEFAULT;
+    // F1b: a row from a desk file is RENDERED (never recomputed); legacy rows compute.
+    const {call,cls,units,edge,tags,reasons,shadowUnits,passKind,mktRef,kalOnly}=
+      r.fileDesk?fileCall(r):computeCall(r,P,now,base,psN,psHalf);
+    deskCalls.push({r,call,units,edge,tags:tags.slice(),reasons:reasons.slice(),cls,shadowUnits,passKind,mktRef,kalOnly});
+    const vs=r.fileDesk?fileValue(r):valueSide(r,P); if(vs) deskValue.push({r,v:vs});
     if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++;}
     else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
     if(passKind==="noref") tr.className="noref";
-    tr.innerHTML=`<td>${esc(r.game)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
-      <td>${r.prob.toFixed(3)}</td><td>${r.mkt!=null?r.mkt.toFixed(3):"—"}</td>
-      <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execEdgeHTML(r,r.pick,r.prob)}</td>
+    tr.innerHTML=`<td data-game="${esc(r.game)}">${esc(r.game)}${koLine(r)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
+      <td>${r.prob.toFixed(3)}</td><td>${mktRef!=null?mktRef.toFixed(3)+(kalOnly?' <span class="passkind">kalshi-only</span>':""):"—"}</td>
+      <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${r.fileDesk?execHTMLFrom(r.fileDesk.exec,r.prob):execEdgeHTML(r,r.pick,r.prob)}</td>
       <td class="${cls}">${call}${passKindTag(passKind)}</td><td>${units||"—"}</td>
       <td class="reason">${esc(reasons.join(" · "))}${passKind==="noref"?rerunHint(r):""}</td>`;
     tb.appendChild(tr);
   }
   for(const {r,v} of deskValue){        // appended after the main rows: row order of the policy table is unchanged
     const tr=document.createElement("tr"); tr.className="vshadow";
-    tr.innerHTML=`<td>↳ ${esc(r.game)}</td><td title="${esc(v.side)}">${esc(sideName(r,v.side))}</td>
+    tr.innerHTML=`<td>↳ ${esc(r.game)}${koLine(r)}</td><td title="${esc(v.side)}">${esc(sideName(r,v.side))}</td>
       <td>${v.modelP.toFixed(3)}</td><td>${v.marketP.toFixed(3)}</td>
-      <td>+${v.edge.toFixed(1)}pp${execEdgeHTML(r,v.side,v.modelP)}</td>
+      <td>+${v.edge.toFixed(1)}pp${v.fileExec!==undefined?execHTMLFrom(v.fileExec,v.modelP):execEdgeHTML(r,v.side,v.modelP)}</td>
       <td class="caution">VALUE ${VALUE.units}u (shadow)</td><td>—</td>
       <td class="reason">${esc(v.reason)}</td>`;
     tb.appendChild(tr);
@@ -616,14 +737,15 @@ function policy(){
   const teamCount={};
   Array.from($("slate").querySelectorAll("tbody tr")).forEach(tr=>{
     if(!tr.classList.contains("vshadow")&&!/PASS/.test(tr.children[5].textContent)){
-      const g=tr.children[0].textContent;
+      const g=tr.children[0].dataset.game||tr.children[0].textContent;
       g.split(/ @ | v /).forEach(t=>{teamCount[t]=(teamCount[t]||0)+1;});
     }});
   const corr=Object.entries(teamCount).filter(([t,n])=>n>1).map(([t,n])=>`${t}×${n}`);
   $("summary").textContent=`${sportLabel} · ${rows.length} rows → ${plays} play · ${ladders} ladder · ${passes} pass`
     +(passes?` (${passNoRef} no reference · ${passFloor} below floor${passes-passNoRef-passFloor?` · ${passes-passNoRef-passFloor} other`:""})`:"")
     +(deskValue.length?` · ${deskValue.length} value shadow (not staked)`:"")
-    +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"");
+    +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"")
+    +deskSourceNote();
   $("auditBtn").hidden=!(sampleNS&&rows.length);
   buildParlays();
   renderVenue();
@@ -631,17 +753,28 @@ function policy(){
   perGameAudit();
 }
 
+// F1b: where the Desk came from — the file (rendered) or the browser (legacy).
+function deskSourceNote(){
+  const nFile=rows.filter(r=>r.fileDesk).length, nLegacy=rows.length-nFile;
+  if(!nFile) return rows.length?" · desk: computed in browser (legacy files — export with --desk)":"";
+  const metas=rows.filter(r=>r.deskMeta).map(r=>r.deskMeta);
+  const asof=[...new Set(metas.map(m=>m.as_of))].join(", ");
+  const vers=[...new Set(metas.map(m=>m.policy_version))].filter(v=>v!==POLICY_VERSION);
+  return ` · desk: rendered from file (as of ${asof})`
+    +(vers.length?` · ⚠ file policy ${vers.join(",")} ≠ Cockpit ${POLICY_VERSION}`:"")
+    +(nLegacy?` · ⚠ ${nLegacy} row(s) from legacy files: Desk computed in browser`:"");
+}
 function renderVenue(){
   const now=Date.now(); deskVenue=[];
   const tb=$("venueTable").querySelector("tbody"); tb.innerHTML="";
   for(const r of rows){
-    const v=venueEdge(r,now); deskVenue.push({r,v});
+    const v=r.fileDesk?fileVenue(r):venueEdge(r,now); deskVenue.push({r,v});
     const side=v.side?sideName(r,v.side):"—";
     const stale=v.divPP!=null&&Math.abs(v.divPP)>=VENUE.staleGapPP;
     const tr=document.createElement("tr");
     const vk=v.eligible?null:(v.kind||null);
     if(vk==="noref") tr.className="noref";
-    tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}</td><td>${esc(side)}</td>
+    tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}${koLine(r)}</td><td>${esc(side)}</td>
       <td>${v.bookP!=null?v.bookP.toFixed(3):"—"}</td><td>${v.kalP!=null?v.kalP.toFixed(3):"—"}</td>
       <td>${v.divPP!=null?(v.divPP>0?"+":"")+v.divPP.toFixed(1)+"pp":"—"}</td>
       <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"+passKindTag(vk)}</td>
@@ -670,6 +803,7 @@ function loadLedger(){
 // caller reports it (no silent changes).
 function saveLedger(L){
   const d=enforceLedger(L);
+  markAudit(L);
   window.__ledgerMem=L;   // in-page fallback when storage is blocked
   try{ localStorage.setItem(LEDGER_KEY,JSON.stringify(L)); storageOK=true; }
   catch(e){ storageOK=false; }
@@ -749,7 +883,8 @@ function upsertCalls(L,fresh,opts){
 function baseCall(r,logDate){
   return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
     kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:!!r.quar,
-    captured_at:new Date().toISOString(),qb_listed:(r.qbs||[]).slice()};
+    captured_at:new Date().toISOString(),qb_listed:(r.qbs||[]).slice(),
+    stage:r.stage??null};
 }
 // EXECUTION TIMING (policy v1.1 addendum, architect 2026-09-28). A position
 // carries TWO timestamps: claim_at (the first prediction that created it; its
@@ -762,6 +897,11 @@ function baseCall(r,logDate){
 // backfilled (law 4). No sizing changes.
 function stampTiming(pos,fresh,isNew){
   const at=fresh.captured_at||new Date().toISOString();
+  // REPRICE LOG (#178 audit, 2026-10-01): every capture of a position is
+  // appended here, so an audit can fall back to the last pre-kickoff price.
+  // Positions logged before this have no log (claim + execution only).
+  pos.reprices=(Array.isArray(pos.reprices)?pos.reprices:[]).concat([{at,market_p:fresh.market_p??null,
+    model_p:fresh.model_p??null}]);
   if(isNew){ pos.claim_at=at; pos.claim_market_p=fresh.market_p??null; pos.claim_model_p=fresh.model_p??null;
     pos.claim_exec_cost=fresh.kalshi_exec_cost??null;       // K2: Kalshi ask+fee (taker) at claim (away pick: the NO side, #89; null: none quoted / soccer away / DRAW)
     pos.claim_exec_cost_maker=fresh.kalshi_exec_cost_maker??null;   // #93: join bid + maker fee at claim
@@ -774,18 +914,83 @@ function stampTiming(pos,fresh,isNew){
   return pos;
 }
 function execP(c){return c.exec_market_p??c.market_p;}
+// LEDGER KICKOFF AUDIT (ARCHITECT 2026-10-01, #178 follow-on). Before #179 the
+// Cockpit read naive utc_date kickoffs as LOCAL time, so a non-UTC browser
+// could capture or reprice a position AFTER the true kickoff. Every position's
+// claim_at, executed_at (legacy: captured_at) and each logged reprice is
+// compared with the TRUE UTC kickoff; anything at/after it is flagged
+// "post-kickoff (tz bug)" and its price is EXCLUDED from the P&L. Fallback:
+// the last pre-kickoff reprice, else the claim price if the claim was
+// pre-kickoff, else the position leaves the P&L (no pre-kickoff price exists).
+// NEVER DELETES: stored fields are untouched; the P&L is recomputed from the
+// audited price and the position carries a tz_audit mark.
+const TZ_FLAG="post-kickoff (tz bug)";
+function auditCall(c){
+  const ko=utcMs(c.kickoff);
+  if(!isFinite(ko)) return {checked:false,flagged:false};
+  const post=t=>{const x=utcMs(t); return isFinite(x)&&x>=ko;};
+  const claimPost=c.claim_at!=null&&post(c.claim_at);
+  const execAt=c.executed_at??c.captured_at??null;
+  const execPost=execAt!=null&&post(execAt);
+  const reps=(Array.isArray(c.reprices)?c.reprices:[]).filter(x=>x&&x.at!=null);
+  const postReprices=reps.filter(x=>post(x.at)).length;
+  const claimP=claimPost?null:(c.claim_market_p??null);
+  if(!claimPost&&!execPost&&!postReprices) return {checked:true,flagged:false,price:execP(c),claimP};
+  let price=null,basis=null;
+  if(!execPost){price=execP(c);basis="execution (pre-kickoff)";}
+  else{
+    const pre=reps.filter(x=>!post(x.at)&&x.market_p!=null).sort((a,b)=>utcMs(a.at)-utcMs(b.at)).pop();
+    if(pre){price=pre.market_p;basis="last pre-kickoff reprice";}
+    else if(c.claim_at!=null&&!claimPost&&c.claim_market_p!=null){price=c.claim_market_p;basis="claim";}
+  }
+  return {checked:true,flagged:true,claimPost,execPost,postReprices,price,basis,excluded:price==null,claimP};
+}
+// The stored mark (set on every save; stored fields are never rewritten).
+function markAudit(L){
+  for(const c of L.calls){ const a=auditCall(c);
+    if(a.flagged) c.tz_audit={flag:TZ_FLAG,claim_post:a.claimPost,exec_post:a.execPost,
+      post_reprices:a.postReprices,price_used:a.price,basis:a.basis,excluded:a.excluded};
+    else if(c.tz_audit) delete c.tz_audit; }
+}
+let lastAudit={flagged:0,fallback:0,excluded:0,legNotPlay:0};
+// PARLAY-LEG AUDIT (ARCHITECT 2026-10-01, #183). Before the #183 fix,
+// buildParlays could take legs from PASS rows when a fixtures file loaded
+// first. The ledger never stored a leg's Desk call, so the check needs the
+// export files of the leg's day: load them, press "Audit parlay legs". Each
+// parlay_leg whose game (sport, home, away, kickoff) appears in a loaded file
+// exported on the leg's log_date is marked leg_check {status play|not_play};
+// a ticket with any "not_play" leg is flagged "leg not a play (#183)" and
+// EXCLUDED from the P&L. Legs with no same-day export loaded stay unchecked
+// (law 4). Never deletes; the latest same-day check wins.
+const LEG_FLAG="leg not a play (#183)";
+function exportDay(r){ const t=utcMs(r.exportedAt); return isFinite(t)?localDate(new Date(t)):null; }
+function auditParlayLegs(){
+  const L=loadLedger(), at=new Date().toISOString(), byGame=new Map();
+  for(const x of deskCalls){ const r=x.r, k=[r.sport,r.home,r.away,r.utc].join("|");
+    if(!byGame.has(k)) byGame.set(k,[]); byGame.get(k).push({x,day:exportDay(r)}); }
+  let checked=0,notPlay=0,unchecked=0; const tickets=new Set();
+  for(const c of L.calls){ if(c.call_type!=="parlay_leg") continue;
+    const hit=(byGame.get([c.sport,c.home,c.away,c.kickoff||""].join("|"))||[]).filter(h=>h.day===c.log_date);
+    if(!hit.length){unchecked++; continue;}
+    const x=hit[hit.length-1].x, play=x.call!=="PASS"; checked++;
+    c.leg_check={status:play?"play":"not_play",desk_call:x.call,desk_pick:x.r.pick,export_day:c.log_date,checked_at:at};
+    if(!play){notPlay++; tickets.add(c.parlay_id);} }
+  const dd=saveLedger(L);
+  return `Parlay-leg audit (#183): ${checked} leg(s) checked against the export(s) loaded for their log day · `
+    +`${notPlay} ${LEG_FLAG} → ${tickets.size} ticket(s) excluded from the P&L · ${unchecked} unchecked (no same-day export loaded) · marked, never deleted.`+dedupeNote(dd);
+}
 // Capture window (multi-week fix, 2026-09-28): a call is captured only
 // BEFORE its kickoff. A multi-day/week file loaded after some games started
 // would otherwise log played games and grade them with hindsight. Rows with
 // no parseable kickoff are captured as before (labelled in the note).
-function kickedOff(r,now){const t=Date.parse(r.utc||""); return isFinite(t)&&t<=now;}
+function kickedOff(r,now){const t=utcMs(r.utc); return isFinite(t)&&t<=now;}
 let lastCapture={started:0,noKickoff:0};
 function snapshotCalls(now){
   now=now??Date.now();
   const d=localDate(), out=[];
   lastCapture={started:0,noKickoff:0};
   const live=r=>{ if(kickedOff(r,now)){lastCapture.started++;return false;}
-    if(!isFinite(Date.parse(r.utc||""))) lastCapture.noKickoff++;
+    if(!isFinite(utcMs(r.utc))) lastCapture.noKickoff++;
     return true; };
   for(const x of deskCalls){
     const r=x.r;
@@ -793,11 +998,12 @@ function snapshotCalls(now){
     if(x.call==="PLAY"||x.call==="LADDER"){
       const lad=x.call==="LADDER";
       const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
-      const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):r.mkt;
+      const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):(x.mktRef??r.mkt);
       out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:lad?"ladder":"straight",units:x.units,model_p:mp,market_p:kp,
         kalshi_exec_cost:lad?null:execCostFor(r,r.pick),kalshi_exec_cost_maker:lad?null:makerCostFor(r,r.pick),
-        kalshi_join_bid:lad?null:((joinBidFor(r,r.pick)||{}).price??null),venue_hint:"books",rules:x.tags});
+        kalshi_join_bid:lad?null:((joinBidFor(r,r.pick)||{}).price??null),
+        venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",rules:x.tags});
     } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
       out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
@@ -819,7 +1025,7 @@ function snapshotCalls(now){
     for(const l of t.legs){
       out.push({...baseCall(l,d),pick:l.pick,tier:"parlay",engine:"model_edge",
         call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:l.mkt,
-        venue_hint:"books",rules:["parlay 0.25u"]});
+        venue_hint:"books",rules:["parlay 0.25u"],...(t.bShadow?{b_shadow_cut:t.bShadow}:{})});
     }
   }
   for(const {r,v} of deskVenue){
@@ -834,7 +1040,7 @@ function snapshotCalls(now){
 }
 $("logBtn").addEventListener("click",()=>{
   const L=loadLedger(); const fresh=snapshotCalls();
-  const r=upsertCalls(L,fresh,{relog:true}); const dd=saveLedger(L);
+  const r=upsertCalls(L,fresh,{relog:true}); recordBShadow(L); const dd=saveLedger(L);
   const byEng={}; fresh.forEach(c=>{const k=c.engine+(c.call_type==="quarantine_shadow"?" (shadow)":c.call_type==="value_shadow"?" (value shadow)":"");byEng[k]=(byEng[k]||0)+1;});
   $("logNote").textContent=`Logged ${fresh.length} entries (${Object.entries(byEng).map(([k,n])=>`${k} ${n}`).join(" · ")||"none"}) — `
     +`${r.added} new · ${r.updated} updated · ${r.kept} already graded (kept) · ${r.repriced} positions from an earlier day repriced (not duplicated)`
@@ -963,32 +1169,53 @@ $("resultsFile").addEventListener("change",async e=>{
 // REPORTS — settled bets (a parlay ticket counts once), by dimension.
 // ---------------------------------------------------------------------
 function settledBets(L){
-  const bets=[], seen=new Set();
+  const bets=[], seen=new Set(); lastAudit={flagged:0,fallback:0,excluded:0,legNotPlay:0};
+  const tally=a=>{ if(!a.flagged) return; lastAudit.flagged++; if(a.excluded) lastAudit.excluded++; else lastAudit.fallback++; };
   for(const c of L.calls){
     if(c.status!=="graded") continue;
     if(c.call_type==="parlay_leg"){
       if(seen.has(c.parlay_id)) continue; seen.add(c.parlay_id);
       const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id);
+      if(legs.some(l=>l.leg_check&&l.leg_check.status==="not_play")){lastAudit.legNotPlay++; continue;}   // #183: out of the P&L
+      const au=new Map(legs.map(l=>[l,auditCall(l)]));
+      const flagged=legs.some(l=>au.get(l).flagged);
+      if(flagged){ const ex=legs.some(l=>au.get(l).excluded);
+        lastAudit.flagged++; if(ex){lastAudit.excluded++; continue;} lastAudit.fallback++; }
+      let returned=c.units_returned, claimReturned=c.claim_units_returned??null;
+      if(flagged){                                  // recompute the ticket at audited leg prices
+        const stake=legs[0].units;
+        const pay=price=>{ if(legs.some(l=>l.result==="loss")) return 0;
+          const live=legs.filter(l=>l.result==="win");
+          return live.length?live.reduce((x,l)=>x/(price(l)||1),stake):stake; };
+        returned=+pay(l=>au.get(l).price).toFixed(4);
+        claimReturned=legs.every(l=>au.get(l).claimP!=null)?+pay(l=>au.get(l).claimP).toFixed(4):null;
+      }
       bets.push({engine:"model_edge",sport:[...new Set(legs.map(l=>l.sport))].sort().join("+"),
-        tier:"parlay",call_type:"parlay",staked:c.units,returned:c.units_returned,
+        tier:"parlay",call_type:"parlay",staked:c.units,returned,
         result:c.ticket_result,date:c.graded_date,rules:["parlay 0.25u"],shadow:false,
-        claimReturned:c.claim_units_returned??null,exec_mode:legs.some(l=>l.exec_mode==="operator_early")?"operator_early":(c.exec_mode||null),
-        claim_p:null,exec_p:null});
-    } else if(isShadow(c)){
-      bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
-        staked:c.shadow_units||0,returned:c.shadow_returned||0,result:c.result,
-        date:c.graded_date,rules:c.rules||[],shadow:true,
-        claimReturned:c.claim_shadow_returned??null,exec_mode:c.exec_mode||null,
-        claim_p:c.claim_market_p??null,exec_p:execP(c)??null});
-    } else {
-      bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
-        staked:c.units,returned:c.units_returned,result:c.result,date:c.graded_date,
-        rules:c.rules||[],shadow:false,
-        claimReturned:c.claim_units_returned??null,exec_mode:c.exec_mode||null,
-        claim_p:c.claim_market_p??null,exec_p:execP(c)??null});
+        claimReturned,exec_mode:legs.some(l=>l.exec_mode==="operator_early")?"operator_early":(c.exec_mode||null),
+        claim_p:null,exec_p:null,tz:flagged,bShadow:(legs.find(l=>l.b_shadow_cut)||{}).b_shadow_cut||null});
+      continue;
     }
+    const a=auditCall(c); tally(a);
+    if(a.excluded) continue;                        // no pre-kickoff price: out of the P&L, never deleted
+    const sh=isShadow(c), u=sh?(c.shadow_units||0):c.units;
+    const stored=sh?(c.shadow_returned||0):c.units_returned;
+    const storedClaim=sh?(c.claim_shadow_returned??null):(c.claim_units_returned??null);
+    const returned=a.flagged?+settleReturn(u,c.result,a.price).toFixed(4):stored;
+    const claimReturned=a.flagged?(a.claimP!=null?+settleReturn(u,c.result,a.claimP).toFixed(4):null):storedClaim;
+    bets.push({engine:c.engine,sport:c.sport,tier:c.tier,call_type:c.call_type,
+      staked:u,returned,result:c.result,date:c.graded_date,rules:c.rules||[],shadow:sh,
+      claimReturned,exec_mode:c.exec_mode||null,
+      claim_p:a.flagged?a.claimP:(c.claim_market_p??null),exec_p:a.flagged?a.price:(execP(c)??null),tz:a.flagged});
   }
   return bets;
+}
+function auditLine(){
+  const A=lastAudit;
+  return `Kickoff audit (#178): ${A.flagged} settled position(s) captured or repriced after true UTC kickoff — ${TZ_FLAG}`
+    +` · ${A.fallback} re-priced at a pre-kickoff price (last reprice, else claim) · ${A.excluded} excluded (no pre-kickoff price) · marked, never deleted.`
+    +` Parlay tickets with a ${LEG_FLAG}: ${A.legNotPlay} excluded.`;
 }
 function agg(bets){
   const n=bets.length, st=bets.reduce((a,b)=>a+b.staked,0), rt=bets.reduce((a,b)=>a+b.returned,0);
@@ -1077,18 +1304,22 @@ function pnlBlock(L){
     `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
     `Value-side counterfactual (v1.2 candidate shadow, NOT staked): n ${vf.n} · notional staked ${fmt(vf.staked)} · net ${vf.net>=0?"+":""}${fmt(vf.net)} · hit ${vf.hit==null?"—":fmt(vf.hit,1)+"%"} · promotion review at ${VALUE.reviewN} graded (${Math.min(vf.n,VALUE.reviewN)}/${VALUE.reviewN}), version bump only`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
+    bShadowLine(L,bets),
+    auditLine(),
     ...realizedLines(L),
     `Sizing gate: model_edge ${real.filter(b=>b.engine==="model_edge").length}/50 · venue_edge ${real.filter(b=>b.engine==="venue_edge").length}/50 graded before any sizing proposal`,
     "Non-claims: EV-realization proxy, not cash; venue_edge graded vs stored Kalshi prob until K-track bid/ask + fees; policy changes only via audit-backed version bump."
   ].join("\n");
 }
 function renderLedger(){
+  renderProgress();   // the policy card's n/30 counters follow every ledger change
   const L=loadLedger(), bets=settledBets(L), real=bets.filter(b=>!b.shadow), shad=bets.filter(b=>b.shadow);
   const a=agg(real);
   $("ledgerTotals").innerHTML=L.calls.length
     ? `<b>${L.calls.length}</b> logged · <b>${a.n}</b> settled bets · staked ${fmt(a.staked)}u · returned ${fmt(a.returned)}u · `
       +`net <b class="${a.net>=0?"play":"caution"}">${a.net>=0?"+":""}${fmt(a.net)}u</b> · ROI ${a.roi==null?"—":fmt(a.roi,1)+"%"} · hit ${a.hit==null?"—":fmt(a.hit,1)+"%"}`
       +` <span class="note">(fair-odds P&amp;L, pre-fee)</span>`
+      +(lastAudit.flagged||lastAudit.legNotPlay?`<div class="caution" id="tzAudit">⚠ ${esc(auditLine())}</div>`:"")
       +(()=>{const d=enforceLedger(JSON.parse(JSON.stringify(L)));   // dry run on a copy
         return d.total?`<div class="caution">⚠ ${d.total} duplicate(s) in the stored ledger (same key ${d.exact} · re-logged on a later day ${d.relogged} · fills ${d.fills}) — totals above include them; press Dedupe ledger.</div>`:"";})()
     : "No calls logged yet.";
@@ -1107,7 +1338,7 @@ function renderLedger(){
       const canExec=!early&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
       return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`
       +`<td>${c.claim_at?`${px(c.claim_market_p)}${c.claim_exec_cost!=null?` <span class="note">k ${px(c.claim_exec_cost)}</span>`:""} <span class="note">${esc(hm(c.claim_at))}</span>`:'<span class="note">unknown (pre-rule)</span>'}</td>`
-      +`<td>${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
+      +`<td>${auditCall(c).flagged?`<b class="caution">${TZ_FLAG}</b> `:""}${c.leg_check&&c.leg_check.status==="not_play"?`<b class="caution">${LEG_FLAG}</b> `:""}${c.exec_mode?`${early?"<b>early</b>":"at close"} ${px(execP(c))}${c.exec_cost!=null?` <span class="note">k ${px(c.exec_cost)}</span>`:""} <span class="note">${esc(hm(c.executed_at))}</span>`:'<span class="note">—</span>'}</td>`
       +`<td>${c.order_type?`${esc(c.order_type)} @ ${px(c.fill_price)}`:""}${!isShadow(c)
           // No default: a row without a Kalshi ladder shows "—", never a suggested
           // order (architect 2026-09-30: "limit 0.59" sat on every Week 5 row).
@@ -1193,6 +1424,27 @@ $("exportLedgerBtn").addEventListener("click",()=>{
   setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
   $("ledgerNote").textContent="Export started — if no file appears (downloads can be blocked in this view), use Copy ledger (JSON).";
 });
+// LEDGER SUMMARY (F1, ARCHITECT 2026-10-01): the graded-call counts the
+// export's Python Desk needs (postseason / value-shadow / kalshi-only n/30),
+// plus graded counts per rule tag. Saved beside the exports as
+// exports/ledger_summary.json, the export reads it when present (else 0, the
+// cautious default). Counts only: no positions, no prices.
+function ledgerSummary(){
+  const per={};
+  for(const c of loadLedger().calls){ if(!c.result) continue;
+    for(const t of (c.rules&&c.rules.length?c.rules:["(no rule tag)"])) per[t]=(per[t]||0)+1; }
+  return {kind:"bd_ledger_summary_v1",generated_at:new Date().toISOString(),policy_version:POLICY_VERSION,
+    counts:{postseason_graded:postseasonGraded(),value_shadow_graded:valueShadowGraded(),
+      kalshi_only_graded:kalshiOnlyGraded()},graded_per_rule:per};
+}
+$("exportSummaryBtn").addEventListener("click",()=>{
+  const txt=JSON.stringify(ledgerSummary(),null,1), box=$("ledgerJson");
+  const a=document.createElement("a"); a.href=URL.createObjectURL(new Blob([txt],{type:"application/json"}));
+  a.download="ledger_summary.json"; document.body.appendChild(a); a.click();
+  setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove();},0);
+  box.hidden=false; box.value=txt;
+  $("ledgerNote").textContent="Ledger summary exported (also in the box below) — save it as exports/ledger_summary.json beside the exports.";
+});
 // Clipboard-export fallback: the embedded view can block downloads, so the
 // same JSON goes to the clipboard — and, when the clipboard is refused too,
 // into the text box below, selected, for a manual copy. The same box takes a
@@ -1232,6 +1484,11 @@ $("importPastedBtn").addEventListener("click",()=>{
 });
 // Repair: collapse duplicates already in storage (e.g. from before the key
 // was enforced on every path) and say exactly how many went.
+$("legAuditBtn").addEventListener("click",()=>{
+  $("ledgerNote").textContent=deskCalls.length?auditParlayLegs()
+    :"Load the export files of the day(s) to check first (Desk tab), then press Audit parlay legs.";
+  renderLedger();
+});
 $("dedupeBtn").addEventListener("click",()=>{
   const L=loadLedger(), n0=L.calls.length, f0=(L.fills||[]).length;
   const dd=saveLedger(L);
@@ -1510,8 +1767,8 @@ function classifyFills(L){
 }
 // MAKER / TAKER PER FILL (#93 ruling (3), architect 2026-09-30): the CSV's fee
 // amount vs the schedule's formula at the fill's price and quantity:
-// taker = 0.07·M·C·P(1−P), maker = 0.0175·M·C·P(1−P) (game series taker M=1 /
-// maker M=0.25; MLB pre-live M=0.5 for both; combos: taker at the schedule's
+// taker = 0.07·M·C·P(1−P), maker = 0.0175·M·C·P(1−P) (game series M=1 for both,
+// the maker discount being the 0.0175 rate (P0-1 #206); MLB pre-live M=0.5 for both; combos: taker at the schedule's
 // default M=1, maker = 50% of taker). A leg matches a formula when its fee is
 // within 1¢ of the unrounded value (Kalshi rounds per order). Exactly one match
 // decides; both = "ambiguous" (tiny orders), neither = "unknown", an unlisted
@@ -1522,7 +1779,7 @@ function classifyFills(L){
 // classification. Fills imported before this split carry no per-leg fee
 // ("n/a"); re-importing the same CSV fills those fees in (the dedupe keeps
 // the rows, it adds nothing twice).
-const FEE_M_BY_FAMILY={NFL:[1,0.25],NHL:[1,0.25],NCAAF:[1,0.25],EPL:[1,0.25],UCL:[1,0.25],MLB:[0.5,0.5]};
+const FEE_M_BY_FAMILY={NFL:[1,1],NHL:[1,1],NCAAF:[1,1],EPL:[1,1],UCL:[1,1],MLB:[0.5,0.5]};
 function feeLegClass(fee,price,qty,fam,combo){
   if(fee==null||price==null||!qty||price<=0||price>=1) return null;
   const pq=qty*price*(1-price);
@@ -1613,11 +1870,16 @@ $("kalshiCsvFile").addEventListener("change",async e=>{
 });
 
 function buildParlays(){
-  const live=rows.map((r,i)=>({r,i,tr:$("slate").querySelectorAll("tbody tr")[i]}))
-    .filter(x=>x.tr&&!x.tr.classList.contains("vshadow")&&!/PASS/.test(x.tr.children[5].textContent))
-    .map(x=>({...x.r,edge:(x.r.prob-(x.r.mkt??0))}));
+  // Live legs = the Desk's non-PASS calls, in row order (#183, 2026-10-01). The
+  // old DOM-index pairing (rows[i] ↔ the i-th slate <tr>) shifted onto the
+  // wrong rows whenever a market-only file (no <tr>) loaded ahead of a
+  // predictions file, building tickets from PASS rows. Python port:
+  // desk_policy.build_parlays (parity-verified).
   const card=$("parlayCard"), out=$("parlayOut");
   deskParlays=[];
+  if(rows.some(r=>r.fileDesk)){ renderParlays(parlaysFromFile(),card,out); return; }   // F1b: never built here
+  const live=deskCalls.filter(x=>x.call!=="PASS")
+    .map(x=>({...x.r,edge:(x.r.prob-(x.r.mkt??0))}));
   if(live.length<2){card.hidden=true;return;}
   const combos=[];
   const teamsOf=r=>[r.home,r.away];
@@ -1641,21 +1903,72 @@ function buildParlays(){
   const ranked=combos.map(l=>({legs:l,...score(l)}))
     .filter(t=>t.edge>0)
     .sort((x,y)=>(y.sports-x.sports)||(y.edge-x.edge)).slice(0,3);
-  if(!ranked.length){card.hidden=true;return;}
+  parlayNote="";
+  renderParlays(ranked,card,out);
+}
+// F1b (ARCHITECT 2026-10-01; shape ratified): with desk files loaded, tickets
+// come ONLY from the loaded desk_parlays_v1 file (`desk-parlays`), each leg
+// matched to its loaded row (sport, home, away, kickoff, pick). A ticket with a
+// leg not in the loaded files is skipped and counted, never rebuilt.
+let fileParlays=null, parlayNote="";
+function parlaysFromFile(){
+  parlayNote="";
+  if(!fileParlays){ parlayNote="no desk_parlays file loaded — run desk-parlays on these exports and load its file"; return []; }
+  const out=[]; let miss=0;
+  for(const t of fileParlays.tickets||[]){
+    const legs=(t.legs||[]).map(l=>rows.find(r=>!r.marketOnly&&r.sport===l.sport&&r.home===l.home&&r.away===l.away
+      &&(r.utc||null)===(l.kickoff||null)&&r.pick===l.pick));
+    if(!legs.length||legs.some(x=>!x)){miss++;continue;}
+    out.push({legs,sports:t.sports,pm:t.model_p,pk:t.market_p,edge:t.edge??t.edge_pp/100,bShadow:t.b_shadow||null});
+  }
+  const asof=(fileParlays.desk_meta||{}).as_of||"?";
+  parlayNote=`tickets from desk_parlays (as of ${asof})`+(miss?` · ${miss} ticket(s) skipped: a leg's row is not in the loaded files`:"")
+    +bShadowCardNote(fileParlays.b_track_shadow);
+  return out;
+}
+// B-TRACK cross-book rules (ARCHITECT 2026-10-01; pre-committed, SHADOW until the
+// v1.2 bump): (1) exposure cap 1.25u per team-outcome across straights + parlay
+// legs; (2) ticket dedup (same legs, keep the better-priced). Computed in Python
+// (desk_policy.b_track_shadow) and carried by the desk_parlays file; the Cockpit
+// shows it, marks the logged legs it would cut, and keeps a per-slate tally.
+const BTRACK={reviewN:30};
+function bShadowCardNote(b){
+  return b?` · B-track shadow (not applied): exposure-capped ${b.exposure_capped} · deduped ${b.deduped}`
+    +((b.qb_shared_risk||[]).length?` · QB shared risk ${b.qb_shared_risk.map(q=>`${q.player}×${q.games.length}`).join(", ")} (#192, logged)`:""):"";
+}
+function recordBShadow(L){
+  if(!fileParlays||!fileParlays.b_track_shadow) return;
+  const b=fileParlays.b_track_shadow, asof=(fileParlays.desk_meta||{}).as_of||"?";
+  L.meta.b_shadow=L.meta.b_shadow||{};
+  L.meta.b_shadow[asof]={as_of:asof,log_date:localDate(),capped:b.exposure_capped,deduped:b.deduped,
+    qb_shared:(b.qb_shared_risk||[]).map(q=>({player:q.player,games:q.games.length})),
+    cuts:(b.cuts||[]).map(c=>({rule:c.rule,signature:c.signature}))};
+}
+function bShadowLine(L,bets){
+  const sl=Object.values((L.meta||{}).b_shadow||{});
+  const cap=sl.reduce((a,x)=>a+(x.capped||0),0), dd=sl.reduce((a,x)=>a+(x.deduped||0),0);
+  const cut=bets.filter(b=>b.call_type==="parlay"&&b.bShadow), net=cut.reduce((a,b)=>a+b.returned-b.staked,0);
+  return `B-track shadow (pre-committed, NOT applied; v1.2 review at ${BTRACK.reviewN} slates): exposure-capped ${cap} · deduped ${dd}`
+    +` over ${Math.min(sl.length,BTRACK.reviewN)}/${BTRACK.reviewN} slate(s) · would-cut tickets settled ${cut.length}, net ${net>=0?"+":""}${net.toFixed(2)}u`;
+}
+function renderParlays(ranked,card,out){
   deskParlays=ranked;
+  if(!ranked.length){ card.hidden=!parlayNote; out.innerHTML=parlayNote?`<span class="note">${esc(parlayNote)}</span>`:""; return; }
   card.hidden=false;
-  out.innerHTML=ranked.map((t,i)=>{
+  out.innerHTML=(parlayNote?`<div class="note">${esc(parlayNote)}</div>`:"")+ranked.map((t,i)=>{
     const legs=t.legs.map(l=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`).join("<br>");
-    return `<div style="margin-bottom:10px"><b>Ticket ${i+1}</b> · ${t.legs.length} legs · ${t.sports} sport(s) · 0.25u<br>${legs}<br>`
+    return `<div style="margin-bottom:10px"><b>Ticket ${i+1}</b> · ${t.legs.length} legs · ${t.sports} sport(s) · 0.25u`
+      +(t.bShadow?` · <span class="caution">B-track shadow: would be ${t.bShadow==="capped"?"exposure-capped":"deduped"} (not applied)</span>`:"")+`<br>${legs}<br>`
       +`<span class="note">Π model ${t.pm.toFixed(3)} vs Π market ${t.pk.toFixed(3)} → combined edge ${(t.edge*100).toFixed(1)}pp · cross-game correlation screened (no shared teams)</span></div>`;
   }).join("");
 }
 
 $("predFile").addEventListener("change",async e=>{
   const fs=Array.from(e.target.files); if(!fs.length)return;
-  rows=[]; shadowRows=[]; const sports=new Set();
+  rows=[]; shadowRows=[]; fileParlays=null; const sports=new Set();
   for(const f of fs){
     try{const doc=JSON.parse(await f.text());
+      if(doc.kind==="desk_parlays_v1"){ fileParlays=doc; continue; }   // F1b: tickets file
       if(doc.engine==="model_shadow"){ shadowRows=shadowRows.concat(normalizeShadow(doc)); continue; }
       const rr=normalize(doc); rr.forEach(r=>sports.add(r.sport));
       rows=rows.concat(rr);}

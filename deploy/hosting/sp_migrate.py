@@ -120,15 +120,27 @@ def verify(pk: Path, step: str = "verify", db_override: Path | None = None) -> i
     return 0 if ok else 1
 
 
+def pack_env_problem(pk: Path) -> str | None:
+    """The host resolves the DB through the pack's .env, so its DATABASE_URL
+    must be checkout-relative. Returns the refusal text, or None when fine.
+    (Shared with sp_cutover.py preflight, which must refuse BEFORE pausing.)"""
+    if not (pk / ENV).exists():
+        return None
+    url = c.parse_env_file(pk / ENV).get("DATABASE_URL", "sqlite:///./data/sports.db")
+    if not url.startswith("sqlite:///./"):
+        return (f"the pack's .env DATABASE_URL is {url!r} — refusing; on the host it "
+                f"must be sqlite:///./data/sports.db (edit the pack's env, re-run).")
+    return None
+
+
 def install(pk: Path, replace: bool) -> int:
     if verify(pk) != 0:
         return 1
     man = json.loads((pk / MANIFEST).read_text())
     if (pk / ENV).exists():  # the host resolves the DB through the pack's .env
-        url = c.parse_env_file(pk / ENV).get("DATABASE_URL", "sqlite:///./data/sports.db")
-        if not url.startswith("sqlite:///./"):
-            raise SystemExit(f"✗ the pack's .env DATABASE_URL is {url!r} — refusing; on the host it "
-                             f"must be sqlite:///./data/sports.db (edit the pack's env, re-run).")
+        problem = pack_env_problem(pk)
+        if problem:
+            raise SystemExit(f"✗ {problem}")
         os.environ.pop("DATABASE_URL", None)
         c._DOTENV_CACHE = c.parse_env_file(pk / ENV)
     target = c.db_path()

@@ -13,11 +13,27 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: "bootstrap (labels, milestones, backfill Issues, board; idempotent) or close-merged (replay a merged PR's Closes #N)"
+        description: "bootstrap (labels, milestones, backfill Issues, board; idempotent) | close-merged (replay a merged PR's Closes #N) | discussions (list / post / reply)"
         required: true
         default: bootstrap
       pr:
         description: "close-merged only: the merged PR number"
+        required: false
+        default: ""
+      action:
+        description: "discussions only: list (default; categories + thread links) | post | reply"
+        required: false
+        default: list
+      file:
+        description: "discussions post/reply: a markdown file under docs/discussions/ ('# Title' first line)"
+        required: false
+        default: ""
+      category:
+        description: "discussions post: the category NAME (Q&A, Ideas, RFC, Receipts)"
+        required: false
+        default: ""
+      thread:
+        description: "discussions reply: the thread number"
         required: false
         default: ""
 
@@ -45,4 +61,8 @@ jobs:
           # inputs travel as env, never interpolated into the shell line
           LEDGER_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.mode || 'event' }}
           LEDGER_PR: ${{ inputs.pr }}
+          LEDGER_D_ACTION: ${{ inputs.action }}
+          LEDGER_D_FILE: ${{ inputs.file }}
+          LEDGER_D_CATEGORY: ${{ inputs.category }}
+          LEDGER_D_THREAD: ${{ inputs.thread }}
         run: python scripts/ledger.py "$LEDGER_MODE" "$LEDGER_PR"

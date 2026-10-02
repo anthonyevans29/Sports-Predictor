@@ -145,7 +145,7 @@ def elo_drift_games(s, since) -> list:
 
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                            receipts: dict | None = None,
-                           hours_ahead: float | None = None) -> str:
+                           hours_ahead: float | None = None, desk: bool | None = None) -> str:
     # Export windowing (architect 2026-09-28): the FILE's rows are scoped to
     # kickoffs in [now, now + window]; predictions are generated and stored
     # exactly as before (early-week claims stay for CLV). hours_ahead wins
@@ -174,18 +174,12 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             market = None
-            if odds_rows:
-                from src.walters.value import MarketSnapshot
-                by_sel: dict[str, list[tuple[str, float]]] = {}
-                for o in odds_rows:
-                    by_sel.setdefault(o.selection, []).append(
-                        (o.bookmaker, o.price_decimal))
-                implied = MarketSnapshot(market="1X2",
-                                         by_selection=by_sel).average_implied()
-                over = sum(implied.values()) or 1.0
+            from src.walters.close import close_1x2, outcomes_for, priced
+            _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport)) if odds_rows else None   # #167 + #207
+            if priced(_cl):
                 market = {
-                    "bookmaker_count": len({o.bookmaker for o in odds_rows}),
-                    "fair_prob": {k: round(v / over, 4) for k, v in implied.items()},
+                    "bookmaker_count": _cl["books"],
+                    "fair_prob": {k: round(v, 4) for k, v in _cl["fair"].items()},
                     "fair_source": "1X2",
                 }
             elif _fb_live():
@@ -312,6 +306,8 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
         "count": len(rows),
         "predictions": rows,
     }
+    from src.walters.desk_policy import maybe_annotate     # F1: the Desk per row (opt-in)
+    payload = maybe_annotate(payload, desk)   # off: unchanged
     with open(path, "w") as f:
         json.dump(payload, f, indent=2)
     return path
@@ -426,15 +422,10 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
             close_h = None
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
-            if odds_rows:
-                by_sel = {}
-                for o in odds_rows:
-                    by_sel.setdefault(o.selection, []).append(
-                        (o.bookmaker, o.price_decimal))
-                implied = MarketSnapshot(market="1X2",
-                                         by_selection=by_sel).average_implied()
-                tot = sum(implied.values()) or 1.0
-                close_h = implied.get("HOME", 0) / tot
+            from src.walters.close import close_1x2, outcomes_for, priced
+            _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+            if priced(_cl):
+                close_h = _cl["fair"].get("HOME", 0)
             clv = None
             if close_h is not None:
                 pick_p = p if pick_home else 1 - p
@@ -504,15 +495,10 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
             close_h = None
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
-            if odds_rows:
-                by_sel = {}
-                for o in odds_rows:
-                    by_sel.setdefault(o.selection, []).append(
-                        (o.bookmaker, o.price_decimal))
-                imp = MarketSnapshot(market="1X2",
-                                     by_selection=by_sel).average_implied()
-                tot = sum(imp.values()) or 1.0
-                close_h = imp.get("HOME", 0) / tot
+            from src.walters.close import close_1x2, outcomes_for, priced
+            _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+            if priced(_cl):
+                close_h = _cl["fair"].get("HOME", 0)
             clv = None
             if close_h is not None:
                 clv = (p if pick_home else 1 - p) - (close_h if pick_home else 1 - close_h)

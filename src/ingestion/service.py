@@ -504,9 +504,20 @@ class IngestionService:
         upcoming_only=True (default) limits to SCHEDULED matches — odds for
         finished matches are still useful for backtesting but cost API budget
         we usually don't want to spend.
+
+        #167 (ruled 2026-10-01): SNAPSHOT semantics, like the MLB and NFL
+        paths. This path used to APPEND a full book set on every run (hourly
+        from the window job) and dropped the totals/spread `line`. Now, per
+        match with a non-empty fetch: this source's `odds` rows are REPLACED by
+        the fresh set (a failed or empty fetch never wipes), `line` is stored,
+        and the de-vigged 1X2 consensus is APPENDED to `odds_snapshots`
+        (source = this adapter's source) so the capture history lives where
+        history belongs. Readers take the last pre-kickoff session
+        (src/walters/close.py), so legacy accumulated rows grade correctly too.
         """
         from datetime import datetime
-        from src.db.schema import Odds
+        from src.db.schema import Odds, OddsSnapshot
+        from src.walters.close import close_1x2, outcomes_for, priced
 
         result = SyncResult()
         with session_scope() as s:
@@ -547,16 +558,29 @@ class IngestionService:
                 if not odds_list:
                     result.skipped += 1
                     continue
+                s.query(Odds).filter(Odds.match_id == match.id,
+                                     Odds.source == self.source).delete()
+                fresh = []
                 for no in odds_list:
-                    s.add(Odds(
+                    o = Odds(
                         match_id=match.id,
                         bookmaker=no.bookmaker,
                         market=no.market,
                         selection=no.selection,
                         price_decimal=no.price_decimal,
+                        line=no.line,
                         captured_at=no.captured_at,
                         source=self.source,
-                    ))
+                    )
+                    s.add(o)
+                    fresh.append(o)
+                cl = close_1x2(fresh, None, outcomes_for(match.sport))   # #207: complete books only
+                if priced(cl):
+                    stamp = cl["captured_at"]
+                    for sel, prob in cl["fair"].items():
+                        s.add(OddsSnapshot(match_id=match.id, market="1X2", selection=sel,
+                                           devig_prob=prob, line=None, n_books=cl["books"],
+                                           captured_at=stamp, source=self.source))
                 result.created += 1
         log.info("sync_odds(%s): %s", competition_code, result)
         return result

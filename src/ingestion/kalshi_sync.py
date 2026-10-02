@@ -145,49 +145,26 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
 
             # ---- gate 1: time
             occ = adapter.occurrence(mk)
+            tick = adapter.ticker_start(mk)
             # Kalshi game markets stay OPEN during play; a price captured after
-            # first pitch is an IN-GAME price (reflects the current score), not
-            # a pre-game one. Storing it poisons every disagreement/CLV read
-            # downstream. Pre-game prices only.
-            if occ is not None and occ <= now:
-                in_play += 1
-                continue
-            candidates = games
+            # first pitch is an IN-GAME price and poisons every disagreement/CLV
+            # read. The in-play guard is keyed on OUR matched game's start (after
+            # gate 3), never on occurrence_datetime: occurrence is not the start
+            # (soccer derby 2026-09-14: 3h AFTER kickoff; MLB PHI@ATL 2026-10-01:
+            # the 00:00Z postseason night game was skipped as in-play at 22:55Z,
+            # 65 min before first pitch, breaking the T-60 refresh).
+            #
+            # Candidates: games near EITHER time anchor — occurrence (5h drift)
+            # or the ticker's ET start stamp (2h). With occurrence missing
+            # (M13, 2026-08-25) the ticker filter applies only when it finds a
+            # game; otherwise no filter and the team gates refuse ties.
+            near_tick = [g for g in games if tick is not None and g.utc_date
+                         and abs(g.utc_date - tick) <= timedelta(hours=2)]
             if occ is not None:
-                candidates = [g for g in games
-                              if g.utc_date and abs(g.utc_date - occ) <= MAX_START_DRIFT]
+                candidates = [g for g in games if g.utc_date and (
+                    abs(g.utc_date - occ) <= MAX_START_DRIFT or g in near_tick)]
             else:
-                # M13 (2026-08-25): occurrence_datetime missing — the exact
-                # condition under which same-city markets ("New York wins")
-                # tie across two different games and get refused. The ticker
-                # embeds the start stamp (…-26AUG242145CINSF-SF, ET); parse
-                # it and apply the same time filter. Unparseable ticker →
-                # no filter → today's refuse-safe behavior.
-                import re as _re
-                _mt = _re.search(
-                    r"-(\d{2})(JAN|FEB|MAR|APR|MAY|JUN|JUL|AUG|SEP|OCT|NOV|DEC)"
-                    r"(\d{2})(\d{2})(\d{2})[A-Z]", mk.get("ticker") or "")
-                if _mt:
-                    try:
-                        from zoneinfo import ZoneInfo
-                        _mon = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN",
-                                "JUL", "AUG", "SEP", "OCT", "NOV",
-                                "DEC"].index(_mt.group(2)) + 1
-                        _tick_et = datetime(
-                            2000 + int(_mt.group(1)), _mon,
-                            int(_mt.group(3)), int(_mt.group(4)),
-                            int(_mt.group(5)),
-                            tzinfo=ZoneInfo("America/New_York"))
-                        _tick_utc = _tick_et.astimezone(
-                            ZoneInfo("UTC")).replace(tzinfo=None)
-                        _filtered = [
-                            g for g in games
-                            if g.utc_date and
-                            abs(g.utc_date - _tick_utc) <= timedelta(hours=2)]
-                        if _filtered:
-                            candidates = _filtered
-                    except (ValueError, KeyError):
-                        pass
+                candidates = near_tick or games
             if not candidates:
                 unmatched += 1
                 continue
@@ -319,6 +296,11 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
                 continue
             side = "HOME" if hs > as_ else "AWAY"
 
+            # in-play guard on OUR start time (see gate 1); no start on
+            # record is never assumed pre-game (law 4)
+            if best_g.utc_date is None or best_g.utc_date <= now:
+                in_play += 1
+                continue
             key = (best_g.id, side)
             if key in matched_rows:
                 # doubleheader leftovers / duplicate markets — keep first, count

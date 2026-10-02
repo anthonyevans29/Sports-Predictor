@@ -760,7 +760,7 @@ venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ p
 - Exports (H0-20, pull over the tailnet). TERMINAL (laptop):
   ```
   venv/bin/python deploy/hosting/pull_exports.py
-  python deploy/hosting/compare_exports.py exports exports/host --glob '*<date>*'
+  python deploy/hosting/compare_exports.py exports exports/host   # --since 3 by default (2026-10-01)
   ```
   - Paste the result.
   - Each `✗` needs one of the explained classes:
@@ -781,6 +781,8 @@ venv/bin/python deploy/hosting/pull_backup.py --host sp-vps-1   # receipt: ✓ p
 ---
 
 ## H2. Cutover: the ONE `.backup` migration
+
+**Operator runbook (H2-PREP):** [`h2-cutover-runbook.md`](h2-cutover-runbook.md) covers `sp_cutover.py`, the scratch dry run, the fresh-fingerprint compare with waivers W1 and W2, and rollback. The cutover itself remains an architect ruling.
 
 **Why it cannot be skipped.** The host's bootstrapped DB holds only what
 providers still serve today. These are non-resyncable, and exist only on
@@ -856,7 +858,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 5. Delete the pack on both machines (`rm -rf`). It holds a DB copy and
    `.env`.
 6. TERMINAL (host), in order:
-   - Set `SP_PARALLEL_MODE=full` in host.env.
+   - Set `SP_WRITER_OF_RECORD=host` in host.env (ARCHITECT-RULE 2026-10-01; `sp_cutover.py flip`
+     does it), then the same in the laptop's `.env`. `SP_PARALLEL_MODE` stays the quota mode.
    - Run `systemctl start $(cat /etc/sports-predictor/timers.enabled)`.
    - Run `systemctl start sp-backup.service` and paste its receipt.
 7. The laptop keeps its last `.backup` file cold for 30 days (the rollback
@@ -884,6 +887,10 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     review the result.
   - Only after that review, set `SP_PRUNE_APPLY=1` in host.env and record
     it in BACKLOG.
+- **Snapshot retention (#82): DESIGN ONLY, awaiting ruling.** The plan for
+  `odds_snapshots` pruning and rollup is in
+  [snapshot-retention.md](snapshot-retention.md). No prune exists; none
+  runs before the ruling, and none before the H2 cutover.
 - **Monday ritual (H0-6).** TERMINAL (host):
   `sudo systemctl start sp-soccer-refresh.service; journalctl -u sp-soccer-refresh -n 80 --no-pager`.
   A fresh prerefresh `.backup` is taken first, and a failed backup stops

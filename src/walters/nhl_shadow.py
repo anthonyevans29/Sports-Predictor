@@ -190,13 +190,10 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             pick_home = p >= 0.5
             odds = list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             close_h = None
-            if odds:
-                by = {}
-                for o in odds:
-                    by.setdefault(o.selection, []).append((o.bookmaker, o.price_decimal))
-                imp = MarketSnapshot(market="1X2", by_selection=by).average_implied()
-                tot = sum(imp.values()) or 1.0
-                close_h = imp.get("HOME", 0) / tot
+            from src.walters.close import close_1x2, outcomes_for, priced
+            _cl = close_1x2(odds, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+            if priced(_cl):
+                close_h = _cl["fair"].get("HOME", 0)
             clv = None
             if close_h is not None:
                 clv = (p if pick_home else 1 - p) - (close_h if pick_home else 1 - close_h)

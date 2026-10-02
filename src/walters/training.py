@@ -1329,15 +1329,11 @@ def _generate_predictions_mlb(
                     select(_Odds).where(_Odds.match_id == m.id,
                                         _Odds.market == "1X2")
                 ).scalars())
-                if _odds:
-                    _by_sel: dict[str, list[tuple[str, float]]] = {}
-                    for _o in _odds:
-                        _by_sel.setdefault(_o.selection, []).append(
-                            (_o.bookmaker, _o.price_decimal))
-                    _snap = _Snap(market="1X2", by_selection=_by_sel)
-                    _implied = _snap.average_implied()
-                    _over = sum(_implied.values())
-                    if _over > 0 and "HOME" in _implied and "AWAY" in _implied:
+                from src.walters.close import close_1x2 as _close, outcomes_for as _oc, priced as _priced
+                _cl = _close(_odds, m.utc_date, _oc(m.sport)) if _odds else None   # #167 + #207
+                if _priced(_cl):
+                    _implied, _over = _cl["fair"], 1.0
+                    if "HOME" in _implied and "AWAY" in _implied:
                         _mkt_home = _implied["HOME"] / _over
                         _mkt_away = _implied["AWAY"] / _over
                         w = cfg.market_blend_w
@@ -1530,22 +1526,16 @@ def evaluate_finished(sport: Sport = Sport.SOCCER) -> int:
                         Odds.market == "1X2",
                     )
                 ).scalars())
-                if odds_rows:
-                    # Group by selection
-                    by_sel: dict[str, list[tuple[str, float]]] = {}
-                    for o in odds_rows:
-                        by_sel.setdefault(o.selection, []).append(
-                            (o.bookmaker, o.price_decimal)
-                        )
-                    snap = MarketSnapshot(market="1X2", by_selection=by_sel)
-                    implied = snap.average_implied()
-                    overround = sum(implied.values())
-                    if overround > 0 and top_pick_sel in implied:
-                        fair_prob = implied[top_pick_sel] / overround
-                        clv = pred_probs[top_pick_sel] - fair_prob
-                        best = snap.best_price(top_pick_sel)
-                        if best:
-                            closing_bookmaker, closing_price = best
+                # #167 (ruled 2026-10-01): the close is the LAST pre-kickoff
+                # capture session (src/walters/close.py), never an average of
+                # every capture the table ever accumulated.
+                from src.walters.close import close_1x2, outcomes_for, priced
+                cl = close_1x2(odds_rows, match.utc_date, outcomes_for(match.sport))   # #207 contract
+                if priced(cl) and top_pick_sel in cl["fair"]:
+                    clv = pred_probs[top_pick_sel] - cl["fair"][top_pick_sel]
+                    best = cl["best"].get(top_pick_sel)
+                    if best:
+                        closing_bookmaker, closing_price = best
 
             s.add(PredictionOutcome(
                 prediction_id=pred.id,
@@ -1600,19 +1590,12 @@ def evaluate_finished(sport: Sport = Sport.SOCCER) -> int:
             ).scalars())
             if not odds_rows:
                 continue
-            by_sel: dict[str, list[tuple[str, float]]] = {}
-            for o in odds_rows:
-                by_sel.setdefault(o.selection, []).append(
-                    (o.bookmaker, o.price_decimal)
-                )
-            snap = MarketSnapshot(market="1X2", by_selection=by_sel)
-            implied = snap.average_implied()
-            overround = sum(implied.values())
-            if overround <= 0 or top_pick_sel not in implied:
+            from src.walters.close import close_1x2, outcomes_for, priced
+            cl = close_1x2(odds_rows, match.utc_date, outcomes_for(match.sport))   # #167 + #207
+            if not priced(cl) or top_pick_sel not in cl["fair"]:
                 continue
-            fair_prob = implied[top_pick_sel] / overround
-            outcome.clv = pred_probs[top_pick_sel] - fair_prob
-            best = snap.best_price(top_pick_sel)
+            outcome.clv = pred_probs[top_pick_sel] - cl["fair"][top_pick_sel]
+            best = cl["best"].get(top_pick_sel)
             if best:
                 outcome.closing_bookmaker, outcome.closing_price = best
             backfilled += 1
@@ -1648,6 +1631,20 @@ class ImproveResult:
 HELD_STATUS = "held"
 
 
+SOCCER_IMPROVE_REFUSAL = (
+    "legacy `improve --sport soccer` is REFUSED (P1-1, #209, ARCHITECT 2026-10-01): its "
+    "rolling-holdout retrain is not the soccer gate. Model changes go through the "
+    "chronological, market-scored harness (`python cli.py soccer-backtest`, frozen "
+    "--candidate gates) and `set-soccer-config`; the weekly state refresh is "
+    "`python cli.py soccer-refresh` (inherits production config, sanity-gated). "
+    "Nothing was written.")
+
+
+class LegacySoccerImproveRefused(RuntimeError):
+    """Raised by improve() for soccer BEFORE any write (evaluation, training,
+    promotion): the legacy loop is not a soccer path any more."""
+
+
 def improve(
     sport: Sport = Sport.SOCCER,
     holdout_days: int = DEFAULT_HOLDOUT_DAYS,
@@ -1670,6 +1667,10 @@ def improve(
     ratifies explicitly via ratify_candidate(). The gate itself (threshold,
     holdout, scoring) is identical either way.
     """
+    # P1-1 (#209): refused before the first write below (evaluate_finished)
+    if sport == Sport.SOCCER:
+        raise LegacySoccerImproveRefused(SOCCER_IMPROVE_REFUSAL)
+
     # Step 1: bring evaluation up to date
     evaluate_finished(sport=sport)
 

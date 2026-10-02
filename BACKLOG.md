@@ -22,6 +22,1105 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — ARCHITECT-RULE on #207: the exports adopt the SAME close contract. Maker validation PENDING (#218).**
+(1) RULED: "the MLB/soccer prediction exports and the fixtures export adopt the SAME close contract (one definition; the export block IS the Desk's reference — #117 showed what pooled de-vig does to it)." This lands in the same PR (#215).
+- `_summarize_market` and `_fixture_row` now call `close_1x2`. `bookmaker_count` means complete books, so the thin-book rule reads stricter, conservatively.
+- Gate-class receipt owed by the laptop: before/after on a real export of each kind (MLB predictions, PL predictions, NFL predictions, one fixtures file), via `scripts/export_close_compare.py`.
+(2) RULED: "all 548 historical fills are TAKER, so the rounding re-fit stands for taker; the maker branch is validated only when real maker fills exist — the first join-bid orders this week are that receipt. Log it as pending, not failed." Logged as #218 (pending, needs-operator).
+(3) Merge-ready, approved: #205, #214, #216, #217. #215 is approved pending the laptop receipts. v1.1.0 is cut after #214 and #215 land and the morning compare passes.
+
+**2026-10-01 — #207 (P0-2, external review) BUILT: the close contract.**
+`close_1x2` pooled implied probabilities per selection across whatever books quoted each one. A 3-way board with a book missing its draw, a one-sided book, or two books covering opposite sides all produced a "fair" price. Now the caller names the outcome set, and only books with a complete same-session set count, de-vigged per book and then averaged. Anything else is UNPRICED, with a missing-leg receipt and quoted-vs-complete counts. results-tally splits stored CLV into verified-close (reproduced by the contract) and retained-legacy, and the headline is verified only. **Gate-class:** the NFL export's market block (`fair_prob`, so `market_divergence_pp` and quarantine) comes from this close. A game whose only books are incomplete loses its 1X2 fair price and falls to the labelled spread fallback. **Receipts owed by the laptop** (the DB never travels): `clv-restate` dry-run (the grades the contract re-prices or leaves as stored), and a today-vs-yesterday NFL export compare. **Open, needs a ruling:** the MLB/soccer prediction export and the fixtures export de-vig `last_capture` directly, outside `close_1x2`, so they have the same pooling. They are left as is (export contract) pending a ruling.
+
+**2026-10-01 — #209 (P1-1, external review) BUILT: legacy `improve --sport soccer` refused before any write.**
+The legacy loop (rolling-holdout retrain) is not the soccer gate. Soccer model changes go through the chronological market-scored harness (`soccer-backtest`, frozen `--candidate` gates) and `set-soccer-config`; state goes through `soccer-refresh`. The refusal sits in `improve()` itself, ahead of `evaluate_finished`, so it covers both the CLI and the admin web job. The bare `improve` defaulted to soccer, so it is refused too. Callers checked: the host chain runs only `--sport mlb`.
+
+**2026-10-01 — #204 FIXED (merged in #205; this entry backfilled 2026-10-02): the Kalshi in-play guard now uses OUR start time.**
+PHI@ATL (00:00Z) was skipped as in-play at 22:55Z, 65 minutes before first pitch ("in-play skipped 2, matched 0"). The shared US-sport path skipped any market with `occurrence_datetime <= now`, and it did so before matching. Occurrence is not the start (the 2026-09-14 derby lesson). The guard now runs after matching and checks the matched game's `utc_date`. The same root caused two further faults, both fixed: (1) a started game whose occurrence was still in the future had its in-play prices STORED; (2) `sync-kalshi --date-to {tomorrow}` read as midnight and dropped night games after 00:00Z from the window's T-60 step (#175). The raw-field receipt (`kalshi-probe --series KXMLBGAME --grep PHIATL`) is still owed by the operator. **Process note:** #205 merged without its BACKLOG/CHANGELOG entry. The records edit sat inside a command that was refused, and the commit went ahead without it. This entry backfills it (law 6).
+
+**2026-10-01 — #213 HYGIENE (external review) DONE.**
+(1) #83 was reopened by the ledger bot because its close comment opened with "Gate verdict". It is re-closed with an `ARCHITECT` comment quoting the S19 REJECT. (2) #98 is refreshed. Read from code: since #167, `sync_odds` appends a book-consensus `OddsSnapshot` per run, and the alarm's book series reads exactly those rows. So the reopening condition is met in code, pending one live PL receipt. (3) RESULTS.md is now labelled regenerated, not authoritative in git. The committed copy was 2 weeks stale (2026-09-17).
+
+**2026-10-01 — #206 (P0-1, external review) FIXED: the Kalshi maker fee counted the 25% twice.**
+Audit, read from code: `KALSHI_MAKER_RATE = 0.0175` (already ¼ of taker) AND maker M = 0.25 in `KALSHI_FEE_M` for every non-MLB game series. The maker fee came out ¼ of the published one: NFL maker, 100 contracts at 50c, was $0.11 against the schedule's $0.44. MLB (0.0175 × M 0.5) was right. Fix: game-series maker M = 1, in venue.py and in the Cockpit's fill classifier. Tests come from the schedule's dollar figures, not the implementation. Re-stated Desk maker costs: +0.2 to +0.3pp per contract (10-lot). K2 stays informational: calls and units are unaffected. **Follow-on (operator): re-run `scripts/kalshi_fee_fill_receipt.py` on the YTD CSV.** The #134 per-fill re-fit classified maker legs against the 4×-too-small fee, so its maker share is suspect. The NEAREST rounding was fitted mostly on taker legs and needs that receipt before it is trusted for makers.
+
+**2026-10-01 — #201 DONE: the Discussions `list` receipt is in, and the seed-thread links are recorded.**
+The operator ran the first dispatch (mode `discussions`, action `list`). The receipt is on #201: Discussions are enabled, with six categories (Q&A, Ideas, RFC and Receipts as ruled, plus GitHub's default Announcements and Polls). The four seed threads are #197 (Q&A, NHL information floor), #198 (Q&A, api-sports NFL home/away labels), #199 (Ideas, Kalshi fill rates) and #200 (Receipts, S14 totals). The links are now in docs/LEDGER.md. Open point: the read succeeded with the current token scopes, but write access is untested until the first `post` or `reply`. The fence is unchanged: threads are input, never rulings.
+
+- **#201 DISCUSSIONS POSTING INSIDE THE LEDGER WORKFLOW (ARCHITECT 2026-10-01) + #170 closed.**
+  - RULING (verbatim): "Discussions posting runs INSIDE the ledger
+    workflow, using the existing LEDGER_PROJECT_TOKEN secret (classic PAT,
+    repo scope; add write:discussion if the first call is refused — Anthony
+    edits the token's scopes, never pastes it). Add a workflow_dispatch mode
+    "discussions" to scripts/ledger.py: (a) list categories as the receipt,
+    (b) post a thread from a markdown file in docs/discussions/ into a named
+    category, (c) reply by thread number. Inputs are the file path and
+    category; nothing posts without a dispatch that names them. First
+    dispatch: list only."
+  - Also: "#170 DONE — Discussions enabled; categories Q&A, Ideas, RFC,
+    Receipts created with descriptions; four seed threads posted (S14 finding
+    under Receipts — reading confirmed)." #170 was still open on GitHub, so
+    it was closed with an ARCHITECT comment and `needs-operator` dropped. The
+    thread links come from the first list dispatch (#201); Code's tools can't
+    read Discussions.
+  - BUILT:
+    - `ledger.yml` dispatch inputs: `action` (default list), `file`,
+      `category`, `thread`, passed as env vars, never interpolated into the
+      shell.
+    - `scripts/ledger.py` mode `discussions`, run with
+      `LEDGER_PROJECT_TOKEN` (refuses without it):
+      - `list`: the categories plus each thread's number, title, URL and
+        category. Metadata only: no thread body is read (the fence).
+      - `post`: one markdown file under docs/discussions/ (a resolved path;
+        `..` escapes refused) with a `# Title` first line, into a NAMED
+        existing category. Refuses a duplicate title in that category.
+      - `reply`: by thread number.
+      - Each post ends with a provenance line (file @ commit).
+      - A refused token prints the write:discussion scope hint, never the
+        token.
+      - The receipt line is `LEDGER-DISCUSSIONS {...}`.
+  - BUG CAUGHT BY THE TESTS: a titleless reply file lost its first line.
+    The whole file is now the body.
+  - RECEIPTS: `tests/test_ledger_discussions.py` 5 (list default +
+    metadata-only; every refusal; post variables + provenance; reply by
+    number; token refusal hint, no-token refusal, token never printed; the
+    workflow inputs). 471 pytest; the workflow YAML parses.
+  - OPERATOR (#201): merge, then dispatch mode discussions / action list and
+    paste the receipt.
+
+- **#170 DISCUSSIONS: four categories (Receipts added) + the S14 receipts post; operator posts (ARCHITECT 2026-10-01).**
+  - RULING (verbatim): "Discussions permissions granted. Complete #170:
+    enable Discussions if the API allows (otherwise say so and Anthony flips
+    the repo-settings toggle), create the four categories (Ideas, Q&A, RFC,
+    Receipts), pin the RFC description line, and post the three seed threads
+    from docs/discussions/seed-2026-10-01.md as written — add the S14
+    residual finding (+0.18 pooled vs +1.17 live) to the receipts post. The
+    fence stands: threads are input, never rulings; you read a thread only
+    when the architect links it; adoption = ruling + Issue with "Source:
+    Discussion #N"."
+  - CHECKED (law 2, said plainly): Code's tools have NO Discussions
+    capability (no tool to enable, create categories, pin or post), and
+    direct GitHub API access is not permitted from this session. So all of
+    it is operator steps, recorded in docs/LEDGER.md.
+  - READING (flagged): no seed thread was a receipts post, so the S14
+    finding is a 4th post in the new Receipts category. The three seeds are
+    unchanged ("as written").
+  - CHANGED: `docs/LEDGER.md` gains the Receipts category row and the
+    "operator steps" note. The seed file's setup step lists four categories,
+    and post 4 is "Receipts — S14 totals: +1.17 live (n=25), +0.18 pooled".
+    Numbers are from BACKLOG (the S14 verdict 2026-09-16; the #163 verdict
+    ruling).
+
+- **#192 ONE INJURED QB = ONE NEWS ITEM; #193 readings ratified; #187 closed; v1.0.1 deployed (ARCHITECT 2026-10-01).**
+  - RULING (verbatim): "#193 — all three readings ratified (no ticket
+    containing a breaching leg; "better-priced" = lower combined market
+    probability; a game in both the morning and T-60 file is one straight
+    at the later file's units). #192 — one injured QB is ONE news item: the
+    half-unit sizing still applies to every game that team plays (the
+    uncertainty is real in each), but the pager emits one page per player,
+    and the B-track treats those games' QB flags as a shared risk factor
+    (logged, no cap change yet). #187 — CLOSE: mlb-time-audit shows 15/15
+    confirmed games exact (tonight's PHI@ATL 20:00 ET on both providers); the
+    3 mismatches are placeholders on both sides (statsapi 03:33 TBD vs
+    api-sports 20:00 UTC default), now guarded "time unconfirmed"; the
+    unpaired rows are statsapi's seeded bracket. v1.0.1 is CUT AND DEPLOYED
+    (v1.0.0 -> v1.0.1, 57 files)."
+  - BUILT (#192):
+    - Window card rows carry `qb_news`: the injured QBs on either side,
+      via `qb_audit.is_qb`, the export's own rule.
+    - Pager class `qb_news`: ONE delta per PLAYER whose status appeared,
+      changed or cleared. The page lists every game of his team still on the
+      card, as one "QB NEWS CHI C. Williams: Questionable -> Out · 2 game(s)"
+      item with a ↳ row per game.
+    - A game merely entering or leaving the window is not news. The upgrade
+      is silent.
+    - B-track shadow: `qb_shared_risk` lists a QB on >= 2 live games, with
+      the games, straight units and v1.1 tickets touching them. LOGGED only;
+      no cap change.
+    - Also shown in the `desk-parlays` CLI, the parlay-card note and the
+      per-slate ledger tally.
+    - Half units per game unchanged.
+  - #193: the shipped shadow already implements the ratified readings; it
+    stays open for the 30-slate review. #187 closed by ARCHITECT ruling.
+    No v1.0.1 sibling Issue exists to close. The `release` label still
+    doesn't exist (the ledger bootstrap has not run on the merged
+    taxonomy), so #150's label/milestone stay pending.
+  - RECEIPTS: `tests/test_qb_one_news_item.py` 4 (one page for two games;
+    cleared / window-entry / upgrade; shared risk logged with no cap change;
+    card rows from the DB, QB-only). Spec-change: the exact delta dict gains
+    `qb_news: 0`. 466 pytest; btrack 8/8 and render 16/16 verifies green.
+
+- **#193 B-TRACK: two cross-book rules, pre-committed, SHADOW-logged (ARCHITECT 2026-10-01) + #192 QB cross-game finding + #183/#178 closed.**
+  - RULING (verbatim): "B-track opens with two cross-book rules,
+    pre-committed: (1) EXPOSURE CAP per outcome: total units on any single
+    team-outcome across straights + parlay legs <= 1.25u; the parlay builder
+    skips legs that would breach it and says so. (2) TICKET DEDUP: two
+    tickets with the same leg set (ignoring price) are one ticket; keep the
+    better-priced one. Both reported in the Desk's parlay card and the P&L
+    block ("exposure-capped N · deduped N"). Shadow-logged first (what the
+    rules WOULD have cut, for 30 slates), promoted in the v1.2 bump. Also
+    log the audit's QB-flag cross-game point as a finding (same player
+    flagged on two games = one news item, not two)."
+  - FROZEN (`desk_policy.B_TRACK`):
+    - cap 1.25u per team-outcome (game + side): the Desk's straights plus
+      0.25u per ticket;
+    - dedup key = sport, teams, kickoff, pick;
+    - better-priced = the lower Π market;
+    - review at 30 slates; `applied: False`.
+  - INTERPRETATIONS flagged on #193:
+    - a ticket containing a breaching leg is not built;
+    - "better-priced" = the lower Π market;
+    - a game from two loaded files is one straight position (the later
+      file's units).
+  - BUILT:
+    - `rank_parlays` (build_parlays = its top 3, so parity is unchanged).
+    - `b_track_shadow(calls, ranked)`: the cuts among the v1.1 tickets (rule
+      + detail) and the v1.2 ticket set.
+    - `desk_parlays` gains `b_track_shadow` and a per-ticket `b_shadow`; the
+      `desk-parlays` CLI prints them.
+    - Cockpit:
+      - the parlay card note "B-track shadow (not applied): exposure-capped N
+        · deduped N", with the would-cut tickets marked;
+      - Log marks their legs `b_shadow_cut`;
+      - `ledger.meta.b_shadow[as_of]` holds a per-slate tally (a re-log does
+        not double-count);
+      - the P&L line "exposure-capped N · deduped N over S/30 slate(s) ·
+        would-cut tickets settled n, net ±x u".
+  - BUG CAUGHT BY THE VERIFY (before push): the per-ticket marks were keyed
+    by object identity, but the shadow re-ranked, so no mark matched. Fixed:
+    rank once, share the list. The Python test now uses a slate the cap
+    actually cuts.
+  - RECEIPTS:
+    - `scripts/cockpit_btrack_verify.py` 8/8 (Chicago browser, three 1u
+      straights shared by parlays: capped 2, card + marks + Log + meta +
+      re-log + P&L net +1.50u).
+    - `tests/test_desk_policy.py` 13 (+3 B-track).
+    - `cockpit_render_verify` now ignores the file-mode `b_shadow_cut` mark
+      (the legacy path never computes it).
+    - All Cockpit verifies green; parity 31/31; 452 pytest.
+  - #192 (finding): QB flags come from the TEAM's injury list, so one QB
+    marks every game that team has in the file, and T-90 signatures are per
+    team. Counting is per game, not per player. Ruling pending.
+  - #183 and #178 closed by ARCHITECT ruling (operator receipts: leg audit
+    11 checked / 0 not a play / 0 unchecked; kickoff audit 0 flagged).
+
+- **CARD PAGE CONTENT (F2 slice 1) + #189 NCAA label (ARCHITECT 2026-10-01).**
+  - RULINGS (verbatim): "(2) Card labels NCAA games "NFL" (family) — show
+    the competition." / "CARD PAGE CONTENT (F2 slice 1, small PR). Every
+    page line and digest row carries, when available: competition · away @
+    home · kickoff ET · the model's pick, probability and tier · the
+    reference probability (books, or Kalshi if kalshi-only) · edge pp · the
+    Desk call and units when the file carries desk (F1 on the host) ·
+    venue/late-news flags. … Delta classes gain "model updated" and "call
+    changed"; digest sorted calls first. Market-only rows say so. Keep each
+    line under ~100 chars for the phone. Receipt: tonight's 7:05pm page."
+  - LAW-1 (#189): `line()` / `digest()` printed `sport.upper()` (the family),
+    so NCAA (sport nfl) read "NFL". Every line now leads with the
+    competition code.
+  - BUILT:
+    - `window.py`: `home_short` / `away_short` (tla → short_name → last
+      word, or the last two when short: "Red Sox"). The canonical model row
+      carries the export's `desk` subset (call, units, pass_kind, reference,
+      market_ref, edge_pp) when the file has it.
+    - `sp_window_page.py`: `row_text()` is one formatter for page lines and
+      the digest.
+      - Content: "Thu 8:15p NFL PIT @ CLE · model PIT 56.7% (toss-up) · books
+        — · PASS no-ref".
+      - Reference: with a Desk call, the reference the call was made on
+        (books, or Kalshi when kalshi-only); without one, the card's
+        repriced books.
+      - Market-only rows read "market-only · books GER 79%" (else Kalshi,
+        else unpriced).
+      - Flags: QUARANTINE, STALE-BOOK?, late-news?, ⚠ time unconfirmed.
+    - A delta adds one "  ↳ <change>" line.
+    - New classes "model" (pick, prob to 0.1%, or version changed) and
+      "call" (Desk call or units changed). Both are silent on the first run
+      after the upgrade (the old state lacks the keys).
+    - The digest lists the Desk calls first, then by kickoff.
+  - RECEIPTS:
+    - `tests/test_card_page.py` 6: the three ruled examples VERBATIM; NCAA
+      shows its competition; kalshi-only; market-only Kalshi/unpriced;
+      flags; delta lines; model/call deltas with a silent upgrade;
+      calls-first digest; the window card's short names + desk passthrough.
+    - Spec-change test updates: the exact delta dict gains model/call; the
+      time-flag line test reads the first line.
+    - 459 pytest. Longest sample line 87 chars.
+  - OPERATOR: tonight's 7:05pm page is the receipt.
+
+- **#187 MLB START TIMES: the api-sports fallback no longer overwrites statsapi; the card flags unconfirmed times; postseason audit (ARCHITECT 2026-10-01).**
+  - RULING (verbatim): "Host MLB start time for PHI@ATL game 3 reads 14:00
+    ET; statsapi (laptop) says 20:00 ET. Compare api-sports vs statsapi
+    utc_date for all 2026 postseason rows and report deltas; if api-sports
+    carries placeholder times for TBD postseason starts, the Phase A adapter
+    must not overwrite a statsapi-sourced time and the card must flag "time
+    unconfirmed"."
+  - LAW-1 READING:
+    - `sync_matches` set `m.utc_date = p["utc"]` on every keyed or paired
+      row, so api-sports overwrote statsapi's time.
+    - statsapi's `status.startTimeTBD` was never stored.
+    - The host's MLB times come only from api-sports.
+  - BUILT:
+    - Guard: a row carrying `mlb_stats_api` keeps its time. A disagreement
+      is receipted (`time_conflicts`, CLI `TIME CONFLICT` lines) and stamped
+      as `external_ids.api_baseball_utc`; it clears when api-sports agrees
+      again.
+    - `time_unconfirmed(match)` → the window card's `time_flag` (MLB) and the
+      `receipts.time_unconfirmed` count. The pager's lines and digest show
+      "⚠ time unconfirmed". Flagged cases: a disagreement, or an
+      api-sports-only time (law 4, until the audit names the placeholder
+      signature).
+    - `mlb-time-audit` (read-only, laptop): statsapi postseason games vs
+      api-sports, with TBD, deltas, the placeholder signature and unpaired
+      suspects.
+  - RECEIPTS: `tests/test_mlb_time_guard.py` 4 (guard + conflict + clear;
+    audit pairing + signature; card flag + pager text; CLI). 453 pytest.
+  - OPERATOR: `python cli.py mlb-time-audit --season 2026` on the laptop;
+    paste the output (#187).
+
+- **#151 F1b — the Cockpit RENDERS desk calls from the file (ARCHITECT 2026-10-01).**
+  - RULING (verbatim): "(3) Once F1 lands, the Cockpit RENDERS desk calls
+    from the file and never recomputes policy; its only overlay is the
+    ledger (counts, claims, fills)." Plus 2026-10-01: "Parity 9/9 on
+    today's real exports with desk-parlays (1 live leg, 0 tickets). F1 port
+    complete; rich-slate gate Sunday; proceed to F1b."
+  - BUILT (`tools/cockpit.html`):
+    - Rows from a file carrying `desk` (export --desk) are rendered, never
+      recomputed:
+      - `fileCall`: call, units, cls, edge, tags, reasons, shadow units,
+        pass class, market reference, kalshi-only;
+      - `fileValue`: value shadows;
+      - `fileVenue`: the venue verdict (every row now carries `desk.venue`);
+      - `execHTMLFrom(desk.exec)`: one exec formatter shared by both paths
+        (`execFacts` is the legacy source).
+    - Parlay tickets come ONLY from a loaded `desk_parlays_v1` file, legs
+      matched to the loaded rows. A missing file shows "no desk_parlays file
+      loaded"; a ticket with an unloaded leg is skipped and counted.
+    - The summary shows "desk: rendered from file (as of …)", or flags
+      legacy rows and a policy-version mismatch.
+    - The in-browser policy (`computeCall`, the old body verbatim) runs ONLY
+      for rows from legacy files without desk blocks, labelled "computed in
+      browser (legacy files)".
+  - Python: desk numbers are written UNROUNDED (rendering is bit-identical);
+    `desk.venue` on every row; the raw `edge` on each ticket.
+  - RECEIPT: `scripts/cockpit_render_verify.py` 16/16 (Los_Angeles browser,
+    clock and counts pinned). The same 9-file slate, computed vs rendered,
+    gives identical results for:
+    - 270 calls, 66 value shadows, 370 venue verdicts and 3 tickets;
+    - the Desk table text (336 rows incl. exec notes and KO lines), the
+      venue table, the parlay card, the summary counts;
+    - the LEDGER CAPTURE (108 entries).
+    - In render mode `computeCall` / `valueSide` / `venueEdge` /
+      `kalshiOnlyRef` are called 0 times.
+    - A tampered `desk.call` is shown as the file says.
+    - No parlays file means no tickets; mixed files and a version mismatch
+      are flagged.
+    - All 16 Cockpit verifies green (the legacy path unchanged), parity
+      31/31, 449 pytest.
+  - FLAG (needs ruling): the legacy in-browser path stays while `--desk` is
+    opt-in (the rich-slate gate is Sunday). Proposed F1c: once the host
+    emits desk calls, refuse desk-less prediction files and delete
+    `computeCall` / `valueSide` / `venueEdge` / `kalshiOnlyRef` /
+    buildParlays-compute from the Cockpit.
+
+- **#183 PARLAY-LEG AUDIT in the Cockpit ledger (ARCHITECT-RULE 2026-10-01) + desk_parlays shape ratified.**
+  - RULING (verbatim): "(1) the combined exports/desk_parlays_<date>.json
+    shape is ratified — parlays span sports, so a cross-file ticket file is
+    the right container; F1b renders it. (2) Extend the ledger audit
+    (#180's path) with a parlay-leg check: a logged leg whose game was not
+    a PLAY/ladder in the export loaded that day gets flagged "leg not a
+    play (#183)" and excluded from P&L; never deleted. (3) Rich-slate
+    parity gate stands: Sunday's 16-game NFL file + desk-parlays; today's
+    files are the dress rehearsal. Then F1b."
+  - Operator receipts: F1 real-export parity 7/7 (thin slate, 1 TNF row);
+    then 9/9 with desk-parlays (1 live leg, 0 tickets). The F1 port is
+    complete; the rich-slate gate is Sunday.
+  - LAW-1: the ledger never stored a leg's Desk call. So the check needs
+    the leg's day's export files, and it is an explicit operator step,
+    never automatic.
+  - BUILT (`tools/cockpit.html`):
+    - "Audit parlay legs (#183)": load the day's export files, then press it.
+    - Each `parlay_leg` whose game (sport, home, away, kickoff) is in a
+      loaded file EXPORTED ON THE LEG'S log_date (the file's
+      `desk_meta.as_of`, else `exported_at`, as a local date) gets
+      `leg_check` {status play|not_play, desk_call, desk_pick, export_day,
+      checked_at}. The latest same-day check wins.
+    - No same-day file means unchecked (law 4).
+    - `settledBets` drops a ticket with any not_play leg
+      (`lastAudit.legNotPlay`). The P&L audit line, the totals and the
+      open list show "leg not a play (#183)".
+    - Never deletes: only the leg_check mark is added.
+  - RECEIPT: `scripts/cockpit_leg_audit_verify.py` 9/9 (New_York browser):
+    PASS-row leg → its ticket excluded; all-play ticket kept; missing
+    game / other-day export → unchecked; stored fields unchanged; the
+    counts are in the P&L line.
+    - `cockpit_ledger_audit_verify.py` now expects `legNotPlay: 0` in its
+      exact dict.
+    - All 16 Cockpit verifies green; 449 pytest.
+  - OPERATOR: for each day that logged parlays, load that day's export
+    files, press Audit parlay legs, and paste the note.
+
+- **#151 F1 PARLAYS PORTED + #183 parlay-leg misalignment fixed (ARCHITECT-RULE 2026-10-01).**
+  - RULING (verbatim): "(1) #181 NHL 0.5u-on-PASS quirk — parity-preserved
+    for now, ratified; it dies in the policy v1.2 bump (the value-side
+    promotion), not before. (2) Parlays — PORT them to Python under the
+    same parity discipline (seeded fuzz, non-UTC browser, row-for-row); F1
+    is not complete and the Cockpit does not switch to render-only until
+    parlays match. (3) After the real-export parity passes on the laptop,
+    F1b: the Cockpit renders desk calls from the file with the ledger as
+    its only overlay."
+  - (1) is recorded on #181 (ARCHITECT comment; `needs-ruling` dropped). It
+    stays open until the v1.2 PR.
+  - LAW-1 FINDING #183: `buildParlays` picked live legs by pairing
+    `rows[i]` with the i-th Desk `<tr>`, but market-only rows have no
+    `<tr>`.
+    - With a fixtures file loaded BEFORE a predictions file, tickets were
+      built from the wrong rows.
+    - Receipt (headless): fixtures-first → legs ['P1','P2'], two PASS rows,
+      vs ['Play1','Play2'] in the other order.
+    - `snapshotCalls` logs those tickets as real 0.25u parlay_leg
+      positions. Past cases can't be identified from the ledger alone
+      (#183).
+    - FIX: live legs = `deskCalls` with call ≠ PASS, in row order.
+  - PORT: `desk_policy.build_parlays` (#183 semantics, same arithmetic
+    order, a stable sort equivalent to the JS comparator) + `parlay_block`
+    (legs, Π model/market, edge_pp, the ledger signature) + `parlays_doc`.
+  - New CLI `desk-parlays FILES…` writes `exports/desk_parlays_<date>.json`
+    (`desk_parlays_v1`). The clock defaults to the first file's
+    `desk_meta.as_of`.
+    - FLAG: tickets are cross-sport, so they live in ONE combined file
+      built from the set the Cockpit loads, not inside the per-sport
+      exports. That is the shape F1b would render. Your call if another
+      shape is wanted.
+  - PARITY (`scripts/desk_parity_verify.py`, non-UTC browser, clock and
+    counts pinned): 31/31.
+    - Ticket parity in all three battery runs, including a FIXTURES-FIRST
+      load order.
+    - "every leg is a PLAY/LADDER row".
+    - A 600-slate parlay fuzz (shared-team clashes, PASS/LADDER legs, null
+      markets, near-ties) run through the Cockpit's own buildParlays: 889
+      tickets identical (legs, order, Π model, Π market, edge).
+  - Tests: `tests/test_desk_policy.py` 10 (+2: parlay rules, the CLI file
+    with fixtures first). Full suite 449. All 15 Cockpit verifies green.
+  - F1 STATUS: the port is complete (calls, value shadows, venue, exec,
+    kalshi-only, parlays). OPEN: the real-export parity receipt on the
+    laptop. Then F1b.
+
+- **#151 F1 — POLICY IN THE EXPORT: Python Desk v1.1, export hook (off by default), ledger summary, parity verify (2026-10-01).**
+  - RULING (verbatim, defaults): "F1 DEFAULTS — RULED: (1) graded-call
+    counts passed as a parameter, default 0 (cautious side) — ratified; the
+    laptop's ledger export gains a small summary JSON (counts per rule)
+    that the export can read when present, so the host's files carry real
+    counts after cutover. (2) Desk decided as of export time with
+    desk.as_of stamped — ratified; T-60 re-export is the doctrine, and F2's
+    hourly feed produces it automatically. (3) Once F1 lands, the Cockpit
+    RENDERS desk calls from the file and never recomputes policy; its only
+    overlay is the ledger (counts, claims, fills). Row-for-row parity
+    verify with clock and counts pinned before any host chain emits desk
+    calls."
+  - BUILT:
+    - `src/walters/desk_policy.py`: a line-for-line port of the Cockpit
+      Desk: normalize, kalNormalize/kalFrom*, venueEdge, valueSide,
+      kSide/joinBid/desk cost/exec edge, kalshiOnlyRef, and the policy()
+      body.
+      - JS semantics are reproduced exactly: `toFixed` (`js_fixed`), number
+        to string (`js_str`, including "null"), `Math.round`, and JS
+        truthiness ([] / {} are truthy).
+      - Naive kickoffs are UTC (#178). `model_shadow` docs are never Desk
+        input.
+    - `annotate(doc, now, counts)` adds `desk` per row: call, units, cls,
+      tier, pick, model_p, market_ref, reference books/kalshi_only, edge_pp,
+      pass_kind, tags, reasons + reason, shadow_units, exec (K2), and
+      value_shadow. Market-only rows get the venue engine's call. The file
+      gets `desk_meta` {policy_version, as_of, counts, counts_source}.
+    - Export hook in `export_predictions`, `export_nfl_predictions` and
+      `export_fixtures`, enabled by `--desk` (or `SP_DESK_CALLS=1`). It is
+      **OFF by default** (ruling 3: no host chain emits desk calls before
+      the parity receipt); off, every file is byte-identical. The CLI
+      prints a `desk …` receipt line.
+    - Cockpit:
+      - "Export ledger summary" → `bd_ledger_summary_v1` {counts:
+        postseason / value_shadow / kalshi_only graded, graded_per_rule}.
+        The export reads `exports/ledger_summary.json` (env
+        `SP_LEDGER_SUMMARY`) when present, else 0. Counts only, no
+        positions.
+      - `deskCalls` now carries `reasons` and `cls`, so parity is checked
+        on the full text.
+    - `scripts/desk_parity_verify.py` runs JS vs Python on the same files
+      with the clock pinned (`page.clock`) and counts pinned (the ledger
+      seeded with exactly that many graded calls), in a NON-UTC browser.
+      - It compares calls, value shadows, venue, the exec numbers, and the
+        export path (desk.call/units/reason), every field in row order,
+        floats exact.
+      - It also checks the summary round-trip and `js_fixed` against
+        `toFixed` on 1,508 doubles.
+      - With file arguments it is the REAL-EXPORT receipt.
+  - RECEIPTS:
+    - The synthetic fuzz battery (9 files: MLB, NFL, soccer, NHL,
+      model_shadow, and fixtures for NHL/NCAA/UNL/CL) is 16/16 at counts 0
+      and counts 31/4/2: 270 calls, 66 / 58 value shadows and 370 / 362
+      venue rows identical.
+    - 8 more seeds (postseason counts 0..35, across the 30 boundary):
+      48/48.
+    - The fuzz caught one divergence before the fix: the JS prints
+      "nullpp" for a quarantined row with no divergence value (Python
+      printed "Nonepp"). `js_str(None)` now renders "null".
+    - `tests/test_desk_policy.py`: 8 tests. Full suite 447 passed. All 14
+      Cockpit verifies green.
+  - FINDINGS:
+    - #181 (needs-ruling): pre-gate NHL PASS rows with edge ≥ 15pp carry
+      units 0.5 / class caution in the JS. Display only; ported faithfully
+      for parity.
+    - Parlays (`buildParlays`) are cross-row and NOT ported. Under ruling
+      (3) the Cockpit must not recompute policy, so they need a port (or
+      a ruling) before the render switch.
+  - NEXT (F1b): the operator runs the real-export parity receipt (laptop,
+    `--desk` exports + ledger summary). Then the Cockpit render switch:
+    desk calls from the file, ledger as the only overlay. Then F2.
+
+- **#178 LEDGER KICKOFF AUDIT in the Cockpit (ARCHITECT 2026-10-01, #179 follow-on).**
+  - RULING (verbatim): "a LEDGER AUDIT in the Cockpit — for every position,
+    compare claim_at, executed_at and each reprice timestamp against true
+    UTC kickoff; flag any capture or reprice after kickoff as "post-kickoff
+    (tz bug)" and exclude those prices from the P&L (fall back to the last
+    pre-kickoff reprice, or the claim price if none), with a one-line count
+    in the P&L block. Never delete; mark and recompute."
+  - LAW-1 FINDING: the ledger kept NO per-reprice history. `stampTiming`
+    overwrote `executed_at` / `exec_market_p` / `market_p` on each re-log,
+    so for existing positions only the claim (frozen) and the latest
+    execution survive.
+    - Existing positions therefore fall back to the CLAIM price.
+    - From now on, `stampTiming` appends every capture to `reprices`
+      ({at, market_p, model_p}), so "last pre-kickoff reprice" is real data
+      going forward.
+  - BUILT (`tools/cockpit.html`):
+    - `auditCall(c)` compares claim_at, executed_at (legacy: captured_at)
+      and every logged reprice against `utcMs(kickoff)`. A timestamp at or
+      after kickoff is post-kickoff.
+    - Price used: the execution if it was before kickoff, else the last
+      pre-kickoff reprice, else the claim if the claim was before kickoff,
+      else EXCLUDED (no pre-kickoff price exists).
+    - A claim after kickoff also voids the claim counterfactual. No
+      kickoff means never flagged (law 4).
+    - `settledBets` recomputes returns at the audited price: straights,
+      shadows at notional units, and parlay tickets at audited leg prices
+      (any leg excluded → the ticket leaves the P&L).
+    - Excluded positions are counted, never dropped from storage.
+    - `saveLedger` marks `tz_audit` {flag, claim_post, exec_post,
+      post_reprices, price_used, basis, excluded} on flagged
+      positions/legs. NO stored field is rewritten.
+    - The P&L block and the ledger totals carry one line: "Kickoff audit
+      (#178): n settled position(s) … · k re-priced at a pre-kickoff price
+      · j excluded · marked, never deleted." The open list tags flagged
+      positions.
+  - RECEIPT: `scripts/cockpit_ledger_audit_verify.py` 19/19, run in
+    America/New_York. It covers every path, plus "save changes no stored
+    field, count unchanged". All 14 other Cockpit verifies stay green; 439
+    pytest pass.
+  - OPERATOR: republish the Cockpit, open it, and paste the P&L block's
+    "Kickoff audit" line. If it reads 0 flagged, the laptop browser was on
+    UTC and #178 had no ledger impact.
+
+- **#178 COCKPIT KICKOFF PARSING: naive utc_date read as LOCAL time (finding + fix, 2026-10-01).**
+  - FOUND while reading `tools/cockpit.html` for F1 (#151), law 1.
+  - Every export writes `utc_date` as naive UTC (`isoformat()`, no `Z`).
+    Six Cockpit sites parsed it with `Date.parse` / `new Date`, and
+    ECMAScript reads a zone-less date-time as LOCAL time.
+  - In any non-UTC browser, every kickoff moves by the viewer's offset.
+    Receipt: Chromium in America/New_York → +4 h.
+  - IMPACT (west of UTC, e.g. US Eastern):
+    - the ledger capture window ("captured only BEFORE kickoff") still
+      captures games that started up to |offset| h ago, so they are graded
+      with hindsight;
+    - the ruled Kalshi-only T-60 window lands on the real T+3h..T+4h, so a
+      REAL half-unit call could reference an in-play mid;
+    - the venue engine's "in-play — never" check fires late;
+    - KO / re-run-by print the UTC clock labelled "local".
+  - East of UTC it inverts: games ahead are refused as started.
+  - The window view (L1871) already appended `Z`, which shows the intent.
+  - FIX: one `utcMs()` parser that appends `Z` when a date-time has no
+    zone; date-only strings and strings with a zone pass through. It is
+    used at all six sites: venueEdge, rerunHint, koLine, kalshiOnlyRef,
+    kickedOff, and the noKickoff count.
+  - RECEIPT: `scripts/cockpit_utc_verify.py` runs synthetic files under
+    UTC, New_York, Los_Angeles and Tokyo.
+    - main's Cockpit: 14/28. Every non-UTC timezone fails; in New_York a
+      2h-started game is captured and an in-play fixture is
+      venue-eligible.
+    - fixed: 28/28.
+    - All 13 existing Cockpit verifies stay green.
+  - UNKNOWN (not guessed): the laptop browser's timezone. If it isn't UTC,
+    ledger calls since the capture window shipped (2026-09-28) may include
+    post-kickoff captures. Checking needs the ledger export plus kickoff
+    times (operator).
+  - The live Cockpit is the published artifact, so it must be republished
+    from the fixed repo copy. F1's Python port parses kickoffs as UTC from
+    the start.
+
+- **#163 VERDICTS + NCAA SOURCE FINDING + NHL 2024 UTAH ALIAS + H2 REHEARSAL (architect 2026-10-01).**
+  - RULING (verbatim): "DC-FIT REJECT (−0.0003 OOS), S14-STAGE2 REJECT
+    (criterion (i) overshoot +0.18→−0.99 at +1.17; no re-tune — log the
+    diagnosis, close #81's candidate). NCAA: resync-diff shows the
+    provider's current 2025 labels match ours (0.489 at source) — gate
+    SUSPENDED-PENDING-DATA stands; open an offseason probe lane for an
+    alternative college source with neutral-site flags (CFBD or similar),
+    read-only. NHL: add the 2024 alias form "Utah Utah Hockey Club"
+    (doubled token) → Utah Mammoth; re-sync; target coverage 2024 >= 90%.
+    H2 dry run PASS logged as the cutover rehearsal receipt."
+  - (a) DC-FIT: REJECT. The out-of-sample pool (PL 2024/25 + 2025/26)
+    delta is −0.0003 against a bar of +0.0050; the fitted ρ does not beat
+    production's ρ = −0.10. Production unchanged. The S18 ρ stays.
+  - (b) S14-STAGE2: REJECT on criterion (i).
+    - Diagnosis, logged per the ruling: the pooled 2023/24–2025/26
+      uncertain-bucket residual under production is only +0.18 goals, not
+      the +1.17 the n=25 live S14 read measured (2026-09-16).
+    - The declared +1.17 offset therefore overshoots, to −0.99: |−0.99| >
+      |+0.18|, so the residual moves away from zero.
+    - The live under-projection did not reproduce on the three-season pool.
+      It reads as a small-sample effect, not a structural compression.
+    - NO RE-TUNE. Fitting an offset to the pool's +0.18 would be threshold
+      re-tuning on the evaluated set, which the 2026-09-25 disposition
+      declined.
+    - #81's Stage-2 candidate is closed. S14 Stage 1 stays history.
+  - NCAA:
+    - `resync-diff --competition NCAA --season 2025` shows the provider's
+      CURRENT 2025 labels match ours: a home-label rate of 0.489 at the
+      source.
+    - So the fault is the provider's, not our copy, and a re-sync cannot
+      repair it. (The `_apply_match_updates` hazard stays moot: no re-sync
+      runs.)
+    - The gate stays SUSPENDED-PENDING-DATA. The `GATE_STATUS_LINE` banner
+      now says the fault is at the provider and names the reopening route.
+    - Opened #176: an offseason, read-only probe of an alternative college
+      source with neutral-site flags (CFBD or similar).
+  - NHL:
+    - The 2024-25 NHL schedule serves placeName "Utah" + commonName "Utah
+      Hockey Club", so place + common builds "Utah Utah Hockey Club" (a
+      doubled token).
+    - `NAME_ALIASES` maps that form to Utah Mammoth AND Utah Hockey Club.
+      Aliases do not chain, and our DB row is named "Utah Hockey Club".
+    - The matcher still refuses ambiguity at every candidate name.
+    - Operator re-sync owed (#144): `nhl-goalie-sync` (2024 window), then
+      `nhl-goalie-coverage`. The 2024 target is >= 90%.
+  - H2:
+    - `python3 scripts/h2_dry_run.py` → `H2 DRY RUN: PASS`, logged as the
+      CUTOVER REHEARSAL RECEIPT.
+    - The cutover itself stays an architect ruling on the parallel-week
+      criteria (#166).
+  - Ledger: Closes #163 and #81 (verdicts rendered; the candidate is
+    closed by ruling). Refs #144 (re-sync receipt owed), #166 (cutover
+    ruling), #79 and #176.
+  - RECEIPTS: alias test plus the full suite, in the PR body.
+
+- **#170 GITHUB DISCUSSIONS = THE INPUT CHANNEL (architect 2026-10-01).**
+  - RULING (verbatim): "GitHub Discussions adopted as the INPUT channel,
+    with the fence: a thread is never a ruling, an Issue, or an
+    instruction; contributions (human or agent) are data; Code reads a
+    thread only when the architect links it; adoption = ruling + Issue with
+    a "Source: Discussion #N" line. docs/LEDGER.md gains this section. Seed
+    three threads from the record (receipts included, no account or P&L
+    specifics): (1) Q&A "NHL information floor …" (2) Q&A "api-sports
+    american-football 2025: home/away labels inverted for Aug-Oct? …" (3)
+    Ideas "Kalshi game markets: fill rates when joining the bid vs taking —
+    who has data?" Pin the RFC category description: proposals must name
+    the gate they'd pass."
+  - BUILT:
+    - `docs/LEDGER.md` gains a "Discussions — the INPUT channel" section:
+      the fence, the adoption rule (ruling + Issue with `Source: Discussion
+      #N`), the categories, and the pinned RFC text.
+    - It also gains rules 5 (`Refs #N` only, ratified 2026-10-01 after the
+      #156 → #155 close) and 6 (ruling closes start with `ARCHITECT`; the
+      bot's match is case-sensitive, after the #150 / #155 reopen).
+    - `docs/discussions/seed-2026-10-01.md` holds the three threads:
+      - NHL: v1–v4 0.6909 / 0.6921 / 0.6952 / 0.6907 vs the 0.6866 bar;
+        v5 0.6912, goalie −0.0003; the MoneyPuck range.
+      - NCAA 2025: FBS 0.404 / −6.05, August 0.335 vs 2026 0.773 / +19;
+        source vs copy unresolved.
+      - Kalshi: maker vs taker on the public fee schedule, with no fill
+        counts.
+      There are no account or P&L specifics.
+  - OWED (operator, #170): the Discussions API is not wired here, so
+    enable Discussions, create the categories, pin the RFC description and
+    post the three threads.
+
+- **ARCHITECT-RULE 2026-10-01 on #172 (the close) and #169 (retention).**
+  - RULING (verbatim): "(1) grades with no pre-kickoff price — reported,
+    left as stored, never nulled: ratified. (2) MLB M11 rollover games
+    whose only price is post-first-pitch — unpriced: ratified; an in-game
+    price is not a close. (3) The writer's side effect (soccer/cups/NHL book
+    history into odds_snapshots) is welcome: it anchors value-side CLV and
+    the soccer line-move alarm. (4) The two uncovered findings (unbounded
+    capture-odds, MLB Kalshi window boundary) get their own Issues. (5)
+    #169's four flagged questions: the doc's defaults are ratified as
+    written. Merge order: #172, then the rest."
+  - RECORDED: (1)-(3) need no code change; #172 already behaves this way.
+    (4) Issues #174 (unbounded capture-odds) and #175 (MLB Kalshi window
+    boundary). (5) `docs/specs/snapshot-retention.md` rows 4/5/7/9 now read
+    RATIFIED. #172 merged first (b5c285b); every open branch was merged up
+    from main the same hour.
+
+- **#82 SNAPSHOT RETENTION — DESIGN FOR RULING (architect 2026-10-01; doc only, no code).**
+  - RULING (verbatim): "LANE #82 (design doc only): snapshot pruning/rollup
+    — odds and Kalshi snapshots now grow by thousands of rows a day;
+    propose a retention policy (raw 30d, hourly rollups beyond, closes kept
+    forever) for ruling before any code."
+  - DOC: `docs/specs/snapshot-retention.md`.
+    - Inventory of every odds_snapshots writer, with growth formulas and
+      season-bounded maxima. Real game counts are labelled UNKNOWN, with
+      read-only SQL R1–R4 to measure them.
+    - Every reader, and exactly which rows it needs.
+    - The policy:
+      - eligibility per MATCH: FINISHED, kicked off > 30d, every prediction
+        graded, past a guard;
+      - kept raw forever: the FIRST capture set and the CLOSE (for book
+        sources, the last pre-kickoff set; for Kalshi, the last pre-kickoff
+        row per selection WITH yes_bid/yes_ask);
+      - hourly rollups split at kickoff.
+    - DDL sketch for `odds_snapshot_rollups` / `odds_snapshot_prune_log`.
+    - Safety:
+      - a preprune `.backup`;
+      - dry-run by default, with `--apply` plus an env opt-in to write;
+      - one transaction per day bucket, deleting by explicit id;
+      - receipts;
+      - VACUUM noted (DELETE alone does not shrink the file).
+  - READERS THE POLICY WOULD CHANGE:
+    - `mlb-odds-timing` reads raw rows, so it must be moved to the rollups
+      before any applied prune;
+    - `clv-report`'s "last" includes post-kickoff captures, so keep the
+      last capture overall or accept a change;
+    - chain-receipt row counts drop by design.
+    Everything else is preserved: the Kalshi exports, window card, venue,
+    value anchor and line-move. evaluate's CLV reads `odds`, not snapshots.
+  - ARCHITECT-RULE (9 in the doc), including: bucket width (hourly saves
+    little, since the window already captures about hourly); keeping the
+    T-3h reference and final-3h captures raw for line-move replay; host vs
+    laptop pruning; no applied prune before the H2 cutover + one clean
+    week; VACUUM cadence; 30/30 days.
+  - FINDINGS from the review → Issue #167: `odds` APPENDS on the general
+    sync_odds path (soccer, cups, NHL); `sync_odds` drops `line`; the
+    evaluate/nhl_shadow "close" averages every capture on those sources;
+    capture-odds is unbounded for stale SCHEDULED MLB; and a MLB Kalshi
+    window-step boundary. All are read from code; receipts are owed.
+  - RULED (ARCHITECT-RULE 2026-10-01): "Retention: NO hourly rollups — raw
+    30 days, first + closing captures forever with Kalshi bid/ask; the
+    window's hourly captures already are the rollup. Revisit only if raw
+    growth exceeds 1 GB/month. Close the other eight questions with that."
+    The doc now opens with a RULED section:
+    - the rollup table is dropped;
+    - the nine questions are closed in a table (4/5/7/9 take the doc's own
+      defaults, flagged);
+    - reader impact is restated: mlb-odds-timing must label pruned matches
+      and clv-report's "last" becomes CLOSE before any applied prune.
+  - No pruning code, no migration, nothing deleted. The implementation is a
+    later lane. #82 stays open until that lane (or a ruling) closes it.
+
+- **#166 H2-PREP (architect 2026-10-01): cutover orchestrator, scratch dry run, fresh-fingerprint runbook.**
+  - RULING (verbatim): "LANE H2-PREP (hosting, a week before cutover): the
+    ONE .backup migration as a script (laptop .backup -> host, integrity +
+    sha, chains paused, writer-of-record flag flipped, boot receipt),
+    fresh-fingerprint compare runbook with the MLB doubleheader/postponed
+    waivers, and a dry-run that proves the sequence on a scratch DB.
+    Cutover itself stays an architect ruling on the parallel-week criteria."
+  - BUILT:
+    - `deploy/hosting/sp_cutover.py` runs preflight → pause → install →
+      flip → resume → receipt (or `run`, all in order).
+      - Every step writes a `kind: cutover` receipt with a cutover id and
+        refuses on any failure.
+      - preflight catches every install failure BEFORE a timer is stopped.
+      - install reuses `sp_migrate.install` under the DB lock and refuses
+        unless S2 = S1 and every R2 = R1.
+      - flip is a line-preserving edit of host.env, with a timestamped
+        `.pre-cutover-*` copy and a post-check that every other key is
+        unchanged.
+      - resume restarts the timers, then requires a clean backup receipt.
+    - `--dry-run --scratch DIR` re-points REPO / env / receipts / lock /
+      backups into DIR. It refuses if anything resolves outside DIR, or if
+      DIR is under data/; systemctl calls are recorded, not run.
+    - `scripts/h2_dry_run.py` proves the whole sequence on a scratch DB,
+      including the fresh-fingerprint compare.
+    - `sp_migrate.pack_env_problem` was factored out (same refusal text) so
+      preflight can reuse it.
+    - `docs/specs/h2-cutover-runbook.md` holds the operator sequence; the
+      fresh-fingerprint compare (`compare_exports --since 1`) with expected
+      classes; waivers W1 (MLB doubleheader game 2, the #96 limitation)
+      and W2 (MLB postponed, evidence per row); rollback; and open
+      questions. It is linked from hosting-h1 H2.
+  - RULED (ARCHITECT-RULE 2026-10-01, five-PR batch):
+    - (3) "add a REAL flag, SP_WRITER_OF_RECORD=laptop|host in host.env and
+      the laptop .env; consumed by boot/chain receipts, compare_exports
+      (names the canonical side), and the future feed header. No behavior
+      gating yet; the flip step sets it. Keep SP_PARALLEL_MODE as quota
+      only." BUILT:
+      - `sp_common.writer_of_record()` (laptop|host, else None, labelled);
+      - `append_receipt` stamps `writer_of_record` on every line;
+      - the boot receipt and each chain's final line print it;
+      - `compare_exports` prints "writer of record: X — canonical side: X";
+      - the flip now sets `SP_WRITER_OF_RECORD=host` and never touches
+        `SP_PARALLEL_MODE`;
+      - host.env.example and .env.example carry `SP_WRITER_OF_RECORD=laptop`.
+    - (4) "Postponed-game waiver: ratified for MLB only (the api-sports class
+      we measured); any other sport needs its own receipt first." The
+      runbook says so.
+    - Waivers stay claimed line by line in the paste (no `--waive` flag).
+  - RECEIPTS:
+    - `tests/test_h2_cutover.py` (13; fake systemctl; real env, receipts
+      and DB byte-identical);
+    - full suite 415 passed;
+    - `python scripts/h2_dry_run.py` → `DRY-RUN PASS — 6/6 steps
+      receipted` and `H2 DRY RUN: PASS`; the scratch host.env changed only
+      `SP_PARALLEL_MODE=designated` → `full`.
+    - Not exercised on a real host: the sudo / runuser privilege path.
+  - The cutover itself remains an architect ruling on the frozen parallel-week
+    criteria. Nothing here triggers it.
+
+- **AUDIT RULINGS (architect 2026-10-01): NCAA gate SUSPENDED-PENDING-DATA + resync-diff (a re-sync cannot repair labels); NHL Utah alias + our-side unlinked listing.**
+  - NCAA RULING (verbatim): "2025 home/away labels UNRELIABLE (FBS 0.404 /
+    −6.05 margin; Aug 0.335; vs 2026 FBS 0.773 / +19). (1) Re-sync NCAA
+    2025 from the provider now (sync-teams then sync-matches) and re-run
+    ncaa-audit --season 2025: if the provider's current data differs from
+    our stored rows, our ingestion-era copy was bad and the re-sync repairs
+    it; if it matches, the provider's 2025 labels are wrong at source. (2)
+    Run ncaa-audit on 2024 as the alternative training season. (3) Until a
+    season with sane stage-level home rates exists on BOTH sides of the
+    split, the NCAA gate is SUSPENDED-PENDING-DATA (not failed); v1's
+    verdict is voided as trained on corrupted labels. NCAA stays
+    market-only, as it is."
+  - LAW-1 FINDING (before any re-sync):
+    - `IngestionService._apply_match_updates` (used by sync-matches on an
+      EXISTING row) refreshes status, season, stage, date and SCORES. It
+      NEVER touches `home_team_id` / `away_team_id`.
+    - So a re-sync CANNOT repair swapped labels.
+    - Worse: if the provider's current labels are swapped relative to ours,
+      a re-sync writes the provider's home score onto OUR home team, which
+      FLIPS the stored result.
+    - So the ruling's step (1) is answered READ-ONLY by `resync-diff`, and
+      the 2025 re-sync is HELD pending a ruling on this finding.
+      ARCHITECT-RULE: if the diff shows differing labels, the repair needs
+      its own ruled step (e.g. a label rewrite keyed on provider ids,
+      backed up first).
+    - Pinned by a test (`test_sync_never_rewrites_home_away_on_existing_rows`),
+      so any future change to that is deliberate.
+  - BUILT (NCAA):
+    - `python cli.py resync-diff --competition NCAA --season 2025`
+      (`src/ingestion/resync_diff.py`). It compares the provider's listing
+      with our rows by provider match id and reports:
+      - teams: same / swapped / different;
+      - scores: same / swapped / different / missing on either side;
+      - dates moved > 1h;
+      - provider-only rows and ours-not-in-listing rows;
+      - the HOME WIN RATE under ours vs the provider's labels.
+      It ends with one VERDICT line ("PROVIDER MATCHES OUR ROWS" = labels
+      wrong at source; "PROVIDER DIFFERS ..." = our copy differs) and
+      writes nothing.
+    - `ncaa-backtest` prints `NCAA GATE: SUSPENDED-PENDING-DATA ... v1's
+      verdict VOID` first and last; any verdict it prints is DIAGNOSTIC
+      (`ncaa_backtest.GATE_STATUS`).
+  - NHL RULING (verbatim): "(1) alias "Utah Hockey Club" -> Utah Mammoth in
+    the goalie mapping (+82 links). (2) List the ~200 remaining unlinked
+    OUR games for 2024/2025 by date with the nearest API game and its
+    delta — cause unknown, name it. (3) 2023-24 not-in-DB is accepted
+    (provider history starts 2024). Re-sync goalies after (1), re-print
+    coverage; target >= 95% on the gate seasons."
+  - BUILT (NHL):
+    - `nhl_goalies.NAME_ALIASES` adds "Utah Mammoth" ↔ "Utah Hockey Club"
+      as extra candidate names, both ways. The shared normaliser cannot
+      bridge "utah hockey" vs "utah mammoth". The matcher still refuses
+      ambiguity, and the shot ingest inherits the alias through
+      `team_names`.
+    - `nhl-goalie-audit --list-ours 2024 --list-ours 2025` lists every one
+      of our unlinked finished games by date, with the nearest API game
+      (same pair → swapped → one team, ±7 days, any gameType), its delta
+      and a NAMED cause from that evidence: api_preseason /
+      api_game_not_synced / utc_offset_beyond_12h / linked_to_other_match /
+      home_away_swapped / one_team_only / no_api_game.
+    - (3) is accepted and logged here.
+  - OWED (operator):
+    - NCAA: `resync-diff --competition NCAA --season 2025` (paste the
+      verdict); `ncaa-audit --season 2024`.
+    - NHL: `nhl-goalie-sync` (the alias links on re-sync, since complete
+      games are relinked), then `nhl-goalie-coverage` (target ≥ 95% on the
+      gate seasons), then `nhl-goalie-audit --list-ours 2024 --list-ours
+      2025`.
+  - TESTS: `tests/test_resync_diff.py` (4) and
+    `tests/test_nhl_utah_alias_listing.py` (3: alias names, an end-to-end
+    link of API "Utah Mammoth" to our "Utah Hockey Club", every listing
+    cause).
+
+- **#167 THE CLOSE WAS AN AVERAGE — FIXED (ARCHITECT-RULE 2026-10-01, PRIORITY: "A mission metric may be wrong — this outranks F1 for one day").**
+  - RULING (verbatim): "(a) verify on the real DB whether the general
+    sync_odds path appends rather than replaces, drops the totals/spread
+    line, and averages captures for the "close"; (b) if confirmed, closing
+    price = LAST pre-kickoff capture, with a receipt of how many stored
+    soccer/NHL/NCAA CLV grades change and by how much; (c) fix
+    append→snapshot semantics with a before/after on a real export; (d)
+    CHANGELOG correction note; RESULTS.md soccer CLV re-stated."
+  - (a) CONFIRMED IN CODE (law 1, file and line read 2026-10-01); the
+    real-DB receipt is `odds-audit` (operator):
+    - `IngestionService.sync_odds` (soccer, cups, NHL via the window job,
+      hourly) did `s.add(Odds(...))` per row with no delete, so it APPENDED
+      a full book set every run.
+    - It never passed `line=`, so TOTALS/SPREADS lines were stored NULL.
+    - evaluate's CLV and its M11b backfill, NFL grading (both paths), the
+      NFL predict market block, `nhl_shadow`, the prediction export's
+      market block (the Desk's reference), the market blend and
+      miss_analysis all de-vigged EVERY stored 1X2 row of a match at once
+      (`MarketSnapshot.average_implied` over all captures). The "close"
+      was a mean over every capture, and `best_price` was the best price
+      ever seen.
+    - MLB (api_baseball) and NFL (api_american_football) were already
+      replace-on-sync.
+  - (b) THE CLOSE, one definition (`src/walters/close.py`):
+    - candidate rows have captured_at strictly before kickoff;
+    - take the LAST CAPTURE SESSION (the newest such row, plus every row
+      within 10 minutes of it);
+    - take the latest row per (bookmaker, selection, line);
+    - a book absent from that session contributes nothing.
+    Every reader listed above now uses it. Fixtures already took the
+    latest per book before kickoff; they now also apply the session.
+    RECEIPT: `clv-restate` (a dry-run by default) reports, per
+    sport/competition, how many stored grades change and by how much.
+    `--apply --backup PATH` (a verified .backup) re-states them. Grades with
+    no pre-kickoff capture are reported and LEFT AS STORED (ARCHITECT-RULE
+    if they should be nulled).
+    - NFL / NHL-shadow CLV is not stored (it is graded on the fly), so it
+      re-grades through the new close on the next run.
+    - NCAA has no model CLV.
+    - MLB keeps one capture per game. Where that capture landed after
+      first pitch (M11 rollover games), the ruled close now leaves it
+      UNPRICED instead of counting an in-game price as the close.
+  - (c) WRITER FIXED: `sync_odds` now REPLACES this source's `odds` rows per
+    match on a non-empty fetch (an empty or failed fetch never wipes),
+    stores `line`, and APPENDS the de-vigged 1X2 consensus to
+    `odds_snapshots` (source = the adapter), as the NFL path does.
+    Consequences, flagged:
+    - soccer / cups / NHL gain book history in odds_snapshots, so NHL
+      value-side grades can gain anchors and the soccer line-move alarm
+      sees book data;
+    - snapshot growth is about 3 rows per match per sync.
+    Receipt owed: a before/after on a real export (the operator runs
+    `export-predictions` for the same date on main vs this branch and
+    compares the `market` blocks).
+  - (d) CORRECTION NOTE:
+    - CHANGELOG 2026-10-01;
+    - RESULTS.md carries a "CORRECTION PENDING" note under Soccer, and
+      `results-tally` now prints the CLV basis line on every regeneration;
+    - re-statement = `clv-restate --apply --backup …` then `results-tally`.
+  - TESTS: `tests/test_odds_close_semantics.py` (5):
+    - the session rule (stale book dropped, in-game excluded, a NULL
+      timestamp excluded);
+    - close vs legacy average;
+    - sync_odds replaces, keeps the line, appends history, and an empty
+      fetch never wipes;
+    - restate dry-run vs apply, and an unpriceable grade left as stored;
+    - the CLI backup gate.
+    `test_value_side_and_qb_audit.py`'s fixture close is now captured
+    before kickoff: its rows had been stamped at insert time, after
+    kickoff, which the ruled close correctly treats as in-game.
+  - OWED (operator, in order):
+    1. `odds-audit` (paste the verdict);
+    2. `clv-restate` (paste the dry-run table);
+    3. the before/after export;
+    4. ruling on apply;
+    5. `clv-restate --apply --backup <fresh .backup>`;
+    6. `results-tally`.
+
+- **#163 SOCCER-CANDIDATES LANE (architect 2026-10-01): Dixon-Coles rho fit + S14 Stage-2 — pre-committed, built, operator runs owed.**
+  - RULING (verbatim): "LANE SOCCER-CANDIDATES (backtest-only, frozen a
+    priori): (a) Dixon-Coles low-score correction (rho fitted on 2023/24
+    only, frozen) and (b) S14 Stage-2 — uncertainty-conditioned totals
+    adjustment (top-pick < 45% bucket, offset declared from the S14
+    verdict's +1.17 before the run). Each through the existing soccer gate
+    (improve rule, pooled PL 2023/24-2025/26, production params, RPS
+    reported). Verdicts only; no production change."
+  - DECLARED BEFORE ANY RUN (`src/walters/soccer_candidates.py`):
+    - (a) `dixon-coles-fit`. Production already carries DC (S18, ρ =
+      −0.10). The candidate replaces that ρ with an MLE fit on PL 2023/24
+      alone:
+      - inputs: the leakage-free walk's λ, μ at production params (ρ does
+        not enter them);
+      - the likelihood reduces to Σ log τ (the τ-adjusted matrix sums to 1);
+      - grid [−0.300, +0.200] step 0.001; infeasible points (any τ ≤ 0) are
+        skipped; ties go to the smallest |ρ|.
+      The fitted ρ is printed and frozen, then gated against production's ρ
+      on the ruled pool.
+    - (b) `s14-totals`:
+      - Bucket: the UNADJUSTED top pick < 0.45.
+      - Offset: +1.17 goals (the S14 verdict's measured under-projection,
+        n=25, 2026-09-16).
+      - Mechanism: both λ scale by (T+1.17)/T and the full score matrix
+        (DC included) is recomputed, so 1X2 moves too.
+      - Verdict = the improve rule AND the S14 Stage-2 acceptance frozen
+        2026-09-17: (i) uncertain-bucket signed residual |cand| < |prod|
+        (a tie rejects); (ii) totals-direction hits at 2.5 cand ≥ prod;
+        (iii) confident-bucket residual within ±0.15. Buckets come from the
+        production arm.
+    - Gate: `training.DEFAULT_PROMOTION_DELTA` = 0.0050 on the pooled
+      leakage-free 1X2 log-loss; ties reject. A missing season or n < 30
+      = INVALID. RPS reported only.
+  - RULED (ARCHITECT-RULE 2026-10-01, on the five-PR batch):
+    1. (a)'s fit season 2023/24 is EXCLUDED from the verdict pool. The gate
+       reads 2024/25 + 2025/26 pooled, out of sample (`DC_VERDICT_SEASONS`),
+       and the in-sample 2023/24 row prints for information only. S14 has
+       no fit, so (b)'s full three-season pool stands.
+    2. The +1.17 offset scaling both teams' xG is RATIFIED, and (b) must
+       pass BOTH gates, as built.
+  - BUILT:
+    - `run_soccer_backtest` gains `detail` (additive keys) and
+      `s14_uncertain_offset`. Both default off, which is byte-identical
+      for every existing caller (tested).
+    - `soccer-backtest --candidate dixon-coles-fit|s14-totals` runs the
+      fixed gate set only and REFUSES other splits.
+    - Tests: `tests/test_soccer_candidates.py` (9; the PR first said 11 —
+      corrected), covering the frozen
+      constants, τ, the fit (signs, flat-likelihood tie-break, infeasible
+      points), the S14 hand case, the walk extensions, both candidates
+      end to end, INVALID on a missing season, and the CLI (verdict lines,
+      refusal, production untouched).
+  - OWED (operator): `python cli.py soccer-backtest --candidate
+    dixon-coles-fit` and `--candidate s14-totals`. Paste both gate lines.
+
+- **#159 #160 #161 POLICY v1.1 ADDENDA (architect 2026-10-01): postseason sizing caution; kalshi-only provisional reference; Desk kickoff + n/30 counters; NHL venue finding.**
+  - RULINGS (verbatim):
+    - (1) "exports carry stage=postseason for MLB from our gameType
+      mapping; Desk halves units on postseason rows until 30 graded (sizing
+      caution rule, policy v1.1 addendum)."
+    - (4) "Desk rows show kickoff + "re-run by" (T-60); value-shadow
+      progress (n/30) on the policy card."
+    - (2) RULED the same day: "KALSHI-ONLY PROVISIONAL REFERENCE for model
+      sports — when books are absent at T-60 and Kalshi is two-sided with
+      spread <= 2c and the series is in the ruled fee table, the Desk uses
+      the Kalshi mid as the market reference, flags the row "kalshi-only",
+      and sizes at HALF units (0.5 of tier); value-side and quarantine
+      logic unchanged; the ledger records the flag; review at 30 graded
+      kalshi-only calls (promote to full units or retire). Shadow nothing —
+      this is a real call at half size, because the price is real and
+      two-sided."
+    - (3) Finding: "NHL venue gaps <= 3.2pp over 18 games; threshold
+      unchanged."
+  - BUILT (export, additive): MLB prediction rows carry `stage`
+    (`src/walters/export.py mlb_stage`).
+    - R maps to "regular"; F/D/L/W map to "postseason".
+    - Anything else, and the host's api-sports fallback rows (stage NULL),
+      map to null: never guessed (law 4). `stage_raw` carries the stored
+      gameType.
+    - Prediction outputs are unchanged: no gate run applies.
+  - BUILT (Cockpit Desk, `tools/cockpit.html`).
+    - POSTSEASON
+      - `stage="postseason"` → min(units, ½ base) until 30 postseason calls
+        are graded in this ledger (model_edge straight + ladder, counted
+        by the logged `stage`).
+      - The reason shows "(n/30)"; at 30 the halving lifts and the card
+        reads "review due".
+      - stage null → labelled "stage unknown — postseason caution not
+        applied". Older exports with no key → untouched.
+      - Logged calls record `stage`.
+    - KALSHI-ONLY
+      - Applies to model-sport rows with NO two-sided book reference, in
+        the window [T-60, kickoff), on a two-way board, in a series from
+        the ruled fee table (MLB KXMLBGAME, NFL KXNFLGAME, PL KXEPLGAME —
+        venue.py KALSHI_FEE_M; market-only sports are not model sports),
+        with Kalshi bid AND ask present and spread ≤ 2c.
+      - Reference = mid (HOME), 1 − mid (AWAY). The usual floor/tier chain
+        then runs on that reference.
+      - Sizing: units × 0.5 at the end of the sizing chain, so it composes
+        with the other halvings; postseason + kalshi-only = 0.25u.
+      - The row is flagged "kalshi-only" in the market cell, the reason
+        names the bid/ask/spread, and the call is tagged "kalshi-only half
+        units".
+      - Ineligible rows stay PASS "no reference", with the reason ("before
+        T-60 — books may still post", "spread 3c > 2c", "Kalshi not
+        two-sided", "3-way board", "series not in the ruled fee table").
+      - A measured decline on the mid is "below floor": the thin-books
+        reclass skips kalshi-only rows, because their reference is not
+        books.
+      - Value-side and quarantine are untouched. The ledger records
+        `reference: "kalshi_only"`, `market_p` = the mid and
+        venue_hint=kalshi; book rows record `reference: "books"`.
+      - Review at 30 graded kalshi-only calls; #160 stays open as that
+        review.
+      - JUDGEMENT CALLS (flag if wrong): "books absent" = no two-sided book
+        reference (a thin but two-sided book market stays the reference);
+        3-way soccer boards are never eligible (no derived away/draw price,
+        the #89 doctrine); "0.5 of tier" = multiply the chain's units by
+        0.5.
+    - KICKOFF: every Desk row (model, value-shadow and venue tables) shows
+      "KO HH:MM · re-run by HH:MM" (T-60, local), or "· started" once it
+      has kicked off. The correlation note reads the game from a data
+      attribute so the KO line never leaks into team names.
+    - POLICY CARD: new POSTSEASON, KALSHI-ONLY and KICKOFF lines.
+      "graded n/30" counters for value shadows, postseason and kalshi-only
+      calls, refreshed on every ledger render.
+  - FINDING #161 (logged): over 18 NHL games the largest venue gap was
+    3.2pp, below the frozen 5.0pp threshold. The threshold does not move
+    (law 3).
+  - RECEIPTS:
+    - `scripts/cockpit_postseason_verify.py` 13/13 and
+      `scripts/cockpit_kalshi_only_verify.py` 15/15, both new.
+    - The 11 existing Cockpit verifies are all green.
+    - `tests/test_export_mlb_stage.py` (2).
+
+- **#157 MORNING CHAIN IN TWO NETWORK PHASES + compare_exports --since (architect 2026-10-01).**
+  - RULING (verbatim): "CLI.md morning chain splits into two phases by
+    network mode — statsapi steps under VPN, host pull/compare under
+    Tailscale; and compare_exports gains --since N days (default 3) so
+    settled exhibits stop re-printing."
+  - BUILT (docs): `docs/CLI.md` MLB daily operation.
+    - Phase 1, VPN on: the backup line, then sync-matches → evaluate →
+      improve → sync-appearances --recent → sync-umpires --recent →
+      export-results. The statsapi calls are sync-matches,
+      sync-appearances and sync-umpires; the rest is local.
+    - The switch: QUIT the VPN client (field amendment 2026-09-28:
+      disconnecting leaves tunnel/DNS hooks), then bring Tailscale up.
+    - Phase 2, Tailscale on: pull_exports.py → compare_exports.py → the
+      host receipts table.
+    - The pre-slate chain's statsapi steps are named as VPN steps too.
+  - BUILT (code): `deploy/hosting/compare_exports.py --since N` (default 3).
+    - Compared: files whose name carries a YYYY-MM-DD within the last N UTC
+      days (today and the N-1 days before).
+    - UNDATED names (`window_24h.json`, `fixtures_<comp>_<label>.json`)
+      are always compared and never hidden by the window (law 4).
+    - The header line names the window and COUNTS the settled files not
+      re-printed. `--since 0` = everything.
+    - Also documented in the CLI.md hosting table and the hosting-h1
+      morning step (the old `--glob '*<date>*'` line now runs on the
+      default window).
+  - BEHAVIOUR NOTE: an old divergent exhibit no longer fails the default
+    run. Re-checking one is `--since 0` (or `--glob`). The release gate
+    reads the default window.
+  - TESTS: `test_comparator_since_window_skips_settled_dated_files`. The
+    existing skew test now passes `--since 0`: its 2026-09-28 fixture
+    would otherwise depend on today's date.
+
+- **#155 FINDING: MLB postseason night-game odds coverage (architect 2026-09-30; limitation).**
+  - FINDING (verbatim): "api-sports Baseball odds absent for the two
+    postseason night games (BOS@NYY, CHC@SD) on three consecutive days
+    while day games are priced; open an Issue (limitation, sport:mlb) —
+    postseason night-game odds coverage; check whether the provider prices
+    them only on game day ET or not at all."
+  - PRIOR (from the record, NOT yet a receipt): this is probably the M11
+    family. The provider's /odds window is UTC-day-scoped; games crossing
+    UTC midnight get zero rows until their UTC date arrives; the per-game
+    request also returned nothing (21/21 on 08-25); the boundary is fuzzy,
+    about 01:00-01:35 UTC. A night game at 8 pm ET or later starts after
+    00:00 UTC; day games do not. Mitigation already live: Kalshi covers
+    rollover slots and M11b backfills the closers. The postseason could
+    still differ (e.g. never priced at all), so this is not assumed.
+  - BUILT (read-only receipt): `python cli.py mlb-odds-timing --start D
+    [--end D] [--only-missing]` (`src/walters/mlb_odds_timing.py`). From
+    OUR append-only odds_snapshots (source api_baseball, capture-odds at
+    08/12/16/20 ET), per game:
+    - ET and UTC start, with ROLLOVER / NIGHT flags;
+    - captures before first pitch, first capture, and whether it came only
+      after the start's UTC midnight;
+    - max books, odds-table books, and whether Kalshi had a pre-start
+      snapshot;
+    - a verdict: PRICED_PRE_START / PRICED_ONLY_AFTER_START /
+      NO_BOOKS_CAPTURED.
+    The capture cadence bounds any claim ("never" = never in our captures).
+    The command writes nothing and makes no provider call.
+  - OPEN (needs-operator): run it over the three days. The verdict decides
+    between "UTC-day-scoped (M11)" and "not priced pre-game at all". Tests:
+    `tests/test_mlb_odds_timing.py` (3).
+
 - **#148 RELEASE MODEL (architect 2026-09-30): main = BETA, production = tags.**
   - RULING (verbatim core): "`main` = BETA (the laptop tracks it; fast
     iteration continues as now). PRODUCTION = tagged releases only: the

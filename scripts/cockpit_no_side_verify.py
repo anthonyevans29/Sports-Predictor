@@ -60,9 +60,9 @@ def nfl(home, away, p_home, fair_home, bid, ask):
 def main():
     print("EXPORT (venue.kalshi_exec, two-way vs 1X2)")
     dal = kalshi_exec(0.40, 0.43, "NFL", two_way=True)
-    check("NFL home 0.40/0.43 -> NO 0.57/0.60: taker 0.617 (0.60 + 17c/10), maker 0.581 (join 0.58 + 1c/10)",
+    check("NFL home 0.40/0.43 -> NO 0.57/0.60: taker 0.617 (0.60 + 17c/10), maker 0.584 (join 0.58 + 4c/10, #206)",
           (dal["away_bid"], dal["away_ask"], dal["exec_cost_taker_away"], dal["exec_cost_maker_away"])
-          == (0.57, 0.6, 0.617, 0.581), json.dumps({k: dal[k] for k in AWAY_KEYS}))
+          == (0.57, 0.6, 0.617, 0.584), json.dumps({k: dal[k] for k in AWAY_KEYS}))
     one = kalshi_exec(0.41, 0.42, "NFL", two_way=True)
     check("1c spread (NO 0.58/0.59): no NO-side maker price, taker 0.607",
           one["exec_cost_maker_away"] is None and one["exec_cost_taker_away"] == 0.607,
@@ -129,15 +129,15 @@ def main():
         load("nfl.json")
         rows = table()
         d = next(v for k, v in rows.items() if "Dallas" in k)
-        check("AWAY pick: 'exec +5.9pp @ 0.581 maker (join 0.58, NO side) · fee-clears? · taker 0.617 (+2.3pp)'",
-              d[4] == "+6.0pp" + "exec +5.9pp @ 0.581 maker (join 0.58, NO side) · fee-clears? · taker 0.617 (+2.3pp)",
+        check("AWAY pick: 'exec +5.6pp @ 0.584 maker (join 0.58, NO side) · fee-clears? · taker 0.617 (+2.3pp)'",
+              d[4] == "+6.0pp" + "exec +5.6pp @ 0.584 maker (join 0.58, NO side) · fee-clears? · taker 0.617 (+2.3pp)",
               d[4])
         c = next(v for k, v in rows.items() if "Chicago" in k)
         check("AWAY 1c spread: taker basis, 'NO side', 'joining = taking'",
               "exec +4.3pp @ 0.607 taker (NO side) (spread 1¢ — joining = taking) · fee-clears?" in c[4], c[4])
         s = next(v for k, v in rows.items() if "Seattle" in k)
-        check("HOME pick unchanged: 'exec +5.9pp @ 0.561 maker (join 0.56) · fee-clears? · taker 0.597 (+2.3pp)'",
-              "exec +5.9pp @ 0.561 maker (join 0.56) · fee-clears? · taker 0.597 (+2.3pp)" in s[4]
+        check("HOME pick unchanged: 'exec +5.6pp @ 0.564 maker (join 0.56) · fee-clears? · taker 0.597 (+2.3pp)'",
+              "exec +5.6pp @ 0.564 maker (join 0.56) · fee-clears? · taker 0.597 (+2.3pp)" in s[4]
               and "NO side" not in s[4], s[4])
         check("informational only: picks, calls and units identical with and without quotes",
               {k: (r[1], r[5], r[6]) for k, r in rows.items()} == base, str(base))
@@ -149,18 +149,18 @@ def main():
         page.click("#logBtn")
         P = pos()
         dp = P["Philadelphia Eagles @ Dallas Cowboys"]
-        check("AWAY call: pick AWAY, kalshi_exec_cost 0.617 (NO taker), maker 0.581, join bid 0.58",
+        check("AWAY call: pick AWAY, kalshi_exec_cost 0.617 (NO taker), maker 0.584, join bid 0.58",
               (dp["pick"], dp["kalshi_exec_cost"], dp["kalshi_exec_cost_maker"], dp["kalshi_join_bid"])
-              == ("AWAY", 0.617, 0.581, 0.58),
+              == ("AWAY", 0.617, 0.584, 0.58),
               json.dumps({k: dp.get(k) for k in ("pick", "kalshi_exec_cost", "kalshi_exec_cost_maker", "kalshi_join_bid")}))
-        check("claim + default execution carry the NO-side costs (0.617 / 0.581)",
+        check("claim + default execution carry the NO-side costs (0.617 / 0.584)",
               (dp["claim_exec_cost"], dp["claim_exec_cost_maker"], dp["exec_cost"], dp["exec_cost_maker"])
-              == (0.617, 0.581, 0.617, 0.581))
+              == (0.617, 0.584, 0.617, 0.584))
         cp = P["Minnesota Vikings @ Chicago Bears"]
         check("AWAY 1c spread position: maker null, taker 0.607, join bid null",
               cp["kalshi_exec_cost_maker"] is None and cp["kalshi_exec_cost"] == 0.607 and cp["kalshi_join_bid"] is None)
         sp = P["Los Angeles Rams @ Seattle Seahawks"]
-        check("HOME call unchanged (0.597 / 0.561)", (sp["kalshi_exec_cost"], sp["kalshi_exec_cost_maker"]) == (0.597, 0.561))
+        check("HOME call unchanged (0.597 / 0.564)", (sp["kalshi_exec_cost"], sp["kalshi_exec_cost_maker"]) == (0.597, 0.564))
 
         print("NO AWAY FIELDS (pre-#89 export; soccer 1X2)")
         load("pre.json")

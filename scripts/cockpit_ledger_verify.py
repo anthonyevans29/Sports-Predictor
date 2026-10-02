@@ -30,6 +30,8 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 from playwright.sync_api import sync_playwright
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cockpit_desk_files as cdf  # noqa: E402  (F1c: the Cockpit renders desk files only)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 NOW = datetime.now(timezone.utc).replace(microsecond=0)
@@ -120,7 +122,7 @@ def main(html):
             page.wait_for_function(f"document.querySelector('{sel}').textContent.length>0")
             return page.inner_text(sel)
 
-        page.set_input_files("#predFile", [os.path.join(tmp, n) for n in INPUTS])
+        cdf.upload(page, [os.path.join(tmp, n) for n in INPUTS])
         page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
         page.click("#tabDesk")
 
@@ -145,7 +147,7 @@ def main(html):
         with open(os.path.join(tmp, "nfl_multiweek_day2.json"), "w") as f:
             json.dump(moved, f)
         page.evaluate("document.getElementById('summary').textContent=''")
-        page.set_input_files("#predFile", [os.path.join(tmp, "nfl_multiweek_day2.json"), os.path.join(tmp, "soccer.json")])
+        cdf.upload(page, [os.path.join(tmp, "nfl_multiweek_day2.json"), os.path.join(tmp, "soccer.json")])
         page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
         page.click("#tabDesk")
         page.evaluate("localDate=(d)=>{d=d||new Date(Date.now()+86400000);"

@@ -6,8 +6,9 @@ model / edge_pp / tier / quarantine / venue_flag / engine) through the tab's
 file input. Checks:
 - rows render in card order with the model, book fair, Kalshi and edge text;
 - flags (QUARANTINE, STALE-BOOK?);
-- the venue column comes from the EXISTING venueEdge(): an eligible
-  market-only pair shows "VENUE 0.25u (shadow)", a thin pair stays
+- the venue column renders the card's desk_venue (F1c #191: stamped by the
+  Python Desk, desk_policy.window_venue, exactly as window.py does): an
+  eligible market-only pair shows "VENUE 0.25u (shadow)", a thin pair stays
   market-only, and a model row stays model_edge;
 - a non-card JSON is refused with a message;
 - tab switching hides the other views;
@@ -71,6 +72,11 @@ CARD = {
 def main():
     tmp = tempfile.mkdtemp(prefix="cockpit-window-")
     card_path, bad_path = os.path.join(tmp, "window_24h.json"), os.path.join(tmp, "not_a_card.json")
+    sys.path.insert(0, ROOT)
+    from src.walters import desk_policy as dp
+    now_ms = float((datetime.now(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(milliseconds=1))
+    for r in CARD["fixtures"]:
+        r["desk_venue"] = dp.window_venue(r, now_ms)      # what window.py stamps (F1c)
     with open(card_path, "w") as f:
         json.dump(CARD, f)
     with open(bad_path, "w") as f:
@@ -108,7 +114,7 @@ def main():
               str(nfl))
         check("NFL flags: QUARANTINE · STALE-BOOK?", nfl[8] == "QUARANTINE · STALE-BOOK?", nfl[8])
         check("NFL engine stays model_edge (charter: model sports never venue)", nfl[9] == "model_edge")
-        check("NHL market-only pair >= 4 books, >= 5pp: VENUE 0.25u (shadow) via venueEdge()",
+        check("NHL market-only pair >= 4 books, >= 5pp: VENUE 0.25u (shadow) from the card's desk_venue",
               nhl[9] == "VENUE 0.25u (shadow)", nhl[9])
         check("NCAA thin pair (2 books) stays market-only", ncaa[9] == "market-only", ncaa[9])
         check("PL model row: tier lean, edge +7.0pp, no flags",

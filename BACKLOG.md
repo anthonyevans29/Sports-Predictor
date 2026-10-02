@@ -28,6 +28,15 @@ specific reason they're not being built now.
 - **Not run here:** CFBD is unreachable from Code's container (the connection fails). The receipt is owed by the laptop or host with a free `CFBD_API_KEY` in .env: `python3 scripts/ncaa_source_probe.py --year 2025 --year 2026`.
 - **Exit (unchanged):** a pasted receipt plus an architect ruling on whether CFBD becomes an ingest lane (its own Issue). Until then the gate stays SUSPENDED-PENDING-DATA and NCAA stays market-only.
 
+**2026-10-02 — F1c BUILT (#191): one source of truth; the Cockpit is a viewer with a ledger.**
+Sequence held: Sunday rich-slate receipt 9/9 → `SP_DESK_CALLS=1` on the host → v1.1.0 cut and deployed → this PR.
+- **Golden:** captured from the pre-F1c JS (Cockpit sha256 37250ba4…, = main at capture) BEFORE the deletion, in its own commit. The Python Desk matches it row for row (14/14).
+- **Deleted:** the in-browser policy (computeCall, valueSide, venueEdge, kalshiOnlyRef, the parlay builder, the exec-display derivation and the policy constants).
+- **Refused:** desk-less prediction and fixtures files, with "export with --desk".
+- **Next-24h card:** its venue verdict now comes from Python (`window_venue`).
+- **Finding during the build (law 1):** the old ledger capture read the per-side quote accessors directly, so it logged taker/join prices on edge rows the Desk never displayed (away-only quotes, bid-only rows). Those accessors read export fields, not policy, so they stay. Ledger capture is unchanged, and the display follows the old rule (`desk.exec` null when the home contract carries no cost/ask/maker).
+- **Verifies:** 1 rewritten (render), 13 moved onto desk files, 1 stamps desk_venue, 0 retired. All 18 are green.
+
 **2026-10-02 — #212 BUILT: the experiment registry and the confirmation doctrine.**
 Ruled (2026-10-01): "experiment registry (candidate, training cutoff, scored match ids, prior reads) + DOCTRINE: a gate pass is followed by a declared future-confirmation window before production (NFL's two-week ratification generalized). Existing verdicts unchanged." 2026-10-02: "the registry records every candidate from here."
 - The ledger is in git (`docs/registry/experiments.json`) so every declaration and run is reviewed in a PR.

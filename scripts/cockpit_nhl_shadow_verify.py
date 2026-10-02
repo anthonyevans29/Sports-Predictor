@@ -20,6 +20,8 @@ import threading
 from datetime import datetime, timedelta, timezone
 
 from playwright.sync_api import sync_playwright
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+import cockpit_desk_files as cdf  # noqa: E402  (F1c: the Cockpit renders desk files only)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 D1 = (datetime.now(timezone.utc) + timedelta(hours=20)).strftime("%Y-%m-%dT%H:%M:%S")
@@ -74,7 +76,7 @@ def main():
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{srv.server_address[1]}/cockpit.html")
-        page.set_input_files("#predFile", [os.path.join(tmp, "nfl.json"), os.path.join(tmp, "nhl_shadow.json")])
+        cdf.upload(page, [os.path.join(tmp, "nfl.json"), os.path.join(tmp, "nhl_shadow.json")])
         page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
         page.click("#tabDesk")
         card = page.evaluate("(()=>{const c=document.getElementById('shadowCard');"
@@ -99,7 +101,7 @@ def main():
         games = {c["game"] for c in L["calls"]}
         check("'Log today's calls' logs the NFL call and no NHL row",
               any("Buffalo" in g for g in games) and not any("Toronto" in g or "Bruins" in g for g in games), str(games))
-        page.set_input_files("#predFile", os.path.join(tmp, "nhl_shadow.json"))
+        cdf.upload(page, os.path.join(tmp, "nhl_shadow.json"))
         page.wait_for_timeout(300)
         st2 = page.evaluate("({rows:rows.length,calls:deskCalls.length,shadow:shadowRows.length})")
         check("a shadow file alone: zero Desk rows and calls, the shadow card only",

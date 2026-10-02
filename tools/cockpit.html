@@ -117,7 +117,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded · <b id="vsProgress">graded —/30</b> <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
     <b>POSTSEASON</b> (sizing caution, v1.1 addendum 2026-10-01) — rows the export marks <code>stage = postseason</code> (MLB, from our gameType mapping F/D/L/W) get HALF units until 30 postseason calls are graded · <b id="psProgress">graded —/30</b> · stage unknown (null) = labelled, not halved<br>
-    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series taker M=1 / maker M=0.25, MLB pre-live M=0.5; one rounding per FILL to the NEAREST cent (fitted 542/548 on the YTD fills), costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · quotes are the home contract's; an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: no derived price (NO on HOME is draw-or-away) · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
+    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series M=1 (taker 0.07, maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5; one rounding per FILL to the NEAREST cent (fitted 542/548 on the YTD fills), costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · quotes are the home contract's; an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: no derived price (NO on HOME is draw-or-away) · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.<br>
     <b>KALSHI-ONLY</b> (provisional reference, v1.1 addendum RULED 2026-10-01; model sports, two-way boards) — books absent at T-60 + Kalshi two-sided, spread ≤ 2c, series in the ruled fee table → the Kalshi MID is the market reference · row flagged "kalshi-only" · HALF units (0.5 × tier) · a real call, not a shadow · value-side and quarantine unchanged · ledger records reference=kalshi_only · review at 30 graded (promote or retire) · <b id="koProgress">graded —/30</b><br>
     <b>KICKOFF</b> (presentation only, 2026-10-01) — every Desk row shows its kickoff and "re-run by" = T-60 (local clock).<br>
@@ -459,7 +459,8 @@ const K2={feeClearsPP:4,tick:0.01};
 // so there is nothing to join: joining = taking (shown as such, never a price).
 // MAKER / TAKER COSTS (#93 ruling, architect 2026-09-30): the export carries
 // exec_cost_taker = ask + 0.07·M·P(1−P) and exec_cost_maker = (bid+1¢) +
-// 0.0175·M·P(1−P) (game series taker M=1 / maker M=0.25; MLB pre-live M=0.5).
+// 0.0175·M·P(1−P) (game series M=1 taker and maker — the maker discount is the
+// 0.0175 rate, never a second M (P0-1 #206); MLB pre-live M=0.5).
 // The Desk's exec edge and "fee-clears?" use the MAKER cost by default (the
 // doctrine is join-bid); the taker cost is shown as the fallback, and is the
 // basis when no maker price exists (1¢ spread, no bid, pre-split export).
@@ -1766,8 +1767,8 @@ function classifyFills(L){
 }
 // MAKER / TAKER PER FILL (#93 ruling (3), architect 2026-09-30): the CSV's fee
 // amount vs the schedule's formula at the fill's price and quantity:
-// taker = 0.07·M·C·P(1−P), maker = 0.0175·M·C·P(1−P) (game series taker M=1 /
-// maker M=0.25; MLB pre-live M=0.5 for both; combos: taker at the schedule's
+// taker = 0.07·M·C·P(1−P), maker = 0.0175·M·C·P(1−P) (game series M=1 for both,
+// the maker discount being the 0.0175 rate (P0-1 #206); MLB pre-live M=0.5 for both; combos: taker at the schedule's
 // default M=1, maker = 50% of taker). A leg matches a formula when its fee is
 // within 1¢ of the unrounded value (Kalshi rounds per order). Exactly one match
 // decides; both = "ambiguous" (tiny orders), neither = "unknown", an unlisted
@@ -1778,7 +1779,7 @@ function classifyFills(L){
 // classification. Fills imported before this split carry no per-leg fee
 // ("n/a"); re-importing the same CSV fills those fees in (the dedupe keeps
 // the rows, it adds nothing twice).
-const FEE_M_BY_FAMILY={NFL:[1,0.25],NHL:[1,0.25],NCAAF:[1,0.25],EPL:[1,0.25],UCL:[1,0.25],MLB:[0.5,0.5]};
+const FEE_M_BY_FAMILY={NFL:[1,1],NHL:[1,1],NCAAF:[1,1],EPL:[1,1],UCL:[1,1],MLB:[0.5,0.5]};
 function feeLegClass(fee,price,qty,fam,combo){
   if(fee==null||price==null||!qty||price<=0||price>=1) return null;
   const pq=qty*price*(1-price);

@@ -4,7 +4,7 @@ Cockpit MAKER / TAKER split headless verification (#93 ruling, architect
 Python fee math and the Cockpit read are checked together. Checks, over
 SYNTHETIC files:
 - ruling (1): the export carries exec_cost_taker + exec_cost_maker (NFL taker
-  M=1 / maker M=0.25; MLB pre-live M=0.5 for both); a 1c spread has no maker
+  M=1 / maker M=1 at the 0.0175 rate (#206); MLB pre-live M=0.5 for both); a 1c spread has no maker
   price; kalshi_exec_cost stays as the taker alias;
 - ruling (2): the Desk's exec edge and "fee-clears?" use the MAKER cost by
   default, with the taker cost shown as the fallback; the taker cost is the
@@ -58,8 +58,8 @@ def nfl(home, away, p_home, fair_home, bid=None, ask=None):
 def main():
     print("EXPORT (venue.kalshi_exec, ruling 1)")
     sea = kalshi_exec(0.55, 0.58, "NFL")
-    check("NFL 0.55/0.58: taker 0.597 (0.58 + 17c/10 at M=1), maker 0.561 (join 0.56 + 1c/10 at M=0.25; #88 nearest per fill), alias = taker",
-          (sea["exec_cost_taker"], sea["exec_cost_maker"], sea["kalshi_exec_cost"]) == (0.597, 0.561, 0.597), json.dumps(sea))
+    check("NFL 0.55/0.58: taker 0.597 (0.58 + 17c/10 at M=1), maker 0.564 (join 0.56 + 4c/10 at the 0.0175 rate, M=1 (#206); #88 nearest per fill), alias = taker",
+          (sea["exec_cost_taker"], sea["exec_cost_maker"], sea["kalshi_exec_cost"]) == (0.597, 0.564, 0.597), json.dumps(sea))
     mlb = kalshi_exec(0.55, 0.57, "MLB")
     check("MLB pre-live 0.55/0.57: M=0.5 both; taker 0.579, maker 0.562",
           (mlb["exec_cost_taker"], mlb["exec_cost_maker"], mlb["fee_m_taker"], mlb["fee_m_maker"]) == (0.579, 0.562, 0.5, 0.5),
@@ -68,7 +68,7 @@ def main():
     check("1c spread: no maker price (joining = taking)", one["exec_cost_maker"] is None and one["exec_cost_taker"] == 0.597)
 
     D = {"sport": "nfl", "rehearsal": False, "predictions": [
-        nfl("Seattle Seahawks", "Los Angeles Rams", 0.62, 0.56, bid=0.55, ask=0.58),   # maker +5.9 clears, taker +2.3
+        nfl("Seattle Seahawks", "Los Angeles Rams", 0.62, 0.56, bid=0.55, ask=0.58),   # maker +5.6 clears, taker +2.3
         nfl("Buffalo Bills", "Miami Dolphins", 0.66, 0.60, bid=0.59, ask=0.60),        # 1c spread: taker basis
         nfl("Dallas Cowboys", "Philadelphia Eagles", 0.36, 0.42, bid=0.40, ask=0.43),  # AWAY pick
     ]}
@@ -85,7 +85,7 @@ def main():
     # ticker, side, qty, entry, exit, open fee, close fee, pre, net, title — all settled (close fee 0)
     FILLS = [
         ("KXNFLGAME-26OCT04LARSEA-SEA", "yes", 10, 0.60, 1.00, 0.17, 0.00, 4.00, 3.83, "Los Angeles R vs Seattle Winner?"),  # taker
-        ("KXNFLGAME-26OCT04MIABUF-BUF", "yes", 10, 0.60, 1.00, 0.02, 0.00, 4.00, 3.98, "Miami vs Buffalo Winner?"),         # maker
+        ("KXNFLGAME-26OCT04MIABUF-BUF", "yes", 10, 0.60, 1.00, 0.04, 0.00, 4.00, 3.96, "Miami vs Buffalo Winner?"),         # maker (0.0175 x 10 x 0.24 = 4.2c; #206)
         ("KXMLBGAME-26OCT04BOSNYY-NYY", "yes", 10, 0.60, 1.00, 0.09, 0.00, 4.00, 3.91, "Boston vs New York Y Winner?"),     # MLB pre-live taker
         ("KXMLBGAME-26OCT03BOSNYY-NYY", "yes", 10, 0.60, 0.00, 0.17, 0.00, -6.00, -6.17, "Boston vs New York Y Winner?"),   # MLB live rate
         ("KXNFLGAME-26OCT04PHIDAL-DAL", "yes", 1, 0.95, 1.00, 0.01, 0.00, 0.05, 0.04, "Philadelphia vs Dallas Winner?"),     # tiny: ambiguous
@@ -139,8 +139,8 @@ def main():
         load("nfl.json")
         rows = table()
         s = next(v for k, v in rows.items() if "Seattle" in k)
-        check("maker basis: 'exec +5.9pp @ 0.561 maker (join 0.56) · fee-clears? · taker 0.597 (+2.3pp)'",
-              s[4] == "+6.0pp" + "exec +5.9pp @ 0.561 maker (join 0.56) · fee-clears? · taker 0.597 (+2.3pp)", s[4])
+        check("maker basis: 'exec +5.6pp @ 0.564 maker (join 0.56) · fee-clears? · taker 0.597 (+2.3pp)'",
+              s[4] == "+6.0pp" + "exec +5.6pp @ 0.564 maker (join 0.56) · fee-clears? · taker 0.597 (+2.3pp)", s[4])
         b = next(v for k, v in rows.items() if "Buffalo" in k)
         check("1c spread: taker is the basis, labelled 'joining = taking'",
               "exec +4.3pp @ 0.617 taker (spread 1¢ — joining = taking) · fee-clears?" in b[4], b[4])
@@ -154,24 +154,24 @@ def main():
               {k: (r[5], r[6]) for k, r in rows.items()} == base, str(base))
         pol = page.inner_text("#deskView")
         check("policy card: maker default + the ruled multipliers + 'MLB is never executed live'",
-              "MAKER cost" in pol and "maker M=0.25, MLB pre-live M=0.5" in pol and "MLB is never executed live" in pol)
+              "MAKER cost" in pol and "maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5" in pol and "MLB is never executed live" in pol)
 
         print("LEDGER (both costs recorded)")
         page.click("#logBtn")
         P = pos()
         sp = P["Los Angeles Rams @ Seattle Seahawks"]
-        check("call records taker (kalshi_exec_cost 0.597) and maker (kalshi_exec_cost_maker 0.561)",
-              sp["kalshi_exec_cost"] == 0.597 and sp["kalshi_exec_cost_maker"] == 0.561,
+        check("call records taker (kalshi_exec_cost 0.597) and maker (kalshi_exec_cost_maker 0.564)",
+              sp["kalshi_exec_cost"] == 0.597 and sp["kalshi_exec_cost_maker"] == 0.564,
               json.dumps({k: sp.get(k) for k in ("kalshi_exec_cost", "kalshi_exec_cost_maker")}))
-        check("claim + default execution carry both (claim 0.597/0.561, exec 0.597/0.561)",
-              (sp["claim_exec_cost"], sp["claim_exec_cost_maker"], sp["exec_cost"], sp["exec_cost_maker"]) == (0.597, 0.561, 0.597, 0.561))
+        check("claim + default execution carry both (claim 0.597/0.564, exec 0.597/0.564)",
+              (sp["claim_exec_cost"], sp["claim_exec_cost_maker"], sp["exec_cost"], sp["exec_cost_maker"]) == (0.597, 0.564, 0.597, 0.564))
         bp = P["Miami Dolphins @ Buffalo Bills"]
         check("1c spread position: maker cost null (no maker price), taker 0.617",
               bp["kalshi_exec_cost_maker"] is None and bp["kalshi_exec_cost"] == 0.617)
         page.click("#tabLedger")
         page.click(f"button.execBtn[data-id='{sp['id']}']")
         e = pos()["Los Angeles Rams @ Seattle Seahawks"]
-        check("operator-early execution locks both costs (0.597 / 0.561)", (e["exec_cost"], e["exec_cost_maker"]) == (0.597, 0.561))
+        check("operator-early execution locks both costs (0.597 / 0.564)", (e["exec_cost"], e["exec_cost_maker"]) == (0.597, 0.564))
 
         print("MLB (M=0.5 from the real export math)")
         load("mlb.json")

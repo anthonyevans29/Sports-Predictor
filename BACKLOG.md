@@ -22,6 +22,14 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — #234 RULINGS applied to intl-elo-v1 (pre-run): CNL_Q K 40; v2 = leave-one-out, home-and-away host sets.**
+- **Ruling (verbatim):** "(1) CNL_Q K=40 (Nations League class). (2) v2 neutral rule — ratified with your fix: a match is left out of its own host-city set, and the set is built from home-and-away competitions only. Merge #233 then #235."
+- **Applied (#235):**
+  - K_BY_CODE gives CNL_Q 40, and CNL_Q is in the stream. The "unruled K" guard stays, for any future code.
+  - `apply_v2` builds host-city COUNTS from UNL / WCQ_* / UEFA_EURO_Q / CNL, at every stage. Each match is left out of its own count, and friendlies and finals tournaments never seed a host city.
+  - The doc, the registry `ratified` field and the CLI help are updated. The entry is still unrun.
+- **Measured, not hidden:** leaving the match out has a cost. A venue city a team used for only ONE home-and-away match reads neutral, e.g. Germany rotating cities. The count prints as `neutral_city_hosted_only_this_match` in the preflight/run receipt. v2 only applies if the v1 RULE CHECK breaches 10%.
+
 **2026-10-02 — intl-elo-v1 RATIFIED (ARCHITECT-RULE on #232); the harness is built from the document. Not run.**
 - **Ruling (verbatim):** "(1) DRAWS — actual score S=0.5 for both sides; the margin multiplier uses max(margin,1), so a draw moves ratings like a one-goal result toward the expected-draw point: ratified. (2) No season regression — ratified (no seasons). (3) Unknown venue priced as listed home +100, count printed — ratified. (4) RULE CHECK gate at 10% — ratified, with the refinement pre-declared now so it needs no second ruling: if breached, neutral_derived becomes "venue city not among the cities where the home team hosted >=1 COMPETITIVE match in the pool" (multi-city hosts like Germany, Spain, Italy handled; friendlies excluded from the host-city set). (5) Naive baseline = frozen training-period H/D/A frequencies, symmetric at derived-neutral — ratified. Nothing else changes; the harness is built from the ratified doc."
 - **Doc and registry:** `docs/specs/intl-elo-v1.md` is RATIFIED, with the ruling quoted and each item applied. CONCACAF_NL is renamed CNL (#233). The registry entry gets a `ratified` field; it is still `declared` and unrun, with 0 prior reads.

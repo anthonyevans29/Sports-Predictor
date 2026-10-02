@@ -37,26 +37,29 @@ LL_MARGIN = 0.010
 RULE_CHECK_MAX = 0.10
 
 FRIENDLY = "FRIENDLIES_INT"
-NATIONS_LEAGUE = ("UNL", "CNL")
+# CNL_Q (808): Nations League class, K 40 (#234 ruling 1, 2026-10-02).
+NATIONS_LEAGUE = ("UNL", "CNL", "CNL_Q")
 QUALIFIERS = ("WCQ_EU", "WCQ_SA", "WCQ_AF", "WCQ_AS", "WCQ_NA", "WCQ_OC", "WCQ_IC", "UEFA_EURO_Q")
 FINALS = ("UEFA_EURO",)
 K_BY_CODE = {FRIENDLY: 20.0, **{c: 40.0 for c in NATIONS_LEAGUE}, **{c: 50.0 for c in QUALIFIERS},
              **{c: 60.0 for c in FINALS}}
-# CNL_Q (808, the CONCACAF Nations League's 2018 qualification) is in the
-# ruled data set (2026-10-02) but its K class is NOT ruled: the run refuses
-# while any CNL_Q game is in the stream (never guessed into 40 or 50).
-UNRULED_K = ("CNL_Q",)
-STREAM_CODES = tuple(K_BY_CODE) + UNRULED_K
+STREAM_CODES = tuple(K_BY_CODE)
 HOME_AND_AWAY = ("UNL", "UEFA_EURO_Q") + tuple(c for c in QUALIFIERS if c.startswith("WCQ_"))
+# v2's host-city set (#234 ruling 2): home-and-away competitions only — the
+# RULE CHECK's codes plus CNL, as proposed on #234. Finals tournaments
+# (UEFA_EURO) and friendlies never seed a host city. Every stage of these
+# codes counts: the stage vocabulary is not filtered (law 1: not enumerated).
+HOST_SET_CODES = HOME_AND_AWAY + ("CNL",)
 
 TRAIN_FROM = datetime(2018, 1, 1)
 TRAIN_TO = datetime(2024, 9, 1)            # exclusive: kickoff 2018-01-01 .. 2024-08-31
 TEST_UNL_SEASON = "2024/25"
 TEST_WCQ_FROM, TEST_WCQ_TO = datetime(2025, 3, 1), datetime(2026, 4, 1)   # 2025-03-01 .. 2026-03-31
 
-RULE_V2 = ("intl-neutral-v2 (ARCHITECT-RULE on #232, pre-declared): neutral = the venue city is not among "
-           "the cities where the home team hosted >= 1 COMPETITIVE match in the pool (friendlies excluded "
-           "from the host-city set); either city unknown -> unknown.")
+RULE_V2 = ("intl-neutral-v2 (ARCHITECT-RULE on #232, pre-declared; #234 ruling 2 fix): neutral = the venue "
+           "city is not among the cities where the home team hosted >= 1 match of a home-and-away competition "
+           "(UNL, WCQ_*, UEFA_EURO_Q, CNL) in the pool, the match itself LEFT OUT of its own host-city set; "
+           "friendlies and finals tournaments never seed a host city; either city unknown -> unknown.")
 
 
 @dataclass(frozen=True)
@@ -147,15 +150,22 @@ def rule_check(games: list[Game]) -> dict:
 
 
 def apply_v2(games: list[Game], norm) -> tuple[list[Game], Counter]:
-    """intl-neutral-v2: host-city sets from COMPETITIVE home matches in the pool."""
-    hosts: dict[int, set] = defaultdict(set)
+    """intl-neutral-v2 (#234 fix): host-city sets from home-and-away
+    competitions only, each match LEFT OUT of its own set (leave-one-out over
+    city counts), so a match never makes its own venue a host city."""
+    hosts: dict[int, Counter] = defaultdict(Counter)
     for g in games:
-        if g.code != FRIENDLY and norm(g.venue_city):
-            hosts[g.home].add(norm(g.venue_city))
+        if g.code in HOST_SET_CODES and norm(g.venue_city):
+            hosts[g.home][norm(g.venue_city)] += 1
     out, c = [], Counter()
     for g in games:
         v = norm(g.venue_city)
-        flag = None if v is None or not hosts.get(g.home) else (v not in hosts[g.home])
+        own = 1 if (g.code in HOST_SET_CODES and v) else 0
+        others = {city: n - (own if city == v else 0) for city, n in hosts.get(g.home, {}).items()}
+        others = {city for city, n in others.items() if n > 0}
+        flag = None if v is None or not others else (v not in others)
+        if flag and own and hosts[g.home].get(v) == 1:
+            c["neutral_city_hosted_only_this_match"] += 1        # the leave-one-out cost, measured
         c["unknown" if flag is None else "neutral" if flag else "home"] += 1
         out.append(Game(g.id, g.code, g.season, g.kickoff, g.home, g.away, g.hg, g.ag, flag, g.venue_city))
     return out, c

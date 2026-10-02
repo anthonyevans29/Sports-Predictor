@@ -300,7 +300,7 @@
     "id": "intl-elo-v1",
     "sport": "unl",
     "lane": "#220",
-    "candidate": "international Elo: H +100 (0 at derived-neutral); K by class friendlies 20 / Nations League 40 / qualifiers 50 / finals 60; mov = ln(max(|margin|,1)+1) (draw S 0.5, gap factor 1) with the 2.2 gap factor (our other Elos); three-way via the soccer Elo->Poisson mapping (c 0.0023, DC rho -0.10, mu from train)",
+    "candidate": "international Elo: H +100 (0 at derived-neutral); K by class friendlies 20 / Nations League 40 (UNL, CNL, CNL_Q) / qualifiers 50 / finals 60; mov = ln(max(|margin|,1)+1) (draw S 0.5, gap factor 1) with the 2.2 gap factor (our other Elos); three-way via the soccer Elo->Poisson mapping (c 0.0023, DC rho -0.10, mu from train)",
     "declaration": "docs/specs/intl-elo-v1.md",
     "training_cutoff": "warm-up 2018-01-01..2024-08-31 (mu and naive frequencies from train only); predict-then-update stream",
     "test_set": "UNL 2024/25 (all stages) + WCQ_EU 2025-03-01..2026-03-31 (2026 cycle)",
@@ -317,6 +317,6 @@
     "status": "declared",
     "run": null,
     "verdict": null,
-    "ratified": "ARCHITECT-RULE on #232 2026-10-02 (pre-run, frozen): draws S=0.5 with max(margin,1); no season regression; unknown venue +100 counted; RULE CHECK gate 10% with the pre-declared intl-neutral-v2 refinement; naive = frozen train H/D/A, symmetric at derived-neutral. CNL_Q K class NOT ruled (the run refuses while open)."
+    "ratified": "ARCHITECT-RULE on #232 2026-10-02 (pre-run, frozen): draws S=0.5 with max(margin,1); no season regression; unknown venue +100 counted; RULE CHECK gate 10% with the pre-declared intl-neutral-v2 refinement; naive = frozen train H/D/A, symmetric at derived-neutral. #234 rulings 2026-10-02: CNL_Q K=40 (Nations League class); v2 = leave-one-out host-city sets from home-and-away competitions only."
   }
 ]

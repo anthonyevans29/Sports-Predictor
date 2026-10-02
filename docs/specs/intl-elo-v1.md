@@ -14,6 +14,11 @@ hosts like Germany, Spain, Italy handled; friendlies excluded from the
 host-city set). (5) Naive baseline = frozen training-period H/D/A
 frequencies, symmetric at derived-neutral — ratified. Nothing else changes;
 the harness is built from the ratified doc."
+
+#234 RULINGS (ARCHITECT 2026-10-02, verbatim): "(1) CNL_Q K=40 (Nations
+League class). (2) v2 neutral rule — ratified with your fix: a match is left
+out of its own host-city set, and the set is built from home-and-away
+competitions only."
 Registry id `intl-elo-v1` (#212). Every choice below is fixed before any fit
 and before the test set is read (law 3). The run harness is a separate PR
 written FROM this document after ratification. It refuses to run unless this
@@ -40,8 +45,7 @@ the pre-run data condition, and the naive baseline's definition.
 
 **Codes (ruled 2026-10-02 after intl-sync refused on id 808):** CONCACAF's
 Nations League is `CNL` (536); its 2018 qualification is `CNL_Q` (808). CNL
-is in the Nations League class. **CNL_Q's K class is not ruled.** The harness
-refuses while any CNL_Q game is in the stream; it never guesses 40 or 50.
+and CNL_Q are both in the Nations League class (K 40; CNL_Q ruled on #234).
 
 ## 1. The stream
 
@@ -82,8 +86,7 @@ refuses while any CNL_Q game is in the stream; it never guesses 40 or 50.
   | Class | Codes | K |
   |---|---|---|
   | friendlies | FRIENDLIES_INT | 20 |
-  | Nations League | UNL, CNL (every stage, including finals and play-offs) | 40 |
-  | not ruled | CNL_Q | — (the run refuses) |
+  | Nations League | UNL, CNL, CNL_Q (every stage, including finals and play-offs) | 40 |
   | qualifiers | WCQ_EU/SA/AF/AS/NA/OC/IC, UEFA_EURO_Q | 50 |
   | finals | UEFA_EURO | 60 |
 
@@ -138,9 +141,15 @@ convert this into a 3-way distribution via the Poisson model").
   - At ≤ 10%, the stored flags stand.
   - Above 10%, the run switches to **intl-neutral-v2**, with no second
     ruling. Neutral = the venue city is not among the cities where the home
-    team hosted ≥ 1 **competitive** match in the pool. Friendlies are
-    excluded from the host-city set. If either side is unknown, the flag is
-    unknown (priced +100, §3).
+    team hosted ≥ 1 match of a **home-and-away competition** in the pool.
+    - The host-city set is built from UNL, WCQ_*, UEFA_EURO_Q and CNL, at
+      every stage (the stage vocabulary is not filtered).
+    - **The match itself is left out of its own set** (#234 ruling 2).
+    - Friendlies and finals tournaments never seed a host city.
+    - If either side is unknown, the flag is unknown (priced +100, §3).
+    - **Measured cost of leaving the match out:** a venue city that hosted
+      only this one match reads neutral. The count is printed
+      (`neutral_city_hosted_only_this_match`).
   - The rule in force is printed and recorded with the run. The bar is never
     adjusted.
 
@@ -191,6 +200,5 @@ convert this into a 3-way distribution via the Poisson model").
 2. `intl-sync` (#230), then paste the coverage receipt with the RULE CHECK.
 3. `python cli.py intl-elo-backtest --preflight`. This prints the stream,
    the splits, the RULE CHECK and the rule in force; it scores nothing.
-4. **A ruling on CNL_Q's K class** (the run refuses while it is open).
-5. `python cli.py intl-elo-backtest`, **once**. Paste the output and the
+4. `python cli.py intl-elo-backtest`, **once**. Paste the output and the
    changed `docs/registry/` files in a PR.

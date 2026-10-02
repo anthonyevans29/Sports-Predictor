@@ -39,7 +39,6 @@ def test_win_margin_gap_factor_k_and_home_terms():
     assert ie.home_term(G(1, "UNL", 1, 2, 0, 0, datetime(2019, 1, 1), neutral=None)) == 100.0
     assert ie.home_term(G(1, "UNL", 1, 2, 0, 0, datetime(2019, 1, 1), neutral=True)) == 0.0
     assert ie.K_BY_CODE["FRIENDLIES_INT"] == 20 and ie.K_BY_CODE["CNL"] == 40 and ie.K_BY_CODE["UEFA_EURO"] == 60
-    assert "CNL_Q" not in ie.K_BY_CODE
 
 
 def test_three_way_is_the_soccer_mapping_and_symmetric_at_neutral():
@@ -62,18 +61,25 @@ def test_naive_baseline_frozen_and_symmetric_at_neutral():
 
 
 def test_rule_check_and_the_v2_host_city_rule():
+    """#234 ruling 2: leave-one-out host-city sets from home-and-away
+    competitions only (friendlies and finals tournaments never seed)."""
     from src.ingestion.intl_history import norm_city
     t = datetime(2019, 1, 1)
     games = [G(1, "WCQ_EU", 10, 20, 1, 0, t, neutral=True, city="Munich"),     # v1: Munich != Berlin ground
              G(2, "UNL", 10, 30, 1, 0, t, neutral=True, city="Dortmund"),
              G(3, "UNL", 20, 10, 0, 0, t, neutral=False, city="Paris"),
              G(4, "FRIENDLIES_INT", 10, 40, 2, 0, t, neutral=True, city="Abu Dhabi"),
-             G(5, "FRIENDLIES_INT", 10, 20, 1, 1, t, neutral=False, city="munich")]
+             G(5, "FRIENDLIES_INT", 10, 20, 1, 1, t, neutral=False, city="munich"),
+             G(6, "UNL", 10, 40, 2, 2, t, neutral=True, city="MUNICH"),
+             G(7, "UEFA_EURO", 10, 50, 1, 0, t, neutral=True, city="Lisbon")]
     rc = ie.rule_check(games)
-    assert (rc["neutral"], rc["known"], rc["breached"]) == (2, 3, True)
+    assert (rc["neutral"], rc["known"], rc["breached"]) == (3, 4, True)
     v2, c = ie.apply_v2(games, norm_city)
     flags = {g.id: g.neutral for g in v2}
-    assert flags == {1: False, 2: False, 3: False, 4: True, 5: False}   # Abu Dhabi: a friendly, not a host city
+    # 1/6: Munich hosted twice -> each sees the other; 2: Dortmund hosted only by itself -> neutral (measured);
+    # 3: team 20's only host city is this match -> unknown; 4/7: friendly / finals venue -> neutral; 5: home
+    assert flags == {1: False, 2: True, 3: None, 4: True, 5: False, 6: False, 7: True}
+    assert c["neutral_city_hosted_only_this_match"] == 1
     assert ie.apply_v2([G(9, "FRIENDLIES_INT", 50, 10, 1, 0, t, city="Rome")], norm_city)[0][0].neutral is None
 
 
@@ -108,9 +114,10 @@ def test_walk_forward_scores_only_the_test_set_and_never_its_own_result():
     assert m1.probs(g) == m2.probs(flipped[k])                        # its own result never reaches it
 
 
-def test_unruled_cnl_q_refuses_the_run():
-    games = _stream() + [G(10**6, "CNL_Q", 1, 2, 1, 0, datetime(2018, 9, 1))]
-    with pytest.raises(ValueError, match="K class not ruled for CNL_Q"):
+def test_cnl_q_is_nations_league_class_and_an_unknown_code_refuses():
+    assert ie.K_BY_CODE["CNL_Q"] == 40 and "CNL_Q" in ie.STREAM_CODES          # #234 ruling 1
+    games = _stream() + [G(10**6, "ZZZ_NEW", 1, 2, 1, 0, datetime(2018, 9, 1))]
+    with pytest.raises(ValueError, match="K class not ruled for ZZZ_NEW"):
         ie.run(games)
 
 

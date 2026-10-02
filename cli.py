@@ -838,6 +838,73 @@ def intl_inventory_cmd():
     click.echo("  (no neutral flag is stored; nothing here infers one — law 4)")
 
 
+@cli.command("intl-sync")
+@click.option("--since", default="2018-01-01", show_default=True, help="Keep seasons ending on/after this date.")
+@click.option("--max-calls", default=80, show_default=True, help="Refuse a plan needing more provider calls.")
+@click.option("--dry-run", is_flag=True, help="Fetch, filter and derive; write nothing.")
+@click.option("--save", default=None, help="Directory for the raw responses (never under data/).")
+@click.option("--from-dir", default=None, help="Replay a --save directory instead of the API.")
+def intl_sync_cmd(since, max_calls, dry_run, save, from_dir):
+    """#220 national-team history INGEST (ARCHITECT 2026-10-02): the ruled
+    competition set (WCQ all confederations, Euro + qualifiers, Nations
+    League, friendlies) from --since, discovered by name (law 1; a code
+    whose id disagrees with the adapter is refused). Only fixtures whose
+    BOTH teams play in UNL / WCQ / EURO / EURO_Q are kept; the excluded are
+    printed. neutral_derived (the rule stated, never a provider fact) from
+    /teams per competition-season. Take the .backup first. Ends with the
+    coverage receipt."""
+    from datetime import date as _date
+    from src.db.database import init_db, session_scope
+    from src.ingestion import intl_history as ih
+
+    init_db()   # additive: creates match_neutral_derived if missing, touches nothing else
+    try:
+        src = ih.Source(from_dir=from_dir, save=save)
+        r = ih.ingest(src, _date.fromisoformat(since), max_calls=max_calls, dry_run=dry_run)
+    except ih.IntlError as e:
+        click.echo(str(e))
+        raise SystemExit(2)
+    click.echo(f"INTL-SYNC (#220){' (DRY RUN: nothing written)' if dry_run else ''} · seasons ending >= {since} · "
+               f"{len(r['plan'])} competition-seasons · provider calls {r['calls']}")
+    click.echo(f"  senior national teams (in a UNL / WCQ_* / UEFA_EURO / UEFA_EURO_Q fixture): {r['senior_teams']}")
+    click.echo(f"  {'code':<15}{'league':<44}{'year':>5}{'listed':>7}{'excl':>6}{'kept':>6}{'stored':>7}"
+               f"{'home':>6}{'neutral':>8}{'unknown':>8}")
+    for (code, year), c in sorted(r["per_cs"].items()):
+        click.echo(f"  {code:<15}{(str(c['league_id']) + ' ' + c['name'])[:43]:<44}{year:>5}{c['listed']:>7}"
+                   f"{c['excluded']:>6}{c['kept']:>6}{c.get('stored', 0):>7}{c.get('home', 0):>6}"
+                   f"{c.get('neutral', 0):>8}{c.get('unknown', 0):>8}"
+                   + (f"  skipped {c['skipped']}" if c.get("skipped") else ""))
+    click.echo(f"  EXCLUDED by the team filter: {r['excluded_total']} fixtures · {len(r['excluded_teams'])} teams:")
+    for name, n in r["excluded_teams"].most_common():
+        click.echo(f"    {n:>4}  {name}")
+    click.echo(f"  teams: {r['teams']} (fixture-only, not served by /teams: {r['fixture_only_teams']}) · "
+               f"matches: {r['matches']}")
+    click.echo("  neutral_derived: " + " · ".join(f"{k} {v}" for k, v in sorted(r["neutral"].items())))
+    click.echo(f"  RULE: {ih.NEUTRAL_RULE}")
+    if not dry_run:
+        click.echo("\nCOVERAGE per competition-season (after ingest, from the DB):")
+        with session_scope() as s:
+            for line in ih.coverage_lines(ih.coverage(s)):
+                click.echo(line)
+            s.rollback()
+
+
+@cli.command("intl-coverage")
+def intl_coverage_cmd():
+    """#220 national-team coverage receipt, read-only: per competition-season,
+    stored / scored matches, 90-minute and venue shares, and neutral_derived
+    home / neutral / unknown (with the rule's home-and-away sanity check)."""
+    from src.db.database import init_db, session_scope
+    from src.ingestion import intl_history as ih
+    init_db()
+    with session_scope() as s:
+        lines = ih.coverage_lines(ih.coverage(s))
+        s.rollback()
+    click.echo("INTL COVERAGE (#220) · neutral_derived rule: " + ih.NEUTRAL_RULE)
+    for line in lines:
+        click.echo(line)
+
+
 @cli.command("registry")
 @click.option("--id", "eid", default=None, help="Show one entry in full (with its prior reads).")
 def registry_cmd(eid):

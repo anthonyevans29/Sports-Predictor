@@ -14,6 +14,15 @@ Every drop adds an entry going forward.
 - **The Next-24h card's venue verdict** is stamped by `window.py` as `desk_venue` via the new `desk_policy.window_venue`; the card renders it.
 - **Verifies:** `cockpit_render_verify` is rewritten: rendered == the deleted JS's frozen outputs in all three scenarios, plus tamper, refusal, no-parlays and version-mismatch checks. 13 legacy-path verifies now load through `scripts/cockpit_desk_files.upload()` (the Python Desk with the page's own ledger-summary counts, plus the desk_parlays file). `cockpit_window_verify` stamps `desk_venue`. All 18 verifies are green.
 
+## 2026-10-02 (MLB odds history: snapshot per sync, close = last pre-first-pitch session)
+- `sync_odds_mlb` (bulk window and rollover fallback, via `_mlb_store_odds`):
+  - A game at or after first pitch is never touched: no wipe, no insert. The pre-game session survives and no in-game price is stored.
+  - A pre-game sync replaces the current board and APPENDS one book-consensus `OddsSnapshot` (1X2, `api_baseball`, `n_books` = complete books, #207 contract), as NFL's sync does.
+  - The sync's log line counts snapshots and post-first-pitch games kept.
+- Grading close (`close.grading_close`): the odds table's last pre-kickoff session under the contract; when it cannot price, the last COMPLETE pre-kickoff book-consensus snapshot session (`close_from_snapshots`; Kalshi, in-game and incomplete sessions never count). Used by evaluate, its M11b backfill (which re-grades NULL-CLV outcomes), clv-restate and the results-tally cohorts.
+- `capture-odds` no longer writes its own pooled 1X2 snapshot (the sync writes it under the contract) and is bounded to games before first pitch (#174).
+- New `close-probe --match ID` (read-only receipt). tests/test_mlb_odds_history.py: 5 tests, including the PHI@ATL shape re-graded from the snapshot.
+
 ## 2026-10-01 (#207: P0-2 the close contract)
 - `close_1x2(rows, before, outcomes)` now requires the outcome set: binary HOME/AWAY or 3-way HOME/DRAW/AWAY. `outcomes_for(sport)` is the one mapping (soccer is 3-way, every other sport binary, as read from the adapters).
 - A book counts only with a COMPLETE same-session set. Each complete book is de-vigged on its own, then the books are averaged. With no complete book the result is UNPRICED: `fair` is None and `missing` names each quoted book's absent legs. `books` counts complete books, `books_quoted` every book in the session. `priced(cl)` is the caller check.

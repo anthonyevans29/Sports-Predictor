@@ -22,6 +22,14 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — NHL shot-sync RECEIPT ruled (ARCHITECT): v6 may run. The coverage receipt reports both denominators; the thresholds apply to the gate stream.**
+- **Ruling (verbatim):** "shot-sync receipt — 504,449 events / 4,208 games; all P2/P4/P5 at 100%; shot_type 100% on non-blocked (optional by ruling). P1/P6 read BELOW only because the denominator includes PRESEASON games the gate excludes by construction; on the gate stream coverage is 1398/1398 (2024) and 1394/1394 (2025). RULED: the coverage receipt reports both denominators (all finished; gate stream) and the thresholds apply to the gate stream. v6 may run. Log the receipt on #153/#210."
+- **Change:** `nhl_shots.coverage()` adds `gate_stream`, built from nhl-backtest's OWN `load_games` + `build_stream` (train 2024, test 2025, preseason cut), never re-derived.
+  - `feedable_lines`: P1 and P6 are judged on the gate stream. The all-finished P1 is printed as a read line, "not judged".
+  - The receipt prints the all-finished line (reported only) and one GATE-stream line per season with PASS/BELOW.
+- **Regression test:** the ruling's own numbers. All-finished 93.7% is reported, not judged; the gate stream at 100% is FEEDABLE; a gate season below 95% reads NOT; an empty gate stream reads NOT.
+- **Logged:** the receipt is on #153 and #210. **Next (operator):** `nhl-backtest --candidate v6`, once.
+
 **2026-10-02 — #220 lane 2: international Elo v1 DECLARED (`docs/specs/intl-elo-v1.md`, registry `intl-elo-v1`). Frozen, NOT RUN, awaiting ratification.**
 - **Ruling (verbatim):** "(2) PRE-COMMITMENT (write for ratification, no run): international Elo — home advantage a priori +100 Elo, 0 at derived-neutral; match weights by competition class a priori (friendlies 20, Nations League 40, qualifiers 50, finals 60 — the public Elo convention); margin via ln(margin+1) as our other Elos; three-way outcome via the soccer draw mapping. Train 2018-2024, test 2024-25 UNL + 2025-26 WCQ_EU; bar = naive-baseline log-loss − 0.010; calibration bands; RPS reported; registry entry with a 60-game confirmation window."
 - **Frozen as ruled:**

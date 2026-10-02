@@ -5440,8 +5440,13 @@ def _nhl_shot_coverage_lines():
                    f"{b.get('goalie_linked_no_shots', 0)}")
     if tot["finished"]:
         pct = tot["with_shots"] / tot["finished"] * 100
-        click.echo(f"  ALL: {tot['with_shots']}/{tot['finished']} = {pct:.1f}% of our finished NHL games "
-                   f"[{'PASS' if pct >= nsh.FEEDABLE['games_with_events'] else 'BELOW'} "
+        click.echo(f"  ALL finished (preseason included; reported, not judged): {tot['with_shots']}/"
+                   f"{tot['finished']} = {pct:.1f}%")
+    # ARCHITECT 2026-10-02: both denominators; the thresholds apply to the gate stream.
+    for season, b in cov["gate_stream"].items():
+        pct = b["with_shots"] / b["games"] * 100 if b["games"] else 0.0
+        click.echo(f"  GATE stream {season} (nhl-backtest's own stream, preseason cut): {b['with_shots']}/"
+                   f"{b['games']} = {pct:.1f}% [{'PASS' if b['games'] and pct >= nsh.FEEDABLE['games_with_events'] else 'BELOW'} "
                    f">= {nsh.FEEDABLE['games_with_events']:g}%]")
     for et, c in cov["by_type"].items():
         n = c.get("n", 0) or 1

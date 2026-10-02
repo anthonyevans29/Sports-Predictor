@@ -133,3 +133,22 @@ def test_sync_links_via_goalie_mapping_upserts_and_reports_feedable(tmp_path):
     assert any(l.startswith("P2 location x+y:") for l in lines) and any("P6 depth" in l for l in lines)
     out = CliRunner().invoke(__import__("cli").cli, ["nhl-shot-coverage"]).output
     assert "NHL-SHOT COVERAGE" in out and "2077: finished 1 · with shot events 1 (100.0%)" in out
+
+
+def test_thresholds_apply_to_the_gate_stream_all_finished_is_reported_only():
+    """ARCHITECT 2026-10-02 (shot-sync receipt): P1/P6 read BELOW only because
+    the all-finished denominator includes PRESEASON games the gate excludes by
+    construction. Both denominators are reported; the thresholds apply to the
+    gate stream (nhl-backtest's own build_stream)."""
+    ev = {"n": 100, "xy": 100, "shot_type": 100, "shooter_id": 100, "situation_code": 100}
+    cov = {"by_type": {"shot-on-goal": ev},
+           "by_season": {"2024": {"finished": 1500, "with_shots": 1398}, "2025": {"finished": 1480, "with_shots": 1394}},
+           "gate_stream": {"2024": {"games": 1398, "with_shots": 1398}, "2025": {"games": 1394, "with_shots": 1394}}}
+    lines = nsh.feedable_lines(cov)
+    assert lines[0] == "P1 shot events (games, GATE stream): 100.0% [FEEDABLE >= 95%]"
+    assert lines[1].startswith("P1 read, ALL finished (preseason included; not judged): 2792/2980 = 93.7%")
+    assert lines[-1] == "P6 depth (P1 in every GATE-stream season: 2024 1398/1398, 2025 1394/1394): FEEDABLE"
+    cov["gate_stream"]["2025"] = {"games": 1394, "with_shots": 1300}
+    assert nsh.feedable_lines(cov)[-1].endswith("NOT — 2025")
+    cov["gate_stream"] = {}
+    assert nsh.feedable_lines(cov)[-1].endswith("NOT — no gate stream")

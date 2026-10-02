@@ -22,6 +22,27 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — #220 lane 2: international Elo v1 DECLARED (`docs/specs/intl-elo-v1.md`, registry `intl-elo-v1`). Frozen, NOT RUN, awaiting ratification.**
+- **Ruling (verbatim):** "(2) PRE-COMMITMENT (write for ratification, no run): international Elo — home advantage a priori +100 Elo, 0 at derived-neutral; match weights by competition class a priori (friendlies 20, Nations League 40, qualifiers 50, finals 60 — the public Elo convention); margin via ln(margin+1) as our other Elos; three-way outcome via the soccer draw mapping. Train 2018-2024, test 2024-25 UNL + 2025-26 WCQ_EU; bar = naive-baseline log-loss − 0.010; calibration bands; RPS reported; registry entry with a 60-game confirmation window."
+- **Frozen as ruled:**
+  - H = +100, or 0 when neutral_derived is true;
+  - K = 20 / 40 / 50 / 60 by class (the code table is in the doc);
+  - mov = ln(|margin|+1) · 2.2/(2.2 + gap·0.001), the exact form of NHL v1, NCAA and NFL;
+  - three-way via the soccer Elo→Poisson mapping (c 0.0023, Dixon-Coles ρ −0.10, μ from train only, no second home boost);
+  - 90-minute labels (AET/PEN without a 90-minute score are excluded and counted);
+  - predict-then-update;
+  - train warm-up 2018-01-01..2024-08-31;
+  - test = UNL 2024/25 + WCQ_EU 2025-03-01..2026-03-31;
+  - bar = naive − 0.010 (a tie rejects); the same calibration bands with three pairs per match; RPS reported.
+- **Five RATIFY items (beyond the ruling's text):**
+  1. no season regression;
+  2. unknown venue priced at +100, counted;
+  3. **a draw:** literally ln(0+1) = 0 means draws never move a rating (our other Elos are two-way sports). Proposal: mov = ln 2 (the one-goal value) for a draw;
+  4. pre-run condition: the #230 RULE CHECK ≤ 10% derived-neutral in home-and-away competitions, otherwise blocked pending a ruling on the city rule;
+  5. naive baseline = frozen train H/D/A frequencies (non-neutral), symmetric for neutral matches.
+- **Registry:** declared 2026-10-02T15:27:27Z; 0 prior reads of the test set. Confirmation plan `{n_games 60, log_loss, bar 1.0986 (ln 3), must beat naive − 0.010 on the same games}`: the first 60 senior competitive matches after the verdict.
+- **Next:** ratification → harness PR built from the doc → `intl-sync` receipt (#230) → one run.
+
 **2026-10-02 — UNL lane SUSPENDED-PENDING-DATA (ARCHITECT); national-team source probe opened (#228, read-only).**
 - **Ruling (verbatim):** "intl-inventory — 157 scored results total (UNL 60, WC 97); 38/54 UNL teams have 0 prior results; WCQ/EURO/friendlies registered but empty. UNL model lane SUSPENDED-PENDING-DATA; no pre-commitment yet. Probe lane (read-only): can the football provider supply national-team history 2018-present (WCQ all confederations, Euro + qualifiers, Nations League 2018-19 onward, friendlies) with scores and venue/neutral flags? Coverage receipt per competition-season; cost estimate in calls. A national-team Elo needs ~6 years of results before its first gate run."
 - **Built:** `scripts/intl_source_probe.py` (API-Football through the existing adapter client).

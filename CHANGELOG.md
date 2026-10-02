@@ -4,6 +4,10 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#220 lane 2: international Elo v1 declared — frozen, not run, awaiting ratification)
+- `docs/specs/intl-elo-v1.md`: the frozen pre-commitment (H +100 / 0 at derived-neutral; K 20/40/50/60 by class; ln(|margin|+1) with our Elos' 2.2 gap factor; the soccer Elo→Poisson draw mapping with ρ −0.10; train 2018–2024-08, test UNL 2024/25 + WCQ_EU 2025-26; bar = naive − 0.010; bands; RPS). Five RATIFY items, including the draw update (ln(0+1) = 0 would freeze ratings on every draw).
+- Registry: `intl-elo-v1` declared (unrun, 0 prior reads) with a 60-game executable confirmation plan. tests/test_intl_elo_declaration.py.
+
 ## 2026-10-02 (#228: national-team source probe — read-only; UNL lane #220 SUSPENDED-PENDING-DATA)
 - `scripts/intl_source_probe.py`: can API-Football serve national-team history 2018-present (WCQ all confederations, Euro + qualifiers, Nations League, friendlies)? League ids are discovered by name and cross-checked against the adapter; a coverage receipt per competition-season (scored, 90-minute, venue shares, neutral keys detected, never inferred); `--plan` cost in calls; `--max-calls` budget refusal; `--save` / `--from-dir` replay; never touches data/.
 - tests/test_intl_source_probe.py (5, synthetic replay; the API is never reached).

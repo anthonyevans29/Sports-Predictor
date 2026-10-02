@@ -22,6 +22,19 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — nhl-v6 run record spliced into the ledger; FAIL verdict recorded (ARCHITECT). NHL 2025 now has 6 reads.**
+- **Source:** the laptop branch `laptop/nhl-v6-run-record` (`docs/registry/ids/nhl-v6.txt` as written, plus the laptop's ledger snapshot `experiments_laptop_v6.json`).
+- **Verified before splicing:**
+  - the nhl-v6 declaration fields are identical to main's;
+  - the ids file holds 1,394 unique, sorted ids whose sha256 equals the run record's `ab890242…`, and `n_scored` = 1,394;
+  - result: log-loss 0.6886, v1 on the same stream 0.6909, shot information +0.0023, bands not ok.
+- **Spliced:** ONLY the nhl-v6 entry. The snapshot's `intl-elo-v1` is an older copy and main's stands. The snapshot file itself is not committed, so the repo keeps one ledger.
+- **Verdict recorded** via `registry.record_verdict("nhl-v6", "FAIL", <ruling verbatim>)`: status closed; `production_allowed` → (False, "no PASS verdict").
+- **Tests:**
+  - new `tests/test_nhl_v6_record.py` pins the sidecar sha/count, the FAIL and the 6 reads;
+  - `test_registry_212`'s seed test keeps "the five seeds" (before v6) and adds the total of 6;
+  - the nhl-v6 repo test is relaxed exactly as on #237, so the two branches merge cleanly.
+
 **2026-10-02 — #234 RULINGS applied to intl-elo-v1 (pre-run): CNL_Q K 40; v2 = leave-one-out, home-and-away host sets.**
 - **Ruling (verbatim):** "(1) CNL_Q K=40 (Nations League class). (2) v2 neutral rule — ratified with your fix: a match is left out of its own host-city set, and the set is built from home-and-away competitions only. Merge #233 then #235."
 - **Applied (#235):**

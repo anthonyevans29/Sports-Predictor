@@ -119,7 +119,8 @@ def test_repo_ledger_seeds_are_unchanged_verdicts_and_nhl_test_set_has_five_read
     assert [by[f"nhl-v{i}"]["run"]["result"]["log_loss"] for i in range(1, 6)] == [0.6909, 0.6921, 0.6952, 0.6907, 0.6912]
     assert all(e["verdict"]["verdict"] in ("FAIL", "REJECT") for e in entries)
     assert all(e["run"]["ids_file"] is None for e in entries)                        # ids never reconstructed
-    assert len(reg.prior_reads(by["nhl-v1"]["test_set"], None)) == 5
+    assert len(reg.prior_reads(by["nhl-v1"]["test_set"], None, before_id="nhl-v6")) == 5   # the five seeds
+    assert len(reg.prior_reads(by["nhl-v1"]["test_set"], None)) == 6                       # + v6 (ARCHITECT: "now 6")
 
 
 def test_cli_lists_the_ledger():

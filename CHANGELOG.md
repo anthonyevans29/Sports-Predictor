@@ -4,6 +4,9 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#153: nhl-v6 run record + FAIL verdict in the registry)
+- The laptop's v6 run record (1,394 scored ids, sha verified) is spliced into `docs/registry/experiments.json` with `docs/registry/ids/nhl-v6.txt`; the FAIL verdict is recorded verbatim (status closed). NHL 2025: 6 prior reads. tests/test_nhl_v6_record.py.
+
 ## 2026-10-02 (#234 rulings: CNL_Q K 40; intl-neutral-v2 leave-one-out)
 - `intl_elo`: CNL_Q is Nations League class (K 40). v2 host-city sets are built from home-and-away competitions only, with each match left out of its own set; the "hosted only this match" count is printed. Doc, registry and tests updated (still unrun).
 

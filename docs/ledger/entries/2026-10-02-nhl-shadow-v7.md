@@ -7,4 +7,4 @@
   - Fit receipt: xG updates vs goal fallbacks (a game without stored shots updates on goals, v1's rule).
 - **Chain (stated, it changes what the host runs):** `nhl-daily` gains `nhl-shot-sync --start {yesterday} --end {today}` before `export-nhl-predictions`, so the live season carries xG. It calls api-web.nhle.com (the NHL's free API), never api-sports, so it is listed UNMETERED. Stored games are skipped.
 - **Registry:** v8's run record is still on the laptop. It is spliced with its FAIL once `laptop/nhl-v8-run-record` is pushed (NHL 2025 then shows 8 reads). The retirement itself is already enforced in code (#241).
-- **Next candidate:** Issue (class:lane): declare on 2026-27 once ≥ 600 games; training may use 2024+2025.
+- **Next candidate:** #245 (class:lane): declare on 2026-27 once ≥ 600 games; training may use 2024+2025.

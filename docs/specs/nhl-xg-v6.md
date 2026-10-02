@@ -1,6 +1,7 @@
 # NHL-xG v6: the frozen declaration (#153 part 2)
 
-**Status: DECLARED, awaiting architect ratification. Nothing has been run.**
+**Status: RATIFIED 2026-10-02 (with the update-direction clarification in §4). Nothing has been run.**
+Ratified (verbatim): "Exclusions (blocked, empty-net, missing coords, shootouts), home-defending-side orientation, 2023-24-only fit with the predates-training check, the no-same-game-leakage proof, and the confirmation window (first 150 games of 2026-27 after the verdict) — all ratified. Bar unchanged 0.6866."
 Registry id `nhl-v6` (#212). Every choice below is fixed before any data run
 (law 3). The code reads these constants from `src/models/nhl_xg.py`, and the
 run refuses unless this declaration is in the registry.
@@ -63,15 +64,22 @@ the run receipt.
 
 ## 4. v6, and which reading of the ruling
 
-**v6 = v1 with ONE change.** The margin inside `ln(margin + 1)` is the game's
-xG margin, |xG_home − xG_away|. The result term stays the game result. This is
-the ruling's first reading. The second reading (updating on the sign of the xG
-margin) is not run.
+**v6 = v1 updated ON THE xG MARGIN (RATIFIED 2026-10-02, verbatim):** "the
+Elo update's DIRECTION comes from the sign of the xG margin and its MAGNITUDE
+from |xG_home − xG_away| through the same ln(margin+1); the actual result is the
+scoring label only. (Replacing outcome noise is the whole hypothesis; keeping
+the actual winner as the update direction would be a half-measure.)"
+
+- The update's result term is 1 when xG_home > xG_away and 0 when it is
+  lower. An exact xG tie has margin 0, so ln(1) = 0 and nothing moves.
+- The mov multiplier's winner gap is taken from the xG winner.
+- The actual result is used only to score the prediction (log-loss, bands,
+  RPS). It never moves a rating in an xG-covered game.
 
 - v1's constants are unchanged: k 6.0, mov_base 2.2, season regression 0.25,
   home advantage from the 2024 home rate.
-- A game with no rule-passing event falls back to its goal margin (v1). The
-  count is printed.
+- A game with no rule-passing event falls back to v1 on goals: the goal
+  result's direction and the goal margin. The count is printed.
 
 **Rolling team xG** for and against, per 60 (half-life 60 days, shrunk toward
 the league mean with a 10-game prior, per game at regulation length) is
@@ -93,7 +101,7 @@ the league mean with a 10-game prior, per game at regulation length) is
   beside it, with **shot information = v1 − v6**. A tie is a rejection.
 - **Registry:** the run records its scored ids and result. The test set has
   **5 prior reads** (v1–v5), shown in the receipt. A second run is refused.
-- **Confirmation window (doctrine #212; PROPOSED for ratification):** on a
+- **Confirmation window (doctrine #212; RATIFIED):** on a
   PASS, v6 is scored in shadow on the **first 150 NHL 2026 regular-season
   games after the verdict date** (about two weeks; never seen by any fit).
   - **CONFIRMED** only if its log-loss on those games is <= 0.6866 **and**

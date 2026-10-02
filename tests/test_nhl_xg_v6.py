@@ -97,6 +97,18 @@ def test_no_same_game_leakage_proof():
     assert any(a != b for a, b in zip(alt[k + 1:], base[k + 1:]))
 
 
+def test_update_direction_is_the_xg_winner_not_the_actual_winner():
+    """RATIFIED 2026-10-02: the actual result is the scoring label only."""
+    g = nb.Game(1, 2, "2025", datetime(2025, 10, 10), 4, 1, match_id=77)          # home WINS on goals
+    v6 = NHLEloV6(NHLEloConfig(), xg_by_match={77: (1.2, 3.4)})                   # but LOSES on xG
+    v6.predict(g)
+    v6.update(g)
+    assert v6.rating(1) < 1500.0 < v6.rating(2)                                   # moved with xG, against the result
+    tie = NHLEloV6(NHLEloConfig(), xg_by_match={77: (2.0, 2.0)})
+    tie.update(g)
+    assert tie.rating(1) == tie.rating(2) == 1500.0                                # exact xG tie: nothing moves
+
+
 def test_v6_is_v1_when_xg_margin_equals_goal_margin_and_falls_back_without_xg():
     games = _stream(20)
     v1, v6 = NHLEloV1(NHLEloConfig()), NHLEloV6(NHLEloConfig(), xg_by_match={

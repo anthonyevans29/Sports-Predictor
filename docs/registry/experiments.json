@@ -277,15 +277,16 @@
     "id": "nhl-v6",
     "sport": "nhl",
     "lane": "#153",
-    "candidate": "v1 Elo, margin input = |xG_home - xG_away| (frozen 2023-24 xG: distance, angle, EV/PP/SH, nullable shot type)",
+    "candidate": "v1 Elo updated ON the xG margin: direction = sign(xG_home - xG_away), magnitude = |xG margin| via ln(margin+1); actual result = scoring label only (frozen 2023-24 xG: distance, angle, EV/PP/SH, nullable shot type)",
     "declaration": "docs/specs/nhl-xg-v6.md",
     "training_cutoff": "xG fit 2023-10-01..2024-10-08 (2023-24); Elo warm-up 2024; test 2025",
     "test_set": "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)",
     "gate": "log-loss <= 0.6866 (beats home-rate by 0.010) + calibration bands (10pp, n>=100, \u00b15pp) + ratings 1200-1800",
-    "confirmation_window": "PROPOSED: first 150 NHL 2026 regular-season games after the verdict; CONFIRMED iff log-loss <= 0.6866 AND < v1 on the same games",
+    "confirmation_window": "RATIFIED: first 150 NHL 2026-27 regular-season games after the verdict; CONFIRMED iff log-loss <= 0.6866 AND < v1 on the same games",
     "declared_at": "2026-10-02T13:24:35Z",
     "status": "declared",
     "run": null,
-    "verdict": null
+    "verdict": null,
+    "ratified": "ARCHITECT 2026-10-02: RATIFIED with the update-direction clarification (direction from the sign of the xG margin); bar unchanged 0.6866"
   }
 ]

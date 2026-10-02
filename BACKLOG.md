@@ -22,6 +22,12 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — NHL v6 DECLARATION RATIFIED (ARCHITECT), with one clarification applied before the run.**
+- **Ruling (verbatim):** "the Elo update's DIRECTION comes from the sign of the xG margin and its MAGNITUDE from |xG_home − xG_away| through the same ln(margin+1); the actual result is the scoring label only. (Replacing outcome noise is the whole hypothesis; keeping the actual winner as the update direction would be a half-measure.) Exclusions (blocked, empty-net, missing coords, shootouts), home-defending-side orientation, 2023-24-only fit with the predates-training check, the no-same-game-leakage proof, and the confirmation window (first 150 games of 2026-27 after the verdict) — all ratified. Bar unchanged 0.6866."
+- **Applied:** `NHLEloV6` now takes its direction from the xG winner; the doc, the registry entry and a direction test are updated. Still not run.
+- **Merge order (ruled):** #219, #221, #222, #224 (the architect republishes the Cockpit after F1c), #225, #226, then #223.
+- **Run:** after #223 merges and the shot-sync coverage receipt is in, `nhl-backtest --candidate v6`, once.
+
 **2026-10-02 — NHL v6 DECLARED (#153 part 2; corrected manifest #210): frozen and NOT RUN, awaiting ratification.**
 Everything the rulings left open is fixed in `docs/specs/nhl-xg-v6.md` before any data:
 - **Events:** eligible = shot-on-goal / missed-shot / goal (Fenwick); target = goal; the event code is never a feature.

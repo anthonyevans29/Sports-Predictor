@@ -7,6 +7,13 @@ Every drop adds an entry going forward.
 ## 2026-10-02 (#153: NHL shot coverage receipt — both denominators, thresholds on the gate stream)
 - `nhl-shot-coverage` / the `nhl-shot-sync` receipt report all finished games (preseason included; not judged) AND the v6 gate stream (nhl-backtest's own stream). P1/P6 thresholds apply to the gate stream (ruled 2026-10-02). Regression test with the ruling's numbers. v6 may run.
 
+## 2026-10-02 (#234 rulings: CNL_Q K 40; intl-neutral-v2 leave-one-out)
+- `intl_elo`: CNL_Q is Nations League class (K 40). v2 host-city sets are built from home-and-away competitions only, with each match left out of its own set; the "hosted only this match" count is printed. Doc, registry and tests updated (still unrun).
+
+## 2026-10-02 (#220 lane 2: intl-elo-v1 RATIFIED; harness built, not run)
+- `docs/specs/intl-elo-v1.md` RATIFIED (draws S=0.5 with max(margin,1); no regression; unknown venue +100; RULE CHECK 10% with the pre-declared intl-neutral-v2; naive symmetric at neutral). Registry entry carries `ratified`; still unrun.
+- `python cli.py intl-elo-backtest [--preflight]` (`src/walters/intl_elo.py`): registry refusal before any data load; walk-forward Elo with the soccer Elo→Poisson three-way; naive − 0.010 + bands; RPS; one recorded run. Refuses while CNL_Q's K class is unruled (#234). tests/test_intl_elo.py (11).
+
 ## 2026-10-02 (#230: CONCACAF Nations League codes — intl-sync refused on id 808)
 - Adapter codes `CNL` (536, CONCACAF Nations League) and `CNL_Q` (808, its 2018 qualification), ruled. The ingest codes both by name; the provisional, never-written `CONCACAF_NL` is renamed `CNL`. `intl-inventory` includes both. A regression test reproduces the refusal.
 

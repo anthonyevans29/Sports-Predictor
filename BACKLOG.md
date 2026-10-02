@@ -30,6 +30,30 @@ specific reason they're not being built now.
 - **Regression test:** the ruling's own numbers. All-finished 93.7% is reported, not judged; the gate stream at 100% is FEEDABLE; a gate season below 95% reads NOT; an empty gate stream reads NOT.
 - **Logged:** the receipt is on #153 and #210. **Next (operator):** `nhl-backtest --candidate v6`, once.
 
+**2026-10-02 — #234 RULINGS applied to intl-elo-v1 (pre-run): CNL_Q K 40; v2 = leave-one-out, home-and-away host sets.**
+- **Ruling (verbatim):** "(1) CNL_Q K=40 (Nations League class). (2) v2 neutral rule — ratified with your fix: a match is left out of its own host-city set, and the set is built from home-and-away competitions only. Merge #233 then #235."
+- **Applied (#235):**
+  - K_BY_CODE gives CNL_Q 40, and CNL_Q is in the stream. The "unruled K" guard stays, for any future code.
+  - `apply_v2` builds host-city COUNTS from UNL / WCQ_* / UEFA_EURO_Q / CNL, at every stage. Each match is left out of its own count, and friendlies and finals tournaments never seed a host city.
+  - The doc, the registry `ratified` field and the CLI help are updated. The entry is still unrun.
+- **Measured, not hidden:** leaving the match out has a cost. A venue city a team used for only ONE home-and-away match reads neutral, e.g. Germany rotating cities. The count prints as `neutral_city_hosted_only_this_match` in the preflight/run receipt. v2 only applies if the v1 RULE CHECK breaches 10%.
+
+**2026-10-02 — intl-elo-v1 RATIFIED (ARCHITECT-RULE on #232); the harness is built from the document. Not run.**
+- **Ruling (verbatim):** "(1) DRAWS — actual score S=0.5 for both sides; the margin multiplier uses max(margin,1), so a draw moves ratings like a one-goal result toward the expected-draw point: ratified. (2) No season regression — ratified (no seasons). (3) Unknown venue priced as listed home +100, count printed — ratified. (4) RULE CHECK gate at 10% — ratified, with the refinement pre-declared now so it needs no second ruling: if breached, neutral_derived becomes "venue city not among the cities where the home team hosted >=1 COMPETITIVE match in the pool" (multi-city hosts like Germany, Spain, Italy handled; friendlies excluded from the host-city set). (5) Naive baseline = frozen training-period H/D/A frequencies, symmetric at derived-neutral — ratified. Nothing else changes; the harness is built from the ratified doc."
+- **Doc and registry:** `docs/specs/intl-elo-v1.md` is RATIFIED, with the ruling quoted and each item applied. CONCACAF_NL is renamed CNL (#233). The registry entry gets a `ratified` field; it is still `declared` and unrun, with 0 prior reads.
+- **Harness:** `src/walters/intl_elo.py` + `python cli.py intl-elo-backtest [--preflight]`. Every constant comes from the document:
+  - **Update:** H +100 / 0 / unknown +100 (counted); K 20/40/50/60; mov = ln(max(|m|,1)+1) with the 2.2 gap factor (1 for a draw); S 1 / 0.5 / 0.
+  - **Three-way:** `poisson.predict_match` itself (strengths 1, boost 1, c 0.0023, ρ −0.10, μ from train).
+  - **Baseline:** naive = frozen train H/D/A (symmetric at neutral).
+  - **Splits:** walk-forward over 2018+; test = UNL 2024/25 + WCQ_EU 2025-03-01..2026-03-31.
+  - **Gate:** the NHL bands (three pairs per match) and the inclusive 0.010 margin.
+  - **RULE CHECK:** at 10%; above it, intl-neutral-v2, with the rule in force recorded.
+  - **Order of checks:** the registry refusal comes before any data load; the ONE run is recorded with `record_run`.
+- **Labels (law 4):** 90-minute scores. A finished row without a 90-minute score and without status FT is excluded and counted.
+- **Two findings (#234, needs-ruling):**
+  1. **CNL_Q's K class is unruled.** The run refuses while CNL_Q games are in the stream.
+  2. **intl-neutral-v2 is circular as written.** Every competitive match seeds its own venue into its home team's host set, so no competitive match can derive neutral (Euro finals would price +100). Proposed fix: a leave-one-out host set built from home-and-away competitions only. It is implemented as ruled and only matters if v1 breaches 10%.
+
 **2026-10-02 — #230 intl-sync REFUSED on id 808; ruled codes CNL (536) and CNL_Q (808).**
 - **Ruling (verbatim):** "intl-sync REFUSED on id 808 (CONCACAF NL Qualification, no code). RULED: add adapter codes CNL (536, CONCACAF Nations League) and CNL_Q (808, its 2018 qualification), both in the ruled set; the team filter already keeps only pool teams. Small PR; the sync re-runs after."
 - **Refusal working as designed (law 1):** the target regex ("nations league") matched 808, but no code rule did, so the run stopped before any write.

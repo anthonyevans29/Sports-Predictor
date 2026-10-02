@@ -1,6 +1,19 @@
 # International Elo v1: the frozen pre-commitment (#220 lane 2)
 
-**Status: DECLARED 2026-10-02, AWAITING RATIFICATION. Nothing has been built or run.**
+**Status: RATIFIED 2026-10-02 (five items, below). Harness: `python cli.py intl-elo-backtest` (built from this document). Not run.**
+
+ARCHITECT-RULE on #232 (pre-run, frozen; verbatim): "(1) DRAWS — actual
+score S=0.5 for both sides; the margin multiplier uses max(margin,1), so a
+draw moves ratings like a one-goal result toward the expected-draw point:
+ratified. (2) No season regression — ratified (no seasons). (3) Unknown venue
+priced as listed home +100, count printed — ratified. (4) RULE CHECK gate at
+10% — ratified, with the refinement pre-declared now so it needs no second
+ruling: if breached, neutral_derived becomes "venue city not among the cities
+where the home team hosted >=1 COMPETITIVE match in the pool" (multi-city
+hosts like Germany, Spain, Italy handled; friendlies excluded from the
+host-city set). (5) Naive baseline = frozen training-period H/D/A
+frequencies, symmetric at derived-neutral — ratified. Nothing else changes;
+the harness is built from the ratified doc."
 Registry id `intl-elo-v1` (#212). Every choice below is fixed before any fit
 and before the test set is read (law 3). The run harness is a separate PR
 written FROM this document after ratification. It refuses to run unless this
@@ -21,16 +34,20 @@ entry with a 60-game confirmation window."
 2018, restricted to senior national teams. `neutral_derived` is stored in
 `match_neutral_derived` under rule intl-neutral-v1.
 
-**Five choices go beyond the ruling's text.** Each is marked RATIFY below
-with a proposal: season regression, an unknown venue, the draw update, the
-pre-run data condition, and the naive baseline's definition. Nothing runs
-until they are ruled.
+**Five choices went beyond the ruling's text.** Each was proposed and is now
+RATIFIED (marked below): season regression, an unknown venue, the draw update,
+the pre-run data condition, and the naive baseline's definition.
+
+**Codes (ruled 2026-10-02 after intl-sync refused on id 808):** CONCACAF's
+Nations League is `CNL` (536); its 2018 qualification is `CNL_Q` (808). CNL
+is in the Nations League class. **CNL_Q's K class is not ruled.** The harness
+refuses while any CNL_Q game is in the stream; it never guesses 40 or 50.
 
 ## 1. The stream
 
 - **Matches:** every finished match stored by #230 with both scores, in
   kickoff order (ties broken by match id), across the ruled codes: UNL,
-  WCQ_EU/SA/AF/AS/NA/OC/IC, UEFA_EURO, UEFA_EURO_Q, CONCACAF_NL and
+  WCQ_EU/SA/AF/AS/NA/OC/IC, UEFA_EURO, UEFA_EURO_Q, CNL, CNL_Q and
   FRIENDLIES_INT.
 - **Not in the stream:** WC rows (the 2026 finals are outside the ruled
   competition set) and any other code.
@@ -45,9 +62,9 @@ until they are ruled.
 ## 2. Ratings
 
 - **Start:** every team at 1500, the first time it appears in the stream.
-- **Season regression:** **[RATIFY: proposal: none]**. National teams have no
-  season, and the public international Elo convention does not regress. Our
-  club Elos regress 0.25 per season; this proposal does not carry that over.
+- **Season regression: none (RATIFIED).** National teams have no seasons,
+  and the public international Elo convention does not regress. Our club
+  Elos regress 0.25 per season; that is not carried over.
 
 ## 3. The update
 
@@ -55,10 +72,9 @@ until they are ruled.
   - E_home = 1 / (1 + 10^((R_away − (R_home + H)) / 400)).
   - H = **+100** when `neutral_derived` is false.
   - H = **0** when it is true.
-- **Unknown venue (`neutral_derived` NULL, or no row):** **[RATIFY: proposal:
-  H = +100]**. This treats the provider's listed home team as at home. The
-  count of matches priced this way is printed. The alternative is to exclude
-  them, with a count.
+- **Unknown venue (`neutral_derived` NULL, or no row): H = +100 (RATIFIED).**
+  The provider's listed home team is treated as at home, and the count of
+  matches priced this way is printed.
 - **Actual score:** home win 1, draw 0.5, away win 0 (90-minute result).
 - **Weight K by competition class**, a priori (the ruling's public-Elo
   convention):
@@ -66,7 +82,8 @@ until they are ruled.
   | Class | Codes | K |
   |---|---|---|
   | friendlies | FRIENDLIES_INT | 20 |
-  | Nations League | UNL, CONCACAF_NL (every stage, including finals and play-offs) | 40 |
+  | Nations League | UNL, CNL (every stage, including finals and play-offs) | 40 |
+  | not ruled | CNL_Q | — (the run refuses) |
   | qualifiers | WCQ_EU/SA/AF/AS/NA/OC/IC, UEFA_EURO_Q | 50 |
   | finals | UEFA_EURO | 60 |
 
@@ -75,12 +92,11 @@ until they are ruled.
   - gap is the winner's effective rating lead (home side: R_home + H − R_away;
     away side: the negative of that).
 - **Update:** Δ = K · mov · (actual − E_home). R_home += Δ and R_away −= Δ.
-- **A draw [RATIFY].** Taken literally, ln(0 + 1) = 0, so **every draw would
-  move nothing**. Our other Elos are two-way sports, where this never comes
-  up. Here about a quarter of results are draws.
-  - **Proposal:** a draw uses mov = ln(2), the one-goal value. There is no
-    gap factor, because there is no winner. This is the public convention: a
-    draw weighs like a one-goal result.
+- **A draw (RATIFIED).** S = 0.5 for both sides, and the multiplier uses
+  max(margin, 1). A draw therefore moves ratings like a one-goal result
+  (mov = ln 2) toward the expected-draw point. The gap factor is 1, because
+  a draw has no winner (as proposed). Taken literally, ln(0 + 1) = 0 would
+  have frozen every draw.
 
 ## 4. Three-way probabilities: the soccer draw mapping
 
@@ -116,15 +132,21 @@ convert this into a 3-way distribution via the Poisson model").
 
   The run prints the stored season strings of the WCQ_EU test rows (they are
   the DB's truth). A test set with no rows refuses the run.
-- **Pre-run data condition [RATIFY: proposal: 10%]:** the #230 receipt's RULE CHECK must show
-  derived-neutral ≤ **10%** in the home-and-away competitions (UNL / WCQ_* /
-  UEFA_EURO_Q). If it is higher, the city rule is reading multi-city home
-  grounds as neutral, and the run is **blocked pending a ruling on the rule**.
-  The bar is never adjusted for it.
+- **RULE CHECK gate at 10% (RATIFIED, with the refinement pre-declared):** the
+  harness computes derived-neutral under intl-neutral-v1 in the home-and-away
+  competitions (UNL / WCQ_* / UEFA_EURO_Q).
+  - At ≤ 10%, the stored flags stand.
+  - Above 10%, the run switches to **intl-neutral-v2**, with no second
+    ruling. Neutral = the venue city is not among the cities where the home
+    team hosted ≥ 1 **competitive** match in the pool. Friendlies are
+    excluded from the host-city set. If either side is unknown, the flag is
+    unknown (priced +100, §3).
+  - The rule in force is printed and recorded with the run. The bar is never
+    adjusted.
 
 ## 6. Naive baseline and the gate
 
-- **Naive baseline [RATIFY: proposal below]:** the TRAIN period's three-way frequencies, frozen.
+- **Naive baseline (RATIFIED):** the TRAIN period's three-way frequencies, frozen.
   - Non-neutral test matches get (p_H, p_D, p_A), counted over non-neutral
     train matches (H ≠ 0, the unknowns included per §3).
   - Derived-neutral test matches get (p_N, d_N, p_N), where d_N is the train
@@ -153,7 +175,7 @@ convert this into a 3-way distribution via the Poisson model").
   the model is scored in shadow on the **first 60 senior competitive
   national-team matches** in the ingested set that kick off **after the
   verdict** and are not in the test set. These are UNL, WCQ_*, UEFA_EURO_Q,
-  UEFA_EURO and CONCACAF_NL; friendlies are excluded.
+  UEFA_EURO, CNL and CNL_Q; friendlies are excluded.
   - **CONFIRMED** only if its log-loss on those games ≤ ln 3 (1.0986, the
     uniform three-way prior) **and** strictly below the naive baseline on the
     same games minus 0.010 (the gate's own margin, re-read on future games).
@@ -163,9 +185,12 @@ convert this into a 3-way distribution via the Poisson model").
     frequencies, §6) on the same 60 games, minus 0.010"}`. The harness
     supplies `reference_log_loss` = naive log-loss − 0.010 on those games.
 
-## 8. Run order (after ratification)
+## 8. Run order
 
 1. `.backup`.
 2. `intl-sync` (#230), then paste the coverage receipt with the RULE CHECK.
-3. The harness PR (built from this document), then one run, then paste the
-   output and the changed `docs/registry/` files.
+3. `python cli.py intl-elo-backtest --preflight`. This prints the stream,
+   the splits, the RULE CHECK and the rule in force; it scores nothing.
+4. **A ruling on CNL_Q's K class** (the run refuses while it is open).
+5. `python cli.py intl-elo-backtest`, **once**. Paste the output and the
+   changed `docs/registry/` files in a PR.

@@ -22,6 +22,22 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — intl-elo-v1 RATIFIED (ARCHITECT-RULE on #232); the harness is built from the document. Not run.**
+- **Ruling (verbatim):** "(1) DRAWS — actual score S=0.5 for both sides; the margin multiplier uses max(margin,1), so a draw moves ratings like a one-goal result toward the expected-draw point: ratified. (2) No season regression — ratified (no seasons). (3) Unknown venue priced as listed home +100, count printed — ratified. (4) RULE CHECK gate at 10% — ratified, with the refinement pre-declared now so it needs no second ruling: if breached, neutral_derived becomes "venue city not among the cities where the home team hosted >=1 COMPETITIVE match in the pool" (multi-city hosts like Germany, Spain, Italy handled; friendlies excluded from the host-city set). (5) Naive baseline = frozen training-period H/D/A frequencies, symmetric at derived-neutral — ratified. Nothing else changes; the harness is built from the ratified doc."
+- **Doc and registry:** `docs/specs/intl-elo-v1.md` is RATIFIED, with the ruling quoted and each item applied. CONCACAF_NL is renamed CNL (#233). The registry entry gets a `ratified` field; it is still `declared` and unrun, with 0 prior reads.
+- **Harness:** `src/walters/intl_elo.py` + `python cli.py intl-elo-backtest [--preflight]`. Every constant comes from the document:
+  - **Update:** H +100 / 0 / unknown +100 (counted); K 20/40/50/60; mov = ln(max(|m|,1)+1) with the 2.2 gap factor (1 for a draw); S 1 / 0.5 / 0.
+  - **Three-way:** `poisson.predict_match` itself (strengths 1, boost 1, c 0.0023, ρ −0.10, μ from train).
+  - **Baseline:** naive = frozen train H/D/A (symmetric at neutral).
+  - **Splits:** walk-forward over 2018+; test = UNL 2024/25 + WCQ_EU 2025-03-01..2026-03-31.
+  - **Gate:** the NHL bands (three pairs per match) and the inclusive 0.010 margin.
+  - **RULE CHECK:** at 10%; above it, intl-neutral-v2, with the rule in force recorded.
+  - **Order of checks:** the registry refusal comes before any data load; the ONE run is recorded with `record_run`.
+- **Labels (law 4):** 90-minute scores. A finished row without a 90-minute score and without status FT is excluded and counted.
+- **Two findings (#234, needs-ruling):**
+  1. **CNL_Q's K class is unruled.** The run refuses while CNL_Q games are in the stream.
+  2. **intl-neutral-v2 is circular as written.** Every competitive match seeds its own venue into its home team's host set, so no competitive match can derive neutral (Euro finals would price +100). Proposed fix: a leave-one-out host set built from home-and-away competitions only. It is implemented as ruled and only matters if v1 breaches 10%.
+
 **2026-10-02 — #220 lane 2: international Elo v1 DECLARED (`docs/specs/intl-elo-v1.md`, registry `intl-elo-v1`). Frozen, NOT RUN, awaiting ratification.**
 - **Ruling (verbatim):** "(2) PRE-COMMITMENT (write for ratification, no run): international Elo — home advantage a priori +100 Elo, 0 at derived-neutral; match weights by competition class a priori (friendlies 20, Nations League 40, qualifiers 50, finals 60 — the public Elo convention); margin via ln(margin+1) as our other Elos; three-way outcome via the soccer draw mapping. Train 2018-2024, test 2024-25 UNL + 2025-26 WCQ_EU; bar = naive-baseline log-loss − 0.010; calibration bands; RPS reported; registry entry with a 60-game confirmation window."
 - **Frozen as ruled:**

@@ -905,6 +905,83 @@ def intl_coverage_cmd():
         click.echo(line)
 
 
+@cli.command("intl-elo-backtest")
+@click.option("--preflight", is_flag=True, help="Data checks only (stream, splits, RULE CHECK); scores nothing, records nothing.")
+def intl_elo_backtest_cmd(preflight):
+    """#220 lane 2: the international Elo v1 gate, built FROM the ratified
+    declaration docs/specs/intl-elo-v1.md (registry intl-elo-v1). Refused
+    before any data load unless the registry holds intl-elo-v1 declared and
+    unrun. ONE run: walk-forward predict-then-update over 2018+, scored on
+    UNL 2024/25 + WCQ_EU 2025-03..2026-03; bar = naive - 0.010 + the bands;
+    RPS reported; the run is recorded in the registry. --preflight reads no
+    test outcome."""
+    from collections import Counter
+    from src.db.database import init_db, session_scope
+    from src.ingestion.intl_history import norm_city
+    from src.walters import intl_elo as ie
+    from src.walters import registry as reg
+
+    e = reg.get(ie.EID)
+    if e is None or e.get("status") != "declared" or e.get("run") is not None:
+        click.echo(f"REFUSED: {ie.EID} must be declared and unrun in the registry "
+                   f"(status {e.get('status') if e else 'absent'}): the test set is read once.")
+        raise SystemExit(2)
+    init_db()
+    with session_scope() as s:
+        games, c = ie.load(s)
+        s.rollback()
+    rc = ie.rule_check(games)
+    click.echo(f"INTL ELO v1 (#220) · {'PREFLIGHT · ' if preflight else ''}stream {len(games)} games 2018+ · "
+               + " · ".join(f"{k} {v}" for k, v in sorted(c.items())))
+    click.echo(f"  RULE CHECK (intl-neutral-v1, home-and-away UNL / WCQ_* / UEFA_EURO_Q): derived neutral "
+               f"{rc['neutral']}/{rc['known']} = {rc['share'] * 100:.1f}% · gate {ie.RULE_CHECK_MAX * 100:.0f}%"
+               + (" · BREACHED" if rc["breached"] else " · held"))
+    if rc["breached"]:
+        games, v2 = ie.apply_v2(games, norm_city)
+        click.echo(f"  -> neutral rule in force: {ie.RULE_V2}")
+        click.echo("     v2 flags: " + " · ".join(f"{k} {v}" for k, v in sorted(v2.items())))
+    else:
+        click.echo("  -> neutral rule in force: intl-neutral-v1 (as stored)")
+    n = Counter(("train" if g.kickoff < ie.TRAIN_TO else "test" if ie.is_test(g) else "gap") for g in games)
+    click.echo(f"  splits: train {n['train']} · gap {n['gap']} · test {n['test']} "
+               f"(UNL {sum(1 for g in games if ie.is_test(g) and g.code == 'UNL')}, WCQ_EU "
+               f"{sum(1 for g in games if ie.is_test(g) and g.code == 'WCQ_EU')}; WCQ_EU test seasons stored: "
+               f"{', '.join(sorted({g.season for g in games if ie.is_test(g) and g.code == 'WCQ_EU'})) or 'none'})")
+    click.echo("  games by code: " + " · ".join(f"{k} {v}" for k, v in sorted(Counter(g.code for g in games).items())))
+    unruled = sorted({g.code for g in games if g.code not in ie.K_BY_CODE})
+    if unruled:
+        click.echo(f"  BLOCKED: K class not ruled for {', '.join(unruled)}")
+    if preflight:
+        click.echo("PREFLIGHT only: nothing scored, nothing recorded.")
+        return
+    try:
+        r = ie.run(games)
+    except ValueError as err:
+        click.echo(f"REFUSED: {err}")
+        raise SystemExit(2)
+    nb = r["naive"]
+    click.echo(f"  mu (train goals per team per match): {r['mu']:.4f} · naive H/D/A {nb['home'][0]:.4f}/"
+               f"{nb['home'][1]:.4f}/{nb['home'][2]:.4f} (n {nb['n_train_nonneutral']}) · neutral D "
+               f"{nb['neutral'][1]:.4f} (n {nb['n_train_neutral']})")
+    click.echo(f"  TEST n {r['n_test']} · log-loss model {r['ll_model']:.4f} · naive {r['ll_naive']:.4f} · "
+               f"bar {r['bar']:.4f} · RPS model {r['rps_model']:.4f} / naive {r['rps_naive']:.4f}")
+    for code, v in r["per_competition"].items():
+        click.echo(f"    {code}: n {v['n']} · log-loss model {v['ll_model']:.4f} / naive {v['ll_naive']:.4f}")
+    click.echo("  counts: " + " · ".join(f"{k} {v}" for k, v in sorted(r["counts"].items()))
+               + f" · unknown venue priced +100 (whole stream): {r['unknown_venue_all']}")
+    for b in r["bands"]:
+        click.echo(f"    band {b['band'] * 10:>2}-{b['band'] * 10 + 10}%: n {b['n']:>4} · stated {b['stated']:.3f} "
+                   f"· realized {b['realized']:.3f}" + ("" if not b["gated"] else (" · ok" if b["ok"] else " · MISS")))
+    click.echo(f"  VERDICT (computed; the architect rules): {r['verdict']}")
+    result = {k: r[k] for k in ("n_test", "ll_model", "ll_naive", "bar", "rps_model", "rps_naive",
+                                "crit_ll", "crit_bands", "verdict", "mu")}
+    result["neutral_rule"] = "intl-neutral-v2" if rc["breached"] else "intl-neutral-v1"
+    entry = reg.record_run(ie.EID, r["scored_ids"], result)
+    click.echo(f"  REGISTRY: run recorded · {entry['run']['n_scored']} scored ids · sha256 "
+               f"{entry['run']['ids_sha256'][:12]}… · prior reads {entry['run']['prior_read_count']} · "
+               "commit docs/registry/ in a PR with this output")
+
+
 @cli.command("registry")
 @click.option("--id", "eid", default=None, help="Show one entry in full (with its prior reads).")
 def registry_cmd(eid):

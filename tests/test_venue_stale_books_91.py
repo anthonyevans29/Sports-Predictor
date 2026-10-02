@@ -51,7 +51,7 @@ def test_exactly_3h_and_fresher_books_are_judged_as_before():
 def test_unknown_capture_age_is_no_reference():
     """Review on #250: missing / malformed captured_at produced VENUE calls.
     ARCHITECT 2026-10-02: "UNKNOWN capture age = NO REFERENCE — ratified, no
-    longer provisional.""""
+    longer provisional." """
     for cap in (None, "", "not-a-time", "2026-13-45T99:00:00"):
         d = desk(cap)
         assert (d["call"], d["units"], d["pass_kind"]) == ("PASS", 0, "noref"), cap

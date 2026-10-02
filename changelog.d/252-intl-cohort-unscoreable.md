@@ -1,4 +1,4 @@
-## 2026-10-02 (#220: intl-elo-v2 cohort — UNSCOREABLE fixtures are released, raw code as reason)
+## 2026-10-02 (#252: intl-elo-v2 cohort — UNSCOREABLE fixtures are released, raw code as reason)
 - ARCHITECT 2026-10-02: "AWD/WO (forfeit, walkover) games are RELEASED and substituted exactly like cancelled/abandoned — unscoreable is the criterion, not the status label; record the raw code as reason."
 - A cohort fixture is released when it can never be scored: cancelled (CANC / ABD), or finished under a non-FT code without a 90-minute score (AWD / WO, and AET / PEN missing the split). A FT row still waiting for its score stays pending.
 - `registry.substitute_cohort_fixture` requires evidence of a cancelled or finished fixture marked unscoreable, and the raw code as the reason. Replacements are never unscoreable themselves. `intl-elo-confirm --substitute` writes the substitutions. tests: registry, intl shadow.

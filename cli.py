@@ -838,6 +838,49 @@ def intl_inventory_cmd():
     click.echo("  (no neutral flag is stored; nothing here infers one — law 4)")
 
 
+@cli.command("close-probe")
+@click.option("--match", "match_id", required=True, type=int, help="Match id.")
+def close_probe_cmd(match_id):
+    """READ-ONLY receipt for one match's close (MLB odds history, 2026-10-02):
+    the odds table's last pre-kickoff session under the #207 contract, every
+    pre-kickoff book-consensus snapshot session, the grading close (source,
+    time, books, fair) and the stored grade's CLV. Writes nothing."""
+    from sqlalchemy import select as _sel
+    from src.db.schema import Match, OddsSnapshot, Prediction, PredictionOutcome
+    from src.walters.close import grading_close, priced
+    with session_scope() as s:
+        m = s.get(Match, match_id)
+        if m is None:
+            console.print(f"[red]no match {match_id}[/red]")
+            raise SystemExit(1)
+        console.print(f"match {m.id} {m.away_team.name if m.away_team else '?'} @ "
+                      f"{m.home_team.name if m.home_team else '?'} · first pitch/kickoff {m.utc_date}Z · {m.status}")
+        snaps = list(s.execute(_sel(OddsSnapshot).where(
+            OddsSnapshot.match_id == m.id, OddsSnapshot.market == "1X2",
+            OddsSnapshot.source != "kalshi").order_by(OddsSnapshot.captured_at)).scalars())
+        by_t: dict = {}
+        for x in snaps:
+            by_t.setdefault(x.captured_at, []).append(x)
+        console.print(f"book-consensus snapshot sessions: {len(by_t)}")
+        for t, xs in by_t.items():
+            pre = "pre " if m.utc_date is None or t < m.utc_date else "IN-GAME"
+            console.print(f"  {t}Z {pre} " + " ".join(f"{x.selection} {x.devig_prob:.4f}" for x in xs)
+                          + f" · n_books {max((x.n_books or 0) for x in xs)} · {xs[0].source}")
+        cl = grading_close(s, m)
+        if priced(cl):
+            console.print(f"[green]grading close: PRICED from {cl.get('source')} at {cl['captured_at']}Z · "
+                          f"books {cl['books']} · fair "
+                          + " ".join(f"{k} {v:.4f}" for k, v in cl["fair"].items()) + "[/green]")
+        else:
+            console.print("[yellow]grading close: UNPRICED[/yellow]"
+                          + (f" · missing {cl['missing']}" if cl else " · no pre-kickoff capture"))
+        oc = s.execute(_sel(PredictionOutcome).join(Prediction).where(
+            Prediction.match_id == m.id)).scalars().first()
+        if oc is not None:
+            console.print(f"stored grade: clv {('%+.2fpp' % (oc.clv * 100)) if oc.clv is not None else 'NULL (unpriced)'}"
+                          " — `evaluate --sport mlb` backfills a NULL CLV from the grading close")
+
+
 @cli.command("evaluate")
 @click.option("--sport", default="soccer", show_default=True,
               type=click.Choice(["soccer", "mlb"]))
@@ -2377,12 +2420,19 @@ def capture_odds_cmd(sport: str, competition: str, season: str):
     written = 0
     games = 0
     with session_scope() as s:
+        # #174: bounded to games BEFORE first pitch — a past game stuck in
+        # SCHEDULED is never captured again (and an in-game price is never
+        # snapshotted), the same rule as the sync (MLB odds history, 2026-10-02)
         upcoming = list(s.execute(
             select(Match).where(Match.sport == Sport.MLB,
-                                Match.status == MatchStatus.SCHEDULED)
+                                Match.status == MatchStatus.SCHEDULED,
+                                Match.utc_date > now)
         ).scalars())
         for m in upcoming:
-            for market in ("1X2", "TOTALS"):
+            # 1X2: the sync above APPENDS the book-consensus snapshot itself
+            # (MLB odds history, 2026-10-02, under the #207 contract); a second
+            # pooled 1X2 snapshot seconds later would become the "last session".
+            for market in ("TOTALS",):
                 odds = list(s.execute(
                     select(Odds).where(Odds.match_id == m.id, Odds.market == market)
                 ).scalars())

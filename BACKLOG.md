@@ -22,22 +22,29 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
-**2026-10-02 — intl-elo-v1 FAIL (ARCHITECT); intl-elo-v2 DECLARED: (a) train-only fit of the probability scale + K multiplier, (b) neutral rule v3 via route B. Not run.**
-- **Ruling (verbatim):** "intl-elo-v1 VERDICT STANDS — FAIL on calibration; log-loss criterion PASSED by 0.19 (0.8507 vs bar 1.0431; RPS 0.167 vs 0.237); bands show systematic UNDER-confidence (favorites 50-90% realize +20-30pp above stated). Record; prior reads of this test set = 1. v2 DECLARATION: (a) the rating-to-probability scale and a global K multiplier are FITTED BY MAXIMUM LIKELIHOOD ON THE TRAINING STREAM ONLY (walk-forward within 2018-2024; grid declared; chosen before any test read) — the same train-only remedy as NHL v8; (b) neutral rule v3 (venue country ≠ home team's country) replaces v2 — route B, 218 calls, run on the laptop as an ingest step before v2's run; derived, labelled. Same bar, same bands, same test set. Attribution of (a) vs (b) from train-season diagnostics, not from a second test read. One run."
-- **v1's record:** the run record exists only on the laptop. It is spliced with its FAIL once pushed (as NHL v6/v7 were); then the test set shows 1 prior read.
-- **(a)** `IntlElo.c_mult` (multiplies the Elo→goals coefficient c) and `k_mult` (multiplies each class K); v1 = (1, 1) exactly.
-  - **INTERPRETATION, stated in the doc for correction before the run:** "the rating-to-probability scale" is c, the only place a rating difference becomes a probability in this model. The update's /400 is kept.
-  - `fit_v2` walks the training stream only (it refuses anything else) over the declared grid: c_mult {0.75..3.0} × k_mult {0.5..2.0} = 48 pairs; tie → (1, 1); an edge choice is flagged.
-- **(b)** New table `intl_match_venue` and `python cli.py intl-venue-sync --from-dir <save> --venues-dir <dir> [--plan]`:
-  - venue ids from the saved `/fixtures` (0 calls), then `/venues?country=` per distinct home country (route B);
-  - `neutral_v3` = venue country ≠ home country, with the rule stated; NULL when unknown;
-  - the /venues keys are printed (law 1); a response without id/country refuses.
-- **Harness:** `intl-elo-backtest --candidate v2 [--preflight]`.
-  - Refusal before load; refuses without venue rows.
-  - The fit is printed before any test read.
-  - TRAIN-ONLY attribution: v1 params + v2 neutral / (a) only / (b) only / (a)+(b).
-  - One recorded run (fit + attribution in the result).
-- **Registry:** `intl-elo-v2` declared on v1's test set, gate and plan. The v1 repo tests accept its coming run record.
+**2026-10-02 — nhl-v7 run record spliced; FAIL recorded (ARCHITECT). NHL 2025: 7 reads.**
+- **Ruling (verbatim):** "v7 VERDICT STANDS — FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands −6.2/−6.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced."
+- **Source:** `laptop/nhl-v7-run-record`.
+- **Verified:**
+  - the declaration fields are identical to main's;
+  - 1,394 unique sorted ids with sha256 = the run record's (`ab890242…`, the same scored set as v6);
+  - result: 0.6885 vs v1 0.6909 on the same stream.
+- **Spliced verbatim:** only the nhl-v7 entry and its ids file. `record_verdict("nhl-v7", "FAIL", <ruling>)` closes it.
+- **Discrepancy, kept as written:** v7's stored `prior_read_count` is 5 (v1–v5). The laptop's ledger did not hold v6's run when v7 ran, so the true count at that moment was 6. The record is not rewritten (law 4). The LIVE count, computed from the ledger, is 7, as ruled.
+- **In #239,** together with v6's record. Tests: the v7 record test, the counts 6 (before v7) and 7 (now), and the v7 repo test relaxed identically to the v8 branch.
+
+**2026-10-02 — nhl-v6 run record spliced into the ledger; FAIL verdict recorded (ARCHITECT). NHL 2025 now has 6 reads.**
+- **Source:** the laptop branch `laptop/nhl-v6-run-record` (`docs/registry/ids/nhl-v6.txt` as written, plus the laptop's ledger snapshot `experiments_laptop_v6.json`).
+- **Verified before splicing:**
+  - the nhl-v6 declaration fields are identical to main's;
+  - the ids file holds 1,394 unique, sorted ids whose sha256 equals the run record's `ab890242…`, and `n_scored` = 1,394;
+  - result: log-loss 0.6886, v1 on the same stream 0.6909, shot information +0.0023, bands not ok.
+- **Spliced:** ONLY the nhl-v6 entry. The snapshot's `intl-elo-v1` is an older copy and main's stands. The snapshot file itself is not committed, so the repo keeps one ledger.
+- **Verdict recorded** via `registry.record_verdict("nhl-v6", "FAIL", <ruling verbatim>)`: status closed; `production_allowed` → (False, "no PASS verdict").
+- **Tests:**
+  - new `tests/test_nhl_v6_record.py` pins the sidecar sha/count, the FAIL and the 6 reads;
+  - `test_registry_212`'s seed test keeps "the five seeds" (before v6) and adds the total of 6;
+  - the nhl-v6 repo test is relaxed exactly as on #237, so the two branches merge cleanly.
 
 **2026-10-02 — intl-elo-v1 runs under v2 as built; its known LIMITATION is DECLARED (ARCHITECT) — #240.**
 - **Ruling (verbatim):** "intl-elo-v1 runs under v2 as built, with its known limitation DECLARED in the doc and registry entry: "home-and-away competition play-offs and finals at neutral venues are priced with the home edge; v2's 10% check is vacuous under the HOME ruling". v3 (venue country) is the fix for the next candidate; run scripts/intl_venue_route_probe.py --from-dir on the laptop for its cost (0 calls). Merge #239 then #238."

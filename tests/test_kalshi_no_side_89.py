@@ -22,10 +22,10 @@ def test_two_way_away_costs_mirror_the_home_rules():
     assert (e["away_ask"], e["away_bid"]) == (0.45, 0.42)          # 1 - bid, 1 - ask
     # taker: 0.45 + round(10 x 0.07 x 1 x 0.45 x 0.55 x 100 = 17.3c -> 17c) / 10
     assert e["exec_cost_taker_away"] == 0.467
-    # maker: join 0.43 + round(10 x 0.0175 x 0.25 x 0.43 x 0.57 x 100 = 1.07c -> 1c) / 10
-    assert e["exec_cost_maker_away"] == 0.431
+    # maker: join 0.43 + round(10 x 0.0175 x 1 x 0.43 x 0.57 x 100 = 4.29c -> 4c) / 10 (P0-1 #206)
+    assert e["exec_cost_maker_away"] == 0.434
     # the home block is unchanged by the away block
-    assert (e["exec_cost_taker"], e["exec_cost_maker"], e["kalshi_exec_cost"]) == (0.597, 0.561, 0.597)
+    assert (e["exec_cost_taker"], e["exec_cost_maker"], e["kalshi_exec_cost"]) == (0.597, 0.564, 0.597)
     # MLB pre-live M = 0.5 applies to the NO side too
     m = venue.kalshi_exec(0.54, 0.56, "MLB", two_way=True)
     assert (m["away_ask"], m["away_bid"], m["exec_cost_taker_away"], m["exec_cost_maker_away"]) == (
@@ -40,7 +40,7 @@ def test_away_maker_null_cases():
     assert no_ask["exec_cost_taker_away"] == 0.467
     no_bid = venue.kalshi_exec(None, 0.58, "NFL", two_way=True)     # no home bid -> no NO ask
     assert no_bid["away_ask"] is None and no_bid["exec_cost_taker_away"] is None
-    assert no_bid["exec_cost_maker_away"] == 0.431                  # NO bid 0.42 joins at 0.43
+    assert no_bid["exec_cost_maker_away"] == 0.434                  # NO bid 0.42 joins at 0.43
     unk = venue.kalshi_exec(0.50, 0.55, "UNKNOWN", two_way=True)    # unlisted: maker M not assumed
     assert unk["exec_cost_maker_away"] is None and unk["exec_cost_taker_away"] == 0.518
 
@@ -89,7 +89,7 @@ def test_fixtures_export_two_way_carries_away_soccer_does_not(tmp_path, monkeypa
         "N89NHL", start="2034-05-06", end="2034-05-07", out_dir=str(tmp_path))).read())["fixtures"]}
     r = fx[nhl]
     assert (r["away_ask"], r["away_bid"], r["exec_cost_taker_away"], r["exec_cost_maker_away"]) == (
-        0.45, 0.42, 0.467, 0.431)
+        0.45, 0.42, 0.467, 0.434)
     sx = {r["match_id"]: r for r in json.loads(open(export_fixtures(
         "N89SOC", start="2034-05-06", end="2034-05-07", out_dir=str(tmp_path))).read())["fixtures"]}
     assert sx[soc]["input_quality"]["kalshi"] == "two_sided"

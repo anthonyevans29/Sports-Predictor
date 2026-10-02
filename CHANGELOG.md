@@ -4,6 +4,12 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-01 (#206: P0-1 maker fee no longer double-counts the 25%)
+- `venue.KALSHI_FEE_M`: game series (NFL/NHL/NCAAF/EPL) maker M changes from 0.25 to 1.0; MLB pre-live stays (0.5, 0.5). The maker discount is the 0.0175 rate (= ¼ × 0.07), applied once. Before: NFL maker, 100 contracts at 50c, cost $0.11. Published: $0.44.
+- Cockpit `FEE_M_BY_FAMILY` (the fill classifier) gets the same fix, and the policy card text is corrected. `scripts/kalshi_fee_fill_receipt.py` reads the fixed table.
+- Desk maker costs re-state through the export's `exec_cost_maker`: +0.2 to +0.3pp per contract on a 10-lot (NFL join 0.56: 0.561 → 0.564). K2 stays informational: no call, unit or tier effect.
+- tests/test_kalshi_maker_fee_published_206.py (published-schedule fixtures: $0.44 and $1.75 per 100 at 50c; MLB taker $0.04–$0.88, maker $0.01–$0.22). Two older tests are re-derived by hand. Two Cockpit verifies get corrected synthetic fees and costs.
+
 ## 2026-10-01 (#201: seed-thread links recorded)
 - The first `discussions` / `list` dispatch receipt is on #201. Discussions are enabled with six categories. The four seed threads are #197 and #198 (Q&A), #199 (Ideas) and #200 (Receipts).
 - docs/LEDGER.md gains a table of the posted seed threads. The seed file's header points to it.

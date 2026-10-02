@@ -232,12 +232,25 @@ def production_allowed(eid: str, path: str = LEDGER) -> tuple[bool, str]:
     return (c["outcome"] == "CONFIRMED"), f"confirmation {c['outcome']}"
 
 
+SUBSTITUTION_REASONS = ("cancelled", "abandoned")
+
+
 def frozen_cohort(e: dict, ids_dir: str | None = None) -> list[int] | None:
-    """The FROZEN confirmation cohort's ids (verified against its sha256), or
-    None when no cohort was frozen. A tampered or missing file refuses."""
+    """The FROZEN confirmation cohort's EFFECTIVE ids: the frozen file
+    (verified against its sha256) with every recorded substitution applied
+    (released out, replacement in). None when no cohort was frozen. A
+    tampered or missing file refuses."""
     c = e.get("confirmation_cohort")
     if not c:
         return None
+    ids = set(_frozen_base(e, c, ids_dir))
+    for sub in c.get("substitutions") or []:
+        ids.discard(int(sub["released"]))
+        ids.add(int(sub["replacement"]))
+    return sorted(ids)
+
+
+def _frozen_base(e: dict, c: dict, ids_dir: str | None) -> list[int]:
     ids_dir = ids_dir or IDS_DIR
     p = os.path.join(ids_dir, os.path.basename(c["ids_file"]))
     if not os.path.exists(p):
@@ -247,6 +260,45 @@ def frozen_cohort(e: dict, ids_dir: str | None = None) -> list[int] | None:
     if _ids_sha(ids) != c["ids_sha256"] or len(ids) != c["n"]:
         raise RegistryError(f"{e['id']}: frozen cohort file does not match its sha256/count — refused")
     return ids
+
+
+def substitute_cohort_fixture(eid: str, released: int, replacement: int, reason: str, evidence: dict,
+                              path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
+    """ARCHITECT 2026-10-02: "CANCELLED/ABANDONED games in the frozen 60 are
+    RELEASED and replaced by the next eligible fixture after the cohort (61st,
+    62nd …), recorded as a substitution with reason; a merely postponed game
+    stays in the cohort until it is played or cancelled; never a swap of a
+    scheduled-but-unplayed game." The registry checks the bookkeeping (the
+    released id is in the effective cohort, the replacement is new, never
+    released before and not from the test set; the reason is cancelled /
+    abandoned; evidence carries the stored status); the caller
+    (intl-elo-confirm --substitute) checks the stored status and picks the
+    replacement in order."""
+    entries = load(path)
+    e = next((x for x in entries if x["id"] == eid), None)
+    if e is None or e.get("status") != "confirming":
+        raise RegistryError(f"{eid} is not in a confirmation window (needs a PASS verdict)")
+    c = e.get("confirmation_cohort")
+    if not c:
+        raise RegistryError(f"{eid}: no frozen cohort to substitute in — freeze it first")
+    if reason not in SUBSTITUTION_REASONS:
+        raise RegistryError(f"{eid}: a cohort fixture is released only when {' / '.join(SUBSTITUTION_REASONS)} "
+                            f"(got {reason!r}); a postponed or unplayed game stays")
+    if not evidence or not evidence.get("status"):
+        raise RegistryError(f"{eid}: a substitution records its evidence (the stored status)")
+    released, replacement = int(released), int(replacement)
+    effective = set(frozen_cohort(e, ids_dir))
+    ever_out = {int(s["released"]) for s in c.get("substitutions") or []}
+    if released not in effective:
+        raise RegistryError(f"{eid}: fixture {released} is not in the effective cohort")
+    if replacement in effective or replacement in ever_out:
+        raise RegistryError(f"{eid}: fixture {replacement} is already in the cohort or was released from it")
+    if replacement in (_ids_of(e, ids_dir) or set()):
+        raise RegistryError(f"{eid}: fixture {replacement} was in the scored test set — not a future game")
+    c.setdefault("substitutions", []).append({"released": released, "replacement": replacement,
+                                              "reason": reason, "evidence": evidence, "at": _now()})
+    save(entries, path)
+    return e
 
 
 def freeze_confirmation_cohort(eid: str, cohort_ids: list[int], basis: dict,

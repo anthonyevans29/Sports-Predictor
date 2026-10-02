@@ -173,6 +173,45 @@ def test_frozen_cohort_binds_the_read_and_record_refuses_until_complete(world, m
     assert out.exit_code == 2 and "already frozen" in out.output
 
 
+def test_only_cancelled_cohort_fixtures_are_released_next_after_the_cohort(world, monkeypatch, tmp_path):
+    """ARCHITECT 2026-10-02 (2): a CANCELLED (CANC) or ABANDONED (ABD) cohort
+    fixture is released and replaced by the next eligible fixture AFTER the
+    cohort; a postponed or scheduled one stays."""
+    ids = [world["after1"], world["late"], world["after2"]]
+    (tmp_path / "intl-elo-v2.cohort.txt").write_text("\n".join(str(i) for i in sorted(ids)) + "\n")
+    e = {**ENTRY, "confirmation_cohort": {"n": 3, "ids_sha256": reg._ids_sha(ids),
+                                          "ids_file": "docs/registry/ids/intl-elo-v2.cohort.txt"}}
+    monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path))
+
+    def set_status(mid, status, raw):
+        with session_scope() as s:
+            m = s.get(Match, mid)
+            m.status, m.status_raw = status, raw
+    try:
+        set_status(world["late"], MatchStatus.POSTPONED, "PST")                # postponed: stays
+        with session_scope() as s:
+            assert us.substitutions_due(e, s) == []
+            s.rollback()
+        set_status(world["after2"], MatchStatus.CANCELLED, "ABD")              # abandoned: released
+        with session_scope() as s:
+            due = us.substitutions_due(e, s)
+            s.rollback()
+        assert [(d["released"]["id"], d["replacement"]["id"], d["reason"]) for d in due] == \
+            [(world["after2"], world["after3"], "abandoned")]                     # after3 = the 4th eligible (friendly out)
+        # once recorded, the next cancellation takes the NEXT one (after4), never after3 again
+        e["confirmation_cohort"]["substitutions"] = [{"released": world["after2"], "replacement": world["after3"]}]
+        set_status(world["after1"], MatchStatus.CANCELLED, "CANC")
+        with session_scope() as s:
+            due = us.substitutions_due(e, s)
+            s.rollback()
+        assert [(d["released"]["id"], d["replacement"]["id"], d["reason"]) for d in due] == \
+            [(world["after1"], world["after4"], "cancelled")]
+    finally:
+        set_status(world["late"], MatchStatus.SCHEDULED, None)
+        set_status(world["after2"], MatchStatus.FINISHED, "FT")
+        set_status(world["after1"], MatchStatus.FINISHED, "FT")
+
+
 def test_intl_daily_chain_and_cli_refusal(monkeypatch):
     sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
     import chains

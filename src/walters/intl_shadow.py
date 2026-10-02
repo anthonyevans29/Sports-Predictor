@@ -98,8 +98,38 @@ def eligible_fixtures(s, e) -> list[dict]:
         g = ie.Game(m.id, comps[m.competition_id], m.season, m.utc_date, None, None, None, None, None)
         if ie.is_test(g):
             continue
-        out.append({"id": m.id, "kickoff": m.utc_date, "code": g.code,
+        out.append({"id": m.id, "kickoff": m.utc_date, "code": g.code, "status_raw": m.status_raw,
                     "status": m.status.value if hasattr(m.status, "value") else str(m.status)})
+    return out
+
+
+def substitutions_due(e, s) -> list[dict]:
+    """ARCHITECT 2026-10-02 (2): every CANCELLED cohort fixture (provider CANC,
+    or ABD = abandoned) is released and replaced by the next eligible fixture
+    AFTER the cohort (61st, 62nd …): kickoff order, after every fixture that
+    is or was in the cohort, never cancelled itself, never one already used.
+    POSTPONED / scheduled / live fixtures are never released. Read-only: the
+    registry write is intl-elo-confirm --substitute."""
+    c = e.get("confirmation_cohort")
+    if not c:
+        return []
+    co = cohort(e, s)
+    elig = eligible_fixtures(s, e)
+    by_id = {f["id"]: f for f in elig}
+    ever = set(co["ids"]) | {int(x["released"]) for x in c.get("substitutions") or []}
+    last = max(((by_id[i]["kickoff"], i) for i in ever if i in by_id), default=None)
+    pool = [f for f in elig if f["id"] not in ever and f["status"] != "cancelled"
+            and (last is None or (f["kickoff"], f["id"]) > last)]
+    out = []
+    for i in co["ids"]:
+        f = by_id.get(i)
+        if f is None or f["status"] != "cancelled":
+            continue
+        if not pool:
+            out.append({"released": f, "replacement": None, "reason": None})
+            continue
+        out.append({"released": f, "replacement": pool.pop(0),
+                    "reason": "abandoned" if (f["status_raw"] or "").upper() == "ABD" else "cancelled"})
     return out
 
 
@@ -323,6 +353,7 @@ def confirmation_read(now: datetime | None = None) -> dict:
            "first_game_at": first.strftime("%Y-%m-%dT%H:%M:%SZ") if first else None,
            "cohort_state": co["state"], "cohort_size": len(co["ids"]), "eligible_stored": co["eligible_stored"],
            "pending": [{"id": i, "status": status.get(i, "not stored")} for i in pending],
+           "release_due": sum(1 for i in pending if status.get(i) == "cancelled" and co["state"] == "frozen"),
            # recordable only as the WHOLE frozen cohort, every fixture labelled
            "complete": co["state"] == "frozen" and not pending and n == plan["n_games"]}
     if n:

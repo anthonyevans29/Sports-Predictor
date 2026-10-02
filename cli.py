@@ -4269,15 +4269,20 @@ def unl_shadow_grade_cmd(days):
 @cli.command("intl-elo-confirm")
 @click.option("--freeze-cohort", is_flag=True,
               help="Freeze the first 60 eligible fixture ids into the registry (once; needs >= 60 stored).")
+@click.option("--substitute", is_flag=True,
+              help="Release CANCELLED/ABANDONED cohort fixtures and record the next eligible fixture after the "
+                   "cohort as each one's substitute (registry write; commit in a PR).")
 @click.option("--record", is_flag=True, help="Record the confirmation (needs the frozen cohort complete and --ruling).")
 @click.option("--ruling", default=None, help="The architect's ruling text, verbatim (with --record).")
-def intl_elo_confirm_cmd(freeze_cohort, record, ruling):
+def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling):
     """intl-elo-v2 CONFIRMATION READ (doctrine #212, ARCHITECT 2026-10-02): the
     first 60 senior competitive national-team matches after the verdict,
     priced predict-then-update, scored by the plan (log-loss <= ln 3 AND <
     naive − 0.010 on the same games). The 60 are FIXTURE ids chosen whatever
     their status and frozen once (--freeze-cohort; review on #248): a pending
-    or unscoreable cohort fixture leaves the read incomplete, never replaced.
+    cohort fixture leaves the read incomplete; only a CANCELLED / ABANDONED
+    one is released, replaced by the next eligible fixture after the cohort
+    and recorded as a substitution (--substitute; ARCHITECT 2026-10-02).
     Without flags: progress only. --record: registry.record_confirmation
     computes CONFIRMED / NOT_CONFIRMED on exactly the frozen cohort."""
     from collections import Counter
@@ -4314,6 +4319,28 @@ def intl_elo_confirm_cmd(freeze_cohort, record, ruling):
             click.echo(f"FROZEN: {c['n']} fixtures · sha256 {c['ids_sha256'][:16]}… · {basis['first_kickoff']} .. "
                        f"{basis['last_kickoff']} · {basis['status_at_freeze']} — commit docs/registry/ in a PR")
             return
+        if substitute:
+            e, _, _ = us.frozen()
+            with session_scope() as s:
+                due = us.substitutions_due(e, s)
+                s.rollback()
+            if not due:
+                click.echo("SUBSTITUTE: no cancelled / abandoned fixture in the cohort — nothing released")
+                return
+            iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+            for d in due:
+                f, rep = d["released"], d["replacement"]
+                if rep is None:
+                    click.echo(f"  WAITING: {f['id']} ({f['status_raw'] or f['status']}) — no eligible fixture after "
+                               "the cohort is stored yet; sync the schedule")
+                    continue
+                reg.substitute_cohort_fixture(ie.EID_V2, f["id"], rep["id"], d["reason"], {
+                    "status": f["status"], "status_raw": f["status_raw"], "kickoff": iso(f["kickoff"]),
+                    "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]})
+                click.echo(f"  SUBSTITUTED: {f['id']} ({d['reason']}, {iso(f['kickoff'])}) -> {rep['id']} "
+                           f"({rep['code']} {iso(rep['kickoff'])})")
+            click.echo("  commit docs/registry/ in a PR")
+            return
         r = us.confirmation_read()
     except (us.ShadowRefused, reg.RegistryError) as e:
         click.echo(f"REFUSED: {e}")
@@ -4322,7 +4349,8 @@ def intl_elo_confirm_cmd(freeze_cohort, record, ruling):
                f"fixtures; {r['eligible_stored']} eligible stored) · {r['n']}/{r['n_games']} labelled"
                + (f" · first {r['first_game_at']}" if r["first_game_at"] else ""))
     if r["pending"]:
-        click.echo(f"  pending {len(r['pending'])}: {dict(Counter(p['status'] for p in r['pending']))}")
+        click.echo(f"  pending {len(r['pending'])}: {dict(Counter(p['status'] for p in r['pending']))}"
+                   + (f" — {r['release_due']} cancelled: run --substitute" if r["release_due"] else ""))
     if r["n"]:
         click.echo(f"  so far: log-loss {r['log_loss']:.4f} · naive {r['naive_log_loss']:.4f} · reference (naive − 0.010) "
                    f"{r['reference_log_loss']:.4f} · bar {r['bar']:.4f} — not a verdict until the cohort is complete")

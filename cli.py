@@ -4232,6 +4232,77 @@ def nhl_shadow_grade_cmd(days):
           f"{r['reference_mean_clv_pp']}pp (n={r['reference_priced']})")
 
 
+@cli.command("export-unl-predictions")
+@click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
+def export_unl_predictions_cmd(hours):
+    """UNL SHADOW (ARCHITECT 2026-10-02): intl-elo-v2 (PASS, confirmation window
+    open) as a greyed shadow for every senior competitive national-team match
+    in the window, three-way. Every row: engine model_shadow, gate_verdict
+    "PASS — confirmation n/60". Never a call, never a venue input, never
+    logged. Refuses until intl-elo-v2's run record and PASS are in the
+    registry. Writes exports/unl_shadow_<stamp>.json; nothing to the DB."""
+    from src.walters import intl_shadow as us
+    try:
+        path, doc = us.export(hours=hours)
+    except us.ShadowRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    f = doc["fit"]
+    console.print(f"[green]✓ Wrote UNL shadow (intl-elo-v2, confirmation window) to {path}[/green]")
+    print(f"  {doc['count']} games in the next {hours}h · model {doc['model_version']} · {doc['gate_verdict']} · "
+          f"engine {doc['engine']}")
+    print(f"  fit: {f['games_used']} finished games walked · c x{f['c_mult']:g} · K x{f['k_mult']:g} · mu {f['mu']}")
+
+
+@cli.command("unl-shadow-grade")
+@click.option("--days", default=30, show_default=True, type=int)
+def unl_shadow_grade_cmd(days):
+    """Live CLV of the UNL SHADOW calls (top pick vs the three-way book close)
+    from the shadow exports on disk. Read-only; not a record (the confirmation
+    read is intl-elo-confirm)."""
+    from src.walters.intl_shadow import grade
+    r = grade(days=days, progress=print)
+    print(f"  ── graded {r['graded']} (calls on file {r['calls_on_file']}) · mean pick-vs-close "
+          f"{r['mean_clv_pp']}pp (n={r['priced']}; unpriced {r['unpriced']})")
+
+
+@cli.command("intl-elo-confirm")
+@click.option("--record", is_flag=True, help="Record the confirmation (needs the full window and --ruling).")
+@click.option("--ruling", default=None, help="The architect's ruling text, verbatim (with --record).")
+def intl_elo_confirm_cmd(record, ruling):
+    """intl-elo-v2 CONFIRMATION READ (doctrine #212, ARCHITECT 2026-10-02): the
+    first 60 senior competitive national-team matches after the verdict,
+    priced predict-then-update, scored by the plan (log-loss <= ln 3 AND <
+    naive − 0.010 on the same games). Without --record: progress only. With
+    --record: registry.record_confirmation computes CONFIRMED / NOT_CONFIRMED."""
+    from src.walters import intl_elo as ie
+    from src.walters import intl_shadow as us
+    from src.walters import registry as reg
+    try:
+        r = us.confirmation_read()
+    except us.ShadowRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    click.echo(f"INTL-ELO-V2 CONFIRMATION · {r['n']}/{r['n_games']} games played since the verdict"
+               + (f" · first {r['first_game_at']}" if r["first_game_at"] else ""))
+    if r["n"]:
+        click.echo(f"  so far: log-loss {r['log_loss']:.4f} · naive {r['naive_log_loss']:.4f} · reference (naive − 0.010) "
+                   f"{r['reference_log_loss']:.4f} · bar {r['bar']:.4f} — not a verdict until {r['n_games']} games")
+    if not record:
+        return
+    if not ruling:
+        click.echo("REFUSED: --record needs --ruling (the architect's text, verbatim)")
+        raise SystemExit(2)
+    try:
+        e = reg.record_confirmation(ie.EID_V2, r["scored_ids"], {
+            "log_loss": r["log_loss"], "reference_log_loss": r["reference_log_loss"],
+            "naive_log_loss": r["naive_log_loss"], "first_game_at": r["first_game_at"]}, ruling)
+    except reg.RegistryError as err:
+        click.echo(f"REFUSED: {err}")
+        raise SystemExit(2)
+    click.echo(f"  RECORDED: {e['confirmation']['outcome']} · status {e['status']} — commit docs/registry/ in a PR")
+
+
 @cli.command("export-nfl-predictions")
 @click.option("--week", is_flag=True,
               help="Full look-ahead (8 days: the whole NFL week) instead of the 36h current slate.")

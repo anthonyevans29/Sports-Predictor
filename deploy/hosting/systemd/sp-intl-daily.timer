@@ -1,0 +1,13 @@
+# International daily (ARCHITECT 2026-10-02): incremental intl sync, the v3 venue step, the UNL shadow export.
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-intl-daily
+
+[Timer]
+OnCalendar=*-*-* 07:20:00 UTC
+Unit=sp-chain@intl-daily.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

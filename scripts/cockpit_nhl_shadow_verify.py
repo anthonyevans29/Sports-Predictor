@@ -1,8 +1,9 @@
 """
 Cockpit NHL SHADOW headless verification (architect 2026-09-30).
 
-An engine "model_shadow" export (the FAILED nhl_elo_v1) renders greyed under
-"Reference model — failed gate" and can never become a Desk call, a venue
+An engine "model_shadow" export (NHL's failed reference model; since 2026-10-02
+also the UNL intl_elo_v2 shadow, three-way) renders greyed under
+"Shadow models — never a call" (each row labelled with its own verdict) and can never become a Desk call, a venue
 input or a ledger entry. It is loaded beside a live NFL file, then the check
 presses "Log today's calls".
 
@@ -58,9 +59,19 @@ SHADOW = {"sport": "nhl", "engine": "model_shadow", "model_version": "nhl_elo_v1
               shadow_row("Boston Bruins", "New York Rangers", 0.45, 0.50)]}
 
 
+UNL_GATE = "PASS — confirmation 0/60"
+UNL = {"sport": "unl", "engine": "model_shadow", "model_version": "intl_elo_v2", "gate_verdict": UNL_GATE,
+       "contains_predictions": False, "predictions": [
+           {"match_id": 9, "utc_date": D1, "home_team": "Probelandia", "away_team": "Testovia",
+            "status": "scheduled", "engine": "model_shadow", "model_version": "intl_elo_v2", "gate_verdict": UNL_GATE,
+            "market": {"bookmaker_count": 5, "fair_prob": {"HOME": 0.34, "DRAW": 0.36, "AWAY": 0.30}},
+            "prediction": {"home_win_prob": 0.33, "draw_prob": 0.38, "away_win_prob": 0.29,
+                           "top_pick": "draw", "top_pick_prob": 0.38}}]}
+
+
 def main():
     tmp = tempfile.mkdtemp(prefix="cockpit-nhlshadow-")
-    for n, d in (("nfl.json", NFL), ("nhl_shadow.json", SHADOW)):
+    for n, d in (("nfl.json", NFL), ("nhl_shadow.json", SHADOW), ("unl_shadow.json", UNL)):
         with open(os.path.join(tmp, n), "w") as f:
             json.dump(d, f)
 
@@ -81,8 +92,8 @@ def main():
         page.click("#tabDesk")
         card = page.evaluate("(()=>{const c=document.getElementById('shadowCard');"
                              "return {hidden:c.hidden,cls:c.className,text:c.innerText}})()")
-        check("shadow card shown, greyed (.shadowref), titled 'Reference model — failed gate'",
-              not card["hidden"] and "shadowref" in card["cls"] and "Reference model — failed gate" in card["text"])
+        check("shadow card shown, greyed (.shadowref), titled 'Shadow models — never a call'",
+              not card["hidden"] and "shadowref" in card["cls"] and "Shadow models — never a call" in card["text"])
         check("the card carries the model and the gate verdict", "nhl_elo_v1" in card["text"] and GATE in card["text"])
         check("both shadow games listed", "Montreal Canadiens @ Toronto Maple L" in card["text"]
               and "New York Rangers @ Boston Bruins" in card["text"])
@@ -106,6 +117,19 @@ def main():
         st2 = page.evaluate("({rows:rows.length,calls:deskCalls.length,shadow:shadowRows.length})")
         check("a shadow file alone: zero Desk rows and calls, the shadow card only",
               st2 == {"rows": 0, "calls": 0, "shadow": 2}, str(st2))
+        # UNL SHADOW (2026-10-02): a three-way intl_elo_v2 file beside the NHL shadow and a live NFL file
+        cdf.upload(page, [os.path.join(tmp, "nfl.json"), os.path.join(tmp, "nhl_shadow.json"),
+                          os.path.join(tmp, "unl_shadow.json")])
+        page.wait_for_timeout(300)
+        page.click("#tabDesk")
+        card3 = page.evaluate("document.getElementById('shadowCard').innerText")
+        check("UNL shadow: both models' notes on the card (nhl_elo_v1 and intl_elo_v2 · PASS — confirmation 0/60)",
+              "nhl_elo_v1" in card3 and "intl_elo_v2" in card3 and UNL_GATE in card3, card3[:200])
+        check("UNL shadow: a draw top pick renders as 'Draw', not the away side",
+              "Draw 38.0%" in card3 and "Testovia 38.0%" not in card3)
+        st3 = page.evaluate("({rows:rows.map(r=>r.sport),calls:deskCalls.map(c=>JSON.stringify(c))})")
+        check("UNL never enters the Desk rows or calls", st3["rows"] == ["NFL"]
+              and not any("Probelandia" in x or "Testovia" in x for x in st3["calls"]), str(st3["rows"]))
         check("no page errors", not errors, "; ".join(errors))
         browser.close()
     srv.shutdown()

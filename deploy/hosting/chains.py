@@ -149,6 +149,19 @@ CHAINS: dict[str, dict] = {
             ["export-nhl-predictions"],
         ],
     },
+    # --- International (ARCHITECT 2026-10-02): intl-elo-v2 PASSED; the UNL
+    # shadow runs through its 60-game confirmation window. The daily intl
+    # sync is INCREMENTAL (--since {today}: only seasons still running), its
+    # responses saved so the venue step (route B, v3) replays them; only a
+    # venue country not seen before costs a call. ---
+    "intl-daily": {
+        "backup": "daily",
+        "steps": [
+            ["intl-sync", "--since", "{today}", "--save", "exports/intl_daily"],
+            ["intl-venue-sync", "--from-dir", "exports/intl_daily", "--venues-dir", "exports/intl_venues"],
+            ["export-unl-predictions"],
+        ],
+    },
     "ncaa-market": {
         "steps": [["sync-kalshi-ncaa"], ["export-fixtures", "--competition", "NCAA"]],
     },
@@ -255,4 +268,5 @@ UNMETERED = frozenset({
     "export-nfl-predictions", "export-nfl-results", "export-fixtures",
     "export-nhl-predictions",
     "nhl-shot-sync",          # api-web.nhle.com (the NHL's free API), never api-sports
+    "export-unl-predictions",  # reads the DB only
 })

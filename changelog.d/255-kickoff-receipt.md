@@ -1,4 +1,4 @@
-## 2026-10-02 (NCAA kickoff +24h finding: read-only receipt script)
+## 2026-10-02 (#255, refs #254: NCAA kickoff +24h finding — read-only receipt script)
 - `scripts/kickoff_receipt.py` (read-only), for each match:
   - the STORED row: utc_date, status, external ids;
   - the PROVIDER's raw date block and timestamp (`/games?id=`, one GET; `--no-provider` skips it);

@@ -137,3 +137,23 @@ def test_repo_declaration_v2_on_v1s_test_set():
     assert len(reg.prior_reads(e["test_set"], None, before_id="intl-elo-v2")) == (1 if v1["run"] else 0)
     doc = open(os.path.join(ROOT, e["declaration"])).read()
     assert "interpretation, stated so it can be" in doc and "c_mult" in doc and "k_mult" in doc
+
+
+def test_venue_payload_with_none_fields_does_not_crash(tmp_path):
+    """REGRESSION (laptop, 2026-10-02): intl-venue-sync crashed at
+    intl_venues.py:112 — Counter.update(dict) adds the dict's VALUES as counts,
+    so a served venue with a None field (capacity, address, image ...) raised
+    TypeError. The law-1 receipt counts KEYS."""
+    from src.ingestion import intl_venues as iv
+    save, ids = _world(tmp_path)
+
+    class RealShapedClient:
+        def _get(self, path, params):
+            v = {"id": 9001, "name": "Arena", "address": None, "city": "Munich", "country": "Germany",
+                 "capacity": None, "surface": None, "image": None}
+            return {"response": [v, dict(v, id=9002, capacity=75000)] if params["country"] == "Germany"
+                    else [dict(v, id=9003, country="France", city="Paris")] if params["country"] == "France" else []}
+
+    r = iv.sync(str(save), venues_dir=str(tmp_path / "v"), client=RealShapedClient())
+    assert r["venue_keys"]["capacity"] >= 3 and r["venue_keys"]["id"] >= 3        # key COUNTS, not summed values
+    assert set(r["venue_keys"]) >= {"id", "country", "capacity", "image"}

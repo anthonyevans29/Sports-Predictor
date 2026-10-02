@@ -109,7 +109,7 @@ def sync(save_dir: str, venues_dir: str | None = None, plan_only: bool = False, 
                 with open(path, "w") as fh:
                     json.dump(payload, fh)
         for v in payload.get("response") or []:
-            keys.update(v)
+            keys.update(v.keys())          # count KEYS (law-1 receipt); update(dict) would add values
             if v.get("id") is not None:
                 venue_country[v["id"]] = v.get("country")
     if venue_country and not {"id", "country"} <= set(keys):

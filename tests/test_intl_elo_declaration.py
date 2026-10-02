@@ -17,7 +17,7 @@ def test_intl_elo_v1_declared_unrun_with_an_executable_plan():
     assert reg.prior_reads(e["test_set"], None, before_id="intl-elo-v1") == []
     doc = open(os.path.join(ROOT, e["declaration"])).read()
     assert "Status: RATIFIED" in doc and "[RATIFY" not in doc and e.get("ratified")
-    assert "| Nations League | UNL, CNL, CNL_Q" in doc and "left out of its own set" in doc
+    assert "| Nations League | UNL, CNL, CNL_Q" in doc and "at home even if that city" in doc and "intl-neutral-v3 (pre-declared)" in doc
     for frozen in ("+100", "friendlies | FRIENDLIES_INT | 20", "max(margin, 1)", "ρ = −0.10", "− 0.010",
                    "intl-neutral-v2"):
         assert frozen in doc

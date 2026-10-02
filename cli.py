@@ -936,10 +936,20 @@ def intl_elo_backtest_cmd(preflight):
     click.echo(f"  RULE CHECK (intl-neutral-v1, home-and-away UNL / WCQ_* / UEFA_EURO_Q): derived neutral "
                f"{rc['neutral']}/{rc['known']} = {rc['share'] * 100:.1f}% · gate {ie.RULE_CHECK_MAX * 100:.0f}%"
                + (" · BREACHED" if rc["breached"] else " · held"))
+    rule_in_force, rc2 = "intl-neutral-v1", None
     if rc["breached"]:
         games, v2 = ie.apply_v2(games, norm_city)
+        rule_in_force = "intl-neutral-v2"
         click.echo(f"  -> neutral rule in force: {ie.RULE_V2}")
         click.echo("     v2 flags: " + " · ".join(f"{k} {v}" for k, v in sorted(v2.items())))
+        # ARCHITECT 2026-10-02: v2's check on the SAME home-and-away denominator, gated before the run
+        rc2 = ie.rule_check(games)
+        click.echo(f"  RULE CHECK (intl-neutral-v2, same home-and-away denominator): derived neutral "
+                   f"{rc2['neutral']}/{rc2['known']} = {rc2['share'] * 100:.1f}% · gate "
+                   f"{ie.RULE_CHECK_MAX * 100:.0f}%" + (" · BREACHED" if rc2["breached"] else " · held"))
+        if rc2["breached"]:
+            click.echo("  BLOCKED: v2 also breaches the gate — the pre-declared v3 (venue country) engages; "
+                       "its venue-country data is not loaded in this build, so the run refuses.")
     else:
         click.echo("  -> neutral rule in force: intl-neutral-v1 (as stored)")
     n = Counter(("train" if g.kickoff < ie.TRAIN_TO else "test" if ie.is_test(g) else "gap") for g in games)
@@ -954,6 +964,9 @@ def intl_elo_backtest_cmd(preflight):
     if preflight:
         click.echo("PREFLIGHT only: nothing scored, nothing recorded.")
         return
+    if rc2 is not None and rc2["breached"]:
+        click.echo("REFUSED: the neutral rule in force breaches the 10% RULE CHECK (v3 not loaded).")
+        raise SystemExit(2)
     try:
         r = ie.run(games)
     except ValueError as err:
@@ -975,7 +988,10 @@ def intl_elo_backtest_cmd(preflight):
     click.echo(f"  VERDICT (computed; the architect rules): {r['verdict']}")
     result = {k: r[k] for k in ("n_test", "ll_model", "ll_naive", "bar", "rps_model", "rps_naive",
                                 "crit_ll", "crit_bands", "verdict", "mu")}
-    result["neutral_rule"] = "intl-neutral-v2" if rc["breached"] else "intl-neutral-v1"
+    result["neutral_rule"] = rule_in_force
+    result["rule_check_v1"] = round(rc["share"], 4)
+    if rc2 is not None:
+        result["rule_check_v2"] = round(rc2["share"], 4)
     entry = reg.record_run(ie.EID, r["scored_ids"], result)
     click.echo(f"  REGISTRY: run recorded · {entry['run']['n_scored']} scored ids · sha256 "
                f"{entry['run']['ids_sha256'][:12]}… · prior reads {entry['run']['prior_read_count']} · "

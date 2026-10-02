@@ -22,6 +22,15 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — intl-elo-v1 PREFLIGHT rulings (ARCHITECT): v1 RULE CHECK 63% → v2; v2's check printed and gated; the only-this-match cities are HOME; gap games confirmed; v3 pre-declared.**
+- **Rulings (verbatim):** "RULE CHECK v1 = 63% (city rule reads multi-city hosts as neutral, as predicted). v2 applies. Pre-declare v3 now so no further ruling blocks the run: neutral_v3 = venue COUNTRY ≠ home team's country (national teams' home is their country; a venue abroad is neutral or away). Needs venue country per fixture — report the cheapest route (fixture venue fields vs /venues) and its call count; derive, label, never a provider fact. v3 engages only if v2 also exceeds 10% in the preflight." Then: "(1) print v2's RULE CHECK on the same home-and-away denominator as v1 (currently absent) — the 10% gate must be checked on v2 before the run. (2) RULED: the "neutral_city_hosted_only_this_match" category is HOME, not neutral — a team hosting a competitive match is at home even if that city appears once; leave-one-out was meant to catch finals, which never seed anyway. Reclassify the 397 and re-print the check. (3) Confirm the 1,174 "gap" games UPDATE ratings in the walk-forward even though they're not scored (they're information before the test games); if they don't, fix before the run. Then, if v2's check is <= 10%: the one run."
+- **(1)** The preflight and the run print v2's RULE CHECK on v1's home-and-away denominator, gated at 10%. A breach refuses the run (v3's loader is not built). The run records `rule_check_v1` / `rule_check_v2`.
+- **(2)** `apply_v2` no longer leaves a match out of its own set. The reclassified matches are counted as `home_city_hosted_only_this_match`.
+  - **Stated plainly:** every home-and-away match now seeds its own venue city, so with a known city it cannot read neutral under v2. v2's check on that denominator is ~0% BY CONSTRUCTION and cannot breach.
+  - UNL / WCQ play-off and finals stages carry their codes, so their listed home side is priced +100. Only friendlies and UEFA_EURO venues can derive neutral under v2.
+- **(3) Confirmed from the code:** `run()` calls `update()` on every stream game; only test games are scored. Pinned by a new test: dropping the gap games changes the test log-loss, and a gap game moves ratings.
+- **v3:** pre-declared in the doc (venue country ≠ /teams home country; derived, labelled). `scripts/intl_venue_route_probe.py --from-dir <save>` reports the cheapest route with 0 calls (a served venue country / `/venues?id` per distinct venue id / `/venues?country` per distinct home-team country). The loader is built only if v3 engages.
+
 **2026-10-02 — #234 RULINGS applied to intl-elo-v1 (pre-run): CNL_Q K 40; v2 = leave-one-out, home-and-away host sets.**
 - **Ruling (verbatim):** "(1) CNL_Q K=40 (Nations League class). (2) v2 neutral rule — ratified with your fix: a match is left out of its own host-city set, and the set is built from home-and-away competitions only. Merge #233 then #235."
 - **Applied (#235):**

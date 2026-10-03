@@ -49,6 +49,7 @@ def stored(ids: list[int], finds: list[str], day: str | None) -> list[dict]:
                 continue
             out.append({"id": m.id, "game": names, "utc_date": m.utc_date.isoformat(),
                         "status": getattr(m.status, "value", m.status), "status_raw": m.status_raw,
+                        "home_score": m.home_score, "away_score": m.away_score,
                         "external_ids": m.external_ids or {}})
         s.rollback()
     return out
@@ -87,8 +88,12 @@ def in_play(match_id: int, exports: str) -> list[dict]:
             desk = r.get("desk") or {}
             reason = desk.get("reason") or (r.get("desk_venue") or {}).get("reason")
             u, a = utc_ms(r.get("utc_date")), utc_ms(as_of)
+            st = r.get("status")
             rows.append({"file": os.path.relpath(path, exports), "exported_at": doc.get("exported_at"),
-                         "as_of": as_of, "row_utc_date": r.get("utc_date"), "status": r.get("status"),
+                         "as_of": as_of, "row_utc_date": r.get("utc_date"), "status": st,
+                         "home_score": r.get("home_score"), "away_score": r.get("away_score"),
+                         # the Desk takes a fixtures row only while it is scheduled (desk_policy.normalize)
+                         "desk_input": (not st or st == "scheduled") if "fixtures" in doc else None,
                          "reason": reason, "in_play_recomputed": (u <= a) if u == u and a == a else None})
     return rows
 
@@ -107,7 +112,8 @@ def main(argv=None) -> int:
     print(f"KICKOFF RECEIPT · {len(games)} match(es)")
     for g in games:
         print(f"\n== {g['id']} {g['game']}")
-        print(f"  STORED    utc_date {g['utc_date']} · status {g['status']} ({g['status_raw']}) · ext {g['external_ids']}")
+        print(f"  STORED    utc_date {g['utc_date']} · status {g['status']} ({g['status_raw']}) · "
+              f"score {g['home_score']}-{g['away_score']} (home-away) · ext {g['external_ids']}")
         sid = g["external_ids"].get("api_american_football")
         if a.no_provider or not sid:
             print("  PROVIDER  skipped" + ("" if sid else " (no api_american_football id)"))
@@ -122,6 +128,9 @@ def main(argv=None) -> int:
         if not rows:
             print(f"  IN-PLAY   no export under {a.exports}/ carries this match")
         for r in rows:
+            di = {True: "INCLUDED", False: "excluded", None: "n/a (not a fixtures file)"}[r["desk_input"]]
+            print(f"  EXPORT    {r['file']} · exported_at {r['exported_at']} · status {r['status']} · "
+                  f"score {r['home_score']}-{r['away_score']} · Desk input {di}")
             print(f"  IN-PLAY   {r['file']} · as_of {r['as_of']} · row utc {r['row_utc_date']} · "
                   f"recomputed in-play {r['in_play_recomputed']} · reason {r['reason']!r}")
     return 0

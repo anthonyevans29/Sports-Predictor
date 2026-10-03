@@ -1,4 +1,4 @@
-## 2026-10-03 (HOTFIX: backup verify falls back to a plain read when the read-only URI open fails)
+## 2026-10-03 (#268: HOTFIX: backup verify falls back to a plain read when the read-only URI open fails)
 - **`_verify_backup`** (`dedupe-matches --apply`, `clv-restate --apply`) tries two open forms in order, and the receipt names the one that read the backup:
   1. the read-only URI (`Path.as_uri() + "?mode=ro"`, `integrity_check`);
   2. if that raises, a plain `sqlite3.connect(path)` with `PRAGMA query_only = ON` (no writes possible) and `quick_check`.

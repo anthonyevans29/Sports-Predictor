@@ -22,6 +22,140 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-03 — P0-3 follow-up (refs #208): the fee-adjusted closing edge needs the RECORDED opening fee; no inference from combined/total fees.**
+- **Review (Anthony, PR #259, after the sign-reversal fix):** "`executedPositions()` still defaults unavailable fees to zero and substitutes total fees for a missing opening fee. Keep entry-price CLV available, but make fee-adjusted edge unavailable unless `open_fee` is present, including an explicitly verified zero. Do not infer the opening fee from combined or total fees … Add missing-fee and combined-fee regressions, with exclusion counts, before #208 closes. Preserve the existing stored series and sizing."
+- **Order of events:** #259 merged and #208 auto-closed at 16:42Z, before this follow-up was pushed. This PR carries the fix and refs #208; reopening #208 is the architect's/operator's call.
+- **Built:**
+  - `fee_adj` is computed only when every fill has a numeric `open_fee` (an explicit CSV "0" parses to 0, an empty cell to null). Otherwise it is null, tagged `missing` / `combined_only`, and counted in the P&L line "fee-adj edge needs the recorded opening fee: N with it · M no fee recorded · K combined/total fee only (never split)".
+  - Entry-price CLV is unaffected.
+- **Receipts:** cockpit_clv_verify 19/19; fills 44/44, maker/taker 26/26, exec 19/19, ledger 21/21; pytest green.
+
+**2026-10-03 — P0-3 (#208) built (ARCHITECT lane 3): "model-close divergence" rename; entry-price CLV and fee-adjusted closing edge on executed ledger positions; P&L gains both.**
+- **Ruling (verbatim, 2026-10-01):** "P0-3 CLV SEMANTICS: rename the stored/graded metric "model-close divergence" everywhere it appears; add entry-price CLV = q_close − entry on executed ledger positions (claim and exec), and fee-adjusted closing edge; P&L block gains both. Existing series kept." Lane 3 of the 2026-10-03 build order.
+- **What the old metric is:** `PredictionOutcome.clv = model p(pick) − close fair(pick)` (`training.py`), likewise NFL/NHL/UNL grading. It is the model's divergence from the close, not CLV.
+  - Renamed in every display and doc label: RESULTS.md headline, legacy and NFL lines; shadow sections; grade prints (`div=`); `clv-restate`; the web page; the Cockpit card; CLI.md.
+  - Stored columns and JSON keys (`clv`, `clv_pp`, `mean_clv_pp`) are kept, as ruled. `cli.py`'s first→last market-move table stays: it is a genuine line-move measure, not the stored metric.
+- **q_close:** results exports gain `graded.close_fair` (per side), `close_at`, `close_books` and `close_source` via `close.close_block`, which is the ruled `close_1x2`: last pre-kickoff session, complete books, de-vigged. The Cockpit reads a finished fixture's `market` block as its close.
+- **Review fix → `close_ref` "p0-3 v2" (Anthony, PR #259):** v1's `clv_exec` = q_close − exec_market_p used the RE-LOG reference, not the price paid. With q 0.65, re-log 0.60 and fill 0.70 it read +5pp where paid-entry CLV is −5pp, and graded calls with no fill entered the "executed" series.
+  - v2 keeps claim and re-log movement as labelled REFERENCE movement (`ref_move_claim`, `ref_move_relog`, `quoted_edge_relog`) in `close_ref`, together with the full closing fair by role.
+  - Executed-position CLV is computed in the P&L only from system_matched fills: per position, qty-weighted, the held contract's closing fair (YES = that side; NO = 1 − the NO'd side) − fill entry, and less the charged fee per contract. Calls without matched execution provenance are excluded and counted.
+  - Stored legacy `clv_v2` v1 blocks are kept, never rewritten and never read. Regressions for the sign reversal and the no-fill case are in `scripts/cockpit_clv_verify.py` (15/15). Sizing unchanged.
+- **Cockpit, superseded by v2 above (`clv_v2`, version "p0-3 v1"):**
+  - Fields: q_close is the pick's own closing fair (a ladder uses pick + DRAW); `clv_claim` = q − claim fair; `clv_exec` = q − execution fair; `fee_adj_quoted` = q − the pick side's executable taker cost incl. fee, null when no side-specific quote existed (never inferred).
+  - A position graded before its close arrives gains `clv_v2` when it does; no close means no block.
+  - The P&L adds the realised fee-adjusted edge from matched Kalshi fills (entry + the CHARGED open fee per contract), with n / mean / median / positive share and a 90% bootstrap CI clustered by calendar day (seeded), plus exec CLV by sport.
+- **Scope note (from the issue's proposed acceptance criteria):** delivered here are the side-specific close, actual fees, n/mean/median/positive share, the clustered bootstrap and the sport segment. Side, decision-horizon and maker/taker segments are not yet split out; they follow if ruled.
+- **Receipts:** pytest 631 passed; `scripts/cockpit_clv_verify.py` 11/11 (stable over 5 runs); all Cockpit verifies and desk parity green.
+
+**2026-10-03 — PRIORITY (ARCHITECT): the dedupe `--apply` backup open fixed; refusals name their check; sync-odds-football paced with 429 retry.**
+- **Rulings (verbatim):**
+  - "dedupe dry-run = 962 pairs (full provider re-key 22xxx→23xxx/24xxx; some corrected kickoffs). Apply failed on the backup-path check (operator retrying). Consequence: sync-odds-football hit the 300/min rate limit (431 games in window) — 60 games unpriced, Kalshi matcher 202 ambiguous. Two fixes: (a) sync-odds-football throttles to <300/min and retries 429s after the window instead of skipping the game; (b) dedupe-matches --apply should print WHICH check failed and the path it tried."
+  - "dedupe-matches --apply fails at the integrity check with "unable to open database file" though the --backup file exists (245 MB, readable, absolute path). Find the open (URI flags? relative cwd? mode=ro on a non-URI path?), fix, test against a real file path. Then the apply must run before the 3:30pm slate…"
+- **Cause:** `sqlite3.connect(f"file:{path}?mode=ro", uri=True)`. A Windows absolute path makes `file:C:\Users\...`, which is not a valid SQLite URI and fails to open. A path containing a space, `#` or `?` is mangled the same way. **Fix:** `Path.as_uri() + "?mode=ro"`, giving `file:///C:/Users/...` percent-encoded. The same pattern is fixed in `sp_common.ro_connect` and the k0 probe.
+- **(b):** `_verify_backup` (shared by dedupe-matches and clv-restate) checks, in order: given · exists (after `~`) · is a file · not inside the project's `data/` (the old check refused ANY path with a `data` component) · opens as SQLite · integrity_check · the table count equals the live DB's. Each refusal reads `REFUSED [check: …]` with the path tried.
+- **(a):** `sync_odds_nfl` (the `sync-odds-football` path) paces calls at `SP_ODDS_FOOTBALL_RPM` (default 280/min). The adapter raises `RateLimited` on a second 429. The game is deferred and the whole deferred set is retried after `Retry-After` (else 60s), up to 2 rounds. A game still limited after that is reported as unpriced, never silently skipped. Odds are stamped at fetch time, so a deferred write never moves a pre-kickoff price past kickoff.
+- **Receipts:** a REAL backup file (`.backup` of the live test DB) under "my backups #1/sports 2026-10-03.db" verifies; `~` expands; each refusal is named. The throttle test covers pacing, two 429s deferred and recovered with nobody dropped, and still-limited reported. pytest 642 passed.
+- **Operator next:** pull, take the `.backup`, then run `dedupe-matches --competition NCAA --apply --backup <path>` → `sync-odds-football` → `sync-kalshi-ncaa` → `export-fixtures --competition NCAA --desk`, before 3:30pm.
+
+**2026-10-03 — NCAA re-key receipt (ARCHITECT): dedupe `--apply` found 0 pairs where 962 showed at 07:51; read-only receipt built, code reading recorded.**
+- **Ruling (verbatim):** "dedupe --apply ran clean (backup verified) but found 0 pairs on 47,583 rows that showed 962 pairs at 07:51. The 09:06 and 13:08 sync-matches runs under #257 presumably re-keyed the old rows in place. Confirm from the DB receipt (ext ids on the 32612/47549-class pairs now) and record it; if 1,006 orphan rows remain under the old ids, say so. Export now: 45 priced, window 234, PASS 111. Georgia@Alabama still "no odds yet" at 16:48Z with no 429s — provider-side? check the game id resolves."
+- **Code reading (not yet confirmed against the DB):** the #257 re-key fires only when a listed id has NO stored row (`match is None` after the source-id lookup). After 07:51, every new 23xxx/24xxx id already had its own row (the 1,006 created), so the 09:06 and 13:08 syncs hit those rows directly and never re-keyed the old 22xxx rows. "Re-keyed in place" therefore cannot by itself explain a 0. Candidate explanations to settle from the receipt:
+  - the pairs became SAME-id pairs or 3+ clusters, which `find_pairs` refuses and counts in its report (the tail of the dedupe output line);
+  - kickoffs moved more than 12h apart;
+  - the apply ran against a different DB than the 07:51 dry-run.
+- **Window 234 vs the earlier 113 games:** consistent with two rows per game still in the window. Section 4 of the receipt says so directly.
+- **Georgia@Alabama "no odds yet" with no 429s:** consistent with the export reading an old-id row whose 22xxx id the provider no longer prices. `--resolve` shows whether each row's id resolves at `/games` and carries bookmakers at `/odds`.
+- **Receipt to run on the laptop:** `python scripts/ncaa_rekey_receipt.py --ids 32612 47549 --game "Georgia@Alabama" --resolve`.
+
+**2026-10-03 — PRIORITY (ARCHITECT): NCAA duplicate rows after a resync. The matcher now re-keys instead of duplicating; `dedupe-matches` built; the export prefers the finished row.**
+- **Ruling (verbatim):** "sync-matches NCAA (2026-10-03 07:51) created 1006 rows and the fixtures export now holds DUPLICATE games — a scheduled row (old provider id?) and a finished row for the same fixture (WKU@NMSU, UNT@Tulsa, Pitt@VT). Receipt: how the two rows differ (ext ids, team ids, utc_date); fix the matcher so a resync UPDATES; dedupe the 1006 with a receipt (never delete the row the ledger or odds reference — merge into it). Before today's 10am NCAA export if possible; otherwise the export must prefer the finished row."
+- **Cause (code read):**
+  - A resync finds an existing match ONLY by `external_ids[source] == source_id` (the per-sync prefetch cache). Only the ingestion service writes match ids, always as strings, so a type mismatch is ruled out.
+  - A miss on a known fixture means the provider listed it under a NEW game id; the architect's "old provider id?" fits. The old row stays SCHEDULED and a FINISHED twin is created.
+  - The per-pair receipt (`dedupe-matches`, dry run) shows the differing fields: ext id, utc, status, score.
+- **Matcher fix:** `src/ingestion/service.py` `REKEY_SOURCES = {api_american_football}`. On a source-id miss, it finds the same fixture by natural key: competition, home and away team, ±12h, and the stored id NOT in the current listing. It updates that row and records the new id (old id under `<source>_prev`).
+  - Ambiguous and swapped candidates are refused, never created.
+  - Scoped to the american-football family. For MLB, a same pair within hours is a real doubleheader or series game, so MLB keeps source-id matching only.
+- **Dedupe:** `src/ingestion/match_dedupe.py` + `dedupe-matches`.
+  - **Keeper:** the OLDER row, which the ledger, odds and Kalshi snapshots referenced before 07:51. It takes the newer row's state, without blanking values or regressing FINISHED.
+  - **References:** all 13 referencing tables, discovered from the schema, are re-pointed; then the empty row is deleted.
+  - **Refusals:** a unique-table conflict (`intl_match_venue`, `match_neutral_derived`, `match_stats`) refuses the pair, and no child row is deleted. Clusters of 3+ and swapped pairs are reported.
+  - `--apply` needs a verified `.backup` (integrity ok, matches count = live).
+- **Export guard:** `export-fixtures` keeps one row per fixture (same pair within 12h), the FINISHED one when there is one, and counts `duplicates_suppressed`.
+- **Recorded:** v1.2.0 deployed (7728ad8); the ledger compile ran once, correctly.
+
+**2026-10-03 — PROBE built (ARCHITECT lane 4): Kalshi trade API — read-only receipt; no orders.**
+- **Ruling (verbatim):** "PROBE (read-only, no orders): Kalshi trade API — can a limit order be placed and cancelled via the API from the host (auth model, demo environment, maker/taker flags, fee fields on fills)? Receipt only; order placement itself is a separate ruling."
+- **Desk research** (Kalshi docs via search; docs.kalshi.com and the API hosts are blocked from the build sandbox):
+  - **Auth:** API key id + RSA private key. Every request is signed RSA-PSS (MGF1-SHA256, salt = digest length) over `timestamp_ms + METHOD + path`, where the path includes `/trade-api/v2` and excludes the query. Headers: `KALSHI-ACCESS-KEY`, `KALSHI-ACCESS-TIMESTAMP`, `KALSHI-ACCESS-SIGNATURE`.
+  - **Orders:** create / cancel / amend / decrease, plus list / get. The V2 order shape quotes from the YES leg in fixed-point dollars; the order model is action (buy/sell) + side (yes/no) + a limit price.
+  - **Demo environment:** exists, at `demo-api.kalshi.co/trade-api/v2` (also `external-api.demo.kalshi.co`). Demo keys are separate.
+  - **Fills:** carry `is_taker` (the maker/taker flag) and `fee_cost` (the charged fee), with `order_id`, prices and counts.
+- **Host receipt** (`scripts/kalshi_trade_api_probe.py`, GET only; any other method is refused before a request) verifies these live:
+  - REACH (prod and demo status);
+  - AUTH (signed `/portfolio/balance`);
+  - ORDERS keys (the limit-order shape, including post-only / time-in-force as named);
+  - FILLS keys (`is_taker` and fee fields, with counts).
+- **Findings so far:**
+  - `cryptography` (needed for the RSA-PSS signature) was not in `requirements.txt`. **ARCHITECT 2026-10-03:** "`cryptography` goes into requirements.txt (the signing dependency is real); host probe runs after the next tag." It is now added (`cryptography>=41.0.0`), and the probe still reports it if the host lacks it.
+  - Whether the operator's key may trade is shown by the balance call.
+  - Placing and cancelling a demo limit order needs a ruling: this probe cannot do it by construction.
+- **Operator:** on the host, set the key env (never committed), then run `python3 scripts/kalshi_trade_api_probe.py --json exports/kalshi_trade_probe.json` (and `--demo-only` with demo keys) and paste the receipt.
+
+**2026-10-03 — F2.5 EXPORTS MIRROR built (ARCHITECT): host and laptop push exports/ to a private repo; a compare Action posts the verdict; the Cockpit loads the host's latest.**
+- **Ruling (verbatim):** "EXPORTS MIRROR lane (F2.5): (1) a private repo Sports-Predictor-exports; the HOST pushes exports/ after every chain step (push-only deploy key, generated on the host; Anthony adds the public half in the repo's deploy keys). Layout: host/<date>/<file>, plus host/latest/<kind>.json (newest per kind, rewritten each push). Retention 14 days of dated folders; weekly history squash so the repo stays small. Files stay on the host too. (2) The LAPTOP pushes the same way to laptop/ (writer of record) at the end of the morning chain — then compare_exports runs as a GitHub Action on push and posts the DIVERGENT/clean verdict as a commit status; pull_exports over Tailscale becomes optional. (3) Cockpit: a "Load latest from host" control that fetches host/latest/* via the GitHub API with a fine-grained read-only token the operator pastes once (stored in the browser, never in a file). Desk files only (F1c). Receipt: tonight's 16:00 nhl-daily run visible in the repo within a minute."
+- **Built (this repo):**
+  - `deploy/hosting/exports_mirror.py`: the layout as ruled (date = the file's UTC mtime; kind = the name minus its stamp). Top-level `*.json|*.md` only; 14-day prune; `latest/` rewritten each push; copies only. Both writers share one branch: every push starts from the remote's tip and retries on a race.
+  - `sp_run.mirror_after_step`: after every step; non-fatal, ≤ 90 s, receipted `kind: mirror`.
+  - `sp-exports-squash.timer`: Sun 06:10 UTC, an orphan commit force-pushed; a no-op until configured.
+  - The compare Action, shipped into the mirror with `compare_exports.py` on every push: status `compare_exports` = success / failure (DIVERGENT) / pending, for the newest date both sides pushed.
+  - The Cockpit "Load latest from host" control: token in localStorage only, sent as Bearer; non-JSON entries skipped; F1c refuses files without desk blocks; a 401 says so.
+- **Owed by the operator:** create the private repo; run `keygen` on the host and add the public half as a deploy key with WRITE access; set `SP_EXPORTS_MIRROR_REMOTE` in host.env; give the laptop its own key and run its push at the end of the morning chain; create the read-only fine-grained token for the Cockpit. All steps are in `docs/specs/exports-mirror.md`.
+- **Receipt (ruled):** tonight's 16:00 `nhl-daily`, after the deploy carrying this. The Cockpit's GitHub fetch depends on the artifact sandbox allowing api.github.com; the republish shows it, and the file picker is unchanged.
+- **Tests:** test_exports_mirror (5, local bare repo: both writers, retention, latest, no-op, squash, non-fatal hook); `cockpit_mirror_verify` 6/6 (routed API).
+Review fix (PR #261): the mirrored comparator is standalone (no sp_common), and an ERROR (exit 2 / no VERDICT line) is never read as DIVERGENT; regression on a clean checkout.
+Review fix 2 (PR #261): zero JSON compared → NO-COVERAGE (exit 3, Action state=error), never CLEAN; a coverage line names what the glob left out; Markdown-only and empty-folder regressions on the shipped tree.
+
+**2026-10-03 — AUTO-CLAIM built (ARCHITECT lane 2): loading a desk file into the Cockpit claims its calls at the file's as_of.**
+- **Ruling (verbatim):** "(2) AUTO-CLAIM: loading a --desk file into the Cockpit logs its PLAY/VENUE/shadow calls as claims automatically, idempotent on (match, pick, desk_meta.as_of); "Log today's calls" becomes "re-log at T-60" only. The claim is the file's call at the file's as_of — no human step. Receipt: the two Braves PLAYs and Thursday's VT VENUE call would have been claimed. Verify + golden unchanged."
+- **Built (`tools/cockpit.html`):**
+  - `snapshotCalls(now, {auto})`: each row's clock is its file's `desk_meta.as_of`, which sets the log date, `captured_at` and the kickoff test. Entries carry `claim_as_of` and `claim_source: "auto"`.
+  - `autoClaim()` runs on every load. Its idempotency key is (game, kickoff, pick, call type, engine, as_of), kept in `L.meta.auto_claims`.
+  - **Never backwards:** a position whose ledger time is ≥ the file's as_of is not repriced.
+  - The button is now "Re-log at T-60", with the same handler on the current clock.
+  - **Bug found by the verify:** fixtures rows did not carry `exportedAt`, so a VENUE claim would have been stamped "now". Fixed.
+- **Interpretation, stated for correction:** parlay tickets are NOT auto-claimed (the ruling names PLAY/VENUE/shadow); they stay on the re-log button. Including them is a one-line change.
+- **Receipt (synthetic, `scripts/cockpit_autoclaim_verify.py` 11/11):**
+  - Both Braves PLAYs from a pre-first-pitch file are claimed at its as_of, one of them though the game had started before the load.
+  - Thursday's Pitt@VT VENUE call (6.4pp) is claimed at Thursday's as_of.
+  - PASS rows and rows started at as_of are not claimed; a reload claims nothing; a newer file reprices with the claim frozen; an older file never reprices.
+  - **Real-file receipt:** load Thursday's NCAA desk file and the Braves day's MLB desk file into the updated Cockpit; the note names what was claimed.
+- **Verifies:** exec, maker_taker and no_side clear the claims made by their render-comparison loads; leg_audit checks the export's PLAYs were claimed and compares only the seeded calls. All 19 verifies and desk parity are green; the desk golden is unchanged (desk_policy untouched).
+- **Cockpit:** the architect republishes it.
+
+**2026-10-03 — ARCHITECT: parlay tickets ARE auto-claimed (built); the #208 by-sport split suffices for now; `cryptography` goes into requirements.**
+- **Ruling (verbatim):** "(1) parlay tickets ARE auto-claimed on load (one-line change; the ruling's intent was "every call in the file"). (2) #208 by-sport split suffices now; horizon/side/maker splits at the 50-position review. (3) `cryptography` goes into requirements .txt (the signing dependency is real); host probe runs after the next tag. Merge order #259, #260, #261, #256."
+- **(1), built:**
+  - `snapshotCalls({auto})` now includes `deskParlays`. A ticket's clock is the `desk_parlays` file's `desk_meta.as_of`, falling back to its first leg's file; it sets the log date, the parlay id's date, `captured_at` and the kickoff test. It is still whole ticket or nothing.
+  - `autoKey` gains `parlay_id`, because tickets share legs; without it the second ticket's leg would read as "already claimed".
+  - Receipt: `cockpit_autoclaim_verify` claims 3 tickets × 2 legs at the parlays file's as_of; a reload claims none.
+- **(2), recorded:** horizon / side / maker-taker segments of the P0-3 metrics are deferred to the 50-position review; no change.
+- **(3):** added to #260 (the probe PR), so the dependency lands with the code that needs it.
+
+**2026-10-02 — #254 CLOSED (ARCHITECT: misread); the residue built: the NCAA market chain syncs results before its export.**
+- **Ruling (verbatim):** "#254 — CLOSE as architect misread; stored kickoffs are correct and "in-play — never" was right (games played Thu). The real residue: WKU@NMSU and UNT@Tulsa still status=scheduled 20h after finishing — NCAA match/result sync isn't running between the Thu games and the Fri export. Add sync-matches NCAA to the Friday/Saturday NCAA chain (laptop + host sp-ncaa-market) before the fixtures export, so finished games leave the window."
+- **Correction to #255's entry:** it called the stored kickoffs "+24h". That was based on the reported utc_date values, which the architect has ruled a misread. The stored kickoffs are correct. `scripts/kickoff_receipt.py` stays as a read-only tool.
+- **Built:**
+  - `deploy/hosting/chains.py` `ncaa-market` now runs `sync-matches --competition NCAA --season 2026 --date-from D --date-to D` for D = yesterday and today. These are single-day calls, because the american-football adapter sends a `date` only when from == to. They run before `sync-kalshi-ncaa` and `export-fixtures`.
+  - The timer is unchanged (Thu 16:00, Fri 16:00, Sat 13:00 UTC), so the Thursday run also covers Wednesday games.
+  - `sync-matches` is metered: in designated-days mode it is skipped on non-designated days, like every other sync.
+- **Laptop:** the same three steps, documented in `docs/CLI.md` under Market-only competitions. The operator's Thu/Fri/Sat NCAA routine gains the two `sync-matches` lines.
+- **Review on #256 (Anthony, 2026-10-03):** the receipt omitted the exported status and the stored scores. `scripts/kickoff_receipt.py` now prints:
+  - STORED: `score H-A`;
+  - one EXPORT line per file: file name, `exported_at`, the row's status and score, and **Desk input INCLUDED / excluded**. A fixtures row is a Desk input only while scheduled (`desk_policy.normalize`).
+
+  The output is pinned in tests/test_kickoff_receipt.py. The script stays read-only.
+
 **2026-10-02 — #91 RULED and BUILT: a venue-edge row whose book capture is older than 3h at decision time has NO reference.**
 - **Ruling (verbatim, ARCHITECT board 2026-10-02):** "#91 RULED: a venue-edge row whose book capture is older than 3h at decision time has NO reference (not stale-flagged, excluded) — same PASS/no-ref class as absent books."
 - **Built:** `src/walters/desk_policy.py` `venue_edge`. Decision time is the Desk's as-of (`desk_meta.as_of`, ruled default (2) of 2026-10-01). The book capture is the fixtures row's `market.captured_at`: the last complete pre-kickoff session under the close contract, or the spread fallback's latest capture. Age > 3h gives PASS / `noref` with the reason "books captured X.Xh ago > 3h — no reference". The check sits right after the absent-books check, so absent books keep their "single venue — no pair" wording.

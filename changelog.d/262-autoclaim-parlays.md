@@ -1,2 +1,0 @@
-## 2026-10-03 (#262: auto-claim includes parlay tickets; #208 segment scope ruled)
-- `tools/cockpit.html`: loading the desk files auto-claims parlay tickets too, each at the `desk_parlays` file's as_of (whole ticket or nothing; a leg started at as_of skips the ticket). The idempotency key includes `parlay_id`, so a leg shared by two tickets is claimed once per ticket. `scripts/cockpit_autoclaim_verify.py` 13/13 (+2); the leg_audit verify counts the auto-claimed ticket legs.

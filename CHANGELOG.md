@@ -4,6 +4,70 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-03 (#265: NCAA re-key receipt: why `dedupe-matches --apply` found 0 pairs)
+- **`scripts/ncaa_rekey_receipt.py`** (read-only; opens the DB with `mode=ro`, writes nothing). It prints:
+  - rows re-keyed in place, and the source-id classes (22xxx old vs 23xxx/24xxx new);
+  - the natural-key clusters under `find_pairs`' own rules: mergeable / SAME id / missing id / 3+ rows, so a 0 is explained rather than assumed;
+  - rows with no twin, with stale SCHEDULED orphans counted;
+  - export-window rows vs distinct games, flagging duplicates still in the window;
+  - per-id rows (ext ids, `_prev`, status, odds and snapshot counts);
+  - `--game "Away@Home"` rows, with `--resolve` looking each row's id up at the provider (GET `/games?id=`, `/odds?game=`; the key is never printed).
+- tests/test_ncaa_rekey_receipt.py (1).
+
+## 2026-10-03 (#264: P0-3 follow-up, refs #208: fee-adjusted edge only from a recorded opening fee)
+- **Cockpit `executedPositions()`** (PR #259 review 2, Anthony): the fee-adjusted edge requires `open_fee` on EVERY fill of the position (a recorded zero counts).
+  - It no longer substitutes the combined/total `fees` for a missing opening fee and no longer defaults it to zero.
+  - Without it the fee-adjusted edge is unavailable (null); entry-price CLV stays.
+  - Positions are tagged `open_fee` / `missing` / `combined_only`, and the P&L prints both exclusion counts.
+  - Opening and closing fees stay recorded separately at import (a re-import fills them in on older rows); nothing splits a combined figure.
+- `scripts/cockpit_clv_verify.py` 19/19: missing-fee, combined-fee, recorded-zero and mixed-fill regressions with exclusion counts. Stored series and sizing unchanged.
+
+## 2026-10-03 (#263: PRIORITY: backup verify opens Windows/space paths; names the failed check; sync-odds-football paced + 429 retry)
+- **`dedupe-matches --apply` and `clv-restate --apply`** now share `_verify_backup`. It opens the backup with `Path.as_uri() + "?mode=ro"`; the old `f"file:{path}?mode=ro"` failed with "unable to open database file" on a Windows absolute path or any path with a space, `#` or `?`. It expands `~` and refuses only paths inside this project's `data/`. Every refusal names its check and the path it tried. `sp_common.ro_connect` and the k0 probe use the same safe open.
+- **`sync-odds-football`** paces its per-game odds calls below the provider limit (`SP_ODDS_FOOTBALL_RPM`, default 280/min). A game still rate limited after the adapter's own retry (new `RateLimited`) is deferred and retried after the window (`Retry-After`, else 60s), for up to 2 rounds, never dropped. Odds are stamped at fetch time. The receipt counts rate-limited / recovered games.
+- tests: test_backup_verify (6, a real `.backup` file under "my backups #1/"), test_odds_football_throttle (2).
+
+## 2026-10-03 (#262: auto-claim includes parlay tickets; #208 segment scope ruled)
+- `tools/cockpit.html`: loading the desk files auto-claims parlay tickets too, each at the `desk_parlays` file's as_of (whole ticket or nothing; a leg started at as_of skips the ticket). The idempotency key includes `parlay_id`, so a leg shared by two tickets is claimed once per ticket. `scripts/cockpit_autoclaim_verify.py` 13/13 (+2); the leg_audit verify counts the auto-claimed ticket legs.
+
+## 2026-10-03 (#261: F2.5 exports mirror — the host pushes exports/ after every chain step; the laptop pushes at the end of the morning chain; compare Action; Cockpit "Load latest from host")
+- `deploy/hosting/exports_mirror.py` (`push --role host|laptop`, `squash`, `keygen`): writes `<role>/<date>/<file>` plus `<role>/latest/<kind>.json`, keeps 14 days, and also ships `tools/compare_exports.py` and the compare Action into the mirror. Copies only. A push race retries from the remote's tip.
+- `sp_run`: the mirror push runs after every chain step. It is non-fatal, takes at most 90 s and is receipted; it is off until `SP_EXPORTS_MIRROR_REMOTE` is set. New `sp-exports-squash.timer` (Sun 06:10 UTC), on the T11 list.
+- `deploy/exports-mirror/compare.yml`: the commit status `compare_exports` (clean / DIVERGENT / pending) for the newest date both writers pushed.
+- Cockpit: "Load latest from host". It uses a fine-grained read-only token kept in localStorage and fetches `host/latest/*.json` into the same load path (F1c refusal intact); upload handling is refactored into `loadDocs`.
+- `docs/specs/exports-mirror.md` covers the operator setup. tests/test_exports_mirror.py (5); `scripts/cockpit_mirror_verify.py` (6).
+- Review fix (Anthony): the shipped `tools/compare_exports.py` imported `sp_common.py`, which the mirror never shipped (`ModuleNotFoundError` in the Action). It is now standalone: it falls back to `SP_WRITER_OF_RECORD` from the environment. Its exits are 0 CLEAN / 1 DIVERGENT / 2 ERROR (bad arguments, a missing side directory, a crash), and it ends on a `VERDICT:` line. The Action posts `error` ("not a data verdict") unless the exit code AND the VERDICT line agree. Regression: a fresh clone of the mirror, with no PYTHONPATH, runs the shipped CLI and the Action's own step script → CLEAN, DIVERGENT, ERROR (tests/test_exports_mirror.py now has 6 tests).
+- Review fix 2 (Anthony): a zero-file comparison is never CLEAN. Exit 3 = NO-COVERAGE ("VERDICT: NO-COVERAGE (0 compared) — not a data verdict"); the Action posts `error` "NO COVERAGE · <date>". Every run prints a `coverage:` line: JSON compared, one-side-only, outside the window, and files the glob left out (e.g. Markdown). Regressions on the shipped tree in a clean checkout: Markdown-only dated folders and empty folders → exit 3 / state=error (tests/test_exports_mirror.py now has 7 tests).
+
+## 2026-10-03 (#260: Kalshi trade-API probe — read-only, no orders)
+- `scripts/kalshi_trade_api_probe.py`: on the host it answers REACH (prod + demo `/exchange/status`), AUTH (RSA-PSS-signed key; `/portfolio/balance`), ORDERS (`/portfolio/orders` keys) and FILLS (`/portfolio/fills`: `is_taker`, fee fields). GET only by construction; no order is placed or cancelled. `cryptography>=41.0.0` added to requirements.txt (ruled: the signing dependency is real). tests/test_kalshi_trade_probe.py (3; the signing test skips where `cryptography` is unusable).
+
+## 2026-10-03 (#259, closes #208 — P0-3: "model-close divergence" rename; entry-price CLV and fee-adjusted closing edge on executed positions)
+- **Rename (labels and docs; stored series and keys kept):** the per-game metric stored as `clv` (model p − close fair on the pick) is now labelled "model-close divergence" in RESULTS.md, the NHL/UNL shadow grades and sections, `nfl-grade`, `clv-restate`, the web predictions page, the Cockpit shadow card and `docs/CLI.md`.
+- **Exports:** results exports (`export-results`, `export-nfl-results`) carry `graded.close_fair` per side plus `close_at` / `close_books` / `close_source`, from `close.close_block` (the ruled `close_1x2`).
+- **Cockpit (`close_ref`, version "p0-3 v2"; review fix):** graded straight/ladder positions gain a REFERENCE block = {q_close, fair by role, ref_move_claim = q_close − claim ref, ref_move_relog = q_close − re-log ref, quoted_edge_relog = q_close − quoted taker cost}. A ladder uses pick + DRAW. There is no complement guess and no block without a close. These are labelled reference movement, not CLV. Legacy `clv_v2` ("p0-3 v1") blocks are kept as stored, never rewritten and never read.
+- **P&L block:**
+  - EXECUTED-POSITION CLV comes ONLY from matched Kalshi fills. Per position, qty-weighted: the held contract's closing fair minus the fill entry (a NO is priced as 1 − the NO'd side), and that less the charged fee per contract. It is broken out by sport.
+  - Calls with no matched fill are excluded and counted, as are fills whose held contract cannot be priced at the close.
+  - REFERENCE MOVEMENT (claim → close, re-log → close, quoted taker edge) is printed separately, under its own label.
+  - Every series reports n / mean / median / positive share / 90% bootstrap CI clustered by day.
+- **Review regression (Anthony, PR #259):** q 0.65, re-log 0.60, matched fill at 0.70 → reference movement +5pp, executed entry CLV −5pp (v1 read +5pp as "exec CLV"). Separately, a graded call with no fill → not an executed position. Sizing unchanged.
+- tests/test_close_block_208.py (2); `scripts/cockpit_clv_verify.py` (15); three tests updated for the new labels.
+
+## 2026-10-03 (#258: Cockpit AUTO-CLAIM — loading a desk file claims its calls at the file's as_of)
+- `tools/cockpit.html`: loading a `--desk` prediction or fixtures file logs its PLAY / LADDER, VENUE, quarantine-shadow and value-shadow calls as claims automatically. The claim is stamped at the file's `desk_meta.as_of`, and the kickoff test also reads it. Claims are idempotent on (match, pick, call type, engine, as_of) via `L.meta.auto_claims`, and a file older than the ledger never reprices a position. Parlay tickets stay on the button, now "Re-log at T-60". Fixtures rows now carry their file's as_of (bug found by the new verify).
+- `scripts/cockpit_autoclaim_verify.py` (11 checks): two Braves PLAYs and Thursday's Pitt@VT VENUE claimed; PASS and started-at-as_of rows not claimed; idempotent reload; newer file reprices, older never does. Four verifies adjusted (render-comparison loads now claim). Desk golden unchanged.
+
+## 2026-10-03 (#257: NCAA duplicate rows — the resync re-keys instead of duplicating; dedupe-matches; export prefers the finished row)
+- `IngestionService.sync_matches` (american-football family): a source-id miss falls back to the natural key: same competition, same home and away team, kickoff within 12h, and the stored id absent from the listing. The stored row is UPDATED and takes the new id; the old id is kept as `<source>_prev`. Ambiguous candidates or a home/away-swapped pair are refused and receipted, never created. `SyncResult` reports `rekeyed` / `rekey_refused`.
+- `python cli.py dedupe-matches --competition NCAA [--apply --backup PATH]`: the receipt of how each duplicate pair differs. Apply merges the newer row into the older, referenced one: references are re-pointed, the empty row is deleted, and conflicts are refused.
+- `export-fixtures` carries one row per fixture, preferring the finished one, and counts `duplicates_suppressed`.
+- tests/test_ncaa_rekey_dedupe.py (5).
+
+## 2026-10-02 (#256: NCAA market chain syncs results before the export; closes #254)
+- `ncaa-market` (host `sp-ncaa-market`, Thu / Fri / Sat) now runs `sync-matches --competition NCAA --season 2026` for yesterday and today as single-day calls, before `sync-kalshi-ncaa` and `export-fixtures`. Games finished since the last run (Thursday's slate before Friday's export) leave the window instead of reading SCHEDULED.
+- The laptop routine is documented in `docs/CLI.md` (Market-only competitions); `docs/specs/hosting-h1.md` timer table updated. tests/test_hosting_pack.py (+1).
+
 ## 2026-10-02 (#255, refs #254: NCAA kickoff +24h finding — read-only receipt script)
 - `scripts/kickoff_receipt.py` (read-only), for each match:
   - the STORED row: utc_date, status, external ids;

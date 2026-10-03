@@ -1,9 +1,0 @@
-**2026-10-03 — NCAA re-key receipt (ARCHITECT): dedupe `--apply` found 0 pairs where 962 showed at 07:51; read-only receipt built, code reading recorded.**
-- **Ruling (verbatim):** "dedupe --apply ran clean (backup verified) but found 0 pairs on 47,583 rows that showed 962 pairs at 07:51. The 09:06 and 13:08 sync-matches runs under #257 presumably re-keyed the old rows in place. Confirm from the DB receipt (ext ids on the 32612/47549-class pairs now) and record it; if 1,006 orphan rows remain under the old ids, say so. Export now: 45 priced, window 234, PASS 111. Georgia@Alabama still "no odds yet" at 16:48Z with no 429s — provider-side? check the game id resolves."
-- **Code reading (not yet confirmed against the DB):** the #257 re-key fires only when a listed id has NO stored row (`match is None` after the source-id lookup). After 07:51, every new 23xxx/24xxx id already had its own row (the 1,006 created), so the 09:06 and 13:08 syncs hit those rows directly and never re-keyed the old 22xxx rows. "Re-keyed in place" therefore cannot by itself explain a 0. Candidate explanations to settle from the receipt:
-  - the pairs became SAME-id pairs or 3+ clusters, which `find_pairs` refuses and counts in its report (the tail of the dedupe output line);
-  - kickoffs moved more than 12h apart;
-  - the apply ran against a different DB than the 07:51 dry-run.
-- **Window 234 vs the earlier 113 games:** consistent with two rows per game still in the window. Section 4 of the receipt says so directly.
-- **Georgia@Alabama "no odds yet" with no 429s:** consistent with the export reading an old-id row whose 22xxx id the provider no longer prices. `--resolve` shows whether each row's id resolves at `/games` and carries bookmakers at `/odds`.
-- **Receipt to run on the laptop:** `python scripts/ncaa_rekey_receipt.py --ids 32612 47549 --game "Georgia@Alabama" --resolve`.

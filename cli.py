@@ -299,6 +299,56 @@ def odds_audit_cmd():
                                          else "no source holds more than one capture session per match"))
 
 
+def _verify_backup(backup_path: str | None, table: str, model) -> str:
+    """Law 5 gate for every --apply that writes: a .backup taken just before.
+    Returns the verified path; otherwise raises click.UsageError naming WHICH
+    check failed and the path it tried (ARCHITECT 2026-10-03: the operator's
+    first dedupe --apply was refused without saying why). Checks, in order:
+    given · found (after ~ expansion) · a file · not inside this project's data/ ·
+    opens read-only · integrity_check ok · <table> count equals the live DB's."""
+    import sqlite3
+    from pathlib import Path
+
+    from sqlalchemy import func, select as _sel
+
+    from src.db.database import session_scope as _ss
+
+    if not backup_path:
+        raise click.UsageError("REFUSED [check: --backup given]: --apply needs --backup PATH "
+                               "(a .backup file taken just before; law 5).")
+    raw = backup_path
+    bp = Path(backup_path).expanduser().resolve()
+    if not bp.exists():
+        raise click.UsageError(f"REFUSED [check: file exists]: tried {raw!r} -> {bp} — not found.")
+    if not bp.is_file():
+        raise click.UsageError(f"REFUSED [check: is a file]: tried {raw!r} -> {bp} — it is a directory.")
+    data_dir = (Path(__file__).resolve().parent / "data").resolve()
+    if bp == data_dir or data_dir in bp.parents:
+        raise click.UsageError(f"REFUSED [check: not under the project's data/]: {bp} is inside {data_dir} (law 5).")
+    try:
+        # Path.as_uri(): file:///C:/Users/... on Windows, percent-encoded spaces / # / ?.
+        # The old f"file:{path}?mode=ro" failed with "unable to open database file" on a
+        # Windows absolute path (ARCHITECT 2026-10-03: the dedupe --apply refusal).
+        con = sqlite3.connect(bp.as_uri() + "?mode=ro", uri=True)
+        try:
+            ic = [r[0] for r in con.execute("PRAGMA integrity_check")]
+            n_bk = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
+        finally:
+            con.close()
+    except sqlite3.Error as e:
+        raise click.UsageError(f"REFUSED [check: opens as SQLite with table {table}]: {bp} — "
+                               f"{e.__class__.__name__}: {e}")
+    if ic != ["ok"]:
+        raise click.UsageError(f"REFUSED [check: integrity_check]: {bp} — {'; '.join(ic[:3])}")
+    with _ss() as _s:
+        n_live = _s.execute(_sel(func.count(model.id))).scalar()
+    if n_bk != n_live:
+        raise click.UsageError(f"REFUSED [check: {table} count = live]: {bp} has {n_bk}, the live DB {n_live} "
+                               "— something wrote since the backup; take a fresh .backup and retry.")
+    click.echo(f"backup verified: {bp} · integrity ok · {table} {n_bk} = live")
+    return str(bp)
+
+
 @cli.command("dedupe-matches")
 @click.option("--competition", "competition_code", required=True)
 @click.option("--source", default="api_american_football", show_default=True)
@@ -317,32 +367,12 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample):
     newer row deleted. Clusters of 3+, swapped pairs and unique-table
     conflicts are reported, never merged."""
     import json as _json
-    import sqlite3
-    from pathlib import Path
 
+    from src.db.schema import Match as _M
     from src.ingestion import match_dedupe as md
 
     if apply:
-        if not backup_path or not Path(backup_path).is_file():
-            raise click.UsageError("--apply needs --backup PATH to an existing .backup file (law 5).")
-        bp = Path(backup_path).resolve()
-        if "data" in bp.parts:
-            raise click.UsageError("REFUSED: the backup must not live under data/ (law 5).")
-        con = sqlite3.connect(f"file:{bp}?mode=ro", uri=True)
-        try:
-            ok = [r[0] for r in con.execute("PRAGMA integrity_check")] == ["ok"]
-            n_bk = con.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
-        finally:
-            con.close()
-        from sqlalchemy import func, select as _sel
-        from src.db.database import session_scope as _ss
-        from src.db.schema import Match as _M
-        with _ss() as _s:
-            n_live = _s.execute(_sel(func.count(_M.id))).scalar()
-        if not ok or n_bk != n_live:
-            raise click.UsageError(f"REFUSED: backup integrity={'ok' if ok else 'FAIL'}, matches backup {n_bk} "
-                                   f"vs live {n_live} — take a fresh .backup first.")
-        click.echo(f"backup verified: {bp} integrity ok · matches {n_bk} = live")
+        _verify_backup(backup_path, "matches", _M)
     try:
         r = md.run(competition_code, source=source, apply=apply, sample=sample)
     except ValueError as e:
@@ -371,31 +401,11 @@ def clv_restate_cmd(apply, backup_path):
     Dry-run by default. --apply --backup PATH writes clv / closing_price /
     closing_bookmaker in one transaction; grades with no pre-kickoff capture
     are reported and left as stored."""
-    import sqlite3
-    from pathlib import Path
+    from src.db.schema import PredictionOutcome as _PO
     from src.walters import clv_restate as cr
 
     if apply:
-        if not backup_path or not Path(backup_path).is_file():
-            raise click.UsageError("--apply needs --backup PATH to an existing .backup file (law 5).")
-        bp = Path(backup_path).resolve()
-        if "data" in bp.parts:
-            raise click.UsageError("REFUSED: the backup must not live under data/ (law 5).")
-        con = sqlite3.connect(f"file:{bp}?mode=ro", uri=True)
-        try:
-            ok = [r[0] for r in con.execute("PRAGMA integrity_check")] == ["ok"]
-            n_bk = con.execute("SELECT COUNT(*) FROM prediction_outcomes").fetchone()[0]
-        finally:
-            con.close()
-        from sqlalchemy import func, select as _sel
-        from src.db.database import session_scope as _ss
-        from src.db.schema import PredictionOutcome as _PO
-        with _ss() as _s:
-            n_live = _s.execute(_sel(func.count(_PO.id))).scalar()
-        if not ok or n_bk != n_live:
-            raise click.UsageError(f"REFUSED: backup integrity={'ok' if ok else 'FAIL'}, prediction_outcomes "
-                                   f"backup {n_bk} vs live {n_live} — take a fresh .backup first.")
-        click.echo(f"backup verified: {bp} integrity ok · prediction_outcomes {n_bk} = live")
+        _verify_backup(backup_path, "prediction_outcomes", _PO)
     r = cr.restate(apply=apply)
     click.echo(f"CLV-RESTATE (#167 b) · close = LAST pre-kickoff capture session · "
                f"{'APPLIED' if apply else 'DRY-RUN (nothing written)'}")

@@ -229,7 +229,7 @@ def sha256_file(p: Path) -> str:
 def ro_connect(p: Path) -> sqlite3.Connection:
     if not p.exists():
         raise FileNotFoundError(p)
-    return sqlite3.connect(f"file:{p}?mode=ro", uri=True, timeout=60)
+    return sqlite3.connect(Path(p).resolve().as_uri() + "?mode=ro", uri=True, timeout=60)  # Windows/space-safe
 
 
 def table_counts(p: Path, tables: tuple | None = None) -> dict:

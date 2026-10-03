@@ -16,6 +16,7 @@ Paste the whole output to the architect.
 import os
 import sqlite3
 import sys
+from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -31,7 +32,7 @@ def main() -> int:
     if not os.path.exists(path):
         print(f"✗ no database at {path}. Stop.")
         return 1
-    con = sqlite3.connect(f"file:{path}?mode=ro", uri=True)   # read-only
+    con = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)   # read-only (Windows/space-safe)
     cur = con.cursor()
 
     print("K0.1 — odds_snapshots schema (PRAGMA table_info)")

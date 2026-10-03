@@ -68,3 +68,50 @@ def test_not_a_database_and_count_mismatch_are_named(tmp_path):
     con.close()
     out = run(["dedupe-matches", "--competition", "NCAA", "--apply", "--backup", str(small)])
     assert "check: matches count = live" in out.output and f"has {live + 1}, the live DB {live}" in out.output, out.output
+
+
+def _fail_uri(monkeypatch):
+    """The macOS refusal (ARCHITECT 2026-10-03): the read-only URI form raises "unable to open database
+    file" on an existing backup. Every other open is real."""
+    real = sqlite3.connect
+
+    def fake(target, *a, **kw):
+        if kw.get("uri"):
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(target, *a, **kw)
+    monkeypatch.setattr(sqlite3, "connect", fake)
+
+
+def test_macos_path_uri_refusal_falls_back_to_a_plain_read(tmp_path, monkeypatch):
+    bp = _backup_of_live(tmp_path / "Users" / "anthonyevans" / "backups" / "sports_preorphans.db")
+    before = bp.read_bytes()
+    _fail_uri(monkeypatch)
+    out = run(["dedupe-matches", "--competition", "NCAA", "--apply", "--backup", str(bp)])
+    assert "backup verified:" in out.output, out.output
+    assert "opened via plain path, query_only" in out.output
+    assert "after: uri mode=ro: OperationalError: unable to open database file" in out.output
+    assert "integrity ok (quick_check)" in out.output and "journal_mode" in out.output
+    assert bp.read_bytes() == before                                    # the fallback read wrote nothing
+
+
+def test_both_open_forms_failing_names_both(tmp_path, monkeypatch):
+    junk = tmp_path / "Users" / "anthonyevans" / "backups" / "junk.db"
+    junk.parent.mkdir(parents=True)
+    junk.write_bytes(b"not sqlite at all" * 100)
+    _fail_uri(monkeypatch)
+    out = run(["dedupe-matches", "--competition", "NCAA", "--apply", "--backup", str(junk)])
+    assert out.exit_code != 0 and "check: opens as SQLite with table matches" in out.output, out.output
+    assert "uri mode=ro: OperationalError: unable to open database file" in out.output
+    assert "plain path, query_only: DatabaseError" in out.output and str(junk) in out.output
+
+
+def test_the_plain_fallback_cannot_write(tmp_path):
+    """query_only: the fallback form is a read — a write through it raises."""
+    db = tmp_path / "x.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE matches (id INTEGER PRIMARY KEY)")
+    con.commit()
+    con.execute("PRAGMA query_only = ON")
+    with pytest.raises(sqlite3.OperationalError):
+        con.execute("INSERT INTO matches (id) VALUES (1)")
+    con.close()

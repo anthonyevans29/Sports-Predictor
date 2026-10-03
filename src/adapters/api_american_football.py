@@ -96,6 +96,14 @@ _STATUS = {
 }
 
 
+class RateLimited(RuntimeError):
+    """The provider still answered 429 after the in-call retry."""
+
+    def __init__(self, path: str, retry_after: float):
+        super().__init__(f"rate limited on {path}; retry after {retry_after:.0f}s")
+        self.retry_after = retry_after
+
+
 class APIAmericanFootballAdapter(DataAdapter):
     source_name = "api_american_football"
     supported_sports = frozenset({Sport.NFL})
@@ -111,6 +119,10 @@ class APIAmericanFootballAdapter(DataAdapter):
     # ------------------------------------------------------------------
 
     def _get(self, path: str, params: dict | None = None) -> dict:
+        """One retry after 5s on a 429; a SECOND 429 raises RateLimited
+        (retry_after from the provider's Retry-After header, else 60s) so a
+        caller can defer the item and retry after the window instead of
+        dropping it (ARCHITECT 2026-10-03: sync-odds-football)."""
         url = f"{DIRECT_BASE}/{path}"
         resp = requests.get(url, headers=self._headers, params=params or {},
                             timeout=30)
@@ -119,6 +131,12 @@ class APIAmericanFootballAdapter(DataAdapter):
             time.sleep(5)
             resp = requests.get(url, headers=self._headers,
                                 params=params or {}, timeout=30)
+            if resp.status_code == 429:
+                try:
+                    wait = float(resp.headers.get("Retry-After") or 60)
+                except ValueError:
+                    wait = 60.0
+                raise RateLimited(path, wait)
         resp.raise_for_status()
         rem = resp.headers.get("x-ratelimit-requests-remaining")
         if rem is not None:

@@ -1877,6 +1877,19 @@ class IngestionService:
         return SyncResult()
 
 
+ODDS_RETRY_ROUNDS = 2
+
+
+def _odds_sleep(s: float) -> None:      # seams for tests
+    import time
+    time.sleep(s)
+
+
+def _odds_clock() -> float:
+    import time
+    return time.monotonic()
+
+
 def sync_odds_nfl(progress=None) -> dict:
     """
     NFL book-odds capture (2026-09-09, closing the Week-1 tracking gap).
@@ -1895,7 +1908,9 @@ def sync_odds_nfl(progress=None) -> dict:
 
     from sqlalchemy import select
 
-    from src.adapters.api_american_football import APIAmericanFootballAdapter
+    import os
+
+    from src.adapters.api_american_football import APIAmericanFootballAdapter, RateLimited
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds, OddsSnapshot, Sport
     from src.walters.value import MarketSnapshot
@@ -1904,8 +1919,25 @@ def sync_odds_nfl(progress=None) -> dict:
         if progress:
             progress(msg)
 
+    # RATE (ARCHITECT 2026-10-03): 431 games in the window hit the provider's
+    # 300/min limit — 60 games went unpriced. Calls are PACED below the limit
+    # (SP_ODDS_FOOTBALL_RPM, default 280/min), and a game that still meets a
+    # 429 is DEFERRED and retried after the window (Retry-After, else 60s), up
+    # to ODDS_RETRY_ROUNDS rounds, instead of being skipped.
+    rpm = max(1, int(os.environ.get("SP_ODDS_FOOTBALL_RPM") or 280))
+    gap, last = 60.0 / rpm, [None]
+
+    def paced(gid):
+        if last[0] is not None:
+            wait = gap - (_odds_clock() - last[0])
+            if wait > 0:
+                _odds_sleep(wait)
+        last[0] = _odds_clock()
+        return ad.list_odds(gid)
+
     ad = APIAmericanFootballAdapter()
     created = games = snapshots = 0
+    deferred_total = recovered = 0
     with session_scope() as s:
         now = utc_now_naive()
         upcoming = list(s.execute(select(Match).where(
@@ -1914,17 +1946,35 @@ def sync_odds_nfl(progress=None) -> dict:
             Match.utc_date >= now,
             Match.utc_date <= now + timedelta(days=8),
         ).order_by(Match.utc_date)).scalars())
-        report(f"  NFL odds: {len(upcoming)} upcoming games in window")
-        for m in upcoming:
-            gid = (m.external_ids or {}).get("api_american_football")
-            if not gid:
-                report(f"    · no provider id for {m.away_team.name} @ {m.home_team.name}")
-                continue
-            try:
-                rows = ad.list_odds(gid)
-            except Exception as e:  # provider hiccup: skip, don't wipe
-                report(f"    ✗ odds fetch {gid}: {e}")
-                continue
+        report(f"  NFL odds: {len(upcoming)} upcoming games in window · paced at {rpm}/min")
+        queue, rnd, fetched = list(upcoming), 0, []
+        while queue:
+            deferred, wait = [], 0.0
+            for m in queue:
+                gid = (m.external_ids or {}).get("api_american_football")
+                if not gid:
+                    report(f"    · no provider id for {m.away_team.name} @ {m.home_team.name}")
+                    continue
+                try:
+                    fetched.append((m, paced(gid), rnd, utc_now_naive()))   # stamped at FETCH time
+                except RateLimited as e:       # deferred, never dropped
+                    deferred.append(m)
+                    wait = max(wait, e.retry_after)
+                except Exception as e:  # provider hiccup: skip, don't wipe
+                    report(f"    ✗ odds fetch {gid}: {e}")
+            if not deferred:
+                break
+            deferred_total += len(deferred) if rnd == 0 else 0
+            if rnd >= ODDS_RETRY_ROUNDS:
+                report(f"    ✗ still rate limited after {rnd} retry round(s): {len(deferred)} game(s) unpriced")
+                break
+            rnd += 1
+            report(f"    ↻ {len(deferred)} game(s) rate limited — retrying after {wait:.0f}s (round {rnd})")
+            _odds_sleep(wait)
+            last[0] = None
+            queue = deferred
+        recovered = sum(1 for _, _, r, _ in fetched if r > 0)
+        for m, rows, _, fetched_at in fetched:
             if not rows:
                 report(f"    · no odds yet for {m.away_team.name} @ {m.home_team.name}")
                 continue
@@ -1935,7 +1985,7 @@ def sync_odds_nfl(progress=None) -> dict:
                            selection=ow.selection, bookmaker=ow.bookmaker,
                            price_decimal=ow.price_decimal, line=ow.line,
                            source=ad.source_name,
-                           captured_at=utc_now_naive()))
+                           captured_at=fetched_at))
                 created += 1
             games += 1
             by_sel: dict[str, list[tuple[str, float]]] = {}
@@ -1945,11 +1995,14 @@ def sync_odds_nfl(progress=None) -> dict:
             implied = MarketSnapshot(market="1X2", by_selection=by_sel).average_implied() if by_sel else {}
             over = sum(implied.values())
             if over > 0:
-                stamp = utc_now_naive()
+                stamp = fetched_at
                 n_books = max(len(v) for v in by_sel.values())
                 for sel, prob in implied.items():
                     s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel,
                                        devig_prob=prob / over, line=None, n_books=n_books,
                                        captured_at=stamp, source=ad.source_name))
                     snapshots += 1
-    return {"created": created, "games": games, "snapshots": snapshots}
+    if deferred_total:
+        report(f"  rate limit: {deferred_total} game(s) deferred · {recovered} recovered after the window")
+    return {"created": created, "games": games, "snapshots": snapshots,
+            "rate_limited": deferred_total, "recovered": recovered}

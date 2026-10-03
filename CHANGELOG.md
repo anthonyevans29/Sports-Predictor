@@ -4,6 +4,39 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-03 (#268: HOTFIX: backup verify falls back to a plain read when the read-only URI open fails)
+- **`_verify_backup`** (`dedupe-matches --apply`, `clv-restate --apply`) tries two open forms in order, and the receipt names the one that read the backup:
+  1. the read-only URI (`Path.as_uri() + "?mode=ro"`, `integrity_check`);
+  2. if that raises, a plain `sqlite3.connect(path)` with `PRAGMA query_only = ON` (no writes possible) and `quick_check`.
+- On macOS an existing 248 MB backup refused the URI form with "unable to open database file". The success line now reads `opened via <form> (after: <URI error>) · integrity ok (<check>) · journal_mode <mode> · <table> n = live`. If both forms fail, the refusal lists both errors.
+- tests/test_backup_verify.py (+3): a macOS-style absolute path whose URI open raises falls back and verifies (the backup bytes are unchanged); both forms failing names both; `query_only` blocks writes.
+
+## 2026-10-03 (#267: exports mirror: the first push to an empty remote no longer reads "nothing changed"; keygen path)
+- **`exports_mirror.py push`** judges "changed" against the REMOTE's tip, not the local HEAD.
+  - On the host the remote was set in `host.env` before the deploy key worked, so the chain hook's pushes committed in the working clone and failed to push. The hand-run first push then compared against that local commit and printed "not pushed — nothing changed" over an empty remote.
+  - Unpushed local commits are now pushed ("incl. N earlier unpushed commit(s)").
+  - The clone's `origin` follows `host.env` if the remote changes.
+- **Deploy key path:** `keygen` and `push` resolve the key the same way: `SP_EXPORTS_MIRROR_KEY`, else an installed `/etc/sports-predictor/exports_deploy_key`, else `~/.ssh/sp_exports_deploy_key` (writable by `sp`). `keygen --key PATH` is accepted. An unwritable target refuses and prints both routes (the `--key` route and the root step). `docs/specs/exports-mirror.md` step 2 is updated.
+- tests/test_exports_mirror.py: first push after failed attempts (reproduced: "nothing changed" over an empty remote), first push of 18 files from a fresh clone, key resolution, keygen into a writable path, unwritable-dir refusal.
+
+## 2026-10-03 (#266: dedupe-matches --orphans; the apply summary reports state, not just this run's merges)
+- **Reporting fix:** a `dedupe-matches` apply that found nothing left to merge printed "merged 0" on a table where 962 rows had already been re-keyed in place.
+  - Every summary now prints the STATE before and, on apply, after: rows, deleted, rows carrying `<source>_prev`, stale orphans, and re-keys by provenance.
+  - A 0-pair run says the rows were already re-keyed, so nothing was missed.
+  - Re-keys now log `<source>_rekeys` entries {from, to, via, at}. `via` is one of: dedupe-merge, orphan-merge, orphan-relink, sync.
+- **`dedupe-matches --orphans`** (dry-run unless `--apply --backup`). Candidates are SCHEDULED rows with no score that are stale (kickoff more than 6h past) or have a twin (same home AND away within 48h, a different id). Each id is resolved at the provider (`GET /games?id=`):
+  - found → untouched;
+  - lookup error → UNRESOLVED;
+  - NOT FOUND + one live twin → merged (the older row keeps the references);
+  - NOT FOUND, no twin → a provider search of the row's date ±2d for the pair. If exactly one game is found and no row holds its id, the row is RELINKED in place; if none is found, it is marked `STALE_ORPHAN` (never deleted);
+  - ambiguous, swapped, held-elsewhere or already-claimed cases → refused and reported.
+- **New status `MatchStatus.STALE_ORPHAN`:**
+  - `export-fixtures` excludes it (counted);
+  - the odds / Kalshi `match_lookup` and NFL rest-days skip it;
+  - a SQLite status CHECK constraint lacking it refuses the mark cleanly.
+- **Adapter:** `APIAmericanFootballAdapter.get_game(id)` (`/games?id=`), with the listing parse factored into `_parse_games` (behaviour unchanged).
+- tests/test_dedupe_orphans.py (6).
+
 ## 2026-10-03 (#265: NCAA re-key receipt: why `dedupe-matches --apply` found 0 pairs)
 - **`scripts/ncaa_rekey_receipt.py`** (read-only; opens the DB with `mode=ro`, writes nothing). It prints:
   - rows re-keyed in place, and the source-id classes (22xxx old vs 23xxx/24xxx new);

@@ -22,6 +22,41 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-03 — Exports mirror first push (ARCHITECT): "not pushed — nothing changed" over an empty remote; keygen path for `sp`.**
+- **Ruling (verbatim):** "exports_mirror.py push on the HOST (remote set via host.env, key installed, repo empty, 18 files in exports/) prints "not pushed — nothing changed" on first run, with and without --role host --exports … --label. The empty-remote / first-push case is misdetected (change test against an absent baseline?). Also: keygen writes to /etc/sports-predictor which sp can't write — accept a path or document the root step. Fix + a first-push regression; small PR."
+- **Root cause:**
+  - A truly fresh clone always stages the shipped tools and workflow, so "nothing changed" required an existing local commit.
+  - With `SP_EXPORTS_MIRROR_REMOTE` set before the key worked, `sp_run.mirror_after_step` ran pushes after chain steps. Each committed in `logs/exports-mirror` and failed to push (non-fatal, receipted).
+  - The change test (`git diff --cached --quiet`) compared against that local HEAD. On an empty remote with no tip to reset to, the hand run found nothing staged.
+  - The regression reproduces this exactly: the second hook push already read "nothing changed" before the fix.
+- **Fix:** staged changes OR local commits the remote lacks (all commits when the remote has no branch) trigger the push. `origin` is re-pointed to `host.env`'s remote.
+- **Keygen:** a shared `key_path()` resolution (env, then an installed /etc key, then `~/.ssh/sp_exports_deploy_key`); `--key PATH`; an unwritable target refuses with both routes. The spec step is updated.
+- **Operator:** after merge and deploy, run `push` once by hand. It should print `pushed … incl. N earlier unpushed commit(s)`.
+
+**2026-10-03 — NCAA re-key residue (ARCHITECT): the apply had re-keyed 962 in place; `dedupe-matches --orphans` built for 13 kickoff-moved duplicates and 142 stale orphans; the summary reports state.**
+- **Ruling (verbatim):** "receipt in. (1) The apply DID re-key 962 rows in place (prev ids carried); its summary printed "merged 0" — fix the reporting. (2) Residue: 13 window duplicates where the kickoff moved >12h (twin test too tight for provider time corrections: widen to same home+away within 48h when one row is stale-scheduled and the other has a live id), and 142 stale SCHEDULED rows >6h past kickoff with no result — orphans under retired ids (Georgia@Alabama 32738 sid 22194 → provider NOT FOUND). Add `dedupe-matches --orphans` dry-run/apply: resolve each stale row's sid at the provider; NOT FOUND + a live twin → merge; NOT FOUND + no twin → mark status=stale_orphan (never delete). Receipt first. Georgia@Alabama must resolve to its live id before next Saturday."
+- **Receipt facts (laptop, ncaa_rekey_receipt):** 962 rows carry `_prev`; 13 duplicates in the window more than 12h apart; 142 stale SCHEDULED rows more than 6h past kickoff with no result; Georgia@Alabama row 32738 (sid 22194) is NOT FOUND at the provider.
+- **(1) Reporting:**
+  - Summaries print state before and after (rows, deleted, carrying `_prev`, stale orphans, re-keys by provenance). A 0-pair run states the rows were already re-keyed.
+  - Re-keys now log `<source>_rekeys` {from, to, via, at}, so who re-keyed is readable from the row. Rows re-keyed before this log show as "pre-log".
+- **(2) `--orphans`:** the twin test is widened to 48h for this path only, where the provider supplies the live-id truth. The 12h `find_pairs` is unchanged.
+  - NOT FOUND + one live twin → merge, whichever row is older keeping the references. If the stale row is the newer one, the live row keeps its own state and id.
+  - NOT FOUND + no twin: before marking, the provider's games on the row's date ±2d are searched for the same home AND away. Exactly one game, with its id held by no row → RELINK in place. This is how Georgia@Alabama reaches its live id when the provider lists the game.
+  - Only when the provider has no game for the pair is the row marked `STALE_ORPHAN`. It is never deleted and never exported.
+  - Lookup errors stay UNRESOLVED (law 4). Ambiguous, swapped, held-elsewhere and already-claimed cases are refused and reported.
+- **Interpretation recorded for review:** the relink step goes beyond the ruling's two branches. It serves "Georgia@Alabama must resolve to its live id": an orphan mark alone would leave the game with no row at all.
+- **Operator sequence:**
+  1. `dedupe-matches --competition NCAA --orphans` (dry-run receipt, paste);
+  2. on the architect's go, `.backup`, then `dedupe-matches --competition NCAA --orphans --apply --backup PATH`;
+  3. `sync-matches NCAA` (brings results for the live-resync rows);
+  4. `export-fixtures --competition NCAA` (stale orphans excluded, counted).
+
+**2026-10-03 — HOTFIX (ARCHITECT): backup verify on macOS — the read-only URI open refused an existing backup; plain-read fallback, form printed.**
+- **Ruling (verbatim):** "dedupe --orphans --apply still REFUSED [check: opens as SQLite with table matches] on macOS with an existing 248 MB backup at /Users/anthonyevans/backups/sports_preorphans.db — "unable to open database file". The URI open fails here; fall back to a plain sqlite3.connect(path) read (open, PRAGMA quick_check, SELECT count(*) FROM matches) when the URI form raises, and print which form was tried. Regression on a macOS-style absolute path. Hotfix; the --orphans plan (30 merges, 0 refused) is approved and waiting on it."
+- **Built:** URI `mode=ro` first, then a plain `sqlite3.connect(path)` with `PRAGMA query_only = ON` and `quick_check`. The success line names the form, the URI error, the check and the journal mode; a double failure lists both errors.
+- **Cause, not yet confirmed:** the URI for that path is well-formed (`file:///Users/anthonyevans/backups/sports_preorphans.db?mode=ro`). A WAL-mode file opened read-only without its `-shm` sidecar fails with exactly this error. The receipt's `journal_mode` (and the URI error it echoes) will say. This could not be reproduced here (sandbox runs as root).
+- **Operator:** after merge, `.backup` is not needed again unless the DB has changed since `sports_preorphans.db`. Run `dedupe-matches --competition NCAA --orphans --apply --backup /Users/anthonyevans/backups/sports_preorphans.db` and paste the verify line together with the apply summary (the approved plan: 30 merges, 0 refused).
+
 **2026-10-03 — P0-3 follow-up (refs #208): the fee-adjusted closing edge needs the RECORDED opening fee; no inference from combined/total fees.**
 - **Review (Anthony, PR #259, after the sign-reversal fix):** "`executedPositions()` still defaults unavailable fees to zero and substitutes total fees for a missing opening fee. Keep entry-price CLV available, but make fee-adjusted edge unavailable unless `open_fee` is present, including an explicitly verified zero. Do not infer the opening fee from combined or total fees … Add missing-fee and combined-fee regressions, with exclusion counts, before #208 closes. Preserve the existing stored series and sizing."
 - **Order of events:** #259 merged and #208 auto-closed at 16:42Z, before this follow-up was pushed. This PR carries the fix and refs #208; reopening #208 is the architect's/operator's call.

@@ -320,7 +320,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 unpriced += 1
             line = (f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} pick {sel} "
                     f"{pr['top_pick_prob']:.3f} close={'%.3f' % cl['fair'][sel] if clv is not None else '  — '} "
-                    f"clv={'%+.1fpp' % (clv * 100) if clv is not None else '—'}")
+                    f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'}")
             lines.append(line)
             if progress:
                 progress(line)
@@ -384,8 +384,8 @@ def results_section(days: int, export_dir: str = "exports") -> str:
     r = grade(days=days, export_dir=export_dir)
     head = f"## UNL — SHADOW, CONFIRMATION WINDOW ({MODEL_VERSION} · PASS, production only on CONFIRMED)\n\n"
     if not r["graded"]:
-        return head + f"Live CLV only. No graded shadow calls in window ({r['calls_on_file']} calls on file).\n"
-    return head + (f"- Live CLV only; not a record. Graded calls: {r['graded']}\n"
+        return head + f"Live model-close divergence only. No graded shadow calls in window ({r['calls_on_file']} calls on file).\n"
+    return head + (f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}\n"
                    "- Mean pick-vs-close: "
                    + (f"{r['mean_clv_pp']:+.2f}pp (n={r['priced']} priced)" if r["mean_clv_pp"] is not None
                       else f"— (no stored close; {r['unpriced']} unpriced)") + "\n")

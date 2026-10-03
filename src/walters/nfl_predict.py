@@ -442,7 +442,7 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
                    f"{m.away_score:>2}-{m.home_score:<2} model_H={p:.3f} "
                    f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                    f"{'HIT ' if hit else 'miss'} "
-                   f"clv={'%+.1fpp' % (clv*100) if clv is not None else '—'} "
+                   f"div={'%+.1fpp' % (clv*100) if clv is not None else '—'} "
                    f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100) + (' [shadow]' if vg['shadow'] else '')) if vg else '— (no anchor)'}"
                    + (f" anchor={_hm(vg['anchor_at'])} pred={_hm(vg['prediction_at'])}"
                       + (" ⚠ ANCHOR AFTER PREDICTION" if vg["anchor_before_prediction"] is False else "")
@@ -459,7 +459,7 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
                    "mean_value_shadow_clv_pp": round(sum(vshadow) / len(vshadow) * 100, 2) if vshadow else None,
                    "value_anchor_after_prediction_n": anchor_after}
         report(f"  ── sides {hits}/{n} · log-loss {summary['logloss']} · "
-               f"mean CLV {summary['mean_clv_pp']}pp (n={len(clvs)} priced)")
+               f"mean model-close divergence {summary['mean_clv_pp']}pp (n={len(clvs)} priced)")
         report(f"  ── value side vs close {summary['mean_value_side_clv_pp']}pp "
                f"(n={len(vclvs)} anchored; {n - len(vclvs)} unanchored — no pre-kickoff book snapshot) · "
                f"value-shadow cohort {summary['mean_value_shadow_clv_pp']}pp (n={len(vshadow)}) · "
@@ -495,7 +495,7 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
             close_h = None
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
-            from src.walters.close import close_1x2, outcomes_for, priced
+            from src.walters.close import close_1x2, close_block, outcomes_for, priced
             _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
             if priced(_cl):
                 close_h = _cl["fair"].get("HOME", 0)
@@ -517,6 +517,8 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
                            "log_loss": round(-(y * math.log(max(p, 1e-12))
                                                + (1 - y) * math.log(max(1 - p, 1e-12))), 4),
                            "close_home_prob": round(close_h, 4) if close_h is not None else None,
+                           # P0-3 (#208): q_close per side for entry-price CLV on ledger positions
+                           **close_block(odds_rows, m.utc_date, m.sport),
                            "clv": round(clv, 4) if clv is not None else None,
                            # value side (additive, rulings 2026-09-29): null when unanchored
                            "value_side": vg["side"] if vg else None,

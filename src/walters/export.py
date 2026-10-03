@@ -904,6 +904,12 @@ def export_results(
     from sqlalchemy import select
     from src.db.database import session_scope
 
+    from src.db.schema import Odds as _Odds
+    from src.walters.close import close_block as _cb
+
+    def _close_block(s, m):
+        return _cb(list(s.execute(select(_Odds).where(_Odds.match_id == m.id)).scalars()), m.utc_date, m.sport)
+
     rows = []
     with session_scope() as s:
         q = (
@@ -982,8 +988,9 @@ def export_results(
                                     if (actual_total is not None and proj_total is not None) else None),
                     "log_loss": oc.log_loss,
                     "brier_score": oc.brier_score,
-                    "clv": oc.clv,
+                    "clv": oc.clv,                       # stored model-close divergence (P0-3 #208 label)
                     "closing_price": oc.closing_price,
+                    **_close_block(s, m),                # q_close per side for entry-price CLV (#208)
                 },
             })
 
@@ -1268,14 +1275,17 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
              "_REGENERATED, NOT AUTHORITATIVE IN GIT (ruling 2026-10-01): this file is rebuilt from the "
              "laptop's DB on demand. Any committed copy is a stale snapshot: the DB, BACKLOG.md and the "
              "graded exports are the record._\n",
-             "_CLV basis (#167, ruled 2026-10-01): the close is the LAST pre-kickoff capture session. "
-             "Soccer CLV before 2026-10-01 was computed on an AVERAGE of every stored capture (the "
+             "_MODEL-CLOSE DIVERGENCE (P0-3 #208, ARCHITECT 2026-10-01): the stored metric formerly "
+             "labelled \"CLV\" is model p − close fair on the model's pick, renamed \"model-close "
+             "divergence\"; true CLV (close − entry) is measured on executed ledger positions in the "
+             "Cockpit P&L. Basis (#167, ruled 2026-10-01): the close is the LAST pre-kickoff capture session. "
+             "Soccer divergence before 2026-10-01 was computed on an AVERAGE of every stored capture (the "
              "general odds sync appended) and is re-stated by `clv-restate --apply`. MLB keeps one "
              "capture per game (replace-on-sync); it differs only where that capture landed after "
              "first pitch (M11 rollover games), which is now unpriced, never an in-game 'close'. "
              "CLOSE CONTRACT (#207): a book counts only with a complete same-session outcome set "
              "(soccer HOME/DRAW/AWAY, others HOME/AWAY), de-vigged per book then averaged. A stored "
-             "CLV the contract reproduces is VERIFIED; any other stored CLV is RETAINED-LEGACY and is "
+             "divergence the contract reproduces is VERIFIED; any other stored value is RETAINED-LEGACY and is "
              "reported separately, never pooled into the headline._\n"]
     with session_scope() as s:
         cutoff = utc_now_naive() - timedelta(days=days)
@@ -1321,9 +1331,9 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
             lines.append(
                 f"## {label}\n\n- Sides: **{hits}/{n}** ({hits/n:.1%})\n"
                 f"- Mean log-loss: {sum(lls)/len(lls):.4f} (n={len(lls)})\n"
-                + (f"- Mean CLV, verified close: {sum(ver)/len(ver)*100:+.2f}pp (n={len(ver)})\n" if ver
-                   else "- Mean CLV, verified close: — (n=0)\n")
-                + (f"- Retained-legacy CLV (separate cohort, not in the headline): "
+                + (f"- Mean model-close divergence, verified close: {sum(ver)/len(ver)*100:+.2f}pp (n={len(ver)})\n"
+                   if ver else "- Mean model-close divergence, verified close: — (n=0)\n")
+                + (f"- Retained-legacy model-close divergence (separate cohort, not in the headline): "
                    f"{sum(leg)/len(leg)*100:+.2f}pp (n={len(leg)})\n" if leg else ""))
         # NFL from the grade join (no outcome rows during rehearsal)
         try:
@@ -1334,13 +1344,13 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
                     f"## NFL (live since Week 3, 2026-09-22)\n\n- Sides: **{r['hits']}/{r['games']}**"
                     f" ({r['hits']/r['games']:.1%})\n"
                     f"- Mean log-loss: {r['logloss']:.4f}\n"
-                    f"- Mean pick-vs-close: {r['mean_clv_pp']:+.2f}pp\n"
-                    + (f"- Mean value-side-vs-close: {r['mean_value_side_clv_pp']:+.2f}pp"
+                    f"- Mean model-close divergence (pick): {r['mean_clv_pp']:+.2f}pp\n"
+                    + (f"- Mean model-close divergence (value side): {r['mean_value_side_clv_pp']:+.2f}pp"
                        f" (n={r['value_side_n']} anchored; value-shadow cohort "
                        + (f"{r['mean_value_shadow_clv_pp']:+.2f}pp" if r['mean_value_shadow_clv_pp'] is not None else "—")
                        + f", n={r['value_shadow_n']})\n"
                        if r.get("mean_value_side_clv_pp") is not None else
-                       "- Mean value-side-vs-close: — (no games with a pre-kickoff book snapshot yet)\n"))
+                       "- Mean model-close divergence (value side): — (no games with a pre-kickoff book snapshot yet)\n"))
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")
     # NHL SHADOW (architect 2026-09-30): the failed reference model's live CLV,

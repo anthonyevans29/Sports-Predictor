@@ -407,11 +407,11 @@ def clv_restate_cmd(apply, backup_path):
     if apply:
         _verify_backup(backup_path, "prediction_outcomes", _PO)
     r = cr.restate(apply=apply)
-    click.echo(f"CLV-RESTATE (#167 b) · close = LAST pre-kickoff capture session · "
+    click.echo(f"CLV-RESTATE (#167 b; restates the stored model-close divergence, P0-3 #208) · close = LAST pre-kickoff capture session · "
                f"{'APPLIED' if apply else 'DRY-RUN (nothing written)'}")
     for scope, a in r["by_scope"].items():
         click.echo(f"  {scope}: graded {a['graded']} · changed {a['changed']} · mean Δ {a['mean_delta_pp']}pp · "
-                   f"mean |Δ| {a['mean_abs_delta_pp']}pp · max |Δ| {a['max_abs_delta_pp']}pp · mean CLV "
+                   f"mean |Δ| {a['mean_abs_delta_pp']}pp · max |Δ| {a['max_abs_delta_pp']}pp · mean model-close divergence "
                    f"{a['mean_clv_old_pp']} -> {a['mean_clv_new_pp']}pp (changed rows) · closing price changed "
                    f"{a['closing_price_changed']} · newly priced {a['newly_priced']} · unpriceable (left as "
                    f"stored) {a['became_null']}")

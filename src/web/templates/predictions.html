@@ -124,7 +124,7 @@
                     {% if f.clv_pct is not none %}
                       <span class="tabular-nums {% if f.clv_pct > 0 %}text-green-700{% else %}text-slate-500{% endif %}"
                             title="Closing-line value: our predicted probability vs market's de-vigged close.">
-                        CLV {{ '+' if f.clv_pct > 0 else '' }}{{ f.clv_pct }}pp
+                        model-close div {{ '+' if f.clv_pct > 0 else '' }}{{ f.clv_pct }}pp
                       </span>
                     {% endif %}
                   </div>

@@ -105,8 +105,8 @@ def test_results_tally_never_pools_the_cohorts(tmp_path):
     from src.walters.export import results_tally
     init_db()
     txt = open(results_tally(days=36500, out_path=str(tmp_path / "R.md"))).read()
-    assert "Mean CLV:" not in txt                                       # the pooled headline is gone
+    assert "Mean CLV:" not in txt and "Mean CLV, verified" not in txt   # pooled headline gone; P0-3 rename (#208)
     assert "CLOSE CONTRACT (#207)" in txt
     for line in txt.splitlines():
-        if "Retained-legacy CLV" in line:
+        if "Retained-legacy model-close divergence" in line:
             assert "not in the headline" in line

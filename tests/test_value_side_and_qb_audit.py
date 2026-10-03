@@ -104,7 +104,7 @@ def test_grade_nfl_prints_value_side_beside_pick_vs_close():
     lines = []
     r = grade_nfl(days_back=3, progress=lines.append)
     mine = next(x for x in lines if "VS mnf Away" in x)
-    assert "clv=-13.4pp" in mine                                # pick-vs-close unchanged (PHI top pick)
+    assert "div=-13.4pp" in mine                                # pick-vs-close unchanged (PHI top pick)
     assert "value=HOME +13.4pp [shadow]" in mine                # anchor 0.30 < 0.489: value on CHI
     assert "value=— (no anchor)" in next(x for x in lines if "VS bare Away" in x)
     assert {"games", "hits", "logloss", "mean_clv_pp"} <= set(r)          # existing metrics unchanged
@@ -122,14 +122,14 @@ def test_results_md_prints_both(tmp_path, monkeypatch):
     out = tmp_path / "RESULTS.md"
     results_tally(days=30, out_path=str(out))
     txt = out.read_text()
-    assert "- Mean pick-vs-close: -1.25pp" in txt
-    assert "- Mean value-side-vs-close: +2.50pp (n=12 anchored; value-shadow cohort +6.10pp, n=3)" in txt
+    assert "- Mean model-close divergence (pick): -1.25pp" in txt                   # P0-3 rename (#208)
+    assert "- Mean model-close divergence (value side): +2.50pp (n=12 anchored; value-shadow cohort +6.10pp, n=3)" in txt
     monkeypatch.setattr(nfp, "grade_nfl", lambda days_back=30: {
         "ok": True, "games": 2, "hits": 1, "logloss": 0.7, "mean_clv_pp": 0.5,
         "value_side_n": 0, "mean_value_side_clv_pp": None, "value_shadow_n": 0,
         "mean_value_shadow_clv_pp": None})
     results_tally(days=30, out_path=str(out))
-    assert "- Mean value-side-vs-close: — (no games with a pre-kickoff book snapshot yet)" in out.read_text()
+    assert "- Mean model-close divergence (value side): — (no games with a pre-kickoff book snapshot yet)" in out.read_text()
 
 
 def test_sync_odds_football_appends_book_consensus_snapshots(monkeypatch):

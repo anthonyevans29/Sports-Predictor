@@ -174,3 +174,20 @@ def grading_close(s, match) -> dict | None:
         OddsSnapshot.match_id == match.id, OddsSnapshot.market == "1X2",
         OddsSnapshot.source != "kalshi")).scalars())
     return close_from_snapshots(snaps, match.utc_date, outcomes) or cl
+
+
+CLOSE_SOURCE = "close_1x2: last pre-kickoff capture session, complete books de-vigged then averaged (#167/#207)"
+
+
+def close_block(rows, kickoff: datetime | None, sport) -> dict:
+    """P0-3 (#208): the per-side closing fair for a results row — `q_close` for
+    entry-price CLV in the Cockpit ledger. {close_fair, close_at, close_books,
+    close_source}; close_fair is None when the close is unpriced or absent
+    (the metric is then unavailable, never inferred)."""
+    cl = close_1x2([o for o in rows if getattr(o, "market", None) == "1X2"], kickoff, outcomes_for(sport))
+    if not priced(cl):
+        return {"close_fair": None, "close_at": None, "close_books": cl["books"] if cl else 0,
+                "close_source": CLOSE_SOURCE}
+    return {"close_fair": {k: round(v, 4) for k, v in cl["fair"].items()},
+            "close_at": cl["captured_at"].isoformat() if cl["captured_at"] else None,
+            "close_books": cl["books"], "close_source": CLOSE_SOURCE}

@@ -21,6 +21,9 @@ a results file carrying graded.close_fair:
 - REGRESSION no fill: graded calls without a matched fill are excluded from
   the executed series (n 0, counted as excluded);
 - a NO fill is priced as the contract held (1 − the NO'd side's close);
+- REGRESSION fees (review 2): fee-adjusted edge only from a RECORDED opening
+  fee (a recorded zero counts); a missing or combined/total-only fee leaves
+  entry CLV and makes fee-adj unavailable, with exclusion counts;
 - no existing ledger field changes (units_returned, claim prices).
 
     python3 scripts/cockpit_clv_verify.py
@@ -119,8 +122,9 @@ def main():
             return L.calls.filter(c=>c.call_type==='straight').every(c=>c.status==='graded');})()""")
         P = pos()
         e = P["Dallas Cowboys @ Philadelphia Eagles"]
-        check("graded, no close in the file -> no clv_v2 (unavailable, never inferred)",
-              e["status"] == "graded" and "clv_v2" not in e, json.dumps({k: e.get(k) for k in ("status", "clv_v2")}))
+        check("graded, no close in the file -> no close_ref (unavailable, never inferred)",
+              e["status"] == "graded" and "close_ref" not in e and "clv_v2" not in e,
+              json.dumps({k: e.get(k) for k in ("status", "close_ref")}))
         before = {g: (c["units_returned"], c["claim_market_p"], c["exec_market_p"]) for g, c in P.items()}
 
         print("CLOSE ARRIVES (results export with graded.close_fair)")
@@ -185,6 +189,35 @@ def main():
               " an unpriceable held contract is excluded and counted",
               len(p0) == 1 and round(p0[0]["clv"], 4) == round((4 * 0.02 + 6 * 0.32) / 10, 4)
               and r["ex"]["unpriced"] == 1, json.dumps(r["ex"]))
+        print("FEES (PR #259 review 2): fee-adj edge only from a RECORDED opening fee")
+        r = page.evaluate(stub, [{"g": "Eagles", "qty": 10, "entry": 0.58, "fees": 0.30, "backed_role": "HOME"},
+                                 {"g": "Bears", "qty": 10, "entry": 0.50, "backed_role": "HOME"}])
+        ex = {p["c"]["game"].split(" @ ")[1]: p for p in r["ex"]["pos"]}
+        feel = [s for s in r["lines"] if "fee-adj edge needs" in s][0]
+        check("REGRESSION combined fee: total fees 0.30, no open_fee -> entry CLV kept (+4.00pp), fee-adj "
+              "unavailable, never split or defaulted",
+              round(ex["Philadelphia Eagles"]["clv"], 4) == 0.04 and ex["Philadelphia Eagles"]["fee_adj"] is None
+              and ex["Philadelphia Eagles"]["fee_status"] == "combined_only", json.dumps(ex["Philadelphia Eagles"]["fee_status"]))
+        check("REGRESSION missing fee: no fee recorded -> entry CLV kept (0.57 − 0.50 = +7.00pp), fee-adj "
+              "unavailable (not zero)",
+              round(ex["Chicago Bears"]["clv"], 4) == 0.07 and ex["Chicago Bears"]["fee_adj"] is None
+              and ex["Chicago Bears"]["fee_status"] == "missing", json.dumps(ex["Chicago Bears"]["fee_status"]))
+        check("exclusion counts printed: 0 with it · 1 no fee recorded · 1 combined/total only; fee-adj line n 0, "
+              "entry line n 2",
+              "0 with it · 1 no fee recorded · 1 combined/total fee only" in feel
+              and r["ex"]["fee_missing"] == 1 and r["ex"]["fee_combined"] == 1
+              and any("fee-adj edge (− charged fee) n 0" in s for s in r["lines"])
+              and any("entry-price CLV" in s and "n   2" in s for s in r["lines"]), "\n".join(r["lines"][:6]))
+        r = page.evaluate(stub, [{"g": "Eagles", "qty": 10, "entry": 0.58, "open_fee": 0, "fees": 0.12,
+                                  "close_fee": 0.12, "backed_role": "HOME"},
+                                 {"g": "Bears", "qty": 4, "entry": 0.50, "open_fee": 0.08, "backed_role": "HOME"},
+                                 {"g": "Bears", "qty": 6, "entry": 0.50, "fees": 0.10, "backed_role": "HOME"}])
+        ex = {p["c"]["game"].split(" @ ")[1]: p for p in r["ex"]["pos"]}
+        check("a RECORDED zero opening fee counts (fee-adj = entry CLV; the close fee is not charged at entry); "
+              "one fill of a position without open_fee makes its fee-adj unavailable",
+              ex["Philadelphia Eagles"]["fee_adj"] == ex["Philadelphia Eagles"]["clv"]
+              and ex["Chicago Bears"]["fee_adj"] is None and r["ex"]["fee_combined"] == 1
+              and r["ex"]["fee_missing"] == 0, json.dumps({k: (p["clv"], p["fee_adj"], p["fee_status"]) for k, p in ex.items()}))
         ci = page.evaluate("clusterCI([{v:0.01,day:'a'},{v:0.03,day:'a'},{v:-0.02,day:'b'},{v:0.05,day:'c'}])")
         ci2 = page.evaluate("clusterCI([{v:0.01,day:'a'},{v:0.03,day:'a'},{v:-0.02,day:'b'},{v:0.05,day:'c'}])")
         check("day-clustered 90% bootstrap CI: bounded by the day means, reproducible (seeded)",

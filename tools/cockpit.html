@@ -1262,8 +1262,12 @@ function seriesStats(label,pts){
 }
 // Executed positions = graded, staked calls with >=1 system_matched fill (qty > 0)
 // whose held contract is priceable at the close. One point per position, qty-
-// weighted over its fills: clv = held fair − entry; fee_adj = clv − charged fee
-// per contract. Calls without matched execution provenance are excluded.
+// weighted over its fills: clv = held fair − entry; fee_adj = clv − the recorded
+// OPENING fee per contract. Calls without matched execution provenance are excluded.
+// fee_adj is null (unavailable, counted) unless EVERY fill of the position carries
+// its own open_fee, a recorded zero included. The opening fee is never inferred
+// from a combined/total fee or defaulted to zero (PR #259 review 2); entry CLV
+// stays available either way.
 function executedPositions(L){
   const graded=new Map(L.calls.filter(c=>c.status==="graded"&&c.close_ref&&!isShadow(c)
     &&c.call_type!=="parlay_leg").map(c=>[c.id,c]));
@@ -1273,17 +1277,25 @@ function executedPositions(L){
     const c=graded.get(f.call_id); if(!c) continue;
     const qf=heldContractFair(f,c,c.close_ref.fair||{});
     if(qf==null){ unpriced.add(c.id); continue; }
-    const fee=(f.open_fee!=null?f.open_fee:f.fees)||0;                        // the charged fee
-    const a=by.get(c.id)||{c,qty:0,clv:0,net:0};
-    a.qty+=f.qty; a.clv+=f.qty*(qf-f.entry); a.net+=f.qty*(qf-f.entry)-fee; by.set(c.id,a);
+    const hasOpen=typeof f.open_fee==="number"&&isFinite(f.open_fee);     // recorded, 0 included
+    const a=by.get(c.id)||{c,qty:0,clv:0,fee:0,feeOk:true,combined:false};
+    a.qty+=f.qty; a.clv+=f.qty*(qf-f.entry);
+    if(hasOpen) a.fee+=f.open_fee;
+    else { a.feeOk=false; if(f.fees) a.combined=true; }                     // only a combined/total fee
+    by.set(c.id,a);
   }
-  const pos=[...by.values()].map(a=>({c:a.c,day:a.c.graded_date||a.c.log_date,clv:a.clv/a.qty,fee_adj:a.net/a.qty}));
-  return {pos,unpriced:[...unpriced].filter(id=>!by.has(id)).length};
+  const pos=[...by.values()].map(a=>({c:a.c,day:a.c.graded_date||a.c.log_date,clv:a.clv/a.qty,
+    fee_adj:a.feeOk?(a.clv-a.fee)/a.qty:null,
+    fee_status:a.feeOk?"open_fee":a.combined?"combined_only":"missing"}));
+  return {pos,unpriced:[...unpriced].filter(id=>!by.has(id)).length,
+    fee_missing:pos.filter(p=>p.fee_status==="missing").length,
+    fee_combined:pos.filter(p=>p.fee_status==="combined_only").length};
 }
 function clvLines(L){
   const refs=L.calls.filter(c=>c.status==="graded"&&c.close_ref&&!isShadow(c)&&c.call_type!=="parlay_leg");
   const ref=(f)=>refs.filter(c=>c.close_ref[f]!=null).map(c=>({v:c.close_ref[f],day:c.graded_date||c.log_date,c}));
-  const {pos,unpriced}=executedPositions(L), ex=k=>pos.map(p=>({v:p[k],day:p.day,c:p.c}));
+  const {pos,unpriced,fee_missing,fee_combined}=executedPositions(L);
+  const ex=k=>pos.filter(p=>p[k]!=null).map(p=>({v:p[k],day:p.day,c:p.c}));
   const sports=[...new Set(pos.map(p=>p.c.sport))].sort();
   return [`EXECUTED-POSITION CLV (P0-3 #208, ${CLOSE_REF_V}; matched Kalshi fills only: held contract's closing fair − fill entry)`,
     seriesStats("entry-price CLV (close−fill)",ex("clv")),
@@ -1292,6 +1304,8 @@ function clvLines(L){
     `  ${refs.length} graded call(s) with a close · ${pos.length} executed (matched fill) · `
       +`${refs.length-pos.length} without matched execution provenance excluded`
       +(unpriced?` · ${unpriced} matched but the held contract not priceable at the close`:""),
+    `  fee-adj edge needs the recorded opening fee: ${pos.length-fee_missing-fee_combined} with it · `
+      +`${fee_missing} no fee recorded · ${fee_combined} combined/total fee only (never split) — excluded from the fee-adj line`,
     "REFERENCE MOVEMENT (not CLV: no price was paid at these references; all graded calls with a close)",
     seriesStats("claim ref → close",ref("ref_move_claim")),
     seriesStats("re-log ref → close",ref("ref_move_relog")),

@@ -331,6 +331,20 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                         and (m.utc_date < stale_cut or twins(m))), key=lambda m: m.id)
         tsid = _team_sids(s, source, [t for m in cands for t in (m.home_team_id, m.away_team_id)])
         plan, done, claimed = [], set(), set()          # claimed: live ids a relink already takes
+
+        def unresolved_set(m, base, tw, why):
+            """The candidate and every twin it was weighed against: UNRESOLVED, untouched, done."""
+            plan.append({**base, "action": "unresolved", "why": why})
+            done.add(m.id)
+            for x in tw:
+                if x.id in done:
+                    continue
+                done.add(x.id)
+                if unplayed(x):
+                    plan.append({"id": x.id, "sid": sid_of(x), "utc": x.utc_date.isoformat(),
+                                 "home": x.home_team_id, "away": x.away_team_id,
+                                 "stale": x.utc_date < stale_cut, "action": "unresolved",
+                                 "why": f"in the set of candidate {m.id}: {why}"})
         for m in cands:
             if m.id in done:
                 continue
@@ -343,7 +357,16 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
             if st == "found":
                 plan.append({**base, "action": "live_resync" if base["stale"] else "live"})
                 continue
-            live_twins = [x for x in twins(m) if x.id not in done and resolve(sid_of(x))[0] == "found"]
+            tw = [x for x in twins(m) if x.id not in done]
+            tw_err = [x for x in tw if resolve(sid_of(x))[0] == "error"]
+            if tw_err:
+                # PR #266 review (Anthony): incomplete lookup coverage never permits a merge or a
+                # relink — the candidate AND its twins stay UNRESOLVED and untouched until every
+                # lookup in the set has an answer.
+                unresolved_set(m, base, tw, f"twin lookup failed for {[x.id for x in tw_err]}: "
+                               f"{resolve(sid_of(tw_err[0]))[1]}")
+                continue
+            live_twins = [x for x in tw if resolve(sid_of(x))[0] == "found"]
             if len(live_twins) > 1:
                 plan.append({**base, "action": "refused", "why": f"{len(live_twins)} live twins "
                              f"{[x.id for x in live_twins]} (ambiguous)"})
@@ -367,8 +390,9 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                     elif nm.home_team_source_id == as_ and nm.away_team_source_id == hs:
                         swapped.append(nm)
             found = list({nm.source_id: nm for nm in found}.values())
-            if err and not found:
-                plan.append({**base, "action": "unresolved", "why": f"provider search: {err}"})
+            if err:                         # a failed day: uniqueness is not established, whatever was seen
+                unresolved_set(m, base, tw, f"provider search incomplete ({len(found)} game(s) seen on the "
+                               f"days that answered): {err}")
             elif len(found) > 1:
                 plan.append({**base, "action": "refused", "why": f"{len(found)} provider games for the pair "
                              f"within ±{SEARCH_DAYS}d {[n.source_id for n in found]}"})

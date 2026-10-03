@@ -219,3 +219,70 @@ def test_two_stale_rows_never_claim_one_live_id_or_one_twin():
     with session_scope() as s:
         cid = s.execute(select(Competition.id).where(Competition.code == "OR3")).scalar()
         s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)
+
+
+class GappyProvider(FakeProvider):
+    """A provider whose lookups fail for some ids and some dates (incomplete coverage)."""
+    def __init__(self, games, broken=(), broken_dates=()):
+        super().__init__(games, broken)
+        self.broken_dates = set(broken_dates)
+
+    def list_matches(self, code, season=None, date_from=None, date_to=None):
+        if date_from in self.broken_dates:
+            raise RuntimeError("HTTP 502")
+        return super().list_matches(code, season, date_from, date_to)
+
+
+def _snapshot(cid):
+    with session_scope() as s:
+        rows = {m.id: (m.status, m.utc_date, json.dumps(m.external_ids, sort_keys=True))
+                for m in s.execute(select(Match).where(Match.competition_id == cid)).scalars()}
+        odds = sorted((o.id, o.match_id) for o in s.execute(select(Odds).where(Odds.match_id.in_(list(rows)))).scalars())
+    return rows, odds
+
+
+def test_incomplete_coverage_leaves_the_whole_candidate_set_unresolved_and_untouched():
+    """PR #266 review: (1) a failed date lookup plus one observed provider game must NOT relink;
+    (2) one found twin plus one unresolved competing twin must NOT merge. Dry-run and apply both leave
+    ids, rows and references unchanged."""
+    init_db()
+    with session_scope() as s:
+        c = Competition(sport=Sport.NFL, code="OR4", name="OR4", area="US", type="LEAGUE")
+        ts = [Team(sport=Sport.NFL, name=f"OR4 T{i}", external_ids={SRC: f"OR4t{i}"}) for i in range(4)]
+        s.add(c)
+        s.add_all(ts)
+        s.flush()
+        cid, t = c.id, [x.id for x in ts]
+        past = NOW - timedelta(days=1)
+        ids = {}
+        for key, h, a, sid, when in (("relink", 1, 0, "31", past),
+                                      ("stale", 3, 2, "41", past),
+                                      ("t_found", 3, 2, "42", past + timedelta(hours=30)),
+                                      ("t_error", 3, 2, "43", past + timedelta(hours=40))):
+            row = Match(sport=Sport.NFL, competition_id=cid, season="2026", utc_date=when,
+                        status=MatchStatus.SCHEDULED, home_team_id=t[h], away_team_id=t[a], external_ids={SRC: sid})
+            s.add(row)
+            s.flush()
+            ids[key] = row.id
+        s.add(Odds(match_id=ids["t_found"], bookmaker="b", market="ML", selection="HOME", price_decimal=1.9))
+    live = NormalizedMatch(sport=Sport.NFL, competition_code="OR4", season="2026", utc_date=past + timedelta(hours=2),
+                           status=MatchStatus.FINISHED, home_team_source_id="OR4t1", away_team_source_id="OR4t0",
+                           source=SRC, source_id="39", status_raw="FT")
+    found_twin = NormalizedMatch(sport=Sport.NFL, competition_code="OR4", season="2026",
+                                 utc_date=past + timedelta(hours=30), status=MatchStatus.SCHEDULED,
+                                 home_team_source_id="OR4t3", away_team_source_id="OR4t2", source=SRC, source_id="42")
+    gap_day = (past + timedelta(days=1)).strftime("%Y-%m-%d")
+    prov = GappyProvider([live, found_twin], broken={"43"}, broken_dates={gap_day})
+    before = _snapshot(cid)
+    for apply in (False, True):
+        r = md.orphans("OR4", prov, apply=apply, now=NOW)
+        act = {p["id"]: (p["action"], p.get("why", "")) for p in r["plan"]}
+        assert act[ids["relink"]][0] == "unresolved" and "provider search incomplete (1 game(s) seen" in act[ids["relink"]][1]
+        assert act[ids["stale"]][0] == "unresolved" and "twin lookup failed" in act[ids["stale"]][1]
+        for k in ("t_found", "t_error"):                               # the competing twins: same set, untouched
+            assert act[ids[k]][0] == "unresolved" and f"in the set of candidate {ids['stale']}" in act[ids[k]][1]
+        assert "merge" not in r["counts"] and "relink" not in r["counts"], r["counts"]
+        assert r["applied_counts"] == {} and _snapshot(cid) == before  # ids, rows and references unchanged
+    with session_scope() as s:
+        s.query(Odds).filter(Odds.match_id.in_(list(ids.values()))).delete(synchronize_session=False)
+        s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)

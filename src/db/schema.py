@@ -56,6 +56,10 @@ class MatchStatus(str, enum.Enum):
     FINISHED = "finished"
     POSTPONED = "postponed"
     CANCELLED = "cancelled"
+    # ARCHITECT 2026-10-03 (dedupe-matches --orphans): a SCHEDULED row whose
+    # provider id is retired (NOT FOUND), with no live twin and no provider
+    # game for the pair: never deleted, never a fixture, never an odds target.
+    STALE_ORPHAN = "stale_orphan"
 
 
 class Result(str, enum.Enum):

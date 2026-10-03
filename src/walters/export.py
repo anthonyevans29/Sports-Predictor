@@ -1192,7 +1192,7 @@ def export_fixtures(
 
     labels: _Counter = _Counter()
     counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0, "close_unpriced": 0,
-              "duplicates_suppressed": 0,
+              "duplicates_suppressed": 0, "stale_orphans_excluded": 0,
               "kalshi_two_sided": 0,
               "kalshi_one_sided": 0, "kalshi_partial": 0, "kalshi_absent": 0}
     with _scope() as s:
@@ -1206,6 +1206,10 @@ def export_fixtures(
         q = q.where(_Match.utc_date >= lo, _Match.utc_date < hi).order_by(_Match.utc_date)
         rows = []
         ms = list(s.execute(q).scalars())
+        # a STALE_ORPHAN (retired provider id, no live twin; dedupe-matches
+        # --orphans) is never a fixture — excluded and counted (law 4)
+        counts["stale_orphans_excluded"] = sum(1 for m in ms if m.status == MatchStatus.STALE_ORPHAN)
+        ms = [m for m in ms if m.status != MatchStatus.STALE_ORPHAN]
         # ARCHITECT 2026-10-03 (priority): until a duplicate fixture is merged
         # (dedupe-matches), the export carries ONE row per fixture — the
         # FINISHED row when the pair has one, else the older (referenced) row.

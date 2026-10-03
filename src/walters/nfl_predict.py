@@ -113,7 +113,7 @@ def _rest_days(s, m) -> dict[str, float | None]:
         prev = s.execute(
             nfl_scoped(select(Match.utc_date)).where(
                 Match.utc_date < m.utc_date,
-                Match.status.notin_([MatchStatus.CANCELLED, MatchStatus.POSTPONED]),
+                Match.status.notin_([MatchStatus.CANCELLED, MatchStatus.POSTPONED, MatchStatus.STALE_ORPHAN]),
                 (Match.home_team_id == tid) | (Match.away_team_id == tid),
             ).order_by(Match.utc_date.desc()).limit(1)
         ).scalar()

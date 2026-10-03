@@ -342,12 +342,11 @@ class IngestionService:
                 result.rekey_refused += 1
                 return None
             if match is not None:
+                from src.ingestion.match_dedupe import stamp_rekey
+
                 ext = dict(match.external_ids or {})
                 old = ext.get(nm.source)
-                prev = list(ext.get(f"{nm.source}_prev") or [])
-                if old and old not in prev:
-                    prev.append(old)
-                ext[f"{nm.source}_prev"] = prev
+                stamp_rekey(ext, nm.source, old, nm.source_id, "sync")
                 ext[nm.source] = nm.source_id
                 match.external_ids = ext
                 self._apply_match_updates(match, nm)

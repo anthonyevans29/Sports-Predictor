@@ -1,4 +1,4 @@
-## 2026-10-03 (dedupe-matches --orphans; the apply summary reports state, not just this run's merges)
+## 2026-10-03 (#266: dedupe-matches --orphans; the apply summary reports state, not just this run's merges)
 - **Reporting fix:** a `dedupe-matches` apply that found nothing left to merge printed "merged 0" on a table where 962 rows had already been re-keyed in place.
   - Every summary now prints the STATE before and, on apply, after: rows, deleted, rows carrying `<source>_prev`, stale orphans, and re-keys by provenance.
   - A 0-pair run says the rows were already re-keyed, so nothing was missed.

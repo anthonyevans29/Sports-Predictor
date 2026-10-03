@@ -1185,6 +1185,7 @@ def export_fixtures(
 
     labels: _Counter = _Counter()
     counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0, "close_unpriced": 0,
+              "duplicates_suppressed": 0,
               "kalshi_two_sided": 0,
               "kalshi_one_sided": 0, "kalshi_partial": 0, "kalshi_absent": 0}
     with _scope() as s:
@@ -1197,8 +1198,26 @@ def export_fixtures(
         hi = (_dt.fromisoformat(end) + _td(days=1)) if end else utc_now_naive() + _td(days=7)
         q = q.where(_Match.utc_date >= lo, _Match.utc_date < hi).order_by(_Match.utc_date)
         rows = []
-        for m in s.execute(q).scalars():
-            rows.append(_fixture_row(s, m, competition_code, labels, counts))
+        ms = list(s.execute(q).scalars())
+        # ARCHITECT 2026-10-03 (priority): until a duplicate fixture is merged
+        # (dedupe-matches), the export carries ONE row per fixture — the
+        # FINISHED row when the pair has one, else the older (referenced) row.
+        # Same home AND away within 12h = one fixture; counted in the receipt.
+        keep, by_pair = set(), {}
+        for m in ms:
+            by_pair.setdefault((m.home_team_id, m.away_team_id), []).append(m)
+        for grp in by_pair.values():
+            grp.sort(key=lambda x: (x.utc_date, x.id))
+            while grp:
+                head = grp[0]
+                clus = [x for x in grp if abs(x.utc_date - head.utc_date) <= _td(hours=12)]
+                fin = [x for x in clus if x.status == MatchStatus.FINISHED]
+                keep.add((min(fin, key=lambda x: x.id) if fin else min(clus, key=lambda x: x.id)).id)
+                counts["duplicates_suppressed"] += len(clus) - 1
+                grp = [x for x in grp if x not in clus]
+        for m in ms:
+            if m.id in keep:
+                rows.append(_fixture_row(s, m, competition_code, labels, counts))
         counts["fixtures"] = len(rows)
         comp_type = (comp.type or "").upper()
     _os.makedirs(out_dir, exist_ok=True)

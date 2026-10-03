@@ -299,6 +299,66 @@ def odds_audit_cmd():
                                          else "no source holds more than one capture session per match"))
 
 
+@cli.command("dedupe-matches")
+@click.option("--competition", "competition_code", required=True)
+@click.option("--source", default="api_american_football", show_default=True)
+@click.option("--apply", is_flag=True, help="MERGE the pairs (default: dry-run, writes nothing).")
+@click.option("--backup", "backup_path", default=None,
+              help="Required with --apply: a .backup file taken just before (integrity checked; "
+                   "its matches count must equal the live DB's).")
+@click.option("--sample", default=8, show_default=True)
+def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample):
+    """ARCHITECT 2026-10-03 (priority): duplicate fixtures from a resync that
+    missed re-keyed provider ids. Pairs = same competition, same home AND away
+    team, kickoffs within 12h, different source ids. Receipt: how the rows
+    differ. --apply merges the newer row INTO the older one (the row the ledger,
+    odds and snapshots reference): fresh status/scores/kickoff, new id (old
+    kept as <source>_prev), every referencing row re-pointed, then the empty
+    newer row deleted. Clusters of 3+, swapped pairs and unique-table
+    conflicts are reported, never merged."""
+    import json as _json
+    import sqlite3
+    from pathlib import Path
+
+    from src.ingestion import match_dedupe as md
+
+    if apply:
+        if not backup_path or not Path(backup_path).is_file():
+            raise click.UsageError("--apply needs --backup PATH to an existing .backup file (law 5).")
+        bp = Path(backup_path).resolve()
+        if "data" in bp.parts:
+            raise click.UsageError("REFUSED: the backup must not live under data/ (law 5).")
+        con = sqlite3.connect(f"file:{bp}?mode=ro", uri=True)
+        try:
+            ok = [r[0] for r in con.execute("PRAGMA integrity_check")] == ["ok"]
+            n_bk = con.execute("SELECT COUNT(*) FROM matches").fetchone()[0]
+        finally:
+            con.close()
+        from sqlalchemy import func, select as _sel
+        from src.db.database import session_scope as _ss
+        from src.db.schema import Match as _M
+        with _ss() as _s:
+            n_live = _s.execute(_sel(func.count(_M.id))).scalar()
+        if not ok or n_bk != n_live:
+            raise click.UsageError(f"REFUSED: backup integrity={'ok' if ok else 'FAIL'}, matches backup {n_bk} "
+                                   f"vs live {n_live} — take a fresh .backup first.")
+        click.echo(f"backup verified: {bp} integrity ok · matches {n_bk} = live")
+    try:
+        r = md.run(competition_code, source=source, apply=apply, sample=sample)
+    except ValueError as e:
+        raise click.ClickException(str(e))
+    click.echo(f"DEDUPE-MATCHES {competition_code} ({source}) · {'APPLIED' if apply else 'DRY-RUN (nothing written)'}"
+               f" · duplicate pairs {r['pairs']} · {r['report'] or 'nothing refused at detection'}")
+    click.echo(f"  fields that differ across the pairs: {r['differs']}")
+    for d in r["sample"]:
+        click.echo(f"  keeper {_json.dumps(d['keeper'])}")
+        click.echo(f"  newer  {_json.dumps(d['newer'])}  differs={d['differs']}")
+    if apply:
+        click.echo(f"  merged {r['merged']} · refused {len(r['refused'])} · re-pointed rows {r['repointed']}")
+        for x in r["refused"][:20]:
+            click.echo(f"  REFUSED keeper {x['keeper']} / newer {x['newer']}: {x['why']}")
+
+
 @cli.command("clv-restate")
 @click.option("--apply", is_flag=True, help="WRITE the restated CLV (default: dry-run, writes nothing).")
 @click.option("--backup", "backup_path", default=None,

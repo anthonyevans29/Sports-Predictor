@@ -171,3 +171,40 @@ def test_shipped_tree_runs_in_a_clean_checkout_clean_divergent_and_error(tmp_pat
     (co / "tools/compare_exports.py").write_text("raise RuntimeError('broken comparator')\n")
     got = _run_action(co, tmp_path)                       # crashes before main: Python exits 1, no VERDICT
     assert got["state"] == "error" and "not a data verdict" in got["desc"]
+
+
+def test_zero_compared_is_no_coverage_never_clean(tmp_path):
+    """PR #261 review: a real mirror whose dated folders hold only Markdown gave "CLEAN (0 compared)" and
+    state=success. Zero compared is NO-COVERAGE (exit 3) and the Action posts error, in a clean checkout of
+    the shipped tree; an empty side folder likewise."""
+    remote = _remote(tmp_path)
+    for role in ("host", "laptop"):                                      # Markdown-only dated folders
+        ex = _exports(tmp_path / role, [("morning_receipt_2026-10-03.md", TODAY, "# receipt\n")])
+        assert em.push(role, ex, "md only", remote, tmp_path / f"{role}_clone", today=TODAY)["pushed"]
+    co, files = _tree(remote, tmp_path)
+    assert "host/2026-10-03/morning_receipt_2026-10-03.md" in files
+    assert not any(f.endswith(".json") and f.startswith(("host/2", "laptop/2")) for f in files)
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "SP_WRITER_OF_RECORD")}
+
+    def cli(*args):
+        return subprocess.run([sys.executable, "tools/compare_exports.py", *args], cwd=co, env=env,
+                              capture_output=True, text=True)
+
+    r = cli("laptop/2026-10-03", "host/2026-10-03", "--since", "0")
+    assert r.returncode == 3, r.stdout + r.stderr
+    assert "coverage: 0 JSON file(s) compared" in r.stdout and "laptop 1, host 1" in r.stdout
+    assert "CLEAN" not in r.stdout.replace("not a clean verdict", "")
+    assert r.stdout.strip().endswith("VERDICT: NO-COVERAGE (0 compared) — not a data verdict")
+    got = _run_action(co, tmp_path)
+    assert got["state"] == "error" and got["desc"].startswith("NO COVERAGE · 2026-10-03"), got
+
+    (co / "empty_l").mkdir(), (co / "empty_h").mkdir()                   # empty side folders
+    r = cli("empty_l", "empty_h", "--since", "0")
+    assert r.returncode == 3 and "VERDICT: NO-COVERAGE" in r.stdout
+    assert "coverage: 0 JSON file(s) compared" in r.stdout and "laptop 0, host 0" in r.stdout
+    for p in (co / "host" / "2026-10-03").iterdir():                     # the shipped workflow on empty folders
+        p.unlink()
+    for p in (co / "laptop" / "2026-10-03").iterdir():
+        p.unlink()
+    got = _run_action(co, tmp_path)
+    assert got["state"] == "error" and "NO COVERAGE" in got["desc"], got

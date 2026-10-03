@@ -1,9 +1,10 @@
 # EXPORTS MIRROR verdict (F2.5, ARCHITECT 2026-10-03): on every push, the
 # laptop-vs-host comparison for the newest date BOTH writers have, posted as a
 # commit status (context "compare_exports"): success = CLEAN (exit 0),
-# failure = DIVERGENT (exit 1), error = the comparator or runner broke (any
-# other exit, or no matching VERDICT line: not a data verdict), pending = the other side has not pushed
-# that date yet. tools/compare_exports.py is standalone (stdlib only). Shipped
+# failure = DIVERGENT (exit 1), error = NO COVERAGE (exit 3: zero JSON
+# compared, never a clean verdict) or the comparator/runner broke (any other
+# exit, or no matching VERDICT line) — neither is a data verdict; pending =
+# the other side has not pushed that date yet. tools/compare_exports.py is standalone (stdlib only). Shipped
 # into Sports-Predictor-exports by exports_mirror.py push (do not edit there).
 name: compare_exports
 on:
@@ -41,6 +42,8 @@ jobs:
             echo "state=success" >> "$GITHUB_OUTPUT"; echo "desc=CLEAN · $d" >> "$GITHUB_OUTPUT"
           elif [ "$rc" = "1" ] && [ "$v" = "VERDICT: DIVERGENT" ]; then
             echo "state=failure" >> "$GITHUB_OUTPUT"; echo "desc=DIVERGENT · $d (see the run log)" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" = "3" ]; then
+            echo "state=error" >> "$GITHUB_OUTPUT"; echo "desc=NO COVERAGE · $d — 0 JSON compared; not a data verdict" >> "$GITHUB_OUTPUT"
           else
             echo "state=error" >> "$GITHUB_OUTPUT"; echo "desc=comparator ERROR (exit $rc) · $d — not a data verdict" >> "$GITHUB_OUTPUT"
           fi

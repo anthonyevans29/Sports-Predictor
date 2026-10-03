@@ -10,3 +10,4 @@
 - **Receipt (ruled):** tonight's 16:00 `nhl-daily`, after the deploy carrying this. The Cockpit's GitHub fetch depends on the artifact sandbox allowing api.github.com; the republish shows it, and the file picker is unchanged.
 - **Tests:** test_exports_mirror (5, local bare repo: both writers, retention, latest, no-op, squash, non-fatal hook); `cockpit_mirror_verify` 6/6 (routed API).
 Review fix (PR #261): the mirrored comparator is standalone (no sp_common), and an ERROR (exit 2 / no VERDICT line) is never read as DIVERGENT; regression on a clean checkout.
+Review fix 2 (PR #261): zero JSON compared → NO-COVERAGE (exit 3, Action state=error), never CLEAN; a coverage line names what the glob left out; Markdown-only and empty-folder regressions on the shipped tree.

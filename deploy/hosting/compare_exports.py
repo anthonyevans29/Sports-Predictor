@@ -10,8 +10,12 @@ timestamp-like keys ignored (*_at, ts, timestamp, generated*, captured*).
 Files present on one side only are listed. Output is paste-ready. Exit 0 =
 CLEAN (every compared file identical after the timestamp mask), 1 = DIVERGENT,
 2 = ERROR (the comparison could not run: bad arguments, a side directory
-missing, a crash) — never a data verdict. The last line always reads
-"VERDICT: CLEAN|DIVERGENT|ERROR". Read-only.
+missing, a crash), 3 = NO-COVERAGE (nothing was compared: zero JSON files on
+both sides in the window — an empty folder, or Markdown-only dated folders).
+2 and 3 are never data verdicts; CLEAN needs at least one compared file. A
+"coverage:" line always counts the JSON compared and the files the glob left
+out. The last line always reads "VERDICT: CLEAN|DIVERGENT|ERROR|NO-COVERAGE".
+Read-only.
 
 --since N (architect 2026-10-01; default 3): only files whose name carries a
 YYYY-MM-DD date within the last N UTC days (today and the N-1 days before)
@@ -58,8 +62,9 @@ except ImportError:
         return v if v in WRITERS else None
 
 # Exit codes — a data verdict is never confused with a broken run:
-#   0 CLEAN · 1 DIVERGENT · 2 ERROR (bad arguments, a missing side, a crash).
-EXIT_CLEAN, EXIT_DIVERGENT, EXIT_ERROR = 0, 1, 2
+#   0 CLEAN · 1 DIVERGENT · 2 ERROR (bad arguments, a missing side, a crash) ·
+#   3 NO-COVERAGE (zero files compared: never a clean verdict; PR #261 review).
+EXIT_CLEAN, EXIT_DIVERGENT, EXIT_ERROR, EXIT_NO_COVERAGE = 0, 1, 2, 3
 
 TS_KEY = re.compile(r"(_at$|^ts$|timestamp|^generated|^captured|^as_of)", re.I)
 # machine-local or reported separately — never a field diff
@@ -196,7 +201,7 @@ def _main(argv=None) -> int:
     if a.since > 0:
         print(f"window: --since {a.since} → files dated {today - timedelta(days=a.since - 1)} .. {today} "
               f"(UTC) + undated; {settled} settled file(s) earlier not re-printed")
-    clean, skew_names = True, set()
+    clean, skew_names, compared = True, set(), 0
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:
             print(f"· {name}: only on {'host' if name not in la else 'laptop'}")
@@ -208,6 +213,7 @@ def _main(argv=None) -> int:
             print(f"✗ {name}: unparseable ({e})")
             clean = False
             continue
+        compared += 1
         um: dict = {}
         d = diff(x, y, unmatched=um)
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
@@ -223,8 +229,20 @@ def _main(argv=None) -> int:
                       + (" …" if len(only[side]) > 12 else ""))
         for line in d[:15]:
             print(f"    {line}")
+    other = {side: sorted(f.name for f in d.iterdir() if f.is_file() and f.name not in names)
+             for side, d, names in (("laptop", a.laptop, la_all), ("host", a.host, ho_all))}
+    one_side = len(set(la) ^ set(ho))
+    print(f"\ncoverage: {compared} JSON file(s) compared ({a.glob}) · {one_side} on one side only · "
+          f"{settled} outside the window · not matched by {a.glob}: laptop {len(other['laptop'])}, "
+          f"host {len(other['host'])}" + (f" (e.g. {', '.join((other['laptop'] + other['host'])[:3])})"
+                                          if other['laptop'] or other['host'] else ""))
+    if clean and compared == 0:
+        print(f"NO COVERAGE — no {a.glob} file was compared on both sides; nothing is verified, so this is "
+              f"not a clean verdict.")
+        print("VERDICT: NO-COVERAGE (0 compared) — not a data verdict")
+        return EXIT_NO_COVERAGE
     classes = "capture timing | provider pagination | code-version skew (only where named above)"
-    print(f"\n{'CLEAN' if clean else 'DIVERGENT'} ({len(set(la) & set(ho))} compared) — "
+    print(f"{'CLEAN' if clean else 'DIVERGENT'} ({compared} compared) — "
           f"each divergence needs an explanation ({classes}) or a BACKLOG entry."
           + (f" Code-version skew named for: {', '.join(sorted(skew_names))}." if skew_names else ""))
     print(f"VERDICT: {'CLEAN' if clean else 'DIVERGENT'}")

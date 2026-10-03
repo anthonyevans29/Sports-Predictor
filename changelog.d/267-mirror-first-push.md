@@ -1,4 +1,4 @@
-## 2026-10-03 (exports mirror: the first push to an empty remote no longer reads "nothing changed"; keygen path)
+## 2026-10-03 (#267: exports mirror: the first push to an empty remote no longer reads "nothing changed"; keygen path)
 - **`exports_mirror.py push`** judges "changed" against the REMOTE's tip, not the local HEAD.
   - On the host the remote was set in `host.env` before the deploy key worked, so the chain hook's pushes committed in the working clone and failed to push. The hand-run first push then compared against that local commit and printed "not pushed — nothing changed" over an empty remote.
   - Unpushed local commits are now pushed ("incl. N earlier unpushed commit(s)").

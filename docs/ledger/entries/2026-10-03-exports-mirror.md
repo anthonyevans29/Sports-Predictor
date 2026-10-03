@@ -9,3 +9,4 @@
 - **Owed by the operator:** create the private repo; run `keygen` on the host and add the public half as a deploy key with WRITE access; set `SP_EXPORTS_MIRROR_REMOTE` in host.env; give the laptop its own key and run its push at the end of the morning chain; create the read-only fine-grained token for the Cockpit. All steps are in `docs/specs/exports-mirror.md`.
 - **Receipt (ruled):** tonight's 16:00 `nhl-daily`, after the deploy carrying this. The Cockpit's GitHub fetch depends on the artifact sandbox allowing api.github.com; the republish shows it, and the file picker is unchanged.
 - **Tests:** test_exports_mirror (5, local bare repo: both writers, retention, latest, no-op, squash, non-fatal hook); `cockpit_mirror_verify` 6/6 (routed API).
+Review fix (PR #261): the mirrored comparator is standalone (no sp_common), and an ERROR (exit 2 / no VERDICT line) is never read as DIVERGENT; regression on a clean checkout.

@@ -112,3 +112,62 @@ def test_sp_run_hook_is_non_fatal_and_off_by_default(monkeypatch, tmp_path):
     monkeypatch.setattr(sp_run.subprocess, "run", boom)
     sp_run.mirror_after_step("nhl-daily", 2, "export-fixtures", "r1")   # never raises
     assert seen and seen[-1]["kind"] == "mirror" and seen[-1]["exit"] is None and "timed out" in seen[-1]["tail"][0]
+
+
+def _action_step(clone: Path) -> str:
+    """The `run:` script of the compare step, read from the SHIPPED workflow (no YAML dependency)."""
+    lines = (clone / ".github/workflows/compare.yml").read_text().splitlines()
+    i = next(n for n, ln in enumerate(lines) if ln.strip() == "id: cmp")
+    j = next(n for n in range(i, len(lines)) if lines[n].strip() == "run: |")
+    ind = len(lines[j + 1]) - len(lines[j + 1].lstrip())
+    body = []
+    for ln in lines[j + 1:]:
+        if ln.strip() and len(ln) - len(ln.lstrip()) < ind:
+            break
+        body.append(ln[ind:])
+    return "\n".join(body)
+
+
+def _run_action(clone: Path, tmp: Path) -> dict:
+    out, summ = tmp / f"out{time.time_ns()}", tmp / f"sum{time.time_ns()}"
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "SP_WRITER_OF_RECORD")}
+    env.update(GITHUB_OUTPUT=str(out), GITHUB_STEP_SUMMARY=str(summ))
+    subprocess.run(["bash", "-c", _action_step(clone)], cwd=clone, env=env, check=True,
+                   capture_output=True, text=True)
+    return dict(ln.split("=", 1) for ln in out.read_text().splitlines())
+
+
+def test_shipped_tree_runs_in_a_clean_checkout_clean_divergent_and_error(tmp_path):
+    """PR #261 review: the mirror shipped compare_exports.py without sp_common.py (ModuleNotFoundError),
+    and the Action read every non-zero exit as DIVERGENT. A fresh clone of the mirror, outside this repo,
+    with no PYTHONPATH, must give CLEAN, DIVERGENT and ERROR as three different results."""
+    remote = _remote(tmp_path)
+    body = '[{"utc_date":"2026-10-03T23:00Z","home_team":"A","away_team":"B","p":0.5}]'
+    for role in ("host", "laptop"):
+        ex = _exports(tmp_path / role, [("fixtures_NHL_2026-10-03.json", TODAY, body)])
+        assert em.push(role, ex, "receipt", remote, tmp_path / f"{role}_clone", today=TODAY)["pushed"]
+    co, files = _tree(remote, tmp_path)
+    assert "tools/compare_exports.py" in files and not (co / "tools" / "sp_common.py").exists()
+    env = {k: v for k, v in os.environ.items() if k not in ("PYTHONPATH", "SP_WRITER_OF_RECORD")}
+
+    def cli(*args):
+        return subprocess.run([sys.executable, "tools/compare_exports.py", *args], cwd=co, env=env,
+                              capture_output=True, text=True)
+
+    r = cli("laptop/2026-10-03", "host/2026-10-03", "--since", "0")
+    assert r.returncode == 0, r.stderr
+    assert "ModuleNotFoundError" not in r.stderr and r.stdout.strip().endswith("VERDICT: CLEAN")
+    assert _run_action(co, tmp_path) == {"date": "2026-10-03", "state": "success", "desc": "CLEAN · 2026-10-03"}
+
+    (co / "host/2026-10-03/fixtures_NHL_2026-10-03.json").write_text(body.replace("0.5", "0.6"))
+    r = cli("laptop/2026-10-03", "host/2026-10-03", "--since", "0")
+    assert r.returncode == 1 and r.stdout.strip().endswith("VERDICT: DIVERGENT")
+    assert _run_action(co, tmp_path)["state"] == "failure"
+
+    r = cli("laptop/2026-10-03", "host/2026-10-99", "--since", "0")       # a side that is not there
+    assert r.returncode == 2 and "VERDICT: ERROR" in r.stdout
+    r = cli("laptop/2026-10-03")                                          # a usage error
+    assert r.returncode == 2 and "VERDICT: ERROR" in r.stdout
+    (co / "tools/compare_exports.py").write_text("raise RuntimeError('broken comparator')\n")
+    got = _run_action(co, tmp_path)                       # crashes before main: Python exits 1, no VERDICT
+    assert got["state"] == "error" and "not a data verdict" in got["desc"]

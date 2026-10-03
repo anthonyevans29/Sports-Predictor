@@ -35,8 +35,17 @@ date yet. The full report is in the run's step summary.
 ## Operator setup (once)
 
 1. **GitHub (Anthony):** create the PRIVATE repo `anthonyevans29/Sports-Predictor-exports`, empty.
-2. **Host:** `sudo -u sp /opt/sports-predictor/venv/bin/python deploy/hosting/exports_mirror.py keygen`
-   prints the PUBLIC half (the private key stays at `/etc/sports-predictor/exports_deploy_key`).
+2. **Host:** `sp` cannot write `/etc/sports-predictor`, so use one of these two:
+   - **as sp (no root):** `sudo -u sp /opt/sports-predictor/venv/bin/python deploy/hosting/exports_mirror.py keygen`
+     writes `~sp/.ssh/sp_exports_deploy_key` and prints the PUBLIC half. With `SP_EXPORTS_MIRROR_KEY` unset,
+     the mirror falls back to that path. `--key PATH` puts it elsewhere; then set `SP_EXPORTS_MIRROR_KEY=PATH`
+     in `host.env`.
+   - **root step (key under /etc):**
+     `sudo ssh-keygen -q -t ed25519 -N '' -C 'sp-exports-mirror (push-only)' -f /etc/sports-predictor/exports_deploy_key`
+     then `sudo chown sp:sp /etc/sports-predictor/exports_deploy_key* && sudo chmod 600 /etc/sports-predictor/exports_deploy_key`.
+     An installed `/etc` key is used when present.
+
+   `keygen` aimed at an unwritable directory refuses and prints both routes.
 3. **GitHub (Anthony):** repo → Settings → Deploy keys → add that public half with **write access**.
    It is a deploy key, so it reaches this repo only.
 4. **Host `host.env`:**
@@ -45,6 +54,9 @@ date yet. The full report is in the run's step summary.
    SP_EXPORTS_MIRROR_ROLE=host
    ```
    Then `systemctl enable --now sp-exports-squash.timer` (it is on the T11 list).
+   Setting the remote BEFORE the key works is harmless. The chain hook's pushes commit in the working
+   clone and fail to push; the first push that can reach the remote sends those commits too
+   ("incl. N earlier unpushed commit(s)"). The change test is against the remote's tip, never the local HEAD.
 5. **Laptop:** its own deploy key the same way (`keygen --key ~/.ssh/sp_exports_laptop`, add it with
    write access), then at the END of the morning chain:
    ```

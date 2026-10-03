@@ -2,6 +2,7 @@
 retention, both writers on one branch, the compare tool + Action shipped, weekly squash; the sp_run
 hook is non-fatal and off until configured. Uses a LOCAL bare repo as the remote (no network)."""
 import os
+import shutil
 import subprocess
 import sys
 import time
@@ -208,3 +209,64 @@ def test_zero_compared_is_no_coverage_never_clean(tmp_path):
         p.unlink()
     got = _run_action(co, tmp_path)
     assert got["state"] == "error" and "NO COVERAGE" in got["desc"], got
+
+
+def test_first_push_after_failed_attempts_is_not_nothing_changed(tmp_path):
+    """ARCHITECT 2026-10-03 (host): the remote was set in host.env before the deploy key worked, so the chain
+    hook's pushes COMMITTED in the working clone and failed to push. The hand-run "first" push then compared
+    against that local commit and printed "not pushed — nothing changed" over an EMPTY remote. The change test
+    is against the remote's tip: unpushed local commits are pushed."""
+    remote = tmp_path / "later.git"                                   # not there yet: every push fails
+    ex = _exports(tmp_path, [("fixtures_NHL_2026-10-03.json", TODAY, '{"a":1}')])
+    clone = tmp_path / "host_clone"
+    for step in (1, 2):                                               # the chain hook, before the key works
+        r = em.push("host", ex, f"nhl-daily step {step}", str(remote), clone, today=TODAY)
+        assert not r["pushed"] and r["why"].startswith("push rejected"), r
+    subprocess.run(["git", "init", "-q", "--bare", "-b", "main", str(remote)], check=True)   # key now works
+    r = em.push("host", ex, "hand run", str(remote), clone, today=TODAY)
+    assert r["pushed"], r
+    assert r["unpushed_before"] >= 1 and r["copied"] == 0             # the earlier commit carried the files
+    _, files = _tree(str(remote), tmp_path)
+    assert "host/2026-10-03/fixtures_NHL_2026-10-03.json" in files and "tools/compare_exports.py" in files
+    again = em.push("host", ex, "next", str(remote), clone, today=TODAY)
+    assert again["pushed"] is False and again["why"] == "nothing changed"   # now genuinely nothing
+
+
+def test_first_push_to_an_empty_remote_from_a_fresh_clone(tmp_path):
+    remote = _remote(tmp_path)
+    ex = _exports(tmp_path, [(f"f{i}_2026-10-03.json", TODAY, str(i)) for i in range(18)])
+    r = em.push("host", ex, "first", remote, tmp_path / "c", today=TODAY)
+    assert r["pushed"] and r["copied"] == 36, r                       # 18 dated + 18 latest
+    _, files = _tree(remote, tmp_path)
+    assert sum(f.startswith("host/2026-10-03/") for f in files) == 18
+
+
+def test_key_path_resolution_and_keygen_into_a_writable_path(tmp_path, monkeypatch, capsys):
+    """keygen's /etc/sports-predictor default is not writable by sp: --key PATH is accepted, and with no
+    env the key resolves to an existing /etc key, else ~/.ssh/sp_exports_deploy_key (push and keygen agree)."""
+    monkeypatch.delenv("SP_EXPORTS_MIRROR_KEY", raising=False)
+    monkeypatch.setattr(em, "ETC_KEY", tmp_path / "etc-ro" / "exports_deploy_key")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert em.key_path() == tmp_path / "home" / ".ssh" / "sp_exports_deploy_key"
+    (tmp_path / "etc-ro").mkdir()
+    em.ETC_KEY.write_text("k")
+    assert em.key_path() == em.ETC_KEY                                # an installed /etc key wins
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_KEY", str(tmp_path / "custom"))
+    assert em.key_path() == tmp_path / "custom"                       # the env wins over both
+    if shutil.which("ssh-keygen"):
+        assert em.main(["keygen", "--key", str(tmp_path / "k" / "deploy")]) == 0
+        assert (tmp_path / "k" / "deploy").exists() and "ssh-ed25519" in capsys.readouterr().out
+
+
+def test_keygen_into_an_unwritable_dir_names_the_root_step(tmp_path, capsys):
+    ro = tmp_path / "ro"
+    ro.mkdir()
+    ro.chmod(0o500)
+    try:
+        if os.access(ro, os.W_OK):                                    # running as root: nothing to refuse
+            return
+        assert em.keygen(str(ro / "exports_deploy_key")) == 2
+        out = capsys.readouterr().out
+        assert "--key" in out and "sudo" in out and "SP_EXPORTS_MIRROR_KEY" in out
+    finally:
+        ro.chmod(0o700)

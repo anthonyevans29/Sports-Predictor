@@ -208,6 +208,21 @@ class APIAmericanFootballAdapter(DataAdapter):
         if date_from and date_from == date_to:
             params["date"] = date_from
         data = self._get("games", params=params)
+        return self._parse_games(data, competition_code, str(params.get("season", "")))
+
+    def get_game(self, source_id: str, competition_code: str = "NCAA") -> tuple[bool, NormalizedMatch | None]:
+        """(exists, match) for ONE provider game id (GET /games?id=). exists=False
+        = the provider returns no game for the id (a retired id: dedupe-matches
+        --orphans, ARCHITECT 2026-10-03). exists=True with match=None = the game
+        exists but is filtered (non-competitive). Raises on HTTP / RateLimited —
+        the caller treats that as UNRESOLVED, never as absent."""
+        data = self._get("games", params={"id": source_id})
+        if not (data.get("response") or []):
+            return False, None
+        got = self._parse_games(data, competition_code, "")
+        return True, (got[0] if got else None)
+
+    def _parse_games(self, data: dict, competition_code: str, season: str) -> list[NormalizedMatch]:
         out: list[NormalizedMatch] = []
         for g in data.get("response") or []:
             game = g.get("game") or g
@@ -259,7 +274,7 @@ class APIAmericanFootballAdapter(DataAdapter):
                 status = MatchStatus.FINISHED
             out.append(NormalizedMatch(
                 sport=Sport.NFL, competition_code=(competition_code or "NFL").upper(),
-                season=str(params.get("season", "")),
+                season=season,
                 utc_date=utc,
                 status=status,
                 home_team_source_id=str(home["id"]),

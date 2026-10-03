@@ -109,7 +109,7 @@ def find_match(
             Match.sport == sport,
             Match.utc_date >= window_start,
             Match.utc_date <= window_end,
-            Match.status != MatchStatus.CANCELLED,
+            Match.status.notin_([MatchStatus.CANCELLED, MatchStatus.STALE_ORPHAN]),
         )
     ).scalars())
     if not candidates:

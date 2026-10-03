@@ -357,7 +357,11 @@ def _verify_backup(backup_path: str | None, table: str, model) -> str:
               help="Required with --apply: a .backup file taken just before (integrity checked; "
                    "its matches count must equal the live DB's).")
 @click.option("--sample", default=8, show_default=True)
-def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample):
+@click.option("--orphans", is_flag=True,
+              help="ARCHITECT 2026-10-03: resolve stale/twinned SCHEDULED rows' ids at the provider — NOT FOUND + a "
+                   "live twin within 48h -> merge; NOT FOUND + no twin -> relink to the provider's live id for the "
+                   "pair (±2d) or mark STALE_ORPHAN (never deleted). Dry-run unless --apply.")
+def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orphans):
     """ARCHITECT 2026-10-03 (priority): duplicate fixtures from a resync that
     missed re-keyed provider ids. Pairs = same competition, same home AND away
     team, kickoffs within 12h, different source ids. Receipt: how the rows
@@ -373,6 +377,8 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample):
 
     if apply:
         _verify_backup(backup_path, "matches", _M)
+    if orphans:
+        return _dedupe_orphans(competition_code, source, apply, sample)
     try:
         r = md.run(competition_code, source=source, apply=apply, sample=sample)
     except ValueError as e:
@@ -387,6 +393,55 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample):
         click.echo(f"  merged {r['merged']} · refused {len(r['refused'])} · re-pointed rows {r['repointed']}")
         for x in r["refused"][:20]:
             click.echo(f"  REFUSED keeper {x['keeper']} / newer {x['newer']}: {x['why']}")
+    _dedupe_state_lines(r, source)
+
+
+def _dedupe_state_lines(r, source):
+    """ARCHITECT 2026-10-03: an apply that found nothing to merge printed "merged 0" on a table whose rows
+    were already re-keyed in place — the summary reports the STATE, not only this run's delta."""
+    b, a = r["before"], r.get("after") or r["before"]
+    click.echo(f"  state before: rows {b['rows']} · re-keyed in place (carry {source}_prev) {b['carry_prev']} · "
+               f"stale orphans {b['stale_orphans']} · re-keys by provenance {b['rekeys_by_via'] or '{} (pre-log)'}")
+    if r.get("applied"):
+        click.echo(f"  state after:  rows {a['rows']} (deleted {b['rows'] - a['rows']}) · re-keyed in place "
+                   f"{a['carry_prev']} (+{a['carry_prev'] - b['carry_prev']}) · stale orphans {a['stale_orphans']} · "
+                   f"re-keys by provenance {a['rekeys_by_via']}")
+    if not r.get("pairs") and b["carry_prev"] and not r.get("plan"):
+        click.echo(f"  nothing to merge: {b['carry_prev']} row(s) already carry {source}_prev — re-keyed earlier "
+                   f"(a prior apply or the sync re-key), not missed")
+
+
+def _dedupe_orphans(competition_code, source, apply, sample):
+    import os as _os
+    import time as _time
+
+    from src.adapters.api_american_football import APIAmericanFootballAdapter
+    from src.ingestion import match_dedupe as md
+
+    rpm = float(_os.environ.get("SP_ODDS_FOOTBALL_RPM") or 280)
+    r = md.orphans(competition_code, APIAmericanFootballAdapter(), source=source, apply=apply,
+                   pace=lambda: _time.sleep(60.0 / rpm))
+    c = r["counts"]
+    click.echo(f"DEDUPE-MATCHES --orphans {competition_code} ({source}) · "
+               f"{'APPLIED' if apply else 'DRY-RUN (nothing written)'} · candidates {sum(c.values())} "
+               f"(SCHEDULED, no score; kickoff >{md.STALE_H}h past or a twin within {md.TWIN_H}h)")
+    click.echo(f"  plan: merge {c.get('merge', 0)} · relink {c.get('relink', 0)} · stale_orphan {c.get('orphan', 0)} · "
+               f"live {c.get('live', 0)} · live, resync needed {c.get('live_resync', 0)} · refused {c.get('refused', 0)} · "
+               f"unresolved {c.get('unresolved', 0)} · provider lookups {r['provider_lookups']}")
+    order = ("merge", "relink", "orphan", "refused", "unresolved", "live_resync")
+    for act in order:
+        rows = [p for p in r["plan"] if p["action"] == act]
+        for p in rows[: (10_000 if act in ("refused", "unresolved") else sample)]:
+            extra = {k: v for k, v in p.items() if k not in ("action", "id", "sid", "utc", "home", "away", "stale")}
+            click.echo(f"  [{act}] id {p['id']} sid {p['sid']} {p['utc']} home {p['home']} away {p['away']}"
+                       f"{' STALE' if p['stale'] else ''} {extra or ''}")
+        if len(rows) > sample and act not in ("refused", "unresolved"):
+            click.echo(f"  [{act}] … {len(rows) - sample} more")
+    if apply:
+        click.echo(f"  applied {r['applied_counts']} · refused at apply {len(r['refused_at_apply'])}")
+        for x in r["refused_at_apply"][:20]:
+            click.echo(f"  REFUSED id {x['id']}: {x['why']}")
+    _dedupe_state_lines(r, source)
 
 
 @cli.command("clv-restate")
@@ -6874,6 +6929,9 @@ def export_fixtures_cmd(competition_code, start, end, desk):
           f"kalshi two-sided {rc['kalshi_two_sided']} / one-sided "
           f"{rc['kalshi_one_sided']} / partial (soccer, a leg missing) {rc['kalshi_partial']} / "
           f"absent {rc['kalshi_absent']}")
+    if rc.get("duplicates_suppressed") or rc.get("stale_orphans_excluded"):
+        print(f"  duplicate rows suppressed {rc.get('duplicates_suppressed', 0)} · stale orphans excluded "
+              f"{rc.get('stale_orphans_excluded', 0)} (dedupe-matches --orphans)")
     labels = rc["odds_labels"]
     print(f"  odds (market, selection) labels seen: "
           + (", ".join(f"{m}/{sel}×{n}" for (m, sel), n in labels.items()) or "none"))

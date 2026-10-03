@@ -7,8 +7,15 @@
 For every same-named JSON file in both: record counts (top-level list, or the
 longest list value in a top-level object) and a field-level diff with
 timestamp-like keys ignored (*_at, ts, timestamp, generated*, captured*).
-Files present on one side only are listed. Output is paste-ready; exit 0 only
-when every compared file is identical after the timestamp mask. Read-only.
+Files present on one side only are listed. Output is paste-ready. Exit 0 =
+CLEAN (every compared file identical after the timestamp mask), 1 = DIVERGENT,
+2 = ERROR (the comparison could not run: bad arguments, a side directory
+missing, a crash), 3 = NO-COVERAGE (nothing was compared: zero JSON files on
+both sides in the window — an empty folder, or Markdown-only dated folders).
+2 and 3 are never data verdicts; CLEAN needs at least one compared file. A
+"coverage:" line always counts the JSON compared and the files the glob left
+out. The last line always reads "VERDICT: CLEAN|DIVERGENT|ERROR|NO-COVERAGE".
+Read-only.
 
 --since N (architect 2026-10-01; default 3): only files whose name carries a
 YYYY-MM-DD date within the last N UTC days (today and the N-1 days before)
@@ -40,8 +47,24 @@ import sys
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 
-sys.path.insert(0, str(Path(__file__).resolve().parent))
-import sp_common as c  # noqa: E402
+# Standalone (PR #261 review): the exports mirror ships THIS file alone into
+# Sports-Predictor-exports/tools/, where sp_common.py does not exist. In the
+# repo, the writer of record comes from sp_common (env, host env file, .env);
+# shipped, from the SP_WRITER_OF_RECORD environment variable only.
+WRITERS = ("laptop", "host")
+try:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+    from sp_common import writer_of_record  # noqa: E402
+except ImportError:
+    def writer_of_record() -> str | None:
+        import os
+        v = (os.environ.get("SP_WRITER_OF_RECORD") or "").strip()
+        return v if v in WRITERS else None
+
+# Exit codes — a data verdict is never confused with a broken run:
+#   0 CLEAN · 1 DIVERGENT · 2 ERROR (bad arguments, a missing side, a crash) ·
+#   3 NO-COVERAGE (zero files compared: never a clean verdict; PR #261 review).
+EXIT_CLEAN, EXIT_DIVERGENT, EXIT_ERROR, EXIT_NO_COVERAGE = 0, 1, 2, 3
 
 TS_KEY = re.compile(r"(_at$|^ts$|timestamp|^generated|^captured|^as_of)", re.I)
 # machine-local or reported separately — never a field diff
@@ -138,6 +161,20 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None) -> list[str]:
 
 
 def main(argv=None) -> int:
+    """CLEAN 0 / DIVERGENT 1 / ERROR 2; the last line printed names the verdict."""
+    try:
+        return _main(argv)
+    except SystemExit as e:                   # argparse: --help is 0, a usage error is 2
+        if e.code in (0, None):
+            raise
+        print(f"VERDICT: ERROR (usage, exit {e.code}) — not a data verdict")
+        return EXIT_ERROR
+    except Exception as e:                    # noqa: BLE001 — a crash is an ERROR, never DIVERGENT
+        print(f"VERDICT: ERROR ({type(e).__name__}: {e}) — the comparison did not run; not a data verdict")
+        return EXIT_ERROR
+
+
+def _main(argv=None) -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("laptop", type=Path)
     ap.add_argument("host", type=Path)
@@ -148,19 +185,23 @@ def main(argv=None) -> int:
     ap.add_argument("--today", default=None, help=argparse.SUPPRESS)   # tests pin the clock
     a = ap.parse_args(argv)
     today = date.fromisoformat(a.today) if a.today else datetime.now(timezone.utc).date()
+    missing = [f"{side}={d}" for side, d in (("laptop", a.laptop), ("host", a.host)) if not d.is_dir()]
+    if missing:                               # an absent side must never read as "0 compared, CLEAN"
+        print(f"VERDICT: ERROR (side directory missing: {', '.join(missing)}) — not a data verdict")
+        return EXIT_ERROR
     la_all = {p.name: p for p in a.laptop.glob(a.glob)}
     ho_all = {p.name: p for p in a.host.glob(a.glob)}
     la = {n: p for n, p in la_all.items() if in_window(n, a.since, today)}
     ho = {n: p for n, p in ho_all.items() if in_window(n, a.since, today)}
     settled = len(set(la_all) | set(ho_all)) - len(set(la) | set(ho))
-    wor = c.writer_of_record()
+    wor = writer_of_record()
     print(f"writer of record: {wor or 'UNKNOWN (SP_WRITER_OF_RECORD unset/invalid)'} — canonical side: "
           f"{wor or '?'}" + (f"; divergences are read as the {'host' if wor == 'laptop' else 'laptop'} "
                               f"side departing from it" if wor else ""))
     if a.since > 0:
         print(f"window: --since {a.since} → files dated {today - timedelta(days=a.since - 1)} .. {today} "
               f"(UTC) + undated; {settled} settled file(s) earlier not re-printed")
-    clean, skew_names = True, set()
+    clean, skew_names, compared = True, set(), 0
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:
             print(f"· {name}: only on {'host' if name not in la else 'laptop'}")
@@ -172,6 +213,7 @@ def main(argv=None) -> int:
             print(f"✗ {name}: unparseable ({e})")
             clean = False
             continue
+        compared += 1
         um: dict = {}
         d = diff(x, y, unmatched=um)
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
@@ -187,11 +229,24 @@ def main(argv=None) -> int:
                       + (" …" if len(only[side]) > 12 else ""))
         for line in d[:15]:
             print(f"    {line}")
+    other = {side: sorted(f.name for f in d.iterdir() if f.is_file() and f.name not in names)
+             for side, d, names in (("laptop", a.laptop, la_all), ("host", a.host, ho_all))}
+    one_side = len(set(la) ^ set(ho))
+    print(f"\ncoverage: {compared} JSON file(s) compared ({a.glob}) · {one_side} on one side only · "
+          f"{settled} outside the window · not matched by {a.glob}: laptop {len(other['laptop'])}, "
+          f"host {len(other['host'])}" + (f" (e.g. {', '.join((other['laptop'] + other['host'])[:3])})"
+                                          if other['laptop'] or other['host'] else ""))
+    if clean and compared == 0:
+        print(f"NO COVERAGE — no {a.glob} file was compared on both sides; nothing is verified, so this is "
+              f"not a clean verdict.")
+        print("VERDICT: NO-COVERAGE (0 compared) — not a data verdict")
+        return EXIT_NO_COVERAGE
     classes = "capture timing | provider pagination | code-version skew (only where named above)"
-    print(f"\n{'CLEAN' if clean else 'DIVERGENT'} ({len(set(la) & set(ho))} compared) — "
+    print(f"{'CLEAN' if clean else 'DIVERGENT'} ({compared} compared) — "
           f"each divergence needs an explanation ({classes}) or a BACKLOG entry."
           + (f" Code-version skew named for: {', '.join(sorted(skew_names))}." if skew_names else ""))
-    return 0 if clean else 1
+    print(f"VERDICT: {'CLEAN' if clean else 'DIVERGENT'}")
+    return EXIT_CLEAN if clean else EXIT_DIVERGENT
 
 
 def sha_line(x, y) -> str:

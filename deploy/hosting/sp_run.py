@@ -215,6 +215,7 @@ def new_quota() -> dict:
 # exception line (the traceback's last line) when there is one, so an earlier
 # log mention of a connection never masks a KeyError.
 RETRY_BACKOFF_S = (15, 45)
+MIRROR_TIMEOUT_S = 90      # F2.5: the exports-mirror push after each step never holds a chain longer
 _sleep = time.sleep
 _EXC_LINE = re.compile(r"^([A-Za-z_][\w.]*(?:Error|Exception|Timeout|Warning)\b)(?::|$)")
 _TRANSIENT = re.compile(
@@ -272,10 +273,35 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
             print(f"· retried {len(attempts) - 1}: {'ok' if rc == 0 else f'still failing (exit {rc})'}",
                   flush=True)
         c.append_receipt(rec)
+        mirror_after_step(unit, i, st[0], run_id)
         if rc != 0:
             return rc, ok
         ok += 1
     return 0, ok
+
+
+def mirror_after_step(unit: str, i: int, cmd: str, run_id: str) -> None:
+    """EXPORTS MIRROR (F2.5, ARCHITECT 2026-10-03): push exports/ to the
+    private exports repo after every chain step. NON-FATAL and time-bounded
+    (MIRROR_TIMEOUT_S): a mirror failure is receipted, never fails or hangs the
+    chain. Off until SP_EXPORTS_MIRROR_REMOTE is set."""
+    if not c.setting("SP_EXPORTS_MIRROR_REMOTE"):
+        return
+    argv = [sys.executable, str(Path(__file__).resolve().parent / "exports_mirror.py"), "push",
+            "--role", c.setting("SP_EXPORTS_MIRROR_ROLE") or "host",
+            "--label", f"{unit} step {i} {cmd} ({run_id})"]
+    rec = {"kind": "mirror", "unit": unit, "run_id": run_id, "step": i}
+    try:
+        r = subprocess.run(argv, cwd=c.REPO, capture_output=True, text=True, timeout=MIRROR_TIMEOUT_S)
+        rec.update(exit=r.returncode,
+                   tail=[c.redact(x) for x in ((r.stdout or "") + (r.stderr or "")).strip().splitlines()[-3:]])
+    except subprocess.TimeoutExpired:
+        rec.update(exit=None, tail=[f"timed out after {MIRROR_TIMEOUT_S}s"])
+    except OSError as e:
+        rec.update(exit=None, tail=[f"{e.__class__.__name__}: {e}"])
+    c.append_receipt(rec)
+    print(f"· exports mirror: {'ok' if rec.get('exit') == 0 else 'NOT pushed (receipted; chain continues)'}",
+          flush=True)
 
 
 def freshen_state_path():

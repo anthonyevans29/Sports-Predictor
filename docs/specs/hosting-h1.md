@@ -73,6 +73,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-clv-capture | clv-capture | 08/12/16/20 America/New_York (H0-7 confirmed; DST follows the zone) | — |
 | sp-weekly-fullseason | weekly-fullseason | Sun 06:00 UTC | daily |
 | sp-backup-prune | (retention, report-only) | daily 05:30 UTC | — |
+| sp-exports-squash | exports mirror weekly history squash (F2.5; a no-op until `SP_EXPORTS_MIRROR_REMOTE` is set) | Sun 06:10 UTC | — |
 | *(none)* | soccer-refresh | **operator-started** (H0-6) | fresh prerefresh |
 
 **H0-3 reboot window.** No timer fires between 04:15 and 05:15 UTC. CI
@@ -706,7 +707,7 @@ Receipt: the push arrives on the phone, and the printed line says
 TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-saturday.timer
   sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
-  sp-mlb-history.timer sp-intl-daily.timer"
+  sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service

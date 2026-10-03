@@ -1,0 +1,58 @@
+# EXPORTS MIRROR verdict (F2.5, ARCHITECT 2026-10-03): on every push, the
+# laptop-vs-host comparison for the newest date BOTH writers have, posted as a
+# commit status (context "compare_exports"): success = CLEAN (exit 0),
+# failure = DIVERGENT (exit 1), error = NO COVERAGE (exit 3: zero JSON
+# compared, never a clean verdict) or the comparator/runner broke (any other
+# exit, or no matching VERDICT line) — neither is a data verdict; pending =
+# the other side has not pushed that date yet. tools/compare_exports.py is standalone (stdlib only). Shipped
+# into Sports-Predictor-exports by exports_mirror.py push (do not edit there).
+name: compare_exports
+on:
+  push:
+    branches: [main]
+permissions:
+  contents: read
+  statuses: write
+jobs:
+  compare:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: compare the newest common date
+        id: cmp
+        run: |
+          set +e
+          d=$(comm -12 <(ls laptop 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort) \
+                       <(ls host 2>/dev/null | grep -E '^[0-9]{4}-[0-9]{2}-[0-9]{2}$' | sort) | tail -1)
+          if [ -z "$d" ]; then
+            echo "state=pending" >> "$GITHUB_OUTPUT"
+            echo "desc=no date pushed by both laptop and host yet" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          python tools/compare_exports.py "laptop/$d" "host/$d" --since 0 | tee compare.txt
+          rc=${PIPESTATUS[0]}
+          v=$(grep -E '^VERDICT: ' compare.txt | tail -1)
+          echo "date=$d" >> "$GITHUB_OUTPUT"
+          # a data verdict needs BOTH the exit code and the comparator's own VERDICT line;
+          # anything else (an import error, a crash before main, a runner fault) is an error
+          if [ "$rc" = "0" ] && [ "$v" = "VERDICT: CLEAN" ]; then
+            echo "state=success" >> "$GITHUB_OUTPUT"; echo "desc=CLEAN · $d" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" = "1" ] && [ "$v" = "VERDICT: DIVERGENT" ]; then
+            echo "state=failure" >> "$GITHUB_OUTPUT"; echo "desc=DIVERGENT · $d (see the run log)" >> "$GITHUB_OUTPUT"
+          elif [ "$rc" = "3" ]; then
+            echo "state=error" >> "$GITHUB_OUTPUT"; echo "desc=NO COVERAGE · $d — 0 JSON compared; not a data verdict" >> "$GITHUB_OUTPUT"
+          else
+            echo "state=error" >> "$GITHUB_OUTPUT"; echo "desc=comparator ERROR (exit $rc) · $d — not a data verdict" >> "$GITHUB_OUTPUT"
+          fi
+          echo '```' >> "$GITHUB_STEP_SUMMARY"; cat compare.txt >> "$GITHUB_STEP_SUMMARY"; echo '```' >> "$GITHUB_STEP_SUMMARY"
+      - name: post the verdict as a commit status
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh api "repos/${{ github.repository }}/statuses/${{ github.sha }}" \
+            -f state="${{ steps.cmp.outputs.state }}" -f context="compare_exports" \
+            -f description="${{ steps.cmp.outputs.desc }}" \
+            -f target_url="${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"

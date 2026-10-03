@@ -1,0 +1,215 @@
+#!/usr/bin/env python3
+"""
+EXPORTS MIRROR (F2.5, ARCHITECT 2026-10-03): "a private repo
+Sports-Predictor-exports; the HOST pushes exports/ after every chain step
+(push-only deploy key, generated on the host; Anthony adds the public half in
+the repo's deploy keys). Layout: host/<date>/<file>, plus
+host/latest/<kind>.json (newest per kind, rewritten each push). Retention 14
+days of dated folders; weekly history squash so the repo stays small. Files
+stay on the host too. (2) The LAPTOP pushes the same way to laptop/ (writer of
+record) at the end of the morning chain — then compare_exports runs as a
+GitHub Action on push and posts the DIVERGENT/clean verdict as a commit
+status; pull_exports over Tailscale becomes optional."
+
+    exports_mirror.py push   [--role host|laptop] [--exports DIR] [--label TEXT]
+    exports_mirror.py squash                      # weekly: one orphan commit, force-pushed
+    exports_mirror.py keygen [--key PATH]         # host: make the deploy key, print the PUBLIC half
+
+Config (host.env, or the laptop's environment):
+  SP_EXPORTS_MIRROR_REMOTE  git@github.com:anthonyevans29/Sports-Predictor-exports.git
+                            (unset = mirror disabled: `push` prints so and exits 0)
+  SP_EXPORTS_MIRROR_KEY     the deploy key's private half (default /etc/sports-predictor/exports_deploy_key)
+  SP_EXPORTS_MIRROR_DIR     the working clone (default <repo>/logs/exports-mirror)
+  SP_EXPORTS_MIRROR_ROLE    host | laptop (default host)
+
+Layout written by a push (role = host or laptop):
+  <role>/<YYYY-MM-DD>/<file>   every top-level exports/*.json|*.md written in the
+                               last RETENTION_DAYS (the date is the file's UTC mtime)
+  <role>/latest/<kind>.json    the newest file per kind (kind = the name with its
+                               date/time stamp removed), rewritten each push
+  tools/compare_exports.py     + .github/workflows/compare.yml (the verdict Action)
+Dated folders older than RETENTION_DAYS are deleted. COPIES only: exports/ is
+never modified. Subdirectories of exports/ (raw provider caches) are not mirrored.
+"""
+from __future__ import annotations
+
+import argparse
+import os
+import re
+import shutil
+import subprocess
+import sys
+from datetime import date, datetime, timedelta, timezone
+from pathlib import Path
+
+HERE = Path(__file__).resolve().parent
+REPO = HERE.parents[1]
+RETENTION_DAYS = 14
+BRANCH = "main"
+SUFFIXES = (".json", ".md")
+STAMP = re.compile(r"_?\d{4}-\d{2}-\d{2}(?:[T_]\d{2}:?\d{2}(?::?\d{2})?Z?)?")
+WORKFLOW_SRC = REPO / "deploy" / "exports-mirror" / "compare.yml"
+
+
+def kind_of(name: str) -> str:
+    """fixtures_NCAA_2026-10-03.json -> fixtures_NCAA; unl_shadow_2026-10-03_1200 -> unl_shadow;
+    window_24h.json -> window_24h. Every date range piece goes (a_to_b)."""
+    stem = name.rsplit(".", 1)[0]
+    stem = STAMP.sub("", stem).replace("_to", "")
+    return re.sub(r"__+", "_", stem).strip("_") or stem
+
+
+def plan(files: list[tuple[str, float]], role: str, today: date) -> dict:
+    """files = [(name, mtime_epoch)] at the top of exports/. Returns
+    {"dated": {dest: name}, "latest": {dest: name}} for the retention window."""
+    lo = today - timedelta(days=RETENTION_DAYS - 1)
+    dated, newest = {}, {}
+    for name, mt in files:
+        d = datetime.fromtimestamp(mt, tz=timezone.utc).date()
+        if d < lo or not name.endswith(SUFFIXES):
+            continue
+        dated[f"{role}/{d.isoformat()}/{name}"] = name
+        k = kind_of(name)
+        if k not in newest or mt > newest[k][1]:
+            newest[k] = (name, mt)
+    latest = {f"{role}/latest/{k}{Path(n).suffix}": n for k, (n, _) in newest.items()}
+    return {"dated": dated, "latest": latest}
+
+
+def expired(role_dir: Path, today: date) -> list[Path]:
+    lo = today - timedelta(days=RETENTION_DAYS - 1)
+    out = []
+    for p in role_dir.glob("*") if role_dir.is_dir() else []:
+        try:
+            if p.is_dir() and date.fromisoformat(p.name) < lo:
+                out.append(p)
+        except ValueError:
+            continue
+    return out
+
+
+def _git(clone: Path, *args, check=True, capture=True):
+    env = dict(os.environ)
+    key = os.environ.get("SP_EXPORTS_MIRROR_KEY", "/etc/sports-predictor/exports_deploy_key")
+    if os.path.isfile(key):
+        env["GIT_SSH_COMMAND"] = f"ssh -i {key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    return subprocess.run(["git", "-C", str(clone), *args], check=check, env=env, text=True,
+                          capture_output=capture)
+
+
+def _ensure_clone(clone: Path, remote: str) -> None:
+    if not (clone / ".git").is_dir():
+        clone.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["git", "init", "-q", "-b", BRANCH, str(clone)], check=True)
+        _git(clone, "remote", "add", "origin", remote)
+        _git(clone, "config", "user.name", os.environ.get("SP_EXPORTS_MIRROR_AUTHOR", "sp-exports-mirror"))
+        _git(clone, "config", "user.email", "sp-exports-mirror@localhost")
+
+
+def _sync_to_remote(clone: Path) -> None:
+    """Start from the remote's tip (the other writer's pushes kept); a fresh repo has no tip."""
+    _git(clone, "fetch", "-q", "origin", check=False)
+    if _git(clone, "rev-parse", "--verify", "-q", f"origin/{BRANCH}", check=False).returncode == 0:
+        _git(clone, "checkout", "-q", "-B", BRANCH, f"origin/{BRANCH}")
+        _git(clone, "reset", "-q", "--hard", f"origin/{BRANCH}")
+
+
+def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: date | None = None,
+         attempts: int = 3) -> dict:
+    today = today or datetime.now(timezone.utc).date()
+    files = [(p.name, p.stat().st_mtime) for p in exports.iterdir() if p.is_file()] if exports.is_dir() else []
+    _ensure_clone(clone, remote)
+    for attempt in range(1, attempts + 1):
+        _sync_to_remote(clone)
+        pl = plan(files, role, today)
+        copied = 0
+        for dest, name in {**pl["dated"], **pl["latest"]}.items():
+            src, dst = exports / name, clone / dest
+            if dst.exists() and dst.read_bytes() == src.read_bytes():
+                continue
+            dst.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(src, dst)
+            copied += 1
+        latest_dir = clone / role / "latest"                      # rewritten each push
+        for p in latest_dir.glob("*") if latest_dir.is_dir() else []:
+            if f"{role}/latest/{p.name}" not in pl["latest"]:
+                p.unlink()
+        pruned = [p.name for p in expired(clone / role, today)]
+        for p in expired(clone / role, today):
+            shutil.rmtree(p)
+        for src, dest in ((HERE / "compare_exports.py", clone / "tools" / "compare_exports.py"),
+                          (WORKFLOW_SRC, clone / ".github" / "workflows" / "compare.yml")):
+            if src.exists() and (not dest.exists() or dest.read_bytes() != src.read_bytes()):
+                dest.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(src, dest)
+        _git(clone, "add", "-A")
+        if _git(clone, "diff", "--cached", "--quiet", check=False).returncode == 0:
+            return {"role": role, "pushed": False, "copied": 0, "pruned": pruned, "why": "nothing changed"}
+        _git(clone, "commit", "-q", "-m", f"{role}: {label} · {copied} file(s) · pruned {len(pruned)}")
+        r = _git(clone, "push", "-q", "origin", f"HEAD:{BRANCH}", check=False)
+        if r.returncode == 0:
+            sha = _git(clone, "rev-parse", "HEAD").stdout.strip()
+            return {"role": role, "pushed": True, "copied": copied, "pruned": pruned, "sha": sha,
+                    "attempt": attempt}
+    return {"role": role, "pushed": False, "copied": copied, "pruned": pruned,
+            "why": f"push rejected {attempts}x: {(r.stderr or '').strip()[-200:]}"}
+
+
+def squash(remote: str, clone: Path) -> dict:
+    """Weekly: the current tree as ONE orphan commit, force-pushed (the repo stays small)."""
+    _ensure_clone(clone, remote)
+    _sync_to_remote(clone)
+    stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    _git(clone, "checkout", "-q", "--orphan", "squash-tmp")
+    _git(clone, "add", "-A")
+    _git(clone, "commit", "-q", "-m", f"weekly squash {stamp} (history before this date dropped; files kept)")
+    _git(clone, "branch", "-q", "-M", BRANCH)
+    r = _git(clone, "push", "-q", "--force", "origin", f"{BRANCH}:{BRANCH}", check=False)
+    return {"squashed": r.returncode == 0, "why": (r.stderr or "").strip()[-200:] if r.returncode else None}
+
+
+def keygen(key: str) -> int:
+    if os.path.exists(key):
+        print(f"exists: {key} (not regenerated). PUBLIC half:")
+    else:
+        Path(key).parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(["ssh-keygen", "-q", "-t", "ed25519", "-N", "", "-C", "sp-exports-mirror (push-only)",
+                        "-f", key], check=True)
+        os.chmod(key, 0o600)
+        print(f"created {key}. Add this PUBLIC half as a deploy key WITH write access on "
+              "Sports-Predictor-exports (Settings → Deploy keys):")
+    print(Path(key + ".pub").read_text().strip())
+    return 0
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="exports mirror (F2.5)")
+    sub = ap.add_subparsers(dest="cmd", required=True)
+    p = sub.add_parser("push")
+    p.add_argument("--role", default=os.environ.get("SP_EXPORTS_MIRROR_ROLE", "host"), choices=("host", "laptop"))
+    p.add_argument("--exports", default=str(REPO / "exports"))
+    p.add_argument("--label", default="push")
+    sub.add_parser("squash")
+    k = sub.add_parser("keygen")
+    k.add_argument("--key", default=os.environ.get("SP_EXPORTS_MIRROR_KEY", "/etc/sports-predictor/exports_deploy_key"))
+    a = ap.parse_args(argv)
+    if a.cmd == "keygen":
+        return keygen(a.key)
+    remote = os.environ.get("SP_EXPORTS_MIRROR_REMOTE")
+    if not remote:
+        print("exports mirror disabled (SP_EXPORTS_MIRROR_REMOTE unset)")
+        return 0
+    clone = Path(os.environ.get("SP_EXPORTS_MIRROR_DIR") or REPO / "logs" / "exports-mirror")
+    if a.cmd == "squash":
+        r = squash(remote, clone)
+        print(f"EXPORTS-MIRROR squash: {r}")
+        return 0 if r["squashed"] else 1
+    r = push(a.role, Path(a.exports), a.label, remote, clone)
+    print(f"EXPORTS-MIRROR {r['role']}: " + (f"pushed {r['copied']} file(s) @ {r['sha'][:8]} (attempt {r['attempt']})"
+                                           if r["pushed"] else f"not pushed — {r['why']}")
+          + (f" · pruned {r['pruned']}" if r["pruned"] else ""))
+    return 0 if (r["pushed"] or r.get("why") == "nothing changed") else 1
+
+
+if __name__ == "__main__":
+    sys.exit(main())

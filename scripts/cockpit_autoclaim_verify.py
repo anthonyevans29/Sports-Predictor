@@ -73,6 +73,13 @@ def mlb_doc(padres_fair):
         mlb("Chicago Cubs", "St. Louis Cardinals", 0.66, 0.55, AS_OF - timedelta(hours=1))]}   # started at as_of
 
 
+PAR_KO = NOW + timedelta(hours=26)
+PAR = {"sport": "mlb", "rehearsal": False, "predictions": [
+    mlb("Houston Astros", "Seattle Mariners", 0.63, 0.55, PAR_KO),
+    mlb("Detroit Tigers", "Cleveland Guardians", 0.64, 0.56, PAR_KO + timedelta(minutes=10)),
+    mlb("Toronto Blue Jays", "Boston Red Sox", 0.62, 0.55, PAR_KO + timedelta(minutes=20))]}
+PAR_AS_OF = NOW - timedelta(hours=4)
+
 NCAA = {"competition_code": "NCAA", "contains_predictions": False, "fixtures": [
     ncaa("Virginia Tech", "Pittsburgh", 0.60, 0.536, THU_KO, THU_AS_OF - timedelta(minutes=30))]}
 
@@ -86,6 +93,11 @@ def main():
         d = cdf.desk_files({name: doc}, at, parlays=False)[name]
         files[name] = os.path.join(tmp, name)
         with open(files[name], "w") as f:
+            json.dump(d, f)
+    par = cdf.desk_files({"mlb_par.json": PAR}, PAR_AS_OF, parlays=True)          # predictions + desk_parlays
+    for n, d in par.items():
+        files[n] = os.path.join(tmp, n)
+        with open(files[n], "w") as f:
             json.dump(d, f)
 
     class Quiet(http.server.SimpleHTTPRequestHandler):
@@ -147,6 +159,26 @@ def main():
         check("...but claims what it alone made before kickoff (the Cubs row: started only after its as_of)",
               [c["game"] for c in allc if c["id"] not in before] == ["St. Louis Cardinals @ Chicago Cubs"],
               json.dumps([c["game"] for c in allc if c["id"] not in before]))
+
+        print("PARLAYS (ruled 2026-10-03: every call in the file, tickets included)")
+        page.evaluate("document.getElementById('summary').textContent=''")
+        page.set_input_files("#predFile", [files["mlb_par.json"], files["desk_parlays.json"]])
+        page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
+        tickets = page.evaluate("deskParlays.length")
+        legs = [c for c in ledger() if c["call_type"] == "parlay_leg"]
+        by_ticket = {}
+        for c in legs:
+            by_ticket.setdefault(c["parlay_id"], []).append(c)
+        check("every ticket claimed whole at the desk_parlays file's as_of (shared legs not swallowed)",
+              tickets >= 2 and len(by_ticket) == tickets and all(len(v) == 2 for v in by_ticket.values())
+              and all(c["claim_at"][:19] == ISO(PAR_AS_OF) and c["claim_source"] == "auto" for c in legs),
+              json.dumps({"tickets": tickets, "claimed": {k: len(v) for k, v in by_ticket.items()}}))
+        n_legs = len(legs)
+        page.evaluate("document.getElementById('summary').textContent=''; document.getElementById('predFile').value=''")
+        page.set_input_files("#predFile", [files["mlb_par.json"], files["desk_parlays.json"]])
+        page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
+        check("reloading the parlay files claims no leg twice",
+              len([c for c in ledger() if c["call_type"] == "parlay_leg"]) == n_legs)
 
         print("BUTTON")
         check("the button reads 'Re-log at T-60'", page.inner_text("#logBtn") == "Re-log at T-60",

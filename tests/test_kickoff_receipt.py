@@ -20,18 +20,28 @@ def test_receipt_prints_stored_and_recomputes_in_play_per_export(tmp_path, capsy
         s.add_all([c, h, a])
         s.flush()
         m = Match(sport=Sport.NFL, competition_id=c.id, season="2093", utc_date=datetime(2093, 10, 3, 0, 0),
-                  status=MatchStatus.SCHEDULED, home_team_id=h.id, away_team_id=a.id,
+                  status=MatchStatus.FINISHED, status_raw="FT", home_score=31, away_score=17,
+                  home_team_id=h.id, away_team_id=a.id,
                   external_ids={"api_american_football": "999"})
         s.add(m)
         s.flush()
         mid = m.id
     for name, as_of in (("fixtures_early.json", "2093-10-02T21:21:00Z"), ("fixtures_late.json", "2093-10-03T00:30:00Z")):
         (tmp_path / name).write_text(json.dumps({"exported_at": as_of, "desk_meta": {"as_of": as_of}, "fixtures": [
-            {"match_id": mid, "utc_date": "2093-10-03T00:00:00", "status": "scheduled",
+            {"match_id": mid, "utc_date": "2093-10-03T00:00:00",
+             "status": "scheduled" if name == "fixtures_early.json" else "finished",
+             "home_score": None if name == "fixtures_early.json" else 31,
+             "away_score": None if name == "fixtures_early.json" else 17,
              "desk": {"reason": "x"}}]}))
     assert kr.main(["--id", str(mid), "--exports", str(tmp_path), "--no-provider"]) == 0
     out = capsys.readouterr().out
-    assert "STORED    utc_date 2093-10-03T00:00:00" in out and "PROVIDER  skipped" in out
+    assert "STORED    utc_date 2093-10-03T00:00:00 · status finished (FT) · score 31-17 (home-away)" in out
+    assert "PROVIDER  skipped" in out
+    # review on #256: the exported status, scores and Desk-input verdict per file, with file names + timestamps
+    assert ("EXPORT    fixtures_early.json · exported_at 2093-10-02T21:21:00Z · status scheduled · score None-None"
+            " · Desk input INCLUDED") in out
+    assert ("EXPORT    fixtures_late.json · exported_at 2093-10-03T00:30:00Z · status finished · score 31-17"
+            " · Desk input excluded") in out
     assert "fixtures_early.json" in out and "recomputed in-play False" in out
     assert "fixtures_late.json" in out and "recomputed in-play True" in out
     assert kr.main(["--find", "KR New Mexico", "--date", "2093-10-02", "--exports", str(tmp_path), "--no-provider"]) == 0

@@ -1,5 +1,0 @@
-## 2026-10-02 (#250, closes #91 RULED: a venue-edge book capture older than 3h at decision time is NO reference)
-- `desk_policy.venue_edge`: when the row's `market.captured_at` is more than 3h (`VENUE["maxBookAgeH"]`) before the Desk's as-of, the row is PASS / `noref` ("books captured X.Xh ago > 3h — no reference"). It is excluded, not stale-flagged: no side, no divergence, `stale_book_zone` false. This is the same class as absent books. The Next-24h card (`window_venue`) obeys the same rule.
-- Exactly 3h and fresher are judged as before. Review on #250: a capture AFTER the decision time is unavailable, giving PASS / `noref`. An UNKNOWN age (missing or unparseable `captured_at`) also gives PASS / `noref` under law 4. Ratified by the architect (2026-10-02): "UNKNOWN capture age = NO REFERENCE — ratified, no longer provisional."
-- tests/test_venue_stale_books_91.py (6) pins >3h, exactly 3h, missing, malformed, future and at-decision captures.
-- The desk golden is unchanged (810/810). The battery's fixtures now carry a fresh capture time; the deleted JS never read it. The Cockpit verify fixtures do the same.

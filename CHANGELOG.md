@@ -4,6 +4,66 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-02 (#255, refs #254: NCAA kickoff +24h finding — read-only receipt script)
+- `scripts/kickoff_receipt.py` (read-only), for each match:
+  - the STORED row: utc_date, status, external ids;
+  - the PROVIDER's raw date block and timestamp (`/games?id=`, one GET; `--no-provider` skips it);
+  - every EXPORT carrying the match: as_of, row utc, the Desk's reason, and the in-play test recomputed on that file's own inputs.
+- tests/test_kickoff_receipt.py (1). No pipeline change until the receipt says which side is wrong.
+
+## 2026-10-02 (#253: nhl-v7 ledger annotation; AET/PEN release ratified)
+- `docs/registry/experiments.json`: nhl-v7 gains `ledger_count_at_record: 6` and a one-line `ledger_count_note`. Its run record's `prior_read_count: 5` stays as written (ARCHITECT: never rewrite a run record; the live count is the ledger's). `docs/REGISTRY.md` records the doctrine. tests/test_nhl_v6_record.py (+1).
+- Ratified, no code change: AET/PEN rows without a stored 90-minute score are unscoreable and released from the intl-elo-v2 cohort, as built in #252.
+
+## 2026-10-02 (#252: intl-elo-v2 cohort — UNSCOREABLE fixtures are released, raw code as reason)
+- ARCHITECT 2026-10-02: "AWD/WO (forfeit, walkover) games are RELEASED and substituted exactly like cancelled/abandoned — unscoreable is the criterion, not the status label; record the raw code as reason."
+- A cohort fixture is released when it can never be scored: cancelled (CANC / ABD), or finished under a non-FT code without a 90-minute score (AWD / WO, and AET / PEN missing the split). A FT row still waiting for its score stays pending.
+- `registry.substitute_cohort_fixture` requires evidence of a cancelled or finished fixture marked unscoreable, and the raw code as the reason. Replacements are never unscoreable themselves. `intl-elo-confirm --substitute` writes the substitutions. tests: registry, intl shadow.
+
+## 2026-10-02 (#251: intl-elo-v2 run record spliced; PASS recorded — confirmation window open)
+- `docs/registry/`: the laptop's intl-elo-v2 run (392 scored ids, the same ids as v1, sha256 verified; log-loss 0.7889 vs bar 1.0424; RPS 0.153 vs 0.237; fit c×1.5, K×2.0; neutral rule v3) is spliced. Its prior reads are recomputed against main's ledger: intl-elo-v1, so 2 reads counting this one, as ruled.
+- Verdict PASS recorded verbatim. Status is `confirming`, and production is refused until a CONFIRMED read. The declared limitations are recorded: grid-edge pick, 13.7% v3 neutral share, 57% unflagged venues. tests/test_intl_elo_v2.py (+1).
+
+## 2026-10-02 (#250, closes #91 RULED: a venue-edge book capture older than 3h at decision time is NO reference)
+- `desk_policy.venue_edge`: when the row's `market.captured_at` is more than 3h (`VENUE["maxBookAgeH"]`) before the Desk's as-of, the row is PASS / `noref` ("books captured X.Xh ago > 3h — no reference"). It is excluded, not stale-flagged: no side, no divergence, `stale_book_zone` false. This is the same class as absent books. The Next-24h card (`window_venue`) obeys the same rule.
+- Exactly 3h and fresher are judged as before. Review on #250: a capture AFTER the decision time is unavailable, giving PASS / `noref`. An UNKNOWN age (missing or unparseable `captured_at`) also gives PASS / `noref` under law 4. Ratified by the architect (2026-10-02): "UNKNOWN capture age = NO REFERENCE — ratified, no longer provisional."
+- tests/test_venue_stale_books_91.py (6) pins >3h, exactly 3h, missing, malformed, future and at-decision captures.
+- The desk golden is unchanged (810/810). The battery's fixtures now carry a fresh capture time; the deleted JS never read it. The Cockpit verify fixtures do the same.
+
+## 2026-10-02 (#249, closes #130: the export's `kalshi_exec_cost` alias is RETIRED)
+- **Announcement (ruling (1) on #129):** exports no longer write `kalshi_exec_cost`. `venue.kalshi_exec` and `KALSHI_EXEC_NULL` drop it; the taker cost is `exec_cost_taker` (with `exec_cost_maker`, and the `_away` pair on two-way rows). Condition met: the published Cockpit was republished twice after #88 (the #178 republish and the post-F1c republish).
+- The pre-split fallback goes from the Python Desk (`desk_policy`, `kExec.cost`) and from `tools/cockpit.html`. The LEDGER's own `kalshi_exec_cost` / `_maker` fields on call records are not the alias and keep their taker/maker meaning.
+- Receipts and verify scripts read `exec_cost_taker`. The desk golden battery maps its pre-split rows (alias only) to `exec_cost_taker`, which is equivalent under the deleted JS's `exec_cost_taker ?? kalshi_exec_cost`: all 810 frozen calls still match row for row.
+
+## 2026-10-02 (#248: UNL shadow engine — intl-elo-v2 greyed in its confirmation window; daily intl chain)
+- `export-unl-predictions`: intl-elo-v2 three-way rows for scheduled competitive internationals (36h), `engine: model_shadow`, labelled "PASS — confirmation n/60"; multipliers read from the registry run record; refuses until the run record + PASS are spliced. Never a Desk call, never in the Prediction table.
+- `unl-shadow-grade` (top pick vs the three-way close) and a RESULTS.md shadow section; `intl-elo-confirm [--record --ruling]` scores the declared window (first 60 competitive after the verdict) predict-then-update vs naive − 0.010.
+- Host chain `intl-daily` (07:20 UTC, `sp-intl-daily.timer`): `intl-sync --since {today}` → `intl-venue-sync` → `export-unl-predictions`. `intl-sync` keeps friendlies of senior sides already stored (incremental sync). Cockpit shadow card shows three-way picks ("Draw") and each model's gate label. tests/test_intl_shadow.py (7), test_intl_history (+1).
+- Review on #248: the confirmation COHORT is the first 60 eligible FIXTURE ids whatever their status (never chosen from results), frozen once in the registry (`intl-elo-confirm --freeze-cohort`, `registry.freeze_confirmation_cohort`, sidecar `<id>.cohort.txt` + sha256). `record_confirmation` refuses any scored set that is not exactly the frozen cohort; a pending or unscoreable fixture leaves the read incomplete, never replaced by game 61. tests: registry (+2), intl shadow (reproduction of the review's case).
+- ARCHITECT 2026-10-02 (2): a CANCELLED or ABANDONED cohort fixture is RELEASED. It is replaced by the next eligible fixture after the cohort (61st, 62nd …) and recorded as a substitution with its reason and evidence (`registry.substitute_cohort_fixture`, `intl-elo-confirm --substitute`). A postponed, scheduled or unplayed fixture is never swapped. The frozen file never changes; the effective cohort applies the substitutions, and `record_confirmation` reads against it. tests: registry (+1), intl shadow (+1).
+
+## 2026-10-02 (#247: nhl-v8 + intl-elo-v1 run records and FAIL verdicts in the registry)
+- The laptop run records of nhl-v8 (0.6963; 1,394 ids) and intl-elo-v1 (FAIL on calibration; 392 ids) are spliced with their ids files (sha verified) and FAIL verdicts recorded verbatim. NHL 2025: 8 reads, retired (a ninth declaration is refused). intl test set: 1 read.
+
+## 2026-10-02 (#246: NHL shadow engine switches to v7, v1 as reference)
+- `export-nhl-predictions`: the shadow rows are `nhl_elo_v7_xg_margin_no_na` ("FAILED 0.6885 vs 0.6866"), each with a `reference` block carrying `nhl_elo_v1`'s probability; the fit receipt counts xG updates vs goal fallbacks. `nhl-shadow-grade` / RESULTS.md show v1's pick-vs-close beside v7's.
+- `nhl-daily`: `nhl-shot-sync` (yesterday..today, the NHL's free API) runs before the shadow export so live games carry xG. tests/test_nhl_shadow.py updated (+1).
+
+## 2026-10-02 (#244: intl-venue-sync — fix the crash on /venues payloads with None fields)
+- `src/ingestion/intl_venues.py`: the law-1 key receipt counts keys (`Counter.update(v.keys())`), not dict values, which crashed on a None field and would have summed numeric ones. Regression test on a real-shaped payload. A re-run with the same `--venues-dir` replays the saved responses.
+
+## 2026-10-02 (#243: per-PR ledger fragments — CHANGELOG/BACKLOG are compiled, never edited by a PR)
+- `python scripts/ledger.py compile [--commit] [--dry-run]` folds `changelog.d/<PR>-<slug>.md` and `docs/ledger/entries/<date>-<slug>.md` into CHANGELOG.md / BACKLOG.md newest first, deletes them, and commits the fold alone; `ledger.py pending` counts what is uncompiled.
+- CI `fragments` job: a PR that edits CHANGELOG.md / BACKLOG.md (except a pure compile) or lacks its fragments fails. The tag ritual compiles before the release notes; `sp_deploy` reports uncompiled fragments in the deployed tag (read-only). tests/test_ledger_fragments.py (6). Retires the merge-up ritual.
+
+## 2026-10-02 (#220: intl-elo-v2 declared — train-only fit + neutral rule v3)
+- `docs/specs/intl-elo-v2.md` + registry `intl-elo-v2`: (a) c multiplier and global K multiplier fitted on the training stream only (48-pair declared grid); (b) neutral v3 (venue country ≠ home country). Same bar/bands/test set; train-only attribution printed.
+- `python cli.py intl-venue-sync` (route B; new table `intl_match_venue`) and `intl-elo-backtest --candidate v2`. tests/test_intl_elo_v2.py (5). intl-elo-v1 FAIL is recorded once its laptop run record is spliced.
+
+## 2026-10-02 (#153: NHL v8 declared — train-only fit of scale and k; the 2025 test set retired after it)
+- `nhl-backtest --candidate v8`: v7's xG + Elo with the logistic divisor and k fitted by maximum likelihood on 2024 only over the declared grid (56 pairs; tie → (400, 6)); chosen and printed before any 2025 read. Registry `nhl-v8` declared; doc `docs/specs/nhl-xg-v8.md`.
+- Doctrine: `registry.RETIRED_TEST_SETS` — after v8 the NHL 2025 test set refuses any declaration or run; later NHL candidates declare 2026-27 (≥ 600 games). `docs/REGISTRY.md` updated. (v6/v7 FAIL records: #239.)
+
 ## 2026-10-02 (#153: nhl-v7 run record + FAIL verdict in the registry)
 - The laptop's v7 run record (1,394 scored ids, sha verified; the same set as v6) is spliced with `docs/registry/ids/nhl-v7.txt`; FAIL recorded verbatim. NHL 2025: 7 prior reads. v7's stored prior_read_count (5) is kept as written.
 

@@ -22,6 +22,155 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-02 — #91 RULED and BUILT: a venue-edge row whose book capture is older than 3h at decision time has NO reference.**
+- **Ruling (verbatim, ARCHITECT board 2026-10-02):** "#91 RULED: a venue-edge row whose book capture is older than 3h at decision time has NO reference (not stale-flagged, excluded) — same PASS/no-ref class as absent books."
+- **Built:** `src/walters/desk_policy.py` `venue_edge`. Decision time is the Desk's as-of (`desk_meta.as_of`, ruled default (2) of 2026-10-01). The book capture is the fixtures row's `market.captured_at`: the last complete pre-kickoff session under the close contract, or the spread fallback's latest capture. Age > 3h gives PASS / `noref` with the reason "books captured X.Xh ago > 3h — no reference". The check sits right after the absent-books check, so absent books keep their "single venue — no pair" wording.
+- **Boundary:** the ruling says "older than 3h", so exactly 3h is still judged.
+- **Review on #250 (Anthony):** "Missing, malformed and future captured_at values still produce VENUE calls. Please obtain an explicit ruling for unknown age and reject future captures as unavailable at decision time."
+  - **Future capture** (after the Desk's as-of) gives PASS / `noref`: "book capture after decision time — unavailable, no reference". A capture exactly AT the decision time is available.
+  - **Unknown age** (missing or unparseable) gives PASS / `noref`: "book capture time unknown — no reference". **RATIFIED** (ARCHITECT 2026-10-02, verbatim): "UNKNOWN capture age = NO REFERENCE — ratified, no longer provisional."
+- **Receipts:** pytest 610 passed (+5). The desk golden is unchanged (the battery carries no capture times), and all Cockpit verifies plus desk parity are green. The Cockpit needs no change, because it renders `pass_kind: noref` from the desk files.
+
+**2026-10-02 — UNL SHADOW ENGINE built (ARCHITECT): intl-elo-v2 greyed during its 60-game confirmation window; the daily intl sync joins a morning chain.**
+- **Ruling (verbatim, excerpt):** "UNTIL THEN: UNL gets a SHADOW ENGINE like NHL's — export-unl-predictions writes intl-elo-v2 rows labelled "PASS — confirmation 0/60", greyed in the Cockpit, never feeding the Desk; nhl-style shadow-grade. The daily intl sync (fixtures for the ruled set, incremental; venue step) joins the morning chain. Ship the shadow before Sunday's matchday if it can be done cleanly."
+- **Frozen, never refit:** `src/walters/intl_shadow.py` reads `fit_c_mult` / `fit_k_mult` from the registry run record of `intl-elo-v2` and refuses without the run record or a PASS verdict. Until the laptop run record is spliced, `export-unl-predictions` exits 2 (REFUSED) — the chain fails loudly rather than shipping an unrecorded model.
+- **Label:** "PASS — confirmation n/60", n = competitive (non-friendly) internationals played since the verdict, first 60, capped. The window's read is `intl-elo-confirm`; `--record` writes it through `registry.record_confirmation` (outcome computed from the plan). Production only on CONFIRMED.
+- **Grading:** top pick vs the de-vigged three-way close (`close_1x2`), CLV only — not a record (no hit rate, no log-loss in RESULTS.md).
+- **Chain `intl-daily`** (backup daily; 07:20 UTC): `intl-sync --since {today} --save exports/intl_daily` → `intl-venue-sync` on that save → `export-unl-predictions`. Finding while wiring it: an incremental sync sees only current seasons, so the senior-side filter would have dropped friendlies of sides with no competitive fixture this season; it now unions the senior teams already stored.
+- **Operator/architect owed:** enable `sp-intl-daily.timer` on the host (T11 list updated); republish the Cockpit (the shadow card now renders three-way picks and per-model gate labels); push `laptop/intl-elo-v2-run-record` so the PASS is spliced and the shadow unlocks.
+- **Review fix (Anthony on #248, 2026-10-02):** "Please select and freeze the first 60 eligible fixture IDs independently of result availability. Pending or missing labels must leave that cohort incomplete, rather than admit replacements." The first build chose the 60 from `ie.load()` (finished and scoreable only). An earlier eligible SCHEDULED game was skipped while game 61 completed the read, and the cohort changed when that result arrived. Fixed:
+  - `eligible_fixtures` reads the stored fixtures in any status.
+  - `registry.freeze_confirmation_cohort` freezes the first n once (sha256 sidecar). A second freeze, a wrong count or a test-set id is refused.
+  - `record_confirmation` refuses unless the scored set is exactly the frozen cohort.
+  - `intl-elo-confirm --record` refuses while the cohort is provisional or any fixture is pending.
+  - The label's n is the number of labelled cohort fixtures.
+  - **Open for a ruling:** a CANCELLED cohort fixture keeps the read incomplete indefinitely, as asked. Whether that ever releases needs a ruling; nothing replaces it automatically.
+- **ARCHITECT 2026-10-02 (verbatim):** "(1) FREEZE the intl-elo-v2 confirmation cohort as soon as the stored schedule holds 60 eligible fixtures after 2026-10-02, taken in kickoff order (UNL matchday 4 + November WCQ_EU should suffice) — registry write via PR, as the run records are. (2) CANCELLED/ABANDONED games in the frozen 60 are RELEASED and replaced by the next eligible fixture after the cohort (61st, 62nd …), recorded as a substitution with reason; a merely postponed game stays in the cohort until it is played or cancelled; never a swap of a scheduled-but-unplayed game."
+  - **(1)** is an operator step on the laptop: run `intl-elo-confirm --freeze-cohort` once `intl-sync` holds ≥ 60 eligible fixtures, then splice `docs/registry/` via a PR. The command refuses below 60.
+  - **(2)** is built. Provider `CANC` and `ABD` both store as CANCELLED; the reason is read from `status_raw` (ABD = abandoned). The replacement is the earliest eligible fixture, not cancelled and never used, kicking off after every fixture that is or was in the cohort. This supersedes the "cancelled stays incomplete" note above.
+  - **Open for a ruling:** an AWARDED / walkover result (provider `AWD` / `WO`) stores as FINISHED with no 90-minute score. It is neither cancelled nor scoreable, so such a cohort fixture would stay pending indefinitely. Not covered by (2).
+
+**2026-10-02 — #130 DONE: the export's `kalshi_exec_cost` alias retired (two Cockpit republishes after #88).**
+- **Condition (architect ruling (1) on #129, 2026-09-30):** "retired two Cockpit republishes from now, announced in CHANGELOG". Republish count ≥ 2, per the board ruling: the #178 republish and the post-F1c republish.
+- **What went:** `kalshi_exec_cost` in `venue.kalshi_exec` / `KALSHI_EXEC_NULL` (so every export row), and the pre-split fallback `exec_cost_taker ?? kalshi_exec_cost` in `desk_policy` and `tools/cockpit.html`.
+- **What stayed (as ruled):** the ledger's own `kalshi_exec_cost` / `kalshi_exec_cost_maker` on call records, which the Cockpit stamps into `claim_exec_cost` / `exec_cost`. These are a different field with the taker meaning.
+- **Frozen golden untouched:** `tests/golden/desk_js_v1_1.json.gz` is unchanged. The battery's pre-split rows now put the same value in `exec_cost_taker` (same RNG draws), which the deleted JS treated identically. Receipt: 810/810 frozen calls, plus values, venue and parlays, match.
+- **Receipts:** pytest 605 passed; all 18 Cockpit verifies and the desk parity verify are green.
+
+**2026-10-02 — NHL v7 FAIL (ARCHITECT); v8 DECLARED (train-only fit of scale and k); the 2025 test set RETIRES after v8 (doctrine, enforced).**
+- **Ruling (verbatim):** "v7 VERDICT STANDS — FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands −6.2/−6.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced. v8 DECLARATION (last candidate on this test season): v7's xG unchanged; the Elo's two scale parameters — the logistic divisor (rating-to-probability) and k — are FITTED BY MAXIMUM LIKELIHOOD ON THE 2024 TRAINING SEASON ONLY (walk-forward within 2024, grid declared in the doc, chosen before any 2025 read); home_adv stays 45.6; regression 0.25. This is a train-only fit, not a tune. Same bar, same bands. One run. DOCTRINE (from the external review, now binding): the 2025 test season has been read 7 times. After v8 it is RETIRED as a test set; any later NHL candidate declares 2026-27 (as it accrues, >=600 games) as its test season. Record in docs/REGISTRY.md."
+- **v7's record:** spliced with its FAIL in #239 (with v6's). Main then shows 7 prior reads.
+- **v8 (`docs/specs/nhl-xg-v8.md`, registry `nhl-v8`):**
+  - `NHLEloV8` = v7 with a fitted divisor (v1–v7 keep 400).
+  - `nhl_backtest.fit_v8_scale_k` walks 2024 only (it refuses any other season) over the DECLARED grid: scale 300..600 by 50 × k {3,4,5,6,7,8,10,12} = 56 pairs. Selection is by min mean log-loss; a tie goes to the pair closest to (400, 6); a grid-edge choice is flagged, never widened.
+  - The harness prints the choice and the best 10 BEFORE any model scores 2025 (the v1 reference is moved after the fit). The run records `fit_scale` / `fit_k`.
+  - home_adv is v7's derivation (45.6); regression 0.25; same bar/bands/plan.
+- **Doctrine:** `docs/REGISTRY.md` gains "Retired test sets". `registry.RETIRED_TEST_SETS` makes `declare()` / `record_run()` refuse any id but `nhl-v8` on the NHL 2025 test set, naming 2026-27 (≥ 600 games) instead.
+- **Tests:** the v7 repo test is relaxed like v6's (accepts the coming record); new `tests/test_nhl_xg_v8.py` (6).
+- **RATIFIED (ARCHITECT 2026-10-02):** "v8 grid, tie rule, edge flag, and the code-enforced retirement of the NHL 2025 test set — ratified." The registry entry carries a `ratified` field. v8's run sees 7 prior reads (v6/v7 spliced in #239).
+
+**2026-10-02 — nhl-v8 and intl-elo-v1 run records spliced; both FAIL verdicts recorded. NHL 2025 RETIRED at 8 reads; the intl test set has 1.**
+- **Rulings (verbatim):**
+  - "v8 VERDICT STANDS — FAIL 0.6963 (worse than v1; shot info −0.0055); the train-only fit chose k=12 on the grid edge and over-sharpened. Record; NHL 2025 test set RETIRED (8 reads). NHL model track stays SUSPENDED."
+  - "intl-elo-v1 VERDICT STANDS — FAIL on calibration; log-loss criterion PASSED by 0.19 (0.8507 vs bar 1.0431; RPS 0.167 vs 0.237); bands show systematic UNDER-confidence (favorites 50-90% realize +20-30pp above stated). Record; prior reads of this test set = 1."
+- **Sources:** `laptop/nhl-v8-run-record` and `laptop/intl-elo-v1-run-record`.
+- **Verified before splicing (each):** the declaration fields are identical to main's.
+  - **nhl-v8:** 1,394 unique sorted ids, sha256 = the run record's. Result 0.6963 vs v1 0.6909, shot information −0.0055, fit scale 400 / k 12 (grid edge). Stored prior_read_count 7 (correct).
+  - **intl-elo-v1:** 392 unique sorted ids, sha matches. ll 0.8507 vs bar 1.0431 (crit_ll true), bands false. Neutral rule v2; RULE CHECK v1 0.6335, v2 0.0.
+  - The intl branch's copy of nhl-v6/v7 is an older laptop copy, ignored. Only the two target entries are spliced.
+- **Recorded:** `record_verdict(..., "FAIL", <ruling>)` closes both. NHL 2025 = 8 reads (retired; `nhl-v9` refused, pinned by a test). The intl test set has 1 read before intl-elo-v2.
+- **Tests:** v8 and intl-elo-v1 record pins added. The v7 count is pinned "7 before v8", the registry seed test total is 8, and the v8 repo test accepts its record.
+
+**2026-10-02 — ARCHITECT: AET/PEN release ratified; nhl-v7's run record stays, annotated with the ledger count.**
+- **Ruling (verbatim):** "(1) AET/PEN without a stored 90-minute score are unscoreable → released, as built (literal reading ratified; the cohort is league-style play anyway). (2) nhl-v7's recorded prior-reads=5 stays as written — never rewrite a run record; add an annotation field "ledger_count_at_record: 6" with one line explaining the laptop/ledger lag. The live count is the ledger's."
+- **(1):** no change. #252's `_unscoreable` already releases AET / PEN rows without a 90-minute score.
+- **(2):** nhl-v7 has `run.prior_read_count` 5, untouched. The laptop computed it before nhl-v6's run was in its ledger. The entry gains `ledger_count_at_record: 6` (v1–v6, re-verified with `registry.prior_reads`) and a one-line `ledger_count_note`. `docs/REGISTRY.md` gains "Run records are never rewritten".
+
+**2026-10-02 — NHL v8 FAIL (ARCHITECT); the 2025 test set RETIRED (8 reads); the track stays SUSPENDED; the shadow engine switches to v7 with v1 as reference.**
+- **Ruling (verbatim):** "v8 VERDICT STANDS — FAIL 0.6963 (worse than v1; shot info −0.0055); the train-only fit chose k=12 on the grid edge and over-sharpened. Record; NHL 2025 test set RETIRED (8 reads). NHL model track stays SUSPENDED. RULED: the shadow engine switches from v1 to v7 (best measured candidate, 0.6885, labelled "FAILED 0.6885 vs 0.6866") so live CLV accrues on the best read; v1 stays as reference in the grade line. Next NHL candidate declares 2026-27 as test season once >=600 games are played (~December); its training may use 2024+2025."
+- **Shadow (`src/walters/nhl_shadow.py`):**
+  - Model: `MODEL_VERSION = nhl_elo_v7_xg_margin_no_na`, `GATE_VERDICT = "FAILED 0.6885 vs 0.6866"`. v7 is exactly its frozen declaration: the 2023-24 xG fit without the `na` level, applied to stored shots from the 2024 opener on.
+  - Each row carries a `reference` block (`nhl_elo_v1`, "FAILED 0.6909 vs 0.6866 …", v1's probability). The doc carries `reference_model`.
+  - `nhl-shadow-grade` and the RESULTS.md section show v1's pick-vs-close beside v7's. Older v1-only rows grade as before.
+  - Fit receipt: xG updates vs goal fallbacks (a game without stored shots updates on goals, v1's rule).
+- **Chain (stated, it changes what the host runs):** `nhl-daily` gains `nhl-shot-sync --start {yesterday} --end {today}` before `export-nhl-predictions`, so the live season carries xG. It calls api-web.nhle.com (the NHL's free API), never api-sports, so it is listed UNMETERED. Stored games are skipped.
+- **Registry:** v8's run record is still on the laptop. It is spliced with its FAIL once `laptop/nhl-v8-run-record` is pushed (NHL 2025 then shows 8 reads). The retirement itself is already enforced in code (#241).
+- **Next candidate:** #245 (class:lane): declare on 2026-27 once ≥ 600 games; training may use 2024+2025.
+
+**2026-10-02 — FINDING (ARCHITECT): two NCAA fixtures stored +24h; receipt script built; first VENUE calls on file.**
+- **Ruling (verbatim):** "NCAA fixtures 10-02: WKU@NMSU and UNT@Tulsa carry utc_date 2026-10-03T00:00/01:00 and read "in-play — never" at 21:21Z. These were Thursday games. Receipt: stored utc_date vs provider vs the in-play test's inputs; fix whichever is wrong (stored kickoff +24h, or rollover logic). Also: first VENUE calls on file today — Pitt@VT 6.4pp (tonight), NJ@NYI 5.1pp (tomorrow)."
+- **External check (public schedules):** WKU at New Mexico State was Thu 2026-10-01, 8:00 PM ET (= 2026-10-02T00:00Z). North Texas at Tulsa was Thu 2026-10-01, 8:00 PM CT (= 2026-10-02T01:00Z). The stored values are exactly **+24h**: Friday 8 PM local.
+- **Code read:**
+  - The api-sports american-football adapter stores the provider's epoch `timestamp` as naive UTC, and every resync overwrites `utc_date`. No ingestion path adds a day.
+  - The Desk's in-play test is `utc_ms(row utc_date) <= as_of`. The row's utc and its reason come from the same row of the same export.
+  - So a row carrying 2026-10-03T00:00 cannot read "in-play" at an as-of of 2026-10-02T21:21Z. The reason the architect saw must come from a different export or moment than the utc shown.
+- **Receipt:** the facts that decide it are the stored row, the provider's raw date block and the exports. All live on the laptop. Run:
+  `python scripts/kickoff_receipt.py --find "New Mexico" --find "Tulsa" --date 2026-10-01`
+  - If PROVIDER shows the +24h timestamp, the provider is wrong. The fix is a guard on our side, scoped by a ruling.
+  - If PROVIDER shows 00:00Z / 01:00Z Oct 2 but STORED shows Oct 3, the store is wrong.
+  - The IN-PLAY lines show which export produced "in-play — never", and with what inputs.
+- **Recorded:** the first VENUE calls on file today were Pitt@VT 6.4pp (tonight) and NJ@NYI 5.1pp (tomorrow).
+
+**2026-10-02 — CHANGELOG/BACKLOG move to per-PR FRAGMENTS (ARCHITECT-RULE); the merge-up ritual retires.**
+- **Ruling (verbatim):** "CHANGELOG/BACKLOG move to per-PR FRAGMENTS. Each PR adds changelog.d/<PR>-<slug>.md and docs/ledger/entries/<date>-<slug>.md (same content as today's entries); the shared files are never edited by a feature PR. A `ledger compile` mode (and a step in sp_deploy's tag path) folds fragments into CHANGELOG.md / BACKLOG.md in date order and deletes them, in its own commit. CI fails a PR that edits CHANGELOG.md or BACKLOG.md directly or lacks a fragment. Migrate open PRs on the way in. This retires the merge-up ritual."
+- **Built:** `scripts/ledger_fragments.py`, dispatched by `scripts/ledger.py` (offline modes; no token needed):
+  - `compile [--commit] [--dry-run]` folds newest first (date, then PR number / name). CHANGELOG sections go before the first `## ` section; BACKLOG entries go after the `### MLB / baseball` anchor. It deletes the fragments, and `--commit` makes the fold its own commit. A malformed fragment refuses the run before anything is touched.
+  - `pending` is a read-only count.
+  - `check-fragments --base --pr` is the CI rule.
+- **CI:** a new `fragments` job (pull requests, `fetch-depth: 0`) fails a PR that:
+  - edits CHANGELOG.md / BACKLOG.md, except a pure compile PR (the shared files plus deleted fragments only);
+  - adds no `changelog.d/<this PR>-<slug>.md`;
+  - adds no `docs/ledger/entries/<date>-<slug>.md`.
+- **sp_deploy, stated plainly:** the host deploys from a detached tag, never commits or pushes, and refuses a modified tree, so the fold cannot run there.
+  - The fold runs in the TAG RITUAL on main (docs/RELEASES.md step 2: `ledger.py compile --commit`, before the release notes, which read CHANGELOG).
+  - `sp_deploy`'s tag path gains the read-only step: it prints and receipts `ledger_fragments_pending` for the deployed tag (expected 0, with a warning otherwise).
+- **Docs:** `changelog.d/README.md`, `docs/ledger/entries/README.md`, docs/LEDGER.md, CONTRIBUTING.md law 6 and the PR template checkbox.
+- **Migration:** the open PRs (#239, #241, #242) move their entries into fragments and restore the shared files from main.
+
+**2026-10-02 — BUG: intl-venue-sync crashed on a real /venues payload (Counter.update on a dict); fixed and regression-tested.**
+- **Report (ARCHITECT, verbatim):** "intl-venue-sync crashed in intl_venues.py:112 (keys.update on a None key in a /venues payload — Counter.update with a dict containing None). Fix, replay from the saved responses, re-run. intl-elo-v2 is blocked on it."
+- **Root cause (mine, #242):** `Counter.update(mapping)` ADDS the mapping's VALUES as counts. A served venue with a `None` field (address, capacity, image, …) raised TypeError. A numeric field would have been silently summed into the law-1 key receipt instead of counted. The #242 test's fake payload carried no None fields, so it never exercised this.
+- **Fix:** `keys.update(v.keys())`, which counts the keys. The only other key receipt (`intl_venue_route_probe.py`) already counts keys.
+- **Regression:** a real-shaped payload (address/capacity/surface/image None). It raised the same TypeError on the old code, and on the fix the receipt counts keys.
+- **Replay:** each /venues response is saved under `--venues-dir` BEFORE it is processed. Re-running with the same `--venues-dir` reuses what the crashed run saved and fetches only the rest.
+
+**2026-10-02 — intl-elo-v1 FAIL (ARCHITECT); intl-elo-v2 DECLARED: (a) train-only fit of the probability scale + K multiplier, (b) neutral rule v3 via route B. Not run.**
+- **Ruling (verbatim):** "intl-elo-v1 VERDICT STANDS — FAIL on calibration; log-loss criterion PASSED by 0.19 (0.8507 vs bar 1.0431; RPS 0.167 vs 0.237); bands show systematic UNDER-confidence (favorites 50-90% realize +20-30pp above stated). Record; prior reads of this test set = 1. v2 DECLARATION: (a) the rating-to-probability scale and a global K multiplier are FITTED BY MAXIMUM LIKELIHOOD ON THE TRAINING STREAM ONLY (walk-forward within 2018-2024; grid declared; chosen before any test read) — the same train-only remedy as NHL v8; (b) neutral rule v3 (venue country ≠ home team's country) replaces v2 — route B, 218 calls, run on the laptop as an ingest step before v2's run; derived, labelled. Same bar, same bands, same test set. Attribution of (a) vs (b) from train-season diagnostics, not from a second test read. One run."
+- **v1's record:** the run record exists only on the laptop. It is spliced with its FAIL once pushed (as NHL v6/v7 were); then the test set shows 1 prior read.
+- **(a)** `IntlElo.c_mult` (multiplies the Elo→goals coefficient c) and `k_mult` (multiplies each class K); v1 = (1, 1) exactly.
+  - **INTERPRETATION, stated in the doc for correction before the run:** "the rating-to-probability scale" is c, the only place a rating difference becomes a probability in this model. The update's /400 is kept.
+  - `fit_v2` walks the training stream only (it refuses anything else) over the declared grid: c_mult {0.75..3.0} × k_mult {0.5..2.0} = 48 pairs; tie → (1, 1); an edge choice is flagged.
+- **(b)** New table `intl_match_venue` and `python cli.py intl-venue-sync --from-dir <save> --venues-dir <dir> [--plan]`:
+  - venue ids from the saved `/fixtures` (0 calls), then `/venues?country=` per distinct home country (route B);
+  - `neutral_v3` = venue country ≠ home country, with the rule stated; NULL when unknown;
+  - the /venues keys are printed (law 1); a response without id/country refuses.
+- **Harness:** `intl-elo-backtest --candidate v2 [--preflight]`.
+  - Refusal before load; refuses without venue rows.
+  - The fit is printed before any test read.
+  - TRAIN-ONLY attribution: v1 params + v2 neutral / (a) only / (b) only / (a)+(b).
+  - One recorded run (fit + attribution in the result).
+- **Registry:** `intl-elo-v2` declared on v1's test set, gate and plan. The v1 repo tests accept its coming run record.
+- **RATIFIED (ARCHITECT 2026-10-02):** "intl-elo-v2 interpretation RATIFIED — the fitted scale is a multiplier on c; the update divisor stays 400." The registry entry carries a `ratified` field.
+
+**2026-10-02 — intl-elo-v2 PASS recorded (ARCHITECT); run record spliced from the laptop; confirmation window open.**
+- **Ruling (verbatim):** "intl-elo-v2 VERDICT — PASS under the frozen gate (0.7889 vs bar 1.0424; gated bands ok; RPS 0.153 vs 0.237). Ratified. Record (prior reads = 2 once v1 is spliced). Grid-edge pick, 13.7% v3 neutral share, and 57% unflagged venues recorded as declared limitations. CONFIRMATION WINDOW: 60 games after 2026-10-02 (UNL matchday 4 this weekend + November's WCQ_EU), scored by the plan; production allowed only on CONFIRMED."
+- **Splice receipts:**
+  - `laptop/intl-elo-v2-run-record` (4f6922f) was cut before #247. Its declaration fields are identical to main's (only `run` and `status` differ).
+  - The ids file has 392 ids, all distinct, matching the recorded sha256. They are the same 392 test ids as intl-elo-v1.
+- **Prior reads:** the laptop recorded 0, because its ledger lacked v1's run. Recomputed with `registry.prior_reads` against main's ledger, the count is 1 earlier read (intl-elo-v1). That is the ruling's "= 2" counting this read; the architect also counted v1 itself as "= 1".
+- **Verdict time:** the registry stamps the verdict at the recording time (2026-10-02T18:11:47Z). The confirmation cohort counts fixtures kicking off after it.
+- **Effect:** status `confirming`. The UNL shadow (#248) unlocks once both are merged; `production_allowed` is False until CONFIRMED.
+- **Finding:** `nhl-v7`'s recorded `prior_read_count` is 5, but the earlier runs on its test set are 6 (v1–v6). It was carried from the laptop record when v6 was not yet in the laptop's ledger. It is left as merged, pending a ruling on whether to correct it.
+
+**2026-10-02 — intl-elo-v2 cohort: AWD/WO RULED — unscoreable fixtures are released and substituted, the raw code recorded as reason.**
+- **Ruling (verbatim):** "AWD/WO (forfeit, walkover) games are RELEASED and substituted exactly like cancelled/abandoned — unscoreable is the criterion, not the status label; record the raw code as reason."
+- This answers the open question left in #248's entry: AWD / WO store as FINISHED with no 90-minute score, so they were neither cancelled nor scoreable.
+- **Built:**
+  - `intl_shadow._unscoreable`: a fixture is unscoreable if it is cancelled (CANC / ABD), or finished under a non-FT code without a 90-minute score. That covers AWD / WO, and by the same criterion AET / PEN rows missing the 90-minute split (the stream's own rule in `ie.load` can never admit them).
+  - A FT row whose score has not arrived is data lag, not unscoreable: it stays pending.
+  - The substitution's reason is the raw provider code (e.g. `ABD`, `AWD`); its evidence is `{status, status_raw, unscoreable: true, kickoffs}`.
+  - Replacements are never unscoreable themselves.
+
 **2026-10-02 — nhl-v7 run record spliced; FAIL recorded (ARCHITECT). NHL 2025: 7 reads.**
 - **Ruling (verbatim):** "v7 VERDICT STANDS — FAIL 0.6885 vs 0.6866, calibration FAIL (50-70% bands −6.2/−6.8pp); shot information +0.0023 clean (na-leak effect 0.0001). Record. Registry: main must show prior reads = 7 once v6/v7 records are spliced."
 - **Source:** `laptop/nhl-v7-run-record`.

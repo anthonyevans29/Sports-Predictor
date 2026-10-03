@@ -1,4 +1,0 @@
-## 2026-10-02 (#249, closes #130: the export's `kalshi_exec_cost` alias is RETIRED)
-- **Announcement (ruling (1) on #129):** exports no longer write `kalshi_exec_cost`. `venue.kalshi_exec` and `KALSHI_EXEC_NULL` drop it; the taker cost is `exec_cost_taker` (with `exec_cost_maker`, and the `_away` pair on two-way rows). Condition met: the published Cockpit was republished twice after #88 (the #178 republish and the post-F1c republish).
-- The pre-split fallback goes from the Python Desk (`desk_policy`, `kExec.cost`) and from `tools/cockpit.html`. The LEDGER's own `kalshi_exec_cost` / `_maker` fields on call records are not the alias and keep their taker/maker meaning.
-- Receipts and verify scripts read `exec_cost_taker`. The desk golden battery maps its pre-split rows (alias only) to `exec_cost_taker`, which is equivalent under the deleted JS's `exec_cost_taker ?? kalshi_exec_cost`: all 810 frozen calls still match row for row.

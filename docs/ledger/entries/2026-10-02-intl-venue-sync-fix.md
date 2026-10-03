@@ -1,6 +1,0 @@
-**2026-10-02 — BUG: intl-venue-sync crashed on a real /venues payload (Counter.update on a dict); fixed and regression-tested.**
-- **Report (ARCHITECT, verbatim):** "intl-venue-sync crashed in intl_venues.py:112 (keys.update on a None key in a /venues payload — Counter.update with a dict containing None). Fix, replay from the saved responses, re-run. intl-elo-v2 is blocked on it."
-- **Root cause (mine, #242):** `Counter.update(mapping)` ADDS the mapping's VALUES as counts. A served venue with a `None` field (address, capacity, image, …) raised TypeError. A numeric field would have been silently summed into the law-1 key receipt instead of counted. The #242 test's fake payload carried no None fields, so it never exercised this.
-- **Fix:** `keys.update(v.keys())`, which counts the keys. The only other key receipt (`intl_venue_route_probe.py`) already counts keys.
-- **Regression:** a real-shaped payload (address/capacity/surface/image None). It raised the same TypeError on the old code, and on the fix the receipt counts keys.
-- **Replay:** each /venues response is saved under `--venues-dir` BEFORE it is processed. Re-running with the same `--venues-dir` reuses what the crashed run saved and fetches only the rest.

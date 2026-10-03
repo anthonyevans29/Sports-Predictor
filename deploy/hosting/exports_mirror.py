@@ -18,7 +18,9 @@ status; pull_exports over Tailscale becomes optional."
 Config (host.env, or the laptop's environment):
   SP_EXPORTS_MIRROR_REMOTE  git@github.com:anthonyevans29/Sports-Predictor-exports.git
                             (unset = mirror disabled: `push` prints so and exits 0)
-  SP_EXPORTS_MIRROR_KEY     the deploy key's private half (default /etc/sports-predictor/exports_deploy_key)
+  SP_EXPORTS_MIRROR_KEY     the deploy key's private half. Unset: /etc/sports-predictor/exports_deploy_key
+                            when that file exists (installed by root), else ~/.ssh/sp_exports_deploy_key
+                            of the running user (sp cannot write /etc/sports-predictor; keygen --key PATH)
   SP_EXPORTS_MIRROR_DIR     the working clone (default <repo>/logs/exports-mirror)
   SP_EXPORTS_MIRROR_ROLE    host | laptop (default host)
 
@@ -49,6 +51,18 @@ BRANCH = "main"
 SUFFIXES = (".json", ".md")
 STAMP = re.compile(r"_?\d{4}-\d{2}-\d{2}(?:[T_]\d{2}:?\d{2}(?::?\d{2})?Z?)?")
 WORKFLOW_SRC = REPO / "deploy" / "exports-mirror" / "compare.yml"
+ETC_KEY = Path("/etc/sports-predictor/exports_deploy_key")
+
+
+def key_path() -> Path:
+    """The deploy key push and keygen both use: SP_EXPORTS_MIRROR_KEY, else an installed
+    /etc/sports-predictor key, else ~/.ssh/sp_exports_deploy_key (writable by the service user)."""
+    env = os.environ.get("SP_EXPORTS_MIRROR_KEY")
+    if env:
+        return Path(env).expanduser()
+    if ETC_KEY.is_file():
+        return ETC_KEY
+    return Path(os.path.expanduser("~")) / ".ssh" / "sp_exports_deploy_key"
 
 
 def kind_of(name: str) -> str:
@@ -90,7 +104,7 @@ def expired(role_dir: Path, today: date) -> list[Path]:
 
 def _git(clone: Path, *args, check=True, capture=True):
     env = dict(os.environ)
-    key = os.environ.get("SP_EXPORTS_MIRROR_KEY", "/etc/sports-predictor/exports_deploy_key")
+    key = str(key_path())
     if os.path.isfile(key):
         env["GIT_SSH_COMMAND"] = f"ssh -i {key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
     return subprocess.run(["git", "-C", str(clone), *args], check=check, env=env, text=True,
@@ -104,6 +118,8 @@ def _ensure_clone(clone: Path, remote: str) -> None:
         _git(clone, "remote", "add", "origin", remote)
         _git(clone, "config", "user.name", os.environ.get("SP_EXPORTS_MIRROR_AUTHOR", "sp-exports-mirror"))
         _git(clone, "config", "user.email", "sp-exports-mirror@localhost")
+    else:                                   # host.env's remote may have changed since the clone was made
+        _git(clone, "remote", "set-url", "origin", remote, check=False)
 
 
 def _sync_to_remote(clone: Path) -> None:
@@ -112,6 +128,15 @@ def _sync_to_remote(clone: Path) -> None:
     if _git(clone, "rev-parse", "--verify", "-q", f"origin/{BRANCH}", check=False).returncode == 0:
         _git(clone, "checkout", "-q", "-B", BRANCH, f"origin/{BRANCH}")
         _git(clone, "reset", "-q", "--hard", f"origin/{BRANCH}")
+
+
+def _unpushed(clone: Path) -> int:
+    """Local commits the remote does not have (all of them when the remote has no branch yet)."""
+    if _git(clone, "rev-parse", "--verify", "-q", "HEAD", check=False).returncode != 0:
+        return 0                            # unborn branch: nothing committed locally
+    if _git(clone, "rev-parse", "--verify", "-q", f"origin/{BRANCH}", check=False).returncode != 0:
+        return int(_git(clone, "rev-list", "--count", "HEAD").stdout.strip() or 0)
+    return int(_git(clone, "rev-list", "--count", f"origin/{BRANCH}..HEAD").stdout.strip() or 0)
 
 
 def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: date | None = None,
@@ -143,14 +168,20 @@ def push(role: str, exports: Path, label: str, remote: str, clone: Path, today: 
                 dest.parent.mkdir(parents=True, exist_ok=True)
                 shutil.copy2(src, dest)
         _git(clone, "add", "-A")
-        if _git(clone, "diff", "--cached", "--quiet", check=False).returncode == 0:
+        staged = _git(clone, "diff", "--cached", "--quiet", check=False).returncode != 0
+        # ARCHITECT 2026-10-03 (host first push): "changed" is judged against the REMOTE's tip, not
+        # the local HEAD — a commit left by a push that failed (remote set before the key worked)
+        # is not on an empty remote, and must not read as "nothing changed".
+        unpushed = _unpushed(clone)
+        if not staged and not unpushed:
             return {"role": role, "pushed": False, "copied": 0, "pruned": pruned, "why": "nothing changed"}
-        _git(clone, "commit", "-q", "-m", f"{role}: {label} · {copied} file(s) · pruned {len(pruned)}")
+        if staged:
+            _git(clone, "commit", "-q", "-m", f"{role}: {label} · {copied} file(s) · pruned {len(pruned)}")
         r = _git(clone, "push", "-q", "origin", f"HEAD:{BRANCH}", check=False)
         if r.returncode == 0:
             sha = _git(clone, "rev-parse", "HEAD").stdout.strip()
             return {"role": role, "pushed": True, "copied": copied, "pruned": pruned, "sha": sha,
-                    "attempt": attempt}
+                    "attempt": attempt, "unpushed_before": unpushed}
     return {"role": role, "pushed": False, "copied": copied, "pruned": pruned,
             "why": f"push rejected {attempts}x: {(r.stderr or '').strip()[-200:]}"}
 
@@ -169,6 +200,17 @@ def squash(remote: str, clone: Path) -> dict:
 
 
 def keygen(key: str) -> int:
+    parent = Path(key).parent
+    if not os.path.exists(key) and not os.access(parent if parent.exists() else parent.parent, os.W_OK):
+        print(f"REFUSED: {parent} is not writable by {os.environ.get('USER') or 'this user'}. Either\n"
+              f"  (a) generate it where you can write and point the mirror at it:\n"
+              f"        exports_mirror.py keygen --key ~/.ssh/sp_exports_deploy_key\n"
+              f"        then set SP_EXPORTS_MIRROR_KEY=~/.ssh/sp_exports_deploy_key in host.env\n"
+              f"        (unset, the mirror already falls back to that path), or\n"
+              f"  (b) the root step, keeping {key}:\n"
+              f"        sudo ssh-keygen -q -t ed25519 -N '' -C 'sp-exports-mirror (push-only)' -f {key}\n"
+              f"        sudo chown sp:sp {key} {key}.pub && sudo chmod 600 {key}")
+        return 2
     if os.path.exists(key):
         print(f"exists: {key} (not regenerated). PUBLIC half:")
     else:
@@ -191,10 +233,11 @@ def main(argv=None) -> int:
     p.add_argument("--label", default="push")
     sub.add_parser("squash")
     k = sub.add_parser("keygen")
-    k.add_argument("--key", default=os.environ.get("SP_EXPORTS_MIRROR_KEY", "/etc/sports-predictor/exports_deploy_key"))
+    k.add_argument("--key", default=None, help="default: SP_EXPORTS_MIRROR_KEY, an installed "
+                   "/etc/sports-predictor key, else ~/.ssh/sp_exports_deploy_key")
     a = ap.parse_args(argv)
     if a.cmd == "keygen":
-        return keygen(a.key)
+        return keygen(str(Path(a.key).expanduser()) if a.key else str(key_path()))
     remote = os.environ.get("SP_EXPORTS_MIRROR_REMOTE")
     if not remote:
         print("exports mirror disabled (SP_EXPORTS_MIRROR_REMOTE unset)")
@@ -206,6 +249,8 @@ def main(argv=None) -> int:
         return 0 if r["squashed"] else 1
     r = push(a.role, Path(a.exports), a.label, remote, clone)
     print(f"EXPORTS-MIRROR {r['role']}: " + (f"pushed {r['copied']} file(s) @ {r['sha'][:8]} (attempt {r['attempt']})"
+                                           + (f" · incl. {r['unpushed_before']} earlier unpushed commit(s)"
+                                              if r.get("unpushed_before") else "")
                                            if r["pushed"] else f"not pushed — {r['why']}")
           + (f" · pruned {r['pruned']}" if r["pruned"] else ""))
     return 0 if (r["pushed"] or r.get("why") == "nothing changed") else 1

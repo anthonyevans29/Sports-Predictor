@@ -117,6 +117,9 @@ def main():
         print("DESK")
         load("noquotes.json")
         base = {r[0]: (r[5], r[6]) for r in table()}
+        # AUTO-CLAIM (2026-10-03): loading a desk file claims its calls; the no-quotes
+        # file is a render comparison only, so its claims are cleared before the real file.
+        page.evaluate("localStorage.removeItem('bd_ledger_v1')")
         load("day1.json")
         rows = {r[0]: r for r in table()}
         bills = next(v for k, v in rows.items() if "Buffalo" in k)

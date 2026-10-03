@@ -106,7 +106,14 @@ def main():
         check("note: 4 checked · 1 not a play → 1 ticket excluded · 4 unchecked",
               "4 leg(s) checked" in note and "1 leg not a play (#183) → 1 ticket(s) excluded" in note
               and "4 unchecked" in note and "never deleted" in note, note)
-        after = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1')).calls")
+        # AUTO-CLAIM (2026-10-03): loading the export also claims its PLAYs (the file's
+        # call at its as_of); the audit's guarantees are about the calls that were there.
+        seeded = {c["id"] for c in before}
+        allc = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1')).calls")
+        after = [c for c in allc if c["id"] in seeded]
+        claimed = sorted(c["home"] for c in allc if c["id"] not in seeded)
+        check("auto-claim: the export's three PLAYs claimed, the PASS not",
+              claimed == ["Bplay", "Cplay", "Dplay"], json.dumps(claimed))
         lc = {c["id"]: (c.get("leg_check") or {}).get("status") for c in after}
         check("marks: A not_play, B/C/D play, T3/T4 unmarked",
               lc == {"P-T1-1": "not_play", "P-T1-2": "play", "P-T2-1": "play", "P-T2-2": "play",

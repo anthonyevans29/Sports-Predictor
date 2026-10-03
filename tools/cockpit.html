@@ -137,7 +137,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 <div class="card deskonly">
   <div class="row" style="justify-content:space-between">
     <div class="summary" id="summary">No file loaded.</div>
-    <button id="logBtn" disabled>Log today's calls</button>
+    <button id="logBtn" disabled>Re-log at T-60</button>
   </div>
   <div class="note" id="logNote"></div>
   <div class="tablewrap"><table id="slate" hidden>
@@ -293,6 +293,7 @@ function normalize(doc){
         books:mk.bookmaker_count,qbs:[],rawIQ:{market_only:true,
           bookmaker_count:mk.bookmaker_count},live:false,
         marketOnly:true,tier:null,fileDesk:f.desk||null,deskMeta:doc.desk_meta||null,
+        exportedAt:(doc.desk_meta&&doc.desk_meta.as_of)||doc.exported_at||null,   // auto-claim clock (2026-10-03)
         kalProb:kalFromFixture(f.kalshi,fair),threeWay:fair.DRAW!=null});
     }
     return out;
@@ -846,11 +847,20 @@ function auditParlayLegs(){
 // no parseable kickoff are captured as before (labelled in the note).
 function kickedOff(r,now){const t=utcMs(r.utc); return isFinite(t)&&t<=now;}
 let lastCapture={started:0,noKickoff:0};
-function snapshotCalls(now){
-  now=now??Date.now();
+// AUTO-CLAIM (ARCHITECT 2026-10-03): opts.auto = the claim is the FILE'S call at
+// the FILE'S as_of — each row's clock is its desk_meta.as_of (log date, captured
+// time and the kickoff test all read it), no human step; parlay tickets stay on
+// the re-log button.
+function asOfMs(r){ const t=utcMs(r.exportedAt); return isFinite(t)?t:Date.now(); }
+function snapshotCalls(now,opts){
+  opts=opts||{}; now=now??Date.now();
+  const auto=!!opts.auto, clk=r=>auto?asOfMs(r):now;
   const d=localDate(), out=[];
+  const dOf=r=>auto?localDate(new Date(asOfMs(r))):d;
+  const add=(r,c)=>{ if(auto){ c.captured_at=new Date(asOfMs(r)).toISOString(); c.claim_as_of=r.exportedAt||null;
+    c.claim_source="auto"; } out.push(c); };
   lastCapture={started:0,noKickoff:0};
-  const live=r=>{ if(kickedOff(r,now)){lastCapture.started++;return false;}
+  const live=r=>{ if(kickedOff(r,clk(r))){lastCapture.started++;return false;}
     if(!isFinite(utcMs(r.utc))) lastCapture.noKickoff++;
     return true; };
   for(const x of deskCalls){
@@ -860,13 +870,13 @@ function snapshotCalls(now){
       const lad=x.call==="LADDER";
       const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
       const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):(x.mktRef??r.mkt);
-      out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
+      add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:lad?"ladder":"straight",units:x.units,model_p:mp,market_p:kp,
         kalshi_exec_cost:lad?null:execCostFor(r,r.pick),kalshi_exec_cost_maker:lad?null:makerCostFor(r,r.pick),
         kalshi_join_bid:lad?null:((joinBidFor(r,r.pick)||{}).price??null),
         venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",rules:x.tags});
     } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
-      out.push({...baseCall(r,d),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
+      add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
         model_p:r.prob,market_p:r.mkt,kalshi_exec_cost:execCostFor(r,r.pick),
         kalshi_exec_cost_maker:makerCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
@@ -874,13 +884,13 @@ function snapshotCalls(now){
   }
   for(const {r,v} of deskValue){        // value-side shadows (v1.2 candidate): notional, never staked
     if(!live(r)) continue;
-    out.push({...baseCall(r,d),pick:v.side,tier:"shadow",engine:"model_edge",
+    add(r,{...baseCall(r,dOf(r)),pick:v.side,tier:"shadow",engine:"model_edge",
       call_type:"value_shadow",units:0,shadow_units:VALUE.units,
       model_p:v.modelP,market_p:v.marketP,value_edge_pp:+v.edge.toFixed(2),value_role:v.role,
       kalshi_exec_cost:execCostFor(r,v.side),kalshi_exec_cost_maker:makerCostFor(r,v.side),
       top_pick:r.pick,venue_hint:"books",rules:v.tags.slice()});
   }
-  for(const t of deskParlays){          // parlays: model_edge only (frozen)
+  for(const t of (auto?[]:deskParlays)){          // parlays: model_edge only (frozen); re-log only
     if(t.legs.some(l=>kickedOff(l,now))){lastCapture.started++;continue;}   // whole ticket or nothing
     const pid="P-"+d+"-"+t.legs.map(l=>`${l.sport}:${l.away}@${l.home}:${l.pick}`).sort().join("+");
     for(const l of t.legs){
@@ -893,11 +903,35 @@ function snapshotCalls(now){
     if(!v.eligible) continue;
     const rules=["venue div ≥ 5.0pp"];
     if(v.divPP>=VENUE.staleGapPP) rules.push("venue gap ≥ 8pp (STALE-BOOK? zone)");
-    out.push({...baseCall(r,d),pick:v.side,tier:"shadow",engine:"venue_edge",
+    add(r,{...baseCall(r,dOf(r)),pick:v.side,tier:"shadow",engine:"venue_edge",
       call_type:"straight",units:VENUE.units,model_p:v.bookP,market_p:v.kalP,
       venue_hint:"kalshi",divergence_pp:+v.divPP.toFixed(2),rules});
   }
   return out;
+}
+// AUTO-CLAIM on load (ARCHITECT 2026-10-03): "loading a --desk file into the
+// Cockpit logs its PLAY/VENUE/shadow calls as claims automatically, idempotent
+// on (match, pick, desk_meta.as_of); "Log today's calls" becomes "re-log at T-60"
+// only. The claim is the file's call at the file's as_of — no human step."
+// Idempotent: L.meta.auto_claims holds every (game, kickoff, pick, call type,
+// engine, as_of) already claimed, so reloading a file claims nothing twice. A
+// file OLDER than what the ledger holds for that position never reprices it.
+function autoKey(c){return [c.sport,c.game,c.kickoff||"",c.pick,c.call_type,c.engine,c.claim_as_of||""].join("|");}
+function autoClaim(){
+  if(!deskCalls.length&&!deskVenue.length&&!deskValue.length) return null;
+  const L=loadLedger(), seen=new Set(L.meta.auto_claims||[]), byPos=new Map();
+  L.calls.forEach(c=>byPos.set(instKey(c),c));
+  const fresh=[]; let again=0, older=0;
+  for(const c of snapshotCalls(null,{auto:true})){
+    const k=autoKey(c);
+    if(seen.has(k)){again++;continue;}
+    seen.add(k);
+    const cur=byPos.get(instKey(c)), last=cur&&(cur.executed_at||cur.claim_at||cur.captured_at);
+    if(cur&&last&&last>=c.captured_at){older++;continue;}            // never reprice backwards
+    fresh.push(c);
+  }
+  const r=upsertCalls(L,fresh,{relog:true}); L.meta.auto_claims=[...seen]; const dd=saveLedger(L);
+  return {...r,claimed:fresh.length,again,older,started:lastCapture.started,dd};
 }
 $("logBtn").addEventListener("click",()=>{
   const L=loadLedger(); const fresh=snapshotCalls();
@@ -1813,6 +1847,11 @@ $("predFile").addEventListener("change",async e=>{
   policy();
   renderCard();
   renderShadow();
+  const ac=autoClaim();
+  if(ac){ $("logNote").textContent=`Auto-claimed ${ac.claimed} call(s) at their file's as_of — ${ac.added} new · `
+    +`${ac.repriced+ac.updated} position(s) repriced · ${ac.again} already claimed from this file · ${ac.older} older than the ledger (kept)`
+    +` · ${ac.started} past kickoff at as_of (not claimed). "Re-log at T-60" refreshes prices.`+dedupeNote(ac.dd)
+    +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it."); renderLedger(); }
   setTab(true);
   $("askCard").hidden=!sampleNS;
 });

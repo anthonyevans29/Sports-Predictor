@@ -67,7 +67,7 @@ LIVE_SEASON_STARTS = {"2026": date(2026, 9, 29)}
 NOTE = ("REFERENCE MODEL — FAILED GATE. nhl_elo_v7 (xG margin, no 'na' level) is the best measured NHL "
         "candidate and FAILED the frozen gate (0.6885 vs the 0.6866 bar); nhl_elo_v1 (0.6909) rides "
         "along as the reference. Shadow only: never a call, never a venue input, never logged to the "
-        "ledger. NHL runs MARKET-ONLY. Graded on live CLV only.")
+        "ledger. NHL runs MARKET-ONLY. Graded on live model-close divergence only.")
 
 
 def _season_starts() -> dict:
@@ -257,9 +257,9 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             line = (f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
                     f"{c.get('model_version', '?').replace('nhl_elo_', '')}_H={p:.3f} "
                     f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
-                    f"clv={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
+                    f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
                     f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else '— (no anchor)'}"
-                    + (f" · ref v1_H={pr:.3f} clv={'%+.1fpp' % (ref_clv * 100) if ref_clv is not None else '—'}"
+                    + (f" · ref v1_H={pr:.3f} div={'%+.1fpp' % (ref_clv * 100) if ref_clv is not None else '—'}"
                        if pr is not None else ""))
             lines.append(line)
             if progress:
@@ -277,10 +277,10 @@ def results_section(days: int, export_dir: str = "exports") -> str:
     r = grade(days=days, export_dir=export_dir)
     head = f"## NHL — REFERENCE MODEL, FAILED GATE (shadow · {MODEL_VERSION} · {GATE_VERDICT})\n\n"
     if not r["graded"]:
-        return head + ("Live CLV only. No graded shadow calls in window "
+        return head + ("Live model-close divergence only. No graded shadow calls in window "
                        f"({r['calls_on_file']} calls on file).\n")
     return head + (
-        f"- Live CLV only; not a record. Graded calls: {r['graded']}\n"
+        f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}\n"
         f"- Mean pick-vs-close: "
         + (f"{r['mean_clv_pp']:+.2f}pp (n={r['priced']} priced)" if r["mean_clv_pp"] is not None
            else f"— (no stored close; {r['unpriced']} unpriced)") + "\n"

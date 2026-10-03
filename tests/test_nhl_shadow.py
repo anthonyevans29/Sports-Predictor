@@ -118,7 +118,7 @@ def test_grade_is_live_clv_only_from_the_last_call_before_puck_drop(nhl, tmp_pat
     assert r["reference_mean_clv_pp"] == round(((pr - close) if pr >= 0.5 else ((1 - pr) - (1 - close))) * 100, 2)
     assert "ref v1_H=" in r["lines"][0] and "v7_xg_margin_no_na_H=" in r["lines"][0]
     md = sh.results_section(10000, export_dir=str(tmp_path))
-    assert md.startswith("## NHL — REFERENCE MODEL, FAILED GATE") and "Live CLV only; not a record" in md
+    assert md.startswith("## NHL — REFERENCE MODEL, FAILED GATE") and "Live model-close divergence only; not a record" in md
     assert "unanchored" in md and "Reference nhl_elo_v1" in md
 
 

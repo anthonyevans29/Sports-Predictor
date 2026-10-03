@@ -1,0 +1,12 @@
+**2026-10-03 — P0-3 (#208) built (ARCHITECT lane 3): "model-close divergence" rename; entry-price CLV and fee-adjusted closing edge on executed ledger positions; P&L gains both.**
+- **Ruling (verbatim, 2026-10-01):** "P0-3 CLV SEMANTICS: rename the stored/graded metric "model-close divergence" everywhere it appears; add entry-price CLV = q_close − entry on executed ledger positions (claim and exec), and fee-adjusted closing edge; P&L block gains both. Existing series kept." Lane 3 of the 2026-10-03 build order.
+- **What the old metric is:** `PredictionOutcome.clv = model p(pick) − close fair(pick)` (`training.py`), likewise NFL/NHL/UNL grading. It is the model's divergence from the close, not CLV.
+  - Renamed in every display and doc label: RESULTS.md headline, legacy and NFL lines; shadow sections; grade prints (`div=`); `clv-restate`; the web page; the Cockpit card; CLI.md.
+  - Stored columns and JSON keys (`clv`, `clv_pp`, `mean_clv_pp`) are kept, as ruled. `cli.py`'s first→last market-move table stays: it is a genuine line-move measure, not the stored metric.
+- **q_close:** results exports gain `graded.close_fair` (per side), `close_at`, `close_books` and `close_source` via `close.close_block`, which is the ruled `close_1x2`: last pre-kickoff session, complete books, de-vigged. The Cockpit reads a finished fixture's `market` block as its close.
+- **Cockpit (`clv_v2`, version "p0-3 v1"):**
+  - Fields: q_close is the pick's own closing fair (a ladder uses pick + DRAW); `clv_claim` = q − claim fair; `clv_exec` = q − execution fair; `fee_adj_quoted` = q − the pick side's executable taker cost incl. fee, null when no side-specific quote existed (never inferred).
+  - A position graded before its close arrives gains `clv_v2` when it does; no close means no block.
+  - The P&L adds the realised fee-adjusted edge from matched Kalshi fills (entry + the CHARGED open fee per contract), with n / mean / median / positive share and a 90% bootstrap CI clustered by calendar day (seeded), plus exec CLV by sport.
+- **Scope note (from the issue's proposed acceptance criteria):** delivered here are the side-specific close, actual fees, n/mean/median/positive share, the clustered bootstrap and the sport segment. Side, decision-horizon and maker/taker segments are not yet split out; they follow if ruled.
+- **Receipts:** pytest 631 passed; `scripts/cockpit_clv_verify.py` 11/11 (stable over 5 runs); all Cockpit verifies and desk parity green.

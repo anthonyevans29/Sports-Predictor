@@ -325,27 +325,46 @@ def _verify_backup(backup_path: str | None, table: str, model) -> str:
     data_dir = (Path(__file__).resolve().parent / "data").resolve()
     if bp == data_dir or data_dir in bp.parents:
         raise click.UsageError(f"REFUSED [check: not under the project's data/]: {bp} is inside {data_dir} (law 5).")
-    try:
-        # Path.as_uri(): file:///C:/Users/... on Windows, percent-encoded spaces / # / ?.
-        # The old f"file:{path}?mode=ro" failed with "unable to open database file" on a
-        # Windows absolute path (ARCHITECT 2026-10-03: the dedupe --apply refusal).
-        con = sqlite3.connect(bp.as_uri() + "?mode=ro", uri=True)
+    # Two open forms, tried in order; the receipt names which one read the backup (ARCHITECT 2026-10-03):
+    #   1. read-only URI — Path.as_uri() + "?mode=ro" (Windows / space / # / ? safe);
+    #   2. if the URI form raises: a plain sqlite3.connect(path) with PRAGMA query_only=ON (no writes).
+    # On macOS a 248 MB backup refused the URI form with "unable to open database file"; a WAL-mode
+    # file opened read-only without its -shm sidecar fails exactly so. The journal mode is printed.
+    def _read(con, check):
+        out = [r[0] for r in con.execute(f"PRAGMA {check}")]
+        return out, con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0], \
+            con.execute("PRAGMA journal_mode").fetchone()[0]
+
+    tried, got = [], None
+    for form, opener, check in (
+            ("uri mode=ro", lambda: sqlite3.connect(bp.as_uri() + "?mode=ro", uri=True), "integrity_check"),
+            ("plain path, query_only", lambda: sqlite3.connect(str(bp)), "quick_check")):
         try:
-            ic = [r[0] for r in con.execute("PRAGMA integrity_check")]
-            n_bk = con.execute(f"SELECT COUNT(*) FROM {table}").fetchone()[0]
-        finally:
-            con.close()
-    except sqlite3.Error as e:
-        raise click.UsageError(f"REFUSED [check: opens as SQLite with table {table}]: {bp} — "
-                               f"{e.__class__.__name__}: {e}")
+            con = opener()
+            try:
+                if form.startswith("plain"):
+                    con.execute("PRAGMA query_only = ON")
+                ic, n_bk, jmode = _read(con, check)
+            finally:
+                con.close()
+            got = (form, check)
+            break
+        except sqlite3.Error as e:
+            tried.append(f"{form}: {e.__class__.__name__}: {e}")
+    if got is None:
+        raise click.UsageError(f"REFUSED [check: opens as SQLite with table {table}]: {bp} — tried "
+                               + " | ".join(tried))
+    form, check = got
     if ic != ["ok"]:
-        raise click.UsageError(f"REFUSED [check: integrity_check]: {bp} — {'; '.join(ic[:3])}")
+        raise click.UsageError(f"REFUSED [check: {check}] (opened via {form}): {bp} — {'; '.join(ic[:3])}")
     with _ss() as _s:
         n_live = _s.execute(_sel(func.count(model.id))).scalar()
     if n_bk != n_live:
         raise click.UsageError(f"REFUSED [check: {table} count = live]: {bp} has {n_bk}, the live DB {n_live} "
                                "— something wrote since the backup; take a fresh .backup and retry.")
-    click.echo(f"backup verified: {bp} · integrity ok · {table} {n_bk} = live")
+    click.echo(f"backup verified: {bp} · opened via {form}"
+               + (f" (after: {tried[0]})" if tried else "")
+               + f" · integrity ok ({check}) · journal_mode {jmode} · {table} {n_bk} = live")
     return str(bp)
 
 

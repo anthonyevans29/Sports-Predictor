@@ -11,7 +11,7 @@
   - ORDERS keys (the limit-order shape, including post-only / time-in-force as named);
   - FILLS keys (`is_taker` and fee fields, with counts).
 - **Findings so far:**
-  - `cryptography` (needed for the RSA-PSS signature) is not in `requirements.txt`; the probe reports it if it is absent on the host.
+  - `cryptography` (needed for the RSA-PSS signature) was not in `requirements.txt`. **ARCHITECT 2026-10-03:** "`cryptography` goes into requirements.txt (the signing dependency is real); host probe runs after the next tag." It is now added (`cryptography>=41.0.0`), and the probe still reports it if the host lacks it.
   - Whether the operator's key may trade is shown by the balance call.
   - Placing and cancelling a demo limit order needs a ruling: this probe cannot do it by construction.
 - **Operator:** on the host, set the key env (never committed), then run `python3 scripts/kalshi_trade_api_probe.py --json exports/kalshi_trade_probe.json` (and `--demo-only` with demo keys) and paste the receipt.

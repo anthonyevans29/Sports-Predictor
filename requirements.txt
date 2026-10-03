@@ -8,6 +8,7 @@ python-multipart>=0.0.9   # form handling for any POST endpoints
 SQLAlchemy>=2.0.0
 alembic>=1.13.0
 requests>=2.31.0
+cryptography>=41.0.0      # Kalshi trade API: RSA-PSS request signing (ARCHITECT 2026-10-03, lane 4 probe)
 python-dotenv>=1.0.0
 pydantic>=2.5.0
 

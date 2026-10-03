@@ -1,4 +1,4 @@
-## 2026-10-03 (P0-3 #208: "model-close divergence" rename; entry-price CLV and fee-adjusted closing edge on executed positions)
+## 2026-10-03 (#259, closes #208 — P0-3: "model-close divergence" rename; entry-price CLV and fee-adjusted closing edge on executed positions)
 - **Rename (labels and docs; stored series and keys kept):** the per-game metric stored as `clv` (model p − close fair on the pick) is now labelled "model-close divergence" in RESULTS.md, the NHL/UNL shadow grades and sections, `nfl-grade`, `clv-restate`, the web predictions page, the Cockpit shadow card and `docs/CLI.md`.
 - **Exports:** results exports (`export-results`, `export-nfl-results`) carry `graded.close_fair` per side plus `close_at` / `close_books` / `close_source`, from `close.close_block` (the ruled `close_1x2`).
 - **Cockpit:** graded straight/ladder positions gain versioned `clv_v2` = {q_close, clv_claim = q_close − claim, clv_exec = q_close − exec, fee_adj_quoted = q_close − executable taker cost}. A ladder uses pick + DRAW. There is no complement guess and no block without a close.

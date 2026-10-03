@@ -1,0 +1,17 @@
+**2026-10-03 — PROBE built (ARCHITECT lane 4): Kalshi trade API — read-only receipt; no orders.**
+- **Ruling (verbatim):** "PROBE (read-only, no orders): Kalshi trade API — can a limit order be placed and cancelled via the API from the host (auth model, demo environment, maker/taker flags, fee fields on fills)? Receipt only; order placement itself is a separate ruling."
+- **Desk research** (Kalshi docs via search; docs.kalshi.com and the API hosts are blocked from the build sandbox):
+  - **Auth:** API key id + RSA private key. Every request is signed RSA-PSS (MGF1-SHA256, salt = digest length) over `timestamp_ms + METHOD + path`, where the path includes `/trade-api/v2` and excludes the query. Headers: `KALSHI-ACCESS-KEY`, `KALSHI-ACCESS-TIMESTAMP`, `KALSHI-ACCESS-SIGNATURE`.
+  - **Orders:** create / cancel / amend / decrease, plus list / get. The V2 order shape quotes from the YES leg in fixed-point dollars; the order model is action (buy/sell) + side (yes/no) + a limit price.
+  - **Demo environment:** exists, at `demo-api.kalshi.co/trade-api/v2` (also `external-api.demo.kalshi.co`). Demo keys are separate.
+  - **Fills:** carry `is_taker` (the maker/taker flag) and `fee_cost` (the charged fee), with `order_id`, prices and counts.
+- **Host receipt** (`scripts/kalshi_trade_api_probe.py`, GET only; any other method is refused before a request) verifies these live:
+  - REACH (prod and demo status);
+  - AUTH (signed `/portfolio/balance`);
+  - ORDERS keys (the limit-order shape, including post-only / time-in-force as named);
+  - FILLS keys (`is_taker` and fee fields, with counts).
+- **Findings so far:**
+  - `cryptography` (needed for the RSA-PSS signature) was not in `requirements.txt`. **ARCHITECT 2026-10-03:** "`cryptography` goes into requirements.txt (the signing dependency is real); host probe runs after the next tag." It is now added (`cryptography>=41.0.0`), and the probe still reports it if the host lacks it.
+  - Whether the operator's key may trade is shown by the balance call.
+  - Placing and cancelling a demo limit order needs a ruling: this probe cannot do it by construction.
+- **Operator:** on the host, set the key env (never committed), then run `python3 scripts/kalshi_trade_api_probe.py --json exports/kalshi_trade_probe.json` (and `--demo-only` with demo keys) and paste the receipt.

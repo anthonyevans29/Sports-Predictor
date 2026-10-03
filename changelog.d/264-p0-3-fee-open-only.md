@@ -1,4 +1,4 @@
-## 2026-10-03 (P0-3 follow-up, refs #208: fee-adjusted edge only from a recorded opening fee)
+## 2026-10-03 (#264: P0-3 follow-up, refs #208: fee-adjusted edge only from a recorded opening fee)
 - **Cockpit `executedPositions()`** (PR #259 review 2, Anthony): the fee-adjusted edge requires `open_fee` on EVERY fill of the position (a recorded zero counts).
   - It no longer substitutes the combined/total `fees` for a missing opening fee and no longer defaults it to zero.
   - Without it the fee-adjusted edge is unavailable (null); entry-price CLV stays.

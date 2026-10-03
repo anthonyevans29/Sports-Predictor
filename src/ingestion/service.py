@@ -44,14 +44,35 @@ from src.timeutil import utc_now_naive
 log = logging.getLogger(__name__)
 
 
+# RE-KEY FALLBACK (ARCHITECT 2026-10-03, priority): an NCAA resync created
+# 1006 rows — the provider listed known fixtures under NEW game ids, the
+# source-id lookup missed, and each became a duplicate (a stale scheduled
+# row beside a fresh finished one). For these sources a miss falls back to the
+# NATURAL KEY: same competition, same home AND away team, kickoff within
+# REKEY_WINDOW, and the stored row's own id ABSENT from this listing (it was
+# re-keyed, not a second game). Exactly one candidate -> UPDATE it and record
+# the new id (the old one kept under "<source>_prev"); more than one, or the
+# pair only matches home/away SWAPPED -> refused (skipped, receipted), never
+# created. Scoped to the american-football family, where the same pair twice
+# within hours does not happen; MLB doubleheaders / series keep source-id
+# matching only (a ruling would widen it).
+REKEY_SOURCES = frozenset({"api_american_football"})
+REKEY_WINDOW_H = 12
+
+
 @dataclass
 class SyncResult:
     created: int = 0
     updated: int = 0
     skipped: int = 0
+    rekeyed: int = 0
+    rekey_refused: int = 0
 
     def __str__(self) -> str:
-        return f"created={self.created} updated={self.updated} skipped={self.skipped}"
+        out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
+        if self.rekeyed or self.rekey_refused:
+            out += f" rekeyed={self.rekeyed} rekey_refused={self.rekey_refused}"
+        return out
 
 
 def _mlb_store_odds(s, match, rows) -> tuple[int, bool] | None:
@@ -251,12 +272,21 @@ class IngestionService:
             # expansion doubled the table. Prefetch this competition's
             # matches ONCE into a source_id map; lookups become O(1).
             _cache: dict[str, Match] = {}
+            _src = matches[0].source if matches else ""
+            _pairs: dict[tuple[int, int], list[Match]] = {}
             for _m in s.execute(
                 select(Match).where(Match.competition_id == comp.id)
             ).scalars():
-                _sid = (_m.external_ids or {}).get(matches[0].source if matches else "")
+                _sid = (_m.external_ids or {}).get(_src)
                 if _sid:
                     _cache[_sid] = _m
+                if _src in REKEY_SOURCES:
+                    _pairs.setdefault((_m.home_team_id, _m.away_team_id), []).append(_m)
+            if _src in REKEY_SOURCES:
+                # the natural-key index + the ids this listing carries (a stored
+                # id still listed is a different game, never a re-key target)
+                _cache["__pairs__"] = _pairs
+                _cache["__listed__"] = {str(nm.source_id) for nm in matches}
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
             for i, nm in enumerate(matches, 1):
@@ -303,6 +333,32 @@ class IngestionService:
 
         match = (cache.get(nm.source_id) if cache is not None
                  else self._find_match_by_source(s, nm.source, nm.source_id))
+        if match is None and nm.source in REKEY_SOURCES and cache is not None and "__pairs__" in cache:
+            match, refused = self._rekey_candidate(nm, home.id, away.id, cache)
+            if refused:
+                log.warning("sync_matches(%s): %s id %s NOT created — %s", comp.code, nm.source,
+                            nm.source_id, refused)
+                result.skipped += 1
+                result.rekey_refused += 1
+                return None
+            if match is not None:
+                ext = dict(match.external_ids or {})
+                old = ext.get(nm.source)
+                prev = list(ext.get(f"{nm.source}_prev") or [])
+                if old and old not in prev:
+                    prev.append(old)
+                ext[f"{nm.source}_prev"] = prev
+                ext[nm.source] = nm.source_id
+                match.external_ids = ext
+                self._apply_match_updates(match, nm)
+                cache[nm.source_id] = match
+                if old:
+                    cache.pop(old, None)
+                result.updated += 1
+                result.rekeyed += 1
+                log.info("sync_matches(%s): re-keyed match %s: %s %s -> %s", comp.code, match.id,
+                         nm.source, old, nm.source_id)
+                return match
 
         if match:
             self._apply_match_updates(match, nm)
@@ -371,6 +427,37 @@ class IngestionService:
             match.full_time_result = nm.full_time_result
         if nm.referee:
             match.referee = nm.referee
+
+    @staticmethod
+    def _rekey_candidate(nm: NormalizedMatch, home_id: int, away_id: int, cache: dict):
+        """(match | None, refusal | None) under the natural key (REKEY_SOURCES)."""
+        from datetime import timedelta
+
+        win = timedelta(hours=REKEY_WINDOW_H)
+        listed = cache["__listed__"]
+
+        def near(rows):
+            out = []
+            for m in rows:
+                if m.utc_date is None or nm.utc_date is None or abs(m.utc_date - nm.utc_date) > win:
+                    continue
+                sid = (m.external_ids or {}).get(nm.source)
+                if sid and (str(sid) in listed or sid in cache.get("__claimed__", ())):
+                    continue            # still listed (a different game) or already re-keyed this run
+                out.append(m)
+            return out
+        same = near(cache["__pairs__"].get((home_id, away_id), []))
+        if len(same) > 1:
+            return None, f"{len(same)} stored rows match its natural key (ambiguous: {[m.id for m in same]})"
+        if same:
+            sid = (same[0].external_ids or {}).get(nm.source)
+            if sid:
+                cache.setdefault("__claimed__", set()).add(sid)
+            return same[0], None
+        swapped = near(cache["__pairs__"].get((away_id, home_id), []))
+        if swapped:
+            return None, f"stored row(s) {[m.id for m in swapped]} hold the pair home/away SWAPPED"
+        return None, None
 
     @staticmethod
     def _find_match_by_source(s: Session, source: str, source_id: str) -> Match | None:

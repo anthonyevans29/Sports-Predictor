@@ -1,0 +1,6 @@
+## 2026-10-03 (F2.5 exports mirror: the host pushes exports/ after every chain step; the laptop pushes at the end of the morning chain; compare Action; Cockpit "Load latest from host")
+- `deploy/hosting/exports_mirror.py` (`push --role host|laptop`, `squash`, `keygen`): writes `<role>/<date>/<file>` plus `<role>/latest/<kind>.json`, keeps 14 days, and also ships `tools/compare_exports.py` and the compare Action into the mirror. Copies only. A push race retries from the remote's tip.
+- `sp_run`: the mirror push runs after every chain step. It is non-fatal, takes at most 90 s and is receipted; it is off until `SP_EXPORTS_MIRROR_REMOTE` is set. New `sp-exports-squash.timer` (Sun 06:10 UTC), on the T11 list.
+- `deploy/exports-mirror/compare.yml`: the commit status `compare_exports` (clean / DIVERGENT / pending) for the newest date both writers pushed.
+- Cockpit: "Load latest from host". It uses a fine-grained read-only token kept in localStorage and fetches `host/latest/*.json` into the same load path (F1c refusal intact); upload handling is refactored into `loadDocs`.
+- `docs/specs/exports-mirror.md` covers the operator setup. tests/test_exports_mirror.py (5); `scripts/cockpit_mirror_verify.py` (6).

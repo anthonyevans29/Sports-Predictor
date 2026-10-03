@@ -103,6 +103,13 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <div><label>GPT feedback (optional, .txt — for side-by-side reading)</label><br>
       <input type="file" id="gptFile" accept=".txt,.md"></div>
   </div>
+  <div class="row" style="margin-top:8px">
+    <div><label>Exports mirror (F2.5): fine-grained READ-ONLY token, pasted once — kept in this browser only</label><br>
+      <input type="password" id="mirrorToken" placeholder="github_pat_…" autocomplete="off" style="width:16em">
+      <input type="text" id="mirrorRepo" placeholder="owner/repo" style="width:18em">
+      <button id="mirrorBtn">Load latest from host</button>
+      <span class="note" id="mirrorNote"></span></div>
+  </div>
 </div>
 
 <div id="cardView" hidden></div>
@@ -1827,11 +1834,12 @@ function renderParlays(ranked,card,out){
   }).join("");
 }
 
-$("predFile").addEventListener("change",async e=>{
-  const fs=Array.from(e.target.files); if(!fs.length)return;
+// One load path for picked files and the exports mirror (F2.5): [{name, text}].
+async function loadDocs(fs){
+  if(!fs.length)return;
   rows=[]; shadowRows=[]; fileParlays=null; refusedFiles=[]; const sports=new Set();
   for(const f of fs){
-    try{const doc=JSON.parse(await f.text());
+    try{const doc=JSON.parse(f.text);
       if(doc.kind==="desk_parlays_v1"){ fileParlays=doc; continue; }   // F1b: tickets file
       if(doc.engine==="model_shadow"){ shadowRows=shadowRows.concat(normalizeShadow(doc)); continue; }
       const rr=normalize(doc);
@@ -1854,7 +1862,42 @@ $("predFile").addEventListener("change",async e=>{
     +(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it."); renderLedger(); }
   setTab(true);
   $("askCard").hidden=!sampleNS;
+}
+$("predFile").addEventListener("change",async e=>{
+  const fs=Array.from(e.target.files); if(!fs.length)return;
+  await loadDocs(await Promise.all(fs.map(async f=>({name:f.name,text:await f.text()}))));
 });
+// EXPORTS MIRROR (F2.5, ARCHITECT 2026-10-03): "a "Load latest from host" control
+// that fetches host/latest/* via the GitHub API with a fine-grained read-only
+// token the operator pastes once (stored in the browser, never in a file). Desk
+// files only (F1c)." Files without desk blocks are refused by loadDocs, as for
+// picked files; the token and repo live in localStorage only.
+const MIRROR_TOKEN_KEY="bd_mirror_token", MIRROR_REPO_KEY="bd_mirror_repo",
+      MIRROR_REPO_DEFAULT="anthonyevans29/Sports-Predictor-exports";
+function lsGet(k){try{return localStorage.getItem(k);}catch(e){return null;}}
+function lsSet(k,v){try{localStorage.setItem(k,v);}catch(e){}}
+$("mirrorRepo").value=lsGet(MIRROR_REPO_KEY)||MIRROR_REPO_DEFAULT;
+if(lsGet(MIRROR_TOKEN_KEY)) $("mirrorToken").placeholder="token saved in this browser";
+async function loadLatestFromHost(){
+  const typed=$("mirrorToken").value.trim(), repo=$("mirrorRepo").value.trim()||MIRROR_REPO_DEFAULT;
+  if(typed){ lsSet(MIRROR_TOKEN_KEY,typed); $("mirrorToken").value=""; $("mirrorToken").placeholder="token saved in this browser"; }
+  lsSet(MIRROR_REPO_KEY,repo);
+  const tok=lsGet(MIRROR_TOKEN_KEY);
+  if(!tok){ $("mirrorNote").textContent="Paste a read-only token first."; return; }
+  const api=`https://api.github.com/repos/${repo}/contents/host/latest`;
+  const hdr={Authorization:`Bearer ${tok}`,"X-GitHub-Api-Version":"2022-11-28"};
+  try{
+    const r=await fetch(api,{headers:{...hdr,Accept:"application/vnd.github+json"}});
+    if(!r.ok){ $("mirrorNote").textContent=`GitHub ${r.status} — ${r.status===401||r.status===403?"token rejected / no read access":"host/latest not found"}`; return; }
+    const list=(await r.json()).filter(x=>x.type==="file"&&x.name.endsWith(".json"));
+    const docs=await Promise.all(list.map(async x=>{
+      const q=await fetch(`${api}/${encodeURIComponent(x.name)}`,{headers:{...hdr,Accept:"application/vnd.github.raw+json"}});
+      return {name:`host/latest/${x.name}`,text:q.ok?await q.text():"{}"};}));
+    await loadDocs(docs);
+    $("mirrorNote").textContent=`Loaded ${docs.length} file(s) from ${repo} host/latest`+(refusedFiles.length?` · ${refusedFiles.length} without desk blocks refused`:"");
+  }catch(e){ $("mirrorNote").textContent=`Fetch failed: ${(e&&e.message)||e}`; }
+}
+$("mirrorBtn").addEventListener("click",loadLatestFromHost);
 
 let gameReads={};
 async function perGameAudit(){

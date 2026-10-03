@@ -1,0 +1,13 @@
+# EXPORTS MIRROR: weekly history squash so the repo stays small (F2.5).
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-exports-squash
+
+[Timer]
+OnCalendar=Sun *-*-* 06:10:00 UTC
+Unit=sp-exports-squash.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

@@ -5,16 +5,22 @@ appears; add entry-price CLV = q_close − entry on executed ledger positions
 (claim and exec), and fee-adjusted closing edge; P&L block gains both.
 Existing series kept."
 
+v2 (PR #259 review, Anthony): executed-position CLV comes from the MATCHED
+FILL's entry for the HELD contract; claim / re-log movement is reference
+movement, labelled apart; calls with no matched fill are not executed.
+
 Over SYNTHETIC files: a Log, a later re-log (claim frozen, exec moves), then
 a results file carrying graded.close_fair:
-- each graded straight carries clv_v2 {q_close, clv_claim, clv_exec,
-  fee_adj_quoted} computed from the PICK's own closing fair;
-- a position graded before its close arrived gains clv_v2 when it does;
-- a results row with no close leaves the position without clv_v2 (unavailable,
-  never inferred);
-- the P&L block prints the entry-price CLV and fee-adjusted edge lines (n,
-  mean, median, positive share, day-clustered CI), the realised line from a
-  matched fill (entry + charged fee per contract);
+- each graded straight carries close_ref "p0-3 v2" {q_close, fair,
+  ref_move_claim, ref_move_relog, quoted_edge_relog} from the PICK's own close;
+- a position graded before its close arrived gains close_ref when it does;
+- a results row with no close leaves the position without close_ref
+  (unavailable, never inferred); a stored legacy clv_v2 is never rewritten;
+- REGRESSION sign reversal: q 0.65, re-log 0.60, matched fill at 0.70 ->
+  reference movement +5pp, executed entry CLV −5pp;
+- REGRESSION no fill: graded calls without a matched fill are excluded from
+  the executed series (n 0, counted as excluded);
+- a NO fill is priced as the contract held (1 − the NO'd side's close);
 - no existing ledger field changes (units_returned, claim prices).
 
     python3 scripts/cockpit_clv_verify.py
@@ -118,35 +124,67 @@ def main():
         before = {g: (c["units_returned"], c["claim_market_p"], c["exec_market_p"]) for g, c in P.items()}
 
         print("CLOSE ARRIVES (results export with graded.close_fair)")
+        legacy = {"version": "p0-3 v1", "q_close": 0.5, "clv_exec": 0.99}         # a v1 block already stored
+        page.evaluate("""(lg)=>{const L=loadLedger(); L.calls.find(c=>c.game.includes('Eagles')).clv_v2=lg;
+            saveLedger(L);}""", legacy)
         page.set_input_files("#resultsFile", os.path.join(tmp, "res_close.json"))
         page.wait_for_function("""(()=>{const L=JSON.parse(localStorage.getItem('bd_ledger_v1'));
-            return L.calls.some(c=>c.clv_v2);})()""")
+            return L.calls.some(c=>c.close_ref);})()""")
         P = pos()
-        v = P["Dallas Cowboys @ Philadelphia Eagles"]["clv_v2"]
-        check("q_close = the pick's own close (0.62); claim CLV +0.04; exec CLV +0.02",
-              (v["q_close"], v["clv_claim"], v["clv_exec"]) == (0.62, 0.04, 0.02), json.dumps(v))
-        check("fee-adjusted quoted edge = q_close − exec cost (0.62 − 0.597 = +0.023)",
-              v["fee_adj_quoted"] == 0.023 and v["version"] == "p0-3 v1", json.dumps(v))
-        b = P["Detroit Lions @ Chicago Bears"]["clv_v2"]
-        check("no side-specific quote -> fee_adj_quoted null; CLV still computed (0.57 − 0.60 = −0.03)",
-              b["fee_adj_quoted"] is None and b["clv_exec"] == -0.03, json.dumps(b))
-        check("a row with no close keeps no clv_v2", "clv_v2" not in P["New York Jets @ Miami Dolphins"])
+        v = P["Dallas Cowboys @ Philadelphia Eagles"]["close_ref"]
+        check("q_close = the pick's own close (0.62); claim ref move +0.04; re-log ref move +0.02",
+              (v["q_close"], v["ref_move_claim"], v["ref_move_relog"]) == (0.62, 0.04, 0.02)
+              and v["fair"] == {"HOME": 0.62, "AWAY": 0.38} and v["version"] == "p0-3 v2", json.dumps(v))
+        check("quoted taker edge @ re-log = q_close − quoted cost (0.62 − 0.597 = +0.023); no 'clv' field",
+              v["quoted_edge_relog"] == 0.023 and not any(k.startswith("clv") for k in v), json.dumps(v))
+        check("legacy clv_v2 (p0-3 v1) kept exactly as stored, never rewritten",
+              P["Dallas Cowboys @ Philadelphia Eagles"].get("clv_v2") == legacy)
+        b = P["Detroit Lions @ Chicago Bears"]["close_ref"]
+        check("no side-specific quote -> quoted edge null; ref move still computed (0.57 − 0.60 = −0.03)",
+              b["quoted_edge_relog"] is None and b["ref_move_relog"] == -0.03, json.dumps(b))
+        check("a row with no close keeps no close_ref", "close_ref" not in P["New York Jets @ Miami Dolphins"])
         check("existing series kept: units_returned and claim/exec prices unchanged",
               {g: (c["units_returned"], c["claim_market_p"], c["exec_market_p"]) for g, c in P.items()} == before)
 
         print("P&L BLOCK")
         pnl = page.evaluate("pnlBlock(loadLedger())")
-        sec = pnl[pnl.index("ENTRY-PRICE CLV"):].split("\n")[:8]
-        check("P&L gains the section: claim/exec CLV, fee-adjusted realised + quoted lines",
-              any("CLV at claim" in s and "n   2" in s and "mean +0.50pp" in s for s in sec)
-              and any("CLV at exec" in s and "mean -0.50pp" in s and "median -0.50pp" in s for s in sec)
-              and any("fee-adj edge, quoted taker" in s and "n   1" in s for s in sec)
-              and any("fee-adj edge, realised fill" in s and "n 0" in s for s in sec), "\n".join(sec))
-        real = page.evaluate("""(()=>{const L=loadLedger(); const id=L.calls.find(c=>c.game.includes('Eagles')).id;
-            const keep=classifyFills; classifyFills=()=>[{book:'system_matched',call_id:id,qty:10,entry:0.58,open_fee:0.17}];
-            const out=clvLines(L); classifyFills=keep; return out.find(s=>s.includes('realised fill'));})()""")
-        check("realised fee-adjusted edge from a matched fill: 0.62 − (0.58 + 0.17/10) = +2.30pp",
-              "n   1" in real and "mean +2.30pp" in real, real)
+        sec = pnl[pnl.index("EXECUTED-POSITION CLV"):].split("\n")[:10]
+        check("REGRESSION no fill: graded calls without a matched fill are NOT executed positions",
+              any("entry-price CLV" in s and "n 0" in s for s in sec)
+              and any("2 graded call(s) with a close · 0 executed (matched fill) · 2 without matched execution"
+                      in s for s in sec), "\n".join(sec))
+        check("reference movement printed apart, labelled not-CLV: claim +0.50pp mean, re-log −0.50pp, quoted n 1",
+              any("REFERENCE MOVEMENT (not CLV" in s for s in sec)
+              and any("claim ref → close" in s and "n   2" in s and "mean +0.50pp" in s for s in sec)
+              and any("re-log ref → close" in s and "mean -0.50pp" in s for s in sec)
+              and any("quoted taker edge @ re-log" in s and "n   1" in s for s in sec), "\n".join(sec))
+        stub = """(fills)=>{const L=loadLedger(); const id=g=>L.calls.find(c=>c.game.includes(g)).id;
+            const keep=classifyFills; classifyFills=()=>fills.map(f=>({book:'system_matched',...f,call_id:id(f.g)}));
+            const out={lines:clvLines(L),ex:executedPositions(L)}; classifyFills=keep; return out;}"""
+        r = page.evaluate(stub, [{"g": "Eagles", "qty": 10, "entry": 0.58, "open_fee": 0.17, "backed_role": "HOME"}])
+        real = [s for s in r["lines"] if "fee-adj edge" in s][0]
+        check("one matched fill: entry CLV 0.62 − 0.58 = +4.00pp; fee-adj − 0.17/10 = +2.30pp; Bears excluded",
+              any("entry-price CLV" in s and "n   1" in s and "mean +4.00pp" in s for s in r["lines"])
+              and "n   1" in real and "mean +2.30pp" in real
+              and any("1 executed (matched fill) · 1 without matched execution" in s for s in r["lines"]),
+              "\n".join(r["lines"][:4]))
+        rev = page.evaluate("""(fills)=>{const L=loadLedger(); const c=L.calls.find(x=>x.game.includes('Eagles'));
+            c.close_ref=clvBlock({...c,claim_market_p:0.60,exec_market_p:0.60},{close:{fair:{HOME:0.65,AWAY:0.35}}});
+            const keep=classifyFills; classifyFills=()=>fills.map(f=>({book:'system_matched',...f,call_id:c.id}));
+            const ex=executedPositions(L); classifyFills=keep; return {ref:c.close_ref,ex};}""",
+            [{"qty": 10, "entry": 0.70, "open_fee": 0, "backed_role": "HOME"}])
+        check("REGRESSION sign reversal: q 0.65, re-log 0.60, fill 0.70 -> ref move +5pp, executed entry CLV −5pp",
+              rev["ref"]["ref_move_relog"] == 0.05 and len(rev["ex"]["pos"]) == 1
+              and round(rev["ex"]["pos"][0]["clv"], 4) == -0.05, json.dumps(rev))
+        r = page.evaluate(stub, [{"g": "Eagles", "qty": 4, "entry": 0.60, "open_fee": 0, "backed_role": "HOME"},
+                                 {"g": "Eagles", "qty": 6, "entry": 0.30, "open_fee": 0, "backed_role": "HOME",
+                                  "no_on_role": "AWAY"},
+                                 {"g": "Bears", "qty": 5, "entry": 0.50, "open_fee": 0, "backed_role": None}])
+        p0 = r["ex"]["pos"]
+        check("held contract priced as held: YES 0.62−0.60, NO-on-away (1−0.38)−0.30, qty-weighted = +20.0pp;"
+              " an unpriceable held contract is excluded and counted",
+              len(p0) == 1 and round(p0[0]["clv"], 4) == round((4 * 0.02 + 6 * 0.32) / 10, 4)
+              and r["ex"]["unpriced"] == 1, json.dumps(r["ex"]))
         ci = page.evaluate("clusterCI([{v:0.01,day:'a'},{v:0.03,day:'a'},{v:-0.02,day:'b'},{v:0.05,day:'c'}])")
         ci2 = page.evaluate("clusterCI([{v:0.01,day:'a'},{v:0.03,day:'a'},{v:-0.02,day:'b'},{v:0.05,day:'c'}])")
         check("day-clustered 90% bootstrap CI: bounded by the day means, reproducible (seeded)",

@@ -981,35 +981,55 @@ function isShadow(c){return c.call_type==="quarantine_shadow"||c.call_type==="va
 // metric "model-close divergence" everywhere it appears; add entry-price CLV =
 // q_close − entry on executed ledger positions (claim and exec), and
 // fee-adjusted closing edge; P&L block gains both. Existing series kept."
-// clv_v2 (versioned; nothing existing is rewritten), per graded straight/ladder:
-//   q_close        the pick's closing fair (the outcome file's close; side-
-//                  specific — the pick's own fair, never a complement guess)
-//   clv_claim      q_close − claim_market_p      clv_exec  q_close − exec_market_p
-//   fee_adj_quoted q_close − exec_cost (the pick side's executable taker cost incl.
-//                  fee at execution; null when no side-specific quote existed)
-// The realised fee-adjusted edge (fill entry + charged open fee per contract) is
-// computed in the P&L from matched Kalshi fills. Missing close → no block.
-const CLV_V2="p0-3 v1";
+// close_ref "p0-3 v2" (PR #259 review, Anthony 2026-10-03): v1 called q_close −
+// exec_market_p "exec CLV", but exec_market_p is the RE-LOG reference, not the
+// price paid. q 0.65, re-log 0.60 and a matched fill at 0.70 read +5pp where the
+// paid-entry CLV is −5pp, and calls with no fill entered the "executed" series.
+// v2 separates the two things:
+//   close_ref (per graded straight/ladder; reference only, NOT CLV):
+//     q_close          the pick's closing fair (a ladder = pick + DRAW; no
+//                      complement guess); fair = the full closing fair by role
+//     ref_move_claim   q_close − claim_market_p   (claim reference → close)
+//     ref_move_relog   q_close − exec_market_p    (re-log reference → close)
+//     quoted_edge_relog q_close − exec_cost (the taker cost quoted at re-log;
+//                      null when no side-specific quote existed)
+//   executed-position CLV (P&L, from matched Kalshi fills ONLY): per position,
+//     qty-weighted over its system_matched fills, the HELD contract's closing
+//     fair − the fill's entry price, and the same less the charged fee per
+//     contract. A call with no matched fill is not an executed position.
+// Legacy clv_v2 blocks ("p0-3 v1") already on a ledger are kept as stored, never
+// rewritten and never read by the P&L. Missing close → no block.
+const CLOSE_REF_V="p0-3 v2";
 function clvBlock(c,o){
   const f=o&&o.close&&o.close.fair;
   // a LADDER covers pick-or-draw, exactly as its market_p was built (pick + DRAW fair)
   const q=!f||f[c.pick]==null?null:c.call_type==="ladder"?(f.DRAW==null?null:f[c.pick]+f.DRAW):f[c.pick];
   if(q==null||c.call_type==="parlay_leg") return null;
   const r4=x=>x==null?null:+(+x).toFixed(4);
-  return {version:CLV_V2,q_close:r4(q),close_at:o.close.at||null,close_source:o.close.source||null,
-    clv_claim:c.claim_market_p!=null?r4(q-c.claim_market_p):null,
-    clv_exec:c.exec_market_p!=null?r4(q-c.exec_market_p):null,
-    fee_adj_quoted:c.exec_cost!=null?r4(q-c.exec_cost):null};
+  const fair={}; for(const k of ["HOME","AWAY","DRAW"]) if(f[k]!=null) fair[k]=r4(f[k]);
+  return {version:CLOSE_REF_V,q_close:r4(q),fair,close_at:o.close.at||null,close_source:o.close.source||null,
+    ref_move_claim:c.claim_market_p!=null?r4(q-c.claim_market_p):null,
+    ref_move_relog:c.exec_market_p!=null?r4(q-c.exec_market_p):null,
+    quoted_edge_relog:c.exec_cost!=null?r4(q-c.exec_cost):null};
+}
+// The closing fair of the contract a fill HOLDS, in this call's game: YES on a
+// side = that side's fair; NO on a side = 1 − that side's fair (in a 3-way game
+// that is the other side OR the draw, priced as such). null = not priceable.
+function heldContractFair(f,c,fair){
+  const roleOf=n=>n==null?null:["HOME","AWAY","DRAW"].includes(n)?n:n==="Draw"?"DRAW"
+    :sameTeam(n,c.home)?"HOME":sameTeam(n,c.away)?"AWAY":null;
+  if(f.no_on_role||f.no_on){ const r=f.no_on_role||roleOf(f.no_on); return r&&fair[r]!=null?1-fair[r]:null; }
+  const r=f.backed_role||roleOf(f.backed); return r&&fair[r]!=null?fair[r]:null;
 }
 function gradeLedger(L,outs){
   const today=localDate(); let graded=0;
   for(const c of L.calls){
     if(c.status==="graded"||c.result){                       // #208: graded earlier, close arrives later
-      if(!c.clv_v2&&c.call_type!=="parlay_leg"){ const b=clvBlock(c,findOutcome(c,outs)); if(b) c.clv_v2=b; }
+      if(!c.close_ref&&c.call_type!=="parlay_leg"){ const b=clvBlock(c,findOutcome(c,outs)); if(b) c.close_ref=b; }
       continue; }
     const o=findOutcome(c,outs); if(!o) continue;
     c.result=legResult(c,o); c.graded_date=today;
-    if(c.call_type!=="parlay_leg"){ const b=clvBlock(c,o); if(b) c.clv_v2=b; }
+    if(c.call_type!=="parlay_leg"){ const b=clvBlock(c,o); if(b) c.close_ref=b; }
     if(c.call_type!=="parlay_leg"){
       c.status="graded";
       const u=isShadow(c)?0:c.units;
@@ -1192,28 +1212,49 @@ function clusterCI(pts){                                       // pts: [{v, day}
   return [means[Math.floor(0.05*means.length)],means[Math.floor(0.95*means.length)]];
 }
 function seriesStats(label,pts){
-  if(!pts.length) return `  ${label.padEnd(26)} n 0 — (no executed position with a close yet)`;
+  if(!pts.length) return `  ${label.padEnd(26)} n 0 — (none with a close yet)`;
   const vs=pts.map(p=>p.v).sort((a,b)=>a-b), n=vs.length, mean=vs.reduce((a,b)=>a+b,0)/n;
   const med=n%2?vs[(n-1)/2]:(vs[n/2-1]+vs[n/2])/2, pos=vs.filter(v=>v>0).length/n, ci=clusterCI(pts);
   const pp=x=>(x>=0?"+":"")+(x*100).toFixed(2)+"pp";
   return `  ${label.padEnd(26)} n ${String(n).padStart(3)} · mean ${pp(mean)} · median ${pp(med)} · positive ${(pos*100).toFixed(0)}%`
     +` · 90% CI ${ci?`${pp(ci[0])} .. ${pp(ci[1])}`:"— (needs ≥2 days)"}`;
 }
+// Executed positions = graded, staked calls with >=1 system_matched fill (qty > 0)
+// whose held contract is priceable at the close. One point per position, qty-
+// weighted over its fills: clv = held fair − entry; fee_adj = clv − charged fee
+// per contract. Calls without matched execution provenance are excluded.
+function executedPositions(L){
+  const graded=new Map(L.calls.filter(c=>c.status==="graded"&&c.close_ref&&!isShadow(c)
+    &&c.call_type!=="parlay_leg").map(c=>[c.id,c]));
+  const by=new Map(), unpriced=new Set();
+  for(const f of classifyFills(L)){
+    if(f.book!=="system_matched"||!f.call_id||!(f.qty>0)||f.entry==null) continue;
+    const c=graded.get(f.call_id); if(!c) continue;
+    const qf=heldContractFair(f,c,c.close_ref.fair||{});
+    if(qf==null){ unpriced.add(c.id); continue; }
+    const fee=(f.open_fee!=null?f.open_fee:f.fees)||0;                        // the charged fee
+    const a=by.get(c.id)||{c,qty:0,clv:0,net:0};
+    a.qty+=f.qty; a.clv+=f.qty*(qf-f.entry); a.net+=f.qty*(qf-f.entry)-fee; by.set(c.id,a);
+  }
+  const pos=[...by.values()].map(a=>({c:a.c,day:a.c.graded_date||a.c.log_date,clv:a.clv/a.qty,fee_adj:a.net/a.qty}));
+  return {pos,unpriced:[...unpriced].filter(id=>!by.has(id)).length};
+}
 function clvLines(L){
-  const ex=L.calls.filter(c=>c.status==="graded"&&c.clv_v2&&!isShadow(c)&&c.call_type!=="parlay_leg");
-  const pts=(f)=>ex.filter(c=>c.clv_v2[f]!=null).map(c=>({v:c.clv_v2[f],day:c.graded_date||c.log_date,c}));
-  const fills=classifyFills(L).filter(f=>f.book==="system_matched"&&f.call_id&&f.qty>0);
-  const byId=new Map(ex.map(c=>[c.id,c])), real=[];
-  for(const f of fills){ const c=byId.get(f.call_id); if(!c) continue;
-    const cost=f.entry+((f.open_fee!=null?f.open_fee:f.fees)||0)/f.qty;      // the charged fee, per contract
-    real.push({v:c.clv_v2.q_close-cost,day:c.graded_date||c.log_date,c}); }
-  const sports=[...new Set(ex.map(c=>c.sport))].sort();
-  return ["ENTRY-PRICE CLV & FEE-ADJUSTED CLOSING EDGE (P0-3 #208; q_close = the pick's ruled closing fair; executed positions only)",
-    seriesStats("CLV at claim (q_close−claim)",pts("clv_claim")),
-    seriesStats("CLV at exec (q_close−exec)",pts("clv_exec")),
-    seriesStats("fee-adj edge, realised fill",real),
-    seriesStats("fee-adj edge, quoted taker",pts("fee_adj_quoted")),
-    ...sports.map(s=>seriesStats(`  exec CLV · ${s}`,pts("clv_exec").filter(p=>p.c.sport===s))),
+  const refs=L.calls.filter(c=>c.status==="graded"&&c.close_ref&&!isShadow(c)&&c.call_type!=="parlay_leg");
+  const ref=(f)=>refs.filter(c=>c.close_ref[f]!=null).map(c=>({v:c.close_ref[f],day:c.graded_date||c.log_date,c}));
+  const {pos,unpriced}=executedPositions(L), ex=k=>pos.map(p=>({v:p[k],day:p.day,c:p.c}));
+  const sports=[...new Set(pos.map(p=>p.c.sport))].sort();
+  return [`EXECUTED-POSITION CLV (P0-3 #208, ${CLOSE_REF_V}; matched Kalshi fills only: held contract's closing fair − fill entry)`,
+    seriesStats("entry-price CLV (close−fill)",ex("clv")),
+    seriesStats("fee-adj edge (− charged fee)",ex("fee_adj")),
+    ...sports.map(s=>seriesStats(`  entry CLV · ${s}`,ex("clv").filter(p=>p.c.sport===s))),
+    `  ${refs.length} graded call(s) with a close · ${pos.length} executed (matched fill) · `
+      +`${refs.length-pos.length} without matched execution provenance excluded`
+      +(unpriced?` · ${unpriced} matched but the held contract not priceable at the close`:""),
+    "REFERENCE MOVEMENT (not CLV: no price was paid at these references; all graded calls with a close)",
+    seriesStats("claim ref → close",ref("ref_move_claim")),
+    seriesStats("re-log ref → close",ref("ref_move_relog")),
+    seriesStats("quoted taker edge @ re-log",ref("quoted_edge_relog")),
     "The stored per-game \"CLV\" (model p − close) is now labelled model-close divergence (RESULTS.md); it is not these."];
 }
 function pnlBlock(L){
@@ -1552,7 +1593,7 @@ function resolveSide(p,title,side){
     if(r.role==="DRAW"||r.backed==="Draw") return {...r,role:null,backed:null,why:"NO on the tie leg (not a single outcome)"};
     const flip={HOME:"AWAY",AWAY:"HOME"}[r.role]||null;
     const other=r.backed&&r.teams?(sameTeam(r.backed,r.teams[0])?r.teams[1]:r.teams[0]):null;
-    return {...r,role:flip,backed:other,noOn:r.backed||r.role,why:"NO on "+(r.backed||r.role)};
+    return {...r,role:flip,backed:other,noOn:r.backed||r.role,noRole:r.role||null,why:"NO on "+(r.backed||r.role)};
   }
   return r;
 }
@@ -1631,7 +1672,8 @@ function deskPicks(){                               // the currently loaded pred
 }
 function sideFields(p,title,side){
   const r=resolveSide(p,title,side);
-  return {backed:r.backed,backed_role:r.role,teams_title:r.teams||null,resolve_note:r.why||null,resolved_via:r.via};
+  return {backed:r.backed,backed_role:r.role,teams_title:r.teams||null,resolve_note:r.why||null,resolved_via:r.via,
+          no_on:r.noOn||null,no_on_role:r.noRole||null};          // the HELD contract (#208 v2)
 }
 function importKalshiCSV(text,L){
   const rows=parseCSV(text); if(rows.length<2) throw new Error("no data rows");

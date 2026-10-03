@@ -128,6 +128,9 @@ def main():
         print("DESK (an AWAY pick is priced on the NO side)")
         load("noquotes.json")
         base = {k: (r[1], r[5], r[6]) for k, r in table().items()}
+        # AUTO-CLAIM (2026-10-03): loading a desk file claims its calls; the no-quotes
+        # file is a render comparison only, so its claims are cleared before the real file.
+        page.evaluate("localStorage.removeItem('bd_ledger_v1')")
         load("nfl.json")
         rows = table()
         d = next(v for k, v in rows.items() if "Dallas" in k)

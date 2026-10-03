@@ -1,0 +1,2 @@
+## 2026-10-03 (Kalshi trade-API probe — read-only, no orders)
+- `scripts/kalshi_trade_api_probe.py`: on the host it answers REACH (prod + demo `/exchange/status`), AUTH (RSA-PSS-signed key; `/portfolio/balance`), ORDERS (`/portfolio/orders` keys) and FILLS (`/portfolio/fills`: `is_taker`, fee fields). GET only by construction; no order is placed or cancelled. tests/test_kalshi_trade_probe.py (3; the signing test skips where `cryptography` is unusable).

@@ -856,8 +856,8 @@ function kickedOff(r,now){const t=utcMs(r.utc); return isFinite(t)&&t<=now;}
 let lastCapture={started:0,noKickoff:0};
 // AUTO-CLAIM (ARCHITECT 2026-10-03): opts.auto = the claim is the FILE'S call at
 // the FILE'S as_of — each row's clock is its desk_meta.as_of (log date, captured
-// time and the kickoff test all read it), no human step; parlay tickets stay on
-// the re-log button.
+// time and the kickoff test all read it), no human step; parlay tickets included
+// (ruled 2026-10-03), at the desk_parlays file's as_of.
 function asOfMs(r){ const t=utcMs(r.exportedAt); return isFinite(t)?t:Date.now(); }
 function snapshotCalls(now,opts){
   opts=opts||{}; now=now??Date.now();
@@ -897,11 +897,17 @@ function snapshotCalls(now,opts){
       kalshi_exec_cost:execCostFor(r,v.side),kalshi_exec_cost_maker:makerCostFor(r,v.side),
       top_pick:r.pick,venue_hint:"books",rules:v.tags.slice()});
   }
-  for(const t of (auto?[]:deskParlays)){          // parlays: model_edge only (frozen); re-log only
-    if(t.legs.some(l=>kickedOff(l,now))){lastCapture.started++;continue;}   // whole ticket or nothing
-    const pid="P-"+d+"-"+t.legs.map(l=>`${l.sport}:${l.away}@${l.home}:${l.pick}`).sort().join("+");
+  // parlays: model_edge only (frozen). Auto-claimed too (ARCHITECT 2026-10-03: "the
+  // ruling's intent was every call in the file"): a ticket's clock is the
+  // desk_parlays file's as_of (else its first leg's file).
+  const pAsOf=(fileParlays&&fileParlays.desk_meta&&fileParlays.desk_meta.as_of)||null;
+  for(const t of deskParlays){
+    const tr={exportedAt:auto?(pAsOf||(t.legs[0]||{}).exportedAt||null):null};
+    const tclk=auto?asOfMs(tr):now, td=auto?localDate(new Date(tclk)):d;
+    if(t.legs.some(l=>kickedOff(l,tclk))){lastCapture.started++;continue;}   // whole ticket or nothing
+    const pid="P-"+td+"-"+t.legs.map(l=>`${l.sport}:${l.away}@${l.home}:${l.pick}`).sort().join("+");
     for(const l of t.legs){
-      out.push({...baseCall(l,d),pick:l.pick,tier:"parlay",engine:"model_edge",
+      add(tr,{...baseCall(l,td),pick:l.pick,tier:"parlay",engine:"model_edge",
         call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:l.mkt,
         venue_hint:"books",rules:["parlay 0.25u"],...(t.bShadow?{b_shadow_cut:t.bShadow}:{})});
     }
@@ -923,9 +929,9 @@ function snapshotCalls(now,opts){
 // Idempotent: L.meta.auto_claims holds every (game, kickoff, pick, call type,
 // engine, as_of) already claimed, so reloading a file claims nothing twice. A
 // file OLDER than what the ledger holds for that position never reprices it.
-function autoKey(c){return [c.sport,c.game,c.kickoff||"",c.pick,c.call_type,c.engine,c.claim_as_of||""].join("|");}
+function autoKey(c){return [c.sport,c.game,c.kickoff||"",c.pick,c.call_type,c.engine,c.parlay_id||"",c.claim_as_of||""].join("|");}
 function autoClaim(){
-  if(!deskCalls.length&&!deskVenue.length&&!deskValue.length) return null;
+  if(!deskCalls.length&&!deskVenue.length&&!deskValue.length&&!deskParlays.length) return null;
   const L=loadLedger(), seen=new Set(L.meta.auto_claims||[]), byPos=new Map();
   L.calls.forEach(c=>byPos.set(instKey(c),c));
   const fresh=[]; let again=0, older=0;

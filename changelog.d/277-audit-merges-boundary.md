@@ -1,4 +1,4 @@
-## 2026-10-04 (--audit-merges zero says only "no current nearby rows found"; --reconstruct-merges against the pre-apply backup; #270 review)
+## 2026-10-04 (#277: --audit-merges zero says only "no current nearby rows found"; --reconstruct-merges against the pre-apply backup; #270 review)
 - **Review on #270 (Anthony, 2026-10-04):** replaying the previous algorithm (offsets −70h/−40h/0h/+40h; provider absent/error/absent/found) applies a merge, moves an odds reference and shifts the keeper's kickoff. The audit then printed "every merge stands" although the unresolved twin sat 80h from the mutated kickoff. "Limit that output to `no current nearby rows found`. … reconstruct the reported 30-merge cohort from the retained pre-apply backup and apply plan … Mark unavailable provenance `UNKNOWN`."
 - **`scripts/ncaa_rekey_receipt.py --audit-merges`:** a zero now reads `no current nearby rows found`, plus a note that the audit sees the current table only.
 - **`--reconstruct-merges --backup PRE.db [--plan FILE] [--expect N]`** (read-only; the macOS mode=ro fallback is reused and its form printed). For every orphan merge in the provenance log it prints:

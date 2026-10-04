@@ -68,3 +68,31 @@ def test_receipt_explains_a_zero_and_flags_window_duplicates(capsys):
     assert "rows 5 · distinct games (home, away, date) 3" in out and "DUPLICATES IN WINDOW" in out
     assert "6. Georgia@Alabama: 2 row(s)" in out and "sid 22612" in out and "odds 1" in out
     assert f"id {old} · Georgia Bulldogs @ Alabama Crimson Tide" in out
+
+
+def test_audit_merges_names_rekeyed_rows_with_a_competing_same_pair_row(capsys):
+    """PR #270 review: provenance audit of the applied merges — a re-keyed row with another same-pair row
+    within 48h is named for review; isolated re-keyed rows stand."""
+    init_db()
+    with session_scope() as s:
+        c = Competition(sport=Sport.NFL, code="RR2", name="RR2", area="US", type="LEAGUE")
+        ts = [Team(sport=Sport.NFL, name=f"RR2 T{i}", external_ids={SRC: f"rr2{i}"}) for i in range(4)]
+        s.add(c)
+        s.add_all(ts)
+        s.flush()
+        t = [x.id for x in ts]
+        log = [{"from": "1", "to": "2", "via": "orphan-merge", "at": "2092-10-03T20:00:00"}]
+        for h, a, sid, dh, ext in ((1, 0, "2", 0, {f"{SRC}_prev": ["1"], f"{SRC}_rekeys": log}),
+                                   (1, 0, "9", 30, {}),                       # competing twin still there
+                                   (3, 2, "5", 0, {f"{SRC}_prev": ["4"]})):   # isolated: stands (pre-log)
+            s.add(Match(sport=Sport.NFL, competition_id=c.id, season="2092", utc_date=NOW + timedelta(hours=dh),
+                        status=MatchStatus.SCHEDULED, home_team_id=t[h], away_team_id=t[a],
+                        external_ids={SRC: sid, **ext}))
+        cid = c.id
+        db = os.environ["DATABASE_URL"][len("sqlite:///"):]
+    assert rr.main(["--competition", "RR2", "--db", db, "--now", NOW.isoformat(), "--audit-merges"]) == 0
+    out = capsys.readouterr().out
+    assert "7. merge provenance audit: 2 re-keyed row(s) · provenance log {'orphan-merge': 1}" in out
+    assert "with another same-pair row within 48h: 1 (REVIEW these)" in out and "near:" in out and "sid 9" in out
+    with session_scope() as s:
+        s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)

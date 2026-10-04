@@ -24,6 +24,12 @@ Prints, for one competition (default NCAA, source api_american_football):
      provider (GET /games?id=, GET /odds?game=; never prints the key).
 
     python scripts/ncaa_rekey_receipt.py --ids 32612 47549 --game "Georgia@Alabama" [--resolve]
+    python scripts/ncaa_rekey_receipt.py --audit-merges      # PR #270 review: provenance audit of merges
+
+--audit-merges: every row carrying "<source>_prev" (re-keyed in place, by a sync,
+a dedupe merge or an orphan merge) with any OTHER same-pair row still within 48h
+of it — a competing twin the merge did not weigh. Zero = every merge stands.
+Rows whose "<source>_rekeys" log names the provenance are labelled with it.
 
 Opens the DB read-only (mode=ro URI); writes nothing anywhere.
 """
@@ -73,7 +79,8 @@ def load(con, comp_code: str, source: str):
         rows.append({"id": mid, "home": h, "away": a, "home_name": names.get(h), "away_name": names.get(a),
                      "utc": _dt(utc), "status": st, "status_raw": st_raw,
                      "score": None if hs is None else f"{hs}-{as_}", "sid": e.get(source),
-                     "prev": e.get(f"{source}_prev") or [], "odds": odds.get(mid, 0), "snaps": snaps.get(mid, 0)})
+                     "prev": e.get(f"{source}_prev") or [], "rekeys": e.get(f"{source}_rekeys") or [],
+                     "odds": odds.get(mid, 0), "snaps": snaps.get(mid, 0)})
     return rows
 
 
@@ -147,6 +154,7 @@ def main(argv=None) -> int:
     ap.add_argument("--game", default=None, help='"Away@Home" (substring match on team names)')
     ap.add_argument("--days", type=int, default=7, help="export window length from now (UTC)")
     ap.add_argument("--resolve", action="store_true", help="look --game rows' ids up at the provider (GET)")
+    ap.add_argument("--audit-merges", action="store_true", help="re-keyed rows with a same-pair row within 48h")
     ap.add_argument("--db", default=None, help=argparse.SUPPRESS)        # tests
     ap.add_argument("--now", default=None, help=argparse.SUPPRESS)       # tests
     a = ap.parse_args(argv)
@@ -187,6 +195,25 @@ def main(argv=None) -> int:
         by_id = {r["id"]: r for r in rows}
         for i in a.ids:
             print(f"   {show(by_id[i]) if i in by_id else f'id {i}: not in {a.competition}'}")
+    if a.audit_merges:
+        rk = [r for r in rows if r["prev"]]
+        by_pair = {}
+        for r in rows:
+            by_pair.setdefault((r["home"], r["away"]), []).append(r)
+        hits = []
+        for r in rk:
+            near = [x for x in by_pair[(r["home"], r["away"])] if x["id"] != r["id"] and x["utc"] and r["utc"]
+                    and abs(x["utc"] - r["utc"]) <= timedelta(hours=48)]
+            if near:
+                hits.append((r, near))
+        via = Counter(v.get("via") for r in rk for v in (r.get("rekeys") or []))
+        print(f"7. merge provenance audit: {len(rk)} re-keyed row(s) · provenance log {dict(via) or '{} (pre-log)'} · "
+              f"with another same-pair row within 48h: {len(hits)} "
+              f"({'every merge stands' if not hits else 'REVIEW these'})")
+        for r, near in hits:
+            print(f"   {show(r)}")
+            for x in near:
+                print(f"      near: {show(x)}")
     if a.game:
         away, _, home = a.game.partition("@")
         hits = [r for r in rows if r["utc"] and abs(r["utc"] - now) <= timedelta(days=a.days)

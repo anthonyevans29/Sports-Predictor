@@ -1081,6 +1081,61 @@ def intl_venue_sync_cmd(save_dir, venues_dir, plan_only, max_calls):
     click.echo(f"  RULE: {iv.NEUTRAL_V3_RULE}")
 
 
+@cli.command("intl-venue-resolve")
+@click.option("--from-dir", "save_dir", required=True, help="The intl-sync --save directory (fixture venue fields).")
+@click.option("--venues-dir", required=True, help="The intl-venue-sync --venues-dir (the saved /venues catalog); "
+              "route-A responses are saved here too (never under data/).")
+@click.option("--aliases", "aliases_path", default=None,
+              help='Optional pinned JSON {"venue-country spelling": "home-country spelling"} (none built in).')
+@click.option("--plan", "plan_only", is_flag=True, help="Print the unknown-row reasons and the route-A call count; "
+              "fetch nothing, write nothing.")
+@click.option("--max-calls", default=400, show_default=True, help="Refuse a plan needing more /venues?id calls.")
+def intl_venue_resolve_cmd(save_dir, venues_dir, aliases_path, plan_only, max_calls):
+    """VENUE-COUNTRY NORMALIZATION (ARCHITECT lane 5, 2026-10-04; DATA LANE):
+    resolves the rows intl-neutral-v3 left unknown — route A /venues?id for
+    venue ids outside the route-B catalog, a UNIQUE city/name match for
+    fixtures with no venue id — into intl_venue_resolved. intl_match_venue
+    and intl-elo-v2 (frozen through its window) are never touched. Take the
+    .backup first. Upsert, never deletes."""
+    import json as _json
+
+    from src.db.database import init_db
+    from src.ingestion import intl_venues as iv
+
+    aliases = None
+    if aliases_path:
+        try:
+            aliases = _json.load(open(aliases_path))
+        except (OSError, ValueError) as e:
+            click.echo(f"REFUSED: --aliases {aliases_path} unreadable ({e})")
+            raise SystemExit(2)
+    if not plan_only:
+        init_db()   # additive: creates intl_venue_resolved if missing
+    try:
+        r = iv.resolve(save_dir, venues_dir, aliases=aliases, plan_only=plan_only, max_calls=max_calls)
+    except iv.VenueError as e:
+        click.echo(str(e))
+        raise SystemExit(2)
+    p = r["plan"]
+    pct = (lambda n: f"{100 * n / p['v3_rows']:.1f}%" if p["v3_rows"] else "n/a")
+    click.echo(f"INTL-VENUE-RESOLVE (lane 5, data only){' · PLAN' if plan_only else ''} · intl_match_venue rows "
+               f"{p['v3_rows']} · v3 flagged {p['v3_known']} · v3 unknown {p['v3_unknown']} ({pct(p['v3_unknown'])})")
+    click.echo("  why unknown: " + (" · ".join(f"{k} {v}" for k, v in sorted(p["reasons"].items())) or "—"))
+    click.echo(f"  route A (/venues?id): {p['route_a_ids']} distinct venue id(s) outside the catalog · "
+               f"{p['route_a_calls']} call(s) needed (the rest replay from --venues-dir)")
+    if plan_only:
+        return
+    click.echo(f"  provider calls this run {r['calls']} · catalog venues {r['catalog_venues']} · aliases {r['aliases']}")
+    for k, v in sorted(r["outcomes"].items()):
+        click.echo(f"    {k}: {v}")
+    click.echo(f"  unflagged: {r['unflagged_before']} ({pct(r['unflagged_before'])}) -> {r['unflagged_after']} "
+               f"({pct(r['unflagged_after'])}) of {p['v3_rows']} · stored in intl_venue_resolved (v3 untouched)")
+    sp = r["home_spellings_not_in_venue_vocab"]
+    click.echo(f"  home-country spellings with no exact venue-country match ({len(sp)}; alias candidates for a ruling, "
+               "never auto-mapped): " + (", ".join(sp[:40]) + (" …" if len(sp) > 40 else "") if sp else "none"))
+    click.echo(f"  RULE: {iv.RESOLVE_RULE}")
+
+
 @cli.command("intl-elo-backtest")
 @click.option("--preflight", is_flag=True, help="Data checks only (stream, splits, RULE CHECK); scores nothing, records nothing.")
 @click.option("--candidate", type=click.Choice(["v1", "v2"]), default="v1", show_default=True,

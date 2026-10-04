@@ -567,6 +567,33 @@ class IntlMatchVenue(Base):
     match: Mapped[Match] = relationship()
 
 
+class IntlVenueResolved(Base):
+    """
+    VENUE-COUNTRY NORMALIZATION (ARCHITECT build lane 5, 2026-10-04; data lane
+    only): "Intl venue-country normalization for the 313 unmatched venues and
+    the 57% unflagged rows". A SEPARATE table on purpose: intl-elo-v2 is frozen
+    through its confirmation window and reads intl_match_venue.neutral_v3 only,
+    so nothing here can move its inputs. One row per national-team match that
+    v3 left unknown (neutral_v3 NULL): the venue country as resolved (route A
+    /venues?id, or a UNIQUE city / name match against the saved /venues
+    catalog), how (`country_source`), and `neutral_resolved` under `rule`;
+    `reason` names why a row stays unknown. Derived by us — never a provider
+    fact. A later candidate may read it only under its own declaration.
+    """
+
+    __tablename__ = "intl_venue_resolved"
+
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), primary_key=True)
+    venue_id: Mapped[int | None] = mapped_column(Integer, index=True)
+    venue_country: Mapped[str | None] = mapped_column(String(64))       # as resolved (provider spelling)
+    home_country: Mapped[str | None] = mapped_column(String(64))        # /teams team.country, as stored
+    country_source: Mapped[str | None] = mapped_column(String(32))      # venues_by_country|venues_by_id|city_match|name_match
+    neutral_resolved: Mapped[bool | None] = mapped_column(Boolean)
+    reason: Mapped[str | None] = mapped_column(String(128))             # why still unknown (NULL when resolved)
+    rule: Mapped[str] = mapped_column(String(512))
+    derived_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+
 class TeamRating(Base):
     """Time-series of team ratings (Elo, xG attack/defense, etc.)"""
 

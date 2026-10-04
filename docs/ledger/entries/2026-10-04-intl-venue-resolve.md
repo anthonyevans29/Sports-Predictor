@@ -1,0 +1,5 @@
+**2026-10-04 — BUILT (ARCHITECT lane 5, data lane): `intl-venue-resolve` — venue-country normalization for the rows intl-neutral-v3 left unknown.**
+- **What:** route A `/venues?id` for venue ids outside the route-B catalog ("313 unmatched venues"); a UNIQUE city/name match for fixtures with no venue id; spellings normalized, with aliases only from a pinned file. Results go to a NEW table, `intl_venue_resolved`, with the reason each row stays unknown.
+- **Frozen window respected:** `intl_match_venue.neutral_v3`, which intl-elo-v2 reads, is never written. A later candidate may read the resolved table only under its own declaration.
+- **Doctrine (law 4):** ambiguous cities are refused. A neutral reading on a home-country spelling never served as a venue country stays unknown ("alias needed") and is listed for a ruling.
+- **Operator (laptop):** `.backup`, then `python cli.py intl-venue-resolve --from-dir <the intl-sync --save dir> --venues-dir <the intl-venue-sync --venues-dir> --plan` (the route-A call count), then without `--plan`. Paste the receipt: unflagged share before → after, plus the alias candidates.

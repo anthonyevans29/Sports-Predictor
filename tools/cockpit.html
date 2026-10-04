@@ -84,6 +84,8 @@ pre{background:var(--bg);border:1px solid var(--line);border-radius:8px;
 details.sig{margin-top:7px;font-size:12px;color:var(--muted)}
 details.sig pre{max-height:220px;margin:6px 0 0}
 .summary{font-size:14px;margin:6px 0}
+  .orderline{font-size:12px;user-select:all;padding:1px 4px;border:1px solid var(--line,#ccc);border-radius:3px}
+  div.order{margin-top:3px}
 </style>
 </head>
 <body>
@@ -558,6 +560,14 @@ function kalshiOnlyGraded(){ return gradedCount(c=>c.reference==="kalshi_only");
 // src/walters/desk_policy.py desk_call().
 // F1b (ARCHITECT 2026-10-01): a row whose file carries `desk` (export --desk)
 // is RENDERED from the file — the Cockpit never recomputes it.
+// ORDER LINE (ARCHITECT 2026-10-04): rendered from the file's desk.order —
+// "placing an order is copy-exact, never a lookup". The Cockpit only shows it.
+function orderHTML(o){
+  if(!o) return "";
+  if(!o.text) return `<div class="note order">order: ${esc(o.why||"—")}</div>`;
+  return `<div class="order"><code class="orderline" title="${esc(o.limit_basis||"")} · ${esc(o.unit||"")}">${esc(o.text)}</code>`
+    +` <span class="note">${esc(o.limit_basis||"")} · ${esc(o.unit||"")}</span></div>`;
+}
 function fileCall(r){ const d=r.fileDesk;
   return {call:d.call,cls:d.cls,units:d.units,edge:d.edge_pp,tags:(d.tags||[]).slice(),reasons:(d.reasons||[]).slice(),
     shadowUnits:d.shadow_units||0,passKind:d.pass_kind??null,mktRef:d.market_ref??null,kalOnly:d.reference==="kalshi_only"}; }
@@ -586,7 +596,7 @@ function policy(){
     tr.innerHTML=`<td data-game="${esc(r.game)}">${esc(r.game)}${koLine(r)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
       <td>${r.prob.toFixed(3)}</td><td>${mktRef!=null?mktRef.toFixed(3)+(kalOnly?' <span class="passkind">kalshi-only</span>':""):"—"}</td>
       <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execHTMLFrom(r.fileDesk.exec,r.prob)}</td>
-      <td class="${cls}">${call}${passKindTag(passKind)}</td><td>${units||"—"}</td>
+      <td class="${cls}">${call}${passKindTag(passKind)}${orderHTML(r.fileDesk.order)}</td><td>${units||"—"}</td>
       <td class="reason">${esc(reasons.join(" · "))}${passKind==="noref"?rerunHint(r):""}</td>`;
     tb.appendChild(tr);
   }
@@ -646,7 +656,7 @@ function renderVenue(){
     tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}${koLine(r)}</td><td>${esc(side)}</td>
       <td>${v.bookP!=null?v.bookP.toFixed(3):"—"}</td><td>${v.kalP!=null?v.kalP.toFixed(3):"—"}</td>
       <td>${v.divPP!=null?(v.divPP>0?"+":"")+v.divPP.toFixed(1)+"pp":"—"}</td>
-      <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"+passKindTag(vk)}</td>
+      <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"+passKindTag(vk)}${v.eligible&&r.marketOnly?orderHTML(r.fileDesk.order):""}</td>
       <td class="reason">${esc(v.reason+(v.eligible&&stale?" · gap ≥ 8pp: STALE-BOOK? zone — distrust the book side":""))}${vk==="noref"?rerunHint(r):""}</td>`;
     tb.appendChild(tr);
   }
@@ -1925,7 +1935,8 @@ function parlaysFromFile(){
     const legs=(t.legs||[]).map(l=>rows.find(r=>!r.marketOnly&&r.sport===l.sport&&r.home===l.home&&r.away===l.away
       &&(r.utc||null)===(l.kickoff||null)&&r.pick===l.pick));
     if(!legs.length||legs.some(x=>!x)){miss++;continue;}
-    out.push({legs,sports:t.sports,pm:t.model_p,pk:t.market_p,edge:t.edge??t.edge_pp/100,bShadow:t.b_shadow||null});
+    out.push({legs,sports:t.sports,pm:t.model_p,pk:t.market_p,edge:t.edge??t.edge_pp/100,bShadow:t.b_shadow||null,
+      orders:(t.legs||[]).map(l=>l.order||null)});
   }
   const asof=(fileParlays.desk_meta||{}).as_of||"?";
   parlayNote=`tickets from desk_parlays (as of ${asof})`+(miss?` · ${miss} ticket(s) skipped: a leg's row is not in the loaded files`:"")
@@ -1962,7 +1973,8 @@ function renderParlays(ranked,card,out){
   if(!ranked.length){ card.hidden=!parlayNote; out.innerHTML=parlayNote?`<span class="note">${esc(parlayNote)}</span>`:""; return; }
   card.hidden=false;
   out.innerHTML=(parlayNote?`<div class="note">${esc(parlayNote)}</div>`:"")+ranked.map((t,i)=>{
-    const legs=t.legs.map(l=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`).join("<br>");
+    const legs=t.legs.map((l,j)=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`
+      +orderHTML((t.orders||[])[j])).join("<br>");
     return `<div style="margin-bottom:10px"><b>Ticket ${i+1}</b> · ${t.legs.length} legs · ${t.sports} sport(s) · 0.25u`
       +(t.bShadow?` · <span class="caution">B-track shadow: would be ${t.bShadow==="capped"?"exposure-capped":"deduped"} (not applied)</span>`:"")+`<br>${legs}<br>`
       +`<span class="note">Π model ${t.pm.toFixed(3)} vs Π market ${t.pk.toFixed(3)} → combined edge ${(t.edge*100).toFixed(1)}pp · cross-game correlation screened (no shared teams)</span></div>`;

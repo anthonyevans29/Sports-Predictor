@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 
 from src.adapters.kalshi import KalshiAdapter
-from src.db.database import session_scope
+from src.db.database import has_kalshi_ticker, session_scope
 from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Sport, Team
 from src.timeutil import utc_now_naive
 
@@ -136,6 +136,7 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
 
         matched_rows: dict[tuple[int, str], float] = {}  # (match_id, side) -> prob
         quotes: dict[tuple[int, str], tuple] = {}        # K-track: (yes_bid, yes_ask)
+        tickers: dict[tuple[int, str], str | None] = {}  # ORDER LINE: the leg's market ticker
         ambiguous = 0
         in_play = 0
         for mk in all_markets:
@@ -308,8 +309,10 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
                 continue
             matched_rows[key] = round(prob, 4)
             quotes[key] = adapter.yes_quotes(mk)
+            tickers[key] = mk.get("ticker")
             matched += 1
 
+        _with_ticker = has_kalshi_ticker()
         for (match_id, side), prob in matched_rows.items():
             bid, ask = quotes.get((match_id, side), (None, None))
             sess.add(OddsSnapshot(
@@ -317,6 +320,7 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
                 devig_prob=prob, line=None, n_books=1,
                 captured_at=now, source="kalshi",
                 yes_bid=bid, yes_ask=ask,
+                **({"market_ticker": tickers.get((match_id, side))} if _with_ticker else {}),
             ))
             stored += 1
 
@@ -405,6 +409,7 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
         MAX_START_DRIFT = timedelta(hours=5)
         matched_rows: dict[tuple[int, str], float] = {}
         quotes: dict[tuple[int, str], tuple] = {}        # K-track: (yes_bid, yes_ask)
+        tickers: dict[tuple[int, str], str | None] = {}  # ORDER LINE: the leg's market ticker
 
         # 2026-09-13: Kalshi changed market titles from "A vs B Winner?" to
         # single-side "A wins" — title_teams() returned None for every
@@ -493,8 +498,10 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
                 continue
             matched_rows[key] = round(prob, 4)
             quotes[key] = KalshiAdapter.yes_quotes(mk)
+            tickers[key] = mk.get("ticker")
             matched += 1
 
+        _with_ticker = has_kalshi_ticker()
         for (match_id, sel), prob in matched_rows.items():
             bid, ask = quotes.get((match_id, sel), (None, None))
             sess.add(OddsSnapshot(
@@ -502,6 +509,7 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
                 devig_prob=prob, line=None, n_books=1,
                 captured_at=now, source="kalshi",
                 yes_bid=bid, yes_ask=ask,
+                **({"market_ticker": tickers.get((match_id, sel))} if _with_ticker else {}),
             ))
             stored += 1
 

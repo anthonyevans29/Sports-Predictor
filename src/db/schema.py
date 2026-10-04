@@ -301,6 +301,12 @@ class OddsSnapshot(Base):
     # quoted. Added by migrate_kalshi_quotes.py.
     yes_bid: Mapped[float | None] = mapped_column(Float)
     yes_ask: Mapped[float | None] = mapped_column(Float)
+    # ORDER LINE (ARCHITECT 2026-10-04): the Kalshi market ticker of this leg,
+    # resolved by sync-kalshi-* (NULL for book rows and earlier captures). Added
+    # by migrate_kalshi_ticker.py. DEFERRED and written / read only when the
+    # column exists (src.db.database.has_kalshi_ticker), so a deploy that
+    # precedes the migration keeps every odds_snapshots query working.
+    market_ticker: Mapped[str | None] = mapped_column(String(64), deferred=True)
 
     match: Mapped[Match] = relationship()
 

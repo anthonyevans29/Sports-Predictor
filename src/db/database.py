@@ -92,6 +92,24 @@ def session_scope() -> Generator[Session, None, None]:
         session.close()
 
 
+_HAS_TICKER: dict = {}
+
+
+def has_kalshi_ticker() -> bool:
+    """odds_snapshots.market_ticker exists (migrate_kalshi_ticker.py ran). Cached
+    per engine URL; a False is re-checked so a migration mid-process is seen."""
+    key = str(_engine.url)
+    if _HAS_TICKER.get(key):
+        return True
+    from sqlalchemy import inspect
+    try:
+        cols = {c["name"] for c in inspect(_engine).get_columns("odds_snapshots")}
+    except Exception:
+        cols = set()
+    _HAS_TICKER[key] = "market_ticker" in cols
+    return _HAS_TICKER[key]
+
+
 def get_engine():
     """Expose the engine for migrations / inspection."""
     return _engine

@@ -468,6 +468,9 @@ def _build_row(
                            two_way=(sport == Sport.MLB and "DRAW" not in (kalshi or {})))
                if _home is not None and ((row["market"] or {}).get("kalshi") or {}).get("normalized")
                else dict(KALSHI_EXEC_NULL))
+    # ORDER LINE (ARCHITECT 2026-10-04, additive): each captured leg's ticker + quotes
+    from src.walters.venue import kalshi_legs
+    row["kalshi_legs"] = kalshi_legs(kalshi)
 
     # ----- Form (last 5 results per team) — uses preview helper
     if m.home_team:
@@ -1067,7 +1070,7 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
 
     from src.db.schema import Odds as _Odds, OddsSnapshot as _Snapshot
     from src.walters import spread_fallback as _fb
-    from src.walters.venue import KALSHI_EXEC_NULL as _KNULL, kalshi_exec as _kexec
+    from src.walters.venue import KALSHI_EXEC_NULL as _KNULL, kalshi_exec as _kexec, kalshi_legs as _kalshi_legs
 
     all_odds = list(s.execute(_select(_Odds).where(_Odds.match_id == m.id)).scalars())
     labels.update((o.market, o.selection) for o in all_odds)
@@ -1145,6 +1148,8 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
                   getattr(kal.get("HOME"), "yes_ask", None), competition_code,
                   two_way=(not _soccer and "DRAW" not in kal))
            if kal_status == "two_sided" else dict(_KNULL)),
+        # ORDER LINE (ARCHITECT 2026-10-04, additive): each captured leg's ticker + quotes
+        "kalshi_legs": _kalshi_legs(kal),
         "input_quality": {"book_odds": market["bookmaker_count"] if market else 0,
                           "kalshi": kal_status},
     }

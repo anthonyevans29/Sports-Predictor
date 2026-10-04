@@ -226,6 +226,35 @@ def kalshi_home_prob(snapshots, kickoff, three_way: bool = False) -> dict | None
             "home_ask": getattr(home, "yes_ask", None)}
 
 
+def latest_kalshi_by_selection(snapshots, kickoff) -> dict:
+    """{selection: latest PRE-KICKOFF kalshi snapshot} (in-play never)."""
+    latest: dict = {}
+    for snap in snapshots:
+        if snap.source != "kalshi":
+            continue
+        if kickoff is not None and snap.captured_at is not None and snap.captured_at >= kickoff:
+            continue
+        cur = latest.get(snap.selection)
+        if cur is None or (snap.captured_at is not None
+                           and (cur.captured_at is None or snap.captured_at > cur.captured_at)):
+            latest[snap.selection] = snap
+    return latest
+
+
+def kalshi_legs(latest: dict | None) -> dict | None:
+    """ORDER LINE (ARCHITECT 2026-10-04): per captured leg, the Kalshi market
+    ticker and its yes bid / ask — what the Desk needs to write a copy-exact
+    order. Additive export field `kalshi_legs`; ticker null before
+    migrate_kalshi_ticker.py or on earlier captures (never guessed)."""
+    if not latest:
+        return None
+    from src.db.database import has_kalshi_ticker
+    with_t = has_kalshi_ticker()
+    return {sel: {"ticker": (getattr(s, "market_ticker", None) if with_t else None),
+                  "bid": getattr(s, "yes_bid", None), "ask": getattr(s, "yes_ask", None)}
+            for sel, s in sorted(latest.items())}
+
+
 def venue_gap(book_home: float | None, kalshi_home: float | None) -> tuple[float | None, str | None]:
     """(|book_fair - kalshi| in pp, flag). Flag = STALE-BOOK? at >= 8.0pp."""
     if book_home is None or kalshi_home is None:

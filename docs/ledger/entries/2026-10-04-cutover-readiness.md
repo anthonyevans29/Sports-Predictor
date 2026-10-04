@@ -1,0 +1,4 @@
+**2026-10-04 — BUILT (ARCHITECT lane 2): `cutover-readiness` — the #85 criteria as one read-only readout.**
+- **What:** (a) the compare streak from the exports mirror (dates, verdicts, named classes); (b) the host tag, days on it, carries #246, and desk calls per chain from the host's receipts; (c) parity on that tag (scratch worktree). Last line GO / NOT-YET naming each unmet criterion; earliest 2026-10-08.
+- **Doctrine:** classes the tool cannot prove from the two files (pagination, W1/W2, anything on model fields) are UNNAMED and break the streak unless named with `--named`; operator-named days are printed as such, and the architect's reading decides. GO never triggers anything; the cutover stays the ruling on #85.
+- **Operator:** run on the host (`sudo -u sp venv/bin/python cli.py cutover-readiness`) once the mirror carries both writers' dates; paste the output to the architect.

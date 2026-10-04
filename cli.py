@@ -7216,5 +7216,19 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
     console.print(_window_line(start_date, end_date, window_how))
 
 
+@cli.command("cutover-readiness", context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
+@click.pass_context
+def cutover_readiness_cmd(ctx):
+    """#85 CUTOVER READINESS (read-only): the compare streak, the host's tag and
+    desk calls per chain, parity on that tag, then GO / NOT-YET against the
+    ruled criteria. Options pass through to deploy/hosting/cutover_readiness.py
+    (--mirror, --receipts, --named, --no-parity)."""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
+    import cutover_readiness as _cr
+    ctx.exit(_cr.main(list(ctx.args)))
+
+
 if __name__ == "__main__":
     cli()

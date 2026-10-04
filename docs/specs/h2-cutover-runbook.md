@@ -34,6 +34,30 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 - **Open prerequisite (hosting-h1.md H2 step 7):** the H2-era decision on
   how MLB reaches the host after cutover (statsapi ASN block). Settle it
   before the cutover; cutover must not strand MLB.
+- **Readiness readout (#85, ARCHITECT lane 2 2026-10-04).** TERMINAL (host),
+  read-only:
+  ```
+  sudo -u sp venv/bin/python cli.py cutover-readiness
+  ```
+  It reads the exports mirror's working clone (`logs/exports-mirror`, or
+  `--mirror DIR`), the host's receipts (`--receipts FILE` elsewhere) and
+  runs the parity harness on the host's tag in a scratch git worktree.
+  - **(a)** the compare streak: per date both writers pushed, newest first,
+    the verdict and the classes named for each divergent line, until 5 in a
+    row or the first break (a gap, a one-sided date, no coverage, or an
+    UNNAMED line).
+  - **(b)** the host's tag, days on it, `carries #246`, and desk calls per
+    chain (chain receipts' exports, read from `host/<date>/` in the mirror).
+    A full day = a UTC day wholly on the tag, every chain exit 0, desk rows
+    emitted.
+  - **(c)** `scripts/desk_parity_verify.py` on the tag's own code.
+  - Last line: `GO — …` or `NOT-YET — <each unmet criterion>`. Exit 0 / 1.
+  - The tool names only identical, capture timing (market / Kalshi / price
+    fields and the Desk fields that follow them, on matched rows) and the
+    comparator's guarded code-version skew. Rows or files on one side only
+    (provider pagination, W1, W2) and model fields are UNNAMED: name them with
+    `--named FILE` (`{"YYYY-MM-DD": "<class>: <evidence>"}`); such days print as
+    operator-named. GO is a readout; the cutover is the architect's ruling.
 - **Host on a release tag.** Production is a tagged release
   (docs/RELEASES.md). The host runs `sp_deploy.py` to the ruled tag before
   the cutover morning, so every cutover receipt names that tag.

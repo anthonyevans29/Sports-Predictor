@@ -10,9 +10,11 @@ only its prices. Backfill is impossible (the tickers were never stored) and is
 not attempted. Additive and idempotent; never deletes or rewrites.
 
 RUN ORDER: take the daily .backup first (law 5), then run this. The column is
-DEFERRED in the ORM and written / read only once it exists, so a deploy before
-the migration keeps working (tickers simply stay null). The next sync-kalshi-*
-starts filling it; re-run this script for the receipt.
+NOT mapped in the ORM (an ORM INSERT names every mapped column, so a mapped one
+would break every snapshot insert before this ran). It is written / read by
+Core SQL only once it exists, so a deploy before the migration keeps working
+(tickers simply stay null; tests/test_desk_order_line.py proves both states).
+The next sync-kalshi-* starts filling it; re-run this script for the receipt.
 
 Usage:
     python migrate_kalshi_ticker.py

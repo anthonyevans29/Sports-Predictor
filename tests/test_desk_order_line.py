@@ -84,28 +84,62 @@ def test_desk_block_and_parlay_legs_carry_the_order(monkeypatch):
     assert b["legs"][0]["order"]["text"] == "BUY YES KXNFLGAME-26OCT05BUFKC-KC @ 0.55 × 2"   # 0.25u x 10 -> 2
 
 
+def _match_with_legs(s, code, now):
+    c = Competition(sport=Sport.NFL, code=code, name=code, area="US", type="LEAGUE")
+    h, a = Team(sport=Sport.NFL, name=f"{code} Home"), Team(sport=Sport.NFL, name=f"{code} Away")
+    s.add_all([c, h, a])
+    s.flush()
+    m = Match(sport=Sport.NFL, competition_id=c.id, season="2026", utc_date=now + timedelta(hours=3),
+              status=MatchStatus.SCHEDULED, home_team_id=h.id, away_team_id=a.id)
+    s.add(m)
+    s.flush()
+    pairs = []
+    for sel, t, at in (("HOME", "OLD-H", now - timedelta(hours=2)), ("HOME", "NEW-H", now - timedelta(hours=1)),
+                       ("AWAY", "NEW-A", now - timedelta(hours=1)), ("AWAY", "INPLAY-A", now + timedelta(hours=4))):
+        snap = OddsSnapshot(match_id=m.id, market="ML", selection=sel, devig_prob=0.5, n_books=1, captured_at=at,
+                            source="kalshi", yes_bid=0.49, yes_ask=0.51)
+        s.add(snap)
+        pairs.append((snap, t))
+    s.flush()
+    return m, pairs
+
+
+def _legs(s, m):
+    snaps = list(s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars())
+    return kalshi_legs(latest_kalshi_by_selection(snaps, m.utc_date))
+
+
+def _drop(s, m):
+    s.query(OddsSnapshot).filter(OddsSnapshot.match_id == m.id).delete(synchronize_session=False)
+    s.query(Match).filter(Match.id == m.id).delete(synchronize_session=False)
+
+
 def test_stored_ticker_reaches_kalshi_legs():
-    """sync -> snapshot.market_ticker -> export kalshi_legs (the latest pre-kickoff leg; in-play never)."""
-    init_db()
+    """sync -> odds_snapshots.market_ticker -> export kalshi_legs (the latest
+    pre-kickoff leg; in-play never). BEFORE the migration the column is absent:
+    snapshot inserts still work (the column is unmapped) and tickers read null;
+    AFTER it, the stored tickers come through."""
+    from sqlalchemy import inspect, text
+
+    from src.db.database import get_engine, write_kalshi_tickers
     from src.timeutil import utc_now_naive
+    init_db()
     now = utc_now_naive().replace(microsecond=0)
+    eng = get_engine()
+    assert "market_ticker" not in {c["name"] for c in inspect(eng).get_columns("odds_snapshots")}
+    with session_scope() as s:                       # pre-migration: inserts work, tickers null, write no-op
+        m, pairs = _match_with_legs(s, "OL0", now)
+        assert write_kalshi_tickers(s, [(sn.id, t) for sn, t in pairs]) == 0
+        pre = _legs(s, m)
+        _drop(s, m)
+    assert pre == {"AWAY": {"ticker": None, "bid": 0.49, "ask": 0.51},
+                   "HOME": {"ticker": None, "bid": 0.49, "ask": 0.51}}
+    with eng.begin() as conn:                         # what migrate_kalshi_ticker.py does
+        conn.execute(text("ALTER TABLE odds_snapshots ADD COLUMN market_ticker VARCHAR(64)"))
     with session_scope() as s:
-        c = Competition(sport=Sport.NFL, code="OL1", name="OL1", area="US", type="LEAGUE")
-        h, a = Team(sport=Sport.NFL, name="OL Home"), Team(sport=Sport.NFL, name="OL Away")
-        s.add_all([c, h, a])
-        s.flush()
-        m = Match(sport=Sport.NFL, competition_id=c.id, season="2026", utc_date=now + timedelta(hours=3),
-                  status=MatchStatus.SCHEDULED, home_team_id=h.id, away_team_id=a.id)
-        s.add(m)
-        s.flush()
-        for sel, t, at in (("HOME", "OLD-H", now - timedelta(hours=2)), ("HOME", "NEW-H", now - timedelta(hours=1)),
-                           ("AWAY", "NEW-A", now - timedelta(hours=1)), ("AWAY", "INPLAY-A", now + timedelta(hours=4))):
-            s.add(OddsSnapshot(match_id=m.id, market="ML", selection=sel, devig_prob=0.5, n_books=1, captured_at=at,
-                               source="kalshi", yes_bid=0.49, yes_ask=0.51, market_ticker=t))
-        s.flush()
-        snaps = list(s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars())
-        legs = kalshi_legs(latest_kalshi_by_selection(snaps, m.utc_date))
-        s.query(OddsSnapshot).filter(OddsSnapshot.match_id == m.id).delete(synchronize_session=False)
-        s.query(Match).filter(Match.id == m.id).delete(synchronize_session=False)
+        m, pairs = _match_with_legs(s, "OL1", now)
+        assert write_kalshi_tickers(s, [(sn.id, t) for sn, t in pairs]) == 4
+        legs = _legs(s, m)
+        _drop(s, m)
     assert legs == {"AWAY": {"ticker": "NEW-A", "bid": 0.49, "ask": 0.51},
                     "HOME": {"ticker": "NEW-H", "bid": 0.49, "ask": 0.51}}

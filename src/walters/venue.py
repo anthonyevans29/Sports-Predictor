@@ -248,9 +248,13 @@ def kalshi_legs(latest: dict | None) -> dict | None:
     migrate_kalshi_ticker.py or on earlier captures (never guessed)."""
     if not latest:
         return None
-    from src.db.database import has_kalshi_ticker
-    with_t = has_kalshi_ticker()
-    return {sel: {"ticker": (getattr(s, "market_ticker", None) if with_t else None),
+    from sqlalchemy.orm import object_session
+
+    from src.db.database import read_kalshi_tickers
+    snaps = list(latest.values())
+    sess = next((object_session(s) for s in snaps if object_session(s) is not None), None)
+    tick = read_kalshi_tickers(sess, [getattr(s, "id", None) for s in snaps])
+    return {sel: {"ticker": tick.get(getattr(s, "id", None)),
                   "bid": getattr(s, "yes_bid", None), "ask": getattr(s, "yes_ask", None)}
             for sel, s in sorted(latest.items())}
 

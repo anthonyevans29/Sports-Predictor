@@ -17,7 +17,7 @@ from datetime import datetime, timedelta
 from sqlalchemy import select
 
 from src.adapters.kalshi import KalshiAdapter
-from src.db.database import has_kalshi_ticker, session_scope
+from src.db.database import session_scope, write_kalshi_tickers
 from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Sport, Team
 from src.timeutil import utc_now_naive
 
@@ -312,17 +312,21 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
             tickers[key] = mk.get("ticker")
             matched += 1
 
-        _with_ticker = has_kalshi_ticker()
+        stored_legs = []                                 # ORDER LINE: (snapshot, ticker)
         for (match_id, side), prob in matched_rows.items():
             bid, ask = quotes.get((match_id, side), (None, None))
-            sess.add(OddsSnapshot(
+            snap = OddsSnapshot(
                 match_id=match_id, market="ML", selection=side,
                 devig_prob=prob, line=None, n_books=1,
                 captured_at=now, source="kalshi",
                 yes_bid=bid, yes_ask=ask,
-                **({"market_ticker": tickers.get((match_id, side))} if _with_ticker else {}),
-            ))
+            )
+            sess.add(snap)
+            stored_legs.append((snap, tickers.get((match_id, side))))
             stored += 1
+        if stored_legs:                                  # the ticker column is unmapped (see schema)
+            sess.flush()
+            write_kalshi_tickers(sess, [(sn.id, t) for sn, t in stored_legs])
 
     # Sentinel (2026-09-17, extending the soccer guard to the shared path):
     # zero matches with BOTH sides present is an alarm, not a statistic.
@@ -501,17 +505,21 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
             tickers[key] = mk.get("ticker")
             matched += 1
 
-        _with_ticker = has_kalshi_ticker()
+        stored_legs = []                                 # ORDER LINE: (snapshot, ticker)
         for (match_id, sel), prob in matched_rows.items():
             bid, ask = quotes.get((match_id, sel), (None, None))
-            sess.add(OddsSnapshot(
+            snap = OddsSnapshot(
                 match_id=match_id, market="1X2", selection=sel,
                 devig_prob=prob, line=None, n_books=1,
                 captured_at=now, source="kalshi",
                 yes_bid=bid, yes_ask=ask,
-                **({"market_ticker": tickers.get((match_id, sel))} if _with_ticker else {}),
-            ))
+            )
+            sess.add(snap)
+            stored_legs.append((snap, tickers.get((match_id, sel))))
             stored += 1
+        if stored_legs:                                  # the ticker column is unmapped (see schema)
+            sess.flush()
+            write_kalshi_tickers(sess, [(sn.id, t) for sn, t in stored_legs])
 
     # Sentinel (2026-09-14): two matchweeks went dark before anyone noticed —
     # zero matches with BOTH sides present is an alarm, not a statistic.

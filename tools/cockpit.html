@@ -1880,7 +1880,79 @@ function realizedHTML(L){
     +(plaus.length?`<div class="tablewrap"><table><thead><tr><th>ticker</th><th>side</th><th>title</th><th>backed</th><th>why</th><th>net</th></tr></thead><tbody>`
       +plaus.map(x=>`<tr><td>${esc(x.ticker)}</td><td>${esc(x.side)}</td><td>${esc(x.title)}</td><td>${esc(x.backed||"—")}</td><td class="reason">${esc(x.category)}</td><td>${$$(x.pnl_net)}</td></tr>`).join("")
       +"</tbody></table></div>":'<div class="note">none</div>')
+    +exposureHTML(L)
     +'<div class="note" style="margin-top:6px">Non-claim: fill↔call matching is a heuristic (ticker family + date ±1 + team-in-game by name or ticker code + side agrees; the side comes from the ticker suffix first, the title second); review the list above by hand.</div>';
+}
+// B-TRACK FILLS EXPOSURE (#211 B-track diagnostics; ARCHITECT lane 3, 2026-10-04):
+// "fills-based exposure and cash-at-risk per team-outcome, from the imported
+// Kalshi CSV, beside the units-based cap". DIAGNOSTIC ONLY: the cap (1.25u per
+// team-outcome, desk_policy.B_TRACK) and sizing are unchanged and nothing here
+// feeds a call. Per game (ticker family + date + teams block), every sport fill
+// is a payoff over the game's outcomes: YES on X pays qty if X; NO on X pays qty
+// if not X. Soccer families settle three ways (TIE = the draw); the rest two.
+//   gross stake  = Σ qty × entry; fees = Σ fees (open + close)
+//   payout(o)    = Σ contracts that pay on outcome o
+//   cash at risk = gross + fees − min_o payout(o)    (the worst-case loss)
+//   hedge offset = min_o payout(o)                    (> 0 only when the
+//                  held contracts genuinely pay on EVERY outcome)
+//   per team-outcome: contracts paying on it, ÷ 10 = units at the declared
+//   default unit (10 contracts per 1u, SP_UNIT_USD unset) beside the 1.25u cap.
+// A fill whose contract role the ticker does not decide is EXCLUDED and counted
+// (law 4: never guessed). Fills are realized (closed) positions, so this is the
+// exposure as executed, not a live book.
+const THREE_WAY_FAMILIES=new Set(["EPL","UCL","FACUP","UEFANL"]);
+const FILL_UNIT_CONTRACTS=10, BTRACK_CAP_U=1.25;
+function fillExposure(L){
+  const games={}; let excluded=0;
+  for(const f of (L.fills||[])){
+    if(f.kind!=="sport"){ continue; }
+    const tr=tickerRole(f), qty=+f.qty||0;
+    if(!tr.role||!qty){ excluded++; continue; }
+    const no=String(f.side||"yes").toLowerCase().startsWith("n");
+    const outs=THREE_WAY_FAMILIES.has(f.family)?["HOME","AWAY","DRAW"]:["HOME","AWAY"];
+    if(!outs.includes(tr.role)){ excluded++; continue; }
+    const k=`${f.family}|${f.date}|${f.teams}`;
+    const g=games[k]=games[k]||{key:k,family:f.family,date:f.date,teams:f.teams,outs,fills:0,gross:0,fees:0,
+      pay:Object.fromEntries(outs.map(o=>[o,0])),codes:tr.codes||null};
+    if(!g.codes&&tr.codes) g.codes=tr.codes;
+    g.fills++; g.gross+=qty*(+f.entry||0); g.fees+=+f.fees||0;
+    for(const o of outs) if(no?o!==tr.role:o===tr.role) g.pay[o]+=qty;
+  }
+  const list=Object.values(games).map(g=>{
+    const minPay=Math.min(...g.outs.map(o=>g.pay[o]));
+    const outcomes=g.outs.map(o=>({outcome:o,contracts:g.pay[o],units:g.pay[o]/FILL_UNIT_CONTRACTS,
+      over:g.pay[o]/FILL_UNIT_CONTRACTS>BTRACK_CAP_U+1e-9,net:g.pay[o]-g.gross-g.fees}));
+    return {...g,hedge:minPay,cashAtRisk:Math.max(0,g.gross+g.fees-minPay),outcomes};
+  }).sort((a,b)=>b.cashAtRisk-a.cashAtRisk||a.key.localeCompare(b.key));
+  const outcomes=list.flatMap(g=>g.outcomes.filter(o=>o.contracts>0));
+  return {games:list,excluded,
+    summary:{games:list.length,teamOutcomes:outcomes.length,over:outcomes.filter(o=>o.over).length,
+      hedged:list.filter(g=>g.hedge>0).length,hedge:list.reduce((a,g)=>a+g.hedge,0),
+      gross:list.reduce((a,g)=>a+g.gross,0),fees:list.reduce((a,g)=>a+g.fees,0),
+      cashAtRisk:list.reduce((a,g)=>a+g.cashAtRisk,0),maxCashAtRisk:list.length?list[0].cashAtRisk:0}};
+}
+function exposureOutcomeName(g,o){
+  if(o==="DRAW") return "tie";
+  const c=g.codes; return c?(o==="HOME"?c.home:c.away)+` (${o.toLowerCase()})`:o.toLowerCase();
+}
+function exposureHeadline(x){ const s=x.summary;
+  return `B-track fills exposure (diagnostic, cap/sizing unchanged): ${s.games} game(s) · ${s.teamOutcomes} team-outcome(s) · `
+    +`gross $${s.gross.toFixed(2)} · cash at risk $${s.cashAtRisk.toFixed(2)} (max one game $${s.maxCashAtRisk.toFixed(2)}) · `
+    +`hedged ${s.hedged} game(s), offset $${s.hedge.toFixed(2)} · over the ${BTRACK_CAP_U}u cap-equivalent ${s.over}`
+    +(x.excluded?` · ${x.excluded} fill(s) excluded (contract role not decided by the ticker)`:""); }
+function exposureHTML(L){
+  const x=fillExposure(L); if(!x.games.length&&!x.excluded) return "";
+  const $$=v=>(v<0?"−$":"$")+Math.abs(v).toFixed(2);
+  const rows=x.games.slice(0,25).map(g=>`<tr><td>${esc(g.family)} ${esc(g.date)} ${esc(g.teams)}</td><td>${g.fills}</td>`
+    +`<td>${$$(g.gross)}</td><td>${$$(g.fees)}</td><td>${g.hedge?$$(g.hedge):"—"}</td><td><b>${$$(g.cashAtRisk)}</b></td><td>`
+    +g.outcomes.filter(o=>o.contracts>0).map(o=>`<span class="${o.over?"caution":""}">${esc(exposureOutcomeName(g,o.outcome))}: `
+      +`${o.contracts} ct ≈ ${o.units.toFixed(2)}u${o.over?` &gt; ${BTRACK_CAP_U}u`:""} · if it lands ${$$(o.net)}</span>`).join("<br>")
+    +`</td></tr>`).join("");
+  return `<h2>B-track exposure — fills-based (#211, diagnostic)</h2><div class="note">${esc(exposureHeadline(x))}</div>`
+    +`<div class="tablewrap"><table id="exposureTable"><thead><tr><th>game (ticker)</th><th>fills</th><th>gross stake</th><th>fees</th>`
+    +`<th>hedge offset</th><th>cash at risk</th><th>per team-outcome (contracts ≈ units at ${FILL_UNIT_CONTRACTS}/1u, beside the ${BTRACK_CAP_U}u cap)</th></tr></thead>`
+    +`<tbody>${rows}</tbody></table></div>`+(x.games.length>25?`<div class="note">top 25 of ${x.games.length} by cash at risk</div>`:"")
+    +`<div class="note">Cash at risk = gross + fees − the worst outcome's payout; a hedge offset counts only contracts that pay on EVERY outcome (a tie leaves a home/away pair unhedged in soccer). The units column converts at the default 10 contracts per 1u; the cap stays units-based and is NOT applied here.</div>`;
 }
 function realizedLines(L){
   const fs=classifyFills(L); if(!fs.length) return ["REALIZED (Kalshi fills): none imported"];
@@ -1894,7 +1966,8 @@ function realizedLines(L){
     (()=>{const t=fillAgg(trailing30(fs)); return `trailing 30d: ${t.n} fills · avg fill ${t.avg==null?"n/a":"$"+t.avg.toFixed(2)} · fee per $ staked ${t.feePerDollar==null?"n/a":(t.feePerDollar*100).toFixed(1)+"c"}`;})(),
     (()=>{const fc=feeClassSummary(fs); return `fee class (open legs, fee vs formula): ${fc.txt}`
       +(fc.live?` · ${fc.live} MLB fill(s) at the LIVE rate (doctrine: MLB is never executed live)`:"");})(),
-    `unmatched-but-plausible for manual review: ${fs.filter(x=>x.plausible).length}`,""];
+    `unmatched-but-plausible for manual review: ${fs.filter(x=>x.plausible).length}`,
+    exposureHeadline(fillExposure(L)),""];
 }
 $("kalshiCsvFile").addEventListener("change",async e=>{
   const f=e.target.files[0]; if(!f)return;

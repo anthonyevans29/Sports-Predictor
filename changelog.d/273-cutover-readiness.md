@@ -1,4 +1,4 @@
-## 2026-10-04 (cutover-readiness: the ruled #85 criteria in one read-only readout; ARCHITECT lane 2)
+## 2026-10-04 (#273: cutover-readiness: the ruled #85 criteria in one read-only readout; ARCHITECT lane 2)
 - **Ruled criteria (2026-10-02, verbatim):** "cutover when (a) 5 consecutive morning compares show only explained classes, (b) the host has run a full day on a tag carrying #246 with desk calls emitted, (c) parity harness green on that tag — earliest Oct 8 stands."
 - **`cli.py cutover-readiness`** (`deploy/hosting/cutover_readiness.py`) prints:
   - (a) the five-compare streak from the exports mirror, pairing laptop/<date> with host/<date> as the Action does: dates, verdicts, and the classes named per divergent line;

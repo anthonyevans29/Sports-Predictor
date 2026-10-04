@@ -1,0 +1,11 @@
+## 2026-10-03 (#270: dedupe-matches --orphans: incomplete lookup coverage leaves the whole candidate set UNRESOLVED)
+- PR #266 review (Anthony) found two cases on `d14c3f83`. A failed date lookup plus one observed provider game still permitted a RELINK. One found twin plus an unresolved competing twin still permitted a MERGE.
+- Now a twin whose provider lookup errors, or any day of the ±2d search that fails, leaves the candidate and every twin it was weighed against UNRESOLVED and untouched (no merge, no relink) until complete lookups establish uniqueness. The plan line names the gap.
+- tests/test_dedupe_orphans.py (+1): both cases, dry-run and apply, with ids, rows and references unchanged. The test was verified to fail on the old code (it relinked).
+- **Review 2 (Anthony):** overlapping candidate sets still bypassed uniqueness. Same-pair kickoffs at t−30h, t, t+30h and t+40h with provider states absent / error / absent / found merged in one insertion order and refused in another.
+  - Uniqueness is now decided per connected component of the twin graph (same home+away, ≤48h, different ids). Every id in the set is looked up first, and any error leaves every candidate UNRESOLVED.
+  - A merge happens only when the set is exactly one absent candidate plus one found twin; any larger or multi-live set is refused for review.
+  - With no live id in the set, each candidate is searched at the provider, and one failed search day leaves the whole set unresolved.
+  - Merges in which the live row keeps its id now log provenance too (`<source>_rekeys`).
+  - `scripts/ncaa_rekey_receipt.py --audit-merges` is the provenance audit of the applied merges: re-keyed rows with another same-pair row still within 48h.
+  - Regressions: both overlap scenarios across all 24 insertion orders, dry-run and apply, rows / ids / odds references unchanged, one identical plan for every order (fails on the previous code); the audit test.

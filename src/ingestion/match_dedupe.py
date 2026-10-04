@@ -148,11 +148,8 @@ def merge(s, keeper, newer, source: str, take_state: bool = True, via: str = "de
     if take_state:
         stamp_rekey(ext, source, ext.get(source), new_ext.get(source), via)
         ext[source] = new_ext.get(source)
-    else:                                   # keeper keeps its id; the stale id is history
-        prev = list(ext.get(f"{source}_prev") or [])
-        if new_ext.get(source) and new_ext.get(source) not in prev:
-            prev.append(new_ext.get(source))
-        ext[f"{source}_prev"] = prev
+    else:                                   # keeper keeps its id; the stale id is history, with provenance
+        stamp_rekey(ext, source, new_ext.get(source), ext.get(source), via)
     for k, v in new_ext.items():
         ext.setdefault(k, v)
     moved = {}
@@ -330,30 +327,31 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
         cands = sorted((m for m in rows if unplayed(m) and sid_of(m) and m.utc_date
                         and (m.utc_date < stale_cut or twins(m))), key=lambda m: m.id)
         tsid = _team_sids(s, source, [t for m in cands for t in (m.home_team_id, m.away_team_id)])
-        plan, done, claimed = [], set(), set()          # claimed: live ids a relink already takes
-        for m in cands:
-            if m.id in done:
+        plan, claimed = [], set()                        # claimed: live ids a relink already takes
+
+        # PR #270 review 2 (Anthony): uniqueness is decided per CONNECTED COMPONENT of the twin graph
+        # (same home+away, kickoffs within TWIN_H, different ids), never candidate by candidate — so no
+        # insertion or id order can let one candidate's set hide a competing twin from another.
+        comp_of: dict = {}
+        for r in sorted((x for grp in by_pair.values() for x in grp if sid_of(x) and x.utc_date), key=lambda x: x.id):
+            if r.id in comp_of:
                 continue
-            st, info = resolve(sid_of(m))
-            base = {"id": m.id, "sid": sid_of(m), "utc": m.utc_date.isoformat(), "home": m.home_team_id,
-                    "away": m.away_team_id, "stale": m.utc_date < stale_cut}
-            if st == "error":
-                plan.append({**base, "action": "unresolved", "why": info})
-                continue
-            if st == "found":
-                plan.append({**base, "action": "live_resync" if base["stale"] else "live"})
-                continue
-            live_twins = [x for x in twins(m) if x.id not in done and resolve(sid_of(x))[0] == "found"]
-            if len(live_twins) > 1:
-                plan.append({**base, "action": "refused", "why": f"{len(live_twins)} live twins "
-                             f"{[x.id for x in live_twins]} (ambiguous)"})
-                continue
-            if live_twins:
-                t = live_twins[0]
-                done.update((m.id, t.id))
-                plan.append({**base, "action": "merge", "twin": t.id, "twin_sid": sid_of(t),
-                             "keeper": min(m.id, t.id), "_rows": (m, t)})
-                continue
+            comp, stack = [], [r]
+            comp_of[r.id] = comp
+            while stack:
+                x = stack.pop()
+                comp.append(x)
+                for y in twins(x):
+                    if y.id not in comp_of:
+                        comp_of[y.id] = comp
+                        stack.append(y)
+        cand_ids = {m.id for m in cands}
+
+        def entry(x, action, **kw):
+            return {"id": x.id, "sid": sid_of(x), "utc": x.utc_date.isoformat(), "home": x.home_team_id,
+                    "away": x.away_team_id, "stale": x.utc_date < stale_cut, "action": action, **kw}
+
+        def date_search(m):
             hs, as_ = tsid.get(m.home_team_id), tsid.get(m.away_team_id)
             found, swapped, err = [], [], None
             for d in range(-SEARCH_DAYS, SEARCH_DAYS + 1):
@@ -366,33 +364,70 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                         found.append(nm)
                     elif nm.home_team_source_id == as_ and nm.away_team_source_id == hs:
                         swapped.append(nm)
-            found = list({nm.source_id: nm for nm in found}.values())
-            if err and not found:
-                plan.append({**base, "action": "unresolved", "why": f"provider search: {err}"})
-            elif len(found) > 1:
-                plan.append({**base, "action": "refused", "why": f"{len(found)} provider games for the pair "
-                             f"within ±{SEARCH_DAYS}d {[n.source_id for n in found]}"})
-            elif found:
-                nm = found[0]
-                held = [x.id for x in holder.get(str(nm.source_id), []) if x.id != m.id]
-                if str(nm.source_id) in claimed:
-                    plan.append({**base, "action": "refused", "live_sid": nm.source_id,
-                                 "why": f"live id {nm.source_id} already taken by another relink in this run"})
-                elif held:
-                    plan.append({**base, "action": "refused", "live_sid": nm.source_id,
-                                 "why": f"live id {nm.source_id} held by row(s) {held} outside the "
-                                        f"{TWIN_H}h twin window — review"})
+            return list({nm.source_id: nm for nm in found}.values()), swapped, err
+
+        seen_comps = set()
+        for m0 in cands:
+            comp = comp_of.get(m0.id, [m0])
+            if id(comp) in seen_comps:
+                continue
+            seen_comps.add(id(comp))
+            comp = sorted(comp, key=lambda x: x.id)
+            ids = [x.id for x in comp]
+            cc = [x for x in comp if x.id in cand_ids]
+            st_of = {x.id: resolve(sid_of(x)) for x in comp}            # every lookup in the set, first
+            errs = [x.id for x in comp if st_of[x.id][0] == "error"]
+            if errs:                                                     # incomplete coverage: nobody moves
+                why = f"lookup failed for {errs} in candidate set {ids}: {st_of[errs[0]][1]}"
+                plan.extend(entry(x, "unresolved", why=why) for x in cc)
+                continue
+            found = [x for x in comp if st_of[x.id][0] == "found"]
+            absent = [x for x in cc if st_of[x.id][0] == "absent"]
+            plan.extend(entry(x, "live_resync" if x.utc_date < stale_cut else "live")
+                        for x in cc if st_of[x.id][0] == "found")
+            if not absent:
+                continue
+            if found:
+                if len(comp) == 2 and len(found) == 1 and len(absent) == 1:
+                    m, t = absent[0], found[0]
+                    plan.append(entry(m, "merge", twin=t.id, twin_sid=sid_of(t), keeper=min(m.id, t.id),
+                                      _rows=(m, t)))
                 else:
-                    done.add(m.id)
-                    claimed.add(str(nm.source_id))
-                    plan.append({**base, "action": "relink", "live_sid": nm.source_id,
-                                 "live_utc": nm.utc_date.isoformat(), "_nm": nm, "_row": m})
-            elif swapped:
-                plan.append({**base, "action": "refused", "why": f"provider holds the pair home/away SWAPPED "
-                             f"{[n.source_id for n in swapped]}"})
-            else:
-                done.add(m.id)
-                plan.append({**base, "action": "orphan", "_row": m})
+                    why = (f"overlapping candidate set {ids}: {len(comp)} rows, {len(found)} live id(s) "
+                           f"{[sid_of(x) for x in found]} — uniqueness not established, review")
+                    plan.extend(entry(x, "refused", why=why) for x in absent)
+                continue
+            # no live id anywhere in the set: each absent candidate is searched at the provider; one
+            # failed search day leaves the WHOLE set unresolved
+            searched = [(m, *date_search(m)) for m in absent]
+            bad = [(m.id, err) for m, _f, _s, err in searched if err]
+            if bad:
+                why = (f"provider search incomplete for {[b[0] for b in bad]} in candidate set {ids}: {bad[0][1]}")
+                plan.extend(entry(x, "unresolved", why=why) for x in absent)
+                continue
+            for m, fnd, swapped, _ in searched:
+                if len(fnd) > 1:
+                    plan.append(entry(m, "refused", why=f"{len(fnd)} provider games for the pair within "
+                                f"±{SEARCH_DAYS}d {[n.source_id for n in fnd]}"))
+                elif fnd:
+                    nm = fnd[0]
+                    held = [x.id for x in holder.get(str(nm.source_id), []) if x.id != m.id]
+                    if str(nm.source_id) in claimed:
+                        plan.append(entry(m, "refused", live_sid=nm.source_id,
+                                          why=f"live id {nm.source_id} already taken by another relink in this run"))
+                    elif held:
+                        plan.append(entry(m, "refused", live_sid=nm.source_id,
+                                          why=f"live id {nm.source_id} held by row(s) {held} outside the "
+                                              f"{TWIN_H}h twin window — review"))
+                    else:
+                        claimed.add(str(nm.source_id))
+                        plan.append(entry(m, "relink", live_sid=nm.source_id, live_utc=nm.utc_date.isoformat(),
+                                          _nm=nm, _row=m))
+                elif swapped:
+                    plan.append(entry(m, "refused", why=f"provider holds the pair home/away SWAPPED "
+                                f"{[n.source_id for n in swapped]}"))
+                else:
+                    plan.append(entry(m, "orphan", _row=m))
         out["counts"] = dict(Counter(p["action"] for p in plan))
         out["provider_lookups"] = {"games_by_id": len(cache), "dates_searched": len(day_cache)}
         applied, refused = Counter(), []

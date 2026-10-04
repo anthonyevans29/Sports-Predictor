@@ -102,7 +102,7 @@ def test_orphans_dry_run_plans_every_case_and_writes_nothing():
     r = md.orphans(CODE, prov, now=NOW)
     act = {p["id"]: p["action"] for p in r["plan"]}
     assert act[ids["relink"]] == "relink" and act[ids["orphan"]] == "orphan"
-    assert act[ids["twin_old"]] == "merge" and ids["twin_new"] not in act          # handled as the twin
+    assert act[ids["twin_old"]] == "merge" and act[ids["twin_new"]] == "live"     # the live twin: its own line
     assert act[ids["stale_new"]] == "merge" and act[ids["live_old"]] == "live"
     assert act[ids["broken"]] == "unresolved" and act[ids["resync"]] == "live_resync"
     assert act[ids["swapped"]] == "refused"
@@ -135,7 +135,7 @@ def test_orphans_apply_merges_relinks_marks_and_never_deletes_an_orphan():
         assert _row(IDS[k])["status"] == MatchStatus.SCHEDULED
     b, a = r["before"], r["after"]
     assert a["rows"] == b["rows"] - 2 and a["stale_orphans"] == 1 and a["carry_prev"] == b["carry_prev"] + 3
-    assert a["rekeys_by_via"] == {"orphan-relink": 1, "orphan-merge": 1}
+    assert a["rekeys_by_via"] == {"orphan-relink": 1, "orphan-merge": 2}       # both merge directions logged
 
 
 def test_apply_summary_reports_state_when_nothing_is_left_to_merge(capsys):
@@ -219,3 +219,117 @@ def test_two_stale_rows_never_claim_one_live_id_or_one_twin():
     with session_scope() as s:
         cid = s.execute(select(Competition.id).where(Competition.code == "OR3")).scalar()
         s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)
+
+
+class GappyProvider(FakeProvider):
+    """A provider whose lookups fail for some ids and some dates (incomplete coverage)."""
+    def __init__(self, games, broken=(), broken_dates=()):
+        super().__init__(games, broken)
+        self.broken_dates = set(broken_dates)
+
+    def list_matches(self, code, season=None, date_from=None, date_to=None):
+        if date_from in self.broken_dates:
+            raise RuntimeError("HTTP 502")
+        return super().list_matches(code, season, date_from, date_to)
+
+
+def _snapshot(cid):
+    with session_scope() as s:
+        rows = {m.id: (m.status, m.utc_date, json.dumps(m.external_ids, sort_keys=True))
+                for m in s.execute(select(Match).where(Match.competition_id == cid)).scalars()}
+        odds = sorted((o.id, o.match_id) for o in s.execute(select(Odds).where(Odds.match_id.in_(list(rows)))).scalars())
+    return rows, odds
+
+
+def test_incomplete_coverage_leaves_the_whole_candidate_set_unresolved_and_untouched():
+    """PR #266 review: (1) a failed date lookup plus one observed provider game must NOT relink;
+    (2) one found twin plus one unresolved competing twin must NOT merge. Dry-run and apply both leave
+    ids, rows and references unchanged."""
+    init_db()
+    with session_scope() as s:
+        c = Competition(sport=Sport.NFL, code="OR4", name="OR4", area="US", type="LEAGUE")
+        ts = [Team(sport=Sport.NFL, name=f"OR4 T{i}", external_ids={SRC: f"OR4t{i}"}) for i in range(4)]
+        s.add(c)
+        s.add_all(ts)
+        s.flush()
+        cid, t = c.id, [x.id for x in ts]
+        past = NOW - timedelta(days=1)
+        ids = {}
+        for key, h, a, sid, when in (("relink", 1, 0, "31", past),
+                                      ("stale", 3, 2, "41", past),
+                                      ("t_found", 3, 2, "42", past + timedelta(hours=30)),
+                                      ("t_error", 3, 2, "43", past + timedelta(hours=40))):
+            row = Match(sport=Sport.NFL, competition_id=cid, season="2026", utc_date=when,
+                        status=MatchStatus.SCHEDULED, home_team_id=t[h], away_team_id=t[a], external_ids={SRC: sid})
+            s.add(row)
+            s.flush()
+            ids[key] = row.id
+        s.add(Odds(match_id=ids["t_found"], bookmaker="b", market="ML", selection="HOME", price_decimal=1.9))
+    live = NormalizedMatch(sport=Sport.NFL, competition_code="OR4", season="2026", utc_date=past + timedelta(hours=2),
+                           status=MatchStatus.FINISHED, home_team_source_id="OR4t1", away_team_source_id="OR4t0",
+                           source=SRC, source_id="39", status_raw="FT")
+    found_twin = NormalizedMatch(sport=Sport.NFL, competition_code="OR4", season="2026",
+                                 utc_date=past + timedelta(hours=30), status=MatchStatus.SCHEDULED,
+                                 home_team_source_id="OR4t3", away_team_source_id="OR4t2", source=SRC, source_id="42")
+    gap_day = (past + timedelta(days=1)).strftime("%Y-%m-%d")
+    prov = GappyProvider([live, found_twin], broken={"43"}, broken_dates={gap_day})
+    before = _snapshot(cid)
+    for apply in (False, True):
+        r = md.orphans("OR4", prov, apply=apply, now=NOW)
+        act = {p["id"]: (p["action"], p.get("why", "")) for p in r["plan"]}
+        assert act[ids["relink"]][0] == "unresolved" and "provider search incomplete" in act[ids["relink"]][1]
+        assert act[ids["stale"]][0] == "unresolved" and "lookup failed for" in act[ids["stale"]][1]
+        for k in ("t_found", "t_error"):                               # the competing twins: same set, untouched
+            assert act[ids[k]][0] == "unresolved" and f"candidate set [{ids['stale']}" in act[ids[k]][1]
+        assert "merge" not in r["counts"] and "relink" not in r["counts"], r["counts"]
+        assert r["applied_counts"] == {} and _snapshot(cid) == before  # ids, rows and references unchanged
+    with session_scope() as s:
+        s.query(Odds).filter(Odds.match_id.in_(list(ids.values()))).delete(synchronize_session=False)
+        s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)
+
+
+@pytest.mark.parametrize("states", [("absent", "error", "absent", "found"),     # the review's reproduction
+                                    ("absent", "found", "absent", "found")])    # two live ids in one set
+def test_overlapping_candidate_sets_never_merge_in_any_insertion_order(states):
+    """PR #270 review 2: same-pair kickoffs t−30h, t, t+30h, t+40h form ONE overlapping candidate set. With an
+    errored or a second live id in it, no insertion order (hence no row-id order) may merge or move anything:
+    dry-run and apply leave rows, ids and odds references unchanged, and every permutation plans the same."""
+    import itertools
+    offsets = (-30, 0, 30, 40)
+    plans = set()
+    for k, order in enumerate(itertools.permutations(range(4))):
+        code = f"OP{states[1][0]}{k}"
+        init_db()
+        with session_scope() as s:
+            c = Competition(sport=Sport.NFL, code=code, name=code, area="US", type="LEAGUE")
+            ts = [Team(sport=Sport.NFL, name=f"{code} T{i}", external_ids={SRC: f"{code}t{i}"}) for i in range(2)]
+            s.add(c)
+            s.add_all(ts)
+            s.flush()
+            cid, ids = c.id, {}
+            for i in order:                                           # the insertion order decides the row ids
+                row = Match(sport=Sport.NFL, competition_id=cid, season="2026",
+                            utc_date=NOW + timedelta(days=3, hours=offsets[i]), status=MatchStatus.SCHEDULED,
+                            home_team_id=ts[1].id, away_team_id=ts[0].id, external_ids={SRC: f"{code}s{i}"})
+                s.add(row)
+                s.flush()
+                ids[i] = row.id
+            for i in range(4):                                        # a reference on every row
+                s.add(Odds(match_id=ids[i], bookmaker="b", market="ML", selection="HOME", price_decimal=1.5 + i))
+        games = [NormalizedMatch(sport=Sport.NFL, competition_code=code, season="2026",
+                                 utc_date=NOW + timedelta(days=3, hours=offsets[i]), status=MatchStatus.SCHEDULED,
+                                 home_team_source_id=f"{code}t1", away_team_source_id=f"{code}t0", source=SRC,
+                                 source_id=f"{code}s{i}") for i in range(4) if states[i] == "found"]
+        prov = FakeProvider(games, broken={f"{code}s{i}" for i in range(4) if states[i] == "error"})
+        before = _snapshot(cid)
+        for apply in (False, True):
+            r = md.orphans(code, prov, apply=apply, now=NOW)
+            assert "merge" not in r["counts"] and "relink" not in r["counts"], (order, r["plan"])
+            assert r["applied_counts"] == {} and _snapshot(cid) == before, order
+        by_offset = {offsets[i]: next(p["action"] for p in r["plan"] if p["id"] == ids[i])
+                     for i in range(4) if any(p["id"] == ids[i] for p in r["plan"])}
+        plans.add(tuple(sorted(by_offset.items())))
+        with session_scope() as s:
+            s.query(Odds).filter(Odds.match_id.in_(list(ids.values()))).delete(synchronize_session=False)
+            s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)
+    assert len(plans) == 1, plans                                     # order-independent

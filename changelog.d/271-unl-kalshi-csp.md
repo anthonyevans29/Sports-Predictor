@@ -1,4 +1,4 @@
-## 2026-10-04 (UNL Kalshi series discovered and stored; published-Cockpit CSP noted, local launcher)
+## 2026-10-04 (#271: UNL Kalshi series discovered and stored; published-Cockpit CSP noted, local launcher)
 - **`sync-kalshi-soccer --competition UNL`:** the soccer sync knew only `KXEPLGAME`. UNL has Kalshi markets (operator fills exist) but no receipted ticker.
   - `KalshiAdapter.resolve_soccer_series` discovers the UNL series from Kalshi's own `/series` listing (keywords "nations league"; game-winner series only, i.e. tickers ending `GAME` like every wired series).
   - Exactly one match is required, else it refuses and lists the candidates (law 1: never a guessed ticker).

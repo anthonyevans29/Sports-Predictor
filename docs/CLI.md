@@ -86,7 +86,7 @@ Pre-matchday chain: `sync-matches` → `sync-odds` → `sync-injuries` →
 
 | Command | Options | Purpose |
 |---|---|---|
-| `sync-kalshi-soccer` | `--competition --max-spread` | Kalshi three-way markets (Home/Away/Tie), refuse-safe matching, in-play guard. |
+| `sync-kalshi-soccer` | `--competition --max-spread --series` | Kalshi three-way markets (Home/Away/Tie), refuse-safe matching, in-play guard. PL uses the mapped `KXEPLGAME`. **UNL** (ARCHITECT 2026-10-04): the series is DISCOVERED from Kalshi's `/series` listing ("nations league", game-winner series only); exactly one match or a refusal listing the candidates. The receipt names how it was resolved; `--series` pins it once receipted. In the window chain for UNL games. |
 | `soccer-refresh` | `--max-drift` | Weekly Elo/context retrain behind sanity gates (drift + spread-compression guards). |
 | `soccer-odds-history` | `--competition --season --csv --url` | Ingest historical closing 1X2 odds (football-data.co.uk). |
 | `predict-worldcup` | `--season --competition --out` | Market-derived tournament sheet — not the club model. |

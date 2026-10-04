@@ -333,7 +333,7 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
 
 
 def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=None,
-                       max_spread: float = 0.10, progress=None) -> dict:
+                       max_spread: float = 0.10, progress=None, series_override: str | None = None) -> dict:
     """
     Pull open Kalshi soccer game markets (3 legs per game: Home / Away / Tie)
     and store pre-game implied probs as OddsSnapshot(source="kalshi",
@@ -367,10 +367,10 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
     if not st.get("trading_active", False):
         report("Note: Kalshi trading not currently active (prices may be stale).")
 
-    series = adapter.SOCCER_GAME_SERIES.get(competition_code)
+    series, how = adapter.resolve_soccer_series(competition_code, series_override)
     if not series:
-        return {"ok": False, "reason": f"no Kalshi series mapped for {competition_code}"}
-    report(f"  fetching game series {series}…")
+        return {"ok": False, "reason": how}
+    report(f"  game series {series} ({how}) — fetching…")
     try:
         all_markets = adapter.open_markets_for_series(series)
     except Exception as e:
@@ -511,6 +511,6 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
         report("  ⚠ MATCHED ZERO with games AND markets present — matcher may "
                "be broken (see 2026-09-13 title-format incident). Probe the "
                "payload before trusting 'absent'.")
-    return {"ok": True, "series": series, "markets": len(all_markets),
+    return {"ok": True, "series": series, "series_how": how, "markets": len(all_markets),
             "matched": matched, "unmatched": unmatched, "ambiguous": ambiguous,
             "in_play": in_play, "wide_spread": wide_spread, "stored": stored}

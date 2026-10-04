@@ -211,6 +211,30 @@ class KalshiAdapter:
         return None
 
     SOCCER_GAME_SERIES = {"PL": "KXEPLGAME"}
+    # ARCHITECT 2026-10-04: UNL has Kalshi markets (operator fills exist) but no
+    # receipted ticker — so the series is DISCOVERED from Kalshi's own /series
+    # listing at run time (law 1: vocabulary from the API, never guessed). The
+    # keywords select candidates; only game-winner series (ticker ending "GAME",
+    # like every wired series) count; exactly one or the sync refuses.
+    SOCCER_SERIES_DISCOVERY = {"UNL": ["nations league"]}
+
+    def resolve_soccer_series(self, competition_code: str, override: str | None = None
+                              ) -> tuple[str | None, str]:
+        """(series ticker | None, how it was resolved — a receipt line)."""
+        if override:
+            return override, f"series {override} (operator --series)"
+        if competition_code in self.SOCCER_GAME_SERIES:
+            return self.SOCCER_GAME_SERIES[competition_code], "mapped"
+        kws = self.SOCCER_SERIES_DISCOVERY.get(competition_code)
+        if not kws:
+            return None, f"no Kalshi series mapped or discoverable for {competition_code}"
+        found = self.find_series(kws)
+        games = sorted({s.get("ticker") for s in found if str(s.get("ticker", "")).upper().endswith("GAME")})
+        listed = ", ".join(f"{s.get('ticker')} ({s.get('title')})" for s in found[:12]) or "none"
+        if len(games) == 1:
+            return games[0], f"discovered {games[0]} from /series {kws} (candidates: {listed})"
+        return None, (f"{competition_code}: {len(games)} game series match {kws} — REFUSED (exactly one "
+                      f"required; candidates: {listed}). Pin it with --series once receipted.")
     # The Tie legs across leagues share one constant strike UUID (observed
     # identical on EPL and MYSL samples 2026-08-17). yes_sub_title == "Tie"
     # is the primary detector; the UUID is a cross-check.

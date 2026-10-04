@@ -6125,19 +6125,21 @@ def kalshi_probe_cmd(keywords, series_ticker, title_grep, show_markets):
 @cli.command("sync-kalshi-soccer")
 @click.option("--competition", "competition_code", default="PL")
 @click.option("--max-spread", default=0.10, help="Skip legs with ask-bid wider than this (unliquid = noise, not a price).")
-def sync_kalshi_soccer_cmd(competition_code, max_spread):
+@click.option("--series", "series_override", default=None,
+              help="Pin the Kalshi series ticker (UNL is otherwise discovered from Kalshi's /series listing).")
+def sync_kalshi_soccer_cmd(competition_code, max_spread, series_override):
     """Pull Kalshi soccer game markets (Home/Away/Tie legs) as pre-game
     OddsSnapshots. Coverage source per the 2026-08-17 Step-1 verdict —
     disagreement columns are instrumentation only. Run with the Friday chain
     and again pre-kickoff Saturday (spreads tighten as matches near)."""
     from src.ingestion.kalshi_sync import sync_kalshi_soccer
     r = sync_kalshi_soccer(competition_code=competition_code, max_spread=max_spread,
-                           progress=lambda m: console.print(f"  [dim]{m}[/dim]"))
+                           progress=lambda m: console.print(f"  [dim]{m}[/dim]"), series_override=series_override)
     if not r.get("ok"):
         console.print(f"[yellow]Kalshi soccer sync: {r.get('reason')}[/yellow]")
         return
     console.print(f"[green]✓ Kalshi soccer: {r['stored']} prices stored[/green]")
-    console.print(f"  [dim]series {r['series']} · {r['markets']} markets · matched {r['matched']} · "
+    console.print(f"  [dim]series {r['series']} ({r.get('series_how', 'mapped')}) · {r['markets']} markets · matched {r['matched']} · "
                   f"unmatched {r['unmatched']} (ambiguous {r['ambiguous']}) · "
                   f"in-play {r['in_play']} · wide-spread skipped {r['wide_spread']}[/dim]")
 

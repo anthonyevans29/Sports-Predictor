@@ -70,5 +70,18 @@ date yet. The full report is in the run's step summary.
 **Receipt (ruled):** after the deploy, tonight's 16:00 `nhl-daily` steps show as commits
 `host: nhl-daily step N …` in the mirror within a minute, and the step receipts carry `kind: mirror, exit 0`.
 
-**Note:** the Cockpit is a published artifact. If its sandbox blocks requests to api.github.com,
-the control reports "Fetch failed" and the file picker still works. The republish will show it.
+**Published artifact: the CSP blocks api.github.com (confirmed by the architect, 2026-10-04).** In the
+published Cockpit, "Load latest from host" fails ("Fetch failed"); the file picker still works there.
+To use the control, run the Cockpit locally:
+
+```
+python scripts/cockpit_local.py --html ~/Downloads/cockpit.html   # a saved copy of the published artifact
+```
+
+It serves the page on `http://127.0.0.1:8765` (127.0.0.1 only, read-only), where the GitHub contents API is
+reachable. Without `--html` it serves the repo copy `tools/cockpit.html`, which may lag the published one, and
+says so.
+
+**The ledger is per origin.** The local page has its own localStorage, so its own ledger and token. Move the
+ledger with "Export ledger (JSON)" → "Import ledger", and keep the same `--port` so the local origin stays the
+same between runs.

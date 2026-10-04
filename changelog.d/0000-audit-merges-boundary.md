@@ -1,0 +1,11 @@
+## 2026-10-04 (--audit-merges zero says only "no current nearby rows found"; --reconstruct-merges against the pre-apply backup; #270 review)
+- **Review on #270 (Anthony, 2026-10-04):** replaying the previous algorithm (offsets −70h/−40h/0h/+40h; provider absent/error/absent/found) applies a merge, moves an odds reference and shifts the keeper's kickoff. The audit then printed "every merge stands" although the unresolved twin sat 80h from the mutated kickoff. "Limit that output to `no current nearby rows found`. … reconstruct the reported 30-merge cohort from the retained pre-apply backup and apply plan … Mark unavailable provenance `UNKNOWN`."
+- **`scripts/ncaa_rekey_receipt.py --audit-merges`:** a zero now reads `no current nearby rows found`, plus a note that the audit sees the current table only.
+- **`--reconstruct-merges --backup PRE.db [--plan FILE] [--expect N]`** (read-only; the macOS mode=ro fallback is reused and its form printed). For every orphan merge in the provenance log it prints:
+  - the original connected twin group in the backup;
+  - the merged row (by the logged ids, among rows gone since);
+  - the keeper's pre → post kickoff, with a shift named;
+  - every reference move per table referencing matches (pre counts on both rows vs post on the keeper);
+  - any same-pair row near the PRE or the POST kickoff outside the group.
+- `--plan` cross-checks the pasted apply output's `[merge]` lines. Rows with no provenance log, a keeper absent from the backup, or an unmatched merged row read UNKNOWN. The last line gives `merges n/N` and ACCOUNTED or REVIEW. Backup paths are not printed (sanitised).
+- **Regression:** the boundary case (keeper kickoff +40h, twin 40h from the pre kickoff and 80h from the post one): the audit says only "no current nearby rows found", and the reconstruction names the shift, the twin near the pre kickoff and the odds move. pytest 675 passed / 1 skipped.

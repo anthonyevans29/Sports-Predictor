@@ -96,3 +96,69 @@ def test_audit_merges_names_rekeyed_rows_with_a_competing_same_pair_row(capsys):
     assert "with another same-pair row within 48h: 1 (REVIEW these)" in out and "near:" in out and "sid 9" in out
     with session_scope() as s:
         s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)
+
+
+def test_audit_zero_says_only_no_current_nearby_rows_and_reconstruction_catches_the_shift(tmp_path, capsys):
+    """PR #270 review 2026-10-04 (boundary): a merge that moved the keeper's kickoff +40h leaves an
+    unresolved twin 80h from the NEW kickoff but 40h from the OLD one. The current-table audit can only
+    say "no current nearby rows found" (never "every merge stands"); --reconstruct-merges against the
+    pre-apply backup names the kickoff shift, the twin near the PRE kickoff and the reference move."""
+    import sqlite3
+
+    init_db()
+    with session_scope() as s:
+        c = Competition(sport=Sport.NFL, code="RR3", name="RR3", area="US", type="LEAGUE")
+        ts = [Team(sport=Sport.NFL, name=f"RR3 T{i}", external_ids={SRC: f"rr3{i}"}) for i in range(2)]
+        s.add(c)
+        s.add_all(ts)
+        s.flush()
+        t = [x.id for x in ts]
+
+        def m(sid, dh):
+            row = Match(sport=Sport.NFL, competition_id=c.id, season="2092", utc_date=NOW + timedelta(hours=dh),
+                        status=MatchStatus.SCHEDULED, home_team_id=t[1], away_team_id=t[0], external_ids={SRC: sid})
+            s.add(row)
+            s.flush()
+            return row.id
+
+        twin = m("31", -40)                     # unresolved twin, 40h before the keeper's PRE kickoff
+        keeper = m("30", 0)                     # stale old-id row (keeper: lower id than the live row)
+        live = m("32", 40)                      # the live provider row, merged into the keeper
+        s.add(Odds(match_id=live, bookmaker="b", market="ML", selection="HOME", price_decimal=1.8))
+        cid = c.id
+    db = os.environ["DATABASE_URL"][len("sqlite:///"):]
+    pre = tmp_path / "pre_apply.backup"
+    src, dst = sqlite3.connect(db), sqlite3.connect(pre)
+    src.backup(dst)                             # the .backup API, into tmp (never data/)
+    src.close()
+    dst.close()
+    with session_scope() as s:                  # what the old algorithm's apply did
+        k, n = s.get(Match, keeper), s.get(Match, live)
+        s.query(Odds).filter(Odds.match_id == live).update({"match_id": keeper}, synchronize_session=False)
+        k.utc_date = n.utc_date
+        k.external_ids = {SRC: "32", f"{SRC}_prev": ["30"],
+                          f"{SRC}_rekeys": [{"from": "30", "to": "32", "via": "orphan-merge", "at": "2092-10-03T20:00:00"}]}
+        s.delete(n)
+    assert rr.main(["--competition", "RR3", "--db", db, "--now", NOW.isoformat(), "--audit-merges"]) == 0
+    out = capsys.readouterr().out
+    assert "with another same-pair row within 48h: 0 (no current nearby rows found)" in out
+    assert "every merge stands" not in out
+    plan = tmp_path / "plan.txt"
+    plan.write_text(f"  [merge] id {keeper} sid 30 {NOW.isoformat()} home {t[1]} away {t[0]} STALE "
+                    f"{{'twin': {live}, 'twin_sid': '32', 'keeper': {keeper}}}\n")
+    assert rr.main(["--competition", "RR3", "--db", db, "--now", NOW.isoformat(), "--reconstruct-merges",
+                    "--backup", str(pre), "--plan", str(plan), "--expect", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "orphan merges in the provenance log: 1 · reported 1" in out
+    assert f"merged row id {live} sid 32" in out
+    assert "SHIFTED 1 day, 16:00:00" in out
+    assert f"same-pair row near the pre kickoff (now): id {twin} sid 31" in out
+    assert "odds.match_id: keeper 0→1, merged 1→0" in out and "⚠" in out
+    assert "in the plan but not in the log none" in out
+    assert "RECONSTRUCTION: merges 1/1" in out and "REVIEW" in out
+    assert str(tmp_path) not in out                      # sanitised: the backup is named, not its path
+    assert rr.main(["--competition", "RR3", "--db", db, "--reconstruct-merges"]) == 2   # no --backup: refused
+    with session_scope() as s:
+        mids = [x.id for x in s.query(Match).filter(Match.competition_id == cid)]
+        s.query(Odds).filter(Odds.match_id.in_(mids)).delete(synchronize_session=False)
+        s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)

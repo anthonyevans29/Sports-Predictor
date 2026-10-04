@@ -1,4 +1,4 @@
-## 2026-10-04 (#211 B-track: fills-based exposure and cash-at-risk per team-outcome, beside the units cap; ARCHITECT lane 3)
+## 2026-10-04 (#274: #211 B-track: fills-based exposure and cash-at-risk per team-outcome, beside the units cap; ARCHITECT lane 3)
 - **Ruling (lane 3, 2026-10-04):** "#211 B-track: fills-based exposure and cash-at-risk per team-outcome, from the imported Kalshi CSV, beside the units-based cap." Diagnostic only: the 1.25u cap and sizing are unchanged (ARCHITECT 2026-10-01: "cap/sizing unchanged").
 - **Cockpit `fillExposure(L)`:** every sport fill becomes a payoff over its game's outcomes. YES on X pays if X; NO on X pays on every other outcome. Soccer families settle three ways (TIE = the draw); the rest settle two ways. Per game it reports gross stake, fees, hedge offset (= the worst outcome's payout, so > 0 only when the contracts pay on EVERY outcome) and cash at risk (= gross + fees − hedge offset). Per team-outcome it reports contracts and ≈ units at 10 contracts per 1u, flagged when above the 1.25u cap-equivalent.
 - A fill whose contract role the ticker does not decide is excluded and counted (law 4).

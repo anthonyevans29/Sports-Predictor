@@ -1,4 +1,4 @@
-## 2026-10-04 (intl-venue-resolve: venue-country normalization for the rows v3 left unknown; ARCHITECT lane 5, data lane)
+## 2026-10-04 (#275: intl-venue-resolve: venue-country normalization for the rows v3 left unknown; ARCHITECT lane 5, data lane)
 - **Ruling (lane 5, 2026-10-04):** "Intl venue-country normalization for the 313 unmatched venues and the 57% unflagged rows. Data lane only; intl-elo-v2 stays frozen through its window."
 - **`python cli.py intl-venue-resolve --from-dir <save> --venues-dir <dir> [--aliases FILE] [--plan]`**, for every `intl_match_venue` row with `neutral_v3` NULL:
   - route A `/venues?id=<id>` for venue ids outside the route-B catalog (the "unmatched venues"); one call per distinct id, `--max-calls` capped, saved as `venue_id_<id>.json` and replayed;

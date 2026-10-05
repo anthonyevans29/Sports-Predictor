@@ -1363,6 +1363,10 @@ def close_probe_cmd(match_id):
             console.print(f"[green]grading close: PRICED from {cl.get('source')} at {cl['captured_at']}Z · "
                           f"books {cl['books']} · fair "
                           + " ".join(f"{k} {v:.4f}" for k, v in cl["fair"].items()) + "[/green]")
+            if cl.get("source") == "kalshi_only":
+                kq = cl["kalshi"]
+                print(f"  reference=kalshi_only (no book session pre-kickoff): HOME bid {kq['bid']:.2f} ask "
+                      f"{kq['ask']:.2f} → mid {kq['mid']:.4f} · spread {kq['spread_c']}c · {kq['ruling']}")
         else:
             console.print("[yellow]grading close: UNPRICED[/yellow]"
                           + (f" · missing {cl['missing']}" if cl else " · no pre-kickoff capture"))
@@ -4228,11 +4232,29 @@ def totals_model_test_cmd(season, park_weight):
 
 
 @cli.command("export-nfl-results")
-def export_nfl_results_cmd():
-    """Graded NFL results file for the consumer (live era)."""
+@click.option("--days", "days_back", default=None, type=int,
+              help="Rolling window in days (the pre-2026-10-05 behaviour). Default: season to date.")
+@click.option("--match", "match_ids", multiple=True, type=int,
+              help="Receipt: say whether these match ids are in the file (repeatable).")
+def export_nfl_results_cmd(days_back, match_ids):
+    """Graded NFL results file for the consumer (live era). SEASON TO DATE by
+    default (ARCHITECT 2026-10-05: a rolling 8-day window dropped GB–ATL Week 3
+    TNF from the 10-05 file, so a lifetime record could not reconcile); the
+    receipt prints the window, the season record by week and any --match ids."""
+    import json as _json
+
     from src.walters.nfl_predict import export_nfl_results
-    path = export_nfl_results()
+    path = export_nfl_results(days_back=days_back)
+    doc = _json.load(open(path))
+    w, rec = doc.get("window") or {}, doc.get("record") or {}
     console.print(f"[green]✓ Wrote {path}[/green]")
+    print(f"window: {w.get('kind')} " + (f"season {w.get('season')}" if w.get("kind") == "season_to_date"
+                                        else f"{w.get('days')}d from {w.get('from')}")
+          + f" · games {rec.get('games')} · top-pick hits {rec.get('hits')}")
+    print("by week: " + " · ".join(f"W{k} {v['hits']}/{v['games']}" for k, v in (rec.get("by_week") or {}).items()))
+    ids = {r["match_id"] for r in doc.get("results") or []}
+    for mid in match_ids:
+        print(f"match {mid}: {'IN the file' if mid in ids else 'NOT in the file'}")
 
 
 @cli.command("results-tally")

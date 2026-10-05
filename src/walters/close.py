@@ -153,13 +153,51 @@ def close_from_snapshots(snaps, before: datetime | None, outcomes: tuple[str, ..
     return None
 
 
+KALSHI_ONLY_GRADE_RULING = ("ARCHITECT 2026-10-05: when no book session exists pre-pitch and a two-sided "
+                            "Kalshi capture does, grade against the Kalshi mid, labelled reference=kalshi_only")
+
+
+def close_from_kalshi(snaps, before: datetime | None, outcomes: tuple[str, ...]) -> dict | None:
+    """KALSHI-ONLY GRADING CLOSE (ARCHITECT 2026-10-05, ruled after MLB 00:00Z
+    rollover rows graded unpriced twice: the provider never posts pre-pitch).
+    Two-way boards only (a 3-way board has no derived price — the Desk's rule).
+    The LAST pre-cutoff Kalshi HOME capture that is TWO-SIDED (yes bid AND yes
+    ask stored) gives mid = (bid + ask) / 2; fair = {HOME: mid, AWAY: 1 − mid},
+    the Desk's kalshi_only_ref form. None when no such capture exists. The
+    spread is carried for the receipt (the ruling sets no spread bound)."""
+    if tuple(outcomes) != BINARY:
+        return None
+    pre = [x for x in snaps
+           if getattr(x, "source", None) == "kalshi" and x.selection == "HOME" and x.captured_at is not None
+           and (before is None or x.captured_at < before)
+           and getattr(x, "yes_bid", None) is not None and getattr(x, "yes_ask", None) is not None]
+    if not pre:
+        return None
+    k = max(pre, key=lambda x: x.captured_at)
+    bid, ask = float(k.yes_bid), float(k.yes_ask)
+    if not (0.0 <= bid <= ask <= 1.0) or ask <= 0.0 or bid >= 1.0:
+        return None
+    mid = (bid + ask) / 2
+    return {"fair": {"HOME": mid, "AWAY": 1 - mid}, "books": 0, "books_quoted": 0, "captured_at": k.captured_at,
+            "best": {}, "rows": [], "outcomes": BINARY, "missing": {}, "overround": None,
+            "source": "kalshi_only", "reference": "kalshi_only",
+            "kalshi": {"bid": bid, "ask": ask, "mid": mid, "spread_c": round((ask - bid) * 100, 1),
+                       "ruling": KALSHI_ONLY_GRADE_RULING}}
+
+
 def grading_close(s, match) -> dict | None:
     """THE close for grading a finished match: the odds table's last
     pre-kickoff session under the contract; when that cannot price (no
     pre-kickoff capture survives — MLB's replace-on-sync — or no complete
-    book), the last complete pre-kickoff BOOK-CONSENSUS snapshot session.
-    Returns a priced close (with "source": "odds" | "snapshot") or the
-    odds-table result / None, so callers keep using priced()."""
+    book), the last complete pre-kickoff BOOK-CONSENSUS snapshot session;
+    when NO BOOK SESSION EXISTS pre-kickoff at all (neither table holds a
+    pre-kickoff book capture — the MLB 00:00Z rollover rows) and a two-sided
+    Kalshi capture does, the Kalshi mid, labelled reference=kalshi_only
+    (ARCHITECT 2026-10-05). A book session that exists but cannot price (an
+    incomplete outcome set) stays UNPRICED: the ruling covers absent books only.
+    Returns a priced close (with "source": "odds" | "snapshot" | "kalshi_only"
+    and "reference": "books" | "kalshi_only") or the odds-table result / None,
+    so callers keep using priced()."""
     from sqlalchemy import select
 
     from src.db.schema import Odds, OddsSnapshot
@@ -168,15 +206,43 @@ def grading_close(s, match) -> dict | None:
     odds = list(s.execute(select(Odds).where(Odds.match_id == match.id, Odds.market == "1X2")).scalars())
     cl = close_1x2(odds, match.utc_date, outcomes) if odds else None
     if priced(cl):
-        cl["source"] = "odds"
+        cl["source"], cl["reference"] = "odds", "books"
         return cl
     snaps = list(s.execute(select(OddsSnapshot).where(
-        OddsSnapshot.match_id == match.id, OddsSnapshot.market == "1X2",
-        OddsSnapshot.source != "kalshi")).scalars())
-    return close_from_snapshots(snaps, match.utc_date, outcomes) or cl
+        OddsSnapshot.match_id == match.id, OddsSnapshot.market == "1X2")).scalars())
+    book_snaps = [x for x in snaps if x.source != "kalshi"]
+    sn = close_from_snapshots(book_snaps, match.utc_date, outcomes)
+    if sn is not None:
+        sn["reference"] = "books"
+        return sn
+    if cl is None and not any(x.captured_at is not None and (match.utc_date is None or x.captured_at < match.utc_date)
+                              for x in book_snaps):
+        ko = close_from_kalshi(snaps, match.utc_date, outcomes)
+        if ko is not None:
+            return ko
+    return cl
 
 
 CLOSE_SOURCE = "close_1x2: last pre-kickoff capture session, complete books de-vigged then averaged (#167/#207)"
+
+
+def grading_close_block(s, match) -> dict:
+    """close_block's shape from THE grading close (odds → snapshot → kalshi_only),
+    plus `close_reference` ("books" | "kalshi_only" | None) — the results rows'
+    per-side close for entry-price CLV, so a row graded against the Kalshi mid
+    says so (ARCHITECT 2026-10-05)."""
+    cl = grading_close(s, match)
+    if not priced(cl):
+        return {"close_fair": None, "close_at": None, "close_books": cl["books"] if cl else 0,
+                "close_source": CLOSE_SOURCE, "close_reference": None}
+    src = CLOSE_SOURCE if cl.get("source") != "kalshi_only" else (
+        "kalshi_only: mid of the last two-sided pre-kickoff Kalshi HOME quote (no book session pre-kickoff; "
+        "ARCHITECT 2026-10-05)")
+    return {"close_fair": {k: round(v, 4) for k, v in cl["fair"].items()},
+            "close_at": cl["captured_at"].isoformat() if cl["captured_at"] else None,
+            "close_books": cl["books"], "close_source": src, "close_reference": cl.get("reference", "books"),
+            **({"close_kalshi": {k: cl["kalshi"][k] for k in ("bid", "ask", "mid", "spread_c")}}
+               if cl.get("source") == "kalshi_only" else {})}
 
 
 def close_block(rows, kickoff: datetime | None, sport) -> dict:

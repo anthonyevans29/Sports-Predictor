@@ -471,8 +471,16 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
         return summary
 
 
-def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
-    """Graded NFL results file for the consumer rhythm (2026-09-15)."""
+def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -> str:
+    """Graded NFL results file for the consumer rhythm (2026-09-15).
+
+    WINDOW (ARCHITECT 2026-10-05): the file was a ROLLING 8 days, so a game aged
+    out of it — match 15073 (GB–ATL, Week 3 TNF, kickoff 2026-09-25 00:15Z) was
+    in the 10-02 file and gone from the 10-05 one (its cutoff ~09-27), and a
+    lifetime record summed from the files could not reconcile. Default now:
+    SEASON TO DATE — every finished, predicted NFL game of the latest season
+    holding a finished game — with the window and the season record in the
+    file. `days_back` keeps the old rolling window when asked for."""
     import json as _json
     import math
     import os as _os
@@ -487,11 +495,18 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
     rows = []
     with session_scope() as s:
         now = utc_now_naive()
-        q = (nfl_scoped(select(Prediction, Match)
-                        .join(Match, Match.id == Prediction.match_id))
-             .where(Match.status == MatchStatus.FINISHED,
-                    Match.utc_date >= now - timedelta(days=days_back))
-             .order_by(Match.utc_date))
+        base = (nfl_scoped(select(Prediction, Match)
+                           .join(Match, Match.id == Prediction.match_id))
+                .where(Match.status == MatchStatus.FINISHED))
+        if days_back is not None:
+            q = base.where(Match.utc_date >= now - timedelta(days=days_back)).order_by(Match.utc_date)
+            window = {"kind": "rolling", "days": days_back,
+                      "from": (now - timedelta(days=days_back)).isoformat() + "Z"}
+        else:
+            seasons = sorted({str(m.season) for _, m in s.execute(base).all() if m.season is not None})
+            season = max(seasons, key=lambda v: (len(v), v)) if seasons else None
+            q = (base.where(Match.season == season) if season is not None else base).order_by(Match.utc_date)
+            window = {"kind": "season_to_date", "season": season}
         for pred, m in s.execute(q).all():
             y = 1 if m.home_score > m.away_score else 0
             p = pred.home_win_prob
@@ -535,10 +550,18 @@ def export_nfl_results(days_back: int = 8, out_dir: str = "exports") -> str:
             })
     _os.makedirs(out_dir, exist_ok=True)
     path = _os.path.join(out_dir, f"nfl_NFL_results_{utc_now_naive().strftime('%Y-%m-%d')}.json")
+    by_week: dict = {}
+    for r in rows:
+        w = by_week.setdefault(str(r["week"]), {"games": 0, "hits": 0})
+        w["games"] += 1
+        w["hits"] += 1 if r["graded"]["top_pick_hit"] else 0
+    record = {"games": len(rows), "hits": sum(w["hits"] for w in by_week.values()),
+              "by_week": dict(sorted(by_week.items(), key=lambda kv: (len(kv[0]), kv[0])))}
     with open(path, "w") as f:
         _json.dump({"exported_at": utc_now_naive().isoformat() + "Z",
                     "git_sha": _git_sha(),
                     "sport": "nfl",
                     "note": "record is variance, not signal — for the consumer to grade against",
+                    "window": window, "record": record,
                     "count": len(rows), "results": rows}, f, indent=2)
     return path

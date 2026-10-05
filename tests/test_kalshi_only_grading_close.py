@@ -15,7 +15,7 @@ KO = datetime(2091, 10, 4, 0, 5)
 
 
 def k(sel, bid, ask, at, source="kalshi"):
-    return NS(source=source, selection=sel, yes_bid=bid, yes_ask=ask, captured_at=at, market="1X2", devig_prob=0.5)
+    return NS(source=source, selection=sel, yes_bid=bid, yes_ask=ask, captured_at=at, market="ML", devig_prob=0.5)
 
 
 def test_mid_of_the_last_two_sided_pre_pitch_home_quote():
@@ -62,10 +62,12 @@ def _mlb(s, tag):
     return m
 
 
-def _kalshi_rows(s, m):
-    s.add(OddsSnapshot(match_id=m.id, market="1X2", selection="HOME", devig_prob=0.46, n_books=1,
+def _kalshi_rows(s, m, market="ML"):
+    """Two-way Kalshi legs as sync_kalshi_mlb stores them: market "ML" (Codex on #278 — the first tests
+    used 1X2 rows, which no real two-way sync writes)."""
+    s.add(OddsSnapshot(match_id=m.id, market=market, selection="HOME", devig_prob=0.46, n_books=1,
                        captured_at=KO - timedelta(hours=1), source="kalshi", yes_bid=0.45, yes_ask=0.47))
-    s.add(OddsSnapshot(match_id=m.id, market="1X2", selection="AWAY", devig_prob=0.54, n_books=1,
+    s.add(OddsSnapshot(match_id=m.id, market=market, selection="AWAY", devig_prob=0.54, n_books=1,
                        captured_at=KO - timedelta(hours=1), source="kalshi", yes_bid=0.52, yes_ask=0.55))
 
 
@@ -109,3 +111,26 @@ def test_books_win_over_kalshi_and_say_so():
         blk = grading_close_block(s, m)
     assert cl["reference"] == "books" and cl["fair"]["HOME"] == pytest.approx(0.6)
     assert blk["close_reference"] == "books" and "close_kalshi" not in blk
+
+
+def test_real_two_way_kalshi_rows_are_market_ml_and_reach_the_grading_close():
+    """Codex on #278 (P1, verified): sync_kalshi_mlb (and the shared NFL/NHL/NCAA matcher) store Kalshi legs as
+    market "ML"; a 1X2-only query dropped every one, so the kalshi_only close never fired on real data. The
+    grading close and the CLV restate now read Kalshi ML rows; a non-Kalshi ML row never becomes a book close."""
+    import inspect
+
+    from src.ingestion import kalshi_sync
+    assert 'market="ML"' in inspect.getsource(kalshi_sync)                  # the stored vocabulary, read
+    from src.walters.clv_restate import _close_for
+    init_db()
+    with session_scope() as s:
+        m = _mlb(s, "ml")
+        _kalshi_rows(s, m, market="ML")
+        s.add(OddsSnapshot(match_id=m.id, market="ML", selection="HOME", devig_prob=0.6, n_books=3,
+                           captured_at=KO - timedelta(hours=2), source="books-ml"))   # not a 1X2 book session
+        s.flush()
+        cl = grading_close(s, m)
+        snaps = list(s.query(OddsSnapshot).filter(OddsSnapshot.match_id == m.id))
+        rc = _close_for([], snaps, m)
+    assert priced(cl) and cl["reference"] == "kalshi_only" and cl["fair"]["HOME"] == pytest.approx(0.46)
+    assert priced(rc) and rc["source"] == "kalshi_only" and rc["fair"]["HOME"] == pytest.approx(0.46)

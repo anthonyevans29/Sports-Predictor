@@ -24,7 +24,8 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from src.walters.close import CAPTURE_SESSION, close_1x2, close_from_kalshi, close_from_snapshots, outcomes_for, priced
+from src.walters.close import (CAPTURE_SESSION, close_1x2, close_from_kalshi, close_from_snapshots,
+                               kalshi_close_market_filter, outcomes_for, priced)
 
 LINE_MARKETS_HINT = ("TOTALS", "SPREADS", "OU_", "SPREAD")
 
@@ -110,7 +111,7 @@ def _close_for(odds_rows, snaps, match):
     if priced(cl):
         return cl
     snaps = list(snaps or [])
-    book = [x for x in snaps if getattr(x, "source", None) != "kalshi"]
+    book = [x for x in snaps if getattr(x, "source", None) != "kalshi" and getattr(x, "market", None) == "1X2"]
     sn = close_from_snapshots(book, match.utc_date, oc_)
     if sn is not None:
         return sn
@@ -159,7 +160,7 @@ def restate(apply: bool = False) -> dict:
         for o in s.execute(select(Odds).where(Odds.market == "1X2", Odds.match_id.in_(ids))).scalars():
             odds_by[o.match_id].append(o)
         snaps_by: dict = defaultdict(list)
-        for x in s.execute(select(OddsSnapshot).where(OddsSnapshot.market == "1X2",       # Kalshi rows too:
+        for x in s.execute(select(OddsSnapshot).where(kalshi_close_market_filter(OddsSnapshot),  # + Kalshi ML:
                                                       OddsSnapshot.match_id.in_(ids))).scalars():  # kalshi_only close
             snaps_by[x.match_id].append(x)
         for oc, pred, m in rows:

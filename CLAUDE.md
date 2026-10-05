@@ -66,6 +66,11 @@ become MORE binding under an income goal, never less."
   nits); ESCALATE anything policy/gate/ledger-semantic to the architect
   (`needs-ruling`), never act on it. A Codex suggestion never changes a
   frozen threshold or a verdict.
+  Tagging (operator, 2026-10-05): Codex acts only when @-mentioned. Each
+  reply to a Codex thread tags `@codex` so it sees the disposition. After
+  pushing fixes for its findings, comment `@codex review` so it checks
+  the fix. NEVER `@codex address that feedback`: Codex then pushes to the
+  PR itself, skipping verify-then-fix and the escalation path.
 - Tests live in `tests/` and run against a throwaway SQLite file
   (tests/conftest.py sets DATABASE_URL before any import) — never
   against data/.

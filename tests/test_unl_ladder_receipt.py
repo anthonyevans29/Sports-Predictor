@@ -199,3 +199,19 @@ def test_malformed_since_is_a_usage_error():
     import cli
     r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", "2026-13-40"])
     assert r.exit_code == 2 and "--since" in r.output and "not an ISO date-time" in r.output
+
+
+def test_book_probability_printed_even_when_a_kalshi_leg_is_missing():
+    """Codex on #291, round 5 (verified): an incomplete capture still prints every book leg."""
+    from types import SimpleNamespace as NS
+    ko = CUT + timedelta(days=1)
+    m = NS(id=9, utc_date=ko, status=MatchStatus.FINISHED, home_team=None, away_team=None)
+    at = CUT + timedelta(hours=1)
+    legs = [NS(id=i, source="kalshi", market="1X2", selection=k, captured_at=at, yes_bid=0.3, yes_ask=0.31)
+            for i, k in enumerate(("HOME", "DRAW"))]                       # AWAY leg missing
+    book = [NS(id=10 + i, source="odds_api", market="1X2", selection=k, captured_at=at - timedelta(hours=1),
+               devig_prob=p, n_books=5) for i, (k, p) in enumerate(zip(U.LEGS, (0.5, 0.3, 0.2)))]
+    row = U.game_row(m, legs + book, {0: "KXUEFANLGAME-X-H", 1: "KXUEFANLGAME-X-D"}, CUT)
+    txt = U.format_receipt({"competition": "UNL", "since": CUT, "n": 30, "rows": [row], "sample": [],
+                            "complete": False}, with_test=False)
+    assert "AWAY no Kalshi leg · book 20.0%" in txt

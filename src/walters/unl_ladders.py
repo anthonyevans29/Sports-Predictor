@@ -179,10 +179,10 @@ def format_receipt(r: dict, with_test: bool) -> str:
                    f"two-sided {'yes' if row['two_sided'] else 'NO'} · {tag}")
         for k in LEGS:
             lg = row["legs"].get(k)
-            out.append(f"    {k:<4} " + ("no leg" if lg is None else
+            out.append(f"    {k:<4} " + ("no Kalshi leg" if lg is None else
                        f"bid {f(lg['bid'])} ask {f(lg['ask'])} spread {f(lg['spread_c'], 1)}c "
-                       f"{'two-sided' if lg['two_sided'] else 'ONE-SIDED'}"
-                       + (f" · book {row['book'][k] * 100:.1f}%" if row["book"] else "")))
+                       f"{'two-sided' if lg['two_sided'] else 'ONE-SIDED'}")
+                       + (f" · book {row['book'][k] * 100:.1f}%" if row["book"] else ""))   # book shown either way
         if row["qualifies"]:
             out.append(f"    favorite {row['favorite']} · gap (Kalshi − book) {row['gap_pp']:+.2f}pp")
         else:

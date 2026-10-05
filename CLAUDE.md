@@ -66,11 +66,16 @@ become MORE binding under an income goal, never less."
   nits); ESCALATE anything policy/gate/ledger-semantic to the architect
   (`needs-ruling`), never act on it. A Codex suggestion never changes a
   frozen threshold or a verdict.
-  Tagging (operator, 2026-10-05): Codex acts only when @-mentioned. Each
-  reply to a Codex thread tags `@codex` so it sees the disposition. After
-  pushing fixes for its findings, comment `@codex review` so it checks
-  the fix. NEVER `@codex address that feedback`: Codex then pushes to the
-  PR itself, skipping verify-then-fix and the escalation path.
+  Tagging (ARCHITECT, 2026-10-05): the ONLY mention is the review-request
+  phrase `@codex review`, posted once as its own comment after pushing
+  fixes for Codex's findings. Thread replies NEVER contain the handle, in
+  any formatting (backticks and quotes included): any other mention starts
+  a Codex cloud task, which tried to run on all nine tagged replies of
+  2026-10-05 and on one reply that only quoted the phrase.
+- **Sweep (ARCHITECT, 2026-10-05):** an UNANSWERED Codex thread on a
+  MERGED PR is a finding in its own right: verify it, then fix it in a
+  follow-up PR or escalate it. #278's missed P1 left a grading close that
+  never fired on main for three hours (fixed in #288).
 - Tests live in `tests/` and run against a throwaway SQLite file
   (tests/conftest.py sets DATABASE_URL before any import) — never
   against data/.

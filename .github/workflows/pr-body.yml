@@ -1,0 +1,25 @@
+# LEDGER rule 5, enforced (operator review on #273/#274, 2026-10-05): GitHub
+# closes an Issue named after a closing keyword ANYWHERE in a PR body, even
+# after a "not". A closing keyword + ref is allowed only on a declared closure
+# line ("Closes #N" starting the line). Re-runs when the description is edited.
+name: pr-body
+
+on:
+  pull_request:
+    types: [opened, edited, reopened, synchronize]
+
+permissions:
+  contents: read
+
+jobs:
+  closing-refs:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: {python-version: "3.12"}
+      - name: Closing keywords only on declared closure lines
+        env:
+          # the body travels as env, never interpolated into the shell line
+          PR_BODY: ${{ github.event.pull_request.body }}
+        run: python scripts/ledger.py check-body

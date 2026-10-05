@@ -57,6 +57,12 @@ DIMENSIONS = ("track", "class", "sport", "size")
 CLOSES = re.compile(r"^[ \t]*(?:[-*][ \t]+)?(?:ledger:[ \t]*)?(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)"
                     r"[ \t]*:?[ \t]+((?:#\d+\b(?:[ \t]*(?:,|and)[ \t]*)?)+)", re.I | re.M)
 RESOLVES_LIMITATION = re.compile(r"\bresolves\s+limitation\b", re.I)
+# GitHub's OWN closing-keyword detection (LEDGER rule 5): a keyword then an Issue
+# ref ANYWHERE in a PR body, even after a "not". #273, #274 and #275 each wrote
+# a negated "does not <keyword> #N" and GitHub closed #85, #211 and #276 on merge
+# (2026-10-05). Only refs inside a declared closure line (CLOSES) may follow one.
+GH_CLOSING = re.compile(r"\b(?:close[sd]?|fix(?:e[sd])?|resolve[sd]?)\b[ \t]*:?[ \t]*"
+                        r"(?:https?://github\.com/[\w.-]+/[\w.-]+/issues/\d+|(?:[\w.-]+/[\w.-]+)?#\d+)", re.I)
 ARCHITECT_QUOTE = re.compile(r"\bARCHITECT\b")
 MARKER = "<!-- ledger:{} -->"
 
@@ -104,6 +110,20 @@ def prefix_labels(title: str, tax: dict) -> list[str]:
 
 def closes_refs(body: str) -> list[int]:
     return sorted({int(n) for refs in CLOSES.findall(body or "") for n in re.findall(r"#(\d+)", refs)})
+
+
+def stray_closing_refs(body: str) -> list[str]:
+    """PR-body lint (operator review, 2026-10-05): every closing keyword + Issue
+    ref that is NOT part of a declared closure line ("Closes #N" starting the
+    line). GitHub would close those Issues on merge; mention them as `Refs #N`."""
+    body = body or ""
+    declared = set()
+    for m in CLOSES.finditer(body):
+        lead = GH_CLOSING.search(body, m.start(), m.end())
+        if lead:
+            declared.add(lead.start())
+    return [f"line {body.count(chr(10), 0, m.start()) + 1}: {m.group(0)!r}"
+            for m in GH_CLOSING.finditer(body) if m.start() not in declared]
 
 
 def resolves_limitation(body: str) -> bool:
@@ -600,6 +620,18 @@ def main(argv=None) -> int:
         sys.path.insert(0, str(Path(__file__).resolve().parent))   # local and offline: no token needed
         import ledger_fragments
         return ledger_fragments.main(argv)
+    if mode == "check-body":                     # LEDGER rule 5, enforced: offline, body via env
+        stray = stray_closing_refs(os.environ.get("PR_BODY", ""))
+        if stray:
+            print("✗ REFUSED: closing keyword + Issue ref outside a declared closure line. GitHub closes "
+                  "these on merge even after a \"not\" (LEDGER rule 5). Mention a still-open Issue as "
+                  "`Refs #N` (e.g. \"Outstanding work remains on #N\"); declare a real close on its own "
+                  "line starting `Closes #N`.")
+            for x in stray:
+                print(f"  {x}")
+            return 1
+        print(f"✓ PR body: closing refs only on declared closure lines {closes_refs(os.environ.get('PR_BODY', ''))}")
+        return 0
     tax = load()
     repo = os.environ["GITHUB_REPOSITORY"]
     gh = GH(os.environ["GITHUB_TOKEN"], repo)

@@ -37,6 +37,12 @@ the milestones and the board shape. #74 is the sole ledger mechanism
    (ratified 2026-10-01). GitHub reads `close #N` / `fixes #N` anywhere in
    a PR body, even after a "not", as a closing keyword. The #156 → #155
    incident is the precedent.
+   **Enforced (2026-10-05):** the `pr-body` check rejects a closing
+   keyword + Issue ref anywhere except a declared closure line (a line
+   starting `Closes #N`, optionally after `Ledger:` or a list marker). It
+   re-runs when the description is edited. Write a still-open Issue as
+   "Outstanding work remains on #N". (#273, #274 and #275 closed #85, #211
+   and #276 on merge with a negated phrase.)
 6. **Ruling-backed hand-closes open their comment with the word
    `ARCHITECT`.** The bot matches `\bARCHITECT\b` case-sensitively; a
    lowercase "architect" gets reopened (the #150 / #155 incident,

@@ -138,8 +138,12 @@ def test_review_fixes_partial_tickers_offsets_missing_comp_and_frozen_refusal(mo
         == "UNL ladder receipt · REFUSED: competition UNL not in DB"
     r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--skew-test", "--n", "1"])
     assert r.exit_code == 2 and "frozen cohort" in r.output
+    seen = {}                                                              # self-contained: no UNL row needed
+    monkeypatch.setattr(U, "receipt", lambda s, since, n: seen.update(since=since, n=n) or
+                        {"competition": "UNL", "since": since, "n": n, "rows": [], "sample": [], "complete": False})
     r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", "2026-10-05T17:00:00+00:00", "--skew-test"])
     assert r.exit_code == 0, r.output                                      # the frozen cutoff, offset form
+    assert seen == {"since": U.FREEZE_CUTOFF, "n": U.SAMPLE_N}
 
 
 def test_second_review_fixes_boundary_n_and_ci_precision():

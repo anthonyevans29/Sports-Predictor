@@ -1381,9 +1381,15 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
         console.print(f"[red]REFUSED: --skew-test runs only on the frozen cohort (cutoff "
                       f"{FREEZE_CUTOFF:%Y-%m-%dT%H:%MZ}, n {SAMPLE_N}); drop --since/--n.[/red]")
         raise SystemExit(2)
-    if out_path and (out_path.startswith("data/") or "/data/" in out_path):
-        console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
-        raise SystemExit(2)
+    if out_path:                                  # resolved, so a symlink or a cwd inside data/ cannot slip by
+        from pathlib import Path as _P
+
+        from src.walters.unl_ladders import data_dir
+        _data = data_dir()
+        _tgt = _P(out_path).resolve()
+        if _tgt == _data or _data in _tgt.parents:
+            console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+            raise SystemExit(2)
     with session_scope() as s:
         text_ = format_receipt(receipt(s, since=cut, n=n), with_test=skew_test)
     console.print(text_, markup=False, highlight=False)

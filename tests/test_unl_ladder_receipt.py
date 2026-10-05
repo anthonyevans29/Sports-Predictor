@@ -80,7 +80,7 @@ def test_receipt_rows_sample_and_every_exclusion_reason(monkeypatch):
     assert ok["legs"]["HOME"] == {"bid": 0.65, "ask": 0.66, "spread_c": 1.0, "two_sided": True,
                                   "ticker": "KXUEFANLGAME-94OCTok-HOM"}
     kn = 0.655 / (0.655 + 0.215 + 0.135)                                  # three-leg normalized mid
-    assert abs(ok["gap_pp"] - round((kn - 0.62) * 100, 3)) < 1e-9
+    assert abs(ok["gap_pp"] - (kn - 0.62) * 100) < 1e-12                   # full precision, never rounded
     assert rows[ids["one"]]["reason"] == "one-sided board (ruling 2)" and not rows[ids["one"]]["two_sided"]
     assert rows[ids["old"]]["reason"] == "last Kalshi capture not after the freeze cutoff"
     assert rows[ids["ser"]]["reason"].startswith("series KXCONCACAFNLGAME is not KXUEFANLGAME")
@@ -158,3 +158,35 @@ def test_second_review_fixes_boundary_n_and_ci_precision():
     assert CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--n", "0"]).exit_code == 2
     t = U.skew_test([0.0001 + 0.000001 * i for i in range(30)])          # bounds just above zero
     assert t["verdict"] == "STRUCTURAL" and t["ci95"][0] > 0 and round(t["ci95"][0], 3) == 0.0
+
+
+def test_third_review_fixes_precision_seconds_and_resolved_data_guard(tmp_path, monkeypatch):
+    """Codex on #291, round 3 (verified): the bootstrap gets UNROUNDED gaps; receipt timestamps keep
+    seconds; the data/ guard resolves the target, so a symlink or a cwd inside data/ cannot bypass it."""
+    from types import SimpleNamespace as NS
+
+    from click.testing import CliRunner
+
+    import cli
+    ko = CUT + timedelta(days=1)
+    m = NS(id=7, utc_date=ko, status=MatchStatus.FINISHED, home_team=None, away_team=None)
+    at = CUT + timedelta(seconds=30)
+    legs = [NS(id=i, source="kalshi", market="1X2", selection=k, captured_at=at, yes_bid=b, yes_ask=b + 0.01)
+            for i, (k, b) in enumerate(zip(U.LEGS, (0.5, 0.29, 0.19)))]
+    book = [NS(id=10 + i, source="odds_api", market="1X2", selection=k, captured_at=at - timedelta(hours=1),
+               devig_prob=p, n_books=5) for i, (k, p) in enumerate(zip(U.LEGS, (0.505, 0.3, 0.195)))]
+    row = U.game_row(m, legs + book, {i: f"KXUEFANLGAME-X-{i}" for i in range(3)}, CUT)
+    assert row["qualifies"] and row["gap_pp"] != round(row["gap_pp"], 3)    # carried unrounded
+    txt = U.format_receipt({"competition": "UNL", "since": CUT, "n": 30, "rows": [row], "sample": [row],
+                            "complete": False}, with_test=False)
+    assert "capture 2094-10-05T17:00:30Z" in txt                            # seconds kept
+    data = tmp_path / "data"                     # a stand-in: the real data/ is never touched (law 5)
+    data.mkdir()
+    monkeypatch.setattr(U, "data_dir", lambda: data.resolve())
+    link = tmp_path / "current"
+    link.symlink_to(data, target_is_directory=True)
+    r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--out", str(link / "x.txt")])
+    assert r.exit_code == 2 and "REFUSED" in r.output and not (data / "x.txt").exists()
+    monkeypatch.chdir(data)
+    r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--out", "y.txt"])
+    assert r.exit_code == 2 and not (data / "y.txt").exists()

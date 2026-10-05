@@ -27,6 +27,12 @@ BOOT_B = 10_000
 BOOT_SEED = 20261005
 
 
+def data_dir():
+    """The project's data/ directory, resolved (law 5: receipts never land under it)."""
+    from pathlib import Path
+    return (Path(__file__).resolve().parents[2] / "data").resolve()
+
+
 def to_naive_utc(dt: datetime) -> datetime:
     """The DB stores naive UTC; an offset-bearing cutoff is converted, never compared aware."""
     from datetime import timezone
@@ -106,8 +112,8 @@ def game_row(m, snaps, tickers: dict, since: datetime) -> dict:
             row["reason"] = "tied book favorite"
         else:
             fav = ranked[0]
-            row.update(favorite=fav, kalshi_norm=kn, gap_pp=round((kn[fav] - row["book"][fav]) * 100, 3),
-                       qualifies=True)
+            # full precision: the frozen test bootstraps these values; rounding is display-only (Codex on #291)
+            row.update(favorite=fav, kalshi_norm=kn, gap_pp=(kn[fav] - row["book"][fav]) * 100, qualifies=True)
     return row
 
 
@@ -160,16 +166,16 @@ def format_receipt(r: dict, with_test: bool) -> str:
     if r.get("error"):
         return f"UNL ladder receipt · REFUSED: {r['error']}"
     out = [f"UNL ladder receipt · competition {r['competition']} · games kicking off after "
-           f"{r['since']:%Y-%m-%dT%H:%MZ} · sample = first {r['n']} qualifying "
+           f"{r['since']:%Y-%m-%dT%H:%M:%SZ} · sample = first {r['n']} qualifying "
            f"(docs/specs/unl-venue-skew-test.md)"]
 
     def f(v, nd=2):
         return "—" if v is None else f"{v:.{nd}f}"
     for row in r["rows"]:
         tag = "SAMPLE" if row in r["sample"] else ("qualifies (beyond n)" if row["qualifies"] else "excluded")
-        cap = f"{row['captured_at']:%Y-%m-%dT%H:%MZ}" if row["captured_at"] else "—"
+        cap = f"{row['captured_at']:%Y-%m-%dT%H:%M:%SZ}" if row["captured_at"] else "—"
         out.append(f"- match {row['match_id']} {row['away']} @ {row['home']} · kickoff "
-                   f"{row['kickoff']:%Y-%m-%dT%H:%MZ} · capture {cap} · series {row['series'] or '—'} · "
+                   f"{row['kickoff']:%Y-%m-%dT%H:%M:%SZ} · capture {cap} · series {row['series'] or '—'} · "
                    f"two-sided {'yes' if row['two_sided'] else 'NO'} · {tag}")
         for k in LEGS:
             lg = row["legs"].get(k)

@@ -31,6 +31,15 @@ def test_mid_of_the_last_two_sided_pre_pitch_home_quote():
     assert cl["captured_at"] == KO - timedelta(hours=1)
 
 
+def test_the_desks_2c_spread_cap_applies_to_the_grading_close():
+    """ARCHITECT 2026-10-05 (#278): "apply the SAME 2c spread cap to the grading close — a wide Kalshi mid is
+    not a reference anywhere." The LAST two-sided quote decides; an older tighter one is never substituted."""
+    assert close_from_kalshi([k("HOME", 0.45, 0.47, KO - timedelta(hours=1))], KO, BINARY) is not None     # 2c
+    assert close_from_kalshi([k("HOME", 0.45, 0.48, KO - timedelta(hours=1))], KO, BINARY) is None         # 3c
+    snaps = [k("HOME", 0.45, 0.46, KO - timedelta(hours=3)), k("HOME", 0.40, 0.50, KO - timedelta(hours=1))]
+    assert close_from_kalshi(snaps, KO, BINARY) is None                  # last quote 10c wide: no close
+
+
 def test_no_two_sided_quote_or_three_way_board_is_no_close():
     assert close_from_kalshi([k("HOME", None, 0.5, KO - timedelta(hours=1))], KO, BINARY) is None
     assert close_from_kalshi([k("HOME", 0.4, 0.5, KO - timedelta(hours=1))], KO, THREE_WAY) is None

@@ -154,7 +154,8 @@ def close_from_snapshots(snaps, before: datetime | None, outcomes: tuple[str, ..
 
 
 KALSHI_ONLY_GRADE_RULING = ("ARCHITECT 2026-10-05: when no book session exists pre-pitch and a two-sided "
-                            "Kalshi capture does, grade against the Kalshi mid, labelled reference=kalshi_only")
+                            "Kalshi capture does, grade against the Kalshi mid, labelled reference=kalshi_only; "
+                            "the Desk's 2c spread cap applies")
 
 
 def close_from_kalshi(snaps, before: datetime | None, outcomes: tuple[str, ...]) -> dict | None:
@@ -163,8 +164,12 @@ def close_from_kalshi(snaps, before: datetime | None, outcomes: tuple[str, ...])
     Two-way boards only (a 3-way board has no derived price — the Desk's rule).
     The LAST pre-cutoff Kalshi HOME capture that is TWO-SIDED (yes bid AND yes
     ask stored) gives mid = (bid + ask) / 2; fair = {HOME: mid, AWAY: 1 − mid},
-    the Desk's kalshi_only_ref form. None when no such capture exists. The
-    spread is carried for the receipt (the ruling sets no spread bound)."""
+    the Desk's kalshi_only_ref form. None when no such capture exists.
+    SPREAD CAP (ARCHITECT 2026-10-05, on #278): "apply the SAME 2c spread cap to
+    the grading close — a wide Kalshi mid is not a reference anywhere." The
+    Desk's own cap (desk_policy.KALSHI_ONLY["maxSpreadC"], same cent rounding):
+    when the LAST two-sided quote is wider, there is no Kalshi close (an older,
+    tighter quote is stale, never substituted)."""
     if tuple(outcomes) != BINARY:
         return None
     pre = [x for x in snaps
@@ -173,10 +178,14 @@ def close_from_kalshi(snaps, before: datetime | None, outcomes: tuple[str, ...])
            and getattr(x, "yes_bid", None) is not None and getattr(x, "yes_ask", None) is not None]
     if not pre:
         return None
+    from src.walters.desk_policy import KALSHI_ONLY, js_round
+
     k = max(pre, key=lambda x: x.captured_at)
     bid, ask = float(k.yes_bid), float(k.yes_ask)
     if not (0.0 <= bid <= ask <= 1.0) or ask <= 0.0 or bid >= 1.0:
         return None
+    if js_round((ask - bid) * 100) > KALSHI_ONLY["maxSpreadC"]:
+        return None                                  # a wide mid is not a reference anywhere
     mid = (bid + ask) / 2
     return {"fair": {"HOME": mid, "AWAY": 1 - mid}, "books": 0, "books_quoted": 0, "captured_at": k.captured_at,
             "best": {}, "rows": [], "outcomes": BINARY, "missing": {}, "overround": None,

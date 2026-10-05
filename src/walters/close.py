@@ -158,6 +158,20 @@ KALSHI_ONLY_GRADE_RULING = ("ARCHITECT 2026-10-05: when no book session exists p
                             "the Desk's 2c spread cap applies")
 
 
+# Two-way Kalshi rows are stored as market "ML" (sync_kalshi_mlb and the shared
+# NFL/NHL/NCAA matcher); soccer's three-way legs as "1X2". Book snapshots are
+# 1X2 only. The grading close reads 1X2 rows plus Kalshi ML rows; filtering on
+# 1X2 alone dropped every two-way Kalshi quote (Codex on #278).
+KALSHI_CLOSE_MARKETS = ("1X2", "ML")
+
+
+def kalshi_close_market_filter(OddsSnapshot):
+    """SQL filter: every 1X2 snapshot, plus Kalshi's two-way ML rows."""
+    from sqlalchemy import and_, or_
+    return or_(OddsSnapshot.market == "1X2",
+               and_(OddsSnapshot.source == "kalshi", OddsSnapshot.market == "ML"))
+
+
 def close_from_kalshi(snaps, before: datetime | None, outcomes: tuple[str, ...]) -> dict | None:
     """KALSHI-ONLY GRADING CLOSE (ARCHITECT 2026-10-05, ruled after MLB 00:00Z
     rollover rows graded unpriced twice: the provider never posts pre-pitch).
@@ -174,6 +188,7 @@ def close_from_kalshi(snaps, before: datetime | None, outcomes: tuple[str, ...])
         return None
     pre = [x for x in snaps
            if getattr(x, "source", None) == "kalshi" and x.selection == "HOME" and x.captured_at is not None
+           and getattr(x, "market", None) in KALSHI_CLOSE_MARKETS
            and (before is None or x.captured_at < before)
            and getattr(x, "yes_bid", None) is not None and getattr(x, "yes_ask", None) is not None]
     if not pre:
@@ -218,8 +233,8 @@ def grading_close(s, match) -> dict | None:
         cl["source"], cl["reference"] = "odds", "books"
         return cl
     snaps = list(s.execute(select(OddsSnapshot).where(
-        OddsSnapshot.match_id == match.id, OddsSnapshot.market == "1X2")).scalars())
-    book_snaps = [x for x in snaps if x.source != "kalshi"]
+        OddsSnapshot.match_id == match.id, kalshi_close_market_filter(OddsSnapshot))).scalars())
+    book_snaps = [x for x in snaps if x.source != "kalshi" and x.market == "1X2"]
     sn = close_from_snapshots(book_snaps, match.utc_date, outcomes)
     if sn is not None:
         sn["reference"] = "books"

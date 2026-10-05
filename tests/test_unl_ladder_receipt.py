@@ -218,3 +218,18 @@ def test_book_probability_printed_even_when_a_kalshi_leg_is_missing():
     txt = U.format_receipt({"competition": "UNL", "since": CUT, "n": 30, "rows": [row], "sample": [],
                             "complete": False}, with_test=False)
     assert "AWAY no Kalshi leg · book 20.0%" in txt
+
+
+def test_refused_receipt_exits_nonzero_and_writes_nothing(tmp_path, monkeypatch):
+    """Codex on #291, round 7 (verified): a refused receipt (no UNL competition) exits 2 and is never
+    written to --out as though it were a receipt."""
+    from click.testing import CliRunner
+
+    import cli
+    init_db()
+    monkeypatch.setattr(U, "receipt", lambda s, since, n: {"competition": "UNL", "error":
+                        "competition UNL not in DB", "rows": [], "since": since, "n": n, "sample": [],
+                        "complete": False})
+    out = tmp_path / "r.txt"
+    r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--out", str(out)])
+    assert r.exit_code == 2 and "REFUSED" in r.output and not out.exists() and "receipt written" not in r.output

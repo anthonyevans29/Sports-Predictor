@@ -1396,8 +1396,11 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
             console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
             raise SystemExit(2)
     with session_scope() as s:
-        text_ = format_receipt(receipt(s, since=cut, n=n), with_test=skew_test)
+        res = receipt(s, since=cut, n=n)
+        text_ = format_receipt(res, with_test=skew_test)
     console.print(text_, markup=False, highlight=False)
+    if res.get("error"):                         # a refusal is never written as a receipt (Codex on #291)
+        raise SystemExit(2)
     if out_path:
         import os as _os
         _os.makedirs(_os.path.dirname(out_path) or ".", exist_ok=True)

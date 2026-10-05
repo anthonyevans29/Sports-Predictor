@@ -8,3 +8,4 @@
 - Review fix, round 4 (Codex on #291): a malformed `--since` is a Click usage error (exit 2), not a traceback.
 - Review fix, round 5 (Codex on #291): the receipt prints every leg's book probability even when that Kalshi leg is missing. Escalated (frozen definitions): one event ticker across the three legs, boundary quotes (0.00/1.00) as one-sided, and the 4-decimal tie rule.
 - Review fix, round 6 (Codex on #291): an explicitly empty `--since ""` is a usage error, not a silent fall-back to the frozen cutoff.
+- Review fix, round 7 (Codex on #291): a refused receipt (e.g. no UNL competition) exits 2 and is never written to `--out`.

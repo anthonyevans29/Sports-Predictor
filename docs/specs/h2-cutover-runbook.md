@@ -44,12 +44,16 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
   runs the parity harness on the host's tag in a scratch git worktree.
   - **(a)** the compare streak: per date both writers pushed, newest first,
     the verdict and the classes named for each divergent line, until 5 in a
-    row or the first break (a gap, a one-sided date, no coverage, or an
-    UNNAMED line).
+    row or the first break (a gap, no coverage, or an UNNAMED line). A date
+    only one writer pushed is pending only when it is TODAY (the declared
+    clock: the morning push may not have run yet); an older one is OVERDUE
+    and the streak reads 0, as it does when the newest common date is more
+    than a day old.
   - **(b)** the host's tag, days on it, `carries #246`, and desk calls per
     chain (chain receipts' exports, read from `host/<date>/` in the mirror).
-    A full day = a UTC day wholly on the tag, every chain exit 0, desk rows
-    emitted.
+    A full day = a UTC day wholly on the tag with at least one chain that
+    COMPLETED (an explicit integer exit 0, nothing refused, every counted step
+    run), none failed (a missing exit is a failure), desk rows emitted.
   - **(c)** `scripts/desk_parity_verify.py` on the tag's own code.
   - Last line: `GO — …` or `NOT-YET — <each unmet criterion>`. Exit 0 / 1.
   - The tool names only identical, capture timing (market / Kalshi / price

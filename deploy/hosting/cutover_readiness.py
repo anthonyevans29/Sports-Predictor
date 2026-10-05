@@ -148,8 +148,10 @@ def mirror_dates(mirror: Path) -> tuple[list[str], list[str]]:
 
 def streak(mirror: Path, named: dict, today: date) -> dict:
     """Per date (newest first) back to the first break: the compare and whether
-    it counts. A date one writer has not pushed, or a calendar gap, breaks the
-    streak; today is skipped while the laptop has not pushed it yet."""
+    it counts. A calendar gap breaks the streak. A date only one writer pushed
+    is PENDING only when it is today (the declared clock: the morning push may
+    not have run yet); an older one is OVERDUE and the streak reads 0, as it
+    does when the newest common date is more than a day old (stale)."""
     lap, hos = mirror_dates(mirror)
     both = sorted(set(lap) & set(hos), reverse=True)
     days, run, prev = [], 0, None
@@ -175,8 +177,24 @@ def streak(mirror: Path, named: dict, today: date) -> dict:
         if run >= STREAK:
             break
     newest = both[0] if both else None
-    pending = [d for d in sorted(set(lap) ^ set(hos), reverse=True) if not newest or d > newest]
-    return {"days": days, "run": run, "pending": pending, "laptop_dates": len(lap), "host_dates": len(hos)}
+    one_sided = sorted(set(lap) ^ set(hos), reverse=True)
+    pending = [d for d in one_sided if not newest or d > newest]
+    # #273 review: only TODAY's one-sided date (by the declared clock) is a pending morning push; an
+    # older one newer than the last compare is OVERDUE, and the streak must end at the latest morning.
+    t = today.isoformat()
+    overdue = [d for d in pending if d < t]
+    stale = None
+    if newest and not overdue:
+        lag = (today - date.fromisoformat(newest)).days
+        if lag > 1:
+            stale = f"stale: the newest compare {newest} is {lag} days before today {t}"
+    if overdue or stale or not newest:
+        why = (f"overdue one-sided date(s) {', '.join(overdue)} (only one writer pushed; not today's pending "
+               f"morning)") if overdue else stale or "no date pushed by both writers"
+        days = [{"date": overdue[0] if overdue else t, "break": why}] + days
+        run = 0
+    return {"days": days, "run": run, "pending": [d for d in pending if d >= t], "overdue": overdue,
+            "laptop_dates": len(lap), "host_dates": len(hos)}
 
 
 # ------------------------------------------------------------ (b) host on tag
@@ -222,6 +240,25 @@ def desk_rows(path: Path) -> Counter | None:
     return Counter(r["desk"].get("call") for r in rows if isinstance(r, dict) and isinstance(r.get("desk"), dict))
 
 
+def chain_state(r: dict) -> str:
+    """#273 review: success is EXPLICIT — exit is the integer 0, nothing refused, and (when the receipt
+    counts steps) every step ran. A missing or non-integer exit is a failure, never a pass (law 4).
+    A season-gated skip (exit 0 + skipped) is neither: it completes nothing."""
+    ex = r.get("exit")
+    if r.get("refused"):
+        return "failed (refused)"
+    if not isinstance(ex, int) or isinstance(ex, bool):
+        return "failed (exit missing)"
+    if ex != 0:
+        return f"failed (exit {ex})"
+    if r.get("skipped"):
+        return "skipped"
+    ok, tot = r.get("steps_ok"), r.get("steps_total")
+    if isinstance(ok, int) and isinstance(tot, int) and ok != tot:
+        return f"failed (steps {ok}/{tot})"
+    return "completed"
+
+
 def host_state(recs: list[dict], mirror: Path, now: datetime) -> dict:
     """The host's running tag (newest receipt), when it went onto it, and per
     UTC day on that tag: chains, failures, desk rows per chain."""
@@ -253,10 +290,12 @@ def host_state(recs: list[dict], mirror: Path, now: datetime) -> dict:
             seen_files += 1
             desk.update(got)
         rows = sum(desk.values())
-        day["desk_rows"] += rows
-        day["failed"] += 1 if r.get("exit") not in (0, None) else 0
+        state = chain_state(r)
+        day["desk_rows"] += rows if state == "completed" else 0
+        day["failed"] += 1 if state.startswith("failed") else 0
+        day["completed"] = day.get("completed", 0) + (state == "completed")
         day["chains"].append({"unit": r.get("unit"), "run_id": r.get("run_id"), "exit": r.get("exit"),
-                              "skipped": r.get("skipped") or r.get("refused"), "desk_rows": rows,
+                              "state": state, "skipped": r.get("skipped") or r.get("refused"), "desk_rows": rows,
                               "calls": dict(desk), "files_read": seen_files})
     t0 = datetime.fromisoformat(since.replace("Z", "+00:00"))
     if t0.tzinfo is None:
@@ -264,7 +303,7 @@ def host_state(recs: list[dict], mirror: Path, now: datetime) -> dict:
     first_full = (t0 + timedelta(days=1)).date().isoformat() if (t0.hour, t0.minute, t0.second) != (0, 0, 0) \
         else t0.date().isoformat()
     full = [d for d in sorted(days) if first_full <= d < now.date().isoformat()
-            and days[d]["chains"] and days[d]["failed"] == 0 and days[d]["desk_rows"] > 0]
+            and days[d].get("completed") and days[d]["failed"] == 0 and days[d]["desk_rows"] > 0]
     hosts = sorted({r.get("host") for r in on if r.get("host")})
     return {"tag": tag, "since": since, "days_on": round((now - t0).total_seconds() / 86400, 1),
             "days": days, "full_days": full, "hosts": hosts}
@@ -338,7 +377,8 @@ def main(argv=None) -> int:
         print(f"    mirror HEAD: {head if rc == 0 else 'not a git clone (read as a folder)'}")
         s = streak(a.mirror, named, today)
         print(f"    dated folders: laptop {s['laptop_dates']} · host {s['host_dates']}"
-              + (f" · pending (one side only): {', '.join(s['pending'])}" if s["pending"] else ""))
+              + (f" · pending (today's morning push, one side only): {', '.join(s['pending'])}" if s["pending"] else "")
+              + (f" · OVERDUE (one side only): {', '.join(s['overdue'])}" if s["overdue"] else ""))
         for r in s["days"]:
             if "break" in r:
                 print(f"    ✗ {r['break']}")
@@ -354,7 +394,8 @@ def main(argv=None) -> int:
         print(f"    streak: {s['run']}/{STREAK} consecutive"
               + (f" ({ops} operator-named — the architect's reading decides)" if ops else ""))
         if s["run"] < STREAK:
-            unmet.append(f"(a) streak {s['run']}/{STREAK}")
+            unmet.append(f"(a) streak {s['run']}/{STREAK}" + (f" (overdue one-sided {', '.join(s['overdue'])})"
+                                                              if s["overdue"] else ""))
 
     # (b)
     rp = a.receipts or c.receipts_path()
@@ -372,13 +413,15 @@ def main(argv=None) -> int:
               f"{'yes' if car else 'NO' if car is False else 'unknown (tag not in this checkout — git fetch --tags)'}")
         for d in sorted(hs["days"]):
             day = hs["days"][d]
-            print(f"    {d}: {len(day['chains'])} chain(s) · failed {day['failed']} · desk rows {day['desk_rows']}")
+            print(f"    {d}: {len(day['chains'])} chain(s) · completed {day.get('completed', 0)} · "
+                  f"failed {day['failed']} · desk rows {day['desk_rows']}")
             for ch in day["chains"]:
                 calls = " · ".join(f"{k} {v}" for k, v in sorted(ch["calls"].items())) or "no desk blocks"
-                print(f"        {ch['unit'] or '?'} exit {ch['exit']}"
+                print(f"        {ch['unit'] or '?'} {ch['state']}"
                       + (f" ({ch['skipped']})" if ch["skipped"] else "")
                       + f" · desk: {calls} ({ch['files_read']} file(s) read)")
-        print(f"    full days on {tag} (every chain exit 0, desk calls emitted): "
+        print(f"    full days on {tag} (every chain completed with an explicit exit 0, none failed, desk calls "
+              f"emitted): "
               f"{', '.join(hs['full_days']) or 'none yet'}")
         if not c.release_key(tag):
             unmet.append(f"(b) host runs {tag}, not a release tag")

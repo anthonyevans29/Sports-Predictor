@@ -118,3 +118,45 @@ def test_carries_246_on_known_tags():
     # v1.2.2 is deployed and carries #246 when tags are present in the checkout; unknown otherwise
     assert cr.carries("v1.2.2") in (True, None)
     assert cr.carries("v0.0.0-nope") is None
+
+
+def test_missing_chain_exit_is_never_a_full_day(tmp_path, capsys):
+    """#273 review (reproduced on 9757e76c): a chain receipt with no exit was read as a success. Success is
+    explicit — integer exit 0, nothing refused, every counted step run; a missing exit is a failure."""
+    mirror = tmp_path / "m"
+    day(mirror, "2026-10-06")
+    base = {"release": "v1.2.2", "kind": "chain", "unit": "nfl", "exports": ["exports/nfl_2026-10-06.json"]}
+    now = cr.datetime(2026, 10, 7, 12, tzinfo=cr.timezone.utc)
+    deploy = {"ts": "2026-10-05T10:00:00Z", "release": "v1.2.2", "kind": "deploy"}
+    no_exit = cr.host_state([deploy, {**base, "ts": "2026-10-06T08:00:00Z"}], mirror, now)
+    assert no_exit["full_days"] == [] and no_exit["days"]["2026-10-06"]["chains"][0]["state"] == "failed (exit missing)"
+    partial = cr.host_state([deploy, {**base, "ts": "2026-10-06T08:00:00Z", "exit": 0, "steps_ok": 3,
+                                      "steps_total": 5}], mirror, now)
+    assert partial["full_days"] == [] and "steps 3/5" in partial["days"]["2026-10-06"]["chains"][0]["state"]
+    ok = cr.host_state([deploy, {**base, "ts": "2026-10-06T08:00:00Z", "exit": 0, "steps_ok": 5,
+                                 "steps_total": 5}], mirror, now)
+    assert ok["full_days"] == ["2026-10-06"]
+    rp = receipts(tmp_path, [deploy, {**base, "ts": "2026-10-06T08:00:00Z"}])
+    assert cr.main(["--mirror", str(mirror), "--receipts", str(rp), "--no-parity", "--today", "2026-10-09"]) == 1
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    assert last.startswith("NOT-YET") and "(b) no full day on v1.2.2 yet" in last
+
+
+def test_newer_one_sided_date_blocks_the_older_streak_unless_it_is_todays_pending_push(tmp_path, capsys):
+    """#273 review (reproduced on 9757e76c): a newer host-only date left the older five-day streak intact
+    and permitted GO. One-sided dates older than today (the declared clock) are OVERDUE and the streak reads
+    0; only today's one-sided date is a pending morning push."""
+    mirror = tmp_path / "m"
+    for d in ("2026-10-04", "2026-10-05", "2026-10-06", "2026-10-07", "2026-10-08"):
+        day(mirror, d)
+    put(mirror, "host", "2026-10-09", "nfl_2026-10-09.json", [game("Seattle", "Rams", 0.6, 0.55)])
+    overdue = cr.streak(mirror, {}, cr.date(2026, 10, 10))                  # 10-09 host-only, today 10-10
+    assert overdue["run"] == 0 and overdue["overdue"] == ["2026-10-09"] and "overdue" in overdue["days"][0]["break"]
+    pending = cr.streak(mirror, {}, cr.date(2026, 10, 9))                   # 10-09 IS today: pending, streak holds
+    assert pending["run"] == 5 and pending["pending"] == ["2026-10-09"] and pending["overdue"] == []
+    stale = cr.streak(mirror, {}, cr.date(2026, 10, 12))                    # nothing since 10-08 (10-09 overdue)
+    assert stale["run"] == 0
+    rp = receipts(tmp_path, [{"ts": "2026-10-05T10:00:00Z", "release": "v1.2.2", "kind": "deploy"}])
+    assert cr.main(["--mirror", str(mirror), "--receipts", str(rp), "--no-parity", "--today", "2026-10-10"]) == 1
+    last = capsys.readouterr().out.strip().splitlines()[-1]
+    assert last.startswith("NOT-YET") and "(a) streak 0/5 (overdue one-sided 2026-10-09)" in last

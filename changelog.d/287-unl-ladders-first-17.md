@@ -1,2 +1,2 @@
-## 2026-10-05 (UNL ladders: venue-eligibility measurement, first 17 games recorded — ARCHITECT)
+## 2026-10-05 (#287: UNL ladders: venue-eligibility measurement, first 17 games recorded — ARCHITECT)
 - Recorded only (no code): 17/18 two-sided, 1c spreads, median |book−Kalshi| 2.5pp (max 4.4pp), Kalshi sharper on favorites by 3–4pp. The 30-game review must first test whether the favorite skew is structural (favorite-longshot bias on three-way boards). UNL stays "never" for venue-edge. Tracked in #286.

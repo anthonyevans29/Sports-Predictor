@@ -380,10 +380,17 @@ def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_pat
                     ok_cls["re-pointed (rowid follows match_id)"] += 1
             # POST-BACKUP (ARCHITECT 2026-10-05): rowid above the backup's max = created by a later sync
             mx = max_rowid(pre_con, t)
+            # ...and only when it points at the KEEPER: no FK enforcement here, so a later row can still
+            # dangle on the merged-away id (Codex on #279) — that one is a destination failure
             post_backup = [nr for nr in new_rows if mx is not None and nr > mx]
+            dangling = [nr for nr in post_backup if post_rows[nr][0] != k["id"]]
+            post_backup = [nr for nr in post_backup if nr not in dangling]
             if post_backup:
                 ok_cls["created after the backup"] += len(post_backup)
-            unexplained = [nr for nr in new_rows if nr not in post_backup]
+            if dangling:
+                bad.append(f"rows {dangling[:5]} created after the backup still on merged match "
+                           f"{post_rows[dangling[0]][0]}")
+            unexplained = [nr for nr in new_rows if nr not in post_backup and nr not in dangling]
             bad += [f"row {rid} gone" for rid in sorted(gone)]
             if unexplained:
                 bad.append(f"rows {unexplained[:5]} not in the backup (rowid ≤ the backup's max {mx})")

@@ -1,0 +1,2 @@
+## 2026-10-05 (NCAA re-key receipt: post-backup rows count as accounted only on the keeper — Codex review on #279)
+- `ncaa_rekey_receipt.py --reconstruct-merges`: a reference row created after the backup (rowid above the backup's max) is accounted only when it points at the keeper. A post-backup row still on the merged-away id (no FK enforcement) is flagged and the reconstruction reads REVIEW. Test: `test_post_backup_row_dangling_on_the_merged_id_is_review` (fails on main, passes here).

@@ -1373,8 +1373,13 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
     Writes nothing to the DB."""
     from datetime import datetime as _dt
 
-    from src.walters.unl_ladders import FREEZE_CUTOFF, format_receipt, receipt
-    cut = _dt.fromisoformat(since.rstrip("Z")) if since else FREEZE_CUTOFF
+    from src.walters.unl_ladders import FREEZE_CUTOFF, SAMPLE_N, format_receipt, receipt, to_naive_utc
+    cut = to_naive_utc(_dt.fromisoformat(since[:-1] + "+00:00" if since.endswith("Z") else since)) \
+        if since else FREEZE_CUTOFF
+    if skew_test and (cut != FREEZE_CUTOFF or n != SAMPLE_N):     # Codex on #291: frozen means frozen
+        console.print(f"[red]REFUSED: --skew-test runs only on the frozen cohort (cutoff "
+                      f"{FREEZE_CUTOFF:%Y-%m-%dT%H:%MZ}, n {SAMPLE_N}); drop --since/--n.[/red]")
+        raise SystemExit(2)
     if out_path and (out_path.startswith("data/") or "/data/" in out_path):
         console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
         raise SystemExit(2)

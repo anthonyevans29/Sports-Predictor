@@ -27,6 +27,12 @@ BOOT_B = 10_000
 BOOT_SEED = 20261005
 
 
+def to_naive_utc(dt: datetime) -> datetime:
+    """The DB stores naive UTC; an offset-bearing cutoff is converted, never compared aware."""
+    from datetime import timezone
+    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo is not None else dt
+
+
 def series_of(ticker: str | None) -> str | None:
     """'KXUEFANLGAME-26OCT10ESPFRA-ESP' -> 'KXUEFANLGAME'."""
     return ticker.split("-", 1)[0] if ticker else None
@@ -70,7 +76,9 @@ def game_row(m, snaps, tickers: dict, since: datetime) -> dict:
         row["legs"][k] = {"bid": x.yes_bid, "ask": x.yes_ask,
                           "spread_c": round(spread, 1) if spread is not None else None,
                           "two_sided": x.yes_bid is not None and x.yes_ask is not None, "ticker": tk}
-    row["series"] = ",".join(sorted(s for s in series if s)) or None
+    # every present leg needs a stored ticker (Codex on #291): a missing one makes the
+    # series UNKNOWN, never certified by the legs that do carry one
+    row["series"] = None if (not series or None in series) else ",".join(sorted(series))
     cl = _book_session(book, m.utc_date)
     if cl is not None:
         row["book"] = {k: cl["fair"][k] for k in LEGS}
@@ -116,7 +124,8 @@ def receipt(s, competition: str = "UNL", since: datetime = FREEZE_CUTOFF, n: int
     now = now or utc_now_naive()
     comp = s.execute(select(Competition).where(Competition.code == competition)).scalars().first()
     if comp is None:
-        return {"competition": competition, "error": f"competition {competition} not in DB", "rows": []}
+        return {"competition": competition, "error": f"competition {competition} not in DB", "rows": [],
+                "since": since, "n": n, "sample": [], "complete": False}
     games = list(s.execute(select(Match).where(
         Match.competition_id == comp.id, Match.utc_date > since, Match.utc_date <= now)
         .order_by(Match.utc_date, Match.id)).scalars())
@@ -147,11 +156,11 @@ def skew_test(gaps: list[float], b: int = BOOT_B, seed: int = BOOT_SEED) -> dict
 
 def format_receipt(r: dict, with_test: bool) -> str:
     """Plain text for the console and for docs/receipts/ (no DB path, no keys)."""
+    if r.get("error"):
+        return f"UNL ladder receipt · REFUSED: {r['error']}"
     out = [f"UNL ladder receipt · competition {r['competition']} · games kicking off after "
            f"{r['since']:%Y-%m-%dT%H:%MZ} · sample = first {r['n']} qualifying "
            f"(docs/specs/unl-venue-skew-test.md)"]
-    if r.get("error"):
-        return "\n".join(out + [f"REFUSED: {r['error']}"])
 
     def f(v, nd=2):
         return "—" if v is None else f"{v:.{nd}f}"

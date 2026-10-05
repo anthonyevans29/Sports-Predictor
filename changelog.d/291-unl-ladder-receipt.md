@@ -2,3 +2,4 @@
 - New CLI `unl-ladder-receipt` (`src/walters/unl_ladders.py`). Per UNL game after the freeze cutoff it shows the match, legs (bid/ask, spread, two-sided), capture time, series, book probability and favorite gap.
 - The sample is the first 30 games qualifying under `docs/specs/unl-venue-skew-test.md`; exclusion reasons are listed. `--skew-test` runs the frozen bootstrap test once the sample is complete. `--out` writes to `docs/receipts/` and refuses `data/`. Read-only.
 - Tests: `tests/test_unl_ladder_receipt.py` covers each exclusion reason, the three-leg normalized gap, a deterministic bootstrap (seed 20261005) and the CLI.
+- Review fixes (Codex on #291): a leg without a stored ticker makes the series UNKNOWN (never certified by the other legs); an offset-bearing `--since` is normalized to naive UTC; a DB without UNL prints `REFUSED` instead of a KeyError; `--skew-test` refuses unless the frozen cutoff and n 30 are in force.

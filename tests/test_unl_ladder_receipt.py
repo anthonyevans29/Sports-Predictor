@@ -114,3 +114,28 @@ def test_cli_writes_the_receipt_and_refuses_data(tmp_path, monkeypatch):
     bad = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--out", "data/x.txt"])
     assert bad.exit_code == 2 and "REFUSED" in bad.output
     _drop(cid)
+
+
+def test_review_fixes_partial_tickers_offsets_missing_comp_and_frozen_refusal(monkeypatch, tmp_path):
+    """Codex on #291 (verified): a leg without a stored ticker makes the series UNKNOWN; an offset-bearing
+    --since is normalized to naive UTC; a DB without UNL refuses cleanly; --skew-test refuses overrides."""
+    from types import SimpleNamespace as NS
+
+    from click.testing import CliRunner
+
+    import cli
+    ko = CUT + timedelta(days=1)
+    m = NS(id=1, utc_date=ko, status=MatchStatus.FINISHED, home_team=None, away_team=None)
+    legs = [NS(id=i, source="kalshi", market="1X2", selection=k, captured_at=ko - timedelta(hours=1),
+               yes_bid=0.3, yes_ask=0.31) for i, k in enumerate(U.LEGS)]
+    book = [NS(id=10 + i, source="odds_api", market="1X2", selection=k, captured_at=ko - timedelta(hours=2),
+               devig_prob=p, n_books=5) for i, (k, p) in enumerate(zip(U.LEGS, (0.5, 0.3, 0.2)))]
+    row = U.game_row(m, legs + book, {0: "KXUEFANLGAME-X-H", 1: "KXUEFANLGAME-X-D"}, CUT)   # AWAY untickered
+    assert row["series"] is None and not row["qualifies"] and "UNKNOWN" in row["reason"]
+    assert U.to_naive_utc(datetime.fromisoformat("2026-10-05T19:00:00+02:00")) == datetime(2026, 10, 5, 17, 0)
+    assert U.format_receipt({"competition": "UNL", "error": "competition UNL not in DB", "rows": []}, True) \
+        == "UNL ladder receipt · REFUSED: competition UNL not in DB"
+    r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--skew-test", "--n", "1"])
+    assert r.exit_code == 2 and "frozen cohort" in r.output
+    r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", "2026-10-05T17:00:00+00:00", "--skew-test"])
+    assert r.exit_code == 0, r.output                                      # the frozen cutoff, offset form

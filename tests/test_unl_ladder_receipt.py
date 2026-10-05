@@ -190,3 +190,12 @@ def test_third_review_fixes_precision_seconds_and_resolved_data_guard(tmp_path, 
     monkeypatch.chdir(data)
     r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--out", "y.txt"])
     assert r.exit_code == 2 and not (data / "y.txt").exists()
+
+
+def test_malformed_since_is_a_usage_error():
+    """Codex on #291, round 4 (verified): a malformed --since exits 2 with a usage message, not a traceback."""
+    from click.testing import CliRunner
+
+    import cli
+    r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", "2026-13-40"])
+    assert r.exit_code == 2 and "--since" in r.output and "not an ISO date-time" in r.output

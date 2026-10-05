@@ -1375,8 +1375,12 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
     from datetime import datetime as _dt
 
     from src.walters.unl_ladders import FREEZE_CUTOFF, SAMPLE_N, format_receipt, receipt, to_naive_utc
-    cut = to_naive_utc(_dt.fromisoformat(since[:-1] + "+00:00" if since.endswith("Z") else since)) \
-        if since else FREEZE_CUTOFF
+    try:
+        cut = to_naive_utc(_dt.fromisoformat(since[:-1] + "+00:00" if since.endswith("Z") else since)) \
+            if since else FREEZE_CUTOFF
+    except ValueError:                           # Codex on #291: a usage error, never a traceback
+        raise click.BadParameter(f"{since!r} is not an ISO date-time (e.g. 2026-10-05T17:00Z)",
+                                 param_hint="--since")
     if skew_test and (cut != FREEZE_CUTOFF or n != SAMPLE_N):     # Codex on #291: frozen means frozen
         console.print(f"[red]REFUSED: --skew-test runs only on the frozen cohort (cutoff "
                       f"{FREEZE_CUTOFF:%Y-%m-%dT%H:%MZ}, n {SAMPLE_N}); drop --since/--n.[/red]")

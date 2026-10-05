@@ -7,3 +7,4 @@
 - Review fixes, round 3 (Codex on #291): the bootstrap receives UNROUNDED gaps (rounding is display-only); receipt timestamps keep seconds; the `data/` guard compares the RESOLVED target with the resolved project `data/`, so a symlink or a cwd inside `data/` cannot bypass it (the test uses a temporary stand-in, never the real `data/`).
 - Review fix, round 4 (Codex on #291): a malformed `--since` is a Click usage error (exit 2), not a traceback.
 - Review fix, round 5 (Codex on #291): the receipt prints every leg's book probability even when that Kalshi leg is missing. Escalated (frozen definitions): one event ticker across the three legs, boundary quotes (0.00/1.00) as one-sided, and the 4-decimal tie rule.
+- Review fix, round 6 (Codex on #291): an explicitly empty `--since ""` is a usage error, not a silent fall-back to the frozen cutoff.

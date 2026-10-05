@@ -1376,8 +1376,9 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
 
     from src.walters.unl_ladders import FREEZE_CUTOFF, SAMPLE_N, format_receipt, receipt, to_naive_utc
     try:
+        # None = option omitted (the frozen cutoff); "" is operator input and must parse (Codex on #291)
         cut = to_naive_utc(_dt.fromisoformat(since[:-1] + "+00:00" if since.endswith("Z") else since)) \
-            if since else FREEZE_CUTOFF
+            if since is not None else FREEZE_CUTOFF
     except ValueError:                           # Codex on #291: a usage error, never a traceback
         raise click.BadParameter(f"{since!r} is not an ISO date-time (e.g. 2026-10-05T17:00Z)",
                                  param_hint="--since")

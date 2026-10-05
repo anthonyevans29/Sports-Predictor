@@ -200,6 +200,8 @@ def test_malformed_since_is_a_usage_error():
     import cli
     r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", "2026-13-40"])
     assert r.exit_code == 2 and "--since" in r.output and "not an ISO date-time" in r.output
+    r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", "", "--skew-test"])   # unset shell variable
+    assert r.exit_code == 2 and "not an ISO date-time" in r.output
 
 
 def test_book_probability_printed_even_when_a_kalshi_leg_is_missing():

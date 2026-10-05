@@ -394,14 +394,42 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
     from src.db.schema import Match as _M
     from src.ingestion import match_dedupe as md
 
+    from sqlalchemy.exc import OperationalError as _OpErr
+
     if apply:
         _verify_backup(backup_path, "matches", _M)
+    md.SKIPPED_ABSENT.clear()
+
+    def _schema_refusal(e):
+        # ARCHITECT 2026-10-05: refuse with the remedy, never a traceback; the transaction rolled back.
+        # #279 review (Codex P2): ONLY a missing table / column is "behind the code"; a locked or
+        # read-only DB, disk I/O and the rest keep their own diagnostic (re-raised as they are).
+        msg = str(getattr(e, "orig", e)).lower()
+        if not any(k in msg for k in ("no such table", "no such column", "has no column named")):
+            raise e
+        click.echo(f"REFUSED: the live DB is behind the code ({str(getattr(e, 'orig', e))[:160]}). Nothing was "
+                   "written (the transaction rolled back). Run `python cli.py init-db` (additive: creates "
+                   "missing tables; NEVER --force), or the pending migrate_*.py, then re-run.")
+        raise SystemExit(2)
+
     if orphans:
-        return _dedupe_orphans(competition_code, source, apply, sample)
+        try:
+            out = _dedupe_orphans(competition_code, source, apply, sample)
+        except _OpErr as e:
+            _schema_refusal(e)
+        if md.SKIPPED_ABSENT:
+            click.echo(f"  reference tables absent from the live DB, skipped (they hold no references; "
+                       f"`init-db` creates them): {sorted(md.SKIPPED_ABSENT)}")
+        return out
     try:
         r = md.run(competition_code, source=source, apply=apply, sample=sample)
     except ValueError as e:
         raise click.ClickException(str(e))
+    except _OpErr as e:
+        _schema_refusal(e)
+    if md.SKIPPED_ABSENT:
+        click.echo(f"  reference tables absent from the live DB, skipped (they hold no references; "
+                   f"`init-db` creates them): {sorted(md.SKIPPED_ABSENT)}")
     click.echo(f"DEDUPE-MATCHES {competition_code} ({source}) · {'APPLIED' if apply else 'DRY-RUN (nothing written)'}"
                f" · duplicate pairs {r['pairs']} · {r['report'] or 'nothing refused at detection'}")
     click.echo(f"  fields that differ across the pairs: {r['differs']}")

@@ -301,6 +301,12 @@ class OddsSnapshot(Base):
     # quoted. Added by migrate_kalshi_quotes.py.
     yes_bid: Mapped[float | None] = mapped_column(Float)
     yes_ask: Mapped[float | None] = mapped_column(Float)
+    # ORDER LINE (ARCHITECT 2026-10-04): odds_snapshots.market_ticker (added by
+    # migrate_kalshi_ticker.py) is deliberately NOT mapped here. The ORM names
+    # every mapped column in its INSERT (deferred or not), so a mapped column
+    # would break every snapshot insert on a DB that has not migrated yet. It is
+    # read and written by Core SQL only when it exists:
+    # src.db.database.write_kalshi_tickers / read_kalshi_tickers.
 
     match: Mapped[Match] = relationship()
 

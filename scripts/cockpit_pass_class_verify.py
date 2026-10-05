@@ -109,10 +109,11 @@ def main():
             page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
             page.click("#tabDesk")
 
+        # the ORDER LINE (2026-10-04) is its own element under the call; these checks read the call alone
         def rows(table):
             return page.evaluate(f"""Array.from(document.querySelectorAll('#{table} tbody tr'))
                 .filter(tr=>!tr.classList.contains('vshadow'))
-                .map(tr=>({{cells:Array.from(tr.children).map(td=>td.textContent),noref:tr.classList.contains('noref')}}))""")
+                .map(tr=>({{cells:Array.from(tr.children).map(td=>{{const c=td.cloneNode(true);c.querySelectorAll('.order').forEach(e=>e.remove());return c.textContent;}}),noref:tr.classList.contains('noref')}}))""")
 
         def row(rs, name):
             return next(r for r in rs if name in r["cells"][0])

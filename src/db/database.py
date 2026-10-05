@@ -92,6 +92,40 @@ def session_scope() -> Generator[Session, None, None]:
         session.close()
 
 
+def has_kalshi_ticker() -> bool:
+    """odds_snapshots.market_ticker exists (migrate_kalshi_ticker.py ran).
+    Checked on every call (one PRAGMA), never cached: a stale answer either
+    way would write to a missing column or hide stored tickers."""
+    from sqlalchemy import inspect
+    try:
+        return "market_ticker" in {c["name"] for c in inspect(_engine).get_columns("odds_snapshots")}
+    except Exception:
+        return False
+
+
+def write_kalshi_tickers(session, pairs) -> int:
+    """ORDER LINE: store each Kalshi leg's market ticker on its snapshot row.
+    `pairs` = [(snapshot_id, ticker)] after a flush. A no-op (0) until
+    migrate_kalshi_ticker.py has added the column (the column is unmapped)."""
+    rows = [{"i": i, "t": t} for i, t in pairs if i is not None and t]
+    if not rows or not has_kalshi_ticker():
+        return 0
+    from sqlalchemy import text
+    session.execute(text("UPDATE odds_snapshots SET market_ticker = :t WHERE id = :i"), rows)
+    return len(rows)
+
+
+def read_kalshi_tickers(session, ids) -> dict:
+    """{snapshot_id: market_ticker} for the given ids; {} before the migration."""
+    ids = sorted({i for i in ids if i is not None})
+    if not ids or session is None or not has_kalshi_ticker():
+        return {}
+    from sqlalchemy import bindparam, text
+    q = text("SELECT id, market_ticker FROM odds_snapshots WHERE id IN :ids").bindparams(
+        bindparam("ids", expanding=True))
+    return {i: t for i, t in session.execute(q, {"ids": ids}) if t}
+
+
 def get_engine():
     """Expose the engine for migrations / inspection."""
     return _engine

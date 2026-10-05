@@ -218,10 +218,12 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
             # Venue lie detector (2026-09-26): book fair vs Kalshi two-sided.
             # DISPLAY/WARNING ONLY — quarantine below still keys on the book
             # divergence exactly as ratified.
-            from src.walters.venue import KALSHI_EXEC_NULL, kalshi_exec, kalshi_home_prob, venue_gap
-            kal = kalshi_home_prob(s.execute(select(OddsSnapshot).where(
+            from src.walters.venue import (KALSHI_EXEC_NULL, kalshi_exec, kalshi_home_prob, kalshi_legs,
+                                           latest_kalshi_by_selection, venue_gap)
+            _ksnaps = list(s.execute(select(OddsSnapshot).where(
                 OddsSnapshot.match_id == m.id,
-                OddsSnapshot.source == "kalshi")).scalars(), m.utc_date)
+                OddsSnapshot.source == "kalshi")).scalars())
+            kal = kalshi_home_prob(_ksnaps, m.utc_date)
             gap_pp, venue_flag = venue_gap(_fair.get("HOME"),
                                            kal["home"] if kal else None)
             from src.walters.line_move import line_move_for_match
@@ -270,6 +272,8 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                                m.competition.code if m.competition else None,
                                two_way=True) if kal else
                    dict(KALSHI_EXEC_NULL)),
+                # ORDER LINE (ARCHITECT 2026-10-04, additive): each leg's ticker + quotes
+                "kalshi_legs": kalshi_legs(latest_kalshi_by_selection(_ksnaps, m.utc_date)),
                 "input_quality": {
                     "book_odds": (market or {}).get("bookmaker_count", 0),
                     "injuries": inj,

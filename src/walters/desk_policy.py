@@ -673,7 +673,10 @@ def parlay_block(t) -> dict:
             "signature": "+".join(sorted(f"{l['sport']}:{l['away']}@{l['home']}:{l['pick']}" for l in t["legs"])),
             "legs": [{"sport": l["sport"], "game": l["game"], "home": l["home"], "away": l["away"],
                       "kickoff": l["utc"] or None, "pick": l["pick"], "model_p": _num(l["prob"]),
-                      "market_p": _num(l["mkt"])} for l in t["legs"]]}
+                      "market_p": _num(l["mkt"]),
+                      # ORDER LINE: each leg as its single-game order at the ticket's units
+                      # (a Kalshi combo is built from these legs)
+                      "order": order_line(l, l["pick"], PARLAY["units"])} for l in t["legs"]]}
 
 
 def evaluate(doc: dict, now_ms: float, counts: dict | None = None) -> dict:
@@ -721,6 +724,89 @@ def window_venue(row: dict, now_ms: float) -> dict:
     return venue_block(ven)
 
 
+# ------------------------------------------------------------- order line --
+# ORDER LINE (ARCHITECT 2026-10-04): every PLAY / LADDER / VENUE row and every
+# parlay leg carries the copy-exact Kalshi order: market ticker, side, limit
+# price per doctrine, contract count — "placing an order is copy-exact, never a
+# lookup". No policy change: the call and the units are the policy's; this only
+# writes them as an order. Inputs: the export row's `kalshi_legs` (ticker +
+# yes bid / ask per captured leg, from sync-kalshi-*).
+#   side   : backing a side = BUY YES on that side's contract; a LADDER (double
+#            chance, away pick) = BUY NO on the HOME contract; a two-way game
+#            whose side has no captured leg = BUY NO on the opponent's contract
+#   limit  : the doctrine is join-bid — the side's bid; the ASK when the spread
+#            is 1c (joining = taking); no bid -> no limit (stated, never guessed)
+#            NO prices mirror the YES contract: NO bid = 1 - yes ask, NO ask = 1 - yes bid
+#   count  : SP_UNIT_USD (dollars per 1u) set -> floor(units x SP_UNIT_USD / limit);
+#            unset -> ORDER_UNIT_CONTRACTS contracts per 1u (floor(units x 10))
+ORDER_UNIT_CONTRACTS = 10
+
+
+def unit_size() -> dict:
+    import os
+    raw = (os.environ.get("SP_UNIT_USD") or "").strip()
+    try:
+        v = float(raw)
+    except ValueError:
+        v = 0.0
+    if v > 0:
+        return {"mode": "usd", "value": v, "label": f"1u = ${v:g}"}
+    return {"mode": "contracts", "value": ORDER_UNIT_CONTRACTS,
+            "label": f"1u = {ORDER_UNIT_CONTRACTS} contracts (SP_UNIT_USD unset)"}
+
+
+def _c(x):
+    return None if x is None else round(float(x) + 1e-9, 2)
+
+
+def order_line(r, target: str | None, units, ladder: bool = False) -> dict | None:
+    """The order for backing `target` (HOME / AWAY / DRAW) at `units`; None when
+    nothing is staked. A dict with ticker None + why when no order can be written."""
+    if not units or units <= 0 or not target:
+        return None
+    legs = (r.get("src") or {}).get("kalshi_legs") or {}
+    unit = unit_size()
+    out = {"ticker": None, "side": None, "limit": None, "limit_basis": None, "contracts": None,
+           "unit": unit["label"], "text": None, "why": None}
+    opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(target)
+    if ladder:
+        if target != "AWAY":
+            out["why"] = "double chance for a draw pick is 1X or X2 — no single contract; write it by hand"
+            return out
+        leg, side = legs.get("HOME"), "NO"                    # X2 = NOT HOME
+    elif (legs.get(target) or {}).get("ticker"):
+        leg, side = legs[target], "YES"
+    elif not r.get("threeWay") and opp and (legs.get(opp) or {}).get("ticker"):
+        leg, side = legs[opp], "NO"                           # two-way: NO on the opponent = the side
+    else:
+        out["why"] = f"no Kalshi ticker on file for the {target} leg (sync-kalshi-* after migrate_kalshi_ticker.py)"
+        return out
+    if not (leg or {}).get("ticker"):
+        out["why"] = "no Kalshi ticker on file for the HOME leg (ladder = NO on HOME)"
+        return out
+    yb, ya = _c(leg.get("bid")), _c(leg.get("ask"))
+    bid, ask = (yb, ya) if side == "YES" else (_c(1 - ya) if ya is not None else None,
+                                               _c(1 - yb) if yb is not None else None)
+    out.update(ticker=leg["ticker"], side=side)
+    if bid is None:
+        out["why"] = "no bid to join (doctrine: join-bid) — no limit written"
+        return out
+    if ask is not None and round(ask - bid, 2) <= 0.01:
+        limit, basis = ask, "ask (1c spread: joining = taking)"
+    else:
+        limit, basis = bid, "join bid"
+    if not (0 < limit < 1):
+        out["why"] = f"limit {limit} outside (0, 1) — no order written"
+        return out
+    n = int(units * unit["value"] / limit + 1e-9) if unit["mode"] == "usd" else int(units * unit["value"] + 1e-9)
+    out.update(limit=limit, limit_basis=basis, contracts=n)
+    if n < 1:
+        out["why"] = f"{units}u at {unit['label']} is under one contract at {limit:.2f}"
+        return out
+    out["text"] = f"BUY {side} {leg['ticker']} @ {limit:.2f} × {n}"
+    return out
+
+
 def desk_block(r, c, v, ven) -> dict:
     """The per-row `desk` field (model rows: the call + any value shadow;
     market-only rows: the venue engine). Every row also carries `venue`, the
@@ -731,6 +817,7 @@ def desk_block(r, c, v, ven) -> dict:
                 "div_pp": _num(ven["divPP"]), "book_p": _num(ven["bookP"]), "kalshi_p": _num(ven["kalP"]),
                 "pass_kind": None if ven["eligible"] else ven["kind"], "reason": ven["reason"],
                 "stale_book_zone": ven["divPP"] is not None and abs(ven["divPP"]) >= VENUE["staleGapPP"],
+                "order": order_line(r, ven["side"], VENUE["units"]) if ven["eligible"] else None,
                 "venue": venue_block(ven)}
     out = {"engine": "model_edge", "call": c["call"], "units": c["units"], "cls": c["cls"],
            "tier": r["tier"], "pick": r["pick"], "model_p": _num(r["prob"]), "market_ref": _num(c["mktRef"]),
@@ -738,6 +825,8 @@ def desk_block(r, c, v, ven) -> dict:
            "edge_pp": _num(c["edge"]), "pass_kind": c["passKind"], "tags": c["tags"],
            "reasons": c["reasons"], "reason": " · ".join(c["reasons"]),
            "shadow_units": c["shadowUnits"], "exec": exec_block(r, r["pick"], r["prob"]), "value_shadow": None,
+           "order": (order_line(r, r["pick"], c["units"], ladder=(c["call"] == "LADDER"))
+                     if c["call"] in ("PLAY", "LADDER") else None),
            "venue": venue_block(ven)}
     if v:
         out["value_shadow"] = {"side": v["side"], "edge_pp": _num(v["edge"]), "model_p": _num(v["modelP"]),

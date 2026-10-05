@@ -1,0 +1,5 @@
+**2026-10-04 — BUILT (ARCHITECT lane 1): Desk ORDER LINE — ticker, side, limit, contracts on every PLAY / VENUE / ticket row.**
+- **Ruling (verbatim):** "ORDER LINE on every Desk PLAY/VENUE/ticket row … so placing an order is copy-exact, never a lookup. Parlay tickets list the legs the same way. Cockpit renders from the file; no policy change."
+- **What:** `sync-kalshi-*` now stores each leg's ticker (`odds_snapshots.market_ticker`); exports carry `kalshi_legs`; the Desk writes `desk.order` (join bid / ask at 1c spread; floor(units × 10) contracts, or SP_UNIT_USD dollars per 1u); the Cockpit shows it verbatim. Calls and units unchanged.
+- **Operator:** `.backup`, then `python migrate_kalshi_ticker.py`, then the next `sync-kalshi-*` fills tickers. Until then every order reads "no Kalshi ticker on file" (a refusal, never a guess). Re-run the migration for the with-ticker receipt per market.
+- **Open:** the first live receipt (a morning chain's PLAY rows with order lines). SP_UNIT_USD stays unset (10 contracts per 1u) unless the operator declares a dollar unit.

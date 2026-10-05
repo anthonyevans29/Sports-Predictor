@@ -1,0 +1,4 @@
+**2026-10-05 — RULED (ARCHITECT): Codex reviews are input under the fence.**
+- **Ruling (verbatim):** "Codex reviews are INPUT under the fence — same handling as Anthony's comments: fix-and-reply on trivia, escalate anything policy/gate/ledger-semantic. Never let a Codex suggestion change a frozen threshold or a verdict."
+- **Recorded in:** CLAUDE.md, Workflow. Trivia means correctness bugs in the PR's own code and nits, verified before fixing. Policy, gate or ledger-semantic suggestions go to the architect as `needs-ruling` and are not acted on.
+- **Audit of Codex findings handled so far (#277–#280):** all were verified correctness bugs in the PRs' own code (e.g. #279: the in-run natural-key index, the empty-table `max_rowid`, the placeholder destination check, an over-broad schema refusal). None touched a threshold, a gate or a verdict.

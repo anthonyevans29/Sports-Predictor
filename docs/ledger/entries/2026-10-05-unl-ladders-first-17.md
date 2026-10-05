@@ -1,0 +1,5 @@
+**2026-10-05 — RECORDED (ARCHITECT): first UNL ladders, the venue-eligibility measurement's first 17 games.**
+- **Ruling (verbatim):** "first UNL ladders — 17/18 two-sided, 1c spreads, median |book−Kalshi| 2.5pp, max 4.4pp; Kalshi consistently sharper on favorites (+3–4pp on Spain/Albania/Switzerland/England). Record as the venue-eligibility measurement's first 17 games; the 30-game review must test whether the skew is structural (favorite-longshot bias on three-way boards) before any eligibility ruling."
+- **Recorded:** 17 of the 30 games the 2026-10-04 ruling requires. The ladders are two-sided and tight (17/18 two-sided, 1c spreads). Book and Kalshi agree closely (median |book−Kalshi| 2.5pp, max 4.4pp), with a consistent skew: Kalshi is sharper on favorites by 3–4pp.
+- **Pre-condition for the eligibility ruling:** at 30 games, the review first tests whether that skew is structural (favorite-longshot bias on three-way boards). How the test is defined is open. It must be pre-committed before the 30th game is read (law 3); see #286.
+- **Unchanged:** UNL stays "never" for venue-edge.

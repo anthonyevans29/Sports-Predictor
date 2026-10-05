@@ -147,3 +147,27 @@ def test_ties_are_pushes_and_pre_live_rows_are_never_pooled(tmp_path):
     assert {r["match_id"] for r in doc["pre_live"]["results"]} == {pre, pres}
     assert doc["pre_live"]["record"]["games"] == 2 and doc["pre_live"]["count"] == 2
     assert not any("_pre_live" in r for r in doc["results"] + doc["pre_live"]["results"])
+
+
+def test_cli_receipt_uses_decided_and_finds_pre_live_matches(tmp_path, monkeypatch):
+    """Codex on #290 (verified): the export-nfl-results receipt printed hits/games (a push counted as a miss)
+    and looked for --match ids in `results` only, so a pre-live match read NOT in the file."""
+    from click.testing import CliRunner
+
+    import cli
+    from src.walters import nfl_predict
+    doc = {"window": {"kind": "season_to_date", "season": "2093"},
+           "record": {"live_since": "2026-09-22", "games": 2, "decided": 1, "hits": 1, "pushes": 1,
+                      "by_week": {"6": {"games": 2, "decided": 1, "hits": 1, "pushes": 1}}},
+           "results": [{"match_id": 11}], "count": 1,
+           "pre_live": {"count": 1, "record": {"games": 1, "decided": 1, "hits": 0, "pushes": 0},
+                        "results": [{"match_id": 22}]}}
+    path = tmp_path / "r.json"
+    path.write_text(json.dumps(doc))
+    monkeypatch.setattr(nfl_predict, "export_nfl_results", lambda days_back=None: str(path))
+    res = CliRunner().invoke(cli.cli, ["export-nfl-results", "--match", "11", "--match", "22", "--match", "33"])
+    assert res.exit_code == 0, res.output
+    assert "top-pick hits 1/1 decided · pushes 1" in res.output and "W6 1/1 +1P" in res.output
+    assert "match 11: IN the file (season record)" in res.output
+    assert "match 22: IN the file (pre-live, not in the season record)" in res.output
+    assert "match 33: NOT in the file" in res.output and "pre-live (never pooled): games 1" in res.output

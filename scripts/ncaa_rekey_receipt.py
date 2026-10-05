@@ -39,10 +39,11 @@ of the new kickoff that was inside 48h of the old one.
 retained PRE-APPLY backup (opened read-only): the original connected twin group
 (same pair, kickoffs within 48h, different ids), the keeper's and the merged
 row's pre ids / sids / kickoffs, the keeper's post kickoff (a shift is named),
-every reference move (per table referencing matches: pre counts on both rows vs
-post on the keeper), and any same-pair row near the PRE or the POST kickoff
+every reference move (per table referencing matches: each pre row's identity —
+rowid and content — and destination, plus rows on the keeper that were not in
+the backup), and any same-pair row near the PRE or the POST kickoff
 outside the group. --plan cross-checks the pasted `dedupe-matches --orphans`
-apply output ([merge] lines). Anything the backup or the log cannot show reads
+apply output ([merge] lines): keeper AND merged row ids and both provider ids. Anything the backup or the log cannot show reads
 UNKNOWN (law 4). --expect N states the reported cohort size; the receipt says
 whether it accounts for all N.
 
@@ -177,17 +178,45 @@ def open_read(p: Path):
         return con, "plain connect (mode=ro refused), SELECT only"
 
 
-def ref_counts(con, ids) -> dict:
-    """{table: {match_id: rows}} for every table with a column referencing matches.id."""
-    out = {}
-    tables = [r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")]
-    for t in tables:
+def ref_columns(con) -> list:
+    """[(table, column)] for every column referencing matches.id."""
+    out = []
+    for (t,) in con.execute("SELECT name FROM sqlite_master WHERE type='table'"):
         for fk in con.execute(f'PRAGMA foreign_key_list("{t}")'):
             if fk[2] == "matches" and fk[4] == "id":
-                col = fk[3]
-                q = f'SELECT "{col}", COUNT(*) FROM "{t}" WHERE "{col}" IN ({",".join("?" * len(ids))}) GROUP BY "{col}"'
-                out[f"{t}.{col}"] = dict(con.execute(q, list(ids))) if ids else {}
+                out.append((t, fk[3]))
     return out
+
+
+def ref_rows(con, t, col, ids) -> dict | None:
+    """{rowid: (match_id, content)} for the rows of t.col referencing `ids`; content = every column but the
+    reference itself, so a REPLACED row (same count, different identity or content) is visible (#277
+    review). None when the table has no rowid (identity UNKNOWN)."""
+    if not ids:
+        return {}
+    try:
+        cur = con.execute(f'SELECT rowid, * FROM "{t}" WHERE "{col}" IN ({",".join("?" * len(ids))})', list(ids))
+    except sqlite3.OperationalError:
+        return None
+    names = [d[0] for d in cur.description]
+    ci = names.index(col)
+    out = {}
+    for row in cur:
+        out[row[0]] = (row[ci], tuple(v for i, v in enumerate(row) if i not in (0, ci)))
+    return out
+
+
+def ref_by_rowid(con, t, col, rowids) -> dict | None:
+    """{rowid: (match_id, content)} for specific rowids (where did each pre row go?)."""
+    if not rowids:
+        return {}
+    try:
+        cur = con.execute(f'SELECT rowid, * FROM "{t}" WHERE rowid IN ({",".join("?" * len(rowids))})', list(rowids))
+    except sqlite3.OperationalError:
+        return None
+    names = [d[0] for d in cur.description]
+    ci = names.index(col)
+    return {row[0]: (row[ci], tuple(v for i, v in enumerate(row) if i not in (0, ci))) for row in cur}
 
 
 def twin_group(rows_of_pair, start) -> list:
@@ -205,7 +234,9 @@ def twin_group(rows_of_pair, start) -> list:
 
 
 def parse_plan(path) -> dict:
-    """{keeper id: (merged row id, twin sid)} from pasted `[merge] id X sid Y ... {'twin': T, ...}` lines."""
+    """{keeper id: {"rows": {(row id, sid), (twin id, twin sid)}, "merged": id}} from the pasted
+    `[merge] id X sid Y … {'twin': T, 'twin_sid': S, 'keeper': K}` lines — BOTH row ids and BOTH
+    provider ids, so a plan naming a different merged row cannot pass (#277 review)."""
     import ast
     import re
     out = {}
@@ -219,8 +250,8 @@ def parse_plan(path) -> dict:
             continue
         rid, twin = int(m.group(1)), kw.get("twin")
         keeper = kw.get("keeper", min(rid, twin) if twin else rid)
-        other = twin if keeper == rid else rid
-        out[keeper] = (other, m.group(2))
+        out[keeper] = {"rows": {(rid, str(m.group(2))), (twin, str(kw.get("twin_sid")))},
+                       "merged": twin if keeper == rid else rid}
     return out
 
 
@@ -281,18 +312,54 @@ def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_pat
         if shift:
             flags["keeper kickoff shifted"] += 1
         ids = [k["id"]] + ([mrow["id"]] if mrow else [])
-        pre_refs, post_refs = ref_counts(pre_con, ids), ref_counts(cur_con, ids)
         moves = []
-        for t in sorted(set(pre_refs) | set(post_refs)):
-            pk, pm = pre_refs.get(t, {}).get(k["id"], 0), (pre_refs.get(t, {}).get(mrow["id"], 0) if mrow else None)
-            qk, qm = post_refs.get(t, {}).get(k["id"], 0), (post_refs.get(t, {}).get(mrow["id"], 0) if mrow else None)
-            if pk or pm or qk or qm:
-                ok = mrow is not None and qm == 0 and qk == pk + pm
-                moves.append(f"{t}: keeper {pk}→{qk}, merged {pm if pm is not None else 'UNKNOWN'}→"
-                             f"{qm if qm is not None else 'UNKNOWN'}{'' if ok else ' ⚠'}")
-                if not ok:
-                    flags["reference move not accounted"] += 1
+        for t, col in ref_columns(pre_con):
+            pre_rows = ref_rows(pre_con, t, col, ids)
+            post_rows = ref_rows(cur_con, t, col, [k["id"]] + ([mrow["id"]] if mrow else []))
+            if pre_rows is None or post_rows is None:
+                moves.append(f"{t}.{col}: row identity UNKNOWN (no rowid)")
+                flags["reference identity UNKNOWN"] += 1
+                continue
+            if not pre_rows and not post_rows:
+                continue
+            went = ref_by_rowid(cur_con, t, col, list(pre_rows)) or {}
+            pk = sum(1 for v in pre_rows.values() if v[0] == k["id"])
+            pm = sum(1 for v in pre_rows.values() if mrow and v[0] == mrow["id"])
+            qk = sum(1 for v in post_rows.values() if v[0] == k["id"])
+            qm = sum(1 for v in post_rows.values() if mrow and v[0] == mrow["id"])
+            bad = []
+            if mrow is None:
+                bad.append("merged row UNKNOWN")
+            for rid, (src_mid, content) in sorted(pre_rows.items()):
+                if rid not in went:
+                    bad.append(f"row {rid} gone")
+                elif went[rid][0] != k["id"]:
+                    bad.append(f"row {rid} now on match {went[rid][0]}")
+                elif went[rid][1] != content:
+                    bad.append(f"row {rid} content changed")
+            new_rows = sorted(set(post_rows) - set(pre_rows))
+            if new_rows:
+                bad.append(f"rows {new_rows[:5]} not in the backup")
+            moves.append(f"{t}: keeper {pk}→{qk}, merged {pm if mrow else 'UNKNOWN'}→{qm if mrow else 'UNKNOWN'}"
+                         + (f" ⚠ {'; '.join(bad[:4])}" if bad else " (every row identity and destination verified)"))
+            if bad:
+                flags["reference move not accounted"] += 1
         print("      references: " + ("; ".join(moves) or "none on either row"))
+        if plan is not None:
+            pe = plan.get(k["id"])
+            if pe is None:
+                pass                                   # reported once below (the console samples merge lines)
+            elif mrow is None:
+                print("      plan: merged row UNKNOWN in the backup — the plan's rows cannot be verified")
+                flags["plan rows UNKNOWN"] += 1
+            else:
+                have = {(k["id"], str(kp["sid"])), (mrow["id"], str(mrow["sid"]))}
+                if pe["rows"] != have or pe["merged"] != mrow["id"]:
+                    print(f"      ⚠ plan disagrees: plan rows {sorted(pe['rows'], key=str)} merged {pe['merged']} vs "
+                          f"reconstructed {sorted(have, key=str)} merged {mrow['id']}")
+                    flags["plan disagrees with the reconstruction"] += 1
+                else:
+                    print("      plan: keeper + merged row ids and both provider ids match")
         near = {}
         for when, label in ((kp["utc"], "pre"), (k["utc"], "post")):
             if not when:

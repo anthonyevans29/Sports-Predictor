@@ -153,7 +153,7 @@ def test_audit_zero_says_only_no_current_nearby_rows_and_reconstruction_catches_
     assert f"merged row id {live} sid 32" in out
     assert "SHIFTED 1 day, 16:00:00" in out
     assert f"same-pair row near the pre kickoff (now): id {twin} sid 31" in out
-    assert "odds.match_id: keeper 0→1, merged 1→0" in out and "⚠" in out
+    assert "odds: keeper 0→1, merged 1→0 (every row identity and destination verified)" in out
     assert "in the plan but not in the log none" in out
     assert "RECONSTRUCTION: merges 1/1" in out and "REVIEW" in out
     assert str(tmp_path) not in out                      # sanitised: the backup is named, not its path
@@ -162,3 +162,91 @@ def test_audit_zero_says_only_no_current_nearby_rows_and_reconstruction_catches_
         mids = [x.id for x in s.query(Match).filter(Match.competition_id == cid)]
         s.query(Odds).filter(Odds.match_id.in_(mids)).delete(synchronize_session=False)
         s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)
+
+
+def _clean_merge(tmp_path, code):
+    """A clean orphan merge (keeper keeps its kickoff, odds row moved, nothing near): the baseline that
+    reconstructs ACCOUNTED. Returns (db, backup, plan text, keeper id, merged id, cid, team ids)."""
+    import sqlite3
+
+    init_db()
+    with session_scope() as s:
+        c = Competition(sport=Sport.NFL, code=code, name=code, area="US", type="LEAGUE")
+        ts = [Team(sport=Sport.NFL, name=f"{code} T{i}", external_ids={SRC: f"{code.lower()}{i}"}) for i in range(2)]
+        s.add(c)
+        s.add_all(ts)
+        s.flush()
+        t = [x.id for x in ts]
+        rows = []
+        for sid, dh in (("40", 0), ("41", 2)):
+            m = Match(sport=Sport.NFL, competition_id=c.id, season="2092", utc_date=NOW + timedelta(hours=dh),
+                      status=MatchStatus.SCHEDULED, home_team_id=t[1], away_team_id=t[0], external_ids={SRC: sid})
+            s.add(m)
+            s.flush()
+            rows.append(m.id)
+        keeper, live = rows
+        s.add(Odds(match_id=live, bookmaker="b", market="ML", selection="HOME", price_decimal=1.8))
+        cid = c.id
+    db = os.environ["DATABASE_URL"][len("sqlite:///"):]
+    pre = tmp_path / f"{code}.backup"
+    src, dst = sqlite3.connect(db), sqlite3.connect(pre)
+    src.backup(dst)
+    src.close()
+    dst.close()
+    with session_scope() as s:
+        k = s.get(Match, keeper)
+        s.query(Odds).filter(Odds.match_id == live).update({"match_id": keeper}, synchronize_session=False)
+        k.external_ids = {SRC: "40", f"{SRC}_prev": ["41"],
+                          f"{SRC}_rekeys": [{"from": "41", "to": "40", "via": "orphan-merge", "at": "2092-10-03T20:00:00"}]}
+        s.delete(s.get(Match, live))
+    plan = (f"  [merge] id {keeper} sid 40 {NOW.isoformat()} home {t[1]} away {t[0]} STALE "
+            f"{{'twin': {live}, 'twin_sid': '41', 'keeper': {keeper}}}\n")
+    return db, pre, plan, keeper, live, cid
+
+
+def _drop(cid):
+    with session_scope() as s:
+        mids = [x.id for x in s.query(Match).filter(Match.competition_id == cid)]
+        s.query(Odds).filter(Odds.match_id.in_(mids)).delete(synchronize_session=False)
+        s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)
+
+
+def _reconstruct(code, db, pre, plan_path, capsys):
+    assert rr.main(["--competition", code, "--db", db, "--now", NOW.isoformat(), "--reconstruct-merges",
+                    "--backup", str(pre), "--plan", str(plan_path), "--expect", "1"]) == 0
+    return capsys.readouterr().out
+
+
+def test_plan_naming_a_different_merged_row_is_review(tmp_path, capsys):
+    """#277 review (reproduced on 70acdbbf): the cross-check compared keeper ids only, so a plan naming a
+    different merged row reported no mismatch. Keeper AND merged ids and both provider ids are compared."""
+    db, pre, plan, keeper, live, cid = _clean_merge(tmp_path, "RR4")
+    good = tmp_path / "good.txt"
+    good.write_text(plan)
+    out = _reconstruct("RR4", db, pre, good, capsys)
+    assert "plan: keeper + merged row ids and both provider ids match" in out and "· ACCOUNTED" in out
+    bad = tmp_path / "bad.txt"
+    bad.write_text(plan.replace(f"'twin': {live}", f"'twin': {live + 999}"))
+    out = _reconstruct("RR4", db, pre, bad, capsys)
+    assert "⚠ plan disagrees" in out and "· REVIEW" in out and "ACCOUNTED" not in out
+    sid_bad = tmp_path / "sid.txt"
+    sid_bad.write_text(plan.replace("'twin_sid': '41'", "'twin_sid': '49'"))
+    out = _reconstruct("RR4", db, pre, sid_bad, capsys)
+    assert "⚠ plan disagrees" in out and "· REVIEW" in out
+    _drop(cid)
+
+
+def test_replaced_reference_row_is_review_even_with_equal_counts(tmp_path, capsys):
+    """#277 review (reproduced on 70acdbbf): replacing the original odds row with a different row kept the
+    counts and returned ACCOUNTED. Each pre row's identity (rowid + content) and destination is verified."""
+    db, pre, plan, keeper, live, cid = _clean_merge(tmp_path, "RR5")
+    p = tmp_path / "plan.txt"
+    p.write_text(plan)
+    with session_scope() as s:                          # same count on the keeper, a DIFFERENT row
+        s.query(Odds).filter(Odds.match_id == keeper).delete(synchronize_session=False)
+        s.add(Odds(match_id=keeper, bookmaker="b", market="ML", selection="HOME", price_decimal=1.8))
+    out = _reconstruct("RR5", db, pre, p, capsys)
+    # SQLite may hand the replacement the freed rowid: then the CONTENT differs; else the old row is gone
+    assert "odds: keeper 0→1, merged 1→0 ⚠" in out and ("content changed" in out or "gone" in out)
+    assert "· REVIEW" in out and "ACCOUNTED" not in out
+    _drop(cid)

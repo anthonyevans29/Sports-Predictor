@@ -9,3 +9,7 @@
   - any same-pair row near the PRE or the POST kickoff outside the group.
 - `--plan` cross-checks the pasted apply output's `[merge]` lines. Rows with no provenance log, a keeper absent from the backup, or an unmatched merged row read UNKNOWN. The last line gives `merges n/N` and ACCOUNTED or REVIEW. Backup paths are not printed (sanitised).
 - **Regression:** the boundary case (keeper kickoff +40h, twin 40h from the pre kickoff and 80h from the post one): the audit says only "no current nearby rows found", and the reconstruction names the shift, the twin near the pre kickoff and the odds move. pytest 675 passed / 1 skipped.
+- **Review fix (2026-10-05, reproduced on `70acdbbf`):**
+  - **Plan cross-check:** compares the keeper AND merged row ids and both provider ids against the reconstruction. A plan naming a different merged row, or a different provider id, prints `⚠ plan disagrees` → REVIEW. An UNKNOWN merged row leaves the plan unverifiable, counted.
+  - **References:** checked by identity, not count. Every pre row (rowid + content) referencing the keeper or the merged row must end on the keeper unchanged. Rows on the keeper that were not in the backup are flagged. A replaced odds row with equal counts → REVIEW. A table without rowids reads identity UNKNOWN.
+  - **Regressions:** both refusals return REVIEW; the clean baseline merge returns ACCOUNTED. pytest 677 passed / 1 skipped.

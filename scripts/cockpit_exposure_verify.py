@@ -10,6 +10,9 @@ Ledger tab's file input. Checks:
 - a team-outcome above the 1.25u cap-equivalent (10 contracts per 1u) is flagged;
 - a fill whose contract role the ticker does not decide is excluded, counted;
 - load-order invariance: the same fills in reverse order give the same result;
+- an MLB doubleheader (two intraday event tickers, same teams and date) is TWO
+  settlement events: opposite sides never hedge across them (#274 review);
+- a fill whose event identity is ambiguous is excluded and counted apart;
 - the Ledger tab renders the table and the P&L text carries the headline.
 
     python3 scripts/cockpit_exposure_verify.py
@@ -40,6 +43,8 @@ FILLS = [
     ("KXEPLGAME-26OCT04ARSCHE-CHE", "yes", 5, 0.45, 0.06),     # soccer home 5
     ("KXEPLGAME-26OCT04ARSCHE-ARS", "yes", 5, 0.30, 0.05),     # soccer away 5 -> tie unhedged
     ("KXNFLGAME-26SEP28KCKC-KC", "yes", 1, 0.50, 0.01),        # role undecidable -> excluded
+    ("KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", 3, 0.50, 0.03),  # doubleheader game 1: BOS
+    ("KXMLBGAME-26SEP271905NYYBOS-NYY", "yes", 3, 0.48, 0.03),  # game 2: NYY -> NOT a hedge of game 1
 ]
 
 
@@ -78,7 +83,8 @@ def main():
         page.set_input_files("#kalshiCsvFile", path)
         page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('Kalshi CSV')")
         x = page.evaluate("fillExposure(loadLedger())")
-        g = {gm["teams"]: gm for gm in x["games"]}
+        g = {gm["teams"]: gm for gm in x["games"] if gm["family"] != "MLB"}
+        dh = [gm for gm in x["games"] if gm["family"] == "MLB"]
         oc = {t: {o["outcome"]: o for o in gm["outcomes"]} for t, gm in g.items()}
 
         def near(a, b):
@@ -103,10 +109,22 @@ def main():
               ac["outs"] == ["HOME", "AWAY", "DRAW"] and ac["hedge"] == 0
               and near(ac["cashAtRisk"], 5 * 0.45 + 5 * 0.30 + 0.11), json.dumps(ac))
         check("undecidable contract role: excluded and counted (never guessed)",
-              x["excluded"] == 1 and "KCKC" not in g, json.dumps(x["summary"]))
+              x["excludedRole"] == 1 and "KCKC" not in g, json.dumps(x["summary"]))
+        check("doubleheader: two settlement events (the full event ticker), zero cross-game hedge",
+              sorted(gm["key"] for gm in dh) == ["KXMLBGAME-26SEP271305NYYBOS", "KXMLBGAME-26SEP271905NYYBOS"]
+              and all(gm["hedge"] == 0 for gm in dh), json.dumps(dh))
+        check("doubleheader downside: each game loses its own stake + fees (1.53 and 1.47; the old grouping read a 3-contract hedge, 0 at risk)",
+              sorted(round(gm["cashAtRisk"], 4) for gm in dh) == [1.47, 1.53], json.dumps([gm["cashAtRisk"] for gm in dh]))
         s = x["summary"]
-        check("summary: 4 games · 6 team-outcomes held · 1 over · 1 hedged game",
-              s["games"] == 4 and s["teamOutcomes"] == 6 and s["over"] == 1 and s["hedged"] == 1, json.dumps(s))
+        check("summary: 6 games · 8 team-outcomes held · 1 over · 1 hedged game (same event only)",
+              s["games"] == 6 and s["teamOutcomes"] == 8 and s["over"] == 1 and s["hedged"] == 1, json.dumps(s))
+        amb = page.evaluate("""(()=>{const L=loadLedger();
+            const f=L.fills.find(x=>String(x.ticker).startsWith('KXNFLGAME-26SEP28BUFKC-KC'));
+            L.fills=[...L.fills,{...f,id:'amb-1',ticker:'KXNFLGAME-26SEP28-BUFKC-KC'}];
+            return fillExposure(L);})()""")
+        check("ambiguous event identity: excluded and counted apart, the BUFKC event unchanged",
+              amb["excludedEvent"] == 1 and next(gm for gm in amb["games"] if gm["teams"] == "BUFKC")["fills"] == 2,
+              json.dumps([amb["excludedEvent"], amb["summary"]]))
         rev = page.evaluate("(()=>{const L=loadLedger(); L.fills=L.fills.slice().reverse(); return fillExposure(L);})()")
         check("load-order invariance: reversed fills give the identical result", rev == x)
         tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""
@@ -114,7 +132,8 @@ def main():
               "BUFKC" in tbl and "1.50u > 1.25u" in tbl and "cash at risk" in tbl.lower(), tbl[:300])
         txt = "\n".join(page.evaluate("realizedLines(loadLedger())"))
         check("P&L text carries the headline (diagnostic, cap/sizing unchanged)",
-              "B-track fills exposure (diagnostic, cap/sizing unchanged)" in txt and "1 fill(s) excluded" in txt,
+              "B-track fills exposure (diagnostic, cap/sizing unchanged)" in txt
+              and "1 fill(s) excluded (contract role not decided by the ticker)" in txt,
               txt[-400:])
         check("no page errors", not errors, "; ".join(errors))
         browser.close()

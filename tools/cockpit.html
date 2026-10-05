@@ -1900,18 +1900,27 @@ function realizedHTML(L){
 // A fill whose contract role the ticker does not decide is EXCLUDED and counted
 // (law 4: never guessed). Fills are realized (closed) positions, so this is the
 // exposure as executed, not a live book.
+// SETTLEMENT EVENT (#274 review 2026-10-05): a game is the FULL event ticker
+// before its outcome suffix (KXMLBGAME-26SEP271305NYYBOS of …-NYY), never
+// family+date+teams: an MLB doubleheader is two events, and opposite sides of
+// two different events never hedge. A ticker whose event part does not match
+// the game grammar (or whose suffix is not the parsed side) is EXCLUDED and
+// counted apart ("event identity ambiguous").
 const THREE_WAY_FAMILIES=new Set(["EPL","UCL","FACUP","UEFANL"]);
 const FILL_UNIT_CONTRACTS=10, BTRACK_CAP_U=1.25;
 function fillExposure(L){
-  const games={}; let excluded=0;
+  const games={}; let excludedRole=0, excludedEvent=0;
   for(const f of (L.fills||[])){
     if(f.kind!=="sport"){ continue; }
     const tr=tickerRole(f), qty=+f.qty||0;
-    if(!tr.role||!qty){ excluded++; continue; }
+    if(!tr.role||!qty){ excludedRole++; continue; }
     const no=String(f.side||"yes").toLowerCase().startsWith("n");
     const outs=THREE_WAY_FAMILIES.has(f.family)?["HOME","AWAY","DRAW"]:["HOME","AWAY"];
-    if(!outs.includes(tr.role)){ excluded++; continue; }
-    const k=`${f.family}|${f.date}|${f.teams}`;
+    if(!outs.includes(tr.role)){ excludedRole++; continue; }
+    const T=String(f.ticker||"").trim().toUpperCase(), cut=T.lastIndexOf("-");
+    const k=cut>0?T.slice(0,cut):"";
+    if(!/^KX[A-Z]+GAME-\d{2}[A-Z]{3}\d{2}(\d{4})?[A-Z0-9]+$/.test(k)||T.slice(cut+1)!==f.sideCode
+       ||!k.endsWith(f.teams)){ excludedEvent++; continue; }
     const g=games[k]=games[k]||{key:k,family:f.family,date:f.date,teams:f.teams,outs,fills:0,gross:0,fees:0,
       pay:Object.fromEntries(outs.map(o=>[o,0])),codes:tr.codes||null};
     if(!g.codes&&tr.codes) g.codes=tr.codes;
@@ -1925,7 +1934,7 @@ function fillExposure(L){
     return {...g,hedge:minPay,cashAtRisk:Math.max(0,g.gross+g.fees-minPay),outcomes};
   }).sort((a,b)=>b.cashAtRisk-a.cashAtRisk||a.key.localeCompare(b.key));
   const outcomes=list.flatMap(g=>g.outcomes.filter(o=>o.contracts>0));
-  return {games:list,excluded,
+  return {games:list,excluded:excludedRole+excludedEvent,excludedRole,excludedEvent,
     summary:{games:list.length,teamOutcomes:outcomes.length,over:outcomes.filter(o=>o.over).length,
       hedged:list.filter(g=>g.hedge>0).length,hedge:list.reduce((a,g)=>a+g.hedge,0),
       gross:list.reduce((a,g)=>a+g.gross,0),fees:list.reduce((a,g)=>a+g.fees,0),
@@ -1939,20 +1948,21 @@ function exposureHeadline(x){ const s=x.summary;
   return `B-track fills exposure (diagnostic, cap/sizing unchanged): ${s.games} game(s) · ${s.teamOutcomes} team-outcome(s) · `
     +`gross $${s.gross.toFixed(2)} · cash at risk $${s.cashAtRisk.toFixed(2)} (max one game $${s.maxCashAtRisk.toFixed(2)}) · `
     +`hedged ${s.hedged} game(s), offset $${s.hedge.toFixed(2)} · over the ${BTRACK_CAP_U}u cap-equivalent ${s.over}`
-    +(x.excluded?` · ${x.excluded} fill(s) excluded (contract role not decided by the ticker)`:""); }
+    +(x.excludedRole?` · ${x.excludedRole} fill(s) excluded (contract role not decided by the ticker)`:"")
+    +(x.excludedEvent?` · ${x.excludedEvent} fill(s) excluded (event identity ambiguous)`:""); }
 function exposureHTML(L){
   const x=fillExposure(L); if(!x.games.length&&!x.excluded) return "";
   const $$=v=>(v<0?"−$":"$")+Math.abs(v).toFixed(2);
-  const rows=x.games.slice(0,25).map(g=>`<tr><td>${esc(g.family)} ${esc(g.date)} ${esc(g.teams)}</td><td>${g.fills}</td>`
+  const rows=x.games.slice(0,25).map(g=>`<tr><td>${esc(g.key)}</td><td>${g.fills}</td>`
     +`<td>${$$(g.gross)}</td><td>${$$(g.fees)}</td><td>${g.hedge?$$(g.hedge):"—"}</td><td><b>${$$(g.cashAtRisk)}</b></td><td>`
     +g.outcomes.filter(o=>o.contracts>0).map(o=>`<span class="${o.over?"caution":""}">${esc(exposureOutcomeName(g,o.outcome))}: `
       +`${o.contracts} ct ≈ ${o.units.toFixed(2)}u${o.over?` &gt; ${BTRACK_CAP_U}u`:""} · if it lands ${$$(o.net)}</span>`).join("<br>")
     +`</td></tr>`).join("");
   return `<h2>B-track exposure — fills-based (#211, diagnostic)</h2><div class="note">${esc(exposureHeadline(x))}</div>`
-    +`<div class="tablewrap"><table id="exposureTable"><thead><tr><th>game (ticker)</th><th>fills</th><th>gross stake</th><th>fees</th>`
+    +`<div class="tablewrap"><table id="exposureTable"><thead><tr><th>settlement event (ticker)</th><th>fills</th><th>gross stake</th><th>fees</th>`
     +`<th>hedge offset</th><th>cash at risk</th><th>per team-outcome (contracts ≈ units at ${FILL_UNIT_CONTRACTS}/1u, beside the ${BTRACK_CAP_U}u cap)</th></tr></thead>`
     +`<tbody>${rows}</tbody></table></div>`+(x.games.length>25?`<div class="note">top 25 of ${x.games.length} by cash at risk</div>`:"")
-    +`<div class="note">Cash at risk = gross + fees − the worst outcome's payout; a hedge offset counts only contracts that pay on EVERY outcome (a tie leaves a home/away pair unhedged in soccer). The units column converts at the default 10 contracts per 1u; the cap stays units-based and is NOT applied here.</div>`;
+    +`<div class="note">Cash at risk = gross + fees − the worst outcome's payout; a hedge offset counts only contracts of the SAME settlement event that pay on EVERY outcome (a tie leaves a home/away pair unhedged in soccer; a doubleheader is two events). The units column converts at the default 10 contracts per 1u; the cap stays units-based and is NOT applied here.</div>`;
 }
 function realizedLines(L){
   const fs=classifyFills(L); if(!fs.length) return ["REALIZED (Kalshi fills): none imported"];

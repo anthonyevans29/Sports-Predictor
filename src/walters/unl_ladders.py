@@ -87,8 +87,8 @@ def game_row(m, snaps, tickers: dict, since: datetime) -> dict:
         row["reason"] = "kickoff not after the freeze cutoff"
     elif t is None:
         row["reason"] = "no pre-kickoff Kalshi capture"
-    elif t < since:
-        row["reason"] = "last Kalshi capture before the freeze cutoff"
+    elif t <= since:                         # strictly AFTER the cutoff (Codex on #291)
+        row["reason"] = "last Kalshi capture not after the freeze cutoff"
     elif not two:
         row["reason"] = "one-sided board (ruling 2)"
     elif row["series"] != SERIES:
@@ -148,7 +148,8 @@ def skew_test(gaps: list[float], b: int = BOOT_B, seed: int = BOOT_SEED) -> dict
     means = sorted(sum(rng.choice(gaps) for _ in range(k)) / k for _ in range(b))
     lo, hi = means[int(0.025 * b)], means[int(0.975 * b) - 1]
     structural = lo > 0 or hi < 0
-    return {"n": k, "mean_pp": round(sum(gaps) / k, 3), "ci95": (round(lo, 3), round(hi, 3)),
+    # ci95 keeps full precision: the verdict and the reported bounds are the same numbers (Codex on #291)
+    return {"n": k, "mean_pp": round(sum(gaps) / k, 3), "ci95": (lo, hi),
             "verdict": "STRUCTURAL" if structural else "NOT STRUCTURAL",
             "sign": ("Kalshi above book on the favorite" if lo > 0 else
                      "Kalshi below book on the favorite" if hi < 0 else None)}
@@ -188,6 +189,6 @@ def format_receipt(r: dict, with_test: bool) -> str:
         else:
             t = skew_test([row["gap_pp"] for row in r["sample"]])
             out.append(f"SKEW TEST (frozen): n {t['n']} · mean gap {t['mean_pp']:+.3f}pp · bootstrap 95% CI "
-                       f"[{t['ci95'][0]:+.3f}, {t['ci95'][1]:+.3f}] (B {BOOT_B}, seed {BOOT_SEED}) · "
+                       f"[{t['ci95'][0]:+.6f}, {t['ci95'][1]:+.6f}] (B {BOOT_B}, seed {BOOT_SEED}) · "
                        f"{t['verdict']}" + (f" ({t['sign']})" if t["sign"] else ""))
     return "\n".join(out)

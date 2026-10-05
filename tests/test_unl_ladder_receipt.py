@@ -82,7 +82,7 @@ def test_receipt_rows_sample_and_every_exclusion_reason(monkeypatch):
     kn = 0.655 / (0.655 + 0.215 + 0.135)                                  # three-leg normalized mid
     assert abs(ok["gap_pp"] - round((kn - 0.62) * 100, 3)) < 1e-9
     assert rows[ids["one"]]["reason"] == "one-sided board (ruling 2)" and not rows[ids["one"]]["two_sided"]
-    assert rows[ids["old"]]["reason"] == "last Kalshi capture before the freeze cutoff"
+    assert rows[ids["old"]]["reason"] == "last Kalshi capture not after the freeze cutoff"
     assert rows[ids["ser"]]["reason"].startswith("series KXCONCACAFNLGAME is not KXUEFANLGAME")
     assert rows[ids["nob"]]["reason"] == "no complete pre-kickoff book session"
     assert [x["match_id"] for x in r["sample"]] == [ids["ok"]] and not r["complete"]
@@ -139,3 +139,22 @@ def test_review_fixes_partial_tickers_offsets_missing_comp_and_frozen_refusal(mo
     assert r.exit_code == 2 and "frozen cohort" in r.output
     r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", "2026-10-05T17:00:00+00:00", "--skew-test"])
     assert r.exit_code == 0, r.output                                      # the frozen cutoff, offset form
+
+
+def test_second_review_fixes_boundary_n_and_ci_precision():
+    """Codex on #291, round 2 (verified): a capture AT the cutoff is not after it; --n must be positive; the
+    reported CI carries the exact bounds the verdict was decided on."""
+    from types import SimpleNamespace as NS
+
+    from click.testing import CliRunner
+
+    import cli
+    ko = CUT + timedelta(days=1)
+    m = NS(id=1, utc_date=ko, status=MatchStatus.FINISHED, home_team=None, away_team=None)
+    legs = [NS(id=i, source="kalshi", market="1X2", selection=k, captured_at=CUT, yes_bid=0.3, yes_ask=0.31)
+            for i, k in enumerate(U.LEGS)]
+    row = U.game_row(m, legs, {i: f"KXUEFANLGAME-X-{i}" for i in range(3)}, CUT)
+    assert not row["qualifies"] and row["reason"] == "last Kalshi capture not after the freeze cutoff"
+    assert CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--n", "0"]).exit_code == 2
+    t = U.skew_test([0.0001 + 0.000001 * i for i in range(30)])          # bounds just above zero
+    assert t["verdict"] == "STRUCTURAL" and t["ci95"][0] > 0 and round(t["ci95"][0], 3) == 0.0

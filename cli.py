@@ -1361,7 +1361,8 @@ def registry_cmd(eid):
 @cli.command("unl-ladder-receipt")
 @click.option("--since", default=None,
               help="Freeze cutoff, UTC (default 2026-10-05T17:00, docs/specs/unl-venue-skew-test.md).")
-@click.option("--n", "n", default=30, show_default=True, type=int, help="Sample size (frozen: 30).")
+@click.option("--n", "n", default=30, show_default=True, type=click.IntRange(min=1),
+              help="Sample size (frozen: 30).")
 @click.option("--skew-test", is_flag=True, help="Run the frozen favorite-skew test once the sample is complete.")
 @click.option("--out", "out_path", default=None, help="Also write the receipt text here (e.g. docs/receipts/…).")
 def unl_ladder_receipt_cmd(since, n, skew_test, out_path):

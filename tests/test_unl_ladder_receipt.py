@@ -1,0 +1,116 @@
+"""ARCHITECT 2026-10-05 (#286): a read-only UNL ladder receipt (match, legs, bid/ask, spread, two-sided,
+capture time, series) and the FROZEN favorite-skew test (docs/specs/unl-venue-skew-test.md): the first 30
+fresh two-sided KXUEFANLGAME boards after the cutoff; gap = Kalshi (3-leg normalized mids) − book on the
+book favorite; STRUCTURAL when the bootstrap 95% CI excludes 0. One-sided boards never count."""
+from datetime import datetime, timedelta
+
+from src.db import database
+from src.db.database import init_db, session_scope
+from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Sport, Team
+from src.walters import unl_ladders as U
+
+CUT = datetime(2094, 10, 5, 17, 0)
+NOW = CUT + timedelta(days=3)
+
+
+def _setup(monkeypatch):
+    """The ticker column is unmapped and migration-added; the shared test DB is left
+    untouched (another test pins its absence), so stored tickers are served by a stub."""
+    init_db()
+    tickers: dict = {}
+    monkeypatch.setattr(database, "read_kalshi_tickers",
+                        lambda s, ids: {i: tickers[i] for i in ids if i in tickers})
+    with session_scope() as s:
+        c = s.query(Competition).filter_by(code="UNL").one_or_none()
+        if c is None:
+            c = Competition(sport=Sport.SOCCER, code="UNL", name="UEFA Nations League", area="EU", type="INTL")
+            s.add(c)
+            s.flush()
+        ids = {}
+
+        def game(tag, ko, board=None, book=True, series="KXUEFANLGAME", cap_dt=timedelta(hours=1)):
+            h, a = Team(sport=Sport.SOCCER, name=f"Rcpt {tag} H"), Team(sport=Sport.SOCCER, name=f"Rcpt {tag} A")
+            s.add_all([h, a])
+            s.flush()
+            m = Match(sport=Sport.SOCCER, competition_id=c.id, season="2094/95", utc_date=ko,
+                      status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=a.id, home_score=1, away_score=0)
+            s.add(m)
+            s.flush()
+            at = ko - cap_dt
+            pairs = []
+            for sel, (bid, ask) in (board or {}).items():
+                x = OddsSnapshot(match_id=m.id, market="1X2", selection=sel, devig_prob=ask, n_books=1,
+                                 captured_at=at, source="kalshi", yes_bid=bid, yes_ask=ask)
+                s.add(x)
+                s.flush()
+                pairs.append((x.id, f"{series}-94OCT{tag}-{sel[:3]}"))
+            tickers.update(pairs)
+            if book:
+                for sel, p in (("HOME", 0.62), ("DRAW", 0.23), ("AWAY", 0.15)):
+                    s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel, devig_prob=p, n_books=5,
+                                       captured_at=ko - timedelta(hours=2), source="odds_api"))
+            ids[tag] = m.id
+
+        good = {"HOME": (0.65, 0.66), "DRAW": (0.21, 0.22), "AWAY": (0.13, 0.14)}
+        game("pre", CUT - timedelta(hours=1), good)                               # kicked off before the cutoff
+        game("ok", CUT + timedelta(days=1), good)
+        game("one", CUT + timedelta(days=1, hours=1), {**good, "AWAY": (None, 0.14)})   # one-sided board
+        game("old", CUT + timedelta(hours=2), good, cap_dt=timedelta(hours=3))   # capture before the cutoff
+        game("ser", CUT + timedelta(days=1, hours=2), good, series="KXCONCACAFNLGAME")
+        game("nob", CUT + timedelta(days=1, hours=3), good, book=False)
+        cid = c.id
+    return ids, cid
+
+
+def _drop(cid):
+    with session_scope() as s:
+        mids = [m.id for m in s.query(Match).filter(Match.competition_id == cid, Match.season == "2094/95")]
+        s.query(OddsSnapshot).filter(OddsSnapshot.match_id.in_(mids)).delete(synchronize_session=False)
+        s.query(Match).filter(Match.id.in_(mids)).delete(synchronize_session=False)
+
+
+def test_receipt_rows_sample_and_every_exclusion_reason(monkeypatch):
+    ids, cid = _setup(monkeypatch)
+    with session_scope() as s:
+        r = U.receipt(s, since=CUT, n=30, now=NOW)
+    rows = {x["match_id"]: x for x in r["rows"]}
+    assert ids["pre"] not in rows                                          # before the cutoff: not listed
+    ok = rows[ids["ok"]]
+    assert ok["qualifies"] and ok["series"] == "KXUEFANLGAME" and ok["two_sided"] and ok["favorite"] == "HOME"
+    assert ok["legs"]["HOME"] == {"bid": 0.65, "ask": 0.66, "spread_c": 1.0, "two_sided": True,
+                                  "ticker": "KXUEFANLGAME-94OCTok-HOM"}
+    kn = 0.655 / (0.655 + 0.215 + 0.135)                                  # three-leg normalized mid
+    assert abs(ok["gap_pp"] - round((kn - 0.62) * 100, 3)) < 1e-9
+    assert rows[ids["one"]]["reason"] == "one-sided board (ruling 2)" and not rows[ids["one"]]["two_sided"]
+    assert rows[ids["old"]]["reason"] == "last Kalshi capture before the freeze cutoff"
+    assert rows[ids["ser"]]["reason"].startswith("series KXCONCACAFNLGAME is not KXUEFANLGAME")
+    assert rows[ids["nob"]]["reason"] == "no complete pre-kickoff book session"
+    assert [x["match_id"] for x in r["sample"]] == [ids["ok"]] and not r["complete"]
+    txt = U.format_receipt(r, with_test=True)
+    assert "SAMPLE: 1/30 (incomplete)" in txt and "SKEW TEST: not run" in txt and "excluded: one-sided" in txt
+    _drop(cid)
+
+
+def test_frozen_skew_test_is_deterministic_and_reads_the_ci():
+    flat = [3.0 + 0.1 * (i % 5) for i in range(30)]                       # Kalshi consistently above book
+    t = U.skew_test(flat)
+    assert t["verdict"] == "STRUCTURAL" and t["ci95"][0] > 0 and t["sign"] == "Kalshi above book on the favorite"
+    assert U.skew_test(flat) == t                                          # seed 20261005: reproducible
+    sym = [(-1) ** i * 2.0 for i in range(30)]
+    s2 = U.skew_test(sym)
+    assert s2["verdict"] == "NOT STRUCTURAL" and s2["ci95"][0] < 0 < s2["ci95"][1] and s2["sign"] is None
+    assert U.skew_test([])["verdict"] is None
+
+
+def test_cli_writes_the_receipt_and_refuses_data(tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    import cli
+    ids, cid = _setup(monkeypatch)
+    out = tmp_path / "receipts" / "unl.txt"
+    res = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", CUT.isoformat(), "--out", str(out)])
+    assert res.exit_code == 0, res.output
+    assert out.exists() and "UNL ladder receipt" in out.read_text()
+    bad = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--out", "data/x.txt"])
+    assert bad.exit_code == 2 and "REFUSED" in bad.output
+    _drop(cid)

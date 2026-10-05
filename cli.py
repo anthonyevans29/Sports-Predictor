@@ -1358,6 +1358,37 @@ def registry_cmd(eid):
                    f"result {_json.dumps(res)[:60]:<60} prior reads {'—' if reads is None else reads}")
 
 
+@cli.command("unl-ladder-receipt")
+@click.option("--since", default=None,
+              help="Freeze cutoff, UTC (default 2026-10-05T17:00, docs/specs/unl-venue-skew-test.md).")
+@click.option("--n", "n", default=30, show_default=True, type=int, help="Sample size (frozen: 30).")
+@click.option("--skew-test", is_flag=True, help="Run the frozen favorite-skew test once the sample is complete.")
+@click.option("--out", "out_path", default=None, help="Also write the receipt text here (e.g. docs/receipts/…).")
+def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
+    """READ-ONLY UNL ladder receipt (ARCHITECT 2026-10-05, #286 ruling 3).
+    Per game: match, legs (bid/ask, spread, two-sided), capture time and
+    series, plus book probability and the favorite gap. The sample is the
+    first N games qualifying under the frozen spec; every other game is
+    listed with its exclusion reason. --skew-test runs the frozen test.
+    Writes nothing to the DB."""
+    from datetime import datetime as _dt
+
+    from src.walters.unl_ladders import FREEZE_CUTOFF, format_receipt, receipt
+    cut = _dt.fromisoformat(since.rstrip("Z")) if since else FREEZE_CUTOFF
+    if out_path and (out_path.startswith("data/") or "/data/" in out_path):
+        console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+        raise SystemExit(2)
+    with session_scope() as s:
+        text_ = format_receipt(receipt(s, since=cut, n=n), with_test=skew_test)
+    console.print(text_, markup=False, highlight=False)
+    if out_path:
+        import os as _os
+        _os.makedirs(_os.path.dirname(out_path) or ".", exist_ok=True)
+        with open(out_path, "w") as fh:
+            fh.write(text_ + "\n")
+        console.print(f"[green]receipt written: {out_path}[/green]")
+
+
 @cli.command("close-probe")
 @click.option("--match", "match_id", required=True, type=int, help="Match id.")
 def close_probe_cmd(match_id):

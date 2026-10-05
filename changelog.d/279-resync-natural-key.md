@@ -10,3 +10,9 @@
   - **placeholder kickoff:** 04:00Z → real kickoff within 24h.
   A clean merge carrying them reads ACCOUNTED; a replaced row, a gone row or any other shift still reads REVIEW. Also fixed: a rowid-alias key reported the match id under the column's own name and leaked it into the content.
 - **Receipts:** pytest 703 passed / 1 skipped (+6: refuse-not-create on a still-listed id; second re-key after a dedupe (refused while both listed, re-keyed after, history id goes back); two new ids for one row; absent table skipped; schema refusal without a traceback; the three accounted classes).
+- **Review fixes (Codex on #279):**
+  - P1: a row created in the run joins the natural-key index, so two unseen ids for one fixture in one listing create once and refuse the second.
+  - P2: only a missing table / column ("no such table/column", "has no column named") is refused as "behind the code"; a locked or read-only DB, disk I/O and other operational errors keep their own diagnostic.
+  - P2: an empty backup table's max rowid is 0, so every current row in it is post-backup.
+  - P2: the placeholder class requires the destination to be a REAL kickoff (not another 04:00Z) within 24h.
+  - pytest 706 passed / 1 skipped (+3).

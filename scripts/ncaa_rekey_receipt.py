@@ -222,15 +222,26 @@ def ref_by_rowid(con, t, col, rowids) -> dict | None:
 
 
 def max_rowid(con, t) -> int | None:
+    """The backup's highest rowid in t: 0 for an EMPTY table (every current row is then post-backup —
+    #279 review, Codex P2), None only when the table cannot be read (no table / no rowid)."""
     try:
-        return con.execute(f'SELECT max(rowid) FROM "{t}"').fetchone()[0]
+        v = con.execute(f'SELECT max(rowid) FROM "{t}"').fetchone()[0]
     except sqlite3.OperationalError:
         return None
+    return 0 if v is None else v
 
 
 def is_placeholder_kickoff(dt) -> bool:
     """The provider's TBD kickoff (ARCHITECT 2026-10-05): 04:00:00Z (midnight US Eastern)."""
     return dt is not None and (dt.hour, dt.minute, dt.second) == (4, 0, 0)
+
+
+def placeholder_resolved(pre, post) -> bool:
+    """A placeholder 04:00Z kickoff that became a REAL kickoff within 24h (ruled accounted, 2026-10-05);
+    a move onto another placeholder time is a date change, never accounted (#279 review)."""
+    if pre is None or post is None or pre == post:
+        return False
+    return is_placeholder_kickoff(pre) and not is_placeholder_kickoff(post) and abs(post - pre) <= timedelta(hours=24)
 
 
 def twin_group(rows_of_pair, start) -> list:
@@ -321,7 +332,9 @@ def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_pat
             print("      ⚠ the pre group is not exactly {keeper, merged row}")
             flags["group not a clean pair"] += 1
         shift = (k["utc"] - kp["utc"]) if (k["utc"] and kp["utc"]) else None
-        placeholder = bool(shift) and is_placeholder_kickoff(kp["utc"]) and abs(shift) <= timedelta(hours=24)
+        # placeholder → REAL kickoff only (#279 review, Codex P2): the destination must not itself be a
+        # placeholder time (04:00Z → next/previous day's 04:00Z is a date change, flagged)
+        placeholder = placeholder_resolved(kp["utc"], k["utc"])
         print(f"      keeper kickoff pre {kp['utc']} → post {k['utc']}"
               + ((" · placeholder 04:00Z → real kickoff (accounted, ARCHITECT 2026-10-05)" if placeholder
                   else f" · SHIFTED {shift}") if shift else "" if shift is not None else " · UNKNOWN"))

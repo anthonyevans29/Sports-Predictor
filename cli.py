@@ -401,7 +401,12 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
     md.SKIPPED_ABSENT.clear()
 
     def _schema_refusal(e):
-        # ARCHITECT 2026-10-05: refuse with the remedy, never a traceback; the transaction rolled back
+        # ARCHITECT 2026-10-05: refuse with the remedy, never a traceback; the transaction rolled back.
+        # #279 review (Codex P2): ONLY a missing table / column is "behind the code"; a locked or
+        # read-only DB, disk I/O and the rest keep their own diagnostic (re-raised as they are).
+        msg = str(getattr(e, "orig", e)).lower()
+        if not any(k in msg for k in ("no such table", "no such column", "has no column named")):
+            raise e
         click.echo(f"REFUSED: the live DB is behind the code ({str(getattr(e, 'orig', e))[:160]}). Nothing was "
                    "written (the transaction rolled back). Run `python cli.py init-db` (additive: creates "
                    "missing tables; NEVER --force), or the pending migrate_*.py, then re-run.")

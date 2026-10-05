@@ -406,6 +406,10 @@ class IngestionService:
         s.add(match)
         if cache is not None and nm.source_id:
             cache[nm.source_id] = match
+        if cache is not None and "__pairs__" in cache:
+            # #279 review (Codex P1): a row created in THIS run holds its natural key too — a second
+            # unseen id for the same fixture in the same listing must find it (and be refused), not twin it
+            cache["__pairs__"].setdefault((home.id, away.id), []).append(match)
         result.created += 1
         return match
 

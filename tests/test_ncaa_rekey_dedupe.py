@@ -36,7 +36,7 @@ def _cleanup():
         s.query(Match).filter(Match.id.in_(mids)).delete(synchronize_session=False)
 
 
-CODES = ("RK1", "RK2", "RK3", "RK4", "DD1", "DD2", "DD3", "EX1")
+CODES = ("RK1", "RK2", "RK3", "RK4", "RK5", "DD1", "DD2", "DD3", "EX1")
 
 
 class FakeAdapter:
@@ -234,3 +234,29 @@ def test_dedupe_cli_refuses_a_schema_behind_the_code_without_a_traceback(monkeyp
     out = CliRunner().invoke(cli, ["dedupe-matches", "--competition", "DD3"])
     assert out.exit_code == 2 and "REFUSED: the live DB is behind the code" in out.output
     assert "init-db" in out.output and "NEVER --force" in out.output and "Traceback" not in out.output
+
+
+def test_two_unseen_ids_for_one_fixture_in_one_listing_create_once():
+    """#279 review (Codex P1): with no stored row, the first unseen id is created and must join the
+    natural-key index, so the second id for the same fixture is refused — not a twin."""
+    cid, tids = _world("RK5")
+    r = IngestionService(FakeAdapter([_nm("RK5", 0, 1, "801"),
+                                      _nm("RK5", 0, 1, "802", when=KO + timedelta(hours=1))])).sync_matches("RK5", "2091")
+    assert (r.created, r.rekey_refused) == (1, 1)
+    with session_scope() as s:
+        assert s.execute(select(func.count(Match.id)).where(Match.competition_id == cid)).scalar() == 1
+
+
+def test_dedupe_cli_keeps_other_operational_errors_their_own_diagnostic(monkeypatch):
+    """#279 review (Codex P2): a locked DB is not 'behind the code' — no init-db prescription."""
+    from click.testing import CliRunner
+    from sqlalchemy.exc import OperationalError
+
+    from cli import cli
+
+    def locked(*a, **k):
+        raise OperationalError("UPDATE …", {}, Exception("database is locked"))
+    monkeypatch.setattr(md, "run", locked)
+    out = CliRunner().invoke(cli, ["dedupe-matches", "--competition", "DD3"])
+    assert out.exit_code != 0 and "behind the code" not in out.output
+    assert isinstance(out.exception, OperationalError) and "database is locked" in str(out.exception)

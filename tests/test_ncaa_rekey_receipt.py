@@ -311,3 +311,19 @@ def test_post_backup_rows_repointed_keyed_rows_and_a_placeholder_kickoff_are_acc
         s.query(Odds).filter(Odds.match_id.in_(mids)).delete(synchronize_session=False)
         s.query(MatchNeutralDerived).filter(MatchNeutralDerived.match_id.in_(mids)).delete(synchronize_session=False)
         s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)
+
+
+def test_review_boundaries_placeholder_destination_and_empty_backup_table():
+    """#279 review (Codex): a 04:00Z → next-day 04:00Z move is a date change, not a placeholder resolved;
+    an EMPTY backup table's max rowid is 0 (every current row post-backup), a missing one None."""
+    import sqlite3
+
+    p = datetime(2092, 10, 5, 4, 0)
+    assert rr.placeholder_resolved(p, p.replace(hour=19, minute=30))
+    assert not rr.placeholder_resolved(p, p + timedelta(days=1))           # placeholder → placeholder
+    assert not rr.placeholder_resolved(p, p - timedelta(days=1))
+    assert not rr.placeholder_resolved(p, p + timedelta(hours=30))         # beyond 24h
+    assert not rr.placeholder_resolved(p.replace(hour=17), p.replace(hour=19))   # not a placeholder origin
+    con = sqlite3.connect(":memory:")
+    con.execute("CREATE TABLE odds (id INTEGER PRIMARY KEY, match_id INTEGER)")
+    assert rr.max_rowid(con, "odds") == 0 and rr.max_rowid(con, "nope") is None

@@ -124,6 +124,7 @@ def test_review_fixes_partial_tickers_offsets_missing_comp_and_frozen_refusal(mo
     from click.testing import CliRunner
 
     import cli
+    init_db()                                    # the last CLI call opens the DB: never rely on test order
     ko = CUT + timedelta(days=1)
     m = NS(id=1, utc_date=ko, status=MatchStatus.FINISHED, home_team=None, away_team=None)
     legs = [NS(id=i, source="kalshi", market="1X2", selection=k, captured_at=ko - timedelta(hours=1),

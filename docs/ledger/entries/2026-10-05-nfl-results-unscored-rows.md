@@ -4,3 +4,4 @@
   - **(a) Ties (P2):** the season record counts a tied game as a hit for an away pick. The frozen gate scores a tie as a home loss (`nfl_backtest.py:163`), so how ties count in the record is a ruling.
   - **(b) Preseason (P2):** predictions made during preseason stay in the season record, because preseason shares the season string. Excluding them changes the reconciled lifetime record.
 - **Already fixed:** the Kalshi-only close's spread cap (P1, raised against a pre-#280 commit) is on main via #280.
+- **Review fix (Codex on #289, verified):** the season is now chosen before unscored rows are filtered. Filtering first let an unscored opener of a new season fall back to republishing the previous season.

@@ -68,3 +68,34 @@ def test_a_finished_row_without_scores_is_skipped_not_a_crash(tmp_path):
     doc = json.load(open(export_nfl_results(out_dir=str(tmp_path / "c"))))     # no TypeError
     assert mid not in {r["match_id"] for r in doc["results"]}
     assert doc["record"]["games"] == doc["count"]
+
+
+def test_an_unscored_opener_of_a_new_season_does_not_republish_the_old_season(tmp_path):
+    """Codex on #289 (P2, verified): the season is chosen from every FINISHED predicted game before unscored
+    rows are dropped, so a new season whose only finished game has no scores yet exports as that season
+    (empty), not as the previous season's results."""
+    init_db()
+    now = utc_now_naive()
+    with session_scope() as s:
+        c = s.query(Competition).filter_by(code="NFL").one_or_none()
+        if c is None:
+            c = Competition(sport=Sport.NFL, code="NFL", name="NFL", area="US", type="LEAGUE")
+            s.add(c)
+            s.flush()
+        h, a = Team(sport=Sport.NFL, name="Opener H"), Team(sport=Sport.NFL, name="Opener A")
+        s.add_all([h, a])
+        s.flush()
+        m = Match(sport=Sport.NFL, competition_id=c.id, season="2099", matchday=1,
+                  utc_date=now - timedelta(hours=3), status=MatchStatus.FINISHED,
+                  home_team_id=h.id, away_team_id=a.id, home_score=None, away_score=None)
+        s.add(m)
+        s.flush()
+        s.add(Prediction(match_id=m.id, model_version="nfl_elo_v1", home_win_prob=0.5, away_win_prob=0.5))
+        mid = m.id
+    from src.walters.nfl_predict import export_nfl_results
+    doc = json.load(open(export_nfl_results(out_dir=str(tmp_path / "o"))))
+    assert doc["window"] == {"kind": "season_to_date", "season": "2099"}
+    assert doc["count"] == 0 and doc["results"] == []
+    with session_scope() as s:
+        s.query(Prediction).filter(Prediction.match_id == mid).delete(synchronize_session=False)
+        s.query(Match).filter(Match.id == mid).delete(synchronize_session=False)

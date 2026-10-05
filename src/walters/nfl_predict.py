@@ -495,19 +495,21 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
     rows = []
     with session_scope() as s:
         now = utc_now_naive()
-        # both scores required (Codex on #278): a FINISHED row whose scores have not
-        # arrived made `home_score > away_score` raise and aborted the whole export;
-        # season to date keeps such a row in scope until it is scored
-        base = (nfl_scoped(select(Prediction, Match)
-                           .join(Match, Match.id == Prediction.match_id))
-                .where(Match.status == MatchStatus.FINISHED,
-                       Match.home_score.is_not(None), Match.away_score.is_not(None)))
+        finished = (nfl_scoped(select(Prediction, Match)
+                               .join(Match, Match.id == Prediction.match_id))
+                    .where(Match.status == MatchStatus.FINISHED))
+        # both scores required to GRADE (Codex on #278): a FINISHED row whose scores
+        # have not arrived made `home_score > away_score` raise and aborted the whole
+        # export. The SEASON is chosen from every finished predicted game first (Codex
+        # on #289): filtering scores before that let an unscored opener fall back to
+        # republishing the previous season.
+        base = finished.where(Match.home_score.is_not(None), Match.away_score.is_not(None))
         if days_back is not None:
             q = base.where(Match.utc_date >= now - timedelta(days=days_back)).order_by(Match.utc_date)
             window = {"kind": "rolling", "days": days_back,
                       "from": (now - timedelta(days=days_back)).isoformat() + "Z"}
         else:
-            seasons = sorted({str(m.season) for _, m in s.execute(base).all() if m.season is not None})
+            seasons = sorted({str(m.season) for _, m in s.execute(finished).all() if m.season is not None})
             season = max(seasons, key=lambda v: (len(v), v)) if seasons else None
             q = (base.where(Match.season == season) if season is not None else base).order_by(Match.utc_date)
             window = {"kind": "season_to_date", "season": season}

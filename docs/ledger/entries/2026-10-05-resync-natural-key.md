@@ -1,0 +1,6 @@
+**2026-10-05 — FIXED (ARCHITECT): resync matches by natural key before creating; dedupe absent-table crash; reconstruction RULED ACCOUNTED (30/30).**
+- **(A) Ruling (verbatim):** "Make the resync match by natural key (home, away, kickoff ±12h) when the incoming id is unknown, before creating a row."
+  - Built: an unknown id is created only when no live stored row holds its natural key. A candidate that cannot be re-keyed (its id still listed, already claimed this run, ambiguous) is refused and receipted, never created. An id from a row's `_prev` history goes back to that row.
+  - **Owed:** the next Saturday NCAA sync receipt (`rekeyed=… rekey_refused=…`), and `ncaa_rekey_receipt.py --game "Abilene Christian@West Florida"` showing one row.
+- **(B)** `dedupe --apply` crashed on `intl_venue_resolved` (not yet created on the laptop). The sweep skips absent tables, and dedupe refuses a schema behind the code with "run init-db" instead of a traceback.
+- **(C) RULED (verbatim):** "#277 reconstruction: 30/30; flags 'keeper kickoff shifted' ×30 = intended (placeholder 04:00 → real kickoff); 'reference move not accounted' ×11 = rows created after the backup (post-backup syncs) + match_id re-pointed rows. RULED ACCOUNTED." The tool now classifies all three, so a clean merge reads ACCOUNTED.

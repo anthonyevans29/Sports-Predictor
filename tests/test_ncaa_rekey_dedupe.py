@@ -36,7 +36,7 @@ def _cleanup():
         s.query(Match).filter(Match.id.in_(mids)).delete(synchronize_session=False)
 
 
-CODES = ("RK1", "RK2", "DD1", "DD2", "EX1")
+CODES = ("RK1", "RK2", "RK3", "RK4", "DD1", "DD2", "DD3", "EX1")
 
 
 class FakeAdapter:
@@ -98,13 +98,51 @@ def test_resync_with_new_provider_ids_updates_instead_of_creating():
     assert (r2.created, r2.updated, r2.rekeyed) == (0, 1, 0)
 
 
-def test_a_stored_id_still_listed_is_a_different_game_never_rekeyed():
+def test_a_stored_id_still_listed_is_never_rekeyed_and_the_new_id_is_refused_not_created():
+    """ARCHITECT 2026-10-05 (second re-key): a stored id still in the listing is never re-keyed, and the new
+    id for the same natural key (pair, kickoff ±12h) is REFUSED, not created (before: created — a twin)."""
     cid, tids = _world("RK2")
     with session_scope() as s:
         _match(s, cid, tids, 0, 1, "100")
     listing = [_nm("RK2", 0, 1, "100"), _nm("RK2", 0, 1, "101", when=KO + timedelta(hours=4))]
     r = IngestionService(FakeAdapter(listing)).sync_matches("RK2", "2091")
-    assert (r.created, r.updated, r.rekeyed) == (1, 1, 0)
+    assert (r.created, r.updated, r.rekeyed, r.rekey_refused) == (0, 1, 0, 1)
+
+
+def test_second_rekey_after_a_dedupe_updates_the_same_row_never_a_twin():
+    """ARCHITECT 2026-10-05: Abilene Christian@West Florida was re-keyed a SECOND time (24146 -> 24111) after
+    Saturday's dedupe and the resync created a twin. The row already carries a re-key history."""
+    cid, tids = _world("RK3")
+    with session_scope() as s:
+        row = _match(s, cid, tids, 0, 1, "24146")
+        m = s.get(Match, row)
+        m.external_ids = {SRC: "24146", f"{SRC}_prev": ["23980"],
+                          f"{SRC}_rekeys": [{"from": "23980", "to": "24146", "via": "dedupe-merge", "at": "x"}]}
+        n0 = s.execute(select(func.count(Match.id)).where(Match.competition_id == cid)).scalar()
+    # the transition sync: the provider serves BOTH ids -> refused, never created
+    r = IngestionService(FakeAdapter([_nm("RK3", 0, 1, "24146"), _nm("RK3", 0, 1, "24111")])).sync_matches("RK3", "2091")
+    assert (r.created, r.rekey_refused) == (0, 1)
+    # the next sync: only the new id -> the same row is re-keyed a second time
+    r = IngestionService(FakeAdapter([_nm("RK3", 0, 1, "24111", when=KO + timedelta(hours=2))])).sync_matches("RK3", "2091")
+    assert (r.created, r.rekeyed) == (0, 1)
+    with session_scope() as s:
+        m = s.get(Match, row)
+        assert m.external_ids[SRC] == "24111" and m.external_ids[f"{SRC}_prev"] == ["23980", "24146"]
+        assert s.execute(select(func.count(Match.id)).where(Match.competition_id == cid)).scalar() == n0
+    # the provider flips back to an id in the row's history -> that row, by its own history
+    r = IngestionService(FakeAdapter([_nm("RK3", 0, 1, "23980", when=KO + timedelta(hours=30))])).sync_matches("RK3", "2091")
+    assert (r.created, r.rekeyed) == (0, 1)
+    with session_scope() as s:
+        assert s.get(Match, row).external_ids[SRC] == "23980"
+        assert s.execute(select(func.count(Match.id)).where(Match.competition_id == cid)).scalar() == n0
+
+
+def test_two_new_ids_for_one_stored_row_in_one_run_refuse_the_second():
+    cid, tids = _world("RK4")
+    with session_scope() as s:
+        _match(s, cid, tids, 0, 1, "500")
+    r = IngestionService(FakeAdapter([_nm("RK4", 0, 1, "501"), _nm("RK4", 0, 1, "502")])).sync_matches("RK4", "2091")
+    assert (r.created, r.rekeyed, r.rekey_refused) == (0, 1, 1)
 
 
 def test_dedupe_merges_the_newer_row_into_the_referenced_one(tmp_path):
@@ -159,3 +197,40 @@ def test_fixtures_export_carries_one_row_per_fixture_preferring_the_finished(tmp
     doc = json.loads(open(export_fixtures("EX1", out_dir=str(tmp_path), receipts=rc)).read())
     ids = [r["match_id"] for r in doc["fixtures"]]
     assert fin in ids and old not in ids and other in ids
+
+
+def test_dedupe_apply_skips_a_reference_table_absent_from_the_live_db():
+    """ARCHITECT 2026-10-05: `dedupe --apply` crashed "no such table: intl_venue_resolved" (the code maps it,
+    init_db had not created it on the laptop). An absent table holds no references: skipped and named.
+    (Throwaway test DB only; the table is recreated by init_db at the end.)"""
+    from sqlalchemy import text
+
+    from src.db.database import get_engine
+    cid, tids = _world("DD3")
+    with session_scope() as s:
+        keeper = _match(s, cid, tids, 0, 1, "700")
+        newer = _match(s, cid, tids, 0, 1, "9700", status=MatchStatus.FINISHED, home_score=3, away_score=1)
+    with get_engine().begin() as c:
+        c.execute(text("DROP TABLE intl_venue_resolved"))
+    try:
+        md.SKIPPED_ABSENT.clear()
+        r = md.run("DD3", source=SRC, apply=True)
+        assert r["merged"] == 1 and not r["refused"] and "intl_venue_resolved" in md.SKIPPED_ABSENT
+        with session_scope() as s:
+            assert s.get(Match, newer) is None and s.get(Match, keeper) is not None
+    finally:
+        init_db()
+
+
+def test_dedupe_cli_refuses_a_schema_behind_the_code_without_a_traceback(monkeypatch):
+    from click.testing import CliRunner
+    from sqlalchemy.exc import OperationalError
+
+    from cli import cli
+
+    def boom(*a, **k):
+        raise OperationalError("SELECT …", {}, Exception("no such column: matches.status_raw"))
+    monkeypatch.setattr(md, "run", boom)
+    out = CliRunner().invoke(cli, ["dedupe-matches", "--competition", "DD3"])
+    assert out.exit_code == 2 and "REFUSED: the live DB is behind the code" in out.output
+    assert "init-db" in out.output and "NEVER --force" in out.output and "Traceback" not in out.output

@@ -56,6 +56,18 @@ log = logging.getLogger(__name__)
 # created. Scoped to the american-football family, where the same pair twice
 # within hours does not happen; MLB doubleheaders / series keep source-id
 # matching only (a ruling would widen it).
+#
+# SECOND RE-KEY (ARCHITECT 2026-10-05): the provider re-keyed Abilene Christian@
+# West Florida a SECOND time (24146 -> 24111) after Saturday's dedupe and the
+# resync created a twin again. Ruled: "match by natural key (home, away, kickoff
+# ±12h) when the incoming id is unknown, before creating a row." So an unknown id
+# is CREATED only when no live stored row holds its natural key. One free
+# candidate is re-keyed (as before); a candidate that cannot be re-keyed — its
+# own id still in this listing (the provider serving both ids), already
+# re-keyed by another listing this run, or several candidates — is REFUSED
+# (skipped, receipted), never created. An incoming id found in a row's
+# "<source>_prev" history goes back to that row. Retired rows (cancelled,
+# stale_orphan) are never candidates.
 REKEY_SOURCES = frozenset({"api_american_football"})
 REKEY_WINDOW_H = 12
 
@@ -282,6 +294,8 @@ class IngestionService:
                     _cache[_sid] = _m
                 if _src in REKEY_SOURCES:
                     _pairs.setdefault((_m.home_team_id, _m.away_team_id), []).append(_m)
+                    for _old in ((_m.external_ids or {}).get(f"{_src}_prev") or []):
+                        _cache.setdefault("__prev__", {}).setdefault(str(_old), []).append(_m)
             if _src in REKEY_SOURCES:
                 # the natural-key index + the ids this listing carries (a stored
                 # id still listed is a different game, never a re-key target)
@@ -429,30 +443,55 @@ class IngestionService:
 
     @staticmethod
     def _rekey_candidate(nm: NormalizedMatch, home_id: int, away_id: int, cache: dict):
-        """(match | None, refusal | None) under the natural key (REKEY_SOURCES)."""
+        """(match | None, refusal | None) under the natural key (REKEY_SOURCES).
+        (None, None) = no live stored row holds the natural key: a genuinely new
+        game, created by the caller. A match that cannot be re-keyed is a refusal,
+        never a creation (ARCHITECT 2026-10-05, second re-key)."""
         from datetime import timedelta
+
+        from src.db.schema import MatchStatus
 
         win = timedelta(hours=REKEY_WINDOW_H)
         listed = cache["__listed__"]
+        claimed = cache.setdefault("__claimed__", set())
+        retired = (MatchStatus.CANCELLED, MatchStatus.STALE_ORPHAN)
+
+        def sid_of(m):
+            return (m.external_ids or {}).get(nm.source)
+
+        def blocked(m):
+            sid = sid_of(m)
+            if sid and str(sid) in listed:
+                return f"its id {sid} is still in this listing (the provider lists both {sid} and {nm.source_id})"
+            if sid and sid in claimed:
+                return f"it was already re-keyed from {sid} by another listing in this run"
+            return None
+
+        def claim(m):
+            sid = sid_of(m)
+            if sid:
+                claimed.add(sid)
+            return m, None
+
+        # an id the provider used before for a stored row: that row, by its own history
+        back = [m for m in cache.get("__prev__", {}).get(str(nm.source_id), []) if m.status not in retired]
+        if len(back) == 1:
+            why = blocked(back[0])
+            return (None, f"row {back[0].id} carries {nm.source_id} in its history but {why}") if why \
+                else claim(back[0])
+        if len(back) > 1:
+            return None, f"{len(back)} stored rows carry {nm.source_id} in their history ({[m.id for m in back]})"
 
         def near(rows):
-            out = []
-            for m in rows:
-                if m.utc_date is None or nm.utc_date is None or abs(m.utc_date - nm.utc_date) > win:
-                    continue
-                sid = (m.external_ids or {}).get(nm.source)
-                if sid and (str(sid) in listed or sid in cache.get("__claimed__", ())):
-                    continue            # still listed (a different game) or already re-keyed this run
-                out.append(m)
-            return out
+            return [m for m in rows if m.status not in retired and m.utc_date is not None
+                    and nm.utc_date is not None and abs(m.utc_date - nm.utc_date) <= win]
         same = near(cache["__pairs__"].get((home_id, away_id), []))
         if len(same) > 1:
             return None, f"{len(same)} stored rows match its natural key (ambiguous: {[m.id for m in same]})"
         if same:
-            sid = (same[0].external_ids or {}).get(nm.source)
-            if sid:
-                cache.setdefault("__claimed__", set()).add(sid)
-            return same[0], None
+            why = blocked(same[0])
+            return (None, f"stored row {same[0].id} holds its natural key but {why} — not created") if why \
+                else claim(same[0])
         swapped = near(cache["__pairs__"].get((away_id, home_id), []))
         if swapped:
             return None, f"stored row(s) {[m.id for m in swapped]} hold the pair home/away SWAPPED"

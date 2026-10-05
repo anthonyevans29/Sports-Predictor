@@ -250,3 +250,64 @@ def test_replaced_reference_row_is_review_even_with_equal_counts(tmp_path, capsy
     assert "odds: keeper 0→1, merged 1→0 ⚠" in out and ("content changed" in out or "gone" in out)
     assert "· REVIEW" in out and "ACCOUNTED" not in out
     _drop(cid)
+
+
+def test_post_backup_rows_repointed_keyed_rows_and_a_placeholder_kickoff_are_accounted(tmp_path, capsys):
+    """ARCHITECT 2026-10-05 (#277 reconstruction 30/30, RULED ACCOUNTED): 'reference move not accounted' ×11
+    were rows created after the backup (post-backup syncs) + match_id re-pointed rows; 'keeper kickoff
+    shifted' ×30 were placeholder 04:00Z → real kickoffs. A clean merge carrying all three reads ACCOUNTED;
+    a replaced row still reads REVIEW (the test above)."""
+    import sqlite3
+
+    from src.db.schema import MatchNeutralDerived
+    init_db()
+    place = NOW.replace(hour=4, minute=0, second=0, microsecond=0)
+    with session_scope() as s:
+        c = Competition(sport=Sport.NFL, code="RR6", name="RR6", area="US", type="LEAGUE")
+        ts = [Team(sport=Sport.NFL, name=f"RR6 T{i}", external_ids={SRC: f"rr6{i}"}) for i in range(2)]
+        s.add(c)
+        s.add_all(ts)
+        s.flush()
+        t = [x.id for x in ts]
+        rows = []
+        for sid, when in (("60", place), ("61", place + timedelta(hours=15, minutes=30))):
+            m = Match(sport=Sport.NFL, competition_id=c.id, season="2092", utc_date=when,
+                      status=MatchStatus.SCHEDULED, home_team_id=t[1], away_team_id=t[0], external_ids={SRC: sid})
+            s.add(m)
+            s.flush()
+            rows.append(m.id)
+        keeper, live = rows
+        s.add(Odds(match_id=live, bookmaker="b", market="ML", selection="HOME", price_decimal=1.8))
+        s.add(MatchNeutralDerived(match_id=live, neutral_derived=False, rule="r"))   # keyed BY match_id
+        cid = c.id
+    db = os.environ["DATABASE_URL"][len("sqlite:///"):]
+    pre = tmp_path / "RR6.backup"
+    src, dst = sqlite3.connect(db), sqlite3.connect(pre)
+    src.backup(dst)
+    src.close()
+    dst.close()
+    with session_scope() as s:                       # the merge: take the live row's kickoff, re-point refs
+        k, n = s.get(Match, keeper), s.get(Match, live)
+        k.utc_date = n.utc_date
+        s.query(Odds).filter(Odds.match_id == live).update({"match_id": keeper}, synchronize_session=False)
+        s.query(MatchNeutralDerived).filter(MatchNeutralDerived.match_id == live).update(
+            {"match_id": keeper}, synchronize_session=False)
+        k.external_ids = {SRC: "60", f"{SRC}_prev": ["61"],
+                          f"{SRC}_rekeys": [{"from": "61", "to": "60", "via": "orphan-merge", "at": "2092-10-03T20:00:00"}]}
+        s.delete(n)
+    with session_scope() as s:                       # a later sync adds a row (rowid above the backup's max)
+        s.add(Odds(match_id=keeper, bookmaker="b2", market="ML", selection="AWAY", price_decimal=2.1))
+    plan = tmp_path / "plan.txt"
+    plan.write_text(f"  [merge] id {keeper} sid 60 {place.isoformat()} home {t[1]} away {t[0]} STALE "
+                    f"{{'twin': {live}, 'twin_sid': '61', 'keeper': {keeper}}}\n")
+    assert rr.main(["--competition", "RR6", "--db", db, "--now", NOW.isoformat(), "--reconstruct-merges",
+                    "--backup", str(pre), "--plan", str(plan), "--expect", "1"]) == 0
+    out = capsys.readouterr().out
+    assert "placeholder 04:00Z → real kickoff" in out
+    assert "'created after the backup': 1" in out and "'re-pointed (rowid follows match_id)': 1" in out
+    assert "flags none" in out and out.rstrip().endswith("ACCOUNTED")
+    with session_scope() as s:
+        mids = [x.id for x in s.query(Match).filter(Match.competition_id == cid)]
+        s.query(Odds).filter(Odds.match_id.in_(mids)).delete(synchronize_session=False)
+        s.query(MatchNeutralDerived).filter(MatchNeutralDerived.match_id.in_(mids)).delete(synchronize_session=False)
+        s.query(Match).filter(Match.competition_id == cid).delete(synchronize_session=False)

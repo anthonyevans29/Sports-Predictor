@@ -199,10 +199,11 @@ def ref_rows(con, t, col, ids) -> dict | None:
     except sqlite3.OperationalError:
         return None
     names = [d[0] for d in cur.description]
-    ci = names.index(col)
+    ci = names.index(col, 1)
+    skip = {0} | {i for i, n in enumerate(names) if n == col}   # a rowid-alias key reports rowid under col's name
     out = {}
     for row in cur:
-        out[row[0]] = (row[ci], tuple(v for i, v in enumerate(row) if i not in (0, ci)))
+        out[row[0]] = (row[ci], tuple(v for i, v in enumerate(row) if i not in skip))
     return out
 
 
@@ -215,8 +216,21 @@ def ref_by_rowid(con, t, col, rowids) -> dict | None:
     except sqlite3.OperationalError:
         return None
     names = [d[0] for d in cur.description]
-    ci = names.index(col)
-    return {row[0]: (row[ci], tuple(v for i, v in enumerate(row) if i not in (0, ci))) for row in cur}
+    ci = names.index(col, 1)
+    skip = {0} | {i for i, n in enumerate(names) if n == col}
+    return {row[0]: (row[ci], tuple(v for i, v in enumerate(row) if i not in skip)) for row in cur}
+
+
+def max_rowid(con, t) -> int | None:
+    try:
+        return con.execute(f'SELECT max(rowid) FROM "{t}"').fetchone()[0]
+    except sqlite3.OperationalError:
+        return None
+
+
+def is_placeholder_kickoff(dt) -> bool:
+    """The provider's TBD kickoff (ARCHITECT 2026-10-05): 04:00:00Z (midnight US Eastern)."""
+    return dt is not None and (dt.hour, dt.minute, dt.second) == (4, 0, 0)
 
 
 def twin_group(rows_of_pair, start) -> list:
@@ -275,7 +289,7 @@ def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_pat
     unlogged = [r for r in cur if r["prev"] and not r["rekeys"]]
     if unlogged:
         print(f"   re-keyed rows with NO provenance log (pre-log; merge provenance UNKNOWN): {len(unlogged)}")
-    flags = Counter()
+    flags, accounted = Counter(), Counter()
     keeper_ids = []
     for k, e in merges:
         kp = pre_by.get(k["id"])
@@ -307,9 +321,13 @@ def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_pat
             print("      ⚠ the pre group is not exactly {keeper, merged row}")
             flags["group not a clean pair"] += 1
         shift = (k["utc"] - kp["utc"]) if (k["utc"] and kp["utc"]) else None
+        placeholder = bool(shift) and is_placeholder_kickoff(kp["utc"]) and abs(shift) <= timedelta(hours=24)
         print(f"      keeper kickoff pre {kp['utc']} → post {k['utc']}"
-              + (f" · SHIFTED {shift}" if shift else "" if shift is not None else " · UNKNOWN"))
-        if shift:
+              + ((" · placeholder 04:00Z → real kickoff (accounted, ARCHITECT 2026-10-05)" if placeholder
+                  else f" · SHIFTED {shift}") if shift else "" if shift is not None else " · UNKNOWN"))
+        if placeholder:
+            accounted["placeholder kickoff resolved"] += 1
+        elif shift:
             flags["keeper kickoff shifted"] += 1
         ids = [k["id"]] + ([mrow["id"]] if mrow else [])
         moves = []
@@ -327,21 +345,40 @@ def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_pat
             pm = sum(1 for v in pre_rows.values() if mrow and v[0] == mrow["id"])
             qk = sum(1 for v in post_rows.values() if v[0] == k["id"])
             qm = sum(1 for v in post_rows.values() if mrow and v[0] == mrow["id"])
-            bad = []
+            bad, ok_cls = [], Counter()
             if mrow is None:
                 bad.append("merged row UNKNOWN")
+            gone = {}
             for rid, (src_mid, content) in sorted(pre_rows.items()):
                 if rid not in went:
-                    bad.append(f"row {rid} gone")
+                    gone[rid] = content
                 elif went[rid][0] != k["id"]:
                     bad.append(f"row {rid} now on match {went[rid][0]}")
                 elif went[rid][1] != content:
                     bad.append(f"row {rid} content changed")
             new_rows = sorted(set(post_rows) - set(pre_rows))
-            if new_rows:
-                bad.append(f"rows {new_rows[:5]} not in the backup")
+            # RE-POINTED (ARCHITECT 2026-10-05): a table keyed BY match_id has rowid == match_id, so the
+            # merge's re-point moves the row to a new rowid with identical content: pair them, accounted
+            for nr in list(new_rows):
+                twin_old = next((g for g, c in gone.items() if c == post_rows[nr][1]), None)
+                if twin_old is not None and post_rows[nr][0] == k["id"]:
+                    del gone[twin_old]
+                    new_rows.remove(nr)
+                    ok_cls["re-pointed (rowid follows match_id)"] += 1
+            # POST-BACKUP (ARCHITECT 2026-10-05): rowid above the backup's max = created by a later sync
+            mx = max_rowid(pre_con, t)
+            post_backup = [nr for nr in new_rows if mx is not None and nr > mx]
+            if post_backup:
+                ok_cls["created after the backup"] += len(post_backup)
+            unexplained = [nr for nr in new_rows if nr not in post_backup]
+            bad += [f"row {rid} gone" for rid in sorted(gone)]
+            if unexplained:
+                bad.append(f"rows {unexplained[:5]} not in the backup (rowid ≤ the backup's max {mx})")
+            for kcls, n in ok_cls.items():
+                accounted[kcls] += n
             moves.append(f"{t}: keeper {pk}→{qk}, merged {pm if mrow else 'UNKNOWN'}→{qm if mrow else 'UNKNOWN'}"
-                         + (f" ⚠ {'; '.join(bad[:4])}" if bad else " (every row identity and destination verified)"))
+                         + (f" ⚠ {'; '.join(bad[:4])}" if bad else " (every row identity and destination verified)")
+                         + (f" · accounted: {dict(ok_cls)}" if ok_cls else ""))
             if bad:
                 flags["reference move not accounted"] += 1
         print("      references: " + ("; ".join(moves) or "none on either row"))
@@ -381,9 +418,10 @@ def reconstruct(cur_path: Path, pre_path: Path, comp: str, source: str, plan_pat
               + (" (the console prints --sample merge lines; '… N more' are not in the paste)" if extra else ""))
         if missing:
             flags["plan merge not in the log"] += len(missing)
-    accounted = len(merges) if expect is None else f"{len(merges)}/{expect}"
+    n_acc = len(merges) if expect is None else f"{len(merges)}/{expect}"
     verdict = "ACCOUNTED" if (expect is None or len(merges) == expect) and not flags else "REVIEW"
-    print(f"   RECONSTRUCTION: merges {accounted} · flags {dict(flags) or 'none'} · {verdict}")
+    print(f"   RECONSTRUCTION: merges {n_acc} · flags {dict(flags) or 'none'} · accounted classes "
+          f"{dict(accounted) or 'none'} · {verdict}")
     pre_con.close()
     cur_con.close()
     return 0

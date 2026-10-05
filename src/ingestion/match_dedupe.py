@@ -36,12 +36,32 @@ FIELDS = ("status", "status_raw", "utc_date", "matchday", "stage", "home_score",
           "home_score_ht", "away_score_ht", "home_score_90", "away_score_90", "full_time_result", "venue")
 
 
-def _fk_tables():
-    """(table, column, unique_with_match_id) for every column referencing matches.id."""
+SKIPPED_ABSENT: set = set()     # reference tables the ORM maps but the live DB lacks (receipt)
+
+
+def _live_tables(s) -> set | None:
+    """Table names in the live DB (None when the session cannot be inspected)."""
+    try:
+        from sqlalchemy import inspect
+
+        return set(inspect(s.get_bind()).get_table_names())
+    except Exception:
+        return None
+
+
+def _fk_tables(s=None):
+    """(table, column, unique_with_match_id) for every column referencing matches.id.
+    With a session: tables ABSENT from the live DB are skipped (ARCHITECT 2026-10-05:
+    `dedupe --apply` crashed "no such table: intl_venue_resolved" — a table the code maps
+    but init_db has not created yet holds no references) and named in SKIPPED_ABSENT."""
     from src.db.schema import Base
 
+    live = _live_tables(s) if s is not None else None
     out = []
     for t in Base.metadata.sorted_tables:
+        if live is not None and t.name not in live:
+            SKIPPED_ABSENT.add(t.name)
+            continue
         for c in t.columns:
             if any(fk.target_fullname == "matches.id" for fk in c.foreign_keys):
                 uniq = any(c.name in [x.name for x in con.columns] and len(con.columns) <= 2
@@ -129,7 +149,7 @@ def merge(s, keeper, newer, source: str, take_state: bool = True, via: str = "de
 
     from src.db.schema import MatchStatus
 
-    tables = _fk_tables()
+    tables = _fk_tables(s)
     for t, c, uniq in tables:
         if uniq:
             both = [s.execute(select(func.count()).select_from(t).where(c == mid)).scalar()

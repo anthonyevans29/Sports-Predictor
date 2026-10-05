@@ -1532,6 +1532,9 @@ def evaluate_finished(sport: Sport = Sport.SOCCER) -> int:
                     best = cl["best"].get(top_pick_sel)
                     if best:
                         closing_bookmaker, closing_price = best
+                    elif cl.get("source") == "kalshi_only":     # labelled (ARCHITECT 2026-10-05)
+                        closing_bookmaker = "kalshi_only"
+                        closing_price = round(1 / cl["fair"][top_pick_sel], 4) if cl["fair"][top_pick_sel] > 0 else None
 
             s.add(PredictionOutcome(
                 prediction_id=pred.id,
@@ -1586,6 +1589,10 @@ def evaluate_finished(sport: Sport = Sport.SOCCER) -> int:
             best = cl["best"].get(top_pick_sel)
             if best:
                 outcome.closing_bookmaker, outcome.closing_price = best
+            elif cl.get("source") == "kalshi_only":             # labelled (ARCHITECT 2026-10-05)
+                outcome.closing_bookmaker = "kalshi_only"
+                f = cl["fair"][top_pick_sel]
+                outcome.closing_price = round(1 / f, 4) if f > 0 else None
             backfilled += 1
         if backfilled:
             log.info("CLV backfilled for %d outcomes (late closers).", backfilled)

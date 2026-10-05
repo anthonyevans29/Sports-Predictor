@@ -904,11 +904,12 @@ def export_results(
     from sqlalchemy import select
     from src.db.database import session_scope
 
-    from src.db.schema import Odds as _Odds
-    from src.walters.close import close_block as _cb
+    from src.walters.close import grading_close_block as _gcb
 
     def _close_block(s, m):
-        return _cb(list(s.execute(select(_Odds).where(_Odds.match_id == m.id)).scalars()), m.utc_date, m.sport)
+        # THE grading close (odds → snapshot → kalshi_only, ARCHITECT 2026-10-05), not the odds table alone:
+        # MLB replaces its odds table, so a results row read only the table and stayed unpriced.
+        return _gcb(s, m)
 
     rows = []
     with session_scope() as s:

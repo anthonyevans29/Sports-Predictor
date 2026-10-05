@@ -24,7 +24,7 @@ from __future__ import annotations
 
 from collections import Counter, defaultdict
 
-from src.walters.close import CAPTURE_SESSION, close_1x2, close_from_snapshots, outcomes_for, priced
+from src.walters.close import CAPTURE_SESSION, close_1x2, close_from_kalshi, close_from_snapshots, outcomes_for, priced
 
 LINE_MARKETS_HINT = ("TOTALS", "SPREADS", "OU_", "SPREAD")
 
@@ -101,12 +101,25 @@ def _top(pred) -> str | None:
 
 def _close_for(odds_rows, snaps, match):
     """grading_close (src/walters/close.py) over pre-fetched rows: the odds
-    table's contract close, else the last complete pre-kickoff snapshot."""
+    table's contract close, else the last complete pre-kickoff book snapshot,
+    else — only when NO pre-kickoff book capture exists at all — the Kalshi
+    mid of a two-sided capture (reference=kalshi_only, ARCHITECT 2026-10-05).
+    `snaps` may carry Kalshi rows; book and Kalshi rows are split here."""
     oc_ = outcomes_for(match.sport)
     cl = close_1x2(odds_rows, match.utc_date, oc_) if odds_rows else None
     if priced(cl):
         return cl
-    return close_from_snapshots(snaps or [], match.utc_date, oc_) or cl
+    snaps = list(snaps or [])
+    book = [x for x in snaps if getattr(x, "source", None) != "kalshi"]
+    sn = close_from_snapshots(book, match.utc_date, oc_)
+    if sn is not None:
+        return sn
+    if cl is None and not any(x.captured_at is not None and (match.utc_date is None or x.captured_at < match.utc_date)
+                              for x in book):
+        ko = close_from_kalshi(snaps, match.utc_date, oc_)
+        if ko is not None:
+            return ko
+    return cl
 
 
 def clv_cohort(oc, pred, match, odds_rows, snaps=()) -> str | None:
@@ -146,9 +159,8 @@ def restate(apply: bool = False) -> dict:
         for o in s.execute(select(Odds).where(Odds.market == "1X2", Odds.match_id.in_(ids))).scalars():
             odds_by[o.match_id].append(o)
         snaps_by: dict = defaultdict(list)
-        for x in s.execute(select(OddsSnapshot).where(OddsSnapshot.market == "1X2",
-                                                      OddsSnapshot.source != "kalshi",
-                                                      OddsSnapshot.match_id.in_(ids))).scalars():
+        for x in s.execute(select(OddsSnapshot).where(OddsSnapshot.market == "1X2",       # Kalshi rows too:
+                                                      OddsSnapshot.match_id.in_(ids))).scalars():  # kalshi_only close
             snaps_by[x.match_id].append(x)
         for oc, pred, m in rows:
             key = (m.sport.value if m.sport else "?", comp_code.get(m.competition_id, "?"))
@@ -164,6 +176,8 @@ def restate(apply: bool = False) -> dict:
                 best = cl["best"].get(top)
                 if best:
                     book, price = best
+                elif cl.get("source") == "kalshi_only" and cl["fair"][top] > 0:    # labelled (2026-10-05)
+                    book, price = "kalshi_only", round(1 / cl["fair"][top], 4)
             old = oc.clv
             if old is None and new is None:
                 continue

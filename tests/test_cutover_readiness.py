@@ -120,7 +120,7 @@ def test_carries_246_on_known_tags():
     assert cr.carries("v0.0.0-nope") is None
 
 
-def test_missing_chain_exit_is_never_a_full_day(tmp_path, capsys):
+def test_missing_chain_exit_is_never_a_full_day(tmp_path, capsys, monkeypatch):
     """#273 review (reproduced on 9757e76c): a chain receipt with no exit was read as a success. Success is
     explicit — integer exit 0, nothing refused, every counted step run; a missing exit is a failure."""
     mirror = tmp_path / "m"
@@ -137,6 +137,9 @@ def test_missing_chain_exit_is_never_a_full_day(tmp_path, capsys):
                                  "steps_total": 5}], mirror, now)
     assert ok["full_days"] == ["2026-10-06"]
     rp = receipts(tmp_path, [deploy, {**base, "ts": "2026-10-06T08:00:00Z"}])
+    # tag containment is not the subject here, and CI's depth-1 checkout carries no tags (it would read
+    # "unknown" before the full-day check): pin it so the line names the missing full day
+    monkeypatch.setattr(cr, "carries", lambda tag, commit=cr.CARRY_246: True)
     assert cr.main(["--mirror", str(mirror), "--receipts", str(rp), "--no-parity", "--today", "2026-10-09"]) == 1
     last = capsys.readouterr().out.strip().splitlines()[-1]
     assert last.startswith("NOT-YET") and "(b) no full day on v1.2.2 yet" in last

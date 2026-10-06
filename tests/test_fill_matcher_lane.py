@@ -156,3 +156,25 @@ def test_title_fallback_keeps_home_and_away_orientation():
     nfl = {"calls": [_call("j", "Jacksonville Jaguars", "Tennessee Titans", "HOME", "2026-10-04T17:00:00", "NFL")],
            "fills": [_fill("a", "KXNFLGAME-26OCT04TENJAX-JAX", "yes", "Jacksonville wins — Tennessee")]}
     assert P.classify_fills(nfl)[0]["call_id"] == "j"                  # the right orientation still matches
+
+
+def test_codex_round_6_no_tie_weak_codes_and_legacy_titles():
+    """Codex on #299, round 6 (verified): (1) NO on the TIE of a three-way market is HOME-or-AWAY: composite, with
+    no_on_role DRAW; (2) one weak code is not confirmed by a strong opponent: NYGSEA must not fit a Jets–Seahawks
+    call when the title says "New York G" (while KC and "Man City" stay confirmed); (3) a legacy "A vs B Winner?"
+    title has no "X wins" name: orientation comes from the other code fitting the call's opposite side."""
+    tie = P.classify_fills({"calls": [_call("s", "Arsenal", "Chelsea", "HOME", "2026-09-27T14:00:00", sport="SOCCER")],
+                            "fills": [_fill("t", "KXEPLGAME-26SEP27CHEARS-TIE", "no", "Tie — Chelsea vs Arsenal")]})[0]
+    assert tie["composite"] is True and tie["no_on_role"] == "DRAW" and tie["book"] == "off_book_sports"
+    assert "composite" in tie["category"]
+    jets = _call("nyj", "Seattle Seahawks", "New York Jets", "AWAY", "2026-10-11T17:00:00", sport="NFL")
+    g = P.classify_fills({"calls": [jets], "fills": [
+        _fill("g", "KXNFLGAME-26OCT11NYGSEA-NYG", "yes", "New York G wins — Seattle")]})[0]
+    assert g.get("call_id") is None
+    mci = _call("m", "Manchester City", "Arsenal", "HOME", "2026-10-04T14:00:00", sport="SOCCER")
+    assert P.classify_fills({"calls": [mci], "fills": [
+        _fill("c", "KXEPLGAME-26OCT04ARSMCI-MCI", "yes", "Man City wins — Arsenal")]})[0]["call_id"] == "m"
+    jax = _call("j", "Jacksonville Jaguars", "Tennessee Titans", "HOME", "2026-10-04T17:00:00", "NFL")
+    leg = P.classify_fills({"calls": [jax], "fills": [
+        _fill("l", "KXNFLGAME-26OCT04TENJAX-JAX", "yes", "Tennessee vs Jacksonville Winner?")]})[0]
+    assert leg["call_id"] == "j"

@@ -12,3 +12,8 @@
 - Review fix (Codex on #299, round 4): the ticker's start time now picks the GAME first (the nearest start; tied starts stay together and are flagged), and only then is the pick checked. A disagreeing exact-time game no longer hands the fill to a later game. Parity: 36/36.
 - Sweep fix (post-merge Codex on #297): ticker codes must fit both sides AND at least one strongly (by initials or name prefix). Two weak two-letter-initials fits are a same-city collision, not identity: a Giants–Rams fill no longer fits a Jets–Chargers call. Legacy titles without codes now need two different sides. Parity: 38/38.
 - Review fix (Codex on #299, round 5): the strict-title fallback also holds the CONTRACT's team (the title's "X wins" team) on the ticker's side of the call. A call with the same teams but home and away reversed never fits. Parity: 40/40.
+- Review fixes (Codex on #299, round 6):
+  - NO on the TIE of a three-way market is composite (HOME-or-AWAY, `no_on_role` DRAW).
+  - A WEAK code fit (only the first two letters prefix the initials) must be confirmed by a title team whose every word is a prefix of the side's name. A strong opponent no longer vouches for it: NYGSEA does not fit Jets–Seahawks. A code that fully prefixes the initials (KC, SF) stays identity.
+  - Legacy "A vs B Winner?" titles orient through the other code fitting the call's opposite side.
+  - Parity: 46/46.

@@ -44,6 +44,8 @@ EXTRA = {"calls": [
     F.call("ng2", "MLB", "Boston Red Sox", "New York Yankees", "HOME", kick="2026-09-29T19:45:00"),   # 15:45 ET
     F.call("nyj", "NFL", "Los Angeles Chargers", "New York Jets", "AWAY", kick="2026-10-11T17:00:00"),
     F.call("rev", "MLB", "New York Yankees", "Boston Red Sox", "HOME", kick="2026-10-20T17:05:00"),  # reversed
+    F.call("nyj2", "NFL", "Seattle Seahawks", "New York Jets", "AWAY", kick="2026-10-25T17:00:00"),
+    F.call("jax", "NFL", "Jacksonville Jaguars", "Tennessee Titans", "HOME", kick="2026-11-01T17:00:00"),
 ], "fills": [
     _fill("x-dh2", "KXMLBGAME-26SEP271905NYYBOS-BOS", "yes", "Boston wins — New York Y"),  # game 2, not game 1
     _fill("x-dh1", "KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", "Boston wins — New York Y"),
@@ -53,6 +55,9 @@ EXTRA = {"calls": [
     _fill("x-ng", "KXMLBGAME-26SEP291305NYYBOS-BOS", "yes", "Boston wins — New York Y"),   # game 1 disagrees
     _fill("x-nyg", "KXNFLGAME-26OCT11NYGLAR-NYG", "yes", "New York G wins — Los Angeles R"),  # not Jets–Chargers
     _fill("x-rev", "KXMLBGAME-26OCT201305NYYBOS-BOS", "yes", "Boston wins — New York Yankees"),  # BOS home
+    _fill("x-tie", "KXEPLGAME-26SEP27CHEARS-TIE", "no", "Tie — Chelsea vs Arsenal"),               # NO TIE: composite
+    _fill("x-nygs", "KXNFLGAME-26OCT25NYGSEA-NYG", "yes", "New York G wins — Seattle"),           # weak NYG unconfirmed
+    _fill("x-jax", "KXNFLGAME-26NOV01TENJAX-JAX", "yes", "Tennessee vs Jacksonville Winner?"),    # legacy title
 ]}
 FIELDS = ("book", "call_id", "backed_role", "backed", "no_on_role", "fee_class_open", "fee_class_close")
 
@@ -128,6 +133,13 @@ def main():
           not by["x-nyg"].get("call_id") and not next(f for f in js if f.get("id") == "x-nyg").get("call_id"))
     check("orientation: a BOS-home fill never fits the reversed NYY-home call",
           not by["x-rev"].get("call_id") and not next(f for f in js if f.get("id") == "x-rev").get("call_id"))
+    jsby = {f.get("id"): f for f in js}
+    check("NO on a three-way TIE is composite (no_on_role DRAW)", all(
+        x["x-tie"].get("composite") and x["x-tie"].get("no_on_role") == "DRAW" for x in (by, jsby)))
+    check("a weak NYG code is not confirmed by a strong opponent: no Jets match",
+          not by["x-nygs"].get("call_id") and not jsby["x-nygs"].get("call_id"))
+    check("legacy 'A vs B Winner?' title with a non-prefix code still matches (opposite code orients)",
+          by["x-jax"].get("call_id") == "jax" == jsby["x-jax"].get("call_id"))
     ppos = P.executed_positions(L)["pos"]
     check(f"executed positions: js {len(jpos)} py {len(ppos)}", len(jpos) == len(ppos) and len(jpos) > 0)
     pmap = {p["c"]["id"]: p for p in ppos}

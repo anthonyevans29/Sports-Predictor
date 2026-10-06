@@ -72,6 +72,11 @@ become MORE binding under an income goal, never less."
   any formatting (backticks and quotes included): any other mention starts
   a Codex cloud task, which tried to run on all nine tagged replies of
   2026-10-05 and on one reply that only quoted the phrase.
+- **PR text (ARCHITECT, 2026-10-06, standing rule):** quoted heredocs only
+  (`<<'EOF'`) for PR bodies, comments and commit messages. An unquoted heredoc
+  runs every backticked span as a shell command: on 2026-10-06 one ran
+  `python cli.py nfl-grade`, which created an empty DB under the container's
+  data/ and blanked the span in #290's body.
 - **Sweep (ARCHITECT, 2026-10-05):** an UNANSWERED Codex thread on a
   MERGED PR is a finding in its own right: verify it, then fix it in a
   follow-up PR or escalate it. #278's missed P1 left a grading close that

@@ -488,7 +488,7 @@ function execHTMLFrom(fx,modelP){
       :jb&&jb.price!=null?` · join ${jb.price.toFixed(2)} (${pp((modelP-jb.price)*100)} pre-fee; no maker cost in this export)`
       :" (no maker price)");
   const fallback=fx.basis==="maker"&&t!=null?` · taker ${t.toFixed(3)} (${pp((modelP-t)*100)})`:"";
-  return `<div class="note">${head}`+(e>=K2.feeClearsPP?` · <b class="play">fee-clears?</b>`:"")+fallback+`</div>`;
+  return `<div class="note">${head}`+(e>=K2.feeClearsPP-1e-9?` · <b class="play">fee-clears?</b>`:"")+fallback+`</div>`;
 }
 
 let deskCalls=[], deskParlays=[], deskVenue=[], deskValue=[];

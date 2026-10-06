@@ -1648,3 +1648,45 @@ def test_explicit_release_is_not_reported_as_an_error(sandbox, monkeypatch):
     monkeypatch.setattr(c, "REPO", sandbox / "not-a-repo")
     line = c.append_receipt({"kind": "cutover", "exit": 0, "release": "v9.9.9"})
     assert line["release"] == "v9.9.9" and "release_error" not in line
+
+
+def test_deploy_plans_migrations_before_moving_the_checkout(sandbox, monkeypatch):
+    """Codex on #296, round 3 (verified): the plan ran after `git checkout` had detached HEAD at the target, so a
+    planning failure left production on new code with the old schema and no receipt. The plan now runs first;
+    a refusal leaves the checkout where it was."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "a.txt").write_text("x")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    (origin / "migrate_new.py").write_text("1")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "migration")
+    g(origin, "tag", "v1.0.1")
+    monkeypatch.setattr(c, "REPO", repo)
+    before = g(repo, "rev-parse", "HEAD")
+
+    def boom(*a, **k):
+        raise SystemExit("✗ ancestry check failed (simulated) — refusing to plan migrations.")
+    monkeypatch.setattr(sp_deploy, "migration_plan", boom)
+    with pytest.raises(SystemExit, match="refusing to plan"):
+        sp_deploy.main(["--tag", "v1.0.1"])
+    assert g(repo, "rev-parse", "HEAD") == before                    # the checkout never moved
+    monkeypatch.undo()
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log" / "receipts.jsonl"))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    assert sp_deploy.main(["--tag", "v1.0.1", "--dry-run"]) == 0       # the plan is also shown on a dry run
+    assert g(repo, "rev-parse", "HEAD") == before

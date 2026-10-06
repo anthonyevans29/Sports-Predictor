@@ -11,3 +11,4 @@
   - A migration added in a merge result counts as new (absent at the old head, present at the target).
   - An ancestry check that errors refuses the plan instead of reading as a rollback.
   - An explicit release on a receipt (sp_cutover's dry run) no longer also carries `release_error`.
+- Review fix (Codex on #296, round 3): the migration plan is computed before the checkout moves, inside the deploy lock. A planning failure refuses with production still on its current release, and a dry run shows the plan. Test: `test_deploy_plans_migrations_before_moving_the_checkout`.

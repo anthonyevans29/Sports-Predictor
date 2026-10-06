@@ -170,8 +170,14 @@ def main(argv=None) -> int:
         if target not in tags:
             raise SystemExit(f"✗ tag {target} not found on origin — refusing.")
         target_sha = git("rev-parse", "--short", f"{target}^{{commit}}")
+        # The migration plan is computed BEFORE the checkout moves (Codex on #296): a planning failure
+        # (ancestry / tree / history unreadable) refuses here, with production still on `before`.
+        changed = git("diff", "--name-only", before, target_sha).splitlines() if before != target_sha else []
+        plan = migration_plan(before, target_sha, changed)
         if a.dry_run:
-            print(f"DRY RUN: would deploy {before_rel or before} -> {target} ({target_sha})")
+            print(f"DRY RUN: would deploy {before_rel or before} -> {target} ({target_sha})"
+                  + (f"; new migrations, in order: {plan['run']}" if plan["run"] else "")
+                  + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else ""))
             return 0
         if dirty:
             git("checkout", "--", "RESULTS.md")
@@ -182,8 +188,6 @@ def main(argv=None) -> int:
         # deployed tag still carries uncompiled (expected 0).
         pending = sorted(str(p.relative_to(c.REPO)) for d in ("changelog.d", "docs/ledger/entries")
                          for p in (Path(c.REPO) / d).glob("*.md") if p.name != "README.md")
-        changed = git("diff", "--name-only", before, after).splitlines() if before != after else []
-    plan = migration_plan(before, after, changed)
     c.append_receipt({"kind": "deploy", "exit": 0, "from_sha": before, "to_sha": after,
                       "from_release": before_rel, "to_release": after_rel, "tag": target,
                       "files_changed": len(changed), "new_migrations": plan["run"],

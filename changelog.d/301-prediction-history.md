@@ -1,4 +1,4 @@
-## 2026-10-06 (#0000: prediction-history — every prediction write kept as a series, #87 K-track — ARCHITECT)
+## 2026-10-06 (#301: prediction-history — every prediction write kept as a series, #87 K-track — ARCHITECT)
 - New APPEND-ONLY `prediction_history` table: `match_id`, `model_version`, `computed_at`, the home/draw/away probabilities, and `recorded_at`.
   - Every `Prediction` insert, from any write path (`predict-nfl`, soccer and MLB predict), is appended at flush in the same transaction. A rolled-back run leaves no history.
   - `predictions` stays current-only (S13). The window chain's hourly re-predicts become a stored series, so model-vs-cost is evaluable per Kalshi capture.

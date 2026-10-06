@@ -1358,6 +1358,57 @@ def registry_cmd(eid):
                    f"result {_json.dumps(res)[:60]:<60} prior reads {'—' if reads is None else reads}")
 
 
+@cli.command("unl-ladder-receipt")
+@click.option("--since", default=None,
+              help="Freeze cutoff, UTC (default 2026-10-05T17:00, docs/specs/unl-venue-skew-test.md).")
+@click.option("--n", "n", default=30, show_default=True, type=click.IntRange(min=1),
+              help="Sample size (frozen: 30).")
+@click.option("--skew-test", is_flag=True, help="Run the frozen favorite-skew test once the sample is complete.")
+@click.option("--out", "out_path", default=None, help="Also write the receipt text here (e.g. docs/receipts/…).")
+def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
+    """READ-ONLY UNL ladder receipt (ARCHITECT 2026-10-05, #286 ruling 3).
+    Per game: match, legs (bid/ask, spread, two-sided), capture time and
+    series, plus book probability and the favorite gap. The sample is the
+    first N games qualifying under the frozen spec; every other game is
+    listed with its exclusion reason. --skew-test runs the frozen test.
+    Writes nothing to the DB."""
+    from datetime import datetime as _dt
+
+    from src.walters.unl_ladders import FREEZE_CUTOFF, SAMPLE_N, format_receipt, receipt, to_naive_utc
+    try:
+        # None = option omitted (the frozen cutoff); "" is operator input and must parse (Codex on #291)
+        cut = to_naive_utc(_dt.fromisoformat(since[:-1] + "+00:00" if since.endswith("Z") else since)) \
+            if since is not None else FREEZE_CUTOFF
+    except ValueError:                           # Codex on #291: a usage error, never a traceback
+        raise click.BadParameter(f"{since!r} is not an ISO date-time (e.g. 2026-10-05T17:00Z)",
+                                 param_hint="--since")
+    if skew_test and (cut != FREEZE_CUTOFF or n != SAMPLE_N):     # Codex on #291: frozen means frozen
+        console.print(f"[red]REFUSED: --skew-test runs only on the frozen cohort (cutoff "
+                      f"{FREEZE_CUTOFF:%Y-%m-%dT%H:%MZ}, n {SAMPLE_N}); drop --since/--n.[/red]")
+        raise SystemExit(2)
+    if out_path:                                  # resolved, so a symlink or a cwd inside data/ cannot slip by
+        from pathlib import Path as _P
+
+        from src.walters.unl_ladders import data_dir
+        _data = data_dir()
+        _tgt = _P(out_path).resolve()
+        if _tgt == _data or _data in _tgt.parents:
+            console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+            raise SystemExit(2)
+    with session_scope() as s:
+        res = receipt(s, since=cut, n=n)
+        text_ = format_receipt(res, with_test=skew_test)
+    console.print(text_, markup=False, highlight=False)
+    if res.get("error"):                         # a refusal is never written as a receipt (Codex on #291)
+        raise SystemExit(2)
+    if out_path:
+        import os as _os
+        _os.makedirs(_os.path.dirname(out_path) or ".", exist_ok=True)
+        with open(out_path, "w") as fh:
+            fh.write(text_ + "\n")
+        console.print(f"[green]receipt written: {out_path}[/green]")
+
+
 @cli.command("close-probe")
 @click.option("--match", "match_id", required=True, type=int, help="Match id.")
 def close_probe_cmd(match_id):

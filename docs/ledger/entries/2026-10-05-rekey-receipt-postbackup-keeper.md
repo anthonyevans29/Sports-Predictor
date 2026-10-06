@@ -1,0 +1,4 @@
+**2026-10-05 — FIX (Codex review on merged #279): a post-backup reference row counts as accounted only when it points at the keeper.**
+- **Finding (verified):** in `scripts/ncaa_rekey_receipt.py --reconstruct-merges`, a reference row created after the backup counted as accounted on rowid alone. SQLite FK enforcement is off here, so a later sync can write a row onto the merged-away id. That dangling row raised the merged count but never a flag, so the reconstruction could still read ACCOUNTED.
+- **Fix:** the "created after the backup" class now also requires the row's destination to be the keeper. A post-backup row on the merged id reads `⚠ … created after the backup still on merged match N` → REVIEW.
+- **Unchanged:** the ARCHITECT-ruled classes (placeholder kickoff resolved, re-pointed, created after the backup) and the ruled 30/30 verdict. This is a tool tightening, not a re-ruling: a REVIEW from it on the laptop backup is a new finding for the architect.

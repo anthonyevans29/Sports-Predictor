@@ -327,3 +327,19 @@ def test_review_boundaries_placeholder_destination_and_empty_backup_table():
     con = sqlite3.connect(":memory:")
     con.execute("CREATE TABLE odds (id INTEGER PRIMARY KEY, match_id INTEGER)")
     assert rr.max_rowid(con, "odds") == 0 and rr.max_rowid(con, "nope") is None
+
+
+def test_post_backup_row_dangling_on_the_merged_id_is_review(tmp_path, capsys):
+    """#279 review (Codex, post-merge): a row created after the backup is accounted only when it points at
+    the KEEPER. Without FK enforcement a later row can still dangle on the merged-away id; it reads REVIEW."""
+    db, pre, plan, keeper, live, cid = _clean_merge(tmp_path, "RR7")
+    p = tmp_path / "plan.txt"
+    p.write_text(plan)
+    with session_scope() as s:                          # a later sync writes onto the merged-away id
+        s.add(Odds(match_id=live, bookmaker="b2", market="ML", selection="AWAY", price_decimal=2.1))
+    out = _reconstruct("RR7", db, pre, p, capsys)
+    assert f"created after the backup still on merged match {live}" in out
+    assert "merged 1→1 ⚠" in out and "· REVIEW" in out and "ACCOUNTED" not in out
+    with session_scope() as s:
+        s.query(Odds).filter(Odds.match_id == live).delete(synchronize_session=False)
+    _drop(cid)

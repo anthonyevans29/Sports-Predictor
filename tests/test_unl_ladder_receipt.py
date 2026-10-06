@@ -20,6 +20,7 @@ def _setup(monkeypatch):
     tickers: dict = {}
     monkeypatch.setattr(database, "read_kalshi_tickers",
                         lambda s, ids: {i: tickers[i] for i in ids if i in tickers})
+    monkeypatch.setattr(database, "has_kalshi_ticker", lambda: True)
     with session_scope() as s:
         c = s.query(Competition).filter_by(code="UNL").one_or_none()
         if c is None:
@@ -84,7 +85,7 @@ def test_receipt_rows_sample_and_every_exclusion_reason(monkeypatch):
     assert rows[ids["one"]]["reason"] == "one-sided board (ruling 2)" and not rows[ids["one"]]["two_sided"]
     assert rows[ids["old"]]["reason"] == "last Kalshi capture not after the freeze cutoff"
     assert rows[ids["ser"]]["reason"].startswith("series KXCONCACAFNLGAME is not KXUEFANLGAME")
-    assert rows[ids["nob"]]["reason"] == "no complete pre-kickoff book session"
+    assert rows[ids["nob"]]["reason"] == "no complete book session at or before the Kalshi capture"
     assert [x["match_id"] for x in r["sample"]] == [ids["ok"]] and not r["complete"]
     txt = U.format_receipt(r, with_test=True)
     assert "SAMPLE: 1/30 (incomplete)" in txt and "SKEW TEST: not run" in txt and "excluded: one-sided" in txt
@@ -138,10 +139,11 @@ def test_review_fixes_partial_tickers_offsets_missing_comp_and_frozen_refusal(mo
         == "UNL ladder receipt · REFUSED: competition UNL not in DB"
     r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--skew-test", "--n", "1"])
     assert r.exit_code == 2 and "frozen cohort" in r.output
+    monkeypatch.setattr(U, "EXPLORATORY_MATCH_IDS", frozenset(range(-17, 0)))   # ruling 1 recorded
     seen = {}                                                              # self-contained: no UNL row needed
     monkeypatch.setattr(U, "receipt", lambda s, since, n: seen.update(since=since, n=n) or
                         {"competition": "UNL", "since": since, "n": n, "rows": [], "sample": [], "complete": False})
-    r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", "2026-10-05T17:00:00+00:00", "--skew-test"])
+    r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--since", "2026-10-06T14:35:31+00:00", "--skew-test"])
     assert r.exit_code == 0, r.output                                      # the frozen cutoff, offset form
     assert seen == {"since": U.FREEZE_CUTOFF, "n": U.SAMPLE_N}
 
@@ -237,3 +239,95 @@ def test_refused_receipt_exits_nonzero_and_writes_nothing(tmp_path, monkeypatch)
     out = tmp_path / "r.txt"
     r = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--out", str(out)])
     assert r.exit_code == 2 and "REFUSED" in r.output and not out.exists() and "receipt written" not in r.output
+
+
+def test_the_ten_ratified_definitions(monkeypatch):
+    """ARCHITECT 2026-10-06 (#286): all ten definitions RATIFIED; the cutoff moves to the ratification time.
+    (1) exploratory ids excluded; (2) the venue engine's book rules (>= 4 books, <= 3h before the Kalshi
+    capture, never after it); (5) the latest capture only; (6) no ticker column, no receipt; (7) never-played
+    statuses excluded; (8) one event per board; (9) 0 < bid <= ask < 1; (10) an exact tie only."""
+    from types import SimpleNamespace as NS
+
+    from click.testing import CliRunner
+
+    import cli
+    from src.walters.desk_policy import VENUE
+    assert U.FREEZE_CUTOFF == datetime(2026, 10, 6, 14, 35, 31)
+    assert U._book_rule() == (VENUE["minBooks"], timedelta(hours=VENUE["maxBookAgeH"])) == (4, timedelta(hours=3))
+    ko = CUT + timedelta(days=1)
+    at = ko - timedelta(hours=1)
+
+    def board(bids=(0.5, 0.29, 0.19), width=0.01, when=at, tk=None):
+        return [NS(id=i, source="kalshi", market="1X2", selection=k, captured_at=when, yes_bid=b,
+                   yes_ask=None if b is None else round(b + width, 4)) for i, (k, b) in enumerate(zip(U.LEGS, bids))]
+
+    def book(when, n=5, probs=(0.505, 0.3, 0.195)):
+        return [NS(id=10 + i, source="odds_api", market="1X2", selection=k, captured_at=when, devig_prob=p,
+                   n_books=n) for i, (k, p) in enumerate(zip(U.LEGS, probs))]
+
+    tk = {i: f"KXUEFANLGAME-94OCTAB-{k[:3]}" for i, k in enumerate(U.LEGS)}
+
+    def row(snaps, mid=1, status=MatchStatus.SCHEDULED, tickers=tk):
+        return U.game_row(NS(id=mid, utc_date=ko, status=status, home_team=None, away_team=None),
+                          snaps, tickers, CUT)
+
+    assert row(board() + book(at - timedelta(hours=1)))["qualifies"]
+    # (1) exploratory by match id
+    monkeypatch.setattr(U, "EXPLORATORY_MATCH_IDS", frozenset({1}))
+    assert row(board() + book(at - timedelta(hours=1)))["reason"].startswith("exploratory game (ruling 1")
+    monkeypatch.setattr(U, "EXPLORATORY_MATCH_IDS", frozenset())
+    # (2) thin, stale, and later-than-Kalshi book sessions
+    assert row(board() + book(at - timedelta(hours=1), n=1))["reason"] == "book session has 1 books < 4 (ruling 2)"
+    assert "3.5h before the Kalshi capture > 3h" in row(board() + book(at - timedelta(hours=3, minutes=30)))["reason"]
+    assert row(board() + book(at - timedelta(hours=3)))["qualifies"]                       # exactly 3h: allowed
+    late = row(board() + book(at + timedelta(minutes=10)))                                  # after Kalshi, pre-kickoff
+    assert late["reason"] == "no complete book session at or before the Kalshi capture"
+    # (5) the latest capture is one-sided: an earlier two-sided board is never substituted
+    older = board(when=at - timedelta(hours=1))
+    for x in older:
+        x.id += 100
+    r5 = row(older + board(bids=(0.5, 0.29, None)) + book(at - timedelta(hours=2)))
+    assert r5["captured_at"] == at and r5["reason"] == "one-sided board (ruling 2)"
+    # (7) never-played statuses, listed with the reason
+    for st in (MatchStatus.CANCELLED, MatchStatus.POSTPONED, MatchStatus.STALE_ORPHAN):
+        assert "never played (ruling 7)" in row(board() + book(at - timedelta(hours=1)), status=st)["reason"]
+    # (8) legs from two events of the same series
+    mixed = {**tk, 2: "KXUEFANLGAME-94OCTCD-AWA"}
+    r8 = row(board() + book(at - timedelta(hours=1)), tickers=mixed)
+    assert r8["series"] == "KXUEFANLGAME" and "not one event" in r8["reason"]
+    # (9) boundary quotes are not two-sided
+    assert row(board(bids=(0.0, 0.29, 0.19)) + book(at - timedelta(hours=1)))["reason"] == "one-sided board (ruling 2)"
+    assert row(board(bids=(0.99, 0.29, 0.19)) + book(at - timedelta(hours=1)))["reason"] == "one-sided board (ruling 2)"
+    # (10) a favorite unique by less than 0.00005 still counts; an exact tie does not
+    near = row(board() + book(at - timedelta(hours=1), probs=(0.40002, 0.40000, 0.19998)))
+    assert near["qualifies"] and near["favorite"] == "HOME"
+    tie = row(board() + book(at - timedelta(hours=1), probs=(0.4, 0.4, 0.2)))
+    assert tie["reason"] == "tied book favorite (exact)"
+    # (6) no ticker column: the receipt refuses
+    from src.db import database
+    monkeypatch.setattr(database, "has_kalshi_ticker", lambda: False)
+    with session_scope() as s:
+        r6 = U.receipt(s, since=CUT, n=30, now=NOW)
+    assert "market_ticker" in r6["error"] and "ruling 6" in r6["error"]
+    # (1) the frozen test refuses until the 17 ids are recorded
+    r1 = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--skew-test"])
+    assert r1.exit_code == 2 and "exploratory match ids" in r1.output
+
+
+def test_unl_sync_refuses_any_max_spread_but_the_frozen_one(monkeypatch):
+    """#286 ruling 4: --max-spread 0.10 is frozen for every UNL sync in the sample; other competitions keep the
+    option. The run receipt prints the setting."""
+    from click.testing import CliRunner
+
+    import cli
+    import src.ingestion.kalshi_sync as ks
+    calls = []
+    monkeypatch.setattr(ks, "sync_kalshi_soccer", lambda **kw: calls.append(kw) or {
+        "ok": True, "stored": 0, "series": "KXUEFANLGAME", "markets": 0, "matched": 0, "unmatched": 0,
+        "ambiguous": 0, "in_play": 0, "wide_spread": 0})
+    r = CliRunner().invoke(cli.cli, ["sync-kalshi-soccer", "--competition", "UNL", "--max-spread", "0.2"])
+    assert r.exit_code == 2 and "ruling 4" in r.output and not calls
+    r = CliRunner().invoke(cli.cli, ["sync-kalshi-soccer", "--competition", "UNL"])
+    assert r.exit_code == 0 and "max-spread 0.10" in r.output and calls[-1]["max_spread"] == 0.10
+    r = CliRunner().invoke(cli.cli, ["sync-kalshi-soccer", "--competition", "PL", "--max-spread", "0.2"])
+    assert r.exit_code == 0 and "max-spread 0.20" in r.output

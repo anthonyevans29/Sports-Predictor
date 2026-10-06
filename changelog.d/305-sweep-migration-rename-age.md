@@ -1,2 +1,2 @@
-## 2026-10-06 (#0000: sweep-migration-rename-age — post-merge Codex finding on #304)
+## 2026-10-06 (#305: sweep-migration-rename-age — post-merge Codex finding on #304)
 - `sp_deploy` migration plan: a migration RENAMED from another migration inside the deploy range (migrate_temp.py → migrate_x.py) carries the source's age, not the rename commit's. It is now undetermined, never planned at the rename's position. On main, add temp, add y, then rename temp → x planned `run [y, x]`, reversing the real order.

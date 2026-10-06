@@ -37,3 +37,6 @@
   - A parlay whose leg has no book reference has `fair_p` unavailable, never Π model.
   - A halved PLAY's maker reference is at the emitted order's count.
   - The Cockpit's Policy card states the #87 v1.1 doctrine: TAKE, executable sizing and the venue gate.
+- Review fixes (Codex on #303, round 8):
+  - Quarantine shadows' exec is priced at the shadow's size.
+  - An explicit `market_p: null` on a parlay leg and an explicit `order_cost: null` (a refused resized order) stay unavailable in the Cockpit ledger. Only absent legacy fields fall back.

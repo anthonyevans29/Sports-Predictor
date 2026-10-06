@@ -311,3 +311,14 @@ def test_codex_round_7_ladder_exec_kalshi_only_fair_and_halved_maker():
     half = dp.normalize({"sport": "nfl", "predictions": [nfl("H", 0.80, 0.70, bid=0.72, ask=0.75)]})[0]
     blk = dp.exec_block(half, "HOME", 0.80, 1, 0.5)                      # join 0.73: 10 -> 0.733, 5 -> 0.734
     assert dp.maker_cost_at(half, "HOME", 1) == 0.733 and blk["maker_cost"] == 0.734
+
+
+def test_codex_round_8_quarantine_shadow_exec_at_its_shadow_size():
+    """Codex on #303: a quarantined NFL PLAY is a 0.5u... shadow; its exec block is priced at the shadow's own size
+    (5 contracts: a 0.75 ask -> 0.764), not the 1u default (0.763)."""
+    row = nfl("Q", 0.95, 0.70, bid=0.74, ask=0.75, quarantine=True, market_divergence_pp=25.0)
+    doc = {"sport": "nfl", "predictions": [row]}
+    dp.annotate(doc, now=NOW)
+    d = doc["predictions"][0]["desk"]
+    assert d["call"] == "PASS" and d["shadow_units"] == 0.5
+    assert d["exec"]["contracts"] == 5 and d["exec"]["cost"] == 0.764

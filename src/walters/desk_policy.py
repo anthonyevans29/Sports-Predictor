@@ -1067,8 +1067,9 @@ def desk_block(r, c, v, ven) -> dict:
            "edge_pp": _num(c["edge"]), "pass_kind": c["passKind"], "tags": c["tags"],
            "reasons": c["reasons"], "reason": " · ".join(c["reasons"]),
            "shadow_units": c["shadowUnits"], "exec": (None if EXEC_RULES["on"] and c["call"] == "LADDER" else   # a LADDER buys NO on HOME, not the
-                    exec_block(r, r["pick"], r["prob"], c.get("execUnits"),       # pick's leg: no pick-leg exec
-                               c["units"] if c.get("execUnits") and c["units"] else None)),
+                    exec_block(r, r["pick"], r["prob"],                           # pick's leg: no pick-leg exec
+                               c.get("execUnits") or (c["shadowUnits"] or None),    # a quarantine shadow is
+                               c["units"] if c.get("execUnits") and c["units"] else None)),  # priced at its size
            "value_shadow": None,
            "order": (order_line(r, r["pick"], c["units"], ladder=(c["call"] == "LADDER"))
                      if c["call"] in ("PLAY", "LADDER") else None),

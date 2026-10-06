@@ -4,3 +4,8 @@
   - **Fills** (`--ledger` reads the Cockpit's ledger export): executed-position CLV and fee-adjusted edge, plus #75's call-to-fill reconciliation, exactly one disposition per eligible call.
 - `src/walters/ledger_fills.py` ports the Cockpit's fill classification and executedPositions line for line. `scripts/ledger_fills_parity_verify.py` runs the Cockpit's JS and the port on one ledger: 24/24.
 - Tests: `tests/test_k_track_receipt.py`.
+- Review fixes (Codex on #297):
+  - The predictions table keeps the current row only (upsert). A capture taken before a re-prediction therefore has no model reference: it is reported as "captured before the current prediction was written: no history kept", never silently dropped and never a look-ahead.
+  - One-sided and incomplete ladders count as not evaluable on each basis, and their two-sided legs' spreads stay in the distribution.
+  - The call window compares full kickoff timestamps.
+  - Each reconciled fill prints its ledger id.

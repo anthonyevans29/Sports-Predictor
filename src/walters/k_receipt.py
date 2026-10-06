@@ -68,15 +68,23 @@ def _book_ref(book, t, outcomes):
     return cl["fair"], None
 
 
+REWRITTEN = ("prediction rewritten after the capture: the predictions table keeps the current row only "
+             "(training.py / nfl_predict.py upsert), so no historical model reference exists")
+
+
 def _model_ref(preds, t):
+    """(probs, None) from the latest prediction at or before `t`, else (None, reason). A prediction
+    computed AFTER the capture is never used (look-ahead); because re-predicting replaces the row,
+    such a capture is reported as REWRITTEN, never silently dropped (Codex on #297)."""
     pre = [p for p in preds if p.computed_at is not None and p.computed_at <= t]
     if not pre:
-        return None
+        return None, (REWRITTEN if any(p.computed_at is not None and p.computed_at > t for p in preds)
+                      else "no model prediction for this game")
     p = max(pre, key=lambda x: x.computed_at)
     out = {"HOME": p.home_win_prob, "AWAY": p.away_win_prob}
     if p.draw_prob is not None:
         out["DRAW"] = p.draw_prob
-    return out
+    return out, None
 
 
 def ladder_row(comp: str, t: datetime, legs: dict, book, preds) -> dict:
@@ -96,12 +104,17 @@ def ladder_row(comp: str, t: datetime, legs: dict, book, preds) -> dict:
            "two_sided": complete and all(v["two_sided"] for v in lg.values()),
            "fee_clear": {}}
     if not row["two_sided"]:
+        why = "incomplete ladder (a leg missing)" if not complete else "one-sided ladder (a leg not 0 < bid <= ask < 1)"
+        if comp in MODEL_LIVE:
+            row["fee_clear"]["model"] = {"reason": why}
+        row["fee_clear"]["book"] = {"reason": why}
         return row
     # model basis: the PICK leg (argmax of the model over the ladder's legs), live model sports only
     if comp in MODEL_LIVE:
-        mp = _model_ref(preds, t)
+        mp, why_m = _model_ref(preds, t)
         if mp is None or any(k not in mp for k in sels):
-            row["fee_clear"]["model"] = {"reason": "no model prediction at or before the capture"}
+            row["fee_clear"]["model"] = {"reason": why_m or "prediction lacks a leg of the ladder",
+                                         "rewritten": why_m == REWRITTEN}
         else:
             pick = max(sels, key=lambda k: mp[k])
             row["fee_clear"]["model"] = {
@@ -166,16 +179,16 @@ def by_sport(rows: list[dict]) -> dict:
         a = out.setdefault(r["comp"], {"ladders": 0, "complete": 0, "two_sided": 0, "spreads": [],
                                        "fc": {(bs, b): [0, 0] for bs in ("model", "book")
                                               for b in ("taker", "maker")},
-                                       "unevaluable": {"model": 0, "book": 0}})
+                                       "unevaluable": {"model": 0, "book": 0}, "rewritten": 0})
         a["ladders"] += 1
         a["complete"] += r["complete"]
         a["two_sided"] += r["two_sided"]
-        if not r["two_sided"]:
-            continue
+        # every two-sided LEG's spread, one-sided ladders included (Codex on #297: no liquidity bias)
         a["spreads"] += [v["spread_c"] for v in r["legs"].values() if v["spread_c"] is not None]
         for bs, blk in r["fee_clear"].items():
             if "reason" in blk:
                 a["unevaluable"][bs] += 1
+                a["rewritten"] += bool(blk.get("rewritten"))
                 continue
             for b in ("taker", "maker"):
                 v = blk.get(b)
@@ -213,7 +226,9 @@ def format_ladders(rows, since, until) -> list[str]:
                 out.append("    fee-clear vs model: — (market-only sport, no live model)")
                 continue
             out.append(f"    fee-clear vs {bs}: taker {rate(a['fc'][(bs, 'taker')])} · maker "
-                       f"{rate(a['fc'][(bs, 'maker')])} · not evaluable {a['unevaluable'][bs]}")
+                       f"{rate(a['fc'][(bs, 'maker')])} · not evaluable {a['unevaluable'][bs]}"
+                       + (f" (of which {a['rewritten']} captured before the current prediction was written: "
+                          "no history kept)" if bs == "model" and a["rewritten"] else ""))
     return out
 
 
@@ -234,14 +249,34 @@ def _call_day(c: dict) -> str:
     return (c.get("kickoff") or c.get("log_date") or "")[:10]
 
 
+def _call_time(c: dict):
+    """The call's kickoff as naive UTC (offset converted); a call with no kickoff falls back to its log
+    date at 00:00. None when neither parses. Compared as a full timestamp (Codex on #297)."""
+    from src.walters.unl_ladders import to_naive_utc
+    v = c.get("kickoff")
+    if v:
+        try:
+            return to_naive_utc(datetime.fromisoformat(v[:-1] + "+00:00" if v.endswith("Z") else v))
+        except ValueError:
+            pass
+    try:
+        return datetime.fromisoformat((c.get("log_date") or "")[:10])
+    except ValueError:
+        return None
+
+
 def eligible_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[dict]:
     """Eligible = a real system call: a straight or ladder, units > 0, not a shadow, not a
     parlay leg, its kickoff (else log date) inside the window."""
-    lo, hi = f"{since:%Y-%m-%d}", f"{until:%Y-%m-%d}"
     from src.walters.ledger_fills import is_shadow
-    return [c for c in (L.get("calls") or [])
-            if c.get("call_type") in ("straight", "ladder") and (c.get("units") or 0) > 0
-            and not is_shadow(c) and lo <= _call_day(c) < hi]
+    out = []
+    for c in L.get("calls") or []:
+        if c.get("call_type") not in ("straight", "ladder") or not (c.get("units") or 0) > 0 or is_shadow(c):
+            continue
+        t = _call_time(c)
+        if t is not None and since <= t < until:
+            out.append(c)
+    return out
 
 
 def _recorded_quote(c: dict):
@@ -351,6 +386,6 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
                 f"{r['pick']} · {r['units']}u · {r['why']}")
         out.append(line)
         for f in r.get("fills") or []:
-            out.append(f"      fill {f['ticker']} {f['side']} qty {f['qty']} @ {f['entry']} · open fee "
+            out.append(f"      fill [{f['fill_id']}] {f['ticker']} {f['side']} qty {f['qty']} @ {f['entry']} · open fee "
                        f"{f['open_fee']} ({f['fee_class_open'] or 'n/a'})")
     return out

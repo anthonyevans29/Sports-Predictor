@@ -167,3 +167,33 @@ def test_cli_reads_the_ledger_refuses_bad_input_and_data(tmp_path, monkeypatch):
     assert r.exit_code == 2 and "REFUSED" in r.output and not (data / "k.txt").exists()
     r = CliRunner().invoke(cli.cli, ["k-track-receipt"])
     assert r.exit_code == 0 and "(the ruled window)" in r.output and "FILLS · not read" in r.output
+
+
+def test_review_fixes_rewritten_predictions_one_sided_ladders_timestamps_and_fill_ids():
+    """Codex on #297 (verified): (1) the predictions table keeps the current row only, so a capture taken before
+    a re-prediction has no model reference: reported as such, never silently dropped and never a look-ahead;
+    (2) the call window compares full timestamps; (3) one-sided ladders count as not evaluable and their
+    two-sided legs' spreads are kept; (4) each reconciled fill prints its ledger id."""
+    from types import SimpleNamespace as NS
+    t = datetime(2095, 9, 25, 12)
+    later = [NS(computed_at=t + timedelta(hours=1), home_win_prob=0.7, away_win_prob=0.3, draw_prob=None)]
+    assert K._model_ref(later, t) == (None, K.REWRITTEN)
+    assert K._model_ref([], t) == (None, "no model prediction for this game")
+
+    def leg(bid, ask):
+        return NS(yes_bid=bid, yes_ask=ask)
+    r = K.ladder_row("NFL", t, {"HOME": leg(0.57, 0.60), "AWAY": leg(0.0, 0.43)}, [], later)
+    assert not r["two_sided"] and r["fee_clear"]["model"]["reason"].startswith("one-sided")
+    r2 = K.ladder_row("NFL", t, {"HOME": leg(0.57, 0.60), "AWAY": leg(0.40, 0.43)}, [], later)
+    agg = K.by_sport([r, r2])["NFL"]
+    assert agg["unevaluable"] == {"model": 2, "book": 2} and agg["rewritten"] == 1
+    assert agg["spread_c"]["legs"] == 3                                    # the one-sided ladder's HOME leg kept
+    assert "of which 1 captured before the current prediction was written" in "\n".join(K.format_ladders([r, r2], LO, HI))
+    L = _ledger()
+    L["calls"].append(dict(L["calls"][1], id="c6", kickoff="2095-09-23T06:00:00Z"))      # before a noon start
+    ids = {c["id"] for c in K.eligible_calls(L, datetime(2095, 9, 23, 12), datetime(2095, 10, 7, 12))}
+    assert "c6" not in ids and "c1" in ids
+    late = dict(L["calls"][1], id="c7", kickoff="2095-10-07T09:00:00")                  # inside a noon end
+    L["calls"].append(late)
+    assert "c7" in {c["id"] for c in K.eligible_calls(L, datetime(2095, 9, 23, 12), datetime(2095, 10, 7, 12))}
+    assert "fill [f1] KXNFLGAME-95SEP28BUFKC-KC" in "\n".join(K.format_fills(_ledger(), LO, HI))

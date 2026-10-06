@@ -4595,32 +4595,56 @@ def desk_parlays_cmd(files, now_s, summary, out_path):
 
 @cli.command("desk-rescore")
 @click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False))
-def desk_rescore_cmd(files):
+@click.option("--out", "out_path", default=None,
+              help="Receipt file (default docs/receipts/desk-rescore-<UTC stamp>.md). Never data/; never overwrites.")
+def desk_rescore_cmd(files, out_path):
     """#87 v1.1 receipt (ARCHITECT-RULE 2026-10-06): every PLAY in the given desk-annotated export files,
     re-scored under the executable-edge addendum at the file's own as_of and counts — which would have been
-    halved (rule 3: full units only at exec edge >= 4pp). READ-ONLY: prints; writes nothing; no DB."""
+    halved (rule 3: full units only at exec edge >= 4pp). READ-ONLY on the DB and the exports. The console is
+    ALSO written as a receipt into docs/receipts/ (ARCHITECT 2026-10-06: "from now on desk-rescore writes --out
+    into docs/receipts/"), to be committed via PR."""
     import json as _json
     import os
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+    from pathlib import Path as _P
+
     from src.walters import desk_policy as dp
+    from src.walters.unl_ladders import data_dir
+    root = _P(__file__).resolve().parent
+    stamp = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H%MZ")
+    tgt = _P(out_path).resolve() if out_path else root / "docs" / "receipts" / f"desk-rescore-{stamp}.md"
+    _data = data_dir()
+    if tgt == _data or _data in tgt.parents:
+        console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+        raise SystemExit(2)
+    if tgt.exists():
+        console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
+        raise SystemExit(2)
+    lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
     n = halved = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
         if not meta:
-            print(f"{os.path.basename(f)}: no desk_meta (not a desk-annotated export) — skipped")
+            lines.append(f"{os.path.basename(f)}: no desk_meta (not a desk-annotated export) — skipped")
             continue
         rows = dp.rescore(doc)
-        print(f"{os.path.basename(f)} · desk {meta.get('policy_version')} as of {meta.get('as_of')} · "
-              f"{len(rows)} PLAY(s)" + (f" · unit basis {rows[0]['unit_basis']}" if rows else ""))
+        lines.append(f"{os.path.basename(f)} · desk {meta.get('policy_version')} as of {meta.get('as_of')} · "
+                     f"{len(rows)} PLAY(s)" + (f" · unit basis {rows[0]['unit_basis']}" if rows else ""))
         for x in rows:
             n += 1
             halved += x["verdict"] == "halved"
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
-            print(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {x['fair_edge_pp']:+.1f}pp · "
-                  f"exec {xe} ({xc}) · units published {x['published_units']} / v1.1 {x['v11_units']} → "
-                  f"addendum {x['addendum_units']} · {x['verdict'].upper()}")
-    print(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")
+            lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {x['fair_edge_pp']:+.1f}pp · "
+                         f"exec {xe} ({xc}) · units published {x['published_units']} / v1.1 {x['v11_units']} → "
+                         f"addendum {x['addendum_units']} · {x['verdict'].upper()}")
+    lines.append(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")
+    print("\n".join(lines))
+    tgt.parent.mkdir(parents=True, exist_ok=True)
+    tgt.write_text("\n".join(lines) + "\n")
+    console.print(f"[green]✓ receipt written to {tgt} — commit it via PR[/green]")
 
 
 @cli.command("export-nhl-predictions")

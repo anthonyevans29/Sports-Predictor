@@ -27,6 +27,22 @@ import cockpit_fills_verify as F  # noqa: E402  (fixture: LEDGER, FILLS, HDR)
 from src.walters import ledger_fills as P  # noqa: E402
 
 CHECKS = []
+
+
+def _fill(fid, ticker, side, title):
+    return {"id": fid, "ticker": ticker, "side": side, "qty": 2, "entry": 0.5, "exit": 1.0, "staked": 1.0,
+            "fees": 0.04, "open_fee": 0.04, "close_fee": 0, "pnl_pre": 1.0, "pnl_net": 0.96, "title": title}
+
+
+EXTRA = {"calls": [
+    F.call("dh1", "MLB", "Boston Red Sox", "New York Yankees", "HOME", kick="2026-09-27T17:05:00"),   # 13:05 ET
+    F.call("dh2", "MLB", "Boston Red Sox", "New York Yankees", "HOME", kick="2026-09-27T23:05:00"),   # 19:05 ET
+    F.call("epl", "SOCCER", "Arsenal", "Chelsea", "AWAY", kick="2026-09-27T14:00:00"),
+], "fills": [
+    _fill("x-dh2", "KXMLBGAME-26SEP271905NYYBOS-BOS", "yes", "Boston wins — New York Y"),  # game 2, not game 1
+    _fill("x-dh1", "KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", "Boston wins — New York Y"),
+    _fill("x-3no", "KXEPLGAME-26SEP27CHEARS-ARS", "no", "Arsenal wins — Chelsea"),          # NO on ARS: composite
+]}
 FIELDS = ("book", "call_id", "backed_role", "backed", "no_on_role", "fee_class_open", "fee_class_close")
 
 
@@ -61,6 +77,10 @@ def main():
         page.click("#tabLedger")
         page.set_input_files("#kalshiCsvFile", csv_path)
         page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('Kalshi CSV')")
+        # fill matcher lane (2026-10-06): an MLB doubleheader told apart by the ticker's ET start time, and a
+        # three-way NO (composite, two outcomes) that must never match a single-side straight
+        page.evaluate("""(x) => { const L = loadLedger(); L.calls.push(...x.calls); L.fills.push(...x.fills);
+            localStorage.setItem('bd_ledger_v1', JSON.stringify(L)); }""", EXTRA)
         # grade c1 (KC home, picked HOME) with a close, so executedPositions has positions
         page.evaluate("""() => { const L = loadLedger();
             const c = L.calls.find(x => x.id === 'c1');
@@ -80,6 +100,12 @@ def main():
         diff = {k: (a.get(k), b.get(k)) for k in FIELDS if a.get(k) != b.get(k)}
         check(f"{a.get('ticker')} {a.get('side')} qty {a.get('qty')} → {a.get('book')}"
               + (f" ({a.get('call_id')})" if a.get("call_id") else ""), not diff, str(diff))
+    by = {f.get("id"): f for f in py}
+    check("doubleheader: the 19:05 ET fill matches game 2 (dh2)", by["x-dh2"].get("call_id") == "dh2"
+          and next(f for f in js if f.get("id") == "x-dh2").get("call_id") == "dh2")
+    check("doubleheader: the 13:05 ET fill matches game 1 (dh1)", by["x-dh1"].get("call_id") == "dh1")
+    check("three-way NO is composite, never system_matched", by["x-3no"].get("book") == "off_book_sports"
+          and "composite" in (by["x-3no"].get("category") or ""))
     ppos = P.executed_positions(L)["pos"]
     check(f"executed positions: js {len(jpos)} py {len(ppos)}", len(jpos) == len(ppos) and len(jpos) > 0)
     pmap = {p["c"]["id"]: p for p in ppos}

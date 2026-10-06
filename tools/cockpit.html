@@ -1598,7 +1598,23 @@ function parseTicker(t){
   const m=t.match(/^KX([A-Z]+?)GAME-(\d{2})([A-Z]{3})(\d{2})(\d{4})?([A-Z0-9]+)-([A-Z0-9]+)$/);
   if(!m||!FAMILY_SPORTS[m[1]]||!MONTHS[m[3]]) return {kind:"non_sport",category:"non-sport / unrecognised market"};
   const date=`20${m[2]}-${String(MONTHS[m[3]]).padStart(2,"0")}-${m[4]}`;
-  return {kind:"sport",family:m[1],sports:FAMILY_SPORTS[m[1]],date,teams:m[6],sideCode:m[7]};
+  return {kind:"sport",family:m[1],sports:FAMILY_SPORTS[m[1]],date,teams:m[6],sideCode:m[7],
+          start:m[5]?etToUtcIso(+`20${m[2]}`,MONTHS[m[3]],+m[4],+m[5].slice(0,2),+m[5].slice(2)):null};
+}
+// FILL MATCHER LANE (ARCHITECT 2026-10-06): the ticker's optional HHMM is the scheduled start in US
+// Eastern time (KalshiAdapter.ticker_start, M13: KXMLBGAME-26OCT012000PHIATL-PHI = 2026-10-02 00:00Z).
+// It tells an MLB doubleheader's two games apart. ET -> UTC through Intl (DST-correct), never a fixed offset.
+function etOffsetMs(utcMs){
+  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hourCycle:"h23",
+    year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"})
+    .formatToParts(new Date(utcMs)).map(x=>[x.type,x.value]));
+  return Date.UTC(+parts.year,+parts.month-1,+parts.day,+parts.hour,+parts.minute,+parts.second)-utcMs;
+}
+function etToUtcIso(y,mo,d,hh,mm){
+  if(!(hh<24&&mm<60)) return null;
+  const wall=Date.UTC(y,mo-1,d,hh,mm);
+  let t=wall-etOffsetMs(wall); t=wall-etOffsetMs(t);
+  return new Date(t).toISOString().slice(0,19);                       // naive UTC, like the calls' kickoff
 }
 // SIDE RESOLUTION (architect 2026-09-30; 33 fills were "side not resolvable
 // (title not 'A vs B')"). Kalshi's game grammar: ticker
@@ -1662,6 +1678,11 @@ function resolveSide(p,title,side){
   if(!r.role&&!r.backed){ r.why=`side ${p.sideCode||"?"} not resolvable from the ticker or the title`; return r; }
   if(no){
     if(r.role==="DRAW"||r.backed==="Draw") return {...r,role:null,backed:null,why:"NO on the tie leg (not a single outcome)"};
+    // THREE-WAY NO = COMPOSITE (ARCHITECT 2026-10-06): NO on HOME is DRAW-or-AWAY, two outcomes, never a
+    // single-side straight. The held contract stays known (noOn/noRole) for its closing fair.
+    if(THREE_WAY_FAMILIES.has(p.family)&&(r.role==="HOME"||r.role==="AWAY"))
+      return {...r,role:null,backed:null,noOn:r.backed||r.role,noRole:r.role,composite:true,
+              why:`NO on ${r.backed||r.role} in a three-way market (composite: two outcomes)`};
     const flip={HOME:"AWAY",AWAY:"HOME"}[r.role]||null;
     const other=r.backed&&r.teams?(sameTeam(r.backed,r.teams[0])?r.teams[1]:r.teams[0]):null;
     return {...r,role:flip,backed:other,noOn:r.backed||r.role,noRole:r.role||null,why:"NO on "+(r.backed||r.role)};
@@ -1691,12 +1712,22 @@ function backedIn(fx,g){                            // the fill's backed side, n
 // singles in the market-only families that carry no system call (NHL, UNL).
 // Its own line; the "off-book other" label is retired.
 const FUN_SPORTS=new Set(["NHL","UNL"]);
+function startNearest(fx,cands){
+  const t0=fx.start?Date.parse(fx.start+"Z"):NaN;
+  if(!isFinite(t0)) return cands;
+  const iso=v=>{const x=String(v||""); return /([zZ]|[+-]\d\d:?\d\d)$/.test(x)?x:x+"Z";};
+  const d=c=>{const k=c.kickoff?Date.parse(iso(c.kickoff)):NaN; return isFinite(k)?Math.abs(k-t0):Infinity;};
+  const within=cands.filter(c=>d(c)<=3*3600000);
+  return within.length?within.slice().sort((a,b)=>d(a)-d(b)):cands;
+}
 function matchFill(fx,calls,picks){
   if(fx.kind!=="sport") return {book:"fun",category:fx.category};
   const near=g=>fx.sports.includes(g.sport)&&dayDiff((g.kickoff||g.log_date||g.date||"").slice(0,10),fx.date)<=1;
   const cands=calls.filter(c=>c.call_type!=="parlay_leg"&&near(c)&&gameFits(fx,c));
   if(!cands.length&&fx.sports.some(x=>FUN_SPORTS.has(x)))
     return {book:"fun",category:`${fx.sports.find(x=>FUN_SPORTS.has(x))} single (market-only, no system call)`};
+  if(fx.composite)
+    return {book:"off_book_sports",category:"composite contract ("+(fx.resolve_note||"three-way NO")+") — never a straight",plausible:true};
   if(!fx.backed&&!fx.backed_role)
     return {book:"off_book_sports",category:"side not resolvable ("+(fx.resolve_note||"?")+")",plausible:true};
   const pickName=c=>c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:"Draw";
@@ -1709,7 +1740,10 @@ function matchFill(fx,calls,picks){
     if(agree.length) return {book:"system_pick_unlogged",category:`system-pick, unlogged (${agree[0].source})`};
     return {book:"off_book_sports",category:"stored prediction exists but the side disagrees",plausible:true};
   }
-  const agree=cands.filter(c=>sameTeam(backedIn(fx,c),pickName(c)));
+  // DOUBLEHEADER (ARCHITECT 2026-10-06): with the ticker's start time, candidates order by |kickoff − start|
+  // and those more than 3h off drop out when any is within 3h; no time (or no kickoff) keeps the old order.
+  const near3h=startNearest(fx,cands);
+  const agree=near3h.filter(c=>sameTeam(backedIn(fx,c),pickName(c)));
   const real=agree.filter(c=>c.call_type!=="quarantine_shadow"&&(c.units||0)>0);
   if(real.length){ const c=real[0];
     return {book:"system_matched",category:`${c.engine} · ${c.tier}`,engine:c.engine,tier:c.tier,call_id:c.id}; }
@@ -1744,7 +1778,8 @@ function deskPicks(){                               // the currently loaded pred
 function sideFields(p,title,side){
   const r=resolveSide(p,title,side);
   return {backed:r.backed,backed_role:r.role,teams_title:r.teams||null,resolve_note:r.why||null,resolved_via:r.via,
-          no_on:r.noOn||null,no_on_role:r.noRole||null};          // the HELD contract (#208 v2)
+          no_on:r.noOn||null,no_on_role:r.noRole||null,          // the HELD contract (#208 v2)
+          composite:!!r.composite};
 }
 function importKalshiCSV(text,L){
   const rows=parseCSV(text); if(rows.length<2) throw new Error("no data rows");
@@ -1809,7 +1844,8 @@ function mveClass(fx,calls){
 function classifyFills(L){
   const calls=L.calls||[], picks=(L.system_picks||[]).concat(deskPicks());
   return (L.fills||[]).map(f=>{
-    const fx=f.kind==="sport"?{...f,...sideFields(f,f.title,f.side)}:f;   // re-derived: old imports re-classify
+    const g=f.ticker?{...f,...parseTicker(f.ticker)}:f;                    // ticker re-parsed: old imports gain `start`
+    const fx=g.kind==="sport"?{...g,...sideFields(g,g.title,g.side)}:g;   // re-derived: old imports re-classify
     return {...fx,...(fx.kind==="parlay"?mveClass(fx,calls):matchFill(fx,calls,picks)),...fillFeeClass(fx)};});
 }
 // MAKER / TAKER PER FILL (#93 ruling (3), architect 2026-09-30): the CSV's fee

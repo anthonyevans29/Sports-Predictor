@@ -1,0 +1,11 @@
+**2026-10-06 — RULED + BUILT (ARCHITECT): fill matcher lane.**
+- **Ruling (verbatim):** "YES — fill matcher as its own lane: event-ticker start time for doubleheaders; three-way NO = composite (two outcomes), never a single-side straight; Cockpit and port together, parity preserved."
+- **Built (Cockpit `tools/cockpit.html` and port `src/walters/ledger_fills.py`):**
+  - `parseTicker` carries `start`: the ticker's HHMM, read as US Eastern time per the verified `ticker_start` (M13), converted to UTC with DST. `matchFill` keeps candidates within 3h of it, nearest first, so a doubleheader's game-2 fill no longer lands on game 1.
+  - `resolveSide` returns COMPOSITE for a NO on a three-way family's HOME/AWAY leg. `matchFill` books it off-book and never as a straight.
+  - The Cockpit re-parses every stored ticker on classification.
+- **Receipts:**
+  - Parity with the Cockpit's own JS: 30/30, with new doubleheader and composite cases.
+  - Cockpit verifies: fills 44/44, exposure 16/16, CLV 19/19, ledger 21/21, render 21/21, exec 19/19.
+  - `pytest -q`: 758 passed.
+- **Operator:** the repo Cockpit is not the live one. The matcher change reaches the published artifact on its next republish, and the receipt port matches it from merge.

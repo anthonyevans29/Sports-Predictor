@@ -355,8 +355,8 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                                        for k in ("maker", "taker", "taker_live", "ambiguous", "unknown", "n/a")}},
             "ambiguous": [{"fill_id": f.get("id"), "ticker": f.get("ticker"), "attributed_to": f.get("call_id"),
                            "candidates": f["ambiguous_calls"]} for f in matched_fills if f.get("ambiguous_calls")],
-            "composite_no": [{"fill_id": f.get("id"), "ticker": f.get("ticker"), "attributed_to": f.get("call_id")}
-                             for f in matched_fills if f.get("composite_no")],
+            "composite_no": [{"fill_id": f.get("id"), "ticker": f.get("ticker"), "book": f.get("book")}
+                             for f in fills if f.get("composite_no")],
             "books": {b: sum(1 for f in fills if f.get("book") == b)
                       for b in ("system_matched", "system_pick_unlogged", "off_book_sports", "fun")}}
 
@@ -378,9 +378,8 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
            *[f"  ! AMBIGUOUS fill [{a['fill_id']}] {a['ticker']}: {len(a['candidates'])} calls fit "
              f"({', '.join(map(str, a['candidates']))}); attributed to {a['attributed_to']} as the Cockpit does — "
              "check by hand (e.g. a doubleheader)" for a in rec["ambiguous"]],
-           *[f"  ! COMPOSITE NO fill [{a['fill_id']}] {a['ticker']}: NO on a three-way leg is two outcomes; "
-             f"attributed to {a['attributed_to']} as the Cockpit does — not a straight on one side, check by hand"
-             for a in rec["composite_no"]],
+           *[f"  composite NO fill [{a['fill_id']}] {a['ticker']}: NO on a three-way leg is two outcomes — "
+             f"never a straight; booked {a['book']}" for a in rec["composite_no"]],
            "EXECUTED-POSITION CLV (the Cockpit's executedPositions: held contract's closing fair − fill entry)"]
     pos = sorted(ex["pos"], key=lambda p: (p["day"] or "", str(p["c"].get("id"))))
     for p in pos:

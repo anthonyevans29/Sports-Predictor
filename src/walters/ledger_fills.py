@@ -62,7 +62,22 @@ def parse_ticker(t) -> dict:
         return {"kind": "non_sport", "category": "non-sport / unrecognised market"}
     return {"kind": "sport", "family": m.group(1), "sports": FAMILY_SPORTS[m.group(1)],
             "date": f"20{m.group(2)}-{MONTHS[m.group(3)]:02d}-{m.group(4)}",
-            "teams": m.group(6), "sideCode": m.group(7)}
+            "teams": m.group(6), "sideCode": m.group(7),
+            "start": _et_to_utc_iso(2000 + int(m.group(2)), MONTHS[m.group(3)], int(m.group(4)), m.group(5))}
+
+
+def _et_to_utc_iso(y, mo, d, hhmm):
+    """The ticker's HHMM is the scheduled start in US Eastern time (KalshiAdapter.ticker_start, M13).
+    Naive UTC ISO to the second, like the Cockpit's etToUtcIso; None without a time."""
+    if not hhmm:
+        return None
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    try:
+        et = datetime(y, mo, d, int(hhmm[:2]), int(hhmm[2:]), tzinfo=ZoneInfo("America/New_York"))
+    except ValueError:
+        return None
+    return et.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def title_teams(title):
@@ -155,6 +170,12 @@ def resolve_side(p: dict, title, side) -> dict:
     if no:
         if r["role"] == "DRAW" or r["backed"] == "Draw":
             return {**r, "role": None, "backed": None, "why": "NO on the tie leg (not a single outcome)"}
+        # THREE-WAY NO = COMPOSITE (ARCHITECT 2026-10-06): two outcomes, never a single-side straight;
+        # the held contract stays known for its closing fair
+        if p.get("family") in THREE_WAY_FAMILIES and r["role"] in ("HOME", "AWAY"):
+            return {**r, "role": None, "backed": None, "noOn": r["backed"] or r["role"], "noRole": r["role"],
+                    "composite": True,
+                    "why": f"NO on {r['backed'] or r['role']} in a three-way market (composite: two outcomes)"}
         flip = {"HOME": "AWAY", "AWAY": "HOME"}.get(r["role"])
         other = None
         if r["backed"] and r["teams"]:
@@ -168,7 +189,7 @@ def side_fields(p: dict, title, side) -> dict:
     r = resolve_side(p, title, side)
     return {"backed": r["backed"], "backed_role": r["role"], "teams_title": r["teams"] or None,
             "resolve_note": r["why"], "resolved_via": r["via"],
-            "no_on": r.get("noOn"), "no_on_role": r.get("noRole")}
+            "no_on": r.get("noOn"), "no_on_role": r.get("noRole"), "composite": bool(r.get("composite"))}
 
 
 def _codes_fit(T: str, c: dict) -> bool:
@@ -189,6 +210,28 @@ def _backed_in(fx: dict, g: dict):
     return {"HOME": g.get("home"), "AWAY": g.get("away"), "DRAW": "Draw"}.get(fx.get("backed_role"), fx.get("backed"))
 
 
+def _start_nearest(fx: dict, cands: list) -> list:
+    """startNearest: with the ticker's start time, candidates within 3h of it, nearest first; otherwise
+    (no time, or none within 3h) the candidates unchanged."""
+    from datetime import datetime, timezone
+    if not fx.get("start"):
+        return cands
+    t0 = datetime.fromisoformat(fx["start"]).replace(tzinfo=timezone.utc)
+
+    def dist(c):
+        k = c.get("kickoff")
+        if not k:
+            return float("inf")
+        try:
+            kt = datetime.fromisoformat(k[:-1] + "+00:00" if k.endswith(("Z", "z")) else k)
+        except ValueError:
+            return float("inf")
+        kt = kt.replace(tzinfo=timezone.utc) if kt.tzinfo is None else kt
+        return abs((kt - t0).total_seconds())
+    within = [c for c in cands if dist(c) <= 3 * 3600]
+    return sorted(within, key=dist) if within else cands
+
+
 def match_fill(fx: dict, calls: list, picks: list) -> dict:
     if fx.get("kind") != "sport":
         return {"book": "fun", "category": fx.get("category")}
@@ -200,6 +243,10 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
     if not cands and any(x in FUN_SPORTS for x in fx["sports"]):
         x = next(x for x in fx["sports"] if x in FUN_SPORTS)
         return {"book": "fun", "category": f"{x} single (market-only, no system call)"}
+    if fx.get("composite"):
+        return {"book": "off_book_sports",
+                "category": f"composite contract ({fx.get('resolve_note') or 'three-way NO'}) — never a straight",
+                "plausible": True}
     if not fx.get("backed") and not fx.get("backed_role"):
         return {"book": "off_book_sports", "category": f"side not resolvable ({fx.get('resolve_note') or '?'})",
                 "plausible": True}
@@ -215,7 +262,7 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
             return {"book": "system_pick_unlogged", "category": f"system-pick, unlogged ({agree[0].get('source')})"}
         return {"book": "off_book_sports", "category": "stored prediction exists but the side disagrees",
                 "plausible": True}
-    agree = [c for c in cands if same_team(_backed_in(fx, c), pick_name(c))]
+    agree = [c for c in _start_nearest(fx, cands) if same_team(_backed_in(fx, c), pick_name(c))]
     real = [c for c in agree if c.get("call_type") != "quarantine_shadow" and (c.get("units") or 0) > 0]
     if real:
         c = real[0]
@@ -269,12 +316,8 @@ def classify_fills(L: dict) -> list[dict]:
         fx = {**f, **parse_ticker(f.get("ticker"))}
         if fx["kind"] == "sport":
             fx.update(side_fields(fx, fx.get("title"), fx.get("side")))
-            # A NO on a three-way family's HOME/AWAY leg is TWO outcomes (NO on HOME = DRAW or AWAY). The
-            # Cockpit flips it to the single opposite side; the port keeps that for parity but flags it, so a
-            # composite contract is never silently read as an opposite-side straight (Codex on #297).
-            if str(fx.get("side") or "").lower().startswith("n") and fx.get("family") in THREE_WAY_FAMILIES \
-                    and fx.get("no_on_role") in ("HOME", "AWAY"):
-                fx["composite_no"] = True
+            # three-way NO resolves as COMPOSITE in resolve_side (fill matcher lane, ARCHITECT 2026-10-06)
+            fx["composite_no"] = bool(fx.get("composite"))
         cls = {"book": "fun", "category": fx.get("category")} if fx["kind"] == "parlay" else \
             match_fill(fx, calls, picks)
         combo = fx["kind"] == "parlay"

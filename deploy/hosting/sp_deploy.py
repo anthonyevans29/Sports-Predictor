@@ -70,9 +70,14 @@ REQUIREMENTS = "requirements.txt"
 
 
 def pip_command() -> list[str]:
-    """`venv/bin/pip` of this checkout (ARCHITECT 2026-10-06); the running interpreter's pip if there is no venv."""
-    pip = c.REPO / "venv" / "bin" / "pip"
-    return [str(pip)] if pip.exists() else [sys.executable, "-m", "pip"]
+    """`venv/bin/pip` of this checkout (ARCHITECT 2026-10-06). A venv without a pip script (`--without-pip`) still
+    installs INTO the venv, via its own python (Codex on #310); the running interpreter only when there is no venv."""
+    venv = c.REPO / "venv"
+    if (venv / "bin" / "pip").exists():
+        return [str(venv / "bin" / "pip")]
+    if (venv / "pyvenv.cfg").exists():
+        return [str(venv / "bin" / "python"), "-m", "pip"]
+    return [sys.executable, "-m", "pip"]
 
 
 def _pip_run(cmd: list[str], cwd: str) -> int:
@@ -124,6 +129,9 @@ def _classify(line: str) -> tuple[str, str | None]:
     if body.startswith("-"):
         return "refuse", f"pip option: {body.split()[0]!r}"
     tok = body.split(";", 1)[0]
+    opts = [w for w in tok.split()[1:] if w.startswith("-")]
+    if any(not w.startswith("--hash") for w in opts):   # per-requirement options (--config-settings, ...) can name
+        return "refuse", f"per-requirement option: {opts[0]!r}"   # inputs the fingerprint cannot see (Codex)
     if "@" in body or "/" in tok or "\\" in tok or tok.split("[")[0].strip().lower().endswith(ARCHIVE_SUFFIXES) \
             or not _SPEC.match(body):
         return "refuse", f"not a plain specifier: {body[:40]!r}"
@@ -180,7 +188,9 @@ def _environment_id() -> str:
     # empty site-packages while the record inside the venv survives (Codex on #310)
     ver = next((ln.split("=", 1)[1].strip() for ln in cfg.read_text(encoding="utf-8", errors="replace").splitlines()
                 if ln.split("=", 1)[0].strip() in ("version", "version_info")), "?")
-    return f"venv:{cfg.parent.resolve()}:python-{ver}"
+    ssp = next((ln.split("=", 1)[1].strip().lower() for ln in cfg.read_text(encoding="utf-8", errors="replace")
+                .splitlines() if ln.split("=", 1)[0].strip() == "include-system-site-packages"), "false")
+    return f"venv:{cfg.parent.resolve()}:python-{ver}:system-site-packages={ssp}"
 
 
 def _fingerprint(inputs: dict) -> str:
@@ -211,6 +221,8 @@ def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, 
         return None, f"{REFUSE} ({'; '.join(problems[:3])}{' …' if len(problems) > 3 else ''})"
     fp = _fingerprint(inputs)
     touched = sorted(set(inputs) & set(changed))
+    if _last_installed_requirements() == fp:
+        return None, None              # already installed in exactly this form (e.g. a retry after a failed checkout)
     if touched:
         return fp, ("changed in this range" if touched == [REQUIREMENTS]
                     else f"changed in this range ({', '.join(touched)})")
@@ -252,7 +264,12 @@ def install_requirements(target: str, target_sha: str, fingerprint: str, reason:
     import tempfile
     shown = " ".join(pip_command() + ["install", "-r", REQUIREMENTS])
     print(f"  requirements.txt {reason} — running `{shown}` (the {target} file)")
-    tmp = tempfile.mkdtemp(prefix="sp-deploy-req-")
+    try:
+        tmp = tempfile.mkdtemp(prefix="sp-deploy-req-")
+    except OSError as e:                     # a missing/full TMPDIR is a receipted failure, never a traceback
+        return c.append_receipt({"kind": "deploy_requirements", "exit": 1, "tag": target, "to_sha": target_sha,
+                                 "fingerprint": fingerprint, "reason": reason, "command": shown,
+                                 "error": f"temporary directory: {e.__class__.__name__}: {e}"})
     wt = str(Path(tmp) / "wt")
     wt_rc, _, wt_err = _git_rc("worktree", "add", "--detach", wt, target_sha)
     try:
@@ -261,6 +278,13 @@ def install_requirements(target: str, target_sha: str, fingerprint: str, reason:
         _git_rc("worktree", "remove", "--force", wt)
         _git_rc("worktree", "prune")
         shutil.rmtree(tmp, ignore_errors=True)
+    if rc != 0 and wt_rc == 0:
+        # pip may have changed packages before failing: the OLD record no longer describes the environment, so it
+        # is dropped and the next deploy reinstalls whatever its inputs (Codex on #310)
+        try:
+            requirements_state_path().unlink(missing_ok=True)
+        except OSError:
+            pass
     state_error = record_installed(fingerprint) if rc == 0 else None
     # worktree stderr is attached ONLY when the worktree itself failed: on success git still prints
     # "Preparing worktree", which is not a pip diagnostic (Codex on #310)
@@ -544,8 +568,10 @@ def main(argv=None) -> int:
                     if last and q.is_dir() and not q.is_symlink() and any(t.startswith(rel + "/") for t in tracked_before):
                         # a TRACKED directory the target replaces with a file: git handles it, unless an UNTRACKED
                         # file lives inside it (git then refuses to lose it — Codex on #310)
+                        # files AND symlinked directories (os.walk lists those under dirs and does not follow)
                         inside = [str(Path(root, n).relative_to(c.REPO)).replace(os.sep, "/")
-                                  for root, _dirs, files in os.walk(q) for n in files]
+                                  for root, dirs, files in os.walk(q)
+                                  for n in files + [d for d in dirs if Path(root, d).is_symlink()]]
                         if all(t in tracked_before for t in inside):
                             continue
                     return True

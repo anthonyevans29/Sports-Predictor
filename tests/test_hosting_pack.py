@@ -2822,3 +2822,67 @@ def test_requirements_round_nine_untracked_child_and_external_venv_record(sandbo
     monkeypatch.setattr(sys, "prefix", str(ext))
     monkeypatch.setattr(sys, "base_prefix", "/usr")
     assert sp_deploy.requirements_state_path() == ext / ".sp-requirements.installed"
+
+
+def test_requirements_round_ten(sandbox, monkeypatch, tmp_path):
+    """Codex on #310 round 10 (verified): (1) a symlinked directory inside a replaced tracked directory is an
+    untracked child; (2) a repo venv without a pip script installs via its own python, never the system pip;
+    (3) a failed pip run drops the old install record; (4) the venv's system-site-packages mode is part of its
+    identity; (5) a missing TMPDIR is a receipted failure; (6) per-requirement options (--config-settings) are
+    refused; (7) a matching install record satisfies a range that touched the inputs (retry after a failed
+    checkout)."""
+    import os
+    import subprocess
+    import tempfile
+
+    import sp_deploy
+    repo, g, commit = _req_repo(sandbox, monkeypatch, "r10")
+    one = commit([("requirements.txt", "requests\n")])
+    (repo / "venv" / "bin").mkdir(parents=True)                                  # (2)
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\nversion = 3.11.9\ninclude-system-site-packages = false\n")
+    assert sp_deploy.pip_command() == [str(repo / "venv" / "bin" / "python"), "-m", "pip"]
+    plain = sp_deploy._environment_id()                                          # (4)
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\nversion = 3.11.9\ninclude-system-site-packages = true\n")
+    assert sp_deploy._environment_id() != plain
+    for bad in ("pkg>=1 --config-settings=key=value", "pkg>=1 -C key=value"):     # (6)
+        assert sp_deploy._classify(bad)[0] == "refuse", bad
+    assert sp_deploy._classify("pkg==1.0 --hash=sha256:" + "0" * 64)[0] == "spec"
+    fp = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))              # (7)
+    sp_deploy.requirements_state_path().write_text(fp + "\n")
+    assert sp_deploy.requirements_plan(one, ["requirements.txt"]) == (None, None)
+    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd, cwd: 1)               # (3)
+    rec = sp_deploy.install_requirements("vX", one, "other", "test")
+    assert rec["exit"] == 1 and not sp_deploy.requirements_state_path().exists()
+    def no_tmp(*a, **k):                                                         # (5)
+        raise FileNotFoundError("no TMPDIR")
+    monkeypatch.setattr(tempfile, "mkdtemp", no_tmp)
+    rec = sp_deploy.install_requirements("vX", one, "fp", "test")
+    assert rec["exit"] == 1 and "temporary directory" in rec["error"]
+    monkeypatch.undo()
+    # (1) a symlinked directory inside a tracked directory the target replaces with a file blocks the deploy
+    origin, clone = sandbox / "o10", sandbox / "c10"
+    origin.mkdir()
+
+    def gg(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    gg(origin, "init", "-q", "-b", "main")
+    (origin / "tool").mkdir()
+    (origin / "tool" / "a.py").write_text("a\n")
+    gg(origin, "add", "-A")
+    gg(origin, "commit", "-q", "-m", "b")
+    gg(origin, "tag", "v1.0.0")
+    gg(origin, "rm", "-q", "-r", "tool")
+    (origin / "tool").write_text("file\n")
+    gg(origin, "add", "-A")
+    gg(origin, "commit", "-q", "-m", "r")
+    gg(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True)
+    gg(clone, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", clone)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log10" / "receipts.jsonl"))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib10" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    os.symlink(str(tmp_path), clone / "tool" / "linked")
+    head = gg(clone, "rev-parse", "HEAD")
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and gg(clone, "rev-parse", "HEAD") == head

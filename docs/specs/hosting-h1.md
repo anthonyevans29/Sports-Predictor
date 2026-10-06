@@ -929,6 +929,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     venv may be partially updated. Fix the cause, run the printed command by
     hand from a checkout of the target, then deploy again.
   - A target without `requirements.txt` installs nothing and says so.
+  - Editable (`-e`) requirements refuse the deploy; install those by hand.
+  - The install record is tied to its destination venv, so a recreated venv
+    reinstalls on the next deploy.
 - **Midweek PL round (H0-10), operator-started.**
   `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch --set sat=<first-day> --set sat_plus3=<day-after-last>`.
 - **Seasons (H0-8).**

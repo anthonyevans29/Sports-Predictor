@@ -2539,3 +2539,49 @@ def test_deploy_installs_requirements_when_they_changed(sandbox, monkeypatch, ca
     assert sp_deploy.main(["--tag", "v1.0.5"]) == 0 and len(calls) == 4
     assert "removed in the target: nothing installed" in capsys.readouterr().out
     assert recs("deploy_requirements")[-1]["skipped"] == "requirements.txt removed in the target"
+
+def test_requirements_continuations_editables_and_environment_identity(sandbox, monkeypatch, capsys):
+    """Codex on #310 round 3 (verified): (1) an include split over two lines by a trailing backslash was not fingerprinted, so a
+    change to the included file alone skipped pip; (2) an editable (-e) requirement would point into the deleted
+    temporary worktree: refused before installing; (3) the install record names its destination, so a recreated
+    venv (or a venv replacing the no-venv fallback) is a new destination and reinstalls."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "rq"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(files):
+        for name, text in files:
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (repo / name).write_text(text)
+        g("add", "-A")
+        g("commit", "-q", "-m", "x")
+        return g("rev-parse", "HEAD")
+    g("init", "-q", "-b", "main")
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log" / "receipts.jsonl"))
+    one = commit([("requirements.txt", "-r \\\nreqs/base.txt\nrequests\n"), ("reqs/base.txt", "a\n")])
+    assert set(sp_deploy.requirements_inputs(one)) == {"requirements.txt", "reqs/base.txt"}       # (1)
+    two = commit([("reqs/base.txt", "a>=2\n")])
+    assert sp_deploy._fingerprint(sp_deploy.requirements_inputs(one)) != \
+        sp_deploy._fingerprint(sp_deploy.requirements_inputs(two))
+    (sandbox / "log").mkdir(exist_ok=True)
+    (sandbox / "log" / "requirements.installed").write_text(
+        sp_deploy._fingerprint(sp_deploy.requirements_inputs(one)) + "\n")
+    assert sp_deploy.requirements_plan(two, [])[0] is not None                    # the include alone reinstalls
+    three = commit([("requirements.txt", "-e .\nrequests\n")])                                    # (2)
+    assert sp_deploy.requirements_plan(three, ["requirements.txt"]) == \
+        (None, "has editable (-e) requirements in requirements.txt")
+    no_venv = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))                          # (3)
+    (repo / "venv").mkdir()
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\n")
+    first = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))
+    (repo / "venv" / "pyvenv.cfg").unlink()                                       # the venv is recreated
+    (repo / "venv" / "pyvenv.new").write_text("pad\n")                           # take a fresh inode
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\n")
+    assert len({no_venv, first, sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))}) == 3

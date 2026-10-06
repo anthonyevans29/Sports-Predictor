@@ -95,6 +95,25 @@ def _include_target(line: str) -> str | None:
     return None
 
 
+def _logical_lines(body: str) -> list[str]:
+    """pip's join_lines: a line ending in a backslash continues on the next (Codex on #310)."""
+    out, cur = [], ""
+    for ln in body.splitlines():
+        if ln.endswith("\\"):
+            cur += ln[:-1] + " "
+            continue
+        out.append(cur + ln)
+        cur = ""
+    if cur:
+        out.append(cur)
+    return out
+
+
+def _is_editable(line: str) -> bool:
+    parts = line.split("#", 1)[0].strip().split()
+    return bool(parts) and (parts[0] in ("-e", "--editable") or parts[0].startswith(("-e", "--editable=")))
+
+
 def requirements_inputs(rev: str) -> dict:
     """{path: blob} for requirements.txt and every file it includes (-r / -c, followed recursively, relative to the
     including file — pip's rule), at `rev`. An include absent at `rev` maps to None."""
@@ -108,16 +127,28 @@ def requirements_inputs(rev: str) -> dict:
         if out[p] is None:
             continue
         rc, body, _ = _git_rc("show", f"{rev}:{p}")
-        for ln in (body.splitlines() if rc == 0 else []):
+        for ln in (_logical_lines(body) if rc == 0 else []):
             inc = _include_target(ln)
             if inc and "://" not in inc:
                 todo.append(posixpath.join(posixpath.dirname(p), inc))
     return out
 
 
+def _environment_id() -> str:
+    """The install destination: the venv (its path and the identity of its pyvenv.cfg, so a deleted and recreated
+    venv is a NEW destination) or, without a venv, the running interpreter (Codex on #310)."""
+    import os
+    cfg = c.REPO / "venv" / "pyvenv.cfg"
+    if cfg.exists():
+        st = cfg.stat()
+        return f"venv:{cfg.parent.resolve()}:{st.st_dev}:{st.st_ino}"
+    return f"python:{os.path.realpath(sys.executable)}"
+
+
 def _fingerprint(inputs: dict) -> str:
     import hashlib
-    return hashlib.sha256("\n".join(f"{p}:{b}" for p, b in sorted(inputs.items())).encode()).hexdigest()[:16]
+    body = "\n".join([f"env={_environment_id()}"] + [f"{p}:{b}" for p, b in sorted(inputs.items())])
+    return hashlib.sha256(body.encode()).hexdigest()[:16]
 
 
 def _last_installed_requirements() -> str | None:
@@ -136,6 +167,11 @@ def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, 
     if _blob(target_sha, REQUIREMENTS) is None:
         return None, ("removed in the target" if REQUIREMENTS in changed else None)
     inputs = requirements_inputs(target_sha)
+    editable = sorted(p for p, b in inputs.items() if b and any(
+        _is_editable(ln) for ln in _logical_lines(_git_rc("show", f"{target_sha}:{p}")[1])))
+    if editable:
+        # an editable install points INTO the temporary worktree, which is deleted afterwards (Codex on #310)
+        return None, f"has editable (-e) requirements in {', '.join(editable)}"
     fp = _fingerprint(inputs)
     touched = sorted(set(inputs) & set(changed))
     if touched:
@@ -416,7 +452,9 @@ def main(argv=None) -> int:
                   + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else "")
                   + (f"; requirements.txt {req_reason}: would run `{' '.join(pip_command())} install -r "
                      f"{REQUIREMENTS}` (the {target} file) before the checkout" if req_blob else "")
-                  + (f"; requirements.txt {req_reason}: nothing to install" if req_reason and not req_blob else ""))
+                  + ((f"; requirements.txt {req_reason}: the deploy would be REFUSED"
+                      if req_reason.startswith("has editable") else f"; requirements.txt {req_reason}: nothing to install")
+                     if req_reason and not req_blob else ""))
             return 0
         installed = False
         if req_blob:
@@ -430,6 +468,14 @@ def main(argv=None) -> int:
                       f"{target}, then deploy again")
                 return 1
             installed = True
+        elif req_reason and req_reason.startswith("has editable"):
+            c.append_receipt({"kind": "deploy_requirements", "exit": 1, "tag": target, "to_sha": target_sha,
+                              "error": f"requirements.txt {req_reason}"})
+            c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                              "error": f"requirements.txt {req_reason}"})
+            print(f"✗ requirements.txt {req_reason}: an editable install would point into a temporary tree — deploy "
+                  f"refused; the host stays at {before_rel or before}. Install the target's requirements by hand.")
+            return 1
         elif req_reason:
             c.append_receipt({"kind": "deploy_requirements", "exit": 0, "tag": target, "to_sha": target_sha,
                               "skipped": f"requirements.txt {req_reason}"})

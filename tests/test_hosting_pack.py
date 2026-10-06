@@ -1502,3 +1502,281 @@ def test_catch_up_stops_at_failure_and_refuses_version_skew(sandbox, monkeypatch
     ref.write_text(json.dumps(fp))
     assert bootstrap.main(["catch-up", "--reference", str(ref)]) == 2
     assert receipts(sandbox)[-1]["refused"] == "version_mismatch"
+
+
+# ------------------------------------- release on every receipt (2026-10-06) ----
+
+def test_running_release_reads_a_checkout_owned_by_another_user(tmp_path, monkeypatch):
+    """ARCHITECT 2026-10-06, cutover-readiness (b): receipts.jsonl carried no release. The host checkout is
+    root-installed and the units run as `sp`; git refuses a repo owned by another user ("dubious ownership"),
+    so running_release() was None on every receipt. _git passes safe.directory for REPO only."""
+    import os
+    import subprocess
+    if os.geteuid() != 0:
+        pytest.skip("needs root to own the repo as another user")
+    repo = tmp_path / "owned"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                    "--allow-empty", "-m", "x"], check=True)
+    subprocess.run(["git", "-C", str(repo), "tag", "v9.9.9"], check=True)
+    subprocess.run(["chown", "-R", "nobody", str(repo)], check=True)
+    plain = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True)
+    assert plain.returncode != 0 and "dubious ownership" in plain.stderr        # the host's failure, reproduced
+    monkeypatch.setattr(c, "REPO", repo)
+    assert c.running_release() == "v9.9.9"
+
+
+def test_a_null_release_carries_its_reason(sandbox, monkeypatch, tmp_path):
+    """Law 4: never a guessed tag — but a null release always states why."""
+    monkeypatch.setattr(c, "REPO", tmp_path / "not-a-repo")
+    line = c.append_receipt({"kind": "chain", "unit": "sp-chain@x.service", "exit": 0})
+    assert line["release"] is None and line["release_error"]
+    stored = json.loads(c.receipts_path().read_text().splitlines()[-1])
+    assert stored["release_error"] == line["release_error"]
+
+
+def test_deploy_prints_the_exact_migration_command(monkeypatch):
+    """ARCHITECT 2026-10-06: the deploy flagged migrate_kalshi_ticker.py; it prints the exact by-hand command
+    — as the service user, host.env loaded, the daily .backup first, the migration only if it succeeded."""
+    import sp_deploy
+    cmd = sp_deploy.migration_command(["migrate_kalshi_ticker.py"], "abc1234")
+    assert cmd.startswith("sudo -u sp sh -c ")
+    assert f"cd {c.REPO}" in cmd and f". {c.HOST_ENV}" in cmd
+    assert "deploy/hosting/sp_deploy.py --expect abc1234 --run-migrations migrate_kalshi_ticker.py" in cmd
+
+
+def test_deploy_migration_plan_orders_by_commit_and_skips_rollbacks(tmp_path, monkeypatch):
+    """Codex on #296 (two P2s, verified): the migrations printed in git's alphabetical path order
+    (migrate_score_90.py needs migrate_status_raw.py first), and a rollback's diff printed migrations
+    the target predates as runnable. Order is now commit order; a non-forward deploy runs none."""
+    import subprocess
+
+    import sp_deploy
+    repo = tmp_path / "r"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q")
+    (repo / "a.txt").write_text("x")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "--short", "HEAD")
+    (repo / "migrate_status_raw.py").write_text("1")
+    g("add", "-A")
+    g("commit", "-q", "-m", "first")
+    (repo / "migrate_score_90.py").write_text("2")
+    g("add", "-A")
+    g("commit", "-q", "-m", "second")
+    head = g("rev-parse", "--short", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    changed = sorted(["migrate_score_90.py", "migrate_status_raw.py"])          # git diff's alphabetical order
+    fwd = sp_deploy.migration_plan(base, head, changed)
+    assert fwd["forward"] and fwd["run"] == ["migrate_status_raw.py", "migrate_score_90.py"]
+    cmd = sp_deploy.migration_command(fwd["run"], head)
+    assert cmd.index("migrate_status_raw.py") < cmd.index("migrate_score_90.py")
+    back = sp_deploy.migration_plan(head, base, changed)                        # a rollback
+    assert not back["forward"] and back["run"] == [] and set(back["skipped"]) == set(changed)
+
+
+def test_run_migrations_holds_one_lock_across_backup_and_every_migration(sandbox, monkeypatch):
+    """Codex on #296 (P2, verified): `sp_backup.py daily && migrate…` released the DB lock between the backup and
+    the migrations (sp_backup locks only its own copy; migrations take none), so a timer could interleave. The
+    printed command now runs `sp_deploy.py --run-migrations`, which holds one lock for the whole sequence."""
+    import sp_deploy
+    probe = ("import fcntl, os, sys\n"
+             "f = open(os.environ['SP_LOCK'], 'a+')\n"
+             "try:\n    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\n    sys.exit(3)\n"
+             "except BlockingIOError:\n    open(sys.argv[0] + '.ran', 'w').write('locked')\n")
+    import subprocess
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(c.REPO), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    for m in ("migrate_a.py", "migrate_b.py"):
+        (c.REPO / m).write_text(probe)
+    (c.REPO / "migrate_c.py").write_text("import sys; sys.exit(5)")
+    (c.REPO / "migrate_d.py").write_text("open('d.ran','w')")
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-q", "-m", "migrations")
+    head = g("rev-parse", "HEAD")
+    assert sp_deploy.run_migrations(["migrate_a.py", "migrate_b.py"], head) == 0
+    assert (c.REPO / "migrate_a.py.ran").exists() and (c.REPO / "migrate_b.py.ran").exists()
+    recs = [json.loads(x) for x in c.receipts_path().read_text().splitlines()]
+    assert [r.get("step") for r in recs if r["kind"] == "migrations"] == ["migrate_a.py", "migrate_b.py"]
+    assert any(r["kind"] == "backup" and r["exit"] == 0 for r in recs)              # the backup ran first
+    assert sp_deploy.run_migrations(["migrate_c.py", "migrate_d.py"], head) == 5    # stops at the failure
+    assert not (c.REPO / "d.ran").exists()
+    with pytest.raises(SystemExit, match="not a migrate_"):
+        sp_deploy.run_migrations(["../evil.py"], head)
+
+
+def test_migration_plan_merge_added_and_ancestry_errors(tmp_path, monkeypatch):
+    """Codex on #296, round 2 (verified): a migration added in a MERGE result is new and runnable; an ancestry
+    check that errors (not 'no') refuses the plan instead of reading as a rollback."""
+    import subprocess
+
+    import sp_deploy
+    repo = tmp_path / "m"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "a.txt").write_text("x")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    g("checkout", "-q", "-b", "side")
+    (repo / "b.txt").write_text("y")
+    g("add", "-A")
+    g("commit", "-q", "-m", "side")
+    g("checkout", "-q", "main")
+    (repo / "c.txt").write_text("z")
+    g("add", "-A")
+    g("commit", "-q", "-m", "main")
+    g("merge", "-q", "--no-ff", "--no-commit", "side")
+    (repo / "migrate_in_merge.py").write_text("1")                               # added in the merge result
+    g("add", "-A")
+    g("commit", "-q", "-m", "merge")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, head, ["migrate_in_merge.py"])
+    assert plan["forward"] and plan["run"] == ["migrate_in_merge.py"] and plan["modified"] == []
+    with pytest.raises(SystemExit, match="ancestry check"):
+        sp_deploy.migration_plan("0" * 40, head, ["migrate_in_merge.py"])
+
+
+def test_explicit_release_is_not_reported_as_an_error(sandbox, monkeypatch):
+    """Codex on #296 (P3, verified): sp_cutover's dry run passes its own release (the scratch checkout is not a git
+    tree); the receipt must not also carry release_error."""
+    monkeypatch.setattr(c, "REPO", sandbox / "not-a-repo")
+    line = c.append_receipt({"kind": "cutover", "exit": 0, "release": "v9.9.9"})
+    assert line["release"] == "v9.9.9" and "release_error" not in line
+
+
+def test_deploy_plans_migrations_before_moving_the_checkout(sandbox, monkeypatch):
+    """Codex on #296, round 3 (verified): the plan ran after `git checkout` had detached HEAD at the target, so a
+    planning failure left production on new code with the old schema and no receipt. The plan now runs first;
+    a refusal leaves the checkout where it was."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "a.txt").write_text("x")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    (origin / "migrate_new.py").write_text("1")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "migration")
+    g(origin, "tag", "v1.0.1")
+    monkeypatch.setattr(c, "REPO", repo)
+    before = g(repo, "rev-parse", "HEAD")
+
+    def boom(*a, **k):
+        raise SystemExit("✗ ancestry check failed (simulated) — refusing to plan migrations.")
+    monkeypatch.setattr(sp_deploy, "migration_plan", boom)
+    with pytest.raises(SystemExit, match="refusing to plan"):
+        sp_deploy.main(["--tag", "v1.0.1"])
+    assert g(repo, "rev-parse", "HEAD") == before                    # the checkout never moved
+    monkeypatch.undo()
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log" / "receipts.jsonl"))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    assert sp_deploy.main(["--tag", "v1.0.1", "--dry-run"]) == 0       # the plan is also shown on a dry run
+    assert g(repo, "rev-parse", "HEAD") == before
+
+
+def test_review_round_four_release_binding_dry_run_and_lookup_failures(sandbox, monkeypatch):
+    """Codex on #296, round 4 (verified): (1) --run-migrations is bound to the planned release (--expect SHA) and
+    refuses before any backup when HEAD moved; (2) --dry-run with --run-migrations refuses (a dry run changes
+    nothing); (3) a FAILED tag or branch lookup makes the release unreadable, never 'no tag' / 'detached'."""
+    import subprocess
+
+    import sp_deploy
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(c.REPO), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    (c.REPO / "migrate_x.py").write_text("open('x.ran','w')")
+    g("init", "-q")
+    g("add", "-A")
+    g("commit", "-q", "-m", "one")
+    planned = g("rev-parse", "HEAD")
+    (c.REPO / "migrate_x.py").write_text("open('changed.ran','w')")              # another release moved HEAD
+    g("add", "-A")
+    g("commit", "-q", "-m", "two")
+    with pytest.raises(SystemExit, match="not the planned release"):
+        sp_deploy.run_migrations(["migrate_x.py"], planned)
+    assert not (c.REPO / "changed.ran").exists() and not (sandbox / "backups").exists()   # nothing ran, no backup
+    with pytest.raises(SystemExit, match="needs --expect"):
+        sp_deploy.run_migrations(["migrate_x.py"], None)
+    with pytest.raises(SystemExit, match="dry run never"):
+        sp_deploy.main(["--dry-run", "--run-migrations", "migrate_x.py", "--expect", planned])
+    real = c._git
+    monkeypatch.setattr(c, "_git", lambda *a: None if a[:2] == ("tag", "--points-at") else real(*a))
+    assert c.running_release() is None                                          # not "UNTAGGED@…"
+    monkeypatch.setattr(c, "_git", lambda *a: None if a[:2] == ("rev-parse", "--abbrev-ref") else real(*a))
+    assert c.running_release() is None                                          # not "UNTAGGED@…"
+
+
+def test_review_round_five_same_commit_order_renames_and_locked_validation(sandbox, monkeypatch):
+    """Codex on #296, round 5 (verified): (1) two migrations added by ONE commit have no determinable order (git
+    lists them alphabetically): no runnable command, the operator orders them; (2) a RENAMED migration already
+    ran under its old name: reported, never runnable; (3) the files are validated under the DB lock."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q")
+    (repo / "migrate_old_name.py").write_text("print('a long enough body for rename detection to work')\n" * 5)
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_z_prerequisite.py").write_text("1")
+    (repo / "migrate_a_consumer.py").write_text("2")
+    g("add", "-A")
+    g("commit", "-q", "-m", "two at once")
+    g("mv", "migrate_old_name.py", "migrate_new_name.py")
+    g("commit", "-q", "-m", "rename")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    changed = sorted(["migrate_z_prerequisite.py", "migrate_a_consumer.py", "migrate_old_name.py",
+                      "migrate_new_name.py"])
+    plan = sp_deploy.migration_plan(base, head, changed)
+    assert plan["run"] == [] and plan["undetermined"] == ["migrate_a_consumer.py", "migrate_z_prerequisite.py"]
+    assert plan["renamed"] == {"migrate_new_name.py": "migrate_old_name.py"}
+    assert "migrate_new_name.py" not in plan["new"] and "migrate_new_name.py" in plan["modified"]
+    seen = []
+    real_lock = c.db_lock
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def spy_lock(*a, **k):
+        seen.append("lock")
+        with real_lock(*a, **k):
+            yield
+    monkeypatch.setattr(c, "db_lock", spy_lock)
+    with pytest.raises(SystemExit, match="not a migrate_"):
+        sp_deploy.run_migrations(["migrate_missing.py"], head)
+    assert seen == ["lock"]                                               # refused INSIDE the lock

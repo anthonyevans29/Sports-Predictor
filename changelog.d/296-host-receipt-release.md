@@ -1,0 +1,22 @@
+## 2026-10-06 (#296: host receipts carry the running release; deploy prints the exact migration command — ARCHITECT)
+- `sp_common._git` passes `safe.directory` for the checkout. The host checkout is root-installed and the units run as `sp`, so git refused it ("dubious ownership"), `running_release()` returned None, and no receipt carried a release (cutover-readiness criterion (b)). A receipt whose release is still null now carries `release_error` with git's own message.
+- `sp_deploy` prints, for each new migration, the exact by-hand command: as `sp`, with host.env loaded, `sp_backup.py daily &&` the migration.
+- Tests: `test_running_release_reads_a_checkout_owned_by_another_user`, `test_a_null_release_carries_its_reason`, `test_deploy_prints_the_exact_migration_command`.
+- Review fixes (Codex on #296):
+  - The migration command runs the new migrations in the order they were added (commit order, oldest first) as one chained `&&` command. Git's alphabetical path order put `migrate_score_90.py` before `migrate_status_raw.py`, which it needs.
+  - A rollback or other non-forward deploy prints no runnable migrations. It lists the skipped ones, and modified migrations are listed separately.
+  - Test: `test_deploy_migration_plan_orders_by_commit_and_skips_rollbacks`.
+- Review fixes (Codex on #296, round 2):
+  - The printed command runs `sp_deploy.py --run-migrations m1 m2 …`. It holds ONE DB lock across the daily backup and every migration, runs them in order, stops at the first failure, and receipts each step. A chained `sp_backup.py daily && migrate…` released the lock in between.
+  - A migration added in a merge result counts as new (absent at the old head, present at the target).
+  - An ancestry check that errors refuses the plan instead of reading as a rollback.
+  - An explicit release on a receipt (sp_cutover's dry run) no longer also carries `release_error`.
+- Review fix (Codex on #296, round 3): the migration plan is computed before the checkout moves, inside the deploy lock. A planning failure refuses with production still on its current release, and a dry run shows the plan. Test: `test_deploy_plans_migrations_before_moving_the_checkout`.
+- Review fixes (Codex on #296, round 4):
+  - The printed command carries `--expect <target sha>`. `--run-migrations` refuses, before any backup, unless HEAD is still that release.
+  - `--dry-run` with `--run-migrations` refuses.
+  - A failed tag or branch lookup makes the release unreadable (null, with `release_error`), never a guessed `UNTAGGED@`/`BETA`.
+- Review fixes (Codex on #296, round 5):
+  - Migrations added together in one commit, or not placed by the history, have no determinable order. No runnable command is generated; the deploy names them and the exact `--expect … --run-migrations <ordered names>` form to run once the order is decided.
+  - A renamed migration is reported (already ran under its old name), never runnable.
+  - Migration files are validated under the DB lock.

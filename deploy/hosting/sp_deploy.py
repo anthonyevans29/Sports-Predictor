@@ -114,6 +114,12 @@ def _root_migrations(rev: str) -> set:
     return {p for p in out.splitlines() if MIGRATION_NAME.match(p)}
 
 
+def _blob(rev: str, path: str):
+    """The blob id of `path` at `rev`; None when absent (never raises: a missing blob simply matches nothing)."""
+    rc, out, _ = _git_rc("rev-parse", "--verify", "--quiet", f"{rev}:{path}")
+    return out.strip() if rc == 0 and out.strip() else None
+
+
 def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     """Which migrations to run by hand, in which order (Codex on #296).
     - Only a FORWARD deploy (before is an ancestor of after) runs migrations. A
@@ -139,21 +145,24 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
                          "refusing to plan migrations.")
     before_migrations = _root_migrations(before)
     new = _root_migrations(after) - before_migrations
-    # a RENAME is not a new migration (it already ran under its old name): reported as modified. An UNCHANGED
-    # COPY (C100) is not one either: running it would apply a one-shot migration's logic twice. -M alone reports
-    # a copy as an addition, so copies need -C --find-copies-harder (Codex post-merge on #296); only exact copies
-    # count — a new migration written from an old one's template (a partial-similarity C) stays new.
-    rc, out, err = _git_rc("diff", "-M", "-C", "--find-copies-harder", "--name-status", before, after)
+    # a RENAME is not a new migration (it already ran under its old name): reported as modified, only when its
+    # source was a migration at `before`. An UNCHANGED COPY of a prior migration is not one either (running it
+    # would apply a one-shot twice). Copies are decided by CONTENT, not by git's copy detection: the new file's
+    # blob equals some migration's blob at `before` (git picks one candidate among identical files, which may
+    # be a non-migration template — Codex on #304). A template-derived new migration stays new.
+    rc, out, err = _git_rc("diff", "-M", "--name-status", before, after)
     if rc != 0:
         raise SystemExit(f"✗ git diff {before}..{after} failed ({err}) — refusing to plan migrations.")
     renamed = {}
     for ln in out.splitlines():
         parts = ln.split("\t")
-        # only when the SOURCE was itself a migration at `before`: --find-copies-harder also offers unchanged
-        # non-migration files (a shared template) as copy sources, and those make a genuinely new migration
-        if (len(parts) == 3 and parts[2] in new and parts[1] in before_migrations
-                and (parts[0].startswith("R") or parts[0] == "C100")):
+        if len(parts) == 3 and parts[2] in new and parts[1] in before_migrations and parts[0].startswith("R"):
             renamed[parts[2]] = parts[1]
+    prior = {_blob(before, m): m for m in sorted(before_migrations)}
+    for m in sorted(new - set(renamed)):
+        src = prior.get(_blob(after, m))
+        if src:
+            renamed[m] = src
     new -= set(renamed)
     rc, out, err = _git_rc("log", "--reverse", "-m", "--diff-filter=A", "--name-only", "--format=@@%H %P",
                            f"{before}..{after}")
@@ -177,7 +186,11 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     chosen = {}
     for p, apps in seen.items():
         plain = [a for a in apps if not a[2]]
-        chosen[p] = plain[-1] if plain else apps[0]
+        # a competing branch may add a DIFFERENT file under the same name that the release does not carry
+        # (Codex on #304): only an addition whose content is the released file's counts
+        final = _blob(after, p)
+        carried = [a for a in plain if _blob(a[1], p) == final]
+        chosen[p] = carried[-1] if carried else plain[-1] if plain else apps[0]
     ordered = sorted(chosen, key=lambda p: chosen[p][0])
     per_commit = {}
     for p, (_, h, _m) in chosen.items():

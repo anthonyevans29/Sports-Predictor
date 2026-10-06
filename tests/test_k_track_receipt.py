@@ -261,7 +261,8 @@ def test_cli_refuses_a_malformed_fills_or_calls_array_without_a_traceback(tmp_pa
 
     import cli
     init_db()
-    for doc in ({"calls": [], "fills": ["x"]}, {"calls": ["x"]}, {"calls": [], "fills": {"a": 1}}):
+    for doc in ({"calls": [], "fills": ["x"]}, {"calls": ["x"]}, {"calls": [], "fills": {"a": 1}},
+                {"calls": [], "fills": None}):                          # an explicit null too (Codex on #304)
         p = tmp_path / "bad.json"
         p.write_text(json.dumps(doc))
         r = CliRunner().invoke(cli.cli, ["k-track-receipt", "--ledger", str(p)])

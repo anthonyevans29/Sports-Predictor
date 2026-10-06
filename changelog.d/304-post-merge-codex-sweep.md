@@ -7,3 +7,7 @@
 - Review fixes (Codex on #304):
   - A copy or rename is suppressed only when its SOURCE was a migration at `before`. A new migration identical to a shared non-migration template stays new.
   - Each migration counts at its LAST addition by an ordinary commit, so a re-added migration keeps its grouping. A merge commit counts only when no ordinary commit added the path.
+- Review fixes (Codex on #304, round 2):
+  - Copies are decided by CONTENT: a new migration whose file is identical to any migration at `before` is a copy, whichever identical source git would have named.
+  - Only an addition carrying the released file's content counts, so a competing branch's different file under the same name never sets the order.
+  - An explicit `"fills": null` is refused.

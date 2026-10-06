@@ -17,7 +17,10 @@ clobber a local tag); any local modification except RESULTS.md, which the
 host rewrites (results-tally, H0-9) and is restored first. The host never
 builds from a branch and never pushes. Run as the sp user, under the DB lock
 so no chain is mid-run. Migrations in the range are run by hand afterwards,
-after a backup (hosting-h1.md, "Deploying a release").
+after a backup (hosting-h1.md, "Deploying a release"). When requirements.txt
+changed in the range, `venv/bin/pip install -r requirements.txt` (the target's
+file) runs before the checkout, printed and receipted; a failed install refuses
+the deploy (ARCHITECT 2026-10-06).
 """
 from __future__ import annotations
 
@@ -60,6 +63,39 @@ def migration_command(scripts: list[str], expect_sha: str) -> str:
              f"{shlex.quote(str(py))} deploy/hosting/sp_deploy.py --expect {shlex.quote(expect_sha)} "
              f"--run-migrations " + " ".join(shlex.quote(m) for m in scripts))
     return f"sudo -u {user} sh -c {shlex.quote(inner)}"
+
+
+REQUIREMENTS = "requirements.txt"
+
+
+def pip_command() -> list[str]:
+    """`venv/bin/pip` of this checkout (ARCHITECT 2026-10-06); the running interpreter's pip if there is no venv."""
+    pip = c.REPO / "venv" / "bin" / "pip"
+    return [str(pip)] if pip.exists() else [sys.executable, "-m", "pip"]
+
+
+def _pip_run(cmd: list[str]) -> int:
+    return subprocess.run(cmd, cwd=str(c.REPO)).returncode
+
+
+def install_requirements(target: str, target_sha: str) -> dict:
+    """ARCHITECT 2026-10-06 (the host lacked `cryptography` after v1.2.3): when requirements.txt changed in the
+    deploy range, `venv/bin/pip install -r requirements.txt` runs, printed and receipted. It installs the TARGET's
+    file BEFORE the checkout moves, so a failed install refuses the deploy with production still on its release."""
+    import tempfile
+    body = git("show", f"{target_sha}:{REQUIREMENTS}", strip=False)
+    with tempfile.NamedTemporaryFile("w", suffix="-requirements.txt", delete=False) as fh:
+        fh.write(body)
+        tmp = fh.name
+    try:
+        cmd = pip_command() + ["install", "-r", tmp]
+        shown = " ".join(pip_command() + ["install", "-r", REQUIREMENTS])
+        print(f"  requirements.txt changed in this range — running `{shown}` (the {target} file)")
+        rc = _pip_run(cmd)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    return c.append_receipt({"kind": "deploy_requirements", "exit": rc, "tag": target, "to_sha": target_sha,
+                             "command": shown})
 
 
 MIGRATION_NAME = re.compile(r"^migrate_[A-Za-z0-9_]+\.py$")
@@ -299,8 +335,17 @@ def main(argv=None) -> int:
                      f"{plan['new']}" if plan.get("undetermined") else "")
                   + (f"; this range DELETES migration(s) {plan['deleted_migrations']} (lineage unknown)"
                      if plan.get("lineage_unknown") else "")
-                  + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else ""))
+                  + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else "")
+                  + (f"; requirements.txt changed: would run `{' '.join(pip_command())} install -r "
+                     f"{REQUIREMENTS}` (the {target} file) before the checkout" if REQUIREMENTS in changed else ""))
             return 0
+        if REQUIREMENTS in changed:
+            req = install_requirements(target, target_sha)
+            if req["exit"] != 0:
+                c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                                  "error": f"pip install exited {req['exit']}"})
+                print(f"✗ pip install exited {req['exit']} — deploy refused; the host stays at {before_rel or before}")
+                return 1
         if dirty:
             git("checkout", "--", "RESULTS.md")
         git("checkout", "--quiet", "--detach", f"{target}^{{commit}}")
@@ -316,8 +361,10 @@ def main(argv=None) -> int:
                       "migration_order_undetermined": plan["undetermined"], "renamed_migrations": plan["renamed"],
                       "deleted_migrations": plan.get("deleted_migrations", []),
                       "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
+                      "requirements_installed": REQUIREMENTS in changed,
                       "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
+          + (f"\n  ✓ requirements installed ({REQUIREMENTS} changed in this range)" if REQUIREMENTS in changed else "")
           + (f"\n  ! new migrations, in the order they were added (backup first, then run by hand, in this "
              f"order): {plan['run']}\n      {migration_command(plan['run'], target_full)}" if plan["run"] else "")
           + (f"\n  ! new migrations whose ORDER (or identity) is not determinable (added together in one commit, "

@@ -914,6 +914,11 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   refuses when no tag exists. It lists any new `migrate_*.py`. For those:
   first `systemctl start sp-backup.service`, then run each migration by
   hand. Every receipt line names the running tag.
+  - When `requirements.txt` changed in the range, the deploy runs
+    `venv/bin/pip install -r requirements.txt` (the target tag's file) before
+    the checkout. It prints the command and writes a `deploy_requirements`
+    receipt. A failed install refuses the deploy, and the host stays on its
+    release (ARCHITECT 2026-10-06: the host lacked `cryptography` after v1.2.3).
 - **Midweek PL round (H0-10), operator-started.**
   `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch --set sat=<first-day> --set sat_plus3=<day-after-last>`.
 - **Seasons (H0-8).**

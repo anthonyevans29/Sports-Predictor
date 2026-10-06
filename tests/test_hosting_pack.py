@@ -2449,3 +2449,62 @@ def test_sweep_a_deletion_only_range_warns_on_dry_run_and_deploy(sandbox, monkey
     # round 7: the advice names the deleted paths and a --no-renames listing, never --follow alone (a rewritten
     # move is invisible to --follow)
     assert "--no-renames --name-status" in out and "git log --follow" not in out
+
+
+def test_deploy_installs_requirements_when_they_changed(sandbox, monkeypatch, capsys):
+    """ARCHITECT 2026-10-06 (the host lacked `cryptography` after v1.2.3): requirements.txt changed in the deploy
+    range -> `pip install -r requirements.txt` runs, printed and receipted, from the TARGET's file and BEFORE the
+    checkout; a failed install refuses the deploy with the host still on its release; unchanged -> no install."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "requirements.txt").write_text("requests>=2.31.0\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    (origin / "a.txt").write_text("no requirements change")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "plain")
+    g(origin, "tag", "v1.0.1")
+    (origin / "requirements.txt").write_text("requests>=2.31.0\ncryptography>=41.0.0\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "add cryptography")
+    g(origin, "tag", "v1.0.2")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log" / "receipts.jsonl"))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    calls = []
+
+    def fake_pip(cmd, rc=0):
+        calls.append((cmd, open(cmd[-1]).read(), g(repo, "rev-parse", "HEAD")))
+        return rc
+    monkeypatch.setattr(sp_deploy, "_pip_run", fake_pip)
+    v100 = g(repo, "rev-parse", "HEAD")
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 0 and calls == []      # unchanged: no install
+    capsys.readouterr()
+    assert sp_deploy.main(["--tag", "v1.0.2", "--dry-run"]) == 0 and calls == []
+    assert "would run" in capsys.readouterr().out
+    v101 = g(repo, "rev-parse", "HEAD")
+    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd: fake_pip(cmd, rc=1))
+    assert sp_deploy.main(["--tag", "v1.0.2"]) == 1                       # failed install: refused
+    assert g(repo, "rev-parse", "HEAD") == v101 and "deploy refused" in capsys.readouterr().out
+    monkeypatch.setattr(sp_deploy, "_pip_run", fake_pip)
+    assert sp_deploy.main(["--tag", "v1.0.2"]) == 0
+    cmd, body, head = calls[-1]
+    assert cmd[-3:-1] == ["install", "-r"] and "cryptography" in body and head == v101   # target file, pre-checkout
+    out = capsys.readouterr().out
+    assert "install -r requirements.txt" in out and "requirements installed" in out
+    rs = [json.loads(x) for x in (sandbox / "log" / "receipts.jsonl").read_text().splitlines()]
+    req = [r for r in rs if r["kind"] == "deploy_requirements"]
+    assert [r["exit"] for r in req] == [1, 0] and req[-1]["tag"] == "v1.0.2"
+    assert rs[-1]["kind"] == "deploy" and rs[-1]["requirements_installed"] is True and v100 != v101

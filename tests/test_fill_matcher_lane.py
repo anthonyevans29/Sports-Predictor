@@ -178,3 +178,17 @@ def test_codex_round_6_no_tie_weak_codes_and_legacy_titles():
     leg = P.classify_fills({"calls": [jax], "fills": [
         _fill("l", "KXNFLGAME-26OCT04TENJAX-JAX", "yes", "Tennessee vs Jacksonville Winner?")]})[0]
     assert leg["call_id"] == "j"
+
+
+def test_codex_round_7_legacy_two_non_prefix_codes_and_same_side_confirmation():
+    """Codex on #299, round 7 (verified): (1) UGAUNC with "Georgia vs North Carolina Winner?" — both codes non-prefix
+    — orients by the legacy AWAY-vs-HOME title order; (2) a weak code is confirmed only by the title team on its
+    OWN side: NYGNYJ-NYJ "New York Jets wins — New York Giants" never fits the reversed Giants-home call."""
+    uga = _call("u", "North Carolina Tar Heels", "Georgia Bulldogs", "HOME", "2026-10-10T19:00:00", sport="NCAA")
+    f = P.classify_fills({"calls": [uga], "fills": [
+        _fill("a", "KXNCAAFGAME-26OCT10UGAUNC-UNC", "yes", "Georgia vs North Carolina Winner?")]})[0]
+    assert f["call_id"] == "u"
+    rev = _call("r", "New York Giants", "New York Jets", "HOME", "2026-10-11T17:00:00", sport="NFL")
+    g = P.classify_fills({"calls": [rev], "fills": [
+        _fill("b", "KXNFLGAME-26OCT11NYGNYJ-NYJ", "yes", "New York Jets wins — New York Giants")]})[0]
+    assert g.get("call_id") is None

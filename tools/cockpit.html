@@ -1695,18 +1695,32 @@ function resolveSide(p,title,side){
   }
   return r;
 }
-function codesFit(T,c,tt){                          // the ticker's {AWAY}{HOME} block fits this game
+// The title's teams BOUND TO SIDES (Codex on #299): "X wins — Y" puts X on the contract's (ticker) side and Y on
+// the other; the legacy "A vs B Winner?" grammar is AWAY vs HOME (BUFKC = "Buffalo vs Kansas City"). null = none.
+function titleBySide(fx){
+  const tp=titleParse(fx.title); if(!tp||!tp.teams||tp.teams.length!==2) return null;
+  const role=fx.no_on_role||fx.backed_role;
+  if(tp.backed&&tp.backed!=="Draw"){
+    if(role!=="HOME"&&role!=="AWAY") return null;
+    const other=tp.teams[0]===tp.backed?tp.teams[1]:tp.teams[0];
+    return role==="HOME"?{home:tp.backed,away:other}:{away:tp.backed,home:other};
+  }
+  if(!tp.backed) return {away:tp.teams[0],home:tp.teams[1]};
+  return null;
+}
+function codesFit(T,c,tt,bySide){                   // the ticker's {AWAY}{HOME} block fits this game
   // Both codes must fit. A WEAK fit (two-letter initials only) is a same-city collision unless a title team
   // confirms that side word by word (each title word a prefix of a name word): NYG ~ "New York Jets" is
   // rejected by "New York G", while KC ~ "Kansas City" and MCI ~ "Man City" are confirmed (Codex on #297/#299).
   // the WHOLE code prefixing the initials (KC ~ "kcc", SF ~ "sf4") is identity; only a two-letter-prefix-only fit
   // (NYG ~ "nyj") is weak
   const ini=n=>normTeam(n).split(" ").filter(Boolean).map(x=>x[0]).join("");
-  const ok=(sc,code,name)=>sc>=2||(sc===1&&(ini(name).startsWith(code.toLowerCase())
-    ||(!!tt&&tt.some(t=>tokPrefixSubset(t,name)))));
+  // a weak code is confirmed only by the title team on the SAME side (never by the opposite team)
+  const ok=(sc,code,name,side)=>sc>=2||(sc===1&&(ini(name).startsWith(code.toLowerCase())
+    ||(!!bySide&&!!bySide[side]&&tokPrefixSubset(bySide[side],name))));
   for(let i=2;i<=Math.min(4,T.length-2);i++){
     const a=codeFits(T.slice(0,i),c.away), h=codeFits(T.slice(i),c.home);
-    if(ok(a,T.slice(0,i),c.away)&&ok(h,T.slice(i),c.home)) return true;
+    if(ok(a,T.slice(0,i),c.away,"away")&&ok(h,T.slice(i),c.home,"home")) return true;
   }
   return false;
 }
@@ -1738,6 +1752,9 @@ function contractOriented(fx,g){
   const tp=titleParse(fx.title);
   const name=tp&&tp.backed&&tp.backed!=="Draw"?tp.backed:(fx.no_on_role?fx.no_on:fx.backed);
   if(name&&name!=="HOME"&&name!=="AWAY"&&tokSubset(name,role==="HOME"?g.home:g.away)) return true;
+  // a legacy "A vs B" title is AWAY vs HOME: both teams on their own sides orients it (two non-prefix codes too)
+  const bs=titleBySide(fx);
+  if(bs&&!(titleParse(fx.title)||{}).backed&&tokSubset(bs.away,g.away)&&tokSubset(bs.home,g.home)) return true;
   // no usable name (legacy "A vs B Winner?" titles): the OTHER code fits the call's opposite side strongly
   const codes=tickerRole(fx).codes, opp=role==="HOME"?"away":"home";
   return !!codes&&codeFits(codes[opp],g[opp])>=2;
@@ -1746,7 +1763,7 @@ function gameFits(fx,g){
   // FILL MATCHER LANE (Codex on #299): with ticker codes, the codes fit OR a strict two-team title fit. One
   // shared word ("United", "City") is never team identity, and a standard non-prefix code (JAX, BHA) still
   // matches through the title. Tickers without codes keep the original title rule.
-  if(fx.teams) return codesFit(fx.teams,g,fx.teams_title)||(titleFitsStrict(fx.teams_title,g)&&contractOriented(fx,g));
+  if(fx.teams) return codesFit(fx.teams,g,fx.teams_title,titleBySide(fx))||(titleFitsStrict(fx.teams_title,g)&&contractOriented(fx,g));
   // no codes (legacy titles): the two title teams fit two DIFFERENT sides (one-to-one, Codex post-merge on #297)
   const tt=fx.teams_title;
   if(tt&&tt.length===2) return (sameTeam(tt[0],g.home)&&sameTeam(tt[1],g.away))||(sameTeam(tt[0],g.away)&&sameTeam(tt[1],g.home));

@@ -203,21 +203,39 @@ def _tok_prefix_subset(a, b) -> bool:
     return bool(A) and bool(B) and all(any(x.startswith(w) for x in B) for w in A)
 
 
-def _codes_fit(T: str, c: dict, tt=None) -> bool:
+def _title_by_side(fx: dict):
+    """The title's teams BOUND TO SIDES (Codex on #299): "X wins — Y" puts X on the contract's (ticker) side and Y
+    on the other; the legacy "A vs B Winner?" grammar is AWAY vs HOME (BUFKC = "Buffalo vs Kansas City")."""
+    tp = title_parse(fx.get("title"))
+    if not tp or not tp.get("teams") or len(tp["teams"]) != 2:
+        return None
+    role = fx.get("no_on_role") or fx.get("backed_role")
+    if tp.get("backed") and tp["backed"] != "Draw":
+        if role not in ("HOME", "AWAY"):
+            return None
+        other = tp["teams"][1] if tp["teams"][0] == tp["backed"] else tp["teams"][0]
+        return {"home": tp["backed"], "away": other} if role == "HOME" else {"away": tp["backed"], "home": other}
+    if not tp.get("backed"):
+        return {"away": tp["teams"][0], "home": tp["teams"][1]}
+    return None
+
+
+def _codes_fit(T: str, c: dict, tt=None, by_side=None) -> bool:
     """Both codes fit. A WEAK fit (two-letter initials only) is a same-city collision unless a title team
     confirms that side word by word: NYG ~ "New York Jets" is rejected by "New York G", while KC ~ "Kansas City"
     and MCI ~ "Man City" are confirmed (Codex post-merge on #297 and on #299)."""
     def ini(n):
         return "".join(w[0] for w in norm_team(n).split(" ") if w)
 
-    def ok(sc, code, name):
-        # the WHOLE code prefixing the initials (KC ~ "kcc", SF ~ "sf4") is identity; only a two-letter-prefix-only
-        # fit (NYG ~ "nyj") is weak
+    def ok(sc, code, name, side):
+        # the WHOLE code prefixing the initials (KC ~ "kcc", SF ~ "sf4") is identity; a weak fit (NYG ~ "nyj") is
+        # confirmed only by the title team on the SAME side, never by the opposite team (Codex on #299)
         return sc >= 2 or (sc == 1 and (ini(name).startswith(code.lower())
-                                        or (bool(tt) and any(_tok_prefix_subset(t, name) for t in tt))))
+                                        or (bool(by_side) and bool(by_side.get(side))
+                                            and _tok_prefix_subset(by_side[side], name))))
     for i in range(2, min(4, len(T) - 2) + 1):
         a, h = code_fits(T[:i], c.get("away")), code_fits(T[i:], c.get("home"))
-        if ok(a, T[:i], c.get("away")) and ok(h, T[i:], c.get("home")):
+        if ok(a, T[:i], c.get("away"), "away") and ok(h, T[i:], c.get("home"), "home"):
             return True
     return False
 
@@ -251,6 +269,11 @@ def _contract_oriented(fx: dict, g: dict) -> bool:
         fx.get("no_on") if fx.get("no_on_role") else fx.get("backed"))
     if name and name not in ("HOME", "AWAY") and _tok_subset(name, g.get("home") if role == "HOME" else g.get("away")):
         return True
+    # a legacy "A vs B" title is AWAY vs HOME: both teams on their own sides orients it (two non-prefix codes too)
+    bs = _title_by_side(fx)
+    if (bs and not (tp or {}).get("backed") and _tok_subset(bs["away"], g.get("away"))
+            and _tok_subset(bs["home"], g.get("home"))):
+        return True
     # no usable name (legacy "A vs B Winner?" titles): the OTHER code fits the call's opposite side strongly
     codes = ticker_role(fx)["codes"]
     opp = "away" if role == "HOME" else "home"
@@ -262,7 +285,7 @@ def game_fits(fx: dict, g: dict) -> bool:
     "United" is never identity; a standard non-prefix code such as JAX or BHA still matches through the
     title, Codex on #299). Tickers without codes keep the original title rule."""
     if fx.get("teams"):
-        return _codes_fit(fx["teams"], g, fx.get("teams_title")) or (_title_fits_strict(fx.get("teams_title"), g)
+        return _codes_fit(fx["teams"], g, fx.get("teams_title"), _title_by_side(fx)) or (_title_fits_strict(fx.get("teams_title"), g)
                                               and _contract_oriented(fx, g))
     tt = fx.get("teams_title")
     if tt and len(tt) == 2:          # one-to-one: two DIFFERENT sides (Codex post-merge on #297)

@@ -46,6 +46,8 @@ EXTRA = {"calls": [
     F.call("rev", "MLB", "New York Yankees", "Boston Red Sox", "HOME", kick="2026-10-20T17:05:00"),  # reversed
     F.call("nyj2", "NFL", "Seattle Seahawks", "New York Jets", "AWAY", kick="2026-10-25T17:00:00"),
     F.call("jax", "NFL", "Jacksonville Jaguars", "Tennessee Titans", "HOME", kick="2026-11-01T17:00:00"),
+    F.call("unc", "NCAA", "North Carolina Tar Heels", "Georgia Bulldogs", "HOME", kick="2026-11-07T19:00:00"),
+    F.call("nyr", "NFL", "New York Giants", "New York Jets", "HOME", kick="2026-11-08T17:00:00"),   # Giants home
 ], "fills": [
     _fill("x-dh2", "KXMLBGAME-26SEP271905NYYBOS-BOS", "yes", "Boston wins — New York Y"),  # game 2, not game 1
     _fill("x-dh1", "KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", "Boston wins — New York Y"),
@@ -58,6 +60,8 @@ EXTRA = {"calls": [
     _fill("x-tie", "KXEPLGAME-26SEP27CHEARS-TIE", "no", "Tie — Chelsea vs Arsenal"),               # NO TIE: composite
     _fill("x-nygs", "KXNFLGAME-26OCT25NYGSEA-NYG", "yes", "New York G wins — Seattle"),           # weak NYG unconfirmed
     _fill("x-jax", "KXNFLGAME-26NOV01TENJAX-JAX", "yes", "Tennessee vs Jacksonville Winner?"),    # legacy title
+    _fill("x-unc", "KXNCAAFGAME-26NOV07UGAUNC-UNC", "yes", "Georgia vs North Carolina Winner?"),  # 2 non-prefix codes
+    _fill("x-nyj", "KXNFLGAME-26NOV08NYGNYJ-NYJ", "yes", "New York Jets wins — New York Giants"),  # NYJ home: reversed
 ]}
 FIELDS = ("book", "call_id", "backed_role", "backed", "no_on_role", "fee_class_open", "fee_class_close")
 
@@ -140,6 +144,10 @@ def main():
           not by["x-nygs"].get("call_id") and not jsby["x-nygs"].get("call_id"))
     check("legacy 'A vs B Winner?' title with a non-prefix code still matches (opposite code orients)",
           by["x-jax"].get("call_id") == "jax" == jsby["x-jax"].get("call_id"))
+    check("legacy AWAY-vs-HOME title orients two non-prefix codes (UGAUNC)",
+          by["x-unc"].get("call_id") == "unc" == jsby["x-unc"].get("call_id"))
+    check("weak codes are confirmed by their OWN side's title team: the reversed Giants-home call never fits",
+          not by["x-nyj"].get("call_id") and not jsby["x-nyj"].get("call_id"))
     ppos = P.executed_positions(L)["pos"]
     check(f"executed positions: js {len(jpos)} py {len(ppos)}", len(jpos) == len(ppos) and len(jpos) > 0)
     pmap = {p["c"]["id"]: p for p in ppos}

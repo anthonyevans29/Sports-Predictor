@@ -17,3 +17,8 @@
   - A WEAK code fit (only the first two letters prefix the initials) must be confirmed by a title team whose every word is a prefix of the side's name. A strong opponent no longer vouches for it: NYGSEA does not fit Jets–Seahawks. A code that fully prefixes the initials (KC, SF) stays identity.
   - Legacy "A vs B Winner?" titles orient through the other code fitting the call's opposite side.
   - Parity: 46/46.
+- Review fixes (Codex on #299, round 7):
+  - Title teams are now BOUND TO SIDES. "X wins — Y" puts X on the contract's side. A legacy "A vs B Winner?" title is AWAY vs HOME, per the repo's own fixtures, e.g. BUFKC = "Buffalo vs Kansas City".
+  - A weak code is confirmed only by its own side's title team, so a reversed Giants/Jets game never fits.
+  - A legacy title orients two non-prefix codes (UGAUNC).
+  - Parity: 50/50.

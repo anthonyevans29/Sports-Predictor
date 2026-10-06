@@ -1465,6 +1465,13 @@ def k_track_receipt_cmd(ledger_path, since, until, out_path):
         if not isinstance(L, dict) or not isinstance(L.get("calls"), list):
             console.print("[red]REFUSED: not a Cockpit ledger export (no calls array).[/red]")
             raise SystemExit(2)
+        # a damaged or hand-edited export is refused, never a traceback (Codex post-merge on #297)
+        bad = [k for k in ("calls", "fills", "system_picks")    # a key that is PRESENT must be a list (null too)
+               if k in L and not (isinstance(L[k], list) and all(isinstance(x, dict) for x in L[k]))]
+        if bad:
+            console.print(f"[red]REFUSED: not a Cockpit ledger export ({', '.join(bad)} must be a list of "
+                          "objects).[/red]")
+            raise SystemExit(2)
         lines += K.format_fills(L, lo, hi)
     else:
         lines.append("FILLS · not read: pass --ledger <the Cockpit's Export ledger (JSON) file> for the fills, "

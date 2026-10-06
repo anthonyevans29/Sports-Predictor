@@ -114,6 +114,12 @@ def _root_migrations(rev: str) -> set:
     return {p for p in out.splitlines() if MIGRATION_NAME.match(p)}
 
 
+def _blob(rev: str, path: str):
+    """The blob id of `path` at `rev`; None when absent (never raises: a missing blob simply matches nothing)."""
+    rc, out, _ = _git_rc("rev-parse", "--verify", "--quiet", f"{rev}:{path}")
+    return out.strip() if rc == 0 and out.strip() else None
+
+
 def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     """Which migrations to run by hand, in which order (Codex on #296).
     - Only a FORWARD deploy (before is an ancestor of after) runs migrations. A
@@ -137,38 +143,84 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     if rc != 0:
         raise SystemExit(f"✗ ancestry check {before}..{after} failed ({err or f'git exit {rc}'}) — "
                          "refusing to plan migrations.")
-    new = _root_migrations(after) - _root_migrations(before)
-    # a RENAME is not a new migration (it already ran under its old name): reported as modified
+    before_migrations = _root_migrations(before)
+    new = _root_migrations(after) - before_migrations
+    # a RENAME is not a new migration (it already ran under its old name): reported as modified, only when its
+    # source was a migration at `before`. An UNCHANGED COPY of a prior migration is not one either (running it
+    # would apply a one-shot twice). Copies are decided by CONTENT, not by git's copy detection: the new file's
+    # blob equals some migration's blob at `before` (git picks one candidate among identical files, which may
+    # be a non-migration template — Codex on #304). A template-derived new migration stays new.
     rc, out, err = _git_rc("diff", "-M", "--name-status", before, after)
     if rc != 0:
         raise SystemExit(f"✗ git diff {before}..{after} failed ({err}) — refusing to plan migrations.")
     renamed = {}
     for ln in out.splitlines():
         parts = ln.split("\t")
-        if len(parts) == 3 and parts[0].startswith(("R", "C")) and parts[2] in new:
+        if len(parts) == 3 and parts[2] in new and parts[1] in before_migrations and parts[0].startswith("R"):
             renamed[parts[2]] = parts[1]
+    prior = {_blob(before, m): m for m in sorted(before_migrations)}
+    for m in sorted(new - set(renamed)):
+        src = prior.get(_blob(after, m))
+        if src:
+            renamed[m] = src
     new -= set(renamed)
-    rc, out, err = _git_rc("log", "--reverse", "-m", "--diff-filter=A", "--name-only", "--format=@@%H",
-                           f"{before}..{after}")
+    # --no-renames: a file RENAMED into a migration name is an addition of that migration (git would otherwise
+    # report it as R and --diff-filter=A would drop it — Codex on #304)
+    rc, out, err = _git_rc("log", "--reverse", "-m", "--no-renames", "--diff-filter=A", "--name-only",
+                           "--format=@@%H %P", f"{before}..{after}")
     if rc != 0:
         raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
-    ordered, per_commit, cur = [], {}, None
+    # CONSERVATIVE ORDERING (Codex on #296 and #304, five rounds): history is evidence of order only when it is
+    # unambiguous. Per migration, exactly ONE ordinary (non-merge) commit added it — or none did and exactly ONE
+    # merge commit did (a merge-result addition; `-m` re-lists a merged branch's additions in the merge, which
+    # never count when an ordinary commit added the path). Anything else (re-adds, competing or identical
+    # additions on several branches, several merge additions) is undetermined. Across migrations, the chosen
+    # commits must form a strict ANCESTRY CHAIN: two migrations from one commit, or from commits on parallel
+    # branches, have no knowable order — the whole plan is then undetermined and the operator orders it.
+    seen, cur, idx = {}, None, 0
     for ln in out.splitlines():
         p = ln.strip()
         if p.startswith("@@"):
-            cur = p[2:]
+            h, *parents = p[2:].split()
+            cur = (h, parents)
             continue
         if p in new:
-            per_commit.setdefault(cur, set()).add(p)
-            if p not in ordered:
-                ordered.append(p)
-    # several migrations added by ONE commit: git lists them alphabetically, which says nothing about
-    # their dependencies; the order is not determinable, so no runnable command is generated (Codex on #296)
-    together = sorted({m for ms in per_commit.values() if len(ms) > 1 for m in ms})
-    unplaced = sorted(new - set(ordered))
-    undetermined = sorted(set(together) | set(unplaced))
+            idx += 1
+            seen.setdefault(p, []).append((idx, cur[0], cur[1]))
+    chosen, ambiguous = {}, set()
+    for p, apps in seen.items():
+        # a merge commit ADDS a path only when NONE of its parents had it (a merge-result addition, e.g. a
+        # re-add in the merge); when a parent had it, `-m` is just re-listing that branch's addition (Codex on #304)
+        adds = {h for _, h, parents in apps
+                if len(parents) <= 1 or all(_blob(par, p) is None for par in parents)}
+        pick = adds
+        if len(pick) != 1:
+            ambiguous.add(p)
+            continue
+        (h,) = pick
+        chosen[p] = next(a for a in apps if a[1] == h)
+    # order by TOPOLOGICAL position (parents before children), never by log/date order
+    rc, out, err = _git_rc("rev-list", "--topo-order", "--reverse", f"{before}..{after}")
+    if rc != 0:
+        raise SystemExit(f"✗ git rev-list {before}..{after} failed ({err}) — refusing to plan migrations.")
+    topo = {h: i for i, h in enumerate(out.split())}
+    ordered = sorted(chosen, key=lambda p: (topo.get(chosen[p][1], len(topo)), p))
+    together, unchained = set(), set()
+    for a, b in zip(ordered, ordered[1:]):
+        ha, hb = chosen[a][1], chosen[b][1]
+        if ha == hb:
+            together |= {a, b}                # one commit: git lists paths alphabetically, not by dependency
+            continue
+        rc, _, err = _git_rc("merge-base", "--is-ancestor", ha, hb)
+        if rc == 1:
+            unchained |= set(ordered)         # parallel branches: traversal order is not dependency order
+        elif rc != 0:
+            raise SystemExit(f"✗ ancestry check {ha}..{hb} failed ({err or f'git exit {rc}'}) — "
+                             "refusing to plan migrations.")
+    unplaced = sorted(new - set(ordered) - ambiguous)
+    undetermined = sorted(together | unchained | ambiguous | set(unplaced))
     return {"forward": True, "run": [] if undetermined else ordered, "undetermined": undetermined,
-            "new": ordered + unplaced, "renamed": renamed,
+            "new": ordered + sorted(ambiguous) + unplaced, "renamed": renamed,
             "modified": [m for m in found if m not in new and m not in renamed] + sorted(renamed),
             "skipped": [], "unordered": unplaced}
 
@@ -239,7 +291,7 @@ def main(argv=None) -> int:
              f"placed by the history): {plan['new']} — no command generated; decide the order, then run "
              f"`sp_deploy.py --expect {target_full} --run-migrations <ordered names>` as the service user"
              if plan.get("undetermined") else "")
-          + (f"\n  ! renamed migrations (already ran under the old name; NOT runnable): {plan['renamed']}"
+          + (f"\n  ! renamed / copied migrations (already ran under the source name; NOT runnable): {plan['renamed']}"
              if plan.get("renamed") else "")
           + (f"\n  ! migrations MODIFIED in this range (not new; read before re-running): {plan['modified']}"
              if plan["modified"] else "")

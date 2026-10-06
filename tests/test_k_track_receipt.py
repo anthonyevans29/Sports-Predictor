@@ -252,3 +252,20 @@ def test_review_round_three_window_float_boundary_and_composite_no():
     assert fx["book"] == "off_book_sports" and fx["composite_no"] is True and "composite" in fx["category"]
     txt3 = "\n".join(K.format_fills(L3, LO, HI))
     assert "composite NO fill [s-no]" in txt3 and "booked off_book_sports" in txt3
+
+
+def test_cli_refuses_a_malformed_fills_or_calls_array_without_a_traceback(tmp_path):
+    """Codex post-merge on #297: {"calls": [], "fills": ["x"]} raised TypeError inside the formatter."""
+    import json
+
+    from click.testing import CliRunner
+
+    import cli
+    init_db()
+    for doc in ({"calls": [], "fills": ["x"]}, {"calls": ["x"]}, {"calls": [], "fills": {"a": 1}},
+                {"calls": [], "fills": None}):                          # an explicit null too (Codex on #304)
+        p = tmp_path / "bad.json"
+        p.write_text(json.dumps(doc))
+        r = CliRunner().invoke(cli.cli, ["k-track-receipt", "--ledger", str(p)])
+        assert r.exit_code == 2 and "must be a list of objects" in r.output and r.exception is not None
+        assert isinstance(r.exception, SystemExit)

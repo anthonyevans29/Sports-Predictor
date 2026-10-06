@@ -1780,3 +1780,335 @@ def test_review_round_five_same_commit_order_renames_and_locked_validation(sandb
     with pytest.raises(SystemExit, match="not a migrate_"):
         sp_deploy.run_migrations(["migrate_missing.py"], head)
     assert seen == ["lock"]                                               # refused INSIDE the lock
+
+
+def test_post_merge_review_copies_and_merge_commit_grouping(sandbox, monkeypatch):
+    """Codex post-merge on #296 (verified): (1) an UNCHANGED copy of an existing migration was reported by
+    `diff -M` as an addition and planned as runnable (a one-shot applied twice); (2) a branch adding two
+    migrations in ordered commits, then merged, had both re-listed by `log -m` in the merge commit's first-parent
+    diff and was marked "added together" (no runnable command). A template-derived new migration stays new."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g2"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    body = "print('a long enough one-shot migration body for copy detection')\n" * 5
+    g("init", "-q", "-b", "main")
+    (repo / "migrate_once.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_copy_of_once.py").write_text(body)                  # unchanged copy
+    (repo / "migrate_from_template.py").write_text(body + "extra = 'a real new step'\n" * 4)
+    g("add", "-A")
+    g("commit", "-q", "-m", "copy + template")                          # before the branch: one ancestry chain
+    g("checkout", "-q", "-b", "feat")
+    (repo / "migrate_b_first.py").write_text("first = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "first")
+    (repo / "migrate_a_second.py").write_text("second = 2\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "second")
+    g("checkout", "-q", "main")
+    g("merge", "-q", "--no-ff", "-m", "merge feat", "feat")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    changed = ["migrate_b_first.py", "migrate_a_second.py", "migrate_copy_of_once.py", "migrate_from_template.py"]
+    plan = sp_deploy.migration_plan(base, head, changed)
+    assert plan["renamed"] == {"migrate_copy_of_once.py": "migrate_once.py"}
+    assert "migrate_copy_of_once.py" not in plan["run"]
+    assert plan["undetermined"] == []
+    run = plan["run"]
+    assert run == ["migrate_from_template.py", "migrate_b_first.py", "migrate_a_second.py"]   # the commit chain
+
+
+def test_codex_on_304_template_copies_stay_new_and_re_adds_keep_their_grouping(sandbox, monkeypatch):
+    """Codex on #304 (verified): (1) --find-copies-harder offers unchanged NON-migration files as copy sources, so
+    a new migration identical to a shared template was suppressed as a copy; only a source that was a migration
+    at `before` counts. (2) add migrate_x, delete it, then add migrate_x + migrate_y in ONE commit: first-appearance
+    grouping dropped the re-add and planned a runnable order; the re-add counts, so the pair is undetermined."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g3"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    tmpl = "print('a shared schema template body long enough for copy detection')\n" * 5
+    g("init", "-q", "-b", "main")
+    (repo / "schema_template.py").write_text(tmpl)
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_add_widget.py").write_text(tmpl)                    # identical to a NON-migration file
+    g("add", "-A")
+    g("commit", "-q", "-m", "widget")
+    (repo / "migrate_x.py").write_text("x = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x")
+    g("rm", "-q", "migrate_x.py")
+    g("commit", "-q", "-m", "drop x")
+    (repo / "migrate_x.py").write_text("x = 2\n")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x and y together")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, head, ["migrate_add_widget.py", "migrate_x.py", "migrate_y.py"])
+    assert plan["renamed"] == {} and "migrate_add_widget.py" in plan["new"]
+    assert "migrate_x.py" in plan["undetermined"] and plan["run"] == []      # a re-add: ambiguous history
+
+
+def test_codex_on_304_round_2_content_copies_and_competing_branch_additions(sandbox, monkeypatch):
+    """Codex on #304, round 2 (verified): (1) with a byte-identical template AND migration at `before`, git may
+    name the template as the copy source, leaving an exact copy of the already-run migration runnable; copies are
+    now decided by content against every prior migration. (2) branch A adds x + y together, branch B later adds a
+    DIFFERENT x, the merge keeps A's x: B's addition is not the one the release carries, so x + y stay undetermined."""
+    import subprocess
+
+    import sp_deploy
+
+    def mk(name):
+        repo = sandbox / name
+        repo.mkdir()
+
+        def g(*a, check=True, when=None):
+            env = None
+            if when:                                # pin commit dates: log order between branches is by date
+                import os
+                env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when}
+            return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                  check=check, capture_output=True, text=True, env=env).stdout.strip()
+        g("init", "-q", "-b", "main")
+        return repo, g
+    body = "print('one-shot body, long enough for any similarity heuristics')\n" * 5
+    repo, g = mk("g4")
+    (repo / "a_template.py").write_text(body)
+    (repo / "migrate_once.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_copy.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "copy")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_copy.py"])
+    assert plan["renamed"] == {"migrate_copy.py": "migrate_once.py"} and plan["run"] == []
+
+    repo, g = mk("g5")
+    (repo / "r.txt").write_text("r")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    g("checkout", "-q", "-b", "a")
+    (repo / "migrate_x.py").write_text("x = 'A'\n")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "A: x and y together", when="2026-01-01T00:00:00Z")
+    g("checkout", "-q", "main")
+    g("checkout", "-q", "-b", "b")
+    (repo / "migrate_x.py").write_text("x = 'B'\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "B: a different x", when="2026-01-02T00:00:00Z")     # B's addition logs LATER
+    g("checkout", "-q", "a")
+    g("merge", "-q", "--no-ff", "-m", "merge b", "b", check=False)       # conflict on migrate_x.py
+    (repo / "migrate_x.py").write_text("x = 'A'\n")                      # keep A's version
+    g("add", "-A")
+    g("commit", "-q", "-m", "merge b (keep A's x)", when="2026-01-03T00:00:00Z")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert "migrate_x.py" in plan["undetermined"] and plan["run"] == []      # competing additions: ambiguous
+
+
+def test_codex_on_304_round_3_identical_additions_on_two_branches_are_undetermined(sandbox, monkeypatch):
+    """Codex on #304, round 3 (verified): branch A adds migrate_x + migrate_y together, branch B adds a
+    BYTE-IDENTICAL migrate_x later; both additions carry the released blob, and picking the later one planned
+    a runnable order. Several carrying additions = undetermined."""
+    import os
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g6"
+    repo.mkdir()
+
+    def g(*a, when=None, check=True):
+        env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when} if when else None
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=check, capture_output=True, text=True, env=env).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "r.txt").write_text("r")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base", when="2025-12-31T00:00:00Z")
+    base = g("rev-parse", "HEAD")
+    g("checkout", "-q", "-b", "a")
+    (repo / "migrate_x.py").write_text("x = 1\n")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "A", when="2026-01-01T00:00:00Z")
+    g("checkout", "-q", "main")
+    g("checkout", "-q", "-b", "b")
+    (repo / "migrate_x.py").write_text("x = 1\n")                       # byte-identical
+    g("add", "-A")
+    g("commit", "-q", "-m", "B", when="2026-01-02T00:00:00Z")
+    g("checkout", "-q", "a")
+    g("merge", "-q", "--no-ff", "-m", "merge b", "b", when="2026-01-03T00:00:00Z")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]
+
+
+def test_codex_on_304_round_4_parallel_branches_unmatched_and_merge_only_re_adds(sandbox, monkeypatch):
+    """Codex on #304, round 4 (verified): (1) migrate_x on one branch and migrate_y on a sibling branch have no
+    ancestry: traversal order is not dependency order -> undetermined; (2) competing additions of x whose released
+    version was later modified (no blob match) -> undetermined; (3) a merge-only addition deleted and re-added by
+    another merge -> undetermined. Only a strict ancestry chain of single additions is runnable."""
+    import os
+    import subprocess
+
+    import sp_deploy
+
+    def mk(name):
+        repo = sandbox / name
+        repo.mkdir()
+
+        def g(*a, when=None, check=True):
+            env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when} if when else None
+            return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                  check=check, capture_output=True, text=True, env=env).stdout.strip()
+        g("init", "-q", "-b", "main")
+        (repo / "r.txt").write_text("r")
+        g("add", "-A")
+        g("commit", "-q", "-m", "base", when="2025-12-31T00:00:00Z")
+        return repo, g, g("rev-parse", "HEAD")
+
+    def plan(repo, g, base, files):
+        monkeypatch.setattr(c, "REPO", repo)
+        return sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), files)
+
+    repo, g, base = mk("p1")                                            # (1) parallel branches
+    g("checkout", "-q", "-b", "a")
+    (repo / "migrate_x.py").write_text("x\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x", when="2026-01-01T00:00:00Z")
+    g("checkout", "-q", "main")
+    (repo / "migrate_y.py").write_text("y\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "y", when="2026-01-02T00:00:00Z")
+    g("merge", "-q", "--no-ff", "-m", "m", "a", when="2026-01-03T00:00:00Z")
+    p = plan(repo, g, base, ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and p["undetermined"] == ["migrate_x.py", "migrate_y.py"]
+
+    repo, g, base = mk("p2")                                            # (2) competing, later modified
+    g("checkout", "-q", "-b", "a")
+    (repo / "migrate_x.py").write_text("x = 'A'\n")
+    (repo / "migrate_y.py").write_text("y\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "A", when="2026-01-01T00:00:00Z")
+    (repo / "migrate_x.py").write_text("x = 'A2'\n")
+    g("commit", "-q", "-am", "A modifies x", when="2026-01-02T00:00:00Z")
+    g("checkout", "-q", "main")
+    (repo / "migrate_x.py").write_text("x = 'B'\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "B", when="2026-01-03T00:00:00Z")
+    g("merge", "-q", "--no-ff", "-m", "m", "a", when="2026-01-04T00:00:00Z", check=False)
+    (repo / "migrate_x.py").write_text("x = 'A2'\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "m (keep A2)", when="2026-01-04T00:00:00Z")
+    p = plan(repo, g, base, ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and "migrate_x.py" in p["undetermined"]
+
+    repo, g, base = mk("p3")                                            # (3) merge-only add, delete, merge re-add
+    for i, files in enumerate((["migrate_x.py"], ["migrate_x.py", "migrate_y.py"])):
+        g("checkout", "-q", "-b", f"s{i}")
+        (repo / f"side{i}.txt").write_text(str(i))
+        g("add", "-A")
+        g("commit", "-q", "-m", f"side {i}", when=f"2026-01-0{2 * i + 1}T00:00:00Z")
+        g("checkout", "-q", "main")
+        g("merge", "-q", "--no-ff", "--no-commit", f"s{i}", when=f"2026-01-0{2 * i + 2}T00:00:00Z")
+        for f in files:
+            (repo / f).write_text(f"{f} {i}\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", f"merge {i} (adds {files})", when=f"2026-01-0{2 * i + 2}T00:00:00Z")
+        if i == 0:
+            g("rm", "-q", "migrate_x.py")
+            g("commit", "-q", "-m", "drop x", when="2026-01-02T12:00:00Z")
+    p = plan(repo, g, base, ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and "migrate_x.py" in p["undetermined"]
+
+
+def test_codex_on_304_round_5_merge_re_add_after_an_ordinary_add_is_ambiguous(sandbox, monkeypatch):
+    """Codex on #304, round 5 (verified on the old code: run [x, y]): migrate_x added by an ordinary commit, deleted,
+    then re-added by a MERGE together with migrate_y. A merge adds a path when none of its parents had it, so that
+    re-add is a second addition of x: ambiguous, nothing runs."""
+    import os
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g7"
+    repo.mkdir()
+
+    def g(*a, when=None):
+        env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when} if when else None
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True, env=env).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "r.txt").write_text("r")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base", when="2026-01-01T00:00:00Z")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_x.py").write_text("x = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x", when="2026-01-02T00:00:00Z")
+    g("rm", "-q", "migrate_x.py")
+    g("commit", "-q", "-m", "drop x", when="2026-01-03T00:00:00Z")
+    g("checkout", "-q", "-b", "side")
+    (repo / "s.txt").write_text("s")
+    g("add", "-A")
+    g("commit", "-q", "-m", "side", when="2026-01-04T00:00:00Z")
+    g("checkout", "-q", "main")
+    g("merge", "-q", "--no-ff", "--no-commit", "side")
+    (repo / "migrate_x.py").write_text("x = 2\n")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "merge side, re-adding x with y", when="2026-01-05T00:00:00Z")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]
+
+
+def test_codex_on_304_round_6_a_rename_into_a_migration_name_is_an_addition(sandbox, monkeypatch):
+    """Codex on #304, round 6 (verified on the old code: run [x, y]): migrate_x added, deleted, then a non-migration
+    file RENAMED to migrate_x.py in the commit that adds migrate_y.py. With rename detection the log dropped that
+    re-addition; with --no-renames it is a second addition of x: ambiguous, nothing runs."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g8"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "notes_x.py").write_text("print('a staged body long enough for rename detection to pair it')\n" * 5)
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_x.py").write_text("x = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x")
+    g("rm", "-q", "migrate_x.py")
+    g("commit", "-q", "-m", "drop x")
+    g("mv", "notes_x.py", "migrate_x.py")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "rename notes into x, add y")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]

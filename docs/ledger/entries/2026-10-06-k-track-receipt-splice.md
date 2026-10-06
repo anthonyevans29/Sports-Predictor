@@ -1,0 +1,12 @@
+**2026-10-06 — K-track receipt spliced into docs/receipts/ (#87 ruling evidence on file); Sunday's four PLAYs re-scored: 0/4 halved.**
+- **State sync (ARCHITECT, verbatim):** "desk-rescore run (0/4 halved); K-track receipt re-run (system_matched 3, UNKNOWN 1 = the GB side error, 3 composite NO fills off-book) and PUSHED on laptop/k-track-receipt — splice into docs/receipts/; migrate_prediction_history run on the laptop (0 rows, as expected). #305's conservative design is right — merge when Codex clears 2e53038; after that the migration-plan lane is closed unless a real deploy hits a case."
+- **Splice:** `docs/receipts/k-track-2026-10-06.md` comes from `laptop/k-track-receipt` (687b0f1, the operator's commit, kept as is). That is ruling (g) on #303: "the receipt file is committed from the laptop". The #303 ledger entry's "effect receipt is pending" is closed by this entry.
+- **Receipt checked against the ruling's quoted figures (read, not assumed):**
+  - Venue gaps fee-clear vs book: NFL taker 0/29, NHL 0/32, NCAA 2/18, UNL 0/17. All match the ruling's text.
+  - NFL model-vs-cost: 47 of 65 not evaluable for lack of prediction history. Matches. That is the prediction_history lane (#300 / #301).
+  - Fills: `system_matched 3` (Houston, Seattle, Jacksonville, all taker). This is the post-#299 count.
+  - The three composite NO fills (AVL, CFC, MUN three-way NO legs) are booked off_book_sports.
+  - Reconciliation: 13 eligible calls, 3 MATCHED, 9 UNAVAILABLE, and 1 UNKNOWN. The UNKNOWN is GB @ TB, pick HOME, `claim_exec_cost 0.417`, with no matched fill. The Green Bay YES fill disagrees with the pick's side: the architect text error of 10-04, recorded on #87.
+- **Effect receipt (rule 3):** `desk-rescore` on Sunday's four PLAYs: 0/4 would have been halved (architect state sync above). The console itself is not in the receipt file.
+- **prediction_history:** `migrate_prediction_history.py` ran on the laptop and created the table with 0 rows, as expected. The host runs it via the `sp_deploy` migration command at the next tag.
+- **Observation (no change, not a finding against the rule):** the ruling's "1c spreads 85–99%" matches MLB 97%, NFL 99%, NHL 85% and UNL 96%. In the same receipt, NCAA is 82% and PL is 72%; PL has 6 ladders.

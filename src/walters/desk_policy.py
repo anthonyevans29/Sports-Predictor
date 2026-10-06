@@ -46,6 +46,10 @@ VENUE = {"minBooks": 4, "minDivPP": 5.0, "units": 0.25, "staleGapPP": 8.0,
          "maxBookAgeH": 3}       # #91 RULED 2026-10-02: an older book capture is NO reference
 VALUE = {"units": 0.25, "reviewN": 30}
 K2 = {"feeClearsPP": 4, "tick": 0.01}
+# ARCHITECT 2026-10-06: an exact 4.00pp exec edge CLEARS. Binary-float subtraction can land a hair
+# below ((0.35 - 0.31) * 100 = 3.9999999999999982), so the comparison allows this tolerance
+# (the same one k-track-receipt uses; the Cockpit's marker carries it too).
+FEE_CLEAR_EPS = 1e-9
 PASSCLASS = {"minBooks": 3, "rerunMin": 60}
 POSTSEASON = {"reviewN": 30}
 KALSHI_ONLY = {"maxSpreadC": 2, "sizeMult": 0.5, "reviewN": 30,
@@ -353,7 +357,7 @@ def exec_block(r, side, model_p):
     return {"edge_pp": e, "cost": dc["cost"] if dc else None, "basis": dc["basis"] if dc else None,
             "taker_cost": exec_cost_for(r, side), "join_price": (jb or {}).get("price"),
             "join_note": (jb or {}).get("note"), "no_side": bool((k_side(r, side) or {}).get("no")),
-            "fee_clears": e is not None and e >= K2["feeClearsPP"]}
+            "fee_clears": e is not None and e >= K2["feeClearsPP"] - FEE_CLEAR_EPS}
 
 
 # ------------------------------------------------------------- value side --

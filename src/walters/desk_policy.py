@@ -61,6 +61,12 @@ FEE_CLEAR_EPS = 1e-9
 # with the addendum OFF (`base_v11()`), proving every other v1.1 behaviour unchanged; the addendum has its
 # own tests (tests/test_desk_exec_addendum.py).
 EXEC_RULES = {"on": True}
+# STARTED (ARCHITECT 2026-10-06, #313): "a started game is never a new call" (#49 (b)) is enforced IN THE FILE. A
+# model-sport row whose kickoff is at or before desk as_of is PASS / started: units 0, no order, no value shadow,
+# never a parlay leg. The pre-kickoff file and the ledger stay the record of the call. An unknown kickoff is
+# unchanged (never guessed). Its own switch: the frozen golden (pre-F1c) predates it and runs with it off.
+STARTED_RULE = {"on": True}
+STARTED_REASON = "started - never a new call"
 PARLAY_LABEL = "independence estimate: Π of single-game prices (legs assumed uncorrelated)"
 PASSCLASS = {"minBooks": 3, "rerunMin": 60}
 POSTSEASON = {"reviewN": 30}
@@ -363,12 +369,29 @@ def k_side(r, side):
 @contextmanager
 def base_v11():
     """The Desk WITHOUT the #87 addendum: the frozen pre-F1c golden's policy (the parity battery only)."""
-    was = EXEC_RULES["on"]
-    EXEC_RULES["on"] = False
+    was, was_started = EXEC_RULES["on"], STARTED_RULE["on"]
+    EXEC_RULES["on"] = STARTED_RULE["on"] = False
     try:
         yield
     finally:
-        EXEC_RULES["on"] = was
+        EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
+
+
+@contextmanager
+def started_rule_off():
+    """The Desk without the started-game rule (#313) — for comparing a file with and without it."""
+    was = STARTED_RULE["on"]
+    STARTED_RULE["on"] = False
+    try:
+        yield
+    finally:
+        STARTED_RULE["on"] = was
+
+
+def has_started(r, now_ms: float) -> bool:
+    """Kickoff at or before as_of. An unknown kickoff is NOT started (never guessed)."""
+    t = utc_ms(r["utc"])
+    return t == t and now_ms >= t
 
 
 def side_quotes(r, side):
@@ -593,6 +616,10 @@ def kalshi_only_ref(r, now_ms: float) -> dict:
 
 def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
     """The Cockpit's policy() body for ONE model-sport row."""
+    if STARTED_RULE["on"] and has_started(r, now_ms):
+        return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": ["started"],
+                "reasons": [STARTED_REASON], "execUnits": None, "shadowUnits": 0, "passKind": "started",
+                "mktRef": r["mkt"], "kalOnly": False}
     base = BASE_UNITS
     ps_half = postseason_graded < POSTSEASON["reviewN"]
     P = POLICY.get(r["sport"]) or POLICY["DEFAULT"]
@@ -912,8 +939,9 @@ def evaluate(doc: dict, now_ms: float, counts: dict | None = None) -> dict:
     calls, values, venue = [], [], []
     for r in rows:
         if not r["marketOnly"]:
-            calls.append((r, desk_call(r, now_ms, counts["postseason_graded"])))
-            v = value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"])
+            c = desk_call(r, now_ms, counts["postseason_graded"])
+            calls.append((r, c))
+            v = None if c["passKind"] == "started" else value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"])
             if v:
                 values.append((r, v))
     for r in rows:
@@ -1066,7 +1094,8 @@ def desk_block(r, c, v, ven) -> dict:
            "reference": ("kalshi_only" if c["kalOnly"] else "books") if c["mktRef"] is not None else None,
            "edge_pp": _num(c["edge"]), "pass_kind": c["passKind"], "tags": c["tags"],
            "reasons": c["reasons"], "reason": " · ".join(c["reasons"]),
-           "shadow_units": c["shadowUnits"], "exec": (None if EXEC_RULES["on"] and c["call"] == "LADDER" else   # a LADDER buys NO on HOME, not the
+           "shadow_units": c["shadowUnits"], "exec": (None if (EXEC_RULES["on"] and c["call"] == "LADDER")
+                                                      or c["passKind"] == "started" else   # a LADDER buys NO on HOME, not the
                     exec_block(r, r["pick"], r["prob"],                           # pick's leg: no pick-leg exec
                                c.get("execUnits") or (c["shadowUnits"] or None),    # a quarantine shadow is
                                c["units"] if c.get("execUnits") and c["units"] else None)),  # priced at its size
@@ -1122,6 +1151,7 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "as_of": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "counts": ev["counts"], "counts_source": counts_source,
                         "exec_addendum": EXEC_RULES["on"],    # #87 v1.1 (2026-10-06): TAKE cost sizes PLAYs
+                        "started_rule": STARTED_RULE["on"],   # #313: a started game is never a new call
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
     return doc
 

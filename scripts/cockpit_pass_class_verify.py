@@ -10,6 +10,7 @@ presentation only). Checks, over SYNTHETIC files:
 - quarantine / pre-gate PASSes keep their own reason, no class tag;
 - the summary splits the passes;
 - calls and units are identical to the pre-split policy;
+- #313: a started game reads PASS · "started", greyed, counted in the summary;
 - venue table: "single venue — no pair" and "books < 4" are "no reference"
   (greyed + hint), "max divergence < 5pp" is "below floor", UNL is neither.
 
@@ -81,12 +82,18 @@ NCAA = {"competition_code": "NCAA", "fixtures": [
     fixture("Texas", "Oklahoma", 6, (0.60, 0.40), (0.58, 0.42)),     # 2pp < 5pp -> below floor
     fixture("Ohio State", "Michigan", 6, (0.60, 0.40), (0.52, 0.48)),  # 8pp -> VENUE
 ]}
+# #313 (2026-10-06): a started game is never a new call -- a 6pp edge that kicked off an hour ago.
+STARTED = (KICK - timedelta(days=1, hours=1)).strftime("%Y-%m-%dT%H:%M:%S")
+NFL_STARTED = {"sport": "nfl", "rehearsal": False, "predictions": [
+    nfl("Pittsburgh Steelers", "Baltimore Ravens", 0.64, 0.58, books=7, when=STARTED),  # started -> PASS · started
+    nfl("Seattle Seahawks", "Los Angeles Rams", 0.64, 0.58, books=7),                    # ahead -> PLAY, unchanged
+]}
 UNL = {"competition_code": "UNL", "fixtures": [fixture("Spain", "Italy", 5, (0.5, 0.5), None)]}
 
 
 def main():
     tmp = tempfile.mkdtemp(prefix="cockpit-pass-")
-    for n, d in {"nfl.json": NFL, "fixtures_NCAA.json": NCAA, "fixtures_UNL.json": UNL}.items():
+    for n, d in {"nfl.json": NFL, "nfl_started.json": NFL_STARTED, "fixtures_NCAA.json": NCAA, "fixtures_UNL.json": UNL}.items():
         with open(os.path.join(tmp, n), "w") as f:
             json.dump(d, f)
 
@@ -103,9 +110,9 @@ def main():
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{srv.server_address[1]}/cockpit.html")
 
-        def load(*names):
+        def load(*names, base=True):
             page.evaluate("document.getElementById('summary').textContent=''")
-            cdf.upload(page, [os.path.join(tmp, n) for n in names])
+            cdf.upload(page, [os.path.join(tmp, n) for n in names], base=base)
             page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
             page.click("#tabDesk")
 
@@ -152,6 +159,19 @@ def main():
         hint = page.evaluate("rerunHint({utc:new Date(Date.now()+2*3600e3).toISOString()})")
         exp = page.evaluate("(()=>{const a=new Date(Date.now()+3600e3);return String(a.getHours()).padStart(2,'0')})()")
         check("the hint's clock is kickoff − 60 min, local", f"re-run at T-60 ({exp}:" in hint, hint)
+
+        print("STARTED (#313, rule on)")
+        page.reload()
+        load("nfl_started.json", base=False)
+        rs = rows("slate")
+        pit = row(rs, "Pittsburgh")
+        check("started game with a clearing edge: PASS · 'started', greyed, reason from the file",
+              pit["noref"] and pit["cells"][5] == "PASSstarted" and "started - never a new call" in pit["cells"][7],
+              json.dumps(pit))
+        sea = row(rs, "Seattle")
+        check("game still ahead: PLAY, no tag", sea["cells"][5] == "PLAY" and not sea["noref"], json.dumps(sea))
+        summ = page.inner_text("#summary")
+        check("summary counts the started pass", "1 pass (0 no reference · 0 below floor · 1 started)" in summ, summ)
 
         print("VENUE TABLE")
         load("fixtures_NCAA.json", "fixtures_UNL.json")

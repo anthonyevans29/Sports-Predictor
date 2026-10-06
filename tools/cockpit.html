@@ -518,7 +518,8 @@ let deskCalls=[], deskParlays=[], deskVenue=[], deskValue=[];
 const PASSCLASS={rerunMin:60};   // the T-60 "re-run by" hint (presentation only)
 function passKindTag(k){
   return k==="noref"?'<span class="passkind">no reference</span>'
-    :k==="floor"?'<span class="passkind">below floor</span>':"";
+    :k==="floor"?'<span class="passkind">below floor</span>'
+    :k==="started"?'<span class="passkind">started</span>':"";
 }
 function rerunHint(r){
   const t=utcMs(r.utc); if(!isFinite(t)||t<=Date.now()) return "";
@@ -595,7 +596,7 @@ function fileVenue(r){ const v=r.fileDesk.venue||{};
 
 function policy(){
   renderProgress();
-  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0;
+  let plays=0,ladders=0,passes=0,passNoRef=0,passFloor=0,passStarted=0;
   const tb=$("slate").querySelector("tbody"); tb.innerHTML="";
   deskCalls=[]; deskValue=[];
   for(const r of rows){
@@ -604,10 +605,10 @@ function policy(){
     const {call,cls,units,edge,tags,reasons,shadowUnits,passKind,mktRef,kalOnly}=fileCall(r);
     deskCalls.push({r,call,units,edge,tags:tags.slice(),reasons:reasons.slice(),cls,shadowUnits,passKind,mktRef,kalOnly});
     const vs=fileValue(r); if(vs) deskValue.push({r,v:vs});
-    if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++;}
+    if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++; else if(passKind==="started")passStarted++;}
     else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
-    if(passKind==="noref") tr.className="noref";
+    if(passKind==="noref"||passKind==="started") tr.className="noref";
     tr.innerHTML=`<td data-game="${esc(r.game)}">${esc(r.game)}${koLine(r)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
       <td>${r.prob.toFixed(3)}</td><td>${mktRef!=null?mktRef.toFixed(3)+(kalOnly?' <span class="passkind">kalshi-only</span>':""):"—"}</td>
       <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execHTMLFrom(r.fileDesk.exec,r.prob)}</td>
@@ -634,7 +635,7 @@ function policy(){
     }});
   const corr=Object.entries(teamCount).filter(([t,n])=>n>1).map(([t,n])=>`${t}×${n}`);
   $("summary").textContent=`${sportLabel} · ${rows.length} rows → ${plays} play · ${ladders} ladder · ${passes} pass`
-    +(passes?` (${passNoRef} no reference · ${passFloor} below floor${passes-passNoRef-passFloor?` · ${passes-passNoRef-passFloor} other`:""})`:"")
+    +(passes?` (${passNoRef} no reference · ${passFloor} below floor${passStarted?` · ${passStarted} started`:""}${passes-passNoRef-passFloor-passStarted?` · ${passes-passNoRef-passFloor-passStarted} other`:""})`:"")
     +(deskValue.length?` · ${deskValue.length} value shadow (not staked)`:"")
     +(corr.length?` · ⚠ correlated exposure: ${corr.join(", ")}`:"")
     +deskSourceNote();

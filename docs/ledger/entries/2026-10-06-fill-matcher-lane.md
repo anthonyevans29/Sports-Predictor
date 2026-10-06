@@ -2,7 +2,7 @@
 - **Ruling (verbatim):** "YES — fill matcher as its own lane: event-ticker start time for doubleheaders; three-way NO = composite (two outcomes), never a single-side straight; Cockpit and port together, parity preserved."
 - **Built (Cockpit `tools/cockpit.html` and port `src/walters/ledger_fills.py`):**
   - `parseTicker` carries `start`: the ticker's HHMM, read as US Eastern time per the verified `ticker_start` (M13), converted to UTC with DST. `matchFill` keeps candidates within 3h of it, nearest first, so a doubleheader's game-2 fill no longer lands on game 1.
-  - `resolveSide` returns COMPOSITE for a NO on a three-way family's HOME/AWAY leg. `matchFill` books it off-book and never as a straight.
+  - `resolveSide` returns COMPOSITE for a NO on a three-way family's HOME/AWAY leg. `matchFill` never books it as a straight: off-book where a call exists; a UNL single with no call stays in the fun book (ruled 2026-09-30).
   - The Cockpit re-parses every stored ticker on classification.
 - **Receipts:**
   - Parity with the Cockpit's own JS: 30/30, with new doubleheader and composite cases.

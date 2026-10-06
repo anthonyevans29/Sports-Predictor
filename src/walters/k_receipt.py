@@ -368,6 +368,7 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
     in_window = {r["call_id"] for r in rec["rows"]}          # the same cohort as the reconciliation (Codex on #297)
     outside = [p for p in ex["pos"] if p["c"].get("id") not in in_window]
     ex["pos"] = [p for p in ex["pos"] if p["c"].get("id") in in_window]
+    ex["unpriced"] = sum(1 for i in ex.get("unpriced_ids", []) if i in in_window)   # same window (Codex on #299)
     lg = rec["ledger"]
     out = [f"FILLS · ledger export: {lg['fills']} fills · books " +
            " · ".join(f"{k} {v}" for k, v in rec["books"].items()),

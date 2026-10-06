@@ -1699,8 +1699,10 @@ function tokOverlap(a,b){const A=new Set(normTeam(a).split(" ").filter(Boolean))
 function sameTeam(a,b){ if(!a||!b) return false; if(a==="Draw"||b==="Draw") return a===b;
   return tokOverlap(a,b)>0; }
 function gameFits(fx,g){
-  if(fx.teams_title&&fx.teams_title.every(t=>sameTeam(t,g.home)||sameTeam(t,g.away))) return true;
-  return !!fx.teams&&codesFit(fx.teams,g);
+  // The ticker's team codes ({AWAY}{HOME}) decide when present: a title fit alone let one shared word
+  // ("United", "City") stand for team identity (fill matcher lane, Codex on #299). Title only without codes.
+  if(fx.teams) return codesFit(fx.teams,g);
+  return !!fx.teams_title&&fx.teams_title.every(t=>sameTeam(t,g.home)||sameTeam(t,g.away));
 }
 function backedIn(fx,g){                            // the fill's backed side, named in this game
   if(fx.backed_role==="HOME") return g.home;

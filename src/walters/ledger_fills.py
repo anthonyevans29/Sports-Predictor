@@ -200,10 +200,12 @@ def _codes_fit(T: str, c: dict) -> bool:
 
 
 def game_fits(fx: dict, g: dict) -> bool:
+    """gameFits: the ticker's team codes decide when present (a one-word title overlap such as "United" is
+    not team identity, Codex on #299); the title is used only when the ticker carries no codes."""
+    if fx.get("teams"):
+        return _codes_fit(fx["teams"], g)
     tt = fx.get("teams_title")
-    if tt and all(same_team(t, g.get("home")) or same_team(t, g.get("away")) for t in tt):
-        return True
-    return bool(fx.get("teams")) and _codes_fit(fx["teams"], g)
+    return bool(tt) and all(same_team(t, g.get("home")) or same_team(t, g.get("away")) for t in tt)
 
 
 def _backed_in(fx: dict, g: dict):
@@ -380,4 +382,5 @@ def executed_positions(L: dict, fills: list[dict] | None = None) -> dict:
             "clv": a["clv"] / a["qty"], "fee_adj": (a["clv"] - a["fee"]) / a["qty"] if a["feeOk"] else None,
             "fee_status": "open_fee" if a["feeOk"] else "combined_only" if a["combined"] else "missing",
             "fills": a["fills"]} for a in by.values()]
-    return {"pos": pos, "unpriced": len([i for i in unpriced if i not in by])}
+    ids = [i for i in unpriced if i not in by]
+    return {"pos": pos, "unpriced": len(ids), "unpriced_ids": ids}

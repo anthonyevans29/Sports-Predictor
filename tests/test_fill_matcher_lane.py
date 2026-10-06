@@ -44,3 +44,26 @@ def test_three_way_no_is_composite_never_a_straight():
                "fills": [_fill("m", "KXNFLGAME-26SEP28BUFKC-BUF", "no", "Buffalo wins — Kansas City")]}
     (f,) = P.classify_fills(two_way)                        # a two-way NO still means the opposite team
     assert f["book"] == "system_matched" and f["call_id"] == "k" and not f["composite"]
+
+
+def test_ticker_codes_decide_team_identity_not_one_shared_word():
+    """Codex on #299 (P1, verified): 'Manchester United' and 'Newcastle United' share 'united', so a title fit
+    let a fill on one game match a different call. With ticker codes present, the codes decide."""
+    L = {"calls": [_call("other", "Newcastle United", "West Ham United", "HOME", "2026-09-27T14:00:00", "SOCCER"),
+                   _call("right", "Manchester United", "Leeds United", "HOME", "2026-09-27T14:00:00", "SOCCER")],
+         "fills": [_fill("u", "KXEPLGAME-26SEP27LEEMUN-MUN", "yes", "Manchester United wins — Leeds United")]}
+    (f,) = P.classify_fills(L)
+    assert f["book"] == "system_matched" and f["call_id"] == "right" and not f.get("ambiguous_calls")
+
+
+def test_unpriced_count_is_scoped_to_the_window():
+    """Codex on #299 (P2, verified): an out-of-window matched call whose held contract cannot be priced was
+    counted in the windowed receipt's unpriced line."""
+    from datetime import datetime
+
+    from src.walters import k_receipt as K
+    call = dict(_call("c", "Kansas City Chiefs", "Buffalo Bills", "HOME", "2095-11-02T17:00:00", "NFL"),
+                status="graded", close_ref={"fair": {}})                  # no fair: not priceable
+    fill = dict(_fill("f", "KXNFLGAME-95NOV02BUFKC-KC", "yes", "Kansas City wins — Buffalo"), qty=2, entry=0.5)
+    txt = "\n".join(K.format_fills({"calls": [call], "fills": [fill]}, datetime(2095, 9, 23), datetime(2095, 10, 8)))
+    assert "not priceable" not in txt

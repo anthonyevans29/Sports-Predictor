@@ -25,6 +25,7 @@ FAMILY_SPORTS = {"MLB": ["MLB"], "NFL": ["NFL"], "NCAAF": ["NCAA"], "NHL": ["NHL
 MONTHS = {m: i + 1 for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
                                           "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"))}
 FUN_SPORTS = {"NHL", "UNL"}
+THREE_WAY_FAMILIES = {"EPL", "UCL", "FACUP", "UEFANL"}     # soccer 1X2: HOME / TIE / AWAY
 FEE_M_BY_FAMILY = {"NFL": (1, 1), "NHL": (1, 1), "NCAAF": (1, 1), "EPL": (1, 1), "UCL": (1, 1),
                    "MLB": (0.5, 0.5)}
 _STOP = {"fc", "afc", "cf", "sc", "the", "club"}
@@ -268,6 +269,12 @@ def classify_fills(L: dict) -> list[dict]:
         fx = {**f, **parse_ticker(f.get("ticker"))}
         if fx["kind"] == "sport":
             fx.update(side_fields(fx, fx.get("title"), fx.get("side")))
+            # A NO on a three-way family's HOME/AWAY leg is TWO outcomes (NO on HOME = DRAW or AWAY). The
+            # Cockpit flips it to the single opposite side; the port keeps that for parity but flags it, so a
+            # composite contract is never silently read as an opposite-side straight (Codex on #297).
+            if str(fx.get("side") or "").lower().startswith("n") and fx.get("family") in THREE_WAY_FAMILIES \
+                    and fx.get("no_on_role") in ("HOME", "AWAY"):
+                fx["composite_no"] = True
         cls = {"book": "fun", "category": fx.get("category")} if fx["kind"] == "parlay" else \
             match_fill(fx, calls, picks)
         combo = fx["kind"] == "parlay"

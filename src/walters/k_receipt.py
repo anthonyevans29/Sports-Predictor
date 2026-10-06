@@ -35,6 +35,13 @@ MODEL_LIVE = ("MLB", "NFL", "PL")
 LEG_ORDER = ("HOME", "DRAW", "AWAY")
 
 
+CLEAR_EPS = 1e-9     # an exact 4.00pp edge must clear; binary-float subtraction can land a hair below
+
+
+def _clears(edge_pp: float, floor: float) -> bool:
+    return edge_pp >= floor - CLEAR_EPS
+
+
 def leg_two_sided(bid, ask) -> bool:
     return bid is not None and ask is not None and 0 < bid <= ask < 1
 
@@ -120,7 +127,7 @@ def ladder_row(comp: str, t: datetime, legs: dict, book, preds) -> dict:
             row["fee_clear"]["model"] = {
                 "leg": pick, "p": mp[pick],
                 **{b: (None if lg[pick][b] is None else {"edge_pp": (mp[pick] - lg[pick][b]) * 100,
-                                                         "clears": (mp[pick] - lg[pick][b]) * 100 >= clear})
+                                                         "clears": _clears((mp[pick] - lg[pick][b]) * 100, clear)})
                    for b in ("taker", "maker")}}
     # book basis: the venue engine's reference, best leg per cost basis
     fair, why = _book_ref(book, t, sels)
@@ -134,7 +141,7 @@ def ladder_row(comp: str, t: datetime, legs: dict, book, preds) -> dict:
                 bb[b] = None
                 continue
             k, e = max(cands, key=lambda kv: kv[1])
-            bb[b] = {"leg": k, "edge_pp": e, "clears": e >= clear}
+            bb[b] = {"leg": k, "edge_pp": e, "clears": _clears(e, clear)}
         row["fee_clear"]["book"] = bb
     return row
 
@@ -312,7 +319,8 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                  "fills": [{"fill_id": f.get("id"), "ticker": f.get("ticker"), "side": f.get("side"),
                             "qty": f.get("qty"), "entry": f.get("entry"), "open_fee": f.get("open_fee"),
                             "fee_class_open": f.get("fee_class_open"),
-                            "ambiguous_calls": f.get("ambiguous_calls")} for f in fs],
+                            "ambiguous_calls": f.get("ambiguous_calls"),
+                            "composite_no": f.get("composite_no")} for f in fs],
                  "why": "system_matched fill(s); no order id exists in the Kalshi CSV"}
         elif qk is None:
             d = {"disposition": "UNAVAILABLE",
@@ -347,6 +355,8 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                                        for k in ("maker", "taker", "taker_live", "ambiguous", "unknown", "n/a")}},
             "ambiguous": [{"fill_id": f.get("id"), "ticker": f.get("ticker"), "attributed_to": f.get("call_id"),
                            "candidates": f["ambiguous_calls"]} for f in matched_fills if f.get("ambiguous_calls")],
+            "composite_no": [{"fill_id": f.get("id"), "ticker": f.get("ticker"), "attributed_to": f.get("call_id")}
+                             for f in matched_fills if f.get("composite_no")],
             "books": {b: sum(1 for f in fills if f.get("book") == b)
                       for b in ("system_matched", "system_pick_unlogged", "off_book_sports", "fun")}}
 
@@ -355,6 +365,9 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
     from src.walters.ledger_fills import executed_positions
     rec = reconcile(L, since, until)
     ex = executed_positions(L)
+    in_window = {r["call_id"] for r in rec["rows"]}          # the same cohort as the reconciliation (Codex on #297)
+    outside = [p for p in ex["pos"] if p["c"].get("id") not in in_window]
+    ex["pos"] = [p for p in ex["pos"] if p["c"].get("id") in in_window]
     lg = rec["ledger"]
     out = [f"FILLS · ledger export: {lg['fills']} fills · books " +
            " · ".join(f"{k} {v}" for k, v in rec["books"].items()),
@@ -365,6 +378,9 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
            *[f"  ! AMBIGUOUS fill [{a['fill_id']}] {a['ticker']}: {len(a['candidates'])} calls fit "
              f"({', '.join(map(str, a['candidates']))}); attributed to {a['attributed_to']} as the Cockpit does — "
              "check by hand (e.g. a doubleheader)" for a in rec["ambiguous"]],
+           *[f"  ! COMPOSITE NO fill [{a['fill_id']}] {a['ticker']}: NO on a three-way leg is two outcomes; "
+             f"attributed to {a['attributed_to']} as the Cockpit does — not a straight on one side, check by hand"
+             for a in rec["composite_no"]],
            "EXECUTED-POSITION CLV (the Cockpit's executedPositions: held contract's closing fair − fill entry)"]
     pos = sorted(ex["pos"], key=lambda p: (p["day"] or "", str(p["c"].get("id"))))
     for p in pos:
@@ -380,6 +396,8 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
                    + " · execution evidence, not evidence of edge (#75)")
     else:
         out.append("  no executed positions (no graded system_matched fill with a close)")
+    if outside:
+        out.append(f"  {len(outside)} executed position(s) outside the window, excluded from the CLV above")
     if ex["unpriced"]:
         out.append(f"  {ex['unpriced']} matched call(s) whose held contract is not priceable at the close")
     t = rec["tally"]
@@ -395,5 +413,6 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
         for f in r.get("fills") or []:
             out.append(f"      fill [{f['fill_id']}] {f['ticker']} {f['side']} qty {f['qty']} @ {f['entry']} · open fee "
                        f"{f['open_fee']} ({f['fee_class_open'] or 'n/a'})"
-                       + (" · AMBIGUOUS attribution" if f.get("ambiguous_calls") else ""))
+                       + (" · AMBIGUOUS attribution" if f.get("ambiguous_calls") else "")
+                       + (" · COMPOSITE NO (two outcomes)" if f.get("composite_no") else ""))
     return out

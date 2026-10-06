@@ -215,3 +215,39 @@ def test_review_round_two_cost_coverage_and_ambiguous_attribution():
                                   "candidates": ["c1", "c1b"]}]
     txt = "\n".join(K.format_fills(L2, LO, HI))
     assert "! AMBIGUOUS fill [f1]" in txt and "AMBIGUOUS attribution" in txt
+
+
+def test_review_round_three_window_float_boundary_and_composite_no():
+    """Codex on #297, round 3 (verified): (1) executed-position CLV is restricted to the window's calls, the same
+    cohort as the reconciliation; (2) an exact 4.00pp edge clears despite binary-float drift; (3) a NO on a
+    three-way family's HOME/AWAY leg is two outcomes: kept for Cockpit parity but flagged COMPOSITE NO."""
+    from types import SimpleNamespace as NS
+    L = _ledger()
+    out_call = dict(L["calls"][0], id="c9", kickoff="2095-11-02T17:00:00", log_date="2095-11-01")
+    L["calls"].append(out_call)
+    L["fills"].append(dict(L["fills"][0], id="f9", ticker="KXNFLGAME-95NOV02BUFKC-KC"))
+    txt = "\n".join(K.format_fills(L, LO, HI))
+    assert "1 executed position(s) outside the window, excluded" in txt and "mean entry CLV +4.00pp (n 1)" in txt
+    t = datetime(2095, 9, 25, 12)
+    pred = [NS(computed_at=t - timedelta(hours=1), home_win_prob=0.35, away_win_prob=0.34, draw_prob=None)]
+    legs = {"HOME": NS(yes_bid=0.58, yes_ask=0.60), "AWAY": NS(yes_bid=0.38, yes_ask=0.40)}
+    import src.walters.k_receipt as KR
+    orig = KR.leg_costs
+    try:
+        KR.leg_costs = lambda bid, ask, comp: {"taker": 0.31, "maker": None}
+        r = K.ladder_row("NFL", t, legs, [], pred)
+        e = r["fee_clear"]["model"]["taker"]["edge_pp"]                    # (0.35 - 0.31) * 100 = 3.9999999999999982
+        assert e < 4.0 and abs(e - 4.0) < 1e-9 and r["fee_clear"]["model"]["taker"]["clears"] is True
+    finally:
+        KR.leg_costs = orig
+    L3 = _ledger()
+    L3["calls"].append({"id": "s1", "log_date": "2095-09-27", "sport": "PL", "game": "Chelsea @ Arsenal",
+                        "home": "Arsenal", "away": "Chelsea", "kickoff": "2095-09-27T14:00:00", "status": "open",
+                        "pick": "AWAY", "tier": "lean", "engine": "model_edge", "call_type": "straight", "units": 1})
+    L3["fills"].append({"id": "s-no", "ticker": "KXEPLGAME-95SEP27CHEARS-ARS", "side": "no", "qty": 5, "entry": 0.4,
+                        "exit": 1.0, "staked": 2.0, "fees": 0.07, "open_fee": 0.07, "close_fee": 0, "pnl_pre": 3.0,
+                        "pnl_net": 2.93, "title": "Arsenal wins — Chelsea"})
+    fx = next(f for f in P.classify_fills(L3) if f["id"] == "s-no")
+    assert fx["book"] == "system_matched" and fx["composite_no"] is True       # parity kept, flagged
+    txt3 = "\n".join(K.format_fills(L3, LO, HI))
+    assert "! COMPOSITE NO fill [s-no]" in txt3 and "COMPOSITE NO (two outcomes)" in txt3

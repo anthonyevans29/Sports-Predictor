@@ -12,3 +12,7 @@
 - Review fixes (Codex on #297, round 2):
   - The funnel's "cost recorded" reads the recorded-cost fields for every call, MATCHED included.
   - A fill that more than one real call fits (an MLB doubleheader: same teams, same day) keeps the Cockpit's attribution for parity, but is flagged and listed as AMBIGUOUS, never silent. Fixing the matcher itself means using the ticker's start time in the Cockpit and the port together.
+- Review fixes (Codex on #297, round 3):
+  - Executed-position CLV is restricted to the window's calls, the same cohort as the reconciliation. Positions outside it are counted and excluded.
+  - An exact 4.00pp edge clears despite binary-float drift (1e-9 tolerance; `desk_policy`'s fee-clear has the same comparison and is raised separately).
+  - A NO on a three-way family's HOME/AWAY leg (two outcomes) keeps the Cockpit's attribution for parity but is flagged COMPOSITE NO and listed.

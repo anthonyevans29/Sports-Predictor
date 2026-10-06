@@ -218,8 +218,14 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
     real = [c for c in agree if c.get("call_type") != "quarantine_shadow" and (c.get("units") or 0) > 0]
     if real:
         c = real[0]
-        return {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')}",
-                "engine": c.get("engine"), "tier": c.get("tier"), "call_id": c.get("id")}
+        out = {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')}",
+               "engine": c.get("engine"), "tier": c.get("tier"), "call_id": c.get("id")}
+        # PARITY: the Cockpit takes the first agreeing call, so the receipt does too (its numbers must
+        # match the Cockpit's). When MORE THAN ONE real call fits (e.g. an MLB doubleheader, same teams
+        # and day), the attribution is ambiguous: flagged and listed, never silent (Codex on #297).
+        if len(real) > 1:
+            out["ambiguous_calls"] = [x.get("id") for x in real]
+        return out
     if agree:
         return {"book": "off_book_sports", "category": "matches a quarantine SHADOW (off-policy play)",
                 "plausible": True}

@@ -311,7 +311,8 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
             d = {"disposition": "MATCHED",
                  "fills": [{"fill_id": f.get("id"), "ticker": f.get("ticker"), "side": f.get("side"),
                             "qty": f.get("qty"), "entry": f.get("entry"), "open_fee": f.get("open_fee"),
-                            "fee_class_open": f.get("fee_class_open")} for f in fs],
+                            "fee_class_open": f.get("fee_class_open"),
+                            "ambiguous_calls": f.get("ambiguous_calls")} for f in fs],
                  "why": "system_matched fill(s); no order id exists in the Kalshi CSV"}
         elif qk is None:
             d = {"disposition": "UNAVAILABLE",
@@ -322,6 +323,7 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                         "order records, so attempted-unfilled vs unattempted is not knowable"
                         + (" (a manual fill_price is recorded on the call)" if c.get("fill_price") is not None
                            else "")}
+        d["cost_recorded"] = qk is not None          # independent of the disposition (Codex on #297)
         rows.append({"call_id": c.get("id"), "sport": c.get("sport"), "game": c.get("game"),
                      "day": _call_day(c), "pick": c.get("pick"), "call_type": c.get("call_type"),
                      "engine": c.get("engine"), "units": c.get("units"), **d})
@@ -331,7 +333,7 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
     tally = {k: sum(1 for r in rows if r["disposition"] == k) for k in DISPOSITIONS}
     return {"since": since, "until": until, "rows": rows, "tally": tally,
             "funnel": {"eligible": len(rows),
-                       "cost_recorded": sum(1 for r in rows if r["disposition"] != "UNAVAILABLE"),
+                       "cost_recorded": sum(1 for r in rows if r["cost_recorded"]),
                        "matched": tally["MATCHED"]},
             "ledger": {"fills": len(fills), "system_matched": len(matched_fills),
                        "matched_in_window": len(inside), "matched_outside_window": len(outside),
@@ -343,6 +345,8 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                        "pnl_pre": sum(f.get("pnl_pre") or 0 for f in inside),
                        "fee_classes": {k: sum(1 for f in inside if (f.get("fee_class_open") or "n/a") == k)
                                        for k in ("maker", "taker", "taker_live", "ambiguous", "unknown", "n/a")}},
+            "ambiguous": [{"fill_id": f.get("id"), "ticker": f.get("ticker"), "attributed_to": f.get("call_id"),
+                           "candidates": f["ambiguous_calls"]} for f in matched_fills if f.get("ambiguous_calls")],
             "books": {b: sum(1 for f in fills if f.get("book") == b)
                       for b in ("system_matched", "system_pick_unlogged", "off_book_sports", "fun")}}
 
@@ -358,6 +362,9 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
            f" · qty {lg['qty']} · opening fees ${lg['open_fees']:.2f} · fees ${lg['fees']:.2f}"
            f" · realised P&L pre-fee ${lg['pnl_pre']:+.2f} net ${lg['pnl_net']:+.2f}",
            "  opening-fee class: " + " · ".join(f"{k} {v}" for k, v in lg["fee_classes"].items() if v),
+           *[f"  ! AMBIGUOUS fill [{a['fill_id']}] {a['ticker']}: {len(a['candidates'])} calls fit "
+             f"({', '.join(map(str, a['candidates']))}); attributed to {a['attributed_to']} as the Cockpit does — "
+             "check by hand (e.g. a doubleheader)" for a in rec["ambiguous"]],
            "EXECUTED-POSITION CLV (the Cockpit's executedPositions: held contract's closing fair − fill entry)"]
     pos = sorted(ex["pos"], key=lambda p: (p["day"] or "", str(p["c"].get("id"))))
     for p in pos:
@@ -387,5 +394,6 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
         out.append(line)
         for f in r.get("fills") or []:
             out.append(f"      fill [{f['fill_id']}] {f['ticker']} {f['side']} qty {f['qty']} @ {f['entry']} · open fee "
-                       f"{f['open_fee']} ({f['fee_class_open'] or 'n/a'})")
+                       f"{f['open_fee']} ({f['fee_class_open'] or 'n/a'})"
+                       + (" · AMBIGUOUS attribution" if f.get("ambiguous_calls") else ""))
     return out

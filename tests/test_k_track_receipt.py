@@ -197,3 +197,21 @@ def test_review_fixes_rewritten_predictions_one_sided_ladders_timestamps_and_fil
     L["calls"].append(late)
     assert "c7" in {c["id"] for c in K.eligible_calls(L, datetime(2095, 9, 23, 12), datetime(2095, 10, 7, 12))}
     assert "fill [f1] KXNFLGAME-95SEP28BUFKC-KC" in "\n".join(K.format_fills(_ledger(), LO, HI))
+
+
+def test_review_round_two_cost_coverage_and_ambiguous_attribution():
+    """Codex on #297, round 2 (verified): (1) the funnel's 'cost recorded' counted every MATCHED call, quote or
+    not; it now reads the recorded-cost fields. (2) Two real calls fitting one fill (an MLB doubleheader) were
+    attributed to the first silently; parity with the Cockpit keeps the attribution, but the fill is flagged
+    and listed as ambiguous."""
+    L = _ledger()
+    del L["calls"][0]["claim_exec_cost"]                                   # matched, but no cost recorded
+    rec = K.reconcile(L, LO, HI)
+    assert rec["funnel"] == {"eligible": 3, "cost_recorded": 1, "matched": 1}
+    L2 = _ledger()
+    L2["calls"].append(dict(L2["calls"][0], id="c1b", kickoff="2095-09-28T23:00:00"))   # game 2, same day
+    rec2 = K.reconcile(L2, LO, HI)
+    assert rec2["ambiguous"] == [{"fill_id": "f1", "ticker": "KXNFLGAME-95SEP28BUFKC-KC", "attributed_to": "c1",
+                                  "candidates": ["c1", "c1b"]}]
+    txt = "\n".join(K.format_fills(L2, LO, HI))
+    assert "! AMBIGUOUS fill [f1]" in txt and "AMBIGUOUS attribution" in txt

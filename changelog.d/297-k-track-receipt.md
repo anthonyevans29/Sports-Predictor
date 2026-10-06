@@ -9,3 +9,6 @@
   - One-sided and incomplete ladders count as not evaluable on each basis, and their two-sided legs' spreads stay in the distribution.
   - The call window compares full kickoff timestamps.
   - Each reconciled fill prints its ledger id.
+- Review fixes (Codex on #297, round 2):
+  - The funnel's "cost recorded" reads the recorded-cost fields for every call, MATCHED included.
+  - A fill that more than one real call fits (an MLB doubleheader: same teams, same day) keeps the Cockpit's attribution for parity, but is flagged and listed as AMBIGUOUS, never silent. Fixing the matcher itself means using the ticker's start time in the Cockpit and the port together.

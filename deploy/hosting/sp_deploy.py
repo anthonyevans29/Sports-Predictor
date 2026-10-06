@@ -26,6 +26,7 @@ install refuses the deploy (ARCHITECT 2026-10-06).
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -105,6 +106,7 @@ def requirements_state_path() -> Path:
 # continuations, any other option) refuses the deploy and is installed by hand, so nothing pip reads can change
 # unseen by the fingerprint.
 REFUSE = "is not auto-installable"
+PIP_ENV_INPUTS = ("PIP_CONSTRAINT", "PIP_REQUIREMENT", "PIP_FIND_LINKS", "PIP_EDITABLE", "PIP_SRC")
 _SPEC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9._,\s-]*\])?\s*([<>=!~].*)?(;.*)?$")
 _COMMENT = re.compile(r"(^|\s+)#.*$")
 _INCLUDE = re.compile(r"^(?:-r|--requirement|-c|--constraint)(?:\s+|=)(\S+)$|^-([rc])(\S+)$")
@@ -215,6 +217,9 @@ def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, 
     if _blob(target_sha, REQUIREMENTS) is None:
         return None, ("removed in the target" if REQUIREMENTS in changed else None)
     inputs, problems = requirements_scan(target_sha)
+    # pip also reads inputs from its environment (PIP_CONSTRAINT, PIP_REQUIREMENT, ...): the fingerprint cannot see
+    # those files change, so their presence is a refusal like any other unsupported input (Codex on #310)
+    problems += [f"environment sets {k}" for k in PIP_ENV_INPUTS if os.environ.get(k)]
     if problems:
         if _last_installed_requirements() == manual_record(_fingerprint(inputs), target_sha):
             return None, None              # this exact release was acknowledged as installed by hand
@@ -240,6 +245,10 @@ def record_installed(fingerprint: str) -> str | None:
         state.write_text(fingerprint + "\n", encoding="utf-8")
         return None
     except OSError as e:
+        try:                                 # the OLD record no longer describes the environment (Codex on #310)
+            requirements_state_path().unlink(missing_ok=True)
+        except OSError:
+            pass
         return f"{e.__class__.__name__}: {e}"
 
 
@@ -529,13 +538,6 @@ def main(argv=None) -> int:
         plan = migration_plan(before, target_sha, changed)
         req_blob, req_reason = requirements_plan(target_sha, changed)
         by_hand = a.requirements_installed_by_hand and (req_blob or (req_reason or "").startswith(REFUSE))
-        if a.dry_run and by_hand:          # the preview matches the real run (Codex on #310)
-            print(f"DRY RUN: would deploy {before_rel or before} -> {target} ({target_sha}); requirements.txt "
-                  f"{req_reason}: would be RECORDED as installed by hand (no pip run)"
-                  + (f"; new migrations, in order: {plan['run']}" if plan["run"] else "")
-                  + (f"; new migrations whose order is NOT determinable: {plan['new']}"
-                     if plan.get("undetermined") else ""))
-            return 0
         if a.dry_run:
             print(f"DRY RUN: would deploy {before_rel or before} -> {target} ({target_sha})"
                   + (f"; new migrations, in order: {plan['run']}" if plan["run"] else "")
@@ -544,11 +546,13 @@ def main(argv=None) -> int:
                   + (f"; this range DELETES migration(s) {plan['deleted_migrations']} (lineage unknown)"
                      if plan.get("lineage_unknown") else "")
                   + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else "")
+                  + (f"; requirements.txt {req_reason}: would be RECORDED as installed by hand (no pip run)"
+                     if by_hand else "")
                   + (f"; requirements.txt {req_reason}: would run `{' '.join(pip_command())} install -r "
-                     f"{REQUIREMENTS}` (the {target} file) before the checkout" if req_blob else "")
+                     f"{REQUIREMENTS}` (the {target} file) before the checkout" if req_blob and not by_hand else "")
                   + ((f"; requirements.txt {req_reason}: the deploy would be REFUSED"
                       if req_reason.startswith(REFUSE) else f"; requirements.txt {req_reason}: nothing to install")
-                     if req_reason and not req_blob else ""))
+                     if req_reason and not req_blob and not by_hand else ""))
             return 0
         # PREFLIGHT the checkout BEFORE installing (Codex on #310): an untracked host file at a path the target
         # adds would make `git checkout` fail after pip had already installed the target's dependencies
@@ -565,9 +569,10 @@ def main(argv=None) -> int:
                 q, rel = Path(c.REPO, *parts[:i]), "/".join(parts[:i])
                 last = i == len(parts)
                 if os.path.lexists(q) and rel not in tracked_before and (last or q.is_symlink() or not q.is_dir()):
-                    if last and q.is_dir() and not q.is_symlink() and any(t.startswith(rel + "/") for t in tracked_before):
-                        # a TRACKED directory the target replaces with a file: git handles it, unless an UNTRACKED
-                        # file lives inside it (git then refuses to lose it — Codex on #310)
+                    if last and q.is_dir() and not q.is_symlink():
+                        # git removes a directory tree that holds nothing it would lose: a TRACKED directory (whose
+                        # files the target drops) or an untracked tree of only EMPTY directories; an untracked FILE or
+                        # symlink inside blocks (Codex on #310)
                         # files AND symlinked directories (os.walk lists those under dirs and does not follow)
                         inside = [str(Path(root, n).relative_to(c.REPO)).replace(os.sep, "/")
                                   for root, dirs, files in os.walk(q)

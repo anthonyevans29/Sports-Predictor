@@ -10,3 +10,4 @@
 - Review fixes, round 8 (Codex on #310): by-hand acknowledgements are per release (commit-bound). The dry run honours the flag. A tracked directory replaced by a file is not a blocker. A non-UTF-8 requirements file is a receipted refusal.
 - Review fixes, round 9 (Codex on #310): an untracked file inside a tracked directory the target replaces blocks the checkout. Without a repo venv, the install record lives inside the running virtualenv.
 - Review fixes, round 10 (Codex on #310): symlinked-directory children; a venv without pip installs via its own python; a failed pip run drops the record; system-site-packages is in the identity; a TMPDIR failure is receipted; per-requirement options are refused; a matching record satisfies a retry.
+- Review fixes, round 11 (Codex on #310): empty untracked directories don't block. The by-hand dry run keeps the migration warnings. pip inputs set in the environment refuse auto-install. A failed record write drops the old record.

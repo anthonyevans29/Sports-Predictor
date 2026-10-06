@@ -2886,3 +2886,58 @@ def test_requirements_round_ten(sandbox, monkeypatch, tmp_path):
     os.symlink(str(tmp_path), clone / "tool" / "linked")
     head = gg(clone, "rev-parse", "HEAD")
     assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and gg(clone, "rev-parse", "HEAD") == head
+
+
+def test_requirements_round_eleven(sandbox, monkeypatch, capsys):
+    """Codex on #310 round 11 (verified): (1) an untracked tree of only EMPTY directories where the target adds a
+    file is not a blocker; (2) the by-hand dry run keeps the migration warnings; (3) pip inputs set in the
+    environment (PIP_CONSTRAINT, PIP_REQUIREMENT, ...) refuse auto-install; (4) a failed record write drops the old
+    record."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "o11", sandbox / "c11"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "requirements.txt").write_text("requests\n")
+    (origin / "migrate_old.py").write_text("x\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "b")
+    g(origin, "tag", "v1.0.0")
+    (origin / "requirements.txt").write_text("requests\n--index-url https://example.invalid/simple\n")
+    (origin / "slot").write_text("a file\n")
+    g(origin, "rm", "-q", "migrate_old.py")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "n")
+    g(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log11" / "receipts.jsonl"))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib11" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    (repo / "slot" / "empty" / "deeper").mkdir(parents=True)                    # (1) only empty directories
+    assert sp_deploy.main(["--tag", "v1.0.1", "--dry-run", "--requirements-installed-by-hand"]) == 0   # (2)
+    out = capsys.readouterr().out
+    assert "RECORDED as installed by hand" in out and "DELETES migration(s) ['migrate_old.py']" in out
+    assert sp_deploy.main(["--tag", "v1.0.1", "--requirements-installed-by-hand"]) == 0 and (repo / "slot").is_file()
+    one = g(repo, "rev-parse", "HEAD")                                           # (3)
+    sp_deploy.requirements_state_path().unlink()                                 # (not the by-hand ack above)
+    monkeypatch.setenv("PIP_CONSTRAINT", "constraints.txt")
+    assert "environment sets PIP_CONSTRAINT" in sp_deploy.requirements_plan(one, ["requirements.txt"])[1]
+    monkeypatch.delenv("PIP_CONSTRAINT")
+    state = sp_deploy.requirements_state_path()                                  # (4)
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text("old-release\n")
+    real_write = Path.write_text
+
+    def failing(self, *a, **k):
+        if self == state:
+            raise PermissionError("read-only")
+        return real_write(self, *a, **k)
+    monkeypatch.setattr(Path, "write_text", failing)
+    assert sp_deploy.record_installed("new") and not state.exists()

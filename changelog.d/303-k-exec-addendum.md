@@ -1,4 +1,4 @@
-## 2026-10-06 (#0000: k-exec-addendum — #87 executable edge, Desk v1.1 addendum — ARCHITECT-RULE)
+## 2026-10-06 (#303: k-exec-addendum — #87 executable edge, Desk v1.1 addendum — ARCHITECT-RULE)
 - **Cost = ask + taker fee** (`desk_policy.taker_cost_for`): the contract the order line buys, at its ask, plus 0.07·M·P(1−P) rounded to the nearest cent per fill. The maker cost is shown for reference only.
 - **TAKE at the ask by default.** Join-bid applies only at a spread of 3c or more, in the order line, the exec block and the Cockpit's ledger join bid. The 2026-09-30 join-bid doctrine is superseded.
 - **Sizing.** A PLAY gets full tier units only when its exec edge is at least 4pp. Otherwise, or with no executable quote, it gets HALF units. Quarantine, floors, tiers and ladders are unchanged.

@@ -1360,7 +1360,7 @@ def registry_cmd(eid):
 
 @cli.command("unl-ladder-receipt")
 @click.option("--since", default=None,
-              help="Freeze cutoff, UTC (default 2026-10-05T17:00, docs/specs/unl-venue-skew-test.md).")
+              help="Freeze cutoff, UTC (default 2026-10-06T14:35:31, docs/specs/unl-venue-skew-test.md v2).")
 @click.option("--n", "n", default=30, show_default=True, type=click.IntRange(min=1),
               help="Sample size (frozen: 30).")
 @click.option("--skew-test", is_flag=True, help="Run the frozen favorite-skew test once the sample is complete.")
@@ -1374,6 +1374,7 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
     Writes nothing to the DB."""
     from datetime import datetime as _dt
 
+    from src.walters import unl_ladders as _U
     from src.walters.unl_ladders import FREEZE_CUTOFF, SAMPLE_N, format_receipt, receipt, to_naive_utc
     try:
         # None = option omitted (the frozen cutoff); "" is operator input and must parse (Codex on #291)
@@ -1384,7 +1385,11 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
                                  param_hint="--since")
     if skew_test and (cut != FREEZE_CUTOFF or n != SAMPLE_N):     # Codex on #291: frozen means frozen
         console.print(f"[red]REFUSED: --skew-test runs only on the frozen cohort (cutoff "
-                      f"{FREEZE_CUTOFF:%Y-%m-%dT%H:%MZ}, n {SAMPLE_N}); drop --since/--n.[/red]")
+                      f"{FREEZE_CUTOFF:%Y-%m-%dT%H:%M:%SZ}, n {SAMPLE_N}); drop --since/--n.[/red]")
+        raise SystemExit(2)
+    if skew_test and len(_U.EXPLORATORY_MATCH_IDS) != _U.EXPLORATORY_N:     # ruling 1
+        console.print(f"[red]REFUSED: --skew-test needs the {_U.EXPLORATORY_N} exploratory match ids recorded "
+                      f"in unl_ladders.EXPLORATORY_MATCH_IDS (have {len(_U.EXPLORATORY_MATCH_IDS)}).[/red]")
         raise SystemExit(2)
     if out_path:                                  # resolved, so a symlink or a cwd inside data/ cannot slip by
         from pathlib import Path as _P
@@ -6301,6 +6306,12 @@ def sync_kalshi_soccer_cmd(competition_code, max_spread, series_override):
     disagreement columns are instrumentation only. Run with the Friday chain
     and again pre-kickoff Saturday (spreads tighten as matches near)."""
     from src.ingestion.kalshi_sync import sync_kalshi_soccer
+    from src.walters.unl_ladders import FROZEN_MAX_SPREAD
+    if competition_code.upper() == "UNL" and max_spread != FROZEN_MAX_SPREAD:
+        # ARCHITECT 2026-10-06 (#286 ruling 4): --max-spread 0.10 frozen for every UNL sync in the skew sample
+        console.print(f"[red]REFUSED: UNL syncs run at --max-spread {FROZEN_MAX_SPREAD:.2f} "
+                      f"(frozen for the skew-test sample, #286 ruling 4); got {max_spread}.[/red]")
+        raise SystemExit(2)
     r = sync_kalshi_soccer(competition_code=competition_code, max_spread=max_spread,
                            progress=lambda m: console.print(f"  [dim]{m}[/dim]"), series_override=series_override)
     if not r.get("ok"):
@@ -6309,7 +6320,8 @@ def sync_kalshi_soccer_cmd(competition_code, max_spread, series_override):
     console.print(f"[green]✓ Kalshi soccer: {r['stored']} prices stored[/green]")
     console.print(f"  [dim]series {r['series']} ({r.get('series_how', 'mapped')}) · {r['markets']} markets · matched {r['matched']} · "
                   f"unmatched {r['unmatched']} (ambiguous {r['ambiguous']}) · "
-                  f"in-play {r['in_play']} · wide-spread skipped {r['wide_spread']}[/dim]")
+                  f"in-play {r['in_play']} · wide-spread skipped {r['wide_spread']} · "
+                  f"max-spread {max_spread:.2f}[/dim]")
 
 
 @cli.command("set-soccer-config")

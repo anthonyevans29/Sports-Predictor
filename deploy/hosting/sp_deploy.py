@@ -183,7 +183,7 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         if p in new:
             idx += 1
             seen.setdefault(p, []).append((idx, cur[0], cur[1]))
-    chosen = {}
+    chosen, multi = {}, set()
     for p, apps in seen.items():
         plain = [a for a in apps if not a[2]]
         # a competing branch may add a DIFFERENT file under the same name that the release does not carry
@@ -191,6 +191,11 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         final = _blob(after, p)
         carried = [a for a in plain if _blob(a[1], p) == final]
         chosen[p] = carried[-1] if carried else plain[-1] if plain else apps[0]
+        if len(carried) > 1:
+            # SEVERAL ordinary additions carry the released file (identical files on two branches, or an
+            # identical re-add): which one the release "is" is not determinable, so neither is its grouping
+            # or order — the operator orders it (Codex on #304, round 3)
+            multi.add(p)
     ordered = sorted(chosen, key=lambda p: chosen[p][0])
     per_commit = {}
     for p, (_, h, _m) in chosen.items():
@@ -199,7 +204,7 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     # their dependencies; the order is not determinable, so no runnable command is generated (Codex on #296)
     together = sorted({m for ms in per_commit.values() if len(ms) > 1 for m in ms})
     unplaced = sorted(new - set(ordered))
-    undetermined = sorted(set(together) | set(unplaced))
+    undetermined = sorted(set(together) | set(unplaced) | multi)
     return {"forward": True, "run": [] if undetermined else ordered, "undetermined": undetermined,
             "new": ordered + unplaced, "renamed": renamed,
             "modified": [m for m in found if m not in new and m not in renamed] + sorted(renamed),

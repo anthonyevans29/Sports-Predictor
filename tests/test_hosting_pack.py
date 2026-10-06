@@ -1925,3 +1925,40 @@ def test_codex_on_304_round_2_content_copies_and_competing_branch_additions(sand
     monkeypatch.setattr(c, "REPO", repo)
     plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
     assert plan["undetermined"] == ["migrate_x.py", "migrate_y.py"] and plan["run"] == []
+
+
+def test_codex_on_304_round_3_identical_additions_on_two_branches_are_undetermined(sandbox, monkeypatch):
+    """Codex on #304, round 3 (verified): branch A adds migrate_x + migrate_y together, branch B adds a
+    BYTE-IDENTICAL migrate_x later; both additions carry the released blob, and picking the later one planned
+    a runnable order. Several carrying additions = undetermined."""
+    import os
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g6"
+    repo.mkdir()
+
+    def g(*a, when=None, check=True):
+        env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when} if when else None
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=check, capture_output=True, text=True, env=env).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "r.txt").write_text("r")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base", when="2025-12-31T00:00:00Z")
+    base = g("rev-parse", "HEAD")
+    g("checkout", "-q", "-b", "a")
+    (repo / "migrate_x.py").write_text("x = 1\n")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "A", when="2026-01-01T00:00:00Z")
+    g("checkout", "-q", "main")
+    g("checkout", "-q", "-b", "b")
+    (repo / "migrate_x.py").write_text("x = 1\n")                       # byte-identical
+    g("add", "-A")
+    g("commit", "-q", "-m", "B", when="2026-01-02T00:00:00Z")
+    g("checkout", "-q", "a")
+    g("merge", "-q", "--no-ff", "-m", "merge b", "b", when="2026-01-03T00:00:00Z")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]

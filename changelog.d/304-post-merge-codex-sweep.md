@@ -11,3 +11,4 @@
   - Copies are decided by CONTENT: a new migration whose file is identical to any migration at `before` is a copy, whichever identical source git would have named.
   - Only an addition carrying the released file's content counts, so a competing branch's different file under the same name never sets the order.
   - An explicit `"fills": null` is refused.
+- Review fix (Codex on #304, round 3): when several ordinary additions carry the released file (identical files on two branches, or an identical re-add), the migration is undetermined and the operator orders it.

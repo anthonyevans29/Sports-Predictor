@@ -2303,3 +2303,52 @@ def test_sweep_a_merge_replay_addition_keeps_the_carried_age(sandbox, monkeypatc
     monkeypatch.setattr(c, "REPO", repo)
     p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
     assert p["run"] == [] and "migrate_x.py" in p["undetermined"] and len(p["new"]) == len(set(p["new"]))
+
+
+def test_sweep_replacement_destinations_and_in_range_copies(sandbox, monkeypatch):
+    """Codex on #305 round 4 (verified): (1) a placeholder migrate_x is replaced by moving migrate_temp onto it
+    (`--no-renames` reports D temp + M x), which planned run [y, x]; a MODIFIED path in a diff that deletes a
+    migration carries its age too. (2) migrate_temp copied UNCHANGED to migrate_x inside the range planned
+    [temp, y, x], running one one-shot twice; new migrations with identical content are undetermined."""
+    import subprocess
+
+    import sp_deploy
+    body = "print('a migration body long enough for git rename detection to pair')\n" * 5
+
+    def mk(name):
+        repo = sandbox / name
+        repo.mkdir()
+
+        def g(*a):
+            return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+        g("init", "-q", "-b", "main")
+        (repo / "r.txt").write_text("r")
+        g("add", "-A")
+        g("commit", "-q", "-m", "base")
+        return repo, g, g("rev-parse", "HEAD")
+
+    def commit(g, repo, msg, files):
+        for name, text in files:
+            (repo / name).write_text(text)
+        g("add", "-A")
+        g("commit", "-q", "-m", msg)
+
+    repo, g, base = mk("rd")                                             # (1) move onto a placeholder
+    commit(g, repo, "temp", [("migrate_temp.py", body)])
+    commit(g, repo, "y", [("migrate_y.py", "y = 1\n")])
+    commit(g, repo, "placeholder x", [("migrate_x.py", "pass\n")])
+    g("rm", "-q", "migrate_x.py")
+    g("mv", "migrate_temp.py", "migrate_x.py")
+    g("commit", "-q", "-m", "replace x with temp")
+    monkeypatch.setattr(c, "REPO", repo)
+    p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and "migrate_x.py" in p["undetermined"]
+
+    repo, g, base = mk("cp")                                             # (2) unchanged copy, source kept
+    commit(g, repo, "temp", [("migrate_temp.py", body)])
+    commit(g, repo, "y", [("migrate_y.py", "y = 1\n")])
+    commit(g, repo, "copy temp -> x", [("migrate_x.py", body)])
+    monkeypatch.setattr(c, "REPO", repo)
+    p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_temp.py", "migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and "migrate_x.py" in p["undetermined"]

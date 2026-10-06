@@ -216,9 +216,18 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         parts = ln.split("\t")
         if len(parts) == 2 and parts[0] == "D":
             deleted.append(parts[1])
-        elif len(parts) == 2 and parts[0] == "A":
-            added.append(parts[1])
+        elif len(parts) == 2 and parts[0][:1] in ("A", "M", "T"):
+            added.append(parts[1])            # a path REPLACED in a moving diff (D src + M dst) carries the age too
     _flush(deleted, added)
+    # an UNCHANGED COPY of a migration introduced inside the range (source kept) would run one one-shot twice:
+    # new migrations with identical content at `after` are undetermined (the prior-blob check above only sees
+    # copies of migrations present at `before` — Codex on #305)
+    by_blob = {}
+    for m in sorted(new):
+        by_blob.setdefault(_blob(after, m), []).append(m)
+    for group in by_blob.values():
+        if len(group) > 1:
+            ambiguous.update(group)
     for p, apps in seen.items():
         if p in ambiguous:
             continue

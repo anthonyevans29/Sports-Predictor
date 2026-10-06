@@ -1,2 +1,3 @@
 ## 2026-10-06 (#310: deploy-pip-install — ARCHITECT)
 - `sp_deploy` runs `venv/bin/pip install -r requirements.txt` when `requirements.txt` changed in the deploy range. It uses the target tag's file, runs before the checkout, and is printed and receipted (`deploy_requirements`). A failed install refuses the deploy, and the host stays on its release.
+- Review fixes (Codex on #310): the install also runs when this host has no successful install receipt for the target's file (bootstrap). It runs in a temporary worktree of the target, so relative includes resolve. A target without `requirements.txt` installs nothing and says so. A failed install warns that the venv may be partially updated.

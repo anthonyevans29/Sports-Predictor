@@ -2452,9 +2452,13 @@ def test_sweep_a_deletion_only_range_warns_on_dry_run_and_deploy(sandbox, monkey
 
 
 def test_deploy_installs_requirements_when_they_changed(sandbox, monkeypatch, capsys):
-    """ARCHITECT 2026-10-06 (the host lacked `cryptography` after v1.2.3): requirements.txt changed in the deploy
-    range -> `pip install -r requirements.txt` runs, printed and receipted, from the TARGET's file and BEFORE the
-    checkout; a failed install refuses the deploy with the host still on its release; unchanged -> no install."""
+    """ARCHITECT 2026-10-06 (the host lacked `cryptography` after v1.2.3): `pip install -r requirements.txt` runs,
+    printed and receipted, from a WORKTREE of the target and BEFORE the checkout, when requirements.txt changed in
+    the range OR this host has no successful install receipt for the target's file (the bootstrap: the deploy that
+    ships this code still ran the old deployer — Codex on #310). A failed install refuses the deploy and says the
+    venv may be partially updated; a target without the file installs nothing and says so; relative -r includes
+    resolve as in the checkout."""
+    import pathlib
     import subprocess
 
     import sp_deploy
@@ -2464,47 +2468,62 @@ def test_deploy_installs_requirements_when_they_changed(sandbox, monkeypatch, ca
     def g(where, *a):
         return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
                               check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(msg, tag, files=(), rm=()):
+        for name, text in files:
+            (origin / name).parent.mkdir(parents=True, exist_ok=True)
+            (origin / name).write_text(text)
+        for name in rm:
+            g(origin, "rm", "-q", name)
+        g(origin, "add", "-A")
+        g(origin, "commit", "-q", "-m", msg)
+        g(origin, "tag", tag)
     g(origin, "init", "-q", "-b", "main")
-    (origin / "requirements.txt").write_text("requests>=2.31.0\n")
-    g(origin, "add", "-A")
-    g(origin, "commit", "-q", "-m", "base")
-    g(origin, "tag", "v1.0.0")
-    (origin / "a.txt").write_text("no requirements change")
-    g(origin, "add", "-A")
-    g(origin, "commit", "-q", "-m", "plain")
-    g(origin, "tag", "v1.0.1")
-    (origin / "requirements.txt").write_text("requests>=2.31.0\ncryptography>=41.0.0\n")
-    g(origin, "add", "-A")
-    g(origin, "commit", "-q", "-m", "add cryptography")
-    g(origin, "tag", "v1.0.2")
+    commit("base", "v1.0.0", [("requirements.txt", "requests>=2.31.0\n")])
+    commit("plain", "v1.0.1", [("a.txt", "no requirements change")])
+    commit("plain again", "v1.0.2", [("b.txt", "still none")])
+    commit("add cryptography via an include", "v1.0.3",
+           [("requirements.txt", "-r reqs/base.txt\ncryptography>=41.0.0\n"), ("reqs/base.txt", "requests\n")])
+    commit("drop requirements.txt", "v1.0.4", rm=["requirements.txt"])
     subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
     g(repo, "checkout", "-q", "--detach", "v1.0.0")
     monkeypatch.setattr(c, "REPO", repo)
-    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log" / "receipts.jsonl"))
+    log = sandbox / "log" / "receipts.jsonl"
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
     monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
     monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
-    calls = []
+    calls, rc = [], {"v": 0}
 
-    def fake_pip(cmd, rc=0):
-        calls.append((cmd, open(cmd[-1]).read(), g(repo, "rev-parse", "HEAD")))
-        return rc
+    def fake_pip(cmd, cwd):
+        req = pathlib.Path(cwd) / cmd[-1]
+        inc = pathlib.Path(cwd) / "reqs" / "base.txt"
+        calls.append((cmd, req.read_text(), inc.exists(), pathlib.Path(cwd) != repo, g(repo, "rev-parse", "HEAD")))
+        return rc["v"]
     monkeypatch.setattr(sp_deploy, "_pip_run", fake_pip)
-    v100 = g(repo, "rev-parse", "HEAD")
-    assert sp_deploy.main(["--tag", "v1.0.1"]) == 0 and calls == []      # unchanged: no install
+
+    def recs(kind):
+        return [json.loads(x) for x in log.read_text().splitlines() if json.loads(x)["kind"] == kind]
+    # bootstrap: no install receipt on this host yet -> installs although the range did not change the file
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 0 and len(calls) == 1
+    assert "no successful install receipt" in capsys.readouterr().out
+    # stamped: unchanged range and a receipt for this exact file -> nothing
+    assert sp_deploy.main(["--tag", "v1.0.2"]) == 0 and len(calls) == 1
     capsys.readouterr()
-    assert sp_deploy.main(["--tag", "v1.0.2", "--dry-run"]) == 0 and calls == []
-    assert "would run" in capsys.readouterr().out
-    v101 = g(repo, "rev-parse", "HEAD")
-    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd: fake_pip(cmd, rc=1))
-    assert sp_deploy.main(["--tag", "v1.0.2"]) == 1                       # failed install: refused
-    assert g(repo, "rev-parse", "HEAD") == v101 and "deploy refused" in capsys.readouterr().out
-    monkeypatch.setattr(sp_deploy, "_pip_run", fake_pip)
-    assert sp_deploy.main(["--tag", "v1.0.2"]) == 0
-    cmd, body, head = calls[-1]
-    assert cmd[-3:-1] == ["install", "-r"] and "cryptography" in body and head == v101   # target file, pre-checkout
-    out = capsys.readouterr().out
-    assert "install -r requirements.txt" in out and "requirements installed" in out
-    rs = [json.loads(x) for x in (sandbox / "log" / "receipts.jsonl").read_text().splitlines()]
-    req = [r for r in rs if r["kind"] == "deploy_requirements"]
-    assert [r["exit"] for r in req] == [1, 0] and req[-1]["tag"] == "v1.0.2"
-    assert rs[-1]["kind"] == "deploy" and rs[-1]["requirements_installed"] is True and v100 != v101
+    assert sp_deploy.main(["--tag", "v1.0.3", "--dry-run"]) == 0 and len(calls) == 1
+    assert "changed in this range: would run" in capsys.readouterr().out
+    v102 = g(repo, "rev-parse", "HEAD")
+    rc["v"] = 1                                                          # failed install: refused, code unmoved
+    assert sp_deploy.main(["--tag", "v1.0.3"]) == 1 and g(repo, "rev-parse", "HEAD") == v102
+    assert "PARTIALLY updated" in capsys.readouterr().out
+    rc["v"] = 0
+    assert sp_deploy.main(["--tag", "v1.0.3"]) == 0
+    cmd, body, include_there, in_worktree, head = calls[-1]
+    assert cmd[-3:] == ["install", "-r", "requirements.txt"] and "cryptography" in body
+    assert include_there and in_worktree and head == v102                 # target tree, before the checkout
+    assert "requirements installed (requirements.txt changed in this range)" in capsys.readouterr().out
+    assert [r["exit"] for r in recs("deploy_requirements")] == [0, 1, 0] and recs("deploy")[-1]["requirements_installed"]
+    assert len(g(repo, "worktree", "list").splitlines()) == 1             # the temporary worktree is gone
+    # a target without requirements.txt: nothing installed, said and receipted, no traceback
+    assert sp_deploy.main(["--tag", "v1.0.4"]) == 0 and len(calls) == 3
+    assert "removed in the target: nothing installed" in capsys.readouterr().out
+    assert recs("deploy_requirements")[-1]["skipped"] == "requirements.txt removed in the target"

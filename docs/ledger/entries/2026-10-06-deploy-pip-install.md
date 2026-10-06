@@ -5,4 +5,9 @@
   - A `deploy_requirements` receipt records the exit and the command. The `deploy` receipt carries `requirements_installed`.
   - A failed install refuses the deploy (receipted, exit 1), and the host stays on its release, never on new code without its dependencies.
   - The dry run names the install it would run.
-- **Receipts:** `test_deploy_installs_requirements_when_they_changed` covers four cases: an unchanged range (no install), a dry run (named only), a failed install (refused, HEAD unchanged) and a successful one (the target's file, before the checkout, receipted). The test fails on main. `pytest`: 823 passed, 1 skipped.
+- **Review fixes (Codex on #310):**
+  - **Bootstrap:** the install also runs when this host has no successful `deploy_requirements` receipt for the target's exact file (git blob). The deploy that ships this code still runs the OLD deployer, so the host that lacked `cryptography` is repaired on the next deploy.
+  - **Worktree:** the install runs in a temporary worktree of the target, so relative `-r`/`-c` includes resolve as in the checkout. The worktree is removed afterwards.
+  - **Removed file:** a target without `requirements.txt` installs nothing and says so in a receipt, instead of crashing with a traceback.
+  - **Partial update (escalated, not built):** pip does not roll back packages it already upgraded in a failed run, so the refusal message says the venv may be PARTIALLY updated and gives the recovery steps. A staged-venv swap is put to the architect.
+- **Receipts:** `test_deploy_installs_requirements_when_they_changed` covers six cases: the bootstrap install, a stamped no-op, a dry run, a failed install (refused, HEAD unchanged, partial-update warning), a successful install from the target worktree with a relative include, and a removed file. The test fails on main. `pytest`: 823 passed, 1 skipped.

@@ -210,13 +210,21 @@ class KalshiAdapter:
                 return a.strip(), b.strip()
         return None
 
-    SOCCER_GAME_SERIES = {"PL": "KXEPLGAME"}
-    # ARCHITECT 2026-10-04: UNL has Kalshi markets (operator fills exist) but no
-    # receipted ticker — so the series is DISCOVERED from Kalshi's own /series
-    # listing at run time (law 1: vocabulary from the API, never guessed). The
-    # keywords select candidates; only game-winner series (ticker ending "GAME",
-    # like every wired series) count; exactly one or the sync refuses.
-    SOCCER_SERIES_DISCOVERY = {"UNL": ["nations league"]}
+    # UNL PINNED (ARCHITECT 2026-10-05): discovery refused on 2 candidates,
+    # KXUEFANLGAME and KXCONCACAFNLGAME; "UNL pins KXUEFANLGAME (the competition
+    # is UEFA's)". Mapped here, so the window chain needs no --series flag.
+    SOCCER_GAME_SERIES = {"PL": "KXEPLGAME", "UNL": "KXUEFANLGAME"}
+    # Ruled series with no wired competition yet ("map the CONCACAF series to
+    # CNL for later"): recorded, never synced. resolve_soccer_series refuses
+    # them, naming the series, until CNL is wired (competition + chain).
+    SOCCER_SERIES_RESERVED = {"CNL": "KXCONCACAFNLGAME"}
+    # ARCHITECT 2026-10-04: a competition with Kalshi markets but no receipted
+    # ticker has its series DISCOVERED from Kalshi's own /series listing at run
+    # time (law 1: vocabulary from the API, never guessed). The keywords select
+    # candidates; only game-winner series (ticker ending "GAME", like every
+    # wired series) count; exactly one or the sync refuses. UNL used this until
+    # its 2026-10-05 pin; no competition uses it now.
+    SOCCER_SERIES_DISCOVERY: dict[str, list[str]] = {}
 
     def resolve_soccer_series(self, competition_code: str, override: str | None = None
                               ) -> tuple[str | None, str]:
@@ -225,6 +233,9 @@ class KalshiAdapter:
             return override, f"series {override} (operator --series)"
         if competition_code in self.SOCCER_GAME_SERIES:
             return self.SOCCER_GAME_SERIES[competition_code], "mapped"
+        if competition_code in self.SOCCER_SERIES_RESERVED:
+            return None, (f"{competition_code}: series {self.SOCCER_SERIES_RESERVED[competition_code]} is reserved "
+                          f"(ARCHITECT 2026-10-05, 'for later'), not wired — no sync until it is")
         kws = self.SOCCER_SERIES_DISCOVERY.get(competition_code)
         if not kws:
             return None, f"no Kalshi series mapped or discoverable for {competition_code}"

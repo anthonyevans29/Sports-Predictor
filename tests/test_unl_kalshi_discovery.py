@@ -1,4 +1,5 @@
 """ARCHITECT 2026-10-04: sync-kalshi-soccer only knew KXEPLGAME; UNL has Kalshi markets (operator fills exist).
+2026-10-05: discovery refused on two candidates; UNL is now PINNED to KXUEFANLGAME (CNL reserved for later).
 The UNL series is DISCOVERED from Kalshi's /series listing at run time (law 1: no guessed ticker) — exactly
 one game series or a refusal naming the candidates — and its legs are stored like PL's, so the fixtures
 export and the venue engine see UNL three-way sets. Kalshi is mocked (no network)."""
@@ -23,16 +24,32 @@ def _adapter(series_payload):
     return a
 
 
-def test_unl_series_is_discovered_from_the_listing_exactly_one_or_refused():
-    t, how = _adapter(SERIES).resolve_soccer_series("UNL")
+def test_unl_is_pinned_to_the_uefa_series_and_cnl_is_reserved():
+    """ARCHITECT 2026-10-05: discovery refused on 2 candidates (KXUEFANLGAME, KXCONCACAFNLGAME). "UNL pins
+    KXUEFANLGAME (the competition is UEFA's); map the CONCACAF series to CNL for later." The pin is the
+    adapter default, so the window chain needs no --series flag; no /series call is made for UNL."""
+    both = SERIES + [{"ticker": "KXCONCACAFNLGAME", "title": "CONCACAF Nations League Game"}]
+    a = _adapter(both)
+    a._get = lambda path, params=None: (_ for _ in ()).throw(AssertionError("no discovery for a pinned code"))
+    assert a.resolve_soccer_series("UNL") == ("KXUEFANLGAME", "mapped")
+    assert a.resolve_soccer_series("PL") == ("KXEPLGAME", "mapped")
+    t, how = a.resolve_soccer_series("CNL")
+    assert t is None and "KXCONCACAFNLGAME" in how and "reserved" in how      # recorded, never synced yet
+    assert a.resolve_soccer_series("UNL", override="KXPINNED") == ("KXPINNED", "series KXPINNED (operator --series)")
+    assert a.resolve_soccer_series("EFL")[0] is None                        # neither mapped nor discoverable
+
+
+def test_discovery_mechanism_still_exactly_one_or_refused(monkeypatch):
+    """The 2026-10-04 discovery path stays for a future unpinned competition: exactly one game series or a
+    refusal naming the candidates (the refusal UNL hit on 2026-10-05)."""
+    monkeypatch.setattr(KalshiAdapter, "SOCCER_SERIES_DISCOVERY", {"XNL": ["nations league"]})
+    t, how = _adapter(SERIES).resolve_soccer_series("XNL")
     assert t == "KXUEFANLGAME" and how.startswith("discovered KXUEFANLGAME")    # the WINNER series is not a game
-    assert _adapter(SERIES).resolve_soccer_series("PL") == ("KXEPLGAME", "mapped")
-    t, how = _adapter(SERIES + [{"ticker": "KXUNLGAME", "title": "Nations League match"}]).resolve_soccer_series("UNL")
-    assert t is None and "2 game series" in how and "REFUSED" in how and "KXUNLGAME" in how
-    t, how = _adapter([]).resolve_soccer_series("UNL")
+    t, how = _adapter(SERIES + [{"ticker": "KXCONCACAFNLGAME", "title": "CONCACAF Nations League Game"}]
+                      ).resolve_soccer_series("XNL")
+    assert t is None and "2 game series" in how and "REFUSED" in how and "KXCONCACAFNLGAME" in how
+    t, how = _adapter([]).resolve_soccer_series("XNL")
     assert t is None and "0 game series" in how
-    assert _adapter([]).resolve_soccer_series("UNL", override="KXPINNED") == ("KXPINNED", "series KXPINNED (operator --series)")
-    assert _adapter(SERIES).resolve_soccer_series("EFL")[0] is None                # neither mapped nor discoverable
 
 
 def test_unl_legs_are_stored_as_a_three_way_set(monkeypatch):
@@ -66,7 +83,9 @@ def test_unl_legs_are_stored_as_a_three_way_set(monkeypatch):
             pass
 
         def _get(self, path, params=None):
-            return {"series": SERIES} if path == "series" else {}
+            # the 2026-10-05 listing: discovery would REFUSE on these two; the pin never asks
+            return {"series": SERIES + [{"ticker": "KXCONCACAFNLGAME", "title": "CONCACAF NL Game"}]} \
+                if path == "series" else {}
 
         def status(self):
             return {"trading_active": True}
@@ -78,7 +97,7 @@ def test_unl_legs_are_stored_as_a_three_way_set(monkeypatch):
     monkeypatch.setattr(kalshi_sync, "KalshiAdapter", Fake)
     r = kalshi_sync.sync_kalshi_soccer("UNL")
     assert r["ok"] and r["series"] == "KXUEFANLGAME" and asked == ["KXUEFANLGAME"], r
-    assert r["series_how"].startswith("discovered") and r["stored"] == 3, r
+    assert r["series_how"] == "mapped" and r["stored"] == 3, r                  # no --series flag needed
     with session_scope() as s:
         got = {o.selection: (o.devig_prob, o.yes_bid, o.yes_ask) for o in s.execute(
             select(OddsSnapshot).where(OddsSnapshot.match_id == mid, OddsSnapshot.source == "kalshi")).scalars()}

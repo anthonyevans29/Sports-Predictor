@@ -207,8 +207,8 @@ CHAINS: dict[str, dict] = {
 WINDOW_HOURS = 24
 WINDOW_KALSHI: dict[str, list[list[str]]] = {
     # competition code -> its Kalshi sync. CI pins the soccer entries to
-    # src/adapters/kalshi.py SOCCER_GAME_SERIES (PL) + SOCCER_SERIES_DISCOVERY
-    # (UNL: the series is discovered from Kalshi's listing, ARCHITECT 2026-10-04).
+    # src/adapters/kalshi.py SOCCER_GAME_SERIES (PL; UNL pinned to KXUEFANLGAME,
+    # ARCHITECT 2026-10-05, so no --series flag) + SOCCER_SERIES_DISCOVERY.
     "MLB": [["sync-kalshi", "--date-from", "{today}", "--date-to", "{tomorrow}"]],
     "NFL": [["sync-kalshi-nfl"]],
     "NCAA": [["sync-kalshi-ncaa"]],

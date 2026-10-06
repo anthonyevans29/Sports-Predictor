@@ -1540,7 +1540,42 @@ def test_deploy_prints_the_exact_migration_command(monkeypatch):
     """ARCHITECT 2026-10-06: the deploy flagged migrate_kalshi_ticker.py; it prints the exact by-hand command
     — as the service user, host.env loaded, the daily .backup first, the migration only if it succeeded."""
     import sp_deploy
-    cmd = sp_deploy.migration_command("migrate_kalshi_ticker.py")
+    cmd = sp_deploy.migration_command(["migrate_kalshi_ticker.py"])
     assert cmd.startswith("sudo -u sp sh -c ")
     assert f"cd {c.REPO}" in cmd and f". {c.HOST_ENV}" in cmd
     assert cmd.index("sp_backup.py daily &&") < cmd.index("migrate_kalshi_ticker.py")
+
+
+def test_deploy_migration_plan_orders_by_commit_and_skips_rollbacks(tmp_path, monkeypatch):
+    """Codex on #296 (two P2s, verified): the migrations printed in git's alphabetical path order
+    (migrate_score_90.py needs migrate_status_raw.py first), and a rollback's diff printed migrations
+    the target predates as runnable. Order is now commit order; a non-forward deploy runs none."""
+    import subprocess
+
+    import sp_deploy
+    repo = tmp_path / "r"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q")
+    (repo / "a.txt").write_text("x")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "--short", "HEAD")
+    (repo / "migrate_status_raw.py").write_text("1")
+    g("add", "-A")
+    g("commit", "-q", "-m", "first")
+    (repo / "migrate_score_90.py").write_text("2")
+    g("add", "-A")
+    g("commit", "-q", "-m", "second")
+    head = g("rev-parse", "--short", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    changed = sorted(["migrate_score_90.py", "migrate_status_raw.py"])          # git diff's alphabetical order
+    fwd = sp_deploy.migration_plan(base, head, changed)
+    assert fwd["forward"] and fwd["run"] == ["migrate_status_raw.py", "migrate_score_90.py"]
+    cmd = sp_deploy.migration_command(fwd["run"])
+    assert cmd.index("migrate_status_raw.py") < cmd.index("migrate_score_90.py")
+    back = sp_deploy.migration_plan(head, base, changed)                        # a rollback
+    assert not back["forward"] and back["run"] == [] and set(back["skipped"]) == set(changed)

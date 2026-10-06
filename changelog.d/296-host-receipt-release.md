@@ -2,3 +2,7 @@
 - `sp_common._git` passes `safe.directory` for the checkout. The host checkout is root-installed and the units run as `sp`, so git refused it ("dubious ownership"), `running_release()` returned None, and no receipt carried a release (cutover-readiness criterion (b)). A receipt whose release is still null now carries `release_error` with git's own message.
 - `sp_deploy` prints, for each new migration, the exact by-hand command: as `sp`, with host.env loaded, `sp_backup.py daily &&` the migration.
 - Tests: `test_running_release_reads_a_checkout_owned_by_another_user`, `test_a_null_release_carries_its_reason`, `test_deploy_prints_the_exact_migration_command`.
+- Review fixes (Codex on #296):
+  - The migration command runs the new migrations in the order they were added (commit order, oldest first) as one chained `&&` command. Git's alphabetical path order put `migrate_score_90.py` before `migrate_status_raw.py`, which it needs.
+  - A rollback or other non-forward deploy prints no runnable migrations. It lists the skipped ones, and modified migrations are listed separately.
+  - Test: `test_deploy_migration_plan_orders_by_commit_and_skips_rollbacks`.

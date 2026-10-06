@@ -45,17 +45,41 @@ def dirty_paths() -> list[str]:
             if ln.strip()]
 
 
-def migration_command(script: str) -> str:
-    """The exact by-hand command for one migration (ARCHITECT 2026-10-06): as the
-    service user, with host.env loaded as the units load it, the daily .backup
-    first (law 5), and the migration only if the backup succeeded (&&)."""
+def migration_command(scripts: list[str]) -> str:
+    """The exact by-hand command (ARCHITECT 2026-10-06): as the service user, with
+    host.env loaded as the units load it, the daily .backup first (law 5), then
+    the migrations IN THE GIVEN ORDER, each only if everything before it
+    succeeded (&&)."""
     import shlex
     py = c.REPO / "venv" / "bin" / "python"
     py = py if py.exists() else Path(sys.executable)
     user = c.setting("SP_SERVICE_USER", "sp")
+    runs = " && ".join(f"{shlex.quote(str(py))} {shlex.quote(m)}" for m in scripts)
     inner = (f"cd {shlex.quote(str(c.REPO))} && set -a && . {shlex.quote(str(c.HOST_ENV))} && set +a && "
-             f"{shlex.quote(str(py))} deploy/hosting/sp_backup.py daily && {shlex.quote(str(py))} {shlex.quote(script)}")
+             f"{shlex.quote(str(py))} deploy/hosting/sp_backup.py daily && {runs}")
     return f"sudo -u {user} sh -c {shlex.quote(inner)}"
+
+
+def migration_plan(before: str, after: str, changed: list[str]) -> dict:
+    """Which migrations to run by hand, in which order (Codex on #296).
+    - Only a FORWARD deploy (before is an ancestor of after) runs migrations. A
+      rollback or a sideways move never does: its diff lists migrations the
+      target lacks or predates, and the DB keeps its additive columns.
+    - Order = the order the migrations were ADDED in before..after (commit order,
+      oldest first), never git's alphabetical path order: migrate_score_90.py
+      needs migrate_status_raw.py first. Migrations that were only modified are
+      listed separately, never as runnable."""
+    found = [p for p in changed if p.startswith("migrate_") and p.endswith(".py")]
+    if not found:
+        return {"forward": True, "run": [], "modified": [], "skipped": []}
+    if c._git("merge-base", "--is-ancestor", before, after) is None:
+        return {"forward": False, "run": [], "modified": [], "skipped": found}
+    added = []
+    for ln in (c._git("log", "--reverse", "--diff-filter=A", "--name-only", "--format=",
+                      f"{before}..{after}", "--", "migrate_*.py") or "").splitlines():
+        if ln.strip() and ln.strip() in found and ln.strip() not in added:
+            added.append(ln.strip())
+    return {"forward": True, "run": added, "modified": [m for m in found if m not in added], "skipped": []}
 
 
 def main(argv=None) -> int:
@@ -96,14 +120,19 @@ def main(argv=None) -> int:
         pending = sorted(str(p.relative_to(c.REPO)) for d in ("changelog.d", "docs/ledger/entries")
                          for p in (Path(c.REPO) / d).glob("*.md") if p.name != "README.md")
         changed = git("diff", "--name-only", before, after).splitlines() if before != after else []
-    migs = [p for p in changed if p.startswith("migrate_") and p.endswith(".py")]
+    plan = migration_plan(before, after, changed)
     c.append_receipt({"kind": "deploy", "exit": 0, "from_sha": before, "to_sha": after,
                       "from_release": before_rel, "to_release": after_rel, "tag": target,
-                      "files_changed": len(changed), "new_migrations": migs,
+                      "files_changed": len(changed), "new_migrations": plan["run"],
+                      "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
                       "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
-          + (f"\n  ! migrations in this range (backup first, then run by hand): {migs}"
-             + "".join(f"\n      {migration_command(m)}" for m in migs) if migs else "")
+          + (f"\n  ! new migrations, in the order they were added (backup first, then run by hand, in this "
+             f"order): {plan['run']}\n      {migration_command(plan['run'])}" if plan["run"] else "")
+          + (f"\n  ! migrations MODIFIED in this range (not new; read before re-running): {plan['modified']}"
+             if plan["modified"] else "")
+          + (f"\n  ! rollback / non-forward deploy: migrations in the diff are NOT run (the target predates "
+             f"them; the DB keeps its additive columns): {plan['skipped']}" if plan["skipped"] else "")
           + (f"\n  ! {len(pending)} ledger fragment(s) uncompiled in {target} — the tag was cut without "
              "`ledger.py compile` (docs/RELEASES.md step 2)" if pending else ""))
     return 0

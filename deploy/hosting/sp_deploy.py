@@ -76,7 +76,11 @@ def pip_command() -> list[str]:
 
 
 def _pip_run(cmd: list[str], cwd: str) -> int:
-    return subprocess.run(cmd, cwd=cwd).returncode
+    try:
+        return subprocess.run(cmd, cwd=cwd).returncode
+    except OSError as e:                     # a launcher that cannot execute is a failed install, receipted
+        print(f"  ✗ could not run {cmd[0]}: {e.__class__.__name__}: {e}")   # (Codex on #310)
+        return 127
 
 
 def requirements_state_path() -> Path:
@@ -88,80 +92,71 @@ def requirements_state_path() -> Path:
         else c.receipts_path().parent / "requirements.installed"
 
 
-def _include_target(line: str) -> str | None:
-    """The file a -r/--requirement/-c/--constraint line names, else None."""
-    parts = line.split("#", 1)[0].strip().replace("=", " ", 1).split()
-    if len(parts) >= 2 and parts[0] in ("-r", "--requirement", "-c", "--constraint"):
-        return parts[1]
-    if len(parts) == 1 and parts[0][:2] in ("-r", "-c") and len(parts[0]) > 2:
-        return parts[0][2:]
-    return None
-
-
-def _logical_lines(body: str) -> list[str]:
-    """pip's join_lines: a line ending in a backslash continues on the next (Codex on #310)."""
-    out, cur = [], ""
-    for ln in body.splitlines():
-        if ln.endswith("\\"):
-            cur += ln[:-1]                    # pip concatenates; it inserts no whitespace
-            continue
-        out.append(cur + ln)
-        cur = ""
-    if cur:
-        out.append(cur)
-    return out
-
-
+# ALLOWLIST (Codex on #310, six rounds): auto-install handles only plain requirements files. Every other pip
+# feature (editables, local paths and archives, --find-links, URLs and `name @ ...`, environment variables, line
+# continuations, any other option) refuses the deploy and is installed by hand, so nothing pip reads can change
+# unseen by the fingerprint.
+REFUSE = "is not auto-installable"
+_SPEC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9._,\s-]*\])?\s*([<>=!~].*)?(;.*)?$")
+_COMMENT = re.compile(r"(^|\s+)#.*$")
+_INCLUDE = re.compile(r"^(?:-r|--requirement|-c|--constraint)(?:\s+|=)(\S+)$|^-([rc])(\S+)$")
 ARCHIVE_SUFFIXES = (".whl", ".zip", ".tar.gz", ".tgz", ".tar.bz2", ".tar")
 
 
-def _is_local_source(line: str) -> bool:
-    """A requirement installed from the local tree, whose changes the fingerprint cannot see (Codex on #310): a
-    local project or archive path (`./pkg`, `vendor/pkg`, `x.whl`, `/abs`, `file:`), or a local `--find-links`
-    directory. A URL is not local; a plain specifier (`requests>=2`) has no path separator or archive suffix."""
-    parts = line.split("#", 1)[0].strip().replace("=", " ", 1).split() if line.strip().startswith("-") \
-        else line.split("#", 1)[0].strip().split()
-    if not parts:
-        return False
-    if parts[0] in ("-f", "--find-links"):
-        return len(parts) > 1 and "://" not in parts[1]
-    if parts[0].startswith("-f") and len(parts[0]) > 2:
-        return "://" not in parts[0][2:]
-    if parts[0].startswith("-"):
-        return False
-    tok = parts[0].split(";", 1)[0]
-    if "://" in tok:
-        return tok.startswith("file:")
-    return tok.startswith((".", "/", "file:")) or "/" in tok or "\\" in tok or tok.lower().endswith(ARCHIVE_SUFFIXES)
+def _classify(line: str) -> tuple[str, str | None]:
+    """('blank'|'spec'|'include'|'refuse', include path or the refusal detail) for one physical line."""
+    body = _COMMENT.sub("", line).strip()                # pip strips comments first: a comment never continues
+    if not body:
+        return "blank", None
+    if body.endswith("\\"):
+        return "refuse", f"line continuation: {body[:40]!r}"
+    if "$" in body:
+        return "refuse", f"environment variable: {body[:40]!r}"
+    m = _INCLUDE.match(body)
+    if m:
+        path = m.group(1) or m.group(3)
+        if "://" in path:
+            return "refuse", f"remote include: {path[:40]!r}"
+        return "include", path
+    if body.startswith("-"):
+        return "refuse", f"pip option: {body.split()[0]!r}"
+    tok = body.split(";", 1)[0]
+    if "@" in body or "/" in tok or "\\" in tok or tok.split("[")[0].strip().lower().endswith(ARCHIVE_SUFFIXES) \
+            or not _SPEC.match(body):
+        return "refuse", f"not a plain specifier: {body[:40]!r}"
+    return "spec", None
 
 
-def _is_editable(line: str) -> bool:
-    parts = line.split("#", 1)[0].strip().split()
-    return bool(parts) and (parts[0] in ("-e", "--editable") or parts[0].startswith(("-e", "--editable=")))
-
-
-def requirements_inputs(rev: str) -> dict:
-    """{path: blob} for requirements.txt and every file it includes (-r / -c, followed recursively, relative to the
-    including file — pip's rule), at `rev`. An include absent at `rev` maps to None."""
+def requirements_scan(rev: str) -> tuple[dict, list[str]]:
+    """({path: blob} for requirements.txt and every -r/-c include, followed recursively relative to the including
+    file, file symlinks followed to their target), and the refusals found. An include that is not a tracked file
+    (missing, or reached through a symlinked DIRECTORY) is a refusal, never silently skipped."""
     import posixpath
-    out, todo = {}, [REQUIREMENTS]
+    out, problems, todo = {}, [], [REQUIREMENTS]
     while todo:
         p = posixpath.normpath(todo.pop())
         if p in out:
             continue
         out[p] = _blob(rev, p)
         if out[p] is None:
+            problems.append(f"{p}: not a tracked file at the target")
             continue
         rc, mode, _ = _git_rc("ls-tree", rev, "--", p)
-        if rc == 0 and mode.startswith("120000"):      # a tracked symlink: pip reads its TARGET (Codex on #310)
+        if rc == 0 and mode.startswith("120000"):      # a tracked FILE symlink: pip reads its target
             todo.append(posixpath.join(posixpath.dirname(p), _git_rc("show", f"{rev}:{p}")[1].strip()))
             continue
         rc, body, _ = _git_rc("show", f"{rev}:{p}")
-        for ln in (_logical_lines(body) if rc == 0 else []):
-            inc = _include_target(ln)
-            if inc and "://" not in inc:
-                todo.append(posixpath.join(posixpath.dirname(p), inc))
-    return out
+        for ln in (body.splitlines() if rc == 0 else []):
+            kind, detail = _classify(ln)
+            if kind == "include":
+                todo.append(posixpath.join(posixpath.dirname(p), detail))
+            elif kind == "refuse":
+                problems.append(f"{p}: {detail}")
+    return out, problems
+
+
+def requirements_inputs(rev: str) -> dict:
+    return requirements_scan(rev)[0]
 
 
 def _environment_id() -> str:
@@ -193,16 +188,9 @@ def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, 
     deploy. A target without the file installs nothing and says so."""
     if _blob(target_sha, REQUIREMENTS) is None:
         return None, ("removed in the target" if REQUIREMENTS in changed else None)
-    inputs = requirements_inputs(target_sha)
-    # scan only real requirements files: a symlink's blob is its target path, not directives (Codex on #310);
-    # requirements_inputs already followed it to the file pip reads
-    links = {p for p in inputs if _git_rc("ls-tree", target_sha, "--", p)[1].startswith("120000")}
-    editable = sorted(p for p, b in inputs.items() if b and p not in links and any(
-        _is_editable(ln) or _is_local_source(ln) for ln in _logical_lines(_git_rc("show", f"{target_sha}:{p}")[1])))
-    if editable:
-        # an editable install points INTO the temporary worktree, which is deleted afterwards; a local path's
-        # changes are invisible to the fingerprint (Codex on #310): both are installed by hand
-        return None, f"has editable (-e) or local-path requirements in {', '.join(editable)}"
+    inputs, problems = requirements_scan(target_sha)
+    if problems:
+        return None, f"{REFUSE} ({'; '.join(problems[:3])}{' …' if len(problems) > 3 else ''})"
     fp = _fingerprint(inputs)
     touched = sorted(set(inputs) & set(changed))
     if touched:
@@ -484,9 +472,20 @@ def main(argv=None) -> int:
                   + (f"; requirements.txt {req_reason}: would run `{' '.join(pip_command())} install -r "
                      f"{REQUIREMENTS}` (the {target} file) before the checkout" if req_blob else "")
                   + ((f"; requirements.txt {req_reason}: the deploy would be REFUSED"
-                      if req_reason.startswith("has editable") else f"; requirements.txt {req_reason}: nothing to install")
+                      if req_reason.startswith(REFUSE) else f"; requirements.txt {req_reason}: nothing to install")
                      if req_reason and not req_blob else ""))
             return 0
+        # PREFLIGHT the checkout BEFORE installing (Codex on #310): an untracked host file at a path the target
+        # adds would make `git checkout` fail after pip had already installed the target's dependencies
+        added = git("diff", "--name-only", "--diff-filter=A", before, target_sha).splitlines() \
+            if before != target_sha else []
+        blockers = [p for p in added if (Path(c.REPO) / p).exists()]
+        if blockers:
+            c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                              "error": f"untracked files block the checkout: {blockers[:10]}"})
+            print(f"✗ untracked file(s) on the host where {target} adds tracked ones: {blockers[:10]} — deploy refused "
+                  f"before anything was installed; the host stays at {before_rel or before}. Move them aside.")
+            return 1
         installed = False
         if req_blob:
             req = install_requirements(target, target_sha, req_blob, req_reason)
@@ -499,13 +498,13 @@ def main(argv=None) -> int:
                       f"{target}, then deploy again")
                 return 1
             installed = True
-        elif req_reason and req_reason.startswith("has editable"):
+        elif req_reason and req_reason.startswith(REFUSE):
             c.append_receipt({"kind": "deploy_requirements", "exit": 1, "tag": target, "to_sha": target_sha,
                               "error": f"requirements.txt {req_reason}"})
             c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
                               "error": f"requirements.txt {req_reason}"})
-            print(f"✗ requirements.txt {req_reason}: editable or local-path requirements are not auto-installed — deploy "
-                  f"refused; the host stays at {before_rel or before}. Install the target's requirements by hand.")
+            print(f"✗ requirements.txt {req_reason} — deploy refused; the host stays at {before_rel or before}. "
+                  f"Install the target's requirements by hand, then deploy again.")
             return 1
         elif req_reason:
             c.append_receipt({"kind": "deploy_requirements", "exit": 0, "tag": target, "to_sha": target_sha,
@@ -513,7 +512,17 @@ def main(argv=None) -> int:
             print(f"  ! requirements.txt {req_reason}: nothing installed — install the target's dependencies by hand")
         if dirty:
             git("checkout", "--", "RESULTS.md")
-        git("checkout", "--quiet", "--detach", f"{target}^{{commit}}")
+        try:
+            git("checkout", "--quiet", "--detach", f"{target}^{{commit}}")
+        except subprocess.CalledProcessError as e:
+            c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                              "error": f"checkout failed: {(e.stderr or '').strip()[:300]}",
+                              "requirements_installed": installed})
+            print(f"✗ checkout of {target} failed ({(e.stderr or '').strip()[:200]}) — the code stays at "
+                  f"{before_rel or before}"
+                  + (f"; NOTE the venv already has {target}'s requirements installed: re-run the deploy once the "
+                     f"cause is fixed" if installed else ""))
+            return 1
         after, after_rel = git("rev-parse", "--short", "HEAD"), c.running_release()
         # ARCHITECT-RULE 2026-10-02 (per-PR fragments): the fold runs in the tag ritual on main
         # (`ledger.py compile --commit`); the host never commits, so this step only REPORTS what the

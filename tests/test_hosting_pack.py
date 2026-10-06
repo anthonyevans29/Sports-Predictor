@@ -2540,136 +2540,127 @@ def test_deploy_installs_requirements_when_they_changed(sandbox, monkeypatch, ca
     assert "removed in the target: nothing installed" in capsys.readouterr().out
     assert recs("deploy_requirements")[-1]["skipped"] == "requirements.txt removed in the target"
 
-def test_requirements_continuations_editables_and_environment_identity(sandbox, monkeypatch, capsys):
-    """Codex on #310 round 3 (verified): (1) an include split over two lines by a trailing backslash was not fingerprinted, so a
-    change to the included file alone skipped pip; (2) an editable (-e) requirement would point into the deleted
-    temporary worktree: refused before installing; (3) the install record names its destination, so a recreated
-    venv (or a venv replacing the no-venv fallback) is a new destination and reinstalls."""
-    import subprocess
 
-    import sp_deploy
-    repo = sandbox / "rq"
+def _req_repo(sandbox, monkeypatch, name):
+    import os
+    import subprocess
+    repo = sandbox / name
     repo.mkdir()
 
     def g(*a):
         return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
                               check=True, capture_output=True, text=True).stdout.strip()
 
-    def commit(files):
-        for name, text in files:
-            (repo / name).parent.mkdir(parents=True, exist_ok=True)
-            (repo / name).write_text(text)
+    def commit(files=(), links=()):
+        for fname, text in files:
+            (repo / fname).parent.mkdir(parents=True, exist_ok=True)
+            (repo / fname).write_text(text)
+        for fname, target in links:
+            (repo / fname).parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, repo / fname)
         g("add", "-A")
         g("commit", "-q", "-m", "x")
         return g("rev-parse", "HEAD")
     g("init", "-q", "-b", "main")
     monkeypatch.setattr(c, "REPO", repo)
-    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log" / "receipts.jsonl"))
-    one = commit([("requirements.txt", "-r \\\nreqs/base.txt\nrequests\n"), ("reqs/base.txt", "a\n")])
-    assert set(sp_deploy.requirements_inputs(one)) == {"requirements.txt", "reqs/base.txt"}       # (1)
-    two = commit([("reqs/base.txt", "a>=2\n")])
-    assert sp_deploy._fingerprint(sp_deploy.requirements_inputs(one)) != \
-        sp_deploy._fingerprint(sp_deploy.requirements_inputs(two))
-    (sandbox / "log").mkdir(exist_ok=True)
-    (sandbox / "log" / "requirements.installed").write_text(
-        sp_deploy._fingerprint(sp_deploy.requirements_inputs(one)) + "\n")
-    assert sp_deploy.requirements_plan(two, [])[0] is not None                    # the include alone reinstalls
-    three = commit([("requirements.txt", "-e .\nrequests\n")])                                    # (2)
-    assert sp_deploy.requirements_plan(three, ["requirements.txt"]) == \
-        (None, "has editable (-e) or local-path requirements in requirements.txt")
-    no_venv = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))                          # (3)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / f"log-{name}" / "receipts.jsonl"))
+    return repo, g, commit
+
+
+def test_requirements_allowlist_refuses_everything_but_plain_files(sandbox, monkeypatch):
+    """Codex on #310, rounds 3-6: every pip feature whose input the fingerprint could miss (continuations, env vars,
+    editables, local paths and archives, --find-links, `name @ url`, other options, an include not reachable as a
+    tracked file — e.g. through a symlinked DIRECTORY) refuses the deploy; plain specifiers, comments (a comment
+    ending in a backslash does not continue), -r/-c includes and FILE symlinks are fingerprinted. The repo's own
+    requirements.txt is plain."""
+    import sp_deploy
+    repo, g, commit = _req_repo(sandbox, monkeypatch, "allow")
+    ok = commit([("requirements.txt", "# deps \\\n-r reqs/current.txt\nrequests>=2.31  # pinned\n"
+                                      "uvicorn[standard]>=0.27.0\nnumpy>=1.26; python_version > '3'\n"),
+                 ("shared/base.txt", "click\n")], links=[("reqs/current.txt", "../shared/base.txt")])
+    inputs, problems = sp_deploy.requirements_scan(ok)
+    assert problems == [] and {"reqs/current.txt", "shared/base.txt"} <= set(inputs)
+    two = commit([("shared/base.txt", "click>=8\n")])
+    assert sp_deploy.requirements_plan(two, ["shared/base.txt"])[1] == "changed in this range (shared/base.txt)"
+    for bad in ("requests \\", "-r ${REQ_DIR}/base.txt", "-e .", "./pkg", "vendor/pkg", "pkg.whl",
+                "--find-links wheels", "pkg @ file:///opt/pkg", "pkg @ https://x/y.whl", "--index-url https://x",
+                "-r missing.txt"):
+        rev = commit([("requirements.txt", f"{bad}\nrequests\n")])
+        blob, reason = sp_deploy.requirements_plan(rev, ["requirements.txt"])
+        assert blob is None and reason.startswith(sp_deploy.REFUSE), (bad, reason)
+    rev = commit([("requirements.txt", "-r reqs/cur/base.txt\n"), ("reqs/v1/base.txt", "a\n")],
+                 links=[("reqs/cur", "v1")])                                 # a symlinked DIRECTORY component
+    assert sp_deploy.requirements_plan(rev, ["requirements.txt"])[1].startswith(sp_deploy.REFUSE)
+    real = Path(__file__).resolve().parents[1] / "requirements.txt"
+    assert all(sp_deploy._classify(ln)[0] in ("blank", "spec") for ln in real.read_text().splitlines())
+
+
+def test_requirements_record_lives_in_the_venv_and_names_its_destination(sandbox, monkeypatch):
+    """Codex on #310: the install record lives INSIDE the venv (a recreated venv has none, inode reuse or not), and
+    the fingerprint names the destination (a venv replacing the no-venv fallback reinstalls)."""
+    import shutil
+
+    import sp_deploy
+    repo, g, commit = _req_repo(sandbox, monkeypatch, "venvrec")
+    one = commit([("requirements.txt", "requests\n")])
+    no_venv = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))
     (repo / "venv").mkdir()
     (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\n")
-    assert sp_deploy._fingerprint(sp_deploy.requirements_inputs(one)) != no_venv     # a venv replaces the fallback
-    # round 4: the record lives INSIDE the venv, so a deleted and recreated venv has none (inodes are reusable)
-    assert sp_deploy.requirements_state_path() == repo / "venv" / ".sp-requirements.installed"
-    sp_deploy.requirements_state_path().write_text(sp_deploy._fingerprint(sp_deploy.requirements_inputs(two)) + "\n")
-    assert sp_deploy.requirements_plan(two, []) == (None, None)
-    import shutil
+    fp = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))
+    assert fp != no_venv and sp_deploy.requirements_state_path() == repo / "venv" / ".sp-requirements.installed"
+    sp_deploy.requirements_state_path().write_text(fp + "\n")
+    assert sp_deploy.requirements_plan(one, []) == (None, None)
     shutil.rmtree(repo / "venv")
     (repo / "venv").mkdir()
     (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\n")
-    assert sp_deploy.requirements_plan(two, [])[0] is not None                    # recreated venv: reinstall
+    assert sp_deploy.requirements_plan(one, [])[0] is not None
 
 
-def test_requirements_round_four_tokens_symlinks_and_local_paths(sandbox, monkeypatch):
-    """Codex on #310 round 4 (verified): (1) a continuation INSIDE the include path (`reqs/ba` + backslash, then
-    `se.txt`) is concatenated as pip does, without a space; (2) a symlinked include is followed to its target, so
-    a change to the target alone reinstalls; (3) a local-path requirement (./vendor/pkg) is refused like an
-    editable: its changes are invisible to the fingerprint."""
-    import os
+def test_deploy_preflights_checkout_blockers_and_receipts_pip_launch_failures(sandbox, monkeypatch, capsys):
+    """Codex on #310 round 6: (1) an untracked host file where the target adds a tracked one would fail the checkout
+    AFTER pip installed: refused before installing, receipted; (2) a pip launcher that cannot execute (OSError) is a
+    receipted failed install, not a traceback."""
     import subprocess
 
     import sp_deploy
-    repo = sandbox / "r4"
-    repo.mkdir()
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
 
-    def g(*a):
-        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
                               check=True, capture_output=True, text=True).stdout.strip()
-
-    def commit(files=(), links=()):
-        for name, text in files:
-            (repo / name).parent.mkdir(parents=True, exist_ok=True)
-            (repo / name).write_text(text)
-        for name, target in links:
-            (repo / name).parent.mkdir(parents=True, exist_ok=True)
-            os.symlink(target, repo / name)
-        g("add", "-A")
-        g("commit", "-q", "-m", "x")
-        return g("rev-parse", "HEAD")
-    g("init", "-q", "-b", "main")
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "requirements.txt").write_text("requests\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    (origin / "requirements.txt").write_text("requests\ncryptography\n")
+    (origin / "newfile.py").write_text("x = 1\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "adds")
+    g(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
     monkeypatch.setattr(c, "REPO", repo)
-    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log4" / "receipts.jsonl"))
-    one = commit([("requirements.txt", "-r reqs/ba\\\nse.txt\n"), ("reqs/base.txt", "a\n")])
-    assert "reqs/base.txt" in sp_deploy.requirements_inputs(one)                                 # (1)
-    two = commit([("requirements.txt", "-r reqs/current.txt\n"), ("reqs/v1.txt", "b\n")],
-                 links=[("reqs/current.txt", "v1.txt")])
-    assert {"reqs/current.txt", "reqs/v1.txt"} <= set(sp_deploy.requirements_inputs(two))        # (2)
-    three = commit([("reqs/v1.txt", "b>=2\n")])
-    assert sp_deploy.requirements_plan(three, ["reqs/v1.txt"])[1] == "changed in this range (reqs/v1.txt)"
-    four = commit([("requirements.txt", "./vendor/pkg\nrequests\n")])                            # (3)
-    assert sp_deploy.requirements_plan(four, ["requirements.txt"]) == \
-        (None, "has editable (-e) or local-path requirements in requirements.txt")
-
-
-def test_requirements_round_five_symlink_payloads_bare_paths_and_find_links(sandbox, monkeypatch):
-    """Codex on #310 round 5 (verified): (1) a symlinked include whose target is `../shared/base.txt` must not be
-    scanned as a directive (its blob is the link target, which looked like a local path and refused every deploy);
-    (2) bare relative local paths (`vendor/pkg`, `pkg.whl`) and (3) a local `--find-links` directory are local
-    sources, refused like editables: their changes are invisible to the fingerprint. The repo's own
-    requirements.txt has none."""
-    import os
-    import subprocess
-
-    import sp_deploy
-    repo = sandbox / "r5"
-    repo.mkdir()
-
-    def g(*a):
-        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
-                              check=True, capture_output=True, text=True).stdout.strip()
-
-    def commit(files=(), links=()):
-        for name, text in files:
-            (repo / name).parent.mkdir(parents=True, exist_ok=True)
-            (repo / name).write_text(text)
-        for name, target in links:
-            (repo / name).parent.mkdir(parents=True, exist_ok=True)
-            os.symlink(target, repo / name)
-        g("add", "-A")
-        g("commit", "-q", "-m", "x")
-        return g("rev-parse", "HEAD")
-    g("init", "-q", "-b", "main")
+    log = sandbox / "log" / "receipts.jsonl"
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    calls = []
+    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd, cwd: calls.append(cmd) or 0)
+    (repo / "newfile.py").write_text("untracked host copy\n")                   # (1)
+    before = g(repo, "rev-parse", "HEAD")
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and calls == [] and g(repo, "rev-parse", "HEAD") == before
+    assert "deploy refused before anything was installed" in capsys.readouterr().out
+    assert "untracked files block the checkout" in json.loads(log.read_text().splitlines()[-1])["error"]
+    (repo / "newfile.py").unlink()
+    monkeypatch.undo()                                                         # (2): the real _pip_run
     monkeypatch.setattr(c, "REPO", repo)
-    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log5" / "receipts.jsonl"))
-    one = commit([("requirements.txt", "-r reqs/current.txt\n"), ("shared/base.txt", "requests\n")],
-                 links=[("reqs/current.txt", "../shared/base.txt")])
-    blob, reason = sp_deploy.requirements_plan(one, ["requirements.txt"])
-    assert blob is not None and reason == "changed in this range"                                 # (1)
-    for line in ("vendor/pkg", "pkg.whl", "--find-links wheels"):                                 # (2), (3)
-        rev = commit([("requirements.txt", f"{line}\nrequests\n")])
-        assert sp_deploy.requirements_plan(rev, ["requirements.txt"]) == \
-            (None, "has editable (-e) or local-path requirements in requirements.txt"), line
-    real = Path(__file__).resolve().parents[1] / "requirements.txt"
-    assert not any(sp_deploy._is_local_source(ln) for ln in real.read_text().splitlines())
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    monkeypatch.setattr(sp_deploy, "pip_command", lambda: [str(sandbox / "no-such-pip")])
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and g(repo, "rev-parse", "HEAD") == before
+    recs = [json.loads(x) for x in log.read_text().splitlines()]
+    assert [r for r in recs if r["kind"] == "deploy_requirements"][-1]["exit"] == 127
+    assert "could not run" in capsys.readouterr().out

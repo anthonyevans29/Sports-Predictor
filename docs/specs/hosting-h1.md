@@ -929,8 +929,12 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     venv may be partially updated. Fix the cause, run the printed command by
     hand from a checkout of the target, then deploy again.
   - A target without `requirements.txt` installs nothing and says so.
-  - Editable (`-e`) and local-path (`./pkg`, `file:`) requirements refuse the
-    deploy; install those by hand.
+  - Only plain requirements files auto-install: comments, version specifiers,
+    and `-r`/`-c` includes of tracked files. Anything else (editables, local
+    paths, `--find-links`, `name @ …`, `$VARS`, continuations, other options)
+    refuses the deploy with the reason; install those by hand.
+  - An untracked host file where the target adds a tracked one refuses the
+    deploy before anything is installed.
   - The install record lives inside the venv (`venv/.sp-requirements.installed`),
     so a recreated venv reinstalls on the next deploy.
 - **Midweek PL round (H0-10), operator-started.**

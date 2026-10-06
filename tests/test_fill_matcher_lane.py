@@ -82,3 +82,21 @@ def test_composite_no_matches_its_ladder_call_never_a_straight():
     graded = dict(lad, status="graded", close_ref={"fair": {"HOME": 0.45, "DRAW": 0.27, "AWAY": 0.28}})
     pos = P.executed_positions({"calls": [graded], "fills": [dict(L["fills"][0], qty=2, entry=0.5)]})["pos"]
     assert len(pos) == 1 and abs(pos[0]["clv"] - ((1 - 0.45) - 0.5)) < 1e-12             # held NO HOME at 0.55
+
+
+def test_non_prefix_codes_match_through_a_strict_title_and_shared_words_still_do_not():
+    """Codex on #299, round 3 (verified): JAX does not prefix 'Jacksonville Jaguars' (nor BHA 'Brighton and Hove
+    Albion'), so codes-only rejected the right game. A strict two-team title fit (whole-word subsets on two
+    different sides) now matches; one shared word, or Manchester City vs Manchester United, still does not."""
+    nfl = {"calls": [_call("j", "Jacksonville Jaguars", "Tennessee Titans", "HOME", "2026-10-04T17:00:00", "NFL")],
+           "fills": [_fill("a", "KXNFLGAME-26OCT04TENJAX-JAX", "yes", "Jacksonville wins — Tennessee")]}
+    (f,) = P.classify_fills(nfl)
+    assert f["book"] == "system_matched" and f["call_id"] == "j"
+    epl = {"calls": [_call("b", "Brighton and Hove Albion", "Everton", "HOME", "2026-10-04T14:00:00", "SOCCER")],
+           "fills": [_fill("c", "KXEPLGAME-26OCT04EVEBHA-BHA", "yes", "Brighton wins — Everton")]}
+    (g,) = P.classify_fills(epl)
+    assert g["book"] == "system_matched" and g["call_id"] == "b"
+    city = {"calls": [_call("u", "Manchester United", "Arsenal", "HOME", "2026-10-04T14:00:00", "SOCCER")],
+            "fills": [_fill("d", "KXEPLGAME-26OCT04ARSMCI-MCI", "yes", "Manchester City wins — Arsenal")]}
+    (h,) = P.classify_fills(city)
+    assert h["book"] != "system_matched"

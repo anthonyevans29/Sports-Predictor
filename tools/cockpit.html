@@ -1698,10 +1698,22 @@ function tokOverlap(a,b){const A=new Set(normTeam(a).split(" ").filter(Boolean))
   return B.filter(x=>A.has(x)).length;}
 function sameTeam(a,b){ if(!a||!b) return false; if(a==="Draw"||b==="Draw") return a===b;
   return tokOverlap(a,b)>0; }
+function tokSubset(a,b){                           // every word of the shorter name is in the longer
+  const A=normTeam(a).split(" ").filter(Boolean), B=normTeam(b).split(" ").filter(Boolean);
+  if(!A.length||!B.length) return false;
+  const [x,y]=A.length<=B.length?[A,new Set(B)]:[B,new Set(A)];
+  return x.every(w=>y.has(w));
+}
+function titleFitsStrict(tt,g){                     // two title teams on two DIFFERENT sides, whole-word subsets
+  if(!tt||tt.length!==2) return false;
+  const f=(t,n)=>tokSubset(t,n);
+  return (f(tt[0],g.home)&&f(tt[1],g.away))||(f(tt[0],g.away)&&f(tt[1],g.home));
+}
 function gameFits(fx,g){
-  // The ticker's team codes ({AWAY}{HOME}) decide when present: a title fit alone let one shared word
-  // ("United", "City") stand for team identity (fill matcher lane, Codex on #299). Title only without codes.
-  if(fx.teams) return codesFit(fx.teams,g);
+  // FILL MATCHER LANE (Codex on #299): with ticker codes, the codes fit OR a strict two-team title fit. One
+  // shared word ("United", "City") is never team identity, and a standard non-prefix code (JAX, BHA) still
+  // matches through the title. Tickers without codes keep the original title rule.
+  if(fx.teams) return codesFit(fx.teams,g)||titleFitsStrict(fx.teams_title,g);
   return !!fx.teams_title&&fx.teams_title.every(t=>sameTeam(t,g.home)||sameTeam(t,g.away));
 }
 function backedIn(fx,g){                            // the fill's backed side, named in this game

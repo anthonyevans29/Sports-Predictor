@@ -7,3 +7,4 @@
   - When the ticker carries team codes, they decide which game a fill fits. One shared title word ("United", "City") no longer stands for team identity.
   - The receipt's unpriced-position count is scoped to the window.
 - Review fix (Codex on #299, round 2): a composite NO matches a real LADDER call whose pick is the opposite side. The desk order line executes an AWAY ladder as NO on HOME (X2), so executed ladders reconcile and carry their CLV. A straight still never matches a composite.
+- Review fix (Codex on #299, round 3): ticker codes that do not prefix the team name (JAX for Jacksonville Jaguars, BHA for Brighton and Hove Albion) now match through a strict two-team title fallback. Both title teams must fit, on different sides, by whole-word subset. A shared "United" and Man City vs Man United still do not match.

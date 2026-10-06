@@ -199,11 +199,29 @@ def _codes_fit(T: str, c: dict) -> bool:
     return False
 
 
+def _tok_subset(a, b) -> bool:
+    A = [w for w in norm_team(a).split(" ") if w]
+    B = [w for w in norm_team(b).split(" ") if w]
+    if not A or not B:
+        return False
+    x, y = (A, set(B)) if len(A) <= len(B) else (B, set(A))
+    return all(w in y for w in x)
+
+
+def _title_fits_strict(tt, g: dict) -> bool:
+    """Two title teams on two DIFFERENT sides, each a whole-word subset of its side's name."""
+    if not tt or len(tt) != 2:
+        return False
+    return ((_tok_subset(tt[0], g.get("home")) and _tok_subset(tt[1], g.get("away")))
+            or (_tok_subset(tt[0], g.get("away")) and _tok_subset(tt[1], g.get("home"))))
+
+
 def game_fits(fx: dict, g: dict) -> bool:
-    """gameFits: the ticker's team codes decide when present (a one-word title overlap such as "United" is
-    not team identity, Codex on #299); the title is used only when the ticker carries no codes."""
+    """gameFits: with ticker codes, the codes fit OR a strict two-team title fit (one shared word such as
+    "United" is never identity; a standard non-prefix code such as JAX or BHA still matches through the
+    title, Codex on #299). Tickers without codes keep the original title rule."""
     if fx.get("teams"):
-        return _codes_fit(fx["teams"], g)
+        return _codes_fit(fx["teams"], g) or _title_fits_strict(fx.get("teams_title"), g)
     tt = fx.get("teams_title")
     return bool(tt) and all(same_team(t, g.get("home")) or same_team(t, g.get("away")) for t in tt)
 

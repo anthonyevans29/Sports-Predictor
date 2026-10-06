@@ -110,12 +110,25 @@ def latest_release(tags: list[str]) -> str | None:
     return max(rel, key=release_key) if rel else None
 
 
+_GIT_ERROR: dict = {"last": None}
+
+
 def _git(*args: str) -> str | None:
+    """git in REPO. `safe.directory` is passed for REPO only: the host checkout
+    (/opt/sports-predictor) is installed by root and the units run as `sp`, and git
+    refuses a repository owned by another user ("dubious ownership"), which left
+    every receipt's release null (cutover-readiness (b), ARCHITECT 2026-10-06).
+    The failure text is kept so a null release is never unexplained."""
     try:
-        r = subprocess.run(["git", "-C", str(REPO), *args], capture_output=True, text=True, timeout=10)
-    except (OSError, subprocess.SubprocessError):
+        r = subprocess.run(["git", "-c", f"safe.directory={REPO}", "-C", str(REPO), *args],
+                           capture_output=True, text=True, timeout=10)
+    except (OSError, subprocess.SubprocessError) as e:
+        _GIT_ERROR["last"] = f"git not runnable: {e}"[:200]
         return None
-    return r.stdout.strip() if r.returncode == 0 else None
+    if r.returncode != 0:
+        _GIT_ERROR["last"] = ((r.stderr or "").strip().splitlines() or [f"git exit {r.returncode}"])[0][:200]
+        return None
+    return r.stdout.strip()
 
 
 def running_release() -> str | None:
@@ -168,8 +181,11 @@ def _dotenv() -> dict:
 def append_receipt(rec: dict) -> dict:
     """Append one JSON line (ts/host/release first — every receipt names the
     running tag, release model 2026-09-30). Append-only; never rewrites."""
-    line = {"ts": iso(), "host": host_name(), "release": running_release(),
+    rel = running_release()
+    line = {"ts": iso(), "host": host_name(), "release": rel,
             "writer_of_record": writer_of_record(), **rec}
+    if rel is None:                              # law 4: never a guessed tag, but always a stated reason
+        line["release_error"] = _GIT_ERROR["last"] or "git unreadable"
     p = receipts_path()
     p.parent.mkdir(parents=True, exist_ok=True)
     with open(p, "a", encoding="utf-8") as f:

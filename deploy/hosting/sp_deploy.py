@@ -45,6 +45,19 @@ def dirty_paths() -> list[str]:
             if ln.strip()]
 
 
+def migration_command(script: str) -> str:
+    """The exact by-hand command for one migration (ARCHITECT 2026-10-06): as the
+    service user, with host.env loaded as the units load it, the daily .backup
+    first (law 5), and the migration only if the backup succeeded (&&)."""
+    import shlex
+    py = c.REPO / "venv" / "bin" / "python"
+    py = py if py.exists() else Path(sys.executable)
+    user = c.setting("SP_SERVICE_USER", "sp")
+    inner = (f"cd {shlex.quote(str(c.REPO))} && set -a && . {shlex.quote(str(c.HOST_ENV))} && set +a && "
+             f"{shlex.quote(str(py))} deploy/hosting/sp_backup.py daily && {shlex.quote(str(py))} {shlex.quote(script)}")
+    return f"sudo -u {user} sh -c {shlex.quote(inner)}"
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Deploy a release tag (production = tags only).")
     ap.add_argument("--tag", default=None, help="Exact release tag (vX.Y.Z); default: the latest.")
@@ -89,7 +102,8 @@ def main(argv=None) -> int:
                       "files_changed": len(changed), "new_migrations": migs,
                       "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
-          + (f"\n  ! migrations in this range (backup first, then run by hand): {migs}" if migs else "")
+          + (f"\n  ! migrations in this range (backup first, then run by hand): {migs}"
+             + "".join(f"\n      {migration_command(m)}" for m in migs) if migs else "")
           + (f"\n  ! {len(pending)} ledger fragment(s) uncompiled in {target} — the tag was cut without "
              "`ledger.py compile` (docs/RELEASES.md step 2)" if pending else ""))
     return 0

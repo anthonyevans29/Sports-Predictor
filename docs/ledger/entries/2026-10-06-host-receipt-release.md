@@ -1,0 +1,11 @@
+**2026-10-06 — BUILT (ARCHITECT, cutover-readiness first live run NOT-YET): host receipts carry the running release.**
+- **Ruling (verbatim):** "(b) receipts.jsonl carries no release — sp_run must stamp the running tag into every receipt (patch, host-side); (c) follows (b). Also the host deploy flagged migrate_kalshi_ticker.py — sp_deploy should print the exact run-by-hand command."
+- **Root cause (reproduced):**
+  - Every receipt already went through `append_receipt`, which stamps `running_release()`, and every tag from v1.0.0 to v1.2.3 carries that stamp. The release was null, not missing.
+  - The checkout (`/opt/sports-predictor`) is root-installed and the units run `User=sp`. Git refuses a repository owned by another user ("detected dubious ownership"), so every git read returned None.
+  - Reproduced on git 2.43: a repo owned by `nobody` fails a plain `rev-parse` and passes with `-c safe.directory=<repo>`.
+- **Built:**
+  - `_git` passes `safe.directory` for REPO only.
+  - A still-null release is receipted with `release_error` (law 4: never a guessed tag, always a stated reason).
+  - `sp_deploy` prints the exact backup-then-migrate command for each new migration.
+- **Operator:** this takes effect on the host only through a release tag; the architect cuts it. After deploy, the next receipt should read `release: vX.Y.Z`. If it is still null, `release_error` names why.

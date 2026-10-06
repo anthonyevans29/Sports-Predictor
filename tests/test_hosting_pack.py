@@ -1502,3 +1502,45 @@ def test_catch_up_stops_at_failure_and_refuses_version_skew(sandbox, monkeypatch
     ref.write_text(json.dumps(fp))
     assert bootstrap.main(["catch-up", "--reference", str(ref)]) == 2
     assert receipts(sandbox)[-1]["refused"] == "version_mismatch"
+
+
+# ------------------------------------- release on every receipt (2026-10-06) ----
+
+def test_running_release_reads_a_checkout_owned_by_another_user(tmp_path, monkeypatch):
+    """ARCHITECT 2026-10-06, cutover-readiness (b): receipts.jsonl carried no release. The host checkout is
+    root-installed and the units run as `sp`; git refuses a repo owned by another user ("dubious ownership"),
+    so running_release() was None on every receipt. _git passes safe.directory for REPO only."""
+    import os
+    import subprocess
+    if os.geteuid() != 0:
+        pytest.skip("needs root to own the repo as another user")
+    repo = tmp_path / "owned"
+    repo.mkdir()
+    subprocess.run(["git", "init", "-q", str(repo)], check=True)
+    subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q",
+                    "--allow-empty", "-m", "x"], check=True)
+    subprocess.run(["git", "-C", str(repo), "tag", "v9.9.9"], check=True)
+    subprocess.run(["chown", "-R", "nobody", str(repo)], check=True)
+    plain = subprocess.run(["git", "-C", str(repo), "rev-parse", "HEAD"], capture_output=True, text=True)
+    assert plain.returncode != 0 and "dubious ownership" in plain.stderr        # the host's failure, reproduced
+    monkeypatch.setattr(c, "REPO", repo)
+    assert c.running_release() == "v9.9.9"
+
+
+def test_a_null_release_carries_its_reason(sandbox, monkeypatch, tmp_path):
+    """Law 4: never a guessed tag — but a null release always states why."""
+    monkeypatch.setattr(c, "REPO", tmp_path / "not-a-repo")
+    line = c.append_receipt({"kind": "chain", "unit": "sp-chain@x.service", "exit": 0})
+    assert line["release"] is None and line["release_error"]
+    stored = json.loads(c.receipts_path().read_text().splitlines()[-1])
+    assert stored["release_error"] == line["release_error"]
+
+
+def test_deploy_prints_the_exact_migration_command(monkeypatch):
+    """ARCHITECT 2026-10-06: the deploy flagged migrate_kalshi_ticker.py; it prints the exact by-hand command
+    — as the service user, host.env loaded, the daily .backup first, the migration only if it succeeded."""
+    import sp_deploy
+    cmd = sp_deploy.migration_command("migrate_kalshi_ticker.py")
+    assert cmd.startswith("sudo -u sp sh -c ")
+    assert f"cd {c.REPO}" in cmd and f". {c.HOST_ENV}" in cmd
+    assert cmd.index("sp_backup.py daily &&") < cmd.index("migrate_kalshi_ticker.py")

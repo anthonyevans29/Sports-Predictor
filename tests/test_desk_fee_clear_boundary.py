@@ -4,7 +4,7 @@ from src.walters import desk_policy as D
 
 
 def test_exact_four_point_edge_clears(monkeypatch):
-    monkeypatch.setattr(D, "desk_cost_for", lambda r, side: {"cost": 0.31, "basis": "taker"})
+    monkeypatch.setattr(D, "desk_cost_for", lambda r, side, units=None: {"cost": 0.31, "basis": "taker"})
     monkeypatch.setattr(D, "join_bid_for", lambda r, side: None)
     monkeypatch.setattr(D, "exec_cost_for", lambda r, side: 0.31)
     monkeypatch.setattr(D, "k_side", lambda r, side: {"no": False})

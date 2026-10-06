@@ -123,19 +123,19 @@ def main():
         legs = [c for c in led["calls"] if c.get("call_type") == "parlay_leg"]
         check("parlay legs are logged at their executable cost (fair kept as fair_p), so tickets settle at it",
               legs and all(c.get("price_basis", "").startswith("executable") and c["market_p"] != c.get("fair_p")
-                           for c in legs) and any(abs(c["market_p"] - 0.617) < 1e-9 for c in legs),
+                           for c in legs) and any(abs(c["market_p"] - 0.615) < 1e-9 for c in legs),
               json.dumps([(c["game"], c["market_p"], c.get("fair_p")) for c in legs][:4]))
         ven = page.evaluate("""Array.from(document.querySelectorAll('#venueTable tbody tr'))
             .map(tr=>Array.from(tr.children).map(td=>td.textContent))""")
         bos = next(v for v in ven if "Boston" in v[0])
         nyr = next(v for v in ven if "New York Rangers" in v[0])
-        check("venue: fair +8.0 and exec +5.3 → VENUE 0.25u with a TAKE order",
-              bos[5].startswith("VENUE 0.25u") and "@ 0.53" in bos[5] and "exec edge 5.3pp ≥ 4pp" in bos[6], bos)
-        check("venue: fair +8.0 but exec +1.3 → PASS (below floor), exec reason shown",
-              nyr[5].startswith("PASS") and "exec edge 1.3pp < 4pp at ask + taker fee 0.587" in nyr[6], nyr)
+        check("venue: fair +8.0 and exec +5.5 (2-contract order, (h)) → VENUE 0.25u with a TAKE order",
+              bos[5].startswith("VENUE 0.25u") and "@ 0.53" in bos[5] and "exec edge 5.5pp ≥ 4pp" in bos[6], bos)
+        check("venue: fair +8.0 but exec +1.5 → PASS (below floor), exec reason shown",
+              nyr[5].startswith("PASS") and "exec edge 1.5pp < 4pp at ask + taker fee 0.585" in nyr[6], nyr)
         par = page.evaluate("document.getElementById('parlayOut').textContent")
         check("parlays: Π executable cost, each leg's exec cost, the independence-estimate label",
-              "Π executable cost" in par and "exec 0.617" in par and dp.PARLAY_LABEL in par, par[:300])
+              "Π executable cost" in par and "exec 0.615" in par and dp.PARLAY_LABEL in par, par[:300])
         browser.close()
     srv.shutdown()
     check("no page errors", not errors, "; ".join(errors))

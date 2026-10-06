@@ -119,12 +119,13 @@ def _fixture(home, fair_h, legs=None, captured=30):
 
 def test_venue_needs_five_fair_and_four_executable():
     doc = {"competition": "NHL", "fixtures": [
-        _fixture("OK", 0.60, {"HOME": {"ticker": "T1", "bid": 0.52, "ask": 0.53}}),   # fair +8.0, exec +5.3
-        _fixture("FEE", 0.60, {"HOME": {"ticker": "T2", "bid": 0.56, "ask": 0.57}}),  # fair +8.0, exec +1.3
+        _fixture("OK", 0.60, {"HOME": {"ticker": "T1", "bid": 0.52, "ask": 0.53}}),   # fair +8.0, exec +5.5 (2 contracts)
+        _fixture("FEE", 0.60, {"HOME": {"ticker": "T2", "bid": 0.56, "ask": 0.57}}),  # fair +8.0, exec +1.5
         _fixture("NOQ", 0.60)]}                                                       # no executable quote
     ven = {r["home"]: v for r, v in dp.evaluate(doc, NOW_MS)["venue"]}
-    assert ven["OK"]["eligible"] and abs(ven["OK"]["execPP"] - 5.3) < 1e-9 and ven["OK"]["execCost"] == 0.547
-    assert not ven["FEE"]["eligible"] and ven["FEE"]["kind"] == "floor" and "exec edge 1.3pp < 4pp" in ven["FEE"]["reason"]
+    # (h): a 0.25u venue order is 2 contracts: fee round(2·0.07·0.53·0.47·100)c = 3c -> 1.5c per contract
+    assert ven["OK"]["eligible"] and abs(ven["OK"]["execPP"] - 5.5) < 1e-9 and ven["OK"]["execCost"] == 0.545
+    assert not ven["FEE"]["eligible"] and ven["FEE"]["kind"] == "floor" and "exec edge 1.5pp < 4pp" in ven["FEE"]["reason"]
     assert not ven["NOQ"]["eligible"] and ven["NOQ"]["kind"] == "noref"
     dp.annotate(doc, now=NOW)
     d = {f["home_team"]: f["desk"] for f in doc["fixtures"]}
@@ -139,7 +140,7 @@ def test_window_card_venue_uses_the_same_gate():
     row = {**_fixture("W", 0.60, {"HOME": {"ticker": "T", "bid": 0.56, "ask": 0.57}}), "competition": "NHL",
            "engine": "market_only"}
     v = dp.window_venue(row, NOW_MS)
-    assert not v["eligible"] and v["kind"] == "floor" and abs(v["exec_pp"] - 1.3) < 1e-9
+    assert not v["eligible"] and v["kind"] == "floor" and abs(v["exec_pp"] - 1.5) < 1e-9
     row["kalshi_legs"]["HOME"].update(bid=0.52, ask=0.53)
     assert dp.window_venue(row, NOW_MS)["eligible"]
 
@@ -191,3 +192,39 @@ def test_doctrine_join_price_and_order_share_one_source_for_three_way_legs():
     o = dp.order_line(n, "AWAY", 1)
     assert blk["doctrine"] == "join" and blk["join_price"] == 0.31 == o["limit"]
     assert o["text"].startswith("BUY YES KXEPLGAME-X-FUL @ 0.31")
+
+
+def test_h_each_order_is_priced_at_its_own_contract_count(monkeypatch):
+    """(h) RULED 2026-10-06: the fee is per fill of the order's OWN contract count; the 10-contract assumption ended.
+    At a 0.55 ask (NFL M=1): 10 contracts -> 17c/10 = 1.7c; 2 contracts (0.25u) -> 3c/2 = 1.5c; SP_UNIT_USD=20 ->
+    floor(20/0.55) = 36 contracts -> round(62.37c) = 62c/36."""
+    n = dp.normalize({"sport": "nfl", "predictions": [nfl("A", 0.62, 0.55, bid=0.54, ask=0.55)]})[0]
+    assert dp.taker_cost_for(n, "HOME", 1) == 0.567 and dp.taker_cost_for(n, "HOME", 0.25) == 0.565
+    monkeypatch.setenv("SP_UNIT_USD", "20")
+    assert dp.order_contracts(1, 0.55) == 36 and dp.taker_cost_for(n, "HOME", 1) == round(0.55 + 0.62 / 36, 4)
+    monkeypatch.delenv("SP_UNIT_USD")
+    assert dp.taker_cost_for(n, "HOME", 0.05) is None                 # under one contract: no order, no cost
+    # a halved PLAY: the gate priced the 1u order; the emitted 0.5u order (5 contracts) is reported beside it
+    doc = {"sport": "nfl", "predictions": [nfl("HALF", 0.62, 0.55, bid=0.58, ask=0.59)]}
+    dp.annotate(doc, now=NOW)
+    x = doc["predictions"][0]["desk"]["exec"]
+    assert doc["predictions"][0]["desk"]["units"] == 0.5 and x["contracts"] == 10 and x["order_contracts"] == 5
+    assert x["cost"] == 0.607 and x["order_cost"] == 0.606          # 5 × 0.07·0.59·0.41 = 8.47c -> 8c / 5 = 1.6c
+
+
+def test_i_venue_backs_the_best_side_that_clears_both_gates():
+    """(i) RULED 2026-10-06: HOME leads on fair divergence (+8) but fails exec at its ask; DRAW (+6 fair) clears exec:
+    the engine backs DRAW. With no side clearing both, the largest-divergence side is reported with its PASS reason."""
+    f = {"home_team": "H", "away_team": "A", "utc_date": ko(), "status": "scheduled",
+         "market": {"bookmaker_count": 5, "fair_prob": {"HOME": 0.50, "DRAW": 0.30, "AWAY": 0.20},
+                    "captured_at": (NOW - timedelta(minutes=20)).strftime("%Y-%m-%dT%H:%M:%S")},
+         "kalshi": {"status": "two_sided", "prob": {"HOME": 0.42, "DRAW": 0.24, "AWAY": 0.34}},
+         "kalshi_legs": {"HOME": {"ticker": "TH", "bid": 0.47, "ask": 0.48},     # 0.50 − 0.495 = +0.5 exec
+                         "DRAW": {"ticker": "TD", "bid": 0.22, "ask": 0.23}}}     # 0.30 − (0.23 + 0.01) = +6.0
+    v = dp.evaluate({"competition": "UCL", "fixtures": [f]}, NOW_MS)["venue"][0][1]
+    assert v["eligible"] and v["side"] == "DRAW" and abs(v["divPP"] - 6.0) < 1e-9
+    f["kalshi_legs"]["DRAW"].update(bid=0.26, ask=0.27)                          # DRAW now fails exec too
+    v = dp.evaluate({"competition": "UCL", "fixtures": [f]}, NOW_MS)["venue"][0][1]
+    assert not v["eligible"] and v["side"] == "HOME" and "exec edge" in v["reason"]
+    with dp.base_v11():
+        assert dp.evaluate({"competition": "UCL", "fixtures": [f]}, NOW_MS)["venue"][0][1]["side"] == "HOME"

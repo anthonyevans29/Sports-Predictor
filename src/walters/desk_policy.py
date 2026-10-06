@@ -313,8 +313,22 @@ def venue_edge(r, now_ms: float) -> dict:
         out["reason"] = (f"books {js_fixed(out['bookP'] * 100, 1)}% vs Kalshi {js_fixed(out['kalP'] * 100, 1)}%"
                          f" → Kalshi underprices by {js_fixed(best[1], 1)}pp")
         if EXEC_RULES["on"]:
-            # #87 v1.1 (4): the 5pp fair threshold stands AND exec edge = book fair − (ask + taker fee) >= 4pp
-            cost = taker_cost_for(r, best[0])
+            # #87 v1.1 (4): the 5pp fair threshold stands AND exec edge = book fair − (ask + taker fee) >= 4pp.
+            # (i) RULED 2026-10-06: the engine backs the best side (largest fair divergence) among the sides that
+            # clear BOTH gates; when none does, the largest-divergence side is reported with its PASS reason.
+            both = []
+            for k, d in out["sides"].items():
+                if d >= VENUE["minDivPP"]:
+                    ck = taker_cost_for(r, k, VENUE["units"])
+                    if ck is not None and exec_clears((fair[k] - ck) * 100):
+                        both.append((d, k))
+            if both:
+                d, k = max(both)
+                best = (k, d)
+                out.update(side=k, divPP=d, bookP=fair[k], kalP=r["kalProb"][k])
+                out["reason"] = (f"books {js_fixed(out['bookP'] * 100, 1)}% vs Kalshi "
+                                 f"{js_fixed(out['kalP'] * 100, 1)}% → Kalshi underprices by {js_fixed(d, 1)}pp")
+            cost = taker_cost_for(r, best[0], VENUE["units"])
             out["execCost"] = cost
             out["execPP"] = None if cost is None else (out["bookP"] - cost) * 100
             if cost is None:
@@ -402,24 +416,38 @@ def maker_cost_for(r, side):
     return k["maker"] if k and k.get("maker") is not None else None
 
 
-def taker_cost_for(r, side):
-    """#87 v1.1 (1): the EXECUTABLE cost of backing `side` = the ask of the contract the order line buys +
-    the taker fee (venue.kalshi_fee: 0.07·M·P(1−P), nearest cent per fill of K_ORDER_CONTRACTS). The side's
-    own YES leg when its ask is captured (kalshi_legs), else the row's K-track cost for that side (HOME YES;
-    two-way AWAY = NO on HOME, #89). None = no executable quote (never guessed)."""
-    leg = (((r.get("src") or {}).get("kalshi_legs") or {}).get(side) or {})
-    ask = leg.get("ask")
-    if ask is not None and 0 < ask < 1:
-        from src.walters.venue import KALSHI_FEE_M, KALSHI_SERIES_BY_COMPETITION, kalshi_fee
-        series = KALSHI_SERIES_BY_COMPETITION.get(r.get("comp") or r.get("sport") or "")
-        fee = kalshi_fee(ask, KALSHI_FEE_M.get(series, (1.0, None))[0])
-        return round(ask + fee, 4) if fee is not None else None
-    return exec_cost_for(r, side)
+def order_contracts(units, limit):
+    """The contract count `order_line` writes for `units` at `limit` (SP_UNIT_USD -> dollars / limit, else
+    ORDER_UNIT_CONTRACTS per 1u, floored); None when under one contract or no valid limit."""
+    if not units or units <= 0 or limit is None or not (0 < limit < 1):
+        return None
+    unit = unit_size()
+    n = int(units * unit["value"] / limit + 1e-9) if unit["mode"] == "usd" else int(units * unit["value"] + 1e-9)
+    return n if n >= 1 else None
 
 
-def desk_cost_for(r, side):
+def taker_cost_for(r, side, units=None):
+    """#87 v1.1 (1): the EXECUTABLE cost of backing `side` = the ask of the contract the order line buys + the
+    taker fee (0.07·M·P(1−P), nearest cent per FILL). (h) RULED 2026-10-06: the fill is the order's OWN
+    contract count at `units` (order_contracts at the ask) — the 10-contract assumption ended. The contract:
+    `side_quotes` (the side's own YES leg, else HOME YES / two-way NO side). None = no executable quote, or an
+    order under one contract (never guessed)."""
+    q = side_quotes(r, side)
+    ask = (q or {}).get("ask")
+    if ask is None or not (0 < ask < 1):
+        return None
+    n = order_contracts(BASE_UNITS if units is None else units, ask)
+    if n is None:
+        return None
+    from src.walters.venue import KALSHI_FEE_M, KALSHI_SERIES_BY_COMPETITION, kalshi_fee
+    series = KALSHI_SERIES_BY_COMPETITION.get(r.get("comp") or r.get("sport") or "")
+    fee = kalshi_fee(ask, KALSHI_FEE_M.get(series, (1.0, None))[0], n=n)
+    return round(ask + fee, 4) if fee is not None else None
+
+
+def desk_cost_for(r, side, units=None):
     if EXEC_RULES["on"]:
-        t = taker_cost_for(r, side)                  # #87 v1.1 (1)+(2): the Desk's cost is the TAKE cost
+        t = taker_cost_for(r, side, units)           # #87 v1.1 (1)+(2)+(h): the TAKE cost of this order
         return None if t is None else {"cost": t, "basis": "taker"}
     m = maker_cost_for(r, side)
     if m is not None:
@@ -428,8 +456,8 @@ def desk_cost_for(r, side):
     return None if t is None else {"cost": t, "basis": "taker"}
 
 
-def exec_edge_pp(r, side, model_p):
-    c = desk_cost_for(r, side)
+def exec_edge_pp(r, side, model_p, units=None):
+    c = desk_cost_for(r, side, units)
     return None if c is None or model_p is None else (model_p - c["cost"]) * 100
 
 
@@ -437,16 +465,18 @@ def exec_clears(e) -> bool:
     return e is not None and e >= K2["feeClearsPP"] - FEE_CLEAR_EPS
 
 
-def exec_block(r, side, model_p):
-    """The K2 numbers for the export. Since the #87 addendum `fee_clears` is a SIZING input (desk_call)."""
+def exec_block(r, side, model_p, units=None, order_units=None):
+    """The K2 numbers for the export. Since the #87 addendum `fee_clears` is a SIZING input (desk_call): edge,
+    cost and fee_clears are at `units` (the order the sizing decision priced, (h)); `order_cost` is the cost of
+    the order actually emitted at `order_units` when that differs (a halved PLAY)."""
     k = r.get("kExec")
     has_leg = (((r.get("src") or {}).get("kalshi_legs") or {}).get(side) or {}).get("ask") is not None
     if (not k or (k["cost"] is None and k["ask"] is None and k["maker"] is None)) and not (
             EXEC_RULES["on"] and has_leg):
         return None
-    dc = desk_cost_for(r, side)
+    dc = desk_cost_for(r, side, units)
     jb = join_bid_for(r, side)
-    e = exec_edge_pp(r, side, model_p)
+    e = exec_edge_pp(r, side, model_p, units)
     out = {"edge_pp": e, "cost": dc["cost"] if dc else None, "basis": dc["basis"] if dc else None,
            "taker_cost": exec_cost_for(r, side), "join_price": (jb or {}).get("price"),
            "join_note": (jb or {}).get("note"),
@@ -456,6 +486,11 @@ def exec_block(r, side, model_p):
         out["taker_cost"] = dc["cost"] if dc else None
         out["maker_cost"] = maker_cost_for(r, side)          # reference only: the doctrine takes
         out["doctrine"] = "join" if (jb or {}).get("price") is not None else "take"
+        ask = (side_quotes(r, side) or {}).get("ask")
+        out["contracts"] = order_contracts(BASE_UNITS if units is None else units, ask)
+        if order_units is not None and order_units != units:
+            oc = taker_cost_for(r, side, order_units)
+            out.update(order_contracts=order_contracts(order_units, ask), order_cost=oc)
     return out
 
 
@@ -529,6 +564,7 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
     e_hair, p_min = P.get("eHair", 15), P.get("pMin", 0)
     reasons, tags = [], []
     call, cls, units, shadow_units = "PASS", "pass", 0, 0
+    exec_units = None                     # (h): the order units the exec gate priced (None = not gated)
     mkt_ref, kal_only, ko_why = r["mkt"], False, None
     if not r["twoSided"] or r["mkt"] is None:
         ko = None if P.get("passAll") else kalshi_only_ref(r, now_ms)
@@ -594,7 +630,11 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
         if EXEC_RULES["on"] and call == "PLAY" and not quarantined:
             # #87 v1.1 (3): full tier units only at exec edge >= 4pp; a PLAY whose fair edge clears but whose
             # exec edge does not, or that has no executable quote (conservative unknowns), gets HALF units
-            xe = exec_edge_pp(r, r["pick"], r["prob"])
+            # (h): priced at the order this PLAY places if it clears — its units here, × the kalshi-only
+            # multiplier that applies below
+            gate_units = float(js_fixed(units * KALSHI_ONLY["sizeMult"], 4)) if kal_only else units
+            exec_units = gate_units
+            xe = exec_edge_pp(r, r["pick"], r["prob"], gate_units)
             if xe is None:
                 units = min(units, base / 2)
                 reasons.append("no executable quote for the pick (ask + taker fee) → half units")
@@ -602,7 +642,7 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
             elif not exec_clears(xe):
                 units = min(units, base / 2)
                 reasons.append(f"exec edge {js_fixed(xe, 1)}pp < {K2['feeClearsPP']}pp at ask + taker fee "
-                               f"{js_fixed(desk_cost_for(r, r['pick'])['cost'], 3)} → half units")
+                               f"{js_fixed(desk_cost_for(r, r['pick'], gate_units)['cost'], 3)} → half units")
                 tags.append("exec < 4pp half units")
             else:
                 reasons.append(f"exec edge {js_fixed(xe, 1)}pp ≥ {K2['feeClearsPP']}pp at ask + taker fee")
@@ -631,6 +671,7 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
     if call != "PASS":
         pass_kind = None
     return {"call": call, "units": units, "cls": cls, "edge": edge, "tags": tags, "reasons": reasons,
+            "execUnits": exec_units,
             "shadowUnits": shadow_units, "passKind": pass_kind, "mktRef": mkt_ref, "kalOnly": kal_only}
 
 
@@ -677,7 +718,7 @@ def rank_parlays(calls, stats: dict | None = None) -> list[dict]:
             pk = pk * (l["mkt"] if l["mkt"] is not None else l["prob"])
         pf = pk
         if EXEC_RULES["on"]:
-            costs = [taker_cost_for(l, l["pick"]) for l in legs]
+            costs = [taker_cost_for(l, l["pick"], PARLAY["units"]) for l in legs]     # (h): the leg's own order
             if any(c is None for c in costs):
                 if stats is not None:
                     stats["unpriced"] += 1
@@ -986,7 +1027,9 @@ def desk_block(r, c, v, ven) -> dict:
            "reference": ("kalshi_only" if c["kalOnly"] else "books") if c["mktRef"] is not None else None,
            "edge_pp": _num(c["edge"]), "pass_kind": c["passKind"], "tags": c["tags"],
            "reasons": c["reasons"], "reason": " · ".join(c["reasons"]),
-           "shadow_units": c["shadowUnits"], "exec": exec_block(r, r["pick"], r["prob"]), "value_shadow": None,
+           "shadow_units": c["shadowUnits"], "exec": exec_block(r, r["pick"], r["prob"], c.get("execUnits"),
+                                                           c["units"] if c.get("execUnits") and c["units"] else None),
+           "value_shadow": None,
            "order": (order_line(r, r["pick"], c["units"], ladder=(c["call"] == "LADDER"))
                      if c["call"] in ("PLAY", "LADDER") else None),
            "venue": venue_block(ven)}
@@ -994,7 +1037,7 @@ def desk_block(r, c, v, ven) -> dict:
         out["value_shadow"] = {"side": v["side"], "edge_pp": _num(v["edge"]), "model_p": _num(v["modelP"]),
                                "market_p": _num(v["marketP"]), "role": v["role"], "units": VALUE["units"],
                                "staked": False, "reason": v["reason"], "tags": v["tags"],
-                               "exec": exec_block(r, v["side"], v["modelP"])}
+                               "exec": exec_block(r, v["side"], v["modelP"], VALUE["units"])}
     return out
 
 
@@ -1102,10 +1145,10 @@ def rescore(doc: dict) -> list[dict]:
             continue
         r, c = new[id(src)]
         _, b = base[id(src)]
-        dc = desk_cost_for(r, r["pick"])
+        dc = desk_cost_for(r, r["pick"], c.get("execUnits"))
         out.append({"game": r["game"], "pick": side_name(r, r["pick"]), "kickoff": r["utc"] or None,
                     "model_p": r["prob"], "fair_edge_pp": c["edge"], "exec_cost": dc["cost"] if dc else None,
-                    "exec_edge_pp": exec_edge_pp(r, r["pick"], r["prob"]),
+                    "exec_edge_pp": exec_edge_pp(r, r["pick"], r["prob"], c.get("execUnits")),
                     "published_units": d.get("units"), "v11_units": b["units"], "addendum_units": c["units"],
                     "addendum_call": c["call"],
                     "verdict": ("halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]

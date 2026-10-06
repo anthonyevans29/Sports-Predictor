@@ -184,7 +184,8 @@ def append_receipt(rec: dict) -> dict:
     rel = running_release()
     line = {"ts": iso(), "host": host_name(), "release": rel,
             "writer_of_record": writer_of_record(), **rec}
-    if rel is None:                              # law 4: never a guessed tag, but always a stated reason
+    if line["release"] is None:                  # law 4: never a guessed tag, but always a stated reason
+        # (the FINAL value: a caller's explicit release, e.g. sp_cutover's dry run, is not an error)
         line["release_error"] = _GIT_ERROR["last"] or "git unreadable"
     p = receipts_path()
     p.parent.mkdir(parents=True, exist_ok=True)

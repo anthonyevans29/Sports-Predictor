@@ -22,6 +22,7 @@ after a backup (hosting-h1.md, "Deploying a release").
 from __future__ import annotations
 
 import argparse
+import re
 import subprocess
 import sys
 from pathlib import Path
@@ -47,47 +48,109 @@ def dirty_paths() -> list[str]:
 
 def migration_command(scripts: list[str]) -> str:
     """The exact by-hand command (ARCHITECT 2026-10-06): as the service user, with
-    host.env loaded as the units load it, the daily .backup first (law 5), then
-    the migrations IN THE GIVEN ORDER, each only if everything before it
-    succeeded (&&)."""
+    host.env loaded as the units load it, `sp_deploy.py --run-migrations`, which
+    holds ONE DB lock across the daily .backup and every migration, in the given
+    order, stopping at the first failure (Codex on #296: a chain released the
+    lock between the backup and the migrations, so a timer could interleave)."""
     import shlex
     py = c.REPO / "venv" / "bin" / "python"
     py = py if py.exists() else Path(sys.executable)
     user = c.setting("SP_SERVICE_USER", "sp")
-    runs = " && ".join(f"{shlex.quote(str(py))} {shlex.quote(m)}" for m in scripts)
     inner = (f"cd {shlex.quote(str(c.REPO))} && set -a && . {shlex.quote(str(c.HOST_ENV))} && set +a && "
-             f"{shlex.quote(str(py))} deploy/hosting/sp_backup.py daily && {runs}")
+             f"{shlex.quote(str(py))} deploy/hosting/sp_deploy.py --run-migrations "
+             + " ".join(shlex.quote(m) for m in scripts))
     return f"sudo -u {user} sh -c {shlex.quote(inner)}"
+
+
+MIGRATION_NAME = re.compile(r"^migrate_[A-Za-z0-9_]+\.py$")
+
+
+def run_migrations(scripts: list[str]) -> int:
+    """Backup, then each migration in order, all under one DB lock; the first failure stops
+    the run. Receipted step by step. Only top-level migrate_*.py files of this checkout."""
+    import sp_backup
+    for m in scripts:
+        if not MIGRATION_NAME.match(m) or not (c.REPO / m).is_file():
+            raise SystemExit(f"✗ {m!r} is not a migrate_*.py file in {c.REPO} — refusing.")
+    with c.db_lock():
+        bk = sp_backup.run_backup("daily", lock=False)          # the lock is already held here
+        if bk["exit"] != 0:
+            c.append_receipt({"kind": "migrations", "exit": 1, "step": "backup", "scripts": scripts,
+                              "error": bk.get("error")})
+            print(f"✗ backup failed ({bk.get('error')}) — no migration ran")
+            return 1
+        print(f"✓ backup {bk['file']} integrity={bk['integrity']}")
+        for i, m in enumerate(scripts):
+            r = subprocess.run([sys.executable, m], cwd=str(c.REPO))
+            c.append_receipt({"kind": "migrations", "exit": r.returncode, "step": m, "index": i,
+                              "backup": bk["file"]})
+            if r.returncode != 0:
+                print(f"✗ {m} exited {r.returncode} — stopped; not run: {scripts[i + 1:]}")
+                return r.returncode
+            print(f"✓ {m}")
+    return 0
+
+
+def _git_rc(*args: str) -> tuple[int, str, str]:
+    r = subprocess.run(["git", "-c", f"safe.directory={c.REPO}", "-C", str(c.REPO), *args],
+                       capture_output=True, text=True)
+    return r.returncode, r.stdout, r.stderr.strip()
+
+
+def _root_migrations(rev: str) -> set:
+    rc, out, err = _git_rc("ls-tree", "--name-only", rev)
+    if rc != 0:
+        raise SystemExit(f"✗ cannot list {rev}: {err} — refusing to plan migrations.")
+    return {p for p in out.splitlines() if MIGRATION_NAME.match(p)}
 
 
 def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     """Which migrations to run by hand, in which order (Codex on #296).
     - Only a FORWARD deploy (before is an ancestor of after) runs migrations. A
       rollback or a sideways move never does: its diff lists migrations the
-      target lacks or predates, and the DB keeps its additive columns.
-    - Order = the order the migrations were ADDED in before..after (commit order,
-      oldest first), never git's alphabetical path order: migrate_score_90.py
-      needs migrate_status_raw.py first. Migrations that were only modified are
-      listed separately, never as runnable."""
+      target lacks or predates, and the DB keeps its additive columns. An
+      ancestry check that ERRORS (not "no") refuses the plan, never guesses.
+    - New = absent at `before`, present at `after` (a migration added in a merge
+      result counts). Order = first appearance in before..after's history,
+      merges included (-m), oldest first; never git's alphabetical path order
+      (migrate_score_90.py needs migrate_status_raw.py first). A new migration
+      the history does not place is appended and flagged. Migrations that were
+      only modified are listed separately, never as runnable."""
     found = [p for p in changed if p.startswith("migrate_") and p.endswith(".py")]
     if not found:
-        return {"forward": True, "run": [], "modified": [], "skipped": []}
-    if c._git("merge-base", "--is-ancestor", before, after) is None:
-        return {"forward": False, "run": [], "modified": [], "skipped": found}
-    added = []
-    for ln in (c._git("log", "--reverse", "--diff-filter=A", "--name-only", "--format=",
-                      f"{before}..{after}", "--", "migrate_*.py") or "").splitlines():
-        if ln.strip() and ln.strip() in found and ln.strip() not in added:
-            added.append(ln.strip())
-    return {"forward": True, "run": added, "modified": [m for m in found if m not in added], "skipped": []}
+        return {"forward": True, "run": [], "modified": [], "skipped": [], "unordered": []}
+    rc, _, err = _git_rc("merge-base", "--is-ancestor", before, after)
+    if rc == 1:
+        return {"forward": False, "run": [], "modified": [], "skipped": found, "unordered": []}
+    if rc != 0:
+        raise SystemExit(f"✗ ancestry check {before}..{after} failed ({err or f'git exit {rc}'}) — "
+                         "refusing to plan migrations.")
+    new = _root_migrations(after) - _root_migrations(before)
+    rc, out, err = _git_rc("log", "--reverse", "-m", "--diff-filter=A", "--name-only", "--format=",
+                           f"{before}..{after}")
+    if rc != 0:
+        raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
+    ordered = []
+    for ln in out.splitlines():
+        p = ln.strip()
+        if p in new and p not in ordered:
+            ordered.append(p)
+    unordered = sorted(new - set(ordered))
+    return {"forward": True, "run": ordered + unordered, "unordered": unordered,
+            "modified": [m for m in found if m not in new], "skipped": []}
 
 
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="Deploy a release tag (production = tags only).")
     ap.add_argument("--tag", default=None, help="Exact release tag (vX.Y.Z); default: the latest.")
     ap.add_argument("--dry-run", action="store_true", help="Fetch and name the target; change nothing.")
+    ap.add_argument("--run-migrations", nargs="+", metavar="MIGRATION", default=None,
+                    help="Run these migrate_*.py files in order under one DB lock, after a daily backup "
+                         "(the command a deploy prints).")
     a = ap.parse_args(argv)
     c.load_host_env()
+    if a.run_migrations:
+        return run_migrations(a.run_migrations)
     if a.tag is not None and not c.release_key(a.tag):
         raise SystemExit(f"✗ --tag {a.tag!r} is not a release tag (vMAJOR.MINOR.PATCH) — refusing.")
     with c.db_lock():
@@ -129,6 +192,8 @@ def main(argv=None) -> int:
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
           + (f"\n  ! new migrations, in the order they were added (backup first, then run by hand, in this "
              f"order): {plan['run']}\n      {migration_command(plan['run'])}" if plan["run"] else "")
+          + (f"\n  ! the history did not place {plan['unordered']} (appended last): check their order before "
+             "running" if plan.get("unordered") else "")
           + (f"\n  ! migrations MODIFIED in this range (not new; read before re-running): {plan['modified']}"
              if plan["modified"] else "")
           + (f"\n  ! rollback / non-forward deploy: migrations in the diff are NOT run (the target predates "

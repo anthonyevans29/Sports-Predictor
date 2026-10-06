@@ -6,3 +6,8 @@
   - The migration command runs the new migrations in the order they were added (commit order, oldest first) as one chained `&&` command. Git's alphabetical path order put `migrate_score_90.py` before `migrate_status_raw.py`, which it needs.
   - A rollback or other non-forward deploy prints no runnable migrations. It lists the skipped ones, and modified migrations are listed separately.
   - Test: `test_deploy_migration_plan_orders_by_commit_and_skips_rollbacks`.
+- Review fixes (Codex on #296, round 2):
+  - The printed command runs `sp_deploy.py --run-migrations m1 m2 …`. It holds ONE DB lock across the daily backup and every migration, runs them in order, stops at the first failure, and receipts each step. A chained `sp_backup.py daily && migrate…` released the lock in between.
+  - A migration added in a merge result counts as new (absent at the old head, present at the target).
+  - An ancestry check that errors refuses the plan instead of reading as a rollback.
+  - An explicit release on a receipt (sp_cutover's dry run) no longer also carries `release_error`.

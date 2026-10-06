@@ -1543,7 +1543,7 @@ def test_deploy_prints_the_exact_migration_command(monkeypatch):
     cmd = sp_deploy.migration_command(["migrate_kalshi_ticker.py"])
     assert cmd.startswith("sudo -u sp sh -c ")
     assert f"cd {c.REPO}" in cmd and f". {c.HOST_ENV}" in cmd
-    assert cmd.index("sp_backup.py daily &&") < cmd.index("migrate_kalshi_ticker.py")
+    assert "deploy/hosting/sp_deploy.py --run-migrations migrate_kalshi_ticker.py" in cmd
 
 
 def test_deploy_migration_plan_orders_by_commit_and_skips_rollbacks(tmp_path, monkeypatch):
@@ -1579,3 +1579,72 @@ def test_deploy_migration_plan_orders_by_commit_and_skips_rollbacks(tmp_path, mo
     assert cmd.index("migrate_status_raw.py") < cmd.index("migrate_score_90.py")
     back = sp_deploy.migration_plan(head, base, changed)                        # a rollback
     assert not back["forward"] and back["run"] == [] and set(back["skipped"]) == set(changed)
+
+
+def test_run_migrations_holds_one_lock_across_backup_and_every_migration(sandbox, monkeypatch):
+    """Codex on #296 (P2, verified): `sp_backup.py daily && migrate…` released the DB lock between the backup and
+    the migrations (sp_backup locks only its own copy; migrations take none), so a timer could interleave. The
+    printed command now runs `sp_deploy.py --run-migrations`, which holds one lock for the whole sequence."""
+    import sp_deploy
+    probe = ("import fcntl, os, sys\n"
+             "f = open(os.environ['SP_LOCK'], 'a+')\n"
+             "try:\n    fcntl.flock(f, fcntl.LOCK_EX | fcntl.LOCK_NB)\n    sys.exit(3)\n"
+             "except BlockingIOError:\n    open(sys.argv[0] + '.ran', 'w').write('locked')\n")
+    for m in ("migrate_a.py", "migrate_b.py"):
+        (c.REPO / m).write_text(probe)
+    assert sp_deploy.run_migrations(["migrate_a.py", "migrate_b.py"]) == 0
+    assert (c.REPO / "migrate_a.py.ran").exists() and (c.REPO / "migrate_b.py.ran").exists()
+    recs = [json.loads(x) for x in c.receipts_path().read_text().splitlines()]
+    assert [r.get("step") for r in recs if r["kind"] == "migrations"] == ["migrate_a.py", "migrate_b.py"]
+    assert any(r["kind"] == "backup" and r["exit"] == 0 for r in recs)              # the backup ran first
+    (c.REPO / "migrate_c.py").write_text("import sys; sys.exit(5)")
+    (c.REPO / "migrate_d.py").write_text("open('d.ran','w')")
+    assert sp_deploy.run_migrations(["migrate_c.py", "migrate_d.py"]) == 5          # stops at the failure
+    assert not (c.REPO / "d.ran").exists()
+    with pytest.raises(SystemExit, match="not a migrate_"):
+        sp_deploy.run_migrations(["../evil.py"])
+
+
+def test_migration_plan_merge_added_and_ancestry_errors(tmp_path, monkeypatch):
+    """Codex on #296, round 2 (verified): a migration added in a MERGE result is new and runnable; an ancestry
+    check that errors (not 'no') refuses the plan instead of reading as a rollback."""
+    import subprocess
+
+    import sp_deploy
+    repo = tmp_path / "m"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "a.txt").write_text("x")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    g("checkout", "-q", "-b", "side")
+    (repo / "b.txt").write_text("y")
+    g("add", "-A")
+    g("commit", "-q", "-m", "side")
+    g("checkout", "-q", "main")
+    (repo / "c.txt").write_text("z")
+    g("add", "-A")
+    g("commit", "-q", "-m", "main")
+    g("merge", "-q", "--no-ff", "--no-commit", "side")
+    (repo / "migrate_in_merge.py").write_text("1")                               # added in the merge result
+    g("add", "-A")
+    g("commit", "-q", "-m", "merge")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, head, ["migrate_in_merge.py"])
+    assert plan["forward"] and plan["run"] == ["migrate_in_merge.py"] and plan["modified"] == []
+    with pytest.raises(SystemExit, match="ancestry check"):
+        sp_deploy.migration_plan("0" * 40, head, ["migrate_in_merge.py"])
+
+
+def test_explicit_release_is_not_reported_as_an_error(sandbox, monkeypatch):
+    """Codex on #296 (P3, verified): sp_cutover's dry run passes its own release (the scratch checkout is not a git
+    tree); the receipt must not also carry release_error."""
+    monkeypatch.setattr(c, "REPO", sandbox / "not-a-repo")
+    line = c.append_receipt({"kind": "cutover", "exit": 0, "release": "v9.9.9"})
+    assert line["release"] == "v9.9.9" and "release_error" not in line

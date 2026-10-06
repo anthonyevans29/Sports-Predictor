@@ -9,4 +9,5 @@
   - Reconciliation: 13 eligible calls, 3 MATCHED, 9 UNAVAILABLE, and 1 UNKNOWN. The UNKNOWN is GB @ TB, pick HOME, `claim_exec_cost 0.417`, with no matched fill. The Green Bay YES fill disagrees with the pick's side: the architect text error of 10-04, recorded on #87.
 - **Effect receipt (rule 3):** `desk-rescore` on Sunday's four PLAYs: 0/4 would have been halved (architect state sync above). The console itself is not in the receipt file.
 - **prediction_history:** `migrate_prediction_history.py` ran on the laptop and created the table with 0 rows, as expected. The host runs it via the `sp_deploy` migration command at the next tag.
-- **Observation (no change, not a finding against the rule):** the ruling's "1c spreads 85–99%" matches MLB 97%, NFL 99%, NHL 85% and UNL 96%. In the same receipt, NCAA is 82% and PL is 72%; PL has 6 ladders.
+- **1c-spread share (ARCHITECT, observation accepted, verbatim):** "receipt observation accepted — amend the #87 ledger entry to 'MLB/NFL/NHL/UNL 85–99%, NCAA 82%, PL 72% (n=6)'; the ruling's cost model is unchanged."
+  - Recorded: MLB/NFL/NHL/UNL 85–99%, NCAA 82%, PL 72% (n=6). The #87 cost model (ask + taker fee) is unchanged.

@@ -37,6 +37,9 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(c, "REPO", repo)
     monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
     monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    # the deploy's no-venv fallback keeps its install record inside the RUNNING virtualenv: never let a test write
+    # into the developer's real venv (tests run as if from a system interpreter unless they say otherwise)
+    monkeypatch.setattr(sys, "base_prefix", sys.prefix)
     for k in ("SP_PARALLEL_MODE", "SP_DESIGNATED_DAYS", "NTFY_TOPIC", "NTFY_SERVER", "SP_FULLSEASON_LIST"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "log" / "receipts.jsonl"))
@@ -2781,3 +2784,41 @@ def test_requirements_round_eight_dry_run_dir_to_file_and_encodings(sandbox, mon
     assert "RECORDED as installed by hand" in capsys.readouterr().out
     assert sp_deploy.main(["--tag", "v1.0.1", "--requirements-installed-by-hand"]) == 0
     assert (repo / "tool").is_file()
+
+
+def test_requirements_round_nine_untracked_child_and_external_venv_record(sandbox, monkeypatch, tmp_path):
+    """Codex on #310 round 9 (verified): (1) a tracked directory the target replaces with a file is a blocker when
+    it holds an UNTRACKED file (git refuses to lose it); (2) without a repo venv, a deployer running from another
+    virtualenv keeps its install record inside that environment, so recreating it drops the record."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "tool").mkdir()
+    (origin / "tool" / "a.py").write_text("a = 1\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    g(origin, "rm", "-q", "-r", "tool")
+    (origin / "tool").write_text("now a file\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "replace")
+    g(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    (repo / "tool" / "local.cfg").write_text("host-only\n")                    # (1) untracked child
+    before = g(repo, "rev-parse", "HEAD")
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and g(repo, "rev-parse", "HEAD") == before
+    (repo / "tool" / "local.cfg").unlink()
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 0 and (repo / "tool").is_file()
+    ext = tmp_path / "admin-venv"                                                # (2)
+    monkeypatch.setattr(sys, "prefix", str(ext))
+    monkeypatch.setattr(sys, "base_prefix", "/usr")
+    assert sp_deploy.requirements_state_path() == ext / ".sp-requirements.installed"

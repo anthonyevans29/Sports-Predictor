@@ -88,8 +88,11 @@ def requirements_state_path() -> Path:
     recreating the venv deletes it too (an inode can be reused; a file in the old venv cannot survive — Codex on
     #310); never in the monthly-rotated receipt log. Without a venv: beside the receipts."""
     venv = c.REPO / "venv"
-    return venv / ".sp-requirements.installed" if (venv / "pyvenv.cfg").exists() \
-        else c.receipts_path().parent / "requirements.installed"
+    if (venv / "pyvenv.cfg").exists():
+        return venv / ".sp-requirements.installed"
+    if sys.prefix != sys.base_prefix:        # running from ANOTHER virtualenv: the record lives inside it too, so
+        return Path(sys.prefix) / ".sp-requirements.installed"    # recreating it drops the record (Codex on #310)
+    return c.receipts_path().parent / "requirements.installed"
 
 
 # ALLOWLIST (Codex on #310, six rounds): auto-install handles only plain requirements files. Every other pip
@@ -539,7 +542,12 @@ def main(argv=None) -> int:
                 last = i == len(parts)
                 if os.path.lexists(q) and rel not in tracked_before and (last or q.is_symlink() or not q.is_dir()):
                     if last and q.is_dir() and not q.is_symlink() and any(t.startswith(rel + "/") for t in tracked_before):
-                        continue           # a TRACKED directory the target replaces with a file: git handles it
+                        # a TRACKED directory the target replaces with a file: git handles it, unless an UNTRACKED
+                        # file lives inside it (git then refuses to lose it — Codex on #310)
+                        inside = [str(Path(root, n).relative_to(c.REPO)).replace(os.sep, "/")
+                                  for root, _dirs, files in os.walk(q) for n in files]
+                        if all(t in tracked_before for t in inside):
+                            continue
                     return True
             return False
         blockers = [p for p in added if _blocks(p)]

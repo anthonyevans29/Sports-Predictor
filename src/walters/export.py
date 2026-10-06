@@ -1340,27 +1340,35 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
             ver, leg = coh["verified"], coh["legacy"]
             lines.append(
                 f"## {label}\n\n- Sides: **{hits}/{n}** ({hits/n:.1%})\n"
-                f"- Mean log-loss: {sum(lls)/len(lls):.4f} (n={len(lls)})\n"
+                + (f"- Mean log-loss: {sum(lls)/len(lls):.4f} (n={len(lls)})\n" if lls else "- Mean log-loss: — (n=0)\n")
                 + (f"- Mean model-close divergence, verified close: {sum(ver)/len(ver)*100:+.2f}pp (n={len(ver)})\n"
                    if ver else "- Mean model-close divergence, verified close: — (n=0)\n")
                 + (f"- Retained-legacy model-close divergence (separate cohort, not in the headline): "
                    f"{sum(leg)/len(leg)*100:+.2f}pp (n={len(leg)})\n" if leg else ""))
-        # NFL from the grade join (no outcome rows during rehearsal)
+        # NFL from the grade join (no outcome rows during rehearsal). ONE record
+        # definition (ARCHITECT 2026-10-06): season to date from live_since, a tie
+        # is a push outside the hit denominator, pre-live rows on their own line.
         try:
             from src.walters.nfl_predict import grade_nfl
-            r = grade_nfl(days_back=days)
+            r = grade_nfl(days_back=None)
             if r.get("ok"):
+                pl = r.get("pre_live") or {}
                 lines.append(
-                    f"## NFL (live since Week 3, 2026-09-22)\n\n- Sides: **{r['hits']}/{r['games']}**"
-                    f" ({r['hits']/r['games']:.1%})\n"
-                    f"- Mean log-loss: {r['logloss']:.4f}\n"
-                    f"- Mean model-close divergence (pick): {r['mean_clv_pp']:+.2f}pp\n"
+                    f"## NFL (live since Week 3, 2026-09-22)\n\n- Sides: **{r['hits']}/{r['decided']}**"
+                    + (f" ({r['hits']/r['decided']:.1%})" if r["decided"] else "")
+                    + f" · pushes {r['pushes']} (ties: outside the hit denominator)\n"
+                    + (f"- Mean log-loss: {r['logloss']:.4f}\n" if r.get("logloss") is not None else "")
+                    + (f"- Mean model-close divergence (pick): {r['mean_clv_pp']:+.2f}pp\n"
+                       if r.get("mean_clv_pp") is not None else "")
                     + (f"- Mean model-close divergence (value side): {r['mean_value_side_clv_pp']:+.2f}pp"
                        f" (n={r['value_side_n']} anchored; value-shadow cohort "
                        + (f"{r['mean_value_shadow_clv_pp']:+.2f}pp" if r['mean_value_shadow_clv_pp'] is not None else "—")
                        + f", n={r['value_shadow_n']})\n"
                        if r.get("mean_value_side_clv_pp") is not None else
-                       "- Mean model-close divergence (value side): — (no games with a pre-kickoff book snapshot yet)\n"))
+                       "- Mean model-close divergence (value side): — (no games with a pre-kickoff book snapshot yet)\n")
+                    + (f"\n### NFL pre-live (before 2026-09-22; never pooled)\n\n"
+                       f"- Sides: {pl['hits']}/{pl['decided']} · pushes {pl['pushes']}\n"
+                       if pl.get("games") else ""))
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")
     # NHL SHADOW (architect 2026-09-30): the failed reference model's live CLV,

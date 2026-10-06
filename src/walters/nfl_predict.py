@@ -382,12 +382,19 @@ def value_side_grade(p_home: float, anchor_home: float | None, close_home: float
             "shadow": (v_home != (p_home >= 0.5)) and abs(edge_home) * 100 >= VALUE_FLOOR_PP}
 
 
-def grade_nfl(days_back: int = 8, progress=None) -> dict:
+def grade_nfl(days_back: int | None = 8, progress=None) -> dict:
     """
     NFL grading (2026-09-14, built for Week 1's first read): joins
     predictions vs finished games and the latest banked book consensus.
     READ-ONLY — prints the table; outcome persistence arrives with the
     full evaluate integration if the rehearsal is earned.
+
+    ONE RECORD DEFINITION (ARCHITECT 2026-10-06): nfl-grade, the RESULTS.md
+    NFL section and the season-to-date results file state the record the same
+    way — live_since onward, a tie is a PUSH outside the hit denominator, and
+    pre-live rows sit under their own heading, never pooled. Log-loss keeps
+    the frozen gate's convention (tie = home loss). `days_back=None` reads the
+    season to date (the latest season holding a finished predicted game).
     """
     from datetime import datetime, timedelta
     import math
@@ -402,25 +409,49 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
         if progress:
             progress(msg)
 
+    def tally():
+        return {"games": 0, "decided": 0, "hits": 0, "pushes": 0}
+
     with session_scope() as s:
         now = utc_now_naive()
-        q = (nfl_scoped(select(Prediction, Match)
-                        .join(Match, Match.id == Prediction.match_id))
-             .where(Match.status == MatchStatus.FINISHED,
-                    Match.utc_date >= now - timedelta(days=days_back))
-             .order_by(Match.utc_date))
-        hits = n = 0
+        finished = (nfl_scoped(select(Prediction, Match)
+                               .join(Match, Match.id == Prediction.match_id))
+                    .where(Match.status == MatchStatus.FINISHED))
+        # both scores required to grade (the #289 rule): an unscored FINISHED row
+        # would raise on `home_score > away_score`.
+        base = finished.where(Match.home_score.is_not(None), Match.away_score.is_not(None))
+        if days_back is not None:
+            q = base.where(Match.utc_date >= now - timedelta(days=days_back))
+        else:
+            seasons = sorted({str(m.season) for _, m in s.execute(finished).all() if m.season is not None})
+            season = max(seasons, key=lambda v: (len(v), v)) if seasons else None
+            q = base.where(Match.season == season) if season is not None else base
+        q = q.order_by(Match.utc_date)
+        live, pre = tally(), tally()
         ll = 0.0
         clvs = []
         vclvs, vshadow = [], []
         anchor_after = 0
+        pre_lines = []
         for pred, m in s.execute(q).all():
-            y = 1 if m.home_score > m.away_score else 0
+            y = 1 if m.home_score > m.away_score else 0   # the frozen gate's convention (tie = home loss)
+            tie = m.home_score == m.away_score
             p = pred.home_win_prob
             pick_home = p >= 0.5
-            hit = (pick_home and y == 1) or (not pick_home and y == 0)
-            hits += hit
-            n += 1
+            hit = None if tie else ((pick_home and y == 1) or (not pick_home and y == 0))
+            is_pre = _is_pre_live(m)
+            t = pre if is_pre else live
+            t["games"] += 1
+            if tie:
+                t["pushes"] += 1
+            else:
+                t["decided"] += 1
+                t["hits"] += hit
+            mark = "PUSH" if tie else ("HIT " if hit else "miss")
+            if is_pre:
+                pre_lines.append(f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
+                                 f"{m.away_score:>2}-{m.home_score:<2} model_H={p:.3f} {mark}")
+                continue
             ll += -(y * math.log(max(p, 1e-12))
                     + (1 - y) * math.log(max(1 - p, 1e-12)))
             close_h = None
@@ -445,29 +476,40 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
             report(f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
                    f"{m.away_score:>2}-{m.home_score:<2} model_H={p:.3f} "
                    f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
-                   f"{'HIT ' if hit else 'miss'} "
+                   f"{mark} "
                    f"div={'%+.1fpp' % (clv*100) if clv is not None else '—'} "
                    f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100) + (' [shadow]' if vg['shadow'] else '')) if vg else '— (no anchor)'}"
                    + (f" anchor={_hm(vg['anchor_at'])} pred={_hm(vg['prediction_at'])}"
                       + (" ⚠ ANCHOR AFTER PREDICTION" if vg["anchor_before_prediction"] is False else "")
                       if vg else ""))
-        if n == 0:
+        if live["games"] == 0 and pre["games"] == 0:
             return {"ok": False, "reason": "no finished NFL games with predictions in window"}
-        summary = {"ok": True, "games": n, "hits": hits,
-                   "logloss": round(ll / n, 4),
+        n = live["games"]
+        summary = {"ok": True, "live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d}",
+                   **live,
+                   "logloss": round(ll / n, 4) if n else None,
                    "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None,
                    # value side (architect 2026-09-29) — beside, never replacing, pick-vs-close
                    "value_side_n": len(vclvs),
                    "mean_value_side_clv_pp": round(sum(vclvs) / len(vclvs) * 100, 2) if vclvs else None,
                    "value_shadow_n": len(vshadow),
                    "mean_value_shadow_clv_pp": round(sum(vshadow) / len(vshadow) * 100, 2) if vshadow else None,
-                   "value_anchor_after_prediction_n": anchor_after}
-        report(f"  ── sides {hits}/{n} · log-loss {summary['logloss']} · "
+                   "value_anchor_after_prediction_n": anchor_after,
+                   "pre_live": pre}
+        report(f"  ── sides {live['hits']}/{live['decided']} decided"
+               + (f" (+{live['pushes']} push)" if live["pushes"] else "")
+               + f" · log-loss {summary['logloss']} · "
                f"mean model-close divergence {summary['mean_clv_pp']}pp (n={len(clvs)} priced)")
         report(f"  ── value side vs close {summary['mean_value_side_clv_pp']}pp "
                f"(n={len(vclvs)} anchored; {n - len(vclvs)} unanchored — no pre-kickoff book snapshot) · "
                f"value-shadow cohort {summary['mean_value_shadow_clv_pp']}pp (n={len(vshadow)}) · "
                f"anchor after prediction: {anchor_after}/{len(vclvs)}")
+        if pre["games"]:
+            report(f"  ── pre-live (before {NFL_LIVE_SINCE:%Y-%m-%d}; never pooled): "
+                   f"{pre['hits']}/{pre['decided']} decided"
+                   + (f" (+{pre['pushes']} push)" if pre["pushes"] else ""))
+            for line in pre_lines:
+                report(line)
         return summary
 
 

@@ -171,3 +171,62 @@ def test_cli_receipt_uses_decided_and_finds_pre_live_matches(tmp_path, monkeypat
     assert "match 11: IN the file (season record)" in res.output
     assert "match 22: IN the file (pre-live, not in the season record)" in res.output
     assert "match 33: NOT in the file" in res.output and "pre-live (never pooled): games 1" in res.output
+
+
+def test_nfl_grade_and_results_md_state_the_one_record_definition(tmp_path):
+    """ARCHITECT 2026-10-06: nfl-grade, the RESULTS.md NFL section and the season-to-date results file use ONE
+    definition — live_since onward, ties as pushes outside the hit denominator, pre-live rows under their own
+    heading. Before: grade_nfl counted a tie as a hit for an away pick and pooled Weeks 1-2."""
+    from datetime import datetime
+
+    from src.walters.export import results_tally
+    from src.walters.nfl_predict import NFL_LIVE_SINCE, grade_nfl
+    init_db()
+    now = utc_now_naive()
+    with session_scope() as s:
+        c = s.query(Competition).filter_by(code="NFL").one_or_none()
+        if c is None:
+            c = Competition(sport=Sport.NFL, code="NFL", name="NFL", area="US", type="LEAGUE")
+            s.add(c)
+            s.flush()
+        ts = [Team(sport=Sport.NFL, name=f"OneDef {i}") for i in range(10)]
+        s.add_all(ts)
+        s.flush()
+        ids = []
+
+        def game(i, when, hs, as_, p, stage=None, week=6):
+            m = Match(sport=Sport.NFL, competition_id=c.id, season="2095", matchday=week, stage=stage,
+                      utc_date=when, status=MatchStatus.FINISHED, home_team_id=ts[2 * i].id,
+                      away_team_id=ts[2 * i + 1].id, home_score=hs, away_score=as_)
+            s.add(m)
+            s.flush()
+            s.add(Prediction(match_id=m.id, model_version="nfl_elo_v1", home_win_prob=p, away_win_prob=1 - p))
+            ids.append(m.id)
+
+        game(0, now - timedelta(days=1), 20, 20, 0.40)                      # away pick, tied: PUSH (was a hit)
+        game(1, now - timedelta(days=1), 27, 10, 0.70)                      # home pick, home win: hit
+        game(2, now - timedelta(days=2), 10, 27, 0.65)                      # home pick, away win: miss
+        game(3, NFL_LIVE_SINCE - timedelta(days=9), 24, 3, 0.60, week=1)    # rehearsal Week 1: pre-live
+        game(4, datetime(2095, 8, 20), 13, 17, 0.55, stage="PRESEASON", week=2)
+    try:
+        lines = []
+        r = grade_nfl(days_back=None, progress=lines.append)
+        assert (r["games"], r["decided"], r["hits"], r["pushes"]) == (3, 2, 1, 1)
+        assert r["pre_live"] == {"games": 2, "decided": 2, "hits": 1, "pushes": 0}
+        assert any("PUSH" in x and "OneDef 1" in x for x in lines)
+        assert any("sides 1/2 decided (+1 push)" in x for x in lines)
+        assert any("pre-live (before" in x and "never pooled" in x for x in lines)
+        # the rolling read applies the same definition (the pre-live rows are simply outside it)
+        rlines = []
+        rr = grade_nfl(days_back=3, progress=rlines.append)
+        assert rr["games"] == rr["decided"] + rr["pushes"] and rr["pushes"] >= 1
+        assert "PUSH" in next(x for x in rlines if "OneDef 1" in x)
+        out = tmp_path / "RESULTS.md"
+        results_tally(days=30, out_path=str(out))
+        txt = out.read_text()
+        assert "## NFL (live since Week 3, 2026-09-22)\n\n- Sides: **1/2** (50.0%) · pushes 1" in txt
+        assert "### NFL pre-live (before 2026-09-22; never pooled)\n\n- Sides: 1/2 · pushes 0" in txt
+    finally:
+        with session_scope() as s:
+            s.query(Prediction).filter(Prediction.match_id.in_(ids)).delete(synchronize_session=False)
+            s.query(Match).filter(Match.id.in_(ids)).delete(synchronize_session=False)

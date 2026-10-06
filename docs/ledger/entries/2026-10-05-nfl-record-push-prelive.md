@@ -7,3 +7,8 @@
 - **Export contract:** `results`/`count` now hold live rows only. `pre_live` is new. Tied rows carry `push`.
 - **Unchanged:** the gate, its tie convention, log loss, and every prediction.
 - **Operator:** run `python cli.py export-nfl-results` after merge; the live record is Week 3 onward.
+- **2026-10-06 — RULED + BUILT (ARCHITECT):** "the push and pre-live rules apply everywhere the record is stated: nfl-grade, the NFL section of RESULTS.md, and the season-to-date results file use ONE definition — live_since onward, ties as pushes outside the hit denominator, pre-live rows under their own heading."
+  - `grade_nfl` now returns `games`, `decided`, `hits`, `pushes` (live rows) and `pre_live` (its own tally). The per-game line reads `PUSH` for a tie, the summary reads `sides H/D decided (+P push)`, and the pre-live rows print under their own line.
+  - Log-loss and the CLV means are computed over live rows only. The tie convention in log-loss is unchanged.
+  - The RESULTS.md NFL section is season to date from `live_since`: `Sides: **H/D** (x%) · pushes P`, plus a `### NFL pre-live (…; never pooled)` sub-heading when pre-live rows exist.
+  - **Unchanged:** the gate, every prediction, and the results-file contract.

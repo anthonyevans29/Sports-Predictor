@@ -16,3 +16,7 @@
   - The printed command carries `--expect <target sha>`. `--run-migrations` refuses, before any backup, unless HEAD is still that release.
   - `--dry-run` with `--run-migrations` refuses.
   - A failed tag or branch lookup makes the release unreadable (null, with `release_error`), never a guessed `UNTAGGED@`/`BETA`.
+- Review fixes (Codex on #296, round 5):
+  - Migrations added together in one commit, or not placed by the history, have no determinable order. No runnable command is generated; the deploy names them and the exact `--expect … --run-migrations <ordered names>` form to run once the order is decided.
+  - A renamed migration is reported (already ran under its old name), never runnable.
+  - Migration files are validated under the DB lock.

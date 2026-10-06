@@ -73,10 +73,12 @@ def run_migrations(scripts: list[str], expect_sha: str | None) -> int:
     import sp_backup
     if not expect_sha:
         raise SystemExit("✗ --run-migrations needs --expect <sha> (the deploy prints it) — refusing.")
-    for m in scripts:
-        if not MIGRATION_NAME.match(m) or not (c.REPO / m).is_file():
-            raise SystemExit(f"✗ {m!r} is not a migrate_*.py file in {c.REPO} — refusing.")
     with c.db_lock():
+        # validated UNDER the lock (Codex on #296): a concurrent deploy cannot swap the files between
+        # the check and the run
+        for m in scripts:
+            if not MIGRATION_NAME.match(m) or not (c.REPO / m).is_file():
+                raise SystemExit(f"✗ {m!r} is not a migrate_*.py file in {c.REPO} — refusing.")
         rc, head, err = _git_rc("rev-parse", "HEAD")
         if rc != 0 or not head.strip().startswith(expect_sha):
             raise SystemExit(f"✗ HEAD is {head.strip()[:12] or '?'} ({err or 'read'}), not the planned release "
@@ -126,26 +128,49 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
       only modified are listed separately, never as runnable."""
     found = [p for p in changed if p.startswith("migrate_") and p.endswith(".py")]
     if not found:
-        return {"forward": True, "run": [], "modified": [], "skipped": [], "unordered": []}
+        return {"forward": True, "run": [], "modified": [], "skipped": [], "unordered": [], "undetermined": [],
+                "new": [], "renamed": {}}
     rc, _, err = _git_rc("merge-base", "--is-ancestor", before, after)
     if rc == 1:
-        return {"forward": False, "run": [], "modified": [], "skipped": found, "unordered": []}
+        return {"forward": False, "run": [], "modified": [], "skipped": found, "unordered": [], "undetermined": [],
+                "new": [], "renamed": {}}
     if rc != 0:
         raise SystemExit(f"✗ ancestry check {before}..{after} failed ({err or f'git exit {rc}'}) — "
                          "refusing to plan migrations.")
     new = _root_migrations(after) - _root_migrations(before)
-    rc, out, err = _git_rc("log", "--reverse", "-m", "--diff-filter=A", "--name-only", "--format=",
+    # a RENAME is not a new migration (it already ran under its old name): reported as modified
+    rc, out, err = _git_rc("diff", "-M", "--name-status", before, after)
+    if rc != 0:
+        raise SystemExit(f"✗ git diff {before}..{after} failed ({err}) — refusing to plan migrations.")
+    renamed = {}
+    for ln in out.splitlines():
+        parts = ln.split("\t")
+        if len(parts) == 3 and parts[0].startswith(("R", "C")) and parts[2] in new:
+            renamed[parts[2]] = parts[1]
+    new -= set(renamed)
+    rc, out, err = _git_rc("log", "--reverse", "-m", "--diff-filter=A", "--name-only", "--format=@@%H",
                            f"{before}..{after}")
     if rc != 0:
         raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
-    ordered = []
+    ordered, per_commit, cur = [], {}, None
     for ln in out.splitlines():
         p = ln.strip()
-        if p in new and p not in ordered:
-            ordered.append(p)
-    unordered = sorted(new - set(ordered))
-    return {"forward": True, "run": ordered + unordered, "unordered": unordered,
-            "modified": [m for m in found if m not in new], "skipped": []}
+        if p.startswith("@@"):
+            cur = p[2:]
+            continue
+        if p in new:
+            per_commit.setdefault(cur, set()).add(p)
+            if p not in ordered:
+                ordered.append(p)
+    # several migrations added by ONE commit: git lists them alphabetically, which says nothing about
+    # their dependencies; the order is not determinable, so no runnable command is generated (Codex on #296)
+    together = sorted({m for ms in per_commit.values() if len(ms) > 1 for m in ms})
+    unplaced = sorted(new - set(ordered))
+    undetermined = sorted(set(together) | set(unplaced))
+    return {"forward": True, "run": [] if undetermined else ordered, "undetermined": undetermined,
+            "new": ordered + unplaced, "renamed": renamed,
+            "modified": [m for m in found if m not in new and m not in renamed] + sorted(renamed),
+            "skipped": [], "unordered": unplaced}
 
 
 def main(argv=None) -> int:
@@ -203,14 +228,19 @@ def main(argv=None) -> int:
                          for p in (Path(c.REPO) / d).glob("*.md") if p.name != "README.md")
     c.append_receipt({"kind": "deploy", "exit": 0, "from_sha": before, "to_sha": after,
                       "from_release": before_rel, "to_release": after_rel, "tag": target,
-                      "files_changed": len(changed), "new_migrations": plan["run"],
+                      "files_changed": len(changed), "new_migrations": plan["new"],
+                      "migration_order_undetermined": plan["undetermined"], "renamed_migrations": plan["renamed"],
                       "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
                       "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
           + (f"\n  ! new migrations, in the order they were added (backup first, then run by hand, in this "
              f"order): {plan['run']}\n      {migration_command(plan['run'], target_full)}" if plan["run"] else "")
-          + (f"\n  ! the history did not place {plan['unordered']} (appended last): check their order before "
-             "running" if plan.get("unordered") else "")
+          + (f"\n  ! new migrations whose ORDER is not determinable (added together in one commit, or not "
+             f"placed by the history): {plan['new']} — no command generated; decide the order, then run "
+             f"`sp_deploy.py --expect {target_full} --run-migrations <ordered names>` as the service user"
+             if plan.get("undetermined") else "")
+          + (f"\n  ! renamed migrations (already ran under the old name; NOT runnable): {plan['renamed']}"
+             if plan.get("renamed") else "")
           + (f"\n  ! migrations MODIFIED in this range (not new; read before re-running): {plan['modified']}"
              if plan["modified"] else "")
           + (f"\n  ! rollback / non-forward deploy: migrations in the diff are NOT run (the target predates "

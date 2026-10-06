@@ -1732,3 +1732,51 @@ def test_review_round_four_release_binding_dry_run_and_lookup_failures(sandbox, 
     assert c.running_release() is None                                          # not "UNTAGGED@…"
     monkeypatch.setattr(c, "_git", lambda *a: None if a[:2] == ("rev-parse", "--abbrev-ref") else real(*a))
     assert c.running_release() is None                                          # not "UNTAGGED@…"
+
+
+def test_review_round_five_same_commit_order_renames_and_locked_validation(sandbox, monkeypatch):
+    """Codex on #296, round 5 (verified): (1) two migrations added by ONE commit have no determinable order (git
+    lists them alphabetically): no runnable command, the operator orders them; (2) a RENAMED migration already
+    ran under its old name: reported, never runnable; (3) the files are validated under the DB lock."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q")
+    (repo / "migrate_old_name.py").write_text("print('a long enough body for rename detection to work')\n" * 5)
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_z_prerequisite.py").write_text("1")
+    (repo / "migrate_a_consumer.py").write_text("2")
+    g("add", "-A")
+    g("commit", "-q", "-m", "two at once")
+    g("mv", "migrate_old_name.py", "migrate_new_name.py")
+    g("commit", "-q", "-m", "rename")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    changed = sorted(["migrate_z_prerequisite.py", "migrate_a_consumer.py", "migrate_old_name.py",
+                      "migrate_new_name.py"])
+    plan = sp_deploy.migration_plan(base, head, changed)
+    assert plan["run"] == [] and plan["undetermined"] == ["migrate_a_consumer.py", "migrate_z_prerequisite.py"]
+    assert plan["renamed"] == {"migrate_new_name.py": "migrate_old_name.py"}
+    assert "migrate_new_name.py" not in plan["new"] and "migrate_new_name.py" in plan["modified"]
+    seen = []
+    real_lock = c.db_lock
+
+    from contextlib import contextmanager
+
+    @contextmanager
+    def spy_lock(*a, **k):
+        seen.append("lock")
+        with real_lock(*a, **k):
+            yield
+    monkeypatch.setattr(c, "db_lock", spy_lock)
+    with pytest.raises(SystemExit, match="not a migrate_"):
+        sp_deploy.run_migrations(["migrate_missing.py"], head)
+    assert seen == ["lock"]                                               # refused INSIDE the lock

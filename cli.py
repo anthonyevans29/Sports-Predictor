@@ -4358,10 +4358,14 @@ def results_tally_cmd(days):
 
 
 @cli.command("nfl-grade")
-def nfl_grade_cmd():
-    """Grade NFL predictions vs finished games and banked closers (read-only)."""
+@click.option("--days", "days_back", default=None, type=click.IntRange(min=1),
+              help="Rolling window in days (default: the season to date — the stated record, ARCHITECT 2026-10-06).")
+def nfl_grade_cmd(days_back):
+    """Grade NFL predictions vs finished games and banked closers (read-only).
+    The default is the season to date: the same record RESULTS.md and the results
+    file state (live_since onward, ties as pushes, pre-live under its own line)."""
     from src.walters.nfl_predict import grade_nfl
-    r = grade_nfl(progress=lambda msg: console.print(msg))
+    r = grade_nfl(days_back=days_back, progress=lambda msg: console.print(msg))
     if not r.get("ok"):
         console.print(f"[yellow]{r.get('reason')}[/yellow]")
 

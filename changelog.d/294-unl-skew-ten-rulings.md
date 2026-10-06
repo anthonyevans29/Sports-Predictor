@@ -1,4 +1,4 @@
-## 2026-10-06 (#0000: UNL skew test v2 — the ten ratified definitions; cutoff moves to the ratification — ARCHITECT)
+## 2026-10-06 (#294: UNL skew test v2 — the ten ratified definitions; cutoff moves to the ratification — ARCHITECT)
 - `docs/specs/unl-venue-skew-test.md` is now v2. It records the 2026-10-06 ruling verbatim and states every definition. The freeze cutoff moves to `2026-10-06T14:35:31Z` (the ruling's relay on #286); anything inspected before it is exploratory.
 - `unl-ladder-receipt` applies the ten definitions:
   - (1) the exploratory 17 are excluded by match id (`EXPLORATORY_MATCH_IDS`; `--skew-test` refuses until all 17 are recorded);

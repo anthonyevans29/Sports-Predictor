@@ -16,3 +16,7 @@
   - Any migration deletion in the range (merge parents included) makes every new migration undetermined.
   - A rewritten move of a pre-range migration, and a split copy-then-delete that had planned `run [y, x]`, are now undetermined.
   - The deploy prompt for undetermined migrations says to read each one's history and never re-run a rename or copy. It no longer implies that every listed name runs, and it warns when the range deletes a migration.
+- Review fixes, round 6 (Codex on #305):
+  - The migration-deletion warning prints on its own. A range that only deleted a migration used to say nothing.
+  - The dry run previews undetermined migrations and the deletion warning.
+  - An edited copy of a migration stays a new migration. Copying an existing migration and editing it is how new migrations are written, and #304 kept template-derived migrations new.

@@ -2411,3 +2411,37 @@ def test_sweep_any_migration_deletion_makes_the_whole_plan_undetermined(sandbox,
     monkeypatch.setattr(c, "REPO", repo)
     p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
     assert p["run"] == [] and set(p["undetermined"]) == {"migrate_x.py", "migrate_y.py"} and p["lineage_unknown"]
+
+
+def test_sweep_a_deletion_only_range_warns_on_dry_run_and_deploy(sandbox, monkeypatch, capsys):
+    """Codex on #305 round 6 (verified): a range that ONLY deletes a migration set lineage_unknown with nothing
+    undetermined, and the warning was nested in the undetermined message, so neither the deploy nor the dry run
+    said anything about it. The deletion warning now prints on its own, and the dry run previews it."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "migrate_old.py").write_text("1")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    g(origin, "rm", "-q", "migrate_old.py")
+    g(origin, "commit", "-q", "-m", "retire old")
+    g(origin, "tag", "v1.0.1")
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log" / "receipts.jsonl"))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    assert sp_deploy.main(["--tag", "v1.0.1", "--dry-run"]) == 0
+    assert "DELETES a migration" in capsys.readouterr().out
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 0
+    out = capsys.readouterr().out
+    assert "! this range DELETES a migration" in out and "not determinable" not in out

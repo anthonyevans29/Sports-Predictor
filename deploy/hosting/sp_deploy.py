@@ -291,6 +291,10 @@ def main(argv=None) -> int:
         if a.dry_run:
             print(f"DRY RUN: would deploy {before_rel or before} -> {target} ({target_sha})"
                   + (f"; new migrations, in order: {plan['run']}" if plan["run"] else "")
+                  + (f"; new migrations whose order is NOT determinable (no command will be generated): "
+                     f"{plan['new']}" if plan.get("undetermined") else "")
+                  + ("; this range DELETES a migration (lineage unknown: read the history)"
+                     if plan.get("lineage_unknown") else "")
                   + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else ""))
             return 0
         if dirty:
@@ -316,9 +320,12 @@ def main(argv=None) -> int:
              f"generated. Read each one's history first (`git log --follow -- <name>`): a rename or copy of a "
              f"migration that already ran must NOT run again. Then run only the ones that are new, in order: "
              f"`sp_deploy.py --expect {target_full} --run-migrations <ordered names>` as the service user"
-             + (" (this range DELETES a migration, so any of them may be an applied migration under a new name)"
+             + (" (any of them may be an applied migration under a new name: see the deletion warning)"
                 if plan.get("lineage_unknown") else "")
              if plan.get("undetermined") else "")
+          + ("\n  ! this range DELETES a migration: lineage is unknown, so read the history (`git log --follow`) "
+             "before running anything; a deleted migration's file is gone, not to be re-run"
+             if plan.get("lineage_unknown") else "")
           + (f"\n  ! renamed / copied migrations (already ran under the source name; NOT runnable): {plan['renamed']}"
              if plan.get("renamed") else "")
           + (f"\n  ! migrations MODIFIED in this range (not new; read before re-running): {plan['modified']}"

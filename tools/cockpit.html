@@ -1799,7 +1799,7 @@ function matchFill(fx,calls,picks){
     const lad=startNearest(fx,cands).filter(c=>c.call_type==="ladder"&&c.pick===opp&&(c.units||0)>0);
     if(lad.length){ const c=lad[0];
       return {book:"system_matched",category:`${c.engine} · ${c.tier} (ladder: NO on ${fx.no_on})`,engine:c.engine,
-              tier:c.tier,call_id:c.id}; }
+              tier:c.tier,call_id:c.id,...(lad.length>1?{ambiguous_calls:lad.map(x=>x.id)}:{})}; }
     return {book:"off_book_sports",category:"composite contract ("+(fx.resolve_note||"three-way NO")+") — never a straight",plausible:true};
   }
   if(!fx.backed&&!fx.backed_role)
@@ -1828,8 +1828,11 @@ function matchFill(fx,calls,picks){
   const near3h=startNearest(fx,cands);
   const agree=near3h.filter(sideAgrees);
   const real=agree.filter(c=>c.call_type!=="quarantine_shadow"&&(c.units||0)>0);
+  // several real calls still tied (e.g. an untimed doubleheader): the first is taken, the tie is FLAGGED with
+  // every candidate (parity with the receipt port, Codex on #299)
   if(real.length){ const c=real[0];
-    return {book:"system_matched",category:`${c.engine} · ${c.tier}`,engine:c.engine,tier:c.tier,call_id:c.id}; }
+    return {book:"system_matched",category:`${c.engine} · ${c.tier}`,engine:c.engine,tier:c.tier,call_id:c.id,
+            ...(real.length>1?{ambiguous_calls:real.map(x=>x.id)}:{})}; }
   if(agree.length) return {book:"off_book_sports",category:"matches a quarantine SHADOW (off-policy play)",plausible:true};
   return {book:"off_book_sports",category:"logged call exists but the side disagrees",plausible:true};
 }

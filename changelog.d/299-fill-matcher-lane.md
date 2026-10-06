@@ -22,3 +22,4 @@
   - A weak code is confirmed only by its own side's title team, so a reversed Giants/Jets game never fits.
   - A legacy title orients two non-prefix codes (UGAUNC).
   - Parity: 50/50.
+- Review fix (Codex on #299, round 8): the Cockpit flags tied attributions with every candidate (`ambiguous_calls`) on the straight and ladder paths, as the port does. Parity now compares that field: 52/52, and 49/52 on the old Cockpit.

@@ -99,3 +99,75 @@ def test_an_unscored_opener_of_a_new_season_does_not_republish_the_old_season(tm
     with session_scope() as s:
         s.query(Prediction).filter(Prediction.match_id == mid).delete(synchronize_session=False)
         s.query(Match).filter(Match.id == mid).delete(synchronize_session=False)
+
+
+def test_ties_are_pushes_and_pre_live_rows_are_never_pooled(tmp_path):
+    """ARCHITECT 2026-10-05 (#278 escalations): a TIE is a PUSH in the season record (neither hit nor miss,
+    out of the hit denominator, counted separately; the frozen gate's tie convention, and so log loss, is
+    untouched). PRESEASON is excluded: the record starts at live_since (Week 3); earlier rows sit under
+    "pre_live", never pooled."""
+    from datetime import datetime
+
+    from src.walters.nfl_predict import NFL_LIVE_SINCE, export_nfl_results
+    init_db()
+    now = utc_now_naive()
+    with session_scope() as s:
+        c = s.query(Competition).filter_by(code="NFL").one_or_none()
+        if c is None:
+            c = Competition(sport=Sport.NFL, code="NFL", name="NFL", area="US", type="LEAGUE")
+            s.add(c)
+            s.flush()
+        ts = [Team(sport=Sport.NFL, name=f"PushT {i}") for i in range(8)]
+        s.add_all(ts)
+        s.flush()
+
+        def game(i, when, hs, as_, p, stage=None, week=6):
+            m = Match(sport=Sport.NFL, competition_id=c.id, season="2093", matchday=week, stage=stage,
+                      utc_date=when, status=MatchStatus.FINISHED, home_team_id=ts[2 * i].id,
+                      away_team_id=ts[2 * i + 1].id, home_score=hs, away_score=as_)
+            s.add(m)
+            s.flush()
+            s.add(Prediction(match_id=m.id, model_version="nfl_elo_v1", home_win_prob=p, away_win_prob=1 - p))
+            return m.id
+
+        tie = game(0, now - timedelta(days=1), 20, 20, 0.40)                 # away pick, tied: a PUSH, not a hit
+        win = game(1, now - timedelta(days=1), 27, 10, 0.70)                 # home pick, home win: a hit
+        pre = game(2, NFL_LIVE_SINCE - timedelta(days=9), 24, 3, 0.60, week=1)            # rehearsal Week 1
+        pres = game(3, datetime(2093, 8, 20), 13, 17, 0.55, stage="PRESEASON", week=2)    # preseason stage
+    doc = json.load(open(export_nfl_results(out_dir=str(tmp_path / "p"))))
+    live = {r["match_id"]: r for r in doc["results"]}
+    assert tie in live and win in live and pre not in live and pres not in live
+    t = live[tie]
+    assert t["graded"]["push"] is True and t["graded"]["top_pick_hit"] is None and t["actual"]["result"] == "T"
+    assert t["graded"]["log_loss"] == round(-__import__("math").log(0.6), 4)  # gate convention: tie = home loss
+    w6 = doc["record"]["by_week"]["6"]
+    assert w6 == {"games": 2, "decided": 1, "hits": 1, "pushes": 1}
+    assert doc["record"]["live_since"] == f"{NFL_LIVE_SINCE:%Y-%m-%d}" and doc["count"] == len(doc["results"])
+    assert doc["record"]["games"] == doc["count"]
+    assert {r["match_id"] for r in doc["pre_live"]["results"]} == {pre, pres}
+    assert doc["pre_live"]["record"]["games"] == 2 and doc["pre_live"]["count"] == 2
+    assert not any("_pre_live" in r for r in doc["results"] + doc["pre_live"]["results"])
+
+
+def test_cli_receipt_uses_decided_and_finds_pre_live_matches(tmp_path, monkeypatch):
+    """Codex on #290 (verified): the export-nfl-results receipt printed hits/games (a push counted as a miss)
+    and looked for --match ids in `results` only, so a pre-live match read NOT in the file."""
+    from click.testing import CliRunner
+
+    import cli
+    from src.walters import nfl_predict
+    doc = {"window": {"kind": "season_to_date", "season": "2093"},
+           "record": {"live_since": "2026-09-22", "games": 2, "decided": 1, "hits": 1, "pushes": 1,
+                      "by_week": {"6": {"games": 2, "decided": 1, "hits": 1, "pushes": 1}}},
+           "results": [{"match_id": 11}], "count": 1,
+           "pre_live": {"count": 1, "record": {"games": 1, "decided": 1, "hits": 0, "pushes": 0},
+                        "results": [{"match_id": 22}]}}
+    path = tmp_path / "r.json"
+    path.write_text(json.dumps(doc))
+    monkeypatch.setattr(nfl_predict, "export_nfl_results", lambda days_back=None: str(path))
+    res = CliRunner().invoke(cli.cli, ["export-nfl-results", "--match", "11", "--match", "22", "--match", "33"])
+    assert res.exit_code == 0, res.output
+    assert "top-pick hits 1/1 decided · pushes 1" in res.output and "W6 1/1 +1P" in res.output
+    assert "match 11: IN the file (season record)" in res.output
+    assert "match 22: IN the file (pre-live, not in the season record)" in res.output
+    assert "match 33: NOT in the file" in res.output and "pre-live (never pooled): games 1" in res.output

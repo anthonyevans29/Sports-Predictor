@@ -4278,11 +4278,23 @@ def export_nfl_results_cmd(days_back, match_ids):
     console.print(f"[green]✓ Wrote {path}[/green]")
     print(f"window: {w.get('kind')} " + (f"season {w.get('season')}" if w.get("kind") == "season_to_date"
                                         else f"{w.get('days')}d from {w.get('from')}")
-          + f" · games {rec.get('games')} · top-pick hits {rec.get('hits')}")
-    print("by week: " + " · ".join(f"W{k} {v['hits']}/{v['games']}" for k, v in (rec.get("by_week") or {}).items()))
-    ids = {r["match_id"] for r in doc.get("results") or []}
+          + f" · live since {rec.get('live_since')} · games {rec.get('games')} · top-pick hits "
+          f"{rec.get('hits')}/{rec.get('decided')} decided · pushes {rec.get('pushes')}")
+
+    def _wk(v):                                   # pushes are out of the hit denominator (ARCHITECT 2026-10-05)
+        return f"{v['hits']}/{v['decided']}" + (f" +{v['pushes']}P" if v.get("pushes") else "")
+    print("by week: " + " · ".join(f"W{k} {_wk(v)}" for k, v in (rec.get("by_week") or {}).items()))
+    pre = doc.get("pre_live") or {}
+    if pre.get("count"):
+        prec = pre.get("record") or {}
+        print(f"pre-live (never pooled): games {pre['count']} · hits {prec.get('hits')}/{prec.get('decided')}"
+              f" · pushes {prec.get('pushes')}")
+    live_ids = {r["match_id"] for r in doc.get("results") or []}
+    pre_ids = {r["match_id"] for r in pre.get("results") or []}
     for mid in match_ids:
-        print(f"match {mid}: {'IN the file' if mid in ids else 'NOT in the file'}")
+        print(f"match {mid}: " + ("IN the file (season record)" if mid in live_ids else
+                                  "IN the file (pre-live, not in the season record)" if mid in pre_ids
+                                  else "NOT in the file"))
 
 
 @cli.command("results-tally")

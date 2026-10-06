@@ -298,7 +298,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
         "model_version": MODEL_VERSION,
         "contains_predictions": True,
         "rehearsal": False,
-        "live_since": "2026-09-22 (Week 3; ratified after two graded weeks)",
+        "live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d} (Week 3; ratified after two graded weeks)",
         "note": ("LIVE: gate-passed v1 Elo. CONTRACT RULE: rows with "
                  "market_divergence_pp >= 15 carry quarantine=true — "
                  "consumer treats them as watch-flagged, never straight "
@@ -471,6 +471,32 @@ def grade_nfl(days_back: int = 8, progress=None) -> dict:
         return summary
 
 
+# nfl_elo_v1 went LIVE at Week 3 (2026-09-22). ARCHITECT 2026-10-05: the season
+# record starts here; earlier rows (preseason, rehearsal Weeks 1-2) are listed
+# under "pre_live" and never pooled into it.
+NFL_LIVE_SINCE = datetime(2026, 9, 22)
+
+
+def _is_pre_live(m) -> bool:
+    return (m.utc_date is not None and m.utc_date < NFL_LIVE_SINCE) or "pre" in (m.stage or "").lower()
+
+
+def _season_record(rows: list) -> dict:
+    """Hits over DECIDED games. A tie is a PUSH (ARCHITECT 2026-10-05): neither
+    hit nor miss, out of the hit denominator, counted separately."""
+    by_week: dict = {}
+    for r in rows:
+        w = by_week.setdefault(str(r["week"]), {"games": 0, "decided": 0, "hits": 0, "pushes": 0})
+        w["games"] += 1
+        if r["graded"].get("push"):
+            w["pushes"] += 1
+            continue
+        w["decided"] += 1
+        w["hits"] += 1 if r["graded"]["top_pick_hit"] else 0
+    tot = {k: sum(w[k] for w in by_week.values()) for k in ("games", "decided", "hits", "pushes")}
+    return {**tot, "by_week": dict(sorted(by_week.items(), key=lambda kv: (len(kv[0]), kv[0])))}
+
+
 def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -> str:
     """Graded NFL results file for the consumer rhythm (2026-09-15).
 
@@ -514,7 +540,8 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
             q = (base.where(Match.season == season) if season is not None else base).order_by(Match.utc_date)
             window = {"kind": "season_to_date", "season": season}
         for pred, m in s.execute(q).all():
-            y = 1 if m.home_score > m.away_score else 0
+            y = 1 if m.home_score > m.away_score else 0   # the frozen gate's convention (tie = home loss)
+            tie = m.home_score == m.away_score
             p = pred.home_win_prob
             pick_home = p >= 0.5
             close_h = None
@@ -529,6 +556,7 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                 clv = (p if pick_home else 1 - p) - (close_h if pick_home else 1 - close_h)
             vg = value_grade_for(s, m, pred, close_h)
             rows.append({
+                "_pre_live": _is_pre_live(m),
                 "match_id": m.id, "utc_date": m.utc_date.isoformat(),
                 "week": m.matchday,
                 "home_team": m.home_team.name, "away_team": m.away_team.name,
@@ -537,8 +565,10 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                               "top_pick_prob": round(p if pick_home else 1 - p, 4),
                               "home_win_prob": p},
                 "actual": {"home_score": m.home_score, "away_score": m.away_score,
-                           "result": "H" if y else "A"},
-                "graded": {"top_pick_hit": (pick_home and y == 1) or (not pick_home and y == 0),
+                           "result": "T" if tie else ("H" if y else "A")},
+                "graded": {"top_pick_hit": None if tie else ((pick_home and y == 1) or (not pick_home and y == 0)),
+                           "push": tie,
+                           # log loss keeps the gate's tie convention (ARCHITECT 2026-10-05: untouched)
                            "log_loss": round(-(y * math.log(max(p, 1e-12))
                                                + (1 - y) * math.log(max(1 - p, 1e-12))), 4),
                            "close_home_prob": round(close_h, 4) if close_h is not None else None,
@@ -556,18 +586,17 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
             })
     _os.makedirs(out_dir, exist_ok=True)
     path = _os.path.join(out_dir, f"nfl_NFL_results_{utc_now_naive().strftime('%Y-%m-%d')}.json")
-    by_week: dict = {}
-    for r in rows:
-        w = by_week.setdefault(str(r["week"]), {"games": 0, "hits": 0})
-        w["games"] += 1
-        w["hits"] += 1 if r["graded"]["top_pick_hit"] else 0
-    record = {"games": len(rows), "hits": sum(w["hits"] for w in by_week.values()),
-              "by_week": dict(sorted(by_week.items(), key=lambda kv: (len(kv[0]), kv[0])))}
+    flags = [r.pop("_pre_live") for r in rows]
+    live = [r for r, f in zip(rows, flags) if not f]
+    pre = [r for r, f in zip(rows, flags) if f]
+    record = {"live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d}", **_season_record(live)}
+    pre_live = {"note": "preseason + pre-live rows (before Week 3); never pooled into the season record",
+                "count": len(pre), "record": _season_record(pre), "results": pre}
     with open(path, "w") as f:
         _json.dump({"exported_at": utc_now_naive().isoformat() + "Z",
                     "git_sha": _git_sha(),
                     "sport": "nfl",
                     "note": "record is variance, not signal — for the consumer to grade against",
                     "window": window, "record": record,
-                    "count": len(rows), "results": rows}, f, indent=2)
+                    "count": len(live), "results": live, "pre_live": pre_live}, f, indent=2)
     return path

@@ -164,7 +164,13 @@ def _environment_id() -> str:
     recreated venv is caught by the record living inside it (requirements_state_path)."""
     import os
     cfg = c.REPO / "venv" / "pyvenv.cfg"
-    return f"venv:{cfg.parent.resolve()}" if cfg.exists() else f"python:{os.path.realpath(sys.executable)}"
+    if not cfg.exists():
+        return f"python:{os.path.realpath(sys.executable)}"
+    # the interpreter version is part of the identity: `venv --upgrade` to a new minor version switches to a new,
+    # empty site-packages while the record inside the venv survives (Codex on #310)
+    ver = next((ln.split("=", 1)[1].strip() for ln in cfg.read_text(encoding="utf-8", errors="replace").splitlines()
+                if ln.split("=", 1)[0].strip() in ("version", "version_info")), "?")
+    return f"venv:{cfg.parent.resolve()}:python-{ver}"
 
 
 def _fingerprint(inputs: dict) -> str:
@@ -190,6 +196,8 @@ def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, 
         return None, ("removed in the target" if REQUIREMENTS in changed else None)
     inputs, problems = requirements_scan(target_sha)
     if problems:
+        if _last_installed_requirements() == _fingerprint(inputs):
+            return None, None              # installed by hand and acknowledged (--requirements-installed-by-hand)
         return None, f"{REFUSE} ({'; '.join(problems[:3])}{' …' if len(problems) > 3 else ''})"
     fp = _fingerprint(inputs)
     touched = sorted(set(inputs) & set(changed))
@@ -199,6 +207,22 @@ def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, 
     if _last_installed_requirements() != fp:
         return fp, "not installed on this host in this exact form (no matching install record)"
     return None, None
+
+
+def record_installed(fingerprint: str) -> str | None:
+    """Write the install record; the error text if it cannot be written (a read-only venv, a full disk), never an
+    exception after pip has already changed the environment (Codex on #310)."""
+    try:
+        state = requirements_state_path()
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(fingerprint + "\n", encoding="utf-8")
+        return None
+    except OSError as e:
+        return f"{e.__class__.__name__}: {e}"
+
+
+def requirements_fingerprint(target_sha: str) -> str | None:
+    return _fingerprint(requirements_scan(target_sha)[0]) if _blob(target_sha, REQUIREMENTS) else None
 
 
 def install_requirements(target: str, target_sha: str, fingerprint: str, reason: str) -> dict:
@@ -219,14 +243,12 @@ def install_requirements(target: str, target_sha: str, fingerprint: str, reason:
         _git_rc("worktree", "remove", "--force", wt)
         _git_rc("worktree", "prune")
         shutil.rmtree(tmp, ignore_errors=True)
-    if rc == 0:
-        state = requirements_state_path()
-        state.parent.mkdir(parents=True, exist_ok=True)
-        state.write_text(fingerprint + "\n", encoding="utf-8")
+    state_error = record_installed(fingerprint) if rc == 0 else None
     # worktree stderr is attached ONLY when the worktree itself failed: on success git still prints
     # "Preparing worktree", which is not a pip diagnostic (Codex on #310)
     return c.append_receipt({"kind": "deploy_requirements", "exit": rc, "tag": target, "to_sha": target_sha,
                              "fingerprint": fingerprint, "reason": reason, "command": shown,
+                             **({"state_error": state_error} if state_error else {}),
                              **({"error": f"worktree add failed: {wt_err}"} if wt_rc != 0 else {})})
 
 
@@ -430,6 +452,9 @@ def main(argv=None) -> int:
                          "(the command a deploy prints).")
     ap.add_argument("--expect", default=None, metavar="SHA",
                     help="With --run-migrations: the release commit the plan was made for; refused otherwise.")
+    ap.add_argument("--requirements-installed-by-hand", action="store_true",
+                    help="The target's requirements were installed by hand: record that (receipted) instead of "
+                         "running pip, so a release the auto-install refuses can be deployed.")
     a = ap.parse_args(argv)
     c.load_host_env()
     if a.run_migrations and a.dry_run:          # dry run changes nothing (Codex on #296)
@@ -477,9 +502,22 @@ def main(argv=None) -> int:
             return 0
         # PREFLIGHT the checkout BEFORE installing (Codex on #310): an untracked host file at a path the target
         # adds would make `git checkout` fail after pip had already installed the target's dependencies
-        added = git("diff", "--name-only", "--diff-filter=A", before, target_sha).splitlines() \
+        # --no-renames: a renamed DESTINATION is an addition too; every path prefix is checked, since an
+        # untracked FILE (or symlink) at an ancestor directory blocks the checkout as well (Codex on #310)
+        import os
+        added = git("diff", "--name-only", "--no-renames", "--diff-filter=A", before, target_sha).splitlines() \
             if before != target_sha else []
-        blockers = [p for p in added if (Path(c.REPO) / p).exists()]
+        tracked_before = set(git("ls-tree", "-r", "--name-only", before).splitlines()) if added else set()
+
+        def _blocks(p: str) -> bool:
+            parts = p.split("/")
+            for i in range(1, len(parts) + 1):
+                q, rel = Path(c.REPO, *parts[:i]), "/".join(parts[:i])
+                last = i == len(parts)
+                if os.path.lexists(q) and rel not in tracked_before and (last or q.is_symlink() or not q.is_dir()):
+                    return True
+            return False
+        blockers = [p for p in added if _blocks(p)]
         if blockers:
             c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
                               "error": f"untracked files block the checkout: {blockers[:10]}"})
@@ -487,8 +525,27 @@ def main(argv=None) -> int:
                   f"before anything was installed; the host stays at {before_rel or before}. Move them aside.")
             return 1
         installed = False
+        if a.requirements_installed_by_hand and (req_blob or (req_reason or "").startswith(REFUSE)):
+            fp = requirements_fingerprint(target_sha)
+            err = record_installed(fp)
+            c.append_receipt({"kind": "deploy_requirements", "exit": 1 if err else 0, "tag": target,
+                              "to_sha": target_sha, "manual": True, "fingerprint": fp, "reason": req_reason,
+                              **({"state_error": err} if err else {})})
+            if err:
+                print(f"✗ could not record the by-hand install ({err}) — deploy refused; the host stays at "
+                      f"{before_rel or before}")
+                return 1
+            print(f"  requirements.txt {req_reason}: recorded as INSTALLED BY HAND (--requirements-installed-by-hand)")
+            req_blob = req_reason = None
         if req_blob:
             req = install_requirements(target, target_sha, req_blob, req_reason)
+            if req["exit"] == 0 and req.get("state_error"):
+                c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                                  "error": f"install record not written: {req['state_error']}"})
+                print(f"✗ pip installed {target}'s requirements, but the install record could not be written "
+                      f"({req['state_error']}) — deploy refused; the code stays at {before_rel or before} while the "
+                      f"venv already holds {target}'s requirements. Fix the cause and deploy again.")
+                return 1
             if req["exit"] != 0:
                 c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
                                   "error": f"pip install exited {req['exit']}"})
@@ -504,7 +561,8 @@ def main(argv=None) -> int:
             c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
                               "error": f"requirements.txt {req_reason}"})
             print(f"✗ requirements.txt {req_reason} — deploy refused; the host stays at {before_rel or before}. "
-                  f"Install the target's requirements by hand, then deploy again.")
+                  f"Install the target's requirements by hand, then deploy again with "
+                  f"--requirements-installed-by-hand.")
             return 1
         elif req_reason:
             c.append_receipt({"kind": "deploy_requirements", "exit": 0, "tag": target, "to_sha": target_sha,

@@ -2664,3 +2664,73 @@ def test_deploy_preflights_checkout_blockers_and_receipts_pip_launch_failures(sa
     recs = [json.loads(x) for x in log.read_text().splitlines()]
     assert [r for r in recs if r["kind"] == "deploy_requirements"][-1]["exit"] == 127
     assert "could not run" in capsys.readouterr().out
+
+
+def test_requirements_round_seven_ack_preflight_state_errors_and_venv_upgrade(sandbox, monkeypatch, capsys):
+    """Codex on #310 round 7 (verified): (1) a release the allowlist refuses could never deploy: the by-hand install
+    is acknowledged with --requirements-installed-by-hand (receipted, recorded), and later deploys of the same
+    requirements are not refused again; (2) the preflight sees a RENAMED destination and an untracked file at an
+    ANCESTOR path; (3) an install record that cannot be written after pip succeeded is a receipted refusal, not a
+    traceback; (4) the venv's Python version is part of the identity (`venv --upgrade`)."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(tag, files=(), mv=()):
+        for a, b in mv:
+            g(origin, "mv", a, b)
+        for name, text in files:
+            (origin / name).parent.mkdir(parents=True, exist_ok=True)
+            (origin / name).write_text(text)
+        g(origin, "add", "-A")
+        g(origin, "commit", "-q", "-m", tag)
+        g(origin, "tag", tag)
+    g(origin, "init", "-q", "-b", "main")
+    commit("v1.0.0", [("requirements.txt", "requests\n"), ("old.py", "x = 1\n" * 20)])
+    commit("v1.0.1", [("requirements.txt", "requests\n--index-url https://example.invalid/simple\n")],
+           mv=[("old.py", "moved.py")])
+    commit("v1.0.2", [("pkg/new.py", "y = 2\n"), ("c.txt", "change\n")])
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    log = sandbox / "log" / "receipts.jsonl"
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    calls = []
+    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd, cwd: calls.append(cmd) or 0)
+
+    def recs():
+        return [json.loads(x) for x in log.read_text().splitlines()]
+    (repo / "moved.py").write_text("untracked\n")                                 # (2) renamed destination
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and "moved.py" in recs()[-1]["error"] and calls == []
+    (repo / "moved.py").unlink()
+    capsys.readouterr()
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1                                # (1) refused by the allowlist
+    assert "--requirements-installed-by-hand" in capsys.readouterr().out and calls == []
+    assert sp_deploy.main(["--tag", "v1.0.1", "--requirements-installed-by-hand"]) == 0 and calls == []
+    ack = [r for r in recs() if r["kind"] == "deploy_requirements"][-1]
+    assert ack["manual"] is True and ack["exit"] == 0 and recs()[-1]["kind"] == "deploy"
+    assert sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.2"), ["c.txt"]) == (None, None)   # remembered
+    (repo / "pkg").write_text("an untracked FILE where v1.0.2 adds a directory\n")      # (2) ancestor
+    assert sp_deploy.main(["--tag", "v1.0.2"]) == 1 and "pkg/new.py" in recs()[-1]["error"]
+    (repo / "pkg").unlink()
+    (sandbox / "log" / "requirements.installed").unlink()                          # (3) force an install whose
+    monkeypatch.setattr(sp_deploy, "record_installed", lambda fp: "OSError: read-only")   # record cannot be written
+    head = g(repo, "rev-parse", "HEAD")
+    assert sp_deploy.main(["--tag", "v1.0.2", "--requirements-installed-by-hand"]) == 1
+    assert g(repo, "rev-parse", "HEAD") == head and "could not record" in capsys.readouterr().out
+    (repo / "venv").mkdir()                                                        # (4) venv --upgrade
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\nversion = 3.11.9\n")
+    first = sp_deploy._environment_id()
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\nversion = 3.12.4\n")
+    assert first != sp_deploy._environment_id()
+    # (3) also on the pip path: pip succeeded, the record failed -> state_error in the receipt (main refuses on it)
+    rec = sp_deploy.install_requirements("v1.0.0", g(repo, "rev-parse", "v1.0.0"), "fp", "test")
+    assert rec["exit"] == 0 and rec["state_error"] == "OSError: read-only"

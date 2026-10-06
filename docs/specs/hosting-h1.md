@@ -932,7 +932,9 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   - Only plain requirements files auto-install: comments, version specifiers,
     and `-r`/`-c` includes of tracked files. Anything else (editables, local
     paths, `--find-links`, `name @ …`, `$VARS`, continuations, other options)
-    refuses the deploy with the reason; install those by hand.
+    refuses the deploy with the reason. Install those by hand, then deploy with
+    `--requirements-installed-by-hand` (receipted; later deploys of the same
+    requirements are not refused again).
   - An untracked host file where the target adds a tracked one refuses the
     deploy before anything is installed.
   - The install record lives inside the venv (`venv/.sp-requirements.installed`),

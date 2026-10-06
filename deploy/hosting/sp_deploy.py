@@ -180,16 +180,18 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         p = ln.strip()
         if p.startswith("@@"):
             h, *parents = p[2:].split()
-            cur = (h, len(parents) > 1)
+            cur = (h, parents)
             continue
         if p in new:
             idx += 1
             seen.setdefault(p, []).append((idx, cur[0], cur[1]))
     chosen, ambiguous = {}, set()
     for p, apps in seen.items():
-        plain = {h for _, h, m in apps if not m}
-        merges = {h for _, h, m in apps if m}
-        pick = plain if plain else merges
+        # a merge commit ADDS a path only when NONE of its parents had it (a merge-result addition, e.g. a
+        # re-add in the merge); when a parent had it, `-m` is just re-listing that branch's addition (Codex on #304)
+        adds = {h for _, h, parents in apps
+                if len(parents) <= 1 or all(_blob(par, p) is None for par in parents)}
+        pick = adds
         if len(pick) != 1:
             ambiguous.add(p)
             continue

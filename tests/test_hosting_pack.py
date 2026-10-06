@@ -2040,3 +2040,43 @@ def test_codex_on_304_round_4_parallel_branches_unmatched_and_merge_only_re_adds
             g("commit", "-q", "-m", "drop x", when="2026-01-02T12:00:00Z")
     p = plan(repo, g, base, ["migrate_x.py", "migrate_y.py"])
     assert p["run"] == [] and "migrate_x.py" in p["undetermined"]
+
+
+def test_codex_on_304_round_5_merge_re_add_after_an_ordinary_add_is_ambiguous(sandbox, monkeypatch):
+    """Codex on #304, round 5 (verified on the old code: run [x, y]): migrate_x added by an ordinary commit, deleted,
+    then re-added by a MERGE together with migrate_y. A merge adds a path when none of its parents had it, so that
+    re-add is a second addition of x: ambiguous, nothing runs."""
+    import os
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g7"
+    repo.mkdir()
+
+    def g(*a, when=None):
+        env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when} if when else None
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True, env=env).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "r.txt").write_text("r")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base", when="2026-01-01T00:00:00Z")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_x.py").write_text("x = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x", when="2026-01-02T00:00:00Z")
+    g("rm", "-q", "migrate_x.py")
+    g("commit", "-q", "-m", "drop x", when="2026-01-03T00:00:00Z")
+    g("checkout", "-q", "-b", "side")
+    (repo / "s.txt").write_text("s")
+    g("add", "-A")
+    g("commit", "-q", "-m", "side", when="2026-01-04T00:00:00Z")
+    g("checkout", "-q", "main")
+    g("merge", "-q", "--no-ff", "--no-commit", "side")
+    (repo / "migrate_x.py").write_text("x = 2\n")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "merge side, re-adding x with y", when="2026-01-05T00:00:00Z")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]

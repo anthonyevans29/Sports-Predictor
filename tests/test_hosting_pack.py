@@ -2717,7 +2717,9 @@ def test_requirements_round_seven_ack_preflight_state_errors_and_venv_upgrade(sa
     assert sp_deploy.main(["--tag", "v1.0.1", "--requirements-installed-by-hand"]) == 0 and calls == []
     ack = [r for r in recs() if r["kind"] == "deploy_requirements"][-1]
     assert ack["manual"] is True and ack["exit"] == 0 and recs()[-1]["kind"] == "deploy"
-    assert sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.2"), ["c.txt"]) == (None, None)   # remembered
+    assert sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.1"), []) == (None, None)   # this release: ack'd
+    # round 8: the acknowledgement is bound to the release, so the NEXT release asks again (local inputs could change)
+    assert sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.2"), ["c.txt"])[1].startswith(sp_deploy.REFUSE)
     (repo / "pkg").write_text("an untracked FILE where v1.0.2 adds a directory\n")      # (2) ancestor
     assert sp_deploy.main(["--tag", "v1.0.2"]) == 1 and "pkg/new.py" in recs()[-1]["error"]
     (repo / "pkg").unlink()
@@ -2734,3 +2736,48 @@ def test_requirements_round_seven_ack_preflight_state_errors_and_venv_upgrade(sa
     # (3) also on the pip path: pip succeeded, the record failed -> state_error in the receipt (main refuses on it)
     rec = sp_deploy.install_requirements("v1.0.0", g(repo, "rev-parse", "v1.0.0"), "fp", "test")
     assert rec["exit"] == 0 and rec["state_error"] == "OSError: read-only"
+
+
+def test_requirements_round_eight_dry_run_dir_to_file_and_encodings(sandbox, monkeypatch, capsys):
+    """Codex on #310 round 8 (verified): (1) --dry-run honours --requirements-installed-by-hand; (2) a tracked
+    directory the target replaces with a file is not a checkout blocker; (3) a requirements file that is not UTF-8
+    text is a receipted refusal, not a traceback."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "requirements.txt").write_text("requests\n")
+    (origin / "tool").mkdir()
+    (origin / "tool" / "a.py").write_text("a = 1\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    g(origin, "rm", "-q", "-r", "tool")
+    (origin / "tool").write_text("now a file\n")                                 # (2) dir -> file
+    (origin / "requirements.txt").write_bytes("requests\n# caf\xe9\n".encode("latin-1"))   # (3) not UTF-8
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "replace")
+    g(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    log = sandbox / "log" / "receipts.jsonl"
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd, cwd: 0)
+    blob, reason = sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.1"), ["requirements.txt"])
+    assert blob is None and reason.startswith(sp_deploy.REFUSE) and "UTF-8" in reason                   # (3)
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1
+    out = capsys.readouterr().out
+    assert "untracked" not in out and "deploy refused" in out                     # (2): refused for (3), not (2)
+    assert sp_deploy.main(["--tag", "v1.0.1", "--dry-run", "--requirements-installed-by-hand"]) == 0   # (1)
+    assert "RECORDED as installed by hand" in capsys.readouterr().out
+    assert sp_deploy.main(["--tag", "v1.0.1", "--requirements-installed-by-hand"]) == 0
+    assert (repo / "tool").is_file()

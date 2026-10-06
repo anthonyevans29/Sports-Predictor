@@ -143,9 +143,16 @@ def requirements_scan(rev: str) -> tuple[dict, list[str]]:
             continue
         rc, mode, _ = _git_rc("ls-tree", rev, "--", p)
         if rc == 0 and mode.startswith("120000"):      # a tracked FILE symlink: pip reads its target
-            todo.append(posixpath.join(posixpath.dirname(p), _git_rc("show", f"{rev}:{p}")[1].strip()))
+            try:
+                todo.append(posixpath.join(posixpath.dirname(p), _git_rc("show", f"{rev}:{p}")[1].strip()))
+            except UnicodeDecodeError:
+                problems.append(f"{p}: symlink target is not decodable text")
             continue
-        rc, body, _ = _git_rc("show", f"{rev}:{p}")
+        try:
+            rc, body, _ = _git_rc("show", f"{rev}:{p}")
+        except UnicodeDecodeError:          # a BOM / PEP 263 encoding: refused (receipted), never a traceback
+            problems.append(f"{p}: not decodable as UTF-8 text (encoding declarations are not auto-installable)")
+            continue
         for ln in (body.splitlines() if rc == 0 else []):
             kind, detail = _classify(ln)
             if kind == "include":
@@ -196,8 +203,8 @@ def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, 
         return None, ("removed in the target" if REQUIREMENTS in changed else None)
     inputs, problems = requirements_scan(target_sha)
     if problems:
-        if _last_installed_requirements() == _fingerprint(inputs):
-            return None, None              # installed by hand and acknowledged (--requirements-installed-by-hand)
+        if _last_installed_requirements() == manual_record(_fingerprint(inputs), target_sha):
+            return None, None              # this exact release was acknowledged as installed by hand
         return None, f"{REFUSE} ({'; '.join(problems[:3])}{' …' if len(problems) > 3 else ''})"
     fp = _fingerprint(inputs)
     touched = sorted(set(inputs) & set(changed))
@@ -219,6 +226,14 @@ def record_installed(fingerprint: str) -> str | None:
         return None
     except OSError as e:
         return f"{e.__class__.__name__}: {e}"
+
+
+def manual_record(fingerprint: str, target_sha: str) -> str:
+    """A by-hand acknowledgement is bound to the TARGET COMMIT, not only to the requirements files: an unsupported
+    input (a local wheel, a --find-links directory) can change while the files stay the same, so every new release
+    that needs a by-hand install is acknowledged again (Codex on #310)."""
+    rc, full, _ = _git_rc("rev-parse", "--verify", f"{target_sha}^{{commit}}")
+    return f"{fingerprint}:manual:{full.strip() if rc == 0 else target_sha}"     # the FULL sha, however given
 
 
 def requirements_fingerprint(target_sha: str) -> str | None:
@@ -486,6 +501,14 @@ def main(argv=None) -> int:
         changed = git("diff", "--name-only", before, target_sha).splitlines() if before != target_sha else []
         plan = migration_plan(before, target_sha, changed)
         req_blob, req_reason = requirements_plan(target_sha, changed)
+        by_hand = a.requirements_installed_by_hand and (req_blob or (req_reason or "").startswith(REFUSE))
+        if a.dry_run and by_hand:          # the preview matches the real run (Codex on #310)
+            print(f"DRY RUN: would deploy {before_rel or before} -> {target} ({target_sha}); requirements.txt "
+                  f"{req_reason}: would be RECORDED as installed by hand (no pip run)"
+                  + (f"; new migrations, in order: {plan['run']}" if plan["run"] else "")
+                  + (f"; new migrations whose order is NOT determinable: {plan['new']}"
+                     if plan.get("undetermined") else ""))
+            return 0
         if a.dry_run:
             print(f"DRY RUN: would deploy {before_rel or before} -> {target} ({target_sha})"
                   + (f"; new migrations, in order: {plan['run']}" if plan["run"] else "")
@@ -515,6 +538,8 @@ def main(argv=None) -> int:
                 q, rel = Path(c.REPO, *parts[:i]), "/".join(parts[:i])
                 last = i == len(parts)
                 if os.path.lexists(q) and rel not in tracked_before and (last or q.is_symlink() or not q.is_dir()):
+                    if last and q.is_dir() and not q.is_symlink() and any(t.startswith(rel + "/") for t in tracked_before):
+                        continue           # a TRACKED directory the target replaces with a file: git handles it
                     return True
             return False
         blockers = [p for p in added if _blocks(p)]
@@ -525,9 +550,9 @@ def main(argv=None) -> int:
                   f"before anything was installed; the host stays at {before_rel or before}. Move them aside.")
             return 1
         installed = False
-        if a.requirements_installed_by_hand and (req_blob or (req_reason or "").startswith(REFUSE)):
+        if by_hand:
             fp = requirements_fingerprint(target_sha)
-            err = record_installed(fp)
+            err = record_installed(manual_record(fp, target_sha) if (req_reason or "").startswith(REFUSE) else fp)
             c.append_receipt({"kind": "deploy_requirements", "exit": 1 if err else 0, "tag": target,
                               "to_sha": target_sha, "manual": True, "fingerprint": fp, "reason": req_reason,
                               **({"state_error": err} if err else {})})

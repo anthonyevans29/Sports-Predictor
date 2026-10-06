@@ -1,4 +1,4 @@
-## 2026-10-06 (#0000: desk-rescore-receipts — ARCHITECT rulings recorded)
+## 2026-10-06 (#309: desk-rescore-receipts — ARCHITECT rulings recorded)
 - `desk-rescore` writes its receipt into `docs/receipts/` (default `desk-rescore-<UTC stamp>.md`; `--out` to name it). It never writes under `data/` and never overwrites.
 - Recorded rulings:
   - An edited copy of a migration is a new migration.

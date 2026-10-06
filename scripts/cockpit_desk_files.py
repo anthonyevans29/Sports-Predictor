@@ -7,7 +7,12 @@ ledger is seeded with — plus the desk_parlays file, exactly as the host
 emits them. The policy itself is checked against the deleted JS's frozen
 outputs by tests/test_desk_golden.py; these verifies keep checking what the
 Cockpit SHOWS and LOGS.
+
+#87 v1.1 ADDENDUM (2026-10-06): the verifies predate it and pin pre-addendum fixtures (join-bid, maker basis,
+"informational only", the frozen render golden), so files are written under dp.base_v11() by default;
+base=False writes them under the addendum (scripts/cockpit_exec_addendum_verify.py).
 """
+import contextlib
 import json
 import os
 import sys
@@ -17,12 +22,17 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from src.walters import desk_policy as dp  # noqa: E402
 
 
-def desk_files(docs: dict, now, counts: dict | None = None, parlays: bool = True) -> dict:
+def desk_files(docs: dict, now, counts: dict | None = None, parlays: bool = True, base: bool = True) -> dict:
     """{name: doc} -> the same docs annotated (desk + desk_meta) in load order,
     plus desk_parlays.json (unless parlays=False). model_shadow docs, window
     cards and desk_parlays docs pass through unchanged."""
     if now.tzinfo is None:
         now = now.replace(tzinfo=timezone.utc)
+    with (dp.base_v11() if base else contextlib.nullcontext()):
+        return _desk_files(docs, now, counts, parlays)
+
+
+def _desk_files(docs, now, counts, parlays):
     out, named = {}, []
     for n, d in docs.items():
         d = json.loads(json.dumps(d))
@@ -45,12 +55,17 @@ def write(tmp: str, docs: dict) -> list[str]:
     return paths
 
 
-def upload(page, paths, now=None, parlays: bool = True):
+def upload(page, paths, now=None, parlays: bool = True, base: bool = True):
     """Drop-in for page.set_input_files("#predFile", paths) in the verifies:
     annotates every prediction/fixtures file in place through the Python Desk
     (clock = `now` or the browser's Date.now(); counts = the page's own
     ledgerSummary(), exactly the operator flow), adds desk_parlays.json
     beside them unless one is already loaded, then uploads."""
+    with (dp.base_v11() if base else contextlib.nullcontext()):
+        return _upload(page, paths, now, parlays)
+
+
+def _upload(page, paths, now, parlays):
     import tempfile
     from datetime import datetime
 

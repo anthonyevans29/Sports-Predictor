@@ -8,7 +8,16 @@ is noref (ARCHITECT 2026-10-02: ratified); the Next-24h card
 (window_venue) obeys the same rules."""
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from src.walters import desk_policy as dp
+
+
+@pytest.fixture(autouse=True)
+def _base_v11():
+    """These cases pin v1.1 rules that the #87 addendum (2026-10-06) does not touch; their fixtures carry no
+    executable quotes. The addendum and its interactions are tested in tests/test_desk_exec_addendum.py."""
+    with dp.base_v11():
+        yield
 
 NOW = datetime(2026, 10, 4, 12, 0, tzinfo=timezone.utc)
 MS = float((NOW - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(milliseconds=1))

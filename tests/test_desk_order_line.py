@@ -4,12 +4,22 @@ count at the declared unit size (SP_UNIT_USD, default 10 contracts per 1u). The 
 snapshot (sync-kalshi-*), through the export's kalshi_legs. No policy change."""
 from datetime import timedelta
 
+import pytest
 from sqlalchemy import select
 
 from src.db.database import init_db, session_scope
 from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Sport, Team
 from src.walters import desk_policy as dp
 from src.walters.venue import kalshi_legs, latest_kalshi_by_selection
+
+
+@pytest.fixture(autouse=True)
+def _base_v11():
+    """These cases pin the PRE-ADDENDUM join-bid doctrine (base_v11, kept for the frozen golden). The #87 v1.1
+    addendum (2026-10-06) supersedes it: TAKE at the ask, join only at >= 3c — tests/test_desk_exec_addendum.py."""
+    with dp.base_v11():
+        yield
+
 
 LEGS2 = {"HOME": {"ticker": "KXNFLGAME-26OCT05BUFKC-KC", "bid": 0.55, "ask": 0.58},
          "AWAY": {"ticker": "KXNFLGAME-26OCT05BUFKC-BUF", "bid": 0.41, "ask": 0.44}}

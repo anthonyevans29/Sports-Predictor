@@ -126,7 +126,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded · <b id="vsProgress">graded —/30</b> <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
     <b>POSTSEASON</b> (sizing caution, v1.1 addendum 2026-10-01) — rows the export marks <code>stage = postseason</code> (MLB, from our gameType mapping F/D/L/W) get HALF units until 30 postseason calls are graded · <b id="psProgress">graded —/30</b> · stage unknown (null) = labelled, not halved<br>
-    <b>EXEC EDGE</b> (K2, informational, 2026-09-29; maker/taker split #93, 2026-09-30) — where Kalshi quotes exist: model − MAKER cost (join bid + maker fee; the doctrine is join-bid) beside the fair edge, taker (ask + fee) shown as the fallback · "fee-clears?" at ≥ 4pp on the maker cost (taker when no maker price) · fees: game series M=1 (taker 0.07, maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5; one rounding per FILL to the NEAREST cent (fitted 542/548 on the YTD fills), costs assume a 10-contract order (provisional until the B-track sizes units; #88) · <b>MLB is never executed live</b> · quotes are the home contract's; an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: no derived price (NO on HOME is draw-or-away) · NO sizing/tier/call effect until the executable-edge ruling (after 2 weeks of ladders) · ledger records exec cost at claim and execution<br>
+    <b>EXEC EDGE</b> (#87 v1.1 addendum, ARCHITECT-RULE 2026-10-06 — supersedes the 2026-09-29 informational K2 and the 2026-09-30 join-bid doctrine) — executable cost = <b>ask + taker fee</b> (0.07·M·P(1−P), nearest cent per fill of the order's OWN contract count) · default execution <b>TAKE at the ask</b>; join at bid + 1¢ only when the spread is ≥ 3¢ · a PLAY gets full tier units only at exec edge ≥ 4pp, else HALF (no executable quote = half) · VENUE needs fair ≥ 5pp AND exec ≥ 4pp, on the best side clearing both · parlay legs priced at executable cost (independence estimate) · LADDERs not resized (revisit at 30 graded) · maker cost shown for joins as reference · fees: game series M=1 (taker 0.07, maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5 · <b>MLB is never executed live</b> · an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) with no own leg is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: their own legs, never a derived NO (NO on HOME is draw-or-away) · ledger records exec cost at claim and execution.<br>
     <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.<br>
     <b>KALSHI-ONLY</b> (provisional reference, v1.1 addendum RULED 2026-10-01; model sports, two-way boards) — books absent at T-60 + Kalshi two-sided, spread ≤ 2c, series in the ruled fee table → the Kalshi MID is the market reference · row flagged "kalshi-only" · HALF units (0.5 × tier) · a real call, not a shadow · value-side and quarantine unchanged · ledger records reference=kalshi_only · review at 30 graded (promote or retire) · <b id="koProgress">graded —/30</b><br>
     <b>KICKOFF</b> (presentation only, 2026-10-01) — every Desk row shows its kickoff and "re-run by" = T-60 (local clock).<br>
@@ -435,7 +435,13 @@ const VALUE={units:0.25,reviewN:30};
 // HOME is draw-or-away) and pre-#89 exports carry no away cost: that side and
 // DRAW still show "—" (never guessed).
 // ---------------------------------------------------------------------
-const K2={feeClearsPP:4,tick:0.01};
+const K2={feeClearsPP:4,tick:0.01,joinMinSpreadC:3};
+// #87 v1.1 ADDENDUM (ARCHITECT-RULE 2026-10-06, effective next slate) — supersedes the join-bid doctrine below:
+// cost = ask + taker fee (Kalshi ladders are 1c wide 85–99% of the time: the spread is not the cost, the fee
+// is); default execution TAKES at the ask, join-bid only at a spread >= 3c; exec edge = model p − cost, and a
+// PLAY gets full tier units only at exec edge >= 4pp (else HALF) — "fee-clears" is now a SIZING input, applied
+// by desk_policy.py; the venue engine also needs exec edge >= 4pp; parlay legs are priced at executable cost.
+// Files from the addendum carry desk.exec.doctrine ("take"/"join") and are rendered as such.
 // JOIN BID (architect 2026-09-29): the suggested resting LIMIT price = bid + 1¢,
 // the maker's side of the spread. When the spread is 1¢, bid + 1¢ is the ask,
 // so there is nothing to join: joining = taking (shown as such, never a price).
@@ -466,6 +472,8 @@ function kSide(r,side){
   return null;
 }
 function joinBidFor(r,side){
+  // PRE-ADDENDUM files only: #87 v1.1 files carry desk.exec.join_price and the ledger reads it (snapshotCalls), so
+  // this keeps the doctrine each legacy file was produced under (Codex on #303)
   const k=kSide(r,side); if(!k||k.bid==null) return null;
   const j=Math.round((k.bid+K2.tick)*100)/100;
   if(k.ask!=null&&j>=k.ask-1e-9) return {price:null,note:"spread 1¢ — joining = taking"};
@@ -482,6 +490,13 @@ function execHTMLFrom(fx,modelP){
   const pp=v=>(v>=0?"+":"")+v.toFixed(1)+"pp";
   const jb=fx.join_price!=null?{price:fx.join_price}:fx.join_note!=null?{price:null,note:fx.join_note}:null;
   const t=fx.taker_cost, no=fx.no_side;
+  if(fx.doctrine){                                    // #87 v1.1 addendum file: TAKE (or join at >= 3c), sizing
+    const ok=e>=K2.feeClearsPP-1e-9;
+    return `<div class="note">exec ${pp(e)} @ ${fx.cost.toFixed(3)} ${fx.doctrine==="join"?"join "+jb.price.toFixed(2)
+      +" (spread ≥ 3¢)":"TAKE at the ask"}${no?" (NO side)":""} · ask + taker fee`
+      +` · <b class="${ok?"play":"caution"}">${ok?"exec gate clears (≥ 4pp)":"exec gate fails (< 4pp)"}</b>`
+      +(fx.maker_cost!=null?` · maker ${fx.maker_cost.toFixed(3)} (reference)`:"")+`</div>`;
+  }
   const head=fx.basis==="maker"
     ?`exec ${pp(e)} @ ${fx.cost.toFixed(3)} maker (join ${jb&&jb.price!=null?jb.price.toFixed(2):"—"}${no?", NO side":""})`
     :`exec ${pp(e)} @ ${fx.cost.toFixed(3)} taker${no?" (NO side)":""}`+(jb&&jb.price==null?` (${jb.note})`
@@ -576,7 +591,7 @@ function fileValue(r){ const v=r.fileDesk.value_shadow; if(!v) return null;
     tags:(v.tags||[]).slice(),fileExec:v.exec??null}; }
 function fileVenue(r){ const v=r.fileDesk.venue||{};
   return {eligible:!!v.eligible,reason:v.reason||"",side:v.side??null,divPP:v.div_pp??null,bookP:v.book_p??null,
-    kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{}}; }
+    kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{},execCost:v.exec_cost??null}; }
 
 function policy(){
   renderProgress();
@@ -887,16 +902,22 @@ function snapshotCalls(now,opts){
       const lad=x.call==="LADDER";
       const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
       const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):(x.mktRef??r.mkt);
+      // #87 v1.1 files: the ledger records the FILE's executable cost and join price (copy-exact with its order)
+      const fx=r.fileDesk&&r.fileDesk.exec, addn=!!(fx&&fx.doctrine);
       add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:lad?"ladder":"straight",units:x.units,model_p:mp,market_p:kp,
-        kalshi_exec_cost:lad?null:execCostFor(r,r.pick),kalshi_exec_cost_maker:lad?null:makerCostFor(r,r.pick),
-        kalshi_join_bid:lad?null:((joinBidFor(r,r.pick)||{}).price??null),
+        kalshi_exec_cost:lad?null:(addn?(("order_cost" in fx)?fx.order_cost:(fx.cost??null)):execCostFor(r,r.pick)),   // the EMITTED order
+        kalshi_exec_cost_maker:lad?null:(addn?fx.maker_cost??null:makerCostFor(r,r.pick)),
+        kalshi_join_bid:lad?null:(addn?fx.join_price??null:((joinBidFor(r,r.pick)||{}).price??null)),
         venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",rules:x.tags});
     } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
       add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
-        model_p:r.prob,market_p:r.mkt,kalshi_exec_cost:execCostFor(r,r.pick),
-        kalshi_exec_cost_maker:makerCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
+        // #87 v1.1 files: the file's exec block (the contract the order buys), as straights do (Codex on #303)
+        model_p:r.prob,market_p:r.mkt,
+        kalshi_exec_cost:(r.fileDesk.exec&&r.fileDesk.exec.doctrine)?(r.fileDesk.exec.cost??null):execCostFor(r,r.pick),
+        kalshi_exec_cost_maker:(r.fileDesk.exec&&r.fileDesk.exec.doctrine)?(r.fileDesk.exec.maker_cost??null)
+          :makerCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
     }
   }
   for(const {r,v} of deskValue){        // value-side shadows (v1.2 candidate): notional, never staked
@@ -904,7 +925,9 @@ function snapshotCalls(now,opts){
     add(r,{...baseCall(r,dOf(r)),pick:v.side,tier:"shadow",engine:"model_edge",
       call_type:"value_shadow",units:0,shadow_units:VALUE.units,
       model_p:v.modelP,market_p:v.marketP,value_edge_pp:+v.edge.toFixed(2),value_role:v.role,
-      kalshi_exec_cost:execCostFor(r,v.side),kalshi_exec_cost_maker:makerCostFor(r,v.side),
+      // #87 v1.1 files: the file's executable cost at the shadow's own 0.25u order (Codex on #303)
+      kalshi_exec_cost:v.fileExec&&v.fileExec.doctrine?(v.fileExec.cost??null):execCostFor(r,v.side),
+      kalshi_exec_cost_maker:v.fileExec&&v.fileExec.doctrine?(v.fileExec.maker_cost??null):makerCostFor(r,v.side),
       top_pick:r.pick,venue_hint:"books",rules:v.tags.slice()});
   }
   // parlays: model_edge only (frozen). Auto-claimed too (ARCHITECT 2026-10-03: "the
@@ -916,9 +939,13 @@ function snapshotCalls(now,opts){
     const tclk=auto?asOfMs(tr):now, td=auto?localDate(new Date(tclk)):d;
     if(t.legs.some(l=>kickedOff(l,tclk))){lastCapture.started++;continue;}   // whole ticket or nothing
     const pid="P-"+td+"-"+t.legs.map(l=>`${l.sport}:${l.away}@${l.home}:${l.pick}`).sort().join("+");
-    for(const l of t.legs){
+    for(const [j,l] of t.legs.entries()){
+      // #87 v1.1: a ticket priced at executable cost settles at it (Codex on #303); fair rides along
+      const xc=(t.costs||[])[j];
       add(tr,{...baseCall(l,td),pick:l.pick,tier:"parlay",engine:"model_edge",
-        call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:l.mkt,
+        call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:xc!=null?xc:l.mkt,
+        // fair_p is the SERIALIZED leg's own fair (the row a ticket was built from), never a re-matched row's
+        ...(xc!=null?{fair_p:((t.fairs||[])[j]!==undefined?t.fairs[j]:l.mkt),price_basis:"executable (ask + taker fee)"}:{}),
         venue_hint:"books",rules:["parlay 0.25u"],...(t.bShadow?{b_shadow_cut:t.bShadow}:{})});
     }
   }
@@ -927,7 +954,10 @@ function snapshotCalls(now,opts){
     const rules=["venue div ≥ 5.0pp"];
     if(v.divPP>=VENUE.staleGapPP) rules.push("venue gap ≥ 8pp (STALE-BOOK? zone)");
     add(r,{...baseCall(r,dOf(r)),pick:v.side,tier:"shadow",engine:"venue_edge",
-      call_type:"straight",units:VENUE.units,model_p:v.bookP,market_p:v.kalP,
+      // #87 v1.1: a venue call settles at the executable cost that qualified it (Codex on #303); Kalshi's
+      // indicative probability rides along as kalshi_p
+      call_type:"straight",units:VENUE.units,model_p:v.bookP,market_p:v.execCost!=null?v.execCost:v.kalP,
+      ...(v.execCost!=null?{kalshi_p:v.kalP,price_basis:"executable (ask + taker fee)"}:{}),
       venue_hint:"kalshi",divergence_pp:+v.divPP.toFixed(2),rules});
   }
   return out;
@@ -2141,7 +2171,8 @@ function parlaysFromFile(){
       &&(r.utc||null)===(l.kickoff||null)&&r.pick===l.pick));
     if(!legs.length||legs.some(x=>!x)){miss++;continue;}
     out.push({legs,sports:t.sports,pm:t.model_p,pk:t.market_p,edge:t.edge??t.edge_pp/100,bShadow:t.b_shadow||null,
-      orders:(t.legs||[]).map(l=>l.order||null)});
+      orders:(t.legs||[]).map(l=>l.order||null),pf:t.fair_p??null,basis:t.market_basis||null,label:t.label||null,
+      costs:(t.legs||[]).map(l=>l.exec_cost??null),fairs:(t.legs||[]).map(l=>("market_p" in l)?l.market_p:undefined)});   // explicit null = unavailable
   }
   const asof=(fileParlays.desk_meta||{}).as_of||"?";
   parlayNote=`tickets from desk_parlays (as of ${asof})`+(miss?` · ${miss} ticket(s) skipped: a leg's row is not in the loaded files`:"")
@@ -2178,11 +2209,15 @@ function renderParlays(ranked,card,out){
   if(!ranked.length){ card.hidden=!parlayNote; out.innerHTML=parlayNote?`<span class="note">${esc(parlayNote)}</span>`:""; return; }
   card.hidden=false;
   out.innerHTML=(parlayNote?`<div class="note">${esc(parlayNote)}</div>`:"")+ranked.map((t,i)=>{
-    const legs=t.legs.map((l,j)=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`
+    const legs=t.legs.map((l,j)=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"}`
+      +((t.costs||[])[j]!=null?` · exec ${t.costs[j].toFixed(3)}`:"")+`)`
       +orderHTML((t.orders||[])[j])).join("<br>");
     return `<div style="margin-bottom:10px"><b>Ticket ${i+1}</b> · ${t.legs.length} legs · ${t.sports} sport(s) · 0.25u`
       +(t.bShadow?` · <span class="caution">B-track shadow: would be ${t.bShadow==="capped"?"exposure-capped":"deduped"} (not applied)</span>`:"")+`<br>${legs}<br>`
-      +`<span class="note">Π model ${t.pm.toFixed(3)} vs Π market ${t.pk.toFixed(3)} → combined edge ${(t.edge*100).toFixed(1)}pp · cross-game correlation screened (no shared teams)</span></div>`;
+      +`<span class="note">Π model ${t.pm.toFixed(3)} vs Π ${t.basis?"executable cost":"market"} ${t.pk.toFixed(3)}`
+      +(t.pf!=null?` (Π fair ${t.pf.toFixed(3)})`:"")
+      +` → combined edge ${(t.edge*100).toFixed(1)}pp · cross-game correlation screened (no shared teams)`
+      +(t.label?` · <b>${esc(t.label)}</b>`:"")+`</span></div>`;
   }).join("");
 }
 

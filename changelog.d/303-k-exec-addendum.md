@@ -1,0 +1,42 @@
+## 2026-10-06 (#303: k-exec-addendum — #87 executable edge, Desk v1.1 addendum — ARCHITECT-RULE)
+- **Cost = ask + taker fee** (`desk_policy.taker_cost_for`): the contract the order line buys, at its ask, plus 0.07·M·P(1−P) rounded to the nearest cent per fill. The maker cost is shown for reference only.
+- **TAKE at the ask by default.** Join-bid applies only at a spread of 3c or more, in the order line, the exec block and the Cockpit's ledger join bid. The 2026-09-30 join-bid doctrine is superseded.
+- **Sizing.** A PLAY gets full tier units only when its exec edge is at least 4pp. Otherwise, or with no executable quote, it gets HALF units. Quarantine, floors, tiers and ladders are unchanged.
+- **Venue.** The 5pp fair threshold stands, AND the exec edge (book fair − cost) must clear 4pp. A venue call with no executable quote is PASS with no reference.
+- **Parlays.** Ticket Π market = Π executable cost; a ticket with an unpriced leg is not offered (counted). Each ticket carries `fair_p`, each leg's `exec_cost`, and the independence-estimate label.
+- New read-only `desk-rescore FILES…`: the published PLAYs, re-scored under the addendum at each file's own as_of, showing which would have been halved.
+- `desk_meta.exec_addendum` stamps every file. The frozen pre-F1c golden still holds under `base_v11()`.
+- New tests: `tests/test_desk_exec_addendum.py` and `scripts/cockpit_exec_addendum_verify.py`.
+- Review fixes (Codex on #303):
+  - The doctrine, the join price, the cost and the order now share one quote source (`side_quotes`: the contract the order line buys), so a three-way leg-priced pick no longer says "take" while its order joins.
+  - There is one join price, bid + 1c at a spread of 3c or more, in both the exec block and the order line.
+  - The Cockpit ledger records the file's executable cost and join price, and logs parlay legs at their executable cost (fair kept as `fair_p`), so tickets settle at the price that qualified them.
+- **ARCHITECT RULINGS on (a)–(j), 2026-10-06:** (a)–(d) ratified; (e) ratified, to be revisited at the first 30 graded ladders; (f) #218 re-scoped; (g) the receipt file is committed from the laptop by the operator (pending; not in this PR); join at bid + 1c on spreads of 3c or more ratified.
+  - **(h) applied:** each order is priced at its OWN contract count (`order_contracts`, as `order_line` writes it), and the 10-contract assumption ends. A 0.25u venue or parlay order is 2 contracts. A PLAY's gate prices the order it places if it clears (its tier units, × 0.5 when kalshi-only). A halved PLAY also reports its emitted order's cost (`order_cost`, `order_contracts`).
+  - **(i) applied:** the venue engine backs the best side (largest fair divergence) among the sides that clear BOTH gates.
+  - **(j):** unchanged. Parlay ladder legs stay straight-on-pick, and double-chance legs are a v1.2 candidate.
+- Review fixes (Codex on #303, round 4):
+  - Quote selection is `order_line`'s own: a ticketed side leg is the instrument (unpriceable without an ask), else NO on the opponent's ticketed leg.
+  - The fill count is taken at the emitted limit (the join price at spreads of 3c or more).
+  - The Cockpit ledger records a halved PLAY's `order_cost` and settles VENUE calls at their executable cost, keeping `kalshi_p` alongside.
+  - Pre-addendum files keep their legacy join bid.
+  - The receipt is marked pending from the laptop.
+- Review fixes (Codex on #303, round 5):
+  - The Cockpit's exec marker states only the gate ("exec gate clears / fails"), never a final size.
+  - `desk.exec` is present whenever `side_quotes` prices the pick, including NO on the opponent's leg.
+  - Value shadows log the file's executable cost.
+  - `docs/CLI.md` documents the TAKE / join ≥ 3c limit.
+  - `desk-rescore` applies the file's own unit basis and prints it.
+- Review fixes (Codex on #303, round 6):
+  - `maker_cost` is the join order's (bid + 1c) at the order's own count, and none when the doctrine takes.
+  - Quarantine shadows log the file's exec cost.
+  - Parlay legs keep their serialized `fair_p`.
+  - `desk-parlays` documentation and CLI output describe executable pricing ("Π executable cost", Π fair, unpriced tickets excluded).
+- Review fixes (Codex on #303, round 7):
+  - A LADDER (which buys NO on HOME) carries no pick-leg exec block.
+  - A parlay whose leg has no book reference has `fair_p` unavailable, never Π model.
+  - A halved PLAY's maker reference is at the emitted order's count.
+  - The Cockpit's Policy card states the #87 v1.1 doctrine: TAKE, executable sizing and the venue gate.
+- Review fixes (Codex on #303, round 8):
+  - Quarantine shadows' exec is priced at the shadow's size.
+  - An explicit `market_p: null` on a parlay leg and an explicit `order_cost: null` (a refused resized order) stay unavailable in the Cockpit ledger. Only absent legacy fields fall back.

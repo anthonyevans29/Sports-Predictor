@@ -12,3 +12,7 @@
   - An ancestry check that errors refuses the plan instead of reading as a rollback.
   - An explicit release on a receipt (sp_cutover's dry run) no longer also carries `release_error`.
 - Review fix (Codex on #296, round 3): the migration plan is computed before the checkout moves, inside the deploy lock. A planning failure refuses with production still on its current release, and a dry run shows the plan. Test: `test_deploy_plans_migrations_before_moving_the_checkout`.
+- Review fixes (Codex on #296, round 4):
+  - The printed command carries `--expect <target sha>`. `--run-migrations` refuses, before any backup, unless HEAD is still that release.
+  - `--dry-run` with `--run-migrations` refuses.
+  - A failed tag or branch lookup makes the release unreadable (null, with `release_error`), never a guessed `UNTAGGED@`/`BETA`.

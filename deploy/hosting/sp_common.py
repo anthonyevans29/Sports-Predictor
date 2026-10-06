@@ -140,11 +140,16 @@ def running_release() -> str | None:
     sha = _git("rev-parse", "--short", "HEAD")
     if not sha:
         return None
-    tag = latest_release((_git("tag", "--points-at", "HEAD") or "").split())
+    tags = _git("tag", "--points-at", "HEAD")
+    if tags is None:                # a FAILED lookup is unreadable, never "no tag" (Codex on #296)
+        return None
+    tag = latest_release(tags.split())
     if tag:
         return tag
     branch = _git("rev-parse", "--abbrev-ref", "HEAD")
-    return f"UNTAGGED@{sha}" if branch in (None, "HEAD") else f"BETA {branch}@{sha}"
+    if branch is None:
+        return None
+    return f"UNTAGGED@{sha}" if branch == "HEAD" else f"BETA {branch}@{sha}"
 
 
 # WRITER OF RECORD (ARCHITECT-RULE 2026-10-01): the REAL flag, laptop|host,

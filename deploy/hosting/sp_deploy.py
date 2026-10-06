@@ -46,7 +46,7 @@ def dirty_paths() -> list[str]:
             if ln.strip()]
 
 
-def migration_command(scripts: list[str]) -> str:
+def migration_command(scripts: list[str], expect_sha: str) -> str:
     """The exact by-hand command (ARCHITECT 2026-10-06): as the service user, with
     host.env loaded as the units load it, `sp_deploy.py --run-migrations`, which
     holds ONE DB lock across the daily .backup and every migration, in the given
@@ -57,22 +57,30 @@ def migration_command(scripts: list[str]) -> str:
     py = py if py.exists() else Path(sys.executable)
     user = c.setting("SP_SERVICE_USER", "sp")
     inner = (f"cd {shlex.quote(str(c.REPO))} && set -a && . {shlex.quote(str(c.HOST_ENV))} && set +a && "
-             f"{shlex.quote(str(py))} deploy/hosting/sp_deploy.py --run-migrations "
-             + " ".join(shlex.quote(m) for m in scripts))
+             f"{shlex.quote(str(py))} deploy/hosting/sp_deploy.py --expect {shlex.quote(expect_sha)} "
+             f"--run-migrations " + " ".join(shlex.quote(m) for m in scripts))
     return f"sudo -u {user} sh -c {shlex.quote(inner)}"
 
 
 MIGRATION_NAME = re.compile(r"^migrate_[A-Za-z0-9_]+\.py$")
 
 
-def run_migrations(scripts: list[str]) -> int:
+def run_migrations(scripts: list[str], expect_sha: str | None) -> int:
     """Backup, then each migration in order, all under one DB lock; the first failure stops
-    the run. Receipted step by step. Only top-level migrate_*.py files of this checkout."""
+    the run. Receipted step by step. Only top-level migrate_*.py files of this checkout, and
+    only when HEAD is still the release the plan was made for (`--expect`, Codex on #296:
+    after another deploy, the same names could hold different migration logic)."""
     import sp_backup
+    if not expect_sha:
+        raise SystemExit("✗ --run-migrations needs --expect <sha> (the deploy prints it) — refusing.")
     for m in scripts:
         if not MIGRATION_NAME.match(m) or not (c.REPO / m).is_file():
             raise SystemExit(f"✗ {m!r} is not a migrate_*.py file in {c.REPO} — refusing.")
     with c.db_lock():
+        rc, head, err = _git_rc("rev-parse", "HEAD")
+        if rc != 0 or not head.strip().startswith(expect_sha):
+            raise SystemExit(f"✗ HEAD is {head.strip()[:12] or '?'} ({err or 'read'}), not the planned release "
+                             f"{expect_sha} — refusing; re-run the deploy's printed command for this release.")
         bk = sp_backup.run_backup("daily", lock=False)          # the lock is already held here
         if bk["exit"] != 0:
             c.append_receipt({"kind": "migrations", "exit": 1, "step": "backup", "scripts": scripts,
@@ -147,10 +155,14 @@ def main(argv=None) -> int:
     ap.add_argument("--run-migrations", nargs="+", metavar="MIGRATION", default=None,
                     help="Run these migrate_*.py files in order under one DB lock, after a daily backup "
                          "(the command a deploy prints).")
+    ap.add_argument("--expect", default=None, metavar="SHA",
+                    help="With --run-migrations: the release commit the plan was made for; refused otherwise.")
     a = ap.parse_args(argv)
     c.load_host_env()
+    if a.run_migrations and a.dry_run:          # dry run changes nothing (Codex on #296)
+        raise SystemExit("✗ --dry-run with --run-migrations: a dry run never backs up or migrates — refusing.")
     if a.run_migrations:
-        return run_migrations(a.run_migrations)
+        return run_migrations(a.run_migrations, a.expect)
     if a.tag is not None and not c.release_key(a.tag):
         raise SystemExit(f"✗ --tag {a.tag!r} is not a release tag (vMAJOR.MINOR.PATCH) — refusing.")
     with c.db_lock():
@@ -170,6 +182,7 @@ def main(argv=None) -> int:
         if target not in tags:
             raise SystemExit(f"✗ tag {target} not found on origin — refusing.")
         target_sha = git("rev-parse", "--short", f"{target}^{{commit}}")
+        target_full = git("rev-parse", f"{target}^{{commit}}")
         # The migration plan is computed BEFORE the checkout moves (Codex on #296): a planning failure
         # (ancestry / tree / history unreadable) refuses here, with production still on `before`.
         changed = git("diff", "--name-only", before, target_sha).splitlines() if before != target_sha else []
@@ -195,7 +208,7 @@ def main(argv=None) -> int:
                       "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
           + (f"\n  ! new migrations, in the order they were added (backup first, then run by hand, in this "
-             f"order): {plan['run']}\n      {migration_command(plan['run'])}" if plan["run"] else "")
+             f"order): {plan['run']}\n      {migration_command(plan['run'], target_full)}" if plan["run"] else "")
           + (f"\n  ! the history did not place {plan['unordered']} (appended last): check their order before "
              "running" if plan.get("unordered") else "")
           + (f"\n  ! migrations MODIFIED in this range (not new; read before re-running): {plan['modified']}"

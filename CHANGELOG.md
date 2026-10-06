@@ -4,6 +4,180 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-05 (#292: NFL prediction-set scope check expects bye weeks; Kalshi-only reference's first live fire recorded)
+- `nfl_backtest.scope_line(per_week=True)`, used by `predict-nfl`'s prediction set: per week, teams = 2 × games = 32 − byes, each team once. A bye week (e.g. teams=30) no longer raises SCOPE ALERT. Duplicates, more than 32 teams, or non-NFL rows still do. Ratings and backtest keep the 32-team check. Test: `test_prediction_set_expects_32_minus_byes_per_week`.
+- Recorded: the Kalshi-only reference fired live (NYY@TB 23:11Z, mid 0.475, spread 1c, +3.1pp → PASS below floor).
+
+## 2026-10-05 (#291: `unl-ladder-receipt`: read-only per-game UNL ladder receipt + the frozen favorite-skew test — ARCHITECT #286)
+- New CLI `unl-ladder-receipt` (`src/walters/unl_ladders.py`). Per UNL game after the freeze cutoff it shows the match, legs (bid/ask, spread, two-sided), capture time, series, book probability and favorite gap.
+- The sample is the first 30 games qualifying under `docs/specs/unl-venue-skew-test.md`; exclusion reasons are listed. `--skew-test` runs the frozen bootstrap test once the sample is complete. `--out` writes to `docs/receipts/` and refuses `data/`. Read-only.
+- Tests: `tests/test_unl_ladder_receipt.py` covers each exclusion reason, the three-leg normalized gap, a deterministic bootstrap (seed 20261005) and the CLI.
+- Review fixes (Codex on #291): a leg without a stored ticker makes the series UNKNOWN (never certified by the other legs); an offset-bearing `--since` is normalized to naive UTC; a DB without UNL prints `REFUSED` instead of a KeyError; `--skew-test` refuses unless the frozen cutoff and n 30 are in force.
+- Review fixes, round 2 (Codex on #291): a capture stamped exactly at the cutoff no longer qualifies (strictly after); `--n` must be at least 1; the CI keeps full precision, so the verdict and the printed bounds are the same numbers. Cancelled/postponed/stale fixtures in the cohort are escalated (frozen-definition change).
+- Review fixes, round 3 (Codex on #291): the bootstrap receives UNROUNDED gaps (rounding is display-only); receipt timestamps keep seconds; the `data/` guard compares the RESOLVED target with the resolved project `data/`, so a symlink or a cwd inside `data/` cannot bypass it (the test uses a temporary stand-in, never the real `data/`).
+- Review fix, round 4 (Codex on #291): a malformed `--since` is a Click usage error (exit 2), not a traceback.
+- Review fix, round 5 (Codex on #291): the receipt prints every leg's book probability even when that Kalshi leg is missing. Escalated (frozen definitions): one event ticker across the three legs, boundary quotes (0.00/1.00) as one-sided, and the 4-decimal tie rule.
+- Review fix, round 6 (Codex on #291): an explicitly empty `--since ""` is a usage error, not a silent fall-back to the frozen cutoff.
+- Review fix, round 7 (Codex on #291): a refused receipt (e.g. no UNL competition) exits 2 and is never written to `--out`.
+
+## 2026-10-05 (#290: NFL season record: ties are pushes; pre-live rows listed separately, never pooled — ARCHITECT)
+- `export_nfl_results`: a tie is a PUSH (`result "T"`, `push: true`, `top_pick_hit: null`), out of the hit denominator and counted separately. Log loss keeps the frozen gate's tie convention.
+- The season record starts at `live_since` 2026-09-22 (Week 3). Preseason and earlier rows sit under `pre_live` with their own record.
+- `record` gains `live_since`, `decided` and `pushes`. Contract: `results`/`count` are live rows only.
+- Test: `test_ties_are_pushes_and_pre_live_rows_are_never_pooled`.
+- Review fixes (Codex on #290): the `export-nfl-results` receipt prints hits over DECIDED games with pushes shown separately (`W6 1/1 +1P`), prints the pre-live record on its own line, and `--match` finds pre-live rows ("IN the file (pre-live, not in the season record)"). The season-choice finding was already fixed via #289.
+
+## 2026-10-05 (#289: NFL results export skips FINISHED rows with no scores instead of crashing — Codex on #278)
+- `export_nfl_results`: the base query requires both scores. A FINISHED row with null scores made `home_score > away_score` raise `TypeError` and aborted the season-to-date file. Test: `test_a_finished_row_without_scores_is_skipped_not_a_crash` (fails on main, passes here).
+- Escalated, unchanged: tie grading in the record and preseason predictions in the season record.
+- Review fix (Codex on #289): the season is chosen from every FINISHED predicted game before unscored rows are dropped, so an unscored opener of a new season exports that season (empty) instead of republishing the previous one. Test: `test_an_unscored_opener_of_a_new_season_does_not_republish_the_old_season`.
+
+## 2026-10-05 (#288: Kalshi-only grading close reads the Kalshi ML rows two-way syncs actually store — Codex on #278)
+- `close.grading_close` and `clv_restate` filtered snapshots to `market == "1X2"`. Two-way Kalshi legs are stored as `"ML"`, so the ruled kalshi_only close never saw a real quote.
+- New `kalshi_close_market_filter` (1X2, plus Kalshi ML). Book sessions stay 1X2-only, and `close_from_kalshi` accepts both markets.
+- Tests: fixtures use `ML`, as real syncs do. A new regression test covers the grading close and the restate, with a non-Kalshi ML row that never becomes a book close. Both fail on main and pass here.
+
+## 2026-10-05 (#287: UNL ladders — the 17 recorded as exploratory; the favorite-skew test frozen — ARCHITECT)
+- Recorded: 17/18 two-sided, 1c spreads, median |book−Kalshi| 2.5pp (max 4.4pp), Kalshi sharper on favorites by 3–4pp. Ruled EXPLORATORY: they informed the hypothesis and do not count.
+- Frozen `docs/specs/unl-venue-skew-test.md`: the mean signed gap (Kalshi − book) on the pre-game favorite over a FRESH 30 two-sided boards captured after 2026-10-05T17:00Z (series KXUEFANLGAME). STRUCTURAL if the bootstrap 95% CI excludes 0, in which case UNL stays ineligible unless a skew-adjusted rule is declared as a separate candidate. One-sided boards never count.
+- UNL stays "never" for venue-edge. Tracked in #286.
+
+## 2026-10-05 (#285: UNL Kalshi series pinned to KXUEFANLGAME; KXCONCACAFNLGAME reserved for CNL — ARCHITECT ruling)
+- `src/adapters/kalshi.py`: UNL → `KXUEFANLGAME` in `SOCCER_GAME_SERIES`, the adapter default, so the window chain needs no `--series`. Discovery had refused on two candidates (KXUEFANLGAME, KXCONCACAFNLGAME).
+- New `SOCCER_SERIES_RESERVED = {"CNL": "KXCONCACAFNLGAME"}` ("for later"): a CNL sync refuses and names the series until CNL is wired (#284).
+- `SOCCER_SERIES_DISCOVERY` is now empty; the mechanism stays tested for a future unpinned competition.
+- Tests: pin + reserve (no `/series` call for UNL), discovery exactly-one-or-refused on the 2026-10-05 listing, and a UNL sync storing a three-way set via "mapped" with both candidates listed. Docs: CLI.md.
+
+## 2026-10-05 (#283: NCAA re-key receipt: post-backup rows count as accounted only on the keeper — Codex review on #279)
+- `ncaa_rekey_receipt.py --reconstruct-merges`: a reference row created after the backup (rowid above the backup's max) is accounted only when it points at the keeper. A post-backup row still on the merged-away id (no FK enforcement) is flagged and the reconstruction reads REVIEW. Test: `test_post_backup_row_dangling_on_the_merged_id_is_review` (fails on main, passes here).
+
+## 2026-10-05 (#282: PR-body lint: closing keywords only on declared closure lines — LEDGER rule 5 enforced)
+- New `pr-body` check (`python scripts/ledger.py check-body`, body via `PR_BODY`). It rejects a closing keyword + Issue ref (close/fix/resolve forms, `#N`, `owner/repo#N` or an Issue URL) anywhere except a declared closure line starting `Closes #N`. It re-runs on description edits.
+- Why: #273, #274 and #275 used negated closing phrases, and GitHub closed #85, #211 and #276 on merge. Their descriptions now read "Outstanding work remains on #N".
+- Tests: `tests/test_ledger_pr_body.py`. The original descriptions are rejected; the corrected ones and real closure lines are accepted.
+
+## 2026-10-05 (#281: Codex reviews are input under the fence — ARCHITECT ruling recorded)
+- CLAUDE.md, Workflow: Codex review comments are handled like Anthony's. Trivia (verified correctness bugs in the PR's own code, nits) gets fix-and-reply. Anything policy/gate/ledger-semantic is escalated as `needs-ruling`. A Codex suggestion never changes a frozen threshold or a verdict. Docs only; no code.
+- Tagging (ARCHITECT, amended): the only mention is the review-request phrase, posted once after a fix push. Thread replies never contain the handle in any formatting, because any other mention starts a Codex cloud task.
+- Sweep (ARCHITECT): an unanswered Codex thread on a merged PR is a finding (the #278 miss, fixed in #288).
+
+## 2026-10-05 (#280: the Desk's 2c spread cap applies to the Kalshi grading close; follow-up to #278)
+- **Ruling (ARCHITECT 2026-10-05, on #278, verbatim):** "apply the SAME 2c spread cap to the grading close — a wide Kalshi mid is not a reference anywhere."
+- #278 merged at its earlier head, before the cap commit landed; this carries it.
+- `close.close_from_kalshi` uses the Desk's own `KALSHI_ONLY["maxSpreadC"]` (2c, the same cent rounding). When the LAST two-sided pre-kickoff quote is wider, there is no Kalshi close; an older, tighter quote is stale and never substituted.
+- Regression: 2c → priced; 3c → none; last quote 10c after an earlier 1c → none.
+
+## 2026-10-05 (#279: resync matches by natural key before creating (second re-key); dedupe skips absent tables / refuses a schema behind the code; reconstruction learns the ruled classes)
+- **(A) Second re-key (ARCHITECT, verbatim):** "the provider re-keyed Abilene Christian@West Florida a SECOND time (24146 → 24111) after Saturday's dedupe … Make the resync match by natural key (home, away, kickoff ±12h) when the incoming id is unknown, before creating a row."
+  - The hole: the natural-key fallback skipped a stored row whose own id was STILL in the listing (and one already re-keyed this run) as "a different game", then CREATED the new id: a twin. The 10-03 test pinned that creation.
+  - Now an unknown id is created only when no live stored row holds its natural key. One free candidate is re-keyed. A candidate whose id is still listed (the provider serving both ids), already claimed this run, or ambiguous is REFUSED (skipped, receipted), never created.
+  - An incoming id found in a row's `<source>_prev` history goes back to that row. Cancelled / stale_orphan rows are never candidates.
+- **(B) dedupe `--apply` crash (ARCHITECT):** "no such table: intl_venue_resolved". The reference sweep now skips tables absent from the live DB (they hold no references) and names them. `dedupe-matches` / `--orphans` refuse a schema behind the code with the remedy (`python cli.py init-db`, additive, never --force; the transaction rolls back) instead of a traceback.
+- **(C) #277 reconstruction 30/30, RULED ACCOUNTED (ARCHITECT).** The tool now knows the ruled classes:
+  - **created after the backup:** a rowid above the backup's max;
+  - **re-pointed:** a table keyed BY match_id has rowid == match_id, so the re-point moves the row to a new rowid with identical content; such rows are paired;
+  - **placeholder kickoff:** 04:00Z → real kickoff within 24h.
+  A clean merge carrying them reads ACCOUNTED; a replaced row, a gone row or any other shift still reads REVIEW. Also fixed: a rowid-alias key reported the match id under the column's own name and leaked it into the content.
+- **Receipts:** pytest 703 passed / 1 skipped (+6: refuse-not-create on a still-listed id; second re-key after a dedupe (refused while both listed, re-keyed after, history id goes back); two new ids for one row; absent table skipped; schema refusal without a traceback; the three accounted classes).
+- **Review fixes (Codex on #279):**
+  - P1: a row created in the run joins the natural-key index, so two unseen ids for one fixture in one listing create once and refuse the second.
+  - P2: only a missing table / column ("no such table/column", "has no column named") is refused as "behind the code"; a locked or read-only DB, disk I/O and other operational errors keep their own diagnostic.
+  - P2: an empty backup table's max rowid is 0, so every current row in it is post-backup.
+  - P2: the placeholder class requires the destination to be a REAL kickoff (not another 04:00Z) within 24h.
+  - pytest 706 passed / 1 skipped (+3).
+
+## 2026-10-05 (#278: NFL results season-to-date (Week 3 TNF dropped by the rolling window); Kalshi-only grading close; K-track first live fills recorded)
+- **(1) K-track, first live datapoints (ARCHITECT, recorded verbatim):** "First system-matched fills: 4 · +$5.96; executed CLV n=4 mean −0.23pp, fee-adj −1.83pp, all taker — record as the K-track's first live datapoints." Recorded in the ledger entry; no code.
+- **(2) NFL results window:** `nfl_NFL_results_2026-10-05` lacked match 15073 (GB–ATL, Week 3 TNF) that the 10-02 file had. Cause: a WINDOW, not a filter. `export_nfl_results` wrote a rolling 8 days (unchanged since the live era), and the game kicked off 2026-09-25 00:15Z. The 10-02 cutoff (~09-24) held it; the 10-05 cutoff (~09-27) did not. Fix: SEASON TO DATE by default, with the file carrying `window` and `record` (games, top-pick hits, by week), so a lifetime record reconciles from one file. `--days N` keeps a rolling window; `--match ID` prints a membership receipt.
+- **(3) Kalshi-only grading close (ARCHITECT ruling, verbatim):** "when no book session exists pre-pitch and a two-sided Kalshi capture does, grade against the Kalshi mid, labelled reference=kalshi_only."
+  - Built in `close.grading_close`: odds table → book-consensus snapshot → (only when NO pre-kickoff book capture exists in either) the mid of the last two-sided pre-kickoff Kalshi HOME quote. Two-way boards only. A book session that exists but cannot price stays unpriced.
+  - Labelled everywhere: `closing_bookmaker = "kalshi_only"` on the stored grade (evaluate and its backfill, clv-restate); `close_reference` and `close_kalshi` (bid / ask / mid / spread) on results rows. `close-probe` prints the receipt.
+  - The generic results export now reads THE grading close (it read the odds table alone, so MLB's replaced table left rows unpriced even where the ruled snapshot close priced them).
+- **Receipts:** pytest 680 passed / 1 skipped (+6: Kalshi mid / in-play / one-sided / three-way; absent books → kalshi_only; incomplete book session stays unpriced; books win and say so; season-to-date keeps a 10-day-old game the rolling window drops).
+
+## 2026-10-04 (#277: --audit-merges zero says only "no current nearby rows found"; --reconstruct-merges against the pre-apply backup; #270 review)
+- **Review on #270 (Anthony, 2026-10-04):** replaying the previous algorithm (offsets −70h/−40h/0h/+40h; provider absent/error/absent/found) applies a merge, moves an odds reference and shifts the keeper's kickoff. The audit then printed "every merge stands" although the unresolved twin sat 80h from the mutated kickoff. "Limit that output to `no current nearby rows found`. … reconstruct the reported 30-merge cohort from the retained pre-apply backup and apply plan … Mark unavailable provenance `UNKNOWN`."
+- **`scripts/ncaa_rekey_receipt.py --audit-merges`:** a zero now reads `no current nearby rows found`, plus a note that the audit sees the current table only.
+- **`--reconstruct-merges --backup PRE.db [--plan FILE] [--expect N]`** (read-only; the macOS mode=ro fallback is reused and its form printed). For every orphan merge in the provenance log it prints:
+  - the original connected twin group in the backup;
+  - the merged row (by the logged ids, among rows gone since);
+  - the keeper's pre → post kickoff, with a shift named;
+  - every reference move per table referencing matches (pre counts on both rows vs post on the keeper);
+  - any same-pair row near the PRE or the POST kickoff outside the group.
+- `--plan` cross-checks the pasted apply output's `[merge]` lines. Rows with no provenance log, a keeper absent from the backup, or an unmatched merged row read UNKNOWN. The last line gives `merges n/N` and ACCOUNTED or REVIEW. Backup paths are not printed (sanitised).
+- **Regression:** the boundary case (keeper kickoff +40h, twin 40h from the pre kickoff and 80h from the post one): the audit says only "no current nearby rows found", and the reconstruction names the shift, the twin near the pre kickoff and the odds move. pytest 675 passed / 1 skipped.
+- **Review fix (2026-10-05, reproduced on `70acdbbf`):**
+  - **Plan cross-check:** compares the keeper AND merged row ids and both provider ids against the reconstruction. A plan naming a different merged row, or a different provider id, prints `⚠ plan disagrees` → REVIEW. An UNKNOWN merged row leaves the plan unverifiable, counted.
+  - **References:** checked by identity, not count. Every pre row (rowid + content) referencing the keeper or the merged row must end on the keeper unchanged. Rows on the keeper that were not in the backup are flagged. A replaced odds row with equal counts → REVIEW. A table without rowids reads identity UNKNOWN.
+  - **Regressions:** both refusals return REVIEW; the clean baseline merge returns ACCOUNTED. pytest 677 passed / 1 skipped.
+
+## 2026-10-04 (#275: intl-venue-resolve: venue-country normalization for the rows v3 left unknown; ARCHITECT lane 5, data lane)
+- **Ruling (lane 5, 2026-10-04):** "Intl venue-country normalization for the 313 unmatched venues and the 57% unflagged rows. Data lane only; intl-elo-v2 stays frozen through its window."
+- **`python cli.py intl-venue-resolve --from-dir <save> --venues-dir <dir> [--aliases FILE] [--plan]`**, for every `intl_match_venue` row with `neutral_v3` NULL:
+  - route A `/venues?id=<id>` for venue ids outside the route-B catalog (the "unmatched venues"); one call per distinct id, `--max-calls` capped, saved as `venue_id_<id>.json` and replayed;
+  - no venue id served: a UNIQUE city, then name, match against the saved `/venues` catalog; several countries = ambiguous, refused and counted;
+  - country spelling: NFKD/casefold on both sides, plus an optional pinned `--aliases` JSON. None is built in (law 1). A neutral reading whose home-country spelling never appears as a venue country stays unknown ("alias needed"), and the receipt lists those spellings for a ruling.
+- **Storage:** a NEW table `intl_venue_resolved` (created by `init_db`, additive; no migration) holding venue country, `country_source`, `neutral_resolved` and the reason a row stays unknown. `intl_match_venue` and intl-elo-v2's inputs are never touched (the frozen window holds).
+- **Receipt:** the unknown-row reasons, route-A calls, outcomes per source, the unflagged share before → after, and the alias candidates.
+- **Tests:** 4 new (plan, route A / city / name / ambiguity / spelling / home-unknown / unserved, v3 untouched, alias + replay with 0 calls, refusals, CLI plan). pytest 678 passed / 1 skipped.
+
+## 2026-10-04 (#274: #211 B-track: fills-based exposure and cash-at-risk per team-outcome, beside the units cap; ARCHITECT lane 3)
+- **Ruling (lane 3, 2026-10-04):** "#211 B-track: fills-based exposure and cash-at-risk per team-outcome, from the imported Kalshi CSV, beside the units-based cap." Diagnostic only: the 1.25u cap and sizing are unchanged (ARCHITECT 2026-10-01: "cap/sizing unchanged").
+- **Cockpit `fillExposure(L)`:** every sport fill becomes a payoff over its game's outcomes. YES on X pays if X; NO on X pays on every other outcome. Soccer families settle three ways (TIE = the draw); the rest settle two ways. Per game it reports gross stake, fees, hedge offset (= the worst outcome's payout, so > 0 only when the contracts pay on EVERY outcome) and cash at risk (= gross + fees − hedge offset). Per team-outcome it reports contracts and ≈ units at 10 contracts per 1u, flagged when above the 1.25u cap-equivalent.
+- A fill whose contract role the ticker does not decide is excluded and counted (law 4).
+- Fills are realized positions, so this is the exposure as executed. The result does not depend on load order (keyed by game, summed).
+- **Where:** a "B-track exposure — fills-based" table in the Ledger tab's Realized card (top 25 games by cash at risk), plus a headline line in the P&L text.
+- **Receipts:** new `scripts/cockpit_exposure_verify.py` 13/13 (two-way hedge, NO contract, soccer tie unhedged, cap-equivalent flag, exclusion, reversed-order identity, render, P&L line); all other Cockpit verifies green; pytest 674 passed / 1 skipped.
+- **Still open on #211 (not this lane):** desk load-order invariance (resolve by as_of) and the ticket-product "independence estimate" label.
+- **Review fix (2026-10-05):** a game is now the FULL settlement event ticker before its outcome suffix (e.g. `KXMLBGAME-26SEP271305NYYBOS`). Before, family+date+teams collapsed two intraday MLB doubleheader events into one game with a false hedge offset. Opposite sides of different events never hedge. A ticker whose event part fails the game grammar is excluded and counted apart ("event identity ambiguous"). Regression: doubleheader = two events, zero cross-game hedge, downside 1.53 + 1.47 (the old grouping read a 3-contract hedge and 0 at risk); same-event hedge and soccer-tie checks still green. Verify 16/16.
+
+## 2026-10-04 (#273: cutover-readiness: the ruled #85 criteria in one read-only readout; ARCHITECT lane 2)
+- **Ruled criteria (2026-10-02, verbatim):** "cutover when (a) 5 consecutive morning compares show only explained classes, (b) the host has run a full day on a tag carrying #246 with desk calls emitted, (c) parity harness green on that tag — earliest Oct 8 stands."
+- **`cli.py cutover-readiness`** (`deploy/hosting/cutover_readiness.py`) prints:
+  - (a) the five-compare streak from the exports mirror, pairing laptop/<date> with host/<date> as the Action does: dates, verdicts, and the classes named per divergent line;
+  - (b) the host tag, days on it, whether it carries #246 (`git merge-base --is-ancestor`), and desk calls emitted per chain (chain receipts' exports, read from the mirror);
+  - (c) `scripts/desk_parity_verify.py` run on that tag in a scratch git worktree;
+  - a `GO` / `NOT-YET — <each unmet>` line (exit 0/1), including the earliest date.
+- **Conservative naming (law 4):** the tool machine-names only identical, capture timing (market / Kalshi / price fields and the Desk fields that follow them, on matched rows) and the guarded code-version skew. Rows or files on one side only and model fields are UNNAMED, and they break the streak unless `--named` names that date, which then prints as operator-named. GO is a readout, never the decision.
+- **Receipts:** 7 new tests; a synthetic five-day mirror + host receipts read GO with the real parity run on v1.2.2 (14/14 GREEN); v1.1.0 does not carry #246, v1.2.0 and v1.2.2 do.
+- **Review fix (2026-10-05, reproduced on `9757e76c`):**
+  - **Chain completion:** a chain counts only when it COMPLETED: an explicit integer exit 0, nothing refused, and every counted step run. A missing exit is a failure, a season-gated skip completes nothing, and a full day needs at least one completed chain and none failed.
+  - **One-sided dates:** a date only one writer pushed is pending only when it is today, by the declared clock. An older one is OVERDUE, and the streak reads 0, as it does when the newest common date is more than a day stale.
+  - **Regressions:** missing exit and partial steps → no full day → NOT-YET; a host-only date the day before today → `(a) streak 0/5 (overdue one-sided …)` → NOT-YET; the same date as today → pending, streak 5/5. pytest 683 passed / 1 skipped.
+
+## 2026-10-04 (#272: Desk ORDER LINE — copy-exact Kalshi orders on PLAY / VENUE / ticket rows; ARCHITECT 2026-10-04)
+- **Ruling (verbatim):** "ORDER LINE on every Desk PLAY/VENUE/ticket row: the Kalshi market ticker (we already resolve it in sync-kalshi), side (YES/NO), limit price per doctrine (join bid; the ask when spread is 1c), and contract count for the row's units at a declared unit size (SP_UNIT_USD in env, default 10 contracts) — so placing an order is copy-exact, never a lookup. Parlay tickets list the legs the same way. Cockpit renders from the file; no policy change."
+- **Storage:** `odds_snapshots.market_ticker` (new, additive; `migrate_kalshi_ticker.py`). `sync-kalshi-*` (shared MLB/NFL/NHL/NCAA and soccer paths) stores the ticker it already resolved per leg. The column is deliberately NOT mapped in the ORM (on SQLAlchemy 2.1 an ORM INSERT names every mapped column, deferred included, so a mapped column would break every snapshot insert before the migration). It is written and read by guarded Core SQL (`write_kalshi_tickers` / `read_kalshi_tickers`), so a deploy before the migration keeps working; the test covers both states. No backfill (the tickers were never stored).
+- **Exports:** prediction / NFL / fixtures rows carry `kalshi_legs` {selection: ticker, bid, ask} from the latest pre-kickoff Kalshi snapshot per leg.
+- **Desk:** `desk.order` {ticker, side, limit, limit_basis, contracts, unit, text, why} on PLAY / LADDER rows, eligible market-only VENUE rows and every `desk-parlays` leg. LADDER = BUY NO on HOME (mirrored prices); a two-way market falls back to NO on the opponent, a three-way never does; a DRAW ladder is refused. Join bid, the ask at ≤ 1c spread, no bid = refused. Contracts = floor(units × 10), or floor(units × SP_UNIT_USD / limit) when set. A refusal is a `why`, never a guess. Calls and units are unchanged (parity golden green).
+- **Cockpit:** renders `desk.order.text` verbatim under the call (model table, venue table, parlay legs).
+- **Receipts:** pytest 682 passed / 1 skipped; `scripts/desk_parity_verify.py` 14/14; new `scripts/cockpit_order_line_verify.py` 11/11; all 21 other Cockpit verifies green (`cockpit_pass_class_verify.py` now reads the call cell without the order element).
+
+## 2026-10-04 (#271: UNL Kalshi series discovered and stored; published-Cockpit CSP noted, local launcher)
+- **`sync-kalshi-soccer --competition UNL`:** the soccer sync knew only `KXEPLGAME`. UNL has Kalshi markets (operator fills exist) but no receipted ticker.
+  - `KalshiAdapter.resolve_soccer_series` discovers the UNL series from Kalshi's own `/series` listing (keywords "nations league"; game-winner series only, i.e. tickers ending `GAME` like every wired series).
+  - Exactly one match is required, else it refuses and lists the candidates (law 1: never a guessed ticker).
+  - The legs are stored like PL's (Home/Away/Tie snapshots, same gates), so `export-fixtures --competition UNL` and the venue engine read UNL three-way sets.
+  - `--series` pins the ticker once receipted, and the receipt line names how the series was resolved.
+  - UNL is added to the window chain's Kalshi table; the CI pin now covers mapped plus discoverable series.
+- **Published Cockpit:** its CSP blocks api.github.com, so "Load latest from host" fails there. `docs/specs/exports-mirror.md` says so, and the new `scripts/cockpit_local.py` serves a saved copy of the published artifact (or the repo copy, flagged) on 127.0.0.1, where the control works. The ledger is per origin: move it with Export/Import and keep the same port.
+- tests/test_unl_kalshi_discovery.py (2): discovery exactly-one / refused (2 or 0) / override / unmapped; UNL legs stored as a three-way set with quotes (Kalshi mocked).
+
+## 2026-10-03 (#270: dedupe-matches --orphans: incomplete lookup coverage leaves the whole candidate set UNRESOLVED)
+- PR #266 review (Anthony) found two cases on `d14c3f83`. A failed date lookup plus one observed provider game still permitted a RELINK. One found twin plus an unresolved competing twin still permitted a MERGE.
+- Now a twin whose provider lookup errors, or any day of the ±2d search that fails, leaves the candidate and every twin it was weighed against UNRESOLVED and untouched (no merge, no relink) until complete lookups establish uniqueness. The plan line names the gap.
+- tests/test_dedupe_orphans.py (+1): both cases, dry-run and apply, with ids, rows and references unchanged. The test was verified to fail on the old code (it relinked).
+- **Review 2 (Anthony):** overlapping candidate sets still bypassed uniqueness. Same-pair kickoffs at t−30h, t, t+30h and t+40h with provider states absent / error / absent / found merged in one insertion order and refused in another.
+  - Uniqueness is now decided per connected component of the twin graph (same home+away, ≤48h, different ids). Every id in the set is looked up first, and any error leaves every candidate UNRESOLVED.
+  - A merge happens only when the set is exactly one absent candidate plus one found twin; any larger or multi-live set is refused for review.
+  - With no live id in the set, each candidate is searched at the provider, and one failed search day leaves the whole set unresolved.
+  - Merges in which the live row keeps its id now log provenance too (`<source>_rekeys`).
+  - `scripts/ncaa_rekey_receipt.py --audit-merges` is the provenance audit of the applied merges: re-keyed rows with another same-pair row still within 48h.
+  - Regressions: both overlap scenarios across all 24 insertion orders, dry-run and apply, rows / ids / odds references unchanged, one identical plan for every order (fails on the previous code); the audit test.
+
+## 2026-10-03 (#269: ledger: evening state sync — WAL cause confirmed, NCAA re-key residue cleared, v1.2.2 deployed, mirror host side live)
+- Record only (no code). It captures the architect's evening receipts for #265 (zero-pair explanation + `--orphans` apply), #268 (WAL confirmed), #264 / #208 (published Cockpit + production tag), #261 (host mirror live, laptop pending) and #263 (what remains).
+
 ## 2026-10-03 (#268: HOTFIX: backup verify falls back to a plain read when the read-only URI open fails)
 - **`_verify_backup`** (`dedupe-matches --apply`, `clv-restate --apply`) tries two open forms in order, and the receipt names the one that read the backup:
   1. the read-only URI (`Path.as_uri() + "?mode=ro"`, `integrity_check`);

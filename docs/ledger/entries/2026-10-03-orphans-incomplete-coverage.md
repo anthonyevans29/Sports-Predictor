@@ -1,9 +1,0 @@
-**2026-10-03 — `--orphans` follow-up (PR #266 review): incomplete lookup coverage never permits a merge or relink.**
-- **Review (verbatim):** "Reproduced on `d14c3f83`: a failed date lookup plus one observed candidate still permits a relink, and one unresolved competing twin plus one found twin still permits a merge. Leave the whole affected candidate set `UNRESOLVED` and untouched until complete lookup coverage establishes uniqueness. Add dry-run and apply regressions proving that IDs, rows and references remain unchanged in both incomplete-coverage cases. Explicitly rule the added relink branch, which the PR identifies as extending the quoted ruling."
-- **Fixed:** a twin lookup error, or any failed search day, marks the candidate and its twins UNRESOLVED (`done`, untouched).
-- **Production impact of the applied run** (merge 30, relink 0, refused 0):
-  - No relink was ever applied.
-  - A merge was unsafe only if the stale row had a SECOND twin whose lookup failed. The old code skipped such a twin silently when it was not itself a candidate (finished).
-  - Read-only check: for each `orphan-merge` keeper, count other rows of the same home+away within 48h. Zero → no competing twin existed → that merge stands.
-- **RULED (2026-10-04, recording the 2026-10-03 ruling again):** "Relink branch: RULED KEEP (already ruled 10-03; recording again)." The relink branch (NOT FOUND + no twin → the provider's live id for the pair) stays as built, under the component-level uniqueness rules above. Also ruled: "component-level resolution is right"; `--audit-merges` runs after the NFL slate.
-- **Review 2 (overlapping sets):** uniqueness is now decided per connected component of the twin graph. Errors block the whole set; a merge only happens for exactly {one absent candidate, one found twin}; larger or multi-live sets are refused. Permutation regressions cover all 24 insertion orders. `--audit-merges` added for the 30-merge provenance audit.

@@ -9,3 +9,8 @@
   - Cockpit verifies: fills 44/44, exposure 16/16, CLV 19/19, ledger 21/21, render 21/21, exec 19/19.
   - `pytest -q`: 758 passed.
 - **Operator:** the repo Cockpit is not the live one. The matcher change reaches the published artifact on its next republish, and the receipt port matches it from merge.
+- **MATCHER BUG (ARCHITECT, 2026-10-06, verbatim):** "fill KXNFLGAME-26OCT04GBTB-GB yes (Green Bay) was classified system_matched against a call whose pick was HOME (Tampa Bay). The ticker suffix names the side; a fill whose side != the call's pick is off_book "side disagrees", never matched. Fix in Cockpit + port (parity), regression with this exact fill, reclassify: system-matched becomes 3 fills. The K-track receipt re-runs after. Cause of the bet: an architect text error on 10-04 — record it on #87."
+  - **Cause in code:** side agreement compared names by any shared word, and "Green Bay" and "Tampa Bay" share "Bay".
+  - **Fix:** with a ticker role, agreement is role == pick. Without one, it is a whole-name subset. This applies to logged calls and stored predictions alike.
+  - **Receipts:** the regression uses the exact fill, booked `system_matched` before the fix. Parity is 34/34, all 23 Cockpit verifies pass, and `pytest` shows 763 passed.
+  - **Operator:** re-import is not needed, because fills re-classify on load. Re-run `k-track-receipt` once this merges.

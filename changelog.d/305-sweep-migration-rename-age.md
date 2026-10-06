@@ -1,0 +1,23 @@
+## 2026-10-06 (#305: sweep-migration-rename-age — post-merge Codex finding on #304)
+- `sp_deploy` migration plan: a migration RENAMED from another migration inside the deploy range (migrate_temp.py → migrate_x.py) carries the source's age, not the rename commit's. It is now undetermined, never planned at the rename's position. On main, add temp, add y, then rename temp → x planned `run [y, x]`, reversing the real order.
+- Review fixes (Codex on #305):
+  - Renames are scanned with `-m`, so merge-result renames count.
+  - Rename CHAINS through intermediate names (migrate_temp → holding.py → migrate_x) are followed.
+  - The scan runs before ordering, so an ambiguous migration is listed once and never in the ordered part.
+- Review fixes, round 2 (Codex on #305):
+  - Moves no longer depend on git's similarity-based rename detection. A move that also rewrote the file (below `-M`'s 50% threshold) planned `run [y, x]`. Now any commit diff that deletes a migration, or a path carrying a migration's age, taints the paths it adds. A new migration added in a tainted diff is undetermined.
+  - Taint follows time (topological order, oldest first). A later reuse of an intermediate name (`holding.py`) no longer reaches back and blocks a valid `[x, y]` plan.
+- Review fix, round 3 (Codex on #305): taint only accumulates. A merge that replayed a side branch's `holding.py` (renamed from a migration) as a plain addition used to clear its taint, so a later `holding.py` → `migrate_x.py` planned `run [y, x]`.
+- Review fixes, round 4 (Codex on #305):
+  - A migration moved onto an existing placeholder path (`--no-renames`: D source + M destination) now carries the source's age. It had planned `run [y, x]`.
+  - New migrations with identical content at the target, an unchanged copy of an in-range migration with the source kept, are undetermined. That case had planned `[temp, y, x]`, running one one-shot twice.
+  - Recreating a deleted name stays tainted. This errs toward undetermined; the operator orders by hand.
+- Review fixes, round 5 (Codex on #305): this replaces the per-path taint scan of rounds 2–4.
+  - Any migration deletion in the range (merge parents included) makes every new migration undetermined.
+  - A rewritten move of a pre-range migration, and a split copy-then-delete that had planned `run [y, x]`, are now undetermined.
+  - The deploy prompt for undetermined migrations says to read each one's history and never re-run a rename or copy. It no longer implies that every listed name runs, and it warns when the range deletes a migration.
+- Review fixes, round 6 (Codex on #305):
+  - The migration-deletion warning prints on its own. A range that only deleted a migration used to say nothing.
+  - The dry run previews undetermined migrations and the deletion warning.
+  - An edited copy of a migration stays a new migration. Copying an existing migration and editing it is how new migrations are written, and #304 kept template-derived migrations new.
+- Review fix, round 7 (Codex on #305): the deletion warning names the deleted migrations. It points to a range-wide `git log --no-renames --name-status`, never `--follow`, which misses a rewritten move. The plan and the deploy receipt carry `deleted_migrations`.

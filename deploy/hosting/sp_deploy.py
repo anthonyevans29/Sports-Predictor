@@ -135,11 +135,13 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     found = [p for p in changed if p.startswith("migrate_") and p.endswith(".py")]
     if not found:
         return {"forward": True, "run": [], "modified": [], "skipped": [], "unordered": [], "undetermined": [],
-                "new": [], "renamed": {}}
+                "new": [], "renamed": {}, "lineage_unknown": False,
+                "deleted_migrations": []}
     rc, _, err = _git_rc("merge-base", "--is-ancestor", before, after)
     if rc == 1:
         return {"forward": False, "run": [], "modified": [], "skipped": found, "unordered": [], "undetermined": [],
-                "new": [], "renamed": {}}
+                "new": [], "renamed": {}, "lineage_unknown": False,
+                "deleted_migrations": []}
     if rc != 0:
         raise SystemExit(f"✗ ancestry check {before}..{after} failed ({err or f'git exit {rc}'}) — "
                          "refusing to plan migrations.")
@@ -188,7 +190,32 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
             idx += 1
             seen.setdefault(p, []).append((idx, cur[0], cur[1]))
     chosen, ambiguous = {}, set()
+    # LINEAGE (sweep, Codex post-merge on #304 and five rounds on #305): a migration moved, rewritten, copied
+    # through intermediate names, replayed by merges or split into copy-then-delete carries an older migration's
+    # age (or IS an applied one under a new name), and path-by-path reconstruction kept missing shapes. So: when ANY
+    # diff in the range (merge parents included via -m, --no-renames, so moves show as D + A/M) deletes a migration,
+    # lineage is unknown and EVERY new migration is undetermined; the operator reads the history before running
+    # anything. Migration deletions are rare, so this costs little.
+    rc, rout, err = _git_rc("log", "-m", "--no-renames", "--diff-filter=D", "--name-only", "--format=",
+                            f"{before}..{after}")
+    if rc != 0:
+        raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
+    deleted_migrations = sorted({ln.strip() for ln in rout.splitlines() if MIGRATION_NAME.match(ln.strip())})
+    lineage_unknown = bool(deleted_migrations)
+    if lineage_unknown:
+        ambiguous.update(new)
+    # an UNCHANGED COPY of a migration introduced inside the range (source kept) would run one one-shot twice:
+    # new migrations with identical content at `after` are undetermined (the prior-blob check above only sees
+    # copies of migrations present at `before` — Codex on #305)
+    by_blob = {}
+    for m in sorted(new):
+        by_blob.setdefault(_blob(after, m), []).append(m)
+    for group in by_blob.values():
+        if len(group) > 1:
+            ambiguous.update(group)
     for p, apps in seen.items():
+        if p in ambiguous:
+            continue
         # a merge commit ADDS a path only when NONE of its parents had it (a merge-result addition, e.g. a
         # re-add in the merge); when a parent had it, `-m` is just re-listing that branch's addition (Codex on #304)
         adds = {h for _, h, parents in apps
@@ -222,7 +249,8 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     return {"forward": True, "run": [] if undetermined else ordered, "undetermined": undetermined,
             "new": ordered + sorted(ambiguous) + unplaced, "renamed": renamed,
             "modified": [m for m in found if m not in new and m not in renamed] + sorted(renamed),
-            "skipped": [], "unordered": unplaced}
+            "skipped": [], "unordered": unplaced, "lineage_unknown": lineage_unknown,
+            "deleted_migrations": deleted_migrations}
 
 
 def main(argv=None) -> int:
@@ -267,6 +295,10 @@ def main(argv=None) -> int:
         if a.dry_run:
             print(f"DRY RUN: would deploy {before_rel or before} -> {target} ({target_sha})"
                   + (f"; new migrations, in order: {plan['run']}" if plan["run"] else "")
+                  + (f"; new migrations whose order is NOT determinable (no command will be generated): "
+                     f"{plan['new']}" if plan.get("undetermined") else "")
+                  + (f"; this range DELETES migration(s) {plan['deleted_migrations']} (lineage unknown)"
+                     if plan.get("lineage_unknown") else "")
                   + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else ""))
             return 0
         if dirty:
@@ -282,15 +314,25 @@ def main(argv=None) -> int:
                       "from_release": before_rel, "to_release": after_rel, "tag": target,
                       "files_changed": len(changed), "new_migrations": plan["new"],
                       "migration_order_undetermined": plan["undetermined"], "renamed_migrations": plan["renamed"],
+                      "deleted_migrations": plan.get("deleted_migrations", []),
                       "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
                       "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
           + (f"\n  ! new migrations, in the order they were added (backup first, then run by hand, in this "
              f"order): {plan['run']}\n      {migration_command(plan['run'], target_full)}" if plan["run"] else "")
-          + (f"\n  ! new migrations whose ORDER is not determinable (added together in one commit, or not "
-             f"placed by the history): {plan['new']} — no command generated; decide the order, then run "
+          + (f"\n  ! new migrations whose ORDER (or identity) is not determinable (added together in one commit, "
+             f"not placed by the history, or carrying another migration's lineage): {plan['new']} — no command "
+             f"generated. Read the range's history first (`git log --no-renames --name-status {before}..{after}`; "
+             f"`--follow` misses a rewritten move): a rename or copy of a migration that already ran must NOT "
+             f"run again. Then run only the ones that are new, in order: "
              f"`sp_deploy.py --expect {target_full} --run-migrations <ordered names>` as the service user"
+             + (" (any of them may be an applied migration under a new name: see the deletion warning)"
+                if plan.get("lineage_unknown") else "")
              if plan.get("undetermined") else "")
+          + (f"\n  ! this range DELETES migration(s) {plan['deleted_migrations']}: lineage is unknown. Any new "
+             f"migration may be one of them under a new name (a rewritten move is invisible to `--follow`); "
+             f"compare them with `git log --no-renames --name-status {before}..{after}` before running anything"
+             if plan.get("lineage_unknown") else "")
           + (f"\n  ! renamed / copied migrations (already ran under the source name; NOT runnable): {plan['renamed']}"
              if plan.get("renamed") else "")
           + (f"\n  ! migrations MODIFIED in this range (not new; read before re-running): {plan['modified']}"

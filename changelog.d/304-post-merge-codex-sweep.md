@@ -12,3 +12,4 @@
   - Only an addition carrying the released file's content counts, so a competing branch's different file under the same name never sets the order.
   - An explicit `"fills": null` is refused.
 - Review fix (Codex on #304, round 3): when several ordinary additions carry the released file (identical files on two branches, or an identical re-add), the migration is undetermined and the operator orders it.
+- Review fix (Codex on #304, round 4): **conservative ordering.** A migration counts only when exactly ONE ordinary commit added it, or none did and exactly ONE merge did. The chosen commits must form a strict ancestry chain, in topological order. Re-adds, competing or identical additions, several merge additions, one shared commit, and parallel branches are all undetermined, and the operator orders them.

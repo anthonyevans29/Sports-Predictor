@@ -168,11 +168,13 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
                            f"{before}..{after}")
     if rc != 0:
         raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
-    # Which addition counts, per path (Codex post-merge on #296 / on #304): the LAST addition by an ordinary
-    # (non-merge) commit — the one the release carries, so a path added, deleted and re-added counts at its
-    # re-add — else, when only a merge commit adds it (a merge-result addition), its first merge appearance.
-    # `-m` re-lists a merged branch's additions in the merge's first-parent diff; those never count when an
-    # ordinary commit added the path.
+    # CONSERVATIVE ORDERING (Codex on #296 and #304, five rounds): history is evidence of order only when it is
+    # unambiguous. Per migration, exactly ONE ordinary (non-merge) commit added it — or none did and exactly ONE
+    # merge commit did (a merge-result addition; `-m` re-lists a merged branch's additions in the merge, which
+    # never count when an ordinary commit added the path). Anything else (re-adds, competing or identical
+    # additions on several branches, several merge additions) is undetermined. Across migrations, the chosen
+    # commits must form a strict ANCESTRY CHAIN: two migrations from one commit, or from commits on parallel
+    # branches, have no knowable order — the whole plan is then undetermined and the operator orders it.
     seen, cur, idx = {}, None, 0
     for ln in out.splitlines():
         p = ln.strip()
@@ -183,30 +185,38 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         if p in new:
             idx += 1
             seen.setdefault(p, []).append((idx, cur[0], cur[1]))
-    chosen, multi = {}, set()
+    chosen, ambiguous = {}, set()
     for p, apps in seen.items():
-        plain = [a for a in apps if not a[2]]
-        # a competing branch may add a DIFFERENT file under the same name that the release does not carry
-        # (Codex on #304): only an addition whose content is the released file's counts
-        final = _blob(after, p)
-        carried = [a for a in plain if _blob(a[1], p) == final]
-        chosen[p] = carried[-1] if carried else plain[-1] if plain else apps[0]
-        if len(carried) > 1:
-            # SEVERAL ordinary additions carry the released file (identical files on two branches, or an
-            # identical re-add): which one the release "is" is not determinable, so neither is its grouping
-            # or order — the operator orders it (Codex on #304, round 3)
-            multi.add(p)
-    ordered = sorted(chosen, key=lambda p: chosen[p][0])
-    per_commit = {}
-    for p, (_, h, _m) in chosen.items():
-        per_commit.setdefault(h, set()).add(p)
-    # several migrations added by ONE commit: git lists them alphabetically, which says nothing about
-    # their dependencies; the order is not determinable, so no runnable command is generated (Codex on #296)
-    together = sorted({m for ms in per_commit.values() if len(ms) > 1 for m in ms})
-    unplaced = sorted(new - set(ordered))
-    undetermined = sorted(set(together) | set(unplaced) | multi)
+        plain = {h for _, h, m in apps if not m}
+        merges = {h for _, h, m in apps if m}
+        pick = plain if plain else merges
+        if len(pick) != 1:
+            ambiguous.add(p)
+            continue
+        (h,) = pick
+        chosen[p] = next(a for a in apps if a[1] == h)
+    # order by TOPOLOGICAL position (parents before children), never by log/date order
+    rc, out, err = _git_rc("rev-list", "--topo-order", "--reverse", f"{before}..{after}")
+    if rc != 0:
+        raise SystemExit(f"✗ git rev-list {before}..{after} failed ({err}) — refusing to plan migrations.")
+    topo = {h: i for i, h in enumerate(out.split())}
+    ordered = sorted(chosen, key=lambda p: (topo.get(chosen[p][1], len(topo)), p))
+    together, unchained = set(), set()
+    for a, b in zip(ordered, ordered[1:]):
+        ha, hb = chosen[a][1], chosen[b][1]
+        if ha == hb:
+            together |= {a, b}                # one commit: git lists paths alphabetically, not by dependency
+            continue
+        rc, _, err = _git_rc("merge-base", "--is-ancestor", ha, hb)
+        if rc == 1:
+            unchained |= set(ordered)         # parallel branches: traversal order is not dependency order
+        elif rc != 0:
+            raise SystemExit(f"✗ ancestry check {ha}..{hb} failed ({err or f'git exit {rc}'}) — "
+                             "refusing to plan migrations.")
+    unplaced = sorted(new - set(ordered) - ambiguous)
+    undetermined = sorted(together | unchained | ambiguous | set(unplaced))
     return {"forward": True, "run": [] if undetermined else ordered, "undetermined": undetermined,
-            "new": ordered + unplaced, "renamed": renamed,
+            "new": ordered + sorted(ambiguous) + unplaced, "renamed": renamed,
             "modified": [m for m in found if m not in new and m not in renamed] + sorted(renamed),
             "skipped": [], "unordered": unplaced}
 

@@ -1802,6 +1802,10 @@ def test_post_merge_review_copies_and_merge_commit_grouping(sandbox, monkeypatch
     g("add", "-A")
     g("commit", "-q", "-m", "base")
     base = g("rev-parse", "HEAD")
+    (repo / "migrate_copy_of_once.py").write_text(body)                  # unchanged copy
+    (repo / "migrate_from_template.py").write_text(body + "extra = 'a real new step'\n" * 4)
+    g("add", "-A")
+    g("commit", "-q", "-m", "copy + template")                          # before the branch: one ancestry chain
     g("checkout", "-q", "-b", "feat")
     (repo / "migrate_b_first.py").write_text("first = 1\n")
     g("add", "-A")
@@ -1810,10 +1814,6 @@ def test_post_merge_review_copies_and_merge_commit_grouping(sandbox, monkeypatch
     g("add", "-A")
     g("commit", "-q", "-m", "second")
     g("checkout", "-q", "main")
-    (repo / "migrate_copy_of_once.py").write_text(body)                  # unchanged copy
-    (repo / "migrate_from_template.py").write_text(body + "extra = 'a real new step'\n" * 4)
-    g("add", "-A")
-    g("commit", "-q", "-m", "copy + template")
     g("merge", "-q", "--no-ff", "-m", "merge feat", "feat")
     head = g("rev-parse", "HEAD")
     monkeypatch.setattr(c, "REPO", repo)
@@ -1823,8 +1823,7 @@ def test_post_merge_review_copies_and_merge_commit_grouping(sandbox, monkeypatch
     assert "migrate_copy_of_once.py" not in plan["run"]
     assert plan["undetermined"] == []
     run = plan["run"]
-    assert set(run) == {"migrate_b_first.py", "migrate_a_second.py", "migrate_from_template.py"}
-    assert run.index("migrate_b_first.py") < run.index("migrate_a_second.py")     # the branch's commit order
+    assert run == ["migrate_from_template.py", "migrate_b_first.py", "migrate_a_second.py"]   # the commit chain
 
 
 def test_codex_on_304_template_copies_stay_new_and_re_adds_keep_their_grouping(sandbox, monkeypatch):
@@ -1863,7 +1862,7 @@ def test_codex_on_304_template_copies_stay_new_and_re_adds_keep_their_grouping(s
     monkeypatch.setattr(c, "REPO", repo)
     plan = sp_deploy.migration_plan(base, head, ["migrate_add_widget.py", "migrate_x.py", "migrate_y.py"])
     assert plan["renamed"] == {} and "migrate_add_widget.py" in plan["new"]
-    assert plan["undetermined"] == ["migrate_x.py", "migrate_y.py"] and plan["run"] == []
+    assert "migrate_x.py" in plan["undetermined"] and plan["run"] == []      # a re-add: ambiguous history
 
 
 def test_codex_on_304_round_2_content_copies_and_competing_branch_additions(sandbox, monkeypatch):
@@ -1924,7 +1923,7 @@ def test_codex_on_304_round_2_content_copies_and_competing_branch_additions(sand
     g("commit", "-q", "-m", "merge b (keep A's x)", when="2026-01-03T00:00:00Z")
     monkeypatch.setattr(c, "REPO", repo)
     plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
-    assert plan["undetermined"] == ["migrate_x.py", "migrate_y.py"] and plan["run"] == []
+    assert "migrate_x.py" in plan["undetermined"] and plan["run"] == []      # competing additions: ambiguous
 
 
 def test_codex_on_304_round_3_identical_additions_on_two_branches_are_undetermined(sandbox, monkeypatch):
@@ -1962,3 +1961,82 @@ def test_codex_on_304_round_3_identical_additions_on_two_branches_are_undetermin
     monkeypatch.setattr(c, "REPO", repo)
     plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
     assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]
+
+
+def test_codex_on_304_round_4_parallel_branches_unmatched_and_merge_only_re_adds(sandbox, monkeypatch):
+    """Codex on #304, round 4 (verified): (1) migrate_x on one branch and migrate_y on a sibling branch have no
+    ancestry: traversal order is not dependency order -> undetermined; (2) competing additions of x whose released
+    version was later modified (no blob match) -> undetermined; (3) a merge-only addition deleted and re-added by
+    another merge -> undetermined. Only a strict ancestry chain of single additions is runnable."""
+    import os
+    import subprocess
+
+    import sp_deploy
+
+    def mk(name):
+        repo = sandbox / name
+        repo.mkdir()
+
+        def g(*a, when=None, check=True):
+            env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when} if when else None
+            return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                  check=check, capture_output=True, text=True, env=env).stdout.strip()
+        g("init", "-q", "-b", "main")
+        (repo / "r.txt").write_text("r")
+        g("add", "-A")
+        g("commit", "-q", "-m", "base", when="2025-12-31T00:00:00Z")
+        return repo, g, g("rev-parse", "HEAD")
+
+    def plan(repo, g, base, files):
+        monkeypatch.setattr(c, "REPO", repo)
+        return sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), files)
+
+    repo, g, base = mk("p1")                                            # (1) parallel branches
+    g("checkout", "-q", "-b", "a")
+    (repo / "migrate_x.py").write_text("x\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x", when="2026-01-01T00:00:00Z")
+    g("checkout", "-q", "main")
+    (repo / "migrate_y.py").write_text("y\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "y", when="2026-01-02T00:00:00Z")
+    g("merge", "-q", "--no-ff", "-m", "m", "a", when="2026-01-03T00:00:00Z")
+    p = plan(repo, g, base, ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and p["undetermined"] == ["migrate_x.py", "migrate_y.py"]
+
+    repo, g, base = mk("p2")                                            # (2) competing, later modified
+    g("checkout", "-q", "-b", "a")
+    (repo / "migrate_x.py").write_text("x = 'A'\n")
+    (repo / "migrate_y.py").write_text("y\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "A", when="2026-01-01T00:00:00Z")
+    (repo / "migrate_x.py").write_text("x = 'A2'\n")
+    g("commit", "-q", "-am", "A modifies x", when="2026-01-02T00:00:00Z")
+    g("checkout", "-q", "main")
+    (repo / "migrate_x.py").write_text("x = 'B'\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "B", when="2026-01-03T00:00:00Z")
+    g("merge", "-q", "--no-ff", "-m", "m", "a", when="2026-01-04T00:00:00Z", check=False)
+    (repo / "migrate_x.py").write_text("x = 'A2'\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "m (keep A2)", when="2026-01-04T00:00:00Z")
+    p = plan(repo, g, base, ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and "migrate_x.py" in p["undetermined"]
+
+    repo, g, base = mk("p3")                                            # (3) merge-only add, delete, merge re-add
+    for i, files in enumerate((["migrate_x.py"], ["migrate_x.py", "migrate_y.py"])):
+        g("checkout", "-q", "-b", f"s{i}")
+        (repo / f"side{i}.txt").write_text(str(i))
+        g("add", "-A")
+        g("commit", "-q", "-m", f"side {i}", when=f"2026-01-0{2 * i + 1}T00:00:00Z")
+        g("checkout", "-q", "main")
+        g("merge", "-q", "--no-ff", "--no-commit", f"s{i}", when=f"2026-01-0{2 * i + 2}T00:00:00Z")
+        for f in files:
+            (repo / f).write_text(f"{f} {i}\n")
+        g("add", "-A")
+        g("commit", "-q", "-m", f"merge {i} (adds {files})", when=f"2026-01-0{2 * i + 2}T00:00:00Z")
+        if i == 0:
+            g("rm", "-q", "migrate_x.py")
+            g("commit", "-q", "-m", "drop x", when="2026-01-02T12:00:00Z")
+    p = plan(repo, g, base, ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and "migrate_x.py" in p["undetermined"]

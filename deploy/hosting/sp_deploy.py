@@ -135,11 +135,13 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     found = [p for p in changed if p.startswith("migrate_") and p.endswith(".py")]
     if not found:
         return {"forward": True, "run": [], "modified": [], "skipped": [], "unordered": [], "undetermined": [],
-                "new": [], "renamed": {}, "lineage_unknown": False}
+                "new": [], "renamed": {}, "lineage_unknown": False,
+                "deleted_migrations": []}
     rc, _, err = _git_rc("merge-base", "--is-ancestor", before, after)
     if rc == 1:
         return {"forward": False, "run": [], "modified": [], "skipped": found, "unordered": [], "undetermined": [],
-                "new": [], "renamed": {}, "lineage_unknown": False}
+                "new": [], "renamed": {}, "lineage_unknown": False,
+                "deleted_migrations": []}
     if rc != 0:
         raise SystemExit(f"✗ ancestry check {before}..{after} failed ({err or f'git exit {rc}'}) — "
                          "refusing to plan migrations.")
@@ -198,7 +200,8 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
                             f"{before}..{after}")
     if rc != 0:
         raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
-    lineage_unknown = any(MIGRATION_NAME.match(ln.strip()) for ln in rout.splitlines())
+    deleted_migrations = sorted({ln.strip() for ln in rout.splitlines() if MIGRATION_NAME.match(ln.strip())})
+    lineage_unknown = bool(deleted_migrations)
     if lineage_unknown:
         ambiguous.update(new)
     # an UNCHANGED COPY of a migration introduced inside the range (source kept) would run one one-shot twice:
@@ -246,7 +249,8 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     return {"forward": True, "run": [] if undetermined else ordered, "undetermined": undetermined,
             "new": ordered + sorted(ambiguous) + unplaced, "renamed": renamed,
             "modified": [m for m in found if m not in new and m not in renamed] + sorted(renamed),
-            "skipped": [], "unordered": unplaced, "lineage_unknown": lineage_unknown}
+            "skipped": [], "unordered": unplaced, "lineage_unknown": lineage_unknown,
+            "deleted_migrations": deleted_migrations}
 
 
 def main(argv=None) -> int:
@@ -293,7 +297,7 @@ def main(argv=None) -> int:
                   + (f"; new migrations, in order: {plan['run']}" if plan["run"] else "")
                   + (f"; new migrations whose order is NOT determinable (no command will be generated): "
                      f"{plan['new']}" if plan.get("undetermined") else "")
-                  + ("; this range DELETES a migration (lineage unknown: read the history)"
+                  + (f"; this range DELETES migration(s) {plan['deleted_migrations']} (lineage unknown)"
                      if plan.get("lineage_unknown") else "")
                   + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else ""))
             return 0
@@ -310,6 +314,7 @@ def main(argv=None) -> int:
                       "from_release": before_rel, "to_release": after_rel, "tag": target,
                       "files_changed": len(changed), "new_migrations": plan["new"],
                       "migration_order_undetermined": plan["undetermined"], "renamed_migrations": plan["renamed"],
+                      "deleted_migrations": plan.get("deleted_migrations", []),
                       "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
                       "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
@@ -317,14 +322,16 @@ def main(argv=None) -> int:
              f"order): {plan['run']}\n      {migration_command(plan['run'], target_full)}" if plan["run"] else "")
           + (f"\n  ! new migrations whose ORDER (or identity) is not determinable (added together in one commit, "
              f"not placed by the history, or carrying another migration's lineage): {plan['new']} — no command "
-             f"generated. Read each one's history first (`git log --follow -- <name>`): a rename or copy of a "
-             f"migration that already ran must NOT run again. Then run only the ones that are new, in order: "
+             f"generated. Read the range's history first (`git log --no-renames --name-status {before}..{after}`; "
+             f"`--follow` misses a rewritten move): a rename or copy of a migration that already ran must NOT "
+             f"run again. Then run only the ones that are new, in order: "
              f"`sp_deploy.py --expect {target_full} --run-migrations <ordered names>` as the service user"
              + (" (any of them may be an applied migration under a new name: see the deletion warning)"
                 if plan.get("lineage_unknown") else "")
              if plan.get("undetermined") else "")
-          + ("\n  ! this range DELETES a migration: lineage is unknown, so read the history (`git log --follow`) "
-             "before running anything; a deleted migration's file is gone, not to be re-run"
+          + (f"\n  ! this range DELETES migration(s) {plan['deleted_migrations']}: lineage is unknown. Any new "
+             f"migration may be one of them under a new name (a rewritten move is invisible to `--follow`); "
+             f"compare them with `git log --no-renames --name-status {before}..{after}` before running anything"
              if plan.get("lineage_unknown") else "")
           + (f"\n  ! renamed / copied migrations (already ran under the source name; NOT runnable): {plan['renamed']}"
              if plan.get("renamed") else "")

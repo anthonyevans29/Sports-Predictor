@@ -20,3 +20,4 @@
   - The migration-deletion warning prints on its own. A range that only deleted a migration used to say nothing.
   - The dry run previews undetermined migrations and the deletion warning.
   - An edited copy of a migration stays a new migration. Copying an existing migration and editing it is how new migrations are written, and #304 kept template-derived migrations new.
+- Review fix, round 7 (Codex on #305): the deletion warning names the deleted migrations. It points to a range-wide `git log --no-renames --name-status`, never `--follow`, which misses a rewritten move. The plan and the deploy receipt carry `deleted_migrations`.

@@ -2392,6 +2392,7 @@ def test_sweep_any_migration_deletion_makes_the_whole_plan_undetermined(sandbox,
     monkeypatch.setattr(c, "REPO", repo)
     p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_old.py", "migrate_x.py"])
     assert p["run"] == [] and p["undetermined"] == ["migrate_x.py"] and p["lineage_unknown"]
+    assert p["deleted_migrations"] == ["migrate_old.py"]                 # surfaced (Codex on #305, round 7)
 
     repo, g = mk("split")                                                # (2) split copy-and-delete
     base = g("rev-parse", "HEAD")
@@ -2441,7 +2442,10 @@ def test_sweep_a_deletion_only_range_warns_on_dry_run_and_deploy(sandbox, monkey
     monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
     monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
     assert sp_deploy.main(["--tag", "v1.0.1", "--dry-run"]) == 0
-    assert "DELETES a migration" in capsys.readouterr().out
+    assert "DELETES migration(s) ['migrate_old.py']" in capsys.readouterr().out
     assert sp_deploy.main(["--tag", "v1.0.1"]) == 0
     out = capsys.readouterr().out
-    assert "! this range DELETES a migration" in out and "not determinable" not in out
+    assert "! this range DELETES migration(s) ['migrate_old.py']" in out and "not determinable" not in out
+    # round 7: the advice names the deleted paths and a --no-renames listing, never --follow alone (a rewritten
+    # move is invisible to --follow)
+    assert "--no-renames --name-status" in out and "git log --follow" not in out

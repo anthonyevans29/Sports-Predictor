@@ -289,3 +289,25 @@ def test_codex_round_6_maker_cost_at_the_order_count_and_parlay_cli_wording(tmp_
     res = CliRunner().invoke(cli.cli, ["desk-parlays", str(p), "--now", NOW.isoformat(), "--out", str(tmp_path / "o.json")])
     assert res.exit_code == 0, res.output
     assert "vs Π executable cost" in res.output and "(Π fair 0.372)" in res.output
+
+
+def test_codex_round_7_ladder_exec_kalshi_only_fair_and_halved_maker():
+    """Codex on #303: (1) a LADDER emits NO on HOME, so it carries no pick-leg exec block; (2) a parlay with a leg
+    lacking a book reference has fair_p unavailable (never Π model); (3) a halved PLAY's maker reference is at the
+    EMITTED order's count."""
+    row = {"home_team": "Everton", "away_team": "Fulham", "utc_date": ko(), "competition": "PL", "stage": "regular",
+           "prediction": {"probabilities": {"home_win": 0.25, "draw": 0.25, "away_win": 0.50}, "tier": "lean"},
+           "market": {"bookmaker_count": 9, "fair_prob": {"HOME": 0.45, "DRAW": 0.27, "AWAY": 0.28}},
+           "kalshi_legs": {"AWAY": {"ticker": "T-FUL", "bid": 0.28, "ask": 0.29},
+                           "HOME": {"ticker": "T-EVE", "bid": 0.44, "ask": 0.45}}}
+    doc = {"sport": "soccer", "predictions": [row]}
+    dp.annotate(doc, now=NOW)
+    d = doc["predictions"][0]["desk"]
+    assert d["call"] == "LADDER" and d["exec"] is None and d["order"]["text"].startswith("BUY NO T-EVE")
+    legs = [(dict(dp.normalize({"sport": "nfl", "predictions": [nfl(h, 0.70, 0.60, bid=0.59, ask=0.60)]})[0],
+                  mkt=None), {"call": "PLAY"}) for h in ("A", "B")]
+    (t,) = dp.rank_parlays(legs)
+    assert t["pf"] is None and dp.parlay_block(t)["fair_p"] is None
+    half = dp.normalize({"sport": "nfl", "predictions": [nfl("H", 0.80, 0.70, bid=0.72, ask=0.75)]})[0]
+    blk = dp.exec_block(half, "HOME", 0.80, 1, 0.5)                      # join 0.73: 10 -> 0.733, 5 -> 0.734
+    assert dp.maker_cost_at(half, "HOME", 1) == 0.733 and blk["maker_cost"] == 0.734

@@ -158,8 +158,10 @@ def main():
         check("informational only: calls and units identical with and without quotes",
               {k: (r[5], r[6]) for k, r in rows.items()} == base, str(base))
         pol = page.inner_text("#deskView")
-        check("policy card: maker default + the ruled multipliers + 'MLB is never executed live'",
-              "MAKER cost" in pol and "maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5" in pol and "MLB is never executed live" in pol)
+        # #87 v1.1 (ARCHITECT-RULE 2026-10-06) superseded the maker-default doctrine: the card states TAKE at the ask
+        check("policy card: TAKE doctrine (#87 v1.1) + the ruled multipliers + 'MLB is never executed live'",
+              "TAKE at the ask" in pol and "MAKER cost" not in pol
+              and "maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5" in pol and "MLB is never executed live" in pol)
 
         print("LEDGER (both costs recorded)")
         page.click("#logBtn")

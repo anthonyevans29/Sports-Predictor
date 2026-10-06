@@ -518,7 +518,8 @@ def exec_block(r, side, model_p, units=None, order_units=None):
            "fee_clears": exec_clears(e)}
     if EXEC_RULES["on"]:
         out["taker_cost"] = dc["cost"] if dc else None
-        out["maker_cost"] = maker_cost_at(r, side, units)    # reference: the join (bid + 1c) at THIS order's count
+        # reference: the join (bid + 1c) at the EMITTED order's count (a halved PLAY's smaller order, Codex on #303)
+        out["maker_cost"] = maker_cost_at(r, side, order_units if order_units else units)
         out["doctrine"] = "join" if (jb or {}).get("price") is not None else "take"
         q = side_quotes(r, side) or {}
         lim = join_price(q.get("bid"), q.get("ask")) or q.get("ask")
@@ -752,6 +753,8 @@ def rank_parlays(calls, stats: dict | None = None) -> list[dict]:
         for l in legs:
             pk = pk * (l["mkt"] if l["mkt"] is not None else l["prob"])
         pf = pk
+        if EXEC_RULES["on"] and any(l["mkt"] is None for l in legs):
+            pf = None          # Π BOOK fair is unavailable when a leg has no book reference (never the model p)
         if EXEC_RULES["on"]:
             costs = [taker_cost_for(l, l["pick"], PARLAY["units"]) for l in legs]     # (h): the leg's own order
             if any(c is None for c in costs):
@@ -882,7 +885,8 @@ def parlay_block(t) -> dict:
     Π executable cost; fair_p (Π fair) and each leg's exec_cost ride along; the independence label stands."""
     b = _parlay_block(t)
     if "pf" in t:
-        b.update(market_basis="executable (Π ask + taker fee)", fair_p=_num(t["pf"]), label=PARLAY_LABEL)
+        b.update(market_basis="executable (Π ask + taker fee)", fair_p=_num(t["pf"]) if t["pf"] is not None else None,
+                 label=PARLAY_LABEL)
         for leg, c in zip(b["legs"], t["costs"]):
             leg["exec_cost"] = _num(c)
     return b
@@ -1062,8 +1066,9 @@ def desk_block(r, c, v, ven) -> dict:
            "reference": ("kalshi_only" if c["kalOnly"] else "books") if c["mktRef"] is not None else None,
            "edge_pp": _num(c["edge"]), "pass_kind": c["passKind"], "tags": c["tags"],
            "reasons": c["reasons"], "reason": " · ".join(c["reasons"]),
-           "shadow_units": c["shadowUnits"], "exec": exec_block(r, r["pick"], r["prob"], c.get("execUnits"),
-                                                           c["units"] if c.get("execUnits") and c["units"] else None),
+           "shadow_units": c["shadowUnits"], "exec": (None if EXEC_RULES["on"] and c["call"] == "LADDER" else   # a LADDER buys NO on HOME, not the
+                    exec_block(r, r["pick"], r["prob"], c.get("execUnits"),       # pick's leg: no pick-leg exec
+                               c["units"] if c.get("execUnits") and c["units"] else None)),
            "value_shadow": None,
            "order": (order_line(r, r["pick"], c["units"], ladder=(c["call"] == "LADDER"))
                      if c["call"] in ("PLAY", "LADDER") else None),

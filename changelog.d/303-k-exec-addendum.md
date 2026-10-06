@@ -32,3 +32,8 @@
   - Quarantine shadows log the file's exec cost.
   - Parlay legs keep their serialized `fair_p`.
   - `desk-parlays` documentation and CLI output describe executable pricing ("Π executable cost", Π fair, unpriced tickets excluded).
+- Review fixes (Codex on #303, round 7):
+  - A LADDER (which buys NO on HOME) carries no pick-leg exec block.
+  - A parlay whose leg has no book reference has `fair_p` unavailable, never Π model.
+  - A halved PLAY's maker reference is at the emitted order's count.
+  - The Cockpit's Policy card states the #87 v1.1 doctrine: TAKE, executable sizing and the venue gate.

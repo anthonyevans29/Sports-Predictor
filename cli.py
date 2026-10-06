@@ -1409,6 +1409,71 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
         console.print(f"[green]receipt written: {out_path}[/green]")
 
 
+@cli.command("k-track-receipt")
+@click.option("--ledger", "ledger_path", default=None,
+              help="The Cockpit's ledger export (bd_ledger_v1_<date>.json) for the fills, CLV and call-to-fill part.")
+@click.option("--since", default=None, help="Window start, UTC (default 2026-09-23, the ruled window).")
+@click.option("--until", default=None, help="Window end, UTC, exclusive (default 2026-10-08: closes end of 10-07).")
+@click.option("--out", "out_path", default=None, help="Also write the receipt text here (e.g. docs/receipts/…).")
+def k_track_receipt_cmd(ledger_path, since, until, out_path):
+    """READ-ONLY K-track receipt for the executable-edge ruling (#87, ARCHITECT
+    2026-10-06): every Kalshi ladder captured in the window — spreads,
+    two-sidedness, fee-clear rate at maker and taker cost (vs the live model
+    and vs the venue engine's book reference), by sport; plus, from the
+    Cockpit's ledger export, the executed fills' CLV and #75's call-to-fill
+    reconciliation (one disposition per eligible call). Writes nothing to the DB."""
+    import json as _json
+    from datetime import datetime as _dt
+
+    from src.walters import k_receipt as K
+    from src.walters.unl_ladders import data_dir, to_naive_utc
+
+    def _parse(v, name, dflt):
+        if v is None:
+            return dflt
+        try:
+            return to_naive_utc(_dt.fromisoformat(v[:-1] + "+00:00" if v.endswith("Z") else v))
+        except ValueError:
+            raise click.BadParameter(f"{v!r} is not an ISO date-time (e.g. 2026-09-23T00:00Z)", param_hint=name)
+    lo, hi = _parse(since, "--since", K.K_WINDOW_FROM), _parse(until, "--until", K.K_WINDOW_TO)
+    if hi <= lo:
+        raise click.BadParameter("--until must be after --since", param_hint="--until")
+    if out_path:
+        from pathlib import Path as _P
+        _data, _tgt = data_dir(), _P(out_path).resolve()
+        if _tgt == _data or _data in _tgt.parents:
+            console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+            raise SystemExit(2)
+    ruled = (lo, hi) == (K.K_WINDOW_FROM, K.K_WINDOW_TO)
+    lines = [f"K-TRACK RECEIPT (#87 executable-edge ruling) · window {lo:%Y-%m-%dT%H:%MZ} → {hi:%Y-%m-%dT%H:%MZ}"
+             + (" (the ruled window)" if ruled else " (NOT the ruled window — exploratory)")]
+    with session_scope() as s:
+        rows = K.ladders(s, lo, hi)
+    lines += K.format_ladders(rows, lo, hi)
+    if ledger_path:
+        try:
+            with open(ledger_path) as fh:
+                L = _json.load(fh)
+        except (OSError, ValueError) as e:
+            console.print(f"[red]REFUSED: cannot read the ledger export {ledger_path!r}: {e}[/red]")
+            raise SystemExit(2)
+        if not isinstance(L, dict) or not isinstance(L.get("calls"), list):
+            console.print("[red]REFUSED: not a Cockpit ledger export (no calls array).[/red]")
+            raise SystemExit(2)
+        lines += K.format_fills(L, lo, hi)
+    else:
+        lines.append("FILLS · not read: pass --ledger <the Cockpit's Export ledger (JSON) file> for the fills, "
+                     "their CLV and the call-to-fill reconciliation")
+    text_ = "\n".join(lines)
+    console.print(text_, markup=False, highlight=False)
+    if out_path:
+        import os as _os
+        _os.makedirs(_os.path.dirname(out_path) or ".", exist_ok=True)
+        with open(out_path, "w") as fh:
+            fh.write(text_ + "\n")
+        console.print(f"[green]receipt written: {out_path}[/green]")
+
+
 @cli.command("close-probe")
 @click.option("--match", "match_id", required=True, type=int, help="Match id.")
 def close_probe_cmd(match_id):

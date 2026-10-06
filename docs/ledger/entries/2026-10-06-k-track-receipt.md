@@ -1,0 +1,11 @@
+**2026-10-06 — BUILT (ARCHITECT): the K-track receipt for the executable-edge ruling (#87), with #75 folded in.**
+- **Ruling (verbatim):** "K-TRACK RECEIPT for the executable-edge ruling (#87, two-week window closes 10-07): every ladder captured since 9-23 — spreads, two-sidedness, fee-clear rate at maker and taker cost, by sport; plus the 4 executed fills' CLV. One command, read-only; the ruling follows the receipt." Also: "#75 acceptance criteria (call-to-fill reconciliation: UNAVAILABLE / UNATTEMPTED / ATTEMPTED_UNFILLED / MATCHED / UNKNOWN, exactly once per eligible call, reconciled to the trading ledger) — ADOPTED and FOLDED INTO the #87 K-track receipt. The 10-05 figures are execution evidence, not edge proof, as stated."
+- **Built:** `python cli.py k-track-receipt --ledger <bd_ledger_v1_*.json> --out docs/receipts/<file>`.
+- **Definitions stated in the receipt and declared for the ruling:**
+  - Fee-clear is the Desk's own K2 rule, (reference p − cost) ≥ 4pp, at both costs.
+  - The two references are never pooled: model (pick leg, live model sports MLB/NFL/PL only) and book (venue engine: ≥ 4 books, ≤ 3h old, best leg).
+  - Eligible call = a real straight or ladder, units > 0, not a shadow, kickoff in the window.
+  - UNAVAILABLE = no executable cost recorded for the pick side.
+  - A recorded cost with no matched fill = UNKNOWN. The ledger holds no order records, so UNATTEMPTED vs ATTEMPTED_UNFILLED is never inferred.
+- **Fills:** the export does not store each fill's book or call. The receipt reads them through a line-for-line port of the Cockpit's classification. Parity is 24/24 against the Cockpit's own JS on the fixture ledger.
+- **Operator:** export the ledger from the Cockpit, run the command on the laptop, and commit the output under `docs/receipts/` via PR. The 4 matched fills should read as the 10-05 record: +$5.96, −0.23pp, −1.83pp.

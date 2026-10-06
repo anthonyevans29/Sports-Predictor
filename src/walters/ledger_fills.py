@@ -246,6 +246,18 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
         x = next(x for x in fx["sports"] if x in FUN_SPORTS)
         return {"book": "fun", "category": f"{x} single (market-only, no system call)"}
     if fx.get("composite"):
+        # a LADDER is executed as NO on the other side (desk order line: AWAY ladder = NO on HOME = X2): a
+        # composite NO matches a real ladder call whose pick is the opposite side, never a straight (Codex on #299)
+        opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(fx.get("no_on_role"))
+        lad = [c for c in _start_nearest(fx, cands)
+               if c.get("call_type") == "ladder" and c.get("pick") == opp and (c.get("units") or 0) > 0]
+        if lad:
+            c = lad[0]
+            out = {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')} (ladder: NO on "
+                   f"{fx.get('no_on')})", "engine": c.get("engine"), "tier": c.get("tier"), "call_id": c.get("id")}
+            if len(lad) > 1:
+                out["ambiguous_calls"] = [x.get("id") for x in lad]
+            return out
         return {"book": "off_book_sports",
                 "category": f"composite contract ({fx.get('resolve_note') or 'three-way NO'}) — never a straight",
                 "plausible": True}

@@ -67,3 +67,18 @@ def test_unpriced_count_is_scoped_to_the_window():
     fill = dict(_fill("f", "KXNFLGAME-95NOV02BUFKC-KC", "yes", "Kansas City wins — Buffalo"), qty=2, entry=0.5)
     txt = "\n".join(K.format_fills({"calls": [call], "fills": [fill]}, datetime(2095, 9, 23), datetime(2095, 10, 8)))
     assert "not priceable" not in txt
+
+
+def test_composite_no_matches_its_ladder_call_never_a_straight():
+    """Codex on #299 (P1, verified): an AWAY ladder is executed as NO on HOME (desk order line: X2), which is the
+    composite contract. It must match its ladder call (and carry its CLV), while a straight still never matches."""
+    lad = dict(_call("lad", "Arsenal", "Chelsea", "AWAY", "2026-09-27T14:00:00", sport="SOCCER"), call_type="ladder")
+    L = {"calls": [lad], "fills": [_fill("n", "KXEPLGAME-26SEP27CHEARS-ARS", "no", "Arsenal wins — Chelsea")]}
+    (f,) = P.classify_fills(L)
+    assert f["book"] == "system_matched" and f["call_id"] == "lad" and f["composite"]
+    home_ladder = dict(lad, pick="HOME")                                   # NO on HOME is not a HOME position
+    (g,) = P.classify_fills({"calls": [home_ladder], "fills": L["fills"]})
+    assert g["book"] == "off_book_sports"
+    graded = dict(lad, status="graded", close_ref={"fair": {"HOME": 0.45, "DRAW": 0.27, "AWAY": 0.28}})
+    pos = P.executed_positions({"calls": [graded], "fills": [dict(L["fills"][0], qty=2, entry=0.5)]})["pos"]
+    assert len(pos) == 1 and abs(pos[0]["clv"] - ((1 - 0.45) - 0.5)) < 1e-12             # held NO HOME at 0.55

@@ -6,3 +6,4 @@
 - Review fixes (Codex on #299):
   - When the ticker carries team codes, they decide which game a fill fits. One shared title word ("United", "City") no longer stands for team identity.
   - The receipt's unpriced-position count is scoped to the window.
+- Review fix (Codex on #299, round 2): a composite NO matches a real LADDER call whose pick is the opposite side. The desk order line executes an AWAY ladder as NO on HOME (X2), so executed ladders reconcile and carry their CLV. A straight still never matches a composite.

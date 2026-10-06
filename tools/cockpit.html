@@ -1716,12 +1716,6 @@ function gameFits(fx,g){
   if(fx.teams) return codesFit(fx.teams,g)||titleFitsStrict(fx.teams_title,g);
   return !!fx.teams_title&&fx.teams_title.every(t=>sameTeam(t,g.home)||sameTeam(t,g.away));
 }
-function backedIn(fx,g){                            // the fill's backed side, named in this game
-  if(fx.backed_role==="HOME") return g.home;
-  if(fx.backed_role==="AWAY") return g.away;
-  if(fx.backed_role==="DRAW") return "Draw";
-  return fx.backed;
-}
 // THE FUN BOOK (architect 2026-09-30): non-sport markets, MVE combos, and
 // singles in the market-only families that carry no system call (NHL, UNL).
 // Its own line; the "off-book other" label is retired.
@@ -1753,19 +1747,28 @@ function matchFill(fx,calls,picks){
   if(!fx.backed&&!fx.backed_role)
     return {book:"off_book_sports",category:"side not resolvable ("+(fx.resolve_note||"?")+")",plausible:true};
   const pickName=c=>c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:"Draw";
+  // SIDE AGREEMENT (ARCHITECT 2026-10-06, matcher bug): the TICKER SUFFIX names the side, so a resolved role
+  // is compared to the call's pick exactly. KXNFLGAME-26OCT04GBTB-GB (AWAY, Green Bay) once "agreed" with a
+  // HOME (Tampa Bay) pick because the names share "Bay". Without a role, whole-name subsets only.
+  const sideAgrees=g=>{
+    if(fx.backed_role) return fx.backed_role===g.pick;
+    const b=fx.backed, p=pickName(g); if(!b||!p) return false;
+    if(b==="Draw"||p==="Draw") return b===p;
+    return tokSubset(b,p);
+  };
   if(!cands.length){
     // PRE-LEDGER ERA (architect 2026-09-30): no logged call, but a STORED
     // PREDICTION for the game -> the fourth book, "system-pick, unlogged".
     const ps=(picks||[]).filter(g=>near(g)&&gameFits(fx,g));
     if(!ps.length) return {book:"off_book_sports",category:"no logged call for this game"};
-    const agree=ps.filter(g=>sameTeam(backedIn(fx,g),pickName(g)));
+    const agree=ps.filter(sideAgrees);
     if(agree.length) return {book:"system_pick_unlogged",category:`system-pick, unlogged (${agree[0].source})`};
     return {book:"off_book_sports",category:"stored prediction exists but the side disagrees",plausible:true};
   }
   // DOUBLEHEADER (ARCHITECT 2026-10-06): with the ticker's start time, candidates order by |kickoff − start|
   // and those more than 3h off drop out when any is within 3h; no time (or no kickoff) keeps the old order.
   const near3h=startNearest(fx,cands);
-  const agree=near3h.filter(c=>sameTeam(backedIn(fx,c),pickName(c)));
+  const agree=near3h.filter(sideAgrees);
   const real=agree.filter(c=>c.call_type!=="quarantine_shadow"&&(c.units||0)>0);
   if(real.length){ const c=real[0];
     return {book:"system_matched",category:`${c.engine} · ${c.tier}`,engine:c.engine,tier:c.tier,call_id:c.id}; }

@@ -100,3 +100,24 @@ def test_non_prefix_codes_match_through_a_strict_title_and_shared_words_still_do
             "fills": [_fill("d", "KXEPLGAME-26OCT04ARSMCI-MCI", "yes", "Manchester City wins — Arsenal")]}
     (h,) = P.classify_fills(city)
     assert h["book"] != "system_matched"
+
+
+def test_ticker_side_disagreeing_with_the_pick_is_never_matched_gb_tb_regression():
+    """ARCHITECT 2026-10-06 (matcher bug): KXNFLGAME-26OCT04GBTB-GB yes (Green Bay, AWAY) was system_matched to
+    a HOME (Tampa Bay) call because the names share "Bay". The ticker suffix names the side: off-book."""
+    fill = _fill("gb", "KXNFLGAME-26OCT04GBTB-GB", "yes", "Green Bay wins — Tampa Bay")
+    home = _call("tb", "Tampa Bay Buccaneers", "Green Bay Packers", "HOME", "2026-10-04T17:00:00", sport="NFL")
+    f = P.classify_fills({"calls": [home], "fills": [fill]})[0]
+    assert f["backed_role"] == "AWAY"
+    assert f["book"] == "off_book_sports" and f.get("call_id") is None
+    assert f["category"] == "logged call exists but the side disagrees"
+    away = {**home, "id": "gbp", "pick": "AWAY"}                       # the same fill on a GB pick still matches
+    assert P.classify_fills({"calls": [away], "fills": [fill]})[0]["call_id"] == "gbp"
+    # the stored-prediction (pre-ledger) path uses the same rule
+    pick = {"sport": "NFL", "date": "2026-10-04", "home": "Tampa Bay Buccaneers", "away": "Green Bay Packers",
+            "pick": "HOME", "source": "results"}
+    f = P.classify_fills({"calls": [], "fills": [fill], "system_picks": [pick]})[0]
+    assert f["book"] == "off_book_sports" and "disagrees" in f["category"]
+    # no ticker role (title only): whole-name subsets, so "Green Bay" never agrees with "Tampa Bay Buccaneers"
+    assert not P.classify_fills({"calls": [home], "fills": [
+        _fill("t", "KXNFLGAME-26OCT04XXYY-ZZ", "yes", "Green Bay vs Tampa Bay")]})[0].get("call_id")

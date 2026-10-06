@@ -8,7 +8,7 @@ position CLV, so the K-track receipt (#87) reads the same numbers the Cockpit
 shows. Sources (tools/cockpit.html): normTeam L974, dayDiff L1003, isShadow
 L1036, heldContractFair L1075, executedPositions L1287, FAMILY_SPORTS L1552,
 parseTicker L1595, titleTeams/titleParse/codeFits/tickerRole/resolveSide
-L1611-1673, codesFit/sameTeam/gameFits/backedIn L1674-1693, matchFill L1694,
+L1611-1673, codesFit/sameTeam/gameFits L1674-1693, matchFill L1694,
 sideFields L1744, classifyFills L1809, FEE_M_BY_FAMILY/feeLegClass L1829.
 The Cockpit's in-memory desk picks (deskPicks) are not in the export, so the
 "system-pick, unlogged" book can read short here; system_matched never depends
@@ -226,10 +226,6 @@ def game_fits(fx: dict, g: dict) -> bool:
     return bool(tt) and all(same_team(t, g.get("home")) or same_team(t, g.get("away")) for t in tt)
 
 
-def _backed_in(fx: dict, g: dict):
-    return {"HOME": g.get("home"), "AWAY": g.get("away"), "DRAW": "Draw"}.get(fx.get("backed_role"), fx.get("backed"))
-
-
 def _start_nearest(fx: dict, cands: list) -> list:
     """startNearest: with the ticker's start time, candidates within 3h of it, nearest first; otherwise
     (no time, or none within 3h) the candidates unchanged."""
@@ -285,16 +281,29 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
 
     def pick_name(c):
         return c.get("home") if c.get("pick") == "HOME" else c.get("away") if c.get("pick") == "AWAY" else "Draw"
+
+    def side_agrees(g):
+        # ARCHITECT 2026-10-06 (matcher bug): the TICKER SUFFIX names the side, so a resolved role is
+        # compared to the pick exactly (GB/TB once "agreed" through the shared word "Bay"); without a
+        # role, whole-name subsets only
+        if fx.get("backed_role"):
+            return fx["backed_role"] == g.get("pick")
+        b, p = fx.get("backed"), pick_name(g)
+        if not b or not p:
+            return False
+        if b == "Draw" or p == "Draw":
+            return b == p
+        return _tok_subset(b, p)
     if not cands:
         ps = [g for g in (picks or []) if near(g) and game_fits(fx, g)]
         if not ps:
             return {"book": "off_book_sports", "category": "no logged call for this game"}
-        agree = [g for g in ps if same_team(_backed_in(fx, g), pick_name(g))]
+        agree = [g for g in ps if side_agrees(g)]
         if agree:
             return {"book": "system_pick_unlogged", "category": f"system-pick, unlogged ({agree[0].get('source')})"}
         return {"book": "off_book_sports", "category": "stored prediction exists but the side disagrees",
                 "plausible": True}
-    agree = [c for c in _start_nearest(fx, cands) if same_team(_backed_in(fx, c), pick_name(c))]
+    agree = [c for c in _start_nearest(fx, cands) if side_agrees(c)]
     real = [c for c in agree if c.get("call_type") != "quarantine_shadow" and (c.get("units") or 0) > 0]
     if real:
         c = real[0]

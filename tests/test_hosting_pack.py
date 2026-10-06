@@ -2080,3 +2080,35 @@ def test_codex_on_304_round_5_merge_re_add_after_an_ordinary_add_is_ambiguous(sa
     monkeypatch.setattr(c, "REPO", repo)
     plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
     assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]
+
+
+def test_codex_on_304_round_6_a_rename_into_a_migration_name_is_an_addition(sandbox, monkeypatch):
+    """Codex on #304, round 6 (verified on the old code: run [x, y]): migrate_x added, deleted, then a non-migration
+    file RENAMED to migrate_x.py in the commit that adds migrate_y.py. With rename detection the log dropped that
+    re-addition; with --no-renames it is a second addition of x: ambiguous, nothing runs."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g8"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "notes_x.py").write_text("print('a staged body long enough for rename detection to pair it')\n" * 5)
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_x.py").write_text("x = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x")
+    g("rm", "-q", "migrate_x.py")
+    g("commit", "-q", "-m", "drop x")
+    g("mv", "notes_x.py", "migrate_x.py")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "rename notes into x, add y")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]

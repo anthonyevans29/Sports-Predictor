@@ -164,8 +164,10 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         if src:
             renamed[m] = src
     new -= set(renamed)
-    rc, out, err = _git_rc("log", "--reverse", "-m", "--diff-filter=A", "--name-only", "--format=@@%H %P",
-                           f"{before}..{after}")
+    # --no-renames: a file RENAMED into a migration name is an addition of that migration (git would otherwise
+    # report it as R and --diff-filter=A would drop it — Codex on #304)
+    rc, out, err = _git_rc("log", "--reverse", "-m", "--no-renames", "--diff-filter=A", "--name-only",
+                           "--format=@@%H %P", f"{before}..{after}")
     if rc != 0:
         raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
     # CONSERVATIVE ORDERING (Codex on #296 and #304, five rounds): history is evidence of order only when it is

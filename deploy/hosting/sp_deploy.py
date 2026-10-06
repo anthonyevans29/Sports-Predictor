@@ -80,9 +80,12 @@ def _pip_run(cmd: list[str], cwd: str) -> int:
 
 
 def requirements_state_path() -> Path:
-    """The fingerprint of the last SUCCESSFUL install, kept beside the receipts but NOT in the rotating receipt log
-    (logrotate renames it monthly — Codex on #310)."""
-    return c.receipts_path().parent / "requirements.installed"
+    """The fingerprint of the last SUCCESSFUL install. It lives INSIDE the venv it describes, so deleting or
+    recreating the venv deletes it too (an inode can be reused; a file in the old venv cannot survive — Codex on
+    #310); never in the monthly-rotated receipt log. Without a venv: beside the receipts."""
+    venv = c.REPO / "venv"
+    return venv / ".sp-requirements.installed" if (venv / "pyvenv.cfg").exists() \
+        else c.receipts_path().parent / "requirements.installed"
 
 
 def _include_target(line: str) -> str | None:
@@ -100,13 +103,20 @@ def _logical_lines(body: str) -> list[str]:
     out, cur = [], ""
     for ln in body.splitlines():
         if ln.endswith("\\"):
-            cur += ln[:-1] + " "
+            cur += ln[:-1]                    # pip concatenates; it inserts no whitespace
             continue
         out.append(cur + ln)
         cur = ""
     if cur:
         out.append(cur)
     return out
+
+
+def _is_local_source(line: str) -> bool:
+    """A requirement installed from a local path or archive (./pkg, ../x.whl, /abs, file:): its source is not a
+    requirements file, so the fingerprint cannot see it change (Codex on #310)."""
+    parts = line.split("#", 1)[0].strip().split()
+    return bool(parts) and not parts[0].startswith("-") and parts[0].startswith((".", "/", "file:"))
 
 
 def _is_editable(line: str) -> bool:
@@ -126,6 +136,10 @@ def requirements_inputs(rev: str) -> dict:
         out[p] = _blob(rev, p)
         if out[p] is None:
             continue
+        rc, mode, _ = _git_rc("ls-tree", rev, "--", p)
+        if rc == 0 and mode.startswith("120000"):      # a tracked symlink: pip reads its TARGET (Codex on #310)
+            todo.append(posixpath.join(posixpath.dirname(p), _git_rc("show", f"{rev}:{p}")[1].strip()))
+            continue
         rc, body, _ = _git_rc("show", f"{rev}:{p}")
         for ln in (_logical_lines(body) if rc == 0 else []):
             inc = _include_target(ln)
@@ -135,14 +149,11 @@ def requirements_inputs(rev: str) -> dict:
 
 
 def _environment_id() -> str:
-    """The install destination: the venv (its path and the identity of its pyvenv.cfg, so a deleted and recreated
-    venv is a NEW destination) or, without a venv, the running interpreter (Codex on #310)."""
+    """The install destination: the venv's path, or without a venv the running interpreter (Codex on #310). A
+    recreated venv is caught by the record living inside it (requirements_state_path)."""
     import os
     cfg = c.REPO / "venv" / "pyvenv.cfg"
-    if cfg.exists():
-        st = cfg.stat()
-        return f"venv:{cfg.parent.resolve()}:{st.st_dev}:{st.st_ino}"
-    return f"python:{os.path.realpath(sys.executable)}"
+    return f"venv:{cfg.parent.resolve()}" if cfg.exists() else f"python:{os.path.realpath(sys.executable)}"
 
 
 def _fingerprint(inputs: dict) -> str:
@@ -168,10 +179,11 @@ def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, 
         return None, ("removed in the target" if REQUIREMENTS in changed else None)
     inputs = requirements_inputs(target_sha)
     editable = sorted(p for p, b in inputs.items() if b and any(
-        _is_editable(ln) for ln in _logical_lines(_git_rc("show", f"{target_sha}:{p}")[1])))
+        _is_editable(ln) or _is_local_source(ln) for ln in _logical_lines(_git_rc("show", f"{target_sha}:{p}")[1])))
     if editable:
-        # an editable install points INTO the temporary worktree, which is deleted afterwards (Codex on #310)
-        return None, f"has editable (-e) requirements in {', '.join(editable)}"
+        # an editable install points INTO the temporary worktree, which is deleted afterwards; a local path's
+        # changes are invisible to the fingerprint (Codex on #310): both are installed by hand
+        return None, f"has editable (-e) or local-path requirements in {', '.join(editable)}"
     fp = _fingerprint(inputs)
     touched = sorted(set(inputs) & set(changed))
     if touched:
@@ -473,7 +485,7 @@ def main(argv=None) -> int:
                               "error": f"requirements.txt {req_reason}"})
             c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
                               "error": f"requirements.txt {req_reason}"})
-            print(f"✗ requirements.txt {req_reason}: an editable install would point into a temporary tree — deploy "
+            print(f"✗ requirements.txt {req_reason}: editable or local-path requirements are not auto-installed — deploy "
                   f"refused; the host stays at {before_rel or before}. Install the target's requirements by hand.")
             return 1
         elif req_reason:

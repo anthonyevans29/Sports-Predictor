@@ -2576,12 +2576,58 @@ def test_requirements_continuations_editables_and_environment_identity(sandbox, 
     assert sp_deploy.requirements_plan(two, [])[0] is not None                    # the include alone reinstalls
     three = commit([("requirements.txt", "-e .\nrequests\n")])                                    # (2)
     assert sp_deploy.requirements_plan(three, ["requirements.txt"]) == \
-        (None, "has editable (-e) requirements in requirements.txt")
+        (None, "has editable (-e) or local-path requirements in requirements.txt")
     no_venv = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))                          # (3)
     (repo / "venv").mkdir()
     (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\n")
-    first = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))
-    (repo / "venv" / "pyvenv.cfg").unlink()                                       # the venv is recreated
-    (repo / "venv" / "pyvenv.new").write_text("pad\n")                           # take a fresh inode
+    assert sp_deploy._fingerprint(sp_deploy.requirements_inputs(one)) != no_venv     # a venv replaces the fallback
+    # round 4: the record lives INSIDE the venv, so a deleted and recreated venv has none (inodes are reusable)
+    assert sp_deploy.requirements_state_path() == repo / "venv" / ".sp-requirements.installed"
+    sp_deploy.requirements_state_path().write_text(sp_deploy._fingerprint(sp_deploy.requirements_inputs(two)) + "\n")
+    assert sp_deploy.requirements_plan(two, []) == (None, None)
+    import shutil
+    shutil.rmtree(repo / "venv")
+    (repo / "venv").mkdir()
     (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\n")
-    assert len({no_venv, first, sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))}) == 3
+    assert sp_deploy.requirements_plan(two, [])[0] is not None                    # recreated venv: reinstall
+
+
+def test_requirements_round_four_tokens_symlinks_and_local_paths(sandbox, monkeypatch):
+    """Codex on #310 round 4 (verified): (1) a continuation INSIDE the include path (`reqs/ba` + backslash, then
+    `se.txt`) is concatenated as pip does, without a space; (2) a symlinked include is followed to its target, so
+    a change to the target alone reinstalls; (3) a local-path requirement (./vendor/pkg) is refused like an
+    editable: its changes are invisible to the fingerprint."""
+    import os
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "r4"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(files=(), links=()):
+        for name, text in files:
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (repo / name).write_text(text)
+        for name, target in links:
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, repo / name)
+        g("add", "-A")
+        g("commit", "-q", "-m", "x")
+        return g("rev-parse", "HEAD")
+    g("init", "-q", "-b", "main")
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log4" / "receipts.jsonl"))
+    one = commit([("requirements.txt", "-r reqs/ba\\\nse.txt\n"), ("reqs/base.txt", "a\n")])
+    assert "reqs/base.txt" in sp_deploy.requirements_inputs(one)                                 # (1)
+    two = commit([("requirements.txt", "-r reqs/current.txt\n"), ("reqs/v1.txt", "b\n")],
+                 links=[("reqs/current.txt", "v1.txt")])
+    assert {"reqs/current.txt", "reqs/v1.txt"} <= set(sp_deploy.requirements_inputs(two))        # (2)
+    three = commit([("reqs/v1.txt", "b>=2\n")])
+    assert sp_deploy.requirements_plan(three, ["reqs/v1.txt"])[1] == "changed in this range (reqs/v1.txt)"
+    four = commit([("requirements.txt", "./vendor/pkg\nrequests\n")])                            # (3)
+    assert sp_deploy.requirements_plan(four, ["requirements.txt"]) == \
+        (None, "has editable (-e) or local-path requirements in requirements.txt")

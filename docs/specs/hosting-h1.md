@@ -916,8 +916,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   hand. Every receipt line names the running tag.
   - When `requirements.txt`, or a file it includes with `-r`/`-c`, changed in
     the range, or this host's last successful install (recorded in
-    `requirements.installed` beside the receipts, which survives log
-    rotation) was not of exactly the target's files, the deploy runs
+    the venv, which survives log rotation) was not of exactly the target's
+    files, the deploy runs
     `venv/bin/pip install -r requirements.txt` before the checkout. It runs in a
     temporary worktree of the target, so relative `-r`/`-c` includes resolve.
     It prints the command and writes a `deploy_requirements` receipt.
@@ -929,9 +929,10 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
     venv may be partially updated. Fix the cause, run the printed command by
     hand from a checkout of the target, then deploy again.
   - A target without `requirements.txt` installs nothing and says so.
-  - Editable (`-e`) requirements refuse the deploy; install those by hand.
-  - The install record is tied to its destination venv, so a recreated venv
-    reinstalls on the next deploy.
+  - Editable (`-e`) and local-path (`./pkg`, `file:`) requirements refuse the
+    deploy; install those by hand.
+  - The install record lives inside the venv (`venv/.sp-requirements.installed`),
+    so a recreated venv reinstalls on the next deploy.
 - **Midweek PL round (H0-10), operator-started.**
   `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch --set sat=<first-day> --set sat_plus3=<day-after-last>`.
 - **Seasons (H0-8).**

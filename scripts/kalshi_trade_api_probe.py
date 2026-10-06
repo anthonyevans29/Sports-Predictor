@@ -10,9 +10,12 @@ before a socket opens. No order is created, amended or cancelled.
 What it answers, on the host, with a receipt line each:
   1. REACH     GET /exchange/status on PROD and DEMO (no auth): the host can
                reach the trading API (and the demo environment exists).
-  2. AUTH      the auth model — API key id + RSA private key, each request
-               signed RSA-PSS (MGF1-SHA256, salt = digest length) over
-               timestamp_ms + METHOD + path; headers KALSHI-ACCESS-KEY /
+  2. AUTH      the auth model — API key id + private key, each request
+               signed over timestamp_ms + METHOD + path: Ed25519 keys sign it
+               directly, RSA keys sign RSA-PSS (MGF1-SHA256, salt = digest
+               length); the signer is chosen by key type (ARCHITECT
+               2026-10-06). The key file may be PEM or a bare base64 PKCS#8
+               body (Kalshi's Ed25519 form). Headers KALSHI-ACCESS-KEY /
                -TIMESTAMP / -SIGNATURE. With a key configured, GET
                /portfolio/balance proves the signature (and that the key may
                trade-read). Without one: "no key configured" (nothing faked).
@@ -47,20 +50,46 @@ class ReadOnly(RuntimeError):
     pass
 
 
+def _load_key(data: bytes, serialization):
+    """A PEM file, or a bare base64 PKCS#8 body (Kalshi's Ed25519 keys come as `MC4CAQAwBQYD…`), or raw DER.
+    Never echoes key material: a parse failure names the formats tried, nothing else."""
+    if b"-----BEGIN" in data:
+        return serialization.load_pem_private_key(data, password=None)
+    try:
+        der = base64.b64decode(b"".join(data.split()), validate=True)
+    except ValueError:
+        der = data
+    return serialization.load_der_private_key(der, password=None)
+
+
 def _signer(key_path: str):
+    """The request signer, chosen BY KEY TYPE (ARCHITECT 2026-10-06: Kalshi now issues Ed25519 keys; RSA stays):
+    Ed25519 signs the message directly; RSA signs RSA-PSS (MGF1-SHA256, salt = digest length). The signed
+    message is the same for both: timestamp_ms + METHOD + path."""
     try:
         from cryptography.hazmat.primitives import hashes, serialization
-        from cryptography.hazmat.primitives.asymmetric import padding
+        from cryptography.hazmat.primitives.asymmetric import ed25519, padding, rsa
     except BaseException:                   # ImportError, or a broken install's panic
-        raise ReadOnly("python package `cryptography` is not usable on this machine — RSA-PSS "
+        raise ReadOnly("python package `cryptography` is not usable on this machine — request "
                        "signing needs it (finding: add it before any trading lane)")
     with open(key_path, "rb") as f:
-        key = serialization.load_pem_private_key(f.read(), password=None)
-
-    def sign(msg: str) -> str:
-        sig = key.sign(msg.encode(), padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
-                                                 salt_length=padding.PSS.DIGEST_LENGTH), hashes.SHA256())
-        return base64.b64encode(sig).decode()
+        data = f.read()
+    try:
+        key = _load_key(data, serialization)
+    except (ValueError, TypeError) as e:
+        raise ReadOnly(f"private key could not be parsed as PEM or base64/DER PKCS#8 ({e.__class__.__name__})")
+    if isinstance(key, ed25519.Ed25519PrivateKey):
+        def sign(msg: str) -> str:
+            return base64.b64encode(key.sign(msg.encode())).decode()
+        sign.key_type = "ed25519"
+    elif isinstance(key, rsa.RSAPrivateKey):
+        def sign(msg: str) -> str:
+            sig = key.sign(msg.encode(), padding.PSS(mgf=padding.MGF1(hashes.SHA256()),
+                                                     salt_length=padding.PSS.DIGEST_LENGTH), hashes.SHA256())
+            return base64.b64encode(sig).decode()
+        sign.key_type = "rsa-pss"
+    else:
+        raise ReadOnly(f"unsupported private key type {type(key).__name__} (Ed25519 or RSA only)")
     return sign
 
 
@@ -111,7 +140,8 @@ def probe_env(name: str, base: str, key_id: str | None, key_path: str | None) ->
         return out
     code, body = c.request("GET", "/portfolio/balance", auth=True)
     out["auth"] = ("no key configured" if code is None else
-                   {"http": code, "ok": code == 200, "keys": sorted(body)[:12] if isinstance(body, dict) else None})
+                   {"http": code, "ok": code == 200, "key_type": getattr(c.sign, "key_type", None),
+                    "keys": sorted(body)[:12] if isinstance(body, dict) else None})
     if code != 200:
         return out
     code, body = c.request("GET", "/portfolio/orders", {"limit": 5}, auth=True)

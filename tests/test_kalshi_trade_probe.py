@@ -68,3 +68,67 @@ def test_no_key_reports_and_fakes_nothing(monkeypatch):
     monkeypatch.setattr(requests, "get", lambda *a, **k: R())
     r = kp.probe_env("DEMO", "https://d.invalid/trade-api/v2", None, None)
     assert r["reach"]["http"] == 200 and r["auth"] == "no key configured" and "fills" not in r
+
+
+def _fake_get(monkeypatch, seen):
+    import requests
+
+    class R:
+        status_code = 200
+
+        def json(self):
+            return {"balance": 1}
+
+    def fake_get(url, params=None, headers=None, timeout=None):
+        seen.update(url=url, headers=headers)
+        return R()
+    monkeypatch.setattr(requests, "get", fake_get)
+
+
+@pytest.mark.parametrize("form", ["pem", "bare_base64"])
+def test_ed25519_keys_sign_directly_over_timestamp_method_path(tmp_path, monkeypatch, form):
+    """ARCHITECT 2026-10-06: Kalshi now issues Ed25519 keys (PKCS#8, `MC4CAQAwBQYD…`). The signer is chosen by
+    key type; an Ed25519 key signs timestamp + METHOD + path directly. The bare base64 body (no PEM armour) is
+    read as DER PKCS#8."""
+    hashes, serialization, padding, _ = _crypto()
+    from cryptography.hazmat.primitives.asymmetric import ed25519
+    key = ed25519.Ed25519PrivateKey.generate()
+    if form == "pem":
+        blob = key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                 serialization.NoEncryption())
+    else:
+        der = key.private_bytes(serialization.Encoding.DER, serialization.PrivateFormat.PKCS8,
+                                serialization.NoEncryption())
+        blob = base64.b64encode(der) + b"\n"
+        assert blob.startswith(b"MC4CAQAwBQYD")                       # the form the operator was issued
+    p = tmp_path / "k.key"
+    p.write_bytes(blob)
+    seen = {}
+    _fake_get(monkeypatch, seen)
+    c = kp.Client("https://x.invalid/trade-api/v2", "kid", str(p))
+    assert c.sign.key_type == "ed25519"
+    assert c.request("GET", "/portfolio/balance", auth=True)[0] == 200
+    h = seen["headers"]
+    msg = (h["KALSHI-ACCESS-TIMESTAMP"] + "GET" + "/trade-api/v2/portfolio/balance").encode()
+    key.public_key().verify(base64.b64decode(h["KALSHI-ACCESS-SIGNATURE"]), msg)       # raises if wrong
+    r = kp.probe_env("DEMO", "https://x.invalid/trade-api/v2", "kid", str(p))
+    assert r["auth"]["ok"] and r["auth"]["key_type"] == "ed25519"
+
+
+def test_rsa_keys_still_sign_pss_and_other_or_unparseable_keys_are_refused(tmp_path, monkeypatch):
+    hashes, serialization, padding, rsa_key = _crypto()
+    from cryptography.hazmat.primitives.asymmetric import ec
+    p = tmp_path / "rsa.pem"
+    p.write_bytes(rsa_key.private_bytes(serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+                                        serialization.NoEncryption()))
+    assert kp.Client("https://x.invalid", "kid", str(p)).sign.key_type == "rsa-pss"
+    e = tmp_path / "ec.pem"
+    e.write_bytes(ec.generate_private_key(ec.SECP256R1()).private_bytes(
+        serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8, serialization.NoEncryption()))
+    with pytest.raises(kp.ReadOnly, match="unsupported private key type"):
+        kp.Client("https://x.invalid", "kid", str(e))
+    bad = tmp_path / "bad.key"
+    bad.write_bytes(b"SECRETNOTAKEY")
+    with pytest.raises(kp.ReadOnly, match="could not be parsed") as ex:
+        kp.Client("https://x.invalid", "kid", str(bad))
+    assert "SECRETNOTAKEY" not in str(ex.value)                          # key material never echoed

@@ -95,3 +95,27 @@ def test_scope_line_raises_alert_on_contamination(pot):
                                               Match.status == MatchStatus.FINISHED)).scalars().all()
         line = scope_line("probe", mixed)
     assert "competitions={NCAA, NFL}" in line and "SCOPE ALERT" in line
+
+
+def test_prediction_set_expects_32_minus_byes_per_week():
+    """Operator 2026-10-05: 'SCOPE ALERT teams=30 on predict-nfl is bye weeks (two teams off) — expect
+    32 − 2×byes.' Per week a team plays once, so teams = 2 × games = 32 − byes. A bye week is clean; a team
+    twice in one week, or a non-NFL row, still alerts. The multi-week streams keep the 32-team check."""
+    from types import SimpleNamespace as NS
+
+    from src.walters.nfl_backtest import scope_line
+    nfl = NS(code="NFL")
+
+    def g(h, a, wk=5, comp=nfl):
+        return NS(home_team_id=h, away_team_id=a, matchday=wk, competition=comp)
+    bye_week = [g(2 * i, 2 * i + 1) for i in range(15)]                    # 30 teams, 2 on bye
+    line = scope_line("prediction set", bye_week, per_week=True)
+    assert "SCOPE ALERT" not in line and "W5 15g, byes=2" in line
+    # an 8-day window can hold the next week's TNF: a team in two different weeks is fine
+    spill = bye_week + [g(0, 2, wk=6)]
+    assert "SCOPE ALERT" not in scope_line("prediction set", spill, per_week=True)
+    twice = bye_week + [g(0, 30)]                                          # team 0 twice in week 5
+    assert "SCOPE ALERT" in scope_line("prediction set", twice, per_week=True)
+    alien = bye_week[:-1] + [g(28, 29, comp=NS(code="NCAA"))]
+    assert "SCOPE ALERT" in scope_line("prediction set", alien, per_week=True)
+    assert "SCOPE ALERT" in scope_line("ratings", bye_week)                 # full-stream check unchanged

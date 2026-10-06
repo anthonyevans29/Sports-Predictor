@@ -86,7 +86,7 @@ def predict_nfl(days_ahead: int = 8, progress=None) -> int:
             ).order_by(Match.utc_date)
         ).scalars())
         if progress:
-            progress(scope_line("prediction set", upcoming))
+            progress(scope_line("prediction set", upcoming, per_week=True))
         for m in upcoming:
             p_home = _expected_home(cfg, st, m.home_team_id, m.away_team_id)
             # Match-only upsert (S13): one prediction row per match, ever.

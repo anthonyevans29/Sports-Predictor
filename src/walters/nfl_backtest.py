@@ -48,9 +48,14 @@ def nfl_scoped(stmt):
                    Competition.code == NFL_COMPETITION_CODE))
 
 
-def scope_line(label: str, games) -> str:
+def scope_line(label: str, games, per_week: bool = False) -> str:
     """'scope[label]: teams=32, games=N, competitions={NFL}' from the rows
-    actually selected; appends SCOPE ALERT when either set is off-model."""
+    actually selected; appends SCOPE ALERT when either set is off-model.
+
+    per_week (the weekly prediction set, operator 2026-10-05): a week is not the
+    whole league, because teams on bye do not play. Per week the expected count is
+    32 − byes, i.e. teams = 2 × games with no team twice, never above 32. The
+    multi-week streams (ratings, backtest) keep the full 32-team check."""
     teams: set[int] = set()
     comps: set[str] = set()
     for m in games:
@@ -58,8 +63,28 @@ def scope_line(label: str, games) -> str:
         comps.add(m.competition.code if m.competition else "?")
     line = (f"scope[{label}]: teams={len(teams)}, games={len(games)}, "
             f"competitions={{{', '.join(sorted(comps))}}}")
-    if comps - {NFL_COMPETITION_CODE} or (games and len(teams) != NFL_EXPECTED_TEAMS):
-        line += f"  ⚠ SCOPE ALERT (expected teams={NFL_EXPECTED_TEAMS}, competitions={{NFL}})"
+    bad = []
+    if comps - {NFL_COMPETITION_CODE}:
+        bad.append("competitions={NFL}")
+    if per_week:
+        weeks: dict = {}
+        for m in games:
+            weeks.setdefault(m.matchday, []).append(m)
+        parts = []
+        for wk in sorted(weeks, key=lambda w: (w is None, w)):
+            gs = weeks[wk]
+            seen = [t for m in gs for t in (m.home_team_id, m.away_team_id)]
+            byes = NFL_EXPECTED_TEAMS - len(set(seen))
+            parts.append(f"W{wk if wk is not None else '?'} {len(gs)}g, byes={byes}")
+            if len(seen) != len(set(seen)) or len(set(seen)) > NFL_EXPECTED_TEAMS:
+                bad.append(f"week {wk}: teams = 32 − byes, each team once "
+                           f"(saw {len(set(seen))} teams in {len(gs)} games)")
+        if parts:
+            line += " · " + "; ".join(parts)
+    elif games and len(teams) != NFL_EXPECTED_TEAMS:
+        bad.append(f"teams={NFL_EXPECTED_TEAMS}")
+    if bad:
+        line += f"  ⚠ SCOPE ALERT (expected {'; '.join(bad)})"
     return line
 
 

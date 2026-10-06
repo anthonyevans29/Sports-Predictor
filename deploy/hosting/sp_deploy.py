@@ -137,7 +137,8 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     if rc != 0:
         raise SystemExit(f"✗ ancestry check {before}..{after} failed ({err or f'git exit {rc}'}) — "
                          "refusing to plan migrations.")
-    new = _root_migrations(after) - _root_migrations(before)
+    before_migrations = _root_migrations(before)
+    new = _root_migrations(after) - before_migrations
     # a RENAME is not a new migration (it already ran under its old name): reported as modified. An UNCHANGED
     # COPY (C100) is not one either: running it would apply a one-shot migration's logic twice. -M alone reports
     # a copy as an addition, so copies need -C --find-copies-harder (Codex post-merge on #296); only exact copies
@@ -148,24 +149,39 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     renamed = {}
     for ln in out.splitlines():
         parts = ln.split("\t")
-        if len(parts) == 3 and parts[2] in new and (parts[0].startswith("R") or parts[0] == "C100"):
+        # only when the SOURCE was itself a migration at `before`: --find-copies-harder also offers unchanged
+        # non-migration files (a shared template) as copy sources, and those make a genuinely new migration
+        if (len(parts) == 3 and parts[2] in new and parts[1] in before_migrations
+                and (parts[0].startswith("R") or parts[0] == "C100")):
             renamed[parts[2]] = parts[1]
     new -= set(renamed)
-    rc, out, err = _git_rc("log", "--reverse", "-m", "--diff-filter=A", "--name-only", "--format=@@%H",
+    rc, out, err = _git_rc("log", "--reverse", "-m", "--diff-filter=A", "--name-only", "--format=@@%H %P",
                            f"{before}..{after}")
     if rc != 0:
         raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
-    ordered, per_commit, cur = [], {}, None
+    # Which addition counts, per path (Codex post-merge on #296 / on #304): the LAST addition by an ordinary
+    # (non-merge) commit — the one the release carries, so a path added, deleted and re-added counts at its
+    # re-add — else, when only a merge commit adds it (a merge-result addition), its first merge appearance.
+    # `-m` re-lists a merged branch's additions in the merge's first-parent diff; those never count when an
+    # ordinary commit added the path.
+    seen, cur, idx = {}, None, 0
     for ln in out.splitlines():
         p = ln.strip()
         if p.startswith("@@"):
-            cur = p[2:]
+            h, *parents = p[2:].split()
+            cur = (h, len(parents) > 1)
             continue
-        if p in new and p not in ordered:
-            # FIRST appearance only: `-m` also lists a merged branch's additions again in the merge commit's
-            # diff against its first parent, which is not where they were added (Codex post-merge on #296)
-            per_commit.setdefault(cur, set()).add(p)
-            ordered.append(p)
+        if p in new:
+            idx += 1
+            seen.setdefault(p, []).append((idx, cur[0], cur[1]))
+    chosen = {}
+    for p, apps in seen.items():
+        plain = [a for a in apps if not a[2]]
+        chosen[p] = plain[-1] if plain else apps[0]
+    ordered = sorted(chosen, key=lambda p: chosen[p][0])
+    per_commit = {}
+    for p, (_, h, _m) in chosen.items():
+        per_commit.setdefault(h, set()).add(p)
     # several migrations added by ONE commit: git lists them alphabetically, which says nothing about
     # their dependencies; the order is not determinable, so no runnable command is generated (Codex on #296)
     together = sorted({m for ms in per_commit.values() if len(ms) > 1 for m in ms})

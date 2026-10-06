@@ -1825,3 +1825,42 @@ def test_post_merge_review_copies_and_merge_commit_grouping(sandbox, monkeypatch
     run = plan["run"]
     assert set(run) == {"migrate_b_first.py", "migrate_a_second.py", "migrate_from_template.py"}
     assert run.index("migrate_b_first.py") < run.index("migrate_a_second.py")     # the branch's commit order
+
+
+def test_codex_on_304_template_copies_stay_new_and_re_adds_keep_their_grouping(sandbox, monkeypatch):
+    """Codex on #304 (verified): (1) --find-copies-harder offers unchanged NON-migration files as copy sources, so
+    a new migration identical to a shared template was suppressed as a copy; only a source that was a migration
+    at `before` counts. (2) add migrate_x, delete it, then add migrate_x + migrate_y in ONE commit: first-appearance
+    grouping dropped the re-add and planned a runnable order; the re-add counts, so the pair is undetermined."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g3"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    tmpl = "print('a shared schema template body long enough for copy detection')\n" * 5
+    g("init", "-q", "-b", "main")
+    (repo / "schema_template.py").write_text(tmpl)
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_add_widget.py").write_text(tmpl)                    # identical to a NON-migration file
+    g("add", "-A")
+    g("commit", "-q", "-m", "widget")
+    (repo / "migrate_x.py").write_text("x = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x")
+    g("rm", "-q", "migrate_x.py")
+    g("commit", "-q", "-m", "drop x")
+    (repo / "migrate_x.py").write_text("x = 2\n")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "x and y together")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, head, ["migrate_add_widget.py", "migrate_x.py", "migrate_y.py"])
+    assert plan["renamed"] == {} and "migrate_add_widget.py" in plan["new"]
+    assert plan["undetermined"] == ["migrate_x.py", "migrate_y.py"] and plan["run"] == []

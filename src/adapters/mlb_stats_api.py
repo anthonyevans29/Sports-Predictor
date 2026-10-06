@@ -63,6 +63,8 @@ _STATUS_MAP = {
     "PR": MatchStatus.POSTPONED,
     "SU": MatchStatus.POSTPONED,  # Suspended
 }
+# Coded states before first pitch: any score the feed sends with these is a placeholder.
+_PREGAME_STATES = frozenset({"S", "P", "PW"})
 
 
 # Competition code → (api_filter, name, type, season_format)
@@ -494,6 +496,10 @@ class MLBStatsAPIAdapter(DataAdapter):
 
         home_score = home_block.get("score")
         away_score = away_block.get("score")
+        # statsapi carries a pre-game 0-0 on games not yet begun (LAD@ATL, 2026-10-06 21:23Z export,
+        # 36 min before first pitch). Not a score: null both (law 4; ARCHITECT 2026-10-06).
+        if coded_state in _PREGAME_STATES:
+            home_score = away_score = None
 
         # Result. Baseball has no draws — if scores are tied at "finished",
         # something's odd (suspended/postponed). Treat as None.

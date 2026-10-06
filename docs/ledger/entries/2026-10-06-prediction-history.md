@@ -1,0 +1,16 @@
+**2026-10-06 — RULED + BUILT (ARCHITECT): prediction_history lane (#300; #87 v1.1 rule 6).**
+- **Ruling (verbatim):** "Finding: no prediction history is kept, so model-vs-cost can't be evaluated per capture (NFL 47/65 not evaluable). LANE: prediction_history — append (match, model_version, p, computed_at) on every predict run; the window chain's hourly re-predicts become a stored series. Small, host-side, in the next tag."
+- **Built:**
+  - Table `prediction_history` (append-only; no FK to `predictions`, whose rows are replaced).
+  - A session `after_flush` hook in `src/db/database.py` copies every new `Prediction` into the table in the same transaction. One hook covers all three write sites and any future one.
+  - `migrate_prediction_history.py` creates the table.
+  - `CHAIN_COUNT_TABLES` gains the table.
+- **Conservative unknowns:** before the migration, the predict path never fails on record keeping. History is skipped with a warning naming the migration. There is no backfill, because the overwritten rows are gone.
+- **Receipts:** `tests/test_prediction_history.py` covers:
+  - two `predict-nfl` runs give two history rows and one current prediction, and the last history row equals the current prediction;
+  - any write path appends;
+  - a rollback leaves no history;
+  - before the migration, the warning fires and predictions still write;
+  - the migration is idempotent and creates the table on an old DB.
+  - `pytest -q`: 775 passed.
+- **Operator (host, next tag):** `sp_deploy` lists `migrate_prediction_history.py` and prints the exact `--run-migrations` command (backup + migration under one lock). Run `python migrate_prediction_history.py` on the laptop after the daily backup.

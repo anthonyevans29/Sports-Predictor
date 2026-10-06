@@ -228,3 +228,21 @@ def test_i_venue_backs_the_best_side_that_clears_both_gates():
     assert not v["eligible"] and v["side"] == "HOME" and "exec edge" in v["reason"]
     with dp.base_v11():
         assert dp.evaluate({"competition": "UCL", "fixtures": [f]}, NOW_MS)["venue"][0][1]["side"] == "HOME"
+
+
+def test_codex_round_4_quote_selection_and_join_count_follow_the_order_line(monkeypatch):
+    """Codex on #303: (1) a ticketed AWAY leg with no ask is the order's instrument, so it is UNPRICEABLE (never
+    priced from NO on HOME, which order_line would not buy); (2) with SP_UNIT_USD and a >= 3c spread the order
+    joins at bid + 1c, so the fill count is taken at the join limit, not the ask."""
+    r = nfl("KC", 0.40, 0.48, bid=0.50, ask=0.52,
+            legs={"HOME": {"ticker": "T-KC", "bid": 0.50, "ask": 0.52}, "AWAY": {"ticker": "T-BUF", "bid": 0.46,
+                                                                              "ask": None}})
+    n = dp.normalize({"sport": "nfl", "predictions": [r]})[0]
+    assert dp.taker_cost_for(n, "AWAY", 1) is None and dp.order_line(n, "AWAY", 1)["text"] is None
+    monkeypatch.setenv("SP_UNIT_USD", "20")
+    j = dp.normalize({"sport": "nfl", "predictions": [nfl("J", 0.62, 0.50, bid=0.50, ask=0.55, legs={
+        "HOME": {"ticker": "T-J", "bid": 0.50, "ask": 0.55}})]})[0]
+    o = dp.order_line(j, "HOME", 1)
+    assert (o["limit"], o["contracts"]) == (0.51, 39)                    # floor(20 / 0.51)
+    fee39 = round(39 * 0.07 * 0.55 * 0.45 * 100) / 100                   # 67.6c -> 68c over the EMITTED 39
+    assert dp.taker_cost_for(j, "HOME", 1) == round(0.55 + round(fee39 / 39, 6), 4)

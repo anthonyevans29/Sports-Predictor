@@ -472,11 +472,9 @@ function kSide(r,side){
   return null;
 }
 function joinBidFor(r,side){
+  // PRE-ADDENDUM files only: #87 v1.1 files carry desk.exec.join_price and the ledger reads it (snapshotCalls), so
+  // this keeps the doctrine each legacy file was produced under (Codex on #303)
   const k=kSide(r,side); if(!k||k.bid==null) return null;
-  // #87 v1.1: a resting bid only at a spread >= 3c (the ledger's kalshi_join_bid follows desk_policy.join_bid_for)
-  if(k.ask==null) return {price:null,note:"no ask — spread unknown, nothing to take or join"};
-  const sc=Math.round((k.ask-k.bid)*100);
-  if(sc<K2.joinMinSpreadC) return {price:null,note:`spread ${sc}¢ < ${K2.joinMinSpreadC}¢ — TAKE at the ask`};
   const j=Math.round((k.bid+K2.tick)*100)/100;
   if(k.ask!=null&&j>=k.ask-1e-9) return {price:null,note:"spread 1¢ — joining = taking"};
   return {price:j};
@@ -593,7 +591,7 @@ function fileValue(r){ const v=r.fileDesk.value_shadow; if(!v) return null;
     tags:(v.tags||[]).slice(),fileExec:v.exec??null}; }
 function fileVenue(r){ const v=r.fileDesk.venue||{};
   return {eligible:!!v.eligible,reason:v.reason||"",side:v.side??null,divPP:v.div_pp??null,bookP:v.book_p??null,
-    kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{}}; }
+    kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{},execCost:v.exec_cost??null}; }
 
 function policy(){
   renderProgress();
@@ -908,7 +906,7 @@ function snapshotCalls(now,opts){
       const fx=r.fileDesk&&r.fileDesk.exec, addn=!!(fx&&fx.doctrine);
       add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:lad?"ladder":"straight",units:x.units,model_p:mp,market_p:kp,
-        kalshi_exec_cost:lad?null:(addn?fx.cost??null:execCostFor(r,r.pick)),
+        kalshi_exec_cost:lad?null:(addn?(fx.order_cost??fx.cost??null):execCostFor(r,r.pick)),   // the EMITTED order
         kalshi_exec_cost_maker:lad?null:(addn?fx.maker_cost??null:makerCostFor(r,r.pick)),
         kalshi_join_bid:lad?null:(addn?fx.join_price??null:((joinBidFor(r,r.pick)||{}).price??null)),
         venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",rules:x.tags});
@@ -950,7 +948,10 @@ function snapshotCalls(now,opts){
     const rules=["venue div ≥ 5.0pp"];
     if(v.divPP>=VENUE.staleGapPP) rules.push("venue gap ≥ 8pp (STALE-BOOK? zone)");
     add(r,{...baseCall(r,dOf(r)),pick:v.side,tier:"shadow",engine:"venue_edge",
-      call_type:"straight",units:VENUE.units,model_p:v.bookP,market_p:v.kalP,
+      // #87 v1.1: a venue call settles at the executable cost that qualified it (Codex on #303); Kalshi's
+      // indicative probability rides along as kalshi_p
+      call_type:"straight",units:VENUE.units,model_p:v.bookP,market_p:v.execCost!=null?v.execCost:v.kalP,
+      ...(v.execCost!=null?{kalshi_p:v.kalP,price_basis:"executable (ask + taker fee)"}:{}),
       venue_hint:"kalshi",divergence_pp:+v.divPP.toFixed(2),rules});
   }
   return out;

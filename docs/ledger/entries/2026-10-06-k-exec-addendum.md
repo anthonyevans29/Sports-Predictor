@@ -19,6 +19,6 @@
   - **(h) built:** `order_contracts` gives the count `order_line` writes. `taker_cost_for(r, side, units)` prices the fee per fill of that count. The PLAY gate prices the order placed if it clears, and a halved PLAY reports `order_cost` beside it. Venue and parlay orders are 0.25u, which is 2 contracts.
     - The export's informational K-track fields (`exec_cost_taker*`, venue.py `K_ORDER_CONTRACTS`) stay at 10 contracts. The Desk no longer reads them for sizing.
   - **(i) built:** the venue side is the largest fair divergence among the sides that clear 5pp fair AND 4pp exec. When none clears both, the largest-divergence side is reported with its PASS reason.
-  - **Receipt (g):** `docs/receipts/k-track-2026-10-06.md` is committed from the laptop by the operator.
+  - **Receipt (g):** `docs/receipts/k-track-2026-10-06.md` is NOT in this PR. The operator commits it from the laptop, together with the `desk-rescore` output on Sunday's exports. Until it lands, the effect receipt is pending.
   - **Revisit (e):** at the first 30 graded ladders.
   - **Tests:** `test_h_each_order_is_priced_at_its_own_contract_count`, `test_i_venue_backs_the_best_side_that_clears_both_gates`. The addendum verify is 11/11 and `pytest` shows 783 passed.

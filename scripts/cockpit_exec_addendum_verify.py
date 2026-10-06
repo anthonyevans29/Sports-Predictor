@@ -57,6 +57,7 @@ NFL = {"sport": "nfl", "rehearsal": False, "predictions": [
     nfl("Green Bay Packers", "Detroit Lions", 0.66, 0.60, bid=0.62, ask=0.64),    # exec 0.656: +0.4 -> half, 2c
     nfl("Chicago Bears", "Minnesota Vikings", 0.66, 0.60),                        # no quote -> half
     nfl("Denver Broncos", "Las Vegas Raiders", 0.66, 0.60, bid=0.55, ask=0.59),   # 4c spread: join; exec +5.3
+    nfl("Seattle Seahawks", "Arizona Cardinals", 0.62, 0.55, bid=0.58, ask=0.59), # half: 10 -> 0.607, 5 -> 0.606
 ]}
 
 
@@ -125,6 +126,14 @@ def main():
               legs and all(c.get("price_basis", "").startswith("executable") and c["market_p"] != c.get("fair_p")
                            for c in legs) and any(abs(c["market_p"] - 0.615) < 1e-9 for c in legs),
               json.dumps([(c["game"], c["market_p"], c.get("fair_p")) for c in legs][:4]))
+        sea = next((c for k, c in st.items() if "Seattle" in k), None)
+        check("a halved PLAY's ledger exec cost is its EMITTED order's (order_cost 0.606 at 5 contracts, not 0.607)",
+              sea is not None and sea["units"] == 0.5 and sea.get("kalshi_exec_cost") == 0.606,
+              json.dumps(sea and {k: sea.get(k) for k in ("units", "kalshi_exec_cost")}))
+        vc = next((c for c in led["calls"] if c.get("engine") == "venue_edge" and "Boston" in c.get("game", "")), None)
+        check("a VENUE call settles at its executable cost (0.545), Kalshi's indicative 0.52 kept as kalshi_p",
+              vc is not None and vc.get("market_p") == 0.545 and vc.get("kalshi_p") == 0.52,
+              json.dumps(vc and {k: vc.get(k) for k in ("market_p", "kalshi_p", "price_basis")}))
         ven = page.evaluate("""Array.from(document.querySelectorAll('#venueTable tbody tr'))
             .map(tr=>Array.from(tr.children).map(td=>td.textContent))""")
         bos = next(v for v in ven if "Boston" in v[0])

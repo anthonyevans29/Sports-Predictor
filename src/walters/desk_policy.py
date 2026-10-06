@@ -375,7 +375,20 @@ def side_quotes(r, side):
     """#87 v1.1: the quotes of the contract the order line BUYS for `side` — the side's own YES leg when its
     ask is captured (kalshi_legs), else k_side (HOME YES / two-way NO side). One source for the doctrine, the
     join price, the cost and the order (Codex on #303)."""
-    leg = (((r.get("src") or {}).get("kalshi_legs") or {}).get(side) or {})
+    # The SAME selection as order_line (Codex on #303): a side leg WITH A TICKER is the instrument (an unquoted
+    # one is unpriceable, never priced from another contract); else, two-way, NO on the opponent's ticketed
+    # leg (NO ask = 1 − its yes bid). With no ticketed leg (pre-migrate_kalshi_ticker exports, no order can be
+    # written) the old pricing stands: the side's quoted leg, else the row's K-track quotes.
+    legs = (r.get("src") or {}).get("kalshi_legs") or {}
+    leg = legs.get(side) or {}
+    if leg.get("ticker"):
+        return {"bid": leg.get("bid"), "ask": leg.get("ask"), "no": False}
+    opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(side)
+    ol = legs.get(opp) or {}
+    if not r.get("threeWay") and opp and ol.get("ticker"):
+        yb, ya = ol.get("bid"), ol.get("ask")
+        return {"bid": None if ya is None else round(1 - ya, 4), "ask": None if yb is None else round(1 - yb, 4),
+                "no": True}
     if leg.get("ask") is not None:
         return {"bid": leg.get("bid"), "ask": leg["ask"], "no": False}
     return k_side(r, side)
@@ -436,7 +449,10 @@ def taker_cost_for(r, side, units=None):
     ask = (q or {}).get("ask")
     if ask is None or not (0 < ask < 1):
         return None
-    n = order_contracts(BASE_UNITS if units is None else units, ask)
+    # the count is the EMITTED order's: at the join limit when the doctrine joins (>= 3c), else at the ask
+    # (SP_UNIT_USD sizes by limit — Codex on #303)
+    limit = join_price(q.get("bid"), ask) or ask
+    n = order_contracts(BASE_UNITS if units is None else units, limit)
     if n is None:
         return None
     from src.walters.venue import KALSHI_FEE_M, KALSHI_SERIES_BY_COMPETITION, kalshi_fee
@@ -486,11 +502,12 @@ def exec_block(r, side, model_p, units=None, order_units=None):
         out["taker_cost"] = dc["cost"] if dc else None
         out["maker_cost"] = maker_cost_for(r, side)          # reference only: the doctrine takes
         out["doctrine"] = "join" if (jb or {}).get("price") is not None else "take"
-        ask = (side_quotes(r, side) or {}).get("ask")
-        out["contracts"] = order_contracts(BASE_UNITS if units is None else units, ask)
+        q = side_quotes(r, side) or {}
+        lim = join_price(q.get("bid"), q.get("ask")) or q.get("ask")
+        out["contracts"] = order_contracts(BASE_UNITS if units is None else units, lim)
         if order_units is not None and order_units != units:
             oc = taker_cost_for(r, side, order_units)
-            out.update(order_contracts=order_contracts(order_units, ask), order_cost=oc)
+            out.update(order_contracts=order_contracts(order_units, lim), order_cost=oc)
     return out
 
 

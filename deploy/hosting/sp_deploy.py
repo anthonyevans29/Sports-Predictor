@@ -193,8 +193,9 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     # order (sweep, Codex post-merge on #304 and on #305). Moves are not left to git's similarity-based rename
     # detection (a move that also rewrites the file falls under -M's threshold): walking history oldest first
     # (topological), a commit diff that DELETES a migration path, or a path that carries a migration's age, taints
-    # every path it adds; a new migration added in a tainted diff is undetermined. A path's taint is set when it is
-    # added, so a later reuse of an intermediate name never reaches back in time (Codex on #305).
+    # every path it adds; a new migration added in a tainted diff is undetermined. Taint is applied at the add, so a
+    # later reuse of an intermediate name never reaches back in time; and it only ACCUMULATES (never cleared by a
+    # deletion or a re-add), so a merge replaying a branch's addition can't wipe the age it carries (Codex on #305).
     rc, rout, err = _git_rc("log", "--reverse", "--topo-order", "-m", "--no-renames", "--name-status",
                             "--format=@@%H", f"{before}..{after}")
     if rc != 0:
@@ -202,15 +203,9 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
     carries = set()
 
     def _flush(deleted, added):
-        tainted = any(MIGRATION_NAME.match(d) or d in carries for d in deleted)
-        carries.difference_update(deleted)
-        for a in added:
-            if tainted:
-                carries.add(a)
-                if a in new:
-                    ambiguous.add(a)
-            else:
-                carries.discard(a)
+        if any(MIGRATION_NAME.match(d) or d in carries for d in deleted):
+            carries.update(added)
+            ambiguous.update(a for a in added if a in new)
 
     deleted, added = [], []
     for ln in rout.splitlines():

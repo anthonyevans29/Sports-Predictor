@@ -2265,3 +2265,41 @@ def test_sweep_low_similarity_moves_and_reused_intermediate_names(sandbox, monke
     monkeypatch.setattr(c, "REPO", repo)
     p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
     assert p["run"] == ["migrate_x.py", "migrate_y.py"] and p["undetermined"] == []
+
+
+def test_sweep_a_merge_replay_addition_keeps_the_carried_age(sandbox, monkeypatch):
+    """Codex on #305 round 3 (verified): a side branch renames migrate_temp -> holding.py and is merged unchanged
+    after main added migrate_y; the merge's first-parent diff replays holding.py as a plain addition, which wiped
+    the side branch's taint, so a later holding.py -> migrate_x planned run [y, x]. A replayed addition never
+    clears a carried age: taint only accumulates."""
+    import subprocess
+
+    import sp_deploy
+    body = "print('a migration body long enough for git rename detection to pair')\n" * 5
+    repo = sandbox / "rp"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "r.txt").write_text("r")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    g("checkout", "-q", "-b", "side")
+    (repo / "migrate_temp.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "temp")
+    g("mv", "migrate_temp.py", "holding.py")
+    g("commit", "-q", "-m", "park")
+    g("checkout", "-q", "main")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "y")
+    g("merge", "-q", "--no-ff", "-m", "merge side", "side")
+    g("mv", "holding.py", "migrate_x.py")
+    g("commit", "-q", "-m", "x")
+    monkeypatch.setattr(c, "REPO", repo)
+    p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and "migrate_x.py" in p["undetermined"] and len(p["new"]) == len(set(p["new"]))

@@ -138,14 +138,17 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         raise SystemExit(f"✗ ancestry check {before}..{after} failed ({err or f'git exit {rc}'}) — "
                          "refusing to plan migrations.")
     new = _root_migrations(after) - _root_migrations(before)
-    # a RENAME is not a new migration (it already ran under its old name): reported as modified
-    rc, out, err = _git_rc("diff", "-M", "--name-status", before, after)
+    # a RENAME is not a new migration (it already ran under its old name): reported as modified. An UNCHANGED
+    # COPY (C100) is not one either: running it would apply a one-shot migration's logic twice. -M alone reports
+    # a copy as an addition, so copies need -C --find-copies-harder (Codex post-merge on #296); only exact copies
+    # count — a new migration written from an old one's template (a partial-similarity C) stays new.
+    rc, out, err = _git_rc("diff", "-M", "-C", "--find-copies-harder", "--name-status", before, after)
     if rc != 0:
         raise SystemExit(f"✗ git diff {before}..{after} failed ({err}) — refusing to plan migrations.")
     renamed = {}
     for ln in out.splitlines():
         parts = ln.split("\t")
-        if len(parts) == 3 and parts[0].startswith(("R", "C")) and parts[2] in new:
+        if len(parts) == 3 and parts[2] in new and (parts[0].startswith("R") or parts[0] == "C100"):
             renamed[parts[2]] = parts[1]
     new -= set(renamed)
     rc, out, err = _git_rc("log", "--reverse", "-m", "--diff-filter=A", "--name-only", "--format=@@%H",
@@ -158,10 +161,11 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         if p.startswith("@@"):
             cur = p[2:]
             continue
-        if p in new:
+        if p in new and p not in ordered:
+            # FIRST appearance only: `-m` also lists a merged branch's additions again in the merge commit's
+            # diff against its first parent, which is not where they were added (Codex post-merge on #296)
             per_commit.setdefault(cur, set()).add(p)
-            if p not in ordered:
-                ordered.append(p)
+            ordered.append(p)
     # several migrations added by ONE commit: git lists them alphabetically, which says nothing about
     # their dependencies; the order is not determinable, so no runnable command is generated (Codex on #296)
     together = sorted({m for ms in per_commit.values() if len(ms) > 1 for m in ms})
@@ -239,7 +243,7 @@ def main(argv=None) -> int:
              f"placed by the history): {plan['new']} — no command generated; decide the order, then run "
              f"`sp_deploy.py --expect {target_full} --run-migrations <ordered names>` as the service user"
              if plan.get("undetermined") else "")
-          + (f"\n  ! renamed migrations (already ran under the old name; NOT runnable): {plan['renamed']}"
+          + (f"\n  ! renamed / copied migrations (already ran under the source name; NOT runnable): {plan['renamed']}"
              if plan.get("renamed") else "")
           + (f"\n  ! migrations MODIFIED in this range (not new; read before re-running): {plan['modified']}"
              if plan["modified"] else "")

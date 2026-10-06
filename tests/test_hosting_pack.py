@@ -1780,3 +1780,48 @@ def test_review_round_five_same_commit_order_renames_and_locked_validation(sandb
     with pytest.raises(SystemExit, match="not a migrate_"):
         sp_deploy.run_migrations(["migrate_missing.py"], head)
     assert seen == ["lock"]                                               # refused INSIDE the lock
+
+
+def test_post_merge_review_copies_and_merge_commit_grouping(sandbox, monkeypatch):
+    """Codex post-merge on #296 (verified): (1) an UNCHANGED copy of an existing migration was reported by
+    `diff -M` as an addition and planned as runnable (a one-shot applied twice); (2) a branch adding two
+    migrations in ordered commits, then merged, had both re-listed by `log -m` in the merge commit's first-parent
+    diff and was marked "added together" (no runnable command). A template-derived new migration stays new."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g2"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    body = "print('a long enough one-shot migration body for copy detection')\n" * 5
+    g("init", "-q", "-b", "main")
+    (repo / "migrate_once.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    g("checkout", "-q", "-b", "feat")
+    (repo / "migrate_b_first.py").write_text("first = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "first")
+    (repo / "migrate_a_second.py").write_text("second = 2\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "second")
+    g("checkout", "-q", "main")
+    (repo / "migrate_copy_of_once.py").write_text(body)                  # unchanged copy
+    (repo / "migrate_from_template.py").write_text(body + "extra = 'a real new step'\n" * 4)
+    g("add", "-A")
+    g("commit", "-q", "-m", "copy + template")
+    g("merge", "-q", "--no-ff", "-m", "merge feat", "feat")
+    head = g("rev-parse", "HEAD")
+    monkeypatch.setattr(c, "REPO", repo)
+    changed = ["migrate_b_first.py", "migrate_a_second.py", "migrate_copy_of_once.py", "migrate_from_template.py"]
+    plan = sp_deploy.migration_plan(base, head, changed)
+    assert plan["renamed"] == {"migrate_copy_of_once.py": "migrate_once.py"}
+    assert "migrate_copy_of_once.py" not in plan["run"]
+    assert plan["undetermined"] == []
+    run = plan["run"]
+    assert set(run) == {"migrate_b_first.py", "migrate_a_second.py", "migrate_from_template.py"}
+    assert run.index("migrate_b_first.py") < run.index("migrate_a_second.py")     # the branch's commit order

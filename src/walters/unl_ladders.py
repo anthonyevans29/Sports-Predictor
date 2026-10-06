@@ -35,7 +35,12 @@ BOOT_SEED = 20261005
 # Ruling 1: the 17 exploratory games (2026-10-05) are excluded BY MATCH ID. The ids live
 # in the laptop DB; the operator records them here (EXPLORATORY_N of them) before the
 # frozen test may run. Until then the receipt says so and --skew-test refuses.
-EXPLORATORY_MATCH_IDS: frozenset = frozenset()
+# Recorded (ARCHITECT 2026-10-06): "UNL exploratory 17 (ruling 1), by match id, from the
+# 2026-10-05T15:33:57Z capture" — pinned as excluded.
+EXPLORATORY_MATCH_IDS: frozenset = frozenset({
+    31887, 31888, 31890, 31891, 31892, 31893, 31894, 31895, 31896,
+    31897, 31898, 31899, 31900, 31901, 31902, 31903, 31904,
+})
 EXPLORATORY_N = 17
 # Ruling 4: every UNL sync in the sample runs at this --max-spread (sync-kalshi-soccer refuses others).
 FROZEN_MAX_SPREAD = 0.10

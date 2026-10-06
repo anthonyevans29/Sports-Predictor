@@ -310,6 +310,7 @@ def test_the_ten_ratified_definitions(monkeypatch):
         r6 = U.receipt(s, since=CUT, n=30, now=NOW)
     assert "market_ticker" in r6["error"] and "ruling 6" in r6["error"]
     # (1) the frozen test refuses until the 17 ids are recorded
+    monkeypatch.setattr(U, "EXPLORATORY_MATCH_IDS", frozenset())
     r1 = CliRunner().invoke(cli.cli, ["unl-ladder-receipt", "--skew-test"])
     assert r1.exit_code == 2 and "exploratory match ids" in r1.output
 
@@ -331,3 +332,13 @@ def test_unl_sync_refuses_any_max_spread_but_the_frozen_one(monkeypatch):
     assert r.exit_code == 0 and "max-spread 0.10" in r.output and calls[-1]["max_spread"] == 0.10
     r = CliRunner().invoke(cli.cli, ["sync-kalshi-soccer", "--competition", "PL", "--max-spread", "0.2"])
     assert r.exit_code == 0 and "max-spread 0.20" in r.output
+
+
+def test_ruling_1_the_exploratory_17_are_pinned_by_match_id():
+    """ARCHITECT 2026-10-06 (#286 ruling 1): the 17 exploratory games of the 2026-10-05T15:33:57Z capture are
+    pinned as excluded, by match id. The set is exactly the ruled ids, and its size is the ruled N, so
+    --skew-test's refusal is lifted only by this record."""
+    import src.walters.unl_ladders as U
+    ruled = {31887, 31888, 31890, 31891, 31892, 31893, 31894, 31895, 31896,
+             31897, 31898, 31899, 31900, 31901, 31902, 31903, 31904}
+    assert U.EXPLORATORY_MATCH_IDS == frozenset(ruled) and len(ruled) == U.EXPLORATORY_N == 17

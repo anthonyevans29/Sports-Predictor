@@ -219,12 +219,28 @@ def _title_fits_strict(tt, g: dict) -> bool:
             or (_tok_subset(tt[0], g.get("away")) and _tok_subset(tt[1], g.get("home"))))
 
 
+def _contract_oriented(fx: dict, g: dict) -> bool:
+    """The unordered title fallback must hold the CONTRACT's team (the title's "X wins" team, else the
+    code-resolved name) on the ticker's side of THIS call: a reversed home/away call never fits (Codex on #299).
+    A tie contract has no side; an unknown name cannot be oriented, so it does not fit."""
+    role = fx.get("no_on_role") or fx.get("backed_role")
+    if role not in ("HOME", "AWAY"):
+        return True
+    tp = title_parse(fx.get("title"))
+    name = tp["backed"] if tp and tp.get("backed") and tp["backed"] != "Draw" else (
+        fx.get("no_on") if fx.get("no_on_role") else fx.get("backed"))
+    if not name or name in ("HOME", "AWAY"):
+        return False
+    return _tok_subset(name, g.get("home") if role == "HOME" else g.get("away"))
+
+
 def game_fits(fx: dict, g: dict) -> bool:
     """gameFits: with ticker codes, the codes fit OR a strict two-team title fit (one shared word such as
     "United" is never identity; a standard non-prefix code such as JAX or BHA still matches through the
     title, Codex on #299). Tickers without codes keep the original title rule."""
     if fx.get("teams"):
-        return _codes_fit(fx["teams"], g) or _title_fits_strict(fx.get("teams_title"), g)
+        return _codes_fit(fx["teams"], g) or (_title_fits_strict(fx.get("teams_title"), g)
+                                              and _contract_oriented(fx, g))
     tt = fx.get("teams_title")
     if tt and len(tt) == 2:          # one-to-one: two DIFFERENT sides (Codex post-merge on #297)
         return ((same_team(tt[0], g.get("home")) and same_team(tt[1], g.get("away")))

@@ -1713,11 +1713,22 @@ function titleFitsStrict(tt,g){                     // two title teams on two DI
   const f=(t,n)=>tokSubset(t,n);
   return (f(tt[0],g.home)&&f(tt[1],g.away))||(f(tt[0],g.away)&&f(tt[1],g.home));
 }
+function contractOriented(fx,g){
+  // Codex on #299: the title fallback is unordered, so it must also hold the CONTRACT's team (the title's
+  // "X wins" team, else the code-resolved name) on the ticker's side of THIS call; a reversed home/away call
+  // never fits. A tie contract has no side. Unknown name = cannot orient = no fit (conservative).
+  const role=fx.no_on_role||fx.backed_role;
+  if(role!=="HOME"&&role!=="AWAY") return true;
+  const tp=titleParse(fx.title);
+  const name=tp&&tp.backed&&tp.backed!=="Draw"?tp.backed:(fx.no_on_role?fx.no_on:fx.backed);
+  if(!name||name==="HOME"||name==="AWAY") return false;
+  return tokSubset(name,role==="HOME"?g.home:g.away);
+}
 function gameFits(fx,g){
   // FILL MATCHER LANE (Codex on #299): with ticker codes, the codes fit OR a strict two-team title fit. One
   // shared word ("United", "City") is never team identity, and a standard non-prefix code (JAX, BHA) still
   // matches through the title. Tickers without codes keep the original title rule.
-  if(fx.teams) return codesFit(fx.teams,g)||titleFitsStrict(fx.teams_title,g);
+  if(fx.teams) return codesFit(fx.teams,g)||(titleFitsStrict(fx.teams_title,g)&&contractOriented(fx,g));
   // no codes (legacy titles): the two title teams fit two DIFFERENT sides (one-to-one, Codex post-merge on #297)
   const tt=fx.teams_title;
   if(tt&&tt.length===2) return (sameTeam(tt[0],g.home)&&sameTeam(tt[1],g.away))||(sameTeam(tt[0],g.away)&&sameTeam(tt[1],g.home));

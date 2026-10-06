@@ -43,6 +43,7 @@ EXTRA = {"calls": [
     F.call("ng1", "MLB", "Boston Red Sox", "New York Yankees", "AWAY", kick="2026-09-29T17:05:00"),   # 13:05 ET
     F.call("ng2", "MLB", "Boston Red Sox", "New York Yankees", "HOME", kick="2026-09-29T19:45:00"),   # 15:45 ET
     F.call("nyj", "NFL", "Los Angeles Chargers", "New York Jets", "AWAY", kick="2026-10-11T17:00:00"),
+    F.call("rev", "MLB", "New York Yankees", "Boston Red Sox", "HOME", kick="2026-10-20T17:05:00"),  # reversed
 ], "fills": [
     _fill("x-dh2", "KXMLBGAME-26SEP271905NYYBOS-BOS", "yes", "Boston wins — New York Y"),  # game 2, not game 1
     _fill("x-dh1", "KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", "Boston wins — New York Y"),
@@ -51,6 +52,7 @@ EXTRA = {"calls": [
     _fill("x-gb", "KXNFLGAME-26OCT04GBTB-GB", "yes", "Green Bay wins — Tampa Bay"),        # side != pick (HOME)
     _fill("x-ng", "KXMLBGAME-26SEP291305NYYBOS-BOS", "yes", "Boston wins — New York Y"),   # game 1 disagrees
     _fill("x-nyg", "KXNFLGAME-26OCT11NYGLAR-NYG", "yes", "New York G wins — Los Angeles R"),  # not Jets–Chargers
+    _fill("x-rev", "KXMLBGAME-26OCT201305NYYBOS-BOS", "yes", "Boston wins — New York Yankees"),  # BOS home
 ]}
 FIELDS = ("book", "call_id", "backed_role", "backed", "no_on_role", "fee_class_open", "fee_class_close")
 
@@ -124,6 +126,8 @@ def main():
           not by["x-ng"].get("call_id") and not next(f for f in js if f.get("id") == "x-ng").get("call_id"))
     check("same-city codes: a Giants–Rams fill never fits the Jets–Chargers call",
           not by["x-nyg"].get("call_id") and not next(f for f in js if f.get("id") == "x-nyg").get("call_id"))
+    check("orientation: a BOS-home fill never fits the reversed NYY-home call",
+          not by["x-rev"].get("call_id") and not next(f for f in js if f.get("id") == "x-rev").get("call_id"))
     ppos = P.executed_positions(L)["pos"]
     check(f"executed positions: js {len(jpos)} py {len(ppos)}", len(jpos) == len(ppos) and len(jpos) > 0)
     pmap = {p["c"]["id"]: p for p in ppos}

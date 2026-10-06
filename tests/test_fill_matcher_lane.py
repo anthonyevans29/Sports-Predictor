@@ -144,3 +144,15 @@ def test_same_city_codes_never_stand_for_a_different_game():
     kc = _call("kc", "Kansas City Chiefs", "Buffalo Bills", "HOME", "2026-10-11T17:00:00", sport="NFL")
     assert P.classify_fills({"calls": [kc], "fills": [
         _fill("k", "KXNFLGAME-26OCT11BUFKC-KC", "yes", "Kansas City wins — Buffalo")]})[0]["call_id"] == "kc"
+
+
+def test_title_fallback_keeps_home_and_away_orientation():
+    """Codex on #299: a call with the same teams REVERSED (NYY home) fails the codes but passed the unordered
+    title fallback, and the role check then matched a BOS-HOME fill to the Yankees' HOME pick."""
+    rev = _call("rev", "New York Yankees", "Boston Red Sox", "HOME", "2026-09-27T17:05:00")
+    f = P.classify_fills({"calls": [rev], "fills": [
+        _fill("b", "KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", "Boston wins — New York Yankees")]})[0]
+    assert f.get("call_id") is None
+    nfl = {"calls": [_call("j", "Jacksonville Jaguars", "Tennessee Titans", "HOME", "2026-10-04T17:00:00", "NFL")],
+           "fills": [_fill("a", "KXNFLGAME-26OCT04TENJAX-JAX", "yes", "Jacksonville wins — Tennessee")]}
+    assert P.classify_fills(nfl)[0]["call_id"] == "j"                  # the right orientation still matches

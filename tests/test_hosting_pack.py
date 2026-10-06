@@ -2205,9 +2205,9 @@ def test_sweep_rename_chains_and_merge_result_renames_are_undetermined(sandbox, 
 def test_sweep_low_similarity_moves_and_reused_intermediate_names(sandbox, monkeypatch):
     """Codex on #305 round 2 (verified): (1) migrate_temp MOVED AND REWRITTEN to migrate_x (below git's 50% rename
     similarity) after migrate_y planned run [y, x]: a migration added in the same commit (or merge-parent diff)
-    that deletes a migration, or a path carrying one's age, is undetermined whatever the similarity. (2) Taint
-    follows TIME: holding.py -> migrate_x, then migrate_y, then a later migrate_temp -> a new holding.py must not
-    reach back and make x undetermined: the valid plan [x, y] still runs."""
+    that deletes a migration, or a path carrying one's age, is undetermined whatever the similarity. (2) A reused
+    intermediate name never produces the wrong order [y, x]; since round 5 a range that deletes any migration is
+    wholly undetermined, so the plan is left to the operator (conservative)."""
     import subprocess
 
     import sp_deploy
@@ -2264,7 +2264,9 @@ def test_sweep_low_similarity_moves_and_reused_intermediate_names(sandbox, monke
     commit(g, repo, "park temp", mv=[("migrate_temp.py", "holding.py")])
     monkeypatch.setattr(c, "REPO", repo)
     p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
-    assert p["run"] == ["migrate_x.py", "migrate_y.py"] and p["undetermined"] == []
+    # round 5 replaced per-path lineage with the whole-plan rule: this range deletes migrate_temp, so the plan is
+    # undetermined (conservative: the operator orders [x, y] by hand) — never [y, x]
+    assert p["run"] == [] and p["lineage_unknown"] and "migrate_x.py" in p["undetermined"]
 
 
 def test_sweep_a_merge_replay_addition_keeps_the_carried_age(sandbox, monkeypatch):
@@ -2352,3 +2354,60 @@ def test_sweep_replacement_destinations_and_in_range_copies(sandbox, monkeypatch
     monkeypatch.setattr(c, "REPO", repo)
     p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_temp.py", "migrate_x.py", "migrate_y.py"])
     assert p["run"] == [] and "migrate_x.py" in p["undetermined"]
+
+
+def test_sweep_any_migration_deletion_makes_the_whole_plan_undetermined(sandbox, monkeypatch):
+    """Codex on #305 round 5 (verified): (1) a pre-range migrate_old moved AND rewritten to migrate_x was listed
+    as new; (2) a split copy-and-delete (copy temp -> holding.py, delete temp, rename holding.py -> migrate_x)
+    planned run [y, x]. Lineage through deletions is not reconstructed path by path any more: a range in which ANY
+    diff deletes a migration makes every new migration undetermined, and the deploy prompt says some may already
+    have run under another name."""
+    import subprocess
+
+    import sp_deploy
+    body = "print('a migration body long enough for git rename detection to pair')\n" * 5
+
+    def mk(name):
+        repo = sandbox / name
+        repo.mkdir()
+
+        def g(*a):
+            return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                  check=True, capture_output=True, text=True).stdout.strip()
+        g("init", "-q", "-b", "main")
+        (repo / "r.txt").write_text("r")
+        g("add", "-A")
+        g("commit", "-q", "-m", "base")
+        return repo, g
+
+    repo, g = mk("pre")                                                  # (1) pre-range rename + rewrite
+    (repo / "migrate_old.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "old")
+    base = g("rev-parse", "HEAD")
+    g("mv", "migrate_old.py", "migrate_x.py")
+    (repo / "migrate_x.py").write_text("completely = 'different'\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "move and rewrite")
+    monkeypatch.setattr(c, "REPO", repo)
+    p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_old.py", "migrate_x.py"])
+    assert p["run"] == [] and p["undetermined"] == ["migrate_x.py"] and p["lineage_unknown"]
+
+    repo, g = mk("split")                                                # (2) split copy-and-delete
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_temp.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "temp")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "y")
+    (repo / "holding.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "copy temp -> holding")
+    g("rm", "-q", "migrate_temp.py")
+    g("commit", "-q", "-m", "delete temp")
+    g("mv", "holding.py", "migrate_x.py")
+    g("commit", "-q", "-m", "x")
+    monkeypatch.setattr(c, "REPO", repo)
+    p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and set(p["undetermined"]) == {"migrate_x.py", "migrate_y.py"} and p["lineage_unknown"]

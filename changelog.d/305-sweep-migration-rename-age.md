@@ -12,3 +12,7 @@
   - A migration moved onto an existing placeholder path (`--no-renames`: D source + M destination) now carries the source's age. It had planned `run [y, x]`.
   - New migrations with identical content at the target, an unchanged copy of an in-range migration with the source kept, are undetermined. That case had planned `[temp, y, x]`, running one one-shot twice.
   - Recreating a deleted name stays tainted. This errs toward undetermined; the operator orders by hand.
+- Review fixes, round 5 (Codex on #305): this replaces the per-path taint scan of rounds 2–4.
+  - Any migration deletion in the range (merge parents included) makes every new migration undetermined.
+  - A rewritten move of a pre-range migration, and a split copy-then-delete that had planned `run [y, x]`, are now undetermined.
+  - The deploy prompt for undetermined migrations says to read each one's history and never re-run a rename or copy. It no longer implies that every listed name runs, and it warns when the range deletes a migration.

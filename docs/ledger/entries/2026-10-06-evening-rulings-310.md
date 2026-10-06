@@ -1,0 +1,17 @@
+**2026-10-06 — Evening rulings: #310 merges at e1a2146; requirements-install lane closes at that merge; staged virtualenv declined (#312); #309 and #311 approved.**
+- **Ruling (1) (ARCHITECT, verbatim):** "#310 MERGES AT e1a2146 once CI is green on that commit. Ten review rounds, and round 10 brought seven more fixes and one declined finding, mostly for layouts this host does not have: the review is not converging. Push nothing further to #310 unless CI fails on e1a2146 (then fix only that). Do not request another review on it. Post "green, MERGE-READY" when CI passes; Anthony merges."
+- **Ruling (2) (ARCHITECT, verbatim):** "REQUIREMENTS-INSTALL LANE CLOSED at that merge, by the same rule as the migration-plan lane: further cases only from a real deploy. The merged-PR sweep still answers every thread that arrives on #310. A finding is fixed (one follow-up PR) only if it reproduces on the production layout: the checkout's own venv with pip, the repo's own requirements.txt (plain specifiers, no includes), a deploy run under the DB lock. Every other thread gets the reply "closed lane (ARCHITECT 2026-10-06): hypothetical layout; reopens from a real deploy" and no code change."
+- **Ruling (3) (ARCHITECT, verbatim):** "STAGED VIRTUALENV: DECLINED for now. Open a limitation Issue (labels from the fixed set) carrying this text. Reason: requirements.txt holds lower bounds, so pip without --upgrade only adds what is missing and a failed run is additive in practice; the install runs under the DB lock, is receipted, and prints its recovery; since round 10 a failed run drops the install record, so the next deploy reinstalls. Reopening condition: a real deploy leaves the venv in a state that breaks a chain, OR requirements move to exact pins or a lock file, OR a second production host exists." Opened as #312 (track:ops, class:limitation, sport:all, size:M).
+- **Ruling (4) (ARCHITECT, verbatim):** "#309 and #311: diffs read, review threads answered or clean. APPROVED; Anthony merges." Both are merged.
+- **State at recording (read, not assumed):**
+  - CI is green on e1a2146 (smoke, closing-refs, fragments).
+  - #310's head is 99faed0. Its round-11 fixes were pushed at 21:54Z, before ruling (1) arrived, and CI is green there too.
+  - Nothing has been pushed to #310 since, and no review was requested.
+  - The merge point (e1a2146 as ruled, or 99faed0) is an operator decision, so "green, MERGE-READY" waits for it.
+  - Codex posted 5 threads on 99faed0 at 22:04Z (PIP_TARGET, C-quoted paths, external-venv upgrade, a post-checkout hook, options after markers). None reproduces on the production layout:
+    - 0 non-ASCII tracked paths;
+    - requirements.txt has plain specifiers only;
+    - no PIP_* variable in host.env.example;
+    - no shipped hooks;
+    - the checkout's own venv.
+  - Each got the ruled closed-lane reply and no code change.

@@ -6,4 +6,4 @@
   - The 10-06 effect receipt (0/4 halved) stands on the architect's state sync, this once.
   - `docs/receipts/k-track-2026-10-06.md` stays as the ruling's evidence, labelled a partial window.
   - **Operator, on 10-08 (after 2026-10-08T00:00Z):** run `python cli.py k-track-receipt --ledger <export> --out docs/receipts/k-track-2026-10-08-final.md` and commit it via PR beside the 10-06 file. Both are dated. Tracked as #308.
-- **Receipts:** `tests/test_desk_exec_addendum.py` covers the receipt write, the refused overwrite, the refused `data/` target and the default `docs/receipts/` path. `pytest`: 822 passed, 1 skipped.
+- **Receipts:** `tests/test_desk_exec_addendum.py` covers the receipt write, the refused overwrite, the refused `data/` target and the default `docs/receipts/` path. `pytest`: 823 passed, 1 skipped. The receipt file is created exclusively (mode x), so two runs racing on one name never overwrite (Codex on #309).

@@ -4643,7 +4643,12 @@ def desk_rescore_cmd(files, out_path):
     lines.append(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
-    tgt.write_text("\n".join(lines) + "\n")
+    try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)
+        with tgt.open("x", encoding="utf-8") as fh:
+            fh.write("\n".join(lines) + "\n")
+    except FileExistsError:
+        console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
+        raise SystemExit(2)
     console.print(f"[green]✓ receipt written to {tgt} — commit it via PR[/green]")
 
 

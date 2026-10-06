@@ -40,12 +40,15 @@ EXTRA = {"calls": [
     F.call("epl", "SOCCER", "Arsenal", "Chelsea", "AWAY", kick="2026-09-27T14:00:00"),
     F.call("lad", "SOCCER", "Everton", "Fulham", "AWAY", ct="ladder", kick="2026-09-27T14:00:00"),
     F.call("tbh", "NFL", "Tampa Bay Buccaneers", "Green Bay Packers", "HOME", kick="2026-10-04T17:00:00"),
+    F.call("ng1", "MLB", "Boston Red Sox", "New York Yankees", "AWAY", kick="2026-09-29T17:05:00"),   # 13:05 ET
+    F.call("ng2", "MLB", "Boston Red Sox", "New York Yankees", "HOME", kick="2026-09-29T19:45:00"),   # 15:45 ET
 ], "fills": [
     _fill("x-dh2", "KXMLBGAME-26SEP271905NYYBOS-BOS", "yes", "Boston wins — New York Y"),  # game 2, not game 1
     _fill("x-dh1", "KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", "Boston wins — New York Y"),
     _fill("x-3no", "KXEPLGAME-26SEP27CHEARS-ARS", "no", "Arsenal wins — Chelsea"),          # NO on ARS: composite
     _fill("x-lad", "KXEPLGAME-26SEP27FULEVE-EVE", "no", "Everton wins — Fulham"),          # the ladder's NO HOME
     _fill("x-gb", "KXNFLGAME-26OCT04GBTB-GB", "yes", "Green Bay wins — Tampa Bay"),        # side != pick (HOME)
+    _fill("x-ng", "KXMLBGAME-26SEP291305NYYBOS-BOS", "yes", "Boston wins — New York Y"),   # game 1 disagrees
 ]}
 FIELDS = ("book", "call_id", "backed_role", "backed", "no_on_role", "fee_class_open", "fee_class_close")
 
@@ -115,6 +118,8 @@ def main():
     check("GB/TB: a GB (AWAY) fill never matches a TB (HOME) call (shared 'Bay')",
           by["x-gb"].get("book") == "off_book_sports" and not by["x-gb"].get("call_id")
           and next(f for f in js if f.get("id") == "x-gb").get("book") == "off_book_sports")
+    check("the timed game first: a 13:05 fill whose game picked AWAY is never handed to the 15:45 HOME call",
+          not by["x-ng"].get("call_id") and not next(f for f in js if f.get("id") == "x-ng").get("call_id"))
     ppos = P.executed_positions(L)["pos"]
     check(f"executed positions: js {len(jpos)} py {len(ppos)}", len(jpos) == len(ppos) and len(jpos) > 0)
     pmap = {p["c"]["id"]: p for p in ppos}

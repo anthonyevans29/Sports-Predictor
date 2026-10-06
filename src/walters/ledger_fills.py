@@ -227,8 +227,8 @@ def game_fits(fx: dict, g: dict) -> bool:
 
 
 def _start_nearest(fx: dict, cands: list) -> list:
-    """startNearest: with the ticker's start time, candidates within 3h of it, nearest first; otherwise
-    (no time, or none within 3h) the candidates unchanged."""
+    """startNearest: with the ticker's start time, the candidates of the NEAREST start within 3h (ties kept);
+    otherwise (no time, or none within 3h) the candidates unchanged."""
     from datetime import datetime, timezone
     if not fx.get("start"):
         return cands
@@ -245,7 +245,12 @@ def _start_nearest(fx: dict, cands: list) -> list:
         kt = kt.replace(tzinfo=timezone.utc) if kt.tzinfo is None else kt
         return abs((kt - t0).total_seconds())
     within = [c for c in cands if dist(c) <= 3 * 3600]
-    return sorted(within, key=dist) if within else cands
+    if not within:
+        return cands
+    # Codex on #299: resolve the GAME first (nearest start; ties stay together and are flagged ambiguous),
+    # then test the pick, so a disagreeing exact-time game never hands the fill to a later one
+    m = min(dist(c) for c in within)
+    return [c for c in within if dist(c) == m]
 
 
 def match_fill(fx: dict, calls: list, picks: list) -> dict:

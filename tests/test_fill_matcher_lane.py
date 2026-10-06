@@ -121,3 +121,13 @@ def test_ticker_side_disagreeing_with_the_pick_is_never_matched_gb_tb_regression
     # no ticker role (title only): whole-name subsets, so "Green Bay" never agrees with "Tampa Bay Buccaneers"
     assert not P.classify_fills({"calls": [home], "fills": [
         _fill("t", "KXNFLGAME-26OCT04XXYY-ZZ", "yes", "Green Bay vs Tampa Bay")]})[0].get("call_id")
+
+
+def test_the_timed_game_is_resolved_before_its_pick_is_checked():
+    """Codex on #299 (P1): a 13:05 ET HOME fill, game 1 (13:05) picked AWAY, game 2 (15:45) picked HOME. The fill
+    belongs to game 1, whose pick disagrees: off-book, never handed to game 2."""
+    L = {"calls": [_call("g1", "Boston Red Sox", "New York Yankees", "AWAY", "2026-09-27T17:05:00"),
+                   _call("g2", "Boston Red Sox", "New York Yankees", "HOME", "2026-09-27T19:45:00")],
+         "fills": [_fill("a", "KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", "Boston wins — New York Y")]}
+    f = P.classify_fills(L)[0]
+    assert f["book"] == "off_book_sports" and f.get("call_id") is None and "disagrees" in f["category"]

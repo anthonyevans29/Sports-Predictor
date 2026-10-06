@@ -1726,7 +1726,12 @@ function startNearest(fx,cands){
   const iso=v=>{const x=String(v||""); return /([zZ]|[+-]\d\d:?\d\d)$/.test(x)?x:x+"Z";};
   const d=c=>{const k=c.kickoff?Date.parse(iso(c.kickoff)):NaN; return isFinite(k)?Math.abs(k-t0):Infinity;};
   const within=cands.filter(c=>d(c)<=3*3600000);
-  return within.length?within.slice().sort((a,b)=>d(a)-d(b)):cands;
+  if(!within.length) return cands;
+  // Codex on #299: resolve the GAME first (the nearest start; ties stay together, so an indistinguishable
+  // pair is still flagged ambiguous), and only then test the pick, so a disagreeing exact-time game never
+  // hands the fill to a later one
+  const m=Math.min(...within.map(d));
+  return within.filter(c=>d(c)===m);
 }
 function matchFill(fx,calls,picks){
   if(fx.kind!=="sport") return {book:"fun",category:fx.category};

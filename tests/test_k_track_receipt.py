@@ -248,6 +248,7 @@ def test_review_round_three_window_float_boundary_and_composite_no():
                         "exit": 1.0, "staked": 2.0, "fees": 0.07, "open_fee": 0.07, "close_fee": 0, "pnl_pre": 3.0,
                         "pnl_net": 2.93, "title": "Arsenal wins — Chelsea"})
     fx = next(f for f in P.classify_fills(L3) if f["id"] == "s-no")
-    assert fx["book"] == "system_matched" and fx["composite_no"] is True       # parity kept, flagged
+    # fill matcher lane (ARCHITECT 2026-10-06): a composite is never a single-side straight
+    assert fx["book"] == "off_book_sports" and fx["composite_no"] is True and "composite" in fx["category"]
     txt3 = "\n".join(K.format_fills(L3, LO, HI))
-    assert "! COMPOSITE NO fill [s-no]" in txt3 and "COMPOSITE NO (two outcomes)" in txt3
+    assert "composite NO fill [s-no]" in txt3 and "booked off_book_sports" in txt3

@@ -2143,3 +2143,60 @@ def test_sweep_a_migration_renamed_from_an_in_range_migration_is_undetermined(sa
     monkeypatch.setattr(c, "REPO", repo)
     plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
     assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]
+    assert len(plan["new"]) == len(set(plan["new"]))                     # listed once (Codex on #305)
+
+
+def test_sweep_rename_chains_and_merge_result_renames_are_undetermined(sandbox, monkeypatch):
+    """Codex on #305 (verified): (1) migrate_temp -> holding.py -> migrate_x (a chain through a non-migration
+    name) and (2) a MERGE commit renaming a side branch's migrate_temp to migrate_x after main added migrate_y both
+    planned run [y, x]. Rename chains are followed (merge diffs included via -m): x is undetermined."""
+    import os
+    import subprocess
+
+    import sp_deploy
+    body = "print('a migration body long enough for git rename detection to pair')\n" * 5
+
+    def mk(name):
+        repo = sandbox / name
+        repo.mkdir()
+
+        def g(*a, when=None, check=True):
+            env = {**os.environ, "GIT_AUTHOR_DATE": when, "GIT_COMMITTER_DATE": when} if when else None
+            return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                                  check=check, capture_output=True, text=True, env=env).stdout.strip()
+        g("init", "-q", "-b", "main")
+        (repo / "r.txt").write_text("r")
+        g("add", "-A")
+        g("commit", "-q", "-m", "base", when="2026-01-01T00:00:00Z")
+        return repo, g, g("rev-parse", "HEAD")
+
+    repo, g, base = mk("c1")                                             # (1) chain through holding.py
+    (repo / "migrate_temp.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "temp")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "y")
+    g("mv", "migrate_temp.py", "holding.py")
+    g("commit", "-q", "-m", "park")
+    g("mv", "holding.py", "migrate_x.py")
+    g("commit", "-q", "-m", "x")
+    monkeypatch.setattr(c, "REPO", repo)
+    p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and "migrate_x.py" in p["undetermined"] and len(p["new"]) == len(set(p["new"]))
+
+    repo, g, base = mk("c2")                                             # (2) the rename happens in a merge
+    g("checkout", "-q", "-b", "side")
+    (repo / "migrate_temp.py").write_text(body)
+    g("add", "-A")
+    g("commit", "-q", "-m", "temp", when="2026-01-02T00:00:00Z")
+    g("checkout", "-q", "main")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "y", when="2026-01-03T00:00:00Z")
+    g("merge", "-q", "--no-ff", "--no-commit", "side", when="2026-01-04T00:00:00Z")
+    g("mv", "migrate_temp.py", "migrate_x.py")
+    g("commit", "-q", "-m", "merge side, renaming temp -> x", when="2026-01-04T00:00:00Z")
+    monkeypatch.setattr(c, "REPO", repo)
+    p = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert p["run"] == [] and "migrate_x.py" in p["undetermined"]

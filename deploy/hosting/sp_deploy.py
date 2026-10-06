@@ -188,7 +188,31 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
             idx += 1
             seen.setdefault(p, []).append((idx, cur[0], cur[1]))
     chosen, ambiguous = {}, set()
+    # a migration RENAMED (directly, or through intermediate names, merge results included via -m) from a
+    # migration path inside the range carries the source's age, not the rename commit's: undetermined, and never
+    # placed in the order (sweep, Codex post-merge on #304 and on #305)
+    rc, rout, err = _git_rc("log", "-m", "-M", "--diff-filter=R", "--name-status", "--format=", f"{before}..{after}")
+    if rc != 0:
+        raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
+    sources = {}
+    for ln in rout.splitlines():
+        parts = ln.split("\t")
+        if len(parts) == 3 and parts[0].startswith("R"):
+            sources.setdefault(parts[2], set()).add(parts[1])
+    for p in new:
+        stack, seen_names = [p], {p}
+        while stack:
+            for src in sources.get(stack.pop(), ()):
+                if MIGRATION_NAME.match(src):
+                    ambiguous.add(p)
+                    stack = []
+                    break
+                if src not in seen_names:
+                    seen_names.add(src)
+                    stack.append(src)
     for p, apps in seen.items():
+        if p in ambiguous:
+            continue
         # a merge commit ADDS a path only when NONE of its parents had it (a merge-result addition, e.g. a
         # re-add in the merge); when a parent had it, `-m` is just re-listing that branch's addition (Codex on #304)
         adds = {h for _, h, parents in apps
@@ -217,16 +241,6 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         elif rc != 0:
             raise SystemExit(f"✗ ancestry check {ha}..{hb} failed ({err or f'git exit {rc}'}) — "
                              "refusing to plan migrations.")
-    # a migration RENAMED from another migration inside the range (migrate_temp.py -> migrate_x.py) carries the
-    # source's age, not the rename commit's: its order is not the rename's, so it is undetermined (sweep, Codex
-    # post-merge on #304)
-    rc, rout, err = _git_rc("log", "-M", "--diff-filter=R", "--name-status", "--format=", f"{before}..{after}")
-    if rc != 0:
-        raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
-    for ln in rout.splitlines():
-        parts = ln.split("\t")
-        if len(parts) == 3 and parts[0].startswith("R") and MIGRATION_NAME.match(parts[1]) and parts[2] in new:
-            ambiguous.add(parts[2])
     unplaced = sorted(new - set(ordered) - ambiguous)
     undetermined = sorted(together | unchained | ambiguous | set(unplaced))
     return {"forward": True, "run": [] if undetermined else ordered, "undetermined": undetermined,

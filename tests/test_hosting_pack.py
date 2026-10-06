@@ -2631,3 +2631,45 @@ def test_requirements_round_four_tokens_symlinks_and_local_paths(sandbox, monkey
     four = commit([("requirements.txt", "./vendor/pkg\nrequests\n")])                            # (3)
     assert sp_deploy.requirements_plan(four, ["requirements.txt"]) == \
         (None, "has editable (-e) or local-path requirements in requirements.txt")
+
+
+def test_requirements_round_five_symlink_payloads_bare_paths_and_find_links(sandbox, monkeypatch):
+    """Codex on #310 round 5 (verified): (1) a symlinked include whose target is `../shared/base.txt` must not be
+    scanned as a directive (its blob is the link target, which looked like a local path and refused every deploy);
+    (2) bare relative local paths (`vendor/pkg`, `pkg.whl`) and (3) a local `--find-links` directory are local
+    sources, refused like editables: their changes are invisible to the fingerprint. The repo's own
+    requirements.txt has none."""
+    import os
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "r5"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(files=(), links=()):
+        for name, text in files:
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            (repo / name).write_text(text)
+        for name, target in links:
+            (repo / name).parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, repo / name)
+        g("add", "-A")
+        g("commit", "-q", "-m", "x")
+        return g("rev-parse", "HEAD")
+    g("init", "-q", "-b", "main")
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log5" / "receipts.jsonl"))
+    one = commit([("requirements.txt", "-r reqs/current.txt\n"), ("shared/base.txt", "requests\n")],
+                 links=[("reqs/current.txt", "../shared/base.txt")])
+    blob, reason = sp_deploy.requirements_plan(one, ["requirements.txt"])
+    assert blob is not None and reason == "changed in this range"                                 # (1)
+    for line in ("vendor/pkg", "pkg.whl", "--find-links wheels"):                                 # (2), (3)
+        rev = commit([("requirements.txt", f"{line}\nrequests\n")])
+        assert sp_deploy.requirements_plan(rev, ["requirements.txt"]) == \
+            (None, "has editable (-e) or local-path requirements in requirements.txt"), line
+    real = Path(__file__).resolve().parents[1] / "requirements.txt"
+    assert not any(sp_deploy._is_local_source(ln) for ln in real.read_text().splitlines())

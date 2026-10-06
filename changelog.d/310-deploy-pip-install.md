@@ -4,3 +4,4 @@
 - Review fixes, round 2 (Codex on #310): an included-file change alone triggers the install. The install record (`requirements.installed`) survives receipt-log rotation. Worktree output is attached to a receipt only when the worktree failed.
 - Review fixes, round 3 (Codex on #310): continued lines are joined before includes are parsed. Editable (`-e`) requirements refuse the deploy, because they would point into a deleted temporary tree. The install record names its destination venv or interpreter, so a recreated venv reinstalls.
 - Review fixes, round 4 (Codex on #310): continuations concatenate as pip does. The install record lives inside the venv. Symlinked includes are followed. Local-path requirements are refused like editables.
+- Review fixes, round 5 (Codex on #310): symlink blobs are not scanned as directives. Bare relative paths, archives and local `--find-links` count as local sources and are refused.

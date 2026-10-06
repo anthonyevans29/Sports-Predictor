@@ -112,11 +112,27 @@ def _logical_lines(body: str) -> list[str]:
     return out
 
 
+ARCHIVE_SUFFIXES = (".whl", ".zip", ".tar.gz", ".tgz", ".tar.bz2", ".tar")
+
+
 def _is_local_source(line: str) -> bool:
-    """A requirement installed from a local path or archive (./pkg, ../x.whl, /abs, file:): its source is not a
-    requirements file, so the fingerprint cannot see it change (Codex on #310)."""
-    parts = line.split("#", 1)[0].strip().split()
-    return bool(parts) and not parts[0].startswith("-") and parts[0].startswith((".", "/", "file:"))
+    """A requirement installed from the local tree, whose changes the fingerprint cannot see (Codex on #310): a
+    local project or archive path (`./pkg`, `vendor/pkg`, `x.whl`, `/abs`, `file:`), or a local `--find-links`
+    directory. A URL is not local; a plain specifier (`requests>=2`) has no path separator or archive suffix."""
+    parts = line.split("#", 1)[0].strip().replace("=", " ", 1).split() if line.strip().startswith("-") \
+        else line.split("#", 1)[0].strip().split()
+    if not parts:
+        return False
+    if parts[0] in ("-f", "--find-links"):
+        return len(parts) > 1 and "://" not in parts[1]
+    if parts[0].startswith("-f") and len(parts[0]) > 2:
+        return "://" not in parts[0][2:]
+    if parts[0].startswith("-"):
+        return False
+    tok = parts[0].split(";", 1)[0]
+    if "://" in tok:
+        return tok.startswith("file:")
+    return tok.startswith((".", "/", "file:")) or "/" in tok or "\\" in tok or tok.lower().endswith(ARCHIVE_SUFFIXES)
 
 
 def _is_editable(line: str) -> bool:
@@ -178,7 +194,10 @@ def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, 
     if _blob(target_sha, REQUIREMENTS) is None:
         return None, ("removed in the target" if REQUIREMENTS in changed else None)
     inputs = requirements_inputs(target_sha)
-    editable = sorted(p for p, b in inputs.items() if b and any(
+    # scan only real requirements files: a symlink's blob is its target path, not directives (Codex on #310);
+    # requirements_inputs already followed it to the file pip reads
+    links = {p for p in inputs if _git_rc("ls-tree", target_sha, "--", p)[1].startswith("120000")}
+    editable = sorted(p for p, b in inputs.items() if b and p not in links and any(
         _is_editable(ln) or _is_local_source(ln) for ln in _logical_lines(_git_rc("show", f"{target_sha}:{p}")[1])))
     if editable:
         # an editable install points INTO the temporary worktree, which is deleted afterwards; a local path's

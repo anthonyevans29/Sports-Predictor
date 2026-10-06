@@ -188,28 +188,42 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
             idx += 1
             seen.setdefault(p, []).append((idx, cur[0], cur[1]))
     chosen, ambiguous = {}, set()
-    # a migration RENAMED (directly, or through intermediate names, merge results included via -m) from a
-    # migration path inside the range carries the source's age, not the rename commit's: undetermined, and never
-    # placed in the order (sweep, Codex post-merge on #304 and on #305)
-    rc, rout, err = _git_rc("log", "-m", "-M", "--diff-filter=R", "--name-status", "--format=", f"{before}..{after}")
+    # a migration MOVED from a migration path inside the range (directly, or through intermediate names, merge
+    # results included via -m) carries the source's age, not the move commit's: undetermined, never placed in the
+    # order (sweep, Codex post-merge on #304 and on #305). Moves are not left to git's similarity-based rename
+    # detection (a move that also rewrites the file falls under -M's threshold): walking history oldest first
+    # (topological), a commit diff that DELETES a migration path, or a path that carries a migration's age, taints
+    # every path it adds; a new migration added in a tainted diff is undetermined. A path's taint is set when it is
+    # added, so a later reuse of an intermediate name never reaches back in time (Codex on #305).
+    rc, rout, err = _git_rc("log", "--reverse", "--topo-order", "-m", "--no-renames", "--name-status",
+                            "--format=@@%H", f"{before}..{after}")
     if rc != 0:
         raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
-    sources = {}
+    carries = set()
+
+    def _flush(deleted, added):
+        tainted = any(MIGRATION_NAME.match(d) or d in carries for d in deleted)
+        carries.difference_update(deleted)
+        for a in added:
+            if tainted:
+                carries.add(a)
+                if a in new:
+                    ambiguous.add(a)
+            else:
+                carries.discard(a)
+
+    deleted, added = [], []
     for ln in rout.splitlines():
+        if ln.startswith("@@"):
+            _flush(deleted, added)
+            deleted, added = [], []
+            continue
         parts = ln.split("\t")
-        if len(parts) == 3 and parts[0].startswith("R"):
-            sources.setdefault(parts[2], set()).add(parts[1])
-    for p in new:
-        stack, seen_names = [p], {p}
-        while stack:
-            for src in sources.get(stack.pop(), ()):
-                if MIGRATION_NAME.match(src):
-                    ambiguous.add(p)
-                    stack = []
-                    break
-                if src not in seen_names:
-                    seen_names.add(src)
-                    stack.append(src)
+        if len(parts) == 2 and parts[0] == "D":
+            deleted.append(parts[1])
+        elif len(parts) == 2 and parts[0] == "A":
+            added.append(parts[1])
+    _flush(deleted, added)
     for p, apps in seen.items():
         if p in ambiguous:
             continue

@@ -175,9 +175,70 @@ def test_desk_rescore_reports_which_published_plays_would_have_been_halved(tmp_p
     assert json.dumps(doc, sort_keys=True) == before                # read-only
     p = tmp_path / "sunday.json"
     p.write_text(json.dumps(doc))
-    res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p)])
+    out = tmp_path / "receipts" / "rescore.md"
+    res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p), "--out", str(out)])
     assert res.exit_code == 0, res.output
     assert "2 PLAY(s) re-scored · 1 would have been halved" in res.output and "HALVED" in res.output
+    # ARCHITECT 2026-10-06: the console is also the receipt file; never overwritten, never under data/
+    assert "1 would have been halved" in out.read_text() and "HALVED" in out.read_text()
+    again = CliRunner().invoke(cli.cli, ["desk-rescore", str(p), "--out", str(out)])
+    assert again.exit_code == 2 and "never overwritten" in again.output
+    from src.walters.unl_ladders import data_dir
+    bad = CliRunner().invoke(cli.cli, ["desk-rescore", str(p), "--out", str(data_dir() / "x.md")])
+    assert bad.exit_code == 2 and "law 5" in bad.output and not (data_dir() / "x.md").exists()
+
+
+def test_desk_rescore_defaults_its_receipt_into_docs_receipts(tmp_path, monkeypatch):
+    """ARCHITECT 2026-10-06: "from now on desk-rescore writes --out into docs/receipts/" — the default target."""
+    from click.testing import CliRunner
+
+    import cli
+    doc = {"sport": "nfl", "predictions": [nfl("HALF", 0.62, 0.55, bid=0.58, ask=0.59)]}
+    with dp.base_v11():
+        dp.annotate(doc, now=NOW)
+    p = tmp_path / "sunday.json"
+    p.write_text(json.dumps(doc))
+    written = []
+    import pathlib
+    import io
+
+    class Sink(io.StringIO):
+        def close(self):
+            written[-1] = (written[-1][0], self.getvalue())
+            super().close()
+
+    def fake_open(self, mode="r", *a, **k):
+        assert mode == "x"                                           # exclusive create, never truncating "w"
+        written.append((self, None))
+        return Sink()
+    monkeypatch.setattr(pathlib.Path, "open", fake_open)
+    monkeypatch.setattr(pathlib.Path, "mkdir", lambda self, *a, **k: None)
+    res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p)])
+    assert res.exit_code == 0, res.output
+    (path, text), = written
+    assert path.parent == pathlib.Path(cli.__file__).resolve().parent / "docs" / "receipts"
+    assert path.name.startswith("desk-rescore-") and path.suffix == ".md" and "HALVED" in text
+
+
+def test_desk_rescore_loses_a_race_to_the_same_receipt_name(tmp_path, monkeypatch):
+    """Codex on #309: two runs in one minute both passed the exists() pre-check and the later truncating write
+    replaced the first receipt. The file is created exclusively: the loser is refused, the first receipt stays."""
+    from click.testing import CliRunner
+
+    import cli
+    doc = {"sport": "nfl", "predictions": [nfl("HALF", 0.62, 0.55, bid=0.58, ask=0.59)]}
+    with dp.base_v11():
+        dp.annotate(doc, now=NOW)
+    p = tmp_path / "sunday.json"
+    p.write_text(json.dumps(doc))
+    out = tmp_path / "r.md"
+    import pathlib
+    real_exists = pathlib.Path.exists
+    monkeypatch.setattr(pathlib.Path, "exists", lambda self: False if self == out else real_exists(self))
+    out.write_text("FIRST RUN\n")                                   # the other run won between check and write
+    res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p), "--out", str(out)])
+    assert res.exit_code == 2 and "never overwritten" in res.output
+    assert out.read_text() == "FIRST RUN\n"
 
 
 def test_doctrine_join_price_and_order_share_one_source_for_three_way_legs():

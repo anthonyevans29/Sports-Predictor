@@ -15,6 +15,14 @@ from src.db.database import init_db, session_scope
 from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Sport, Team
 from src.walters import desk_policy as dp
 
+
+@pytest.fixture(autouse=True)
+def _base_v11():
+    """These cases pin v1.1 rules that the #87 addendum (2026-10-06) does not touch; their fixtures carry no
+    executable quotes. The addendum and its interactions are tested in tests/test_desk_exec_addendum.py."""
+    with dp.base_v11():
+        yield
+
 NOW = datetime(2026, 10, 1, 18, 0, tzinfo=timezone.utc)
 NOW_MS = float((NOW - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(milliseconds=1))
 

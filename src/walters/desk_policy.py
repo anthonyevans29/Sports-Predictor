@@ -30,6 +30,7 @@ import json
 import math
 import os
 from datetime import datetime, timedelta, timezone
+from contextlib import contextmanager
 from decimal import ROUND_HALF_UP, Decimal
 
 POLICY_VERSION = "v1.1"
@@ -45,11 +46,22 @@ BASE_UNITS = 1
 VENUE = {"minBooks": 4, "minDivPP": 5.0, "units": 0.25, "staleGapPP": 8.0,
          "maxBookAgeH": 3}       # #91 RULED 2026-10-02: an older book capture is NO reference
 VALUE = {"units": 0.25, "reviewN": 30}
-K2 = {"feeClearsPP": 4, "tick": 0.01}
+K2 = {"feeClearsPP": 4, "tick": 0.01, "joinMinSpreadC": 3}
 # ARCHITECT 2026-10-06: an exact 4.00pp exec edge CLEARS. Binary-float subtraction can land a hair
 # below ((0.35 - 0.31) * 100 = 3.9999999999999982), so the comparison allows this tolerance
 # (the same one k-track-receipt uses; the Cockpit's marker carries it too).
 FEE_CLEAR_EPS = 1e-9
+# #87 EXECUTABLE EDGE — v1.1 ADDENDUM (ARCHITECT-RULE 2026-10-06, effective next slate):
+#   (1) cost = ask + taker fee (0.07·M·P(1−P), nearest cent per fill): the spread is not the cost, the fee is.
+#   (2) default execution TAKES at the ask; join-bid only when the spread is >= 3c (join-bid of 09-30 superseded).
+#   (3) exec edge = model_p − cost; a PLAY gets full tier units only at exec edge >= 4pp, else HALF units.
+#   (4) venue: the 5pp fair threshold stands AND the exec edge (book fair − cost) must clear 4pp.
+#   (5) parlay legs are priced at executable cost; the independence-estimate label stands.
+# The frozen pre-F1c golden (tests/golden/desk_js_v1_1.json.gz) predates the addendum: the battery checks it
+# with the addendum OFF (`base_v11()`), proving every other v1.1 behaviour unchanged; the addendum has its
+# own tests (tests/test_desk_exec_addendum.py).
+EXEC_RULES = {"on": True}
+PARLAY_LABEL = "independence estimate: Π of single-game prices (legs assumed uncorrelated)"
 PASSCLASS = {"minBooks": 3, "rerunMin": 60}
 POSTSEASON = {"reviewN": 30}
 KALSHI_ONLY = {"maxSpreadC": 2, "sizeMult": 0.5, "reviewN": 30,
@@ -159,6 +171,15 @@ def _qn(v):
     return None if v is None else v
 
 
+def _kexec_of(p: dict, always: bool = False):
+    """The row's own K-track quote fields. Fixtures rows (market-only) carry them too (`_fixture_row`); before
+    the #87 addendum the venue engine never read them, so a fixtures row without any stays None."""
+    k = {"bid": p.get("kalshi_bid"), "ask": p.get("kalshi_ask"), "cost": p.get("exec_cost_taker"),
+         "maker": p.get("exec_cost_maker"), "bidAway": p.get("away_bid"), "askAway": p.get("away_ask"),
+         "costAway": p.get("exec_cost_taker_away"), "makerAway": p.get("exec_cost_maker_away")}
+    return k if always or any(v is not None for v in k.values()) else None
+
+
 def normalize(doc: dict) -> list[dict]:
     """The Cockpit's normalize(doc): the rows the Desk sees, in file order.
     Each row keeps `src` = the export row it came from (to attach the desk)."""
@@ -182,7 +203,8 @@ def normalize(doc: dict) -> list[dict]:
                         "quar": False, "books": mk.get("bookmaker_count"), "booksAt": mk.get("captured_at"),
                         "qbs": [], "marketOnly": True,
                         "tier": None, "kalProb": kal_from_fixture(f.get("kalshi"), fair),
-                        "threeWay": fair.get("DRAW") is not None, "stage": MISSING, "comp": "", "kExec": None})
+                        "threeWay": fair.get("DRAW") is not None, "stage": MISSING, "comp": "",
+                        "kExec": _kexec_of(f)})
         return out
     sport = (doc.get("sport") or "?").upper()
     for p in doc.get("predictions") or []:
@@ -223,11 +245,7 @@ def normalize(doc: dict) -> list[dict]:
             "comp": (p.get("competition") or doc.get("sport") or "").upper(),
             "kalProb": kal_from_prediction(p, mk, market),
             "threeWay": market.get("DRAW") is not None or probs.get("DRAW") is not None,
-            "kExec": {"bid": p.get("kalshi_bid"), "ask": p.get("kalshi_ask"),
-                      "cost": p.get("exec_cost_taker"),     # #130: the pre-split alias is retired
-                      "maker": p.get("exec_cost_maker"),
-                      "bidAway": p.get("away_bid"), "askAway": p.get("away_ask"),
-                      "costAway": p.get("exec_cost_taker_away"), "makerAway": p.get("exec_cost_maker_away")},
+            "kExec": _kexec_of(p, always=True),     # #130: the pre-split alias is retired
             "tier": pr.get("tier") or None, "marketOnly": False})
     return out
 
@@ -294,6 +312,21 @@ def venue_edge(r, now_ms: float) -> dict:
         out["eligible"] = True
         out["reason"] = (f"books {js_fixed(out['bookP'] * 100, 1)}% vs Kalshi {js_fixed(out['kalP'] * 100, 1)}%"
                          f" → Kalshi underprices by {js_fixed(best[1], 1)}pp")
+        if EXEC_RULES["on"]:
+            # #87 v1.1 (4): the 5pp fair threshold stands AND exec edge = book fair − (ask + taker fee) >= 4pp
+            cost = taker_cost_for(r, best[0])
+            out["execCost"] = cost
+            out["execPP"] = None if cost is None else (out["bookP"] - cost) * 100
+            if cost is None:
+                out.update(eligible=False, kind="noref",
+                           reason=out["reason"] + " · no executable quote (ask + taker fee) — PASS")
+            elif not exec_clears(out["execPP"]):
+                out.update(eligible=False, kind="floor",
+                           reason=out["reason"] + f" · exec edge {js_fixed(out['execPP'], 1)}pp < "
+                                                  f"{K2['feeClearsPP']}pp at ask + taker fee {js_fixed(cost, 3)}"
+                                                  " — PASS")
+            else:
+                out["reason"] += f" · exec edge {js_fixed(out['execPP'], 1)}pp ≥ {K2['feeClearsPP']}pp"
     else:
         out["reason"] = f"max divergence {js_fixed(best[1], 1)}pp < {js_str(VENUE['minDivPP'])}pp"
         out["kind"] = "floor"
@@ -313,10 +346,29 @@ def k_side(r, side):
     return None
 
 
+@contextmanager
+def base_v11():
+    """The Desk WITHOUT the #87 addendum: the frozen pre-F1c golden's policy (the parity battery only)."""
+    was = EXEC_RULES["on"]
+    EXEC_RULES["on"] = False
+    try:
+        yield
+    finally:
+        EXEC_RULES["on"] = was
+
+
 def join_bid_for(r, side):
     k = k_side(r, side)
     if not k or k["bid"] is None:
         return None
+    if EXEC_RULES["on"]:
+        # #87 v1.1 (2): TAKE at the ask by default; a resting bid only when the spread is >= 3c ("on 1-2c
+        # spreads a resting bid is adverse selection, not savings")
+        if k["ask"] is None:
+            return {"price": None, "note": "no ask — spread unknown, nothing to take or join"}
+        sc = js_round((k["ask"] - k["bid"]) * 100)
+        if sc < K2["joinMinSpreadC"]:
+            return {"price": None, "note": f"spread {sc}¢ < {K2['joinMinSpreadC']}¢ — TAKE at the ask"}
     j = js_round((k["bid"] + K2["tick"]) * 100) / 100
     if k["ask"] is not None and j >= k["ask"] - 1e-9:
         return {"price": None, "note": "spread 1¢ — joining = taking"}
@@ -330,10 +382,28 @@ def exec_cost_for(r, side):
 
 def maker_cost_for(r, side):
     k = k_side(r, side)
-    return k["maker"] if k and k["maker"] is not None else None
+    return k["maker"] if k and k.get("maker") is not None else None
+
+
+def taker_cost_for(r, side):
+    """#87 v1.1 (1): the EXECUTABLE cost of backing `side` = the ask of the contract the order line buys +
+    the taker fee (venue.kalshi_fee: 0.07·M·P(1−P), nearest cent per fill of K_ORDER_CONTRACTS). The side's
+    own YES leg when its ask is captured (kalshi_legs), else the row's K-track cost for that side (HOME YES;
+    two-way AWAY = NO on HOME, #89). None = no executable quote (never guessed)."""
+    leg = (((r.get("src") or {}).get("kalshi_legs") or {}).get(side) or {})
+    ask = leg.get("ask")
+    if ask is not None and 0 < ask < 1:
+        from src.walters.venue import KALSHI_FEE_M, KALSHI_SERIES_BY_COMPETITION, kalshi_fee
+        series = KALSHI_SERIES_BY_COMPETITION.get(r.get("comp") or r.get("sport") or "")
+        fee = kalshi_fee(ask, KALSHI_FEE_M.get(series, (1.0, None))[0])
+        return round(ask + fee, 4) if fee is not None else None
+    return exec_cost_for(r, side)
 
 
 def desk_cost_for(r, side):
+    if EXEC_RULES["on"]:
+        t = taker_cost_for(r, side)                  # #87 v1.1 (1)+(2): the Desk's cost is the TAKE cost
+        return None if t is None else {"cost": t, "basis": "taker"}
     m = maker_cost_for(r, side)
     if m is not None:
         return {"cost": m, "basis": "maker"}
@@ -346,18 +416,29 @@ def exec_edge_pp(r, side, model_p):
     return None if c is None or model_p is None else (model_p - c["cost"]) * 100
 
 
+def exec_clears(e) -> bool:
+    return e is not None and e >= K2["feeClearsPP"] - FEE_CLEAR_EPS
+
+
 def exec_block(r, side, model_p):
-    """The K2 informational numbers (no sizing effect), for the export."""
+    """The K2 numbers for the export. Since the #87 addendum `fee_clears` is a SIZING input (desk_call)."""
     k = r.get("kExec")
-    if not k or (k["cost"] is None and k["ask"] is None and k["maker"] is None):
+    has_leg = (((r.get("src") or {}).get("kalshi_legs") or {}).get(side) or {}).get("ask") is not None
+    if (not k or (k["cost"] is None and k["ask"] is None and k["maker"] is None)) and not (
+            EXEC_RULES["on"] and has_leg):
         return None
     dc = desk_cost_for(r, side)
     jb = join_bid_for(r, side)
     e = exec_edge_pp(r, side, model_p)
-    return {"edge_pp": e, "cost": dc["cost"] if dc else None, "basis": dc["basis"] if dc else None,
-            "taker_cost": exec_cost_for(r, side), "join_price": (jb or {}).get("price"),
-            "join_note": (jb or {}).get("note"), "no_side": bool((k_side(r, side) or {}).get("no")),
-            "fee_clears": e is not None and e >= K2["feeClearsPP"] - FEE_CLEAR_EPS}
+    out = {"edge_pp": e, "cost": dc["cost"] if dc else None, "basis": dc["basis"] if dc else None,
+           "taker_cost": exec_cost_for(r, side), "join_price": (jb or {}).get("price"),
+           "join_note": (jb or {}).get("note"), "no_side": bool((k_side(r, side) or {}).get("no")),
+           "fee_clears": exec_clears(e)}
+    if EXEC_RULES["on"]:
+        out["taker_cost"] = dc["cost"] if dc else None
+        out["maker_cost"] = maker_cost_for(r, side)          # reference only: the doctrine takes
+        out["doctrine"] = "join" if (jb or {}).get("price") is not None else "take"
+    return out
 
 
 # ------------------------------------------------------------- value side --
@@ -492,6 +573,22 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
             reasons.append(f"postseason → half units until {POSTSEASON['reviewN']} graded "
                            f"({postseason_graded}/{POSTSEASON['reviewN']})")
             tags.append("postseason half units")
+        if EXEC_RULES["on"] and call == "PLAY" and not quarantined:
+            # #87 v1.1 (3): full tier units only at exec edge >= 4pp; a PLAY whose fair edge clears but whose
+            # exec edge does not, or that has no executable quote (conservative unknowns), gets HALF units
+            xe = exec_edge_pp(r, r["pick"], r["prob"])
+            if xe is None:
+                units = min(units, base / 2)
+                reasons.append("no executable quote for the pick (ask + taker fee) → half units")
+                tags.append("exec unknown half units")
+            elif not exec_clears(xe):
+                units = min(units, base / 2)
+                reasons.append(f"exec edge {js_fixed(xe, 1)}pp < {K2['feeClearsPP']}pp at ask + taker fee "
+                               f"{js_fixed(desk_cost_for(r, r['pick'])['cost'], 3)} → half units")
+                tags.append("exec < 4pp half units")
+            else:
+                reasons.append(f"exec edge {js_fixed(xe, 1)}pp ≥ {K2['feeClearsPP']}pp at ask + taker fee")
+                tags.append("exec clears")
         if call != "PASS" and r["stage"] is None and r["sport"] == "MLB":
             reasons.append("stage unknown — postseason caution not applied")
         if kal_only and call != "PASS":
@@ -533,8 +630,10 @@ def build_parlays(calls) -> list[dict]:
     return rank_parlays(calls)[:PARLAY["top"]]
 
 
-def rank_parlays(calls) -> list[dict]:
-    """Every edge > 0 ticket, ranked (build_parlays is its top 3)."""
+def rank_parlays(calls, stats: dict | None = None) -> list[dict]:
+    """Every edge > 0 ticket, ranked (build_parlays is its top 3). #87 v1.1 (5): Π market = Π of each leg's
+    EXECUTABLE cost (ask + taker fee, `taker_cost_for`); a ticket with a leg that has no executable quote
+    cannot be priced and is not offered (counted in stats["unpriced"]). Π fair rides along as `pf`."""
     live = [r for r, c in calls if c["call"] != "PASS"]
     teams = lambda r: (r["home"], r["away"])
     combos = []
@@ -550,13 +649,27 @@ def rank_parlays(calls) -> list[dict]:
                     continue
                 combos.append([A, B, C])
     ranked = []
+    if stats is not None:
+        stats.setdefault("unpriced", 0)
     for legs in combos:
         pm = pk = 1
         for l in legs:
             pm = pm * l["prob"]
         for l in legs:
             pk = pk * (l["mkt"] if l["mkt"] is not None else l["prob"])
+        pf = pk
+        if EXEC_RULES["on"]:
+            costs = [taker_cost_for(l, l["pick"]) for l in legs]
+            if any(c is None for c in costs):
+                if stats is not None:
+                    stats["unpriced"] += 1
+                continue
+            pk = 1
+            for c in costs:
+                pk = pk * c
         t = {"legs": legs, "sports": len({l["sport"] for l in legs}), "pm": pm, "pk": pk, "edge": pm - pk}
+        if EXEC_RULES["on"]:
+            t["pf"], t["costs"] = pf, costs
         if t["edge"] > 0:
             ranked.append(t)
     ranked.sort(key=lambda t: (-t["sports"], -t["edge"]))
@@ -671,7 +784,17 @@ def b_track_shadow(calls, ranked=None) -> dict:
 
 
 def parlay_block(t) -> dict:
-    """One ticket for the file (the ledger keys a ticket on sport:away@home:pick)."""
+    """One ticket for the file (the ledger keys a ticket on sport:away@home:pick). #87 v1.1 (5): market_p is
+    Π executable cost; fair_p (Π fair) and each leg's exec_cost ride along; the independence label stands."""
+    b = _parlay_block(t)
+    if "pf" in t:
+        b.update(market_basis="executable (Π ask + taker fee)", fair_p=_num(t["pf"]), label=PARLAY_LABEL)
+        for leg, c in zip(b["legs"], t["costs"]):
+            leg["exec_cost"] = _num(c)
+    return b
+
+
+def _parlay_block(t) -> dict:
     return {"units": PARLAY["units"], "sports": t["sports"], "model_p": _num(t["pm"]), "market_p": _num(t["pk"]),
             "edge": t["edge"], "edge_pp": _num(t["edge"] * 100),
             "signature": "+".join(sorted(f"{l['sport']}:{l['away']}@{l['home']}:{l['pick']}" for l in t["legs"])),
@@ -709,9 +832,12 @@ def _num(v):
 
 
 def venue_block(ven) -> dict:
-    return {"eligible": ven["eligible"], "side": ven["side"], "div_pp": _num(ven["divPP"]),
-            "book_p": _num(ven["bookP"]), "kalshi_p": _num(ven["kalP"]), "kind": ven["kind"],
-            "reason": ven["reason"]}
+    out = {"eligible": ven["eligible"], "side": ven["side"], "div_pp": _num(ven["divPP"]),
+           "book_p": _num(ven["bookP"]), "kalshi_p": _num(ven["kalP"]), "kind": ven["kind"],
+           "reason": ven["reason"]}
+    if "execPP" in ven:                                   # #87 v1.1 (4)
+        out.update(exec_pp=_num(ven["execPP"]), exec_cost=_num(ven["execCost"]))
+    return out
 
 
 def window_venue(row: dict, now_ms: float) -> dict:
@@ -724,7 +850,10 @@ def window_venue(row: dict, now_ms: float) -> dict:
                       "utc": row.get("utc_date") or "", "fairAll": fair,
                       "books": (row.get("market") or {}).get("bookmaker_count") or 0,
                       "booksAt": (row.get("market") or {}).get("captured_at"),
-                      "kalProb": kal_from_fixture(row.get("kalshi"), fair)}, now_ms)
+                      "kalProb": kal_from_fixture(row.get("kalshi"), fair),
+                      # #87 v1.1 (4): the exec gate's quotes (the row is a _fixture_row: legs + K-track fields)
+                      "src": row, "comp": str(row.get("competition") or "").upper(),
+                      "threeWay": fair.get("DRAW") is not None, "kExec": _kexec_of(row)}, now_ms)
     return venue_block(ven)
 
 
@@ -738,8 +867,9 @@ def window_venue(row: dict, now_ms: float) -> dict:
 #   side   : backing a side = BUY YES on that side's contract; a LADDER (double
 #            chance, away pick) = BUY NO on the HOME contract; a two-way game
 #            whose side has no captured leg = BUY NO on the opponent's contract
-#   limit  : the doctrine is join-bid — the side's bid; the ASK when the spread
-#            is 1c (joining = taking); no bid -> no limit (stated, never guessed)
+#   limit  : #87 v1.1 (ARCHITECT-RULE 2026-10-06) TAKE at the ASK by default; join the bid
+#            only when the spread is >= 3c; no ask -> no limit (stated, never guessed).
+#            (The 2026-09-30 join-bid doctrine is superseded; base_v11() keeps it for the golden.)
 #            NO prices mirror the YES contract: NO bid = 1 - yes ask, NO ask = 1 - yes bid
 #   count  : SP_UNIT_USD (dollars per 1u) set -> floor(units x SP_UNIT_USD / limit);
 #            unset -> ORDER_UNIT_CONTRACTS contracts per 1u (floor(units x 10))
@@ -792,10 +922,19 @@ def order_line(r, target: str | None, units, ladder: bool = False) -> dict | Non
     bid, ask = (yb, ya) if side == "YES" else (_c(1 - ya) if ya is not None else None,
                                                _c(1 - yb) if yb is not None else None)
     out.update(ticker=leg["ticker"], side=side)
-    if bid is None:
+    if EXEC_RULES["on"]:
+        if ask is None:
+            out["why"] = "no ask to take (doctrine: TAKE at the ask, #87 v1.1) — no limit written"
+            return out
+        sc = None if bid is None else js_round((ask - bid) * 100)
+        if sc is not None and sc >= K2["joinMinSpreadC"]:
+            limit, basis = bid, f"join bid (spread {sc}c >= {K2['joinMinSpreadC']}c)"
+        else:
+            limit, basis = ask, "take at the ask" + (f" (spread {sc}c)" if sc is not None else " (no bid)")
+    elif bid is None:
         out["why"] = "no bid to join (doctrine: join-bid) — no limit written"
         return out
-    if ask is not None and round(ask - bid, 2) <= 0.01:
+    elif ask is not None and round(ask - bid, 2) <= 0.01:
         limit, basis = ask, "ask (1c spread: joining = taking)"
     else:
         limit, basis = bid, "join bid"
@@ -879,6 +1018,7 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
     doc["desk_meta"] = {"policy_version": POLICY_VERSION,
                         "as_of": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                         "counts": ev["counts"], "counts_source": counts_source,
+                        "exec_addendum": EXEC_RULES["on"],    # #87 v1.1 (2026-10-06): TAKE cost sizes PLAYs
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
     return doc
 
@@ -895,7 +1035,8 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
     calls = []
     for _, d in named_docs:
         calls += evaluate(d, now_ms, counts)["calls"]
-    ranked = rank_parlays(calls)
+    pstats: dict = {}
+    ranked = rank_parlays(calls, pstats)
     tickets = ranked[:PARLAY["top"]]                      # == build_parlays(calls)
     shadow = b_track_shadow(calls, ranked)
     cut = shadow.pop("_cut_by_id")
@@ -912,7 +1053,45 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
                           "counts_source": counts_source,
                           "source": "src/walters/desk_policy.py build_parlays (F1 port, #183 semantics)"},
             "b_track_shadow": shadow,
+            "pricing": ({"basis": "executable (ask + taker fee per leg)", "label": PARLAY_LABEL,
+                         "unpriced_tickets": pstats.get("unpriced", 0)} if EXEC_RULES["on"] else None),
             "tickets": blocks}
+
+
+def rescore(doc: dict) -> list[dict]:
+    """#87 v1.1 receipt (ARCHITECT-RULE 2026-10-06: "Sunday's four PLAYs re-scored under rule 3 (which would have
+    been halved)"): every row the FILE's own desk called PLAY, re-scored at the file's as_of and counts, without
+    and with the addendum. READ-ONLY: works on a copy; the file's published call is reported, never rewritten."""
+    meta = doc.get("desk_meta") or {}
+    asof = meta.get("as_of")
+    now = datetime.fromisoformat(asof.replace("Z", "+00:00")) if asof else datetime.now(timezone.utc)
+    now_ms = float((now - datetime(1970, 1, 1, tzinfo=timezone.utc)) // _MS)
+    counts = meta.get("counts") or {}
+    out = []
+    published = [((r.get("desk") or {}), i) for i, r in enumerate(doc.get("predictions") or [])]
+    clean = json.loads(json.dumps(doc))
+    for r in clean.get("predictions") or []:
+        r.pop("desk", None)
+    with base_v11():
+        base = {id(r["src"]): (r, c) for r, c in evaluate(clean, now_ms, counts)["calls"]}
+    new = {id(r["src"]): (r, c) for r, c in evaluate(clean, now_ms, counts)["calls"]}
+    for d, i in published:
+        if d.get("call") != "PLAY":
+            continue
+        src = clean["predictions"][i]
+        if id(src) not in new:
+            continue
+        r, c = new[id(src)]
+        _, b = base[id(src)]
+        dc = desk_cost_for(r, r["pick"])
+        out.append({"game": r["game"], "pick": side_name(r, r["pick"]), "kickoff": r["utc"] or None,
+                    "model_p": r["prob"], "fair_edge_pp": c["edge"], "exec_cost": dc["cost"] if dc else None,
+                    "exec_edge_pp": exec_edge_pp(r, r["pick"], r["prob"]),
+                    "published_units": d.get("units"), "v11_units": b["units"], "addendum_units": c["units"],
+                    "addendum_call": c["call"],
+                    "verdict": ("halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
+                                else "raised")})
+    return out
 
 
 DESK_ENV = "SP_DESK_CALLS"          # "1" = emit; OFF until the parity receipt is ruled

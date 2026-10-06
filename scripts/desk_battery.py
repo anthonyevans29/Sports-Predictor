@@ -282,6 +282,11 @@ def golden_diffs(js_rows, py_rows):
 def check_against_golden(golden=None):
     """Every frozen JS output vs the Python Desk now. Returns
     [(label, n_rows, mismatch_lines)]."""
+    with dp.base_v11():          # the golden predates the #87 v1.1 addendum (tests/test_desk_exec_addendum.py)
+        return _check(golden)
+
+
+def _check(golden):
     g = golden or load_golden()
     out = []
     for sc in g["scenarios"]:

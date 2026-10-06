@@ -4584,6 +4584,36 @@ def desk_parlays_cmd(files, now_s, summary, out_path):
               f"straights {q['straight_units']:g}u · tickets touching {q['tickets_touching']}")
 
 
+@cli.command("desk-rescore")
+@click.argument("files", nargs=-1, required=True, type=click.Path(exists=True, dir_okay=False))
+def desk_rescore_cmd(files):
+    """#87 v1.1 receipt (ARCHITECT-RULE 2026-10-06): every PLAY in the given desk-annotated export files,
+    re-scored under the executable-edge addendum at the file's own as_of and counts — which would have been
+    halved (rule 3: full units only at exec edge >= 4pp). READ-ONLY: prints; writes nothing; no DB."""
+    import json as _json
+    import os
+    from src.walters import desk_policy as dp
+    n = halved = 0
+    for f in files:
+        doc = _json.load(open(f))
+        meta = doc.get("desk_meta") or {}
+        if not meta:
+            print(f"{os.path.basename(f)}: no desk_meta (not a desk-annotated export) — skipped")
+            continue
+        rows = dp.rescore(doc)
+        print(f"{os.path.basename(f)} · desk {meta.get('policy_version')} as of {meta.get('as_of')} · "
+              f"{len(rows)} PLAY(s)")
+        for x in rows:
+            n += 1
+            halved += x["verdict"] == "halved"
+            xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
+            xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
+            print(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {x['fair_edge_pp']:+.1f}pp · "
+                  f"exec {xe} ({xc}) · units published {x['published_units']} / v1.1 {x['v11_units']} → "
+                  f"addendum {x['addendum_units']} · {x['verdict'].upper()}")
+    print(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")
+
+
 @cli.command("export-nhl-predictions")
 @click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
 def export_nhl_predictions_cmd(hours):

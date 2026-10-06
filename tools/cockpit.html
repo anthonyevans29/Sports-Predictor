@@ -435,7 +435,13 @@ const VALUE={units:0.25,reviewN:30};
 // HOME is draw-or-away) and pre-#89 exports carry no away cost: that side and
 // DRAW still show "—" (never guessed).
 // ---------------------------------------------------------------------
-const K2={feeClearsPP:4,tick:0.01};
+const K2={feeClearsPP:4,tick:0.01,joinMinSpreadC:3};
+// #87 v1.1 ADDENDUM (ARCHITECT-RULE 2026-10-06, effective next slate) — supersedes the join-bid doctrine below:
+// cost = ask + taker fee (Kalshi ladders are 1c wide 85–99% of the time: the spread is not the cost, the fee
+// is); default execution TAKES at the ask, join-bid only at a spread >= 3c; exec edge = model p − cost, and a
+// PLAY gets full tier units only at exec edge >= 4pp (else HALF) — "fee-clears" is now a SIZING input, applied
+// by desk_policy.py; the venue engine also needs exec edge >= 4pp; parlay legs are priced at executable cost.
+// Files from the addendum carry desk.exec.doctrine ("take"/"join") and are rendered as such.
 // JOIN BID (architect 2026-09-29): the suggested resting LIMIT price = bid + 1¢,
 // the maker's side of the spread. When the spread is 1¢, bid + 1¢ is the ask,
 // so there is nothing to join: joining = taking (shown as such, never a price).
@@ -467,6 +473,10 @@ function kSide(r,side){
 }
 function joinBidFor(r,side){
   const k=kSide(r,side); if(!k||k.bid==null) return null;
+  // #87 v1.1: a resting bid only at a spread >= 3c (the ledger's kalshi_join_bid follows desk_policy.join_bid_for)
+  if(k.ask==null) return {price:null,note:"no ask — spread unknown, nothing to take or join"};
+  const sc=Math.round((k.ask-k.bid)*100);
+  if(sc<K2.joinMinSpreadC) return {price:null,note:`spread ${sc}¢ < ${K2.joinMinSpreadC}¢ — TAKE at the ask`};
   const j=Math.round((k.bid+K2.tick)*100)/100;
   if(k.ask!=null&&j>=k.ask-1e-9) return {price:null,note:"spread 1¢ — joining = taking"};
   return {price:j};
@@ -482,6 +492,13 @@ function execHTMLFrom(fx,modelP){
   const pp=v=>(v>=0?"+":"")+v.toFixed(1)+"pp";
   const jb=fx.join_price!=null?{price:fx.join_price}:fx.join_note!=null?{price:null,note:fx.join_note}:null;
   const t=fx.taker_cost, no=fx.no_side;
+  if(fx.doctrine){                                    // #87 v1.1 addendum file: TAKE (or join at >= 3c), sizing
+    const ok=e>=K2.feeClearsPP-1e-9;
+    return `<div class="note">exec ${pp(e)} @ ${fx.cost.toFixed(3)} ${fx.doctrine==="join"?"join "+jb.price.toFixed(2)
+      +" (spread ≥ 3¢)":"TAKE at the ask"}${no?" (NO side)":""} · ask + taker fee`
+      +` · <b class="${ok?"play":"caution"}">${ok?"exec ≥ 4pp: full units":"exec < 4pp: half units"}</b>`
+      +(fx.maker_cost!=null?` · maker ${fx.maker_cost.toFixed(3)} (reference)`:"")+`</div>`;
+  }
   const head=fx.basis==="maker"
     ?`exec ${pp(e)} @ ${fx.cost.toFixed(3)} maker (join ${jb&&jb.price!=null?jb.price.toFixed(2):"—"}${no?", NO side":""})`
     :`exec ${pp(e)} @ ${fx.cost.toFixed(3)} taker${no?" (NO side)":""}`+(jb&&jb.price==null?` (${jb.note})`
@@ -2019,7 +2036,8 @@ function parlaysFromFile(){
       &&(r.utc||null)===(l.kickoff||null)&&r.pick===l.pick));
     if(!legs.length||legs.some(x=>!x)){miss++;continue;}
     out.push({legs,sports:t.sports,pm:t.model_p,pk:t.market_p,edge:t.edge??t.edge_pp/100,bShadow:t.b_shadow||null,
-      orders:(t.legs||[]).map(l=>l.order||null)});
+      orders:(t.legs||[]).map(l=>l.order||null),pf:t.fair_p??null,basis:t.market_basis||null,label:t.label||null,
+      costs:(t.legs||[]).map(l=>l.exec_cost??null)});
   }
   const asof=(fileParlays.desk_meta||{}).as_of||"?";
   parlayNote=`tickets from desk_parlays (as of ${asof})`+(miss?` · ${miss} ticket(s) skipped: a leg's row is not in the loaded files`:"")
@@ -2056,11 +2074,15 @@ function renderParlays(ranked,card,out){
   if(!ranked.length){ card.hidden=!parlayNote; out.innerHTML=parlayNote?`<span class="note">${esc(parlayNote)}</span>`:""; return; }
   card.hidden=false;
   out.innerHTML=(parlayNote?`<div class="note">${esc(parlayNote)}</div>`:"")+ranked.map((t,i)=>{
-    const legs=t.legs.map((l,j)=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"})`
+    const legs=t.legs.map((l,j)=>`${esc(l.sport)}: ${esc(l.game)} — ${esc(l.pick)} @ ${l.prob.toFixed(3)} (mkt ${l.mkt!=null?l.mkt.toFixed(3):"—"}`
+      +((t.costs||[])[j]!=null?` · exec ${t.costs[j].toFixed(3)}`:"")+`)`
       +orderHTML((t.orders||[])[j])).join("<br>");
     return `<div style="margin-bottom:10px"><b>Ticket ${i+1}</b> · ${t.legs.length} legs · ${t.sports} sport(s) · 0.25u`
       +(t.bShadow?` · <span class="caution">B-track shadow: would be ${t.bShadow==="capped"?"exposure-capped":"deduped"} (not applied)</span>`:"")+`<br>${legs}<br>`
-      +`<span class="note">Π model ${t.pm.toFixed(3)} vs Π market ${t.pk.toFixed(3)} → combined edge ${(t.edge*100).toFixed(1)}pp · cross-game correlation screened (no shared teams)</span></div>`;
+      +`<span class="note">Π model ${t.pm.toFixed(3)} vs Π ${t.basis?"executable cost":"market"} ${t.pk.toFixed(3)}`
+      +(t.pf!=null?` (Π fair ${t.pf.toFixed(3)})`:"")
+      +` → combined edge ${(t.edge*100).toFixed(1)}pp · cross-game correlation screened (no shared teams)`
+      +(t.label?` · <b>${esc(t.label)}</b>`:"")+`</span></div>`;
   }).join("");
 }
 

@@ -1,0 +1,17 @@
+**2026-10-06 — RULED + BUILT (ARCHITECT-RULE): #87 executable edge, Desk v1.1 addendum (effective next slate).**
+- **Receipt that preceded the rule (ARCHITECT, verbatim):** "K-track receipt (ladders half) — 1c spreads 85–99%, venue 5pp gaps fee-clear 0/29 NFL · 0/32 NHL · 2/18 NCAA · 0/17 UNL. Finding: no prediction history is kept, so model-vs-cost can't be evaluated per capture (NFL 47/65 not evaluable)."
+- **Rule (verbatim):** "1. COST MODEL: Kalshi game ladders are 1c wide 85–99% of the time; the spread is not the cost, the fee is. Executable cost = ask + taker fee (0.07·M·P(1−P), nearest cent per fill). 2. DOCTRINE: default execution is TAKE at the ask. Join-bid only when the spread is >= 3c (rare); on 1–2c spreads a resting bid is adverse selection, not savings. The 2026-09-30 join-bid doctrine is superseded. 3. EXECUTABLE EDGE = model_p − executable cost. SIZING: a PLAY at full tier units only when executable edge >= 4pp; a PLAY whose fair edge clears 4pp but whose executable edge does not gets HALF units (the fee-clear marker becomes a sizing input, no longer informational). Quarantine, floors, tiers unchanged. 4. VENUE ENGINE: the 5pp fair threshold stands AND the executable edge must clear 4pp — 0/29, 0/32, 0/17 in the window says most venue calls will PASS; that is the honest state of the engine. 5. Kalshi-only reference unchanged. Parlays: ticket legs priced at executable cost; the independence-estimate label stands. 6. RECORD KEEPING: prediction_history lane (ruled) so model-vs-cost is evaluable per capture; Kalshi order ids require the order API — UNATTEMPTED/ATTEMPTED_UNFILLED stay UNKNOWN until then. Receipt for the ruling's effect: Sunday's four PLAYs re-scored under rule 3 (which would have been halved) before the slate."
+- **Built:** `src/walters/desk_policy.py` holds the policy. The Cockpit renders it and its ledger join bid follows rule 2. `desk-rescore` produces the effect receipt.
+  - Rule 6 is split out: prediction_history is #300 / #301, and the order-id limitation is #302.
+- **Conservative defaults, flagged for confirmation (not in the rule's text):**
+  - (a) A PLAY with NO executable quote gets half units. This includes soccer AWAY/DRAW picks whose leg ask was not captured.
+  - (b) A venue row with no executable quote is PASS with no reference.
+  - (c) A parlay ticket with an unpriced leg is not offered.
+  - (d) Half units compose with the kalshi-only 0.5× multiplier, so a kalshi-only PLAY failing exec plays 0.25u.
+  - (e) LADDERs are not resized (rule 3 says "a PLAY"; ladders are already half units).
+- **Receipts:**
+  - The golden holds unchanged under `base_v11()`.
+  - `tests/test_desk_exec_addendum.py` has 10 tests.
+  - All 23 Cockpit verifies pass, and the new addendum verify is 9/9.
+  - `pytest` shows 780 passed.
+- **Operator:** run `python cli.py desk-rescore <Sunday's desk exports>` on the laptop. That receipt goes to the architect before the slate.

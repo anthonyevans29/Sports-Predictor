@@ -55,8 +55,9 @@ def row(home, p, fair, comp="MLB"):
 def main():
     docs = {"mlb.json": {"sport": "mlb", "predictions": [row("Ahome", 0.62, 0.55), row("Bhome", 0.63, 0.55)]},
             "nfl.json": {"sport": "nfl", "predictions": [row("Chome", 0.64, 0.55, comp=None)]}}
-    ann = {n: dp.annotate(json.loads(json.dumps(d)), now=NOW) for n, d in docs.items()}
-    par = dp.parlays_doc(list(ann.items()), now=NOW)
+    with dp.base_v11():          # pre-addendum fixture: no exec quotes (#87 v1.1 prices legs at executable cost)
+        ann = {n: dp.annotate(json.loads(json.dumps(d)), now=NOW) for n, d in docs.items()}
+        par = dp.parlays_doc(list(ann.items()), now=NOW)
     b = par["b_track_shadow"]
     print(f"slate: straights {[p['desk']['units'] for d in ann.values() for p in d['predictions']]} · "
           f"tickets {len(par['tickets'])} · shadow capped {b['exposure_capped']} deduped {b['deduped']}")

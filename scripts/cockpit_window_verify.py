@@ -77,7 +77,8 @@ def main():
     from src.walters import desk_policy as dp
     now_ms = float((datetime.now(timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)) // timedelta(milliseconds=1))
     for r in CARD["fixtures"]:
-        r["desk_venue"] = dp.window_venue(r, now_ms)      # what window.py stamps (F1c)
+        with dp.base_v11():                                # pre-addendum fixture (#87 v1.1: no exec quotes)
+            r["desk_venue"] = dp.window_venue(r, now_ms)  # what window.py stamps (F1c)
     with open(card_path, "w") as f:
         json.dump(CARD, f)
     with open(bad_path, "w") as f:

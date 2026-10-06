@@ -117,6 +117,14 @@ def main():
         check("auto-claim logs the half-unit PLAY at 0.5u, join bid null on a 2c spread (TAKE)",
               g is not None and g["units"] == 0.5 and g.get("kalshi_join_bid") is None,
               json.dumps({k: g.get(k) for k in ("units", "kalshi_join_bid")} if g else None))
+        den_c = next((c for k, c in st.items() if "Denver" in k), None)
+        check("ledger join bid is the FILE's join price (copy-exact with the order): 0.56 on a 4c spread",
+              den_c is not None and den_c.get("kalshi_join_bid") == 0.56, json.dumps(den_c and den_c.get("kalshi_join_bid")))
+        legs = [c for c in led["calls"] if c.get("call_type") == "parlay_leg"]
+        check("parlay legs are logged at their executable cost (fair kept as fair_p), so tickets settle at it",
+              legs and all(c.get("price_basis", "").startswith("executable") and c["market_p"] != c.get("fair_p")
+                           for c in legs) and any(abs(c["market_p"] - 0.617) < 1e-9 for c in legs),
+              json.dumps([(c["game"], c["market_p"], c.get("fair_p")) for c in legs][:4]))
         ven = page.evaluate("""Array.from(document.querySelectorAll('#venueTable tbody tr'))
             .map(tr=>Array.from(tr.children).map(td=>td.textContent))""")
         bos = next(v for v in ven if "Boston" in v[0])

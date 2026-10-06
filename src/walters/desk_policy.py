@@ -357,8 +357,25 @@ def base_v11():
         EXEC_RULES["on"] = was
 
 
+def side_quotes(r, side):
+    """#87 v1.1: the quotes of the contract the order line BUYS for `side` — the side's own YES leg when its
+    ask is captured (kalshi_legs), else k_side (HOME YES / two-way NO side). One source for the doctrine, the
+    join price, the cost and the order (Codex on #303)."""
+    leg = (((r.get("src") or {}).get("kalshi_legs") or {}).get(side) or {})
+    if leg.get("ask") is not None:
+        return {"bid": leg.get("bid"), "ask": leg["ask"], "no": False}
+    return k_side(r, side)
+
+
+def join_price(bid, ask):
+    """#87 v1.1 join: bid + 1c, only when the spread is >= 3c (the order line and the exec block share it)."""
+    if bid is None or ask is None:
+        return None
+    return js_round((bid + K2["tick"]) * 100) / 100 if js_round((ask - bid) * 100) >= K2["joinMinSpreadC"] else None
+
+
 def join_bid_for(r, side):
-    k = k_side(r, side)
+    k = side_quotes(r, side) if EXEC_RULES["on"] else k_side(r, side)
     if not k or k["bid"] is None:
         return None
     if EXEC_RULES["on"]:
@@ -432,7 +449,8 @@ def exec_block(r, side, model_p):
     e = exec_edge_pp(r, side, model_p)
     out = {"edge_pp": e, "cost": dc["cost"] if dc else None, "basis": dc["basis"] if dc else None,
            "taker_cost": exec_cost_for(r, side), "join_price": (jb or {}).get("price"),
-           "join_note": (jb or {}).get("note"), "no_side": bool((k_side(r, side) or {}).get("no")),
+           "join_note": (jb or {}).get("note"),
+           "no_side": bool(((side_quotes(r, side) if EXEC_RULES["on"] else k_side(r, side)) or {}).get("no")),
            "fee_clears": exec_clears(e)}
     if EXEC_RULES["on"]:
         out["taker_cost"] = dc["cost"] if dc else None
@@ -927,8 +945,9 @@ def order_line(r, target: str | None, units, ladder: bool = False) -> dict | Non
             out["why"] = "no ask to take (doctrine: TAKE at the ask, #87 v1.1) — no limit written"
             return out
         sc = None if bid is None else js_round((ask - bid) * 100)
-        if sc is not None and sc >= K2["joinMinSpreadC"]:
-            limit, basis = bid, f"join bid (spread {sc}c >= {K2['joinMinSpreadC']}c)"
+        jp = join_price(bid, ask)
+        if jp is not None:                    # the same price the exec block reports (Codex on #303)
+            limit, basis = jp, f"join bid + 1c (spread {sc}c >= {K2['joinMinSpreadC']}c)"
         else:
             limit, basis = ask, "take at the ask" + (f" (spread {sc}c)" if sc is not None else " (no bid)")
     elif bid is None:

@@ -904,10 +904,13 @@ function snapshotCalls(now,opts){
       const lad=x.call==="LADDER";
       const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
       const kp=lad?(r.fairAll[r.pick]??0)+(r.fairAll.DRAW??0):(x.mktRef??r.mkt);
+      // #87 v1.1 files: the ledger records the FILE's executable cost and join price (copy-exact with its order)
+      const fx=r.fileDesk&&r.fileDesk.exec, addn=!!(fx&&fx.doctrine);
       add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:lad?"ladder":"straight",units:x.units,model_p:mp,market_p:kp,
-        kalshi_exec_cost:lad?null:execCostFor(r,r.pick),kalshi_exec_cost_maker:lad?null:makerCostFor(r,r.pick),
-        kalshi_join_bid:lad?null:((joinBidFor(r,r.pick)||{}).price??null),
+        kalshi_exec_cost:lad?null:(addn?fx.cost??null:execCostFor(r,r.pick)),
+        kalshi_exec_cost_maker:lad?null:(addn?fx.maker_cost??null:makerCostFor(r,r.pick)),
+        kalshi_join_bid:lad?null:(addn?fx.join_price??null:((joinBidFor(r,r.pick)||{}).price??null)),
         venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",rules:x.tags});
     } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
       add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
@@ -933,9 +936,12 @@ function snapshotCalls(now,opts){
     const tclk=auto?asOfMs(tr):now, td=auto?localDate(new Date(tclk)):d;
     if(t.legs.some(l=>kickedOff(l,tclk))){lastCapture.started++;continue;}   // whole ticket or nothing
     const pid="P-"+td+"-"+t.legs.map(l=>`${l.sport}:${l.away}@${l.home}:${l.pick}`).sort().join("+");
-    for(const l of t.legs){
+    for(const [j,l] of t.legs.entries()){
+      // #87 v1.1: a ticket priced at executable cost settles at it (Codex on #303); fair rides along
+      const xc=(t.costs||[])[j];
       add(tr,{...baseCall(l,td),pick:l.pick,tier:"parlay",engine:"model_edge",
-        call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:l.mkt,
+        call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:xc!=null?xc:l.mkt,
+        ...(xc!=null?{fair_p:l.mkt,price_basis:"executable (ask + taker fee)"}:{}),
         venue_hint:"books",rules:["parlay 0.25u"],...(t.bShadow?{b_shadow_cut:t.bShadow}:{})});
     }
   }

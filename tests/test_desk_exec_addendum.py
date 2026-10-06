@@ -92,7 +92,7 @@ def test_take_is_the_doctrine_and_join_only_at_three_cents():
     assert (o["limit"], o["limit_basis"], o["text"]) == (0.55, "take at the ask (spread 2c)",
                                                          "BUY YES KXNFLGAME-26OCT11AKC-KC @ 0.55 × 10")
     o = dp.order_line({"src": {"kalshi_legs": legs(0.50, 0.55)}, "threeWay": False}, "HOME", 1)
-    assert (o["limit"], o["limit_basis"]) == (0.50, "join bid (spread 5c >= 3c)")
+    assert (o["limit"], o["limit_basis"]) == (0.51, "join bid + 1c (spread 5c >= 3c)")
     o = dp.order_line({"src": {"kalshi_legs": legs(0.50, None)}, "threeWay": False}, "HOME", 1)
     assert o["text"] is None and "no ask to take" in o["why"]
 
@@ -177,3 +177,17 @@ def test_desk_rescore_reports_which_published_plays_would_have_been_halved(tmp_p
     res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p)])
     assert res.exit_code == 0, res.output
     assert "2 PLAY(s) re-scored · 1 would have been halved" in res.output and "HALVED" in res.output
+
+
+def test_doctrine_join_price_and_order_share_one_source_for_three_way_legs():
+    """Codex on #303: a three-way AWAY/DRAW pick priced from its own leg showed doctrine "take" while the order
+    joined; and the join price (bid + 1c) differed from the order's limit (bid). One source now."""
+    row = {"home_team": "Everton", "away_team": "Fulham", "utc_date": ko(), "competition": "PL", "stage": "regular",
+           "prediction": {"probabilities": {"home_win": 0.30, "draw": 0.25, "away_win": 0.45}, "tier": "lean"},
+           "market": {"bookmaker_count": 9, "fair_prob": {"HOME": 0.40, "DRAW": 0.27, "AWAY": 0.33}},
+           "kalshi_legs": {"AWAY": {"ticker": "KXEPLGAME-X-FUL", "bid": 0.30, "ask": 0.34}}}
+    n = dp.normalize({"sport": "soccer", "predictions": [row]})[0]
+    blk = dp.exec_block(n, "AWAY", 0.45)
+    o = dp.order_line(n, "AWAY", 1)
+    assert blk["doctrine"] == "join" and blk["join_price"] == 0.31 == o["limit"]
+    assert o["text"].startswith("BUY YES KXEPLGAME-X-FUL @ 0.31")

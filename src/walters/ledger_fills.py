@@ -193,8 +193,11 @@ def side_fields(p: dict, title, side) -> dict:
 
 
 def _codes_fit(T: str, c: dict) -> bool:
+    """Both codes fit and at least ONE strongly (initials or name prefix): two weak two-letter-initials fits
+    are a same-city collision (NYG ~ NY Jets, LAR ~ LA Chargers), never identity (Codex post-merge on #297)."""
     for i in range(2, min(4, len(T) - 2) + 1):
-        if code_fits(T[:i], c.get("away")) > 0 and code_fits(T[i:], c.get("home")) > 0:
+        a, h = code_fits(T[:i], c.get("away")), code_fits(T[i:], c.get("home"))
+        if a > 0 and h > 0 and max(a, h) >= 2:
             return True
     return False
 
@@ -223,6 +226,9 @@ def game_fits(fx: dict, g: dict) -> bool:
     if fx.get("teams"):
         return _codes_fit(fx["teams"], g) or _title_fits_strict(fx.get("teams_title"), g)
     tt = fx.get("teams_title")
+    if tt and len(tt) == 2:          # one-to-one: two DIFFERENT sides (Codex post-merge on #297)
+        return ((same_team(tt[0], g.get("home")) and same_team(tt[1], g.get("away")))
+                or (same_team(tt[0], g.get("away")) and same_team(tt[1], g.get("home"))))
     return bool(tt) and all(same_team(t, g.get("home")) or same_team(t, g.get("away")) for t in tt)
 
 

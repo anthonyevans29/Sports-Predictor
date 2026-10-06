@@ -1690,8 +1690,12 @@ function resolveSide(p,title,side){
   return r;
 }
 function codesFit(T,c){                             // the ticker's {AWAY}{HOME} block fits this game
-  for(let i=2;i<=Math.min(4,T.length-2);i++)
-    if(codeFits(T.slice(0,i),c.away)>0&&codeFits(T.slice(i),c.home)>0) return true;
+  // Codex (post-merge on #297): both codes must fit and at least ONE strongly (initials or name prefix). Two
+  // weak two-letter-initials fits are a same-city collision (NYG ~ NY Jets, LAR ~ LA Chargers), never identity.
+  for(let i=2;i<=Math.min(4,T.length-2);i++){
+    const a=codeFits(T.slice(0,i),c.away), h=codeFits(T.slice(i),c.home);
+    if(a>0&&h>0&&Math.max(a,h)>=2) return true;
+  }
   return false;
 }
 function tokOverlap(a,b){const A=new Set(normTeam(a).split(" ").filter(Boolean)), B=normTeam(b).split(" ").filter(Boolean);
@@ -1714,7 +1718,10 @@ function gameFits(fx,g){
   // shared word ("United", "City") is never team identity, and a standard non-prefix code (JAX, BHA) still
   // matches through the title. Tickers without codes keep the original title rule.
   if(fx.teams) return codesFit(fx.teams,g)||titleFitsStrict(fx.teams_title,g);
-  return !!fx.teams_title&&fx.teams_title.every(t=>sameTeam(t,g.home)||sameTeam(t,g.away));
+  // no codes (legacy titles): the two title teams fit two DIFFERENT sides (one-to-one, Codex post-merge on #297)
+  const tt=fx.teams_title;
+  if(tt&&tt.length===2) return (sameTeam(tt[0],g.home)&&sameTeam(tt[1],g.away))||(sameTeam(tt[0],g.away)&&sameTeam(tt[1],g.home));
+  return !!tt&&tt.every(t=>sameTeam(t,g.home)||sameTeam(t,g.away));
 }
 // THE FUN BOOK (architect 2026-09-30): non-sport markets, MVE combos, and
 // singles in the market-only families that carry no system call (NHL, UNL).

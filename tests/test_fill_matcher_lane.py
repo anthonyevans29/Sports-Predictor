@@ -131,3 +131,16 @@ def test_the_timed_game_is_resolved_before_its_pick_is_checked():
          "fills": [_fill("a", "KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", "Boston wins — New York Y")]}
     f = P.classify_fills(L)[0]
     assert f["book"] == "off_book_sports" and f.get("call_id") is None and "disagrees" in f["category"]
+
+
+def test_same_city_codes_never_stand_for_a_different_game():
+    """Codex (post-merge on #297): a Giants–Rams fill must not fit a same-day Jets–Chargers call. NYG ~ "New York
+    Jets" and LAR ~ "Los Angeles Chargers" each fit only by two-letter initials (weak); KC's weak fit still
+    counts when the other code fits strongly."""
+    jets = _call("nyj", "Los Angeles Chargers", "New York Jets", "AWAY", "2026-10-11T17:00:00", sport="NFL")
+    f = P.classify_fills({"calls": [jets], "fills": [
+        _fill("g", "KXNFLGAME-26OCT11NYGLAR-NYG", "yes", "New York G wins — Los Angeles R")]})[0]
+    assert f.get("call_id") is None and f["category"] == "no logged call for this game"
+    kc = _call("kc", "Kansas City Chiefs", "Buffalo Bills", "HOME", "2026-10-11T17:00:00", sport="NFL")
+    assert P.classify_fills({"calls": [kc], "fills": [
+        _fill("k", "KXNFLGAME-26OCT11BUFKC-KC", "yes", "Kansas City wins — Buffalo")]})[0]["call_id"] == "kc"

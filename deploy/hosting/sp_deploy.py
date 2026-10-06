@@ -217,6 +217,16 @@ def migration_plan(before: str, after: str, changed: list[str]) -> dict:
         elif rc != 0:
             raise SystemExit(f"✗ ancestry check {ha}..{hb} failed ({err or f'git exit {rc}'}) — "
                              "refusing to plan migrations.")
+    # a migration RENAMED from another migration inside the range (migrate_temp.py -> migrate_x.py) carries the
+    # source's age, not the rename commit's: its order is not the rename's, so it is undetermined (sweep, Codex
+    # post-merge on #304)
+    rc, rout, err = _git_rc("log", "-M", "--diff-filter=R", "--name-status", "--format=", f"{before}..{after}")
+    if rc != 0:
+        raise SystemExit(f"✗ git log {before}..{after} failed ({err}) — refusing to plan migrations.")
+    for ln in rout.splitlines():
+        parts = ln.split("\t")
+        if len(parts) == 3 and parts[0].startswith("R") and MIGRATION_NAME.match(parts[1]) and parts[2] in new:
+            ambiguous.add(parts[2])
     unplaced = sorted(new - set(ordered) - ambiguous)
     undetermined = sorted(together | unchained | ambiguous | set(unplaced))
     return {"forward": True, "run": [] if undetermined else ordered, "undetermined": undetermined,

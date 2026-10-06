@@ -2112,3 +2112,34 @@ def test_codex_on_304_round_6_a_rename_into_a_migration_name_is_an_addition(sand
     monkeypatch.setattr(c, "REPO", repo)
     plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
     assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]
+
+
+def test_sweep_a_migration_renamed_from_an_in_range_migration_is_undetermined(sandbox, monkeypatch):
+    """Sweep (Codex post-merge on #304, reproduced on main: run [y, x]): migrate_temp added, then migrate_y, then
+    migrate_temp RENAMED to migrate_x. --no-renames placed x at the rename commit, after y, reversing their real
+    order. A migration renamed from an in-range migration keeps the source's age: undetermined, nothing runs."""
+    import subprocess
+
+    import sp_deploy
+    repo = sandbox / "g9"
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g("init", "-q", "-b", "main")
+    (repo / "r.txt").write_text("r")
+    g("add", "-A")
+    g("commit", "-q", "-m", "base")
+    base = g("rev-parse", "HEAD")
+    (repo / "migrate_temp.py").write_text("print('the first migration body, long enough for rename detection')\n" * 5)
+    g("add", "-A")
+    g("commit", "-q", "-m", "temp")
+    (repo / "migrate_y.py").write_text("y = 1\n")
+    g("add", "-A")
+    g("commit", "-q", "-m", "y")
+    g("mv", "migrate_temp.py", "migrate_x.py")
+    g("commit", "-q", "-m", "rename temp -> x")
+    monkeypatch.setattr(c, "REPO", repo)
+    plan = sp_deploy.migration_plan(base, g("rev-parse", "HEAD"), ["migrate_x.py", "migrate_y.py"])
+    assert plan["run"] == [] and "migrate_x.py" in plan["undetermined"]

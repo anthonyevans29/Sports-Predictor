@@ -1,4 +1,4 @@
-## 2026-10-06 (#0000: desk-started-pass — ARCHITECT, gate-class)
+## 2026-10-06 (#314: desk-started-pass — ARCHITECT, gate-class)
 - Desk: a model-sport row whose kickoff is at or before desk `as_of` is now PASS, units 0, `pass_kind` "started", reason "started - never a new call" (#313).
   - It carries no order, no value shadow and no exec block, and it is never a parlay leg.
   - An unknown kickoff is unchanged.

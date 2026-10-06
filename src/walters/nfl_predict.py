@@ -382,7 +382,7 @@ def value_side_grade(p_home: float, anchor_home: float | None, close_home: float
             "shadow": (v_home != (p_home >= 0.5)) and abs(edge_home) * 100 >= VALUE_FLOOR_PP}
 
 
-def grade_nfl(days_back: int | None = 8, progress=None) -> dict:
+def grade_nfl(days_back: int | None = None, progress=None) -> dict:
     """
     NFL grading (2026-09-14, built for Week 1's first read): joins
     predictions vs finished games and the latest banked book consensus.
@@ -393,8 +393,9 @@ def grade_nfl(days_back: int | None = 8, progress=None) -> dict:
     NFL section and the season-to-date results file state the record the same
     way — live_since onward, a tie is a PUSH outside the hit denominator, and
     pre-live rows sit under their own heading, never pooled. Log-loss keeps
-    the frozen gate's convention (tie = home loss). `days_back=None` reads the
-    season to date (the latest season holding a finished predicted game).
+    the frozen gate's convention (tie = home loss). The default (`days_back=None`)
+    reads the season to date (the latest season holding a finished predicted
+    game); `days_back=N` is the rolling read (`nfl-grade --days N`).
     """
     from datetime import datetime, timedelta
     import math

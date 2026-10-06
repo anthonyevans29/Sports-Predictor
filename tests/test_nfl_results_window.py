@@ -230,3 +230,19 @@ def test_nfl_grade_and_results_md_state_the_one_record_definition(tmp_path):
         with session_scope() as s:
             s.query(Prediction).filter(Prediction.match_id.in_(ids)).delete(synchronize_session=False)
             s.query(Match).filter(Match.id.in_(ids)).delete(synchronize_session=False)
+
+
+def test_nfl_grade_cli_defaults_to_the_season_record(monkeypatch):
+    """Codex on #293 (P1, verified): the nfl-grade CLI called grade_nfl() with its 8-day default, so the command
+    reported a rolling subset while RESULTS.md stated the season record. The default is now the season to date;
+    --days N keeps the rolling read."""
+    from click.testing import CliRunner
+
+    import cli
+    from src.walters import nfl_predict
+    seen = []
+    monkeypatch.setattr(nfl_predict, "grade_nfl", lambda days_back=None, progress=None: seen.append(days_back) or
+                        {"ok": False, "reason": "stub"})
+    assert CliRunner().invoke(cli.cli, ["nfl-grade"]).exit_code == 0
+    assert CliRunner().invoke(cli.cli, ["nfl-grade", "--days", "8"]).exit_code == 0
+    assert seen == [None, 8]

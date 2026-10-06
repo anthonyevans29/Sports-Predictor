@@ -1598,7 +1598,23 @@ function parseTicker(t){
   const m=t.match(/^KX([A-Z]+?)GAME-(\d{2})([A-Z]{3})(\d{2})(\d{4})?([A-Z0-9]+)-([A-Z0-9]+)$/);
   if(!m||!FAMILY_SPORTS[m[1]]||!MONTHS[m[3]]) return {kind:"non_sport",category:"non-sport / unrecognised market"};
   const date=`20${m[2]}-${String(MONTHS[m[3]]).padStart(2,"0")}-${m[4]}`;
-  return {kind:"sport",family:m[1],sports:FAMILY_SPORTS[m[1]],date,teams:m[6],sideCode:m[7]};
+  return {kind:"sport",family:m[1],sports:FAMILY_SPORTS[m[1]],date,teams:m[6],sideCode:m[7],
+          start:m[5]?etToUtcIso(+`20${m[2]}`,MONTHS[m[3]],+m[4],+m[5].slice(0,2),+m[5].slice(2)):null};
+}
+// FILL MATCHER LANE (ARCHITECT 2026-10-06): the ticker's optional HHMM is the scheduled start in US
+// Eastern time (KalshiAdapter.ticker_start, M13: KXMLBGAME-26OCT012000PHIATL-PHI = 2026-10-02 00:00Z).
+// It tells an MLB doubleheader's two games apart. ET -> UTC through Intl (DST-correct), never a fixed offset.
+function etOffsetMs(utcMs){
+  const parts=Object.fromEntries(new Intl.DateTimeFormat("en-US",{timeZone:"America/New_York",hourCycle:"h23",
+    year:"numeric",month:"2-digit",day:"2-digit",hour:"2-digit",minute:"2-digit",second:"2-digit"})
+    .formatToParts(new Date(utcMs)).map(x=>[x.type,x.value]));
+  return Date.UTC(+parts.year,+parts.month-1,+parts.day,+parts.hour,+parts.minute,+parts.second)-utcMs;
+}
+function etToUtcIso(y,mo,d,hh,mm){
+  if(!(hh<24&&mm<60)) return null;
+  const wall=Date.UTC(y,mo-1,d,hh,mm);
+  let t=wall-etOffsetMs(wall); t=wall-etOffsetMs(t);
+  return new Date(t).toISOString().slice(0,19);                       // naive UTC, like the calls' kickoff
 }
 // SIDE RESOLUTION (architect 2026-09-30; 33 fills were "side not resolvable
 // (title not 'A vs B')"). Kalshi's game grammar: ticker
@@ -1661,58 +1677,162 @@ function resolveSide(p,title,side){
   }
   if(!r.role&&!r.backed){ r.why=`side ${p.sideCode||"?"} not resolvable from the ticker or the title`; return r; }
   if(no){
-    if(r.role==="DRAW"||r.backed==="Draw") return {...r,role:null,backed:null,why:"NO on the tie leg (not a single outcome)"};
+    if(r.role==="DRAW"||r.backed==="Draw"){
+      // NO on the TIE of a three-way market is HOME-or-AWAY: composite too (Codex on #299)
+      if(THREE_WAY_FAMILIES.has(p.family))
+        return {...r,role:null,backed:null,noOn:"Draw",noRole:"DRAW",composite:true,
+                why:"NO on the draw in a three-way market (composite: two outcomes)"};
+      return {...r,role:null,backed:null,why:"NO on the tie leg (not a single outcome)"};
+    }
+    // THREE-WAY NO = COMPOSITE (ARCHITECT 2026-10-06): NO on HOME is DRAW-or-AWAY, two outcomes, never a
+    // single-side straight. The held contract stays known (noOn/noRole) for its closing fair.
+    if(THREE_WAY_FAMILIES.has(p.family)&&(r.role==="HOME"||r.role==="AWAY"))
+      return {...r,role:null,backed:null,noOn:r.backed||r.role,noRole:r.role,composite:true,
+              why:`NO on ${r.backed||r.role} in a three-way market (composite: two outcomes)`};
     const flip={HOME:"AWAY",AWAY:"HOME"}[r.role]||null;
     const other=r.backed&&r.teams?(sameTeam(r.backed,r.teams[0])?r.teams[1]:r.teams[0]):null;
     return {...r,role:flip,backed:other,noOn:r.backed||r.role,noRole:r.role||null,why:"NO on "+(r.backed||r.role)};
   }
   return r;
 }
-function codesFit(T,c){                             // the ticker's {AWAY}{HOME} block fits this game
-  for(let i=2;i<=Math.min(4,T.length-2);i++)
-    if(codeFits(T.slice(0,i),c.away)>0&&codeFits(T.slice(i),c.home)>0) return true;
+// The title's teams BOUND TO SIDES (Codex on #299): "X wins — Y" puts X on the contract's (ticker) side and Y on
+// the other; the legacy "A vs B Winner?" grammar is AWAY vs HOME (BUFKC = "Buffalo vs Kansas City"). null = none.
+function titleBySide(fx){
+  const tp=titleParse(fx.title); if(!tp||!tp.teams||tp.teams.length!==2) return null;
+  const role=fx.no_on_role||fx.backed_role;
+  if(tp.backed&&tp.backed!=="Draw"){
+    if(role!=="HOME"&&role!=="AWAY") return null;
+    const other=tp.teams[0]===tp.backed?tp.teams[1]:tp.teams[0];
+    return role==="HOME"?{home:tp.backed,away:other}:{away:tp.backed,home:other};
+  }
+  if(!tp.backed) return {away:tp.teams[0],home:tp.teams[1]};
+  return null;
+}
+function codesFit(T,c,tt,bySide){                   // the ticker's {AWAY}{HOME} block fits this game
+  // Both codes must fit. A WEAK fit (two-letter initials only) is a same-city collision unless a title team
+  // confirms that side word by word (each title word a prefix of a name word): NYG ~ "New York Jets" is
+  // rejected by "New York G", while KC ~ "Kansas City" and MCI ~ "Man City" are confirmed (Codex on #297/#299).
+  // the WHOLE code prefixing the initials (KC ~ "kcc", SF ~ "sf4") is identity; only a two-letter-prefix-only fit
+  // (NYG ~ "nyj") is weak
+  const ini=n=>normTeam(n).split(" ").filter(Boolean).map(x=>x[0]).join("");
+  // a weak code is confirmed only by the title team on the SAME side (never by the opposite team)
+  const ok=(sc,code,name,side)=>sc>=2||(sc===1&&(ini(name).startsWith(code.toLowerCase())
+    ||(!!bySide&&!!bySide[side]&&tokPrefixSubset(bySide[side],name))));
+  for(let i=2;i<=Math.min(4,T.length-2);i++){
+    const a=codeFits(T.slice(0,i),c.away), h=codeFits(T.slice(i),c.home);
+    if(ok(a,T.slice(0,i),c.away,"away")&&ok(h,T.slice(i),c.home,"home")) return true;
+  }
   return false;
+}
+function tokPrefixSubset(a,b){                      // every word of a is a prefix of some word of b
+  const A=normTeam(a).split(" ").filter(Boolean), B=normTeam(b).split(" ").filter(Boolean);
+  return A.length>0&&B.length>0&&A.every(w=>B.some(x=>x.startsWith(w)));
 }
 function tokOverlap(a,b){const A=new Set(normTeam(a).split(" ").filter(Boolean)), B=normTeam(b).split(" ").filter(Boolean);
   return B.filter(x=>A.has(x)).length;}
 function sameTeam(a,b){ if(!a||!b) return false; if(a==="Draw"||b==="Draw") return a===b;
   return tokOverlap(a,b)>0; }
-function gameFits(fx,g){
-  if(fx.teams_title&&fx.teams_title.every(t=>sameTeam(t,g.home)||sameTeam(t,g.away))) return true;
-  return !!fx.teams&&codesFit(fx.teams,g);
+function tokSubset(a,b){                           // every word of the shorter name is in the longer
+  const A=normTeam(a).split(" ").filter(Boolean), B=normTeam(b).split(" ").filter(Boolean);
+  if(!A.length||!B.length) return false;
+  const [x,y]=A.length<=B.length?[A,new Set(B)]:[B,new Set(A)];
+  return x.every(w=>y.has(w));
 }
-function backedIn(fx,g){                            // the fill's backed side, named in this game
-  if(fx.backed_role==="HOME") return g.home;
-  if(fx.backed_role==="AWAY") return g.away;
-  if(fx.backed_role==="DRAW") return "Draw";
-  return fx.backed;
+function titleFitsStrict(tt,g){                     // two title teams on two DIFFERENT sides, whole-word subsets
+  if(!tt||tt.length!==2) return false;
+  const f=(t,n)=>tokSubset(t,n);
+  return (f(tt[0],g.home)&&f(tt[1],g.away))||(f(tt[0],g.away)&&f(tt[1],g.home));
+}
+function contractOriented(fx,g){
+  // Codex on #299: the title fallback is unordered, so it must also hold the CONTRACT's team (the title's
+  // "X wins" team, else the code-resolved name) on the ticker's side of THIS call; a reversed home/away call
+  // never fits. A tie contract has no side. Unknown name = cannot orient = no fit (conservative).
+  const role=fx.no_on_role||fx.backed_role;
+  if(role!=="HOME"&&role!=="AWAY") return true;
+  const tp=titleParse(fx.title);
+  const name=tp&&tp.backed&&tp.backed!=="Draw"?tp.backed:(fx.no_on_role?fx.no_on:fx.backed);
+  if(name&&name!=="HOME"&&name!=="AWAY"&&tokSubset(name,role==="HOME"?g.home:g.away)) return true;
+  // a legacy "A vs B" title is AWAY vs HOME: both teams on their own sides orients it (two non-prefix codes too)
+  const bs=titleBySide(fx);
+  if(bs&&!(titleParse(fx.title)||{}).backed&&tokSubset(bs.away,g.away)&&tokSubset(bs.home,g.home)) return true;
+  // no usable name (legacy "A vs B Winner?" titles): the OTHER code fits the call's opposite side strongly
+  const codes=tickerRole(fx).codes, opp=role==="HOME"?"away":"home";
+  return !!codes&&codeFits(codes[opp],g[opp])>=2;
+}
+function gameFits(fx,g){
+  // FILL MATCHER LANE (Codex on #299): with ticker codes, the codes fit OR a strict two-team title fit. One
+  // shared word ("United", "City") is never team identity, and a standard non-prefix code (JAX, BHA) still
+  // matches through the title. Tickers without codes keep the original title rule.
+  if(fx.teams) return codesFit(fx.teams,g,fx.teams_title,titleBySide(fx))||(titleFitsStrict(fx.teams_title,g)&&contractOriented(fx,g));
+  // no codes (legacy titles): the two title teams fit two DIFFERENT sides (one-to-one, Codex post-merge on #297)
+  const tt=fx.teams_title;
+  if(tt&&tt.length===2) return (sameTeam(tt[0],g.home)&&sameTeam(tt[1],g.away))||(sameTeam(tt[0],g.away)&&sameTeam(tt[1],g.home));
+  return !!tt&&tt.every(t=>sameTeam(t,g.home)||sameTeam(t,g.away));
 }
 // THE FUN BOOK (architect 2026-09-30): non-sport markets, MVE combos, and
 // singles in the market-only families that carry no system call (NHL, UNL).
 // Its own line; the "off-book other" label is retired.
 const FUN_SPORTS=new Set(["NHL","UNL"]);
+function startNearest(fx,cands){
+  const t0=fx.start?Date.parse(fx.start+"Z"):NaN;
+  if(!isFinite(t0)) return cands;
+  const iso=v=>{const x=String(v||""); return /([zZ]|[+-]\d\d:?\d\d)$/.test(x)?x:x+"Z";};
+  const d=c=>{const k=c.kickoff?Date.parse(iso(c.kickoff)):NaN; return isFinite(k)?Math.abs(k-t0):Infinity;};
+  const within=cands.filter(c=>d(c)<=3*3600000);
+  if(!within.length) return cands;
+  // Codex on #299: resolve the GAME first (the nearest start; ties stay together, so an indistinguishable
+  // pair is still flagged ambiguous), and only then test the pick, so a disagreeing exact-time game never
+  // hands the fill to a later one
+  const m=Math.min(...within.map(d));
+  return within.filter(c=>d(c)===m);
+}
 function matchFill(fx,calls,picks){
   if(fx.kind!=="sport") return {book:"fun",category:fx.category};
   const near=g=>fx.sports.includes(g.sport)&&dayDiff((g.kickoff||g.log_date||g.date||"").slice(0,10),fx.date)<=1;
   const cands=calls.filter(c=>c.call_type!=="parlay_leg"&&near(c)&&gameFits(fx,c));
   if(!cands.length&&fx.sports.some(x=>FUN_SPORTS.has(x)))
     return {book:"fun",category:`${fx.sports.find(x=>FUN_SPORTS.has(x))} single (market-only, no system call)`};
+  if(fx.composite){
+    // A LADDER is executed as NO on the other side (desk order line: an AWAY ladder = NO on HOME = X2), so a
+    // composite NO matches a real ladder call whose pick is the opposite side, and never a straight.
+    const opp={HOME:"AWAY",AWAY:"HOME"}[fx.no_on_role];
+    const lad=startNearest(fx,cands).filter(c=>c.call_type==="ladder"&&c.pick===opp&&(c.units||0)>0);
+    if(lad.length){ const c=lad[0];
+      return {book:"system_matched",category:`${c.engine} · ${c.tier} (ladder: NO on ${fx.no_on})`,engine:c.engine,
+              tier:c.tier,call_id:c.id,...(lad.length>1?{ambiguous_calls:lad.map(x=>x.id)}:{})}; }
+    return {book:"off_book_sports",category:"composite contract ("+(fx.resolve_note||"three-way NO")+") — never a straight",plausible:true};
+  }
   if(!fx.backed&&!fx.backed_role)
     return {book:"off_book_sports",category:"side not resolvable ("+(fx.resolve_note||"?")+")",plausible:true};
   const pickName=c=>c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:"Draw";
+  // SIDE AGREEMENT (ARCHITECT 2026-10-06, matcher bug): the TICKER SUFFIX names the side, so a resolved role
+  // is compared to the call's pick exactly. KXNFLGAME-26OCT04GBTB-GB (AWAY, Green Bay) once "agreed" with a
+  // HOME (Tampa Bay) pick because the names share "Bay". Without a role, whole-name subsets only.
+  const sideAgrees=g=>{
+    if(fx.backed_role) return fx.backed_role===g.pick;
+    const b=fx.backed, p=pickName(g); if(!b||!p) return false;
+    if(b==="Draw"||p==="Draw") return b===p;
+    return tokSubset(b,p);
+  };
   if(!cands.length){
     // PRE-LEDGER ERA (architect 2026-09-30): no logged call, but a STORED
     // PREDICTION for the game -> the fourth book, "system-pick, unlogged".
     const ps=(picks||[]).filter(g=>near(g)&&gameFits(fx,g));
     if(!ps.length) return {book:"off_book_sports",category:"no logged call for this game"};
-    const agree=ps.filter(g=>sameTeam(backedIn(fx,g),pickName(g)));
+    const agree=ps.filter(sideAgrees);
     if(agree.length) return {book:"system_pick_unlogged",category:`system-pick, unlogged (${agree[0].source})`};
     return {book:"off_book_sports",category:"stored prediction exists but the side disagrees",plausible:true};
   }
-  const agree=cands.filter(c=>sameTeam(backedIn(fx,c),pickName(c)));
+  // DOUBLEHEADER (ARCHITECT 2026-10-06): with the ticker's start time, candidates order by |kickoff − start|
+  // and those more than 3h off drop out when any is within 3h; no time (or no kickoff) keeps the old order.
+  const near3h=startNearest(fx,cands);
+  const agree=near3h.filter(sideAgrees);
   const real=agree.filter(c=>c.call_type!=="quarantine_shadow"&&(c.units||0)>0);
+  // several real calls still tied (e.g. an untimed doubleheader): the first is taken, the tie is FLAGGED with
+  // every candidate (parity with the receipt port, Codex on #299)
   if(real.length){ const c=real[0];
-    return {book:"system_matched",category:`${c.engine} · ${c.tier}`,engine:c.engine,tier:c.tier,call_id:c.id}; }
+    return {book:"system_matched",category:`${c.engine} · ${c.tier}`,engine:c.engine,tier:c.tier,call_id:c.id,
+            ...(real.length>1?{ambiguous_calls:real.map(x=>x.id)}:{})}; }
   if(agree.length) return {book:"off_book_sports",category:"matches a quarantine SHADOW (off-policy play)",plausible:true};
   return {book:"off_book_sports",category:"logged call exists but the side disagrees",plausible:true};
 }
@@ -1744,7 +1864,8 @@ function deskPicks(){                               // the currently loaded pred
 function sideFields(p,title,side){
   const r=resolveSide(p,title,side);
   return {backed:r.backed,backed_role:r.role,teams_title:r.teams||null,resolve_note:r.why||null,resolved_via:r.via,
-          no_on:r.noOn||null,no_on_role:r.noRole||null};          // the HELD contract (#208 v2)
+          no_on:r.noOn||null,no_on_role:r.noRole||null,          // the HELD contract (#208 v2)
+          composite:!!r.composite};
 }
 function importKalshiCSV(text,L){
   const rows=parseCSV(text); if(rows.length<2) throw new Error("no data rows");
@@ -1809,7 +1930,8 @@ function mveClass(fx,calls){
 function classifyFills(L){
   const calls=L.calls||[], picks=(L.system_picks||[]).concat(deskPicks());
   return (L.fills||[]).map(f=>{
-    const fx=f.kind==="sport"?{...f,...sideFields(f,f.title,f.side)}:f;   // re-derived: old imports re-classify
+    const g=f.ticker?{...f,...parseTicker(f.ticker)}:f;                    // ticker re-parsed: old imports gain `start`
+    const fx=g.kind==="sport"?{...g,...sideFields(g,g.title,g.side)}:g;   // re-derived: old imports re-classify
     return {...fx,...(fx.kind==="parlay"?mveClass(fx,calls):matchFill(fx,calls,picks)),...fillFeeClass(fx)};});
 }
 // MAKER / TAKER PER FILL (#93 ruling (3), architect 2026-09-30): the CSV's fee

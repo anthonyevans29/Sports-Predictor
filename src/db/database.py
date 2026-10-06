@@ -14,6 +14,7 @@ from pathlib import Path
 from typing import Generator
 
 from sqlalchemy import create_engine
+from sqlalchemy.event import listens_for as _listens_for
 from sqlalchemy.orm import Session, sessionmaker
 
 from config import settings
@@ -124,6 +125,44 @@ def read_kalshi_tickers(session, ids) -> dict:
     q = text("SELECT id, market_ticker FROM odds_snapshots WHERE id IN :ids").bindparams(
         bindparam("ids", expanding=True))
     return {i: t for i, t in session.execute(q, {"ids": ids}) if t}
+
+
+# PREDICTION HISTORY (ARCHITECT 2026-10-06, #87): every Prediction INSERT, from any
+# write path (predict-nfl, soccer and MLB predict, future ones), is appended to
+# prediction_history in the SAME transaction: a rolled-back run (a dry run, a
+# failed chain) leaves no history, a committed one always does. Before
+# migrate_prediction_history.py has created the table, predictions still write
+# and the history is skipped with a warning (conservative: the predict path
+# never fails on the record keeping). Checked per flush, never cached.
+_HISTORY_COLS = ("match_id", "model_version", "computed_at", "home_win_prob", "draw_prob", "away_win_prob")
+
+
+def has_prediction_history(conn) -> bool:
+    from sqlalchemy import inspect
+    try:
+        return inspect(conn).has_table("prediction_history")
+    except Exception:
+        return False
+
+
+@_listens_for(Session, "after_flush")
+def _append_prediction_history(session, _ctx):
+    from src.db.schema import Prediction, PredictionHistory
+    from src.timeutil import utc_now_naive
+    new = [o for o in session.new if isinstance(o, Prediction)]
+    if not new:
+        return
+    conn = session.connection()
+    if not has_prediction_history(conn):
+        import logging
+        logging.getLogger(__name__).warning(
+            "prediction_history missing: %d prediction(s) not recorded — run migrate_prediction_history.py",
+            len(new))
+        return
+    now = utc_now_naive()
+    conn.execute(PredictionHistory.__table__.insert(),
+                 [{**{k: getattr(o, k) for k in _HISTORY_COLS},
+                   "computed_at": o.computed_at or now, "recorded_at": now} for o in new])
 
 
 def get_engine():

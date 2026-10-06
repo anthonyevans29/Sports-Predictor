@@ -674,6 +674,33 @@ class Prediction(Base):
     )
 
 
+class PredictionHistory(Base):
+    """
+    APPEND-ONLY series of every prediction ever written (ARCHITECT 2026-10-06,
+    #87 K-track: "no prediction history is kept, so model-vs-cost can't be
+    evaluated per capture"). `predictions` stays current-only per match (S13);
+    each new Prediction row is copied here at flush (src/db/database.py
+    `_append_prediction_history`), so the window chain's hourly re-predicts
+    become a stored series. No FK to predictions: those rows are replaced.
+    Never updated, never deleted. Created by migrate_prediction_history.py.
+    """
+
+    __tablename__ = "prediction_history"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"))
+    model_version: Mapped[str] = mapped_column(String(64))
+    computed_at: Mapped[datetime] = mapped_column(DateTime)
+    home_win_prob: Mapped[float] = mapped_column(Float)
+    draw_prob: Mapped[float | None] = mapped_column(Float)
+    away_win_prob: Mapped[float] = mapped_column(Float)
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+    __table_args__ = (
+        Index("ix_prediction_history_match_computed", "match_id", "computed_at"),
+    )
+
+
 # ---------------------------------------------------------------------------
 # Model versioning & evaluation (Phase 2)
 # ---------------------------------------------------------------------------

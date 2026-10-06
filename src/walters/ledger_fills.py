@@ -8,7 +8,7 @@ position CLV, so the K-track receipt (#87) reads the same numbers the Cockpit
 shows. Sources (tools/cockpit.html): normTeam L974, dayDiff L1003, isShadow
 L1036, heldContractFair L1075, executedPositions L1287, FAMILY_SPORTS L1552,
 parseTicker L1595, titleTeams/titleParse/codeFits/tickerRole/resolveSide
-L1611-1673, codesFit/sameTeam/gameFits/backedIn L1674-1693, matchFill L1694,
+L1611-1673, codesFit/sameTeam/gameFits L1674-1693, matchFill L1694,
 sideFields L1744, classifyFills L1809, FEE_M_BY_FAMILY/feeLegClass L1829.
 The Cockpit's in-memory desk picks (deskPicks) are not in the export, so the
 "system-pick, unlogged" book can read short here; system_matched never depends
@@ -62,7 +62,22 @@ def parse_ticker(t) -> dict:
         return {"kind": "non_sport", "category": "non-sport / unrecognised market"}
     return {"kind": "sport", "family": m.group(1), "sports": FAMILY_SPORTS[m.group(1)],
             "date": f"20{m.group(2)}-{MONTHS[m.group(3)]:02d}-{m.group(4)}",
-            "teams": m.group(6), "sideCode": m.group(7)}
+            "teams": m.group(6), "sideCode": m.group(7),
+            "start": _et_to_utc_iso(2000 + int(m.group(2)), MONTHS[m.group(3)], int(m.group(4)), m.group(5))}
+
+
+def _et_to_utc_iso(y, mo, d, hhmm):
+    """The ticker's HHMM is the scheduled start in US Eastern time (KalshiAdapter.ticker_start, M13).
+    Naive UTC ISO to the second, like the Cockpit's etToUtcIso; None without a time."""
+    if not hhmm:
+        return None
+    from datetime import datetime, timezone
+    from zoneinfo import ZoneInfo
+    try:
+        et = datetime(y, mo, d, int(hhmm[:2]), int(hhmm[2:]), tzinfo=ZoneInfo("America/New_York"))
+    except ValueError:
+        return None
+    return et.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%S")
 
 
 def title_teams(title):
@@ -154,7 +169,17 @@ def resolve_side(p: dict, title, side) -> dict:
         return r
     if no:
         if r["role"] == "DRAW" or r["backed"] == "Draw":
+            # NO on the TIE of a three-way market is HOME-or-AWAY: composite too (Codex on #299)
+            if p.get("family") in THREE_WAY_FAMILIES:
+                return {**r, "role": None, "backed": None, "noOn": "Draw", "noRole": "DRAW", "composite": True,
+                        "why": "NO on the draw in a three-way market (composite: two outcomes)"}
             return {**r, "role": None, "backed": None, "why": "NO on the tie leg (not a single outcome)"}
+        # THREE-WAY NO = COMPOSITE (ARCHITECT 2026-10-06): two outcomes, never a single-side straight;
+        # the held contract stays known for its closing fair
+        if p.get("family") in THREE_WAY_FAMILIES and r["role"] in ("HOME", "AWAY"):
+            return {**r, "role": None, "backed": None, "noOn": r["backed"] or r["role"], "noRole": r["role"],
+                    "composite": True,
+                    "why": f"NO on {r['backed'] or r['role']} in a three-way market (composite: two outcomes)"}
         flip = {"HOME": "AWAY", "AWAY": "HOME"}.get(r["role"])
         other = None
         if r["backed"] and r["teams"]:
@@ -168,25 +193,132 @@ def side_fields(p: dict, title, side) -> dict:
     r = resolve_side(p, title, side)
     return {"backed": r["backed"], "backed_role": r["role"], "teams_title": r["teams"] or None,
             "resolve_note": r["why"], "resolved_via": r["via"],
-            "no_on": r.get("noOn"), "no_on_role": r.get("noRole")}
+            "no_on": r.get("noOn"), "no_on_role": r.get("noRole"), "composite": bool(r.get("composite"))}
 
 
-def _codes_fit(T: str, c: dict) -> bool:
+def _tok_prefix_subset(a, b) -> bool:
+    """Every word of a is a prefix of some word of b."""
+    A = [w for w in norm_team(a).split(" ") if w]
+    B = [w for w in norm_team(b).split(" ") if w]
+    return bool(A) and bool(B) and all(any(x.startswith(w) for x in B) for w in A)
+
+
+def _title_by_side(fx: dict):
+    """The title's teams BOUND TO SIDES (Codex on #299): "X wins — Y" puts X on the contract's (ticker) side and Y
+    on the other; the legacy "A vs B Winner?" grammar is AWAY vs HOME (BUFKC = "Buffalo vs Kansas City")."""
+    tp = title_parse(fx.get("title"))
+    if not tp or not tp.get("teams") or len(tp["teams"]) != 2:
+        return None
+    role = fx.get("no_on_role") or fx.get("backed_role")
+    if tp.get("backed") and tp["backed"] != "Draw":
+        if role not in ("HOME", "AWAY"):
+            return None
+        other = tp["teams"][1] if tp["teams"][0] == tp["backed"] else tp["teams"][0]
+        return {"home": tp["backed"], "away": other} if role == "HOME" else {"away": tp["backed"], "home": other}
+    if not tp.get("backed"):
+        return {"away": tp["teams"][0], "home": tp["teams"][1]}
+    return None
+
+
+def _codes_fit(T: str, c: dict, tt=None, by_side=None) -> bool:
+    """Both codes fit. A WEAK fit (two-letter initials only) is a same-city collision unless a title team
+    confirms that side word by word: NYG ~ "New York Jets" is rejected by "New York G", while KC ~ "Kansas City"
+    and MCI ~ "Man City" are confirmed (Codex post-merge on #297 and on #299)."""
+    def ini(n):
+        return "".join(w[0] for w in norm_team(n).split(" ") if w)
+
+    def ok(sc, code, name, side):
+        # the WHOLE code prefixing the initials (KC ~ "kcc", SF ~ "sf4") is identity; a weak fit (NYG ~ "nyj") is
+        # confirmed only by the title team on the SAME side, never by the opposite team (Codex on #299)
+        return sc >= 2 or (sc == 1 and (ini(name).startswith(code.lower())
+                                        or (bool(by_side) and bool(by_side.get(side))
+                                            and _tok_prefix_subset(by_side[side], name))))
     for i in range(2, min(4, len(T) - 2) + 1):
-        if code_fits(T[:i], c.get("away")) > 0 and code_fits(T[i:], c.get("home")) > 0:
+        a, h = code_fits(T[:i], c.get("away")), code_fits(T[i:], c.get("home"))
+        if ok(a, T[:i], c.get("away"), "away") and ok(h, T[i:], c.get("home"), "home"):
             return True
     return False
 
 
-def game_fits(fx: dict, g: dict) -> bool:
-    tt = fx.get("teams_title")
-    if tt and all(same_team(t, g.get("home")) or same_team(t, g.get("away")) for t in tt):
+def _tok_subset(a, b) -> bool:
+    A = [w for w in norm_team(a).split(" ") if w]
+    B = [w for w in norm_team(b).split(" ") if w]
+    if not A or not B:
+        return False
+    x, y = (A, set(B)) if len(A) <= len(B) else (B, set(A))
+    return all(w in y for w in x)
+
+
+def _title_fits_strict(tt, g: dict) -> bool:
+    """Two title teams on two DIFFERENT sides, each a whole-word subset of its side's name."""
+    if not tt or len(tt) != 2:
+        return False
+    return ((_tok_subset(tt[0], g.get("home")) and _tok_subset(tt[1], g.get("away")))
+            or (_tok_subset(tt[0], g.get("away")) and _tok_subset(tt[1], g.get("home"))))
+
+
+def _contract_oriented(fx: dict, g: dict) -> bool:
+    """The unordered title fallback must hold the CONTRACT's team (the title's "X wins" team, else the
+    code-resolved name) on the ticker's side of THIS call: a reversed home/away call never fits (Codex on #299).
+    A tie contract has no side; an unknown name cannot be oriented, so it does not fit."""
+    role = fx.get("no_on_role") or fx.get("backed_role")
+    if role not in ("HOME", "AWAY"):
         return True
-    return bool(fx.get("teams")) and _codes_fit(fx["teams"], g)
+    tp = title_parse(fx.get("title"))
+    name = tp["backed"] if tp and tp.get("backed") and tp["backed"] != "Draw" else (
+        fx.get("no_on") if fx.get("no_on_role") else fx.get("backed"))
+    if name and name not in ("HOME", "AWAY") and _tok_subset(name, g.get("home") if role == "HOME" else g.get("away")):
+        return True
+    # a legacy "A vs B" title is AWAY vs HOME: both teams on their own sides orients it (two non-prefix codes too)
+    bs = _title_by_side(fx)
+    if (bs and not (tp or {}).get("backed") and _tok_subset(bs["away"], g.get("away"))
+            and _tok_subset(bs["home"], g.get("home"))):
+        return True
+    # no usable name (legacy "A vs B Winner?" titles): the OTHER code fits the call's opposite side strongly
+    codes = ticker_role(fx)["codes"]
+    opp = "away" if role == "HOME" else "home"
+    return bool(codes) and code_fits(codes[opp], g.get(opp)) >= 2
 
 
-def _backed_in(fx: dict, g: dict):
-    return {"HOME": g.get("home"), "AWAY": g.get("away"), "DRAW": "Draw"}.get(fx.get("backed_role"), fx.get("backed"))
+def game_fits(fx: dict, g: dict) -> bool:
+    """gameFits: with ticker codes, the codes fit OR a strict two-team title fit (one shared word such as
+    "United" is never identity; a standard non-prefix code such as JAX or BHA still matches through the
+    title, Codex on #299). Tickers without codes keep the original title rule."""
+    if fx.get("teams"):
+        return _codes_fit(fx["teams"], g, fx.get("teams_title"), _title_by_side(fx)) or (_title_fits_strict(fx.get("teams_title"), g)
+                                              and _contract_oriented(fx, g))
+    tt = fx.get("teams_title")
+    if tt and len(tt) == 2:          # one-to-one: two DIFFERENT sides (Codex post-merge on #297)
+        return ((same_team(tt[0], g.get("home")) and same_team(tt[1], g.get("away")))
+                or (same_team(tt[0], g.get("away")) and same_team(tt[1], g.get("home"))))
+    return bool(tt) and all(same_team(t, g.get("home")) or same_team(t, g.get("away")) for t in tt)
+
+
+def _start_nearest(fx: dict, cands: list) -> list:
+    """startNearest: with the ticker's start time, the candidates of the NEAREST start within 3h (ties kept);
+    otherwise (no time, or none within 3h) the candidates unchanged."""
+    from datetime import datetime, timezone
+    if not fx.get("start"):
+        return cands
+    t0 = datetime.fromisoformat(fx["start"]).replace(tzinfo=timezone.utc)
+
+    def dist(c):
+        k = c.get("kickoff")
+        if not k:
+            return float("inf")
+        try:
+            kt = datetime.fromisoformat(k[:-1] + "+00:00" if k.endswith(("Z", "z")) else k)
+        except ValueError:
+            return float("inf")
+        kt = kt.replace(tzinfo=timezone.utc) if kt.tzinfo is None else kt
+        return abs((kt - t0).total_seconds())
+    within = [c for c in cands if dist(c) <= 3 * 3600]
+    if not within:
+        return cands
+    # Codex on #299: resolve the GAME first (nearest start; ties stay together and are flagged ambiguous),
+    # then test the pick, so a disagreeing exact-time game never hands the fill to a later one
+    m = min(dist(c) for c in within)
+    return [c for c in within if dist(c) == m]
 
 
 def match_fill(fx: dict, calls: list, picks: list) -> dict:
@@ -200,22 +332,51 @@ def match_fill(fx: dict, calls: list, picks: list) -> dict:
     if not cands and any(x in FUN_SPORTS for x in fx["sports"]):
         x = next(x for x in fx["sports"] if x in FUN_SPORTS)
         return {"book": "fun", "category": f"{x} single (market-only, no system call)"}
+    if fx.get("composite"):
+        # a LADDER is executed as NO on the other side (desk order line: AWAY ladder = NO on HOME = X2): a
+        # composite NO matches a real ladder call whose pick is the opposite side, never a straight (Codex on #299)
+        opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(fx.get("no_on_role"))
+        lad = [c for c in _start_nearest(fx, cands)
+               if c.get("call_type") == "ladder" and c.get("pick") == opp and (c.get("units") or 0) > 0]
+        if lad:
+            c = lad[0]
+            out = {"book": "system_matched", "category": f"{c.get('engine')} · {c.get('tier')} (ladder: NO on "
+                   f"{fx.get('no_on')})", "engine": c.get("engine"), "tier": c.get("tier"), "call_id": c.get("id")}
+            if len(lad) > 1:
+                out["ambiguous_calls"] = [x.get("id") for x in lad]
+            return out
+        return {"book": "off_book_sports",
+                "category": f"composite contract ({fx.get('resolve_note') or 'three-way NO'}) — never a straight",
+                "plausible": True}
     if not fx.get("backed") and not fx.get("backed_role"):
         return {"book": "off_book_sports", "category": f"side not resolvable ({fx.get('resolve_note') or '?'})",
                 "plausible": True}
 
     def pick_name(c):
         return c.get("home") if c.get("pick") == "HOME" else c.get("away") if c.get("pick") == "AWAY" else "Draw"
+
+    def side_agrees(g):
+        # ARCHITECT 2026-10-06 (matcher bug): the TICKER SUFFIX names the side, so a resolved role is
+        # compared to the pick exactly (GB/TB once "agreed" through the shared word "Bay"); without a
+        # role, whole-name subsets only
+        if fx.get("backed_role"):
+            return fx["backed_role"] == g.get("pick")
+        b, p = fx.get("backed"), pick_name(g)
+        if not b or not p:
+            return False
+        if b == "Draw" or p == "Draw":
+            return b == p
+        return _tok_subset(b, p)
     if not cands:
         ps = [g for g in (picks or []) if near(g) and game_fits(fx, g)]
         if not ps:
             return {"book": "off_book_sports", "category": "no logged call for this game"}
-        agree = [g for g in ps if same_team(_backed_in(fx, g), pick_name(g))]
+        agree = [g for g in ps if side_agrees(g)]
         if agree:
             return {"book": "system_pick_unlogged", "category": f"system-pick, unlogged ({agree[0].get('source')})"}
         return {"book": "off_book_sports", "category": "stored prediction exists but the side disagrees",
                 "plausible": True}
-    agree = [c for c in cands if same_team(_backed_in(fx, c), pick_name(c))]
+    agree = [c for c in _start_nearest(fx, cands) if side_agrees(c)]
     real = [c for c in agree if c.get("call_type") != "quarantine_shadow" and (c.get("units") or 0) > 0]
     if real:
         c = real[0]
@@ -269,12 +430,8 @@ def classify_fills(L: dict) -> list[dict]:
         fx = {**f, **parse_ticker(f.get("ticker"))}
         if fx["kind"] == "sport":
             fx.update(side_fields(fx, fx.get("title"), fx.get("side")))
-            # A NO on a three-way family's HOME/AWAY leg is TWO outcomes (NO on HOME = DRAW or AWAY). The
-            # Cockpit flips it to the single opposite side; the port keeps that for parity but flags it, so a
-            # composite contract is never silently read as an opposite-side straight (Codex on #297).
-            if str(fx.get("side") or "").lower().startswith("n") and fx.get("family") in THREE_WAY_FAMILIES \
-                    and fx.get("no_on_role") in ("HOME", "AWAY"):
-                fx["composite_no"] = True
+            # three-way NO resolves as COMPOSITE in resolve_side (fill matcher lane, ARCHITECT 2026-10-06)
+            fx["composite_no"] = bool(fx.get("composite"))
         cls = {"book": "fun", "category": fx.get("category")} if fx["kind"] == "parlay" else \
             match_fill(fx, calls, picks)
         combo = fx["kind"] == "parlay"
@@ -337,4 +494,5 @@ def executed_positions(L: dict, fills: list[dict] | None = None) -> dict:
             "clv": a["clv"] / a["qty"], "fee_adj": (a["clv"] - a["fee"]) / a["qty"] if a["feeOk"] else None,
             "fee_status": "open_fee" if a["feeOk"] else "combined_only" if a["combined"] else "missing",
             "fills": a["fills"]} for a in by.values()]
-    return {"pos": pos, "unpriced": len([i for i in unpriced if i not in by])}
+    ids = [i for i in unpriced if i not in by]
+    return {"pos": pos, "unpriced": len(ids), "unpriced_ids": ids}

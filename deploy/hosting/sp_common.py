@@ -26,8 +26,9 @@ HOST_ENV = Path(os.environ.get("SP_HOST_ENV", "/etc/sports-predictor/host.env"))
 
 # Tables whose counts ride on every chain receipt (names verified against
 # src/db/schema.py __tablename__ on 2026-09-27, law 1).
+# prediction_history (2026-10-06): null until migrate_prediction_history.py ran (law 4).
 CHAIN_COUNT_TABLES = ("matches", "predictions", "prediction_outcomes",
-                      "odds_snapshots", "model_versions")
+                      "odds_snapshots", "model_versions", "prediction_history")
 
 # Env names whose VALUES are secrets and must never reach a receipt.
 SECRET_ENV = ("API_FOOTBALL_KEY", "API_BASEBALL_KEY", "API_AMERICAN_FOOTBALL_KEY",

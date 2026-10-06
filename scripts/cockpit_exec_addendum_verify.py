@@ -59,6 +59,9 @@ NFL = {"sport": "nfl", "rehearsal": False, "predictions": [
     nfl("Denver Broncos", "Las Vegas Raiders", 0.66, 0.60, bid=0.55, ask=0.59),   # 4c spread: join; exec +5.3
     nfl("Seattle Seahawks", "Arizona Cardinals", 0.62, 0.55, bid=0.58, ask=0.59), # half: 10 -> 0.607, 5 -> 0.606
     nfl("Kansas City Chiefs", "Buffalo Bills", 0.55, 0.60, bid=0.59, ask=0.60),   # PASS; AWAY value shadow +5
+    {**nfl("Houston Texans", "Tennessee Titans", 0.20, 0.40, bid=0.39, ask=0.40), "quarantine": True,
+     "market_divergence_pp": -20.0,                                              # AWAY pick, quarantined shadow
+     "kalshi_legs": {"AWAY": {"ticker": "KXNFLGAME-X-TEN", "bid": 0.70, "ask": 0.71}}},
 ]}
 
 
@@ -141,6 +144,11 @@ def main():
         check("a value shadow logs the FILE's executable cost (its own 0.25u order), not the legacy 10-contract one",
               vs is not None and fexec and vs.get("kalshi_exec_cost") == fexec["cost"] is not None,
               json.dumps({"ledger": vs and vs.get("kalshi_exec_cost"), "file": fexec and fexec.get("cost")}))
+        qs = next((c for c in led["calls"] if c.get("call_type") == "quarantine_shadow" and "Houston" in c["game"]), None)
+        qx = next(p["desk"]["exec"] for p in doc["predictions"] if p["home_team"] == "Houston Texans")
+        check("a quarantine shadow logs the FILE's executable cost (its own AWAY leg), not the legacy NO-on-HOME one",
+              qs is not None and qx and qs.get("kalshi_exec_cost") == qx["cost"] is not None,
+              json.dumps({"ledger": qs and qs.get("kalshi_exec_cost"), "file": qx and qx.get("cost")}))
         ven = page.evaluate("""Array.from(document.querySelectorAll('#venueTable tbody tr'))
             .map(tr=>Array.from(tr.children).map(td=>td.textContent))""")
         bos = next(v for v in ven if "Boston" in v[0])

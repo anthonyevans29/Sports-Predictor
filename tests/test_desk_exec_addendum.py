@@ -269,3 +269,23 @@ def test_codex_round_5_exec_block_on_opponent_no_and_rescore_uses_the_files_unit
     monkeypatch.delenv("SP_UNIT_USD")                                   # the caller's env differs
     b = dp.rescore(doc)
     assert a == b and a[0]["unit_basis"] == "1u = $20 (from the file)"
+
+
+def test_codex_round_6_maker_cost_at_the_order_count_and_parlay_cli_wording(tmp_path):
+    """Codex on #303: (1) maker_cost is the JOIN order's (bid + 1c) at the order's own contract count, not the legacy
+    10-contract K-track figure: at a 0.53 join, 2 contracts (0.25u) -> 0.005, 10 -> 0.004 per contract; none when the
+    doctrine takes; (2) desk-parlays prints "Π executable cost" with Π fair for executable-priced tickets."""
+    from click.testing import CliRunner
+
+    import cli
+    n = dp.normalize({"sport": "nfl", "predictions": [nfl("J", 0.62, 0.50, bid=0.52, ask=0.56)]})[0]
+    assert dp.maker_cost_at(n, "HOME", 1) == round(0.53 + 0.004, 4)        # round(10·0.0175·0.53·0.47·100)=4c /10
+    assert dp.maker_cost_at(n, "HOME", 0.25) == round(0.53 + 0.005, 4)     # round(2·…)=1c /2
+    t = dp.normalize({"sport": "nfl", "predictions": [nfl("T", 0.62, 0.50, bid=0.54, ask=0.55)]})[0]
+    assert dp.maker_cost_at(t, "HOME", 1) is None                          # 1c spread: TAKE, no maker order
+    rows = [nfl("A", 0.70, 0.60, bid=0.59, ask=0.60), nfl("B", 0.72, 0.62, bid=0.61, ask=0.62)]
+    p = tmp_path / "nfl.json"
+    p.write_text(json.dumps({"sport": "nfl", "predictions": rows}))
+    res = CliRunner().invoke(cli.cli, ["desk-parlays", str(p), "--now", NOW.isoformat(), "--out", str(tmp_path / "o.json")])
+    assert res.exit_code == 0, res.output
+    assert "vs Π executable cost" in res.output and "(Π fair 0.372)" in res.output

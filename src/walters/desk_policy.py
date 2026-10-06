@@ -461,6 +461,23 @@ def taker_cost_for(r, side, units=None):
     return round(ask + fee, 4) if fee is not None else None
 
 
+def maker_cost_at(r, side, units=None):
+    """The maker cost of a JOIN order (bid + 1c, spreads >= 3c) at the order's own contract count ((h); Codex on
+    #303): join + 0.0175·M_maker·P(1−P) per fill. None when the doctrine takes (no join), or when the series'
+    maker M is unknown (conservative unknowns, #93)."""
+    q = side_quotes(r, side) or {}
+    jp = join_price(q.get("bid"), q.get("ask"))
+    if jp is None:
+        return None
+    n = order_contracts(BASE_UNITS if units is None else units, jp)
+    from src.walters.venue import KALSHI_FEE_M, KALSHI_MAKER_RATE, KALSHI_SERIES_BY_COMPETITION, kalshi_fee
+    m = KALSHI_FEE_M.get(KALSHI_SERIES_BY_COMPETITION.get(r.get("comp") or r.get("sport") or ""), (1.0, None))[1]
+    if n is None or m is None:
+        return None
+    fee = kalshi_fee(jp, m, KALSHI_MAKER_RATE, n=n)
+    return None if fee is None else round(jp + fee, 4)
+
+
 def desk_cost_for(r, side, units=None):
     if EXEC_RULES["on"]:
         t = taker_cost_for(r, side, units)           # #87 v1.1 (1)+(2)+(h): the TAKE cost of this order
@@ -501,7 +518,7 @@ def exec_block(r, side, model_p, units=None, order_units=None):
            "fee_clears": exec_clears(e)}
     if EXEC_RULES["on"]:
         out["taker_cost"] = dc["cost"] if dc else None
-        out["maker_cost"] = maker_cost_for(r, side)          # reference only: the doctrine takes
+        out["maker_cost"] = maker_cost_at(r, side, units)    # reference: the join (bid + 1c) at THIS order's count
         out["doctrine"] = "join" if (jb or {}).get("price") is not None else "take"
         q = side_quotes(r, side) or {}
         lim = join_price(q.get("bid"), q.get("ask")) or q.get("ask")

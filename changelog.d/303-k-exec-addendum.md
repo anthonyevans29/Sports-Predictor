@@ -27,3 +27,8 @@
   - Value shadows log the file's executable cost.
   - `docs/CLI.md` documents the TAKE / join ≥ 3c limit.
   - `desk-rescore` applies the file's own unit basis and prints it.
+- Review fixes (Codex on #303, round 6):
+  - `maker_cost` is the join order's (bid + 1c) at the order's own count, and none when the doctrine takes.
+  - Quarantine shadows log the file's exec cost.
+  - Parlay legs keep their serialized `fair_p`.
+  - `desk-parlays` documentation and CLI output describe executable pricing ("Π executable cost", Π fair, unpriced tickets excluded).

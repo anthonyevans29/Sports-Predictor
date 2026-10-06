@@ -913,8 +913,11 @@ function snapshotCalls(now,opts){
     } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
       add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
-        model_p:r.prob,market_p:r.mkt,kalshi_exec_cost:execCostFor(r,r.pick),
-        kalshi_exec_cost_maker:makerCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
+        // #87 v1.1 files: the file's exec block (the contract the order buys), as straights do (Codex on #303)
+        model_p:r.prob,market_p:r.mkt,
+        kalshi_exec_cost:(r.fileDesk.exec&&r.fileDesk.exec.doctrine)?(r.fileDesk.exec.cost??null):execCostFor(r,r.pick),
+        kalshi_exec_cost_maker:(r.fileDesk.exec&&r.fileDesk.exec.doctrine)?(r.fileDesk.exec.maker_cost??null)
+          :makerCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
     }
   }
   for(const {r,v} of deskValue){        // value-side shadows (v1.2 candidate): notional, never staked
@@ -941,7 +944,8 @@ function snapshotCalls(now,opts){
       const xc=(t.costs||[])[j];
       add(tr,{...baseCall(l,td),pick:l.pick,tier:"parlay",engine:"model_edge",
         call_type:"parlay_leg",parlay_id:pid,units:0.25,model_p:l.prob,market_p:xc!=null?xc:l.mkt,
-        ...(xc!=null?{fair_p:l.mkt,price_basis:"executable (ask + taker fee)"}:{}),
+        // fair_p is the SERIALIZED leg's own fair (the row a ticket was built from), never a re-matched row's
+        ...(xc!=null?{fair_p:((t.fairs||[])[j]??l.mkt),price_basis:"executable (ask + taker fee)"}:{}),
         venue_hint:"books",rules:["parlay 0.25u"],...(t.bShadow?{b_shadow_cut:t.bShadow}:{})});
     }
   }
@@ -2046,7 +2050,7 @@ function parlaysFromFile(){
     if(!legs.length||legs.some(x=>!x)){miss++;continue;}
     out.push({legs,sports:t.sports,pm:t.model_p,pk:t.market_p,edge:t.edge??t.edge_pp/100,bShadow:t.b_shadow||null,
       orders:(t.legs||[]).map(l=>l.order||null),pf:t.fair_p??null,basis:t.market_basis||null,label:t.label||null,
-      costs:(t.legs||[]).map(l=>l.exec_cost??null)});
+      costs:(t.legs||[]).map(l=>l.exec_cost??null),fairs:(t.legs||[]).map(l=>l.market_p??null)});
   }
   const asof=(fileParlays.desk_meta||{}).as_of||"?";
   parlayNote=`tickets from desk_parlays (as of ${asof})`+(miss?` · ${miss} ticket(s) skipped: a leg's row is not in the loaded files`:"")

@@ -4572,7 +4572,9 @@ def desk_parlays_cmd(files, now_s, summary, out_path):
           f"{len(named)} file(s) · {doc['live_legs']} live legs → {len(doc['tickets'])} ticket(s) → {out_path}")
     for i, t in enumerate(doc["tickets"], 1):
         print(f"  Ticket {i} · {len(t['legs'])} legs · {t['sports']} sport(s) · {t['units']}u · "
-              f"Π model {t['model_p']:.3f} vs Π market {t['market_p']:.3f} → +{t['edge_pp']:.1f}pp · {t['signature']}"
+              f"Π model {t['model_p']:.3f} vs Π {'executable cost' if t.get('market_basis') else 'market'} "
+              f"{t['market_p']:.3f}" + (f" (Π fair {t['fair_p']:.3f})" if t.get('fair_p') is not None else "")
+              + f" → +{t['edge_pp']:.1f}pp · {t['signature']}"
               + (f" · B-track shadow: would be {t['b_shadow']}" if t.get("b_shadow") else ""))
     b = doc["b_track_shadow"]
     print(f"  B-track shadow (pre-committed, NOT applied): exposure-capped {b['exposure_capped']} · "

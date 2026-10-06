@@ -1,2 +1,2 @@
-## 2026-10-06 (#0000: CLAUDE.md — quoted heredocs only for PR text — ARCHITECT)
+## 2026-10-06 (#295: CLAUDE.md — quoted heredocs only for PR text — ARCHITECT)
 - Standing rule recorded in CLAUDE.md: PR bodies, comments and commit messages are written through quoted heredocs (`<<'EOF'`) only. An unquoted heredoc runs every backticked span as a command; on 2026-10-06 one ran `nfl-grade`, which created an empty DB under the container's data/ (since removed) and blanked spans in #290's body (since repaired).

@@ -914,13 +914,15 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   refuses when no tag exists. It lists any new `migrate_*.py`. For those:
   first `systemctl start sp-backup.service`, then run each migration by
   hand. Every receipt line names the running tag.
-  - When `requirements.txt` changed in the range, or this host has no
-    successful install receipt for the target's exact file, the deploy runs
+  - When `requirements.txt`, or a file it includes with `-r`/`-c`, changed in
+    the range, or this host's last successful install (recorded in
+    `requirements.installed` beside the receipts, which survives log
+    rotation) was not of exactly the target's files, the deploy runs
     `venv/bin/pip install -r requirements.txt` before the checkout. It runs in a
     temporary worktree of the target, so relative `-r`/`-c` includes resolve.
     It prints the command and writes a `deploy_requirements` receipt.
     (ARCHITECT 2026-10-06: the host lacked `cryptography` after v1.2.3.)
-  - The receipt check covers the bootstrap: the deploy that ships this
+  - The install record covers the bootstrap: the deploy that ships this
     behaviour still runs the old deployer, so the next deploy installs.
   - A failed install refuses the deploy, and the code stays on its release.
     pip does not roll back packages it already upgraded in that run, so the

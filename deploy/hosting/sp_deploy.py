@@ -79,39 +79,74 @@ def _pip_run(cmd: list[str], cwd: str) -> int:
     return subprocess.run(cmd, cwd=cwd).returncode
 
 
+def requirements_state_path() -> Path:
+    """The fingerprint of the last SUCCESSFUL install, kept beside the receipts but NOT in the rotating receipt log
+    (logrotate renames it monthly — Codex on #310)."""
+    return c.receipts_path().parent / "requirements.installed"
+
+
+def _include_target(line: str) -> str | None:
+    """The file a -r/--requirement/-c/--constraint line names, else None."""
+    parts = line.split("#", 1)[0].strip().replace("=", " ", 1).split()
+    if len(parts) >= 2 and parts[0] in ("-r", "--requirement", "-c", "--constraint"):
+        return parts[1]
+    if len(parts) == 1 and parts[0][:2] in ("-r", "-c") and len(parts[0]) > 2:
+        return parts[0][2:]
+    return None
+
+
+def requirements_inputs(rev: str) -> dict:
+    """{path: blob} for requirements.txt and every file it includes (-r / -c, followed recursively, relative to the
+    including file — pip's rule), at `rev`. An include absent at `rev` maps to None."""
+    import posixpath
+    out, todo = {}, [REQUIREMENTS]
+    while todo:
+        p = posixpath.normpath(todo.pop())
+        if p in out:
+            continue
+        out[p] = _blob(rev, p)
+        if out[p] is None:
+            continue
+        rc, body, _ = _git_rc("show", f"{rev}:{p}")
+        for ln in (body.splitlines() if rc == 0 else []):
+            inc = _include_target(ln)
+            if inc and "://" not in inc:
+                todo.append(posixpath.join(posixpath.dirname(p), inc))
+    return out
+
+
+def _fingerprint(inputs: dict) -> str:
+    import hashlib
+    return hashlib.sha256("\n".join(f"{p}:{b}" for p, b in sorted(inputs.items())).encode()).hexdigest()[:16]
+
+
 def _last_installed_requirements() -> str | None:
-    """The requirements.txt blob of the last SUCCESSFUL install receipt on this host, or None."""
-    import json
-    p = c.receipts_path()
-    last = None
-    if p.exists():
-        for ln in p.read_text(encoding="utf-8").splitlines():
-            try:
-                r = json.loads(ln)
-            except ValueError:
-                continue
-            if r.get("kind") == "deploy_requirements" and r.get("exit") == 0 and r.get("blob"):
-                last = r["blob"]
-    return last
+    try:
+        return requirements_state_path().read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
 
 
 def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, str | None]:
-    """(blob to install, reason), or (None, reason-or-None) when nothing installs. Installs when requirements.txt
-    changed in the range (ARCHITECT 2026-10-06) AND when this host has no successful install receipt for the
-    target's exact file: the deploy that ships this code still runs the OLD deployer, and the host that already
-    lacked `cryptography` must be repaired on the next deploy (Codex on #310). A target without the file installs
-    nothing and says so."""
-    blob = _blob(target_sha, REQUIREMENTS)
-    if blob is None:
+    """(fingerprint to install, reason), or (None, reason-or-None) when nothing installs. Installs when
+    requirements.txt OR a file it includes changed in the range (ARCHITECT 2026-10-06; includes — Codex on #310),
+    and when this host's last successful install was not of exactly these inputs: the deploy that ships this code
+    still runs the OLD deployer, and the host that already lacked `cryptography` must be repaired on the next
+    deploy. A target without the file installs nothing and says so."""
+    if _blob(target_sha, REQUIREMENTS) is None:
         return None, ("removed in the target" if REQUIREMENTS in changed else None)
-    if REQUIREMENTS in changed:
-        return blob, "changed in this range"
-    if _last_installed_requirements() != blob:
-        return blob, "no successful install receipt for this requirements.txt on this host"
+    inputs = requirements_inputs(target_sha)
+    fp = _fingerprint(inputs)
+    touched = sorted(set(inputs) & set(changed))
+    if touched:
+        return fp, ("changed in this range" if touched == [REQUIREMENTS]
+                    else f"changed in this range ({', '.join(touched)})")
+    if _last_installed_requirements() != fp:
+        return fp, "not installed on this host in this exact form (no matching install record)"
     return None, None
 
 
-def install_requirements(target: str, target_sha: str, blob: str, reason: str) -> dict:
+def install_requirements(target: str, target_sha: str, fingerprint: str, reason: str) -> dict:
     """ARCHITECT 2026-10-06 (the host lacked `cryptography` after v1.2.3): `venv/bin/pip install -r
     requirements.txt`, printed and receipted, run in a temporary WORKTREE of the target (so relative -r / -c /
     --find-links resolve as in the checkout — Codex on #310) BEFORE the live checkout moves; a failed install
@@ -122,16 +157,22 @@ def install_requirements(target: str, target_sha: str, blob: str, reason: str) -
     print(f"  requirements.txt {reason} — running `{shown}` (the {target} file)")
     tmp = tempfile.mkdtemp(prefix="sp-deploy-req-")
     wt = str(Path(tmp) / "wt")
-    rc, _, err = _git_rc("worktree", "add", "--detach", wt, target_sha)
+    wt_rc, _, wt_err = _git_rc("worktree", "add", "--detach", wt, target_sha)
     try:
-        rc = _pip_run(pip_command() + ["install", "-r", REQUIREMENTS], cwd=wt) if rc == 0 else rc
+        rc = _pip_run(pip_command() + ["install", "-r", REQUIREMENTS], cwd=wt) if wt_rc == 0 else wt_rc
     finally:
         _git_rc("worktree", "remove", "--force", wt)
         _git_rc("worktree", "prune")
         shutil.rmtree(tmp, ignore_errors=True)
+    if rc == 0:
+        state = requirements_state_path()
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(fingerprint + "\n", encoding="utf-8")
+    # worktree stderr is attached ONLY when the worktree itself failed: on success git still prints
+    # "Preparing worktree", which is not a pip diagnostic (Codex on #310)
     return c.append_receipt({"kind": "deploy_requirements", "exit": rc, "tag": target, "to_sha": target_sha,
-                             "blob": blob, "reason": reason, "command": shown,
-                             **({"error": f"worktree: {err}"} if err and rc else {})})
+                             "fingerprint": fingerprint, "reason": reason, "command": shown,
+                             **({"error": f"worktree add failed: {wt_err}"} if wt_rc != 0 else {})})
 
 
 MIGRATION_NAME = re.compile(r"^migrate_[A-Za-z0-9_]+\.py$")

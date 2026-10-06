@@ -2484,7 +2484,8 @@ def test_deploy_installs_requirements_when_they_changed(sandbox, monkeypatch, ca
     commit("plain again", "v1.0.2", [("b.txt", "still none")])
     commit("add cryptography via an include", "v1.0.3",
            [("requirements.txt", "-r reqs/base.txt\ncryptography>=41.0.0\n"), ("reqs/base.txt", "requests\n")])
-    commit("drop requirements.txt", "v1.0.4", rm=["requirements.txt"])
+    commit("bump only the included file", "v1.0.4", [("reqs/base.txt", "requests>=2.32\n")])
+    commit("drop requirements.txt", "v1.0.5", rm=["requirements.txt", "reqs/base.txt"])
     subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
     g(repo, "checkout", "-q", "--detach", "v1.0.0")
     monkeypatch.setattr(c, "REPO", repo)
@@ -2505,25 +2506,36 @@ def test_deploy_installs_requirements_when_they_changed(sandbox, monkeypatch, ca
         return [json.loads(x) for x in log.read_text().splitlines() if json.loads(x)["kind"] == kind]
     # bootstrap: no install receipt on this host yet -> installs although the range did not change the file
     assert sp_deploy.main(["--tag", "v1.0.1"]) == 0 and len(calls) == 1
-    assert "no successful install receipt" in capsys.readouterr().out
+    assert "no matching install record" in capsys.readouterr().out
     # stamped: unchanged range and a receipt for this exact file -> nothing
     assert sp_deploy.main(["--tag", "v1.0.2"]) == 0 and len(calls) == 1
     capsys.readouterr()
     assert sp_deploy.main(["--tag", "v1.0.3", "--dry-run"]) == 0 and len(calls) == 1
-    assert "changed in this range: would run" in capsys.readouterr().out
+    assert "changed in this range (reqs/base.txt, requirements.txt): would run" in capsys.readouterr().out
     v102 = g(repo, "rev-parse", "HEAD")
     rc["v"] = 1                                                          # failed install: refused, code unmoved
     assert sp_deploy.main(["--tag", "v1.0.3"]) == 1 and g(repo, "rev-parse", "HEAD") == v102
     assert "PARTIALLY updated" in capsys.readouterr().out
+    assert "error" not in recs("deploy_requirements")[-1]                # git's worktree chatter is not pip's error
     rc["v"] = 0
     assert sp_deploy.main(["--tag", "v1.0.3"]) == 0
     cmd, body, include_there, in_worktree, head = calls[-1]
     assert cmd[-3:] == ["install", "-r", "requirements.txt"] and "cryptography" in body
     assert include_there and in_worktree and head == v102                 # target tree, before the checkout
-    assert "requirements installed (requirements.txt changed in this range)" in capsys.readouterr().out
+    assert "requirements installed (requirements.txt changed in this range" in capsys.readouterr().out
     assert [r["exit"] for r in recs("deploy_requirements")] == [0, 1, 0] and recs("deploy")[-1]["requirements_installed"]
     assert len(g(repo, "worktree", "list").splitlines()) == 1             # the temporary worktree is gone
+    # Codex on #310: an INCLUDED file changing alone still installs; the install record survives log rotation
+    log.rename(log.with_suffix(".jsonl.1"))                              # logrotate: a fresh, empty receipts log
+    assert sp_deploy.main(["--tag", "v1.0.4"]) == 0 and len(calls) == 4
+    assert "changed in this range (reqs/base.txt)" in capsys.readouterr().out
+    log.rename(log.with_suffix(".jsonl.2"))
+    g(repo, "checkout", "-q", "--detach", "v1.0.3")                      # back to an older, already-installed tree
+    (sandbox / "log" / "requirements.installed").write_text(
+        sp_deploy._fingerprint(sp_deploy.requirements_inputs("v1.0.4")) + "\n")
+    assert sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.4"), []) == (None, None)   # stamped: no reinstall
+    g(repo, "checkout", "-q", "--detach", "v1.0.4")
     # a target without requirements.txt: nothing installed, said and receipted, no traceback
-    assert sp_deploy.main(["--tag", "v1.0.4"]) == 0 and len(calls) == 3
+    assert sp_deploy.main(["--tag", "v1.0.5"]) == 0 and len(calls) == 4
     assert "removed in the target: nothing installed" in capsys.readouterr().out
     assert recs("deploy_requirements")[-1]["skipped"] == "requirements.txt removed in the target"

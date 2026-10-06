@@ -21,3 +21,9 @@
   - The Cockpit ledger records a halved PLAY's `order_cost` and settles VENUE calls at their executable cost, keeping `kalshi_p` alongside.
   - Pre-addendum files keep their legacy join bid.
   - The receipt is marked pending from the laptop.
+- Review fixes (Codex on #303, round 5):
+  - The Cockpit's exec marker states only the gate ("exec gate clears / fails"), never a final size.
+  - `desk.exec` is present whenever `side_quotes` prices the pick, including NO on the opponent's leg.
+  - Value shadows log the file's executable cost.
+  - `docs/CLI.md` documents the TAKE / join ≥ 3c limit.
+  - `desk-rescore` applies the file's own unit basis and prints it.

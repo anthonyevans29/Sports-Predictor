@@ -486,7 +486,8 @@ def exec_block(r, side, model_p, units=None, order_units=None):
     cost and fee_clears are at `units` (the order the sizing decision priced, (h)); `order_cost` is the cost of
     the order actually emitted at `order_units` when that differs (a halved PLAY)."""
     k = r.get("kExec")
-    has_leg = (((r.get("src") or {}).get("kalshi_legs") or {}).get(side) or {}).get("ask") is not None
+    # the contract side_quotes selects (own leg, or NO on the opponent's ticketed leg) counts too (Codex on #303)
+    has_leg = EXEC_RULES["on"] and (side_quotes(r, side) or {}).get("ask") is not None
     if (not k or (k["cost"] is None and k["ask"] is None and k["maker"] is None)) and not (
             EXEC_RULES["on"] and has_leg):
         return None
@@ -1137,7 +1138,45 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
             "tickets": blocks}
 
 
+def file_unit_basis(doc: dict):
+    """The unit sizing the FILE was produced under, read from its own order lines ("1u = $20" -> "20"; "1u = 10
+    contracts" -> "" = SP_UNIT_USD unset). None when the file carries no order (the caller's env then stands)."""
+    import re
+    for r in (doc.get("predictions") or []) + (doc.get("fixtures") or []):
+        u = ((r.get("desk") or {}).get("order") or {}).get("unit")
+        if u:
+            m = re.match(r"1u = \$([0-9.]+)", u)
+            return m.group(1) if m else ""
+    return None
+
+
+@contextmanager
+def _unit_env(basis):
+    was = os.environ.get("SP_UNIT_USD")
+    try:
+        if basis is not None:
+            os.environ["SP_UNIT_USD"] = basis
+        yield
+    finally:
+        if was is None:
+            os.environ.pop("SP_UNIT_USD", None)
+        else:
+            os.environ["SP_UNIT_USD"] = was
+
+
 def rescore(doc: dict) -> list[dict]:
+    """Re-scores under the FILE's own unit basis (file_unit_basis), so the audit is reproducible from the file,
+    not the caller's SP_UNIT_USD (Codex on #303)."""
+    with _unit_env(file_unit_basis(doc)):
+        rows = _rescore(doc)
+    for x in rows:
+        x["unit_basis"] = unit_size()["label"] if file_unit_basis(doc) is None else (
+            f"1u = ${file_unit_basis(doc)} (from the file)" if file_unit_basis(doc) else
+            f"1u = {ORDER_UNIT_CONTRACTS} contracts (from the file)")
+    return rows
+
+
+def _rescore(doc: dict) -> list[dict]:
     """#87 v1.1 receipt (ARCHITECT-RULE 2026-10-06: "Sunday's four PLAYs re-scored under rule 3 (which would have
     been halved)"): every row the FILE's own desk called PLAY, re-scored at the file's as_of and counts, without
     and with the addendum. READ-ONLY: works on a copy; the file's published call is reported, never rewritten."""

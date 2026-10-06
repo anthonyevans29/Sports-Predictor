@@ -246,3 +246,26 @@ def test_codex_round_4_quote_selection_and_join_count_follow_the_order_line(monk
     assert (o["limit"], o["contracts"]) == (0.51, 39)                    # floor(20 / 0.51)
     fee39 = round(39 * 0.07 * 0.55 * 0.45 * 100) / 100                   # 67.6c -> 68c over the EMITTED 39
     assert dp.taker_cost_for(j, "HOME", 1) == round(0.55 + round(fee39 / 39, 6), 4)
+
+
+def test_codex_round_5_exec_block_on_opponent_no_and_rescore_uses_the_files_units(monkeypatch):
+    """Codex on #303: (1) an AWAY pick with no AWAY leg but a ticketed HOME leg is priced and ordered as NO on HOME,
+    so desk.exec must be present even when the legacy K-track fields are empty; (2) desk-rescore applies the unit
+    basis the FILE was produced under, never the caller's SP_UNIT_USD."""
+    r = {"home_team": "KC", "away_team": "BUF", "utc_date": ko(), "competition": "NFL", "stage": "regular",
+         "prediction": {"probabilities": {"home_win": 0.35, "draw": None, "away_win": 0.65}, "tier": "lean"},
+         "market": {"bookmaker_count": 9, "fair_prob": {"HOME": 0.42, "AWAY": 0.58}},
+         "kalshi_legs": {"HOME": {"ticker": "T-KC", "bid": 0.38, "ask": 0.39}}}
+    n = dp.normalize({"sport": "nfl", "predictions": [r]})[0]
+    blk = dp.exec_block(n, "AWAY", 0.65)
+    assert blk is not None and blk["no_side"] and blk["cost"] == dp.taker_cost_for(n, "AWAY", 1)
+    assert dp.order_line(n, "AWAY", 1)["text"].startswith("BUY NO T-KC @ 0.62")
+    monkeypatch.setenv("SP_UNIT_USD", "20")
+    doc = {"sport": "nfl", "predictions": [nfl("HALF", 0.62, 0.55, bid=0.58, ask=0.59, legs={
+        "HOME": {"ticker": "T-H", "bid": 0.58, "ask": 0.59}})]}
+    with dp.base_v11():
+        dp.annotate(doc, now=NOW)                                       # produced under $20 units
+    a = dp.rescore(doc)
+    monkeypatch.delenv("SP_UNIT_USD")                                   # the caller's env differs
+    b = dp.rescore(doc)
+    assert a == b and a[0]["unit_basis"] == "1u = $20 (from the file)"

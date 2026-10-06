@@ -2,7 +2,7 @@
 Cockpit render verify for the #87 EXECUTABLE-EDGE v1.1 ADDENDUM (ARCHITECT-RULE 2026-10-06). Files are written
 by the Python Desk WITH the addendum (cockpit_desk_files base=False) and loaded into the Cockpit, which only
 renders them (F1c). Checks:
-- a PLAY clearing exec >= 4pp renders "TAKE at the ask · ask + taker fee · exec ≥ 4pp: full units" at 1u;
+- a PLAY clearing exec >= 4pp renders "TAKE at the ask · ask + taker fee · exec gate clears (≥ 4pp)" at 1u;
 - a PLAY whose fair edge clears but exec does not renders "half units" at 0.5u, and the auto-claim logs 0.5u;
 - a PLAY with no executable quote is 0.5u, its reason says so;
 - a 2c spread is TAKE (the ledger's kalshi_join_bid is null); a >= 3c spread renders "join";
@@ -58,6 +58,7 @@ NFL = {"sport": "nfl", "rehearsal": False, "predictions": [
     nfl("Chicago Bears", "Minnesota Vikings", 0.66, 0.60),                        # no quote -> half
     nfl("Denver Broncos", "Las Vegas Raiders", 0.66, 0.60, bid=0.55, ask=0.59),   # 4c spread: join; exec +5.3
     nfl("Seattle Seahawks", "Arizona Cardinals", 0.62, 0.55, bid=0.58, ask=0.59), # half: 10 -> 0.607, 5 -> 0.606
+    nfl("Kansas City Chiefs", "Buffalo Bills", 0.55, 0.60, bid=0.59, ask=0.60),   # PASS; AWAY value shadow +5
 ]}
 
 
@@ -102,11 +103,11 @@ def main():
             .filter(tr=>!tr.classList.contains('vshadow')).map(tr=>Array.from(tr.children).map(td=>td.textContent))""")}
         get = lambda k: next(v for g, v in rows.items() if k in g)
         b, gb, chi, den = get("Buffalo"), get("Green Bay"), get("Chicago"), get("Denver")
-        check("exec clears: 'TAKE at the ask · ask + taker fee · exec ≥ 4pp: full units', 1u",
-              "exec +4.3pp @ 0.617 TAKE at the ask · ask + taker fee · exec ≥ 4pp: full units" in b[4]
+        check("exec clears: 'TAKE at the ask · ask + taker fee · exec gate clears (≥ 4pp)', 1u",
+              "exec +4.3pp @ 0.617 TAKE at the ask · ask + taker fee · exec gate clears (≥ 4pp)" in b[4]
               and b[6] == "1", f"{b[4]} | {b[6]}")
-        check("fair clears, exec does not: 'exec < 4pp: half units', 0.5u, reason names the cost",
-              "exec < 4pp: half units" in gb[4] and gb[6] == "0.5"
+        check("fair clears, exec does not: 'exec gate fails (< 4pp)', 0.5u, reason names the cost",
+              "exec gate fails (< 4pp)" in gb[4] and gb[6] == "0.5"
               and "exec edge 0.4pp < 4pp at ask + taker fee 0.656 → half units" in gb[7], f"{gb[4]} | {gb[6]}")
         check("no executable quote: 0.5u, reason says so",
               chi[6] == "0.5" and "no executable quote for the pick" in chi[7], f"{chi[6]} | {chi[7]}")
@@ -134,6 +135,12 @@ def main():
         check("a VENUE call settles at its executable cost (0.545), Kalshi's indicative 0.52 kept as kalshi_p",
               vc is not None and vc.get("market_p") == 0.545 and vc.get("kalshi_p") == 0.52,
               json.dumps(vc and {k: vc.get(k) for k in ("market_p", "kalshi_p", "price_basis")}))
+        vs = next((c for c in led["calls"] if c.get("call_type") == "value_shadow" and "Kansas City" in c["game"]), None)
+        doc = json.load(open(paths[0]))
+        fexec = next(p["desk"]["value_shadow"]["exec"] for p in doc["predictions"] if p["home_team"] == "Kansas City Chiefs")
+        check("a value shadow logs the FILE's executable cost (its own 0.25u order), not the legacy 10-contract one",
+              vs is not None and fexec and vs.get("kalshi_exec_cost") == fexec["cost"] is not None,
+              json.dumps({"ledger": vs and vs.get("kalshi_exec_cost"), "file": fexec and fexec.get("cost")}))
         ven = page.evaluate("""Array.from(document.querySelectorAll('#venueTable tbody tr'))
             .map(tr=>Array.from(tr.children).map(td=>td.textContent))""")
         bos = next(v for v in ven if "Boston" in v[0])

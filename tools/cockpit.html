@@ -494,7 +494,7 @@ function execHTMLFrom(fx,modelP){
     const ok=e>=K2.feeClearsPP-1e-9;
     return `<div class="note">exec ${pp(e)} @ ${fx.cost.toFixed(3)} ${fx.doctrine==="join"?"join "+jb.price.toFixed(2)
       +" (spread ≥ 3¢)":"TAKE at the ask"}${no?" (NO side)":""} · ask + taker fee`
-      +` · <b class="${ok?"play":"caution"}">${ok?"exec ≥ 4pp: full units":"exec < 4pp: half units"}</b>`
+      +` · <b class="${ok?"play":"caution"}">${ok?"exec gate clears (≥ 4pp)":"exec gate fails (< 4pp)"}</b>`
       +(fx.maker_cost!=null?` · maker ${fx.maker_cost.toFixed(3)} (reference)`:"")+`</div>`;
   }
   const head=fx.basis==="maker"
@@ -922,7 +922,9 @@ function snapshotCalls(now,opts){
     add(r,{...baseCall(r,dOf(r)),pick:v.side,tier:"shadow",engine:"model_edge",
       call_type:"value_shadow",units:0,shadow_units:VALUE.units,
       model_p:v.modelP,market_p:v.marketP,value_edge_pp:+v.edge.toFixed(2),value_role:v.role,
-      kalshi_exec_cost:execCostFor(r,v.side),kalshi_exec_cost_maker:makerCostFor(r,v.side),
+      // #87 v1.1 files: the file's executable cost at the shadow's own 0.25u order (Codex on #303)
+      kalshi_exec_cost:v.fileExec&&v.fileExec.doctrine?(v.fileExec.cost??null):execCostFor(r,v.side),
+      kalshi_exec_cost_maker:v.fileExec&&v.fileExec.doctrine?(v.fileExec.maker_cost??null):makerCostFor(r,v.side),
       top_pick:r.pick,venue_hint:"books",rules:v.tags.slice()});
   }
   // parlays: model_edge only (frozen). Auto-claimed too (ARCHITECT 2026-10-03: "the

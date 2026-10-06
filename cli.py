@@ -4602,7 +4602,7 @@ def desk_rescore_cmd(files):
             continue
         rows = dp.rescore(doc)
         print(f"{os.path.basename(f)} · desk {meta.get('policy_version')} as of {meta.get('as_of')} · "
-              f"{len(rows)} PLAY(s)")
+              f"{len(rows)} PLAY(s)" + (f" · unit basis {rows[0]['unit_basis']}" if rows else ""))
         for x in rows:
             n += 1
             halved += x["verdict"] == "halved"

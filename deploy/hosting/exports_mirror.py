@@ -71,11 +71,18 @@ def key_path() -> Path:
 
 
 def ssh_remote(remote: str) -> bool:
-    """ssh://…, or git's scp-like [user@]host:path (user optional; Codex on #335). Not a URL with "://" (an HTTPS
-    remote never uses the deploy key) and not a local path."""
-    if remote.startswith("ssh://"):
-        return True
-    return bool(re.match(r"^(?:[\w.-]+@)?[\w.-]{2,}:(?!//)", remote))
+    """git's own rule (Codex on #335): a URL ("scheme://") is SSH when its scheme names ssh (ssh://, git+ssh://,
+    ssh+git://); otherwise a remote is scp-like, so SSH, when a ':' comes before any '/' (git@host:p, u@h:p,
+    host:p, [::1]:p). A local path (/x, ./x, ../x, ~/x) is not. An unsure call errs towards SSH, so a missing key
+    is refused rather than pushed keyless."""
+    r = remote.strip()
+    m = re.match(r"^([A-Za-z][A-Za-z0-9+.-]*)://", r)
+    if m:
+        return "ssh" in m.group(1).lower().split("+")
+    if r.startswith(("/", "./", "../", "~")):
+        return False
+    colon, slash = r.find(":"), r.find("/")
+    return colon > 0 and (slash == -1 or colon < slash)
 
 
 def key_refusal(remote: str) -> str | None:

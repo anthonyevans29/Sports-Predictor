@@ -317,6 +317,10 @@ def test_a_missing_key_on_an_ssh_remote_is_a_stated_refusal(monkeypatch, tmp_pat
     assert em.key_refusal("https://github.com/a/b.git") is None
     assert em.ssh_remote("example.com:owner/repo.git") and em.ssh_remote("git@github.com:a/b.git")   # userless scp form
     assert not em.ssh_remote("https://github.com/a/b.git") and not em.ssh_remote("file:///tmp/x.git")
+    for r in ("u@h:path", "[::1]:path", "git+ssh://example.com/path", "ssh+git://h/p", "ssh://git@h:22/p"):
+        assert em.ssh_remote(r), r                                     # every form git runs ssh for (Codex on #335)
+    for r in ("http://h/p.git", "git://h/p.git", "/srv/x.git", "./x.git", "../x.git", "~/x.git"):
+        assert not em.ssh_remote(r), r
     (tmp_path / "home" / ".ssh").mkdir(parents=True)
     (tmp_path / "home" / ".ssh" / "sp_exports_deploy_key").write_text("k")
     assert em.key_refusal("git@github.com:a/b.git") is None

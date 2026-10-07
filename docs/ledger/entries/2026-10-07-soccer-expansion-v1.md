@@ -15,7 +15,10 @@
   - **F3:** relegation / promotion play-off rows inside a league-season (score them, or exclude and count).
   - **F4:** the tie. "log-loss <= naive − 0.010 (tie rejects)" at exact equality; the code carries the intl-elo comparison (equality passes) until ruled.
   - **F5 (Codex on #326):** fixtures sharing a kickoff. The harness walk adds each row's result to Elo and the prior before the next row, so a later same-kickoff row is scored with a result not knowable at kickoff. Every soccer verdict so far used this walk. Whether this gate batches equal-kickoff fixtures, and whether the harness changes for every caller, needs a ruling; the code is unchanged until then.
+  - **F6 (Codex on #326):** a league where no calibration band reaches 100 observations passes the bands criterion vacuously (the intl-elo-v2 rule verbatim, also in the NHL and NCAA gates). Whether an empty gated-band set passes, drops or refuses needs a ruling; the code is unchanged.
 - **Prerequisite:** each league's 2026/27 competition-season needs `sync-teams` once, on the laptop and on the host, before the chains' `sync-matches`.
 - **Codex on #326 (fixed):**
   - The test-season seal lives in `run_soccer_backtest` itself, so `dixon-coles-sweep`, `elo-coeff-sweep` and the candidate harnesses are refused on these leagues while the experiment is unrun. Only the gate passes `sealed_read=True`.
   - The pre-scoring check refuses any test season the walk would score nothing in, using the walk's own predicate (>= 40 prior rows AND both teams among them) from fixture order and team ids, no score read. A count of finished matches alone did not guarantee a scored row, so a refusal could still have followed a partial read.
+  - The run reserves the gate before its first read (an exclusive create of `docs/registry/soccer-expansion-v1.started.json`), so an interrupted, failed or concurrent attempt cannot read the sealed seasons again; an unrecorded reservation refuses until the architect rules.
+  - The run record keeps each league's calibration band rows, so the calibration half of the verdict is auditable without a re-read.

@@ -5614,12 +5614,15 @@ def soccer_expansion_gate_cmd(preflight):
             f"{mk['ll_model']:.4f} / market {mk['ll_market']:.4f} · >= +{mk['edge_cohort']['min_edge_pp']:g}pp "
             f"cohort {mk['edge_cohort']['hits']}/{mk['edge_cohort']['n']}" if mk else "no stored closing odds"))
     try:
-        r = sx.run(rho, coeff, progress=show)
+        r = sx.run(rho, coeff, progress=show, meta={"production_version": version})
     except sx.ExpansionRefused as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
     click.echo(f"  VERDICT (computed; the architect rules): {r['verdict']} · dropped: {', '.join(r['dropped']) or 'none'}")
-    per = {c: {k: v for k, v in g.items() if k != "bands"} for c, g in r["per_league"].items()}
+    # Codex on #326: the band rows stay in the durable record (the calibration half of each league's verdict)
+    per = {c: {**g, "bands": [{**b, "stated": round(b["stated"], 4), "realized": round(b["realized"], 4),
+                               "gap": round(b["gap"], 4)} for b in g.get("bands") or []]}
+           for c, g in r["per_league"].items()}
     result = {"verdict": r["verdict"], "surviving": r["surviving"], "dropped": r["dropped"], "per_league": per,
               "production_version": version, "rho": rho, "elo_goal_coeff": coeff, "min_prior": sx.MIN_PRIOR}
     e = reg.record_run(sx.EID, r["scored_ids"], result)

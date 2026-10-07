@@ -117,9 +117,20 @@ that tuple and this section in a reviewed PR.
     before any of their results update the walk), and whether the harness changes for every caller, is for a
     ruling. The code is unchanged until then.
 
+- **F6 — a league with no gated calibration band** (Codex on #326).
+  - The bands criterion is the intl-elo-v2 one verbatim: every band with >= 100 observations is within ±5pp, so a
+    league where no band reaches 100 passes it vacuously and is gated on log-loss alone.
+  - The same rule stands in the intl-elo-v2, NHL and NCAA gates. Whether this gate treats an empty gated-band set as
+    a pass, a DROP, or a refusal (and with what pre-read threshold) is for a ruling. The code is unchanged.
+
 Before any league is scored, the run also refuses a test season the walk would score nothing in (Codex on #326).
 It checks the walk's own predicate from fixture order and team ids only: a row is scored once at least min_prior
 rows precede it and both its teams appear among them (`soccer_expansion.scoreable_count`; no score is read).
+
+The one run RESERVES the gate (Codex on #326). After those pre-checks and before the first test-season read, it
+creates `docs/registry/soccer-expansion-v1.started.json` exclusively. A second, concurrent, interrupted or failed
+attempt is refused while that file exists without a recorded run: the read is spent, recorded or not, and nothing
+reruns without an architect ruling. The run record keeps each league's calibration band rows.
 
 Prerequisite, not a finding: each league's 2026/27 competition-season needs `sync-teams` once before the chains'
 `sync-matches` (CLAUDE.md), on the laptop and on the host.
@@ -135,6 +146,6 @@ Prerequisite, not a finding: each league's 2026/27 competition-season needs `syn
 
 ```
 python cli.py soccer-expansion-gate --preflight     # receipts only: scores nothing, records nothing
-# after F1-F5 are ruled (a PR closes OPEN_FINDINGS):
-python cli.py soccer-expansion-gate                 # the ONE run; commit docs/registry/ in a PR
+# after F1-F6 are ruled (a PR closes OPEN_FINDINGS):
+python cli.py soccer-expansion-gate                 # the ONE run; commit docs/registry/ (incl. the .started.json) in a PR
 ```

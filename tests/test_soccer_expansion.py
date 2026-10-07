@@ -39,6 +39,12 @@ def results(n, good: bool, seed=1, start=0):
 NAIVE = {"H": 0.45, "D": 0.27, "A": 0.28, "n": 380}
 
 
+@pytest.fixture(autouse=True)
+def _reservation(monkeypatch, tmp_path):
+    """Every test reserves into a tmp path: the real docs/registry/ is never written."""
+    monkeypatch.setattr(sx, "RESERVATION", str(tmp_path / "sx.started.json"))
+
+
 def test_registry_declares_it_with_an_executable_plan():
     e = reg.get(sx.EID)
     assert e and e["status"] == "declared" and e["run"] is None
@@ -58,7 +64,7 @@ def test_gate_command_refuses_unless_declared_and_unrun(monkeypatch):
 
 
 def test_run_refuses_while_findings_are_open_and_on_missing_data(monkeypatch):
-    assert sx.OPEN_FINDINGS and {f[:2] for f in sx.OPEN_FINDINGS} == {"F1", "F2", "F3", "F4", "F5"}
+    assert sx.OPEN_FINDINGS and {f[:2] for f in sx.OPEN_FINDINGS} == {"F1", "F2", "F3", "F4", "F5", "F6"}
     with pytest.raises(sx.ExpansionRefused, match="open findings"):
         sx.run(-0.1, 0.0008)
     monkeypatch.setattr(sx, "OPEN_FINDINGS", ())
@@ -221,3 +227,48 @@ def test_scoreable_count_is_the_walks_own_predicate_without_reading_a_score(leag
         assert sx.scoreable_count(s, "FL1", "2098/99", min_prior=39) == 1       # the 40th row: both clubs seen
     assert run_soccer_backtest("FL1", "2098/99", sx.MIN_PRIOR, sealed_read=True) == []
     assert len(run_soccer_backtest("FL1", "2098/99", 39, sealed_read=True)) == 1
+
+
+def test_the_run_reserves_the_gate_before_the_first_read_and_fails_closed(monkeypatch):
+    """Codex on #326: an interrupted, failed or concurrent run cannot read the sealed seasons a second time."""
+    import os
+    monkeypatch.setattr(reg, "get", lambda eid, path=None: DECLARED if eid == sx.EID else None)
+    monkeypatch.setattr(sx, "OPEN_FINDINGS", ())
+    monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 100)
+    monkeypatch.setattr(sx, "scoreable_count", lambda s, c, se: 60)
+    monkeypatch.setattr(sx, "naive_for", lambda s, c: None if c == "ELC" else NAIVE)
+    with pytest.raises(sx.ExpansionRefused, match="no stored 2023/24"):
+        sx.run(-0.1, 0.0008)
+    assert not os.path.exists(sx.reservation_path())          # a pre-check refusal spends nothing
+    monkeypatch.setattr(sx, "naive_for", lambda s, c: NAIVE)
+
+    def boom(*a, **k):
+        raise KeyboardInterrupt                                # interrupted mid-read
+    monkeypatch.setattr("src.walters.soccer_backtest.run_soccer_backtest", boom)
+    with pytest.raises(KeyboardInterrupt):
+        sx.run(-0.1, 0.0008, meta={"production_version": "v22"})
+    saved = json.load(open(sx.reservation_path()))
+    assert saved["id"] == sx.EID and saved["production_version"] == "v22" and saved["rho"] == -0.1
+    for again in (lambda: sx.run(-0.1, 0.0008), sx.declared_unrun, sx.reserve):
+        with pytest.raises(sx.ExpansionRefused, match="never|without an architect ruling"):
+            again()
+
+
+def test_the_run_record_keeps_the_calibration_bands(monkeypatch):
+    """Codex on #326: the band rows (the calibration half of each verdict) stay in the durable record."""
+    import cli
+    monkeypatch.setattr(reg, "get", lambda eid, path=None: DECLARED if eid == sx.EID else None)
+    monkeypatch.setattr(cli, "_soccer_prod_poisson", lambda: ("v22", -0.1, 0.0008))
+    g = sx.league_gate(results(300, True), NAIVE)
+    g["market"] = None
+    monkeypatch.setattr(sx, "run", lambda rho, coeff, progress=None, meta=None: {
+        "per_league": {"PD": g}, "verdict": "x", "surviving": ["PD"], "dropped": [], "scored_ids": [1]})
+    seen = {}
+    monkeypatch.setattr(reg, "record_run", lambda eid, ids, result: seen.update(result) or {
+        "run": {"n_scored": 1, "ids_sha256": "ab" * 32, "ids_file": "f"}})
+    r = CliRunner().invoke(cli.cli, ["soccer-expansion-gate"])
+    assert r.exit_code == 0, r.output
+    bands = seen["per_league"]["PD"]["bands"]
+    assert bands and {b["band"] for b in bands} == {b["band"] for b in g["bands"]}
+    assert all({"n", "stated", "realized", "gated", "ok"} <= set(b) for b in bands)
+    json.dumps(seen)                                           # the record stays JSON-serialisable

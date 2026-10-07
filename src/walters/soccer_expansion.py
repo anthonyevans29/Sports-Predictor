@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import json
 import math
+import os
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -59,11 +60,49 @@ OPEN_FINDINGS = (
     "F3 relegation / promotion play-off rows inside a league-season",
     "F4 the tie: 'log-loss <= naive - 0.010 (tie rejects)' at exact equality",
     "F5 fixtures sharing a kickoff: the walk updates after each row, so a later same-kickoff row sees an earlier one's result",
+    "F6 a league with no gated calibration band (every band < 100 observations) passes the bands criterion vacuously",
 )
 
 
 class ExpansionRefused(RuntimeError):
     pass
+
+
+def _reservation_default() -> str:
+    from src.walters import registry as reg
+    return os.path.join(os.path.dirname(reg.LEDGER), f"{EID}.started.json")
+
+
+# Codex on #326: the one run RESERVES the gate (an exclusive create) after its pre-checks and before the first
+# test-season read, so an interrupted, failed or concurrent run cannot read the sealed seasons a second time. A
+# reservation without a recorded run refuses every later attempt until the architect rules (fails closed).
+RESERVATION = None                  # None = docs/registry/<EID>.started.json (tests point it at a tmp path)
+
+
+def reservation_path() -> str:
+    return RESERVATION or _reservation_default()
+
+
+def reserve(meta: dict | None = None) -> str:
+    p = reservation_path()
+    try:
+        fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+    except FileExistsError:
+        raise ExpansionRefused(_reserved_why(p))
+    with os.fdopen(fd, "w") as f:
+        json.dump({"id": EID, "started_at": utc_now_naive().strftime("%Y-%m-%dT%H:%M:%SZ"), **(meta or {})}, f)
+        f.write("\n")
+    return p
+
+
+def _reserved_why(p: str) -> str:
+    try:
+        with open(p) as f:
+            at = json.load(f).get("started_at", "?")
+    except (OSError, ValueError):
+        at = "?"
+    return (f"{EID}: a run was started at {at} ({os.path.relpath(p)}) and the test seasons may have been read; "
+            "it is the one run, recorded or not. Nothing reruns without an architect ruling")
 
 
 # ------------------------------------------------------------------ pure --
@@ -150,6 +189,8 @@ def declared_unrun():
     if e is None or e.get("status") != "declared" or e.get("run") is not None:
         raise ExpansionRefused(f"{EID} must be declared and unrun in the registry "
                                f"(status {e.get('status') if e else 'absent'}): the test seasons are read once")
+    if os.path.exists(reservation_path()):
+        raise ExpansionRefused(_reserved_why(reservation_path()))
     return e
 
 
@@ -265,9 +306,9 @@ def _closes(s, ids) -> dict[int, dict]:
     return out
 
 
-def run(rho: float, coeff: float, progress=None) -> dict:
+def run(rho: float, coeff: float, progress=None, meta: dict | None = None) -> dict:
     """The ONE run's computation (the CLI records it). Refuses while any spec finding is open, or a league's
-    2023/24 naive is undefined."""
+    2023/24 naive is undefined. After those pre-checks and before the first read it reserves the gate."""
     if OPEN_FINDINGS:
         raise ExpansionRefused("open findings need a ruling before the run: " + "; ".join(OPEN_FINDINGS))
     from src.db.database import session_scope
@@ -286,6 +327,7 @@ def run(rho: float, coeff: float, progress=None) -> dict:
     missing = [c for c, v in naives.items() if v is None]
     if missing:
         raise ExpansionRefused(f"no stored {NAIVE_SEASON} for {', '.join(missing)}: naive undefined (finding F1)")
+    reserve({"rho": rho, "elo_goal_coeff": coeff, **(meta or {})})     # from here on, the one read is spent
     per, scored = {}, []
     for code in LEAGUES:
         res = []

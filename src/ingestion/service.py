@@ -1160,13 +1160,14 @@ class IngestionService:
                     # Numerator and denominator are the SAME set: this run's
                     # upcoming games. The batch covers the whole date (started
                     # games too), so len(batch) printed "4/3" (ARCHITECT
-                    # 2026-10-07); the slate total is shown apart.
+                    # 2026-10-07). The batch holds only games WITH a probable,
+                    # so it is shown apart as the date-wide probable count.
                     with_p = sum(
                         1 for g in group
                         if str((g.external_ids or {}).get(self.adapter.source_name)) in batch
                     )
                     _log(f"  ✓ {date_iso}: {with_p}/{len(group)} upcoming games "
-                         f"with probable pitchers ({len(batch)} on the date's slate)")
+                         f"with probable pitchers ({len(batch)} date-wide, started games included)")
 
             for m in matches:
                 ext = m.external_ids or {}

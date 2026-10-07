@@ -1,6 +1,6 @@
 """ARCHITECT 2026-10-07 (daily-class): sync-pitchers printed "4/3 games with probable pitchers": the numerator
 counted every game on the date's slate (the batch covers started games too), the denominator only this run's
-upcoming games. Both now count the upcoming games; the slate total is printed apart."""
+upcoming games. Both now count the upcoming games; the batch size (games with a probable, date-wide) is printed apart."""
 from datetime import timedelta
 
 import pytest
@@ -62,5 +62,5 @@ def test_the_count_is_upcoming_games_with_probables_over_upcoming_games():
     logs: list[str] = []
     r = IngestionService(FakeAdapter(batch)).sync_pitchers(CODE, "2091", on_log=logs.append)
     line = next(x for x in logs if "with probable pitchers" in x)
-    assert "2/3 upcoming games with probable pitchers (4 on the date's slate)" in line, line
+    assert "2/3 upcoming games with probable pitchers (4 date-wide, started games included)" in line, line
     assert r.created == 4 and r.skipped == 1

@@ -17,3 +17,4 @@
   - Report: only rows with a verified reference session (file fair == capture at 4 dp) enter the statistics. Others are counted and listed as excluded, with the reason.
   - Probe: missing key and `--match-id` preflight failures exit 2 as refusals.
   - Receipt: a manual claim merges by position identity onto the latest file call at or before its click; none, its own row.
+  - A missing or non-directory `--exports-dir`, or a ledger with a non-object call entry, is refused (exit 2) and never audited as empty or complete.

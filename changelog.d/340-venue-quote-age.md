@@ -17,3 +17,4 @@
   - Report: only rows whose reference session is verified (file fair == capture at 4 dp) enter median / p90 / max. Mismatched and unverifiable rows are counted and listed as excluded, with the reason.
   - Probe: a missing provider key and every `--match-id` preflight failure are refusals too (exit 2, reason stated), not a bare exit 1.
   - Receipt: a MANUAL ledger claim (stamped at the click, never a file's `as_of`) merges onto its position by identity (sport, teams, kickoff, side): the latest file call at or before the click. No such file means it stays its own row and is never guessed onto a later file.
+  - Both receipts refuse (exit 2) an `--exports-dir` that is missing, misspelled or a file, never reporting an empty audit. `venue-calls-receipt` refuses a ledger whose calls array has any non-object entry, as `k-track-receipt` does.

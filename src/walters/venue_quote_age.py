@@ -55,12 +55,31 @@ def parse_ts(v) -> datetime | None:
     return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo is not None else dt
 
 
+class Refused(Exception):
+    """A receipt input that cannot be read as asked: refused with its reason (exit 2), never reported as empty."""
+
+
+def ledger_refusal(L) -> str | None:
+    """A Cockpit ledger export the receipt can audit: an object with a calls array whose EVERY entry is an object
+    (Codex on #340, as k-track-receipt checks). A damaged entry refuses the receipt: skipping it would understate
+    the claims while reading as complete."""
+    if not isinstance(L, dict) or not isinstance(L.get("calls"), list):
+        return "REFUSED: not a Cockpit ledger export (no calls array)."
+    bad = [i for i, c in enumerate(L["calls"]) if not isinstance(c, dict)]
+    if bad:
+        return (f"REFUSED: the ledger's calls array has {len(bad)} non-object entr{'y' if len(bad) == 1 else 'ies'} "
+                f"(index {', '.join(map(str, bad[:5]))}{', …' if len(bad) > 5 else ''}): a damaged ledger, "
+                "never audited as complete.")
+    return None
+
+
 def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     """Every JSON under `root` (recursive) whose top level carries desk_meta.as_of. Returns (docs, counts);
     counts["mirrored"] = the desk files under <root>/host/ (the host's pulled copies: foreign match_ids)."""
     docs, counts = [], {"json_files": 0, "unreadable": 0, "desk_files": 0, "mirrored": []}
-    if not os.path.isdir(root):
-        return docs, counts
+    if not os.path.isdir(root):        # Codex on #340: a path error is never an empty audit
+        raise Refused(f"REFUSED: --exports-dir {root!r} is not a directory (missing, misspelled or a file): "
+                      "no receipt, never an empty one")
     for d, _, files in sorted(os.walk(root)):
         for n in sorted(files):
             if not n.endswith(".json"):

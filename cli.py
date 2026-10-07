@@ -1537,7 +1537,11 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
     lo = _vqa_since(since)
     if not _vqa_out_ok(out_path):
         raise SystemExit(2)
-    docs, cnt = VQ.iter_desk_docs(exports_dir)
+    try:
+        docs, cnt = VQ.iter_desk_docs(exports_dir)
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
     calls = VQ.file_venue_calls(docs, lo, cnt["mirrored"])
     sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
                f"{cnt['unreadable']} unreadable, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
@@ -1549,8 +1553,9 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
         except (OSError, ValueError) as e:
             console.print(f"[red]REFUSED: cannot read the ledger export {ledger_path!r}: {e}[/red]")
             raise SystemExit(2)
-        if not isinstance(L, dict) or not isinstance(L.get("calls"), list):
-            console.print("[red]REFUSED: not a Cockpit ledger export (no calls array).[/red]")
+        why = VQ.ledger_refusal(L)
+        if why:
+            console.print(f"[red]{why}[/red]")
             raise SystemExit(2)
         lc = VQ.ledger_venue_calls(L, lo)
         calls = VQ.merge_calls(calls, lc)
@@ -1577,7 +1582,11 @@ def quote_age_report_cmd(since, exports_dir, out_path):
     lo = _vqa_since(since)
     if not _vqa_out_ok(out_path):
         raise SystemExit(2)
-    docs, cnt = VQ.iter_desk_docs(exports_dir)
+    try:
+        docs, cnt = VQ.iter_desk_docs(exports_dir)
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
     sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
                f"{cnt['unreadable']} unreadable, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
                f"resolved by identity)"]

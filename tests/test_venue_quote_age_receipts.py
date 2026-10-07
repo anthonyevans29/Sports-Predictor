@@ -6,6 +6,8 @@ the book consensus at the call and at each later pre-kickoff capture, and whethe
 import json
 from datetime import datetime, timedelta
 
+import pytest
+
 from src.db.database import init_db, session_scope
 from src.db.schema import Competition, Match, MatchStatus, OddsSnapshot, Sport, Team
 from src.walters import venue_quote_age as VQ
@@ -353,3 +355,28 @@ def test_age_statistics_measure_only_rows_whose_reference_session_is_verified(tm
                        "session unverified: the file carries no 1X2 fair to compare"]
     txt = "\n".join(VQ.format_age_report(rep, SINCE, ["t"]))
     assert "measured (verified) 1 · excluded 2" in txt and "EXCLUDED from the statistics: 2" in txt
+
+
+def test_a_missing_exports_dir_and_a_damaged_ledger_are_refused(tmp_path):
+    """Codex on #340: a path error or a damaged ledger is refused (exit 2), never reported as an empty audit."""
+    from click.testing import CliRunner
+
+    import cli
+    from src.walters import venue_quote_age as VQ
+    afile = tmp_path / "afile"
+    afile.write_text("x")
+    for root in (tmp_path / "exprots", afile):
+        with pytest.raises(VQ.Refused, match="not a directory"):
+            VQ.iter_desk_docs(str(root))
+        for cmd in ("venue-calls-receipt", "quote-age-report"):
+            r = CliRunner().invoke(cli.cli, [cmd, "--exports-dir", str(root)])
+            assert r.exit_code == 2 and "not a directory" in " ".join(r.output.split()), r.output
+    ex = tmp_path / "exports"
+    ex.mkdir()
+    assert VQ.ledger_refusal({"calls": [{"engine": "venue_edge"}]}) is None
+    for L in ({"calls": [{"engine": "venue_edge"}, None, "x"]}, {"calls": [7]}):
+        assert "non-object" in VQ.ledger_refusal(L)
+    led = tmp_path / "ledger.json"
+    led.write_text(json.dumps({"calls": [{"engine": "venue_edge"}, None]}))
+    r = CliRunner().invoke(cli.cli, ["venue-calls-receipt", "--exports-dir", str(ex), "--ledger", str(led)])
+    assert r.exit_code == 2 and "non-object entry (index 1)" in " ".join(r.output.split()), r.output

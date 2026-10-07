@@ -150,6 +150,14 @@ Open points for the ruling:
   - no DB match.
 - **Per sport**: rows, rows with a capture, measured (verified) and excluded, the file-match / mismatch / no-file-fair counts, then median / p90 / max of both ages, the count with unchanged age above 3h, and the censored count, all over measured rows. Percentiles are nearest-rank on the sorted list, index round(q·(n−1)).
 
+## Evidence for step (3): SJ@STL (ARCHITECT, addendum 6 item 3, 2026-10-07, verbatim)
+
+> "SJ@STL (2026-10-09T00:00Z). The provider served the same five-book consensus (SJ 0.5265) at 14:56Z, 16:00Z and 22:09Z, while Kalshi's SJ ask went from 0.46 to 0.42. The laptop Desk at 22:09:27Z still printed VENUE 0.25u with an order (BUY YES KXNHLGAME-26OCT08SJSTL-SJ @ 0.42 x 2), divergence 10.7pp, stale_book_zone true. The 3h rule (#91) passed because captured_at is our fetch time. Add this row to the receipt over past VENUE calls, and count how many past VENUE calls carried stale_book_zone true."
+
+- The row is in the laptop's 22:09:27Z fixtures export, so `venue-calls-receipt` lists it with the other VENUE calls on file. No row is injected by hand.
+- The receipt now prints, for each call, the Desk's own `stale_book_zone` flag as written (TRUE / false / unknown). The totals count calls with it true, false, and unknown. Unknown means a ledger-only claim or a file without the field, and it is never counted as false.
+- The flag is reported, never re-derived from `div_pp`, and it never held a call. A non-boolean value on a VENUE block refuses the export at discovery.
+
 ## Evidence for step (4): MLB (ARCHITECT, addendum 5 II, 2026-10-07, verbatim)
 
 > "II, MLB evidence: LAD@ATL's nine-book consensus (ATL 0.4302) was unchanged from the host's 14:05Z capture through the laptop's 21:59:58Z capture, two seconds before first pitch. The stored book close for that game is a price first served eight hours earlier. Kalshi on the same game was also unchanged over that span (0.42 / 0.43), so the book price is not shown to be wrong; its age is simply invisible to us."

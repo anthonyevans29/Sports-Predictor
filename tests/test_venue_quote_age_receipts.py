@@ -1110,3 +1110,35 @@ def test_damaged_custom_named_desk_exports_are_refused(tmp_path):
     (ex / "notes.json").write_text('{"x": [1, 2')
     docs, counts = VQ.iter_desk_docs(str(ex))
     assert docs == [] and counts["unreadable"] == 1
+
+
+def test_the_receipt_counts_venue_calls_that_carried_stale_book_zone(tmp_path):
+    """ARCHITECT 2026-10-07 (addendum 6, 3): SJ@STL printed VENUE with stale_book_zone true (div 10.7pp); the
+    receipt counts past VENUE calls that carried the flag, as written; a file without it is unknown."""
+    ids = _seed()
+    n = ids["n"]
+    dead = {"HOME": 0.4735, "AWAY": 0.5265}
+    rows = []
+    for k, (tag, flag) in enumerate((("dead", True), ("move", False), ("last", None))):
+        r = _venue_row(ids[tag], tag, 20, dead, n=n)
+        r["desk"]["div_pp"] = 10.7 if flag else 7.15
+        if flag is None:
+            r["desk"].pop("stale_book_zone", None)
+        else:
+            r["desk"]["stale_book_zone"] = flag
+        rows.append(r)
+    calls = VQ.file_venue_calls([("f.json", _doc(rows, KO - timedelta(hours=19)))], SINCE)
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    t = res["totals"]
+    assert (t["stale_book_zone_true"], t["stale_book_zone_false"], t["stale_book_zone_unknown"]) == (1, 1, 1)
+    txt = "\n".join(VQ.format_venue_receipt(res, SINCE, ["t"]))
+    assert "stale_book_zone on the call: TRUE 1 · false 1 · unknown (ledger-only or not on file) 1" in txt
+    assert "(the Desk's |div| >= 8pp flag, as written): TRUE" in txt
+    ex = tmp_path / "x"
+    ex.mkdir()
+    bad = _venue_row(ids["dead"], "dead", 20, dead, n=n)
+    bad["desk"]["stale_book_zone"] = "yes"
+    (ex / "fixtures_NHL_x.json").write_text(json.dumps(_doc([bad], KO - timedelta(hours=19))))
+    with pytest.raises(VQ.Refused, match="non-numeric VENUE field"):
+        VQ.iter_desk_docs(str(ex))

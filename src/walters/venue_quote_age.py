@@ -155,7 +155,8 @@ def desk_ok(d) -> bool:
         return False
     if d.get("engine") != "venue_edge":
         return True
-    return all(_num(d.get(k)) for k in ("book_p", "kalshi_p", "div_pp", "units"))
+    return all(_num(d.get(k)) for k in ("book_p", "kalshi_p", "div_pp", "units")) and (
+        d.get("stale_book_zone") is None or isinstance(d.get("stale_book_zone"), bool))
 
 
 def row_ident_ok(x: dict) -> bool:
@@ -351,6 +352,9 @@ def file_venue_calls(docs, since: datetime, mirrored=()) -> list[dict]:
                 "div_pp": d.get("div_pp"), "book_p": d.get("book_p"), "kalshi_p": d.get("kalshi_p"),
                 "file_fair": _r4(mk.get("fair_prob")), "file_books": mk.get("bookmaker_count"),
                 "file_captured_at": parse_ts(mk.get("captured_at")), "fair_source": mk.get("fair_source"),
+                # ARCHITECT 2026-10-07 (addendum 6, 3): the Desk's own |div| >= staleGapPP flag, as the file wrote
+                # it; a file without the field is unknown (None), never counted as false
+                "stale_book_zone": d.get("stale_book_zone"),
                 "conflicting_copies": bool(twins), "host_only": foreign}
     return sorted(by_key.values(), key=lambda c: (c["as_of"], c["sport"], str(c["home"])))
 
@@ -697,6 +701,10 @@ def venue_receipt(s, calls: list[dict]) -> dict:
     tot["tested"] = tested
     tot["never_moved_share_of_tested"] = (tot["NEVER MOVED"] / tested) if tested else None
     tot["never_moved_share_of_calls"] = (tot["NEVER MOVED"] / len(rows)) if rows else None
+    # ARCHITECT 2026-10-07 (addendum 6, 3): "count how many past VENUE calls carried stale_book_zone true"
+    tot["stale_book_zone_true"] = sum(1 for r in rows if r.get("stale_book_zone") is True)
+    tot["stale_book_zone_false"] = sum(1 for r in rows if r.get("stale_book_zone") is False)
+    tot["stale_book_zone_unknown"] = len(rows) - tot["stale_book_zone_true"] - tot["stale_book_zone_false"]
     tot["repriced_positions"] = sum(1 for r in rows if r.get("reprices"))
     tot["reprices"] = sum(len(r.get("reprices") or []) for r in rows)
     return {"rows": rows, "totals": tot}
@@ -735,6 +743,9 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                    f"{'—' if r['kalshi_p'] is None else format(r['kalshi_p'], '.4f')}")
         out.append(f"  source: {'; '.join(r['files']) or 'ledger only'}" + (" · in ledger" if r["in_ledger"]
                                                                              and r["files"] else ""))
+        sbz = r.get("stale_book_zone")
+        out.append("  stale_book_zone (the Desk's |div| >= 8pp flag, as written): "
+                   + ("TRUE" if sbz is True else "false" if sbz is False else "unknown (not on file)"))
         if r.get("ledger_ambiguous"):
             out.append(f"  LEDGER AMBIGUOUS: {r['ledger_ambiguous']}")
         if r.get("conflicting_copies"):
@@ -778,6 +789,9 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                f"{t.get('ANCHOR MISMATCH: NOT MEASURED', 0)} · no capture time on file, not measured "
                f"{t.get('NO CAPTURE TIME: NOT MEASURED', 0)} · no fair on file, not measured "
                f"{t.get('NO FILE FAIR: NOT MEASURED', 0)}")
+    out.append(f"  stale_book_zone on the call: TRUE {t.get('stale_book_zone_true', 0)} · false "
+               f"{t.get('stale_book_zone_false', 0)} · unknown (ledger-only or not on file) "
+               f"{t.get('stale_book_zone_unknown', 0)} — the Desk's own flag, as written; it never held a call")
     out.append(f"  (re-logged ledger positions {t['repriced_positions']}, {t['reprices']} re-log(s): counted once "
                f"each, at the frozen claim)")
     return out

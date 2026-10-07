@@ -275,4 +275,14 @@ def test_value_and_odd_must_sit_in_one_usable_quote():
                  [{"value": "", "odd": "2.1"}], [{"value": "Home", "odd": "n/a"}]):
         p = {"response": [{"bookmakers": [{"name": "B", "bets": [{"name": "Home/Away", "values": vals}]}]}]}
         assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(p))
-    assert P.usable_quotes({"response": [{"bookmakers": [{"bets": [{"values": [{"value": "Home", "odd": "2.1"}]}]}]}]}) == 1
+    ok = {"response": [{"bookmakers": [{"bets": [{"name": "Home/Away", "values": [{"value": "Home", "odd": "2.1"}]}]}]}]}
+    assert P.usable_quotes(ok) == 1 and P.usable_quotes(ok, "nhl") == 1
+
+
+def test_an_unknown_market_or_selection_is_inconclusive():
+    # Codex on #340: the adapters skip a bet whose name is not in _MARKET_MAP, or a value that does not normalise
+    for bet in ({"name": "Unknown Market", "values": [{"value": "bogus", "odd": "2.1"}]},
+                {"name": "Home/Away", "values": [{"value": "bogus", "odd": "2.1"}]}):
+        p = {"response": [{"bookmakers": [{"name": "B", "bets": [bet]}]}]}
+        assert P.usable_quotes(p, "nhl") == 0
+        assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(p, sport="nhl"))

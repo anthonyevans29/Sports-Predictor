@@ -37,3 +37,4 @@
   - Read-only open creates no sidecars (immutable when checkpointed). `fair_source` is part of copy identity. The probe verdict needs real value/odd objects.
   - The probe's DB lookup creates no sidecars. A malformed `market` / `fair_prob` is refused at discovery.
   - A re-logged venue claim's Kalshi p is unknown (the frozen value may be an executable cost). A file call without a fair is unmeasured. Re-derived anchors are labelled, never shown as snapshot equality. Malformed selections / VENUE fields are refused. The probe needs one usable quote.
+  - The probe counts quotes by the adapters' own market/selection rules. Bad market metadata and non-numeric claim prices are refused. Default prediction export names are required inputs.

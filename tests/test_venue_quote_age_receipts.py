@@ -940,3 +940,29 @@ def test_malformed_selections_and_venue_fields_are_refused(tmp_path):
                                                             "fixtures": [r]}))
         with pytest.raises(VQ.Refused, match="non-numeric VENUE field"):
             VQ.iter_desk_docs(str(ex))
+
+
+def test_unhashable_market_metadata_and_nonnumeric_claim_prices_are_refused(tmp_path):
+    """Codex on #340: bookmaker_count / captured_at go into call signatures; claim prices are formatted as numbers."""
+    for i, mk in enumerate(({"bookmaker_count": [5]}, {"captured_at": ["2095-10-08"]})):
+        ex = tmp_path / f"k{i}"
+        ex.mkdir()
+        (ex / "fixtures_NHL_x.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                                            "fixtures": [{"market": mk}]}))
+        with pytest.raises(VQ.Refused, match="malformed market"):
+            VQ.iter_desk_docs(str(ex))
+    for k, v in (("model_p", "bad"), ("claim_model_p", []), ("divergence_pp", "7.1")):
+        why = VQ.ledger_refusal({"calls": [{"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z", k: v}]})
+        assert why and "non-numeric " + k in why
+
+
+def test_default_prediction_export_names_are_required_inputs(tmp_path):
+    """Codex on #340: export-predictions writes <sport>[_<COMP>]_<date>.json; an unreadable one refuses."""
+    for name in ("mlb_MLB_2026-10-07.json", "soccer_PL_2026-10-01_to_2026-10-07.json", "nfl_2026-10-07.json"):
+        assert VQ.EXPORT_NAME.search(name), name
+    assert not VQ.EXPORT_NAME.search("mlb_MLB_results_2026-10-07.json")
+    ex = tmp_path / "exports"
+    ex.mkdir()
+    (ex / "mlb_MLB_2026-10-07.json").write_text('{"desk_meta"')
+    with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
+        VQ.iter_desk_docs(str(ex))

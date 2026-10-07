@@ -144,25 +144,40 @@ def _short(v, n=80) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
-def usable_quotes(payload) -> int:
-    """Quotes list_odds would turn into an odds row (Codex on #340): ONE values[] object carrying a non-empty value
-    and an odd that parses as a number > 1. Fields split across entries, a null odd, etc. count as nothing."""
+def _adapters(sport: str | None) -> list:
+    """The adapter class(es) whose list_odds acceptance rules apply: the --sport one, else both (from-file)."""
+    import importlib
+    sys.path.insert(0, str(REPO))
+    keys = [sport] if sport in SPORTS else list(SPORTS)
+    return [getattr(importlib.import_module(SPORTS[k][0]), SPORTS[k][1]) for k in keys]
+
+
+def usable_quotes(payload, sport: str | None = None) -> int:
+    """Quotes list_odds would turn into an odds row (Codex on #340), by the ADAPTER's own rules: a bet whose name is
+    in its _MARKET_MAP, ONE values[] object whose odd parses as a float and whose value normalises to a selection
+    for that market (_normalize_selection). Split fields, unknown markets, unnormalisable selections count nothing."""
     n = 0
     for g in (payload.get("response") or []) if isinstance(payload, dict) else []:
         for bk in (g.get("bookmakers") or []) if isinstance(g, dict) else []:
             for bet in (bk.get("bets") or []) if isinstance(bk, dict) else []:
-                for v in (bet.get("values") or []) if isinstance(bet, dict) else []:
-                    if not isinstance(v, dict) or v.get("value") in (None, ""):
+                if not isinstance(bet, dict):
+                    continue
+                for v in bet.get("values") or []:
+                    if not isinstance(v, dict):
                         continue
                     try:
-                        if float(v.get("odd")) > 1.0:
-                            n += 1
+                        float(v.get("odd"))
                     except (TypeError, ValueError):
                         continue
+                    for ad in _adapters(sport):
+                        market = ad._MARKET_MAP.get(bet.get("name") or "")
+                        if market is not None and ad._normalize_selection(market, str(v.get("value") or ""))[0]:
+                            n += 1
+                            break
     return n
 
 
-def report(payload, max_items: int = 3) -> list[str]:
+def report(payload, max_items: int = 3, sport: str | None = None) -> list[str]:
     fields = walk(payload, max_items)
     tf = time_fields(fields)
     lines = [f"FIELDS ({len(fields)} key paths; [] = list element; EVERY list element scanned; up to {max_items} "
@@ -184,7 +199,7 @@ def report(payload, max_items: int = 3) -> list[str]:
     cand = [p for p in tf["by_name"] + tf["by_value"] if p in dr]
     # Codex on #340: a quoted price is a values[] OBJECT carrying both value and odd (what list_odds reads);
     # [null] / ["bad"] / [{}] are no market data
-    quoted = usable_quotes(payload)
+    quoted = usable_quotes(payload, sport)
     if not cand and not quoted:
         # Codex on #340: an empty odds response (no bookmaker / bet / value object) says nothing about the schema
         lines.append("VERDICT (this payload): INCONCLUSIVE: no bookmaker / bet / value objects in this response "
@@ -354,7 +369,7 @@ def main(argv=None) -> int:
         except Refused as e:
             print(str(e))
             return 2
-    text = "\n".join(report(payload, a.max_items))
+    text = "\n".join(report(payload, a.max_items, a.sport))
     print(redact(text, key))
     if a.out:
         os.makedirs(os.path.dirname(out_path_ok(a.out)[1]), exist_ok=True)

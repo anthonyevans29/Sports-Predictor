@@ -37,7 +37,10 @@ DP = 4                                           # "unchanged to four decimals"
 MODEL_SPORTS = ("MLB", "NFL", "PL")              # build step (4): the live model sports
 #: Desk export filenames (fixtures_<comp>_*, <sport>_predictions_*, desk_parlays_*, window_*): an unreadable file
 #: with such a name is a damaged export and refuses the receipt; other unreadable JSON is only counted.
-EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions", re.I)
+EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions"
+                         # export-predictions' default name: <sport>[_<COMP>]_<YYYY-MM-DD>[_to_<YYYY-MM-DD>].json
+                         r"|^(soccer|nfl|mlb|nhl)(_[A-Za-z0-9]+)?_\d{4}-\d{2}-\d{2}(_to_\d{4}-\d{2}-\d{2})?\.json$",
+                         re.I)
 SPREAD_SPORTS = ("NFL", "NCAA", "NCAAF")          # sports whose reference can be spread_derived
 LEDGER_UNKNOWN_SOURCE = "unknown (the ledger keeps no fair_source)"
 MIRROR_DIR = "host"                              # <exports>/host/: deploy/hosting/pull_exports.py's destination
@@ -79,6 +82,11 @@ def ledger_refusal(L) -> str | None:
         for i, c in enumerate(L["calls"]):
             if c.get("engine") != "venue_edge":
                 continue
+            bad_num = [k for k in ("model_p", "market_p", "kalshi_p", "divergence_pp", "units", "claim_model_p",
+                                   "claim_market_p", "claim_exec_cost") if not _num(c.get(k))]
+            if bad_num:                                # Codex on #340: formatted / compared as numbers
+                return (f"REFUSED: venue claim at index {i} has non-numeric {', '.join(bad_num)}: its prices "
+                        "cannot be audited.")
             if c.get("claim_at") not in (None, "") and parse_ts(c.get("claim_at")) is None:
                 return (f"REFUSED: venue claim at index {i} has an unparseable claim_at {c.get('claim_at')!r}: the "
                         "frozen claim time is damaged, never replaced by the mutable claim_as_of / captured_at.")
@@ -114,6 +122,9 @@ def market_ok(mk) -> bool:
     if sel is not None and not (isinstance(sel, dict) and all(
             v is None or (isinstance(v, dict) and _num(v.get("fair_prob"))) for v in sel.values())):
         return False
+    if not _num(mk.get("bookmaker_count")) or not (mk.get("captured_at") is None
+                                                   or isinstance(mk.get("captured_at"), str)):
+        return False                           # hashed into call signatures (Codex on #340)
     fp = mk.get("fair_prob")
     if fp is None:
         return True

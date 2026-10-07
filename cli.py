@@ -4708,6 +4708,25 @@ def export_unl_predictions_cmd(hours):
     print(f"  fit: {f['games_used']} finished games walked · c x{f['c_mult']:g} · K x{f['k_mult']:g} · mu {f['mu']}")
 
 
+@cli.command("export-intl-predictions")
+@click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
+def export_intl_predictions_cmd(hours):
+    """INTL PRODUCTION export (ARCHITECT 2026-10-07, built DARK): intl-elo-v2 rows for the Desk (sport "intl",
+    POLICY INTL v0), each with market_divergence_pp and quarantine as the NFL export defines them, venue_flag and
+    competition. REFUSED, writing nothing, until registry.production_allowed("intl-elo-v2") (PASS + CONFIRMED);
+    until then export-unl-predictions is the shadow, unchanged."""
+    from src.walters import intl_production as ip
+    try:
+        path, doc = ip.export(hours=hours)
+    except ip.IntlRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    console.print(f"[green]✓ Wrote INTL predictions (intl-elo-v2, production) to {path}[/green]")
+    q = sum(1 for r in doc["predictions"] if r["quarantine"])
+    print(f"  {doc['count']} games in the next {hours}h · quarantined {q} · {doc['production_allowed']} · "
+          f"desk {'attached' if doc.get('desk_meta') else 'off (SP_DESK_CALLS)'}")
+
+
 @cli.command("unl-shadow-grade")
 @click.option("--days", default=30, show_default=True, type=int)
 def unl_shadow_grade_cmd(days):

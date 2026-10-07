@@ -40,6 +40,11 @@ POLICY = {
     "NFL": {"eMin": 4, "eLad": INF, "eHair": 15, "pMin": 0, "qNever": True},
     "MLB": {"eMin": 4, "eLad": INF, "eHair": 15, "pMin": 0, "qNever": False},
     "NHL": {"passAll": True},
+    # INTL DESK POLICY v0 (ARCHITECT 2026-10-07, pre-declared; effective only on CONFIRMED): "(1) A new POLICY
+    # block INTL = the SOCCER block (eMin 4, eLad 10, eHair 10, pMin 0.50) with qNever true". DARK: only a
+    # production intl export (src/walters/intl_production.py, refused until registry.production_allowed(
+    # "intl-elo-v2")) carries sport "intl"; no other file reaches this block.
+    "INTL": {"eMin": 4, "eLad": 10, "eHair": 10, "pMin": 0.50, "qNever": True},
     "DEFAULT": {"eMin": 4, "eLad": INF, "eHair": 15, "pMin": 0, "qNever": False},
 }
 BASE_UNITS = 1
@@ -67,6 +72,18 @@ EXEC_RULES = {"on": True}
 # unchanged (never guessed). Its own switch: the frozen golden (pre-F1c) predates it and runs with it off.
 STARTED_RULE = {"on": True}
 STARTED_REASON = "started - never a new call"
+# INTL DESK POLICY v0 (ARCHITECT 2026-10-07) rules (2)-(6): "(2) Half units until 30 INTL calls are graded.
+# (3) A row is never a call when its venue flag is unknown and its listed home side is on the home-abroad list;
+# that list is ruled by name from the receipt in (c). (4) UNL only: CNL has no wired Kalshi series, so CNL rows
+# are predictions without a call. (5) UNL stays ineligible for venue-edge until the skew test (#286) is read.
+# (6) First review at 30 graded calls; no threshold moves before it."
+#   (5) needs no code: venue_edge never prices a model row, and a market-only UNL fixture reads "single venue".
+#   The graded count is `intl_graded` in the ledger summary; absent = 0 (cautious: half units).
+INTL = {"callComps": ("UNL",), "halfUntilGraded": 30, "reviewN": 30}
+# (3) The home-abroad list is ruled BY NAME from `intl-home-abroad-receipt`. EMPTY until that ruling: no name is
+# assumed here (law 4). Names are the export's home_team strings.
+INTL_HOME_ABROAD: frozenset = frozenset()
+INTL_COUNT_KEY = "intl_graded"
 PARLAY_LABEL = "independence estimate: Π of single-game prices (legs assumed uncorrelated)"
 PASSCLASS = {"minBooks": 3, "rerunMin": 60}
 POSTSEASON = {"reviewN": 30}
@@ -614,12 +631,28 @@ def kalshi_only_ref(r, now_ms: float) -> dict:
 
 # ------------------------------------------------------------------ policy --
 
-def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
+def _no_call(r, kind: str, reason: str) -> dict:
+    return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": [kind], "reasons": [reason],
+            "execUnits": None, "shadowUnits": 0, "passKind": kind, "mktRef": r["mkt"], "kalOnly": False}
+
+
+def intl_venue_unknown(r) -> bool:
+    """INTL rule (3): the row's venue flag (the export's `venue_flag`, from neutral_v3) is unknown. A missing
+    flag counts as unknown (conservative)."""
+    return (r["src"].get("venue_flag") or "unknown") == "unknown"
+
+
+def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
     """The Cockpit's policy() body for ONE model-sport row."""
     if STARTED_RULE["on"] and has_started(r, now_ms):
-        return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": ["started"],
-                "reasons": [STARTED_REASON], "execUnits": None, "shadowUnits": 0, "passKind": "started",
-                "mktRef": r["mkt"], "kalOnly": False}
+        return _no_call(r, "started", STARTED_REASON)
+    if r["sport"] == "INTL":
+        if r["comp"] not in INTL["callComps"]:
+            return _no_call(r, "no_series", f"{r['comp'] or '?'}: no wired Kalshi series → prediction without a "
+                                            "call (INTL v0 rule 4)")
+        if intl_venue_unknown(r) and r["home"] in INTL_HOME_ABROAD:
+            return _no_call(r, "venue_unknown", f"venue unknown and {r['home']} is on the home-abroad list → "
+                                                "never a call (INTL v0 rule 3)")
     base = BASE_UNITS
     ps_half = postseason_graded < POSTSEASON["reviewN"]
     P = POLICY.get(r["sport"]) or POLICY["DEFAULT"]
@@ -710,6 +743,11 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
             else:
                 reasons.append(f"exec edge {js_fixed(xe, 1)}pp ≥ {K2['feeClearsPP']}pp at ask + taker fee")
                 tags.append("exec clears")
+        if call != "PASS" and r["sport"] == "INTL" and intl_graded < INTL["halfUntilGraded"]:
+            units = min(units, base / 2)
+            reasons.append(f"INTL → half units until {INTL['halfUntilGraded']} graded "
+                           f"({intl_graded}/{INTL['halfUntilGraded']})")
+            tags.append("intl half units")
         if call != "PASS" and r["stage"] is None and r["sport"] == "MLB":
             reasons.append("stage unknown — postseason caution not applied")
         if kal_only and call != "PASS":
@@ -934,14 +972,18 @@ def _parlay_block(t) -> dict:
 def evaluate(doc: dict, now_ms: float, counts: dict | None = None) -> dict:
     """Desk output for one export document, row order as the Cockpit's:
     calls (model rows), value shadows, venue (every row)."""
+    intl_graded = int((counts or {}).get(INTL_COUNT_KEY) or 0)
     counts = {k: int((counts or {}).get(k) or 0) for k in COUNT_KEYS}
     rows = normalize(doc)
+    if any(r["sport"] == "INTL" for r in rows):     # INTL v0 (2): only an intl file carries the count
+        counts[INTL_COUNT_KEY] = intl_graded
     calls, values, venue = [], [], []
     for r in rows:
         if not r["marketOnly"]:
-            c = desk_call(r, now_ms, counts["postseason_graded"])
+            c = desk_call(r, now_ms, counts["postseason_graded"], intl_graded)
             calls.append((r, c))
-            v = None if c["passKind"] == "started" else value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"])
+            v = (None if c["passKind"] in ("started", "no_series", "venue_unknown")
+                 else value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"]))
             if v:
                 values.append((r, v))
     for r in rows:
@@ -1095,7 +1137,8 @@ def desk_block(r, c, v, ven) -> dict:
            "edge_pp": _num(c["edge"]), "pass_kind": c["passKind"], "tags": c["tags"],
            "reasons": c["reasons"], "reason": " · ".join(c["reasons"]),
            "shadow_units": c["shadowUnits"], "exec": (None if (EXEC_RULES["on"] and c["call"] == "LADDER")
-                                                      or c["passKind"] == "started" else   # a LADDER buys NO on HOME, not the
+                                                      or c["passKind"] in ("started", "no_series",
+                                                                           "venue_unknown") else   # a LADDER buys NO on HOME, not the
                     exec_block(r, r["pick"], r["prob"],                           # pick's leg: no pick-leg exec
                                c.get("execUnits") or (c["shadowUnits"] or None),    # a quarantine shadow is
                                c["units"] if c.get("execUnits") and c["units"] else None)),  # priced at its size
@@ -1130,6 +1173,9 @@ def read_ledger_summary(path: str | None) -> tuple[dict, str]:
         if not isinstance(v, int) or v < 0:
             return zero, f"default 0 (ledger summary: bad {k})"
         counts[k] = v
+    v = d["counts"].get(INTL_COUNT_KEY)     # INTL v0 (2): optional; absent or bad = 0 (half units)
+    if isinstance(v, int) and v >= 0:
+        counts[INTL_COUNT_KEY] = v
     return counts, f"ledger summary {os.path.basename(path)} generated {d.get('generated_at') or '?'}"
 
 

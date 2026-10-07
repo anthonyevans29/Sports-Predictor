@@ -1,9 +1,10 @@
-**2026-10-07 — NCAA / NFL delineation: every row and console line names the competition (addendum 6, item 2).**
+**2026-10-07 — NCAA / NFL delineation: every row and console line names the competition (addendum 6, item 2; #345).**
 - **Ruling (ARCHITECT, verbatim):** "DELINEATION (daily-class). College football rides the NFL code path and is labelled as NFL in places the operator reads: the football odds sync prints "NFL odds: N upcoming games" for an NFL+NCAA window, and window-card rows for college games carry sport "nfl". Ruling (verbatim): "Every export row and console line names the competition. A college row carries competition NCAA and a family field (NFL or NCAAF); nothing the operator reads labels a college game NFL. The new shadow file is named and stamped NCAA.""
 - **Built:**
   - `sync-odds-football` prints per-competition counts derived from the window ("NCAA odds: N upcoming games · NFL odds: M upcoming games"). Its per-game lines and its summary name the competition; the hardcoded "(NFL+NCAA)" is gone.
   - Every fixtures row (`export-fixtures` and the window card, via `_fixture_row`) carries `competition` and `family` (NCAAF for college, NFL for NFL).
   - `window-card` and `capture-weather-nfl` console lines count games per competition.
   - `sport` stays "nfl" on window-card college rows: sp_run's `FRESHEN_FAMILY` keys on (sport, competition), and the Cockpit renders `SPORT · competition`. Readers checked: tools/cockpit.html, src/walters/desk_policy.py, deploy/hosting/sp_window_page.py, deploy/hosting/sp_run.py + chains.py, scripts/cockpit_window_verify.py.
-  - No NCAA shadow file exists on main yet; the shadow clause applies when that lane lands.
+  - The shadow clause is met by #344: `ncaa_shadow_<stamp>.json`, stamped `sport: ncaa`, `competition: NCAA` and `family: NCAAF`, on every row too.
+  - **Left for the operator:** the Cockpit's window table renders `SPORT · competition`, so a college row still reads "NFL · NCAA" there. The Cockpit is the separately published artifact, and the fix renders `family`.
 - **Effect:** labels only. No probability, policy, gate or grading logic changed. `tests/test_ncaa_delineation.py` (5 tests) fails on main and passes here.

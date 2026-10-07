@@ -14,7 +14,8 @@
   - **F2:** promoted-club priors. The existing harness walks each league-season on its own (fresh Elo, in-season strengths, the first 40 unscored), so no club carries a prior across seasons.
   - **F3:** relegation / promotion play-off rows inside a league-season (score them, or exclude and count).
   - **F4:** the tie. "log-loss <= naive − 0.010 (tie rejects)" at exact equality; the code carries the intl-elo comparison (equality passes) until ruled.
+  - **F5 (Codex on #326):** fixtures sharing a kickoff. The harness walk adds each row's result to Elo and the prior before the next row, so a later same-kickoff row is scored with a result not knowable at kickoff. Every soccer verdict so far used this walk. Whether this gate batches equal-kickoff fixtures, and whether the harness changes for every caller, needs a ruling; the code is unchanged until then.
 - **Prerequisite:** each league's 2026/27 competition-season needs `sync-teams` once, on the laptop and on the host, before the chains' `sync-matches`.
 - **Codex on #326 (fixed):**
   - The test-season seal lives in `run_soccer_backtest` itself, so `dixon-coles-sweep`, `elo-coeff-sweep` and the candidate harnesses are refused on these leagues while the experiment is unrun. Only the gate passes `sealed_read=True`.
-  - The pre-scoring check refuses any test season with <= 40 finished matches (it would score nothing at min_prior 40), not only an empty one, so a refusal never follows a partial read.
+  - The pre-scoring check refuses any test season the walk would score nothing in, using the walk's own predicate (>= 40 prior rows AND both teams among them) from fixture order and team ids, no score read. A count of finished matches alone did not guarantee a scored row, so a refusal could still have followed a partial read.

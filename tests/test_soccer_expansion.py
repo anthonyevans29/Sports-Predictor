@@ -58,7 +58,7 @@ def test_gate_command_refuses_unless_declared_and_unrun(monkeypatch):
 
 
 def test_run_refuses_while_findings_are_open_and_on_missing_data(monkeypatch):
-    assert sx.OPEN_FINDINGS and any(f.startswith("F2") for f in sx.OPEN_FINDINGS)
+    assert sx.OPEN_FINDINGS and {f[:2] for f in sx.OPEN_FINDINGS} == {"F1", "F2", "F3", "F4", "F5"}
     with pytest.raises(sx.ExpansionRefused, match="open findings"):
         sx.run(-0.1, 0.0008)
     monkeypatch.setattr(sx, "OPEN_FINDINGS", ())
@@ -67,11 +67,12 @@ def test_run_refuses_while_findings_are_open_and_on_missing_data(monkeypatch):
                         lambda *a, **k: scored.append(a) or results(5, True))
     monkeypatch.setattr(sx, "naive_for", lambda s, c: None if c == "ELC" else NAIVE)
     monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 100)
+    monkeypatch.setattr(sx, "scoreable_count", lambda s, c, se: 60)
     with pytest.raises(sx.ExpansionRefused, match="no stored 2023/24 for ELC"):
         sx.run(-0.1, 0.0008)
     monkeypatch.setattr(sx, "naive_for", lambda s, c: NAIVE)
-    monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 40 if (c, se) == ("SA", "2025/26") else 100)
-    with pytest.raises(sx.ExpansionRefused, match="SA 2025/26"):
+    monkeypatch.setattr(sx, "scoreable_count", lambda s, c, se: 0 if (c, se) == ("SA", "2025/26") else 60)
+    with pytest.raises(sx.ExpansionRefused, match="SA 2025/26 .100 finished, 0 scoreable"):
         sx.run(-0.1, 0.0008)
     assert scored == []                                         # refused BEFORE any league was scored
 
@@ -81,6 +82,7 @@ def test_a_league_that_misses_its_own_gate_is_dropped_and_the_verdict_names_the_
     monkeypatch.setattr(sx, "OPEN_FINDINGS", ())
     monkeypatch.setattr(sx, "naive_for", lambda s, c: NAIVE)
     monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 100)
+    monkeypatch.setattr(sx, "scoreable_count", lambda s, c, se: 60)
     good = {"PD", "BL1"}
     monkeypatch.setattr("src.walters.soccer_backtest.run_soccer_backtest",
                         lambda code, season, *a, **k: results(60, code in good, seed=hash((code, season)) % 97,
@@ -194,3 +196,28 @@ def test_every_backtest_path_is_refused_on_these_leagues_while_unrun(monkeypatch
         assert r.exit_code != 0 and isinstance(r.exception, sx.ExpansionRefused), (cmd, r.output[-200:])
     init_db()
     assert sb.run_soccer_backtest("BL1", "2024/25", sealed_read=True) is None    # the gate's path: not refused
+
+
+def test_scoreable_count_is_the_walks_own_predicate_without_reading_a_score(league):
+    """Codex on #326: > min_prior finished rows does not mean anything scores (the walk needs both teams among the
+    prior rows). The pre-scoring check uses the walk's predicate; here it agrees with the walk itself."""
+    from src.walters.soccer_backtest import run_soccer_backtest
+    with session_scope() as s:
+        n = sx.scoreable_count(s, "FL1", "2097/98")
+        assert n == len(run_soccer_backtest("FL1", "2097/98", sx.MIN_PRIOR, sealed_read=True) or []) == 8
+    with session_scope() as s:                 # committed (throwaway test DB): the walk reads in its own session
+        c = s.execute(select(Competition).where(Competition.code == "FL1")).scalar_one()
+        t = [Team(sport=Sport.SOCCER, name=f"SX Late {i}") for i in range(3)]
+        s.add_all(t)
+        s.flush()
+        start = datetime(2098, 8, 1)
+        for i in range(41):                    # 40 rows among t0/t1, then one row with a club absent from all 40
+            h, a = (t[0], t[1]) if i < 40 else (t[0], t[2])
+            s.add(Match(sport=Sport.SOCCER, competition_id=c.id, season="2098/99", utc_date=start + timedelta(days=i),
+                        status=MatchStatus.FINISHED, status_raw="FT", home_team_id=h.id, away_team_id=a.id,
+                        home_score=1, away_score=0))
+    with session_scope() as s:
+        assert (sx.finished_count(s, "FL1", "2098/99"), sx.scoreable_count(s, "FL1", "2098/99")) == (41, 0)
+        assert sx.scoreable_count(s, "FL1", "2098/99", min_prior=39) == 1       # the 40th row: both clubs seen
+    assert run_soccer_backtest("FL1", "2098/99", sx.MIN_PRIOR, sealed_read=True) == []
+    assert len(run_soccer_backtest("FL1", "2098/99", 39, sealed_read=True)) == 1

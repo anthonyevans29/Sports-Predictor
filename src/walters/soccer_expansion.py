@@ -58,6 +58,7 @@ OPEN_FINDINGS = (
     "F2 promoted-club priors in the walk-forward",
     "F3 relegation / promotion play-off rows inside a league-season",
     "F4 the tie: 'log-loss <= naive - 0.010 (tie rejects)' at exact equality",
+    "F5 fixtures sharing a kickoff: the walk updates after each row, so a later same-kickoff row sees an earlier one's result",
 )
 
 
@@ -203,6 +204,28 @@ def finished_count(s, code: str, season: str) -> int:
         Match.home_score.isnot(None), Match.away_score.isnot(None))).scalar() or 0
 
 
+def scoreable_count(s, code: str, season: str, min_prior: int = MIN_PRIOR) -> int:
+    """How many matches the walk WOULD score for a league-season, from fixture order and team ids only (Codex on
+    #326). It mirrors run_soccer_backtest's predicate: the same finished-with-both-scores rows sorted by kickoff,
+    and a row is scored once >= min_prior rows precede it and both its teams appear among them. Whether a score is
+    stored is checked; no score or outcome is read."""
+    from sqlalchemy import select
+    from src.db.schema import Match, MatchStatus
+    c = _comp(s, code)
+    if c is None:
+        return 0
+    rows = s.execute(select(Match.id, Match.utc_date, Match.home_team_id, Match.away_team_id).where(
+        Match.competition_id == c.id, Match.season == season, Match.status == MatchStatus.FINISHED,
+        Match.home_score.isnot(None), Match.away_score.isnot(None), Match.utc_date.isnot(None))).all()
+    rows.sort(key=lambda r: r.utc_date)
+    seen, n = set(), 0
+    for i, r in enumerate(rows):
+        if i >= min_prior and r.home_team_id in seen and r.away_team_id in seen:
+            n += 1
+        seen.update((r.home_team_id, r.away_team_id))
+    return n
+
+
 def preflight(s) -> dict:
     """Stream receipts, scoring NOTHING: per league, stored matches per season and status, the stages present in
     the test seasons (finding F3), the 2023/24 naive frequencies, and closing-odds coverage on the test seasons.
@@ -252,10 +275,10 @@ def run(rho: float, coeff: float, progress=None) -> dict:
 
     with session_scope() as s:
         naives = {c: naive_for(s, c) for c in LEAGUES}
-        # Codex on #326: a season with <= MIN_PRIOR finished matches scores nothing at min_prior, so it is
-        # refused here too, before any read (the walk scores a match only once MIN_PRIOR precede it)
-        empty = [f"{c} {se} ({finished_count(s, c, se)} finished, needs > {MIN_PRIOR})"
-                 for c in LEAGUES for se in TEST_SEASONS if finished_count(s, c, se) <= MIN_PRIOR]
+        # Codex on #326: a season the walk would score nothing in is refused here, before any read. The predicate
+        # is the walk's own (>= MIN_PRIOR prior rows AND both teams among them), from fixture order and team ids
+        empty = [f"{c} {se} ({finished_count(s, c, se)} finished, 0 scoreable at min_prior {MIN_PRIOR})"
+                 for c in LEAGUES for se in TEST_SEASONS if scoreable_count(s, c, se) == 0]
         s.rollback()
     if empty:                        # checked BEFORE any league is scored: a refusal never follows a read
         raise ExpansionRefused(f"too few finished matches stored for {', '.join(empty)} (or the season string differs "

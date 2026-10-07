@@ -1,12 +1,13 @@
 ## 2026-10-07 (#326: soccer-expansion-v1 — ARCHITECT, gate-class declaration, NO run)
-- soccer-expansion-v1 is DECLARED in the registry with its executable confirmation plan (#322). The spec is `docs/specs/soccer-expansion-v1.md` (the ruling verbatim, the operational definitions, findings F1–F4).
+- soccer-expansion-v1 is DECLARED in the registry with its executable confirmation plan (#322). The spec is `docs/specs/soccer-expansion-v1.md` (the ruling verbatim, the operational definitions, findings F1–F5).
 - `soccer-expansion-gate [--preflight]`:
   - the one run, per league, on PD/SA/BL1/FL1/ELC, test seasons 2024/25 + 2025/26;
-  - refused unless declared and unrun, while F1–F4 are open, and before any scoring if a 2023/24 naive or a test season is missing;
+  - refused unless declared and unrun, while F1–F5 are open, and before any scoring if a 2023/24 naive is missing or a test season would score nothing;
   - `--preflight` scores nothing.
 - `soccer-backtest` refuses these leagues while the experiment is unrun.
 - `export-soccer-expansion-shadow` (model_shadow, no Desk call, no prediction row) and `soccer-expansion-shadow-grade` (read-only).
 - `soccer-prematch` / `soccer-morning-after` and the laptop routine add the five leagues' 2026/27 `sync-matches` / `sync-odds`, data only. No Kalshi series is pinned.
 - Codex on #326:
   - the seal is enforced in `run_soccer_backtest` (every path, the sweeps included);
-  - the pre-scoring check refuses a test season with <= min_prior finished matches.
+  - the pre-scoring check refuses a test season the walk would score nothing in: the walk's own predicate (>= min_prior prior rows and both teams among them), from fixture order and team ids, no score read;
+  - F5 (fixtures sharing a kickoff: the walk updates after each row) is an open finding for a ruling; the run refuses until it is ruled.

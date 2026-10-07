@@ -109,6 +109,17 @@ that tuple and this section in a reviewed PR.
 - **F4 — the tie.** The ruling says "log-loss <= naive − 0.010 (tie rejects)".
   - At exact equality, `<=` passes but "tie rejects" fails.
   - The code carries the intl-elo comparison (equality passes) until ruled.
+- **F5 — fixtures sharing a kickoff** (Codex on #326).
+  - The harness walk predicts a row, then adds that row's result to Elo and the prior before the next row.
+  - Fixtures with the same kickoff (common on final matchdays) are therefore scored with a same-kickoff result
+    already in the walk, which was not knowable at kickoff.
+  - Every soccer verdict so far used this walk. Whether this gate batches equal-kickoff fixtures (all predicted
+    before any of their results update the walk), and whether the harness changes for every caller, is for a
+    ruling. The code is unchanged until then.
+
+Before any league is scored, the run also refuses a test season the walk would score nothing in (Codex on #326).
+It checks the walk's own predicate from fixture order and team ids only: a row is scored once at least min_prior
+rows precede it and both its teams appear among them (`soccer_expansion.scoreable_count`; no score is read).
 
 Prerequisite, not a finding: each league's 2026/27 competition-season needs `sync-teams` once before the chains'
 `sync-matches` (CLAUDE.md), on the laptop and on the host.
@@ -124,6 +135,6 @@ Prerequisite, not a finding: each league's 2026/27 competition-season needs `syn
 
 ```
 python cli.py soccer-expansion-gate --preflight     # receipts only: scores nothing, records nothing
-# after F1-F4 are ruled (a PR closes OPEN_FINDINGS):
+# after F1-F5 are ruled (a PR closes OPEN_FINDINGS):
 python cli.py soccer-expansion-gate                 # the ONE run; commit docs/registry/ in a PR
 ```

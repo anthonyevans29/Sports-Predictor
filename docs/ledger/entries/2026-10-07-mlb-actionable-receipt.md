@@ -1,0 +1,18 @@
+**2026-10-07 — FINDING: the MLB Desk does not read the model's own "actionable" flag (toss-up < 53%). A read-only receipt measures it; no policy change (#321).**
+- **Finding (ARCHITECT, verbatim):** "The prediction layer labels a top pick under 53% 'toss-up, no actionable side' (src/web/preview.py; actionable=false in the export). Desk v1.1 does not read that flag on MLB (POLICY MLB pMin 0): the 2026-10-06 file re-annotated inside T-60 with the 21:23Z quotes prints PLAY 0.25u on Milwaukee at 50.1%. The 2026-09-29 value-side ruling put the under-50% side of the same disagreement in SHADOW until 30 are graded. The layers disagree on a rule; the Desk stands until measured."
+- **Built:** `mlb-actionable-receipt [--season 2026] [--out docs/receipts/...]`, read-only, as ruled:
+  - tier × edge-vs-close bucket, postseason split out;
+  - n, means, hit rate, hit − close with a pinned-seed bootstrap CI (seed 20261007), and ROI at the close fair price.
+- **Sources reused, not reimplemented:**
+  - tier: `preview.classify_tier`, with starter_known as the export derives it;
+  - close: `close.grading_close`;
+  - stage: `export.mlb_stage`;
+  - top pick: HOME on a tie.
+- **Choices made where the build was silent (listed, open to a ruling):**
+  - a Kalshi-only close is excluded and counted ("a book close");
+  - negative edges sit in `<4` and are counted;
+  - edges are rounded to 9 dp before bucketing (float hygiene at 4/8/15);
+  - predictions computed after first pitch are kept and flagged;
+  - stage-unknown rows get their own table;
+  - ROI is at the no-vig price.
+- **Exit:** the operator's laptop receipt. The ruling is the architect's.

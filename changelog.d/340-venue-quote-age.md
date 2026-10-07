@@ -1,4 +1,4 @@
-## 2026-10-07 (#0000: venue-edge quote age — ARCHITECT, gate-class)
+## 2026-10-07 (#340: venue-edge quote age — ARCHITECT, gate-class)
 - Ruling (verbatim): "#91 means the age of the QUOTE. A fetch time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for unknown age is NO REFERENCE. From today the operator places no VENUE order on either machine's files. In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote age unknown: no reference') and the venue block keeps its numbers for the record. [...] The engine resumes only when a quote time is stored and #91 is applied to it, by ruling." Full text: docs/specs/venue-quote-age.md.
 - Desk (`desk_policy`):
   - Every venue row the engine computes is now PASS / noref, reason `book quote age unknown: no reference`, with 0 units and no order.

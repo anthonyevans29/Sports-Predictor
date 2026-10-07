@@ -202,19 +202,30 @@ def test_a_failed_history_commit_publishes_no_file(world, monkeypatch, tmp_path)
     import src.db.database as db
     mid = _one_row_export(world, monkeypatch, datetime(2098, 5, 27, 11))
     before = _history_count(mid)
-    real = db.session_scope
+    real, real_append = db.session_scope, db.append_prediction_history
+    appended = []
+
+    def spy_append(conn, rows):
+        appended.append(1)
+        return real_append(conn, rows)
 
     @contextlib.contextmanager
-    def failing_scope():
+    def failing_scope():                                       # only the transaction that appended the history
+        mark = len(appended)                                   # fails, on commit (lock / I/O); build()'s reads pass
         with real() as s:
             yield s
+            if len(appended) == mark:
+                return
             s.rollback()
-        raise RuntimeError("database is locked")              # the commit on exit fails
+        raise RuntimeError("database is locked")
     monkeypatch.setattr(db, "session_scope", failing_scope)
+    monkeypatch.setattr(db, "append_prediction_history", spy_append)
     with pytest.raises(RuntimeError, match="locked"):
         ip.export(out_dir=str(tmp_path))
-    assert list(tmp_path.iterdir()) == []                      # no file, no .partial left behind
+    assert appended                                            # the failure really hit the history transaction
+    assert list(tmp_path.iterdir()) == []                      # no file, no .partial left behind (Codex on #325)
     assert _history_count(mid) == before
     monkeypatch.setattr(db, "session_scope", real)
+    monkeypatch.setattr(db, "append_prediction_history", real_append)
     path, _ = ip.export(out_dir=str(tmp_path))
     assert [p.name for p in tmp_path.iterdir()] == [os.path.basename(path)] and not path.endswith(".partial")

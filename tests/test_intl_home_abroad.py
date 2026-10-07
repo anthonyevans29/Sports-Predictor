@@ -134,4 +134,4 @@ def test_receipt_prints_full_team_names_for_the_ruled_list():
         text = ha.format_receipt(r)
     except KeyError as e:                         # the pure formatter's own keys, read from its source
         raise AssertionError(f"fixture missing key {e}")
-    assert long in text
+    assert long in text and f"{long} | SVG" in text           # the name's end is delimited (Codex on #325)

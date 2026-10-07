@@ -155,12 +155,13 @@ def format_receipt(r: dict, run_at: datetime | None = None) -> str:
            f"(v3 NULL {t['unknown_null']}, no venue row {t['unknown_no_row']})",
            "",
            "PER TEAM (sorted by share, then known count):",
-           f"  {'team':<28}{'country':<22}{'home':>6}{'known':>7}{'abroad':>8}{'share':>8}{'played':>8}"
+           f"  {'team':<28} | {'country':<22}{'home':>6}{'known':>7}{'abroad':>8}{'share':>8}{'played':>8}"
            f"{'upcoming':>9}{'unknown':>9}  venue countries (abroad)"]
     for x in r["teams"]:
         vc = ", ".join(f"{k} {v}" for k, v in x["venue_countries"].items()) or "—"
         share = "—" if x["share"] is None else f"{x['share'] * 100:.1f}%"
-        out.append(f"  {x['team']:<28}{(x['country'] or '—')[:21]:<22}{x['listed_home']:>6}{x['known']:>7}"
+        # " | " ends the name explicitly (Codex on #325): a name longer than 28 characters never runs into the country
+        out.append(f"  {x['team']:<28} | {(x['country'] or '—')[:21]:<22}{x['listed_home']:>6}{x['known']:>7}"
                    f"{x['abroad']:>8}{share:>8}{x['abroad_finished']:>8}{x['abroad_upcoming']:>9}"
                    f"{x['unknown']:>9}  {vc}")
     out += ["",

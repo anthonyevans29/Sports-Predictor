@@ -45,3 +45,4 @@
   - A cancelled INTL fixture is not in the results file, so its call stays open (no void path is ruled).
   - The Cockpit's INTL restriction does not touch other sports' calls.
   - The production file is published (atomic rename of a temporary file) only after the history commit succeeds, so no actionable file ever exists without its prediction_history rows.
+  - A failed history commit removes the temporary file inside the helper (no `.partial` left); the home-abroad receipt delimits each team name (" | ") so the ruled list copies exact names.

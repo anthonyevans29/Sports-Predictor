@@ -27,3 +27,4 @@
   - `export-intl-predictions` appends to `prediction_history` on every export, through the shared append helper. It still writes no `predictions` row.
   - The KXUEFANLGAME settlement rule (rules_primary) is not yet quoted: the build container's proxy refused the Kalshi API (403). It must be read before merge.
   - the production file is written to a temporary path inside the history transaction and published by an atomic rename only after the commit; a failed commit leaves no file and never overwrites an earlier one.
+  - the temporary export file is removed by the helper itself if the history transaction fails on commit (the test now fails that transaction, not build()'s reads); the home-abroad receipt ends each team name with " | " so a long name never runs into the country.

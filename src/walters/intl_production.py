@@ -137,7 +137,22 @@ def export(now: datetime | None = None, hours: int | None = None, out_dir: str =
 
 
 def _export_with_history(doc, now, out_dir, session_scope, has_prediction_history, append_prediction_history):
-    """History rows + a TEMPORARY file in one transaction. Returns (final path, temp path); the caller publishes."""
+    """History rows + a TEMPORARY file in one transaction. Returns (final path, temp path); the caller publishes.
+    Codex on #325: if the transaction raises after the temporary file is written (a failed commit on exit), the
+    temporary file is removed HERE, since the caller never receives its path."""
+    tmp_holder: list[str] = []
+    try:
+        return _write_in_transaction(doc, now, out_dir, session_scope, has_prediction_history,
+                                     append_prediction_history, lambda p: tmp_holder.append(p))
+    except BaseException:
+        for p in tmp_holder:
+            if os.path.exists(p):
+                os.remove(p)
+        raise
+
+
+def _write_in_transaction(doc, now, out_dir, session_scope, has_prediction_history, append_prediction_history,
+                          note_tmp):
     with session_scope() as s:                 # history + file together: a failed write rolls the history back
         # Codex on #325: this path writes no Prediction row, so the history IS the durable grading record
         # (export-intl-results reads only prediction_history). No history, no actionable file.
@@ -153,6 +168,7 @@ def _export_with_history(doc, now, out_dir, session_scope, has_prediction_histor
         Path(out_dir).mkdir(parents=True, exist_ok=True)
         path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
         tmp = path + ".partial"
+        note_tmp(tmp)                          # registered BEFORE the write, so any later failure removes it
         with open(tmp, "w") as f:
             json.dump(doc, f, indent=2, default=str)
     return path, tmp

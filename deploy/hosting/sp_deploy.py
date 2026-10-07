@@ -17,11 +17,16 @@ clobber a local tag); any local modification except RESULTS.md, which the
 host rewrites (results-tally, H0-9) and is restored first. The host never
 builds from a branch and never pushes. Run as the sp user, under the DB lock
 so no chain is mid-run. Migrations in the range are run by hand afterwards,
-after a backup (hosting-h1.md, "Deploying a release").
+after a backup (hosting-h1.md, "Deploying a release"). When requirements.txt
+changed in the range, or this host has no successful install receipt for the
+target's file, `venv/bin/pip install -r requirements.txt` runs in a temporary
+worktree of the target before the checkout, printed and receipted; a failed
+install refuses the deploy (ARCHITECT 2026-10-06).
 """
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import subprocess
 import sys
@@ -60,6 +65,242 @@ def migration_command(scripts: list[str], expect_sha: str) -> str:
              f"{shlex.quote(str(py))} deploy/hosting/sp_deploy.py --expect {shlex.quote(expect_sha)} "
              f"--run-migrations " + " ".join(shlex.quote(m) for m in scripts))
     return f"sudo -u {user} sh -c {shlex.quote(inner)}"
+
+
+REQUIREMENTS = "requirements.txt"
+
+
+def pip_command() -> list[str]:
+    """`venv/bin/pip` of this checkout (ARCHITECT 2026-10-06). A venv without a pip script (`--without-pip`) still
+    installs INTO the venv, via its own python (Codex on #310); the running interpreter only when there is no venv."""
+    venv = c.REPO / "venv"
+    if (venv / "bin" / "pip").exists():
+        return [str(venv / "bin" / "pip")]
+    if (venv / "pyvenv.cfg").exists():
+        return [str(venv / "bin" / "python"), "-m", "pip"]
+    return [sys.executable, "-m", "pip"]
+
+
+def _pip_run(cmd: list[str], cwd: str) -> int:
+    try:
+        return subprocess.run(cmd, cwd=cwd).returncode
+    except OSError as e:                     # a launcher that cannot execute is a failed install, receipted
+        print(f"  ✗ could not run {cmd[0]}: {e.__class__.__name__}: {e}")   # (Codex on #310)
+        return 127
+
+
+def requirements_state_path() -> Path:
+    """The fingerprint of the last SUCCESSFUL install. It lives INSIDE the venv it describes, so deleting or
+    recreating the venv deletes it too (an inode can be reused; a file in the old venv cannot survive — Codex on
+    #310); never in the monthly-rotated receipt log. Without a venv: beside the receipts."""
+    venv = c.REPO / "venv"
+    if (venv / "pyvenv.cfg").exists():
+        return venv / ".sp-requirements.installed"
+    if sys.prefix != sys.base_prefix:        # running from ANOTHER virtualenv: the record lives inside it too, so
+        return Path(sys.prefix) / ".sp-requirements.installed"    # recreating it drops the record (Codex on #310)
+    return c.receipts_path().parent / "requirements.installed"
+
+
+# ALLOWLIST (Codex on #310, six rounds): auto-install handles only plain requirements files. Every other pip
+# feature (editables, local paths and archives, --find-links, URLs and `name @ ...`, environment variables, line
+# continuations, any other option) refuses the deploy and is installed by hand, so nothing pip reads can change
+# unseen by the fingerprint.
+REFUSE = "is not auto-installable"
+PIP_ENV_INPUTS = ("PIP_CONSTRAINT", "PIP_REQUIREMENT", "PIP_FIND_LINKS", "PIP_EDITABLE", "PIP_SRC")
+_SPEC = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]*(\[[A-Za-z0-9._,\s-]*\])?\s*([<>=!~].*)?(;.*)?$")
+_COMMENT = re.compile(r"(^|\s+)#.*$")
+_INCLUDE = re.compile(r"^(?:-r|--requirement|-c|--constraint)(?:\s+|=)(\S+)$|^-([rc])(\S+)$")
+ARCHIVE_SUFFIXES = (".whl", ".zip", ".tar.gz", ".tgz", ".tar.bz2", ".tar")
+
+
+def _classify(line: str) -> tuple[str, str | None]:
+    """('blank'|'spec'|'include'|'refuse', include path or the refusal detail) for one physical line."""
+    body = _COMMENT.sub("", line).strip()                # pip strips comments first: a comment never continues
+    if not body:
+        return "blank", None
+    if body.endswith("\\"):
+        return "refuse", f"line continuation: {body[:40]!r}"
+    if "$" in body:
+        return "refuse", f"environment variable: {body[:40]!r}"
+    m = _INCLUDE.match(body)
+    if m:
+        path = m.group(1) or m.group(3)
+        if "://" in path:
+            return "refuse", f"remote include: {path[:40]!r}"
+        return "include", path
+    if body.startswith("-"):
+        return "refuse", f"pip option: {body.split()[0]!r}"
+    tok = body.split(";", 1)[0]
+    opts = [w for w in tok.split()[1:] if w.startswith("-")]
+    if any(not w.startswith("--hash") for w in opts):   # per-requirement options (--config-settings, ...) can name
+        return "refuse", f"per-requirement option: {opts[0]!r}"   # inputs the fingerprint cannot see (Codex)
+    if "@" in body or "/" in tok or "\\" in tok or tok.split("[")[0].strip().lower().endswith(ARCHIVE_SUFFIXES) \
+            or not _SPEC.match(body):
+        return "refuse", f"not a plain specifier: {body[:40]!r}"
+    return "spec", None
+
+
+def requirements_scan(rev: str) -> tuple[dict, list[str]]:
+    """({path: blob} for requirements.txt and every -r/-c include, followed recursively relative to the including
+    file, file symlinks followed to their target), and the refusals found. An include that is not a tracked file
+    (missing, or reached through a symlinked DIRECTORY) is a refusal, never silently skipped."""
+    import posixpath
+    out, problems, todo = {}, [], [REQUIREMENTS]
+    while todo:
+        p = posixpath.normpath(todo.pop())
+        if p in out:
+            continue
+        out[p] = _blob(rev, p)
+        if out[p] is None:
+            problems.append(f"{p}: not a tracked file at the target")
+            continue
+        rc, mode, _ = _git_rc("ls-tree", rev, "--", p)
+        if rc == 0 and mode.startswith("120000"):      # a tracked FILE symlink: pip reads its target
+            try:
+                todo.append(posixpath.join(posixpath.dirname(p), _git_rc("show", f"{rev}:{p}")[1].strip()))
+            except UnicodeDecodeError:
+                problems.append(f"{p}: symlink target is not decodable text")
+            continue
+        try:
+            rc, body, _ = _git_rc("show", f"{rev}:{p}")
+        except UnicodeDecodeError:          # a BOM / PEP 263 encoding: refused (receipted), never a traceback
+            problems.append(f"{p}: not decodable as UTF-8 text (encoding declarations are not auto-installable)")
+            continue
+        for ln in (body.splitlines() if rc == 0 else []):
+            kind, detail = _classify(ln)
+            if kind == "include":
+                todo.append(posixpath.join(posixpath.dirname(p), detail))
+            elif kind == "refuse":
+                problems.append(f"{p}: {detail}")
+    return out, problems
+
+
+def requirements_inputs(rev: str) -> dict:
+    return requirements_scan(rev)[0]
+
+
+def _environment_id() -> str:
+    """The install destination: the venv's path, or without a venv the running interpreter (Codex on #310). A
+    recreated venv is caught by the record living inside it (requirements_state_path)."""
+    import os
+    cfg = c.REPO / "venv" / "pyvenv.cfg"
+    if not cfg.exists():
+        return f"python:{os.path.realpath(sys.executable)}"
+    # the interpreter version is part of the identity: `venv --upgrade` to a new minor version switches to a new,
+    # empty site-packages while the record inside the venv survives (Codex on #310)
+    ver = next((ln.split("=", 1)[1].strip() for ln in cfg.read_text(encoding="utf-8", errors="replace").splitlines()
+                if ln.split("=", 1)[0].strip() in ("version", "version_info")), "?")
+    ssp = next((ln.split("=", 1)[1].strip().lower() for ln in cfg.read_text(encoding="utf-8", errors="replace")
+                .splitlines() if ln.split("=", 1)[0].strip() == "include-system-site-packages"), "false")
+    return f"venv:{cfg.parent.resolve()}:python-{ver}:system-site-packages={ssp}"
+
+
+def _fingerprint(inputs: dict) -> str:
+    import hashlib
+    body = "\n".join([f"env={_environment_id()}"] + [f"{p}:{b}" for p, b in sorted(inputs.items())])
+    return hashlib.sha256(body.encode()).hexdigest()[:16]
+
+
+def _last_installed_requirements() -> str | None:
+    try:
+        return requirements_state_path().read_text(encoding="utf-8").strip() or None
+    except OSError:
+        return None
+
+
+def requirements_plan(target_sha: str, changed: list[str]) -> tuple[str | None, str | None]:
+    """(fingerprint to install, reason), or (None, reason-or-None) when nothing installs. Installs when
+    requirements.txt OR a file it includes changed in the range (ARCHITECT 2026-10-06; includes — Codex on #310),
+    and when this host's last successful install was not of exactly these inputs: the deploy that ships this code
+    still runs the OLD deployer, and the host that already lacked `cryptography` must be repaired on the next
+    deploy. A target without the file installs nothing and says so."""
+    if _blob(target_sha, REQUIREMENTS) is None:
+        return None, ("removed in the target" if REQUIREMENTS in changed else None)
+    inputs, problems = requirements_scan(target_sha)
+    # pip also reads inputs from its environment (PIP_CONSTRAINT, PIP_REQUIREMENT, ...): the fingerprint cannot see
+    # those files change, so their presence is a refusal like any other unsupported input (Codex on #310)
+    problems += [f"environment sets {k}" for k in PIP_ENV_INPUTS if os.environ.get(k)]
+    if problems:
+        if _last_installed_requirements() == manual_record(_fingerprint(inputs), target_sha):
+            return None, None              # this exact release was acknowledged as installed by hand
+        return None, f"{REFUSE} ({'; '.join(problems[:3])}{' …' if len(problems) > 3 else ''})"
+    fp = _fingerprint(inputs)
+    touched = sorted(set(inputs) & set(changed))
+    if _last_installed_requirements() == fp:
+        return None, None              # already installed in exactly this form (e.g. a retry after a failed checkout)
+    if touched:
+        return fp, ("changed in this range" if touched == [REQUIREMENTS]
+                    else f"changed in this range ({', '.join(touched)})")
+    if _last_installed_requirements() != fp:
+        return fp, "not installed on this host in this exact form (no matching install record)"
+    return None, None
+
+
+def record_installed(fingerprint: str) -> str | None:
+    """Write the install record; the error text if it cannot be written (a read-only venv, a full disk), never an
+    exception after pip has already changed the environment (Codex on #310)."""
+    try:
+        state = requirements_state_path()
+        state.parent.mkdir(parents=True, exist_ok=True)
+        state.write_text(fingerprint + "\n", encoding="utf-8")
+        return None
+    except OSError as e:
+        try:                                 # the OLD record no longer describes the environment (Codex on #310)
+            requirements_state_path().unlink(missing_ok=True)
+        except OSError:
+            pass
+        return f"{e.__class__.__name__}: {e}"
+
+
+def manual_record(fingerprint: str, target_sha: str) -> str:
+    """A by-hand acknowledgement is bound to the TARGET COMMIT, not only to the requirements files: an unsupported
+    input (a local wheel, a --find-links directory) can change while the files stay the same, so every new release
+    that needs a by-hand install is acknowledged again (Codex on #310)."""
+    rc, full, _ = _git_rc("rev-parse", "--verify", f"{target_sha}^{{commit}}")
+    return f"{fingerprint}:manual:{full.strip() if rc == 0 else target_sha}"     # the FULL sha, however given
+
+
+def requirements_fingerprint(target_sha: str) -> str | None:
+    return _fingerprint(requirements_scan(target_sha)[0]) if _blob(target_sha, REQUIREMENTS) else None
+
+
+def install_requirements(target: str, target_sha: str, fingerprint: str, reason: str) -> dict:
+    """ARCHITECT 2026-10-06 (the host lacked `cryptography` after v1.2.3): `venv/bin/pip install -r
+    requirements.txt`, printed and receipted, run in a temporary WORKTREE of the target (so relative -r / -c /
+    --find-links resolve as in the checkout — Codex on #310) BEFORE the live checkout moves; a failed install
+    refuses the deploy with production still on its release."""
+    import shutil
+    import tempfile
+    shown = " ".join(pip_command() + ["install", "-r", REQUIREMENTS])
+    print(f"  requirements.txt {reason} — running `{shown}` (the {target} file)")
+    try:
+        tmp = tempfile.mkdtemp(prefix="sp-deploy-req-")
+    except OSError as e:                     # a missing/full TMPDIR is a receipted failure, never a traceback
+        return c.append_receipt({"kind": "deploy_requirements", "exit": 1, "tag": target, "to_sha": target_sha,
+                                 "fingerprint": fingerprint, "reason": reason, "command": shown,
+                                 "error": f"temporary directory: {e.__class__.__name__}: {e}"})
+    wt = str(Path(tmp) / "wt")
+    wt_rc, _, wt_err = _git_rc("worktree", "add", "--detach", wt, target_sha)
+    try:
+        rc = _pip_run(pip_command() + ["install", "-r", REQUIREMENTS], cwd=wt) if wt_rc == 0 else wt_rc
+    finally:
+        _git_rc("worktree", "remove", "--force", wt)
+        _git_rc("worktree", "prune")
+        shutil.rmtree(tmp, ignore_errors=True)
+    if rc != 0 and wt_rc == 0:
+        # pip may have changed packages before failing: the OLD record no longer describes the environment, so it
+        # is dropped and the next deploy reinstalls whatever its inputs (Codex on #310)
+        try:
+            requirements_state_path().unlink(missing_ok=True)
+        except OSError:
+            pass
+    state_error = record_installed(fingerprint) if rc == 0 else None
+    # worktree stderr is attached ONLY when the worktree itself failed: on success git still prints
+    # "Preparing worktree", which is not a pip diagnostic (Codex on #310)
+    return c.append_receipt({"kind": "deploy_requirements", "exit": rc, "tag": target, "to_sha": target_sha,
+                             "fingerprint": fingerprint, "reason": reason, "command": shown,
+                             **({"state_error": state_error} if state_error else {}),
+                             **({"error": f"worktree add failed: {wt_err}"} if wt_rc != 0 else {})})
 
 
 MIGRATION_NAME = re.compile(r"^migrate_[A-Za-z0-9_]+\.py$")
@@ -262,6 +503,9 @@ def main(argv=None) -> int:
                          "(the command a deploy prints).")
     ap.add_argument("--expect", default=None, metavar="SHA",
                     help="With --run-migrations: the release commit the plan was made for; refused otherwise.")
+    ap.add_argument("--requirements-installed-by-hand", action="store_true",
+                    help="The target's requirements were installed by hand: record that (receipted) instead of "
+                         "running pip, so a release the auto-install refuses can be deployed.")
     a = ap.parse_args(argv)
     c.load_host_env()
     if a.run_migrations and a.dry_run:          # dry run changes nothing (Codex on #296)
@@ -292,6 +536,8 @@ def main(argv=None) -> int:
         # (ancestry / tree / history unreadable) refuses here, with production still on `before`.
         changed = git("diff", "--name-only", before, target_sha).splitlines() if before != target_sha else []
         plan = migration_plan(before, target_sha, changed)
+        req_blob, req_reason = requirements_plan(target_sha, changed)
+        by_hand = a.requirements_installed_by_hand and (req_blob or (req_reason or "").startswith(REFUSE))
         if a.dry_run:
             print(f"DRY RUN: would deploy {before_rel or before} -> {target} ({target_sha})"
                   + (f"; new migrations, in order: {plan['run']}" if plan["run"] else "")
@@ -299,11 +545,106 @@ def main(argv=None) -> int:
                      f"{plan['new']}" if plan.get("undetermined") else "")
                   + (f"; this range DELETES migration(s) {plan['deleted_migrations']} (lineage unknown)"
                      if plan.get("lineage_unknown") else "")
-                  + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else ""))
+                  + (f"; rollback skips {plan['skipped']}" if plan["skipped"] else "")
+                  + (f"; requirements.txt {req_reason}: would be RECORDED as installed by hand (no pip run)"
+                     if by_hand else "")
+                  + (f"; requirements.txt {req_reason}: would run `{' '.join(pip_command())} install -r "
+                     f"{REQUIREMENTS}` (the {target} file) before the checkout" if req_blob and not by_hand else "")
+                  + ((f"; requirements.txt {req_reason}: the deploy would be REFUSED"
+                      if req_reason.startswith(REFUSE) else f"; requirements.txt {req_reason}: nothing to install")
+                     if req_reason and not req_blob and not by_hand else ""))
             return 0
+        # PREFLIGHT the checkout BEFORE installing (Codex on #310): an untracked host file at a path the target
+        # adds would make `git checkout` fail after pip had already installed the target's dependencies
+        # --no-renames: a renamed DESTINATION is an addition too; every path prefix is checked, since an
+        # untracked FILE (or symlink) at an ancestor directory blocks the checkout as well (Codex on #310)
+        import os
+        added = git("diff", "--name-only", "--no-renames", "--diff-filter=A", before, target_sha).splitlines() \
+            if before != target_sha else []
+        tracked_before = set(git("ls-tree", "-r", "--name-only", before).splitlines()) if added else set()
+
+        def _blocks(p: str) -> bool:
+            parts = p.split("/")
+            for i in range(1, len(parts) + 1):
+                q, rel = Path(c.REPO, *parts[:i]), "/".join(parts[:i])
+                last = i == len(parts)
+                if os.path.lexists(q) and rel not in tracked_before and (last or q.is_symlink() or not q.is_dir()):
+                    if last and q.is_dir() and not q.is_symlink():
+                        # git removes a directory tree that holds nothing it would lose: a TRACKED directory (whose
+                        # files the target drops) or an untracked tree of only EMPTY directories; an untracked FILE or
+                        # symlink inside blocks (Codex on #310)
+                        # files AND symlinked directories (os.walk lists those under dirs and does not follow)
+                        inside = [str(Path(root, n).relative_to(c.REPO)).replace(os.sep, "/")
+                                  for root, dirs, files in os.walk(q)
+                                  for n in files + [d for d in dirs if Path(root, d).is_symlink()]]
+                        if all(t in tracked_before for t in inside):
+                            continue
+                    return True
+            return False
+        blockers = [p for p in added if _blocks(p)]
+        if blockers:
+            c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                              "error": f"untracked files block the checkout: {blockers[:10]}"})
+            print(f"✗ untracked file(s) on the host where {target} adds tracked ones: {blockers[:10]} — deploy refused "
+                  f"before anything was installed; the host stays at {before_rel or before}. Move them aside.")
+            return 1
+        installed = False
+        if by_hand:
+            fp = requirements_fingerprint(target_sha)
+            err = record_installed(manual_record(fp, target_sha) if (req_reason or "").startswith(REFUSE) else fp)
+            c.append_receipt({"kind": "deploy_requirements", "exit": 1 if err else 0, "tag": target,
+                              "to_sha": target_sha, "manual": True, "fingerprint": fp, "reason": req_reason,
+                              **({"state_error": err} if err else {})})
+            if err:
+                print(f"✗ could not record the by-hand install ({err}) — deploy refused; the host stays at "
+                      f"{before_rel or before}")
+                return 1
+            print(f"  requirements.txt {req_reason}: recorded as INSTALLED BY HAND (--requirements-installed-by-hand)")
+            req_blob = req_reason = None
+        if req_blob:
+            req = install_requirements(target, target_sha, req_blob, req_reason)
+            if req["exit"] == 0 and req.get("state_error"):
+                c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                                  "error": f"install record not written: {req['state_error']}"})
+                print(f"✗ pip installed {target}'s requirements, but the install record could not be written "
+                      f"({req['state_error']}) — deploy refused; the code stays at {before_rel or before} while the "
+                      f"venv already holds {target}'s requirements. Fix the cause and deploy again.")
+                return 1
+            if req["exit"] != 0:
+                c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                                  "error": f"pip install exited {req['exit']}"})
+                print(f"✗ pip install exited {req['exit']} — deploy refused; the code stays at {before_rel or before}. "
+                      f"pip does not roll back packages it already upgraded in this run, so the venv may be "
+                      f"PARTIALLY updated: fix the cause, run `{req['command']}` by hand from a checkout of "
+                      f"{target}, then deploy again")
+                return 1
+            installed = True
+        elif req_reason and req_reason.startswith(REFUSE):
+            c.append_receipt({"kind": "deploy_requirements", "exit": 1, "tag": target, "to_sha": target_sha,
+                              "error": f"requirements.txt {req_reason}"})
+            c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                              "error": f"requirements.txt {req_reason}"})
+            print(f"✗ requirements.txt {req_reason} — deploy refused; the host stays at {before_rel or before}. "
+                  f"Install the target's requirements by hand, then deploy again with "
+                  f"--requirements-installed-by-hand.")
+            return 1
+        elif req_reason:
+            c.append_receipt({"kind": "deploy_requirements", "exit": 0, "tag": target, "to_sha": target_sha,
+                              "skipped": f"requirements.txt {req_reason}"})
+            print(f"  ! requirements.txt {req_reason}: nothing installed — install the target's dependencies by hand")
         if dirty:
             git("checkout", "--", "RESULTS.md")
-        git("checkout", "--quiet", "--detach", f"{target}^{{commit}}")
+        try:
+            git("checkout", "--quiet", "--detach", f"{target}^{{commit}}")
+        except subprocess.CalledProcessError as e:
+            c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                              "error": f"checkout failed: {(e.stderr or '').strip()[:300]}",
+                              "requirements_installed": installed})
+            print(f"✗ checkout of {target} failed ({(e.stderr or '').strip()[:200]}) — the code stays at "
+                  f"{before_rel or before}"
+                  + (f"; NOTE the venv already has {target}'s requirements installed: re-run the deploy once the "
+                     f"cause is fixed" if installed else ""))
+            return 1
         after, after_rel = git("rev-parse", "--short", "HEAD"), c.running_release()
         # ARCHITECT-RULE 2026-10-02 (per-PR fragments): the fold runs in the tag ritual on main
         # (`ledger.py compile --commit`); the host never commits, so this step only REPORTS what the
@@ -316,8 +657,10 @@ def main(argv=None) -> int:
                       "migration_order_undetermined": plan["undetermined"], "renamed_migrations": plan["renamed"],
                       "deleted_migrations": plan.get("deleted_migrations", []),
                       "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
+                      "requirements_installed": installed,
                       "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
+          + (f"\n  ✓ requirements installed ({REQUIREMENTS} {req_reason})" if installed else "")
           + (f"\n  ! new migrations, in the order they were added (backup first, then run by hand, in this "
              f"order): {plan['run']}\n      {migration_command(plan['run'], target_full)}" if plan["run"] else "")
           + (f"\n  ! new migrations whose ORDER (or identity) is not determinable (added together in one commit, "

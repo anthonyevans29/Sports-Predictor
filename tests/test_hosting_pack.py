@@ -37,6 +37,9 @@ def sandbox(tmp_path, monkeypatch):
     monkeypatch.setattr(c, "REPO", repo)
     monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
     monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    # the deploy's no-venv fallback keeps its install record inside the RUNNING virtualenv: never let a test write
+    # into the developer's real venv (tests run as if from a system interpreter unless they say otherwise)
+    monkeypatch.setattr(sys, "base_prefix", sys.prefix)
     for k in ("SP_PARALLEL_MODE", "SP_DESIGNATED_DAYS", "NTFY_TOPIC", "NTFY_SERVER", "SP_FULLSEASON_LIST"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "log" / "receipts.jsonl"))
@@ -2449,3 +2452,492 @@ def test_sweep_a_deletion_only_range_warns_on_dry_run_and_deploy(sandbox, monkey
     # round 7: the advice names the deleted paths and a --no-renames listing, never --follow alone (a rewritten
     # move is invisible to --follow)
     assert "--no-renames --name-status" in out and "git log --follow" not in out
+
+
+def test_deploy_installs_requirements_when_they_changed(sandbox, monkeypatch, capsys):
+    """ARCHITECT 2026-10-06 (the host lacked `cryptography` after v1.2.3): `pip install -r requirements.txt` runs,
+    printed and receipted, from a WORKTREE of the target and BEFORE the checkout, when requirements.txt changed in
+    the range OR this host has no successful install receipt for the target's file (the bootstrap: the deploy that
+    ships this code still ran the old deployer — Codex on #310). A failed install refuses the deploy and says the
+    venv may be partially updated; a target without the file installs nothing and says so; relative -r includes
+    resolve as in the checkout."""
+    import pathlib
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(msg, tag, files=(), rm=()):
+        for name, text in files:
+            (origin / name).parent.mkdir(parents=True, exist_ok=True)
+            (origin / name).write_text(text)
+        for name in rm:
+            g(origin, "rm", "-q", name)
+        g(origin, "add", "-A")
+        g(origin, "commit", "-q", "-m", msg)
+        g(origin, "tag", tag)
+    g(origin, "init", "-q", "-b", "main")
+    commit("base", "v1.0.0", [("requirements.txt", "requests>=2.31.0\n")])
+    commit("plain", "v1.0.1", [("a.txt", "no requirements change")])
+    commit("plain again", "v1.0.2", [("b.txt", "still none")])
+    commit("add cryptography via an include", "v1.0.3",
+           [("requirements.txt", "-r reqs/base.txt\ncryptography>=41.0.0\n"), ("reqs/base.txt", "requests\n")])
+    commit("bump only the included file", "v1.0.4", [("reqs/base.txt", "requests>=2.32\n")])
+    commit("drop requirements.txt", "v1.0.5", rm=["requirements.txt", "reqs/base.txt"])
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    log = sandbox / "log" / "receipts.jsonl"
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    calls, rc = [], {"v": 0}
+
+    def fake_pip(cmd, cwd):
+        req = pathlib.Path(cwd) / cmd[-1]
+        inc = pathlib.Path(cwd) / "reqs" / "base.txt"
+        calls.append((cmd, req.read_text(), inc.exists(), pathlib.Path(cwd) != repo, g(repo, "rev-parse", "HEAD")))
+        return rc["v"]
+    monkeypatch.setattr(sp_deploy, "_pip_run", fake_pip)
+
+    def recs(kind):
+        return [json.loads(x) for x in log.read_text().splitlines() if json.loads(x)["kind"] == kind]
+    # bootstrap: no install receipt on this host yet -> installs although the range did not change the file
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 0 and len(calls) == 1
+    assert "no matching install record" in capsys.readouterr().out
+    # stamped: unchanged range and a receipt for this exact file -> nothing
+    assert sp_deploy.main(["--tag", "v1.0.2"]) == 0 and len(calls) == 1
+    capsys.readouterr()
+    assert sp_deploy.main(["--tag", "v1.0.3", "--dry-run"]) == 0 and len(calls) == 1
+    assert "changed in this range (reqs/base.txt, requirements.txt): would run" in capsys.readouterr().out
+    v102 = g(repo, "rev-parse", "HEAD")
+    rc["v"] = 1                                                          # failed install: refused, code unmoved
+    assert sp_deploy.main(["--tag", "v1.0.3"]) == 1 and g(repo, "rev-parse", "HEAD") == v102
+    assert "PARTIALLY updated" in capsys.readouterr().out
+    assert "error" not in recs("deploy_requirements")[-1]                # git's worktree chatter is not pip's error
+    rc["v"] = 0
+    assert sp_deploy.main(["--tag", "v1.0.3"]) == 0
+    cmd, body, include_there, in_worktree, head = calls[-1]
+    assert cmd[-3:] == ["install", "-r", "requirements.txt"] and "cryptography" in body
+    assert include_there and in_worktree and head == v102                 # target tree, before the checkout
+    assert "requirements installed (requirements.txt changed in this range" in capsys.readouterr().out
+    assert [r["exit"] for r in recs("deploy_requirements")] == [0, 1, 0] and recs("deploy")[-1]["requirements_installed"]
+    assert len(g(repo, "worktree", "list").splitlines()) == 1             # the temporary worktree is gone
+    # Codex on #310: an INCLUDED file changing alone still installs; the install record survives log rotation
+    log.rename(log.with_suffix(".jsonl.1"))                              # logrotate: a fresh, empty receipts log
+    assert sp_deploy.main(["--tag", "v1.0.4"]) == 0 and len(calls) == 4
+    assert "changed in this range (reqs/base.txt)" in capsys.readouterr().out
+    log.rename(log.with_suffix(".jsonl.2"))
+    g(repo, "checkout", "-q", "--detach", "v1.0.3")                      # back to an older, already-installed tree
+    (sandbox / "log" / "requirements.installed").write_text(
+        sp_deploy._fingerprint(sp_deploy.requirements_inputs("v1.0.4")) + "\n")
+    assert sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.4"), []) == (None, None)   # stamped: no reinstall
+    g(repo, "checkout", "-q", "--detach", "v1.0.4")
+    # a target without requirements.txt: nothing installed, said and receipted, no traceback
+    assert sp_deploy.main(["--tag", "v1.0.5"]) == 0 and len(calls) == 4
+    assert "removed in the target: nothing installed" in capsys.readouterr().out
+    assert recs("deploy_requirements")[-1]["skipped"] == "requirements.txt removed in the target"
+
+
+def _req_repo(sandbox, monkeypatch, name):
+    import os
+    import subprocess
+    repo = sandbox / name
+    repo.mkdir()
+
+    def g(*a):
+        return subprocess.run(["git", "-C", str(repo), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(files=(), links=()):
+        for fname, text in files:
+            (repo / fname).parent.mkdir(parents=True, exist_ok=True)
+            (repo / fname).write_text(text)
+        for fname, target in links:
+            (repo / fname).parent.mkdir(parents=True, exist_ok=True)
+            os.symlink(target, repo / fname)
+        g("add", "-A")
+        g("commit", "-q", "-m", "x")
+        return g("rev-parse", "HEAD")
+    g("init", "-q", "-b", "main")
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / f"log-{name}" / "receipts.jsonl"))
+    return repo, g, commit
+
+
+def test_requirements_allowlist_refuses_everything_but_plain_files(sandbox, monkeypatch):
+    """Codex on #310, rounds 3-6: every pip feature whose input the fingerprint could miss (continuations, env vars,
+    editables, local paths and archives, --find-links, `name @ url`, other options, an include not reachable as a
+    tracked file — e.g. through a symlinked DIRECTORY) refuses the deploy; plain specifiers, comments (a comment
+    ending in a backslash does not continue), -r/-c includes and FILE symlinks are fingerprinted. The repo's own
+    requirements.txt is plain."""
+    import sp_deploy
+    repo, g, commit = _req_repo(sandbox, monkeypatch, "allow")
+    ok = commit([("requirements.txt", "# deps \\\n-r reqs/current.txt\nrequests>=2.31  # pinned\n"
+                                      "uvicorn[standard]>=0.27.0\nnumpy>=1.26; python_version > '3'\n"),
+                 ("shared/base.txt", "click\n")], links=[("reqs/current.txt", "../shared/base.txt")])
+    inputs, problems = sp_deploy.requirements_scan(ok)
+    assert problems == [] and {"reqs/current.txt", "shared/base.txt"} <= set(inputs)
+    two = commit([("shared/base.txt", "click>=8\n")])
+    assert sp_deploy.requirements_plan(two, ["shared/base.txt"])[1] == "changed in this range (shared/base.txt)"
+    for bad in ("requests \\", "-r ${REQ_DIR}/base.txt", "-e .", "./pkg", "vendor/pkg", "pkg.whl",
+                "--find-links wheels", "pkg @ file:///opt/pkg", "pkg @ https://x/y.whl", "--index-url https://x",
+                "-r missing.txt"):
+        rev = commit([("requirements.txt", f"{bad}\nrequests\n")])
+        blob, reason = sp_deploy.requirements_plan(rev, ["requirements.txt"])
+        assert blob is None and reason.startswith(sp_deploy.REFUSE), (bad, reason)
+    rev = commit([("requirements.txt", "-r reqs/cur/base.txt\n"), ("reqs/v1/base.txt", "a\n")],
+                 links=[("reqs/cur", "v1")])                                 # a symlinked DIRECTORY component
+    assert sp_deploy.requirements_plan(rev, ["requirements.txt"])[1].startswith(sp_deploy.REFUSE)
+    real = Path(__file__).resolve().parents[1] / "requirements.txt"
+    assert all(sp_deploy._classify(ln)[0] in ("blank", "spec") for ln in real.read_text().splitlines())
+
+
+def test_requirements_record_lives_in_the_venv_and_names_its_destination(sandbox, monkeypatch):
+    """Codex on #310: the install record lives INSIDE the venv (a recreated venv has none, inode reuse or not), and
+    the fingerprint names the destination (a venv replacing the no-venv fallback reinstalls)."""
+    import shutil
+
+    import sp_deploy
+    repo, g, commit = _req_repo(sandbox, monkeypatch, "venvrec")
+    one = commit([("requirements.txt", "requests\n")])
+    no_venv = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))
+    (repo / "venv").mkdir()
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\n")
+    fp = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))
+    assert fp != no_venv and sp_deploy.requirements_state_path() == repo / "venv" / ".sp-requirements.installed"
+    sp_deploy.requirements_state_path().write_text(fp + "\n")
+    assert sp_deploy.requirements_plan(one, []) == (None, None)
+    shutil.rmtree(repo / "venv")
+    (repo / "venv").mkdir()
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\n")
+    assert sp_deploy.requirements_plan(one, [])[0] is not None
+
+
+def test_deploy_preflights_checkout_blockers_and_receipts_pip_launch_failures(sandbox, monkeypatch, capsys):
+    """Codex on #310 round 6: (1) an untracked host file where the target adds a tracked one would fail the checkout
+    AFTER pip installed: refused before installing, receipted; (2) a pip launcher that cannot execute (OSError) is a
+    receipted failed install, not a traceback."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "requirements.txt").write_text("requests\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    (origin / "requirements.txt").write_text("requests\ncryptography\n")
+    (origin / "newfile.py").write_text("x = 1\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "adds")
+    g(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    log = sandbox / "log" / "receipts.jsonl"
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    calls = []
+    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd, cwd: calls.append(cmd) or 0)
+    (repo / "newfile.py").write_text("untracked host copy\n")                   # (1)
+    before = g(repo, "rev-parse", "HEAD")
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and calls == [] and g(repo, "rev-parse", "HEAD") == before
+    assert "deploy refused before anything was installed" in capsys.readouterr().out
+    assert "untracked files block the checkout" in json.loads(log.read_text().splitlines()[-1])["error"]
+    (repo / "newfile.py").unlink()
+    monkeypatch.undo()                                                         # (2): the real _pip_run
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    monkeypatch.setattr(sp_deploy, "pip_command", lambda: [str(sandbox / "no-such-pip")])
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and g(repo, "rev-parse", "HEAD") == before
+    recs = [json.loads(x) for x in log.read_text().splitlines()]
+    assert [r for r in recs if r["kind"] == "deploy_requirements"][-1]["exit"] == 127
+    assert "could not run" in capsys.readouterr().out
+
+
+def test_requirements_round_seven_ack_preflight_state_errors_and_venv_upgrade(sandbox, monkeypatch, capsys):
+    """Codex on #310 round 7 (verified): (1) a release the allowlist refuses could never deploy: the by-hand install
+    is acknowledged with --requirements-installed-by-hand (receipted, recorded), and later deploys of the same
+    requirements are not refused again; (2) the preflight sees a RENAMED destination and an untracked file at an
+    ANCESTOR path; (3) an install record that cannot be written after pip succeeded is a receipted refusal, not a
+    traceback; (4) the venv's Python version is part of the identity (`venv --upgrade`)."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+
+    def commit(tag, files=(), mv=()):
+        for a, b in mv:
+            g(origin, "mv", a, b)
+        for name, text in files:
+            (origin / name).parent.mkdir(parents=True, exist_ok=True)
+            (origin / name).write_text(text)
+        g(origin, "add", "-A")
+        g(origin, "commit", "-q", "-m", tag)
+        g(origin, "tag", tag)
+    g(origin, "init", "-q", "-b", "main")
+    commit("v1.0.0", [("requirements.txt", "requests\n"), ("old.py", "x = 1\n" * 20)])
+    commit("v1.0.1", [("requirements.txt", "requests\n--index-url https://example.invalid/simple\n")],
+           mv=[("old.py", "moved.py")])
+    commit("v1.0.2", [("pkg/new.py", "y = 2\n"), ("c.txt", "change\n")])
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    log = sandbox / "log" / "receipts.jsonl"
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    calls = []
+    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd, cwd: calls.append(cmd) or 0)
+
+    def recs():
+        return [json.loads(x) for x in log.read_text().splitlines()]
+    (repo / "moved.py").write_text("untracked\n")                                 # (2) renamed destination
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and "moved.py" in recs()[-1]["error"] and calls == []
+    (repo / "moved.py").unlink()
+    capsys.readouterr()
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1                                # (1) refused by the allowlist
+    assert "--requirements-installed-by-hand" in capsys.readouterr().out and calls == []
+    assert sp_deploy.main(["--tag", "v1.0.1", "--requirements-installed-by-hand"]) == 0 and calls == []
+    ack = [r for r in recs() if r["kind"] == "deploy_requirements"][-1]
+    assert ack["manual"] is True and ack["exit"] == 0 and recs()[-1]["kind"] == "deploy"
+    assert sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.1"), []) == (None, None)   # this release: ack'd
+    # round 8: the acknowledgement is bound to the release, so the NEXT release asks again (local inputs could change)
+    assert sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.2"), ["c.txt"])[1].startswith(sp_deploy.REFUSE)
+    (repo / "pkg").write_text("an untracked FILE where v1.0.2 adds a directory\n")      # (2) ancestor
+    assert sp_deploy.main(["--tag", "v1.0.2"]) == 1 and "pkg/new.py" in recs()[-1]["error"]
+    (repo / "pkg").unlink()
+    (sandbox / "log" / "requirements.installed").unlink()                          # (3) force an install whose
+    monkeypatch.setattr(sp_deploy, "record_installed", lambda fp: "OSError: read-only")   # record cannot be written
+    head = g(repo, "rev-parse", "HEAD")
+    assert sp_deploy.main(["--tag", "v1.0.2", "--requirements-installed-by-hand"]) == 1
+    assert g(repo, "rev-parse", "HEAD") == head and "could not record" in capsys.readouterr().out
+    (repo / "venv").mkdir()                                                        # (4) venv --upgrade
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\nversion = 3.11.9\n")
+    first = sp_deploy._environment_id()
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\nversion = 3.12.4\n")
+    assert first != sp_deploy._environment_id()
+    # (3) also on the pip path: pip succeeded, the record failed -> state_error in the receipt (main refuses on it)
+    rec = sp_deploy.install_requirements("v1.0.0", g(repo, "rev-parse", "v1.0.0"), "fp", "test")
+    assert rec["exit"] == 0 and rec["state_error"] == "OSError: read-only"
+
+
+def test_requirements_round_eight_dry_run_dir_to_file_and_encodings(sandbox, monkeypatch, capsys):
+    """Codex on #310 round 8 (verified): (1) --dry-run honours --requirements-installed-by-hand; (2) a tracked
+    directory the target replaces with a file is not a checkout blocker; (3) a requirements file that is not UTF-8
+    text is a receipted refusal, not a traceback."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "requirements.txt").write_text("requests\n")
+    (origin / "tool").mkdir()
+    (origin / "tool" / "a.py").write_text("a = 1\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    g(origin, "rm", "-q", "-r", "tool")
+    (origin / "tool").write_text("now a file\n")                                 # (2) dir -> file
+    (origin / "requirements.txt").write_bytes("requests\n# caf\xe9\n".encode("latin-1"))   # (3) not UTF-8
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "replace")
+    g(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    log = sandbox / "log" / "receipts.jsonl"
+    monkeypatch.setenv("SP_RECEIPTS", str(log))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd, cwd: 0)
+    blob, reason = sp_deploy.requirements_plan(g(repo, "rev-parse", "v1.0.1"), ["requirements.txt"])
+    assert blob is None and reason.startswith(sp_deploy.REFUSE) and "UTF-8" in reason                   # (3)
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1
+    out = capsys.readouterr().out
+    assert "untracked" not in out and "deploy refused" in out                     # (2): refused for (3), not (2)
+    assert sp_deploy.main(["--tag", "v1.0.1", "--dry-run", "--requirements-installed-by-hand"]) == 0   # (1)
+    assert "RECORDED as installed by hand" in capsys.readouterr().out
+    assert sp_deploy.main(["--tag", "v1.0.1", "--requirements-installed-by-hand"]) == 0
+    assert (repo / "tool").is_file()
+
+
+def test_requirements_round_nine_untracked_child_and_external_venv_record(sandbox, monkeypatch, tmp_path):
+    """Codex on #310 round 9 (verified): (1) a tracked directory the target replaces with a file is a blocker when
+    it holds an UNTRACKED file (git refuses to lose it); (2) without a repo venv, a deployer running from another
+    virtualenv keeps its install record inside that environment, so recreating it drops the record."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "origin", sandbox / "clone"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "tool").mkdir()
+    (origin / "tool" / "a.py").write_text("a = 1\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "base")
+    g(origin, "tag", "v1.0.0")
+    g(origin, "rm", "-q", "-r", "tool")
+    (origin / "tool").write_text("now a file\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "replace")
+    g(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    (repo / "tool" / "local.cfg").write_text("host-only\n")                    # (1) untracked child
+    before = g(repo, "rev-parse", "HEAD")
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and g(repo, "rev-parse", "HEAD") == before
+    (repo / "tool" / "local.cfg").unlink()
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 0 and (repo / "tool").is_file()
+    ext = tmp_path / "admin-venv"                                                # (2)
+    monkeypatch.setattr(sys, "prefix", str(ext))
+    monkeypatch.setattr(sys, "base_prefix", "/usr")
+    assert sp_deploy.requirements_state_path() == ext / ".sp-requirements.installed"
+
+
+def test_requirements_round_ten(sandbox, monkeypatch, tmp_path):
+    """Codex on #310 round 10 (verified): (1) a symlinked directory inside a replaced tracked directory is an
+    untracked child; (2) a repo venv without a pip script installs via its own python, never the system pip;
+    (3) a failed pip run drops the old install record; (4) the venv's system-site-packages mode is part of its
+    identity; (5) a missing TMPDIR is a receipted failure; (6) per-requirement options (--config-settings) are
+    refused; (7) a matching install record satisfies a range that touched the inputs (retry after a failed
+    checkout)."""
+    import os
+    import subprocess
+    import tempfile
+
+    import sp_deploy
+    repo, g, commit = _req_repo(sandbox, monkeypatch, "r10")
+    one = commit([("requirements.txt", "requests\n")])
+    (repo / "venv" / "bin").mkdir(parents=True)                                  # (2)
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\nversion = 3.11.9\ninclude-system-site-packages = false\n")
+    assert sp_deploy.pip_command() == [str(repo / "venv" / "bin" / "python"), "-m", "pip"]
+    plain = sp_deploy._environment_id()                                          # (4)
+    (repo / "venv" / "pyvenv.cfg").write_text("home = /usr\nversion = 3.11.9\ninclude-system-site-packages = true\n")
+    assert sp_deploy._environment_id() != plain
+    for bad in ("pkg>=1 --config-settings=key=value", "pkg>=1 -C key=value"):     # (6)
+        assert sp_deploy._classify(bad)[0] == "refuse", bad
+    assert sp_deploy._classify("pkg==1.0 --hash=sha256:" + "0" * 64)[0] == "spec"
+    fp = sp_deploy._fingerprint(sp_deploy.requirements_inputs(one))              # (7)
+    sp_deploy.requirements_state_path().write_text(fp + "\n")
+    assert sp_deploy.requirements_plan(one, ["requirements.txt"]) == (None, None)
+    monkeypatch.setattr(sp_deploy, "_pip_run", lambda cmd, cwd: 1)               # (3)
+    rec = sp_deploy.install_requirements("vX", one, "other", "test")
+    assert rec["exit"] == 1 and not sp_deploy.requirements_state_path().exists()
+    def no_tmp(*a, **k):                                                         # (5)
+        raise FileNotFoundError("no TMPDIR")
+    monkeypatch.setattr(tempfile, "mkdtemp", no_tmp)
+    rec = sp_deploy.install_requirements("vX", one, "fp", "test")
+    assert rec["exit"] == 1 and "temporary directory" in rec["error"]
+    monkeypatch.undo()
+    # (1) a symlinked directory inside a tracked directory the target replaces with a file blocks the deploy
+    origin, clone = sandbox / "o10", sandbox / "c10"
+    origin.mkdir()
+
+    def gg(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    gg(origin, "init", "-q", "-b", "main")
+    (origin / "tool").mkdir()
+    (origin / "tool" / "a.py").write_text("a\n")
+    gg(origin, "add", "-A")
+    gg(origin, "commit", "-q", "-m", "b")
+    gg(origin, "tag", "v1.0.0")
+    gg(origin, "rm", "-q", "-r", "tool")
+    (origin / "tool").write_text("file\n")
+    gg(origin, "add", "-A")
+    gg(origin, "commit", "-q", "-m", "r")
+    gg(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(clone)], check=True)
+    gg(clone, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", clone)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log10" / "receipts.jsonl"))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib10" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    os.symlink(str(tmp_path), clone / "tool" / "linked")
+    head = gg(clone, "rev-parse", "HEAD")
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1 and gg(clone, "rev-parse", "HEAD") == head
+
+
+def test_requirements_round_eleven(sandbox, monkeypatch, capsys):
+    """Codex on #310 round 11 (verified): (1) an untracked tree of only EMPTY directories where the target adds a
+    file is not a blocker; (2) the by-hand dry run keeps the migration warnings; (3) pip inputs set in the
+    environment (PIP_CONSTRAINT, PIP_REQUIREMENT, ...) refuse auto-install; (4) a failed record write drops the old
+    record."""
+    import subprocess
+
+    import sp_deploy
+    origin, repo = sandbox / "o11", sandbox / "c11"
+    origin.mkdir()
+
+    def g(where, *a):
+        return subprocess.run(["git", "-C", str(where), "-c", "user.email=t@t", "-c", "user.name=t", *a],
+                              check=True, capture_output=True, text=True).stdout.strip()
+    g(origin, "init", "-q", "-b", "main")
+    (origin / "requirements.txt").write_text("requests\n")
+    (origin / "migrate_old.py").write_text("x\n")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "b")
+    g(origin, "tag", "v1.0.0")
+    (origin / "requirements.txt").write_text("requests\n--index-url https://example.invalid/simple\n")
+    (origin / "slot").write_text("a file\n")
+    g(origin, "rm", "-q", "migrate_old.py")
+    g(origin, "add", "-A")
+    g(origin, "commit", "-q", "-m", "n")
+    g(origin, "tag", "v1.0.1")
+    subprocess.run(["git", "clone", "-q", str(origin), str(repo)], check=True)
+    g(repo, "checkout", "-q", "--detach", "v1.0.0")
+    monkeypatch.setattr(c, "REPO", repo)
+    monkeypatch.setenv("SP_RECEIPTS", str(sandbox / "log11" / "receipts.jsonl"))
+    monkeypatch.setenv("SP_LOCK", str(sandbox / "lib11" / "db.lock"))
+    monkeypatch.setattr(c, "HOST_ENV", sandbox / "no-host.env")
+    (repo / "slot" / "empty" / "deeper").mkdir(parents=True)                    # (1) only empty directories
+    assert sp_deploy.main(["--tag", "v1.0.1", "--dry-run", "--requirements-installed-by-hand"]) == 0   # (2)
+    out = capsys.readouterr().out
+    assert "RECORDED as installed by hand" in out and "DELETES migration(s) ['migrate_old.py']" in out
+    assert sp_deploy.main(["--tag", "v1.0.1", "--requirements-installed-by-hand"]) == 0 and (repo / "slot").is_file()
+    one = g(repo, "rev-parse", "HEAD")                                           # (3)
+    sp_deploy.requirements_state_path().unlink()                                 # (not the by-hand ack above)
+    monkeypatch.setenv("PIP_CONSTRAINT", "constraints.txt")
+    assert "environment sets PIP_CONSTRAINT" in sp_deploy.requirements_plan(one, ["requirements.txt"])[1]
+    monkeypatch.delenv("PIP_CONSTRAINT")
+    state = sp_deploy.requirements_state_path()                                  # (4)
+    state.parent.mkdir(parents=True, exist_ok=True)
+    state.write_text("old-release\n")
+    real_write = Path.write_text
+
+    def failing(self, *a, **k):
+        if self == state:
+            raise PermissionError("read-only")
+        return real_write(self, *a, **k)
+    monkeypatch.setattr(Path, "write_text", failing)
+    assert sp_deploy.record_installed("new") and not state.exists()

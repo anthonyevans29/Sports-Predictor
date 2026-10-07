@@ -914,6 +914,31 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
   refuses when no tag exists. It lists any new `migrate_*.py`. For those:
   first `systemctl start sp-backup.service`, then run each migration by
   hand. Every receipt line names the running tag.
+  - When `requirements.txt`, or a file it includes with `-r`/`-c`, changed in
+    the range, or this host's last successful install (recorded in
+    the venv, which survives log rotation) was not of exactly the target's
+    files, the deploy runs
+    `venv/bin/pip install -r requirements.txt` before the checkout. It runs in a
+    temporary worktree of the target, so relative `-r`/`-c` includes resolve.
+    It prints the command and writes a `deploy_requirements` receipt.
+    (ARCHITECT 2026-10-06: the host lacked `cryptography` after v1.2.3.)
+  - The install record covers the bootstrap: the deploy that ships this
+    behaviour still runs the old deployer, so the next deploy installs.
+  - A failed install refuses the deploy, and the code stays on its release.
+    pip does not roll back packages it already upgraded in that run, so the
+    venv may be partially updated. Fix the cause, run the printed command by
+    hand from a checkout of the target, then deploy again.
+  - A target without `requirements.txt` installs nothing and says so.
+  - Only plain requirements files auto-install: comments, version specifiers,
+    and `-r`/`-c` includes of tracked files. Anything else (editables, local
+    paths, `--find-links`, `name @ …`, `$VARS`, continuations, other options)
+    refuses the deploy with the reason. Install those by hand, then deploy with
+    `--requirements-installed-by-hand` (receipted, and bound to that release:
+    each new release that needs a by-hand install is acknowledged again).
+  - An untracked host file where the target adds a tracked one refuses the
+    deploy before anything is installed.
+  - The install record lives inside the venv (`venv/.sp-requirements.installed`),
+    so a recreated venv reinstalls on the next deploy.
 - **Midweek PL round (H0-10), operator-started.**
   `sudo -u sp venv/bin/python deploy/hosting/sp_run.py soccer-prematch --set sat=<first-day> --set sat_plus3=<day-after-last>`.
 - **Seasons (H0-8).**

@@ -229,3 +229,36 @@ def test_a_failed_history_commit_publishes_no_file(world, monkeypatch, tmp_path)
     monkeypatch.setattr(db, "append_prediction_history", real_append)
     path, _ = ip.export(out_dir=str(tmp_path))
     assert [p.name for p in tmp_path.iterdir()] == [os.path.basename(path)] and not path.endswith(".partial")
+
+
+def test_a_same_minute_export_never_overwrites_and_rolls_its_history_back(world, monkeypatch, tmp_path):
+    """Codex on #325: publication is part of the transaction. A file already on disk for this minute refuses (os.link
+    never overwrites) and the second export's history is rolled back; no temp file is left."""
+    mid = _one_row_export(world, monkeypatch, datetime(2098, 5, 27, 12))
+    path, _ = ip.export(out_dir=str(tmp_path))
+    first, after_first = open(path).read(), _history_count(mid)
+    with pytest.raises(ip.IntlRefused, match="already exists"):
+        ip.export(out_dir=str(tmp_path))
+    assert _history_count(mid) == after_first                  # no history row without its file
+    assert [p.name for p in tmp_path.iterdir()] == [os.path.basename(path)] and open(path).read() == first
+
+
+def test_a_failed_publication_leaves_no_history(world, monkeypatch, tmp_path):
+    """Codex on #325: if publishing fails (directory gone, permissions), the history is never committed."""
+    mid = _one_row_export(world, monkeypatch, datetime(2098, 5, 27, 13))
+    before = _history_count(mid)
+
+    def no_link(src, dst):
+        raise PermissionError("read-only export directory")
+    monkeypatch.setattr(ip.os, "link", no_link)
+    with pytest.raises(PermissionError):
+        ip.export(out_dir=str(tmp_path))
+    assert _history_count(mid) == before and list(tmp_path.iterdir()) == []
+
+
+def test_desk_annotation_uses_the_export_time(world, monkeypatch, tmp_path):
+    """Codex on #325: export(now=...) and the Desk share one decision clock: desk_meta.as_of == exported_at."""
+    at = datetime(2098, 5, 27, 14, 5)
+    _one_row_export(world, monkeypatch, at)
+    _, doc = ip.export(out_dir=str(tmp_path), desk=True)
+    assert doc["desk_meta"]["as_of"] == "2098-05-27T14:05:00Z" and doc["exported_at"].startswith("2098-05-27T14:05")

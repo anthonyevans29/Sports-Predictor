@@ -46,3 +46,4 @@
   - The Cockpit's INTL restriction does not touch other sports' calls.
   - The production file is published (atomic rename of a temporary file) only after the history commit succeeds, so no actionable file ever exists without its prediction_history rows.
   - A failed history commit removes the temporary file inside the helper (no `.partial` left); the home-abroad receipt delimits each team name (" | ") so the ruled list copies exact names.
+  - History and file are all-or-nothing: unique temp file, no-overwrite `os.link` publish inside the transaction, published file removed if the commit fails. The Desk annotation uses the export's `now`.

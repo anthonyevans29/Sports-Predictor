@@ -121,57 +121,55 @@ def export(now: datetime | None = None, hours: int | None = None, out_dir: str =
     now = b["now"]
     doc = {"sport": SPORT, "engine": ENGINE, "model_version": MODEL_VERSION, "production_allowed": b["why"],
            "exported_at": now.isoformat(), "count": len(b["rows"]), "fit": b["fit"], "predictions": b["rows"]}
-    dp.maybe_annotate(doc, desk)
-    tmp = None
-    try:
-        path, tmp = _export_with_history(doc, now, out_dir, session_scope, has_prediction_history,
-                                         append_prediction_history)
-        # Codex on #325: published only AFTER the history commit (session_scope commits on exit), by an atomic
-        # rename; a failed commit leaves no file and never overwrites an earlier one.
-        os.replace(tmp, path)
-        tmp = None
-    finally:
-        if tmp and os.path.exists(tmp):
-            os.remove(tmp)
-    return path, doc
+    dp.maybe_annotate(doc, desk, now=now)     # one decision clock: desk_meta.as_of == exported_at (Codex on #325)
+    return _export_with_history(doc, now, out_dir, session_scope, has_prediction_history, append_prediction_history)
 
 
 def _export_with_history(doc, now, out_dir, session_scope, has_prediction_history, append_prediction_history):
-    """History rows + a TEMPORARY file in one transaction. Returns (final path, temp path); the caller publishes.
-    Codex on #325: if the transaction raises after the temporary file is written (a failed commit on exit), the
-    temporary file is removed HERE, since the caller never receives its path."""
-    tmp_holder: list[str] = []
+    """History rows + the file, all or nothing (Codex on #325, three reviews):
+    - the history is appended and the JSON written to a UNIQUE temporary file in out_dir (mkstemp: two exports in
+      the same minute never share a temp path);
+    - the file is PUBLISHED inside the transaction, as its last step, by os.link: atomic and never overwriting (an
+      export for the same minute already on disk refuses, history rolled back);
+    - if anything fails after publication (the commit on exit: lock, I/O), the published file is REMOVED, so no
+      history row outlives a failed publication and no file outlives a rolled-back history. The temp file is
+      always removed.
+    Only a hard kill between the link and the commit can leave a file without history rows: an ungradable file,
+    never a phantom graded call."""
+    import tempfile
+
+    tmp = published = None
     try:
-        return _write_in_transaction(doc, now, out_dir, session_scope, has_prediction_history,
-                                     append_prediction_history, lambda p: tmp_holder.append(p))
-    except BaseException:
-        for p in tmp_holder:
-            if os.path.exists(p):
-                os.remove(p)
-        raise
-
-
-def _write_in_transaction(doc, now, out_dir, session_scope, has_prediction_history, append_prediction_history,
-                          note_tmp):
-    with session_scope() as s:                 # history + file together: a failed write rolls the history back
-        # Codex on #325: this path writes no Prediction row, so the history IS the durable grading record
-        # (export-intl-results reads only prediction_history). No history, no actionable file.
-        if not has_prediction_history(s.connection()):
-            raise IntlRefused("prediction_history is missing (run migrate_prediction_history.py): an INTL "
-                              "production file without its history rows could never be graded; nothing written")
-        rows = history_rows(doc, now)
-        n = append_prediction_history(s.connection(), rows)
-        if n != len(rows) or n != len(doc["predictions"]):
-            raise IntlRefused(f"prediction_history appended {n} row(s) for {len(doc['predictions'])} fixture(s): "
-                              "rolled back; nothing written")
-        doc["prediction_history_appended"] = n
-        Path(out_dir).mkdir(parents=True, exist_ok=True)
-        path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
-        tmp = path + ".partial"
-        note_tmp(tmp)                          # registered BEFORE the write, so any later failure removes it
-        with open(tmp, "w") as f:
-            json.dump(doc, f, indent=2, default=str)
-    return path, tmp
+        with session_scope() as s:             # history + file together: a failed write rolls the history back
+            # Codex on #325: this path writes no Prediction row, so the history IS the durable grading record
+            # (export-intl-results reads only prediction_history). No history, no actionable file.
+            if not has_prediction_history(s.connection()):
+                raise IntlRefused("prediction_history is missing (run migrate_prediction_history.py): an INTL "
+                                  "production file without its history rows could never be graded; nothing written")
+            rows = history_rows(doc, now)
+            n = append_prediction_history(s.connection(), rows)
+            if n != len(rows) or n != len(doc["predictions"]):
+                raise IntlRefused(f"prediction_history appended {n} row(s) for {len(doc['predictions'])} "
+                                  "fixture(s): rolled back; nothing written")
+            doc["prediction_history_appended"] = n
+            Path(out_dir).mkdir(parents=True, exist_ok=True)
+            path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
+            fd, tmp = tempfile.mkstemp(prefix=Path(path).name + ".", suffix=".partial", dir=out_dir)
+            with os.fdopen(fd, "w") as f:
+                json.dump(doc, f, indent=2, default=str)
+            try:
+                os.link(tmp, path)
+            except FileExistsError:
+                raise IntlRefused(f"{path} already exists (an export this minute): never overwritten; history "
+                                  "rolled back, nothing written") from None
+            published = path
+        published = None                       # committed: the file stays
+        return path, doc
+    finally:
+        if published and os.path.exists(published):
+            os.remove(published)
+        if tmp and os.path.exists(tmp):
+            os.remove(tmp)
 
 
 def history_rows(doc: dict, computed_at: datetime) -> list[dict]:

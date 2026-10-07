@@ -1322,10 +1322,12 @@ def desk_enabled(flag: bool | None = None) -> bool:
     return os.environ.get(DESK_ENV, "").strip() == "1"
 
 
-def maybe_annotate(doc: dict, flag: bool | None = None, summary_path: str | None = None) -> dict:
-    """Export hook: annotate when enabled, reading the ledger summary if present."""
+def maybe_annotate(doc: dict, flag: bool | None = None, summary_path: str | None = None,
+                   now: datetime | None = None) -> dict:
+    """Export hook: annotate when enabled, reading the ledger summary if present. `now`: the export's own decision
+    time (default: the wall clock, as before)."""
     if not desk_enabled(flag):
         return doc
     path = summary_path or os.environ.get(SUMMARY_ENV) or DEFAULT_SUMMARY
     counts, src = read_ledger_summary(path)
-    return annotate(doc, counts=counts, counts_source=src)
+    return annotate(doc, now=now, counts=counts, counts_source=src)

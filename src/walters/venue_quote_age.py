@@ -198,6 +198,18 @@ def readonly_session():
         eng.dispose()
 
 
+_DESK_TEXT = re.compile(r'"desk(_meta)?"\s*:')
+
+
+def _looks_desk(path: str) -> bool:
+    """An unreadable file whose surviving text carries a desk block (any name: export-predictions --out)."""
+    try:
+        with open(path, "rb") as f:
+            return bool(_DESK_TEXT.search(f.read().decode("utf-8", "ignore")))
+    except OSError:
+        return True                                    # unreadable bytes: cannot be shown NOT to be an export
+
+
 def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     """Every JSON under `root` (recursive) whose top level carries desk_meta.as_of. Returns (docs, counts);
     counts["mirrored"] = the desk files under <root>/host/ (the host's pulled copies: foreign match_ids)."""
@@ -221,7 +233,9 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                     doc = json.load(f)
             except (OSError, ValueError):
                 counts["unreadable"] += 1
-                if EXPORT_NAME.search(n):              # Codex on #340: a damaged EXPORT is never omitted silently
+                # Codex on #340: a damaged EXPORT is never omitted silently: by its name, or (any --out name) by
+                # the desk blocks its readable text still carries
+                if EXPORT_NAME.search(n) or _looks_desk(p):
                     bad_read.append(p)
                 continue
             if isinstance(doc, dict) and "desk_meta" in doc:
@@ -234,6 +248,9 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if need and need not in doc:               # Codex on #340: a named export lacking its rows
                     bad_rows.append(p)
                     continue
+                if not any(k in doc for k in ("fixtures", "predictions", "tickets")):
+                    bad_rows.append(p)                     # Codex on #340: any --out name; a desk doc with no
+                    continue                               # rows container is damaged, never an empty file
                 if any(k in doc and not isinstance(doc[k], list) for k in ("fixtures", "predictions")):
                     bad_rows.append(p)                             # Codex on #340: a container that is no list
                     continue
@@ -254,7 +271,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                       "their calls would be omitted, so no receipt; fix or move them, then re-run")
     if bad_rows:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
-                      f"objects (a missing one in a fixtures_* / *predictions* export, a row whose desk block is not an "
+                      f"objects (a missing one in a fixtures_* / *predictions* export or in any desk document, a row whose desk block is not an "
                       f"object, a malformed market / fair_prob / selections, a non-numeric VENUE field, or a non-string identity "
                       f"field / non-integer match_id) "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
@@ -629,6 +646,10 @@ def venue_receipt(s, calls: list[dict]) -> dict:
             continue
         c = {**c, "export_match_id": c.get("match_id"), "match_id": m.id, "resolved_by": how,
              "kickoff": c["kickoff"] or m.utc_date}
+        if c.get("fair_source") is None and str(c.get("sport") or "").upper() in SPREAD_SPORTS:
+            # Codex on #340: an NFL / NCAA file call that lost market.fair_source may be spread-derived; its source
+            # is UNKNOWN (as for a ledger-only claim), never assumed to be 1X2
+            c = {**c, "fair_source": "unknown (the file carries no fair_source)"}
         if c.get("fair_source") not in (None, "1X2"):
             # Codex on #340: a call whose reference is not the 1X2 consensus (an NCAA spread_derived fair) has no
             # 1X2 session behind it; this DB's 1X2 sessions never give it an anchor or a movement verdict
@@ -812,6 +833,8 @@ def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
             ident = (sport, r.get("home_team"), r.get("away_team"), kick, as_of)
             fair4 = _row_fair(r)
             mk = r.get("market") or {}
+            if sport in SPREAD_SPORTS and mk.get("fair_source") is None:
+                fair4 = None     # Codex on #340: an NFL row with no fair_source may be spread-derived: no 1X2 fair
             raw = mk.get("fair_prob") if isinstance(mk.get("fair_prob"), dict) else {}
             # Codex on #340: the reference source and its RAW fair are part of copy identity (a spread_derived fair
             # has no 1X2 fair4, so two different spread references must not look identical)

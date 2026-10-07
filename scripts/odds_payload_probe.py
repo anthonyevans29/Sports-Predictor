@@ -174,7 +174,8 @@ def usable_quotes(payload, sport: str | None = None) -> int:
                     except (TypeError, ValueError):
                         continue
                     for ad in _adapters(sport):
-                        market = ad._MARKET_MAP.get(bet.get("name") or "")
+                        name = bet.get("name")     # Codex on #340: a list / object name is no market, never a
+                        market = ad._MARKET_MAP.get(name) if isinstance(name, str) else None   # TypeError
                         if market is not None and ad._normalize_selection(market, str(v.get("value") or ""))[0]:
                             n += 1
                             break

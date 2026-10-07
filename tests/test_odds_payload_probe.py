@@ -311,3 +311,12 @@ def test_a_time_field_without_a_usable_quote_is_inconclusive():
     text = "\n".join(P.report(payload))
     assert "VERDICT (this payload): INCONCLUSIVE" in text and "a time-like field is present" not in text
     assert "unattributable: response[].game.date" in text
+
+
+def test_a_non_string_bet_name_is_no_market_never_a_traceback():
+    # Codex on #340: a list / object bet name is unhashable in _MARKET_MAP.get()
+    for name in (["Home/Away"], {"n": 1}):
+        payload = {"response": [{"bookmakers": [{"name": "B", "bets": [
+            {"name": name, "values": [{"value": "Home", "odd": "2.1"}]}]}]}]}
+        assert P.usable_quotes(payload) == 0
+        assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(payload))

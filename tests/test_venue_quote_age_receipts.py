@@ -1071,3 +1071,42 @@ def test_a_non_integer_match_id_is_refused_at_discovery(tmp_path):
                                                             "fixtures": [{"match_id": mid}]}))
         with pytest.raises(VQ.Refused, match="non-integer match_id"):
             VQ.iter_desk_docs(str(ex))
+
+
+def test_a_spread_sport_file_without_fair_source_is_never_measured_on_1x2(tmp_path):
+    """Codex on #340: an NFL / NCAA file row that lost market.fair_source may be spread-derived; its source is
+    unknown (as for a ledger-only claim), never assumed 1X2, in the receipt and in the age report."""
+    ids = _seed()
+    n = ids["n"]
+    row = _venue_row(ids["nfl"], "nfl", 12, {"HOME": 0.6, "AWAY": 0.4}, n=n)
+    del row["market"]["fair_source"]
+    calls = VQ.file_venue_calls([("f.json", _doc([row], KO - timedelta(hours=10), code="NFL"))], SINCE)
+    with session_scope() as s:
+        r = VQ.venue_receipt(s, calls)["rows"][0]
+    assert r["match_id"] == ids["nfl"] and r["verdict"] == "NOT 1X2: NOT MEASURED" and r["anchor"] is None
+    doc = {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
+        {"match_id": ids["nfl"], "utc_date": _iso(KO), "home_team": f"VQA{n} nfl Home", "away_team": f"VQA{n} nfl Away",
+         "market": {"fair_prob": {"HOME": 0.6, "AWAY": 0.4}},
+         "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books"}}]}
+    rows = VQ.model_reference_rows([("n.json", doc)], SINCE)
+    assert len(rows) == 1 and rows[0]["file_fair"] is None
+
+
+def test_damaged_custom_named_desk_exports_are_refused(tmp_path):
+    """Codex on #340: export-predictions --out writes any name; a truncated desk export (its text still carries
+    desk blocks) or a desk doc with no rows container is refused; other broken JSON is only counted."""
+    ex = tmp_path / "a"
+    ex.mkdir()
+    (ex / "audit.json").write_text('{"predictions": [{"match_id": 1, "desk": {"engine": "model_ed')
+    with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
+        VQ.iter_desk_docs(str(ex))
+    ex = tmp_path / "b"
+    ex.mkdir()
+    (ex / "audit.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"}}))
+    with pytest.raises(VQ.Refused, match="not a list of objects"):
+        VQ.iter_desk_docs(str(ex))
+    ex = tmp_path / "c"
+    ex.mkdir()
+    (ex / "notes.json").write_text('{"x": [1, 2')
+    docs, counts = VQ.iter_desk_docs(str(ex))
+    assert docs == [] and counts["unreadable"] == 1

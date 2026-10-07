@@ -44,3 +44,4 @@
   - Default export names accept underscore competition codes. Non-string ledger identity fields are refused.
   - A non-integer `match_id` is refused. Probe: upper-case `TS` keys are time-like; scalar containers are INCONCLUSIVE.
   - Probe: no usable quote, no verdict either way (INCONCLUSIVE).
+  - Damaged custom-named desk exports are refused. A spread-sport file row without `fair_source` is unmeasured. Probe: non-string bet names count no quote.

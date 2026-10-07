@@ -375,7 +375,7 @@ def test_a_missing_exports_dir_and_a_damaged_ledger_are_refused(tmp_path):
             assert r.exit_code == 2 and "not a directory" in " ".join(r.output.split()), r.output
     ex = tmp_path / "exports"
     ex.mkdir()
-    assert VQ.ledger_refusal({"calls": [{"engine": "venue_edge"}]}) is None
+    assert VQ.ledger_refusal({"calls": [{"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z"}]}) is None
     for L in ({"calls": [{"engine": "venue_edge"}, None, "x"]}, {"calls": [7]}):
         assert "non-object" in VQ.ledger_refusal(L)
     led = tmp_path / "ledger.json"
@@ -662,7 +662,7 @@ def test_a_desk_export_with_a_missing_as_of_is_refused(tmp_path):
 
 def test_a_ledger_with_damaged_venue_reprices_is_refused():
     """Codex on #340: reprices[] decides re-logged vs not; a damaged array refuses the ledger."""
-    ok = {"engine": "venue_edge", "reprices": [{"at": "2095-10-08T00:00:00Z"}]}
+    ok = {"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z", "reprices": [{"at": "2095-10-08T00:00:00Z"}]}
     assert VQ.ledger_refusal({"calls": [ok, {"engine": "model_edge", "reprices": "junk"}]}) is None
     for rp in ("junk", [None], [{"at": "soon"}], [{}]):
         assert "damaged reprices" in VQ.ledger_refusal({"calls": [dict(ok, reprices=rp)]})
@@ -695,7 +695,8 @@ def test_ledger_only_claims_in_spread_sports_are_never_measured_on_1x2(tmp_path)
 def test_an_unparseable_claim_at_refuses_the_ledger():
     """Codex on #340: a present but damaged claim_at never falls back to the mutable claim_as_of."""
     ok = {"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z"}
-    assert VQ.ledger_refusal({"calls": [ok, {"engine": "venue_edge"}]}) is None          # legacy: no claim_at
+    legacy = {"engine": "venue_edge", "claim_as_of": "2095-10-08T00:00:00Z"}
+    assert VQ.ledger_refusal({"calls": [ok, legacy]}) is None                              # legacy: no claim_at
     assert "unparseable claim_at" in VQ.ledger_refusal({"calls": [dict(ok, claim_at="last tuesday")]})
 
 
@@ -756,3 +757,44 @@ def test_every_relog_is_listed():
         res = VQ.venue_receipt(s, VQ.merge_calls([], VQ.ledger_venue_calls({"calls": [c]}, SINCE)))
     line = next(x for x in VQ.format_venue_receipt(res, SINCE, ["t"]) if "re-logged" in x)
     assert "re-logged 15 time(s)" in line and line.count("Z") == 15 and "…" not in line
+
+
+def test_divergence_is_compared_at_its_serialized_precision():
+    """Codex on #340: the Cockpit writes divergence_pp with toFixed(2); 7.146 on file is 7.15 in the ledger."""
+    asof = KO - timedelta(hours=19)
+    a = _venue_row(1, "x", 20, {"HOME": 0.4735, "AWAY": 0.5265})
+    b = _venue_row(1, "x", 20, {"HOME": 0.4800, "AWAY": 0.5200})
+    a["desk"] = dict(a["desk"], div_pp=7.146)
+    b["desk"] = dict(b["desk"], div_pp=6.5)
+    files = VQ.file_venue_calls([("l.json", _doc([a], asof)), ("h/l.json", _doc([b], asof))], SINCE)
+    claim = {"engine": "venue_edge", "sport": "NHL", "home": "VQA0 x Home", "away": "VQA0 x Away",
+             "kickoff": _iso(KO), "pick": "AWAY", "claim_at": _iso(asof) + "Z", "divergence_pp": 7.15}
+    calls = VQ.merge_calls(files, VQ.ledger_venue_calls({"calls": [claim]}, SINCE))
+    assert [c["file_fair"]["HOME"] for c in calls if c["in_ledger"]] == [0.4735]
+
+
+def test_a_venue_call_without_a_capture_time_is_not_measured():
+    """Codex on #340: no parseable market.captured_at means no recorded reference capture; never a substitute."""
+    ids = _seed()
+    row = _venue_row(ids["dead"], "dead", 20, {"HOME": 0.4735, "AWAY": 0.5265}, n=ids["n"])
+    row["market"]["captured_at"] = "garbled"
+    calls = VQ.file_venue_calls([("f.json", _doc([row], KO - timedelta(hours=19)))], SINCE)
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    assert res["rows"][0]["verdict"] == "NO CAPTURE TIME: NOT MEASURED" and res["totals"]["tested"] == 0
+
+
+def test_legacy_claim_fallback_times_are_validated():
+    """Codex on #340: with no claim_at, a damaged claim_as_of / captured_at refuses; no time at all refuses."""
+    assert "unparseable claim_as_of" in VQ.ledger_refusal({"calls": [{"engine": "venue_edge", "claim_as_of": "x"}]})
+    assert "unparseable captured_at" in VQ.ledger_refusal(
+        {"calls": [{"engine": "venue_edge", "claim_as_of": "2095-10-08T00:00:00Z", "captured_at": "x"}]})
+    assert "no claim time at all" in VQ.ledger_refusal({"calls": [{"engine": "venue_edge"}]})
+
+
+def test_a_partial_file_fair_never_verifies():
+    """Codex on #340: a file fair carrying only HOME does not establish the full HOME/AWAY consensus."""
+    sess = [{"source": "s", "t": KO - timedelta(hours=8), "fair4": {"HOME": 0.6, "AWAY": 0.4}}]
+    r = VQ.age_row({"as_of": KO - timedelta(hours=6), "kickoff": KO, "file_fair": {"HOME": 0.6}}, sess)
+    assert r["file_matches"] is False
+    assert VQ.same_fair({"HOME": 0.6, "AWAY": 0.4}, {"HOME": 0.6, "AWAY": 0.4})

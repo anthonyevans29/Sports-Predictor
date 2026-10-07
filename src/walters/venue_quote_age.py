@@ -81,6 +81,14 @@ def ledger_refusal(L) -> str | None:
             if c.get("claim_at") not in (None, "") and parse_ts(c.get("claim_at")) is None:
                 return (f"REFUSED: venue claim at index {i} has an unparseable claim_at {c.get('claim_at')!r}: the "
                         "frozen claim time is damaged, never replaced by the mutable claim_as_of / captured_at.")
+            if c.get("claim_at") in (None, ""):        # Codex on #340: a legacy claim's fallback times, validated
+                for f in ("claim_as_of", "captured_at"):
+                    if c.get(f) not in (None, "") and parse_ts(c.get(f)) is None:
+                        return (f"REFUSED: legacy venue claim at index {i} has an unparseable {f} {c.get(f)!r}: its "
+                                "claim time cannot be audited.")
+                if parse_ts(c.get("claim_as_of")) is None and parse_ts(c.get("captured_at")) is None:
+                    return (f"REFUSED: venue claim at index {i} has no claim time at all (no claim_at, claim_as_of or "
+                            "captured_at): it would be omitted silently.")
             if "reprices" not in c:
                 continue
             rp = c["reprices"]
@@ -151,6 +159,13 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                       f"({', '.join(bad_asof[:5])}{', …' if len(bad_asof) > 5 else ''}): a damaged export is never "
                       "skipped silently; fix or move it, then re-run")
     return docs, counts
+
+
+def same_fair(file_fair: dict | None, session_fair4: dict | None) -> bool:
+    """The file's fair IS the session's: the SAME outcome set (a partial file fair never verifies, Codex on #340)
+    and every outcome equal at 4dp."""
+    return bool(file_fair and session_fair4 and set(file_fair) == set(session_fair4)
+                and all(session_fair4[k] == v for k, v in file_fair.items()))
 
 
 def _r4(fair: dict | None) -> dict | None:
@@ -291,15 +306,19 @@ def merge_calls(file_calls: list[dict], ledger_calls: list[dict]) -> list[dict]:
 
     def key(c):
         return ident(c) + (_sec(c["as_of"]),)
-    def same(a, b):
-        return a is not None and b is not None and abs(float(a) - float(b)) < 5e-4
+    def same(a, b, k=None):
+        # Codex on #340: the Cockpit serializes divergence_pp with toFixed(2); compare div at 2dp, probabilities
+        # within 5e-4
+        if a is None or b is None:
+            return False
+        return round(float(a), 2) == round(float(b), 2) if k == "div_pp" else abs(float(a) - float(b)) < 5e-4
 
     def pick(cands, claim):
         """One file call among same-key candidates (conflicting copies, Codex on #340): the one whose book p,
         Kalshi p and div the claim carries; no unique match -> None (ambiguous, never chosen silently)."""
         if len(cands) == 1:
             return cands[0]
-        fit = [f for f in cands if all(same(f.get(k), claim.get(k)) for k in ("book_p", "kalshi_p", "div_pp")
+        fit = [f for f in cands if all(same(f.get(k), claim.get(k), k) for k in ("book_p", "kalshi_p", "div_pp")
                                        if claim.get(k) is not None)
                and any(claim.get(k) is not None for k in ("book_p", "kalshi_p", "div_pp"))]
         return fit[0] if len(fit) == 1 else None
@@ -398,7 +417,7 @@ def receipt_row(call: dict, sessions: list[dict]) -> dict:
         row["verdict"] = "NO ANCHOR"
         return row
     if call.get("file_fair"):
-        row["file_matches_anchor"] = all(a["fair4"].get(k) == v for k, v in call["file_fair"].items())
+        row["file_matches_anchor"] = same_fair(call["file_fair"], a["fair4"])
     first, n, cens = unchanged_run(sessions, a)
     row.update(unchanged_since=first["t"], run_n=n, run_censored=cens)
     if row["file_matches_anchor"] is False:
@@ -508,6 +527,14 @@ def venue_receipt(s, calls: list[dict]) -> dict:
                          "verdict": "NOT 1X2: NOT MEASURED", "file_matches_anchor": None, "unchanged_since": None,
                          "run_n": 0, "run_censored": None})
             continue
+        if c.get("origin") == "file" and c.get("file_captured_at") is None:
+            # Codex on #340: a VENUE export row with no parseable market.captured_at has no recorded reference
+            # capture; never substitute the last capture before as_of
+            rows.append({**c, "anchor": None, "anchor_basis": "the file's market.captured_at is missing or "
+                         "unparseable: no recorded reference capture", "later": [], "moved": None,
+                         "verdict": "NO CAPTURE TIME: NOT MEASURED", "file_matches_anchor": None,
+                         "unchanged_since": None, "run_n": 0, "run_censored": None})
+            continue
         if c.get("host_only"):
             # Codex on #340: a call only the HOST's files hold was decided on the host's captures; this DB's
             # sessions are the laptop's, fetched at other times, so they never give it a movement verdict
@@ -518,7 +545,7 @@ def venue_receipt(s, calls: list[dict]) -> dict:
         rows.append(receipt_row(c, match_sessions(s, m)))
     tot = {"calls": len(rows)}
     for v in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE", "NO ANCHOR", "NO DB MATCH", "HOST: NOT MEASURED",
-              "NOT 1X2: NOT MEASURED", "ANCHOR MISMATCH: NOT MEASURED"):
+              "NOT 1X2: NOT MEASURED", "ANCHOR MISMATCH: NOT MEASURED", "NO CAPTURE TIME: NOT MEASURED"):
         tot[v] = sum(1 for r in rows if r["verdict"] == v)
     tested = tot["NEVER MOVED"] + tot["MOVED"]
     tot["tested"] = tested
@@ -600,7 +627,8 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                f"{t['NO LATER CAPTURE']} · no anchor {t['NO ANCHOR']} · no DB match {t['NO DB MATCH']} · host-only, "
                f"not measured {t.get('HOST: NOT MEASURED', 0)} · non-1X2 reference, not measured "
                f"{t.get('NOT 1X2: NOT MEASURED', 0)} · anchor != the call's fair, not measured "
-               f"{t.get('ANCHOR MISMATCH: NOT MEASURED', 0)}")
+               f"{t.get('ANCHOR MISMATCH: NOT MEASURED', 0)} · no capture time on file, not measured "
+               f"{t.get('NO CAPTURE TIME: NOT MEASURED', 0)}")
     out.append(f"  (re-logged ledger positions {t['repriced_positions']}, {t['reprices']} re-log(s): counted once "
                f"each, at the frozen claim)")
     return out
@@ -690,7 +718,7 @@ def age_row(row: dict, sessions: list[dict]) -> dict:
             "unchanged_age_h": max(0.0, (row["as_of"] - first["t"]).total_seconds()) / 3600, "run_n": n,
             "censored": cens,
             "file_matches": (None if not row["file_fair"] else
-                             all(ref["fair4"].get(k) == v for k, v in row["file_fair"].items()))}
+                             same_fair(row["file_fair"], ref["fair4"]))}
 
 
 def exclusion(x: dict) -> str | None:
@@ -729,7 +757,7 @@ def session_matches_by_odds(s, match, ref: dict, file_fair: dict | None) -> tupl
     if not priced(cl):
         return False, "snapshot mismatch; the session's odds rows hold no complete book"
     fair4 = _r4(cl["fair"])
-    if all(fair4.get(k) == v for k, v in file_fair.items()):
+    if same_fair(file_fair, fair4):
         return True, "odds rows of the session, per-book de-vig (the export's formula)"
     return False, "mismatch on the snapshot AND on the session's odds rows (per-book de-vig)"
 

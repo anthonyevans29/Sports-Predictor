@@ -21,6 +21,8 @@ def test_bucket_boundaries_belong_to_the_bucket_above():
     assert MA.edge_bucket(-12.0) == "<0" and MA.edge_bucket(-0.001) == "<0"
     assert MA.edge_bucket(0.0) == "0-4" and MA.edge_bucket((0.54 - 0.54) * 100) == "0-4"
     assert MA.edge_bucket(3.999) == "0-4"
+    tiny = (0.54 - 0.5400000000000001) * 100                     # a nominal 0 stored as a tiny negative float
+    assert tiny < 0 and MA.edge_bucket(tiny) == "0-4"           # rounded into 0-4; the header count follows the bucket
     assert MA.edge_bucket(4.0) == "4-8"
     assert MA.edge_bucket(7.999) == "4-8"
     assert MA.edge_bucket(8.0) == "8-15"
@@ -156,6 +158,8 @@ def test_receipt_counts_and_postseason_split():
     res = MA.receipt(_rows(), b=500)
     assert res["graded"] == 8 and res["included"] == 6 and res["excluded"] == 2 and res["capped"] == 1
     assert res["negative_edge"] == 1
+    assert MA.receipt([{**r, "edge_pp": -1e-12, "bucket": MA.edge_bucket(-1e-12)} for r in _rows() if "excluded" not in r][:1]
+                      + [r for r in _rows() if "excluded" in r], b=50)["negative_edge"] == 0
     assert res["tables"]["regular"]["n"] == 4
     assert res["tables"]["postseason"]["n"] == 1
     assert res["tables"]["unknown"]["n"] == 1

@@ -171,7 +171,7 @@ def receipt(rows: list[dict], b: int = BOOT_B, seed: int = BOOT_SEED) -> dict:
     for r in inc:
         versions[r.get("model_version") or "?"] = versions.get(r.get("model_version") or "?", 0) + 1
     return {"graded": len(rows), "included": len(inc), "excluded": len(exc), "reasons": reasons,
-            "tables": tables, "negative_edge": sum(1 for r in inc if r["edge_pp"] < 0),
+            "tables": tables, "negative_edge": sum(1 for r in inc if r["bucket"] == "<0"),   # the bucket, not the raw float (Codex on #324)
             "post_first_pitch": sum(1 for r in inc if r.get("post_first_pitch")),
             "capped": sum(1 for r in inc if r.get("capped_by_starter")),
             "versions": versions, "b": b, "seed": seed}

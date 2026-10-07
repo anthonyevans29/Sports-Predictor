@@ -1,4 +1,4 @@
-## 2026-10-07 (#0000: intl-elo-v2 confirmation cohort of record — the 2026-10-03 freeze spliced; ARCHITECT addendum 3 A)
+## 2026-10-07 (#331: intl-elo-v2 confirmation cohort of record — the 2026-10-03 freeze spliced; ARCHITECT addendum 3 A)
 - Spliced `laptop/intl-cohort-freeze` bf556b4 (cherry-picked, operator authorship kept): `docs/registry/experiments.json` intl-elo-v2 `confirmation_cohort` (n 60, sha256 `94416b7c…`, frozen_at 2026-10-03T12:01:42Z, eligible_stored 120, finished 7 / scheduled 53, UNL 41 / CNL 19, last kickoff 2026-11-11T21:00Z) and `docs/registry/ids/intl-elo-v2.cohort.txt`. Sidecar verified: 60 distinct ids, `registry._ids_sha` == the recorded sha; `registry.frozen_cohort` reads it back.
 - The 2026-10-07 freeze (`laptop/intl-elo-v2-cohort` e697533, sha256 `419872ed…`) is VOID, kept on its branch as a record, never merged; #318 closed unmerged. It differs by one fixture: 48559 in place of 41643.
 - The hourly sweep now reports any `laptop/*` registry write that is not on main after a day. A guard for `--freeze-cohort` is proposed for a ruling (#0000 ledger entry).

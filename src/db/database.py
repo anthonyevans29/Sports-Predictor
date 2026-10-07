@@ -145,24 +145,36 @@ def has_prediction_history(conn) -> bool:
         return False
 
 
-@_listens_for(Session, "after_flush")
-def _append_prediction_history(session, _ctx):
-    from src.db.schema import Prediction, PredictionHistory
+def append_prediction_history(conn, rows: list[dict]) -> int:
+    """Append rows ({match_id, model_version, computed_at, home_win_prob, draw_prob,
+    away_win_prob}) to prediction_history; returns how many were written. The ONE
+    append path: the Prediction flush listener below and a model sport that writes
+    no Prediction row (the production INTL export, ARCHITECT 2026-10-07 addendum 3,
+    item C) both go through it. Table missing: nothing written, a warning, 0."""
+    from src.db.schema import PredictionHistory
     from src.timeutil import utc_now_naive
-    new = [o for o in session.new if isinstance(o, Prediction)]
-    if not new:
-        return
-    conn = session.connection()
+    if not rows:
+        return 0
     if not has_prediction_history(conn):
         import logging
         logging.getLogger(__name__).warning(
             "prediction_history missing: %d prediction(s) not recorded — run migrate_prediction_history.py",
-            len(new))
-        return
+            len(rows))
+        return 0
     now = utc_now_naive()
     conn.execute(PredictionHistory.__table__.insert(),
-                 [{**{k: getattr(o, k) for k in _HISTORY_COLS},
-                   "computed_at": o.computed_at or now, "recorded_at": now} for o in new])
+                 [{**{k: r.get(k) for k in _HISTORY_COLS},
+                   "computed_at": r.get("computed_at") or now, "recorded_at": now} for r in rows])
+    return len(rows)
+
+
+@_listens_for(Session, "after_flush")
+def _append_prediction_history(session, _ctx):
+    from src.db.schema import Prediction
+    new = [o for o in session.new if isinstance(o, Prediction)]
+    if not new:
+        return
+    append_prediction_history(session.connection(), [{k: getattr(o, k) for k in _HISTORY_COLS} for o in new])
 
 
 def get_engine():

@@ -288,7 +288,8 @@ def last_calls(export_dir: str = "exports") -> dict[int, dict]:
 PICK = {"home_win": "HOME", "draw": "DRAW", "away_win": "AWAY"}
 OUTCOME_SIDE = {"H": "HOME", "D": "DRAW", "A": "AWAY"}
 # ARCHITECT 2026-10-07 item 4 (d): the split by |model − close| in pp, read on
-# the TOP-PICK side (the grade's own `div`). Lower bounds inclusive:
+# the TOP-PICK side (the grade's own `div`; CONFIRMED, ARCHITECT 2026-10-07
+# addendum 3, item C: "the gap is measured on the top-pick side"). Lower bounds inclusive:
 # 4 -> 4-10, 10 -> 10-15, 15 -> >=15.
 DIV_BUCKETS = (("<4", 0.0, 4.0), ("4-10", 4.0, 10.0), ("10-15", 10.0, 15.0), (">=15", 15.0, None))
 

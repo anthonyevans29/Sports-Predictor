@@ -4777,7 +4777,31 @@ def export_intl_predictions_cmd(hours, desk):
     console.print(f"[green]✓ Wrote INTL predictions (intl-elo-v2, production) to {path}[/green]")
     q = sum(1 for r in doc["predictions"] if r["quarantine"])
     print(f"  {doc['count']} games in the next {hours}h · quarantined {q} · {doc['production_allowed']} · "
-          f"desk {'attached' if doc.get('desk_meta') else 'off (SP_DESK_CALLS)'}")
+          f"desk {'attached' if doc.get('desk_meta') else 'off (SP_DESK_CALLS)'} · "
+          f"prediction_history +{doc.get('prediction_history_appended', 0)} (no predictions row)")
+
+
+@cli.command("export-intl-results")
+@click.option("--days", "days_back", default=None, type=int,
+              help="Only calls kicking off in the last N days. Default: every production call on record.")
+def export_intl_results_cmd(days_back):
+    """Graded INTL production results for the Cockpit (ARCHITECT 2026-10-07 addendum 3, item C): every production
+    call on record (prediction_history, intl_elo_v2, last row before kickoff) graded on the 90-MINUTE result only.
+    A game that went beyond 90 minutes (AET / PEN) with no stored 90-minute score is left ungraded and LISTED,
+    never graded on the later score. Read-only."""
+    from src.walters import intl_production as ip
+    try:
+        path, doc = ip.export_results(days=days_back)
+    except ip.IntlRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    console.print(f"[green]✓ Wrote {path}[/green]")
+    rec = doc["record"]
+    print(f"  window: {doc['window']['kind']} · graded {rec['games']} (90-minute result) · top-pick hits "
+          f"{rec['hits']}/{rec['decided']} · ungraded {rec['ungraded']}")
+    for u in doc["ungraded"]:
+        print(f"  UNGRADED match {u['match_id']} {u['away_team']} @ {u['home_team']} {u['utc_date'][:10]}: "
+              f"{u['reason']}")
 
 
 @cli.command("unl-shadow-grade")

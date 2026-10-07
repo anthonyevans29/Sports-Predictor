@@ -5,7 +5,9 @@ Over a SYNTHETIC intl production file (sport "intl", annotated by the Python Des
 - a quarantined INTL row (|div| >= 15pp, qNever) is logged as a quarantine SHADOW (units 0), as NFL's are;
 - a clearing UNL row is logged as a straight at HALF units (fewer than 30 INTL graded);
 - a CNL row is never a call (PASS no_series) and logs nothing;
-- the ledger summary carries intl_graded, which the Python Desk reads.
+- the ledger summary carries intl_graded, which the Python Desk reads;
+- (ARCHITECT 2026-10-07 addendum 3, item C) a fixtures file's score, which includes extra time, never grades an
+  INTL call; the INTL results file (90-minute score) does; a game it lists as ungraded stays open.
 
     python3 scripts/cockpit_intl_verify.py
 
@@ -90,6 +92,37 @@ def main():
         check("CNL row logs nothing (prediction without a call)", "Concacafia" not in by, str(sorted(by)))
         s = page.evaluate("ledgerSummary()")
         check("ledger summary carries intl_graded", s["counts"].get("intl_graded") == 0, json.dumps(s["counts"]))
+        # ARCHITECT 2026-10-07 addendum 3, item C: graded on the 90-MINUTE result only. A UNL fixtures file whose
+        # score includes extra time (2-1 AET) must NOT grade the INTL call; the INTL results file (1-1 at 90') does,
+        # and a 90-minute draw loses a HOME pick (three-way).
+        fx = {"competition_code": "UNL", "fixtures": [{"home_team": "Probeland", "away_team": "Probeland B",
+              "utc_date": K, "status": "finished", "home_score": 2, "away_score": 1}]}
+        res = {"sport": "intl", "results": [{"home_team": "Probeland", "away_team": "Probeland B", "utc_date": K,
+               "predicted": {"top_pick": "home_win"},
+               "actual": {"home_score": 1, "away_score": 1, "result": "D", "score_basis": "score_90",
+                          "status_raw": "AET", "after_extra_time": {"home_score": 2, "away_score": 1}},
+               "graded": {}}],
+               "ungraded": [{"home_team": "Quarantia", "away_team": "Quarantia B", "utc_date": K,
+                             "reason": "went beyond 90 minutes (PEN) and no 90-minute score is stored"}]}
+        for name, d in (("unl_fixtures.json", fx), ("intl_results.json", res)):
+            with open(os.path.join(tmp, name), "w") as f:
+                json.dump(d, f)
+        page.set_input_files("#resultsFile", [os.path.join(tmp, "unl_fixtures.json")])
+        page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('finished results read')")
+        L = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1'))")
+        p = {c["home"]: c for c in L["calls"] if c.get("sport") == "INTL"}.get("Probeland")
+        check("a fixtures file's (extra-time) score never grades an INTL call",
+              p is not None and p["status"] == "open" and not p.get("result"), json.dumps(p)[:160] if p else "absent")
+        page.evaluate("document.getElementById('ledgerNote').textContent=''")
+        page.set_input_files("#resultsFile", [os.path.join(tmp, "intl_results.json")])
+        page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('finished results read')")
+        L = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1'))")
+        by = {c["home"]: c for c in L["calls"] if c.get("sport") == "INTL"}
+        p, q = by.get("Probeland"), by.get("Quarantia")
+        check("the INTL results file grades on the 90-minute score (1-1: a HOME pick loses)",
+              p is not None and p["status"] == "graded" and p["result"] == "loss", json.dumps(p)[:200] if p else "absent")
+        check("a listed-ungraded INTL game stays open", q is not None and q["status"] == "open",
+              json.dumps(q)[:160] if q else "absent")
         check("no page errors", not errors, "; ".join(errors))
         browser.close()
     srv.shutdown()

@@ -18,4 +18,9 @@
   - full team names in the home-abroad receipt;
   - `--hours 0` exports an empty window (only an omitted window falls back to the default);
   - new `scripts/cockpit_intl_verify.py`.
-  - The 90-minute grading path is escalated for a ruling.
+  - The 90-minute grading path was escalated; it is ruled in addendum 3, item C (below).
+- ARCHITECT 2026-10-07 addendum 3, item C (verbatim): "INTL calls are graded on the 90-MINUTE result, never on a score that includes extra time or penalties. The results path for an INTL call reads the stored 90-minute score; where a game went beyond 90 minutes and no 90-minute score is stored, the call is left ungraded and listed, never graded on the later score. Before this merges, read the settlement rule from the KXUEFANLGAME payload itself (rules_primary) and quote it in the PR: if Kalshi settles on anything other than the result at the end of regulation, stop and return to the architect. Confirmed from your list: the gap is measured on the top-pick side; 'current season' is one with a scheduled or live fixture. Amended: the production INTL export writes no predictions row, but it DOES append to prediction_history on every export (model version, three probabilities, computed_at), as the K-track rule requires of every model sport."
+  - New `export-intl-results`: production INTL calls graded on the 90-minute result only. A game past 90 minutes (AET / PEN) with no stored 90-minute score is listed as ungraded, with its reason.
+  - The Cockpit grades an INTL call only from that file, never from a fixtures file's extra-time score.
+  - `export-intl-predictions` appends to `prediction_history` on every export, through the shared append helper. It still writes no `predictions` row.
+  - The KXUEFANLGAME settlement rule (rules_primary) is not yet quoted: the build container's proxy refused the Kalshi API (403). It must be read before merge.

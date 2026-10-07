@@ -27,8 +27,9 @@ Definitions (law 1: read from src/db/schema.py and src/ingestion/intl_venues.py)
 
 Second table, venue-id coverage per CURRENT competition-season: a
 competition-season is current when it still holds at least one SCHEDULED or
-LIVE fixture. Per comp-season: fixtures stored (every status), with a venue
-id, with a known neutral_v3, and neutral_v3 home / neutral / unknown (NULL) /
+LIVE fixture (CONFIRMED, ARCHITECT 2026-10-07 addendum 3, item C: "'current
+season' is one with a scheduled or live fixture"). Per comp-season: fixtures
+stored (every status), with a venue id, with a known neutral_v3, and neutral_v3 home / neutral / unknown (NULL) /
 no row. Writes nothing to the DB.
 """
 from __future__ import annotations

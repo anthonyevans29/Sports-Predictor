@@ -1039,9 +1039,13 @@ function dayDiff(a,b){
   const d=x=>Date.UTC(+x.slice(0,4),+x.slice(5,7)-1,+x.slice(8,10));
   return Math.abs(d(a)-d(b))/86400000;
 }
+// INTL calls (ARCHITECT 2026-10-07 addendum 3, item C): "graded on the 90-MINUTE result, never on a score that
+// includes extra time or penalties". Only an INTL results file (export-intl-results: actual = the 90-minute
+// score; games without one are listed there as ungraded) may grade them: a fixtures file's score includes extra
+// time, so a UNL fixture finished AET/PEN would grade on the later score. An INTL call without one stays open.
 function findOutcome(c,outs){
   const cd=(c.kickoff||c.log_date||"").slice(0,10);
-  const near=outs.filter(o=>dayDiff(cd,(o.date||"").slice(0,10))<=1);
+  const near=outs.filter(o=>dayDiff(cd,(o.date||"").slice(0,10))<=1&&(c.sport!=="INTL"||o.sport==="INTL"));
   for(const cmp of [(x,y)=>x===y,(x,y)=>normTeam(x)===normTeam(y)]){   // exact first, then normalized
     const hit=near.filter(o=>cmp(o.home,c.home)&&cmp(o.away,c.away));
     if(!hit.length) continue;

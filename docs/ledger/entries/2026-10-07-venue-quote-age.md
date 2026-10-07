@@ -27,3 +27,4 @@
   - A non-object export row is refused. Mirrored host rows are excluded from the age statistics. Capture vs `as_of` is compared at the second.
   - Host-only venue calls: `HOST: NOT MEASURED`. An `exports/host` root is mirrored. A non-list container is refused. Probe: an empty response is INCONCLUSIVE; camel-case `Ts` keys are time-like.
   - Report: when duplicates are merged, any local copy makes the row local.
+  - Receipt: non-1X2 (spread-derived) venue calls are `NOT 1X2: NOT MEASURED`.

@@ -599,3 +599,18 @@ def test_a_local_copy_found_after_the_host_copy_makes_the_row_local():
                                    ["ex/host/a.json"])
     assert len(rows) == 1 and rows[0]["mirrored"] is False and rows[0]["match_id"] == 7
     assert rows[0]["file"] == "ex/laptop/a.json" and not rows[0]["conflicting_copies"]
+
+
+def test_a_spread_derived_venue_call_is_never_given_a_1x2_movement_verdict(tmp_path):
+    """Codex on #340: an NCAA VENUE call whose fair is spread_derived has no 1X2 session behind it."""
+    ids = _seed()
+    asof = KO - timedelta(hours=19)
+    row = _venue_row(ids["dead"], "dead", 20, {"HOME": 0.4735, "AWAY": 0.5265}, n=ids["n"])
+    row["market"]["fair_source"] = "spread_derived"
+    calls = VQ.file_venue_calls([("f.json", _doc([row], asof))], SINCE)
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    r = res["rows"][0]
+    assert r["verdict"] == "NOT 1X2: NOT MEASURED" and r["anchor"] is None and r["later"] == []
+    assert res["totals"]["tested"] == 0 and res["totals"]["NOT 1X2: NOT MEASURED"] == 1
+    assert "non-1X2 reference, not measured 1" in "\n".join(VQ.format_venue_receipt(res, SINCE, ["t"]))

@@ -441,6 +441,14 @@ def venue_receipt(s, calls: list[dict]) -> dict:
             continue
         c = {**c, "export_match_id": c.get("match_id"), "match_id": m.id, "resolved_by": how,
              "kickoff": c["kickoff"] or m.utc_date}
+        if c.get("fair_source") not in (None, "1X2"):
+            # Codex on #340: a call whose reference is not the 1X2 consensus (an NCAA spread_derived fair) has no
+            # 1X2 session behind it; this DB's 1X2 sessions never give it an anchor or a movement verdict
+            rows.append({**c, "anchor": None, "anchor_basis": f"reference is {c['fair_source']}, not the 1X2 "
+                         "consensus: no 1X2 capture history behind it", "later": [], "moved": None,
+                         "verdict": "NOT 1X2: NOT MEASURED", "file_matches_anchor": None, "unchanged_since": None,
+                         "run_n": 0, "run_censored": None})
+            continue
         if c.get("host_only"):
             # Codex on #340: a call only the HOST's files hold was decided on the host's captures; this DB's
             # sessions are the laptop's, fetched at other times, so they never give it a movement verdict
@@ -450,7 +458,8 @@ def venue_receipt(s, calls: list[dict]) -> dict:
             continue
         rows.append(receipt_row(c, match_sessions(s, m)))
     tot = {"calls": len(rows)}
-    for v in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE", "NO ANCHOR", "NO DB MATCH", "HOST: NOT MEASURED"):
+    for v in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE", "NO ANCHOR", "NO DB MATCH", "HOST: NOT MEASURED",
+              "NOT 1X2: NOT MEASURED"):
         tot[v] = sum(1 for r in rows if r["verdict"] == v)
     tested = tot["NEVER MOVED"] + tot["MOVED"]
     tot["tested"] = tested
@@ -528,7 +537,8 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                f"{t['NEVER MOVED']} ({_share(t['never_moved_share_of_tested'])} of tested, "
                f"{_share(t['never_moved_share_of_calls'])} of calls) · MOVED {t['MOVED']} · no later capture "
                f"{t['NO LATER CAPTURE']} · no anchor {t['NO ANCHOR']} · no DB match {t['NO DB MATCH']} · host-only, "
-               f"not measured {t.get('HOST: NOT MEASURED', 0)}")
+               f"not measured {t.get('HOST: NOT MEASURED', 0)} · non-1X2 reference, not measured "
+               f"{t.get('NOT 1X2: NOT MEASURED', 0)}")
     out.append(f"  (re-logged ledger positions {t['repriced_positions']}, {t['reprices']} re-log(s): counted once "
                f"each, at the frozen claim)")
     return out

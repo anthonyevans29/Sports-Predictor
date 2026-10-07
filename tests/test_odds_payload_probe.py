@@ -395,3 +395,14 @@ def test_a_direct_game_payload_is_checked_for_its_league(monkeypatch, capsys):
     assert P.main(["--sport", "ncaa", "--game", "9"]) == 0
     out = capsys.readouterr().out
     assert "LEAGUE UNVERIFIED" in out and "VERDICT (this payload; LEAGUE UNVERIFIED): " in out
+
+
+def test_saved_payloads_are_league_checked_and_scalar_responses_name_no_league(tmp_path, capsys):
+    # Codex on #340: --from-file with --sport gets the same league check; {"response": 1} is no traceback
+    assert P.league_check({"response": 1}, "ncaa")[0] is None
+    src = tmp_path / "p.json"
+    src.write_text(json.dumps(SYNTH))                     # NHL (57)
+    assert P.main(["--from-file", str(src), "--sport", "ncaa"]) == 2
+    assert "not NCAA's (2)" in capsys.readouterr().out
+    assert P.main(["--from-file", str(src), "--sport", "nhl"]) == 0
+    assert "league verified from the payload: NHL (57)" in capsys.readouterr().out

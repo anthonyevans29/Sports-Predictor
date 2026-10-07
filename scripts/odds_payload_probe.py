@@ -65,7 +65,8 @@ def league_check(payload, sport: str) -> tuple[bool | None, str]:
     """(True, ...) when every response[].league.id the payload carries is --sport's league; (False, why) when one is
     another league's; (None, why) when the payload names no league id (unverified, said, never assumed)."""
     ids = set()
-    for g in (payload.get("response") if isinstance(payload, dict) else None) or []:
+    resp = payload.get("response") if isinstance(payload, dict) else None
+    for g in resp if isinstance(resp, list) else []:   # Codex on #340: a scalar container names no league
         lg = g.get("league") if isinstance(g, dict) else None
         if isinstance(lg, dict) and isinstance(lg.get("id"), int) and not isinstance(lg.get("id"), bool):
             ids.add(lg["id"])
@@ -399,6 +400,15 @@ def main(argv=None) -> int:
         if why:
             print(why)
             return 2
+        if a.sport:                            # Codex on #340: a saved payload is league-checked like a fetch
+            ok, msg = league_check(payload, a.sport)
+            print(msg)
+            if ok is False:
+                return 2
+            if ok is None:
+                text = "\n".join(report(payload, a.max_items, a.sport))
+                print(text.replace("VERDICT (this payload): ", "VERDICT (this payload; LEAGUE UNVERIFIED): "))
+                return _write_out(a, payload, key)
     else:
         if a.sport and not a.game and a.match_id is not None:
             try:

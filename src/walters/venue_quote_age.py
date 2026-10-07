@@ -37,7 +37,7 @@ SINCE_DEFAULT = datetime(2026, 10, 2)            # naive UTC: "every VENUE call 
 DP = 4                                           # "unchanged to four decimals"
 MODEL_SPORTS = ("MLB", "NFL", "PL")              # build step (4): the live model sports
 #: Desk export filenames (fixtures_<comp>_*, <sport>_predictions_*, desk_parlays_*, window_*): an unreadable file
-#: with such a name is a damaged export and refuses the receipt; other unreadable JSON is only counted.
+#: with such a name is a damaged export; since --out allows any name, EVERY unreadable JSON refuses the receipt.
 #: export-predictions' default name: <sport>[_<COMP>]_<YYYY-MM-DD>[_to_<YYYY-MM-DD>].json (rows key: predictions)
 #: A competition code may carry underscores (UEFA_EURO, WCQ_EU, CNL_Q; Codex on #340); a results export
 #: (<sport>[_<COMP>]_results_<date>.json) is not a prediction export.
@@ -234,20 +234,6 @@ def readonly_session():
         eng.dispose()
 
 
-# Codex on #340: annotate() writes each row's desk after its fields and desk_meta last, so a prefix-truncated
-# export may carry neither; its rows container key is recognised too
-_DESK_TEXT = re.compile(r'"(desk(_meta)?|fixtures|predictions)"\s*:')
-
-
-def _looks_desk(path: str) -> bool:
-    """An unreadable file whose surviving text carries a desk block (any name: export-predictions --out)."""
-    try:
-        with open(path, "rb") as f:
-            return bool(_DESK_TEXT.search(f.read().decode("utf-8", "ignore")))
-    except OSError:
-        return True                                    # unreadable bytes: cannot be shown NOT to be an export
-
-
 def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     """Every JSON under `root` (recursive) whose top level carries desk_meta.as_of. Returns (docs, counts);
     counts["mirrored"] = the desk files under <root>/host/ (the host's pulled copies: foreign match_ids)."""
@@ -273,8 +259,9 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 counts["unreadable"] += 1
                 # Codex on #340: a damaged EXPORT is never omitted silently: by its name, or (any --out name) by
                 # the desk blocks its readable text still carries
-                if EXPORT_NAME.search(n) or _looks_desk(p):
-                    bad_read.append(p)
+                # Codex on #340: an export may carry any --out name and break before any marker (empty, early
+                # truncation), so EVERY unreadable JSON under the exports dir refuses the receipt
+                bad_read.append(p)
                 continue
             if not isinstance(doc, dict):
                 if EXPORT_NAME.search(n):              # Codex on #340: a generated export that parses as [] /
@@ -605,6 +592,18 @@ def anchor_for(sessions: list[dict], call: dict) -> tuple[dict | None, str]:
         else (None, "no book capture at or before the call time")
 
 
+def _side_key(call: dict, fair: dict) -> str | None:
+    """The outcome key (HOME / AWAY / DRAW) of a call's side: the key itself, or the team named home / away."""
+    side = call.get("side")
+    if side in fair:
+        return side
+    if side is not None and side == call.get("home") and "HOME" in fair:
+        return "HOME"
+    if side is not None and side == call.get("away") and "AWAY" in fair:
+        return "AWAY"
+    return None
+
+
 def receipt_row(call: dict, sessions: list[dict], anchor_verified_by: str | None = None) -> dict:
     a, basis = anchor_for(sessions, call)
     row = {**call, "anchor": a, "anchor_basis": basis, "later": [], "moved": None, "verdict": None,
@@ -618,6 +617,19 @@ def receipt_row(call: dict, sessions: list[dict], anchor_verified_by: str | None
             row["anchor_verified_by"] = anchor_verified_by     # the same session, re-derived (Codex on #340)
     first, n, cens = unchanged_run(sessions, a)
     row.update(unchanged_since=first["t"], run_n=n, run_censored=cens)
+    if not call.get("files") and call.get("origin") == "ledger":
+        # Codex on #340: a ledger-only claim carries no file fair; its frozen book p must be the anchor's own side
+        # probability, else the anchor is a substitute session and no movement verdict is given
+        key = _side_key(call, a["fair4"])
+        bp = call.get("book_p")
+        if bp is None or key is None:
+            row["verdict"] = "LEDGER UNVERIFIED: NOT MEASURED"
+            row["anchor_basis"] += " · the claim's book p / side cannot be checked against it"
+            return row
+        if abs(float(bp) - a["fair4"][key]) >= 5e-4:
+            row["verdict"] = "ANCHOR MISMATCH: NOT MEASURED"
+            row["anchor_basis"] += f" · claim book p {float(bp):.4f} != anchor {key} {a['fair4'][key]:.4f}"
+            return row
     if row["file_matches_anchor"] is False and not row.get("anchor_verified_by"):
         # Codex on #340: an anchor whose fair is not the call's own fair is a substitute session; movement measured
         # from it says nothing about the call's quote, so no verdict
@@ -762,7 +774,7 @@ def venue_receipt(s, calls: list[dict]) -> dict:
     tot = {"calls": len(rows)}
     for v in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE", "NO ANCHOR", "NO DB MATCH", "HOST: NOT MEASURED",
               "NOT 1X2: NOT MEASURED", "ANCHOR MISMATCH: NOT MEASURED", "NO CAPTURE TIME: NOT MEASURED",
-              "NO FILE FAIR: NOT MEASURED"):
+              "NO FILE FAIR: NOT MEASURED", "LEDGER UNVERIFIED: NOT MEASURED"):
         tot[v] = sum(1 for r in rows if r["verdict"] == v)
     tested = tot["NEVER MOVED"] + tot["MOVED"]
     tot["tested"] = tested
@@ -862,7 +874,8 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                f"{t.get('NOT 1X2: NOT MEASURED', 0)} · anchor != the call's fair, not measured "
                f"{t.get('ANCHOR MISMATCH: NOT MEASURED', 0)} · no capture time on file, not measured "
                f"{t.get('NO CAPTURE TIME: NOT MEASURED', 0)} · no fair on file, not measured "
-               f"{t.get('NO FILE FAIR: NOT MEASURED', 0)}")
+               f"{t.get('NO FILE FAIR: NOT MEASURED', 0)} · ledger-only claim unverifiable against its anchor, not "
+               f"measured {t.get('LEDGER UNVERIFIED: NOT MEASURED', 0)}")
     out.append(f"  stale_book_zone on the call: TRUE {t.get('stale_book_zone_true', 0)} · false "
                f"{t.get('stale_book_zone_false', 0)} · unknown (ledger-only or not on file) "
                f"{t.get('stale_book_zone_unknown', 0)} · conflicting across copies "

@@ -87,7 +87,6 @@ def _exports(tmp_path, ids):
     (ex / "host" / "fixtures_NHL_2095-10-08.json").write_text(json.dumps(doc))      # a copy: same calls
     old = {**doc, "desk_meta": {"as_of": "2095-09-30T12:00:00Z"}}
     (ex / "fixtures_NHL_2095-09-30.json").write_text(json.dumps(old))              # before --since
-    (ex / "broken.json").write_text("{")
     nfl = {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
         {"match_id": ids["nfl"], "utc_date": _iso(KO), "home_team": f"VQA{ids['n']} nfl Home",
          "away_team": f"VQA{ids['n']} nfl Away",
@@ -103,7 +102,7 @@ def test_venue_receipt_consensus_at_the_call_later_captures_and_verdicts(tmp_pat
     ids = _seed()
     ex = _exports(tmp_path, ids)
     docs, cnt = VQ.iter_desk_docs(str(ex))
-    assert cnt["unreadable"] == 1 and cnt["desk_files"] == 4
+    assert cnt["unreadable"] == 0 and cnt["desk_files"] == 4
     calls = VQ.file_venue_calls(docs, SINCE)
     assert len(calls) == 3                                                    # PASS row, old file: not calls
     assert all(len(c["files"]) == 2 for c in calls)                          # the host copy is the same call
@@ -140,7 +139,8 @@ def test_ledger_claims_merge_with_file_calls_or_stand_alone():
         {"engine": "venue_edge", "sport": "NHL", "home": f"VQA{n} dead Home", "away": f"VQA{n} dead Away",
          "kickoff": _iso(KO), "pick": "AWAY", "units": 0.25, "claim_as_of": _iso(asof) + "Z", "model_p": 0.5265},
         {"engine": "venue_edge", "sport": "NHL", "home": f"VQA{n} move Home", "away": f"VQA{n} move Away",
-         "kickoff": _iso(KO), "pick": "AWAY", "units": 0.25, "claim_as_of": _iso(KO - timedelta(hours=9)) + "Z"},
+         "kickoff": _iso(KO), "pick": "AWAY", "units": 0.25, "claim_as_of": _iso(KO - timedelta(hours=9)) + "Z",
+         "model_p": 0.5265},
         {"engine": "model_edge", "sport": "NFL", "claim_as_of": _iso(asof) + "Z"},
         {"engine": "venue_edge", "sport": "NHL", "claim_as_of": "2095-09-01T00:00:00Z"}]}
     lc = VQ.ledger_venue_calls(L, SINCE)
@@ -639,12 +639,13 @@ def test_a_relogged_claim_uses_the_frozen_claim_prices_never_the_latest_reprice(
 
 def test_an_unreadable_export_file_is_refused_other_broken_json_is_counted(tmp_path):
     """Codex on #340: a truncated fixtures_* / *predictions* / desk_parlays_* / window_* file refuses the receipt;
-    an unrelated broken JSON is only counted."""
+    since an export may carry any --out name and break before any marker, every unreadable JSON refuses too."""
     ex = tmp_path / "exports"
     ex.mkdir()
     (ex / "broken.json").write_text("{")
-    docs, cnt = VQ.iter_desk_docs(str(ex))
-    assert cnt["unreadable"] == 1
+    with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
+        VQ.iter_desk_docs(str(ex))
+    (ex / "broken.json").unlink()
     for name in ("fixtures_NHL_2095-10-08.json", "nfl_predictions_2095-10-08.json", "window_24h.json"):
         (ex / name).write_text('{"desk_meta": {"as_of": "2095-')
         with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
@@ -1108,8 +1109,8 @@ def test_damaged_custom_named_desk_exports_are_refused(tmp_path):
     ex = tmp_path / "c"
     ex.mkdir()
     (ex / "notes.json").write_text('{"x": [1, 2')
-    docs, counts = VQ.iter_desk_docs(str(ex))
-    assert docs == [] and counts["unreadable"] == 1
+    with pytest.raises(VQ.Refused, match="cannot be read as JSON"):     # Codex on #340: every unreadable JSON
+        VQ.iter_desk_docs(str(ex))
 
 
 def test_the_receipt_counts_venue_calls_that_carried_stale_book_zone(tmp_path):
@@ -1279,3 +1280,18 @@ def test_damaged_desk_exports_are_refused_however_they_broke(tmp_path):
                                                                     "desk": desk}]}))
         with pytest.raises(VQ.Refused, match="no desk"):
             VQ.iter_desk_docs(str(ex))
+
+
+def test_a_ledger_only_claim_is_measured_only_on_an_anchor_it_matches():
+    """Codex on #340: a ledger-only claim has no file fair; its frozen book p must equal the anchor's side
+    probability, else no movement verdict (mismatch), and without a book p it is unverifiable."""
+    ids = _seed()
+    n = ids["n"]
+    base = {"engine": "venue_edge", "sport": "NHL", "home": f"VQA{n} move Home", "away": f"VQA{n} move Away",
+            "kickoff": _iso(KO), "pick": "AWAY", "units": 0.25, "claim_as_of": _iso(KO - timedelta(hours=9)) + "Z"}
+    out = {}
+    for tag, extra in (("ok", {"model_p": 0.5265}), ("bad", {"model_p": 0.6}), ("none", {})):
+        calls = VQ.merge_calls([], VQ.ledger_venue_calls({"calls": [{**base, **extra}]}, SINCE))
+        with session_scope() as s:
+            out[tag] = VQ.venue_receipt(s, calls)["rows"][0]["verdict"]
+    assert out == {"ok": "MOVED", "bad": "ANCHOR MISMATCH: NOT MEASURED", "none": "LEDGER UNVERIFIED: NOT MEASURED"}

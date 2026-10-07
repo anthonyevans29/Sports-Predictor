@@ -52,3 +52,4 @@
   - Percentiles: nearest rank, ties half-up. Divergence matches by the Cockpit's toFixed(2). 1X2 copies dedupe at 4 dp.
   - A Desk-annotated row missing its desk block is refused. Probe: one input selector only; scalar provider ids only.
   - Truncated, meta-less or identity-less desk exports are refused. Probe: direct `--game` payloads are league-checked (refused if another league; LEAGUE UNVERIFIED if none named).
+  - Every unreadable JSON refuses (supersedes the sniffs). Ledger-only claims are measured only on an anchor matching their book p. Probe: saved payloads are league-checked.

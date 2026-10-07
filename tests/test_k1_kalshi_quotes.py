@@ -108,3 +108,17 @@ def test_migration_adds_columns_idempotently(tmp_path, monkeypatch, capsys):
     assert mig.main() == 0 and "already exists" in capsys.readouterr().out
     with eng.connect() as c:
         assert c.execute(text("SELECT devig_prob FROM odds_snapshots")).scalar() == 0.5
+
+
+def test_discovery_line_names_the_series_actually_fetched(monkeypatch):
+    """2026-10-07: the Kalshi syncs printed "Discovering MLB game series" for every sport."""
+    from src.ingestion import kalshi_sync
+    monkeypatch.setattr(KalshiAdapter, "status", lambda self: {"trading_active": True})
+    monkeypatch.setattr(KalshiAdapter, "sports_filters", lambda self: {})
+    monkeypatch.setattr(KalshiAdapter, "open_markets_for_series", lambda self, s: [])
+    monkeypatch.setattr(KalshiAdapter, "game_series_markets", lambda self: [])
+    for override, want in (("KXNHLGAME", "KXNHLGAME"), (None, "KXMLBGAME")):
+        lines = []
+        kalshi_sync.sync_kalshi_mlb(series_override=override, progress=lines.append)
+        assert f"Discovering {want} game series…" in lines, lines
+        assert not any("MLB" in ln for ln in lines) or want == "KXMLBGAME", lines

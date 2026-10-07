@@ -1233,8 +1233,9 @@ def test_ncaa_market_syncs_results_before_the_export():
     """ARCHITECT 2026-10-02 (#254): Thursday games read SCHEDULED in Friday's export — sync-matches NCAA
     (single-day calls, yesterday + today) runs before the export so finished games leave the window."""
     steps = chains.CHAINS["ncaa-market"]["steps"]
-    assert [s[0] for s in steps] == ["sync-matches", "sync-matches", "sync-kalshi-ncaa", "export-fixtures"]
-    for st, d in zip(steps[:2], ("{yesterday}", "{today}")):
+    assert [s[0] for s in steps] == ["sync-matches"] * 3 + ["sync-kalshi-ncaa", "export-fixtures"]
+    # {tomorrow} (ARCHITECT 2026-10-07): 8pm-ET-or-later kickoffs fall on the next UTC date.
+    for st, d in zip(steps[:3], ("{yesterday}", "{today}", "{tomorrow}")):
         assert st == ["sync-matches", "--competition", "NCAA", "--season", "2026", "--date-from", d, "--date-to", d]
     assert "sync-matches" not in chains.UNMETERED
 

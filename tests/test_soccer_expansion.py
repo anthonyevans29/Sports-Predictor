@@ -66,11 +66,11 @@ def test_run_refuses_while_findings_are_open_and_on_missing_data(monkeypatch):
     monkeypatch.setattr("src.walters.soccer_backtest.run_soccer_backtest",
                         lambda *a, **k: scored.append(a) or results(5, True))
     monkeypatch.setattr(sx, "naive_for", lambda s, c: None if c == "ELC" else NAIVE)
-    monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 10)
+    monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 100)
     with pytest.raises(sx.ExpansionRefused, match="no stored 2023/24 for ELC"):
         sx.run(-0.1, 0.0008)
     monkeypatch.setattr(sx, "naive_for", lambda s, c: NAIVE)
-    monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 0 if (c, se) == ("SA", "2025/26") else 10)
+    monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 40 if (c, se) == ("SA", "2025/26") else 100)
     with pytest.raises(sx.ExpansionRefused, match="SA 2025/26"):
         sx.run(-0.1, 0.0008)
     assert scored == []                                         # refused BEFORE any league was scored
@@ -80,7 +80,7 @@ def test_a_league_that_misses_its_own_gate_is_dropped_and_the_verdict_names_the_
     init_db()
     monkeypatch.setattr(sx, "OPEN_FINDINGS", ())
     monkeypatch.setattr(sx, "naive_for", lambda s, c: NAIVE)
-    monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 10)
+    monkeypatch.setattr(sx, "finished_count", lambda s, c, se: 100)
     good = {"PD", "BL1"}
     monkeypatch.setattr("src.walters.soccer_backtest.run_soccer_backtest",
                         lambda code, season, *a, **k: results(60, code in good, seed=hash((code, season)) % 97,
@@ -178,3 +178,19 @@ def test_expansion_chains_are_data_only():
         for st in chains.CHAINS[chain]["steps"]:
             if any(c in st for c in sx.LEAGUES):
                 assert st[0] in ("sync-matches", "sync-odds"), st
+
+
+def test_every_backtest_path_is_refused_on_these_leagues_while_unrun(monkeypatch):
+    """Codex on #326: the guard lives in the walk itself, so the rho / coefficient sweeps and the candidate
+    harnesses cannot read the sealed test seasons either; only the gate passes sealed_read=True."""
+    from src.walters import soccer_backtest as sb
+    monkeypatch.setattr(reg, "get", lambda eid, path=None: DECLARED if eid == sx.EID else None)
+    with pytest.raises(sx.ExpansionRefused, match="read once"):
+        sb.run_soccer_backtest("BL1", "2024/25", dixon_coles_rho=-0.1)
+    import cli
+    for cmd in (["dixon-coles-sweep", "--competition", "BL1", "--season", "2024/25"],
+                ["elo-coeff-sweep", "--competition", "BL1", "--season", "2024/25"]):
+        r = CliRunner().invoke(cli.cli, cmd)
+        assert r.exit_code != 0 and isinstance(r.exception, sx.ExpansionRefused), (cmd, r.output[-200:])
+    init_db()
+    assert sb.run_soccer_backtest("BL1", "2024/25", sealed_read=True) is None    # the gate's path: not refused

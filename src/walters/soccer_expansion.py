@@ -252,10 +252,13 @@ def run(rho: float, coeff: float, progress=None) -> dict:
 
     with session_scope() as s:
         naives = {c: naive_for(s, c) for c in LEAGUES}
-        empty = [f"{c} {se}" for c in LEAGUES for se in TEST_SEASONS if not finished_count(s, c, se)]
+        # Codex on #326: a season with <= MIN_PRIOR finished matches scores nothing at min_prior, so it is
+        # refused here too, before any read (the walk scores a match only once MIN_PRIOR precede it)
+        empty = [f"{c} {se} ({finished_count(s, c, se)} finished, needs > {MIN_PRIOR})"
+                 for c in LEAGUES for se in TEST_SEASONS if finished_count(s, c, se) <= MIN_PRIOR]
         s.rollback()
     if empty:                        # checked BEFORE any league is scored: a refusal never follows a read
-        raise ExpansionRefused(f"no finished matches stored for {', '.join(empty)} (or the season string differs "
+        raise ExpansionRefused(f"too few finished matches stored for {', '.join(empty)} (or the season string differs "
                                "from the stored one): run --preflight; missing data is never a silent DROP")
     missing = [c for c, v in naives.items() if v is None]
     if missing:
@@ -264,7 +267,8 @@ def run(rho: float, coeff: float, progress=None) -> dict:
     for code in LEAGUES:
         res = []
         for season in TEST_SEASONS:
-            got = run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=rho, elo_goal_coeff=coeff) or []
+            got = run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=rho, elo_goal_coeff=coeff,
+                                      sealed_read=True) or []
             if not got:              # law 4: missing data is never a silent DROP
                 raise ExpansionRefused(f"{code} {season}: no scored matches (not stored, or season string differs "
                                        "from the stored one); run --preflight")

@@ -15,3 +15,6 @@
   - **F3:** relegation / promotion play-off rows inside a league-season (score them, or exclude and count).
   - **F4:** the tie. "log-loss <= naive − 0.010 (tie rejects)" at exact equality; the code carries the intl-elo comparison (equality passes) until ruled.
 - **Prerequisite:** each league's 2026/27 competition-season needs `sync-teams` once, on the laptop and on the host, before the chains' `sync-matches`.
+- **Codex on #326 (fixed):**
+  - The test-season seal lives in `run_soccer_backtest` itself, so `dixon-coles-sweep`, `elo-coeff-sweep` and the candidate harnesses are refused on these leagues while the experiment is unrun. Only the gate passes `sealed_read=True`.
+  - The pre-scoring check refuses any test season with <= 40 finished matches (it would score nothing at min_prior 40), not only an empty one, so a refusal never follows a partial read.

@@ -70,7 +70,8 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         elo_goal_coeff: float | None = None,
                         decay_half_life_days: float | None = None,
                         detail: bool = False,
-                        s14_uncertain_offset: float | None = None):
+                        s14_uncertain_offset: float | None = None,
+                        sealed_read: bool = False):
     """
     Walk `competition_code`/`season` in date order, predict each match using only
     prior matches (leakage-free). Returns a list of per-match result dicts:
@@ -100,6 +101,14 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
     by (T + offset) / T (T = home_xg + away_xg) and the match is re-predicted.
     Confident games are untouched; the scored set is identical.
     """
+    # soccer-expansion-v1 (ARCHITECT 2026-10-07; Codex on #326): its leagues' test seasons are read ONCE, by its gate.
+    # Every caller of this walk (soccer-backtest, the rho / coefficient sweeps, the candidate harnesses) is refused
+    # on those leagues while the experiment is declared and unrun; only the gate passes sealed_read=True.
+    if not sealed_read:
+        from src.walters import soccer_expansion as _sx
+        _why = _sx.guards_backtest(competition_code)
+        if _why:
+            raise _sx.ExpansionRefused(_why)
     with session_scope() as s:
         comp = s.execute(
             select(Competition).where(Competition.code == competition_code)

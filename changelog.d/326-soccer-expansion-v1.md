@@ -7,3 +7,6 @@
 - `soccer-backtest` refuses these leagues while the experiment is unrun.
 - `export-soccer-expansion-shadow` (model_shadow, no Desk call, no prediction row) and `soccer-expansion-shadow-grade` (read-only).
 - `soccer-prematch` / `soccer-morning-after` and the laptop routine add the five leagues' 2026/27 `sync-matches` / `sync-odds`, data only. No Kalshi series is pinned.
+- Codex on #326:
+  - the seal is enforced in `run_soccer_backtest` (every path, the sweeps included);
+  - the pre-scoring check refuses a test season with <= min_prior finished matches.

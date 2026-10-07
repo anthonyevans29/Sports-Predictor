@@ -38,8 +38,10 @@ MODEL_SPORTS = ("MLB", "NFL", "PL")              # build step (4): the live mode
 #: Desk export filenames (fixtures_<comp>_*, <sport>_predictions_*, desk_parlays_*, window_*): an unreadable file
 #: with such a name is a damaged export and refuses the receipt; other unreadable JSON is only counted.
 #: export-predictions' default name: <sport>[_<COMP>]_<YYYY-MM-DD>[_to_<YYYY-MM-DD>].json (rows key: predictions)
-DEFAULT_PRED_NAME = re.compile(r"^(soccer|nfl|mlb|nhl)(_[A-Za-z0-9]+)?_\d{4}-\d{2}-\d{2}(_to_\d{4}-\d{2}-\d{2})?\.json$",
-                               re.I)
+#: A competition code may carry underscores (UEFA_EURO, WCQ_EU, CNL_Q; Codex on #340); a results export
+#: (<sport>[_<COMP>]_results_<date>.json) is not a prediction export.
+DEFAULT_PRED_NAME = re.compile(r"^(soccer|nfl|mlb|nhl)(?:_(?!results_\d{4}-)[A-Za-z0-9]+)*"
+                               r"_\d{4}-\d{2}-\d{2}(_to_\d{4}-\d{2}-\d{2})?\.json$", re.I)
 EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions|" + DEFAULT_PRED_NAME.pattern, re.I)
 SPREAD_SPORTS = ("NFL", "NCAA", "NCAAF")          # sports whose reference can be spread_derived
 LEDGER_UNKNOWN_SOURCE = "unknown (the ledger keeps no fair_source)"
@@ -86,6 +88,10 @@ def ledger_refusal(L) -> str | None:
                                    "claim_market_p", "claim_exec_cost") if not _num(c.get(k))]
             if bad_num:                                # Codex on #340: formatted / compared as numbers
                 return (f"REFUSED: venue claim at index {i} has non-numeric {', '.join(bad_num)}: its prices "
+                        "cannot be audited.")
+            bad_str = [k for k in ("sport", "home", "away", "kickoff", "pick", "claim_source") if not _str(c.get(k))]
+            if bad_str:                                # Codex on #340: hashed into merge keys, never a TypeError
+                return (f"REFUSED: venue claim at index {i} has non-string {', '.join(bad_str)}: its identity "
                         "cannot be audited.")
             if c.get("claim_at") not in (None, "") and parse_ts(c.get("claim_at")) is None:
                 return (f"REFUSED: venue claim at index {i} has an unparseable claim_at {c.get('claim_at')!r}: the "

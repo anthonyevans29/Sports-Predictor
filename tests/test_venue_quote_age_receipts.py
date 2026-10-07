@@ -1033,3 +1033,30 @@ def test_non_string_identity_fields_are_refused_at_discovery(tmp_path):
                                                             "fixtures": [r]}))
         with pytest.raises(VQ.Refused, match="non-string identity field"):
             VQ.iter_desk_docs(str(ex))
+
+
+def test_underscore_competition_codes_are_default_prediction_export_names(tmp_path):
+    """Codex on #340: export-predictions --competition UEFA_EURO writes soccer_UEFA_EURO_<date>.json; it is a
+    required input (unreadable or rows-less refuses); a results export still is not."""
+    for name in ("soccer_UEFA_EURO_2026-10-07.json", "soccer_WCQ_EU_2026-10-01_to_2026-10-07.json",
+                 "soccer_CNL_Q_2026-10-07.json"):
+        assert VQ.DEFAULT_PRED_NAME.search(name), name
+    for name in ("soccer_UEFA_EURO_results_2026-10-07.json", "nfl_results_2026-10-07.json"):
+        assert not VQ.EXPORT_NAME.search(name), name
+    ex = tmp_path / "a"
+    ex.mkdir()
+    (ex / "soccer_UEFA_EURO_2026-10-07.json").write_text('{"desk_meta"')
+    with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
+        VQ.iter_desk_docs(str(ex))
+    ex = tmp_path / "b"
+    ex.mkdir()
+    (ex / "soccer_WCQ_EU_2026-10-07.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"}}))
+    with pytest.raises(VQ.Refused, match="missing one in a fixtures_"):
+        VQ.iter_desk_docs(str(ex))
+
+
+def test_non_string_ledger_identity_fields_are_refused():
+    """Codex on #340: pick / home / away key the merge; a list is a named refusal, never a TypeError."""
+    for k in ("pick", "home", "away", "sport", "kickoff", "claim_source"):
+        why = VQ.ledger_refusal({"calls": [{"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z", k: []}]})
+        assert why and "non-string " + k in why, k

@@ -1,0 +1,24 @@
+**2026-10-06 — Evening rulings: #310 merges at 99faed0 (follow-up amends e1a2146); requirements-install lane closes at that merge; staged virtualenv declined (#312); #309 and #311 approved.**
+- **Ruling (1) (ARCHITECT, verbatim):** "#310 MERGES AT e1a2146 once CI is green on that commit. Ten review rounds, and round 10 brought seven more fixes and one declined finding, mostly for layouts this host does not have: the review is not converging. Push nothing further to #310 unless CI fails on e1a2146 (then fix only that). Do not request another review on it. Post "green, MERGE-READY" when CI passes; Anthony merges."
+- **Ruling (2) (ARCHITECT, verbatim):** "REQUIREMENTS-INSTALL LANE CLOSED at that merge, by the same rule as the migration-plan lane: further cases only from a real deploy. The merged-PR sweep still answers every thread that arrives on #310. A finding is fixed (one follow-up PR) only if it reproduces on the production layout: the checkout's own venv with pip, the repo's own requirements.txt (plain specifiers, no includes), a deploy run under the DB lock. Every other thread gets the reply "closed lane (ARCHITECT 2026-10-06): hypothetical layout; reopens from a real deploy" and no code change."
+- **Ruling (3) (ARCHITECT, verbatim):** "STAGED VIRTUALENV: DECLINED for now. Open a limitation Issue (labels from the fixed set) carrying this text. Reason: requirements.txt holds lower bounds, so pip without --upgrade only adds what is missing and a failed run is additive in practice; the install runs under the DB lock, is receipted, and prints its recovery; since round 10 a failed run drops the install record, so the next deploy reinstalls. Reopening condition: a real deploy leaves the venv in a state that breaks a chain, OR requirements move to exact pins or a lock file, OR a second production host exists." Opened as #312 (track:ops, class:limitation, sport:all, size:M).
+- **Ruling (4) (ARCHITECT, verbatim):** "#309 and #311: diffs read, review threads answered or clean. APPROVED; Anthony merges." Both are merged.
+- **Amendment: follow-up ruling (ARCHITECT, 2026-10-06 evening, verbatim):**
+  - "(1) #310 MERGE POINT: 99faed0, its head. Round 11 was pushed and green before ruling (1) reached you, and resetting the branch to drop it would be churn for no gain. Everything else in rulings (1) and (2) stands: nothing further pushed, no further review requested, lane closed at the merge. Your handling of the five 22:04Z threads (closed-lane replies, no code change) is exactly the rule. Post "green, MERGE-READY" on #310 now."
+  - "(2) #316: add this amendment to the fragment (the ruled merge point is 99faed0), then it is APPROVED."
+  - "(3) #314 APPROVED. Architect receipts, run on the branch at 87b5f62: desk_parity_verify 14/14 (golden holds with the rule off); 50 Desk tests pass (started rule, golden, exec addendum, order line, fee-clear boundary); on tonight's real files the 21:23Z MLB export reproduces row for row, the finding's own receipt now reads PASS / started with no order, exec or value shadow, the still-ahead game keeps PLAY 0.25u and its order line, as_of == kickoff is started and one second earlier is unchanged, an unknown kickoff is not started, all 47 NHL venue blocks are identical, and the parlay builder skips the started game. Today's Cockpit build and the PR's build both render a started-row file without errors."
+  - "(4) #315 APPROVED."
+- **The ruled merge point is 99faed0.** It supersedes e1a2146 in ruling (1); the rest of rulings (1) and (2) stands.
+  - "green, MERGE-READY" was posted on #310 after this follow-up. At that point CI was green on 99faed0, the PR merged clean against main (after #314 and #315), and nothing had been pushed since.
+- **State at recording (read, not assumed):**
+  - CI is green on e1a2146 (smoke, closing-refs, fragments).
+  - #310's head is 99faed0. Its round-11 fixes were pushed at 21:54Z, before ruling (1) arrived, and CI is green there too.
+  - Nothing has been pushed to #310 since, and no review was requested.
+  - The merge point was then an open question; the follow-up above settles it (99faed0).
+  - Codex posted 5 threads on 99faed0 at 22:04Z (PIP_TARGET, C-quoted paths, external-venv upgrade, a post-checkout hook, options after markers). None reproduces on the production layout:
+    - 0 non-ASCII tracked paths;
+    - requirements.txt has plain specifiers only;
+    - no PIP_* variable in host.env.example;
+    - no shipped hooks;
+    - the checkout's own venv.
+  - Each got the ruled closed-lane reply and no code change.

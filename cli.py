@@ -1422,7 +1422,7 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
 def mlb_actionable_receipt_cmd(season, seed, out_path):
     """READ-ONLY (ARCHITECT 2026-10-07, item 2; NO policy change): graded MLB predictions with a book close,
     season to date, postseason split out. Rows: the prediction layer's tier (toss-up / lean / strong) x edge vs
-    the CLOSE (<4, 4-8, 8-15, >=15pp). Columns: n, mean model p, mean close fair p, hit rate, hit − close (pp)
+    the CLOSE (<0, 0-4, 4-8, 8-15, >=15pp). Columns: n, mean model p, mean close fair p, hit rate, hit − close (pp)
     with a pinned-seed bootstrap 95% CI, flat-stake ROI at the close fair price. Rows without a book close are
     excluded and counted. Writes nothing to the DB; the receipt goes to docs/receipts/ (commit it via PR)."""
     from datetime import datetime as _dt

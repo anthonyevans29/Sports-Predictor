@@ -20,8 +20,8 @@ Definitions (read from the code, law 1):
   (reference == "books"); a kalshi_only close is excluded and counted.
   Unpriced / absent closes are excluded and counted (law 4).
 - edge (pp) = (model p on the pick − close fair p on the same side) × 100.
-  Buckets: < 4, 4–8, 8–15, >= 15 (lower bound inclusive; negative edges fall in
-  "< 4" and are counted separately in the header).
+  Buckets: < 0, 0–4, 4–8, 8–15, >= 15 (lower bound inclusive; negative edges get their own bucket,
+  ARCHITECT 2026-10-07 addendum 3 D, and their count is also in the header).
 - stage: `export.mlb_stage(Match.stage)` — regular / postseason / unknown (null).
 - hit − close (pp) = (hit rate − mean close fair p) × 100, with a percentile
   bootstrap 95% CI (games resampled within the cell, B = BOOT_B, seed BOOT_SEED;

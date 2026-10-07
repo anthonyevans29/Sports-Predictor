@@ -4973,9 +4973,13 @@ def sync_odds_football_cmd():
     r = sync_odds_nfl(progress=lambda msg: console.print(msg))
     # DELINEATION (ARCHITECT 2026-10-07): the competitions priced, from the run
     by_comp = r.get("games_by_competition") or {}
+    window = r.get("window_by_competition") or {}
+    # Codex on #346: every competition in the window is named, priced n of window m (0 included)
+    comps = sorted(set(window) | set(by_comp))
     console.print(f"[green]✓ Football odds: created={r['created']} "
                   f"across {r['games']} games"
-                  + (" (" + " · ".join(f"{c} {n}" for c, n in by_comp.items()) + ")" if by_comp else "")
+                  + (" (" + " · ".join(f"{c} {by_comp.get(c, 0)}" + (f"/{window[c]}" if c in window else "")
+                                       for c in comps) + " priced/in window)" if comps else "")
                   + (f" · book-consensus snapshots appended={r['snapshots']}" if "snapshots" in r else "")
                   + "[/green]")
 

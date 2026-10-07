@@ -2072,4 +2072,6 @@ def sync_odds_nfl(progress=None) -> dict:
                f"window" + (f" ({recovered_label})" if recovered else ""))
     return {"created": created, "games": games, "snapshots": snapshots,
             "rate_limited": deferred_total, "recovered": recovered,
-            "games_by_competition": dict(sorted(games_by_comp.items()))}
+            "games_by_competition": dict(sorted(games_by_comp.items())),
+            # Codex on #346: the window's competitions, so a run that priced nothing still names them
+            "window_by_competition": dict(sorted(upcoming_by_comp.items()))}

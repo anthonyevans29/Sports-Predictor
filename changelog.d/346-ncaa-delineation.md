@@ -4,3 +4,4 @@
 - `window-card`: the games count names each competition ("games 37 (MLB 5 · NCAA 20 · NFL 12)"). `capture-weather-nfl`: skipped games are counted per competition ("skipped=50 (NCAA 48 · NFL 2)").
 - Labels only: no probability, policy, gate or grading logic changes.
 - Codex on #346: the rate-limit lines (retry, still limited, deferred / recovered) name each competition; the repo Cockpit's window table renders `family` before `sport` ("NCAAF · NCAA"; older files keep the sport); the shadow clause is #344's (unmerged), not this PR's.
+- Codex on #346: the odds summary names every competition in the window, priced of in-window ("NCAA 0/48 · NFL 0/12 priced/in window"), so a run that priced nothing still says which competitions it covered.

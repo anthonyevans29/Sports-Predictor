@@ -78,6 +78,7 @@ def test_odds_sync_console_names_each_competition(football_window, monkeypatch):
     assert any(m.strip() == "· NCAA: no odds yet for DL college A @ DL college H" for m in msgs), msgs
     assert r["games_by_competition"].get("NFL", 0) >= 1
     assert "NCAA" not in r["games_by_competition"]       # nothing priced for college this run
+    assert r["window_by_competition"].get("NCAA", 0) >= 1    # but the window still names it
 
 
 def test_cli_odds_summary_names_the_competitions_priced(monkeypatch):
@@ -86,8 +87,20 @@ def test_cli_odds_summary_names_the_competitions_priced(monkeypatch):
         "created": 8, "games": 3, "snapshots": 6, "games_by_competition": {"NCAA": 2, "NFL": 1}})
     res = CliRunner().invoke(cli.cli, ["sync-odds-football"])
     assert res.exit_code == 0, res.output
-    assert "Football odds: created=8 across 3 games (NCAA 2 · NFL 1)" in res.output
+    assert "Football odds: created=8 across 3 games (NCAA 2 · NFL 1 priced/in window)" in " ".join(res.output.split())
     assert "NFL+NCAA" not in res.output
+
+
+def test_cli_odds_summary_names_the_window_when_nothing_is_priced(monkeypatch):
+    # Codex on #346: an early board (nothing priced) still names each competition in the window
+    import cli
+    monkeypatch.setattr(svc, "sync_odds_nfl", lambda progress=None: {
+        "created": 0, "games": 0, "snapshots": 0, "games_by_competition": {},
+        "window_by_competition": {"NCAA": 48, "NFL": 12}})
+    res = CliRunner().invoke(cli.cli, ["sync-odds-football"])
+    assert res.exit_code == 0, res.output
+    assert ("Football odds: created=0 across 0 games (NCAA 0/48 · NFL 0/12 priced/in window)"
+            in " ".join(res.output.split()))                   # the console wraps long lines
 
 
 # -------------------------------------------------------------- export rows --

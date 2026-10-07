@@ -37,3 +37,6 @@ exports/
 # 2026-09-21 incident: NEVER let a database travel in any form
 data/*
 !data/preferences.json
+
+# ARCHITECT 2026-10-07 (addendum 2 item 8c): the NHL h2 probe's --out in the repo root (scripts/nhl_api_probe.py)
+/nhl_probe.jsonl

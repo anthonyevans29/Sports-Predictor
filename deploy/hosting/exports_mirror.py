@@ -15,12 +15,15 @@ status; pull_exports over Tailscale becomes optional."
     exports_mirror.py squash                      # weekly: one orphan commit, force-pushed
     exports_mirror.py keygen [--key PATH]         # host: make the deploy key, print the PUBLIC half
 
-Config (host.env, or the laptop's environment):
+Config (host.env on the host; the checkout's .env on the laptop; the process environment wins. Read through
+sp_common.setting, ARCHITECT 2026-10-07 addendum 2 item 8b):
   SP_EXPORTS_MIRROR_REMOTE  git@github.com:anthonyevans29/Sports-Predictor-exports.git
                             (unset = mirror disabled: `push` prints so and exits 0)
   SP_EXPORTS_MIRROR_KEY     the deploy key's private half. Unset: /etc/sports-predictor/exports_deploy_key
                             when that file exists (installed by root), else ~/.ssh/sp_exports_deploy_key
-                            of the running user (sp cannot write /etc/sports-predictor; keygen --key PATH)
+                            of the running user (sp cannot write /etc/sports-predictor; keygen --key PATH).
+                            An SSH remote whose key file does not exist is REFUSED, never pushed without a
+                            key (ARCHITECT 2026-10-07, addendum 4 F: a KEY naming a missing file ran git keyless)
   SP_EXPORTS_MIRROR_DIR     the working clone (default <repo>/logs/exports-mirror)
   SP_EXPORTS_MIRROR_ROLE    host | laptop (default host)
 
@@ -46,6 +49,8 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[1]
+sys.path.insert(0, str(HERE))
+import sp_common as c  # noqa: E402  (setting(): environment, host.env, the checkout's .env)
 RETENTION_DAYS = 14
 BRANCH = "main"
 SUFFIXES = (".json", ".md")
@@ -57,12 +62,44 @@ ETC_KEY = Path("/etc/sports-predictor/exports_deploy_key")
 def key_path() -> Path:
     """The deploy key push and keygen both use: SP_EXPORTS_MIRROR_KEY, else an installed
     /etc/sports-predictor key, else ~/.ssh/sp_exports_deploy_key (writable by the service user)."""
-    env = os.environ.get("SP_EXPORTS_MIRROR_KEY")
+    env = c.setting("SP_EXPORTS_MIRROR_KEY")
     if env:
         return Path(env).expanduser()
     if ETC_KEY.is_file():
         return ETC_KEY
     return Path(os.path.expanduser("~")) / ".ssh" / "sp_exports_deploy_key"
+
+
+REFUSE_SSH = "sh -c 'echo \"REFUSED: SSH transport with no deploy key (exports_mirror)\" >&2; exit 1' --"
+
+
+def ssh_remote(remote: str) -> bool:
+    """git's own rule (Codex on #335): a URL ("scheme://") is SSH when its scheme names ssh (ssh://, git+ssh://,
+    ssh+git://); otherwise a remote is scp-like, so SSH, when a ':' comes before any '/' (git@host:p, u@h:p,
+    host:p, [::1]:p). A local path (/x, ./x, ../x, ~/x) is not. An unsure call errs towards SSH, so a missing key
+    is refused rather than pushed keyless."""
+    r = remote.strip()
+    m = re.match(r"^([A-Za-z][A-Za-z0-9+.-]*)://", r)
+    if m:
+        return "ssh" in m.group(1).lower().split("+")
+    if r.startswith(("/", "./", "../", "~")):
+        return False
+    colon, slash = r.find(":"), r.find("/")
+    return colon > 0 and (slash == -1 or colon < slash)
+
+
+def key_refusal(remote: str) -> str | None:
+    """None when the push may run; else the stated refusal (ARCHITECT 2026-10-07, addendum 4 F)."""
+    if not ssh_remote(remote):
+        return None
+    k = key_path()
+    if k.is_file():
+        return None
+    named = c.setting("SP_EXPORTS_MIRROR_KEY")
+    return (f"REFUSED: the deploy key {k} does not exist"
+            + (" (SP_EXPORTS_MIRROR_KEY names it)" if named else " (the default path; SP_EXPORTS_MIRROR_KEY unset)")
+            + f" and the remote {remote} is SSH: git would run with no key and be refused. Fix the key path "
+            "(exports_mirror.py keygen prints the default) — the mirror never falls back silently.")
 
 
 def kind_of(name: str) -> str:
@@ -107,6 +144,11 @@ def _git(clone: Path, *args, check=True, capture=True):
     key = str(key_path())
     if os.path.isfile(key):
         env["GIT_SSH_COMMAND"] = f"ssh -i {key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    else:
+        # Codex on #335: a url.<base>.insteadOf / pushInsteadOf rewrite can turn an HTTPS remote into SSH at push
+        # time, past ssh_remote(). With no key file, any SSH transport git starts is REFUSED here, so a push can
+        # never run on an agent or default identity; HTTPS is unaffected.
+        env["GIT_SSH_COMMAND"] = REFUSE_SSH
     return subprocess.run(["git", "-C", str(clone), *args], check=check, env=env, text=True,
                           capture_output=capture)
 
@@ -116,7 +158,7 @@ def _ensure_clone(clone: Path, remote: str) -> None:
         clone.mkdir(parents=True, exist_ok=True)
         subprocess.run(["git", "init", "-q", "-b", BRANCH, str(clone)], check=True)
         _git(clone, "remote", "add", "origin", remote)
-        _git(clone, "config", "user.name", os.environ.get("SP_EXPORTS_MIRROR_AUTHOR", "sp-exports-mirror"))
+        _git(clone, "config", "user.name", c.setting("SP_EXPORTS_MIRROR_AUTHOR", "sp-exports-mirror"))
         _git(clone, "config", "user.email", "sp-exports-mirror@localhost")
     else:                                   # host.env's remote may have changed since the clone was made
         _git(clone, "remote", "set-url", "origin", remote, check=False)
@@ -228,7 +270,7 @@ def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="exports mirror (F2.5)")
     sub = ap.add_subparsers(dest="cmd", required=True)
     p = sub.add_parser("push")
-    p.add_argument("--role", default=os.environ.get("SP_EXPORTS_MIRROR_ROLE", "host"), choices=("host", "laptop"))
+    p.add_argument("--role", default=c.setting("SP_EXPORTS_MIRROR_ROLE", "host"), choices=("host", "laptop"))
     p.add_argument("--exports", default=str(REPO / "exports"))
     p.add_argument("--label", default="push")
     sub.add_parser("squash")
@@ -238,11 +280,15 @@ def main(argv=None) -> int:
     a = ap.parse_args(argv)
     if a.cmd == "keygen":
         return keygen(str(Path(a.key).expanduser()) if a.key else str(key_path()))
-    remote = os.environ.get("SP_EXPORTS_MIRROR_REMOTE")
+    remote = c.setting("SP_EXPORTS_MIRROR_REMOTE")
     if not remote:
-        print("exports mirror disabled (SP_EXPORTS_MIRROR_REMOTE unset)")
+        print("exports mirror disabled (SP_EXPORTS_MIRROR_REMOTE unset in the environment, host.env and .env)")
         return 0
-    clone = Path(os.environ.get("SP_EXPORTS_MIRROR_DIR") or REPO / "logs" / "exports-mirror")
+    why = key_refusal(remote)
+    if why:
+        print(why)
+        return 2
+    clone = Path(c.setting("SP_EXPORTS_MIRROR_DIR") or REPO / "logs" / "exports-mirror")
     if a.cmd == "squash":
         r = squash(remote, clone)
         print(f"EXPORTS-MIRROR squash: {r}")

@@ -1,11 +1,15 @@
 # NCAA market-only (Kalshi primary). Enabled with the rest (H0-11: live sport, Saturday slates).
 # Thu 16:00 added 2026-09-28 (architect): the fixtures (roster) file for Thursday-night
 # slates; the window service already reprices those games hourly.
+# Tue + Wed 16:00 added 2026-10-07 (architect, addendum 2 item 8a): midweek FBS games (Tue 10-06, Wed 10-07,
+# Tue 10-13) had no host fixtures file. Install a changed timer on the host: see docs/specs/hosting-h1.md.
 # H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
 [Unit]
 Description=sports-predictor timer: sp-ncaa-market
 
 [Timer]
+OnCalendar=Tue *-*-* 16:00:00 UTC
+OnCalendar=Wed *-*-* 16:00:00 UTC
 OnCalendar=Thu *-*-* 16:00:00 UTC
 OnCalendar=Fri *-*-* 16:00:00 UTC
 OnCalendar=Sat *-*-* 13:00:00 UTC

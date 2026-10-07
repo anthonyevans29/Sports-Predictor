@@ -57,12 +57,21 @@ date yet. The full report is in the run's step summary.
    Setting the remote BEFORE the key works is harmless. The chain hook's pushes commit in the working
    clone and fail to push; the first push that can reach the remote sends those commits too
    ("incl. N earlier unpushed commit(s)"). The change test is against the remote's tip, never the local HEAD.
-5. **Laptop:** its own deploy key the same way (`keygen --key ~/.ssh/sp_exports_laptop`, add it with
-   write access), then at the END of the morning chain:
+5. **Laptop:** its own deploy key the same way. `exports_mirror.py keygen` writes the DEFAULT
+   `~/.ssh/sp_exports_deploy_key` (the laptop's key is at that default name; corrected by ARCHITECT
+   2026-10-07, addendum 4 F). Add it with write access, then put the settings in the checkout's `.env`
+   (read through `sp_common.setting`; the process environment wins):
    ```
-   SP_EXPORTS_MIRROR_REMOTE=git@github.com:anthonyevans29/Sports-Predictor-exports.git \
-   SP_EXPORTS_MIRROR_KEY=~/.ssh/sp_exports_laptop python deploy/hosting/exports_mirror.py push --role laptop --label morning
+   SP_EXPORTS_MIRROR_REMOTE=git@github.com:anthonyevans29/Sports-Predictor-exports.git
+   SP_EXPORTS_MIRROR_ROLE=laptop
+   # SP_EXPORTS_MIRROR_KEY only if the key is NOT at ~/.ssh/sp_exports_deploy_key
    ```
+   and at the END of the morning chain:
+   ```
+   python deploy/hosting/exports_mirror.py push --role laptop --label morning
+   ```
+   An SSH remote whose key file does not exist is REFUSED with the path named (exit 2), never pushed
+   keyless. An HTTPS remote does not use the key.
 6. **Cockpit:** create a fine-grained token: repository access = only Sports-Predictor-exports,
    permission = Contents: Read-only. Paste it once into the Cockpit's mirror field. It is kept in
    that browser's localStorage, never in a file.

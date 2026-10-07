@@ -104,7 +104,7 @@ and `deploy/hosting/chains.py` (host). The laptop counterparts are
 | `sync-kalshi` (MLB) | 1 (`mlb-preslate`) + 1 per window run with MLB near/imminent + 1 per `freshen:MLB` (skipped on the host: `SP_SKIP_FAMILIES`) | operator chain (preslate, T-60 freshen) |
 | `sync-kalshi-nfl` | 1 (`nfl-lines`) + window + `freshen:NFL` | operator-driven |
 | `sync-kalshi-nhl` | 1 (`nhl-daily`, 16:00 UTC) + window | operator-driven |
-| `sync-kalshi-ncaa` | Thu/Fri/Sat 1 (`ncaa-market`) + window | operator-driven |
+| `sync-kalshi-ncaa` | Tue–Sat 1 (`ncaa-market`; Tue + Wed from 2026-10-07) + window | operator-driven |
 | `sync-kalshi-soccer` | Fri 1 + Sat 1 (`soccer-prematch`) + window + `freshen:SOCCER` | operator-driven |
 
 `sp-window` fires at :05 on hours 00-03 and 06-23 UTC (`sp-window.timer`).

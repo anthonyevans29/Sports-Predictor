@@ -1226,7 +1226,9 @@ def test_comparator_since_window_skips_settled_dated_files(tmp_path, capsys):
 def test_ncaa_market_covers_thursday_night_slates():
     cals, unit = _timers()["sp-ncaa-market.timer"]
     assert unit == "sp-chain@ncaa-market.service"
-    assert cals == ["Thu *-*-* 16:00:00 UTC", "Fri *-*-* 16:00:00 UTC", "Sat *-*-* 13:00:00 UTC"]
+    # Tue + Wed 16:00 (ARCHITECT 2026-10-07, addendum 2 item 8a): midweek FBS games get a host fixtures file
+    assert cals == ["Tue *-*-* 16:00:00 UTC", "Wed *-*-* 16:00:00 UTC", "Thu *-*-* 16:00:00 UTC",
+                    "Fri *-*-* 16:00:00 UTC", "Sat *-*-* 13:00:00 UTC"]
 
 
 def test_ncaa_market_syncs_results_before_the_export():

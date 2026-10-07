@@ -1,4 +1,4 @@
-## 2026-10-07 (#0000: soccer-expansion-v1 — ARCHITECT, gate-class declaration, NO run)
+## 2026-10-07 (#326: soccer-expansion-v1 — ARCHITECT, gate-class declaration, NO run)
 - soccer-expansion-v1 is DECLARED in the registry with its executable confirmation plan (#322). The spec is `docs/specs/soccer-expansion-v1.md` (the ruling verbatim, the operational definitions, findings F1–F4).
 - `soccer-expansion-gate [--preflight]`:
   - the one run, per league, on PD/SA/BL1/FL1/ELC, test seasons 2024/25 + 2025/26;

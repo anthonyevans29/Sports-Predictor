@@ -204,11 +204,13 @@ def report(payload, max_items: int = 3, sport: str | None = None) -> list[str]:
     # Codex on #340: a quoted price is a values[] OBJECT carrying both value and odd (what list_odds reads);
     # [null] / ["bad"] / [{}] are no market data
     quoted = usable_quotes(payload, sport)
-    if not cand and not quoted:
-        # Codex on #340: an empty odds response (no bookmaker / bet / value object) says nothing about the schema
-        lines.append("VERDICT (this payload): INCONCLUSIVE: no bookmaker / bet / value objects in this response "
-                     "(odds not published yet?), so nothing can be said about a quote-time field; probe a fixture "
-                     "with odds posted")
+    if not quoted:
+        # Codex on #340: a response with no usable quote says nothing about the schema, either way: a time-like
+        # field there (a fixture date, a response stamp) cannot be shown to belong to a quote
+        lines.append("VERDICT (this payload): INCONCLUSIVE: no usable bookmaker / bet / value quote in this response "
+                     "(odds not published yet?), so nothing can be said about a quote-time field"
+                     + (f" (time-like fields seen, unattributable: {', '.join(sorted(set(cand)))})" if cand else "")
+                     + "; probe a fixture with odds posted")
         return lines
     lines.append("VERDICT (this payload): " + (
         "a time-like field is present and dropped by the adapter: " + ", ".join(sorted(set(cand)))

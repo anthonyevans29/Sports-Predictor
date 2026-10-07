@@ -303,3 +303,11 @@ def test_scalar_response_containers_are_inconclusive_never_a_traceback():
                   {"response": [{"bookmakers": [{"name": "B", "bets": [{"name": "Home/Away", "values": 5}]}]}]}):
         assert P.usable_quotes(drift) == 0
         assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(drift))
+
+
+def test_a_time_field_without_a_usable_quote_is_inconclusive():
+    # Codex on #340: a fixture date in an odds-empty response is never evidence of a quote-time field
+    payload = {"response": [{"game": {"date": "2026-10-07"}, "bookmakers": []}]}
+    text = "\n".join(P.report(payload))
+    assert "VERDICT (this payload): INCONCLUSIVE" in text and "a time-like field is present" not in text
+    assert "unattributable: response[].game.date" in text

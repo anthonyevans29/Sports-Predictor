@@ -43,3 +43,4 @@
   - Copy identity includes the reference source and raw fair (distinct spread references stay apart). Non-string identity fields are refused.
   - Default export names accept underscore competition codes. Non-string ledger identity fields are refused.
   - A non-integer `match_id` is refused. Probe: upper-case `TS` keys are time-like; scalar containers are INCONCLUSIVE.
+  - Probe: no usable quote, no verdict either way (INCONCLUSIVE).

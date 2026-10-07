@@ -5552,12 +5552,15 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
 
 
 @cli.command("soccer-expansion-gate")
-@click.option("--preflight", is_flag=True, help="Stream receipts only (matches per league-season, the 2023/24 naive "
-                                                 "frequencies, stages, closing-odds coverage); scores nothing.")
+@click.option("--preflight", is_flag=True, help="Stream receipts only (matches per league-season, every stage / round "
+                                                 "label with its placement, the 2023/24 completeness and naive "
+                                                 "frequencies, closing-odds coverage); scores nothing.")
 def soccer_expansion_gate_cmd(preflight):
     """soccer-expansion-v1 (ARCHITECT 2026-10-07, GATE-CLASS): the PRODUCTION soccer model as shipped on PD, SA,
-    BL1, FL1, ELC, test seasons 2024/25 + 2025/26, each league gated on its own (log-loss <= its 2023/24 naive
-    − 0.010 + the intl-elo-v2 bands); a league that misses is DROPPED; PASS iff one survives. Refused before any
+    BL1, FL1, ELC, test seasons 2024/25 + 2025/26, each league gated on its own (log-loss < its 2023/24 naive
+    − 0.010, ties reject, + the intl-elo-v2 bands; regular-season rounds only, same-kickoff fixtures batched); a
+    league without a complete stored 2023/24 is dropped before the run; a league that misses is DROPPED; PASS iff
+    one survives. Refused before any
     data load unless the registry holds soccer-expansion-v1 declared and unrun. ONE run, recorded with its
     scored ids. Spec: docs/specs/soccer-expansion-v1.md."""
     from src.db.database import session_scope
@@ -5576,17 +5579,25 @@ def soccer_expansion_gate_cmd(preflight):
         click.echo(f"SOCCER-EXPANSION-V1 · PREFLIGHT (scores nothing) · test {' + '.join(sx.TEST_SEASONS)} · "
                    f"naive {sx.NAIVE_SEASON} · min_prior {sx.MIN_PRIOR}")
         for code, v in pf.items():
+            ok, why = v["baseline"]
             if not v["stored"]:
-                click.echo(f"  {code}: competition NOT STORED")
+                click.echo(f"  {code}: competition NOT STORED · DROPPED BEFORE THE RUN (F1: {why})")
                 continue
             nv = v["naive"]
             click.echo(f"  {code}: " + " · ".join(
                 f"{se} " + (", ".join(f"{k} {n}" for k, n in sorted(st.items())) or "0")
                 for se, st in v["seasons"].items()))
             click.echo(f"      naive {sx.NAIVE_SEASON}: " + (f"H {nv['H']:.4f} / D {nv['D']:.4f} / A {nv['A']:.4f} "
-                                                          f"(n {nv['n']})" if nv else "UNDEFINED (finding F1)")
-                       + f" · test stages: {v['stages'] or '—'} · test matches with {sx.CLOSE_BOOKMAKER}: "
-                       f"{v['close_matches']}")
+                                                          f"(n {nv['n']})" if nv else "none stored (regular-season, finished)")
+                       + f" · test matches with {sx.CLOSE_BOOKMAKER}: {v['close_matches']}")
+            click.echo(f"      baseline (F1): {why}" + ("" if ok else " · DROPPED BEFORE THE RUN"))
+            for se, census in v["stages"].items():           # F3: every label, its count, its placement
+                click.echo(f"      stages {se}: " + ("; ".join(
+                    f"{lab!r} {n} → {pl or 'UNPLACED (the run refuses)'}" for lab, n, pl in census) or "none stored"))
+        unpl = [f"{c} {se} {lab!r}" for c, v in pf.items() if v["stored"] for se, cen in v["stages"].items()
+                for lab, _n, pl in cen if pl is None]
+        click.echo("  F3 placement: " + (f"{len(unpl)} UNPLACED label(s), the run refuses: " + "; ".join(unpl) if unpl
+                                         else "every label placed (the architect confirms the placement before the run)"))
         click.echo("  open findings (the run refuses until ruled): " + ("; ".join(sx.OPEN_FINDINGS) or "none"))
         click.echo("PREFLIGHT only: nothing scored, nothing recorded.")
         return
@@ -5618,12 +5629,15 @@ def soccer_expansion_gate_cmd(preflight):
     except sx.ExpansionRefused as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
-    click.echo(f"  VERDICT (computed; the architect rules): {r['verdict']} · dropped: {', '.join(r['dropped']) or 'none'}")
+    click.echo(f"  VERDICT (computed; the architect rules): {r['verdict']} · dropped by the gate: "
+               f"{', '.join(r['dropped']) or 'none'} · dropped before the run (F1): "
+               f"{', '.join(r.get('dropped_before_run') or {}) or 'none'}")
     # Codex on #326: the band rows stay in the durable record (the calibration half of each league's verdict)
     per = {c: {**g, "bands": [{**b, "stated": round(b["stated"], 4), "realized": round(b["realized"], 4),
                                "gap": round(b["gap"], 4)} for b in g.get("bands") or []]}
            for c, g in r["per_league"].items()}
-    result = {"verdict": r["verdict"], "surviving": r["surviving"], "dropped": r["dropped"], "per_league": per,
+    result = {"verdict": r["verdict"], "surviving": r["surviving"], "dropped": r["dropped"],
+              "dropped_before_run": r.get("dropped_before_run") or {}, "per_league": per,
               "production_version": version, "rho": rho, "elo_goal_coeff": coeff, "min_prior": sx.MIN_PRIOR}
     e = reg.record_run(sx.EID, r["scored_ids"], result)
     click.echo(f"  recorded: {e['run']['n_scored']} scored ids · sha {e['run']['ids_sha256'][:12]}… · "

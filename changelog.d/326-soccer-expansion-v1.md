@@ -14,3 +14,9 @@
   - the run reserves the gate before its first read (an exclusive `docs/registry/soccer-expansion-v1.started.json`); an interrupted, failed or concurrent attempt is refused until ruled;
   - the run record keeps each league's calibration band rows;
   - F6 (a league with no gated calibration band passes the bands criterion vacuously) is an open finding for a ruling.
+- Rulings on F1–F5 (ARCHITECT 2026-10-07, addendum 3, item B; quoted verbatim in spec section 7a). F6 is not ruled, so the run still refuses:
+  - F1: a league without a complete stored 2023/24 regular season (a full double round-robin, every row finished with both scores) is dropped before the run, never read, and named with its reason (`dropped_before_run` in the verdict and the record). All five dropped refuses;
+  - F2: no change; per league-season from a cold start, min_prior 40, the two test seasons pooled per league;
+  - F3: only regular-season rounds are scored and walked, in the test seasons and the 2023/24 baseline. `placement()` maps `Match.stage` (api-football `league.round`, verbatim) to regular / playoff / unplaced. `--preflight` prints every label with its count and placement; an unplaced label refuses the run;
+  - F4: TIES REJECT. `crit_ll` is now `ll_model < ll_naive − 0.010`, unrounded, no tolerance;
+  - F5: `run_soccer_backtest` gains two opt-in arguments, both default off so every existing command reproduces its numbers: `stage_filter` and `batch_same_kickoff` (same-kickoff fixtures predicted from one pre-state). The gate passes both; `scoreable_count` mirrors the batched predicate.

@@ -4,7 +4,7 @@ The ruling, verbatim, and the operational definitions: docs/specs/soccer-expansi
 `soccer-expansion-v1` (docs/registry/experiments.json).
 
     soccer-expansion-gate --preflight   stream receipts only (matches per league-season, the 2023/24 naive
-                                        frequencies, stages, closing-odds coverage); scores NOTHING
+                                        frequencies, stage labels + placement, closing-odds coverage); scores NOTHING
     soccer-expansion-gate               the ONE run: refused unless the registry holds the experiment declared and
                                         unrun AND the spec's open findings are ruled; per-league lines, the
                                         surviving set, the scored-ids sidecar (registry.record_run)
@@ -14,8 +14,11 @@ The ruling, verbatim, and the operational definitions: docs/specs/soccer-expansi
 
 - CANDIDATE: the PRODUCTION soccer model exactly as shipped. Its params (dixon_coles_rho, elo_goal_coeff) are
   resolved at run time from the production model version; no refit, no per-league tuning. The walk is the existing
-  leakage-free harness, soccer_backtest.run_soccer_backtest, per league-season, at its default min_prior.
-- GATE, PER LEAGUE: log-loss <= naive − 0.010 on the same matches (the intl-elo comparison, crit_ll) AND the
+  leakage-free harness, soccer_backtest.run_soccer_backtest, per league-season from a cold start, at its default
+  min_prior, the two test seasons pooled per league (F2); regular-season rounds only (F3); fixtures sharing a kickoff
+  predicted before any of them updates the state (F5). A league without a complete stored 2023/24 season is dropped
+  before the run (F1).
+- GATE, PER LEAGUE: log-loss < naive − 0.010 on the same matches, unrounded, ties reject (F4; crit_ll) AND the
   intl-elo-v2 calibration bands (10pp bands, gated at n >= 100, ±5pp, three pairs per match:
   nhl_backtest.calibration_bands). RPS reported. Naive = that league's OWN H/D/A frequencies over its 2023/24
   season (frozen; never the test seasons).
@@ -30,6 +33,7 @@ from __future__ import annotations
 import json
 import math
 import os
+import re
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -54,14 +58,41 @@ SHADOW_NOTE = ("SHADOW — soccer-expansion-v1 (PD, SA, BL1, FL1, ELC). Until CO
 
 # Points the ruling leaves undefined are FINDINGS for a ruling, listed in the spec (section 7). The one run
 # REFUSES while any is open; a ruling closes them by editing this tuple and the spec in a reviewed PR.
+# F1-F5 RULED (ARCHITECT 2026-10-07, addendum 3, item B; spec section 7a). F6 is NOT ruled: the run still refuses.
 OPEN_FINDINGS = (
-    "F1 league without a stored 2023/24 season (naive undefined)",
-    "F2 promoted-club priors in the walk-forward",
-    "F3 relegation / promotion play-off rows inside a league-season",
-    "F4 the tie: 'log-loss <= naive - 0.010 (tie rejects)' at exact equality",
-    "F5 fixtures sharing a kickoff: the walk updates after each row, so a later same-kickoff row sees an earlier one's result",
     "F6 a league with no gated calibration band (every band < 100 observations) passes the bands criterion vacuously",
 )
+
+# F5 (ruled): for THIS gate the walk predicts every fixture sharing a kickoff timestamp before any of them updates
+# the state (run_soccer_backtest batch_same_kickoff; the harness default stays the row-by-row walk).
+BATCH_SAME_KICKOFF = True
+
+# F3 (ruled): only regular-season rounds are scored and walked, in the test seasons and in the 2023/24 baseline.
+# Match.stage stores api-football's fixture `league.round` verbatim (adapters/api_football.py), e.g.
+# "Regular Season - 14". A label the code cannot place refuses the run (never guessed); the architect confirms the
+# placement from --preflight before the run.
+REGULAR_ROUND = re.compile(r"Regular Season - \d+")                 # full match, case-sensitive, as stored
+PLAYOFF_ROUND = re.compile(r"\b(play-?offs?|play offs?|relegation|promotion|championship round|quarter-finals?"
+                           r"|semi-finals?|finals?)\b", re.IGNORECASE)
+
+
+def placement(label: str | None) -> str | None:
+    """A stored stage / round label -> "regular" | "playoff" | None (cannot place: the run refuses). Pure.
+    "regular" only for the exact api-football league-round form "Regular Season - <n>"; "playoff" only for a label
+    naming a play-off, relegation / promotion / championship round or a (quarter- / semi-) final; anything else,
+    NULL or empty included, is None."""
+    if not label:
+        return None
+    if REGULAR_ROUND.fullmatch(label):
+        return "regular"
+    if PLAYOFF_ROUND.search(label):
+        return "playoff"
+    return None
+
+
+def is_regular(label: str | None) -> bool:
+    """The walk's stage filter for this gate (run_soccer_backtest stage_filter)."""
+    return placement(label) == "regular"
 
 
 class ExpansionRefused(RuntimeError):
@@ -121,7 +152,8 @@ def naive_from(outcomes) -> dict | None:
 
 
 def league_gate(results: list[dict], naive: dict) -> dict:
-    """One league's gate over its scored test matches (soccer_backtest result rows). Pure."""
+    """One league's gate over its scored test matches (soccer_backtest result rows). Pure.
+    F4 (ruled, TIES REJECT): crit_ll iff ll_model < ll_naive - LL_MARGIN on unrounded values; equality fails."""
     from src.walters.evaluation import rps_1x2
     from src.walters.nhl_backtest import calibration_bands
 
@@ -135,7 +167,7 @@ def league_gate(results: list[dict], naive: dict) -> dict:
     rps_n = sum(rps_1x2(naive["H"], naive["D"], naive["A"], r["actual"]) for r in results) / n
     pairs = [(r[key[o]], int(r["actual"] == o)) for r in results for o in "HDA"]
     bands = calibration_bands(pairs)
-    crit_ll = (ll_n - ll_m) >= LL_MARGIN - 1e-12          # the intl-elo comparison, verbatim
+    crit_ll = ll_m < ll_n - LL_MARGIN                     # F4: strict, no tolerance; a tie rejects
     crit_bands = all(b["ok"] for b in bands if b["gated"])
     ok = crit_ll and crit_bands
     why = [w for w, good in (("log-loss margin", crit_ll), ("calibration", crit_bands)) if not good]
@@ -144,11 +176,18 @@ def league_gate(results: list[dict], naive: dict) -> dict:
             "survives": ok, "verdict": "PASS" if ok else "DROPPED — " + ", ".join(why)}
 
 
-def overall(per_league: dict) -> dict:
-    """PASS iff at least one league survives its own gate; the verdict names the surviving set. Pure."""
-    surv = [c for c in LEAGUES if (per_league.get(c) or {}).get("survives")]
-    return {"surviving": surv, "dropped": [c for c in LEAGUES if c not in surv],
-            "verdict": ("PASS — surviving set " + ", ".join(surv)) if surv else "FAIL — no league survives"}
+def overall(per_league: dict, dropped_before_run: dict | None = None) -> dict:
+    """PASS iff at least one league survives its own gate; the verdict names the surviving set. Pure.
+    `dropped` = leagues that ran and missed their own gate; `dropped_before_run` (F1) = code -> reason for leagues
+    with no complete stored 2023/24 baseline, never read, never a FAIL, named separately in the verdict text."""
+    pre = dict(dropped_before_run or {})
+    surv = [c for c in LEAGUES if c not in pre and (per_league.get(c) or {}).get("survives")]
+    verdict = ("PASS — surviving set " + ", ".join(surv)) if surv else "FAIL — no league survives"
+    if pre:
+        verdict += (f" · dropped before the run (no complete stored {NAIVE_SEASON} baseline; not gated): "
+                    + "; ".join(f"{c} ({pre[c]})" for c in LEAGUES if c in pre))
+    return {"surviving": surv, "dropped": [c for c in LEAGUES if c not in surv and c not in pre],
+            "dropped_before_run": pre, "verdict": verdict}
 
 
 def market_side(results: list[dict], closes: dict[int, dict]) -> dict | None:
@@ -221,8 +260,61 @@ def _outcome(m) -> str | None:
     return "H" if m.home_score > m.away_score else "A" if m.home_score < m.away_score else "D"
 
 
+def _season_rows(s, code: str, season: str, *cols):
+    """(competition stored?, rows) for a league-season, STALE_ORPHAN rows excluded (never a fixture, ARCHITECT
+    2026-10-03). Only the requested columns are selected."""
+    from sqlalchemy import select
+    from src.db.schema import Match, MatchStatus
+    c = _comp(s, code)
+    if c is None:
+        return False, []
+    return True, s.execute(select(*cols).where(Match.competition_id == c.id, Match.season == season,
+                                               Match.status != MatchStatus.STALE_ORPHAN)).all()
+
+
+def stage_census(s, code: str, season: str) -> list[tuple[str | None, int, str | None]]:
+    """F3: every distinct stored stage / round label of a league-season (STALE_ORPHAN excluded) with its count and
+    its placement, sorted by label. Labels and counts only: no score or outcome is read."""
+    from src.db.schema import Match
+    _, rows = _season_rows(s, code, season, Match.stage)
+    cnt = Counter(r.stage for r in rows)
+    return [(lab, n, placement(lab)) for lab, n in sorted(cnt.items(), key=lambda kv: (kv[0] is None, kv[0] or ""))]
+
+
+def unplaced(s) -> list[str]:
+    """F3: every label of the five leagues' 2023/24 and test seasons the code cannot place. Any one refuses the run."""
+    return [f"{c} {se} {lab!r} ({n})" for c in LEAGUES for se in (NAIVE_SEASON, *TEST_SEASONS)
+            for lab, n, pl in stage_census(s, c, se) if pl is None]
+
+
+def baseline_complete(s, code: str) -> tuple[bool, str]:
+    """F1: is the league's 2023/24 season COMPLETELY stored? Operational definition (a reading, spec section 7a):
+    over the season's stored regular-season rows (STALE_ORPHAN excluded), at least one exists, every one is
+    FINISHED with both scores, and they form a full double round-robin: T distinct clubs, exactly T*(T-1) rows,
+    every ordered (home, away) pair once. Returns (complete, reason). Whether a score is stored is checked; no
+    score or outcome is read."""
+    from src.db.schema import Match, MatchStatus
+    stored, rows = _season_rows(s, code, NAIVE_SEASON, Match.stage, Match.status, Match.home_team_id,
+                                Match.away_team_id, Match.home_score.isnot(None).label("hs"),
+                                Match.away_score.isnot(None).label("as_"))
+    if not stored:
+        return False, "competition not stored"
+    reg = [r for r in rows if is_regular(r.stage)]
+    if not reg:
+        return False, f"no regular-season row stored for {NAIVE_SEASON}"
+    teams = {r.home_team_id for r in reg} | {r.away_team_id for r in reg}
+    t, n = len(teams), len(reg)
+    unfinished = sum(1 for r in reg if r.status != MatchStatus.FINISHED or not (r.hs and r.as_))
+    pairs = len({(r.home_team_id, r.away_team_id) for r in reg})
+    if unfinished or n != t * (t - 1) or pairs != n:
+        return False, (f"{NAIVE_SEASON} incomplete: {n} regular-season rows, {t} clubs (a double round-robin is "
+                       f"{t * (t - 1)}), {pairs} distinct home/away pairs, {unfinished} not finished with both scores")
+    return True, f"{NAIVE_SEASON} complete: {n} regular-season rows, {t} clubs, all finished with both scores"
+
+
 def naive_for(s, code: str) -> dict | None:
-    """That league's own 2023/24 H/D/A frequencies (finished, scored). None = not stored (finding F1)."""
+    """That league's own 2023/24 H/D/A frequencies over its REGULAR-SEASON rows (F3), finished and scored. None =
+    nothing stored. The run only uses it for a league whose 2023/24 is complete (F1)."""
     from sqlalchemy import select
     from src.db.schema import Match, MatchStatus
     c = _comp(s, code)
@@ -230,66 +322,75 @@ def naive_for(s, code: str) -> dict | None:
         return None
     ms = s.execute(select(Match).where(Match.competition_id == c.id, Match.season == NAIVE_SEASON,
                                        Match.status == MatchStatus.FINISHED)).scalars()
-    return naive_from([o for o in (_outcome(m) for m in ms) if o])
+    return naive_from([o for o in (_outcome(m) for m in ms if is_regular(m.stage)) if o])
 
 
-def finished_count(s, code: str, season: str) -> int:
-    """Finished matches with both scores stored for a league-season (a count; no outcome is read)."""
-    from sqlalchemy import func, select
-    from src.db.schema import Match, MatchStatus
-    c = _comp(s, code)
-    if c is None:
-        return 0
-    return s.execute(select(func.count(Match.id)).where(
-        Match.competition_id == c.id, Match.season == season, Match.status == MatchStatus.FINISHED,
-        Match.home_score.isnot(None), Match.away_score.isnot(None))).scalar() or 0
-
-
-def scoreable_count(s, code: str, season: str, min_prior: int = MIN_PRIOR) -> int:
-    """How many matches the walk WOULD score for a league-season, from fixture order and team ids only (Codex on
-    #326). It mirrors run_soccer_backtest's predicate: the same finished-with-both-scores rows sorted by kickoff,
-    and a row is scored once >= min_prior rows precede it and both its teams appear among them. Whether a score is
-    stored is checked; no score or outcome is read."""
+def _walk_rows(s, code: str, season: str):
+    """The rows the gate's walk reads, from fixture order and team ids only: FINISHED, both scores stored, a
+    kickoff, regular-season (F3). Sorted by kickoff exactly as the walk sorts them. No score is read."""
     from sqlalchemy import select
     from src.db.schema import Match, MatchStatus
     c = _comp(s, code)
     if c is None:
-        return 0
-    rows = s.execute(select(Match.id, Match.utc_date, Match.home_team_id, Match.away_team_id).where(
+        return []
+    rows = s.execute(select(Match.id, Match.utc_date, Match.stage, Match.home_team_id, Match.away_team_id).where(
         Match.competition_id == c.id, Match.season == season, Match.status == MatchStatus.FINISHED,
         Match.home_score.isnot(None), Match.away_score.isnot(None), Match.utc_date.isnot(None))).all()
+    rows = [r for r in rows if is_regular(r.stage)]
     rows.sort(key=lambda r: r.utc_date)
-    seen, n = set(), 0
-    for i, r in enumerate(rows):
-        if i >= min_prior and r.home_team_id in seen and r.away_team_id in seen:
-            n += 1
-        seen.update((r.home_team_id, r.away_team_id))
+    return rows
+
+
+def finished_count(s, code: str, season: str) -> int:
+    """Regular-season (F3) finished matches with both scores stored for a league-season (a count; no outcome is
+    read)."""
+    return len(_walk_rows(s, code, season))
+
+
+def scoreable_count(s, code: str, season: str, min_prior: int = MIN_PRIOR,
+                    batch_same_kickoff: bool = BATCH_SAME_KICKOFF) -> int:
+    """How many matches the gate's walk WOULD score for a league-season, from fixture order and team ids only (Codex
+    on #326). It mirrors run_soccer_backtest's predicate on the same rows (finished, both scores, regular-season,
+    sorted by kickoff): row-by-row, a row is scored once >= min_prior rows precede it and both its teams appear
+    among them; batched (F5, the gate's mode), "precede" means a strictly earlier kickoff. No score is read."""
+    rows = _walk_rows(s, code, season)
+    seen, n, i = set(), 0, 0
+    while i < len(rows):
+        j = i + 1
+        if batch_same_kickoff:
+            while j < len(rows) and rows[j].utc_date == rows[i].utc_date:
+                j += 1
+        for r in rows[i:j]:
+            if i >= min_prior and r.home_team_id in seen and r.away_team_id in seen:
+                n += 1
+        for r in rows[i:j]:
+            seen.update((r.home_team_id, r.away_team_id))
+        i = j
     return n
 
 
 def preflight(s) -> dict:
-    """Stream receipts, scoring NOTHING: per league, stored matches per season and status, the stages present in
-    the test seasons (finding F3), the 2023/24 naive frequencies, and closing-odds coverage on the test seasons.
-    Counts only: no test-season OUTCOME is read."""
+    """Stream receipts, scoring NOTHING: per league, stored matches per season and status, every stage / round label
+    per league-season with its count and placement (F3), the 2023/24 completeness verdict (F1), the 2023/24 naive
+    frequencies, and closing-odds coverage on the test seasons. Counts only: no test-season OUTCOME is read."""
     from sqlalchemy import func, select
     from src.db.schema import Match, Odds
     out = {}
     for code in LEAGUES:
         c = _comp(s, code)
         if c is None:
-            out[code] = {"stored": False}
+            out[code] = {"stored": False, "baseline": (False, "competition not stored")}
             continue
         seasons = {}
         for season in (NAIVE_SEASON, *TEST_SEASONS, CURRENT_SEASON):
             rows = s.execute(select(Match.status, func.count()).where(
                 Match.competition_id == c.id, Match.season == season).group_by(Match.status)).all()
             seasons[season] = {getattr(st, "value", str(st)): n for st, n in rows}
-        stages = dict(s.execute(select(Match.stage, func.count()).where(
-            Match.competition_id == c.id, Match.season.in_(TEST_SEASONS)).group_by(Match.stage)).all())
+        stages = {se: stage_census(s, code, se) for se in (NAIVE_SEASON, *TEST_SEASONS)}
         test_ids = select(Match.id).where(Match.competition_id == c.id, Match.season.in_(TEST_SEASONS))
         closes = s.execute(select(func.count(func.distinct(Odds.match_id))).where(
             Odds.match_id.in_(test_ids), Odds.bookmaker == CLOSE_BOOKMAKER, Odds.market == "1X2")).scalar()
-        out[code] = {"stored": True, "seasons": seasons, "stages": {str(k): v for k, v in stages.items()},
+        out[code] = {"stored": True, "seasons": seasons, "stages": stages, "baseline": baseline_complete(s, code),
                      "naive": naive_for(s, code), "close_matches": closes}
     return out
 
@@ -307,33 +408,48 @@ def _closes(s, ids) -> dict[int, dict]:
 
 
 def run(rho: float, coeff: float, progress=None, meta: dict | None = None) -> dict:
-    """The ONE run's computation (the CLI records it). Refuses while any spec finding is open, or a league's
-    2023/24 naive is undefined. After those pre-checks and before the first read it reserves the gate."""
+    """The ONE run's computation (the CLI records it). Every pre-check runs BEFORE the reservation and before any
+    test-season read, so a refusal never follows a read: open findings; any stage / round label the code cannot
+    place (F3); the F1 pre-run drops (a league without a complete stored 2023/24 is dropped, never read; all five
+    dropped refuses: nothing to test); a kept league's test season the walk would score nothing in. Then it
+    reserves the gate and walks the kept leagues (regular-season rows only, same-kickoff fixtures batched)."""
     if OPEN_FINDINGS:
         raise ExpansionRefused("open findings need a ruling before the run: " + "; ".join(OPEN_FINDINGS))
     from src.db.database import session_scope
     from src.walters.soccer_backtest import run_soccer_backtest
 
     with session_scope() as s:
-        naives = {c: naive_for(s, c) for c in LEAGUES}
+        bad = unplaced(s)
+        base = {c: baseline_complete(s, c) for c in LEAGUES}
+        pre = {c: why for c, (ok, why) in base.items() if not ok}
+        kept = [c for c in LEAGUES if c not in pre]
+        naives = {c: naive_for(s, c) for c in kept}
         # Codex on #326: a season the walk would score nothing in is refused here, before any read. The predicate
-        # is the walk's own (>= MIN_PRIOR prior rows AND both teams among them), from fixture order and team ids
-        empty = [f"{c} {se} ({finished_count(s, c, se)} finished, 0 scoreable at min_prior {MIN_PRIOR})"
-                 for c in LEAGUES for se in TEST_SEASONS if scoreable_count(s, c, se) == 0]
+        # is the walk's own (>= MIN_PRIOR earlier rows AND both teams among them), from fixture order and team ids
+        empty = [f"{c} {se} ({finished_count(s, c, se)} finished regular-season, 0 scoreable at min_prior "
+                 f"{MIN_PRIOR})" for c in kept for se in TEST_SEASONS if scoreable_count(s, c, se) == 0]
         s.rollback()
+    if bad:                          # F3: never guessed
+        raise ExpansionRefused("stage / round labels the code cannot place (F3; run --preflight, the architect "
+                               "confirms placement): " + "; ".join(bad))
+    if not kept:
+        raise ExpansionRefused(f"every league is dropped before the run (no complete stored {NAIVE_SEASON}, F1): "
+                               + "; ".join(f"{c} ({pre[c]})" for c in LEAGUES) + " — nothing to test")
     if empty:                        # checked BEFORE any league is scored: a refusal never follows a read
         raise ExpansionRefused(f"too few finished matches stored for {', '.join(empty)} (or the season string differs "
                                "from the stored one): run --preflight; missing data is never a silent DROP")
-    missing = [c for c, v in naives.items() if v is None]
-    if missing:
-        raise ExpansionRefused(f"no stored {NAIVE_SEASON} for {', '.join(missing)}: naive undefined (finding F1)")
-    reserve({"rho": rho, "elo_goal_coeff": coeff, **(meta or {})})     # from here on, the one read is spent
+    missing = [c for c in kept if naives[c] is None]
+    if missing:                      # unreachable for a complete season; kept as a law-4 guard, still pre-read
+        raise ExpansionRefused(f"no stored {NAIVE_SEASON} outcomes for {', '.join(missing)}: naive undefined")
+    reserve({"rho": rho, "elo_goal_coeff": coeff, "dropped_before_run": pre, **(meta or {})})
+    # from here on, the one read is spent
     per, scored = {}, []
-    for code in LEAGUES:
+    for code in kept:
         res = []
         for season in TEST_SEASONS:
             got = run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=rho, elo_goal_coeff=coeff,
-                                      sealed_read=True) or []
+                                      sealed_read=True, stage_filter=is_regular,
+                                      batch_same_kickoff=BATCH_SAME_KICKOFF) or []
             if not got:              # law 4: missing data is never a silent DROP
                 raise ExpansionRefused(f"{code} {season}: no scored matches (not stored, or season string differs "
                                        "from the stored one); run --preflight")
@@ -347,7 +463,7 @@ def run(rho: float, coeff: float, progress=None, meta: dict | None = None) -> di
         scored += [r["match_id"] for r in res]
         if progress:
             progress(code, g)
-    return {"per_league": per, **overall(per), "scored_ids": scored}
+    return {"per_league": per, **overall(per, pre), "scored_ids": scored}
 
 
 # ------------------------------------------------------------- shadow --

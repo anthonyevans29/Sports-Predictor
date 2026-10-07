@@ -31,29 +31,38 @@ Also ruled the same day:
 - **Model:** the production soccer model version, resolved at run time by the same helper `soccer-backtest` uses
   (`_soccer_prod_poisson`: production `dixon_coles_rho` and `elo_goal_coeff` from the stored model parameters).
   The run refuses if no production model resolves; nothing is faked.
-- **Walk:** `soccer_backtest.run_soccer_backtest(code, season, min_prior=40, dixon_coles_rho, elo_goal_coeff)`, once
-  per league-season. This is the existing leakage-free walk: matches in date order, each predicted from earlier
-  matches only, Elo updated after each. 40 is the harness default (`soccer-backtest --min-prior`).
+- **Walk:** `soccer_backtest.run_soccer_backtest(code, season, min_prior=40, dixon_coles_rho, elo_goal_coeff,
+  stage_filter=is_regular, batch_same_kickoff=True)`, once per league-season. This is the existing leakage-free walk:
+  matches in date order, each predicted from earlier matches only. 40 is the harness default
+  (`soccer-backtest --min-prior`). Ruled 2026-10-07 (section 7a): each league-season from a cold start, the two
+  test seasons pooled per league (F2); regular-season rows only (F3); fixtures sharing a kickoff predicted before
+  any of them updates Elo or the prior (F5). Both arguments are opt-in and default off, so every other caller
+  of the walk is unchanged.
 - **Leagues:** PD, SA, BL1, FL1, ELC (api-football league ids 140, 135, 78, 61, 40).
 
 ## 3. Test set and naive baseline
 
-- **Test set:** seasons 2024/25 and 2025/26 of each league, the season strings as the DB stores club seasons. The run
-  refuses, **before scoring anything**, if any league-season has no stored finished match. Missing data is never a
-  silent DROP (law 4).
-- **Naive:** per league, the H/D/A frequencies of its finished, scored 2023/24 matches. It is frozen and never
-  computed from a test season. On each test match, naive log-loss = −ln(freq[actual]).
+- **Test set:** the regular-season rows (F3) of seasons 2024/25 and 2025/26 of each league, the season strings as
+  the DB stores club seasons. The run refuses, **before scoring anything**, if a kept league's test season would
+  score nothing. Missing data is never a silent DROP (law 4).
+- **Naive:** per league, the H/D/A frequencies of its finished, scored 2023/24 regular-season matches (F3). It is
+  frozen and never computed from a test season. On each test match, naive log-loss = −ln(freq[actual]).
+- **No complete stored 2023/24 (F1):** the league is DROPPED from the candidate before the run, never read, named
+  with the reason. It is not a FAIL (section 7a).
 
 ## 4. Gate (per league) and verdict
 
-- **crit_ll:** `naive_ll − model_ll >= 0.010`, the intl-elo comparison verbatim (`intl_elo.run`). The tie is
-  finding F4.
+- **crit_ll (F4, ruled: TIES REJECT):** `model_ll < naive_ll − 0.010` on unrounded values, no tolerance; equality
+  fails.
 - **crit_bands:** the intl-elo-v2 calibration bands, `nhl_backtest.calibration_bands`:
   - 10pp bands, gated at n >= 100, ±5pp;
   - three (p, y) pairs per match: H, D, A.
 - **Reported only:** RPS for model and naive.
 - **A league survives** iff crit_ll AND crit_bands. A league that misses is DROPPED.
 - **Verdict:** `PASS — surviving set <codes>` iff at least one league survives, else `FAIL — no league survives`.
+  A league dropped before the run (F1) is named apart:
+  `· dropped before the run (no complete stored 2023/24 baseline; not gated): <code> (<reason>)`.
+  The record carries `dropped` (the gate's drops) and `dropped_before_run` (code -> reason) separately.
   The verdict is computed; the architect rules.
 - **Reported beside the gate, never gated:** the same scored matches against stored closing odds (bookmaker
   `fdcuk_close` from `soccer-odds-history`, proportionally de-vigged), where held:
@@ -87,47 +96,90 @@ Also ruled the same day:
 - `soccer-expansion-shadow-grade` (read-only) compares the shadow's top pick to the three-way book close (the #207
   close contract), per league.
 
-## 7. FINDINGS for a ruling (the ruling leaves these undefined; nothing is chosen)
+## 7. FINDINGS (F1–F5 ruled 2026-10-07, section 7a; F6 OPEN)
 
-The one run REFUSES while any of these is open (`soccer_expansion.OPEN_FINDINGS`). A ruling closes them by editing
-that tuple and this section in a reviewed PR.
+The one run REFUSES while any finding is open (`soccer_expansion.OPEN_FINDINGS`). **F6 is not ruled, so the run
+still refuses.** A ruling closes it by editing that tuple and this section in a reviewed PR.
 
-- **F1 — a league without a stored 2023/24 season.** Its naive is undefined. The run refuses; `--preflight` shows
-  which league.
-- **F2 — promoted-club priors in the walk-forward.**
-  - The existing harness walks each league-season on its own: fresh Elo, and strengths from that season's earlier
-    matches only.
-  - So no club carries anything across seasons, promoted or not, and the first 40 matches of each season are
-    unscored.
-  - Whether "the existing leakage-free walk-forward" means exactly this per-season walk, or a cross-season walk
-    with a promoted-club prior, is for a ruling.
-- **F3 — relegation / promotion play-off rows inside a league-season.** These are stored under the league with a
-  non-regular `stage`, for example the ELC play-offs, or BL1/FL1 relegation play-offs where the provider files
-  them under the league.
-  - Whether they are scored, or excluded and counted, is for a ruling.
-  - `--preflight` prints the test seasons' stages.
-- **F4 — the tie.** The ruling says "log-loss <= naive − 0.010 (tie rejects)".
-  - At exact equality, `<=` passes but "tie rejects" fails.
-  - The code carries the intl-elo comparison (equality passes) until ruled.
-- **F5 — fixtures sharing a kickoff** (Codex on #326).
-  - The harness walk predicts a row, then adds that row's result to Elo and the prior before the next row.
-  - Fixtures with the same kickoff (common on final matchdays) are therefore scored with a same-kickoff result
-    already in the walk, which was not knowable at kickoff.
-  - Every soccer verdict so far used this walk. Whether this gate batches equal-kickoff fixtures (all predicted
-    before any of their results update the walk), and whether the harness changes for every caller, is for a
-    ruling. The code is unchanged until then.
-
-- **F6 — a league with no gated calibration band** (Codex on #326).
+- **F1 — a league without a stored 2023/24 season.** RULED (7a): dropped before the run.
+- **F2 — promoted-club priors in the walk-forward.** RULED (7a): the per-season cold-start walk, no cross-season
+  prior.
+- **F3 — relegation / promotion play-off rows inside a league-season.** RULED (7a): regular-season rounds only.
+- **F4 — the tie.** RULED (7a): TIES REJECT.
+- **F5 — fixtures sharing a kickoff** (Codex on #326). RULED (7a): batched for this gate, opt-in, default off.
+- **F6 — a league with no gated calibration band** (Codex on #326). **OPEN, not ruled.**
   - The bands criterion is the intl-elo-v2 one verbatim: every band with >= 100 observations is within ±5pp, so a
     league where no band reaches 100 passes it vacuously and is gated on log-loss alone.
   - The same rule stands in the intl-elo-v2, NHL and NCAA gates. Whether this gate treats an empty gated-band set as
     a pass, a DROP, or a refusal (and with what pre-read threshold) is for a ruling. The code is unchanged.
 
-Before any league is scored, the run also refuses a test season the walk would score nothing in (Codex on #326).
-It checks the walk's own predicate from fixture order and team ids only: a row is scored once at least min_prior
-rows precede it and both its teams appear among them (`soccer_expansion.scoreable_count`; no score is read).
+## 7a. Rulings on F1–F5 (ARCHITECT 2026-10-07, addendum 3, item B, verbatim)
 
-The one run RESERVES the gate (Codex on #326). After those pre-checks and before the first test-season read, it
+> "F1: a league without a complete stored 2023/24 season has no baseline and is DROPPED from the candidate before the run, named with that reason. Not a FAIL; it may be declared later on its own. F2: yes. The gate uses the harness as every PL verdict has: each league-season walked on its own from a cold start, min_prior 40, the two test seasons pooled per league. No cross-season prior is added; that would be a different instrument and a different experiment. F3: only regular-season rounds are scored and walked. Play-off rows (relegation, promotion or championship rounds stored inside a league-season) are excluded from the test seasons and from the 2023/24 baseline. The preflight prints every distinct stage / round label per league-season with its count and placement; a label the code cannot place refuses the run, never guessed; the architect confirms the placement from the preflight before the run. F4: TIES REJECT. PASS iff log-loss < naive - 0.010 on unrounded values; equality fails. The confirmation's second criterion is already strict. Recorded as a finding, no run record touched: intl-elo's gate text says 'tie rejects' while its code passes equality; immaterial to its verdict (0.7889 against 1.0424). F5: for THIS gate the walk predicts every fixture sharing a kickoff timestamp before any of them updates the state. An opt-in argument of run_soccer_backtest, default off, so every existing command reproduces its recorded numbers. This gate is an absolute test against a baseline that cannot see same-kickoff results, so the model must not either. No past verdict is reopened: each compared two arms on the same walk."
+
+It rules F1–F5 only. F6 is not ruled and stays in `OPEN_FINDINGS`: the run still refuses.
+
+### Built
+
+- **F1:** before the run, `baseline_complete` judges each league's 2023/24. A league without a complete stored
+  season is dropped from the candidate (no test-season read for it) and named with its reason in the verdict, the
+  record (`dropped_before_run`) and the reservation file. `--preflight` prints the judgement per league.
+- **F2:** no code change. The walk is per league-season from a cold start (fresh Elo, strengths from that season's
+  earlier rows), min_prior 40, the two test seasons pooled per league. This was already the behaviour.
+- **F3:** `placement(label)` (pure) maps a stored stage label to `regular`, `playoff` or None (cannot place).
+  - `Match.stage` stores api-football's fixture `league.round` verbatim (`adapters/api_football.py`; the soccer
+    default adapter). `Match.matchday` is the integer parsed from it, and is not used here.
+  - `regular`: exactly `Regular Season - <n>` (full match, case-sensitive).
+  - `playoff`: a label naming a play-off, relegation, promotion or championship round, or a (quarter-, semi-)
+    final.
+  - Anything else, NULL and empty included: None.
+  - `--preflight` prints every distinct label per league-season (2023/24 and both test seasons) with its count and
+    placement. Any unplaced label refuses the run, before the reservation. **The architect confirms the placement
+    from the preflight before the run.**
+  - The walk takes `stage_filter=is_regular` (an opt-in argument of `run_soccer_backtest`, default None = every
+    row): play-off rows are neither scored nor walked. `naive_for`, `finished_count` and `scoreable_count` apply
+    the same filter.
+- **F4:** `crit_ll = ll_model < ll_naive − 0.010`, unrounded, no tolerance. Equality fails (pinned by a test at
+  exact equality). intl-elo's own code is untouched (finding below).
+- **F5:** `run_soccer_backtest(batch_same_kickoff=True)`, opt-in, default False. Every fixture sharing an identical
+  kickoff timestamp is predicted from the same state before any of them updates Elo or the prior. The default walk
+  is byte-identical to the pre-change walk (pinned by a test). `scoreable_count` mirrors the batched predicate: a row
+  scores iff at least min_prior rows have a strictly earlier kickoff and both its clubs are among them.
+
+### Readings chosen where the ruling is silent (for the architect)
+
+1. **"Complete stored season" (F1):** over the league's stored 2023/24 regular-season rows (STALE_ORPHAN rows
+   excluded: never a fixture, ruling 2026-10-03), at least one exists, every one is FINISHED with both scores, and
+   they form a full double round-robin: T distinct clubs, exactly T×(T−1) rows, each ordered home/away pair once.
+   This is derived from what the DB stores, with no per-league constant. A partly synced season, a duplicate row or a
+   postponed / cancelled fixture makes it incomplete, so the league is dropped and named with the counts.
+2. **All five dropped before the run:** the run refuses ("nothing to test"), before the reservation. It does not
+   record a FAIL.
+3. **Placement vocabulary (F3):** only the exact api-football league-round form is regular. The play-off keywords
+   are listed in `PLAYOFF_ROUND` (play-off, relegation, promotion, championship round, quarter- / semi- / final). Everything else is unplaced and refuses, NULL included. No label was enumerated
+   from the production DB here (none exists in this environment): the preflight is the enumeration, and the
+   architect confirms it before the run.
+4. **Census scope (F3):** the unplaced-label refusal covers every stored row (any status but STALE_ORPHAN) of all five
+   leagues' 2023/24 and both test seasons, including a league that F1 then drops. The completeness judgement
+   needs every 2023/24 label placed; for the test seasons this is simply the more conservative choice.
+5. **Batch key (F5):** "the same kickoff" = an identical stored `utc_date` (to the second). Within a batch, the Elo
+   updates apply in the walk's sort order after every prediction of the batch.
+6. **The shadow** (`export-soccer-expansion-shadow`) is not the gate. It keeps its existing walk (no stage filter,
+   no batching).
+
+### Ledger finding (no run record touched)
+
+intl-elo's gate text says "tie rejects" while its code passes equality (`intl_elo.py`,
+`(ll_naive - ll_model) >= LL_MARGIN - 1e-12`). This is immaterial to its verdict (0.7889 against 1.0424). It is
+recorded as a finding only: no code and no registry run record is touched.
+
+Before any league is scored, the run also refuses a test season the walk would score nothing in (Codex on #326).
+It checks the walk's own predicate from fixture order and team ids only, on the regular-season rows: a row is
+scored once at least min_prior rows have a strictly earlier kickoff and both its teams appear among them (F5
+batched; `soccer_expansion.scoreable_count`; no score is read).
+
+The one run RESERVES the gate (Codex on #326). After every pre-check (open findings, unplaced labels, the F1
+pre-run drops, the scoreable check) and before the first test-season read, it
 creates `docs/registry/soccer-expansion-v1.started.json` exclusively. A second, concurrent, interrupted or failed
 attempt is refused while that file exists without a recorded run: the read is spent, recorded or not, and nothing
 reruns without an architect ruling. The run record keeps each league's calibration band rows.
@@ -161,6 +213,7 @@ Ruled from the operator's kalshi-probe receipt of 2026-10-07 (131 series matched
 
 ```
 python cli.py soccer-expansion-gate --preflight     # receipts only: scores nothing, records nothing
-# after F1-F6 are ruled (a PR closes OPEN_FINDINGS):
+# F1-F5 ruled 2026-10-07; after F6 is ruled (a PR closes OPEN_FINDINGS) and the architect confirms the F3
+# placement from the preflight:
 python cli.py soccer-expansion-gate                 # the ONE run; commit docs/registry/ (incl. the .started.json) in a PR
 ```

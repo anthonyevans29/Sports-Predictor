@@ -24,8 +24,9 @@ export-unl-predictions stays the shadow, unchanged."
   computed_at), as the K-track rule requires of every model sport." One history row per exported fixture, through
   the shared append path (src/db/database.py append_prediction_history), computed_at = the export's `now`. The
   file is written inside the history transaction, so a failed write leaves no history. Before
-  migrate_prediction_history.py the history is skipped with a warning, as on every predict path (the count is in
-  the file: prediction_history_appended).
+  migrate_prediction_history.py the export REFUSES and writes nothing (Codex on #325: with no Prediction row, a
+  file without history rows would be calls with no grading record); an append count different from the fixture
+  count also refuses, rolled back, no file (the count is in the file: prediction_history_appended).
 - GRADING (same ruling): "INTL calls are graded on the 90-MINUTE result, never on a score that includes extra time
   or penalties." `export-intl-results` (results() below) grades every production call on record (the last
   prediction_history row of this model version computed before kickoff) on intl_shadow.result_90 ONLY; a finished
@@ -113,17 +114,27 @@ def export(now: datetime | None = None, hours: int | None = None, out_dir: str =
            desk: bool | None = None) -> tuple[str, dict]:
     from src.walters import desk_policy as dp
 
-    from src.db.database import append_prediction_history, session_scope
+    from src.db.database import append_prediction_history, has_prediction_history, session_scope
 
     b = build(now, hours)
     now = b["now"]
     doc = {"sport": SPORT, "engine": ENGINE, "model_version": MODEL_VERSION, "production_allowed": b["why"],
            "exported_at": now.isoformat(), "count": len(b["rows"]), "fit": b["fit"], "predictions": b["rows"]}
     dp.maybe_annotate(doc, desk)
-    Path(out_dir).mkdir(parents=True, exist_ok=True)
-    path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
     with session_scope() as s:                 # history + file together: a failed write rolls the history back
-        doc["prediction_history_appended"] = append_prediction_history(s.connection(), history_rows(doc, now))
+        # Codex on #325: this path writes no Prediction row, so the history IS the durable grading record
+        # (export-intl-results reads only prediction_history). No history, no actionable file.
+        if not has_prediction_history(s.connection()):
+            raise IntlRefused("prediction_history is missing (run migrate_prediction_history.py): an INTL "
+                              "production file without its history rows could never be graded; nothing written")
+        rows = history_rows(doc, now)
+        n = append_prediction_history(s.connection(), rows)
+        if n != len(rows) or n != len(doc["predictions"]):
+            raise IntlRefused(f"prediction_history appended {n} row(s) for {len(doc['predictions'])} fixture(s): "
+                              "rolled back; nothing written")
+        doc["prediction_history_appended"] = n
+        Path(out_dir).mkdir(parents=True, exist_ok=True)
+        path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
         with open(path, "w") as f:
             json.dump(doc, f, indent=2, default=str)
     return path, doc

@@ -131,6 +131,55 @@ def test_every_export_appends_history_and_writes_no_prediction(world, monkeypatc
     assert len(list(tmp_path.glob("intl_predictions_*.json"))) == 2
 
 
+def _one_row_export(world, monkeypatch, at):
+    from src.walters import intl_shadow as us
+    ids, (home, away) = world
+    monkeypatch.setattr(ip, "allowed", lambda: (True, "confirmation CONFIRMED"))
+    sh = {"match_id": ids["next"], "utc_date": "2098-05-28T19:00:00", "home_team": home, "away_team": away,
+          "engine": "model_shadow", "gate_verdict": "x", "model_version": "intl_elo_v2", "market": None,
+          "prediction": {"home_win_prob": .45, "draw_prob": .3, "away_win_prob": .25, "top_pick": "home_win",
+                         "top_pick_prob": .45, "neutral_v3": False}}
+    monkeypatch.setattr(us, "build_rows", lambda now, hours: {"rows": [sh], "fit": {}, "now": at})
+    return ids["next"]
+
+
+def _history_count(mid):
+    with session_scope() as s:
+        return s.execute(select(func.count(PredictionHistory.id)).where(PredictionHistory.match_id == mid)).scalar()
+
+
+def test_export_refuses_without_the_history_table_and_writes_nothing(world, monkeypatch, tmp_path):
+    """Codex on #325: no Prediction row is written, so without prediction_history an exported call could never be
+    graded (export-intl-results reads only the history): REFUSED before any file."""
+    import src.db.database as db
+    mid = _one_row_export(world, monkeypatch, datetime(2098, 5, 27, 10))
+    before = _history_count(mid)
+    monkeypatch.setattr(db, "has_prediction_history", lambda conn: False)
+    out = tmp_path / "exports"
+    with pytest.raises(ip.IntlRefused, match="prediction_history is missing"):
+        ip.export(out_dir=str(out))
+    assert not out.exists() and list(tmp_path.iterdir()) == []
+    monkeypatch.undo()
+    assert _history_count(mid) == before
+
+
+def test_export_refuses_and_rolls_back_when_history_count_differs(world, monkeypatch, tmp_path):
+    """Codex on #325: appended history rows != fixtures in the file -> REFUSED, the append rolled back, no file."""
+    import src.db.database as db
+    mid = _one_row_export(world, monkeypatch, datetime(2098, 5, 27, 11))
+    before = _history_count(mid)
+    real = db.append_prediction_history
+    monkeypatch.setattr(db, "append_prediction_history", lambda conn, rows: real(conn, rows) + 1)
+    with pytest.raises(ip.IntlRefused, match=r"appended 2 row\(s\) for 1 fixture\(s\): rolled back"):
+        ip.export(out_dir=str(tmp_path))
+    assert list(tmp_path.iterdir()) == []
+    assert _history_count(mid) == before                    # the real append was rolled back
+    monkeypatch.setattr(db, "append_prediction_history", lambda conn, rows: 0)
+    with pytest.raises(ip.IntlRefused, match=r"appended 0 row\(s\) for 1 fixture\(s\)"):
+        ip.export(out_dir=str(tmp_path))
+    assert list(tmp_path.iterdir()) == []
+
+
 def test_results_command_lists_the_ungraded(world, monkeypatch, tmp_path):
     from click.testing import CliRunner
     import cli

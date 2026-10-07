@@ -21,7 +21,7 @@ import unicodedata
 
 FAMILY_SPORTS = {"MLB": ["MLB"], "NFL": ["NFL"], "NCAAF": ["NCAA"], "NHL": ["NHL"],
                  "EPL": ["SOCCER", "PL"], "UCL": ["CL", "SOCCER"], "FACUP": ["FAC", "SOCCER"],
-                 "UEFANL": ["UNL"]}
+                 "UEFANL": ["UNL", "INTL"]}   # INTL: the production intl calls (Codex on #325)
 MONTHS = {m: i + 1 for i, m in enumerate(("JAN", "FEB", "MAR", "APR", "MAY", "JUN",
                                           "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"))}
 FUN_SPORTS = {"NHL", "UNL"}

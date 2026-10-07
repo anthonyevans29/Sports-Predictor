@@ -1588,7 +1588,7 @@ $("dedupeBtn").addEventListener("click",()=>{
 // carry them. Matching to logged calls is a NAME/DATE HEURISTIC (non-claim).
 // ---------------------------------------------------------------------
 const FAMILY_SPORTS={MLB:["MLB"],NFL:["NFL"],NCAAF:["NCAA"],NHL:["NHL"],
-  EPL:["SOCCER","PL"],UCL:["CL","SOCCER"],FACUP:["FAC","SOCCER"],UEFANL:["UNL"]};
+  EPL:["SOCCER","PL"],UCL:["CL","SOCCER"],FACUP:["FAC","SOCCER"],UEFANL:["UNL","INTL"]}; // INTL: the production intl calls (Codex on #325)
 const MONTHS={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
 function parseCSV(text){
   const rows=[]; let row=[], f="", q=false;

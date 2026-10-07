@@ -1,0 +1,17 @@
+**2026-10-07 — soccer-expansion-v1 DECLARED (PD, SA, BL1, FL1, ELC on the production soccer model): one registered experiment, per-league gate, shadow until CONFIRMED. Not run; four findings for a ruling (#322).**
+- **Ruling (ARCHITECT, verbatim):** "The 2026-09-19 coverage decision (PD, SA, BL1, FL1 + ELC on the production soccer model) was never executed and predates the confirmation doctrine (#212). It now runs as ONE registered experiment, soccer-expansion-v1. Candidate: the PRODUCTION soccer model exactly as shipped: production params resolved at run time, no refit, no per-league tuning, the existing leakage-free walk-forward. Test set: seasons 2024/25 + 2025/26 of each of the five leagues, min_prior at the harness default. Gate, PER LEAGUE: log-loss <= naive - 0.010 on the same matches (tie rejects), naive = that league's own H/D/A frequencies from its 2023/24 season (frozen, never from the test seasons), plus the intl-elo-v2 calibration bands (10pp, n>=100, +-5pp, three pairs per match); RPS reported. A league that misses its own gate is DROPPED from the candidate; the verdict is PASS iff at least one league remains, and it names the surviving set. Confirmation: the first 60 league games of the surviving set kicking off after the verdict, pooled, cohort frozen by fixture id with the intl-elo-v2 machinery (unscoreable-only substitution); CONFIRMED iff pooled log-loss <= ln 3 AND < the pooled naive - 0.010 on the same games; per-league lines reported, not gated. Until CONFIRMED every one of these leagues is SHADOW: engine model_shadow, never a Desk call, never an order line, nothing that enters PL's evaluate / improve / results-tally / n=30 read. On CONFIRMED: Desk SOCCER policy unchanged, half units until 30 graded per league. PL is untouched throughout."
+- **Also ruled (verbatim):** "Nobody runs soccer-backtest on these leagues before the declaration merges." / "Kalshi series for the five leagues: the operator's kalshi-probe receipt comes first; pin nothing until it is ruled."
+- **Declared:** registry `soccer-expansion-v1`, status declared. The confirmation_plan is 60 games, log_loss, bar 1.0986, must beat the pooled naive − 0.010.
+- **Built:**
+  - the one-run gate (per league; DROPPED / surviving set; scored-ids sidecar on record);
+  - `--preflight` (receipts, scores nothing);
+  - the closing-odds side report (reported, never gated);
+  - the `soccer-backtest` refusal for these leagues while unrun;
+  - the shadow export and grade;
+  - data-only chain lines.
+- **FINDINGS for a ruling (the run refuses until they are closed):**
+  - **F1:** a league without a stored 2023/24 season (naive undefined).
+  - **F2:** promoted-club priors. The existing harness walks each league-season on its own (fresh Elo, in-season strengths, the first 40 unscored), so no club carries a prior across seasons.
+  - **F3:** relegation / promotion play-off rows inside a league-season (score them, or exclude and count).
+  - **F4:** the tie. "log-loss <= naive − 0.010 (tie rejects)" at exact equality; the code carries the intl-elo comparison (equality passes) until ruled.
+- **Prerequisite:** each league's 2026/27 competition-season needs `sync-teams` once, on the laptop and on the host, before the chains' `sync-matches`.

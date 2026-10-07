@@ -35,7 +35,7 @@ from __future__ import annotations
 import random
 
 TIERS = ("toss-up", "lean", "strong")
-BUCKETS = ("<4", "4-8", "8-15", ">=15")
+BUCKETS = ("<0", "0-4", "4-8", "8-15", ">=15")      # ARCHITECT 2026-10-07 (addendum 3 D): negatives own bucket
 STAGES = ("regular", "postseason", "unknown")
 BOOT_B = 10_000
 BOOT_SEED = 20261007          # pinned: the ruling's date
@@ -43,10 +43,12 @@ EDGE_ROUND = 9                # float hygiene only: 0.58 - 0.54 must bucket as 4
 
 
 def edge_bucket(edge_pp: float) -> str:
-    """< 4 | 4-8 | 8-15 | >= 15 (pp); each bound belongs to the bucket ABOVE it."""
+    """< 0 | 0-4 | 4-8 | 8-15 | >= 15 (pp); each bound belongs to the bucket ABOVE it (0.0 is 0-4)."""
     e = round(edge_pp, EDGE_ROUND)
+    if e < 0:
+        return "<0"
     if e < 4:
-        return "<4"
+        return "0-4"
     if e < 8:
         return "4-8"
     if e < 15:
@@ -194,7 +196,7 @@ def format_receipt(res: dict, season: str, run_stamp: str) -> str:
     for k, v in sorted(res["reasons"].items()):
         L.append(f"  - {k}: {v}")
     L += [f"- included tiered lean by the starter cap (top p >= 60%, a starter unconfirmed): {res['capped']}",
-          f"- included with edge < 0 (in the `<4` bucket): {res['negative_edge']}",
+          f"- included with edge < 0 (the `<0` bucket): {res['negative_edge']}",
           f"- included whose stored prediction was computed at/after first pitch (kept, flagged): "
           f"{res['post_first_pitch']}",
           "- model versions (included): " + (", ".join(f"{k} {v}" for k, v in sorted(res["versions"].items()))

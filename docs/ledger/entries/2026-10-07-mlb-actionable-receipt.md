@@ -10,7 +10,7 @@
   - top pick: HOME on a tie.
 - **Choices made where the build was silent (listed, open to a ruling):**
   - a Kalshi-only close is excluded and counted ("a book close");
-  - negative edges sit in `<4` and are counted;
+  - negative edges get their own `<0` bucket (ARCHITECT 2026-10-07, addendum 3 D, verbatim: "Negative edges get their own bucket: <0, 0-4, 4-8, 8-15, >=15. Kalshi-only closes stay excluded and are counted on the receipt. Nothing else changes."); this receipt is the review instrument for the MLB big-edge quarantine (#327);
   - edges are rounded to 9 dp before bucketing (float hygiene at 4/8/15);
   - predictions computed after first pitch are kept and flagged;
   - stage-unknown rows get their own table;

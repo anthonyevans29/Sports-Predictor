@@ -17,8 +17,10 @@ KO = datetime(2081, 9, 1, 23, 5)
 # ---------------------------------------------------------------- pure functions
 
 def test_bucket_boundaries_belong_to_the_bucket_above():
-    assert MA.edge_bucket(-12.0) == "<4"
-    assert MA.edge_bucket(3.999) == "<4"
+    assert MA.BUCKETS == ("<0", "0-4", "4-8", "8-15", ">=15")      # ARCHITECT 2026-10-07, addendum 3 D
+    assert MA.edge_bucket(-12.0) == "<0" and MA.edge_bucket(-0.001) == "<0"
+    assert MA.edge_bucket(0.0) == "0-4" and MA.edge_bucket((0.54 - 0.54) * 100) == "0-4"
+    assert MA.edge_bucket(3.999) == "0-4"
     assert MA.edge_bucket(4.0) == "4-8"
     assert MA.edge_bucket(7.999) == "4-8"
     assert MA.edge_bucket(8.0) == "8-15"
@@ -118,6 +120,7 @@ def _seed():
         _game(s, "kalshi", stage="R", p_home=0.60, home_won=True, kalshi=True)            # kalshi_only: excluded
         _game(s, "post", stage="D", p_home=0.70, home_won=True, fair_home=0.62)           # postseason strong, edge 8
         _game(s, "nostage", stage=None, p_home=0.62, home_won=True, fair_home=0.60)       # stage unknown
+        _game(s, "neg", stage="R", p_home=0.55, home_won=False, fair_home=0.58)           # lean, edge -3 -> <0
 
 
 def _rows():
@@ -128,20 +131,21 @@ def _rows():
 
 def test_collect_tiers_edges_and_exclusions():
     rows = _rows()
-    assert len(rows) == 7
+    assert len(rows) == 8
     by = {r["match_id"]: r for r in rows}
     inc = [r for r in rows if "excluded" not in r]
     exc = [r for r in rows if "excluded" in r]
-    assert len(inc) == 5 and len(exc) == 2
+    assert len(inc) == 6 and len(exc) == 2
     assert sorted(r["excluded"] for r in exc) == [
         "close is not a book close (reference=kalshi_only)",
         "no close (no pre-first-pitch capture, or unpriced)"]
     t = {(r["tier"], r["bucket"], r["stage"], r["side"]) for r in inc}
     assert ("lean", "4-8", "regular", "HOME") in t
-    assert ("toss-up", "<4", "regular", "AWAY") in t
+    assert ("toss-up", "0-4", "regular", "AWAY") in t
+    assert ("lean", "<0", "regular", "HOME") in t             # negatives in their own bucket (addendum 3 D)
     assert ("lean", ">=15", "regular", "HOME") in t           # 0.65 capped by the unknown starter
     assert ("strong", "8-15", "postseason", "HOME") in t
-    assert ("strong", "<4", "unknown", "HOME") in t
+    assert ("strong", "0-4", "unknown", "HOME") in t
     for r in inc:                                             # actionable is the prediction layer's flag
         assert r["actionable"] == (r["tier"] != "toss-up")
         assert r["model_version"] == "mlb_test_v2"
@@ -150,8 +154,9 @@ def test_collect_tiers_edges_and_exclusions():
 
 def test_receipt_counts_and_postseason_split():
     res = MA.receipt(_rows(), b=500)
-    assert res["graded"] == 7 and res["included"] == 5 and res["excluded"] == 2 and res["capped"] == 1
-    assert res["tables"]["regular"]["n"] == 3
+    assert res["graded"] == 8 and res["included"] == 6 and res["excluded"] == 2 and res["capped"] == 1
+    assert res["negative_edge"] == 1
+    assert res["tables"]["regular"]["n"] == 4
     assert res["tables"]["postseason"]["n"] == 1
     assert res["tables"]["unknown"]["n"] == 1
     cells = {(t, b): c for t, b, c in res["tables"]["postseason"]["cells"]}
@@ -161,7 +166,7 @@ def test_receipt_counts_and_postseason_split():
     assert c["hit_minus_close_pp"] == pytest.approx(38.0)
     assert cells[("all", "all")]["n"] == 1
     reg = {(t, b): c for t, b, c in res["tables"]["regular"]["cells"]}
-    assert reg[("lean", "all")]["n"] == 2 and reg[("toss-up", "<4")]["n"] == 1
+    assert reg[("lean", "all")]["n"] == 3 and reg[("toss-up", "0-4")]["n"] == 1 and reg[("lean", "<0")]["n"] == 1
     assert reg[("all", "all")]["ci95"] is not None
 
 

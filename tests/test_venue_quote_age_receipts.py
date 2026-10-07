@@ -863,3 +863,40 @@ def test_an_ncaa_anchor_is_verified_from_its_odds_rows_before_a_mismatch(tmp_pat
     r = res["rows"][0]
     assert r["file_matches_anchor"] is True and "per-book de-vig" in r["anchor_verified_by"]
     assert r["verdict"] in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE")
+
+
+def test_the_read_only_open_never_creates_wal_sidecars(tmp_path, monkeypatch):
+    """Codex on #340: a checkpointed WAL DB (no sidecars) is opened immutable, so no -wal / -shm appears; exactly
+    one sidecar on disk is refused."""
+    import sqlite3
+    import types
+
+    import config
+    from sqlalchemy import text
+    db = tmp_path / "w.db"
+    con = sqlite3.connect(db)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("CREATE TABLE t (x)")
+    con.execute("INSERT INTO t VALUES (1)")
+    con.commit()
+    con.close()                                                     # clean close: checkpointed, sidecars removed
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["w.db"]
+    monkeypatch.setattr(config, "settings", types.SimpleNamespace(database_url=f"sqlite:///{db}"))
+    with VQ.readonly_session() as s:
+        assert s.execute(text("SELECT count(*) FROM t")).scalar() == 1
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["w.db"]
+    (tmp_path / "w.db-wal").write_bytes(b"")
+    with pytest.raises(VQ.Refused, match="-wal file without its -shm"):
+        with VQ.readonly_session():
+            pass
+
+
+def test_files_differing_only_in_fair_source_are_not_copies():
+    """Codex on #340: a spread_derived and a 1X2 export of the same call are two calls, never merged."""
+    asof = KO - timedelta(hours=19)
+    a = _venue_row(1, "x", 20, {"HOME": 0.4735, "AWAY": 0.5265})
+    b = json.loads(json.dumps(a))
+    b["market"]["fair_source"] = "spread_derived"
+    calls = VQ.file_venue_calls([("h/l.json", _doc([b], asof)), ("l.json", _doc([a], asof))], SINCE, ["h/l.json"])
+    assert sorted(c["fair_source"] for c in calls) == ["1X2", "spread_derived"]
+    assert all(c["conflicting_copies"] for c in calls)

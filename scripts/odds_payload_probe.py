@@ -164,7 +164,11 @@ def report(payload, max_items: int = 3) -> list[str]:
                  f"{len(dr)} present and DROPPED:")
     lines += [f"  {p}" for p in dr] or ["  (none)"]
     cand = [p for p in tf["by_name"] + tf["by_value"] if p in dr]
-    quoted = [p for p in fields if p.startswith("response[].bookmakers[].bets[].values[]")]
+    # Codex on #340: a quoted price is a values[] OBJECT carrying both value and odd (what list_odds reads);
+    # [null] / ["bad"] / [{}] are no market data
+    quoted = [p for p in ("response[].bookmakers[].bets[].values[].value",
+                          "response[].bookmakers[].bets[].values[].odd") if p in fields]
+    quoted = quoted if len(quoted) == 2 else []
     if not cand and not quoted:
         # Codex on #340: an empty odds response (no bookmaker / bet / value object) says nothing about the schema
         lines.append("VERDICT (this payload): INCONCLUSIVE: no bookmaker / bet / value objects in this response "

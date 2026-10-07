@@ -242,3 +242,10 @@ def test_a_transport_failure_is_a_refusal(monkeypatch, capsys):
     out = capsys.readouterr().out
     assert "REFUSED: the request to https://example.invalid/odds failed" in out and "VERDICT" not in out
     assert "SECRETKEY123" not in out
+
+
+def test_values_without_value_and_odd_are_inconclusive():
+    # Codex on #340: [null] / ["bad"] / [{}] carry no market data, so no schema verdict
+    for vals in ([None], ["bad"], [{}], [{"value": "Home"}]):
+        p = {"response": [{"bookmakers": [{"name": "B", "bets": [{"name": "Home/Away", "values": vals}]}]}]}
+        assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(p))

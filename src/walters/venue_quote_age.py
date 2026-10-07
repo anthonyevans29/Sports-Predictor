@@ -120,7 +120,15 @@ def readonly_session():
     path = Path(url[len("sqlite:///"):]).resolve()
     if not path.is_file():
         raise Refused(f"REFUSED: no DB file at {path}: a read-only receipt never creates one")
-    eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
+    # Codex on #340: mode=ro alone can still CREATE the -wal / -shm sidecars of a WAL database. No sidecars on disk
+    # means the DB is fully checkpointed: open it immutable (nothing to miss, nothing created). Both present: mode=ro
+    # reads the live WAL without creating anything. Exactly one present is ambiguous: refused.
+    wal, shm = Path(str(path) + "-wal").exists(), Path(str(path) + "-shm").exists()
+    if wal != shm:
+        raise Refused(f"REFUSED: {path} has a -wal file without its -shm (or the reverse): a read-only open could "
+                      "create the missing sidecar; open the DB once with the app (or checkpoint it), then re-run")
+    flags = "mode=ro" if wal else "mode=ro&immutable=1"
+    eng = create_engine(f"sqlite:///file:{path.as_posix()}?{flags}&uri=true",
                         connect_args={"uri": True, "check_same_thread": False})
     s = Session(eng)
     try:
@@ -239,7 +247,7 @@ def file_venue_calls(docs, since: datetime, mirrored=()) -> list[dict]:
             # (fair at 4dp, capture time, books, book / Kalshi p, div); otherwise each is its own call, both flagged.
             fair4 = _r4(mk.get("fair_prob"))
             sig = (tuple(sorted((fair4 or {}).items())), mk.get("captured_at"), mk.get("bookmaker_count"),
-                   d.get("book_p"), d.get("kalshi_p"), d.get("div_pp"))
+                   d.get("book_p"), d.get("kalshi_p"), d.get("div_pp"), mk.get("fair_source"))   # + source (Codex)
             key = ident + (sig,)
             twins = [c for k, c in by_key.items() if k[:6] == ident and k != key]
             if twins and key not in by_key:

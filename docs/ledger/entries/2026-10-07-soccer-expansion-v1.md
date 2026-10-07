@@ -41,3 +41,4 @@
     - the batch key is an identical stored `utc_date`;
     - the shadow export keeps its existing walk.
   - **FINDING (no run record touched):** intl-elo's gate text says 'tie rejects' while its code passes equality; immaterial to its verdict (0.7889 against 1.0424); no run record touched.
+  - The generic `backtest` command (`run_backtest`, any competition's finished scores) is sealed on these leagues too, so no CLI walk can read a test season outside the one run.

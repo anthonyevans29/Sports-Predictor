@@ -262,6 +262,12 @@ def test_every_backtest_path_is_refused_on_these_leagues_while_unrun(monkeypatch
                 ["elo-coeff-sweep", "--competition", "BL1", "--season", "2024/25"]):
         r = CliRunner().invoke(cli.cli, cmd)
         assert r.exit_code != 0 and isinstance(r.exception, sx.ExpansionRefused), (cmd, r.output[-200:])
+    # Codex on #326 (round 2): the generic `backtest` walk reads any competition's scores; sealed too
+    from src.walters import backtest as gb
+    with pytest.raises(sx.ExpansionRefused, match="read once"):
+        gb.run_backtest(season="2024/25", competition_code="BL1")
+    r = CliRunner().invoke(cli.cli, ["backtest", "--competition", "BL1", "--season", "2024/25"])
+    assert r.exit_code == 2 and "REFUSED" in r.output and "read once" in r.output
     init_db()
     assert sb.run_soccer_backtest("BL1", "2024/25", sealed_read=True) is None    # the gate's path: not refused
 

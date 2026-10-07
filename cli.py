@@ -4137,9 +4137,14 @@ def backtest_cmd(season, competition_code):
                                        totals_bias_by_band)
     from rich.table import Table
 
+    from src.walters import soccer_expansion as _sx
     console.print(f"[cyan]Backtesting {season} (leakage-free, point-in-time "
                   f"profiles)... this walks the full season, give it a moment.[/cyan]")
-    results = run_backtest(season=season, competition_code=competition_code)
+    try:
+        results = run_backtest(season=season, competition_code=competition_code)
+    except _sx.ExpansionRefused as e:        # soccer-expansion-v1 seal (Codex on #326)
+        console.print(f"[red]REFUSED: {e}[/red]")
+        raise SystemExit(2)
     if not results:
         console.print(f"[yellow]No backtest results for {season} "
                       "(no finished games, or none in DB).[/yellow]")

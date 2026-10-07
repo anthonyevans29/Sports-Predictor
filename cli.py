@@ -5376,8 +5376,13 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     leaked). Read-only.
     """
     from src.walters.soccer_backtest import run_soccer_backtest, soccer_calibration
+    from src.walters import soccer_expansion as _sx
     from rich.table import Table
 
+    _why = _sx.guards_backtest(competition_code)
+    if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run
+        click.echo(f"REFUSED: {_why}")
+        raise SystemExit(2)
     if candidate == "time-decay":
         _soccer_time_decay_candidate(competition_code, season, min_prior)
         return
@@ -5544,6 +5549,111 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
                       "70-90% favorite band closer to its predicted level, that's the value "
                       "to set. Then re-run soccer-backtest at that rho to confirm the full "
                       "calibration picture before trusting it.[/dim]\n")
+
+
+@cli.command("soccer-expansion-gate")
+@click.option("--preflight", is_flag=True, help="Stream receipts only (matches per league-season, the 2023/24 naive "
+                                                 "frequencies, stages, closing-odds coverage); scores nothing.")
+def soccer_expansion_gate_cmd(preflight):
+    """soccer-expansion-v1 (ARCHITECT 2026-10-07, GATE-CLASS): the PRODUCTION soccer model as shipped on PD, SA,
+    BL1, FL1, ELC, test seasons 2024/25 + 2025/26, each league gated on its own (log-loss <= its 2023/24 naive
+    − 0.010 + the intl-elo-v2 bands); a league that misses is DROPPED; PASS iff one survives. Refused before any
+    data load unless the registry holds soccer-expansion-v1 declared and unrun. ONE run, recorded with its
+    scored ids. Spec: docs/specs/soccer-expansion-v1.md."""
+    from src.db.database import session_scope
+    from src.walters import registry as reg
+    from src.walters import soccer_expansion as sx
+
+    try:
+        sx.declared_unrun()
+    except sx.ExpansionRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    if preflight:
+        with session_scope() as s:
+            pf = sx.preflight(s)
+            s.rollback()
+        click.echo(f"SOCCER-EXPANSION-V1 · PREFLIGHT (scores nothing) · test {' + '.join(sx.TEST_SEASONS)} · "
+                   f"naive {sx.NAIVE_SEASON} · min_prior {sx.MIN_PRIOR}")
+        for code, v in pf.items():
+            if not v["stored"]:
+                click.echo(f"  {code}: competition NOT STORED")
+                continue
+            nv = v["naive"]
+            click.echo(f"  {code}: " + " · ".join(
+                f"{se} " + (", ".join(f"{k} {n}" for k, n in sorted(st.items())) or "0")
+                for se, st in v["seasons"].items()))
+            click.echo(f"      naive {sx.NAIVE_SEASON}: " + (f"H {nv['H']:.4f} / D {nv['D']:.4f} / A {nv['A']:.4f} "
+                                                          f"(n {nv['n']})" if nv else "UNDEFINED (finding F1)")
+                       + f" · test stages: {v['stages'] or '—'} · test matches with {sx.CLOSE_BOOKMAKER}: "
+                       f"{v['close_matches']}")
+        click.echo("  open findings (the run refuses until ruled): " + ("; ".join(sx.OPEN_FINDINGS) or "none"))
+        click.echo("PREFLIGHT only: nothing scored, nothing recorded.")
+        return
+    prod = _soccer_prod_poisson()
+    if prod is None:
+        click.echo("REFUSED: no production soccer model resolved (nothing faked)")
+        raise SystemExit(2)
+    version, rho, coeff = prod
+    click.echo(f"SOCCER-EXPANSION-V1 · ONE RUN · candidate = PRODUCTION {version} (rho {rho}, elo_goal_coeff "
+               f"{coeff}; resolved now, no refit)")
+
+    def show(code, g):
+        if not g["n"]:
+            click.echo(f"  {code}: n 0 · {g['verdict']}")
+            return
+        click.echo(f"  {code}: n {g['n']} · log-loss model {g['ll_model']:.4f} · naive {g['ll_naive']:.4f} · "
+                   f"bar {g['bar']:.4f} · RPS {g['rps_model']:.4f} / {g['rps_naive']:.4f} · {g['verdict']}")
+        for b in g["bands"]:
+            click.echo(f"      band {b['band'] * 10:>2}-{b['band'] * 10 + 10}%: n {b['n']:>4} · stated "
+                       f"{b['stated']:.3f} · realized {b['realized']:.3f}"
+                       + ("" if not b["gated"] else (" · ok" if b["ok"] else " · MISS")))
+        mk = g["market"]
+        click.echo("      REPORTED, NOT GATED: " + (
+            f"vs close ({sx.CLOSE_BOOKMAKER}) n {mk['n_priced']} (unpriced {mk['n_unpriced']}) · log-loss model "
+            f"{mk['ll_model']:.4f} / market {mk['ll_market']:.4f} · >= +{mk['edge_cohort']['min_edge_pp']:g}pp "
+            f"cohort {mk['edge_cohort']['hits']}/{mk['edge_cohort']['n']}" if mk else "no stored closing odds"))
+    try:
+        r = sx.run(rho, coeff, progress=show)
+    except sx.ExpansionRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    click.echo(f"  VERDICT (computed; the architect rules): {r['verdict']} · dropped: {', '.join(r['dropped']) or 'none'}")
+    per = {c: {k: v for k, v in g.items() if k != "bands"} for c, g in r["per_league"].items()}
+    result = {"verdict": r["verdict"], "surviving": r["surviving"], "dropped": r["dropped"], "per_league": per,
+              "production_version": version, "rho": rho, "elo_goal_coeff": coeff, "min_prior": sx.MIN_PRIOR}
+    e = reg.record_run(sx.EID, r["scored_ids"], result)
+    click.echo(f"  recorded: {e['run']['n_scored']} scored ids · sha {e['run']['ids_sha256'][:12]}… · "
+               f"{e['run']['ids_file']} (commit docs/registry/ in a PR)")
+
+
+@cli.command("export-soccer-expansion-shadow")
+@click.option("--hours", default=72, show_default=True, type=int)
+def export_soccer_expansion_shadow_cmd(hours):
+    """soccer-expansion-v1 SHADOW: PD, SA, BL1, FL1, ELC priced by the PRODUCTION soccer model walked over the
+    current season; engine model_shadow (greyed; never a Desk call, never an order line, no prediction row).
+    Writes exports/soccer_expansion_shadow_<stamp>.json."""
+    from src.walters import soccer_expansion as sx
+    prod = _soccer_prod_poisson()
+    if prod is None:
+        click.echo("REFUSED: no production soccer model resolved (nothing faked)")
+        raise SystemExit(2)
+    path, doc = sx.export_shadow(prod, hours=hours)
+    console.print(f"[green]✓ Wrote soccer-expansion SHADOW to {path}[/green]")
+    print(f"  {doc['count']} games in the next {hours}h · model {doc['model_version']} · " + " · ".join(
+        f"{c} {', '.join(f'{k} {v}' for k, v in sorted(n.items()))}" for c, n in doc["counts"].items()))
+
+
+@cli.command("soccer-expansion-shadow-grade")
+@click.option("--days", default=30, show_default=True, type=int)
+def soccer_expansion_shadow_grade_cmd(days):
+    """READ-ONLY: the soccer-expansion shadow's top pick vs the three-way book close, per league."""
+    from src.walters import soccer_expansion as sx
+    r = sx.shadow_grade(days=days)
+    for ln in r["lines"]:
+        print(ln)
+    for code, d in sorted(r["per_league"].items()):
+        print(f"  ── {code}: graded {d['graded']} · priced {d['priced']} · mean pick-vs-close {d['mean_clv_pp']}pp")
 
 
 @cli.command("soccer-odds-history")

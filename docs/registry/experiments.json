@@ -640,5 +640,27 @@
     },
     "ratified": "ARCHITECT 2026-10-02: interpretation RATIFIED \u2014 the fitted scale is a multiplier on c; the update divisor stays 400.",
     "limitation": "DECLARED (ARCHITECT 2026-10-02): grid-edge pick (fit_k_mult 2.0 is the top of the declared 0.5..2.0 k grid); 13.7% v3 neutral share; 57% unflagged venues."
+  },
+  {
+    "id": "soccer-expansion-v1",
+    "sport": "soccer",
+    "lane": "coverage decision 2026-09-19 (ruled as one experiment 2026-10-07)",
+    "candidate": "the PRODUCTION soccer model exactly as shipped (production params resolved at run time: dixon_coles_rho, elo_goal_coeff from the production model version; no refit, no per-league tuning), on PD, SA, BL1, FL1, ELC",
+    "declaration": "docs/specs/soccer-expansion-v1.md",
+    "training_cutoff": "none fitted: the existing leakage-free walk-forward (soccer_backtest.run_soccer_backtest per league-season, min_prior 40 = the harness default); naive = each league's own 2023/24 H/D/A frequencies, frozen",
+    "test_set": "PD, SA, BL1, FL1, ELC seasons 2024/25 + 2025/26 (each league gated on its own)",
+    "gate": "PER LEAGUE: log-loss <= naive - 0.010 on the same matches (tie rejects), naive = that league's own 2023/24 H/D/A frequencies (frozen) + the intl-elo-v2 calibration bands (10pp, n>=100, +-5pp, three pairs per match); RPS reported. A league that misses its own gate is DROPPED; PASS iff at least one league remains, naming the surviving set. Reported, never gated: the same matches vs stored closing odds (market log-loss; the >= +5pp positive-edge cohort)",
+    "confirmation_window": "the first 60 league games of the surviving set kicking off after the verdict, pooled, cohort frozen by fixture id with the intl-elo-v2 machinery (unscoreable-only substitution); CONFIRMED iff pooled log-loss <= ln 3 AND < the pooled naive - 0.010 on the same games; per-league lines reported, not gated",
+    "confirmation_plan": {
+      "n_games": 60,
+      "metric": "log_loss",
+      "bar": 1.0986,
+      "must_beat_reference": true,
+      "reference": "pooled naive (each surviving league's frozen 2023/24 H/D/A frequencies) on the same 60 games, minus 0.010"
+    },
+    "declared_at": "2026-10-07T15:17:38Z",
+    "status": "declared",
+    "run": null,
+    "verdict": null
   }
 ]

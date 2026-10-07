@@ -585,3 +585,17 @@ def test_the_host_mirror_as_root_is_still_mirrored_and_host_only_calls_are_not_m
     docs, cnt = VQ.iter_desk_docs(str(tmp_path / "exports"))
     calls = VQ.file_venue_calls(docs, SINCE, cnt["mirrored"])
     assert len(calls) == 1 and calls[0]["host_only"] is False          # a local copy: measured on local captures
+
+
+def test_a_local_copy_found_after_the_host_copy_makes_the_row_local():
+    """Codex on #340: dedupe keeps provenance; a local copy in a folder sorting after host/ (exports/laptop/) still
+    makes the row local, so it is measured, never excluded as mirrored."""
+    def doc():
+        return {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
+            {"match_id": 7, "utc_date": _iso(KO), "home_team": "H", "away_team": "A",
+             "market": {"fair_prob": {"HOME": 0.6, "AWAY": 0.4}, "fair_source": "1X2"},
+             "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books"}}]}
+    rows = VQ.model_reference_rows([("ex/host/a.json", doc()), ("ex/laptop/a.json", doc())], SINCE,
+                                   ["ex/host/a.json"])
+    assert len(rows) == 1 and rows[0]["mirrored"] is False and rows[0]["match_id"] == 7
+    assert rows[0]["file"] == "ex/laptop/a.json" and not rows[0]["conflicting_copies"]

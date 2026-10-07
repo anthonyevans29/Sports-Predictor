@@ -584,14 +584,20 @@ def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
             ident = (sport, r.get("home_team"), r.get("away_team"), kick, as_of)
             fair4 = _row_fair(r)
             k = ident + (tuple(sorted((fair4 or {}).items())),)
+            foreign = path in mirrored
             if k in seen:                                  # a true copy (same identity AND same book fair)
+                if not foreign:                            # Codex on #340: any LOCAL copy makes the row local,
+                    for x in out:                          # whatever order the walk met the copies in
+                        if (x["sport"], x["home"], x["away"], x["kickoff"], x["as_of"]) == ident and \
+                                x["file_fair"] == fair4 and x["mirrored"]:
+                            x.update(mirrored=False, file=path, match_id=r.get("match_id"),
+                                     foreign_ids=x["foreign_ids"])
                 continue
             # Codex on #340: same identity, different book fair = two machines' references, both kept and flagged
             twins = [x for x in out if (x["sport"], x["home"], x["away"], x["kickoff"], x["as_of"]) == ident]
             for x in twins:
                 x["conflicting_copies"] = True
             seen.add(k)
-            foreign = path in mirrored
             out.append({"sport": sport, "match_id": None if foreign else r.get("match_id"),
                         "foreign_ids": [r.get("match_id")] if foreign else [], "home": r.get("home_team"),
                         "away": r.get("away_team"), "as_of": as_of, "file": path,

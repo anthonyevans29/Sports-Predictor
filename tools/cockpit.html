@@ -2322,7 +2322,8 @@ $("askBtn")&&$("askBtn").addEventListener("click",async()=>{
   const parlayTxt=$("parlayCard").hidden?"(none)":$("parlayOut").innerText;
   try{
     await sampleNS(`Disciplined betting desk (house doctrine: floors, half-unit big edges,
-quarantine>=15pp never a straight play, parlays 0.25u max 3 legs, no
+quarantine never a straight play: NFL/INTL divergence >=15pp; MLB edge vs its reference >8pp
+(ARCHITECT 2026-10-07; the MLB 15pp caution tier superseded), parlays 0.25u max 3 legs, no
 threshold creep). Today's slate:\n${ctx}\n\nCurrent parlays:\n${parlayTxt}\n\nUser request: ${q}\n\nAnswer concretely; if proposing tickets, give legs+units+combined edge; never invent games. Refer to teams by name, never HOME/AWAY.`,
       {onText:({text})=>{$("askOut").textContent=text;},modelTier:"default"});
   }catch(e){ $("askOut").textContent="Ask failed: "+((e&&(e.message||e.code))||JSON.stringify(e)); }
@@ -2368,7 +2369,7 @@ function renderCard(){
       if(r.marketOnly){ why.push(`gated competition — no predictions by doctrine; bars show the books' consensus fair (${r.books||0} books)`); }
       else why.push(`pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference"));
       if(r.quar)why.push(`divergence ${r.div}pp ≥ 15 → contract quarantine (weeks 1–2: big edges 1-5)`);
-      else if(fileQuar(r))why.push(esc(r.fileDesk.reason||"quarantine (file's Desk call)"));
+      else if(fileQuar(r))why.push(r.fileDesk.reason||"quarantine (file's Desk call)");   // raw: esc(why.join) below
       if(r.kal)why.push(`kalshi ${r.kal}`);
       if(!r.books)why.push("no books yet — gap labeled, not faked");
       el.insertAdjacentHTML("beforeend",

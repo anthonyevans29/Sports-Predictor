@@ -88,3 +88,30 @@ def test_desk_block_is_a_quarantine_shadow_with_no_order():
         doc2 = {"sport": "mlb", "predictions": [row("Q", 0.66, fair_h=0.55)]}
         dp.annotate(doc2, now=NOW)
     assert doc2["desk_meta"]["mlb_quarantine_above_pp"] is None
+
+
+def test_desk_rescore_holds_the_quarantine_constant_and_never_calls_it_halved(tmp_path):
+    """Codex on #328 (P1): desk-rescore's "before" side ran under base_v11(), which also turned MLB_QUARANTINE
+    off, so a pre-rule MLB >8pp PLAY that the current Desk quarantines read as "halved by #87". The before side
+    now holds the quarantine policy constant (addendum_off); the quarantine transition is its own verdict/line."""
+    import json
+
+    from click.testing import CliRunner
+
+    import cli
+    doc = {"sport": "mlb", "predictions": [row("Big", 0.65, fair_h=0.56),               # +9pp: pre-rule PLAY 1u
+                                           row("Mid", 0.62, fair_h=0.56)]}              # +6pp, no quote: #87 half
+    with dp.base_v11():                                            # published before the 2026-10-07 rule
+        dp.annotate(doc, now=NOW)
+    assert [p["desk"]["call"] for p in doc["predictions"]] == ["PLAY", "PLAY"]
+    rows = {x["game"].split(" @ ")[1]: x for x in dp.rescore(doc)}
+    assert rows["Big"]["verdict"] == "quarantined" and rows["Big"]["addendum_call"] == "PASS"
+    assert rows["Big"]["v11_units"] == rows["Big"]["addendum_units"] == 0      # same quarantine both sides
+    assert (rows["Mid"]["verdict"], rows["Mid"]["v11_units"], rows["Mid"]["addendum_units"]) == ("halved", 1, 0.5)
+    assert dp.MLB_QUARANTINE["on"] and dp.EXEC_RULES["on"] and dp.STARTED_RULE["on"]   # restored
+    p = tmp_path / "mlb.json"
+    p.write_text(json.dumps(doc))
+    res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p), "--out", str(tmp_path / "r.md")])
+    assert res.exit_code == 0, res.output
+    assert "2 PLAY(s) re-scored · 1 would have been halved" in res.output
+    assert "1 PLAY(s) now QUARANTINED" in res.output and "QUARANTINED" in (tmp_path / "r.md").read_text()

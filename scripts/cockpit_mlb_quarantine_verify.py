@@ -102,6 +102,13 @@ def main():
         check("Card shows the MLB quarantine (chip + border) from the file's Desk call (Codex on #328)",
               bool(bg) and bg[0]["q"] and "QUARANTINE +11pp" in bg[0]["t"] and "MLB big-edge quarantine" in bg[0]["t"],
               (bg[0]["t"][:200] if bg else f"{len(card)} cards"))
+        check("Card's reasoning shows the Desk reason escaped once ('> 8pp', never '&gt;') (Codex on #328)",
+              bool(bg) and "pp > 8pp vs the book close" in bg[0]["t"] and "&gt;" not in bg[0]["t"],
+              (bg[0]["t"][-240:] if bg else "absent"))
+        src = open(os.path.join(ROOT, "tools", "cockpit.html"), encoding="utf-8").read()
+        check("Ask prompt states the quarantine per sport (NFL/INTL >=15pp; MLB >8pp, ARCHITECT 2026-10-07)",
+              "NFL/INTL divergence >=15pp; MLB edge vs its reference >8pp" in src
+              and "quarantine>=15pp never" not in src)
         n = by.get("Divergent")
         check("NFL divergence quarantine still logged as a shadow (unchanged)",
               n is not None and n["call_type"] == "quarantine_shadow" and n["units"] == 0,

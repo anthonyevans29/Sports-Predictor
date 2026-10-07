@@ -387,6 +387,26 @@ def base_v11():
 
 
 @contextmanager
+def addendum_off():
+    """The Desk without the #87 addendum and the started rule, with every OTHER policy switch held as it is —
+    desk-rescore's "before" side (Codex on #328: base_v11() also turns MLB_QUARANTINE off, so a quarantined
+    >8pp MLB row read as "halved by #87"). base_v11() itself is unchanged: the golden battery's policy."""
+    was, was_started = EXEC_RULES["on"], STARTED_RULE["on"]
+    EXEC_RULES["on"] = STARTED_RULE["on"] = False
+    try:
+        yield
+    finally:
+        EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
+
+
+def is_quarantine_shadow(c: dict) -> bool:
+    """A Desk call that is a quarantine shadow: PASS, shadow units > 0, a "quarantine … (shadow)" tag."""
+    import re
+    return bool(c.get("call") == "PASS" and (c.get("shadowUnits") or 0) > 0
+                and any(re.match(r"^quarantine .*\(shadow\)$", t) for t in (c.get("tags") or [])))
+
+
+@contextmanager
 def started_rule_off():
     """The Desk without the started-game rule (#313) — for comparing a file with and without it."""
     was = STARTED_RULE["on"]
@@ -1263,7 +1283,7 @@ def _rescore(doc: dict) -> list[dict]:
     clean = json.loads(json.dumps(doc))
     for r in clean.get("predictions") or []:
         r.pop("desk", None)
-    with base_v11():
+    with addendum_off():                    # quarantine policy held constant: only #87 (+ started) differs
         base = {id(r["src"]): (r, c) for r, c in evaluate(clean, now_ms, counts)["calls"]}
     new = {id(r["src"]): (r, c) for r, c in evaluate(clean, now_ms, counts)["calls"]}
     for d, i in published:
@@ -1280,7 +1300,9 @@ def _rescore(doc: dict) -> list[dict]:
                     "exec_edge_pp": exec_edge_pp(r, r["pick"], r["prob"], c.get("execUnits")),
                     "published_units": d.get("units"), "v11_units": b["units"], "addendum_units": c["units"],
                     "addendum_call": c["call"],
-                    "verdict": ("halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
+                    # a published PLAY the CURRENT quarantine now shadows is its own transition, never "halved"
+                    "verdict": ("quarantined" if is_quarantine_shadow(c) else
+                                "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
                                 else "raised")})
     return out
 

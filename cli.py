@@ -5923,6 +5923,56 @@ def ncaa_audit_cmd(seasons, limit):
     na.report(data, seasons=tuple(seasons) or na.AUDIT_SEASONS, limit=limit, out=click.echo)
 
 
+@cli.command("ncaa-cfbd-labels")
+@click.option("--year", "years", type=int, multiple=True, required=True, metavar="YYYY",
+              help="CFBD season to ingest (repeatable): --year 2025 --year 2026.")
+@click.option("--from-file", default=None,
+              help="Replay a saved payload instead of the API (no network, no key). With several --year "
+                   "values the path must contain '{year}'.")
+@click.option("--dry-run", is_flag=True,
+              help="Fetch (or replay), join and print the receipt; write NOTHING (no DB row, no payload file).")
+@click.option("--save-dir", default=None,
+              help="Where the raw payload is saved (default exports/cfbd/; never under data/).")
+@click.option("--division", default="fbs", show_default=True,
+              help="Both teams' CFBD classification must equal this ('' = all).")
+@click.option("--unmatched-names", is_flag=True,
+              help="List EVERY unmatched source name with its game count (the operator's input for the "
+                   "pinned alias map, filled in a reviewed PR).")
+@click.option("--limit", type=int, default=15, show_default=True, help="Length of the sample lists.")
+def ncaa_cfbd_labels_cmd(years, from_file, dry_run, save_dir, division, unmatched_names, limit):
+    """NCAA CFBD LABEL LANE (ARCHITECT 2026-10-07, data lane): fetches CFBD
+    /games per season (CFBD_API_KEY from .env, never printed), saves the raw
+    payload under exports/cfbd/, joins each completed both-FBS game to OUR
+    NCAA match (exact names, then substring; either orientation; ambiguity
+    REFUSED; the pinned alias map src/ingestion/ncaa_cfbd_aliases.json) and
+    upserts ncaa_cfbd_labels (orientation, neutral, both scores in OUR
+    orientation). The matches table is never written. Take the .backup
+    first; needs migrate_ncaa_cfbd_labels.py (a --dry-run does not)."""
+    from src.ingestion import ncaa_cfbd as nc
+
+    try:
+        rc = nc.run(list(years), from_file=from_file, dry_run=dry_run, save_dir=save_dir, division=division,
+                    out=click.echo, limit=limit, unmatched_names=unmatched_names)
+    except nc.CFBDError as e:
+        click.echo(str(e))
+        raise SystemExit(2)
+    if rc:
+        raise SystemExit(rc)
+
+
+@cli.command("ncaa-cfbd-coverage")
+def ncaa_cfbd_coverage_cmd():
+    """NCAA CFBD label coverage (ARCHITECT 2026-10-07), read-only: per season
+    (2025, 2026) over the #79 gate's stream — stream games, covered by
+    ncaa_cfbd_labels, covered share, swapped, neutral, score-corrected, the
+    non-neutral home win rate, and whether the >= 95% coverage condition
+    holds (a computed fact; the gate stays SUSPENDED until the architect
+    reads it). Writes nothing."""
+    from src.walters import ncaa_backtest as nb
+
+    nb.coverage_report(nb.build_stream(nb.load_games()), out=click.echo)
+
+
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")

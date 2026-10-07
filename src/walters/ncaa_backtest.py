@@ -22,6 +22,12 @@ Protocol:
     they stay IN, labelled as the provider labels them. Known limitation;
     it biases the home rate toward 0.5 identically for baseline and
     candidate. ARCHITECT-RULE.
+  * LABELS (ARCHITECT 2026-10-07, CFBD label lane, ruling (2)): "The NCAA
+    stream reads orientation, score and neutral from the side table where a
+    row exists and prints the uncovered share per season." load_games applies
+    ncaa_cfbd_labels; uncovered games read from the matches row. The neutral
+    flag is carried on Game as data only — no model input, no constant
+    changed, the frozen criteria below untouched.
   * Warm-up (train) = season "2025" (update only); scored (test) = season
     "2026", predict-then-update (walk-forward). 2026 is IN PROGRESS: the test
     set is whatever 2026 games are FINISHED at run time — the report prints
@@ -90,6 +96,16 @@ class Game:
     home_score: int
     away_score: int
     stage: str = ""
+    # CFBD label lane (ARCHITECT 2026-10-07, ruling (2)): where the side table
+    # ncaa_cfbd_labels has a row, home/away and the scores above are CFBD's and
+    # `neutral` carries CFBD's flag; otherwise they are the matches row's and
+    # neutral is None (unknown, law 4). `neutral` is DATA ONLY: no model reads
+    # it ("No model change in this lane").
+    neutral: bool | None = None
+    label_source: str = "matches"          # "cfbd" | "matches"
+    orientation: str | None = None         # CFBD row: "same" | "swapped"
+    score_corrected: bool = False          # CFBD row whose scores differ from the matches row
+    match_id: int | None = None
 
     @property
     def home_win(self) -> int:
@@ -290,12 +306,33 @@ def run_gate(stream: Stream, model: Predictor) -> GateResult:
 # --------------------------------------------------------------------------
 
 
+def game_from_rows(m, label=None) -> Game:
+    """One stream game. With a ncaa_cfbd_labels row, orientation, scores and
+    neutral come from it (CFBD, the label source of record); without one, from
+    the matches row (ruling (2)). The side table stores the source's scores in
+    OUR orientation, so a 'swapped' row flips the teams AND the scores together.
+    A row with an orientation outside {'same', 'swapped'} is not used (law 4)."""
+    if label is None or label.orientation not in ("same", "swapped"):
+        return Game(m.home_team_id, m.away_team_id, m.season, m.utc_date, m.home_score, m.away_score,
+                    m.stage or "", match_id=m.id)
+    corrected = (label.home_score, label.away_score) != (m.home_score, m.away_score)
+    if label.orientation == "swapped":
+        return Game(m.away_team_id, m.home_team_id, m.season, m.utc_date, label.away_score, label.home_score,
+                    m.stage or "", neutral=label.neutral, label_source="cfbd", orientation="swapped",
+                    score_corrected=corrected, match_id=m.id)
+    return Game(m.home_team_id, m.away_team_id, m.season, m.utc_date, label.home_score, label.away_score,
+                m.stage or "", neutral=label.neutral, label_source="cfbd", orientation="same",
+                score_corrected=corrected, match_id=m.id)
+
+
 def load_games() -> list[Game]:
-    """Read-only: FINISHED, scored NCAA rows (Sport.NFL + code "NCAA")."""
-    from sqlalchemy import select
+    """Read-only: FINISHED, scored NCAA rows (Sport.NFL + code "NCAA"), with the
+    CFBD side table's orientation / scores / neutral applied where a row exists
+    (before migrate_ncaa_cfbd_labels.py runs, every game reads from matches)."""
+    from sqlalchemy import inspect, select
 
     from src.db.database import session_scope
-    from src.db.schema import Competition, Match, MatchStatus, Sport
+    from src.db.schema import Competition, Match, MatchStatus, NCAACFBDLabel, Sport
 
     with session_scope() as s:
         rows = s.execute(
@@ -309,8 +346,93 @@ def load_games() -> list[Game]:
                 Match.away_score.is_not(None),
             ).order_by(Match.utc_date, Match.id)
         ).scalars().all()
-        return [Game(m.home_team_id, m.away_team_id, m.season, m.utc_date,
-                     m.home_score, m.away_score, m.stage or "") for m in rows]
+        labels = {}
+        if inspect(s.connection()).has_table(NCAACFBDLabel.__tablename__):
+            labels = {r.match_id: r for r in s.execute(select(NCAACFBDLabel)).scalars()}
+        return [game_from_rows(m, labels.get(m.id)) for m in rows]
+
+
+# --------------------------------------------------------------------------
+# Label coverage (CFBD side table; ARCHITECT 2026-10-07)
+# --------------------------------------------------------------------------
+
+# The ruling's un-suspend reading: "the side table covers at least 95% of the
+# stream in BOTH seasons and the stream's 2025 non-neutral home rate reads sane
+# on the receipt". This module computes the coverage fact; the architect reads
+# it. Nothing here changes GATE_STATUS.
+COVERAGE_MIN = 0.95
+
+
+def _home_rate(games: list[Game]) -> float | None:
+    return (sum(g.home_win for g in games) / len(games)) if games else None
+
+
+def label_coverage(stream: Stream) -> dict[str, dict]:
+    """Per season, over the games the gate KEEPS (train / test after its
+    exclusions): covered by the side table, uncovered share, swapped, neutral,
+    score-corrected, and home rates. Non-neutral = a covered game whose CFBD
+    neutral flag is False; uncovered games carry no flag and are reported apart."""
+    out = {}
+    for season, kept in ((TRAIN_SEASON, stream.train), (TEST_SEASON, stream.test)):
+        cov = [g for g in kept if g.label_source == "cfbd"]
+        unc = [g for g in kept if g.label_source != "cfbd"]
+        nonneutral = [g for g in cov if g.neutral is False]
+        n = len(kept)
+        out[season] = {
+            "n": n, "covered": len(cov), "uncovered": len(unc),
+            "covered_share": (len(cov) / n) if n else None,
+            "uncovered_share": (len(unc) / n) if n else None,
+            "swapped": sum(1 for g in cov if g.orientation == "swapped"),
+            "neutral": sum(1 for g in cov if g.neutral),
+            "score_corrected": sum(1 for g in cov if g.score_corrected),
+            "home_rate_all": _home_rate(kept),
+            "home_rate_nonneutral": _home_rate(nonneutral), "n_nonneutral": len(nonneutral),
+            "home_rate_uncovered": _home_rate(unc),
+            "coverage_ok": bool(n) and len(cov) / n >= COVERAGE_MIN - 1e-12,
+        }
+    return out
+
+
+def _pct(x: float | None) -> str:
+    return "—" if x is None else f"{x * 100:.1f}%"
+
+
+def _rate(x: float | None) -> str:
+    return "—" if x is None else f"{x:.3f}"
+
+
+def coverage_lines(stream: Stream) -> list[str]:
+    """The uncovered share per season, printed on every gate run (ruling (2))."""
+    cov = label_coverage(stream)
+    return [f"  {season} labels: CFBD side table covers {c['covered']}/{c['n']} ({_pct(c['covered_share'])}) · "
+            f"UNCOVERED share {_pct(c['uncovered_share'])} (read from the matches row) · swapped "
+            f"{c['swapped']} · neutral {c['neutral']} (data only, no model input) · score-corrected "
+            f"{c['score_corrected']}"
+            for season, c in ((s_, cov[s_]) for s_ in (TRAIN_SEASON, TEST_SEASON))]
+
+
+def coverage_report(stream: Stream, out: Callable[[str], None] = print) -> dict[str, dict]:
+    """`ncaa-cfbd-coverage`: the per-season receipt the architect reads. States
+    the 95% condition as a computed fact; never declares the gate un-suspended."""
+    cov = label_coverage(stream)
+    out(f"NCAA CFBD LABEL COVERAGE (ARCHITECT 2026-10-07) · the gate's stream (FINISHED, both scores, "
+        f"pre/postseason excluded, ties skipped) · condition: side table covers >= {COVERAGE_MIN:.0%} "
+        f"in BOTH {TRAIN_SEASON} and {TEST_SEASON}")
+    for season in (TRAIN_SEASON, TEST_SEASON):
+        c = cov[season]
+        out(f"  {season}: stream games {c['n']} · covered {c['covered']} ({_pct(c['covered_share'])}) · "
+            f"uncovered {c['uncovered']} ({_pct(c['uncovered_share'])}) · swapped {c['swapped']} · neutral "
+            f"{c['neutral']} · score-corrected {c['score_corrected']}")
+        out(f"    home win rate: non-neutral (covered, CFBD neutral=False) {_rate(c['home_rate_nonneutral'])} "
+            f"(n {c['n_nonneutral']}) · all stream games {_rate(c['home_rate_all'])} · uncovered games "
+            f"(matches-row labels, no neutral flag) {_rate(c['home_rate_uncovered'])} (n {c['uncovered']})")
+        out(f"    coverage >= {COVERAGE_MIN:.0%}: {'YES' if c['coverage_ok'] else 'NO'}")
+    both = cov[TRAIN_SEASON]["coverage_ok"] and cov[TEST_SEASON]["coverage_ok"]
+    out(f"  coverage condition in BOTH seasons: {'HOLDS' if both else 'DOES NOT HOLD'} (computed fact)")
+    out(f"  {TRAIN_SEASON} non-neutral home rate for the sanity read: "
+        f"{_rate(cov[TRAIN_SEASON]['home_rate_nonneutral'])} — the architect reads it")
+    out(f"  {GATE_STATUS_LINE} This receipt does not change it: un-suspension is the architect's read.")
+    return cov
 
 
 def report(stream: Stream, r: GateResult, out: Callable[[str], None] = print,
@@ -324,12 +446,14 @@ def report(stream: Stream, r: GateResult, out: Callable[[str], None] = print,
         out(f"  {season}: kept {len(kept)} games / {len(teams)} programs · excluded "
             f"preseason {ex.get('preseason', 0)}, postseason {ex.get('postseason', 0)}")
         out(f"    stage values: {dict(stream.stages.get(season, {}))}")
+    for line in coverage_lines(stream):
+        out(line)
     if stream.other_seasons:
         out(f"  other seasons ignored: {dict(sorted(stream.other_seasons.items()))}")
     if stream.ties:
         out(f"  ⚠ {stream.ties} tied finals skipped (college football cannot tie — data defect)")
-    out("  neutral sites: NO flag or venue stored for this family — regular-season "
-        "neutral-site games are scored as labelled (known limitation)")
+    out("  neutral sites: CFBD's flag rides on covered games as DATA only (ruling 2026-10-07: no model "
+        "change); neutral-site games stay in the stream as labelled (known limitation)")
     if r.verdict.startswith("INVALID") and not r.n_train:
         out(f"VERDICT: {r.verdict}")
         return

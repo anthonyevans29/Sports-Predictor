@@ -1,0 +1,5 @@
+{
+  "_ruling": "ARCHITECT 2026-10-07 (#176 probe read), ruling (3): the unmatched are resolved by a PINNED alias map built from the probe's unmatched names; ambiguity is refused, never guessed.",
+  "_format": "aliases: {\"CFBD team name exactly as served\": \"our teams.name exactly as stored\"}. Loaded by src/ingestion/ncaa_cfbd.py. An alias never overrides an exact match; an alias whose target names 0 or more than 1 of our NCAA teams is refused and reported. Entries are added ONLY in a reviewed PR, from the operator's `ncaa-cfbd-labels --unmatched-names` receipt.",
+  "aliases": {}
+}

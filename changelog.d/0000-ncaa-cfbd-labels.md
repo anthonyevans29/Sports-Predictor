@@ -1,0 +1,13 @@
+## 2026-10-07 (#0000: NCAA CFBD label lane — ARCHITECT, data lane)
+- CollegeFootballData (CFBD) becomes the NCAA label source of record (ruling 2026-10-07, item 6). No model change; GATE #79 unchanged and still SUSPENDED-PENDING-DATA.
+- New side table `ncaa_cfbd_labels` keyed by our match id: CFBD game id, orientation (same / swapped), neutral flag, both scores in OUR orientation, season, provenance (source, payload file, fetched_at, correction reason). Created by `migrate_ncaa_cfbd_labels.py` (run after the `.backup`). The matches table is never written.
+- New `ncaa-cfbd-labels --year 2025 --year 2026 [--from-file] [--dry-run] [--save-dir] [--division] [--unmatched-names]` (`src/ingestion/ncaa_cfbd.py`):
+  - fetches CFBD `/games` (`CFBD_API_KEY` from `.env`, never printed) and saves the raw payload under `exports/cfbd/` (gitignored);
+  - joins each completed both-FBS game to our NCAA match (exact names before substring, either orientation; ambiguity refused);
+  - upserts the side table and prints a per-season receipt, listing every score-corrected row with its reason and every refusal.
+- Pinned alias map `src/ingestion/ncaa_cfbd_aliases.json`, shipped EMPTY. An alias never overrides an exact match; one whose target names 0 or more than 1 of our teams is refused. The operator fills it in a reviewed PR from `--unmatched-names`.
+- The NCAA stream (`ncaa_backtest.load_games`) reads orientation, scores and neutral from the side table where a row exists, else the matches row. `ncaa-backtest` prints the uncovered share per season. Neutral is carried on the Game as data only.
+- New read-only `ncaa-cfbd-coverage`: per season, stream games, covered, share, swapped, neutral, score-corrected, the non-neutral home rate, and whether the >= 95% condition holds (a computed fact; the gate's status does not change).
+- The CFBD fetch / field discovery moved from `scripts/ncaa_source_probe.py` into `src/ingestion/ncaa_cfbd.py`; the probe imports them and keeps its own compare.
+- `config.Settings.cfbd_api_key`; `CFBD_API_KEY` added to `.env.example` and to the hosting `SECRET_ENV` redaction list.
+- Spec: `docs/specs/ncaa-cfbd-labels.md`. Tests: `tests/test_ncaa_cfbd_labels.py` (14, synthetic records only).

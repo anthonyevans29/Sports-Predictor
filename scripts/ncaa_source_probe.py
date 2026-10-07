@@ -29,62 +29,18 @@ Writes NOTHING (no DB writes, no ingest path, no files unless --save).
 import argparse
 import json
 import os
-import re
 import sys
-import urllib.parse
-import urllib.request
 from collections import Counter
-from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-BASE = "https://api.collegefootballdata.com"
-FIELDS = {   # name -> regex over the record's keys (first match wins)
-    "home": re.compile(r"^home_?team$", re.I),
-    "away": re.compile(r"^away_?team$", re.I),
-    "home_pts": re.compile(r"^home_?points$", re.I),
-    "away_pts": re.compile(r"^away_?points$", re.I),
-    "neutral": re.compile(r"^neutral_?site$", re.I),
-    "start": re.compile(r"^start_?date$", re.I),
-}
-OPTIONAL = {
-    "completed": re.compile(r"^completed$", re.I),
-    "season_type": re.compile(r"^season_?type$", re.I),
-    "home_class": re.compile(r"^home_?(classification|division)$", re.I),
-    "away_class": re.compile(r"^away_?(classification|division)$", re.I),
-    "id": re.compile(r"^id$", re.I),
-}
+# The CFBD access pieces (field discovery, fetch, start-date parsing) live in
+# src/ingestion/ncaa_cfbd.py since the label lane (ARCHITECT 2026-10-07); this
+# probe keeps its own compare() so its 2026-10-07 read stays reproducible.
+from src.ingestion.ncaa_cfbd import BASE, FIELDS, OPTIONAL, discover, fetch, parse_start  # noqa: E402,F401
+
 SAMPLE = 15
-
-
-def discover(rec: dict) -> tuple[dict, list[str]]:
-    keys, missing = {}, []
-    for name, rx in {**FIELDS, **OPTIONAL}.items():
-        k = next((k for k in rec if rx.match(k)), None)
-        if k is None and name in FIELDS:
-            missing.append(name)
-        keys[name] = k
-    return keys, missing
-
-
-def fetch(year: int, key: str, base: str = BASE, division: str = "fbs") -> tuple[int, list, dict]:
-    q = urllib.parse.urlencode({"year": year, "seasonType": "both", "classification": division})
-    req = urllib.request.Request(f"{base}/games?{q}", headers={"Authorization": f"Bearer {key}",
-                                                               "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        hdr = {k: v for k, v in r.headers.items() if re.search(r"limit|remaining|quota|calls", k, re.I)}
-        return r.status, json.loads(r.read().decode()), hdr
-
-
-def parse_start(v) -> datetime | None:
-    if not v:
-        return None
-    try:
-        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
 
 
 def compare(records: list, keys: dict, session, division: str | None = None) -> dict:

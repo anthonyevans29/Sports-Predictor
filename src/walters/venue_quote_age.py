@@ -26,6 +26,7 @@ Nothing here writes: SELECTs only. Percentiles are nearest-rank on the sorted li
 """
 from __future__ import annotations
 
+import contextlib
 import json
 import os
 import re
@@ -102,6 +103,34 @@ def ledger_refusal(L) -> str | None:
     return None
 
 
+@contextlib.contextmanager
+def readonly_session():
+    """A READ-ONLY session for the receipts (Codex on #340): the app's session_scope() commits on exit and its
+    connect hook creates the DB directory and sets PRAGMA journal_mode=WAL. Here the SQLite file is opened with a
+    mode=ro URI (no hook, no pragma, no commit); a missing DB file or a non-SQLite URL is refused, never created."""
+    from pathlib import Path
+
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+
+    from config import settings
+    url = settings.database_url
+    if not url.startswith("sqlite:///"):
+        raise Refused(f"REFUSED: the receipts read a SQLite DATABASE_URL only (got {url.split(':', 1)[0]})")
+    path = Path(url[len("sqlite:///"):]).resolve()
+    if not path.is_file():
+        raise Refused(f"REFUSED: no DB file at {path}: a read-only receipt never creates one")
+    eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
+                        connect_args={"uri": True, "check_same_thread": False})
+    s = Session(eng)
+    try:
+        yield s
+    finally:
+        s.rollback()
+        s.close()
+        eng.dispose()
+
+
 def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     """Every JSON under `root` (recursive) whose top level carries desk_meta.as_of. Returns (docs, counts);
     counts["mirrored"] = the desk files under <root>/host/ (the host's pulled copies: foreign match_ids)."""
@@ -133,6 +162,11 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if not isinstance(dm, dict) or parse_ts(dm.get("as_of")) is None:   # checked; missing = refused
                     bad_asof.append(p)
                     continue
+                need = ("fixtures" if n.startswith("fixtures_") else
+                        "predictions" if "predictions" in n.lower() else None)
+                if need and need not in doc:               # Codex on #340: a named export lacking its rows
+                    bad_rows.append(p)
+                    continue
                 if any(k in doc and not isinstance(doc[k], list) for k in ("fixtures", "predictions")):
                     bad_rows.append(p)                             # Codex on #340: a container that is no list
                     continue
@@ -151,7 +185,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                       "their calls would be omitted, so no receipt; fix or move them, then re-run")
     if bad_rows:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
-                      f"objects (or a row whose desk block is not an object) "
+                      f"objects (a missing one in a fixtures_* / *predictions* export, or a row whose desk block is not an "
+                      f"object) "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:
@@ -404,12 +439,14 @@ def anchor_for(sessions: list[dict], call: dict) -> tuple[dict | None, str]:
         before = [x for x in pre if x["t"] <= cap]
         return (before[-1], "last capture before the file's captured_at (no capture at that stamp)") if before \
             else (None, "no book capture at or before the file's captured_at")
-    before = [x for x in pre if _sec(x["t"]) <= call["as_of"]]      # as_of is serialized to the second (Codex)
+    # a file as_of is serialized to the second (Codex on #340); a ledger claim_at keeps milliseconds: full precision
+    sec = (lambda t: t) if call.get("origin") == "ledger" else _sec
+    before = [x for x in pre if sec(x["t"]) <= call["as_of"]]
     return (before[-1], "last capture at or before the call time (the call carries no captured_at)") if before \
         else (None, "no book capture at or before the call time")
 
 
-def receipt_row(call: dict, sessions: list[dict]) -> dict:
+def receipt_row(call: dict, sessions: list[dict], anchor_verified_by: str | None = None) -> dict:
     a, basis = anchor_for(sessions, call)
     row = {**call, "anchor": a, "anchor_basis": basis, "later": [], "moved": None, "verdict": None,
            "file_matches_anchor": None, "unchanged_since": None, "run_n": 0, "run_censored": None}
@@ -417,7 +454,9 @@ def receipt_row(call: dict, sessions: list[dict]) -> dict:
         row["verdict"] = "NO ANCHOR"
         return row
     if call.get("file_fair"):
-        row["file_matches_anchor"] = same_fair(call["file_fair"], a["fair4"])
+        row["file_matches_anchor"] = True if anchor_verified_by else same_fair(call["file_fair"], a["fair4"])
+        if anchor_verified_by:
+            row["anchor_verified_by"] = anchor_verified_by
     first, n, cens = unchanged_run(sessions, a)
     row.update(unchanged_since=first["t"], run_n=n, run_censored=cens)
     if row["file_matches_anchor"] is False:
@@ -542,7 +581,15 @@ def venue_receipt(s, calls: list[dict]) -> dict:
                          "in this DB", "later": [], "moved": None, "verdict": "HOST: NOT MEASURED",
                          "file_matches_anchor": None, "unchanged_since": None, "run_n": 0, "run_censored": None})
             continue
-        rows.append(receipt_row(c, match_sessions(s, m)))
+        sessions = match_sessions(s, m)
+        r = receipt_row(c, sessions)
+        if r["verdict"] == "ANCHOR MISMATCH: NOT MEASURED" and r.get("anchor"):
+            # Codex on #340: the NCAA / NFL snapshot formula differs from the export's (close_1x2); re-derive the
+            # SAME session from its odds rows with the export's formula before calling the anchor a mismatch
+            ok, by = session_matches_by_odds(s, m, r["anchor"], c.get("file_fair"))
+            if ok:
+                r = receipt_row(c, sessions, anchor_verified_by=by)
+        rows.append(r)
     tot = {"calls": len(rows)}
     for v in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE", "NO ANCHOR", "NO DB MATCH", "HOST: NOT MEASURED",
               "NOT 1X2: NOT MEASURED", "ANCHOR MISMATCH: NOT MEASURED", "NO CAPTURE TIME: NOT MEASURED"):

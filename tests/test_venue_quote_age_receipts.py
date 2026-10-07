@@ -798,3 +798,68 @@ def test_a_partial_file_fair_never_verifies():
     r = VQ.age_row({"as_of": KO - timedelta(hours=6), "kickoff": KO, "file_fair": {"HOME": 0.6}}, sess)
     assert r["file_matches"] is False
     assert VQ.same_fair({"HOME": 0.6, "AWAY": 0.4}, {"HOME": 0.6, "AWAY": 0.4})
+
+
+def test_the_receipts_open_the_db_read_only_and_never_create_one(tmp_path, monkeypatch):
+    """Codex on #340: a missing DB is refused (never created); the session cannot write."""
+    from sqlalchemy import text
+
+    ids = _seed()
+    with VQ.readonly_session() as s:
+        assert s.execute(text("SELECT count(*) FROM matches WHERE id = :i"), {"i": ids["dead"]}).scalar() == 1
+        with pytest.raises(Exception, match="readonly"):
+            s.execute(text("UPDATE matches SET season = 'x' WHERE id = :i"), {"i": ids["dead"]})
+    missing = tmp_path / "nope" / "x.db"
+    import types
+
+    import config
+    monkeypatch.setattr(config, "settings", types.SimpleNamespace(database_url=f"sqlite:///{missing}"))
+    with pytest.raises(VQ.Refused, match="never creates one"):
+        with VQ.readonly_session():
+            pass
+    assert not missing.parent.exists()
+
+
+def test_a_ledger_claim_anchors_at_full_precision():
+    """Codex on #340: claim_at keeps ms; a capture later in the claim's own second is not before it."""
+    t = datetime(2095, 10, 8, 12, 0, 0, 100000)
+    sess = [{"source": "s", "t": t - timedelta(hours=1), "fair4": {"HOME": 0.5, "AWAY": 0.5}},
+            {"source": "s", "t": t.replace(microsecond=800000), "fair4": {"HOME": 0.6, "AWAY": 0.4}}]
+    a, _ = VQ.anchor_for(sess, {"origin": "ledger", "as_of": t, "kickoff": KO, "file_captured_at": None})
+    assert a["t"] == t - timedelta(hours=1)
+    a, _ = VQ.anchor_for(sess, {"origin": "file", "as_of": t.replace(microsecond=0), "kickoff": KO,
+                                "file_captured_at": None})
+    assert a["t"] == t.replace(microsecond=800000)
+
+
+def test_a_named_export_without_its_rows_key_is_refused(tmp_path):
+    """Codex on #340: fixtures_* needs fixtures, *predictions* needs predictions."""
+    for name in ("fixtures_NHL_x.json", "nfl_predictions_x.json"):
+        ex = tmp_path / name.split(".")[0]
+        ex.mkdir()
+        (ex / name).write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"}}))
+        with pytest.raises(VQ.Refused, match="missing one in a fixtures_"):
+            VQ.iter_desk_docs(str(ex))
+
+
+def test_an_ncaa_anchor_is_verified_from_its_odds_rows_before_a_mismatch(tmp_path):
+    """Codex on #340: the snapshot formula differs from the export's; re-derive the session before ANCHOR MISMATCH."""
+    from src.db.schema import Odds
+    ids = _seed()
+    t = KO - timedelta(hours=8)
+    px = {"BookA": {"HOME": 1.50, "AWAY": 2.80}, "BookB": {"HOME": 1.60, "AWAY": 2.30}}
+    per_book = [{k: (1 / p[k]) / sum(1 / v for v in p.values()) for k in p} for p in px.values()]
+    fair = {k: round(sum(b[k] for b in per_book) / 2, 4) for k in ("HOME", "AWAY")}
+    with session_scope() as s:
+        for bk, p in px.items():
+            for sel, d in p.items():
+                s.add(Odds(match_id=ids["nfl"], bookmaker=bk, market="1X2", selection=sel, price_decimal=d,
+                           captured_at=t, source="api_hockey"))
+    row = _venue_row(ids["nfl"], "nfl", 8, fair, n=ids["n"])
+    doc = {"competition_code": "NFL", "desk_meta": {"as_of": _iso(KO - timedelta(hours=7)) + "Z"}, "fixtures": [row]}
+    calls = VQ.file_venue_calls([("f.json", doc)], SINCE)
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    r = res["rows"][0]
+    assert r["file_matches_anchor"] is True and "per-book de-vig" in r["anchor_verified_by"]
+    assert r["verdict"] in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE")

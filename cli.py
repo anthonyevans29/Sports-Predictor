@@ -1562,8 +1562,12 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
         sources.append(f"ledger {ledger_path}: {len(lc)} venue_edge claim(s)")
     else:
         sources.append("ledger: not read (pass --ledger <the Cockpit's Export ledger (JSON) file>)")
-    with session_scope() as s:
-        res = VQ.venue_receipt(s, calls)
+    try:
+        with VQ.readonly_session() as s:      # read-only: no create, no pragma, no commit
+            res = VQ.venue_receipt(s, calls)
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
     _vqa_write("\n".join(VQ.format_venue_receipt(res, lo, sources)), out_path)
 
 
@@ -1590,8 +1594,12 @@ def quote_age_report_cmd(since, exports_dir, out_path):
     sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
                f"{cnt['unreadable']} unreadable, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
                f"resolved by identity)"]
-    with session_scope() as s:
-        rep = VQ.age_report(s, docs, lo, cnt["mirrored"])
+    try:
+        with VQ.readonly_session() as s:      # read-only: no create, no pragma, no commit
+            rep = VQ.age_report(s, docs, lo, cnt["mirrored"])
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
     _vqa_write("\n".join(VQ.format_age_report(rep, lo, sources)), out_path)
 
 

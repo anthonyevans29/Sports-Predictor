@@ -33,3 +33,4 @@
   - Same-second re-logs are kept. Ledger-only NFL / NCAA claims are unmeasured (unknown source). A damaged `claim_at` refuses the ledger. A mismatched anchor gets no movement verdict.
   - Position fallback for manual claims only. Frozen Kalshi p comes from claim metadata. A non-object `desk` is refused. Every re-log is listed.
   - Div at 2 dp. A VENUE row with no capture time is unmeasured. Legacy claim times are validated. A partial file fair never verifies.
+  - The receipts open the DB read-only and never create it. Ledger claims anchor at full precision. Mismatched anchors are re-derived from odds rows first. A named export without its rows key is refused.

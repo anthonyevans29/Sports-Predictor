@@ -159,3 +159,5 @@ Open points for the ruling:
 5. **"Moved"** is measured against the anchor session from the same source, not against the file's numbers. The NCAA snapshot de-vig (`MarketSnapshot.average_implied`, `service.py:2034-2045`) differs from the export's per-book `close_1x2`, so comparing the file to a snapshot would show spurious movement. The file-vs-anchor match is reported separately.
 6. **NO LATER CAPTURE** is its own verdict (law 4). It never counts as "never moved".
 7. **The Cockpit** keeps rendering pre-ruling VENUE rows from v1.3.0 files as written. Any change there is for a ruling.
+
+- **Read-only DB (Codex on #340).** `venue-calls-receipt` and `quote-age-report` open the configured SQLite file with a `mode=ro` URI: no connect hook, no `PRAGMA journal_mode`, no commit. A missing DB file or a non-SQLite URL is refused; the receipts never create a database.

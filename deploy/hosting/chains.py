@@ -169,9 +169,11 @@ CHAINS: dict[str, dict] = {
             # them and Friday's export. Single-day calls, yesterday and today
             # (the american-football adapter sends a `date` only when
             # from == to), BEFORE the export, so finished games leave the window.
+            # {tomorrow} (ARCHITECT 2026-10-07): kickoffs at 8pm ET or later fall
+            # on the next UTC date; the operator block carried it by hand.
             *[["sync-matches", "--competition", "NCAA", "--season", "2026",
                "--date-from", d, "--date-to", d]
-              for d in ("{yesterday}", "{today}")],
+              for d in ("{yesterday}", "{today}", "{tomorrow}")],
             ["sync-kalshi-ncaa"],
             ["export-fixtures", "--competition", "NCAA"],
         ],

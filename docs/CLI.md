@@ -158,8 +158,9 @@ books' fair bars with a market-only chip and the Kalshi status.
 
 **NCAA market (Thu / Fri / Sat; laptop and host `sp-ncaa-market`):**
 `sync-matches --competition NCAA --season 2026 --date-from D --date-to D` for
-each of D = yesterday, today (single-day calls, as for NHL), then
-`sync-kalshi-ncaa`, then `export-fixtures --competition NCAA`. ARCHITECT
+each of D = yesterday, today, tomorrow (single-day calls, as for NHL;
+tomorrow because kickoffs at 8pm ET or later fall on the next UTC date,
+ARCHITECT 2026-10-07), then `sync-kalshi-ncaa`, then `export-fixtures --competition NCAA`. ARCHITECT
 2026-10-02 (#254): the result sync comes first so that games finished since
 the last run (Thursday's slate before Friday's export) leave the window
 instead of reading SCHEDULED.

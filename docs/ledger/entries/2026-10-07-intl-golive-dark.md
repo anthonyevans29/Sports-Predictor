@@ -44,3 +44,4 @@
   - A row with a stored 90-minute score is graded on it whatever its status_raw, so `AWD` / `WO` with a stored 90-minute score are graded too. Without one, any status other than `FT` is listed ungraded.
   - A cancelled INTL fixture is not in the results file, so its call stays open (no void path is ruled).
   - The Cockpit's INTL restriction does not touch other sports' calls.
+  - The production file is published (atomic rename of a temporary file) only after the history commit succeeds, so no actionable file ever exists without its prediction_history rows.

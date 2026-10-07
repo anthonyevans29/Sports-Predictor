@@ -9,6 +9,8 @@ Synthetic DB rows only (year 2098, probe names); the registry is monkeypatched; 
 import json
 from datetime import datetime, timedelta
 
+import os
+
 import pytest
 from sqlalchemy import func, select
 
@@ -191,3 +193,28 @@ def test_results_command_lists_the_ungraded(world, monkeypatch, tmp_path):
                                 "the later score"}]}))
     out = CliRunner().invoke(cli.cli, ["export-intl-results"]).output
     assert "ungraded 1" in out and "UNGRADED match 9 A @ H 2098-05-04: went beyond 90 minutes (PEN)" in out
+
+
+def test_a_failed_history_commit_publishes_no_file(world, monkeypatch, tmp_path):
+    """Codex on #325: the JSON is published only after the history commit; a commit failure (lock, I/O) leaves no
+    file and never overwrites an earlier one."""
+    import contextlib
+    import src.db.database as db
+    mid = _one_row_export(world, monkeypatch, datetime(2098, 5, 27, 11))
+    before = _history_count(mid)
+    real = db.session_scope
+
+    @contextlib.contextmanager
+    def failing_scope():
+        with real() as s:
+            yield s
+            s.rollback()
+        raise RuntimeError("database is locked")              # the commit on exit fails
+    monkeypatch.setattr(db, "session_scope", failing_scope)
+    with pytest.raises(RuntimeError, match="locked"):
+        ip.export(out_dir=str(tmp_path))
+    assert list(tmp_path.iterdir()) == []                      # no file, no .partial left behind
+    assert _history_count(mid) == before
+    monkeypatch.setattr(db, "session_scope", real)
+    path, _ = ip.export(out_dir=str(tmp_path))
+    assert [p.name for p in tmp_path.iterdir()] == [os.path.basename(path)] and not path.endswith(".partial")

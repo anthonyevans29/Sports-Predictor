@@ -36,6 +36,7 @@ export-unl-predictions stays the shadow, unchanged."
 from __future__ import annotations
 
 import json
+import os
 from datetime import datetime
 from pathlib import Path
 
@@ -121,6 +122,22 @@ def export(now: datetime | None = None, hours: int | None = None, out_dir: str =
     doc = {"sport": SPORT, "engine": ENGINE, "model_version": MODEL_VERSION, "production_allowed": b["why"],
            "exported_at": now.isoformat(), "count": len(b["rows"]), "fit": b["fit"], "predictions": b["rows"]}
     dp.maybe_annotate(doc, desk)
+    tmp = None
+    try:
+        path, tmp = _export_with_history(doc, now, out_dir, session_scope, has_prediction_history,
+                                         append_prediction_history)
+        # Codex on #325: published only AFTER the history commit (session_scope commits on exit), by an atomic
+        # rename; a failed commit leaves no file and never overwrites an earlier one.
+        os.replace(tmp, path)
+        tmp = None
+    finally:
+        if tmp and os.path.exists(tmp):
+            os.remove(tmp)
+    return path, doc
+
+
+def _export_with_history(doc, now, out_dir, session_scope, has_prediction_history, append_prediction_history):
+    """History rows + a TEMPORARY file in one transaction. Returns (final path, temp path); the caller publishes."""
     with session_scope() as s:                 # history + file together: a failed write rolls the history back
         # Codex on #325: this path writes no Prediction row, so the history IS the durable grading record
         # (export-intl-results reads only prediction_history). No history, no actionable file.
@@ -135,9 +152,10 @@ def export(now: datetime | None = None, hours: int | None = None, out_dir: str =
         doc["prediction_history_appended"] = n
         Path(out_dir).mkdir(parents=True, exist_ok=True)
         path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
-        with open(path, "w") as f:
+        tmp = path + ".partial"
+        with open(tmp, "w") as f:
             json.dump(doc, f, indent=2, default=str)
-    return path, doc
+    return path, tmp
 
 
 def history_rows(doc: dict, computed_at: datetime) -> list[dict]:

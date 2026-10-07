@@ -26,3 +26,4 @@
   - The Cockpit grades an INTL call only from that file, never from a fixtures file's extra-time score.
   - `export-intl-predictions` appends to `prediction_history` on every export, through the shared append helper. It still writes no `predictions` row.
   - The KXUEFANLGAME settlement rule (rules_primary) is not yet quoted: the build container's proxy refused the Kalshi API (403). It must be read before merge.
+  - the production file is written to a temporary path inside the history transaction and published by an atomic rename only after the commit; a failed commit leaves no file and never overwrites an earlier one.

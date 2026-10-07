@@ -1226,15 +1226,18 @@ def test_comparator_since_window_skips_settled_dated_files(tmp_path, capsys):
 def test_ncaa_market_covers_thursday_night_slates():
     cals, unit = _timers()["sp-ncaa-market.timer"]
     assert unit == "sp-chain@ncaa-market.service"
-    assert cals == ["Thu *-*-* 16:00:00 UTC", "Fri *-*-* 16:00:00 UTC", "Sat *-*-* 13:00:00 UTC"]
+    # Tue + Wed 16:00 (ARCHITECT 2026-10-07, addendum 2 item 8a): midweek FBS games get a host fixtures file
+    assert cals == ["Tue *-*-* 16:00:00 UTC", "Wed *-*-* 16:00:00 UTC", "Thu *-*-* 16:00:00 UTC",
+                    "Fri *-*-* 16:00:00 UTC", "Sat *-*-* 13:00:00 UTC"]
 
 
 def test_ncaa_market_syncs_results_before_the_export():
     """ARCHITECT 2026-10-02 (#254): Thursday games read SCHEDULED in Friday's export — sync-matches NCAA
     (single-day calls, yesterday + today) runs before the export so finished games leave the window."""
     steps = chains.CHAINS["ncaa-market"]["steps"]
-    assert [s[0] for s in steps] == ["sync-matches", "sync-matches", "sync-kalshi-ncaa", "export-fixtures"]
-    for st, d in zip(steps[:2], ("{yesterday}", "{today}")):
+    assert [s[0] for s in steps] == ["sync-matches"] * 3 + ["sync-kalshi-ncaa", "export-fixtures"]
+    # {tomorrow} (ARCHITECT 2026-10-07): 8pm-ET-or-later kickoffs fall on the next UTC date.
+    for st, d in zip(steps[:3], ("{yesterday}", "{today}", "{tomorrow}")):
         assert st == ["sync-matches", "--competition", "NCAA", "--season", "2026", "--date-from", d, "--date-to", d]
     assert "sync-matches" not in chains.UNMETERED
 

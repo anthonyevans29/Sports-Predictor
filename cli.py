@@ -1464,6 +1464,48 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
         console.print(f"[green]receipt written: {out_path}[/green]")
 
 
+@cli.command("mlb-actionable-receipt")
+@click.option("--season", default="2026", show_default=True, help="Match.season as the DB stores it (MLB: \"2026\").")
+@click.option("--seed", default=None, type=int, help="Bootstrap seed (default pinned: mlb_actionable.BOOT_SEED).")
+@click.option("--out", "out_path", default=None,
+              help="Receipt file (default docs/receipts/mlb-actionable-<UTC stamp>.md). Never data/; never overwrites.")
+def mlb_actionable_receipt_cmd(season, seed, out_path):
+    """READ-ONLY (ARCHITECT 2026-10-07, item 2; NO policy change): graded MLB predictions with a book close,
+    season to date, postseason split out. Rows: the prediction layer's tier (toss-up / lean / strong) x edge vs
+    the CLOSE (<0, 0-4, 4-8, 8-15, >=15pp). Columns: n, mean model p, mean close fair p, hit rate, hit − close (pp)
+    with a pinned-seed bootstrap 95% CI, flat-stake ROI at the close fair price. Rows without a book close are
+    excluded and counted. Writes nothing to the DB; the receipt goes to docs/receipts/ (commit it via PR)."""
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+    from pathlib import Path as _P
+
+    from src.walters import mlb_actionable as MA
+    from src.walters.unl_ladders import data_dir
+    stamp = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H%MZ")
+    root = _P(__file__).resolve().parent
+    tgt = _P(out_path).resolve() if out_path else root / "docs" / "receipts" / f"mlb-actionable-{stamp}.md"
+    _data = data_dir()
+    if tgt == _data or _data in tgt.parents:
+        console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+        raise SystemExit(2)
+    if tgt.exists():
+        console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
+        raise SystemExit(2)
+    with session_scope() as s:
+        rows = MA.collect(s, season=season)
+    res = MA.receipt(rows, seed=MA.BOOT_SEED if seed is None else seed)
+    text_ = MA.format_receipt(res, season=season, run_stamp=stamp)
+    print(text_, end="")
+    tgt.parent.mkdir(parents=True, exist_ok=True)
+    try:                                    # exclusive create: a receipt is never overwritten
+        with tgt.open("x", encoding="utf-8") as fh:
+            fh.write(text_)
+    except FileExistsError:
+        console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
+        raise SystemExit(2)
+    console.print(f"[green]receipt written: {tgt} — commit it via PR[/green]")
+
+
 @cli.command("k-track-receipt")
 @click.option("--ledger", "ledger_path", default=None,
               help="The Cockpit's ledger export (bd_ledger_v1_<date>.json) for the fills, CLV and call-to-fill part.")
@@ -4672,7 +4714,7 @@ def desk_rescore_cmd(files, out_path):
         console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
         raise SystemExit(2)
     lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
-    n = halved = 0
+    n = halved = quarantined = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
@@ -4685,12 +4727,16 @@ def desk_rescore_cmd(files, out_path):
         for x in rows:
             n += 1
             halved += x["verdict"] == "halved"
+            quarantined += x["verdict"] == "quarantined"     # its own transition, never "halved" (Codex on #328)
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
             lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {x['fair_edge_pp']:+.1f}pp · "
                          f"exec {xe} ({xc}) · units published {x['published_units']} / v1.1 {x['v11_units']} → "
                          f"addendum {x['addendum_units']} · {x['verdict'].upper()}")
     lines.append(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")
+    if quarantined:
+        lines.append(f"{quarantined} PLAY(s) now QUARANTINED (PASS, quarantine shadow) under the current Desk — "
+                     f"a quarantine transition, not counted as halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)
@@ -6031,6 +6077,56 @@ def ncaa_audit_cmd(seasons, limit):
 
     data = na.load(top=limit)
     na.report(data, seasons=tuple(seasons) or na.AUDIT_SEASONS, limit=limit, out=click.echo)
+
+
+@cli.command("ncaa-cfbd-labels")
+@click.option("--year", "years", type=int, multiple=True, required=True, metavar="YYYY",
+              help="CFBD season to ingest (repeatable): --year 2025 --year 2026.")
+@click.option("--from-file", default=None,
+              help="Replay a saved payload instead of the API (no network, no key). With several --year "
+                   "values the path must contain '{year}'.")
+@click.option("--dry-run", is_flag=True,
+              help="Fetch (or replay), join and print the receipt; write NOTHING (no DB row, no payload file).")
+@click.option("--save-dir", default=None,
+              help="Where the raw payload is saved (default exports/cfbd/; never under data/).")
+@click.option("--division", default="fbs", show_default=True,
+              help="Both teams' CFBD classification must equal this ('' = all).")
+@click.option("--unmatched-names", is_flag=True,
+              help="List EVERY unmatched source name with its game count (the operator's input for the "
+                   "pinned alias map, filled in a reviewed PR).")
+@click.option("--limit", type=int, default=15, show_default=True, help="Length of the sample lists.")
+def ncaa_cfbd_labels_cmd(years, from_file, dry_run, save_dir, division, unmatched_names, limit):
+    """NCAA CFBD LABEL LANE (ARCHITECT 2026-10-07, data lane): fetches CFBD
+    /games per season (CFBD_API_KEY from .env, never printed), saves the raw
+    payload under exports/cfbd/, joins each completed both-FBS game to OUR
+    NCAA match (exact names, then substring; either orientation; ambiguity
+    REFUSED; the pinned alias map src/ingestion/ncaa_cfbd_aliases.json) and
+    upserts ncaa_cfbd_labels (orientation, neutral, both scores in OUR
+    orientation). The matches table is never written. Take the .backup
+    first; needs migrate_ncaa_cfbd_labels.py (a --dry-run does not)."""
+    from src.ingestion import ncaa_cfbd as nc
+
+    try:
+        rc = nc.run(list(years), from_file=from_file, dry_run=dry_run, save_dir=save_dir, division=division,
+                    out=click.echo, limit=limit, unmatched_names=unmatched_names)
+    except nc.CFBDError as e:
+        click.echo(str(e))
+        raise SystemExit(2)
+    if rc:
+        raise SystemExit(rc)
+
+
+@cli.command("ncaa-cfbd-coverage")
+def ncaa_cfbd_coverage_cmd():
+    """NCAA CFBD label coverage (ARCHITECT 2026-10-07), read-only: per season
+    (2025, 2026) over the #79 gate's stream — stream games, covered by
+    ncaa_cfbd_labels, covered share, swapped, neutral, score-corrected, the
+    non-neutral home win rate, and whether the >= 95% coverage condition
+    holds (a computed fact; the gate stays SUSPENDED until the architect
+    reads it). Writes nothing."""
+    from src.walters import ncaa_backtest as nb
+
+    nb.coverage_report(nb.build_stream(nb.load_games()), out=click.echo)
 
 
 @cli.command("nhl-backtest")

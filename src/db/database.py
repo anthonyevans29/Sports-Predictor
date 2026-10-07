@@ -75,8 +75,22 @@ def init_db() -> None:
 
 
 def drop_db() -> None:
-    """Drop all tables. DESTRUCTIVE. Used for clean rebuilds in dev."""
+    """Drop all tables. DESTRUCTIVE. Used for clean rebuilds in dev.
+
+    drop_all() drops only MAPPED tables, so the unmapped one-row migration
+    marker (ncaa_cfbd_labels_migration, written only by
+    migrate_ncaa_cfbd_labels.py) is dropped here explicitly (Codex on #333):
+    otherwise it survives, init_db() recreates an empty ncaa_cfbd_labels, and
+    the ingest's guard reads "migrated" for a table the migration never made.
+    It is the only unmapped table in the schema (migrate_*.py otherwise add
+    columns/indexes to mapped tables, which drop with them)."""
+    from sqlalchemy import text
+
+    from src.ingestion.ncaa_cfbd import MIGRATION_MARKER
+
     Base.metadata.drop_all(_engine)
+    with _engine.begin() as conn:
+        conn.execute(text(f"DROP TABLE IF EXISTS {MIGRATION_MARKER}"))
 
 
 @contextmanager

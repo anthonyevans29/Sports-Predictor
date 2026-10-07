@@ -49,7 +49,9 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
     if not st.get("trading_active", False):
         report("Note: Kalshi trading not currently active (prices may be stale/closed).")
 
-    report("Discovering MLB game series…")
+    # Name the series actually discovered (2026-10-07: every sport printed "MLB").
+    _series_label = series_override or ", ".join(adapter.GAME_SERIES)
+    report(f"Discovering {_series_label} game series…")
     # optional: show what sports Kalshi exposes (helps debugging coverage)
     sf = adapter.sports_filters()
     if sf and sf.get("sport_ordering"):
@@ -61,7 +63,6 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
     # NFL phase 1c (2026-09-06): the two-sided matcher serves any US-team-
     # sport series — parameterized rather than copied. Non-MLB callers pass
     # their series ticker (KXNFLGAME); empty results report available sports.
-    _series_label = series_override or adapter.GAME_SERIES
     report(f"  fetching game series {_series_label}…")
     all_markets = (adapter.open_markets_for_series(series_override)
                    if series_override else adapter.game_series_markets())

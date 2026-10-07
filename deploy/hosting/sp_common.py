@@ -32,7 +32,7 @@ CHAIN_COUNT_TABLES = ("matches", "predictions", "prediction_outcomes",
 
 # Env names whose VALUES are secrets and must never reach a receipt.
 SECRET_ENV = ("API_FOOTBALL_KEY", "API_BASEBALL_KEY", "API_AMERICAN_FOOTBALL_KEY",
-              "API_HOCKEY_KEY", "ODDS_API_KEY", "NTFY_TOPIC", "NTFY_CARD_TOPIC")
+              "API_HOCKEY_KEY", "ODDS_API_KEY", "CFBD_API_KEY", "NTFY_TOPIC", "NTFY_CARD_TOPIC")
 _KEYISH = re.compile(r"(?i)\b(api[_-]?key|token|secret|password|authorization)\b(\s*[=:]\s*)\S+")
 
 
@@ -64,7 +64,15 @@ def load_host_env() -> None:
 
 
 def setting(name: str, default: str | None = None) -> str | None:
-    return os.environ.get(name, default)
+    """The process environment, else host.env (host), else the checkout's .env (laptop), else `default`.
+    The environment always wins. ARCHITECT 2026-10-07 (addendum 2, item 8b): the laptop's .env carries the
+    mirror's settings, so a documented line cannot be half-typed (the precedent is writer_of_record)."""
+    v = os.environ.get(name)
+    if v is None:
+        v = parse_env_file(HOST_ENV).get(name)
+    if v is None:
+        v = _dotenv().get(name)
+    return default if v is None else v
 
 
 def receipts_path() -> Path:

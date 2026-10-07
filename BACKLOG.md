@@ -22,6 +22,293 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-06 — RULED + BUILT (ARCHITECT, #286): UNL skew test v2, all ten definitions ratified.**
+- **Ruling (verbatim):** "ALL TEN RATIFIED as recommended — (1) exclude the exploratory 17 by match id; (2) book side = venue engine's own rules (>=4 books, capture <=3h before the Kalshi capture); (3) bootstrap pinned exactly as #291 implements (Random(20261005), one choice per draw, 10,000 sorted means, CI at indices 250/9749); (4) --max-spread 0.10 frozen for every UNL sync in the sample; (5) latest pre-kickoff capture, rejected if any leg incomplete, never an earlier board; (6) receipt refuses without the ticker column; (7) CANCELLED/POSTPONED/STALE_ORPHAN excluded from the cohort, listed; (8) one event ticker per board; (9) two-sided = 0 < bid <= ask < 1 on every leg; (10) exact tie only. The operator's 13:29Z acceptance criteria are consistent and adopted; the FREEZE CUTOFF moves to the ratification time of this ruling — anything inspected before it is exploratory."
+- **Built:** the spec is now v2 and the receipt implements all ten definitions. The freeze cutoff is `2026-10-06T14:35:31Z`, the relay time on #286 (not earlier than the ratification). The 09:13Z capture of 2026-10-06 is exploratory. UNL syncs are frozen at `--max-spread 0.10`.
+- **Operator:**
+  - Record the 17 exploratory match ids from the laptop DB in `unl_ladders.EXPLORATORY_MATCH_IDS` via PR. Running `unl-ladder-receipt --since 2026-10-04T00:00Z` lists them with their capture times. `--skew-test` refuses until all 17 are recorded.
+  - On the first live receipt, confirm each row's event reads as one Kalshi event.
+- **Count:** 0 of 30 fresh games. UNL stays ineligible for venue-edge throughout.
+
+**2026-10-06 — UNL exploratory 17 pinned as excluded by match id (#286 ruling 1); receipt spliced into docs/receipts/.**
+- **Ruling (ARCHITECT, verbatim):** "UNL exploratory 17 (ruling 1), by match id, from the 2026-10-05T15:33:57Z capture: 31887, 31888, 31890, 31891, 31892, 31893, 31894, 31895, 31896, 31897, 31898, 31899, 31900, 31901, 31902, 31903, 31904. Pin as excluded; the fresh 30 start with the first qualifying capture after 2026-10-06T14:35:31Z (next UNL window: November). Receipt pushed on laptop/unl-exploratory-17."
+- **Pinned:** `unl_ladders.EXPLORATORY_MATCH_IDS` holds exactly these 17 ids (`EXPLORATORY_N` = 17), so `unl-ladder-receipt --skew-test` no longer refuses on ruling 1. The freeze cutoff (`2026-10-06T14:35:31Z`) and the sample rule are unchanged; they already match "the first qualifying capture after" the cutoff.
+- **Splice:** `docs/receipts/unl-exploratory-17.md` comes from `laptop/unl-exploratory-17` (9d30b5a, the operator's commit, kept as is). Its header reads "exploratory ids recorded: 0/17" because it ran before this pin.
+- **What the receipt shows (read, not assumed):** it lists games kicking off between 2026-10-05T00:00Z and its run time (about 18:37Z on 10-06), so it shows 8 of the 17 ids.
+  - Seven are SAMPLE rows on the 15:33:57Z capture: 31887, 31888, 31890–31894.
+  - 31895 (FRO @ KAZ, kickoff 10-06T14:00Z) is listed with its last pre-kickoff capture (10-06T13:13Z, 1 book) and is excluded under ruling 2.
+  - 31889 (TUR @ ITA) had no Kalshi capture and is not one of the 17.
+  - The other 9 ids (31896–31904) kick off after the receipt's run time, so it could not list them. They kick off after the freeze cutoff, which is why pinning them by id matters: their 10-05 capture was inspected.
+- **Effect:** #286 stays open until the fresh 30 (November's UNL window).
+
+**2026-10-06 — SWEEP (ARCHITECT 2026-10-05 rule): post-merge Codex finding on merged #304.**
+- **Finding:** "Preserve migration age across migration-to-migration renames". This thread was unanswered after merge.
+- **Verified on main:** add `migrate_temp.py`, then `migrate_y.py`, then rename temp → `migrate_x.py`. The plan was `run ['migrate_y.py', 'migrate_x.py']` with nothing undetermined, reversing the real introduction order.
+- **Fix (final shape, after five Codex rounds on #305):** lineage is not reconstructed path by path. If ANY diff in the range deletes a migration (merge parents included via `-m`; `--no-renames`, so moves, rewrites, replacements and split copy-then-delete all show a deletion), every new migration is undetermined, and the deploy prompt warns that any of them may be an applied migration under a new name. New migrations with identical content (an in-range copy, source kept) are undetermined. For every undetermined migration, the prompt now names the deleted migrations, points to a range-wide `--no-renames` listing (`--follow` misses a rewritten move), and says never to re-run a rename or copy. It no longer implies that all listed names run.
+  - Rounds 2–4 built a per-path taint scan; round 5 still found shapes it missed. The whole-plan rule replaces it. One cost: a range that deletes a migration for an unrelated reason now leaves its plan to the operator. That errs in the safe direction (architect: the conservative design is right).
+- **Receipt:** every new test fails on the code it fixes and passes here. `pytest`: 803 passed, 1 skipped.
+
+**2026-10-06 — RULED (ARCHITECT): quoted heredocs only for PR text, a standing rule.**
+- **Ruling (verbatim):** "CLAUDE.md: quoted heredocs only for PR text — standing rule."
+- **Incident:** an unquoted heredoc for #290's body ran the backticked spans as commands. One of them, `python cli.py nfl-grade` with no DATABASE_URL set, created an empty `data/sports.db` in the cloud container (0 tables; never committed; the laptop and host DBs were untouched). The file and its sidecars were removed on the operator's instruction, and the body was repaired.
+- **Recorded:** a Workflow bullet in CLAUDE.md.
+
+**2026-10-06 — RULED + BUILT (ARCHITECT): prediction_history lane (#300; #87 v1.1 rule 6).**
+- **Ruling (verbatim):** "Finding: no prediction history is kept, so model-vs-cost can't be evaluated per capture (NFL 47/65 not evaluable). LANE: prediction_history — append (match, model_version, p, computed_at) on every predict run; the window chain's hourly re-predicts become a stored series. Small, host-side, in the next tag."
+- **Built:**
+  - Table `prediction_history` (append-only; no FK to `predictions`, whose rows are replaced).
+  - A session `after_flush` hook in `src/db/database.py` copies every new `Prediction` into the table in the same transaction. One hook covers all three write sites and any future one.
+  - `migrate_prediction_history.py` creates the table.
+  - `CHAIN_COUNT_TABLES` gains the table.
+- **Conservative unknowns:** before the migration, the predict path never fails on record keeping. History is skipped with a warning naming the migration. There is no backfill, because the overwritten rows are gone.
+- **Receipts:** `tests/test_prediction_history.py` covers:
+  - two `predict-nfl` runs give two history rows and one current prediction, and the last history row equals the current prediction;
+  - any write path appends;
+  - a rollback leaves no history;
+  - before the migration, the warning fires and predictions still write;
+  - the migration is idempotent and creates the table on an old DB.
+  - `pytest -q`: 775 passed.
+- **Operator (host, next tag):** `sp_deploy` lists `migrate_prediction_history.py` and prints the exact `--run-migrations` command (backup + migration under one lock). Run `python migrate_prediction_history.py` on the laptop after the daily backup.
+
+**2026-10-06 — SWEEP (ARCHITECT 2026-10-05 rule): post-merge Codex findings on merged #296 / #297.**
+- **Five unanswered findings were verified on main; all five reproduce:**
+  - #296 copies: an unchanged copy was planned as runnable.
+  - #296 merge grouping: a merged branch's ordered migrations were marked "added together".
+  - #297 ledger validation: a malformed `fills` gave a traceback.
+  - #297 shared city words: a Giants–Rams fill fit a Jets–Chargers call, even on #299's head.
+  - #297 unpriced count: it was not windowed.
+- **Fixed here:** the first three, each with a test that fails before the fix and passes after. The merge-grouping case was also reproduced on the old code with a standalone script.
+- **Fixed on #299** (the open PR that rewrites that code): the last two. The thread replies name the commits.
+
+**2026-10-06 — RULED + BUILT (ARCHITECT): NFL grading, one record definition.**
+- **Ruling (verbatim):** "the push and pre-live rules apply everywhere the record is stated: nfl-grade, the NFL section of RESULTS.md, and the season-to-date results file use ONE definition — live_since onward, ties as pushes outside the hit denominator, pre-live rows under their own heading."
+- **Built:**
+  - `grade_nfl` returns `games`, `decided`, `hits` and `pushes` for live rows, plus a separate `pre_live` tally.
+  - The per-game line reads `PUSH` for a tie, the summary reads `sides H/D decided (+P push)`, and pre-live rows print under their own line.
+  - Log-loss and the CLV means cover live rows only.
+  - The RESULTS.md NFL section is season to date from `live_since`, with a `### NFL pre-live (…; never pooled)` sub-heading.
+- **Unchanged:** the gate and its tie convention, every prediction, and the results-file contract.
+- **Operator:** after merge, run `python cli.py nfl-grade` and regenerate RESULTS.md.
+
+**2026-10-06 — MLB adapter: statsapi's pre-game 0-0 is null on S / P / PW rows (law 4).**
+- **Ruling (ARCHITECT, verbatim):** "SMALL, daily-class, separate PR: the MLB adapter passes statsapi's pre-game 0-0 through on SCHEDULED rows (the 21:23Z export carried actual scores 0 / 0 on LAD@ATL, 36 minutes before first pitch). When the coded state is S, P or PW, both scores are null (law 4). One test."
+- **Built:** `_PREGAME_STATES = {S, P, PW}`; `_parse_game` nulls both scores for those states. An unmapped code still maps to SCHEDULED and is not touched; the ruling names three states.
+- **Residual (read, not assumed):** the match upsert overwrites scores only when the feed sends one (`service.py`, "don't blank a finished match").
+  - A game synced before this lands keeps its stored 0-0 until its first live or final score arrives.
+  - That self-heals by first pitch. No DB write was made to clear it.
+
+**2026-10-06 — Kalshi trade-API probe signs with Ed25519 keys as well as RSA, chosen by key type (ARCHITECT); still read-only.**
+- **Ruling (verbatim):** "(2) Kalshi now issues Ed25519 keys (PKCS#8, `MC4CAQAwBQYD…`); the probe's signer assumes RSA-PSS. Support Ed25519 (detect by key type), keep RSA; read-only probe only, no order code."
+- **Built (`scripts/kalshi_trade_api_probe.py`):** the signer is chosen by the loaded key's type. Ed25519 signs `timestamp_ms + METHOD + path` directly. RSA keeps RSA-PSS (MGF1-SHA256, salt = digest length).
+  - Any other key type is refused, never guessed.
+  - The key file may be PEM or a bare base64 PKCS#8 body (the form issued: `MC4CAQAwBQYD…`), read as DER.
+  - A parse failure names the formats tried and never echoes key material.
+  - The AUTH receipt names `key_type`.
+  - Still GET-only by construction: no order code was added.
+- **Assumption, stated:** the signed message (`timestamp_ms + METHOD + path`, base64 signature, the same headers) is unchanged for Ed25519 keys. The probe's own AUTH line (HTTP 200 on `/portfolio/balance`, `key_type ed25519`) is the receipt that confirms it on the host.
+- **Receipts:** `tests/test_kalshi_trade_probe.py` covers Ed25519 in both PEM and bare base64 (the signature verifies with the public key), RSA still on PSS, EC refused, and an unparseable key refused without echo.
+  - This container's own `cryptography` panics, so these tests skip here.
+  - Run in a scratch venv with `cryptography` 50.0.2: 6 passed, and 3 fail on main. CI installs `requirements.txt` and runs them.
+  - Full suite here: `pytest` 822 passed, 4 skipped.
+
+**2026-10-06 — BUILT (ARCHITECT): the K-track receipt for the executable-edge ruling (#87), with #75 folded in.**
+- **Ruling (verbatim):** "K-TRACK RECEIPT for the executable-edge ruling (#87, two-week window closes 10-07): every ladder captured since 9-23 — spreads, two-sidedness, fee-clear rate at maker and taker cost, by sport; plus the 4 executed fills' CLV. One command, read-only; the ruling follows the receipt." Also: "#75 acceptance criteria (call-to-fill reconciliation: UNAVAILABLE / UNATTEMPTED / ATTEMPTED_UNFILLED / MATCHED / UNKNOWN, exactly once per eligible call, reconciled to the trading ledger) — ADOPTED and FOLDED INTO the #87 K-track receipt. The 10-05 figures are execution evidence, not edge proof, as stated."
+- **Built:** `python cli.py k-track-receipt --ledger <bd_ledger_v1_*.json> --out docs/receipts/<file>`.
+- **Definitions stated in the receipt and declared for the ruling:**
+  - Fee-clear is the Desk's own K2 rule, (reference p − cost) ≥ 4pp, at both costs.
+  - The two references are never pooled: model (pick leg, live model sports MLB/NFL/PL only) and book (venue engine: ≥ 4 books, ≤ 3h old, best leg).
+  - Eligible call = a real straight or ladder, units > 0, not a shadow, kickoff in the window.
+  - UNAVAILABLE = no executable cost recorded for the pick side.
+  - A recorded cost with no matched fill = UNKNOWN. The ledger holds no order records, so UNATTEMPTED vs ATTEMPTED_UNFILLED is never inferred.
+- **Fills:** the export does not store each fill's book or call. The receipt reads them through a line-for-line port of the Cockpit's classification. Parity is 24/24 against the Cockpit's own JS on the fixture ledger.
+- **Operator:** export the ledger from the Cockpit, run the command on the laptop, and commit the output under `docs/receipts/` via PR. The 4 matched fills should read as the 10-05 record: +$5.96, −0.23pp, −1.83pp.
+
+**2026-10-06 — K-track receipt spliced into docs/receipts/ (#87 ruling evidence on file); Sunday's four PLAYs re-scored: 0/4 halved.**
+- **State sync (ARCHITECT, verbatim):** "desk-rescore run (0/4 halved); K-track receipt re-run (system_matched 3, UNKNOWN 1 = the GB side error, 3 composite NO fills off-book) and PUSHED on laptop/k-track-receipt — splice into docs/receipts/; migrate_prediction_history run on the laptop (0 rows, as expected). #305's conservative design is right — merge when Codex clears 2e53038; after that the migration-plan lane is closed unless a real deploy hits a case."
+- **Splice:** `docs/receipts/k-track-2026-10-06.md` comes from `laptop/k-track-receipt` (687b0f1, the operator's commit, kept as is). That is ruling (g) on #303: "the receipt file is committed from the laptop". This puts the receipt half of #303's "effect receipt is pending" on file. The `desk-rescore` console half is NOT on file (see the effect receipt below), so the pending line is not closed by this entry.
+- **Receipt checked against the ruling's quoted figures (read, not assumed):**
+  - Venue gaps fee-clear vs book: NFL taker 0/29, NHL 0/32, NCAA 2/18, UNL 0/17. All match the ruling's text.
+  - NFL model-vs-cost: 47 of 65 not evaluable for lack of prediction history. Matches. That is the prediction_history lane (#300 / #301).
+  - Fills: `system_matched 3` (Houston, Seattle, Jacksonville, all taker). This is the post-#299 count.
+  - The three composite NO fills (AVL, CFC, MUN three-way NO legs) are booked off_book_sports.
+  - Reconciliation: 13 eligible calls, 3 MATCHED, 9 UNAVAILABLE, and 1 UNKNOWN. The UNKNOWN is GB @ TB, pick HOME, `claim_exec_cost 0.417`, with no matched fill. The Green Bay YES fill disagrees with the pick's side: the architect text error of 10-04, recorded on #87.
+- **Effect receipt (rule 3):** `desk-rescore` on Sunday's four PLAYs: 0/4 would have been halved, per the architect state sync above. The console output and per-PLAY rows are not committed anywhere. Whether the state sync stands in for them is escalated (`needs-ruling`, Codex on #306).
+- **Window coverage:** the receipt's header names the ruled window 2026-09-23T00:00Z → 2026-10-08T00:00Z, but it was committed on 2026-10-06. It covers captures and calls only up to its run time; the rest of 10-06 and all of 10-07 are not in it. Whether it is kept as a partial receipt or re-run after the window closes is escalated (`needs-ruling`, Codex on #306).
+- **prediction_history:** `migrate_prediction_history.py` ran on the laptop and created the table with 0 rows, as expected. The host runs it via the `sp_deploy` migration command at the next tag.
+- **1c-spread share (ARCHITECT, observation accepted, verbatim):** "receipt observation accepted — amend the #87 ledger entry to 'MLB/NFL/NHL/UNL 85–99%, NCAA 82%, PL 72% (n=6)'; the ruling's cost model is unchanged."
+  - Recorded: MLB/NFL/NHL/UNL 85–99%, NCAA 82%, PL 72% (n=6). The #87 cost model (ask + taker fee) is unchanged.
+
+**2026-10-06 — RULED + BUILT (ARCHITECT-RULE): #87 executable edge, Desk v1.1 addendum (effective next slate).**
+- **Receipt that preceded the rule (ARCHITECT, verbatim):** "K-track receipt (ladders half) — 1c spreads 85–99%, venue 5pp gaps fee-clear 0/29 NFL · 0/32 NHL · 2/18 NCAA · 0/17 UNL. Finding: no prediction history is kept, so model-vs-cost can't be evaluated per capture (NFL 47/65 not evaluable)."
+- **Rule (verbatim):** "1. COST MODEL: Kalshi game ladders are 1c wide 85–99% of the time; the spread is not the cost, the fee is. Executable cost = ask + taker fee (0.07·M·P(1−P), nearest cent per fill). 2. DOCTRINE: default execution is TAKE at the ask. Join-bid only when the spread is >= 3c (rare); on 1–2c spreads a resting bid is adverse selection, not savings. The 2026-09-30 join-bid doctrine is superseded. 3. EXECUTABLE EDGE = model_p − executable cost. SIZING: a PLAY at full tier units only when executable edge >= 4pp; a PLAY whose fair edge clears 4pp but whose executable edge does not gets HALF units (the fee-clear marker becomes a sizing input, no longer informational). Quarantine, floors, tiers unchanged. 4. VENUE ENGINE: the 5pp fair threshold stands AND the executable edge must clear 4pp — 0/29, 0/32, 0/17 in the window says most venue calls will PASS; that is the honest state of the engine. 5. Kalshi-only reference unchanged. Parlays: ticket legs priced at executable cost; the independence-estimate label stands. 6. RECORD KEEPING: prediction_history lane (ruled) so model-vs-cost is evaluable per capture; Kalshi order ids require the order API — UNATTEMPTED/ATTEMPTED_UNFILLED stay UNKNOWN until then. Receipt for the ruling's effect: Sunday's four PLAYs re-scored under rule 3 (which would have been halved) before the slate."
+- **Built:** `src/walters/desk_policy.py` holds the policy. The Cockpit renders it and its ledger join bid follows rule 2. `desk-rescore` produces the effect receipt.
+  - Rule 6 is split out: prediction_history is #300 / #301, and the order-id limitation is #302.
+- **Conservative defaults, flagged for confirmation (not in the rule's text):**
+  - (a) A PLAY with NO executable quote gets half units. This includes soccer AWAY/DRAW picks whose leg ask was not captured.
+  - (b) A venue row with no executable quote is PASS with no reference.
+  - (c) A parlay ticket with an unpriced leg is not offered.
+  - (d) Half units compose with the kalshi-only 0.5× multiplier, so a kalshi-only PLAY failing exec plays 0.25u.
+  - (e) LADDERs are not resized (rule 3 says "a PLAY"; ladders are already half units).
+- **Receipts:**
+  - The golden holds unchanged under `base_v11()`.
+  - `tests/test_desk_exec_addendum.py` has 10 tests.
+  - All 23 Cockpit verifies pass, and the new addendum verify is 9/9.
+  - `pytest` shows 780 passed.
+- **Operator:** run `python cli.py desk-rescore <Sunday's desk exports>` on the laptop. That receipt goes to the architect before the slate.
+- **ARCHITECT RULINGS on (a)–(j), 2026-10-06 (verbatim):** "(a) PLAY with no executable quote → HALF units — ratified. (b) venue call with no executable quote → PASS — ratified. (c) ticket with an unpriceable leg → not offered — ratified. (d) exec-half stacks with kalshi-only half (0.25u) — ratified. (e) LADDERs not resized by the addendum — ratified for now; revisit at the first 30 graded ladders. (f) #218 re-scoped: "maker fills exist only at spreads >= 3c"; stays pending on real fills. (g) the receipt file is committed from the laptop (operator pushes docs/receipts/k-track-2026-10-06.md); cite it as such. (h) YES — price each order at its own contract count; the 10-contract assumption was provisional and ends here. (i) YES — the venue engine picks the best side among those that clear BOTH gates. (j) NO change — parlay ladder legs stay straight-on-pick (#183 semantics); double-chance legs are a v1.2 candidate. Join at bid+1c on >= 3c spreads — ratified. Apply (h) and (i); then #303 is merge-ready."
+  - **(h) built:** `order_contracts` gives the count `order_line` writes. `taker_cost_for(r, side, units)` prices the fee per fill of that count. The PLAY gate prices the order placed if it clears, and a halved PLAY reports `order_cost` beside it. Venue and parlay orders are 0.25u, which is 2 contracts.
+    - The export's informational K-track fields (`exec_cost_taker*`, venue.py `K_ORDER_CONTRACTS`) stay at 10 contracts. The Desk no longer reads them for sizing.
+  - **(i) built:** the venue side is the largest fair divergence among the sides that clear 5pp fair AND 4pp exec. When none clears both, the largest-divergence side is reported with its PASS reason.
+  - **Receipt (g):** `docs/receipts/k-track-2026-10-06.md` is NOT in this PR. The operator commits it from the laptop, together with the `desk-rescore` output on Sunday's exports. Until it lands, the effect receipt is pending.
+  - **Revisit (e):** at the first 30 graded ladders.
+  - **Tests:** `test_h_each_order_is_priced_at_its_own_contract_count`, `test_i_venue_backs_the_best_side_that_clears_both_gates`. The addendum verify is 11/11 and `pytest` shows 783 passed.
+
+**2026-10-06 — BUILT (ARCHITECT, cutover-readiness first live run NOT-YET): host receipts carry the running release.**
+- **Ruling (verbatim):** "(b) receipts.jsonl carries no release — sp_run must stamp the running tag into every receipt (patch, host-side); (c) follows (b). Also the host deploy flagged migrate_kalshi_ticker.py — sp_deploy should print the exact run-by-hand command."
+- **Root cause (reproduced):**
+  - Every receipt already went through `append_receipt`, which stamps `running_release()`, and every tag from v1.0.0 to v1.2.3 carries that stamp. The release was null, not missing.
+  - The checkout (`/opt/sports-predictor`) is root-installed and the units run `User=sp`. Git refuses a repository owned by another user ("detected dubious ownership"), so every git read returned None.
+  - Reproduced on git 2.43: a repo owned by `nobody` fails a plain `rev-parse` and passes with `-c safe.directory=<repo>`.
+- **Built:**
+  - `_git` passes `safe.directory` for REPO only.
+  - A still-null release is receipted with `release_error` (law 4: never a guessed tag, always a stated reason).
+  - `sp_deploy` prints the exact backup-then-migrate command for each new migration.
+- **Operator:** this takes effect on the host only through a release tag; the architect cuts it. After deploy, the next receipt should read `release: vX.Y.Z`. If it is still null, `release_error` names why.
+
+**2026-10-06 — RULED + BUILT (ARCHITECT): fill matcher lane.**
+- **Ruling (verbatim):** "YES — fill matcher as its own lane: event-ticker start time for doubleheaders; three-way NO = composite (two outcomes), never a single-side straight; Cockpit and port together, parity preserved."
+- **Built (Cockpit `tools/cockpit.html` and port `src/walters/ledger_fills.py`):**
+  - `parseTicker` carries `start`: the ticker's HHMM, read as US Eastern time per the verified `ticker_start` (M13), converted to UTC with DST. `matchFill` keeps candidates within 3h of it, nearest first, so a doubleheader's game-2 fill no longer lands on game 1.
+  - `resolveSide` returns COMPOSITE for a NO on a three-way family's HOME/AWAY leg. `matchFill` never books it as a straight: off-book where a call exists; a UNL single with no call stays in the fun book (ruled 2026-09-30).
+  - The Cockpit re-parses every stored ticker on classification.
+- **Receipts:**
+  - Parity with the Cockpit's own JS: 30/30, with new doubleheader and composite cases.
+  - Cockpit verifies: fills 44/44, exposure 16/16, CLV 19/19, ledger 21/21, render 21/21, exec 19/19.
+  - `pytest -q`: 758 passed.
+- **Operator:** the repo Cockpit is not the live one. The matcher change reaches the published artifact on its next republish, and the receipt port matches it from merge.
+- **MATCHER BUG (ARCHITECT, 2026-10-06, verbatim):** "fill KXNFLGAME-26OCT04GBTB-GB yes (Green Bay) was classified system_matched against a call whose pick was HOME (Tampa Bay). The ticker suffix names the side; a fill whose side != the call's pick is off_book "side disagrees", never matched. Fix in Cockpit + port (parity), regression with this exact fill, reclassify: system-matched becomes 3 fills. The K-track receipt re-runs after. Cause of the bet: an architect text error on 10-04 — record it on #87."
+  - **Cause in code:** side agreement compared names by any shared word, and "Green Bay" and "Tampa Bay" share "Bay".
+  - **Fix:** with a ticker role, agreement is role == pick. Without one, it is a whole-name subset. This applies to logged calls and stored predictions alike.
+  - **Receipts:** the regression uses the exact fill, booked `system_matched` before the fix. Parity is 34/34, all 23 Cockpit verifies pass, and `pytest` shows 763 passed.
+  - **Operator:** re-import is not needed, because fills re-classify on load. Re-run `k-track-receipt` once this merges.
+
+**2026-10-06 — Evening rulings: #310 merges at 99faed0 (follow-up amends e1a2146); requirements-install lane closes at that merge; staged virtualenv declined (#312); #309 and #311 approved.**
+- **Ruling (1) (ARCHITECT, verbatim):** "#310 MERGES AT e1a2146 once CI is green on that commit. Ten review rounds, and round 10 brought seven more fixes and one declined finding, mostly for layouts this host does not have: the review is not converging. Push nothing further to #310 unless CI fails on e1a2146 (then fix only that). Do not request another review on it. Post "green, MERGE-READY" when CI passes; Anthony merges."
+- **Ruling (2) (ARCHITECT, verbatim):** "REQUIREMENTS-INSTALL LANE CLOSED at that merge, by the same rule as the migration-plan lane: further cases only from a real deploy. The merged-PR sweep still answers every thread that arrives on #310. A finding is fixed (one follow-up PR) only if it reproduces on the production layout: the checkout's own venv with pip, the repo's own requirements.txt (plain specifiers, no includes), a deploy run under the DB lock. Every other thread gets the reply "closed lane (ARCHITECT 2026-10-06): hypothetical layout; reopens from a real deploy" and no code change."
+- **Ruling (3) (ARCHITECT, verbatim):** "STAGED VIRTUALENV: DECLINED for now. Open a limitation Issue (labels from the fixed set) carrying this text. Reason: requirements.txt holds lower bounds, so pip without --upgrade only adds what is missing and a failed run is additive in practice; the install runs under the DB lock, is receipted, and prints its recovery; since round 10 a failed run drops the install record, so the next deploy reinstalls. Reopening condition: a real deploy leaves the venv in a state that breaks a chain, OR requirements move to exact pins or a lock file, OR a second production host exists." Opened as #312 (track:ops, class:limitation, sport:all, size:M).
+- **Ruling (4) (ARCHITECT, verbatim):** "#309 and #311: diffs read, review threads answered or clean. APPROVED; Anthony merges." Both are merged.
+- **Amendment: follow-up ruling (ARCHITECT, 2026-10-06 evening, verbatim):**
+  - "(1) #310 MERGE POINT: 99faed0, its head. Round 11 was pushed and green before ruling (1) reached you, and resetting the branch to drop it would be churn for no gain. Everything else in rulings (1) and (2) stands: nothing further pushed, no further review requested, lane closed at the merge. Your handling of the five 22:04Z threads (closed-lane replies, no code change) is exactly the rule. Post "green, MERGE-READY" on #310 now."
+  - "(2) #316: add this amendment to the fragment (the ruled merge point is 99faed0), then it is APPROVED."
+  - "(3) #314 APPROVED. Architect receipts, run on the branch at 87b5f62: desk_parity_verify 14/14 (golden holds with the rule off); 50 Desk tests pass (started rule, golden, exec addendum, order line, fee-clear boundary); on tonight's real files the 21:23Z MLB export reproduces row for row, the finding's own receipt now reads PASS / started with no order, exec or value shadow, the still-ahead game keeps PLAY 0.25u and its order line, as_of == kickoff is started and one second earlier is unchanged, an unknown kickoff is not started, all 47 NHL venue blocks are identical, and the parlay builder skips the started game. Today's Cockpit build and the PR's build both render a started-row file without errors."
+  - "(4) #315 APPROVED."
+- **The ruled merge point is 99faed0.** It supersedes e1a2146 in ruling (1); the rest of rulings (1) and (2) stands.
+  - "green, MERGE-READY" was posted on #310 after this follow-up. At that point CI was green on 99faed0, the PR merged clean against main (after #314 and #315), and nothing had been pushed since.
+- **State at recording (read, not assumed):**
+  - CI is green on e1a2146 (smoke, closing-refs, fragments).
+  - #310's head is 99faed0. Its round-11 fixes were pushed at 21:54Z, before ruling (1) arrived, and CI is green there too.
+  - Nothing has been pushed to #310 since, and no review was requested.
+  - The merge point was then an open question; the follow-up above settles it (99faed0).
+  - Codex posted 5 threads on 99faed0 at 22:04Z (PIP_TARGET, C-quoted paths, external-venv upgrade, a post-checkout hook, options after markers). None reproduces on the production layout:
+    - 0 non-ASCII tracked paths;
+    - requirements.txt has plain specifiers only;
+    - no PIP_* variable in host.env.example;
+    - no shipped hooks;
+    - the checkout's own venv.
+  - Each got the ruled closed-lane reply and no code change.
+
+**2026-10-06 — A started game is never a new call, now enforced in the Desk file: PASS / started (#313).**
+- **Finding (ARCHITECT, verbatim):** "FINDING: the Desk file can print PLAY with an order line for a game that has already started. Receipt: desk_policy.annotate on exports/mlb_MLB_2026-10-06.json (git d316376), as_of 2026-10-07T00:30:00Z, with the LAD@ATL book fair set to HOME 0.55 / AWAY 0.45, returns PLAY 0.5u and "BUY YES KXMLBGAME-26OCT061800LADATL-LAD @ 0.51 × 5" for a game whose first pitch was 22:00Z. kalshi_only_ref and venue_edge refuse in-play; the book-reference path in desk_call has no kickoff check. The Cockpit's capture guard keeps such a row out of the ledger and the window card never lists started games, so the exposure is the per-sport file, its console count and its order line whenever a staggered slate is re-exported at T-60 (MLB postseason nights, NFL Sundays)."
+- **Ruling (ARCHITECT, verbatim):** "RULING: "a started game is never a new call" (#49 (b), 2026-09-28) is enforced in the file. A model-sport row whose kickoff is at or before desk as_of is PASS, units 0, pass_kind "started", reason "started - never a new call", no order, no value shadow, never a parlay leg. The pre-kickoff file and the ledger stay the record of the call. An unknown kickoff is unchanged (never guessed). Build it behind its own switch so the frozen golden holds with it off; if a golden row is affected, name it in the PR, never regenerate silently. Tests: a started row with a clearing edge reads PASS / started; the same row one minute before kickoff is unchanged; parlays skip it. The repo Cockpit renders the class from the file. Wanted before Sunday's NFL slate."
+- **Built:**
+  - `desk_policy.STARTED_RULE` (on), checked first in `desk_call`. `has_started` treats a NaN kickoff as not started.
+  - When the rule fires, `evaluate` skips the value shadow and `desk_block` writes no exec block.
+  - Parlays already take non-PASS calls only.
+  - `base_v11()` turns the rule off.
+- **Golden:** the golden is not regenerated; with the rule off it holds (0 mismatches).
+  - With the rule on, the battery changes only started call rows: 220 across three scenarios, 40 of which were PLAY or LADDER before. The PR body names them.
+  - Every non-started row is unchanged, and every value shadow that survives is identical.
+- **Effect:** a T-60 re-export of a staggered slate (MLB postseason nights, NFL Sundays) no longer prints an order for a game in play. The pre-kickoff file and the ledger stay the record.
+
+**2026-10-06 — ARCHITECT rulings: edited copies are new migrations; #305 merged and the migration-plan lane CLOSED; the #306 receipt questions settled; desk-rescore now writes its receipt into docs/receipts/.**
+- **Rulings (ARCHITECT, verbatim):** "(1) edited copy of a migration = a NEW migration — keep as is; byte-identical copies stay undetermined. (2) #305 merges at 00eac85; the migration-plan lane is CLOSED — further cases only from a real deploy. (3) #306: the state sync stands in for the desk-rescore console this once; from now on desk-rescore writes --out into docs/receipts/. The 10-06 receipt stays as the ruling's evidence (partial window); a FINAL receipt is re-run on 10-08 and committed beside it, both dated."
+- **(1)** `sp_deploy.migration_plan` is unchanged. An edited copy is new; byte-identical copies stay undetermined (#305 round 4). This settles the declined Codex round-6 P1 on #305.
+- **(2)** #305 merged at 00eac85. Migration-plan cases reopen only from a real deploy.
+- **(3) Built:** `desk-rescore` writes its console to `docs/receipts/desk-rescore-<UTC stamp>.md` by default. `--out` names another file. It refuses `data/` and never overwrites an existing receipt.
+  - The 10-06 effect receipt (0/4 halved) stands on the architect's state sync, this once.
+  - `docs/receipts/k-track-2026-10-06.md` stays as the ruling's evidence, labelled a partial window.
+  - **Operator, on 10-08 (after 2026-10-08T00:00Z):** run `python cli.py k-track-receipt --ledger <export> --out docs/receipts/k-track-2026-10-08-final.md` and commit it via PR beside the 10-06 file. Both are dated. Tracked as #308.
+- **Receipts:** `tests/test_desk_exec_addendum.py` covers the receipt write, the refused overwrite, the refused `data/` target and the default `docs/receipts/` path. `pytest`: 823 passed, 1 skipped. The receipt file is created exclusively (mode x), so two runs racing on one name never overwrite (Codex on #309).
+
+**2026-10-06 — RULED + BUILT (ARCHITECT): the Desk's fee-clear marker gets the same 1e-9 tolerance.**
+- **Ruling (verbatim):** "YES — Desk fee-clear gets the same 1e-9 tolerance, small PR; if the golden has a boundary case, note it in the PR rather than regenerating silently."
+- **Built:** `desk_policy.FEE_CLEAR_EPS = 1e-9` in `exec_block` (`fee_clears`), and the same tolerance on the Cockpit's marker (`tools/cockpit.html`). An exact 4.00pp exec edge now clears; a real 3.99pp edge still misses.
+- **Golden:** checked for a boundary case: none (no `edge_pp` within 1e-6 of 4). The golden is unchanged and passes 15/15.
+- **Unchanged:** calls, units, tiers (K2 stays informational), and the 4pp floor itself.
+
+**2026-10-06 — sp_deploy installs requirements when requirements.txt changed in the deploy range (ARCHITECT).**
+- **Ruling (verbatim):** "(1) sp_deploy must install requirements when requirements.txt changed in the deploy range (print and run `venv/bin/pip install -r requirements.txt`, receipted) — the host lacked `cryptography` after v1.2.3."
+- **Built:** when `requirements.txt` is in the range's diff, the deploy prints and runs `venv/bin/pip install -r requirements.txt`. It falls back to the running interpreter's `-m pip` when there is no venv.
+  - It installs the TARGET tag's file, read with `git show`, BEFORE the checkout moves.
+  - A `deploy_requirements` receipt records the exit and the command. The `deploy` receipt carries `requirements_installed`.
+  - A failed install refuses the deploy (receipted, exit 1), and the host stays on its release, never on new code without its dependencies.
+  - The dry run names the install it would run.
+- **Review fixes (Codex on #310):**
+  - **Bootstrap:** the install also runs when this host has no successful `deploy_requirements` receipt for the target's exact file (git blob). The deploy that ships this code still runs the OLD deployer, so the host that lacked `cryptography` is repaired on the next deploy.
+  - **Worktree:** the install runs in a temporary worktree of the target, so relative `-r`/`-c` includes resolve as in the checkout. The worktree is removed afterwards.
+  - **Removed file:** a target without `requirements.txt` installs nothing and says so in a receipt, instead of crashing with a traceback.
+  - **Partial update (escalated, not built):** pip does not roll back packages it already upgraded in a failed run, so the refusal message says the venv may be PARTIALLY updated and gives the recovery steps. A staged-venv swap is put to the architect.
+- **Review fixes, round 2 (Codex on #310):**
+  - **Included files:** the install fingerprint covers `requirements.txt` and every file it includes (`-r`/`-c`, followed recursively, relative to the including file). A release that changes only an included file still installs.
+  - **Log rotation:** the last successful install's fingerprint lives in `requirements.installed` beside the receipts, not in the monthly-rotated receipt log, so a rotation does not force a reinstall.
+  - **Receipt error field:** worktree stderr is attached to a receipt only when the worktree itself failed. On success, git's "Preparing worktree" chatter is not pip's error.
+- **Review fixes, round 3 (Codex on #310):**
+  - **Continued lines:** they are joined before includes are parsed (pip's `join_lines`), so `-r` followed by a trailing backslash and the path on the next line is still fingerprinted.
+  - **Editable requirements:** `-e`/`--editable` refuses the deploy before installing, because an editable install would point into the deleted temporary worktree. The operator installs by hand.
+  - **Install destination:** the install record names its destination: the venv (path and the identity of its `pyvenv.cfg`) or the fallback interpreter. A recreated venv, or a venv replacing the fallback, reinstalls.
+- **Review fixes, round 4 (Codex on #310):**
+  - **Mid-path continuation:** continued lines concatenate without a space, as pip does, so a break inside an include path resolves.
+  - **Install record location:** the record now lives inside the venv (`venv/.sp-requirements.installed`), so a recreated venv has none even if an inode is reused. Without a venv, it lives beside the receipts.
+  - **Symlinked includes:** they are followed to their target.
+  - **Local-path requirements:** `./pkg`, `/abs` and `file:` are refused like editables, because their changes are invisible to the fingerprint.
+- **Review fixes, round 5 (Codex on #310):**
+  - **Symlink scan:** the directive scan skips symlink blobs. A link's blob is its target path, which looked like a local path and would have refused every deploy. The link's target is scanned instead.
+  - **Wider local sources:** bare relative paths (`vendor/pkg`), archives (`pkg.whl`) and local `--find-links` directories now count as local sources and are refused. The repo's own `requirements.txt` has none, which a test checks.
+- **Review fixes, round 6 (Codex on #310): an allowlist replaces the parsing heuristics of rounds 3–5.** Auto-install handles only plain requirements files: comments, plain version specifiers, and `-r`/`-c` includes that are tracked files (file symlinks followed).
+  - Everything else refuses the deploy with the reason, and is installed by hand. That covers editables, local paths and archives, `--find-links`, `name @ …`, environment variables, line continuations, other options, and an include reached through a symlinked directory or missing.
+  - This closes the class of parsing gaps Codex kept finding. The repo's own `requirements.txt` is plain, which a test checks.
+  - **Checkout preflight:** an untracked host file at a path the target adds refuses the deploy before anything is installed. A checkout that still fails is receipted, and the message says whether the target's requirements were already installed.
+  - **pip launch failure:** a pip launcher that cannot execute is a receipted failed install (exit 127), not a traceback.
+- **Review fixes, round 7 (Codex on #310):**
+  - **Hand-install acknowledgement:** `--requirements-installed-by-hand` records a by-hand install (receipted, `manual: true`, written to the install record). A release the allowlist refuses can now be deployed, and later deploys of the same requirements are not refused again.
+  - **Preflight:** it lists the target's paths with `--no-renames`, so a renamed destination counts, and checks every path prefix, so an untracked FILE at an ancestor directory blocks too.
+  - **Install-record write failure:** if the record cannot be written after pip succeeded, the deploy is refused with a receipt, and the message says the venv already holds the target's requirements.
+  - **Python version:** the venv's Python version (from `pyvenv.cfg`) is part of the destination identity, so a `venv --upgrade` reinstalls.
+- **Review fixes, round 8 (Codex on #310):**
+  - **Per-release acknowledgement:** a by-hand acknowledgement is bound to the target COMMIT (full sha). Every new release that needs a by-hand install is acknowledged again, because an unsupported local input can change while the requirements files stay the same.
+  - **Dry run:** it honours `--requirements-installed-by-hand`.
+  - **Directory replaced by a file:** a tracked directory the target replaces with a file is not a checkout blocker.
+  - **Encoding:** a requirements file that is not UTF-8 text is a receipted refusal, not a traceback.
+- **Review fixes, round 9 (Codex on #310):**
+  - **Untracked file inside a replaced directory:** a tracked directory the target replaces with a file is a blocker again when an UNTRACKED file lives inside it. This was a regression from round 8.
+  - **External virtualenv:** without a repo venv, a deployer running from another virtualenv keeps its install record inside that environment.
+  - **Test isolation:** the tests pin the interpreter's `base_prefix`, so no test ever writes into a developer's real venv.
+- **Review fixes, round 10 (Codex on #310):**
+  - A symlinked directory inside a replaced tracked directory counts as an untracked child.
+  - A repo venv without a pip script installs via the venv's own python, never the system pip.
+  - A failed pip run drops the old install record.
+  - The venv's `include-system-site-packages` setting is part of its identity.
+  - A missing TMPDIR is a receipted failure.
+  - Per-requirement options (`--config-settings`) are refused. `--hash` stays allowed.
+  - A matching install record satisfies a range that touched the inputs, such as a retry after a failed checkout.
+  - **Declined:** an unwritable receipts log after pip. It breaks every receipt in every sp_* command and is not specific to this path.
+- **Review fixes, round 11 (Codex on #310):**
+  - An untracked tree of only empty directories is not a blocker.
+  - The by-hand dry run keeps the migration and rollback warnings, in one preview.
+  - pip inputs set in the environment (`PIP_CONSTRAINT`, `PIP_REQUIREMENT`, `PIP_FIND_LINKS`, `PIP_EDITABLE`, `PIP_SRC`) refuse auto-install.
+  - A failed record write drops the old record.
+- **Receipts:** `test_deploy_installs_requirements_when_they_changed` covers these cases: the bootstrap install, a stamped no-op, a dry run, a failed install (refused, HEAD unchanged, partial-update warning, no stray error), a successful install from the target worktree with a relative include, an include-only change after a log rotation, a stamped plan, and a removed file. The test fails on main. `pytest`: 831 passed, 1 skipped. Round 11 is covered by `test_requirements_round_eleven` (fails on e1a2146). Round 10 is covered by `test_requirements_round_ten` (fails on 86ffd05). Round 9 is covered by `test_requirements_round_nine_untracked_child_and_external_venv_record` (fails on ab54f09). Round 8 is covered by `test_requirements_round_eight_dry_run_dir_to_file_and_encodings` (fails on 6f600a4). Round 7 is covered by `test_requirements_round_seven_ack_preflight_state_errors_and_venv_upgrade` (fails on 54da459). Rounds 3–6 are covered by `test_requirements_allowlist_refuses_everything_but_plain_files`, `test_requirements_record_lives_in_the_venv_and_names_its_destination` and `test_deploy_preflights_checkout_blockers_and_receipts_pip_launch_failures`, which fail on 7098af6.
+
 **2026-10-05 — RECORDED + RULED (ARCHITECT): first UNL ladders (exploratory) and the frozen favorite-skew test.**
 - **Recorded (verbatim):** "first UNL ladders — 17/18 two-sided, 1c spreads, median |book−Kalshi| 2.5pp, max 4.4pp; Kalshi consistently sharper on favorites (+3–4pp on Spain/Albania/Switzerland/England). Record as the venue-eligibility measurement's first 17 games; the 30-game review must test whether the skew is structural (favorite-longshot bias on three-way boards) before any eligibility ruling."
 - **Ruled on #286 (verbatim):**

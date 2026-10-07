@@ -185,3 +185,13 @@ def test_preflight_and_missing_key_refusals_exit_2(monkeypatch, capsys):
 def test_no_bare_systemexit_refusals_remain():
     src = Path(P.__file__).read_text()
     assert "raise SystemExit" not in src
+
+
+def test_an_unreadable_from_file_is_a_refusal(tmp_path, capsys):
+    # Codex on #340: a missing or truncated --from-file exits 2 with the reason, never a traceback / exit 1.
+    trunc = tmp_path / "t.json"
+    trunc.write_text('{"response": [')
+    for path in (tmp_path / "missing.json", trunc):
+        assert P.main(["--from-file", str(path)]) == 2
+        out = capsys.readouterr().out
+        assert "REFUSED: cannot read --from-file" in out and "VERDICT" not in out

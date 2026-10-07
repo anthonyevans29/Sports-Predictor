@@ -285,8 +285,12 @@ def main(argv=None) -> int:
             return 2
     key = None
     if a.from_file:
-        with open(a.from_file) as f:
-            payload = json.load(f)
+        try:
+            with open(a.from_file) as f:
+                payload = json.load(f)
+        except (OSError, ValueError) as e:      # missing / unreadable / truncated: a refusal (Codex on #340)
+            print(f"REFUSED: cannot read --from-file {a.from_file!r} as JSON ({type(e).__name__}: {e}); no verdict")
+            return 2
         print(f"PAYLOAD from file {a.from_file}" + (f" (sport {a.sport})" if a.sport else ""))
         why = payload_refusal(payload)
         if why:

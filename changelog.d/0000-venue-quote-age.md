@@ -1,0 +1,11 @@
+## 2026-10-07 (#0000: venue-edge quote age — ARCHITECT, gate-class)
+- Ruling (verbatim): "#91 means the age of the QUOTE. A fetch time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for unknown age is NO REFERENCE. From today the operator places no VENUE order on either machine's files. In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote age unknown: no reference') and the venue block keeps its numbers for the record. [...] The engine resumes only when a quote time is stored and #91 is applied to it, by ruling." Full text: docs/specs/venue-quote-age.md.
+- Desk (`desk_policy`):
+  - Every venue row the engine computes is now PASS / noref, reason `book quote age unknown: no reference`, with 0 units and no order.
+  - The venue block keeps side, div, book, Kalshi and exec numbers, plus `quote_age_hold` (the engine's would-be verdict).
+  - Rows that stop before the computation (no pair, UNL, in-play, #91 capture age, books < 4) keep their own reason.
+  - The rule has its own switch, `QUOTE_AGE_RULE`. `base_v11()` turns it off, so the frozen golden is unchanged. `desk_meta.venue_quote_age_rule` records it.
+  - The window card is held too. Parlays never had venue legs; a test now pins that.
+- Cockpit: held venue rows render PASS · no reference with the file's numbers. The T-60 re-run hint is suppressed on them. Verify: `scripts/cockpit_venue_quote_age_verify.py` (11/11).
+- `scripts/odds_payload_probe.py` (read-only): dumps every field of the NHL / NCAA odds response from the sync's own endpoint, the time-like keys, and the paths the adapter drops. From the code, the adapters read only bookmaker / bet / value / odd and stamp the fetch time; the repo holds no payload. Branch (2): no column. The staleness-test proposal (N unchanged captures) goes to a ruling.
+- New `venue-calls-receipt` (step 3) and `quote-age-report` (step 4). Both are read-only, and `--out` refuses data/.

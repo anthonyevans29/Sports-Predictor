@@ -1486,6 +1486,104 @@ def k_track_receipt_cmd(ledger_path, since, until, out_path):
         console.print(f"[green]receipt written: {out_path}[/green]")
 
 
+def _vqa_since(v):
+    """--since for the venue quote-age receipts: ISO date/date-time, naive = UTC (default 2026-10-02)."""
+    from src.walters import venue_quote_age as VQ
+    if v is None:
+        return VQ.SINCE_DEFAULT
+    t = VQ.parse_ts(v if "T" in v or len(v) != 10 else v + "T00:00:00")
+    if t is None:
+        raise click.BadParameter(f"{v!r} is not an ISO date or date-time (e.g. 2026-10-02)", param_hint="--since")
+    return t
+
+
+def _vqa_out_ok(out_path) -> bool:
+    if not out_path:
+        return True
+    from pathlib import Path as _P
+    from src.walters.unl_ladders import data_dir
+    _data, _tgt = data_dir(), _P(out_path).resolve()
+    if _tgt == _data or _data in _tgt.parents:
+        console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+        return False
+    return True
+
+
+def _vqa_write(text_, out_path):
+    console.print(text_, markup=False, highlight=False)
+    if out_path:
+        import os as _os
+        _os.makedirs(_os.path.dirname(out_path) or ".", exist_ok=True)
+        with open(out_path, "w") as fh:
+            fh.write(text_ + "\n")
+        console.print(f"[green]receipt written: {out_path}[/green]")
+
+
+@cli.command("venue-calls-receipt")
+@click.option("--since", default=None, help="Calls at a desk as_of at/after this UTC time (default 2026-10-02).")
+@click.option("--exports-dir", default="exports", show_default=True,
+              help="Where the --desk fixtures exports are (read recursively: exports/host/ too).")
+@click.option("--ledger", "ledger_path", default=None,
+              help="The Cockpit's ledger export (bd_ledger_v1_<date>.json): its venue_edge claims are read too.")
+@click.option("--out", "out_path", default=None, help="Also write the receipt text here (e.g. docs/receipts/…).")
+def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
+    """READ-ONLY (ARCHITECT 2026-10-07, venue-edge quote age, build step 3): every VENUE call on file since
+    2026-10-02 (the --desk fixtures exports under --exports-dir, plus the ledger's venue_edge claims) with the
+    book consensus at the call (fair to 4 dp, books, captured_at) and at each LATER pre-kickoff capture in
+    odds_snapshots, and whether it ever moved at four decimals before kickoff. Totals: calls, never-moved
+    count and share. Writes nothing to the DB; --out refuses data/."""
+    import json as _json
+    from src.walters import venue_quote_age as VQ
+    lo = _vqa_since(since)
+    if not _vqa_out_ok(out_path):
+        raise SystemExit(2)
+    docs, cnt = VQ.iter_desk_docs(exports_dir)
+    calls = VQ.file_venue_calls(docs, lo)
+    sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
+               f"{cnt['unreadable']} unreadable"]
+    if ledger_path:
+        try:
+            with open(ledger_path) as fh:
+                L = _json.load(fh)
+        except (OSError, ValueError) as e:
+            console.print(f"[red]REFUSED: cannot read the ledger export {ledger_path!r}: {e}[/red]")
+            raise SystemExit(2)
+        if not isinstance(L, dict) or not isinstance(L.get("calls"), list):
+            console.print("[red]REFUSED: not a Cockpit ledger export (no calls array).[/red]")
+            raise SystemExit(2)
+        lc = VQ.ledger_venue_calls(L, lo)
+        calls = VQ.merge_calls(calls, lc)
+        sources.append(f"ledger {ledger_path}: {len(lc)} venue_edge claim(s)")
+    else:
+        sources.append("ledger: not read (pass --ledger <the Cockpit's Export ledger (JSON) file>)")
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    _vqa_write("\n".join(VQ.format_venue_receipt(res, lo, sources)), out_path)
+
+
+@cli.command("quote-age-report")
+@click.option("--since", default=None, help="Desk exports at/after this UTC time (default 2026-10-02).")
+@click.option("--exports-dir", default="exports", show_default=True,
+              help="Where the --desk prediction exports are (read recursively: exports/host/ too).")
+@click.option("--out", "out_path", default=None, help="Also write the report text here (e.g. docs/receipts/…).")
+def quote_age_report_cmd(since, exports_dir, out_path):
+    """READ-ONLY REPORT (ARCHITECT 2026-10-07, venue-edge quote age, build step 4 — report, do not change): for
+    MLB, NFL and PL rows of the --desk prediction exports decided against a BOOK reference, the capture age at
+    decision (as_of − the last book capture) and the "unchanged since" age (how long the consensus had been
+    identical to four decimals across our captures), median / p90 / max per sport. Capture-based PROXIES,
+    never quote age: no quote time is stored. Writes nothing to the DB; --out refuses data/."""
+    from src.walters import venue_quote_age as VQ
+    lo = _vqa_since(since)
+    if not _vqa_out_ok(out_path):
+        raise SystemExit(2)
+    docs, cnt = VQ.iter_desk_docs(exports_dir)
+    sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
+               f"{cnt['unreadable']} unreadable"]
+    with session_scope() as s:
+        rep = VQ.age_report(s, docs, lo)
+    _vqa_write("\n".join(VQ.format_age_report(rep, lo, sources)), out_path)
+
+
 @cli.command("close-probe")
 @click.option("--match", "match_id", required=True, type=int, help="Match id.")
 def close_probe_cmd(match_id):

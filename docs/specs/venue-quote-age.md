@@ -150,6 +150,14 @@ Open points for the ruling:
   - no DB match.
 - **Per sport**: rows, rows with a capture, measured (verified) and excluded, the file-match / mismatch / no-file-fair counts, then median / p90 / max of both ages, the count with unchanged age above 3h, and the censored count, all over measured rows. Percentiles are nearest-rank on the sorted list, index round(q·(n−1)).
 
+## Evidence for step (4): MLB (ARCHITECT, addendum 5 II, 2026-10-07, verbatim)
+
+> "II, MLB evidence: LAD@ATL's nine-book consensus (ATL 0.4302) was unchanged from the host's 14:05Z capture through the laptop's 21:59:58Z capture, two seconds before first pitch. The stored book close for that game is a price first served eight hours earlier. Kalshi on the same game was also unchanged over that span (0.42 / 0.43), so the book price is not shown to be wrong; its age is simply invisible to us."
+
+Recorded as evidence only; no code or policy changes with it.
+- This is the case the report's **unchanged age** proxy measures. On one machine it can be read only from that machine's captures: the host's 14:05Z capture is not in the laptop DB, so the laptop's run starts at its own first identical capture and is censored there.
+- The MLB book close is the reference for MLB `model_edge` rows. The venue ruling (no call) covers venue-edge only; whether an unchanged MLB book close is a no-reference case is for the next ruling, as step (4) says.
+
 ## Readings chosen (for the architect)
 
 1. **Precedence.** Every computed row is held. Pre-computation no-reference reasons keep their own text.

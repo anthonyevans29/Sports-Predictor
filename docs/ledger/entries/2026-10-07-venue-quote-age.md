@@ -45,3 +45,4 @@
   - A non-integer `match_id` is refused. Probe: upper-case `TS` keys are time-like; scalar containers are INCONCLUSIVE.
   - Probe: no usable quote, no verdict either way (INCONCLUSIVE).
   - Damaged custom-named desk exports are refused. A spread-sport file row without `fair_source` is unmeasured. Probe: non-string bet names count no quote.
+- **Evidence (ARCHITECT, addendum 5 II, verbatim):** "LAD@ATL's nine-book consensus (ATL 0.4302) was unchanged from the host's 14:05Z capture through the laptop's 21:59:58Z capture, two seconds before first pitch. The stored book close for that game is a price first served eight hours earlier. Kalshi on the same game was also unchanged over that span (0.42 / 0.43), so the book price is not shown to be wrong; its age is simply invisible to us." Recorded for step (4) (the MODEL-sport reference age, the next ruling); no code or policy change.

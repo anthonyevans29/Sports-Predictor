@@ -3,6 +3,6 @@
 - **Built (stacked on #333):** `src/walters/ncaa_shadow.py`, the two commands, and `tests/test_ncaa_shadow.py`.
   - The preconditions are refusals in code: the registry declaration with its `neutral_site_rule`, and coverage of 95% or more in both seasons, re-checked each run.
 - **For the architect:**
-  - **The declaration PR must carry `neutral_site_rule`.** The shadow reads the declaration's neutral choice and never makes it.
+  - **The declaration PR must carry `neutral_site_rule` and `constants`** (v1's untouched values). The shadow reads the declaration's neutral choice and never makes it; any other constants refuse (Codex on #344).
   - **FBS = both teams in the CFBD side table** (the ingest's default both-FBS scope). This is a reading, since no classification is stored.
 - **Not done:** no chain wiring and no Cockpit change, each by ruling.

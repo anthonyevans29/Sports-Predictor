@@ -19,7 +19,7 @@ Build instruction: "Build it now on a branch so it is ready when the labels are.
    - `home_advantage_at_neutral`
    - `no_home_advantage_at_neutral`
 
-   #333 ruled that "whether v1r applies home advantage at neutral sites is a declaration question". The shadow therefore never chooses; it reads the key. **The declaration PR must carry this key** (named here, for the architect).
+   #333 ruled that "whether v1r applies home advantage at neutral sites is a declaration question". The shadow therefore never chooses; it reads the key. The entry must also freeze `constants` = v1's untouched values (`k_factor` 24, `home_advantage` 55, `mov_base` 2.2, `season_regression` 0.25, `default_rating` 1500); anything else refuses (Codex on #344). **The declaration PR must carry both keys** (named here, for the architect).
 2. **Coverage holds.** The CFBD side table covers at least 95% of the gate's stream in BOTH seasons. This is `ncaa_backtest.label_coverage`, the same fact the #333 coverage receipt prints. It is re-checked on every run, so a side table that regresses stops the shadow.
 
 The architect's read of the receipt is what leads to (1). The code never declares anything in the registry.
@@ -33,7 +33,7 @@ The architect's read of the receipt is what leads to (1). The code never declare
 
 ## Rows and file
 
-- **File stamp:** the file is named `ncaa_shadow_*` and stamped `sport: "ncaa"`, `competition: "NCAA"`, `family: "NCAAF"`, `engine: "model_shadow"`, `model_version: "ncaa_elo_v1r"`, `registry_id`, `contains_predictions: false`, `gate_evidence: false`.
+- **File stamp:** the file is named `ncaa_shadow_<YYYY-MM-DD_HHMMSS>.json`, created exclusively (a rerun never overwrites an artifact; Codex on #344), and stamped `sport: "ncaa"`, `competition: "NCAA"`, `family: "NCAAF"`, `engine: "model_shadow"`, `model_version: "ncaa_elo_v1r"`, `registry_id`, `contains_predictions: false`, `gate_evidence: false`.
 - **Every row carries:**
   - the fixtures export's own row (`_fixture_row`: the market block, Kalshi and execution fields);
   - `competition` / `family` / `engine` / `model_version` / `gate_verdict`;
@@ -44,7 +44,7 @@ The architect's read of the receipt is what leads to (1). The code never declare
 
 ## Grading (`ncaa-shadow-grade`)
 
-- **The call** is the LAST shadow row written before kickoff.
+- **The call** is the LAST shadow row written before kickoff. Its teams, kickoff and competition must be the match's own (match ids are machine-local and reusable); a mismatch is counted, never graded (Codex on #344).
 - **Results:**
   - The result is the CFBD side-table score in our orientation where a row exists, else the matches row.
   - Hit rate, log-loss and Brier of the shadow probability.
@@ -53,7 +53,7 @@ The architect's read of the receipt is what leads to (1). The code never declare
   - Pick-vs-close against the stored 1X2 book close (the #167/#207 contract; nfl-grade's rule).
   - Value-side-vs-close from the earliest pre-kickoff book snapshot.
   - Unpriced and unanchored games are counted, never guessed.
-- **Label:** every grade line says NOT gate evidence.
+- **Label:** every per-game grade line and the summary say NOT gate evidence.
 
 ## Not done here (on purpose)
 

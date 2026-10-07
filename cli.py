@@ -4720,7 +4720,7 @@ def ncaa_shadow_grade_cmd(days):
     from src.walters.ncaa_shadow import grade
     r = grade(days=days, progress=print)
     print(f"  ── NCAA shadow (not gate evidence) · graded {r['graded']} (calls on file {r['calls_on_file']}; "
-          f"no result {r['no_result']}; ties {r['ties_skipped']}) · hit rate {r['hit_rate']} · log-loss "
+          f"no result {r['no_result']}; ties {r['ties_skipped']}; identity mismatch {r['identity_mismatch']}) · hit rate {r['hit_rate']} · log-loss "
           f"{r['log_loss']} · Brier {r['brier']} · mean pick-vs-close {r['mean_clv_pp']}pp (n={r['priced']}; "
           f"unpriced {r['unpriced']}) · value-side {r['mean_value_side_clv_pp']}pp (n={r['value_side_n']}; "
           f"unanchored {r['unanchored']})")

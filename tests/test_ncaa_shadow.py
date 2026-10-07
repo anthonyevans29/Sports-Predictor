@@ -82,9 +82,15 @@ def mine(world, monkeypatch):
     return world
 
 
-def _registry(tmp_path, **extra):
+V1 = {"k_factor": 24.0, "home_advantage": 55.0, "mov_base": 2.2, "season_regression": 0.25, "default_rating": 1500.0}
+
+
+def _registry(tmp_path, constants=V1, **extra):
     p = tmp_path / "experiments.json"
-    p.write_text(json.dumps([{"id": sh.EID, "sport": "ncaa", **extra}]))
+    e = {"id": sh.EID, "sport": "ncaa", **extra}
+    if constants is not None:
+        e["constants"] = constants
+    p.write_text(json.dumps([e]))
     return str(p)
 
 
@@ -112,7 +118,9 @@ def test_refuses_below_the_coverage_condition(mine, tmp_path, monkeypatch):
 def test_export_stamps_every_row_fbs_only_and_v1_constants(mine, tmp_path):
     reg = _registry(tmp_path, neutral_site_rule="no_home_advantage_at_neutral")
     path, doc = sh.export(now=NOW, out_dir=str(tmp_path), registry_path=reg)
-    assert Path(path).name == "ncaa_shadow_2034-06-01_1200.json"
+    assert Path(path).name == "ncaa_shadow_2034-06-01_120000.json"
+    with pytest.raises(sh.ShadowRefused, match="never overwritten"):     # Codex on #344: never replaced
+        sh.export(now=NOW, out_dir=str(tmp_path), registry_path=reg)
     assert (doc["sport"], doc["competition"], doc["family"], doc["engine"]) == ("ncaa", "NCAA", "NCAAF",
                                                                                  "model_shadow")
     assert doc["gate_verdict"] == "UNGATED — shadow only" and doc["gate_evidence"] is False
@@ -181,7 +189,14 @@ def test_grade_reads_the_last_row_before_kickoff(mine, tmp_path):
         assert r["graded"] == 1 and r["calls_on_file"] == 1
         assert r["hit_rate"] == (1.0 if p >= 0.5 else 0.0)                 # graded on the CFBD score
         assert r["brier"] == round((p - 1) ** 2, 4) and r["priced"] == 1
-        assert "result 31-13 (cfbd)" in r["lines"][0]
+        assert "result 31-13 (cfbd)" in r["lines"][0] and r["lines"][0].endswith("NOT gate evidence")
+        # Codex on #344: a reused match id (different teams / kickoff in the artifact) is never graded against it
+        doc = json.loads(sorted(ex.glob("ncaa_shadow_*.json"))[-1].read_text())
+        doc["predictions"][0]["home_team"] = "Someone Else"
+        (ex / "ncaa_shadow_2034-06-01_120001.json").write_text(json.dumps({**doc, "exported_at":
+                                                                           (NOW + timedelta(seconds=1)).isoformat()}))
+        r2 = sh.grade(days=3650, export_dir=str(ex), now=NOW + timedelta(days=1))
+        assert (r2["graded"], r2["identity_mismatch"]) == (0, 1)
     finally:
         with session_scope() as s:
             s.delete(s.get(NCAACFBDLabel, mine["up"]))
@@ -195,3 +210,12 @@ def test_cli_refusal_exits_2(mine, monkeypatch):
     monkeypatch.setattr(sh, "frozen", lambda *a, **k: (_ for _ in ()).throw(sh.ShadowRefused("REFUSED: test")))
     res = CliRunner().invoke(cli, ["export-ncaa-predictions"])
     assert res.exit_code == 2 and "REFUSED: test" in res.output
+
+
+def test_refuses_unless_the_declaration_freezes_v1s_constants(mine, tmp_path):
+    """Codex on #344: the declaration must freeze v1's untouched constants; missing or different refuses."""
+    for i, const in enumerate((None, {**V1, "k_factor": 20.0}, {k: v for k, v in V1.items() if k != "mov_base"},
+                               {**V1, "home_advantage": True})):
+        reg = _registry(tmp_path, constants=const, neutral_site_rule="no_home_advantage_at_neutral")
+        with pytest.raises(sh.ShadowRefused, match="must freeze constants"):
+            sh.export(now=NOW, out_dir=str(tmp_path / f"c{i}"), registry_path=reg)

@@ -77,6 +77,9 @@ UNGATED = "UNGATED — shadow only"
 # The declaration states one of these (the #333 ruling leaves the choice to the declaration PR).
 NEUTRAL_RULE_KEY = "neutral_site_rule"
 NEUTRAL_RULES = {"home_advantage_at_neutral": True, "no_home_advantage_at_neutral": False}
+# Codex on #344: the declaration freezes the constants; the shadow runs only if they are v1's, untouched (#333 ruling)
+CONSTANTS_KEY = "constants"
+CONSTANT_KEYS = ("k_factor", "home_advantage", "mov_base", "season_regression", "default_rating")
 NOTE = ("NCAA SHADOW — ncaa_elo_v1r (v1, constants untouched) as a model shadow beside the market-only NCAA "
         "Desk. Never a call, never a venue input, never in the ledger. The shadow changes nothing about the "
         "gate: the one run, the verdict and the confirmation cohort stand as declared, and this live record "
@@ -101,6 +104,15 @@ def frozen(registry_path: str | None = None) -> tuple[dict, bool, str]:
         raise ShadowRefused(f"REFUSED: {EID}'s declaration has no {NEUTRAL_RULE_KEY} (one of "
                             f"{', '.join(sorted(NEUTRAL_RULES))}; got {rule!r}) — whether v1r applies home "
                             "advantage at neutral sites is the declaration's choice, never the shadow's")
+    from src.models.ncaa_elo import NCAAEloConfig
+
+    frozen_v1 = {k: getattr(NCAAEloConfig(), k) for k in CONSTANT_KEYS}
+    declared = e.get(CONSTANTS_KEY)
+    if not isinstance(declared, dict) or set(declared) != set(CONSTANT_KEYS) or any(
+            not isinstance(declared[k], (int, float)) or isinstance(declared[k], bool)
+            or float(declared[k]) != frozen_v1[k] for k in CONSTANT_KEYS):
+        raise ShadowRefused(f"REFUSED: {EID}'s declaration must freeze {CONSTANTS_KEY} = v1's untouched constants "
+                            f"{frozen_v1} (got {declared!r}) — the shadow runs only the declared model")
     return e, NEUTRAL_RULES[rule], rule
 
 
@@ -255,15 +267,19 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
     r = build_rows(now, hours, registry_path)
     now = r["now"]
     Path(out_dir).mkdir(parents=True, exist_ok=True)
-    path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
+    # Codex on #344: second precision and an exclusive create, so a rerun never replaces an earlier artifact
+    path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M%S')}.json")
     doc = {"sport": "ncaa", "competition": COMPETITION, "family": FAMILY, "engine": ENGINE,
            "model_version": MODEL_VERSION, "registry_id": EID, "gate_verdict": r["label"],
            "contains_predictions": False,   # nothing here is a live prediction (doctrine)
            "gate_evidence": False,          # the shadow's live record is not gate evidence (ruling)
            "exported_at": now.isoformat(), "window_hours": hours, "note": NOTE,
            "fit": r["fit"], "skipped": r["skipped"], "count": len(r["rows"]), "predictions": r["rows"]}
-    with open(path, "w") as f:
-        json.dump(doc, f, indent=2, default=str)
+    try:
+        with open(path, "x") as f:
+            json.dump(doc, f, indent=2, default=str)
+    except FileExistsError:
+        raise ShadowRefused(f"REFUSED: {path} already exists — an artifact is never overwritten; re-run next second")
     return path, doc
 
 
@@ -316,11 +332,18 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     now = now or utc_now_naive()
     calls = last_calls(export_dir)
     hits, lls, briers, clvs, vclvs, lines = [], [], [], [], [], []
-    graded = unpriced = unanchored = ties = no_result = 0
+    graded = unpriced = unanchored = ties = no_result = identity_mismatch = 0
     with session_scope() as s:
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
             m = s.get(Match, mid)
             if m is None or m.status != MatchStatus.FINISHED or m.utc_date < now - timedelta(days=days):
+                continue
+            # Codex on #344: match ids are machine-local and reusable (init-db --force); the artifact row's teams and
+            # kickoff must be this match's, else it is never graded against it
+            if (m.competition is None or m.competition.code != COMPETITION
+                    or (c.get("home_team"), c.get("away_team")) != (m.home_team.name, m.away_team.name)
+                    or c.get("utc_date") != m.utc_date.isoformat()):
+                identity_mismatch += 1
                 continue
             res = _result(s, m)
             if res is None:
@@ -357,11 +380,13 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                     f"result {hs}-{as_} ({src}) {'HIT' if hits[-1] else 'miss'} · "
                     f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                     f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
-                    f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else '— (no anchor)'}")
+                    f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else '— (no anchor)'}"
+                    " · NOT gate evidence")
             lines.append(line)
             if progress:
                 progress(line)
     return {"graded": graded, "calls_on_file": len(calls), "ties_skipped": ties, "no_result": no_result,
+            "identity_mismatch": identity_mismatch,
             "hit_rate": round(sum(hits) / len(hits), 4) if hits else None,
             "log_loss": round(sum(lls) / len(lls), 4) if lls else None,
             "brier": round(sum(briers) / len(briers), 4) if briers else None,

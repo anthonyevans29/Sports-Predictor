@@ -21,3 +21,9 @@
   - (c): finished and upcoming listed-home games both count, split in the table.
   - (c): all intl codes, friendlies included.
   - (c): "the team's country" = `neutral_v3` exactly as stored.
+- **Codex on #325 (fixed):**
+  - The Cockpit (repo copy) logs INTL quarantine shadows as it does NFL's, and its ledger summary emits `intl_graded`, so the half-unit rule can end at 30 graded.
+  - `export-intl-predictions --desk`, as on the other production exporters.
+  - The home-abroad receipt prints full team names, because the list is ruled and matched by exact name.
+  - Receipt: `scripts/cockpit_intl_verify.py` 5/5 (3/5 on the unfixed Cockpit).
+- **Codex on #325, escalated (needs-ruling):** how production INTL calls are graded on a 90-minute result. A UNL game decided after extra time or penalties would be graded on the full-time score by the Cockpit's fixtures intake, because the production export writes no Prediction row for `export-results`. Which results path grades INTL calls is a ledger-semantic choice for the architect, and it must be settled before 2026-11-10.

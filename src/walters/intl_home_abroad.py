@@ -159,7 +159,7 @@ def format_receipt(r: dict, run_at: datetime | None = None) -> str:
     for x in r["teams"]:
         vc = ", ".join(f"{k} {v}" for k, v in x["venue_countries"].items()) or "—"
         share = "—" if x["share"] is None else f"{x['share'] * 100:.1f}%"
-        out.append(f"  {x['team'][:27]:<28}{(x['country'] or '—')[:21]:<22}{x['listed_home']:>6}{x['known']:>7}"
+        out.append(f"  {x['team']:<28}{(x['country'] or '—')[:21]:<22}{x['listed_home']:>6}{x['known']:>7}"
                    f"{x['abroad']:>8}{share:>8}{x['abroad_finished']:>8}{x['abroad_upcoming']:>9}"
                    f"{x['unknown']:>9}  {vc}")
     out += ["",

@@ -120,3 +120,18 @@ def test_cli_writes_out_once_and_never_under_data(world, tmp_path):
     assert not (data_dir() / "x.md").exists()
     res = CliRunner().invoke(cli, ["intl-home-abroad-receipt", "--since", "not-a-date"])
     assert res.exit_code == 2
+
+
+def test_receipt_prints_full_team_names_for_the_ruled_list():
+    """Codex on #325: the home-abroad list is ruled BY NAME and matched exactly; a long name is never truncated."""
+    long = "Saint Vincent and the Grenadines National Team"
+    r = {"since": datetime(2022, 1, 1), "coverage": [], "competitions": ["UNL"], "excluded_status": {},
+         "totals": {k: 0 for k in ("listed_home", "known", "abroad", "unknown", "unknown_null", "unknown_no_row")},
+         "teams": [{"team_id": 1, "team": long, "country": "SVG", "listed_home": 3, "known": 2, "abroad": 1,
+                    "share": 0.5, "abroad_finished": 1, "abroad_upcoming": 0, "unknown": 1,
+                    "venue_countries": {"Elsewhere": 1}}]}
+    try:
+        text = ha.format_receipt(r)
+    except KeyError as e:                         # the pure formatter's own keys, read from its source
+        raise AssertionError(f"fixture missing key {e}")
+    assert long in text

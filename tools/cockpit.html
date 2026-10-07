@@ -549,6 +549,9 @@ function postseasonGraded(){
     &&(c.call_type==="straight"||c.call_type==="ladder"));
 }
 function valueShadowGraded(){ return gradedCount(c=>c.call_type==="value_shadow"); }
+// INTL DESK POLICY v0 (2) (ARCHITECT 2026-10-07): half units until 30 INTL calls are graded
+function intlGraded(){ return gradedCount(c=>c.sport==="INTL"&&c.engine==="model_edge"
+    &&(c.call_type==="straight"||c.call_type==="ladder")); }
 function renderProgress(){
   const ps=postseasonGraded(), vs=valueShadowGraded();
   const set=(id,n,N)=>{const el=document.getElementById(id); if(el) el.textContent=`graded ${n}/${N}`+(n>=N?" — review due":"");};
@@ -898,7 +901,7 @@ function snapshotCalls(now,opts){
     return true; };
   for(const x of deskCalls){
     const r=x.r;
-    if((x.call==="PLAY"||x.call==="LADDER"||(x.shadowUnits>0&&r.quar&&r.sport==="NFL"))&&!live(r)) continue;
+    if((x.call==="PLAY"||x.call==="LADDER"||(x.shadowUnits>0&&r.quar&&(r.sport==="NFL"||r.sport==="INTL")))&&!live(r)) continue;
     if(x.call==="PLAY"||x.call==="LADDER"){
       const lad=x.call==="LADDER";
       const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
@@ -911,7 +914,7 @@ function snapshotCalls(now,opts){
         kalshi_exec_cost_maker:lad?null:(addn?fx.maker_cost??null:makerCostFor(r,r.pick)),
         kalshi_join_bid:lad?null:(addn?fx.join_price??null:((joinBidFor(r,r.pick)||{}).price??null)),
         venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",rules:x.tags});
-    } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
+    } else if(x.shadowUnits>0&&r.quar&&(r.sport==="NFL"||r.sport==="INTL")){
       add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
         // #87 v1.1 files: the file's exec block (the contract the order buys), as straights do (Codex on #303)
@@ -1512,7 +1515,7 @@ function ledgerSummary(){
     for(const t of (c.rules&&c.rules.length?c.rules:["(no rule tag)"])) per[t]=(per[t]||0)+1; }
   return {kind:"bd_ledger_summary_v1",generated_at:new Date().toISOString(),policy_version:POLICY_VERSION,
     counts:{postseason_graded:postseasonGraded(),value_shadow_graded:valueShadowGraded(),
-      kalshi_only_graded:kalshiOnlyGraded()},graded_per_rule:per};
+      kalshi_only_graded:kalshiOnlyGraded(),intl_graded:intlGraded()},graded_per_rule:per};
 }
 $("exportSummaryBtn").addEventListener("click",()=>{
   const txt=JSON.stringify(ledgerSummary(),null,1), box=$("ledgerJson");

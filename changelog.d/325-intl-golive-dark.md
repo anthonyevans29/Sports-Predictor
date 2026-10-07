@@ -12,3 +12,9 @@
   - per national team, listed-home games since 2022 with a known neutral_v3 and the share abroad;
   - venue-id coverage per current competition-season.
 - `unl-shadow-grade` adds per row the result, the hit, model and book-close log-loss, the same-priced-games aggregate, and the |model − close| buckets (<4, 4-10, 10-15, >=15pp). Not to be run until this entry's BACKLOG fragment is merged.
+- Codex on #325:
+  - the Cockpit logs INTL quarantine shadows and emits `intl_graded` in the ledger summary;
+  - `export-intl-predictions --desk`;
+  - full team names in the home-abroad receipt;
+  - new `scripts/cockpit_intl_verify.py`.
+  - The 90-minute grading path is escalated for a ruling.

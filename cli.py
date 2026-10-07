@@ -4760,14 +4760,17 @@ def export_unl_predictions_cmd(hours):
 
 @cli.command("export-intl-predictions")
 @click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
-def export_intl_predictions_cmd(hours):
+@click.option("--desk", is_flag=True, default=False,
+              help="Add the Desk's call per row (desk + desk_meta), as on the other production exporters; "
+                   "SP_DESK_CALLS=1 also enables it.")
+def export_intl_predictions_cmd(hours, desk):
     """INTL PRODUCTION export (ARCHITECT 2026-10-07, built DARK): intl-elo-v2 rows for the Desk (sport "intl",
     POLICY INTL v0), each with market_divergence_pp and quarantine as the NFL export defines them, venue_flag and
     competition. REFUSED, writing nothing, until registry.production_allowed("intl-elo-v2") (PASS + CONFIRMED);
     until then export-unl-predictions is the shadow, unchanged."""
     from src.walters import intl_production as ip
     try:
-        path, doc = ip.export(hours=hours)
+        path, doc = ip.export(hours=hours, desk=desk or None)
     except ip.IntlRefused as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)

@@ -162,3 +162,15 @@ def test_confirmed_export_reshapes_the_shadow_and_writes_no_prediction(monkeypat
     assert json.loads(open(path).read())["count"] == 1
     with session_scope() as s:
         assert s.execute(select(func.count(Prediction.id)).where(Prediction.match_id == -1)).scalar() == 0
+
+
+def test_export_command_forwards_the_desk_flag(monkeypatch):
+    """Codex on #325: --desk, as on the other production exporters (else SP_DESK_CALLS decides)."""
+    from click.testing import CliRunner
+    import cli
+    seen = []
+    monkeypatch.setattr(ip, "export", lambda hours, desk=None: seen.append(desk) or ("p", {
+        "count": 0, "predictions": [], "production_allowed": "x", "desk_meta": {}}))
+    CliRunner().invoke(cli.cli, ["export-intl-predictions", "--desk"])
+    CliRunner().invoke(cli.cli, ["export-intl-predictions"])
+    assert seen == [True, None]

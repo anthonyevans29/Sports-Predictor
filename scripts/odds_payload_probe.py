@@ -255,13 +255,9 @@ def game_for_match(sport: str, match_id: int) -> str:
     p = db_path()
     if not p.is_file():
         raise Refused(f"REFUSED: no DB file at {p} (never created by a probe)")
-    # Codex on #340: mode=ro alone can still CREATE a WAL DB's -wal / -shm sidecars. No sidecars on disk means the DB
-    # is checkpointed: open it immutable. Both present: mode=ro (nothing to create). Exactly one: refused.
-    wal, shm = Path(str(p) + "-wal").exists(), Path(str(p) + "-shm").exists()
-    if wal != shm:
-        raise Refused(f"REFUSED: {p} has a -wal file without its -shm (or the reverse): a read-only open could create "
-                      "the missing sidecar")
-    con = sqlite3.connect(f"file:{p}?{'mode=ro' if wal else 'mode=ro&immutable=1'}", uri=True)
+    # mode=ro, never immutable (Codex on #340): immutable skips change detection and could read a page torn by a
+    # concurrent checkpoint. SQLite may create its own -wal / -shm sidecars for a WAL DB; the content is never written.
+    con = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
     try:
         row = con.execute("SELECT external_ids FROM matches WHERE id = ?", (match_id,)).fetchone()
     finally:

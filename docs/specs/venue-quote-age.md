@@ -161,4 +161,4 @@ Open points for the ruling:
 7. **The Cockpit** keeps rendering pre-ruling VENUE rows from v1.3.0 files as written. Any change there is for a ruling.
 
 - **Read-only DB (Codex on #340).** `venue-calls-receipt` and `quote-age-report` open the configured SQLite file with a `mode=ro` URI: no connect hook, no `PRAGMA journal_mode`, no commit. A missing DB file or a non-SQLite URL is refused; the receipts never create a database.
-  The open never creates SQLite sidecars: with no `-wal` / `-shm` on disk the DB is checkpointed and opens `immutable`; with both present it opens `mode=ro` (nothing to create); with exactly one present it is refused.
+  The open is `mode=ro`, never `immutable` (Codex on #340, superseding an earlier sidecar rule): an immutable open skips SQLite's change detection, so a concurrent write or checkpoint could be missed or read torn. SQLite may create its own `-wal` / `-shm` sidecars for a WAL database, as every reader (the app included) does; the database content is never written.

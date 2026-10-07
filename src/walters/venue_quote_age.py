@@ -37,10 +37,10 @@ DP = 4                                           # "unchanged to four decimals"
 MODEL_SPORTS = ("MLB", "NFL", "PL")              # build step (4): the live model sports
 #: Desk export filenames (fixtures_<comp>_*, <sport>_predictions_*, desk_parlays_*, window_*): an unreadable file
 #: with such a name is a damaged export and refuses the receipt; other unreadable JSON is only counted.
-EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions"
-                         # export-predictions' default name: <sport>[_<COMP>]_<YYYY-MM-DD>[_to_<YYYY-MM-DD>].json
-                         r"|^(soccer|nfl|mlb|nhl)(_[A-Za-z0-9]+)?_\d{4}-\d{2}-\d{2}(_to_\d{4}-\d{2}-\d{2})?\.json$",
-                         re.I)
+#: export-predictions' default name: <sport>[_<COMP>]_<YYYY-MM-DD>[_to_<YYYY-MM-DD>].json (rows key: predictions)
+DEFAULT_PRED_NAME = re.compile(r"^(soccer|nfl|mlb|nhl)(_[A-Za-z0-9]+)?_\d{4}-\d{2}-\d{2}(_to_\d{4}-\d{2}-\d{2})?\.json$",
+                               re.I)
+EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions|" + DEFAULT_PRED_NAME.pattern, re.I)
 SPREAD_SPORTS = ("NFL", "NCAA", "NCAAF")          # sports whose reference can be spread_derived
 LEDGER_UNKNOWN_SOURCE = "unknown (the ledger keeps no fair_source)"
 MIRROR_DIR = "host"                              # <exports>/host/: deploy/hosting/pull_exports.py's destination
@@ -161,15 +161,11 @@ def readonly_session():
     path = Path(url[len("sqlite:///"):]).resolve()
     if not path.is_file():
         raise Refused(f"REFUSED: no DB file at {path}: a read-only receipt never creates one")
-    # Codex on #340: mode=ro alone can still CREATE the -wal / -shm sidecars of a WAL database. No sidecars on disk
-    # means the DB is fully checkpointed: open it immutable (nothing to miss, nothing created). Both present: mode=ro
-    # reads the live WAL without creating anything. Exactly one present is ambiguous: refused.
-    wal, shm = Path(str(path) + "-wal").exists(), Path(str(path) + "-shm").exists()
-    if wal != shm:
-        raise Refused(f"REFUSED: {path} has a -wal file without its -shm (or the reverse): a read-only open could "
-                      "create the missing sidecar; open the DB once with the app (or checkpoint it), then re-run")
-    flags = "mode=ro" if wal else "mode=ro&immutable=1"
-    eng = create_engine(f"sqlite:///file:{path.as_posix()}?{flags}&uri=true",
+    # mode=ro, never immutable (Codex on #340): an immutable open skips SQLite's change detection, so a write or a
+    # checkpoint by the app during the receipt could be missed or read torn. A WAL database's reader may have SQLite
+    # create its own -wal / -shm sidecars (as every reader, the app included, does); the database CONTENT is never
+    # written: no hook, no pragma, no commit.
+    eng = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true",
                         connect_args={"uri": True, "check_same_thread": False})
     s = Session(eng)
     try:
@@ -212,7 +208,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                     bad_asof.append(p)
                     continue
                 need = ("fixtures" if n.startswith("fixtures_") else
-                        "predictions" if "predictions" in n.lower() else None)
+                        "predictions" if "predictions" in n.lower() or DEFAULT_PRED_NAME.search(n) else None)
                 if need and need not in doc:               # Codex on #340: a named export lacking its rows
                     bad_rows.append(p)
                     continue
@@ -841,7 +837,7 @@ def exclusion(x: dict) -> str | None:
         return x.get("why") or "no book capture at or before as_of"
     if x.get("file_matches") is None:
         return "session unverified: the file carries no 1X2 fair to compare"
-    if x["file_matches"] is False:
+    if x["file_matches"] is False and not x.get("rederived"):
         why = x.get("verified_by")
         return f"session unverified: file fair != the selected capture at {DP}dp" + (f" ({why})" if why else "")
     return None
@@ -886,20 +882,24 @@ def age_report(s, docs, since: datetime, mirrored=()) -> dict:
             # fair by per-book normalise-then-average (close_1x2): they differ whenever books' overrounds differ.
             # Re-derive the SAME session from its stored odds rows with the file's own formula before calling it
             # unverified.
-            x["file_matches"], x["verified_by"] = session_matches_by_odds(s, m, x["ref"], x["file_fair"])
+            ok, why = session_matches_by_odds(s, m, x["ref"], x["file_fair"])
+            # Codex on #340: file_matches stays LITERAL snapshot equality; the re-derivation is tracked apart
+            x["rederived"] = ok
+            x["verified_by"] = why
         rows.append(x)
     for x in rows:
         x["excluded"] = exclusion(x)
     by = {}
     for sp in MODEL_SPORTS:
         rs = [x for x in rows if x["sport"] == sp]
-        ok = [x for x in rs if x.get("ref") is not None]
+        ok = [x for x in rs if x.get("ref") is not None and not x.get("mirrored")]   # host rows: no local evidence
         ver = [x for x in rs if x["excluded"] is None]                 # only VERIFIED sessions are measured
         ca, ua = [x["capture_age_h"] for x in ver], [x["unchanged_age_h"] for x in ver]
         by[sp] = {"rows": len(rs), "with_capture": len(ok), "measured": len(ver),
                   "excluded": len(rs) - len(ver),
                   "file_matches": sum(1 for x in ok if x["file_matches"]),
-                  "file_mismatch": sum(1 for x in ok if x["file_matches"] is False),
+                  "file_rederived": sum(1 for x in ok if x["file_matches"] is False and x.get("rederived")),
+                  "file_mismatch": sum(1 for x in ok if x["file_matches"] is False and not x.get("rederived")),
                   "file_unverifiable": sum(1 for x in ok if x["file_matches"] is None),
                   "capture_age_h": {"median": pct(ca, 0.5), "p90": pct(ca, 0.9), "max": max(ca) if ca else None},
                   "unchanged_age_h": {"median": pct(ua, 0.5), "p90": pct(ua, 0.9), "max": max(ua) if ua else None},
@@ -929,7 +929,8 @@ def format_age_report(rep: dict, since: datetime, sources: list[str]) -> list[st
         ca, ua = b["capture_age_h"], b["unchanged_age_h"]
         out.append(f"{sp}: rows {b['rows']} · with a capture {b['with_capture']} · measured (verified) "
                    f"{b['measured']} · excluded {b['excluded']} · file fair == capture at {DP}dp "
-                   f"{b['file_matches']} (mismatch {b['file_mismatch']}, no file fair {b['file_unverifiable']})")
+                   f"{b['file_matches']} · verified by odds-row re-derivation instead {b.get('file_rederived', 0)} "
+                   f"(mismatch {b['file_mismatch']}, no file fair {b['file_unverifiable']}; host rows not counted)")
         out.append(f"  capture age   median {_h(ca['median'])} · p90 {_h(ca['p90'])} · max {_h(ca['max'])}")
         out.append(f"  unchanged age median {_h(ua['median'])} · p90 {_h(ua['p90'])} · max {_h(ua['max'])} · "
                    f"> 3h {b['unchanged_ge_3h']} · censored {b['censored']}")

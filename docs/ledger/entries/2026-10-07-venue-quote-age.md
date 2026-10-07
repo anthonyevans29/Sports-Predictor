@@ -38,3 +38,4 @@
   - The probe's DB lookup creates no sidecars. A malformed `market` / `fair_prob` is refused at discovery.
   - A re-logged venue claim's Kalshi p is unknown (the frozen value may be an executable cost). A file call without a fair is unmeasured. Re-derived anchors are labelled, never shown as snapshot equality. Malformed selections / VENUE fields are refused. The probe needs one usable quote.
   - The probe counts quotes by the adapters' own market/selection rules. Bad market metadata and non-numeric claim prices are refused. Default prediction export names are required inputs.
+  - Read-only open: `mode=ro`, never `immutable` (supersedes the sidecar rule; SQLite's own sidecars are accepted, the content is never written). The age report keeps re-derived apart from literal matches and leaves host rows out of its diagnostics. Default-named prediction exports need `predictions`.

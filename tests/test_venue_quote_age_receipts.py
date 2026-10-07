@@ -436,8 +436,10 @@ def test_an_nfl_session_is_verified_from_its_odds_rows_with_the_exports_formula(
         rep = VQ.age_report(s, [("nfl.json", doc(file_fair))], SINCE)
         bad = VQ.age_report(s, [("nfl.json", doc({"HOME": 0.7, "AWAY": 0.3}))], SINCE)
     r = rep["rows"][0]
-    assert r["file_matches"] is True and r["excluded"] is None and "per-book de-vig" in r["verified_by"]
-    assert rep["by_sport"]["NFL"]["measured"] == 1
+    assert r["file_matches"] is False and r["rederived"] is True                      # literal vs re-derived kept apart
+    assert r["excluded"] is None and "per-book de-vig" in r["verified_by"]
+    b0 = rep["by_sport"]["NFL"]
+    assert (b0["measured"], b0["file_matches"], b0["file_rederived"], b0["file_mismatch"]) == (1, 0, 1, 0)
     b = bad["rows"][0]
     assert b["file_matches"] is False and "AND on the session's odds rows" in b["excluded"]
 
@@ -868,30 +870,31 @@ def test_an_ncaa_anchor_is_verified_from_its_odds_rows_before_a_mismatch(tmp_pat
     assert r["verdict"] in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE")
 
 
-def test_the_read_only_open_never_creates_wal_sidecars(tmp_path, monkeypatch):
-    """Codex on #340: a checkpointed WAL DB (no sidecars) is opened immutable, so no -wal / -shm appears; exactly
-    one sidecar on disk is refused."""
+def test_the_read_only_open_is_mode_ro_never_immutable_and_sees_concurrent_writes(tmp_path, monkeypatch):
+    """Codex on #340 (supersedes the immutable open): immutable skips change detection, so a write or checkpoint
+    during the receipt could be missed or read torn. mode=ro sees committed WAL writes and cannot write."""
     import sqlite3
     import types
 
     import config
     from sqlalchemy import text
     db = tmp_path / "w.db"
-    con = sqlite3.connect(db)
-    con.execute("PRAGMA journal_mode=WAL")
-    con.execute("CREATE TABLE t (x)")
-    con.execute("INSERT INTO t VALUES (1)")
-    con.commit()
-    con.close()                                                     # clean close: checkpointed, sidecars removed
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["w.db"]
+    w = sqlite3.connect(db)
+    w.execute("PRAGMA journal_mode=WAL")
+    w.execute("CREATE TABLE t (x)")
+    w.execute("INSERT INTO t VALUES (1)")
+    w.commit()
     monkeypatch.setattr(config, "settings", types.SimpleNamespace(database_url=f"sqlite:///{db}"))
     with VQ.readonly_session() as s:
+        assert "immutable" not in str(s.get_bind().url) and "mode=ro" in str(s.get_bind().url)
         assert s.execute(text("SELECT count(*) FROM t")).scalar() == 1
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["w.db"]
-    (tmp_path / "w.db-wal").write_bytes(b"")
-    with pytest.raises(VQ.Refused, match="-wal file without its -shm"):
-        with VQ.readonly_session():
-            pass
+        w.execute("INSERT INTO t VALUES (2)")                          # a concurrent writer commits into the WAL
+        w.commit()
+        s.rollback()
+        assert s.execute(text("SELECT count(*) FROM t")).scalar() == 2
+        with pytest.raises(Exception, match="readonly"):
+            s.execute(text("INSERT INTO t VALUES (3)"))
+    w.close()
 
 
 def test_files_differing_only_in_fair_source_are_not_copies():
@@ -966,3 +969,23 @@ def test_default_prediction_export_names_are_required_inputs(tmp_path):
     (ex / "mlb_MLB_2026-10-07.json").write_text('{"desk_meta"')
     with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
         VQ.iter_desk_docs(str(ex))
+
+
+def test_default_named_prediction_exports_need_their_rows_and_host_rows_skip_diagnostics(tmp_path):
+    """Codex on #340: mlb_MLB_<date>.json without predictions is refused; mirrored rows never count as local
+    capture evidence in the per-sport diagnostics."""
+    ex = tmp_path / "exports"
+    ex.mkdir()
+    (ex / "mlb_MLB_2026-10-07.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"}}))
+    with pytest.raises(VQ.Refused, match="missing one in a fixtures_"):
+        VQ.iter_desk_docs(str(ex))
+    ids = _seed()
+    n = ids["n"]
+    doc = {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
+        {"match_id": ids["nfl"], "utc_date": _iso(KO), "home_team": f"VQA{n} nfl Home", "away_team": f"VQA{n} nfl Away",
+         "market": {"fair_prob": {"HOME": 0.6, "AWAY": 0.4}, "fair_source": "1X2"},
+         "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books"}}]}
+    with session_scope() as s:
+        rep = VQ.age_report(s, [("exports/host/n.json", doc)], SINCE, ["exports/host/n.json"])
+    b = rep["by_sport"]["NFL"]
+    assert (b["rows"], b["with_capture"], b["file_matches"], b["measured"]) == (1, 0, 0, 0)

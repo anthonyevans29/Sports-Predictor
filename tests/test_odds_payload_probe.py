@@ -251,8 +251,8 @@ def test_values_without_value_and_odd_are_inconclusive():
         assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(p))
 
 
-def test_the_match_id_lookup_creates_no_wal_sidecars(tmp_path, monkeypatch):
-    # Codex on #340: a checkpointed WAL DB opens immutable; exactly one sidecar is refused
+def test_the_match_id_lookup_opens_read_only(tmp_path, monkeypatch):
+    # Codex on #340 (supersedes the immutable open): mode=ro, never immutable; reads a WAL DB and cannot write
     import sqlite3
     db = tmp_path / "w.db"
     con = sqlite3.connect(db)
@@ -260,13 +260,12 @@ def test_the_match_id_lookup_creates_no_wal_sidecars(tmp_path, monkeypatch):
     con.execute("CREATE TABLE matches (id INTEGER, external_ids TEXT)")
     con.execute("INSERT INTO matches VALUES (5, ?)", (json.dumps({"api_hockey": 77}),))
     con.commit()
-    con.close()
     monkeypatch.setattr(P, "db_path", lambda: db)
     assert P.game_for_match("nhl", 5) == "77"
-    assert sorted(p.name for p in tmp_path.iterdir()) == ["w.db"]
-    (tmp_path / "w.db-shm").write_bytes(b"")
-    with pytest.raises(P.Refused, match="-wal file without its -shm"):
-        P.game_for_match("nhl", 5)
+    con.close()
+    src = Path(P.__file__).read_text()
+    assert "immutable=1" not in src.split("def game_for_match", 1)[1].split("def fetch", 1)[0]
+
 
 
 def test_value_and_odd_must_sit_in_one_usable_quote():

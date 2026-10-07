@@ -131,7 +131,17 @@ def file_venue_calls(docs, since: datetime, mirrored=()) -> list[dict]:
             mk = f.get("market") or {}
             foreign = path in mirrored
             kick = parse_ts(f.get("utc_date"))
-            key = (sport, f.get("home_team"), f.get("away_team"), kick, as_of, d.get("side"))
+            ident = (sport, f.get("home_team"), f.get("away_team"), kick, as_of, d.get("side"))
+            # Codex on #340: two files are COPIES of one call only when the call-defining market numbers agree too
+            # (fair at 4dp, capture time, books, book / Kalshi p, div); otherwise each is its own call, both flagged.
+            fair4 = _r4(mk.get("fair_prob"))
+            sig = (tuple(sorted((fair4 or {}).items())), mk.get("captured_at"), mk.get("bookmaker_count"),
+                   d.get("book_p"), d.get("kalshi_p"), d.get("div_pp"))
+            key = ident + (sig,)
+            twins = [c for k, c in by_key.items() if k[:6] == ident and k != key]
+            if twins and key not in by_key:
+                for c in twins:
+                    c["conflicting_copies"] = True
             if key in by_key:
                 c = by_key[key]
                 c["files"].append(path)
@@ -148,7 +158,8 @@ def file_venue_calls(docs, since: datetime, mirrored=()) -> list[dict]:
                 "kickoff": kick, "side": d.get("side"), "units": d.get("units"),
                 "div_pp": d.get("div_pp"), "book_p": d.get("book_p"), "kalshi_p": d.get("kalshi_p"),
                 "file_fair": _r4(mk.get("fair_prob")), "file_books": mk.get("bookmaker_count"),
-                "file_captured_at": parse_ts(mk.get("captured_at")), "fair_source": mk.get("fair_source")}
+                "file_captured_at": parse_ts(mk.get("captured_at")), "fair_source": mk.get("fair_source"),
+                "conflicting_copies": bool(twins)}
     return sorted(by_key.values(), key=lambda c: (c["as_of"], c["sport"], str(c["home"])))
 
 
@@ -410,6 +421,9 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                    f"{'—' if r['kalshi_p'] is None else format(r['kalshi_p'], '.4f')}")
         out.append(f"  source: {'; '.join(r['files']) or 'ledger only'}" + (" · in ledger" if r["in_ledger"]
                                                                              and r["files"] else ""))
+        if r.get("conflicting_copies"):
+            out.append("  CONFLICT: another file holds this call (same teams, kickoff, side, as_of) with different "
+                       "market numbers; each is listed as its own call, never merged as a copy")
         out.append(f"  DB match: {r['match_id'] if r['match_id'] is not None else '—'} via "
                    f"{r.get('resolved_by') or 'unresolved'}"
                    + (f" · foreign (host) id(s) {r['foreign_ids']} not used" if r.get("foreign_ids") else ""))

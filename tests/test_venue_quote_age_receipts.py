@@ -439,3 +439,20 @@ def test_an_nfl_session_is_verified_from_its_odds_rows_with_the_exports_formula(
     assert rep["by_sport"]["NFL"]["measured"] == 1
     b = bad["rows"][0]
     assert b["file_matches"] is False and "AND on the session's odds rows" in b["excluded"]
+
+
+def test_same_identity_files_with_different_market_numbers_are_not_merged():
+    """Codex on #340: a laptop export and a mirrored host export with the same teams / kickoff / side / as_of are
+    copies only when their market numbers agree; otherwise both calls are kept and flagged as conflicting."""
+    asof = KO - timedelta(hours=19)
+    a = _venue_row(1, "x", 20, {"HOME": 0.4735, "AWAY": 0.5265})
+    b = _venue_row(1, "x", 20, {"HOME": 0.4800, "AWAY": 0.5200})
+    same = VQ.file_venue_calls([("l.json", _doc([a], asof)), ("h/l.json", _doc([dict(a)], asof))], SINCE, ["h/l.json"])
+    assert len(same) == 1 and same[0]["files"] == ["l.json", "h/l.json"] and not same[0]["conflicting_copies"]
+    diff = VQ.file_venue_calls([("l.json", _doc([a], asof)), ("h/l.json", _doc([b], asof))], SINCE, ["h/l.json"])
+    assert len(diff) == 2 and all(c["conflicting_copies"] for c in diff)
+    assert sorted(c["file_fair"]["HOME"] for c in diff) == [0.4735, 0.48]
+    init_db()
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, diff)                          # unseeded names: NO DB MATCH, still listed
+    assert sum("CONFLICT:" in x for x in VQ.format_venue_receipt(res, SINCE, ["t"])) == 2

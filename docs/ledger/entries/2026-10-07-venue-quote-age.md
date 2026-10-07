@@ -22,3 +22,4 @@
   - Probe: an unreadable `--from-file` exits 2 as a refusal.
   - Probe: transport failures exit 2 as refusals. Report: every excluded row is listed.
   - Report: a session whose snapshot mismatches the file (the NFL snapshot formula differs from the export's) is re-derived from its odds rows with the export's per-book de-vig before exclusion.
+  - Receipt: same-identity files with different market numbers stay separate calls, flagged CONFLICT.

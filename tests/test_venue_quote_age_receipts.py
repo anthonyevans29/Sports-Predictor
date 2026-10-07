@@ -537,7 +537,13 @@ def test_an_export_with_a_non_object_row_is_refused(tmp_path):
         ex.mkdir()
         (ex / "f.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
                                                "fixtures": [{"desk": {}}, bad]}))
-        with pytest.raises(VQ.Refused, match="non-object fixtures / predictions entry"):
+        with pytest.raises(VQ.Refused, match="not a list of objects"):
+            VQ.iter_desk_docs(str(ex))
+    for bad in (None, {}, "x"):                       # Codex on #340: a container that is not a list
+        ex = tmp_path / f"cont_{type(bad).__name__}"
+        ex.mkdir()
+        (ex / "p.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"}, "predictions": bad}))
+        with pytest.raises(VQ.Refused, match="not a list of objects"):
             VQ.iter_desk_docs(str(ex))
 
 
@@ -553,3 +559,29 @@ def test_a_capture_in_the_exports_own_second_is_the_reference():
     call = {"as_of": t, "kickoff": KO, "file_captured_at": None, "file_fair": None}
     a, _ = VQ.anchor_for(sess, call)
     assert a["t"] == t.replace(microsecond=800000)
+
+
+def test_the_host_mirror_as_root_is_still_mirrored_and_host_only_calls_are_not_measured(tmp_path):
+    """Codex on #340: --exports-dir exports/host is the mirror itself; and a call only host files hold gets no
+    movement verdict from this DB's (the laptop's) captures."""
+    ids = _seed()
+    host = tmp_path / "exports" / "host"
+    host.mkdir(parents=True)
+    asof = KO - timedelta(hours=19)
+    dead = {"HOME": 0.4735, "AWAY": 0.5265}
+    (host / "f.json").write_text(json.dumps(_doc([_venue_row(ids["dead"], "dead", 20, dead, n=ids["n"])], asof)))
+    docs, cnt = VQ.iter_desk_docs(str(host))
+    assert cnt["mirrored"] == [str(host / "f.json")]
+    calls = VQ.file_venue_calls(docs, SINCE, cnt["mirrored"])
+    assert calls[0]["host_only"] is True
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    r = res["rows"][0]
+    assert r["match_id"] == ids["dead"] and r["verdict"] == "HOST: NOT MEASURED" and r["later"] == []
+    assert res["totals"]["tested"] == 0 and res["totals"]["HOST: NOT MEASURED"] == 1
+    assert "host-only, not measured 1" in "\n".join(VQ.format_venue_receipt(res, SINCE, ["t"]))
+    local = tmp_path / "exports" / "f.json"
+    local.write_text((host / "f.json").read_text())
+    docs, cnt = VQ.iter_desk_docs(str(tmp_path / "exports"))
+    calls = VQ.file_venue_calls(docs, SINCE, cnt["mirrored"])
+    assert len(calls) == 1 and calls[0]["host_only"] is False          # a local copy: measured on local captures

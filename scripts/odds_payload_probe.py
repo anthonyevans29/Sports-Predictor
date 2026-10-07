@@ -65,6 +65,7 @@ ADAPTER_READS = (
     "errors",                                         # _get raises on a non-empty errors field
 )
 TIME_NAME = re.compile(r"update|time|date|last|stamp|modif|created|fetched|(^|_)ts$", re.I)
+TS_CAMEL = re.compile(r"[a-z0-9]Ts$")     # quoteTs / oddsTs (Codex on #340), never bets / results
 _DT = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?(Z|[+-]\d{2}:?\d{2})?$")
 
 
@@ -122,7 +123,8 @@ def looks_datetime(v) -> bool:
 
 def time_fields(fields: dict) -> dict:
     """{"by_name": [paths whose LAST key matches TIME_NAME], "by_value": [paths with a date-time-looking sample]}."""
-    by_name = [p for p in fields if TIME_NAME.search(re.sub(r"\[\]$", "", p).rsplit(".", 1)[-1])]
+    key = lambda p: re.sub(r"\[\]$", "", p).rsplit(".", 1)[-1]
+    by_name = [p for p in fields if TIME_NAME.search(key(p)) or TS_CAMEL.search(key(p))]
     by_value = [p for p, e in fields.items() if e.get("dt_sample") is not None
                 or any(looks_datetime(s) for s in e["samples"])]
     return {"by_name": sorted(by_name), "by_value": sorted(by_value)}
@@ -162,6 +164,13 @@ def report(payload, max_items: int = 3) -> list[str]:
                  f"{len(dr)} present and DROPPED:")
     lines += [f"  {p}" for p in dr] or ["  (none)"]
     cand = [p for p in tf["by_name"] + tf["by_value"] if p in dr]
+    quoted = [p for p in fields if p.startswith("response[].bookmakers[].bets[].values[]")]
+    if not cand and not quoted:
+        # Codex on #340: an empty odds response (no bookmaker / bet / value object) says nothing about the schema
+        lines.append("VERDICT (this payload): INCONCLUSIVE: no bookmaker / bet / value objects in this response "
+                     "(odds not published yet?), so nothing can be said about a quote-time field; probe a fixture "
+                     "with odds posted")
+        return lines
     lines.append("VERDICT (this payload): " + (
         "a time-like field is present and dropped by the adapter: " + ", ".join(sorted(set(cand)))
         + " — whether it is the QUOTE's own time (vs the response's or the fixture's) is for the ruling"

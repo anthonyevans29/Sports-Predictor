@@ -55,8 +55,28 @@ def test_report_verdict_names_a_dropped_time_field_or_says_none():
     text = "\n".join(P.report(SYNTH))
     assert "VERDICT (this payload): a time-like field is present and dropped" in text
     assert "response[].bookmakers[].lastUpdate" in text
-    bare = {"response": [{"bookmakers": [{"name": "B", "bets": []}]}]}
+    bare = {"response": [{"bookmakers": [{"name": "B", "bets": [{"name": "Home/Away",
+                                                                  "values": [{"value": "Home", "odd": "2.1"}]}]}]}]}
     assert "no time-like field present in this payload" in "\n".join(P.report(bare))
+
+
+def test_an_empty_odds_response_is_inconclusive_never_a_no_field_verdict():
+    # Codex on #340: odds not yet published ({"results": 0, "response": []}) or bookmakers with no bet values say
+    # nothing about the schema
+    for empty in ({"errors": [], "results": 0, "response": []},
+                  {"response": [{"bookmakers": [{"name": "B", "bets": []}]}]}):
+        text = "\n".join(P.report(empty))
+        assert "VERDICT (this payload): INCONCLUSIVE" in text and "no time-like field present" not in text
+
+
+def test_camel_case_ts_keys_are_time_like_but_bets_is_not():
+    # Codex on #340: quoteTs / oddsTs are timestamps (often numeric, so the value check misses them)
+    payload = {"response": [{"bookmakers": [{"name": "B", "quoteTs": 1759766400, "bets": [
+        {"name": "Home/Away", "values": [{"value": "Home", "odd": "2.1"}]}]}], "results": 1}]}
+    tf = P.time_fields(P.walk(payload, 3))
+    assert "response[].bookmakers[].quoteTs" in tf["by_name"]
+    assert not any(p.endswith(("bets", "results")) for p in tf["by_name"])
+    assert "dropped by the adapter: response[].bookmakers[].quoteTs" in "\n".join(P.report(payload))
 
 
 def test_from_file_mode_prints_and_out_is_confined_to_exports(tmp_path, monkeypatch, capsys):

@@ -25,3 +25,4 @@
   - Receipt: same-identity files with different market numbers stay separate calls, flagged CONFLICT.
   - Ledger claims among conflicting rows attach by book p / Kalshi p / div, or to none (ambiguous). Conflicting model exports are both kept, flagged. An unparseable `as_of` is refused. Identity resolution is sport-scoped.
   - A non-object export row is refused. Mirrored host rows are excluded from the age statistics. Capture vs `as_of` is compared at the second.
+  - Host-only venue calls: `HOST: NOT MEASURED`. An `exports/host` root is mirrored. A non-list container is refused. Probe: an empty response is INCONCLUSIVE; camel-case `Ts` keys are time-like.

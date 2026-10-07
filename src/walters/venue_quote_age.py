@@ -82,6 +82,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                       "no receipt, never an empty one")
     bad_asof: list[str] = []
     bad_rows: list[str] = []
+    # Codex on #340: --exports-dir exports/host IS the mirror; every file under it is a host export
+    root_is_mirror = os.path.basename(os.path.normpath(os.path.abspath(root))) == MIRROR_DIR
     for d, _, files in sorted(os.walk(root)):
         for n in sorted(files):
             if not n.endswith(".json"):
@@ -98,16 +100,20 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if parse_ts(doc["desk_meta"]["as_of"]) is None:   # Codex on #340: never skipped invisibly
                     bad_asof.append(p)
                     continue
+                if any(k in doc and not isinstance(doc[k], list) for k in ("fixtures", "predictions")):
+                    bad_rows.append(p)                             # Codex on #340: a container that is no list
+                    continue
                 rows = [x for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]]
                 if any(not isinstance(x, dict) for x in rows):     # Codex on #340: a damaged row is refused
                     bad_rows.append(p)
                     continue
                 docs.append((p, doc))
                 counts["desk_files"] += 1
-                if os.path.relpath(p, root).split(os.sep)[0] == MIRROR_DIR:
+                if root_is_mirror or os.path.relpath(p, root).split(os.sep)[0] == MIRROR_DIR:
                     counts["mirrored"].append(p)
     if bad_rows:
-        raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a non-object fixtures / predictions entry "
+        raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
+                      f"objects "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:
@@ -162,6 +168,8 @@ def file_venue_calls(docs, since: datetime, mirrored=()) -> list[dict]:
             if key in by_key:
                 c = by_key[key]
                 c["files"].append(path)
+                if not foreign:
+                    c["host_only"] = False
                 if foreign:
                     c["foreign_ids"].append(f.get("match_id"))
                 elif c["match_id"] is None:
@@ -176,7 +184,7 @@ def file_venue_calls(docs, since: datetime, mirrored=()) -> list[dict]:
                 "div_pp": d.get("div_pp"), "book_p": d.get("book_p"), "kalshi_p": d.get("kalshi_p"),
                 "file_fair": _r4(mk.get("fair_prob")), "file_books": mk.get("bookmaker_count"),
                 "file_captured_at": parse_ts(mk.get("captured_at")), "fair_source": mk.get("fair_source"),
-                "conflicting_copies": bool(twins)}
+                "conflicting_copies": bool(twins), "host_only": foreign}
     return sorted(by_key.values(), key=lambda c: (c["as_of"], c["sport"], str(c["home"])))
 
 
@@ -433,9 +441,16 @@ def venue_receipt(s, calls: list[dict]) -> dict:
             continue
         c = {**c, "export_match_id": c.get("match_id"), "match_id": m.id, "resolved_by": how,
              "kickoff": c["kickoff"] or m.utc_date}
+        if c.get("host_only"):
+            # Codex on #340: a call only the HOST's files hold was decided on the host's captures; this DB's
+            # sessions are the laptop's, fetched at other times, so they never give it a movement verdict
+            rows.append({**c, "anchor": None, "anchor_basis": "host-only call: the host's capture history is not "
+                         "in this DB", "later": [], "moved": None, "verdict": "HOST: NOT MEASURED",
+                         "file_matches_anchor": None, "unchanged_since": None, "run_n": 0, "run_censored": None})
+            continue
         rows.append(receipt_row(c, match_sessions(s, m)))
     tot = {"calls": len(rows)}
-    for v in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE", "NO ANCHOR", "NO DB MATCH"):
+    for v in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE", "NO ANCHOR", "NO DB MATCH", "HOST: NOT MEASURED"):
         tot[v] = sum(1 for r in rows if r["verdict"] == v)
     tested = tot["NEVER MOVED"] + tot["MOVED"]
     tot["tested"] = tested
@@ -512,7 +527,8 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
     out.append(f"TOTALS · calls {t['calls']} · tested (>= 1 later pre-kickoff capture) {t['tested']} · NEVER MOVED "
                f"{t['NEVER MOVED']} ({_share(t['never_moved_share_of_tested'])} of tested, "
                f"{_share(t['never_moved_share_of_calls'])} of calls) · MOVED {t['MOVED']} · no later capture "
-               f"{t['NO LATER CAPTURE']} · no anchor {t['NO ANCHOR']} · no DB match {t['NO DB MATCH']}")
+               f"{t['NO LATER CAPTURE']} · no anchor {t['NO ANCHOR']} · no DB match {t['NO DB MATCH']} · host-only, "
+               f"not measured {t.get('HOST: NOT MEASURED', 0)}")
     out.append(f"  (re-logged ledger positions {t['repriced_positions']}, {t['reprices']} re-log(s): counted once "
                f"each, at the frozen claim)")
     return out

@@ -175,8 +175,11 @@ def desk_rows_ok(doc: dict) -> bool:
     else:
         rows = []
         for x in doc.get("predictions") or []:
-            pr = (x.get("prediction") or {}) if isinstance(x, dict) else {}
-            if isinstance(pr, dict) and (pr.get("probabilities") is not None or pr.get("home_win_prob") is not None):
+            pr = x.get("prediction") if isinstance(x, dict) else None
+            if pr is not None and not isinstance(pr, dict):
+                return False                   # Codex on #340: a damaged prediction is never read as "no probability"
+            pr = pr or {}
+            if pr.get("probabilities") is not None or pr.get("home_win_prob") is not None:
                 rows.append(x)
     # Codex on #340: the block's identity (engine, call) must be there: an empty {} is a damaged block
     return all(isinstance(x.get("desk"), dict) and isinstance(x["desk"].get("engine"), str)
@@ -357,8 +360,10 @@ def file_venue_calls(docs, since: datetime, mirrored=()) -> list[dict]:
         as_of = parse_ts(doc["desk_meta"].get("as_of"))
         if as_of is None or as_of < since:
             continue
-        sport = str(doc.get("competition_code") or doc.get("competition") or doc.get("sport") or "?").upper()
+        doc_sport = doc.get("competition_code") or doc.get("competition") or doc.get("sport")
         for f in doc["fixtures"]:
+            # Codex on #340: the row's own competition first (doc_ident_ok accepts rows that name it themselves)
+            sport = str((f or {}).get("competition") or doc_sport or "?").upper()
             d = (f or {}).get("desk") or {}
             if d.get("engine") != "venue_edge" or d.get("call") != "VENUE":
                 continue

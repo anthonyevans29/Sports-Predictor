@@ -1310,3 +1310,19 @@ def test_a_custom_named_export_with_a_null_scalar_or_empty_root_is_refused(tmp_p
     ok.mkdir()
     (ok / "series.json").write_text('[{"ticker": "KX"}]')
     assert VQ.iter_desk_docs(str(ok))[0] == []
+
+
+def test_damaged_prediction_objects_refuse_and_fixture_calls_take_their_rows_sport(tmp_path):
+    """Codex on #340: a non-object `prediction` is a damaged row, never 'no probability'; a fixture VENUE call takes
+    its row's competition when the document carries no sport metadata."""
+    for i, pr in enumerate(("corrupt", [0.6])):
+        ex = tmp_path / f"p{i}"
+        ex.mkdir()
+        (ex / "audit.json").write_text(json.dumps({"sport": "nfl", "desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                                   "predictions": [{"prediction": pr}]}))
+        with pytest.raises(VQ.Refused, match="no desk block"):
+            VQ.iter_desk_docs(str(ex))
+    row = _venue_row(1, "dead", 20, {"HOME": 0.4735, "AWAY": 0.5265})
+    row["competition"] = "NHL"
+    doc = {"desk_meta": {"as_of": _iso(KO - timedelta(hours=19)) + "Z"}, "fixtures": [row]}
+    assert VQ.file_venue_calls([("f.json", doc)], SINCE)[0]["sport"] == "NHL"

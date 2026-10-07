@@ -54,3 +54,4 @@
   - Truncated, meta-less or identity-less desk exports are refused. Probe: direct `--game` payloads are league-checked (refused if another league; LEAGUE UNVERIFIED if none named).
   - Every unreadable JSON refuses (supersedes the sniffs). Ledger-only claims are measured only on an anchor matching their book p. Probe: saved payloads are league-checked.
   - Null / scalar / empty roots are refused under any name. Probe: every fetch is league-checked.
+  - A non-object `prediction` refuses. Fixture calls take the row's competition first.

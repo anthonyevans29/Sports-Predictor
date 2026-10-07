@@ -728,6 +728,17 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   window). On a live host that predates it: install the unit, then
   `systemctl enable --now sp-intl-daily.timer` and add it to
   `/etc/sports-predictor/timers.enabled`.
+- **A CHANGED timer on a live host** (e.g. `sp-ncaa-market.timer` gained Tue + Wed 16:00 UTC, ARCHITECT
+  2026-10-07, addendum 2 item 8a). `sp_deploy.py` checks out the tag but does not install unit files, so
+  after the deploy of the tag that carries the change:
+  ```
+  sudo install -m 0644 deploy/hosting/systemd/sp-ncaa-market.timer /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl restart sp-ncaa-market.timer
+  systemctl list-timers sp-ncaa-market.timer --no-pager   # receipt: next elapse on the next Tue/Wed/Thu 16:00 UTC
+  ```
+  Until that tag is deployed, a midweek slate gets its host fixtures file only by hand:
+  `sudo -u sp venv/bin/python deploy/hosting/sp_run.py ncaa-market`.
 
 **T12. TERMINAL (laptop): the nightly backup pull (H0-14 second layer).**
 ```

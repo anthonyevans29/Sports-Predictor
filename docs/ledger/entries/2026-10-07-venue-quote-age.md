@@ -40,3 +40,4 @@
   - The probe counts quotes by the adapters' own market/selection rules. Bad market metadata and non-numeric claim prices are refused. Default prediction export names are required inputs.
   - Read-only open: `mode=ro`, never `immutable` (supersedes the sidecar rule; SQLite's own sidecars are accepted, the content is never written). The age report keeps re-derived apart from literal matches and leaves host rows out of its diagnostics. Default-named prediction exports need `predictions`.
   - A non-string `fair_source` is refused.
+  - Copy identity includes the reference source and raw fair (distinct spread references stay apart). Non-string identity fields are refused.

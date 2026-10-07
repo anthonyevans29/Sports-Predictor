@@ -1000,3 +1000,36 @@ def test_a_non_string_fair_source_is_refused(tmp_path):
                                                             "fixtures": [{"market": {"fair_source": fs}}]}))
         with pytest.raises(VQ.Refused, match="malformed market"):
             VQ.iter_desk_docs(str(ex))
+
+
+def test_distinct_spread_derived_references_are_both_kept():
+    """Codex on #340: a spread_derived fair has no 1X2 fair4; two different spread references for one identity are
+    two references (both kept, flagged), never collapsed into one copy."""
+    def doc(fair, src="spread_derived"):
+        return {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
+            {"match_id": 3, "utc_date": _iso(KO), "home_team": "H", "away_team": "A",
+             "market": {"fair_prob": fair, "fair_source": src},
+             "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books"}}]}
+    rows = VQ.model_reference_rows([("host/a.json", doc({"HOME": 0.6, "AWAY": 0.4})),
+                                    ("a.json", doc({"HOME": 0.55, "AWAY": 0.45}))], SINCE, ["host/a.json"])
+    assert len(rows) == 2 and all(r["conflicting_copies"] for r in rows)
+    assert sorted(r["mirrored"] for r in rows) == [False, True]
+    same = VQ.model_reference_rows([("host/a.json", doc({"HOME": 0.6, "AWAY": 0.4})),
+                                    ("a.json", doc({"HOME": 0.6, "AWAY": 0.4}))], SINCE, ["host/a.json"])
+    assert len(same) == 1 and same[0]["mirrored"] is False and not same[0]["conflicting_copies"]
+
+
+def test_non_string_identity_fields_are_refused_at_discovery(tmp_path):
+    """Codex on #340: desk.side / team names / kickoff key calls and rows; a list or object is refused, never a
+    TypeError while hashing."""
+    rows = ({"desk": {"engine": "venue_edge", "side": []}},
+            {"desk": {"engine": {"x": 1}}},
+            {"home_team": ["H"]},
+            {"utc_date": {"t": 1}})
+    for i, r in enumerate(rows):
+        ex = tmp_path / f"i{i}"
+        ex.mkdir()
+        (ex / "fixtures_NHL_x.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                                            "fixtures": [r]}))
+        with pytest.raises(VQ.Refused, match="non-string identity field"):
+            VQ.iter_desk_docs(str(ex))

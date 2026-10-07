@@ -136,12 +136,25 @@ def _num(v) -> bool:
     return v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
 
 
+def _str(v) -> bool:
+    return v is None or isinstance(v, str)
+
+
 def desk_ok(d) -> bool:
-    """A VENUE desk block's numeric fields are numeric or null (Codex on #340: never a traceback while hashing or
-    formatting them)."""
-    if not isinstance(d, dict) or d.get("engine") != "venue_edge":
+    """A desk block's identity fields are strings or null, and a VENUE block's numeric fields numeric or null
+    (Codex on #340: they are hashed into call keys and formatted; never a traceback)."""
+    if not isinstance(d, dict):
+        return True
+    if not all(_str(d.get(k)) for k in ("engine", "call", "side", "reference", "pass_kind")):
+        return False
+    if d.get("engine") != "venue_edge":
         return True
     return all(_num(d.get(k)) for k in ("book_p", "kalshi_p", "div_pp", "units"))
+
+
+def row_ident_ok(x: dict) -> bool:
+    """A row's identity fields (team names, kickoff, competition) are strings or null: they key calls and rows."""
+    return all(_str(x.get(k)) for k in ("home_team", "away_team", "utc_date", "competition"))
 
 
 @contextlib.contextmanager
@@ -218,7 +231,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 rows = [x for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]]
                 if any(not isinstance(x, dict) or ("desk" in x and x["desk"] is not None
                                                    and not isinstance(x["desk"], dict))
-                       or not market_ok(x.get("market")) or not desk_ok(x.get("desk")) for x in rows):
+                       or not market_ok(x.get("market")) or not desk_ok(x.get("desk"))
+                       or not row_ident_ok(x) for x in rows):
                     bad_rows.append(p)
                     continue
                 docs.append((p, doc))
@@ -232,7 +246,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     if bad_rows:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
                       f"objects (a missing one in a fixtures_* / *predictions* export, a row whose desk block is not an "
-                      f"object, a malformed market / fair_prob / selections, or a non-numeric VENUE field) "
+                      f"object, a malformed market / fair_prob / selections, a non-numeric VENUE field, or a non-string identity "
+                      f"field) "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:
@@ -787,13 +802,17 @@ def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
                 continue
             ident = (sport, r.get("home_team"), r.get("away_team"), kick, as_of)
             fair4 = _row_fair(r)
-            k = ident + (tuple(sorted((fair4 or {}).items())),)
+            mk = r.get("market") or {}
+            raw = mk.get("fair_prob") if isinstance(mk.get("fair_prob"), dict) else {}
+            # Codex on #340: the reference source and its RAW fair are part of copy identity (a spread_derived fair
+            # has no 1X2 fair4, so two different spread references must not look identical)
+            k = ident + (tuple(sorted((fair4 or {}).items())), mk.get("fair_source"),
+                         tuple(sorted((kk, vv) for kk, vv in raw.items())))
             foreign = path in mirrored
             if k in seen:                                  # a true copy (same identity AND same book fair)
                 if not foreign:                            # Codex on #340: any LOCAL copy makes the row local,
                     for x in out:                          # whatever order the walk met the copies in
-                        if (x["sport"], x["home"], x["away"], x["kickoff"], x["as_of"]) == ident and \
-                                x["file_fair"] == fair4 and x["mirrored"]:
+                        if x.get("_key") == k and x["mirrored"]:
                             x.update(mirrored=False, file=path, match_id=r.get("match_id"),
                                      foreign_ids=x["foreign_ids"])
                 continue
@@ -805,7 +824,7 @@ def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
             out.append({"sport": sport, "match_id": None if foreign else r.get("match_id"),
                         "foreign_ids": [r.get("match_id")] if foreign else [], "home": r.get("home_team"),
                         "away": r.get("away_team"), "as_of": as_of, "file": path,
-                        "kickoff": kick, "file_fair": fair4, "call": d.get("call"), "mirrored": foreign,
+                        "kickoff": kick, "file_fair": fair4, "call": d.get("call"), "mirrored": foreign, "_key": k,
                         "conflicting_copies": bool(twins)})
     return out
 

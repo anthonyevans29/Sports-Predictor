@@ -352,3 +352,28 @@ def test_as_of_keys_are_time_like():
         payload = {"response": [{"bookmakers": [{"name": "B", k: 1759766400, "bets": [
             {"name": "Home/Away", "values": [{"value": "Home", "odd": "2.1"}]}]}]}]}
         assert f"response[].bookmakers[].{k}" in P.time_fields(P.walk(payload, 3))["by_name"], k
+
+
+def test_conflicting_selectors_and_non_scalar_ids_are_refused(tmp_path, monkeypatch, capsys):
+    # Codex on #340: one input mode only; the selected provider id must be a scalar
+    src = tmp_path / "p.json"
+    src.write_text(json.dumps(SYNTH))
+    for argv in (["--from-file", str(src), "--game", "7"], ["--from-file", str(src), "--match-id", "5"],
+                 ["--sport", "nhl", "--game", "7", "--match-id", "5"]):
+        assert P.main(argv) == 2
+        assert "select different inputs" in capsys.readouterr().out
+    import sqlite3
+    db = tmp_path / "s.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE matches (id INTEGER, competition_id INTEGER, external_ids TEXT)")
+    con.execute("CREATE TABLE competitions (id INTEGER, code TEXT)")
+    con.execute("INSERT INTO competitions VALUES (1, 'NHL')")
+    con.executemany("INSERT INTO matches VALUES (?, 1, ?)", [(1, json.dumps({"api_hockey": [123]})),
+                                                             (2, json.dumps({"api_hockey": {"id": 1}})),
+                                                             (3, json.dumps({"api_hockey": True}))])
+    con.commit()
+    con.close()
+    monkeypatch.setattr(P, "db_path", lambda: db)
+    for mid in (1, 2, 3):
+        with pytest.raises(P.Refused, match="is not a string or integer"):
+            P.game_for_match("nhl", mid)

@@ -1234,3 +1234,24 @@ def test_percentiles_divergence_and_copy_precision_use_the_declared_rules():
     rows = VQ.model_reference_rows([("a.json", doc({"HOME": 0.600001, "AWAY": 0.399999})),
                                     ("b.json", doc({"HOME": 0.600002, "AWAY": 0.399998}))], SINCE)
     assert len(rows) == 1 and not rows[0]["conflicting_copies"]
+
+
+def test_a_desk_annotated_row_without_its_desk_block_is_refused(tmp_path):
+    """Codex on #340: a scheduled fixtures row, or a predictions row with a probability, that lost its desk block is
+    refused; rows the Desk never annotates (finished fixtures, probability-less predictions) need none."""
+    asof = {"as_of": "2095-10-08T00:00:00Z"}
+    for i, doc in enumerate(({"competition_code": "NHL", "desk_meta": asof, "fixtures": [{"status": "scheduled"}]},
+                             {"competition_code": "NHL", "desk_meta": asof, "fixtures": [{"desk": None}]},
+                             {"sport": "nfl", "desk_meta": asof,
+                              "predictions": [{"prediction": {"home_win_prob": 0.6}}]})):
+        ex = tmp_path / f"d{i}"
+        ex.mkdir()
+        (ex / "audit.json").write_text(json.dumps(doc))
+        with pytest.raises(VQ.Refused, match="no desk block"):
+            VQ.iter_desk_docs(str(ex))
+    ok = tmp_path / "ok"
+    ok.mkdir()
+    (ok / "audit.json").write_text(json.dumps({"competition_code": "NHL", "desk_meta": asof, "fixtures": [
+        {"status": "finished"}, {"status": "scheduled", "desk": {"engine": "venue_edge", "call": "PASS"}}]}))
+    (ok / "p.json").write_text(json.dumps({"sport": "nfl", "desk_meta": asof, "predictions": [{"prediction": {}}]}))
+    assert len(VQ.iter_desk_docs(str(ok))[0]) == 2

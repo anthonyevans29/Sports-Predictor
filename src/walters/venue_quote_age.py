@@ -164,6 +164,23 @@ def desk_ok(d) -> bool:
         d.get("stale_book_zone") is None or isinstance(d.get("stale_book_zone"), bool))
 
 
+def desk_rows_ok(doc: dict) -> bool:
+    """Every row the Desk annotates (desk_policy.normalize: a scheduled / status-less fixtures row when the doc has
+    no predictions; a predictions row with a probability) carries a desk object (Codex on #340)."""
+    if doc.get("engine") == "model_shadow":
+        return True
+    if doc.get("predictions") is None and isinstance(doc.get("fixtures"), list):
+        rows = [f for f in doc["fixtures"] if isinstance(f, dict)
+                and not (f.get("status") and f.get("status") != "scheduled")]
+    else:
+        rows = []
+        for x in doc.get("predictions") or []:
+            pr = (x.get("prediction") or {}) if isinstance(x, dict) else {}
+            if isinstance(pr, dict) and (pr.get("probabilities") is not None or pr.get("home_win_prob") is not None):
+                rows.append(x)
+    return all(isinstance(x.get("desk"), dict) for x in rows)
+
+
 def doc_ident_ok(doc: dict) -> bool:
     """A desk document's sport metadata (sport / competition_code / competition) is string-or-null, and every
     fixtures / predictions row resolves to a sport: its own competition, else the document's (Codex on #340: damaged
@@ -269,6 +286,9 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if need and need not in doc:               # Codex on #340: a named export lacking its rows
                     bad_rows.append(p)
                     continue
+                if not desk_rows_ok(doc):
+                    bad_rows.append(p)                     # Codex on #340: a row the Desk annotates lost its
+                    continue                               # desk block: never read as a non-call
                 if not doc_ident_ok(doc):
                     bad_rows.append(p)                     # Codex on #340: damaged sport metadata, never a
                     continue                               # silently out-of-scope document
@@ -297,7 +317,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
                       f"objects (a missing one in a fixtures_* / *predictions* export or in any desk document, a row whose desk block is not an "
                       f"object, a malformed market / fair_prob / selections, a non-numeric VENUE field, or a non-string identity "
-                      f"field / non-integer match_id, or missing / non-string sport metadata) "
+                      f"field / non-integer match_id, missing / non-string sport metadata, or a Desk-annotated row with no desk "
+                      f"block) "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:

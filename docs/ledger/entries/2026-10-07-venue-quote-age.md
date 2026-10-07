@@ -50,3 +50,4 @@
   - Cockpit policy card states the hold. Damaged sport metadata, non-object export roots, and re-logs before `claim_at` are refused. Probe: the match must be the asked league; `external_ids` must be an object.
   - Conflicting `stale_book_zone` across copies is reported, not picked. Legacy pre-claim logs are not re-logs. Probe: as-of keys are time-like.
   - Percentiles: nearest rank, ties half-up. Divergence matches by the Cockpit's toFixed(2). 1X2 copies dedupe at 4 dp.
+  - A Desk-annotated row missing its desk block is refused. Probe: one input selector only; scalar provider ids only.

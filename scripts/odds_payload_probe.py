@@ -290,7 +290,10 @@ def game_for_match(sport: str, match_id: int) -> str:
     src = SPORTS[sport][3]
     if not ext.get(src):
         raise Refused(f"REFUSED: match {match_id} has no '{src}' id (external_ids keys: {sorted(ext)})")
-    return str(ext[src])
+    gid = ext[src]                         # Codex on #340: the id itself must be a scalar, never [123] / {...}
+    if isinstance(gid, bool) or not isinstance(gid, (int, str)) or not str(gid).strip():
+        raise Refused(f"REFUSED: match {match_id}'s '{src}' id is not a string or integer ({_short(gid, 60)})")
+    return str(gid)
 
 
 def fetch(sport: str, game: str) -> tuple[dict, str | None]:
@@ -350,6 +353,12 @@ def main(argv=None) -> int:
     ap.add_argument("--max-items", type=int, default=3,
                     help="samples printed per key path (default 3); every list element is always scanned")
     a = ap.parse_args(argv)
+    # Codex on #340: one input mode only; a conflicting selector is refused, never silently ignored
+    chosen = [n for n, v in (("--from-file", a.from_file), ("--game", a.game), ("--match-id", a.match_id))
+              if v is not None]
+    if len(chosen) > 1:
+        print(f"REFUSED: {' and '.join(chosen)} select different inputs; give exactly one (no verdict)")
+        return 2
     if a.out:
         ok, msg = out_path_ok(a.out)
         if not ok:

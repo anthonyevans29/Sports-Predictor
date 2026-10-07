@@ -1,0 +1,2 @@
+## 2026-10-07 (#342: sync-pitchers count line — ARCHITECT, daily-class)
+- `sync-pitchers`: the per-date line counts this run's upcoming games with a probable over this run's upcoming games, and prints the date's slate total separately: `2/3 upcoming games with probable pitchers (4 on the date's slate)`. It used to print the batch size (every game on the date, started ones included) over the upcoming count, for example `4/3` at 21:59Z on 2026-10-07 (#341). This is a log line only; nothing written to the DB changes.

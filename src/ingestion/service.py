@@ -1157,8 +1157,16 @@ class IngestionService:
                         _log(f"  ✗ batch fetch {date_iso}: {e}")
                         continue
                     probables_by_source_id.update(batch)
-                    _log(f"  ✓ {date_iso}: {len(batch)}/{len(group)} games "
-                         f"with probable pitchers")
+                    # Numerator and denominator are the SAME set: this run's
+                    # upcoming games. The batch covers the whole date (started
+                    # games too), so len(batch) printed "4/3" (ARCHITECT
+                    # 2026-10-07); the slate total is shown apart.
+                    with_p = sum(
+                        1 for g in group
+                        if str((g.external_ids or {}).get(self.adapter.source_name)) in batch
+                    )
+                    _log(f"  ✓ {date_iso}: {with_p}/{len(group)} upcoming games "
+                         f"with probable pitchers ({len(batch)} on the date's slate)")
 
             for m in matches:
                 ext = m.external_ids or {}

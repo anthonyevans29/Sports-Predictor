@@ -325,3 +325,19 @@ def test_a_missing_key_on_an_ssh_remote_is_a_stated_refusal(monkeypatch, tmp_pat
     (tmp_path / "home" / ".ssh" / "sp_exports_deploy_key").write_text("k")
     assert em.key_refusal("git@github.com:a/b.git") is None
     assert not em.ssh_remote(str(tmp_path / "bare.git"))             # a local path remote (the tests' own)
+
+
+def test_a_rewritten_https_remote_never_runs_ssh_keyless(monkeypatch, tmp_path):
+    """Codex on #335: a pushInsteadOf rewrite can turn an HTTPS remote into SSH at push time. With no key file the
+    mirror hands git a refusing SSH command, so no SSH transport runs on an agent or default identity."""
+    seen, real_run = {}, subprocess.run
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_KEY", str(tmp_path / "missing"))
+    monkeypatch.setattr(em.subprocess, "run", lambda *a, **k: seen.update(k["env"]) or None)
+    em._git(tmp_path, "push")
+    assert seen["GIT_SSH_COMMAND"] == em.REFUSE_SSH
+    r = real_run(["sh", "-c", em.REFUSE_SSH + " git@github.com git-receive-pack x"], capture_output=True, text=True)
+    assert r.returncode != 0 and "REFUSED" in r.stderr
+    (tmp_path / "key").write_text("k")
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_KEY", str(tmp_path / "key"))
+    em._git(tmp_path, "push")
+    assert seen["GIT_SSH_COMMAND"].startswith("ssh -i ") and "IdentitiesOnly=yes" in seen["GIT_SSH_COMMAND"]

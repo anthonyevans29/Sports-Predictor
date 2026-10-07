@@ -70,6 +70,9 @@ def key_path() -> Path:
     return Path(os.path.expanduser("~")) / ".ssh" / "sp_exports_deploy_key"
 
 
+REFUSE_SSH = "sh -c 'echo \"REFUSED: SSH transport with no deploy key (exports_mirror)\" >&2; exit 1' --"
+
+
 def ssh_remote(remote: str) -> bool:
     """git's own rule (Codex on #335): a URL ("scheme://") is SSH when its scheme names ssh (ssh://, git+ssh://,
     ssh+git://); otherwise a remote is scp-like, so SSH, when a ':' comes before any '/' (git@host:p, u@h:p,
@@ -141,6 +144,11 @@ def _git(clone: Path, *args, check=True, capture=True):
     key = str(key_path())
     if os.path.isfile(key):
         env["GIT_SSH_COMMAND"] = f"ssh -i {key} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new"
+    else:
+        # Codex on #335: a url.<base>.insteadOf / pushInsteadOf rewrite can turn an HTTPS remote into SSH at push
+        # time, past ssh_remote(). With no key file, any SSH transport git starts is REFUSED here, so a push can
+        # never run on an agent or default identity; HTTPS is unaffected.
+        env["GIT_SSH_COMMAND"] = REFUSE_SSH
     return subprocess.run(["git", "-C", str(clone), *args], check=check, env=env, text=True,
                           capture_output=capture)
 

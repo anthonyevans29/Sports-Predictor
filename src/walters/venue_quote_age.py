@@ -159,8 +159,11 @@ def desk_ok(d) -> bool:
 
 
 def row_ident_ok(x: dict) -> bool:
-    """A row's identity fields (team names, kickoff, competition) are strings or null: they key calls and rows."""
-    return all(_str(x.get(k)) for k in ("home_team", "away_team", "utc_date", "competition"))
+    """A row's identity fields (team names, kickoff, competition) are strings or null and its match_id an integer
+    or null: they key calls and rows, and resolve the DB match."""
+    mid = x.get("match_id")                    # Codex on #340: a DB primary key, passed to Session.get()
+    return all(_str(x.get(k)) for k in ("home_team", "away_team", "utc_date", "competition")) and (
+        mid is None or (isinstance(mid, int) and not isinstance(mid, bool)))
 
 
 @contextlib.contextmanager
@@ -253,7 +256,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
                       f"objects (a missing one in a fixtures_* / *predictions* export, a row whose desk block is not an "
                       f"object, a malformed market / fair_prob / selections, a non-numeric VENUE field, or a non-string identity "
-                      f"field) "
+                      f"field / non-integer match_id) "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:

@@ -1060,3 +1060,14 @@ def test_non_string_ledger_identity_fields_are_refused():
     for k in ("pick", "home", "away", "sport", "kickoff", "claim_source"):
         why = VQ.ledger_refusal({"calls": [{"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z", k: []}]})
         assert why and "non-string " + k in why, k
+
+
+def test_a_non_integer_match_id_is_refused_at_discovery(tmp_path):
+    """Codex on #340: match_id is passed to Session.get(Match, ...); a list / object / bool is refused."""
+    for i, mid in enumerate(([1], {"id": 1}, True)):
+        ex = tmp_path / f"m{i}"
+        ex.mkdir()
+        (ex / "fixtures_NHL_x.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                                            "fixtures": [{"match_id": mid}]}))
+        with pytest.raises(VQ.Refused, match="non-integer match_id"):
+            VQ.iter_desk_docs(str(ex))

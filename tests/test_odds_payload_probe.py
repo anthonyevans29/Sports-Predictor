@@ -285,3 +285,21 @@ def test_an_unknown_market_or_selection_is_inconclusive():
         p = {"response": [{"bookmakers": [{"name": "B", "bets": [bet]}]}]}
         assert P.usable_quotes(p, "nhl") == 0
         assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(p, sport="nhl"))
+
+
+def test_uppercase_camel_ts_keys_are_time_like():
+    # Codex on #340: quoteTS / oddsTS are timestamps too; a "no time-like field" verdict would be false
+    payload = {"response": [{"bookmakers": [{"name": "B", "quoteTS": 1759766400, "bets": [
+        {"name": "Home/Away", "values": [{"value": "Home", "odd": "2.1"}]}]}]}]}
+    tf = P.time_fields(P.walk(payload, 3))
+    assert "response[].bookmakers[].quoteTS" in tf["by_name"]
+    assert "no time-like field present" not in "\n".join(P.report(payload))
+
+
+def test_scalar_response_containers_are_inconclusive_never_a_traceback():
+    # Codex on #340: a schema-drifted scalar response / bookmakers / bets / values holds no quotes
+    for drift in ({"response": 1}, {"response": [{"bookmakers": 1}]},
+                  {"response": [{"bookmakers": [{"name": "B", "bets": "x"}]}]},
+                  {"response": [{"bookmakers": [{"name": "B", "bets": [{"name": "Home/Away", "values": 5}]}]}]}):
+        assert P.usable_quotes(drift) == 0
+        assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(drift))

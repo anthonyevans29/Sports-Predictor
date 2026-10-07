@@ -65,7 +65,7 @@ ADAPTER_READS = (
     "errors",                                         # _get raises on a non-empty errors field
 )
 TIME_NAME = re.compile(r"update|time|date|last|stamp|modif|created|fetched|(^|_)ts$", re.I)
-TS_CAMEL = re.compile(r"[a-z0-9]Ts$")     # quoteTs / oddsTs (Codex on #340), never bets / results
+TS_CAMEL = re.compile(r"[a-z0-9]T[sS]$")  # quoteTs / quoteTS / oddsTS (Codex on #340), never bets / results
 _DT = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?(Z|[+-]\d{2}:?\d{2})?$")
 
 
@@ -156,13 +156,17 @@ def usable_quotes(payload, sport: str | None = None) -> int:
     """Quotes list_odds would turn into an odds row (Codex on #340), by the ADAPTER's own rules: a bet whose name is
     in its _MARKET_MAP, ONE values[] object whose odd parses as a float and whose value normalises to a selection
     for that market (_normalize_selection). Split fields, unknown markets, unnormalisable selections count nothing."""
+    def items(o, k):                       # Codex on #340: a schema-drifted scalar container holds no quotes
+        v = o.get(k) if isinstance(o, dict) else None
+        return v if isinstance(v, list) else []
+
     n = 0
-    for g in (payload.get("response") or []) if isinstance(payload, dict) else []:
-        for bk in (g.get("bookmakers") or []) if isinstance(g, dict) else []:
-            for bet in (bk.get("bets") or []) if isinstance(bk, dict) else []:
+    for g in items(payload, "response"):
+        for bk in items(g, "bookmakers"):
+            for bet in items(bk, "bets"):
                 if not isinstance(bet, dict):
                     continue
-                for v in bet.get("values") or []:
+                for v in items(bet, "values"):
                     if not isinstance(v, dict):
                         continue
                     try:

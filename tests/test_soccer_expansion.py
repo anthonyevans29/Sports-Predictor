@@ -601,3 +601,26 @@ def test_preflight_prints_every_label_with_its_placement_and_the_baseline(monkey
     assert "UNPLACED label(s), the run refuses: ELC 2024/25 None" in r.output
     assert "ELC: " in r.output and "DROPPED BEFORE THE RUN" in r.output
     assert "open findings (the run refuses until ruled): F6" in r.output and "nothing scored" in r.output
+
+
+def test_shadow_leagues_never_get_a_venue_call():
+    """Codex on #326: the pinned series are captured, and the 24h window card spans every competition, so the venue
+    engine must never call these leagues (window card and any fixtures file) until CONFIRMED."""
+    from datetime import timezone
+    from deploy.hosting import chains
+    assert dp.SHADOW_VENUE_COMPS == set(sx.LEAGUES) == set(chains.KALSHI_CAPTURE_ONLY)
+    now = datetime(2026, 10, 10, 12, 0, tzinfo=timezone.utc)
+    now_ms = now.timestamp() * 1000
+    ko = (now + timedelta(hours=5)).strftime("%Y-%m-%dT%H:%M:%S")
+    row = {"home_team": "A", "away_team": "B", "utc_date": ko, "status": "scheduled", "engine": "market_only",
+           "competition": "PD", "market": {"bookmaker_count": 8, "fair_prob": {"HOME": .60, "DRAW": .22, "AWAY": .18},
+                                            "captured_at": (now - timedelta(minutes=20)).isoformat()},
+           "kalshi": {"status": "two_sided", "prob": {"HOME": .45, "DRAW": .30, "AWAY": .25}}}
+    v = dp.window_venue(row, now_ms)
+    assert v["eligible"] is False and "shadow league (PD" in v["reason"]
+    pl = dp.window_venue({**row, "competition": "PL"}, now_ms)          # a live league with the same gap: unchanged
+    assert "shadow league" not in pl["reason"]
+    fx = {"competition_code": "SA", "fixtures": [{**row, "competition": "SA"}]}
+    dp.annotate(fx, now=now)
+    d = fx["fixtures"][0]["desk"]
+    assert d["call"] == "PASS" and d["order"] is None and "shadow league (SA" in d["reason"]

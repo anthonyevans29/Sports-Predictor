@@ -42,3 +42,4 @@
     - the shadow export keeps its existing walk.
   - **FINDING (no run record touched):** intl-elo's gate text says 'tie rejects' while its code passes equality; immaterial to its verdict (0.7889 against 1.0424); no run record touched.
   - The generic `backtest` command (`run_backtest`, any competition's finished scores) is sealed on these leagues too, so no CLI walk can read a test season outside the one run.
+  - The venue engine never calls the five leagues (`SHADOW_VENUE_COMPS`): the capture-only Kalshi series feed the window card, so the rule "a pinned series never makes a league live" is enforced in the Desk itself, not only by keeping them out of WINDOW_KALSHI.

@@ -67,6 +67,10 @@ EXEC_RULES = {"on": True}
 # unchanged (never guessed). Its own switch: the frozen golden (pre-F1c) predates it and runs with it off.
 STARTED_RULE = {"on": True}
 STARTED_REASON = "started - never a new call"
+# soccer-expansion-v1 (ARCHITECT 2026-10-07): "A pinned series never makes a league live." Their Kalshi series are
+# captured (deploy/hosting/chains.py KALSHI_CAPTURE_ONLY) and the window card spans every competition, so the venue
+# engine never makes a call on them (Codex on #326). CI pins this set to soccer_expansion.LEAGUES.
+SHADOW_VENUE_COMPS = frozenset({"PD", "SA", "BL1", "FL1", "ELC"})
 PARLAY_LABEL = "independence estimate: Π of single-game prices (legs assumed uncorrelated)"
 PASSCLASS = {"minBooks": 3, "rerunMin": 60}
 POSTSEASON = {"reviewN": 30}
@@ -270,6 +274,10 @@ def venue_edge(r, now_ms: float) -> dict:
         return out
     if r["sport"] == "UNL":
         out["reason"] = "single venue — no pair (UNL)"
+        return out
+    if r["sport"] in SHADOW_VENUE_COMPS or (r.get("comp") or "") in SHADOW_VENUE_COMPS:
+        out["reason"] = (f"shadow league ({r.get('comp') or r['sport']}, soccer-expansion-v1): Kalshi captured for the "
+                         "record only — never a venue call until CONFIRMED")
         return out
     if r["utc"] and utc_ms(r["utc"]) <= now_ms:
         out["reason"] = "in-play — never"

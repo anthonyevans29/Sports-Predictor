@@ -37,6 +37,8 @@ MODEL_SPORTS = ("MLB", "NFL", "PL")              # build step (4): the live mode
 #: Desk export filenames (fixtures_<comp>_*, <sport>_predictions_*, desk_parlays_*, window_*): an unreadable file
 #: with such a name is a damaged export and refuses the receipt; other unreadable JSON is only counted.
 EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions", re.I)
+SPREAD_SPORTS = ("NFL", "NCAA", "NCAAF")          # sports whose reference can be spread_derived
+LEDGER_UNKNOWN_SOURCE = "unknown (the ledger keeps no fair_source)"
 MIRROR_DIR = "host"                              # <exports>/host/: deploy/hosting/pull_exports.py's destination
 WINDOW = timedelta(hours=12)                     # identity match: exact team names, kickoff within ±12h
 PROXY_LABEL = ("capture-based PROXIES (our fetch times), NOT quote age: no quote time is stored; the provider "
@@ -74,7 +76,12 @@ def ledger_refusal(L) -> str | None:
         # Codex on #340: a venue claim's reprices[] decides whether it was re-logged (frozen vs latest prices) and
         # its re-log count; a damaged array is refused, never filtered down to what survives
         for i, c in enumerate(L["calls"]):
-            if c.get("engine") != "venue_edge" or "reprices" not in c:
+            if c.get("engine") != "venue_edge":
+                continue
+            if c.get("claim_at") not in (None, "") and parse_ts(c.get("claim_at")) is None:
+                return (f"REFUSED: venue claim at index {i} has an unparseable claim_at {c.get('claim_at')!r}: the "
+                        "frozen claim time is damaged, never replaced by the mutable claim_as_of / captured_at.")
+            if "reprices" not in c:
                 continue
             rp = c["reprices"]
             if not isinstance(rp, list) or any(not isinstance(r, dict) or parse_ts(r.get("at")) is None for r in rp):
@@ -253,13 +260,17 @@ def ledger_venue_calls(L: dict, since: datetime) -> list[dict]:
         if t is None or t < since:
             continue
         reps = [x for x in (parse_ts(r.get("at")) for r in (c.get("reprices") or []) if isinstance(r, dict))
-                if x is not None and _sec(x) != _sec(t)]
+                if x is not None and x != t]           # Codex on #340: full precision (ms re-logs kept)
         out.append({"origin": "ledger", "files": [], "in_ledger": True, "as_of": t, "claim_basis": basis,
                     "reprices": sorted(reps), "foreign_ids": [],
                     "sport": str(c.get("sport") or "?").upper(), "match_id": None, "home": c.get("home"),
                     "away": c.get("away"), "kickoff": parse_ts(c.get("kickoff")), "side": c.get("pick"),
                     "units": c.get("units"), **claim_prices(c, bool(reps)), "file_fair": None, "file_books": None,
-                    "file_captured_at": None, "fair_source": None})
+                    "file_captured_at": None,
+                    # Codex on #340: the ledger keeps no fair_source; where a spread fallback can be the reference
+                    # (NFL / NCAA), a ledger-only claim's source is UNKNOWN and is never measured on 1X2 captures
+                    "fair_source": (LEDGER_UNKNOWN_SOURCE if str(c.get("sport") or "").upper() in SPREAD_SPORTS
+                                    else None)})
     return out
 
 
@@ -383,6 +394,11 @@ def receipt_row(call: dict, sessions: list[dict]) -> dict:
         row["file_matches_anchor"] = all(a["fair4"].get(k) == v for k, v in call["file_fair"].items())
     first, n, cens = unchanged_run(sessions, a)
     row.update(unchanged_since=first["t"], run_n=n, run_censored=cens)
+    if row["file_matches_anchor"] is False:
+        # Codex on #340: an anchor whose fair is not the call's own fair is a substitute session; movement measured
+        # from it says nothing about the call's quote, so no verdict
+        row["verdict"] = "ANCHOR MISMATCH: NOT MEASURED"
+        return row
     later = [x for x in sessions if x["source"] == a["source"] and x["t"] > a["t"]
              and (call["kickoff"] is None or x["t"] < call["kickoff"])]
     row["later"] = [{**x, "moved": x["fair4"] != a["fair4"]} for x in later]
@@ -480,8 +496,8 @@ def venue_receipt(s, calls: list[dict]) -> dict:
         if c.get("fair_source") not in (None, "1X2"):
             # Codex on #340: a call whose reference is not the 1X2 consensus (an NCAA spread_derived fair) has no
             # 1X2 session behind it; this DB's 1X2 sessions never give it an anchor or a movement verdict
-            rows.append({**c, "anchor": None, "anchor_basis": f"reference is {c['fair_source']}, not the 1X2 "
-                         "consensus: no 1X2 capture history behind it", "later": [], "moved": None,
+            rows.append({**c, "anchor": None, "anchor_basis": f"reference is {c['fair_source']}, not known to be the "
+                         "1X2 consensus: no 1X2 capture history behind it", "later": [], "moved": None,
                          "verdict": "NOT 1X2: NOT MEASURED", "file_matches_anchor": None, "unchanged_since": None,
                          "run_n": 0, "run_censored": None})
             continue
@@ -495,7 +511,7 @@ def venue_receipt(s, calls: list[dict]) -> dict:
         rows.append(receipt_row(c, match_sessions(s, m)))
     tot = {"calls": len(rows)}
     for v in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE", "NO ANCHOR", "NO DB MATCH", "HOST: NOT MEASURED",
-              "NOT 1X2: NOT MEASURED"):
+              "NOT 1X2: NOT MEASURED", "ANCHOR MISMATCH: NOT MEASURED"):
         tot[v] = sum(1 for r in rows if r["verdict"] == v)
     tested = tot["NEVER MOVED"] + tot["MOVED"]
     tot["tested"] = tested
@@ -576,7 +592,8 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                f"{_share(t['never_moved_share_of_calls'])} of calls) · MOVED {t['MOVED']} · no later capture "
                f"{t['NO LATER CAPTURE']} · no anchor {t['NO ANCHOR']} · no DB match {t['NO DB MATCH']} · host-only, "
                f"not measured {t.get('HOST: NOT MEASURED', 0)} · non-1X2 reference, not measured "
-               f"{t.get('NOT 1X2: NOT MEASURED', 0)}")
+               f"{t.get('NOT 1X2: NOT MEASURED', 0)} · anchor != the call's fair, not measured "
+               f"{t.get('ANCHOR MISMATCH: NOT MEASURED', 0)}")
     out.append(f"  (re-logged ledger positions {t['repriced_positions']}, {t['reprices']} re-log(s): counted once "
                f"each, at the frozen claim)")
     return out

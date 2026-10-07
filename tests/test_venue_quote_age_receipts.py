@@ -666,3 +666,45 @@ def test_a_ledger_with_damaged_venue_reprices_is_refused():
     assert VQ.ledger_refusal({"calls": [ok, {"engine": "model_edge", "reprices": "junk"}]}) is None
     for rp in ("junk", [None], [{"at": "soon"}], [{}]):
         assert "damaged reprices" in VQ.ledger_refusal({"calls": [dict(ok, reprices=rp)]})
+
+
+def test_a_same_second_relog_is_kept_and_frozen_prices_used():
+    """Codex on #340: stampTiming() records ms; a re-log in the claim's own second is a real re-log."""
+    t0 = datetime(2095, 10, 8, 5, 0, 0, 100000)
+    c = {"engine": "venue_edge", "sport": "NHL", "home": "H", "away": "A", "kickoff": _iso(KO), "pick": "AWAY",
+         "claim_at": t0.isoformat() + "Z", "model_p": 0.51, "claim_model_p": 0.5265,
+         "reprices": [{"at": t0.isoformat() + "Z"}, {"at": t0.replace(microsecond=900000).isoformat() + "Z"}]}
+    r = VQ.ledger_venue_calls({"calls": [c]}, SINCE)[0]
+    assert len(r["reprices"]) == 1 and r["book_p"] == 0.5265
+
+
+def test_ledger_only_claims_in_spread_sports_are_never_measured_on_1x2(tmp_path):
+    """Codex on #340: the ledger keeps no fair_source; an NFL / NCAA ledger-only claim's source is unknown."""
+    ids = _seed()
+    n = ids["n"]
+    claim = {"engine": "venue_edge", "home": f"VQA{n} nfl Home", "away": f"VQA{n} nfl Away", "kickoff": _iso(KO),
+             "pick": "AWAY", "claim_at": _iso(KO - timedelta(hours=10)) + "Z"}
+    nfl = VQ.ledger_venue_calls({"calls": [dict(claim, sport="NFL")]}, SINCE)
+    assert nfl[0]["fair_source"] == VQ.LEDGER_UNKNOWN_SOURCE
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, VQ.merge_calls([], nfl))
+    assert res["rows"][0]["verdict"] == "NOT 1X2: NOT MEASURED" and res["totals"]["tested"] == 0
+    assert VQ.ledger_venue_calls({"calls": [dict(claim, sport="NHL")]}, SINCE)[0]["fair_source"] is None
+
+
+def test_an_unparseable_claim_at_refuses_the_ledger():
+    """Codex on #340: a present but damaged claim_at never falls back to the mutable claim_as_of."""
+    ok = {"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z"}
+    assert VQ.ledger_refusal({"calls": [ok, {"engine": "venue_edge"}]}) is None          # legacy: no claim_at
+    assert "unparseable claim_at" in VQ.ledger_refusal({"calls": [dict(ok, claim_at="last tuesday")]})
+
+
+def test_a_mismatched_anchor_gives_no_movement_verdict():
+    """Codex on #340: a file call at 0.60 whose anchor session is 0.50 (fallback or a different same-time row) is not
+    measured; 'NEVER MOVED' from a substitute session would be wrong."""
+    t = datetime(2095, 10, 8, 4, 0)
+    sess = [{"source": "s", "t": t - timedelta(hours=1), "fair4": {"HOME": 0.5, "AWAY": 0.5}, "books": 5},
+            {"source": "s", "t": t + timedelta(hours=1), "fair4": {"HOME": 0.5, "AWAY": 0.5}, "books": 5}]
+    call = {"as_of": t, "kickoff": KO, "file_captured_at": t, "file_fair": {"HOME": 0.6, "AWAY": 0.4}}
+    r = VQ.receipt_row(call, sess)
+    assert r["file_matches_anchor"] is False and r["verdict"] == "ANCHOR MISMATCH: NOT MEASURED" and r["later"] == []

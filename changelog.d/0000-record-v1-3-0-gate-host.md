@@ -1,0 +1,2 @@
+## 2026-10-07 (#0000: record — the v1.3.0 release gate (PASS) and the host's 2026-10-07 deploy / migration / intl history load)
+- Ledger only: the architect's v1.3.0 RELEASE GATE ruling (compare_exports DIVERGENT, every line an allowed class, GATE: PASS, tag at the ledger-compile commit 0023368) and the host's RECORD of 2026-10-07 (deploy at 15:45Z, `migrate_prediction_history` via `sp_deploy --run-migrations`, the 2018+ international history loaded, `intl-daily` green on v1.3.0), both verbatim. The release Issue (docs/RELEASES.md step 4) follows.

@@ -111,7 +111,13 @@ ingest never deletes. An earlier row that a later run does not re-join is
 kept, and counted in the receipt.
 
 **Payload.** `exports/cfbd/cfbd_games_<year>_<UTC stamp>.json` by default
-(`--save-dir` elsewhere; anything under `data/` is refused). The side table's
+(`--save-dir` elsewhere). Inside the repository a save directory must be
+under `exports/` (gitignored); any other in-repo path is refused, `data/`
+included (law 5), and a path outside the repository is accepted. Real paths
+are compared (symlinks resolved), so a link into a tracked directory is
+refused too (Codex on #333: only `data/` used to be refused, so
+`--save-dir src/cfbd` would have put a licensed payload on a tracked path).
+The probe's `--save` follows the same rule. The side table's
 `payload_file` names it. `--from-file` replays a saved payload. `--dry-run`
 writes nothing: no row and no payload.
 
@@ -174,6 +180,14 @@ architect's read.
    the ingest writes only when table AND marker exist. A `--dry-run` needs
    neither. The repo had no migration-marker convention (no `user_version`,
    no meta table) before this.
+   A forced reset clears the marker too (Codex on #333): `drop_db()` (the
+   `init-db --force` path) drops `ncaa_cfbd_labels_migration` explicitly,
+   because `drop_all()` drops only mapped tables; without it the marker
+   survived, `init_db()` recreated an empty side table, and the guard read
+   "migrated" for a table the migration never made. After a forced reset the
+   ingest refuses again until the migration is re-run. The marker is the only
+   unmapped table in the schema (the other `migrate_*.py` add columns or
+   indexes to mapped tables, which drop with them).
 
 ## Remaining operator steps
 

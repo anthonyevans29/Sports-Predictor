@@ -124,19 +124,32 @@ def api_key() -> str:
     return (config.settings.cfbd_api_key or "").strip()
 
 
-def refuse_under_data(path: Path) -> None:
-    p = Path(path).resolve()
-    data = (ROOT / "data").resolve()
-    if p == data or data in p.parents:
+def _within(p: Path, root: Path) -> bool:
+    return p == root or root in p.parents
+
+
+def refuse_save_path(path: Path | str) -> None:
+    """Where a raw CFBD payload may be written (Codex on #333). CFBD's terms
+    forbid republishing and the repo is public, so inside the repository ONLY
+    exports/ (gitignored) is allowed; data/ is refused (law 5); any path outside
+    the repository is the operator's own. Real paths (symlinks resolved) on
+    both sides, so a link into the tree cannot slip a tracked path through."""
+    p = Path(path).expanduser().resolve()
+    root = ROOT.resolve()
+    if _within(p, (ROOT / "data").resolve()):
         raise CFBDError(f"REFUSED: never write under data/ (law 5): {path}")
+    if _within(p, root) and not _within(p, (ROOT / "exports").resolve()):
+        raise CFBDError(f"REFUSED: a CFBD payload inside the repository goes under exports/ only "
+                        f"(gitignored; CFBD's terms forbid republishing, the repo is public): {path}")
 
 
 def save_payload(recs: list, year: int, save_dir: Path | str | None = None,
                  now: datetime | None = None) -> Path:
     """The raw response, timestamped, under exports/cfbd/ by default (gitignored:
-    CFBD's terms allow private storage and forbid republishing; this repo is public)."""
+    CFBD's terms allow private storage and forbid republishing; this repo is public).
+    Inside the repo only exports/ is accepted (refuse_save_path)."""
     d = Path(save_dir) if save_dir else DEFAULT_SAVE_DIR
-    refuse_under_data(d)
+    refuse_save_path(d)
     d.mkdir(parents=True, exist_ok=True)
     stamp = (now or datetime.now(timezone.utc)).strftime("%Y%m%dT%H%M%SZ")
     p = d / f"cfbd_games_{year}_{stamp}.json"
@@ -489,7 +502,7 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
 
     aliases = load_aliases(alias_path or ALIAS_FILE)
     if save_dir:
-        refuse_under_data(Path(save_dir))
+        refuse_save_path(save_dir)
     key = None
     if not from_file:
         key = api_key()

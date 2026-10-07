@@ -10,6 +10,8 @@
 - New read-only `ncaa-cfbd-coverage`: per season, stream games, covered, share, swapped, neutral, score-corrected, the non-neutral home rate, and whether the >= 95% condition holds (a computed fact; the gate's status does not change).
 - The CFBD fetch / field discovery moved from `scripts/ncaa_source_probe.py` into `src/ingestion/ncaa_cfbd.py`; the probe imports them and keeps its own compare.
 - `config.Settings.cfbd_api_key`; `CFBD_API_KEY` added to `.env.example` and to the hosting `SECRET_ENV` redaction list.
-- Spec: `docs/specs/ncaa-cfbd-labels.md`. Tests: `tests/test_ncaa_cfbd_labels.py` (17, synthetic records only).
+- Spec: `docs/specs/ncaa-cfbd-labels.md`. Tests: `tests/test_ncaa_cfbd_labels.py` (21, synthetic records only).
 - Codex on #333 (fix 1): the ingest's guard now requires the migration marker `ncaa_cfbd_labels_migration` (written only by `migrate_ncaa_cfbd_labels.py`, unmapped in the ORM), not just the table, since any `init_db()` creates the table. A `--dry-run` still needs neither.
 - Codex on #333 (fix 2): `--division ''` (all classifications) now omits the CFBD `classification` query parameter instead of sending `classification=fbs`; the probe shares `fetch` and gets the same fix.
+- Codex on #333 (fix 3): the raw-payload save directory (`--save-dir`, and the probe's `--save`) must be under `exports/` when it is inside the repository; any other in-repo path is refused (real paths, symlinks resolved), `data/` stays refused, paths outside the repository are accepted. Only `data/` was refused before, so `--save-dir src/cfbd` would have written a licensed payload to a tracked path.
+- Codex on #333 (fix 4): `drop_db()` (`init-db --force`) now also drops the unmapped marker `ncaa_cfbd_labels_migration`; `drop_all()` left it behind, so after a forced reset the guard read "migrated" for the empty side table `init_db()` recreated. The ingest refuses again until the migration is re-run.

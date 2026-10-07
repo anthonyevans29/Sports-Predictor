@@ -38,7 +38,9 @@ sys.path.insert(0, ROOT)
 # The CFBD access pieces (field discovery, fetch, start-date parsing) live in
 # src/ingestion/ncaa_cfbd.py since the label lane (ARCHITECT 2026-10-07); this
 # probe keeps its own compare() so its 2026-10-07 read stays reproducible.
-from src.ingestion.ncaa_cfbd import BASE, FIELDS, OPTIONAL, discover, fetch, parse_start  # noqa: E402,F401
+from src.ingestion.ncaa_cfbd import (  # noqa: E402,F401
+    BASE, FIELDS, OPTIONAL, CFBDError, discover, fetch, parse_start, refuse_save_path,
+)
 
 SAMPLE = 15
 
@@ -121,11 +123,15 @@ def main(argv=None) -> int:
     ap.add_argument("--key-env", default="CFBD_API_KEY")
     ap.add_argument("--base", default=BASE)
     ap.add_argument("--division", default="fbs", help="both teams' classification must equal this ('' = all)")
-    ap.add_argument("--save", default=None, help="write the raw response here (outside data/) for re-runs")
+    ap.add_argument("--save", default=None, help="write the raw response here for re-runs (in the repo: "
+                    "under exports/ only; data/ never)")
     a = ap.parse_args(argv)
-    if a.save and os.path.abspath(a.save).startswith(os.path.join(ROOT, "data")):
-        print("REFUSED: never write under data/ (law 5)")
-        return 2
+    if a.save:
+        try:                     # the ingest's rule (Codex on #333): in-repo only under exports/
+            refuse_save_path(a.save)
+        except CFBDError as e:
+            print(e)
+            return 2
     from src.db.database import session_scope
 
     print("NCAA SOURCE PROBE (#176) · read-only · source: CollegeFootballData (CFBD)")

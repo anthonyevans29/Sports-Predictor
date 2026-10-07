@@ -268,6 +268,49 @@ def test_init_db_alone_does_not_satisfy_the_guard_migration_does(tmp_path, pinne
     assert any(x.startswith("  WRITTEN ncaa_cfbd_labels:") for x in lines)
 
 
+
+def test_forced_reset_drops_the_marker_so_the_guard_refuses_again(tmp_path, pinned, fresh_db):
+    """Codex on #333: drop_all() drops only mapped tables, so `init-db --force` left the
+    unmapped marker behind while init_db() recreated an empty ncaa_cfbd_labels: the guard
+    read "migrated" for a table the migration never made. drop_db() now drops the marker."""
+    from sqlalchemy import inspect
+
+    import migrate_ncaa_cfbd_labels as mig
+    from src.db.database import drop_db, init_db as fresh_init, session_scope as fresh_scope
+
+    fresh_init()
+    assert mig.main() == 0
+    with fresh_scope() as s:
+        assert nc.migrated(s)
+    drop_db()                                                      # the init-db --force path ...
+    fresh_init()                                                   # ... drop, then recreate
+    assert inspect(fresh_db).has_table("ncaa_cfbd_labels")
+    assert not inspect(fresh_db).has_table(nc.MIGRATION_MARKER)
+    with fresh_scope() as s:
+        assert not nc.migrated(s)
+    f = tmp_path / "payload.json"
+    f.write_text(json.dumps(RECS))
+    with pytest.raises(nc.CFBDError, match="not migrated"):
+        nc.run([2083], from_file=str(f), out=lambda *_: None)
+    assert mig.main() == 0                                         # re-migrating unlocks it again
+    with fresh_scope() as s:
+        assert nc.migrated(s)
+
+
+def test_init_db_force_cli_drops_the_marker(fresh_db):
+    from sqlalchemy import inspect
+
+    import migrate_ncaa_cfbd_labels as mig
+    from cli import cli
+    from src.db.database import init_db as fresh_init
+
+    fresh_init()
+    assert mig.main() == 0 and inspect(fresh_db).has_table(nc.MIGRATION_MARKER)
+    res = CliRunner().invoke(cli, ["init-db", "--force"], input="y\n")
+    assert res.exit_code == 0, res.output
+    assert not inspect(fresh_db).has_table(nc.MIGRATION_MARKER)
+    assert inspect(fresh_db).has_table("ncaa_cfbd_labels")
+
 def test_blank_division_omits_classification_from_the_query(monkeypatch):
     """Codex on #333: `--division ''` (all) must not send classification=fbs."""
     import urllib.parse
@@ -395,6 +438,57 @@ def test_payload_path_is_timestamped_and_exports_is_gitignored(tmp_path):
     assert nc.DEFAULT_SAVE_DIR == nc.ROOT / "exports" / "cfbd"
     gi = (nc.ROOT / ".gitignore").read_text().splitlines()
     assert "exports/" in gi
+
+
+def test_save_dir_inside_repo_only_under_exports(tmp_path, pinned):
+    """Codex on #333: a licensed raw payload never lands on a tracked repo path.
+    In the repo only exports/ (gitignored) is accepted; outside the repo is the
+    operator's own; data/ stays refused; symlinks are resolved first."""
+    import shutil
+    import uuid
+
+    src_dir = nc.ROOT / "src" / f"cfbd_codex_{uuid.uuid4().hex[:8]}"
+    with pytest.raises(nc.CFBDError, match="under exports/ only"):
+        nc.save_payload([{"x": 1}], 2083, src_dir)
+    assert not src_dir.exists()
+    for bad in (nc.ROOT, nc.ROOT / "docs", nc.ROOT / "exportsX"):
+        with pytest.raises(nc.CFBDError, match="under exports/ only"):
+            nc.refuse_save_path(bad)
+    with pytest.raises(nc.CFBDError, match="never write under data/"):
+        nc.refuse_save_path(nc.ROOT / "data")
+    link = tmp_path / "into_src"                    # outside by name, inside by real path
+    link.symlink_to(nc.ROOT / "src", target_is_directory=True)
+    with pytest.raises(nc.CFBDError, match="under exports/ only"):
+        nc.save_payload([{"x": 1}], 2083, link / "cfbd")
+    f = tmp_path / "payload.json"
+    f.write_text(json.dumps(RECS))
+    with pytest.raises(nc.CFBDError, match="under exports/ only"):     # refused before any work
+        nc.run([2083], from_file=str(f), dry_run=True, save_dir=str(src_dir), out=lambda *_: None)
+    assert not src_dir.exists()
+
+    ok = nc.ROOT / "exports" / f"cfbd_codex_{uuid.uuid4().hex[:8]}"
+    try:
+        p = nc.save_payload([{"x": 1}], 2083, ok / "sub")
+        assert p.parent == ok / "sub" and p.exists()
+    finally:
+        shutil.rmtree(ok, ignore_errors=True)
+    p = nc.save_payload([{"x": 1}], 2083, tmp_path / "outside")        # outside the repo: accepted
+    assert p.exists()
+
+
+def test_probe_save_follows_the_same_rule(tmp_path, capsys):
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("ncaa_source_probe",
+                                                  nc.ROOT / "scripts" / "ncaa_source_probe.py")
+    probe = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(probe)
+    target = nc.ROOT / "src" / "cfbd_{year}.json"
+    assert probe.main(["--year", "2083", "--from-file", str(tmp_path / "x.json"),
+                       "--save", str(target)]) == 2
+    assert "under exports/ only" in capsys.readouterr().out
+    assert probe.main(["--year", "2083", "--save", str(nc.ROOT / "data" / "x.json")]) == 2
+    assert "never write under data/" in capsys.readouterr().out
 
 
 def test_shipped_alias_map_loads_and_is_pinned_empty():

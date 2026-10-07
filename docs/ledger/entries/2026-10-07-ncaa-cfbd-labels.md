@@ -22,3 +22,6 @@
   - Pin the aliases from that list in a reviewed PR.
   - Re-join from the saved payloads (`--year 2025 --from-file exports/cfbd/cfbd_games_2025_<stamp>.json`, then 2026), then `python cli.py ncaa-cfbd-coverage`. Paste the receipt.
 - **Gate:** #79 stays SUSPENDED-PENDING-DATA until the architect reads the coverage receipt. No threshold, criterion or model constant changed.
+- **Codex on #333 (fixes, verified):**
+  - The ingest's guard passed on any DB where `init_db()` had run (create_all makes `ncaa_cfbd_labels`), so it could write without the backed-up migration. It now requires the marker table `ncaa_cfbd_labels_migration`, which only `migrate_ncaa_cfbd_labels.py` writes (unmapped in the ORM, the `migrate_kalshi_ticker.py` convention). Operator effect: none beyond the existing step (run the migration after the `.backup`).
+  - `--division ''` (all) still sent `classification=fbs` to CFBD, so "all" runs were FBS-only at the source. The parameter is now omitted when the division is blank (ingest and probe, which share `fetch`).

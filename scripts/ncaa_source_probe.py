@@ -140,7 +140,7 @@ def main(argv=None) -> int:
                 print(f"REFUSED: no {a.key_env} in the environment (.env; never committed, never printed)")
                 return 2
             try:
-                status, recs, hdr = fetch(year, key, a.base, a.division or "fbs")
+                status, recs, hdr = fetch(year, key, a.base, a.division)   # '' = all: no classification sent
             except Exception as e:                      # the key is not in the message
                 print(f"{year}: fetch failed: {type(e).__name__}: {str(e)[:200]}")
                 rc = 1

@@ -176,9 +176,11 @@ def test_two_source_games_on_one_match_are_both_refused():
 # --- the ingest command ----------------------------------------------------------
 
 def test_dry_run_writes_nothing_then_ingest_upserts_and_never_touches_matches(tmp_path, pinned):
+    import migrate_ncaa_cfbd_labels as mig
     from cli import cli
 
     w = world()
+    assert mig.main() == 0                                         # the marker the ingest requires
     ids = list(w["matches"].values())
     f = tmp_path / "payload.json"
     f.write_text(json.dumps(RECS))
@@ -215,10 +217,104 @@ def test_refuses_without_table_unless_dry_run(tmp_path, pinned, monkeypatch, cap
     world()
     f = tmp_path / "payload.json"
     f.write_text(json.dumps(RECS))
-    monkeypatch.setattr(nc, "has_table", lambda s: False)
+    monkeypatch.setattr(nc, "migrated", lambda s: False)
     with pytest.raises(nc.CFBDError, match="migrate_ncaa_cfbd_labels.py"):
         nc.run([2083], from_file=str(f))
     assert nc.run([2083], from_file=str(f), dry_run=True) == 0
+
+
+@pytest.fixture
+def fresh_db(tmp_path, monkeypatch):
+    """A throwaway DB of its own (the shared test DB may already carry the marker)."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'fresh.db'}", future=True)
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    return eng
+
+
+def test_init_db_alone_does_not_satisfy_the_guard_migration_does(tmp_path, pinned, fresh_db, capsys):
+    """Codex on #333: create_all makes ncaa_cfbd_labels (it is in Base.metadata), so the
+    table's existence is not the migration. Only the migration's marker unlocks writes."""
+    from sqlalchemy import inspect
+
+    import migrate_ncaa_cfbd_labels as mig
+    from src.db.database import init_db as fresh_init, session_scope as fresh_scope
+
+    fresh_init()                                                   # what scheduled commands do
+    assert inspect(fresh_db).has_table("ncaa_cfbd_labels")         # the incidental table exists ...
+    assert not inspect(fresh_db).has_table(nc.MIGRATION_MARKER)    # ... the marker does not
+    with fresh_scope() as s:
+        assert nc.has_table(s) and not nc.migrated(s)
+    f = tmp_path / "payload.json"
+    f.write_text(json.dumps(RECS))
+    lines = []
+    with pytest.raises(nc.CFBDError, match="not migrated"):
+        nc.run([2083], from_file=str(f), out=lines.append)
+    assert nc.run([2083], from_file=str(f), dry_run=True, out=lines.append) == 0     # dry run still works
+
+    assert mig.main() == 0                                         # keeps the table, writes the marker
+    assert "+ Wrote migration marker" in capsys.readouterr().out
+    assert mig.main() == 0 and "· Kept migration marker" in capsys.readouterr().out   # idempotent
+    with fresh_scope() as s:
+        assert nc.migrated(s)
+    lines = []
+    assert nc.run([2083], from_file=str(f), out=lines.append) == 0
+    assert any(x.startswith("  WRITTEN ncaa_cfbd_labels:") for x in lines)
+
+
+def test_blank_division_omits_classification_from_the_query(monkeypatch):
+    """Codex on #333: `--division ''` (all) must not send classification=fbs."""
+    import urllib.parse
+
+    sent = []
+
+    class Resp:
+        status, headers = 200, {"X-RateLimit-Remaining": "9"}
+
+        def read(self):
+            return b"[]"
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            return False
+
+    def fake_urlopen(req, timeout=None):
+        sent.append(dict(urllib.parse.parse_qsl(urllib.parse.urlsplit(req.full_url).query)))
+        assert SENTINEL not in req.full_url                       # the key stays in the header
+        return Resp()
+
+    monkeypatch.setattr(nc.urllib.request, "urlopen", fake_urlopen)
+    for division in ("", None, "fbs", "fcs"):
+        assert nc.fetch(2083, SENTINEL, "https://stub.invalid", division)[0] == 200
+    assert sent[0] == sent[1] == {"year": "2083", "seasonType": "both"}
+    assert sent[2]["classification"] == "fbs" and sent[3]["classification"] == "fcs"
+
+
+def test_run_passes_blank_division_through_to_fetch(tmp_path, pinned, monkeypatch):
+    import config
+
+    world()
+    monkeypatch.setattr(config, "settings", dataclasses.replace(config.settings, cfbd_api_key=SENTINEL))
+    got = []
+
+    def fake_fetch(year, key, base=nc.BASE, division="fbs"):
+        got.append(division)
+        return 200, RECS, {}
+
+    monkeypatch.setattr(nc, "fetch", fake_fetch)
+    lines = []
+    assert nc.run([2083], dry_run=True, division="", out=lines.append) == 0
+    assert nc.run([2083], dry_run=True, division="fbs", out=lines.append) == 0
+    assert got == ["", "fbs"]
+    assert any("division all" in x for x in lines)
 
 
 def test_several_years_need_a_year_placeholder(tmp_path, pinned):
@@ -246,9 +342,11 @@ def test_unmatched_names_flag_lists_every_name(tmp_path, pinned):
 
 def test_api_mode_key_never_printed_and_payload_saved_under_save_dir(tmp_path, pinned, monkeypatch):
     import config
+    import migrate_ncaa_cfbd_labels as mig
     from cli import cli
 
     world()
+    assert mig.main() == 0                                         # the marker the ingest requires
     monkeypatch.setattr(config, "settings", dataclasses.replace(config.settings, cfbd_api_key=SENTINEL))
     seen = {}
 

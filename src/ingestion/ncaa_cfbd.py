@@ -89,10 +89,17 @@ def discover(rec: dict) -> tuple[dict, list[str]]:
     return keys, missing
 
 
-def fetch(year: int, key: str, base: str = BASE, division: str = "fbs") -> tuple[int, list, dict]:
+def fetch(year: int, key: str, base: str = BASE, division: str | None = "fbs") -> tuple[int, list, dict]:
     """GET /games for one season. Returns (HTTP status, records, rate-limit headers).
-    The key travels only in the Authorization header; it is never returned."""
-    q = urllib.parse.urlencode({"year": year, "seasonType": "both", "classification": division})
+    The key travels only in the Authorization header; it is never returned.
+    A blank / None division (the documented `--division ''` = all
+    classifications) OMITS the classification query parameter, so the payload
+    is unfiltered at the source too (Codex on #333: it used to send
+    classification=fbs while the local filter treated the run as "all")."""
+    params = {"year": year, "seasonType": "both"}
+    if division:
+        params["classification"] = division
+    q = urllib.parse.urlencode(params)
     req = urllib.request.Request(f"{base}/games?{q}", headers={"Authorization": f"Bearer {key}",
                                                                "Accept": "application/json"})
     with urllib.request.urlopen(req, timeout=60) as r:
@@ -389,10 +396,33 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
     return r
 
 
+# The migration marker (Codex on #333). NCAACFBDLabel is mapped in
+# Base.metadata, so ANY init_db() (create_all, run by many scheduled commands)
+# creates an empty ncaa_cfbd_labels; the table's existence therefore does not
+# prove the backed-up migration ran. migrate_ncaa_cfbd_labels.py, and nothing
+# else, creates this one-row table by Core SQL (it is deliberately NOT mapped in
+# the ORM: the migrate_kalshi_ticker.py convention, so create_all can never
+# make it), and the ingest writes only when both exist.
+MIGRATION_MARKER = "ncaa_cfbd_labels_migration"
+
+
 def has_table(s) -> bool:
     from sqlalchemy import inspect
     try:
         return inspect(s.connection()).has_table("ncaa_cfbd_labels")
+    except Exception:
+        return False
+
+
+def migrated(s) -> bool:
+    """True only when migrate_ncaa_cfbd_labels.py ran: the side table exists AND
+    the marker table it alone writes holds its row. An init_db()-created table
+    without the marker is NOT migrated (the ingest refuses a non-dry run)."""
+    from sqlalchemy import inspect, text
+    try:
+        if not (has_table(s) and inspect(s.connection()).has_table(MIGRATION_MARKER)):
+            return False
+        return bool(s.execute(text(f"SELECT COUNT(*) FROM {MIGRATION_MARKER}")).scalar())
     except Exception:
         return False
 
@@ -469,11 +499,12 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
         f" · source CollegeFootballData · {'replay ' + from_file if from_file else 'API'} · "
         f"division {division or 'all'} · pinned aliases {len(aliases)}")
     with session_scope() as s:
-        table = has_table(s)
+        ready = migrated(s)
         s.rollback()
-    if not table and not dry_run:
-        raise CFBDError("REFUSED: table ncaa_cfbd_labels does not exist — take the .backup, then run "
-                        "`python migrate_ncaa_cfbd_labels.py` (a --dry-run works without it)")
+    if not ready and not dry_run:
+        raise CFBDError("REFUSED: ncaa_cfbd_labels is not migrated (no migration marker "
+                        f"{MIGRATION_MARKER}; an init_db()-created table does not count) — take the .backup, "
+                        "then run `python migrate_ncaa_cfbd_labels.py` (a --dry-run works without it)")
     rc = 0
     for year in years:
         fetched_at = utc_now_naive()
@@ -482,7 +513,7 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
             status, hdr, saved = "file", {}, src_path
         else:
             try:
-                status, recs, hdr = fetch(year, key, base, division or "fbs")
+                status, recs, hdr = fetch(year, key, base, division)   # '' = all: no classification sent
             except Exception as e:                      # the key is never in the message
                 out(f"\n== {year}: fetch failed: {type(e).__name__}: {str(e)[:200].replace(key, '[REDACTED]')}")
                 rc = 1

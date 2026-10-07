@@ -10,4 +10,6 @@
 - New read-only `ncaa-cfbd-coverage`: per season, stream games, covered, share, swapped, neutral, score-corrected, the non-neutral home rate, and whether the >= 95% condition holds (a computed fact; the gate's status does not change).
 - The CFBD fetch / field discovery moved from `scripts/ncaa_source_probe.py` into `src/ingestion/ncaa_cfbd.py`; the probe imports them and keeps its own compare.
 - `config.Settings.cfbd_api_key`; `CFBD_API_KEY` added to `.env.example` and to the hosting `SECRET_ENV` redaction list.
-- Spec: `docs/specs/ncaa-cfbd-labels.md`. Tests: `tests/test_ncaa_cfbd_labels.py` (14, synthetic records only).
+- Spec: `docs/specs/ncaa-cfbd-labels.md`. Tests: `tests/test_ncaa_cfbd_labels.py` (17, synthetic records only).
+- Codex on #333 (fix 1): the ingest's guard now requires the migration marker `ncaa_cfbd_labels_migration` (written only by `migrate_ncaa_cfbd_labels.py`, unmapped in the ORM), not just the table, since any `init_db()` creates the table. A `--dry-run` still needs neither.
+- Codex on #333 (fix 2): `--division ''` (all classifications) now omits the CFBD `classification` query parameter instead of sending `classification=fbs`; the probe shares `fetch` and gets the same fix.

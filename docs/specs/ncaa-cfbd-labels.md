@@ -26,7 +26,11 @@ the stream read, a coverage receipt per season. No model change in this lane."
 ## Operational definitions
 
 **Source and key.** CollegeFootballData `GET /games?year=Y&seasonType=both&classification=fbs`
-(the probe's call). The key is `CFBD_API_KEY` in `.env`, read through
+(the probe's call). With `--division ''` (all classifications) the
+`classification` parameter is OMITTED, so the payload is unfiltered at the
+source as well as locally (Codex on #333: it used to send
+`classification=fbs` regardless; the probe shares `fetch` and gets the same
+fix). The key is `CFBD_API_KEY` in `.env`, read through
 `config.settings.cfbd_api_key`. It travels only in the `Authorization`
 header; it is never printed, logged, saved or stored (a fetch error message
 is redacted). It is in the hosting `SECRET_ENV` redaction list.
@@ -161,7 +165,15 @@ architect's read.
    The "non-neutral home rate" counts covered games with CFBD
    `neutral = false` only; uncovered games have no flag and are shown apart.
 6. The ingest refuses to write until the migration has run (it does not
-   create the table itself).
+   create the table itself). "Has run" is the migration MARKER, not the
+   table (Codex on #333): `NCAACFBDLabel` is in `Base.metadata`, so any
+   `init_db()` (create_all) creates an empty `ncaa_cfbd_labels`. The
+   migration alone creates the one-row table `ncaa_cfbd_labels_migration`
+   (Core SQL, deliberately unmapped in the ORM, the
+   `migrate_kalshi_ticker.py` convention, so create_all can never make it);
+   the ingest writes only when table AND marker exist. A `--dry-run` needs
+   neither. The repo had no migration-marker convention (no `user_version`,
+   no meta table) before this.
 
 ## Remaining operator steps
 

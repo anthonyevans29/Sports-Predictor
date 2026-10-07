@@ -351,7 +351,8 @@ def test_age_statistics_measure_only_rows_whose_reference_session_is_verified(tm
     assert (b["file_matches"], b["file_mismatch"], b["file_unverifiable"]) == (1, 1, 1)
     assert b["capture_age_h"] == {"median": 2.0, "p90": 2.0, "max": 2.0}     # the 3h / 4h rows never enter
     reasons = sorted(x["excluded"] for x in rep["rows"] if x["excluded"])
-    assert reasons == ["session unverified: file fair != the selected capture at 4dp",
+    assert reasons == ["session unverified: file fair != the selected capture at 4dp (snapshot mismatch; no stored "
+                       "odds rows for that session to re-derive)",
                        "session unverified: the file carries no 1X2 fair to compare"]
     txt = "\n".join(VQ.format_age_report(rep, SINCE, ["t"]))
     assert "measured (verified) 1 · excluded 2" in txt and "EXCLUDED from the statistics: 2" in txt
@@ -402,3 +403,39 @@ def test_every_excluded_row_is_listed():
     txt = VQ.format_age_report({"by_sport": {}, "rows": rows}, SINCE, ["test"])
     assert "EXCLUDED from the statistics: 75" in txt
     assert sum(1 for line in txt if line.startswith("  MLB · A")) == 75 and not any("more" in x for x in txt[-3:])
+
+
+def test_an_nfl_session_is_verified_from_its_odds_rows_with_the_exports_formula():
+    """Codex on #340: sync-odds-football de-vigs the snapshot by average-then-normalise; the export's fair is per-book
+    normalise-then-average (close_1x2). With books of different overround they differ at 4dp, so a mismatched
+    snapshot is re-derived from the same session's odds rows with the export's formula before it is excluded."""
+    from src.db.schema import Odds
+    ids = _seed()
+    t = KO - timedelta(hours=8)                                  # the nfl game's last pre-as_of session
+    px = {"BookA": {"HOME": 1.50, "AWAY": 2.80}, "BookB": {"HOME": 1.60, "AWAY": 2.30}}
+    per_book = [{k: (1 / p[k]) / sum(1 / v for v in p.values()) for k in p} for p in px.values()]
+    file_fair = {k: round(sum(b[k] for b in per_book) / len(per_book), 4) for k in ("HOME", "AWAY")}
+    imp = {k: sum(1 / p[k] for p in px.values()) / 2 for k in ("HOME", "AWAY")}
+    snap_fair = {k: round(v / sum(imp.values()), 4) for k, v in imp.items()}
+    assert snap_fair != file_fair                                 # the two formulas really differ here
+    with session_scope() as s:
+        for bk, p in px.items():
+            for sel, d in p.items():
+                s.add(Odds(match_id=ids["nfl"], bookmaker=bk, market="1X2", selection=sel, price_decimal=d,
+                           captured_at=t, source="api_hockey"))
+    n = ids["n"]
+
+    def doc(fair):
+        return {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
+            {"match_id": ids["nfl"], "utc_date": _iso(KO), "home_team": f"VQA{n} nfl Home",
+             "away_team": f"VQA{n} nfl Away",
+             "market": {"bookmaker_count": 2, "fair_prob": fair, "fair_source": "1X2"},
+             "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books", "pass_kind": None}}]}
+    with session_scope() as s:
+        rep = VQ.age_report(s, [("nfl.json", doc(file_fair))], SINCE)
+        bad = VQ.age_report(s, [("nfl.json", doc({"HOME": 0.7, "AWAY": 0.3}))], SINCE)
+    r = rep["rows"][0]
+    assert r["file_matches"] is True and r["excluded"] is None and "per-book de-vig" in r["verified_by"]
+    assert rep["by_sport"]["NFL"]["measured"] == 1
+    b = bad["rows"][0]
+    assert b["file_matches"] is False and "AND on the session's odds rows" in b["excluded"]

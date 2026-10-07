@@ -524,8 +524,32 @@ def exclusion(x: dict) -> str | None:
     if x.get("file_matches") is None:
         return "session unverified: the file carries no 1X2 fair to compare"
     if x["file_matches"] is False:
-        return f"session unverified: file fair != the selected capture at {DP}dp"
+        why = x.get("verified_by")
+        return f"session unverified: file fair != the selected capture at {DP}dp" + (f" ({why})" if why else "")
     return None
+
+
+def session_matches_by_odds(s, match, ref: dict, file_fair: dict | None) -> tuple[bool, str]:
+    """The file's fair re-derived for the selected session from the stored odds rows of that capture (same source,
+    same captured_at), with close_1x2's per-book de-vig (the formula the exports use). (True, basis) when it equals
+    the file's fair at 4dp; else (False, why). No odds rows for the session (a board since replaced): False, said."""
+    from sqlalchemy import select
+
+    from src.db.schema import Odds
+    from src.walters.close import close_1x2, priced
+    if not file_fair:
+        return False, "no file fair"
+    rows = list(s.execute(select(Odds).where(Odds.match_id == match.id, Odds.market == "1X2",
+                                             Odds.captured_at == ref["t"], Odds.source == ref["source"])).scalars())
+    if not rows:
+        return False, "snapshot mismatch; no stored odds rows for that session to re-derive"
+    cl = close_1x2(rows, None, _outcomes(match))
+    if not priced(cl):
+        return False, "snapshot mismatch; the session's odds rows hold no complete book"
+    fair4 = _r4(cl["fair"])
+    if all(fair4.get(k) == v for k, v in file_fair.items()):
+        return True, "odds rows of the session, per-book de-vig (the export's formula)"
+    return False, "mismatch on the snapshot AND on the session's odds rows (per-book de-vig)"
 
 
 def age_report(s, docs, since: datetime, mirrored=()) -> dict:
@@ -538,7 +562,14 @@ def age_report(s, docs, since: datetime, mirrored=()) -> dict:
             continue
         r = {**r, "export_match_id": r.get("match_id"), "match_id": m.id, "resolved_by": how,
              "kickoff": r["kickoff"] or m.utc_date}
-        rows.append(age_row(r, match_sessions(s, m)))
+        x = age_row(r, match_sessions(s, m))
+        if x.get("ref") is not None and x["file_matches"] is False:
+            # Codex on #340: the NFL snapshot is de-vigged by average-then-normalise (sync-odds-football), the file's
+            # fair by per-book normalise-then-average (close_1x2): they differ whenever books' overrounds differ.
+            # Re-derive the SAME session from its stored odds rows with the file's own formula before calling it
+            # unverified.
+            x["file_matches"], x["verified_by"] = session_matches_by_odds(s, m, x["ref"], x["file_fair"])
+        rows.append(x)
     for x in rows:
         x["excluded"] = exclusion(x)
     by = {}

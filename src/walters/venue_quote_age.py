@@ -80,6 +80,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     if not os.path.isdir(root):        # Codex on #340: a path error is never an empty audit
         raise Refused(f"REFUSED: --exports-dir {root!r} is not a directory (missing, misspelled or a file): "
                       "no receipt, never an empty one")
+    bad_asof: list[str] = []
     for d, _, files in sorted(os.walk(root)):
         for n in sorted(files):
             if not n.endswith(".json"):
@@ -93,10 +94,17 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 counts["unreadable"] += 1
                 continue
             if isinstance(doc, dict) and isinstance(doc.get("desk_meta"), dict) and doc["desk_meta"].get("as_of"):
+                if parse_ts(doc["desk_meta"]["as_of"]) is None:   # Codex on #340: never skipped invisibly
+                    bad_asof.append(p)
+                    continue
                 docs.append((p, doc))
                 counts["desk_files"] += 1
                 if os.path.relpath(p, root).split(os.sep)[0] == MIRROR_DIR:
                     counts["mirrored"].append(p)
+    if bad_asof:
+        raise Refused(f"REFUSED: {len(bad_asof)} desk export(s) with an unparseable desk_meta.as_of "
+                      f"({', '.join(bad_asof[:5])}{', …' if len(bad_asof) > 5 else ''}): a damaged export is never "
+                      "skipped silently; fix or move it, then re-run")
     return docs, counts
 
 
@@ -214,19 +222,39 @@ def merge_calls(file_calls: list[dict], ledger_calls: list[dict]) -> list[dict]:
 
     def key(c):
         return ident(c) + (_sec(c["as_of"]),)
-    idx = {key(c): c for c in file_calls}
+    def same(a, b):
+        return a is not None and b is not None and abs(float(a) - float(b)) < 5e-4
+
+    def pick(cands, claim):
+        """One file call among same-key candidates (conflicting copies, Codex on #340): the one whose book p,
+        Kalshi p and div the claim carries; no unique match -> None (ambiguous, never chosen silently)."""
+        if len(cands) == 1:
+            return cands[0]
+        fit = [f for f in cands if all(same(f.get(k), claim.get(k)) for k in ("book_p", "kalshi_p", "div_pp")
+                                       if claim.get(k) is not None)
+               and any(claim.get(k) is not None for k in ("book_p", "kalshi_p", "div_pp"))]
+        return fit[0] if len(fit) == 1 else None
+    idx: dict = {}
     by_pos: dict = {}
     for c in file_calls:
+        idx.setdefault(key(c), []).append(c)
         by_pos.setdefault(ident(c), []).append(c)
     extra = []
     for c in ledger_calls:
-        hit = idx.get(key(c))
+        cands = idx.get(key(c)) or []
         basis = c.get("claim_basis")
-        if hit is None:
+        if not cands:
             prior = [f for f in by_pos.get(ident(c), []) if f["as_of"] <= c["as_of"] and not f["in_ledger"]]
             if prior:
-                hit = max(prior, key=lambda f: f["as_of"])
+                last = max(f["as_of"] for f in prior)
+                cands = [f for f in prior if f["as_of"] == last]
                 basis = f"{basis}; matched by position identity (manual claim at {_z(c['as_of'])})"
+        hit = pick(cands, c) if cands else None
+        if cands and hit is None:
+            for f in cands:
+                f["ledger_ambiguous"] = (f"a ledger claim matches {len(cands)} conflicting file calls and its "
+                                         "book p / Kalshi p / div name none uniquely: attached to none")
+            continue
         if hit is not None:
             hit["in_ledger"] = True
             hit["reprices"] = c.get("reprices") or []
@@ -318,8 +346,24 @@ def _outcomes(match) -> tuple[str, ...]:
     return outcomes_for(match.sport)
 
 
-def _identity_ok(m, call: dict) -> bool:
-    """The DB row IS the exported game: exact home/away names and kickoff within ±12h."""
+def schema_sport(s, code):
+    """The schema Sport of a call's sport / competition code (NFL, NHL, MLB directly; PL, NCAA, … through the
+    Competition row). None when unknown: the lookup is then not sport-filtered, and the receipt says so."""
+    from src.db.schema import Competition, Sport
+    if not code or code == "?":
+        return None
+    try:
+        return Sport(str(code).lower())
+    except ValueError:
+        pass
+    c = s.query(Competition).filter(Competition.code == str(code)).first()
+    return c.sport if c is not None else None
+
+
+def _identity_ok(m, call: dict, sport=None) -> bool:
+    """The DB row IS the exported game: same sport (when known), exact home/away names and kickoff within ±12h."""
+    if sport is not None and m.sport != sport:
+        return False
     return bool(m.home_team is not None and m.away_team is not None and m.utc_date is not None
                 and call.get("kickoff") is not None and m.home_team.name == call.get("home")
                 and m.away_team.name == call.get("away") and abs(m.utc_date - call["kickoff"]) <= WINDOW)
@@ -336,23 +380,28 @@ def resolve_match(s, call: dict):
     from src.db.schema import Match, Team
     why = ("mirrored file: foreign match_id never used" if call.get("foreign_ids") and call.get("match_id") is None
            else "no match_id")
+    sport = schema_sport(s, call.get("sport"))           # Codex on #340: Team and Match are sport-scoped
     if call.get("match_id") is not None:
         m = s.get(Match, call["match_id"])
-        if m is not None and _identity_ok(m, call):
+        if m is not None and _identity_ok(m, call, sport):
             return m, "match_id (verified: teams + kickoff)"
         why = (f"match_id {call['match_id']} not in the DB" if m is None else
                f"match_id {call['match_id']} is a different game in this DB")
     if not (call.get("home") and call.get("away") and call.get("kickoff")):
         return None, f"{why}; no teams/kickoff to resolve by identity — not guessed"
-    hid = [t.id for t in s.execute(select(Team).where(Team.name == call["home"])).scalars()]
-    aid = [t.id for t in s.execute(select(Team).where(Team.name == call["away"])).scalars()]
+    tq = lambda name: select(Team).where(Team.name == name, *([Team.sport == sport] if sport is not None else []))
+    hid = [t.id for t in s.execute(tq(call["home"])).scalars()]
+    aid = [t.id for t in s.execute(tq(call["away"])).scalars()]
     ms = list(s.execute(select(Match).where(
         Match.home_team_id.in_(hid or [-1]), Match.away_team_id.in_(aid or [-1]),
+        *([Match.sport == sport] if sport is not None else []),
         Match.utc_date >= call["kickoff"] - WINDOW,
         Match.utc_date <= call["kickoff"] + WINDOW)).scalars())
+    scope = f"sport {sport.value}" if sport is not None else f"sport unknown for {call.get('sport')!r}: not filtered"
     if len(ms) != 1:
-        return None, f"{why}; {len(ms)} DB matches for {call['away']} @ {call['home']} ±12h — not guessed"
-    return ms[0], f"identity (team names + kickoff ±12h; {why})"
+        return None, (f"{why}; {len(ms)} DB matches for {call['away']} @ {call['home']} ±12h ({scope}) — "
+                      "not guessed")
+    return ms[0], f"identity (team names + kickoff ±12h, {scope}; {why})"
 
 
 def match_sessions(s, match) -> list[dict]:
@@ -421,6 +470,8 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                    f"{'—' if r['kalshi_p'] is None else format(r['kalshi_p'], '.4f')}")
         out.append(f"  source: {'; '.join(r['files']) or 'ledger only'}" + (" · in ledger" if r["in_ledger"]
                                                                              and r["files"] else ""))
+        if r.get("ledger_ambiguous"):
+            out.append(f"  LEDGER AMBIGUOUS: {r['ledger_ambiguous']}")
         if r.get("conflicting_copies"):
             out.append("  CONFLICT: another file holds this call (same teams, kickoff, side, as_of) with different "
                        "market numbers; each is listed as its own call, never merged as a copy")
@@ -505,15 +556,22 @@ def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
                 # Codex on #340: a file older than the started-game rule (2026-10-06) carries no pass_kind; a row
                 # decided at or after kickoff is no decision, by its timestamps, whatever the marker says
                 continue
-            k = (sport, r.get("home_team"), r.get("away_team"), kick, as_of)
-            if k in seen:
+            ident = (sport, r.get("home_team"), r.get("away_team"), kick, as_of)
+            fair4 = _row_fair(r)
+            k = ident + (tuple(sorted((fair4 or {}).items())),)
+            if k in seen:                                  # a true copy (same identity AND same book fair)
                 continue
+            # Codex on #340: same identity, different book fair = two machines' references, both kept and flagged
+            twins = [x for x in out if (x["sport"], x["home"], x["away"], x["kickoff"], x["as_of"]) == ident]
+            for x in twins:
+                x["conflicting_copies"] = True
             seen.add(k)
             foreign = path in mirrored
             out.append({"sport": sport, "match_id": None if foreign else r.get("match_id"),
                         "foreign_ids": [r.get("match_id")] if foreign else [], "home": r.get("home_team"),
                         "away": r.get("away_team"), "as_of": as_of, "file": path,
-                        "kickoff": kick, "file_fair": _row_fair(r), "call": d.get("call")})
+                        "kickoff": kick, "file_fair": fair4, "call": d.get("call"),
+                        "conflicting_copies": bool(twins)})
     return out
 
 
@@ -629,6 +687,12 @@ def format_age_report(rep: dict, since: datetime, sources: list[str]) -> list[st
         out.append(f"  capture age   median {_h(ca['median'])} · p90 {_h(ca['p90'])} · max {_h(ca['max'])}")
         out.append(f"  unchanged age median {_h(ua['median'])} · p90 {_h(ua['p90'])} · max {_h(ua['max'])} · "
                    f"> 3h {b['unchanged_ge_3h']} · censored {b['censored']}")
+    conf = [x for x in rep["rows"] if x.get("conflicting_copies")]
+    if conf:
+        out.append(f"CONFLICTING COPIES (same match + as_of, different book fair; each kept as its own row): {len(conf)}")
+        for x in conf:
+            out.append(f"  {x['sport']} · {x.get('away')} @ {x.get('home')} · as_of {_z(x['as_of'])} · {x['file']} · "
+                       f"fair {x.get('file_fair')}")
     exc = [x for x in rep["rows"] if x.get("excluded")]
     if exc:
         out.append(f"EXCLUDED from the statistics: {len(exc)}")

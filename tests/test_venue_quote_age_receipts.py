@@ -456,3 +456,74 @@ def test_same_identity_files_with_different_market_numbers_are_not_merged():
     with session_scope() as s:
         res = VQ.venue_receipt(s, diff)                          # unseeded names: NO DB MATCH, still listed
     assert sum("CONFLICT:" in x for x in VQ.format_venue_receipt(res, SINCE, ["t"])) == 2
+
+
+def test_a_ledger_claim_picks_the_conflicting_row_it_names_or_none():
+    """Codex on #340: with conflicting file rows kept, an exact-time ledger claim attaches to the row whose book p /
+    Kalshi p / div it carries; if none or several fit, it is attached to none and both rows say so."""
+    asof = KO - timedelta(hours=19)
+    a = _venue_row(1, "x", 20, {"HOME": 0.4735, "AWAY": 0.5265})
+    b = _venue_row(1, "x", 20, {"HOME": 0.4800, "AWAY": 0.5200})
+    b["desk"] = dict(b["desk"], book_p=0.52, div_pp=6.5)
+
+    def files():
+        return VQ.file_venue_calls([("l.json", _doc([a], asof)), ("h/l.json", _doc([b], asof))], SINCE)
+
+    def claim(**kw):
+        return {"calls": [dict({"engine": "venue_edge", "sport": "NHL", "home": "VQA0 x Home", "away": "VQA0 x Away",
+                                "kickoff": _iso(KO), "pick": "AWAY", "claim_at": _iso(asof) + "Z"}, **kw)]}
+    calls = VQ.merge_calls(files(), VQ.ledger_venue_calls(claim(model_p=0.52, divergence_pp=6.5), SINCE))
+    assert len(calls) == 2 and [c["file_fair"]["HOME"] for c in calls if c["in_ledger"]] == [0.48]
+    calls = VQ.merge_calls(files(), VQ.ledger_venue_calls(claim(), SINCE))
+    assert len(calls) == 2 and not any(c["in_ledger"] for c in calls)
+    assert all("attached to none" in c["ledger_ambiguous"] for c in calls)
+
+
+def test_conflicting_model_exports_are_both_kept_in_the_age_report():
+    """Codex on #340: same match + as_of with a different book fair is two machines' references, not a copy."""
+    def doc(fair):
+        return {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
+            {"match_id": 1, "utc_date": _iso(KO), "home_team": "H", "away_team": "A",
+             "market": {"fair_prob": fair, "fair_source": "1X2"},
+             "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books"}}]}
+    same = VQ.model_reference_rows([("a.json", doc({"HOME": 0.6, "AWAY": 0.4})),
+                                    ("host/a.json", doc({"HOME": 0.6, "AWAY": 0.4}))], SINCE)
+    assert len(same) == 1 and not same[0]["conflicting_copies"]
+    rows = VQ.model_reference_rows([("a.json", doc({"HOME": 0.6, "AWAY": 0.4})),
+                                    ("host/a.json", doc({"HOME": 0.62, "AWAY": 0.38}))], SINCE)
+    assert len(rows) == 2 and all(r["conflicting_copies"] for r in rows)
+    txt = VQ.format_age_report({"by_sport": {}, "rows": rows}, SINCE, ["t"])
+    assert any(x.startswith("CONFLICTING COPIES") and x.endswith(": 2") for x in txt)
+
+
+def test_an_export_with_an_unparseable_as_of_is_refused(tmp_path):
+    """Codex on #340: a desk file whose desk_meta.as_of cannot be parsed is refused, never skipped silently."""
+    ex = tmp_path / "exports"
+    ex.mkdir()
+    (ex / "ok.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"}, "fixtures": []}))
+    (ex / "bad.json").write_text(json.dumps({"desk_meta": {"as_of": "yesterday-ish"}, "fixtures": []}))
+    with pytest.raises(VQ.Refused, match=r"1 desk export\(s\) with an unparseable desk_meta.as_of"):
+        VQ.iter_desk_docs(str(ex))
+
+
+def test_identity_resolution_is_sport_scoped():
+    """Codex on #340: Team and Match are sport-scoped; same names at the same time in another sport never resolve
+    (nor make the right one ambiguous)."""
+    ids = _seed()
+    n = ids["n"]
+    with session_scope() as s:
+        c = s.query(Competition).filter_by(code="VQA").one()
+        h = Team(sport=Sport.MLB, name=f"VQA{n} dead Home")
+        a = Team(sport=Sport.MLB, name=f"VQA{n} dead Away")
+        s.add_all([h, a])
+        s.flush()
+        s.add(Match(sport=Sport.MLB, competition_id=c.id, season="2095", utc_date=KO, status=MatchStatus.SCHEDULED,
+                    home_team_id=h.id, away_team_id=a.id))
+    call = {"home": f"VQA{n} dead Home", "away": f"VQA{n} dead Away", "kickoff": KO}
+    with session_scope() as s:
+        m, how = VQ.resolve_match(s, dict(call, sport="NHL"))
+        assert m is not None and m.id == ids["dead"] and "sport nhl" in how
+        m, how = VQ.resolve_match(s, dict(call, sport="VQA"))                 # a competition code -> its sport
+        assert m is not None and m.id == ids["dead"]
+        m, how = VQ.resolve_match(s, dict(call, sport="?"))                   # unknown: unfiltered, ambiguous
+        assert m is None and "2 DB matches" in how and "not filtered" in how

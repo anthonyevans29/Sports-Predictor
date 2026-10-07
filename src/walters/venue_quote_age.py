@@ -28,11 +28,15 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from datetime import datetime, timedelta, timezone
 
 SINCE_DEFAULT = datetime(2026, 10, 2)            # naive UTC: "every VENUE call on file since 2026-10-02"
 DP = 4                                           # "unchanged to four decimals"
 MODEL_SPORTS = ("MLB", "NFL", "PL")              # build step (4): the live model sports
+#: Desk export filenames (fixtures_<comp>_*, <sport>_predictions_*, desk_parlays_*, window_*): an unreadable file
+#: with such a name is a damaged export and refuses the receipt; other unreadable JSON is only counted.
+EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions", re.I)
 MIRROR_DIR = "host"                              # <exports>/host/: deploy/hosting/pull_exports.py's destination
 WINDOW = timedelta(hours=12)                     # identity match: exact team names, kickoff within ±12h
 PROXY_LABEL = ("capture-based PROXIES (our fetch times), NOT quote age: no quote time is stored; the provider "
@@ -81,6 +85,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
         raise Refused(f"REFUSED: --exports-dir {root!r} is not a directory (missing, misspelled or a file): "
                       "no receipt, never an empty one")
     bad_asof: list[str] = []
+    bad_read: list[str] = []
     bad_rows: list[str] = []
     # Codex on #340: --exports-dir exports/host IS the mirror; every file under it is a host export
     root_is_mirror = os.path.basename(os.path.normpath(os.path.abspath(root))) == MIRROR_DIR
@@ -95,6 +100,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                     doc = json.load(f)
             except (OSError, ValueError):
                 counts["unreadable"] += 1
+                if EXPORT_NAME.search(n):              # Codex on #340: a damaged EXPORT is never omitted silently
+                    bad_read.append(p)
                 continue
             if isinstance(doc, dict) and isinstance(doc.get("desk_meta"), dict) and doc["desk_meta"].get("as_of"):
                 if parse_ts(doc["desk_meta"]["as_of"]) is None:   # Codex on #340: never skipped invisibly
@@ -111,6 +118,10 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 counts["desk_files"] += 1
                 if root_is_mirror or os.path.relpath(p, root).split(os.sep)[0] == MIRROR_DIR:
                     counts["mirrored"].append(p)
+    if bad_read:
+        raise Refused(f"REFUSED: {len(bad_read)} export file(s) that cannot be read as JSON "
+                      f"({', '.join(bad_read[:5])}{', …' if len(bad_read) > 5 else ''}): truncated or unavailable; "
+                      "their calls would be omitted, so no receipt; fix or move them, then re-run")
     if bad_rows:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
                       f"objects "
@@ -203,6 +214,21 @@ def claim_time(c: dict) -> tuple[datetime | None, str]:
     return t, ("captured_at (no claim_at: the latest log's, unfrozen)" if t is not None else "no claim time")
 
 
+def claim_prices(c: dict, relogged: bool) -> dict:
+    """The prices AT THE CLAIM (Codex on #340): upsertCalls() overwrites model_p / market_p / kalshi_p /
+    divergence_pp with every re-log, while stampTiming() freezes claim_model_p / claim_market_p at the first claim.
+    Never re-logged: the top-level fields ARE the claim's. Re-logged: book p = claim_model_p, Kalshi p =
+    claim_market_p when no executable cost was used (else unknown), div = unknown; an unknown claim-time field is
+    None and named in price_basis, never filled with the latest reprice."""
+    if not relogged:
+        return {"book_p": c.get("model_p"), "kalshi_p": c.get("kalshi_p", c.get("market_p")),
+                "div_pp": c.get("divergence_pp"), "price_basis": "the claim's own log (never re-logged)"}
+    kal = c.get("claim_market_p") if c.get("claim_exec_cost") is None and "kalshi_p" not in c else None
+    missing = [k for k, v in (("book p", c.get("claim_model_p")), ("Kalshi p", kal)) if v is None] + ["div"]
+    return {"book_p": c.get("claim_model_p"), "kalshi_p": kal, "div_pp": None,
+            "price_basis": "frozen claim fields; unknown at the claim: " + ", ".join(missing)}
+
+
 def ledger_venue_calls(L: dict, since: datetime) -> list[dict]:
     """The Cockpit ledger's venue_edge claims (snapshotCalls logs only eligible VENUE rows) at claim time >= since.
     Claim time = claim_time() (claim_at, the frozen first claim; else claim_as_of / captured_at, labelled). One
@@ -221,8 +247,7 @@ def ledger_venue_calls(L: dict, since: datetime) -> list[dict]:
                     "reprices": sorted(reps), "foreign_ids": [],
                     "sport": str(c.get("sport") or "?").upper(), "match_id": None, "home": c.get("home"),
                     "away": c.get("away"), "kickoff": parse_ts(c.get("kickoff")), "side": c.get("pick"),
-                    "units": c.get("units"), "div_pp": c.get("divergence_pp"), "book_p": c.get("model_p"),
-                    "kalshi_p": c.get("kalshi_p", c.get("market_p")), "file_fair": None, "file_books": None,
+                    "units": c.get("units"), **claim_prices(c, bool(reps)), "file_fair": None, "file_books": None,
                     "file_captured_at": None, "fair_source": None})
     return out
 
@@ -513,6 +538,8 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                    + (f" · foreign (host) id(s) {r['foreign_ids']} not used" if r.get("foreign_ids") else ""))
         if r.get("claim_basis"):
             out.append(f"  ledger claim time: {r['claim_basis']}")
+            if r.get("price_basis"):
+                out.append(f"  ledger claim prices: {r['price_basis']}")
         if r.get("reprices"):
             out.append(f"  re-logged {len(r['reprices'])} time(s) after the claim (one position, not extra calls): "
                        + ", ".join(_z(x) for x in r["reprices"][:10]) + (" …" if len(r["reprices"]) > 10 else ""))

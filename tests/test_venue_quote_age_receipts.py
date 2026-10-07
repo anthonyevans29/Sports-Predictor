@@ -614,3 +614,37 @@ def test_a_spread_derived_venue_call_is_never_given_a_1x2_movement_verdict(tmp_p
     assert r["verdict"] == "NOT 1X2: NOT MEASURED" and r["anchor"] is None and r["later"] == []
     assert res["totals"]["tested"] == 0 and res["totals"]["NOT 1X2: NOT MEASURED"] == 1
     assert "non-1X2 reference, not measured 1" in "\n".join(VQ.format_venue_receipt(res, SINCE, ["t"]))
+
+
+def test_a_relogged_claim_uses_the_frozen_claim_prices_never_the_latest_reprice():
+    """Codex on #340: upsertCalls overwrites model_p / market_p / kalshi_p / divergence_pp on every re-log; the
+    claim's own prices are claim_model_p / claim_market_p, and what was not frozen is unknown, never the latest."""
+    t0, t1 = KO - timedelta(hours=19), KO - timedelta(hours=9)
+    base = {"engine": "venue_edge", "sport": "NHL", "home": "H", "away": "A", "kickoff": _iso(KO), "pick": "AWAY",
+            "claim_at": _iso(t0) + "Z", "model_p": 0.51, "market_p": 0.47, "divergence_pp": 4.0,
+            "claim_model_p": 0.5265, "claim_market_p": 0.455}
+    once = VQ.ledger_venue_calls({"calls": [dict(base, reprices=[{"at": _iso(t0) + "Z"}])]}, SINCE)[0]
+    assert (once["book_p"], once["kalshi_p"], once["div_pp"]) == (0.51, 0.47, 4.0)
+    rel = VQ.ledger_venue_calls({"calls": [dict(base, reprices=[{"at": _iso(t0) + "Z"}, {"at": _iso(t1) + "Z"}])]},
+                                SINCE)[0]
+    assert (rel["book_p"], rel["kalshi_p"], rel["div_pp"]) == (0.5265, 0.455, None)
+    assert "unknown at the claim: div" in rel["price_basis"]
+    exe = VQ.ledger_venue_calls({"calls": [dict(base, kalshi_p=0.46, claim_exec_cost=0.47,
+                                                reprices=[{"at": _iso(t0) + "Z"}, {"at": _iso(t1) + "Z"}])]},
+                                SINCE)[0]
+    assert exe["kalshi_p"] is None and "Kalshi p" in exe["price_basis"]
+
+
+def test_an_unreadable_export_file_is_refused_other_broken_json_is_counted(tmp_path):
+    """Codex on #340: a truncated fixtures_* / *predictions* / desk_parlays_* / window_* file refuses the receipt;
+    an unrelated broken JSON is only counted."""
+    ex = tmp_path / "exports"
+    ex.mkdir()
+    (ex / "broken.json").write_text("{")
+    docs, cnt = VQ.iter_desk_docs(str(ex))
+    assert cnt["unreadable"] == 1
+    for name in ("fixtures_NHL_2095-10-08.json", "nfl_predictions_2095-10-08.json", "window_24h.json"):
+        (ex / name).write_text('{"desk_meta": {"as_of": "2095-')
+        with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
+            VQ.iter_desk_docs(str(ex))
+        (ex / name).unlink()

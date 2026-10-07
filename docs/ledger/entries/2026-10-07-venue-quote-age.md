@@ -31,3 +31,4 @@
   - Re-logged claims carry their frozen claim prices; unknowns are named. An unreadable export file is refused.
   - A missing `as_of` is refused like an unparseable one; damaged venue `reprices` refuse the ledger.
   - Same-second re-logs are kept. Ledger-only NFL / NCAA claims are unmeasured (unknown source). A damaged `claim_at` refuses the ledger. A mismatched anchor gets no movement verdict.
+  - Position fallback for manual claims only. Frozen Kalshi p comes from claim metadata. A non-object `desk` is refused. Every re-log is listed.

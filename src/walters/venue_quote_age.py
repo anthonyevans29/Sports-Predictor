@@ -129,7 +129,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                     bad_rows.append(p)                             # Codex on #340: a container that is no list
                     continue
                 rows = [x for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]]
-                if any(not isinstance(x, dict) for x in rows):     # Codex on #340: a damaged row is refused
+                if any(not isinstance(x, dict) or ("desk" in x and x["desk"] is not None
+                                                   and not isinstance(x["desk"], dict)) for x in rows):
                     bad_rows.append(p)
                     continue
                 docs.append((p, doc))
@@ -142,7 +143,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                       "their calls would be omitted, so no receipt; fix or move them, then re-run")
     if bad_rows:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
-                      f"objects "
+                      f"objects (or a row whose desk block is not an object) "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:
@@ -241,7 +242,10 @@ def claim_prices(c: dict, relogged: bool) -> dict:
     if not relogged:
         return {"book_p": c.get("model_p"), "kalshi_p": c.get("kalshi_p", c.get("market_p")),
                 "div_pp": c.get("divergence_pp"), "price_basis": "the claim's own log (never re-logged)"}
-    kal = c.get("claim_market_p") if c.get("claim_exec_cost") is None and "kalshi_p" not in c else None
+    # Codex on #340: decided by FROZEN claim metadata only: claim_exec_cost set at the claim means claim_market_p was
+    # the executable cost (Kalshi p not frozen); otherwise claim_market_p IS the claim's Kalshi price (legacy
+    # claims included, even when a later executable re-log added a top-level kalshi_p)
+    kal = c.get("claim_market_p") if c.get("claim_exec_cost") is None else None
     missing = [k for k, v in (("book p", c.get("claim_model_p")), ("Kalshi p", kal)) if v is None] + ["div"]
     return {"book_p": c.get("claim_model_p"), "kalshi_p": kal, "div_pp": None,
             "price_basis": "frozen claim fields; unknown at the claim: " + ", ".join(missing)}
@@ -262,6 +266,7 @@ def ledger_venue_calls(L: dict, since: datetime) -> list[dict]:
         reps = [x for x in (parse_ts(r.get("at")) for r in (c.get("reprices") or []) if isinstance(r, dict))
                 if x is not None and x != t]           # Codex on #340: full precision (ms re-logs kept)
         out.append({"origin": "ledger", "files": [], "in_ledger": True, "as_of": t, "claim_basis": basis,
+                    "claim_source": c.get("claim_source"),
                     "reprices": sorted(reps), "foreign_ids": [],
                     "sport": str(c.get("sport") or "?").upper(), "match_id": None, "home": c.get("home"),
                     "away": c.get("away"), "kickoff": parse_ts(c.get("kickoff")), "side": c.get("pick"),
@@ -307,7 +312,9 @@ def merge_calls(file_calls: list[dict], ledger_calls: list[dict]) -> list[dict]:
     for c in ledger_calls:
         cands = idx.get(key(c)) or []
         basis = c.get("claim_basis")
-        if not cands:
+        if not cands and c.get("claim_source") != "auto":
+            # Codex on #340: only a MANUAL claim falls back by position; an auto-claim's clock IS its file's as_of,
+            # so a missing exact file means its source export is unavailable (it stays its own row)
             prior = [f for f in by_pos.get(ident(c), []) if f["as_of"] <= c["as_of"] and not f["in_ledger"]]
             if prior:
                 last = max(f["as_of"] for f in prior)
@@ -569,7 +576,7 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                 out.append(f"  ledger claim prices: {r['price_basis']}")
         if r.get("reprices"):
             out.append(f"  re-logged {len(r['reprices'])} time(s) after the claim (one position, not extra calls): "
-                       + ", ".join(_z(x) for x in r["reprices"][:10]) + (" …" if len(r["reprices"]) > 10 else ""))
+                       + ", ".join(_z(x) for x in r["reprices"]))       # every re-log (Codex on #340)
         if r.get("file_fair"):
             out.append(f"  AT THE CALL (file): {_f4(r['file_fair'])} · books {r['file_books']} · captured_at "
                        f"{_z(r['file_captured_at'])} · fair_source {r['fair_source']}")

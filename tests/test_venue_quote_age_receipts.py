@@ -708,3 +708,51 @@ def test_a_mismatched_anchor_gives_no_movement_verdict():
     call = {"as_of": t, "kickoff": KO, "file_captured_at": t, "file_fair": {"HOME": 0.6, "AWAY": 0.4}}
     r = VQ.receipt_row(call, sess)
     assert r["file_matches_anchor"] is False and r["verdict"] == "ANCHOR MISMATCH: NOT MEASURED" and r["later"] == []
+
+
+def test_an_auto_claim_never_falls_back_to_an_older_file_by_position():
+    """Codex on #340: an auto-claim's clock is its file's as_of; with that file gone it stays its own row."""
+    t_old, t_claim = KO - timedelta(hours=30), KO - timedelta(hours=19)
+    f = {"origin": "file", "files": ["old.json"], "in_ledger": False, "as_of": t_old, "sport": "NHL", "match_id": None,
+         "home": "H", "away": "A", "kickoff": KO, "side": "AWAY", "reprices": [], "claim_basis": None}
+    claim = {"engine": "venue_edge", "sport": "NHL", "home": "H", "away": "A", "kickoff": _iso(KO), "pick": "AWAY",
+             "claim_at": _iso(t_claim) + "Z"}
+    auto = VQ.merge_calls([dict(f)], VQ.ledger_venue_calls({"calls": [dict(claim, claim_source="auto")]}, SINCE))
+    assert len(auto) == 2 and not auto[0]["in_ledger"] and auto[1]["origin"] == "ledger"
+    manual = VQ.merge_calls([dict(f)], VQ.ledger_venue_calls({"calls": [claim]}, SINCE))
+    assert len(manual) == 1 and manual[0]["in_ledger"]
+
+
+def test_a_legacy_claim_keeps_its_frozen_kalshi_price_after_an_executable_relog():
+    """Codex on #340: claim_exec_cost unset at the claim means claim_market_p IS the claim's Kalshi price, even when
+    a later executable re-log added a top-level kalshi_p."""
+    t0, t1 = KO - timedelta(hours=19), KO - timedelta(hours=9)
+    c = {"engine": "venue_edge", "sport": "NHL", "home": "H", "away": "A", "kickoff": _iso(KO), "pick": "AWAY",
+         "claim_at": _iso(t0) + "Z", "claim_model_p": 0.5265, "claim_market_p": 0.455, "kalshi_p": 0.46,
+         "market_p": 0.47, "reprices": [{"at": _iso(t0) + "Z"}, {"at": _iso(t1) + "Z"}]}
+    r = VQ.ledger_venue_calls({"calls": [c]}, SINCE)[0]
+    assert r["kalshi_p"] == 0.455 and "Kalshi p" not in r["price_basis"]
+
+
+def test_a_non_object_desk_block_is_refused(tmp_path):
+    """Codex on #340: a row whose desk is a list / string is refused, never skipped or a traceback."""
+    for i, desk in enumerate(([], "VENUE")):
+        ex = tmp_path / f"d{i}"
+        ex.mkdir()
+        (ex / "fixtures_NHL_x.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                                            "fixtures": [{"desk": desk}]}))
+        with pytest.raises(VQ.Refused, match="desk block is not an object"):
+            VQ.iter_desk_docs(str(ex))
+
+
+def test_every_relog_is_listed():
+    """Codex on #340: the receipt lists every re-log, never the first ten."""
+    t0 = KO - timedelta(hours=21)
+    reps = [{"at": _iso(t0) + "Z"}] + [{"at": _iso(KO - timedelta(hours=h)) + "Z"} for h in range(20, 5, -1)]
+    c = {"engine": "venue_edge", "sport": "NHL", "home": "Nobody H", "away": "Nobody A", "kickoff": _iso(KO),
+         "pick": "AWAY", "claim_at": _iso(t0) + "Z", "reprices": reps}
+    init_db()
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, VQ.merge_calls([], VQ.ledger_venue_calls({"calls": [c]}, SINCE)))
+    line = next(x for x in VQ.format_venue_receipt(res, SINCE, ["t"]) if "re-logged" in x)
+    assert "re-logged 15 time(s)" in line and line.count("Z") == 15 and "…" not in line

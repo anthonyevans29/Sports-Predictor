@@ -1,0 +1,13 @@
+**2026-10-07 — intl-elo-v2 confirmation cohort spliced into the registry (60 fixtures; UNL 41 / CNL 19). An earlier, unspliced 10-03 freeze differs by one fixture and is open for a ruling (#317).**
+- **Ruling (ARCHITECT 2026-10-07, verbatim):** "SPLICE. If the operator pushes laptop/intl-elo-v2-cohort today (the intl-elo-v2 confirmation cohort freeze, ruling 1 of 2026-10-02), splice docs/registry via PR as the run records were. Report by_code and status_at_freeze from the basis."
+- **Spliced:** `laptop/intl-elo-v2-cohort` e697533, the operator's commit, kept as is. It adds `confirmation_cohort` to intl-elo-v2 and `docs/registry/ids/intl-elo-v2.cohort.txt`.
+  - n = 60; ids_sha256 `419872ed…`, which matches the file.
+  - frozen_at 2026-10-07T14:17:46Z.
+  - eligible_stored 128; kickoffs 2026-10-02T18:45Z to 2026-11-09T21:00Z.
+  - **by_code:** UNL 41, CNL 19. **status_at_freeze:** finished 59, scheduled 1.
+- **Finding (read, not assumed):** `laptop/intl-cohort-freeze` (bf556b4) froze on 2026-10-03T12:01:42Z and was never spliced.
+  - Its basis: sha `94416b7c…`, eligible_stored 120, last kickoff 2026-11-11T21:00Z, finished 7 / scheduled 53, by_code UNL 41 / CNL 19.
+  - The two sets differ by one fixture: 41643 is only in the 10-03 freeze, and 48559 is only in the 10-07 freeze.
+  - The rule is blind to results. The difference comes from eight fixtures stored after 10-03, which moved the 60th kickoff from 11-11 to 11-09.
+  - Ruling (1) asked for the freeze "as soon as" 60 were stored. The 10-07 freeze came with 59 results already known.
+  - Which freeze stands is the architect's call (#317, needs-ruling). The splice does not choose.

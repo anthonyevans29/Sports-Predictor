@@ -122,8 +122,8 @@ def market_ok(mk) -> bool:
     if sel is not None and not (isinstance(sel, dict) and all(
             v is None or (isinstance(v, dict) and _num(v.get("fair_prob"))) for v in sel.values())):
         return False
-    if not _num(mk.get("bookmaker_count")) or not (mk.get("captured_at") is None
-                                                   or isinstance(mk.get("captured_at"), str)):
+    if not _num(mk.get("bookmaker_count")) or any(not (mk.get(k) is None or isinstance(mk.get(k), str))
+                                                   for k in ("captured_at", "fair_source")):
         return False                           # hashed into call signatures (Codex on #340)
     fp = mk.get("fair_prob")
     if fp is None:

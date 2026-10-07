@@ -989,3 +989,14 @@ def test_default_named_prediction_exports_need_their_rows_and_host_rows_skip_dia
         rep = VQ.age_report(s, [("exports/host/n.json", doc)], SINCE, ["exports/host/n.json"])
     b = rep["by_sport"]["NFL"]
     assert (b["rows"], b["with_capture"], b["file_matches"], b["measured"]) == (1, 0, 0, 0)
+
+
+def test_a_non_string_fair_source_is_refused(tmp_path):
+    """Codex on #340: fair_source goes into call signatures; a list / object is refused, never unhashable."""
+    for i, fs in enumerate((["1X2"], {"x": 1})):
+        ex = tmp_path / f"f{i}"
+        ex.mkdir()
+        (ex / "fixtures_NHL_x.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                                            "fixtures": [{"market": {"fair_source": fs}}]}))
+        with pytest.raises(VQ.Refused, match="malformed market"):
+            VQ.iter_desk_docs(str(ex))

@@ -139,8 +139,23 @@ Prerequisite, not a finding: each league's 2026/27 competition-season needs `syn
 
 - `soccer-prematch` (Fri/Sat) adds `sync-matches` and `sync-odds` for PD, SA, BL1, FL1, ELC 2026/27.
 - `soccer-morning-after` adds `sync-matches` for the five.
-- There is no predict, no export and no Kalshi step.
+- There is no predict and no export. The Kalshi step is CAPTURE ONLY (below).
 - The laptop routine (docs/pl_weekly_routine.md) carries the same lines.
+
+## 8a. Kalshi series (ARCHITECT 2026-10-07, addendum 2, verbatim)
+
+Ruled from the operator's kalshi-probe receipt of 2026-10-07 (131 series matched):
+
+> "PD -> KXLALIGAGAME (La Liga Game); SA -> KXSERIEAGAME (Serie A Game; not KXBBSERIEAGAME, KXSERIEAWGAME or KXBRASILEIROGAME); BL1 -> KXBUNDESLIGAGAME (Bundesliga Game; not KXBUNDESLIGA2GAME, KXBBLGAME or KXWDBBLGAME); FL1 -> KXLIGUE1GAME (Ligue 1 Game); ELC -> KXEFLCHAMPIONSHIPGAME (EFL Championship Game). Recorded, not wired: EL1 -> KXEFLL1GAME, EFL -> KXEFLCUPGAME, CZE -> KXCZEFLGAME. A pinned series never makes a league live."
+
+- `src/adapters/kalshi.py` `SOCCER_GAME_SERIES` pins the five (resolved without discovery). EL1, EFL and CZE are in
+  `SOCCER_SERIES_RESERVED`: `sync-kalshi-soccer --competition <code>` refuses them, naming the series and the ruling.
+- Each league's `sync-kalshi-soccer --competition <code>` runs on the shadow chain (`soccer-prematch`, Friday and
+  Saturday) and the laptop routine, as CAPTURE ONLY (`chains.KALSHI_CAPTURE_ONLY`).
+- They are deliberately NOT in `WINDOW_KALSHI`: the window card spans every competition, and a capture-only league
+  adds no Kalshi line to it. No chain predicts or exports these leagues, so no Desk call is ever made on them.
+- The fee schedule (`venue.KALSHI_FEE_M`) does not list these series: an unlisted series is priced at the default
+  taker M=1 with no maker cost assumed (conservative unknowns), which matters only once a league is live.
 
 ## 9. Laptop commands (after this declaration merges)
 

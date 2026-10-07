@@ -22,6 +22,7 @@ python cli.py sync-injuries --competition PL --season "2026/27"
 for c in PD SA BL1 FL1 ELC; do   # soccer-expansion-v1: DATA ONLY (ARCHITECT 2026-10-07)
   python cli.py sync-matches --competition $c --season "2026/27"
   python cli.py sync-odds    --competition $c --season "2026/27"
+  python cli.py sync-kalshi-soccer --competition $c   # pinned series, CAPTURE ONLY (ARCHITECT 2026-10-07)
 done
 python cli.py sync-kalshi-soccer
 python cli.py predict --sport soccer --competition PL --season "2026/27"
@@ -31,7 +32,8 @@ python cli.py export-predictions --sport soccer --competition PL \
 
 Notes:
 * soccer-expansion-v1 (ARCHITECT 2026-10-07): the PD / SA / BL1 / FL1 / ELC lines are DATA ONLY: no predict, no
-  export, no Kalshi. Those leagues are SHADOW until CONFIRMED (`export-soccer-expansion-shadow`). Each
+  export. Their Kalshi series are pinned (addendum 2) and synced as CAPTURE ONLY: "A pinned series never makes a
+  league live." Those leagues are SHADOW until CONFIRMED (`export-soccer-expansion-shadow`). Each
   competition-season needs `sync-teams` once before its first `sync-matches`, which skips clubs it does not know.
 * `sync-matches` first: catches postponements/rearrangements before anything
   prices against a stale kickoff (the Kalshi time gate depends on utc_date).
@@ -70,6 +72,7 @@ python cli.py sync-injuries --competition PL --season "2026/27"
 for c in PD SA BL1 FL1 ELC; do   # soccer-expansion-v1: DATA ONLY (ARCHITECT 2026-10-07)
   python cli.py sync-matches --competition $c --season "2026/27"
   python cli.py sync-odds    --competition $c --season "2026/27"
+  python cli.py sync-kalshi-soccer --competition $c   # pinned series, CAPTURE ONLY (ARCHITECT 2026-10-07)
 done
 python cli.py sync-kalshi-soccer
 python cli.py predict --sport soccer --competition PL --season "2026/27"

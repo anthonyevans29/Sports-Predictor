@@ -21,8 +21,13 @@ from __future__ import annotations
 MLB = ("--competition", "MLB", "--season", "2026")
 PL = ("--competition", "PL", "--season", "2026/27")
 # soccer-expansion-v1 (ARCHITECT 2026-10-07): PD, SA, BL1, FL1, ELC current season, DATA ONLY (sync-matches /
-# sync-odds) on the soccer chains, laptop and host. No predict, no export, no Kalshi: the shadow is its own command.
-EXPANSION = [("--competition", c, "--season", "2026/27") for c in ("PD", "SA", "BL1", "FL1", "ELC")]
+# sync-odds) on the soccer chains, laptop and host. No predict, no export: the shadow is its own command.
+EXPANSION_CODES = ("PD", "SA", "BL1", "FL1", "ELC")
+EXPANSION = [("--competition", c, "--season", "2026/27") for c in EXPANSION_CODES]
+# Kalshi series PINNED (ARCHITECT 2026-10-07, addendum 2): "A pinned series never makes a league live." Their
+# sync-kalshi-soccer runs on the shadow chain (soccer-prematch) as CAPTURE ONLY. They are deliberately NOT in
+# WINDOW_KALSHI: the window card spans every competition, and a capture-only league adds no venue line to it.
+KALSHI_CAPTURE_ONLY = EXPANSION_CODES
 
 CHAINS: dict[str, dict] = {
     # --- MLB (docs/CLI.md "MLB daily operation") ---
@@ -77,6 +82,7 @@ CHAINS: dict[str, dict] = {
             ["sync-odds", *PL],
             ["sync-injuries", *PL],
             *[[verb, *x] for x in EXPANSION for verb in ("sync-matches", "sync-odds")],
+            *[["sync-kalshi-soccer", "--competition", c] for c in KALSHI_CAPTURE_ONLY],   # capture only
             ["sync-kalshi-soccer"],
             ["predict", "--sport", "soccer", *PL],
             ["export-predictions", "--sport", "soccer", "--competition", "PL",
@@ -213,7 +219,8 @@ WINDOW_HOURS = 24
 WINDOW_KALSHI: dict[str, list[list[str]]] = {
     # competition code -> its Kalshi sync. CI pins the soccer entries to
     # src/adapters/kalshi.py SOCCER_GAME_SERIES (PL; UNL pinned to KXUEFANLGAME,
-    # ARCHITECT 2026-10-05, so no --series flag) + SOCCER_SERIES_DISCOVERY.
+    # ARCHITECT 2026-10-05, so no --series flag) + SOCCER_SERIES_DISCOVERY,
+    # less KALSHI_CAPTURE_ONLY (the soccer-expansion leagues, shadow chain only).
     "MLB": [["sync-kalshi", "--date-from", "{today}", "--date-to", "{tomorrow}"]],
     "NFL": [["sync-kalshi-nfl"]],
     "NCAA": [["sync-kalshi-ncaa"]],

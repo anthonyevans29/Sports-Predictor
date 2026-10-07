@@ -213,11 +213,25 @@ class KalshiAdapter:
     # UNL PINNED (ARCHITECT 2026-10-05): discovery refused on 2 candidates,
     # KXUEFANLGAME and KXCONCACAFNLGAME; "UNL pins KXUEFANLGAME (the competition
     # is UEFA's)". Mapped here, so the window chain needs no --series flag.
-    SOCCER_GAME_SERIES = {"PL": "KXEPLGAME", "UNL": "KXUEFANLGAME"}
-    # Ruled series with no wired competition yet ("map the CONCACAF series to
-    # CNL for later"): recorded, never synced. resolve_soccer_series refuses
-    # them, naming the series, until CNL is wired (competition + chain).
-    SOCCER_SERIES_RESERVED = {"CNL": "KXCONCACAFNLGAME"}
+    # soccer-expansion-v1 PINNED (ARCHITECT 2026-10-07, from the operator's
+    # kalshi-probe receipt, 131 series matched): "PD -> KXLALIGAGAME; SA ->
+    # KXSERIEAGAME (not KXBBSERIEAGAME, KXSERIEAWGAME or KXBRASILEIROGAME);
+    # BL1 -> KXBUNDESLIGAGAME (not KXBUNDESLIGA2GAME, KXBBLGAME or
+    # KXWDBBLGAME); FL1 -> KXLIGUE1GAME; ELC -> KXEFLCHAMPIONSHIPGAME ... A
+    # pinned series never makes a league live." Capture only: the shadow chain
+    # syncs them (deploy/hosting/chains.py KALSHI_CAPTURE_ONLY); nothing exports
+    # those leagues' rows to the Desk until soccer-expansion-v1 is CONFIRMED.
+    SOCCER_GAME_SERIES = {"PL": "KXEPLGAME", "UNL": "KXUEFANLGAME",
+                          "PD": "KXLALIGAGAME", "SA": "KXSERIEAGAME", "BL1": "KXBUNDESLIGAGAME",
+                          "FL1": "KXLIGUE1GAME", "ELC": "KXEFLCHAMPIONSHIPGAME"}
+    # Ruled series with no wired competition or chain: recorded, never synced.
+    # resolve_soccer_series refuses them, naming the series and the ruling.
+    SOCCER_SERIES_RESERVED = {"CNL": "KXCONCACAFNLGAME",
+                              "EL1": "KXEFLL1GAME", "EFL": "KXEFLCUPGAME", "CZE": "KXCZEFLGAME"}
+    SOCCER_SERIES_RESERVED_RULING = {"CNL": "ARCHITECT 2026-10-05, 'for later'",
+                                     "EL1": "ARCHITECT 2026-10-07, 'recorded, not wired'",
+                                     "EFL": "ARCHITECT 2026-10-07, 'recorded, not wired'",
+                                     "CZE": "ARCHITECT 2026-10-07, 'recorded, not wired'"}
     # ARCHITECT 2026-10-04: a competition with Kalshi markets but no receipted
     # ticker has its series DISCOVERED from Kalshi's own /series listing at run
     # time (law 1: vocabulary from the API, never guessed). The keywords select
@@ -235,7 +249,7 @@ class KalshiAdapter:
             return self.SOCCER_GAME_SERIES[competition_code], "mapped"
         if competition_code in self.SOCCER_SERIES_RESERVED:
             return None, (f"{competition_code}: series {self.SOCCER_SERIES_RESERVED[competition_code]} is reserved "
-                          f"(ARCHITECT 2026-10-05, 'for later'), not wired — no sync until it is")
+                          f"({self.SOCCER_SERIES_RESERVED_RULING[competition_code]}), not wired — no sync until it is")
         kws = self.SOCCER_SERIES_DISCOVERY.get(competition_code)
         if not kws:
             return None, f"no Kalshi series mapped or discoverable for {competition_code}"

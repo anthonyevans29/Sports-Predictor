@@ -6,7 +6,7 @@
   - `--preflight` scores nothing.
 - `soccer-backtest` refuses these leagues while the experiment is unrun.
 - `export-soccer-expansion-shadow` (model_shadow, no Desk call, no prediction row) and `soccer-expansion-shadow-grade` (read-only).
-- `soccer-prematch` / `soccer-morning-after` and the laptop routine add the five leagues' 2026/27 `sync-matches` / `sync-odds`, data only. No Kalshi series is pinned.
+- `soccer-prematch` / `soccer-morning-after` and the laptop routine add the five leagues' 2026/27 `sync-matches` / `sync-odds`, data only. Kalshi series PINNED (ARCHITECT 2026-10-07, addendum 2): PD KXLALIGAGAME, SA KXSERIEAGAME, BL1 KXBUNDESLIGAGAME, FL1 KXLIGUE1GAME, ELC KXEFLCHAMPIONSHIPGAME in `SOCCER_GAME_SERIES`; EL1 / EFL / CZE recorded, not wired (`SOCCER_SERIES_RESERVED`). Each league's `sync-kalshi-soccer` runs on `soccer-prematch` and the laptop routine as CAPTURE ONLY, not in the window chain; "A pinned series never makes a league live."
 - Codex on #326:
   - the seal is enforced in `run_soccer_backtest` (every path, the sweeps included);
   - the pre-scoring check refuses a test season the walk would score nothing in: the walk's own predicate (>= min_prior prior rows and both teams among them), from fixture order and team ids, no score read;

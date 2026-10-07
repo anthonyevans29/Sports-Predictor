@@ -775,7 +775,9 @@ def test_window_kalshi_table_pinned_to_adapter_series():
     from src.adapters.kalshi import KalshiAdapter
     soccer = {code for code, steps in chains.WINDOW_KALSHI.items()
               if steps and steps[0][0] == "sync-kalshi-soccer"}
-    assert soccer == set(KalshiAdapter.SOCCER_GAME_SERIES) | set(KalshiAdapter.SOCCER_SERIES_DISCOVERY)
+    capture = set(chains.KALSHI_CAPTURE_ONLY)       # ARCHITECT 2026-10-07: pinned, capture only, never live
+    assert not soccer & capture
+    assert soccer | capture == set(KalshiAdapter.SOCCER_GAME_SERIES) | set(KalshiAdapter.SOCCER_SERIES_DISCOVERY)
     cli = _cli()
     for steps in chains.WINDOW_KALSHI.values():
         for st in steps:

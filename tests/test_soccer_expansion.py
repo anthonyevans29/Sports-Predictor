@@ -182,10 +182,33 @@ def test_expansion_chains_are_data_only():
         args = ["--competition", c, "--season", "2026/27"]
         assert ["sync-matches", *args] in pre and ["sync-odds", *args] in pre
         assert ["sync-matches", *args] in chains.CHAINS["soccer-morning-after"]["steps"]
+        assert ["sync-kalshi-soccer", "--competition", c] in pre          # ARCHITECT 2026-10-07: capture only
     for chain in ("soccer-prematch", "soccer-morning-after"):        # data only: no other verb names them
         for st in chains.CHAINS[chain]["steps"]:
             if any(c in st for c in sx.LEAGUES):
-                assert st[0] in ("sync-matches", "sync-odds"), st
+                assert st[0] in ("sync-matches", "sync-odds", "sync-kalshi-soccer"), st
+    # "A pinned series never makes a league live": no export / predict / window Kalshi line names them anywhere
+    for name, chain in chains.CHAINS.items():
+        for st in chain.get("steps") or []:
+            if any(c in st for c in sx.LEAGUES):
+                assert st[0] in ("sync-matches", "sync-odds", "sync-kalshi-soccer"), (name, st)
+    assert not set(sx.LEAGUES) & set(chains.WINDOW_KALSHI)
+
+
+def test_expansion_kalshi_series_are_pinned_as_ruled():
+    """ARCHITECT 2026-10-07 (addendum 2, from the operator's kalshi-probe receipt): five pinned, three recorded
+    and not wired. Pinned means resolved without discovery; never a sibling series."""
+    from src.adapters.kalshi import KalshiAdapter
+    a = KalshiAdapter.__new__(KalshiAdapter)
+    a._get = lambda path, params=None: (_ for _ in ()).throw(AssertionError("no discovery for a pinned code"))
+    pins = {"PD": "KXLALIGAGAME", "SA": "KXSERIEAGAME", "BL1": "KXBUNDESLIGAGAME", "FL1": "KXLIGUE1GAME",
+            "ELC": "KXEFLCHAMPIONSHIPGAME"}
+    for code, ticker in pins.items():
+        assert a.resolve_soccer_series(code) == (ticker, "mapped")
+    assert set(pins) == set(sx.LEAGUES)
+    for code, ticker in {"EL1": "KXEFLL1GAME", "EFL": "KXEFLCUPGAME", "CZE": "KXCZEFLGAME"}.items():
+        t, how = a.resolve_soccer_series(code)
+        assert t is None and ticker in how and "recorded, not wired" in how
 
 
 def test_every_backtest_path_is_refused_on_these_leagues_while_unrun(monkeypatch):

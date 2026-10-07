@@ -286,12 +286,60 @@ def last_calls(export_dir: str = "exports") -> dict[int, dict]:
 
 
 PICK = {"home_win": "HOME", "draw": "DRAW", "away_win": "AWAY"}
+OUTCOME_SIDE = {"H": "HOME", "D": "DRAW", "A": "AWAY"}
+# ARCHITECT 2026-10-07 item 4 (d): the split by |model − close| in pp, read on
+# the TOP-PICK side (the grade's own `div`). Lower bounds inclusive:
+# 4 -> 4-10, 10 -> 10-15, 15 -> >=15.
+DIV_BUCKETS = (("<4", 0.0, 4.0), ("4-10", 4.0, 10.0), ("10-15", 10.0, 15.0), (">=15", 15.0, None))
+
+
+def div_bucket(div_pp: float) -> str:
+    """The |model − close| bucket of a divergence in pp (sign dropped). Rounded
+    to 9 decimals first so float noise (0.55 − 0.51 = 0.04000000000000004)
+    never moves a game across a boundary."""
+    x = round(abs(div_pp), 9)
+    for name, lo, hi in DIV_BUCKETS:
+        if x >= lo and (hi is None or x < hi):
+            return name
+    raise ValueError(div_pp)
+
+
+def result_90(m) -> str | None:
+    """The realized three-way outcome under the stream's own rule (intl_elo.load):
+    the 90-minute score; else the score of a FT row; else None (no result: an
+    AET/PEN row without a 90-minute score is never scored, law 4)."""
+    if m.home_score_90 is not None and m.away_score_90 is not None:
+        hg, ag = m.home_score_90, m.away_score_90
+    elif (m.status_raw or "").upper() == "FT" and m.home_score is not None and m.away_score is not None:
+        hg, ag = m.home_score, m.away_score
+    else:
+        return None
+    return "H" if hg > ag else ("A" if hg < ag else "D")
+
+
+def _ll(p) -> float | None:
+    return None if p is None else -math.log(max(float(p), 1e-12))
+
+
+def _agg(rows: list[dict], close: bool = True) -> dict:
+    n = len(rows)
+    return {"n": n, "hits": sum(1 for r in rows if r["hit"]),
+            "ll_model": sum(r["ll_model"] for r in rows) / n if n else None,
+            "ll_close": sum(r["ll_close"] for r in rows) / n if n and close else None}
 
 
 def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = None, progress=None) -> dict:
-    """Live CLV only: the shadow's top pick vs the three-way book close
-    (#207 contract), from the last call before kickoff. No hit rate, no
-    log-loss here (the confirmation read is intl-elo-confirm)."""
+    """Live CLV: the shadow's top pick vs the three-way book close (#207
+    contract), from the last call before kickoff.
+
+    ARCHITECT 2026-10-07 item 4 (d) adds, per graded row: the result (the
+    stream's 90-minute rule), the hit (top pick == result), the model's
+    three-way log-loss of the realized outcome, and the book close's on the
+    same row when the close is priced; the aggregate model vs close log-loss
+    over the SAME priced games only (a close, a result and a model probability
+    on the row; n priced / unpriced / without a result stated); and the split
+    by |model − close| on the top-pick side: <4, 4-10, 10-15, >=15pp.
+    Read-only; not a record (the confirmation read is intl-elo-confirm)."""
     from sqlalchemy import select
 
     from src.db.database import session_scope
@@ -300,7 +348,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
 
     now = now or utc_now_naive()
     calls = last_calls(export_dir)
-    clvs, lines = [], []
+    clvs, lines, rows = [], [], []
     graded = unpriced = 0
     with session_scope() as s:
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
@@ -318,15 +366,37 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 clvs.append(clv)
             else:
                 unpriced += 1
+            res = result_90(m)
+            side = OUTCOME_SIDE.get(res)
+            model_p = {"HOME": pr.get("home_win_prob"), "DRAW": pr.get("draw_prob"), "AWAY": pr.get("away_win_prob")}
+            hit = None if side is None else sel == side
+            ll_model = _ll(model_p[side]) if side is not None else None
+            ll_close = _ll(cl["fair"][side]) if side is not None and clv is not None else None
+            rows.append({"match_id": m.id, "pick": sel, "pick_prob": pr["top_pick_prob"],
+                         "close_pick": cl["fair"][sel] if clv is not None else None,
+                         "div_pp": clv * 100 if clv is not None else None,
+                         "bucket": div_bucket(clv * 100) if clv is not None else None,
+                         "result": res, "hit": hit, "ll_model": ll_model, "ll_close": ll_close})
             line = (f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} pick {sel} "
                     f"{pr['top_pick_prob']:.3f} close={'%.3f' % cl['fair'][sel] if clv is not None else '  — '} "
-                    f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'}")
+                    f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'}"
+                    f" · result {res or '—'} hit {'—' if hit is None else ('Y' if hit else 'N')}"
+                    f" · LL model {'—' if ll_model is None else '%.3f' % ll_model}"
+                    f" close {'—' if ll_close is None else '%.3f' % ll_close}")
             lines.append(line)
             if progress:
                 progress(line)
+    same = [r for r in rows if r["ll_close"] is not None and r["ll_model"] is not None]
+    scored = [r for r in rows if r["ll_model"] is not None]
     return {"graded": graded, "priced": len(clvs), "unpriced": unpriced,
             "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None,
-            "calls_on_file": len(calls), "lines": lines}
+            "calls_on_file": len(calls), "lines": lines,
+            # ARCHITECT 2026-10-07 item 4 (d)
+            "rows": rows, "no_result": sum(1 for r in rows if r["result"] is None),
+            "all_scored": _agg(scored, close=False),        # every row with a result (priced or not): model side only
+            "same_priced": _agg(same),           # model vs close on the SAME priced games
+            "priced_no_result": sum(1 for r in rows if r["div_pp"] is not None and r["result"] is None),
+            "buckets": {name: _agg([r for r in same if r["bucket"] == name]) for name, _, _ in DIV_BUCKETS}}
 
 
 def confirmation_read(now: datetime | None = None) -> dict:

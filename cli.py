@@ -1077,6 +1077,56 @@ def intl_coverage_cmd():
         click.echo(line)
 
 
+@cli.command("intl-home-abroad-receipt")
+@click.option("--since", default="2022-01-01", show_default=True, help="Listed-home games kicking off on/after (UTC).")
+@click.option("--out", "out_path", default=None,
+              help="Also write the receipt here (e.g. docs/receipts/home-abroad-<date>.md). Never data/; never "
+                   "overwrites.")
+def intl_home_abroad_receipt_cmd(since, out_path):
+    """READ-ONLY receipt "home-abroad" (ARCHITECT 2026-10-07 item 4 (c)): per
+    national team, listed-home games since --since with a known neutral_v3 and
+    the share played outside the team's country (unknown venues excluded from
+    the share and counted); plus venue-id coverage per current
+    competition-season. Produces no home-abroad list: the list is ruled by name
+    from this receipt. Writes nothing to the DB."""
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+    from pathlib import Path as _P
+
+    from src.walters import intl_home_abroad as ha
+    from src.walters.unl_ladders import data_dir
+    try:
+        cut = _dt.fromisoformat(since)
+    except ValueError:
+        raise click.BadParameter(f"{since!r} is not an ISO date (e.g. 2022-01-01)", param_hint="--since")
+    if cut.tzinfo is not None:                     # the DB stores naive UTC
+        cut = cut.astimezone(_tz.utc).replace(tzinfo=None)
+    tgt = None
+    if out_path:
+        tgt = _P(out_path).resolve()
+        _data = data_dir()
+        if tgt == _data or _data in tgt.parents:
+            console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+            raise SystemExit(2)
+        if tgt.exists():
+            console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
+            raise SystemExit(2)
+    with session_scope() as s:
+        res = ha.receipt(s, since=cut)
+        s.rollback()
+    text_ = ha.format_receipt(res, run_at=_dt.now(_tz.utc).replace(tzinfo=None))
+    print(text_)
+    if tgt is not None:
+        tgt.parent.mkdir(parents=True, exist_ok=True)
+        try:                                       # exclusive create: a receipt is never overwritten
+            with tgt.open("x", encoding="utf-8") as fh:
+                fh.write(text_ + "\n")
+        except FileExistsError:
+            console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
+            raise SystemExit(2)
+        console.print(f"[green]✓ receipt written to {tgt} — commit it via PR[/green]")
+
+
 @cli.command("intl-venue-sync")
 @click.option("--from-dir", "save_dir", required=True, help="The intl-sync --save directory (venue ids, 0 calls).")
 @click.option("--venues-dir", default=None, help="Save (and replay) the /venues responses here (never under data/).")
@@ -4713,11 +4763,25 @@ def export_unl_predictions_cmd(hours):
 def unl_shadow_grade_cmd(days):
     """Live CLV of the UNL SHADOW calls (top pick vs the three-way book close)
     from the shadow exports on disk. Read-only; not a record (the confirmation
-    read is intl-elo-confirm)."""
-    from src.walters.intl_shadow import grade
+    read is intl-elo-confirm). ARCHITECT 2026-10-07 item 4 (d): per row the
+    result, the hit, model and book-close log-loss; model vs close log-loss on
+    the SAME priced games; the split by |model − close| (top-pick side)."""
+    from src.walters.intl_shadow import DIV_BUCKETS, grade
     r = grade(days=days, progress=print)
     print(f"  ── graded {r['graded']} (calls on file {r['calls_on_file']}) · mean pick-vs-close "
           f"{r['mean_clv_pp']}pp (n={r['priced']}; unpriced {r['unpriced']})")
+    f3 = lambda x: "—" if x is None else f"{x:.4f}"
+    a, sp = r["all_scored"], r["same_priced"]
+    print(f"  ── with a result {a['n']} (no result {r['no_result']}) · hits {a['hits']}/{a['n']} · "
+          f"model log-loss {f3(a['ll_model'])} (all with a result, priced or not)")
+    print(f"  ── SAME priced games: n {sp['n']} (priced {r['priced']}, of them without a result "
+          f"{r['priced_no_result']}; unpriced {r['unpriced']} left out) · model log-loss {f3(sp['ll_model'])} · "
+          f"book-close log-loss {f3(sp['ll_close'])} · hits {sp['hits']}/{sp['n']}")
+    print("  ── split by |model − close| (top-pick side, pp; same priced games):")
+    for name, _, _ in DIV_BUCKETS:
+        b = r["buckets"][name]
+        print(f"     {name:>6}: n {b['n']:>3} · hits {b['hits']:>3} · model LL {f3(b['ll_model'])} · "
+              f"close LL {f3(b['ll_close'])}")
 
 
 @cli.command("intl-elo-confirm")

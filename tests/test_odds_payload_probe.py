@@ -249,3 +249,21 @@ def test_values_without_value_and_odd_are_inconclusive():
     for vals in ([None], ["bad"], [{}], [{"value": "Home"}]):
         p = {"response": [{"bookmakers": [{"name": "B", "bets": [{"name": "Home/Away", "values": vals}]}]}]}
         assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(p))
+
+
+def test_the_match_id_lookup_creates_no_wal_sidecars(tmp_path, monkeypatch):
+    # Codex on #340: a checkpointed WAL DB opens immutable; exactly one sidecar is refused
+    import sqlite3
+    db = tmp_path / "w.db"
+    con = sqlite3.connect(db)
+    con.execute("PRAGMA journal_mode=WAL")
+    con.execute("CREATE TABLE matches (id INTEGER, external_ids TEXT)")
+    con.execute("INSERT INTO matches VALUES (5, ?)", (json.dumps({"api_hockey": 77}),))
+    con.commit()
+    con.close()
+    monkeypatch.setattr(P, "db_path", lambda: db)
+    assert P.game_for_match("nhl", 5) == "77"
+    assert sorted(p.name for p in tmp_path.iterdir()) == ["w.db"]
+    (tmp_path / "w.db-shm").write_bytes(b"")
+    with pytest.raises(P.Refused, match="-wal file without its -shm"):
+        P.game_for_match("nhl", 5)

@@ -103,6 +103,20 @@ def ledger_refusal(L) -> str | None:
     return None
 
 
+def market_ok(mk) -> bool:
+    """A row's market block, if present, is an object; its fair_prob, if present, an object of numeric (or null)
+    probabilities (Codex on #340: a damaged fair is refused at discovery, never a traceback while rounding)."""
+    if mk is None:
+        return True
+    if not isinstance(mk, dict):
+        return False
+    fp = mk.get("fair_prob")
+    if fp is None:
+        return True
+    return isinstance(fp, dict) and all(v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
+                                        for v in fp.values())
+
+
 @contextlib.contextmanager
 def readonly_session():
     """A READ-ONLY session for the receipts (Codex on #340): the app's session_scope() commits on exit and its
@@ -180,7 +194,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                     continue
                 rows = [x for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]]
                 if any(not isinstance(x, dict) or ("desk" in x and x["desk"] is not None
-                                                   and not isinstance(x["desk"], dict)) for x in rows):
+                                                   and not isinstance(x["desk"], dict))
+                       or not market_ok(x.get("market")) for x in rows):
                     bad_rows.append(p)
                     continue
                 docs.append((p, doc))
@@ -193,8 +208,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                       "their calls would be omitted, so no receipt; fix or move them, then re-run")
     if bad_rows:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
-                      f"objects (a missing one in a fixtures_* / *predictions* export, or a row whose desk block is not an "
-                      f"object) "
+                      f"objects (a missing one in a fixtures_* / *predictions* export, a row whose desk block is not an "
+                      f"object, or a malformed market / fair_prob) "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:

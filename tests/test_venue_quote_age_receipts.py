@@ -900,3 +900,15 @@ def test_files_differing_only_in_fair_source_are_not_copies():
     calls = VQ.file_venue_calls([("h/l.json", _doc([b], asof)), ("l.json", _doc([a], asof))], SINCE, ["h/l.json"])
     assert sorted(c["fair_source"] for c in calls) == ["1X2", "spread_derived"]
     assert all(c["conflicting_copies"] for c in calls)
+
+
+def test_a_malformed_market_fair_is_refused_at_discovery(tmp_path):
+    """Codex on #340: a fair_prob that is a string or holds a non-number is refused, never a traceback."""
+    for i, mk in enumerate(("junk", {"fair_prob": "x"}, {"fair_prob": {"HOME": "0.5", "AWAY": 0.5}})):
+        ex = tmp_path / f"m{i}"
+        ex.mkdir()
+        (ex / "fixtures_NHL_x.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                                            "fixtures": [{"market": mk, "desk": {}}]}))
+        with pytest.raises(VQ.Refused, match="malformed market / fair_prob"):
+            VQ.iter_desk_docs(str(ex))
+    assert VQ.market_ok({"fair_prob": {"HOME": 0.5, "DRAW": None}}) and VQ.market_ok(None)

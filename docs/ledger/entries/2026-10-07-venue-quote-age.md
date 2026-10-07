@@ -35,3 +35,4 @@
   - Div at 2 dp. A VENUE row with no capture time is unmeasured. Legacy claim times are validated. A partial file fair never verifies.
   - The receipts open the DB read-only and never create it. Ledger claims anchor at full precision. Mismatched anchors are re-derived from odds rows first. A named export without its rows key is refused.
   - Read-only open creates no sidecars (immutable when checkpointed). `fair_source` is part of copy identity. The probe verdict needs real value/odd objects.
+  - The probe's DB lookup creates no sidecars. A malformed `market` / `fair_prob` is refused at discovery.

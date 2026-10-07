@@ -54,6 +54,8 @@ SPORTS = {
     "ncaa": ("src.adapters.api_american_football", "APIAmericanFootballAdapter", "sync-odds-football",
              "api_american_football"),
 }
+#: The competition a --match-id must belong to, per --sport (NFL and NCAA share the provider id key)
+SPORT_COMPETITION = {"nhl": "NHL", "ncaa": "NCAA"}
 #: The paths list_odds READS (src/adapters/api_hockey.py:233-262, src/adapters/api_american_football.py:310-339:
 #: identical loops): response[] -> bookmakers[] -> name/id, bets[] -> name, values[] -> value/odd. Nothing else.
 ADAPTER_READS = (
@@ -266,12 +268,25 @@ def game_for_match(sport: str, match_id: int) -> str:
     # concurrent checkpoint. SQLite may create its own -wal / -shm sidecars for a WAL DB; the content is never written.
     con = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
     try:
-        row = con.execute("SELECT external_ids FROM matches WHERE id = ?", (match_id,)).fetchone()
+        row = con.execute("SELECT m.external_ids, c.code FROM matches m LEFT JOIN competitions c "
+                          "ON c.id = m.competition_id WHERE m.id = ?", (match_id,)).fetchone()
     finally:
         con.close()
     if row is None:
         raise Refused(f"REFUSED: match {match_id} not in the DB")
-    ext = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or {})
+    # Codex on #340: NFL and NCAA share the api_american_football id key; the match must be the asked league's
+    want = SPORT_COMPETITION[sport]
+    if row[1] != want:
+        raise Refused(f"REFUSED: match {match_id} is competition {row[1]!r}, not {want} (--sport {sport}): a "
+                      "wrong-league payload never drives the verdict")
+    try:                                   # Codex on #340: damaged external_ids is a refusal, never a traceback
+        ext = json.loads(row[0]) if isinstance(row[0], str) else row[0]
+    except ValueError:
+        ext = None
+    if ext is None and row[0] is None:
+        ext = {}
+    if not isinstance(ext, dict):
+        raise Refused(f"REFUSED: match {match_id}'s external_ids is not a JSON object ({_short(row[0], 60)})")
     src = SPORTS[sport][3]
     if not ext.get(src):
         raise Refused(f"REFUSED: match {match_id} has no '{src}' id (external_ids keys: {sorted(ext)})")

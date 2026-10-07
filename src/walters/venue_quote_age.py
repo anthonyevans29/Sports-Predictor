@@ -110,6 +110,10 @@ def ledger_refusal(L) -> str | None:
             if not isinstance(rp, list) or any(not isinstance(r, dict) or parse_ts(r.get("at")) is None for r in rp):
                 return (f"REFUSED: venue claim at index {i} has a damaged reprices array (not a list of objects "
                         "with a parseable 'at'): its re-logs and claim prices cannot be audited.")
+            t0 = parse_ts(c.get("claim_at"))
+            if t0 is not None and any(parse_ts(r["at"]) < t0 for r in rp):
+                return (f"REFUSED: venue claim at index {i} has a re-log before its frozen claim_at: a "
+                        "chronologically damaged position, never counted as a later re-log.")
     if bad:
         return (f"REFUSED: the ledger's calls array has {len(bad)} non-object entr{'y' if len(bad) == 1 else 'ies'} "
                 f"(index {', '.join(map(str, bad[:5]))}{', …' if len(bad) > 5 else ''}): a damaged ledger, "
@@ -157,6 +161,17 @@ def desk_ok(d) -> bool:
         return True
     return all(_num(d.get(k)) for k in ("book_p", "kalshi_p", "div_pp", "units")) and (
         d.get("stale_book_zone") is None or isinstance(d.get("stale_book_zone"), bool))
+
+
+def doc_ident_ok(doc: dict) -> bool:
+    """A desk document's sport metadata (sport / competition_code / competition) is string-or-null, and every
+    fixtures / predictions row resolves to a sport: its own competition, else the document's (Codex on #340: damaged
+    metadata must not read as an out-of-scope sport and drop every row silently)."""
+    if not all(_str(doc.get(k)) for k in ("sport", "competition_code", "competition")):
+        return False
+    top = doc.get("competition_code") or doc.get("competition") or doc.get("sport")
+    rows = [x for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]]
+    return bool(top) or all(isinstance(x, dict) and x.get("competition") for x in rows)
 
 
 def row_ident_ok(x: dict) -> bool:
@@ -239,7 +254,11 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if EXPORT_NAME.search(n) or _looks_desk(p):
                     bad_read.append(p)
                 continue
-            if isinstance(doc, dict) and "desk_meta" in doc:
+            if not isinstance(doc, dict):
+                if EXPORT_NAME.search(n):              # Codex on #340: a generated export that parses as [] /
+                    bad_read.append(p)                 # null / a scalar is damaged, never skipped
+                continue
+            if "desk_meta" in doc:
                 dm = doc["desk_meta"]                      # Codex on #340: every doc carrying desk_meta is
                 if not isinstance(dm, dict) or parse_ts(dm.get("as_of")) is None:   # checked; missing = refused
                     bad_asof.append(p)
@@ -249,6 +268,9 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if need and need not in doc:               # Codex on #340: a named export lacking its rows
                     bad_rows.append(p)
                     continue
+                if not doc_ident_ok(doc):
+                    bad_rows.append(p)                     # Codex on #340: damaged sport metadata, never a
+                    continue                               # silently out-of-scope document
                 if not any(k in doc for k in ("fixtures", "predictions", "tickets")):
                     bad_rows.append(p)                     # Codex on #340: any --out name; a desk doc with no
                     continue                               # rows container is damaged, never an empty file
@@ -274,7 +296,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
                       f"objects (a missing one in a fixtures_* / *predictions* export or in any desk document, a row whose desk block is not an "
                       f"object, a malformed market / fair_prob / selections, a non-numeric VENUE field, or a non-string identity "
-                      f"field / non-integer match_id) "
+                      f"field / non-integer match_id, or missing / non-string sport metadata) "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:

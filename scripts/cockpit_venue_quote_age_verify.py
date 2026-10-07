@@ -160,6 +160,9 @@ def main():
         sj = row(venue_rows(), "St. Louis")
         check("same row from a pre-ruling file: VENUE 0.25u with its order",
               sj["cells"][5] == "VENUE 0.25u" and "BUY YES KXNHLGAME-26OCT08SJSTL-SJ" in sj["order"], json.dumps(sj))
+        card = page.inner_text(".card.deskonly")
+        check("policy card states the hold (no venue order), never 'take the side' as an instruction",
+              "HELD (ARCHITECT 2026-10-07)" in card and "Place NO venue order" in card, card[:200])
         check("no page errors", not errors, "; ".join(errors))
         browser.close()
     srv.shutdown()

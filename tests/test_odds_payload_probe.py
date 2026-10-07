@@ -257,8 +257,10 @@ def test_the_match_id_lookup_opens_read_only(tmp_path, monkeypatch):
     db = tmp_path / "w.db"
     con = sqlite3.connect(db)
     con.execute("PRAGMA journal_mode=WAL")
-    con.execute("CREATE TABLE matches (id INTEGER, external_ids TEXT)")
-    con.execute("INSERT INTO matches VALUES (5, ?)", (json.dumps({"api_hockey": 77}),))
+    con.execute("CREATE TABLE matches (id INTEGER, competition_id INTEGER, external_ids TEXT)")
+    con.execute("CREATE TABLE competitions (id INTEGER, code TEXT)")
+    con.execute("INSERT INTO competitions VALUES (1, 'NHL')")
+    con.execute("INSERT INTO matches VALUES (5, 1, ?)", (json.dumps({"api_hockey": 77}),))
     con.commit()
     monkeypatch.setattr(P, "db_path", lambda: db)
     assert P.game_for_match("nhl", 5) == "77"
@@ -320,3 +322,25 @@ def test_a_non_string_bet_name_is_no_market_never_a_traceback():
             {"name": name, "values": [{"value": "Home", "odd": "2.1"}]}]}]}]}
         assert P.usable_quotes(payload) == 0
         assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(payload))
+
+
+def test_the_match_id_must_be_the_asked_league_and_carry_object_ids(tmp_path, monkeypatch):
+    # Codex on #340: NFL and NCAA share api_american_football; external_ids must be a JSON object
+    import sqlite3
+    db = tmp_path / "m.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE matches (id INTEGER, competition_id INTEGER, external_ids TEXT)")
+    con.execute("CREATE TABLE competitions (id INTEGER, code TEXT)")
+    con.executemany("INSERT INTO competitions VALUES (?, ?)", [(1, "NFL"), (2, "NCAA")])
+    con.executemany("INSERT INTO matches VALUES (?, ?, ?)", [
+        (1, 1, json.dumps({"api_american_football": 9})), (2, 2, "null"), (3, 2, "[1]"), (4, 2, "{bad"),
+        (5, 2, json.dumps({"api_american_football": 11}))])
+    con.commit()
+    con.close()
+    monkeypatch.setattr(P, "db_path", lambda: db)
+    with pytest.raises(P.Refused, match="is competition 'NFL', not NCAA"):
+        P.game_for_match("ncaa", 1)
+    for mid in (2, 3, 4):
+        with pytest.raises(P.Refused, match="external_ids is not a JSON object"):
+            P.game_for_match("ncaa", mid)
+    assert P.game_for_match("ncaa", 5) == "11"

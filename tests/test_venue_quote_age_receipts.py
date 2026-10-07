@@ -1142,3 +1142,41 @@ def test_the_receipt_counts_venue_calls_that_carried_stale_book_zone(tmp_path):
     (ex / "fixtures_NHL_x.json").write_text(json.dumps(_doc([bad], KO - timedelta(hours=19))))
     with pytest.raises(VQ.Refused, match="non-numeric VENUE field"):
         VQ.iter_desk_docs(str(ex))
+
+
+def test_damaged_sport_metadata_and_non_object_export_roots_are_refused(tmp_path):
+    """Codex on #340: a desk doc with no / non-string sport metadata (rows without a competition) is refused, never
+    read as an out-of-scope sport; a generated export that parses as [] / null / a scalar is refused, never skipped."""
+    asof = {"as_of": "2095-10-08T00:00:00Z"}
+    for i, doc in enumerate(({"desk_meta": asof, "predictions": [{"match_id": 1}]},
+                             {"sport": ["nfl"], "desk_meta": asof, "predictions": []},
+                             {"competition_code": {"x": 1}, "desk_meta": asof, "fixtures": []})):
+        ex = tmp_path / f"s{i}"
+        ex.mkdir()
+        (ex / "audit.json").write_text(json.dumps(doc))
+        with pytest.raises(VQ.Refused, match="sport metadata"):
+            VQ.iter_desk_docs(str(ex))
+    ok = tmp_path / "ok"
+    ok.mkdir()
+    (ok / "audit.json").write_text(json.dumps({"desk_meta": asof, "predictions": [{"competition": "PL"}]}))
+    assert len(VQ.iter_desk_docs(str(ok))[0]) == 1
+    for i, body in enumerate(("[]", "null", "3")):
+        ex = tmp_path / f"r{i}"
+        ex.mkdir()
+        (ex / "fixtures_NHL_2026-10-07.json").write_text(body)
+        with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
+            VQ.iter_desk_docs(str(ex))
+    other = tmp_path / "other"
+    other.mkdir()
+    (other / "notes.json").write_text("[]")
+    assert VQ.iter_desk_docs(str(other))[0] == []
+
+
+def test_a_relog_before_the_frozen_claim_refuses_the_ledger():
+    """Codex on #340: a reprice earlier than claim_at is chronologically damaged, never a later re-log."""
+    c = {"engine": "venue_edge", "claim_at": "2095-10-08T10:00:00Z",
+         "reprices": [{"at": "2095-10-08T10:00:00Z"}, {"at": "2095-10-08T12:00:00Z"}]}
+    assert VQ.ledger_refusal({"calls": [c]}) is None
+    c["reprices"].append({"at": "2095-10-08T09:00:00Z"})
+    why = VQ.ledger_refusal({"calls": [c]})
+    assert why and "re-log before its frozen claim_at" in why

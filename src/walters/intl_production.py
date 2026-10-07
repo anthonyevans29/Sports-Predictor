@@ -87,7 +87,7 @@ def build(now: datetime | None = None, hours: int | None = None) -> dict:
     from src.db.schema import Match
     from src.walters import intl_shadow as us
 
-    r = us.build_rows(now, hours or us.WINDOW_HOURS)
+    r = us.build_rows(now, us.WINDOW_HOURS if hours is None else hours)   # an explicit 0 stays empty (Codex on #325)
     with session_scope() as s:
         codes = {}
         for x in r["rows"]:

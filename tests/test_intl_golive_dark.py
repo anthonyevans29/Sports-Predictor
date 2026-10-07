@@ -174,3 +174,14 @@ def test_export_command_forwards_the_desk_flag(monkeypatch):
     CliRunner().invoke(cli.cli, ["export-intl-predictions", "--desk"])
     CliRunner().invoke(cli.cli, ["export-intl-predictions"])
     assert seen == [True, None]
+
+
+def test_an_explicit_zero_hour_window_stays_empty(monkeypatch):
+    """Codex on #325: --hours 0 is honoured (only None falls back to the shadow's default window)."""
+    from src.walters import intl_shadow as us
+    monkeypatch.setattr(ip, "allowed", lambda: (True, "confirmation CONFIRMED"))
+    seen = []
+    monkeypatch.setattr(us, "build_rows", lambda now, hours: seen.append(hours) or {"rows": [], "fit": {}, "now": NOW})
+    ip.build(hours=0)
+    ip.build()
+    assert seen == [0, us.WINDOW_HOURS]

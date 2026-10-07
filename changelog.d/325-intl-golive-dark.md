@@ -16,5 +16,6 @@
   - the Cockpit logs INTL quarantine shadows and emits `intl_graded` in the ledger summary;
   - `export-intl-predictions --desk`;
   - full team names in the home-abroad receipt;
+  - `--hours 0` exports an empty window (only an omitted window falls back to the default);
   - new `scripts/cockpit_intl_verify.py`.
   - The 90-minute grading path is escalated for a ruling.

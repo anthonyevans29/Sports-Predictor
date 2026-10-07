@@ -29,3 +29,4 @@
   - Report: when duplicates are merged, any local copy makes the row local.
   - Receipt: non-1X2 (spread-derived) venue calls are `NOT 1X2: NOT MEASURED`.
   - Re-logged claims carry their frozen claim prices; unknowns are named. An unreadable export file is refused.
+  - A missing `as_of` is refused like an unparseable one; damaged venue `reprices` refuse the ledger.

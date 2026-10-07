@@ -70,6 +70,16 @@ def ledger_refusal(L) -> str | None:
     if not isinstance(L, dict) or not isinstance(L.get("calls"), list):
         return "REFUSED: not a Cockpit ledger export (no calls array)."
     bad = [i for i, c in enumerate(L["calls"]) if not isinstance(c, dict)]
+    if not bad:
+        # Codex on #340: a venue claim's reprices[] decides whether it was re-logged (frozen vs latest prices) and
+        # its re-log count; a damaged array is refused, never filtered down to what survives
+        for i, c in enumerate(L["calls"]):
+            if c.get("engine") != "venue_edge" or "reprices" not in c:
+                continue
+            rp = c["reprices"]
+            if not isinstance(rp, list) or any(not isinstance(r, dict) or parse_ts(r.get("at")) is None for r in rp):
+                return (f"REFUSED: venue claim at index {i} has a damaged reprices array (not a list of objects "
+                        "with a parseable 'at'): its re-logs and claim prices cannot be audited.")
     if bad:
         return (f"REFUSED: the ledger's calls array has {len(bad)} non-object entr{'y' if len(bad) == 1 else 'ies'} "
                 f"(index {', '.join(map(str, bad[:5]))}{', …' if len(bad) > 5 else ''}): a damaged ledger, "
@@ -103,8 +113,9 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if EXPORT_NAME.search(n):              # Codex on #340: a damaged EXPORT is never omitted silently
                     bad_read.append(p)
                 continue
-            if isinstance(doc, dict) and isinstance(doc.get("desk_meta"), dict) and doc["desk_meta"].get("as_of"):
-                if parse_ts(doc["desk_meta"]["as_of"]) is None:   # Codex on #340: never skipped invisibly
+            if isinstance(doc, dict) and "desk_meta" in doc:
+                dm = doc["desk_meta"]                      # Codex on #340: every doc carrying desk_meta is
+                if not isinstance(dm, dict) or parse_ts(dm.get("as_of")) is None:   # checked; missing = refused
                     bad_asof.append(p)
                     continue
                 if any(k in doc and not isinstance(doc[k], list) for k in ("fixtures", "predictions")):

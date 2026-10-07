@@ -648,3 +648,21 @@ def test_an_unreadable_export_file_is_refused_other_broken_json_is_counted(tmp_p
         with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
             VQ.iter_desk_docs(str(ex))
         (ex / name).unlink()
+
+
+def test_a_desk_export_with_a_missing_as_of_is_refused(tmp_path):
+    """Codex on #340: desk_meta present but as_of missing / null / empty (or desk_meta not an object) is refused."""
+    for i, dm in enumerate(({}, {"as_of": None}, {"as_of": ""}, "x")):
+        ex = tmp_path / f"ex{i}"
+        ex.mkdir()
+        (ex / "fixtures_NHL_x.json").write_text(json.dumps({"desk_meta": dm, "fixtures": []}))
+        with pytest.raises(VQ.Refused, match="unparseable desk_meta.as_of"):
+            VQ.iter_desk_docs(str(ex))
+
+
+def test_a_ledger_with_damaged_venue_reprices_is_refused():
+    """Codex on #340: reprices[] decides re-logged vs not; a damaged array refuses the ledger."""
+    ok = {"engine": "venue_edge", "reprices": [{"at": "2095-10-08T00:00:00Z"}]}
+    assert VQ.ledger_refusal({"calls": [ok, {"engine": "model_edge", "reprices": "junk"}]}) is None
+    for rp in ("junk", [None], [{"at": "soon"}], [{}]):
+        assert "damaged reprices" in VQ.ledger_refusal({"calls": [dict(ok, reprices=rp)]})

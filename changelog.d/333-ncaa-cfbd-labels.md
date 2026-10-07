@@ -1,4 +1,4 @@
-## 2026-10-07 (#0000: NCAA CFBD label lane — ARCHITECT, data lane)
+## 2026-10-07 (#333: NCAA CFBD label lane — ARCHITECT, data lane)
 - CollegeFootballData (CFBD) becomes the NCAA label source of record (ruling 2026-10-07, item 6). No model change; GATE #79 unchanged and still SUSPENDED-PENDING-DATA.
 - New side table `ncaa_cfbd_labels` keyed by our match id: CFBD game id, orientation (same / swapped), neutral flag, both scores in OUR orientation, season, provenance (source, payload file, fetched_at, correction reason). Created by `migrate_ncaa_cfbd_labels.py` (run after the `.backup`). The matches table is never written.
 - New `ncaa-cfbd-labels --year 2025 --year 2026 [--from-file] [--dry-run] [--save-dir] [--division] [--unmatched-names]` (`src/ingestion/ncaa_cfbd.py`):

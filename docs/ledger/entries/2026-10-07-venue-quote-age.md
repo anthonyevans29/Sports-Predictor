@@ -9,3 +9,9 @@
 - **Probe:** `scripts/odds_payload_probe.py`, for the operator: one NHL and one NCAA fixture.
 - **Quote time from the code:** the adapters read only bookmaker / bet / value / odd and stamp the fetch time (`api_hockey.py:233-261`, `api_american_football.py:310-338`). The repo holds no payload, so the quote time is UNKNOWN. Branch (2): no column. Proposal for a ruling: a reference is stale when its consensus is unchanged at 4 dp across the last N captures (N for the architect).
 - **Receipts:** `venue-calls-receipt` (every VENUE call on file since 2026-10-02: the consensus at the call and at each later pre-kickoff capture, and whether it ever moved). `quote-age-report` (MLB/NFL/PL capture age and unchanged age at decision, as capture-based proxies). Spec: docs/specs/venue-quote-age.md.
+- **Codex on #340** (five findings, verified, fixed on the branch):
+  - Probe: refuses an unsuccessful response (non-2xx / non-JSON / non-empty `errors`, the adapters' `_get` checks), and a `--from-file` payload with errors. Exit 2, reason stated, no verdict.
+  - Probe: scans EVERY list element. `--max-items` limits printed samples only, so a time field in a late list item is found.
+  - Receipt: a re-logged ledger position anchors at the frozen `claim_at`, not the re-log-overwritten `claim_as_of` / `captured_at`. Its reprices are reported and not counted as calls.
+  - Receipt + report: rows resolve by stable identity (match_id is machine-local): a local id only after teams + kickoff verify; mirrored host files and mismatches by team names + kickoff ±12h. Ambiguous means unresolved, never guessed.
+  - Report: only rows with a verified reference session (file fair == capture at 4 dp) enter the statistics. Others are counted and listed as excluded, with the reason.

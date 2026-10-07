@@ -27,10 +27,11 @@ SYNTH = {
 }
 
 
-def test_walk_lists_every_path_with_types_and_truncates_lists():
+def test_walk_lists_every_path_with_types_and_scans_every_element():
     f = P.walk(SYNTH, max_items=2)
     assert f["response[].bookmakers"]["list_len"] == 6
-    assert f["response[].bookmakers[].name"]["count"] == 2                  # descended 2 of 6
+    assert f["response[].bookmakers[].name"]["count"] == 6                  # EVERY element scanned (Codex #340)
+    assert len(f["response[].bookmakers[].name"]["samples"]) == 2           # max_items caps the printed samples
     assert f["response[].bookmakers[].bets[].values[].odd"]["types"] == {"str"}
     assert f["results"]["types"] == {"int"} and f["errors"]["types"] == {"list"}
     assert "response[].league.season" in f and "parameters.game" in f
@@ -88,3 +89,78 @@ def test_the_probe_targets_the_adapter_the_sync_uses(sport, mod):
     import importlib
     m = importlib.import_module(mod)
     assert P.SPORTS[sport][0] == mod and hasattr(m, P.SPORTS[sport][1]) and m.DIRECT_BASE.startswith("https://")
+
+
+# ---- Codex on #340 -------------------------------------------------------------------------------------------
+
+LATE = {"errors": [], "response": [{"bookmakers": [
+    {"id": i, "name": f"Book{i}", "bets": [{"name": "Home/Away", "values": [
+        {"value": "Home", "odd": "2.10"}, {"value": "Away", "odd": "1.75",
+                                          **({"stamp_late": "2026-10-06T16:00:00Z"} if i == 5 else {})}]}],
+     **({"lastRefresh": "2026-10-06T16:00:00Z"} if i == 5 else {})}
+    for i in range(6)]}]}
+
+
+def test_a_time_field_only_in_a_late_list_item_is_found_with_max_items_1():
+    f = P.walk(LATE, max_items=1)
+    assert "response[].bookmakers[].lastRefresh" in f and "response[].bookmakers[].bets[].values[].stamp_late" in f
+    tf = P.time_fields(f)
+    assert tf["by_name"] == ["response[].bookmakers[].bets[].values[].stamp_late",
+                             "response[].bookmakers[].lastRefresh"]
+    assert set(tf["by_value"]) == set(tf["by_name"])
+    text = "\n".join(P.report(LATE, max_items=1))
+    assert "a time-like field is present and dropped" in text and "lastRefresh" in text
+    assert "no time-like field present" not in text
+
+
+def test_a_date_value_after_the_sample_cap_is_still_seen():
+    doc = {"response": [{"tag": "a"}, {"tag": "b"}, {"tag": "c"}, {"tag": "2026-10-06T16:00:00Z"}]}
+    f = P.walk(doc, max_items=2)
+    assert f["response[].tag"]["samples"] == ["a", "b"] and P.time_fields(f)["by_value"] == ["response[].tag"]
+
+
+class _Resp:
+    def __init__(self, status, body=None, raw=False):
+        self.status_code, self._body, self._raw, self.headers = status, body, raw, {}
+
+    def json(self):
+        if self._raw:
+            raise ValueError("not json")
+        return self._body
+
+
+@pytest.mark.parametrize("resp,needle", [
+    (_Resp(401, {"message": "Invalid key abcdef123"}), "HTTP 401"),
+    (_Resp(429, {"message": "Too many requests"}), "HTTP 429"),
+    (_Resp(503, raw=True), "HTTP 503"),
+    (_Resp(200, raw=True), "not JSON"),
+    (_Resp(200, {"errors": {"token": "Error/Missing application key"}, "response": []}), "returned errors"),
+    (_Resp(200, {"errors": ["rate limit"], "response": []}), "returned errors"),
+    (_Resp(200, ["not", "an", "object"]), "not a JSON object"),
+])
+def test_unsuccessful_responses_are_refused_by_the_adapters_checks(resp, needle):
+    with pytest.raises(P.Refused) as e:
+        P.check_response(resp, "abcdef123")
+    assert needle in str(e.value) and "abcdef123" not in str(e.value)
+
+
+def test_a_successful_response_passes():
+    assert P.check_response(_Resp(200, SYNTH)) == SYNTH
+    assert P.check_response(_Resp(200, {"errors": {}, "response": []})) == {"errors": {}, "response": []}
+
+
+def test_live_refusal_exits_2_with_reason_and_no_verdict(monkeypatch, capsys):
+    def boom(sport, game):
+        raise P.Refused("REFUSED: HTTP 401 — an unsuccessful response; no verdict")
+    monkeypatch.setattr(P, "fetch", boom)
+    assert P.main(["--sport", "nhl", "--game", "1"]) == 2
+    out = capsys.readouterr().out
+    assert "HTTP 401" in out and "VERDICT" not in out and "FIELDS" not in out
+
+
+def test_from_file_with_errors_is_refused_without_a_verdict(tmp_path, capsys):
+    src = tmp_path / "err.json"
+    src.write_text(json.dumps({"errors": {"requests": "You have reached the request limit"}, "response": []}))
+    assert P.main(["--from-file", str(src)]) == 2
+    out = capsys.readouterr().out
+    assert "returned errors" in out and "VERDICT" not in out

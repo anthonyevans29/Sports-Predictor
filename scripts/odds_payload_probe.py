@@ -10,13 +10,18 @@ printed):
   nhl   sync-odds --competition NHL  -> APIHockeyAdapter.list_odds          GET v1.hockey.api-sports.io/odds?game=<id>
   ncaa  sync-odds-football (NFL+NCAA) -> APIAmericanFootballAdapter.list_odds GET v1.american-football.api-sports.io/odds?game=<id>
 and prints:
-  1. EVERY field of the response, recursively: key path ([] = list element), JSON type, a sample value; long lists
-     are truncated to --max-items elements (the total length is printed);
+  1. EVERY field of the response, recursively: key path ([] = list element), JSON type, sample values; EVERY list
+     element is scanned (Codex on #340: a field only in a late bookmaker/bet/value is still found); --max-items
+     limits only the samples PRINTED per path (the total length and count are printed);
   2. every key whose NAME looks like an update/timestamp field (contains update / time / date / last / stamp /
      modif / created / fetched / ts, case-insensitive) — matched on the keys PRESENT, never assumed; and every
      path whose string VALUE parses as a date-time or date, whatever the key is called;
   3. the paths the adapter READS (list_odds) vs the paths present that it DROPS.
 Nothing is written to the DB (no DB is opened). Exit 2 on a refusal.
+An UNSUCCESSFUL provider response is refused with its reason and NO verdict (Codex on #340), by the adapters' own
+_get checks: a non-2xx HTTP status (401 / 429 / 5xx; raise_for_status in the adapter), a body that is not a JSON
+object, or a non-empty `errors` field (list, or object with values). A --from-file payload carrying a non-empty
+`errors` field is refused the same way.
 
     python scripts/odds_payload_probe.py --sport nhl  --game <api_hockey game id>            [--out exports/probe_nhl.json]
     python scripts/odds_payload_probe.py --sport ncaa --game <api_american_football game id> [--out exports/probe_ncaa.json]
@@ -82,12 +87,15 @@ def jtype(v) -> str:
 
 
 def walk(obj, max_items: int = 3) -> dict:
-    """{path: {"types": set, "samples": [..], "count": n, "list_len": max len}} over EVERY field. A list's elements
-    share the path `<path>[]`; only the first `max_items` elements are descended (the total length is kept)."""
+    """{path: {"types": set, "samples": [..], "count": n, "list_len": max len, "dt_sample": first date-time-looking
+    value or None}} over EVERY field. A list's elements share the path `<path>[]`; EVERY element is descended, so a
+    key present only in a late element is still collected. `max_items` caps only the distinct samples KEPT per path
+    (for printing); the date-time test runs on every scalar value, not on the samples."""
     out: dict = {}
+    cap = max(1, max_items)
 
     def rec(v, path):
-        e = out.setdefault(path, {"types": set(), "samples": [], "count": 0, "list_len": None})
+        e = out.setdefault(path, {"types": set(), "samples": [], "count": 0, "list_len": None, "dt_sample": None})
         e["types"].add(jtype(v))
         e["count"] += 1
         if isinstance(v, dict):
@@ -95,10 +103,13 @@ def walk(obj, max_items: int = 3) -> dict:
                 rec(x, f"{path}.{k}" if path else str(k))
         elif isinstance(v, list):
             e["list_len"] = max(e["list_len"] or 0, len(v))
-            for x in v[:max_items]:
+            for x in v:
                 rec(x, f"{path}[]")
-        elif len(e["samples"]) < 3 and v not in e["samples"]:
-            e["samples"].append(v)
+        else:
+            if e["dt_sample"] is None and looks_datetime(v):
+                e["dt_sample"] = v
+            if len(e["samples"]) < cap and v not in e["samples"]:
+                e["samples"].append(v)
 
     rec(obj, "")
     out.pop("", None)
@@ -112,7 +123,8 @@ def looks_datetime(v) -> bool:
 def time_fields(fields: dict) -> dict:
     """{"by_name": [paths whose LAST key matches TIME_NAME], "by_value": [paths with a date-time-looking sample]}."""
     by_name = [p for p in fields if TIME_NAME.search(re.sub(r"\[\]$", "", p).rsplit(".", 1)[-1])]
-    by_value = [p for p, e in fields.items() if any(looks_datetime(s) for s in e["samples"])]
+    by_value = [p for p, e in fields.items() if e.get("dt_sample") is not None
+                or any(looks_datetime(s) for s in e["samples"])]
     return {"by_name": sorted(by_name), "by_value": sorted(by_value)}
 
 
@@ -133,7 +145,8 @@ def _short(v, n=80) -> str:
 def report(payload, max_items: int = 3) -> list[str]:
     fields = walk(payload, max_items)
     tf = time_fields(fields)
-    lines = [f"FIELDS ({len(fields)} key paths; [] = list element; lists descended to {max_items} element(s))"]
+    lines = [f"FIELDS ({len(fields)} key paths; [] = list element; EVERY list element scanned; up to {max_items} "
+             f"sample(s) printed per path)"]
     for p, e in fields.items():
         ln = f" len={e['list_len']}" if e["list_len"] is not None else ""
         smp = "" if not e["samples"] else "  e.g. " + " | ".join(_short(s) for s in e["samples"])
@@ -142,7 +155,8 @@ def report(payload, max_items: int = 3) -> list[str]:
     lines += [f"  {p}  e.g. {' | '.join(_short(s) for s in fields[p]['samples']) or '(no scalar sample)'}"
               for p in tf["by_name"]] or ["  (none)"]
     lines.append("DATE-TIME-LOOKING VALUES (any key):")
-    lines += [f"  {p}  e.g. {_short(fields[p]['samples'][0])}" for p in tf["by_value"]] or ["  (none)"]
+    lines += [f"  {p}  e.g. {_short(fields[p]['dt_sample'] or fields[p]['samples'][0])}"
+              for p in tf["by_value"]] or ["  (none)"]
     dr = dropped(fields)
     lines.append(f"ADAPTER: list_odds reads {len([p for p in fields if p in ADAPTER_READS])} of these paths; "
                  f"{len(dr)} present and DROPPED:")
@@ -153,6 +167,22 @@ def report(payload, max_items: int = 3) -> list[str]:
         + " — whether it is the QUOTE's own time (vs the response's or the fixture's) is for the ruling"
         if cand else "no time-like field present in this payload — no quote time to store"))
     return lines
+
+
+class Refused(Exception):
+    """An unsuccessful provider response: refused with its reason, no verdict printed."""
+
+
+def payload_refusal(payload) -> str | None:
+    """The adapters' own _get rejection (src/adapters/api_hockey.py / api_american_football.py): the body must be
+    a JSON object, and a non-empty `errors` field (a list, or an object with values) is an error, never odds."""
+    if not isinstance(payload, dict):
+        return f"REFUSED: the payload is not a JSON object ({jtype(payload)}) — the adapter's _get reads a dict"
+    errs = payload.get("errors")
+    if errs and (errs if isinstance(errs, list) else list(errs.values()) if isinstance(errs, dict) else [errs]):
+        return (f"REFUSED: the provider returned errors {_short(errs, 200)} — an error response, not an odds "
+                f"payload (the adapter's _get raises on it); no verdict")
+    return None
 
 
 def out_path_ok(path: str) -> tuple[bool, str]:
@@ -206,16 +236,34 @@ def fetch(sport: str, game: str) -> tuple[dict, str | None]:
     key = ad._headers.get("x-apisports-key") or None
     if not key:
         raise SystemExit("REFUSED: no provider key in env/.env for this adapter — nothing fetched")
-    # _get raises on a non-empty `errors` field; a probe wants to SEE the payload, so call requests the same way
+    # The same request _get makes, and the same acceptance checks (status, JSON object, empty `errors`): a probe
+    # wants to SEE an odds payload, never to read an error response as one. No retry: a 429 is refused, stated.
     import requests
     base = importlib.import_module(mod).DIRECT_BASE
     resp = requests.get(f"{base}/odds", headers=ad._headers, params={"game": game}, timeout=30)
     print(f"GET {base}/odds?game={game} -> HTTP {resp.status_code} · "
           f"x-ratelimit-requests-remaining {resp.headers.get('x-ratelimit-requests-remaining')}")
+    return check_response(resp, key), key
+
+
+def check_response(resp, key: str | None = None) -> dict:
+    """The adapter's acceptance of one HTTP response (raise_for_status + JSON + errors), as a refusal: a non-2xx
+    status, a non-JSON body or a non-empty `errors` field raises Refused with the reason (key-redacted)."""
+    if not 200 <= resp.status_code < 300:
+        try:
+            body = _short(resp.json(), 200)
+        except ValueError:
+            body = "(not JSON)"
+        raise Refused(redact(f"REFUSED: HTTP {resp.status_code} — an unsuccessful response (the adapter's "
+                             f"raise_for_status raises on it); body {body}; no verdict", key))
     try:
-        return resp.json(), key
+        payload = resp.json()
     except ValueError:
-        raise SystemExit(f"REFUSED: response is not JSON (HTTP {resp.status_code})")
+        raise Refused(f"REFUSED: response is not JSON (HTTP {resp.status_code}); no verdict")
+    why = payload_refusal(payload)
+    if why:
+        raise Refused(redact(why, key))
+    return payload
 
 
 def main(argv=None) -> int:
@@ -226,7 +274,8 @@ def main(argv=None) -> int:
                     help="read the provider id from this match's external_ids (DB opened read-only)")
     ap.add_argument("--from-file", dest="from_file", help="read a saved payload instead of calling the provider")
     ap.add_argument("--out", help="write the raw payload (key-redacted) here — under exports/ only")
-    ap.add_argument("--max-items", type=int, default=3, help="list elements descended per list (default 3)")
+    ap.add_argument("--max-items", type=int, default=3,
+                    help="samples printed per key path (default 3); every list element is always scanned")
     a = ap.parse_args(argv)
     if a.out:
         ok, msg = out_path_ok(a.out)
@@ -238,6 +287,10 @@ def main(argv=None) -> int:
         with open(a.from_file) as f:
             payload = json.load(f)
         print(f"PAYLOAD from file {a.from_file}" + (f" (sport {a.sport})" if a.sport else ""))
+        why = payload_refusal(payload)
+        if why:
+            print(why)
+            return 2
     else:
         if a.sport and not a.game and a.match_id is not None:
             a.game = game_for_match(a.sport, a.match_id)
@@ -248,7 +301,11 @@ def main(argv=None) -> int:
         mod, cls, sync, src = SPORTS[a.sport]
         print(f"ODDS PAYLOAD PROBE · {a.sport.upper()} · the endpoint {sync} uses ({cls}, provider id key '{src}') · "
               f"{utc_now_naive():%Y-%m-%dT%H:%M:%SZ}")
-        payload, key = fetch(a.sport, a.game)
+        try:
+            payload, key = fetch(a.sport, a.game)
+        except Refused as e:
+            print(str(e))
+            return 2
     text = "\n".join(report(payload, a.max_items))
     print(redact(text, key))
     if a.out:

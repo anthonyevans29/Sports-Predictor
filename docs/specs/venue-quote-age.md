@@ -45,11 +45,18 @@ Build order (verbatim): "(1) a read-only payload probe the operator runs for one
 
 `.env` is loaded through `config.py`, as `cli.py` does. The probe prints:
 
-- every key path, with its types, samples and list lengths;
+- every key path, with its types, samples and list lengths. EVERY list element is scanned (Codex on #340), so a key present only in a late bookmaker / bet / value is still collected. `--max-items` limits only the samples printed per path, and the date-time test runs on every value, not only on the printed samples;
 - every key whose NAME contains update / time / date / last / stamp / modif / created / fetched / ts;
 - every path whose VALUE looks like a date-time;
 - the paths `list_odds` reads, against the paths that are present and dropped;
 - a one-line verdict.
+
+**Refusals (Codex on #340).** An unsuccessful response is refused with exit 2, its reason and NO verdict. These are the adapters' own `_get` checks (`src/adapters/api_hockey.py` / `api_american_football.py`: `raise_for_status`, then `errors` rejection):
+- a non-2xx HTTP status (401 / 429 / 5xx). The probe does not retry a 429; it refuses it;
+- a body that is not JSON, or not a JSON object;
+- a non-empty `errors` field (a list, or an object with values).
+
+A `--from-file` payload carrying a non-empty `errors` field is refused the same way. A refused response is never read as "no time-like field".
 
 Options:
 - `--from-file` re-reads a saved payload.
@@ -100,8 +107,14 @@ Open points for the ruling:
 
 - **On file**:
   - every JSON under `--exports-dir`, recursively, so the host copies under `exports/host/` are read too, that has `desk_meta.as_of >= --since`;
-  - every fixtures row whose `desk.call == "VENUE"` (engine `venue_edge`). One call per (match_id, as_of, side); a copy in two files is one call listing both paths;
-  - plus the ledger's `engine == "venue_edge"` claims (claim time = `claim_as_of`, else `captured_at`). A claim of a call already on file marks it "in ledger". A ledger-only claim is matched to the DB by exact team names with kickoff ±12h; an ambiguous match or no match is "NO DB MATCH", never guessed.
+  - every fixtures row whose `desk.call == "VENUE"` (engine `venue_edge`). One call per (sport, home, away, kickoff, as_of, side), a stable identity that never uses match_id. A copy in two files is one call listing both paths;
+  - plus the ledger's `engine == "venue_edge"` claims. A claim of a call already on file marks it "in ledger". A ledger-only claim is matched to the DB by exact team names with kickoff ±12h; an ambiguous match or no match is "NO DB MATCH", never guessed.
+  - **Claim time (Codex on #340).** The claim time is `claim_at`, the frozen first claim. The Cockpit's `upsertCalls()` re-log merges `{...cur, ...fresh}`, so the top-level `claim_as_of` / `captured_at` become the NEWEST log's. `stampTiming()` sets `claim_at` once and appends every capture to `reprices[]`. A position logged before the timing rule has no `claim_at`; it falls back to `claim_as_of`, else `captured_at`, labelled "unfrozen". The re-logs after the claim are listed on the position ("re-logged N time(s)") and in the totals, and are never counted as separate calls.
+- **Match identity (Codex on #340), both commands.** An export row's `match_id` is machine-local (`docs/specs/hosting-h1.md`: the comparator keys on (kickoff, home, away), never `match_id`).
+  - A row from the laptop's own files uses its `match_id` only after the DB row's home/away names and kickoff (±12h) match the exported `home_team` / `away_team` / `utc_date`.
+  - A row from a mirrored file (a path under `<exports-dir>/host/`, which is `pull_exports.py`'s destination) never uses its id; the id is recorded as foreign.
+  - A mirrored row, an id missing from the DB, or an id naming a different game resolves by exact team names + kickoff ±12h.
+  - Zero matches or more than one is unresolved ("NO DB MATCH" / excluded), reported with the reason and never guessed.
   - Limitation: `fixtures_<CODE>_<date>.json` is overwritten on each run that day, so only the last desk run per day per machine is on disk.
 - **Consensus**:
   - a BOOK capture session in `odds_snapshots`: one (source, captured_at), market 1X2, every outcome present, `source != "kalshi"`;
@@ -113,16 +126,21 @@ Open points for the ruling:
   - It also reports "file == anchor at 4dp" and the anchor's "identical since" run.
 - **Later**: every same-source session after the anchor and before kickoff. Each is marked MOVED or unchanged.
 - **Verdict**: NEVER MOVED (at least one later capture, none differing) / MOVED / NO LATER CAPTURE / NO ANCHOR / NO DB MATCH.
-- **Totals**: calls; tested (calls with at least one later capture); never-moved count with its share of tested and its share of calls.
+- **Totals**: calls; tested (calls with at least one later capture); never-moved count with its share of tested and its share of calls; re-logged ledger positions and re-log count (each position counted once).
 
 ## (4) The report: `quote-age-report`
 
 `python cli.py quote-age-report [--since 2026-10-02] [--exports-dir exports] [--out docs/receipts/…]`. READ-ONLY. `--out` refuses `data/`. The report is labelled **capture-based PROXIES (our fetch times), NOT quote age**.
 
-- **Rows**: every `--desk` prediction-export row of MLB / NFL / PL with `desk.engine == "model_edge"` and `desk.reference == "books"`. Started rows are excluded. One row per (match_id, as_of).
+- **Rows**: every `--desk` prediction-export row of MLB / NFL / PL with `desk.engine == "model_edge"` and `desk.reference == "books"`. Started rows are excluded. One row per (sport, home, away, kickoff, as_of). Each row resolves to the DB by match identity, as above.
 - **Capture age** = desk `as_of` − the last book capture session at or before `as_of` (and before kickoff). The prediction exports' market blocks carry no `captured_at`, so the session comes from odds_snapshots. "file fair == capture at 4dp" is counted as a check that the session found is the one behind the reference.
 - **Unchanged age** = desk `as_of` − the earliest capture of the run of consecutive same-source captures that are identical at 4 dp and end at that session. A run that reaches the first capture on file is *censored*: the true age is at least that long.
-- **Per sport**: rows, rows with a capture, the file-match count, then median / p90 / max of both ages, the count with unchanged age above 3h, and the censored count. Percentiles are nearest-rank on the sorted list, index round(q·(n−1)).
+- **Measured rows only (Codex on #340).** Only a row whose selected session is VERIFIED enters median / p90 / max, the above-3h count and the censored count. Verified means `file_matches` is true: the file's 1X2 fair equals the capture at 4 dp. These rows are counted and listed as EXCLUDED, each with its reason:
+  - a mismatch (`file fair != the selected capture`), for example from multi-source history;
+  - no 1X2 fair to compare (for example an NFL `spread_derived` reference);
+  - no capture;
+  - no DB match.
+- **Per sport**: rows, rows with a capture, measured (verified) and excluded, the file-match / mismatch / no-file-fair counts, then median / p90 / max of both ages, the count with unchanged age above 3h, and the censored count, all over measured rows. Percentiles are nearest-rank on the sorted list, index round(q·(n−1)).
 
 ## Readings chosen (for the architect)
 

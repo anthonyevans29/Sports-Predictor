@@ -1538,9 +1538,10 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
     if not _vqa_out_ok(out_path):
         raise SystemExit(2)
     docs, cnt = VQ.iter_desk_docs(exports_dir)
-    calls = VQ.file_venue_calls(docs, lo)
+    calls = VQ.file_venue_calls(docs, lo, cnt["mirrored"])
     sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
-               f"{cnt['unreadable']} unreadable"]
+               f"{cnt['unreadable']} unreadable, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
+               f"resolved by identity)"]
     if ledger_path:
         try:
             with open(ledger_path) as fh:
@@ -1578,9 +1579,10 @@ def quote_age_report_cmd(since, exports_dir, out_path):
         raise SystemExit(2)
     docs, cnt = VQ.iter_desk_docs(exports_dir)
     sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
-               f"{cnt['unreadable']} unreadable"]
+               f"{cnt['unreadable']} unreadable, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
+               f"resolved by identity)"]
     with session_scope() as s:
-        rep = VQ.age_report(s, docs, lo)
+        rep = VQ.age_report(s, docs, lo, cnt["mirrored"])
     _vqa_write("\n".join(VQ.format_age_report(rep, lo, sources)), out_path)
 
 

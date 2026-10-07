@@ -87,7 +87,8 @@ def _exports(tmp_path, ids):
     (ex / "fixtures_NHL_2095-09-30.json").write_text(json.dumps(old))              # before --since
     (ex / "broken.json").write_text("{")
     nfl = {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
-        {"match_id": ids["nfl"], "utc_date": _iso(KO), "home_team": "VQA nfl Home", "away_team": "VQA nfl Away",
+        {"match_id": ids["nfl"], "utc_date": _iso(KO), "home_team": f"VQA{ids['n']} nfl Home",
+         "away_team": f"VQA{ids['n']} nfl Away",
          "market": {"bookmaker_count": 8, "fair_prob": {"HOME": 0.6, "AWAY": 0.4}, "fair_source": "1X2"},
          "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books", "pass_kind": None}},
         {"match_id": ids["nfl"] + 99999, "utc_date": _iso(KO),
@@ -213,3 +214,118 @@ def test_cli_commands_run_read_only_and_refuse_data(tmp_path, monkeypatch):
     for cmd in ("venue-calls-receipt", "quote-age-report"):
         r = CliRunner().invoke(cli.cli, [cmd, "--exports-dir", str(ex), "--out", str(data / "r.txt")])
         assert r.exit_code == 2 and "REFUSED" in r.output and not (data / "r.txt").exists()
+
+
+# ---- Codex on #340 -------------------------------------------------------------------------------------------
+
+def _doc(rows, asof, code="NHL"):
+    return {"competition_code": code, "desk_meta": {"as_of": _iso(asof) + "Z"}, "fixtures": rows}
+
+
+def test_relogged_ledger_position_anchors_at_the_frozen_claim_and_is_one_call():
+    """upsertCalls() re-log: top-level claim_as_of / captured_at = the NEWEST file's; claim_at keeps the first
+    claim; reprices[] lists every capture. The receipt anchors at claim_at and merges with the original export."""
+    ids = _seed()
+    n, asof, relog = ids["n"], KO - timedelta(hours=19), KO - timedelta(hours=9)
+    dead = {"HOME": 0.4735, "AWAY": 0.5265}
+    fc = VQ.file_venue_calls([("f.json", _doc([_venue_row(ids["dead"], "dead", 20, dead, n=n)], asof))], SINCE)
+    L = {"calls": [{"engine": "venue_edge", "sport": "NHL", "home": f"VQA{n} dead Home", "away": f"VQA{n} dead Away",
+                    "kickoff": _iso(KO), "pick": "AWAY", "units": 0.25,
+                    "claim_at": asof.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "claim_as_of": _iso(relog) + "Z", "captured_at": relog.strftime("%Y-%m-%dT%H:%M:%S.000Z"),
+                    "reprices": [{"at": asof.strftime("%Y-%m-%dT%H:%M:%S.000Z"), "market_p": 0.455},
+                                 {"at": relog.strftime("%Y-%m-%dT%H:%M:%S.000Z"), "market_p": 0.46}]}]}
+    lc = VQ.ledger_venue_calls(L, SINCE)
+    assert lc[0]["as_of"] == asof and lc[0]["claim_basis"].startswith("claim_at")
+    assert lc[0]["reprices"] == [relog]
+    calls = VQ.merge_calls(fc, lc)
+    assert len(calls) == 1 and calls[0]["in_ledger"] is True and calls[0]["reprices"] == [relog]
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    assert res["totals"]["calls"] == 1 and res["totals"]["reprices"] == 1
+    assert res["rows"][0]["anchor"]["t"] == KO - timedelta(hours=20)
+    txt = "\n".join(VQ.format_venue_receipt(res, SINCE, ["t"]))
+    assert "re-logged 1 time(s) after the claim (one position, not extra calls)" in txt
+    old = {**L["calls"][0]}
+    del old["claim_at"]                                         # pre-timing position: unfrozen, labelled
+    t, basis = VQ.claim_time(old)
+    assert t == relog and "unfrozen" in basis
+
+
+def test_a_colliding_local_match_id_naming_another_game_is_not_attached(tmp_path):
+    ids = _seed()
+    n, asof = ids["n"], KO - timedelta(hours=19)
+    dead = {"HOME": 0.4735, "AWAY": 0.5265}
+    wrong = _venue_row(ids["move"], "dead", 20, dead, n=n)                  # the id is ANOTHER game in this DB
+    ghost = {**_venue_row(ids["move"], "ghost", 20, dead, n=n)}             # teams this DB does not know
+    calls = VQ.file_venue_calls([("f.json", _doc([wrong, ghost], asof))], SINCE)
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+        m, how = VQ.resolve_match(s, {**calls[0], "match_id": ids["dead"]})
+    assert how == "match_id (verified: teams + kickoff)" and m.id == ids["dead"]
+    by = {r["home"]: r for r in res["rows"]}
+    w = by[f"VQA{n} dead Home"]
+    assert w["match_id"] == ids["dead"] and w["export_match_id"] == ids["move"]   # resolved by identity
+    assert "is a different game in this DB" in w["resolved_by"]
+    g = by[f"VQA{n} ghost Home"]
+    assert g["verdict"] == "NO DB MATCH" and g["match_id"] is None and "not guessed" in g["anchor_basis"]
+    assert all(r["match_id"] != ids["move"] for r in res["rows"])
+
+
+def test_a_mirrored_host_file_resolves_by_identity_never_by_its_foreign_id(tmp_path):
+    ids = _seed()
+    n, asof = ids["n"], KO - timedelta(hours=19)
+    dead = {"HOME": 0.4735, "AWAY": 0.5265}
+    ex = tmp_path / "exports"
+    (ex / "host").mkdir(parents=True)
+    host_rows = [_venue_row(ids["move"], "dead", 20, dead, n=n),           # host id collides with "move" here
+                 _venue_row(10 ** 9, "last", 20, dead, n=n)]               # host id absent here
+    (ex / "host" / "fixtures_NHL_2095-10-08.json").write_text(json.dumps(_doc(host_rows, asof)))
+    docs, cnt = VQ.iter_desk_docs(str(ex))
+    assert cnt["mirrored"] == [str(ex / "host" / "fixtures_NHL_2095-10-08.json")]
+    calls = VQ.file_venue_calls(docs, SINCE, cnt["mirrored"])
+    assert all(c["match_id"] is None and c["foreign_ids"] for c in calls)
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    got = {r["home"]: r["match_id"] for r in res["rows"]}
+    assert got == {f"VQA{n} dead Home": ids["dead"], f"VQA{n} last Home": ids["last"]}
+    assert all(r["resolved_by"].startswith("identity") for r in res["rows"])
+    nfl = {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
+        {"match_id": ids["dead"], "utc_date": _iso(KO), "home_team": f"VQA{n} nfl Home",
+         "away_team": f"VQA{n} nfl Away", "market": {"fair_prob": {"HOME": 0.6, "AWAY": 0.4}, "fair_source": "1X2"},
+         "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books"}}]}
+    (ex / "host" / "nfl_predictions_2095-10-08.json").write_text(json.dumps(nfl))
+    docs, cnt = VQ.iter_desk_docs(str(ex))
+    with session_scope() as s:
+        rep = VQ.age_report(s, docs, SINCE, cnt["mirrored"])
+    r = [x for x in rep["rows"] if x["sport"] == "NFL"][0]
+    assert r["match_id"] == ids["nfl"] and r["foreign_ids"] == [ids["dead"]] and r["excluded"] is None
+
+
+def test_age_statistics_measure_only_rows_whose_reference_session_is_verified(tmp_path):
+    ids = _seed()
+    n = ids["n"]
+    ex = tmp_path / "exports"
+    ex.mkdir()
+
+    def row(fair, src="1X2"):
+        return {"match_id": ids["nfl"], "utc_date": _iso(KO), "home_team": f"VQA{n} nfl Home",
+                "away_team": f"VQA{n} nfl Away", "market": {"fair_prob": fair, "fair_source": src},
+                "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books"}}
+    for h, r in ((6, row({"HOME": 0.6, "AWAY": 0.4})),                       # verified: capture age 2h
+                 (5, row({"HOME": 0.7, "AWAY": 0.3})),                       # file != capture: unverified
+                 (4, row({"HOME": 0.6, "AWAY": 0.4}, "spread_derived"))):    # no 1X2 fair: unverifiable
+        doc = {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=h)) + "Z"}, "predictions": [r]}
+        (ex / f"nfl_predictions_{h}.json").write_text(json.dumps(doc))
+    docs, _ = VQ.iter_desk_docs(str(ex))
+    with session_scope() as s:
+        rep = VQ.age_report(s, docs, SINCE)
+    b = rep["by_sport"]["NFL"]
+    assert (b["rows"], b["with_capture"], b["measured"], b["excluded"]) == (3, 3, 1, 2)
+    assert (b["file_matches"], b["file_mismatch"], b["file_unverifiable"]) == (1, 1, 1)
+    assert b["capture_age_h"] == {"median": 2.0, "p90": 2.0, "max": 2.0}     # the 3h / 4h rows never enter
+    reasons = sorted(x["excluded"] for x in rep["rows"] if x["excluded"])
+    assert reasons == ["session unverified: file fair != the selected capture at 4dp",
+                       "session unverified: the file carries no 1X2 fair to compare"]
+    txt = "\n".join(VQ.format_age_report(rep, SINCE, ["t"]))
+    assert "measured (verified) 1 · excluded 2" in txt and "EXCLUDED from the statistics: 2" in txt

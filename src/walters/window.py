@@ -144,6 +144,10 @@ def build_card(now: datetime | None = None, hours: int = 24,
                 edge = round((model["top_pick_prob"] - fair[model["top_pick"]]) * 100, 1)
             sport = comp.sport.value if comp and hasattr(comp.sport, "value") else str(
                 comp.sport if comp else "?")
+            # DELINEATION (ARCHITECT 2026-10-07): `sport` stays the stored family
+            # value ("nfl" for college too: sp_run's FRESHEN_FAMILY keys on
+            # (sport, competition)); the row's `competition` (NCAA) and `family`
+            # (NCAAF, set by _fixture_row) are what name a college game.
             row.update({
                 "sport": sport, "competition": code,
                 "home_short": short_name(m.home_team), "away_short": short_name(m.away_team),

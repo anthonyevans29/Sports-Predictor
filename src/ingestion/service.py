@@ -1980,6 +1980,7 @@ def sync_odds_nfl(progress=None) -> dict:
     ad = APIAmericanFootballAdapter()
     created = games = snapshots = 0
     deferred_total = recovered = 0
+    games_by_comp: dict[str, int] = {}
     with session_scope() as s:
         now = utc_now_naive()
         upcoming = list(s.execute(select(Match).where(
@@ -1988,14 +1989,23 @@ def sync_odds_nfl(progress=None) -> dict:
             Match.utc_date >= now,
             Match.utc_date <= now + timedelta(days=8),
         ).order_by(Match.utc_date)).scalars())
-        report(f"  NFL odds: {len(upcoming)} upcoming games in window · paced at {rpm}/min")
+        # DELINEATION (ARCHITECT 2026-10-07): the window is NFL + NCAA (college
+        # rides Sport.NFL); the line names each competition it covers, from the data
+        def comp_of(m):
+            return m.competition.code if m.competition else "?"
+        upcoming_by_comp: dict[str, int] = {}
+        for m in upcoming:
+            upcoming_by_comp[comp_of(m)] = upcoming_by_comp.get(comp_of(m), 0) + 1
+        covered = " · ".join(f"{c} odds: {n} upcoming games"
+                             for c, n in sorted(upcoming_by_comp.items()))
+        report(f"  {covered or 'Football odds: 0 upcoming games'} in window · paced at {rpm}/min")
         queue, rnd, fetched = list(upcoming), 0, []
         while queue:
             deferred, wait = [], 0.0
             for m in queue:
                 gid = (m.external_ids or {}).get("api_american_football")
                 if not gid:
-                    report(f"    · no provider id for {m.away_team.name} @ {m.home_team.name}")
+                    report(f"    · {comp_of(m)}: no provider id for {m.away_team.name} @ {m.home_team.name}")
                     continue
                 try:
                     fetched.append((m, paced(gid), rnd, utc_now_naive()))   # stamped at FETCH time
@@ -2003,7 +2013,7 @@ def sync_odds_nfl(progress=None) -> dict:
                     deferred.append(m)
                     wait = max(wait, e.retry_after)
                 except Exception as e:  # provider hiccup: skip, don't wipe
-                    report(f"    ✗ odds fetch {gid}: {e}")
+                    report(f"    ✗ {comp_of(m)} odds fetch {gid}: {e}")
             if not deferred:
                 break
             deferred_total += len(deferred) if rnd == 0 else 0
@@ -2018,7 +2028,7 @@ def sync_odds_nfl(progress=None) -> dict:
         recovered = sum(1 for _, _, r, _ in fetched if r > 0)
         for m, rows, _, fetched_at in fetched:
             if not rows:
-                report(f"    · no odds yet for {m.away_team.name} @ {m.home_team.name}")
+                report(f"    · {comp_of(m)}: no odds yet for {m.away_team.name} @ {m.home_team.name}")
                 continue
             s.query(Odds).filter(Odds.match_id == m.id,
                                  Odds.source == ad.source_name).delete()
@@ -2030,6 +2040,7 @@ def sync_odds_nfl(progress=None) -> dict:
                            captured_at=fetched_at))
                 created += 1
             games += 1
+            games_by_comp[comp_of(m)] = games_by_comp.get(comp_of(m), 0) + 1
             by_sel: dict[str, list[tuple[str, float]]] = {}
             for ow in rows:
                 if ow.market == "1X2":
@@ -2047,4 +2058,5 @@ def sync_odds_nfl(progress=None) -> dict:
     if deferred_total:
         report(f"  rate limit: {deferred_total} game(s) deferred · {recovered} recovered after the window")
     return {"created": created, "games": games, "snapshots": snapshots,
-            "rate_limited": deferred_total, "recovered": recovered}
+            "rate_limited": deferred_total, "recovered": recovered,
+            "games_by_competition": dict(sorted(games_by_comp.items()))}

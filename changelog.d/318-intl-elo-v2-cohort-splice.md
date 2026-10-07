@@ -2,4 +2,4 @@
 - Spliced the intl-elo-v2 confirmation cohort freeze from `laptop/intl-elo-v2-cohort`. The operator's commit e697533 is kept as is.
   - The freeze is 60 fixtures, sha256 `419872ed…`, frozen 2026-10-07T14:17:46Z.
   - by_code: UNL 41, CNL 19. status_at_freeze: 59 finished, 1 scheduled.
-- Open for a ruling (#317): an earlier freeze from 2026-10-03 (`laptop/intl-cohort-freeze`) was never spliced, and it differs by one fixture (41643 vs 48559).
+- ARCHITECT 2026-10-07 addendum: the late freeze date is recorded, not waived; 59/60 is not a verdict, and the record step is the operator's on 2026-11-10. An earlier, unspliced 10-03 freeze (`laptop/intl-cohort-freeze`, one fixture different) is listed in the ledger entry as an observation.

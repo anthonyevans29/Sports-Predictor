@@ -110,11 +110,27 @@ def market_ok(mk) -> bool:
         return True
     if not isinstance(mk, dict):
         return False
+    sel = mk.get("selections")                 # the alternate market shape (Codex on #340)
+    if sel is not None and not (isinstance(sel, dict) and all(
+            v is None or (isinstance(v, dict) and _num(v.get("fair_prob"))) for v in sel.values())):
+        return False
     fp = mk.get("fair_prob")
     if fp is None:
         return True
-    return isinstance(fp, dict) and all(v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
-                                        for v in fp.values())
+    return isinstance(fp, dict) and all(_num(v) for v in fp.values())
+
+
+def _num(v) -> bool:
+    """numeric or null (a bool is not a number)"""
+    return v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
+
+
+def desk_ok(d) -> bool:
+    """A VENUE desk block's numeric fields are numeric or null (Codex on #340: never a traceback while hashing or
+    formatting them)."""
+    if not isinstance(d, dict) or d.get("engine") != "venue_edge":
+        return True
+    return all(_num(d.get(k)) for k in ("book_p", "kalshi_p", "div_pp", "units"))
 
 
 @contextlib.contextmanager
@@ -195,7 +211,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 rows = [x for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]]
                 if any(not isinstance(x, dict) or ("desk" in x and x["desk"] is not None
                                                    and not isinstance(x["desk"], dict))
-                       or not market_ok(x.get("market")) for x in rows):
+                       or not market_ok(x.get("market")) or not desk_ok(x.get("desk")) for x in rows):
                     bad_rows.append(p)
                     continue
                 docs.append((p, doc))
@@ -209,7 +225,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     if bad_rows:
         raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a fixtures / predictions value that is not a list of "
                       f"objects (a missing one in a fixtures_* / *predictions* export, a row whose desk block is not an "
-                      f"object, or a malformed market / fair_prob) "
+                      f"object, a malformed market / fair_prob / selections, or a non-numeric VENUE field) "
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:
@@ -315,10 +331,11 @@ def claim_prices(c: dict, relogged: bool) -> dict:
     if not relogged:
         return {"book_p": c.get("model_p"), "kalshi_p": c.get("kalshi_p", c.get("market_p")),
                 "div_pp": c.get("divergence_pp"), "price_basis": "the claim's own log (never re-logged)"}
-    # Codex on #340: decided by FROZEN claim metadata only: claim_exec_cost set at the claim means claim_market_p was
-    # the executable cost (Kalshi p not frozen); otherwise claim_market_p IS the claim's Kalshi price (legacy
-    # claims included, even when a later executable re-log added a top-level kalshi_p)
-    kal = c.get("claim_market_p") if c.get("claim_exec_cost") is None else None
+    # Codex on #340: for a venue claim, snapshotCalls() puts the executable cost in market_p (Kalshi's indicative
+    # price rides in kalshi_p) and never sets kalshi_exec_cost, so stampTiming() freezes the cost in claim_market_p
+    # with claim_exec_cost null. claim_market_p therefore cannot be told apart from a Kalshi price: claim-time Kalshi
+    # p of a re-logged venue claim is UNKNOWN (never the exec cost, never the latest reprice)
+    kal = None
     missing = [k for k, v in (("book p", c.get("claim_model_p")), ("Kalshi p", kal)) if v is None] + ["div"]
     return {"book_p": c.get("claim_model_p"), "kalshi_p": kal, "div_pp": None,
             "price_basis": "frozen claim fields; unknown at the claim: " + ", ".join(missing)}
@@ -477,12 +494,12 @@ def receipt_row(call: dict, sessions: list[dict], anchor_verified_by: str | None
         row["verdict"] = "NO ANCHOR"
         return row
     if call.get("file_fair"):
-        row["file_matches_anchor"] = True if anchor_verified_by else same_fair(call["file_fair"], a["fair4"])
-        if anchor_verified_by:
-            row["anchor_verified_by"] = anchor_verified_by
+        row["file_matches_anchor"] = same_fair(call["file_fair"], a["fair4"])        # LITERAL snapshot equality
+        if anchor_verified_by and not row["file_matches_anchor"]:
+            row["anchor_verified_by"] = anchor_verified_by     # the same session, re-derived (Codex on #340)
     first, n, cens = unchanged_run(sessions, a)
     row.update(unchanged_since=first["t"], run_n=n, run_censored=cens)
-    if row["file_matches_anchor"] is False:
+    if row["file_matches_anchor"] is False and not row.get("anchor_verified_by"):
         # Codex on #340: an anchor whose fair is not the call's own fair is a substitute session; movement measured
         # from it says nothing about the call's quote, so no verdict
         row["verdict"] = "ANCHOR MISMATCH: NOT MEASURED"
@@ -589,6 +606,12 @@ def venue_receipt(s, calls: list[dict]) -> dict:
                          "verdict": "NOT 1X2: NOT MEASURED", "file_matches_anchor": None, "unchanged_since": None,
                          "run_n": 0, "run_censored": None})
             continue
+        if c.get("origin") == "file" and not c.get("file_fair"):
+            # Codex on #340: a file VENUE call with no (complete) fair cannot verify its anchor; never measured
+            rows.append({**c, "anchor": None, "anchor_basis": "the file carries no fair_prob: the anchor could never "
+                         "be verified", "later": [], "moved": None, "verdict": "NO FILE FAIR: NOT MEASURED",
+                         "file_matches_anchor": None, "unchanged_since": None, "run_n": 0, "run_censored": None})
+            continue
         if c.get("origin") == "file" and c.get("file_captured_at") is None:
             # Codex on #340: a VENUE export row with no parseable market.captured_at has no recorded reference
             # capture; never substitute the last capture before as_of
@@ -615,7 +638,8 @@ def venue_receipt(s, calls: list[dict]) -> dict:
         rows.append(r)
     tot = {"calls": len(rows)}
     for v in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE", "NO ANCHOR", "NO DB MATCH", "HOST: NOT MEASURED",
-              "NOT 1X2: NOT MEASURED", "ANCHOR MISMATCH: NOT MEASURED", "NO CAPTURE TIME: NOT MEASURED"):
+              "NOT 1X2: NOT MEASURED", "ANCHOR MISMATCH: NOT MEASURED", "NO CAPTURE TIME: NOT MEASURED",
+              "NO FILE FAIR: NOT MEASURED"):
         tot[v] = sum(1 for r in rows if r["verdict"] == v)
     tested = tot["NEVER MOVED"] + tot["MOVED"]
     tot["tested"] = tested
@@ -683,7 +707,9 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
             continue
         out.append(f"  ANCHOR ({r['anchor_basis']}): {_z(a['t'])} · {a['source']} · {_f4(a['fair4'])} · books "
                    f"{a['books']}" + ("" if r["file_matches_anchor"] is None else
-                                      f" · file == anchor at {DP}dp: {'yes' if r['file_matches_anchor'] else 'NO'}"))
+                                      f" · file == anchor snapshot at {DP}dp: "
+                                      f"{'yes' if r['file_matches_anchor'] else 'NO'}")
+                   + (f" · verified instead by {r['anchor_verified_by']}" if r.get("anchor_verified_by") else ""))
         out.append(f"  identical at {DP}dp since {_z(r['unchanged_since'])} ({r['run_n']} capture(s)"
                    + (", reaches the first capture on file" if r["run_censored"] else "") + ")")
         for x in r["later"]:
@@ -698,7 +724,8 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                f"not measured {t.get('HOST: NOT MEASURED', 0)} · non-1X2 reference, not measured "
                f"{t.get('NOT 1X2: NOT MEASURED', 0)} · anchor != the call's fair, not measured "
                f"{t.get('ANCHOR MISMATCH: NOT MEASURED', 0)} · no capture time on file, not measured "
-               f"{t.get('NO CAPTURE TIME: NOT MEASURED', 0)}")
+               f"{t.get('NO CAPTURE TIME: NOT MEASURED', 0)} · no fair on file, not measured "
+               f"{t.get('NO FILE FAIR: NOT MEASURED', 0)}")
     out.append(f"  (re-logged ledger positions {t['repriced_positions']}, {t['reprices']} re-log(s): counted once "
                f"each, at the frozen claim)")
     return out

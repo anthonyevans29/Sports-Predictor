@@ -144,6 +144,24 @@ def _short(v, n=80) -> str:
     return s if len(s) <= n else s[: n - 1] + "…"
 
 
+def usable_quotes(payload) -> int:
+    """Quotes list_odds would turn into an odds row (Codex on #340): ONE values[] object carrying a non-empty value
+    and an odd that parses as a number > 1. Fields split across entries, a null odd, etc. count as nothing."""
+    n = 0
+    for g in (payload.get("response") or []) if isinstance(payload, dict) else []:
+        for bk in (g.get("bookmakers") or []) if isinstance(g, dict) else []:
+            for bet in (bk.get("bets") or []) if isinstance(bk, dict) else []:
+                for v in (bet.get("values") or []) if isinstance(bet, dict) else []:
+                    if not isinstance(v, dict) or v.get("value") in (None, ""):
+                        continue
+                    try:
+                        if float(v.get("odd")) > 1.0:
+                            n += 1
+                    except (TypeError, ValueError):
+                        continue
+    return n
+
+
 def report(payload, max_items: int = 3) -> list[str]:
     fields = walk(payload, max_items)
     tf = time_fields(fields)
@@ -166,9 +184,7 @@ def report(payload, max_items: int = 3) -> list[str]:
     cand = [p for p in tf["by_name"] + tf["by_value"] if p in dr]
     # Codex on #340: a quoted price is a values[] OBJECT carrying both value and odd (what list_odds reads);
     # [null] / ["bad"] / [{}] are no market data
-    quoted = [p for p in ("response[].bookmakers[].bets[].values[].value",
-                          "response[].bookmakers[].bets[].values[].odd") if p in fields]
-    quoted = quoted if len(quoted) == 2 else []
+    quoted = usable_quotes(payload)
     if not cand and not quoted:
         # Codex on #340: an empty odds response (no bookmaker / bet / value object) says nothing about the schema
         lines.append("VERDICT (this payload): INCONCLUSIVE: no bookmaker / bet / value objects in this response "

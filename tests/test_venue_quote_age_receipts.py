@@ -627,8 +627,8 @@ def test_a_relogged_claim_uses_the_frozen_claim_prices_never_the_latest_reprice(
     assert (once["book_p"], once["kalshi_p"], once["div_pp"]) == (0.51, 0.47, 4.0)
     rel = VQ.ledger_venue_calls({"calls": [dict(base, reprices=[{"at": _iso(t0) + "Z"}, {"at": _iso(t1) + "Z"}])]},
                                 SINCE)[0]
-    assert (rel["book_p"], rel["kalshi_p"], rel["div_pp"]) == (0.5265, 0.455, None)
-    assert "unknown at the claim: div" in rel["price_basis"]
+    assert (rel["book_p"], rel["kalshi_p"], rel["div_pp"]) == (0.5265, None, None)       # Kalshi p never frozen
+    assert "unknown at the claim: Kalshi p, div" in rel["price_basis"]
     exe = VQ.ledger_venue_calls({"calls": [dict(base, kalshi_p=0.46, claim_exec_cost=0.47,
                                                 reprices=[{"at": _iso(t0) + "Z"}, {"at": _iso(t1) + "Z"}])]},
                                 SINCE)[0]
@@ -724,15 +724,16 @@ def test_an_auto_claim_never_falls_back_to_an_older_file_by_position():
     assert len(manual) == 1 and manual[0]["in_ledger"]
 
 
-def test_a_legacy_claim_keeps_its_frozen_kalshi_price_after_an_executable_relog():
-    """Codex on #340: claim_exec_cost unset at the claim means claim_market_p IS the claim's Kalshi price, even when
-    a later executable re-log added a top-level kalshi_p."""
+def test_a_frozen_executable_cost_is_never_reported_as_the_kalshi_price():
+    """Codex on #340 (supersedes the earlier legacy-claim rule): snapshotCalls() puts the executable cost in a venue
+    claim's market_p and never sets kalshi_exec_cost, so claim_market_p cannot be told from a Kalshi price; a
+    re-logged venue claim's claim-time Kalshi p is unknown."""
     t0, t1 = KO - timedelta(hours=19), KO - timedelta(hours=9)
     c = {"engine": "venue_edge", "sport": "NHL", "home": "H", "away": "A", "kickoff": _iso(KO), "pick": "AWAY",
-         "claim_at": _iso(t0) + "Z", "claim_model_p": 0.5265, "claim_market_p": 0.455, "kalshi_p": 0.46,
+         "claim_at": _iso(t0) + "Z", "claim_model_p": 0.5265, "claim_market_p": 0.47, "kalshi_p": 0.46,
          "market_p": 0.47, "reprices": [{"at": _iso(t0) + "Z"}, {"at": _iso(t1) + "Z"}]}
     r = VQ.ledger_venue_calls({"calls": [c]}, SINCE)[0]
-    assert r["kalshi_p"] == 0.455 and "Kalshi p" not in r["price_basis"]
+    assert r["kalshi_p"] is None and "Kalshi p" in r["price_basis"]
 
 
 def test_a_non_object_desk_block_is_refused(tmp_path):
@@ -861,7 +862,9 @@ def test_an_ncaa_anchor_is_verified_from_its_odds_rows_before_a_mismatch(tmp_pat
     with session_scope() as s:
         res = VQ.venue_receipt(s, calls)
     r = res["rows"][0]
-    assert r["file_matches_anchor"] is True and "per-book de-vig" in r["anchor_verified_by"]
+    assert r["file_matches_anchor"] is False and "per-book de-vig" in r["anchor_verified_by"]   # literal vs re-derived
+    line = next(x for x in VQ.format_venue_receipt(res, SINCE, ["t"]) if "anchor snapshot at" in x)
+    assert "file == anchor snapshot at 4dp: NO · verified instead by" in line
     assert r["verdict"] in ("NEVER MOVED", "MOVED", "NO LATER CAPTURE")
 
 
@@ -912,3 +915,28 @@ def test_a_malformed_market_fair_is_refused_at_discovery(tmp_path):
         with pytest.raises(VQ.Refused, match="malformed market / fair_prob"):
             VQ.iter_desk_docs(str(ex))
     assert VQ.market_ok({"fair_prob": {"HOME": 0.5, "DRAW": None}}) and VQ.market_ok(None)
+
+
+def test_a_file_venue_call_without_a_fair_is_not_measured():
+    """Codex on #340: a file call with no fair can never verify its anchor."""
+    ids = _seed()
+    row = _venue_row(ids["dead"], "dead", 20, {"HOME": None, "AWAY": None}, n=ids["n"])
+    calls = VQ.file_venue_calls([("f.json", _doc([row], KO - timedelta(hours=19)))], SINCE)
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    assert res["rows"][0]["verdict"] == "NO FILE FAIR: NOT MEASURED" and res["totals"]["tested"] == 0
+
+
+def test_malformed_selections_and_venue_fields_are_refused(tmp_path):
+    """Codex on #340: a bad market.selections or a non-numeric VENUE field is refused at discovery."""
+    rows = ({"market": {"selections": {"HOME": "bad"}}},
+            {"market": {"selections": {"HOME": {"fair_prob": "x"}}}},
+            {"desk": {"engine": "venue_edge", "book_p": [0.5]}},
+            {"desk": {"engine": "venue_edge", "div_pp": "7.1"}})
+    for i, r in enumerate(rows):
+        ex = tmp_path / f"s{i}"
+        ex.mkdir()
+        (ex / "fixtures_NHL_x.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                                            "fixtures": [r]}))
+        with pytest.raises(VQ.Refused, match="non-numeric VENUE field"):
+            VQ.iter_desk_docs(str(ex))

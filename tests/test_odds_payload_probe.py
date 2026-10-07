@@ -267,3 +267,12 @@ def test_the_match_id_lookup_creates_no_wal_sidecars(tmp_path, monkeypatch):
     (tmp_path / "w.db-shm").write_bytes(b"")
     with pytest.raises(P.Refused, match="-wal file without its -shm"):
         P.game_for_match("nhl", 5)
+
+
+def test_value_and_odd_must_sit_in_one_usable_quote():
+    # Codex on #340: fields split across entries, or a null / unparseable odd, are not a quote
+    for vals in ([{"value": "Home"}, {"odd": "2.1"}], [{"value": "Home", "odd": None}],
+                 [{"value": "", "odd": "2.1"}], [{"value": "Home", "odd": "n/a"}]):
+        p = {"response": [{"bookmakers": [{"name": "B", "bets": [{"name": "Home/Away", "values": vals}]}]}]}
+        assert "VERDICT (this payload): INCONCLUSIVE" in "\n".join(P.report(p))
+    assert P.usable_quotes({"response": [{"bookmakers": [{"bets": [{"values": [{"value": "Home", "odd": "2.1"}]}]}]}]}) == 1

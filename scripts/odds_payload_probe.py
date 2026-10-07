@@ -170,7 +170,8 @@ def report(payload, max_items: int = 3) -> list[str]:
 
 
 class Refused(Exception):
-    """An unsuccessful provider response: refused with its reason, no verdict printed."""
+    """A refusal (an unsuccessful provider response, no key, a --match-id preflight failure): printed with its
+    reason, exit 2, no verdict."""
 
 
 def payload_refusal(payload) -> str | None:
@@ -200,7 +201,7 @@ def db_path() -> Path:
     from config import settings
     url = settings.database_url
     if not url.startswith("sqlite:///"):
-        raise SystemExit(f"REFUSED: --match-id reads a SQLite DATABASE_URL only (got {url.split(':', 1)[0]})")
+        raise Refused(f"REFUSED: --match-id reads a SQLite DATABASE_URL only (got {url.split(':', 1)[0]})")
     return Path(url[len("sqlite:///"):]).resolve()
 
 
@@ -209,18 +210,18 @@ def game_for_match(sport: str, match_id: int) -> str:
     import sqlite3
     p = db_path()
     if not p.is_file():
-        raise SystemExit(f"REFUSED: no DB file at {p} (never created by a probe)")
+        raise Refused(f"REFUSED: no DB file at {p} (never created by a probe)")
     con = sqlite3.connect(f"file:{p}?mode=ro", uri=True)
     try:
         row = con.execute("SELECT external_ids FROM matches WHERE id = ?", (match_id,)).fetchone()
     finally:
         con.close()
     if row is None:
-        raise SystemExit(f"REFUSED: match {match_id} not in the DB")
+        raise Refused(f"REFUSED: match {match_id} not in the DB")
     ext = json.loads(row[0]) if isinstance(row[0], str) else (row[0] or {})
     src = SPORTS[sport][3]
     if not ext.get(src):
-        raise SystemExit(f"REFUSED: match {match_id} has no '{src}' id (external_ids keys: {sorted(ext)})")
+        raise Refused(f"REFUSED: match {match_id} has no '{src}' id (external_ids keys: {sorted(ext)})")
     return str(ext[src])
 
 
@@ -235,7 +236,7 @@ def fetch(sport: str, game: str) -> tuple[dict, str | None]:
     ad = getattr(importlib.import_module(mod), cls)()
     key = ad._headers.get("x-apisports-key") or None
     if not key:
-        raise SystemExit("REFUSED: no provider key in env/.env for this adapter — nothing fetched")
+        raise Refused("REFUSED: no provider key in env/.env for this adapter — nothing fetched")
     # The same request _get makes, and the same acceptance checks (status, JSON object, empty `errors`): a probe
     # wants to SEE an odds payload, never to read an error response as one. No retry: a 429 is refused, stated.
     import requests
@@ -293,7 +294,11 @@ def main(argv=None) -> int:
             return 2
     else:
         if a.sport and not a.game and a.match_id is not None:
-            a.game = game_for_match(a.sport, a.match_id)
+            try:
+                a.game = game_for_match(a.sport, a.match_id)
+            except Refused as e:
+                print(str(e))
+                return 2
             print(f"match {a.match_id} -> provider game id {a.game}")
         if not (a.sport and a.game):
             print("REFUSED: pass --sport and --game or --match-id (or --from-file)")

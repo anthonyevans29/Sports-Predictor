@@ -157,6 +157,30 @@ def test_ledger_claims_merge_with_file_calls_or_stand_alone():
     assert m is None and "not guessed" in why
 
 
+def test_a_manual_claim_merges_by_position_identity_not_exact_as_of():
+    # Codex on #340: a manual "Log today's calls" claim is stamped at the click (claim_at), never the file's
+    # desk_meta.as_of; it is the same position, so it merges onto the latest file call at or before the click.
+    t1, t2 = KO - timedelta(hours=20), KO - timedelta(hours=8)
+    def fc(asof):
+        return {"origin": "file", "files": ["f"], "in_ledger": False, "as_of": asof, "sport": "NHL",
+                "match_id": None, "home": "H", "away": "A", "kickoff": KO, "side": "AWAY", "reprices": [],
+                "claim_basis": None}
+    files = [fc(t1), fc(t2)]
+    click = KO - timedelta(hours=7, minutes=43, seconds=17)
+    L = {"calls": [{"engine": "venue_edge", "sport": "NHL", "home": "H", "away": "A", "kickoff": _iso(KO),
+                    "pick": "AWAY", "claim_at": _iso(click) + "Z",
+                    "reprices": [{"at": _iso(click) + "Z"}, {"at": _iso(KO - timedelta(hours=1)) + "Z"}]}]}
+    calls = VQ.merge_calls(files, VQ.ledger_venue_calls(L, SINCE))
+    assert len(calls) == 2                                               # no extra ledger-only row
+    assert [c["in_ledger"] for c in calls] == [False, True]              # the t2 file: latest at/before click
+    assert "matched by position identity" in calls[1]["claim_basis"]
+    assert calls[1]["reprices"] == [KO - timedelta(hours=1)]
+    # a manual claim BEFORE any file call of that position is never guessed onto a later file: its own row
+    early = {"calls": [dict(L["calls"][0], claim_at=_iso(t1 - timedelta(hours=1)) + "Z", reprices=[])]}
+    calls = VQ.merge_calls([fc(t1)], VQ.ledger_venue_calls(early, SINCE))
+    assert len(calls) == 2 and calls[1]["in_ledger"] is False and calls[0]["origin"] == "ledger"
+
+
 def test_age_report_capture_age_and_unchanged_age_are_proxies(tmp_path):
     ids = _seed()
     ex = _exports(tmp_path, ids)

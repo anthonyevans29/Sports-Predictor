@@ -164,3 +164,24 @@ def test_from_file_with_errors_is_refused_without_a_verdict(tmp_path, capsys):
     assert P.main(["--from-file", str(src)]) == 2
     out = capsys.readouterr().out
     assert "returned errors" in out and "VERDICT" not in out
+
+
+def test_preflight_and_missing_key_refusals_exit_2(monkeypatch, capsys):
+    # Codex on #340: SystemExit(str) exits 1; every refusal goes through Refused -> exit 2.
+    def no_match(sport, match_id):
+        raise P.Refused(f"REFUSED: match {match_id} not in the DB")
+    monkeypatch.setattr(P, "game_for_match", no_match)
+    assert P.main(["--sport", "nhl", "--match-id", "999999"]) == 2
+    assert "REFUSED: match 999999 not in the DB" in capsys.readouterr().out
+
+    def no_key(sport, game):
+        raise P.Refused("REFUSED: no provider key in env/.env for this adapter — nothing fetched")
+    monkeypatch.setattr(P, "fetch", no_key)
+    assert P.main(["--sport", "nhl", "--game", "1"]) == 2
+    out = capsys.readouterr().out
+    assert "no provider key" in out and "VERDICT" not in out
+
+
+def test_no_bare_systemexit_refusals_remain():
+    src = Path(P.__file__).read_text()
+    assert "raise SystemExit" not in src

@@ -15,3 +15,5 @@
   - Receipt: a re-logged ledger position anchors at the frozen `claim_at`, not the re-log-overwritten `claim_as_of` / `captured_at`. Its reprices are reported and not counted as calls.
   - Receipt + report: rows resolve by stable identity (match_id is machine-local): a local id only after teams + kickoff verify; mirrored host files and mismatches by team names + kickoff ±12h. Ambiguous means unresolved, never guessed.
   - Report: only rows with a verified reference session (file fair == capture at 4 dp) enter the statistics. Others are counted and listed as excluded, with the reason.
+  - Probe: missing key and `--match-id` preflight failures exit 2 as refusals.
+  - Receipt: a manual claim merges by position identity onto the latest file call at or before its click; none, its own row.

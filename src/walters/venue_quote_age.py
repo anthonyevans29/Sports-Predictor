@@ -173,19 +173,34 @@ def ledger_venue_calls(L: dict, since: datetime) -> list[dict]:
 
 
 def merge_calls(file_calls: list[dict], ledger_calls: list[dict]) -> list[dict]:
-    """A ledger claim of a call already on file (same sport, teams, kickoff, side, as_of — the claim's FROZEN time,
-    compared to the second) marks it in_ledger and carries the claim's reprices; a ledger claim with no file on
-    disk is its own row."""
+    """A ledger claim of a call already on file marks it in_ledger and carries the claim's reprices; a ledger claim
+    with no file on disk is its own row. Match first on (sport, teams, kickoff, side, as_of — the claim's FROZEN
+    time, to the second): an auto-claim's clock is the file's desk_meta.as_of. A MANUAL claim ("Log today's
+    calls") is stamped at the button click, never a file's as_of, so it falls back to the position's identity
+    (sport, teams, kickoff, side — the Cockpit's instKey): the file it was logged from is the latest file call of
+    that position at or before the click. No such file call: its own row (never guessed onto a later file)."""
+    def ident(c):
+        return (c["sport"], c["home"], c["away"], _sec(c["kickoff"]), c["side"])
+
     def key(c):
-        return (c["sport"], c["home"], c["away"], _sec(c["kickoff"]), c["side"], _sec(c["as_of"]))
+        return ident(c) + (_sec(c["as_of"]),)
     idx = {key(c): c for c in file_calls}
+    by_pos: dict = {}
+    for c in file_calls:
+        by_pos.setdefault(ident(c), []).append(c)
     extra = []
     for c in ledger_calls:
-        k = key(c)
-        if k in idx:
-            idx[k]["in_ledger"] = True
-            idx[k]["reprices"] = c.get("reprices") or []
-            idx[k]["claim_basis"] = c.get("claim_basis")
+        hit = idx.get(key(c))
+        basis = c.get("claim_basis")
+        if hit is None:
+            prior = [f for f in by_pos.get(ident(c), []) if f["as_of"] <= c["as_of"] and not f["in_ledger"]]
+            if prior:
+                hit = max(prior, key=lambda f: f["as_of"])
+                basis = f"{basis}; matched by position identity (manual claim at {_z(c['as_of'])})"
+        if hit is not None:
+            hit["in_ledger"] = True
+            hit["reprices"] = c.get("reprices") or []
+            hit["claim_basis"] = basis
         else:
             extra.append(c)
     return sorted(file_calls + extra, key=lambda c: (c["as_of"], c["sport"], str(c["home"])))

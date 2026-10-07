@@ -51,7 +51,7 @@ Build order (verbatim): "(1) a read-only payload probe the operator runs for one
 - the paths `list_odds` reads, against the paths that are present and dropped;
 - a one-line verdict.
 
-**Refusals (Codex on #340).** An unsuccessful response is refused with exit 2, its reason and NO verdict. These are the adapters' own `_get` checks (`src/adapters/api_hockey.py` / `api_american_football.py`: `raise_for_status`, then `errors` rejection):
+**Refusals (Codex on #340).** An unsuccessful response is refused with exit 2, its reason and NO verdict. A missing provider key and every `--match-id` preflight failure (non-SQLite URL, no DB file, unknown match, no provider id) are refusals the same way. These are the adapters' own `_get` checks (`src/adapters/api_hockey.py` / `api_american_football.py`: `raise_for_status`, then `errors` rejection):
 - a non-2xx HTTP status (401 / 429 / 5xx). The probe does not retry a 429; it refuses it;
 - a body that is not JSON, or not a JSON object;
 - a non-empty `errors` field (a list, or an object with values).
@@ -110,6 +110,7 @@ Open points for the ruling:
   - every fixtures row whose `desk.call == "VENUE"` (engine `venue_edge`). One call per (sport, home, away, kickoff, as_of, side), a stable identity that never uses match_id. A copy in two files is one call listing both paths;
   - plus the ledger's `engine == "venue_edge"` claims. A claim of a call already on file marks it "in ledger". A ledger-only claim is matched to the DB by exact team names with kickoff ±12h; an ambiguous match or no match is "NO DB MATCH", never guessed.
   - **Claim time (Codex on #340).** The claim time is `claim_at`, the frozen first claim. The Cockpit's `upsertCalls()` re-log merges `{...cur, ...fresh}`, so the top-level `claim_as_of` / `captured_at` become the NEWEST log's. `stampTiming()` sets `claim_at` once and appends every capture to `reprices[]`. A position logged before the timing rule has no `claim_at`; it falls back to `claim_as_of`, else `captured_at`, labelled "unfrozen". The re-logs after the claim are listed on the position ("re-logged N time(s)") and in the totals, and are never counted as separate calls.
+  - **Manual claims (Codex on #340, second review).** An auto-claim's clock is the file's `desk_meta.as_of`, so it matches its file call to the second. A MANUAL claim ("Log today's calls") is stamped at the button click, so it falls back to the position's identity (sport, teams, kickoff, side; the Cockpit's `instKey`). It merges onto the latest file call of that position at or before the click. If there is none, it is its own row, never guessed onto a later file.
 - **Match identity (Codex on #340), both commands.** An export row's `match_id` is machine-local (`docs/specs/hosting-h1.md`: the comparator keys on (kickoff, home, away), never `match_id`).
   - A row from the laptop's own files uses its `match_id` only after the DB row's home/away names and kickoff (±12h) match the exported `home_team` / `away_team` / `utc_date`.
   - A row from a mirrored file (a path under `<exports-dir>/host/`, which is `pull_exports.py`'s destination) never uses its id; the id is recorded as foreign.

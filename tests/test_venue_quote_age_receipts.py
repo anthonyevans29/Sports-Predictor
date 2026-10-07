@@ -1180,3 +1180,30 @@ def test_a_relog_before_the_frozen_claim_refuses_the_ledger():
     c["reprices"].append({"at": "2095-10-08T09:00:00Z"})
     why = VQ.ledger_refusal({"calls": [c]})
     assert why and "re-log before its frozen claim_at" in why
+
+
+def test_copies_that_disagree_on_stale_book_zone_are_reported_as_conflicting():
+    """Codex on #340: two copies of one call with different stale flags keep both readings, counted apart."""
+    dead = {"HOME": 0.4735, "AWAY": 0.5265}
+    a = _venue_row(1, "dead", 20, dead)
+    a["desk"]["stale_book_zone"] = True
+    b = _venue_row(1, "dead", 20, dead)
+    b["desk"].pop("stale_book_zone", None)
+    asof = KO - timedelta(hours=19)
+    calls = VQ.file_venue_calls([("a.json", _doc([a], asof)), ("b.json", _doc([b], asof))], SINCE)
+    assert len(calls) == 1 and calls[0]["stale_book_zone_conflict"] == ["None", "True"]
+    with session_scope() as s:
+        res = VQ.venue_receipt(s, calls)
+    t = res["totals"]
+    assert (t["stale_book_zone_true"], t["stale_book_zone_conflict"]) == (0, 1)
+    assert "CONFLICTING across copies (None, True)" in "\n".join(VQ.format_venue_receipt(res, SINCE, ["t"]))
+
+
+def test_a_legacy_claims_earlier_logs_are_never_relogs_after_the_claim():
+    """Codex on #340: a legacy claim (no claim_at) anchors at its fallback time; logs before it are listed apart and
+    never switch the claim to the re-logged price path."""
+    c = {"engine": "venue_edge", "claim_as_of": "2095-10-08T10:00:00Z", "sport": "NHL", "home": "H", "away": "A",
+         "kickoff": "2095-10-09T00:00:00Z", "pick": "AWAY", "model_p": 0.5, "market_p": 0.45,
+         "reprices": [{"at": "2095-10-08T08:00:00Z"}, {"at": "2095-10-08T10:00:00Z"}]}
+    calls = VQ.ledger_venue_calls({"calls": [c]}, SINCE)
+    assert calls[0]["reprices"] == [] and len(calls[0]["reprices_before_claim"]) == 1

@@ -358,6 +358,11 @@ def file_venue_calls(docs, since: datetime, mirrored=()) -> list[dict]:
             if key in by_key:
                 c = by_key[key]
                 c["files"].append(path)
+                if c.get("stale_book_zone") != d.get("stale_book_zone"):
+                    # Codex on #340: copies that disagree on the Desk's stale flag keep both readings, never one
+                    c["stale_book_zone_conflict"] = sorted({repr(c.get("stale_book_zone")),
+                                                            repr(d.get("stale_book_zone"))}
+                                                           | set(c.get("stale_book_zone_conflict") or []))
                 if not foreign:
                     c["host_only"] = False
                 if foreign:
@@ -428,10 +433,14 @@ def ledger_venue_calls(L: dict, since: datetime) -> list[dict]:
         if t is None or t < since:
             continue
         reps = [x for x in (parse_ts(r.get("at")) for r in (c.get("reprices") or []) if isinstance(r, dict))
-                if x is not None and x != t]           # Codex on #340: full precision (ms re-logs kept)
+                if x is not None and x > t]            # Codex on #340: full precision (ms re-logs kept); only
+        # AFTER the claim time is a later re-log (a legacy claim's fallback time is the latest log's; earlier
+        # entries are listed apart, never as re-logs after the claim)
+        before = sorted(x for x in (parse_ts(r.get("at")) for r in (c.get("reprices") or []) if isinstance(r, dict))
+                        if x is not None and x < t)
         out.append({"origin": "ledger", "files": [], "in_ledger": True, "as_of": t, "claim_basis": basis,
                     "claim_source": c.get("claim_source"),
-                    "reprices": sorted(reps), "foreign_ids": [],
+                    "reprices": sorted(reps), "reprices_before_claim": before, "foreign_ids": [],
                     "sport": str(c.get("sport") or "?").upper(), "match_id": None, "home": c.get("home"),
                     "away": c.get("away"), "kickoff": parse_ts(c.get("kickoff")), "side": c.get("pick"),
                     "units": c.get("units"), **claim_prices(c, bool(reps)), "file_fair": None, "file_books": None,
@@ -497,6 +506,7 @@ def merge_calls(file_calls: list[dict], ledger_calls: list[dict]) -> list[dict]:
         if hit is not None:
             hit["in_ledger"] = True
             hit["reprices"] = c.get("reprices") or []
+            hit["reprices_before_claim"] = c.get("reprices_before_claim") or []
             hit["claim_basis"] = basis
         else:
             extra.append(c)
@@ -724,9 +734,11 @@ def venue_receipt(s, calls: list[dict]) -> dict:
     tot["never_moved_share_of_tested"] = (tot["NEVER MOVED"] / tested) if tested else None
     tot["never_moved_share_of_calls"] = (tot["NEVER MOVED"] / len(rows)) if rows else None
     # ARCHITECT 2026-10-07 (addendum 6, 3): "count how many past VENUE calls carried stale_book_zone true"
-    tot["stale_book_zone_true"] = sum(1 for r in rows if r.get("stale_book_zone") is True)
-    tot["stale_book_zone_false"] = sum(1 for r in rows if r.get("stale_book_zone") is False)
-    tot["stale_book_zone_unknown"] = len(rows) - tot["stale_book_zone_true"] - tot["stale_book_zone_false"]
+    clean = [r for r in rows if not r.get("stale_book_zone_conflict")]
+    tot["stale_book_zone_true"] = sum(1 for r in clean if r.get("stale_book_zone") is True)
+    tot["stale_book_zone_false"] = sum(1 for r in clean if r.get("stale_book_zone") is False)
+    tot["stale_book_zone_conflict"] = len(rows) - len(clean)
+    tot["stale_book_zone_unknown"] = len(clean) - tot["stale_book_zone_true"] - tot["stale_book_zone_false"]
     tot["repriced_positions"] = sum(1 for r in rows if r.get("reprices"))
     tot["reprices"] = sum(len(r.get("reprices") or []) for r in rows)
     return {"rows": rows, "totals": tot}
@@ -767,7 +779,9 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                                                                              and r["files"] else ""))
         sbz = r.get("stale_book_zone")
         out.append("  stale_book_zone (the Desk's |div| >= 8pp flag, as written): "
-                   + ("TRUE" if sbz is True else "false" if sbz is False else "unknown (not on file)"))
+                   + (f"CONFLICTING across copies ({', '.join(r['stale_book_zone_conflict'])})"
+                      if r.get("stale_book_zone_conflict") else
+                      "TRUE" if sbz is True else "false" if sbz is False else "unknown (not on file)"))
         if r.get("ledger_ambiguous"):
             out.append(f"  LEDGER AMBIGUOUS: {r['ledger_ambiguous']}")
         if r.get("conflicting_copies"):
@@ -780,6 +794,9 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
             out.append(f"  ledger claim time: {r['claim_basis']}")
             if r.get("price_basis"):
                 out.append(f"  ledger claim prices: {r['price_basis']}")
+        if r.get("reprices_before_claim"):
+            out.append(f"  {len(r['reprices_before_claim'])} log(s) before the claim time (not re-logs after it): "
+                       + ", ".join(_z(x) for x in r["reprices_before_claim"]))
         if r.get("reprices"):
             out.append(f"  re-logged {len(r['reprices'])} time(s) after the claim (one position, not extra calls): "
                        + ", ".join(_z(x) for x in r["reprices"]))       # every re-log (Codex on #340)
@@ -813,7 +830,8 @@ def format_venue_receipt(res: dict, since: datetime, sources: list[str]) -> list
                f"{t.get('NO FILE FAIR: NOT MEASURED', 0)}")
     out.append(f"  stale_book_zone on the call: TRUE {t.get('stale_book_zone_true', 0)} · false "
                f"{t.get('stale_book_zone_false', 0)} · unknown (ledger-only or not on file) "
-               f"{t.get('stale_book_zone_unknown', 0)} — the Desk's own flag, as written; it never held a call")
+               f"{t.get('stale_book_zone_unknown', 0)} · conflicting across copies "
+               f"{t.get('stale_book_zone_conflict', 0)} — the Desk's own flag, as written; it never held a call")
     out.append(f"  (re-logged ledger positions {t['repriced_positions']}, {t['reprices']} re-log(s): counted once "
                f"each, at the frozen claim)")
     return out

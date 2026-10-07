@@ -66,7 +66,7 @@ ADAPTER_READS = (
     "response[].bookmakers[].bets[].values[].value", "response[].bookmakers[].bets[].values[].odd",
     "errors",                                         # _get raises on a non-empty errors field
 )
-TIME_NAME = re.compile(r"update|time|date|last|stamp|modif|created|fetched|(^|_)ts$", re.I)
+TIME_NAME = re.compile(r"update|time|date|last|stamp|modif|created|fetched|as_?of|(^|_)ts$", re.I)   # + asOf / as_of (Codex on #340)
 TS_CAMEL = re.compile(r"[a-z0-9]T[sS]$")  # quoteTs / quoteTS / oddsTS (Codex on #340), never bets / results
 _DT = re.compile(r"^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?)?(Z|[+-]\d{2}:?\d{2})?$")
 
@@ -193,7 +193,7 @@ def report(payload, max_items: int = 3, sport: str | None = None) -> list[str]:
         ln = f" len={e['list_len']}" if e["list_len"] is not None else ""
         smp = "" if not e["samples"] else "  e.g. " + " | ".join(_short(s) for s in e["samples"])
         lines.append(f"  {p}  [{'/'.join(sorted(e['types']))}]{ln} x{e['count']}{smp}")
-    lines.append("TIME-LIKE KEY NAMES (update/time/date/last/stamp/modif/created/fetched/ts, on the keys present):")
+    lines.append("TIME-LIKE KEY NAMES (update/time/date/last/stamp/modif/created/fetched/as_of/ts, on the keys present):")
     lines += [f"  {p}  e.g. {' | '.join(_short(s) for s in fields[p]['samples']) or '(no scalar sample)'}"
               for p in tf["by_name"]] or ["  (none)"]
     lines.append("DATE-TIME-LOOKING VALUES (any key):")

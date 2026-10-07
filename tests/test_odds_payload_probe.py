@@ -344,3 +344,11 @@ def test_the_match_id_must_be_the_asked_league_and_carry_object_ids(tmp_path, mo
         with pytest.raises(P.Refused, match="external_ids is not a JSON object"):
             P.game_for_match("ncaa", mid)
     assert P.game_for_match("ncaa", 5) == "11"
+
+
+def test_as_of_keys_are_time_like():
+    # Codex on #340: asOf / as_of carry an explicit as-of time (often numeric)
+    for k in ("asOf", "as_of", "quoteAsOf"):
+        payload = {"response": [{"bookmakers": [{"name": "B", k: 1759766400, "bets": [
+            {"name": "Home/Away", "values": [{"value": "Home", "odd": "2.1"}]}]}]}]}
+        assert f"response[].bookmakers[].{k}" in P.time_fields(P.walk(payload, 3))["by_name"], k

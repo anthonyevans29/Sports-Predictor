@@ -24,6 +24,7 @@ from __future__ import annotations
 import json
 import os
 import hashlib
+import re
 from collections import Counter
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -31,6 +32,18 @@ from src.timeutil import utc_now_naive, utc_naive_fromtimestamp
 
 CARD_NAME = "window_24h.json"
 _SKIP_PREFIXES = ("window_", "fixtures_")
+
+
+_QUAR_SHADOW_TAG = re.compile(r"^quarantine .*\(shadow\)$")
+
+
+def desk_quarantined(dk: dict | None) -> bool:
+    """The row's own Desk block records a quarantine shadow — the Cockpit's fileQuar predicate: call PASS,
+    shadow_units > 0, a "quarantine … (shadow)" tag. MLB >8pp (ARCHITECT 2026-10-07) lives ONLY here: the export
+    row's own `quarantine` field stays false for MLB (Codex on #328)."""
+    dk = dk or {}
+    return bool(dk.get("call") == "PASS" and (dk.get("shadow_units") or 0) > 0
+                and any(isinstance(t, str) and _QUAR_SHADOW_TAG.match(t) for t in (dk.get("tags") or [])))
 
 
 def _norm_pick(p: str | None) -> str | None:
@@ -70,7 +83,9 @@ def canonical_models(export_dir: str | os.PathLike) -> dict[int, dict]:
             dk = r.get("desk") or {}
             row = {"model_version": pred.get("model_version"), "p": p, "top_pick": top,
                    "top_pick_prob": pred.get("top_pick_prob", p.get(top) if top else None),
-                   "tier": pred.get("tier"), "quarantine": r.get("quarantine"),
+                   "tier": pred.get("tier"),
+                   # the export field OR the row's Desk quarantine shadow (MLB >8pp, Codex on #328)
+                   "quarantine": True if desk_quarantined(dk) else r.get("quarantine"),
                    "market_divergence_pp": r.get("market_divergence_pp"),
                    "source_file": f.name, "exported_at": stamp,
                    # F1: the Desk's call when the export carries it (--desk); else None

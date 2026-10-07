@@ -68,7 +68,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-mlb-preslate | mlb-preslate | daily 14:30 UTC | — |
 | sp-nfl-lines | nfl-lines | daily 15:00 UTC | — |
 | sp-nhl-daily | nhl-daily (inactive before 2026-09-29; override `SP_NHL_ACTIVE_FROM`) | daily 16:00 UTC | daily |
-| sp-ncaa-market | ncaa-market (H0-11: enabled with the rest); from 2026-10-02 `sync-matches` NCAA yesterday + today runs first (#254) | Thu 16:00 (Thursday-night slates, added 2026-09-28), Fri 16:00, Sat 13:00 UTC | — |
+| sp-ncaa-market | ncaa-market (H0-11: enabled with the rest); from 2026-10-02 `sync-matches` NCAA yesterday + today runs first (#254), plus tomorrow from 2026-10-07 | Tue + Wed 16:00 (midweek FBS games, added 2026-10-07), Thu 16:00 (Thursday-night slates, added 2026-09-28), Fri 16:00, Sat 13:00 UTC | — |
 | sp-nfl-predict | nfl-predict | Thu 18:00, Sun 14:00 UTC | — |
 | sp-clv-capture | clv-capture | 08/12/16/20 America/New_York (H0-7 confirmed; DST follows the zone) | — |
 | sp-weekly-fullseason | weekly-fullseason | Sun 06:00 UTC | daily |
@@ -728,6 +728,17 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   window). On a live host that predates it: install the unit, then
   `systemctl enable --now sp-intl-daily.timer` and add it to
   `/etc/sports-predictor/timers.enabled`.
+- **A CHANGED timer on a live host** (e.g. `sp-ncaa-market.timer` gained Tue + Wed 16:00 UTC, ARCHITECT
+  2026-10-07, addendum 2 item 8a). `sp_deploy.py` checks out the tag but does not install unit files, so
+  after the deploy of the tag that carries the change:
+  ```
+  sudo install -m 0644 deploy/hosting/systemd/sp-ncaa-market.timer /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl restart sp-ncaa-market.timer
+  systemctl list-timers sp-ncaa-market.timer --no-pager   # receipt: next elapse on the next Tue/Wed/Thu 16:00 UTC
+  ```
+  Until that tag is deployed, a midweek slate gets its host fixtures file only by hand:
+  `sudo -u sp venv/bin/python deploy/hosting/sp_run.py ncaa-market`.
 
 **T12. TERMINAL (laptop): the nightly backup pull (H0-14 second layer).**
 ```

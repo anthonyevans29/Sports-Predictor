@@ -124,3 +124,45 @@ def test_t90_signature_moves_when_injuries_land(seeded):
         s.add(Injury(team_id=m.home_team_id, player_name="QB1", refreshed_at=NOW))
     after = window.t90_signatures([seeded["nfl"]], now=NOW + timedelta(minutes=45))
     assert after[str(seeded["nfl"])] != before[str(seeded["nfl"])]
+
+
+def test_mlb_desk_quarantine_shadow_flags_the_card_counts_and_pages(seeded, tmp_path):
+    """Codex on #328 (P1): the MLB big-edge quarantine (ARCHITECT 2026-10-07) lives only in the row's desk block —
+    the export's own `quarantine` stays false for MLB. The card ORs the Desk's quarantine shadow (the Cockpit's
+    fileQuar: PASS, shadow_units > 0, a "quarantine … (shadow)" tag) into the flag, the count and the pager."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
+    import sp_window_page as page
+
+    with session_scope() as s:
+        mlb = _comp(s, Sport.MLB, "MLB")
+        h, a = _team(s, Sport.MLB, "W-NYY"), _team(s, Sport.MLB, "W-BOS")
+        g = Match(sport=Sport.MLB, competition_id=mlb.id, season="2031", utc_date=NOW + timedelta(hours=3),
+                  status=MatchStatus.SCHEDULED, home_team_id=h.id, away_team_id=a.id,
+                  external_ids={"wtest": "m1"})
+        s.add(g)
+        s.flush()
+        mid = g.id
+    desk = {"engine": "model_edge", "call": "PASS", "units": 0, "shadow_units": 1, "edge_pp": 9.0,
+            "tags": ["edge ≥ floor", "quarantine > 8pp (shadow)"],
+            "reason": "QUARANTINE edge 9.0pp > 8pp vs the book close — MLB big-edge quarantine, ARCHITECT 2026-10-07"}
+    row = {"match_id": mid, "quarantine": False, "desk": desk,
+           "prediction": {"model_version": "v2", "top_pick": "home_win", "top_pick_prob": 0.65, "tier": "lean",
+                          "probabilities": {"home_win": 0.65, "draw": None, "away_win": 0.35}}}
+    (tmp_path / "predictions_MLB_2031-05-05.json").write_text(json.dumps(
+        {"exported_at": "2031-05-05T10:00:00Z", "predictions": [row]}))
+    assert window.canonical_models(str(tmp_path))[mid]["quarantine"] is True
+    card = window.build_card(now=NOW, hours=24, export_dir=str(tmp_path))
+    r, = [x for x in card["fixtures"] if x["match_id"] == mid]
+    assert r["quarantine"] is True and card["receipts"]["quarantined"] >= 1
+    # the pager's quarantine flip: the same game before the rule (no shadow) -> after (shadowed)
+    cur = page.snapshot(card)
+    prev = {k: {**v, "quarantine": False} for k, v in cur.items()}
+    assert any(d["cls"] == "quarantine" and d["id"] == str(mid) for d in page.deltas(prev, cur, {}, {}))
+    # negatives: a PASS without the shadow tag, a PLAY, an empty shadow, no block — never desk-quarantined
+    for dk in ({**desk, "tags": ["edge < 4pp floor"]}, {**desk, "call": "PLAY", "units": 1},
+               {**desk, "shadow_units": 0}, None):
+        assert window.desk_quarantined(dk) is False
+    assert window.desk_quarantined({"call": "PASS", "shadow_units": 0.5,
+                                    "tags": ["quarantine ≥ 15pp (shadow)"]}) is True     # the NFL shape too

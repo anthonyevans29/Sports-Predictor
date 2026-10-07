@@ -315,6 +315,8 @@ def test_a_missing_key_on_an_ssh_remote_is_a_stated_refusal(monkeypatch, tmp_pat
     assert em.key_refusal("git@github.com:a/b.git").endswith("never falls back silently.")
     assert "the default path" in em.key_refusal("ssh://git@github.com/a/b.git")
     assert em.key_refusal("https://github.com/a/b.git") is None
+    assert em.ssh_remote("example.com:owner/repo.git") and em.ssh_remote("git@github.com:a/b.git")   # userless scp form
+    assert not em.ssh_remote("https://github.com/a/b.git") and not em.ssh_remote("file:///tmp/x.git")
     (tmp_path / "home" / ".ssh").mkdir(parents=True)
     (tmp_path / "home" / ".ssh" / "sp_exports_deploy_key").write_text("k")
     assert em.key_refusal("git@github.com:a/b.git") is None

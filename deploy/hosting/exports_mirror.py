@@ -71,8 +71,11 @@ def key_path() -> Path:
 
 
 def ssh_remote(remote: str) -> bool:
-    """git@host:path or ssh://… (an HTTPS remote never uses the deploy key)."""
-    return remote.startswith("ssh://") or bool(re.match(r"^[\w.-]+@[\w.-]+:", remote))
+    """ssh://…, or git's scp-like [user@]host:path (user optional; Codex on #335). Not a URL with "://" (an HTTPS
+    remote never uses the deploy key) and not a local path."""
+    if remote.startswith("ssh://"):
+        return True
+    return bool(re.match(r"^(?:[\w.-]+@)?[\w.-]{2,}:(?!//)", remote))
 
 
 def key_refusal(remote: str) -> str | None:

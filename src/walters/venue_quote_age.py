@@ -178,7 +178,9 @@ def desk_rows_ok(doc: dict) -> bool:
             pr = (x.get("prediction") or {}) if isinstance(x, dict) else {}
             if isinstance(pr, dict) and (pr.get("probabilities") is not None or pr.get("home_win_prob") is not None):
                 rows.append(x)
-    return all(isinstance(x.get("desk"), dict) for x in rows)
+    # Codex on #340: the block's identity (engine, call) must be there: an empty {} is a damaged block
+    return all(isinstance(x.get("desk"), dict) and isinstance(x["desk"].get("engine"), str)
+               and isinstance(x["desk"].get("call"), str) for x in rows)
 
 
 def doc_ident_ok(doc: dict) -> bool:
@@ -232,7 +234,9 @@ def readonly_session():
         eng.dispose()
 
 
-_DESK_TEXT = re.compile(r'"desk(_meta)?"\s*:')
+# Codex on #340: annotate() writes each row's desk after its fields and desk_meta last, so a prefix-truncated
+# export may carry neither; its rows container key is recognised too
+_DESK_TEXT = re.compile(r'"(desk(_meta)?|fixtures|predictions)"\s*:')
 
 
 def _looks_desk(path: str) -> bool:
@@ -275,6 +279,11 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
             if not isinstance(doc, dict):
                 if EXPORT_NAME.search(n):              # Codex on #340: a generated export that parses as [] /
                     bad_read.append(p)                 # null / a scalar is damaged, never skipped
+                continue
+            if "desk_meta" not in doc and any(
+                    isinstance(x, dict) and isinstance(x.get("desk"), dict) and x["desk"]
+                    for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]):
+                bad_asof.append(p)                         # Codex on #340: Desk rows without desk_meta are damaged
                 continue
             if "desk_meta" in doc:
                 dm = doc["desk_meta"]                      # Codex on #340: every doc carrying desk_meta is
@@ -322,7 +331,8 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                       f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
                       "audited as complete; fix or move it, then re-run")
     if bad_asof:
-        raise Refused(f"REFUSED: {len(bad_asof)} desk export(s) with an unparseable desk_meta.as_of "
+        raise Refused(f"REFUSED: {len(bad_asof)} desk export(s) with an unparseable desk_meta.as_of (or Desk rows with "
+                      f"no desk_meta at all) "
                       f"({', '.join(bad_asof[:5])}{', …' if len(bad_asof) > 5 else ''}): a damaged export is never "
                       "skipped silently; fix or move it, then re-run")
     return docs, counts

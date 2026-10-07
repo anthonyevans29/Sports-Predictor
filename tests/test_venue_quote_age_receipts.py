@@ -1255,3 +1255,27 @@ def test_a_desk_annotated_row_without_its_desk_block_is_refused(tmp_path):
         {"status": "finished"}, {"status": "scheduled", "desk": {"engine": "venue_edge", "call": "PASS"}}]}))
     (ok / "p.json").write_text(json.dumps({"sport": "nfl", "desk_meta": asof, "predictions": [{"prediction": {}}]}))
     assert len(VQ.iter_desk_docs(str(ok))[0]) == 2
+
+
+def test_damaged_desk_exports_are_refused_however_they_broke(tmp_path):
+    """Codex on #340: a prefix-truncated custom export (no desk marker survives), Desk rows without desk_meta, and an
+    empty / identity-less desk block on a row the Desk annotates are all refused."""
+    ex = tmp_path / "t"
+    ex.mkdir()
+    (ex / "audit.json").write_text('{"sport": "nfl", "predictions": [{"match_id": 1, "home_te')
+    with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
+        VQ.iter_desk_docs(str(ex))
+    ex = tmp_path / "m"
+    ex.mkdir()
+    (ex / "audit.json").write_text(json.dumps({"sport": "nfl", "predictions": [
+        {"prediction": {"home_win_prob": 0.6}, "desk": {"engine": "model_edge", "call": "PLAY"}}]}))
+    with pytest.raises(VQ.Refused, match="no desk_meta at all"):
+        VQ.iter_desk_docs(str(ex))
+    for i, desk in enumerate(({}, {"engine": "model_edge"}, {"call": "PLAY"})):
+        ex = tmp_path / f"e{i}"
+        ex.mkdir()
+        (ex / "audit.json").write_text(json.dumps({"sport": "nfl", "desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                                   "predictions": [{"prediction": {"home_win_prob": 0.6},
+                                                                    "desk": desk}]}))
+        with pytest.raises(VQ.Refused, match="no desk"):
+            VQ.iter_desk_docs(str(ex))

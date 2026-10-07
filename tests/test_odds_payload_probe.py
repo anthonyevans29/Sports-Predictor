@@ -377,3 +377,21 @@ def test_conflicting_selectors_and_non_scalar_ids_are_refused(tmp_path, monkeypa
     for mid in (1, 2, 3):
         with pytest.raises(P.Refused, match="is not a string or integer"):
             P.game_for_match("nhl", mid)
+
+
+def test_a_direct_game_payload_is_checked_for_its_league(monkeypatch, capsys):
+    # Codex on #340: NFL and NCAA share game ids; a direct --game payload naming another league is refused, one
+    # naming none is labelled LEAGUE UNVERIFIED
+    assert P.league_check({"response": [{"league": {"id": 2}}]}, "ncaa")[0] is True
+    assert P.league_check({"response": [{"league": {"id": 1}}]}, "ncaa")[0] is False
+    bare = {**SYNTH, "response": [{k: v for k, v in SYNTH["response"][0].items() if k != "league"}]}
+    assert P.league_check(bare, "ncaa")[0] is None
+    assert P.league_check(SYNTH, "nhl")[0] is True and P.league_check(SYNTH, "ncaa")[0] is False   # SYNTH is NHL (57)
+    monkeypatch.setattr(P, "fetch", lambda sport, game: ({**SYNTH, "response": [
+        {**SYNTH["response"][0], "league": {"id": 1}}]}, None))
+    assert P.main(["--sport", "ncaa", "--game", "9"]) == 2
+    assert "not NCAA's (2)" in capsys.readouterr().out
+    monkeypatch.setattr(P, "fetch", lambda sport, game: (bare, None))
+    assert P.main(["--sport", "ncaa", "--game", "9"]) == 0
+    out = capsys.readouterr().out
+    assert "LEAGUE UNVERIFIED" in out and "VERDICT (this payload; LEAGUE UNVERIFIED): " in out

@@ -51,3 +51,4 @@
   - Conflicting `stale_book_zone` across copies is reported, not picked. Legacy pre-claim logs are not re-logs. Probe: as-of keys are time-like.
   - Percentiles: nearest rank, ties half-up. Divergence matches by the Cockpit's toFixed(2). 1X2 copies dedupe at 4 dp.
   - A Desk-annotated row missing its desk block is refused. Probe: one input selector only; scalar provider ids only.
+  - Truncated, meta-less or identity-less desk exports are refused. Probe: direct `--game` payloads are league-checked (refused if another league; LEAGUE UNVERIFIED if none named).

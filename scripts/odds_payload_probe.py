@@ -56,6 +56,28 @@ SPORTS = {
 }
 #: The competition a --match-id must belong to, per --sport (NFL and NCAA share the provider id key)
 SPORT_COMPETITION = {"nhl": "NHL", "ncaa": "NCAA"}
+#: The provider league id per --sport (src/adapters/api_hockey.py NHL_LEAGUE_ID; api_american_football.py
+#: _CODE_TO_LEAGUE["NCAA"]): a direct --game payload that names another league is refused (Codex on #340)
+SPORT_LEAGUE_ID = {"nhl": 57, "ncaa": 2}
+
+
+def league_check(payload, sport: str) -> tuple[bool | None, str]:
+    """(True, ...) when every response[].league.id the payload carries is --sport's league; (False, why) when one is
+    another league's; (None, why) when the payload names no league id (unverified, said, never assumed)."""
+    ids = set()
+    for g in (payload.get("response") if isinstance(payload, dict) else None) or []:
+        lg = g.get("league") if isinstance(g, dict) else None
+        if isinstance(lg, dict) and isinstance(lg.get("id"), int) and not isinstance(lg.get("id"), bool):
+            ids.add(lg["id"])
+    want = SPORT_LEAGUE_ID[sport]
+    if not ids:
+        return None, (f"LEAGUE UNVERIFIED: a direct --game id is not checked against the DB and this payload names no "
+                      f"response[].league.id (NFL and NCAA share game ids); use --match-id for a verified {sport.upper()} "
+                      "fixture")
+    if ids != {want}:
+        return False, (f"REFUSED: the payload's league id(s) {sorted(ids)} are not {sport.upper()}'s ({want}): a "
+                       "wrong-league payload never drives the verdict")
+    return True, f"league verified from the payload: {sport.upper()} ({want})"
 #: The paths list_odds READS (src/adapters/api_hockey.py:233-262, src/adapters/api_american_football.py:310-339:
 #: identical loops): response[] -> bookmakers[] -> name/id, bets[] -> name, values[] -> value/odd. Nothing else.
 ADAPTER_READS = (
@@ -396,8 +418,23 @@ def main(argv=None) -> int:
         except Refused as e:
             print(str(e))
             return 2
+        if a.match_id is None:                 # Codex on #340: a direct --game id is checked from the payload
+            ok, msg = league_check(payload, a.sport)
+            if ok is False:
+                print(msg)
+                return 2
+            print(msg)
+            if ok is None:
+                text = "\n".join(report(payload, a.max_items, a.sport))
+                text = text.replace("VERDICT (this payload): ", "VERDICT (this payload; LEAGUE UNVERIFIED): ")
+                print(redact(text, key))
+                return _write_out(a, payload, key)
     text = "\n".join(report(payload, a.max_items, a.sport))
     print(redact(text, key))
+    return _write_out(a, payload, key)
+
+
+def _write_out(a, payload, key) -> int:
     if a.out:
         os.makedirs(os.path.dirname(out_path_ok(a.out)[1]), exist_ok=True)
         with open(out_path_ok(a.out)[1], "w") as f:

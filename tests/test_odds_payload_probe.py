@@ -415,3 +415,11 @@ def test_a_match_id_fetch_naming_another_league_is_refused(monkeypatch, capsys):
         {**SYNTH["response"][0], "league": {"id": 1}}]}, None))
     assert P.main(["--sport", "ncaa", "--match-id", "5"]) == 2
     assert "not NCAA's (2)" in capsys.readouterr().out
+
+
+def test_string_and_malformed_league_ids_never_pass_as_absent():
+    # Codex on #340: "1" is NFL's league; a non-numeric id refuses
+    assert P.league_check({"response": [{"league": {"id": "1"}}]}, "ncaa")[0] is False
+    assert P.league_check({"response": [{"league": {"id": "2"}}]}, "ncaa")[0] is True
+    assert P.league_check({"response": [{"league": {"id": "x"}}]}, "ncaa")[0] is False
+    assert P.league_check({"response": [{"league": {"id": [2]}}]}, "ncaa")[0] is False

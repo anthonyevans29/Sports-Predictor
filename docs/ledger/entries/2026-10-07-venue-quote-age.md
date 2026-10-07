@@ -55,3 +55,4 @@
   - Every unreadable JSON refuses (supersedes the sniffs). Ledger-only claims are measured only on an anchor matching their book p. Probe: saved payloads are league-checked.
   - Null / scalar / empty roots are refused under any name. Probe: every fetch is league-checked.
   - A non-object `prediction` refuses. Fixture calls take the row's competition first.
+  - Scalar row containers and unknown sole sports are refused. Probe: string league ids are read; malformed ones refuse.

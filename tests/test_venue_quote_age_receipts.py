@@ -1326,3 +1326,21 @@ def test_damaged_prediction_objects_refuse_and_fixture_calls_take_their_rows_spo
     row["competition"] = "NHL"
     doc = {"desk_meta": {"as_of": _iso(KO - timedelta(hours=19)) + "Z"}, "fixtures": [row]}
     assert VQ.file_venue_calls([("f.json", doc)], SINCE)[0]["sport"] == "NHL"
+
+
+def test_scalar_rows_containers_and_unknown_sole_sport_are_refused(tmp_path):
+    """Codex on #340: `predictions: 1` is refused, not a traceback; a document whose only sport source is an unknown
+    `sport` ("NFA") is refused rather than read as out of scope."""
+    for i, doc in enumerate(({"sport": "nfl", "desk_meta": {"as_of": "2095-10-08T00:00:00Z"}, "predictions": 1},
+                             {"sport": "NFA", "desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                              "predictions": [{"prediction": {}}]})):
+        ex = tmp_path / f"s{i}"
+        ex.mkdir()
+        (ex / "audit.json").write_text(json.dumps(doc))
+        with pytest.raises(VQ.Refused):
+            VQ.iter_desk_docs(str(ex))
+    ok = tmp_path / "ok"
+    ok.mkdir()
+    (ok / "a.json").write_text(json.dumps({"sport": "NFA", "desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                           "predictions": [{"competition": "NFL", "prediction": {}}]}))
+    assert len(VQ.iter_desk_docs(str(ok))[0]) == 1          # every row names its own competition

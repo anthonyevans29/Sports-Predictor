@@ -44,7 +44,9 @@ MODEL_SPORTS = ("MLB", "NFL", "PL")              # build step (4): the live mode
 DEFAULT_PRED_NAME = re.compile(r"^(soccer|nfl|mlb|nhl)(?:_(?!results_\d{4}-)[A-Za-z0-9]+)*"
                                r"_\d{4}-\d{2}-\d{2}(_to_\d{4}-\d{2}-\d{2})?\.json$", re.I)
 EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions|" + DEFAULT_PRED_NAME.pattern, re.I)
-SPREAD_SPORTS = ("NFL", "NCAA", "NCAAF")          # sports whose reference can be spread_derived
+SPREAD_SPORTS = ("NFL", "NCAA", "NCAAF")
+#: the export families a document-level `sport` may name (schema Sport values + the shadow / intl families)
+KNOWN_SPORTS = ("soccer", "nfl", "mlb", "nhl", "ncaa", "unl", "intl")          # sports whose reference can be spread_derived
 LEDGER_UNKNOWN_SOURCE = "unknown (the ledger keeps no fair_source)"
 MIRROR_DIR = "host"                              # <exports>/host/: deploy/hosting/pull_exports.py's destination
 WINDOW = timedelta(hours=12)                     # identity match: exact team names, kickoff within ±12h
@@ -169,6 +171,9 @@ def desk_rows_ok(doc: dict) -> bool:
     no predictions; a predictions row with a probability) carries a desk object (Codex on #340)."""
     if doc.get("engine") == "model_shadow":
         return True
+    for k in ("fixtures", "predictions"):      # Codex on #340: a scalar container is damaged, never iterated
+        if doc.get(k) is not None and not isinstance(doc[k], list):
+            return False
     if doc.get("predictions") is None and isinstance(doc.get("fixtures"), list):
         rows = [f for f in doc["fixtures"] if isinstance(f, dict)
                 and not (f.get("status") and f.get("status") != "scheduled")]
@@ -194,6 +199,12 @@ def doc_ident_ok(doc: dict) -> bool:
         return False
     top = doc.get("competition_code") or doc.get("competition") or doc.get("sport")
     rows = [x for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]]
+    # Codex on #340: where the document's `sport` is the rows' only sport source, it must be a known family
+    # (a typo such as "NFA" would read as out of scope and drop every row)
+    only_sport = not (doc.get("competition_code") or doc.get("competition"))
+    if only_sport and doc.get("sport") and str(doc["sport"]).lower() not in KNOWN_SPORTS and any(
+            not (isinstance(x, dict) and x.get("competition")) for x in rows):
+        return False
     return bool(top) or all(isinstance(x, dict) and x.get("competition") for x in rows)
 
 

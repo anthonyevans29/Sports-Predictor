@@ -68,8 +68,15 @@ def league_check(payload, sport: str) -> tuple[bool | None, str]:
     resp = payload.get("response") if isinstance(payload, dict) else None
     for g in resp if isinstance(resp, list) else []:   # Codex on #340: a scalar container names no league
         lg = g.get("league") if isinstance(g, dict) else None
-        if isinstance(lg, dict) and isinstance(lg.get("id"), int) and not isinstance(lg.get("id"), bool):
-            ids.add(lg["id"])
+        if not isinstance(lg, dict) or lg.get("id") is None:
+            continue
+        lid = lg["id"]
+        if isinstance(lid, str) and lid.strip().isdigit():
+            lid = int(lid)                     # Codex on #340: a numeric-string id is still the league named
+        if isinstance(lid, bool) or not isinstance(lid, int):
+            return False, (f"REFUSED: the payload carries a malformed league id {_short(lg['id'], 40)}: a league the "
+                           "probe cannot read never drives the verdict")
+        ids.add(lid)
     want = SPORT_LEAGUE_ID[sport]
     if not ids:
         return None, (f"LEAGUE UNVERIFIED: a direct --game id is not checked against the DB and this payload names no "

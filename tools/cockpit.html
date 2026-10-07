@@ -122,7 +122,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
   <div class="note" style="margin-top:4px;line-height:1.7">
     <b>SOCCER</b> — floor 4pp · pick-prob ≥ 0.50 · away/draw edges ≥ 10pp → double-chance ladder 0.5u · any edge ≥ 10pp half-units <span style="opacity:.75">(cohort 6/16: big edges anti-predictive, die by draw)</span><br>
     <b>NFL</b> — floor 4pp · divergence ≥ 15pp quarantine = never a straight play <span style="opacity:.75">(wk 1–2 mega-edges 1-5; ATL 34-3)</span> · QB-flagged games half-units<br>
-    <b>MLB</b> — floor 4pp · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
+    <b>MLB</b> — floor 4pp · edge &gt; 8pp vs its reference (book close or kalshi-only mid) = QUARANTINE, never a straight play, logged as a quarantine shadow <span style="opacity:.75">(ARCHITECT 2026-10-07: &gt;8pp went 7 of 34; the 15pp caution tier is superseded)</span> · road picks unrestricted <span style="opacity:.75">(380-row read: away 56% / home 60% — watch, not penalty)</span> · totals untouched (M16 caution)<br>
     <b>NHL</b> — PASS all <span style="opacity:.75">(pre-gate: no production model)</span> · Base 1u · parlays 0.25u ≤3 legs, positive edge, no shared teams (model_edge only).<br>
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded · <b id="vsProgress">graded —/30</b> <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
     <b>POSTSEASON</b> (sizing caution, v1.1 addendum 2026-10-01) — rows the export marks <code>stage = postseason</code> (MLB, from our gameType mapping F/D/L/W) get HALF units until 30 postseason calls are graded · <b id="psProgress">graded —/30</b> · stage unknown (null) = labelled, not halved<br>
@@ -777,7 +777,7 @@ function upsertCalls(L,fresh,opts){
 }
 function baseCall(r,logDate){
   return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
-    kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:!!r.quar,
+    kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:rowQuar(r),
     captured_at:new Date().toISOString(),qb_listed:(r.qbs||[]).slice(),
     stage:r.stage??null};
 }
@@ -885,6 +885,15 @@ let lastCapture={started:0,noKickoff:0};
 // time and the kickoff test all read it), no human step; parlay tickets included
 // (ruled 2026-10-03), at the desk_parlays file's as_of.
 function asOfMs(r){ const t=utcMs(r.exportedAt); return isFinite(t)?t:Date.now(); }
+// A quarantine SHADOW is the FILE's Desk call: PASS with shadow units and a "quarantine … (shadow)" tag (NFL's
+// divergence contract; MLB's > 8pp edge, ARCHITECT 2026-10-07). Older NFL files keep the r.quar test.
+// The FILE's Desk call says quarantine (MLB > 8pp carries no export `quarantine` field; Codex on #328): the Card,
+// the audit text and the ledger's quarantine flag read this, never the raw field alone.
+function fileQuar(r){ const d=r.fileDesk; return !!(d&&d.call==="PASS"&&(d.shadow_units||0)>0
+  &&(d.tags||[]).some(t=>/^quarantine .*\(shadow\)$/.test(t))); }
+function rowQuar(r){ return !!r.quar||fileQuar(r); }
+function isQuarShadow(x,r){ return x.call==="PASS"&&x.shadowUnits>0
+  &&((r.quar&&r.sport==="NFL")||(x.tags||[]).some(t=>/^quarantine .*\(shadow\)$/.test(t))); }
 function snapshotCalls(now,opts){
   opts=opts||{}; now=now??Date.now();
   const auto=!!opts.auto, clk=r=>auto?asOfMs(r):now;
@@ -898,7 +907,7 @@ function snapshotCalls(now,opts){
     return true; };
   for(const x of deskCalls){
     const r=x.r;
-    if((x.call==="PLAY"||x.call==="LADDER"||(x.shadowUnits>0&&r.quar&&r.sport==="NFL"))&&!live(r)) continue;
+    if((x.call==="PLAY"||x.call==="LADDER"||isQuarShadow(x,r))&&!live(r)) continue;
     if(x.call==="PLAY"||x.call==="LADDER"){
       const lad=x.call==="LADDER";
       const mp=lad?(r.probsAll[r.pick]??0)+(r.probsAll.DRAW??0):r.prob;
@@ -911,14 +920,16 @@ function snapshotCalls(now,opts){
         kalshi_exec_cost_maker:lad?null:(addn?fx.maker_cost??null:makerCostFor(r,r.pick)),
         kalshi_join_bid:lad?null:(addn?fx.join_price??null:((joinBidFor(r,r.pick)||{}).price??null)),
         venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",rules:x.tags});
-    } else if(x.shadowUnits>0&&r.quar&&r.sport==="NFL"){
+    } else if(isQuarShadow(x,r)){
       add(r,{...baseCall(r,dOf(r)),pick:r.pick,tier:r.tier||"—",engine:"model_edge",
         call_type:"quarantine_shadow",units:0,shadow_units:x.shadowUnits,
         // #87 v1.1 files: the file's exec block (the contract the order buys), as straights do (Codex on #303)
-        model_p:r.prob,market_p:r.mkt,
+        // the Desk's own reference (a kalshi-only mid included), as straights record it (Codex on #328)
+        model_p:r.prob,market_p:x.mktRef??r.mkt,
         kalshi_exec_cost:(r.fileDesk.exec&&r.fileDesk.exec.doctrine)?(r.fileDesk.exec.cost??null):execCostFor(r,r.pick),
         kalshi_exec_cost_maker:(r.fileDesk.exec&&r.fileDesk.exec.doctrine)?(r.fileDesk.exec.maker_cost??null)
-          :makerCostFor(r,r.pick),venue_hint:"books",rules:x.tags});
+          :makerCostFor(r,r.pick),venue_hint:x.kalOnly?"kalshi":"books",reference:x.kalOnly?"kalshi_only":"books",
+        rules:x.tags});
     }
   }
   for(const {r,v} of deskValue){        // value-side shadows (v1.2 candidate): notional, never staked
@@ -2290,7 +2301,7 @@ $("mirrorBtn").addEventListener("click",loadLatestFromHost);
 let gameReads={};
 async function perGameAudit(){
   if(!sampleNS||!rows.length)return;
-  const lines=rows.map((r,i)=>`${i}|${r.sport}|${r.game}|pick ${r.pick} ${(r.prob*100).toFixed(1)}%${r.mkt!=null?` vs mkt ${(r.mkt*100).toFixed(1)}%`:""}${r.quar?" QUARANTINE":""}${r.qbs.length?" QB:"+r.qbs.join(","):""}`).join("\n");
+  const lines=rows.map((r,i)=>`${i}|${r.sport}|${r.game}|pick ${r.pick} ${(r.prob*100).toFixed(1)}%${r.mkt!=null?` vs mkt ${(r.mkt*100).toFixed(1)}%`:""}${rowQuar(r)?" QUARANTINE":""}${r.qbs.length?" QB:"+r.qbs.join(","):""}`).join("\n");
   const p=`You are a disciplined betting-desk auditor. For EACH numbered game
 below, return ONE short verdict + recommendation (max 18 words each):
 lean/pass/watch, the key risk or signal, referring to teams BY NAME
@@ -2307,11 +2318,12 @@ $("askBtn")&&$("askBtn").addEventListener("click",async()=>{
   if(!sampleNS||!rows.length){$("askOut").textContent="Load files first.";return;}
   const q=$("askBox").value.trim(); if(!q)return;
   $("askOut").textContent="…";
-  const ctx=rows.map(r=>`${r.sport} ${r.game}: pick ${r.pick} ${(r.prob*100).toFixed(1)}%${r.mkt!=null?` vs ${(r.mkt*100).toFixed(1)}%`:""}${r.quar?" QUAR":""}`).join("\n");
+  const ctx=rows.map(r=>`${r.sport} ${r.game}: pick ${r.pick} ${(r.prob*100).toFixed(1)}%${r.mkt!=null?` vs ${(r.mkt*100).toFixed(1)}%`:""}${rowQuar(r)?" QUAR":""}`).join("\n");
   const parlayTxt=$("parlayCard").hidden?"(none)":$("parlayOut").innerText;
   try{
     await sampleNS(`Disciplined betting desk (house doctrine: floors, half-unit big edges,
-quarantine>=15pp never a straight play, parlays 0.25u max 3 legs, no
+quarantine never a straight play: NFL/INTL divergence >=15pp; MLB edge vs its reference >8pp
+(ARCHITECT 2026-10-07; the MLB 15pp caution tier superseded), parlays 0.25u max 3 legs, no
 threshold creep). Today's slate:\n${ctx}\n\nCurrent parlays:\n${parlayTxt}\n\nUser request: ${q}\n\nAnswer concretely; if proposing tickets, give legs+units+combined edge; never invent games. Refer to teams by name, never HOME/AWAY.`,
       {onText:({text})=>{$("askOut").textContent=text;},modelTier:"default"});
   }catch(e){ $("askOut").textContent="Ask failed: "+((e&&(e.message||e.code))||JSON.stringify(e)); }
@@ -2349,17 +2361,19 @@ function renderCard(){
       const chips=[];
       if(r.marketOnly)chips.push(`<span class="gchip">market-only · books' fair</span>`);
       if(r.tier)chips.push(`<span class="gchip ${r.tier==="strong"?"s":""}">${esc(r.tier)}</span>`);
-      if(r.quar)chips.push(`<span class="gchip q">QUARANTINE ${r.div>=0?"+":""}${esc(r.div)}pp</span>`);
+      if(rowQuar(r)){ const qv=r.div!=null?r.div:(r.fileDesk&&r.fileDesk.edge_pp!=null?+(+r.fileDesk.edge_pp).toFixed(1):null);
+        chips.push(`<span class="gchip q">QUARANTINE${qv!=null?` ${qv>=0?"+":""}${esc(qv)}pp`:""}</span>`); }
       if(r.over!=null&&r.over>=0.5&&r.over<0.6)chips.push(`<span class="gchip">totals 50–60</span>`);
       if(r.qbs.length)chips.push(`<span class="gchip">QB: ${esc(r.qbs.join(", "))}</span>`);
       const why=[];
       if(r.marketOnly){ why.push(`gated competition — no predictions by doctrine; bars show the books' consensus fair (${r.books||0} books)`); }
       else why.push(`pick ${sideName(r,r.pick)} (${r.pick.toLowerCase()}) at ${(r.prob*100).toFixed(1)}%`+(r.mkt!=null?` vs market ${(r.mkt*100).toFixed(1)}% (edge ${((r.prob-r.mkt)*100).toFixed(1)}pp)`:" — no market reference"));
       if(r.quar)why.push(`divergence ${r.div}pp ≥ 15 → contract quarantine (weeks 1–2: big edges 1-5)`);
+      else if(fileQuar(r))why.push(r.fileDesk.reason||"quarantine (file's Desk call)");   // raw: esc(why.join) below
       if(r.kal)why.push(`kalshi ${r.kal}`);
       if(!r.books)why.push("no books yet — gap labeled, not faked");
       el.insertAdjacentHTML("beforeend",
-        `<div class="game${r.quar?" quar":""}">
+        `<div class="game${rowQuar(r)?" quar":""}">
           <div style="display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap">
             <div><div class="match">${esc(r.game)}</div><div class="gchips">${chips.join("")}</div></div>
             <div class="note">${esc(r.when)} UTC · ${esc(r.books||0)} books</div></div>

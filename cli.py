@@ -4664,7 +4664,7 @@ def desk_rescore_cmd(files, out_path):
         console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
         raise SystemExit(2)
     lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
-    n = halved = 0
+    n = halved = quarantined = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
@@ -4677,12 +4677,16 @@ def desk_rescore_cmd(files, out_path):
         for x in rows:
             n += 1
             halved += x["verdict"] == "halved"
+            quarantined += x["verdict"] == "quarantined"     # its own transition, never "halved" (Codex on #328)
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
             lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {x['fair_edge_pp']:+.1f}pp · "
                          f"exec {xe} ({xc}) · units published {x['published_units']} / v1.1 {x['v11_units']} → "
                          f"addendum {x['addendum_units']} · {x['verdict'].upper()}")
     lines.append(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")
+    if quarantined:
+        lines.append(f"{quarantined} PLAY(s) now QUARANTINED (PASS, quarantine shadow) under the current Desk — "
+                     f"a quarantine transition, not counted as halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)

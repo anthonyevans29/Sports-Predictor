@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import contextlib
 import json
+import math
 import os
 import re
 from datetime import datetime, timedelta, timezone
@@ -469,7 +470,10 @@ def merge_calls(file_calls: list[dict], ledger_calls: list[dict]) -> list[dict]:
         # within 5e-4
         if a is None or b is None:
             return False
-        return round(float(a), 2) == round(float(b), 2) if k == "div_pp" else abs(float(a) - float(b)) < 5e-4
+        if k == "div_pp":                  # the Cockpit's toFixed(2) (ties away from zero), never ties-to-even
+            from src.walters.desk_policy import js_fixed
+            return js_fixed(float(a), 2) == js_fixed(float(b), 2)
+        return abs(float(a) - float(b)) < 5e-4
 
     def pick(cands, claim):
         """One file call among same-key candidates (conflicting copies, Codex on #340): the one whose book p,
@@ -843,7 +847,8 @@ def pct(xs: list[float], q: float):
     if not xs:
         return None
     s = sorted(xs)
-    return s[min(len(s) - 1, int(round(q * (len(s) - 1))))]
+    # nearest rank, ties half-up (Codex on #340: Python's round() is ties-to-even, so .5 indices alternated)
+    return s[min(len(s) - 1, int(math.floor(q * (len(s) - 1) + 0.5)))]
 
 
 def _row_sport(doc: dict, row: dict) -> str:
@@ -892,8 +897,9 @@ def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
             raw = mk.get("fair_prob") if isinstance(mk.get("fair_prob"), dict) else {}
             # Codex on #340: the reference source and its RAW fair are part of copy identity (a spread_derived fair
             # has no 1X2 fair4, so two different spread references must not look identical)
+            # the raw fair only where no 1X2 fair4 exists (a spread reference); 1X2 copies compare at 4dp (Codex)
             k = ident + (tuple(sorted((fair4 or {}).items())), mk.get("fair_source"),
-                         tuple(sorted((kk, vv) for kk, vv in raw.items())))
+                         () if fair4 else tuple(sorted((kk, vv) for kk, vv in raw.items())))
             foreign = path in mirrored
             if k in seen:                                  # a true copy (same identity AND same book fair)
                 if not foreign:                            # Codex on #340: any LOCAL copy makes the row local,

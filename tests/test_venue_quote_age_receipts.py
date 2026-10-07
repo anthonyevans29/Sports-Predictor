@@ -1207,3 +1207,30 @@ def test_a_legacy_claims_earlier_logs_are_never_relogs_after_the_claim():
          "reprices": [{"at": "2095-10-08T08:00:00Z"}, {"at": "2095-10-08T10:00:00Z"}]}
     calls = VQ.ledger_venue_calls({"calls": [c]}, SINCE)
     assert calls[0]["reprices"] == [] and len(calls[0]["reprices_before_claim"]) == 1
+
+
+def test_percentiles_divergence_and_copy_precision_use_the_declared_rules():
+    """Codex on #340: nearest-rank ties go half-up; div compares by the Cockpit's toFixed(2); 1X2 copies dedupe
+    at 4dp (the raw fair distinguishes spread references only)."""
+    xs = [1, 2, 3, 4, 5, 6]
+    assert VQ.pct(xs, 0.5) == 4 and VQ.pct(xs, 0.9) == 6        # indices 2.5 -> 3, 4.5 -> 5
+    dead = {"HOME": 0.4735, "AWAY": 0.5265}
+    a, b = _venue_row(1, "dead", 20, dead), _venue_row(1, "dead", 20, dead)
+    a["desk"]["div_pp"], b["desk"]["div_pp"] = 6.125, 6.2
+    asof = KO - timedelta(hours=19)
+    files = VQ.file_venue_calls([("a.json", _doc([a], asof)), ("b.json", _doc([b], asof))], SINCE)
+    claim = {"engine": "venue_edge", "claim_at": _iso(asof) + "Z", "claim_source": "auto", "sport": "NHL",
+             "home": a["home_team"], "away": a["away_team"], "kickoff": _iso(KO) + "Z", "pick": "AWAY",
+             "divergence_pp": 6.13, "units": 0.25}
+    merged = VQ.merge_calls(files, VQ.ledger_venue_calls({"calls": [claim]}, SINCE))
+    hit = [c for c in merged if c.get("in_ledger") and c.get("files")]
+    assert len(hit) == 1 and hit[0]["div_pp"] == 6.125 and not any(c.get("ledger_ambiguous") for c in merged)
+
+    def doc(fair):
+        return {"sport": "nfl", "desk_meta": {"as_of": _iso(KO - timedelta(hours=6)) + "Z"}, "predictions": [
+            {"match_id": 1, "utc_date": _iso(KO), "home_team": "H", "away_team": "A",
+             "market": {"fair_prob": fair, "fair_source": "1X2"},
+             "desk": {"engine": "model_edge", "call": "PLAY", "reference": "books"}}]}
+    rows = VQ.model_reference_rows([("a.json", doc({"HOME": 0.600001, "AWAY": 0.399999})),
+                                    ("b.json", doc({"HOME": 0.600002, "AWAY": 0.399998}))], SINCE)
+    assert len(rows) == 1 and not rows[0]["conflicting_copies"]

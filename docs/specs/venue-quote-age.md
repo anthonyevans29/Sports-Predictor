@@ -148,7 +148,7 @@ Open points for the ruling:
   - no 1X2 fair to compare (for example an NFL `spread_derived` reference);
   - no capture;
   - no DB match.
-- **Per sport**: rows, rows with a capture, measured (verified) and excluded, the file-match / mismatch / no-file-fair counts, then median / p90 / max of both ages, the count with unchanged age above 3h, and the censored count, all over measured rows. Percentiles are nearest-rank on the sorted list, index round(q·(n−1)).
+- **Per sport**: rows, rows with a capture, measured (verified) and excluded, the file-match / mismatch / no-file-fair counts, then median / p90 / max of both ages, the count with unchanged age above 3h, and the censored count, all over measured rows. Percentiles are nearest-rank on the sorted list, index floor(q·(n−1) + 0.5) (ties half-up).
 
 ## Evidence for step (3): SJ@STL (ARCHITECT, addendum 6 item 3, 2026-10-07, verbatim)
 

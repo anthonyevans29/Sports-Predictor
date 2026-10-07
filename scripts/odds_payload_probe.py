@@ -428,12 +428,13 @@ def main(argv=None) -> int:
         except Refused as e:
             print(str(e))
             return 2
-        if a.match_id is None:                 # Codex on #340: a direct --game id is checked from the payload
-            ok, msg = league_check(payload, a.sport)
-            if ok is False:
-                print(msg)
-                return 2
+        ok, msg = league_check(payload, a.sport)   # Codex on #340: every fetch; a wrong league always refuses
+        if ok is False:
             print(msg)
+            return 2
+        if a.match_id is None or ok:           # --match-id is DB-verified; a payload with no league id stays quiet
+            print(msg)
+        if a.match_id is None:
             if ok is None:
                 text = "\n".join(report(payload, a.max_items, a.sport))
                 text = text.replace("VERDICT (this payload): ", "VERDICT (this payload; LEAGUE UNVERIFIED): ")

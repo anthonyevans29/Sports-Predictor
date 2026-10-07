@@ -264,8 +264,10 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 bad_read.append(p)
                 continue
             if not isinstance(doc, dict):
-                if EXPORT_NAME.search(n):              # Codex on #340: a generated export that parses as [] /
-                    bad_read.append(p)                 # null / a scalar is damaged, never skipped
+                # Codex on #340: a generated export that parses as anything but an object is damaged; any name
+                # (--out) that parses as null / a scalar / [] is too. A non-empty list is another file kind
+                if EXPORT_NAME.search(n) or not (isinstance(doc, list) and doc):
+                    bad_read.append(p)
                 continue
             if "desk_meta" not in doc and any(
                     isinstance(x, dict) and isinstance(x.get("desk"), dict) and x["desk"]

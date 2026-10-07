@@ -1169,7 +1169,7 @@ def test_damaged_sport_metadata_and_non_object_export_roots_are_refused(tmp_path
             VQ.iter_desk_docs(str(ex))
     other = tmp_path / "other"
     other.mkdir()
-    (other / "notes.json").write_text("[]")
+    (other / "notes.json").write_text('[{"x": 1}]')                 # a non-empty list: another file kind
     assert VQ.iter_desk_docs(str(other))[0] == []
 
 
@@ -1295,3 +1295,18 @@ def test_a_ledger_only_claim_is_measured_only_on_an_anchor_it_matches():
         with session_scope() as s:
             out[tag] = VQ.venue_receipt(s, calls)["rows"][0]["verdict"]
     assert out == {"ok": "MOVED", "bad": "ANCHOR MISMATCH: NOT MEASURED", "none": "LEDGER UNVERIFIED: NOT MEASURED"}
+
+
+def test_a_custom_named_export_with_a_null_scalar_or_empty_root_is_refused(tmp_path):
+    """Codex on #340: --out allows any name; null / a scalar / [] is a damaged export whatever it is called. A
+    non-empty list is another file kind and is skipped."""
+    for i, body in enumerate(("null", "[]", "7", '"x"')):
+        ex = tmp_path / f"r{i}"
+        ex.mkdir()
+        (ex / "audit.json").write_text(body)
+        with pytest.raises(VQ.Refused, match="cannot be read as JSON"):
+            VQ.iter_desk_docs(str(ex))
+    ok = tmp_path / "ok"
+    ok.mkdir()
+    (ok / "series.json").write_text('[{"ticker": "KX"}]')
+    assert VQ.iter_desk_docs(str(ok))[0] == []

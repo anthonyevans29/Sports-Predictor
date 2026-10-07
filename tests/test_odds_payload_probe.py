@@ -406,3 +406,12 @@ def test_saved_payloads_are_league_checked_and_scalar_responses_name_no_league(t
     assert "not NCAA's (2)" in capsys.readouterr().out
     assert P.main(["--from-file", str(src), "--sport", "nhl"]) == 0
     assert "league verified from the payload: NHL (57)" in capsys.readouterr().out
+
+
+def test_a_match_id_fetch_naming_another_league_is_refused(monkeypatch, capsys):
+    # Codex on #340: a DB row whose provider id points at an NFL game still never drives an NCAA verdict
+    monkeypatch.setattr(P, "game_for_match", lambda sport, mid: "9")
+    monkeypatch.setattr(P, "fetch", lambda sport, game: ({**SYNTH, "response": [
+        {**SYNTH["response"][0], "league": {"id": 1}}]}, None))
+    assert P.main(["--sport", "ncaa", "--match-id", "5"]) == 2
+    assert "not NCAA's (2)" in capsys.readouterr().out

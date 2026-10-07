@@ -592,7 +592,9 @@ function fileValue(r){ const v=r.fileDesk.value_shadow; if(!v) return null;
     tags:(v.tags||[]).slice(),fileExec:v.exec??null}; }
 function fileVenue(r){ const v=r.fileDesk.venue||{};
   return {eligible:!!v.eligible,reason:v.reason||"",side:v.side??null,divPP:v.div_pp??null,bookP:v.book_p??null,
-    kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{},execCost:v.exec_cost??null}; }
+    kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{},execCost:v.exec_cost??null,
+    // VENUE QUOTE AGE (ARCHITECT 2026-10-07): a row the file HOLDS (no quote time stored) — a re-run cannot clear it
+    held:!!v.quote_age_hold}; }
 
 function policy(){
   renderProgress();
@@ -673,7 +675,7 @@ function renderVenue(){
       <td>${v.bookP!=null?v.bookP.toFixed(3):"—"}</td><td>${v.kalP!=null?v.kalP.toFixed(3):"—"}</td>
       <td>${v.divPP!=null?(v.divPP>0?"+":"")+v.divPP.toFixed(1)+"pp":"—"}</td>
       <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"+passKindTag(vk)}${v.eligible&&r.marketOnly?orderHTML(r.fileDesk.order):""}</td>
-      <td class="reason">${esc(v.reason+(v.eligible&&stale?" · gap ≥ 8pp: STALE-BOOK? zone — distrust the book side":""))}${vk==="noref"?rerunHint(r):""}</td>`;
+      <td class="reason">${esc(v.reason+(v.eligible&&stale?" · gap ≥ 8pp: STALE-BOOK? zone — distrust the book side":""))}${vk==="noref"&&!v.held?rerunHint(r):""}</td>`;
     tb.appendChild(tr);
   }
   $("venueCard").hidden=!rows.length;

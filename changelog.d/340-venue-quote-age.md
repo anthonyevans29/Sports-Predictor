@@ -18,3 +18,4 @@
   - Probe: a missing provider key and every `--match-id` preflight failure are refusals too (exit 2, reason stated), not a bare exit 1.
   - Receipt: a MANUAL ledger claim (stamped at the click, never a file's `as_of`) merges onto its position by identity (sport, teams, kickoff, side): the latest file call at or before the click. No such file means it stays its own row and is never guessed onto a later file.
   - Both receipts refuse (exit 2) an `--exports-dir` that is missing, misspelled or a file, never reporting an empty audit. `venue-calls-receipt` refuses a ledger whose calls array has any non-object entry, as `k-track-receipt` does.
+  - Report: a row decided at or after its kickoff is excluded by its timestamps, not only by `pass_kind == "started"`. Files older than the started-game rule (2026-10-06) carry no marker, and such a row would otherwise inflate both ages.

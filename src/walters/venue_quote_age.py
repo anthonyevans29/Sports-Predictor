@@ -469,7 +469,8 @@ def _row_fair(row: dict) -> dict | None:
 
 def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
     """Every --desk prediction-export row of MLB/NFL/PL whose desk decided against a BOOK reference
-    (desk.reference == "books"), excluding started rows (no decision). One per (sport, home, away, kickoff,
+    (desk.reference == "books"), excluding started rows (no decision): pass_kind "started", or as_of at or after
+    the kickoff (files older than the started-game rule carry no marker). One per (sport, home, away, kickoff,
     as_of) — stable identity; a mirrored file's match_id is foreign and kept only for the record."""
     mirrored = set(mirrored or ())
     seen, out = set(), []
@@ -486,6 +487,10 @@ def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
                     or d.get("pass_kind") == "started"):
                 continue
             kick = parse_ts(r.get("utc_date"))
+            if kick is not None and as_of >= kick:
+                # Codex on #340: a file older than the started-game rule (2026-10-06) carries no pass_kind; a row
+                # decided at or after kickoff is no decision, by its timestamps, whatever the marker says
+                continue
             k = (sport, r.get("home_team"), r.get("away_team"), kick, as_of)
             if k in seen:
                 continue

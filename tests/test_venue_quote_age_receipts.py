@@ -380,3 +380,16 @@ def test_a_missing_exports_dir_and_a_damaged_ledger_are_refused(tmp_path):
     led.write_text(json.dumps({"calls": [{"engine": "venue_edge"}, None]}))
     r = CliRunner().invoke(cli.cli, ["venue-calls-receipt", "--exports-dir", str(ex), "--ledger", str(led)])
     assert r.exit_code == 2 and "non-object entry (index 1)" in " ".join(r.output.split()), r.output
+
+
+def test_a_legacy_post_kickoff_row_is_excluded_by_its_timestamps():
+    """Codex on #340: a file older than the started-game rule has no pass_kind; a row decided at or after kickoff
+    is still no decision, and never inflates the capture / unchanged ages."""
+    def row(mid, kick):
+        return {"match_id": mid, "home_team": "H", "away_team": "A", "utc_date": _iso(kick),
+                "desk": {"engine": "model_edge", "reference": "books", "call": "PASS"}}
+    asof = KO
+    doc = {"competition_code": "NFL", "desk_meta": {"as_of": _iso(asof) + "Z"},
+           "predictions": [row(1, KO - timedelta(hours=1)), row(2, KO), row(3, KO + timedelta(hours=2))]}
+    rows = VQ.model_reference_rows([("legacy.json", doc)], SINCE)
+    assert [r["match_id"] for r in rows] == [3]

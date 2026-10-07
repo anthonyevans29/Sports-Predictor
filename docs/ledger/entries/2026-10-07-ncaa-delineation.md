@@ -5,6 +5,7 @@
   - Every fixtures row (`export-fixtures` and the window card, via `_fixture_row`) carries `competition` and `family` (NCAAF for college, NFL for NFL).
   - `window-card` and `capture-weather-nfl` console lines count games per competition.
   - `sport` stays "nfl" on window-card college rows: sp_run's `FRESHEN_FAMILY` keys on (sport, competition), and the Cockpit renders `SPORT · competition`. Readers checked: tools/cockpit.html, src/walters/desk_policy.py, deploy/hosting/sp_window_page.py, deploy/hosting/sp_run.py + chains.py, scripts/cockpit_window_verify.py.
-  - The shadow clause is met by #344: `ncaa_shadow_<stamp>.json`, stamped `sport: ncaa`, `competition: NCAA` and `family: NCAAF`, on every row too.
-  - **Left for the operator:** the Cockpit's window table renders `SPORT · competition`, so a college row still reads "NFL · NCAA" there. The Cockpit is the separately published artifact, and the fix renders `family`.
+  - The shadow clause lands with #344 (unmerged, stacked on #333): `ncaa_shadow_<stamp>.json`, stamped `sport: ncaa`, `competition: NCAA` and `family: NCAAF`, on every row too. This PR carries no shadow producer.
+  - Cockpit (repo copy, `tools/cockpit.html`): the window table renders `family` before `sport` ("NCAAF · NCAA"; older files without `family` keep the sport). The live Cockpit is the separately published artifact, so the operator republishes it for the label to change there.
+  - Rate-limit lines (retry, still-limited, deferred / recovered) name each competition too.
 - **Effect:** labels only. No probability, policy, gate or grading logic changed. `tests/test_ncaa_delineation.py` (5 tests) fails on main and passes here.

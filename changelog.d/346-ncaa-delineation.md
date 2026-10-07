@@ -3,3 +3,4 @@
 - Export rows: every fixtures row (`export-fixtures`, and the window card through the shared `_fixture_row`) carries `competition` (the Competition code) and `family`: "NCAAF" for college, "NFL" for NFL, the upper-cased sport otherwise. A window-card college row keeps `sport: "nfl"` because sp_run's `FRESHEN_FAMILY` keys on (sport, competition); its `competition` (NCAA) and `family` (NCAAF) name it.
 - `window-card`: the games count names each competition ("games 37 (MLB 5 · NCAA 20 · NFL 12)"). `capture-weather-nfl`: skipped games are counted per competition ("skipped=50 (NCAA 48 · NFL 2)").
 - Labels only: no probability, policy, gate or grading logic changes.
+- Codex on #346: the rate-limit lines (retry, still limited, deferred / recovered) name each competition; the repo Cockpit's window table renders `family` before `sport` ("NCAAF · NCAA"; older files keep the sport); the shadow clause is #344's (unmerged), not this PR's.

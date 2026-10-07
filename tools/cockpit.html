@@ -2404,7 +2404,7 @@ function renderWindow(doc){
   const tb=$("nextTable").querySelector("tbody");
   tb.innerHTML=rows.map(r=>{
     const ko=r.f.utc_date?new Date(r.f.utc_date+(r.f.utc_date.endsWith("Z")?"":"Z")).toLocaleString([], {weekday:"short",hour:"2-digit",minute:"2-digit"}):"?";
-    return `<tr><td>${esc(ko)}</td><td>${esc(String(r.f.sport||"").toUpperCase())} · ${esc(r.f.competition)}</td>
+    return `<tr><td>${esc(ko)}</td><td>${esc(String(r.f.family||r.f.sport||"").toUpperCase())} · ${esc(r.f.competition)}</td>
       <td>${esc(r.f.away_team)} @ ${esc(r.f.home_team)}</td><td>${esc(r.model)}</td><td>${esc(r.book)}</td>
       <td>${esc(r.kal)}</td><td>${esc(r.edge)}</td><td>${esc(r.f.tier||"—")}</td>
       <td class="${r.flags.length?"caution":""}">${esc(r.flags.join(" · ")||"—")}</td>

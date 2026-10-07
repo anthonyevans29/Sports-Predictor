@@ -1999,6 +1999,12 @@ def sync_odds_nfl(progress=None) -> dict:
         covered = " · ".join(f"{c} odds: {n} upcoming games"
                              for c, n in sorted(upcoming_by_comp.items()))
         report(f"  {covered or 'Football odds: 0 upcoming games'} in window · paced at {rpm}/min")
+        def by_comp(ms) -> str:          # "NCAA 3 · NFL 1" (DELINEATION: every line names the competition)
+            n: dict[str, int] = {}
+            for x in ms:
+                n[comp_of(x)] = n.get(comp_of(x), 0) + 1
+            return " · ".join(f"{c} {k}" for c, k in sorted(n.items()))
+        deferred_first: list = []
         queue, rnd, fetched = list(upcoming), 0, []
         while queue:
             deferred, wait = [], 0.0
@@ -2017,15 +2023,21 @@ def sync_odds_nfl(progress=None) -> dict:
             if not deferred:
                 break
             deferred_total += len(deferred) if rnd == 0 else 0
+            if rnd == 0:
+                deferred_first = list(deferred)
             if rnd >= ODDS_RETRY_ROUNDS:
-                report(f"    ✗ still rate limited after {rnd} retry round(s): {len(deferred)} game(s) unpriced")
+                report(f"    ✗ still rate limited after {rnd} retry round(s): {len(deferred)} game(s) unpriced "
+                       f"({by_comp(deferred)})")
                 break
             rnd += 1
-            report(f"    ↻ {len(deferred)} game(s) rate limited — retrying after {wait:.0f}s (round {rnd})")
+            report(f"    ↻ {len(deferred)} game(s) rate limited ({by_comp(deferred)}) — retrying after {wait:.0f}s "
+                   f"(round {rnd})")
             _odds_sleep(wait)
             last[0] = None
             queue = deferred
         recovered = sum(1 for _, _, r, _ in fetched if r > 0)
+        recovered_label = by_comp([x for x, _, r, _ in fetched if r > 0])
+        deferred_label = by_comp(deferred_first)
         for m, rows, _, fetched_at in fetched:
             if not rows:
                 report(f"    · {comp_of(m)}: no odds yet for {m.away_team.name} @ {m.home_team.name}")
@@ -2056,7 +2068,8 @@ def sync_odds_nfl(progress=None) -> dict:
                                        captured_at=stamp, source=ad.source_name))
                     snapshots += 1
     if deferred_total:
-        report(f"  rate limit: {deferred_total} game(s) deferred · {recovered} recovered after the window")
+        report(f"  rate limit: {deferred_total} game(s) deferred ({deferred_label}) · {recovered} recovered after the "
+               f"window" + (f" ({recovered_label})" if recovered else ""))
     return {"created": created, "games": games, "snapshots": snapshots,
             "rate_limited": deferred_total, "recovered": recovered,
             "games_by_competition": dict(sorted(games_by_comp.items()))}

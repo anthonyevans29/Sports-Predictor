@@ -132,3 +132,10 @@ def test_window_card_cli_line_names_competitions(card_games, tmp_path, monkeypat
     res = CliRunner().invoke(cli.cli, ["window-card"])
     assert res.exit_code == 0, res.output
     assert "games 2 (NCAA 1 · NFL 1)" in res.output, res.output
+
+
+def test_the_cockpit_window_table_renders_family_before_sport():
+    # Codex on #346: the repo Cockpit labels a college window row by family ("NCAAF · NCAA"), never "NFL"
+    from pathlib import Path
+    html = (Path(__file__).resolve().parents[1] / "tools" / "cockpit.html").read_text()
+    assert 'String(r.f.family||r.f.sport||"").toUpperCase())} · ${esc(r.f.competition)}' in html

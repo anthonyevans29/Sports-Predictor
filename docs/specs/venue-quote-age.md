@@ -51,7 +51,7 @@ Build order (verbatim): "(1) a read-only payload probe the operator runs for one
 - the paths `list_odds` reads, against the paths that are present and dropped;
 - a one-line verdict.
 
-**Refusals (Codex on #340).** An unsuccessful response is refused with exit 2, its reason and NO verdict. A missing, unreadable or truncated `--from-file`, a missing provider key and every `--match-id` preflight failure (non-SQLite URL, no DB file, unknown match, no provider id) are refusals the same way. These are the adapters' own `_get` checks (`src/adapters/api_hockey.py` / `api_american_football.py`: `raise_for_status`, then `errors` rejection):
+**Refusals (Codex on #340).** An unsuccessful response is refused with exit 2, its reason and NO verdict. A transport failure (DNS, TLS, connection, timeout), a missing, unreadable or truncated `--from-file`, a missing provider key and every `--match-id` preflight failure (non-SQLite URL, no DB file, unknown match, no provider id) are refusals the same way. These are the adapters' own `_get` checks (`src/adapters/api_hockey.py` / `api_american_football.py`: `raise_for_status`, then `errors` rejection):
 - a non-2xx HTTP status (401 / 429 / 5xx). The probe does not retry a 429; it refuses it;
 - a body that is not JSON, or not a JSON object;
 - a non-empty `errors` field (a list, or an object with values).

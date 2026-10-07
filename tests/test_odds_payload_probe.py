@@ -195,3 +195,30 @@ def test_an_unreadable_from_file_is_a_refusal(tmp_path, capsys):
         assert P.main(["--from-file", str(path)]) == 2
         out = capsys.readouterr().out
         assert "REFUSED: cannot read --from-file" in out and "VERDICT" not in out
+
+
+def test_a_transport_failure_is_a_refusal(monkeypatch, capsys):
+    # Codex on #340: DNS / TLS / connection / timeout errors raise before check_response; they exit 2, key redacted.
+    import sys
+    import types
+
+    import requests
+    fake = types.ModuleType("fake_probe_adapter")
+    fake.DIRECT_BASE = "https://example.invalid"
+
+    class Ad:
+        _headers = {"x-apisports-key": "SECRETKEY123"}
+    fake.Ad = Ad
+    monkeypatch.setitem(sys.modules, "fake_probe_adapter", fake)
+    monkeypatch.setitem(P.SPORTS, "nhl", ("fake_probe_adapter", "Ad", "sync-odds --competition NHL", "api_hockey"))
+
+    def down(*a, **k):
+        raise requests.ConnectionError("cannot reach host with key SECRETKEY123")
+    monkeypatch.setattr(requests, "get", down)
+    with pytest.raises(P.Refused) as e:
+        P.fetch("nhl", "1")
+    assert "ConnectionError" in str(e.value) and "SECRETKEY123" not in str(e.value)
+    assert P.main(["--sport", "nhl", "--game", "1"]) == 2
+    out = capsys.readouterr().out
+    assert "REFUSED: the request to https://example.invalid/odds failed" in out and "VERDICT" not in out
+    assert "SECRETKEY123" not in out

@@ -587,9 +587,7 @@ def format_age_report(rep: dict, since: datetime, sources: list[str]) -> list[st
     exc = [x for x in rep["rows"] if x.get("excluded")]
     if exc:
         out.append(f"EXCLUDED from the statistics: {len(exc)}")
-        for x in exc[:50]:
+        for x in exc:                          # every one, with its reason (Codex on #340: no truncation)
             out.append(f"  {x['sport']} · {x.get('away')} @ {x.get('home')} · KO {_z(x.get('kickoff'))} · as_of "
                        f"{_z(x['as_of'])} · {x['excluded']}")
-        if len(exc) > 50:
-            out.append(f"  … {len(exc) - 50} more")
     return out

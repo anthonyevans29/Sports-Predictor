@@ -241,7 +241,11 @@ def fetch(sport: str, game: str) -> tuple[dict, str | None]:
     # wants to SEE an odds payload, never to read an error response as one. No retry: a 429 is refused, stated.
     import requests
     base = importlib.import_module(mod).DIRECT_BASE
-    resp = requests.get(f"{base}/odds", headers=ad._headers, params={"game": game}, timeout=30)
+    try:
+        resp = requests.get(f"{base}/odds", headers=ad._headers, params={"game": game}, timeout=30)
+    except requests.RequestException as e:   # DNS / TLS / connection / timeout: a refusal (Codex on #340)
+        raise Refused(redact(f"REFUSED: the request to {base}/odds failed ({type(e).__name__}: {e}); nothing "
+                             "fetched, no verdict", key)) from None
     print(f"GET {base}/odds?game={game} -> HTTP {resp.status_code} · "
           f"x-ratelimit-requests-remaining {resp.headers.get('x-ratelimit-requests-remaining')}")
     return check_response(resp, key), key

@@ -20,3 +20,4 @@
   - Both receipts refuse (exit 2) an `--exports-dir` that is missing, misspelled or a file, never reporting an empty audit. `venue-calls-receipt` refuses a ledger whose calls array has any non-object entry, as `k-track-receipt` does.
   - Report: a row decided at or after its kickoff is excluded by its timestamps, not only by `pass_kind == "started"`. Files older than the started-game rule (2026-10-06) carry no marker, and such a row would otherwise inflate both ages.
   - Probe: a missing, unreadable or truncated `--from-file` is a refusal (exit 2, reason, no verdict), not a traceback.
+  - Probe: a transport failure (DNS, TLS, connection, timeout) is a refusal: exit 2, key-redacted reason, no verdict. Report: every excluded row is listed with its reason, never truncated at 50.

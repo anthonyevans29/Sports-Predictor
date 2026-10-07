@@ -393,3 +393,12 @@ def test_a_legacy_post_kickoff_row_is_excluded_by_its_timestamps():
            "predictions": [row(1, KO - timedelta(hours=1)), row(2, KO), row(3, KO + timedelta(hours=2))]}
     rows = VQ.model_reference_rows([("legacy.json", doc)], SINCE)
     assert [r["match_id"] for r in rows] == [3]
+
+
+def test_every_excluded_row_is_listed():
+    """Codex on #340: the report says every excluded row is listed with its reason, so none is truncated."""
+    rows = [{"sport": "MLB", "home": f"H{i}", "away": f"A{i}", "kickoff": KO, "as_of": KO - timedelta(hours=1),
+             "excluded": "no capture at or before as_of"} for i in range(75)]
+    txt = VQ.format_age_report({"by_sport": {}, "rows": rows}, SINCE, ["test"])
+    assert "EXCLUDED from the statistics: 75" in txt
+    assert sum(1 for line in txt if line.startswith("  MLB · A")) == 75 and not any("more" in x for x in txt[-3:])

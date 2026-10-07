@@ -66,6 +66,15 @@ EXEC_RULES = {"on": True}
 # never a parlay leg. The pre-kickoff file and the ledger stay the record of the call. An unknown kickoff is
 # unchanged (never guessed). Its own switch: the frozen golden (pre-F1c) predates it and runs with it off.
 STARTED_RULE = {"on": True}
+# MLB BIG-EDGE QUARANTINE (ARCHITECT 2026-10-07, effective with the 2026-10-07 slate): "an MLB row whose edge against
+# its reference is above 8pp is QUARANTINED: never a straight play, logged as a quarantine shadow at the size it
+# would have staked (the NFL contract, at 8pp for MLB). The MLB 15pp caution tier is superseded. The 4pp floor and
+# the rest of v1.1 stand." The edge is the Desk's own (model pick p − its reference: the book fair, or the
+# kalshi-only mid), so both references quarantine alike. Exactly 8.00pp plays (the tolerance keeps binary-float
+# subtraction noise from tipping an exact 8.00 over). Its own switch: the frozen golden predates it (base_v11()).
+MLB_QUARANTINE = {"on": True, "abovePP": 8.0}
+MLB_QUARANTINE_EPS = 1e-9
+MLB_QUARANTINE_RULING = "MLB big-edge quarantine, ARCHITECT 2026-10-07"
 STARTED_REASON = "started - never a new call"
 # VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
 # time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
@@ -390,12 +399,27 @@ def k_side(r, side):
 @contextmanager
 def base_v11():
     """The Desk WITHOUT the #87 addendum: the frozen pre-F1c golden's policy (the parity battery only)."""
-    was, was_started, was_qa = EXEC_RULES["on"], STARTED_RULE["on"], QUOTE_AGE_RULE["on"]
-    EXEC_RULES["on"] = STARTED_RULE["on"] = QUOTE_AGE_RULE["on"] = False
+    was, was_started = EXEC_RULES["on"], STARTED_RULE["on"]
+    was_mlbq, was_qa = MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"]
+    EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
     try:
         yield
     finally:
-        EXEC_RULES["on"], STARTED_RULE["on"], QUOTE_AGE_RULE["on"] = was, was_started, was_qa
+        EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
+        MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"] = was_mlbq, was_qa
+
+
+@contextmanager
+def addendum_off():
+    """The Desk without the #87 addendum and the started rule, with every OTHER policy switch held as it is —
+    desk-rescore's "before" side (Codex on #328: base_v11() also turns MLB_QUARANTINE off, so a quarantined
+    >8pp MLB row read as "halved by #87"). base_v11() itself is unchanged: the golden battery's policy."""
+    was, was_started = EXEC_RULES["on"], STARTED_RULE["on"]
+    EXEC_RULES["on"] = STARTED_RULE["on"] = False
+    try:
+        yield
+    finally:
+        EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
 
 
 @contextmanager
@@ -408,6 +432,13 @@ def quote_age_rule_off():
         yield
     finally:
         QUOTE_AGE_RULE["on"] = was
+
+
+def is_quarantine_shadow(c: dict) -> bool:
+    """A Desk call that is a quarantine shadow: PASS, shadow units > 0, a "quarantine … (shadow)" tag."""
+    import re
+    return bool(c.get("call") == "PASS" and (c.get("shadowUnits") or 0) > 0
+                and any(re.match(r"^quarantine .*\(shadow\)$", t) for t in (c.get("tags") or [])))
 
 
 @contextmanager
@@ -692,6 +723,9 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
             reasons.clear()
             reasons.append("pre-gate sport: no production model — market display only")
         quarantined = bool(P.get("qNever") and r["quar"])
+        mlb_big = bool(MLB_QUARANTINE["on"] and r["sport"] == "MLB"
+                       and edge > MLB_QUARANTINE["abovePP"] + MLB_QUARANTINE_EPS)
+        quarantined = quarantined or mlb_big
         if call == "PLAY" and r["sport"] == "NFL" and r["qbs"]:
             units = min(units, base / 2)
             reasons.append(f"QB-flagged ({', '.join(r['qbs'])}) → half units")
@@ -709,7 +743,7 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
                 reasons.append(f"edge ≥ {js_str(e_lad)}pp → reduced-size straight (2-way board: no DC instrument),"
                                f" half units")
                 tags.append("ladder-size on 2-way board")
-        if edge >= e_hair:
+        if edge >= e_hair and not (MLB_QUARANTINE["on"] and r["sport"] == "MLB"):   # MLB: superseded (2026-10-07)
             units, cls = base / 2, "caution"
             reasons.append(f"edge ≥ {js_str(e_hair)}pp → market-is-right caution (cohort: big edges historically"
                            f" anti-predictive)")
@@ -758,8 +792,14 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
         if quarantined and call != "PASS":
             shadow_units, call, cls, units = units, "PASS", "pass", 0
             reasons.clear()
-            reasons.append(f"QUARANTINE {js_str(r['div'])}pp — contract: never a straight play")
-            tags.append("quarantine ≥ 15pp (shadow)")
+            if mlb_big:
+                reasons.append(f"QUARANTINE edge {js_fixed(edge, 1)}pp > {js_str(MLB_QUARANTINE['abovePP'])}pp vs "
+                               f"{'the kalshi-only mid' if kal_only else 'the book close'} — {MLB_QUARANTINE_RULING}:"
+                               f" never a straight play (shadow at {js_str(shadow_units)}u)")
+                tags.append(f"quarantine > {js_str(MLB_QUARANTINE['abovePP'])}pp (shadow)")
+            else:
+                reasons.append(f"QUARANTINE {js_str(r['div'])}pp — contract: never a straight play")
+                tags.append("quarantine ≥ 15pp (shadow)")
     if (call == "PASS" and pass_kind == "floor" and not kal_only and r["books"] is not None
             and r["books"] < PASSCLASS["minBooks"]):
         pass_kind = "noref"
@@ -1190,6 +1230,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "exec_addendum": EXEC_RULES["on"],    # #87 v1.1 (2026-10-06): TAKE cost sizes PLAYs
                         "started_rule": STARTED_RULE["on"],   # #313: a started game is never a new call
                         "venue_quote_age_rule": QUOTE_AGE_RULE["on"],  # 2026-10-07: venue-edge emits no call
+                        # MLB big-edge quarantine (ARCHITECT 2026-10-07): the threshold in force, None = off
+                        "mlb_quarantine_above_pp": MLB_QUARANTINE["abovePP"] if MLB_QUARANTINE["on"] else None,
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
     return doc
 
@@ -1281,7 +1323,7 @@ def _rescore(doc: dict) -> list[dict]:
     clean = json.loads(json.dumps(doc))
     for r in clean.get("predictions") or []:
         r.pop("desk", None)
-    with base_v11():
+    with addendum_off():                    # quarantine policy held constant: only #87 (+ started) differs
         base = {id(r["src"]): (r, c) for r, c in evaluate(clean, now_ms, counts)["calls"]}
     new = {id(r["src"]): (r, c) for r, c in evaluate(clean, now_ms, counts)["calls"]}
     for d, i in published:
@@ -1298,7 +1340,9 @@ def _rescore(doc: dict) -> list[dict]:
                     "exec_edge_pp": exec_edge_pp(r, r["pick"], r["prob"], c.get("execUnits")),
                     "published_units": d.get("units"), "v11_units": b["units"], "addendum_units": c["units"],
                     "addendum_call": c["call"],
-                    "verdict": ("halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
+                    # a published PLAY the CURRENT quarantine now shadows is its own transition, never "halved"
+                    "verdict": ("quarantined" if is_quarantine_shadow(c) else
+                                "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
                                 else "raised")})
     return out
 

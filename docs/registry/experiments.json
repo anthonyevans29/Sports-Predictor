@@ -639,6 +639,27 @@
       "at": "2026-10-02T18:11:47Z"
     },
     "ratified": "ARCHITECT 2026-10-02: interpretation RATIFIED \u2014 the fitted scale is a multiplier on c; the update divisor stays 400.",
-    "limitation": "DECLARED (ARCHITECT 2026-10-02): grid-edge pick (fit_k_mult 2.0 is the top of the declared 0.5..2.0 k grid); 13.7% v3 neutral share; 57% unflagged venues."
+    "limitation": "DECLARED (ARCHITECT 2026-10-02): grid-edge pick (fit_k_mult 2.0 is the top of the declared 0.5..2.0 k grid); 13.7% v3 neutral share; 57% unflagged venues.",
+    "confirmation_cohort": {
+      "n": 60,
+      "ids_sha256": "94416b7c8f7d14eacd9a59217179d62ed08eb85eee8cdb402276820ce722382a",
+      "ids_file": "docs/registry/ids/intl-elo-v2.cohort.txt",
+      "frozen_at": "2026-10-03T12:01:42Z",
+      "basis": {
+        "selected_at": "2026-10-03T12:01:42Z",
+        "rule": "first n eligible stored fixtures by (kickoff, id): competitive stream code, kickoff after the verdict, not in the test set, ANY status (result availability never enters)",
+        "eligible_stored": 120,
+        "first_kickoff": "2026-10-02T18:45:00Z",
+        "last_kickoff": "2026-11-11T21:00:00Z",
+        "status_at_freeze": {
+          "finished": 7,
+          "scheduled": 53
+        },
+        "by_code": {
+          "UNL": 41,
+          "CNL": 19
+        }
+      }
+    }
   }
 ]

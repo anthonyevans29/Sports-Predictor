@@ -16,6 +16,17 @@ import exports_mirror as em  # noqa: E402
 TODAY = date(2026, 10, 3)
 
 
+import pytest  # noqa: E402
+
+
+@pytest.fixture(autouse=True)
+def _no_operator_env_files(monkeypatch, tmp_path):
+    """sp_common.setting reads host.env and the checkout's .env after the environment (item 8b): tests see
+    neither, so an operator's files never leak into them."""
+    monkeypatch.setattr(em.c, "HOST_ENV", tmp_path / "no-host.env")
+    monkeypatch.setattr(em.c, "_DOTENV_CACHE", {})
+
+
 def _mt(d: date, h=12):
     return datetime(d.year, d.month, d.day, h, tzinfo=timezone.utc).timestamp()
 
@@ -270,3 +281,63 @@ def test_keygen_into_an_unwritable_dir_names_the_root_step(tmp_path, capsys):
         assert "--key" in out and "sudo" in out and "SP_EXPORTS_MIRROR_KEY" in out
     finally:
         ro.chmod(0o700)
+
+
+def test_settings_come_from_the_checkouts_env_and_the_environment_wins(monkeypatch, tmp_path, capsys):
+    """ARCHITECT 2026-10-07 (addendum 2 item 8b): the laptop's .env carries the mirror's settings through
+    sp_common.setting, so the documented morning line cannot be half-typed."""
+    for k in ("SP_EXPORTS_MIRROR_REMOTE", "SP_EXPORTS_MIRROR_KEY", "SP_EXPORTS_MIRROR_ROLE"):
+        monkeypatch.delenv(k, raising=False)
+    monkeypatch.setattr(em.c, "_DOTENV_CACHE", {"SP_EXPORTS_MIRROR_REMOTE": "https://example.invalid/x.git",
+                                                "SP_EXPORTS_MIRROR_KEY": str(tmp_path / "dotenv-key")})
+    assert em.c.setting("SP_EXPORTS_MIRROR_REMOTE") == "https://example.invalid/x.git"
+    assert em.key_path() == tmp_path / "dotenv-key"
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_KEY", str(tmp_path / "env-key"))
+    assert em.key_path() == tmp_path / "env-key"                      # the environment wins
+    (tmp_path / "host.env").write_text("SP_EXPORTS_MIRROR_ROLE=laptop\n")
+    monkeypatch.setattr(em.c, "HOST_ENV", tmp_path / "host.env")
+    assert em.c.setting("SP_EXPORTS_MIRROR_ROLE") == "laptop" and em.c.setting("SP_NOPE", "d") == "d"
+
+
+def test_a_missing_key_on_an_ssh_remote_is_a_stated_refusal(monkeypatch, tmp_path, capsys):
+    """ARCHITECT 2026-10-07 (addendum 4 F): a KEY naming a file that does not exist ran git keyless and was
+    refused; the mirror now refuses first, naming the path. An HTTPS remote never needs the key."""
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_REMOTE", "git@github.com:anthonyevans29/Sports-Predictor-exports.git")
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_KEY", str(tmp_path / "sp_exports_laptop"))
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_DIR", str(tmp_path / "clone"))
+    assert em.main(["push", "--exports", str(tmp_path)]) == 2
+    out = capsys.readouterr().out
+    assert "REFUSED" in out and "sp_exports_laptop" in out and "SP_EXPORTS_MIRROR_KEY names it" in out
+    assert not (tmp_path / "clone").exists()                        # refused before any git step
+    monkeypatch.delenv("SP_EXPORTS_MIRROR_KEY")
+    monkeypatch.setattr(em, "ETC_KEY", tmp_path / "no-etc-key")
+    monkeypatch.setenv("HOME", str(tmp_path / "home"))
+    assert em.key_refusal("git@github.com:a/b.git").endswith("never falls back silently.")
+    assert "the default path" in em.key_refusal("ssh://git@github.com/a/b.git")
+    assert em.key_refusal("https://github.com/a/b.git") is None
+    assert em.ssh_remote("example.com:owner/repo.git") and em.ssh_remote("git@github.com:a/b.git")   # userless scp form
+    assert not em.ssh_remote("https://github.com/a/b.git") and not em.ssh_remote("file:///tmp/x.git")
+    for r in ("u@h:path", "[::1]:path", "git+ssh://example.com/path", "ssh+git://h/p", "ssh://git@h:22/p"):
+        assert em.ssh_remote(r), r                                     # every form git runs ssh for (Codex on #335)
+    for r in ("http://h/p.git", "git://h/p.git", "/srv/x.git", "./x.git", "../x.git", "~/x.git"):
+        assert not em.ssh_remote(r), r
+    (tmp_path / "home" / ".ssh").mkdir(parents=True)
+    (tmp_path / "home" / ".ssh" / "sp_exports_deploy_key").write_text("k")
+    assert em.key_refusal("git@github.com:a/b.git") is None
+    assert not em.ssh_remote(str(tmp_path / "bare.git"))             # a local path remote (the tests' own)
+
+
+def test_a_rewritten_https_remote_never_runs_ssh_keyless(monkeypatch, tmp_path):
+    """Codex on #335: a pushInsteadOf rewrite can turn an HTTPS remote into SSH at push time. With no key file the
+    mirror hands git a refusing SSH command, so no SSH transport runs on an agent or default identity."""
+    seen, real_run = {}, subprocess.run
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_KEY", str(tmp_path / "missing"))
+    monkeypatch.setattr(em.subprocess, "run", lambda *a, **k: seen.update(k["env"]) or None)
+    em._git(tmp_path, "push")
+    assert seen["GIT_SSH_COMMAND"] == em.REFUSE_SSH
+    r = real_run(["sh", "-c", em.REFUSE_SSH + " git@github.com git-receive-pack x"], capture_output=True, text=True)
+    assert r.returncode != 0 and "REFUSED" in r.stderr
+    (tmp_path / "key").write_text("k")
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_KEY", str(tmp_path / "key"))
+    em._git(tmp_path, "push")
+    assert seen["GIT_SSH_COMMAND"].startswith("ssh -i ") and "IdentitiesOnly=yes" in seen["GIT_SSH_COMMAND"]

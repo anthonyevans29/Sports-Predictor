@@ -27,6 +27,7 @@ import cockpit_desk_files as cdf  # noqa: E402
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 K = (datetime.now(timezone.utc) + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S")
+K45 = (datetime.now(timezone.utc) + timedelta(minutes=45)).strftime("%Y-%m-%dT%H:%M:%S")   # inside T-60
 CHECKS = []
 
 
@@ -46,7 +47,10 @@ def row(home, comp, p, fair, **kw):
 
 MLB = {"sport": "mlb", "rehearsal": False, "predictions": [
     row("Bigedge", "MLB", 0.66, 0.55),                        # +11pp -> quarantine shadow
-    row("Moderate", "MLB", 0.61, 0.55)]}                      # +6pp -> straight
+    row("Moderate", "MLB", 0.61, 0.55),                       # +6pp -> straight
+    # no book market, Kalshi two-sided 0.49/0.50 inside T-60: the kalshi-only mid 0.495 is the reference, +10.5pp
+    {**row("Kalonly", "MLB", 0.60, 0.5), "utc_date": K45, "market": {"bookmaker_count": 0},
+     "kalshi_bid": 0.49, "kalshi_ask": 0.50}]}
 NFL = {"sport": "nfl", "rehearsal": False, "predictions": [
     row("Divergent", "NFL", 0.80, 0.55, quarantine=True, market_divergence_pp=25.0,
         input_quality={"injuries": {"home": {"qb_listed": []}, "away": {"qb_listed": []}}})]}
@@ -85,6 +89,19 @@ def main():
         m = by.get("Moderate")
         check("MLB +6pp still logged as a straight", m is not None and m["call_type"] == "straight",
               json.dumps(m)[:160] if m else "absent")
+        k = by.get("Kalonly")
+        check("kalshi-only quarantine shadow records the Desk's mid and reference (Codex on #328)",
+              k is not None and k["call_type"] == "quarantine_shadow" and abs((k.get("market_p") or 0) - 0.495) < 1e-9
+              and k.get("reference") == "kalshi_only" and k.get("venue_hint") == "kalshi",
+              json.dumps(k)[:220] if k else "absent")
+        check("ledger quarantine flag set from the file's Desk call", q is not None and q.get("quarantine") is True,
+              str(q.get("quarantine")) if q else "absent")
+        page.click("#tabCard") if page.query_selector("#tabCard") else None
+        card = page.evaluate("(()=>{renderCard();return [...document.querySelectorAll('.game')].map(g=>({q:g.classList.contains('quar'),t:g.textContent}))})()")
+        bg = [c for c in card if "Bigedge" in c["t"]]
+        check("Card shows the MLB quarantine (chip + border) from the file's Desk call (Codex on #328)",
+              bool(bg) and bg[0]["q"] and "QUARANTINE +11pp" in bg[0]["t"] and "MLB big-edge quarantine" in bg[0]["t"],
+              (bg[0]["t"][:200] if bg else f"{len(card)} cards"))
         n = by.get("Divergent")
         check("NFL divergence quarantine still logged as a shadow (unchanged)",
               n is not None and n["call_type"] == "quarantine_shadow" and n["units"] == 0,

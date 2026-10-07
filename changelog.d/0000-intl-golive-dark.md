@@ -1,0 +1,14 @@
+## 2026-10-07 (#0000: intl-golive-dark — ARCHITECT, gate-class, built DARK)
+- Desk: `POLICY["INTL"]` = the SOCCER block with qNever (INTL DESK POLICY v0, #323). Nothing changes for anyone: only a production intl file reaches it.
+  - Half units until 30 INTL calls are graded (`intl_graded` in the ledger summary; absent = 0).
+  - UNL only: CNL rows are PASS `no_series`.
+  - An unknown venue on a home-abroad side is PASS `venue_unknown`. The list stays empty until it is ruled by name.
+  - The v1.1 goldens are unchanged.
+- `export-intl-predictions`: the shadow's intl-elo-v2 rows re-shaped for the Desk.
+  - Each row carries `market_divergence_pp` / `quarantine` (the NFL contract), `venue_flag` and `competition`.
+  - It REFUSES and writes nothing until `registry.production_allowed("intl-elo-v2")`.
+  - `export-unl-predictions` is unchanged.
+- `intl-home-abroad-receipt` (read-only, `--out` to docs/receipts/):
+  - per national team, listed-home games since 2022 with a known neutral_v3 and the share abroad;
+  - venue-id coverage per current competition-season.
+- `unl-shadow-grade` adds per row the result, the hit, model and book-close log-loss, the same-priced-games aggregate, and the |model − close| buckets (<4, 4-10, 10-15, >=15pp). Not to be run until this entry's BACKLOG fragment is merged.

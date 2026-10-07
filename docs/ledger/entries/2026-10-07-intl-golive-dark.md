@@ -1,0 +1,23 @@
+**2026-10-07 — INTERNATIONALS GO-LIVE READINESS, built dark: INTL DESK POLICY v0 pre-declared; production export refused until CONFIRMED; home-abroad receipt; unl-shadow-grade log-loss (#323).**
+- **Ruling (ARCHITECT 2026-10-07 addendum, verbatim):** "INTERNATIONALS: GO-LIVE READINESS. Build dark; nothing changes for anyone until registry.production_allowed("intl-elo-v2") is true. Merged and in a deployed tag before 2026-11-09."
+- **Ruling, policy (verbatim):** "INTL DESK POLICY v0, pre-declared 2026-10-07 before any market-relative RESULT of the confirmation cohort has been read (seen so far: the 14:17Z model-vs-close list only: 34 priced, mean +3.28pp, 11 of 34 at 10pp or more). Effective only on CONFIRMED. (1) A new POLICY block INTL = the SOCCER block (eMin 4, eLad 10, eHair 10, pMin 0.50) with qNever true: a row whose model-market divergence is 15pp or more is quarantined, shadow only, as in the NFL contract. (2) Half units until 30 INTL calls are graded. (3) A row is never a call when its venue flag is unknown and its listed home side is on the home-abroad list; that list is ruled by name from the receipt in (c). (4) UNL only: CNL has no wired Kalshi series, so CNL rows are predictions without a call. (5) UNL stays ineligible for venue-edge until the skew test (#286) is read. (6) First review at 30 graded calls; no threshold moves before it."
+- **Build (verbatim):** "a. the production export path for senior competitive internationals: desk blocks ONLY when production_allowed is true; rows carry market_divergence_pp and quarantine as the NFL export defines them; until then export-unl-predictions stays the shadow, unchanged. b. the INTL policy block and its tests, dark (the v1.1 goldens unchanged). c. READ-ONLY receipt "home-abroad": per national team, listed-home games since 2022 with a known neutral_v3 and the share played outside the team's country; plus venue-id coverage per current competition-season. Writes docs/receipts/ via --out. d. unl-shadow-grade: per row add the result, the hit, model log-loss and book-close log-loss on the same priced games, and the split by |model − close| (<4, 4-10, 10-15, >=15pp). Read-only. NOT RUN by anyone until this ruling's BACKLOG entry is merged."
+- **Finding (verbatim):** "intl-elo-v2 gives the listed home side +100 when the venue is unknown (declared in the spec). The provider serves a venue for 1% of UNL 2026/27 fixtures: neutral_v3 today is home 79 / neutral 13 / unknown 485 of 577 current-season fixtures. The largest gap on the 14:17Z list sits on a listed-home side: Finland @ Belarus, model HOME 0.549 vs close 0.224 (+32.5pp). Whether such sides hosted abroad is for receipt (c) to establish, not assumed. A limitation of the candidate, not a defect: it touches neither the gate nor the confirmation. Rule (3) is its Desk answer."
+- **Built:**
+  - **(b)** `POLICY["INTL"]` = SOCCER + qNever.
+    - `intl_graded` is read from the ledger summary, and appears in desk_meta only on intl files.
+    - Rule (3): `INTL_HOME_ABROAD`, empty until ruled. A missing venue_flag counts as unknown.
+    - Rule (4): PASS `no_series`.
+    - Rule (5): no code needed. venue_edge never prices a model row, and a market-only UNL fixture reads "single venue".
+    - The goldens are unchanged.
+  - **(a)** `export-intl-predictions` refuses unless PASS + CONFIRMED.
+    - It reuses `intl_shadow.build_rows`.
+    - `market_divergence_pp` = model HOME − 1X2 fair HOME; `quarantine` = |div| >= 15.
+    - It writes no DB rows. Whether a production intl row should persist a Prediction is not in the ruling and is left open.
+  - **(c)** `intl-home-abroad-receipt`. **(d)** the `unl-shadow-grade` additions.
+- **Readings chosen where the build was silent (open to a ruling):**
+  - (d): |model − close| is read on the top-pick side (the grade's own div).
+  - (c): "current competition-season" = one with a scheduled or live fixture.
+  - (c): finished and upcoming listed-home games both count, split in the table.
+  - (c): all intl codes, friendlies included.
+  - (c): "the team's country" = `neutral_v3` exactly as stored.

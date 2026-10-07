@@ -325,7 +325,8 @@ def test_a_mirrored_host_file_resolves_by_identity_never_by_its_foreign_id(tmp_p
     with session_scope() as s:
         rep = VQ.age_report(s, docs, SINCE, cnt["mirrored"])
     r = [x for x in rep["rows"] if x["sport"] == "NFL"][0]
-    assert r["match_id"] == ids["nfl"] and r["foreign_ids"] == [ids["dead"]] and r["excluded"] is None
+    assert r["match_id"] == ids["nfl"] and r["foreign_ids"] == [ids["dead"]]
+    assert r["excluded"].startswith("mirrored host export")          # resolved by identity, never measured locally
 
 
 def test_age_statistics_measure_only_rows_whose_reference_session_is_verified(tmp_path):
@@ -527,3 +528,28 @@ def test_identity_resolution_is_sport_scoped():
         assert m is not None and m.id == ids["dead"]
         m, how = VQ.resolve_match(s, dict(call, sport="?"))                   # unknown: unfiltered, ambiguous
         assert m is None and "2 DB matches" in how and "not filtered" in how
+
+
+def test_an_export_with_a_non_object_row_is_refused(tmp_path):
+    """Codex on #340: a null or string entry in fixtures / predictions is refused, never skipped or a traceback."""
+    for bad in (None, "x"):
+        ex = tmp_path / f"ex_{bad}"
+        ex.mkdir()
+        (ex / "f.json").write_text(json.dumps({"desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
+                                               "fixtures": [{"desk": {}}, bad]}))
+        with pytest.raises(VQ.Refused, match="non-object fixtures / predictions entry"):
+            VQ.iter_desk_docs(str(ex))
+
+
+def test_a_capture_in_the_exports_own_second_is_the_reference():
+    """Codex on #340: as_of is serialized to the second, captured_at keeps microseconds; a capture at 12:00:00.8
+    precedes an export stamped 12:00:00 in that second, so it is the reference (age floored at 0)."""
+    t = datetime(2095, 10, 8, 12, 0, 0)
+    sess = [{"source": "s", "t": t - timedelta(hours=2), "fair4": {"HOME": 0.5, "AWAY": 0.5}},
+            {"source": "s", "t": t.replace(microsecond=800000), "fair4": {"HOME": 0.6, "AWAY": 0.4}}]
+    row = {"as_of": t, "kickoff": KO, "file_fair": {"HOME": 0.6, "AWAY": 0.4}}
+    r = VQ.age_row(row, sess)
+    assert r["ref"]["t"] == t.replace(microsecond=800000) and r["capture_age_h"] == 0.0 and r["file_matches"]
+    call = {"as_of": t, "kickoff": KO, "file_captured_at": None, "file_fair": None}
+    a, _ = VQ.anchor_for(sess, call)
+    assert a["t"] == t.replace(microsecond=800000)

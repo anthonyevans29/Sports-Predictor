@@ -81,6 +81,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
         raise Refused(f"REFUSED: --exports-dir {root!r} is not a directory (missing, misspelled or a file): "
                       "no receipt, never an empty one")
     bad_asof: list[str] = []
+    bad_rows: list[str] = []
     for d, _, files in sorted(os.walk(root)):
         for n in sorted(files):
             if not n.endswith(".json"):
@@ -97,10 +98,18 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if parse_ts(doc["desk_meta"]["as_of"]) is None:   # Codex on #340: never skipped invisibly
                     bad_asof.append(p)
                     continue
+                rows = [x for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]]
+                if any(not isinstance(x, dict) for x in rows):     # Codex on #340: a damaged row is refused
+                    bad_rows.append(p)
+                    continue
                 docs.append((p, doc))
                 counts["desk_files"] += 1
                 if os.path.relpath(p, root).split(os.sep)[0] == MIRROR_DIR:
                     counts["mirrored"].append(p)
+    if bad_rows:
+        raise Refused(f"REFUSED: {len(bad_rows)} desk export(s) with a non-object fixtures / predictions entry "
+                      f"({', '.join(bad_rows[:5])}{', …' if len(bad_rows) > 5 else ''}): a damaged export is never "
+                      "audited as complete; fix or move it, then re-run")
     if bad_asof:
         raise Refused(f"REFUSED: {len(bad_asof)} desk export(s) with an unparseable desk_meta.as_of "
                       f"({', '.join(bad_asof[:5])}{', …' if len(bad_asof) > 5 else ''}): a damaged export is never "
@@ -314,7 +323,7 @@ def anchor_for(sessions: list[dict], call: dict) -> tuple[dict | None, str]:
         before = [x for x in pre if x["t"] <= cap]
         return (before[-1], "last capture before the file's captured_at (no capture at that stamp)") if before \
             else (None, "no book capture at or before the file's captured_at")
-    before = [x for x in pre if x["t"] <= call["as_of"]]
+    before = [x for x in pre if _sec(x["t"]) <= call["as_of"]]      # as_of is serialized to the second (Codex)
     return (before[-1], "last capture at or before the call time (the call carries no captured_at)") if before \
         else (None, "no book capture at or before the call time")
 
@@ -570,19 +579,22 @@ def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
             out.append({"sport": sport, "match_id": None if foreign else r.get("match_id"),
                         "foreign_ids": [r.get("match_id")] if foreign else [], "home": r.get("home_team"),
                         "away": r.get("away_team"), "as_of": as_of, "file": path,
-                        "kickoff": kick, "file_fair": fair4, "call": d.get("call"),
+                        "kickoff": kick, "file_fair": fair4, "call": d.get("call"), "mirrored": foreign,
                         "conflicting_copies": bool(twins)})
     return out
 
 
 def age_row(row: dict, sessions: list[dict]) -> dict:
-    pre = [x for x in sessions if x["t"] <= row["as_of"] and (row["kickoff"] is None or x["t"] < row["kickoff"])]
+    # Codex on #340: desk_meta.as_of is serialized to the second while captured_at keeps microseconds, so a capture
+    # in the export's own second is compared at the second (and its age floors at 0)
+    pre = [x for x in sessions if _sec(x["t"]) <= row["as_of"] and (row["kickoff"] is None or x["t"] < row["kickoff"])]
     if not pre:
         return {**row, "ref": None}
     ref = pre[-1]
     first, n, cens = unchanged_run(sessions, ref)
-    return {**row, "ref": ref, "capture_age_h": (row["as_of"] - ref["t"]).total_seconds() / 3600,
-            "unchanged_age_h": (row["as_of"] - first["t"]).total_seconds() / 3600, "run_n": n, "censored": cens,
+    return {**row, "ref": ref, "capture_age_h": max(0.0, (row["as_of"] - ref["t"]).total_seconds()) / 3600,
+            "unchanged_age_h": max(0.0, (row["as_of"] - first["t"]).total_seconds()) / 3600, "run_n": n,
+            "censored": cens,
             "file_matches": (None if not row["file_fair"] else
                              all(ref["fair4"].get(k) == v for k, v in row["file_fair"].items()))}
 
@@ -591,6 +603,10 @@ def exclusion(x: dict) -> str | None:
     """Why a row stays OUT of the age statistics (None = it enters). Only a row whose reference session is
     VERIFIED (the file's fair equals the selected capture at 4dp) is measured; an unverified session may not be
     the one behind the Desk's reference (multi-source history, an NFL spread_derived reference, …)."""
+    if x.get("mirrored"):
+        # Codex on #340: a host export was decided on the HOST's captures; this DB's odds_snapshots are the
+        # laptop's, fetched at other times, so a 4dp match proves nothing about the host's capture time
+        return "mirrored host export: the host's capture history is not in this DB (listed, never measured)"
     if x.get("ref") is None:
         return x.get("why") or "no book capture at or before as_of"
     if x.get("file_matches") is None:

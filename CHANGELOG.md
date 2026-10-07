@@ -4,6 +4,257 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-06 (#316: evening-rulings-310 — ARCHITECT, ledger only)
+- Records the 2026-10-06 evening rulings verbatim:
+  - #310 merges at 99faed0 (follow-up ruling, amending e1a2146);
+  - the requirements-install lane closes at that merge (later threads get the closed-lane reply unless they reproduce on the production layout);
+  - staged virtualenv declined (#312);
+  - #309 and #311 approved;
+  - the follow-up approving #314 (with the architect's receipts), #315 and #316.
+- No code change.
+
+## 2026-10-06 (#315: mlb-pregame-null-scores — ARCHITECT, daily-class)
+- MLB adapter (`src/adapters/mlb_stats_api.py`): when statsapi's coded state is S, P or PW, both scores are null.
+  - statsapi sends a pre-game 0-0, which is not a score (law 4).
+  - Live and final scores pass through unchanged.
+- Test: `tests/test_mlb_pregame_scores.py`.
+
+## 2026-10-06 (#314: desk-started-pass — ARCHITECT, gate-class)
+- Desk: a model-sport row whose kickoff is at or before desk `as_of` is now PASS, units 0, `pass_kind` "started", reason "started - never a new call" (#313).
+  - It carries no order, no value shadow and no exec block, and it is never a parlay leg.
+  - An unknown kickoff is unchanged.
+  - The rule has its own switch (`desk_policy.STARTED_RULE`). `base_v11()` turns it off, so the frozen golden holds (0 mismatches).
+  - `desk_meta.started_rule` records the switch state.
+- Cockpit: a started PASS is tagged "started", greyed like "no reference", and counted in the summary's pass split.
+- Tests: `tests/test_desk_started_rule.py` (6). `scripts/cockpit_pass_class_verify.py` gains 3 started checks (19/19).
+
+## 2026-10-06 (#311: kalshi-ed25519 — ARCHITECT)
+- `scripts/kalshi_trade_api_probe.py` signs with Ed25519 keys as well as RSA, chosen by key type. Ed25519 signs `timestamp_ms + METHOD + path` directly; RSA stays RSA-PSS.
+  - The key file may be PEM or a bare base64 PKCS#8 body (`MC4CAQAwBQYD…`).
+  - Other key types are refused, and key material is never echoed.
+  - The AUTH receipt names `key_type`.
+  - Still read-only (GET only).
+
+## 2026-10-06 (#310: deploy-pip-install — ARCHITECT)
+- `sp_deploy` runs `venv/bin/pip install -r requirements.txt` when `requirements.txt` changed in the deploy range. It uses the target tag's file, runs before the checkout, and is printed and receipted (`deploy_requirements`). A failed install refuses the deploy, and the host stays on its release.
+- Review fixes (Codex on #310): the install also runs when this host has no successful install receipt for the target's file (bootstrap). It runs in a temporary worktree of the target, so relative includes resolve. A target without `requirements.txt` installs nothing and says so. A failed install warns that the venv may be partially updated.
+- Review fixes, round 2 (Codex on #310): an included-file change alone triggers the install. The install record (`requirements.installed`) survives receipt-log rotation. Worktree output is attached to a receipt only when the worktree failed.
+- Review fixes, round 3 (Codex on #310): continued lines are joined before includes are parsed. Editable (`-e`) requirements refuse the deploy, because they would point into a deleted temporary tree. The install record names its destination venv or interpreter, so a recreated venv reinstalls.
+- Review fixes, round 4 (Codex on #310): continuations concatenate as pip does. The install record lives inside the venv. Symlinked includes are followed. Local-path requirements are refused like editables.
+- Review fixes, round 5 (Codex on #310): symlink blobs are not scanned as directives. Bare relative paths, archives and local `--find-links` count as local sources and are refused.
+- Review fixes, round 6 (Codex on #310): an allowlist replaces the parsing heuristics. Only plain requirements files auto-install; anything else refuses with the reason and is installed by hand. Checkout blockers are preflighted before installing. A pip launcher that cannot run is a receipted failure.
+- Review fixes, round 7 (Codex on #310): `--requirements-installed-by-hand` acknowledges a by-hand install, so a refused release can deploy. The preflight sees renamed destinations and ancestor collisions. A failed install-record write is a receipted refusal. The venv's Python version is part of the install identity.
+- Review fixes, round 8 (Codex on #310): by-hand acknowledgements are per release (commit-bound). The dry run honours the flag. A tracked directory replaced by a file is not a blocker. A non-UTF-8 requirements file is a receipted refusal.
+- Review fixes, round 9 (Codex on #310): an untracked file inside a tracked directory the target replaces blocks the checkout. Without a repo venv, the install record lives inside the running virtualenv.
+- Review fixes, round 10 (Codex on #310): symlinked-directory children; a venv without pip installs via its own python; a failed pip run drops the record; system-site-packages is in the identity; a TMPDIR failure is receipted; per-requirement options are refused; a matching record satisfies a retry.
+- Review fixes, round 11 (Codex on #310): empty untracked directories don't block. The by-hand dry run keeps the migration warnings. pip inputs set in the environment refuse auto-install. A failed record write drops the old record.
+
+## 2026-10-06 (#309: desk-rescore-receipts — ARCHITECT rulings recorded)
+- `desk-rescore` writes its receipt into `docs/receipts/` (default `desk-rescore-<UTC stamp>.md`; `--out` to name it). It never writes under `data/` and never overwrites: the file is created exclusively.
+- Recorded rulings:
+  - An edited copy of a migration is a new migration.
+  - The migration-plan lane is closed (#305 at 00eac85).
+  - The 10-06 K-track receipt stays as partial-window evidence. A FINAL receipt is re-run after 10-08 and committed beside it.
+
+## 2026-10-06 (#307: unl-exploratory-17 — #286 ruling 1 recorded)
+- `unl_ladders.EXPLORATORY_MATCH_IDS` pins the 17 exploratory UNL games by match id (31887, 31888, 31890–31904), as ruled. `unl-ladder-receipt --skew-test` no longer refuses on ruling 1.
+- `docs/receipts/unl-exploratory-17.md` is spliced from the laptop (operator commit 9d30b5a).
+
+## 2026-10-06 (#306: k-track-receipt-splice — #87 ruling evidence on file)
+- `docs/receipts/k-track-2026-10-06.md` is spliced from the laptop (operator commit 687b0f1, ruling (g) on #303). It shows system_matched 3, UNKNOWN 1 (the GB side error), 3 composite NO fills off-book, and venue fee-clear 0/29 NFL · 0/32 NHL · 2/18 NCAA · 0/17 UNL.
+- Effect receipt: `desk-rescore` on Sunday's four PLAYs, 0/4 halved (architect state sync).
+- 1c-spread share as recorded (architect): MLB/NFL/NHL/UNL 85–99%, NCAA 82%, PL 72% (n=6). Cost model unchanged.
+
+## 2026-10-06 (#305: sweep-migration-rename-age — post-merge Codex finding on #304)
+- `sp_deploy` migration plan: a migration RENAMED from another migration inside the deploy range (migrate_temp.py → migrate_x.py) carries the source's age, not the rename commit's. It is now undetermined, never planned at the rename's position. On main, add temp, add y, then rename temp → x planned `run [y, x]`, reversing the real order.
+- Review fixes (Codex on #305):
+  - Renames are scanned with `-m`, so merge-result renames count.
+  - Rename CHAINS through intermediate names (migrate_temp → holding.py → migrate_x) are followed.
+  - The scan runs before ordering, so an ambiguous migration is listed once and never in the ordered part.
+- Review fixes, round 2 (Codex on #305):
+  - Moves no longer depend on git's similarity-based rename detection. A move that also rewrote the file (below `-M`'s 50% threshold) planned `run [y, x]`. Now any commit diff that deletes a migration, or a path carrying a migration's age, taints the paths it adds. A new migration added in a tainted diff is undetermined.
+  - Taint follows time (topological order, oldest first). A later reuse of an intermediate name (`holding.py`) no longer reaches back and blocks a valid `[x, y]` plan.
+- Review fix, round 3 (Codex on #305): taint only accumulates. A merge that replayed a side branch's `holding.py` (renamed from a migration) as a plain addition used to clear its taint, so a later `holding.py` → `migrate_x.py` planned `run [y, x]`.
+- Review fixes, round 4 (Codex on #305):
+  - A migration moved onto an existing placeholder path (`--no-renames`: D source + M destination) now carries the source's age. It had planned `run [y, x]`.
+  - New migrations with identical content at the target, an unchanged copy of an in-range migration with the source kept, are undetermined. That case had planned `[temp, y, x]`, running one one-shot twice.
+  - Recreating a deleted name stays tainted. This errs toward undetermined; the operator orders by hand.
+- Review fixes, round 5 (Codex on #305): this replaces the per-path taint scan of rounds 2–4.
+  - Any migration deletion in the range (merge parents included) makes every new migration undetermined.
+  - A rewritten move of a pre-range migration, and a split copy-then-delete that had planned `run [y, x]`, are now undetermined.
+  - The deploy prompt for undetermined migrations says to read each one's history and never re-run a rename or copy. It no longer implies that every listed name runs, and it warns when the range deletes a migration.
+- Review fixes, round 6 (Codex on #305):
+  - The migration-deletion warning prints on its own. A range that only deleted a migration used to say nothing.
+  - The dry run previews undetermined migrations and the deletion warning.
+  - An edited copy of a migration stays a new migration. Copying an existing migration and editing it is how new migrations are written, and #304 kept template-derived migrations new.
+- Review fix, round 7 (Codex on #305): the deletion warning names the deleted migrations. It points to a range-wide `git log --no-renames --name-status`, never `--follow`, which misses a rewritten move. The plan and the deploy receipt carry `deleted_migrations`.
+
+## 2026-10-06 (#304: post-merge-codex-sweep — post-merge Codex findings on #296 and #297)
+- `sp_deploy` migration plan:
+  - An UNCHANGED copy of an existing migration (`C100`) is reported with the renames and never planned as runnable. `-M` alone reported it as an addition. A new migration written from an old one's template stays new.
+  - Only a migration's FIRST appearance groups it with a commit, so a merged branch's ordered migrations are no longer "added together" just because `log -m` re-lists them in the merge commit.
+- `k-track-receipt --ledger` refuses an export whose `calls`, `fills` or `system_picks` is not a list of objects, instead of a traceback.
+- The other two post-merge #297 findings (shared city words, the windowed unpriced count) are fixed on #299, which rewrites that code.
+- Review fixes (Codex on #304):
+  - A copy or rename is suppressed only when its SOURCE was a migration at `before`. A new migration identical to a shared non-migration template stays new.
+  - Each migration counts at its LAST addition by an ordinary commit, so a re-added migration keeps its grouping. A merge commit counts only when no ordinary commit added the path.
+- Review fixes (Codex on #304, round 2):
+  - Copies are decided by CONTENT: a new migration whose file is identical to any migration at `before` is a copy, whichever identical source git would have named.
+  - Only an addition carrying the released file's content counts, so a competing branch's different file under the same name never sets the order.
+  - An explicit `"fills": null` is refused.
+- Review fix (Codex on #304, round 3): when several ordinary additions carry the released file (identical files on two branches, or an identical re-add), the migration is undetermined and the operator orders it.
+- Review fix (Codex on #304, round 4): **conservative ordering.** A migration counts only when exactly ONE ordinary commit added it, or none did and exactly ONE merge did. The chosen commits must form a strict ancestry chain, in topological order. Re-adds, competing or identical additions, several merge additions, one shared commit, and parallel branches are all undetermined, and the operator orders them.
+- Review fix (Codex on #304, round 5): a merge commit counts as an addition exactly when NONE of its parents had the path (a merge-result addition or re-add). When a parent had it, `-m` is only re-listing that branch's addition. A merge re-add after an ordinary add is therefore a second addition, and undetermined.
+- Review fix (Codex on #304, round 6): the addition log runs with `--no-renames`, so a file renamed INTO a migration name counts as an addition of that migration. A rename re-add is therefore a second addition, and undetermined.
+
+## 2026-10-06 (#303: k-exec-addendum — #87 executable edge, Desk v1.1 addendum — ARCHITECT-RULE)
+- **Cost = ask + taker fee** (`desk_policy.taker_cost_for`): the contract the order line buys, at its ask, plus 0.07·M·P(1−P) rounded to the nearest cent per fill. The maker cost is shown for reference only.
+- **TAKE at the ask by default.** Join-bid applies only at a spread of 3c or more, in the order line, the exec block and the Cockpit's ledger join bid. The 2026-09-30 join-bid doctrine is superseded.
+- **Sizing.** A PLAY gets full tier units only when its exec edge is at least 4pp. Otherwise, or with no executable quote, it gets HALF units. Quarantine, floors, tiers and ladders are unchanged.
+- **Venue.** The 5pp fair threshold stands, AND the exec edge (book fair − cost) must clear 4pp. A venue call with no executable quote is PASS with no reference.
+- **Parlays.** Ticket Π market = Π executable cost; a ticket with an unpriced leg is not offered (counted). Each ticket carries `fair_p`, each leg's `exec_cost`, and the independence-estimate label.
+- New read-only `desk-rescore FILES…`: the published PLAYs, re-scored under the addendum at each file's own as_of, showing which would have been halved.
+- `desk_meta.exec_addendum` stamps every file. The frozen pre-F1c golden still holds under `base_v11()`.
+- New tests: `tests/test_desk_exec_addendum.py` and `scripts/cockpit_exec_addendum_verify.py`.
+- Review fixes (Codex on #303):
+  - The doctrine, the join price, the cost and the order now share one quote source (`side_quotes`: the contract the order line buys), so a three-way leg-priced pick no longer says "take" while its order joins.
+  - There is one join price, bid + 1c at a spread of 3c or more, in both the exec block and the order line.
+  - The Cockpit ledger records the file's executable cost and join price, and logs parlay legs at their executable cost (fair kept as `fair_p`), so tickets settle at the price that qualified them.
+- **ARCHITECT RULINGS on (a)–(j), 2026-10-06:** (a)–(d) ratified; (e) ratified, to be revisited at the first 30 graded ladders; (f) #218 re-scoped; (g) the receipt file is committed from the laptop by the operator (pending; not in this PR); join at bid + 1c on spreads of 3c or more ratified.
+  - **(h) applied:** each order is priced at its OWN contract count (`order_contracts`, as `order_line` writes it), and the 10-contract assumption ends. A 0.25u venue or parlay order is 2 contracts. A PLAY's gate prices the order it places if it clears (its tier units, × 0.5 when kalshi-only). A halved PLAY also reports its emitted order's cost (`order_cost`, `order_contracts`).
+  - **(i) applied:** the venue engine backs the best side (largest fair divergence) among the sides that clear BOTH gates.
+  - **(j):** unchanged. Parlay ladder legs stay straight-on-pick, and double-chance legs are a v1.2 candidate.
+- Review fixes (Codex on #303, round 4):
+  - Quote selection is `order_line`'s own: a ticketed side leg is the instrument (unpriceable without an ask), else NO on the opponent's ticketed leg.
+  - The fill count is taken at the emitted limit (the join price at spreads of 3c or more).
+  - The Cockpit ledger records a halved PLAY's `order_cost` and settles VENUE calls at their executable cost, keeping `kalshi_p` alongside.
+  - Pre-addendum files keep their legacy join bid.
+  - The receipt is marked pending from the laptop.
+- Review fixes (Codex on #303, round 5):
+  - The Cockpit's exec marker states only the gate ("exec gate clears / fails"), never a final size.
+  - `desk.exec` is present whenever `side_quotes` prices the pick, including NO on the opponent's leg.
+  - Value shadows log the file's executable cost.
+  - `docs/CLI.md` documents the TAKE / join ≥ 3c limit.
+  - `desk-rescore` applies the file's own unit basis and prints it.
+- Review fixes (Codex on #303, round 6):
+  - `maker_cost` is the join order's (bid + 1c) at the order's own count, and none when the doctrine takes.
+  - Quarantine shadows log the file's exec cost.
+  - Parlay legs keep their serialized `fair_p`.
+  - `desk-parlays` documentation and CLI output describe executable pricing ("Π executable cost", Π fair, unpriced tickets excluded).
+- Review fixes (Codex on #303, round 7):
+  - A LADDER (which buys NO on HOME) carries no pick-leg exec block.
+  - A parlay whose leg has no book reference has `fair_p` unavailable, never Π model.
+  - A halved PLAY's maker reference is at the emitted order's count.
+  - The Cockpit's Policy card states the #87 v1.1 doctrine: TAKE, executable sizing and the venue gate.
+- Review fixes (Codex on #303, round 8):
+  - Quarantine shadows' exec is priced at the shadow's size.
+  - An explicit `market_p: null` on a parlay leg and an explicit `order_cost: null` (a refused resized order) stay unavailable in the Cockpit ledger. Only absent legacy fields fall back.
+
+## 2026-10-06 (#301: prediction-history — every prediction write kept as a series, #87 K-track — ARCHITECT)
+- New APPEND-ONLY `prediction_history` table: `match_id`, `model_version`, `computed_at`, the home/draw/away probabilities, and `recorded_at`.
+  - Every `Prediction` insert, from any write path (`predict-nfl`, soccer and MLB predict), is appended at flush in the same transaction. A rolled-back run leaves no history.
+  - `predictions` stays current-only (S13). The window chain's hourly re-predicts become a stored series, so model-vs-cost is evaluable per Kalshi capture.
+- New `migrate_prediction_history.py`: additive and idempotent, with a receipt. There is no backfill, because overwritten predictions are gone.
+  - Before it runs, predictions still write and the skipped history is logged as a warning.
+- Chain receipts count `prediction_history`. The count is null until the migration runs.
+
+## 2026-10-06 (#299: fill matcher — doubleheaders by the ticker's start time; three-way NO is composite — ARCHITECT)
+- The Cockpit's fill matcher and its Python port (`src/walters/ledger_fills.py`) change together, with parity preserved (`scripts/ledger_fills_parity_verify.py` 30/30).
+- **Doubleheaders:** the event ticker's HHMM is the scheduled start in US Eastern time (`KalshiAdapter.ticker_start`, M13; DST via Intl / zoneinfo). Among a fill's candidate calls, those within 3h of it count, nearest first. Without a time the old order stands, and an ambiguous attribution stays flagged. The Cockpit re-parses each stored ticker, so earlier imports gain the start time.
+- **Three-way NO:** a NO on an EPL/UCL/FA Cup/UEFA NL HOME or AWAY leg is two outcomes, COMPOSITE. It is never matched to a single-side straight: with a candidate call it is booked off-book ("composite contract — never a straight"); a UNL single with no call stays in the fun book (ruled 2026-09-30). Its held contract stays known for the closing fair. A two-way NO still means the opposite team.
+- Tests: `tests/test_fill_matcher_lane.py`; `k-track-receipt` lists composite fills.
+- Review fixes (Codex on #299):
+  - When the ticker carries team codes, they decide which game a fill fits. One shared title word ("United", "City") no longer stands for team identity.
+  - The receipt's unpriced-position count is scoped to the window.
+- Review fix (Codex on #299, round 2): a composite NO matches a real LADDER call whose pick is the opposite side. The desk order line executes an AWAY ladder as NO on HOME (X2), so executed ladders reconcile and carry their CLV. A straight still never matches a composite.
+- Review fix (Codex on #299, round 3): ticker codes that do not prefix the team name (JAX for Jacksonville Jaguars, BHA for Brighton and Hove Albion) now match through a strict two-team title fallback. Both title teams must fit, on different sides, by whole-word subset. A shared "United" and Man City vs Man United still do not match.
+- MATCHER BUG (ARCHITECT 2026-10-06): the ticker suffix names the side. A fill whose resolved role differs from the call's pick is off-book ("side disagrees") and is never matched. KXNFLGAME-26OCT04GBTB-GB yes (Green Bay, AWAY) had been system_matched to a HOME (Tampa Bay) call because "Green Bay" and "Tampa Bay" share the word "Bay". With a ticker role, agreement is role == pick; without one, it is a whole-name subset. Applies to both logged calls and stored predictions. Regression uses the exact fill; parity is 34/34. Reclassified on the operator's ledger, system-matched becomes 3 fills.
+- Review fix (Codex on #299, round 4): the ticker's start time now picks the GAME first (the nearest start; tied starts stay together and are flagged), and only then is the pick checked. A disagreeing exact-time game no longer hands the fill to a later game. Parity: 36/36.
+- Sweep fix (post-merge Codex on #297): ticker codes must fit both sides AND at least one strongly (by initials or name prefix). Two weak two-letter-initials fits are a same-city collision, not identity: a Giants–Rams fill no longer fits a Jets–Chargers call. Legacy titles without codes now need two different sides. Parity: 38/38.
+- Review fix (Codex on #299, round 5): the strict-title fallback also holds the CONTRACT's team (the title's "X wins" team) on the ticker's side of the call. A call with the same teams but home and away reversed never fits. Parity: 40/40.
+- Review fixes (Codex on #299, round 6):
+  - NO on the TIE of a three-way market is composite (HOME-or-AWAY, `no_on_role` DRAW).
+  - A WEAK code fit (only the first two letters prefix the initials) must be confirmed by a title team whose every word is a prefix of the side's name. A strong opponent no longer vouches for it: NYGSEA does not fit Jets–Seahawks. A code that fully prefixes the initials (KC, SF) stays identity.
+  - Legacy "A vs B Winner?" titles orient through the other code fitting the call's opposite side.
+  - Parity: 46/46.
+- Review fixes (Codex on #299, round 7):
+  - Title teams are now BOUND TO SIDES. "X wins — Y" puts X on the contract's side. A legacy "A vs B Winner?" title is AWAY vs HOME, per the repo's own fixtures, e.g. BUFKC = "Buffalo vs Kansas City".
+  - A weak code is confirmed only by its own side's title team, so a reversed Giants/Jets game never fits.
+  - A legacy title orients two non-prefix codes (UGAUNC).
+  - Parity: 50/50.
+- Review fix (Codex on #299, round 8): the Cockpit flags tied attributions with every candidate (`ambiguous_calls`) on the straight and ladder paths, as the port does. Parity now compares that field: 52/52, and 49/52 on the old Cockpit.
+
+## 2026-10-06 (#298: Desk fee-clear marker — an exact 4.00pp edge clears — ARCHITECT)
+- `desk_policy.exec_block`'s `fee_clears` and the Cockpit's "fee-clears?" marker compare with a 1e-9 tolerance (`FEE_CLEAR_EPS`). Before, (0.35 − 0.31)·100 = 3.9999999999999982 read as a miss. Same tolerance as `k-track-receipt`.
+- Golden: no edge within 1e-6 of 4pp in `tests/golden/desk_js_v1_1.json.gz`; unchanged, still 15/15. Test: `tests/test_desk_fee_clear_boundary.py`.
+
+## 2026-10-06 (#297: k-track-receipt — the #87 executable-edge receipt, with #75's call-to-fill reconciliation — ARCHITECT)
+- New READ-ONLY `k-track-receipt`:
+  - **Ladders:** every pre-kickoff Kalshi ladder captured 2026-09-23 → end of 10-07, by sport: spreads, two-sidedness (0 < bid ≤ ask < 1), and the fee-clear rate at taker and maker cost (the Desk's K2 4pp rule; `venue.kalshi_exec` costs), versus the live model's pick and versus the venue engine's book reference, never pooled.
+  - **Fills** (`--ledger` reads the Cockpit's ledger export): executed-position CLV and fee-adjusted edge, plus #75's call-to-fill reconciliation, exactly one disposition per eligible call.
+- `src/walters/ledger_fills.py` ports the Cockpit's fill classification and executedPositions line for line. `scripts/ledger_fills_parity_verify.py` runs the Cockpit's JS and the port on one ledger: 24/24.
+- Tests: `tests/test_k_track_receipt.py`.
+- Review fixes (Codex on #297):
+  - The predictions table keeps the current row only (upsert). A capture taken before a re-prediction therefore has no model reference: it is reported as "captured before the current prediction was written: no history kept", never silently dropped and never a look-ahead.
+  - One-sided and incomplete ladders count as not evaluable on each basis, and their two-sided legs' spreads stay in the distribution.
+  - The call window compares full kickoff timestamps.
+  - Each reconciled fill prints its ledger id.
+- Review fixes (Codex on #297, round 2):
+  - The funnel's "cost recorded" reads the recorded-cost fields for every call, MATCHED included.
+  - A fill that more than one real call fits (an MLB doubleheader: same teams, same day) keeps the Cockpit's attribution for parity, but is flagged and listed as AMBIGUOUS, never silent. Fixing the matcher itself means using the ticker's start time in the Cockpit and the port together.
+- Review fixes (Codex on #297, round 3):
+  - Executed-position CLV is restricted to the window's calls, the same cohort as the reconciliation. Positions outside it are counted and excluded.
+  - An exact 4.00pp edge clears despite binary-float drift (1e-9 tolerance; `desk_policy`'s fee-clear has the same comparison and is raised separately).
+  - A NO on a three-way family's HOME/AWAY leg (two outcomes) keeps the Cockpit's attribution for parity but is flagged COMPOSITE NO and listed.
+
+## 2026-10-06 (#296: host receipts carry the running release; deploy prints the exact migration command — ARCHITECT)
+- `sp_common._git` passes `safe.directory` for the checkout. The host checkout is root-installed and the units run as `sp`, so git refused it ("dubious ownership"), `running_release()` returned None, and no receipt carried a release (cutover-readiness criterion (b)). A receipt whose release is still null now carries `release_error` with git's own message.
+- `sp_deploy` prints, for each new migration, the exact by-hand command: as `sp`, with host.env loaded, `sp_backup.py daily &&` the migration.
+- Tests: `test_running_release_reads_a_checkout_owned_by_another_user`, `test_a_null_release_carries_its_reason`, `test_deploy_prints_the_exact_migration_command`.
+- Review fixes (Codex on #296):
+  - The migration command runs the new migrations in the order they were added (commit order, oldest first) as one chained `&&` command. Git's alphabetical path order put `migrate_score_90.py` before `migrate_status_raw.py`, which it needs.
+  - A rollback or other non-forward deploy prints no runnable migrations. It lists the skipped ones, and modified migrations are listed separately.
+  - Test: `test_deploy_migration_plan_orders_by_commit_and_skips_rollbacks`.
+- Review fixes (Codex on #296, round 2):
+  - The printed command runs `sp_deploy.py --run-migrations m1 m2 …`. It holds ONE DB lock across the daily backup and every migration, runs them in order, stops at the first failure, and receipts each step. A chained `sp_backup.py daily && migrate…` released the lock in between.
+  - A migration added in a merge result counts as new (absent at the old head, present at the target).
+  - An ancestry check that errors refuses the plan instead of reading as a rollback.
+  - An explicit release on a receipt (sp_cutover's dry run) no longer also carries `release_error`.
+- Review fix (Codex on #296, round 3): the migration plan is computed before the checkout moves, inside the deploy lock. A planning failure refuses with production still on its current release, and a dry run shows the plan. Test: `test_deploy_plans_migrations_before_moving_the_checkout`.
+- Review fixes (Codex on #296, round 4):
+  - The printed command carries `--expect <target sha>`. `--run-migrations` refuses, before any backup, unless HEAD is still that release.
+  - `--dry-run` with `--run-migrations` refuses.
+  - A failed tag or branch lookup makes the release unreadable (null, with `release_error`), never a guessed `UNTAGGED@`/`BETA`.
+- Review fixes (Codex on #296, round 5):
+  - Migrations added together in one commit, or not placed by the history, have no determinable order. No runnable command is generated; the deploy names them and the exact `--expect … --run-migrations <ordered names>` form to run once the order is decided.
+  - A renamed migration is reported (already ran under its old name), never runnable.
+  - Migration files are validated under the DB lock.
+
+## 2026-10-06 (#295: CLAUDE.md — quoted heredocs only for PR text — ARCHITECT)
+- Standing rule recorded in CLAUDE.md: PR bodies, comments and commit messages are written through quoted heredocs (`<<'EOF'`) only. An unquoted heredoc runs every backticked span as a command; on 2026-10-06 one ran `nfl-grade`, which created an empty DB under the container's data/ (since removed) and blanked spans in #290's body (since repaired).
+
+## 2026-10-06 (#294: UNL skew test v2 — the ten ratified definitions; cutoff moves to the ratification — ARCHITECT)
+- `docs/specs/unl-venue-skew-test.md` is now v2. It records the 2026-10-06 ruling verbatim and states every definition. The freeze cutoff moves to `2026-10-06T14:35:31Z` (the ruling's relay on #286); anything inspected before it is exploratory.
+- `unl-ladder-receipt` applies the ten definitions:
+  - (1) the exploratory 17 are excluded by match id (`EXPLORATORY_MATCH_IDS`; `--skew-test` refuses until all 17 are recorded);
+  - (2) book sessions use the venue engine's own rules: at least 4 books, captured no more than 3h before the Kalshi capture and never after it;
+  - (5) only the latest capture counts;
+  - (6) the receipt refuses without the ticker column;
+  - (7) CANCELLED/POSTPONED/STALE_ORPHAN are excluded and listed;
+  - (8) one event per board, with the event printed;
+  - (9) two-sided means `0 < bid <= ask < 1`;
+  - (10) only an exact tie on the favorite excludes a game.
+- (4) `sync-kalshi-soccer --competition UNL` refuses any `--max-spread` but 0.10. Every soccer sync prints its max-spread.
+- Tests: `test_the_ten_ratified_definitions`, `test_unl_sync_refuses_any_max_spread_but_the_frozen_one`.
+
+## 2026-10-06 (#293: NFL grading — one record definition in nfl-grade and RESULTS.md — ARCHITECT)
+- ARCHITECT 2026-10-06: `nfl-grade` and the RESULTS.md NFL section state the record the way the results file does (#290). Rows count from `live_since` onward. A tie is a PUSH, outside the hit denominator; it was a hit for an away pick. Pre-live rows sit under their own heading, never pooled.
+- `grade_nfl` returns `games`/`decided`/`hits`/`pushes` and a `pre_live` tally. It skips unscored FINISHED rows (the #289 rule), and `days_back=None` means season to date. Log-loss keeps the gate's tie convention, averaged over live rows.
+- RESULTS.md's NFL section reads the season to date, no longer a rolling 30 days. It prints `Sides: **H/D** · pushes P` and a pre-live sub-heading.
+- RESULTS.md: a sport whose outcomes carry no log loss prints `Mean log-loss: — (n=0)` instead of raising ZeroDivisionError. The new test's shared-DB run surfaced this.
+- Test: `test_nfl_grade_and_results_md_state_the_one_record_definition`.
+- Review fix (Codex on #293): `nfl-grade` defaults to the season to date, the stated record. Before, the CLI called `grade_nfl()` with its 8-day default. `--days N` keeps the rolling read. Test: `test_nfl_grade_cli_defaults_to_the_season_record`.
+
 ## 2026-10-05 (#292: NFL prediction-set scope check expects bye weeks; Kalshi-only reference's first live fire recorded)
 - `nfl_backtest.scope_line(per_week=True)`, used by `predict-nfl`'s prediction set: per week, teams = 2 × games = 32 − byes, each team once. A bye week (e.g. teams=30) no longer raises SCOPE ALERT. Duplicates, more than 32 teams, or non-NFL rows still do. Ratings and backtest keep the 32-team check. Test: `test_prediction_set_expects_32_minus_byes_per_week`.
 - Recorded: the Kalshi-only reference fired live (NYY@TB 23:11Z, mid 0.475, spread 1c, +3.1pp → PASS below floor).

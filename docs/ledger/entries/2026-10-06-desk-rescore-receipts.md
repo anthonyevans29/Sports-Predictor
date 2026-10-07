@@ -1,9 +1,0 @@
-**2026-10-06 — ARCHITECT rulings: edited copies are new migrations; #305 merged and the migration-plan lane CLOSED; the #306 receipt questions settled; desk-rescore now writes its receipt into docs/receipts/.**
-- **Rulings (ARCHITECT, verbatim):** "(1) edited copy of a migration = a NEW migration — keep as is; byte-identical copies stay undetermined. (2) #305 merges at 00eac85; the migration-plan lane is CLOSED — further cases only from a real deploy. (3) #306: the state sync stands in for the desk-rescore console this once; from now on desk-rescore writes --out into docs/receipts/. The 10-06 receipt stays as the ruling's evidence (partial window); a FINAL receipt is re-run on 10-08 and committed beside it, both dated."
-- **(1)** `sp_deploy.migration_plan` is unchanged. An edited copy is new; byte-identical copies stay undetermined (#305 round 4). This settles the declined Codex round-6 P1 on #305.
-- **(2)** #305 merged at 00eac85. Migration-plan cases reopen only from a real deploy.
-- **(3) Built:** `desk-rescore` writes its console to `docs/receipts/desk-rescore-<UTC stamp>.md` by default. `--out` names another file. It refuses `data/` and never overwrites an existing receipt.
-  - The 10-06 effect receipt (0/4 halved) stands on the architect's state sync, this once.
-  - `docs/receipts/k-track-2026-10-06.md` stays as the ruling's evidence, labelled a partial window.
-  - **Operator, on 10-08 (after 2026-10-08T00:00Z):** run `python cli.py k-track-receipt --ledger <export> --out docs/receipts/k-track-2026-10-08-final.md` and commit it via PR beside the 10-06 file. Both are dated. Tracked as #308.
-- **Receipts:** `tests/test_desk_exec_addendum.py` covers the receipt write, the refused overwrite, the refused `data/` target and the default `docs/receipts/` path. `pytest`: 823 passed, 1 skipped. The receipt file is created exclusively (mode x), so two runs racing on one name never overwrite (Codex on #309).

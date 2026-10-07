@@ -1,4 +1,4 @@
-## 2026-10-07 (#0000: intl-golive-dark — ARCHITECT, gate-class, built DARK)
+## 2026-10-07 (#325: intl-golive-dark — ARCHITECT, gate-class, built DARK)
 - Desk: `POLICY["INTL"]` = the SOCCER block with qNever (INTL DESK POLICY v0, #323). Nothing changes for anyone: only a production intl file reaches it.
   - Half units until 30 INTL calls are graded (`intl_graded` in the ledger summary; absent = 0).
   - UNL only: CNL rows are PASS `no_series`.

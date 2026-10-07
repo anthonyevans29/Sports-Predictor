@@ -1414,6 +1414,48 @@ def unl_ladder_receipt_cmd(since, n, skew_test, out_path):
         console.print(f"[green]receipt written: {out_path}[/green]")
 
 
+@cli.command("mlb-actionable-receipt")
+@click.option("--season", default="2026", show_default=True, help="Match.season as the DB stores it (MLB: \"2026\").")
+@click.option("--seed", default=None, type=int, help="Bootstrap seed (default pinned: mlb_actionable.BOOT_SEED).")
+@click.option("--out", "out_path", default=None,
+              help="Receipt file (default docs/receipts/mlb-actionable-<UTC stamp>.md). Never data/; never overwrites.")
+def mlb_actionable_receipt_cmd(season, seed, out_path):
+    """READ-ONLY (ARCHITECT 2026-10-07, item 2; NO policy change): graded MLB predictions with a book close,
+    season to date, postseason split out. Rows: the prediction layer's tier (toss-up / lean / strong) x edge vs
+    the CLOSE (<0, 0-4, 4-8, 8-15, >=15pp). Columns: n, mean model p, mean close fair p, hit rate, hit − close (pp)
+    with a pinned-seed bootstrap 95% CI, flat-stake ROI at the close fair price. Rows without a book close are
+    excluded and counted. Writes nothing to the DB; the receipt goes to docs/receipts/ (commit it via PR)."""
+    from datetime import datetime as _dt
+    from datetime import timezone as _tz
+    from pathlib import Path as _P
+
+    from src.walters import mlb_actionable as MA
+    from src.walters.unl_ladders import data_dir
+    stamp = _dt.now(_tz.utc).strftime("%Y-%m-%dT%H%MZ")
+    root = _P(__file__).resolve().parent
+    tgt = _P(out_path).resolve() if out_path else root / "docs" / "receipts" / f"mlb-actionable-{stamp}.md"
+    _data = data_dir()
+    if tgt == _data or _data in tgt.parents:
+        console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+        raise SystemExit(2)
+    if tgt.exists():
+        console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
+        raise SystemExit(2)
+    with session_scope() as s:
+        rows = MA.collect(s, season=season)
+    res = MA.receipt(rows, seed=MA.BOOT_SEED if seed is None else seed)
+    text_ = MA.format_receipt(res, season=season, run_stamp=stamp)
+    print(text_, end="")
+    tgt.parent.mkdir(parents=True, exist_ok=True)
+    try:                                    # exclusive create: a receipt is never overwritten
+        with tgt.open("x", encoding="utf-8") as fh:
+            fh.write(text_)
+    except FileExistsError:
+        console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
+        raise SystemExit(2)
+    console.print(f"[green]receipt written: {tgt} — commit it via PR[/green]")
+
+
 @cli.command("k-track-receipt")
 @click.option("--ledger", "ledger_path", default=None,
               help="The Cockpit's ledger export (bd_ledger_v1_<date>.json) for the fills, CLV and call-to-fill part.")

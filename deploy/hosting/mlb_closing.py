@@ -198,9 +198,30 @@ def push_mirror() -> dict:
         return {"exit": None, "tail": [f"{type(e).__name__}: {e}"]}
 
 
-def run_step(argv: list[str], run_id: str) -> tuple[int, float]:
-    rc, _tail, dur = sp_run.run_step(argv, run_id)
-    return rc, dur
+def run_step(argv: list[str], run_id: str) -> tuple[int, list[str], float]:
+    """(exit, the last console lines, seconds): sp_run's own step runner (`python cli.py <argv>` in the checkout)."""
+    return sp_run.run_step(argv, run_id)
+
+
+# A step that REPORTS a failure on its console but exits 0 (Codex on #370). The shared commands keep their exit
+# behaviour (host chains depend on it); the closing run reads the console instead. Every failure message the
+# command prints, read from cli.py (law 1):
+#   sync-kalshi  "✗ Kalshi sync failed: <exception>"  (sync_kalshi_mlb raised: network / DNS / API)
+#                "Kalshi sync: <reason>"              (sync_kalshi_mlb returned ok False: no open markets,
+#                                                      market fetch failed, series not resolved, competition missing)
+# Both are followed by at most two lines before the command returns, so they are inside sp_run's 5-line tail.
+STEP_FAILURE_MARKERS = {
+    "sync-kalshi": ("✗ Kalshi sync failed:", "Kalshi sync: "),
+}
+
+
+def reported_failure(argv: list[str], tail: list[str]) -> str | None:
+    for line in tail:
+        s = line.strip()
+        for m in STEP_FAILURE_MARKERS.get(argv[0], ()):
+            if s.startswith(m):
+                return s[:200]
+    return None
 
 
 # ------------------------------------------------------------------------------------------------ backup --
@@ -309,6 +330,16 @@ def desk_rows(doc: dict, now: datetime) -> list[dict]:
     return sorted(out, key=lambda x: (x["first_pitch"], x["match_id"] or 0))
 
 
+def missing_from_export(doc: dict, now: datetime) -> list[dict]:
+    """Codex on #370: every unstarted MLB game in the STORED schedule (re-read after the steps synced it) whose first
+    pitch is within the 90-minute summary window must have a Desk row in the export. Returns the ones that do not."""
+    have = {r.get("match_id") for r in doc.get("predictions") or [] if r.get("desk")}
+    need = [g for g in schedule(now) if not started(g, now) and 0 < minutes_to(g, now) <= SUMMARY_WINDOW_MIN]
+    return [{"match_id": g["match_id"], "first_pitch": iso_z(g["first_pitch"]), "first_pitch_et": et(g["first_pitch"]),
+             "away": g["away"], "home": g["home"], "reason": "missing from export"}
+            for g in need if g["match_id"] not in have]
+
+
 def summary_block(x: dict) -> str:
     lines = [f"── {x['first_pitch_et']} (T-{x['minutes']}m) · {x['away']} @ {x['home']}  [match {x['match_id']}]",
              f"   call   {x['call']} · pick {x['pick']} · {_units(x['units'])} · edge {_pp(x['edge_pp'])} "
@@ -370,6 +401,10 @@ def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "o
     why = _laptop_refusal()
     if why:
         print(f"✗ mlb-closing-run REFUSED: {why}")
+        if not dry_run:                                   # A2: a receipt line either way (Codex on #370)
+            c.append_receipt({"kind": "mlb_closing", "run_id": f"{now:%Y%m%dT%H%M%SZ}-{CHAIN}", "trigger": trigger,
+                              "first_pitch": first_pitch, "exit": 2, "refused": why, "steps": [], "export": None,
+                              "desk_rows": [], "push": None})
         return 2
     try:
         p = plan(now, first_pitch)
@@ -424,10 +459,14 @@ def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "o
                 for i, st in enumerate(p["steps"], 1):
                     line = f"python cli.py {' '.join(st)}"
                     print(f"\n=== [{CHAIN} {i}/{len(p['steps'])}] {line}", flush=True)
-                    rc, dur = run_step(st, run_id)
-                    rec["steps"].append({"step": i, "command": line, "exit": rc, "seconds": round(dur, 1)})
-                    if rc != 0:
-                        rec["failed"] = f"step {i}"
+                    rc, tail, dur = run_step(st, run_id)
+                    srec = {"step": i, "command": line, "exit": rc, "seconds": round(dur, 1)}
+                    said = reported_failure(st, tail) if rc == 0 else None
+                    if said:                      # exit 0, but the step said it failed (Codex on #370)
+                        srec["detected_failure"] = said
+                    rec["steps"].append(srec)
+                    if rc != 0 or said:
+                        rec["failed"] = f"step {i}" + (" (reported failure, exit 0)" if said else "")
                         break
         if not rec.get("failed"):
             ex = c.REPO / p["export"]
@@ -439,7 +478,16 @@ def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "o
                 if not doc.get("desk_meta"):
                     rec["failed"] = "export carries no desk calls"
                 else:
-                    rows = desk_rows(doc, now + timedelta(seconds=time.time() - t0))
+                    at = now + timedelta(seconds=time.time() - t0)
+                    rows = desk_rows(doc, at)
+                    missing = missing_from_export(doc, at)
+                    if missing:                   # Codex on #370: an omitted imminent game is never a success
+                        rec["failed"] = "missing from export"
+                        rec["missing"] = missing
+                        print("✗ missing from export: " + ", ".join(
+                            f"match {m['match_id']} ({m['first_pitch_et']} {m['away']} @ {m['home']})"
+                            for m in missing))
+                if not rec.get("failed"):
                     rec["desk_rows"] = [{k: x[k] for k in ("match_id", "first_pitch", "call", "pick", "units",
                                                            "exec_edge_pp", "hold")} for x in rows]
                     print(f"\n=== MLB closing summary · {len(rows)} game(s) with first pitch within "
@@ -449,9 +497,12 @@ def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "o
         if not rec.get("failed"):
             rec["push"] = push_mirror()
             print(f"· exports mirror (laptop, closing): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
-            rec["exit"] = 0
-            for x in rows:
-                notify(notification_text(x))
+            if rec["push"].get("exit") != 0:       # Codex on #370: a failed / timed-out push fails the run, so the
+                rec["failed"] = "push"             # watch retries it (the export the step wrote stays on disk)
+            else:
+                rec["exit"] = 0
+                for x in rows:
+                    notify(notification_text(x))
     except Exception as e:  # noqa: BLE001 - the receipt line is written either way (A2)
         rec["failed"] = rec.get("failed") or "error"
         rec["error"] = c.redact(f"{type(e).__name__}: {e}")[:300]
@@ -459,7 +510,9 @@ def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "o
     c.append_receipt(rec)
     if rec["exit"] != 0:
         print(f"✗ mlb-closing-run FAILED ({rec.get('failed')}{': ' + rec['error'] if rec.get('error') else ''}) — "
-              "nothing exported, pushed or notified after the failure")
+              + {"push": "nothing notified; the export stays on disk",
+                 "missing from export": "nothing pushed or notified; the export stays on disk"}.get(
+                  rec.get("failed"), "nothing exported, pushed or notified after the failure"))
     else:
         print(f"✓ mlb-closing-run: {len(rec['steps'])}/{len(p['steps'])} steps · {rec['export']} · "
               f"{len(rec['desk_rows'])} Desk row(s) · push exit {rec['push']['exit']}")

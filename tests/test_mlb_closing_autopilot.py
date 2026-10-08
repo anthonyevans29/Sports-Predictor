@@ -26,6 +26,8 @@ from src.walters import desk_policy as dp  # noqa: E402
 NOW = datetime(2026, 10, 8, 22, 0, tzinfo=timezone.utc)          # 18:00 ET
 HOLD = "paste to the architect before placing"
 OFFSETS = {"T-70": 70, "T-62": 62, "T-30": 30, "T-3": 3}
+# the scratch schedule's home teams, one per summary shape (the export's rows carry the same match ids)
+HOMES = {"T-70": "Clearwater", "T-62": "Underhill", "T-30": "Kalshiburg", "T-3": "Passville"}
 
 
 # ------------------------------------------------------------------------------------------------ helpers --
@@ -54,9 +56,9 @@ def make_db(path: Path, games: list[tuple]) -> None:
 
 
 def scratch_games(now=NOW):
-    g = [(100 + i, now + timedelta(minutes=m), "SCHEDULED", f"Away{k[2:]}", f"Home{k[2:]}")
+    g = [(100 + i, now + timedelta(minutes=m), "SCHEDULED", f"{HOMES[k]} Visitors", HOMES[k])
          for i, (k, m) in enumerate(OFFSETS.items())]
-    g.append((200, now - timedelta(minutes=20), "LIVE", "AwayStarted", "HomeStarted"))
+    g.append((200, now - timedelta(minutes=20), "LIVE", "Startedton Visitors", "Startedton"))
     return g
 
 
@@ -77,11 +79,11 @@ def desk_row(mid, home, p_home, *, fair_h=None, bid=0.49, ask=0.50, minutes=30, 
 def four_kinds_doc(now=NOW):
     """The four summary shapes from the REAL Desk (desk_policy.annotate): a PASS, a PLAY that clears 4.0pp exec,
     a PLAY under 4.0pp exec, and an MLB kalshi-only hold (Q3, #369). Plus a started game and one 2h out."""
-    rows = [desk_row(1, "Passville", 0.52, fair_h=0.51, bid=0.50, ask=0.51, minutes=20, now=now),
-            desk_row(2, "Clearwater", 0.60, fair_h=0.53, bid=0.51, ask=0.52, minutes=30, now=now),
-            desk_row(3, "Underhill", 0.58, fair_h=0.535, bid=0.54, ask=0.55, minutes=45, now=now),
-            desk_row(4, "Kalshiburg", 0.56, minutes=60, now=now),
-            desk_row(5, "Startedton", 0.60, fair_h=0.53, bid=0.51, ask=0.52, minutes=-15, now=now),
+    rows = [desk_row(103, "Passville", 0.52, fair_h=0.51, bid=0.50, ask=0.51, minutes=3, now=now),
+            desk_row(100, "Clearwater", 0.60, fair_h=0.53, bid=0.51, ask=0.52, minutes=70, now=now),
+            desk_row(101, "Underhill", 0.58, fair_h=0.535, bid=0.54, ask=0.55, minutes=62, now=now),
+            desk_row(102, "Kalshiburg", 0.56, minutes=30, now=now),   # kalshi-only applies inside T-60
+            desk_row(200, "Startedton", 0.60, fair_h=0.53, bid=0.51, ask=0.52, minutes=-20, now=now),
             desk_row(6, "Laterton", 0.60, fair_h=0.53, bid=0.51, ask=0.52, minutes=120, now=now)]
     doc = {"sport": "mlb", "predictions": rows}
     dp.annotate(doc, now=now)
@@ -100,6 +102,7 @@ class Box:
         self.feed = (True, "HTTP 200")
         self.doc = None                # the export the export step "writes"
         self.lock_seen = []
+        self.tails = {}                # command -> the console tail it "prints" (exit 0)
 
 
 @pytest.fixture
@@ -127,11 +130,11 @@ def box(tmp_path, monkeypatch):
         b.lock_seen.append(mc.lock_free())
         n = len(b.steps)
         if b.fail_at == n:
-            return 1, 0.1
+            return 1, ["boom"], 0.1
         if argv[0] == "export-predictions":
             day = argv[argv.index("--date") + 1]
             (repo / "exports" / f"mlb_MLB_{day}.json").write_text(json.dumps(b.doc))
-        return 0, 0.1
+        return 0, list(b.tails.get(argv[0], ["ok"])), 0.1
 
     def fake_feed():
         b.feed_calls += 1
@@ -255,7 +258,7 @@ def test_a2_lock_taken_and_receipt_on_success(box):
     assert r["first_pitch"] == "2026-10-08T22:03:00Z" and r["date_ny"] == "2026-10-08"
     assert [s["exit"] for s in r["steps"]] == [0] * 10 and all("seconds" in s for s in r["steps"])
     assert r["export"] == "exports/mlb_MLB_2026-10-08.json"
-    assert [d["match_id"] for d in r["desk_rows"]] == [1, 2, 3, 4]     # within 90 min; started + 2h out left out
+    assert [d["match_id"] for d in r["desk_rows"]] == [103, 102, 101, 100]     # within 90 min; started + 2h out left out
     assert r["push"]["exit"] == 0 and box.pushes == [1]
     assert box.steps[-1] == ["export-predictions", "--sport", "mlb", "--competition", "MLB",
                              "--date", "2026-10-08", "--desk"]
@@ -326,9 +329,9 @@ def test_a4_refuses_when_every_game_in_its_window_has_started(box, monkeypatch):
 
 def test_a4_never_a_call_for_a_started_game(box):
     assert mc.run(now=NOW) == 0
-    started_row = next(p for p in box.doc["predictions"] if p["match_id"] == 5)
+    started_row = next(p for p in box.doc["predictions"] if p["match_id"] == 200)
     assert started_row["desk"]["call"] == "PASS" and started_row["desk"]["pass_kind"] == "started"
-    assert 5 not in [d["match_id"] for d in receipts()[-1]["desk_rows"]]
+    assert 200 not in [d["match_id"] for d in receipts()[-1]["desk_rows"]]
     assert not any("Startedton" in n for n in box.notes)
 
 
@@ -363,7 +366,7 @@ def test_a7_summary_blocks_and_notifications(box, capsys):
     out = capsys.readouterr().out
     blocks = out.split("=== MLB closing summary")[1]
     p = blocks.split("── ")
-    pas, clear, under, ko = p[1], p[2], p[3], p[4]
+    pas, ko, under, clear = p[1], p[2], p[3], p[4]
     assert "call   PASS" in pas and "order  none (PASS:" in pas and HOLD not in pas
     assert "call   PLAY · pick Clearwater · 1u" in clear and "exec edge +7.1pp" in clear
     assert "order  BUY YES KXMLBGAME-26OCT08-CLEH @ 0.52 × 10" in clear and "HOLD" not in clear
@@ -372,8 +375,8 @@ def test_a7_summary_blocks_and_notifications(box, capsys):
     assert "pass_kind" not in ko and "kalshi-only hold (record only, not a call): mid 0.495" in ko
     assert "would PLAY 0.5u" in ko and "kalshi-only suspended for MLB" in ko
     assert len(box.notes) == 4
-    assert box.notes[1] == "18:30 ET Clearwater Visitors @ Clearwater: PLAY Clearwater 1u exec +7.1pp"
-    assert box.notes[2] == f"18:45 ET Underhill Visitors @ Underhill: PLAY Underhill 0.5u exec +2.2pp · {HOLD}"
+    assert box.notes[3] == "19:10 ET Clearwater Visitors @ Clearwater: PLAY Clearwater 1u exec +7.1pp"
+    assert box.notes[2] == f"19:02 ET Underhill Visitors @ Underhill: PLAY Underhill 0.5u exec +2.2pp · {HOLD}"
     assert [d["hold"] for d in receipts()[-1]["desk_rows"]] == [None, None, HOLD, None]
 
 
@@ -458,7 +461,7 @@ if a[0] == os.environ.get("T_FAIL"):
 def test_real_step_runner_against_a_fake_cli(box, monkeypatch):
     """The real sp_run.run_step path (subprocess `python cli.py ...` in the checkout) against a FAKE cli.py in a
     tmp checkout: never the real one, never a real DB."""
-    monkeypatch.setattr(mc, "run_step", lambda argv, run_id: (lambda r: (r[0], r[2]))(sp_run.run_step(argv, run_id)))
+    monkeypatch.setattr(mc, "run_step", sp_run.run_step)
     (c.REPO / "cli.py").write_text(FAKE_CLI)
     doc = box.tmp / "doc.json"
     doc.write_text(json.dumps(box.doc))
@@ -470,3 +473,73 @@ def test_real_step_runner_against_a_fake_cli(box, monkeypatch):
     assert mc.run(now=NOW) == 1
     r = receipts()[-1]
     assert [s["exit"] for s in r["steps"]] == [0] * 6 + [4] and r["push"] is None
+
+
+# ---------------------------------------------------------------------------------- review round 1 (#370) --
+
+@pytest.mark.parametrize("push", [{"exit": 1, "tail": ["EXPORTS-MIRROR laptop: not pushed — push rejected 3x"]},
+                                  {"exit": None, "tail": ["timed out after 90s"]}])
+def test_p1a_a_failed_or_timed_out_push_fails_the_run_and_the_watch_retries(box, monkeypatch, push):
+    monkeypatch.setattr(mc, "push_mirror", lambda: box.pushes.append(1) or push)
+    assert mc.watch(now=NOW) == 1
+    r = receipts()[-1]
+    assert r["exit"] == 1 and r["failed"] == "push" and r["push"] == push
+    assert r["export"] == "exports/mlb_MLB_2026-10-08.json" and (c.REPO / r["export"]).is_file()   # kept on disk
+    assert box.notes == []
+    assert mc.closing_state("2026-10-08T22:30:00Z") == {"success": False, "attempts": 1, "misses": 0}
+    monkeypatch.setattr(mc, "push_mirror", lambda: box.pushes.append(1) or {"exit": 0, "tail": ["pushed"]})
+    assert mc.watch(now=NOW + timedelta(minutes=5)) == 0                    # the next tick retries: success
+    r = receipts()[-1]
+    assert r["first_pitch"] == "2026-10-08T22:30:00Z" and r["exit"] == 0 and r["attempt"] == 2
+    assert len(box.pushes) == 2 and len(box.notes) == 3          # T-3 has started by now: no row for it
+
+
+def test_p1b_a_game_missing_from_the_export_fails_the_run_and_is_listed(box):
+    box.doc["predictions"] = [p for p in box.doc["predictions"] if p["match_id"] != 101]    # Underhill dropped
+    assert mc.run(now=NOW) == 1
+    r = receipts()[-1]
+    assert r["failed"] == "missing from export" and r["exit"] == 1
+    assert r["missing"] == [{"match_id": 101, "first_pitch": "2026-10-08T23:02:00Z",
+                             "first_pitch_et": "2026-10-08 19:02 ET", "away": "Underhill Visitors",
+                             "home": "Underhill", "reason": "missing from export"}]
+    assert box.pushes == [] and box.notes == [] and r["push"] is None and r["desk_rows"] == []
+
+
+def test_p1b_started_and_later_games_are_not_required(box):
+    box.doc["predictions"] = [p for p in box.doc["predictions"] if p["match_id"] not in (200, 6)]
+    assert mc.run(now=NOW) == 0
+
+
+@pytest.mark.parametrize("said", ["✗ Kalshi sync failed: HTTPSConnectionPool(host='api.elections.kalshi.com'): "
+                                  "Max retries exceeded",
+                                  "Kalshi sync: market fetch failed: 503 Server Error"])
+def test_p1c_a_step_that_reports_failure_with_exit_0_stops_the_run(box, said):
+    box.tails["sync-kalshi"] = ["Checking Kalshi status…", said,
+                                "If this is a network/DNS error, Kalshi's API host may need to be reachable"]
+    assert mc.run(now=NOW) == 1
+    assert box.steps[-1][0] == "sync-kalshi" and len(box.steps) == 6       # predict / export never ran
+    r = receipts()[-1]
+    assert r["failed"] == "step 6 (reported failure, exit 0)"
+    assert r["steps"][-1]["exit"] == 0 and r["steps"][-1]["detected_failure"] == said[:200]
+    assert r["export"] is None and r["push"] is None and box.pushes == [] and box.notes == []
+
+
+def test_p1c_markers_are_the_strings_cli_prints():
+    src = (ROOT / "cli.py").read_text()
+    start = src.index('@cli.command("sync-kalshi")')
+    body = src[start:src.index("@cli.command", start + 10)]
+    assert 'f"[red]✗ Kalshi sync failed: {e}[/red]"' in body
+    assert "f\"[yellow]Kalshi sync: {r.get('reason')}[/yellow]\"" in body
+    assert body.count("console.print(") == 7   # progress, failed + hint, not-ok + series, stored + stats: enumerated
+    assert mc.STEP_FAILURE_MARKERS == {"sync-kalshi": ("✗ Kalshi sync failed:", "Kalshi sync: ")}
+    assert mc.reported_failure(["sync-kalshi"], ["✓ Kalshi: 14 prices stored", "  series KXMLBGAME"]) is None
+
+
+def test_p2b_laptop_only_refusal_writes_a_refused_receipt_but_not_on_dry_run(box, monkeypatch):
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "NFL,MLB")
+    assert mc.run(dry_run=True, now=NOW) == 2
+    assert not c.receipts_path().exists()
+    assert mc.run(now=NOW) == 2
+    r = receipts()[-1]
+    assert r["kind"] == "mlb_closing" and r["exit"] == 2 and r["refused"].startswith("laptop only")
+    assert box.steps == [] and not (box.tmp / "backups").exists()

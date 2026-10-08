@@ -14,3 +14,4 @@
 - **Receipts:** `logs/receipts.jsonl`. `kind: mlb_closing` is one line per run, success or failure. `kind: mlb_closing_miss` is a feed miss. The watch reads both: whether there was a success for a first-pitch time, and how many attempts (at most 3).
 - **A7, the hold:** `CLOSING_HOLDS` in `deploy/hosting/mlb_closing.py`, one row. An unknown exec edge is held (law 4).
 - **Operator:** install with `bash scripts/setup_mlb_closing_watch.sh`; the operator section is in docs/CLI.md.
+- **Review round 1 (Codex on #370), fixed:** failed or timed-out push = failed run (retried; no notification); a game missing from the export = failed run, listed; a `sync-kalshi` console failure with exit 0 = failed step (shared command untouched; making it exit nonzero is proposed to the architect, not built); the laptop-only refusal is receipted (not on `--dry-run`).

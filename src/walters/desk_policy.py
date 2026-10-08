@@ -76,6 +76,18 @@ MLB_QUARANTINE = {"on": True, "abovePP": 8.0}
 MLB_QUARANTINE_EPS = 1e-9
 MLB_QUARANTINE_RULING = "MLB big-edge quarantine, ARCHITECT 2026-10-07"
 STARTED_REASON = "started - never a new call"
+# VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
+# time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
+# unknown age is NO REFERENCE. [...] In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote
+# age unknown: no reference') and the venue block keeps its numbers for the record. [...] The engine resumes only
+# when a quote time is stored and #91 is applied to it, by ruling." No quote time is stored, so EVERY row the engine
+# computes (side + divergence measured) is held: PASS / noref with this reason, units 0, no order, its numbers kept,
+# its would-be verdict recorded under the venue block's `quote_age_hold`. PRECEDENCE: rows that stop BEFORE the
+# computation keep their own reason (model charter, UNL, in-play, single venue — no pair, book capture unknown /
+# after decision / older than 3h, books < 4): each is already a no-call by its own rule. Its own switch: the frozen
+# golden (pre-F1c) predates it and runs with it off (base_v11()).
+QUOTE_AGE_RULE = {"on": True}
+QUOTE_AGE_REASON = "book quote age unknown: no reference"
 PARLAY_LABEL = "independence estimate: Π of single-game prices (legs assumed uncorrelated)"
 PASSCLASS = {"minBooks": 3, "rerunMin": 60}
 POSTSEASON = {"reviewN": 30}
@@ -272,6 +284,15 @@ def side_name(r, k):
 # ------------------------------------------------------------ venue engine --
 
 def venue_edge(r, now_ms: float) -> dict:
+    out = _venue_edge(r, now_ms)
+    if QUOTE_AGE_RULE["on"] and out["side"] is not None:
+        # the engine measured a pair (side + divergence): held — no quote time is stored (ARCHITECT 2026-10-07)
+        out["held"] = {"eligible": out["eligible"], "kind": out["kind"], "reason": out["reason"]}
+        out.update(eligible=False, kind="noref", reason=QUOTE_AGE_REASON)
+    return out
+
+
+def _venue_edge(r, now_ms: float) -> dict:
     out = {"eligible": False, "reason": "", "side": None, "divPP": None, "bookP": None, "kalP": None,
            "sides": {}, "kind": None}
     if not r["marketOnly"]:
@@ -378,12 +399,14 @@ def k_side(r, side):
 @contextmanager
 def base_v11():
     """The Desk WITHOUT the #87 addendum: the frozen pre-F1c golden's policy (the parity battery only)."""
-    was, was_started, was_mlbq = EXEC_RULES["on"], STARTED_RULE["on"], MLB_QUARANTINE["on"]
-    EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = False
+    was, was_started = EXEC_RULES["on"], STARTED_RULE["on"]
+    was_mlbq, was_qa = MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"]
+    EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
     try:
         yield
     finally:
-        EXEC_RULES["on"], STARTED_RULE["on"], MLB_QUARANTINE["on"] = was, was_started, was_mlbq
+        EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
+        MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"] = was_mlbq, was_qa
 
 
 @contextmanager
@@ -397,6 +420,18 @@ def addendum_off():
         yield
     finally:
         EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
+
+
+@contextmanager
+def quote_age_rule_off():
+    """The Desk without the venue quote-age hold (ARCHITECT 2026-10-07): the engine's pre-ruling verdicts, for the
+    venue engine's own tests and the Cockpit verifies. Never used by an export."""
+    was = QUOTE_AGE_RULE["on"]
+    QUOTE_AGE_RULE["on"] = False
+    try:
+        yield
+    finally:
+        QUOTE_AGE_RULE["on"] = was
 
 
 def is_quarantine_shadow(c: dict) -> bool:
@@ -1001,6 +1036,10 @@ def venue_block(ven) -> dict:
            "reason": ven["reason"]}
     if "execPP" in ven:                                   # #87 v1.1 (4)
         out.update(exec_pp=_num(ven["execPP"]), exec_cost=_num(ven["execCost"]))
+    if "held" in ven:                                     # ARCHITECT 2026-10-07: the engine's verdict, for the record
+        out["quote_age_hold"] = {"rule": "ARCHITECT 2026-10-07 venue-edge quote age",
+                                 "engine_eligible": ven["held"]["eligible"], "engine_kind": ven["held"]["kind"],
+                                 "engine_reason": ven["held"]["reason"]}
     return out
 
 
@@ -1190,6 +1229,7 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "counts": ev["counts"], "counts_source": counts_source,
                         "exec_addendum": EXEC_RULES["on"],    # #87 v1.1 (2026-10-06): TAKE cost sizes PLAYs
                         "started_rule": STARTED_RULE["on"],   # #313: a started game is never a new call
+                        "venue_quote_age_rule": QUOTE_AGE_RULE["on"],  # 2026-10-07: venue-edge emits no call
                         # MLB big-edge quarantine (ARCHITECT 2026-10-07): the threshold in force, None = off
                         "mlb_quarantine_above_pp": MLB_QUARANTINE["abovePP"] if MLB_QUARANTINE["on"] else None,
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}

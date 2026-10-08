@@ -6,6 +6,8 @@ Quarantine, floors and tiers are unchanged. The frozen pre-addendum golden still
 import json
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from src.walters import desk_policy as dp
 from src.walters.venue import kalshi_exec
 
@@ -107,6 +109,14 @@ def test_the_cost_is_the_leg_the_order_line_buys():
     assert dp.order_line(n, "AWAY", 1)["text"].startswith("BUY YES T-BUF @ 0.47")
 
 
+@pytest.fixture
+def engine_verdicts():
+    """The venue ENGINE's verdicts (#87 v1.1 (4), (i)) without the quote-age hold of 2026-10-07, which holds every
+    computed venue row as PASS / noref (tests/test_venue_quote_age.py)."""
+    with dp.quote_age_rule_off():
+        yield
+
+
 def _fixture(home, fair_h, legs=None, captured=30):
     f = {"home_team": home, "away_team": f"{home} away", "utc_date": ko(), "status": "scheduled",
          "market": {"bookmaker_count": 5, "fair_prob": {"HOME": fair_h, "AWAY": round(1 - fair_h, 4)},
@@ -117,6 +127,7 @@ def _fixture(home, fair_h, legs=None, captured=30):
     return f
 
 
+@pytest.mark.usefixtures("engine_verdicts")
 def test_venue_needs_five_fair_and_four_executable():
     doc = {"competition": "NHL", "fixtures": [
         _fixture("OK", 0.60, {"HOME": {"ticker": "T1", "bid": 0.52, "ask": 0.53}}),   # fair +8.0, exec +5.5 (2 contracts)
@@ -136,6 +147,7 @@ def test_venue_needs_five_fair_and_four_executable():
         assert all(v["eligible"] for _, v in dp.evaluate(doc, NOW_MS)["venue"])
 
 
+@pytest.mark.usefixtures("engine_verdicts")
 def test_window_card_venue_uses_the_same_gate():
     row = {**_fixture("W", 0.60, {"HOME": {"ticker": "T", "bid": 0.56, "ask": 0.57}}), "competition": "NHL",
            "engine": "market_only"}
@@ -273,6 +285,7 @@ def test_h_each_order_is_priced_at_its_own_contract_count(monkeypatch):
     assert x["cost"] == 0.607 and x["order_cost"] == 0.606          # 5 × 0.07·0.59·0.41 = 8.47c -> 8c / 5 = 1.6c
 
 
+@pytest.mark.usefixtures("engine_verdicts")
 def test_i_venue_backs_the_best_side_that_clears_both_gates():
     """(i) RULED 2026-10-06: HOME leads on fair divergence (+8) but fails exec at its ask; DRAW (+6 fair) clears exec:
     the engine backs DRAW. With no side clearing both, the largest-divergence side is reported with its PASS reason."""

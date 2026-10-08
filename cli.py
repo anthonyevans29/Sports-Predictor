@@ -1528,6 +1528,172 @@ def k_track_receipt_cmd(ledger_path, since, until, out_path):
         console.print(f"[green]receipt written: {out_path}[/green]")
 
 
+def _vqa_since(v):
+    """--since for the venue quote-age receipts: ISO date/date-time, naive = UTC (default 2026-10-02)."""
+    from src.walters import venue_quote_age as VQ
+    if v is None:
+        return VQ.SINCE_DEFAULT
+    t = VQ.parse_ts(v if "T" in v or len(v) != 10 else v + "T00:00:00")
+    if t is None:
+        raise click.BadParameter(f"{v!r} is not an ISO date or date-time (e.g. 2026-10-02)", param_hint="--since")
+    return t
+
+
+def _os_samefile(a, b) -> bool:
+    import os as _os
+    try:
+        return _os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def _vqa_out_ok(out_path, exports_dir=None) -> bool:
+    if not out_path:
+        return True
+    from pathlib import Path as _P
+    from src.walters.unl_ladders import data_dir
+    _data, _tgt = data_dir(), _P(out_path).resolve()
+    if _tgt == _data or _data in _tgt.parents:
+        console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+        return False
+    if _tgt.exists() and not _tgt.is_file():
+        console.print(f"[red]REFUSED: --out {out_path} exists and is not a file (a directory?).[/red]")
+        return False                             # Codex on #340: never an IsADirectoryError after the scan
+    _anc = next((a for a in _tgt.parents if a.exists()), None)
+    if _anc is not None and not _anc.is_dir():
+        console.print(f"[red]REFUSED: --out {out_path}: {_anc} is a file, not a directory.[/red]")
+        return False
+    from src.walters.venue_quote_age import db_file_path
+    _db = db_file_path()
+    _dbs = () if _db is None else (_db, _P(str(_db) + "-wal"), _P(str(_db) + "-shm"), _P(str(_db) + "-journal"))
+    if _tgt in _dbs or (_tgt.exists() and any(x.exists() and _os_samefile(_tgt, x) for x in _dbs)):
+        # (Codex on #340: by file identity too: a hard link to the DB is the DB)
+        # Codex on #340: a DATABASE_URL outside data/ is still the DB; a read-only receipt never overwrites it
+        console.print(f"[red]REFUSED: --out {out_path} is the configured database (or its sidecar): the receipts "
+                      "are read-only.[/red]")
+        return False
+    _ex = _P(exports_dir).resolve() if exports_dir else None
+    if _ex is not None and _tgt.name.lower().endswith(".json") and _ex in _tgt.parents:   # any case (Codex)
+        # Codex on #340: discovery scans every .json under --exports-dir and refuses unreadable ones; a text
+        # receipt written there would refuse every later run
+        console.print(f"[red]REFUSED: --out {out_path} is a .json under --exports-dir ({exports_dir}): the receipt "
+                      "is text, and discovery would refuse it as a damaged export. Write it elsewhere (e.g. "
+                      "docs/receipts/…txt).[/red]")
+        return False
+    return True
+
+
+def _vqa_write(text_, out_path):
+    console.print(text_, markup=False, highlight=False)
+    if out_path:
+        import os as _os
+        _os.makedirs(_os.path.dirname(out_path) or ".", exist_ok=True)
+        with open(out_path, "w") as fh:
+            fh.write(text_ + "\n")
+        console.print(f"[green]receipt written: {out_path}[/green]")
+
+
+@cli.command("venue-calls-receipt")
+@click.option("--since", default=None, help="Calls at a desk as_of at/after this UTC time (default 2026-10-02).")
+@click.option("--exports-dir", default="exports", show_default=True,
+              help="Where the --desk fixtures exports are (read recursively: exports/host/ too).")
+@click.option("--ledger", "ledger_path", default=None,
+              help="The Cockpit's ledger export (bd_ledger_v1_<date>.json): its venue_edge claims are read too.")
+@click.option("--out", "out_path", default=None, help="Also write the receipt text here (e.g. docs/receipts/…).")
+def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
+    """READ-ONLY (ARCHITECT 2026-10-07, venue-edge quote age, build step 3): every VENUE call on file since
+    2026-10-02 (the --desk fixtures exports under --exports-dir, plus the ledger's venue_edge claims) with the
+    book consensus at the call (fair to 4 dp, books, captured_at) and at each LATER pre-kickoff capture in
+    odds_snapshots, and whether it ever moved at four decimals before kickoff. Totals: calls, never-moved
+    count and share. Writes nothing to the DB; --out refuses data/."""
+    import json as _json
+    from src.walters import venue_quote_age as VQ
+    lo = _vqa_since(since)
+    if not _vqa_out_ok(out_path, exports_dir):
+        raise SystemExit(2)
+    import os as _os
+    if out_path and ledger_path and (_os.path.realpath(out_path) == _os.path.realpath(ledger_path)
+                                     or _os_samefile(out_path, ledger_path)):
+        console.print("[red]REFUSED: --out is the --ledger file: the receipt never overwrites its own input.[/red]")
+        raise SystemExit(2)                      # Codex on #340
+    try:
+        docs, cnt = VQ.iter_desk_docs(exports_dir)
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    if out_path and (_os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}
+                     or any(_os_samefile(out_path, p) for p, _ in docs)):
+        console.print(f"[red]REFUSED: --out {out_path} is one of the desk exports this receipt reads: it never "
+                      "overwrites its own input.[/red]")      # Codex on #340: any suffix
+        raise SystemExit(2)
+    calls = VQ.file_venue_calls(docs, lo, cnt["mirrored"])
+    sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
+               f"{cnt['unreadable']} unreadable, {cnt.get('other_files', 0)} other file(s) not read, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
+               f"resolved by identity)"]
+    if ledger_path:
+        try:
+            with open(ledger_path) as fh:
+                L = _json.load(fh)
+        except (OSError, ValueError) as e:
+            console.print(f"[red]REFUSED: cannot read the ledger export {ledger_path!r}: {e}[/red]")
+            raise SystemExit(2)
+        why = VQ.ledger_refusal(L)
+        if why:
+            console.print(f"[red]{why}[/red]")
+            raise SystemExit(2)
+        lc = VQ.ledger_venue_calls(L, lo)
+        calls = VQ.merge_calls(calls, lc)
+        sources.append(f"ledger {ledger_path}: {len(lc)} venue_edge claim(s)")
+    else:
+        sources.append("ledger: not read (pass --ledger <the Cockpit's Export ledger (JSON) file>)")
+    try:
+        with VQ.readonly_session() as s:      # read-only: no create, no pragma, no commit
+            res = VQ.venue_receipt(s, calls)
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    _vqa_write("\n".join(VQ.format_venue_receipt(res, lo, sources)), out_path)
+
+
+@cli.command("quote-age-report")
+@click.option("--since", default=None, help="Desk exports at/after this UTC time (default 2026-10-02).")
+@click.option("--exports-dir", default="exports", show_default=True,
+              help="Where the --desk prediction exports are (read recursively: exports/host/ too).")
+@click.option("--out", "out_path", default=None, help="Also write the report text here (e.g. docs/receipts/…).")
+def quote_age_report_cmd(since, exports_dir, out_path):
+    """READ-ONLY REPORT (ARCHITECT 2026-10-07, venue-edge quote age, build step 4 — report, do not change): for
+    MLB, NFL and PL rows of the --desk prediction exports decided against a BOOK reference, the capture age at
+    decision (as_of − the last book capture) and the "unchanged since" age (how long the consensus had been
+    identical to four decimals across our captures), median / p90 / max per sport. Capture-based PROXIES,
+    never quote age: no quote time is stored. Writes nothing to the DB; --out refuses data/."""
+    import os as _os
+
+    from src.walters import venue_quote_age as VQ
+    lo = _vqa_since(since)
+    if not _vqa_out_ok(out_path, exports_dir):
+        raise SystemExit(2)
+    try:
+        docs, cnt = VQ.iter_desk_docs(exports_dir)
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    if out_path and (_os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}
+                     or any(_os_samefile(out_path, p) for p, _ in docs)):
+        console.print(f"[red]REFUSED: --out {out_path} is one of the desk exports this receipt reads: it never "
+                      "overwrites its own input.[/red]")      # Codex on #340: any suffix
+        raise SystemExit(2)
+    sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
+               f"{cnt['unreadable']} unreadable, {cnt.get('other_files', 0)} other file(s) not read, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
+               f"resolved by identity)"]
+    try:
+        with VQ.readonly_session() as s:      # read-only: no create, no pragma, no commit
+            rep = VQ.age_report(s, docs, lo, cnt["mirrored"])
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    _vqa_write("\n".join(VQ.format_age_report(rep, lo, sources)), out_path)
+
+
 @cli.command("close-probe")
 @click.option("--match", "match_id", required=True, type=int, help="Match id.")
 def close_probe_cmd(match_id):

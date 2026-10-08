@@ -80,6 +80,13 @@ STARTED_REASON = "started - never a new call"
 # captured (deploy/hosting/chains.py KALSHI_CAPTURE_ONLY) and the window card spans every competition, so the venue
 # engine never makes a call on them (Codex on #326). CI pins this set to soccer_expansion.LEAGUES.
 SHADOW_VENUE_COMPS = frozenset({"PD", "SA", "BL1", "FL1", "ELC"})
+# S1 (ARCHITECT 2026-10-08, addendum 9 item 1): the same set keys the MODEL path. "desk_call returns PASS for a model
+# row whose competition is in the set: reason 'shadow league: never a call until CONFIRMED', no order, no value
+# shadow. A league leaves the set only in a reviewed PR after CONFIRMED, by ruling." (predict / export-predictions
+# refuse these competitions too: cli.py _refuse_shadow_league.) No switch: no frozen golden row is in the set.
+SHADOW_LEAGUE_REASON = "shadow league: never a call until CONFIRMED"
+SHADOW_LEAGUE_KIND = "shadow_league"
+NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND)    # PASS rows with no order, no exec block, no value shadow
 # VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
 # time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
 # unknown age is NO REFERENCE. [...] In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote
@@ -688,6 +695,10 @@ def kalshi_only_ref(r, now_ms: float) -> dict:
 
 def desk_call(r, now_ms: float, postseason_graded: int = 0) -> dict:
     """The Cockpit's policy() body for ONE model-sport row."""
+    if (r.get("comp") or "") in SHADOW_VENUE_COMPS:     # S1 (ARCHITECT 2026-10-08), checked before started
+        return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": ["shadow league"],
+                "reasons": [SHADOW_LEAGUE_REASON], "execUnits": None, "shadowUnits": 0,
+                "passKind": SHADOW_LEAGUE_KIND, "mktRef": r["mkt"], "kalOnly": False}
     if STARTED_RULE["on"] and has_started(r, now_ms):
         return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": ["started"],
                 "reasons": [STARTED_REASON], "execUnits": None, "shadowUnits": 0, "passKind": "started",
@@ -1022,7 +1033,7 @@ def evaluate(doc: dict, now_ms: float, counts: dict | None = None) -> dict:
         if not r["marketOnly"]:
             c = desk_call(r, now_ms, counts["postseason_graded"])
             calls.append((r, c))
-            v = None if c["passKind"] == "started" else value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"])
+            v = None if c["passKind"] in NO_CALL_KINDS else value_side(r, POLICY.get(r["sport"]) or POLICY["DEFAULT"])
             if v:
                 values.append((r, v))
     for r in rows:
@@ -1180,7 +1191,7 @@ def desk_block(r, c, v, ven) -> dict:
            "edge_pp": _num(c["edge"]), "pass_kind": c["passKind"], "tags": c["tags"],
            "reasons": c["reasons"], "reason": " · ".join(c["reasons"]),
            "shadow_units": c["shadowUnits"], "exec": (None if (EXEC_RULES["on"] and c["call"] == "LADDER")
-                                                      or c["passKind"] == "started" else   # a LADDER buys NO on HOME, not the
+                                                      or c["passKind"] in NO_CALL_KINDS else  # a LADDER buys NO on HOME, not the
                     exec_block(r, r["pick"], r["prob"],                           # pick's leg: no pick-leg exec
                                c.get("execUnits") or (c["shadowUnits"] or None),    # a quarantine shadow is
                                c["units"] if c.get("execUnits") and c["units"] else None)),  # priced at its size

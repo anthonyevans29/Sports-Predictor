@@ -482,62 +482,219 @@ def team_merge(teams: dict[int, str]) -> TeamMerge:
     return tm
 
 
+# ncaa-elo-v1r DECLARATION (ARCHITECT 2026-10-08, addendum 11 item 3; docs/specs/ncaa-elo-v1r.md), D2 verbatim:
+# "Stream: stored NCAA games that carry a current CFBD both-FBS label, seasons 2024, 2025 and 2026, in order of
+# stored kickoff then match id. Home and away, the scores and the neutral flag come from the label; team ids are
+# merged as J2 rules. Every such game is walked, postseason included. A game with level scores is a data defect:
+# skipped, counted and listed." D6: the shadow refuses unless all three seasons are covered (L2 + L3).
+# The season of a game in this stream is its LABEL's season (the CFBD year the ingest record is keyed by).
+V1R_SEASONS = ("2024", "2025", "2026")
+V1R_WARMUP, V1R_TEST = "2024", "2025"     # D3 (the gate itself is PR B)
+NO_SEASON_TYPE = "(none)"
+V1R_EID = "ncaa-elo-v1r"
+
+# THE TEST-SEASON FENCE (ARCHITECT 2026-10-08, addendum 14 item 2(b), #368 RULED, verbatim). Until the registry
+# records ncaa-elo-v1r's run, coverage withholds every 2025 home win rate, and ncaa-backtest, ncaa-audit (and
+# resync-diff's NCAA home-rate line) refuse or withhold. Lifted by the recorded run, never by a flag.
+TEST_SEASON_FENCE = ("Until the one run of ncaa-elo-v1r is recorded, no command prints an outcome figure of the 2025 "
+                     "season. ncaa-cfbd-coverage prints no 2025 home win rate in either block; counts, coverage, the "
+                     "season_type census and the neutral counts stay. ncaa-backtest and ncaa-audit refuse, exit 2, "
+                     "naming this ruling: both print 2025 rates, and the first scores a candidate. The join receipts "
+                     "keep listing single games with their scores; that is how a join is checked. After the run is "
+                     "recorded the lines and the two commands return.")
+FENCE_RULING = "ARCHITECT 2026-10-08, addendum 14 item 2(b), #368"
+FENCED_RATE = f"withheld until the {V1R_EID} run is recorded ({FENCE_RULING})"
+
+
+def v1r_run_recorded(registry_path: str | None = None) -> bool:
+    """True once the registry records ncaa-elo-v1r's one run (`run` set). The fence reads only this."""
+    from src.walters import registry as reg
+
+    e = reg.get(V1R_EID, registry_path) if registry_path else reg.get(V1R_EID)
+    return bool(e and e.get("run"))
+
+
+def fence_refusal(command: str) -> str:
+    return (f"{command} REFUSED (exit 2): it prints {V1R_TEST} outcome figures and the {V1R_EID} run is not "
+            f"recorded. {FENCE_RULING}, verbatim: \"{TEST_SEASON_FENCE}\"")
+
+
+class NeutralRuleElo:
+    """D1 (verbatim): "NCAAEloV1 with its constants untouched [...] neutral_site_rule is
+    no_home_advantage_at_neutral: a game whose label says neutral is priced and updated with home advantage 0. A
+    label without a neutral flag is treated as non-neutral and counted." NCAAEloV1 has no neutral input, so this
+    thin wrapper swaps the model's cfg for dataclasses.replace(cfg, home_advantage=0.0) for the duration of the
+    predict / update call of a game whose `neutral` is True, then restores it. The v1 math is untouched. Shared by
+    the shadow (ncaa_shadow.V1R) and the design receipt (scripts/ncaa_v1r_design_receipt.py).
+    `neutral_home_advantage` True = the other declarable rule (home advantage at neutral sites too)."""
+
+    def __init__(self, neutral_home_advantage: bool = False):
+        from src.models.ncaa_elo import NCAAEloConfig, NCAAEloV1
+
+        self.cfg = NCAAEloConfig()
+        self.m = NCAAEloV1(self.cfg)
+        self.neutral_home_advantage = neutral_home_advantage
+        self.neutral_updates = 0
+        self.unflagged_updates = 0          # a label without a neutral flag: non-neutral, counted (D1)
+
+    def home_adv(self, g) -> float:
+        if not self.neutral_home_advantage and getattr(g, "neutral", None) is True:
+            return 0.0
+        return self.cfg.home_advantage
+
+    def _call(self, fn, g):
+        from dataclasses import replace
+
+        ha = self.home_adv(g)
+        if ha == self.cfg.home_advantage:
+            return fn(g)
+        self.m.cfg = replace(self.cfg, home_advantage=ha)
+        try:
+            return fn(g)
+        finally:
+            self.m.cfg = self.cfg
+
+    def predict(self, g) -> float:
+        return self._call(self.m.predict, g)
+
+    def update(self, g) -> None:
+        nf = getattr(g, "neutral", None)
+        if nf is True:
+            self.neutral_updates += 1
+        elif nf is None and getattr(g, "label_source", None) == "cfbd":
+            self.unflagged_updates += 1
+        self._call(self.m.update, g)
+
+    def rating(self, team_id: int) -> float:
+        return self.m.rating(team_id)
+
+    def ratings(self) -> dict[int, float]:
+        return self.m.ratings()
+
+
 @dataclass
 class V1RStream:
-    stream: Stream
+    games: list[Game]                                         # D2: walked, kickoff then match id
     merge: TeamMerge
-    unlabelled: Counter = field(default_factory=Counter)   # season -> stored games without a label (not walked)
-    labelled: Counter = field(default_factory=Counter)     # season -> labelled games (before the exclusions)
+    unlabelled: Counter = field(default_factory=Counter)   # season -> stored games without a current label
+    labelled: Counter = field(default_factory=Counter)     # CFBD season -> current labels (every season)
     stale: list[str] = field(default_factory=list)         # L3: stale labels (kept, counted, listed, never walked)
+    level: list[str] = field(default_factory=list)         # D2: level scores (a data defect: skipped, listed)
+    level_by_season: Counter = field(default_factory=Counter)
+    outside: Counter = field(default_factory=Counter)      # current labels outside V1R_SEASONS (not walked)
+    census: dict[str, dict[str, int]] = field(default_factory=dict)   # season -> season_type -> walked games
+    neutral: Counter = field(default_factory=Counter)      # season -> walked games labelled neutral
+    unflagged: Counter = field(default_factory=Counter)    # season -> walked games whose label has no neutral flag
 
-    def lines(self) -> list[str]:
-        L = ["NCAA-ELO-V1R STREAM (SCOPE, ARCHITECT 2026-10-08): only stored games carrying a CFBD both-FBS label; "
-             "a game without one is neither walked nor scored"]
+    def by_season(self, season: str) -> list[Game]:
+        return [g for g in self.games if g.season == season]
+
+    def lines(self, fenced: bool = True) -> list[str]:
+        """`fenced` (the default): the 2025 home win rate is withheld (TEST_SEASON_FENCE); counts stay."""
+        L = ["NCAA-ELO-V1R STREAM (D2, ARCHITECT 2026-10-08, addendum 11 item 3): stored games carrying a CURRENT "
+             f"CFBD both-FBS label, seasons {', '.join(V1R_SEASONS)} (the label's season), kickoff then match id, "
+             "postseason included; a game without one is neither walked nor scored"]
+        for season in V1R_SEASONS:
+            walked = self.by_season(season)
+            nn = [g for g in walked if g.neutral is not True]
+            rate = FENCED_RATE if fenced and season == V1R_TEST else _rate(_home_rate(nn))
+            L.append(f"  {season}: walked {len(walked)} · by season_type {self.census.get(season, {})} · neutral "
+                     f"{self.neutral[season]} (home advantage 0, D1) · no neutral flag {self.unflagged[season]} "
+                     f"(non-neutral, counted) · level scores {self.level_by_season[season]} · home win rate "
+                     f"non-neutral {rate} (n {len(nn)})")
         for season in sorted(set(self.labelled) | set(self.unlabelled)):
-            L.append(f"  {season}: labelled {self.labelled[season]} (in the stream) · unlabelled "
+            L.append(f"  {season}: current labels {self.labelled[season]} · unlabelled or stale "
                      f"{self.unlabelled[season]} (NOT walked, NOT scored)")
+        if self.outside:
+            L.append(f"  current labels outside {', '.join(V1R_SEASONS)} (not walked): {dict(sorted(self.outside.items()))}")
+        L.append(f"  LEVEL SCORES (D2: a data defect; skipped, counted, listed): {len(self.level)}")
+        L += [f"    {x}" for x in self.level]
         L.append(f"  STALE labels (L3: fetched_at is not their season's latest ingest record's; kept, never "
                  f"walked): {len(self.stale)}")
         L += [f"    {x}" for x in self.stale]
-        L.append(f"  kept after #79's exclusions: {TRAIN_SEASON} {len(self.stream.train)} · {TEST_SEASON} "
-                 f"{len(self.stream.test)} (the v1r split, neutral-site and postseason rules are the architect's "
-                 f"to rule after the re-ingest)")
-        for season, kept in ((TRAIN_SEASON, self.stream.train), (TEST_SEASON, self.stream.test)):
-            nn = [g for g in kept if g.neutral is False]
-            L.append(f"    {season} home win rate: non-neutral {_rate(_home_rate(nn))} (n {len(nn)}) · all kept "
-                     f"{_rate(_home_rate(kept))} (n {len(kept)})")
         return L + self.merge.lines()
 
 
 def v1r_stream(games: list[Game], teams: dict[int, str], stamps: dict[str, datetime]) -> V1RStream:
-    """SCOPE + L3: keep only games carrying a CURRENT CFBD label. L3 (verbatim): "A label is current when its
+    """D2 + L3 + J2. Keep only games carrying a CURRENT CFBD label. L3 (verbatim): "A label is current when its
     fetched_at equals that of its season's latest ingest record. The v1r stream and the shadow's FBS team set
     read current labels only. A stale label is kept, counted and listed, never walked." `stamps` =
-    ncaa_cfbd.latest_record_stamps ({CFBD season: latest record's fetched_at}). J2: both team ids mapped
-    through team_merge. Then #79's build_stream (same season filter, exclusions and tie rule). Pure."""
+    ncaa_cfbd.latest_record_stamps ({CFBD season: latest record's fetched_at}). The season is the label's (CFBD)
+    season; only V1R_SEASONS are walked. Home / away, scores and the neutral flag are the label's (game_from_rows
+    already applied them). Both team ids mapped through team_merge. Order: stored kickoff, then match id. Every
+    game walked, postseason included (no stage exclusion); a level score is skipped, counted and listed. Pure."""
     from dataclasses import replace
 
     tm = team_merge(teams)
-    kept, labelled, unlabelled, stale = [], Counter(), Counter(), []
+    v = V1RStream([], tm)
+    kept = []
     for g in games:
         if g.label_source != "cfbd":
-            unlabelled[g.season] += 1
+            v.unlabelled[g.season] += 1
             continue
         at = stamps.get(g.cfbd_season or "")
         if at is None or g.label_fetched_at != at:
-            unlabelled[g.season] += 1
-            stale.append(f"match {g.match_id} · CFBD {g.cfbd_id} · CFBD season {g.cfbd_season} · label fetched_at "
-                         f"{g.label_fetched_at} vs latest record "
-                         + (f"{at}" if at is not None else "— (no ingest record for the season)"))
+            v.unlabelled[g.season] += 1
+            v.stale.append(f"match {g.match_id} · CFBD {g.cfbd_id} · CFBD season {g.cfbd_season} · label fetched_at "
+                           f"{g.label_fetched_at} vs latest record "
+                           + (f"{at}" if at is not None else "— (no ingest record for the season)"))
             continue
-        labelled[g.season] += 1
-        kept.append(replace(g, home_id=tm(g.home_id), away_id=tm(g.away_id)))
-    return V1RStream(build_stream(kept), tm, unlabelled, labelled, stale)
+        season = str(g.cfbd_season)
+        v.labelled[season] += 1
+        if season not in V1R_SEASONS:
+            v.outside[season] += 1
+            continue
+        kept.append(replace(g, home_id=tm(g.home_id), away_id=tm(g.away_id), season=season))
+    for g in sorted(kept, key=lambda x: (x.utc_date, x.match_id if x.match_id is not None else -1)):
+        if g.home_score == g.away_score:
+            v.level_by_season[g.season] += 1
+            v.level.append(f"match {g.match_id} · CFBD {g.cfbd_id} · CFBD season {g.season} · {g.utc_date} · "
+                           f"{g.home_score}-{g.away_score}")
+            continue
+        v.games.append(g)
+        c = v.census.setdefault(g.season, {})
+        st = g.season_type if g.season_type else NO_SEASON_TYPE
+        c[st] = c.get(st, 0) + 1
+        if g.neutral is True:
+            v.neutral[g.season] += 1
+        elif g.neutral is None:
+            v.unflagged[g.season] += 1
+    return v
+
+
+def load_v1r_games() -> list[Game]:
+    """Read-only, D2 as worded ("stored NCAA games that carry a current CFBD both-FBS label [...] Home and away,
+    the scores and the neutral flag come from the label"): EVERY stored NCAA match carrying a side-table label,
+    whatever our local status or scores (Codex on #365: the ingest joins exact fits on our unscored rows and stores
+    CFBD's scores, and such a label counts toward the coverage fact, so the stream must walk it). Built by
+    game_from_rows, so the label's orientation, scores and neutral flag apply; v1r_stream then keeps the current
+    ones (L3). Our FINISHED scored rows WITHOUT a label (#79's load_games) are added only so the stream can count
+    them as unlabelled; they are never walked. #79's load_games / build_stream are unchanged."""
+    from sqlalchemy import inspect, select
+
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, NCAACFBDLabel, Sport
+    from src.ingestion.ncaa_cfbd import label_load_options
+
+    out: list[Game] = []
+    with session_scope() as s:
+        if inspect(s.connection()).has_table(NCAACFBDLabel.__tablename__):
+            rows = s.execute(
+                select(Match, NCAACFBDLabel)
+                .join(NCAACFBDLabel, NCAACFBDLabel.match_id == Match.id)
+                .join(Competition, Match.competition_id == Competition.id)
+                .where(Match.sport == Sport.NFL, Competition.code == NCAA_COMPETITION_CODE)
+                .options(*label_load_options(s))
+                .order_by(Match.utc_date, Match.id)).all()
+            out = [game_from_rows(m, lab) for m, lab in rows]
+        s.rollback()
+    labelled = {g.match_id for g in out}
+    return out + [g for g in load_games() if g.match_id not in labelled and g.label_source != "cfbd"]
 
 
 def load_v1r_stream(games: list[Game] | None = None) -> V1RStream:
-    """Read-only: load_games() (or `games`) restricted to the v1r stream: current labels only (L3), the team
-    merge built over every team in an NCAA match."""
+    """Read-only: load_v1r_games() (or `games`) restricted to the v1r stream (D2): current labels only (L3),
+    seasons V1R_SEASONS, the team merge built over every team in an NCAA match."""
     from src.db.database import session_scope
     from src.ingestion.ncaa_cfbd import latest_record_stamps, ncaa_teams
 
@@ -545,32 +702,38 @@ def load_v1r_stream(games: list[Game] | None = None) -> V1RStream:
         teams = ncaa_teams(s)
         stamps = latest_record_stamps(s)
         s.rollback()
-    return v1r_stream(load_games() if games is None else games, teams, stamps)
+    return v1r_stream(load_v1r_games() if games is None else games, teams, stamps)
 
 
 def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dict | None = None,
-                    v1r: V1RStream | None = None) -> dict[str, dict]:
+                    v1r: V1RStream | None = None, fenced: bool | None = None) -> dict[str, dict]:
     """`ncaa-cfbd-coverage`: the per-season receipt the architect reads.
     `fbs` = ncaa_cfbd.stored_coverage (the SCOPE condition: labelled / CFBD's
     completed both-FBS games, >= 95%, every unlabelled game listed); `stream`
     = #79's all-division stream (information); `v1r` = the v1r stream receipt.
-    States the condition as a computed fact; never declares the gate un-suspended."""
+    States the condition as a computed fact; never declares the gate un-suspended. `fenced` (None = read the
+    registry): no 2025 home win rate in either block until the v1r run is recorded (TEST_SEASON_FENCE)."""
     from src.ingestion.ncaa_cfbd import stored_coverage_lines
+
+    if fenced is None:
+        fenced = not v1r_run_recorded()
 
     cov = label_coverage(stream)
     out(f"NCAA CFBD LABEL COVERAGE · SCOPE condition (ARCHITECT 2026-10-08): the side table labels >= "
-        f"{COVERAGE_MIN:.0%} of CFBD's completed both-FBS games in EACH of {TRAIN_SEASON} and {TEST_SEASON} "
+        f"{COVERAGE_MIN:.0%} of CFBD's completed both-FBS games in EACH of {', '.join(V1R_SEASONS)} (ncaa-elo-v1r "
+        f"D6: the shadow needs all three, the gate run {V1R_WARMUP} and {V1R_TEST}) "
         f"(L2: the season's latest ingest record; never the payload, never our stream)")
     if fbs is None:
         out("  (not computed: no session)")
-        both = False
+        held = False
     else:
         for line in stored_coverage_lines(fbs):
             out(line)
-        both = all(fbs.get(s_, {}).get("ok") for s_ in (TRAIN_SEASON, TEST_SEASON))
-    out(f"  coverage condition in BOTH seasons: {'HOLDS' if both else 'DOES NOT HOLD'} (computed fact)")
+        held = all(fbs.get(s_, {}).get("ok") for s_ in V1R_SEASONS)
+    out(f"  coverage condition in ALL THREE seasons ({', '.join(V1R_SEASONS)}): "
+        f"{'HOLDS' if held else 'DOES NOT HOLD'} (computed fact)")
     if v1r is not None:
-        for line in v1r.lines():
+        for line in v1r.lines(fenced=fenced):
             out(line)
     out(f"#79 ALL-DIVISION STREAM (information; declared 2026-09-30, unchanged): FINISHED, both scores, "
         f"pre/postseason excluded, ties skipped")
@@ -579,11 +742,15 @@ def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dic
         out(f"  {season}: stream games {c['n']} · covered {c['covered']} ({_pct(c['covered_share'])}) · "
             f"uncovered {c['uncovered']} ({_pct(c['uncovered_share'])}) · swapped {c['swapped']} · neutral "
             f"{c['neutral']} · score-corrected {c['score_corrected']}")
+        if fenced and season == V1R_TEST:
+            out(f"    home win rate: {FENCED_RATE}")
+            continue
         out(f"    home win rate: non-neutral (covered, CFBD neutral=False) {_rate(c['home_rate_nonneutral'])} "
             f"(n {c['n_nonneutral']}) · all stream games {_rate(c['home_rate_all'])} · uncovered games "
             f"(matches-row labels, no neutral flag) {_rate(c['home_rate_uncovered'])} (n {c['uncovered']})")
-    out(f"  {TRAIN_SEASON} non-neutral home rate for the sanity read: "
-        f"{_rate(cov[TRAIN_SEASON]['home_rate_nonneutral'])} — the architect reads it")
+    if not (fenced and TRAIN_SEASON == V1R_TEST):
+        out(f"  {TRAIN_SEASON} non-neutral home rate for the sanity read: "
+            f"{_rate(cov[TRAIN_SEASON]['home_rate_nonneutral'])} — the architect reads it")
     out(f"  {GATE_STATUS_LINE} This receipt does not change it: un-suspension is the architect's read.")
     return cov
 

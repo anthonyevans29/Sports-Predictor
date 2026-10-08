@@ -24,27 +24,34 @@ reason stated) unless
       a declaration question" (#333 ruling), so the shadow never chooses it;
   (b) SCOPE (ARCHITECT 2026-10-08): "The shadow's precondition is that same
       fact": the side table labels >= 95% of CFBD's completed both-FBS games
-      in EACH season used (2025, 2026), re-read by
+      in EACH season used (D6: 2024, 2025, 2026), re-read by
       ncaa_cfbd.stored_coverage (the denominator is the saved CFBD payload
       the side table names, never our stream).
 The architect's read of the receipt is what makes (a) happen; (b) is
 re-checked on every run so a regressed side table stops the shadow.
+D6 (ncaa-elo-v1r declaration, ARCHITECT 2026-10-08, addendum 11 item 3,
+verbatim): "the shadow and the confirmation read refuse unless 2024, 2025 and
+2026 are [covered as L2 and L3 rule]": the seasons are ncaa_backtest.V1R_SEASONS,
+each missing season named.
 
-THE STREAM IS ncaa-elo-v1r's (SCOPE + J2, ARCHITECT 2026-10-08): only stored
-games carrying a CFBD both-FBS label are walked (ncaa_backtest.v1r_stream);
-team ids whose html-unescaped names are identical are one team, keyed by the
-lowest id (ncaa_backtest.team_merge), for the walk AND the upcoming games.
+THE STREAM IS ncaa-elo-v1r's D2 (ARCHITECT 2026-10-08, addendum 11 item 3):
+stored games carrying a CURRENT CFBD both-FBS label (L3), seasons 2024, 2025
+and 2026 (the label's season), in order of stored kickoff then match id,
+postseason included, level scores skipped / counted / listed
+(ncaa_backtest.v1r_stream); team ids whose html-unescaped names are identical
+are one team, keyed by the lowest id (J2, ncaa_backtest.team_merge), for the
+walk AND the upcoming games.
 
 THE MODEL IS v1 WITH ITS CONSTANTS UNTOUCHED (the #333 ruling: "ONE scored
 run of v1 with its constants untouched, declared beforehand in the registry
 as ncaa-elo-v1r"): src/models/ncaa_elo.NCAAEloConfig() defaults, the update
-math of NCAAEloV1 verbatim. The only declared input is the neutral rule:
-under "no_home_advantage_at_neutral" a game whose CFBD neutral flag is True
-prices and updates with home advantage 0; an unknown flag (no side-table
-row: every UPCOMING game) applies the listed home's advantage and the row
-says neutral unknown (law 4). Walk-forward over the gate's stream (#333
-labels applied; pre/postseason excluded; ties skipped), every game before
-now, then the predictions.
+math of NCAAEloV1 verbatim. The only declared input is the neutral rule (D1:
+"no_home_advantage_at_neutral"): a game whose label says neutral prices and
+updates with home advantage 0 (ncaa_backtest.NeutralRuleElo, shared with the
+design receipt); a label without a neutral flag is non-neutral and counted.
+D8: every UPCOMING game (no label before the game) is priced with the listed
+home's advantage and the row says the neutral flag is unknown (law 4).
+Walk-forward over D2's stream, every game before now, then the predictions.
 
 ROWS: engine "model_shadow" (window card and desk_policy already skip it;
 never a Desk call, never a venue input, never logged to the ledger),
@@ -65,10 +72,8 @@ evidence and says so.
 """
 from __future__ import annotations
 
-import contextlib
 import json
 import math
-from dataclasses import replace
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -88,6 +93,10 @@ NEUTRAL_RULES = {"home_advantage_at_neutral": True, "no_home_advantage_at_neutra
 # Codex on #344: the declaration freezes the constants; the shadow runs only if they are v1's, untouched (#333 ruling)
 CONSTANTS_KEY = "constants"
 CONSTANT_KEYS = ("k_factor", "home_advantage", "mov_base", "season_regression", "default_rating")
+# D8 (ARCHITECT 2026-10-08, addendum 11 item 3, verbatim): "Until then the shadow prices an upcoming game with the
+# listed home's advantage and says on the row that the neutral flag is unknown."
+NEUTRAL_FLAG_UNKNOWN = "unknown before the game"
+HOME_ADV_BASIS = "listed home (neutral flag unknown before the game)"
 NOTE = ("NCAA SHADOW — ncaa_elo_v1r (v1, constants untouched) as a model shadow beside the market-only NCAA "
         "Desk. Never a call, never a venue input, never in the ledger. The shadow changes nothing about the "
         "gate: the one run, the verdict and the confirmation cohort stand as declared, and this live record "
@@ -132,11 +141,12 @@ def gate_label(e: dict) -> str:
 
 def coverage_guard(fbs: dict[str, dict]) -> dict[str, dict]:
     """SCOPE (ARCHITECT 2026-10-08): the shadow's precondition is the ingest receipt's fact — the side table
-    labels >= 95% of CFBD's completed both-FBS games in EACH season used (ncaa_cfbd.stored_coverage)."""
+    labels >= 95% of CFBD's completed both-FBS games in EACH season used (ncaa_cfbd.stored_coverage); D6: the
+    seasons are 2024, 2025 and 2026."""
     from src.walters import ncaa_backtest as nb
 
     bad = []
-    for season in (nb.TRAIN_SEASON, nb.TEST_SEASON):
+    for season in nb.V1R_SEASONS:                       # D6: 2024, 2025 and 2026, each missing season named
         c = fbs.get(season)
         if c is None:
             bad.append(f"{season} (not computed)")
@@ -150,76 +160,40 @@ def coverage_guard(fbs: dict[str, dict]) -> dict[str, dict]:
     return fbs
 
 
-class V1R:
-    """NCAAEloV1 with its constants untouched; the declared neutral rule decides whether a CFBD-neutral game
-    carries home advantage. The v1 update math is reused verbatim (the config is swapped per game)."""
-
-    def __init__(self, neutral_home_advantage: bool):
-        from src.models.ncaa_elo import NCAAEloConfig, NCAAEloV1
-
-        self.cfg = NCAAEloConfig()
-        self.m = NCAAEloV1(self.cfg)
-        self.neutral_home_advantage = neutral_home_advantage
-        self.neutral_updates = 0
-
-    def home_adv(self, g) -> float:
-        if not self.neutral_home_advantage and getattr(g, "neutral", None) is True:
-            return 0.0
-        return self.cfg.home_advantage
-
-    @contextlib.contextmanager
-    def _for(self, g):
-        ha = self.home_adv(g)
-        if ha == self.cfg.home_advantage:
-            yield
-            return
-        self.m.cfg = replace(self.cfg, home_advantage=ha)
-        try:
-            yield
-        finally:
-            self.m.cfg = self.cfg
-
-    def predict(self, g) -> float:
-        with self._for(g):
-            return self.m.predict(g)
-
-    def update(self, g) -> None:
-        if getattr(g, "neutral", None) is True:
-            self.neutral_updates += 1
-        with self._for(g):
-            self.m.update(g)
-
-    def rating(self, team_id: int) -> float:
-        return self.m.rating(team_id)
+# D1's thin wrapper, one shared class (ncaa_backtest.NeutralRuleElo; the design receipt imports the same one).
+from src.walters.ncaa_backtest import NeutralRuleElo as V1R  # noqa: E402  (stdlib-only at import time)
 
 
 def fit(now: datetime, neutral_home_advantage: bool, games=None, fbs: dict | None = None):
-    """(model, receipt, team merge): walk-forward over the v1r stream (only CFBD-labelled games; J2 merge applied)
-    before `now`; refuses unless the SCOPE coverage condition holds."""
+    """(model, receipt, team merge): walk-forward over D2's stream (current CFBD labels only, seasons 2024-2026,
+    kickoff then match id, postseason included, level scores skipped; J2 merge applied) before `now`; refuses
+    unless D6's coverage holds for 2024, 2025 and 2026."""
     from src.db.database import session_scope
     from src.ingestion.ncaa_cfbd import stored_coverage
     from src.walters import ncaa_backtest as nb
 
     if fbs is None:
         with session_scope() as s:
-            fbs = stored_coverage(s, (nb.TRAIN_SEASON, nb.TEST_SEASON))
+            fbs = stored_coverage(s, nb.V1R_SEASONS)
             s.rollback()
     cov = coverage_guard(fbs)
     v = nb.load_v1r_stream(games)
-    st = v.stream
     model = V1R(neutral_home_advantage)
-    used = 0
-    for g in sorted(st.train + st.test, key=lambda x: x.utc_date):
+    used, by_season = 0, {}
+    for g in v.games:                                   # D2 order: stored kickoff, then match id
         if g.utc_date >= now:
             continue
         model.update(g)
         used += 1
-    return model, {"games_used": used, "train_n": len(st.train), "test_n": len(st.test),
-                   "excluded": {f"{s}/{why}": n for (s, why), n in sorted(st.excluded.items())},
-                   "ties_skipped": st.ties, "neutral_updates": model.neutral_updates,
+        by_season[g.season] = by_season.get(g.season, 0) + 1
+    return model, {"games_used": used, "walked_by_season": dict(sorted(by_season.items())),
+                   "season_type_census": {s_: dict(sorted(c.items())) for s_, c in sorted(v.census.items())},
+                   "level_scores_skipped": len(v.level), "level_scores_listed": list(v.level),
+                   "neutral_updates": model.neutral_updates, "neutral_unflagged": model.unflagged_updates,
                    "coverage": {s: round(c["share"], 4) for s, c in sorted(cov.items()) if c["share"] is not None},
                    "unlabelled_not_walked": dict(sorted(v.unlabelled.items())),
                    "stale_labels_not_walked": list(v.stale),
+                   "outside_seasons_not_walked": dict(sorted(v.outside.items())),
                    "team_merge": {"groups": [[[t, n] for t, n in g] for g in v.merge.groups],
                                   "changed_names": [[t, n, u] for t, n, u in v.merge.changed]},
                    "constants": {"k_factor": model.cfg.k_factor, "home_advantage": model.cfg.home_advantage,
@@ -292,8 +266,10 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
                                "top_pick_prob": round(p if pick_home else 1 - p, 4),
                                "elo_home": round(model.rating(g.home_id), 1),
                                "elo_away": round(model.rating(g.away_id), 1),
+                               # D8: the listed home's advantage; the neutral flag is unknown before the game
                                "home_adv_applied": model.home_adv(g),
-                               "neutral": None},          # unknown before the game (no side-table row): law 4
+                               "home_adv_basis": HOME_ADV_BASIS,
+                               "neutral": None, "neutral_flag": NEUTRAL_FLAG_UNKNOWN},
             })
             rows.append(row)
         s.rollback()

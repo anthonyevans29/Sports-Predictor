@@ -289,7 +289,7 @@ def _row_counts():
                 for t in Base.metadata.sorted_tables}
 
 
-def test_load_games_scope_and_no_writes_then_cli():
+def test_load_games_scope_and_no_writes_then_cli(monkeypatch):
     from click.testing import CliRunner
 
     from cli import cli
@@ -303,6 +303,9 @@ def test_load_games_scope_and_no_writes_then_cli():
     assert all((g.home_score, g.away_score) != (99, 98) for g in games)  # NFL row out
 
     runner = CliRunner()
+    fenced = runner.invoke(cli, ["ncaa-backtest", "--baselines-only"])     # #368: refused until the v1r run
+    assert fenced.exit_code == 2 and "ncaa-backtest REFUSED (exit 2)" in fenced.output
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: True)          # the run recorded: the command returns
     res = runner.invoke(cli, ["ncaa-backtest", "--baselines-only"])
     assert res.exit_code == 0, res.output
     assert "BAR (frozen): candidate log-loss need <=" in res.output

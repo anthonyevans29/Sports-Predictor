@@ -546,7 +546,7 @@ def test_coverage_per_season_and_the_95_condition():
     nb.coverage_report(st, out=lines.append, fbs=fbs)
     text = "\n".join(lines)
     assert ">= 95%: YES" in text and ">= 95%: NO" in text and "CFBD 7 · x" in text
-    assert "coverage condition in BOTH seasons: DOES NOT HOLD" in text
+    assert "coverage condition in ALL THREE seasons (2024, 2025, 2026): DOES NOT HOLD" in text
     assert "SUSPENDED-PENDING-DATA" in text and "architect" in text
     rep = []
     nb.report(st, nb.baselines(st), out=rep.append)
@@ -586,7 +586,7 @@ def test_load_games_reads_side_table_and_falls_back(monkeypatch):
     assert (g2.label_source, g2.home_score, g2.away_score, g2.neutral) == ("matches", 7, 3, None)
     res = CliRunner().invoke(cli, ["ncaa-cfbd-coverage"])
     assert res.exit_code == 0, res.output
-    assert "coverage condition in BOTH seasons" in res.output and "SUSPENDED-PENDING-DATA" in res.output
+    assert "coverage condition in ALL THREE seasons" in res.output and "SUSPENDED-PENDING-DATA" in res.output
     assert _match_snapshot(ids) == before
 
 

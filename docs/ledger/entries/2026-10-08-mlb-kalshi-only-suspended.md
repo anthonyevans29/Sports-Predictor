@@ -14,3 +14,4 @@
 - **K6:** `factor_breakdown.market_blend` {applied, enabled, w, market_home, market_away}. Probabilities on a fixed fixture are bit-identical to origin/main, six of six.
 - **#354:** the receipt's rows carry the blend record. It adds one blend x tier table; rows with no record are "not recorded". The month and pick-side splits stay with #354.
 - **K5:** no code reopens it; the switch is off only under the golden battery's `base_v11()` and the test-only `kalshi_only_suspension_off()`.
+- **Codex P1 on #369 (fixed):** `desk-rescore` crashed on a pre-Q3 MLB kalshi-only PLAY, a TypeError on the None edge. The row now carries the hold's raw edge, labelled "not a live edge", and a None edge prints "—".

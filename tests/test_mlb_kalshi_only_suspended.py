@@ -186,6 +186,27 @@ def test_desk_rescore_reports_the_suspension_never_as_halved():
     assert x["verdict"] == "kalshi-only suspended" and x["addendum_call"] == "PASS"
 
 
+def test_desk_rescore_cli_prints_the_suspension_with_the_holds_raw_edge(tmp_path):
+    """Codex P1 on #369: a pre-Q3 export with a published MLB kalshi-only PLAY crashed desk-rescore (TypeError on a
+    None edge). The row now carries the hold's raw edge, labelled as such, and a None edge prints as —."""
+    from click.testing import CliRunner
+
+    import cli
+    doc = {"sport": "mlb", "predictions": [row("Was", 0.56)]}
+    with dp.kalshi_only_suspension_off():                       # published before Q3: a real PLAY
+        dp.annotate(doc, now=NOW)
+    assert doc["predictions"][0]["desk"]["call"] == "PLAY"
+    p = tmp_path / "mlb.json"
+    p.write_text(json.dumps(doc))
+    res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p), "--out", str(tmp_path / "r.md")])
+    assert res.exit_code == 0, (res.output, repr(res.exception))
+    line = next(l for l in res.output.splitlines() if "Was away @ Was" in l)
+    assert "fair — · hold raw edge +6.5pp (not a live edge)" in line and "KALSHI-ONLY SUSPENDED" in line
+    assert "1 MLB PLAY(s) now PASS under the kalshi-only suspension" in res.output
+    (x,) = dp.rescore(doc)
+    assert x["fair_edge_pp"] is None and x["hold_raw_edge_pp"] == (0.56 - 0.495) * 100
+
+
 # ------------------------------------------------------------------------- the Cockpit repo copy --
 
 def _cockpit():

@@ -1457,6 +1457,9 @@ def _rescore(doc: dict) -> list[dict]:
         out.append({"game": r["game"], "pick": side_name(r, r["pick"]), "kickoff": r["utc"] or None,
                     "model_p": r["prob"], "fair_edge_pp": c["edge"], "exec_cost": dc["cost"] if dc else None,
                     "exec_edge_pp": exec_edge_pp(r, r["pick"], r["prob"], c.get("execUnits")),
+                    # Codex P1 on #369: a suspended row has no live edge (None); its hold's raw edge rides along,
+                    # labelled as the hold's (record only, never a live edge)
+                    "hold_raw_edge_pp": (c.get("koHold") or {}).get("raw_edge_pp"),
                     "published_units": d.get("units"), "v11_units": b["units"], "addendum_units": c["units"],
                     "addendum_call": c["call"],
                     # a published PLAY the CURRENT quarantine now shadows is its own transition, never "halved"

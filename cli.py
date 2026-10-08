@@ -4915,7 +4915,11 @@ def desk_rescore_cmd(files, out_path):
             suspended += x["verdict"] == "kalshi-only suspended"     # Q3 K1 (ARCHITECT 2026-10-08): its own too
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
-            lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {x['fair_edge_pp']:+.1f}pp · "
+            # a None edge prints as — (never a crash: Codex P1 on #369); a suspended row shows its hold's raw edge
+            fe = "—" if x["fair_edge_pp"] is None else f"{x['fair_edge_pp']:+.1f}pp"
+            if x.get("hold_raw_edge_pp") is not None:
+                fe += f" · hold raw edge {x['hold_raw_edge_pp']:+.1f}pp (not a live edge)"
+            lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {fe} · "
                          f"exec {xe} ({xc}) · units published {x['published_units']} / v1.1 {x['v11_units']} → "
                          f"addendum {x['addendum_units']} · {x['verdict'].upper()}")
     lines.append(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")

@@ -288,16 +288,23 @@ def out_path_ok(path: str) -> tuple[bool, str]:
         return False, f"REFUSED: --out must be under exports/ ({EXPORTS})."
     if tgt.exists() and not tgt.is_file():
         return False, f"REFUSED: --out {tgt} exists and is not a file."
+    anc = next((a for a in tgt.parents if a.exists()), None)
+    if anc is not None and not anc.is_dir():       # Codex on #340: never a FileExistsError from makedirs
+        return False, f"REFUSED: --out {tgt}: {anc} is a file, not a directory."
+    from src.walters.venue_quote_age import EXPORT_NAME, MIRROR_DIR
+    if EXPORT_NAME.search(tgt.name) or (EXPORTS.resolve() / MIRROR_DIR) in tgt.parents:
+        # Codex on #340: a generated Desk export name (or the host mirror) is reserved, existing or not: a probe
+        # payload there would replace an export or read as a damaged one to the receipts
+        return False, (f"REFUSED: --out {tgt.name} is a reserved desk export name/location; use e.g. "
+                       "exports/probe_nhl.json.")
     if tgt.is_file():
-        # Codex on #340: never replace a Desk export (the receipts' inputs, mirrored copies included)
-        from src.walters.venue_quote_age import EXPORT_NAME, MIRROR_DIR
+        # Codex on #340: never replace a desk document under any name
         try:
             with open(tgt) as f:
                 doc = json.load(f)
         except (OSError, ValueError, UnicodeDecodeError):
             doc = None
-        if (EXPORT_NAME.search(tgt.name) or (isinstance(doc, dict) and "desk_meta" in doc)
-                or (EXPORTS.resolve() / MIRROR_DIR) in tgt.parents):
+        if isinstance(doc, dict) and "desk_meta" in doc:
             return False, f"REFUSED: --out {tgt} is an existing desk export: the probe never overwrites one."
     try:
         db = db_path()

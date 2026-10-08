@@ -472,5 +472,19 @@ def test_out_never_replaces_an_existing_desk_export(tmp_path, monkeypatch):
     mirror.write_text("{}")
     for tgt in (named, custom, mirror):
         ok, msg = P.out_path_ok(str(tgt))
-        assert not ok and "existing desk export" in msg, tgt
+        assert not ok and ("existing desk export" in msg or "reserved" in msg), tgt
     assert P.out_path_ok(str(ex / "probe_nhl_123.json"))[0]                      # a new file is fine
+
+
+def test_out_reserves_generated_names_and_refuses_paths_under_a_file(tmp_path, monkeypatch):
+    """Codex on #340: a NEW fixtures_* name would read as a damaged export; a path under a file would crash."""
+    ex = tmp_path / "exports"
+    ex.mkdir()
+    monkeypatch.setattr(P, "EXPORTS", ex)
+    monkeypatch.setattr(P, "db_path", lambda: tmp_path / "db.sqlite")
+    ok, msg = P.out_path_ok(str(ex / "fixtures_probe.json"))
+    assert not ok and "reserved" in msg
+    (ex / "block").write_text("x")
+    ok, msg = P.out_path_ok(str(ex / "block" / "report.json"))
+    assert not ok and "not a directory" in msg
+    assert P.out_path_ok(str(ex / "sub" / "probe_nhl.json"))[0]                  # a new directory is fine

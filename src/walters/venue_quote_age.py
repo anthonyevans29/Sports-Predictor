@@ -247,7 +247,29 @@ def doc_ident_ok(doc: dict) -> bool:
         if not rows and (doc.get("competition_code") or doc.get("competition")) and str(
                 doc.get("competition_code") or doc.get("competition")).upper() not in fam:
             return False
+    # Codex on #340: export.py filters a document to its competition_code (Competition.code ==), so a row naming
+    # another competition is damaged, whatever the family (soccer included)
+    code = doc.get("competition_code")
+    if code and any(isinstance(x, dict) and x.get("competition") and str(x["competition"]).upper() != str(code).upper()
+                    for x in rows):
+        return False
     return bool(top) or all(isinstance(x, dict) and x.get("competition") for x in rows)
+
+
+def venue_prices_ok(doc: dict) -> bool:
+    """Every VENUE call's side is an outcome of its row's market.fair_prob and its book_p is that fair (desk_policy
+    venue_edge: bookP = fair[side], from the same block) (Codex on #340: a contradicting copy never anchors)."""
+    for x in doc.get("fixtures") or []:
+        d = x.get("desk") if isinstance(x, dict) else None
+        if not (isinstance(d, dict) and d.get("engine") == "venue_edge" and d.get("call") == "VENUE"):
+            continue
+        fp = (x.get("market") or {}).get("fair_prob") if isinstance(x.get("market"), dict) else None
+        side = d.get("side")
+        if not isinstance(fp, dict) or side not in fp or fp[side] is None or d.get("book_p") is None:
+            return False
+        if abs(d["book_p"] - fp[side]) >= 5e-4:
+            return False
+    return True
 
 
 def row_ident_ok(x: dict) -> bool:
@@ -370,6 +392,9 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if not doc_ident_ok(doc):
                     bad_rows.append(p)                     # Codex on #340: damaged sport metadata, never a
                     continue                               # silently out-of-scope document
+                if not venue_prices_ok(doc):
+                    bad_rows.append(p)                     # Codex on #340: a VENUE price contradicting its fair
+                    continue
                 if not any(k in doc for k in ("fixtures", "predictions", "tickets")):
                     bad_rows.append(p)                     # Codex on #340: any --out name; a desk doc with no
                     continue                               # rows container is damaged, never an empty file
@@ -670,6 +695,10 @@ def anchor_for(sessions: list[dict], call: dict) -> tuple[dict | None, str]:
     claim time. Captures at/after kickoff never count."""
     pre = [x for x in sessions if call["kickoff"] is None or x["t"] < call["kickoff"]]
     cap = call.get("file_captured_at")
+    if cap is not None and call.get("as_of") is not None and _sec(cap) > _sec(call["as_of"]):
+        # Codex on #340: a capture after the decision was not the consensus at the call (the venue engine itself
+        # refuses one): unmeasured, never a verdict
+        return None, "the file's captured_at is after the call time (not available at the call)"
     if cap is not None:
         exact = [x for x in pre if x["t"] == cap]
         if exact:
@@ -1031,8 +1060,12 @@ def model_reference_rows(docs, since: datetime, mirrored=()) -> list[dict]:
             ident = (sport, r.get("home_team"), r.get("away_team"), kick, as_of)
             fair4 = _row_fair(r)
             mk = r.get("market") or {}
-            if sport in SPREAD_SPORTS and mk.get("fair_source") is None:
-                fair4 = None     # Codex on #340: an NFL row with no fair_source may be spread-derived: no 1X2 fair
+            if sport in SPREAD_SPORTS and mk.get("fair_source") is None and not (
+                    isinstance(mk.get("selections"), dict) and mk["selections"]):
+                # Codex on #340: only the fair_prob shape can be spread-derived without a label (the fixtures /
+                # fallback block); a predictions export's market.selections is always export._summarize_market's
+                # 1X2 close (close_1x2), so its fair stands
+                fair4 = None
             raw = mk.get("fair_prob") if isinstance(mk.get("fair_prob"), dict) else {}
             # Codex on #340: the reference source and its RAW fair are part of copy identity (a spread_derived fair
             # has no 1X2 fair4, so two different spread references must not look identical)

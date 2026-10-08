@@ -1603,6 +1603,10 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
     except VQ.Refused as e:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
+    if out_path and _os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}:
+        console.print(f"[red]REFUSED: --out {out_path} is one of the desk exports this receipt reads: it never "
+                      "overwrites its own input.[/red]")      # Codex on #340: any suffix
+        raise SystemExit(2)
     calls = VQ.file_venue_calls(docs, lo, cnt["mirrored"])
     sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
                f"{cnt['unreadable']} unreadable, {cnt.get('other_files', 0)} other file(s) not read, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
@@ -1643,6 +1647,8 @@ def quote_age_report_cmd(since, exports_dir, out_path):
     decision (as_of − the last book capture) and the "unchanged since" age (how long the consensus had been
     identical to four decimals across our captures), median / p90 / max per sport. Capture-based PROXIES,
     never quote age: no quote time is stored. Writes nothing to the DB; --out refuses data/."""
+    import os as _os
+
     from src.walters import venue_quote_age as VQ
     lo = _vqa_since(since)
     if not _vqa_out_ok(out_path, exports_dir):
@@ -1651,6 +1657,10 @@ def quote_age_report_cmd(since, exports_dir, out_path):
         docs, cnt = VQ.iter_desk_docs(exports_dir)
     except VQ.Refused as e:
         console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    if out_path and _os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}:
+        console.print(f"[red]REFUSED: --out {out_path} is one of the desk exports this receipt reads: it never "
+                      "overwrites its own input.[/red]")      # Codex on #340: any suffix
         raise SystemExit(2)
     sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
                f"{cnt['unreadable']} unreadable, {cnt.get('other_files', 0)} other file(s) not read, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "

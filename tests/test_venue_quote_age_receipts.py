@@ -1561,3 +1561,65 @@ def test_an_unscannable_subdirectory_refuses(tmp_path, monkeypatch):
     monkeypatch.setattr(VQ.os, "walk", walk)
     with pytest.raises(VQ.Refused, match="could not be scanned"):
         VQ.iter_desk_docs(str(tmp_path))
+
+
+def test_nfl_prediction_selections_keep_their_1x2_fair():
+    """Codex on #340 (P1): a predictions export's market.selections is the 1X2 close (no fair_source label);
+    only the unlabelled fair_prob shape may be spread-derived."""
+    def doc(market):
+        return {"competition_code": "NFL", "desk_meta": {"as_of": _iso(KO) + "Z"},
+                "predictions": [{"match_id": 1, "home_team": "H", "away_team": "A",
+                                 "utc_date": _iso(KO + timedelta(hours=2)), "market": market,
+                                 "desk": {"engine": "model_edge", "reference": "books", "call": "PLAY"}}]}
+    sel = {"selections": {"HOME": {"fair_prob": 0.6}, "AWAY": {"fair_prob": 0.4}}, "bookmaker_count": 7}
+    assert VQ.model_reference_rows([("p.json", doc(sel))], SINCE)[0]["file_fair"] == {"HOME": 0.6, "AWAY": 0.4}
+    fp = {"fair_prob": {"HOME": 0.6, "AWAY": 0.4}, "bookmaker_count": 7}                 # unlabelled fair_prob
+    assert VQ.model_reference_rows([("p.json", doc(fp))], SINCE)[0]["file_fair"] is None
+
+
+def test_an_anchor_captured_after_the_call_is_unmeasured():
+    """Codex on #340: a file captured_at later than the call's as_of was not the consensus at the call."""
+    t = KO - timedelta(hours=3)
+    sessions = [{"t": t, "fair4": {"HOME": 0.5, "AWAY": 0.5}, "source": "books"},
+                {"t": t + timedelta(hours=1), "fair4": {"HOME": 0.5, "AWAY": 0.5}, "source": "books"}]
+    call = {"kickoff": KO, "as_of": t + timedelta(minutes=30), "file_captured_at": t + timedelta(hours=1)}
+    ref, why = VQ.anchor_for(sessions, call)
+    assert ref is None and "after the call time" in why
+    ref, _ = VQ.anchor_for(sessions, dict(call, file_captured_at=t))
+    assert ref is sessions[0]
+
+
+def test_a_venue_price_contradicting_its_fair_refuses():
+    """Codex on #340: book_p must be the fair of the call's side (desk_policy: bookP = fair[side])."""
+    ok = {"fixtures": [_venue_row(1, "x", 2, {"HOME": 0.4735, "AWAY": 0.5265})]}
+    assert VQ.venue_prices_ok(ok)
+    bad = json.loads(json.dumps(ok))
+    bad["fixtures"][0]["desk"]["book_p"] = 0.60
+    assert not VQ.venue_prices_ok(bad)
+    bad = json.loads(json.dumps(ok))
+    bad["fixtures"][0]["desk"]["side"] = "DRAW"
+    assert not VQ.venue_prices_ok(bad)
+
+
+def test_a_row_competition_contradicting_the_documents_code_refuses():
+    """Codex on #340: export.py filters to competition_code exactly; a soccer row naming P1 in a PL doc is damaged."""
+    row = {"match_id": 1, "home_team": "H", "away_team": "A", "competition": "PL"}
+    assert VQ.doc_ident_ok({"sport": "soccer", "competition_code": "PL", "predictions": [row]})
+    assert not VQ.doc_ident_ok({"sport": "soccer", "competition_code": "PL",
+                                "predictions": [dict(row, competition="P1")]})
+    assert VQ.doc_ident_ok({"sport": "soccer", "predictions": [row, dict(row, competition="EFL")]})   # unscoped
+
+
+def test_out_never_names_a_discovered_export_of_any_suffix(tmp_path):
+    """Codex on #340: --out exports/audit (a desk export read as input) would be overwritten with text."""
+    from click.testing import CliRunner
+
+    import cli
+    ids = _seed()
+    ex = _exports(tmp_path, ids)
+    tgt = ex / "audit"
+    body = json.dumps({"competition_code": "NHL", "desk_meta": {"as_of": "2095-10-08T00:00:00Z"}, "fixtures": []})
+    tgt.write_text(body)
+    for cmd in ("venue-calls-receipt", "quote-age-report"):
+        r = CliRunner().invoke(cli.cli, [cmd, "--since", "2095-10-02", "--exports-dir", str(ex), "--out", str(tgt)])
+        assert r.exit_code == 2 and "REFUSED" in r.output and tgt.read_text() == body, r.output

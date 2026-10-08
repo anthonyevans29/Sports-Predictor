@@ -1539,6 +1539,14 @@ def _vqa_since(v):
     return t
 
 
+def _os_samefile(a, b) -> bool:
+    import os as _os
+    try:
+        return _os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
 def _vqa_out_ok(out_path, exports_dir=None) -> bool:
     if not out_path:
         return True
@@ -1557,7 +1565,9 @@ def _vqa_out_ok(out_path, exports_dir=None) -> bool:
         return False
     from src.walters.venue_quote_age import db_file_path
     _db = db_file_path()
-    if _db is not None and _tgt in (_db, _P(str(_db) + "-wal"), _P(str(_db) + "-shm"), _P(str(_db) + "-journal")):
+    _dbs = () if _db is None else (_db, _P(str(_db) + "-wal"), _P(str(_db) + "-shm"), _P(str(_db) + "-journal"))
+    if _tgt in _dbs or (_tgt.exists() and any(x.exists() and _os_samefile(_tgt, x) for x in _dbs)):
+        # (Codex on #340: by file identity too: a hard link to the DB is the DB)
         # Codex on #340: a DATABASE_URL outside data/ is still the DB; a read-only receipt never overwrites it
         console.print(f"[red]REFUSED: --out {out_path} is the configured database (or its sidecar): the receipts "
                       "are read-only.[/red]")
@@ -1602,7 +1612,8 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
     if not _vqa_out_ok(out_path, exports_dir):
         raise SystemExit(2)
     import os as _os
-    if out_path and ledger_path and _os.path.realpath(out_path) == _os.path.realpath(ledger_path):
+    if out_path and ledger_path and (_os.path.realpath(out_path) == _os.path.realpath(ledger_path)
+                                     or _os_samefile(out_path, ledger_path)):
         console.print("[red]REFUSED: --out is the --ledger file: the receipt never overwrites its own input.[/red]")
         raise SystemExit(2)                      # Codex on #340
     try:
@@ -1610,7 +1621,8 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
     except VQ.Refused as e:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
-    if out_path and _os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}:
+    if out_path and (_os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}
+                     or any(_os_samefile(out_path, p) for p, _ in docs)):
         console.print(f"[red]REFUSED: --out {out_path} is one of the desk exports this receipt reads: it never "
                       "overwrites its own input.[/red]")      # Codex on #340: any suffix
         raise SystemExit(2)
@@ -1665,7 +1677,8 @@ def quote_age_report_cmd(since, exports_dir, out_path):
     except VQ.Refused as e:
         console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
-    if out_path and _os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}:
+    if out_path and (_os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}
+                     or any(_os_samefile(out_path, p) for p, _ in docs)):
         console.print(f"[red]REFUSED: --out {out_path} is one of the desk exports this receipt reads: it never "
                       "overwrites its own input.[/red]")      # Codex on #340: any suffix
         raise SystemExit(2)

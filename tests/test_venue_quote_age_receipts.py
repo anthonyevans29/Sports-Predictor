@@ -1744,3 +1744,22 @@ def test_an_unreadable_or_undecodable_custom_suffix_file(tmp_path, monkeypatch):
     monkeypatch.setattr("builtins.open", fake_open)
     with pytest.raises(VQ.Refused):
         VQ.iter_desk_docs(str(tmp_path))
+
+
+def test_out_never_writes_through_a_hard_link_to_the_database(tmp_path, monkeypatch):
+    """Codex on #340: a hard link to the DB under another name is the DB (file identity, not the path string)."""
+    import os
+
+    from click.testing import CliRunner
+
+    import cli
+    db = tmp_path / "db" / "sports.db"
+    db.parent.mkdir()
+    db.write_bytes(b"SQLite format 3\x00")
+    link = tmp_path / "elsewhere.txt"
+    os.link(db, link)
+    monkeypatch.setattr(VQ, "db_file_path", lambda: db.resolve())
+    ex = tmp_path / "ex"
+    ex.mkdir()
+    r = CliRunner().invoke(cli.cli, ["quote-age-report", "--exports-dir", str(ex), "--out", str(link)])
+    assert r.exit_code == 2 and "configured database" in r.output and db.read_bytes() == b"SQLite format 3\x00"

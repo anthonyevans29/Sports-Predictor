@@ -72,3 +72,4 @@
   - A `desk` key of any value without `desk_meta` refuses.
   - JSON under any suffix gets the full damage checks; desk engines must match their row family.
   - Call vs venue verdict contradictions and unopenable files refuse; the probe refuses an empty payload.
+  - `--out` guards compare file identity (hard links refuse).

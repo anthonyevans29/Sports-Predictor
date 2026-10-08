@@ -73,3 +73,4 @@
   - Any row carrying a `desk` key (whatever its value) without `desk_meta` refuses the document.
   - Any file whose text parses as JSON, whatever its suffix, goes through the same damage checks as a `.json` export (an emptied `--out exports/audit.txt` refuses). A desk block whose engine is foreign to its row family (model_edge on a fixtures row, venue_edge on a predictions row) refuses.
   - A venue_edge block whose call contradicts its own `venue.eligible` (PASS + eligible, VENUE + not) refuses. A file that cannot be opened refuses; undecodable bytes that begin as a JSON object refuse, other binary files are counted. Probe: an empty payload `{}` is refused and never written.
+  - `--out` (receipts and probe) compares file identity, not only the path: a hard link to the database, its sidecars, the `--ledger` file or a discovered export refuses.

@@ -314,7 +314,15 @@ def out_path_ok(path: str) -> tuple[bool, str]:
         db = db_path()
     except Refused:
         db = None                              # a non-SQLite URL: no DB file to alias
-    if db is not None and tgt in (db, *(Path(str(db) + x) for x in ("-wal", "-shm", "-journal"))):
+    dbs = () if db is None else (db, *(Path(str(db) + x) for x in ("-wal", "-shm", "-journal")))
+
+    def same(a, b) -> bool:
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            return False
+    # Codex on #340: by file identity too: a hard link to the DB is the DB
+    if tgt in dbs or (tgt.exists() and any(x.exists() and same(tgt, x) for x in dbs)):
         # Codex on #340: a DATABASE_URL under exports/ is still the DB; the read-only probe never overwrites it
         return False, f"REFUSED: --out is the configured database (or its sidecar) {db}: the probe is read-only."
     return True, str(tgt)

@@ -494,3 +494,17 @@ def test_an_empty_payload_is_refused_and_never_written():
     """Codex on #340: {} is no provider response; written under exports/ it would block both receipts."""
     assert "empty object" in P.payload_refusal({})
     assert P.payload_refusal(SYNTH) is None
+
+
+def test_probe_out_never_writes_through_a_hard_link_to_the_database(tmp_path, monkeypatch):
+    """Codex on #340: the probe compares file identity too."""
+    import os
+    ex = tmp_path / "exports"
+    ex.mkdir()
+    db = tmp_path / "sports.db"
+    db.write_bytes(b"x")
+    os.link(db, ex / "probe_nhl.json")
+    monkeypatch.setattr(P, "EXPORTS", ex)
+    monkeypatch.setattr(P, "db_path", lambda: db.resolve())
+    ok, msg = P.out_path_ok(str(ex / "probe_nhl.json"))
+    assert not ok and "configured database" in msg

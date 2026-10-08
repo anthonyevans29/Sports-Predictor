@@ -75,6 +75,30 @@ under the VPN.
 | `capture-weather` | `--date` | Tracking-only weather snapshot near first pitch. |
 | `backfill-weather` | `--competition --season --limit` | Historical weather via Open-Meteo. |
 | `sync-kalshi` | `--date-from --date-to` | Kalshi MLB game markets (second market source). |
+| `mlb-closing-run` (= `python deploy/hosting/mlb_closing.py run`) | `--first-pitch ISO` · `--dry-run` | **MLB CLOSING RUN (ARCHITECT 2026-10-08, addendum 13 item 3, Q2; LAPTOP ONLY: the host cannot reach the MLB feed, and the command refuses where `SP_SKIP_FAMILIES` names MLB).** One command. It runs under the chain lock (`logs/db.lock`). Before the first step, a `.backup` dated today (America/New_York) must exist in the operator's backup folder (`SP_BACKUP_DIR`, else `~/backups`, where the documented backup line writes). If none does, one is taken through the `.backup` API, opened and integrity-checked, with a sha256 sidecar; nothing under `data/` is copied any other way. Then the ten steps of `CHAINS["mlb-closing"]` in `deploy/hosting/chains.py`: mlb-preslate's own nine, plus its export with `--date <first pitch's NY date> --desk`, so the file carries the Desk's call. `{today}` is the first pitch's date in America/New_York, never the UTC date. It stops at the first failed step; after a failure nothing is exported, pushed or notified. On success it prints one summary block per game whose first pitch is within 90 minutes (call, pick, units, edge, exec edge, order line, the kalshi-only hold when present), pushes the exports mirror (`exports_mirror.py push --role laptop --label closing`) and posts one macOS notification per game. It appends ONE receipt line (`kind: mlb_closing`) either way: first pitch, each step's exit and seconds, the export file, the Desk rows, the push. It refuses when every game in its window has started; the Desk's started rule already makes such a row PASS. Default target: the next unstarted first pitch within 90 minutes. It places nothing and never opens Kalshi's trading API. `--dry-run` prints the plan and touches nothing. |
+| `mlb-closing-watch` (= `python deploy/hosting/mlb_closing.py watch`) | `--dry-run` | **The 5-minute tick** (launchd: `bash scripts/setup_mlb_closing_watch.sh`). It uses no network to decide. From the stored schedule it takes the MLB games not started whose first pitch is 5 to 65 minutes away. A first-pitch time with no successful closing receipt starts `mlb-closing-run` once, for the earliest such time. Before that it checks the MLB feed answers (one GET to `statsapi.mlb.com/api/v1/sports/1`). If it does not answer, nothing runs: a notification "MLB feed unreachable: VPN on, Tailscale off", a `kind: mlb_closing_miss` receipt, and the next tick tries again while the window is open. A failed run is retried the same way, at most three attempts per first-pitch time. Otherwise (or while a chain holds the lock) it exits 0 and prints nothing. `--dry-run` lists every stored game around now with in/out of the window, the receipt state per first pitch and what would start. No network, no step, no backup, no receipt, no push, no notification. |
+
+### MLB closing autopilot (operator)
+
+The laptop runs the T-60 closing freshen by itself (ARCHITECT 2026-10-08, Q2). It places nothing.
+
+- **Install:** `bash scripts/setup_mlb_closing_watch.sh`. This loads the LaunchAgent
+  `com.sportspredictor.mlbclosingwatch`, which runs `python cli.py mlb-closing-watch` every 5 minutes, with logs
+  in `logs/mlb_closing_watch.log` / `.err`. Nothing installs itself.
+- **Off switch:** `bash scripts/setup_mlb_closing_watch.sh --uninstall`.
+- **Check first:** `python cli.py mlb-closing-watch --dry-run` and `python cli.py mlb-closing-run --dry-run`.
+- **Network mode:** the run needs the MLB feed (VPN on, Tailscale off), the same as Phase 1 of the morning chain.
+- **What the notifications mean:**
+  - `MLB feed unreachable: VPN on, Tailscale off`: a closing run was due and nothing ran. Switch the network
+    mode; the next tick (within 5 minutes) tries again while the first pitch is still 5 to 65 minutes away.
+  - `19:05 ET Away @ Home: PLAY Home 1u exec +5.2pp`: one per game after a successful run, showing first
+    pitch, call, pick, units and exec edge. A PASS reads the same way with 0u.
+  - `… · paste to the architect before placing`: a PLAY whose exec edge is under 4.0pp, or unknown. This is the
+    operator hold of 2026-10-07. The summary block prints the same hold on the order line. The hold lives in
+    `CLOSING_HOLDS` (`deploy/hosting/mlb_closing.py`), so lifting it is a one-line PR.
+  - No notification after a run means the run failed. Its receipt (`kind: mlb_closing`, `failed`) names the
+    step. The watch retries it, at most three attempts per first pitch.
+- **Receipts:** `logs/receipts.jsonl` (`SP_RECEIPTS`), `kind: mlb_closing` and `kind: mlb_closing_miss`.
 
 ## Soccer weekly operation
 

@@ -269,6 +269,18 @@ CHAINS["freshen:NFL"] = {"steps": [
     ["export-nfl-predictions"],
 ]}
 CHAINS["freshen:MLB"] = {"steps": [list(s) for s in CHAINS["mlb-preslate"]["steps"]]}  # the 10
+# MLB CLOSING-RUN AUTOPILOT (ARCHITECT 2026-10-08, addendum 13 item 3, Q2, A1): "It runs the ten mlb-preslate steps
+# as chains.py lists them (chains.py stays the one place commands live), with the export carrying the Desk's call."
+# Derived from mlb-preslate, never a copy: steps 1-9 are mlb-preslate's own; step 10 is its export plus `--date
+# {today}` (the first pitch's America/New_York date, which mlb_closing.py sets as {today}: the export's default
+# slate is the UTC date, which drops a 22:10 ET game run after 20:00 ET) and `--desk`. LAPTOP ONLY ("the host
+# cannot reach the MLB feed"): run through `python cli.py mlb-closing-run` (deploy/hosting/mlb_closing.py), never
+# sp_run, which refuses it.
+CHAINS["mlb-closing"] = {
+    "laptop_only": "python cli.py mlb-closing-run",
+    "steps": [list(s) for s in CHAINS["mlb-preslate"]["steps"][:-1]]
+             + [[*CHAINS["mlb-preslate"]["steps"][-1], "--date", "{today}", "--desk"]],
+}
 CHAINS["freshen:SOCCER"] = {"steps": [
     ["sync-odds", *PL],
     ["sync-injuries", *PL],

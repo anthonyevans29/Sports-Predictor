@@ -531,9 +531,11 @@ function rerunHint(r){
 // KICKOFF + "RE-RUN BY" (architect 2026-10-01, presentation only): every Desk
 // row shows its kickoff and T-60 on the local clock.
 function hm(t){const d=new Date(t);return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;}
-function koLine(r){
+function koLine(r,held){
   const t=utcMs(r.utc); if(!isFinite(t)) return '<span class="ko">kickoff unknown</span>';
   if(t<=Date.now()) return `<span class="ko">KO ${hm(t)} · started</span>`;
+  // a quote-age HELD row (ARCHITECT 2026-10-07) is not cleared by a T-60 re-run: no re-run instruction
+  if(held) return `<span class="ko">KO ${hm(t)} · held: no re-run clears it</span>`;
   return `<span class="ko">KO ${hm(t)} · re-run by ${hm(t-PASSCLASS.rerunMin*60000)}</span>`;
 }
 // POSTSEASON SIZING CAUTION (policy v1.1 addendum, architect 2026-10-01): a
@@ -671,7 +673,7 @@ function renderVenue(){
     const tr=document.createElement("tr");
     const vk=v.eligible?null:(v.kind||null);
     if(vk==="noref") tr.className="noref";
-    tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}${koLine(r)}</td><td>${esc(side)}</td>
+    tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}${koLine(r,v.held)}</td><td>${esc(side)}</td>
       <td>${v.bookP!=null?v.bookP.toFixed(3):"—"}</td><td>${v.kalP!=null?v.kalP.toFixed(3):"—"}</td>
       <td>${v.divPP!=null?(v.divPP>0?"+":"")+v.divPP.toFixed(1)+"pp":"—"}</td>
       <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"+passKindTag(vk)}${v.eligible&&r.marketOnly?orderHTML(r.fileDesk.order):""}</td>

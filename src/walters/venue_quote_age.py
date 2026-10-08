@@ -153,12 +153,20 @@ def _str(v) -> bool:
     return v is None or isinstance(v, str)
 
 
+DESK_CALLS = {"model_edge": {"PLAY", "PASS", "LADDER"}, "venue_edge": {"VENUE", "PASS"}}   # desk_policy's own
+DESK_REFERENCES = {None, "books", "kalshi_only"}
+
+
 def desk_ok(d) -> bool:
     """A desk block's identity fields are strings or null, and a VENUE block's numeric fields numeric or null
     (Codex on #340: they are hashed into call keys and formatted; never a traceback)."""
     if not isinstance(d, dict):
         return True
     if not all(_str(d.get(k)) for k in ("engine", "call", "side", "reference", "pass_kind")):
+        return False
+    # Codex on #340: the discriminators are desk_policy's own vocabulary; a corrupted value is a damaged block
+    if d and (d.get("engine") not in DESK_CALLS or d.get("call") not in DESK_CALLS[d["engine"]]
+              or d.get("reference") not in DESK_REFERENCES):
         return False
     if d.get("engine") != "venue_edge":
         return True
@@ -514,8 +522,10 @@ def merge_calls(file_calls: list[dict], ledger_calls: list[dict]) -> list[dict]:
     def pick(cands, claim):
         """One file call among same-key candidates (conflicting copies, Codex on #340): the one whose book p,
         Kalshi p and div the claim carries; no unique match -> None (ambiguous, never chosen silently)."""
-        if len(cands) == 1:
-            return cands[0]
+        priced = any(claim.get(k) is not None for k in ("book_p", "kalshi_p", "div_pp"))
+        if len(cands) == 1 and not priced:
+            return cands[0]                    # a claim with no frozen price has nothing to contradict
+        # Codex on #340: one candidate is checked too; a claim whose prices contradict the file attaches to none
         fit = [f for f in cands if all(same(f.get(k), claim.get(k), k) for k in ("book_p", "kalshi_p", "div_pp")
                                        if claim.get(k) is not None)
                and any(claim.get(k) is not None for k in ("book_p", "kalshi_p", "div_pp"))]
@@ -540,8 +550,11 @@ def merge_calls(file_calls: list[dict], ledger_calls: list[dict]) -> list[dict]:
         hit = pick(cands, c) if cands else None
         if cands and hit is None:
             for f in cands:
-                f["ledger_ambiguous"] = (f"a ledger claim matches {len(cands)} conflicting file calls and its "
-                                         "book p / Kalshi p / div name none uniquely: attached to none")
+                f["ledger_ambiguous"] = (
+                    f"a ledger claim matches {len(cands)} conflicting file calls and its book p / Kalshi p / div name "
+                    "none uniquely: attached to none" if len(cands) > 1 else
+                    "a ledger claim of this call carries book p / Kalshi p / div that contradict this file's: "
+                    "attached to none")
             continue
         if hit is not None:
             hit["in_ledger"] = True

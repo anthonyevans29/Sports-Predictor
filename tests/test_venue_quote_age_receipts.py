@@ -1344,3 +1344,28 @@ def test_scalar_rows_containers_and_unknown_sole_sport_are_refused(tmp_path):
     (ok / "a.json").write_text(json.dumps({"sport": "NFA", "desk_meta": {"as_of": "2095-10-08T00:00:00Z"},
                                            "predictions": [{"competition": "NFL", "prediction": {}}]}))
     assert len(VQ.iter_desk_docs(str(ok))[0]) == 1          # every row names its own competition
+
+
+def test_corrupted_discriminators_and_contradicting_single_claims(tmp_path):
+    """Codex on #340: engine / call / reference must be desk_policy's own vocabulary; a ledger claim whose prices
+    contradict its only candidate file call attaches to none, flagged."""
+    asof = {"as_of": "2095-10-08T00:00:00Z"}
+    for i, desk in enumerate(({"engine": "model_edg", "call": "PLAY"}, {"engine": "venue_edge", "call": "VENEU"},
+                              {"engine": "model_edge", "call": "PLAY", "reference": "book"})):
+        ex = tmp_path / f"d{i}"
+        ex.mkdir()
+        (ex / "audit.json").write_text(json.dumps({"sport": "nfl", "desk_meta": asof, "predictions": [
+            {"prediction": {"home_win_prob": 0.6}, "desk": desk}]}))
+        with pytest.raises(VQ.Refused):
+            VQ.iter_desk_docs(str(ex))
+    ids = _seed()
+    n, t = ids["n"], KO - timedelta(hours=19)
+    f = {"origin": "file", "files": ["f"], "in_ledger": False, "as_of": t, "sport": "NHL", "match_id": ids["dead"],
+         "home": f"VQA{n} dead Home", "away": f"VQA{n} dead Away", "kickoff": KO, "side": "AWAY", "units": 0.25,
+         "div_pp": 7.15, "book_p": 0.55, "kalshi_p": 0.455, "file_fair": {"HOME": 0.45, "AWAY": 0.55}}
+    claim = {"engine": "venue_edge", "sport": "NHL", "home": f["home"], "away": f["away"], "kickoff": _iso(KO),
+             "pick": "AWAY", "units": 0.25, "claim_at": _iso(t) + "Z", "claim_source": "auto", "model_p": 0.60}
+    calls = VQ.merge_calls([dict(f)], VQ.ledger_venue_calls({"calls": [claim]}, SINCE))
+    assert len(calls) == 1 and calls[0]["in_ledger"] is False and "contradict" in calls[0]["ledger_ambiguous"]
+    ok = VQ.merge_calls([dict(f)], VQ.ledger_venue_calls({"calls": [{**claim, "model_p": 0.55}]}, SINCE))
+    assert ok[0]["in_ledger"] is True and not ok[0].get("ledger_ambiguous")

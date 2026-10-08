@@ -128,6 +128,8 @@ def main():
               sj["cells"][1] == "San Jose Sharks" and sj["cells"][2] == "0.526" and sj["cells"][3] == "0.455"
               and sj["cells"][4] == "+7.1pp", json.dumps(sj["cells"]))
         check("reason exactly the ruling's, no re-run hint", sj["cells"][6] == REASON, sj["cells"][6])
+        check("kickoff cell gives no re-run instruction on a held row (Codex on #340)",
+              "re-run by" not in sj["cells"][0] and "held: no re-run clears it" in sj["cells"][0], sj["cells"][0])
         check("no order line", sj["order"] == "", sj["order"])
         bo = row(rs, "Boston")
         check("below-floor computed row is held the same way (numbers kept: +1.0pp)",

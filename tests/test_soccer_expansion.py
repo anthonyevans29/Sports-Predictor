@@ -75,9 +75,10 @@ def _prechecks_pass(monkeypatch):
 
 
 def test_run_refuses_while_findings_are_open_and_on_missing_data(monkeypatch):
-    # ARCHITECT 2026-10-07 (addendum 3, item B) ruled F1-F5; F6 is not ruled, so the run still refuses
-    assert [f[:2] for f in sx.OPEN_FINDINGS] == ["F6"]
-    with pytest.raises(sx.ExpansionRefused, match="open findings.*F6"):
+    # F1-F6 ruled (2026-10-07 / 2026-10-08); R1 (the registry operator correction) has no field to land in, so the
+    # run still refuses until the architect directs it
+    assert [f[:2] for f in sx.OPEN_FINDINGS] == ["R1"]
+    with pytest.raises(sx.ExpansionRefused, match="open findings.*R1"):
         sx.run(-0.1, 0.0008)
     scored = []
     monkeypatch.setattr("src.walters.soccer_backtest.run_soccer_backtest",
@@ -600,7 +601,7 @@ def test_preflight_prints_every_label_with_its_placement_and_the_baseline(monkey
     assert "stages 2024/25: 'Regular Season - 1' 1 → regular; 'Semi-finals' 1 → playoff; None 1 → UNPLACED" in r.output
     assert "UNPLACED label(s), the run refuses: ELC 2024/25 None" in r.output
     assert "ELC: " in r.output and "DROPPED BEFORE THE RUN" in r.output
-    assert "open findings (the run refuses until ruled): F6" in r.output and "nothing scored" in r.output
+    assert "open findings (the run refuses until ruled): R1" in r.output and "nothing scored" in r.output
 
 
 def test_shadow_leagues_never_get_a_venue_call():
@@ -624,3 +625,12 @@ def test_shadow_leagues_never_get_a_venue_call():
     dp.annotate(fx, now=now)
     d = fx["fixtures"][0]["desk"]
     assert d["call"] == "PASS" and d["order"] is None and "shadow league (SA" in d["reason"]
+
+
+def test_f6_a_league_with_no_gated_band_is_dropped_never_passed_on_log_loss_alone():
+    """F6 (ARCHITECT 2026-10-08): no calibration band at >= 100 observations FAILS the bands criterion."""
+    few = results(20, True)                                      # 60 pairs: no band can reach 100
+    g = sx.league_gate(few, NAIVE)
+    assert not any(b["gated"] for b in g["bands"])
+    assert g["crit_bands"] is False and g["survives"] is False
+    assert "no gated band" in g["verdict"] and g["verdict"].startswith("DROPPED")

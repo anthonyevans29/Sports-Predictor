@@ -58,9 +58,13 @@ SHADOW_NOTE = ("SHADOW — soccer-expansion-v1 (PD, SA, BL1, FL1, ELC). Until CO
 
 # Points the ruling leaves undefined are FINDINGS for a ruling, listed in the spec (section 7). The one run
 # REFUSES while any is open; a ruling closes them by editing this tuple and the spec in a reviewed PR.
-# F1-F5 RULED (ARCHITECT 2026-10-07, addendum 3, item B; spec section 7a). F6 is NOT ruled: the run still refuses.
+# F1-F5 RULED (ARCHITECT 2026-10-07, addendum 3, item B; spec section 7a). F6 RULED (ARCHITECT 2026-10-08,
+# addendum 7, item 1; spec section 7b): a league with no gated band is DROPPED, "no gated band".
+# R1 is the registry-operator correction the same ruling orders before the run: the entry carries no
+# machine-readable operator to correct (spec 7b), so it stays open and the run still refuses until it is resolved.
 OPEN_FINDINGS = (
-    "F6 a league with no gated calibration band (every band < 100 observations) passes the bands criterion vacuously",
+    "R1 the registry operator correction (<= to <, citing F4) has no machine-readable field to land in; awaiting the "
+    "architect's direction (spec 7b)",
 )
 
 # F5 (ruled): for THIS gate the walk predicts every fixture sharing a kickoff timestamp before any of them updates
@@ -168,9 +172,13 @@ def league_gate(results: list[dict], naive: dict) -> dict:
     pairs = [(r[key[o]], int(r["actual"] == o)) for r in results for o in "HDA"]
     bands = calibration_bands(pairs)
     crit_ll = ll_m < ll_n - LL_MARGIN                     # F4: strict, no tolerance; a tie rejects
-    crit_bands = all(b["ok"] for b in bands if b["gated"])
+    gated = [b for b in bands if b["gated"]]
+    # F6 (ruled 2026-10-08): no band at >= 100 observations FAILS the bands criterion (DROPPED, "no gated band");
+    # a league never passes on log-loss alone. The intl, NHL and NCAA gates keep their recorded rule.
+    crit_bands = bool(gated) and all(b["ok"] for b in gated)
     ok = crit_ll and crit_bands
-    why = [w for w, good in (("log-loss margin", crit_ll), ("calibration", crit_bands)) if not good]
+    why = [w for w, good in (("log-loss margin", crit_ll),
+                             ("no gated band" if not gated else "calibration", crit_bands)) if not good]
     return {"n": n, "ll_model": ll_m, "ll_naive": ll_n, "bar": ll_n - LL_MARGIN, "rps_model": rps_m,
             "rps_naive": rps_n, "bands": bands, "crit_ll": crit_ll, "crit_bands": crit_bands,
             "survives": ok, "verdict": "PASS" if ok else "DROPPED — " + ", ".join(why)}

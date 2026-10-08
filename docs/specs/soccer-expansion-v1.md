@@ -98,8 +98,9 @@ Also ruled the same day:
 
 ## 7. FINDINGS (F1–F5 ruled 2026-10-07, section 7a; F6 OPEN)
 
-The one run REFUSES while any finding is open (`soccer_expansion.OPEN_FINDINGS`). **F6 is not ruled, so the run
-still refuses.** A ruling closes it by editing that tuple and this section in a reviewed PR.
+The one run REFUSES while any finding is open (`soccer_expansion.OPEN_FINDINGS`). F1–F6 are ruled (7a, 7b). **R1
+(the registry operator correction, 7b) is open, so the run still refuses.** A ruling closes it by editing that
+tuple and this section in a reviewed PR.
 
 - **F1 — a league without a stored 2023/24 season.** RULED (7a): dropped before the run.
 - **F2 — promoted-club priors in the walk-forward.** RULED (7a): the per-season cold-start walk, no cross-season
@@ -107,11 +108,7 @@ still refuses.** A ruling closes it by editing that tuple and this section in a 
 - **F3 — relegation / promotion play-off rows inside a league-season.** RULED (7a): regular-season rounds only.
 - **F4 — the tie.** RULED (7a): TIES REJECT.
 - **F5 — fixtures sharing a kickoff** (Codex on #326). RULED (7a): batched for this gate, opt-in, default off.
-- **F6 — a league with no gated calibration band** (Codex on #326). **OPEN, not ruled.**
-  - The bands criterion is the intl-elo-v2 one verbatim: every band with >= 100 observations is within ±5pp, so a
-    league where no band reaches 100 passes it vacuously and is gated on log-loss alone.
-  - The same rule stands in the intl-elo-v2, NHL and NCAA gates. Whether this gate treats an empty gated-band set as
-    a pass, a DROP, or a refusal (and with what pre-read threshold) is for a ruling. The code is unchanged.
+- **F6 — a league with no gated calibration band** (Codex on #326). RULED (7b): DROPPED, named "no gated band".
 
 ## 7a. Rulings on F1–F5 (ARCHITECT 2026-10-07, addendum 3, item B, verbatim)
 
@@ -186,6 +183,29 @@ reruns without an architect ruling. The run record keeps each league's calibrati
 
 Prerequisite, not a finding: each league's 2026/27 competition-season needs `sync-teams` once before the chains'
 `sync-matches` (CLAUDE.md), on the laptop and on the host.
+
+## 7b. Rulings on F6 and the registry operator (ARCHITECT 2026-10-08, addendum 7, item 1, verbatim)
+
+> "F6: for soccer-expansion-v1, a league with no calibration band at 100 or more observations FAILS the bands criterion and is DROPPED, named 'no gated band'. It cannot pass on log-loss alone. The intl, NHL and NCAA gates keep their recorded rule."
+
+> "Registry operator: correct soccer-expansion-v1's machine-readable operator from <= to < before the run, with a dated correction note citing F4. The verbatim gate text is untouched. This is a pre-run correction of a transcription; the experiment is declared and unrun."
+
+### Built
+
+- **F6:** `league_gate` sets `crit_bands = bool(gated) and all(gated ok)`. A league with no band at >= 100
+  observations fails the criterion and is DROPPED with the reason "no gated band" (pinned by a test). The shared
+  `nhl_backtest.calibration_bands` is untouched, so the intl, NHL and NCAA gates keep their recorded rule.
+
+### R1 — open: the operator has no machine-readable field
+
+The registry entry for soccer-expansion-v1 (docs/registry/experiments.json) carries these keys only: id, sport, lane,
+candidate, declaration, training_cutoff, test_set, gate, confirmation_window, confirmation_plan, declared_at, status,
+run, verdict. The only `<=` on the gate's log-loss criterion is inside `gate`, the verbatim text the ruling leaves
+untouched. `confirmation_plan` holds the confirmation's numbers (bar 1.0986 = ln 3, compared `<=` by
+registry.record_confirmation, which matches the confirmation text "<= ln 3"; its second criterion is already strict).
+The code already applies F4 (`crit_ll = ll_model < ll_naive − 0.010`). No field exists for the correction to land
+in, so nothing was invented: R1 stays in `OPEN_FINDINGS` and the run refuses until the architect directs where the
+corrected operator and its dated note go (for example a new `gate_rule` field with `corrections`).
 
 ## 8. Chains (data only)
 

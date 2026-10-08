@@ -22,3 +22,4 @@
   - F4: TIES REJECT. `crit_ll` is now `ll_model < ll_naive − 0.010`, unrounded, no tolerance;
   - F5: `run_soccer_backtest` gains two opt-in arguments, both default off so every existing command reproduces its numbers: `stage_filter` and `batch_same_kickoff` (same-kickoff fixtures predicted from one pre-state). The gate passes both; `scoreable_count` mirrors the batched predicate.
   - the Desk's venue engine never calls PD / SA / BL1 / FL1 / ELC (`desk_policy.SHADOW_VENUE_COMPS`, pinned to the leagues): their Kalshi capture reaches the 24h window card, which spans every competition, so without this a gap there could print a VENUE line.
+  - F6 ruled (2026-10-08): a league with no calibration band at >= 100 observations is DROPPED, "no gated band"; it never passes on log-loss alone (intl / NHL / NCAA gates unchanged). The registry operator correction (R1) has no machine-readable field to land in: it stays open and the run still refuses until directed.

@@ -77,3 +77,19 @@ def test_still_limited_after_the_rounds_is_reported_not_silent(games, monkeypatc
     monkeypatch.setattr(svc, "_odds_sleep", lambda x: None)
     svc.sync_odds_nfl(progress=msgs.append)
     assert any("still rate limited after 2 retry round(s): 1 game(s) unpriced" in m for m in msgs), msgs
+
+
+def test_rate_limit_lines_name_the_competition(games, monkeypatch):
+    # DELINEATION (Codex on #346): retry / still-limited / deferred lines name each competition
+    msgs = []
+
+    def list_odds(self, gid):
+        if gid == "thr2":
+            raise RateLimited("odds", 5)
+        return []
+    monkeypatch.setattr("src.adapters.api_american_football.APIAmericanFootballAdapter.list_odds", list_odds)
+    monkeypatch.setattr(svc, "_odds_sleep", lambda x: None)
+    svc.sync_odds_nfl(progress=msgs.append)
+    assert any("rate limited (THR 1) — retrying" in m for m in msgs), msgs
+    assert any("1 game(s) unpriced (THR 1)" in m for m in msgs), msgs
+    assert any("deferred (THR 1)" in m for m in msgs), msgs

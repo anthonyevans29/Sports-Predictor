@@ -29,62 +29,20 @@ Writes NOTHING (no DB writes, no ingest path, no files unless --save).
 import argparse
 import json
 import os
-import re
 import sys
-import urllib.parse
-import urllib.request
 from collections import Counter
-from datetime import datetime, timezone
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, ROOT)
 
-BASE = "https://api.collegefootballdata.com"
-FIELDS = {   # name -> regex over the record's keys (first match wins)
-    "home": re.compile(r"^home_?team$", re.I),
-    "away": re.compile(r"^away_?team$", re.I),
-    "home_pts": re.compile(r"^home_?points$", re.I),
-    "away_pts": re.compile(r"^away_?points$", re.I),
-    "neutral": re.compile(r"^neutral_?site$", re.I),
-    "start": re.compile(r"^start_?date$", re.I),
-}
-OPTIONAL = {
-    "completed": re.compile(r"^completed$", re.I),
-    "season_type": re.compile(r"^season_?type$", re.I),
-    "home_class": re.compile(r"^home_?(classification|division)$", re.I),
-    "away_class": re.compile(r"^away_?(classification|division)$", re.I),
-    "id": re.compile(r"^id$", re.I),
-}
+# The CFBD access pieces (field discovery, fetch, start-date parsing) live in
+# src/ingestion/ncaa_cfbd.py since the label lane (ARCHITECT 2026-10-07); this
+# probe keeps its own compare() so its 2026-10-07 read stays reproducible.
+from src.ingestion.ncaa_cfbd import (  # noqa: E402,F401
+    BASE, FIELDS, OPTIONAL, CFBDError, discover, fetch, parse_start, refuse_save_path,
+)
+
 SAMPLE = 15
-
-
-def discover(rec: dict) -> tuple[dict, list[str]]:
-    keys, missing = {}, []
-    for name, rx in {**FIELDS, **OPTIONAL}.items():
-        k = next((k for k in rec if rx.match(k)), None)
-        if k is None and name in FIELDS:
-            missing.append(name)
-        keys[name] = k
-    return keys, missing
-
-
-def fetch(year: int, key: str, base: str = BASE, division: str = "fbs") -> tuple[int, list, dict]:
-    q = urllib.parse.urlencode({"year": year, "seasonType": "both", "classification": division})
-    req = urllib.request.Request(f"{base}/games?{q}", headers={"Authorization": f"Bearer {key}",
-                                                               "Accept": "application/json"})
-    with urllib.request.urlopen(req, timeout=60) as r:
-        hdr = {k: v for k, v in r.headers.items() if re.search(r"limit|remaining|quota|calls", k, re.I)}
-        return r.status, json.loads(r.read().decode()), hdr
-
-
-def parse_start(v) -> datetime | None:
-    if not v:
-        return None
-    try:
-        d = datetime.fromisoformat(str(v).replace("Z", "+00:00"))
-    except ValueError:
-        return None
-    return d.astimezone(timezone.utc).replace(tzinfo=None) if d.tzinfo else d
 
 
 def compare(records: list, keys: dict, session, division: str | None = None) -> dict:
@@ -165,11 +123,15 @@ def main(argv=None) -> int:
     ap.add_argument("--key-env", default="CFBD_API_KEY")
     ap.add_argument("--base", default=BASE)
     ap.add_argument("--division", default="fbs", help="both teams' classification must equal this ('' = all)")
-    ap.add_argument("--save", default=None, help="write the raw response here (outside data/) for re-runs")
+    ap.add_argument("--save", default=None, help="write the raw response here for re-runs (in the repo: "
+                    "under exports/ only; data/ never)")
     a = ap.parse_args(argv)
-    if a.save and os.path.abspath(a.save).startswith(os.path.join(ROOT, "data")):
-        print("REFUSED: never write under data/ (law 5)")
-        return 2
+    if a.save:
+        try:                     # the ingest's rule (Codex on #333): in-repo only under exports/
+            refuse_save_path(a.save)
+        except CFBDError as e:
+            print(e)
+            return 2
     from src.db.database import session_scope
 
     print("NCAA SOURCE PROBE (#176) · read-only · source: CollegeFootballData (CFBD)")
@@ -184,7 +146,7 @@ def main(argv=None) -> int:
                 print(f"REFUSED: no {a.key_env} in the environment (.env; never committed, never printed)")
                 return 2
             try:
-                status, recs, hdr = fetch(year, key, a.base, a.division or "fbs")
+                status, recs, hdr = fetch(year, key, a.base, a.division)   # '' = all: no classification sent
             except Exception as e:                      # the key is not in the message
                 print(f"{year}: fetch failed: {type(e).__name__}: {str(e)[:200]}")
                 rc = 1

@@ -13,6 +13,6 @@ def test_both_names_resolve_to_the_same_command(monkeypatch):
     for name in ("sync-odds-football", "sync-odds-nfl"):
         res = runner.invoke(cli.cli, [name])
         assert res.exit_code == 0, res.output
-        assert "Football odds (NFL+NCAA): created=3 across 2 games" in res.output
+        assert "Football odds: created=3 across 2 games" in res.output
     assert len(calls) == 2
     assert cli.cli.commands["sync-odds-nfl"] is cli.cli.commands["sync-odds-football"]

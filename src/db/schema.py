@@ -600,6 +600,55 @@ class IntlVenueResolved(Base):
     derived_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
 
 
+class NCAACFBDLabel(Base):
+    """
+    NCAA CFBD LABEL LANE (ARCHITECT 2026-10-07, #176 probe read, ruling (1)):
+    "A side table keyed by our match id: source game id, orientation (same /
+    swapped), neutral flag, both scores, season; 2025 and 2026. The matches
+    table is never rewritten."
+
+    One row per NCAA match joined to a CollegeFootballData (CFBD) game by
+    `ncaa-cfbd-labels` (src/ingestion/ncaa_cfbd.py). CFBD is the NCAA label
+    source of record; `matches` is never updated.
+
+    * orientation: 'same' = CFBD's home team is OUR matches.home_team_id;
+      'swapped' = CFBD's home team is OUR matches.away_team_id.
+    * home_score / away_score: the SOURCE's scores stated in OUR orientation,
+      i.e. home_score = the points CFBD reports for OUR matches.home_team_id,
+      away_score = the points CFBD reports for OUR matches.away_team_id
+      (for a 'swapped' row: home_score = CFBD awayPoints, away_score = CFBD
+      homePoints). A reader that wants the source's own home/away applies the
+      orientation (src/walters/ncaa_backtest.py does).
+    * neutral: CFBD's neutral-site flag as served (NULL only if the source
+      did not carry it — law 4).
+    * correction_reason: NULL when the source's scores (our orientation)
+      equal the matches row; otherwise why they differ ('score-reversed: ...'
+      / 'score-disagree: ...'). The stream reads THESE scores (ruling (4)).
+    Created by migrate_ncaa_cfbd_labels.py. Upserted by match id, never
+    deleted by the ingest.
+    """
+
+    __tablename__ = "ncaa_cfbd_labels"
+
+    match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), primary_key=True)
+    source: Mapped[str] = mapped_column(String(32), default="cfbd")
+    source_game_id: Mapped[int | None] = mapped_column(Integer, index=True)    # CFBD game id, as served
+    season: Mapped[str] = mapped_column(String(16), index=True)                # the CFBD --year queried ("2025")
+    orientation: Mapped[str] = mapped_column(String(8))                        # 'same' | 'swapped'
+    neutral: Mapped[bool | None] = mapped_column(Boolean)
+    home_score: Mapped[int] = mapped_column(Integer)                           # source, OUR orientation
+    away_score: Mapped[int] = mapped_column(Integer)                           # source, OUR orientation
+    source_home_team: Mapped[str | None] = mapped_column(String(128))          # CFBD homeTeam, as served
+    source_away_team: Mapped[str | None] = mapped_column(String(128))          # CFBD awayTeam, as served
+    join_via: Mapped[str | None] = mapped_column(String(16))                   # exact | substring | alias
+    correction_reason: Mapped[str | None] = mapped_column(String(256))
+    payload_file: Mapped[str | None] = mapped_column(String(256))              # the saved payload (exports/)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+    match: Mapped[Match] = relationship()
+
+
 class TeamRating(Base):
     """Time-series of team ratings (Elo, xG attack/defense, etc.)"""
 

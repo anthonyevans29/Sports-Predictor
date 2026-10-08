@@ -46,7 +46,13 @@ DEFAULT_PRED_NAME = re.compile(r"^(soccer|nfl|mlb|nhl)(?:_(?!results_\d{4}-)[A-Z
 EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions|" + DEFAULT_PRED_NAME.pattern, re.I)
 SPREAD_SPORTS = ("NFL", "NCAA", "NCAAF")
 #: the export families a document-level `sport` may name (schema Sport values + the shadow / intl families)
+#: the competitions a single-league export family carries (src/db/schema.py Sport: NCAA football is Sport.NFL;
+#: the shadow families name their own league). soccer / unl / intl carry open competition sets: not checked here
+FAMILY_COMPETITIONS = {"nfl": {"NFL", "NCAA", "NCAAF"}, "mlb": {"MLB"}, "nhl": {"NHL"}, "ncaa": {"NCAA", "NCAAF"}}
 KNOWN_SPORTS = ("soccer", "nfl", "mlb", "nhl", "ncaa", "unl", "intl")          # sports whose reference can be spread_derived
+#: tools/cockpit.html's ledger writers: engine:"model_edge" (straight / ladder / shadows / parlay legs) and
+#: engine:"venue_edge"; no other value has ever been written (since 76edfa3, the ledger's first version)
+LEDGER_ENGINES = ("model_edge", "venue_edge")
 LEDGER_UNKNOWN_SOURCE = "unknown (the ledger keeps no fair_source)"
 MIRROR_DIR = "host"                              # <exports>/host/: deploy/hosting/pull_exports.py's destination
 WINDOW = timedelta(hours=12)                     # identity match: exact team names, kickoff within ±12h
@@ -85,6 +91,11 @@ def ledger_refusal(L) -> str | None:
         # Codex on #340: a venue claim's reprices[] decides whether it was re-logged (frozen vs latest prices) and
         # its re-log count; a damaged array is refused, never filtered down to what survives
         for i, c in enumerate(L["calls"]):
+            if c.get("engine") not in LEDGER_ENGINES:
+                # Codex on #340: the Cockpit writes model_edge / venue_edge only; a damaged discriminator is
+                # never read as "not a venue claim" and dropped
+                return (f"REFUSED: ledger call at index {i} has an unknown engine {c.get('engine')!r} (the Cockpit "
+                        f"writes {' / '.join(LEDGER_ENGINES)}): a damaged claim is never filtered out silently.")
             if c.get("engine") != "venue_edge":
                 continue
             bad_num = [k for k in ("model_p", "market_p", "kalshi_p", "divergence_pp", "units", "claim_model_p",
@@ -145,8 +156,9 @@ def market_ok(mk) -> bool:
 
 
 def _num(v) -> bool:
-    """numeric or null (a bool is not a number)"""
-    return v is None or (isinstance(v, (int, float)) and not isinstance(v, bool))
+    """numeric or null (a bool is not a number; NaN / Infinity, which json.load accepts, are not either: Codex
+    on #340, a NaN anchor compares false and would read as verified)"""
+    return v is None or (isinstance(v, (int, float)) and not isinstance(v, bool) and math.isfinite(v))
 
 
 def _str(v) -> bool:
@@ -218,6 +230,18 @@ def doc_ident_ok(doc: dict) -> bool:
     if only_sport and doc.get("sport") and str(doc["sport"]).lower() not in KNOWN_SPORTS and any(
             not (isinstance(x, dict) and x.get("competition")) for x in rows):
         return False
+    # Codex on #340: a competition that contradicts the document's own single-league sport (nfl + "NFA") would
+    # resolve the rows out of scope and drop them; the export's Sport enum fixes which codes each family carries
+    fam = FAMILY_COMPETITIONS.get(str(doc.get("sport") or "").lower())
+    if fam is not None:
+        for x in rows:
+            comp = (x.get("competition") if isinstance(x, dict) else None) or doc.get("competition_code") or \
+                doc.get("competition")
+            if comp and str(comp).upper() not in fam:
+                return False
+        if not rows and (doc.get("competition_code") or doc.get("competition")) and str(
+                doc.get("competition_code") or doc.get("competition")).upper() not in fam:
+            return False
     return bool(top) or all(isinstance(x, dict) and x.get("competition") for x in rows)
 
 
@@ -296,6 +320,10 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if EXPORT_NAME.search(n) or not (isinstance(doc, list) and doc):
                     bad_read.append(p)
                 continue
+            if EXPORT_NAME.search(n) and "desk_meta" not in doc and not any(
+                    k in doc for k in ("fixtures", "predictions", "tickets", "results")):
+                bad_read.append(p)          # Codex on #340: a generated export emptied to {} (or stripped of its
+                continue                    # metadata and rows) is damaged, never silently out of scope
             if "desk_meta" not in doc and any(
                     isinstance(x, dict) and isinstance(x.get("desk"), dict) and x["desk"]
                     for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]):

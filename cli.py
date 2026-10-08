@@ -1587,6 +1587,10 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
     lo = _vqa_since(since)
     if not _vqa_out_ok(out_path, exports_dir):
         raise SystemExit(2)
+    import os as _os
+    if out_path and ledger_path and _os.path.realpath(out_path) == _os.path.realpath(ledger_path):
+        console.print("[red]REFUSED: --out is the --ledger file: the receipt never overwrites its own input.[/red]")
+        raise SystemExit(2)                      # Codex on #340
     try:
         docs, cnt = VQ.iter_desk_docs(exports_dir)
     except VQ.Refused as e:

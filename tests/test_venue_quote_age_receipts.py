@@ -1405,3 +1405,63 @@ def test_a_document_level_competition_resolves_its_rows_sport():
     doc = {"competition": "PL", "sport": "soccer", "desk_meta": {"as_of": _iso(KO) + "Z"}, "predictions": [row]}
     assert VQ.doc_ident_ok(doc)
     assert [r["match_id"] for r in VQ.model_reference_rows([("pl.json", doc)], SINCE)] == [7]
+
+
+def test_nan_and_infinity_are_not_receipt_numbers():
+    """Codex on #340: json.load accepts NaN; a NaN anchor compares false and would read as verified."""
+    ok = {"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z"}
+    assert VQ.ledger_refusal({"calls": [ok]}) is None
+    for bad in (float("nan"), float("inf")):
+        r = VQ.ledger_refusal({"calls": [dict(ok, model_p=bad)]})
+        assert r and "non-numeric model_p" in r
+        assert not VQ.desk_ok({"engine": "venue_edge", "call": "VENUE", "book_p": bad})
+
+
+def test_an_unknown_ledger_engine_refuses():
+    """Codex on #340: a damaged discriminator (venue_edg) is never read as a non-venue call and dropped."""
+    ok = {"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z"}
+    assert VQ.ledger_refusal({"calls": [ok, {"engine": "model_edge"}]}) is None
+    for eng in ("venue_edg", None, 3):
+        r = VQ.ledger_refusal({"calls": [ok, {"engine": eng}]})
+        assert r and "unknown engine" in r
+
+
+def test_a_competition_contradicting_the_documents_league_family_refuses():
+    """Codex on #340: sport nfl + competition_code NFA would resolve every row out of scope."""
+    row = {"match_id": 1, "home_team": "H", "away_team": "A", "utc_date": "2095-10-09T00:00:00Z"}
+    good = {"sport": "nfl", "competition_code": "NFL", "predictions": [row]}
+    assert VQ.doc_ident_ok(good)
+    assert VQ.doc_ident_ok(dict(good, competition_code="NCAA"))              # NCAA football is Sport.NFL
+    assert not VQ.doc_ident_ok(dict(good, competition_code="NFA"))
+    assert not VQ.doc_ident_ok(dict(good, competition_code=None, predictions=[dict(row, competition="NFA")]))
+    assert not VQ.doc_ident_ok(dict(good, predictions=[]) | {"competition_code": "NFA"})
+    assert VQ.doc_ident_ok({"sport": "soccer", "competition_code": "PL", "predictions": [row]})
+
+
+def test_a_generated_export_emptied_to_an_object_refuses(tmp_path):
+    """Codex on #340: fixtures_NHL_<date>.json overwritten with {} is damaged, never silently skipped."""
+    for name, body in (("fixtures_NHL_2095-10-08.json", {}), ("nfl_predictions_2095-10-08.json", {"note": "x"})):
+        d = tmp_path / name.split(".")[0]
+        d.mkdir()
+        (d / name).write_text(json.dumps(body))
+        with pytest.raises(VQ.Refused):
+            VQ.iter_desk_docs(str(d))
+    d = tmp_path / "other"
+    d.mkdir()
+    (d / "notes.json").write_text("{}")                                         # not a generated name: ignored
+    assert VQ.iter_desk_docs(str(d))[0] == []
+
+
+def test_out_is_never_the_ledger_it_reads(tmp_path):
+    """Codex on #340: --out naming the --ledger file would overwrite the audit's own input."""
+    from click.testing import CliRunner
+
+    import cli
+    ids = _seed()
+    ex = _exports(tmp_path, ids)
+    led = tmp_path / "bd_ledger_v1_2095-10-08.json"
+    body = json.dumps({"calls": []})
+    led.write_text(body)
+    r = CliRunner().invoke(cli.cli, ["venue-calls-receipt", "--since", "2095-10-02", "--exports-dir", str(ex),
+                                     "--ledger", str(led), "--out", str(led)])
+    assert r.exit_code == 2 and "REFUSED" in r.output and led.read_text() == body

@@ -1,0 +1,16 @@
+## 2026-10-08 (#362: NCAA CFBD scope + join — ARCHITECT, addendum 10 item 3)
+- Data lane: no model constant changed; #79's all-division stream and its acceptance numbers are unchanged; the ncaa-elo-v1r declaration is not written.
+- J1: `ncaa-cfbd-labels` retries a first-pass-unmatched game within ±36h by the same name tiers. It joins (`join_via dateshift`, listed with both kickoffs and the offset) only on exactly one (match, orientation), a match the first pass did not join, and agreeing scores. A name fit whose scores disagree stays unmatched and is listed with both scores.
+- J2: our team names are html-unescaped before normalization in the join and alias vetting. In the v1r stream and the shadow, ids whose unescaped names are identical are one team, keyed by the lowest id: a read-time mapping, with every group and changed name listed. `teams` is never written.
+- J3: aliases pinned: App State -> Appalachian State, Massachusetts -> UMass, Buffalo -> Buffalo State, Rice -> Rice Owls.
+- J4: `ncaa_cfbd_labels.season_type` (nullable; new `migrate_ncaa_cfbd_season_type.py`, additive and idempotent), filled from CFBD's `seasonType` as served and carried on `Game` as data only. The ingest refuses to write until the migration runs. Readers work before it.
+- SCOPE:
+  - The v1r stream (`ncaa_backtest.v1r_stream`, walked by the NCAA shadow) is the CFBD-labelled games only.
+  - The 95% coverage condition is now labelled ÷ CFBD's completed both-FBS games per season (it divided by every all-division stream game). The ingest receipt prints it and lists every unlabelled game.
+  - `ncaa-cfbd-coverage` and the shadow's precondition re-read it from the side table and the saved payload it names.
+- Tests: `tests/test_ncaa_cfbd_scope_join.py` (21, synthetic fixtures). Spec: docs/specs/ncaa-cfbd-labels.md; docs/specs/ncaa-shadow.md and docs/CLI.md updated.
+- Codex on #362:
+  - Every non-dry ingest run persists its receipt per season in new `ncaa_cfbd_ingest_receipts` (new `migrate_ncaa_cfbd_ingest_receipts.py`), zero joins included.
+  - Coverage and the shadow's precondition read the latest receipt, so a zero-join re-ingest reads 0/N.
+  - The v1r stream and the shadow's FBS test admit only labels that receipt joined (`admitted_labels`); stale rows, e.g. from a `--division ''` run, are listed and never walked.
+- ARCHITECT addendum 11 item 2 (2026-10-08): J5 and LABEL SET L1-L4 (verbatim in docs/specs/ncaa-cfbd-labels.md and the ledger entry). Substring-tier joins need agreeing scores (first pass and retry; a failed first-pass substring goes to the retry). Ingest records go in `ncaa_cfbd_ingest_records`, replacing ee4276a's receipt table. Coverage = the latest record. A label is current when its fetched_at equals the latest record's (the stream and the shadow's FBS team set read current labels only). A non-dry run needs division fbs. ONE migrate script, `migrate_ncaa_cfbd_v2.py`, replaces the two unmerged ones.

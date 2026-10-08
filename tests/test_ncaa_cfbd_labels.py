@@ -491,8 +491,10 @@ def test_probe_save_follows_the_same_rule(tmp_path, capsys):
     assert "never write under data/" in capsys.readouterr().out
 
 
-def test_shipped_alias_map_loads_and_is_pinned_empty():
-    assert nc.load_aliases(nc.ALIAS_FILE) == {}
+def test_shipped_alias_map_holds_exactly_the_j3_pins():
+    """ARCHITECT 2026-10-08, J3: the four pinned aliases, CFBD name -> OUR name (the file's own format)."""
+    assert nc.load_aliases(nc.ALIAS_FILE) == {"App State": "Appalachian State", "Massachusetts": "UMass",
+                                              "Buffalo": "Buffalo State", "Rice": "Rice Owls"}
 
 
 # --- the stream read -----------------------------------------------------------
@@ -527,14 +529,17 @@ def test_coverage_per_season_and_the_95_condition():
     st = nb.build_stream(games)
     cov = nb.label_coverage(st)
     assert (cov["2025"]["n"], cov["2025"]["covered"], cov["2025"]["uncovered_share"]) == (20, 19, 0.05)
-    assert cov["2025"]["coverage_ok"] is True and cov["2025"]["home_rate_nonneutral"] == 1.0
+    assert cov["2025"]["home_rate_nonneutral"] == 1.0
     assert cov["2025"]["home_rate_all"] == 0.95 and cov["2025"]["home_rate_uncovered"] == 0.0
     assert (cov["2026"]["covered"], cov["2026"]["swapped"], cov["2026"]["neutral"]) == (3, 3, 1)
-    assert cov["2026"]["coverage_ok"] is False
+    assert "coverage_ok" not in cov["2025"]           # SCOPE 2026-10-08: the 95% condition is no longer this ratio
+    fbs = {"2025": {"season": "2025", "payload": "p25", "reason": None, "unlabelled": [], **nc.fbs_coverage(20, 19)},
+           "2026": {"season": "2026", "payload": "p26", "reason": None, "unlabelled": ["CFBD 7 · x"],
+                    **nc.fbs_coverage(4, 3)}}
     lines = []
-    nb.coverage_report(st, out=lines.append)
+    nb.coverage_report(st, out=lines.append, fbs=fbs)
     text = "\n".join(lines)
-    assert "coverage >= 95%: YES" in text and "coverage >= 95%: NO" in text
+    assert ">= 95%: YES" in text and ">= 95%: NO" in text and "CFBD 7 · x" in text
     assert "coverage condition in BOTH seasons: DOES NOT HOLD" in text
     assert "SUSPENDED-PENDING-DATA" in text and "architect" in text
     rep = []

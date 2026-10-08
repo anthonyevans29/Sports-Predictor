@@ -73,12 +73,27 @@ def world():
         s.query(Match).filter(Match.id.in_(mids)).delete(synchronize_session=False)
 
 
+def _fbs(ok25=True, ok26=True):
+    """ncaa_cfbd.stored_coverage's shape (SCOPE 2026-10-08): labelled / CFBD's completed both-FBS games."""
+    from src.ingestion import ncaa_cfbd as nc
+
+    return {s_: {"season": s_, "payload": f"p{s_}", "reason": None, "unlabelled": [] if ok else ["CFBD 1 · x"],
+                 **nc.fbs_coverage(100, 100 if ok else 90)} for s_, ok in (("2025", ok25), ("2026", ok26))}
+
+
 @pytest.fixture()
 def mine(world, monkeypatch):
-    """The stream restricted to this module's teams (the test DB is shared across files)."""
+    """The stream restricted to this module's teams (the test DB is shared across files); the SCOPE coverage
+    fact (read from the side table + saved payload, tested in test_ncaa_cfbd_scope_join.py) holds."""
+    from src.ingestion import ncaa_cfbd as nc
+
     real = nb.load_games
     teams = set(world["teams"])
     monkeypatch.setattr(nb, "load_games", lambda: [g for g in real() if g.home_id in teams and g.away_id in teams])
+    monkeypatch.setattr(nc, "stored_coverage", lambda s, seasons, **k: _fbs())
+
+    # L3: every label of this module is stamped NOW, the latest ingest record's fetched_at for both seasons
+    monkeypatch.setattr(nc, "latest_record_stamps", lambda s, seasons=None: {"2025": NOW, "2026": NOW})
     return world
 
 
@@ -105,14 +120,35 @@ def test_refuses_until_declared_with_its_neutral_rule(mine, tmp_path):
 
 
 def test_refuses_below_the_coverage_condition(mine, tmp_path, monkeypatch):
-    real = nb.load_games
-    # drop the side-table labels of 2026: coverage falls to 0% there
-    monkeypatch.setattr(nb, "load_games", lambda: [
-        g if g.season == "2025" else nb.Game(g.home_id, g.away_id, g.season, g.utc_date, g.home_score,
-                                             g.away_score, g.stage, match_id=g.match_id) for g in real()])
+    """SCOPE (ARCHITECT 2026-10-08): "The shadow's precondition is that same fact" — labelled / CFBD's completed
+    both-FBS games >= 95% in each season, never a share of our stream."""
+    from src.ingestion import ncaa_cfbd as nc
+
     reg = _registry(tmp_path, neutral_site_rule="no_home_advantage_at_neutral")
-    with pytest.raises(sh.ShadowRefused, match=r"covers less than 95% of the stream in 2026"):
+    monkeypatch.setattr(nc, "stored_coverage", lambda s, seasons, **k: _fbs(ok26=False))
+    with pytest.raises(sh.ShadowRefused, match=r"labels less than 95% of CFBD's completed both-FBS games in "
+                                               r"2026 90\.0% \(90/100\)"):
         sh.export(now=NOW, out_dir=str(tmp_path), registry_path=reg)
+    unread = {**_fbs(), "2025": {"season": "2025", "payload": None, "unlabelled": [], **nc.fbs_coverage(0, 0),
+                                 "reason": "no side-table rows for this season"}}
+    monkeypatch.setattr(nc, "stored_coverage", lambda s, seasons, **k: unread)
+    with pytest.raises(sh.ShadowRefused, match=r"2025 .*no side-table rows"):
+        sh.export(now=NOW, out_dir=str(tmp_path), registry_path=reg)
+    assert not list(tmp_path.glob("ncaa_shadow_*.json"))
+
+
+def test_the_shadow_walks_only_labelled_games(mine, tmp_path, monkeypatch):
+    """SCOPE: a stored game without a CFBD label is neither walked nor scored in the shadow."""
+    real = nb.load_games
+    extra = nb.Game(mine["teams"][0], mine["teams"][1], "2026", NOW - timedelta(days=3), 70, 0, "Regular Season",
+                    match_id=-1)                                          # label_source "matches": unlabelled
+    reg = _registry(tmp_path, neutral_site_rule="no_home_advantage_at_neutral")
+    base = sh.export(now=NOW, out_dir=str(tmp_path / "a"), registry_path=reg)[1]
+    monkeypatch.setattr(nb, "load_games", lambda: real() + [extra])
+    more = sh.export(now=NOW, out_dir=str(tmp_path / "b"), registry_path=reg)[1]
+    assert more["fit"]["games_used"] == base["fit"]["games_used"]
+    assert more["fit"]["unlabelled_not_walked"] == {"2026": 1}
+    assert more["predictions"][0]["prediction"] == base["predictions"][0]["prediction"]
 
 
 def test_export_stamps_every_row_fbs_only_and_v1_constants(mine, tmp_path):

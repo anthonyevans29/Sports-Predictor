@@ -22,10 +22,18 @@ reason stated) unless
       its declaration states the neutral-site rule (NEUTRAL_RULE_KEY, one of
       NEUTRAL_RULES): "Whether v1r applies home advantage at neutral sites is
       a declaration question" (#333 ruling), so the shadow never chooses it;
-  (b) the CFBD side table covers >= 95% of the gate's stream in BOTH seasons
-      (ncaa_backtest.label_coverage, the #333 coverage receipt's own fact).
+  (b) SCOPE (ARCHITECT 2026-10-08): "The shadow's precondition is that same
+      fact": the side table labels >= 95% of CFBD's completed both-FBS games
+      in EACH season used (2025, 2026), re-read by
+      ncaa_cfbd.stored_coverage (the denominator is the saved CFBD payload
+      the side table names, never our stream).
 The architect's read of the receipt is what makes (a) happen; (b) is
 re-checked on every run so a regressed side table stops the shadow.
+
+THE STREAM IS ncaa-elo-v1r's (SCOPE + J2, ARCHITECT 2026-10-08): only stored
+games carrying a CFBD both-FBS label are walked (ncaa_backtest.v1r_stream);
+team ids whose html-unescaped names are identical are one team, keyed by the
+lowest id (ncaa_backtest.team_merge), for the walk AND the upcoming games.
 
 THE MODEL IS v1 WITH ITS CONSTANTS UNTOUCHED (the #333 ruling: "ONE scored
 run of v1 with its constants untouched, declared beforehand in the registry
@@ -122,17 +130,24 @@ def gate_label(e: dict) -> str:
     return str(v) if v else UNGATED
 
 
-def coverage_guard(stream) -> dict:
-    """The #333 coverage receipt's condition, re-computed: >= 95% of the stream in BOTH seasons."""
+def coverage_guard(fbs: dict[str, dict]) -> dict[str, dict]:
+    """SCOPE (ARCHITECT 2026-10-08): the shadow's precondition is the ingest receipt's fact — the side table
+    labels >= 95% of CFBD's completed both-FBS games in EACH season used (ncaa_cfbd.stored_coverage)."""
     from src.walters import ncaa_backtest as nb
 
-    cov = nb.label_coverage(stream)
-    bad = [f"{s} {nb._pct(c['covered_share'])} ({c['covered']}/{c['n']})" for s, c in cov.items()
-           if not c["coverage_ok"]]
+    bad = []
+    for season in (nb.TRAIN_SEASON, nb.TEST_SEASON):
+        c = fbs.get(season)
+        if c is None:
+            bad.append(f"{season} (not computed)")
+        elif not c["ok"]:
+            bad.append(f"{season} {nb._pct(c['share'])} ({c['labelled']}/{c['in_scope']})"
+                       + (f" [{c['reason']}]" if c.get("reason") else ""))
     if bad:
-        raise ShadowRefused(f"REFUSED: the CFBD side table covers less than {nb.COVERAGE_MIN:.0%} of the stream in "
-                            f"{'; '.join(bad)} — the shadow does not run before the coverage condition holds")
-    return cov
+        raise ShadowRefused(f"REFUSED: the CFBD side table labels less than {nb.COVERAGE_MIN:.0%} of CFBD's completed "
+                            f"both-FBS games in {'; '.join(bad)} — the shadow does not run before the coverage "
+                            "condition holds (`python cli.py ncaa-cfbd-coverage` lists every unlabelled game)")
+    return fbs
 
 
 class V1R:
@@ -178,13 +193,20 @@ class V1R:
         return self.m.rating(team_id)
 
 
-def fit(now: datetime, neutral_home_advantage: bool, games=None):
-    """(model, receipt): walk-forward over the gate's stream (labels applied) before `now`; refuses unless the
-    coverage condition holds."""
+def fit(now: datetime, neutral_home_advantage: bool, games=None, fbs: dict | None = None):
+    """(model, receipt, team merge): walk-forward over the v1r stream (only CFBD-labelled games; J2 merge applied)
+    before `now`; refuses unless the SCOPE coverage condition holds."""
+    from src.db.database import session_scope
+    from src.ingestion.ncaa_cfbd import stored_coverage
     from src.walters import ncaa_backtest as nb
 
-    st = nb.build_stream(nb.load_games() if games is None else games)
-    cov = coverage_guard(st)
+    if fbs is None:
+        with session_scope() as s:
+            fbs = stored_coverage(s, (nb.TRAIN_SEASON, nb.TEST_SEASON))
+            s.rollback()
+    cov = coverage_guard(fbs)
+    v = nb.load_v1r_stream(games)
+    st = v.stream
     model = V1R(neutral_home_advantage)
     used = 0
     for g in sorted(st.train + st.test, key=lambda x: x.utc_date):
@@ -195,20 +217,35 @@ def fit(now: datetime, neutral_home_advantage: bool, games=None):
     return model, {"games_used": used, "train_n": len(st.train), "test_n": len(st.test),
                    "excluded": {f"{s}/{why}": n for (s, why), n in sorted(st.excluded.items())},
                    "ties_skipped": st.ties, "neutral_updates": model.neutral_updates,
-                   "coverage": {s: round(c["covered_share"], 4) for s, c in cov.items()},
+                   "coverage": {s: round(c["share"], 4) for s, c in sorted(cov.items()) if c["share"] is not None},
+                   "unlabelled_not_walked": dict(sorted(v.unlabelled.items())),
+                   "stale_labels_not_walked": list(v.stale),
+                   "team_merge": {"groups": [[[t, n] for t, n in g] for g in v.merge.groups],
+                                  "changed_names": [[t, n, u] for t, n, u in v.merge.changed]},
                    "constants": {"k_factor": model.cfg.k_factor, "home_advantage": model.cfg.home_advantage,
                                  "mov_base": model.cfg.mov_base, "season_regression": model.cfg.season_regression,
-                                 "default_rating": model.cfg.default_rating}}
+                                 "default_rating": model.cfg.default_rating}}, v.merge
 
 
-def fbs_teams(s) -> set[int]:
-    """Teams that appear in the CFBD side table (its ingest's default scope: both-FBS completed games)."""
-    from sqlalchemy import select
+def fbs_teams(s, merge=None) -> set[int]:
+    """L3 (ARCHITECT 2026-10-08, addendum 11): "The v1r stream and the shadow's FBS team set read current
+    labels only." Teams of the games whose label is current (its fetched_at equals its season's latest ingest
+    record's; ncaa_cfbd.latest_record_stamps); a stale label never qualifies a team. Merged ids (J2) when
+    `merge` is given."""
+    from sqlalchemy import and_, or_, select
 
     from src.db.schema import Match, NCAACFBDLabel
+    from src.ingestion.ncaa_cfbd import latest_record_stamps
 
-    q = select(Match.home_team_id, Match.away_team_id).join(NCAACFBDLabel, NCAACFBDLabel.match_id == Match.id)
-    return {t for row in s.execute(q).all() for t in row}
+    stamps = latest_record_stamps(s)
+    if not stamps:
+        return set()
+    cond = or_(*[and_(NCAACFBDLabel.season == season, NCAACFBDLabel.fetched_at == at)
+                 for season, at in stamps.items()])
+    q = (select(Match.home_team_id, Match.away_team_id)
+         .join(NCAACFBDLabel, NCAACFBDLabel.match_id == Match.id).where(cond))
+    canon = merge or (lambda t: t)
+    return {canon(t) for row in s.execute(q).all() for t in row}
 
 
 def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_path: str | None = None) -> dict:
@@ -224,23 +261,24 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
     now = now or utc_now_naive()
     e, neutral_ha, rule = frozen(registry_path)
     label = gate_label(e)
-    model, rc = fit(now, neutral_ha)
+    model, rc, merge = fit(now, neutral_ha)
     rc["neutral_site_rule"] = rule
     rows, skipped = [], Counter()
     with session_scope() as s:
-        fbs = fbs_teams(s)
+        fbs = fbs_teams(s, merge)
         q = (select(Match).join(Competition, Match.competition_id == Competition.id)
              .where(Match.sport == Sport.NFL, Competition.code == COMPETITION,
                     Match.status == MatchStatus.SCHEDULED,
                     Match.utc_date >= now, Match.utc_date < now + timedelta(hours=hours))
              .order_by(Match.utc_date, Match.id))
         for m in s.execute(q).scalars():
-            g = nb.Game(m.home_team_id, m.away_team_id, m.season, m.utc_date, 0, 0, m.stage or "", match_id=m.id)
+            g = nb.Game(merge(m.home_team_id), merge(m.away_team_id), m.season, m.utc_date, 0, 0, m.stage or "",
+                        match_id=m.id)                       # J2: merged ids, as walked
             why = nb.exclusion_reason(g)
             if why:
                 skipped[why] += 1
                 continue
-            if m.home_team_id not in fbs or m.away_team_id not in fbs:
+            if g.home_id not in fbs or g.away_id not in fbs:
                 skipped["not_both_fbs"] += 1
                 continue
             p = model.predict(g)
@@ -252,8 +290,8 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS, registry_
                 "prediction": {"home_win_prob": round(p, 4), "away_win_prob": round(1 - p, 4),
                                "top_pick": "home_win" if pick_home else "away_win",
                                "top_pick_prob": round(p if pick_home else 1 - p, 4),
-                               "elo_home": round(model.rating(m.home_team_id), 1),
-                               "elo_away": round(model.rating(m.away_team_id), 1),
+                               "elo_home": round(model.rating(g.home_id), 1),
+                               "elo_away": round(model.rating(g.away_id), 1),
                                "home_adv_applied": model.home_adv(g),
                                "neutral": None},          # unknown before the game (no side-table row): law 4
             })
@@ -309,9 +347,10 @@ def _result(s, m) -> tuple[int, int, str] | None:
     from sqlalchemy import inspect
 
     from src.db.schema import NCAACFBDLabel
+    from src.ingestion.ncaa_cfbd import label_load_options
 
     if inspect(s.connection()).has_table(NCAACFBDLabel.__tablename__):
-        lab = s.get(NCAACFBDLabel, m.id)
+        lab = s.get(NCAACFBDLabel, m.id, options=label_load_options(s))
         if lab is not None and lab.orientation in ("same", "swapped"):
             return lab.home_score, lab.away_score, "cfbd"
     if m.home_score is None or m.away_score is None:

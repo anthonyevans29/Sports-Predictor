@@ -1,4 +1,4 @@
-## 2026-10-08 (#PENDING: registry cross-ref guard — #329 RULED, parts 1 and 2)
+## 2026-10-08 (#364: registry cross-ref guard — #329 RULED, parts 1 and 2)
 - New shared guard `registry.cross_ref_guard(eid, no_fetch=False)`. It first fetches origin `laptop/*` (`+refs/heads/laptop/*:refs/remotes/origin/laptop/*`); a failed fetch refuses.
 - It then scans every ref the clone knows (`refs/heads`, `refs/remotes`; symbolic refs skipped) for a cohort, a run record or a reservation of the experiment that this working tree does not hold identically. Each kind is compared on its ledger field and its file: `confirmation_cohort` + `ids/<eid>.cohort.txt`; `run` + `ids/<eid>.txt`; `<eid>.started.json`.
 - A hit refuses (a `RegistryError`; the CLI exits 2) naming every ref and its full commit, plus the sha256 when the record carries one. Nothing is written.

@@ -1,0 +1,8 @@
+**2026-10-07 — RULED + BUILT (dark; ARCHITECT, addendum 6 item 1): NCAA shadow (#343).**
+- **Ruling (verbatim):** "NCAA SHADOW. Once #333's coverage receipt shows 95% on both seasons and ncaa-elo-v1r is declared in the registry with its constants frozen, ship export-ncaa-predictions and ncaa-shadow-grade on the NHL shadow's pattern: engine model_shadow, the gate status on every row ('UNGATED — shadow only' until the verdict, then the verdict), FBS games in the next 36 hours, the market block beside each row, graded on results and on model-vs-close from the last shadow file before kickoff. Never a call, never a venue input, never in the ledger. The shadow starts before the gate run and changes nothing about it: the one run, the verdict and the confirmation cohort stand as declared, and the shadow's live record is not gate evidence. Target: the Saturday 2026-10-10 slate. If the labels are not in by Friday night, say so and Saturday stays market-only."
+- **Built (stacked on #333):** `src/walters/ncaa_shadow.py`, the two commands, and `tests/test_ncaa_shadow.py`.
+  - The preconditions are refusals in code: the registry declaration with its `neutral_site_rule`, and coverage of 95% or more in both seasons, re-checked each run.
+- **For the architect:**
+  - **The declaration PR must carry `neutral_site_rule` and `constants`** (v1's untouched values). The shadow reads the declaration's neutral choice and never makes it; any other constants refuse (Codex on #344).
+  - **FBS = both teams in the CFBD side table** (the ingest's default both-FBS scope). This is a reading, since no classification is stored.
+- **Not done:** no chain wiring and no Cockpit change, each by ruling.

@@ -1578,6 +1578,172 @@ def k_track_receipt_cmd(ledger_path, since, until, out_path):
         console.print(f"[green]receipt written: {out_path}[/green]")
 
 
+def _vqa_since(v):
+    """--since for the venue quote-age receipts: ISO date/date-time, naive = UTC (default 2026-10-02)."""
+    from src.walters import venue_quote_age as VQ
+    if v is None:
+        return VQ.SINCE_DEFAULT
+    t = VQ.parse_ts(v if "T" in v or len(v) != 10 else v + "T00:00:00")
+    if t is None:
+        raise click.BadParameter(f"{v!r} is not an ISO date or date-time (e.g. 2026-10-02)", param_hint="--since")
+    return t
+
+
+def _os_samefile(a, b) -> bool:
+    import os as _os
+    try:
+        return _os.path.samefile(a, b)
+    except OSError:
+        return False
+
+
+def _vqa_out_ok(out_path, exports_dir=None) -> bool:
+    if not out_path:
+        return True
+    from pathlib import Path as _P
+    from src.walters.unl_ladders import data_dir
+    _data, _tgt = data_dir(), _P(out_path).resolve()
+    if _tgt == _data or _data in _tgt.parents:
+        console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+        return False
+    if _tgt.exists() and not _tgt.is_file():
+        console.print(f"[red]REFUSED: --out {out_path} exists and is not a file (a directory?).[/red]")
+        return False                             # Codex on #340: never an IsADirectoryError after the scan
+    _anc = next((a for a in _tgt.parents if a.exists()), None)
+    if _anc is not None and not _anc.is_dir():
+        console.print(f"[red]REFUSED: --out {out_path}: {_anc} is a file, not a directory.[/red]")
+        return False
+    from src.walters.venue_quote_age import db_file_path
+    _db = db_file_path()
+    _dbs = () if _db is None else (_db, _P(str(_db) + "-wal"), _P(str(_db) + "-shm"), _P(str(_db) + "-journal"))
+    if _tgt in _dbs or (_tgt.exists() and any(x.exists() and _os_samefile(_tgt, x) for x in _dbs)):
+        # (Codex on #340: by file identity too: a hard link to the DB is the DB)
+        # Codex on #340: a DATABASE_URL outside data/ is still the DB; a read-only receipt never overwrites it
+        console.print(f"[red]REFUSED: --out {out_path} is the configured database (or its sidecar): the receipts "
+                      "are read-only.[/red]")
+        return False
+    _ex = _P(exports_dir).resolve() if exports_dir else None
+    if _ex is not None and _tgt.name.lower().endswith(".json") and _ex in _tgt.parents:   # any case (Codex)
+        # Codex on #340: discovery scans every .json under --exports-dir and refuses unreadable ones; a text
+        # receipt written there would refuse every later run
+        console.print(f"[red]REFUSED: --out {out_path} is a .json under --exports-dir ({exports_dir}): the receipt "
+                      "is text, and discovery would refuse it as a damaged export. Write it elsewhere (e.g. "
+                      "docs/receipts/…txt).[/red]")
+        return False
+    return True
+
+
+def _vqa_write(text_, out_path):
+    console.print(text_, markup=False, highlight=False)
+    if out_path:
+        import os as _os
+        _os.makedirs(_os.path.dirname(out_path) or ".", exist_ok=True)
+        with open(out_path, "w") as fh:
+            fh.write(text_ + "\n")
+        console.print(f"[green]receipt written: {out_path}[/green]")
+
+
+@cli.command("venue-calls-receipt")
+@click.option("--since", default=None, help="Calls at a desk as_of at/after this UTC time (default 2026-10-02).")
+@click.option("--exports-dir", default="exports", show_default=True,
+              help="Where the --desk fixtures exports are (read recursively: exports/host/ too).")
+@click.option("--ledger", "ledger_path", default=None,
+              help="The Cockpit's ledger export (bd_ledger_v1_<date>.json): its venue_edge claims are read too.")
+@click.option("--out", "out_path", default=None, help="Also write the receipt text here (e.g. docs/receipts/…).")
+def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
+    """READ-ONLY (ARCHITECT 2026-10-07, venue-edge quote age, build step 3): every VENUE call on file since
+    2026-10-02 (the --desk fixtures exports under --exports-dir, plus the ledger's venue_edge claims) with the
+    book consensus at the call (fair to 4 dp, books, captured_at) and at each LATER pre-kickoff capture in
+    odds_snapshots, and whether it ever moved at four decimals before kickoff. Totals: calls, never-moved
+    count and share. Writes nothing to the DB; --out refuses data/."""
+    import json as _json
+    from src.walters import venue_quote_age as VQ
+    lo = _vqa_since(since)
+    if not _vqa_out_ok(out_path, exports_dir):
+        raise SystemExit(2)
+    import os as _os
+    if out_path and ledger_path and (_os.path.realpath(out_path) == _os.path.realpath(ledger_path)
+                                     or _os_samefile(out_path, ledger_path)):
+        console.print("[red]REFUSED: --out is the --ledger file: the receipt never overwrites its own input.[/red]")
+        raise SystemExit(2)                      # Codex on #340
+    try:
+        docs, cnt = VQ.iter_desk_docs(exports_dir)
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    if out_path and (_os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}
+                     or any(_os_samefile(out_path, p) for p, _ in docs)):
+        console.print(f"[red]REFUSED: --out {out_path} is one of the desk exports this receipt reads: it never "
+                      "overwrites its own input.[/red]")      # Codex on #340: any suffix
+        raise SystemExit(2)
+    calls = VQ.file_venue_calls(docs, lo, cnt["mirrored"])
+    sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
+               f"{cnt['unreadable']} unreadable, {cnt.get('other_files', 0)} other file(s) not read, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
+               f"resolved by identity)"]
+    if ledger_path:
+        try:
+            with open(ledger_path) as fh:
+                L = _json.load(fh)
+        except (OSError, ValueError) as e:
+            console.print(f"[red]REFUSED: cannot read the ledger export {ledger_path!r}: {e}[/red]")
+            raise SystemExit(2)
+        why = VQ.ledger_refusal(L)
+        if why:
+            console.print(f"[red]{why}[/red]")
+            raise SystemExit(2)
+        lc = VQ.ledger_venue_calls(L, lo)
+        calls = VQ.merge_calls(calls, lc)
+        sources.append(f"ledger {ledger_path}: {len(lc)} venue_edge claim(s)")
+    else:
+        sources.append("ledger: not read (pass --ledger <the Cockpit's Export ledger (JSON) file>)")
+    try:
+        with VQ.readonly_session() as s:      # read-only: no create, no pragma, no commit
+            res = VQ.venue_receipt(s, calls)
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    _vqa_write("\n".join(VQ.format_venue_receipt(res, lo, sources)), out_path)
+
+
+@cli.command("quote-age-report")
+@click.option("--since", default=None, help="Desk exports at/after this UTC time (default 2026-10-02).")
+@click.option("--exports-dir", default="exports", show_default=True,
+              help="Where the --desk prediction exports are (read recursively: exports/host/ too).")
+@click.option("--out", "out_path", default=None, help="Also write the report text here (e.g. docs/receipts/…).")
+def quote_age_report_cmd(since, exports_dir, out_path):
+    """READ-ONLY REPORT (ARCHITECT 2026-10-07, venue-edge quote age, build step 4 — report, do not change): for
+    MLB, NFL and PL rows of the --desk prediction exports decided against a BOOK reference, the capture age at
+    decision (as_of − the last book capture) and the "unchanged since" age (how long the consensus had been
+    identical to four decimals across our captures), median / p90 / max per sport. Capture-based PROXIES,
+    never quote age: no quote time is stored. Writes nothing to the DB; --out refuses data/."""
+    import os as _os
+
+    from src.walters import venue_quote_age as VQ
+    lo = _vqa_since(since)
+    if not _vqa_out_ok(out_path, exports_dir):
+        raise SystemExit(2)
+    try:
+        docs, cnt = VQ.iter_desk_docs(exports_dir)
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    if out_path and (_os.path.realpath(out_path) in {_os.path.realpath(p) for p, _ in docs}
+                     or any(_os_samefile(out_path, p) for p, _ in docs)):
+        console.print(f"[red]REFUSED: --out {out_path} is one of the desk exports this receipt reads: it never "
+                      "overwrites its own input.[/red]")      # Codex on #340: any suffix
+        raise SystemExit(2)
+    sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
+               f"{cnt['unreadable']} unreadable, {cnt.get('other_files', 0)} other file(s) not read, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
+               f"resolved by identity)"]
+    try:
+        with VQ.readonly_session() as s:      # read-only: no create, no pragma, no commit
+            rep = VQ.age_report(s, docs, lo, cnt["mirrored"])
+    except VQ.Refused as e:
+        console.print(f"[red]{e}[/red]")
+        raise SystemExit(2)
+    _vqa_write("\n".join(VQ.format_age_report(rep, lo, sources)), out_path)
+
+
 @cli.command("close-probe")
 @click.option("--match", "match_id", required=True, type=int, help="Match id.")
 def close_probe_cmd(match_id):
@@ -4782,6 +4948,46 @@ def nhl_shadow_grade_cmd(days):
           f"{r['reference_mean_clv_pp']}pp (n={r['reference_priced']})")
 
 
+@cli.command("export-ncaa-predictions")
+@click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
+def export_ncaa_predictions_cmd(hours):
+    """NCAA SHADOW (ARCHITECT 2026-10-07, addendum 6 item 1): ncaa_elo_v1r (v1,
+    constants untouched) for every FBS game in the window. Every row: engine
+    model_shadow, competition NCAA, family NCAAF, gate status (UNGATED — shadow
+    only until the verdict). Never a call, never a venue input, never logged.
+    REFUSES (exit 2) until ncaa-elo-v1r is declared in the registry with its
+    neutral-site rule and the CFBD side table covers >= 95% of the stream in
+    both seasons. Writes exports/ncaa_shadow_<stamp>.json; nothing to the DB."""
+    from src.walters.ncaa_shadow import ShadowRefused, export
+    try:
+        path, doc = export(hours=hours)
+    except ShadowRefused as e:
+        print(str(e))
+        raise SystemExit(2)
+    console.print(f"[green]✓ Wrote NCAA shadow ({doc['gate_verdict']}) to {path}[/green]")
+    f = doc["fit"]
+    print(f"  NCAA · {doc['count']} FBS games in the next {hours}h · model {doc['model_version']} · "
+          f"{doc['gate_verdict']} · engine {doc['engine']} · not gate evidence")
+    print(f"  fit: {f['games_used']} stream games walked (train {f['train_n']} / test {f['test_n']}) · "
+          f"neutral rule {f['neutral_site_rule']} · neutral games {f['neutral_updates']} · coverage "
+          f"{f['coverage']} · ties skipped {f['ties_skipped']} · window skips {doc['skipped'] or 'none'}")
+
+
+@cli.command("ncaa-shadow-grade")
+@click.option("--days", default=30, show_default=True, type=int)
+def ncaa_shadow_grade_cmd(days):
+    """NCAA SHADOW grade from the shadow exports on disk (the last row before
+    kickoff): results (hit rate, log-loss, Brier) and model-vs-close
+    (pick-vs-close + value-side). Read-only. NOT gate evidence."""
+    from src.walters.ncaa_shadow import grade
+    r = grade(days=days, progress=print)
+    print(f"  ── NCAA shadow (not gate evidence) · graded {r['graded']} (calls on file {r['calls_on_file']}; "
+          f"no result {r['no_result']}; ties {r['ties_skipped']}; identity mismatch {r['identity_mismatch']}) · hit rate {r['hit_rate']} · log-loss "
+          f"{r['log_loss']} · Brier {r['brier']} · mean pick-vs-close {r['mean_clv_pp']}pp (n={r['priced']}; "
+          f"unpriced {r['unpriced']}) · value-side {r['mean_value_side_clv_pp']}pp (n={r['value_side_n']}; "
+          f"unanchored {r['unanchored']})")
+
+
 @cli.command("export-unl-predictions")
 @click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
 def export_unl_predictions_cmd(hours):
@@ -5082,6 +5288,7 @@ def capture_weather_nfl_cmd():
     from src.db.schema import GameWeather
     init_db()
     captured = skipped = 0
+    skipped_by_comp: dict[str, int] = {}
     with session_scope() as s2:
         now = utc_now_naive()
         rows = list(s2.execute(
@@ -5094,6 +5301,8 @@ def capture_weather_nfl_cmd():
             info = lookup_nfl_stadium(m2.home_team.name if m2.home_team else None)
             if info is None:
                 skipped += 1
+                code = m2.competition.code if m2.competition else "?"
+                skipped_by_comp[code] = skipped_by_comp.get(code, 0) + 1
                 continue
             lat, lon, roofed = info
             wx = None if roofed else fetch_weather_at(lat, lon, m2.utc_date)
@@ -5109,7 +5318,12 @@ def capture_weather_nfl_cmd():
                 condition=(wx or {}).get("condition") or ("indoor" if roofed else None),
             ))
             captured += 1
-    console.print(f"[green]✓ NFL weather: captured={captured} skipped={skipped}[/green]")
+    # DELINEATION (ARCHITECT 2026-10-07): the query is the Sport.NFL family (NCAA
+    # included); skipped games are counted per competition, never all as NFL
+    console.print(f"[green]✓ NFL weather: captured={captured} skipped={skipped}"
+                  + (" (" + " · ".join(f"{c} {n}" for c, n in sorted(skipped_by_comp.items())) + ")"
+                     if skipped_by_comp else "")
+                  + "[/green]")
 
 
 @cli.command("sync-odds-football")
@@ -5119,8 +5333,15 @@ def sync_odds_football_cmd():
     sync-odds-nfl (2026-09-26); the old name stays as an alias."""
     from src.ingestion.service import sync_odds_nfl
     r = sync_odds_nfl(progress=lambda msg: console.print(msg))
-    console.print(f"[green]✓ Football odds (NFL+NCAA): created={r['created']} "
+    # DELINEATION (ARCHITECT 2026-10-07): the competitions priced, from the run
+    by_comp = r.get("games_by_competition") or {}
+    window = r.get("window_by_competition") or {}
+    # Codex on #346: every competition in the window is named, priced n of window m (0 included)
+    comps = sorted(set(window) | set(by_comp))
+    console.print(f"[green]✓ Football odds: created={r['created']} "
                   f"across {r['games']} games"
+                  + (" (" + " · ".join(f"{c} {by_comp.get(c, 0)}" + (f"/{window[c]}" if c in window else "")
+                                       for c in comps) + " priced/in window)" if comps else "")
                   + (f" · book-consensus snapshots appended={r['snapshots']}" if "snapshots" in r else "")
                   + "[/green]")
 
@@ -7501,7 +7722,11 @@ def window_card_cmd(hours: int, t90: int):
     path = write_card(card)
     r = card["receipts"]
     console.print(f"[green]✓ Wrote window card to {path}[/green]")
-    print(f"  window {card['window']['from']} -> {card['window']['to']}: games {card['count']} · "
+    # DELINEATION (ARCHITECT 2026-10-07): the games line names each competition
+    from collections import Counter as _Counter
+    by_comp = _Counter(str(x.get("competition") or "?") for x in card["fixtures"])
+    comps = (" (" + " · ".join(f"{c} {n}" for c, n in sorted(by_comp.items())) + ")") if by_comp else ""
+    print(f"  window {card['window']['from']} -> {card['window']['to']}: games {card['count']}{comps} · "
           f"with model {r['with_model']} · with book consensus {r['with_books']} · kalshi "
           f"two-sided {r['kalshi_two_sided']} / one-sided {r['kalshi_one_sided']} / partial "
           f"{r.get('kalshi_partial', 0)} / absent {r['kalshi_absent']} · STALE-BOOK? {r['stale_flags']} · quarantined "

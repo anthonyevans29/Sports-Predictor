@@ -6,7 +6,9 @@ renders them (F1c). Checks:
 - a PLAY whose fair edge clears but exec does not renders "half units" at 0.5u, and the auto-claim logs 0.5u;
 - a PLAY with no executable quote is 0.5u, its reason says so;
 - a 2c spread is TAKE (the ledger's kalshi_join_bid is null); a >= 3c spread renders "join";
-- venue: fair >= 5pp but exec < 4pp is PASS with the exec reason; fair and exec both clear is VENUE 0.25u;
+- venue: fair >= 5pp but exec < 4pp is PASS with the exec reason; fair and exec both clear is VENUE 0.25u
+  (the engine's verdicts: files written with the 2026-10-07 quote-age hold off; scripts/cockpit_venue_quote_age_verify.py
+  covers the hold);
 - parlay tickets show "Π executable cost", each leg's exec cost and the independence-estimate label.
 
     python3 scripts/cockpit_exec_addendum_verify.py
@@ -99,7 +101,8 @@ def main():
         errors = []
         page.on("pageerror", lambda e: errors.append(str(e)))
         page.goto(f"http://127.0.0.1:{srv.server_address[1]}/cockpit.html")
-        cdf.upload(page, paths, base=False)
+        with dp.quote_age_rule_off():         # the venue ENGINE's #87 verdicts (the 2026-10-07 hold has its own verify)
+            cdf.upload(page, paths, base=False)
         page.wait_for_function("document.getElementById('summary').textContent.includes('rows')")
         page.click("#tabDesk")
         rows = {r[0]: r for r in page.evaluate("""Array.from(document.querySelectorAll('#slate tbody tr'))

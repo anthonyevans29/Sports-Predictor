@@ -127,7 +127,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
     <b>VALUE-SIDE</b> (v1.2 CANDIDATE, shadow 2026-09-29; model sports) — edge = model − market on EVERY side · the value side is not the model's top pick and clears the 4pp floor → value_shadow at 0.25u notional, NOT staked · graded like quarantine shadows · promotion to real sizing only via version bump after ≥ 30 graded · <b id="vsProgress">graded —/30</b> <span style="opacity:.75">(MNF wk 4: CHI +13.4pp as the dog, Desk said PASS, CHI won 27-7)</span><br>
     <b>POSTSEASON</b> (sizing caution, v1.1 addendum 2026-10-01) — rows the export marks <code>stage = postseason</code> (MLB, from our gameType mapping F/D/L/W) get HALF units until 30 postseason calls are graded · <b id="psProgress">graded —/30</b> · stage unknown (null) = labelled, not halved<br>
     <b>EXEC EDGE</b> (#87 v1.1 addendum, ARCHITECT-RULE 2026-10-06 — supersedes the 2026-09-29 informational K2 and the 2026-09-30 join-bid doctrine) — executable cost = <b>ask + taker fee</b> (0.07·M·P(1−P), nearest cent per fill of the order's OWN contract count) · default execution <b>TAKE at the ask</b>; join at bid + 1¢ only when the spread is ≥ 3¢ · a PLAY gets full tier units only at exec edge ≥ 4pp, else HALF (no executable quote = half) · VENUE needs fair ≥ 5pp AND exec ≥ 4pp, on the best side clearing both · parlay legs priced at executable cost (independence estimate) · LADDERs not resized (revisit at 30 graded) · maker cost shown for joins as reference · fees: game series M=1 (taker 0.07, maker 0.0175 = ¼ of taker — #206), MLB pre-live M=0.5 · <b>MLB is never executed live</b> · an AWAY pick on a two-way market (NFL/NHL/NCAA/MLB) with no own leg is priced on its NO side (1 − home bid/ask, the same fee per fill; #89) · soccer 1X2 away / DRAW: their own legs, never a derived NO (NO on HOME is draw-or-away) · ledger records exec cost at claim and execution.<br>
-    <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → take the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.<br>
+    <b>VENUE-EDGE</b> (shadow; market-only family only — NHL, NCAA, cups when priced; model sports never) — <b>HELD (ARCHITECT 2026-10-07): book quote age unknown → no reference. Place NO venue order on either machine's files</b>; a file with the hold renders its venue rows PASS · no reference with the numbers kept for the record. The rule when the hold lifts (by ruling, once a quote time is stored): ≥4 books + two-sided Kalshi · |book fair − Kalshi| ≥ 5.0pp (frozen) → the side books say Kalshi underprices · fixed 0.25u · UNL / single-venue / in-play never.<br>
     <b>KALSHI-ONLY</b> (provisional reference, v1.1 addendum RULED 2026-10-01; model sports, two-way boards) — books absent at T-60 + Kalshi two-sided, spread ≤ 2c, series in the ruled fee table → the Kalshi MID is the market reference · row flagged "kalshi-only" · HALF units (0.5 × tier) · a real call, not a shadow · value-side and quarantine unchanged · ledger records reference=kalshi_only · review at 30 graded (promote or retire) · <b id="koProgress">graded —/30</b><br>
     <b>KICKOFF</b> (presentation only, 2026-10-01) — every Desk row shows its kickoff and "re-run by" = T-60 (local clock).<br>
     <b>PASS CLASSES</b> (presentation only, 2026-09-30) — <b>no reference</b>: no two-sided book market or &lt; 3 books (model table), no book/Kalshi pair or books below 4 (venue table) — greyed, with a "re-run at T-60" hint, because books and Kalshi post thin and late · <b>below floor</b>: a real edge measured and declined · other PASSes (pre-gate, quarantine, charter) keep their own reason.
@@ -531,9 +531,11 @@ function rerunHint(r){
 // KICKOFF + "RE-RUN BY" (architect 2026-10-01, presentation only): every Desk
 // row shows its kickoff and T-60 on the local clock.
 function hm(t){const d=new Date(t);return `${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}`;}
-function koLine(r){
+function koLine(r,held){
   const t=utcMs(r.utc); if(!isFinite(t)) return '<span class="ko">kickoff unknown</span>';
   if(t<=Date.now()) return `<span class="ko">KO ${hm(t)} · started</span>`;
+  // a quote-age HELD row (ARCHITECT 2026-10-07) is not cleared by a T-60 re-run: no re-run instruction
+  if(held) return `<span class="ko">KO ${hm(t)} · held: no re-run clears it</span>`;
   return `<span class="ko">KO ${hm(t)} · re-run by ${hm(t-PASSCLASS.rerunMin*60000)}</span>`;
 }
 // POSTSEASON SIZING CAUTION (policy v1.1 addendum, architect 2026-10-01): a
@@ -595,7 +597,9 @@ function fileValue(r){ const v=r.fileDesk.value_shadow; if(!v) return null;
     tags:(v.tags||[]).slice(),fileExec:v.exec??null}; }
 function fileVenue(r){ const v=r.fileDesk.venue||{};
   return {eligible:!!v.eligible,reason:v.reason||"",side:v.side??null,divPP:v.div_pp??null,bookP:v.book_p??null,
-    kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{},execCost:v.exec_cost??null}; }
+    kalP:v.kalshi_p??null,kind:v.kind??undefined,sides:{},execCost:v.exec_cost??null,
+    // VENUE QUOTE AGE (ARCHITECT 2026-10-07): a row the file HOLDS (no quote time stored) — a re-run cannot clear it
+    held:!!v.quote_age_hold}; }
 
 function policy(){
   renderProgress();
@@ -672,11 +676,11 @@ function renderVenue(){
     const tr=document.createElement("tr");
     const vk=v.eligible?null:(v.kind||null);
     if(vk==="noref") tr.className="noref";
-    tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}${koLine(r)}</td><td>${esc(side)}</td>
+    tr.innerHTML=`<td>${esc(r.sport)} · ${esc(r.game)}${koLine(r,v.held)}</td><td>${esc(side)}</td>
       <td>${v.bookP!=null?v.bookP.toFixed(3):"—"}</td><td>${v.kalP!=null?v.kalP.toFixed(3):"—"}</td>
       <td>${v.divPP!=null?(v.divPP>0?"+":"")+v.divPP.toFixed(1)+"pp":"—"}</td>
       <td class="${v.eligible?"play":"pass"}">${v.eligible?"VENUE 0.25u":"PASS"+passKindTag(vk)}${v.eligible&&r.marketOnly?orderHTML(r.fileDesk.order):""}</td>
-      <td class="reason">${esc(v.reason+(v.eligible&&stale?" · gap ≥ 8pp: STALE-BOOK? zone — distrust the book side":""))}${vk==="noref"?rerunHint(r):""}</td>`;
+      <td class="reason">${esc(v.reason+(v.eligible&&stale?" · gap ≥ 8pp: STALE-BOOK? zone — distrust the book side":""))}${vk==="noref"&&!v.held?rerunHint(r):""}</td>`;
     tb.appendChild(tr);
   }
   $("venueCard").hidden=!rows.length;
@@ -2426,7 +2430,7 @@ function renderWindow(doc){
   const tb=$("nextTable").querySelector("tbody");
   tb.innerHTML=rows.map(r=>{
     const ko=r.f.utc_date?new Date(r.f.utc_date+(r.f.utc_date.endsWith("Z")?"":"Z")).toLocaleString([], {weekday:"short",hour:"2-digit",minute:"2-digit"}):"?";
-    return `<tr><td>${esc(ko)}</td><td>${esc(String(r.f.sport||"").toUpperCase())} · ${esc(r.f.competition)}</td>
+    return `<tr><td>${esc(ko)}</td><td>${esc(String(r.f.family||r.f.sport||"").toUpperCase())} · ${esc(r.f.competition)}</td>
       <td>${esc(r.f.away_team)} @ ${esc(r.f.home_team)}</td><td>${esc(r.model)}</td><td>${esc(r.book)}</td>
       <td>${esc(r.kal)}</td><td>${esc(r.edge)}</td><td>${esc(r.f.tier||"—")}</td>
       <td class="${r.flags.length?"caution":""}">${esc(r.flags.join(" · ")||"—")}</td>

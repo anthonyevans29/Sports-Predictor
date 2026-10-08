@@ -1,0 +1,75 @@
+**2026-10-07 — RULED + BUILT (ARCHITECT, addendum 4 E, gate-class): venue-edge quote age — venue-edge emits no call.**
+- **Ruling (verbatim):** "FINDING: the venue engine fired on dead books. Receipts: the laptop (14:56:15Z, sha 65b8ce7) and the host (16:00:38Z, v1.3.0) each printed VENUE 0.25u on San Jose @ St. Louis (2026-10-09T00:00Z) from the SAME five-book consensus to four decimals (HOME 0.4735 / AWAY 0.5265) against Kalshi 0.545 / 0.455. The live price had already moved: DraftKings Blues -125 / Sharks +112 (about 0.541 / 0.459), which is Kalshi's price; the Sharks -115 line the provider still serves matches a page dated 2026-10-06. #91 tests the age of OUR fetch (odds.captured_at); the provider can serve an old quote on a fresh fetch, and no quote time is stored. RULED: #91 means the age of the QUOTE. A fetch time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for unknown age is NO REFERENCE. From today the operator places no VENUE order on either machine's files. In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote age unknown: no reference') and the venue block keeps its numbers for the record. No hotfix tag is cut for this before the cutover; v1.3.0 on the host keeps printing VENUE rows that this ruling holds. The engine resumes only when a quote time is stored and #91 is applied to it, by ruling."
+- **Code rule:**
+  - Every computed venue row (side and divergence measured) is PASS / noref, reason `book quote age unknown: no reference`, 0 units, no order. Its numbers are kept, and `quote_age_hold` records the engine's would-be verdict.
+  - Precedence: rows that stop before the computation keep their own no-reference reason.
+  - `QUOTE_AGE_RULE` is off under `base_v11()`, so the golden is unchanged.
+  - The window card is held. Parlays carry no venue leg.
+- **Cockpit:** only the T-60 re-run hint is suppressed on held rows; the Cockpit renders the file. Verify 11/11. Pre-ruling v1.3.0 files still render and auto-claim VENUE as written. Changing that is ledger semantics, for a ruling.
+- **Probe:** `scripts/odds_payload_probe.py`, for the operator: one NHL and one NCAA fixture.
+- **Quote time from the code:** the adapters read only bookmaker / bet / value / odd and stamp the fetch time (`api_hockey.py:233-261`, `api_american_football.py:310-338`). The repo holds no payload, so the quote time is UNKNOWN. Branch (2): no column. Proposal for a ruling: a reference is stale when its consensus is unchanged at 4 dp across the last N captures (N for the architect).
+- **Receipts:** `venue-calls-receipt` (every VENUE call on file since 2026-10-02: the consensus at the call and at each later pre-kickoff capture, and whether it ever moved). `quote-age-report` (MLB/NFL/PL capture age and unchanged age at decision, as capture-based proxies). Spec: docs/specs/venue-quote-age.md.
+- **Codex on #340** (five findings, verified, fixed on the branch):
+  - Probe: refuses an unsuccessful response (non-2xx / non-JSON / non-empty `errors`, the adapters' `_get` checks), and a `--from-file` payload with errors. Exit 2, reason stated, no verdict.
+  - Probe: scans EVERY list element. `--max-items` limits printed samples only, so a time field in a late list item is found.
+  - Receipt: a re-logged ledger position anchors at the frozen `claim_at`, not the re-log-overwritten `claim_as_of` / `captured_at`. Its reprices are reported and not counted as calls.
+  - Receipt + report: rows resolve by stable identity (match_id is machine-local): a local id only after teams + kickoff verify; mirrored host files and mismatches by team names + kickoff ±12h. Ambiguous means unresolved, never guessed.
+  - Report: only rows with a verified reference session (file fair == capture at 4 dp) enter the statistics. Others are counted and listed as excluded, with the reason.
+  - Probe: missing key and `--match-id` preflight failures exit 2 as refusals.
+  - Receipt: a manual claim merges by position identity onto the latest file call at or before its click; none, its own row.
+  - A missing or non-directory `--exports-dir`, or a ledger with a non-object call entry, is refused (exit 2) and never audited as empty or complete.
+  - Report: rows with as_of at or after kickoff are excluded by timestamp, which covers files that predate the started-game rule.
+  - Probe: an unreadable `--from-file` exits 2 as a refusal.
+  - Probe: transport failures exit 2 as refusals. Report: every excluded row is listed.
+  - Report: a session whose snapshot mismatches the file (the NFL snapshot formula differs from the export's) is re-derived from its odds rows with the export's per-book de-vig before exclusion.
+  - Receipt: same-identity files with different market numbers stay separate calls, flagged CONFLICT.
+  - Ledger claims among conflicting rows attach by book p / Kalshi p / div, or to none (ambiguous). Conflicting model exports are both kept, flagged. An unparseable `as_of` is refused. Identity resolution is sport-scoped.
+  - A non-object export row is refused. Mirrored host rows are excluded from the age statistics. Capture vs `as_of` is compared at the second.
+  - Host-only venue calls: `HOST: NOT MEASURED`. An `exports/host` root is mirrored. A non-list container is refused. Probe: an empty response is INCONCLUSIVE; camel-case `Ts` keys are time-like.
+  - Report: when duplicates are merged, any local copy makes the row local.
+  - Receipt: non-1X2 (spread-derived) venue calls are `NOT 1X2: NOT MEASURED`.
+  - Re-logged claims carry their frozen claim prices; unknowns are named. An unreadable export file is refused.
+  - A missing `as_of` is refused like an unparseable one; damaged venue `reprices` refuse the ledger.
+  - Same-second re-logs are kept. Ledger-only NFL / NCAA claims are unmeasured (unknown source). A damaged `claim_at` refuses the ledger. A mismatched anchor gets no movement verdict.
+  - Position fallback for manual claims only. Frozen Kalshi p comes from claim metadata. A non-object `desk` is refused. Every re-log is listed.
+  - Div at 2 dp. A VENUE row with no capture time is unmeasured. Legacy claim times are validated. A partial file fair never verifies.
+  - The receipts open the DB read-only and never create it. Ledger claims anchor at full precision. Mismatched anchors are re-derived from odds rows first. A named export without its rows key is refused.
+  - Read-only open creates no sidecars (immutable when checkpointed). `fair_source` is part of copy identity. The probe verdict needs real value/odd objects.
+  - The probe's DB lookup creates no sidecars. A malformed `market` / `fair_prob` is refused at discovery.
+  - A re-logged venue claim's Kalshi p is unknown (the frozen value may be an executable cost). A file call without a fair is unmeasured. Re-derived anchors are labelled, never shown as snapshot equality. Malformed selections / VENUE fields are refused. The probe needs one usable quote.
+  - The probe counts quotes by the adapters' own market/selection rules. Bad market metadata and non-numeric claim prices are refused. Default prediction export names are required inputs.
+  - Read-only open: `mode=ro`, never `immutable` (supersedes the sidecar rule; SQLite's own sidecars are accepted, the content is never written). The age report keeps re-derived apart from literal matches and leaves host rows out of its diagnostics. Default-named prediction exports need `predictions`.
+  - A non-string `fair_source` is refused.
+  - Copy identity includes the reference source and raw fair (distinct spread references stay apart). Non-string identity fields are refused.
+  - Default export names accept underscore competition codes. Non-string ledger identity fields are refused.
+  - A non-integer `match_id` is refused. Probe: upper-case `TS` keys are time-like; scalar containers are INCONCLUSIVE.
+  - Probe: no usable quote, no verdict either way (INCONCLUSIVE).
+  - Damaged custom-named desk exports are refused. A spread-sport file row without `fair_source` is unmeasured. Probe: non-string bet names count no quote.
+- **Evidence (ARCHITECT, addendum 5 II, verbatim):** "LAD@ATL's nine-book consensus (ATL 0.4302) was unchanged from the host's 14:05Z capture through the laptop's 21:59:58Z capture, two seconds before first pitch. The stored book close for that game is a price first served eight hours earlier. Kalshi on the same game was also unchanged over that span (0.42 / 0.43), so the book price is not shown to be wrong; its age is simply invisible to us." Recorded for step (4) (the MODEL-sport reference age, the next ruling); no code or policy change.
+- **Evidence (ARCHITECT, addendum 6 item 3, verbatim):** "SJ@STL (2026-10-09T00:00Z). The provider served the same five-book consensus (SJ 0.5265) at 14:56Z, 16:00Z and 22:09Z, while Kalshi's SJ ask went from 0.46 to 0.42. The laptop Desk at 22:09:27Z still printed VENUE 0.25u with an order (BUY YES KXNHLGAME-26OCT08SJSTL-SJ @ 0.42 x 2), divergence 10.7pp, stale_book_zone true. The 3h rule (#91) passed because captured_at is our fetch time. Add this row to the receipt over past VENUE calls, and count how many past VENUE calls carried stale_book_zone true." Built: the receipt lists the row from the laptop's file and totals `stale_book_zone` TRUE / false / unknown over every VENUE call on file.
+  - Cockpit policy card states the hold. Damaged sport metadata, non-object export roots, and re-logs before `claim_at` are refused. Probe: the match must be the asked league; `external_ids` must be an object.
+  - Conflicting `stale_book_zone` across copies is reported, not picked. Legacy pre-claim logs are not re-logs. Probe: as-of keys are time-like.
+  - Percentiles: nearest rank, ties half-up. Divergence matches by the Cockpit's toFixed(2). 1X2 copies dedupe at 4 dp.
+  - A Desk-annotated row missing its desk block is refused. Probe: one input selector only; scalar provider ids only.
+  - Truncated, meta-less or identity-less desk exports are refused. Probe: direct `--game` payloads are league-checked (refused if another league; LEAGUE UNVERIFIED if none named).
+  - Every unreadable JSON refuses (supersedes the sniffs). Ledger-only claims are measured only on an anchor matching their book p. Probe: saved payloads are league-checked.
+  - Null / scalar / empty roots are refused under any name. Probe: every fetch is league-checked.
+  - A non-object `prediction` refuses. Fixture calls take the row's competition first.
+  - Scalar row containers and unknown sole sports are refused. Probe: string league ids are read; malformed ones refuse.
+  - Desk discriminators are vocabulary-checked; a single contradicting ledger claim attaches to none. Cockpit: held rows carry no re-run instruction.
+  - Desk reference checked per engine/call; a `.json` `--out` under the exports dir refuses. Probe: league-less quoted items are unverified.
+  - Row sport follows discovery's precedence (document `competition` included). Probe: impossible prices are no quote.
+  - NaN / inf refused; unknown ledger engines, family-contradicting competitions and emptied generated exports refuse; `--out` never overwrites `--ledger`.
+  - `{}` refuses under any name; `--out` never aliases the configured database.
+  - Discovery reads any-case `.json` and suffix-less desk documents; other files are counted, not read.
+  - Desk documents are found under any name; empty desk blocks, unscannable directories and unparseable ledger kickoffs refuse; the `--out` JSON check is case-blind.
+  - NFL selections keep their 1X2 fair (P1); post-call captures are unmeasured; contradicting VENUE prices / row competitions refuse; `--out` never overwrites an input.
+  - Non-numeric VENUE prices refuse cleanly; a truncated JSON object under any file name refuses.
+  - Unknown ledger claim sources and mixed fixture/prediction documents refuse; the probe's `--out` never aliases the database.
+  - Overflowing offsets and non-string VENUE sides refuse cleanly; the probe never overwrites a desk export.
+  - `--out` directories and paths under files refuse up front.
+  - Probe `--out`: generated export names reserved; paths under files refuse.
+  - A `desk` key of any value without `desk_meta` refuses.
+  - JSON under any suffix gets the full damage checks; desk engines must match their row family.
+  - Call vs venue verdict contradictions and unopenable files refuse; the probe refuses an empty payload.
+  - `--out` guards compare file identity (hard links refuse).

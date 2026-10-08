@@ -107,6 +107,11 @@ def ledger_refusal(L) -> str | None:
             if bad_str:                                # Codex on #340: hashed into merge keys, never a TypeError
                 return (f"REFUSED: venue claim at index {i} has non-string {', '.join(bad_str)}: its identity "
                         "cannot be audited.")
+            if c.get("kickoff") not in (None, "") and parse_ts(c.get("kickoff")) is None:
+                # Codex on #340: an unparseable kickoff never merges with its file call or resolves to the DB: it
+                # would count twice (the file call + a NO DB MATCH ledger row)
+                return (f"REFUSED: venue claim at index {i} has an unparseable kickoff {c.get('kickoff')!r}: its "
+                        "identity cannot be audited.")
             if c.get("claim_at") not in (None, "") and parse_ts(c.get("claim_at")) is None:
                 return (f"REFUSED: venue claim at index {i} has an unparseable claim_at {c.get('claim_at')!r}: the "
                         "frozen claim time is damaged, never replaced by the mutable claim_as_of / captured_at.")
@@ -306,19 +311,19 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     bad_rows: list[str] = []
     # Codex on #340: --exports-dir exports/host IS the mirror; every file under it is a host export
     root_is_mirror = os.path.basename(os.path.normpath(os.path.abspath(root))) == MIRROR_DIR
-    for d, _, files in sorted(os.walk(root)):
+    walk_errors: list[str] = []
+    for d, _, files in sorted(os.walk(root, onerror=lambda e: walk_errors.append(f"{e.filename}: {e.strerror}"))):
         for n in sorted(files):
             p = os.path.join(d, n)
             if not n.lower().endswith(".json"):        # Codex on #340: .JSON is JSON too
-                # Codex on #340: `--out exports/audit` writes a desk export with no suffix; an extension-less file
-                # that parses as a desk document is read like any other, and anything else is counted, not read
+                # Codex on #340: `--out` takes any name (exports/audit, audit.txt); any other file that parses as a
+                # desk document is read like any export, and anything else is counted, not read
                 sniffed = None
-                if not os.path.splitext(n)[1]:
-                    try:
-                        with open(p) as f:
-                            sniffed = json.load(f)
-                    except (OSError, ValueError, UnicodeDecodeError):
-                        sniffed = None
+                try:
+                    with open(p) as f:
+                        sniffed = json.load(f)
+                except (OSError, ValueError, UnicodeDecodeError):
+                    sniffed = None
                 if not (isinstance(sniffed, dict) and "desk_meta" in sniffed):
                     counts["other_files"] = counts.get("other_files", 0) + 1
                     continue
@@ -345,7 +350,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 bad_read.append(p)          # Codex on #340: {} under ANY name (--out allows any), or a generated
                 continue                    # export stripped of its metadata and rows, is damaged, never skipped
             if "desk_meta" not in doc and any(
-                    isinstance(x, dict) and isinstance(x.get("desk"), dict) and x["desk"]
+                    isinstance(x, dict) and isinstance(x.get("desk"), dict)    # Codex on #340: even desk: {}
                     for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]):
                 bad_asof.append(p)                         # Codex on #340: Desk rows without desk_meta are damaged
                 continue
@@ -382,6 +387,10 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 counts["desk_files"] += 1
                 if root_is_mirror or os.path.relpath(p, root).split(os.sep)[0] == MIRROR_DIR:
                     counts["mirrored"].append(p)
+    if walk_errors:                    # Codex on #340: an unreadable subtree is never an empty one
+        raise Refused(f"REFUSED: {len(walk_errors)} director(y/ies) under --exports-dir could not be scanned "
+                      f"({'; '.join(walk_errors[:5])}{'; …' if len(walk_errors) > 5 else ''}): their calls would be "
+                      "omitted, so no receipt; fix the permissions, then re-run")
     if bad_read:
         raise Refused(f"REFUSED: {len(bad_read)} export file(s) that cannot be read as JSON "
                       f"({', '.join(bad_read[:5])}{', …' if len(bad_read) > 5 else ''}): truncated or unavailable; "

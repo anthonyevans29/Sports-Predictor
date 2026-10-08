@@ -62,3 +62,4 @@
   - NaN / inf refused; unknown ledger engines, family-contradicting competitions and emptied generated exports refuse; `--out` never overwrites `--ledger`.
   - `{}` refuses under any name; `--out` never aliases the configured database.
   - Discovery reads any-case `.json` and suffix-less desk documents; other files are counted, not read.
+  - Desk documents are found under any name; empty desk blocks, unscannable directories and unparseable ledger kickoffs refuse; the `--out` JSON check is case-blind.

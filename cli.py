@@ -1556,7 +1556,7 @@ def _vqa_out_ok(out_path, exports_dir=None) -> bool:
                       "are read-only.[/red]")
         return False
     _ex = _P(exports_dir).resolve() if exports_dir else None
-    if _ex is not None and _tgt.name.endswith(".json") and _ex in _tgt.parents:
+    if _ex is not None and _tgt.name.lower().endswith(".json") and _ex in _tgt.parents:   # any case (Codex)
         # Codex on #340: discovery scans every .json under --exports-dir and refuses unreadable ones; a text
         # receipt written there would refuse every later run
         console.print(f"[red]REFUSED: --out {out_path} is a .json under --exports-dir ({exports_dir}): the receipt "

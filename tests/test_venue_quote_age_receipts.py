@@ -1510,3 +1510,54 @@ def test_custom_exports_without_a_lowercase_json_suffix_are_discovered(tmp_path)
     (d / "audit.JSON").write_text("{trunc")                                     # upper-case suffix: still refused
     with pytest.raises(VQ.Refused):
         VQ.iter_desk_docs(str(d))
+
+
+def test_a_json_receipt_output_is_refused_in_any_case(tmp_path):
+    """Codex on #340: discovery reads .JSON as JSON, so --out exports/report.JSON is refused like .json."""
+    from click.testing import CliRunner
+
+    import cli
+    ids = _seed()
+    ex = _exports(tmp_path, ids)
+    tgt = ex / "report.JSON"
+    r = CliRunner().invoke(cli.cli, ["quote-age-report", "--since", "2095-10-02", "--exports-dir", str(ex),
+                                     "--out", str(tgt)])
+    assert r.exit_code == 2 and "REFUSED" in r.output and not tgt.exists()
+
+
+def test_an_unparseable_ledger_kickoff_refuses():
+    """Codex on #340: a kickoff that cannot parse would never merge with its file call (counted twice)."""
+    ok = {"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z"}
+    assert VQ.ledger_refusal({"calls": [dict(ok, kickoff="2095-10-09T00:00:00Z")]}) is None
+    assert VQ.ledger_refusal({"calls": [dict(ok, kickoff=None)]}) is None
+    r = VQ.ledger_refusal({"calls": [dict(ok, kickoff="corrupt")]})
+    assert r and "unparseable kickoff" in r
+
+
+def test_a_desk_export_under_any_custom_suffix_is_discovered(tmp_path):
+    """Codex on #340: `--out exports/audit.txt` holding a desk document is read, not counted as another file."""
+    doc = {"competition_code": "NHL", "desk_meta": {"as_of": "2095-10-08T00:00:00Z"}, "fixtures": []}
+    (tmp_path / "audit.txt").write_text(json.dumps(doc))
+    (tmp_path / "notes.txt").write_text("plain text")
+    docs, cnt = VQ.iter_desk_docs(str(tmp_path))
+    assert [os.path.basename(p) for p, _ in docs] == ["audit.txt"] and cnt["other_files"] == 1
+
+
+def test_empty_desk_blocks_without_desk_meta_refuse(tmp_path):
+    """Codex on #340: rows reduced to desk: {} still prove a Desk export; without desk_meta it is damaged."""
+    (tmp_path / "audit.json").write_text(json.dumps({"fixtures": [{"home_team": "H", "desk": {}}]}))
+    with pytest.raises(VQ.Refused):
+        VQ.iter_desk_docs(str(tmp_path))
+
+
+def test_an_unscannable_subdirectory_refuses(tmp_path, monkeypatch):
+    """Codex on #340: os.walk skips an unreadable subtree silently; the receipt refuses instead."""
+    real = os.walk
+
+    def walk(top, onerror=None, **kw):
+        if onerror:
+            onerror(PermissionError(13, "Permission denied", str(tmp_path / "host")))
+        return real(top, **kw)
+    monkeypatch.setattr(VQ.os, "walk", walk)
+    with pytest.raises(VQ.Refused, match="could not be scanned"):
+        VQ.iter_desk_docs(str(tmp_path))

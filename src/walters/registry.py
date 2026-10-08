@@ -312,13 +312,15 @@ def substitute_cohort_fixture(eid: str, released: int, replacement: int, reason:
 
 
 def freeze_confirmation_cohort(eid: str, cohort_ids: list[int], basis: dict,
-                               path: str = LEDGER, ids_dir: str = IDS_DIR) -> dict:
+                               path: str = LEDGER, ids_dir: str = IDS_DIR, no_fetch: bool = False,
+                               echo=None) -> dict:
     """FREEZE the confirmation cohort (review on #248, 2026-10-02): the first
     n_games ELIGIBLE fixture ids, chosen independently of result availability,
     fixed once. A later confirmation must score exactly this set; a pending or
     missing label leaves it incomplete, never admits a replacement. Refused
     outside a window, when already frozen, unless exactly n_games distinct ids,
-    or when any id was in the scored test set."""
+    or when any id was in the scored test set, and (#329 RULED 2026-10-08) when the cross-ref guard finds a
+    cohort, run record or reservation for `eid` on any ref the clone knows that this tree does not hold."""
     entries = load(path)
     e = next((x for x in entries if x["id"] == eid), None)
     if e is None or e.get("status") != "confirming":
@@ -336,6 +338,9 @@ def freeze_confirmation_cohort(eid: str, cohort_ids: list[int], basis: dict,
     overlap = len((_ids_of(e, ids_dir) or set()) & set(ids))
     if overlap:
         raise RegistryError(f"{eid}: {overlap} cohort fixture(s) were in the scored test set — not future games")
+    receipt = cross_ref_guard(eid, no_fetch=no_fetch)       # #329 RULED 2026-10-08: before any write
+    if echo:
+        echo(receipt)
     os.makedirs(ids_dir, exist_ok=True)
     fname = f"{eid}.cohort.txt"
     with open(os.path.join(ids_dir, fname), "w") as f:
@@ -398,3 +403,135 @@ def record_confirmation(eid: str, scored_ids: list[int], result: dict, ruling: s
     e["status"] = "production" if ok else "closed"
     save(entries, path)
     return e
+
+
+# ----------------------------------------------------------------- cross-ref guard --
+# #329 RULED (ARCHITECT 2026-10-08, addendum 11, item 5): "build the guard as proposed, parts 1 and 2, as one shared
+# function. Every cohort freeze and every one-run reservation calls it: a cohort, a run record or a reservation for
+# the experiment on any ref the clone knows refuses, naming the ref and the commit. --no-fetch stays, and the receipt
+# then prints that other clones were not checked." The finding (#329): a registry write that lives only on an
+# unmerged laptop branch is invisible to the next freeze, which is how a second intl-elo-v2 cohort was accepted.
+#   part 2: fetch origin's laptop/* branches first (a failed fetch refuses unless --no-fetch);
+#   part 1: scan every ref the clone knows (git for-each-ref refs/heads refs/remotes) for a cohort, a run record or a
+#           reservation of the experiment that this working tree does not hold identically, and refuse naming each
+#           ref and commit. Never overwrites; part 1 needs no network.
+
+REG_REL = "docs/registry"
+GUARD_REMOTE = "origin"
+GUARD_FETCH_REFSPEC = "+refs/heads/laptop/*:refs/remotes/origin/laptop/*"
+NOT_CHECKED = "other clones not checked"
+GUARD_KINDS = ("cohort", "run record", "reservation")
+
+
+class CrossRefRefused(RegistryError):
+    pass
+
+
+def _git(repo: str, *args: str, inp: bytes | None = None):
+    import subprocess
+    return subprocess.run(["git", "-C", repo, *args], input=inp, capture_output=True)
+
+
+def _guard_paths(eid: str) -> dict:
+    return {"ledger": f"{REG_REL}/experiments.json", "cohort": f"{REG_REL}/ids/{eid}.cohort.txt",
+            "run": f"{REG_REL}/ids/{eid}.txt", "reservation": f"{REG_REL}/{eid}.started.json"}
+
+
+def _guard_state(eid: str, read) -> dict:
+    """{kind: comparable value or None} for one tree; `read(relpath)` -> bytes | None. A kind is held when the
+    ledger entry carries it (confirmation_cohort / run) or its file exists; the value is both, so a tree holds it
+    "identically" only when the entry field and the file bytes both match."""
+    p = _guard_paths(eid)
+    entry = None
+    raw = read(p["ledger"])
+    if raw is not None:
+        try:
+            entry = next((e for e in json.loads(raw) if isinstance(e, dict) and e.get("id") == eid), None)
+        except (ValueError, TypeError):
+            entry = None
+    entry = entry or {}
+
+    def val(field, f):
+        fld, blob = (entry.get(field) if field else None), read(p[f])
+        if not fld and blob is None:
+            return None
+        return (json.dumps(fld, sort_keys=True) if fld else None, blob)
+    return {"cohort": val("confirmation_cohort", "cohort"), "run record": val("run", "run"),
+            "reservation": val(None, "reservation")}
+
+
+def _worktree_reader(repo: str):
+    def read(rel):
+        f = os.path.join(repo, rel)
+        if not os.path.isfile(f):
+            return None
+        with open(f, "rb") as fh:
+            return fh.read()
+    return read
+
+
+def _blobs_at(repo: str, specs: list[str]) -> dict:
+    """`<commit>:<path>` -> bytes | None for every spec, read in one `git cat-file --batch`."""
+    if not specs:
+        return {}
+    r = _git(repo, "cat-file", "--batch", inp=("\n".join(specs) + "\n").encode())
+    if r.returncode != 0:
+        raise CrossRefRefused(f"cross-ref guard: git cat-file failed ({r.stderr.decode().strip()}) — refused")
+    out, buf, i = {}, r.stdout, 0
+    for spec in specs:
+        nl = buf.index(b"\n", i)
+        head = buf[i:nl].split()
+        i = nl + 1
+        if len(head) == 3 and head[1] in (b"blob", b"tree", b"commit", b"tag"):
+            size = int(head[2])
+            out[spec] = buf[i:i + size] if head[1] == b"blob" else None
+            i += size + 1
+        else:                                    # "<spec> missing" / ambiguous
+            out[spec] = None
+    return out
+
+
+def cross_ref_guard(eid: str, no_fetch: bool = False, repo: str | None = None) -> str:
+    """THE shared guard (#329 RULED 2026-10-08): every cohort freeze and every one-run reservation calls it BEFORE
+    it writes. Fetches origin's laptop/* branches (unless no_fetch; a failed fetch refuses), then scans every ref
+    the clone knows (refs/heads, refs/remotes; symbolic refs skipped) for a cohort, a run record or a reservation
+    of `eid` that this working tree does not hold identically, and refuses (CrossRefRefused, a RegistryError: the
+    CLI exits 2) naming every such ref and its commit. Returns the receipt line; with no_fetch it says that other
+    clones were not checked. A clone git cannot read refuses (fails closed)."""
+    repo = repo or ROOT
+    if no_fetch:
+        scope = f"--no-fetch: {NOT_CHECKED}"
+    else:
+        r = _git(repo, "fetch", "--quiet", GUARD_REMOTE, GUARD_FETCH_REFSPEC)
+        if r.returncode != 0:
+            raise CrossRefRefused(
+                f"{eid}: the cross-ref guard could not fetch {GUARD_REMOTE} laptop/* "
+                f"({' '.join(r.stderr.decode().split()) or f'exit {r.returncode}'}) — other clones cannot be checked; refused. "
+                f"--no-fetch checks only the refs this clone knows (the receipt then says {NOT_CHECKED})")
+        scope = f"fetched {GUARD_REMOTE} laptop/*"
+    r = _git(repo, "for-each-ref", "--format=%(refname)%09%(objectname)%09%(symref)", "refs/heads", "refs/remotes")
+    if r.returncode != 0:
+        raise CrossRefRefused(f"{eid}: the cross-ref guard cannot list this clone's refs "
+                              f"({r.stderr.decode().strip()}) — refused")
+    refs = []
+    for line in r.stdout.decode().splitlines():
+        name, sha, sym = (line.split("\t") + ["", ""])[:3]
+        if name and sha and not sym:
+            refs.append((name, sha))
+    here = _guard_state(eid, _worktree_reader(repo))
+    paths = list(_guard_paths(eid).values())
+    blobs = _blobs_at(repo, [f"{sha}:{p}" for _, sha in refs for p in paths])
+    hits = []
+    for name, sha in refs:
+        theirs = _guard_state(eid, lambda rel, sha=sha: blobs.get(f"{sha}:{rel}"))
+        for kind in GUARD_KINDS:
+            if theirs[kind] is not None and theirs[kind] != here[kind]:
+                fld = json.loads(theirs[kind][0]) if theirs[kind][0] else None
+                detail = f", sha256 {fld['ids_sha256'][:16]}…" if isinstance(fld, dict) and fld.get("ids_sha256") else ""
+                hits.append(f"a {kind} on ref {name.removeprefix('refs/')} at commit {sha}{detail}")
+    if hits:
+        raise CrossRefRefused(f"{eid}: the cross-ref guard (#329) found " + "; ".join(hits)
+                              + " — not held identically by this tree. A cohort is frozen once and the one run is "
+                              "reserved once, never overwritten: splice that ref or get a ruling first")
+    return (f"cross-ref guard: {scope} · {len(refs)} ref(s) scanned · none holds a cohort, run record or reservation "
+            f"for {eid} that this tree does not hold identically")

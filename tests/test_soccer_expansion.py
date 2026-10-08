@@ -354,7 +354,7 @@ def test_the_run_record_keeps_the_calibration_bands(monkeypatch):
     monkeypatch.setattr(cli, "_soccer_prod_poisson", lambda: ("v22", -0.1, 0.0008))
     g = sx.league_gate(results(300, True), NAIVE)
     g["market"] = None
-    monkeypatch.setattr(sx, "run", lambda rho, coeff, progress=None, meta=None: {
+    monkeypatch.setattr(sx, "run", lambda rho, coeff, progress=None, meta=None, **guard: {
         "per_league": {"PD": g}, "verdict": "x", "surviving": ["PD"], "dropped": [], "scored_ids": [1]})
     seen = {}
     monkeypatch.setattr(reg, "record_run", lambda eid, ids, result: seen.update(result) or {

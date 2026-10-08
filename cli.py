@@ -5112,7 +5112,10 @@ def unl_shadow_grade_cmd(days):
                    "reason (registry write; commit in a PR).")
 @click.option("--record", is_flag=True, help="Record the confirmation (needs the frozen cohort complete and --ruling).")
 @click.option("--ruling", default=None, help="The architect's ruling text, verbatim (with --record).")
-def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling):
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="With --freeze-cohort, cross-ref guard (#329): skip fetching origin laptop/*; only the refs this "
+                   "clone knows are checked and the receipt says other clones were not checked.")
+def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
     """intl-elo-v2 CONFIRMATION READ (doctrine #212, ARCHITECT 2026-10-02): the
     first 60 senior competitive national-team matches after the verdict,
     priced predict-then-update, scored by the plan (log-loss <= ln 3 AND <
@@ -5154,7 +5157,8 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling):
                      "last_kickoff": fx[-1]["kickoff"].strftime("%Y-%m-%dT%H:%M:%SZ"),
                      "status_at_freeze": dict(Counter(f["status"] for f in fx)),
                      "by_code": dict(Counter(f["code"] for f in fx))}
-            e = reg.freeze_confirmation_cohort(ie.EID_V2, co["ids"], basis)
+            e = reg.freeze_confirmation_cohort(ie.EID_V2, co["ids"], basis, no_fetch=no_fetch,
+                                               echo=lambda line: click.echo(f"  {line}"))
             c = e["confirmation_cohort"]
             click.echo(f"FROZEN: {c['n']} fixtures · sha256 {c['ids_sha256'][:16]}… · {basis['first_kickoff']} .. "
                        f"{basis['last_kickoff']} · {basis['status_at_freeze']} — commit docs/registry/ in a PR")
@@ -5953,7 +5957,10 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
 @click.option("--preflight", is_flag=True, help="Stream receipts only (matches per league-season, every stage / round "
                                                  "label with its placement, the 2023/24 completeness and naive "
                                                  "frequencies, closing-odds coverage); scores nothing.")
-def soccer_expansion_gate_cmd(preflight):
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="Cross-ref guard (#329): skip fetching origin laptop/*; only the refs this clone knows are checked "
+                   "and the receipt says other clones were not checked.")
+def soccer_expansion_gate_cmd(preflight, no_fetch):
     """soccer-expansion-v1 (ARCHITECT 2026-10-07, GATE-CLASS): the PRODUCTION soccer model as shipped on PD, SA,
     BL1, FL1, ELC, test seasons 2024/25 + 2025/26, each league gated on its own (log-loss < its 2023/24 naive
     − 0.010, ties reject, + the intl-elo-v2 bands; regular-season rounds only, same-kickoff fixtures batched); a
@@ -6023,7 +6030,8 @@ def soccer_expansion_gate_cmd(preflight):
             f"{mk['ll_model']:.4f} / market {mk['ll_market']:.4f} · >= +{mk['edge_cohort']['min_edge_pp']:g}pp "
             f"cohort {mk['edge_cohort']['hits']}/{mk['edge_cohort']['n']}" if mk else "no stored closing odds"))
     try:
-        r = sx.run(rho, coeff, progress=show, meta={"production_version": version})
+        r = sx.run(rho, coeff, progress=show, meta={"production_version": version}, no_fetch=no_fetch,
+                   echo=lambda line: click.echo(f"  {line}"))
     except sx.ExpansionRefused as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)

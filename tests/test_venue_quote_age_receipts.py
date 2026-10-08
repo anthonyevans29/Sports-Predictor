@@ -1680,3 +1680,13 @@ def test_out_naming_a_directory_or_under_a_file_refuses_before_the_scan(tmp_path
         for cmd in ("venue-calls-receipt", "quote-age-report"):
             r = CliRunner().invoke(cli.cli, [cmd, "--since", "2095-10-02", "--exports-dir", str(ex), "--out", str(tgt)])
             assert r.exit_code == 2 and "REFUSED" in r.output, r.output
+
+
+def test_any_desk_key_without_desk_meta_refuses(tmp_path):
+    """Codex on #340: a desk value damaged to null / a string / a list still proves a Desk export."""
+    for i, bad in enumerate((None, "x", [1])):
+        d = tmp_path / f"d{i}"
+        d.mkdir()
+        (d / "nfl_2095-10-08.json").write_text(json.dumps({"predictions": [{"home_team": "H", "desk": bad}]}))
+        with pytest.raises(VQ.Refused):
+            VQ.iter_desk_docs(str(d))

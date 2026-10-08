@@ -394,7 +394,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 bad_read.append(p)          # Codex on #340: {} under ANY name (--out allows any), or a generated
                 continue                    # export stripped of its metadata and rows, is damaged, never skipped
             if "desk_meta" not in doc and any(
-                    isinstance(x, dict) and isinstance(x.get("desk"), dict)    # Codex on #340: even desk: {}
+                    isinstance(x, dict) and "desk" in x    # Codex on #340: the key itself (even {}, null, a list)
                     for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]):
                 bad_asof.append(p)                         # Codex on #340: Desk rows without desk_meta are damaged
                 continue

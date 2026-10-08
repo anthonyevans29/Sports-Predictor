@@ -69,3 +69,4 @@
   - Overflowing offsets and non-string VENUE sides refuse cleanly; the probe never overwrites a desk export.
   - `--out` directories and paths under files refuse up front.
   - Probe `--out`: generated export names reserved; paths under files refuse.
+  - A `desk` key of any value without `desk_meta` refuses.

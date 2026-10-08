@@ -70,3 +70,4 @@
   - A timestamp whose offset overflows on UTC conversion is invalid (refusal, never a traceback); a VENUE side that is not a string refuses before any lookup. Probe: `--out` never replaces an existing desk export (generated name, a desk document, or a mirrored host copy).
   - `--out` naming a directory, or a path under an existing file, refuses before the scan (never an IsADirectoryError).
   - Probe: `--out` refuses a generated desk export name (or the host mirror) whether or not the file exists, and a path under an existing file.
+  - Any row carrying a `desk` key (whatever its value) without `desk_meta` refuses the document.

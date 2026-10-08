@@ -175,11 +175,12 @@ def notify(body: str, title: str = NOTIFY_TITLE) -> dict:
     """A macOS notification via osascript. Off macOS nothing is posted and the line says so."""
     if sys.platform != "darwin":
         print(f"· notification (not macOS, not posted): {title}: {body}", flush=True)
-        return {"posted": False, "text": body}
+        return {"posted": False, "text": body, "skipped": "not macOS"}
     try:
         r = subprocess.run(["osascript", "-e", f'display notification "{_osa(body)}" with title "{_osa(title)}"'],
                            capture_output=True, text=True, timeout=15)
-        return {"posted": r.returncode == 0, "text": body}
+        return {"posted": r.returncode == 0, "text": body,
+                **({} if r.returncode == 0 else {"error": f"osascript exit {r.returncode}"})}
     except (OSError, subprocess.SubprocessError) as e:
         return {"posted": False, "text": body, "error": f"{type(e).__name__}"}
 
@@ -334,7 +335,9 @@ def missing_from_export(doc: dict, now: datetime) -> list[dict]:
     """Codex on #370: every unstarted MLB game in the STORED schedule (re-read after the steps synced it) whose first
     pitch is within the 90-minute summary window must have a Desk row in the export. Returns the ones that do not."""
     have = {r.get("match_id") for r in doc.get("predictions") or [] if r.get("desk")}
-    need = [g for g in schedule(now) if not started(g, now) and 0 < minutes_to(g, now) <= SUMMARY_WINDOW_MIN]
+    # `now` is the run's START (Codex round 2): a first pitch after the start is required even if a step synced the
+    # game to LIVE before the export; the elapsed check, not this filter, decides a target that started mid-run.
+    need = [g for g in schedule(now) if 0 < minutes_to(g, now) <= SUMMARY_WINDOW_MIN]
     return [{"match_id": g["match_id"], "first_pitch": iso_z(g["first_pitch"]), "first_pitch_et": et(g["first_pitch"]),
              "away": g["away"], "home": g["home"], "reason": "missing from export"}
             for g in need if g["match_id"] not in have]
@@ -478,15 +481,22 @@ def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "o
                 if not doc.get("desk_meta"):
                     rec["failed"] = "export carries no desk calls"
                 else:
-                    at = now + timedelta(seconds=time.time() - t0)
-                    rows = desk_rows(doc, at)
-                    missing = missing_from_export(doc, at)
+                    # The window is the run's START (Codex round 2 on #370): a game that starts mid-run is never
+                    # silently dropped from the summary or the completeness check before the elapsed check below.
+                    rows = desk_rows(doc, now)
+                    missing = missing_from_export(doc, now)
+                    done = now + timedelta(seconds=time.time() - t0)
+                    rec["completed_at"] = iso_z(done)
                     if missing:                   # Codex on #370: an omitted imminent game is never a success
                         rec["failed"] = "missing from export"
                         rec["missing"] = missing
                         print("✗ missing from export: " + ", ".join(
                             f"match {m['match_id']} ({m['first_pitch_et']} {m['away']} @ {m['home']})"
                             for m in missing))
+                    elif parse_utc(p["first_pitch"]) <= done:   # the target started while the steps ran
+                        rec["failed"] = "first pitch elapsed during the run"
+                        print(f"✗ first pitch {p['first_pitch_et']} elapsed during the run (completed "
+                              f"{et(done)}) — no closing for it; a started game is never retried")
                 if not rec.get("failed"):
                     rec["desk_rows"] = [{k: x[k] for k in ("match_id", "first_pitch", "call", "pick", "units",
                                                            "exec_edge_pp", "hold")} for x in rows]
@@ -500,9 +510,23 @@ def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "o
             if rec["push"].get("exit") != 0:       # Codex on #370: a failed / timed-out push fails the run, so the
                 rec["failed"] = "push"             # watch retries it (the export the step wrote stays on disk)
             else:
-                rec["exit"] = 0
+                # Codex round 2 on #370: every notification's result is recorded and validated BEFORE exit 0. On
+                # macOS a notification that was not posted (osascript nonzero / timeout / an exception) fails the
+                # run, so the watch retries it. Off macOS nothing is expected to post: that is not a failure.
+                rec["notifications"] = []
                 for x in rows:
-                    notify(notification_text(x))
+                    text = notification_text(x)
+                    try:
+                        res = notify(text)
+                    except Exception as e:  # noqa: BLE001
+                        res = {"posted": False, "text": text, "error": f"{type(e).__name__}: {e}"[:200]}
+                    rec["notifications"].append({"match_id": x["match_id"], "posted": res.get("posted"),
+                                                 **({"skipped": res["skipped"]} if res.get("skipped") else {}),
+                                                 **({"error": res["error"]} if res.get("error") else {})})
+                if any(n["posted"] is not True and not n.get("skipped") for n in rec["notifications"]):
+                    rec["failed"] = "notify"
+                else:
+                    rec["exit"] = 0
     except Exception as e:  # noqa: BLE001 - the receipt line is written either way (A2)
         rec["failed"] = rec.get("failed") or "error"
         rec["error"] = c.redact(f"{type(e).__name__}: {e}")[:300]
@@ -511,6 +535,8 @@ def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "o
     if rec["exit"] != 0:
         print(f"✗ mlb-closing-run FAILED ({rec.get('failed')}{': ' + rec['error'] if rec.get('error') else ''}) — "
               + {"push": "nothing notified; the export stays on disk",
+                 "notify": "the export was pushed; a notification was not posted, the watch retries",
+                 "first pitch elapsed during the run": "nothing pushed or notified; the export stays on disk",
                  "missing from export": "nothing pushed or notified; the export stays on disk"}.get(
                   rec.get("failed"), "nothing exported, pushed or notified after the failure"))
     else:

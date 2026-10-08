@@ -24,6 +24,7 @@ import sp_run  # noqa: E402
 from src.walters import desk_policy as dp  # noqa: E402
 
 NOW = datetime(2026, 10, 8, 22, 0, tzinfo=timezone.utc)          # 18:00 ET
+REAL_NOTIFY = mc.notify                                           # before any fixture replaces it
 HOLD = "paste to the architect before placing"
 OFFSETS = {"T-70": 70, "T-62": 62, "T-30": 30, "T-3": 3}
 # the scratch schedule's home teams, one per summary shape (the export's rows carry the same match ids)
@@ -140,6 +141,7 @@ def box(tmp_path, monkeypatch):
         b.feed_calls += 1
         return b.feed
 
+    b.fake_step = fake_step
     monkeypatch.setattr(mc, "run_step", fake_step)
     monkeypatch.setattr(mc, "feed_answers", fake_feed)
     monkeypatch.setattr(mc, "notify", lambda body, title=mc.NOTIFY_TITLE: b.notes.append(body) or {"posted": True})
@@ -543,3 +545,89 @@ def test_p2b_laptop_only_refusal_writes_a_refused_receipt_but_not_on_dry_run(box
     r = receipts()[-1]
     assert r["kind"] == "mlb_closing" and r["exit"] == 2 and r["refused"].startswith("laptop only")
     assert box.steps == [] and not (box.tmp / "backups").exists()
+
+
+# ---------------------------------------------------------------------------------- review round 2 (#370) --
+
+def _mac_osascript(monkeypatch, outcome):
+    """Real notify() on 'macOS' with osascript replaced: 'ok', 'nonzero', 'timeout' or 'raise' (an unexpected error)."""
+    monkeypatch.setattr(sys, "platform", "darwin")
+
+    real_run = subprocess.run
+
+    def fake_run(argv, **k):
+        if argv[0] != "osascript":                    # receipts' git lookups pass through
+            return real_run(argv, **k)
+        if outcome == "timeout":
+            raise subprocess.TimeoutExpired(argv, 15)
+        if outcome == "raise":
+            raise RuntimeError("notification centre unavailable")
+        return subprocess.CompletedProcess(argv, 0 if outcome == "ok" else 1, "", "")
+    monkeypatch.setattr(mc.subprocess, "run", fake_run)
+
+
+@pytest.mark.parametrize("outcome", ["nonzero", "timeout", "raise"])
+def test_p1d_a_notification_not_posted_on_macos_fails_the_run_and_the_watch_retries(box, monkeypatch, outcome):
+    monkeypatch.setattr(mc, "notify", REAL_NOTIFY)               # the real notify, osascript replaced below
+    _mac_osascript(monkeypatch, outcome)
+    assert mc.watch(now=NOW) == 1
+    r = receipts()[-1]
+    assert r["exit"] == 1 and r["failed"] == "notify" and len(r["notifications"]) == 4
+    assert all(n["posted"] is False and n["error"] for n in r["notifications"])
+    assert mc.closing_state("2026-10-08T22:30:00Z")["success"] is False
+    _mac_osascript(monkeypatch, "ok")                            # the next tick retries and posts
+    assert mc.watch(now=NOW + timedelta(minutes=1)) == 0
+    r = receipts()[-1]
+    assert r["exit"] == 0 and r["attempt"] == 2 and all(n["posted"] is True for n in r["notifications"])
+
+
+def test_p1d_off_macos_not_posting_is_not_a_failure(box, monkeypatch):
+    monkeypatch.setattr(mc, "notify", lambda body, title=mc.NOTIFY_TITLE: {"posted": False, "text": body,
+                                                                         "skipped": "not macOS"})
+    assert mc.run(now=NOW) == 0
+    assert all(n == {"match_id": n["match_id"], "posted": False, "skipped": "not macOS"}
+               for n in receipts()[-1]["notifications"])
+
+
+def test_p1e_target_first_pitch_elapsed_during_the_run_is_a_failure_and_never_retried(box, monkeypatch):
+    db = box.tmp / "edge.db"
+    make_db(db, [(102, NOW + timedelta(minutes=6), "SCHEDULED", "Kalshiburg Visitors", "Kalshiburg")])
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
+    box.doc = {"sport": "mlb", "predictions": [desk_row(102, "Kalshiburg", 0.60, fair_h=0.53, bid=0.51, ask=0.52,
+                                                        minutes=6)]}
+    dp.annotate(box.doc, now=NOW)
+    clock = {"t": __import__("time").time()}
+    monkeypatch.setattr(mc, "time", type("T", (), {"time": staticmethod(lambda: clock["t"])}))
+    inner = box.fake_step
+
+    def slow_step(argv, run_id):                                 # each step takes 1 minute: 10 minutes in all
+        out = inner(argv, run_id)
+        clock["t"] += 60
+        return out
+    monkeypatch.setattr(mc, "run_step", slow_step)
+    assert mc.watch(now=NOW) == 1                               # T-6: in the window, started
+    r = receipts()[-1]
+    assert r["exit"] == 1 and r["failed"] == "first pitch elapsed during the run"
+    assert r["completed_at"] == "2026-10-08T22:10:00Z" and r["push"] is None
+    assert box.pushes == [] and box.notes == []
+    n = len(box.steps)
+    assert mc.watch(now=NOW + timedelta(minutes=10)) == 0       # first pitch passed: never retried
+    assert len(box.steps) == n and box.feed_calls == 1
+
+
+def test_p1e_the_window_is_the_runs_start(box, monkeypatch):
+    """A game whose first pitch falls inside the run (not the target) is still required in the export and still
+    gets its summary block: nothing is silently dropped by a completion-time window."""
+    clock = {"t": __import__("time").time()}
+    monkeypatch.setattr(mc, "time", type("T", (), {"time": staticmethod(lambda: clock["t"])}))
+    inner = box.fake_step
+
+    def slow_step(argv, run_id):
+        out = inner(argv, run_id)
+        clock["t"] += 30                                         # 5 minutes in all: T-3 (Passville) starts mid-run
+        return out
+    monkeypatch.setattr(mc, "run_step", slow_step)
+    box.doc["predictions"] = [p for p in box.doc["predictions"] if p["match_id"] != 103]
+    assert mc.run(first_pitch="2026-10-08T22:30:00Z", now=NOW) == 1
+    r = receipts()[-1]
+    assert r["failed"] == "missing from export" and [m["match_id"] for m in r["missing"]] == [103]

@@ -67,6 +67,12 @@ def run_backtest(season: str = "2025", competition_code: str = "MLB",
     on) — used by the shrink-tuning sweep to test alternative strengths against
     the same leakage-free walk.
     """
+    # soccer-expansion-v1 (Codex on #326): the generic walk reads any competition's finished scores, so the
+    # expansion leagues' sealed test seasons are refused here too while the experiment is declared and unrun.
+    from src.walters import soccer_expansion as _sx
+    _why = _sx.guards_backtest(competition_code)
+    if _why:
+        raise _sx.ExpansionRefused(_why)
     results = []
     totals_rows = []  # richer rows for the totals-model head-to-head
     with session_scope() as s:

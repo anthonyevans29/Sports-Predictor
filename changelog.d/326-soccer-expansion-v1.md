@@ -1,0 +1,26 @@
+## 2026-10-07 (#326: soccer-expansion-v1 — ARCHITECT, gate-class declaration, NO run)
+- soccer-expansion-v1 is DECLARED in the registry with its executable confirmation plan (#322). The spec is `docs/specs/soccer-expansion-v1.md` (the ruling verbatim, the operational definitions, findings F1–F6).
+- `soccer-expansion-gate [--preflight]`:
+  - the one run, per league, on PD/SA/BL1/FL1/ELC, test seasons 2024/25 + 2025/26;
+  - refused unless declared and unrun, while F1–F6 are open, and before any scoring if a 2023/24 naive is missing or a test season would score nothing;
+  - `--preflight` scores nothing.
+- `soccer-backtest` refuses these leagues while the experiment is unrun.
+- `export-soccer-expansion-shadow` (model_shadow, no Desk call, no prediction row) and `soccer-expansion-shadow-grade` (read-only).
+- `soccer-prematch` / `soccer-morning-after` and the laptop routine add the five leagues' 2026/27 `sync-matches` / `sync-odds`, data only. Kalshi series PINNED (ARCHITECT 2026-10-07, addendum 2): PD KXLALIGAGAME, SA KXSERIEAGAME, BL1 KXBUNDESLIGAGAME, FL1 KXLIGUE1GAME, ELC KXEFLCHAMPIONSHIPGAME in `SOCCER_GAME_SERIES`; EL1 / EFL / CZE recorded, not wired (`SOCCER_SERIES_RESERVED`). Each league's `sync-kalshi-soccer` runs on `soccer-prematch` and the laptop routine as CAPTURE ONLY, not in the window chain; "A pinned series never makes a league live."
+- Codex on #326:
+  - the generic `backtest` walk (`src/walters/backtest.py run_backtest`) is sealed on these leagues too (`backtest --competition BL1` refuses, exit 2).
+  - the seal is enforced in `run_soccer_backtest` (every path, the sweeps included);
+  - the pre-scoring check refuses a test season the walk would score nothing in: the walk's own predicate (>= min_prior prior rows and both teams among them), from fixture order and team ids, no score read;
+  - F5 (fixtures sharing a kickoff: the walk updates after each row) is an open finding for a ruling; the run refuses until it is ruled;
+  - the run reserves the gate before its first read (an exclusive `docs/registry/soccer-expansion-v1.started.json`); an interrupted, failed or concurrent attempt is refused until ruled;
+  - the run record keeps each league's calibration band rows;
+  - F6 (a league with no gated calibration band passes the bands criterion vacuously) is an open finding for a ruling.
+- Rulings on F1–F5 (ARCHITECT 2026-10-07, addendum 3, item B; quoted verbatim in spec section 7a). F6 is not ruled, so the run still refuses:
+  - F1: a league without a complete stored 2023/24 regular season (a full double round-robin, every row finished with both scores) is dropped before the run, never read, and named with its reason (`dropped_before_run` in the verdict and the record). All five dropped refuses;
+  - F2: no change; per league-season from a cold start, min_prior 40, the two test seasons pooled per league;
+  - F3: only regular-season rounds are scored and walked, in the test seasons and the 2023/24 baseline. `placement()` maps `Match.stage` (api-football `league.round`, verbatim) to regular / playoff / unplaced. `--preflight` prints every label with its count and placement; an unplaced label refuses the run;
+  - F4: TIES REJECT. `crit_ll` is now `ll_model < ll_naive − 0.010`, unrounded, no tolerance;
+  - F5: `run_soccer_backtest` gains two opt-in arguments, both default off so every existing command reproduces its numbers: `stage_filter` and `batch_same_kickoff` (same-kickoff fixtures predicted from one pre-state). The gate passes both; `scoreable_count` mirrors the batched predicate.
+  - the Desk's venue engine never calls PD / SA / BL1 / FL1 / ELC (`desk_policy.SHADOW_VENUE_COMPS`, pinned to the leagues): their Kalshi capture reaches the 24h window card, which spans every competition, so without this a gap there could print a VENUE line.
+  - F6 ruled (2026-10-08): a league with no calibration band at >= 100 observations is DROPPED, "no gated band"; it never passes on log-loss alone (intl / NHL / NCAA gates unchanged). The registry operator correction (R1) has no machine-readable field to land in: it stays open and the run still refuses until directed.
+  - R1 ruled (2026-10-08, addendum 8): no new field or schema. The entry gains `ratified` beside the byte-identical `gate` (the F1-F6 reading of record; F4: the gate's <= is read as strict). The addendum 7 operator sentence is withdrawn and kept quoted in spec 7b. `OPEN_FINDINGS` is empty.

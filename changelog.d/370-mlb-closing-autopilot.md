@@ -1,4 +1,4 @@
-## 2026-10-08 (#PENDING: MLB closing-run autopilot — ARCHITECT addendum 13 item 3, Q2; laptop only)
+## 2026-10-08 (#370: MLB closing-run autopilot — ARCHITECT addendum 13 item 3, Q2; laptop only)
 - Ruling: A1–A9 verbatim in `docs/ledger/entries/2026-10-08-mlb-closing-autopilot.md`. Stacks on #369 (Q3): the summary block shows its `kalshi_only_hold`.
 - `chains.py`: `CHAINS["mlb-closing"]`, derived from `mlb-preslate`, never copied. Steps 1–9 are its own. Step 10 is its export plus `--date {today} --desk`, so the file carries the Desk's call. `{today}` is the first pitch's America/New_York date, because the export's default slate is the UTC date and would drop a 22:10 ET game run after 20:00 ET. The chain is marked `laptop_only`, and `sp_run.py` refuses it (exit 2, receipted). `mlb-preslate` and `freshen:MLB` are unchanged.
 - New `deploy/hosting/mlb_closing.py`, exposed as `python cli.py mlb-closing-run` and `python cli.py mlb-closing-watch`.

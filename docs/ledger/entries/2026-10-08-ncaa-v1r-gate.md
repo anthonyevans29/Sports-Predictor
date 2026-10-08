@@ -15,4 +15,4 @@
   - an INVALID run is recorded;
   - the gate walk stops after the last 2025 game;
   - a confirmation fixture whose label falls outside 2024-2026 stays pending.
-- **Finding for the architect (not changed here):** `ncaa-cfbd-coverage` (PR A's `V1RStream.lines`) prints the 2025 non-neutral home win rate. That is a test-set outcome, and it is the realized-rate half of D5 (2). `ncaa-v1r-gate --preflight` prints no 2025 outcome.
+- **Finding for the architect, since ruled:** `ncaa-cfbd-coverage` printed the 2025 non-neutral home win rate. It became #368, RULED in addenda 14 and 15 and built on #365 (the test-season fence). `ncaa-v1r-gate --preflight` prints no 2025 outcome.

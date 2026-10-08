@@ -1,4 +1,4 @@
-## 2026-10-08 (#PENDING: ncaa-elo-v1r gate command (D3-D6, --preflight, reservation, one recorded run) and confirmation command (D7); not run)
+## 2026-10-08 (#375: ncaa-elo-v1r gate command (D3-D6, --preflight, reservation, one recorded run) and confirmation command (D7); not run)
 - **`ncaa-v1r-gate`** (new; `src/walters/ncaa_v1r_gate.py`; ARCHITECT 2026-10-08, addendum 11 item 3, PR B). It follows the soccer-expansion-v1 pattern.
   - `--preflight` scores nothing. Per season it prints the stream by season_type, the neutral count, the coverage and the D4 baseline (D6).
   - The run has four preconditions, each checked before anything is read: declared and unrun; `OPEN_ITEMS` empty (it ships with D6's census confirmation open); `--architect-word` given; 2024 and 2025 covered (L2 + L3, each missing season named).

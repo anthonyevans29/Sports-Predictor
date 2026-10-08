@@ -270,7 +270,12 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
                                            "scores_provider_missing", "scores_ours_missing"))
                + f" · dates moved > 1h {c.get('date_moved', 0)}")
     (ro, no), (rp, np_) = r["home_rate"]["ours"], r["home_rate"]["provider"]
-    click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
+    from src.walters import ncaa_backtest as nb
+    if competition_code.upper() == "NCAA" and season in (None, nb.V1R_TEST) and not nb.v1r_run_recorded():
+        # #368 fence: an NCAA listing that includes 2025 prints no home win rate until the v1r run is recorded
+        click.echo(f"  home win rate (decided games): {nb.FENCED_RATE} (n ours={no}, provider={np_})")
+    else:
+        click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
     for k, lines in sorted(r["samples"].items()):
         click.echo(f"  {k} (sample):")
         for ln in lines:
@@ -6420,6 +6425,9 @@ def ncaa_backtest_cmd(baselines_only, candidate):
     verdict. Read-only: writes nothing; NCAA stays market-only."""
     from src.walters import ncaa_backtest as nb
 
+    if not nb.v1r_run_recorded():   # #368 fence (addendum 14 item 2(b)): refuse before anything is read
+        click.echo(nb.fence_refusal("ncaa-backtest"))
+        raise SystemExit(2)
     # ARCHITECT ruling 2026-10-01 (NCAA audit): 2025 home/away labels are
     # UNRELIABLE; the gate is SUSPENDED-PENDING-DATA (not failed) until a season
     # with sane stage-level home rates exists on BOTH sides of the split; v1's
@@ -6455,7 +6463,11 @@ def ncaa_audit_cmd(seasons, limit):
     'established' HEURISTICS, the stored-field inventory (neutral site /
     division indicators), and a suspects list. Writes nothing."""
     from src.walters import ncaa_audit as na
+    from src.walters import ncaa_backtest as nb
 
+    if not nb.v1r_run_recorded():   # #368 fence (addendum 14 item 2(b)): refuse before anything is read
+        click.echo(nb.fence_refusal("ncaa-audit"))
+        raise SystemExit(2)
     data = na.load(top=limit)
     na.report(data, seasons=tuple(seasons) or na.AUDIT_SEASONS, limit=limit, out=click.echo)
 

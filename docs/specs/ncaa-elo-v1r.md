@@ -29,6 +29,23 @@ Test set (registry `test_set`, exact): "NCAA FBS 2025 regular season (CFBD both-
 
 > D9. Prior reads of this test set: none. The 2026-09-30 run of v1 (all divisions, scrambled 2025 labels, VOID by the 2026-10-01 ruling) scored 2026 games; the entry names it."
 
+**Correction to D9 (ARCHITECT 2026-10-08, addendum 14 item 2(a), #368, RULED, verbatim).** D9 stays quoted as issued
+above; this correction stands beside it:
+
+> "For 'Prior reads of this test set: none.' read 'No candidate has been scored on this test set. One outcome figure of the test season was read before this declaration: its non-neutral home win rate on the labels then held, 0.597 on 652 games (operator console, ingest of 2026-10-08 14:07Z; the label sanity check ordered on 2026-10-07, when 2025 was the warm-up season). D5 (2) compares the model with a figure of that kind and was declared with it known. D5 (1), (3) and (4) were not informed by it.'"
+
+No candidate has been scored on the test set, so the registry's prior reads stay empty. D5 does not change.
+
+**The test-season fence (addendum 14 item 2(b), #368, RULED, verbatim):**
+
+> "Until the one run of ncaa-elo-v1r is recorded, no command prints an outcome figure of the 2025 season. ncaa-cfbd-coverage prints no 2025 home win rate in either block; counts, coverage, the season_type census and the neutral counts stay. ncaa-backtest and ncaa-audit refuse, exit 2, naming this ruling: both print 2025 rates, and the first scores a candidate. The join receipts keep listing single games with their scores; that is how a join is checked. After the run is recorded the lines and the two commands return."
+
+In code: `ncaa_backtest.TEST_SEASON_FENCE`, lifted only by `registry` recording the run (`v1r_run_recorded`).
+`ncaa-cfbd-coverage` prints "withheld until the ncaa-elo-v1r run is recorded" where a 2025 home win rate stood, in the
+v1r block and in #79's block (whose 2025 sanity-read line is dropped); 2024 and 2026 lines are unchanged.
+`ncaa-backtest` and `ncaa-audit` refuse with exit 2 before reading anything. `resync-diff --competition NCAA` withholds
+its home win rate line when the listing includes 2025 (`--season 2025` or no season), by the ruling's first sentence.
+
 ## 2. The architect's note on D5 (verbatim)
 
 > "Tests (2) and (3) replace #79's band rule for this declaration only, before any v1r number exists. #79's own declaration is untouched, and my sentence in addendum 10 that its acceptance numbers do not move stands for #79. For v1r the margin, the rating range and the 500 games are #79's; the calibration test is D5's."
@@ -66,13 +83,13 @@ keys below were added to the same entry afterwards:
 | `constants` | `{k_factor 24.0, home_advantage 55.0, mov_base 2.2, season_regression 0.25, default_rating 1500.0}` | the shadow's precondition (`ncaa_shadow.CONSTANTS_KEY`, must equal `NCAAEloConfig()`) |
 | `ratified` | the D5 note verbatim | soccer-expansion-v1's key for pre-run rulings |
 | `design_receipt` | the receipt path and its verdict | |
-| `prior_reads_note` | D9 verbatim | see below |
+| `prior_reads_note` | D9 verbatim, then "CORRECTION (...addendum 14 item 2(a), #368, verbatim)" and the correction | see below |
 
 **Prior reads.** The registry records prior reads only inside a run (`run.prior_reads`, computed by
 `registry.record_run` from earlier runs on the same test set or overlapping scored ids). intl-elo-v2 has its one
 prior read there. A declared entry has no run, and the VOID 2026-09-30 v1 run is not in the registry. So the entry
-names it in its own key, `prior_reads_note` (D9 verbatim). `registry.prior_reads` on this test set returns none,
-which agrees with D9.
+names it in its own key, `prior_reads_note`: D9 verbatim, with the addendum 14 correction beside it in the
+same note. `registry.prior_reads` on this test set returns none: no candidate has been scored on it.
 
 ## 5. The shadow on the declared stream (step (c))
 

@@ -162,7 +162,7 @@ def _row_counts():
                 for t in Base.metadata.sorted_tables}
 
 
-def test_cli_audit_reads_everything_and_writes_nothing():
+def test_cli_audit_reads_everything_and_writes_nothing(monkeypatch):
     from click.testing import CliRunner
 
     from cli import cli
@@ -177,6 +177,10 @@ def test_cli_audit_reads_everything_and_writes_nothing():
     assert "venue" in data.inventory.match_columns
     assert "venue" in data.inventory.site_division_named
 
+    fenced = CliRunner().invoke(cli, ["ncaa-audit", "--limit", "5"])        # #368: refused until the v1r run
+    assert fenced.exit_code == 2 and "ncaa-audit REFUSED (exit 2)" in fenced.output
+    from src.walters import ncaa_backtest as nb
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: True)          # the run recorded: the command returns
     res = CliRunner().invoke(cli, ["ncaa-audit", "--limit", "5"])
     assert res.exit_code == 0, res.output
     out = res.output

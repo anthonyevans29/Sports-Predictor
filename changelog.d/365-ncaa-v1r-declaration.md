@@ -1,7 +1,7 @@
 ## 2026-10-08 (#365: ncaa-elo-v1r declared, not run; design receipt OK; the NCAA shadow walks the declared stream)
 - **Design receipt (step (a)).** Adds `scripts/ncaa_v1r_design_receipt.py`, a seeded simulation of the ncaa-elo-v1r gate design (ARCHITECT addendum 11, item 3). It reads no stored game and opens no database.
   - Receipt: `docs/receipts/ncaa-v1r-design-2026-10-08.md`. Stop condition: OK.
-  - Settings (110,140) / (150,170) / (190,210): mean slope 1.000 / 1.158 / 1.337; band rule 26.5% / 32.0% / 27.5%; D5 (2)&(3) 87.5% / 65.0% / 14.5%.
+  - Settings (110,140) / (150,170) / (190,210), the committed receipt (the round-1 re-run below): mean slope 0.985 / 1.160 / 1.335; band rule 29.5% / 31.0% / 24.0%; D5 (2)&(3) 87.0% / 59.5% / 15.5%. (The first run, superseded, read 87.5% / 26.5% in the first setting; also OK.)
   - 675 scored games per season.
   - Tests in `tests/test_ncaa_v1r_design_receipt.py`.
 - **Declaration (step (b)).** `ncaa-elo-v1r` is in `docs/registry/experiments.json`, declared through `registry.declare`. It is not run (status declared, run null, verdict null).
@@ -10,6 +10,7 @@
   - Plan: 100 games, log_loss, bar 0.6931, must beat the D4 baseline minus 0.010.
   - `neutral_site_rule`: no_home_advantage_at_neutral, with v1's untouched `constants`.
   - `prior_reads_note` names the VOID 2026-09-30 v1 run (D9).
+  - `prior_reads_note` also carries the addendum 14 correction to D9 (#368): no candidate has been scored on the test set; one 2025 outcome figure (non-neutral home win rate 0.597, n 652) was read before the declaration.
   - The spec, `docs/specs/ncaa-elo-v1r.md`, quotes D1–D9 and the architect's D5 note verbatim.
 - **Shadow (step (c)).** `export-ncaa-predictions` now walks D2's stream: current CFBD labels, seasons 2024, 2025 and 2026, kickoff then match id, postseason included.
   - Level scores are skipped, counted and listed.
@@ -24,3 +25,4 @@
 - Adds `tests/test_ncaa_v1r_declaration.py` and a D8 row test in `tests/test_ncaa_shadow.py`.
 - **Codex on #365, round 1.** P1: the v1r stream reads every stored NCAA match that carries a label, whatever our local status or scores (`load_v1r_games`; D2: the scores come from the label), so it counts the same current labels the coverage fact does. P2: the design receipt's cross-conference round is now drawn uniformly over valid matchings by rejection sampling. Re-run receipt: (110,140) / (150,170) / (190,210): slope 0.985 / 1.160 / 1.335, band rule 29.5% / 31.0% / 24.0%, D5 (2)&(3) 87.0% / 59.5% / 15.5%. Stop condition still OK.
 - Addendum 13 item 1: the classification-field ruling (both fields required with division fbs; the refusal writes a zero record; a dry run prints the refusal and joins nothing) is quoted in the CFBD labels spec and pinned by a dry-run test. The code landed with #362.
+- **#368 (addendum 14 item 2): the test-season fence.** Until the registry records the ncaa-elo-v1r run, no command prints a 2025 outcome figure. `ncaa-cfbd-coverage` withholds the 2025 home win rate in both blocks (counts, coverage, census and neutral counts stay). `ncaa-backtest` and `ncaa-audit` refuse with exit 2, naming the ruling. `resync-diff --competition NCAA` withholds its home win rate line when the listing includes 2025. The D9 correction is quoted beside D9 in the spec, the ledger entry and the registry. Closes the #372 item (this fragment's summary figures).

@@ -9,6 +9,7 @@
   - D7. Confirmation: the first 100 stored NCAA fixtures, by kickoff then id, that kick off after the verdict and whose two teams, as merged ids, both carry a current label at the freeze; any status; frozen once by fixture id with the intl-elo-v2 machinery. A cancelled fixture is released and replaced by the next eligible one. A finished fixture without a label is pending, never replaced. Scored by the same replay as the gate, the label's flags applied, every cohort fixture whatever its season_type. CONFIRMED iff log-loss <= 0.6931 and < the D4 baseline's log-loss - 0.010 on the same games. confirmation_plan: n_games 100, metric log_loss, bar 0.6931, must_beat_reference true, reference the D4 baseline on the same games minus 0.010.
   - D8. What a pass does not do. PASS and CONFIRMED do not make college football a call. The Desk stays market-only for NCAA until a separate policy ruling, and that ruling needs the neutral flag before kickoff and the shadow's record against the close. Until then the shadow prices an upcoming game with the listed home's advantage and says on the row that the neutral flag is unknown.
   - D9. Prior reads of this test set: none. The 2026-09-30 run of v1 (all divisions, scrambled 2025 labels, VOID by the 2026-10-01 ruling) scored 2026 games; the entry names it."
+  - **Correction to D9 (ARCHITECT 2026-10-08, addendum 14 item 2(a), #368, verbatim; D9 stays quoted as issued above):** "For 'Prior reads of this test set: none.' read 'No candidate has been scored on this test set. One outcome figure of the test season was read before this declaration: its non-neutral home win rate on the labels then held, 0.597 on 652 games (operator console, ingest of 2026-10-08 14:07Z; the label sanity check ordered on 2026-10-07, when 2025 was the warm-up season). D5 (2) compares the model with a figure of that kind and was declared with it known. D5 (1), (3) and (4) were not informed by it.'"
 - **Note on D5 (architect, verbatim):** "Tests (2) and (3) replace #79's band rule for this declaration only, before any v1r number exists. #79's own declaration is untouched, and my sentence in addendum 10 that its acceptance numbers do not move stands for #79. For v1r the margin, the rating range and the 500 games are #79's; the calibration test is D5's."
 - **Step (a), the design receipt (stop condition OK):**
   - A seeded simulation that reads no stored game: `scripts/ncaa_v1r_design_receipt.py` → `docs/receipts/ncaa-v1r-design-2026-10-08.md`, MASTER_SEED 20261008.
@@ -41,6 +42,7 @@
     - `ratified`: the D5 note;
     - `design_receipt`;
     - `prior_reads_note`: D9 verbatim. The registry records prior reads only inside a run, and the VOID 2026-09-30 v1 run was never registered, so the note holds it.
+    - The addendum 14 correction to D9 now stands, verbatim, beside D9 in `prior_reads_note`. The registry's prior reads stay empty: no candidate has been scored on the test set.
   - Spec: `docs/specs/ncaa-elo-v1r.md`.
 - **Shadow (step (c)):**
   - `export-ncaa-predictions` walks D2's stream (`ncaa_backtest.v1r_stream`).
@@ -74,3 +76,11 @@
   - Reading 1 (the season is the label's) and reading 2 (the stage skip on upcoming games stays) are accepted.
   - Codex's first P1 (walk every labelled match, whatever our status) was right. It withdraws the acceptance of reading 4 on #362; D2 as worded governs.
   - Classification fields, verbatim: "With division fbs, both classification fields are required fields. A payload that lacks either is refused for that year on the same path as a missing required field: no label is written, the ingest record is written with nothing in scope and nothing joined, and the season reads not covered until a good ingest. A dry run prints the refusal and joins nothing."
+- **#368 RULED (ARCHITECT 2026-10-08, addendum 14 item 2):**
+  - (a) The correction to D9 above. "No candidate has been scored on the test set, so the registry's prior reads stay empty." D5 does not change: "changing it now would be a change made with the figure known."
+  - (b) The test-season fence, verbatim: "Until the one run of ncaa-elo-v1r is recorded, no command prints an outcome figure of the 2025 season. ncaa-cfbd-coverage prints no 2025 home win rate in either block; counts, coverage, the season_type census and the neutral counts stay. ncaa-backtest and ncaa-audit refuse, exit 2, naming this ruling: both print 2025 rates, and the first scores a candidate. The join receipts keep listing single games with their scores; that is how a join is checked. After the run is recorded the lines and the two commands return."
+  - In code (`ncaa_backtest.TEST_SEASON_FENCE`, lifted only when the registry records the run):
+    - `ncaa-cfbd-coverage` withholds the 2025 home win rate in the v1r block and in #79's block, and drops #79's 2025 sanity-read line. Counts, coverage, the census and the neutral counts stay. 2024 and 2026 are unchanged.
+    - `ncaa-backtest` and `ncaa-audit` refuse with exit 2, quoting the ruling, before reading anything.
+    - `resync-diff --competition NCAA` withholds its home win rate line when the listing includes 2025 (by the ruling's first sentence; reading open to correction).
+  - #372's item (the stale first-run figures in the changelog fragment's summary) is fixed in the same commit.

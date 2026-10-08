@@ -155,6 +155,11 @@ def _str(v) -> bool:
 
 DESK_CALLS = {"model_edge": {"PLAY", "PASS", "LADDER"}, "venue_edge": {"VENUE", "PASS"}}   # desk_policy's own
 DESK_REFERENCES = {None, "books", "kalshi_only"}
+#: desk_policy.desk_block: a VENUE block carries no reference; a model PLAY / LADDER always has one (its edge needs
+#: mkt_ref); only a model PASS may lack it (noref) (Codex on #340: the combination, not just each vocabulary)
+_REF_ALLOWED = {("venue_edge", c): {None} for c in DESK_CALLS["venue_edge"]}
+_REF_ALLOWED.update({("model_edge", "PLAY"): {"books", "kalshi_only"}, ("model_edge", "LADDER"): {"books", "kalshi_only"},
+                     ("model_edge", "PASS"): DESK_REFERENCES})
 
 
 def desk_ok(d) -> bool:
@@ -166,7 +171,7 @@ def desk_ok(d) -> bool:
         return False
     # Codex on #340: the discriminators are desk_policy's own vocabulary; a corrupted value is a damaged block
     if d and (d.get("engine") not in DESK_CALLS or d.get("call") not in DESK_CALLS[d["engine"]]
-              or d.get("reference") not in DESK_REFERENCES):
+              or d.get("reference") not in _REF_ALLOWED[(d["engine"], d["call"])]):
         return False
     if d.get("engine") != "venue_edge":
         return True

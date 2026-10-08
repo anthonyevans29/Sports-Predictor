@@ -64,11 +64,13 @@ SPORT_LEAGUE_ID = {"nhl": 57, "ncaa": 2}
 def league_check(payload, sport: str) -> tuple[bool | None, str]:
     """(True, ...) when every response[].league.id the payload carries is --sport's league; (False, why) when one is
     another league's; (None, why) when the payload names no league id (unverified, said, never assumed)."""
-    ids = set()
+    ids, unlabelled = set(), 0
     resp = payload.get("response") if isinstance(payload, dict) else None
     for g in resp if isinstance(resp, list) else []:   # Codex on #340: a scalar container names no league
         lg = g.get("league") if isinstance(g, dict) else None
         if not isinstance(lg, dict) or lg.get("id") is None:
+            # Codex on #340: a league-less item whose quotes would drive the verdict leaves the payload unverified
+            unlabelled += usable_quotes({"response": [g]}, sport) > 0
             continue
         lid = lg["id"]
         if isinstance(lid, str) and lid.strip().isdigit():
@@ -85,6 +87,10 @@ def league_check(payload, sport: str) -> tuple[bool | None, str]:
     if ids != {want}:
         return False, (f"REFUSED: the payload's league id(s) {sorted(ids)} are not {sport.upper()}'s ({want}): a "
                        "wrong-league payload never drives the verdict")
+    if unlabelled:
+        return None, (f"LEAGUE UNVERIFIED: {unlabelled} quote-bearing response item(s) name no response[].league.id "
+                      f"(NFL and NCAA share game ids): their quotes are not shown to be {sport.upper()}'s; use "
+                      "--match-id for a verified fixture")
     return True, f"league verified from the payload: {sport.upper()} ({want})"
 #: The paths list_odds READS (src/adapters/api_hockey.py:233-262, src/adapters/api_american_football.py:310-339:
 #: identical loops): response[] -> bookmakers[] -> name/id, bets[] -> name, values[] -> value/odd. Nothing else.

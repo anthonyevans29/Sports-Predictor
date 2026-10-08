@@ -1369,3 +1369,30 @@ def test_corrupted_discriminators_and_contradicting_single_claims(tmp_path):
     assert len(calls) == 1 and calls[0]["in_ledger"] is False and "contradict" in calls[0]["ledger_ambiguous"]
     ok = VQ.merge_calls([dict(f)], VQ.ledger_venue_calls({"calls": [{**claim, "model_p": 0.55}]}, SINCE))
     assert ok[0]["in_ledger"] is True and not ok[0].get("ledger_ambiguous")
+
+
+def test_desk_reference_is_validated_in_combination_with_engine_and_call():
+    """Codex on #340: a model PLAY / LADDER always carries a reference; a VENUE block never does."""
+    assert VQ.desk_ok({"engine": "model_edge", "call": "PLAY", "reference": "books"})
+    assert VQ.desk_ok({"engine": "model_edge", "call": "LADDER", "reference": "kalshi_only"})
+    assert VQ.desk_ok({"engine": "model_edge", "call": "PASS", "reference": None})
+    assert not VQ.desk_ok({"engine": "model_edge", "call": "PLAY", "reference": None})
+    assert not VQ.desk_ok({"engine": "model_edge", "call": "LADDER"})
+    assert not VQ.desk_ok({"engine": "venue_edge", "call": "VENUE", "reference": "books"})
+    assert VQ.desk_ok({"engine": "venue_edge", "call": "VENUE"})
+
+
+def test_a_json_out_under_the_exports_dir_is_refused(tmp_path):
+    """Codex on #340: a text receipt written as .json under --exports-dir would refuse every later run."""
+    from click.testing import CliRunner
+
+    import cli
+    ids = _seed()
+    ex = _exports(tmp_path, ids)
+    for cmd in ("venue-calls-receipt", "quote-age-report"):
+        tgt = ex / "sub" / "report.json"
+        r = CliRunner().invoke(cli.cli, [cmd, "--since", "2095-10-02", "--exports-dir", str(ex), "--out", str(tgt)])
+        assert r.exit_code == 2 and "REFUSED" in r.output and not tgt.exists()
+        ok = ex / "report.txt"                                                 # text name: discovery ignores it
+        r = CliRunner().invoke(cli.cli, [cmd, "--since", "2095-10-02", "--exports-dir", str(ex), "--out", str(ok)])
+        assert r.exit_code == 0 and ok.exists(), r.output

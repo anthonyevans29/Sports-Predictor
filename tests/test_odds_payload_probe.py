@@ -423,3 +423,16 @@ def test_string_and_malformed_league_ids_never_pass_as_absent():
     assert P.league_check({"response": [{"league": {"id": "2"}}]}, "ncaa")[0] is True
     assert P.league_check({"response": [{"league": {"id": "x"}}]}, "ncaa")[0] is False
     assert P.league_check({"response": [{"league": {"id": [2]}}]}, "ncaa")[0] is False
+
+
+def test_a_league_less_quote_bearing_item_leaves_the_payload_unverified():
+    """Codex on #340: an NCAA-tagged item with no quotes plus a league-less item with quotes is never verified."""
+    import copy
+    quoted = copy.deepcopy(SYNTH["response"][0])
+    quoted.pop("league")
+    tagged = {"game": {"id": 9}, "league": {"id": 2}, "bookmakers": []}
+    ok, msg = P.league_check({"response": [tagged, quoted]}, "ncaa")
+    assert ok is None and "LEAGUE UNVERIFIED" in msg
+    bare = {"game": {"id": 8}, "bookmakers": []}                              # league-less, no quotes: harmless
+    assert P.league_check({"response": [tagged, bare]}, "ncaa")[0] is True
+    assert P.league_check({"response": [{"league": {"id": 1}}, quoted]}, "ncaa")[0] is False   # wrong league wins

@@ -1539,7 +1539,7 @@ def _vqa_since(v):
     return t
 
 
-def _vqa_out_ok(out_path) -> bool:
+def _vqa_out_ok(out_path, exports_dir=None) -> bool:
     if not out_path:
         return True
     from pathlib import Path as _P
@@ -1547,6 +1547,14 @@ def _vqa_out_ok(out_path) -> bool:
     _data, _tgt = data_dir(), _P(out_path).resolve()
     if _tgt == _data or _data in _tgt.parents:
         console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
+        return False
+    _ex = _P(exports_dir).resolve() if exports_dir else None
+    if _ex is not None and _tgt.name.endswith(".json") and _ex in _tgt.parents:
+        # Codex on #340: discovery scans every .json under --exports-dir and refuses unreadable ones; a text
+        # receipt written there would refuse every later run
+        console.print(f"[red]REFUSED: --out {out_path} is a .json under --exports-dir ({exports_dir}): the receipt "
+                      "is text, and discovery would refuse it as a damaged export. Write it elsewhere (e.g. "
+                      "docs/receipts/…txt).[/red]")
         return False
     return True
 
@@ -1577,7 +1585,7 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
     import json as _json
     from src.walters import venue_quote_age as VQ
     lo = _vqa_since(since)
-    if not _vqa_out_ok(out_path):
+    if not _vqa_out_ok(out_path, exports_dir):
         raise SystemExit(2)
     try:
         docs, cnt = VQ.iter_desk_docs(exports_dir)
@@ -1626,7 +1634,7 @@ def quote_age_report_cmd(since, exports_dir, out_path):
     never quote age: no quote time is stored. Writes nothing to the DB; --out refuses data/."""
     from src.walters import venue_quote_age as VQ
     lo = _vqa_since(since)
-    if not _vqa_out_ok(out_path):
+    if not _vqa_out_ok(out_path, exports_dir):
         raise SystemExit(2)
     try:
         docs, cnt = VQ.iter_desk_docs(exports_dir)

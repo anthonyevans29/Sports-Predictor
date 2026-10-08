@@ -1,0 +1,13 @@
+**2026-10-08 — READ (ARCHITECT, addendum 10, item 2): soccer-expansion-v1 first preflight (operator console, laptop on c3a3744). Ledger note only; nothing built.**
+- **PL unchanged by #326:** the PL backtest is identical before and after #326 on the laptop's data: 340 predictions per season, log-loss 0.9956 (2024/25) and 1.0465 (2025/26), output files identical.
+- **F3 placements CONFIRMED for the test seasons.**
+  - Regular: every `Regular Season - N` label. PD and SA have 38 rounds of 10, BL1 and FL1 34 of 9, ELC 46 of 12.
+  - Play-off, excluded:
+    - BL1 and FL1: 'Relegation Round' (2 each, 2024/25) and 'Final' (2 each, 2025/26).
+    - ELC 2024/25: 'Promotion Play-offs - Semi-finals' 4 and 'Promotion Play-offs - Final' 1.
+    - ELC 2025/26: 'Semi-finals' 4 and 'Final' 2.
+  - 2023/24 is confirmed separately once it is stored.
+- **F1:** 2023/24 is stored for none of the five leagues, so today every league would drop under F1 and the run would refuse. The operator syncs 2023/24 (teams, then matches) for the five today and re-runs the preflight.
+- **Closing odds:** none are held for the test seasons (0 for every league). The operator ingests the football-data closes for the ten league-seasons today, before the run, so the reported-never-gated market side exists in the one run's record.
+- **Timing:** the one run follows the architect's read of the second preflight, not before Friday morning.
+- **Refresh pot:** the 2023/24 backfill joins the soccer-refresh pot (the refresh retrains from all finished matches). Monday's soccer-refresh report reads its drift line with that in mind: part of any drift may come from the added 2023/24 matches of PD / SA / BL1 / FL1 / ELC, not only from new results. (CLAUDE.md: a `.backup` before any `soccer-refresh`.)

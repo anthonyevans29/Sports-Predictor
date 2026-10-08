@@ -352,3 +352,9 @@ architect's read.
 6. The gate stays SUSPENDED until the architect reads the coverage receipt.
    The order after that is the ruling's: `ncaa-backtest --baselines-only`
    recorded first, then the `ncaa-elo-v1r` declaration PR.
+
+## Classification fields (ARCHITECT 2026-10-08, addendum 13 item 1, RULED, verbatim)
+
+> "With division fbs, both classification fields are required fields. A payload that lacks either is refused for that year on the same path as a missing required field: no label is written, the ingest record is written with nothing in scope and nothing joined, and the season reads not covered until a good ingest. A dry run prints the refusal and joins nothing."
+
+Built in #362 (96f90c2, on main): with division fbs, `discover` treats `home_class` and `away_class` as required, and `in_scope_reason` never admits a game without both (`source_no_classification`). Both halves are pinned by tests, the non-dry refusal and the dry run.

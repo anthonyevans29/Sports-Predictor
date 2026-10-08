@@ -664,3 +664,22 @@ def test_fbs_ingest_refuses_a_payload_without_both_classification_fields(fresh_d
         assert s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_labels")).scalar() == 0
         recs = s.execute(select(NCAACFBDIngestRecord)).scalars().all()
         assert recs and all(r_.in_scope == 0 and r_.joined == 0 for r_ in recs)
+
+
+def test_classification_ruling_dry_run_prints_the_refusal_and_joins_nothing(fresh_db, tmp_path, monkeypatch):
+    """ARCHITECT 2026-10-08, addendum 13 item 1, RULED (verbatim): "With division fbs, both classification fields are
+    required fields. A payload that lacks either is refused for that year on the same path as a missing required
+    field: no label is written, the ingest record is written with nothing in scope and nothing joined, and the season
+    reads not covered until a good ingest. A dry run prints the refusal and joins nothing." """
+    from src.db.database import session_scope
+
+    _setup(fresh_db, tmp_path, monkeypatch)
+    f = tmp_path / "noclass_dry.json"
+    f.write_text(json.dumps([{k: v for k, v in r_.items() if k != "homeClassification"} for r_ in J4_RECS]))
+    lines = []
+    assert nc.run([2084], from_file=str(f), dry_run=True, out=lines.append) == 2
+    assert any("REFUSED: required field(s) not found" in x and "home_class" in x for x in lines)
+    with session_scope() as s:
+        assert s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_labels")).scalar() == 0
+        assert s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_ingest_records")).scalar() == 0   # dry: no record
+        assert not nc.stored_coverage(s, ("2084",))["2084"]["ok"]          # no record: not covered

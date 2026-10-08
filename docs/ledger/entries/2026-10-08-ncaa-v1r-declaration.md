@@ -69,3 +69,8 @@
     | (190,210) | 1.335 | 24.0% | 15.5% |
 
   - Stop condition (verbatim, re-checked): "If yours contradict mine beyond noise (in the first setting the model passing D5 (2) and (3) in fewer than 85% of seasons, or passing the band rule in more than 60%), stop: write no entry and tell me." OK: 87.0% >= 85% and 29.5% <= 60%.
+- **READ and RULED (ARCHITECT 2026-10-08, addendum 13 item 1):**
+  - The design receipt is accepted. 87.0% against 92% is two runs of 200 seasons, about two points of standard error each, and the slopes agree to the second decimal. The stop line was 85% and it held. D5 stands as declared.
+  - Reading 1 (the season is the label's) and reading 2 (the stage skip on upcoming games stays) are accepted.
+  - Codex's first P1 (walk every labelled match, whatever our status) was right. It withdraws the acceptance of reading 4 on #362; D2 as worded governs.
+  - Classification fields, verbatim: "With division fbs, both classification fields are required fields. A payload that lacks either is refused for that year on the same path as a missing required field: no label is written, the ingest record is written with nothing in scope and nothing joined, and the season reads not covered until a good ingest. A dry run prints the refusal and joins nothing."

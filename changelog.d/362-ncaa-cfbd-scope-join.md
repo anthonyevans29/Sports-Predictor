@@ -9,3 +9,7 @@
   - The 95% coverage condition is now labelled ÷ CFBD's completed both-FBS games per season (it divided by every all-division stream game). The ingest receipt prints it and lists every unlabelled game.
   - `ncaa-cfbd-coverage` and the shadow's precondition re-read it from the side table and the saved payload it names.
 - Tests: `tests/test_ncaa_cfbd_scope_join.py` (21, synthetic fixtures). Spec: docs/specs/ncaa-cfbd-labels.md; docs/specs/ncaa-shadow.md and docs/CLI.md updated.
+- Codex on #362:
+  - Every non-dry ingest run persists its receipt per season in new `ncaa_cfbd_ingest_receipts` (new `migrate_ncaa_cfbd_ingest_receipts.py`), zero joins included.
+  - Coverage and the shadow's precondition read the latest receipt, so a zero-join re-ingest reads 0/N.
+  - The v1r stream and the shadow's FBS test admit only labels that receipt joined (`admitted_labels`); stale rows, e.g. from a `--division ''` run, are listed and never walked.

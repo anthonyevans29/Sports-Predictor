@@ -654,6 +654,44 @@ class NCAACFBDLabel(Base):
     match: Mapped[Match] = relationship()
 
 
+class NCAACFBDIngestReceipt(Base):
+    """
+    NCAA CFBD INGEST RECEIPT (ARCHITECT 2026-10-08, SCOPE: coverage is "read
+    from the ingest receipt (joined over in scope), every unmatched game
+    listed"; Codex on #362). One row per season per NON-DRY `ncaa-cfbd-labels`
+    run, written EVEN WHEN NOTHING JOINS, so the latest run's coverage is never
+    inferred from older joined rows. Append-only: the ingest never updates or
+    deletes a receipt.
+
+    * in_scope_ids: CFBD game ids of that run's completed in-scope games
+      (both-FBS under the default division); joined: [[match_id, cfbd id], ...]
+      the run joined (after every refusal). The v1r stream admits a labelled
+      game only if (match_id, cfbd id) is in the season's LATEST receipt's
+      `joined` (ncaa_cfbd.admitted_labels), the same set coverage counts.
+    * unlabelled: every in-scope game the run left without a row, with why.
+    * status: 'ok' | 'empty' (no records) | 'refused_fields' (a required field
+      missing): every non-'ok' run reads in_scope 0 -> coverage NOT met.
+    Created by migrate_ncaa_cfbd_ingest_receipts.py.
+    """
+
+    __tablename__ = "ncaa_cfbd_ingest_receipts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    season: Mapped[str] = mapped_column(String(16), index=True)                # the CFBD --year
+    run_at: Mapped[datetime] = mapped_column(DateTime)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    payload_file: Mapped[str | None] = mapped_column(String(256))
+    division: Mapped[str | None] = mapped_column(String(16))                   # 'fbs'; NULL = all
+    status: Mapped[str] = mapped_column(String(16))
+    records: Mapped[int] = mapped_column(Integer)
+    in_scope: Mapped[int] = mapped_column(Integer)
+    labelled: Mapped[int] = mapped_column(Integer)
+    unmatched: Mapped[int] = mapped_column(Integer)
+    in_scope_ids: Mapped[list] = mapped_column(JSON, default=list)
+    joined: Mapped[list] = mapped_column(JSON, default=list)
+    unlabelled: Mapped[list] = mapped_column(JSON, default=list)
+
+
 class TeamRating(Base):
     """Time-series of team ratings (Elo, xG attack/defense, etc.)"""
 

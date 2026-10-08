@@ -74,21 +74,36 @@ Direction verified against the file's own `_format` and `load_aliases` / `vet_al
 - **The fact.** Per season: labelled ÷ CFBD's completed both-FBS games, at least 95% (`fbs_coverage`, `COVERAGE_MIN`), every unlabelled game listed.
 - **Before / after.** The 2026-10-07 build's condition divided by every kept game of #79's all-division stream (FCS opponents included). On the synthetic fixture in `tests/test_ncaa_cfbd_scope_join.py` (100 CFBD both-FBS games, 96 labelled, 60 unlabelled non-FBS stream games), it read 96/156 = 61.5% (NO). The ruled denominator reads 96/100 = 96.0% (YES). `label_coverage` stays as #79's information print and no longer carries a 95% verdict.
 - **In the ingest receipt.** Every run prints `COVERAGE (SCOPE, ARCHITECT 2026-10-08): labelled J / CFBD completed both-FBS N = x% · >= 95%: YES/NO` (joined over in scope for that run), and lists every unlabelled in-scope game with its reason (unmatched, with any dateshift note; ambiguous; duplicate target; unusable row). The unmatched list is no longer cut at `--limit`.
-- **Re-read (`stored_coverage`).** `ncaa-cfbd-coverage` and the shadow's precondition recompute the same fact without a network call:
-  - the denominator is the in-scope games (the ingest's own `in_scope_reason`) of the saved payload named in `payload_file` by the season's latest side-table row;
-  - the numerator is how many of those CFBD game ids the side table labels.
-  
-  A season with no rows, no payload name, or an unreadable payload is NOT met, and the reason is printed (law 4). *Reading chosen, for the architect:* the ingest receipt is console output and is not stored, so the re-read uses the side table plus the payload it names rather than a stored copy of the receipt. The two agree right after an ingest.
+- **The persisted receipt (Codex on #362).** Every NON-DRY run writes one `ncaa_cfbd_ingest_receipts` row per season, zero joins included, with:
+  - season, run time, `fetched_at`, `payload_file`, division, status (`ok` / `empty` / `refused_fields`);
+  - records, in-scope count, labelled (joined) count, unmatched count;
+  - the in-scope CFBD ids, the joined `[match_id, CFBD id]` pairs, and every unlabelled game with its reason.
+
+  The table is created by `migrate_ncaa_cfbd_ingest_receipts.py`. It is append-only, and a dry run writes nothing. The ingest refuses to write until the table exists.
+- **Storage choice: a DB table, not a file.** The host and the laptop each have their own DB, and `exports/` is mirrored and pruned. The receipt belongs beside the side table it describes.
+- **Coverage is read from the latest receipt (`stored_coverage`).** `ncaa-cfbd-coverage` and the shadow's precondition read, per season, the latest receipt's labelled / in-scope counts and its unlabelled list. The coverage is NOT met, with the reason printed (law 4), when:
+  - the season has no receipt;
+  - the latest run's status is not `ok`;
+  - the latest run was not `--division fbs`.
+
+  A re-ingest that joins nothing therefore reads 0/N. Before #362 the re-read inferred the latest run from the joined rows, which a zero-join run never touches, so the last good run's coverage kept reading HOLDS.
+- **One scope helper (`admitted_labels`, Codex on #362).** A side-table label is a both-FBS label only if its season's latest receipt is an `ok`, division-`fbs` run that joined that exact (match, CFBD id). Three readers use this one set, so they can never disagree:
+  - the v1r stream (`v1r_stream`);
+  - the shadow's FBS test (`fbs_teams`);
+  - the coverage numerator.
+
+  Older rows the ingest keeps (from a `--division ''` run, or a join a later run no longer makes) are excluded from the stream. Each is listed with its reason and never walked. #79's all-division stream still reads every row, as declared.
 
 ## Re-ingest (operator, 2026-10-09, from the saved payloads)
 
 1. The `.backup`.
 2. `python migrate_ncaa_cfbd_season_type.py`
-3. Optional preview (writes nothing):
+3. `python migrate_ncaa_cfbd_ingest_receipts.py`
+4. Optional preview (writes nothing):
    `python cli.py ncaa-cfbd-labels --year 2025 --from-file exports/cfbd/cfbd_games_2025_20261008T140700Z.json --dry-run`
-4. `python cli.py ncaa-cfbd-labels --year 2025 --from-file exports/cfbd/cfbd_games_2025_20261008T140700Z.json --unmatched-names`
-5. `python cli.py ncaa-cfbd-labels --year 2026 --from-file exports/cfbd/cfbd_games_2026_20261008T140703Z.json --unmatched-names`
-6. `python cli.py ncaa-cfbd-coverage`. Paste the receipts.
+5. `python cli.py ncaa-cfbd-labels --year 2025 --from-file exports/cfbd/cfbd_games_2025_20261008T140700Z.json --unmatched-names`
+6. `python cli.py ncaa-cfbd-labels --year 2026 --from-file exports/cfbd/cfbd_games_2026_20261008T140703Z.json --unmatched-names`
+7. `python cli.py ncaa-cfbd-coverage`. Paste the receipts.
 
 `--from-file` already existed (#333): it replays a saved payload with no network and no key, and `payload_file` records the path. Each payload has its own stamp, so it is one year per call (a single `--from-file` for several years must carry `{year}`).
 

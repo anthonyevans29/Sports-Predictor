@@ -6376,7 +6376,7 @@ def ncaa_cfbd_labels_cmd(years, from_file, dry_run, save_dir, division, unmatche
 def ncaa_cfbd_coverage_cmd():
     """NCAA CFBD label coverage, read-only. SCOPE (ARCHITECT 2026-10-08): per
     season (2025, 2026) the side table's labels over CFBD's completed both-FBS
-    games (denominator from the saved payload the side table names), >= 95%,
+    games (read from the latest persisted ingest receipt per season), >= 95%,
     every unlabelled game listed; the ncaa-elo-v1r stream (labelled games only,
     the J2 team merge listed); then #79's all-division stream as information
     (covered share, swapped, neutral, score-corrected, home rates). The gate

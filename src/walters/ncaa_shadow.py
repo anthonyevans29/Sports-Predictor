@@ -219,6 +219,7 @@ def fit(now: datetime, neutral_home_advantage: bool, games=None, fbs: dict | Non
                    "ties_skipped": st.ties, "neutral_updates": model.neutral_updates,
                    "coverage": {s: round(c["share"], 4) for s, c in sorted(cov.items()) if c["share"] is not None},
                    "unlabelled_not_walked": dict(sorted(v.unlabelled.items())),
+                   "labels_excluded_not_in_latest_receipt": list(v.stale),
                    "team_merge": {"groups": [[[t, n] for t, n in g] for g in v.merge.groups],
                                   "changed_names": [[t, n, u] for t, n, u in v.merge.changed]},
                    "constants": {"k_factor": model.cfg.k_factor, "home_advantage": model.cfg.home_advantage,
@@ -227,13 +228,20 @@ def fit(now: datetime, neutral_home_advantage: bool, games=None, fbs: dict | Non
 
 
 def fbs_teams(s, merge=None) -> set[int]:
-    """Teams that appear in the CFBD side table (its ingest's default scope: both-FBS completed games), as
-    merged ids (J2) when `merge` is given."""
+    """Teams of the games whose both-FBS label the latest persisted ingest receipt of its season admits
+    (ncaa_cfbd.admitted_labels, the set the v1r stream and the coverage numerator use; Codex on #362: an older
+    side-table row, e.g. from a `--division ''` run, never qualifies a team), as merged ids (J2) when `merge`
+    is given."""
     from sqlalchemy import select
 
-    from src.db.schema import Match, NCAACFBDLabel
+    from src.db.schema import Match
+    from src.ingestion.ncaa_cfbd import admitted_labels
 
-    q = select(Match.home_team_id, Match.away_team_id).join(NCAACFBDLabel, NCAACFBDLabel.match_id == Match.id)
+    admitted, _ = admitted_labels(s)
+    mids = sorted({m for per in admitted.values() for m in per})
+    if not mids:
+        return set()
+    q = select(Match.home_team_id, Match.away_team_id).where(Match.id.in_(mids))
     canon = merge or (lambda t: t)
     return {canon(t) for row in s.execute(q).all() for t in row}
 

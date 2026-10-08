@@ -47,8 +47,10 @@ SCOPE + JOIN (ARCHITECT 2026-10-08, addendum 10 item 3; docs/specs/ncaa-cfbd-lab
     migrate_ncaa_cfbd_season_type.py);
   * SCOPE coverage: labelled / CFBD's completed both-FBS games per season,
     >= 95%, every unlabelled game listed (fbs_coverage; the ingest receipt
-    prints it, stored_coverage re-reads it from the side table and the saved
-    payload the side table names).
+    prints it and persists it per season on every non-dry run, zero joins
+    included (ncaa_cfbd_ingest_receipts; Codex on #362); stored_coverage reads
+    the latest receipt; admitted_labels is the one scope helper the v1r stream,
+    the shadow's FBS test and the coverage numerator share).
 """
 from __future__ import annotations
 
@@ -392,6 +394,7 @@ class YearResult:
     dateshift: list[str] = field(default_factory=list)        # J1: every dateshift row (both kickoffs, offset)
     escaped: list[tuple[int, str, str]] = field(default_factory=list)   # J2: our names html.unescape changes
     unlabelled: list[str] = field(default_factory=list)       # SCOPE: every in-scope game with no row, and why
+    in_scope_ids: list = field(default_factory=list)          # CFBD ids of the completed in-scope games (receipt)
 
 
 def in_scope_reason(rec: dict, keys: dict, division: str | None) -> str | None:
@@ -478,6 +481,7 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         home, away, start = rec.get(keys["home"]), rec.get(keys["away"]), parse_start(rec.get(keys["start"]))
         desc = _desc(rec, keys)
         in_scope.append((rec, desc))
+        r.in_scope_ids.append(rec.get(keys["id"]) if keys["id"] else None)
         if not home or not away or start is None:
             c["source_unusable_row"] += 1
             why_not[id(rec)] = "unusable source row (no team or start date)"
@@ -690,6 +694,7 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
     with session_scope() as s:
         ready = migrated(s)
         st_ready = ready and has_season_type(s)
+        rc_ready = receipts_ready(s)
         s.rollback()
     if not ready and not dry_run:
         raise CFBDError("REFUSED: ncaa_cfbd_labels is not migrated (no migration marker "
@@ -699,6 +704,11 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
         raise CFBDError("REFUSED: ncaa_cfbd_labels has no season_type column (J4, ARCHITECT 2026-10-08) — take "
                         "the .backup, then run `python migrate_ncaa_cfbd_season_type.py` (a --dry-run works "
                         "without it)")
+    if not rc_ready and not dry_run:
+        raise CFBDError(f"REFUSED: no {RECEIPT_TABLE} table (Codex on #362: every non-dry run persists its receipt) — "
+                        "take the .backup, then run `python migrate_ncaa_cfbd_ingest_receipts.py` (a --dry-run works "
+                        "without it)")
+    div = (division or "").lower() or None
     rc = 0
     for year in years:
         fetched_at = utc_now_naive()
@@ -717,25 +727,34 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
             + (f" · rate-limit headers {json.dumps(hdr)}" if hdr else "")
             + (f" · payload saved {payload_label(saved)}" if saved and not from_file else "")
             + (" · payload NOT saved (dry run)" if dry_run and not from_file else ""))
+        pf = payload_label(saved) if saved else None
         if not recs:
+            if not dry_run:
+                with session_scope() as s:
+                    write_receipt(s, year, None, "empty", 0, fetched_at, pf, div)
+                out(f"  RECEIPT {year} persisted: status empty (0 records) -> coverage NOT met")
             continue
         keys, missing = discover(recs[0])
         out("  keys used (law-1 receipt): " + " · ".join(f"{n}<-{k}" for n, k in keys.items() if k))
         if missing:
             out(f"  REFUSED: required field(s) not found: {', '.join(missing)} · first record keys: "
                 + ", ".join(sorted(recs[0]))[:600])
+            if not dry_run:
+                with session_scope() as s:
+                    write_receipt(s, year, None, "refused_fields", len(recs), fetched_at, pf, div)
             rc = 2
             continue
         starts = [d for d in (parse_start(x.get(keys["start"])) for x in recs) if d is not None]
         with session_scope() as s:
             teams = ncaa_teams(s)
             ours = load_ours(s, min(starts), max(starts), teams) if starts else []
-            res = build_labels(recs, keys, ours, teams, aliases, year, (division or "").lower() or None)
+            res = build_labels(recs, keys, ours, teams, aliases, year, div)
             if dry_run:
                 wrote = None
                 s.rollback()
             else:
-                wrote = upsert(s, res.rows, fetched_at, payload_label(saved) if saved else None)
+                wrote = upsert(s, res.rows, fetched_at, pf)
+                write_receipt(s, year, res, "ok", len(recs), fetched_at, pf, div)   # zero joins included
                 stored = s.execute(select(func.count()).select_from(NCAACFBDLabel)
                                    .where(NCAACFBDLabel.season == str(year))).scalar_one()
                 stale = s.execute(select(func.count()).select_from(NCAACFBDLabel).where(
@@ -746,10 +765,12 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
         if wrote is not None:
             out(f"  WRITTEN ncaa_cfbd_labels: inserted {wrote['inserted']} · updated {wrote['updated']} · "
                 f"unchanged {wrote['unchanged']} · rows for {year} now {stored} (matches table untouched)"
-                + (f" · {stale} earlier row(s) not re-joined this run, KEPT (the ingest never deletes)"
-                   if stale else ""))
-    out("\nNext: `python cli.py ncaa-cfbd-coverage` (the SCOPE coverage per season, re-read from the side table "
-        "and the saved payload it names; the gate stays SUSPENDED until the architect reads it).")
+                + (f" · {stale} earlier row(s) not re-joined this run, KEPT (the ingest never deletes; NOT "
+                   f"admitted to the v1r stream: only this run's receipt's joins are)" if stale else ""))
+            out(f"  RECEIPT {year} persisted ({RECEIPT_TABLE}): in scope {res.counts['completed_in_scope']} · "
+                f"labelled {res.counts['joined']} · unmatched {res.counts['unmatched']} · division {div or 'all'}")
+    out("\nNext: `python cli.py ncaa-cfbd-coverage` (the SCOPE coverage per season, read from the latest persisted "
+        "ingest receipt; the gate stays SUSPENDED until the architect reads it).")
     return rc
 
 
@@ -809,56 +830,110 @@ def receipt_lines(r: YearResult, limit: int = SAMPLE, unmatched_names: bool = Fa
 
 
 # --------------------------------------------------------------------------
-# SCOPE coverage, re-read (ncaa-cfbd-coverage and the shadow's precondition)
+# The persisted ingest receipt (Codex on #362) and what reads it
 # --------------------------------------------------------------------------
 
+# SCOPE (ARCHITECT 2026-10-08): coverage is "read from the ingest receipt
+# (joined over in scope), every unmatched game listed". Every NON-DRY run
+# writes one ncaa_cfbd_ingest_receipts row per season, zero joins included, so
+# the latest run decides: a run that joins nothing reads 0/N, never the last
+# good run's figure. The v1r stream admits a labelled game only through the
+# same receipt (admitted_labels), so the stream and the coverage numerator can
+# never disagree; older side-table rows a later run did not join (an earlier
+# `--division ''` run, a join that regressed) are excluded and listed.
+RECEIPT_TABLE = "ncaa_cfbd_ingest_receipts"
+SCOPE_DIVISION = "fbs"          # the SCOPE ruling's "both-FBS"
 
-def stored_coverage(s, seasons, division: str | None = "fbs", root: Path = ROOT) -> dict[str, dict]:
-    """The SCOPE coverage fact per season, re-read without a network call:
-    denominator = CFBD's completed in-scope games in the saved payload the side
-    table names for that season (the latest fetched_at row's payload_file;
-    in_scope_reason, the ingest's own filter); numerator = how many of those
-    games (by CFBD game id) the side table labels. Every unlabelled game is
-    listed. A season with no side-table row, no payload_file, or an unreadable
-    payload is NOT ok, with its reason (law 4: never assumed). Read-only."""
+
+def receipts_ready(s) -> bool:
+    from sqlalchemy import inspect
+    try:
+        return inspect(s.connection()).has_table(RECEIPT_TABLE)
+    except Exception:
+        return False
+
+
+def write_receipt(s, year: int, res: YearResult | None, status: str, records: int, fetched_at: datetime,
+                  payload_file: str | None, division: str | None) -> None:
+    """Append this run's receipt for `year` (never updates or deletes one). `res` None = a run that joined
+    nothing because the payload was empty or refused: in scope 0."""
+    from src.db.schema import NCAACFBDIngestReceipt
+    from src.timeutil import utc_now_naive
+
+    c = res.counts if res else Counter()
+    s.add(NCAACFBDIngestReceipt(
+        season=str(year), run_at=utc_now_naive(), fetched_at=fetched_at, payload_file=payload_file,
+        division=division, status=status, records=records, in_scope=c["completed_in_scope"],
+        labelled=c["joined"], unmatched=c["unmatched"],
+        in_scope_ids=list(res.in_scope_ids) if res else [],
+        joined=[[x["match_id"], x["source_game_id"]] for x in res.rows] if res else [],
+        unlabelled=list(res.unlabelled) if res else []))
+    s.flush()
+
+
+def latest_receipts(s, seasons=None) -> dict:
+    """{season: the latest NCAACFBDIngestReceipt} (by run_at, then id); every season with one when `seasons`
+    is None. Read-only."""
     from sqlalchemy import select
 
-    from src.db.schema import NCAACFBDLabel
+    from src.db.schema import NCAACFBDIngestReceipt
 
+    if not receipts_ready(s):
+        return {}
+    q = select(NCAACFBDIngestReceipt)
+    if seasons is not None:
+        q = q.where(NCAACFBDIngestReceipt.season.in_([str(x) for x in seasons]))
+    out = {}
+    for r_ in s.execute(q.order_by(NCAACFBDIngestReceipt.run_at, NCAACFBDIngestReceipt.id)).scalars():
+        out[r_.season] = r_
+    return out
+
+
+def receipt_problem(r_) -> str | None:
+    """Why a receipt cannot carry the SCOPE fact (None when it can)."""
+    if r_ is None:
+        return "no persisted ingest receipt for this season"
+    if r_.status != "ok":
+        return f"the latest ingest run's status is {r_.status!r}"
+    if (r_.division or "") != SCOPE_DIVISION:
+        return (f"the latest ingest run was division {r_.division or 'all'!r}, not both-{SCOPE_DIVISION.upper()} "
+                f"(re-run with the default --division {SCOPE_DIVISION})")
+    return None
+
+
+def admitted_labels(s, seasons=None) -> tuple[dict[str, dict[int, int | None]], dict[str, str]]:
+    """The ONE scope helper (Codex on #362): ({CFBD season: {match_id: CFBD game id}}, {season: why none}).
+    A side-table label is a both-FBS label only if the season's LATEST persisted receipt is an 'ok',
+    division-fbs run that joined that (match, CFBD id). The v1r stream, fbs_teams and the coverage
+    numerator all read this set."""
+    rec = latest_receipts(s, seasons)
+    want = [str(x) for x in seasons] if seasons is not None else sorted(rec)
+    adm, why = {}, {}
+    for season in want:
+        r_ = rec.get(season)
+        p = receipt_problem(r_)
+        if p:
+            adm[season], why[season] = {}, p
+            continue
+        adm[season] = {int(m): g for m, g in (r_.joined or [])}
+    return adm, why
+
+
+def stored_coverage(s, seasons) -> dict[str, dict]:
+    """The SCOPE coverage fact per season, READ FROM THE LATEST PERSISTED INGEST RECEIPT: labelled / CFBD's
+    completed both-FBS games (fbs_coverage), every unlabelled game listed. No receipt, a non-'ok' run, or a
+    run that was not division fbs = NOT met, with its reason (law 4). Read-only."""
+    rec = latest_receipts(s, seasons)
     out: dict[str, dict] = {}
-    for season in seasons:
-        season = str(season)
-        rows = s.execute(select(NCAACFBDLabel.source_game_id, NCAACFBDLabel.payload_file,
-                                NCAACFBDLabel.fetched_at).where(NCAACFBDLabel.season == season)).all() \
-            if has_table(s) else []
-        base = {"season": season, "payload": None, "unlabelled": [], **fbs_coverage(0, 0)}
-        if not rows:
-            out[season] = {**base, "reason": "no side-table rows for this season"}
+    for season in (str(x) for x in seasons):
+        r_ = rec.get(season)
+        p = receipt_problem(r_)
+        base = {"season": season, "payload": r_.payload_file if r_ else None,
+                "run_at": r_.run_at if r_ else None, "reason": p}
+        if p:
+            out[season] = {**base, "unlabelled": list(r_.unlabelled or []) if r_ else [], **fbs_coverage(0, 0)}
             continue
-        pf = max(rows, key=lambda x: (x.fetched_at or datetime.min, x.payload_file or "")).payload_file
-        if not pf:
-            out[season] = {**base, "reason": "the latest side-table row names no payload_file"}
-            continue
-        path = Path(pf) if Path(pf).is_absolute() else root / pf
-        try:
-            recs = json.load(open(path))
-        except (OSError, ValueError) as e:
-            out[season] = {**base, "payload": pf, "reason": f"payload {pf} unreadable ({type(e).__name__})"}
-            continue
-        if not isinstance(recs, list) or not recs:
-            out[season] = {**base, "payload": pf, "reason": f"payload {pf} holds no games"}
-            continue
-        keys, missing = discover(recs[0])
-        if missing or not keys["id"]:
-            lacks = missing + ([] if keys["id"] else ["id"])
-            out[season] = {**base, "payload": pf, "reason": f"payload {pf} lacks field(s) {', '.join(lacks)}"}
-            continue
-        scope = [x for x in recs if in_scope_reason(x, keys, division) is None]
-        labelled_ids = {r_.source_game_id for r_ in rows if r_.source_game_id is not None}
-        hit = {id(x) for x in scope if isinstance(x.get(keys["id"]), int) and x.get(keys["id"]) in labelled_ids}
-        out[season] = {**base, **fbs_coverage(len(scope), len(hit)), "payload": pf, "reason": None,
-                       "unlabelled": [f"CFBD {x.get(keys['id'])} · {_desc(x, keys)}" for x in scope
-                                      if id(x) not in hit]}
+        out[season] = {**base, "unlabelled": list(r_.unlabelled or []), **fbs_coverage(r_.in_scope, r_.labelled)}
     return out
 
 

@@ -19,3 +19,7 @@
   - The v1r gate run is not wired into `ncaa-backtest` until the split is ruled.
   - A side-table row is taken as a both-FBS label (the ingest's default `--division fbs`; the table stores no classification).
 - **Not done (by ruling):** the declaration; the adapter's escaped names, the duplicate team row and the early kickoffs in `matches`.
+- **Codex on #362 (two P2s, verified):**
+  - The ingest receipt is now PERSISTED per season on every non-dry run, zero joins included: new table `ncaa_cfbd_ingest_receipts` and migration `migrate_ncaa_cfbd_ingest_receipts.py`. A DB table was chosen because host and laptop each have their own DB and `exports/` is mirrored and pruned.
+  - Coverage reads the LATEST receipt, which answers the earlier reading (1). A zero-join re-ingest now flips coverage to NO; before, it kept the last good run's YES.
+  - One scope helper, `admitted_labels`, is shared by the v1r stream, `fbs_teams` and the coverage numerator. A stale `--division ''` label is excluded and listed, no longer walked.

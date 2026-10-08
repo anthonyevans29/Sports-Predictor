@@ -6193,9 +6193,11 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
         click.echo(f"  naive {c}: H {nv['H']:.4f} / D {nv['D']:.4f} / A {nv['A']:.4f} · source {r['naive_source'][c]}")
     if r["unplaced"]:
         click.echo(f"  UNPLACED stage labels (F3; never guessed, excluded): {'; '.join(r['unplaced'])}")
-    if r["extra_time_rows"]:
-        click.echo("  DATA NOTE: extra-time rows in a league season (a regular-season game should never be AET/PEN); "
-                   "read on the 90' score, never the after-extra-time one: " + "; ".join(r["extra_time_rows"]))
+    if r["non_ft_rows"]:
+        click.echo("  DATA NOTE: finished non-FT rows in a league season (a regular-season game should never go to "
+                   "extra-time AET/PEN): read on the 90' score, never the after-extra-time one; a row the substitution "
+                   "rule releases (e.g. AWD / WO without a 90' score) is neither scored nor walked: "
+                   + "; ".join(r["non_ft_rows"]))
     if r["pending"]:
         click.echo(f"  pending {len(r['pending'])}: {dict(Counter(x['status'] for x in r['pending']))}"
                    + (f" — {r['release_due']} unscoreable: run --substitute" if r["release_due"] else ""))

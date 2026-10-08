@@ -669,6 +669,18 @@ NAIVE_FROM_RECORD = "run record (per_league.naive_freq, the gate's frozen 2023/2
 NAIVE_RECOMPUTED = "recomputed (naive_for over the stored 2023/24 regular season, exactly as the gate did)"
 
 
+def unscoreable(m, status: str | None = None) -> bool:
+    """THE ONE predicate (Codex P1 round 2 on #373): what the substitution releases is exactly what the confirmation
+    walk neither scores nor walks (run_soccer_backtest confirmation_scoring). It is the intl machinery's own rule,
+    unchanged (intl_shadow._unscoreable): cancelled, or finished under a non-FT code without a 90-minute score. The
+    architect's open question 2 on #373 (is AWD / WO with a 90' score always released?) is pending; a ruling changes
+    this one function."""
+    from src.walters.intl_shadow import _unscoreable
+    if status is None:
+        status = m.status.value if hasattr(m.status, "value") else str(m.status)
+    return _unscoreable(m, status)
+
+
 def _reg_paths() -> tuple[str, str]:
     """The ledger and ids dir, read at call time (tests point them at tmp paths; the real docs/registry/ otherwise)."""
     from src.walters import registry as reg
@@ -726,7 +738,7 @@ def eligible_fixtures(s, e: dict, surv: list[str]) -> tuple[list[dict], list[dic
     from sqlalchemy import select
     from src.db.schema import Competition, Match, MatchStatus
     from src.walters import registry as reg
-    from src.walters.intl_shadow import _unscoreable, _verdict_at
+    from src.walters.intl_shadow import _verdict_at
 
     _, ids_dir = _reg_paths()
     at = _verdict_at(e)
@@ -744,7 +756,7 @@ def eligible_fixtures(s, e: dict, surv: list[str]) -> tuple[list[dict], list[dic
              "has_score": m.home_score is not None and m.away_score is not None,
              "score_90": (f"{m.home_score_90}-{m.away_score_90}" if m.home_score_90 is not None
                           and m.away_score_90 is not None else None),
-             "unscoreable": _unscoreable(m, status)}
+             "unscoreable": unscoreable(m, status)}
         pl = placement(m.stage)
         if pl is None:
             unpl.append(f)
@@ -821,7 +833,7 @@ def confirmation_read() -> dict:
         for r in run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=params["rho"],
                                      elo_goal_coeff=params["elo_goal_coeff"], stage_filter=is_regular,
                                      batch_same_kickoff=BATCH_SAME_KICKOFF,
-                                     score_90_extra_time=True) or []:      # Codex P1 on #373: never the ET score
+                                     confirmation_scoring=True) or []:     # Codex P1s on #373: the substitution rule
             if r["match_id"] in want:
                 priced[r["match_id"]] = r
     key = {"H": "p_home", "D": "p_draw", "A": "p_away"}
@@ -854,9 +866,11 @@ def confirmation_read() -> dict:
            "first_game_at": by_id[scored[0]]["kickoff"].strftime("%Y-%m-%dT%H:%M:%SZ") if scored else None,
            "cohort_state": co["state"], "cohort_size": len(co["ids"]), "eligible_stored": co["eligible_stored"],
            "unplaced": [f"{f['code']} {f['id']} {f['stage']!r}" for f in unpl],
-           # a DATA NOTE: a regular-season league game should never go to extra time; read on its 90' score
-           "extra_time_rows": [f"{f['code']} {f['id']} {f['status_raw']} (90' {f['score_90'] or 'not stored'})"
-                               for f in elig if (f["status_raw"] or "").upper() in ("AET", "PEN")],
+           # a DATA NOTE: finished under a non-FT code (AET / PEN / AWD / WO ...): read on the 90' score when stored;
+           # one the substitution rule releases is neither scored nor walked
+           "non_ft_rows": [f"{f['code']} {f['id']} {f['status_raw'] or 'raw NULL'} (90' {f['score_90'] or 'not stored'}"
+                           + ("; released, not walked)" if f["unscoreable"] else "; walked on the 90' score)")
+                           for f in elig if f["status"] == "finished" and (f["status_raw"] or "").upper() != "FT"],
            "pending": [{"id": i, "status": why(i)} for i in pending],
            "release_due": sum(1 for i in pending if (by_id.get(i) or {}).get("unscoreable") and co["state"] == "frozen"),
            "per_league": per,

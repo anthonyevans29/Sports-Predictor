@@ -48,6 +48,8 @@ def world():
     rng = random.Random(11)
     out = {"eligible": [], "distractors": {}}
     with session_scope() as s:
+        pre_existing = set(s.execute(select(Competition.code).where(
+            Competition.code.in_(("PD", "BL1", "SA")))).scalars())
         teams = {}
         for code in ("PD", "BL1", "SA"):
             c = _comp(s, code)
@@ -82,7 +84,15 @@ def world():
         out["distractors"]["before"] = add("PD", VERDICT_AT - timedelta(hours=1), "Regular Season - 4").id
     out["eligible"].sort()
     out["ids"] = [i for _, i in out["eligible"]]
-    return out
+    yield out
+    # teardown (throwaway test DB only): this module's rows, teams and the competitions it created leave no trace for
+    # later modules (test_soccer_expansion's shadow test counts which leagues are stored)
+    from sqlalchemy import delete
+    with session_scope() as s:
+        s.execute(delete(Match).where(Match.season == SEASON))
+        s.execute(delete(Team).where(Team.name.like("SXC %")))
+        s.execute(delete(Competition).where(Competition.code.in_(("PD", "BL1", "SA")),
+                                            Competition.code.notin_(pre_existing)))
 
 
 def _entry(**over):
@@ -391,7 +401,39 @@ def test_an_aet_cohort_fixture_is_scored_and_walked_on_its_90_minute_score(ledge
         kw = dict(dixon_coles_rho=-0.1, elo_goal_coeff=0.0008, stage_filter=sx.is_regular, batch_same_kickoff=True)
         default = {r["match_id"]: r for r in run_soccer_backtest(code, SEASON, 40, **kw)}
         assert default[mid]["actual"] == "H"                      # default off: the gate's walk is unchanged
-        opt = {r["match_id"]: r for r in run_soccer_backtest(code, SEASON, 40, score_90_extra_time=True, **kw)}
+        opt = {r["match_id"]: r for r in run_soccer_backtest(code, SEASON, 40, confirmation_scoring=True, **kw)}
         assert opt[mid]["actual"] == "D"
+    finally:
+        _restore(mid, old)
+
+
+def test_a_released_awd_fixture_is_neither_scored_nor_walked(ledger, world):
+    """Codex P1 (round 2) on #373: an AWD row with provider goals and no 90' score is released by the substitution
+    rule; the read's walk must not let it update Elo or the prior either. Every later cohort prediction equals a hand
+    replay without the row (the same fixture as CANC: never walked). One predicate serves both (sx.unscoreable). The
+    gate's default walk still reads it (unchanged)."""
+    from src.walters.soccer_backtest import run_soccer_backtest
+    _freeze(ledger)
+    mid = world["ids"][8]
+    with session_scope() as s:
+        code = s.get(Match, mid).competition.code
+    old = _set(mid, MatchStatus.FINISHED, "AWD", 3, 0)
+    try:
+        r = _cli("--substitute")
+        assert r.exit_code == 0 and f"SUBSTITUTED: {mid} (AWD" in r.output, r.output
+        awd = sx.confirmation_read()
+        assert awd["n"] == 60 and awd["complete"] and mid not in awd["scored_ids"]
+        assert world["ids"][60] in awd["scored_ids"]
+        _set(mid, MatchStatus.CANCELLED, "CANC")                  # the hand replay: the row never walked
+        gone = sx.confirmation_read()
+        assert gone["scored_ids"] == awd["scored_ids"]
+        assert awd["log_loss"] == gone["log_loss"] and awd["per_league"] == gone["per_league"]
+        _set(mid, MatchStatus.FINISHED, "AWD", 3, 0)
+        out = _cli().output
+        assert "DATA NOTE" in out and f"{mid} AWD" in out, out
+        kw = dict(dixon_coles_rho=-0.1, elo_goal_coeff=0.0008, stage_filter=sx.is_regular, batch_same_kickoff=True)
+        assert mid in {x["match_id"] for x in run_soccer_backtest(code, SEASON, 40, **kw)}          # default: unchanged
+        assert mid not in {x["match_id"] for x in run_soccer_backtest(code, SEASON, 40, confirmation_scoring=True,
+                                                                      **kw)}
     finally:
         _restore(mid, old)

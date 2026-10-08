@@ -9,3 +9,4 @@
 - Docs: CLI.md row; spec section 5a.
 - Tests: 17 new tests (`tests/test_soccer_expansion_confirm.py`, synthetic leagues, tmp registry).
 - Review round 1 (Codex P1, verified): `run_soccer_backtest` gains the opt-in `score_90_extra_time` (default off, so the gate and every existing command are unchanged). The confirm read passes it: an AET/PEN row is scored AND walked on its stored 90-minute score; one without that score is left out of the walk. Progress prints such rows as a DATA NOTE. One new test.
+- Review round 2 (Codex P1, verified): the opt-in is renamed `confirmation_scoring` (default off; the gate is unchanged). The walk now uses the substitution's ONE predicate (`soccer_expansion.unscoreable`, the intl rule): a released row such as AWD / WO without a 90' score is neither scored nor walked; a non-FT row with a 90' score walks on the 90' score. One new test. The test module now tears down its league rows, so test order no longer matters.

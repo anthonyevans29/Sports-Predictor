@@ -1690,3 +1690,28 @@ def test_any_desk_key_without_desk_meta_refuses(tmp_path):
         (d / "nfl_2095-10-08.json").write_text(json.dumps({"predictions": [{"home_team": "H", "desk": bad}]}))
         with pytest.raises(VQ.Refused):
             VQ.iter_desk_docs(str(d))
+
+
+def test_damaged_custom_suffix_json_goes_through_the_same_checks(tmp_path):
+    """Codex on #340: `--out exports/audit.txt` damaged to {}, null or a rows object without desk_meta refuses."""
+    for i, body in enumerate(("{}", "null", json.dumps({"predictions": [{"home_team": "H", "desk": {}}]}))):
+        d = tmp_path / f"d{i}"
+        d.mkdir()
+        (d / "audit.txt").write_text(body)
+        with pytest.raises(VQ.Refused):
+            VQ.iter_desk_docs(str(d))
+    d = tmp_path / "ok"
+    d.mkdir()
+    (d / "notes.txt").write_text("plain text, not JSON")
+    (d / "other.txt").write_text(json.dumps({"something": "else"}))               # JSON, not a desk export
+    docs, cnt = VQ.iter_desk_docs(str(d))
+    assert docs == [] and cnt["other_files"] == 1
+
+
+def test_a_desk_engine_foreign_to_its_row_family_refuses():
+    """Codex on #340: fixtures rows carry venue_edge blocks and predictions rows model_edge (desk_policy.normalize)."""
+    play = {"engine": "model_edge", "call": "PLAY", "reference": "books"}
+    assert not VQ.desk_rows_ok({"fixtures": [{"status": "scheduled", "desk": play}]})
+    venue = {"engine": "venue_edge", "call": "PASS"}
+    assert not VQ.desk_rows_ok({"predictions": [{"prediction": {"home_win_prob": 0.5}, "desk": venue}]})
+    assert VQ.desk_rows_ok({"fixtures": [{"status": "scheduled", "desk": venue}]})

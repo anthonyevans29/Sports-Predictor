@@ -211,6 +211,13 @@ def desk_rows_ok(doc: dict) -> bool:
     for k in ("fixtures", "predictions"):      # Codex on #340: a scalar container is damaged, never iterated
         if doc.get(k) is not None and not isinstance(doc[k], list):
             return False
+    # Codex on #340: desk_policy.normalize annotates a fixtures row as market-only (venue_edge) and a predictions row
+    # as model_edge (marketOnly False): a block of the other engine is read by neither receipt, so it is damaged
+    for k, eng in (("fixtures", "venue_edge"), ("predictions", "model_edge")):
+        for x in doc.get(k) or []:
+            dk = x.get("desk") if isinstance(x, dict) else None
+            if isinstance(dk, dict) and dk.get("engine") is not None and dk.get("engine") != eng:
+                return False
     if isinstance(doc.get("fixtures"), list) and isinstance(doc.get("predictions"), list):
         return False                           # Codex on #340: no export writes both row families; a mixed document
                                                # would skip the fixture rows' desk check
@@ -352,15 +359,15 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
         for n in sorted(files):
             p = os.path.join(d, n)
             if not n.lower().endswith(".json"):        # Codex on #340: .JSON is JSON too
-                # Codex on #340: `--out` takes any name (exports/audit, audit.txt); any other file that parses as a
-                # desk document is read like any export, and anything else is counted, not read
-                sniffed, text = None, ""
+                # Codex on #340: `--out` takes any name (exports/audit, audit.txt); any other file whose text is
+                # JSON goes through the same damage checks as a .json export, and anything else is counted, not read
+                parsed, text = False, ""
                 try:
                     with open(p) as f:
                         text = f.read()
-                    sniffed = json.loads(text)
+                    json.loads(text)
+                    parsed = True
                 except (OSError, ValueError, UnicodeDecodeError):
-                    sniffed = None
                     if text.lstrip().startswith("{"):
                         # Codex on #340: a file that begins as a JSON object but does not parse is a damaged export
                         # whatever its name (a truncated `--out exports/audit.txt`), never an unrelated file
@@ -368,7 +375,7 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                         counts["unreadable"] += 1
                         bad_read.append(p)
                         continue
-                if not (isinstance(sniffed, dict) and "desk_meta" in sniffed):
+                if not parsed:
                     counts["other_files"] = counts.get("other_files", 0) + 1
                     continue
             counts["json_files"] += 1

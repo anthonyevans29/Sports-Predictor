@@ -70,3 +70,4 @@
   - `--out` directories and paths under files refuse up front.
   - Probe `--out`: generated export names reserved; paths under files refuse.
   - A `desk` key of any value without `desk_meta` refuses.
+  - JSON under any suffix gets the full damage checks; desk engines must match their row family.

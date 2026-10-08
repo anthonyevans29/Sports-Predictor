@@ -12,3 +12,4 @@
 - Headless verifies (Playwright, not in CI), both green:
   - `scripts/cockpit_mlb_quarantine_verify.py` 11/11. The MLB kalshi-only row is never logged, and the slate shows the suspended PASS with its hold. The #328 kalshi-only mid check moves to an NFL row.
   - `scripts/cockpit_kalshi_only_verify.py` 15/15. The seeded ledger counts 4 NFL rows; 2 MLB rows are not counted.
+- Codex P1 on #369, fixed: a pre-Q3 export with a published MLB kalshi-only PLAY crashed `desk-rescore` with a TypeError on the None edge. The rescore row now carries `hold_raw_edge_pp`, printed as "hold raw edge … (not a live edge)", and the formatter prints "—" for any None edge. Test: `test_desk_rescore_cli_prints_the_suspension_with_the_holds_raw_edge`.

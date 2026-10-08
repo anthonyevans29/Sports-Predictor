@@ -382,10 +382,11 @@ def test_ingest_receipt_states_the_coverage_and_lists_every_unlabelled_game():
 
 def test_l2_coverage_is_the_latest_record_and_never_opens_the_payload(fresh_db, tmp_path, monkeypatch):
     import migrate_ncaa_cfbd_labels as mig
+    import migrate_ncaa_cfbd_v2 as mig2
     from src.db.database import init_db, session_scope
 
     init_db()
-    assert mig.main() == 0
+    assert mig.main() == 0 and mig2.main() == 0                  # both markers the ingest requires
     with session_scope() as s:
         _world(s)
     monkeypatch.setattr(nc, "ALIAS_FILE", tmp_path / "aliases.json")
@@ -422,11 +423,12 @@ def test_coverage_cli_prints_scope_fact_v1r_stream_and_79_info(fresh_db, tmp_pat
     from click.testing import CliRunner
 
     import migrate_ncaa_cfbd_labels as mig
+    import migrate_ncaa_cfbd_v2 as mig2
     from cli import cli
     from src.db.database import init_db, session_scope
 
     init_db()
-    assert mig.main() == 0
+    assert mig.main() == 0 and mig2.main() == 0                  # both markers the ingest requires
     with session_scope() as s:
         _world(s)
     monkeypatch.setattr(nc, "ALIAS_FILE", tmp_path / "aliases.json")
@@ -447,10 +449,11 @@ def test_coverage_cli_prints_scope_fact_v1r_stream_and_79_info(fresh_db, tmp_pat
 
 def _setup(fresh_db, tmp_path, monkeypatch):
     import migrate_ncaa_cfbd_labels as mig
+    import migrate_ncaa_cfbd_v2 as mig2
     from src.db.database import init_db, session_scope
 
     init_db()
-    assert mig.main() == 0
+    assert mig.main() == 0 and mig2.main() == 0                  # both markers the ingest requires
     with session_scope() as s:
         ms = _world(s)
     monkeypatch.setattr(nc, "ALIAS_FILE", tmp_path / "aliases.json")

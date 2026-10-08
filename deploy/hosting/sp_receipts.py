@@ -76,6 +76,20 @@ def rows(since: datetime, steps: bool) -> list[dict]:
     return out
 
 
+def backup_sha(r: dict) -> str:
+    """The backup sha for the table. Writers differ in shape (law 1, read
+    2026-10-08): the chain receipt (sp_run.py) stores `backup` as a dict with
+    `sha256`; the migrations receipt (sp_deploy.py) and the cleanup receipt
+    (remove_allstar_rows.py) store `backup` as the file NAME string, the
+    cleanup one with its sha beside it in `backup_sha256`; the backup receipt
+    stores `sha256` at top level. A name with no sha shows empty (law 4: never
+    a guessed sha); any other shape never crashes the table."""
+    bk = r.get("backup")
+    sha = bk.get("sha256") if isinstance(bk, dict) else None
+    sha = sha or r.get("backup_sha256") or r.get("sha256")
+    return sha if isinstance(sha, str) else ""
+
+
 def table(rs: list[dict]) -> str:
     rs = sorted(rs, key=lambda r: (not failed(r), r["ts"]))
     lines = ["| time (UTC) | host | what | exit | dur s | key line | backup sha |",
@@ -86,7 +100,7 @@ def table(rs: list[dict]) -> str:
             what = f"{r.get('run_id', '').split('-', 1)[-1]} #{r.get('step')}"
         elif r.get("kind") in ("backup", "page", "failure", "boot", "deploy"):
             what = r["kind"] + (f":{r['backup_kind']}" if r.get("backup_kind") else "")
-        b = (r.get("backup") or {}).get("sha256") or r.get("sha256") or ""
+        b = backup_sha(r)
         ex = "—" if r.get("exit") is None else str(r.get("exit"))
         lines.append(f"| {r['ts'][5:16].replace('T', ' ')} | {r.get('host')} | {what} | "
                      f"{'**' + ex + '**' if failed(r) else ex} | {r.get('duration_s', '')} | "

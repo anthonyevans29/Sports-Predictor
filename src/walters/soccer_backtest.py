@@ -70,7 +70,10 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         elo_goal_coeff: float | None = None,
                         decay_half_life_days: float | None = None,
                         detail: bool = False,
-                        s14_uncertain_offset: float | None = None):
+                        s14_uncertain_offset: float | None = None,
+                        sealed_read: bool = False,
+                        stage_filter=None,
+                        batch_same_kickoff: bool = False):
     """
     Walk `competition_code`/`season` in date order, predict each match using only
     prior matches (leakage-free). Returns a list of per-match result dicts:
@@ -99,7 +102,27 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
     UNADJUSTED prediction's top pick is < 0.45, both expected-goal rates scale
     by (T + offset) / T (T = home_xg + away_xg) and the match is re-predicted.
     Confident games are untouched; the scored set is identical.
+
+    stage_filter (soccer-expansion-v1 F3, ARCHITECT 2026-10-07): an optional
+    callable stage -> bool; when set, only rows whose stored Match.stage it
+    accepts are walked AND scored (rows it rejects never touch Elo or the
+    prior). None = every row, unchanged.
+
+    batch_same_kickoff (soccer-expansion-v1 F5, ARCHITECT 2026-10-07): when
+    True, every fixture sharing an identical kickoff timestamp is predicted
+    from the same state, before any of them updates Elo or the prior; the
+    scored predicate becomes ">= min_prior rows with a strictly earlier
+    kickoff, both teams among them". False (the default) = the row-by-row
+    walk, so every existing command reproduces its recorded numbers.
     """
+    # soccer-expansion-v1 (ARCHITECT 2026-10-07; Codex on #326): its leagues' test seasons are read ONCE, by its gate.
+    # Every caller of this walk (soccer-backtest, the rho / coefficient sweeps, the candidate harnesses) is refused
+    # on those leagues while the experiment is declared and unrun; only the gate passes sealed_read=True.
+    if not sealed_read:
+        from src.walters import soccer_expansion as _sx
+        _why = _sx.guards_backtest(competition_code)
+        if _why:
+            raise _sx.ExpansionRefused(_why)
     with session_scope() as s:
         comp = s.execute(
             select(Competition).where(Competition.code == competition_code)
@@ -117,6 +140,8 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
         # sort by kickoff time — the spine of leakage safety
         matches = [m for m in matches
                    if m.utc_date and m.home_score is not None and m.away_score is not None]
+        if stage_filter is not None:
+            matches = [m for m in matches if stage_filter(m.stage)]
         matches.sort(key=lambda m: m.utc_date)
         if not matches:
             return None
@@ -135,69 +160,84 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
         results = []
         prior = []  # finished matches strictly before the current one
 
-        for m in matches:
-            # --- predict using ONLY prior games ---
-            if len(prior) >= min_prior:
-                strength_input = [
-                    {"home_team_id": p.home_team_id, "away_team_id": p.away_team_id,
-                     "home_score": p.home_score, "away_score": p.away_score}
-                    for p in prior
-                ]
-                weights = None
-                if decay_half_life_days is not None:
-                    weights = [
-                        time_decay_weight(
-                            (m.utc_date - p.utc_date).total_seconds() / 86400.0,
-                            decay_half_life_days)
+        # Groups walked as one step: every group is predicted from the state
+        # before it, then the whole group updates. Default: one row per group
+        # (the row-by-row walk, unchanged); batched: one group per kickoff.
+        if batch_same_kickoff:
+            groups = []
+            for m in matches:
+                if groups and groups[-1][0].utc_date == m.utc_date:
+                    groups[-1].append(m)
+                else:
+                    groups.append([m])
+        else:
+            groups = [[m] for m in matches]
+
+        for group in groups:
+            for m in group:
+                # --- predict using ONLY prior games ---
+                if len(prior) >= min_prior:
+                    strength_input = [
+                        {"home_team_id": p.home_team_id, "away_team_id": p.away_team_id,
+                         "home_score": p.home_score, "away_score": p.away_score}
                         for p in prior
                     ]
-                strengths = estimate_strengths(strength_input, context, weights=weights)
-                hs = strengths.get(m.home_team_id)
-                as_ = strengths.get(m.away_team_id)
-                if hs and as_:
-                    pred = predict_match(
-                        home_elo=elo.get(m.home_team_id),
-                        away_elo=elo.get(m.away_team_id),
-                        home_strength=hs, away_strength=as_,
-                        context=context, config=poisson_cfg,
-                    )
-                    if (s14_uncertain_offset is not None
-                            and max(pred.p_home, pred.p_draw, pred.p_away) < 0.45):
-                        from types import SimpleNamespace
-                        tot = pred.home_xg + pred.away_xg
-                        mult = (tot + s14_uncertain_offset) / tot
+                    weights = None
+                    if decay_half_life_days is not None:
+                        weights = [
+                            time_decay_weight(
+                                (m.utc_date - p.utc_date).total_seconds() / 86400.0,
+                                decay_half_life_days)
+                            for p in prior
+                        ]
+                    strengths = estimate_strengths(strength_input, context, weights=weights)
+                    hs = strengths.get(m.home_team_id)
+                    as_ = strengths.get(m.away_team_id)
+                    if hs and as_:
                         pred = predict_match(
                             home_elo=elo.get(m.home_team_id),
                             away_elo=elo.get(m.away_team_id),
                             home_strength=hs, away_strength=as_,
                             context=context, config=poisson_cfg,
-                            factor_adjustment=SimpleNamespace(home_xg_multiplier=mult,
-                                                              away_xg_multiplier=mult),
                         )
-                    if m.home_score > m.away_score:
-                        actual = "H"
-                    elif m.home_score < m.away_score:
-                        actual = "A"
-                    else:
-                        actual = "D"
-                    row = {
-                        "match_id": m.id,
-                        "p_home": pred.p_home, "p_draw": pred.p_draw,
-                        "p_away": pred.p_away, "actual": actual,
-                    }
-                    if detail:
-                        row.update(home_xg=pred.home_xg, away_xg=pred.away_xg, p_over=pred.p_over,
-                                   home_score=m.home_score, away_score=m.away_score)
-                    results.append(row)
+                        if (s14_uncertain_offset is not None
+                                and max(pred.p_home, pred.p_draw, pred.p_away) < 0.45):
+                            from types import SimpleNamespace
+                            tot = pred.home_xg + pred.away_xg
+                            mult = (tot + s14_uncertain_offset) / tot
+                            pred = predict_match(
+                                home_elo=elo.get(m.home_team_id),
+                                away_elo=elo.get(m.away_team_id),
+                                home_strength=hs, away_strength=as_,
+                                context=context, config=poisson_cfg,
+                                factor_adjustment=SimpleNamespace(home_xg_multiplier=mult,
+                                                                  away_xg_multiplier=mult),
+                            )
+                        if m.home_score > m.away_score:
+                            actual = "H"
+                        elif m.home_score < m.away_score:
+                            actual = "A"
+                        else:
+                            actual = "D"
+                        row = {
+                            "match_id": m.id,
+                            "p_home": pred.p_home, "p_draw": pred.p_draw,
+                            "p_away": pred.p_away, "actual": actual,
+                        }
+                        if detail:
+                            row.update(home_xg=pred.home_xg, away_xg=pred.away_xg, p_over=pred.p_over,
+                                       home_score=m.home_score, away_score=m.away_score)
+                        results.append(row)
 
-            # --- AFTER predicting, update Elo + add to prior (order matters!) ---
-            nh, na = update_after_match(
-                elo.get(m.home_team_id), elo.get(m.away_team_id),
-                m.home_score, m.away_score, elo.config,
-            )
-            elo.set(m.home_team_id, nh)
-            elo.set(m.away_team_id, na)
-            prior.append(m)
+            for m in group:
+                # --- AFTER predicting, update Elo + add to prior (order matters!) ---
+                nh, na = update_after_match(
+                    elo.get(m.home_team_id), elo.get(m.away_team_id),
+                    m.home_score, m.away_score, elo.config,
+                )
+                elo.set(m.home_team_id, nh)
+                elo.set(m.away_team_id, na)
+                prior.append(m)
 
         return results
 

@@ -72,6 +72,19 @@ become MORE binding under an income goal, never less."
   any formatting (backticks and quotes included): any other mention starts
   a Codex cloud task, which tried to run on all nine tagged replies of
   2026-10-05 and on one reply that only quoted the phrase.
+- **REVIEW STOP RULE (ARCHITECT, 2026-10-08, addendum 7 item 2, standing,
+  verbatim):** "Reviews are input; the architect rules merge-readiness. (1) A
+  PR is merge-ready when CI is green and every P1 has a fix or a ruling. (2) P2
+  findings get one fix round. After the second review round, remaining and new
+  P2s on read-only code (receipts, probes, reports, docs, tests) go to ONE
+  follow-up Issue for that PR and do not block; on money-path code (the Desk,
+  models, exports the Desk reads, the ledger, deploy scripts) list them for the
+  architect, who says which block. (3) Hard cap: three review rounds per PR,
+  then request no more reviews and report 'round cap reached' with the open
+  list. (4) A rebase or merge-from-main push needs green CI, not a new review
+  round. (5) A PR that carries a policy change and tooling ships the policy
+  change first, as its own small PR." Evidence: #340 took 154 findings (148
+  P2, 6 P1) over 62 commits; its follow-up home is #347.
 - **PR text (ARCHITECT, 2026-10-06, standing rule):** quoted heredocs only
   (`<<'EOF'`) for PR bodies, comments and commit messages. An unquoted heredoc
   runs every backticked span as a shell command: on 2026-10-06 one ran
@@ -81,6 +94,9 @@ become MORE binding under an income goal, never less."
   MERGED PR is a finding in its own right: verify it, then fix it in a
   follow-up PR or escalate it. #278's missed P1 left a grading close that
   never fired on main for three hours (fixed in #288).
+  After the review stop rule's cap, an open thread is answered with the
+  PR's follow-up Issue number, not another fix round (amended ARCHITECT
+  2026-10-08, addendum 7 item 2).
 - Tests live in `tests/` and run against a throwaway SQLite file
   (tests/conftest.py sets DATABASE_URL before any import) — never
   against data/.

@@ -82,15 +82,18 @@ def drop_db() -> None:
     migrate_ncaa_cfbd_labels.py) is dropped here explicitly (Codex on #333):
     otherwise it survives, init_db() recreates an empty ncaa_cfbd_labels, and
     the ingest's guard reads "migrated" for a table the migration never made.
-    It is the only unmapped table in the schema (migrate_*.py otherwise add
+    The v2 marker (ncaa_cfbd_v2_migration, written only by
+    migrate_ncaa_cfbd_v2.py, #367) is dropped for the same reason. They are the
+    only unmapped tables in the schema (migrate_*.py otherwise add
     columns/indexes to mapped tables, which drop with them)."""
     from sqlalchemy import text
 
-    from src.ingestion.ncaa_cfbd import MIGRATION_MARKER
+    from src.ingestion.ncaa_cfbd import MIGRATION_MARKER, V2_MIGRATION_MARKER
 
     Base.metadata.drop_all(_engine)
     with _engine.begin() as conn:
         conn.execute(text(f"DROP TABLE IF EXISTS {MIGRATION_MARKER}"))
+        conn.execute(text(f"DROP TABLE IF EXISTS {V2_MIGRATION_MARKER}"))
 
 
 @contextmanager

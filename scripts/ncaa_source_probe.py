@@ -41,8 +41,17 @@ sys.path.insert(0, ROOT)
 from src.ingestion.ncaa_cfbd import (  # noqa: E402,F401
     BASE, FIELDS, OPTIONAL, CFBDError, discover, fetch, parse_start, refuse_save_path,
 )
+from src.walters.ncaa_backtest import FENCED_RATE  # noqa: E402
 
 SAMPLE = 15
+
+
+def fenced(year) -> bool:
+    """The test-season fence (ARCHITECT 2026-10-08, addendum 15 item 1(b), verbatim): "Until the run is recorded,
+    for 2025 its two rate-and-margin lines print n and the withheld notice in place of the rates and margins. The
+    rest of its receipt stays." Lifted only by the registry recording the ncaa-elo-v1r run."""
+    from src.walters.ncaa_backtest import V1R_TEST, v1r_run_recorded
+    return str(year) == V1R_TEST and not v1r_run_recorded()
 
 
 def compare(records: list, keys: dict, session, division: str | None = None) -> dict:
@@ -182,6 +191,9 @@ def main(argv=None) -> int:
                       f"{c.get('score_agree', 0) / sc * 100:.1f}%")
         for b in ("nonneutral", "neutral"):
             S, O = r["source"][b], r["ours_on_joined"][b]
+            if fenced(year):        # #368 fence (ARCHITECT 2026-10-08, addendum 15 item 1(b)): n, never the rates
+                print(f"  {b}: SOURCE n {S['n']} · OURS on joined n {O['n']} · home rate and margin {FENCED_RATE}")
+                continue
             print(f"  {b}: SOURCE n {S['n']} home rate {fmt(S['home_rate'], True)} margin {fmt(S['home_margin'])}"
                   f" · OURS on joined n {O['n']} home rate {fmt(O['home_rate'], True)} margin {fmt(O['home_margin'])}")
         for title, xs in (("swapped (sample)", r["swapped_sample"]),

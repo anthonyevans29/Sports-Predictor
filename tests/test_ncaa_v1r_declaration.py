@@ -97,7 +97,7 @@ def test_registry_entry_is_declared_with_the_verbatim_gate_window_and_plan():
     entry, neutral_ha, rule = sh.frozen()
     assert (neutral_ha, rule, sh.gate_label(entry)) == (False, "no_home_advantage_at_neutral", sh.UNGATED)
     # D9: the VOID 2026-09-30 v1 run named; no prior read of this test set
-    assert e["prior_reads_note"] == D["D9"]
+    assert e["prior_reads_note"].startswith(D["D9"])          # D9 as issued; #368's correction beside it
     assert reg.prior_reads(e["test_set"], None, before_id=sh.EID) == []
     assert e["design_receipt"].startswith("docs/receipts/ncaa-v1r-design-2026-10-08.md")
     assert (ROOT / "docs" / "receipts" / "ncaa-v1r-design-2026-10-08.md").exists()

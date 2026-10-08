@@ -732,16 +732,17 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
         f"division {division or 'all'} · pinned aliases {len(aliases)}")
     with session_scope() as s:
         ready = migrated(s)
-        st_ready = ready and has_season_type(s)
-        rc_ready = records_ready(s)
+        v2_ready = ready and v2_migrated(s)
         s.rollback()
     if not ready and not dry_run:
         raise CFBDError("REFUSED: ncaa_cfbd_labels is not migrated (no migration marker "
                         f"{MIGRATION_MARKER}; an init_db()-created table does not count) — take the .backup, "
                         "then run `python migrate_ncaa_cfbd_labels.py` (a --dry-run works without it)")
-    if not (st_ready and rc_ready) and not dry_run:
-        raise CFBDError(f"REFUSED: ncaa_cfbd_labels.season_type (J4) and/or {RECORD_TABLE} (L1) missing — take "
-                        "the .backup, then run `python migrate_ncaa_cfbd_v2.py` (a --dry-run works without it)")
+    if not v2_ready and not dry_run:
+        raise CFBDError(f"REFUSED: the v2 migration has not run (ncaa_cfbd_labels.season_type (J4) and/or "
+                        f"{RECORD_TABLE} (L1) missing, or no migration marker {V2_MIGRATION_MARKER}; an "
+                        "init_db()-created table or column does not count) — take the .backup, then run "
+                        "`python migrate_ncaa_cfbd_v2.py` (a --dry-run works without it)")
     rc = 0
     for year in years:
         fetched_at = utc_now_naive()
@@ -887,9 +888,35 @@ SCOPE_DIVISION = "fbs"          # L4 / the SCOPE ruling's "both-FBS"
 
 
 def records_ready(s) -> bool:
+    """True when the records table EXISTS (readers: an init_db()-created table is empty, so it reads as "no
+    ingest record"). The ingest's write gate is v2_migrated(), which also requires the v2 marker (#367)."""
     from sqlalchemy import inspect
     try:
         return inspect(s.connection()).has_table(RECORD_TABLE)
+    except Exception:
+        return False
+
+
+# The v2 migration marker (#367, Codex P2 on #362; ARCHITECT 2026-10-08 addendum 13 item 1). Same reason and
+# same convention as MIGRATION_MARKER: NCAACFBDIngestRecord is mapped, so any init_db() creates
+# ncaa_cfbd_ingest_records, and a table created from the current ORM also carries season_type; neither object's
+# existence proves migrate_ncaa_cfbd_v2.py (the post-backup migration) ran. That script, and nothing else,
+# creates this one-row table by Core SQL (unmapped, so create_all can never make it). Its own table rather than
+# a second row in MIGRATION_MARKER: that table's id is CHECK (id = 1), and one marker per script keeps each
+# readable on its own.
+V2_MIGRATION_MARKER = "ncaa_cfbd_v2_migration"
+
+
+def v2_migrated(s) -> bool:
+    """True only when migrate_ncaa_cfbd_v2.py ran: ncaa_cfbd_labels.season_type and the records table exist
+    AND the marker table that script alone writes holds its row. An init_db()-created table and column
+    without the marker is NOT migrated (the ingest refuses a non-dry run)."""
+    from sqlalchemy import inspect, text
+    try:
+        if not (has_season_type(s) and records_ready(s)
+                and inspect(s.connection()).has_table(V2_MIGRATION_MARKER)):
+            return False
+        return bool(s.execute(text(f"SELECT COUNT(*) FROM {V2_MIGRATION_MARKER}")).scalar())
     except Exception:
         return False
 

@@ -270,7 +270,12 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
                                            "scores_provider_missing", "scores_ours_missing"))
                + f" · dates moved > 1h {c.get('date_moved', 0)}")
     (ro, no), (rp, np_) = r["home_rate"]["ours"], r["home_rate"]["provider"]
-    click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
+    from src.walters import ncaa_backtest as nb
+    if competition_code.upper() == "NCAA" and season in (None, nb.V1R_TEST) and not nb.v1r_run_recorded():
+        # #368 fence: an NCAA listing that includes 2025 prints no home win rate until the v1r run is recorded
+        click.echo(f"  home win rate (decided games): {nb.FENCED_RATE} (n ours={no}, provider={np_})")
+    else:
+        click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
     for k, lines in sorted(r["samples"].items()):
         click.echo(f"  {k} (sample):")
         for ln in lines:
@@ -4898,7 +4903,7 @@ def desk_rescore_cmd(files, out_path):
         console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
         raise SystemExit(2)
     lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
-    n = halved = quarantined = 0
+    n = halved = quarantined = suspended = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
@@ -4912,15 +4917,25 @@ def desk_rescore_cmd(files, out_path):
             n += 1
             halved += x["verdict"] == "halved"
             quarantined += x["verdict"] == "quarantined"     # its own transition, never "halved" (Codex on #328)
+            suspended += x["verdict"] == "kalshi-only suspended"     # Q3 K1 (ARCHITECT 2026-10-08): its own too
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
-            lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {x['fair_edge_pp']:+.1f}pp · "
+            if x["verdict"] == "kalshi-only suspended":     # addendum 15 item 2: a suspended row is not priced
+                xe, xc = "—", "not priced: no order under the suspension"
+            # a None edge prints as — (never a crash: Codex P1 on #369); a suspended row shows its hold's raw edge
+            fe = "—" if x["fair_edge_pp"] is None else f"{x['fair_edge_pp']:+.1f}pp"
+            if x.get("hold_raw_edge_pp") is not None:
+                fe += f" · hold raw edge {x['hold_raw_edge_pp']:+.1f}pp (not a live edge)"
+            lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {fe} · "
                          f"exec {xe} ({xc}) · units published {x['published_units']} / v1.1 {x['v11_units']} → "
                          f"addendum {x['addendum_units']} · {x['verdict'].upper()}")
     lines.append(f"\n{n} PLAY(s) re-scored · {halved} would have been halved under #87 v1.1 rule 3")
     if quarantined:
         lines.append(f"{quarantined} PLAY(s) now QUARANTINED (PASS, quarantine shadow) under the current Desk — "
                      f"a quarantine transition, not counted as halved")
+    if suspended:
+        lines.append(f"{suspended} MLB PLAY(s) now PASS under the kalshi-only suspension (Q3, ARCHITECT 2026-10-08) — "
+                     f"not counted as halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)
@@ -6420,6 +6435,9 @@ def ncaa_backtest_cmd(baselines_only, candidate):
     verdict. Read-only: writes nothing; NCAA stays market-only."""
     from src.walters import ncaa_backtest as nb
 
+    if not nb.v1r_run_recorded():   # #368 fence (addendum 14 item 2(b)): refuse before anything is read
+        click.echo(nb.fence_refusal("ncaa-backtest"))
+        raise SystemExit(2)
     # ARCHITECT ruling 2026-10-01 (NCAA audit): 2025 home/away labels are
     # UNRELIABLE; the gate is SUSPENDED-PENDING-DATA (not failed) until a season
     # with sane stage-level home rates exists on BOTH sides of the split; v1's
@@ -6455,7 +6473,11 @@ def ncaa_audit_cmd(seasons, limit):
     'established' HEURISTICS, the stored-field inventory (neutral site /
     division indicators), and a suspects list. Writes nothing."""
     from src.walters import ncaa_audit as na
+    from src.walters import ncaa_backtest as nb
 
+    if not nb.v1r_run_recorded():   # #368 fence (addendum 14 item 2(b)): refuse before anything is read
+        click.echo(nb.fence_refusal("ncaa-audit"))
+        raise SystemExit(2)
     data = na.load(top=limit)
     na.report(data, seasons=tuple(seasons) or na.AUDIT_SEASONS, limit=limit, out=click.echo)
 

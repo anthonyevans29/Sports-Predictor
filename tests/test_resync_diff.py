@@ -96,5 +96,7 @@ def test_cli_resync_diff_and_ncaa_gate_banner(monkeypatch):
     out = CliRunner().invoke(cli.cli, ["resync-diff", "--competition", "RDT", "--season", "2038"])
     assert out.exit_code == 0, out.output
     assert "RESYNC-DIFF VERDICT: PROVIDER MATCHES OUR ROWS" in out.output
+    from src.walters import ncaa_backtest as nb
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: True)          # #368 fence lifted for the banner
     out = CliRunner().invoke(cli.cli, ["ncaa-backtest", "--baselines-only"])
     assert "NCAA GATE: SUSPENDED-PENDING-DATA" in out.output

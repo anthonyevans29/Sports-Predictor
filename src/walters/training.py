@@ -1322,6 +1322,10 @@ def _generate_predictions_mlb(
             # probability. Self-targets disagreement: does nothing when model
             # agrees with the book, bites when they diverge. Preserves model as
             # an independent voice (w<1) — does NOT collapse to market.
+            # Q3 K6 (ARCHITECT 2026-10-08): the RECORD of the blend, written on every MLB prediction. It only
+            # observes the branch below: applied, the weight and the market number used (None when not applied).
+            _blend_rec = {"applied": False, "enabled": bool(getattr(cfg, "market_blend_enabled", False)),
+                          "w": None, "market_home": None, "market_away": None}
             if getattr(cfg, "market_blend_enabled", False):
                 from src.db.schema import Odds as _Odds
                 from src.walters.value import MarketSnapshot as _Snap
@@ -1343,6 +1347,7 @@ def _generate_predictions_mlb(
                         if _t > 0:
                             pred.p_home = ph / _t
                             pred.p_away = pa / _t
+                            _blend_rec.update(applied=True, w=w, market_home=_mkt_home, market_away=_mkt_away)
             existing = s.execute(
                 select(Prediction).where(
                     Prediction.match_id == m.id,
@@ -1422,6 +1427,8 @@ def _generate_predictions_mlb(
                     "p_blowup": round(pred.p_blowup, 4),
                     "p_home_blowup": round(pred.p_home_blowup, 4),
                     "p_away_blowup": round(pred.p_away_blowup, 4),
+                    # Q3 K6: whether the market blend was applied, with the weight and the market number used
+                    "market_blend": _blend_rec,
                 },
             ))
             written += 1

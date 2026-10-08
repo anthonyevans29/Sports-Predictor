@@ -48,15 +48,21 @@ def test_the_15pp_caution_tier_is_superseded_shadow_at_full_size():
 
 
 def test_multipliers_size_the_shadow_as_they_would_have_sized_units():
-    c = calls(row("Post", 0.70, fair_h=0.55, stage="postseason"),                # postseason half (0/30)
-              row("KO", 0.60, bid=0.49, ask=0.50),                              # kalshi-only mid 0.495: +10.5pp
-              row("KOPost", 0.60, bid=0.49, ask=0.50, stage="postseason"),      # 0.5 × 0.5
-              row("PostDone", 0.70, fair_h=0.55, stage="postseason"),
-              counts=None)
+    rows = (row("Post", 0.70, fair_h=0.55, stage="postseason"),                 # postseason half (0/30)
+            row("KO", 0.60, bid=0.49, ask=0.50),                               # kalshi-only mid 0.495: +10.5pp
+            row("KOPost", 0.60, bid=0.49, ask=0.50, stage="postseason"),       # 0.5 × 0.5
+            row("PostDone", 0.70, fair_h=0.55, stage="postseason"))
+    # the kalshi-only sizing is the 2026-10-01 path: since Q3 (ARCHITECT 2026-10-08) an MLB row on a kalshi-only
+    # reference is PASS with no shadow units, so the multiplier is read with the suspension off
+    with dp.kalshi_only_suspension_off():
+        c = calls(*rows, counts=None)
     assert (c["Post"]["call"], c["Post"]["shadowUnits"]) == ("PASS", 0.5)
     assert (c["KO"]["call"], c["KO"]["shadowUnits"], c["KO"]["kalOnly"]) == ("PASS", 0.5, True)
     assert "vs the kalshi-only mid" in c["KO"]["reasons"][0]
     assert (c["KOPost"]["call"], c["KOPost"]["shadowUnits"]) == ("PASS", 0.25)
+    q3 = calls(*rows, counts=None)                                             # Q3 K1: no shadow units at all
+    assert (q3["KO"]["call"], q3["KO"]["shadowUnits"], q3["KO"]["passKind"]) == ("PASS", 0, "kalshi_only_suspended")
+    assert q3["Post"] == c["Post"]                                             # a book row is untouched
     full = calls(row("PostDone", 0.70, fair_h=0.55, stage="postseason"), counts={"postseason_graded": 30})
     assert full["PostDone"]["shadowUnits"] == 1
 

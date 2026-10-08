@@ -640,3 +640,27 @@ def test_v2_migration_adds_column_and_table_in_one_idempotent_script(fresh_db, c
         conn.execute(text("DROP TABLE ncaa_cfbd_ingest_records"))
     with pytest.raises(nc.CFBDError, match="migrate_ncaa_cfbd_v2.py"):
         nc.run([2084], from_file=__file__, out=lambda *_: None)
+
+
+def test_fbs_ingest_refuses_a_payload_without_both_classification_fields(fresh_db, tmp_path, monkeypatch):
+    """Codex P1 on #365: with division fbs, a payload missing either classification field must never put a game in
+    scope (else an fcs record counts as both-FBS and can satisfy coverage). The ingest refuses (exit 2), writes no
+    label, and writes its record with in scope 0, so the season is not covered."""
+    from src.db.database import session_scope
+    from src.db.schema import NCAACFBDIngestRecord
+
+    _setup(fresh_db, tmp_path, monkeypatch)
+    for drop in ("homeClassification", "awayClassification"):
+        f = tmp_path / f"noclass_{drop}.json"
+        f.write_text(json.dumps([{k: v for k, v in r_.items() if k != drop} for r_ in J4_RECS]))
+        lines = []
+        assert nc.run([2084], from_file=str(f), out=lines.append) == 2
+        assert any("REFUSED" in x and "_class" in x for x in lines)
+    keys = {"home_class": None, "away_class": "awayClassification", "completed": None,
+            "home_pts": "homePoints", "away_pts": "awayPoints"}
+    assert nc.in_scope_reason({"homePoints": 1, "awayPoints": 0, "awayClassification": "fcs"}, keys, "fbs") \
+        == "source_no_classification"
+    with session_scope() as s:
+        assert s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_labels")).scalar() == 0
+        recs = s.execute(select(NCAACFBDIngestRecord)).scalars().all()
+        assert recs and all(r_.in_scope == 0 and r_.joined == 0 for r_ in recs)

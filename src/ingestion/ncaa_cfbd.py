@@ -437,9 +437,10 @@ def in_scope_reason(rec: dict, keys: dict, division: str | None) -> str | None:
         return "source_not_completed"
     if rec.get(keys["home_pts"]) is None or rec.get(keys["away_pts"]) is None:
         return "source_no_score"
-    if division and keys["home_class"] and keys["away_class"] and \
-            (str(rec.get(keys["home_class"]) or "").lower() != division
-             or str(rec.get(keys["away_class"]) or "").lower() != division):
+    if division and not (keys["home_class"] and keys["away_class"]):
+        return "source_no_classification"            # Codex P1 on #365: never in scope without both fields
+    if division and (str(rec.get(keys["home_class"]) or "").lower() != division
+                     or str(rec.get(keys["away_class"]) or "").lower() != division):
         return f"source_not_both_{division}"
     return None
 
@@ -767,6 +768,8 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
                 out(f"  INGEST RECORD {year} written ({RECORD_TABLE}): 0 records · in scope 0 · joined 0")
             continue
         keys, missing = discover(recs[0])
+        if div:                                     # Codex P1 on #365: a division-filtered (fbs) ingest needs
+            missing += [n for n in ("home_class", "away_class") if not keys.get(n)]   # both classification fields
         out("  keys used (law-1 receipt): " + " · ".join(f"{n}<-{k}" for n, k in keys.items() if k))
         if missing:
             out(f"  REFUSED: required field(s) not found: {', '.join(missing)} · first record keys: "

@@ -1,0 +1,6 @@
+## 2026-10-08 (#PENDING: NCAA CFBD v2 migration marker — ARCHITECT, addendum 13 item 1; Closes #367)
+- `migrate_ncaa_cfbd_v2.py` now also creates the one-row marker table `ncaa_cfbd_v2_migration` (Core SQL, unmapped in the ORM, the `ncaa_cfbd_labels_migration` convention) and writes its row if missing, printing `+ Wrote` or `· Kept`. Additive and idempotent; nothing else in the script changed.
+- The non-dry `ncaa-cfbd-labels` gate is now `ncaa_cfbd.v2_migrated()`: `ncaa_cfbd_labels.season_type`, `ncaa_cfbd_ingest_records` AND the marker row. An `init_db()`-created table and column no longer count. The refusal names the marker and says: take the .backup, then run `python migrate_ncaa_cfbd_v2.py`. A `--dry-run` needs none of it. Readers (`records_ready`, coverage, the shadow) are unchanged.
+- `drop_db()` (`init-db --force`) drops `ncaa_cfbd_v2_migration` as well, like the labels marker.
+- Operator: if `migrate_ncaa_cfbd_v2.py` ran before this PR (no marker), run it once more after the .backup. It finds both objects, keeps them, and writes only the marker.
+- Tests: `tests/test_ncaa_cfbd_v2_marker.py` (4; all fail on main, pass here). Existing CFBD tests now run the v2 script before a non-dry ingest.

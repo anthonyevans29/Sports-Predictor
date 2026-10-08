@@ -199,6 +199,11 @@ def desk_ok(d) -> bool:
         return False
     if d.get("engine") != "venue_edge":
         return True
+    v = d.get("venue")
+    if isinstance(v, dict) and isinstance(v.get("eligible"), bool) and v["eligible"] != (d.get("call") == "VENUE"):
+        # Codex on #340: desk_block writes call VENUE exactly when the venue verdict is eligible (venue_block, since
+        # 921facb, before the default cutoff); a contradiction is a damaged block, never a silently dropped call
+        return False
     return all(_num(d.get(k)) for k in ("book_p", "kalshi_p", "div_pp", "units")) and (
         d.get("stale_book_zone") is None or isinstance(d.get("stale_book_zone"), bool))
 
@@ -361,14 +366,21 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
             if not n.lower().endswith(".json"):        # Codex on #340: .JSON is JSON too
                 # Codex on #340: `--out` takes any name (exports/audit, audit.txt); any other file whose text is
                 # JSON goes through the same damage checks as a .json export, and anything else is counted, not read
-                parsed, text = False, ""
+                parsed, text, raw = False, "", b""
                 try:
-                    with open(p) as f:
-                        text = f.read()
+                    with open(p, "rb") as f:
+                        raw = f.read()
+                    text = raw.decode("utf-8")
                     json.loads(text)
                     parsed = True
-                except (OSError, ValueError, UnicodeDecodeError):
-                    if text.lstrip().startswith("{"):
+                except OSError:
+                    # Codex on #340: a file that cannot be inspected might be a custom-suffix export: never skipped
+                    counts["json_files"] += 1
+                    counts["unreadable"] += 1
+                    bad_read.append(p)
+                    continue
+                except (ValueError, UnicodeDecodeError):
+                    if raw.lstrip().startswith(b"{"):
                         # Codex on #340: a file that begins as a JSON object but does not parse is a damaged export
                         # whatever its name (a truncated `--out exports/audit.txt`), never an unrelated file
                         counts["json_files"] += 1

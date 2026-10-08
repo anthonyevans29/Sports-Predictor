@@ -488,3 +488,9 @@ def test_out_reserves_generated_names_and_refuses_paths_under_a_file(tmp_path, m
     ok, msg = P.out_path_ok(str(ex / "block" / "report.json"))
     assert not ok and "not a directory" in msg
     assert P.out_path_ok(str(ex / "sub" / "probe_nhl.json"))[0]                  # a new directory is fine
+
+
+def test_an_empty_payload_is_refused_and_never_written():
+    """Codex on #340: {} is no provider response; written under exports/ it would block both receipts."""
+    assert "empty object" in P.payload_refusal({})
+    assert P.payload_refusal(SYNTH) is None

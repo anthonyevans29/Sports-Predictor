@@ -272,6 +272,10 @@ def payload_refusal(payload) -> str | None:
     a JSON object, and a non-empty `errors` field (a list, or an object with values) is an error, never odds."""
     if not isinstance(payload, dict):
         return f"REFUSED: the payload is not a JSON object ({jtype(payload)}) — the adapter's _get reads a dict"
+    if not payload:
+        # Codex on #340: an empty object is no provider response (and, written under exports/, the receipts would
+        # refuse it as a damaged export)
+        return "REFUSED: the payload is an empty object — no provider response; no verdict, nothing written"
     errs = payload.get("errors")
     if errs and (errs if isinstance(errs, list) else list(errs.values()) if isinstance(errs, dict) else [errs]):
         return (f"REFUSED: the provider returned errors {_short(errs, 200)} — an error response, not an odds "

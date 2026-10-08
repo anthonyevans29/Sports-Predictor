@@ -1715,3 +1715,32 @@ def test_a_desk_engine_foreign_to_its_row_family_refuses():
     venue = {"engine": "venue_edge", "call": "PASS"}
     assert not VQ.desk_rows_ok({"predictions": [{"prediction": {"home_win_prob": 0.5}, "desk": venue}]})
     assert VQ.desk_rows_ok({"fixtures": [{"status": "scheduled", "desk": venue}]})
+
+
+def test_a_pass_call_whose_venue_verdict_is_eligible_refuses():
+    """Codex on #340: desk_block writes call VENUE exactly when venue.eligible is true; PASS + eligible is damaged."""
+    d = {"engine": "venue_edge", "call": "PASS", "venue": {"eligible": True}}
+    assert not VQ.desk_ok(d)
+    assert not VQ.desk_ok(dict(d, call="VENUE", venue={"eligible": False}))
+    assert VQ.desk_ok(dict(d, venue={"eligible": False}))
+    assert VQ.desk_ok({"engine": "venue_edge", "call": "PASS"})                      # no venue block: unchecked
+
+
+def test_an_unreadable_or_undecodable_custom_suffix_file(tmp_path, monkeypatch):
+    """Codex on #340: a file that cannot be opened might be a custom export and refuses; binary non-JSON is counted."""
+    (tmp_path / "image.bin").write_bytes(b"\x89PNG\r\n\x1a\n\xff\xfe")
+    assert VQ.iter_desk_docs(str(tmp_path))[1]["other_files"] == 1
+    (tmp_path / "bad.txt").write_bytes(b'{"desk_meta": \xff\xfe')                   # begins as JSON: damaged
+    with pytest.raises(VQ.Refused):
+        VQ.iter_desk_docs(str(tmp_path))
+    (tmp_path / "bad.txt").unlink()
+    real = open
+
+    def fake_open(path, *a, **kw):
+        if str(path).endswith("audit.txt"):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path, *a, **kw)
+    (tmp_path / "audit.txt").write_text("{}")
+    monkeypatch.setattr("builtins.open", fake_open)
+    with pytest.raises(VQ.Refused):
+        VQ.iter_desk_docs(str(tmp_path))

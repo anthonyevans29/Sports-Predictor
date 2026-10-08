@@ -66,3 +66,4 @@
   - NFL selections keep their 1X2 fair (P1); post-call captures are unmeasured; contradicting VENUE prices / row competitions refuse; `--out` never overwrites an input.
   - Non-numeric VENUE prices refuse cleanly; a truncated JSON object under any file name refuses.
   - Unknown ledger claim sources and mixed fixture/prediction documents refuse; the probe's `--out` never aliases the database.
+  - Overflowing offsets and non-string VENUE sides refuse cleanly; the probe never overwrites a desk export.

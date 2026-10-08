@@ -456,3 +456,21 @@ def test_out_never_overwrites_the_configured_database(monkeypatch):
         ok, msg = P.out_path_ok(str(tgt))
         assert not ok and "configured database" in msg
     assert P.out_path_ok(str(P.EXPORTS / "probe_payload.json"))[0]
+
+
+def test_out_never_replaces_an_existing_desk_export(tmp_path, monkeypatch):
+    """Codex on #340: --out naming an existing desk export (or a mirrored host copy) is refused."""
+    ex = tmp_path / "exports"
+    (ex / "host").mkdir(parents=True)
+    monkeypatch.setattr(P, "EXPORTS", ex)
+    monkeypatch.setattr(P, "db_path", lambda: tmp_path / "db.sqlite")
+    named = ex / "fixtures_NHL_2026-10-08.json"
+    named.write_text("{}")
+    custom = ex / "audit.txt"
+    custom.write_text(json.dumps({"desk_meta": {"as_of": "2026-10-08T00:00:00Z"}, "fixtures": []}))
+    mirror = ex / "host" / "anything.json"
+    mirror.write_text("{}")
+    for tgt in (named, custom, mirror):
+        ok, msg = P.out_path_ok(str(tgt))
+        assert not ok and "existing desk export" in msg, tgt
+    assert P.out_path_ok(str(ex / "probe_nhl_123.json"))[0]                      # a new file is fine

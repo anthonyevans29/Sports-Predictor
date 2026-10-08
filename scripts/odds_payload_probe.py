@@ -286,6 +286,19 @@ def out_path_ok(path: str) -> tuple[bool, str]:
         return False, "REFUSED: never write under data/ (law 5)."
     if EXPORTS.resolve() not in tgt.parents:
         return False, f"REFUSED: --out must be under exports/ ({EXPORTS})."
+    if tgt.exists() and not tgt.is_file():
+        return False, f"REFUSED: --out {tgt} exists and is not a file."
+    if tgt.is_file():
+        # Codex on #340: never replace a Desk export (the receipts' inputs, mirrored copies included)
+        from src.walters.venue_quote_age import EXPORT_NAME, MIRROR_DIR
+        try:
+            with open(tgt) as f:
+                doc = json.load(f)
+        except (OSError, ValueError, UnicodeDecodeError):
+            doc = None
+        if (EXPORT_NAME.search(tgt.name) or (isinstance(doc, dict) and "desk_meta" in doc)
+                or (EXPORTS.resolve() / MIRROR_DIR) in tgt.parents):
+            return False, f"REFUSED: --out {tgt} is an existing desk export: the probe never overwrites one."
     try:
         db = db_path()
     except Refused:

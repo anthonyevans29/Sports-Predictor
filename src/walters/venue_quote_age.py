@@ -72,9 +72,10 @@ def parse_ts(v) -> datetime | None:
         s = s[:-1] + "+00:00"
     try:
         dt = datetime.fromisoformat(s)
-    except ValueError:
+        # Codex on #340: an offset can overflow on conversion (9999-12-31T23:59:59-23:59): invalid, never a traceback
+        return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo is not None else dt
+    except (ValueError, OverflowError):
         return None
-    return dt.astimezone(timezone.utc).replace(tzinfo=None) if dt.tzinfo is not None else dt
 
 
 class Refused(Exception):
@@ -274,6 +275,8 @@ def venue_prices_ok(doc: dict) -> bool:
             continue
         fp = (x.get("market") or {}).get("fair_prob") if isinstance(x.get("market"), dict) else None
         side = d.get("side")
+        if not isinstance(side, str):
+            return False                           # Codex on #340: typed before the lookup, never a TypeError
         if not isinstance(fp, dict) or side not in fp or fp[side] is None or d.get("book_p") is None:
             return False
         if not (_num(d["book_p"]) and _num(fp[side])):

@@ -1657,3 +1657,11 @@ def test_a_document_mixing_fixture_and_prediction_rows_refuses():
     """Codex on #340: no export writes both; a mixed document would skip the fixture rows' desk check."""
     assert VQ.desk_rows_ok({"fixtures": [{"status": "scheduled", "desk": {"engine": "venue_edge", "call": "PASS"}}]})
     assert not VQ.desk_rows_ok({"fixtures": [{"status": "scheduled"}], "predictions": []})
+
+
+def test_overflowing_offsets_and_non_string_sides_refuse_without_a_traceback():
+    """Codex on #340: 9999-12-31T23:59:59-23:59 overflows on UTC conversion; a list side is no dict key."""
+    assert VQ.parse_ts("9999-12-31T23:59:59-23:59") is None
+    row = _venue_row(1, "x", 2, {"HOME": 0.4735, "AWAY": 0.5265})
+    row["desk"]["side"] = ["AWAY"]
+    assert not VQ.venue_prices_ok({"fixtures": [row]})

@@ -1,0 +1,24 @@
+## 2026-10-08 (#PENDING: ncaa-elo-v1r declared, not run; design receipt OK; the NCAA shadow walks the declared stream)
+- **Design receipt (step (a)).** Adds `scripts/ncaa_v1r_design_receipt.py`, a seeded simulation of the ncaa-elo-v1r gate design (ARCHITECT addendum 11, item 3). It reads no stored game and opens no database.
+  - Receipt: `docs/receipts/ncaa-v1r-design-2026-10-08.md`. Stop condition: OK.
+  - Settings (110,140) / (150,170) / (190,210): mean slope 1.000 / 1.158 / 1.337; band rule 26.5% / 32.0% / 27.5%; D5 (2)&(3) 87.5% / 65.0% / 14.5%.
+  - 675 scored games per season.
+  - Tests in `tests/test_ncaa_v1r_design_receipt.py`.
+- **Declaration (step (b)).** `ncaa-elo-v1r` is in `docs/registry/experiments.json`, declared through `registry.declare`. It is not run (status declared, run null, verdict null).
+  - test_set: "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)".
+  - gate: D5 verbatim. Confirmation window: D7 verbatim.
+  - Plan: 100 games, log_loss, bar 0.6931, must beat the D4 baseline minus 0.010.
+  - `neutral_site_rule`: no_home_advantage_at_neutral, with v1's untouched `constants`.
+  - `prior_reads_note` names the VOID 2026-09-30 v1 run (D9).
+  - The spec, `docs/specs/ncaa-elo-v1r.md`, quotes D1–D9 and the architect's D5 note verbatim.
+- **Shadow (step (c)).** `export-ncaa-predictions` now walks D2's stream: current CFBD labels, seasons 2024, 2025 and 2026, kickoff then match id, postseason included.
+  - Level scores are skipped, counted and listed.
+  - Neutral games are priced and updated with home advantage 0. A label without a neutral flag is treated as non-neutral and counted.
+  - It refuses unless 2024, 2025 and 2026 are all covered (D6), naming each season that misses.
+  - Upcoming rows say which home advantage they applied and that the neutral flag is unknown before the game (D8).
+  - One D1 wrapper, `ncaa_backtest.NeutralRuleElo`, is shared by the shadow and the design receipt.
+  - The file's `fit` block reports games walked per season, the season_type census, the level-score list and the count of labels without a neutral flag.
+- `ncaa-cfbd-coverage` always prints 2024, 2025 and 2026 and says whether the condition holds in all three.
+- #79's all-division stream, gate and numbers are unchanged. NCAA stays market-only.
+- The gate command, `--preflight`, the reservation and the confirmation command are PR B.
+- Adds `tests/test_ncaa_v1r_declaration.py` and a D8 row test in `tests/test_ncaa_shadow.py`.

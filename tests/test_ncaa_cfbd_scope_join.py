@@ -157,8 +157,8 @@ def test_team_merge_lowest_id_every_group_and_changed_name_listed():
              nb.Game(5, 3, "2025", datetime(2025, 9, 13), 14, 28, **lab(2, "2025")),
              nb.Game(9, 6, "2026", datetime(2026, 9, 6), 30, 20, **lab(3, "2026"))]
     v = nb.v1r_stream(games, teams, STAMPS)
-    assert [(g.home_id, g.away_id) for g in v.stream.train] == [(3, 5), (5, 3)]     # one Hawai'i
-    assert [(g.home_id, g.away_id) for g in v.stream.test] == [(4, 6)]
+    assert [(g.home_id, g.away_id) for g in v.by_season("2025")] == [(3, 5), (5, 3)]     # one Hawai'i
+    assert [(g.home_id, g.away_id) for g in v.by_season("2026")] == [(4, 6)]
     assert "one team, keyed 4: 4 'Texas A&M' · 9 'Texas A&amp;M'" in "\n".join(v.lines())
 
 
@@ -186,7 +186,7 @@ def test_v1r_stream_merge_never_writes_teams(fresh_db):
     with session_scope() as s:
         before = {t.id: t.name for t in s.execute(select(Team)).scalars()}
     v = nb.load_v1r_stream()
-    assert {g.home_id for g in v.stream.train} | {g.away_id for g in v.stream.train} == {min(ids), c.id}
+    assert {g.home_id for g in v.games} | {g.away_id for g in v.games} == {min(ids), c.id}
     assert v.merge.groups == [[(ids[0], "Hawai'i"), (ids[1], "Hawai&#x27;i")]]
     with session_scope() as s:
         assert {t.id: t.name for t in s.execute(select(Team)).scalars()} == before   # teams never rewritten
@@ -339,7 +339,7 @@ def test_v1r_stream_excludes_unlabelled_games():
              nb.Game(4, 5, "2026", datetime(2026, 9, 13), 3, 0, match_id=4),
              nb.Game(1, 6, "2025", datetime(2025, 9, 20), 63, 0, **lab(5, "2025", OLD))]   # stale label
     v = nb.v1r_stream(games, {i: f"Team {i}" for i in range(1, 7)}, STAMPS)
-    assert [(g.home_id, g.away_id) for g in v.stream.train + v.stream.test] == [(1, 2), (2, 3)]
+    assert [(g.home_id, g.away_id) for g in v.games] == [(1, 2), (2, 3)]
     assert dict(v.unlabelled) == {"2025": 2, "2026": 1} and dict(v.labelled) == {"2025": 1, "2026": 1}
     assert v.stale == [f"match 5 · CFBD 15 · CFBD season 2025 · label fetched_at {OLD} vs latest record {AT}"]
     assert "NOT walked, NOT scored" in "\n".join(v.lines()) and "STALE labels" in "\n".join(v.lines())
@@ -437,7 +437,7 @@ def test_coverage_cli_prints_scope_fact_v1r_stream_and_79_info(fresh_db, tmp_pat
     res = CliRunner().invoke(cli, ["ncaa-cfbd-coverage"])
     assert res.exit_code == 0, res.output
     out = res.output
-    assert "SCOPE condition (ARCHITECT 2026-10-08)" in out and "coverage condition in BOTH seasons: DOES NOT HOLD" in out
+    assert "SCOPE condition (ARCHITECT 2026-10-08)" in out and "coverage condition in ALL THREE seasons (2024, 2025, 2026): DOES NOT HOLD" in out
     assert "2025: labelled 0 / CFBD completed both-FBS 0" in out and "no ingest record" in out
     assert "2084: labelled 2 / CFBD completed both-FBS 3" in out              # every season with a record
     assert "NCAA-ELO-V1R STREAM" in out and "#79 ALL-DIVISION STREAM" in out and "SUSPENDED-PENDING-DATA" in out
@@ -532,14 +532,14 @@ def test_l2_zero_join_reingest_reads_not_covered_and_the_shadow_refuses(fresh_db
     with session_scope() as s:
         c = nc.stored_coverage(s, ["2084"])["2084"]
     assert (c["labelled"], c["in_scope"], c["ok"], c["current"]) == (2, 2, True, 2)
-    sh.coverage_guard({"2025": c, "2026": c})
+    sh.coverage_guard({"2024": c, "2025": c, "2026": c})
     assert nc.run([2084], from_file=str(fb), out=lambda *_: None) == 0
     with session_scope() as s:
         c = nc.stored_coverage(s, ["2084"])["2084"]
     assert (c["labelled"], c["in_scope"], c["ok"], c["payload"]) == (0, 2, False, str(fb))
     assert nb.load_v1r_stream().labelled == {}                        # the earlier labels are now stale
     with pytest.raises(sh.ShadowRefused, match=r"0\.0% \(0/2\)"):
-        sh.coverage_guard({"2025": c, "2026": c})
+        sh.coverage_guard({"2024": c, "2025": c, "2026": c})
 
 
 def test_l2_laptop_2024_dry_run_figures_read_not_covered(fresh_db):

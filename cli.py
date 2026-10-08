@@ -4974,8 +4974,9 @@ def export_ncaa_predictions_cmd(hours):
     model_shadow, competition NCAA, family NCAAF, gate status (UNGATED — shadow
     only until the verdict). Never a call, never a venue input, never logged.
     REFUSES (exit 2) until ncaa-elo-v1r is declared in the registry with its
-    neutral-site rule and the CFBD side table covers >= 95% of the stream in
-    both seasons. Writes exports/ncaa_shadow_<stamp>.json; nothing to the DB."""
+    neutral-site rule and the CFBD side table labels >= 95% of CFBD's
+    completed both-FBS games in each of 2024, 2025 and 2026 (D6). Walks D2's
+    stream. Writes exports/ncaa_shadow_<stamp>.json; nothing to the DB."""
     from src.walters.ncaa_shadow import ShadowRefused, export
     try:
         path, doc = export(hours=hours)
@@ -4986,9 +4987,12 @@ def export_ncaa_predictions_cmd(hours):
     f = doc["fit"]
     print(f"  NCAA · {doc['count']} FBS games in the next {hours}h · model {doc['model_version']} · "
           f"{doc['gate_verdict']} · engine {doc['engine']} · not gate evidence")
-    print(f"  fit: {f['games_used']} stream games walked (train {f['train_n']} / test {f['test_n']}) · "
-          f"neutral rule {f['neutral_site_rule']} · neutral games {f['neutral_updates']} · coverage "
-          f"{f['coverage']} · ties skipped {f['ties_skipped']} · window skips {doc['skipped'] or 'none'}")
+    print(f"  fit: {f['games_used']} stream games walked (by season {f['walked_by_season']}) · "
+          f"neutral rule {f['neutral_site_rule']} · neutral games {f['neutral_updates']} · no neutral flag "
+          f"{f['neutral_unflagged']} · coverage {f['coverage']} · level scores skipped {f['level_scores_skipped']} · "
+          f"window skips {doc['skipped'] or 'none'}")
+    for line in f["level_scores_listed"]:
+        print(f"    level score (data defect, skipped): {line}")
 
 
 @cli.command("ncaa-shadow-grade")
@@ -6488,8 +6492,8 @@ def ncaa_cfbd_labels_cmd(years, from_file, dry_run, save_dir, division, unmatche
 @cli.command("ncaa-cfbd-coverage")
 def ncaa_cfbd_coverage_cmd():
     """NCAA CFBD label coverage, read-only. SCOPE + LABEL SET (ARCHITECT
-    2026-10-08): per season (every season with an ingest record, plus 2025 and
-    2026) the coverage fact = the season's latest ingest record, joined over in
+    2026-10-08): per season (every season with an ingest record, plus 2024,
+    2025 and 2026: ncaa-elo-v1r D6) the coverage fact = the season's latest ingest record, joined over in
     scope, >= 95%, every unlabelled game as the record lists it (never opens the
     payload; no record = not covered; current labels must number the record's
     joined count); the ncaa-elo-v1r stream (current labels only, stale labels
@@ -6502,7 +6506,7 @@ def ncaa_cfbd_coverage_cmd():
 
     games = nb.load_games()
     with session_scope() as s:
-        seasons = sorted(set(nc.latest_records(s)) | {nb.TRAIN_SEASON, nb.TEST_SEASON})
+        seasons = sorted(set(nc.latest_records(s)) | set(nb.V1R_SEASONS))     # D6: 2024, 2025, 2026 always
         fbs = nc.stored_coverage(s, seasons)
         s.rollback()
     nb.coverage_report(nb.build_stream(games), out=click.echo, fbs=fbs, v1r=nb.load_v1r_stream(games))

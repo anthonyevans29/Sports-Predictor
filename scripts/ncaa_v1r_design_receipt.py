@@ -54,7 +54,6 @@ Run:  python scripts/ncaa_v1r_design_receipt.py [--seasons N] [--out PATH]
 from __future__ import annotations
 
 import argparse
-import dataclasses
 import math
 import sys
 import time
@@ -88,34 +87,21 @@ def season_seed(setting_idx: int, season_idx: int) -> int:
     return MASTER_SEED + 1000 * setting_idx + season_idx
 
 
-class NeutralAwareElo:
+class NeutralAwareElo(nb.NeutralRuleElo):
     """D1's neutral_site_rule (I9): a game labelled neutral is priced and
-    updated with home advantage 0. Records test-season (p, y) pairs."""
+    updated with home advantage 0. The wrapper is the one shared with the
+    shadow (src/walters/ncaa_backtest.NeutralRuleElo, rule
+    no_home_advantage_at_neutral); this subclass only records the test-season
+    (p, y) pairs."""
 
     def __init__(self) -> None:
-        self.m = NCAAEloV1()
+        super().__init__(neutral_home_advantage=False)
         self.pairs: list[tuple[float, int]] = []
 
-    def _call(self, fn, g):
-        if g.neutral:
-            saved = self.m.cfg
-            self.m.cfg = dataclasses.replace(saved, home_advantage=0.0)
-            try:
-                return fn(g)
-            finally:
-                self.m.cfg = saved
-        return fn(g)
-
     def predict(self, g) -> float:
-        p = self._call(self.m.predict, g)
+        p = super().predict(g)
         self.pairs.append((p, g.home_win))
         return p
-
-    def update(self, g) -> None:
-        self._call(self.m.update, g)
-
-    def ratings(self) -> dict[int, float]:
-        return self.m.ratings()
 
 
 def cross_round(rng: np.random.Generator, conf_of: np.ndarray) -> list[tuple[int, int]]:

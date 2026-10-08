@@ -1548,6 +1548,13 @@ def _vqa_out_ok(out_path, exports_dir=None) -> bool:
     if _tgt == _data or _data in _tgt.parents:
         console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
         return False
+    if _tgt.exists() and not _tgt.is_file():
+        console.print(f"[red]REFUSED: --out {out_path} exists and is not a file (a directory?).[/red]")
+        return False                             # Codex on #340: never an IsADirectoryError after the scan
+    _anc = next((a for a in _tgt.parents if a.exists()), None)
+    if _anc is not None and not _anc.is_dir():
+        console.print(f"[red]REFUSED: --out {out_path}: {_anc} is a file, not a directory.[/red]")
+        return False
     from src.walters.venue_quote_age import db_file_path
     _db = db_file_path()
     if _db is not None and _tgt in (_db, _P(str(_db) + "-wal"), _P(str(_db) + "-shm"), _P(str(_db) + "-journal")):

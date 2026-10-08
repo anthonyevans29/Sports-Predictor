@@ -1665,3 +1665,18 @@ def test_overflowing_offsets_and_non_string_sides_refuse_without_a_traceback():
     row = _venue_row(1, "x", 2, {"HOME": 0.4735, "AWAY": 0.5265})
     row["desk"]["side"] = ["AWAY"]
     assert not VQ.venue_prices_ok({"fixtures": [row]})
+
+
+def test_out_naming_a_directory_or_under_a_file_refuses_before_the_scan(tmp_path):
+    """Codex on #340: --out exports (a directory) would raise IsADirectoryError after the scan."""
+    from click.testing import CliRunner
+
+    import cli
+    ids = _seed()
+    ex = _exports(tmp_path, ids)
+    blocker = tmp_path / "afile"
+    blocker.write_text("x")
+    for tgt in (tmp_path, blocker / "r.txt"):
+        for cmd in ("venue-calls-receipt", "quote-age-report"):
+            r = CliRunner().invoke(cli.cli, [cmd, "--since", "2095-10-02", "--exports-dir", str(ex), "--out", str(tgt)])
+            assert r.exit_code == 2 and "REFUSED" in r.output, r.output

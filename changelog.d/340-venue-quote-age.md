@@ -68,3 +68,4 @@
   - A VENUE row's book_p / side fair is checked numeric before it is compared (refusal, never a traceback). A file of any name that begins as a JSON object but does not parse refuses as a damaged export.
   - A ledger venue claim whose `claim_source` is not "auto" or absent refuses. A document carrying both `fixtures` and `predictions` lists refuses. Probe: `--out` refuses the configured database file and its sidecars.
   - A timestamp whose offset overflows on UTC conversion is invalid (refusal, never a traceback); a VENUE side that is not a string refuses before any lookup. Probe: `--out` never replaces an existing desk export (generated name, a desk document, or a mirrored host copy).
+  - `--out` naming a directory, or a path under an existing file, refuses before the scan (never an IsADirectoryError).

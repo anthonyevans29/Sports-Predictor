@@ -833,6 +833,18 @@ def train_cmd(sport: str, notes: str | None):
     console.print("[dim]Run `python cli.py improve` to evaluate against production.[/dim]")
 
 
+def _refuse_shadow_league(competition_code: str | None, cmd: str) -> None:
+    """S1 (ARCHITECT 2026-10-08, addendum 9 item 1): "predict and export-predictions refuse a competition in the
+    set, exit 2, naming export-soccer-expansion-shadow." ONE set: desk_policy.SHADOW_VENUE_COMPS. A league leaves
+    the set only in a reviewed PR after CONFIRMED, by ruling."""
+    from src.walters.desk_policy import SHADOW_VENUE_COMPS
+    code = (competition_code or "").strip().upper()
+    if code in SHADOW_VENUE_COMPS:
+        console.print(f"[red]REFUSED: {cmd} --competition {code}: {code} is a shadow league (soccer-expansion-v1), "
+                      "never a call until CONFIRMED. Its only export is export-soccer-expansion-shadow.[/red]")
+        raise SystemExit(2)
+
+
 @cli.command("predict")
 @click.option("--sport", default="soccer", show_default=True,
               type=click.Choice(["soccer", "mlb"]))
@@ -841,6 +853,7 @@ def train_cmd(sport: str, notes: str | None):
 @click.option("--version", default=None, help="Model version (default: production)")
 def predict_cmd(sport: str, competition_code: str, season: str, version: str | None):
     """Generate predictions for all SCHEDULED matches in a competition/season."""
+    _refuse_shadow_league(competition_code, "predict")
     from src.walters.training import generate_predictions
     from src.db.schema import Competition, Match, MatchStatus, Sport
     sport_enum = Sport.SOCCER if sport == "soccer" else Sport.MLB
@@ -7960,6 +7973,7 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
       python cli.py export-predictions --sport mlb --start 2026-05-23 --end 2026-05-24
       python cli.py export-predictions --sport mlb --status finished  (for post-mortem)
     """
+    _refuse_shadow_league(competition_code, "export-predictions")
     from datetime import datetime, timedelta
     from pathlib import Path
     from src.db.schema import MatchStatus, Sport

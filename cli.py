@@ -1605,7 +1605,7 @@ def venue_calls_receipt_cmd(since, exports_dir, ledger_path, out_path):
         raise SystemExit(2)
     calls = VQ.file_venue_calls(docs, lo, cnt["mirrored"])
     sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
-               f"{cnt['unreadable']} unreadable, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
+               f"{cnt['unreadable']} unreadable, {cnt.get('other_files', 0)} other file(s) not read, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
                f"resolved by identity)"]
     if ledger_path:
         try:
@@ -1653,7 +1653,7 @@ def quote_age_report_cmd(since, exports_dir, out_path):
         console.print(f"[red]{e}[/red]")
         raise SystemExit(2)
     sources = [f"{exports_dir}: {cnt['json_files']} JSON, {cnt['desk_files']} with desk_meta, "
-               f"{cnt['unreadable']} unreadable, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
+               f"{cnt['unreadable']} unreadable, {cnt.get('other_files', 0)} other file(s) not read, {len(cnt['mirrored'])} mirrored (host/: match_id foreign, "
                f"resolved by identity)"]
     try:
         with VQ.readonly_session() as s:      # read-only: no create, no pragma, no commit

@@ -4,6 +4,7 @@ the book consensus at the call and at each later pre-kickoff capture, and whethe
 (4) quote-age-report — MLB/NFL/PL rows decided against a book reference: capture age at decision and the
 "unchanged since" age from our own captures (capture-based proxies, never quote age)."""
 import json
+import os
 from datetime import datetime, timedelta
 
 import pytest
@@ -1492,3 +1493,20 @@ def test_out_never_aliases_the_configured_database(tmp_path, monkeypatch):
             r = CliRunner().invoke(cli.cli, [cmd, "--exports-dir", str(ex), "--out", str(tgt)])
             assert r.exit_code == 2 and "configured database" in r.output, r.output
     assert db.read_bytes() == b"SQLite format 3\x00"
+
+
+def test_custom_exports_without_a_lowercase_json_suffix_are_discovered(tmp_path):
+    """Codex on #340: `--out exports/audit` (no suffix) and `audit.JSON` are desk exports too."""
+    doc = {"competition_code": "NHL", "desk_meta": {"as_of": "2095-10-08T00:00:00Z"}, "fixtures": []}
+    for name in ("audit", "audit.JSON"):
+        d = tmp_path / name.replace(".", "_")
+        d.mkdir()
+        (d / name).write_text(json.dumps(doc))
+        (d / "notes.txt").write_text("not read")
+        docs, cnt = VQ.iter_desk_docs(str(d))
+        assert [os.path.basename(p) for p, _ in docs] == [name] and cnt["other_files"] == 1
+    d = tmp_path / "bad"
+    d.mkdir()
+    (d / "audit.JSON").write_text("{trunc")                                     # upper-case suffix: still refused
+    with pytest.raises(VQ.Refused):
+        VQ.iter_desk_docs(str(d))

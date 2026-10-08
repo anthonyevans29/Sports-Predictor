@@ -297,7 +297,7 @@ def readonly_session():
 def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     """Every JSON under `root` (recursive) whose top level carries desk_meta.as_of. Returns (docs, counts);
     counts["mirrored"] = the desk files under <root>/host/ (the host's pulled copies: foreign match_ids)."""
-    docs, counts = [], {"json_files": 0, "unreadable": 0, "desk_files": 0, "mirrored": []}
+    docs, counts = [], {"json_files": 0, "unreadable": 0, "desk_files": 0, "mirrored": [], "other_files": 0}
     if not os.path.isdir(root):        # Codex on #340: a path error is never an empty audit
         raise Refused(f"REFUSED: --exports-dir {root!r} is not a directory (missing, misspelled or a file): "
                       "no receipt, never an empty one")
@@ -308,14 +308,25 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
     root_is_mirror = os.path.basename(os.path.normpath(os.path.abspath(root))) == MIRROR_DIR
     for d, _, files in sorted(os.walk(root)):
         for n in sorted(files):
-            if not n.endswith(".json"):
-                continue
             p = os.path.join(d, n)
+            if not n.lower().endswith(".json"):        # Codex on #340: .JSON is JSON too
+                # Codex on #340: `--out exports/audit` writes a desk export with no suffix; an extension-less file
+                # that parses as a desk document is read like any other, and anything else is counted, not read
+                sniffed = None
+                if not os.path.splitext(n)[1]:
+                    try:
+                        with open(p) as f:
+                            sniffed = json.load(f)
+                    except (OSError, ValueError, UnicodeDecodeError):
+                        sniffed = None
+                if not (isinstance(sniffed, dict) and "desk_meta" in sniffed):
+                    counts["other_files"] = counts.get("other_files", 0) + 1
+                    continue
             counts["json_files"] += 1
             try:
                 with open(p) as f:
                     doc = json.load(f)
-            except (OSError, ValueError):
+            except (OSError, ValueError, UnicodeDecodeError):
                 counts["unreadable"] += 1
                 # Codex on #340: a damaged EXPORT is never omitted silently: by its name, or (any --out name) by
                 # the desk blocks its readable text still carries

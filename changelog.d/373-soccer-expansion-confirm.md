@@ -8,3 +8,4 @@
 - `registry.record_confirmation` computes the outcome: bar 1.0986 inclusive, reference strict, so a tie fails.
 - Docs: CLI.md row; spec section 5a.
 - Tests: 17 new tests (`tests/test_soccer_expansion_confirm.py`, synthetic leagues, tmp registry).
+- Review round 1 (Codex P1, verified): `run_soccer_backtest` gains the opt-in `score_90_extra_time` (default off, so the gate and every existing command are unchanged). The confirm read passes it: an AET/PEN row is scored AND walked on its stored 90-minute score; one without that score is left out of the walk. Progress prints such rows as a DATA NOTE. One new test.

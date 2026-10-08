@@ -113,6 +113,10 @@ confirmation section at the end of `src/walters/soccer_expansion.py`. The declar
   - the RUN RECORD's `rho` and `elo_goal_coeff`: the candidate as gated, never refit. If the current production
     model differs, progress prints it; the read does not move;
   - predict-then-update. Only the frozen cohort is scored.
+  - `score_90_extra_time=True` (Codex P1 on #373): an AET / PEN row is scored AND walked on its stored 90-minute
+    score, never the after-extra-time one; such a row without a 90-minute score is left out of the walk. Progress
+    prints these rows as a DATA NOTE (a regular-season league game should never go to extra time). The argument
+    defaults off, so the gate's one run is unchanged.
   - A cohort fixture that is finished and scored but not priced by the walk stays pending and is listed as such.
 - **Naive:** each surviving league's 2023/24 H/D/A as the run record stores it (`per_league.<code>.naive_freq`, the
   frozen frequencies the gate used). Only if a league's record lacks it, `naive_for` recomputes it exactly as the

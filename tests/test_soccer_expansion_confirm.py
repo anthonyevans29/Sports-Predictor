@@ -364,3 +364,34 @@ def test_record_computes_the_outcome_per_the_plan(ledger, world, monkeypatch, ll
     assert set(c["result"]["per_league"]) == {"PD", "BL1"} and c["result"]["naive_source"]["PD"] == sx.NAIVE_FROM_RECORD
     assert c["result"]["params"] == {"production_version": "v22", "rho": -0.1, "elo_goal_coeff": 0.0008}
     assert (ledger["ids"] / f"{sx.EID}.confirm.txt").exists()
+
+
+# ------------------------------------------------- AET / PEN: the 90' score (Codex P1 on #373) --
+
+def test_an_aet_cohort_fixture_is_scored_and_walked_on_its_90_minute_score(ledger, world):
+    """A cohort fixture drawn 1-1 at 90' and won 2-1 after extra time is scored as a DRAW, and every later prediction
+    equals a hand replay with the row stored as a 1-1 FT: the extra-time goals never touch Elo or the strengths. The
+    gate's default walk is unchanged (it still reads the after-extra-time score)."""
+    from src.walters.soccer_backtest import run_soccer_backtest
+    _freeze(ledger)
+    mid = world["ids"][4]
+    with session_scope() as s:
+        code = s.get(Match, mid).competition.code
+    old = _set(mid, MatchStatus.FINISHED, "AET", 2, 1, 1, 1)
+    try:
+        aet = sx.confirmation_read()
+        _set(mid, MatchStatus.FINISHED, "FT", 1, 1)               # the hand replay: the row as a 1-1 FT
+        ft = sx.confirmation_read()
+        assert aet["n"] == 60 and ft["scored_ids"] == aet["scored_ids"] and mid in aet["scored_ids"]
+        assert aet["log_loss"] == ft["log_loss"] and aet["naive_log_loss"] == ft["naive_log_loss"]
+        assert aet["per_league"] == ft["per_league"]
+        _set(mid, MatchStatus.FINISHED, "AET", 2, 1, 1, 1)
+        out = _cli().output
+        assert "extra-time" in out and f"{mid}" in out and "AET" in out, out
+        kw = dict(dixon_coles_rho=-0.1, elo_goal_coeff=0.0008, stage_filter=sx.is_regular, batch_same_kickoff=True)
+        default = {r["match_id"]: r for r in run_soccer_backtest(code, SEASON, 40, **kw)}
+        assert default[mid]["actual"] == "H"                      # default off: the gate's walk is unchanged
+        opt = {r["match_id"]: r for r in run_soccer_backtest(code, SEASON, 40, score_90_extra_time=True, **kw)}
+        assert opt[mid]["actual"] == "D"
+    finally:
+        _restore(mid, old)

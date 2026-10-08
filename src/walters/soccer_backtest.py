@@ -65,6 +65,24 @@ def time_decay_weight(age_days: float, half_life_days: float) -> float:
     return 0.5 ** (max(0.0, age_days) / half_life_days)
 
 
+EXTRA_TIME_CODES = ("AET", "PEN")
+
+
+def _score_90_rows(matches):
+    """score_90_extra_time: AET / PEN rows become read-only stand-ins carrying the 90-minute score (the stored row
+    is never modified); one without a stored 90-minute score is dropped. Every other row is passed through as is."""
+    from types import SimpleNamespace
+    out = []
+    for m in matches:
+        if (m.status_raw or "").upper() not in EXTRA_TIME_CODES:
+            out.append(m)
+        elif m.home_score_90 is not None and m.away_score_90 is not None:
+            out.append(SimpleNamespace(id=m.id, utc_date=m.utc_date, stage=m.stage, status_raw=m.status_raw,
+                                       home_team_id=m.home_team_id, away_team_id=m.away_team_id,
+                                       home_score=m.home_score_90, away_score=m.away_score_90))
+    return out
+
+
 def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         min_prior: int = 40, dixon_coles_rho: float | None = None,
                         elo_goal_coeff: float | None = None,
@@ -73,7 +91,8 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                         s14_uncertain_offset: float | None = None,
                         sealed_read: bool = False,
                         stage_filter=None,
-                        batch_same_kickoff: bool = False):
+                        batch_same_kickoff: bool = False,
+                        score_90_extra_time: bool = False):
     """
     Walk `competition_code`/`season` in date order, predict each match using only
     prior matches (leakage-free). Returns a list of per-match result dicts:
@@ -114,6 +133,14 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
     scored predicate becomes ">= min_prior rows with a strictly earlier
     kickoff, both teams among them". False (the default) = the row-by-row
     walk, so every existing command reproduces its recorded numbers.
+
+    score_90_extra_time (soccer-expansion-confirm, Codex P1 on #373): when
+    True, a row whose status_raw is AET or PEN is scored AND walked (Elo, the
+    strength prior) on its stored 90-minute score (home_score_90 /
+    away_score_90), never the after-extra-time score; such a row without a
+    stored 90-minute score is left out of the walk entirely (law 4: never the
+    extra-time score). False (the default) = unchanged, so the gate's one run
+    and every existing command reproduce exactly.
     """
     # soccer-expansion-v1 (ARCHITECT 2026-10-07; Codex on #326): its leagues' test seasons are read ONCE, by its gate.
     # Every caller of this walk (soccer-backtest, the rho / coefficient sweeps, the candidate harnesses) is refused
@@ -142,6 +169,8 @@ def run_soccer_backtest(competition_code: str = "PL", season: str | None = None,
                    if m.utc_date and m.home_score is not None and m.away_score is not None]
         if stage_filter is not None:
             matches = [m for m in matches if stage_filter(m.stage)]
+        if score_90_extra_time:
+            matches = _score_90_rows(matches)
         matches.sort(key=lambda m: m.utc_date)
         if not matches:
             return None

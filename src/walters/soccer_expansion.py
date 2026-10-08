@@ -742,6 +742,8 @@ def eligible_fixtures(s, e: dict, surv: list[str]) -> tuple[list[dict], list[dic
         f = {"id": m.id, "kickoff": m.utc_date, "code": comps[m.competition_id], "season": m.season,
              "stage": m.stage, "status": status, "status_raw": m.status_raw,
              "has_score": m.home_score is not None and m.away_score is not None,
+             "score_90": (f"{m.home_score_90}-{m.away_score_90}" if m.home_score_90 is not None
+                          and m.away_score_90 is not None else None),
              "unscoreable": _unscoreable(m, status)}
         pl = placement(m.stage)
         if pl is None:
@@ -818,7 +820,8 @@ def confirmation_read() -> dict:
     for code, season in sorted({(by_id[i]["code"], by_id[i]["season"]) for i in want if i in by_id}):
         for r in run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=params["rho"],
                                      elo_goal_coeff=params["elo_goal_coeff"], stage_filter=is_regular,
-                                     batch_same_kickoff=BATCH_SAME_KICKOFF) or []:
+                                     batch_same_kickoff=BATCH_SAME_KICKOFF,
+                                     score_90_extra_time=True) or []:      # Codex P1 on #373: never the ET score
             if r["match_id"] in want:
                 priced[r["match_id"]] = r
     key = {"H": "p_home", "D": "p_draw", "A": "p_away"}
@@ -851,6 +854,9 @@ def confirmation_read() -> dict:
            "first_game_at": by_id[scored[0]]["kickoff"].strftime("%Y-%m-%dT%H:%M:%SZ") if scored else None,
            "cohort_state": co["state"], "cohort_size": len(co["ids"]), "eligible_stored": co["eligible_stored"],
            "unplaced": [f"{f['code']} {f['id']} {f['stage']!r}" for f in unpl],
+           # a DATA NOTE: a regular-season league game should never go to extra time; read on its 90' score
+           "extra_time_rows": [f"{f['code']} {f['id']} {f['status_raw']} (90' {f['score_90'] or 'not stored'})"
+                               for f in elig if (f["status_raw"] or "").upper() in ("AET", "PEN")],
            "pending": [{"id": i, "status": why(i)} for i in pending],
            "release_due": sum(1 for i in pending if (by_id.get(i) or {}).get("unscoreable") and co["state"] == "frozen"),
            "per_league": per,

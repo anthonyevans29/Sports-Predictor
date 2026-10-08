@@ -219,7 +219,7 @@ def fit(now: datetime, neutral_home_advantage: bool, games=None, fbs: dict | Non
                    "ties_skipped": st.ties, "neutral_updates": model.neutral_updates,
                    "coverage": {s: round(c["share"], 4) for s, c in sorted(cov.items()) if c["share"] is not None},
                    "unlabelled_not_walked": dict(sorted(v.unlabelled.items())),
-                   "labels_excluded_not_in_latest_receipt": list(v.stale),
+                   "stale_labels_not_walked": list(v.stale),
                    "team_merge": {"groups": [[[t, n] for t, n in g] for g in v.merge.groups],
                                   "changed_names": [[t, n, u] for t, n, u in v.merge.changed]},
                    "constants": {"k_factor": model.cfg.k_factor, "home_advantage": model.cfg.home_advantage,
@@ -228,20 +228,22 @@ def fit(now: datetime, neutral_home_advantage: bool, games=None, fbs: dict | Non
 
 
 def fbs_teams(s, merge=None) -> set[int]:
-    """Teams of the games whose both-FBS label the latest persisted ingest receipt of its season admits
-    (ncaa_cfbd.admitted_labels, the set the v1r stream and the coverage numerator use; Codex on #362: an older
-    side-table row, e.g. from a `--division ''` run, never qualifies a team), as merged ids (J2) when `merge`
-    is given."""
-    from sqlalchemy import select
+    """L3 (ARCHITECT 2026-10-08, addendum 11): "The v1r stream and the shadow's FBS team set read current
+    labels only." Teams of the games whose label is current (its fetched_at equals its season's latest ingest
+    record's; ncaa_cfbd.latest_record_stamps); a stale label never qualifies a team. Merged ids (J2) when
+    `merge` is given."""
+    from sqlalchemy import and_, or_, select
 
-    from src.db.schema import Match
-    from src.ingestion.ncaa_cfbd import admitted_labels
+    from src.db.schema import Match, NCAACFBDLabel
+    from src.ingestion.ncaa_cfbd import latest_record_stamps
 
-    admitted, _ = admitted_labels(s)
-    mids = sorted({m for per in admitted.values() for m in per})
-    if not mids:
+    stamps = latest_record_stamps(s)
+    if not stamps:
         return set()
-    q = select(Match.home_team_id, Match.away_team_id).where(Match.id.in_(mids))
+    cond = or_(*[and_(NCAACFBDLabel.season == season, NCAACFBDLabel.fetched_at == at)
+                 for season, at in stamps.items()])
+    q = (select(Match.home_team_id, Match.away_team_id)
+         .join(NCAACFBDLabel, NCAACFBDLabel.match_id == Match.id).where(cond))
     canon = merge or (lambda t: t)
     return {canon(t) for row in s.execute(q).all() for t in row}
 

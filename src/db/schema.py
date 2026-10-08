@@ -625,7 +625,7 @@ class NCAACFBDLabel(Base):
       equal the matches row; otherwise why they differ ('score-reversed: ...'
       / 'score-disagree: ...'). The stream reads THESE scores (ruling (4)).
     * season_type: CFBD's seasonType as served (J4, ARCHITECT 2026-10-08);
-      NULL until the next ingest after migrate_ncaa_cfbd_season_type.py.
+      NULL until the next ingest after migrate_ncaa_cfbd_v2.py.
     Created by migrate_ncaa_cfbd_labels.py. Upserted by match id, never
     deleted by the ingest.
     """
@@ -645,7 +645,7 @@ class NCAACFBDLabel(Base):
     join_via: Mapped[str | None] = mapped_column(String(16))                   # exact | substring | alias | dateshift
     correction_reason: Mapped[str | None] = mapped_column(String(256))
     # J4 (ARCHITECT 2026-10-08): CFBD's seasonType as served ('regular' / 'postseason' / ...), nullable,
-    # added by migrate_ncaa_cfbd_season_type.py, filled on the next ingest. DATA ONLY: nothing reads it as a rule.
+    # added by migrate_ncaa_cfbd_v2.py, filled on the next ingest. DATA ONLY: nothing reads it as a rule.
     season_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     payload_file: Mapped[str | None] = mapped_column(String(256))              # the saved payload (exports/)
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
@@ -654,42 +654,32 @@ class NCAACFBDLabel(Base):
     match: Mapped[Match] = relationship()
 
 
-class NCAACFBDIngestReceipt(Base):
+class NCAACFBDIngestRecord(Base):
     """
-    NCAA CFBD INGEST RECEIPT (ARCHITECT 2026-10-08, SCOPE: coverage is "read
-    from the ingest receipt (joined over in scope), every unmatched game
-    listed"; Codex on #362). One row per season per NON-DRY `ncaa-cfbd-labels`
-    run, written EVEN WHEN NOTHING JOINS, so the latest run's coverage is never
-    inferred from older joined rows. Append-only: the ingest never updates or
-    deletes a receipt.
+    NCAA CFBD INGEST RECORD (ARCHITECT 2026-10-08, addendum 11 item 2, LABEL
+    SET, L1, verbatim): "Every non-dry ingest writes one ingest record per
+    season to a new table with its own additive migrate script: season,
+    division, fetched_at, payload_file, records, in scope, joined, and the
+    unlabelled games as the receipt lists them. A run that joins nothing still
+    writes its record."
 
-    * in_scope_ids: CFBD game ids of that run's completed in-scope games
-      (both-FBS under the default division); joined: [[match_id, cfbd id], ...]
-      the run joined (after every refusal). The v1r stream admits a labelled
-      game only if (match_id, cfbd id) is in the season's LATEST receipt's
-      `joined` (ncaa_cfbd.admitted_labels), the same set coverage counts.
-    * unlabelled: every in-scope game the run left without a row, with why.
-    * status: 'ok' | 'empty' (no records) | 'refused_fields' (a required field
-      missing): every non-'ok' run reads in_scope 0 -> coverage NOT met.
-    Created by migrate_ncaa_cfbd_ingest_receipts.py.
+    Append-only (the ingest never updates or deletes a record). The season's
+    LATEST record (by fetched_at, then id) is the coverage fact (L2); a label
+    is CURRENT when its fetched_at equals that record's (L3). Created by
+    migrate_ncaa_cfbd_v2.py.
     """
 
-    __tablename__ = "ncaa_cfbd_ingest_receipts"
+    __tablename__ = "ncaa_cfbd_ingest_records"
 
     id: Mapped[int] = mapped_column(primary_key=True)
     season: Mapped[str] = mapped_column(String(16), index=True)                # the CFBD --year
-    run_at: Mapped[datetime] = mapped_column(DateTime)
-    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    division: Mapped[str] = mapped_column(String(16))                          # always 'fbs' (L4)
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)                     # = the run's labels' fetched_at
     payload_file: Mapped[str | None] = mapped_column(String(256))
-    division: Mapped[str | None] = mapped_column(String(16))                   # 'fbs'; NULL = all
-    status: Mapped[str] = mapped_column(String(16))
     records: Mapped[int] = mapped_column(Integer)
     in_scope: Mapped[int] = mapped_column(Integer)
-    labelled: Mapped[int] = mapped_column(Integer)
-    unmatched: Mapped[int] = mapped_column(Integer)
-    in_scope_ids: Mapped[list] = mapped_column(JSON, default=list)
-    joined: Mapped[list] = mapped_column(JSON, default=list)
-    unlabelled: Mapped[list] = mapped_column(JSON, default=list)
+    joined: Mapped[int] = mapped_column(Integer)
+    unlabelled: Mapped[list] = mapped_column(JSON, default=list)               # as the receipt lists them
 
 
 class TeamRating(Base):

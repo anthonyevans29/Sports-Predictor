@@ -92,12 +92,8 @@ def mine(world, monkeypatch):
     monkeypatch.setattr(nb, "load_games", lambda: [g for g in real() if g.home_id in teams and g.away_id in teams])
     monkeypatch.setattr(nc, "stored_coverage", lambda s, seasons, **k: _fbs())
 
-    def admit_all(s, seasons=None):                  # every label of this module is the latest receipt's join
-        out = {}
-        for r_ in s.execute(select(NCAACFBDLabel)).scalars():
-            out.setdefault(r_.season, {})[r_.match_id] = r_.source_game_id
-        return out, {}
-    monkeypatch.setattr(nc, "admitted_labels", admit_all)
+    # L3: every label of this module is stamped NOW, the latest ingest record's fetched_at for both seasons
+    monkeypatch.setattr(nc, "latest_record_stamps", lambda s, seasons=None: {"2025": NOW, "2026": NOW})
     return world
 
 

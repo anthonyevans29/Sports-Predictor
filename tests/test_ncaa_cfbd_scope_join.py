@@ -38,6 +38,16 @@ def build(records, our_list, teams, aliases=None):
     return nc.build_labels(records, KEYS, our_list, teams, aliases or {}, 2084, "fbs")
 
 
+AT, OLD = datetime(2026, 10, 9, 12), datetime(2026, 10, 7, 12)
+STAMPS = {"2025": AT, "2026": AT}
+
+
+def lab(mid, season, at=None):
+    """A stream game's CFBD label fields (L3: current when `at` equals the season's latest record stamp)."""
+    return dict(label_source="cfbd", orientation="same", match_id=mid, cfbd_id=mid + 10, cfbd_season=season,
+                label_fetched_at=at or AT)
+
+
 # --- J1: the dateshift retry ------------------------------------------------------------------------------------
 
 T = {1: "Shift A", 2: "Shift B", 3: "Shift C", 4: "Shift D", 5: "Shift E", 6: "Shift F", 7: "Shift G",
@@ -143,12 +153,10 @@ def test_team_merge_lowest_id_every_group_and_changed_name_listed():
     assert tm.changed == [(3, "Hawai&#x27;i", "Hawai'i"), (9, "Texas A&amp;M", "Texas A&M")]
     lines = "\n".join(tm.lines())
     assert "2 group(s) · 2 name(s) changed" in lines and "one team, keyed 3: 3 'Hawai&#x27;i' · 7 \"Hawai'i\"" in lines
-    def lab(mid, season):
-        return dict(label_source="cfbd", orientation="same", match_id=mid, cfbd_id=mid + 10, cfbd_season=season)
     games = [nb.Game(7, 5, "2025", datetime(2025, 9, 6), 21, 7, **lab(1, "2025")),
              nb.Game(5, 3, "2025", datetime(2025, 9, 13), 14, 28, **lab(2, "2025")),
              nb.Game(9, 6, "2026", datetime(2026, 9, 6), 30, 20, **lab(3, "2026"))]
-    v = nb.v1r_stream(games, teams, {"2025": {1: 11, 2: 12}, "2026": {3: 13}})
+    v = nb.v1r_stream(games, teams, STAMPS)
     assert [(g.home_id, g.away_id) for g in v.stream.train] == [(3, 5), (5, 3)]     # one Hawai'i
     assert [(g.home_id, g.away_id) for g in v.stream.test] == [(4, 6)]
     assert "one team, keyed 4: 4 'Texas A&M' · 9 'Texas A&amp;M'" in "\n".join(v.lines())
@@ -164,7 +172,6 @@ def test_v1r_stream_merge_never_writes_teams(fresh_db):
             Team(sport=Sport.NFL, name="Merge Opp")
         s.add_all([comp, a, b, c])
         s.flush()
-        joined = []
         for i, (h, aw) in enumerate(((a, c), (c, b))):
             m = Match(sport=Sport.NFL, competition_id=comp.id, season="2025", utc_date=datetime(2025, 9, 6 + 7 * i),
                       status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=aw.id, home_score=21,
@@ -173,9 +180,8 @@ def test_v1r_stream_merge_never_writes_teams(fresh_db):
             s.flush()
             s.add(NCAACFBDLabel(match_id=m.id, source="cfbd", source_game_id=500 + i, season="2025",
                                 orientation="same", neutral=False, home_score=21, away_score=7,
-                                fetched_at=datetime(2026, 10, 8)))
-            joined.append([m.id, 500 + i])
-        s.add(_receipt("2025", joined, [500, 501]))
+                                fetched_at=AT))
+        s.add(_record("2025", joined=2, in_scope=2))
         ids = (a.id, b.id)
     with session_scope() as s:
         before = {t.id: t.name for t in s.execute(select(Team)).scalars()}
@@ -186,12 +192,10 @@ def test_v1r_stream_merge_never_writes_teams(fresh_db):
         assert {t.id: t.name for t in s.execute(select(Team)).scalars()} == before   # teams never rewritten
 
 
-def _receipt(season, joined, in_scope_ids, division="fbs", status="ok"):
-    from src.db.schema import NCAACFBDIngestReceipt
-    return NCAACFBDIngestReceipt(season=season, run_at=datetime(2026, 10, 8), fetched_at=datetime(2026, 10, 8),
-                                 payload_file="p.json", division=division, status=status, records=len(in_scope_ids),
-                                 in_scope=len(in_scope_ids), labelled=len(joined), unmatched=0,
-                                 in_scope_ids=in_scope_ids, joined=joined, unlabelled=[])
+def _record(season, joined, in_scope, at=None, unlabelled=()):
+    from src.db.schema import NCAACFBDIngestRecord
+    return NCAACFBDIngestRecord(season=season, division="fbs", fetched_at=at or AT, payload_file="p.json",
+                                records=in_scope, in_scope=in_scope, joined=joined, unlabelled=list(unlabelled))
 
 
 # --- J3: the pinned aliases ---------------------------------------------------------------------------------
@@ -285,7 +289,7 @@ J4_RECS = [rec(9501, "J4 A", "J4 B", 31, 10, "2084-09-06T19:00:00.000Z"),
 
 
 def test_migration_adds_nullable_column_idempotently_and_ingest_fills_it(fresh_db, tmp_path, monkeypatch, capsys):
-    import migrate_ncaa_cfbd_season_type as mig_st
+    import migrate_ncaa_cfbd_v2 as mig_st
     from src.db.database import session_scope
 
     _old_schema(fresh_db)
@@ -298,7 +302,7 @@ def test_migration_adds_nullable_column_idempotently_and_ingest_fills_it(fresh_d
     # before the migration: readers still work (season_type never selected), the ingest refuses to write
     assert {g.match_id: g.season_type for g in nb.load_games()} == {ms["reg"]: None, ms["post"]: None,
                                                                      ms["fcs"]: None}
-    with pytest.raises(nc.CFBDError, match="migrate_ncaa_cfbd_season_type.py"):
+    with pytest.raises(nc.CFBDError, match="migrate_ncaa_cfbd_v2.py"):
         nc.run([2084], from_file=str(f), out=lambda *_: None)
     assert nc.run([2084], from_file=str(f), dry_run=True, out=lambda *_: None) == 0
     capsys.readouterr()
@@ -317,7 +321,7 @@ def test_migration_adds_nullable_column_idempotently_and_ingest_fills_it(fresh_d
 
 
 def test_migration_refuses_without_the_side_table(fresh_db, capsys):
-    import migrate_ncaa_cfbd_season_type as mig_st
+    import migrate_ncaa_cfbd_v2 as mig_st
     from src.db.database import init_db
 
     init_db()
@@ -329,18 +333,16 @@ def test_migration_refuses_without_the_side_table(fresh_db, capsys):
 # --- SCOPE: the stream and the coverage denominator -------------------------------------------------------------
 
 def test_v1r_stream_excludes_unlabelled_games():
-    def lab(mid, season):
-        return dict(label_source="cfbd", orientation="same", match_id=mid, cfbd_id=mid + 10, cfbd_season=season)
     games = [nb.Game(1, 2, "2025", datetime(2025, 9, 6), 21, 7, **lab(1, "2025")),
              nb.Game(1, 3, "2025", datetime(2025, 9, 13), 70, 0, match_id=2),       # FCS opponent: no label
              nb.Game(2, 3, "2026", datetime(2026, 9, 6), 14, 10, **lab(3, "2026")),
              nb.Game(4, 5, "2026", datetime(2026, 9, 13), 3, 0, match_id=4),
-             nb.Game(1, 6, "2025", datetime(2025, 9, 20), 63, 0, **lab(5, "2025"))]   # a label the receipt lacks
-    v = nb.v1r_stream(games, {i: f"Team {i}" for i in range(1, 7)}, {"2025": {1: 11}, "2026": {3: 13}})
+             nb.Game(1, 6, "2025", datetime(2025, 9, 20), 63, 0, **lab(5, "2025", OLD))]   # stale label
+    v = nb.v1r_stream(games, {i: f"Team {i}" for i in range(1, 7)}, STAMPS)
     assert [(g.home_id, g.away_id) for g in v.stream.train + v.stream.test] == [(1, 2), (2, 3)]
     assert dict(v.unlabelled) == {"2025": 2, "2026": 1} and dict(v.labelled) == {"2025": 1, "2026": 1}
-    assert v.stale == ["match 5 · CFBD 15 · CFBD season 2025 · the season's latest ingest receipt did not join it"]
-    assert "NOT walked, NOT scored" in "\n".join(v.lines()) and "EXCLUDED" in "\n".join(v.lines())
+    assert v.stale == [f"match 5 · CFBD 15 · CFBD season 2025 · label fetched_at {OLD} vs latest record {AT}"]
+    assert "NOT walked, NOT scored" in "\n".join(v.lines()) and "STALE labels" in "\n".join(v.lines())
     full = nb.build_stream(games)                                     # #79's all-division stream is unchanged
     assert (len(full.train), len(full.test)) == (3, 2)
 
@@ -378,7 +380,7 @@ def test_ingest_receipt_states_the_coverage_and_lists_every_unlabelled_game():
     assert "FCS U" not in text_.split("UNLABELLED")[1]
 
 
-def test_stored_coverage_reads_the_latest_persisted_receipt(fresh_db, tmp_path, monkeypatch):
+def test_l2_coverage_is_the_latest_record_and_never_opens_the_payload(fresh_db, tmp_path, monkeypatch):
     import migrate_ncaa_cfbd_labels as mig
     from src.db.database import init_db, session_scope
 
@@ -397,20 +399,23 @@ def test_stored_coverage_reads_the_latest_persisted_receipt(fresh_db, tmp_path, 
         cov = nc.stored_coverage(s, ["2084", "2085"])
     c = cov["2084"]
     assert (c["in_scope"], c["labelled"], c["ok"], c["payload"]) == (3, 2, False, str(f))
-    assert c["unlabelled"] == ["2084-09-20 Nowhere Tech @ J4 B — unmatched"]          # every one, from the receipt
-    assert cov["2085"]["ok"] is False and cov["2085"]["reason"] == "no persisted ingest receipt for this season"
+    assert c["unlabelled"] == ["2084-09-20 Nowhere Tech @ J4 B — unmatched"]          # every one, from the record
+    assert cov["2085"]["ok"] is False and cov["2085"]["reason"] == "no ingest record for this season (L2: not covered)"
     out = "\n".join(nc.stored_coverage_lines(cov))
     assert "2084: labelled 2 / CFBD completed both-FBS 3 = 66.7% · >= 95%: NO" in out and "Nowhere Tech" in out
-    f.unlink()                                                        # the receipt, not the payload, is read
+    import builtins                                                   # L2: never opens the payload file
+    real_open = builtins.open
+    opened = []
+    monkeypatch.setattr(builtins, "open", lambda *a, **k: (opened.append(str(a[0])), real_open(*a, **k))[1])
     with session_scope() as s:
         assert nc.stored_coverage(s, ["2084"])["2084"]["labelled"] == 2
-    with session_scope() as s:                                        # a dry run writes no receipt
-        n0 = s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_ingest_receipts")).scalar()
-    g = tmp_path / "again.json"
-    g.write_text(json.dumps(J4_RECS))
-    assert nc.run([2084], from_file=str(g), dry_run=True, out=lambda *_: None) == 0
+    monkeypatch.setattr(builtins, "open", real_open)
+    assert str(f) not in opened
+    with session_scope() as s:                                        # a dry run writes no record
+        n0 = s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_ingest_records")).scalar()
+    assert nc.run([2084], from_file=str(f), dry_run=True, out=lambda *_: None) == 0
     with session_scope() as s:
-        assert s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_ingest_receipts")).scalar() == n0
+        assert s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_ingest_records")).scalar() == n0
 
 
 def test_coverage_cli_prints_scope_fact_v1r_stream_and_79_info(fresh_db, tmp_path, monkeypatch):
@@ -433,11 +438,12 @@ def test_coverage_cli_prints_scope_fact_v1r_stream_and_79_info(fresh_db, tmp_pat
     assert res.exit_code == 0, res.output
     out = res.output
     assert "SCOPE condition (ARCHITECT 2026-10-08)" in out and "coverage condition in BOTH seasons: DOES NOT HOLD" in out
-    assert "2025: labelled 0 / CFBD completed both-FBS 0" in out and "no persisted ingest receipt" in out
+    assert "2025: labelled 0 / CFBD completed both-FBS 0" in out and "no ingest record" in out
+    assert "2084: labelled 2 / CFBD completed both-FBS 3" in out              # every season with a record
     assert "NCAA-ELO-V1R STREAM" in out and "#79 ALL-DIVISION STREAM" in out and "SUSPENDED-PENDING-DATA" in out
 
 
-# --- Codex on #362: the persisted receipt decides scope and coverage -------------------------------------------
+# --- ARCHITECT 2026-10-08, addendum 11 item 2: J5 and the LABEL SET (L1-L4) ------------------------------------
 
 def _setup(fresh_db, tmp_path, monkeypatch):
     import migrate_ncaa_cfbd_labels as mig
@@ -452,92 +458,185 @@ def _setup(fresh_db, tmp_path, monkeypatch):
     return ms
 
 
-def test_stale_all_division_label_is_excluded_from_stream_and_fbs_teams(fresh_db, tmp_path, monkeypatch):
-    """P2-1: a label left by an earlier `--division ''` run (kept: the ingest never deletes) is not a both-FBS
-    label once the latest receipt (an FBS run) did not join it — never walked, never qualifies a team."""
+MIA = {701: "Miami", 702: "Texas", 703: "Miami (OH)", 704: "Texas State", 705: "Early U", 706: "Early State",
+       707: "Early"}
+
+
+def test_j5_missing_game_no_longer_steals_a_substring_fit_and_costs_a_correct_label():
+    """J5, the architect's scratch-DB case: Miami @ Texas is missing from our table; its substring fit on the
+    same-day Miami (OH) @ Texas State (scores differ) used to join, the duplicate-target rule then refused BOTH.
+    Now the substring fit fails the score test, Miami @ Texas is unmatched, and Miami (OH) @ Texas State keeps
+    its exact label."""
+    o = [ours(801, MIA, 704, 703, datetime(2084, 9, 6, 23), 17, 24)]          # ours: Miami (OH) 24 @ Texas State 17
+    recs = [rec(9801, "Texas", "Miami", 33, 21, "2084-09-06T19:30:00.000Z"),     # missing from our table
+            rec(9802, "Texas State", "Miami (OH)", 17, 24, "2084-09-06T23:00:00.000Z")]
+    r = build(recs, o, MIA)
+    assert [(x["match_id"], x["source_game_id"], x["join_via"]) for x in r.rows] == [(801, 9802, "exact")]
+    assert r.counts["duplicate_target_refused"] == 0 and r.counts["unmatched"] == 1
+    assert r.counts["first_pass_substring_to_retry"] == 1
+    assert "first pass: substring fit our match 801 (same) fails the score test (ours 17-24)" in r.unmatched[0]
+    assert "2084-09-06 Miami @ Texas" in r.unmatched[0]
+
+
+def test_j5_day_early_game_with_a_wrong_first_pass_substring_fit_reaches_the_retry():
+    """Our row for Early U @ Early State is stored a day early (outside ±12h); a same-day game of ours that
+    fits by substring only (Early @ Early State, other scores) used to take the label. Now the substring fit
+    fails the score test, the retry tries the exact tier first across 36h and joins the right game."""
+    o = [ours(811, MIA, 706, 705, datetime(2084, 9, 5, 2), 28, 14),            # the right game, a day early
+         ours(812, MIA, 706, 707, datetime(2084, 9, 6, 0), 3, 0)]              # same day, substring only
+    r = build([rec(9811, "Early State", "Early U", 28, 14, "2084-09-06T02:00:00.000Z")], o, MIA)
+    assert [(x["match_id"], x["join_via"]) for x in r.rows] == [(811, "dateshift")]
+    assert "offset -24.0h" in r.dateshift[0]
+
+
+def test_j5_exact_tier_unchanged_disagreement_listed_as_corrected():
+    o = [ours(821, T, 1, 2, datetime(2084, 9, 6, 19), 10, 7)]
+    r = build([rec(9821, "Shift A", "Shift B", 13, 7, "2084-09-06T19:00:00.000Z")], o, T)
+    assert r.rows[0]["join_via"] == "exact" and r.rows[0]["home_score"] == 13
+    assert r.rows[0]["correction_reason"].startswith("score-disagree") and len(r.corrections) == 1
+
+
+def test_l1_every_non_dry_run_writes_one_record_per_season_zero_joins_included(fresh_db, tmp_path, monkeypatch):
     from src.db.database import session_scope
-    from src.walters import ncaa_shadow as sh
+    from src.db.schema import NCAACFBDIngestRecord
 
-    ms = _setup(fresh_db, tmp_path, monkeypatch)
-    f = tmp_path / "cfbd_games_2084.json"
+    _setup(fresh_db, tmp_path, monkeypatch)
+    f, z = tmp_path / "cfbd_games_2084.json", tmp_path / "zero.json"
     f.write_text(json.dumps(J4_RECS))
-    assert nc.run([2084], from_file=str(f), division="", out=lambda *_: None) == 0       # labels the FCS game
+    z.write_text(json.dumps([dict(r_, homeTeam=f"Zed H{i}", awayTeam=f"Zed A{i}") for i, r_ in enumerate(J4_RECS)]))
+    assert nc.run([2084], from_file=str(f), out=lambda *_: None) == 0
+    assert nc.run([2084], from_file=str(z), out=lambda *_: None) == 0        # joins nothing: still a record
     with session_scope() as s:
-        assert s.get(NCAACFBDLabel, ms["fcs"]) is not None
-        fcs_team = s.get(Match, ms["fcs"]).away_team_id
-    assert nc.run([2084], from_file=str(f), out=lambda *_: None) == 0                    # the FBS run
-    with session_scope() as s:
-        assert s.get(NCAACFBDLabel, ms["fcs"]) is not None                               # kept, never deleted
-    assert ms["fcs"] in {g.match_id for g in nb.load_games() if g.label_source == "cfbd"}   # #79 reads the row
-    v = nb.load_v1r_stream()
-    assert v.labelled == {"2084": 2} and v.unlabelled == {"2084": 1}  # the FCS game: neither walked nor scored
-    assert any(x.startswith(f"match {ms['fcs']} · CFBD 9503") for x in v.stale)
-    with session_scope() as s:
-        teams = sh.fbs_teams(s)
-    assert fcs_team not in teams and len(teams) == 4
+        rows = s.execute(select(NCAACFBDIngestRecord).order_by(NCAACFBDIngestRecord.id)).scalars().all()
+        cols = {c.name for c in NCAACFBDIngestRecord.__table__.columns}
+        got = [(x.season, x.division, x.payload_file, x.records, x.in_scope, x.joined, len(x.unlabelled))
+               for x in rows]
+        stamps = [x.fetched_at for x in rows]
+    assert cols == {"id", "season", "division", "fetched_at", "payload_file", "records", "in_scope", "joined",
+                    "unlabelled"}
+    assert got == [("2084", "fbs", str(f), 4, 3, 2, 1), ("2084", "fbs", str(z), 4, 3, 0, 3)]
+    assert stamps[0] < stamps[1]
 
 
-def test_zero_join_reingest_flips_coverage_and_the_shadow_refuses(fresh_db, tmp_path, monkeypatch):
-    """P2-2: a later run that joins nothing must read 0/N (receipt persisted even with zero rows), not keep
-    reporting the earlier run's coverage."""
+def test_l2_zero_join_reingest_reads_not_covered_and_the_shadow_refuses(fresh_db, tmp_path, monkeypatch):
     from src.db.database import session_scope
     from src.walters import ncaa_shadow as sh
 
     _setup(fresh_db, tmp_path, monkeypatch)
-    good = [r_ for r_ in J4_RECS if r_["id"] in (9501, 9502)]          # both match: 2/2
-    bad = [dict(r_, homeTeam=f"Zed Home {i}", awayTeam=f"Zed Away {i}") for i, r_ in enumerate(good)]   # 0 joins
+    good = [r_ for r_ in J4_RECS if r_["id"] in (9501, 9502)]
+    bad = [dict(r_, homeTeam=f"Zed Home {i}", awayTeam=f"Zed Away {i}") for i, r_ in enumerate(good)]
     fg, fb = tmp_path / "good.json", tmp_path / "bad.json"
     fg.write_text(json.dumps(good))
     fb.write_text(json.dumps(bad))
     assert nc.run([2084], from_file=str(fg), out=lambda *_: None) == 0
     with session_scope() as s:
         c = nc.stored_coverage(s, ["2084"])["2084"]
-    assert (c["labelled"], c["in_scope"], c["ok"]) == (2, 2, True)
-    sh.coverage_guard({"2025": c, "2026": c})                         # holds
-    lines = []
-    assert nc.run([2084], from_file=str(fb), out=lines.append) == 0
-    assert any("RECEIPT 2084 persisted" in x and "labelled 0" in x for x in lines)
+    assert (c["labelled"], c["in_scope"], c["ok"], c["current"]) == (2, 2, True, 2)
+    sh.coverage_guard({"2025": c, "2026": c})
+    assert nc.run([2084], from_file=str(fb), out=lambda *_: None) == 0
     with session_scope() as s:
         c = nc.stored_coverage(s, ["2084"])["2084"]
     assert (c["labelled"], c["in_scope"], c["ok"], c["payload"]) == (0, 2, False, str(fb))
-    assert nb.load_v1r_stream().labelled == {}                        # nothing admitted from the latest run
-    with pytest.raises(sh.ShadowRefused, match=r"labels less than 95%.*0\.0% \(0/2\)"):
+    assert nb.load_v1r_stream().labelled == {}                        # the earlier labels are now stale
+    with pytest.raises(sh.ShadowRefused, match=r"0\.0% \(0/2\)"):
         sh.coverage_guard({"2025": c, "2026": c})
 
 
-def test_latest_receipt_not_fbs_or_empty_admits_nothing(fresh_db, tmp_path, monkeypatch):
+def test_l2_laptop_2024_dry_run_figures_read_not_covered(fresh_db):
+    """The architect's laptop facts (2024 dry run on c3a3744): 920 records, 798 in scope, 602 joined."""
+    from src.db.database import init_db, session_scope
+
+    init_db()
+    with session_scope() as s:
+        s.add(_record("2024", joined=602, in_scope=798))
+    with session_scope() as s:
+        c = nc.stored_coverage(s, ["2024"])["2024"]
+    assert (c["in_scope"], c["labelled"], round(c["share"], 4), c["ok"]) == (798, 602, 0.7544, False)
+
+
+def test_l3_current_is_fetched_at_equality_stale_kept_listed_never_walked(fresh_db, tmp_path, monkeypatch):
+    """A later run that no longer joins a game leaves its label STALE (fetched_at != the latest record's):
+    kept, counted and listed, never walked, never in the shadow's FBS team set."""
+    from src.db.database import session_scope
+    from src.walters import ncaa_shadow as sh
+
+    ms = _setup(fresh_db, tmp_path, monkeypatch)
+    f, g = tmp_path / "all.json", tmp_path / "less.json"
+    f.write_text(json.dumps(J4_RECS))
+    g.write_text(json.dumps([r_ for r_ in J4_RECS if r_["id"] != 9502]))       # the C-D game drops out
+    assert nc.run([2084], from_file=str(f), out=lambda *_: None) == 0
+    assert nc.run([2084], from_file=str(g), out=lambda *_: None) == 0
+    with session_scope() as s:
+        assert s.get(NCAACFBDLabel, ms["post"]) is not None                   # kept
+        cd = {s.get(Match, ms["post"]).home_team_id, s.get(Match, ms["post"]).away_team_id}
+        teams = sh.fbs_teams(s)
+        c = nc.stored_coverage(s, ["2084"])["2084"]
+    v = nb.load_v1r_stream()
+    assert v.labelled == {"2084": 1} and v.unlabelled == {"2084": 2}
+    assert len(v.stale) == 1 and v.stale[0].startswith(f"match {ms['post']} · CFBD 9502")
+    assert not (cd & teams) and len(teams) == 2
+    assert (c["current"], c["labelled"], c["ok"]) == (1, 1, False)            # 1/2 in scope: not covered anyway
+
+
+def test_l3_current_labels_must_number_the_record_joined_count(fresh_db, tmp_path, monkeypatch):
+    from src.db.database import session_scope
+
+    ms = _setup(fresh_db, tmp_path, monkeypatch)
+    f = tmp_path / "good.json"
+    f.write_text(json.dumps([r_ for r_ in J4_RECS if r_["id"] in (9501, 9502)]))
+    assert nc.run([2084], from_file=str(f), out=lambda *_: None) == 0
+    with session_scope() as s:
+        assert nc.stored_coverage(s, ["2084"])["2084"]["ok"] is True
+        s.get(NCAACFBDLabel, ms["post"]).fetched_at = OLD                    # one label no longer current
+    with session_scope() as s:
+        c = nc.stored_coverage(s, ["2084"])["2084"]
+    assert (c["current"], c["labelled"], c["ok"]) == (1, 2, False)
+    assert c["reason"] == "current labels 1 do not number the record's joined count 2 (L3: not covered)"
+    assert nb.load_v1r_stream().labelled == {"2084": 1}
+
+
+def test_l4_non_dry_ingest_only_with_division_fbs(fresh_db, tmp_path, monkeypatch):
+    from click.testing import CliRunner
+
+    from cli import cli
     from src.db.database import session_scope
 
     _setup(fresh_db, tmp_path, monkeypatch)
     f = tmp_path / "p.json"
     f.write_text(json.dumps(J4_RECS))
-    assert nc.run([2084], from_file=str(f), division="", out=lambda *_: None) == 0
+    for division in ("", "fcs", "FCS"):
+        with pytest.raises(nc.CFBDError, match="non-dry ingest runs only with division fbs"):
+            nc.run([2084], from_file=str(f), division=division, out=lambda *_: None)
+    res = CliRunner().invoke(cli, ["ncaa-cfbd-labels", "--year", "2084", "--from-file", str(f), "--division", ""])
+    assert res.exit_code == 2 and "L4" in res.output
+    assert nc.run([2084], from_file=str(f), division="", dry_run=True, out=lambda *_: None) == 0   # dry: allowed
     with session_scope() as s:
-        c = nc.stored_coverage(s, ["2084"])["2084"]
-        adm, why = nc.admitted_labels(s, ["2084"])
-    assert c["ok"] is False and "division 'all'" in c["reason"] and adm == {"2084": {}} and "2084" in why
-    e = tmp_path / "empty.json"
-    e.write_text("[]")
-    assert nc.run([2084], from_file=str(f), out=lambda *_: None) == 0
-    assert nc.run([2084], from_file=str(e), out=lambda *_: None) == 0
-    with session_scope() as s:
-        c = nc.stored_coverage(s, ["2084"])["2084"]
-    assert c["ok"] is False and "'empty'" in c["reason"]
+        assert s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_labels")).scalar() == 0
+        assert s.execute(text("SELECT COUNT(*) FROM ncaa_cfbd_ingest_records")).scalar() == 0
+    assert nc.run([2084], from_file=str(f), division="FBS", out=lambda *_: None) == 0
 
 
-def test_receipts_migration_is_additive_and_idempotent(fresh_db, capsys):
-    import migrate_ncaa_cfbd_ingest_receipts as mig_r
-    import migrate_ncaa_cfbd_labels as mig
-    from src.db.database import init_db
+def test_laptop_merge_pair_hawaii_1385_and_1744():
+    tm = nb.team_merge({1385: "Hawai'i", 1744: "Hawai&#x27;i", 1: "Other"})
+    assert tm(1744) == 1385 and tm(1385) == 1385 and tm.changed == [(1744, "Hawai&#x27;i", "Hawai'i")]
+    assert tm.groups == [[(1385, "Hawai'i"), (1744, "Hawai&#x27;i")]]
 
-    init_db()
+
+def test_v2_migration_adds_column_and_table_in_one_idempotent_script(fresh_db, capsys):
+    import migrate_ncaa_cfbd_v2 as mig2
+
+    _old_schema(fresh_db)
     with fresh_db.begin() as conn:
-        conn.execute(text("DROP TABLE ncaa_cfbd_ingest_receipts"))
-    assert mig.main() == 0
+        conn.execute(text("DROP TABLE ncaa_cfbd_ingest_records"))
     capsys.readouterr()
-    assert mig_r.main() == 0 and "+ Creating ncaa_cfbd_ingest_receipts" in capsys.readouterr().out
-    assert mig_r.main() == 0 and "already exists" in capsys.readouterr().out
+    assert mig2.main() == 0
+    out = capsys.readouterr().out
+    assert "+ Adding ncaa_cfbd_labels.season_type" in out and "+ Creating ncaa_cfbd_ingest_records" in out
+    assert mig2.main() == 0
+    out = capsys.readouterr().out
+    assert "season_type already exists" in out and "ncaa_cfbd_ingest_records already exists" in out
+    assert "ncaa_cfbd_ingest_records" in inspect(fresh_db).get_table_names()
     with fresh_db.begin() as conn:
-        conn.execute(text("DROP TABLE ncaa_cfbd_ingest_receipts"))
-    with pytest.raises(nc.CFBDError, match="migrate_ncaa_cfbd_ingest_receipts.py"):
+        conn.execute(text("DROP TABLE ncaa_cfbd_ingest_records"))
+    with pytest.raises(nc.CFBDError, match="migrate_ncaa_cfbd_v2.py"):
         nc.run([2084], from_file=__file__, out=lambda *_: None)

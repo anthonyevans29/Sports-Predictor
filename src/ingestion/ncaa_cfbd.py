@@ -44,13 +44,18 @@ SCOPE + JOIN (ARCHITECT 2026-10-08, addendum 10 item 3; docs/specs/ncaa-cfbd-lab
     and in alias vetting (our_norm). The id merge for the v1r stream and the
     shadow is team_merge (read-time mapping; the teams table is never written);
   * J4: CFBD's seasonType as served rides on each row (season_type, nullable,
-    migrate_ncaa_cfbd_season_type.py);
-  * SCOPE coverage: labelled / CFBD's completed both-FBS games per season,
-    >= 95%, every unlabelled game listed (fbs_coverage; the ingest receipt
-    prints it and persists it per season on every non-dry run, zero joins
-    included (ncaa_cfbd_ingest_receipts; Codex on #362); stored_coverage reads
-    the latest receipt; admitted_labels is the one scope helper the v1r stream,
-    the shadow's FBS test and the coverage numerator share).
+    migrate_ncaa_cfbd_v2.py);
+  * J5 (addendum 11): a SUBSTRING-tier fit joins only when our match is scored
+    and the final scores agree in that orientation, in the first pass as in
+    the retry; a first pass whose substring tier gives no clean join goes to
+    the J1 retry (exact tier first across the 36 hours). Exact-tier joins are
+    unchanged (join_one);
+  * LABEL SET (addendum 11, L1-L4): every non-dry run writes one ingest record
+    per season (ncaa_cfbd_ingest_records, zero joins included; write_record);
+    the coverage fact is the season's latest record (stored_coverage, never
+    opening the payload); a label is current when its fetched_at equals that
+    record's (latest_record_stamps; the v1r stream and the shadow's FBS team
+    set read current labels only); a non-dry run needs division fbs.
 """
 from __future__ import annotations
 
@@ -332,14 +337,41 @@ def tier_fits(home_n: str, away_n: str, start: datetime, ours: list[Ours], dates
     return None, []
 
 
-def join_one(home_n: str, away_n: str, start: datetime, ours: list[Ours], dates: list[datetime]):
-    """('joined', Ours, orientation, tier) | ('ambiguous', None, None, tier) | ('unmatched', ...)."""
+def scores_agree(m: Ours, orient: str, hp, ap) -> bool:
+    """Our match is scored and its final scores equal CFBD's stated in that orientation."""
+    if m.home_score is None or m.away_score is None:
+        return False
+    oh, oa = (int(hp), int(ap)) if orient == "same" else (int(ap), int(hp))
+    return (m.home_score, m.away_score) == (oh, oa)
+
+
+def join_one(home_n: str, away_n: str, start: datetime, ours: list[Ours], dates: list[datetime],
+             hp=None, ap=None):
+    """The first pass (±12h): ('joined', Ours, orientation, tier, note) | ('ambiguous', ..., 'exact', note) |
+    ('unmatched', None, None, tier|None, note).
+    J5 (ARCHITECT 2026-10-08, addendum 11, verbatim): "A substring-tier fit is a join only when our match is
+    scored and the final scores agree in that orientation, in the first pass as in the retry. A game whose
+    first-pass substring tier gives no clean join (no fit, more than one fit, or a fit that fails this test) is
+    unmatched for the first pass and goes to the J1 retry, where the exact tier is tried first across the 36
+    hours. Exact-tier joins are unchanged: the side table carries CFBD's scores and a disagreement is listed as
+    corrected (ruling (4) of 2026-10-07)." So: exact, one fit -> joined; exact, more than one -> ambiguous
+    (refused, unchanged); substring -> joined only on exactly one fit that passes scores_agree, else unmatched."""
     tier, hits = tier_fits(home_n, away_n, start, ours, dates, TOLERANCE_HOURS)
-    if len(hits) == 1:
-        return "joined", hits[0][0], hits[0][1], tier
-    if len(hits) > 1:
-        return "ambiguous", None, None, tier
-    return "unmatched", None, None, None
+    if tier == "exact":
+        if len(hits) == 1:
+            return "joined", hits[0][0], hits[0][1], tier, ""
+        return "ambiguous", None, None, tier, ""
+    if tier == "substring":
+        if len(hits) > 1:
+            return "unmatched", None, None, tier, (f"first pass: {len(hits)} substring fits (matches "
+                                                   f"{', '.join(str(m.id) for m, _ in hits)}), no clean join")
+        m, orient = hits[0]
+        if hp is not None and ap is not None and scores_agree(m, orient, hp, ap):
+            return "joined", m, orient, tier, ""
+        ours_s = "—" if m.home_score is None or m.away_score is None else f"{m.home_score}-{m.away_score}"
+        return "unmatched", None, None, tier, (f"first pass: substring fit our match {m.id} ({orient}) fails the "
+                                               f"score test (ours {ours_s})")
+    return "unmatched", None, None, None, ""
 
 
 def _offset_h(ours_at: datetime, start: datetime) -> str:
@@ -394,7 +426,6 @@ class YearResult:
     dateshift: list[str] = field(default_factory=list)        # J1: every dateshift row (both kickoffs, offset)
     escaped: list[tuple[int, str, str]] = field(default_factory=list)   # J2: our names html.unescape changes
     unlabelled: list[str] = field(default_factory=list)       # SCOPE: every in-scope game with no row, and why
-    in_scope_ids: list = field(default_factory=list)          # CFBD ids of the completed in-scope games (receipt)
 
 
 def in_scope_reason(rec: dict, keys: dict, division: str | None) -> str | None:
@@ -481,7 +512,6 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         home, away, start = rec.get(keys["home"]), rec.get(keys["away"]), parse_start(rec.get(keys["start"]))
         desc = _desc(rec, keys)
         in_scope.append((rec, desc))
-        r.in_scope_ids.append(rec.get(keys["id"]) if keys["id"] else None)
         if not home or not away or start is None:
             c["source_unusable_row"] += 1
             why_not[id(rec)] = "unusable source row (no team or start date)"
@@ -489,22 +519,25 @@ def build_labels(records: list, keys: dict, ours: list[Ours], teams: dict[int, s
         nv = rec.get(keys["neutral"])
         neutral = None if nv is None else bool(nv)
         (hn, h_alias), (an, a_alias) = resolve(home), resolve(away)
-        status, m, orient, tier = join_one(hn, an, start, ours, dates)
+        status, m, orient, tier, fp_note = join_one(hn, an, start, ours, dates, hp, ap)
         if status == "ambiguous":
             c["ambiguous_refused"] += 1
             r.ambiguous.append(f"{desc} — more than one of our games fits ({tier} tier); refused, never guessed")
             why_not[id(rec)] = f"ambiguous ({tier} tier), refused"
             continue
         if status == "unmatched":
-            pending.append((rec, home, away, hn, an, start, hp, ap, neutral, desc))
+            if fp_note:
+                c["first_pass_substring_to_retry"] += 1      # J5: no clean substring join -> the retry
+            pending.append((rec, home, away, hn, an, start, hp, ap, neutral, desc, fp_note))
             continue
         oh, oa = (int(hp), int(ap)) if orient == "same" else (int(ap), int(hp))   # source, OUR orientation
         via = "alias" if (h_alias or a_alias) else tier
         by_target.setdefault(m.id, []).append(make_row(rec, m, orient, via, desc, neutral, oh, oa))
 
     joined_first = set(by_target)                             # "that match is not already joined"
-    for rec, home, away, hn, an, start, hp, ap, neutral, desc in pending:
+    for rec, home, away, hn, an, start, hp, ap, neutral, desc, fp_note in pending:
         status, m, orient, note = dateshift_retry(hn, an, start, hp, ap, ours, dates, joined_first)
+        note = "; ".join(x for x in (fp_note, note) if x)
         if status == "joined":
             oh, oa = (int(hp), int(ap)) if orient == "same" else (int(ap), int(hp))
             row = make_row(rec, m, orient, "dateshift", desc, neutral, oh, oa)
@@ -593,7 +626,7 @@ def migrated(s) -> bool:
         return False
 
 
-SEASON_TYPE_COLUMN = "season_type"      # J4 (ARCHITECT 2026-10-08): migrate_ncaa_cfbd_season_type.py adds it
+SEASON_TYPE_COLUMN = "season_type"      # J4 (ARCHITECT 2026-10-08): migrate_ncaa_cfbd_v2.py adds it
 
 
 def has_season_type(s) -> bool:
@@ -681,6 +714,11 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
     from src.timeutil import utc_now_naive
 
     aliases = load_aliases(alias_path or ALIAS_FILE)
+    div = (division or "").lower() or None
+    if not dry_run and div != SCOPE_DIVISION:
+        raise CFBDError(f"REFUSED: a non-dry ingest runs only with division {SCOPE_DIVISION} (L4, ARCHITECT "
+                        f"2026-10-08: \"Any other division is a dry run or a refusal.\"); got {division!r} — add "
+                        "--dry-run to read another division")
     if save_dir:
         refuse_save_path(save_dir)
     key = None
@@ -694,21 +732,15 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
     with session_scope() as s:
         ready = migrated(s)
         st_ready = ready and has_season_type(s)
-        rc_ready = receipts_ready(s)
+        rc_ready = records_ready(s)
         s.rollback()
     if not ready and not dry_run:
         raise CFBDError("REFUSED: ncaa_cfbd_labels is not migrated (no migration marker "
                         f"{MIGRATION_MARKER}; an init_db()-created table does not count) — take the .backup, "
                         "then run `python migrate_ncaa_cfbd_labels.py` (a --dry-run works without it)")
-    if not st_ready and not dry_run:
-        raise CFBDError("REFUSED: ncaa_cfbd_labels has no season_type column (J4, ARCHITECT 2026-10-08) — take "
-                        "the .backup, then run `python migrate_ncaa_cfbd_season_type.py` (a --dry-run works "
-                        "without it)")
-    if not rc_ready and not dry_run:
-        raise CFBDError(f"REFUSED: no {RECEIPT_TABLE} table (Codex on #362: every non-dry run persists its receipt) — "
-                        "take the .backup, then run `python migrate_ncaa_cfbd_ingest_receipts.py` (a --dry-run works "
-                        "without it)")
-    div = (division or "").lower() or None
+    if not (st_ready and rc_ready) and not dry_run:
+        raise CFBDError(f"REFUSED: ncaa_cfbd_labels.season_type (J4) and/or {RECORD_TABLE} (L1) missing — take "
+                        "the .backup, then run `python migrate_ncaa_cfbd_v2.py` (a --dry-run works without it)")
     rc = 0
     for year in years:
         fetched_at = utc_now_naive()
@@ -731,8 +763,8 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
         if not recs:
             if not dry_run:
                 with session_scope() as s:
-                    write_receipt(s, year, None, "empty", 0, fetched_at, pf, div)
-                out(f"  RECEIPT {year} persisted: status empty (0 records) -> coverage NOT met")
+                    write_record(s, year, None, 0, fetched_at, pf, div)
+                out(f"  INGEST RECORD {year} written ({RECORD_TABLE}): 0 records · in scope 0 · joined 0")
             continue
         keys, missing = discover(recs[0])
         out("  keys used (law-1 receipt): " + " · ".join(f"{n}<-{k}" for n, k in keys.items() if k))
@@ -741,7 +773,7 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
                 + ", ".join(sorted(recs[0]))[:600])
             if not dry_run:
                 with session_scope() as s:
-                    write_receipt(s, year, None, "refused_fields", len(recs), fetched_at, pf, div)
+                    write_record(s, year, None, len(recs), fetched_at, pf, div)
             rc = 2
             continue
         starts = [d for d in (parse_start(x.get(keys["start"])) for x in recs) if d is not None]
@@ -754,7 +786,7 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
                 s.rollback()
             else:
                 wrote = upsert(s, res.rows, fetched_at, pf)
-                write_receipt(s, year, res, "ok", len(recs), fetched_at, pf, div)   # zero joins included
+                write_record(s, year, res, len(recs), fetched_at, pf, div)   # L1: zero joins included
                 stored = s.execute(select(func.count()).select_from(NCAACFBDLabel)
                                    .where(NCAACFBDLabel.season == str(year))).scalar_one()
                 stale = s.execute(select(func.count()).select_from(NCAACFBDLabel).where(
@@ -765,12 +797,13 @@ def run(years: list[int], from_file: str | None = None, dry_run: bool = False, s
         if wrote is not None:
             out(f"  WRITTEN ncaa_cfbd_labels: inserted {wrote['inserted']} · updated {wrote['updated']} · "
                 f"unchanged {wrote['unchanged']} · rows for {year} now {stored} (matches table untouched)"
-                + (f" · {stale} earlier row(s) not re-joined this run, KEPT (the ingest never deletes; NOT "
-                   f"admitted to the v1r stream: only this run's receipt's joins are)" if stale else ""))
-            out(f"  RECEIPT {year} persisted ({RECEIPT_TABLE}): in scope {res.counts['completed_in_scope']} · "
-                f"labelled {res.counts['joined']} · unmatched {res.counts['unmatched']} · division {div or 'all'}")
-    out("\nNext: `python cli.py ncaa-cfbd-coverage` (the SCOPE coverage per season, read from the latest persisted "
-        "ingest receipt; the gate stays SUSPENDED until the architect reads it).")
+                + (f" · {stale} earlier row(s) not re-joined this run, KEPT as STALE (L3: counted and listed, "
+                   f"never walked)" if stale else ""))
+            out(f"  INGEST RECORD {year} written ({RECORD_TABLE}): records {len(recs)} · in scope "
+                f"{res.counts['completed_in_scope']} · joined {res.counts['joined']} · division {div} · "
+                f"fetched_at {fetched_at.isoformat(sep=' ')}")
+    out("\nNext: `python cli.py ncaa-cfbd-coverage` (the coverage fact per season = its latest ingest record; the "
+        "gate stays SUSPENDED until the architect reads it).")
     return rc
 
 
@@ -830,110 +863,108 @@ def receipt_lines(r: YearResult, limit: int = SAMPLE, unmatched_names: bool = Fa
 
 
 # --------------------------------------------------------------------------
-# The persisted ingest receipt (Codex on #362) and what reads it
+# The ingest record and the label set (ARCHITECT 2026-10-08, addendum 11, L1-L4)
 # --------------------------------------------------------------------------
 
-# SCOPE (ARCHITECT 2026-10-08): coverage is "read from the ingest receipt
-# (joined over in scope), every unmatched game listed". Every NON-DRY run
-# writes one ncaa_cfbd_ingest_receipts row per season, zero joins included, so
-# the latest run decides: a run that joins nothing reads 0/N, never the last
-# good run's figure. The v1r stream admits a labelled game only through the
-# same receipt (admitted_labels), so the stream and the coverage numerator can
-# never disagree; older side-table rows a later run did not join (an earlier
-# `--division ''` run, a join that regressed) are excluded and listed.
-RECEIPT_TABLE = "ncaa_cfbd_ingest_receipts"
-SCOPE_DIVISION = "fbs"          # the SCOPE ruling's "both-FBS"
+# LABEL SET, RULED (verbatim): "L1. Every non-dry ingest writes one ingest
+# record per season to a new table with its own additive migrate script:
+# season, division, fetched_at, payload_file, records, in scope, joined, and
+# the unlabelled games as the receipt lists them. A run that joins nothing still
+# writes its record. L2. The coverage fact is the season's latest ingest
+# record: joined over in scope, at least 95%. ncaa-cfbd-coverage and the
+# shadow's precondition read that record and never open the payload file. A
+# season with no record is not covered. L3. A label is current when its
+# fetched_at equals that of its season's latest ingest record. The v1r stream
+# and the shadow's FBS team set read current labels only. A stale label is
+# kept, counted and listed, never walked. A season whose current labels do not
+# number its record's joined count is not covered. L4. A non-dry ingest runs
+# only with division fbs. Any other division is a dry run or a refusal."
+RECORD_TABLE = "ncaa_cfbd_ingest_records"
+SCOPE_DIVISION = "fbs"          # L4 / the SCOPE ruling's "both-FBS"
 
 
-def receipts_ready(s) -> bool:
+def records_ready(s) -> bool:
     from sqlalchemy import inspect
     try:
-        return inspect(s.connection()).has_table(RECEIPT_TABLE)
+        return inspect(s.connection()).has_table(RECORD_TABLE)
     except Exception:
         return False
 
 
-def write_receipt(s, year: int, res: YearResult | None, status: str, records: int, fetched_at: datetime,
-                  payload_file: str | None, division: str | None) -> None:
-    """Append this run's receipt for `year` (never updates or deletes one). `res` None = a run that joined
-    nothing because the payload was empty or refused: in scope 0."""
-    from src.db.schema import NCAACFBDIngestReceipt
-    from src.timeutil import utc_now_naive
+def write_record(s, year: int, res: YearResult | None, records: int, fetched_at: datetime,
+                 payload_file: str | None, division: str | None) -> None:
+    """L1: append this run's ingest record for `year` (never updates or deletes one). `fetched_at` is the
+    run's own, the same stamp upsert() puts on every label it writes or updates (L3). `res` None = an empty
+    payload or a refused one: in scope 0, joined 0."""
+    from src.db.schema import NCAACFBDIngestRecord
 
     c = res.counts if res else Counter()
-    s.add(NCAACFBDIngestReceipt(
-        season=str(year), run_at=utc_now_naive(), fetched_at=fetched_at, payload_file=payload_file,
-        division=division, status=status, records=records, in_scope=c["completed_in_scope"],
-        labelled=c["joined"], unmatched=c["unmatched"],
-        in_scope_ids=list(res.in_scope_ids) if res else [],
-        joined=[[x["match_id"], x["source_game_id"]] for x in res.rows] if res else [],
-        unlabelled=list(res.unlabelled) if res else []))
+    s.add(NCAACFBDIngestRecord(season=str(year), division=division or "", fetched_at=fetched_at,
+                               payload_file=payload_file, records=records, in_scope=c["completed_in_scope"],
+                               joined=c["joined"], unlabelled=list(res.unlabelled) if res else []))
     s.flush()
 
 
-def latest_receipts(s, seasons=None) -> dict:
-    """{season: the latest NCAACFBDIngestReceipt} (by run_at, then id); every season with one when `seasons`
-    is None. Read-only."""
+def latest_records(s, seasons=None) -> dict:
+    """{season: its latest NCAACFBDIngestRecord} (by fetched_at, then id); every season with one when
+    `seasons` is None. Read-only."""
     from sqlalchemy import select
 
-    from src.db.schema import NCAACFBDIngestReceipt
+    from src.db.schema import NCAACFBDIngestRecord
 
-    if not receipts_ready(s):
+    if not records_ready(s):
         return {}
-    q = select(NCAACFBDIngestReceipt)
+    q = select(NCAACFBDIngestRecord)
     if seasons is not None:
-        q = q.where(NCAACFBDIngestReceipt.season.in_([str(x) for x in seasons]))
+        q = q.where(NCAACFBDIngestRecord.season.in_([str(x) for x in seasons]))
     out = {}
-    for r_ in s.execute(q.order_by(NCAACFBDIngestReceipt.run_at, NCAACFBDIngestReceipt.id)).scalars():
+    for r_ in s.execute(q.order_by(NCAACFBDIngestRecord.fetched_at, NCAACFBDIngestRecord.id)).scalars():
         out[r_.season] = r_
     return out
 
 
-def receipt_problem(r_) -> str | None:
-    """Why a receipt cannot carry the SCOPE fact (None when it can)."""
-    if r_ is None:
-        return "no persisted ingest receipt for this season"
-    if r_.status != "ok":
-        return f"the latest ingest run's status is {r_.status!r}"
-    if (r_.division or "") != SCOPE_DIVISION:
-        return (f"the latest ingest run was division {r_.division or 'all'!r}, not both-{SCOPE_DIVISION.upper()} "
-                f"(re-run with the default --division {SCOPE_DIVISION})")
-    return None
+def latest_record_stamps(s, seasons=None) -> dict[str, datetime]:
+    """L3: {CFBD season: the fetched_at of its latest ingest record}. A label is CURRENT exactly when its
+    fetched_at equals its season's stamp here; a season with no record has no current label."""
+    return {season: r_.fetched_at for season, r_ in latest_records(s, seasons).items()}
 
 
-def admitted_labels(s, seasons=None) -> tuple[dict[str, dict[int, int | None]], dict[str, str]]:
-    """The ONE scope helper (Codex on #362): ({CFBD season: {match_id: CFBD game id}}, {season: why none}).
-    A side-table label is a both-FBS label only if the season's LATEST persisted receipt is an 'ok',
-    division-fbs run that joined that (match, CFBD id). The v1r stream, fbs_teams and the coverage
-    numerator all read this set."""
-    rec = latest_receipts(s, seasons)
-    want = [str(x) for x in seasons] if seasons is not None else sorted(rec)
-    adm, why = {}, {}
-    for season in want:
-        r_ = rec.get(season)
-        p = receipt_problem(r_)
-        if p:
-            adm[season], why[season] = {}, p
-            continue
-        adm[season] = {int(m): g for m, g in (r_.joined or [])}
-    return adm, why
+def current_label_counts(s, stamps: dict[str, datetime]) -> dict[str, int]:
+    """{season: how many side-table labels are current (fetched_at == the season's latest record's)}."""
+    from sqlalchemy import func, select
+
+    from src.db.schema import NCAACFBDLabel
+
+    out = {}
+    for season, at in stamps.items():
+        out[season] = s.execute(select(func.count()).select_from(NCAACFBDLabel).where(
+            NCAACFBDLabel.season == season, NCAACFBDLabel.fetched_at == at)).scalar_one()
+    return out
 
 
 def stored_coverage(s, seasons) -> dict[str, dict]:
-    """The SCOPE coverage fact per season, READ FROM THE LATEST PERSISTED INGEST RECEIPT: labelled / CFBD's
-    completed both-FBS games (fbs_coverage), every unlabelled game listed. No receipt, a non-'ok' run, or a
-    run that was not division fbs = NOT met, with its reason (law 4). Read-only."""
-    rec = latest_receipts(s, seasons)
+    """L2 + L3: the coverage fact per season = its LATEST ingest record (joined over in scope, at least 95%),
+    every unlabelled game as the record lists it. Never opens the payload file. Not covered when: no record;
+    or the season's current labels do not number the record's joined count. Read-only."""
+    rec = latest_records(s, seasons)
+    stamps = {k: v.fetched_at for k, v in rec.items()}
+    current = current_label_counts(s, stamps) if has_table(s) else {}
     out: dict[str, dict] = {}
     for season in (str(x) for x in seasons):
         r_ = rec.get(season)
-        p = receipt_problem(r_)
-        base = {"season": season, "payload": r_.payload_file if r_ else None,
-                "run_at": r_.run_at if r_ else None, "reason": p}
-        if p:
-            out[season] = {**base, "unlabelled": list(r_.unlabelled or []) if r_ else [], **fbs_coverage(0, 0)}
+        if r_ is None:
+            out[season] = {"season": season, "payload": None, "fetched_at": None, "current": 0, "unlabelled": [],
+                           "reason": "no ingest record for this season (L2: not covered)", **fbs_coverage(0, 0)}
             continue
-        out[season] = {**base, "unlabelled": list(r_.unlabelled or []), **fbs_coverage(r_.in_scope, r_.labelled)}
+        cov = fbs_coverage(r_.in_scope, r_.joined)
+        n_cur = current.get(season, 0)
+        reason = None
+        if n_cur != r_.joined:
+            reason = (f"current labels {n_cur} do not number the record's joined count {r_.joined} "
+                      "(L3: not covered)")
+            cov["ok"] = False
+        out[season] = {"season": season, "payload": r_.payload_file, "fetched_at": r_.fetched_at,
+                       "current": n_cur, "unlabelled": list(r_.unlabelled or []), "reason": reason, **cov}
     return out
 
 
@@ -943,8 +974,10 @@ def stored_coverage_lines(cov: dict[str, dict]) -> list[str]:
         share = "—" if c["share"] is None else f"{100 * c['share']:.1f}%"
         L.append(f"  {season}: labelled {c['labelled']} / CFBD completed both-FBS {c['in_scope']} = {share} · "
                  f">= {COVERAGE_MIN:.0%}: {'YES' if c['ok'] else 'NO'}"
+                 + (f" · current labels {c['current']} · record fetched_at {c['fetched_at']}"
+                    if c.get("fetched_at") else "")
                  + (f" · payload {c['payload']}" if c["payload"] else "")
-                 + (f" · NOT READ: {c['reason']}" if c["reason"] else ""))
+                 + (f" · NOT COVERED: {c['reason']}" if c["reason"] else ""))
         if c["unlabelled"]:
             L.append(f"    unlabelled ({len(c['unlabelled'])}, every one):")
             L += [f"      {x}" for x in c["unlabelled"]]

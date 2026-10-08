@@ -109,10 +109,11 @@ class Game:
     # J4 (ARCHITECT 2026-10-08): CFBD's seasonType as served, from the side table; DATA ONLY (no rule reads it:
     # the postseason rule is the architect's to rule after the re-ingest).
     season_type: str | None = None
-    # Codex on #362: the label's own CFBD game id and CFBD season (the --year), so the v1r stream admits it only
-    # when the season's latest persisted ingest receipt joined exactly this (match, CFBD id).
+    # L3 (ARCHITECT 2026-10-08, addendum 11): the label's CFBD game id, CFBD season (the --year) and fetched_at;
+    # the v1r stream admits it only when label_fetched_at equals its season's latest ingest record's (current).
     cfbd_id: int | None = None
     cfbd_season: str | None = None
+    label_fetched_at: datetime | None = None
 
     @property
     def home_win(self) -> int:
@@ -329,12 +330,12 @@ def game_from_rows(m, label=None) -> Game:
                     m.stage or "", neutral=label.neutral, label_source="cfbd", orientation="swapped",
                     score_corrected=corrected, match_id=m.id, season_type=st,
                     cfbd_id=getattr(label, "source_game_id", None),
-                cfbd_season=getattr(label, "season", None))
+                cfbd_season=getattr(label, "season", None), label_fetched_at=getattr(label, "fetched_at", None))
     return Game(m.home_team_id, m.away_team_id, m.season, m.utc_date, label.home_score, label.away_score,
                 m.stage or "", neutral=label.neutral, label_source="cfbd", orientation="same",
                 score_corrected=corrected, match_id=m.id, season_type=st,
                 cfbd_id=getattr(label, "source_game_id", None),
-                cfbd_season=getattr(label, "season", None))
+                cfbd_season=getattr(label, "season", None), label_fetched_at=getattr(label, "fetched_at", None))
 
 
 def load_games() -> list[Game]:
@@ -487,8 +488,7 @@ class V1RStream:
     merge: TeamMerge
     unlabelled: Counter = field(default_factory=Counter)   # season -> stored games without a label (not walked)
     labelled: Counter = field(default_factory=Counter)     # season -> labelled games (before the exclusions)
-    stale: list[str] = field(default_factory=list)         # labels the latest receipt did not join: excluded, why
-    receipt_problems: dict = field(default_factory=dict)   # CFBD season -> why nothing is admitted
+    stale: list[str] = field(default_factory=list)         # L3: stale labels (kept, counted, listed, never walked)
 
     def lines(self) -> list[str]:
         L = ["NCAA-ELO-V1R STREAM (SCOPE, ARCHITECT 2026-10-08): only stored games carrying a CFBD both-FBS label; "
@@ -496,10 +496,8 @@ class V1RStream:
         for season in sorted(set(self.labelled) | set(self.unlabelled)):
             L.append(f"  {season}: labelled {self.labelled[season]} (in the stream) · unlabelled "
                      f"{self.unlabelled[season]} (NOT walked, NOT scored)")
-        for season, why in sorted(self.receipt_problems.items()):
-            L.append(f"  CFBD season {season}: NO label admitted — {why}")
-        L.append(f"  side-table labels EXCLUDED (not joined by the season's latest ingest receipt; Codex on #362): "
-                 f"{len(self.stale)}")
+        L.append(f"  STALE labels (L3: fetched_at is not their season's latest ingest record's; kept, never "
+                 f"walked): {len(self.stale)}")
         L += [f"    {x}" for x in self.stale]
         L.append(f"  kept after #79's exclusions: {TRAIN_SEASON} {len(self.stream.train)} · {TEST_SEASON} "
                  f"{len(self.stream.test)} (the v1r split, neutral-site and postseason rules are the architect's "
@@ -511,18 +509,12 @@ class V1RStream:
         return L + self.merge.lines()
 
 
-_MISSING = object()
-
-
-def v1r_stream(games: list[Game], teams: dict[int, str], admitted: dict[str, dict],
-               receipt_problems: dict | None = None) -> V1RStream:
-    """SCOPE: keep only games carrying a CFBD both-FBS label. A label counts
-    only if the latest persisted ingest receipt of its CFBD season joined this
-    (match, CFBD id): `admitted` = ncaa_cfbd.admitted_labels, the set the
-    coverage numerator counts (Codex on #362: an older row from a `--division ''`
-    run, or one a later run no longer joins, is EXCLUDED and listed, never
-    walked). J2: both team ids mapped through team_merge. Then #79's
-    build_stream (same season filter, exclusions and tie rule). Pure."""
+def v1r_stream(games: list[Game], teams: dict[int, str], stamps: dict[str, datetime]) -> V1RStream:
+    """SCOPE + L3: keep only games carrying a CURRENT CFBD label. L3 (verbatim): "A label is current when its
+    fetched_at equals that of its season's latest ingest record. The v1r stream and the shadow's FBS team set
+    read current labels only. A stale label is kept, counted and listed, never walked." `stamps` =
+    ncaa_cfbd.latest_record_stamps ({CFBD season: latest record's fetched_at}). J2: both team ids mapped
+    through team_merge. Then #79's build_stream (same season filter, exclusions and tie rule). Pure."""
     from dataclasses import replace
 
     tm = team_merge(teams)
@@ -531,31 +523,29 @@ def v1r_stream(games: list[Game], teams: dict[int, str], admitted: dict[str, dic
         if g.label_source != "cfbd":
             unlabelled[g.season] += 1
             continue
-        got = admitted.get(g.cfbd_season or "", {}).get(g.match_id, _MISSING)
-        if got is _MISSING or got != g.cfbd_id:
+        at = stamps.get(g.cfbd_season or "")
+        if at is None or g.label_fetched_at != at:
             unlabelled[g.season] += 1
-            why = ("its CFBD season has no usable latest receipt" if not admitted.get(g.cfbd_season or "")
-                   else "the season's latest ingest receipt did not join it" if got is _MISSING
-                   else f"the latest receipt joined CFBD {got} to this match, not {g.cfbd_id}")
-            stale.append(f"match {g.match_id} · CFBD {g.cfbd_id} · CFBD season {g.cfbd_season} · {why}")
+            stale.append(f"match {g.match_id} · CFBD {g.cfbd_id} · CFBD season {g.cfbd_season} · label fetched_at "
+                         f"{g.label_fetched_at} vs latest record "
+                         + (f"{at}" if at is not None else "— (no ingest record for the season)"))
             continue
         labelled[g.season] += 1
         kept.append(replace(g, home_id=tm(g.home_id), away_id=tm(g.away_id)))
-    return V1RStream(build_stream(kept), tm, unlabelled, labelled, stale, dict(receipt_problems or {}))
+    return V1RStream(build_stream(kept), tm, unlabelled, labelled, stale)
 
 
 def load_v1r_stream(games: list[Game] | None = None) -> V1RStream:
-    """Read-only: load_games() (or `games`) restricted to the v1r stream, with
-    the team merge built over every team in an NCAA match and the labels
-    admitted by the latest persisted ingest receipt of each CFBD season."""
+    """Read-only: load_games() (or `games`) restricted to the v1r stream: current labels only (L3), the team
+    merge built over every team in an NCAA match."""
     from src.db.database import session_scope
-    from src.ingestion.ncaa_cfbd import admitted_labels, ncaa_teams
+    from src.ingestion.ncaa_cfbd import latest_record_stamps, ncaa_teams
 
     with session_scope() as s:
         teams = ncaa_teams(s)
-        admitted, why = admitted_labels(s)
+        stamps = latest_record_stamps(s)
         s.rollback()
-    return v1r_stream(load_games() if games is None else games, teams, admitted, why)
+    return v1r_stream(load_games() if games is None else games, teams, stamps)
 
 
 def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dict | None = None,
@@ -570,7 +560,7 @@ def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dic
     cov = label_coverage(stream)
     out(f"NCAA CFBD LABEL COVERAGE · SCOPE condition (ARCHITECT 2026-10-08): the side table labels >= "
         f"{COVERAGE_MIN:.0%} of CFBD's completed both-FBS games in EACH of {TRAIN_SEASON} and {TEST_SEASON} "
-        f"(read from the latest persisted ingest receipt per season; never our stream)")
+        f"(L2: the season's latest ingest record; never the payload, never our stream)")
     if fbs is None:
         out("  (not computed: no session)")
         both = False

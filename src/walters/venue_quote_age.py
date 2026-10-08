@@ -267,6 +267,8 @@ def venue_prices_ok(doc: dict) -> bool:
         side = d.get("side")
         if not isinstance(fp, dict) or side not in fp or fp[side] is None or d.get("book_p") is None:
             return False
+        if not (_num(d["book_p"]) and _num(fp[side])):
+            return False                           # Codex on #340: validated before the arithmetic, never a TypeError
         if abs(d["book_p"] - fp[side]) >= 5e-4:
             return False
     return True
@@ -340,12 +342,20 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
             if not n.lower().endswith(".json"):        # Codex on #340: .JSON is JSON too
                 # Codex on #340: `--out` takes any name (exports/audit, audit.txt); any other file that parses as a
                 # desk document is read like any export, and anything else is counted, not read
-                sniffed = None
+                sniffed, text = None, ""
                 try:
                     with open(p) as f:
-                        sniffed = json.load(f)
+                        text = f.read()
+                    sniffed = json.loads(text)
                 except (OSError, ValueError, UnicodeDecodeError):
                     sniffed = None
+                    if text.lstrip().startswith("{"):
+                        # Codex on #340: a file that begins as a JSON object but does not parse is a damaged export
+                        # whatever its name (a truncated `--out exports/audit.txt`), never an unrelated file
+                        counts["json_files"] += 1
+                        counts["unreadable"] += 1
+                        bad_read.append(p)
+                        continue
                 if not (isinstance(sniffed, dict) and "desk_meta" in sniffed):
                     counts["other_files"] = counts.get("other_files", 0) + 1
                     continue

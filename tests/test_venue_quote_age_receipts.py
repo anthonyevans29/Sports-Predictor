@@ -1623,3 +1623,23 @@ def test_out_never_names_a_discovered_export_of_any_suffix(tmp_path):
     for cmd in ("venue-calls-receipt", "quote-age-report"):
         r = CliRunner().invoke(cli.cli, [cmd, "--since", "2095-10-02", "--exports-dir", str(ex), "--out", str(tgt)])
         assert r.exit_code == 2 and "REFUSED" in r.output and tgt.read_text() == body, r.output
+
+
+def test_a_non_numeric_venue_price_refuses_without_a_traceback(tmp_path):
+    """Codex on #340: book_p "bad" is valid JSON; the price check refuses it before any arithmetic."""
+    row = _venue_row(1, "x", 2, {"HOME": 0.4735, "AWAY": 0.5265})
+    row["desk"]["book_p"] = "bad"
+    assert not VQ.venue_prices_ok({"fixtures": [row]})
+    row = _venue_row(1, "x", 2, {"HOME": 0.4735, "AWAY": "bad"})
+    assert not VQ.venue_prices_ok({"fixtures": [row]})
+
+
+def test_a_truncated_custom_suffix_export_refuses(tmp_path):
+    """Codex on #340: `--out exports/audit.txt` truncated mid-object is damaged, like a truncated .json."""
+    (tmp_path / "audit.txt").write_text('{"desk_meta": {"as_of": "2095-10-08T00:00:00Z"}, "fixtures": [')
+    with pytest.raises(VQ.Refused):
+        VQ.iter_desk_docs(str(tmp_path))
+    d = tmp_path / "ok"
+    d.mkdir()
+    (d / "receipt.txt").write_text("VENUE CALLS RECEIPT\n{not json}")                 # text: counted, not read
+    assert VQ.iter_desk_docs(str(d))[1]["other_files"] == 1

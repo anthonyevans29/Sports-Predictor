@@ -39,12 +39,15 @@ document.
 ## 3. Design receipt (step (a)): OK
 
 `docs/receipts/ncaa-v1r-design-2026-10-08.md`, from `scripts/ncaa_v1r_design_receipt.py` (seeded; reads no stored
-game). Stop condition: **OK**. In the first setting (110, 140), D5 (2)&(3) passes in 87.5% of seasons (the floor is
-85%) and #79's band rule as coded in 26.5% (the ceiling is 60%). The other settings: (150, 170) 65.0% / 32.0%;
-(190, 210) 14.5% / 27.5%. Mean slope 1.000 / 1.158 / 1.337.
+game). Stop condition: **OK**. In the first setting (110, 140), D5 (2)&(3) passes in 87.0% of seasons (the floor is
+85%) and #79's band rule as coded in 29.5% (the ceiling is 60%). The other settings: (150, 170) 59.5% / 31.0%;
+(190, 210) 15.5% / 24.0%. Mean slope 0.985 / 1.160 / 1.335.
 
-The script now imports the shared D1 wrapper (section 5). Re-run after that change, its output is identical to the
-committed receipt except the runtime line.
+These are the numbers of the current receipt, re-run after Codex's P2 on #365. The cross-conference round (I5) is now
+drawn uniformly over the valid matchings by rejection sampling; the earlier randomized greedy draw was not uniform.
+The first run, with the greedy draw, read 87.5% / 26.5% in the first setting; its stop condition was OK as well.
+The script also imports the shared D1 wrapper (section 5). Re-running it after that change alone gave output
+identical to the first receipt except the runtime line.
 
 ## 4. The registry entry
 
@@ -80,6 +83,7 @@ grading, never a Desk call.
 - **D2 stream** (`ncaa_backtest.v1r_stream`, `V1RStream`):
   - Only games with a CURRENT label (L3). Stale labels are counted and listed; unlabelled games are counted. Neither is walked.
   - Seasons `V1R_SEASONS` = 2024, 2025, 2026, read from the label's season (the CFBD year). A current label in another season is counted (`outside`) and not walked.
+  - Every stored NCAA match that carries a label is read (`load_v1r_games`), whatever our local status or scores (Codex on #365). A current label on a row we hold as SCHEDULED or unscored is walked on the label's scores, so the stream counts the same current labels the coverage fact does. Our FINISHED rows without a label are read only to be counted as unlabelled.
   - Home and away, the scores and the neutral flag are the label's (`game_from_rows`, unchanged). Team ids go through the J2 merge.
   - Order: stored kickoff, then match id. There is no stage or season_type exclusion, so postseason games are walked.
   - A level score is skipped, counted per season and listed (match id, CFBD id, season, kickoff, score).
@@ -97,8 +101,7 @@ grading, never a Desk call.
 ## 6. Interpretations (chosen where the ruling is silent; open to correction)
 
 1. **Season.** A stream game's season is its label's season (the CFBD `--year`, the season each ingest record and the coverage fact are keyed by), not `matches.season`. That is also the season `NCAAEloV1` regresses on. Where the two differ, the ingest already lists the game.
-2. **Our row's status.** The stream still starts from `load_games` (our NCAA rows that are FINISHED with both scores), then keeps the labelled ones. A label on a row we still hold as unscored is not walked. The ingest counts such rows ("ours unscored").
-3. **Upcoming games.** Upcoming games keep the shadow's existing stage-marker skip (`exclusion_reason`). It never fires on the stored division labels (#359).
+2. **Upcoming games.** Upcoming games keep the shadow's existing stage-marker skip (`exclusion_reason`). It never fires on the stored division labels (#359).
 
 ## 7. Not in this PR (PR B)
 

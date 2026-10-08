@@ -715,7 +715,7 @@
       "default_rating": 1500.0
     },
     "ratified": "ARCHITECT 2026-10-08, addendum 11 item 3 (pre-run, frozen; D1-D9 verbatim in docs/specs/ncaa-elo-v1r.md). Note on D5 (verbatim): \"Tests (2) and (3) replace #79's band rule for this declaration only, before any v1r number exists. #79's own declaration is untouched, and my sentence in addendum 10 that its acceptance numbers do not move stands for #79. For v1r the margin, the rating range and the 500 games are #79's; the calibration test is D5's.\"",
-    "design_receipt": "docs/receipts/ncaa-v1r-design-2026-10-08.md (step (a), stop condition OK: first setting D5 (2)&(3) 87.5%, band rule 26.5%)",
+    "design_receipt": "docs/receipts/ncaa-v1r-design-2026-10-08.md (step (a), stop condition OK: first setting D5 (2)&(3) 87.0%, band rule 29.5%; re-run with the uniform cross-conference draw after Codex on #365, first run 87.5% / 26.5%)",
     "prior_reads_note": "D9. Prior reads of this test set: none. The 2026-09-30 run of v1 (all divisions, scrambled 2025 labels, VOID by the 2026-10-01 ruling) scored 2026 games; the entry names it."
   }
 ]

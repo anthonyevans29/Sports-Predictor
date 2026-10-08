@@ -57,3 +57,15 @@
   - Upcoming games keep the existing stage-marker skip.
 - **Not in this PR (PR B):** the gate command, `--preflight`, the reservation, the confirmation command.
 - **Stacks on #362** (CFBD scope + join + LABEL SET), which is not yet on main.
+- **Codex on #365, round 1 (both verified and fixed).**
+  - P1, reading 2 withdrawn: D2 is applied as worded. `load_v1r_games` reads every stored NCAA match that carries a label, whatever our local status or scores, with home, away, scores and neutral taken from the label. A current label on our SCHEDULED or unscored row is walked, so the stream and the coverage fact count the same labels.
+  - P2: the design receipt's I5 draw is now uniform over valid cross-conference matchings (rejection sampling, seeded, capped, fails loudly).
+  - Re-run receipt:
+
+    | setting | slope | band rule | D5 (2)&(3) |
+    |---|---|---|---|
+    | (110,140) | 0.985 | 29.5% | 87.0% |
+    | (150,170) | 1.160 | 31.0% | 59.5% |
+    | (190,210) | 1.335 | 24.0% | 15.5% |
+
+  - Stop condition (verbatim, re-checked): "If yours contradict mine beyond noise (in the first setting the model passing D5 (2) and (3) in fewer than 85% of seasons, or passing the band rule in more than 60%), stop: write no entry and tell me." OK: 87.0% >= 85% and 29.5% <= 60%.

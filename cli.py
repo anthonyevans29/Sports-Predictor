@@ -6509,7 +6509,7 @@ def ncaa_cfbd_coverage_cmd():
         seasons = sorted(set(nc.latest_records(s)) | set(nb.V1R_SEASONS))     # D6: 2024, 2025, 2026 always
         fbs = nc.stored_coverage(s, seasons)
         s.rollback()
-    nb.coverage_report(nb.build_stream(games), out=click.echo, fbs=fbs, v1r=nb.load_v1r_stream(games))
+    nb.coverage_report(nb.build_stream(games), out=click.echo, fbs=fbs, v1r=nb.load_v1r_stream())   # D2: by label
 
 
 @cli.command("nhl-backtest")

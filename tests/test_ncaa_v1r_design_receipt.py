@@ -72,3 +72,40 @@ def test_logistic_slope_recovers_identity_on_calibrated_data():
     y = (rng.random(20000) < p).astype(int)
     a, b = m.logistic_slope(list(zip(p.tolist(), y.tolist())))
     assert b is not None and abs(b - 1.0) < 0.1 and abs(a) < 0.1
+
+
+def test_cross_round_is_rejection_sampling_uniform_over_valid_matchings(monkeypatch):
+    """Codex on #365 (P2), I5: a cross-conference round is a uniform random permutation paired consecutively,
+    accepted iff no pair shares a conference; the first accepted draw of the seeded stream is the round. The
+    earlier randomized greedy draw weighted matchings unequally."""
+    import numpy as np
+    from collections import Counter
+
+    m = _load()
+    conf = np.repeat(np.arange(m.N_CONF), m.CONF_SIZE)
+    got = m.cross_round(np.random.default_rng(7), conf)
+    rng = np.random.default_rng(7)                       # the definition, replayed on the same seed
+    while True:
+        perm = rng.permutation(m.N_TEAMS)
+        a, b = perm[0::2], perm[1::2]
+        if not np.any(conf[a] == conf[b]):
+            break
+    assert got == [(int(x), int(y)) for x, y in zip(a, b)]
+    assert len(got) == 65 and all(conf[x] != conf[y] for x, y in got)
+    # small instance: every valid matching about equally likely
+    monkeypatch.setattr(m, "N_TEAMS", 8)
+    small = np.array([0, 0, 0, 1, 1, 2, 2, 3])
+    rng = np.random.default_rng(1)
+    c = Counter(tuple(sorted(tuple(sorted(p)) for p in m.cross_round(rng, small))) for _ in range(20000))
+    assert len(c) == 48 and max(c.values()) / min(c.values()) < 1.4
+
+
+def test_cross_round_fails_loudly_when_no_valid_matching_is_drawn(monkeypatch):
+    import numpy as np
+    import pytest
+
+    m = _load()
+    monkeypatch.setattr(m, "N_TEAMS", 4)
+    monkeypatch.setattr(m, "MAX_CROSS_ATTEMPTS", 50)
+    with pytest.raises(RuntimeError, match="no valid matching in 50 attempts"):
+        m.cross_round(np.random.default_rng(0), np.array([0, 0, 0, 1]))

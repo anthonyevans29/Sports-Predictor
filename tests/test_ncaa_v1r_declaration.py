@@ -239,3 +239,59 @@ def test_coverage_cli_prints_the_three_seasons(tmp_path, monkeypatch):
     for season in ("2024", "2025", "2026"):
         assert f"  {season}: labelled 0 / CFBD completed both-FBS 0" in res.output
     assert "coverage condition in ALL THREE seasons (2024, 2025, 2026): DOES NOT HOLD" in res.output
+
+
+def _fresh(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+
+    eng = create_engine(f"sqlite:///{tmp_path / 'fresh.db'}", future=True)
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    db.init_db()
+    return db
+
+
+def test_a_current_label_on_our_unscored_scheduled_row_is_walked_with_the_labels_scores(tmp_path, monkeypatch):
+    """Codex on #365 (P1), D2 as worded: "Home and away, the scores and the neutral flag come from the label". The
+    ingest joins exact fits on our unscored rows and stores CFBD's scores; that label counts toward the coverage
+    fact, so the stream walks it whatever our local status. The coverage count and the stream count agree."""
+    from src.db.schema import (Competition, Match, MatchStatus, NCAACFBDIngestRecord, NCAACFBDLabel, Sport,
+                               Team)
+    from src.ingestion import ncaa_cfbd as nc
+
+    db = _fresh(tmp_path, monkeypatch)
+    with db.session_scope() as s:
+        comp = Competition(sport=Sport.NFL, code="NCAA", name="NCAA", area="USA", type="LEAGUE")
+        t = [Team(sport=Sport.NFL, name=f"Lbl {i}") for i in range(3)]
+        s.add_all([comp, *t])
+        s.flush()
+
+        def match(h, a, day, status, hs=None, as_=None):
+            m = Match(sport=Sport.NFL, competition_id=comp.id, season="2025", utc_date=datetime(2025, 9, day, 19),
+                      status=status, home_team_id=t[h].id, away_team_id=t[a].id, home_score=hs, away_score=as_,
+                      stage="FBS (Division I-A)")
+            s.add(m)
+            s.flush()
+            return m.id
+
+        sched = match(0, 1, 6, MatchStatus.SCHEDULED)                       # ours: never scored
+        fin = match(1, 2, 13, MatchStatus.FINISHED, 10, 3)
+        bare = match(2, 0, 20, MatchStatus.FINISHED, 35, 7)                 # no label: counted, never walked
+        for mid, (hs, as_), gid in ((sched, (24, 17), 1), (fin, (10, 3), 2)):
+            s.add(NCAACFBDLabel(match_id=mid, source="cfbd", source_game_id=gid, season="2025", orientation="same",
+                                neutral=False, home_score=hs, away_score=as_, fetched_at=AT, season_type="regular"))
+        s.add(NCAACFBDIngestRecord(season="2025", division="fbs", fetched_at=AT, payload_file="p.json", records=2,
+                                   in_scope=2, joined=2, unlabelled=[]))
+    with db.session_scope() as s:
+        cov = nc.stored_coverage(s, ["2025"])["2025"]
+    v = nb.load_v1r_stream()
+    assert (cov["current"], cov["labelled"], cov["ok"]) == (2, 2, True)
+    assert v.labelled["2025"] == cov["current"] == len(v.by_season("2025"))       # coverage and stream agree
+    by = {g.match_id: g for g in v.games}
+    assert set(by) == {sched, fin}
+    assert (by[sched].home_score, by[sched].away_score, by[sched].label_source) == (24, 17, "cfbd")
+    assert dict(v.unlabelled) == {"2025": 1} and bare not in by

@@ -25,8 +25,13 @@ Interpretations (each stated in the receipt):
   I4 the model's season_regression (0.25) applies at the season boundary
      exactly as NCAAEloV1 does it (a team regresses at its first test game).
   I5 cross-conference round: a uniformly random perfect matching of all 130
-     teams with no same-conference pair (65 games; built by a randomized
-     greedy draw, restarted on a dead end). Pairs may repeat across rounds.
+     teams with no same-conference pair (65 games), drawn by REJECTION
+     SAMPLING (Codex on #365: the earlier greedy draw was not uniform over
+     valid matchings): a uniform random permutation paired consecutively is a
+     uniform perfect matching; it is accepted iff no pair shares a conference,
+     so an accepted draw is uniform over the valid matchings. Acceptance is
+     about e^-6 per attempt; capped at MAX_CROSS_ATTEMPTS, exceeding it raises.
+     Seeded. Pairs may repeat across rounds.
   I6 in-conference round: each conference's 13 teams are shuffled and paired
      consecutively; the 13th has a bye (6 games per conference, 60 per round).
      Season = 3*65 + 8*60 = 675 games, all FBS-vs-FBS, all scored.
@@ -78,6 +83,7 @@ ELO_PER_POINT = 21.5
 MARGIN_SD = 14.0
 N_SEASONS = 200
 MASTER_SEED = 20261008
+MAX_CROSS_ATTEMPTS = 1_000_000      # I5: expected ~420 attempts per round; a miss here raises, never falls back
 CLIP = 1e-6
 LEVEL_TOL, SLOPE_TOL = 0.05, 0.20
 ARCHITECT = {"slope": (0.99, 1.16, 1.33), "band": (0.32, 0.33, 0.29), "d5": (0.92, 0.60, 0.13)}
@@ -105,19 +111,13 @@ class NeutralAwareElo(nb.NeutralRuleElo):
 
 
 def cross_round(rng: np.random.Generator, conf_of: np.ndarray) -> list[tuple[int, int]]:
-    while True:
-        unpaired = list(rng.permutation(N_TEAMS))
-        out = []
-        while unpaired:
-            a = unpaired.pop(0)
-            options = [t for t in unpaired if conf_of[t] != conf_of[a]]
-            if not options:
-                break
-            b = options[int(rng.integers(len(options)))]
-            unpaired.remove(b)
-            out.append((int(a), int(b)))
-        if len(out) == N_TEAMS // 2:
-            return out
+    """I5: uniform over the perfect matchings with no same-conference pair, by rejection sampling."""
+    for _ in range(MAX_CROSS_ATTEMPTS):
+        perm = rng.permutation(N_TEAMS)
+        a, b = perm[0::2], perm[1::2]
+        if not np.any(conf_of[a] == conf_of[b]):
+            return [(int(x), int(y)) for x, y in zip(a, b)]
+    raise RuntimeError(f"cross_round: no valid matching in {MAX_CROSS_ATTEMPTS} attempts (acceptance ~e^-6)")
 
 
 def conf_round(rng: np.random.Generator) -> list[tuple[int, int]]:
@@ -292,9 +292,13 @@ def render(rows: list[dict], runtime_s: float) -> str:
     L.append("- I4 The model's season_regression 0.25 applies at the season boundary exactly as "
              "NCAAEloV1 does it (a team regresses toward 1500 at its first test-season game, "
              "which already prices on the regressed rating).")
-    L.append("- I5 Cross-conference round: a random perfect matching of all 130 teams with no "
-             "same-conference pair (65 games), drawn by a randomized greedy pairing restarted on "
-             "a dead end; pairs may repeat across rounds.")
+    L.append("- I5 Cross-conference round: a uniformly random perfect matching of all 130 teams "
+             "with no same-conference pair (65 games), drawn by rejection sampling: a uniform random "
+             "permutation paired consecutively (a uniform perfect matching), accepted iff no pair "
+             "shares a conference, so accepted draws are uniform over the valid matchings (acceptance "
+             f"about e^-6; capped at {MAX_CROSS_ATTEMPTS:,} attempts, exceeding it raises). Replaces the "
+             "earlier randomized greedy draw, which was not uniform (Codex on #365). Pairs may repeat "
+             "across rounds.")
     L.append("- I6 In-conference round: each conference's 13 teams shuffled and paired "
              "consecutively, the 13th has a bye (6 games per conference, 60 per round). One "
              "season = 3*65 + 8*60 = 675 games, all FBS-vs-FBS; \"scored\" = every test-season game.")

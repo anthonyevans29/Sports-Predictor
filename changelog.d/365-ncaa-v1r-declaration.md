@@ -22,3 +22,4 @@
 - #79's all-division stream, gate and numbers are unchanged. NCAA stays market-only.
 - The gate command, `--preflight`, the reservation and the confirmation command are PR B.
 - Adds `tests/test_ncaa_v1r_declaration.py` and a D8 row test in `tests/test_ncaa_shadow.py`.
+- **Codex on #365, round 1.** P1: the v1r stream reads every stored NCAA match that carries a label, whatever our local status or scores (`load_v1r_games`; D2: the scores come from the label), so it counts the same current labels the coverage fact does. P2: the design receipt's cross-conference round is now drawn uniformly over valid matchings by rejection sampling. Re-run receipt: (110,140) / (150,170) / (190,210): slope 0.985 / 1.160 / 1.335, band rule 29.5% / 31.0% / 24.0%, D5 (2)&(3) 87.0% / 59.5% / 15.5%. Stop condition still OK.

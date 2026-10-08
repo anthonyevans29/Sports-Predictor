@@ -634,9 +634,39 @@ def v1r_stream(games: list[Game], teams: dict[int, str], stamps: dict[str, datet
     return v
 
 
+def load_v1r_games() -> list[Game]:
+    """Read-only, D2 as worded ("stored NCAA games that carry a current CFBD both-FBS label [...] Home and away,
+    the scores and the neutral flag come from the label"): EVERY stored NCAA match carrying a side-table label,
+    whatever our local status or scores (Codex on #365: the ingest joins exact fits on our unscored rows and stores
+    CFBD's scores, and such a label counts toward the coverage fact, so the stream must walk it). Built by
+    game_from_rows, so the label's orientation, scores and neutral flag apply; v1r_stream then keeps the current
+    ones (L3). Our FINISHED scored rows WITHOUT a label (#79's load_games) are added only so the stream can count
+    them as unlabelled; they are never walked. #79's load_games / build_stream are unchanged."""
+    from sqlalchemy import inspect, select
+
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, NCAACFBDLabel, Sport
+    from src.ingestion.ncaa_cfbd import label_load_options
+
+    out: list[Game] = []
+    with session_scope() as s:
+        if inspect(s.connection()).has_table(NCAACFBDLabel.__tablename__):
+            rows = s.execute(
+                select(Match, NCAACFBDLabel)
+                .join(NCAACFBDLabel, NCAACFBDLabel.match_id == Match.id)
+                .join(Competition, Match.competition_id == Competition.id)
+                .where(Match.sport == Sport.NFL, Competition.code == NCAA_COMPETITION_CODE)
+                .options(*label_load_options(s))
+                .order_by(Match.utc_date, Match.id)).all()
+            out = [game_from_rows(m, lab) for m, lab in rows]
+        s.rollback()
+    labelled = {g.match_id for g in out}
+    return out + [g for g in load_games() if g.match_id not in labelled and g.label_source != "cfbd"]
+
+
 def load_v1r_stream(games: list[Game] | None = None) -> V1RStream:
-    """Read-only: load_games() (or `games`) restricted to the v1r stream: current labels only (L3), the team
-    merge built over every team in an NCAA match."""
+    """Read-only: load_v1r_games() (or `games`) restricted to the v1r stream (D2): current labels only (L3),
+    seasons V1R_SEASONS, the team merge built over every team in an NCAA match."""
     from src.db.database import session_scope
     from src.ingestion.ncaa_cfbd import latest_record_stamps, ncaa_teams
 
@@ -644,7 +674,7 @@ def load_v1r_stream(games: list[Game] | None = None) -> V1RStream:
         teams = ncaa_teams(s)
         stamps = latest_record_stamps(s)
         s.rollback()
-    return v1r_stream(load_games() if games is None else games, teams, stamps)
+    return v1r_stream(load_v1r_games() if games is None else games, teams, stamps)
 
 
 def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dict | None = None,

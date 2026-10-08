@@ -92,6 +92,9 @@ def mine(world, monkeypatch):
     real = nb.load_games
     teams = set(world["teams"])
     monkeypatch.setattr(nb, "load_games", lambda: [g for g in real() if g.home_id in teams and g.away_id in teams])
+    real_v1r = nb.load_v1r_games                           # D2 reads every labelled match (Codex on #365): ours only
+    monkeypatch.setattr(nb, "load_v1r_games",
+                        lambda: [g for g in real_v1r() if g.home_id in teams and g.away_id in teams])
     monkeypatch.setattr(nc, "stored_coverage", lambda s, seasons, **k: _fbs())
 
     # L3: every label of this module is stamped NOW, the latest ingest record's fetched_at for both seasons

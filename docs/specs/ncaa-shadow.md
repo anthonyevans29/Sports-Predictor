@@ -20,7 +20,7 @@ Build instruction: "Build it now on a branch so it is ready when the labels are.
    - `no_home_advantage_at_neutral`
 
    #333 ruled that "whether v1r applies home advantage at neutral sites is a declaration question". The shadow therefore never chooses; it reads the key. The entry must also freeze `constants` = v1's untouched values (`k_factor` 24, `home_advantage` 55, `mov_base` 2.2, `season_regression` 0.25, `default_rating` 1500); anything else refuses (Codex on #344). **The declaration PR must carry both keys** (named here, for the architect).
-2. **Coverage holds.** The CFBD side table covers at least 95% of the gate's stream in BOTH seasons. This is `ncaa_backtest.label_coverage`, the same fact the #333 coverage receipt prints. It is re-checked on every run, so a side table that regresses stops the shadow.
+2. **Coverage holds (restated 2026-10-08).** SCOPE (ARCHITECT 2026-10-08, verbatim): "the side table labels at least 95% of CFBD's completed both-FBS games in each season used, read from the ingest receipt (joined over in scope), every unmatched game listed. The shadow's precondition is that same fact." The shadow checks it with `ncaa_cfbd.stored_coverage` for 2025 and 2026 (`coverage_guard`). LABEL SET (ARCHITECT 2026-10-08, addendum 11): the fact is the season's latest ingest record (`ncaa_cfbd_ingest_records`), joined over in scope, at least 95%; the payload file is never opened; a season with no record, or whose current labels do not number the record's joined count, refuses with its reason (L2, L3). The walk and the FBS team set (`fbs_teams`) read CURRENT labels only: fetched_at equal to the season's latest record's (L3). It is re-checked on every run, so a side table that regresses stops the shadow. (Until 2026-10-08 this was the side table's share of the gate's all-division stream, `ncaa_backtest.label_coverage`; that ratio is now information only.)
 
 The architect's read of the receipt is what leads to (1). The code never declares anything in the registry.
 
@@ -29,7 +29,8 @@ The architect's read of the receipt is what leads to (1). The code never declare
 - **v1 with its constants untouched.** `NCAAEloConfig()`: k 24, home advantage 55, mov_base 2.2, regression 0.25, default rating 1500. The update math is `NCAAEloV1`'s verbatim.
 - **Neutral rule.** Under `no_home_advantage_at_neutral`, a game whose CFBD neutral flag is true prices and updates with home advantage 0.
   - An upcoming game has no side-table row, so its neutral flag is unknown. The listed home's advantage is applied and the row says `neutral: null` (law 4).
-- **Walk-forward** over the gate's stream, with #333's labels applied, pre- and postseason excluded and ties skipped: every game before now, then the predictions.
+- **Walk-forward** over the ncaa-elo-v1r stream (SCOPE, 2026-10-08): only games carrying a CFBD label are walked (`ncaa_backtest.v1r_stream`); a stored game without one is neither walked nor scored and is counted (`unlabelled_not_walked` in the file's `fit`). #333's labels applied, pre- and postseason excluded (as #79's stage rule, unchanged until the architect rules the postseason rule), ties skipped: every game before now, then the predictions.
+- **Team merge (J2, 2026-10-08).** Team ids whose html-unescaped names are identical are one team, keyed by the lowest id, for the walk, the FBS test and the upcoming games. A read-time mapping; `teams` is never written. Every group and every changed name is listed in the file's `fit.team_merge`.
 
 ## Rows and file
 

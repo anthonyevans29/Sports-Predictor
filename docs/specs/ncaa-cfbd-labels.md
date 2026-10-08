@@ -1,8 +1,144 @@
 # NCAA CFBD label lane (#176 probe read) — DATA LANE
 
-**Status: BUILT 2026-10-07, not yet run on the laptop.** No model change. GATE
-#79 (frozen 2026-09-30) is unchanged and stays SUSPENDED-PENDING-DATA until
-the architect reads the coverage receipt.
+**Status: BUILT 2026-10-07; run on the laptop 2026-10-08 (receipts read).
+SCOPE + JOIN (J1–J4) built 2026-10-08, re-ingest from the saved payloads
+pending.** No model change. GATE #79 (frozen 2026-09-30) is unchanged and stays
+SUSPENDED-PENDING-DATA until the architect reads the coverage receipt.
+
+## SCOPE + JOIN (ARCHITECT 2026-10-08, addendum 10 item 3) — DATA LANE
+
+No model constant changed. #79's declaration and acceptance numbers are untouched. The ncaa-elo-v1r declaration is NOT written here (no registry write).
+
+### The rulings (verbatim)
+
+> SCOPE: "ncaa-elo-v1r is an FBS model. Its stream is the games that carry a CFBD both-FBS label; a stored game without one is neither walked nor scored, in the gate and in the shadow. My 2026-10-07 coverage condition is restated for that stream: the side table labels at least 95% of CFBD's completed both-FBS games in each season used, read from the ingest receipt (joined over in scope), every unmatched game listed. The shadow's precondition is that same fact. #79's all-division stream stays in the record as declared; its acceptance numbers do not move (margin 0.010, bands, rating range, 500 test games). The declaration's split, neutral-site rule, postseason rule and confirmation plan are mine to rule after the re-ingest; do not write the declaration yet."
+
+> JOIN: "J1. A source game the first pass leaves unmatched is retried against our NCAA matches within 36 hours either side. It joins only if exactly one (match, orientation) fits by the same name tiers, that match is not already joined, and the final scores agree in that orientation. join_via is dateshift. Each such row is listed with both kickoffs and the offset; a name fit whose scores disagree stays unmatched and is listed with both scores. J2. In the join and in alias vetting our team names are HTML-unescaped before normalization. In the v1r stream and the shadow, team ids whose unescaped names are identical are one team, keyed by the lowest id; the receipt lists every such group and every name that changes. J3. Aliases, pinned: App State -> Appalachian State; Massachusetts -> UMass; Buffalo -> Buffalo State; Rice -> Rice Owls. J4. The side table stores CFBD's seasonType as served: a nullable column with its own migrate script, filled on the next ingest, carried on Game as data only. Nothing in matches or teams is rewritten by any of this."
+
+Receipt findings that led here (not repaired by this lane): 74 of the 2025 both-FBS games are stored one day early (00:00–03:59 UTC kickoffs; the 12h window misses them). "Hawai'i" and "Hawai&#x27;i" are two team rows. The stage field is the provider's division label, so #79's postseason exclusion never fired. The provider names FBS Buffalo "Buffalo State" and Rice "Rice Owls". The adapter's escaped names, the duplicate team row and the early kickoffs in `matches` stay as they are.
+
+### What was built, by ruling point
+
+| Point | Built (`src/ingestion/ncaa_cfbd.py` unless named) |
+|---|---|
+| J1 | `tier_fits` (the name tiers, shared by both passes), `dateshift_retry`, called by `build_labels` after the first pass. |
+| J2 join | `our_norm` (html.unescape, then `normalize_team_name`) in `load_ours`, `vet_aliases` and `build_labels`; `escaped_names` lists every changed name in the ingest receipt. |
+| J2 stream | `ncaa_backtest.team_merge` / `TeamMerge`: a read-time id mapping, applied in `v1r_stream` and in the shadow's walk and upcoming games. |
+| J3 | `ncaa_cfbd_aliases.json`: the four pins. |
+| J4 | `NCAACFBDLabel.season_type` (nullable), `migrate_ncaa_cfbd_v2.py` (one script with L1's table), filled by `build_labels` / `upsert`, carried on `ncaa_backtest.Game.season_type`. |
+| SCOPE stream | `ncaa_backtest.v1r_stream` / `load_v1r_stream`; the shadow's `fit`. |
+| SCOPE coverage | `fbs_coverage` (the pure fact), the ingest receipt's COVERAGE line and UNLABELLED list, `stored_coverage` (the fact re-read for `ncaa-cfbd-coverage` and the shadow's `coverage_guard`). |
+
+### J1: dateshift
+
+- The first pass is unchanged: ±12h, exact then substring, exactly one (match, orientation) per tier, ambiguity refused.
+- Only a game the first pass leaves UNMATCHED is retried. A first-pass AMBIGUOUS game is refused, not unmatched, and is never retried.
+- The retry window is ±36h of CFBD's `startDate` (`DATESHIFT_HOURS`). The tiers are the first pass's own (`tier_fits`): exact, and substring only when exact finds nothing.
+- The retry joins only when all of these hold:
+  - exactly one (match, orientation) fits in the first tier with any fit;
+  - that match is not one the first pass joined in this run ("already joined");
+  - CFBD's scores, stated in that orientation, equal our row's scores. An unscored row of ours never agrees.
+- A joined row carries `join_via = dateshift` (even when an alias resolved a name). It is listed with CFBD's kickoff, ours, and the offset (ours minus CFBD, hours).
+- A name fit whose scores disagree stays unmatched. It is listed with both scores (ours in our orientation, CFBD in our orientation).
+- An already-joined fit, and a retry with two or more fits, also stay unmatched and are listed with the reason.
+- Dateshift rows go through the existing duplicate-target rule: two source games on one match are both refused.
+
+### J2: unescaped names and the team merge
+
+- **Join and alias vetting.** Our stored names go through `html.unescape` before the shared normalization (`our_norm`). CFBD's names are normalized as served. The receipt lists every one of our names that unescape changes.
+- In alias vetting the merge does NOT apply. An alias whose target unescapes to the name of two of our team rows names 2 teams and is refused.
+- **The v1r stream and the shadow.** Team ids whose unescaped names are IDENTICAL (exact string equality after `html.unescape`, no other normalization) are one team, keyed by the lowest id. This is a mapping applied when the stream is read. The `teams` and `matches` tables are never written. The `ncaa-cfbd-coverage` receipt and the shadow's `fit` receipt list every group and every changed name.
+- #79's all-division stream (`load_games` + `build_stream`) is not merged: it stays as declared.
+
+### J3: pinned aliases
+
+`{"App State": "Appalachian State", "Massachusetts": "UMass", "Buffalo": "Buffalo State", "Rice": "Rice Owls"}`.
+
+Direction verified against the file's own `_format` and `load_aliases` / `vet_aliases`: the key is the CFBD name as served (`homeTeam` / `awayTeam`), the value is OUR `teams.name`. That matches the ruling's "left -> right" (CFBD -> ours). On the operator's listing of our names each target names exactly one team (the test pins it): `appalachian state`, `umass` (not `umass dartmouth` or `mass maritime`), `buffalo state`, `rice owls`.
+
+### J4: seasonType
+
+- `ncaa_cfbd_labels.season_type VARCHAR(32) NULL`, added by `migrate_ncaa_cfbd_v2.py` (additive and idempotent; refuses if the side table does not exist yet; it also creates L1's table).
+- Filled from CFBD's `seasonType` exactly as served (`regular`, `postseason`, ...) on the next ingest. NULL when the source sends none.
+- Carried on `Game.season_type` as DATA ONLY. No rule reads it: the postseason rule is the architect's to rule after the re-ingest.
+- Until the migration runs, `ncaa-cfbd-labels` refuses to write (a `--dry-run` works) and the readers load every other column (`label_load_options`), so `ncaa-backtest`, `ncaa-cfbd-coverage` and the shadow keep working.
+
+### SCOPE: the v1r stream
+
+- `ncaa_backtest.v1r_stream(games, teams)`: the gate's rows (FINISHED, both scores, as `load_games`) that carry a side-table label (`label_source == "cfbd"`), with both team ids mapped through the J2 merge, then #79's `build_stream` (same season filter, exclusions and tie rule).
+- A stored game without a label is neither walked nor scored. It is counted per season ("unlabelled, NOT walked, NOT scored").
+- The shadow walks this stream (`ncaa_shadow.fit`). The gate harness for v1r is NOT wired into `ncaa-backtest` here: the declaration's split, neutral-site rule and postseason rule come first, by ruling. `ncaa-backtest` still runs #79's all-division stream exactly as declared.
+
+### SCOPE: the coverage fact
+
+- **The fact.** Per season: labelled ÷ CFBD's completed both-FBS games, at least 95% (`fbs_coverage`, `COVERAGE_MIN`), every unlabelled game listed.
+- **Before / after.** The 2026-10-07 build's condition divided by every kept game of #79's all-division stream (FCS opponents included). On the synthetic fixture in `tests/test_ncaa_cfbd_scope_join.py` (100 CFBD both-FBS games, 96 labelled, 60 unlabelled non-FBS stream games), it read 96/156 = 61.5% (NO). The ruled denominator reads 96/100 = 96.0% (YES). `label_coverage` stays as #79's information print and no longer carries a 95% verdict.
+- **In the ingest receipt.** Every run prints `COVERAGE (SCOPE, ARCHITECT 2026-10-08): labelled J / CFBD completed both-FBS N = x% · >= 95%: YES/NO` (joined over in scope for that run), and lists every unlabelled in-scope game with its reason (unmatched, with any dateshift note; ambiguous; duplicate target; unusable row). The unmatched list is no longer cut at `--limit`.
+- **Codex on #362 (first fix, superseded).** ee4276a persisted a receipt table and admitted labels by joined (match, CFBD id) pairs. The architect's LABEL SET ruling below replaces both. Readings 1 and 3 of the first build are replaced by it.
+
+## J5 + LABEL SET (ARCHITECT 2026-10-08 12:10 ET, addendum 11 item 2)
+
+### The rulings (verbatim)
+
+> J5, RULED: "A substring-tier fit is a join only when our match is scored and the final scores agree in that orientation, in the first pass as in the retry. A game whose first-pass substring tier gives no clean join (no fit, more than one fit, or a fit that fails this test) is unmatched for the first pass and goes to the J1 retry, where the exact tier is tried first across the 36 hours. Exact-tier joins are unchanged: the side table carries CFBD's scores and a disagreement is listed as corrected (ruling (4) of 2026-10-07)."
+
+> LABEL SET, RULED: "L1. Every non-dry ingest writes one ingest record per season to a new table with its own additive migrate script: season, division, fetched_at, payload_file, records, in scope, joined, and the unlabelled games as the receipt lists them. A run that joins nothing still writes its record. L2. The coverage fact is the season's latest ingest record: joined over in scope, at least 95%. ncaa-cfbd-coverage and the shadow's precondition read that record and never open the payload file. A season with no record is not covered. L3. A label is current when its fetched_at equals that of its season's latest ingest record. The v1r stream and the shadow's FBS team set read current labels only. A stale label is kept, counted and listed, never walked. A season whose current labels do not number its record's joined count is not covered. L4. A non-dry ingest runs only with division fbs. Any other division is a dry run or a refusal."
+
+> Migration: "If one migrate script can add the column and create the table while staying additive and idempotent, make it one."
+
+Why J5 (architect): on a scratch DB a game missing from our table (Miami @ Texas) took a substring fit on another same-day game (Miami (OH) @ Texas State). The duplicate-target rule then refused both, so one missing game cost a correct label.
+
+### J5: the substring tier needs agreeing scores
+
+- **First pass (`join_one`, ±12h).**
+  - Exact tier: unchanged. One fit joins (a score disagreement is a listed correction); two or more fits are refused as ambiguous.
+  - Substring tier: joins only when exactly one (match, orientation) fits, our match is scored, and the final scores agree in that orientation (`scores_agree`).
+  - Any other substring outcome is unmatched for the first pass and goes to the J1 retry: no fit, more than one fit, or a fit that fails the score test. The reason is kept on the listing (`first pass: ...`) and counted (`first_pass_substring_to_retry`).
+- **Retry (`dateshift_retry`, ±36h).** The exact tier is tried first, then substring (`tier_fits`). A retry join already required exactly one fit, a match not already joined, and agreeing scores, so J5 holds there too.
+- **Tests.** The Miami @ Texas case, and a day-early game that used to take a wrong first-pass substring fit and now joins the right game through the retry.
+
+### L1: the ingest record
+
+- **Table.** `ncaa_cfbd_ingest_records` (`NCAACFBDIngestRecord`). Columns: season, division, fetched_at, payload_file, records, in_scope, joined, unlabelled (the receipt's list), plus an id.
+- **Writes.** `write_record` writes one row per season on every non-dry run. A run that joins nothing still writes its record; so do an empty payload and a missing-field refusal (in scope 0). The table is append-only. A dry run writes nothing.
+- **Migration.** One script, `migrate_ncaa_cfbd_v2.py`, adds `ncaa_cfbd_labels.season_type` (J4) and creates this table (L1). It is additive and idempotent, per the architect's migration note. It replaces the unmerged `migrate_ncaa_cfbd_season_type.py` and `migrate_ncaa_cfbd_ingest_receipts.py`. The ingest refuses to write until both objects exist.
+- **Storage.** A DB table, not a file: the host and the laptop each have their own DB, and `exports/` is mirrored and pruned.
+
+### L2: coverage is the latest record
+
+- `stored_coverage` takes the season's latest record (by fetched_at, then id): joined ÷ in scope, at least 95%, and the record's unlabelled list.
+- It never opens the payload file (a test checks this).
+- A season with no record is not covered.
+- `ncaa-cfbd-coverage` prints every season with a record, plus 2025 and 2026.
+- The shadow's `coverage_guard` reads the same fact for 2025 and 2026.
+
+### L3: current labels
+
+- **Current.** A label is current when its `fetched_at` equals its season's latest record's `fetched_at` (`latest_record_stamps`). `upsert` stamps every label it inserts, updates or confirms in a run with that run's `fetched_at`, and the record carries the same stamp. So a label the latest run did not join is stale.
+- **Readers.** The v1r stream (`v1r_stream(games, teams, stamps)`) and the shadow's `fbs_teams` read current labels only.
+- **Stale labels.** They are kept, counted and listed (`V1RStream.stale`; the shadow's `fit.stale_labels_not_walked`), and never walked.
+- **Count check.** A season whose current labels (`current_label_counts`) do not number its record's joined count is not covered.
+- **#79.** The all-division stream still reads every row, as declared.
+
+### L4: fbs only
+
+- A non-dry `ncaa-cfbd-labels` with any division other than `fbs` (case-insensitive) refuses before any work, with exit 2.
+- A `--dry-run` with another division is allowed and writes nothing.
+
+## Re-ingest (operator, 2026-10-09)
+
+1. The `.backup`.
+2. `python migrate_ncaa_cfbd_v2.py`
+3. 2024 from the API (`CFBD_API_KEY` in `.env`; the payload is saved under `exports/cfbd/`):
+   `python cli.py ncaa-cfbd-labels --year 2024 --unmatched-names`
+4. `python cli.py ncaa-cfbd-labels --year 2025 --from-file exports/cfbd/cfbd_games_2025_20261008T140700Z.json --unmatched-names`
+5. `python cli.py ncaa-cfbd-labels --year 2026 --from-file exports/cfbd/cfbd_games_2026_20261008T140703Z.json --unmatched-names`
+6. `python cli.py ncaa-cfbd-coverage`. Paste the receipts.
+
+A `--dry-run` of any of steps 3–5 writes nothing (no label, no record, no payload). The division is the default `fbs`, and a non-dry run with any other division refuses (L4).
+
+`--from-file` already existed (#333): it replays a saved payload with no network and no key, and `payload_file` records the path. Each payload has its own stamp, so it is one year per call (a single `--from-file` for several years must carry `{year}`).
+
 
 ## The ruling (ARCHITECT 2026-10-07, item 6, verbatim)
 
@@ -47,12 +183,14 @@ field), has both scores, and whose two classifications both equal `--division`
 
 **Join key.** Our match id (`matches.id`). Candidates: our matches with
 competition code `NCAA` (Sport.NFL family), status not CANCELLED /
-STALE_ORPHAN, kickoff within ±12h of CFBD's `startDate` (UTC). This is the
+STALE_ORPHAN, kickoff within ±12h of CFBD's `startDate` (UTC); ±36h for the
+J1 dateshift retry (2026-10-08, above). This is the
 shared matcher's window and status rule (`src/ingestion/match_lookup.py`),
 restricted to NCAA. Our candidate matches are loaded once per season (no
 per-game query).
 
-**Name comparison.** Both sides go through the shared `normalize_team_name`.
+**Name comparison.** Both sides go through the shared `normalize_team_name`
+(our names html-unescaped first: J2, 2026-10-08).
 - Tier 1, EXACT: both normalized names are equal to ours.
 - Tier 2, SUBSTRING (the shared matcher's last resort): each name contains
   the other. Tier 2 is used only when tier 1 finds nothing.
@@ -144,12 +282,17 @@ the kept games and the UNCOVERED share.
 
 ## The coverage receipt (`ncaa-cfbd-coverage`)
 
-Per season (2025, 2026), over the games the gate keeps:
+**Superseded in part 2026-10-08 (SCOPE, above):** the 95% condition is now
+labelled ÷ CFBD's completed both-FBS games per season, every unlabelled game
+listed. The receipt prints that first, then the v1r stream (labelled games
+only, with the J2 merge), then the 2026-10-07 per-stream figures below as #79
+information, without a 95% verdict.
+
+Per season (2025, 2026), over the games #79's gate keeps (information):
 - stream games, covered, covered share, uncovered share;
 - swapped, neutral, score-corrected;
 - home win rate on non-neutral covered games (CFBD `neutralSite` false), and
-  on all stream games and on uncovered games for reference;
-- `coverage >= 95%: YES/NO` per season, and whether it holds in BOTH.
+  on all stream games and on uncovered games for reference.
 
 This is a computed fact. The receipt never declares the gate un-suspended:
 that, and whether the 2025 non-neutral home rate "reads sane", is the

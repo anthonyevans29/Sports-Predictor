@@ -1,0 +1,17 @@
+## 2026-10-08 (#PENDING: ncaa-elo-v1r gate command (D3-D6, --preflight, reservation, one recorded run) and confirmation command (D7); not run)
+- **`ncaa-v1r-gate`** (new; `src/walters/ncaa_v1r_gate.py`; ARCHITECT 2026-10-08, addendum 11 item 3, PR B). It follows the soccer-expansion-v1 pattern.
+  - `--preflight` scores nothing. Per season it prints the stream by season_type, the neutral count, the coverage and the D4 baseline (D6).
+  - The run has four preconditions, each checked before anything is read: declared and unrun; `OPEN_ITEMS` empty (it ships with D6's census confirmation open); `--architect-word` given; 2024 and 2025 covered (L2 + L3, each missing season named).
+  - The reservation `docs/registry/ncaa-elo-v1r.started.json` is written after the #329 cross-ref guard and before the first read of the stream.
+  - Then the D3 walk: 2024 is update only; 2025 `regular` games are predicted, then updated; every other 2025 game is walked, never scored; no 2026 game is scored. Then the D5 verdict.
+  - The run is recorded with its scored ids (`registry.record_run`).
+- **`ncaa-v1r-confirm`** (new) follows the intl-elo-confirm pattern for D7.
+  - `--freeze-cohort` freezes the first 100 eligible fixtures, through `registry.freeze_confirmation_cohort`, which runs the guard.
+  - `--substitute` replaces cancelled fixtures only. A finished fixture without a label stays pending.
+  - The read reuses the gate's replay. `--record --ruling` computes CONFIRMED iff log-loss <= 0.6931 and < the D4 baseline − 0.010 on the same games.
+  - The command refuses unless 2024, 2025 and 2026 are covered.
+- **One D5 implementation.** `ncaa_backtest.logistic_slope / level_gap / level_ok / slope_ok` are extracted from `scripts/ncaa_v1r_design_receipt.py`, which now imports them. Re-running the receipt after the extraction gave output byte-identical to before (Runtime line aside).
+- `ncaa_backtest.coverage_misses` is shared by the shadow, the gate and the confirmation. The shadow's refusal text is unchanged.
+- #79's `ncaa-backtest` is unchanged. Nothing was run against a real DB, and the registry entry is unchanged (still `declared`).
+- Docs: docs/CLI.md has two new rows; docs/specs/ncaa-elo-v1r.md has a new section 8, "Commands".
+- Tests: `tests/test_ncaa_v1r_gate.py` (synthetic only).

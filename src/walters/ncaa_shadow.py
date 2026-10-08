@@ -145,14 +145,7 @@ def coverage_guard(fbs: dict[str, dict]) -> dict[str, dict]:
     seasons are 2024, 2025 and 2026."""
     from src.walters import ncaa_backtest as nb
 
-    bad = []
-    for season in nb.V1R_SEASONS:                       # D6: 2024, 2025 and 2026, each missing season named
-        c = fbs.get(season)
-        if c is None:
-            bad.append(f"{season} (not computed)")
-        elif not c["ok"]:
-            bad.append(f"{season} {nb._pct(c['share'])} ({c['labelled']}/{c['in_scope']})"
-                       + (f" [{c['reason']}]" if c.get("reason") else ""))
+    bad = nb.coverage_misses(fbs, nb.V1R_SEASONS)      # D6: 2024, 2025 and 2026, each missing season named
     if bad:
         raise ShadowRefused(f"REFUSED: the CFBD side table labels less than {nb.COVERAGE_MIN:.0%} of CFBD's completed "
                             f"both-FBS games in {'; '.join(bad)} — the shadow does not run before the coverage "

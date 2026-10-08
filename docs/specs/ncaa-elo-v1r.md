@@ -107,3 +107,100 @@ grading, never a Desk call.
 
 The gate command (D3, D4, D5), `--preflight` (D6), the one-run reservation and scored-id record (D6), and the
 confirmation command and cohort freeze (D7).
+
+## 8. Commands (PR B)
+
+ARCHITECT 2026-10-08, addendum 11, item 3, PR B (verbatim): "PR B, after PR A: the gate command for D3 to D6 with
+--preflight, the reservation and the one recorded run, on the soccer-expansion-v1 pattern; then the confirmation
+command for D7 on the intl-elo-confirm pattern. #79's ncaa-backtest stays as it is." Code:
+`src/walters/ncaa_v1r_gate.py`; tests: `tests/test_ncaa_v1r_gate.py` (synthetic only).
+
+### `ncaa-v1r-gate --preflight` (D6)
+
+- Refuses unless the entry is declared and unrun and no reservation exists (as `soccer-expansion-gate --preflight`).
+- Scores nothing: no model is built, nothing is reserved or recorded.
+- Prints, per season 2024 / 2025 / 2026:
+  - the stream by season_type;
+  - the neutral count and the no-flag count;
+  - the level scores skipped;
+  - the coverage line (L2 + L3).
+- Then the D4 baseline, the test-set size (the 2025 `regular` games) and whether the gate's seasons (2024, 2025) and
+  the confirmation's (2024, 2025, 2026) are covered.
+- No 2025 or 2026 outcome is computed or printed. The architect confirms the season_type census from this output
+  (D6).
+
+### `ncaa-v1r-gate --architect-word "<the word, verbatim>"` (D3-D6): the one run
+
+**Preconditions.** Each is checked in this order before the reservation and before the first read. Any failure
+refuses with exit 2, and nothing is read or written.
+  1. The entry is declared and unrun, and no reservation file exists.
+  2. `OPEN_ITEMS` is empty. It ships holding D6's census confirmation, as soccer-expansion-v1's `OPEN_FINDINGS` held
+     its findings. A PR quoting the architect's confirmation empties it.
+  3. `--architect-word` is given and is not blank. The word is written into the reservation and the run record.
+  4. 2024 and 2025 are covered (L2 + L3, `ncaa_cfbd.stored_coverage`). Each season that misses is named.
+
+**Reservation.** `docs/registry/ncaa-elo-v1r.started.json`, the soccer-expansion-v1 pattern:
+  - The registry's cross-ref guard runs first (`registry.cross_ref_guard`, #329 RULED 2026-10-08). `--no-fetch` skips
+    its fetch, and the receipt says other clones were not checked.
+  - The file is an exclusive create.
+  - A reservation without a recorded run refuses every later attempt until the architect rules.
+
+**First read.** `load_v1r_stream()` (D2) is called only after the reservation exists.
+
+**Walk** (`run_gate`, pure):
+  - The D4 baseline is computed first, before any test game is scored: the stream's 2024 non-neutral games whose
+    season_type is exactly `regular`. A label without a neutral flag counts as non-neutral (D1).
+  - The stream is walked in order with the shared D1 wrapper `NeutralRuleElo`.
+  - 2024 games are update only.
+  - 2025 `regular` games are predicted, then updated.
+  - Every other 2025 game is walked and never scored.
+  - The walk ends after the last 2025 game. Ratings are read there, for D5 (4). A 2026 game is never scored. One that
+    kicks off before the last 2025 game is walked (D2: every stream game is walked) and counted.
+
+**Verdict** (D5):
+  - Under 500 scored games: INVALID.
+  - PASS iff all four hold:
+    - (1) log-loss < baseline − 0.010, strict and unrounded, so a tie rejects;
+    - (2) |mean p − realized home rate| <= 0.05;
+    - (3) |b − 1| <= 0.20, with non-convergence failing;
+    - (4) every rating within 1000 to 2000.
+  - (2) and (3) are `ncaa_backtest.level_gap / level_ok / logistic_slope / slope_ok`. The design receipt imports the
+    same functions, so its D5 numbers and the gate's are computed identically. Re-running the receipt after the
+    extraction gave output identical to before.
+
+**Reported, never gated:** #79's bands, the constant-0.5 log-loss, Brier (model and baseline), the intercept a, cold
+starts, and log-loss on neutral and non-neutral games.
+
+**Record.** `registry.record_run`: the scored ids (sidecar + sha256), the result and the word. A second run is refused.
+
+### `ncaa-v1r-confirm` (D7, the intl-elo-confirm pattern)
+
+- **Refuses** unless the entry has its run (carrying the D4 `baseline_home_rate`) and a PASS verdict, and 2024, 2025
+  and 2026 are covered (D6).
+- **Eligible fixtures:** stored NCAA fixtures kicking off after the verdict, by kickoff then id, whose two teams, as J2
+  merged ids, both carry a current label (`ncaa_shadow.fbs_teams`). Any status.
+- **`--freeze-cohort`** freezes the first 100 once, through `registry.freeze_confirmation_cohort`, which calls the
+  cross-ref guard before it writes.
+- **`--substitute`** releases a cancelled cohort fixture and records the next eligible fixture after the cohort as its
+  replacement:
+  - The replacement is never cancelled itself and never one used before.
+  - `registry.substitute_cohort_fixture` makes the write.
+  - A finished fixture without a label is pending and never replaced. Postponed, scheduled and live fixtures stay too.
+- **Scoring:** the gate's replay, i.e. the D1 wrapper over the D2 stream.
+  - A cohort fixture with a current label is predicted, then updated, whatever its season_type. The label's neutral
+    flag applies to the model and to the baseline.
+  - The baseline is the run record's frozen D4 rate (0.5 at a neutral site).
+- **`--record --ruling`** needs the frozen cohort fully labelled. It writes `registry.record_confirmation`, which
+  computes CONFIRMED iff log-loss <= 0.6931 and log-loss < (D4 baseline log-loss − 0.010) on the same games. A tie
+  fails.
+
+### What was chosen where the ruling is silent (open to correction)
+
+1. **The architect's word.** It is two things: the `OPEN_ITEMS` code gate, emptied by a PR (the soccer-expansion-v1
+   pattern), and `--architect-word`, recorded.
+2. **INVALID is recorded.** A run under 500 scored games is recorded as INVALID: the one read is spent. `--preflight`
+   prints the test-set size beforehand.
+3. **The end of the walk.** The gate walk stops after the last 2025 game. 2026 games after it are not walked; they
+   cannot change anything D5 measures.
+4. **A confirmation fixture without a current label** in the D2 seasons (2024-2026) stays pending. This includes a
+   fixture whose label season would be 2027.

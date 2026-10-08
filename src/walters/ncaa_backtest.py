@@ -546,6 +546,60 @@ class NeutralRuleElo:
         return self.m.ratings()
 
 
+# ncaa-elo-v1r D5 (2) and (3) (ARCHITECT 2026-10-08, addendum 11 item 3), ONE implementation: the gate
+# (src/walters/ncaa_v1r_gate.py) and the design receipt (scripts/ncaa_v1r_design_receipt.py, I10/I11) both call
+# these, so they compute D5 identically. D5 (verbatim): "(2) Level: the mean of the model's home probabilities and the
+# realized home win rate differ by no more than 5pp. (3) Spread: the calibration slope b lies within 0.20 of 1, where
+# b is the slope of the maximum-likelihood logistic fit of the result on the model's log-odds, logit P(home win) =
+# a + b * logit(p), with p clipped to [0.000001, 0.999999]; a fit that does not converge fails."
+V1R_CLIP = 1e-6
+V1R_LEVEL_TOL, V1R_SLOPE_TOL = 0.05, 0.20
+V1R_FLOAT_TOL = 1e-12                     # receipt I11: inclusive and float-safe, as the band rule is coded
+V1R_FIT_MAX_ITER, V1R_FIT_STEP_TOL = 100, 1e-10
+
+
+def logistic_slope(pairs) -> tuple[float | None, float | None]:
+    """(a, b) of the maximum-likelihood logistic fit of y on logit(clip(p, 1e-6, 1 - 1e-6)) with intercept, by
+    Newton-Raphson (numpy); max 100 iterations, converged when max |step| < 1e-10. A singular Hessian, a non-finite
+    value or no convergence returns (None, None): D5 (3) then fails. Receipt I10."""
+    import numpy as np
+
+    p = np.clip(np.array([q for q, _ in pairs], dtype=float), V1R_CLIP, 1 - V1R_CLIP)
+    y = np.array([v for _, v in pairs], dtype=float)
+    X = np.column_stack([np.ones_like(p), np.log(p / (1 - p))])
+    beta = np.zeros(2)
+    for _ in range(V1R_FIT_MAX_ITER):
+        mu = 1.0 / (1.0 + np.exp(-(X @ beta)))
+        w = mu * (1 - mu)
+        H = X.T @ (X * w[:, None])
+        g = X.T @ (y - mu)
+        try:
+            step = np.linalg.solve(H, g)
+        except np.linalg.LinAlgError:
+            return None, None
+        beta = beta + step
+        if not np.all(np.isfinite(beta)):
+            return None, None
+        if np.max(np.abs(step)) < V1R_FIT_STEP_TOL:
+            return float(beta[0]), float(beta[1])
+    return None, None
+
+
+def level_gap(pairs) -> float:
+    """D5 (2)'s quantity: mean model home probability minus the realized home win rate."""
+    return sum(q for q, _ in pairs) / len(pairs) - sum(v for _, v in pairs) / len(pairs)
+
+
+def level_ok(gap: float) -> bool:
+    """D5 (2): |gap| <= 5pp, inclusive and float-safe (receipt I11)."""
+    return abs(gap) <= V1R_LEVEL_TOL + V1R_FLOAT_TOL
+
+
+def slope_ok(b: float | None) -> bool:
+    """D5 (3): |b - 1| <= 0.20, inclusive and float-safe (receipt I11); a fit that did not converge (None) fails."""
+    return b is not None and abs(b - 1.0) <= V1R_SLOPE_TOL + V1R_FLOAT_TOL
+
+
 @dataclass
 class V1RStream:
     games: list[Game]                                         # D2: walked, kickoff then match id
@@ -675,6 +729,21 @@ def load_v1r_stream(games: list[Game] | None = None) -> V1RStream:
         stamps = latest_record_stamps(s)
         s.rollback()
     return v1r_stream(load_v1r_games() if games is None else games, teams, stamps)
+
+
+def coverage_misses(fbs: dict[str, dict], seasons) -> list[str]:
+    """D6 (L2 + L3): every season of `seasons` that is NOT covered in `fbs` (ncaa_cfbd.stored_coverage), named with
+    why: not computed, or under 95% / current labels short of the record's joined count. [] = covered. Shared by the
+    shadow (2024, 2025, 2026), the gate run (2024, 2025) and the confirmation read (2024, 2025, 2026)."""
+    bad = []
+    for season in seasons:
+        c = fbs.get(season)
+        if c is None:
+            bad.append(f"{season} (not computed)")
+        elif not c["ok"]:
+            bad.append(f"{season} {_pct(c['share'])} ({c['labelled']}/{c['in_scope']})"
+                       + (f" [{c['reason']}]" if c.get("reason") else ""))
+    return bad
 
 
 def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dict | None = None,

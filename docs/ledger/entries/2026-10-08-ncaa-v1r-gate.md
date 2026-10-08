@@ -1,0 +1,18 @@
+**2026-10-08 — ncaa-elo-v1r PR B: the gate command (D3-D6) and the confirmation command (D7) are built. Not run: the run waits on the census confirmation and the architect's word.**
+- **Ruling (verbatim, ARCHITECT 2026-10-08, addendum 11 item 3):** "PR B, after PR A: the gate command for D3 to D6 with --preflight, the reservation and the one recorded run, on the soccer-expansion-v1 pattern; then the confirmation command for D7 on the intl-elo-confirm pattern. #79's ncaa-backtest stays as it is."
+- **`ncaa-v1r-gate`:**
+  - `--preflight` scores nothing. It prints, per season, the stream by season_type, the neutral count, the coverage and the D4 baseline.
+  - The one run refuses, before any read, unless: declared and unrun; `OPEN_ITEMS` empty; `--architect-word` given; 2024 + 2025 covered.
+  - The reservation follows the #329 cross-ref guard and precedes the first read.
+  - The scored ids are recorded.
+- **"Starts only on my word":** `OPEN_ITEMS` ships holding D6's "I confirm the season_type census before the run". A PR quoting that confirmation empties it, as soccer-expansion-v1's `OPEN_FINDINGS` was emptied. The run then also needs `--architect-word`, the word verbatim, written into the reservation and the run record.
+- **`ncaa-v1r-confirm`:** follows the intl-elo-confirm pattern.
+  - The freeze goes through `registry.freeze_confirmation_cohort`, which runs the guard.
+  - Only a cancelled fixture is substituted. A finished fixture without a label stays pending.
+  - It reuses the gate's replay. CONFIRMED iff log-loss <= 0.6931 and < the D4 baseline − 0.010 on the same games.
+- **D5 (2)/(3):** one implementation in `ncaa_backtest`, imported by the design receipt. The receipt's output is identical before and after the extraction.
+- **Interpretations (spec section 8, open to correction):**
+  - an INVALID run is recorded;
+  - the gate walk stops after the last 2025 game;
+  - a confirmation fixture whose label falls outside 2024-2026 stays pending.
+- **Finding for the architect (not changed here):** `ncaa-cfbd-coverage` (PR A's `V1RStream.lines`) prints the 2025 non-neutral home win rate. That is a test-set outcome, and it is the realized-rate half of D5 (2). `ncaa-v1r-gate --preflight` prints no 2025 outcome.

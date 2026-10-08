@@ -1,0 +1,30 @@
+**2026-10-08 — RULED (ARCHITECT, addenda 11 item 4 and 12): soccer-expansion-v1 second preflight read; closing-odds name pins; design-stage band finding (#363).**
+- **Second preflight READ** (operator console, 11:19 ET, c3a3744).
+  - 2023/24 is complete for all five leagues: PD and SA 380 regular rows, 20 clubs; BL1 and FL1 306, 18; ELC 552, 24. All are finished with both scores.
+  - F3 placements are CONFIRMED for 2023/24 as well. PD and SA carry no other label. BL1 and FL1 have 'Relegation Round' 2, play-off. ELC has 'Promotion Play-offs - Semi-finals' 4 and 'Promotion Play-offs - Final' 1, play-off.
+  - Naive 2023/24 as printed (H / D / A):
+    - PD 0.4395 / 0.2816 / 0.2789
+    - SA 0.4184 / 0.2947 / 0.2868
+    - BL1 0.4379 / 0.2647 / 0.2974
+    - FL1 0.3922 / 0.2647 / 0.3431
+    - ELC 0.4457 / 0.2337 / 0.3207
+  - Open findings: none.
+- **Closes stored before the pins:** SA 760 and ELC 1,104 test matches, all of them; PD 612 of 760; BL1 512 of 612; FL1 544 of 612. Every miss carries one of five names in the price file: Ath Bilbao, Espanol, M'gladbach, Hamburg, Brest. They go in before the run because the market side is written once.
+- **Our stored names** (operator listing, laptop c3a3744; ids are the laptop's, pinned by name, never by id):
+  - PD: 'Athletic Club', 'Espanyol'.
+  - BL1: 'Borussia Mönchengladbach' (ö U+00F6), 'Hamburger SV'.
+  - FL1: 'Stade Brestois 29'.
+- **PINS, RULED (verbatim):** "In the football-data closing-odds ingest, Ath Bilbao is Athletic Club; Espanol is Espanyol; M'gladbach is Borussia Mönchengladbach; Hamburg is Hamburger SV; Brest is Stade Brestois 29. Nothing else in the matcher changes: the date gate, both teams fitting the same game, the best score winning, a tie refused."
+- **Built:** five `TOKEN_SYNONYMS` entries (bilbao -> athletic; espanol -> espanyol; m'gladbach -> mönchengladbach; hamburg -> hamburger; brest -> brestois).
+  - Guard (1): ath, borussia and stade are never synonyms, because Ath Madrid, Dortmund and Reims carry them.
+  - Guard (2): NFC normalization of both names, inside the closes ingest only.
+  - Tests are the architect's hard cases. Each fails on main and passes here; the NFD case fails without guard (2).
+- **Acceptance** (operator console, tomorrow):
+  - Re-running the six PD, BL1 and FL1 files stores PD 74 + 74, BL1 34 + 66 and FL1 34 + 34, with unmatched 0 and ambiguous 0.
+  - The four SA and ELC files store nothing new.
+  - The preflight then prints closes for PD 760, SA 760, BL1 612, FL1 612 and ELC 1,104.
+- **Design-stage finding (#363), recorded before the run; it changes nothing in the declaration.**
+  - On synthetic league seasons at the gate's sizes (680, 532 and 1,024 scored matches, three pairs each), a perfectly calibrated model fails the declared band rule in about 40%, 40% and 22% of seasons. The bands that miss hold about 150 to 250 pairs, and 5pp is near one and a half standard errors there.
+  - The same rule rejects a model 8pp off on draws or on the home side in 83% to 100% of seasons.
+  - A league dropped on a small band is dropped all the same, stays in the shadow, and can be declared again on 2026/27.
+- **The one run:** Friday, on the architect's word, after the closes are re-run.

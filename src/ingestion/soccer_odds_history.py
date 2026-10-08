@@ -28,6 +28,7 @@ from __future__ import annotations
 import csv
 import io
 import logging
+import unicodedata
 from datetime import datetime, timedelta
 
 from sqlalchemy import select
@@ -37,6 +38,14 @@ from src.db.schema import Competition, Match, MatchStatus, Odds, Sport
 from src.ingestion.team_aliases import team_match_score
 
 log = logging.getLogger(__name__)
+
+
+def _score(external_name: str, db_name: str) -> int:
+    """team_match_score on Unicode-NFC forms of both names. Inside this ingest only (ARCHITECT 2026-10-08,
+    addendum 12, guard 2): an NFD-stored "Mönchengladbach" splits on its combining mark in the shared
+    tokenizer, which the Kalshi matchers also use and which stays as it is."""
+    return team_match_score(unicodedata.normalize("NFC", external_name or ""),
+                            unicodedata.normalize("NFC", db_name or ""))
 
 BOOKMAKER = "fdcuk_close"
 # (label, home_col, draw_col, away_col) in preference order
@@ -155,8 +164,8 @@ def sync_soccer_closing_odds(
             for m in candidates:
                 if not (m.home_team and m.away_team):
                     continue
-                hs = team_match_score(ht, m.home_team.name)
-                as_ = team_match_score(at, m.away_team.name)
+                hs = _score(ht, m.home_team.name)
+                as_ = _score(at, m.away_team.name)
                 if hs < 1 or as_ < 1:
                     continue
                 score = hs + as_

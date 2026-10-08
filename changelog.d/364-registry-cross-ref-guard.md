@@ -1,0 +1,8 @@
+## 2026-10-08 (#364: registry cross-ref guard — #329 RULED, parts 1 and 2)
+- New shared guard `registry.cross_ref_guard(eid, no_fetch=False)`. It first fetches origin `laptop/*` (`+refs/heads/laptop/*:refs/remotes/origin/laptop/*`); a failed fetch refuses.
+- It then scans every ref the clone knows (`refs/heads`, `refs/remotes`; symbolic refs skipped) for a cohort, a run record or a reservation of the experiment that this working tree does not hold identically. Each kind is compared on its ledger field and its file: `confirmation_cohort` + `ids/<eid>.cohort.txt`; `run` + `ids/<eid>.txt`; `<eid>.started.json`.
+- A hit refuses (a `RegistryError`; the CLI exits 2) naming every ref and its full commit, plus the sha256 when the record carries one. Nothing is written.
+- Callers: `registry.freeze_confirmation_cohort` (every cohort freeze; `intl-elo-confirm --freeze-cohort`) and `soccer_expansion.reserve` (the one-run reservation; `soccer-expansion-gate`). Both call the guard before any write.
+- New `--no-fetch` flag on `intl-elo-confirm` (with `--freeze-cohort`) and `soccer-expansion-gate`. It skips the fetch only, and the receipt prints `other clones not checked`.
+- Receipt (read-only, `--no-fetch`, this clone): intl-elo-v2 is refused on the VOID 2026-10-07 cohort (`origin/laptop/intl-elo-v2-cohort`, e697533, sha256 419872ed…) and on `laptop/intl-elo-v2-run-record`. soccer-expansion-v1 passes (453 refs scanned).
+- Tests: `tests/test_registry_cross_ref_guard.py` (13, synthetic git repos under tmp_path). `tests/conftest.py` stubs the guard for every other test, so no test reads or fetches the real repo's refs.

@@ -1,4 +1,4 @@
-## 2026-10-08 (#PENDING: NCAA CFBD scope + join — ARCHITECT, addendum 10 item 3)
+## 2026-10-08 (#362: NCAA CFBD scope + join — ARCHITECT, addendum 10 item 3)
 - Data lane: no model constant changed; #79's all-division stream and its acceptance numbers are unchanged; the ncaa-elo-v1r declaration is not written.
 - J1: `ncaa-cfbd-labels` retries a first-pass-unmatched game within ±36h by the same name tiers. It joins (`join_via dateshift`, listed with both kickoffs and the offset) only on exactly one (match, orientation), a match the first pass did not join, and agreeing scores. A name fit whose scores disagree stays unmatched and is listed with both scores.
 - J2: our team names are html-unescaped before normalization in the join and alias vetting. In the v1r stream and the shadow, ids whose unescaped names are identical are one team, keyed by the lowest id: a read-time mapping, with every group and changed name listed. `teams` is never written.

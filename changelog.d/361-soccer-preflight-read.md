@@ -1,4 +1,4 @@
-## 2026-10-08 (#PENDING: soccer-expansion-v1 first preflight read; ledger only)
+## 2026-10-08 (#361: soccer-expansion-v1 first preflight read; ledger only)
 - Ledger note, nothing built. The architect read the first `soccer-expansion-gate --preflight` (laptop, c3a3744).
 - The PL backtest is identical before and after #326.
 - F3 placements are confirmed for the test seasons.

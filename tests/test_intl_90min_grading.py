@@ -187,12 +187,14 @@ def test_results_command_lists_the_ungraded(world, monkeypatch, tmp_path):
     import cli
     monkeypatch.chdir(tmp_path)
     monkeypatch.setattr(ip, "export_results", lambda days=None: ("exports/x.json", {
-        "window": {"kind": "all_production_calls"}, "record": {"games": 1, "hits": 0, "decided": 1, "ungraded": 1},
+        "window": {"kind": "all_production_predictions"}, "record_scope": ip.RECORD_SCOPE,
+        "record": {"games": 1, "hits": 0, "decided": 1, "ungraded": 1},
         "ungraded": [{"match_id": 9, "home_team": "H", "away_team": "A", "utc_date": "2098-05-04T19:00:00",
                       "reason": "went beyond 90 minutes (PEN) and no 90-minute score is stored: never graded on "
                                 "the later score"}]}))
     out = CliRunner().invoke(cli.cli, ["export-intl-results"]).output
     assert "ungraded 1" in out and "UNGRADED match 9 A @ H 2098-05-04: went beyond 90 minutes (PEN)" in out
+    assert ip.RECORD_SCOPE in out                                   # the header line, printed
 
 
 def test_a_failed_history_commit_publishes_no_file(world, monkeypatch, tmp_path):
@@ -262,3 +264,37 @@ def test_desk_annotation_uses_the_export_time(world, monkeypatch, tmp_path):
     _one_row_export(world, monkeypatch, at)
     _, doc = ip.export(out_dir=str(tmp_path), desk=True)
     assert doc["desk_meta"]["as_of"] == "2098-05-27T14:05:00Z" and doc["exported_at"].startswith("2098-05-27T14:05")
+
+
+def test_the_results_file_is_the_models_record_not_the_calls(world, tmp_path):
+    """ARCHITECT 2026-10-08, addendum 8, 2b: "export-intl-results grades every exported production prediction of
+    intl_elo_v2 ... a Desk PASS is a prediction without a bet, not a missing prediction. Calls are graded in the
+    ledger, from the same file. The file says so in one header line, and every row names its competition ... No Desk
+    call is stored on history rows." """
+    ids, _ = world
+    _history(ids)
+    path, doc = ip.export_results(now=NOW, out_dir=str(tmp_path))
+    on_disk = json.loads(open(path).read())
+    assert on_disk["record_scope"] == ip.RECORD_SCOPE                 # one header line, in the file
+    assert "a Desk PASS is a prediction without a bet, not a missing prediction" in ip.RECORD_SCOPE
+    assert "calls are graded in the ledger, from this same file" in ip.RECORD_SCOPE
+    mine = set(ids.values())
+    rows = [r for r in on_disk["results"] + on_disk["ungraded"] if r["match_id"] in mine]
+    assert len(rows) == 5 and all(r["competition"] == "UNL" for r in rows)   # every row names its competition
+    assert all("desk" not in r for r in on_disk["results"] + on_disk["ungraded"])
+    assert on_disk["window"]["kind"] == "all_production_predictions"
+
+
+def test_history_rows_store_no_desk_call_and_a_pass_row_is_still_history():
+    probs = {"home_win": .5, "draw": .3, "away_win": .2}
+    doc = {"predictions": [
+        {"match_id": 1, "prediction": {"probabilities": probs},
+         "desk": {"call": "PASS", "engine": "model_edge", "pass_kind": "no edge"}},
+        {"match_id": 2, "prediction": {"probabilities": probs},
+         "desk": {"call": "PLAY", "engine": "model_edge", "units": 0.5}},
+        {"match_id": 3, "prediction": {"probabilities": probs}}]}
+    at = datetime(2098, 5, 27, 8)
+    h = ip.history_rows(doc, at)
+    assert [r["match_id"] for r in h] == [1, 2, 3]                    # the PASS row is a prediction like any other
+    for r in h:
+        assert set(r) == {"match_id", "model_version", "computed_at", "home_win_prob", "draw_prob", "away_win_prob"}

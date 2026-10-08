@@ -5035,10 +5035,12 @@ def export_intl_predictions_cmd(hours, desk):
 
 @cli.command("export-intl-results")
 @click.option("--days", "days_back", default=None, type=int,
-              help="Only calls kicking off in the last N days. Default: every production call on record.")
+              help="Only predictions kicking off in the last N days. Default: every production prediction on record.")
 def export_intl_results_cmd(days_back):
-    """Graded INTL production results for the Cockpit (ARCHITECT 2026-10-07 addendum 3, item C): every production
-    call on record (prediction_history, intl_elo_v2, last row before kickoff) graded on the 90-MINUTE result only.
+    """Graded INTL production results for the Cockpit (ARCHITECT 2026-10-07 addendum 3, item C): every exported
+    production prediction on record (prediction_history, intl_elo_v2, last row before kickoff) graded on the
+    90-MINUTE result only. The model's record (addendum 8, 2b): a Desk PASS is a prediction without a bet, not a
+    missing prediction; calls are graded in the ledger, from the same file.
     A game that went beyond 90 minutes (AET / PEN) with no stored 90-minute score is left ungraded and LISTED,
     never graded on the later score. Read-only."""
     from src.walters import intl_production as ip
@@ -5049,6 +5051,7 @@ def export_intl_results_cmd(days_back):
         raise SystemExit(2)
     console.print(f"[green]✓ Wrote {path}[/green]")
     rec = doc["record"]
+    print(f"  {doc['record_scope']}")
     print(f"  window: {doc['window']['kind']} · graded {rec['games']} (90-minute result) · top-pick hits "
           f"{rec['hits']}/{rec['decided']} · ungraded {rec['ungraded']}")
     for u in doc["ungraded"]:

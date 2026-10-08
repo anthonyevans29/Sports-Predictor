@@ -28,10 +28,15 @@ export-unl-predictions stays the shadow, unchanged."
   file without history rows would be calls with no grading record); an append count different from the fixture
   count also refuses, rolled back, no file (the count is in the file: prediction_history_appended).
 - GRADING (same ruling): "INTL calls are graded on the 90-MINUTE result, never on a score that includes extra time
-  or penalties." `export-intl-results` (results() below) grades every production call on record (the last
-  prediction_history row of this model version computed before kickoff) on intl_shadow.result_90 ONLY; a finished
-  game without a 90-minute result (AET / PEN with no stored 90-minute score, or any other) is left UNGRADED and
-  LISTED with its reason, never graded on the later score.
+  or penalties." `export-intl-results` (results() below) grades every exported production PREDICTION on record (the
+  last prediction_history row of this model version computed before kickoff) on intl_shadow.result_90 ONLY; a
+  finished game without a 90-minute result (AET / PEN with no stored 90-minute score, or any other) is left UNGRADED
+  and LISTED with its reason, never graded on the later score.
+- THE RESULTS RECORD (ARCHITECT 2026-10-08, addendum 8, item 2b, verbatim): "export-intl-results grades every
+  exported production prediction of intl_elo_v2, as the MLB, NFL and PL results files do. It is the model's record:
+  a Desk PASS is a prediction without a bet, not a missing prediction. Calls are graded in the ledger, from the same
+  file. The file says so in one header line, and every row names its competition so UNL reads apart from the other
+  codes. No Desk call is stored on history rows." The header line is RECORD_SCOPE; history_rows() carries no desk.
 """
 from __future__ import annotations
 
@@ -173,7 +178,8 @@ def _export_with_history(doc, now, out_dir, session_scope, has_prediction_histor
 
 
 def history_rows(doc: dict, computed_at: datetime) -> list[dict]:
-    """One prediction_history row per exported fixture: model version, the three probabilities, computed_at."""
+    """One prediction_history row per exported fixture: model version, the three probabilities, computed_at. No Desk
+    call is stored (addendum 8, 2b): a Desk PASS row is history like any other prediction."""
     out = []
     for r in doc["predictions"]:
         p = r["prediction"]["probabilities"]
@@ -193,6 +199,9 @@ BEYOND_90 = ("AET", "PEN")     # API-Football status_raw: finished after extra t
 SIDES = ("HOME", "DRAW", "AWAY")
 TOP = {"HOME": "home_win", "DRAW": "draw", "AWAY": "away_win"}
 OUTCOME_SIDE = {"H": "HOME", "D": "DRAW", "A": "AWAY"}
+RECORD_SCOPE = ("the model's record: every exported production prediction of intl_elo_v2 is graded, Desk PASS or "
+                "not (a Desk PASS is a prediction without a bet, not a missing prediction); calls are graded in the "
+                "ledger, from this same file; every row names its competition (ARCHITECT 2026-10-08, addendum 8, 2b)")
 
 
 def ungraded_reason(m) -> str:
@@ -207,7 +216,8 @@ def ungraded_reason(m) -> str:
 
 def _calls(s, now: datetime) -> dict:
     """match_id -> (history row, match): the LAST prediction_history row of MODEL_VERSION computed before kickoff
-    (only the production export writes this model version to the history; the shadow writes none)."""
+    (only the production export writes this model version to the history; the shadow writes none). Every exported
+    prediction, whatever its Desk call: the history stores no call."""
     from sqlalchemy import select
 
     from src.db.schema import Match, PredictionHistory
@@ -223,10 +233,10 @@ def _calls(s, now: datetime) -> dict:
 
 
 def results(now: datetime | None = None, days: int | None = None) -> dict:
-    """Every production INTL call on record (or those kicking off in the last `days`), graded on the 90-minute
+    """Every exported production INTL prediction on record (or those kicking off in the last `days`), graded on the 90-minute
     result ONLY (intl_shadow.result_90: the stored 90-minute score; else the score of a FT row; else none).
     `rows` follow the NFL/soccer results-file grammar (predicted / actual / graded); `actual.home_score` /
-    `away_score` ARE the 90-minute score, so the Cockpit's intake grades on 90 minutes. `ungraded`: finished calls
+    `away_score` ARE the 90-minute score, so the Cockpit's intake grades on 90 minutes. `ungraded`: finished predictions
     without a 90-minute result, each with its reason, never graded on the later score. Read-only."""
     import math
     from datetime import timedelta
@@ -245,7 +255,7 @@ def results(now: datetime | None = None, days: int | None = None) -> dict:
     with session_scope() as s:
         if not has_prediction_history(s.connection()):
             raise IntlRefused("prediction_history is missing (run migrate_prediction_history.py): "
-                              "no INTL production calls are on record")
+                              "no INTL production predictions are on record")
         for mid, (h, m) in sorted(_calls(s, now).items(), key=lambda kv: (kv[1][1].utc_date, kv[0])):
             if m.status != MatchStatus.FINISHED or (since is not None and m.utc_date < since):
                 continue
@@ -281,7 +291,7 @@ def results(now: datetime | None = None, days: int | None = None) -> dict:
                 "clv": round(probs[pick] - fair[pick], 4) if fair and fair.get(pick) is not None else None}})
         s.rollback()
     return {"rows": rows, "ungraded": ungraded, "now": now,
-            "window": {"kind": "all_production_calls"} if days is None else
+            "window": {"kind": "all_production_predictions"} if days is None else
             {"kind": "rolling", "days": days, "from": since.isoformat() + "Z"}}
 
 
@@ -294,6 +304,7 @@ def export_results(now: datetime | None = None, days: int | None = None,
            "grading": "90-minute result only (ARCHITECT 2026-10-07 addendum 3, item C): a score including extra "
                       "time or penalties is never graded on; such a game without a stored 90-minute score is "
                       "listed under `ungraded`",
+           "record_scope": RECORD_SCOPE,
            "note": "record is variance, not signal — for the consumer to grade against",
            "window": r["window"],
            "record": {"games": len(rows), "hits": sum(1 for x in rows if x["graded"]["top_pick_hit"]),

@@ -1062,6 +1062,18 @@ _CUP_REASON = ("Cup model track SUSPENDED 2026-09-25 (rotation information "
                "floor) — market-only for the season.")
 
 
+def competition_family(sport, competition_code: str | None) -> str:
+    """The row's family label (DELINEATION, ARCHITECT 2026-10-07): college
+    football is stored in the Sport.NFL family under competition NCAA, so a
+    football row says which one it is: "NCAAF" for NCAA, "NFL" for NFL (the
+    Kalshi series families KXNCAAFGAME / KXNFLGAME). Any other sport's family
+    is its sport, upper-cased. A label only: nothing downstream keys on it."""
+    sp = str(getattr(sport, "value", sport) or "").lower()
+    if sp == "nfl":
+        return "NCAAF" if str(competition_code or "").upper() == "NCAA" else "NFL"
+    return sp.upper() or "?"
+
+
 def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
     """One market-only fixtures row (the grammar the Cockpit renders). Shared by
     export_fixtures and the Next-24h window card (2026-09-27), extracted
@@ -1130,6 +1142,10 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
                   "captured_at": max(v.captured_at for v in kal.values()).isoformat()}
     row = {
         "match_id": m.id,
+        # DELINEATION (ARCHITECT 2026-10-07): every row names its competition;
+        # a college row reads competition NCAA, family NCAAF (never NFL)
+        "competition": competition_code,
+        "family": competition_family(m.sport, competition_code),
         "utc_date": m.utc_date.isoformat(),
         "status": m.status.value if hasattr(m.status, "value") else str(m.status),
         "stage": m.stage,

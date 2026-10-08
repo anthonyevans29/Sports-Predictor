@@ -4972,6 +4972,7 @@ def capture_weather_nfl_cmd():
     from src.db.schema import GameWeather
     init_db()
     captured = skipped = 0
+    skipped_by_comp: dict[str, int] = {}
     with session_scope() as s2:
         now = utc_now_naive()
         rows = list(s2.execute(
@@ -4984,6 +4985,8 @@ def capture_weather_nfl_cmd():
             info = lookup_nfl_stadium(m2.home_team.name if m2.home_team else None)
             if info is None:
                 skipped += 1
+                code = m2.competition.code if m2.competition else "?"
+                skipped_by_comp[code] = skipped_by_comp.get(code, 0) + 1
                 continue
             lat, lon, roofed = info
             wx = None if roofed else fetch_weather_at(lat, lon, m2.utc_date)
@@ -4999,7 +5002,12 @@ def capture_weather_nfl_cmd():
                 condition=(wx or {}).get("condition") or ("indoor" if roofed else None),
             ))
             captured += 1
-    console.print(f"[green]✓ NFL weather: captured={captured} skipped={skipped}[/green]")
+    # DELINEATION (ARCHITECT 2026-10-07): the query is the Sport.NFL family (NCAA
+    # included); skipped games are counted per competition, never all as NFL
+    console.print(f"[green]✓ NFL weather: captured={captured} skipped={skipped}"
+                  + (" (" + " · ".join(f"{c} {n}" for c, n in sorted(skipped_by_comp.items())) + ")"
+                     if skipped_by_comp else "")
+                  + "[/green]")
 
 
 @cli.command("sync-odds-football")
@@ -5009,8 +5017,15 @@ def sync_odds_football_cmd():
     sync-odds-nfl (2026-09-26); the old name stays as an alias."""
     from src.ingestion.service import sync_odds_nfl
     r = sync_odds_nfl(progress=lambda msg: console.print(msg))
-    console.print(f"[green]✓ Football odds (NFL+NCAA): created={r['created']} "
+    # DELINEATION (ARCHITECT 2026-10-07): the competitions priced, from the run
+    by_comp = r.get("games_by_competition") or {}
+    window = r.get("window_by_competition") or {}
+    # Codex on #346: every competition in the window is named, priced n of window m (0 included)
+    comps = sorted(set(window) | set(by_comp))
+    console.print(f"[green]✓ Football odds: created={r['created']} "
                   f"across {r['games']} games"
+                  + (" (" + " · ".join(f"{c} {by_comp.get(c, 0)}" + (f"/{window[c]}" if c in window else "")
+                                       for c in comps) + " priced/in window)" if comps else "")
                   + (f" · book-consensus snapshots appended={r['snapshots']}" if "snapshots" in r else "")
                   + "[/green]")
 
@@ -7391,7 +7406,11 @@ def window_card_cmd(hours: int, t90: int):
     path = write_card(card)
     r = card["receipts"]
     console.print(f"[green]✓ Wrote window card to {path}[/green]")
-    print(f"  window {card['window']['from']} -> {card['window']['to']}: games {card['count']} · "
+    # DELINEATION (ARCHITECT 2026-10-07): the games line names each competition
+    from collections import Counter as _Counter
+    by_comp = _Counter(str(x.get("competition") or "?") for x in card["fixtures"])
+    comps = (" (" + " · ".join(f"{c} {n}" for c, n in sorted(by_comp.items())) + ")") if by_comp else ""
+    print(f"  window {card['window']['from']} -> {card['window']['to']}: games {card['count']}{comps} · "
           f"with model {r['with_model']} · with book consensus {r['with_books']} · kalshi "
           f"two-sided {r['kalshi_two_sided']} / one-sided {r['kalshi_one_sided']} / partial "
           f"{r.get('kalshi_partial', 0)} / absent {r['kalshi_absent']} · STALE-BOOK? {r['stale_flags']} · quarantined "

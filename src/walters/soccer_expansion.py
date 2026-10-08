@@ -11,6 +11,9 @@ The ruling, verbatim, and the operational definitions: docs/specs/soccer-expansi
     export-soccer-expansion-shadow      the five leagues as a greyed SHADOW (engine model_shadow; no Desk call,
                                         no order line, no prediction row)
     soccer-expansion-shadow-grade       read-only: the shadow's top pick vs the three-way book close
+    soccer-expansion-confirm            the confirmation window (ARCHITECT 2026-10-08, addendum 11, item 4): freeze,
+                                        substitute, progress, record, on the intl-elo-confirm pattern (section at the
+                                        end of this module)
 
 - CANDIDATE: the PRODUCTION soccer model exactly as shipped. Its params (dixon_coles_rho, elo_goal_coeff) are
   resolved at run time from the production model version; no refit, no per-league tuning. The walk is the existing
@@ -641,3 +644,218 @@ def shadow_grade(days: int = 30, export_dir: str = "exports", now: datetime | No
         v = d.pop("clv")
         d["mean_clv_pp"] = round(sum(v) / len(v) * 100, 2) if v else None
     return {"per_league": per, "lines": lines}
+
+
+# -------------------------------------------------------- confirmation --
+# ARCHITECT 2026-10-08, addendum 11, item 4: "By Tuesday: soccer-expansion-confirm (freeze, substitute, progress,
+# record) on the intl-elo-confirm pattern." The declared window (registry confirmation_window, verbatim): "the first
+# 60 league games of the surviving set kicking off after the verdict, pooled, cohort frozen by fixture id with the
+# intl-elo-v2 machinery (unscoreable-only substitution); CONFIRMED iff pooled log-loss <= ln 3 AND < the pooled naive
+# - 0.010 on the same games; per-league lines reported, not gated".
+#   - the experiment must hold a run record and a PASS verdict; the surviving set is the run record's `surviving`
+#     (refused when empty or when the computed run verdict is not PASS);
+#   - eligible: a surviving league, a regular-season round (F3; an unplaced label is never guessed), kickoff strictly
+#     after the verdict's `at`, not in the scored test set, not a stale orphan, ANY status; ordered (kickoff, id);
+#   - unscoreable: the intl machinery's own predicate (intl_shadow._unscoreable), unchanged;
+#   - the read: the gate's walk exactly (run_soccer_backtest per league-season from a cold start, min_prior 40,
+#     stage_filter is_regular, F5 batching) at the RUN RECORD's rho / elo_goal_coeff (the candidate as gated, never
+#     refit), predict-then-update; only the frozen cohort is scored;
+#   - naive: each surviving league's 2023/24 H/D/A as the run record stores it (per_league[code].naive_freq); only
+#     when absent, recomputed with naive_for exactly as the gate did, and labelled so.
+CONFIRM_RULE = ("first n eligible stored fixtures by (kickoff, id): a surviving league (the run record's set), a "
+                "regular-season round (F3), kickoff after the verdict, not in the test set, not a stale orphan, ANY "
+                "status (result availability never enters)")
+NAIVE_FROM_RECORD = "run record (per_league.naive_freq, the gate's frozen 2023/24 H/D/A)"
+NAIVE_RECOMPUTED = "recomputed (naive_for over the stored 2023/24 regular season, exactly as the gate did)"
+
+
+def _reg_paths() -> tuple[str, str]:
+    """The ledger and ids dir, read at call time (tests point them at tmp paths; the real docs/registry/ otherwise)."""
+    from src.walters import registry as reg
+    return reg.LEDGER, reg.IDS_DIR
+
+
+def confirming() -> tuple[dict, list[str], dict]:
+    """(entry, surviving set, params) — refuses unless the experiment has its run record AND a PASS verdict and the
+    run names at least one surviving league. params = the run record's production_version, rho, elo_goal_coeff."""
+    from src.walters import registry as reg
+    path, _ = _reg_paths()
+    e = reg.get(EID, path)
+    if e is None or not e.get("run"):
+        raise ExpansionRefused(f"{EID} has no run record in docs/registry — the confirmation follows the one run")
+    v = (e.get("verdict") or {}).get("verdict")
+    if v != "PASS":
+        raise ExpansionRefused(f"{EID} has no PASS verdict recorded (verdict {v or 'none'}) — the confirmation "
+                               "window opens only on a PASS")
+    res = e["run"].get("result") or {}
+    surv = list(res.get("surviving") or [])
+    if not str(res.get("verdict") or "").startswith("PASS") or not surv:
+        raise ExpansionRefused(f"{EID}: the run record names no surviving league (computed verdict "
+                               f"{res.get('verdict')!r}) — nothing to confirm")
+    bad = [c for c in surv if c not in LEAGUES]
+    if bad:
+        raise ExpansionRefused(f"{EID}: the run record's surviving set holds {bad}, not leagues of this experiment")
+    if res.get("rho") is None or res.get("elo_goal_coeff") is None:
+        raise ExpansionRefused(f"{EID}'s run record lacks rho / elo_goal_coeff — the candidate as gated is unknown")
+    return e, surv, {"production_version": res.get("production_version"), "rho": float(res["rho"]),
+                     "elo_goal_coeff": float(res["elo_goal_coeff"])}
+
+
+def confirmation_naives(e: dict, surv: list[str], s) -> tuple[dict, dict]:
+    """({code: {H, D, A}}, {code: source}): the run record's frozen naive per surviving league; only when it is not
+    stored there, naive_for (the gate's own function), labelled. None anywhere refuses (law 4)."""
+    per = ((e["run"].get("result") or {}).get("per_league") or {})
+    out, src = {}, {}
+    for c in surv:
+        nv = (per.get(c) or {}).get("naive_freq")
+        if nv and all(isinstance(nv.get(k), (int, float)) for k in "HDA"):
+            out[c], src[c] = nv, NAIVE_FROM_RECORD
+            continue
+        nv = naive_for(s, c)
+        if nv is None:
+            raise ExpansionRefused(f"{c}: no {NAIVE_SEASON} naive in the run record and none stored — naive undefined")
+        out[c], src[c] = nv, NAIVE_RECOMPUTED
+    return out, src
+
+
+def eligible_fixtures(s, e: dict, surv: list[str]) -> tuple[list[dict], list[dict]]:
+    """(eligible, unplaced): every STORED fixture of a surviving league kicking off after the verdict, WHATEVER ITS
+    STATUS, in (kickoff, id) order; regular-season rounds only (F3); test-set ids and stale orphans excluded.
+    `unplaced` lists the rows whose stage label the code cannot place (never guessed: a freeze or substitution they
+    could precede refuses). Result availability never enters."""
+    from sqlalchemy import select
+    from src.db.schema import Competition, Match, MatchStatus
+    from src.walters import registry as reg
+    from src.walters.intl_shadow import _unscoreable, _verdict_at
+
+    _, ids_dir = _reg_paths()
+    at = _verdict_at(e)
+    comps = {c.id: c.code for c in s.execute(select(Competition).where(Competition.code.in_(surv))).scalars()}
+    if not comps:
+        return [], []
+    test_ids = reg._ids_of(e, ids_dir) or set()
+    elig, unpl = [], []
+    for m in s.execute(select(Match).where(Match.competition_id.in_(list(comps)), Match.utc_date > at,
+                                           Match.status != MatchStatus.STALE_ORPHAN)
+                       .order_by(Match.utc_date, Match.id)).scalars():
+        status = m.status.value if hasattr(m.status, "value") else str(m.status)
+        f = {"id": m.id, "kickoff": m.utc_date, "code": comps[m.competition_id], "season": m.season,
+             "stage": m.stage, "status": status, "status_raw": m.status_raw,
+             "has_score": m.home_score is not None and m.away_score is not None,
+             "unscoreable": _unscoreable(m, status)}
+        pl = placement(m.stage)
+        if pl is None:
+            unpl.append(f)
+        elif pl == "regular" and m.id not in test_ids:
+            elig.append(f)
+    return elig, unpl
+
+
+def unplaced_through(unpl: list[dict], kickoff) -> list[str]:
+    """Unplaced rows kicking off at or before `kickoff`: any one could belong before the chosen fixture."""
+    return [f"{f['code']} {f['id']} {f['stage']!r} {f['kickoff']:%Y-%m-%dT%H:%MZ}" for f in unpl
+            if f["kickoff"] <= kickoff]
+
+
+def cohort(e: dict, s, surv: list[str]) -> dict:
+    """The FROZEN ids from the registry when frozen; otherwise the provisional first n eligible fixtures (possibly
+    fewer than n while the schedule is short). Never depends on results."""
+    from src.walters import registry as reg
+    _, ids_dir = _reg_paths()
+    n = e["confirmation_plan"]["n_games"]
+    elig, unpl = eligible_fixtures(s, e, surv)
+    try:
+        frozen_ids = reg.frozen_cohort(e, ids_dir)
+    except reg.RegistryError as err:
+        raise ExpansionRefused(str(err))
+    if frozen_ids is not None:
+        return {"state": "frozen", "ids": frozen_ids, "n_games": n, "eligible_stored": len(elig), "unplaced": unpl}
+    return {"state": "provisional", "ids": [f["id"] for f in elig[:n]], "n_games": n,
+            "eligible_stored": len(elig), "fixtures": elig[:n], "unplaced": unpl}
+
+
+def substitutions_due(e: dict, s, surv: list[str]) -> list[dict]:
+    """The intl-elo-v2 rule (ARCHITECT 2026-10-02), on this cohort: every UNSCOREABLE cohort fixture is released and
+    replaced by the next eligible fixture AFTER the cohort (kickoff order, after every fixture that is or was in the
+    cohort, never unscoreable itself, never one already used); the reason is the raw provider code. A postponed /
+    scheduled / live fixture, or a FT row still waiting for its score, is never released. Read-only."""
+    c = e.get("confirmation_cohort")
+    if not c:
+        return []
+    co = cohort(e, s, surv)
+    elig, _ = eligible_fixtures(s, e, surv)
+    by_id = {f["id"]: f for f in elig}
+    ever = set(co["ids"]) | {int(x["released"]) for x in c.get("substitutions") or []}
+    last = max(((by_id[i]["kickoff"], i) for i in ever if i in by_id), default=None)
+    pool = [f for f in elig if f["id"] not in ever and not f["unscoreable"]
+            and (last is None or (f["kickoff"], f["id"]) > last)]
+    out = []
+    for i in co["ids"]:
+        f = by_id.get(i)
+        if f is None or not f["unscoreable"]:
+            continue
+        out.append({"released": f, "replacement": pool.pop(0) if pool else None,
+                    "reason": (f["status_raw"] or f["status"]).upper()})
+    return out
+
+
+def confirmation_read() -> dict:
+    """The plan's read so far: the cohort priced by the gate's own walk (per league-season from a cold start, min_prior
+    40, regular-season rows, F5 batching, the run record's params), predict-then-update; pooled model log-loss vs the
+    pooled naive (each league's frozen 2023/24 H/D/A) − 0.010; per-league lines (reported, not gated)."""
+    from src.db.database import session_scope
+    from src.walters.soccer_backtest import run_soccer_backtest
+
+    e, surv, params = confirming()
+    with session_scope() as s:
+        co = cohort(e, s, surv)
+        elig, unpl = eligible_fixtures(s, e, surv)
+        naives, nsrc = confirmation_naives(e, surv, s)
+        s.rollback()
+    by_id = {f["id"]: f for f in elig}
+    want = set(co["ids"])
+    priced: dict[int, dict] = {}
+    for code, season in sorted({(by_id[i]["code"], by_id[i]["season"]) for i in want if i in by_id}):
+        for r in run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=params["rho"],
+                                     elo_goal_coeff=params["elo_goal_coeff"], stage_filter=is_regular,
+                                     batch_same_kickoff=BATCH_SAME_KICKOFF) or []:
+            if r["match_id"] in want:
+                priced[r["match_id"]] = r
+    key = {"H": "p_home", "D": "p_draw", "A": "p_away"}
+    scored = sorted((i for i in want if i in priced and i in by_id and not by_id[i]["unscoreable"]),
+                    key=lambda i: (by_id[i]["kickoff"], i))
+    per: dict[str, dict] = {}
+    ll_m = ll_n = 0.0
+    for i in scored:
+        r, code = priced[i], by_id[i]["code"]
+        m, n = ll3(r[key[r["actual"]]]), ll3(naives[code][r["actual"]])
+        ll_m, ll_n = ll_m + m, ll_n + n
+        d = per.setdefault(code, {"n": 0, "ll_model": 0.0, "ll_naive": 0.0})
+        d["n"], d["ll_model"], d["ll_naive"] = d["n"] + 1, d["ll_model"] + m, d["ll_naive"] + n
+    for d in per.values():
+        d["ll_model"] /= d["n"]
+        d["ll_naive"] /= d["n"]
+    plan = e["confirmation_plan"]
+    pending = sorted(want - set(scored))
+
+    def why(i):
+        f = by_id.get(i)
+        if f is None:
+            return "not stored as an eligible fixture"
+        if f["status"] == "finished" and f["has_score"] and not f["unscoreable"]:
+            return "finished, not priced by the walk"          # below min_prior / a club not yet seen: listed, law 4
+        return f["status"]
+    n = len(scored)
+    out = {"n": n, "n_games": plan["n_games"], "bar": plan["bar"], "scored_ids": scored, "surviving": surv,
+           "params": params, "naive": {c: {k: naives[c][k] for k in "HDA"} for c in surv}, "naive_source": nsrc,
+           "first_game_at": by_id[scored[0]]["kickoff"].strftime("%Y-%m-%dT%H:%M:%SZ") if scored else None,
+           "cohort_state": co["state"], "cohort_size": len(co["ids"]), "eligible_stored": co["eligible_stored"],
+           "unplaced": [f"{f['code']} {f['id']} {f['stage']!r}" for f in unpl],
+           "pending": [{"id": i, "status": why(i)} for i in pending],
+           "release_due": sum(1 for i in pending if (by_id.get(i) or {}).get("unscoreable") and co["state"] == "frozen"),
+           "per_league": per,
+           # recordable only as the WHOLE frozen cohort, every fixture labelled
+           "complete": co["state"] == "frozen" and not pending and n == plan["n_games"]}
+    if n:
+        out.update({"log_loss": ll_m / n, "naive_log_loss": ll_n / n, "reference_log_loss": ll_n / n - LL_MARGIN})
+    return out

@@ -1,0 +1,16 @@
+**2026-10-08 — ARCHITECT addendum 11, item 4: `soccer-expansion-confirm` is built (freeze, substitute, progress, record) on the intl-elo-confirm pattern. It waits for the run and a PASS verdict; nothing is frozen or read yet.**
+- **Ruling (verbatim):** "By Tuesday: soccer-expansion-confirm (freeze, substitute, progress, record) on the intl-elo-confirm pattern."
+- **The declared window** (registry `soccer-expansion-v1.confirmation_window`, verbatim): "the first 60 league games of the surviving set kicking off after the verdict, pooled, cohort frozen by fixture id with the intl-elo-v2 machinery (unscoreable-only substitution); CONFIRMED iff pooled log-loss <= ln 3 AND < the pooled naive - 0.010 on the same games; per-league lines reported, not gated"
+- **The declared plan** (`confirmation_plan`, verbatim): n_games 60, metric log_loss, bar 1.0986, must_beat_reference true, reference "pooled naive (each surviving league's frozen 2023/24 H/D/A frequencies) on the same 60 games, minus 0.010".
+- **Built (spec section 5a):**
+  - Refusals: no run record, no PASS verdict, or an empty surviving set.
+  - Surviving set: the run record's `surviving`.
+  - Eligible: a regular-season round (F3), kickoff strictly after the verdict's `at`, not a test-set id, not a stale orphan, any status. Order is (kickoff, id); the first 60 are frozen once, after the cross-ref guard.
+  - Substitution: unscoreable only, by the intl predicate unchanged.
+  - The read: the gate's walk at the run record's params.
+  - Naive: the run record's `naive_freq`. `naive_for` recomputes it only when absent, and the source is labelled.
+  - Outcome: computed by `registry.record_confirmation`.
+- **Readings for the architect:**
+  - (a) The read prices with the run record's rho / elo_goal_coeff (the candidate as gated, as intl-elo-v2 reads its fitted params from its run record). If production moves before the read, progress prints the divergence; the read does not follow it.
+  - (b) "Unscoreable" is the intl code's predicate. It releases AWD / WO only without a 90-minute score, while the 2026-10-02 ruling text reads "AWD/WO ... RELEASED ... exactly like cancelled/abandoned". The two differ for an awarded league row that carries a 90-minute score; this follows the code, as instructed.
+- **Tests:** 17 new tests, synthetic leagues, tmp registry; the real `docs/registry/` is never written.

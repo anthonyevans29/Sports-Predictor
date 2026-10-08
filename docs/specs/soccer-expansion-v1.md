@@ -96,11 +96,11 @@ Also ruled the same day:
 - `soccer-expansion-shadow-grade` (read-only) compares the shadow's top pick to the three-way book close (the #207
   close contract), per league.
 
-## 7. FINDINGS (F1–F5 ruled 2026-10-07, section 7a; F6 OPEN)
+## 7. FINDINGS (F1–F5 ruled 2026-10-07, section 7a; F6 and R1 ruled 2026-10-08, section 7b; none open)
 
-The one run REFUSES while any finding is open (`soccer_expansion.OPEN_FINDINGS`). F1–F6 are ruled (7a, 7b). **R1
-(the registry operator correction, 7b) is open, so the run still refuses.** A ruling closes it by editing that
-tuple and this section in a reviewed PR.
+The one run REFUSES while any finding is open (`soccer_expansion.OPEN_FINDINGS`). F1–F6 and R1 are ruled (7a, 7b).
+**`OPEN_FINDINGS` is empty**: the run's remaining refusals are its own pre-run checks (placement, F1 baseline,
+counts) and the one-run reservation. A finding opened later re-enters the tuple and this section in a reviewed PR.
 
 - **F1 — a league without a stored 2023/24 season.** RULED (7a): dropped before the run.
 - **F2 — promoted-club priors in the walk-forward.** RULED (7a): the per-season cold-start walk, no cross-season
@@ -190,22 +190,32 @@ Prerequisite, not a finding: each league's 2026/27 competition-season needs `syn
 
 > "Registry operator: correct soccer-expansion-v1's machine-readable operator from <= to < before the run, with a dated correction note citing F4. The verbatim gate text is untouched. This is a pre-run correction of a transcription; the experiment is declared and unrun."
 
+**WITHDRAWN** by the R1 ruling below (ARCHITECT 2026-10-08, addendum 8, item 1): the sentence above named a
+machine-readable operator the entry does not have. It stays quoted as issued.
+
 ### Built
 
 - **F6:** `league_gate` sets `crit_bands = bool(gated) and all(gated ok)`. A league with no band at >= 100
   observations fails the criterion and is DROPPED with the reason "no gated band" (pinned by a test). The shared
   `nhl_backtest.calibration_bands` is untouched, so the intl, NHL and NCAA gates keep their recorded rule.
 
-### R1 — open: the operator has no machine-readable field
+### R1 — the finding: the operator has no machine-readable field
 
 The registry entry for soccer-expansion-v1 (docs/registry/experiments.json) carries these keys only: id, sport, lane,
 candidate, declaration, training_cutoff, test_set, gate, confirmation_window, confirmation_plan, declared_at, status,
 run, verdict. The only `<=` on the gate's log-loss criterion is inside `gate`, the verbatim text the ruling leaves
 untouched. `confirmation_plan` holds the confirmation's numbers (bar 1.0986 = ln 3, compared `<=` by
 registry.record_confirmation, which matches the confirmation text "<= ln 3"; its second criterion is already strict).
-The code already applies F4 (`crit_ll = ll_model < ll_naive − 0.010`). No field exists for the correction to land
-in, so nothing was invented: R1 stays in `OPEN_FINDINGS` and the run refuses until the architect directs where the
-corrected operator and its dated note go (for example a new `gate_rule` field with `corrections`).
+The code already applies F4 (`crit_ll = ll_model < ll_naive − 0.010`). No field existed for the correction to land
+in, so nothing was invented and the run refused until the architect ruled (proposal on #326: a `gate_rule` field).
+
+### R1 — RULED (ARCHITECT 2026-10-08, addendum 8, item 1, verbatim)
+
+> "R1: no gate_rule field and no new schema. The reading of record lands in the registry's existing annotation for pre-run rulings. Add a ratified field to the soccer-expansion-v1 entry, beside the untouched gate text, as intl-elo-v1 and nhl-v8 carry theirs, with this text: 'ARCHITECT 2026-10-07 and 2026-10-08 (pre-run, frozen; verbatim in docs/specs/soccer-expansion-v1.md 7a and 7b): F1 a league without a complete stored 2023/24 season is dropped before the run, not a FAIL. F2 each league-season walked from a cold start, min_prior 40, the two test seasons pooled per league. F3 regular-season rounds only, in the test seasons and the 2023/24 baseline. F4 TIES REJECT: PASS iff log-loss < naive - 0.010 on unrounded values; the gate text's <= is read as strict. F5 fixtures sharing a kickoff are predicted before any of them updates the state. F6 a league with no calibration band at 100 or more observations is DROPPED, no gated band.' The gate text stays byte-identical to the declaration. R1 closes with that edit and OPEN_FINDINGS is empty."
+
+**Built:** the entry gains `ratified` (that text, exactly), placed directly after `gate`. `gate` is byte-identical to
+the declaration (1540b1b; sha256 e7c5e2eb…3341a, pinned by a test with the `ratified` text and position).
+`OPEN_FINDINGS` is `()`. No other key changed; the entry stays `declared`, unrun.
 
 ## 8. Chains (data only)
 

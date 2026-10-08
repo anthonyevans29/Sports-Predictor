@@ -56,6 +56,26 @@ def test_registry_declares_it_with_an_executable_plan():
     assert "PD, SA, BL1, FL1, ELC seasons 2024/25 + 2025/26" in e["test_set"] and "PER LEAGUE" in e["gate"]
 
 
+# The gate text as declared (1540b1b, 2026-10-07T15:17:38Z): R1 (ARCHITECT 2026-10-08) keeps it byte-identical.
+DECLARED_GATE_SHA256 = "e7c5e2eb67c8ca99b0394ebc684c83d4be887367f9c53a7c4ca07b408cd3341a"
+
+
+def test_r1_gate_text_is_byte_identical_and_the_reading_of_record_is_ratified():
+    import hashlib
+    e = reg.get(sx.EID)
+    assert hashlib.sha256(e["gate"].encode()).hexdigest() == DECLARED_GATE_SHA256
+    assert "log-loss <= naive - 0.010" in e["gate"]                    # the verbatim text is untouched
+    r = e.get("ratified") or ""
+    assert r.startswith("ARCHITECT 2026-10-07 and 2026-10-08 (pre-run, frozen; verbatim in "
+                        "docs/specs/soccer-expansion-v1.md 7a and 7b): ")
+    for f in ("F1 ", "F2 ", "F3 ", "F4 TIES REJECT: PASS iff log-loss < naive - 0.010 on unrounded values; "
+              "the gate text's <= is read as strict.", "F5 ", "F6 "):
+        assert f in r
+    keys = list(e)
+    assert keys[keys.index("gate") + 1] == "ratified"                   # beside the gate text
+    assert sx.OPEN_FINDINGS == ()
+
+
 def test_gate_command_refuses_unless_declared_and_unrun(monkeypatch):
     import cli
     for entry in (None, {**DECLARED, "status": "run", "run": {"run_at": "x"}}):
@@ -75,11 +95,13 @@ def _prechecks_pass(monkeypatch):
 
 
 def test_run_refuses_while_findings_are_open_and_on_missing_data(monkeypatch):
-    # F1-F6 ruled (2026-10-07 / 2026-10-08); R1 (the registry operator correction) has no field to land in, so the
-    # run still refuses until the architect directs it
-    assert [f[:2] for f in sx.OPEN_FINDINGS] == ["R1"]
-    with pytest.raises(sx.ExpansionRefused, match="open findings.*R1"):
+    # F1-F6 and R1 ruled (2026-10-07 / 2026-10-08): nothing is open. The refusal still holds for any finding a later
+    # review opens before the run
+    assert sx.OPEN_FINDINGS == ()
+    monkeypatch.setattr(sx, "OPEN_FINDINGS", ("X1 a later finding",))
+    with pytest.raises(sx.ExpansionRefused, match="open findings.*X1"):
         sx.run(-0.1, 0.0008)
+    monkeypatch.setattr(sx, "OPEN_FINDINGS", ())
     scored = []
     monkeypatch.setattr("src.walters.soccer_backtest.run_soccer_backtest",
                         lambda *a, **k: scored.append(a) or results(5, True))
@@ -601,7 +623,7 @@ def test_preflight_prints_every_label_with_its_placement_and_the_baseline(monkey
     assert "stages 2024/25: 'Regular Season - 1' 1 → regular; 'Semi-finals' 1 → playoff; None 1 → UNPLACED" in r.output
     assert "UNPLACED label(s), the run refuses: ELC 2024/25 None" in r.output
     assert "ELC: " in r.output and "DROPPED BEFORE THE RUN" in r.output
-    assert "open findings (the run refuses until ruled): R1" in r.output and "nothing scored" in r.output
+    assert "open findings (the run refuses until ruled): none" in r.output and "nothing scored" in r.output
 
 
 def test_shadow_leagues_never_get_a_venue_call():

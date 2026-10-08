@@ -60,12 +60,9 @@ SHADOW_NOTE = ("SHADOW — soccer-expansion-v1 (PD, SA, BL1, FL1, ELC). Until CO
 # REFUSES while any is open; a ruling closes them by editing this tuple and the spec in a reviewed PR.
 # F1-F5 RULED (ARCHITECT 2026-10-07, addendum 3, item B; spec section 7a). F6 RULED (ARCHITECT 2026-10-08,
 # addendum 7, item 1; spec section 7b): a league with no gated band is DROPPED, "no gated band".
-# R1 is the registry-operator correction the same ruling orders before the run: the entry carries no
-# machine-readable operator to correct (spec 7b), so it stays open and the run still refuses until it is resolved.
-OPEN_FINDINGS = (
-    "R1 the registry operator correction (<= to <, citing F4) has no machine-readable field to land in; awaiting the "
-    "architect's direction (spec 7b)",
-)
+# R1 RULED (ARCHITECT 2026-10-08, addendum 8, item 1; spec 7b): no new field or schema; the reading of record is the
+# entry's `ratified` annotation beside the untouched gate text (F4: the gate's <= is read as strict). Nothing is open.
+OPEN_FINDINGS: tuple = ()
 
 # F5 (ruled): for THIS gate the walk predicts every fixture sharing a kickoff timestamp before any of them updates
 # the state (run_soccer_backtest batch_same_kickoff; the harness default stays the row-by-row walk).

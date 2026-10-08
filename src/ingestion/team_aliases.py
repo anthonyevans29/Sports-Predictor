@@ -32,6 +32,16 @@ TOKEN_SYNONYMS: dict[str, str] = {
     "hull": "hull",
     "leeds": "leeds",
     "afc": "afc",
+    # football-data closing odds, soccer-expansion-v1 leagues (ARCHITECT 2026-10-08, addendum 12, PINS, verbatim):
+    # "In the football-data closing-odds ingest, Ath Bilbao is Athletic Club; Espanol is Espanyol; M'gladbach is
+    # Borussia Mönchengladbach; Hamburg is Hamburger SV; Brest is Stade Brestois 29. Nothing else in the matcher
+    # changes: the date gate, both teams fitting the same game, the best score winning, a tie refused."
+    # Never add "ath", "borussia" or "stade": Ath Madrid, Dortmund and Reims carry them (addendum 12, guard 1).
+    "bilbao": "athletic",
+    "espanol": "espanyol",
+    "m'gladbach": "mönchengladbach",   # NFC (U+00F6); the closes ingest NFC-normalizes both names (guard 2)
+    "hamburg": "hamburger",
+    "brest": "brestois",
     # --- mlb (kalshi quirks) ---
     "sacramento": "athletics",   # A's temporary home; Kalshi titles by city
     "oakland": "athletics",

@@ -4732,6 +4732,46 @@ def nhl_shadow_grade_cmd(days):
           f"{r['reference_mean_clv_pp']}pp (n={r['reference_priced']})")
 
 
+@cli.command("export-ncaa-predictions")
+@click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
+def export_ncaa_predictions_cmd(hours):
+    """NCAA SHADOW (ARCHITECT 2026-10-07, addendum 6 item 1): ncaa_elo_v1r (v1,
+    constants untouched) for every FBS game in the window. Every row: engine
+    model_shadow, competition NCAA, family NCAAF, gate status (UNGATED — shadow
+    only until the verdict). Never a call, never a venue input, never logged.
+    REFUSES (exit 2) until ncaa-elo-v1r is declared in the registry with its
+    neutral-site rule and the CFBD side table covers >= 95% of the stream in
+    both seasons. Writes exports/ncaa_shadow_<stamp>.json; nothing to the DB."""
+    from src.walters.ncaa_shadow import ShadowRefused, export
+    try:
+        path, doc = export(hours=hours)
+    except ShadowRefused as e:
+        print(str(e))
+        raise SystemExit(2)
+    console.print(f"[green]✓ Wrote NCAA shadow ({doc['gate_verdict']}) to {path}[/green]")
+    f = doc["fit"]
+    print(f"  NCAA · {doc['count']} FBS games in the next {hours}h · model {doc['model_version']} · "
+          f"{doc['gate_verdict']} · engine {doc['engine']} · not gate evidence")
+    print(f"  fit: {f['games_used']} stream games walked (train {f['train_n']} / test {f['test_n']}) · "
+          f"neutral rule {f['neutral_site_rule']} · neutral games {f['neutral_updates']} · coverage "
+          f"{f['coverage']} · ties skipped {f['ties_skipped']} · window skips {doc['skipped'] or 'none'}")
+
+
+@cli.command("ncaa-shadow-grade")
+@click.option("--days", default=30, show_default=True, type=int)
+def ncaa_shadow_grade_cmd(days):
+    """NCAA SHADOW grade from the shadow exports on disk (the last row before
+    kickoff): results (hit rate, log-loss, Brier) and model-vs-close
+    (pick-vs-close + value-side). Read-only. NOT gate evidence."""
+    from src.walters.ncaa_shadow import grade
+    r = grade(days=days, progress=print)
+    print(f"  ── NCAA shadow (not gate evidence) · graded {r['graded']} (calls on file {r['calls_on_file']}; "
+          f"no result {r['no_result']}; ties {r['ties_skipped']}; identity mismatch {r['identity_mismatch']}) · hit rate {r['hit_rate']} · log-loss "
+          f"{r['log_loss']} · Brier {r['brier']} · mean pick-vs-close {r['mean_clv_pp']}pp (n={r['priced']}; "
+          f"unpriced {r['unpriced']}) · value-side {r['mean_value_side_clv_pp']}pp (n={r['value_side_n']}; "
+          f"unanchored {r['unanchored']})")
+
+
 @cli.command("export-unl-predictions")
 @click.option("--hours", default=36, show_default=True, type=int, help="Window from now (UTC).")
 def export_unl_predictions_cmd(hours):

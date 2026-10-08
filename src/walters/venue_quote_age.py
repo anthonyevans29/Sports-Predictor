@@ -253,6 +253,15 @@ def row_ident_ok(x: dict) -> bool:
         mid is None or (isinstance(mid, int) and not isinstance(mid, bool)))
 
 
+def db_file_path():
+    """The configured SQLite DB file, resolved (None for a non-SQLite URL): what an --out must never alias."""
+    from pathlib import Path
+
+    from config import settings
+    url = settings.database_url
+    return Path(url[len("sqlite:///"):]).resolve() if url.startswith("sqlite:///") else None
+
+
 @contextlib.contextmanager
 def readonly_session():
     """A READ-ONLY session for the receipts (Codex on #340): the app's session_scope() commits on exit and its
@@ -267,7 +276,7 @@ def readonly_session():
     url = settings.database_url
     if not url.startswith("sqlite:///"):
         raise Refused(f"REFUSED: the receipts read a SQLite DATABASE_URL only (got {url.split(':', 1)[0]})")
-    path = Path(url[len("sqlite:///"):]).resolve()
+    path = db_file_path()
     if not path.is_file():
         raise Refused(f"REFUSED: no DB file at {path}: a read-only receipt never creates one")
     # mode=ro, never immutable (Codex on #340): an immutable open skips SQLite's change detection, so a write or a
@@ -320,10 +329,10 @@ def iter_desk_docs(root: str) -> tuple[list[tuple[str, dict]], dict]:
                 if EXPORT_NAME.search(n) or not (isinstance(doc, list) and doc):
                     bad_read.append(p)
                 continue
-            if EXPORT_NAME.search(n) and "desk_meta" not in doc and not any(
+            if not doc or EXPORT_NAME.search(n) and "desk_meta" not in doc and not any(
                     k in doc for k in ("fixtures", "predictions", "tickets", "results")):
-                bad_read.append(p)          # Codex on #340: a generated export emptied to {} (or stripped of its
-                continue                    # metadata and rows) is damaged, never silently out of scope
+                bad_read.append(p)          # Codex on #340: {} under ANY name (--out allows any), or a generated
+                continue                    # export stripped of its metadata and rows, is damaged, never skipped
             if "desk_meta" not in doc and any(
                     isinstance(x, dict) and isinstance(x.get("desk"), dict) and x["desk"]
                     for k in ("fixtures", "predictions") if isinstance(doc.get(k), list) for x in doc[k]):

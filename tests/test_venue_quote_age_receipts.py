@@ -1448,7 +1448,7 @@ def test_a_generated_export_emptied_to_an_object_refuses(tmp_path):
             VQ.iter_desk_docs(str(d))
     d = tmp_path / "other"
     d.mkdir()
-    (d / "notes.json").write_text("{}")                                         # not a generated name: ignored
+    (d / "notes.json").write_text('{"note": "x"}')                     # not a generated name, not empty: ignored
     assert VQ.iter_desk_docs(str(d))[0] == []
 
 
@@ -1465,3 +1465,30 @@ def test_out_is_never_the_ledger_it_reads(tmp_path):
     r = CliRunner().invoke(cli.cli, ["venue-calls-receipt", "--since", "2095-10-02", "--exports-dir", str(ex),
                                      "--ledger", str(led), "--out", str(led)])
     assert r.exit_code == 2 and "REFUSED" in r.output and led.read_text() == body
+
+
+def test_an_empty_object_refuses_under_any_name(tmp_path):
+    """Codex on #340: `--out exports/audit.json` emptied to {} is damaged too (as null / scalar / [] already are)."""
+    d = tmp_path / "ex"
+    d.mkdir()
+    (d / "audit.json").write_text("{}")
+    with pytest.raises(VQ.Refused):
+        VQ.iter_desk_docs(str(d))
+
+
+def test_out_never_aliases_the_configured_database(tmp_path, monkeypatch):
+    """Codex on #340: a DATABASE_URL outside data/ is still the DB; --out naming it (or a sidecar) refuses."""
+    from click.testing import CliRunner
+
+    import cli
+    db = tmp_path / "elsewhere" / "sports.db"
+    db.parent.mkdir()
+    db.write_bytes(b"SQLite format 3\x00")
+    monkeypatch.setattr(VQ, "db_file_path", lambda: db.resolve())        # settings are frozen: the resolver
+    ex = tmp_path / "ex"
+    ex.mkdir()
+    for tgt in (db, tmp_path / "elsewhere" / "sports.db-wal"):
+        for cmd in ("venue-calls-receipt", "quote-age-report"):
+            r = CliRunner().invoke(cli.cli, [cmd, "--exports-dir", str(ex), "--out", str(tgt)])
+            assert r.exit_code == 2 and "configured database" in r.output, r.output
+    assert db.read_bytes() == b"SQLite format 3\x00"

@@ -60,3 +60,4 @@
   - Desk reference checked per engine/call; a `.json` `--out` under the exports dir refuses. Probe: league-less quoted items are unverified.
   - Row sport follows discovery's precedence (document `competition` included). Probe: impossible prices are no quote.
   - NaN / inf refused; unknown ledger engines, family-contradicting competitions and emptied generated exports refuse; `--out` never overwrites `--ledger`.
+  - `{}` refuses under any name; `--out` never aliases the configured database.

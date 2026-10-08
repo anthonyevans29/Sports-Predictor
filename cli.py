@@ -1548,6 +1548,13 @@ def _vqa_out_ok(out_path, exports_dir=None) -> bool:
     if _tgt == _data or _data in _tgt.parents:
         console.print("[red]REFUSED: never write under data/ (law 5).[/red]")
         return False
+    from src.walters.venue_quote_age import db_file_path
+    _db = db_file_path()
+    if _db is not None and _tgt in (_db, _P(str(_db) + "-wal"), _P(str(_db) + "-shm"), _P(str(_db) + "-journal")):
+        # Codex on #340: a DATABASE_URL outside data/ is still the DB; a read-only receipt never overwrites it
+        console.print(f"[red]REFUSED: --out {out_path} is the configured database (or its sidecar): the receipts "
+                      "are read-only.[/red]")
+        return False
     _ex = _P(exports_dir).resolve() if exports_dir else None
     if _ex is not None and _tgt.name.endswith(".json") and _ex in _tgt.parents:
         # Codex on #340: discovery scans every .json under --exports-dir and refuses unreadable ones; a text

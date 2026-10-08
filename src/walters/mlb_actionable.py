@@ -28,6 +28,10 @@ Definitions (read from the code, law 1):
   n < 2 -> no CI).
 - ROI at the close fair price: stake 1 at decimal odds 1/fair on the pick:
   +(1/fair − 1) on a hit, −1 on a miss; ROI = sum / n.
+- blend (Q3 K6, ARCHITECT 2026-10-08: "The #354 receipt splits by that record: blended, model alone, not
+  recorded. Nothing is inferred for a row with no record."): read from the prediction's own
+  `factor_breakdown.market_blend` (written by predict from that PR on): applied true -> blended, applied false ->
+  model alone, no record -> not recorded. Never inferred from the config, the close or the version.
 Writes nothing to the DB.
 """
 from __future__ import annotations
@@ -37,6 +41,7 @@ import random
 TIERS = ("toss-up", "lean", "strong")
 BUCKETS = ("<0", "0-4", "4-8", "8-15", ">=15")      # ARCHITECT 2026-10-07 (addendum 3 D): negatives own bucket
 STAGES = ("regular", "postseason", "unknown")
+BLENDS = ("blended", "model alone", "not recorded")    # Q3 K6: the prediction's own record, nothing inferred
 BOOT_B = 10_000
 BOOT_SEED = 20261007          # pinned: the ruling's date
 EDGE_ROUND = 9                # float hygiene only: 0.58 - 0.54 must bucket as 4.0pp, not 3.9999999
@@ -68,6 +73,18 @@ def tier_of(top_p: float, factor_breakdown: dict | None) -> dict:
     fb = factor_breakdown or {}
     starter_known = fb.get("home_starter_known", True) and fb.get("away_starter_known", True)
     return classify_tier(top_p, starter_known=starter_known)
+
+
+def blend_of(factor_breakdown: dict | None) -> str:
+    """Q3 K6: 'blended' | 'model alone' | 'not recorded', from factor_breakdown.market_blend.applied ONLY. A row
+    with no record (predicted before K6), or a record whose `applied` is not a bool, is 'not recorded'."""
+    rec = (factor_breakdown or {}).get("market_blend")
+    applied = rec.get("applied") if isinstance(rec, dict) else None
+    if applied is True:
+        return "blended"
+    if applied is False:
+        return "model alone"
+    return "not recorded"
 
 
 def roi_unit(hit: bool, fair: float) -> float:
@@ -110,7 +127,8 @@ def grade_row(*, match_id, stage_raw, p_home, p_away, factor_breakdown, hit, clo
     t = tier_of(p, factor_breakdown)
     base = {"match_id": match_id, "side": side, "model_p": p, "tier": t["tier"],
             "actionable": t["actionable"],
-            "capped_by_starter": t["capped_by_starter"], "stage": mlb_stage(stage_raw) or "unknown", "hit": bool(hit)}
+            "capped_by_starter": t["capped_by_starter"], "stage": mlb_stage(stage_raw) or "unknown", "hit": bool(hit),
+            "blend": blend_of(factor_breakdown)}
     if not priced(close):
         return {**base, "excluded": "no close (no pre-first-pitch capture, or unpriced)"}
     if close.get("reference") != "books":
@@ -167,11 +185,17 @@ def receipt(rows: list[dict], b: int = BOOT_B, seed: int = BOOT_SEED) -> dict:
             cells.append((t, "all", cell_stats([r for r in sr if r["tier"] == t], b, seed)))
         cells.append(("all", "all", cell_stats(sr, b, seed)))
         tables[st] = {"n": len(sr), "cells": cells}
+    # Q3 K6: the blend split (blended / model alone / not recorded) x tier, all stages, included rows only
+    blend = {bl: {"n": sum(1 for r in inc if r.get("blend", "not recorded") == bl),
+                  "cells": [(t, cell_stats([r for r in inc if r.get("blend", "not recorded") == bl
+                                            and r["tier"] == t], b, seed)) for t in TIERS]
+                  + [("all", cell_stats([r for r in inc if r.get("blend", "not recorded") == bl], b, seed))]}
+             for bl in BLENDS}
     versions: dict[str, int] = {}
     for r in inc:
         versions[r.get("model_version") or "?"] = versions.get(r.get("model_version") or "?", 0) + 1
     return {"graded": len(rows), "included": len(inc), "excluded": len(exc), "reasons": reasons,
-            "tables": tables, "negative_edge": sum(1 for r in inc if r["bucket"] == "<0"),   # the bucket, not the raw float (Codex on #324)
+            "tables": tables, "blend": blend, "negative_edge": sum(1 for r in inc if r["bucket"] == "<0"),   # the bucket, not the raw float (Codex on #324)
             "post_first_pitch": sum(1 for r in inc if r.get("post_first_pitch")),
             "capped": sum(1 for r in inc if r.get("capped_by_starter")),
             "versions": versions, "b": b, "seed": seed}
@@ -220,5 +244,22 @@ def format_receipt(res: dict, season: str, run_stamp: str) -> str:
             ci = "—" if c["ci95"] is None else f"[{c['ci95'][0]:+.1f}, {c['ci95'][1]:+.1f}]"
             L.append(f"| {tier} | {label} | {c['n']} | {_f(c['model_p'], '.3f')} | {_f(c['fair_p'], '.3f')} | "
                      f"{_f(c['hit'], '.3f')} | {c['hit_minus_close_pp']:+.1f} | {ci} | {c['roi'] * 100:+.1f}% |")
+        L.append("")
+    if "blend" in res:
+        L += ["## By market-blend record (Q3 K6, all stages) · " + " · ".join(
+                  f"{bl} {res['blend'][bl]['n']}" for bl in BLENDS), "",
+              "The prediction's own `factor_breakdown.market_blend` record; a row predicted before it was written is "
+              "'not recorded' (nothing inferred).", "",
+              "| blend | tier | n | mean model p | mean close fair p | hit rate | hit − close (pp) | 95% CI (pp) "
+              "| ROI @ close fair |",
+              "|---|---|---:|---:|---:|---:|---:|---|---:|"]
+        for bl in BLENDS:
+            for tier, c in res["blend"][bl]["cells"]:
+                if c["n"] == 0:
+                    L.append(f"| {bl} | {tier} | 0 | — | — | — | — | — | — |")
+                    continue
+                ci = "—" if c["ci95"] is None else f"[{c['ci95'][0]:+.1f}, {c['ci95'][1]:+.1f}]"
+                L.append(f"| {bl} | {tier} | {c['n']} | {_f(c['model_p'], '.3f')} | {_f(c['fair_p'], '.3f')} | "
+                         f"{_f(c['hit'], '.3f')} | {c['hit_minus_close_pp']:+.1f} | {ci} | {c['roi'] * 100:+.1f}% |")
         L.append("")
     return "\n".join(L).rstrip() + "\n"

@@ -73,12 +73,15 @@ NHL = {"sport": "nhl", "rehearsal": False, "predictions": [
 ]}
 
 
-def seeded(n):
+def seeded(n, mlb=2):
+    """n graded NFL kalshi-only calls, plus `mlb` graded MLB ones that no longer count (Q3 K4, ARCHITECT
+    2026-10-08: "MLB rows no longer add to the 30-call review count")."""
     return {"meta": {"policy_version": "v1.1"}, "calls": [
-        {"log_date": "2026-10-01", "sport": "MLB", "game": f"A{i} @ H{i}", "home": f"H{i}", "away": f"A{i}",
-         "pick": "HOME", "engine": "model_edge", "call_type": "straight", "units": 0.5, "status": "graded",
-         "result": "win", "reference": "kalshi_only", "model_p": 0.6, "market_p": 0.55, "rules": []}
-        for i in range(n)]}
+        {"log_date": "2026-10-01", "sport": "NFL" if i < n else "MLB", "game": f"A{i} @ H{i}", "home": f"H{i}",
+         "away": f"A{i}", "pick": "HOME", "engine": "model_edge", "call_type": "straight", "units": 0.5,
+         "status": "graded", "result": "win", "reference": "kalshi_only", "model_p": 0.6, "market_p": 0.55,
+         "rules": []}
+        for i in range(n + mlb)]}
 
 
 def main():
@@ -152,7 +155,7 @@ def main():
               led.get("New York Yankees") == ("kalshi_only", 0.56, 0.5)
               and led.get("San Diego Padres") == ("kalshi_only", 0.55, 0.5)
               and led.get("Los Angeles Dodgers") == ("books", 0.56, 1), json.dumps(led))
-        check("policy card: kalshi-only graded 4/30", page.inner_text("#koProgress") == "graded 4/30",
+        check("policy card: kalshi-only graded 4/30 (NFL 4; the 2 MLB rows not counted, Q3 K4)", page.inner_text("#koProgress") == "graded 4/30",
               page.inner_text("#koProgress"))
         check("no page errors", not errors, "; ".join(errors))
         browser.close()

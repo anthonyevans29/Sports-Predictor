@@ -1,0 +1,16 @@
+**2026-10-08 — RULED (ARCHITECT, addendum 13 item 2, Q3): MLB kalshi-only suspended; the MLB market-blend record.**
+- **Ruling (verbatim):**
+  - "K1. An MLB row is never a call on a kalshi-only reference. Where the 2026-10-01 rule would have taken the Kalshi mid as the reference, the row is PASS with no reference: units 0, no order, no shadow units. Reason on the row: 'kalshi-only suspended for MLB: the model number is unblended without books (ARCHITECT 2026-10-07)'."
+  - "K2. Why. Since 2026-06-18 the MLB number is an equal blend of the model and the book market whenever a priced book close exists, and the model alone when none does. Against the Kalshi mid the Desk was comparing an unblended number, which asks half the disagreement a book row needs to reach the same 4pp."
+  - "K3. For the record such a row carries a kalshi_only_hold block: the mid, bid, ask and spread, the raw edge (model number minus mid), the edge on equal footing (half the raw edge), and the call and units the 2026-10-01 rule would have given. Nothing reads the block as a call."
+  - "K4. NFL and PL keep the kalshi-only reference exactly as ruled on 2026-10-01; their numbers are not blended with the market. MLB rows no longer add to the 30-call review count."
+  - "K5. MLB kalshi-only reopens only by ruling, on a receipt."
+  - "K6. From this PR the predict step records on each MLB prediction whether the market blend was applied, with the weight and the market number used. Nothing else about the prediction changes: the PR shows identical probabilities before and after on the same inputs. The #354 receipt splits by that record: blended, model alone, not recorded. Nothing is inferred for a row with no record."
+  - Build notes: "A small Desk PR with its own switch for the frozen-golden battery, as the quarantine has (#328), and the parity battery green. The Cockpit page in the repo carries the same rule; the live one is republished only on the operator's word."
+- **K1:** `pass_kind` `kalshi_only_suspended` (in `NO_CALL_KINDS`), with the ruled reason and no reference. No units, order, exec block, value shadow or shadow units, and never a parlay leg.
+- **K3:** `kalshi_only_hold` {mid, bid, ask, spread_c, raw_edge_pp, equal_footing_edge_pp, would_call, would_units}. The would-be call is the pre-K1 path's own output.
+- **K4:** NFL and PL desk blocks are identical with the suspension on and off. MLB rows are out of the Cockpit's kalshi-only review count.
+- **Switch:** `KALSHI_ONLY_MLB_SUSPENDED`, off under `base_v11()`. The golden is byte-unchanged and the parity battery is 14/14 green.
+- **K6:** `factor_breakdown.market_blend` {applied, enabled, w, market_home, market_away}. Probabilities on a fixed fixture are bit-identical to origin/main, six of six.
+- **#354:** the receipt's rows carry the blend record. It adds one blend x tier table; rows with no record are "not recorded". The month and pick-side splits stay with #354.
+- **K5:** no code reopens it; the switch is off only under the golden battery's `base_v11()` and the test-only `kalshi_only_suspension_off()`.

@@ -4898,7 +4898,7 @@ def desk_rescore_cmd(files, out_path):
         console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
         raise SystemExit(2)
     lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
-    n = halved = quarantined = 0
+    n = halved = quarantined = suspended = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
@@ -4912,6 +4912,7 @@ def desk_rescore_cmd(files, out_path):
             n += 1
             halved += x["verdict"] == "halved"
             quarantined += x["verdict"] == "quarantined"     # its own transition, never "halved" (Codex on #328)
+            suspended += x["verdict"] == "kalshi-only suspended"     # Q3 K1 (ARCHITECT 2026-10-08): its own too
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
             lines.append(f"  {x['game']} · {x['pick']} · model {x['model_p']:.3f} · fair {x['fair_edge_pp']:+.1f}pp · "
@@ -4921,6 +4922,9 @@ def desk_rescore_cmd(files, out_path):
     if quarantined:
         lines.append(f"{quarantined} PLAY(s) now QUARANTINED (PASS, quarantine shadow) under the current Desk — "
                      f"a quarantine transition, not counted as halved")
+    if suspended:
+        lines.append(f"{suspended} MLB PLAY(s) now PASS under the kalshi-only suspension (Q3, ARCHITECT 2026-10-08) — "
+                     f"not counted as halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)

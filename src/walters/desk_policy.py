@@ -103,8 +103,23 @@ SHADOW_VENUE_COMPS = frozenset({"PD", "SA", "BL1", "FL1", "ELC"})
 # refuse these competitions too: cli.py _refuse_shadow_league.) No switch: no frozen golden row is in the set.
 SHADOW_LEAGUE_REASON = "shadow league: never a call until CONFIRMED"
 SHADOW_LEAGUE_KIND = "shadow_league"
+# MLB KALSHI-ONLY SUSPENSION (ARCHITECT 2026-10-08, addendum 13 item 2, Q3, RULED): "K1. An MLB row is never a call on
+# a kalshi-only reference. Where the 2026-10-01 rule would have taken the Kalshi mid as the reference, the row is PASS
+# with no reference: units 0, no order, no shadow units. Reason on the row: 'kalshi-only suspended for MLB: the model
+# number is unblended without books (ARCHITECT 2026-10-07)'. [...] K3. For the record such a row carries a
+# kalshi_only_hold block: the mid, bid, ask and spread, the raw edge (model number minus mid), the edge on equal
+# footing (half the raw edge), and the call and units the 2026-10-01 rule would have given. Nothing reads the block
+# as a call. K4. NFL and PL keep the kalshi-only reference exactly as ruled on 2026-10-01 [...]. MLB rows no longer
+# add to the 30-call review count. K5. MLB kalshi-only reopens only by ruling, on a receipt."
+# The would-be call is the pre-K1 path itself (_desk_call), never a copy. Its own switch: the frozen golden (pre-F1c)
+# predates it and runs with it off (base_v11()); addendum_off() holds it, as it holds the quarantine (#328).
+KALSHI_ONLY_MLB_SUSPENDED = {"on": True}
+KALSHI_ONLY_SUSPENDED_KIND = "kalshi_only_suspended"
+KALSHI_ONLY_SUSPENDED_REASON = ("kalshi-only suspended for MLB: the model number is unblended without books "
+                                "(ARCHITECT 2026-10-07)")
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
-                 "no_series", "venue_unknown")      # + INTL v0 rules (4) and (3) (#325)
+                 "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
+                 KALSHI_ONLY_SUSPENDED_KIND)        # + Q3 K1 (2026-10-08)
 # VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
 # time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
 # unknown age is NO REFERENCE. [...] In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote
@@ -434,12 +449,15 @@ def base_v11():
     """The Desk WITHOUT the #87 addendum: the frozen pre-F1c golden's policy (the parity battery only)."""
     was, was_started = EXEC_RULES["on"], STARTED_RULE["on"]
     was_mlbq, was_qa = MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"]
+    was_kos = KALSHI_ONLY_MLB_SUSPENDED["on"]
     EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
+    KALSHI_ONLY_MLB_SUSPENDED["on"] = False
     try:
         yield
     finally:
         EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
         MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"] = was_mlbq, was_qa
+        KALSHI_ONLY_MLB_SUSPENDED["on"] = was_kos
 
 
 @contextmanager
@@ -465,6 +483,18 @@ def quote_age_rule_off():
         yield
     finally:
         QUOTE_AGE_RULE["on"] = was
+
+
+@contextmanager
+def kalshi_only_suspension_off():
+    """The Desk without the Q3 MLB kalshi-only suspension (ARCHITECT 2026-10-08): the 2026-10-01 path, for tests and
+    comparisons only. Never used by an export."""
+    was = KALSHI_ONLY_MLB_SUSPENDED["on"]
+    KALSHI_ONLY_MLB_SUSPENDED["on"] = False
+    try:
+        yield
+    finally:
+        KALSHI_ONLY_MLB_SUSPENDED["on"] = was
 
 
 def is_quarantine_shadow(c: dict) -> bool:
@@ -722,8 +752,29 @@ def intl_venue_unknown(r) -> bool:
     return (r["src"].get("venue_flag") or "unknown") == "unknown"
 
 
+def kalshi_only_suspended(r) -> bool:
+    """Q3 K1: the suspension covers MLB rows only (K4: NFL and PL keep the 2026-10-01 reference)."""
+    return bool(KALSHI_ONLY_MLB_SUSPENDED["on"] and r["sport"] == "MLB")
+
+
 def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
-    """The Cockpit's policy() body for ONE model-sport row."""
+    """The Desk's call for ONE model-sport row: the v1.1 policy (_desk_call), then Q3 K1 (ARCHITECT 2026-10-08):
+    an MLB row whose reference would be the kalshi-only mid is PASS with no reference; its would-be call is kept
+    in `koHold` for the record (K3)."""
+    c = _desk_call(r, now_ms, postseason_graded, intl_graded)
+    if not (c["kalOnly"] and kalshi_only_suspended(r)):
+        return c
+    ko = kalshi_only_ref(r, now_ms)                     # the same pure reference _desk_call took (mid, bid, ask)
+    hold = {"mid": ko["mid"], "bid": ko["bid"], "ask": ko["ask"], "spread_c": ko["spreadC"],
+            "raw_edge_pp": c["edge"], "equal_footing_edge_pp": c["edge"] / 2,
+            "would_call": c["call"], "would_units": c["units"]}
+    out = _no_call(r, KALSHI_ONLY_SUSPENDED_KIND, KALSHI_ONLY_SUSPENDED_REASON)
+    out.update(tags=["kalshi-only suspended (MLB)"], mktRef=None, koHold=hold)
+    return out
+
+
+def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
+    """The Cockpit's policy() body for ONE model-sport row (Desk v1.1 and its addenda, before Q3 K1)."""
     if (r.get("comp") or "") in SHADOW_VENUE_COMPS:     # S1 (ARCHITECT 2026-10-08), checked before started
         return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": ["shadow league"],
                 "reasons": [SHADOW_LEAGUE_REASON], "execUnits": None, "shadowUnits": 0,
@@ -1241,6 +1292,8 @@ def desk_block(r, c, v, ven) -> dict:
            "order": (order_line(r, r["pick"], c["units"], ladder=(c["call"] == "LADDER"))
                      if c["call"] in ("PLAY", "LADDER") else None),
            "venue": venue_block(ven)}
+    if c.get("koHold"):                                   # Q3 K3: for the record only; nothing reads it as a call
+        out["kalshi_only_hold"] = {k: _num(x) for k, x in c["koHold"].items()}
     if v:
         out["value_shadow"] = {"side": v["side"], "edge_pp": _num(v["edge"]), "model_p": _num(v["modelP"]),
                                "market_p": _num(v["marketP"]), "role": v["role"], "units": VALUE["units"],
@@ -1296,6 +1349,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "venue_quote_age_rule": QUOTE_AGE_RULE["on"],  # 2026-10-07: venue-edge emits no call
                         # MLB big-edge quarantine (ARCHITECT 2026-10-07): the threshold in force, None = off
                         "mlb_quarantine_above_pp": MLB_QUARANTINE["abovePP"] if MLB_QUARANTINE["on"] else None,
+                        # Q3 (ARCHITECT 2026-10-08): MLB is never a call on a kalshi-only reference
+                        "mlb_kalshi_only_suspended": KALSHI_ONLY_MLB_SUSPENDED["on"],
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
     return doc
 
@@ -1405,7 +1460,9 @@ def _rescore(doc: dict) -> list[dict]:
                     "published_units": d.get("units"), "v11_units": b["units"], "addendum_units": c["units"],
                     "addendum_call": c["call"],
                     # a published PLAY the CURRENT quarantine now shadows is its own transition, never "halved"
+                    # ... and so is one the Q3 suspension now holds (MLB kalshi-only, ARCHITECT 2026-10-08)
                     "verdict": ("quarantined" if is_quarantine_shadow(c) else
+                                "kalshi-only suspended" if c.get("passKind") == KALSHI_ONLY_SUSPENDED_KIND else
                                 "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
                                 else "raised")})
     return out

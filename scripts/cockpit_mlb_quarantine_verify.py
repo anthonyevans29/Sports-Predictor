@@ -6,7 +6,9 @@ Over a SYNTHETIC MLB production file annotated by the Python Desk:
   size it would have staked), as NFL's divergence quarantines are, although the export's `quarantine` field is false
   (the Desk's own edge decides);
 - a +6pp MLB row is still logged as a straight;
-- an NFL divergence quarantine is still logged as a shadow (unchanged).
+- an NFL divergence quarantine is still logged as a shadow (unchanged);
+- Q3 (ARCHITECT 2026-10-08): an MLB row on a kalshi-only reference is PASS "kalshi-only suspended", never logged
+  (no shadow units), its hold rendered for the record; an NFL kalshi-only quarantine shadow still records the mid.
 
     python3 scripts/cockpit_mlb_quarantine_verify.py
 
@@ -53,7 +55,11 @@ MLB = {"sport": "mlb", "rehearsal": False, "predictions": [
      "kalshi_bid": 0.49, "kalshi_ask": 0.50}]}
 NFL = {"sport": "nfl", "rehearsal": False, "predictions": [
     row("Divergent", "NFL", 0.80, 0.55, quarantine=True, market_divergence_pp=25.0,
-        input_quality={"injuries": {"home": {"qb_listed": []}, "away": {"qb_listed": []}}})]}
+        input_quality={"injuries": {"home": {"qb_listed": []}, "away": {"qb_listed": []}}}),
+    # Q3 K4: NFL keeps the kalshi-only reference; a divergence-quarantined row on it is a shadow at the mid
+    {**row("NflKalonly", "NFL", 0.60, 0.5, quarantine=True, market_divergence_pp=20.0,
+           input_quality={"injuries": {"home": {"qb_listed": []}, "away": {"qb_listed": []}}}),
+     "utc_date": K45, "market": {"bookmaker_count": 0}, "kalshi_bid": 0.49, "kalshi_ask": 0.50}]}
 
 
 def main():
@@ -89,11 +95,22 @@ def main():
         m = by.get("Moderate")
         check("MLB +6pp still logged as a straight", m is not None and m["call_type"] == "straight",
               json.dumps(m)[:160] if m else "absent")
-        k = by.get("Kalonly")
-        check("kalshi-only quarantine shadow records the Desk's mid and reference (Codex on #328)",
+        k = by.get("NflKalonly")
+        check("kalshi-only quarantine shadow records the Desk's mid and reference (Codex on #328; NFL since Q3)",
               k is not None and k["call_type"] == "quarantine_shadow" and abs((k.get("market_p") or 0) - 0.495) < 1e-9
               and k.get("reference") == "kalshi_only" and k.get("venue_hint") == "kalshi",
               json.dumps(k)[:220] if k else "absent")
+        check("Q3 K1: the MLB kalshi-only row is never logged (no call, no shadow units)", "Kalonly" not in by,
+              json.dumps(by.get("Kalonly"))[:160])
+        ko = page.evaluate("""[...document.querySelectorAll('#slate tbody tr')].filter(tr=>tr.children[0].dataset.game
+            &&tr.children[0].dataset.game.includes('Kalonly @')||tr.textContent.includes('Kalonly B @ Kalonly'))
+            .map(tr=>({cls:tr.className,t:tr.textContent}))""")
+        kt = ko[0]["t"] if ko else ""
+        check("Q3 K1/K3: the slate shows PASS 'kalshi-only suspended', greyed, with the hold for the record",
+              bool(ko) and ko[0]["cls"] == "noref" and "PASSkalshi-only suspended" in kt
+              and "kalshi-only suspended for MLB: the model number is unblended without books" in kt
+              and "hold (record only, not a call): mid 0.495 (bid 0.49 / ask 0.50, spread 1c)" in kt
+              and "raw edge +10.5pp · on equal footing +5.2pp" in kt and "the 2026-10-01 rule: PASS 0u" in kt, " ".join(kt.split())[:600] or "absent")
         check("ledger quarantine flag set from the file's Desk call", q is not None and q.get("quarantine") is True,
               str(q.get("quarantine")) if q else "absent")
         page.click("#tabCard") if page.query_selector("#tabCard") else None

@@ -1,4 +1,4 @@
-## 2026-10-08 (#PENDING: soccer-expansion-confirm, the soccer-expansion-v1 confirmation window on the intl-elo-confirm pattern)
+## 2026-10-08 (#373: soccer-expansion-confirm, the soccer-expansion-v1 confirmation window on the intl-elo-confirm pattern)
 - New command `soccer-expansion-confirm` (ARCHITECT 2026-10-08, addendum 11, item 4). Flags: `--freeze-cohort`, `--substitute`, `--record --ruling TEXT` and `--no-fetch`; no flag prints progress. Flags and refusals mirror `intl-elo-confirm`, and the writes go through the same registry functions.
 - Refusals: it refuses unless the registry holds the run record, a PASS verdict and a non-empty surviving set.
 - Cohort: the first 60 fixtures by (kickoff, id) of the surviving leagues. Each must be a regular-season round (F3; an unplaced label refuses a freeze or substitution it could precede), kick off after the verdict, and be neither a test-set id nor a stale orphan; any status counts. The cohort is frozen once, after the cross-ref guard (#329).

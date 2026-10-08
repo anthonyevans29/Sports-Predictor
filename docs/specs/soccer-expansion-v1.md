@@ -180,6 +180,10 @@ pre-run drops, the scoreable check) and before the first test-season read, it
 creates `docs/registry/soccer-expansion-v1.started.json` exclusively. A second, concurrent, interrupted or failed
 attempt is refused while that file exists without a recorded run: the read is spent, recorded or not, and nothing
 reruns without an architect ruling. The run record keeps each league's calibration band rows.
+Before that create, the reservation calls the registry's cross-ref guard (#329 RULED 2026-10-08,
+`registry.cross_ref_guard`): it fetches origin's `laptop/*` branches and refuses, naming the ref and the commit,
+when any ref the clone knows holds a cohort, a run record or a reservation for `soccer-expansion-v1` that this tree
+does not hold identically. `--no-fetch` skips the fetch; the receipt then says other clones were not checked.
 
 Prerequisite, not a finding: each league's 2026/27 competition-season needs `sync-teams` once before the chains'
 `sync-matches` (CLAUDE.md), on the laptop and on the host.

@@ -115,8 +115,19 @@ def reservation_path() -> str:
     return RESERVATION or _reservation_default()
 
 
-def reserve(meta: dict | None = None) -> str:
+def reserve(meta: dict | None = None, no_fetch: bool = False, echo=None) -> str:
+    """The exclusive create, after the cross-ref guard (#329 RULED 2026-10-08): a cohort, run record or reservation
+    of this experiment on any ref the clone knows refuses, naming the ref and the commit."""
+    from src.walters import registry as reg
     p = reservation_path()
+    if os.path.exists(p):
+        raise ExpansionRefused(_reserved_why(p))
+    try:
+        receipt = reg.cross_ref_guard(EID, no_fetch=no_fetch)
+    except reg.RegistryError as e:
+        raise ExpansionRefused(str(e))
+    if echo:
+        echo(receipt)
     try:
         fd = os.open(p, os.O_CREAT | os.O_EXCL | os.O_WRONLY)
     except FileExistsError:
@@ -412,12 +423,14 @@ def _closes(s, ids) -> dict[int, dict]:
     return out
 
 
-def run(rho: float, coeff: float, progress=None, meta: dict | None = None) -> dict:
+def run(rho: float, coeff: float, progress=None, meta: dict | None = None, no_fetch: bool = False,
+        echo=None) -> dict:
     """The ONE run's computation (the CLI records it). Every pre-check runs BEFORE the reservation and before any
     test-season read, so a refusal never follows a read: open findings; any stage / round label the code cannot
     place (F3); the F1 pre-run drops (a league without a complete stored 2023/24 is dropped, never read; all five
     dropped refuses: nothing to test); a kept league's test season the walk would score nothing in. Then it
-    reserves the gate and walks the kept leagues (regular-season rows only, same-kickoff fixtures batched)."""
+    reserves the gate (after the cross-ref guard, #329; no_fetch skips its fetch and says so through `echo`) and
+    walks the kept leagues (regular-season rows only, same-kickoff fixtures batched)."""
     if OPEN_FINDINGS:
         raise ExpansionRefused("open findings need a ruling before the run: " + "; ".join(OPEN_FINDINGS))
     from src.db.database import session_scope
@@ -446,7 +459,8 @@ def run(rho: float, coeff: float, progress=None, meta: dict | None = None) -> di
     missing = [c for c in kept if naives[c] is None]
     if missing:                      # unreachable for a complete season; kept as a law-4 guard, still pre-read
         raise ExpansionRefused(f"no stored {NAIVE_SEASON} outcomes for {', '.join(missing)}: naive undefined")
-    reserve({"rho": rho, "elo_goal_coeff": coeff, "dropped_before_run": pre, **(meta or {})})
+    reserve({"rho": rho, "elo_goal_coeff": coeff, "dropped_before_run": pre, **(meta or {})}, no_fetch=no_fetch,
+            echo=echo)
     # from here on, the one read is spent
     per, scored = {}, []
     for code in kept:

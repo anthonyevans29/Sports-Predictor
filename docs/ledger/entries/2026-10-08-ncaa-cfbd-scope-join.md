@@ -1,0 +1,21 @@
+**2026-10-08 — RULED + BUILT (ARCHITECT, addendum 10 item 3): NCAA CFBD scope + join (J1–J4), the v1r stream = CFBD both-FBS labels, coverage restated.**
+- **Ruling (verbatim), SCOPE:** "ncaa-elo-v1r is an FBS model. Its stream is the games that carry a CFBD both-FBS label; a stored game without one is neither walked nor scored, in the gate and in the shadow. My 2026-10-07 coverage condition is restated for that stream: the side table labels at least 95% of CFBD's completed both-FBS games in each season used, read from the ingest receipt (joined over in scope), every unmatched game listed. The shadow's precondition is that same fact. #79's all-division stream stays in the record as declared; its acceptance numbers do not move (margin 0.010, bands, rating range, 500 test games). The declaration's split, neutral-site rule, postseason rule and confirmation plan are mine to rule after the re-ingest; do not write the declaration yet."
+- **Ruling (verbatim), JOIN:** "J1. A source game the first pass leaves unmatched is retried against our NCAA matches within 36 hours either side. It joins only if exactly one (match, orientation) fits by the same name tiers, that match is not already joined, and the final scores agree in that orientation. join_via is dateshift. Each such row is listed with both kickoffs and the offset; a name fit whose scores disagree stays unmatched and is listed with both scores. J2. In the join and in alias vetting our team names are HTML-unescaped before normalization. In the v1r stream and the shadow, team ids whose unescaped names are identical are one team, keyed by the lowest id; the receipt lists every such group and every name that changes. J3. Aliases, pinned: App State -> Appalachian State; Massachusetts -> UMass; Buffalo -> Buffalo State; Rice -> Rice Owls. J4. The side table stores CFBD's seasonType as served: a nullable column with its own migrate script, filled on the next ingest, carried on Game as data only. Nothing in matches or teams is rewritten by any of this."
+- **Receipt findings behind it (not repaired here):**
+  - 74 of the 2025 both-FBS games are stored one day early (00:00–03:59 UTC kickoffs; J1 is the join-side answer).
+  - "Hawai'i" and "Hawai&#x27;i" are two team rows.
+  - The stage field is the provider's division label, so #79's postseason exclusion never fired.
+  - The provider names FBS Buffalo "Buffalo State" and Rice "Rice Owls".
+- **Built:**
+  - J1: `ncaa_cfbd.dateshift_retry`, sharing `tier_fits` with the first pass.
+  - J2: `ncaa_cfbd.our_norm` / `escaped_names` in the join and alias vetting; `ncaa_backtest.team_merge`, a read-time id map applied in the v1r stream and the shadow.
+  - J3: the four pins in `ncaa_cfbd_aliases.json` (CFBD name -> our name, the file's own direction).
+  - J4: `season_type` + `migrate_ncaa_cfbd_season_type.py`; carried on `Game.season_type`.
+  - SCOPE: `ncaa_backtest.v1r_stream` (the shadow walks it) and `ncaa_cfbd.fbs_coverage`, printed in the ingest receipt with every unlabelled game. `ncaa_cfbd.stored_coverage` re-reads the fact for `ncaa-cfbd-coverage` and the shadow's precondition.
+- **Before / after (synthetic):** the old condition's denominator was every all-division stream game: 96/156 = 61.5% (NO). The ruled one is CFBD's completed both-FBS games: 96/100 = 96.0% (YES).
+- **For the architect (readings, open to correction):**
+  - The ingest receipt is console-only. The shadow's "same fact" is re-read from the side table plus the saved payload its `payload_file` names, not from a stored receipt.
+  - "Already joined" = joined by this run's first pass.
+  - The v1r gate run is not wired into `ncaa-backtest` until the split is ruled.
+  - A side-table row is taken as a both-FBS label (the ingest's default `--division fbs`; the table stores no classification).
+- **Not done (by ruling):** the declaration; the adapter's escaped names, the duplicate team row and the early kickoffs in `matches`.

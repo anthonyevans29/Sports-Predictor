@@ -624,6 +624,8 @@ class NCAACFBDLabel(Base):
     * correction_reason: NULL when the source's scores (our orientation)
       equal the matches row; otherwise why they differ ('score-reversed: ...'
       / 'score-disagree: ...'). The stream reads THESE scores (ruling (4)).
+    * season_type: CFBD's seasonType as served (J4, ARCHITECT 2026-10-08);
+      NULL until the next ingest after migrate_ncaa_cfbd_season_type.py.
     Created by migrate_ncaa_cfbd_labels.py. Upserted by match id, never
     deleted by the ingest.
     """
@@ -640,8 +642,11 @@ class NCAACFBDLabel(Base):
     away_score: Mapped[int] = mapped_column(Integer)                           # source, OUR orientation
     source_home_team: Mapped[str | None] = mapped_column(String(128))          # CFBD homeTeam, as served
     source_away_team: Mapped[str | None] = mapped_column(String(128))          # CFBD awayTeam, as served
-    join_via: Mapped[str | None] = mapped_column(String(16))                   # exact | substring | alias
+    join_via: Mapped[str | None] = mapped_column(String(16))                   # exact | substring | alias | dateshift
     correction_reason: Mapped[str | None] = mapped_column(String(256))
+    # J4 (ARCHITECT 2026-10-08): CFBD's seasonType as served ('regular' / 'postseason' / ...), nullable,
+    # added by migrate_ncaa_cfbd_season_type.py, filled on the next ingest. DATA ONLY: nothing reads it as a rule.
+    season_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
     payload_file: Mapped[str | None] = mapped_column(String(256))              # the saved payload (exports/)
     fetched_at: Mapped[datetime] = mapped_column(DateTime)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)

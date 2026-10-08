@@ -6374,15 +6374,22 @@ def ncaa_cfbd_labels_cmd(years, from_file, dry_run, save_dir, division, unmatche
 
 @cli.command("ncaa-cfbd-coverage")
 def ncaa_cfbd_coverage_cmd():
-    """NCAA CFBD label coverage (ARCHITECT 2026-10-07), read-only: per season
-    (2025, 2026) over the #79 gate's stream — stream games, covered by
-    ncaa_cfbd_labels, covered share, swapped, neutral, score-corrected, the
-    non-neutral home win rate, and whether the >= 95% coverage condition
-    holds (a computed fact; the gate stays SUSPENDED until the architect
-    reads it). Writes nothing."""
+    """NCAA CFBD label coverage, read-only. SCOPE (ARCHITECT 2026-10-08): per
+    season (2025, 2026) the side table's labels over CFBD's completed both-FBS
+    games (denominator from the saved payload the side table names), >= 95%,
+    every unlabelled game listed; the ncaa-elo-v1r stream (labelled games only,
+    the J2 team merge listed); then #79's all-division stream as information
+    (covered share, swapped, neutral, score-corrected, home rates). The gate
+    stays SUSPENDED until the architect reads it. Writes nothing."""
+    from src.db.database import session_scope
+    from src.ingestion import ncaa_cfbd as nc
     from src.walters import ncaa_backtest as nb
 
-    nb.coverage_report(nb.build_stream(nb.load_games()), out=click.echo)
+    games = nb.load_games()
+    with session_scope() as s:
+        fbs = nc.stored_coverage(s, (nb.TRAIN_SEASON, nb.TEST_SEASON))
+        s.rollback()
+    nb.coverage_report(nb.build_stream(games), out=click.echo, fbs=fbs, v1r=nb.load_v1r_stream(games))
 
 
 @cli.command("nhl-backtest")

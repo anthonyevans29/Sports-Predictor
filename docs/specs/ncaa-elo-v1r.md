@@ -34,6 +34,12 @@ above; this correction stands beside it:
 
 > "For 'Prior reads of this test set: none.' read 'No candidate has been scored on this test set. One outcome figure of the test season was read before this declaration: its non-neutral home win rate on the labels then held, 0.597 on 652 games (operator console, ingest of 2026-10-08 14:07Z; the label sanity check ordered on 2026-10-07, when 2025 was the warm-up season). D5 (2) compares the model with a figure of that kind and was declared with it known. D5 (1), (3) and (4) were not informed by it.'"
 
+**Correction to D9 IN FORCE (ARCHITECT 2026-10-08, addendum 15 item 1(a), #368, RULED, verbatim), superseding the
+addendum 14 correction above, which stays quoted as issued:** "That correction was itself incomplete: it named one
+figure and one read." The one in force:
+
+> "For 'Prior reads of this test set: none.' read: 'No candidate has been scored on this test set. The season's home win rate and mean home margin were read before this declaration, more than once. Under the provider's labels, since found scrambled: 0.489 in the void v1 run (2026-09-30); by stage and by month in ncaa-audit, FBS 0.404 with -6.05 points (2026-10-01); 0.489 at the source in resync-diff (2026-10-01); 0.445 with -2.67 points in the #176 probe (2026-10-07). Under CFBD's labels: 0.597 with +5.23 points on non-neutral games in the same probe, which also printed both figures for the season's 64 neutral-site games; and 0.597 on 652 labelled non-neutral games (operator console, 2026-10-08 14:07Z). Declared with these figures known: D1's neutral-site rule, D4, and D5's tests (2) and (3). Fixed before any of them was read: D1's constants, and the margin of 0.010, the rating range and the 500 games, which are #79's (frozen 2026-09-30, before any run).'"
+
 No candidate has been scored on the test set, so the registry's prior reads stay empty. D5 does not change.
 
 **The test-season fence (addendum 14 item 2(b), #368, RULED, verbatim):**
@@ -45,6 +51,11 @@ In code: `ncaa_backtest.TEST_SEASON_FENCE`, lifted only by `registry` recording 
 v1r block and in #79's block (whose 2025 sanity-read line is dropped); 2024 and 2026 lines are unchanged.
 `ncaa-backtest` and `ncaa-audit` refuse with exit 2 before reading anything. `resync-diff --competition NCAA` withholds
 its home win rate line when the listing includes 2025 (`--season 2025` or no season), by the ruling's first sentence.
+That reading was accepted as built (addendum 15 item 1). The fence's one remaining hole, closed by addendum 15 item
+1(b) (verbatim): "scripts/ncaa_source_probe.py prints the home win rate and the mean home margin for any year it is
+given; the 2026-10-07 figures came from it. Until the run is recorded, for 2025 its two rate-and-margin lines print n and the withheld notice in place of the rates and margins. The rest of its receipt stays."
+
+**What the fence does not cover (addendum 15 item 3, #372 item 2, RULED, verbatim):** "The fence covers figures across games: a rate, a margin, a count of wins. A single game listed with its score is how a defect is checked, in the join receipts and in D2's list alike. D2 orders such a game skipped, counted and listed, and the gate never scores it. Nothing is redacted."
 
 ## 2. The architect's note on D5 (verbatim)
 
@@ -115,10 +126,14 @@ grading, never a Desk call.
 - **D8 rows.** Every upcoming row carries `home_adv_applied` (the listed home's, 55), `home_adv_basis` ("listed home (neutral flag unknown before the game)"), `neutral: null` and `neutral_flag: "unknown before the game"`. An upcoming game never reads a label.
 - **The file's `fit`.** It now carries `walked_by_season`, `season_type_census`, `level_scores_skipped` / `level_scores_listed`, `neutral_updates`, `neutral_unflagged` and `outside_seasons_not_walked`. These replace `train_n` / `test_n` / `excluded` / `ties_skipped`, which were #79's split.
 
-## 6. Interpretations (chosen where the ruling is silent; open to correction)
+## 6. Readings (chosen where the ruling was silent; ACCEPTED AS BUILT, ARCHITECT 2026-10-08, addendum 15 item 4)
+
+The architect's words (verbatim): "(1) A stream game's season is its label's season, and the model regresses on it.
+(2) Upcoming games keep the shadow's stage skip for now, since it cannot fire on the stored stage labels. Note on
+#359 that the skip has to go before bowl season: D2 and D7 take the postseason, and the shadow should too."
 
 1. **Season.** A stream game's season is its label's season (the CFBD `--year`, the season each ingest record and the coverage fact are keyed by), not `matches.season`. That is also the season `NCAAEloV1` regresses on. Where the two differ, the ingest already lists the game.
-2. **Upcoming games.** Upcoming games keep the shadow's existing stage-marker skip (`exclusion_reason`). It never fires on the stored division labels (#359).
+2. **Upcoming games.** Upcoming games keep the shadow's existing stage-marker skip (`exclusion_reason`). It never fires on the stored division labels (#359). It has to go before bowl season: D2 and D7 take the postseason, and the shadow should too (noted on #359).
 
 ## 7. Not in this PR (PR B)
 

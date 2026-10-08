@@ -53,7 +53,7 @@
   - Upcoming rows carry the home advantage applied (the listed home's) and `neutral_flag: "unknown before the game"` (D8).
   - `ncaa-cfbd-coverage` always prints 2024, 2025 and 2026.
   - Still never a Desk call. #79's all-division stream and gate are unchanged.
-- **Interpretations (open to correction):**
+- **Interpretations (ACCEPTED AS BUILT, addendum 15 item 4; formerly open to correction):**
   - A stream game's season is its label's (CFBD) season.
   - The stream still starts from our FINISHED, scored rows.
   - Upcoming games keep the existing stage-marker skip.
@@ -82,5 +82,11 @@
   - In code (`ncaa_backtest.TEST_SEASON_FENCE`, lifted only when the registry records the run):
     - `ncaa-cfbd-coverage` withholds the 2025 home win rate in the v1r block and in #79's block, and drops #79's 2025 sanity-read line. Counts, coverage, the census and the neutral counts stay. 2024 and 2026 are unchanged.
     - `ncaa-backtest` and `ncaa-audit` refuse with exit 2, quoting the ruling, before reading anything.
-    - `resync-diff --competition NCAA` withholds its home win rate line when the listing includes 2025 (by the ruling's first sentence; reading open to correction).
+    - `resync-diff --competition NCAA` withholds its home win rate line when the listing includes 2025 (by the ruling's first sentence; accepted as built, addendum 15 item 1).
   - #372's item (the stale first-run figures in the changelog fragment's summary) is fixed in the same commit.
+- **READ (ARCHITECT 2026-10-08, addendum 15):**
+  - Item 1. "#365 at 24f67df: READ. One more commit, then it merges." Verified on the merge preview: suite 1240 passed, 3 skipped; the fence is built as ruled. The resync-diff reading is accepted as built.
+  - **(a) Correction to D9 IN FORCE, superseding the addendum 14 correction (D9 and that correction stay quoted as issued), verbatim:** "For 'Prior reads of this test set: none.' read: 'No candidate has been scored on this test set. The season's home win rate and mean home margin were read before this declaration, more than once. Under the provider's labels, since found scrambled: 0.489 in the void v1 run (2026-09-30); by stage and by month in ncaa-audit, FBS 0.404 with -6.05 points (2026-10-01); 0.489 at the source in resync-diff (2026-10-01); 0.445 with -2.67 points in the #176 probe (2026-10-07). Under CFBD's labels: 0.597 with +5.23 points on non-neutral games in the same probe, which also printed both figures for the season's 64 neutral-site games; and 0.597 on 652 labelled non-neutral games (operator console, 2026-10-08 14:07Z). Declared with these figures known: D1's neutral-site rule, D4, and D5's tests (2) and (3). Fixed before any of them was read: D1's constants, and the margin of 0.010, the rating range and the 500 games, which are #79's (frozen 2026-09-30, before any run).'" D5 does not change. The registry's prior reads stay empty: no candidate has been scored.
+  - **(b) The fence's one hole, verbatim:** "scripts/ncaa_source_probe.py prints the home win rate and the mean home margin for any year it is given; the 2026-10-07 figures came from it. Until the run is recorded, for 2025 its two rate-and-margin lines print n and the withheld notice in place of the rates and margins. The rest of its receipt stays." Built in `ncaa_source_probe.fenced`; one test.
+  - Item 3, #372 item 2 (level-score entries and the fence), RULED, no change, verbatim: "The fence covers figures across games: a rate, a margin, a count of wins. A single game listed with its score is how a defect is checked, in the join receipts and in D2's list alike. D2 orders such a game skipped, counted and listed, and the gate never scores it. Nothing is redacted."
+  - Item 4, the two readings, accepted as built, verbatim: "(1) A stream game's season is its label's season, and the model regresses on it. (2) Upcoming games keep the shadow's stage skip for now, since it cannot fire on the stored stage labels. Note on #359 that the skip has to go before bowl season: D2 and D7 take the postseason, and the shadow should too."

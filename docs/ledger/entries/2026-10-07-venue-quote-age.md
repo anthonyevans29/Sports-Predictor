@@ -65,3 +65,4 @@
   - Desk documents are found under any name; empty desk blocks, unscannable directories and unparseable ledger kickoffs refuse; the `--out` JSON check is case-blind.
   - NFL selections keep their 1X2 fair (P1); post-call captures are unmeasured; contradicting VENUE prices / row competitions refuse; `--out` never overwrites an input.
   - Non-numeric VENUE prices refuse cleanly; a truncated JSON object under any file name refuses.
+  - Unknown ledger claim sources and mixed fixture/prediction documents refuse; the probe's `--out` never aliases the database.

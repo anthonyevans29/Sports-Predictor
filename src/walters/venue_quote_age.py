@@ -53,6 +53,7 @@ KNOWN_SPORTS = ("soccer", "nfl", "mlb", "nhl", "ncaa", "unl", "intl")          #
 #: tools/cockpit.html's ledger writers: engine:"model_edge" (straight / ladder / shadows / parlay legs) and
 #: engine:"venue_edge"; no other value has ever been written (since 76edfa3, the ledger's first version)
 LEDGER_ENGINES = ("model_edge", "venue_edge")
+LEDGER_CLAIM_SOURCES = (None, "auto")          # tools/cockpit.html snapshotCalls: c.claim_source="auto"; manual: absent
 LEDGER_UNKNOWN_SOURCE = "unknown (the ledger keeps no fair_source)"
 MIRROR_DIR = "host"                              # <exports>/host/: deploy/hosting/pull_exports.py's destination
 WINDOW = timedelta(hours=12)                     # identity match: exact team names, kickoff within ±12h
@@ -104,6 +105,11 @@ def ledger_refusal(L) -> str | None:
                 return (f"REFUSED: venue claim at index {i} has non-numeric {', '.join(bad_num)}: its prices "
                         "cannot be audited.")
             bad_str = [k for k in ("sport", "home", "away", "kickoff", "pick", "claim_source") if not _str(c.get(k))]
+            if not bad_str and c.get("claim_source") not in LEDGER_CLAIM_SOURCES:
+                # Codex on #340: the Cockpit writes claim_source "auto" (snapshotCalls) or none (a manual claim); any
+                # other value would take the manual merge path silently
+                return (f"REFUSED: venue claim at index {i} has an unknown claim_source {c.get('claim_source')!r} (the "
+                        "Cockpit writes \"auto\" or none): its merge path cannot be audited.")
             if bad_str:                                # Codex on #340: hashed into merge keys, never a TypeError
                 return (f"REFUSED: venue claim at index {i} has non-string {', '.join(bad_str)}: its identity "
                         "cannot be audited.")
@@ -204,6 +210,9 @@ def desk_rows_ok(doc: dict) -> bool:
     for k in ("fixtures", "predictions"):      # Codex on #340: a scalar container is damaged, never iterated
         if doc.get(k) is not None and not isinstance(doc[k], list):
             return False
+    if isinstance(doc.get("fixtures"), list) and isinstance(doc.get("predictions"), list):
+        return False                           # Codex on #340: no export writes both row families; a mixed document
+                                               # would skip the fixture rows' desk check
     if doc.get("predictions") is None and isinstance(doc.get("fixtures"), list):
         rows = [f for f in doc["fixtures"] if isinstance(f, dict)
                 and not (f.get("status") and f.get("status") != "scheduled")]

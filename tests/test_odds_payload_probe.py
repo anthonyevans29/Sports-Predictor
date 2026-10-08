@@ -446,3 +446,13 @@ def test_an_impossible_decimal_price_is_no_usable_quote():
         assert P.usable_quotes(p, "nhl") == 0, odd
         assert any("INCONCLUSIVE" in ln for ln in P.report(p, sport="nhl")), odd
     assert P.usable_quotes(SYNTH, "nhl") == 12
+
+
+def test_out_never_overwrites_the_configured_database(monkeypatch):
+    """Codex on #340: a DATABASE_URL under exports/ is still the DB; --out naming it (or a sidecar) refuses."""
+    db = (P.EXPORTS / "probe_test_sports.db").resolve()
+    monkeypatch.setattr(P, "db_path", lambda: db)
+    for tgt in (db, Path(str(db) + "-wal")):
+        ok, msg = P.out_path_ok(str(tgt))
+        assert not ok and "configured database" in msg
+    assert P.out_path_ok(str(P.EXPORTS / "probe_payload.json"))[0]

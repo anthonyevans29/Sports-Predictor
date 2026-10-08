@@ -1643,3 +1643,17 @@ def test_a_truncated_custom_suffix_export_refuses(tmp_path):
     d.mkdir()
     (d / "receipt.txt").write_text("VENUE CALLS RECEIPT\n{not json}")                 # text: counted, not read
     assert VQ.iter_desk_docs(str(d))[1]["other_files"] == 1
+
+
+def test_an_unknown_ledger_claim_source_refuses():
+    """Codex on #340: the Cockpit writes claim_source "auto" or none; "auot" would take the manual merge path."""
+    ok = {"engine": "venue_edge", "claim_at": "2095-10-08T00:00:00Z"}
+    assert VQ.ledger_refusal({"calls": [ok, dict(ok, claim_source="auto")]}) is None
+    r = VQ.ledger_refusal({"calls": [dict(ok, claim_source="auot")]})
+    assert r and "unknown claim_source" in r
+
+
+def test_a_document_mixing_fixture_and_prediction_rows_refuses():
+    """Codex on #340: no export writes both; a mixed document would skip the fixture rows' desk check."""
+    assert VQ.desk_rows_ok({"fixtures": [{"status": "scheduled", "desk": {"engine": "venue_edge", "call": "PASS"}}]})
+    assert not VQ.desk_rows_ok({"fixtures": [{"status": "scheduled"}], "predictions": []})

@@ -286,6 +286,13 @@ def out_path_ok(path: str) -> tuple[bool, str]:
         return False, "REFUSED: never write under data/ (law 5)."
     if EXPORTS.resolve() not in tgt.parents:
         return False, f"REFUSED: --out must be under exports/ ({EXPORTS})."
+    try:
+        db = db_path()
+    except Refused:
+        db = None                              # a non-SQLite URL: no DB file to alias
+    if db is not None and tgt in (db, *(Path(str(db) + x) for x in ("-wal", "-shm", "-journal"))):
+        # Codex on #340: a DATABASE_URL under exports/ is still the DB; the read-only probe never overwrites it
+        return False, f"REFUSED: --out is the configured database (or its sidecar) {db}: the probe is read-only."
     return True, str(tgt)
 
 

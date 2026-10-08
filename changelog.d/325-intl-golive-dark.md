@@ -1,0 +1,32 @@
+## 2026-10-07 (#325: intl-golive-dark — ARCHITECT, gate-class, built DARK)
+- Desk: `POLICY["INTL"]` = the SOCCER block with qNever (INTL DESK POLICY v0, #323). Nothing changes for anyone: only a production intl file reaches it.
+  - Half units until 30 INTL calls are graded (`intl_graded` in the ledger summary; absent = 0).
+  - UNL only: CNL rows are PASS `no_series`.
+  - An unknown venue on a home-abroad side is PASS `venue_unknown`. The list stays empty until it is ruled by name.
+  - The v1.1 goldens are unchanged.
+- `export-intl-predictions`: the shadow's intl-elo-v2 rows re-shaped for the Desk.
+  - Each row carries `market_divergence_pp` / `quarantine` (the NFL contract), `venue_flag` and `competition`.
+  - It REFUSES and writes nothing until `registry.production_allowed("intl-elo-v2")`.
+  - `export-unl-predictions` is unchanged.
+- `intl-home-abroad-receipt` (read-only, `--out` to docs/receipts/):
+  - per national team, listed-home games since 2022 with a known neutral_v3 and the share abroad;
+  - venue-id coverage per current competition-season.
+- `unl-shadow-grade` adds per row the result, the hit, model and book-close log-loss, the same-priced-games aggregate, and the |model − close| buckets (<4, 4-10, 10-15, >=15pp). Not to be run until this entry's BACKLOG fragment is merged.
+- Codex on #325:
+  - the Cockpit logs INTL quarantine shadows and emits `intl_graded` in the ledger summary;
+  - `export-intl-predictions --desk`;
+  - full team names in the home-abroad receipt;
+  - `--hours 0` exports an empty window (only an omitted window falls back to the default);
+  - new `scripts/cockpit_intl_verify.py`.
+  - `export-intl-predictions` refuses and writes nothing when `prediction_history` is missing, or when the rows appended differ from the fixtures in the file (rolled back): the history is the only grading record of these calls.
+  - KXUEFANLGAME fills now match INTL calls as well as UNL ones, in the Cockpit and in `ledger_fills.py` alike (they fell to the FUN book).
+  - The 90-minute grading path was escalated; it is ruled in addendum 3, item C (below).
+- ARCHITECT 2026-10-07 addendum 3, item C (verbatim): "INTL calls are graded on the 90-MINUTE result, never on a score that includes extra time or penalties. The results path for an INTL call reads the stored 90-minute score; where a game went beyond 90 minutes and no 90-minute score is stored, the call is left ungraded and listed, never graded on the later score. Before this merges, read the settlement rule from the KXUEFANLGAME payload itself (rules_primary) and quote it in the PR: if Kalshi settles on anything other than the result at the end of regulation, stop and return to the architect. Confirmed from your list: the gap is measured on the top-pick side; 'current season' is one with a scheduled or live fixture. Amended: the production INTL export writes no predictions row, but it DOES append to prediction_history on every export (model version, three probabilities, computed_at), as the K-track rule requires of every model sport."
+  - New `export-intl-results`: production INTL calls graded on the 90-minute result only. A game past 90 minutes (AET / PEN) with no stored 90-minute score is listed as ungraded, with its reason.
+  - The Cockpit grades an INTL call only from that file, never from a fixtures file's extra-time score.
+  - `export-intl-predictions` appends to `prediction_history` on every export, through the shared append helper. It still writes no `predictions` row.
+  - The KXUEFANLGAME settlement rule (rules_primary), read by the operator on the laptop on 2026-10-08 (five markets, two UNL games of 2026-10-06), settles "after 90 minutes plus stoppage time (does not include extra time or penalties)": the result at the end of regulation. Ruling C is met (ARCHITECT 2026-10-08, addendum 8, 2a). Verbatim in the PR body.
+  - the production file is written to a temporary path inside the history transaction and published by an atomic rename only after the commit; a failed commit leaves no file and never overwrites an earlier one.
+  - the temporary export file is removed by the helper itself if the history transaction fails on commit (the test now fails that transaction, not build()'s reads); the home-abroad receipt ends each team name with " | " so a long name never runs into the country.
+  - Publication is now part of the history transaction. The JSON goes to a unique temporary file (mkstemp), and is published by `os.link` as the transaction's last step, never overwriting: an export for the same minute already on disk refuses. If the commit fails after publication, the published file is removed, so no prediction_history row outlives a failed publication. The Desk annotation uses the export's own `now` (`desk_meta.as_of` == `exported_at`); `maybe_annotate` takes an optional `now`, and the wall clock stays the default.
+  - Ruled (2026-10-08, addendum 8, 2b): `export-intl-results` is the MODEL's record. It grades every exported production prediction of intl_elo_v2; a Desk PASS is a prediction without a bet, not a missing prediction. The file carries one header line (`record_scope`), every row names its competition, and history rows store no Desk call. The no-window `window.kind` is now `all_production_predictions`.

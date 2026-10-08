@@ -50,6 +50,8 @@ EXTRA = {"calls": [
     F.call("nyr", "NFL", "New York Giants", "New York Jets", "HOME", kick="2026-11-08T17:00:00"),   # Giants home
     F.call("lg1", "SOCCER", "Everton", "Fulham", "AWAY", ct="ladder", kick="2026-11-14T14:00:00"),
     F.call("lg2", "SOCCER", "Everton", "Fulham", "AWAY", ct="ladder", kick="2026-11-14T14:00:00"),  # tied ladders
+    F.call("intl", "INTL", "Scotland", "England", "AWAY", kick="2026-10-10T18:45:00"),  # production INTL call
+    F.call("unl", "UNL", "France", "Germany", "HOME", kick="2026-10-13T18:45:00"),
 ], "fills": [
     _fill("x-dh2", "KXMLBGAME-26SEP271905NYYBOS-BOS", "yes", "Boston wins — New York Y"),  # game 2, not game 1
     _fill("x-dh1", "KXMLBGAME-26SEP271305NYYBOS-BOS", "yes", "Boston wins — New York Y"),
@@ -65,6 +67,8 @@ EXTRA = {"calls": [
     _fill("x-unc", "KXNCAAFGAME-26NOV07UGAUNC-UNC", "yes", "Georgia vs North Carolina Winner?"),  # 2 non-prefix codes
     _fill("x-nyj", "KXNFLGAME-26NOV08NYGNYJ-NYJ", "yes", "New York Jets wins — New York Giants"),  # NYJ home: reversed
     _fill("x-lg", "KXEPLGAME-26NOV14FULEVE-EVE", "no", "Everton wins — Fulham"),           # two tied ladder calls
+    _fill("x-intl", "KXUEFANLGAME-26OCT10ENGSCO-ENG", "yes", "England wins — Scotland"),  # UEFANL -> INTL call
+    _fill("x-unl", "KXUEFANLGAME-26OCT13GERFRA-FRA", "yes", "France wins — Germany"),     # UEFANL -> UNL call
 ]}
 FIELDS = ("book", "call_id", "backed_role", "backed", "no_on_role", "fee_class_open", "fee_class_close",
           "ambiguous_calls")
@@ -154,6 +158,10 @@ def main():
           not by["x-nyj"].get("call_id") and not jsby["x-nyj"].get("call_id"))
     check("tied ladder calls are flagged with every candidate, Cockpit and port alike",
           by["x-lg"].get("ambiguous_calls") == ["lg1", "lg2"] == jsby["x-lg"].get("ambiguous_calls"))
+    check("Codex on #325: a KXUEFANLGAME fill matches the production INTL call (never the FUN book)",
+          by["x-intl"].get("call_id") == "intl" == jsby["x-intl"].get("call_id")
+          and by["x-intl"].get("book") == "system_matched" == jsby["x-intl"].get("book"))
+    check("...and still matches a UNL call", by["x-unl"].get("call_id") == "unl" == jsby["x-unl"].get("call_id"))
     ppos = P.executed_positions(L)["pos"]
     check(f"executed positions: js {len(jpos)} py {len(ppos)}", len(jpos) == len(ppos) and len(jpos) > 0)
     pmap = {p["c"]["id"]: p for p in ppos}

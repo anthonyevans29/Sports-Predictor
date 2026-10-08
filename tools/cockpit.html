@@ -554,6 +554,9 @@ function postseasonGraded(){
     &&(c.call_type==="straight"||c.call_type==="ladder"));
 }
 function valueShadowGraded(){ return gradedCount(c=>c.call_type==="value_shadow"); }
+// INTL DESK POLICY v0 (2) (ARCHITECT 2026-10-07): half units until 30 INTL calls are graded
+function intlGraded(){ return gradedCount(c=>c.sport==="INTL"&&c.engine==="model_edge"
+    &&(c.call_type==="straight"||c.call_type==="ladder")); }
 function renderProgress(){
   const ps=postseasonGraded(), vs=valueShadowGraded();
   const set=(id,n,N)=>{const el=document.getElementById(id); if(el) el.textContent=`graded ${n}/${N}`+(n>=N?" — review due":"");};
@@ -893,14 +896,15 @@ let lastCapture={started:0,noKickoff:0};
 // (ruled 2026-10-03), at the desk_parlays file's as_of.
 function asOfMs(r){ const t=utcMs(r.exportedAt); return isFinite(t)?t:Date.now(); }
 // A quarantine SHADOW is the FILE's Desk call: PASS with shadow units and a "quarantine … (shadow)" tag (NFL's
-// divergence contract; MLB's > 8pp edge, ARCHITECT 2026-10-07). Older NFL files keep the r.quar test.
+// divergence contract; MLB's > 8pp edge, ARCHITECT 2026-10-07). Older NFL files keep the r.quar test; INTL
+// (#325) shares the NFL divergence contract and keeps it too.
 // The FILE's Desk call says quarantine (MLB > 8pp carries no export `quarantine` field; Codex on #328): the Card,
 // the audit text and the ledger's quarantine flag read this, never the raw field alone.
 function fileQuar(r){ const d=r.fileDesk; return !!(d&&d.call==="PASS"&&(d.shadow_units||0)>0
   &&(d.tags||[]).some(t=>/^quarantine .*\(shadow\)$/.test(t))); }
 function rowQuar(r){ return !!r.quar||fileQuar(r); }
 function isQuarShadow(x,r){ return x.call==="PASS"&&x.shadowUnits>0
-  &&((r.quar&&r.sport==="NFL")||(x.tags||[]).some(t=>/^quarantine .*\(shadow\)$/.test(t))); }
+  &&((r.quar&&(r.sport==="NFL"||r.sport==="INTL"))||(x.tags||[]).some(t=>/^quarantine .*\(shadow\)$/.test(t))); }
 function snapshotCalls(now,opts){
   opts=opts||{}; now=now??Date.now();
   const auto=!!opts.auto, clk=r=>auto?asOfMs(r):now;
@@ -1054,9 +1058,13 @@ function dayDiff(a,b){
   const d=x=>Date.UTC(+x.slice(0,4),+x.slice(5,7)-1,+x.slice(8,10));
   return Math.abs(d(a)-d(b))/86400000;
 }
+// INTL calls (ARCHITECT 2026-10-07 addendum 3, item C): "graded on the 90-MINUTE result, never on a score that
+// includes extra time or penalties". Only an INTL results file (export-intl-results: actual = the 90-minute
+// score; games without one are listed there as ungraded) may grade them: a fixtures file's score includes extra
+// time, so a UNL fixture finished AET/PEN would grade on the later score. An INTL call without one stays open.
 function findOutcome(c,outs){
   const cd=(c.kickoff||c.log_date||"").slice(0,10);
-  const near=outs.filter(o=>dayDiff(cd,(o.date||"").slice(0,10))<=1);
+  const near=outs.filter(o=>dayDiff(cd,(o.date||"").slice(0,10))<=1&&(c.sport!=="INTL"||o.sport==="INTL"));
   for(const cmp of [(x,y)=>x===y,(x,y)=>normTeam(x)===normTeam(y)]){   // exact first, then normalized
     const hit=near.filter(o=>cmp(o.home,c.home)&&cmp(o.away,c.away));
     if(!hit.length) continue;
@@ -1530,7 +1538,7 @@ function ledgerSummary(){
     for(const t of (c.rules&&c.rules.length?c.rules:["(no rule tag)"])) per[t]=(per[t]||0)+1; }
   return {kind:"bd_ledger_summary_v1",generated_at:new Date().toISOString(),policy_version:POLICY_VERSION,
     counts:{postseason_graded:postseasonGraded(),value_shadow_graded:valueShadowGraded(),
-      kalshi_only_graded:kalshiOnlyGraded()},graded_per_rule:per};
+      kalshi_only_graded:kalshiOnlyGraded(),intl_graded:intlGraded()},graded_per_rule:per};
 }
 $("exportSummaryBtn").addEventListener("click",()=>{
   const txt=JSON.stringify(ledgerSummary(),null,1), box=$("ledgerJson");
@@ -1599,7 +1607,7 @@ $("dedupeBtn").addEventListener("click",()=>{
 // carry them. Matching to logged calls is a NAME/DATE HEURISTIC (non-claim).
 // ---------------------------------------------------------------------
 const FAMILY_SPORTS={MLB:["MLB"],NFL:["NFL"],NCAAF:["NCAA"],NHL:["NHL"],
-  EPL:["SOCCER","PL"],UCL:["CL","SOCCER"],FACUP:["FAC","SOCCER"],UEFANL:["UNL"]};
+  EPL:["SOCCER","PL"],UCL:["CL","SOCCER"],FACUP:["FAC","SOCCER"],UEFANL:["UNL","INTL"]}; // INTL: the production intl calls (Codex on #325)
 const MONTHS={JAN:1,FEB:2,MAR:3,APR:4,MAY:5,JUN:6,JUL:7,AUG:8,SEP:9,OCT:10,NOV:11,DEC:12};
 function parseCSV(text){
   const rows=[]; let row=[], f="", q=false;

@@ -192,3 +192,19 @@ def test_codex_round_7_legacy_two_non_prefix_codes_and_same_side_confirmation():
     g = P.classify_fills({"calls": [rev], "fills": [
         _fill("b", "KXNFLGAME-26OCT11NYGNYJ-NYJ", "yes", "New York Jets wins — New York Giants")]})[0]
     assert g.get("call_id") is None
+
+
+def test_uefanl_fill_matches_an_intl_call_and_still_a_unl_one():
+    """Codex on #325: the production INTL ledger calls store sport "INTL"; a KXUEFANLGAME fill must reach them
+    (matching rejects on sport first, so INTL executions fell to the market-only FUN book). UNL calls still match,
+    and a UEFANL fill with no call is still a FUN "UNL single". Parity: scripts/ledger_fills_parity_verify.py."""
+    assert P.parse_ticker("KXUEFANLGAME-26OCT10ENGSCO-ENG")["sports"] == ["UNL", "INTL"]
+    L = {"calls": [_call("i", "Scotland", "England", "AWAY", "2026-10-10T18:45:00", sport="INTL"),
+                   _call("u", "France", "Germany", "HOME", "2026-10-13T18:45:00", sport="UNL")],
+         "fills": [_fill("fi", "KXUEFANLGAME-26OCT10ENGSCO-ENG", "yes", "England wins — Scotland"),
+                   _fill("fu", "KXUEFANLGAME-26OCT13GERFRA-FRA", "yes", "France wins — Germany"),
+                   _fill("ff", "KXUEFANLGAME-26OCT20ITANED-NED", "yes", "Netherlands wins — Italy")]}
+    by = {f["id"]: f for f in P.classify_fills(L)}
+    assert (by["fi"]["book"], by["fi"]["call_id"]) == ("system_matched", "i")
+    assert (by["fu"]["book"], by["fu"]["call_id"]) == ("system_matched", "u")
+    assert by["ff"]["book"] == "fun" and by["ff"]["category"].startswith("UNL single")

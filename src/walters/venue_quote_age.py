@@ -932,7 +932,9 @@ def pct(xs: list[float], q: float):
 
 
 def _row_sport(doc: dict, row: dict) -> str:
-    return str(row.get("competition") or doc.get("competition_code") or doc.get("sport") or "?").upper()
+    # Codex on #340: the same precedence doc_ident_ok accepts (a document's top-level competition counts)
+    return str(row.get("competition") or doc.get("competition_code") or doc.get("competition") or doc.get("sport")
+               or "?").upper()
 
 
 def _row_fair(row: dict) -> dict | None:

@@ -37,6 +37,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import os
 import re
 import sys
@@ -193,7 +194,8 @@ def _adapters(sport: str | None) -> list:
 def usable_quotes(payload, sport: str | None = None) -> int:
     """Quotes list_odds would turn into an odds row (Codex on #340), by the ADAPTER's own rules: a bet whose name is
     in its _MARKET_MAP, ONE values[] object whose odd parses as a float and whose value normalises to a selection
-    for that market (_normalize_selection). Split fields, unknown markets, unnormalisable selections count nothing."""
+    for that market (_normalize_selection), at a finite decimal price above 1 (what the close reads). Split fields,
+    unknown markets, unnormalisable selections and impossible prices count nothing."""
     def items(o, k):                       # Codex on #340: a schema-drifted scalar container holds no quotes
         v = o.get(k) if isinstance(o, dict) else None
         return v if isinstance(v, list) else []
@@ -208,9 +210,11 @@ def usable_quotes(payload, sport: str | None = None) -> int:
                     if not isinstance(v, dict):
                         continue
                     try:
-                        float(v.get("odd"))
+                        odd = float(v.get("odd"))
                     except (TypeError, ValueError):
                         continue
+                    if not (math.isfinite(odd) and odd > 1.0):
+                        continue           # Codex on #340: 0 / 1 / NaN / inf is no price (close.py needs > 1.0)
                     for ad in _adapters(sport):
                         name = bet.get("name")     # Codex on #340: a list / object name is no market, never a
                         market = ad._MARKET_MAP.get(name) if isinstance(name, str) else None   # TypeError

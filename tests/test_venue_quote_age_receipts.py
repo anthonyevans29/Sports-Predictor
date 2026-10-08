@@ -1396,3 +1396,12 @@ def test_a_json_out_under_the_exports_dir_is_refused(tmp_path):
         ok = ex / "report.txt"                                                 # text name: discovery ignores it
         r = CliRunner().invoke(cli.cli, [cmd, "--since", "2095-10-02", "--exports-dir", str(ex), "--out", str(ok)])
         assert r.exit_code == 0 and ok.exists(), r.output
+
+
+def test_a_document_level_competition_resolves_its_rows_sport():
+    """Codex on #340: a doc naming its league only by top-level `competition` keeps its PL rows in the report."""
+    row = {"match_id": 7, "home_team": "H", "away_team": "A", "utc_date": _iso(KO + timedelta(hours=2)),
+           "desk": {"engine": "model_edge", "reference": "books", "call": "PLAY"}}
+    doc = {"competition": "PL", "sport": "soccer", "desk_meta": {"as_of": _iso(KO) + "Z"}, "predictions": [row]}
+    assert VQ.doc_ident_ok(doc)
+    assert [r["match_id"] for r in VQ.model_reference_rows([("pl.json", doc)], SINCE)] == [7]

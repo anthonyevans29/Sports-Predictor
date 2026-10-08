@@ -436,3 +436,13 @@ def test_a_league_less_quote_bearing_item_leaves_the_payload_unverified():
     bare = {"game": {"id": 8}, "bookmakers": []}                              # league-less, no quotes: harmless
     assert P.league_check({"response": [tagged, bare]}, "ncaa")[0] is True
     assert P.league_check({"response": [{"league": {"id": 1}}, quoted]}, "ncaa")[0] is False   # wrong league wins
+
+
+def test_an_impossible_decimal_price_is_no_usable_quote():
+    """Codex on #340: 0 / 1 / NaN / Infinity parse as floats but are no price: the verdict stays INCONCLUSIVE."""
+    for odd in ("0", "1", "1.0", "NaN", "Infinity", "-2"):
+        p = {"response": [{"bookmakers": [{"name": "B", "bets": [{"name": "Home/Away",
+                                                                  "values": [{"value": "Home", "odd": odd}]}]}]}]}
+        assert P.usable_quotes(p, "nhl") == 0, odd
+        assert any("INCONCLUSIVE" in ln for ln in P.report(p, sport="nhl")), odd
+    assert P.usable_quotes(SYNTH, "nhl") == 12

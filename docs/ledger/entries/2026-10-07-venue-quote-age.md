@@ -58,3 +58,4 @@
   - Scalar row containers and unknown sole sports are refused. Probe: string league ids are read; malformed ones refuse.
   - Desk discriminators are vocabulary-checked; a single contradicting ledger claim attaches to none. Cockpit: held rows carry no re-run instruction.
   - Desk reference checked per engine/call; a `.json` `--out` under the exports dir refuses. Probe: league-less quoted items are unverified.
+  - Row sport follows discovery's precedence (document `competition` included). Probe: impossible prices are no quote.

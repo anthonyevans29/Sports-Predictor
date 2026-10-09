@@ -5394,6 +5394,44 @@ def sync_odds_football_cmd():
 cli.add_command(sync_odds_football_cmd, name="sync-odds-nfl")
 
 
+@cli.command("refresh-by-id")
+@click.option("--competition", "competition_code", required=True,
+              help="An american-football competition (NCAA, NFL).")
+@click.option("--days", default=7, show_default=True, type=click.IntRange(0, 14),
+              help="Stored SCHEDULED games on the UTC dates today .. today+DAYS.")
+def refresh_by_id_cmd(competition_code: str, days: int):
+    """ARCHITECT 2026-10-09 (addendum 21 item 1): the kickoff, status and score of every stored SCHEDULED
+    game kicking off in the next DAYS days, refreshed from the provider by the game's OWN id (GET
+    /games?id=, one per game). A rate-limited answer is deferred and retried (the sync-odds-football
+    rule). A game the provider does not return by id is never guessed and never deleted: counted and
+    listed, nothing else. Prints the receipt and appends it to the receipts log (sp_common:
+    SP_RECEIPTS, else logs/receipts.jsonl). Exits 1 when a game stayed unresolved (a lookup error, or
+    still rate limited after the retry rounds), so the chain pages; NOT FOUND is not a failure."""
+    import json as _json
+    import sys as _sys
+    from pathlib import Path as _P
+
+    from src.ingestion import refresh_by_id as rbi
+
+    code = competition_code.upper()
+    if _sport_for_competition(code) != "nfl":
+        raise click.UsageError(f"refresh-by-id reads the american-football provider by id; {code} is not "
+                               "one of its competitions (NCAA, NFL)")
+    r = rbi.refresh(code, _adapter_for_competition(code), days=days, progress=lambda m: click.echo(m))
+    for ln in rbi.format_lines(r):
+        click.echo(ln)
+    _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
+    import sp_common as _spc
+    _spc.append_receipt(r)
+    click.echo("REFRESH-BY-ID-RECEIPT " + _json.dumps(
+        {k: (len(v) if isinstance(v, list) and k != "window" else v) for k, v in r.items()},
+        default=str, sort_keys=True))
+    if r.get("error"):
+        raise SystemExit(2)
+    if r["unresolved"] or r["still_rate_limited"]:
+        raise SystemExit(1)
+
+
 @cli.command("sync-kalshi-ncaa")
 def sync_kalshi_ncaa_cmd():
     """Pull open Kalshi NCAA football game markets (KXNCAAFGAME) and store

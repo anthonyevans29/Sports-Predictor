@@ -69,6 +69,7 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 | sp-nfl-lines | nfl-lines | daily 15:00 UTC | — |
 | sp-nhl-daily | nhl-daily (inactive before 2026-09-29; override `SP_NHL_ACTIVE_FROM`) | daily 16:00 UTC | daily |
 | sp-ncaa-market | ncaa-market (H0-11: enabled with the rest); from 2026-10-02 `sync-matches` NCAA yesterday + today runs first (#254), plus tomorrow from 2026-10-07 | Tue + Wed 16:00 (midweek FBS games, added 2026-10-07), Thu 16:00 (Thursday-night slates, added 2026-09-28), Fri 16:00, Sat 13:00 UTC | — |
+| sp-ncaa-schedule | ncaa-schedule (ARCHITECT 2026-10-09, addendum 19 item 3: "the stored kickoff of every NCAA game in the next seven days is at most one day old"): `sync-matches` NCAA, single-day calls today..today+7, then `refresh-by-id --competition NCAA --days 7` (addendum 21 item 1: every stored SCHEDULED game in those days refreshed by its own id; the listing no longer carries games that have not started); sync only | daily 10:35 + 22:35 UTC | — |
 | sp-nfl-predict | nfl-predict | Thu 18:00, Sun 14:00 UTC | — |
 | sp-clv-capture | clv-capture | 08/12/16/20 America/New_York (H0-7 confirmed; DST follows the zone) | — |
 | sp-weekly-fullseason | weekly-fullseason | Sun 06:00 UTC | daily |
@@ -707,7 +708,7 @@ Receipt: the push arrives on the phone, and the printed line says
 TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-saturday.timer
   sp-soccer-morning-after.timer sp-nfl-lines.timer sp-nfl-grade.timer sp-nfl-predict.timer
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
-  sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer"
+  sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
@@ -728,6 +729,23 @@ systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
   window). On a live host that predates it: install the unit, then
   `systemctl enable --now sp-intl-daily.timer` and add it to
   `/etc/sports-predictor/timers.enabled`.
+- `sp-ncaa-schedule.timer` (ARCHITECT 2026-10-09, addendum 19 item 3; daily 10:35 + 22:35 UTC): the
+  NCAA forward-week kickoff sync. The provider files an unannounced kickoff at 04:00Z and announces it
+  days later; without this the host refreshed a game's kickoff only once it was inside ncaa-market's
+  yesterday..tomorrow or the window's 24 hours. The chain is the eight single-day listing reads, then
+  `refresh-by-id --competition NCAA --days 7` (ARCHITECT 2026-10-09, addendum 21 item 1): the provider's
+  listing no longer carries games that have not started, so every stored SCHEDULED game in those days
+  is refreshed by its own id (one `GET /games?id=` each; a NOT FOUND is listed and untouched). Its
+  receipt (kind `refresh_by_id`) lands in the receipts log beside the step receipts. On a live host that
+  predates it, after the deploy of the tag that carries it:
+  ```
+  sudo install -m 0644 deploy/hosting/systemd/sp-ncaa-schedule.timer /etc/systemd/system/
+  sudo systemctl daemon-reload
+  sudo systemctl enable --now sp-ncaa-schedule.timer
+  echo sp-ncaa-schedule.timer | sudo tee -a /etc/sports-predictor/timers.enabled
+  systemctl list-timers sp-ncaa-schedule.timer --no-pager   # receipt: next elapse at 10:35 or 22:35 UTC
+  sudo -u sp venv/bin/python deploy/hosting/sp_run.py ncaa-schedule   # first run now, receipted
+  ```
 - **A CHANGED timer on a live host** (e.g. `sp-ncaa-market.timer` gained Tue + Wed 16:00 UTC, ARCHITECT
   2026-10-07, addendum 2 item 8a). `sp_deploy.py` checks out the tag but does not install unit files, so
   after the deploy of the tag that carries the change:

@@ -396,7 +396,13 @@ class APIAmericanFootballAdapter(DataAdapter):
         # initial+surname); the feed is current-status, so each row carries
         # current_status=True and the service's 14-day fixture-date filter
         # (a fixture-history rule) no longer drops a player still listed.
+        # A2 (ARCHITECT 2026-10-09, addendum 23): "In strict mode a failed roster read is a failed read. The QB
+        # flag halves a PLAY, and a flag we could not look up is not a flag that is off. The adapter records the
+        # failure; its default behaviour does not change." Recorded on `last_roster_failure` (None = the roster
+        # read answered with players) for this call; the service lists it in failed_reads, which only a
+        # command's --strict reads. An empty roster is recorded too: no position can resolve from it.
         from src.walters.qb_audit import resolve_position, roster_index
+        self.last_roster_failure = None
         roster: list = []
         try:
             roster = self._get("players", params={
@@ -405,9 +411,11 @@ class APIAmericanFootballAdapter(DataAdapter):
             }).get("response") or []
         except Exception as e:  # roster enrichment is best-effort
             log.warning("roster fetch failed for team %s: %s", team_source_id, e)
+            self.last_roster_failure = f"roster fetch failed: {type(e).__name__}"
         if not roster:
             log.warning("NFL roster empty for team %s — injured players' positions "
                         "stay None (qb_listed cannot see a QB)", team_source_id)
+            self.last_roster_failure = self.last_roster_failure or "roster empty"
         idx = roster_index(roster)
         data = self._get("injuries", params={"team": team_source_id})
         out: list[dict] = []

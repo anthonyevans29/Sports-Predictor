@@ -13,7 +13,7 @@ Design:
 from __future__ import annotations
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Iterable
 
 from sqlalchemy import select
@@ -79,6 +79,9 @@ class SyncResult:
     skipped: int = 0
     rekeyed: int = 0
     rekey_refused: int = 0
+    # STRICT MODE (ARCHITECT 2026-10-09, addendum 22, 380.1): the reads a sync needed and could not make, one line
+    # each. Recorded always, read only by a command's --strict; never printed by __str__ (default output unchanged).
+    failed_reads: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -259,7 +262,11 @@ class IngestionService:
         date_from: str | None = None,
         date_to: str | None = None,
         progress=None,
+        held_ids: set | None = None,
     ) -> SyncResult:
+        """`held_ids` (opt-in, ARCHITECT 2026-10-09 addendum 23 A1): a set the stored match id of every listing
+        written to a stored row is added to, so a caller can tell which games the provider's answer held. Default
+        None: nothing changes."""
         def _report(msg):
             if progress is not None:
                 progress(msg)
@@ -304,7 +311,9 @@ class IngestionService:
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
             for i, nm in enumerate(matches, 1):
-                self._upsert_match(s, nm, comp, result, cache=_cache)
+                _m = self._upsert_match(s, nm, comp, result, cache=_cache)
+                if held_ids is not None and _m is not None and _m.id is not None:
+                    held_ids.add(_m.id)
                 if i % step == 0 or i == total:
                     pct = int(i / total * 100) if total else 100
                     _report(f"  …{i}/{total} ({pct}%) — "
@@ -663,9 +672,13 @@ class IngestionService:
         season: str | None = None,
         limit: int | None = None,
         upcoming_only: bool = True,
+        match_ids: set[int] | None = None,
     ) -> SyncResult:
         """
         Pull bookmaker odds for fixtures from this adapter.
+
+        match_ids (closing runs, ARCHITECT 2026-10-09 addendum 21 item 3 C3): when given, only these stored matches
+        are priced ("a run prices the games it covers, not the whole league"). None = unchanged.
 
         upcoming_only=True (default) limits to SCHEDULED matches — odds for
         finished matches are still useful for backtesting but cost API budget
@@ -707,6 +720,8 @@ class IngestionService:
                     continue
                 candidates.append(match)
 
+            if match_ids is not None:
+                candidates = [m for m in candidates if m.id in match_ids]
             if limit:
                 candidates = candidates[:limit]
 
@@ -771,6 +786,7 @@ class IngestionService:
             comp = self._get_competition(s, competition_code)
             if not comp:
                 log.warning("Competition %s not in DB.", competition_code)
+                result.failed_reads.append(f"competition {competition_code} not in DB")
                 return result
 
             # Teams active in this competition/season
@@ -809,6 +825,8 @@ class IngestionService:
             teams = list(s.execute(
                 select(Team).where(Team.id.in_(team_ids))
             ).scalars())
+            for tid in sorted(set(team_ids) - {t.id for t in teams}):
+                result.failed_reads.append(f"team {tid}: not in DB, no read made")
             now = utc_now_naive()
             for team in teams:
                 self._sync_injuries_for_team(s, team, season, now, result)
@@ -831,13 +849,21 @@ class IngestionService:
         source_id = (team.external_ids or {}).get(self.source)
         if not source_id:
             result.skipped += 1
+            result.failed_reads.append(f"team {team.id} ({team.name}): no {self.source} id, no read made")
             return
         try:
             injuries = self.adapter.list_injuries(source_id, season)
         except Exception as e:
             log.warning("Injury fetch failed for team %d: %s", team.id, e)
             result.skipped += 1
+            result.failed_reads.append(f"team {team.id} ({team.name}): fetch failed: {type(e).__name__}")
             return
+        # A2 (addendum 23): the adapter's own record of a failed roster read (NFL: positions for qb_listed).
+        # failed_reads only: a command's --strict reads it; counts and output stay as they were.
+        rf = getattr(self.adapter, "last_roster_failure", None)
+        if isinstance(rf, str) and rf:
+            result.failed_reads.append(f"team {team.id} ({team.name}): {rf} (positions unresolved: qb_listed "
+                                       "cannot see a QB)")
 
         # Cutoff for "still active" — only keep injuries from the past 14 days
         # or fixtures still in the future. Injuries with no fixture_date keep
@@ -1941,7 +1967,7 @@ def _odds_clock() -> float:
     return time.monotonic()
 
 
-def sync_odds_nfl(progress=None) -> dict:
+def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
     """
     NFL book-odds capture (2026-09-09, closing the Week-1 tracking gap).
     Loops upcoming NFL games (next 8 days) and pulls per-game odds via the
@@ -1998,6 +2024,8 @@ def sync_odds_nfl(progress=None) -> dict:
             Match.utc_date >= now,
             Match.utc_date <= now + timedelta(days=8),
         ).order_by(Match.utc_date)).scalars())
+        if match_ids is not None:      # closing runs (addendum 21 item 3, C3): the covered games only
+            upcoming = [m for m in upcoming if m.id in match_ids]
         # DELINEATION (ARCHITECT 2026-10-07): the window is NFL + NCAA (college
         # rides Sport.NFL); the line names each competition it covers, from the data
         def comp_of(m):

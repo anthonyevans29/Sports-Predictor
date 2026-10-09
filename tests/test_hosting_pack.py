@@ -74,7 +74,7 @@ def test_every_chain_command_and_option_exists_in_cli():
     for name, ch in chains.CHAINS.items():
         if ch.get("fullseason") or ch.get("window_plan"):
             continue  # DB-planned chains: covered by their own seeded-DB tests
-        for st in sp_run.resolve(name, {}, date(2026, 10, 9)):
+        for st in sp_run.resolve(name, ch.get("example_vars", {}), date(2026, 10, 9)):  # closing: run-time vars
             cmd = cli.commands.get(st[0])
             assert cmd is not None, f"{name}: no cli command {st[0]!r}"
             opts = {o for p in cmd.params for o in (*p.opts, *p.secondary_opts)}

@@ -195,16 +195,28 @@ def sync_teams_cmd(competition_code: str, season: str | None):
 @click.option("--seasons", default=0, type=int, help="Backfill N most recent seasons.")
 @click.option("--date-from", default=None, help="YYYY-MM-DD")
 @click.option("--date-to", default=None, help="YYYY-MM-DD")
+@click.option("--match-ids", "match_ids", default=None,
+              help="Name stored match ids, comma-separated: exit 1 unless the provider's answer held every one "
+                   "of them (the closing run's schedule read for NFL, SOCCER and MLB, ARCHITECT 2026-10-09, "
+                   "addendum 23 A1, as amended by addendum 25 2(i)). The sync itself is unchanged. Default: "
+                   "unchanged.")
 def sync_matches_cmd(
     competition_code: str,
     season: str | None,
     seasons: int,
     date_from: str | None,
     date_to: str | None,
+    match_ids: str | None = None,
 ):
     """Pull matches by season or date range. MLB on a host whose
     SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A)."""
+    named = _match_ids_opt(match_ids)
+    if named is not None and seasons > 0:
+        raise click.UsageError("--match-ids names the games of one read; not with --seasons")
     if _mlb_fallback(competition_code):
+        if named is not None:
+            raise click.UsageError("--match-ids is not supported by the MLB api-sports fallback (no per-game "
+                                   "answer to check)")
         if seasons > 0:
             raise click.UsageError("the MLB api-sports fallback takes --season (one season per run)")
         _mlb_fallback_run("matches", season or (date_from or date_to or "")[:4] or None,
@@ -232,11 +244,22 @@ def sync_matches_cmd(
     def _progress(msg):
         console.print(f"[dim]{msg}[/dim]")
 
+    held: set | None = set() if named is not None else None
     result = service.sync_matches(
         competition_code, season=season, date_from=date_from, date_to=date_to,
-        progress=_progress,
+        progress=_progress, **({"held_ids": held} if held is not None else {}),
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
+    if named is not None:
+        # A1 (addendum 23): "exits non-zero unless the provider's answer held every one of them." Printed plainly
+        # (never rich-wrapped) so the closing run's receipt tail has it.
+        missing = sorted(named - held)
+        if missing:
+            print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the provider's answer "
+                  f"({competition_code} {date_from or ''}..{date_to or ''}): "
+                  + ", ".join(f"match {m}" for m in missing), flush=True)
+            raise SystemExit(1)
+        print(f"✓ the provider's answer held all {len(named)} named game(s)", flush=True)
 
 
 @cli.command("resync-diff")
@@ -603,6 +626,19 @@ def sync_stats_cmd(competition_code: str, season: str, limit: int, only_missing:
     console.print(f"[green]✓ Wrote stats for {written} matches.[/green]")
 
 
+def _match_ids_opt(value: str | None) -> set[int] | None:
+    """--match-ids "101,102" -> {101, 102}; None when not given (the command's default scope, unchanged)."""
+    if value is None:
+        return None
+    try:
+        ids = {int(x) for x in value.split(",") if x.strip()}
+    except ValueError:
+        raise click.UsageError(f"--match-ids takes comma-separated stored match ids, got {value!r}")
+    if not ids:
+        raise click.UsageError("--match-ids names no match id")
+    return ids
+
+
 @cli.command("sync-odds")
 @click.option("--competition", "competition_code", required=True)
 @click.option("--season", default=None)
@@ -610,14 +646,21 @@ def sync_stats_cmd(competition_code: str, season: str, limit: int, only_missing:
               help="Max matches to fetch odds for (soccer). Ignored for MLB (daily-grouped pulls).")
 @click.option("--days-ahead", default=7, show_default=True, type=int,
               help="For MLB: how many days of upcoming games to fetch odds for.")
-def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ahead: int):
+@click.option("--match-ids", "match_ids", default=None,
+              help="Soccer: price only these stored match ids, comma-separated (the closing run's games, "
+                   "ARCHITECT 2026-10-09 addendum 21 item 3 C3). Default: unchanged. Not for MLB.")
+def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ahead: int,
+                  match_ids: str | None):
     """
     Pull bookmaker odds for upcoming fixtures.
 
     Soccer comps use API-Football (per-match). MLB uses API-Baseball
     (per-day) to fill the gap that MLB Stats API doesn't cover.
     """
+    ids = _match_ids_opt(match_ids)
     if competition_code.upper() == "MLB":
+        if ids is not None:
+            raise click.UsageError("--match-ids is not supported for MLB (daily-grouped pulls)")
         # API-Baseball path
         if not season:
             console.print("[red]✗ MLB sync-odds requires --season (year, e.g. 2026)[/red]")
@@ -637,7 +680,8 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
 
     adapter = _adapter_for_competition(competition_code)
     service = IngestionService(adapter)
-    result = service.sync_odds(competition_code, season=season, limit=limit)
+    result = service.sync_odds(competition_code, season=season, limit=limit,
+                               **({"match_ids": ids} if ids is not None else {}))
     console.print(f"[green]✓ Odds ({competition_code}): {result}[/green]")
 
 
@@ -648,7 +692,17 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
               help="Scope to the teams of this competition's SCHEDULED games kicking off within "
                    "N hours (the window service's imminent tier, ruling 2026-09-29). No such games: "
                    "no provider call.")
-def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None):
+@click.option("--strict", is_flag=True, default=False,
+              help="Exit non-zero when a read the sync needed failed (a team's fetch failed, a team with no "
+                   "provider id, the competition missing; NFL: a team's roster read failed or came back empty, "
+                   "addendum 23 A2). Closing chains only (ARCHITECT 2026-10-09, addendum 22, 380.1). Default: "
+                   "unchanged (a failed read is counted as skipped, exit 0).")
+@click.option("--match-ids", "match_ids", default=None,
+              help="Scope to the teams of these stored match ids of the competition, comma-separated (the closing "
+                   "run's covered games; Codex round 2 on #385). Under --strict a named game not stored in the "
+                   "competition is a failed read. Not with --kickoff-within-hours. Default: unchanged.")
+def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None, strict: bool = False,
+                      match_ids: str | None = None):
     """
     Refresh current injury list for every team in a competition/season.
 
@@ -666,12 +720,33 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
         )
         return
 
+    named = _match_ids_opt(match_ids)
+    if named is not None and within_h is not None:
+        raise click.UsageError("--match-ids and --kickoff-within-hours are two scopes: give one")
     adapter = _adapter_for_competition(competition_code)
     service = IngestionService(adapter)
+    if named is not None:
+        with session_scope() as s:
+            games = s.execute(select(Match).join(Competition, Competition.id == Match.competition_id).where(
+                Competition.code == competition_code, Match.id.in_(sorted(named)))).scalars().all()
+            found = {g.id for g in games}
+            team_ids = sorted({t for g in games for t in (g.home_team_id, g.away_team_id)})
+        print(f"  scope: {len(found)} of {len(named)} named game(s) of {competition_code} -> {len(team_ids)} team(s)",
+              flush=True)
+        result = service.sync_injuries_for_teams(team_ids, season=season) if team_ids else None
+        if result is not None:
+            console.print(f"[green]✓ Injuries ({competition_code}): {result}[/green]")
+        failed = [f"match {m}: not stored in {competition_code}, no read made" for m in sorted(named - found)]
+        failed += list(result.failed_reads) if result is not None else []
+        if strict and failed:
+            _strict_injuries_fail(competition_code, failed)
+        return
     if within_h is not None:
         from datetime import timedelta, timezone
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         with session_scope() as s:
+            comp_missing = s.execute(select(Competition.id).where(
+                Competition.code == competition_code)).first() is None
             games = s.execute(select(Match).join(Competition, Competition.id == Match.competition_id).where(
                 Competition.code == competition_code, Match.status == MatchStatus.SCHEDULED,
                 Match.utc_date >= now, Match.utc_date <= now + timedelta(hours=within_h))).scalars().all()
@@ -679,12 +754,25 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
         print(f"  scope: {len(games)} game(s) of {competition_code} kicking off within {within_h:g}h "
               f"-> {len(team_ids)} team(s)", flush=True)
         if not team_ids:
+            if strict and comp_missing:          # Codex on #385: a missing competition is a failed read here too
+                _strict_injuries_fail(competition_code, [f"competition {competition_code} not in DB"])
             console.print(f"[green]✓ Injuries ({competition_code}): nothing inside the window, no provider call[/green]")
             return
         result = service.sync_injuries_for_teams(team_ids, season=season)
     else:
         result = service.sync_injuries(competition_code, season=season)
     console.print(f"[green]✓ Injuries ({competition_code}): {result}[/green]")
+    if strict and result.failed_reads:
+        _strict_injuries_fail(competition_code, result.failed_reads)
+
+
+def _strict_injuries_fail(competition_code: str, failed_reads: list[str]) -> None:
+    # STRICT MODE (ARCHITECT 2026-10-09, addendum 22): "the command exits non-zero when a read it needed
+    # failed, and the run fails at that step." Printed plainly (never rich-wrapped) so the receipt tail has it.
+    print(f"✗ STRICT: {len(failed_reads)} injury read(s) failed ({competition_code}):", flush=True)
+    for line in failed_reads[:20]:
+        print(f"  ✗ {line}", flush=True)
+    raise SystemExit(1)
 
 
 @cli.command("wipe-injuries")
@@ -5371,12 +5459,16 @@ def capture_weather_nfl_cmd():
 
 
 @cli.command("sync-odds-football")
-def sync_odds_football_cmd():
+@click.option("--match-ids", "match_ids", default=None,
+              help="Price only these stored match ids, comma-separated (the closing run's games, ARCHITECT "
+                   "2026-10-09 addendum 21 item 3 C3). Default: unchanged (every upcoming game in 8 days).")
+def sync_odds_football_cmd(match_ids=None):
     """Capture book odds for upcoming American-football games — NFL and NCAA
     (the Sport.NFL family) — per-game; Week-N tracking. Renamed from
     sync-odds-nfl (2026-09-26); the old name stays as an alias."""
     from src.ingestion.service import sync_odds_nfl
-    r = sync_odds_nfl(progress=lambda msg: console.print(msg))
+    ids = _match_ids_opt(match_ids)          # the default call is exactly as before (no match_ids passed)
+    r = sync_odds_nfl(progress=lambda msg: console.print(msg), **({"match_ids": ids} if ids is not None else {}))
     # DELINEATION (ARCHITECT 2026-10-07): the competitions priced, from the run
     by_comp = r.get("games_by_competition") or {}
     window = r.get("window_by_competition") or {}
@@ -8471,44 +8563,71 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
     console.print(_window_line(start_date, end_date, window_how))
 
 
-def _mlb_closing():
+def _closing():
     import sys as _sys
     from pathlib import Path as _P
     _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
-    import mlb_closing as _mc
-    return _mc
+    import closing as _c
+    return _c
+
+
+@cli.command("closing-run")
+@click.option("--family", required=True, type=click.Choice(["MLB", "NFL", "SOCCER"], case_sensitive=False),
+              help="The model family to close (C1: MLB, NFL, SOCCER = PL).")
+@click.option("--start", "start", default=None,
+              help="ISO UTC start time to close (default: the next unstarted one within 90 minutes).")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Print the plan; touch nothing (no step, backup, receipt, push or page; no network).")
+def closing_run_cmd(family, start, dry_run):
+    """CLOSING RUN for one model family (ARCHITECT 2026-10-09, addendum 21 item 3 + addendum 22; #370's frame).
+    Receipted refusals (exit 2) first: a backup folder under data/, SP_SKIP_FAMILIES naming the family (MLB: laptop
+    only), SP_EXPORTS_MIRROR_REMOTE unset, NTFY_CARD_TOPIC unset, a malformed --start, nothing to close. Then, under
+    the chain lock (waits while held): a .backup dated today (taken via the .backup API when none: copy, integrity,
+    open, hash, hash file, or the run fails), then the family's closing chain for the games starting within 10
+    minutes after the start time (deploy/hosting/chains.py: mlb-closing, nfl-closing, soccer-closing). Checks: one
+    started test, every covered game in the export, every price captured at or after the run's start, MLB starters
+    refreshed at or after it. On success: the exports mirror pushed (laptop, closing) and ONE page (phone via the
+    ntfy card topic + the laptop's screen). One receipt line (kind closing) either way. Places nothing.
+    (= python deploy/hosting/closing.py run)"""
+    argv = ["run", "--family", family.upper()] + (["--start", start] if start else []) \
+        + (["--dry-run"] if dry_run else [])
+    raise SystemExit(_closing().main(argv))
+
+
+@cli.command("closing-watch")
+@click.option("--family", "families", multiple=True, type=click.Choice(["MLB", "NFL", "SOCCER"],
+                                                                        case_sensitive=False),
+              help="Only these families (repeatable). Default: all three.")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Print every family's start times and what would run; touch nothing (no network either).")
+def closing_watch_cmd(families, dry_run):
+    """CLOSING WATCH, the tick every minute (scripts/setup_closing_watch.sh, one launchd job for MLB, NFL, SOCCER).
+    No network to decide: per family, the earliest unstarted start time not yet closed; at T-35 (no attempt inside
+    T-5, at most three per start time) it starts closing-run for it, covering the games within the 10 minutes after
+    it (MLB: after checking the MLB feed answers). Otherwise exit 0, silent. (= python deploy/hosting/closing.py
+    watch)"""
+    argv = ["watch"] + [x for f in families for x in ("--family", f.upper())] + (["--dry-run"] if dry_run else [])
+    raise SystemExit(_closing().main(argv))
 
 
 @cli.command("mlb-closing-run")
 @click.option("--first-pitch", "first_pitch", default=None,
               help="ISO UTC first pitch to close (default: the next unstarted one within 90 minutes).")
 @click.option("--dry-run", is_flag=True, default=False,
-              help="Print what would run; touch nothing (no step, backup, receipt, push or notification).")
+              help="Print the plan; touch nothing (no step, backup, receipt, push or page).")
 def mlb_closing_run_cmd(first_pitch, dry_run):
-    """MLB CLOSING RUN (ARCHITECT 2026-10-08, addendum 13 item 3, Q2, and addendum 16 item 2; LAPTOP ONLY).
-    Receipted refusals (exit 2) first: a backup folder under data/, SP_EXPORTS_MIRROR_REMOTE unset, a malformed
-    --first-pitch, nothing to close. Then, under the chain lock until the receipt line is written: a .backup dated
-    today in the operator's backup folder (taken via the .backup API and opened if none), then the ten
-    CHAINS["mlb-closing"] steps (mlb-preslate's, the export with --date <first pitch's NY date> --desk). Stops at the
-    first failed step. When the steps have finished: one started test (a started target fails the run), every
-    unstarted game in the export, every summary price captured at or after the run's start (else stale prices); a
-    run failing these checks moves its export into logs/. On success: a summary block per unstarted game with first
-    pitch within 90 minutes, the exports mirror pushed (role laptop, label closing), one notification per game. One
-    receipt line either way. Places nothing. (= python deploy/hosting/mlb_closing.py run)"""
-    argv = ["run"] + (["--first-pitch", first_pitch] if first_pitch else []) + (["--dry-run"] if dry_run else [])
-    raise SystemExit(_mlb_closing().main(argv))
+    """= closing-run --family MLB (#370's name, kept)."""
+    argv = ["run", "--family", "MLB"] + (["--start", first_pitch] if first_pitch else []) \
+        + (["--dry-run"] if dry_run else [])
+    raise SystemExit(_closing().main(argv))
 
 
 @cli.command("mlb-closing-watch")
 @click.option("--dry-run", is_flag=True, default=False,
-              help="Print the window and what would run; touch nothing (no network either).")
+              help="Print the start times and what would run; touch nothing (no network either).")
 def mlb_closing_watch_cmd(dry_run):
-    """MLB CLOSING WATCH, the 5-minute tick (scripts/setup_mlb_closing_watch.sh). No network to decide: from the
-    stored schedule, MLB games not started with first pitch 5-65 minutes away; a first-pitch time with no successful
-    closing receipt (and < 3 attempts) starts mlb-closing-run once, after checking the MLB feed answers (unreachable:
-    nothing runs, a notification, a recorded miss, retried next tick). Otherwise exit 0, silent.
-    (= python deploy/hosting/mlb_closing.py watch)"""
-    raise SystemExit(_mlb_closing().main(["watch"] + (["--dry-run"] if dry_run else [])))
+    """= closing-watch --family MLB (#370's name, kept)."""
+    raise SystemExit(_closing().main(["watch", "--family", "MLB"] + (["--dry-run"] if dry_run else [])))
 
 
 @cli.command("cutover-readiness", context_settings={"ignore_unknown_options": True, "allow_extra_args": True})

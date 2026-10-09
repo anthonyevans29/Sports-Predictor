@@ -252,3 +252,24 @@ def test_refresh_by_id_refuses_a_competition_outside_the_american_football_provi
     import cli
     res = CliRunner().invoke(cli.cli, ["refresh-by-id", "--competition", "PL"])
     assert res.exit_code == 2 and "not one of its competitions" in res.output
+
+
+class _Boom(FakeAdapter):
+    def get_game(self, sid, code="NCAA"):
+        if sid == "9601":
+            self.calls.append(("id", sid))
+            raise ConnectionError("provider down")
+        return super().get_game(sid, code)
+
+
+def test_unresolved_a_lookup_error_is_listed_untouched_and_exits_1(monkeypatch, _isolated):
+    """Addendum 23 item 1 (b), for #378: the UNRESOLVED path (a lookup error, exit 1) gets a test of its own."""
+    import cli
+    a = _match("NCAA", "9601", "h20", "a20", PLACEHOLDER)
+    _isolated.append(a)
+    fake = _Boom()
+    monkeypatch.setattr(cli, "_adapter_for_competition", lambda code: fake)
+    res = CliRunner().invoke(cli.cli, ["refresh-by-id", "--competition", "NCAA", "--days", "7"])
+    assert res.exit_code == 1, res.output
+    assert f"UNRESOLVED (untouched): match {a} id 9601" in res.output and "ConnectionError" in res.output
+    assert _row(a)["utc"] == PLACEHOLDER

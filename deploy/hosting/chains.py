@@ -295,13 +295,18 @@ CHAINS["freshen:MLB"] = {"steps": [list(s) for s in CHAINS["mlb-preslate"]["step
 # MLB CLOSING-RUN AUTOPILOT (ARCHITECT 2026-10-08, addendum 13 item 3, Q2, A1): "It runs the ten mlb-preslate steps
 # as chains.py lists them (chains.py stays the one place commands live), with the export carrying the Desk's call."
 # Derived from mlb-preslate, never a copy: steps 1-9 are mlb-preslate's own; step 10 is its export plus `--date
-# {today}` (the first pitch's America/New_York date, which mlb_closing.py sets as {today}: the export's default
+# {today}` (the first pitch's America/New_York date, which closing.py sets as {today}: the export's default
 # slate is the UTC date, which drops a 22:10 ET game run after 20:00 ET) and `--desk`. LAPTOP ONLY ("the host
-# cannot reach the MLB feed"): run through `python cli.py mlb-closing-run` (deploy/hosting/mlb_closing.py), never
+# cannot reach the MLB feed"): run through `python cli.py closing-run --family MLB` (deploy/hosting/closing.py), never
 # sp_run, which refuses it.
+# A1 (ARCHITECT 2026-10-09, addendum 23): "SOCCER's and MLB's stay sync-matches by date, with an opt-in that names
+# the covered games and exits non-zero unless the provider's answer held every one of them." Step 1 is mlb-preslate's
+# schedule read plus `--match-ids {match_ids}` (the run's covered games); mlb-preslate itself is unchanged.
 CHAINS["mlb-closing"] = {
-    "laptop_only": "python cli.py mlb-closing-run",
-    "steps": [list(s) for s in CHAINS["mlb-preslate"]["steps"][:-1]]
+    "laptop_only": "python cli.py closing-run --family MLB",
+    "example_vars": {"match_ids": "1,2"},
+    "steps": [[*CHAINS["mlb-preslate"]["steps"][0], "--match-ids", "{match_ids}"]]
+             + [list(s) for s in CHAINS["mlb-preslate"]["steps"][1:-1]]
              + [[*CHAINS["mlb-preslate"]["steps"][-1], "--date", "{today}", "--desk"]],
 }
 CHAINS["freshen:SOCCER"] = {"steps": [
@@ -313,6 +318,59 @@ CHAINS["freshen:SOCCER"] = {"steps": [
     # slate, so a closing freshen yields a one-slate file
     ["export-predictions", "--sport", "soccer", "--competition", "PL", "--status", "scheduled"],
 ]}
+# CLOSING RUNS FOR EVERY MODEL FAMILY (ARCHITECT 2026-10-09, addendum 21 item 3, C1/C3; addendum 22 item 3).
+# C1: "A closing run exists for every family whose calls come from a live model: MLB, NFL and SOCCER (PL) today. A
+# league joins when its model is CONFIRMED and the Desk calls it. A shadow has no closing run and is never paged as a
+# pick." C3: "MLB's closing chain is #370's. NFL's and SOCCER's are their freshen chains (chains.py, freshen:NFL and
+# freshen:SOCCER), ending in the export that carries the Desk's call. A run prices the games it covers, not the whole
+# league, so that the page is out by T-30." Addendum 22: "Every closing chain opens with the schedule read for its
+# games (status and start time), as MLB's does."
+# Derived from the freshen chains, never copied: the schedule read first, then every freshen step in its order.
+# The schedule read (ARCHITECT 2026-10-09, addendum 23 A1): "A closing run does not page a game whose schedule read
+# did not answer. [...] SOCCER's and MLB's stay sync-matches by date, with an opt-in that names the covered games and
+# exits non-zero unless the provider's answer held every one of them. Every default is unchanged." A1 AS AMENDED
+# (ARCHITECT 2026-10-09, addendum 24 item 3, as addendum 25 item 2(i) gives it): "nfl-closing takes the SOCCER form:
+# sync-matches by date, one UTC day per call, naming that day's covered games. The by_id branch goes."
+#   NFL and SOCCER  sync-matches by date, one UTC day per call ({start_day} and {end_day}: the UTC dates of the run's
+#           first and last covered start; an identical second call is dropped by the run), each with --match-ids
+#           naming that day's covered games ({start_day_ids} / {end_day_ids})
+# Options added to the freshen steps:
+#   sync-injuries        --match-ids {match_ids} --strict             (the covered games' teams, Codex round 2 on
+#                                                                      #385; addendum 22 strict mode; A2: NFL rosters)
+#   sync-odds-football   --match-ids {match_ids}                      (the covered games only)
+#   sync-odds            --match-ids {match_ids}                      (the covered games only)
+#   the export           --desk                                       (the file carries the Desk's call)
+# The Kalshi syncs, predict and predict-nfl run as the freshen chains list them (one series listing each; the model
+# step writes every upcoming game, as it always has). Run through `python cli.py closing-run --family F`
+# (deploy/hosting/closing.py), never sp_run, which refuses them. C7: "The host runs NFL and SOCCER with the same
+# command under a timer from the cutover ruling on, not before." No timer ships here.
+_CLOSING_ADD = {
+    "sync-injuries": ["--match-ids", "{match_ids}", "--strict"],
+    "sync-odds-football": ["--match-ids", "{match_ids}"],
+    "sync-odds": ["--match-ids", "{match_ids}"],
+    "export-nfl-predictions": ["--desk"],
+    "export-predictions": ["--desk"],
+}
+
+
+def _closing_from_freshen(freshen: str, comp: str, season: str) -> list[list[str]]:
+    # A1 as amended (addendum 25 2(i)): by date, one UTC day per call, naming that day's covered games
+    read = [["sync-matches", "--competition", comp, "--season", season, "--date-from", d, "--date-to", d,
+             "--match-ids", ids] for d, ids in (("{start_day}", "{start_day_ids}"), ("{end_day}", "{end_day_ids}"))]
+    return read + [[*s, *_CLOSING_ADD.get(s[0], [])] for s in CHAINS[freshen]["steps"]]
+
+
+# A sample of the run-time placeholders, for the law-1 option check (tests/test_hosting_pack.py) only.
+CLOSING_VARS_EXAMPLE = {"start_day": "2026-10-11", "end_day": "2026-10-11", "match_ids": "1,2",
+                        "start_day_ids": "1,2", "end_day_ids": "1,2"}
+CHAINS["nfl-closing"] = {"closing_command": "python cli.py closing-run --family NFL",
+                         "example_vars": CLOSING_VARS_EXAMPLE,
+                         "steps": _closing_from_freshen("freshen:NFL", "NFL", "2026")}
+CHAINS["soccer-closing"] = {"closing_command": "python cli.py closing-run --family SOCCER",
+                            "example_vars": CLOSING_VARS_EXAMPLE,
+                            "steps": _closing_from_freshen("freshen:SOCCER", *PL[1::2])}
+# family -> its closing chain (C1). A league joins in a reviewed PR, by ruling.
+CLOSING_FAMILIES = {"MLB": "mlb-closing", "NFL": "nfl-closing", "SOCCER": "soccer-closing"}
 # (sport, competition) of a card row -> its freshen family. Only the
 # competitions with a live model: NCAA, NHL, the cups and UNL are market-only.
 FRESHEN_FAMILY = {("nfl", "NFL"): "NFL", ("mlb", "MLB"): "MLB", ("soccer", "PL"): "SOCCER"}

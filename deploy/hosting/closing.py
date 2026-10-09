@@ -40,6 +40,7 @@ import argparse
 import json
 import math
 import os
+import re
 import sqlite3
 import subprocess
 import sys
@@ -92,7 +93,7 @@ REQUIRED_SETTINGS = (MIRROR_SETTING, CARD_TOPIC)       # 380.2: read where the l
 STAKED_CALLS = ("PLAY", "LADDER")                      # a call that stakes units (LADDER: soccer's double chance)
 # R6 (+ 380.1): the failures of the run's own checks. Their export leaves exports/ (moved into logs/, named with the
 # run id), so no call is left behind; a failed push or a failed page leaves the export in place.
-OWN_CHECK_FAILURES = ("stale prices", "stale starters", "missing from export", "target started")
+OWN_CHECK_FAILURES = ("stale prices", "stale starters", "missing from export", "target started", "target moved")
 TEST_PAGE_TITLE = "Closing watch"
 TEST_PAGE_BODY = "Test: the closing watch is installed (MLB, NFL, SOCCER). Pages arrive here by T-30."
 
@@ -103,10 +104,15 @@ def utc(dt: datetime) -> datetime:
     return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
 
 
+_OFFSET = re.compile(r"[+-]\d{2}(:?\d{2}(:?\d{2}(\.\d+)?)?)?$")
+
+
 def parse_utc(s: str) -> datetime:
-    """A stored utc_date ('2026-10-08 23:05:00.000000') or an ISO string ('...T23:05:00Z') as aware UTC."""
+    """A stored utc_date ('2026-10-08 23:05:00.000000', naive = UTC) or an ISO string ('...T23:05:00Z', or any
+    explicit offset such as '...T13:00:00-04:00', converted to UTC) as aware UTC. Codex on #385: a '-hh:mm' offset
+    was truncated and the local time read as UTC."""
     s = str(s).strip().replace("Z", "+00:00")
-    d = datetime.fromisoformat(s if "+" in s[10:] else s[:19])
+    d = datetime.fromisoformat(s if _OFFSET.search(s[10:]) else s[:19])
     return utc(d).astimezone(timezone.utc)
 
 
@@ -222,8 +228,9 @@ def covered_ids(fam: str) -> set:
     out = set()
     for rs in by_start.values():
         if any(r.get("exit") == 0 for r in rs) or len(rs) >= MAX_ATTEMPTS:
-            for r in rs:
-                out.update(x.get("match_id") for x in r.get("covers") or [])
+            for r in rs:              # a game an attempt found moved is not finished with at this start (#385)
+                gone = {x.get("match_id") for x in r.get("moved") or []}
+                out.update(x.get("match_id") for x in r.get("covers") or [] if x.get("match_id") not in gone)
     return out
 
 
@@ -497,6 +504,31 @@ def target_started(games: list[dict], start: datetime, done: datetime) -> str | 
     if tg and all(g["status"] in STARTED_STATUSES for g in tg):
         return "stored status " + "/".join(sorted({g["status"] for g in tg})) + " when the steps finished"
     return None
+
+
+def target_moved(covers: list[dict], start: datetime) -> list[dict]:
+    """Codex on #385: the covered games whose stored start time (re-read by match id after the steps, any window,
+    any status) is no longer the start the run covered them at: the schedule read moved them. Reading (conservative):
+    ONE moved covered game fails the run, named, even when the others stayed. A game no longer stored is moved too
+    (law 4)."""
+    ids = [g["match_id"] for g in covers]
+    if not ids:
+        return []
+    con = c.ro_connect(c.db_path())
+    try:
+        now_at = {i: d for i, d in con.execute(
+            f"SELECT id, utc_date FROM matches WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()}
+    finally:
+        con.close()
+    out = []
+    for g in covers:
+        d = now_at.get(g["match_id"])
+        new = parse_utc(d) if d else None
+        if new is None or new != utc(g["start"]):
+            out.append({"match_id": g["match_id"], "game": f"{g['away']} @ {g['home']}",
+                        "target": iso_z(start), "covered_start": iso_z(g["start"]),
+                        "stored_start": iso_z(new) if new else None})
+    return out
 
 
 # ------------------------------------------------------------------------------------------------ prices --
@@ -985,6 +1017,14 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         print(f"✗ the target {FAMILIES[fam]['noun']} {et(s)} has started ({why}) — no closing for it; a started "
               "game is never retried")
         return
+    moved = target_moved(covers, s)
+    if moved:                         # Codex on #385: never page a game under a start time it no longer has
+        rec["failed"] = "target moved"
+        rec["moved"] = moved
+        for m in moved:
+            print(f"✗ target moved: match {m['match_id']} ({m['game']}) covered at {m['covered_start']} (target "
+                  f"{m['target']}), stored start now {m['stored_start'] or 'none (no stored row)'}")
+        return
     missing = missing_from_export(doc, covers, done, games)
     if missing:
         rec["failed"] = "missing from export"
@@ -1157,7 +1197,8 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
                               "check integrity, open, hash, hash file"))
         for i, st in enumerate(resolve_steps(fam, s, p["covers"], now), 1):
             print(f"  {i}. python cli.py {' '.join(st)}")
-        print(f"  export: {' or '.join(export_candidates(fam, s, now))} · checks: started (R1), missing, prices (R2)"
+        print(f"  export: {' or '.join(export_candidates(fam, s, now))} · checks: started (R1), moved, missing, "
+              "prices (R2)"
               + (", starters (380.1)" if FAMILIES[fam]["starters"] else "")
               + " · push: exports_mirror.py push --role laptop --label closing · page: ntfy card topic + screen")
         return 0
@@ -1199,7 +1240,11 @@ def due(fam: str, now: datetime) -> dict:
 def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[str, ...] | None = None) -> int:
     """C2: the tick, every minute, for every family. Decides from the stored schedule and the receipts, no network;
     each due start time starts one run (earliest first), MLB's after checking its feed answers (A6). A start time
-    first found inside T-5 with no closing is a miss (receipted and notified once). Otherwise exit 0, silent."""
+    first found inside T-5 with no closing is a miss (receipted and notified once). Otherwise exit 0, silent.
+    `now` (tests) fixes the tick's time for every run; else each queued run reads clock() when it starts (Codex on
+    #385: the time spent running earlier closings in the same tick counts toward the next run's T-5 / started
+    checks and its T-minus)."""
+    fixed_now = now
     now = utc(now or clock())
     fams = tuple(f.upper() for f in (families or tuple(FAMILIES)))
     plans = []
@@ -1255,7 +1300,7 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
                 print(f"✗ {FEED_MISS_TEXT} ({detail}) — nothing run; miss recorded for {fam} {start}; next tick "
                       "retries")
                 continue
-        r = run(family=fam, start=start, trigger="watch", now=clock() if now is None else now)
+        r = run(family=fam, start=start, trigger="watch", now=clock() if fixed_now is None else utc(fixed_now))
         rc = rc or (0 if r == 0 else r)
     return rc
 

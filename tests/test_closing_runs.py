@@ -1175,3 +1175,130 @@ def test_real_step_runner_against_a_fake_cli(box, monkeypatch):
     monkeypatch.setenv("T_FAIL", "predict-nfl")
     assert mc.run("NFL", start=at(35), now=NOW) == 1
     assert [s["exit"] for s in runs()[-1]["steps"]] == [0] * 4 + [4]
+
+
+# ================================================================================= Codex round 1 on #385 ==
+
+def set_start(db, mid, minutes):
+    con = sqlite3.connect(db)
+    con.execute("UPDATE matches SET utc_date = ? WHERE id = ?", (_ts(NOW + timedelta(minutes=minutes)), mid))
+    con.commit()
+    con.close()
+
+
+def move_on_first_schedule_read(box, monkeypatch, moves):
+    """The run's opening schedule read (sync-matches) moves covered games to new kickoffs, leaving them SCHEDULED,
+    the first time only. `moves`: {match_id: new minutes from NOW}."""
+    done = []
+
+    def mv(argv):
+        if argv[0] == "sync-matches" and not done:
+            done.append(1)
+            for mid, m in moves.items():
+                set_start(box.db, mid, m)
+    slow_steps(box, monkeypatch, 0, mv)
+
+
+def doc_start(box, fam, mid, minutes):
+    for p in box.docs[fam]["predictions"]:
+        if p["match_id"] == mid:
+            p["utc_date"] = (NOW + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
+
+
+def test_385_p1_every_covered_game_moved_fails_as_target_moved_and_the_new_start_runs(box, monkeypatch):
+    """Codex P1 (closing.py target_started): the schedule read moves every covered game off the target start, still
+    SCHEDULED. The run fails as "target moved" (an own check: export moved out, no push, no call page), naming each
+    game with both times; the old start leaves no group, and the new start is its own key and closes at its T-35."""
+    move_on_first_schedule_read(box, monkeypatch, {401: 95, 402: 97})
+    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    r = runs("SOCCER")[-1]
+    assert r["failed"] == "target moved" and r["start"] == at(35)
+    assert [(m["match_id"], m["target"], m["covered_start"], m["stored_start"]) for m in r["moved"]] == [
+        (401, at(35), at(35), at(95)), (402, at(35), at(37), at(97))]
+    assert r["export_moved_to"].startswith(f"logs/{r['run_id']}.")
+    assert box.pushes == [] and call_pages(box) == []
+    assert box.notes[-1] == "Closing SOCCER 2026-10-11 13:00 ET: FAILED: target moved · attempt 1/3"
+    mc.watch(now=NOW + timedelta(minutes=1), families=("SOCCER",))
+    assert len(runs("SOCCER")) == 1                                    # nothing left at the old start: no retry
+    doc_start(box, "SOCCER", 401, 95)
+    doc_start(box, "SOCCER", 402, 97)
+    assert mc.watch(now=NOW + timedelta(minutes=60), families=("SOCCER",)) == 0
+    r2 = runs("SOCCER")[-1]
+    assert r2["start"] == at(95) and r2["attempt"] == 1 and r2["exit"] == 0
+    assert [x["match_id"] for x in r2["covers"]] == [401, 402] and len(call_pages(box)) == 1
+
+
+def test_385_p1_one_covered_game_moved_fails_the_run_and_is_not_counted_closed_at_the_old_start(box, monkeypatch):
+    """Reading (conservative): a partial move fails the run, naming the moved game only. The retry at the old start
+    covers the games still there and succeeds; the moved game is not finished with by the old start's success
+    (covered_ids), so its new start closes at its own T-35."""
+    move_on_first_schedule_read(box, monkeypatch, {304: 95})
+    assert mc.watch(now=NOW, families=("NFL",)) == 1
+    r = runs("NFL")[-1]
+    assert r["failed"] == "target moved" and [m["match_id"] for m in r["moved"]] == [304]
+    assert r["moved"][0]["covered_start"] == at(36) and r["moved"][0]["stored_start"] == at(95)
+    assert call_pages(box) == []
+    assert mc.watch(now=NOW + timedelta(minutes=1), families=("NFL",)) == 0     # attempt 2, old start, 3 games
+    r = runs("NFL")[-1]
+    assert r["start"] == at(35) and r["attempt"] == 2 and r["exit"] == 0
+    assert [x["match_id"] for x in r["covers"]] == [301, 302, 303]
+    assert 304 not in mc.covered_ids("NFL")
+    doc_start(box, "NFL", 304, 95)
+    assert mc.watch(now=NOW + timedelta(minutes=60), families=("NFL",)) == 0
+    r = runs("NFL")[-1]
+    assert r["start"] == at(95) and r["exit"] == 0 and [x["match_id"] for x in r["covers"]] == [304]
+
+
+def test_385_p1_watch_reads_the_clock_for_each_queued_run(box, monkeypatch):
+    """Codex P1 (closing.py watch): NFL and SOCCER are due in one production tick (no `now`); NFL's closing takes 31
+    minutes. SOCCER's run reads the clock when it starts: it is inside T-5, a miss, never a run on the tick's time."""
+    off = {"d": timedelta(0)}
+    monkeypatch.setattr(mc, "clock", lambda: NOW + off["d"])
+
+    def slow_nfl(argv):
+        if argv[0] == "export-nfl-predictions":
+            off["d"] = timedelta(minutes=31)
+    slow_steps(box, monkeypatch, 0, slow_nfl)
+    assert mc.watch(families=("NFL", "SOCCER")) == 1
+    assert [(r["family"], r["exit"]) for r in runs()] == [("NFL", 0)]
+    miss = [r for r in receipts() if r["kind"] == "closing_miss"]
+    assert [(m["family"], m["start"], m["reason"]) for m in miss] == [("SOCCER", at(35), "the lock came inside T-5")]
+    assert len(call_pages(box)) == 1
+
+
+def test_385_p2_parse_utc_reads_any_explicit_offset():
+    """Codex P2 (closing.py parse_utc): '-04:00' was truncated and 13:00 read as UTC."""
+    want = datetime(2026, 10, 11, 17, 0, tzinfo=timezone.utc)
+    assert mc.parse_utc("2026-10-11T13:00:00-04:00") == want
+    assert mc.parse_utc("2026-10-11T13:00:00-0400") == want
+    assert mc.parse_utc("2026-10-11T19:00:00+02:00") == want
+    assert mc.parse_utc("2026-10-11T17:00:00Z") == want
+    assert mc.parse_utc("2026-10-11T17:00:00+00:00") == want
+    assert mc.parse_utc("2026-10-11T17:00:00") == want                              # naive = UTC
+    assert mc.parse_utc("2026-10-11 17:00:00.000000") == want                       # the stored format
+    assert mc.parse_utc("2026-10-11 17:00:00.123456") == want                       # as before: to the second
+    assert mc.iso_z(mc.parse_utc("2026-10-11T13:00:00-04:00")) == "2026-10-11T17:00:00Z"
+
+
+def test_385_p2_strict_injuries_fail_on_a_missing_competition_inside_the_window(monkeypatch):
+    """Codex P2 (cli.py sync-injuries): with --kickoff-within-hours, a competition not in the DB returned at the
+    empty-window branch, exit 0, under --strict. Now a failed read; the default and an empty window are unchanged."""
+    from click.testing import CliRunner
+
+    import cli
+    from src.db.database import init_db, session_scope
+    from src.db.schema import Competition, Sport
+    init_db()
+    with session_scope() as s:
+        if s.query(Competition).filter_by(code="STRY").one_or_none() is None:
+            s.add(Competition(sport=Sport.SOCCER, code="STRY", name="strict empty", area="X", type="LEAGUE"))
+    ad = type("A", (), {"source_name": "fake", "list_injuries": lambda self, sid, season: []})()
+    monkeypatch.setattr(cli, "_adapter_for_competition", lambda code: ad)
+    args = ["sync-injuries", "--season", "2093/94", "--kickoff-within-hours", "1"]
+    bad = CliRunner().invoke(cli.cli, [*args, "--competition", "NOPEX", "--strict"])
+    assert bad.exit_code == 1 and "✗ STRICT: 1 injury read(s) failed (NOPEX):" in bad.output
+    assert "✗ competition NOPEX not in DB" in bad.output
+    ok = CliRunner().invoke(cli.cli, [*args, "--competition", "NOPEX"])
+    assert ok.exit_code == 0 and "STRICT" not in ok.output                          # default: unchanged
+    empty = CliRunner().invoke(cli.cli, [*args, "--competition", "STRY", "--strict"])
+    assert empty.exit_code == 0 and "nothing inside the window" in empty.output     # no games: not a failed read

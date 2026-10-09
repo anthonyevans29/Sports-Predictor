@@ -697,6 +697,8 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
         from datetime import timedelta, timezone
         now = datetime.now(timezone.utc).replace(tzinfo=None)
         with session_scope() as s:
+            comp_missing = s.execute(select(Competition.id).where(
+                Competition.code == competition_code)).first() is None
             games = s.execute(select(Match).join(Competition, Competition.id == Match.competition_id).where(
                 Competition.code == competition_code, Match.status == MatchStatus.SCHEDULED,
                 Match.utc_date >= now, Match.utc_date <= now + timedelta(hours=within_h))).scalars().all()
@@ -704,6 +706,8 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
         print(f"  scope: {len(games)} game(s) of {competition_code} kicking off within {within_h:g}h "
               f"-> {len(team_ids)} team(s)", flush=True)
         if not team_ids:
+            if strict and comp_missing:          # Codex on #385: a missing competition is a failed read here too
+                _strict_injuries_fail(competition_code, [f"competition {competition_code} not in DB"])
             console.print(f"[green]✓ Injuries ({competition_code}): nothing inside the window, no provider call[/green]")
             return
         result = service.sync_injuries_for_teams(team_ids, season=season)
@@ -711,12 +715,16 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
         result = service.sync_injuries(competition_code, season=season)
     console.print(f"[green]✓ Injuries ({competition_code}): {result}[/green]")
     if strict and result.failed_reads:
-        # STRICT MODE (ARCHITECT 2026-10-09, addendum 22): "the command exits non-zero when a read it needed
-        # failed, and the run fails at that step." Printed plainly (never rich-wrapped) so the receipt tail has it.
-        print(f"✗ STRICT: {len(result.failed_reads)} injury read(s) failed ({competition_code}):", flush=True)
-        for line in result.failed_reads[:20]:
-            print(f"  ✗ {line}", flush=True)
-        raise SystemExit(1)
+        _strict_injuries_fail(competition_code, result.failed_reads)
+
+
+def _strict_injuries_fail(competition_code: str, failed_reads: list[str]) -> None:
+    # STRICT MODE (ARCHITECT 2026-10-09, addendum 22): "the command exits non-zero when a read it needed
+    # failed, and the run fails at that step." Printed plainly (never rich-wrapped) so the receipt tail has it.
+    print(f"✗ STRICT: {len(failed_reads)} injury read(s) failed ({competition_code}):", flush=True)
+    for line in failed_reads[:20]:
+        print(f"  ✗ {line}", flush=True)
+    raise SystemExit(1)
 
 
 @cli.command("wipe-injuries")

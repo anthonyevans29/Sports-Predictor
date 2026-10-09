@@ -1,0 +1,2 @@
+## 2026-10-09 (#PENDING: the host and the closing runs (C7), an account from the code — ARCHITECT addendum 31 item 4)
+- Docs only, nothing built: docs/ledger/entries/2026-10-09-host-closing-account.md accounts for closing-run / closing-watch on the host as they stand on main (mirror role, backup, page, lock, MLB, receipts, a timer unit, the laptop's watch), with a file and line for every point, and ends with a proposal for the architect's ruling.

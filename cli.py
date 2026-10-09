@@ -6259,6 +6259,59 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
     click.echo(f"  RECORDED: {e['confirmation']['outcome']} · status {e['status']} — commit docs/registry/ in a PR")
 
 
+@cli.command("soccer-value-receipt")
+@click.option("--out", default=None,
+              help="Markdown path for the receipt (default docs/receipts/soccer-value-sides-<date>.md); the PL "
+                   "reference page is written beside it as <stem>-pl-reference.md. Never under data/.")
+def soccer_value_receipt_cmd(out):
+    """READ-ONLY receipt (ARCHITECT 2026-10-09, addendum 21 item 6; Issue #383): do the model's value sides pay
+    against the close? soccer-expansion-v1's 3,445 scored ids priced by the candidate as gated (the run record's rho /
+    elo_goal_coeff, the gate's own walk) against fdcuk_close de-vigged as market_side does; league x edge bucket x
+    value-outcome-is-top-pick, the 5-and-over row by kind, and a PL 2024/25 + 2025/26 reference page. Not gate evidence
+    and not a policy. Refuses unless the registry holds the run record and the re-walk reproduces it (exit 2);
+    writes the receipt with a FAILED banner and exits 3 when the 5-and-over row does not reproduce the run record's
+    cohorts (needs-ruling). Writes nothing to the DB."""
+    import os
+
+    from src.timeutil import utc_now_naive
+    from src.walters import soccer_value_receipt as vr
+
+    try:
+        path, pl_path = vr.out_paths(out, utc_now_naive().strftime("%Y-%m-%d"))
+        data = vr.build()
+    except vr.ReceiptRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    data["pl_path"] = pl_path
+    for p, text in ((path, vr.render_main(data)), (pl_path, vr.render_pl(data))):
+        os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
+        with open(p, "w") as f:
+            f.write(text)
+    p = data["params"]
+    click.echo(f"SOCCER VALUE SIDES vs CLOSE · production {p['production_version']} rho {p['rho']} elo_goal_coeff "
+               f"{p['elo_goal_coeff']} · bootstrap seed {data['boot']['seed']} ({data['boot']['n']} resamples)")
+    fid = data["fidelity"]
+    click.echo(f"  fidelity: walk scored {fid['walked']} = ids file {fid['n_ids']} (sha {fid['sha'][:12]}…); "
+               "market_side reproduces every league's cohort: PASS")
+    chk = data["check"]
+    for c, d in chk["per_league"].items():
+        click.echo(f"  cohort check {c:4} record {d['record'][1]}/{d['record'][0]} · 5+ row {d['five_plus'][1]}/"
+                   f"{d['five_plus'][0]} (value = top {d['five_plus_top'][1]}/{d['five_plus_top'][0]}, value ≠ top "
+                   f"{d['five_plus_not_top'][1]}/{d['five_plus_not_top'][0]}) · {'ok' if d['ok'] else 'MISMATCH'}")
+    pooled5 = {top: data["tables"]["main"][vr.POOLED][(vr.FIVE_PLUS, top)] for top in (True, False)}
+    for top, c in pooled5.items():
+        if c.get("n"):
+            click.echo(f"  pooled 5+ value={'top' if top else 'not top'}: n {c['n']} hit {c['hit_rate']:.3f} vs close "
+                       f"{c['mean_close_p']:.3f} · return {c['return'] * 100:+.1f}% "
+                       f"[{c['return_ci'][0] * 100:+.1f}%, {c['return_ci'][1] * 100:+.1f}%]")
+    click.echo(f"  wrote {path}\n  wrote {pl_path} (PL reference: {data['pl']['n_priced']} priced)")
+    if not chk["ok"]:
+        click.echo("FLAGGED: COHORT CHECK FAILED — the 5-and-over row does not reproduce the run record's cohorts. "
+                   "The receipt carries the banner and the decomposition; it is a finding for the architect "
+                   "(needs-ruling), not the declared receipt.")
+        raise SystemExit(3)
+
+
 @cli.command("soccer-odds-history")
 @click.option("--competition", "competition_code", default="PL")
 @click.option("--season", default=None, help="DB season string, e.g. 2024. Also derives the football-data.co.uk URL (2024 -> mmz4281/2425/E0.csv).")

@@ -299,3 +299,67 @@ The architect ruled on the two readings PR B made (verbatim, each):
 
    Built: precondition 7 above. It replaces the earlier path, which reserved, walked nothing and recorded an INVALID
    run with 0 scored ids.
+
+## 9. The run and the verdict: FAIL (ARCHITECT 2026-10-09, addendum 24)
+
+The one run was made on the operator's laptop on the architect's word and spliced into main by cherry-pick from
+`laptop/ncaa-elo-v1r-run-record` at 130b481, byte for byte (`docs/registry/experiments.json` blob 362c9b7 before the
+verdict, `docs/registry/ids/ncaa-elo-v1r.txt` f73c15a, `docs/registry/ncaa-elo-v1r.started.json` da8bb22). The
+verdict was then recorded with `registry.record_verdict("ncaa-elo-v1r", "FAIL", <ruling>)`; the entry's status is
+`closed`, the verdict's recorded time 2026-10-09T17:49:27Z.
+
+### The run's figures, from the record (`run.result` of the registry entry; rounded to six places here)
+
+- Run at 2026-10-09T16:18:32Z; 762 scored games (the 2025 regular season), ids `docs/registry/ids/ncaa-elo-v1r.txt`,
+  ids sha256 `d1951e833d3eded5424a3afb89eb101e7a671bb34fbc0ba1c4133ab176a2913b`; prior reads 0.
+- Stream fingerprint `8019c4ffc49c9cf1f46eaf1c286894dced92fa7beaedfd59d1aec8ee839780ea`, 1606 stream games; walked by
+  season 798 (2024) and 808 (2025), 2026 walked 0, not walked after the last 2025 game 274; 2025 walked, not scored:
+  postseason 46. Census: 2024 regular 752 and postseason 46; 2025 regular 762 and postseason 46; 2026 regular 274.
+  Coverage 2024 1.0, 2025 1.0. Level scores skipped: none. Neutral updates 140, unflagged 0.
+- D4 baseline: home rate 0.594142 on 717 games (the 2024 non-neutral regular season).
+
+D5's four tests (PASS iff all four hold):
+
+| Test | Record | Criterion | Result |
+|---|---|---|---|
+| (1) Margin | model log-loss 0.559642; baseline 0.674889 | < bar 0.664889 (baseline - 0.010) | passes |
+| (2) Level | mean home probability 0.573688; realized home rate 0.591864; gap -1.818pp | within 5pp | passes |
+| (3) Spread | slope b 1.420537 (fit converged: True) | 0.80 to 1.20 | FAILS |
+| (4) Range | ratings 1121.1 to 1906.2 over 136 teams; outliers none | 1000 to 2000 | passes |
+
+The record's verdict field: "FAIL — (3) spread".
+
+Reported, never gated: intercept a -0.007828; constant-0.5 log-loss 0.693147; Brier model 0.189646, baseline 0.240928;
+log-loss neutral 0.633099 (n 23), non-neutral 0.557355 (n 739); cold starts 2. #79's 10pp bands:
+
+| Band | n | Stated | Realized | Gap | #79's rule (information) |
+|---|---|---|---|---|---|
+| 0-10% | 3 | 0.074476 | 0.000000 | -7.45pp | not gated |
+| 10-20% | 13 | 0.168125 | 0.153846 | -1.43pp | not gated |
+| 20-30% | 60 | 0.257371 | 0.183333 | -7.40pp | not gated |
+| 30-40% | 67 | 0.353163 | 0.298507 | -5.47pp | not gated |
+| 40-50% | 113 | 0.450779 | 0.424779 | -2.60pp | ok |
+| 50-60% | 141 | 0.550102 | 0.581560 | +3.15pp | ok |
+| 60-70% | 155 | 0.647678 | 0.683871 | +3.62pp | ok |
+| 70-80% | 119 | 0.744848 | 0.806723 | +6.19pp | outside 5pp |
+| 80-90% | 78 | 0.846718 | 0.935897 | +8.92pp | not gated |
+| 90-100% | 13 | 0.927967 | 1.000000 | +7.20pp | not gated |
+
+The architect's word for the run, as the record holds it: "ARCHITECT, 2026-10-09 12:16 ET: the preflight is read and clean, and I confirm the season_type census: 2024 regular 752 and postseason 46; 2025 regular 762 and postseason 46. The D4 baseline is 0.594142 on 717 games and the test set numbers 762. Run ncaa-elo-v1r once on the stream 8019c4ffc49c9cf1f46eaf1c286894dced92fa7beaedfd59d1aec8ee839780ea."
+
+### The ruling, verbatim (ARCHITECT 2026-10-09 12:30 ET, addendum 24 item 1; the registry entry's `verdict.ruling`)
+
+"ARCHITECT, 2026-10-09 12:30 ET. ncaa-elo-v1r: FAIL. The one run (recorded 2026-10-09T16:18:32Z; 762 scored games, the 2025 regular season; ids sha256 d1951e833d3eded5424a3afb89eb101e7a671bb34fbc0ba1c4133ab176a2913b; stream 8019c4ffc49c9cf1f46eaf1c286894dced92fa7beaedfd59d1aec8ee839780ea) passes three of D5's four tests and fails the third. (1) Margin: model log-loss 0.559642 against a bar of 0.664889, the baseline's 0.674889 less 0.010: passes. (2) Level: mean home probability 0.573688, realized home rate 0.591864, a gap of 1.818pp against 5pp: passes. (3) Spread: slope b 1.420537, outside 0.80 to 1.20: fails. (4) Range: ratings 1121.1 to 1906.2 over 136 teams, inside 1000 to 2000: passes. D5 reads PASS iff all four hold, so the verdict is FAIL. The bar does not move and the run is not repeated. No confirmation window opens and no cohort is frozen. College football stays market-only. The 2025 regular season is retired as a college test season with this run: its figures now show how to correct the candidate, and a second candidate scored on it would be fitted to it. A later college candidate may train on 2024 and 2025, and declares the 2026 regular season, as it accrues, as its test."
+
+### What the verdict changes (addendum 24 item 2), as built
+
+- (b) `registry.RETIRED_TEST_SETS` retires this test set ("NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)"): ncaa-elo-v1r was its last candidate;
+  declare "the NCAA FBS 2026 regular season as it accrues (>= 500 games)" instead.
+- (c) `ncaa-backtest` refuses, exit 2, naming the ruling, with or without `--baselines-only`, for good. `GATE_STATUS`
+  is `CLOSED` and its line carries the ruling's date (2026-10-09). The module `ncaa_backtest` stays.
+- (d) `export-ncaa-predictions` refuses, exit 2, naming the ruling, while the registry records a verdict other than
+  PASS for ncaa-elo-v1r. No college shadow file has been written. `ncaa-shadow-grade` is untouched.
+- (e) The #368 test-season fence lifted by itself when the run record reached main (`v1r_run_recorded`): the 2025
+  lines of `ncaa-cfbd-coverage` and `resync-diff`, and `ncaa-audit`, return. No code.
+- No confirmation window opens and no cohort is frozen. College football stays market-only. The next candidate is
+  the architect's to declare; nothing is built toward it.

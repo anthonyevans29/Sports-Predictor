@@ -303,15 +303,12 @@ def test_load_games_scope_and_no_writes_then_cli(monkeypatch):
     assert all((g.home_score, g.away_score) != (99, 98) for g in games)  # NFL row out
 
     runner = CliRunner()
-    fenced = runner.invoke(cli, ["ncaa-backtest", "--baselines-only"])     # #368: refused until the v1r run
-    assert fenced.exit_code == 2 and "ncaa-backtest REFUSED (exit 2)" in fenced.output
-    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: True)          # the run recorded: the command returns
-    res = runner.invoke(cli, ["ncaa-backtest", "--baselines-only"])
-    assert res.exit_code == 0, res.output
-    assert "BAR (frozen): candidate log-loss need <=" in res.output
-    assert "baselines only" in res.output and "GATE VERDICT" not in res.output
-    full = runner.invoke(cli, ["ncaa-backtest", "--candidate", "v1"])
-    assert full.exit_code == 0, full.output
-    assert "CANDIDATE ncaa_elo_v1 (k=24, home_adv=55" in full.output
-    assert "GATE VERDICT:" in full.output
+    # ARCHITECT 2026-10-09, addendum 24 item 2(c): the command refuses for good, fence lifted or not; the module stays
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: True)
+    for args in (["--baselines-only"], ["--candidate", "v1"]):
+        res = runner.invoke(cli, ["ncaa-backtest", *args])
+        assert res.exit_code == 2 and "ncaa-backtest REFUSED (exit 2)" in res.output and nb.CLOSED_RULING in res.output
+    rep = []
+    nb.report(nb.build_stream(games), nb.baselines(nb.build_stream(games)), out=rep.append)
+    assert "BAR (frozen): candidate log-loss need <=" in "\n".join(rep)   # the module's report is unchanged
     assert _row_counts() == before                            # the CLI writes nothing

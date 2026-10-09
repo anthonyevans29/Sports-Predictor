@@ -1,5 +1,5 @@
 """ncaa-elo-v1r DECLARATION (ARCHITECT 2026-10-08, addendum 11, item 3, PR A steps (b) and (c)). Pins:
-- the registry entry: status declared, run/verdict null, test_set, gate (D5 verbatim), confirmation window (D7
+- the registry entry (run and FAIL verdict recorded 2026-10-09, status closed), test_set, gate (D5 verbatim), confirmation window (D7
   verbatim) and plan (D7's numbers), the keys the shadow reads (neutral_site_rule, constants), the D9 note;
 - the spec quotes D1-D9 and the architect's D5 note verbatim and cites the design receipt;
 - the shadow refuses unless 2024, 2025 and 2026 are covered (D6), naming each missing season;
@@ -77,10 +77,13 @@ TEST_SET = "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)"
 
 # --- (b) the registry entry and the spec -------------------------------------------------------------------------
 
-def test_registry_entry_is_declared_with_the_verbatim_gate_window_and_plan():
+def test_registry_entry_is_declared_with_the_verbatim_gate_window_and_plan(tmp_path):
     e = reg.get(sh.EID)
     assert e is not None, "ncaa-elo-v1r must be declared in docs/registry/experiments.json"
-    assert (e["status"], e["run"], e["verdict"]) == ("declared", None, None)
+    # ARCHITECT 2026-10-09, addendum 24: the one run is recorded (spliced from 130b481) and the verdict is FAIL; the
+    # entry is closed, the declaration below unchanged
+    assert (e["status"], e["run"]["n_scored"], e["run"]["prior_read_count"], e["verdict"]["verdict"]) == \
+        ("closed", 762, 0, "FAIL")
     assert e["sport"] == "ncaa" and e["declaration"] == "docs/specs/ncaa-elo-v1r.md"
     assert e["test_set"] == TEST_SET
     assert e["gate"] == D["D5"].removeprefix("D5. Gate. ")
@@ -94,7 +97,11 @@ def test_registry_entry_is_declared_with_the_verbatim_gate_window_and_plan():
     assert e["neutral_site_rule"] == "no_home_advantage_at_neutral"
     d = NCAAEloConfig()
     assert e["constants"] == {k: getattr(d, k) for k in sh.CONSTANT_KEYS}
-    entry, neutral_ha, rule = sh.frozen()
+    with pytest.raises(sh.ShadowRefused, match="addendum 24 item 2"):     # the FAIL: no college shadow on v1r
+        sh.frozen()
+    unjudged = tmp_path / "experiments.json"                            # the declaration alone still reads
+    unjudged.write_text(json.dumps([{**e, "status": "declared", "run": None, "verdict": None}]))
+    entry, neutral_ha, rule = sh.frozen(str(unjudged))
     assert (neutral_ha, rule, sh.gate_label(entry)) == (False, "no_home_advantage_at_neutral", sh.UNGATED)
     # D9: the VOID 2026-09-30 v1 run named; no prior read of this test set
     assert e["prior_reads_note"].startswith(D["D9"])          # D9 as issued; #368's correction beside it

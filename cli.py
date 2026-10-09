@@ -5078,8 +5078,11 @@ def export_ncaa_predictions_cmd(hours):
     only until the verdict). Never a call, never a venue input, never logged.
     REFUSES (exit 2) until ncaa-elo-v1r is declared in the registry with its
     neutral-site rule and the CFBD side table labels >= 95% of CFBD's
-    completed both-FBS games in each of 2024, 2025 and 2026 (D6). Walks D2's
-    stream. Writes exports/ncaa_shadow_<stamp>.json; nothing to the DB."""
+    completed both-FBS games in each of 2024, 2025 and 2026 (D6), and REFUSES
+    (exit 2) once the registry records a verdict for ncaa-elo-v1r other than
+    PASS (ARCHITECT 2026-10-09, addendum 24 item 2(d): v1r FAILED, the college
+    shadow does not start on it). Walks D2's stream. Writes
+    exports/ncaa_shadow_<stamp>.json; nothing to the DB."""
     from src.walters.ncaa_shadow import ShadowRefused, export
     try:
         path, doc = export(hours=hours)
@@ -6714,42 +6717,23 @@ def _print_cup_exam_detail(res, splits, tier_of):
           f"elo_goal_coeff: {fs['elo_goal_coeff']}")
 @cli.command("ncaa-backtest")
 @click.option("--baselines-only", is_flag=True,
-              help="Print the stream receipts, both baselines and the frozen bar "
-                   "('need <= X') WITHOUT scoring any candidate — record the bar first.")
+              help="Refused like the rest of the command since 2026-10-09 (addendum 24 item 2(c)); "
+                   "formerly: the baselines and the bar without scoring a candidate.")
 @click.option("--candidate", type=click.Choice(["v1"]), default="v1", show_default=True,
-              help="v1 = plain Elo (MOV + season regression), constants fixed a priori; "
-                   "2026 scored once.")
+              help="Refused since 2026-10-09 (addendum 24 item 2(c)); v1 = plain Elo (MOV + season "
+                   "regression), constants fixed a priori.")
 def ncaa_backtest_cmd(baselines_only, candidate):
-    """#79 NCAA v1 gate (frozen 2026-09-30): train 2025, test = finished 2026
-    games, pre/postseason excluded; prints the stream receipts, both
-    baselines, the bar and — unless --baselines-only — the candidate's
-    verdict. Read-only: writes nothing; NCAA stays market-only."""
+    """#79 NCAA v1 gate (frozen 2026-09-30): CLOSED (ARCHITECT 2026-10-09,
+    addendum 24 item 2(c)). REFUSES, exit 2, naming that ruling, with or
+    without --baselines-only, for good: it does not return when the #368
+    fence lifts. No command scores a college model on a 2026 game until the
+    next college candidate's run is recorded. The module stays (the v1r gate,
+    the confirmation code and the shadow import from it)."""
     from src.walters import ncaa_backtest as nb
 
-    if not nb.v1r_run_recorded():   # #368 fence (addendum 14 item 2(b)): refuse before anything is read
-        click.echo(nb.fence_refusal("ncaa-backtest"))
-        raise SystemExit(2)
-    # ARCHITECT ruling 2026-10-01 (NCAA audit): 2025 home/away labels are
-    # UNRELIABLE; the gate is SUSPENDED-PENDING-DATA (not failed) until a season
-    # with sane stage-level home rates exists on BOTH sides of the split; v1's
-    # verdict is VOID (trained on corrupted labels). The command still runs —
-    # diagnostic only — and says so first and last.
-    print(nb.GATE_STATUS_LINE, flush=True)
-    stream = nb.build_stream(nb.load_games())
-    base = nb.baselines(stream)
-    if baselines_only or base.verdict:   # INVALID: nothing to score against
-        nb.report(stream, base)
-        return
-    from src.models.ncaa_elo import NCAAEloConfig, NCAAEloV1
-    cfg = NCAAEloConfig()
-    model = NCAAEloV1(cfg)
-    result = nb.run_gate(stream, model)
-    nb.report(stream, result, model_name=(
-        f"{model.name} (k={cfg.k_factor:g}, home_adv={cfg.home_advantage:g}, "
-        f"mov_base={cfg.mov_base:g}, regression={cfg.season_regression:g}, "
-        f"default={cfg.default_rating:g}; all a priori, no selection) — "
-        f"{nb.TEST_SEASON} evaluated ONCE"))
-    print(nb.GATE_STATUS_LINE + " The verdict above is DIAGNOSTIC, not a ruling.", flush=True)
+    # ARCHITECT 2026-10-09, addendum 24 item 2(c): refuse before anything is read, whatever the fence says
+    click.echo(nb.backtest_refusal())
+    raise SystemExit(2)
 
 
 @cli.command("ncaa-audit")
@@ -6819,8 +6803,8 @@ def ncaa_cfbd_coverage_cmd():
     payload; no record = not covered; current labels must number the record's
     joined count); the ncaa-elo-v1r stream (current labels only, stale labels
     counted and listed, the J2 team merge listed); then #79's all-division
-    stream as information. The gate stays SUSPENDED until the architect reads
-    it. Writes nothing."""
+    stream as information. #79's gate is CLOSED (ruling 2026-10-09, addendum
+    24); the status line says so. Writes nothing."""
     from src.db.database import session_scope
     from src.ingestion import ncaa_cfbd as nc
     from src.walters import ncaa_backtest as nb

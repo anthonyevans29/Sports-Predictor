@@ -93,6 +93,8 @@ def test_2025_rate_and_margin_lines_print_n_and_the_withheld_notice_until_the_v1
     its receipt stays." The same records under 2077 print the rates; under 2025 they do not; recorded, they return."""
     from src.walters import ncaa_backtest as nb
 
+    recorded = nb.v1r_run_recorded
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: False)   # the fence as it stood before the run (addendum 24)
     world()
     p = tmp_path / "cfbd.json"
     p.write_text(json.dumps(RECS))
@@ -105,7 +107,7 @@ def test_2025_rate_and_margin_lines_print_n_and_the_withheld_notice_until_the_v1
     assert "counts: " in out and "join rate: " in out and "ACCESS TERMS" in out     # the rest of the receipt stays
     assert nsp.main(["--year", "2077", "--from-file", str(p)]) == 0
     assert nb.FENCED_RATE not in capsys.readouterr().out                            # another year: unfenced
-    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: True)
+    monkeypatch.setattr(nb, "v1r_run_recorded", recorded)          # the committed registry records the run
     assert nsp.main(["--year", "2025", "--from-file", str(p)]) == 0
     out = capsys.readouterr().out
     assert nb.FENCED_RATE not in out and "nonneutral: SOURCE n 3 home rate " in out   # the run recorded: they return

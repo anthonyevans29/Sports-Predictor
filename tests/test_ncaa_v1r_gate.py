@@ -12,7 +12,6 @@ the CONFIRMED logic with the 0.6931 bar."""
 import json
 import math
 import os
-import shutil
 from datetime import datetime, timedelta
 from pathlib import Path
 
@@ -237,9 +236,14 @@ def test_real_wrapper_walk_matches_a_hand_replay():
 
 @pytest.fixture
 def ledger(tmp_path, monkeypatch):
-    """A tmp copy of the real registry; every registry read/write in these tests goes there."""
+    """A tmp copy of the real registry; every registry read/write in these tests goes there. The real entry holds the
+    one run and the FAIL verdict (ARCHITECT 2026-10-09, addendum 24); the copy's entry is put back to declared and
+    unrun, so the gate's mechanics stay exercised as built."""
     p = tmp_path / "experiments.json"
-    shutil.copy(ROOT / "docs" / "registry" / "experiments.json", p)
+    entries = json.loads((ROOT / "docs" / "registry" / "experiments.json").read_text())
+    e = next(x for x in entries if x["id"] == "ncaa-elo-v1r")
+    e.update({"status": "declared", "run": None, "verdict": None})
+    p.write_text(json.dumps(entries, indent=2))
     monkeypatch.setattr(reg, "LEDGER", str(p))
     monkeypatch.setattr(reg, "IDS_DIR", str(tmp_path / "ids"))
     monkeypatch.setattr(vg, "RESERVATION", str(tmp_path / "ncaa-elo-v1r.started.json"))

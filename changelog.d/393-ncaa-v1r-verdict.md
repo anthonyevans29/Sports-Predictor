@@ -1,0 +1,11 @@
+## 2026-10-09 (#393: ncaa-elo-v1r verdict: FAIL on the spread test; 2025 retired as a college test season; ncaa-backtest closed; no college shadow)
+- The one gate run is spliced from the operator's branch `laptop/ncaa-elo-v1r-run-record` (130b481) by cherry-pick, byte for byte: the registry entry's run, `docs/registry/ids/ncaa-elo-v1r.txt` (762 ids) and `docs/registry/ncaa-elo-v1r.started.json`.
+  - Candidate NCAAEloV1, v1's constants untouched, on the CFBD both-FBS stream; run at 2026-10-09T16:18:32Z, no prior read.
+- The verdict is recorded with the architect's ruling verbatim (addendum 24 item 1): FAIL.
+  - (1) Margin passes: log-loss 0.559642 against a bar of 0.664889. (2) Level passes: gap 1.818pp against 5pp.
+  - (3) Spread fails: slope b 1.420537, outside 0.80 to 1.20 (too timid). (4) Range passes: ratings 1121.1 to 1906.2.
+  - Status `closed`, verdict recorded at 2026-10-09T17:49:27Z. No confirmation window, no cohort. College football stays market-only.
+- `registry.RETIRED_TEST_SETS` retires "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)"; the next candidate declares the NCAA FBS 2026 regular season as it accrues (>= 500 games).
+- `ncaa-backtest` refuses, exit 2, naming addendum 24 item 2(c), with or without `--baselines-only`, for good. `GATE_STATUS` is `CLOSED` (ruling 2026-10-09).
+- `export-ncaa-predictions` refuses, exit 2, naming addendum 24 item 2(d), while the registry records a non-PASS verdict for ncaa-elo-v1r. `ncaa-shadow-grade` is unchanged.
+- The #368 test-season fence lifts by itself with the run record: the 2025 lines and `ncaa-audit` return (no code).

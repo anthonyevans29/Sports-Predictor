@@ -442,7 +442,7 @@ def test_coverage_cli_prints_scope_fact_v1r_stream_and_79_info(fresh_db, tmp_pat
     assert "SCOPE condition (ARCHITECT 2026-10-08)" in out and "coverage condition in ALL THREE seasons (2024, 2025, 2026): DOES NOT HOLD" in out
     assert "2025: labelled 0 / CFBD completed both-FBS 0" in out and "no ingest record" in out
     assert "2084: labelled 2 / CFBD completed both-FBS 3" in out              # every season with a record
-    assert "NCAA-ELO-V1R STREAM" in out and "#79 ALL-DIVISION STREAM" in out and "SUSPENDED-PENDING-DATA" in out
+    assert "NCAA-ELO-V1R STREAM" in out and "#79 ALL-DIVISION STREAM" in out and "NCAA GATE: CLOSED (ruling 2026-10-09" in out
 
 
 # --- ARCHITECT 2026-10-08, addendum 11 item 2: J5 and the LABEL SET (L1-L4) ------------------------------------

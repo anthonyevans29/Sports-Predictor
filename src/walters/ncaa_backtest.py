@@ -73,10 +73,28 @@ TEST_SEASON = "2026"
 # 0.773 / +19). The gate is SUSPENDED-PENDING-DATA — not failed — until a
 # season with sane stage-level home rates exists on BOTH sides of the split;
 # v1's verdict is VOID (trained on corrupted labels). NCAA stays market-only.
-GATE_STATUS = "SUSPENDED-PENDING-DATA"
-GATE_STATUS_LINE = ("NCAA GATE: SUSPENDED-PENDING-DATA (ruling 2026-10-01) — 2025 home/away labels "
-                    "unreliable AT THE PROVIDER (resync-diff: source matches ours); v1's verdict VOID; "
-                    "NCAA stays market-only; reopens via an alternative source (#176).")
+# ARCHITECT 2026-10-09, addendum 24 item 2(c): ncaa-elo-v1r FAILED its gate (the spread test); #79's protocol (v1,
+# train 2025, test 2026, all divisions) is closed without a verdict of its own. GATE_STATUS and its line say CLOSED,
+# with this ruling's date, wherever they are printed. The 2026-10-01 suspension above is history.
+GATE_STATUS = "CLOSED"
+GATE_STATUS_LINE = ("NCAA GATE: CLOSED (ruling 2026-10-09, addendum 24) — #79's protocol (v1, train 2025, test "
+                    "2026, all divisions) is closed without a verdict of its own: its candidate is the model "
+                    "ncaa-elo-v1r ran, and v1r FAILED its gate (spread); NCAA stays market-only; the next college "
+                    "candidate declares the 2026 regular season as it accrues.")
+# ARCHITECT 2026-10-09, addendum 24 item 2(c), verbatim. ncaa-backtest refuses for good (not tied to the #368 fence).
+# The module stays: the v1r gate, the confirmation code and the shadow import from it.
+CLOSED_RULING = "ARCHITECT 2026-10-09, addendum 24 item 2(c)"
+BACKTEST_CLOSED = ("From this ruling until the next college candidate's run is recorded, no command scores a college "
+                   "model on a 2026 game: prices it and compares it with its result. #79's protocol (v1, train 2025, "
+                   "test 2026, all divisions) is closed without a verdict of its own: its candidate is the model v1r "
+                   "ran, and v1r has failed its gate. ncaa-backtest refuses, exit 2, naming this ruling, with or "
+                   "without --baselines-only, and it does not return when the fence lifts. Its module stays: the v1r "
+                   "gate, the confirmation code and the shadow import from it.")
+
+
+def backtest_refusal() -> str:
+    """ncaa-backtest's permanent refusal (addendum 24 item 2(c)), printed before anything is read."""
+    return f"ncaa-backtest REFUSED (exit 2): {CLOSED_RULING}, verbatim: \"{BACKTEST_CLOSED}\""
 
 # FROZEN (architect ruling 2026-09-30 + BACKLOG "#79 NCAA v1").
 LL_MARGIN = 0.010
@@ -820,7 +838,7 @@ def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dic
     if not (fenced and TRAIN_SEASON == V1R_TEST):
         out(f"  {TRAIN_SEASON} non-neutral home rate for the sanity read: "
             f"{_rate(cov[TRAIN_SEASON]['home_rate_nonneutral'])} — the architect reads it")
-    out(f"  {GATE_STATUS_LINE} This receipt does not change it: un-suspension is the architect's read.")
+    out(f"  {GATE_STATUS_LINE} This receipt does not change it.")
     return cov
 
 

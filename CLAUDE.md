@@ -128,6 +128,11 @@ become MORE binding under an income goal, never less."
 - **NCAA**: data certified (9,245 games, 743 programs); market-only
   doctrine; Kalshi (KXNCAAFGAME) is the PRIMARY college market source,
   books post thin and near-kickoff. NO model; own gate later.
+  ncaa-elo-v1r (v1's constants on the CFBD both-FBS stream, test 2025) FAILED its
+  gate 2026-10-09 on the spread test: slope 1.42 against 0.80 to 1.20, too timid;
+  margin, level and range passed. 2025 is RETIRED as a college test season; the
+  next candidate declares the 2026 regular season as it accrues. No college
+  shadow and no ncaa-backtest until then. The bar did not move.
 - **UNL / cups (EFL, CL, UEL)**: market-only. CUP MODEL TRACK
   SUSPENDED 2026-09-25 (fix-v2 re-exam FAIL, 14.76pp: a rotation
   information floor). EFL/CL/UEL stay market-only for the season; the

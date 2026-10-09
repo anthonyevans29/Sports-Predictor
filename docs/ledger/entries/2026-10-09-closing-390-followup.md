@@ -1,0 +1,27 @@
+**2026-10-09 — RULED + BUILT (ARCHITECT, addendum 26 item 2): the #390 follow-up to closing runs, which gates the watch's install. (a) A game is finished with at a start time only through a success or the last of three attempts. (b) The chain of last calls runs through the receipts.** Daily-class: no model, gate, threshold or Desk rule changes. The PR references #390 and does not close it: items 3 and 5 stay open there.
+- **Ruling, addendum 26 item 2 (verbatim):** "THE FOLLOW-UP PR, from main once #385 is merged, on #390. It gates the install, not the merge: both items below act only through the watch or on a retry, and the watch is not installed. Small, with a failing test each."
+  - "(a) The review of 17:19Z, 4232719331 (P1): real. covered_ids takes a moved game out of the covers of the attempt that found it moved, and leaves it in the covers of an earlier attempt of the same start time. One failed attempt, then a retry that finds the move and succeeds, and the game is closed for good at a start time it no longer has. "A game is finished with at a start time when a successful attempt for that start time covered it, or when the start time has had three attempts and the last of them covered it. An earlier attempt's covers count for nothing on their own." Reply in the thread with this ruling."
+  - "(b) The gap you flagged, R6 moving the export. Real, and older than addendum 25: an attempt that fails its own checks moves its export out of exports/, and the ordinary export it had overwritten goes with it, so the retry reads an older file or none. "The chain of last calls runs through the receipts, not the files. The last calls are those of the newest closing receipt of the family that carries them, with the calls that run paged when its page went out, whether its export is still in exports/ or R6 moved it. Only an export that no closing run wrote, written after that run started, comes before it." The receipt carries what it paged, so the page's calls do not depend on the file being there. Test: the first attempt fails as stale prices and its export is moved; the retry's page carries the "was" of the morning file."
+  - "Not built: item 3 (an MLB group across midnight in New York) and item 5 (reading (a)'s edge). The PR references #390 and does not close it: those two stay open there."
+- **Kept from addendum 26 item 1 (verbatim):** "Your four readings: ACCEPTED as built (a run left with no game ends at the read; a start more than 24 hours back is not carried; a receipt without last calls cannot be followed; of two receipts naming the same bytes, the newer). One more I read in the code and accept: an export no closing run wrote, newer than a closing page, supplies the last call of a game that page covered."
+- **(a) Built:** `deploy/hosting/closing.py` `covered_ids`. Within one start time, the covers of every successful attempt count, and, once the start time has had three attempts, the covers of the last attempt. Moved games stay subtracted per receipt (addendum 23 C).
+  - Reading: "the last of them" is the newest attempt in the receipts. That is the third when there are exactly three. When an operator's manual runs push the count past three, it is the newest.
+- **(b) Built:** `deploy/hosting/closing.py` `last_calls`, with `_paged_calls` and `_wall_start`; `_writer_receipt` is removed. The closing receipt's `desk_rows` carry `call_text`, and the receipt carries `run_start_wall`.
+  - Readings:
+    - "Newest" is the receipt line order of the family's closing receipts that carry a `last_calls` dict.
+    - "The calls that run paged" are every Desk row on its page (PASS included), taken when the phone accepted the page (B2). They are laid over that receipt's `last_calls`.
+    - "Written after that run started" is a file mtime at or after the receipt's `run_start_wall` (the wall clock when the run held the lock). A receipt without that field falls back to its `run_start`.
+    - "No closing run wrote" means no closing receipt of the family names the file's sha256 in `export_written`.
+    - With no receipt that carries `last_calls`, every file in exports/ supplies its calls, newest first (the chain cannot be followed: the file's call stands, as before).
+    - A paged receipt written before `call_text` existed takes its page's calls from its export, if that file is still in exports/ with the same bytes.
+  - The accepted readings of item 1 still hold, as follows:
+    - The 24-hour carry limit applies to every source.
+    - A receipt without `last_calls` is passed over: the newest receipt that carries them is followed.
+    - "Of two receipts naming the same bytes, the newer" is subsumed: the newest carrier is followed whatever file it names.
+    - An export no closing run wrote, newer than a closing page, still supplies the last call of a game that page covered.
+- **Tests (`tests/test_closing_runs.py`), each failing on f256cdd:**
+  - `test_26_2a_4232719331_a_retry_that_finds_the_move_frees_the_game_from_an_earlier_failed_attempt`
+  - `test_26_2a_three_failed_attempts_finish_only_the_last_attempts_covers`
+  - `test_26_2b_r6_moves_the_failed_attempts_export_and_the_retry_still_says_was` (the test the ruling names)
+  - `test_26_2b_an_export_no_closing_run_wrote_after_the_run_started_comes_before_it` (the kept readings; it fails on f256cdd because a receipt's last calls are now followed past a newer non-closing export)
+  - No existing test was changed.

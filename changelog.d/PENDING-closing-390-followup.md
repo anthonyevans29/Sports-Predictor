@@ -1,0 +1,8 @@
+## 2026-10-09 (#PENDING: closing runs, the #390 follow-up — ARCHITECT addendum 26 item 2; references #390, does not close it)
+- Rulings verbatim in `docs/ledger/entries/2026-10-09-closing-390-followup.md`. Daily-class: no model, gate, threshold or Desk rule changes. It gates the watch's install, not #385's merge.
+- (a) Codex 4232719331: `deploy/hosting/closing.py` `covered_ids`. A game is finished with at a start time only when a successful attempt for that start time covered it, or when the start time has had three attempts and the last of them covered it. An earlier attempt's covers no longer count on their own. Before this, one failed attempt followed by a retry that found the game moved closed the game for good at a start time it no longer had.
+- (b) R6 moving the export: `last_calls` follows the receipts, not the files. The base is the newest closing receipt of the family that carries `last_calls`, with the calls that run paged laid over it when its page went out. An export that no closing run wrote, written after that run started, comes before it for the games it holds. With no such receipt, the files' calls stand, as before.
+  - The closing receipt's `desk_rows` now carry `call_text` (the call on the page), and the receipt carries `run_start_wall` (the wall clock at the run's start, which file mtimes are compared with).
+  - A paged receipt written before `call_text` existed falls back to its export, if that file is still in exports/ with the same bytes.
+- Tests: `tests/test_closing_runs.py` `test_26_2a_*` (2) and `test_26_2b_*` (2). All four fail on f256cdd. No existing test changed.
+- Not built: #390 item 3 (an MLB group across midnight in New York) and item 5 (reading (a)'s edge). Both stay open on #390.

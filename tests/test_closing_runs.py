@@ -1831,3 +1831,114 @@ def test_25_iii_where_the_chain_cannot_be_followed_the_files_call_stands(box):
     assert runs()[-1]["last_calls"]["103"] == {"call": "PASS", "start": at(45), "source": f"mlb_MLB_{DAY}.json"}
     pg = call_pages(box)[-1]
     assert pg["body"].splitlines()[1:] == ["PASS: 1 game"] and pg["priority"] == "default"
+
+
+# ======================================================================= addendum 26 item 2: #390 follow-up ==
+
+def move_on_next_schedule_read(box, monkeypatch, moves):
+    """The next schedule read (sync-matches) from now on moves covered games, once. `moves`: {match_id: minutes}."""
+    done = []
+    inner = mc.run_step
+
+    def step(argv, run_id):
+        out = inner(argv, run_id)
+        if argv[0] == "sync-matches" and not done:
+            done.append(1)
+            for mid, m in moves.items():
+                set_start(box.db, mid, m)
+        return out
+    monkeypatch.setattr(mc, "run_step", step)
+
+
+def test_26_2a_4232719331_a_retry_that_finds_the_move_frees_the_game_from_an_earlier_failed_attempt(box,
+                                                                                                    monkeypatch):
+    """Codex 4232719331 (ARCHITECT 2026-10-09, addendum 26 item 2(a)): "A game is finished with at a start time when a
+    successful attempt for that start time covered it, or when the start time has had three attempts and the last of
+    them covered it. An earlier attempt's covers count for nothing on their own." One failed attempt covering 401 and
+    402, then a retry that finds 402 moved and succeeds: 402 is not finished with at the old start, and its new start
+    runs. Fails on f256cdd (the failed attempt's covers closed 402 for good)."""
+    box.fail_cmd["predict"] = (1, ["boom"])
+    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    assert [x["match_id"] for x in runs("SOCCER")[-1]["covers"]] == [401, 402]
+    assert mc.covered_ids("SOCCER") == set()                         # one failed attempt: nothing finished
+    box.fail_cmd.clear()
+    move_on_next_schedule_read(box, monkeypatch, {402: 95})
+    assert mc.watch(now=NOW + timedelta(minutes=1), families=("SOCCER",)) == 0
+    r = runs("SOCCER")[-1]
+    assert r["attempt"] == 2 and [m["match_id"] for m in r["moved"]] == [402]
+    assert [x["match_id"] for x in r["covers"]] == [401]
+    assert mc.covered_ids("SOCCER") == {401}
+    doc_start(box, "SOCCER", 402, 95)
+    assert mc.watch(now=NOW + timedelta(minutes=60), families=("SOCCER",)) == 0
+    r = runs("SOCCER")[-1]
+    assert r["start"] == at(95) and r["attempt"] == 1 and r["exit"] == 0 and [x["match_id"] for x in r["covers"]] == [402]
+
+
+def test_26_2a_three_failed_attempts_finish_only_the_last_attempts_covers(box, monkeypatch):
+    """Addendum 26 item 2(a), the three-attempt case: two failed attempts cover 401 and 402; the third finds 402 moved
+    and fails too. Only the last attempt's covers are finished with: 401, not 402. Fails on f256cdd."""
+    box.fail_cmd["predict"] = (1, ["boom"])
+    for m in range(2):
+        assert mc.watch(now=NOW + timedelta(minutes=m), families=("SOCCER",)) == 1
+    move_on_next_schedule_read(box, monkeypatch, {402: 95})
+    assert mc.watch(now=NOW + timedelta(minutes=2), families=("SOCCER",)) == 1
+    att = runs("SOCCER")
+    assert [r["attempt"] for r in att] == [1, 2, 3]
+    assert [[x["match_id"] for x in r["covers"]] for r in att] == [[401, 402], [401, 402], [401]]
+    assert mc.covered_ids("SOCCER") == {401}
+    box.fail_cmd.clear()
+    doc_start(box, "SOCCER", 402, 95)
+    assert mc.watch(now=NOW + timedelta(minutes=60), families=("SOCCER",)) == 0
+    assert runs("SOCCER")[-1]["start"] == at(95) and [x["match_id"] for x in runs("SOCCER")[-1]["covers"]] == [402]
+
+
+def test_26_2b_r6_moves_the_failed_attempts_export_and_the_retry_still_says_was(box):
+    """Addendum 26 item 2(b) (ARCHITECT 2026-10-09): "The chain of last calls runs through the receipts, not the
+    files." The test the ruling names: the first attempt fails as stale prices and its export (which overwrote the
+    morning file of the same name) is moved by R6; the retry's page carries the "was" of the morning file. Fails on
+    f256cdd (exports/ held no file: no 'was')."""
+    (box.repo / "exports" / f"mlb_MLB_{DAY}.json").write_text(json.dumps(_set_call(mlb_doc(), 101)))  # morning: PASS
+    box.no_fresh = {"sync-odds"}
+    assert mc.run("MLB", start=at(30), now=NOW) == 1
+    first = runs()[-1]
+    assert first["failed"] == "stale prices" and first["export_moved_to"].startswith("logs/")       # R6
+    assert not (box.repo / "exports" / f"mlb_MLB_{DAY}.json").exists()
+    assert first["last_calls"]["101"] == {"call": "PASS", "start": at(30), "source": f"mlb_MLB_{DAY}.json"}
+    box.no_fresh = set()
+    assert mc.run("MLB", start=at(30), now=NOW + timedelta(minutes=1)) == 0
+    retry = runs()[-1]
+    assert retry["last_calls"]["101"]["call"] == "PASS"                                     # from the first's receipt
+    lines = call_pages(box)[-1]["body"].splitlines()
+    assert lines[1].startswith("Underhill Visitors @ Underhill · PLAY Underhill 0.5u")
+    assert lines[2].endswith("· was PASS")
+    # the receipt carries what it paged: the page's calls do not depend on the file being there
+    assert {x["match_id"]: x["call_text"] for x in retry["desk_rows"]}[101] == "PLAY Underhill 0.5u"
+    (box.repo / retry["export"]).unlink()
+    assert mc.last_calls("MLB", NOW + timedelta(minutes=2))[101] == {
+        "call": "PLAY Underhill 0.5u", "start": at(30), "source": f"page {retry['run_id']}"}
+
+
+def test_26_2b_an_export_no_closing_run_wrote_after_the_run_started_comes_before_it(box):
+    """Addendum 26 item 2(b): "Only an export that no closing run wrote, written after that run started, comes before
+    it." Kept readings of item 1: an export no closing run wrote, newer than a closing page, supplies the last call
+    of a game that page covered; a call whose start is more than 24 hours back is not carried; a receipt without
+    last calls cannot be followed (the newest receipt that carries them is)."""
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    a = runs()[-1]
+    assert mc.last_calls("NFL", NOW)[301]["source"] == f"page {a['run_id']}"
+    (box.repo / "exports" / f"nfl_predictions_{DAY}.json").write_text(json.dumps(_set_call(nfl_doc(), 301)))
+    lc = mc.last_calls("NFL", NOW)
+    assert lc[301] == {"call": "PASS", "start": at(35), "source": f"nfl_predictions_{DAY}.json"}
+    # a receipt without last calls (newer) is passed over; a call more than a day back is not carried
+    lines = [json.loads(x) for x in c.receipts_path().read_text().splitlines()]
+    lines[-1]["last_calls"]["999"] = {"call": "PLAY Old 1u", "start": iso(NOW - timedelta(hours=25))}
+    lines[-1]["last_calls"]["998"] = {"call": "PLAY Recent 1u", "start": iso(NOW - timedelta(hours=23))}
+    lines.append({**lines[-1], "run_id": "later-without-last-calls", "last_calls": None,
+                  "page": {"phone": {"accepted": True}}, "desk_rows": []})
+    c.receipts_path().write_text("".join(json.dumps(r) + "\n" for r in lines))
+    lc = mc.last_calls("NFL", NOW)
+    assert 999 not in lc and lc[998]["call"] == "PLAY Recent 1u" and lc[301]["call"] == "PASS"
+
+
+def iso(dt):
+    return dt.strftime("%Y-%m-%dT%H:%M:%SZ")

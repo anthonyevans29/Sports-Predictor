@@ -65,7 +65,7 @@ Direction verified against the file's own `_format` and `load_aliases` / `vet_al
 
 ### SCOPE: the v1r stream
 
-- `ncaa_backtest.v1r_stream(games, teams)`: the gate's rows (FINISHED, both scores, as `load_games`) that carry a side-table label (`label_source == "cfbd"`), with both team ids mapped through the J2 merge, then #79's `build_stream` (same season filter, exclusions and tie rule).
+- `ncaa_backtest.v1r_stream(games, teams)`: the gate's rows (FINISHED, both scores, as `load_games`) that carry a side-table label (`label_source == "cfbd"`), with both team ids mapped through the J2 merge, then #79's `build_stream` (same season filter, exclusions and tie rule). **Superseded 2026-10-08 by the ncaa-elo-v1r declaration's D2** (docs/specs/ncaa-elo-v1r.md): seasons 2024, 2025 and 2026 by the label's season, kickoff then match id, no stage exclusion (postseason walked), level scores skipped, counted and listed.
 - A stored game without a label is neither walked nor scored. It is counted per season ("unlabelled, NOT walked, NOT scored").
 - The shadow walks this stream (`ncaa_shadow.fit`). The gate harness for v1r is NOT wired into `ncaa-backtest` here: the declaration's split, neutral-site rule and postseason rule come first, by ruling. `ncaa-backtest` still runs #79's all-division stream exactly as declared.
 
@@ -101,7 +101,9 @@ Why J5 (architect): on a scratch DB a game missing from our table (Miami @ Texas
 
 - **Table.** `ncaa_cfbd_ingest_records` (`NCAACFBDIngestRecord`). Columns: season, division, fetched_at, payload_file, records, in_scope, joined, unlabelled (the receipt's list), plus an id.
 - **Writes.** `write_record` writes one row per season on every non-dry run. A run that joins nothing still writes its record; so do an empty payload and a missing-field refusal (in scope 0). The table is append-only. A dry run writes nothing.
-- **Migration.** One script, `migrate_ncaa_cfbd_v2.py`, adds `ncaa_cfbd_labels.season_type` (J4) and creates this table (L1). It is additive and idempotent, per the architect's migration note. It replaces the unmerged `migrate_ncaa_cfbd_season_type.py` and `migrate_ncaa_cfbd_ingest_receipts.py`. The ingest refuses to write until both objects exist.
+- **Migration.** One script, `migrate_ncaa_cfbd_v2.py`, adds `ncaa_cfbd_labels.season_type` (J4) and creates this table (L1). It is additive and idempotent, per the architect's migration note. It replaces the unmerged `migrate_ncaa_cfbd_season_type.py` and `migrate_ncaa_cfbd_ingest_receipts.py`. The ingest refuses to write until both objects exist AND the script's own marker does.
+- **Marker (#367; ARCHITECT 2026-10-08, addendum 13 item 1).** `init_db()` (create_all) creates this table, and a side table built from the current ORM carries `season_type`, so neither object proves the backed-up migration ran. The script also creates the one-row table `ncaa_cfbd_v2_migration` (Core SQL, unmapped, the same convention as `ncaa_cfbd_labels_migration`; its own table, since that one's id is `CHECK (id = 1)`) and writes its row if missing (`+ Wrote` / `· Kept`). The ingest's write gate is `v2_migrated()`: column, table and marker row. `drop_db()` drops this marker too. Readers still need only the table (`records_ready`): an `init_db()`-created one is empty and reads "no ingest record".
+- **If the script ran before #367** (no marker then): run it once more. It keeps both objects, writes only the marker, and the ingest writes again.
 - **Storage.** A DB table, not a file: the host and the laptop each have their own DB, and `exports/` is mirrored and pruned.
 
 ### L2: coverage is the latest record
@@ -109,8 +111,8 @@ Why J5 (architect): on a scratch DB a game missing from our table (Miami @ Texas
 - `stored_coverage` takes the season's latest record (by fetched_at, then id): joined ÷ in scope, at least 95%, and the record's unlabelled list.
 - It never opens the payload file (a test checks this).
 - A season with no record is not covered.
-- `ncaa-cfbd-coverage` prints every season with a record, plus 2025 and 2026.
-- The shadow's `coverage_guard` reads the same fact for 2025 and 2026.
+- `ncaa-cfbd-coverage` prints every season with a record, plus 2024, 2025 and 2026 (ncaa-elo-v1r D6, 2026-10-08).
+- The shadow's `coverage_guard` reads the same fact for 2024, 2025 and 2026 (D6).
 
 ### L3: current labels
 
@@ -352,3 +354,9 @@ architect's read.
 6. The gate stays SUSPENDED until the architect reads the coverage receipt.
    The order after that is the ruling's: `ncaa-backtest --baselines-only`
    recorded first, then the `ncaa-elo-v1r` declaration PR.
+
+## Classification fields (ARCHITECT 2026-10-08, addendum 13 item 1, RULED, verbatim)
+
+> "With division fbs, both classification fields are required fields. A payload that lacks either is refused for that year on the same path as a missing required field: no label is written, the ingest record is written with nothing in scope and nothing joined, and the season reads not covered until a good ingest. A dry run prints the refusal and joins nothing."
+
+Built in #362 (96f90c2, on main): with division fbs, `discover` treats `home_class` and `away_class` as required, and `in_scope_reason` never admits a game without both (`source_no_classification`). Both halves are pinned by tests, the non-dry refusal and the dry run.

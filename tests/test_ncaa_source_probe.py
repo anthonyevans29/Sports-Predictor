@@ -85,3 +85,27 @@ def test_api_mode_without_key_refuses_and_never_writes_under_data(monkeypatch, c
     monkeypatch.delenv("CFBD_API_KEY", raising=False)
     assert nsp.main(["--year", "2025"]) == 2 and "no CFBD_API_KEY" in capsys.readouterr().out
     assert nsp.main(["--year", "2025", "--save", os.path.join(nsp.ROOT, "data", "x.json")]) == 2
+
+
+def test_2025_rate_and_margin_lines_print_n_and_the_withheld_notice_until_the_v1r_run(capsys, tmp_path, monkeypatch):
+    """ARCHITECT 2026-10-08, addendum 15 item 1(b) (#368 fence, its one hole): "Until the run is recorded, for 2025
+    its two rate-and-margin lines print n and the withheld notice in place of the rates and margins. The rest of
+    its receipt stays." The same records under 2077 print the rates; under 2025 they do not; recorded, they return."""
+    from src.walters import ncaa_backtest as nb
+
+    world()
+    p = tmp_path / "cfbd.json"
+    p.write_text(json.dumps(RECS))
+    assert nsp.main(["--year", "2025", "--from-file", str(p)]) == 0
+    out = capsys.readouterr().out
+    for b in ("nonneutral", "neutral"):
+        line = next(l for l in out.splitlines() if l.startswith(f"  {b}: SOURCE n "))
+        assert nb.FENCED_RATE in line and "home rate 0." not in line and "margin +" not in line, line
+        assert " · OURS on joined n " in line
+    assert "counts: " in out and "join rate: " in out and "ACCESS TERMS" in out     # the rest of the receipt stays
+    assert nsp.main(["--year", "2077", "--from-file", str(p)]) == 0
+    assert nb.FENCED_RATE not in capsys.readouterr().out                            # another year: unfenced
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: True)
+    assert nsp.main(["--year", "2025", "--from-file", str(p)]) == 0
+    out = capsys.readouterr().out
+    assert nb.FENCED_RATE not in out and "nonneutral: SOURCE n 3 home rate " in out   # the run recorded: they return

@@ -176,11 +176,12 @@ def test_two_source_games_on_one_match_are_both_refused():
 # --- the ingest command ----------------------------------------------------------
 
 def test_dry_run_writes_nothing_then_ingest_upserts_and_never_touches_matches(tmp_path, pinned):
+    import migrate_ncaa_cfbd_v2 as mig2
     import migrate_ncaa_cfbd_labels as mig
     from cli import cli
 
     w = world()
-    assert mig.main() == 0                                         # the marker the ingest requires
+    assert mig.main() == 0 and mig2.main() == 0                    # the markers the ingest requires
     ids = list(w["matches"].values())
     f = tmp_path / "payload.json"
     f.write_text(json.dumps(RECS))
@@ -262,7 +263,11 @@ def test_init_db_alone_does_not_satisfy_the_guard_migration_does(tmp_path, pinne
     assert "+ Wrote migration marker" in capsys.readouterr().out
     assert mig.main() == 0 and "· Kept migration marker" in capsys.readouterr().out   # idempotent
     with fresh_scope() as s:
-        assert nc.migrated(s)
+        assert nc.migrated(s) and not nc.v2_migrated(s)            # #367: the v2 objects alone do not count
+    with pytest.raises(nc.CFBDError, match="migrate_ncaa_cfbd_v2.py"):
+        nc.run([2083], from_file=str(f), out=lines.append)
+    import migrate_ncaa_cfbd_v2 as mig2
+    assert mig2.main() == 0
     lines = []
     assert nc.run([2083], from_file=str(f), out=lines.append) == 0
     assert any(x.startswith("  WRITTEN ncaa_cfbd_labels:") for x in lines)
@@ -385,11 +390,12 @@ def test_unmatched_names_flag_lists_every_name(tmp_path, pinned):
 
 def test_api_mode_key_never_printed_and_payload_saved_under_save_dir(tmp_path, pinned, monkeypatch):
     import config
+    import migrate_ncaa_cfbd_v2 as mig2
     import migrate_ncaa_cfbd_labels as mig
     from cli import cli
 
     world()
-    assert mig.main() == 0                                         # the marker the ingest requires
+    assert mig.main() == 0 and mig2.main() == 0                    # the markers the ingest requires
     monkeypatch.setattr(config, "settings", dataclasses.replace(config.settings, cfbd_api_key=SENTINEL))
     seen = {}
 
@@ -540,7 +546,7 @@ def test_coverage_per_season_and_the_95_condition():
     nb.coverage_report(st, out=lines.append, fbs=fbs)
     text = "\n".join(lines)
     assert ">= 95%: YES" in text and ">= 95%: NO" in text and "CFBD 7 · x" in text
-    assert "coverage condition in BOTH seasons: DOES NOT HOLD" in text
+    assert "coverage condition in ALL THREE seasons (2024, 2025, 2026): DOES NOT HOLD" in text
     assert "SUSPENDED-PENDING-DATA" in text and "architect" in text
     rep = []
     nb.report(st, nb.baselines(st), out=rep.append)
@@ -580,7 +586,7 @@ def test_load_games_reads_side_table_and_falls_back(monkeypatch):
     assert (g2.label_source, g2.home_score, g2.away_score, g2.neutral) == ("matches", 7, 3, None)
     res = CliRunner().invoke(cli, ["ncaa-cfbd-coverage"])
     assert res.exit_code == 0, res.output
-    assert "coverage condition in BOTH seasons" in res.output and "SUSPENDED-PENDING-DATA" in res.output
+    assert "coverage condition in ALL THREE seasons" in res.output and "SUSPENDED-PENDING-DATA" in res.output
     assert _match_snapshot(ids) == before
 
 

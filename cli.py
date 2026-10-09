@@ -270,7 +270,12 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
                                            "scores_provider_missing", "scores_ours_missing"))
                + f" · dates moved > 1h {c.get('date_moved', 0)}")
     (ro, no), (rp, np_) = r["home_rate"]["ours"], r["home_rate"]["provider"]
-    click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
+    from src.walters import ncaa_backtest as nb
+    if competition_code.upper() == "NCAA" and season in (None, nb.V1R_TEST) and not nb.v1r_run_recorded():
+        # #368 fence: an NCAA listing that includes 2025 prints no home win rate until the v1r run is recorded
+        click.echo(f"  home win rate (decided games): {nb.FENCED_RATE} (n ours={no}, provider={np_})")
+    else:
+        click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
     for k, lines in sorted(r["samples"].items()):
         click.echo(f"  {k} (sample):")
         for ln in lines:
@@ -4915,6 +4920,8 @@ def desk_rescore_cmd(files, out_path):
             suspended += x["verdict"] == "kalshi-only suspended"     # Q3 K1 (ARCHITECT 2026-10-08): its own too
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
+            if x["verdict"] == "kalshi-only suspended":     # addendum 15 item 2: a suspended row is not priced
+                xe, xc = "—", "not priced: no order under the suspension"
             # a None edge prints as — (never a crash: Codex P1 on #369); a suspended row shows its hold's raw edge
             fe = "—" if x["fair_edge_pp"] is None else f"{x['fair_edge_pp']:+.1f}pp"
             if x.get("hold_raw_edge_pp") is not None:
@@ -4982,8 +4989,9 @@ def export_ncaa_predictions_cmd(hours):
     model_shadow, competition NCAA, family NCAAF, gate status (UNGATED — shadow
     only until the verdict). Never a call, never a venue input, never logged.
     REFUSES (exit 2) until ncaa-elo-v1r is declared in the registry with its
-    neutral-site rule and the CFBD side table covers >= 95% of the stream in
-    both seasons. Writes exports/ncaa_shadow_<stamp>.json; nothing to the DB."""
+    neutral-site rule and the CFBD side table labels >= 95% of CFBD's
+    completed both-FBS games in each of 2024, 2025 and 2026 (D6). Walks D2's
+    stream. Writes exports/ncaa_shadow_<stamp>.json; nothing to the DB."""
     from src.walters.ncaa_shadow import ShadowRefused, export
     try:
         path, doc = export(hours=hours)
@@ -4994,9 +5002,12 @@ def export_ncaa_predictions_cmd(hours):
     f = doc["fit"]
     print(f"  NCAA · {doc['count']} FBS games in the next {hours}h · model {doc['model_version']} · "
           f"{doc['gate_verdict']} · engine {doc['engine']} · not gate evidence")
-    print(f"  fit: {f['games_used']} stream games walked (train {f['train_n']} / test {f['test_n']}) · "
-          f"neutral rule {f['neutral_site_rule']} · neutral games {f['neutral_updates']} · coverage "
-          f"{f['coverage']} · ties skipped {f['ties_skipped']} · window skips {doc['skipped'] or 'none'}")
+    print(f"  fit: {f['games_used']} stream games walked (by season {f['walked_by_season']}) · "
+          f"neutral rule {f['neutral_site_rule']} · neutral games {f['neutral_updates']} · no neutral flag "
+          f"{f['neutral_unflagged']} · coverage {f['coverage']} · level scores skipped {f['level_scores_skipped']} · "
+          f"window skips {doc['skipped'] or 'none'}")
+    for line in f["level_scores_listed"]:
+        print(f"    level score (data defect, skipped): {line}")
 
 
 @cli.command("ncaa-shadow-grade")
@@ -6424,6 +6435,9 @@ def ncaa_backtest_cmd(baselines_only, candidate):
     verdict. Read-only: writes nothing; NCAA stays market-only."""
     from src.walters import ncaa_backtest as nb
 
+    if not nb.v1r_run_recorded():   # #368 fence (addendum 14 item 2(b)): refuse before anything is read
+        click.echo(nb.fence_refusal("ncaa-backtest"))
+        raise SystemExit(2)
     # ARCHITECT ruling 2026-10-01 (NCAA audit): 2025 home/away labels are
     # UNRELIABLE; the gate is SUSPENDED-PENDING-DATA (not failed) until a season
     # with sane stage-level home rates exists on BOTH sides of the split; v1's
@@ -6459,7 +6473,11 @@ def ncaa_audit_cmd(seasons, limit):
     'established' HEURISTICS, the stored-field inventory (neutral site /
     division indicators), and a suspects list. Writes nothing."""
     from src.walters import ncaa_audit as na
+    from src.walters import ncaa_backtest as nb
 
+    if not nb.v1r_run_recorded():   # #368 fence (addendum 14 item 2(b)): refuse before anything is read
+        click.echo(nb.fence_refusal("ncaa-audit"))
+        raise SystemExit(2)
     data = na.load(top=limit)
     na.report(data, seasons=tuple(seasons) or na.AUDIT_SEASONS, limit=limit, out=click.echo)
 
@@ -6504,8 +6522,8 @@ def ncaa_cfbd_labels_cmd(years, from_file, dry_run, save_dir, division, unmatche
 @cli.command("ncaa-cfbd-coverage")
 def ncaa_cfbd_coverage_cmd():
     """NCAA CFBD label coverage, read-only. SCOPE + LABEL SET (ARCHITECT
-    2026-10-08): per season (every season with an ingest record, plus 2025 and
-    2026) the coverage fact = the season's latest ingest record, joined over in
+    2026-10-08): per season (every season with an ingest record, plus 2024,
+    2025 and 2026: ncaa-elo-v1r D6) the coverage fact = the season's latest ingest record, joined over in
     scope, >= 95%, every unlabelled game as the record lists it (never opens the
     payload; no record = not covered; current labels must number the record's
     joined count); the ncaa-elo-v1r stream (current labels only, stale labels
@@ -6518,10 +6536,10 @@ def ncaa_cfbd_coverage_cmd():
 
     games = nb.load_games()
     with session_scope() as s:
-        seasons = sorted(set(nc.latest_records(s)) | {nb.TRAIN_SEASON, nb.TEST_SEASON})
+        seasons = sorted(set(nc.latest_records(s)) | set(nb.V1R_SEASONS))     # D6: 2024, 2025, 2026 always
         fbs = nc.stored_coverage(s, seasons)
         s.rollback()
-    nb.coverage_report(nb.build_stream(games), out=click.echo, fbs=fbs, v1r=nb.load_v1r_stream(games))
+    nb.coverage_report(nb.build_stream(games), out=click.echo, fbs=fbs, v1r=nb.load_v1r_stream())   # D2: by label
 
 
 @cli.command("nhl-backtest")

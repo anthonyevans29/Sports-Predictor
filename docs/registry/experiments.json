@@ -684,5 +684,38 @@
     "status": "declared",
     "run": null,
     "verdict": null
+  },
+  {
+    "id": "ncaa-elo-v1r",
+    "sport": "ncaa",
+    "lane": "#79 (ncaa-elo-v1r declared ARCHITECT 2026-10-08, addendum 11 item 3; CFBD labels #333/#362)",
+    "candidate": "NCAAEloV1 (src/models/ncaa_elo.py) with its constants untouched: k_factor 24, home_advantage 55, mov_base 2.2, season_regression 0.25, default_rating 1500; neutral_site_rule no_home_advantage_at_neutral (D1)",
+    "declaration": "docs/specs/ncaa-elo-v1r.md",
+    "training_cutoff": "none fitted (constants a priori, D1). D2 stream: current CFBD both-FBS labels, seasons 2024-2026, kickoff then match id. D3: 2024 warm-up, update only; 2025 regular season predict-then-update; any other 2025 game walked, never scored; no 2026 game scored. D4: baseline = the 2024 non-neutral regular-season home win rate, frozen before any test game is scored (0.5 at a neutral site)",
+    "test_set": "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)",
+    "gate": "Under 500 scored games the run is INVALID. PASS iff all four hold on the scored games. (1) Margin: model log-loss < baseline log-loss - 0.010, unrounded; ties reject. (2) Level: the mean of the model's home probabilities and the realized home win rate differ by no more than 5pp. (3) Spread: the calibration slope b lies within 0.20 of 1, where b is the slope of the maximum-likelihood logistic fit of the result on the model's log-odds, logit P(home win) = a + b * logit(p), with p clipped to [0.000001, 0.999999]; a fit that does not converge fails. (4) Range: every rating after the last 2025 game walked lies within 1000 to 2000. Reported, never gated: #79's 10pp bands, the constant-0.5 log-loss, Brier, the intercept a, cold starts (a team's first game in the stream), and the log-loss split neutral and non-neutral.",
+    "confirmation_window": "the first 100 stored NCAA fixtures, by kickoff then id, that kick off after the verdict and whose two teams, as merged ids, both carry a current label at the freeze; any status; frozen once by fixture id with the intl-elo-v2 machinery. A cancelled fixture is released and replaced by the next eligible one. A finished fixture without a label is pending, never replaced. Scored by the same replay as the gate, the label's flags applied, every cohort fixture whatever its season_type. CONFIRMED iff log-loss <= 0.6931 and < the D4 baseline's log-loss - 0.010 on the same games. confirmation_plan: n_games 100, metric log_loss, bar 0.6931, must_beat_reference true, reference the D4 baseline on the same games minus 0.010.",
+    "confirmation_plan": {
+      "n_games": 100,
+      "metric": "log_loss",
+      "bar": 0.6931,
+      "must_beat_reference": true,
+      "reference": "the D4 baseline on the same games minus 0.010"
+    },
+    "declared_at": "2026-10-08T16:57:23Z",
+    "status": "declared",
+    "run": null,
+    "verdict": null,
+    "neutral_site_rule": "no_home_advantage_at_neutral",
+    "constants": {
+      "k_factor": 24.0,
+      "home_advantage": 55.0,
+      "mov_base": 2.2,
+      "season_regression": 0.25,
+      "default_rating": 1500.0
+    },
+    "ratified": "ARCHITECT 2026-10-08, addendum 11 item 3 (pre-run, frozen; D1-D9 verbatim in docs/specs/ncaa-elo-v1r.md). Note on D5 (verbatim): \"Tests (2) and (3) replace #79's band rule for this declaration only, before any v1r number exists. #79's own declaration is untouched, and my sentence in addendum 10 that its acceptance numbers do not move stands for #79. For v1r the margin, the rating range and the 500 games are #79's; the calibration test is D5's.\"",
+    "design_receipt": "docs/receipts/ncaa-v1r-design-2026-10-08.md (step (a), stop condition OK: first setting D5 (2)&(3) 87.0%, band rule 29.5%; re-run with the uniform cross-conference draw after Codex on #365, first run 87.5% / 26.5%)",
+    "prior_reads_note": "D9. Prior reads of this test set: none. The 2026-09-30 run of v1 (all divisions, scrambled 2025 labels, VOID by the 2026-10-01 ruling) scored 2026 games; the entry names it. CORRECTION (ARCHITECT 2026-10-08, addendum 14 item 2(a), #368, verbatim): \"For 'Prior reads of this test set: none.' read 'No candidate has been scored on this test set. One outcome figure of the test season was read before this declaration: its non-neutral home win rate on the labels then held, 0.597 on 652 games (operator console, ingest of 2026-10-08 14:07Z; the label sanity check ordered on 2026-10-07, when 2025 was the warm-up season). D5 (2) compares the model with a figure of that kind and was declared with it known. D5 (1), (3) and (4) were not informed by it.'\" CORRECTION IN FORCE (ARCHITECT 2026-10-08, addendum 15 item 1(a), #368, superseding the addendum 14 correction, which stays quoted as issued; verbatim): \"For 'Prior reads of this test set: none.' read: 'No candidate has been scored on this test set. The season's home win rate and mean home margin were read before this declaration, more than once. Under the provider's labels, since found scrambled: 0.489 in the void v1 run (2026-09-30); by stage and by month in ncaa-audit, FBS 0.404 with -6.05 points (2026-10-01); 0.489 at the source in resync-diff (2026-10-01); 0.445 with -2.67 points in the #176 probe (2026-10-07). Under CFBD's labels: 0.597 with +5.23 points on non-neutral games in the same probe, which also printed both figures for the season's 64 neutral-site games; and 0.597 on 652 labelled non-neutral games (operator console, 2026-10-08 14:07Z). Declared with these figures known: D1's neutral-site rule, D4, and D5's tests (2) and (3). Fixed before any of them was read: D1's constants, and the margin of 0.010, the rating range and the 500 games, which are #79's (frozen 2026-09-30, before any run).'\""
   }
 ]

@@ -314,3 +314,54 @@ def test_k6_the_actionable_receipt_splits_by_the_record_and_infers_nothing():
     assert [res["blend"][bl]["n"] for bl in MA.BLENDS] == [1, 2, 1]
     text = MA.format_receipt(res, season="2026", run_stamp="t")
     assert "## By market-blend record (Q3 K6, all stages) · blended 1 · model alone 2 · not recorded 1" in text
+
+
+# ---------------------------------------------- addendum 15 item 2: "A cost is the cost of an order" --
+
+@pytest.mark.parametrize("unit_usd", [None, "20"])            # the unit in contracts, and in dollars
+def test_desk_rescore_prices_each_row_at_its_own_exec_block_and_a_suspended_row_not_at_all(
+        tmp_path, monkeypatch, unit_usd):
+    """ARCHITECT 2026-10-08, addendum 15 item 2 (RULED): "The desk-rescore line carries the exec cost and exec edge
+    of the row's own exec block under the current Desk, at the file's as_of and counts: the same size, and none
+    where the Desk writes no exec block. A suspended row is not priced." For every re-scored row exec_cost and
+    exec_edge_pp equal exec.cost and exec.edge_pp of the same row annotated by the current Desk at the file's as_of
+    and counts, and are None where exec is None. Cases: a suspended row, a half-size quarantine shadow (the sibling
+    on main since #328: priced at one unit on the rescore line, at its shadow size in its exec block), a plain PLAY."""
+    from click.testing import CliRunner
+
+    import cli
+    if unit_usd is None:
+        monkeypatch.delenv("SP_UNIT_USD", raising=False)
+    else:
+        monkeypatch.setenv("SP_UNIT_USD", unit_usd)
+    doc = {"sport": "mlb", "predictions": [
+        row("Susp", 0.56),                                       # kalshi-only: suspended under Q3
+        dict(row("Quar", 0.71, fair_h=0.56, bid=0.55, ask=0.56), stage="postseason"),   # +15pp: shadow 0.5u
+        row("Play", 0.62, fair_h=0.56, bid=0.55, ask=0.56)]}     # +6pp on books: a plain PLAY
+    with dp.base_v11():                                          # published before the quarantine and Q3
+        dp.annotate(doc, now=NOW)
+    assert [p["desk"]["call"] for p in doc["predictions"]] == ["PLAY", "PLAY", "PLAY"]
+    rows = {x["game"].split(" @ ")[1]: x for x in dp.rescore(doc)}
+    # the same rows, annotated by the current Desk at the file's as_of and counts
+    cur = json.loads(json.dumps(doc))
+    for p in cur["predictions"]:
+        p.pop("desk")
+    dp.annotate(cur, now=NOW, counts=doc["desk_meta"]["counts"])
+    ex = {p["home_team"]: p["desk"]["exec"] for p in cur["predictions"]}
+    assert ex["Susp"] is None and ex["Quar"] is not None and ex["Play"] is not None
+    q = next(p["desk"] for p in cur["predictions"] if p["home_team"] == "Quar")
+    assert (q["call"], q["shadow_units"]) == ("PASS", 0.5)      # the half-size shadow
+    for home, x in rows.items():
+        e = ex[home]
+        assert x["exec_cost"] == (e["cost"] if e else None), home
+        assert x["exec_edge_pp"] == (e["edge_pp"] if e else None), home
+    assert rows["Susp"]["verdict"] == "kalshi-only suspended" and rows["Susp"]["hold_raw_edge_pp"] is not None
+    assert rows["Quar"]["verdict"] == "quarantined"
+    p = tmp_path / "mlb.json"
+    p.write_text(json.dumps(doc))
+    res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p), "--out", str(tmp_path / "r.md")])
+    assert res.exit_code == 0, (res.output, repr(res.exception))
+    line = next(l for l in res.output.splitlines() if "Susp away @ Susp" in l)
+    assert "exec — (not priced: no order under the suspension)" in line and "hold raw edge +6.5pp" in line
+    qline = next(l for l in res.output.splitlines() if "Quar away @ Quar" in l)
+    assert f"cost {ex['Quar']['cost']:.3f}" in qline and f"{ex['Quar']['edge_pp']:+.1f}pp" in qline

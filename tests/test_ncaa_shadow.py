@@ -73,12 +73,14 @@ def world():
         s.query(Match).filter(Match.id.in_(mids)).delete(synchronize_session=False)
 
 
-def _fbs(ok25=True, ok26=True):
-    """ncaa_cfbd.stored_coverage's shape (SCOPE 2026-10-08): labelled / CFBD's completed both-FBS games."""
+def _fbs(ok25=True, ok26=True, ok24=True):
+    """ncaa_cfbd.stored_coverage's shape (SCOPE 2026-10-08): labelled / CFBD's completed both-FBS games; D6 of the
+    ncaa-elo-v1r declaration: 2024, 2025 and 2026."""
     from src.ingestion import ncaa_cfbd as nc
 
     return {s_: {"season": s_, "payload": f"p{s_}", "reason": None, "unlabelled": [] if ok else ["CFBD 1 · x"],
-                 **nc.fbs_coverage(100, 100 if ok else 90)} for s_, ok in (("2025", ok25), ("2026", ok26))}
+                 **nc.fbs_coverage(100, 100 if ok else 90)}
+            for s_, ok in (("2024", ok24), ("2025", ok25), ("2026", ok26))}
 
 
 @pytest.fixture()
@@ -90,10 +92,13 @@ def mine(world, monkeypatch):
     real = nb.load_games
     teams = set(world["teams"])
     monkeypatch.setattr(nb, "load_games", lambda: [g for g in real() if g.home_id in teams and g.away_id in teams])
+    real_v1r = nb.load_v1r_games                           # D2 reads every labelled match (Codex on #365): ours only
+    monkeypatch.setattr(nb, "load_v1r_games",
+                        lambda: [g for g in real_v1r() if g.home_id in teams and g.away_id in teams])
     monkeypatch.setattr(nc, "stored_coverage", lambda s, seasons, **k: _fbs())
 
     # L3: every label of this module is stamped NOW, the latest ingest record's fetched_at for both seasons
-    monkeypatch.setattr(nc, "latest_record_stamps", lambda s, seasons=None: {"2025": NOW, "2026": NOW})
+    monkeypatch.setattr(nc, "latest_record_stamps", lambda s, seasons=None: {"2024": NOW, "2025": NOW, "2026": NOW})
     return world
 
 
@@ -173,7 +178,7 @@ def test_export_stamps_every_row_fbs_only_and_v1_constants(mine, tmp_path):
     d = NCAAEloConfig()
     assert c == {"k_factor": d.k_factor, "home_advantage": d.home_advantage, "mov_base": d.mov_base,
                  "season_regression": d.season_regression, "default_rating": d.default_rating}
-    assert doc["fit"]["neutral_updates"] == 1 and doc["fit"]["coverage"] == {"2025": 1.0, "2026": 1.0}
+    assert doc["fit"]["neutral_updates"] == 1 and doc["fit"]["coverage"] == {"2024": 1.0, "2025": 1.0, "2026": 1.0}
     with session_scope() as s:                             # nothing written to the Prediction table
         assert s.execute(select(func.count()).select_from(Prediction)
                          .where(Prediction.match_id == mine["up"])).scalar() == 0
@@ -255,3 +260,13 @@ def test_refuses_unless_the_declaration_freezes_v1s_constants(mine, tmp_path):
         reg = _registry(tmp_path, constants=const, neutral_site_rule="no_home_advantage_at_neutral")
         with pytest.raises(sh.ShadowRefused, match="must freeze constants"):
             sh.export(now=NOW, out_dir=str(tmp_path / f"c{i}"), registry_path=reg)
+
+
+def test_upcoming_row_says_the_home_advantage_applied_and_that_the_neutral_flag_is_unknown(mine, tmp_path):
+    """D8 (ARCHITECT 2026-10-08, addendum 11 item 3): "Until then the shadow prices an upcoming game with the listed
+    home's advantage and says on the row that the neutral flag is unknown." """
+    doc = sh.export(now=NOW, out_dir=str(tmp_path),
+                    registry_path=_registry(tmp_path, neutral_site_rule="no_home_advantage_at_neutral"))[1]
+    p = doc["predictions"][0]["prediction"]
+    assert p["home_adv_applied"] == 55.0 and p["home_adv_basis"] == "listed home (neutral flag unknown before the game)"
+    assert p["neutral"] is None and p["neutral_flag"] == "unknown before the game"

@@ -1266,6 +1266,17 @@ def order_line(r, target: str | None, units, ladder: bool = False) -> dict | Non
     return out
 
 
+def call_exec_block(r, c):
+    """The `exec` block of a model row's desk block: the cost of the row's own order. None for a LADDER (it buys NO
+    on HOME, not the pick's leg) and for every no-call kind (no order: a suspended row is not priced). A quarantine
+    shadow is priced at its shadow size. desk_block and the rescore read this one function (ARCHITECT 2026-10-08,
+    addendum 15 item 2: "A cost is the cost of an order")."""
+    if (EXEC_RULES["on"] and c["call"] == "LADDER") or c["passKind"] in NO_CALL_KINDS:
+        return None
+    return exec_block(r, r["pick"], r["prob"], c.get("execUnits") or (c["shadowUnits"] or None),
+                      c["units"] if c.get("execUnits") and c["units"] else None)
+
+
 def desk_block(r, c, v, ven) -> dict:
     """The per-row `desk` field (model rows: the call + any value shadow;
     market-only rows: the venue engine). Every row also carries `venue`, the
@@ -1283,11 +1294,7 @@ def desk_block(r, c, v, ven) -> dict:
            "reference": ("kalshi_only" if c["kalOnly"] else "books") if c["mktRef"] is not None else None,
            "edge_pp": _num(c["edge"]), "pass_kind": c["passKind"], "tags": c["tags"],
            "reasons": c["reasons"], "reason": " · ".join(c["reasons"]),
-           "shadow_units": c["shadowUnits"], "exec": (None if (EXEC_RULES["on"] and c["call"] == "LADDER")
-                                                      or c["passKind"] in NO_CALL_KINDS else  # a LADDER buys NO on HOME, not the
-                    exec_block(r, r["pick"], r["prob"],                           # pick's leg: no pick-leg exec
-                               c.get("execUnits") or (c["shadowUnits"] or None),    # a quarantine shadow is
-                               c["units"] if c.get("execUnits") and c["units"] else None)),  # priced at its size
+           "shadow_units": c["shadowUnits"], "exec": call_exec_block(r, c),
            "value_shadow": None,
            "order": (order_line(r, r["pick"], c["units"], ladder=(c["call"] == "LADDER"))
                      if c["call"] in ("PLAY", "LADDER") else None),
@@ -1453,10 +1460,13 @@ def _rescore(doc: dict) -> list[dict]:
             continue
         r, c = new[id(src)]
         _, b = base[id(src)]
-        dc = desk_cost_for(r, r["pick"], c.get("execUnits"))
+        # ARCHITECT 2026-10-08, addendum 15 item 2 (RULED, verbatim): "A cost is the cost of an order. The
+        # desk-rescore line carries the exec cost and exec edge of the row's own exec block under the current Desk,
+        # at the file's as_of and counts: the same size, and none where the Desk writes no exec block."
+        ex = call_exec_block(r, c)
         out.append({"game": r["game"], "pick": side_name(r, r["pick"]), "kickoff": r["utc"] or None,
-                    "model_p": r["prob"], "fair_edge_pp": c["edge"], "exec_cost": dc["cost"] if dc else None,
-                    "exec_edge_pp": exec_edge_pp(r, r["pick"], r["prob"], c.get("execUnits")),
+                    "model_p": r["prob"], "fair_edge_pp": c["edge"],
+                    "exec_cost": ex["cost"] if ex else None, "exec_edge_pp": ex["edge_pp"] if ex else None,
                     # Codex P1 on #369: a suspended row has no live edge (None); its hold's raw edge rides along,
                     # labelled as the hold's (record only, never a live edge)
                     "hold_raw_edge_pp": (c.get("koHold") or {}).get("raw_edge_pp"),

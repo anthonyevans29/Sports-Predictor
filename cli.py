@@ -4799,7 +4799,7 @@ def export_nfl_results_cmd(days_back, match_ids):
 def results_tally_cmd(days):
     """Regenerate RESULTS.md — rolling per-sport record."""
     from src.walters.export import results_tally
-    path = results_tally(days=days)
+    path = results_tally(days=days, report=click.echo)
     console.print(f"[green]✓ Wrote {path}[/green]")
 
 

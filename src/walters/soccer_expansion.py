@@ -498,6 +498,8 @@ def _status_label(e: dict | None, code: str) -> str:
     pl = ((e["run"].get("result") or {}).get("per_league") or {}).get(code) or {}
     v = (e.get("verdict") or {}).get("verdict")
     league = pl.get("verdict", "?")
+    if league != "PASS":   # addendum 24 item 5: a dropped league's row ends at its own outcome (#391)
+        return league
     return f"{league} · verdict {v or 'pending'}" + (" · confirmation open" if e.get("status") == "confirming" else "")
 
 

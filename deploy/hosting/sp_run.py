@@ -412,6 +412,11 @@ def main(argv=None) -> int:
         print(f"backup: {chain.get('backup') or 'none'}")
         return 0
 
+    if chain.get("laptop_only"):
+        print(f"✗ {a.chain} is not an sp_run chain: run it with `{chain['laptop_only']}` (laptop only).")
+        c.append_receipt({"kind": "chain", "unit": unit, "run_id": run_id, "exit": 2,
+                          "refused": "laptop_only"})
+        return 2
     if chain.get("operator_only") and not a.operator:
         print(f"✗ {a.chain} is OPERATOR-STARTED only (H0-6): re-run with --operator.")
         c.append_receipt({"kind": "chain", "unit": unit, "run_id": run_id, "exit": 2,

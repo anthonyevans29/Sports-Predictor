@@ -8318,6 +8318,46 @@ def export_predictions_cmd(sport, date_str, days, start_str, end_str, competitio
     console.print(_window_line(start_date, end_date, window_how))
 
 
+def _mlb_closing():
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
+    import mlb_closing as _mc
+    return _mc
+
+
+@cli.command("mlb-closing-run")
+@click.option("--first-pitch", "first_pitch", default=None,
+              help="ISO UTC first pitch to close (default: the next unstarted one within 90 minutes).")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Print what would run; touch nothing (no step, backup, receipt, push or notification).")
+def mlb_closing_run_cmd(first_pitch, dry_run):
+    """MLB CLOSING RUN (ARCHITECT 2026-10-08, addendum 13 item 3, Q2, and addendum 16 item 2; LAPTOP ONLY).
+    Receipted refusals (exit 2) first: a backup folder under data/, SP_EXPORTS_MIRROR_REMOTE unset, a malformed
+    --first-pitch, nothing to close. Then, under the chain lock until the receipt line is written: a .backup dated
+    today in the operator's backup folder (taken via the .backup API and opened if none), then the ten
+    CHAINS["mlb-closing"] steps (mlb-preslate's, the export with --date <first pitch's NY date> --desk). Stops at the
+    first failed step. When the steps have finished: one started test (a started target fails the run), every
+    unstarted game in the export, every summary price captured at or after the run's start (else stale prices); a
+    run failing these checks moves its export into logs/. On success: a summary block per unstarted game with first
+    pitch within 90 minutes, the exports mirror pushed (role laptop, label closing), one notification per game. One
+    receipt line either way. Places nothing. (= python deploy/hosting/mlb_closing.py run)"""
+    argv = ["run"] + (["--first-pitch", first_pitch] if first_pitch else []) + (["--dry-run"] if dry_run else [])
+    raise SystemExit(_mlb_closing().main(argv))
+
+
+@cli.command("mlb-closing-watch")
+@click.option("--dry-run", is_flag=True, default=False,
+              help="Print the window and what would run; touch nothing (no network either).")
+def mlb_closing_watch_cmd(dry_run):
+    """MLB CLOSING WATCH, the 5-minute tick (scripts/setup_mlb_closing_watch.sh). No network to decide: from the
+    stored schedule, MLB games not started with first pitch 5-65 minutes away; a first-pitch time with no successful
+    closing receipt (and < 3 attempts) starts mlb-closing-run once, after checking the MLB feed answers (unreachable:
+    nothing runs, a notification, a recorded miss, retried next tick). Otherwise exit 0, silent.
+    (= python deploy/hosting/mlb_closing.py watch)"""
+    raise SystemExit(_mlb_closing().main(["watch"] + (["--dry-run"] if dry_run else [])))
+
+
 @cli.command("cutover-readiness", context_settings={"ignore_unknown_options": True, "allow_extra_args": True})
 @click.pass_context
 def cutover_readiness_cmd(ctx):

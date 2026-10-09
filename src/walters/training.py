@@ -1323,7 +1323,8 @@ def _generate_predictions_mlb(
             # agrees with the book, bites when they diverge. Preserves model as
             # an independent voice (w<1) — does NOT collapse to market.
             # Q3 K6 (ARCHITECT 2026-10-08): the RECORD of the blend, written on every MLB prediction. It only
-            # observes the branch below: applied, the weight and the market number used (None when not applied).
+            # observes the branch below: applied, the weight and the market number used (None when the blend
+            # branch never priced a market; at w 0 they are kept and applied is false, addendum 18 item 2).
             _blend_rec = {"applied": False, "enabled": bool(getattr(cfg, "market_blend_enabled", False)),
                           "w": None, "market_home": None, "market_away": None}
             if getattr(cfg, "market_blend_enabled", False):
@@ -1347,7 +1348,10 @@ def _generate_predictions_mlb(
                         if _t > 0:
                             pred.p_home = ph / _t
                             pred.p_away = pa / _t
-                            _blend_rec.update(applied=True, w=w, market_home=_mkt_home, market_away=_mkt_away)
+                            # ADDENDUM 18 item 2 (ARCHITECT): "Applied means the market number moved the
+                            # prediction." At w 0 the record reads applied false, enabled true, and keeps the
+                            # weight and the market numbers. The probabilities are not touched by this fix.
+                            _blend_rec.update(applied=(w != 0), w=w, market_home=_mkt_home, market_away=_mkt_away)
             existing = s.execute(
                 select(Prediction).where(
                     Prediction.match_id == m.id,

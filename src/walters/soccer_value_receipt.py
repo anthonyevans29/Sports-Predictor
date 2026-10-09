@@ -8,7 +8,8 @@ through and marked withdrawn, never deleted. The amendment (AMENDMENT, (a) to (e
 
 How it reads (each reading is named where it is made):
 - REFUSES (exit 2, nothing written) unless the registry holds soccer-expansion-v1's run record (rho, elo_goal_coeff,
-  per-league market cohorts) and its ids file (sha256 equal to the record's).
+  per-league market cohorts, ids_sha256) and its ids file (readable as integer ids, sha256 equal to the record's), and
+  unless EACH requested PL reference season scores rows (no page silently one season short).
 - RECONCILIATION (amendment (b)): under market_side's own rule the gate's own walk (soccer_backtest.run_soccer_backtest
   per league-season from a cold start, min_prior 40, regular-season rows, same-kickoff batching) at the run record's
   rho / elo_goal_coeff must reproduce, per league, the run record's n_priced, BOTH log-losses (model and close) and the
@@ -403,11 +404,17 @@ def _record():
                and not (((per.get(c) or {}).get("market") or {}).get("edge_cohort"))]
     if missing or not per:
         raise ReceiptRefused(f"{sx.EID}'s run record holds no >= +5pp cohort for {missing or 'any league'}")
-    ids = reg._ids_of(e, ids_dir)
+    try:
+        ids = reg._ids_of(e, ids_dir)
+    except (OSError, ValueError) as x:
+        raise ReceiptRefused(f"{sx.EID}'s ids file ({run.get('ids_file')}) cannot be read as scored ids: {x}")
     if not ids:
         raise ReceiptRefused(f"{sx.EID}'s ids file ({run.get('ids_file')}) is not stored: the scored ids are unknown")
+    if not run.get("ids_sha256"):
+        raise ReceiptRefused(f"{sx.EID}'s run record holds no ids_sha256: its ids file cannot be checked, so the run "
+                             "record is not valid for this receipt")
     sha = reg._ids_sha(sorted(ids))
-    if run.get("ids_sha256") and sha != run["ids_sha256"]:
+    if sha != run["ids_sha256"]:
         raise ReceiptRefused(f"{sx.EID}'s ids file sha256 {sha[:12]}… differs from the run record's "
                              f"{run['ids_sha256'][:12]}…")
     if run.get("n_scored") is not None and run["n_scored"] != len(ids):
@@ -474,10 +481,16 @@ def build(seed: int | None = None, n_boot: int | None = None, now=None) -> dict:
         s.rollback()
     if unpl:
         raise ReceiptRefused("PL stage / round labels the code cannot place (never guessed): " + "; ".join(unpl))
-    pl_res = _walk(PL_CODE, PL_SEASONS, params)
-    if not pl_res:
-        raise ReceiptRefused(f"PL {' / '.join(PL_SEASONS)}: the walk scored nothing (not stored, or the season string "
-                             "differs from the stored one)")
+    pl_res, empty = [], []
+    for se in PL_SEASONS:                      # each requested season must score: never a page silently one short
+        got = _walk(PL_CODE, (se,), params)
+        if not got:
+            empty.append(se)
+        pl_res += got
+    if empty:
+        raise ReceiptRefused(f"PL {' / '.join(empty)}: the walk scored nothing (not stored, or the season string "
+                             "differs from the stored one); the PL page pools every requested season or is not "
+                             "written")
     pl_rows, pl_unp = value_rows(pl_res, _closes([r["match_id"] for r in pl_res]), PL_CODE)
 
     leagues = list(per_rec)

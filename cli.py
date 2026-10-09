@@ -6299,6 +6299,9 @@ def soccer_value_receipt_cmd(out):
         click.echo(f"  reconciliation {d['league']:4} " + ("reproduces n_priced, both log-losses, cohort n / hits / "
                                                            "mean edge" if d["ok"] else "DIFFERS: " + "; ".join(diff)))
     if not rc["ok"]:
+        if os.path.exists(pl_path):            # a PL page left by an earlier run at this --out is not this receipt's
+            os.remove(pl_path)
+            click.echo(f"  removed {pl_path} (an earlier run's PL page; this receipt has none)")
         click.echo(f"  wrote {path} (declaration, amendment and the difference; no table)")
         click.echo("STOPPED: RECONCILIATION FAILED — the walk does not reproduce the run record, so it is not the "
                    "candidate as gated. No table, no PL page (amendment (b)).")

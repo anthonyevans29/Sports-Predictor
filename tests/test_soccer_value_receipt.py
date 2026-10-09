@@ -399,3 +399,47 @@ def test_pl_page_walks_pl_with_the_gates_walk(ledger, world):
     assert pl["tables"]["order"] == ["PL"]
     tot = sum(pl["tables"]["main"]["PL"][(b, t)]["n"] for b, _, _ in vr.BUCKETS[:4] for t in (True, False))
     assert tot == pl["n_priced"]
+
+
+# ------------------------------------------------- Codex review of 7086c1e --
+
+def test_refused_when_a_requested_pl_season_scores_nothing(ledger, monkeypatch):
+    """P1 4232124882: one PL season with no scored rows must not leave a page that silently carries the other."""
+    monkeypatch.setattr(vr, "PL_SEASONS", (PL_SEASONS[0], "2199/00"))
+    out = ledger["tmp"] / "x.md"
+    r = _cli("--out", str(out))
+    assert r.exit_code == 2 and "REFUSED" in r.output and "2199/00" in r.output, r.output
+    assert not out.exists() and not (ledger["tmp"] / "x-pl-reference.md").exists()
+
+
+def test_a_failed_reconciliation_removes_a_stale_pl_page_at_the_same_path(ledger):
+    """P2 4232124803: an --out reused from an earlier successful run must not keep that run's PL page."""
+    out, pl = ledger["tmp"] / "x.md", ledger["tmp"] / "x-pl-reference.md"
+    assert _cli("--out", str(out)).exit_code == 0 and pl.exists()
+    per = json.loads(json.dumps(ledger["per"]))
+    per["PD"]["market"]["ll_market"] += 1e-6
+    ledger["put"](per=per)
+    r = _cli("--out", str(out))
+    assert r.exit_code == 2 and "RECONCILIATION FAILED" in r.output
+    assert out.exists() and "## Tables" not in out.read_text() and not pl.exists()
+
+
+def test_refused_when_the_ids_file_is_malformed(ledger):
+    """P2 4232124821: a non-integer token in the ids sidecar is a refusal, not a traceback."""
+    (ledger["tmp"] / "ids" / f"{sx.EID}.txt").write_text("1\nabc\n")
+    out = ledger["tmp"] / "x.md"
+    r = _cli("--out", str(out))
+    assert r.exit_code == 2 and "REFUSED" in r.output and "ids file" in r.output, r.output
+    assert not out.exists()
+
+
+def test_refused_when_the_run_record_has_no_ids_sha256(ledger):
+    """P2 4232124866: a run record naming an ids file without its sha256 cannot be integrity-checked."""
+    led = ledger["tmp"] / "experiments.json"
+    entries = json.loads(led.read_text())
+    del entries[0]["run"]["ids_sha256"]
+    led.write_text(json.dumps(entries))
+    out = ledger["tmp"] / "x.md"
+    r = _cli("--out", str(out))
+    assert r.exit_code == 2 and "REFUSED" in r.output and "sha256" in r.output, r.output
+    assert not out.exists()

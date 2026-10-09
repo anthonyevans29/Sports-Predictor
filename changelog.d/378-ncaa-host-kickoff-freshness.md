@@ -7,3 +7,12 @@
 - Docs: `docs/CLI.md` (NCAA kickoff freshness paragraph), `docs/specs/hosting-h1.md` (timer table, T11, live-host install).
 - Test: `tests/test_hosting_pack.py::test_every_ncaa_kickoff_in_the_next_seven_days_is_refreshed_every_day`. For each weekday it resolves every chain whose timer fires that day and requires single-day NCAA syncs covering today..today+7. On the old chains it fails on Monday with all eight dates missing (no NCAA sync fires on Monday).
 - Host action after the tag that carries it is deployed: install and enable the new timer (runbook), then run `sp_run.py ncaa-schedule` once.
+- **Amended by ARCHITECT addendum 21 item 1 (2026-10-09): the refresh is by id.** The provider's listing no longer carries college games that have not started, but the games still answer by id. Ruling and receipts are verbatim in the ledger entry.
+  - New command `refresh-by-id --competition NCAA --days 7` (`src/ingestion/refresh_by_id.py`). It takes every stored SCHEDULED game on the UTC dates today..today+7 and makes one `GET /games?id=` per game (the adapter's `get_game`). It applies kickoff, status (the adapter's map; unknown stays SCHEDULED) and score.
+  - Rate limits follow the sync-odds-football rule: paced at `SP_ODDS_FOOTBALL_RPM`, deferred on `RateLimited` and retried after Retry-After for up to `ODDS_RETRY_ROUNDS` rounds, never dropped.
+  - NOT FOUND is counted, listed and untouched. Other teams are REFUSED and lookup errors are UNRESOLVED; both are untouched. The step exits 1 on unresolved or still-limited games.
+  - The receipt is printed (asked, unchanged, updated, each kickoff moved with both times, each not found) and appended to the receipts log as kind `refresh_by_id`.
+  - `ncaa-schedule` keeps its eight listing reads and runs `refresh-by-id` last. The timer, the window service, `ncaa-market` and the adapter are unchanged.
+  - Laptop: `docs/CLI.md` morning chain, Phase 1, runs `refresh-by-id --competition NCAA --days 7`.
+  - Docs: `docs/CLI.md` (command row, NCAA kickoff paragraph, morning chain) and `docs/specs/hosting-h1.md` (timer table, install note).
+  - Tests: `tests/test_refresh_by_id.py`. Its chain test fails on the pre-amendment chain, where the kickoff stays at 04:00Z, and passes now. Rate limit, not-found and receipt-count tests are alongside, plus `test_every_day_the_host_refreshes_ncaa_games_by_id`.

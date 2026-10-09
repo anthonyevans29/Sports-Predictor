@@ -1275,6 +1275,30 @@ def test_every_ncaa_kickoff_in_the_next_seven_days_is_refreshed_every_day():
         assert want <= covered, f"{dname} {today}: NCAA kickoffs never refreshed for {sorted(want - covered)}"
 
 
+def test_every_day_the_host_refreshes_ncaa_games_by_id():
+    """ARCHITECT 2026-10-09 (addendum 21 item 1): "... refreshed from the provider by the game's own id, at
+    least once a day on the host ..." For EVERY weekday some timer that fires that day runs
+    `refresh-by-id --competition NCAA --days N` with N >= 7."""
+    for k, dname in enumerate(("Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun")):
+        today = date(2026, 10, 5) + timedelta(days=k)
+        hit = []
+        for fname, (cals, unit) in _timers().items():
+            m = re.match(r"sp-chain@(.+)\.service$", unit)
+            if not m or m.group(1) not in chains.CHAINS:
+                continue
+            ch = chains.CHAINS[m.group(1)]
+            if ch.get("window_plan") or ch.get("fullseason"):
+                continue  # DB-planned
+            on = [re.match(r"(?:([A-Za-z,]+) )?\*-\*-\* ", cal).group(1) for cal in cals]
+            if not any(d is None or dname in d.split(",") for d in on):
+                continue
+            for st in sp_run.resolve(m.group(1), {}, today):
+                if st[0] == "refresh-by-id" and st[st.index("--competition") + 1] == "NCAA" \
+                        and int(st[st.index("--days") + 1]) >= 7:
+                    hit.append(fname)
+        assert hit, f"{dname}: no host timer refreshes NCAA games by id"
+
+
 # ------------------------------------------------ transient-step retry ----
 # Architect ruling 2026-09-28 (first live page: a UNL sync-matches died on an
 # api-football ConnectionResetError): transient classes only, 2 retries,

@@ -198,10 +198,18 @@ CHAINS: dict[str, dict] = {
     # host still held 30 of Saturday's games at 04:00Z. Single-day calls for today..today+7 (the
     # american-football adapter sends `date` only when from == to), twice a day (sp-ncaa-schedule.timer)
     # so one failed run still leaves every stored kickoff under a day old. Sync only: no Kalshi, no export.
+    #
+    # REFRESH BY ID (ARCHITECT 2026-10-09, addendum 21 item 1): "For NCAA, the kickoff, status and score of
+    # every stored SCHEDULED game kicking off in the next seven days are refreshed from the provider by the
+    # game's own id, at least once a day on the host and in the laptop's morning chain. The listing reads
+    # stay: they find games we do not hold." The provider's listing no longer carries college games that
+    # have not started; they still answer by id. So the listing reads stay first (new games), and the
+    # refresh by id runs LAST, over every stored SCHEDULED game today..today+7 (one GET per game).
     "ncaa-schedule": {
         "steps": [
-            ["sync-matches", "--competition", "NCAA", "--season", "2026", "--date-from", d, "--date-to", d]
-            for d in ("{today}", *[f"{{today_plus{n}}}" for n in range(1, NCAA_FORWARD_DAYS + 1)])
+            *[["sync-matches", "--competition", "NCAA", "--season", "2026", "--date-from", d, "--date-to", d]
+              for d in ("{today}", *[f"{{today_plus{n}}}" for n in range(1, NCAA_FORWARD_DAYS + 1)])],
+            ["refresh-by-id", "--competition", "NCAA", "--days", str(NCAA_FORWARD_DAYS)],
         ],
     },
     # --- Weekly full-season sync (CLAUDE.md: "full-season weekly") ---

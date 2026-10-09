@@ -343,6 +343,18 @@ def _book_anchor(s, m):
     return (home / tot, at) if home is not None and tot > 0 else (None, None)
 
 
+def _anchor_source_time(s, m, at):
+    """SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4) of the anchor
+    capture: the provider's own update time of the book snapshots stamped `at`
+    (the rows _book_anchor reads), the oldest where they differ; None = unknown."""
+    if at is None:
+        return None
+    from src.timeutil import oldest_source_time
+    return oldest_source_time(list(s.execute(select(OddsSnapshot).where(
+        OddsSnapshot.match_id == m.id, OddsSnapshot.market == "1X2",
+        OddsSnapshot.source != "kalshi", OddsSnapshot.captured_at == at)).scalars()))
+
+
 def value_grade_for(s, m, pred, close_home) -> dict | None:
     """value_side_grade plus the anchor's provenance (ruling 2026-09-29 on
     #63 (b)): anchor_at, the prediction's computed_at, and whether the
@@ -351,6 +363,7 @@ def value_grade_for(s, m, pred, close_home) -> dict | None:
     vg = value_side_grade(pred.home_win_prob, anchor_home, close_home)
     if vg is not None:
         vg["anchor_at"] = anchor_at
+        vg["anchor_source_updated_at"] = _anchor_source_time(s, m, anchor_at)
         vg["prediction_at"] = pred.computed_at
         vg["anchor_before_prediction"] = (anchor_at <= pred.computed_at
                                           if anchor_at and pred.computed_at else None)
@@ -624,6 +637,9 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
                            "value_shadow": vg["shadow"] if vg else None,
                            "value_anchor_at": (vg["anchor_at"].isoformat()
                                                if vg and vg["anchor_at"] else None),
+                           # SOURCE TIME (addendum 32 item 4): the anchor capture's provider time
+                           "value_anchor_source_updated_at": (vg["anchor_source_updated_at"].isoformat()
+                                                              if vg and vg["anchor_source_updated_at"] else None),
                            "value_prediction_at": (vg["prediction_at"].isoformat()
                                                    if vg and vg["prediction_at"] else None)},
             })

@@ -20,3 +20,14 @@ def utc_now_naive() -> datetime:
 def utc_naive_fromtimestamp(ts: float) -> datetime:
     """Naive UTC from a POSIX timestamp — the drop-in for datetime.utcfromtimestamp()."""
     return datetime.fromtimestamp(ts, timezone.utc).replace(tzinfo=None)
+
+
+def oldest_source_time(rows):
+    """The source time of a set of rows (ARCHITECT 2026-10-09, addendum 32
+    item 4: "where a session's rows differ, the oldest"). A row without one
+    has an UNKNOWN source time, and unknown is never read as fresh (item 3):
+    so any unknown row, or no rows, makes the whole set unknown (None)."""
+    times = [getattr(r, "source_updated_at", None) for r in rows]
+    if not times or any(x is None for x in times):
+        return None
+    return min(times)

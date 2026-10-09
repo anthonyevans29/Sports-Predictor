@@ -1,4 +1,4 @@
-## 2026-10-09 (#PENDING: ncaa-elo-v1r verdict: FAIL on the spread test; 2025 retired as a college test season; ncaa-backtest closed; no college shadow)
+## 2026-10-09 (#393: ncaa-elo-v1r verdict: FAIL on the spread test; 2025 retired as a college test season; ncaa-backtest closed; no college shadow)
 - The one gate run is spliced from the operator's branch `laptop/ncaa-elo-v1r-run-record` (130b481) by cherry-pick, byte for byte: the registry entry's run, `docs/registry/ids/ncaa-elo-v1r.txt` (762 ids) and `docs/registry/ncaa-elo-v1r.started.json`.
   - Candidate NCAAEloV1, v1's constants untouched, on the CFBD both-FBS stream; run at 2026-10-09T16:18:32Z, no prior read.
 - The verdict is recorded with the architect's ruling verbatim (addendum 24 item 1): FAIL.

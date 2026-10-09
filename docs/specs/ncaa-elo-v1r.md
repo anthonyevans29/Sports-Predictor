@@ -139,3 +139,163 @@ The architect's words (verbatim): "(1) A stream game's season is its label's sea
 
 The gate command (D3, D4, D5), `--preflight` (D6), the one-run reservation and scored-id record (D6), and the
 confirmation command and cohort freeze (D7).
+
+## 8. Commands (PR B)
+
+ARCHITECT 2026-10-08, addendum 11, item 3, PR B (verbatim): "PR B, after PR A: the gate command for D3 to D6 with
+--preflight, the reservation and the one recorded run, on the soccer-expansion-v1 pattern; then the confirmation
+command for D7 on the intl-elo-confirm pattern. #79's ncaa-backtest stays as it is." Code:
+`src/walters/ncaa_v1r_gate.py`; tests: `tests/test_ncaa_v1r_gate.py` (synthetic only).
+
+### `ncaa-v1r-gate --preflight` (D6)
+
+- Refuses unless the entry is declared and unrun and no reservation exists (as `soccer-expansion-gate --preflight`).
+- Scores nothing: no model is built, nothing is reserved or recorded.
+- Prints, per season 2024 / 2025 / 2026:
+  - the stream by season_type;
+  - the neutral count and the no-flag count;
+  - the level scores skipped;
+  - the coverage line (L2 + L3).
+- Then the D4 baseline, the test-set size (the 2025 `regular` games) and whether the gate's seasons (2024, 2025) and
+  the confirmation's (2024, 2025, 2026) are covered.
+- No 2025 or 2026 outcome is computed or printed. The architect confirms the season_type census from this output
+  (D6).
+- Its last line is the stream fingerprint (addendum 17 item 1): `STREAM FINGERPRINT <sha256 hex> (<n> games: ...)`.
+  The run takes the hex as `--stream-fingerprint`.
+
+**The fingerprint** (`ncaa_v1r_gate.stream_fingerprint`). It is a sha256 over the stream exactly as the gate walks it
+(`walked()`): every stream game up to and including the last 2025 game, in walk order (stored kickoff, then match
+id). Each game carries `FINGERPRINT_FIELDS`, every field the walk reads or orders by:
+
+| field | read by |
+|---|---|
+| `match_id` | the scored ids; the order's tie-break |
+| `utc_date` | the order (stored kickoff) |
+| `season` | the label season: the split, D4, `NCAAEloV1`'s season regression |
+| `season_type` | the test set (exactly `regular`), D4, the not-scored census |
+| `home_id`, `away_id` | the J2 merged ids: the ratings, the cold starts |
+| `home_score`, `away_score` | the result and `NCAAEloV1`'s margin of victory |
+| `neutral` | D1's home advantage 0, D4's non-neutral games, the baseline's 0.5 |
+| `label_source` | `NeutralRuleElo`'s count of labels without a neutral flag (reported) |
+
+The serialization is JSON with sorted keys and no whitespace: a version tag, the field names, then one list per game.
+A level score is not in the stream (D2 skips it), so it is not in the fingerprint. A 2026 game after the last 2025
+game is not walked and is not in it either. A 2026 game kicking off before the last 2025 game is walked, so it is in
+it.
+
+### `ncaa-v1r-gate --architect-word "<the word, verbatim>"` (D3-D6): the one run
+
+**Preconditions.** Each is checked in this order before the reservation. Any failure refuses with exit 2; nothing
+is scored or written.
+  1. The entry is declared and unrun, and no reservation file exists.
+  2. `--architect-word` is given and is not blank. The word is written into the reservation and the run record.
+     There is no `OPEN_ITEMS` gate (addendum 17 item 1).
+  3. `--stream-fingerprint` is given and is not blank.
+  4. 2024 and 2025 are covered (L2 + L3, `ncaa_cfbd.stored_coverage`). Each season that misses is named.
+  5. The stream is loaded (`load_v1r_stream()`, the same read `--preflight` makes; no model is built, nothing is
+     scored). Its fingerprint must equal `--stream-fingerprint`. A mismatch refuses, printing both (addendum 17 item 1).
+  6. The scored set (the 2025 games whose season_type is exactly `regular`, the level scores already skipped by D2)
+     must number at least 500. Under 500 the run refuses and records nothing (addendum 17 item 2, #79's rule).
+  7. The D4 baseline must be defined: the stream's 2024 games include a non-neutral game whose season_type is exactly
+     `regular`. Otherwise the run refuses and records nothing, as under 500; it is not an INVALID run and the read is
+     not spent (addendum 21 item 4 (2)).
+
+**Reservation.** `docs/registry/ncaa-elo-v1r.started.json`, the soccer-expansion-v1 pattern:
+  - The registry's cross-ref guard runs first (`registry.cross_ref_guard`, #329 RULED 2026-10-08). `--no-fetch` skips
+    its fetch, and the receipt says other clones were not checked.
+  - The file is an exclusive create.
+  - A reservation without a recorded run refuses every later attempt until the architect rules.
+  - It carries the word, the fingerprint, the walked game count and the scored-set size.
+
+**The first game scored** comes after the reservation exists. The walk runs over the same stream object whose
+fingerprint was checked, so the stream walked is the stream the word refers to.
+
+**Walk** (`run_gate`, pure):
+  - The D4 baseline is computed first, before any test game is scored: the stream's 2024 non-neutral games whose
+    season_type is exactly `regular`. A label without a neutral flag counts as non-neutral (D1).
+  - The stream is walked in order with the shared D1 wrapper `NeutralRuleElo`.
+  - 2024 games are update only.
+  - 2025 `regular` games are predicted, then updated.
+  - Every other 2025 game is walked and never scored.
+  - The walk ends after the last 2025 game. Ratings are read there, for D5 (4). A 2026 game is never scored. One that
+    kicks off before the last 2025 game is walked (D2: every stream game is walked) and counted.
+
+**Verdict** (D5):
+  - Under 500 scored games: the run refused before the reservation (precondition 6). `run_gate` keeps an INVALID
+    verdict for that case as a pure-function backstop; `run()` cannot reach it.
+  - An undefined D4 baseline: the run refused before the reservation (precondition 7). `run_gate` raises the same
+    refusal as a pure-function backstop; it returns no verdict, so there is no INVALID for this case.
+  - PASS iff all four hold:
+    - (1) log-loss < baseline − 0.010, strict and unrounded, so a tie rejects;
+    - (2) |mean p − realized home rate| <= 0.05;
+    - (3) |b − 1| <= 0.20, with non-convergence failing;
+    - (4) every rating within 1000 to 2000.
+  - (2) and (3) are `ncaa_backtest.level_gap / level_ok / logistic_slope / slope_ok`. The design receipt imports the
+    same functions, so its D5 numbers and the gate's are computed identically. Re-running the receipt after the
+    extraction gave output identical to before.
+
+**Reported, never gated:** #79's bands, the constant-0.5 log-loss, Brier (model and baseline), the intercept a, cold
+starts, and log-loss on neutral and non-neutral games.
+
+**Record.** `registry.record_run`: the scored ids (sidecar + sha256), the result, and the word with the
+fingerprint beside it (`architect_word`, `stream_fingerprint`). A second run is refused.
+
+### `ncaa-v1r-confirm` (D7, the intl-elo-confirm pattern)
+
+- **Refuses** unless the entry has its run (carrying the D4 `baseline_home_rate`) and a PASS verdict, and 2024, 2025
+  and 2026 are covered (D6).
+- **Eligible fixtures:** stored NCAA fixtures kicking off after the verdict, by kickoff then id, whose two teams, as J2
+  merged ids, both carry a current label (`ncaa_shadow.fbs_teams`). Any status.
+- **`--freeze-cohort`** freezes the first 100 once, through `registry.freeze_confirmation_cohort`, which calls the
+  cross-ref guard before it writes.
+- **`--substitute`** releases a cancelled cohort fixture and records the next eligible fixture after the cohort as its
+  replacement:
+  - The replacement is never cancelled itself and never one used before.
+  - `registry.substitute_cohort_fixture` makes the write.
+  - A finished fixture without a label is pending and never replaced. Postponed, scheduled and live fixtures stay too.
+- **Scoring:** the gate's replay, i.e. the D1 wrapper over the D2 stream.
+  - A cohort fixture with a current label is predicted, then updated, whatever its season_type. The label's neutral
+    flag applies to the model and to the baseline.
+  - The baseline is the run record's frozen D4 rate (0.5 at a neutral site).
+- **`--record --ruling`** needs the frozen cohort fully labelled. It writes `registry.record_confirmation`, which
+  computes CONFIRMED iff log-loss <= 0.6931 and log-loss < (D4 baseline log-loss − 0.010) on the same games. A tie
+  fails.
+
+### PR B's four choices: RULED (ARCHITECT 2026-10-08 18:56 ET, addendum 17)
+
+These were "open to correction" when PR B was first built. The architect ruled on all four (verbatim):
+
+1. **The architect's word.** "The run takes my word as --architect-word, verbatim, and writes it into the
+   reservation and the run record. There is no OPEN_ITEMS gate: one lock is enough, and this is the one that leaves my
+   word in the record. What the word needs is to refer to one stream. --preflight ends with one line, a fingerprint of
+   the 2024 and 2025 stream exactly as the gate would walk it: the games in order, with every label field the gate
+   reads. The run takes that fingerprint as a required option and refuses, before the reservation, when the stream it
+   is about to walk no longer matches. The fingerprint is recorded beside the word."
+
+   Built: `OPEN_ITEMS` is removed; `--stream-fingerprint` is required; preconditions 2, 3 and 5 above.
+2. **Under 500.** "The scored set is known before any game is scored: the 2025 games whose season_type is exactly
+   'regular', less the level scores. If it numbers under 500 the run refuses before the reservation and records
+   nothing; no game has been scored. That is #79's rule: not scored, re-run later, the bar does not move."
+
+   Built: precondition 6 above. This replaces "INVALID is recorded".
+3. **The end of the walk.** "The walk ends after the last 2025 game: as built."
+4. **A confirmation fixture without a current label.** "A confirmation fixture without a current label stays
+   pending, never replaced: as built. The first 100 fixtures after an October verdict are all 2026 games, so the 2027
+   case cannot arise in this cohort."
+
+**Consequence of rulings 1 and 2 for D6's "a reservation written before the first read".** Both refusals come before
+the reservation and need the stream, so the run now loads the stream (the read `--preflight` already makes: counts
+and the fingerprint, nothing scored) before the reservation. The reservation still precedes the first game scored.
+
+### #375's two readings: RULED (ARCHITECT 2026-10-09, addendum 21 item 4)
+
+The architect ruled on the two readings PR B made (verbatim, each):
+
+1. **The stream read before the reservation: ACCEPTED.** "What D6 seals is the scoring of the test season: a game priced by the candidate and compared with its result. Loading the stream to fingerprint it and to count the scored set scores nothing and prints no figure across games; the preflight makes the same load. The reservation is written before any game is scored."
+
+   This is the reading in the paragraph above ("Consequence of rulings 1 and 2"), accepted as written. Nothing
+   changed in the code.
+2. **An undefined D4 baseline.** "When 2024 has no non-neutral regular game, D4 is undefined and nothing can be scored: the run refuses before the reservation and records nothing, as it does under 500 games. It is not an INVALID run and the read is not spent."
+
+   Built: precondition 7 above. It replaces the earlier path, which reserved, walked nothing and recorded an INVALID
+   run with 0 scored ids.

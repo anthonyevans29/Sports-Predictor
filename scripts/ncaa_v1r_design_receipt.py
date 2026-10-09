@@ -84,8 +84,8 @@ MARGIN_SD = 14.0
 N_SEASONS = 200
 MASTER_SEED = 20261008
 MAX_CROSS_ATTEMPTS = 1_000_000      # I5: expected ~420 attempts per round; a miss here raises, never falls back
-CLIP = 1e-6
-LEVEL_TOL, SLOPE_TOL = 0.05, 0.20
+CLIP = nb.V1R_CLIP
+LEVEL_TOL, SLOPE_TOL = nb.V1R_LEVEL_TOL, nb.V1R_SLOPE_TOL
 ARCHITECT = {"slope": (0.99, 1.16, 1.33), "band": (0.32, 0.33, 0.29), "d5": (0.92, 0.60, 0.13)}
 
 
@@ -149,26 +149,9 @@ def play_season(rng, strength, conf_of, season: str, t0: datetime, start_id: int
     return games
 
 
-def logistic_slope(pairs) -> tuple[float | None, float | None]:
-    p = np.clip(np.array([q for q, _ in pairs], dtype=float), CLIP, 1 - CLIP)
-    y = np.array([v for _, v in pairs], dtype=float)
-    X = np.column_stack([np.ones_like(p), np.log(p / (1 - p))])
-    beta = np.zeros(2)
-    for _ in range(100):
-        mu = 1.0 / (1.0 + np.exp(-(X @ beta)))
-        w = mu * (1 - mu)
-        H = X.T @ (X * w[:, None])
-        g = X.T @ (y - mu)
-        try:
-            step = np.linalg.solve(H, g)
-        except np.linalg.LinAlgError:
-            return None, None
-        beta = beta + step
-        if not np.all(np.isfinite(beta)):
-            return None, None
-        if np.max(np.abs(step)) < 1e-10:
-            return float(beta[0]), float(beta[1])
-    return None, None
+# I10 / I11: the D5 (2) and (3) computation lives in src (ncaa_backtest.logistic_slope / level_gap / level_ok /
+# slope_ok), ONE implementation shared with the gate (src/walters/ncaa_v1r_gate.py).
+logistic_slope = nb.logistic_slope
 
 
 def run_one(setting_idx: int, season_idx: int) -> dict:
@@ -187,14 +170,13 @@ def run_one(setting_idx: int, season_idx: int) -> dict:
     model = NeutralAwareElo()
     r = nb.run_gate(stream, model)
     pairs = model.pairs
-    mean_p = sum(q for q, _ in pairs) / len(pairs)
-    mean_y = sum(v for _, v in pairs) / len(pairs)
-    a, b = logistic_slope(pairs)
-    level_ok = abs(mean_p - mean_y) <= LEVEL_TOL + 1e-12
-    slope_ok = b is not None and abs(b - 1.0) <= SLOPE_TOL + 1e-12
+    gap = nb.level_gap(pairs)
+    a, b = nb.logistic_slope(pairs)
+    level_ok = nb.level_ok(gap)
+    slope_ok = nb.slope_ok(b)
     return {"seed": seed, "n": len(pairs), "n_test_gate": r.n_test, "slope": b,
             "band_ok": bool(r.crit_bands), "level_ok": level_ok, "slope_ok": slope_ok,
-            "d5_ok": level_ok and slope_ok, "level_gap": mean_p - mean_y}
+            "d5_ok": level_ok and slope_ok, "level_gap": gap}
 
 
 def run(n_seasons: int = N_SEASONS) -> list[dict]:

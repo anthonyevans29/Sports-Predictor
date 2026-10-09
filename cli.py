@@ -6785,6 +6785,121 @@ def ncaa_cfbd_coverage_cmd():
     nb.coverage_report(nb.build_stream(games), out=click.echo, fbs=fbs, v1r=nb.load_v1r_stream())   # D2: by label
 
 
+@cli.command("ncaa-v1r-gate")
+@click.option("--preflight", is_flag=True,
+              help="D6: scores nothing; prints, per season, the stream by season_type, the neutral count, the "
+                   "coverage and the D4 baseline.")
+@click.option("--architect-word", "word", default=None,
+              help="The architect's word to start the ONE run, verbatim (D6: \"it starts only on my word\"); written "
+                   "into the reservation and the run record. Required for the run.")
+@click.option("--stream-fingerprint", "fingerprint", default=None,
+              help="The stream fingerprint printed on --preflight's last line (addendum 17 item 1). Required for the "
+                   "run: it refuses, before the reservation, unless the 2024 and 2025 stream it is about to walk "
+                   "still matches; recorded beside the word.")
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="Cross-ref guard (#329): skip fetching origin laptop/*; only the refs this clone knows are checked "
+                   "and the receipt says other clones were not checked.")
+def ncaa_v1r_gate_cmd(preflight, word, fingerprint, no_fetch):
+    """ncaa-elo-v1r GATE (ARCHITECT 2026-10-08, addendum 11 item 3, D3-D6; GATE-CLASS). Warm-up 2024 (update only);
+    test = the 2025 games whose season_type is exactly 'regular' (predict, then update); any other 2025 game walked,
+    never scored; no 2026 game scored. Baseline = the 2024 non-neutral 'regular' home win rate (0.5 at a neutral
+    site), frozen first. PASS iff (1) log-loss < baseline − 0.010 (strict, unrounded), (2) |mean p − home rate| <=
+    5pp, (3) |slope − 1| <= 0.20 (non-convergence fails), (4) every rating after the last 2025 game in 1000-2000.
+    Refused (exit 2, nothing written) unless declared and unrun, --architect-word and --stream-fingerprint given and
+    2024 + 2025 covered (L2 + L3); then, the stream loaded and nothing scored, unless its fingerprint matches, the
+    scored set numbers >= 500 (addendum 17) and the D4 baseline is defined (addendum 21 item 4 (2)). The reservation (after the #329 cross-ref guard) carries the word and the
+    fingerprint and precedes the first game scored; ONE run, recorded with its scored ids. #79's ncaa-backtest is
+    unchanged. Spec: docs/specs/ncaa-elo-v1r.md."""
+    from src.db.database import session_scope
+    from src.walters import ncaa_backtest as nb
+    from src.walters import ncaa_v1r_gate as vg
+
+    try:
+        vg.declared_unrun()
+        if preflight:
+            with session_scope() as s:
+                fbs = vg.coverage(nb.V1R_SEASONS, s)
+                s.rollback()
+            for line in vg.preflight_lines(vg.preflight(nb.load_v1r_stream(), fbs)):
+                click.echo(line)
+            return
+        click.echo(f"NCAA-ELO-V1R · ONE RUN · candidate NCAAEloV1 (constants untouched) + D1 neutral rule · word: "
+                   f"{word!r} · stream fingerprint {fingerprint!r}")
+        r = vg.run(word, fingerprint, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
+    except vg.GateRefused as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    for line in vg.run_lines(r):
+        click.echo(line)
+    e = vg.record(r, word)
+    click.echo(f"  recorded: {e['run']['n_scored']} scored ids · sha {e['run']['ids_sha256'][:12]}… · "
+               f"{e['run']['ids_file']} (commit docs/registry/ in a PR)")
+
+
+@cli.command("ncaa-v1r-confirm")
+@click.option("--freeze-cohort", is_flag=True,
+              help="Freeze the first 100 eligible fixture ids into the registry (once; needs >= 100 stored; calls the "
+                   "#329 cross-ref guard).")
+@click.option("--substitute", is_flag=True,
+              help="Release CANCELLED cohort fixtures and record the next eligible fixture after the cohort as each "
+                   "one's substitute (registry write; commit in a PR). A finished fixture without a label stays "
+                   "pending, never replaced.")
+@click.option("--record", is_flag=True, help="Record the confirmation (needs the frozen cohort complete and --ruling).")
+@click.option("--ruling", default=None, help="The architect's ruling text, verbatim (with --record).")
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="With --freeze-cohort, cross-ref guard (#329): skip fetching origin laptop/*; only the refs this "
+                   "clone knows are checked and the receipt says other clones were not checked.")
+def ncaa_v1r_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
+    """ncaa-elo-v1r CONFIRMATION READ (D7, on the intl-elo-confirm pattern): the first 100 stored NCAA fixtures, by
+    kickoff then id, kicking off after the verdict whose two teams (J2 merged ids) both carry a current label at the
+    freeze; any status; frozen once by fixture id. A cancelled fixture is released and replaced by the next eligible
+    one; a finished fixture without a label is pending, never replaced. Scored by the gate's replay (D1 wrapper over
+    the D2 stream), the label's flags applied, whatever the season_type. CONFIRMED iff log-loss <= 0.6931 and < the
+    D4 baseline's log-loss − 0.010 on the same games. Refused unless PASS and 2024, 2025 and 2026 covered (D6).
+    Without flags: progress only. PASS / CONFIRMED do not make college football a call (D8)."""
+    from collections import Counter
+
+    from src.walters import ncaa_v1r_gate as vg
+    from src.walters import registry as reg
+    try:
+        if freeze_cohort:
+            e = vg.freeze(no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
+            c = e["confirmation_cohort"]
+            b = c["basis"]
+            click.echo(f"FROZEN: {c['n']} fixtures · sha256 {c['ids_sha256'][:16]}… · {b['first_kickoff']} .. "
+                       f"{b['last_kickoff']} · {b['status_at_freeze']} — commit docs/registry/ in a PR")
+            return
+        if substitute:
+            n = vg.substitute(echo=click.echo)
+            click.echo(f"SUBSTITUTE: {n} released and replaced" + (" — commit docs/registry/ in a PR" if n else ""))
+            return
+        r = vg.confirmation_read()
+    except (vg.GateRefused, reg.RegistryError) as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    click.echo(f"NCAA-ELO-V1R CONFIRMATION · cohort {r['cohort_state'].upper()} ({r['cohort_size']}/{r['n_games']} "
+               f"fixtures; {r['eligible_stored']} eligible stored) · {r['n']}/{r['n_games']} labelled"
+               + (f" · first {r['first_game_at']}" if r["first_game_at"] else ""))
+    if r["pending"]:
+        click.echo(f"  pending {len(r['pending'])}: {dict(Counter(p['status'] for p in r['pending']))}"
+                   + (f" — {r['release_due']} cancelled: run --substitute" if r["release_due"] else ""))
+    if r["n"]:
+        click.echo(f"  so far: log-loss {r['log_loss']:.4f} · D4 baseline {r['baseline_log_loss']:.4f} · reference "
+                   f"(baseline − 0.010) {r['reference_log_loss']:.4f} · bar {r['bar']:.4f} — not a verdict until the "
+                   "cohort is complete")
+    if not record:
+        return
+    if not ruling:
+        click.echo("REFUSED: --record needs --ruling (the architect's text, verbatim)")
+        raise SystemExit(2)
+    try:
+        e = vg.record_confirmation(r, ruling)
+    except (vg.GateRefused, reg.RegistryError) as err:
+        click.echo(f"REFUSED: {err}")
+        raise SystemExit(2)
+    click.echo(f"  RECORDED: {e['confirmation']['outcome']} · status {e['status']} — commit docs/registry/ in a PR")
+
+
 @cli.command("nhl-backtest")
 @click.option("--season-start", "season_starts", multiple=True, metavar="SEASON=YYYY-MM-DD",
               help="Override a regular-season opener (preseason cut), e.g. 2024=2024-10-08.")

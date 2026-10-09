@@ -4,7 +4,10 @@
 - (b) the test-season fence: until the registry records the ncaa-elo-v1r run, ncaa-cfbd-coverage prints no 2025
   home win rate in either block (counts, coverage, census and neutral counts stay), ncaa-backtest and ncaa-audit
   refuse with exit 2 naming the ruling, and resync-diff's NCAA home-rate line is withheld when the listing includes
-  2025; once the run is recorded every line and both commands return."""
+  2025; once the run is recorded every line and both commands return.
+The run is recorded (ARCHITECT 2026-10-09, addendum 24; spliced from 130b481), so the fence on main is lifted
+(addendum 24 item 2(e)): the fenced branch is exercised here with v1r_run_recorded patched False, and the committed
+registry is pinned as recorded. ncaa-backtest no longer returns with the fence: it refuses for good (item 2(c))."""
 import json
 from datetime import datetime
 from pathlib import Path
@@ -43,8 +46,8 @@ def test_d9_correction_stands_beside_d9_verbatim_in_spec_ledger_and_registry():
         assert text_.index(D9) < text_.index(CORRECTION)
     e = reg.get(nb.V1R_EID)
     assert e["prior_reads_note"].startswith(D9) and CORRECTION in e["prior_reads_note"]
-    assert e["run"] is None and e["status"] == "declared"
-    assert reg.prior_reads(e["test_set"], None, before_id=nb.V1R_EID) == []     # no candidate scored
+    assert e["run"]["n_scored"] == 762 and e["status"] == "closed"            # addendum 24: run recorded, FAIL
+    assert reg.prior_reads(e["test_set"], None, before_id=nb.V1R_EID) == []     # no candidate scored before it
     assert nb.TEST_SEASON_FENCE == FENCE
 
 
@@ -54,7 +57,7 @@ def test_run_recorded_reads_only_the_registry(tmp_path):
     assert nb.v1r_run_recorded(str(p)) is False
     p.write_text(json.dumps([{"id": nb.V1R_EID, "run": {"run_at": "2026-10-10T00:00:00Z"}}]))
     assert nb.v1r_run_recorded(str(p)) is True
-    assert nb.v1r_run_recorded() is False                  # the committed registry: declared, not run
+    assert nb.v1r_run_recorded() is True                   # the committed registry: run recorded (addendum 24 (e))
 
 
 def _g(mid, season, hs, as_, neutral=False, st="regular"):
@@ -71,8 +74,12 @@ def _stream_and_v1r():
     return nb.build_stream(games), v
 
 
-def test_coverage_withholds_every_2025_home_rate_and_keeps_counts_until_the_run_is_recorded():
+def test_coverage_withholds_every_2025_home_rate_and_keeps_counts_until_the_run_is_recorded(monkeypatch):
     st, v = _stream_and_v1r()
+    lifted = []
+    nb.coverage_report(st, out=lifted.append, fbs=None, v1r=v)              # the committed registry: run recorded
+    assert nb.FENCED_RATE not in "\n".join(lifted) and "home win rate non-neutral 0.800 (n 5)" in "\n".join(lifted)
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: False)
     fenced = []
     nb.coverage_report(st, out=fenced.append, fbs=None, v1r=v)              # registry: not run -> fenced
     text_ = "\n".join(fenced)
@@ -92,6 +99,8 @@ def test_coverage_withholds_every_2025_home_rate_and_keeps_counts_until_the_run_
 
 
 def test_ncaa_backtest_and_ncaa_audit_refuse_exit_2_naming_the_ruling_before_reading(monkeypatch):
+    """ncaa-audit under the fence (patched unlifted). ncaa-backtest's refusal is addendum 24 item 2(c)'s now
+    (tests/test_ncaa_v1r_verdict.py); the fence no longer decides it."""
     from cli import cli
     from src.walters import ncaa_audit as na
 
@@ -99,8 +108,8 @@ def test_ncaa_backtest_and_ncaa_audit_refuse_exit_2_naming_the_ruling_before_rea
         raise AssertionError("read before the fence")
     monkeypatch.setattr(nb, "load_games", boom)
     monkeypatch.setattr(na, "load", boom)
-    for cmd in (["ncaa-backtest", "--baselines-only"], ["ncaa-backtest"], ["ncaa-audit"],
-                ["ncaa-audit", "--season", "2026"]):
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: False)
+    for cmd in (["ncaa-audit"], ["ncaa-audit", "--season", "2026"]):
         res = CliRunner().invoke(cli, cmd)
         assert res.exit_code == 2, (cmd, res.output)
         assert f"{cmd[0]} REFUSED (exit 2)" in res.output and nb.FENCE_RULING in res.output
@@ -115,6 +124,7 @@ def test_resync_diff_withholds_the_ncaa_home_rate_when_the_listing_includes_2025
     monkeypatch.setattr(rd, "diff", lambda *a, **k: {"source": "x", "listing": 3, "counts": {}, "samples": {},
                                                     "home_rate": {"ours": ["0.612", 3], "provider": ["0.587", 3]}})
     monkeypatch.setattr(rd, "verdict", lambda c: "ok")
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: False)            # the fence as it stood before the run
     for args, withheld in ((["--season", "2025"], True), ([], True), (["--season", "2026"], False)):
         out = CliRunner().invoke(cli.cli, ["resync-diff", "--competition", "NCAA", *args]).output
         assert ("0.612" not in out and nb.FENCED_RATE in out) if withheld else ("ours 0.612" in out), (args, out)
@@ -137,4 +147,4 @@ def test_the_addendum_15_correction_in_force_stands_beside_d9_and_the_addendum_1
     note = reg.get(nb.V1R_EID)["prior_reads_note"]
     assert note.startswith(D9) and note.index(CORRECTION) < note.index(CORRECTION_IN_FORCE)
     assert "CORRECTION IN FORCE" in note
-    assert reg.get(nb.V1R_EID)["run"] is None
+    assert reg.get(nb.V1R_EID)["run"]["n_scored"] == 762                   # addendum 24: the run is recorded

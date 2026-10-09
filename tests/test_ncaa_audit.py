@@ -177,10 +177,12 @@ def test_cli_audit_reads_everything_and_writes_nothing(monkeypatch):
     assert "venue" in data.inventory.match_columns
     assert "venue" in data.inventory.site_division_named
 
-    fenced = CliRunner().invoke(cli, ["ncaa-audit", "--limit", "5"])        # #368: refused until the v1r run
-    assert fenced.exit_code == 2 and "ncaa-audit REFUSED (exit 2)" in fenced.output
     from src.walters import ncaa_backtest as nb
-    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: True)          # the run recorded: the command returns
+    recorded = nb.v1r_run_recorded
+    monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: False)         # #368: refused until the v1r run
+    fenced = CliRunner().invoke(cli, ["ncaa-audit", "--limit", "5"])
+    assert fenced.exit_code == 2 and "ncaa-audit REFUSED (exit 2)" in fenced.output
+    monkeypatch.setattr(nb, "v1r_run_recorded", recorded)    # the committed registry records the run (addendum 24 (e))
     res = CliRunner().invoke(cli, ["ncaa-audit", "--limit", "5"])
     assert res.exit_code == 0, res.output
     out = res.output

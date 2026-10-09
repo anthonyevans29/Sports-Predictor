@@ -26,7 +26,10 @@ reason stated) unless
       fact": the side table labels >= 95% of CFBD's completed both-FBS games
       in EACH season used (D6: 2024, 2025, 2026), re-read by
       ncaa_cfbd.stored_coverage (the denominator is the saved CFBD payload
-      the side table names, never our stream).
+      the side table names, never our stream);
+  (c) ARCHITECT 2026-10-09, addendum 24 item 2(d): the registry records no
+      verdict for ncaa-elo-v1r other than PASS. v1r FAILED (2026-10-09): the
+      college shadow does not start on it (VERDICT_REFUSAL, verbatim).
 The architect's read of the receipt is what makes (a) happen; (b) is
 re-checked on every run so a regressed side table stops the shadow.
 D6 (ncaa-elo-v1r declaration, ARCHITECT 2026-10-08, addendum 11 item 3,
@@ -107,15 +110,31 @@ class ShadowRefused(RuntimeError):
     """A precondition the ruling names is not met: printed with its reason, exit 2, nothing written."""
 
 
+# ARCHITECT 2026-10-09, addendum 24 item 2(d), verbatim: the college shadow does not start on v1r. frozen() refuses
+# once the registry records a verdict for ncaa-elo-v1r other than PASS (FAIL, 2026-10-09). ncaa-shadow-grade is
+# untouched: it has no file to read.
+VERDICT_RULING = "ARCHITECT 2026-10-09, addendum 24 item 2(d)"
+VERDICT_REFUSAL = ("Addendum 6 item 1 put the verdict on every shadow row once there was one. No shadow file has been "
+                   "written, and this verdict says the model is too timid: beside a market its rows would show value "
+                   "on every underdog, and that value would be its own miscalibration. export-ncaa-predictions "
+                   "refuses, exit 2, naming this ruling, once the registry records a verdict for ncaa-elo-v1r other "
+                   "than PASS. The shadow's terms for the next candidate are part of its declaration.")
+
+
 def frozen(registry_path: str | None = None) -> tuple[dict, bool, str]:
     """(entry, home advantage at neutral sites?, rule) from the registry; refuses unless ncaa-elo-v1r is
-    declared and its declaration states the neutral-site rule."""
+    declared and its declaration states the neutral-site rule, and refuses once the registry records a verdict for
+    it other than PASS (addendum 24 item 2(d))."""
     from src.walters import registry as reg
 
     e = reg.get(EID, registry_path) if registry_path else reg.get(EID)
     if e is None:
         raise ShadowRefused(f"REFUSED: {EID} is not declared in docs/registry — the NCAA shadow starts only once "
                             "it is (ARCHITECT 2026-10-07, addendum 6 item 1)")
+    verdict = (e.get("verdict") or {}).get("verdict")
+    if verdict and str(verdict).upper() != "PASS":
+        raise ShadowRefused(f"export-ncaa-predictions REFUSED (exit 2): the registry records {EID}'s verdict as "
+                            f"{verdict}. {VERDICT_RULING}, verbatim: \"{VERDICT_REFUSAL}\"")
     rule = e.get(NEUTRAL_RULE_KEY)
     if rule not in NEUTRAL_RULES:
         raise ShadowRefused(f"REFUSED: {EID}'s declaration has no {NEUTRAL_RULE_KEY} (one of "

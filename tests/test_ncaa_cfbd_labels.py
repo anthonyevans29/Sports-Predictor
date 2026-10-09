@@ -547,11 +547,11 @@ def test_coverage_per_season_and_the_95_condition():
     text = "\n".join(lines)
     assert ">= 95%: YES" in text and ">= 95%: NO" in text and "CFBD 7 · x" in text
     assert "coverage condition in ALL THREE seasons (2024, 2025, 2026): DOES NOT HOLD" in text
-    assert "SUSPENDED-PENDING-DATA" in text and "architect" in text
+    assert "NCAA GATE: CLOSED (ruling 2026-10-09, addendum 24)" in text                  # addendum 24 item 2(c)
     rep = []
     nb.report(st, nb.baselines(st), out=rep.append)
     assert "2025 labels: CFBD side table covers 19/20 (95.0%) · UNCOVERED share 5.0%" in "\n".join(rep)
-    assert nb.GATE_STATUS == "SUSPENDED-PENDING-DATA"                                     # unchanged
+    assert nb.GATE_STATUS == "CLOSED"                                     # ARCHITECT 2026-10-09, addendum 24 (c)
 
 
 def test_load_games_reads_side_table_and_falls_back(monkeypatch):
@@ -586,7 +586,7 @@ def test_load_games_reads_side_table_and_falls_back(monkeypatch):
     assert (g2.label_source, g2.home_score, g2.away_score, g2.neutral) == ("matches", 7, 3, None)
     res = CliRunner().invoke(cli, ["ncaa-cfbd-coverage"])
     assert res.exit_code == 0, res.output
-    assert "coverage condition in ALL THREE seasons" in res.output and "SUSPENDED-PENDING-DATA" in res.output
+    assert "coverage condition in ALL THREE seasons" in res.output and "NCAA GATE: CLOSED" in res.output
     assert _match_snapshot(ids) == before
 
 

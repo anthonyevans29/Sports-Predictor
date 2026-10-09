@@ -77,17 +77,27 @@ PLAN_METRICS = ("log_loss",)
 # accrues, >=600 games) as its test season." test_set -> (the LAST id allowed
 # on it, what to declare instead). declare() and record_run() refuse anything
 # else on a retired test set.
+# ARCHITECT 2026-10-09, addendum 24 item 2(b) (ncaa-elo-v1r FAIL, item 1, verbatim): "The 2025 regular season is
+# retired as a college test season with this run: its figures now show how to correct the candidate, and a second
+# candidate scored on it would be fitted to it. A later college candidate may train on 2024 and 2025, and declares
+# the 2026 regular season, as it accrues, as its test."
 RETIRED_TEST_SETS = {
     "NHL 2025 (2025-26 regular season; nhl_backtest TEST_SEASON, train 2024)":
         ("nhl-v8", "NHL 2026-27 regular season as it accrues (>= 600 games)"),
+    "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)":
+        ("ncaa-elo-v1r", "the NCAA FBS 2026 regular season as it accrues (>= 500 games)"),
+}
+# The ruling that retired each set, named in the refusal (the NHL set's is the 2026-10-02 doctrine).
+RETIRED_BY = {
+    "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)": "ARCHITECT 2026-10-09, addendum 24",
 }
 
 
 def _retired_refusal(test_set: str, eid: str) -> str | None:
     last = RETIRED_TEST_SETS.get(test_set)
     if last and eid != last[0]:
-        return (f"{test_set!r} is RETIRED as a test set (doctrine 2026-10-02; {last[0]} was its last candidate): "
-                f"declare {last[1]} instead")
+        return (f"{test_set!r} is RETIRED as a test set ({RETIRED_BY.get(test_set, 'doctrine 2026-10-02')}; "
+                f"{last[0]} was its last candidate): declare {last[1]} instead")
     return None
 
 

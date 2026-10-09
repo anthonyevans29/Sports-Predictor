@@ -243,19 +243,58 @@ def closing_state(fam: str, start: str) -> dict:
 
 
 def covered_ids(fam: str) -> set:
-    """The games a closing has finished with: covered by a start time that has a success, or three attempts. C
-    (addendum 23): a game that left a run because its start moved is a new start time for the watch, never finished
-    with at the old one (a run's `covers` are the games left in it; `moved` names the ones that left)."""
+    """The games a closing has finished with. Codex 4232719331 (ARCHITECT 2026-10-09, addendum 26 item 2(a)): "A game
+    is finished with at a start time when a successful attempt for that start time covered it, or when the start time
+    has had three attempts and the last of them covered it. An earlier attempt's covers count for nothing on their
+    own." C (addendum 23): a game that left a run because its start moved is a new start time for the watch, never
+    finished with at the old one (a run's `covers` are the games left in it; `moved` names the ones that left)."""
     by_start: dict = {}
     for r in _attempts(fam):
         by_start.setdefault(r.get("start"), []).append(r)
+
+    def left_in(r: dict) -> set:
+        gone = {x.get("match_id") for x in r.get("moved") or []}
+        return {x.get("match_id") for x in r.get("covers") or [] if x.get("match_id") not in gone}
     out = set()
     for rs in by_start.values():
-        if any(r.get("exit") == 0 for r in rs) or len(rs) >= MAX_ATTEMPTS:
-            for r in rs:              # a game an attempt found moved is not finished with at this start (C)
-                gone = {x.get("match_id") for x in r.get("moved") or []}
-                out.update(x.get("match_id") for x in r.get("covers") or [] if x.get("match_id") not in gone)
+        for r in rs:                  # a successful attempt's covers
+            if r.get("exit") == 0:
+                out |= left_in(r)
+        if len(rs) >= MAX_ATTEMPTS:   # three attempts: the last one's covers, and only its
+            out |= left_in(rs[-1])
     return out
+
+
+def unpaged_called_off(fam: str) -> list[dict]:
+    """Codex 4233123800 (#392): a covered game an attempt found cancelled or postponed (`called_off`) leaves
+    schedule(), which drops every VOID status, so the watch would never page its line if that attempt failed. It stays
+    a game of its start time, in the schedule's shape at the start it was covered at, until that start time has a
+    successful attempt (whose page carried its line) or three attempts."""
+    by_start: dict = {}
+    for r in _attempts(fam):
+        by_start.setdefault(r.get("start"), []).append(r)
+    out: dict = {}
+    for rs in by_start.values():
+        if any(r.get("exit") == 0 for r in rs) or len(rs) >= MAX_ATTEMPTS:
+            continue
+        for r in rs:
+            for x in r.get("called_off") or []:
+                try:
+                    out.setdefault(x["match_id"], {
+                        "match_id": x["match_id"], "start": parse_utc(x["covered_start"]),
+                        "status": str(x.get("status") or "").upper(), "home": x.get("home"), "away": x.get("away"),
+                        "home_team_id": None, "away_team_id": None})
+                except (KeyError, TypeError, ValueError):
+                    continue
+    return list(out.values())
+
+
+def with_called_off(fam: str, games: list[dict]) -> list[dict]:
+    """The stored schedule plus the unpaged called-off games of the family (not already in it): what the watch, the
+    plan and the run's covers read. The run's own checks (missing from export, started) keep reading schedule()."""
+    have = {g["match_id"] for g in games}
+    extra = [g for g in unpaged_called_off(fam) if g["match_id"] not in have]
+    return sorted(games + extra, key=lambda g: (g["start"], g["match_id"])) if extra else games
 
 
 # --------------------------------------------------------------------------------------- side effects --
@@ -575,6 +614,26 @@ def start_moved(covers: list[dict], start: datetime) -> list[dict]:
     return out
 
 
+CALLED_OFF = ("CANCELLED", "POSTPONED")                # addendum 25 item 3: a covered game's line of its own
+
+
+def called_off(covers: list[dict]) -> list[dict]:
+    """Addendum 25 item 3 (#390 item 4): the covered games whose stored status, re-read by match id after the schedule
+    read, is CANCELLED or POSTPONED: {match_id, game, away, home, covered_start, status}."""
+    ids = [g["match_id"] for g in covers]
+    if not ids:
+        return []
+    con = c.ro_connect(c.db_path())
+    try:
+        st = {i: str(x or "").upper() for i, x in con.execute(
+            f"SELECT id, status FROM matches WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()}
+    finally:
+        con.close()
+    return [{"match_id": g["match_id"], "game": f"{g['away']} @ {g['home']}", "away": g["away"], "home": g["home"],
+             "covered_start": iso_z(g["start"]), "status": st[g["match_id"]]}
+            for g in covers if st.get(g["match_id"]) in CALLED_OFF]
+
+
 # ------------------------------------------------------------------------------------------------ prices --
 # R2 (ARCHITECT 2026-10-08), for every family (C4): the capture times are read from the stored rows the export read,
 # read-only: books = table `odds`, the match's '1X2' rows before the start, reduced to the LAST CAPTURE SESSION by
@@ -817,7 +876,8 @@ def game_of(x: dict) -> str:
     return f"{x['away']} @ {x['home']}"
 
 
-def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: dict) -> tuple[str, str, bool]:
+def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: dict,
+              off: list[dict] | None = None) -> tuple[str, str, bool]:
     """C5 (ARCHITECT): "In this order: the family, the start time in ET and the minutes to it; one line for each
     PLAY (pick, units, the order line as the export prints it, exec edge, and the hold text where a hold applies);
     one line for each value shadow and each quarantine shadow, ending 'shadow, not staked'; the number of PASS games.
@@ -828,7 +888,10 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
     PASS, 'was' and the earlier call. It makes the page high priority: an order may be working on the earlier call."
     B4 "Every line except the head and the PASS count names its game." B7 "An NFL PLAY on a game with injured players
     whose position did not resolve says so on its line, with the count." `prev`: each game's last call (last_calls,
-    reading 7 as amended by addendum 25 2(iii): "C5's was and B3 read this."). Returns (title, body, high)."""
+    reading 7 as amended by addendum 25 2(iii): "C5's was and B3 read this."). Addendum 25 item 3 (#390 item 4), `off`
+    (called_off): "A covered game the schedule read finds cancelled or postponed has a line of its own: the game and
+    its status, and was with the earlier call when that call was a PLAY or a LADDER. With such a call the page is high
+    priority. It is not counted as a PASS." Returns (title, body, high)."""
     head = f"{fam} {utc(start).astimezone(NY):%H:%M} ET · T-{max(0, round(minutes_to(start, at)))}m"
     lines = [head]
     starter_note = {}
@@ -871,10 +934,16 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
             lines += wrap(starter_note.pop(x["match_id"]))
     for mid, note in starter_note.items():           # 380.1 for a game with no call line of its own
         lines += wrap(note)
+    off_staked = False
+    for x in off or []:                              # addendum 25 item 3: cancelled or postponed, its own line
+        was = prev.get(x["match_id"])
+        staked = str(was or "").split(" ")[0] in STAKED_CALLS
+        off_staked = off_staked or staked
+        lines += wrap([f"{x['away']} @ {x['home']}", x["status"]] + ([f"was {was}"] if staked else []))
     n_pass = sum(1 for x in rows if x["call"] == "PASS")
     lines.append(f"PASS: {n_pass} game{'s' if n_pass != 1 else ''}")
     title = f"{fam} closing {utc(start).astimezone(NY):%H:%M} ET"
-    return title, "\n".join(lines), bool(plays) or bool(dropped)
+    return title, "\n".join(lines), bool(plays) or bool(dropped) or off_staked
 
 
 # THE LAST CALL (ARCHITECT 2026-10-09, addendum 25 item 2(iii); reading 7 amended): "The last call of a game is the
@@ -897,60 +966,98 @@ def _paged(r: dict) -> bool:
     return ((r.get("page") or {}).get("phone") or {}).get("accepted") is True
 
 
-def _writer_receipt(fam: str, sha: str, recs: list[dict]) -> dict | None:
-    """The newest closing receipt of the family that names `sha` as the export it wrote and carries the last calls it
-    found (a receipt without them cannot be followed)."""
-    hit = [r for r in recs if r.get("family") == fam and (r.get("export_written") or {}).get("sha256") == sha
-           and isinstance(r.get("last_calls"), dict)]
-    return hit[-1] if hit else None
+def _paged_calls(w: dict) -> dict:
+    """Addendum 26 item 2(b): "The receipt carries what it paged, so the page's calls do not depend on the file being
+    there." The calls on a closing run's page, when its page went out: {match_id: {call, start, source}}, from the
+    receipt's Desk rows (`call_text`). A receipt written before the rows carried their call text falls back to the
+    export it names, when that file is still in exports/ with the same bytes (else those rows add nothing)."""
+    if not _paged(w):
+        return {}
+    rows = w.get("desk_rows") or []
+    file_calls: dict | None = None
+    out = {}
+    for x in rows:
+        mid, text = x.get("match_id"), x.get("call_text")
+        if text is None:
+            if file_calls is None:
+                file_calls = {}
+                ew = w.get("export_written") or {}
+                f = c.REPO / str(ew.get("file") or "")
+                try:
+                    if ew.get("file") and f.is_file() and _sha256(f) == ew.get("sha256"):
+                        for r in json.loads(f.read_text()).get("predictions") or []:
+                            if r.get("desk") and r["desk"].get("call"):
+                                file_calls[r.get("match_id")] = call_text(r, r["desk"])
+                except (OSError, ValueError):
+                    pass
+            text = file_calls.get(mid)
+        if mid is not None and text:
+            out[mid] = {"call": text, "start": x.get("start"), "source": f"page {w.get('run_id')}"}
+    return out
+
+
+def _wall_start(w: dict) -> float:
+    """The wall-clock moment the run started (file mtimes are compared with it); a receipt without it: its run_start."""
+    try:
+        return float(w["run_start_wall"])
+    except (KeyError, TypeError, ValueError):
+        return parse_utc(w["run_start"]).timestamp()
 
 
 def last_calls(fam: str, at: datetime) -> dict:
     """The last call of every game of the family found, read before the first step (the run's own export overwrites
-    the file): {match_id: {"call": call text, "start": ISO, "source": where it was shown}}. The family's files in
-    exports/, newest first: a file no closing receipt names supplies its calls (the file's call stands) for the games
-    not yet found, and the walk goes on to older files; a file a closing run wrote (its receipt names its sha256)
-    supplies the calls on that run's page, when its page went out, and, for every other game, the last calls that
-    receipt recorded; the walk ends there (the receipt's calls already read every older file). A game whose start is
-    more than LAST_CALL_KEEP_H hours before `at` is left out. A game nothing found has no last call (no 'was')."""
+    the file): {match_id: {"call": call text, "start": ISO, "source": where it was shown}}. Addendum 26 item 2(b)
+    (ARCHITECT 2026-10-09): "The chain of last calls runs through the receipts, not the files. The last calls are those
+    of the newest closing receipt of the family that carries them, with the calls that run paged when its page went
+    out, whether its export is still in exports/ or R6 moved it. Only an export that no closing run wrote, written
+    after that run started, comes before it." So: the newest closing receipt of the family carrying `last_calls` (a
+    receipt without them cannot be followed) gives the base, its own page's calls over it; then the family's files in
+    exports/ that no closing receipt names (by sha256) and that were written after that run started, newest first,
+    supply the call for the games they hold. With no such receipt, every file in exports/, newest first (the chain cannot
+    be followed: the file's call stands). A game whose start is more than LAST_CALL_KEEP_H hours before `at` is left
+    out. A game nothing found has no last call (no 'was')."""
     keep = utc(at) - timedelta(hours=LAST_CALL_KEEP_H)
     ex = c.REPO / "exports"
     files = sorted(ex.glob(FAMILIES[fam]["export_glob"]), key=lambda p: p.stat().st_mtime,
                    reverse=True) if ex.is_dir() else []
-    recs = receipts(("closing",))
-    out: dict = {}
+    recs = [r for r in receipts(("closing",)) if r.get("family") == fam]
+    written = {(r.get("export_written") or {}).get("sha256") for r in recs} - {None}
+    carriers = [r for r in recs if isinstance(r.get("last_calls"), dict)]
+    w = carriers[-1] if carriers else None
 
     def kept(start) -> bool:
         try:
             return parse_utc(start) >= keep
         except (TypeError, ValueError):
             return False
+    base: dict = {}
+    since = None
+    if w is not None:
+        for k, v in w["last_calls"].items():           # the last calls that run found
+            mid = int(k) if str(k).lstrip("-").isdigit() else k
+            if isinstance(v, dict) and v.get("call") and kept(v.get("start")):
+                base[mid] = v
+        base.update({k: v for k, v in _paged_calls(w).items() if kept(v["start"])})   # its page's calls
+        since = _wall_start(w)
+    newer: dict = {}
     for p in files:
         try:
+            if since is not None and p.stat().st_mtime < since:
+                break                 # written before that run started: its last calls already read it
             raw = p.read_bytes()
             doc = json.loads(raw)
         except (OSError, ValueError):
             continue
-        calls = {}
+        if w is not None and hashlib.sha256(raw).hexdigest() in written:
+            continue                  # a closing run's export: its calls reach the chain through its receipt
         for r in doc.get("predictions") or []:
             mid, d = r.get("match_id"), r.get("desk")
             if mid is None or not d or not d.get("call") or not kept(r.get("utc_date")):
                 continue
-            calls.setdefault(mid, {"call": call_text(r, d), "start": iso_z(parse_utc(r["utc_date"]))})
-        w = _writer_receipt(fam, hashlib.sha256(raw).hexdigest(), recs)
-        if w is None:                 # not a closing run's export, or the chain cannot be followed: the file's call
-            for mid, v in calls.items():
-                out.setdefault(mid, {**v, "source": p.name})
-            continue
-        paged = {x.get("match_id") for x in w.get("desk_rows") or []} if _paged(w) else set()
-        for mid in paged & set(calls):                 # the call on that run's page
-            out.setdefault(mid, {**calls[mid], "source": f"page {w.get('run_id')}"})
-        for k, v in w["last_calls"].items():           # every other game: the last call that run found
-            mid = int(k) if str(k).lstrip("-").isdigit() else k
-            if isinstance(v, dict) and v.get("call") and kept(v.get("start")):
-                out.setdefault(mid, v)
-        break
-    return out
+            newer.setdefault(mid, {"call": call_text(r, d), "start": iso_z(parse_utc(r["utc_date"])),
+                                   "source": p.name})
+    base.update(newer)
+    return base
 
 
 # ---------------------------------------------------------------------------------------------------- run --
@@ -1053,7 +1160,7 @@ def plan(fam: str, now: datetime, start: str | None) -> dict:
     """The target start time and the games it covers, from the stored schedule (read-only). `refused` when there is
     nothing to close. A manual run with no --start targets the next unstarted start within 90 minutes (#370, accepted
     as built); a watch-started run passes its start time."""
-    games = schedule(fam, now)
+    games = with_called_off(fam, schedule(fam, now))      # Codex 4233123800
     if start:
         s = parse_utc(start)
         if not any(g["start"] == s and not started(g, now) for g in games):
@@ -1184,7 +1291,13 @@ def leave_moved(rec: dict, covers: list[dict], s: datetime) -> list[dict]:
     times (`moved`; `covers` = the games left). Codex 4232307577 (addendum 25 2(ii)): taken as soon as the schedule
     read has run, before a later step can fail, so a failed attempt's receipt never counts a moved game as covered
     (three such attempts would close its new start time for good). Returns the games left."""
-    moved = start_moved(covers, s)
+    off = called_off(covers)          # addendum 25 item 3: a cancelled or postponed game stays, on a line of its own
+    if off:
+        rec["called_off"] = off
+        for x in off:
+            print(f"· {x['status'].lower()}: match {x['match_id']} ({x['game']}): on the page with its status")
+    gone_off = {x["match_id"] for x in off}
+    moved = start_moved([g for g in covers if g["match_id"] not in gone_off], s)
     if moved:
         rec["moved"] = moved
         gone = {m["match_id"] for m in moved}
@@ -1280,7 +1393,8 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         print(f"✗ the target {FAMILIES[fam]['noun']} {et(s)} has started ({why}) — no closing for it; a started "
               "game is never retried")
         return
-    cover_ids = {g["match_id"] for g in covers}
+    off = rec.get("called_off") or []
+    cover_ids = {g["match_id"] for g in covers} - {x["match_id"] for x in off}
     rows = desk_rows(doc, cover_ids, done, started_ids, fam)
     missing = missing_from_export(doc, covers, done, games)
     if missing:
@@ -1313,9 +1427,9 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
                       f"({x['team']}) refreshed {x['refreshed_at'] or 'never (no stored row)'}, before the run's "
                       f"start {x['run_start']}")
             return
-    rec["desk_rows"] = [{k: x[k] for k in ("match_id", "start", "call", "pick", "units", "exec_edge_pp", "hold",
-                                           "value_shadow", "quarantine_shadow", "starters_listed",
-                                           "unresolved_injuries")} for x in rows]
+    rec["desk_rows"] = [{k: x[k] for k in ("match_id", "start", "call", "call_text", "pick", "units", "exec_edge_pp",
+                                           "hold", "value_shadow", "quarantine_shadow", "starters_listed",
+                                           "unresolved_injuries")} for x in rows]   # call_text: 26 2(b)
     print(f"\n=== {fam} closing summary · {len(rows)} game(s) starting {et(s)} to "
           f"{utc(s + timedelta(minutes=COVER_MIN)).astimezone(NY):%H:%M} ET")
     for x in rows:
@@ -1325,7 +1439,7 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
     # and notified, and the next push from this machine carries the file." C5/C6 + B2: ONE page per run, on the phone
     # (ntfy card topic, three tries ten seconds apart), then the laptop's screen (recorded, changes nothing).
     at = held + timedelta(seconds=time.time() - t0)
-    title, body, high = page_text(fam, s, at, rows, prev)
+    title, body, high = page_text(fam, s, at, rows, prev, off)
     priority = "high" if high else "default"
     print(f"\n--- page ({priority}) ---\n{body}\n---")
     tries = []
@@ -1396,7 +1510,7 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
             record_miss(fam, start, "the lock came inside T-5", detail=f"lock held at {iso_z(held)}")
             print(f"✗ {fam} {et(s)}: the lock came inside T-5 — no attempt; miss recorded")
             return 1
-    games = schedule(fam, held)
+    games = with_called_off(fam, schedule(fam, held))     # Codex 4233123800
     covers = cover(games, s, held)
     rec = {**base, "start": start, "start_et": et(s), "covers": _covers_rec(covers or p["covers"]),
            "attempt": closing_state(fam, start)["attempts"] + 1, "queued_at": base["queued_at"],
@@ -1413,7 +1527,8 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
         _finish(rec, fam, trigger, run_id, t0)
         print(f"✗ closing-run {fam} FAILED (target started)")
         return 1
-    wall0 = _WALL() - 1.0     # the export must be written by this run's own step (1s: coarse filesystem mtimes)
+    rec["run_start_wall"] = _WALL()   # addendum 26 2(b): an export written after this moment comes before its calls
+    wall0 = rec["run_start_wall"] - 1.0   # the export must be written by this run's own step (1s: coarse mtimes)
     try:                      # addendum 25 2(iii): the last calls found before the first step, every game found
         lc = last_calls(fam, held)
         rec["last_calls"] = {str(k): v for k, v in sorted(lc.items(), key=lambda kv: str(kv[0]))}
@@ -1522,7 +1637,7 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
 
 def due(fam: str, now: datetime) -> dict:
     """The watch's view of one family at `now` (no network): its start times (C2 groups), and which is due."""
-    games = schedule(fam, now)
+    games = with_called_off(fam, schedule(fam, now))      # Codex 4233123800
     gr = groups(games, now, covered_ids(fam))
     out = {"games": games, "groups": gr, "due": [], "inside": []}
     for g in gr:

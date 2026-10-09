@@ -1,3 +1,4 @@
 ## 2026-10-09 (#395: sx-shadow-dropped-label — a dropped league's shadow row ends at its own outcome)
 - `_status_label` (src/walters/soccer_expansion.py): a league whose own gate outcome is not PASS returns that outcome only. soccer_expansion_shadow rows for SA, BL1, FL1 and ELC now read "DROPPED — calibration", no longer "DROPPED — calibration · verdict PASS · confirmation open" (the PASS and the open confirmation are PD's). PD's label is unchanged: "PASS · verdict PASS · confirmation open". ARCHITECT addendum 24 item 5; Issue #391.
 - Pin: tests/test_soccer_expansion.py::test_shadow_label_a_dropped_league_ends_at_its_own_outcome, on the registry's recorded run (fails on ed5ecbb). Labels only: no gate, threshold, verdict or prediction changes.
+- Codex on #395: a league dropped before the run (F1, no per_league entry) reads "DROPPED before the run — <recorded reason>", never "?".

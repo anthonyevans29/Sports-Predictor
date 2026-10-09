@@ -5198,7 +5198,7 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
                                "the cohort is stored yet; sync the schedule")
                     continue
                 reg.substitute_cohort_fixture(ie.EID_V2, f["id"], rep["id"], d["reason"], {
-                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,
+                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,  # incl. STALE_ORPHAN
                     "kickoff": iso(f["kickoff"]),
                     "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]})
                 click.echo(f"  SUBSTITUTED: {f['id']} ({d['reason']}, {iso(f['kickoff'])}) -> {rep['id']} "
@@ -6096,6 +6096,167 @@ def soccer_expansion_shadow_grade_cmd(days):
         print(ln)
     for code, d in sorted(r["per_league"].items()):
         print(f"  ── {code}: graded {d['graded']} · priced {d['priced']} · mean pick-vs-close {d['mean_clv_pp']}pp")
+
+
+@cli.command("soccer-expansion-confirm")
+@click.option("--freeze-cohort", is_flag=True,
+              help="Freeze the first 60 eligible fixture ids into the registry (once; needs >= 60 stored).")
+@click.option("--substitute", is_flag=True,
+              help="Release UNSCOREABLE cohort fixtures (CANC/ABD/AWD/WO, or AET/PEN without a 90-minute score) and "
+                   "record the next eligible fixture after the cohort as each one's substitute, the raw code as "
+                   "reason (registry write; commit in a PR).")
+@click.option("--record", is_flag=True, help="Record the confirmation (needs the frozen cohort complete and --ruling).")
+@click.option("--ruling", default=None, help="The architect's ruling text, verbatim (with --record).")
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="With --freeze-cohort, cross-ref guard (#329): skip fetching origin laptop/*; only the refs this "
+                   "clone knows are checked and the receipt says other clones were not checked.")
+def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
+    """soccer-expansion-v1 CONFIRMATION READ (ARCHITECT 2026-10-08, addendum 11, item 4; declared window): the first
+    60 league games of the surviving set kicking off after the verdict, pooled, regular-season rounds only (F3),
+    priced by the gate's own walk (per league-season from a cold start, min_prior 40, same-kickoff batching, the run
+    record's params) predict-then-update; CONFIRMED iff pooled log-loss <= ln 3 AND < the pooled naive (each surviving
+    league's frozen 2023/24 H/D/A) − 0.010 on the same games; per-league lines reported, not gated. The 60 are
+    FIXTURE ids chosen whatever their status and frozen once (--freeze-cohort, after the cross-ref guard); only an
+    UNSCOREABLE one (cancelled / abandoned / awarded / walkover, or AET/PEN without a 90-minute score) is released,
+    replaced by the next eligible fixture after the cohort and recorded with the raw code (--substitute).
+    Without flags: progress only. --record: registry.record_confirmation computes CONFIRMED / NOT_CONFIRMED on
+    exactly the frozen cohort. Refused unless the registry holds the run and a PASS verdict."""
+    from collections import Counter
+
+    from src.db.database import session_scope
+    from src.timeutil import utc_now_naive
+    from src.walters import registry as reg
+    from src.walters import soccer_expansion as sx
+    iso = lambda d: d.strftime("%Y-%m-%dT%H:%M:%SZ")  # noqa: E731
+    try:
+        if freeze_cohort:
+            e, surv, _ = sx.confirming()
+            with session_scope() as s:
+                co = sx.cohort(e, s, surv)
+                s.rollback()
+            if co["state"] == "frozen":
+                click.echo("REFUSED: the cohort is already frozen — a frozen cohort never changes")
+                raise SystemExit(2)
+            if len(co["ids"]) < co["n_games"]:
+                click.echo(f"REFUSED: {co['eligible_stored']} eligible fixtures stored < {co['n_games']} — sync the "
+                           f"schedule (sync-matches for {', '.join(surv)}) before freezing")
+                raise SystemExit(2)
+            fx = co["fixtures"]
+            bad = sx.unplaced_through(co["unplaced"], fx[-1]["kickoff"])
+            if bad:                                  # F3 + addendum 16 (no season): never guessed
+                click.echo("REFUSED: stage / round labels the code cannot place, or fixtures with no season, at or "
+                           "before the 60th kickoff (F3; never guessed, never skipped): " + "; ".join(bad))
+                raise SystemExit(2)
+            basis = {"selected_at": iso(utc_now_naive()), "rule": sx.CONFIRM_RULE, "surviving": surv,
+                     "eligible_stored": co["eligible_stored"],
+                     "first_kickoff": iso(fx[0]["kickoff"]), "last_kickoff": iso(fx[-1]["kickoff"]),
+                     "status_at_freeze": dict(Counter(f["status"] for f in fx)),
+                     "by_code": dict(Counter(f["code"] for f in fx))}
+            ledger, ids_dir = sx._reg_paths()
+            e = reg.freeze_confirmation_cohort(sx.EID, co["ids"], basis, path=ledger, ids_dir=ids_dir,
+                                               no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
+            c = e["confirmation_cohort"]
+            click.echo(f"FROZEN: {c['n']} fixtures · sha256 {c['ids_sha256'][:16]}… · {basis['first_kickoff']} .. "
+                       f"{basis['last_kickoff']} · {basis['status_at_freeze']} · {basis['by_code']} — commit "
+                       "docs/registry/ in a PR")
+            return
+        if substitute:
+            e, surv, _ = sx.confirming()
+            with session_scope() as s:
+                due = sx.substitutions_due(e, s, surv)
+                unpl = sx.eligible_fixtures(s, e, surv)[1]
+                s.rollback()
+            if not due:
+                click.echo("SUBSTITUTE: no unscoreable fixture in the cohort — nothing released")
+                return
+            reps = [d["replacement"]["kickoff"] for d in due if d["replacement"] is not None]
+            bad = sx.unplaced_through(unpl, max(reps)) if reps else []
+            if bad:                                  # F3: an unplaced row could precede a replacement; nothing written
+                click.echo("REFUSED: stage / round labels the code cannot place, or fixtures with no season, at or "
+                           "before a replacement's kickoff (F3; never guessed, never skipped): " + "; ".join(bad))
+                raise SystemExit(2)
+            ledger, ids_dir = sx._reg_paths()
+            for d in due:
+                f, rep = d["released"], d["replacement"]
+                if rep is None:
+                    click.echo(f"  WAITING: {f['id']} ({f['status_raw'] or f['status']}) — no eligible fixture after "
+                               "the cohort is stored yet; sync the schedule")
+                    continue
+                reg.substitute_cohort_fixture(sx.EID, f["id"], rep["id"], d["reason"], {
+                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,  # incl. STALE_ORPHAN
+                    "kickoff": iso(f["kickoff"]), "code": f["code"],
+                    "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]},
+                    path=ledger, ids_dir=ids_dir)
+                click.echo(f"  SUBSTITUTED: {f['id']} ({d['reason']}, {f['code']} {iso(f['kickoff'])}) -> {rep['id']} "
+                           f"({rep['code']} {iso(rep['kickoff'])})")
+            click.echo("  commit docs/registry/ in a PR")
+            return
+        r = sx.confirmation_read()
+    except (sx.ExpansionRefused, reg.RegistryError) as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    p = r["params"]
+    click.echo(f"SOCCER-EXPANSION-V1 CONFIRMATION · surviving {', '.join(r['surviving'])} · cohort "
+               f"{r['cohort_state'].upper()} ({r['cohort_size']}/{r['n_games']} fixtures; {r['eligible_stored']} "
+               f"eligible stored) · {r['n']}/{r['n_games']} labelled"
+               + (f" · first {r['first_game_at']}" if r["first_game_at"] else ""))
+    click.echo(f"  model: the run record's {p['production_version']} (rho {p['rho']}, elo_goal_coeff "
+               f"{p['elo_goal_coeff']}; never refit) · walk min_prior {sx.MIN_PRIOR}, regular season, same-kickoff "
+               "batched")
+    prod = _soccer_prod_poisson()
+    if prod is not None and (prod[0], prod[1], prod[2]) != (p["production_version"], p["rho"], p["elo_goal_coeff"]):
+        click.echo(f"  NOTE: the current production soccer model is {prod[0]} (rho {prod[1]}, elo_goal_coeff "
+                   f"{prod[2]}), not the run record's — the read stays on the candidate as gated")
+    for c in r["surviving"]:
+        nv = r["naive"][c]
+        click.echo(f"  naive {c}: H {nv['H']:.4f} / D {nv['D']:.4f} / A {nv['A']:.4f} · source {r['naive_source'][c]}")
+    if r["unplaced"]:
+        click.echo(f"  UNPLACED stage labels (F3; never guessed, excluded): {'; '.join(r['unplaced'])}")
+    if r["non_ft_rows"]:
+        click.echo("  DATA NOTE: finished non-FT rows in a league season (a regular-season game should never go to "
+                   "extra-time AET/PEN): read on the 90' score, never the after-extra-time one; a row the substitution "
+                   "rule releases (e.g. AWD / WO without a 90' score) is neither scored nor walked: "
+                   + "; ".join(r["non_ft_rows"]))
+    for c in r.get("census") or []:                  # C2 (addendum 16 item 1)
+        click.echo(f"  walk {c['code']} {c['season']}: finished rows by raw code {c['by_raw_code']} · left out under "
+                   f"the rule {len(c['left_out'])}")
+        for line in c["left_out"]:
+            click.echo(f"    LEFT OUT (not scored, not walked): {line}")
+        for line in c["no_raw_code"]:
+            click.echo(f"    NO RAW CODE (C1: walked and scored as the gate walks it): {line}")
+    if r.get("no_raw_code_rows"):
+        click.echo("  NO RAW CODE in the eligible set (C1: never released; walked and scored as the gate walks it): "
+                   + "; ".join(r["no_raw_code_rows"]))
+    if r["pending"]:
+        click.echo(f"  pending {len(r['pending'])}: {dict(Counter(x['status'] for x in r['pending']))}"
+                   + (f" — {r['release_due']} unscoreable: run --substitute" if r["release_due"] else ""))
+    if r["n"]:
+        click.echo(f"  so far (pooled): log-loss {r['log_loss']:.4f} · naive {r['naive_log_loss']:.4f} · reference "
+                   f"(naive − 0.010) {r['reference_log_loss']:.4f} · bar {r['bar']:.4f} — not a verdict until the "
+                   "cohort is complete")
+        for c, d in sorted(r["per_league"].items()):
+            click.echo(f"    {c}: n {d['n']} · log-loss {d['ll_model']:.4f} · naive {d['ll_naive']:.4f} "
+                       "(reported, not gated)")
+    if not record:
+        return
+    if not ruling:
+        click.echo("REFUSED: --record needs --ruling (the architect's text, verbatim)")
+        raise SystemExit(2)
+    if not r["complete"]:
+        click.echo("REFUSED: the read is incomplete — " + ("the cohort is not frozen (--freeze-cohort)"
+                   if r["cohort_state"] != "frozen" else f"{len(r['pending'])} cohort fixture(s) lack a label"))
+        raise SystemExit(2)
+    ledger, ids_dir = sx._reg_paths()
+    try:
+        e = reg.record_confirmation(sx.EID, r["scored_ids"], {
+            "log_loss": r["log_loss"], "reference_log_loss": r["reference_log_loss"],
+            "naive_log_loss": r["naive_log_loss"], "first_game_at": r["first_game_at"],
+            "per_league": r["per_league"], "naive": r["naive"], "naive_source": r["naive_source"],
+            "params": r["params"], "min_prior": sx.MIN_PRIOR}, ruling, path=ledger, ids_dir=ids_dir)
+    except reg.RegistryError as err:
+        click.echo(f"REFUSED: {err}")
+        raise SystemExit(2)
+    click.echo(f"  RECORDED: {e['confirmation']['outcome']} · status {e['status']} — commit docs/registry/ in a PR")
 
 
 @cli.command("soccer-odds-history")

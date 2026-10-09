@@ -306,13 +306,12 @@ def usable_quotes(payload, sport: str | None = None) -> int:
     finite decimal price above 1 (what the close reads). nhl / ncaa: a bet whose name is in its _MARKET_MAP, ONE
     values[] object whose odd parses as a float and whose value normalises to a selection for that market
     (_normalize_selection). soccer / mlb (addendum 32 item 5): the rows APIFootballAdapter.list_odds /
-    APIBaseballClient.list_odds_window themselves build from the payload (_offline_rows). No --sport: the most any
-    of the four would build. Split fields, unknown markets, unnormalisable selections and impossible prices count
-    nothing."""
+    APIBaseballClient.list_odds_window themselves build from the payload (_offline_rows). No --sport: nhl / ncaa
+    only, as before, so that the quotes counted come from the same adapter whose reads the drop listing uses
+    (Codex on #406): a soccer or MLB payload is read with its --sport. Split fields, unknown markets,
+    unnormalisable selections and impossible prices count nothing."""
     if sport in ("soccer", "mlb"):
         return sum(_priced(r.price_decimal) for r in _offline_rows(payload, sport))
-    if sport is None:
-        return max(_map_quotes(payload, None), usable_quotes(payload, "soccer"), usable_quotes(payload, "mlb"))
     return _map_quotes(payload, sport)
 
 

@@ -624,7 +624,22 @@ def test_mlb_usable_quotes_are_what_the_window_parse_builds():
     no_teams["response"][0]["game"].pop("teams")                 # _parse_game_odds returns for a team-less game
     assert P.usable_quotes(no_teams, "mlb") == 0
     assert "INCONCLUSIVE" in "\n".join(P.report(no_teams, sport="mlb"))
-    assert P.usable_quotes(MLB) == 5 and P.usable_quotes(SOCCER) == 5     # no --sport: the most any adapter builds
+    # no --sport: nhl / ncaa only (Codex on #406), the same adapter set the drop listing uses
+    assert P.usable_quotes(SOCCER) == 0                                   # never counted by the soccer parse
+    assert P.usable_quotes(MLB) == P._map_quotes(MLB, None)                # main's nhl / ncaa rule, nothing more
+
+
+def test_an_mlb_payload_is_read_as_mlb_only_with_its_sport(tmp_path, capsys):
+    """Codex on #406: no --sport reads a payload as nhl / ncaa only, quotes and drop listing alike, and says so;
+    an MLB payload is read with --sport mlb, where game.date is read, never offered as a dropped quote time."""
+    f = tmp_path / "mlb.json"
+    f.write_text(json.dumps(MLB))
+    assert P.main(["--from-file", str(f)]) == 0
+    assert "list_odds (nhl/ncaa; no --sport given)" in capsys.readouterr().out
+    assert P.main(["--from-file", str(f), "--sport", "mlb"]) == 0
+    out = capsys.readouterr().out
+    verdict = [ln for ln in out.splitlines() if ln.startswith("VERDICT")]
+    assert verdict and "response[].game.date" not in verdict[0]
 
 
 @pytest.mark.parametrize("argv", [["--sport", "soccer", "--competition", "PL"], ["--sport", "mlb"]])

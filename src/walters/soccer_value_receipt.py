@@ -1,37 +1,25 @@
 """
-SOCCER VALUE SIDES AGAINST THE CLOSE — a READ-ONLY receipt (ARCHITECT 2026-10-09, addendum 21 item 6; Issue #383).
-Not gate evidence and not a policy. The operator runs it; the receipt goes to docs/receipts by PR.
+SOCCER VALUE SIDES AGAINST THE CLOSE — a READ-ONLY receipt (ARCHITECT 2026-10-09, addendum 21 item 6; Issue #383;
+AMENDED before any read by addendum 23 item 2). Not gate evidence and not a policy. The operator runs it; the receipt
+goes to docs/receipts by PR.
 
-The declaration, verbatim (binding; no other cut is added):
-
-  "The operator's question is whether the model's value sides pay against the close. The gate's run record holds the
-  count only (512 hits on 1,281 picks at 5pp or more), not the prices. Declared now so that it is not fished later
-  (the #354 pattern). No other cut is added after the fact.
-  - Matches: the gate's 3,445 scored ids, priced by the candidate as gated (the run record's rho and elo_goal_coeff,
-    the gate's own walk), against the stored fdcuk_close, de-vigged as market_side does.
-  - The value outcome of a match is the outcome with the largest model probability minus close probability.
-  - Rows: league (PD, SA, BL1, FL1, ELC, and pooled) by edge bucket (under 5pp; 5 to 10; 10 to 15; 15 and over; and
-    5 and over as one row, which must reproduce the run record's cohorts: 79 of 212, 88 of 225, 115 of 266, 93 of
-    205, 137 of 373) by whether the value outcome is the model's top pick.
-  - One more table, for the 5-and-over row only: by the value outcome's kind (home, draw, away).
-  - Columns: n, mean model p, mean close p, hit rate, hit minus close in pp with a seeded bootstrap 95% interval,
-    flat-stake return at the close's fair price with its interval.
-  - The same tables for PL 2024/25 and 2025/26 on a page of their own, for reference. PL's live read (#92) stands as
-    declared and is not this.
-  It is not gate evidence and not a policy. The operator runs it; the receipt goes to docs/receipts by PR."
+The declaration is quoted AS ISSUED (DECLARATION); its withdrawn sentence (addendum 23 (b)) is printed struck
+through and marked withdrawn, never deleted. The amendment (AMENDMENT, (a) to (e), verbatim) is printed beside it.
 
 How it reads (each reading is named where it is made):
-- REFUSES unless the registry holds soccer-expansion-v1's run record (rho, elo_goal_coeff, per-league market cohorts)
-  and its ids file (sha256 equal to the record's).
-- FIDELITY (hard refusal, nothing written): the gate's own walk (soccer_backtest.run_soccer_backtest per league-season
-  from a cold start, min_prior 40, regular-season rows, same-kickoff batching) at the run record's rho /
-  elo_goal_coeff must score exactly the ids file's ids, and soccer_expansion.market_side on the re-walked rows must
-  reproduce every league's recorded n_priced and >= +5pp cohort (n, hits) exactly and its model log-loss to 1e-9.
-  A walk that does not reproduce the run is not the candidate as gated.
-- COHORT CHECK (declared; flagged loudly, never hidden): each league's "5 and over" row, as one row (both top-pick
-  splits together; hit = the value outcome happened), must equal the run record's cohort (n, hits). A mismatch is
-  written as a banner at the top of the receipt with the decomposition, and the command exits 3: a finding for the
-  architect (needs-ruling), never resolved here.
+- REFUSES (exit 2, nothing written) unless the registry holds soccer-expansion-v1's run record (rho, elo_goal_coeff,
+  per-league market cohorts) and its ids file (sha256 equal to the record's).
+- RECONCILIATION (amendment (b)): under market_side's own rule the gate's own walk (soccer_backtest.run_soccer_backtest
+  per league-season from a cold start, min_prior 40, regular-season rows, same-kickoff batching) at the run record's
+  rho / elo_goal_coeff must reproduce, per league, the run record's n_priced, BOTH log-losses (model and close) and the
+  cohort's count, hits and mean edge (floats to 1e-9, counts exactly). Reading: the walk must also score exactly the
+  ids file's ids and each league's recorded n; those are part of the same reproduction. If anything differs, the
+  receipt prints the declaration, the amendment and the difference and STOPS: no table, no PL page, exit 2.
+- Bootstrap (amendment (c)): percentile 95%; the unit is the match, resampled with replacement within the cell;
+  10,000 resamples; seed 20261009; the return interval from the same draws; a cell of fewer than two matches prints
+  no interval.
+- Buckets and ties (amendment (d)): a bucket holds its lower edge at the gate's tolerance (5.0 is in 5 to 10); the
+  value outcome's edge is never negative, so under 5 is 0 to 5; ties go to the first of home, draw, away.
 - Nothing is written to the DB; the receipt is markdown at a path the operator gives (never under data/).
 """
 from __future__ import annotations
@@ -112,10 +100,11 @@ def bucket_of(edge_pp: float) -> str:
 
 def bootstrap(hit_minus_close: list[float], ret: list[float], seed: int = SEED, n_boot: int = N_BOOT):
     """Seeded percentile bootstrap (2.5, 97.5) of the two means, resampling MATCHES with the same draws for both
-    (paired). A fresh generator per cell, so a cell's interval never depends on which cells ran before it."""
+    (paired: the return interval comes from the same draws). A fresh generator per cell, so a cell's interval never
+    depends on which cells ran before it. A cell of fewer than two matches has NO interval (amendment (c))."""
     import numpy as np
     n = len(ret)
-    if n == 0:
+    if n < 2:
         return None, None
     a, b = np.asarray(hit_minus_close, dtype=float), np.asarray(ret, dtype=float)
     rng = np.random.default_rng(seed)
@@ -165,30 +154,35 @@ def tables(by_league: dict[str, list[dict]], leagues, seed: int = SEED, n_boot: 
     return {"order": order, "main": main, "kind": kind}
 
 
-def cohort_check(by_league: dict[str, list[dict]], record_per_league: dict) -> dict:
-    """The declared check: each league's "5 and over" row AS ONE ROW (both top-pick splits; hit = the value outcome)
-    against the run record's >= +5pp cohort (market_side: the model's TOP PICK with edge >= 5pp, hit = the top pick).
-    ok iff n and hits are equal in every league. The decomposition names the difference: rows in the 5+ row whose
-    value outcome is not the top pick, and cohort matches (top-pick edge >= 5) whose value outcome is another one."""
-    per, ok = {}, True
-    for c, g in record_per_league.items():
-        coh = ((g or {}).get("market") or {}).get("edge_cohort") or {}
-        rs = by_league.get(c) or []
-        five = [r for r in rs if in_bucket(r["edge_pp"], 5.0, None)]
-        five_top = [r for r in five if r["is_top"]]
-        top_coh = [r for r in rs if r["top_edge_pp"] >= 5.0 - EPS]           # market_side's cohort, recomputed
-        d = {"record": (coh.get("n"), coh.get("hits")),
-             "five_plus": (len(five), sum(r["hit"] for r in five)),
-             "five_plus_top": (len(five_top), sum(r["hit"] for r in five_top)),
-             "five_plus_not_top": (len(five) - len(five_top), sum(r["hit"] for r in five if not r["is_top"])),
-             "cohort_other_value": sum(1 for r in top_coh if not r["is_top"])}
-        d["ok"] = d["five_plus"] == d["record"]
-        ok = ok and d["ok"]
-        per[c] = d
-    rec = [v["record"] for v in per.values()]
-    pooled = {"record": (sum(n or 0 for n, _ in rec), sum(h or 0 for _, h in rec)),
-              "five_plus": (sum(v["five_plus"][0] for v in per.values()), sum(v["five_plus"][1] for v in per.values()))}
-    return {"ok": ok, "per_league": per, "pooled": pooled}
+TOL = 1e-9                         # a float of the run record is reproduced to 1e-9; a count exactly
+
+
+def _same(walk, record, tol) -> bool:
+    if walk is None or record is None:
+        return walk is None and record is None
+    return abs(walk - record) <= tol
+
+
+def reconcile_league(code: str, n_walk: int, mk: dict | None, g: dict) -> dict:
+    """Amendment (b): market_side on the re-walked rows against the run record's, for one league. Each field is
+    (name, walk, record, equal). Reading: the league's scored n is compared with them (the same walk)."""
+    mk, rec = mk or {}, (g or {}).get("market") or {}
+    ec, rc = mk.get("edge_cohort") or {}, rec.get("edge_cohort") or {}
+    spec = (("scored n", n_walk, (g or {}).get("n"), 0), ("n_priced", mk.get("n_priced"), rec.get("n_priced"), 0),
+            ("model log-loss", mk.get("ll_model"), rec.get("ll_model"), TOL),
+            ("close log-loss", mk.get("ll_market"), rec.get("ll_market"), TOL),
+            ("cohort n", ec.get("n"), rc.get("n"), 0), ("cohort hits", ec.get("hits"), rc.get("hits"), 0),
+            ("cohort mean edge pp", ec.get("mean_edge_pp"), rc.get("mean_edge_pp"), TOL))
+    fields = [(name, w, r, _same(w, r, tol)) for name, w, r, tol in spec]
+    return {"league": code, "fields": fields, "ok": all(f[3] for f in fields)}
+
+
+def reconciliation(per_league: list[dict], walked: set, ids) -> dict:
+    """The whole reconciliation: every league reproduces, and the walk scored exactly the ids file's ids."""
+    ids = set(ids)
+    id_check = {"walked": len(walked), "n_ids": len(ids), "not_in_file": len(walked - ids),
+                "not_scored": len(ids - walked), "ok": walked == ids}
+    return {"ok": id_check["ok"] and all(d["ok"] for d in per_league), "ids": id_check, "per_league": per_league}
 
 
 # --------------------------------------------------------------- render --
@@ -251,11 +245,86 @@ DECLARATION = (
 )
 
 
+#: addendum 23 (b): this fragment of the declaration is WITHDRAWN. It stays in DECLARATION as issued and is printed
+#: struck through and marked; it is never deleted.
+WITHDRAWN = ("which must reproduce the run record's cohorts: 79 of 212, 88 of 225, 115 of 266, 93 of 205, 137 of "
+             "373")
+WITHDRAWN_MARK = "[WITHDRAWN, ARCHITECT 2026-10-09 addendum 23 (b)]"
+
+#: ARCHITECT 2026-10-09, addendum 23 item 2: the amendment, verbatim, (a) to (e). It stands beside the declaration.
+AMENDMENT = (
+    "(a) What was known. For 'The gate's run record holds the count only (512 hits on 1,281 picks at 5pp or more), "
+    "not the prices.' read: 'Known before this declaration, from the run record: per league, the model's top picks "
+    "at 5pp or more over the close, with their count, hits and mean edge (PD 79 of 212 at 11.7pp, SA 88 of 225 at "
+    "11.3pp, BL1 115 of 266 at 12.4pp, FL1 93 of 205 at 11.2pp, ELC 137 of 373 at 11.7pp), and the model's and the "
+    "close's log-loss on the same games. Not known: any price, any single match, any figure for a side that is not "
+    "the top pick, any figure under 5pp or by bucket. The buckets are round numbers, chosen knowing that this "
+    "cohort's mean edge is near 12pp.'",
+    "(b) The cohort sentence is WITHDRAWN: 'which must reproduce the run record's cohorts: 79 of 212, 88 of 225, 115 "
+    "of 266, 93 of 205, 137 of 373'. Those cohorts are the gate's own selection, the model's top pick at 5pp or more "
+    "over the close (market_side). The value outcome is another selection, and it stays as declared. In its place, "
+    "before any table: 'Reconciliation. Under market_side's own rule the receipt's walk reproduces, per league, the "
+    "run record's n_priced, both log-losses, and the cohort's count, hits and mean edge. If it does not, the receipt "
+    "prints the difference and stops: no table.'",
+    "(c) The bootstrap. 'Percentile 95% interval. The unit is the match, resampled with replacement within the cell; "
+    "10,000 resamples; seed 20261009. The return interval comes from the same draws. A cell of fewer than two "
+    "matches prints no interval.'",
+    "(d) Bucket edges and ties. 'A bucket holds its lower edge, at the gate's own tolerance: 5.0 is in 5 to 10. The "
+    "value outcome's edge is never negative, so under 5 is 0 to 5. Where two outcomes tie for the largest edge, the "
+    "first of home, draw, away is taken.'",
+    "(e) How to read it. 'About seventy cells are printed, each with its own uncorrected interval. Some will exclude "
+    "zero by chance. The receipt describes; it tests nothing.'",
+)
+
+
 def _declaration_md() -> list[str]:
-    body = list(DECLARATION)
+    """The declaration as issued, its withdrawn fragment struck through and marked (never deleted)."""
+    body = [ln.replace(WITHDRAWN, f"~~{WITHDRAWN}~~ {WITHDRAWN_MARK}") for ln in DECLARATION]
     body[0] = '"' + body[0]
     body[-1] = body[-1] + '"'
     return ["> " + ln for ln in body]
+
+
+def _amendment_md() -> list[str]:
+    body = list(AMENDMENT)
+    body[0] = '"' + body[0]
+    body[-1] = body[-1] + '"'
+    return ["> " + ln for ln in body]
+
+
+def _num(v, tol) -> str:
+    if v is None:
+        return "none"
+    return f"{v:.10f}" if tol else f"{v}"
+
+
+def _reconciliation_md(rc: dict) -> list[str]:
+    """Amendment (b), printed before any table: every compared figure, the walk's beside the run record's."""
+    ids = rc["ids"]
+    out = ["## Reconciliation", "",
+           "Under market_side's own rule the receipt's walk must reproduce, per league, the run record's n_priced, "
+           "both log-losses, and the cohort's count, hits and mean edge (amendment (b); floats to "
+           f"{TOL:g}, counts exactly). Reading: the walk must also score exactly the ids file's ids and each league's "
+           "recorded n.", "",
+           f"- Scored ids: the walk scored {ids['walked']}, the ids file holds {ids['n_ids']} "
+           f"({ids['not_in_file']} not in the file, {ids['not_scored']} in the file not scored): "
+           f"{'reproduces' if ids['ok'] else 'DIFFERS'}."]
+    float_fields = {"model log-loss", "close log-loss", "cohort mean edge pp"}
+    for d in rc["per_league"]:
+        parts = []
+        for name, w, r, eq in d["fields"]:
+            tol = name in float_fields
+            if eq:
+                parts.append(f"{name} {_num(w, tol)}")
+            else:
+                delta = f", walk − record {w - r:+g}" if (w is not None and r is not None) else ""
+                parts.append(f"**{name}: walk {_num(w, tol)} vs record {_num(r, tol)}{delta} — DIFFERS**")
+        out.append(f"- {d['league']}: " + "; ".join(parts) + f": {'reproduces' if d['ok'] else 'DOES NOT REPRODUCE'}.")
+    out += ["", f"**Reconciliation: {'PASS' if rc['ok'] else 'FAIL'}.**"]
+    if not rc["ok"]:
+        out += ["", "The walk does not reproduce the run record, so it is not the candidate as gated. The receipt "
+                    "prints the difference and stops: no table (amendment (b))."]
+    return out
 
 
 def _method_md(params: dict, boot: dict) -> list[str]:
@@ -265,42 +334,31 @@ def _method_md(params: dict, boot: dict) -> list[str]:
             "same-kickoff fixtures predicted before any updates (F5).",
             "- Close: fdcuk_close 1X2, de-vigged proportionally (1/price over the three legs), as market_side does.",
             "- Value outcome: the largest model p minus close p (ties: first of home, draw, away). Top pick: the "
-            "largest model p (same tie rule). Edge = the value outcome's model p minus close p, in pp; buckets are "
-            f"lower-inclusive, upper-exclusive, at market_side's tolerance ({EPS:g}).",
+            "largest model p (same tie rule). Edge = the value outcome's model p minus close p, in pp; a bucket holds "
+            f"its lower edge at market_side's tolerance ({EPS:g}): 5.0 is in 5 to 10; the value edge is never "
+            "negative, so under 5 is 0 to 5.",
             "- Hit: the value outcome happened (90-minute result as stored). Flat stake 1 on the value outcome at the "
             "close's fair decimal price 1/close p; return = mean profit per stake.",
-            f"- Bootstrap: percentile 95% intervals, {boot['n']} resamples of the cell's matches (paired for both "
-            f"columns), numpy default_rng, seed {boot['seed']} (fresh per cell)."]
+            "- Bootstrap: percentile 95% intervals; the unit is the match, resampled with replacement within the "
+            f"cell; {boot['n']} resamples; numpy default_rng, seed {boot['seed']} (fresh per cell); the return "
+            "interval comes from the same draws. A cell of fewer than two matches prints no interval (—)."]
+
+
+def _head(data: dict) -> list[str]:
+    return ["# Soccer value sides against the close — soccer-expansion-v1 scored ids", "",
+            "Read-only receipt (ARCHITECT 2026-10-09, addendum 21 item 6, amended by addendum 23 item 2; Issue #383). "
+            f"Generated {data['generated_at']}. **Not gate evidence and not a policy.**", "",
+            "## The declaration (as issued; the withdrawn sentence struck through, not deleted)", ""] + \
+        _declaration_md() + ["", "## The amendment (ARCHITECT 2026-10-09, addendum 23 item 2, verbatim)", ""] + \
+        _amendment_md() + [""]
 
 
 def render_main(data: dict) -> str:
-    chk, fid = data["check"], data["fidelity"]
-    lines = [f"# Soccer value sides against the close — soccer-expansion-v1 scored ids", "",
-             f"Read-only receipt (ARCHITECT 2026-10-09, addendum 21 item 6; Issue #383). Generated "
-             f"{data['generated_at']}. **Not gate evidence and not a policy.**", ""]
-    if not chk["ok"]:
-        lines += ["> **COHORT CHECK FAILED — needs-ruling.** The declaration says the 5-and-over row must reproduce "
-                  "the run record's cohorts; on this read it does not (decomposition below). These tables are NOT the "
-                  "declared receipt until the architect rules.", ""]
-    lines += ["## The declaration (verbatim)", ""] + _declaration_md() + ["", "## Method", ""] + _method_md(
-        data["params"], data["boot"])
-    lines += ["", "## Checks", "",
-              f"- Fidelity (refuses on any miss): the walk scored {fid['walked']} ids, equal to the ids file "
-              f"({fid['ids_file']}, {fid['n_ids']} ids, sha256 {fid['sha'][:12]}… = the run record's); market_side on "
-              "the re-walked rows reproduces every league's n_priced, model log-loss and >= +5pp top-pick cohort: "
-              "PASS.",
-              f"- Cohort check (declared): the 5-and-over row as one row vs the run record's cohort, per league: "
-              f"**{'PASS' if chk['ok'] else 'FAIL'}**.", "",
-              "| league | run record cohort (hits / n) | 5-and-over row (hits / n) | of which value = top pick | "
-              "of which value ≠ top pick | cohort matches whose value outcome is another | reproduces |",
-              "|---|---|---|---|---|---|---|"]
-    for c, d in chk["per_league"].items():
-        lines.append(f"| {c} | {d['record'][1]} / {d['record'][0]} | {d['five_plus'][1]} / {d['five_plus'][0]} | "
-                     f"{d['five_plus_top'][1]} / {d['five_plus_top'][0]} | {d['five_plus_not_top'][1]} / "
-                     f"{d['five_plus_not_top'][0]} | {d['cohort_other_value']} | {'yes' if d['ok'] else 'NO'} |")
-    p = chk["pooled"]
-    lines.append(f"| pooled | {p['record'][1]} / {p['record'][0]} | {p['five_plus'][1]} / {p['five_plus'][0]} | | | "
-                 f"| {'yes' if chk['ok'] else 'NO'} |")
+    rc = data["reconciliation"]
+    lines = _head(data) + _reconciliation_md(rc)
+    if not rc["ok"]:
+        return "\n".join(lines + [""])
+    lines += ["", "## Method", ""] + _method_md(data["params"], data["boot"])
     lines += ["", f"Priced {data['n_priced']} of {data['n_scored']} scored ids ({data['n_unpriced']} without a full "
               "fdcuk_close 1X2).", "", "## Tables"]
     lines += render_tables(data["tables"])
@@ -311,12 +369,14 @@ def render_main(data: dict) -> str:
 def render_pl(data: dict) -> str:
     pl = data["pl"]
     lines = [f"# PL reference — value sides against the close, PL {' + '.join(PL_SEASONS)}", "",
-             "For reference only: the page of its own the declaration names (ARCHITECT 2026-10-09, addendum 21 item 6; "
-             "Issue #383). **PL's live read (#92) stands as declared and is not this.** Not gate evidence and not a "
-             f"policy. Generated {data['generated_at']}.", "", "## Method", ""]
+             "For reference only: the page of its own the declaration names (ARCHITECT 2026-10-09, addendum 21 item 6, "
+             "amended by addendum 23 item 2; Issue #383). The declaration, the amendment and the reconciliation are on "
+             "the receipt's main page. **PL's live read (#92) stands as declared and is not this.** Not gate "
+             f"evidence and not a policy. Generated {data['generated_at']}.", "", "## Method", ""]
     lines += _method_md(data["params"], data["boot"])
     lines += [f"- PL rows: the same walk at the same params over PL {' and '.join(PL_SEASONS)} (each season from a "
-              "cold start, pooled), every scored match; no cohort check (PL has no run record).", "",
+              "cold start, pooled over its two seasons as each league is), every scored match; no reconciliation (PL "
+              "has no run record).", "",
               f"Scored {pl['n_scored']} · priced {pl['n_priced']} ({pl['n_unpriced']} without a full fdcuk_close "
               "1X2).", "", "## Tables"]
     lines += render_tables(pl["tables"])
@@ -380,8 +440,9 @@ def _closes(ids) -> dict:
 
 
 def build(seed: int | None = None, n_boot: int | None = None, now=None) -> dict:
-    """Everything the two pages need; refuses (ReceiptRefused) before any table when the re-walk is not the gate's.
-    Read-only."""
+    """Everything the two pages need. Refuses (ReceiptRefused) before any walk without the run record or its ids file.
+    When the reconciliation (amendment (b)) fails it returns the head only (reconciliation ok False): no tables, no PL
+    walk. Read-only."""
     from src.db.database import session_scope
     from src.timeutil import utc_now_naive
     from src.walters import soccer_expansion as sx
@@ -389,27 +450,22 @@ def build(seed: int | None = None, n_boot: int | None = None, now=None) -> dict:
     seed = SEED if seed is None else seed
     n_boot = N_BOOT if n_boot is None else n_boot
     e, params, per_rec, ids, sha = _record()
-    by_league, walked, n_unpriced, bad = {}, set(), 0, []
+    by_league, walked, n_unpriced, recon = {}, set(), 0, []
     for code, g in per_rec.items():
         res = _walk(code, sx.TEST_SEASONS, params)
         walked |= {r["match_id"] for r in res}
         res = [r for r in res if r["match_id"] in ids]
         closes = _closes([r["match_id"] for r in res])
-        mk, rec = sx.market_side(res, closes) or {}, g.get("market") or {}
-        ec, rc = mk.get("edge_cohort") or {}, rec.get("edge_cohort") or {}
-        if (mk.get("n_priced"), ec.get("n"), ec.get("hits")) != (rec.get("n_priced"), rc.get("n"), rc.get("hits")) \
-                or abs((mk.get("ll_model") or 0.0) - (rec.get("ll_model") or 0.0)) > 1e-9 or len(res) != g.get("n"):
-            bad.append(f"{code}: re-walk n {len(res)} priced {mk.get('n_priced')} cohort {ec.get('hits')}/{ec.get('n')}"
-                       f" ll {mk.get('ll_model')} vs record n {g.get('n')} priced {rec.get('n_priced')} cohort "
-                       f"{rc.get('hits')}/{rc.get('n')} ll {rec.get('ll_model')}")
+        recon.append(reconcile_league(code, len(res), sx.market_side(res, closes), g))
         by_league[code], unp = value_rows(res, closes, code)
         n_unpriced += unp
-    if walked != set(ids):
-        bad.insert(0, f"the walk scored {len(walked)} ids, the ids file holds {len(ids)} ({len(walked - set(ids))} "
-                      f"not in the file, {len(set(ids) - walked)} in the file not scored)")
-    if bad:
-        raise ReceiptRefused("FIDELITY: the gate's walk at the run record's params does not reproduce the run, so "
-                             "these are not the candidate as gated (the DB changed since the run?): " + "; ".join(bad))
+    rc = reconciliation(recon, walked, ids)
+    head = {"generated_at": (now or utc_now_naive()).strftime("%Y-%m-%dT%H:%M:%SZ"), "params": params,
+            "boot": {"seed": seed, "n": n_boot}, "reconciliation": rc,
+            "fidelity": {"walked": len(walked), "n_ids": len(ids), "sha": sha,
+                         "ids_file": (e["run"].get("ids_file") or "")}}
+    if not rc["ok"]:
+        return head                    # amendment (b): the difference, and stop: no table
 
     # PL reference page: same walk, same params; an unplaceable stage label is never guessed
     with session_scope() as s:
@@ -425,12 +481,8 @@ def build(seed: int | None = None, n_boot: int | None = None, now=None) -> dict:
     pl_rows, pl_unp = value_rows(pl_res, _closes([r["match_id"] for r in pl_res]), PL_CODE)
 
     leagues = list(per_rec)
-    return {"generated_at": (now or utc_now_naive()).strftime("%Y-%m-%dT%H:%M:%SZ"), "params": params,
-            "boot": {"seed": seed, "n": n_boot}, "fidelity": {"walked": len(walked), "n_ids": len(ids), "sha": sha,
-                         "ids_file": (e["run"].get("ids_file") or "")},
-            "n_scored": len(ids), "n_priced": sum(len(v) for v in by_league.values()), "n_unpriced": n_unpriced,
-            "check": cohort_check(by_league, per_rec),
-            "tables": tables(by_league, leagues, seed, n_boot),
+    return {**head, "n_scored": len(ids), "n_priced": sum(len(v) for v in by_league.values()),
+            "n_unpriced": n_unpriced, "tables": tables(by_league, leagues, seed, n_boot),
             "pl": {"n_scored": len(pl_res), "n_priced": len(pl_rows), "n_unpriced": pl_unp,
                    "tables": tables({PL_CODE: pl_rows}, [PL_CODE], seed, n_boot, pooled=False)}}
 

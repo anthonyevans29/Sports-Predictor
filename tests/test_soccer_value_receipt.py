@@ -1,9 +1,11 @@
 """soccer-value-receipt (ARCHITECT 2026-10-09, addendum 21 item 6; Issue #383): the READ-ONLY receipt of the model's
 value sides against the close. Pins, on synthetic leagues in the throwaway test DB and a TMP registry (the real
 docs/registry/ is never written, data/ never touched): the value outcome (largest model p minus close p) and the top
-pick, bucket assignment at market_side's tolerance, the top-pick split, the kind table (5-and-over only), the seeded
-bootstrap's determinism, the flat-stake return at the close's fair price, the cohort-reproduction check (pass, fail,
-decomposition), the fidelity refusal, and the PL reference page."""
+pick, bucket assignment at market_side's tolerance (5.0 in 5 to 10), ties to the first of H, D, A, the top-pick split,
+the kind table (5-and-over only), the seeded bootstrap (determinism, no interval under two matches), the flat-stake
+return at the close's fair price, the declaration as issued with its withdrawn sentence struck and marked, the
+amendment (addendum 23 item 2) verbatim beside it, the Reconciliation of amendment (b) (pass; every compared figure;
+a failure writes the difference and stops: no table, exit 2), and the PL reference page."""
 import json
 import random
 from datetime import datetime, timedelta
@@ -53,6 +55,24 @@ def test_value_outcome_is_the_largest_model_minus_close_and_may_differ_from_the_
     # ties break to the first of H, D, A (market_side's max)
     t = vr.value_row(_r(0.40, 0.30, 0.30), _fair(0.35, 0.25, 0.40), "PD")
     assert t["value"] == "H" and t["top"] == "H"
+
+
+def test_a_tie_for_the_largest_edge_takes_the_first_of_home_draw_away():
+    # exact binary fractions, so the tie is exact: draw and away tie at +12.5pp (home -25pp): the draw is taken
+    t = vr.value_row(_r(0.25, 0.375, 0.375), _fair(0.5, 0.25, 0.25), "PD")
+    assert t["value"] == "D" and t["edge_pp"] == 12.5
+    u = vr.value_row(_r(0.375, 0.25, 0.375), _fair(0.25, 0.5, 0.25), "PD")       # home and away tie: home
+    assert u["value"] == "H" and u["edge_pp"] == 12.5
+
+
+def test_the_value_edge_is_never_negative_so_under_5_is_0_to_5():
+    rng = random.Random(11)
+    for _ in range(500):
+        m = [rng.random() for _ in range(3)]
+        c = [rng.random() for _ in range(3)]
+        m, c = [x / sum(m) for x in m], [x / sum(c) for x in c]
+        v = vr.value_row(_r(*m), _fair(*c), "PD")
+        assert v["edge_pp"] >= -1e-9
 
 
 @pytest.mark.parametrize("edge,bucket,five_plus", [
@@ -114,25 +134,50 @@ def test_bootstrap_is_seeded_deterministic_and_fresh_per_cell():
     assert vr.SEED == 20261009 and vr.N_BOOT == 10000
 
 
-def _rec(n, hits):
-    return {"market": {"edge_cohort": {"n": n, "hits": hits}}}
+def test_a_cell_of_fewer_than_two_matches_prints_no_interval():
+    one = vr.cell([_row(8, True, 1, p_close=0.3)], n_boot=200)
+    assert one["n"] == 1 and one["hmc_ci"] is None and one["return_ci"] is None
+    assert one["return"] == pytest.approx(1 / 0.3 - 1)
+    assert vr._cell_md(one).count("—") == 2                    # the two intervals, nothing else blank
+    two = vr.cell([_row(8, True, 1, p_close=0.3), _row(8, True, 0, p_close=0.3)], n_boot=200)
+    assert two["hmc_ci"] is not None and two["return_ci"] is not None
+    assert vr.bootstrap([], []) == (None, None) and vr.bootstrap([1.0], [1.0]) == (None, None)
 
 
-def test_cohort_check_passes_only_when_the_5_plus_row_equals_the_record_and_decomposes_a_miss():
-    pd = [_row(6, True, 1), _row(12, True, 0), _row(2, True, 1)]
-    ok = vr.cohort_check({"PD": pd}, {"PD": _rec(2, 1)})
-    assert ok["ok"] and ok["per_league"]["PD"]["five_plus"] == (2, 1) and ok["pooled"]["record"] == (2, 1)
-    # a value outcome other than the top pick at 5pp+ enters the 5+ row but not the record's top-pick cohort
-    pd2 = pd + [_row(7, False, 1, value="D")]
-    bad = vr.cohort_check({"PD": pd2, "SA": [_row(9, True, 1, league="SA")]}, {"PD": _rec(2, 1), "SA": _rec(1, 1)})
-    d = bad["per_league"]["PD"]
-    assert not bad["ok"] and not d["ok"] and bad["per_league"]["SA"]["ok"]
-    assert d["five_plus"] == (3, 2) and d["five_plus_top"] == (2, 1) and d["five_plus_not_top"] == (1, 1)
-    assert bad["pooled"] == {"record": (3, 2), "five_plus": (4, 3)}
-    # a cohort match (top-pick edge >= 5) whose value outcome is another one is counted
-    r = _row(9, False, 0, value="D")
-    r["top_edge_pp"] = 6.0
-    assert vr.cohort_check({"PD": [r]}, {"PD": _rec(1, 0)})["per_league"]["PD"]["cohort_other_value"] == 1
+def test_bootstrap_is_the_percentile_interval_of_matches_resampled_within_the_cell_same_draws():
+    import numpy as np
+    a, b = [0.0, 1.0, 2.0, 5.0], [10.0, -1.0, 3.0, 0.5]
+    ci_a, ci_b = vr.bootstrap(a, b, seed=5, n_boot=1000)
+    rng = np.random.default_rng(5)
+    idx = np.concatenate([rng.integers(0, 4, size=(500, 4)) for _ in range(2)])
+    assert ci_a == tuple(float(x) for x in np.percentile(np.asarray(a)[idx].mean(axis=1), [2.5, 97.5]))
+    assert ci_b == tuple(float(x) for x in np.percentile(np.asarray(b)[idx].mean(axis=1), [2.5, 97.5]))
+
+
+def _mk(n_priced=100, ll_model=1.01, ll_market=0.97, n=30, hits=12, mean_edge_pp=11.5):
+    return {"n_priced": n_priced, "n_unpriced": 0, "ll_model": ll_model, "ll_market": ll_market,
+            "edge_cohort": {"min_edge_pp": 5.0, "n": n, "hits": hits, "mean_edge_pp": mean_edge_pp}}
+
+
+def test_reconciliation_compares_n_priced_both_log_losses_and_the_cohorts_count_hits_and_mean_edge():
+    g = {"n": 100, "market": _mk()}
+    ok = vr.reconcile_league("PD", 100, _mk(ll_model=1.01 + 1e-12), g)
+    assert ok["ok"] and [f[0] for f in ok["fields"]] == [
+        "scored n", "n_priced", "model log-loss", "close log-loss", "cohort n", "cohort hits", "cohort mean edge pp"]
+    for kw, name in ((dict(n_priced=99), "n_priced"), (dict(ll_model=1.02), "model log-loss"),
+                     (dict(ll_market=0.9701), "close log-loss"), (dict(n=31), "cohort n"),
+                     (dict(hits=13), "cohort hits"), (dict(mean_edge_pp=11.5 + 1e-6), "cohort mean edge pp")):
+        d = vr.reconcile_league("PD", 100, _mk(**kw), g)
+        assert not d["ok"] and [f[0] for f in d["fields"] if not f[3]] == [name], kw
+    assert not vr.reconcile_league("PD", 99, _mk(), g)["ok"]                         # scored n
+    # a figure the record lacks is not reproduced by one the walk has (never assumed equal)
+    g2 = {"n": 100, "market": {**_mk(), "ll_market": None}}
+    assert [f[0] for f in vr.reconcile_league("PD", 100, _mk(), g2)["fields"] if not f[3]] == ["close log-loss"]
+    assert not vr.reconcile_league("PD", 100, None, g)["ok"]
+    rc = vr.reconciliation([ok], {1, 2}, [1, 2])
+    assert rc["ok"] and rc["ids"]["ok"]
+    rc = vr.reconciliation([ok], {1, 2, 3}, [1, 2, 4])
+    assert not rc["ok"] and rc["ids"]["not_in_file"] == 1 and rc["ids"]["not_scored"] == 1
 
 
 def test_out_paths_default_under_docs_receipts_pl_page_beside_it_and_never_data(tmp_path):
@@ -145,11 +190,28 @@ def test_out_paths_default_under_docs_receipts_pl_page_beside_it_and_never_data(
         vr.out_paths(f"{reg.ROOT}/data/receipt.md", "x")
 
 
-def test_the_declaration_is_quoted_verbatim_and_names_the_five_cohorts():
+def test_the_declaration_stays_as_issued_and_its_withdrawn_sentence_is_marked_not_deleted():
     text = " ".join(vr.DECLARATION)
-    for s in ("79 of 212, 88 of 225, 115 of 266, 93 of 205, 137 of 373", "512 hits on 1,281 picks",
+    for x in ("79 of 212, 88 of 225, 115 of 266, 93 of 205, 137 of 373", "512 hits on 1,281 picks",
               "PL's live read (#92) stands as declared and is not this", "seeded bootstrap 95% interval"):
-        assert s in text
+        assert x in text
+    assert vr.WITHDRAWN in text
+    md = "\n".join(vr._declaration_md())
+    assert f"~~{vr.WITHDRAWN}~~ [WITHDRAWN, ARCHITECT 2026-10-09 addendum 23 (b)]" in md
+    assert md.count(vr.WITHDRAWN) == 1                        # struck once, not repeated unstruck
+    assert "and 5 and over as one row, ~~which must" in md and "~~ [WITHDRAWN" in md and ") by whether" in md
+
+
+def test_the_amendment_is_quoted_verbatim_a_to_e():
+    assert [x[:4] for x in vr.AMENDMENT] == ["(a) ", "(b) ", "(c) ", "(d) ", "(e) "]
+    text = " ".join(vr.AMENDMENT)
+    for x in ("PD 79 of 212 at 11.7pp, SA 88 of 225 at 11.3pp, BL1 115 of 266 at 12.4pp, FL1 93 of 205 at 11.2pp, "
+              "ELC 137 of 373 at 11.7pp", "The cohort sentence is WITHDRAWN",
+              "If it does not, the receipt prints the difference and stops: no table.", "seed 20261009",
+              "A cell of fewer than two matches prints no interval.", "5.0 is in 5 to 10",
+              "About seventy cells are printed, each with its own uncorrected interval. Some will exclude zero by "
+              "chance. The receipt describes; it tests nothing."):
+        assert x in text, x
 
 
 # ------------------------------------------------------------ the DB walk --
@@ -262,50 +324,68 @@ def test_refused_when_the_ids_file_differs_from_the_record(ledger):
     assert r.exit_code == 2 and "sha256" in r.output and not (ledger["tmp"] / "x.md").exists()
 
 
-def test_fidelity_refuses_when_the_rewalk_does_not_reproduce_the_record(ledger):
+@pytest.mark.parametrize("league,path,bump", [
+    ("SA", ("edge_cohort", "hits"), 1), ("PD", ("ll_market",), 1e-6), ("SA", ("edge_cohort", "mean_edge_pp"), 1e-6),
+    ("PD", ("ll_model",), 1e-6), ("PD", ("n_priced",), 1)])
+def test_a_failed_reconciliation_prints_the_difference_and_stops_no_table(ledger, league, path, bump):
     per = json.loads(json.dumps(ledger["per"]))
-    per["SA"]["market"]["edge_cohort"]["hits"] += 1
+    node = per[league]["market"]
+    for k in path[:-1]:
+        node = node[k]
+    node[path[-1]] += bump
     ledger["put"](per=per)
-    r = _cli("--out", str(ledger["tmp"] / "x.md"))
-    assert r.exit_code == 2 and "FIDELITY" in r.output and "SA:" in r.output
-    assert not (ledger["tmp"] / "x.md").exists()
+    out = ledger["tmp"] / "x.md"
+    r = _cli("--out", str(out))
+    assert r.exit_code == 2 and "RECONCILIATION FAILED" in r.output and f"reconciliation {league}" in r.output
+    assert "DIFFERS" in r.output
+    text = out.read_text()
+    assert "## Reconciliation" in text and "**Reconciliation: FAIL.**" in text and "DIFFERS" in text
+    assert "## The declaration" in text and "## The amendment" in text and vr.WITHDRAWN_MARK in text
+    for absent in ("## Tables", "### PD", "### pooled", "## Method", "### The 5-and-over row"):
+        assert absent not in text
+    assert not (ledger["tmp"] / "x-pl-reference.md").exists()                 # no PL page either
+    data = vr.build(n_boot=50)
+    assert not data["reconciliation"]["ok"] and "tables" not in data and "pl" not in data
 
 
-def test_the_receipt_rewalks_the_scored_ids_and_checks_the_cohorts(ledger):
+def test_the_receipt_rewalks_the_scored_ids_and_reconciles_every_league(ledger):
     data = vr.build(n_boot=200)
     assert data["n_scored"] == len(ledger["ids"]) and data["n_unpriced"] == 0
-    assert data["fidelity"]["walked"] == len(ledger["ids"])
+    rc = data["reconciliation"]
+    assert rc["ok"] and rc["ids"]["walked"] == len(ledger["ids"]) and rc["ids"]["ok"]
+    assert [d["league"] for d in rc["per_league"]] == list(LEAGUES)
+    for d in rc["per_league"]:
+        f = {name: (w, r) for name, w, r, _ in d["fields"]}
+        rec = ledger["per"][d["league"]]["market"]
+        assert f["close log-loss"] == (rec["ll_market"], rec["ll_market"])
+        assert f["cohort mean edge pp"][1] == rec["edge_cohort"]["mean_edge_pp"]
+        assert f["cohort hits"][1] == rec["edge_cohort"]["hits"]
     assert data["tables"]["order"] == ["PD", "SA", "pooled"]
-    chk = data["check"]
-    for code in LEAGUES:
-        d, coh = chk["per_league"][code], ledger["per"][code]["market"]["edge_cohort"]
-        assert d["record"] == (coh["n"], coh["hits"])
-        # the 5+ row's top-pick part is inside the record's cohort; the rest is the decomposition
-        assert d["five_plus_top"][0] + d["cohort_other_value"] == coh["n"]
-        assert d["ok"] == (d["five_plus"] == d["record"])
-    pooled5 = sum(data["tables"]["main"]["pooled"][("5 and over", t)]["n"] for t in (True, False))
-    assert pooled5 == chk["pooled"]["five_plus"][0]
     # deterministic end to end
     again = vr.build(n_boot=200)
     assert again["tables"]["main"]["pooled"] == data["tables"]["main"]["pooled"]
 
 
-def test_cli_writes_both_pages_and_flags_a_failed_cohort_check(ledger, monkeypatch):
+def test_cli_writes_both_pages_with_the_declaration_amendment_and_reconciliation_before_any_table(ledger):
     out = ledger["tmp"] / "receipts" / "v.md"
-    real = vr.cohort_check
-    for forced, code in ((True, 0), (False, 3)):
-        monkeypatch.setattr(vr, "cohort_check", lambda b, p, f=forced: {**real(b, p), "ok": f})
-        r = _cli("--out", str(out))
-        assert r.exit_code == code, r.output
-        main, pl = out.read_text(), (ledger["tmp"] / "receipts" / "v-pl-reference.md").read_text()
-        assert "Not gate evidence and not a policy" in main and "300 resamples" in main and "seed 20261009" in main
-        assert "79 of 212, 88 of 225, 115 of 266, 93 of 205, 137 of 373" in main
-        for h in ("### PD", "### SA", "### pooled", "The 5-and-over row by the value outcome's kind"):
-            assert h in main
-        assert ("COHORT CHECK FAILED" in main) is (not forced) and ("FLAGGED" in r.output) is (not forced)
-        # the PL page: its own file, PL only, no cohort check, #92 named as not this
-        assert "PL's live read (#92) stands as declared and is not this" in pl and "### PL" in pl
-        assert "### PD" not in pl and "Cohort check" not in pl and "1 without a full fdcuk_close" in pl
+    r = _cli("--out", str(out))
+    assert r.exit_code == 0, r.output
+    main, pl = out.read_text(), (ledger["tmp"] / "receipts" / "v-pl-reference.md").read_text()
+    assert "Not gate evidence and not a policy" in main and "300 resamples" in main and "seed 20261009" in main
+    order = [main.index(h) for h in ("## The declaration", "## The amendment", "## Reconciliation", "## Method",
+                                     "## Tables")]
+    assert order == sorted(order)
+    assert f"~~{vr.WITHDRAWN}~~ {vr.WITHDRAWN_MARK}" in main
+    for x in ("(a) What was known.", "(e) How to read it.", "The receipt describes; it tests nothing.",
+              "**Reconciliation: PASS.**", "close log-loss", "cohort mean edge pp"):
+        assert x in main, x
+    assert "COHORT CHECK" not in main and "needs-ruling" not in main and "Cohort check" not in main
+    for h in ("### PD", "### SA", "### pooled", "The 5-and-over row by the value outcome's kind"):
+        assert h in main
+    assert "reconciliation PD   reproduces" in r.output and "FLAGGED" not in r.output
+    # the PL page: its own file, PL only, no reconciliation, #92 named as not this
+    assert "PL's live read (#92) stands as declared and is not this" in pl and "### PL" in pl
+    assert "### PD" not in pl and "1 without a full fdcuk_close" in pl and "## Reconciliation" not in pl
     with session_scope() as s:                               # nothing written to the DB
         assert s.execute(select(Match).where(Match.season.in_(SEASONS))).scalars().first() is not None
 

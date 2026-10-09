@@ -6264,13 +6264,14 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
               help="Markdown path for the receipt (default docs/receipts/soccer-value-sides-<date>.md); the PL "
                    "reference page is written beside it as <stem>-pl-reference.md. Never under data/.")
 def soccer_value_receipt_cmd(out):
-    """READ-ONLY receipt (ARCHITECT 2026-10-09, addendum 21 item 6; Issue #383): do the model's value sides pay
-    against the close? soccer-expansion-v1's 3,445 scored ids priced by the candidate as gated (the run record's rho /
-    elo_goal_coeff, the gate's own walk) against fdcuk_close de-vigged as market_side does; league x edge bucket x
-    value-outcome-is-top-pick, the 5-and-over row by kind, and a PL 2024/25 + 2025/26 reference page. Not gate evidence
-    and not a policy. Refuses unless the registry holds the run record and the re-walk reproduces it (exit 2);
-    writes the receipt with a FAILED banner and exits 3 when the 5-and-over row does not reproduce the run record's
-    cohorts (needs-ruling). Writes nothing to the DB."""
+    """READ-ONLY receipt (ARCHITECT 2026-10-09, addendum 21 item 6, amended by addendum 23 item 2; Issue #383): do
+    the model's value sides pay against the close? soccer-expansion-v1's 3,445 scored ids priced by the candidate as
+    gated (the run record's rho / elo_goal_coeff, the gate's own walk) against fdcuk_close de-vigged as market_side
+    does; league x edge bucket x value-outcome-is-top-pick, the 5-and-over row by kind, and a PL 2024/25 + 2025/26
+    reference page. Not gate evidence and not a policy. Refuses without the run record or its ids file (exit 2,
+    nothing written). The Reconciliation (amendment (b)) comes before any table: when the walk does not reproduce
+    the run record per league, the receipt is written with the declaration, the amendment and the difference only
+    (no table, no PL page) and the command exits 2. Writes nothing to the DB."""
     import os
 
     from src.timeutil import utc_now_naive
@@ -6282,34 +6283,36 @@ def soccer_value_receipt_cmd(out):
     except vr.ReceiptRefused as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
+    rc = data["reconciliation"]
     data["pl_path"] = pl_path
-    for p, text in ((path, vr.render_main(data)), (pl_path, vr.render_pl(data))):
-        os.makedirs(os.path.dirname(os.path.abspath(p)), exist_ok=True)
-        with open(p, "w") as f:
-            f.write(text)
+    os.makedirs(os.path.dirname(os.path.abspath(path)), exist_ok=True)        # the PL page is written beside it
+    with open(path, "w") as f:
+        f.write(vr.render_main(data))
     p = data["params"]
     click.echo(f"SOCCER VALUE SIDES vs CLOSE · production {p['production_version']} rho {p['rho']} elo_goal_coeff "
                f"{p['elo_goal_coeff']} · bootstrap seed {data['boot']['seed']} ({data['boot']['n']} resamples)")
-    fid = data["fidelity"]
-    click.echo(f"  fidelity: walk scored {fid['walked']} = ids file {fid['n_ids']} (sha {fid['sha'][:12]}…); "
-               "market_side reproduces every league's cohort: PASS")
-    chk = data["check"]
-    for c, d in chk["per_league"].items():
-        click.echo(f"  cohort check {c:4} record {d['record'][1]}/{d['record'][0]} · 5+ row {d['five_plus'][1]}/"
-                   f"{d['five_plus'][0]} (value = top {d['five_plus_top'][1]}/{d['five_plus_top'][0]}, value ≠ top "
-                   f"{d['five_plus_not_top'][1]}/{d['five_plus_not_top'][0]}) · {'ok' if d['ok'] else 'MISMATCH'}")
+    ids = rc["ids"]
+    click.echo(f"  reconciliation: walk scored {ids['walked']}, ids file {ids['n_ids']} "
+               f"({'reproduces' if ids['ok'] else 'DIFFERS'})")
+    for d in rc["per_league"]:
+        diff = [f"{name} walk {w} vs record {r}" for name, w, r, eq in d["fields"] if not eq]
+        click.echo(f"  reconciliation {d['league']:4} " + ("reproduces n_priced, both log-losses, cohort n / hits / "
+                                                           "mean edge" if d["ok"] else "DIFFERS: " + "; ".join(diff)))
+    if not rc["ok"]:
+        click.echo(f"  wrote {path} (declaration, amendment and the difference; no table)")
+        click.echo("STOPPED: RECONCILIATION FAILED — the walk does not reproduce the run record, so it is not the "
+                   "candidate as gated. No table, no PL page (amendment (b)).")
+        raise SystemExit(2)
+    with open(pl_path, "w") as f:
+        f.write(vr.render_pl(data))
     pooled5 = {top: data["tables"]["main"][vr.POOLED][(vr.FIVE_PLUS, top)] for top in (True, False)}
     for top, c in pooled5.items():
         if c.get("n"):
+            ci = c["return_ci"]
+            ci_s = "no interval" if ci is None or ci[0] is None else f"[{ci[0] * 100:+.1f}%, {ci[1] * 100:+.1f}%]"
             click.echo(f"  pooled 5+ value={'top' if top else 'not top'}: n {c['n']} hit {c['hit_rate']:.3f} vs close "
-                       f"{c['mean_close_p']:.3f} · return {c['return'] * 100:+.1f}% "
-                       f"[{c['return_ci'][0] * 100:+.1f}%, {c['return_ci'][1] * 100:+.1f}%]")
+                       f"{c['mean_close_p']:.3f} · return {c['return'] * 100:+.1f}% {ci_s}")
     click.echo(f"  wrote {path}\n  wrote {pl_path} (PL reference: {data['pl']['n_priced']} priced)")
-    if not chk["ok"]:
-        click.echo("FLAGGED: COHORT CHECK FAILED — the 5-and-over row does not reproduce the run record's cohorts. "
-                   "The receipt carries the banner and the decomposition; it is a finding for the architect "
-                   "(needs-ruling), not the declared receipt.")
-        raise SystemExit(3)
 
 
 @cli.command("soccer-odds-history")

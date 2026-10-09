@@ -20,21 +20,40 @@ class RecordingOddsAdapter:
         return []                       # nothing priced into the DB; the ask is the receipt
 
 
-def test_limit_prices_the_next_n_by_kickoff(monkeypatch):
-    from src.ingestion import service as svc
+def _store_three(code):
+    """Three upcoming games stored OUT of kickoff order: the latest gets the lowest id."""
     init_db()
     with session_scope() as s:
-        comp = Competition(sport=Sport.SOCCER, code="SNN1", name="SNN1", area="X", type="LEAGUE")
-        h, a = Team(sport=Sport.SOCCER, name="SNN1 H"), Team(sport=Sport.SOCCER, name="SNN1 A")
+        comp = Competition(sport=Sport.SOCCER, code=code, name=code, area="X", type="LEAGUE")
+        h, a = Team(sport=Sport.SOCCER, name=f"{code} H"), Team(sport=Sport.SOCCER, name=f"{code} A")
         s.add_all([comp, h, a])
         s.flush()
-        # stored OUT of kickoff order: the latest game gets the lowest id
+        ids = {}
         for gid, hours in (("late", 30), ("mid", 6), ("early", 2)):
             s.add(Match(sport=Sport.SOCCER, competition_id=comp.id, season="2038/39",
                         utc_date=NOW + timedelta(hours=hours), status=MatchStatus.SCHEDULED,
-                        home_team_id=h.id, away_team_id=a.id, external_ids={"fakeodds": gid}))
+                        home_team_id=h.id, away_team_id=a.id, external_ids={"fakeodds": f"{code}-{gid}"}))
             s.flush()
+        for m in s.query(Match).filter(Match.competition_id == comp.id):
+            ids[m.external_ids["fakeodds"].split("-", 1)[1]] = m.id
+    return ids
+
+
+def test_limit_prices_the_next_n_by_kickoff(monkeypatch):
+    from src.ingestion import service as svc
+    _store_three("SNN1")
     monkeypatch.setattr(svc, "utc_now_naive", lambda: NOW)
     ad = RecordingOddsAdapter()
     svc.IngestionService(ad).sync_odds("SNN1", limit=2)
-    assert ad.asked == ["early", "mid"]          # the two earliest kickoffs, in kickoff order
+    assert ad.asked == ["SNN1-early", "SNN1-mid"]   # the two earliest kickoffs, in kickoff order
+
+
+def test_match_ids_selection_is_unchanged(monkeypatch):
+    """--match-ids is unchanged: a named list longer than the limit keeps main's
+    selection (storage order), not the kickoff order (Codex on #402)."""
+    from src.ingestion import service as svc
+    ids = _store_three("SNN2")
+    monkeypatch.setattr(svc, "utc_now_naive", lambda: NOW)
+    ad = RecordingOddsAdapter()
+    svc.IngestionService(ad).sync_odds("SNN2", limit=2, match_ids=set(ids.values()))
+    assert ad.asked == ["SNN2-late", "SNN2-mid"]

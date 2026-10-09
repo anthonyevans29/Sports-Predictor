@@ -1,0 +1,152 @@
+**2026-10-09 — ACCOUNT (ARCHITECT addendum 31 item 4; nothing built): THE HOST AND THE CLOSING RUNS (C7). This entry says what `closing-run` and `closing-watch` would do on the host as they stand on main a63a837, with a file and line for every point. It ends with a proposal for the architect's ruling.**
+- **Ruling (verbatim, addendum 31 item 4):** "THE HOST AND THE CLOSING RUNS (C7): AN ACCOUNT FROM THE CODE, NOTHING BUILT. One ledger entry, a file and line for every point, and a proposal at the end. I rule from it. C7 stands: the cutover ruling decides when anything runs on the host. Say what closing-run and closing-watch would do on the host exactly as they stand today: - The mirror push. push_mirror names the role laptop. What does the host's push need, and from which setting? - The backup. backup_folder and todays_backup (sports_<date>*.db in SP_BACKUP_DIR or ~/backups) against where and under what names sp_backup.py writes on the host. Would a closing run find the host's backup of the day, or take its own every day? - The page: the screen notification off macOS, and the phone page through the host's card topic. - The lock: a closing run against the hourly window service and the timed chains. How long do those hold it, and what does a wait until T-5 mean there? - MLB. SP_SKIP_FAMILIES on the host names MLB: what the watch does with every MLB first pitch as built, and what closing-watch --family NFL --family SOCCER does instead. - The receipts and their release field, and the settings the host would need in host.env, by name only. - What a timer unit beside the existing ones would be, and what install.sh would have to enable. - What the laptop's watch must stop covering on the day the host starts, so that no game is paged twice."
+- **Before the bullets, two facts.**
+  - **The host cannot run closing-run today.** Production is the tag (CLAUDE.md, release model), and the newest tag, v1.3.0, does not hold `deploy/hosting/closing.py` (`git cat-file -e v1.3.0:deploy/hosting/closing.py`: "exists on disk, but not in 'v1.3.0'"). Everything below describes main a63a837 as it would run once a tag carries it.
+  - **No host unit exists for it.** chains.py:345-346: "The host runs NFL and SOCCER with the same command under a timer from the cutover ruling on, not before." No timer ships. scripts/setup_closing_watch.sh:6 says the same, and that script is launchd only (`~/Library/LaunchAgents`, `launchctl`, `osascript`: :33-35, :104-135, :141).
+- **1. The mirror push.**
+  - As built, `push_mirror` runs `exports_mirror.py push --role laptop --label <label>` with the role hard-coded (deploy/hosting/closing.py:412-416). It runs after every successful page (closing.py:1521-1523) and once at install (`install-push`, closing.py:1829-1831).
+  - An explicit `--role` overrides the script's default role, which is read from `SP_EXPORTS_MIRROR_ROLE` (deploy/hosting/exports_mirror.py:273). So the host's `host.env` setting `SP_EXPORTS_MIRROR_ROLE=host` (docs/specs/exports-mirror.md:52-55) is never consulted.
+  - **What a host push as built would do:**
+    - It copies the host's exports/ into `laptop/<date>/` and `laptop/latest/` of the mirror (exports_mirror.py:191-199).
+    - It deletes every `laptop/latest/*` file whose kind the host does not hold (:200-203).
+    - It prunes `laptop/` dated folders (:204-206).
+    - The compare Action then reads host files under the laptop's name (exports-mirror.md:30-32).
+  - **What the host's push needs:** `--role host`, from `SP_EXPORTS_MIRROR_ROLE`. That is the setting the chains' hook already reads: `mirror_after_step` passes `--role c.setting("SP_EXPORTS_MIRROR_ROLE") or "host"` (deploy/hosting/sp_run.py:291-293).
+  - Push and remote are gated by `SP_EXPORTS_MIRROR_REMOTE`. When it is unset the run is refused before any step (M1, closing.py:1136-1141, :1171).
+  - The deploy key is `SP_EXPORTS_MIRROR_KEY`, else `/etc/sports-predictor/exports_deploy_key`, else `~sp/.ssh/sp_exports_deploy_key` (exports_mirror.py:62-70). An SSH remote with no key file is refused (:91-102, :287-290).
+  - The working clone is `SP_EXPORTS_MIRROR_DIR`, default `logs/exports-mirror` (:291). That is the same clone the chains' hook uses.
+  - The code cannot say whether the host's `host.env` holds the remote today. Only the host's `kind: mirror` receipts would show it (sp_run.py:294-303).
+- **2. The backup.**
+  - **The closing run's side:**
+    - `backup_folder()` is `SP_BACKUP_DIR`, else `~/backups` (closing.py:457-460). It is read through `sp_common.setting`: the environment, then `host.env`, then the checkout's `.env` (deploy/hosting/sp_common.py:66-75).
+    - `todays_backup()` takes the first non-empty `sports_<day>*.db` in that folder (closing.py:463-470), where `<day>` is the run's **America/New_York** date at the moment it holds the lock (closing.py:1382-1383, ny_date :145-147).
+  - **The host's side:**
+    - `host.env` sets `SP_BACKUP_DIR=/var/backups/sports-predictor` (deploy/hosting/etc/host.env.example:7). install.sh creates that folder as sp:sp 0700 (deploy/hosting/install.sh:9).
+    - The two defaults differ, but neither is reached on the host: sp_backup's own default is `~/backups/sports-predictor` (deploy/hosting/sp_backup.py:27-28), closing's is `~/backups`.
+    - sp_backup writes `sports_<UTC date>.db` (sp_backup.py:31-35, :43-44). A second backup that day becomes `sports_<date>_<HHMMSS>.db` (:45-46). Event backups are `sports_<date>_prerefresh_<HHMM>.db` / `_precleanup_` (:33-34). Each has a `.sha256` sidecar (:67).
+  - **When the host's daily exists:**
+    - The first one of a UTC day is taken by the first `backup: daily` chain: intl-daily at 07:20 UTC (deploy/hosting/systemd/sp-intl-daily.timer:7; chains.py:170-171; sp_run.py:449-452), or weekly-fullseason at Sun 06:00 UTC (sp-weekly-fullseason.timer:7; chains.py:219-220).
+    - sp-backup.service then takes one at 09:30 UTC regardless (sp-backup.timer:7; sp_backup.py:97-102). Because the file exists, that one is named `_HHMMSS`.
+  - **Answer: a closing run finds the host's backup, with one exception.**
+    - Same folder (both read `SP_BACKUP_DIR` from `host.env`), and the glob matches sp_backup's names.
+    - After 00:00 UTC the New York date is still the previous day, whose UTC-dated file exists (taken at 07:20 UTC that day). So an evening run finds it.
+    - **The exception:** a run that holds the lock between New York midnight (04:00 UTC under EDT, 05:00 UTC under EST) and the first daily at 07:20 UTC (06:00 on Sundays). Unless an event backup of that date already exists (a `sports_<NY date>_prerefresh_*.db` or `_precleanup_*.db` from a soccer-refresh or cleanup run after New York midnight, which `todays_backup`'s glob accepts, closing.py:463-470 and (a) below), that run finds no `sports_<NY date>*.db` and takes its own `sports_<date>.db` (closing.py:488-531).
+    - sp_run's `todays_daily()` would then accept that file as the day's daily, because the sidecar format matches (closing.py:524; sp_backup.py:84-94). sp-backup.service still writes its own `_HHMMSS` copy.
+    - Whether any NFL or PL start time puts a lock in that window is a fact of the fixture list. The code does not decide it.
+  - **Three differences as built:**
+    - (a) `todays_backup` counts a `_prerefresh_`/`_precleanup_` event backup as the day's backup and does not check the sidecar. sp_backup's `todays_daily` excludes `_pre` and checks the sha (sp_backup.py:89-93).
+    - (b) A closing backup that finds the plain name taken is `sports_<date>_closing_<HHMMSS>.db` (closing.py:494-496). sp_prune counts it as a daily toward the 14 kept (deploy/hosting/sp_prune.py:25, :30-36). pull_backup never pulls it (deploy/hosting/pull_backup.py:33).
+    - (c) The folder is sp-only (install.sh:9). A closing run started by hand as another user fails as `backup` whenever it must take one.
+- **3. The page.**
+  - **The screen:**
+    - `notify()` posts only on macOS. Elsewhere it prints `· notification (not macOS, not posted)` and returns `{"posted": False, "skipped": "not macOS"}` (closing.py:373-377).
+    - The receipt records it under `page.screen` (closing.py:1514-1520). B2 says it "is recorded and changes nothing" (closing.py:115-116). `exit` is set to 0 because the phone page went out (closing.py:1510-1513, :1521).
+    - The same applies to the failure and miss notices: their screen half is skipped and their phone half still goes (closing.py:1263-1277, :1318-1330).
+  - **The phone:**
+    - `page_phone()` POSTs to `sp_notify.ntfy_url("NTFY_CARD_TOPIC")` (closing.py:387-404). That URL is `NTFY_SERVER` (default https://ntfy.sh) plus the topic (deploy/hosting/sp_notify.py:62-73), read through `setting` and then the checkout's `.env` (sp_notify.py:44-45).
+    - It tries three times, ten seconds apart (closing.py:1497-1507). If ntfy never accepts, the run fails as `page` and nothing is pushed (closing.py:1510-1513).
+    - On the host the card topic lives in the checkout's `.env` (docs/specs/hosting-h1.md:509). The window service's delta pages already use that topic (deploy/hosting/sp_window_page.py:312-320).
+    - So host closing pages would arrive in the same ntfy topic as the hourly card deltas, and the laptop's closing pages use that same topic too.
+    - Closing pages have no quiet hours (the window pager's 00:00-07:00 ET rule, hosting-h1.md:496-499, is not in closing.py).
+    - A page does not say which machine sent it: `page_text` is built from the family, the start time and the games (closing.py:931). The receipt carries `host` (sp_common.py:199).
+  - When the topic is unset or holds whitespace, the run is refused before any step (C6, closing.py:1144-1155).
+- **4. The lock.**
+  - **The lock file:** closing takes `c.db_lock()` (closing.py:432-435), which is the same flock as every chain and sp_backup: `SP_LOCK=/var/lib/sports-predictor/db.lock` (host.env.example:6; sp_common.py:82-83, :211-229). The lock is polled every 5 s (sp_common.py:225).
+  - **How long the window service holds it:**
+    - It fires hourly at :05, except 04 and 05 UTC (deploy/hosting/systemd/sp-window.timer:10).
+    - It holds the lock for the backup check plus every planned step (sp_run.py:449-460).
+    - Inside that hold, each step can add a mirror push of up to 90 s (sp_run.py:219, :277, :284-305) and transient retries of 15 s + 45 s (sp_run.py:218, :256-268).
+    - It then takes the lock again for each `freshen:<family>` it triggers (sp_run.py:348-349) and for the re-card (sp_run.py:473-475).
+  - **How long the timed chains hold it:** the same way, under `sp-chain@.service`.
+  - **The bound:** no step has a timeout (sp_run.py:186-201). The only bound on a hold is the unit's `TimeoutStartSec=3h` (deploy/hosting/systemd/sp-chain@.service:23). How long a run actually takes is not in the code. The host's `kind: chain` receipts carry `duration_s` (sp_run.py:476-479).
+  - **Timed chains near the closing windows** (systemd units, UTC unless named):
+    - soccer-prematch at Sat 10:30 Europe/London (sp-soccer-saturday.timer:7), 85 minutes before a 12:30 UK kickoff's T-35 at 11:55.
+    - nhl-daily at 16:00 (sp-nhl-daily.timer:7), 25 minutes before a Sunday 13:00 ET kickoff's T-35 at 16:25.
+    - nfl-lines at 15:00 (sp-nfl-lines.timer:7) and nfl-predict at Sun 14:00 (sp-nfl-predict.timer:8).
+    - ncaa-market at Sat 13:00 (sp-ncaa-market.timer:15); ncaa-schedule at 10:35/22:35 (sp-ncaa-schedule.timer:10).
+    - backup at 09:30 (sp-backup.timer:7; it takes the lock, sp_backup.py:51).
+  - **What a wait until T-5 means:**
+    - A watch-started run waits at most `start − 5 min − now` (closing.py:1658-1660). That is at most 30 minutes from T-35.
+    - If it gets the lock in time, it runs then. Its page goes out after T-30, and its price check uses the moment it holds the lock (closing.py:1544-1550, :1459).
+    - If not, it records a `closing_miss` "the lock was held until inside T-5", notified once (closing.py:1667-1672). If it gets the lock inside T-5, the miss reads "the lock came inside T-5" (closing.py:1561-1564).
+    - A miss is not an attempt (closing.py:240-243). So the next tick finds the same start time inside T-5 and records a second miss, "inside T-5 when the watch saw it" (closing.py:1750-1756). These are two notices for one start time, which B6's once-per-reason rule allows (closing.py:1318-1326).
+    - The watch runs its due start times one after another inside one tick (closing.py:1757-1768). A run waiting for the lock delays the other family's due start time in the same tick. With systemd, a oneshot that is still running is not started again by its timer. On the laptop, launchd likewise does not start a second instance of a running job.
+  - A manual `closing-run` waits up to db_lock's default of 3 h (closing.py:1658; sp_common.py:212).
+- **5. MLB.**
+  - **What the host's data holds:** the host stores MLB games through mlb-history (chains.py:64-76; sp-mlb-history.timer on T11, hosting-h1.md:711). `host.env` names MLB in `SP_SKIP_FAMILIES` (host.env.example:23).
+  - **Bare `closing-watch`, as built:**
+    - It plans all three families (closing.py:1713), and it plans MLB anyway (closing.py:1715-1721).
+    - It records no inside-T-5 miss for MLB (:1752-1753) and skips the feed check (:1760).
+    - For each MLB start time (a group of first pitches within 10 minutes, closing.py:204-218) that enters T-35..T-5, it calls `run()` (:1767).
+    - `run()` refuses at the second check (closing.py:1169-1172, :1117-1123): "laptop only: SP_SKIP_FAMILIES names MLB here (the host cannot reach the MLB feed)". That refusal is receipted (exit 2) and notified with high priority through the card topic (closing.py:1280-1295, :1263-1277). This happens once per MLB start time per day.
+    - Later ticks for the same start time refuse silently (closing.py:1287-1289). But they still return 2 (closing.py:1768), so the tick exits 2 on every minute of each MLB start time's 30-minute window.
+    - A unit carrying `OnFailure=sp-notify@…` like every sp unit would page `NTFY_TOPIC` on each of those ticks. That is about 30 pages per start time.
+  - **`closing-watch --family NFL --family SOCCER` instead:** MLB is never planned (closing.py:1713-1715; cli.py:8640-8653). There is no read of MLB, no MLB receipt and no MLB page.
+  - **`preflight`, as built:**
+    - It always checks all three families (closing.py:1787-1792), and `main` passes it no families (closing.py:1822-1823).
+    - On the host it therefore refuses because of MLB, whatever the unit runs.
+- **6. The receipts, the release field and the settings.**
+  - **Receipt kinds:** a `closing` receipt for every success, failure, refusal and superseded run, and a `closing_miss` receipt (closing.py:46-47).
+  - **The fields every receipt gets** through `append_receipt` (sp_common.py:195-208):
+    - `ts`.
+    - `host`: `SP_HOST_NAME`, i.e. sp-vps-1 (host.env.example:4).
+    - `release` (`running_release`, sp_common.py:143-161):
+      - the tag (e.g. `v1.4.0`) when the host's HEAD sits on it, as the host deploys tags;
+      - `BETA <branch>@<sha>` on a branch, `UNTAGGED@<sha>` when detached;
+      - null with `release_error` when git is unreadable (sp_common.py:201-203; safe.directory for the root-owned checkout, :125-140).
+    - `writer_of_record`: `laptop` on the host until the cutover flip (host.env.example:19; sp_common.py:171-174).
+  - **Where they go:** on the host, `SP_RECEIPTS=/var/log/sports-predictor/receipts.jsonl` (host.env.example:5; sp_common.py:78-79).
+  - **What reads them:** the closing state reads that same file and only that file: attempts, `covered_ids`, refusal and miss de-duplication, and the last calls (closing.py:223-250, :274-310, :1287, :1324, :1075). Nothing filters by `host` or `release`.
+  - **In sp_receipts' pasted table:** a closing line shows as `closing` with an empty key line and an empty duration, because closing writes `seconds`, not `duration_s` (deploy/hosting/sp_receipts.py:32-56, :96-104; closing.py:1540).
+  - **Settings the host would need, by name.**
+    - Already in host.env.example: `SP_BACKUP_DIR`, `SP_LOCK`, `SP_RECEIPTS`, `SP_HOST_NAME`, `SP_WRITER_OF_RECORD`, `SP_SKIP_FAMILIES` (host.env.example:4-7, :19, :23).
+    - In host.env by the mirror spec, but not in host.env.example: `SP_EXPORTS_MIRROR_REMOTE` (required, M1) and `SP_EXPORTS_MIRROR_ROLE` (exports-mirror.md:52-55). `SP_EXPORTS_MIRROR_KEY` is needed only for a non-default key path. `SP_EXPORTS_MIRROR_DIR` is optional.
+    - In the checkout's `.env`: `NTFY_CARD_TOPIC` (required, C6; hosting-h1.md:509), optionally `NTFY_SERVER`, and `DATABASE_URL`. `db_path` reads `DATABASE_URL` from the environment or `.env` only, never `host.env` (sp_common.py:232-241).
+  - **Settings that do not apply:** `SP_PARALLEL_MODE`/`SP_DESIGNATED_DAYS` do not reach closing steps. Closing calls `sp_run.run_step` directly (closing.py:427-429), not `run_steps`, which is where the metered skip, the transient retries and the per-step mirror hook live (sp_run.py:242-281).
+- **7. A timer unit, and install.sh.**
+  - **What the code fixes about such a unit:**
+    - It cannot be `sp-chain@<chain>`: sp_run refuses the closing chains ("closing_only", sp_run.py:403-418).
+    - It would be its own `sp-closing-watch.service` plus `sp-closing-watch.timer`, on the pattern of sp-backup.service (User/Group sp, WorkingDirectory /opt/sports-predictor, `EnvironmentFile=-/etc/sports-predictor/host.env`, Type=oneshot; sp-backup.service:6-17).
+    - Its ExecStart would be `venv/bin/python cli.py closing-watch` with the families.
+    - TimeoutStartSec must cover one tick that waits up to 30 minutes and then runs a chain that has no step timeout.
+  - **What CI fixes:**
+    - Every timer must carry `OnCalendar=` lines of the form `[days ]*-*-* H:MM:00 TZ` with a literal two-digit minute, outside 04:15-05:15 UTC (tests/test_hosting_pack.py:107-131). A per-minute `*:*` calendar or an `OnUnitActiveSec=` timer fails that test as written.
+    - Every shipped `*.timer` must be named in the T11 list, `TIMERS` or `MLB_LAPTOP_ONLY` (tests/test_hosting_pack.py:388-396; hosting-h1.md:708-718). There is no "shipped, not enabled until a ruling" list for a closing timer to join.
+    - `sp_notify.unit_for` maps an unknown instance to `sp-chain@<instance>.service` (sp_notify.py:26-29). An `OnFailure=sp-notify@closing-watch` would therefore read the wrong unit's journal unless that mapping is added.
+  - **install.sh:**
+    - It copies every `systemd/*.service` and `*.timer` (install.sh:14), so a new unit is installed with no change. It enables nothing by design (install.sh:2-4, :16).
+    - Enabling happens in the runbook: `systemctl enable --now` plus an append to `/etc/sports-predictor/timers.enabled` (hosting-h1.md:713-715, :740-747).
+    - `sp_deploy.py` does not install unit files (hosting-h1.md:749-751).
+    - `timers.enabled` is the list sp_cutover's pause and resume stop and start (deploy/hosting/sp_cutover.py:16, :21, :69).
+    - So install.sh has nothing to enable. The enable is a runbook step under the cutover ruling.
+- **8. The laptop's watch on the day the host starts.**
+  - **What the laptop runs now:** the laptop's job runs `closing-watch` with no `--family` (scripts/setup_closing_watch.sh:111-116), so it covers MLB, NFL and SOCCER.
+  - **Why both machines would page:** each machine decides from its own receipts file (sp_common.py:78-79; closing.py:223-250). Neither sees the other's success. Every NFL kickoff and every PL kickoff covered by both watches would be closed and paged twice, on the same card topic (section 3), and pushed twice.
+  - **What the laptop must stop covering:** every NFL and every SOCCER (PL) start time, from the moment the host's timer is enabled. The laptop keeps MLB, which is laptop only (closing.py:1120-1121).
+  - **The setup script cannot express that today:**
+    - It writes no `--family` into the plist and takes none (setup_closing_watch.sh:20-21, :111-116).
+    - Its preflight checks all three families (closing.py:1787-1792, :1823).
+  - **What the code does not guard:**
+    - Nothing in the code stops a hand-run `closing-run --family NFL` on the laptop after the switch.
+    - Nothing in the code chooses the switch moment. The code has no cross-machine check, so the moment must not fall inside any NFL or PL start time's T-35..T-0.
+  - **"was" restarts on the host.** The host's first page computes it from the host's receipts and the host's exports/ only (closing.py:1059-1112). It does not use what the laptop last paged.
+- **Proposal (for the architect's ruling; C7 stands: the cutover ruling decides when anything runs on the host, and nothing below is enabled before it).**
+  - P1, the role:
+    - `push_mirror` and `install-push` take `--role` from `SP_EXPORTS_MIRROR_ROLE`, as `mirror_after_step` does.
+    - It is unset or not host|laptop: the run is refused before any step, like M1, and preflight says so. There is no default and no guess (law 4).
+    - One test: on the host settings, the push argv names host.
+  - P2, the watch command: the host's unit runs `closing-watch --family NFL --family SOCCER`, never bare (section 5). preflight takes the same `--family` list.
+  - P3, the units:
+    - Ship `sp-closing-watch.service` and `sp-closing-watch.timer` disabled. The timer has one `OnCalendar` per minute over hours 00..03,06..23 UTC (the window timer's hours), `Persistent=false` and `AccuracySec=1s`.
+    - The watch notifies its own refusals, misses and run failures, but only once its Python process is running: an import or startup failure, an unhandled exception and a `TimeoutStartSec` kill never reach that code. So the service keeps an external failure path: `OnFailure=sp-notify@closing-watch.service` (the house pattern, sp-chain@.service:7), with `SuccessExitStatus=2` so that a refusal the watch has already receipted and notified (exit 2, closing.py:1281-1290) does not page again every minute (section 5). `sp_notify.unit_for` maps an unknown instance to `sp-chain@<instance>.service` (sp_notify.py:26-29), so `closing-watch` needs its own entry there, mapping it to `sp-closing-watch.service`: one line and one test. A bound such as `TimeoutStartSec=2h` is for the architect to set.
+    - Amend the T11 test with a third list, held until the cutover ruling. That is a test change, and it is named here so it is ruled, not slipped in.
+  - P4, the runbook: a host step written now and run on the cutover ruling's word:
+    - first, before anything is enabled: the family-scoped preflight (`--family NFL --family SOCCER`, P2), which runs the mirror, backup-folder and card-topic refusal checks that `closing-watch --dry-run` does not; one `closing.py test-page` as sp; and `closing-watch --family NFL --family SOCCER --dry-run`;
+    - only when all three pass: `install`, `daemon-reload`, `enable --now sp-closing-watch.timer`, and the append to `timers.enabled`;
+    - The receipts: the preflight, the test page accepted, the dry run, then the timer's next elapse.
+  - P5, the laptop:
+    - `setup_closing_watch.sh --family MLB` writes the families into the plist and its preflight.
+    - On the cutover day the operator reinstalls it with `--family MLB` **before** the host timer is enabled, at a moment when no NFL or PL start time is within 35 minutes. Receipts: the laptop's `closing-watch --dry-run` lists MLB only, then the host's lists NFL and SOCCER.
+  - P6, read before ruling (read-only, no build): the host's `kind: chain` `duration_s` for window, soccer-prematch, nhl-daily, nfl-lines and nfl-predict over the parallel weeks. It is an upper bound, not a lock-hold time: the clock starts before `db_lock()` is taken, so it includes any wait for another holder, and it runs on through the window page and the freshens outside the first hold (sp_run.py:443-478). It can show that a chain never holds the lock long enough to matter. It cannot show how often a closing would wait. If it does not settle the question, measuring that needs the lock's own acquire and release times in the receipt: a build, for a ruling. P3's timeout follows from whichever the architect accepts.
+  - P7, for a ruling, no build proposed: whether a closing run's own backup should exclude `_pre` event backups and check the sidecar, as sp_backup's `todays_daily` does (section 2(a)).
+  - Left as built: the screen half off macOS (recorded as skipped) and the backup folder and date rule (section 2).

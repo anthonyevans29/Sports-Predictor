@@ -131,7 +131,9 @@ def _classify(line: str) -> tuple[str, str | None]:
     if body.startswith("-"):
         return "refuse", f"pip option: {body.split()[0]!r}"
     tok = body.split(";", 1)[0]
-    opts = [w for w in tok.split()[1:] if w.startswith("-")]
+    # options are read across the WHOLE line, marker included: pip splits a line's options off at its first
+    # "-"-prefixed word, so `pkg; marker --config-settings=...` carries the option past the `;` (Codex on #310)
+    opts = [w for w in body.split()[1:] if w.startswith("-")]
     if any(not w.startswith("--hash") for w in opts):   # per-requirement options (--config-settings, ...) can name
         return "refuse", f"per-requirement option: {opts[0]!r}"   # inputs the fingerprint cannot see (Codex)
     if "@" in body or "/" in tok or "\\" in tok or tok.split("[")[0].strip().lower().endswith(ARCHIVE_SUFFIXES) \
@@ -634,32 +636,45 @@ def main(argv=None) -> int:
             print(f"  ! requirements.txt {req_reason}: nothing installed — install the target's dependencies by hand")
         if dirty:
             git("checkout", "--", "RESULTS.md")
+        checkout_warning = None
         try:
             git("checkout", "--quiet", "--detach", f"{target}^{{commit}}")
         except subprocess.CalledProcessError as e:
-            c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
-                              "error": f"checkout failed: {(e.stderr or '').strip()[:300]}",
-                              "requirements_installed": installed})
-            print(f"✗ checkout of {target} failed ({(e.stderr or '').strip()[:200]}) — the code stays at "
-                  f"{before_rel or before}"
-                  + (f"; NOTE the venv already has {target}'s requirements installed: re-run the deploy once the "
-                     f"cause is fixed" if installed else ""))
-            return 1
+            # A failing post-checkout hook only changes git's exit status: HEAD and the worktree are ALREADY at the
+            # target (githooks(5); Codex on #310). HEAD decides WHERE the code is: a checkout that moved is receipted
+            # at the target with its migrations printed, so a retry never sees an empty range. It is NOT a success:
+            # the hook may not have finished its own work, so the receipt and the exit stay nonzero (Codex on #409).
+            rc, head, _ = _git_rc("rev-parse", "HEAD")
+            if rc == 0 and head.strip() == target_full:
+                checkout_warning = (f"git checkout exited {e.returncode} AFTER HEAD moved to {target} (a "
+                                    f"post-checkout hook?): {(e.stderr or '').strip()[:200]}")
+                print(f"  ! {checkout_warning} — HEAD IS at {target}: the code moved, but the hook failed")
+            else:
+                c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                                  "error": f"checkout failed: {(e.stderr or '').strip()[:300]}",
+                                  "requirements_installed": installed})
+                print(f"✗ checkout of {target} failed ({(e.stderr or '').strip()[:200]}) — the code stays at "
+                      f"{before_rel or before}"
+                      + (f"; NOTE the venv already has {target}'s requirements installed: re-run the deploy once "
+                         f"the cause is fixed" if installed else ""))
+                return 1
         after, after_rel = git("rev-parse", "--short", "HEAD"), c.running_release()
         # ARCHITECT-RULE 2026-10-02 (per-PR fragments): the fold runs in the tag ritual on main
         # (`ledger.py compile --commit`); the host never commits, so this step only REPORTS what the
         # deployed tag still carries uncompiled (expected 0).
         pending = sorted(str(p.relative_to(c.REPO)) for d in ("changelog.d", "docs/ledger/entries")
                          for p in (Path(c.REPO) / d).glob("*.md") if p.name != "README.md")
-    c.append_receipt({"kind": "deploy", "exit": 0, "from_sha": before, "to_sha": after,
+    c.append_receipt({"kind": "deploy", "exit": 1 if checkout_warning else 0, "from_sha": before, "to_sha": after,
                       "from_release": before_rel, "to_release": after_rel, "tag": target,
                       "files_changed": len(changed), "new_migrations": plan["new"],
                       "migration_order_undetermined": plan["undetermined"], "renamed_migrations": plan["renamed"],
                       "deleted_migrations": plan.get("deleted_migrations", []),
                       "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
                       "requirements_installed": installed,
+                      **({"checkout_warning": checkout_warning} if checkout_warning else {}),
                       "ledger_fragments_pending": len(pending)})
-    print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
+    print(("✗ deploy (post-checkout hook FAILED; see above) " if checkout_warning else "✓ deploy ")
+          + f"{before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
           + (f"\n  ✓ requirements installed ({REQUIREMENTS} {req_reason})" if installed else "")
           + (f"\n  ! new migrations, in the order they were added (backup first, then run by hand, in this "
              f"order): {plan['run']}\n      {migration_command(plan['run'], target_full)}" if plan["run"] else "")
@@ -684,7 +699,7 @@ def main(argv=None) -> int:
              f"them; the DB keeps its additive columns): {plan['skipped']}" if plan["skipped"] else "")
           + (f"\n  ! {len(pending)} ledger fragment(s) uncompiled in {target} — the tag was cut without "
              "`ledger.py compile` (docs/RELEASES.md step 2)" if pending else ""))
-    return 0
+    return 1 if checkout_warning else 0
 
 
 if __name__ == "__main__":

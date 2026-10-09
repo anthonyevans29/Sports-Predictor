@@ -22,8 +22,8 @@ C4 (checks): every ruling of addendum 16 item 2 for every family (R1 started tes
 R6 moved export, M1 mirror push, the failed-run notification), plus 380.1 (MLB starters) and strict mode (injuries).
 C5/C6 (the page): one page per run, on the phone through sp_notify's ntfy card topic (NTFY_CARD_TOPIC) and on the
 laptop's screen (macOS). NTFY_CARD_TOPIC unset refuses the run. The topic's value is never printed.
-Addendum 23 (ARCHITECT 2026-10-09, item 3): A1 the schedule read names the covered games (NFL refresh-by-id, SOCCER
-and MLB sync-matches --match-ids) and fails the run when it did not answer; A2 NFL's roster read under strict mode;
+Addendum 23 (ARCHITECT 2026-10-09, item 3): A1 the schedule read names the covered games (sync-matches --match-ids;
+NFL by date in the SOCCER form since addendum 25 2(i)) and fails the run when it did not answer; A2 NFL's roster read under strict mode;
 A5 the Kalshi legs the Desk read; B1 the page first, then the push (a failed push after the page is receipted and
 notified, never rerun); B2 the phone page tried three times ten seconds apart, the screen recorded only; B3 a PLAY or
 LADDER now PASS has its own line and makes the page high priority; B4 every line but the head and the PASS count
@@ -32,6 +32,12 @@ beside unresolved injured positions says so; C a covered game whose start moved 
 none is left); D1 the setup script's install push (`install-push`).
 380.3 backup, 380.4 decide under the lock (superseded / miss / attempt number / run start), reading 7 (a refusal is
 receipted and notified once per start time and reason).
+Addendum 25 (ARCHITECT 2026-10-09, item 2): (i) A1 amended, NFL's schedule read by date (chains.py); (ii) a covered
+game the schedule read moved leaves the run as soon as the read has run (Codex 4232307577), and an order names its
+Kalshi leg only by its own ticker (Codex 4232307584); (iii) THE LAST CALL (reading 7 amended, `last_calls`): "The
+last call of a game is the call the operator was last shown for it: its call on the last closing page that covered
+it or, when no page has covered it, its call in the newest export that no closing run wrote. An export a closing run
+wrote never supplies the last call of a game that run did not page. C5's was and B3 read this."
 
 Refusals (receipted, exit 2), in order: R5 a backup folder under data/ (before anything else); SP_SKIP_FAMILIES
 naming the family (MLB: laptop only); M1 SP_EXPORTS_MIRROR_REMOTE unset; C6 NTFY_CARD_TOPIC unset; R4 a malformed
@@ -45,6 +51,7 @@ network.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import re
@@ -623,7 +630,8 @@ def shows_kalshi(r: dict) -> bool:
 #     captured; else k_side, the HOME contract's quotes (kalshi_bid / kalshi_ask: HOME YES, or a two-way AWAY's NO).
 #   desk_block "value_shadow.exec" = exec_block(r, value side) -> side_quotes(r, value side): the same selection.
 #   desk_block "order" = order_line(r, pick, units, ladder): LADDER = NO on the HOME leg; else the pick's ticketed
-#     leg; else, two-way, the opponent's ticketed leg (NO). Named by the order's own ticker where it has one.
+#     leg; else, two-way, the opponent's ticketed leg (NO). Named by the order's own ticker, and only by it (addendum
+#     25 2(ii)): an order with no ticker is no order written, and no leg read.
 #   desk_block "reference" == "kalshi_only" (kalshi_only_ref, the HOME contract's mid; two-way only): every leg.
 def _three_way(r: dict) -> bool:
     """desk_policy.normalize's threeWay: a DRAW in the market's fair prices or in the model's probabilities."""
@@ -652,23 +660,16 @@ def _side_leg(r: dict, side: str | None) -> str | None:
 
 
 def _order_leg(r: dict, d: dict) -> str | None:
-    """The leg desk_policy.order_line writes the order on (see above)."""
+    """The leg desk_policy.order_line writes the order on (see above). Codex 4232307584 (ARCHITECT 2026-10-09,
+    addendum 25 item 2(ii): "Name a leg only when the order carries its ticker."): order_line writes no order without
+    a ticker (its `ticker` None + `why`), so the Desk read no leg for it; the leg is the one whose ticker the order
+    carries, and none otherwise (a ladder with no HOME ticker read no HOME leg)."""
     o = d.get("order")
-    if not o or d.get("call") not in STAKED_CALLS:
+    if not o or d.get("call") not in STAKED_CALLS or not o.get("ticker"):
         return None
-    legs = r.get("kalshi_legs") or {}
-    if o.get("ticker"):
-        for sel, leg in legs.items():
-            if (leg or {}).get("ticker") == o["ticker"]:
-                return sel
-    pick = d.get("pick")
-    if d.get("call") == "LADDER":
-        return "HOME" if pick == "AWAY" else None
-    if (legs.get(pick) or {}).get("ticker"):
-        return pick
-    opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(pick)
-    if not _three_way(r) and opp and (legs.get(opp) or {}).get("ticker"):
-        return opp
+    for sel, leg in (r.get("kalshi_legs") or {}).items():
+        if (leg or {}).get("ticker") == o["ticker"]:
+            return sel
     return None
 
 
@@ -826,7 +827,8 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
     Addendum 23: B3 "A game whose last call was a PLAY or a LADDER and is now PASS has a line of its own: the game,
     PASS, 'was' and the earlier call. It makes the page high priority: an order may be working on the earlier call."
     B4 "Every line except the head and the PASS count names its game." B7 "An NFL PLAY on a game with injured players
-    whose position did not resolve says so on its line, with the count." Returns (title, body, high)."""
+    whose position did not resolve says so on its line, with the count." `prev`: each game's last call (last_calls,
+    reading 7 as amended by addendum 25 2(iii): "C5's was and B3 read this."). Returns (title, body, high)."""
     head = f"{fam} {utc(start).astimezone(NY):%H:%M} ET · T-{max(0, round(minutes_to(start, at)))}m"
     lines = [head]
     starter_note = {}
@@ -875,24 +877,79 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
     return title, "\n".join(lines), bool(plays) or bool(dropped)
 
 
-def previous_calls(fam: str, ids: set) -> dict:
-    """C5's "the last file's call for the same game", read before the first step (the run's own export overwrites
-    the file): the newest file in exports/ matching the family's export name that carries a Desk row for the game.
-    {match_id: call text}. A game no earlier file called has none (no 'was')."""
+# THE LAST CALL (ARCHITECT 2026-10-09, addendum 25 item 2(iii); reading 7 amended): "The last call of a game is the
+# call the operator was last shown for it: its call on the last closing page that covered it or, when no page has
+# covered it, its call in the newest export that no closing run wrote. An export a closing run wrote never supplies
+# the last call of a game that run did not page. C5's was and B3 read this." Built from the receipts: "A closing
+# receipt records the sha256 of the export it wrote and the last calls it found before its first step, for every game
+# of the family it found one for. A later run that finds the newest file to be a closing run's export takes, for the
+# games that run did not page, the last calls in that receipt. Where the chain cannot be followed (no receipt names
+# the file), the file's call stands, as today."
+LAST_CALL_KEEP_H = 24        # a call for a game whose start is more than a day before the run is not carried
+
+
+def _sha256(p: Path) -> str:
+    return hashlib.sha256(p.read_bytes()).hexdigest()
+
+
+def _paged(r: dict) -> bool:
+    """The run's page went out: the phone accepted it (B2). An attempt whose page was not accepted paged no one."""
+    return ((r.get("page") or {}).get("phone") or {}).get("accepted") is True
+
+
+def _writer_receipt(fam: str, sha: str, recs: list[dict]) -> dict | None:
+    """The newest closing receipt of the family that names `sha` as the export it wrote and carries the last calls it
+    found (a receipt without them cannot be followed)."""
+    hit = [r for r in recs if r.get("family") == fam and (r.get("export_written") or {}).get("sha256") == sha
+           and isinstance(r.get("last_calls"), dict)]
+    return hit[-1] if hit else None
+
+
+def last_calls(fam: str, at: datetime) -> dict:
+    """The last call of every game of the family found, read before the first step (the run's own export overwrites
+    the file): {match_id: {"call": call text, "start": ISO, "source": where it was shown}}. The family's files in
+    exports/, newest first: a file no closing receipt names supplies its calls (the file's call stands) for the games
+    not yet found, and the walk goes on to older files; a file a closing run wrote (its receipt names its sha256)
+    supplies the calls on that run's page, when its page went out, and, for every other game, the last calls that
+    receipt recorded; the walk ends there (the receipt's calls already read every older file). A game whose start is
+    more than LAST_CALL_KEEP_H hours before `at` is left out. A game nothing found has no last call (no 'was')."""
+    keep = utc(at) - timedelta(hours=LAST_CALL_KEEP_H)
+    ex = c.REPO / "exports"
+    files = sorted(ex.glob(FAMILIES[fam]["export_glob"]), key=lambda p: p.stat().st_mtime,
+                   reverse=True) if ex.is_dir() else []
+    recs = receipts(("closing",))
     out: dict = {}
-    files = sorted((c.REPO / "exports").glob(FAMILIES[fam]["export_glob"]),
-                   key=lambda p: p.stat().st_mtime, reverse=True) if (c.REPO / "exports").is_dir() else []
+
+    def kept(start) -> bool:
+        try:
+            return parse_utc(start) >= keep
+        except (TypeError, ValueError):
+            return False
     for p in files:
         try:
-            doc = json.loads(p.read_text())
+            raw = p.read_bytes()
+            doc = json.loads(raw)
         except (OSError, ValueError):
             continue
+        calls = {}
         for r in doc.get("predictions") or []:
             mid, d = r.get("match_id"), r.get("desk")
-            if mid in ids and mid not in out and d and d.get("call"):
-                out[mid] = call_text(r, d)
-        if set(out) >= ids:
-            break
+            if mid is None or not d or not d.get("call") or not kept(r.get("utc_date")):
+                continue
+            calls.setdefault(mid, {"call": call_text(r, d), "start": iso_z(parse_utc(r["utc_date"]))})
+        w = _writer_receipt(fam, hashlib.sha256(raw).hexdigest(), recs)
+        if w is None:                 # not a closing run's export, or the chain cannot be followed: the file's call
+            for mid, v in calls.items():
+                out.setdefault(mid, {**v, "source": p.name})
+            continue
+        paged = {x.get("match_id") for x in w.get("desk_rows") or []} if _paged(w) else set()
+        for mid in paged & set(calls):                 # the call on that run's page
+            out.setdefault(mid, {**calls[mid], "source": f"page {w.get('run_id')}"})
+        for k, v in w["last_calls"].items():           # every other game: the last call that run found
+            mid = int(k) if str(k).lstrip("-").isdigit() else k
+            if isinstance(v, dict) and v.get("call") and kept(v.get("start")):
+                out.setdefault(mid, v)
+        break
     return out
 
 
@@ -970,9 +1027,10 @@ def export_candidates(fam: str, start: datetime, at: datetime) -> list[str]:
 def resolve_steps(fam: str, start: datetime, covers: list[dict], run_start: datetime) -> list[list[str]]:
     """The family's closing chain with its run-time values. MLB: {today} = the first pitch's NY date (A1 of #370),
     {match_ids} = the covered games (A1 of addendum 23: the schedule read names them). NFL / SOCCER (C3):
-    {match_ids} = the covered games (NFL's refresh-by-id, the odds and the injuries steps); SOCCER's schedule read:
-    {start_day}/{end_day} = the UTC dates of the first and last covered start (one read per UTC day; an identical
-    second read is dropped), {start_day_ids}/{end_day_ids} = that day's covered games."""
+    {match_ids} = the covered games (the odds and the injuries steps); the schedule read (A1 as amended, addendum 25
+    2(i): NFL takes the SOCCER form): {start_day}/{end_day} = the UTC dates of the first and last covered start (one
+    read per UTC day; an identical second read is dropped), {start_day_ids}/{end_day_ids} = that day's covered
+    games."""
     chain = FAMILIES[fam]["chain"]
     ids = ",".join(str(g["match_id"]) for g in sorted(covers, key=lambda g: g["match_id"]))
     if fam == "MLB":                  # A1: the schedule read names the covered games
@@ -1113,11 +1171,49 @@ def record_miss(fam: str, start: str, reason: str, detail: str | None = None, te
                              **({"detail": detail} if detail else {}), "notified": res})
 
 
+def schedule_reads(steps: list[list[str]]) -> int:
+    """How many of the resolved steps are the schedule read (A1): the leading `sync-matches ... --match-ids` calls."""
+    n = 0
+    while n < len(steps) and steps[n][0] == "sync-matches" and "--match-ids" in steps[n]:
+        n += 1
+    return n
+
+
+def leave_moved(rec: dict, covers: list[dict], s: datetime) -> list[dict]:
+    """C (addendum 23): a covered game the schedule read moved off the run's start leaves the run, receipted with both
+    times (`moved`; `covers` = the games left). Codex 4232307577 (addendum 25 2(ii)): taken as soon as the schedule
+    read has run, before a later step can fail, so a failed attempt's receipt never counts a moved game as covered
+    (three such attempts would close its new start time for good). Returns the games left."""
+    moved = start_moved(covers, s)
+    if moved:
+        rec["moved"] = moved
+        gone = {m["match_id"] for m in moved}
+        for m in moved:
+            print(f"· start moved: match {m['match_id']} ({m['game']}) left the run: covered at {m['covered_start']} "
+                  f"(run start {m['target']}), stored start now {m['stored_start'] or 'none (no stored row)'}")
+        covers = [g for g in covers if g["match_id"] not in gone]
+        rec["covers"] = _covers_rec(covers)
+    return covers
+
+
+def note_export(rec: dict, fam: str, s: datetime, held: datetime, wall0: float) -> None:
+    """Addendum 25 2(iii): "A closing receipt records the sha256 of the export it wrote". Whatever the outcome: the
+    family's export file this run's own step wrote (mtime at or after the run's start), before R6 can move it."""
+    try:
+        written = [p for p in export_candidates(fam, s, held)
+                   if (c.REPO / p).is_file() and (c.REPO / p).stat().st_mtime >= wall0]
+        if written:
+            rec["export_written"] = {"file": written[-1], "sha256": _sha256(c.REPO / written[-1])}
+    except OSError as e:
+        rec["export_written"] = {"error": f"{type(e).__name__}"}
+
+
 def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path, held: datetime, t0: float,
-             run_id: str, prev: dict) -> None:
+             run_id: str, prev: dict, wall0: float | None = None) -> None:
     """The run's body. The caller holds the chain lock (R3) and writes the receipt line afterwards, still under it.
     `held` is the run's start (380.4: the moment it holds the lock)."""
-    wall0 = _WALL() - 1.0     # the export must be written by this run's own step (1s: coarse filesystem mtimes)
+    if wall0 is None:         # the export must be written by this run's own step (1s: coarse filesystem mtimes)
+        wall0 = _WALL() - 1.0
     today_ny = ny_date(held)
     have = todays_backup(folder, today_ny)
     if have:
@@ -1136,6 +1232,7 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
     steps = resolve_steps(fam, s, covers, held)
     rec["planned_steps"] = len(steps)
     chain = FAMILIES[fam]["chain"]
+    reads = schedule_reads(steps)
     for i, st in enumerate(steps, 1):
         line = f"python cli.py {' '.join(st)}"
         print(f"\n=== [{chain} {i}/{len(steps)}] {line}", flush=True)
@@ -1147,12 +1244,18 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         if rc != 0:
             srec["tail"] = tail[-3:]  # e.g. strict mode's "✗ STRICT: ..." lines (addendum 22)
         rec["steps"].append(srec)
+        if i <= reads and (i == reads or rc != 0 or said):
+            covers = leave_moved(rec, covers, s)       # Codex 4232307577: right after the schedule read
         if rc != 0 or said:
             rec["failed"] = f"step {i}" + (" (reported failure, exit 0)" if said else "")
             if st[0] == "sync-injuries" and "--strict" in st and rc != 0:
                 rec["failed"] += " (strict: a read it needed failed)"
-            elif st[0] in ("sync-matches", "refresh-by-id") and "--match-ids" in st and rc != 0:
+            elif i <= reads and rc != 0:
                 rec["failed"] += " (schedule read: a covered game the provider did not answer, A1)"
+            return
+        if i == reads and not covers:
+            rec["failed"] = "start moved"
+            print("✗ start moved: no game is left in the run — no further step, nothing pushed or paged")
             return
     cands = export_candidates(fam, s, held)
     written = [p for p in cands if (c.REPO / p).is_file() and (c.REPO / p).stat().st_mtime >= wall0]
@@ -1177,19 +1280,6 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         print(f"✗ the target {FAMILIES[fam]['noun']} {et(s)} has started ({why}) — no closing for it; a started "
               "game is never retried")
         return
-    moved = start_moved(covers, s)
-    if moved:                         # C (addendum 23): a moved game leaves the run; it is a new start time
-        rec["moved"] = moved
-        gone = {m["match_id"] for m in moved}
-        for m in moved:
-            print(f"· start moved: match {m['match_id']} ({m['game']}) left the run: covered at {m['covered_start']} "
-                  f"(run start {m['target']}), stored start now {m['stored_start'] or 'none (no stored row)'}")
-        covers = [g for g in covers if g["match_id"] not in gone]
-        rec["covers"] = _covers_rec(covers)
-        if not covers:
-            rec["failed"] = "start moved"
-            print("✗ start moved: no game is left in the run — nothing pushed or paged")
-            return
     cover_ids = {g["match_id"] for g in covers}
     rows = desk_rows(doc, cover_ids, done, started_ids, fam)
     missing = missing_from_export(doc, covers, done, games)
@@ -1323,21 +1413,27 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
         _finish(rec, fam, trigger, run_id, t0)
         print(f"✗ closing-run {fam} FAILED (target started)")
         return 1
+    wall0 = _WALL() - 1.0     # the export must be written by this run's own step (1s: coarse filesystem mtimes)
+    try:                      # addendum 25 2(iii): the last calls found before the first step, every game found
+        lc = last_calls(fam, held)
+        rec["last_calls"] = {str(k): v for k, v in sorted(lc.items(), key=lambda kv: str(kv[0]))}
+    except Exception as e:  # noqa: BLE001 - unreadable: no 'was', and the receipt says so (its chain is not followed)
+        lc = {}
+        rec["last_calls_error"] = c.redact(f"{type(e).__name__}: {e}")[:200]
+    prev = {k: v["call"] for k, v in lc.items()}
     try:
-        prev = previous_calls(fam, {g["match_id"] for g in covers})
-    except Exception:  # noqa: BLE001 - an unreadable earlier file is no earlier call
-        prev = {}
-    try:
-        _closing(rec, fam, s, covers, folder, held, t0, run_id, prev)
+        _closing(rec, fam, s, covers, folder, held, t0, run_id, prev, wall0)
     except Exception as e:  # noqa: BLE001 - the receipt line is written either way (A2)
         rec["failed"] = rec.get("failed") or "error"
         rec["error"] = c.redact(f"{type(e).__name__}: {e}")[:300]
+    note_export(rec, fam, s, held, wall0)
     _finish(rec, fam, trigger, run_id, t0)
     if rec["exit"] != 0:
         print(f"✗ closing-run {fam} FAILED ({rec.get('failed')}{': ' + rec['error'] if rec.get('error') else ''}) — "
               + {"page": f"ntfy did not accept the page in {PAGE_TRIES} tries; nothing pushed, the export stays on "
                          "disk, the watch retries",
-                 **{k: "nothing pushed or paged; the export was moved into logs/" for k in OWN_CHECK_FAILURES}}.get(
+                 **{k: "nothing pushed or paged; the export was moved into logs/" for k in OWN_CHECK_FAILURES},
+                 "start moved": "no further step ran after the schedule read; nothing exported, pushed or paged"}.get(
                   rec.get("failed"), "nothing exported, pushed or paged after the failure"))
         return 1
     print(f"✓ closing-run {fam}: {len(rec['steps'])}/{rec.get('planned_steps')} steps · {rec['export']} · "

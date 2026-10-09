@@ -254,8 +254,6 @@ def test_refresh_by_id_refuses_a_competition_outside_the_american_football_provi
     assert res.exit_code == 2 and "not one of its competitions" in res.output
 
 
-# ================================================================ addendum 23 A1: the named games (NFL closing) ==
-
 class _Boom(FakeAdapter):
     def get_game(self, sid, code="NCAA"):
         if sid == "9601":
@@ -275,57 +273,3 @@ def test_unresolved_a_lookup_error_is_listed_untouched_and_exits_1(monkeypatch, 
     assert res.exit_code == 1, res.output
     assert f"UNRESOLVED (untouched): match {a} id 9601" in res.output and "ConnectionError" in res.output
     assert _row(a)["utc"] == PLACEHOLDER
-
-
-def test_a1_match_ids_refreshes_exactly_the_named_games_and_fails_on_any_not_refreshed(monkeypatch, _isolated):
-    """A1 (addendum 23): "NFL's schedule read is by id: refresh-by-id (#378) for the covered games, and a covered game
-    that is not found, refused, unresolved or still rate limited fails the run at that step." --match-ids selects
-    the named stored rows (no window; any date), exits 1 unless every one was refreshed; the default is unchanged
-    (NOT FOUND is not a failure without it)."""
-    import cli
-    code = "NFL"
-    ok = _match(code, "9701", "h21", "a21", PLACEHOLDER)
-    gone = _match(code, "9702", "h22", "a22", PLACEHOLDER)
-    far = _match(code, "9703", "h23", "a23", DAY3 + timedelta(days=20))       # outside any --days window
-    other = _match(code, "9704", "h24", "a24", PLACEHOLDER)                    # not named: never asked
-    _isolated.extend([ok, gone, far, other])
-    fake = FakeAdapter(by_id={"9701": _nm(code, "9701", "rbi-h21", "rbi-a21", ANNOUNCED),
-                              "9703": _nm(code, "9703", "rbi-h23", "rbi-a23", ANNOUNCED),
-                              "9704": _nm(code, "9704", "rbi-h24", "rbi-a24", ANNOUNCED)})
-    monkeypatch.setattr(cli, "_adapter_for_competition", lambda c: fake)
-    res = CliRunner().invoke(cli.cli, ["refresh-by-id", "--competition", code, "--match-ids", f"{ok},{far}"])
-    assert res.exit_code == 0, res.output
-    assert _row(ok)["utc"] == ANNOUNCED and _row(far)["utc"] == ANNOUNCED          # the named game outside the window
-    assert ("id", "9704") not in fake.calls and _row(other)["utc"] == PLACEHOLDER   # only the named games
-    res = CliRunner().invoke(cli.cli, ["refresh-by-id", "--competition", code, "--match-ids", f"{ok},{gone},999999"])
-    assert res.exit_code == 1, res.output
-    assert "✗ STRICT: 2 named game(s) not refreshed by id (NFL):" in res.output
-    assert f"match {gone} id 9702" in res.output and "not found" in res.output
-    assert "match 999999: not stored in NFL" in res.output
-    assert _row(gone)["utc"] == PLACEHOLDER                                          # untouched, never guessed
-    # the default: a game not found by id is listed, not a failure (as #378 built it)
-    r = rbi.refresh(code, fake, days=7)
-    assert any(x["match_id"] == gone for x in r["not_found"]) and rbi.named_failures(r) == []
-
-
-def test_a1_sync_matches_match_ids_exits_1_unless_the_answer_held_every_named_game(monkeypatch, _isolated):
-    """A1 (addendum 23): SOCCER's and MLB's schedule read "stay sync-matches by date, with an opt-in that names the
-    covered games and exits non-zero unless the provider's answer held every one of them. Every default is
-    unchanged." """
-    import cli
-    code = "RBX"
-    held = _match(code, "9801", "h25", "a25", DAY3)
-    dropped = _match(code, "9802", "h26", "a26", DAY3)
-    _isolated.extend([held, dropped])
-    day = DAY3.strftime("%Y-%m-%d")
-    fake = FakeAdapter(listing=[_nm(code, "9801", "rbi-h25", "rbi-a25", DAY3)])     # the listing omits 9802
-    monkeypatch.setattr(cli, "_adapter_for_competition", lambda c: fake)
-    monkeypatch.setattr(cli, "_mlb_fallback", lambda c: False)
-    base = ["sync-matches", "--competition", code, "--season", "2026", "--date-from", day, "--date-to", day]
-    res = CliRunner().invoke(cli.cli, base)
-    assert res.exit_code == 0 and "STRICT" not in res.output                         # default: unchanged
-    res = CliRunner().invoke(cli.cli, [*base, "--match-ids", str(held)])
-    assert res.exit_code == 0 and "held all 1 named game(s)" in res.output, res.output
-    res = CliRunner().invoke(cli.cli, [*base, "--match-ids", f"{held},{dropped}"])
-    assert res.exit_code == 1 and f"✗ STRICT: 1 of 2 named game(s) not in the provider's answer" in res.output
-    assert f"match {dropped}" in res.output

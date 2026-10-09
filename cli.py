@@ -197,8 +197,9 @@ def sync_teams_cmd(competition_code: str, season: str | None):
 @click.option("--date-to", default=None, help="YYYY-MM-DD")
 @click.option("--match-ids", "match_ids", default=None,
               help="Name stored match ids, comma-separated: exit 1 unless the provider's answer held every one "
-                   "of them (the closing run's schedule read for SOCCER and MLB, ARCHITECT 2026-10-09, addendum "
-                   "23 A1). The sync itself is unchanged. Default: unchanged.")
+                   "of them (the closing run's schedule read for NFL, SOCCER and MLB, ARCHITECT 2026-10-09, "
+                   "addendum 23 A1, as amended by addendum 25 2(i)). The sync itself is unchanged. Default: "
+                   "unchanged.")
 def sync_matches_cmd(
     competition_code: str,
     season: str | None,
@@ -5490,12 +5491,7 @@ cli.add_command(sync_odds_football_cmd, name="sync-odds-nfl")
               help="An american-football competition (NCAA, NFL).")
 @click.option("--days", default=7, show_default=True, type=click.IntRange(0, 14),
               help="Stored SCHEDULED games on the UTC dates today .. today+DAYS.")
-@click.option("--match-ids", "match_ids", default=None,
-              help="Refresh exactly these stored match ids, comma-separated (any status; --days not applied), and "
-                   "exit 1 unless every one was refreshed: not found, refused, excluded, no provider id, "
-                   "unresolved, still rate limited or not stored each fail. The NFL closing run's schedule read "
-                   "(ARCHITECT 2026-10-09, addendum 23 A1). Default: unchanged.")
-def refresh_by_id_cmd(competition_code: str, days: int, match_ids: str | None = None):
+def refresh_by_id_cmd(competition_code: str, days: int):
     """ARCHITECT 2026-10-09 (addendum 21 item 1): the kickoff, status and score of every stored SCHEDULED
     game kicking off in the next DAYS days, refreshed from the provider by the game's OWN id (GET
     /games?id=, one per game). A rate-limited answer is deferred and retried (the sync-odds-football
@@ -5513,9 +5509,7 @@ def refresh_by_id_cmd(competition_code: str, days: int, match_ids: str | None = 
     if _sport_for_competition(code) != "nfl":
         raise click.UsageError(f"refresh-by-id reads the american-football provider by id; {code} is not "
                                "one of its competitions (NCAA, NFL)")
-    ids = _match_ids_opt(match_ids)
-    r = rbi.refresh(code, _adapter_for_competition(code), days=days, progress=lambda m: click.echo(m),
-                    **({"match_ids": ids} if ids is not None else {}))
+    r = rbi.refresh(code, _adapter_for_competition(code), days=days, progress=lambda m: click.echo(m))
     for ln in rbi.format_lines(r):
         click.echo(ln)
     _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
@@ -5526,12 +5520,6 @@ def refresh_by_id_cmd(competition_code: str, days: int, match_ids: str | None = 
         default=str, sort_keys=True))
     if r.get("error"):
         raise SystemExit(2)
-    bad = rbi.named_failures(r)
-    if bad:                      # A1 (addendum 23): a named game the answer did not refresh fails the step
-        print(f"✗ STRICT: {len(bad)} named game(s) not refreshed by id ({code}):", flush=True)
-        for line in bad[:20]:
-            print(f"  ✗ {line}", flush=True)
-        raise SystemExit(1)
     if r["unresolved"] or r["still_rate_limited"]:
         raise SystemExit(1)
 

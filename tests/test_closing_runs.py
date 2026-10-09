@@ -396,11 +396,11 @@ def test_c3_nfl_and_soccer_closing_chains_are_their_freshen_chains_opening_with_
     opened by the schedule read (status and start time) for its games."""
     clo = chains.CHAINS[chains.CLOSING_FAMILIES[fam]]["steps"]
     fr = chains.CHAINS[freshen]["steps"]
-    if fam == "NFL":          # A1 (addendum 23): NFL's schedule read is by id, for the covered games
-        read = [["refresh-by-id", "--competition", "NFL", "--match-ids", "{match_ids}"]]
-    else:                     # A1: SOCCER's by date, naming each day's covered games
-        read = [["sync-matches", "--competition", comp, "--season", season, "--date-from", d, "--date-to", d,
-                 "--match-ids", ids] for d, ids in (("{start_day}", "{start_day_ids}"), ("{end_day}", "{end_day_ids}"))]
+    # A1 as amended (addendum 25 2(i)): "nfl-closing takes the SOCCER form: sync-matches by date, one UTC day per
+    # call, naming that day's covered games. The by_id branch goes."
+    read = [["sync-matches", "--competition", comp, "--season", season, "--date-from", d, "--date-to", d,
+             "--match-ids", ids] for d, ids in (("{start_day}", "{start_day_ids}"), ("{end_day}", "{end_day_ids}"))]
+    assert not any(st[0] == "refresh-by-id" for st in clo)
     assert clo[:len(read)] == read
     assert [s[:len(f)] for s, f in zip(clo[len(read):], fr)] == fr and len(clo) == len(fr) + len(read)   # derived
     assert clo[-1][-1] == "--desk" and clo[-1][0].startswith("export")
@@ -418,7 +418,8 @@ def test_c3_a_run_prices_the_games_it_covers_not_the_whole_league(box):
     cov = mc.cover(games, s, NOW)
     assert [g["match_id"] for g in cov] == [301, 304, 302, 303]
     steps = mc.resolve_steps("NFL", s, cov, NOW)
-    assert steps[0] == ["refresh-by-id", "--competition", "NFL", "--match-ids", "301,302,303,304"]   # A1: by id
+    assert steps[0] == ["sync-matches", "--competition", "NFL", "--season", "2026", "--date-from", DAY,  # A1 as
+                        "--date-to", DAY, "--match-ids", "301,302,303,304"]          # amended: by date (25 2(i))
     assert steps[1][0] == "sync-injuries"
     assert steps[1][-3:] == ["--match-ids", "301,302,303,304", "--strict"]   # the covered games' teams only
     assert steps[2] == ["sync-odds-football", "--match-ids", "301,302,303,304"]
@@ -438,7 +439,7 @@ def test_c3_the_scoping_options_leave_each_commands_default_unchanged():
     from src.ingestion import service
     for name, opt in (("sync-odds", "--match-ids"), ("sync-odds-football", "--match-ids"),
                       ("sync-injuries", "--strict"), ("sync-injuries", "--match-ids"),
-                      ("sync-matches", "--match-ids"), ("refresh-by-id", "--match-ids")):
+                      ("sync-matches", "--match-ids")):
         p = next(x for x in cli.cli.commands[name].params if opt in x.opts)
         assert p.default in (None, False), name
     assert inspect.signature(service.sync_odds_nfl).parameters["match_ids"].default is None
@@ -577,7 +578,7 @@ def test_c4_r1_missing_and_started_for_nfl_and_soccer(box, monkeypatch, fam, mid
     first = 301 if fam == "NFL" else 401
 
     def live(argv):
-        if argv[0] in ("sync-matches", "refresh-by-id"):
+        if argv[0] == "sync-matches":
             set_status(box.db, mid, "LIVE")
     slow_steps(box, monkeypatch, 1, live)
     assert mc.run(fam, start=at(35), now=NOW + timedelta(seconds=5)) == 0
@@ -833,7 +834,7 @@ def test_strict_mode_fails_the_closing_run_at_that_step(box):
     assert mc.run("NFL", start=at(35), now=NOW) == 1
     r = runs()[-1]
     assert r["failed"] == "step 2 (strict: a read it needed failed)" and r["steps"][-1]["tail"][0].startswith("✗ STRICT")
-    assert [s[0] for s in box.steps] == ["refresh-by-id", "sync-injuries"] and box.pages == []
+    assert [s[0] for s in box.steps] == ["sync-matches", "sync-injuries"] and box.pages == []
 
 
 # ============================================================================================= 380.2 setup ==
@@ -1253,7 +1254,7 @@ def move_on_first_schedule_read(box, monkeypatch, moves):
     done = []
 
     def mv(argv):
-        if argv[0] in ("sync-matches", "refresh-by-id") and not done:
+        if argv[0] == "sync-matches" and not done:
             done.append(1)
             for mid, m in moves.items():
                 set_start(box.db, mid, m)
@@ -1269,14 +1270,15 @@ def doc_start(box, fam, mid, minutes):
 def test_c_every_covered_game_moved_ends_as_start_moved_and_the_new_start_runs(box, monkeypatch):
     """C (addendum 23; the 15:08Z P1): "A run left with no game ends as a failed attempt, 'start moved', nothing
     pushed or paged." Each game named with both times; the old start leaves no group, and the new start is its own
-    key and closes at its T-35."""
+    key and closes at its T-35. Since addendum 25 2(ii) (Codex 4232307577) the moves are taken right after the
+    schedule read: a run left with no game ends there, no further step, no export."""
     move_on_first_schedule_read(box, monkeypatch, {401: 95, 402: 97})
     assert mc.watch(now=NOW, families=("SOCCER",)) == 1
     r = runs("SOCCER")[-1]
     assert r["failed"] == "start moved" and r["start"] == at(35) and r["covers"] == []
     assert [(m["match_id"], m["target"], m["covered_start"], m["stored_start"]) for m in r["moved"]] == [
         (401, at(35), at(35), at(95)), (402, at(35), at(37), at(97))]
-    assert r["export_moved_to"].startswith(f"logs/{r['run_id']}.")
+    assert [st[0] for st in box.steps] == ["sync-matches"] and r["export"] is None and "export_moved_to" not in r
     assert box.pushes == [] and call_pages(box) == []
     assert box.notes[-1] == "Closing SOCCER 2026-10-11 13:00 ET: FAILED: start moved · attempt 1/3"
     mc.watch(now=NOW + timedelta(minutes=1), families=("SOCCER",))
@@ -1454,8 +1456,8 @@ def test_codex_r2_the_closing_injury_read_is_scoped_to_the_covered_games(monkeyp
     res = CliRunner().invoke(cli.cli, ["sync-injuries", "--competition", "SCPX", "--season", "2026",
                                        "--match-ids", f"{ms[1]},999999", "--strict"])
     assert res.exit_code == 1 and "match 999999: not stored in SCPX" in res.output
-    assert chains.CHAINS["nfl-closing"]["steps"][1] == ["sync-injuries", "--competition", "NFL", "--season", "2026",
-                                                        "--match-ids", "{match_ids}", "--strict"]
+    assert next(st for st in chains.CHAINS["nfl-closing"]["steps"] if st[0] == "sync-injuries") == [
+        "sync-injuries", "--competition", "NFL", "--season", "2026", "--match-ids", "{match_ids}", "--strict"]
 
 
 def test_codex_r2_sync_match_stats_runs_without_a_name_error():
@@ -1480,16 +1482,17 @@ def test_codex_r2_sync_match_stats_runs_without_a_name_error():
     assert asked == ["5"]
 
 
-@pytest.mark.parametrize("fam,cmd,start", [("NFL", "refresh-by-id", 35), ("SOCCER", "sync-matches", 35),
+@pytest.mark.parametrize("fam,cmd,start", [("NFL", "sync-matches", 35), ("SOCCER", "sync-matches", 35),
                                            ("MLB", "sync-matches", 30)])
 def test_a1_a_schedule_read_that_did_not_answer_fails_the_run_at_that_step(box, fam, cmd, start):
     """A1 (addendum 23): "A closing run does not page a game whose schedule read did not answer." The read names the
-    covered games (NFL by id; SOCCER and MLB by date with --match-ids) and a non-zero exit fails the run there."""
+    covered games (by date with --match-ids; NFL too, A1 as amended by addendum 25 2(i)) and a non-zero exit fails
+    the run there."""
     assert mc.run(fam, start=at(start), now=NOW) == 0
     first = box.steps[0]
     assert first[0] == cmd and "--match-ids" in first
     box.steps.clear()
-    box.fail_cmd[cmd] = (1, ["✗ STRICT: 1 named game(s) not refreshed by id"])
+    box.fail_cmd[cmd] = (1, ["✗ STRICT: 1 of 4 named game(s) not in the provider's answer"])
     assert mc.run(fam, start=at(start), now=NOW + timedelta(minutes=1)) == 1
     r = runs(fam)[-1]
     assert r["failed"] == "step 1 (schedule read: a covered game the provider did not answer, A1)"
@@ -1681,3 +1684,150 @@ def test_codex_r2_a_lock_that_cannot_be_taken_is_a_receipted_failed_run(box, mon
     r = runs()[-1]
     assert r["failed"] == "lock" and r["exit"] == 1 and r["attempt"] == 1 and "PermissionError" in r["error"]
     assert box.notes[-1] == "Closing NFL 2026-10-11 13:00 ET: FAILED: lock · attempt 1/3" and box.steps == []
+
+
+# ================================================================================== addendum 25 (item 2) ==
+
+def test_25_ii_4232307577_a_move_is_recorded_before_a_later_step_fails(box, monkeypatch):
+    """Codex 4232307577 (ARCHITECT 2026-10-09, addendum 25 2(ii)): "A game the schedule read moved stays in the covers
+    of an attempt that failed at a later step, and three such attempts close its new start time for good." The move is
+    taken right after the schedule read: each failed attempt's receipt has the moved game in `moved`, not in `covers`,
+    so covered_ids never finishes with it and its new start closes at its own T-35. Fails on 08026e2."""
+    move_on_first_schedule_read(box, monkeypatch, {402: 95})
+    box.fail_cmd["predict"] = (1, ["boom"])
+    for m in range(3):
+        assert mc.watch(now=NOW + timedelta(minutes=m), families=("SOCCER",)) == 1
+    att = runs("SOCCER")
+    assert [r["attempt"] for r in att] == [1, 2, 3] and all(r["failed"].startswith("step ") for r in att)
+    assert [m["match_id"] for m in att[0]["moved"]] == [402] and [x["match_id"] for x in att[0]["covers"]] == [401]
+    assert 401 in mc.covered_ids("SOCCER") and 402 not in mc.covered_ids("SOCCER")
+    box.fail_cmd.clear()
+    doc_start(box, "SOCCER", 402, 95)
+    assert mc.watch(now=NOW + timedelta(minutes=60), families=("SOCCER",)) == 0
+    r = runs("SOCCER")[-1]
+    assert r["start"] == at(95) and r["exit"] == 0 and [x["match_id"] for x in r["covers"]] == [402]
+
+
+def test_25_ii_4232307577_a_failed_schedule_read_records_the_moves_it_wrote(box, monkeypatch):
+    """The same at the schedule read itself: a read that exits 1 for one named game but moved another records the
+    move; the failed attempt does not count the moved game as covered. Fails on 08026e2."""
+    move_on_first_schedule_read(box, monkeypatch, {402: 95})
+    box.fail_cmd["sync-matches"] = (1, ["✗ STRICT: 1 of 2 named game(s) not in the provider's answer"])
+    assert mc.run("SOCCER", start=at(35), now=NOW) == 1
+    r = runs("SOCCER")[-1]
+    assert r["failed"] == "step 1 (schedule read: a covered game the provider did not answer, A1)"
+    assert [m["match_id"] for m in r["moved"]] == [402] and [x["match_id"] for x in r["covers"]] == [401]
+
+
+def _stale_leg(box, mid, leg):
+    """PL: the Kalshi sync re-captures every leg of 401 and 402 but the one named, which keeps its morning snapshot."""
+    inner = box.fake_step
+
+    def step(argv, run_id):
+        if argv[0] == "sync-kalshi-soccer":
+            at_ = run_start_of(run_id) + timedelta(seconds=30)
+            con = sqlite3.connect(c.db_path())
+            for m in (401, 402):
+                for sel in ("HOME", "DRAW", "AWAY"):
+                    if (m, sel) != (mid, leg):
+                        con.execute("INSERT INTO odds_snapshots(match_id, market, selection, devig_prob, captured_at,"
+                                    " source, yes_bid, yes_ask) VALUES (?, 'ML', ?, 0.5, ?, 'kalshi', 0.49, 0.5)",
+                                    (m, sel, _ts(at_)))
+            con.commit()
+            con.close()
+            box.steps.append(list(argv))
+            return 0, ["ok"], 0.1
+        return inner(argv, run_id)
+    return step
+
+
+def test_25_ii_4232307584_a_ladder_with_no_home_ticker_names_no_order_leg(box, monkeypatch):
+    """Codex 4232307584 (addendum 25 2(ii)): "With no HOME ticker the Desk wrote no order and read no leg; _order_leg
+    names HOME all the same and a stale HOME snapshot fails the run. [...] Name a leg only when the order carries its
+    ticker." A PL LADDER on AWAY (X2 = NO on HOME) with no HOME ticker: the order desk_policy writes carries no ticker;
+    the stale HOME leg is listed, not a failure; the page goes out. Fails on 08026e2 (stale prices)."""
+    p = next(x for x in box.docs["SOCCER"]["predictions"] if x["match_id"] == 402)
+    p["kalshi_legs"]["HOME"]["ticker"] = None
+    o = dp.order_line(dp.normalize({"sport": "soccer", "predictions": [p]})[0], "AWAY", 0.5, ladder=True)
+    assert o["ticker"] is None and "HOME leg" in o["why"]                           # the Desk writes no order
+    p["desk"].update(call="LADDER", pick="AWAY", units=0.5, order=o, value_shadow=None)
+    assert mc._order_leg(p, p["desk"]) is None and "HOME" not in mc.desk_read_legs(p)
+    monkeypatch.setattr(mc, "run_step", _stale_leg(box, 402, "HOME"))
+    assert mc.run("SOCCER", start=at(35), now=NOW) == 0
+    r = runs()[-1]
+    assert r["exit"] == 0 and [(x["match_id"], x["leg"]) for x in r["stale_legs_not_read"]] == [(402, "HOME")]
+    lines = call_pages(box)[-1]["body"].splitlines()
+    i = lines.index("Fulham Visitors @ Fulham · LADDER Fulham Visitors 0.5u")
+    assert lines[i + 1].startswith("  no order: no Kalshi ticker on file for the HOME leg")
+    # an order WITH its ticker still names its leg (the Desk read it): stale there fails the run
+    t = next(x for x in box.docs["SOCCER"]["predictions"] if x["match_id"] == 401)
+    assert mc._order_leg(t, t["desk"]) == "HOME" and t["desk"]["order"]["ticker"] == t["kalshi_legs"]["HOME"]["ticker"]
+
+
+def _set_call(doc, mid, call="PASS"):
+    for p in doc["predictions"]:
+        if p["match_id"] == mid:
+            p["desk"]["call"], p["desk"]["units"] = call, 0
+    return doc
+
+
+def test_25_iii_an_mlb_afternoon_closing_turns_the_night_games_play_into_pass_and_its_page_says_was(box):
+    """Addendum 25 2(iii): "MLB's chain reprices the whole slate, so an afternoon closing can turn the night game's
+    PLAY into a PASS that no page carries. The night game's own closing then finds PASS in 'the last file', and B3
+    does not fire." The test the ruling names: the night game's own page carries the B3 line. Two afternoon closings
+    in a row (the chain followed through consecutive closing exports, each overwriting the same file). Fails on
+    08026e2."""
+    morning = mlb_doc()
+    assert next(p for p in morning["predictions"] if p["match_id"] == 103)["desk"]["call"] == "PLAY"
+    (box.repo / "exports" / f"mlb_MLB_{DAY}.json").write_text(json.dumps(morning))     # the preslate: PLAY
+    box.docs["MLB"] = _set_call(mlb_doc(), 103)                                          # repriced: PASS
+    assert mc.run("MLB", start=at(30), now=NOW) == 0
+    a = runs()[-1]
+    assert "Laterton" not in call_pages(box)[-1]["body"]                                # not paged: not covered
+    assert a["last_calls"]["103"] == {"call": "PLAY Laterton 1u", "start": at(45), "source": f"mlb_MLB_{DAY}.json"}
+    assert a["export_written"]["sha256"] == mc._sha256(box.repo / "exports" / f"mlb_MLB_{DAY}.json")
+    assert mc.run("MLB", start=at(30), now=NOW + timedelta(minutes=1)) == 0           # a second closing export
+    b = runs()[-1]
+    assert b["last_calls"]["103"]["call"] == "PLAY Laterton 1u"                        # from A's receipt
+    assert b["last_calls"]["101"] == {"call": "PLAY Underhill 0.5u", "start": at(30),
+                                      "source": f"page {a['run_id']}"}                 # A paged it: its page's call
+    assert mc.run("MLB", start=at(45), now=NOW + timedelta(minutes=10)) == 0          # the night game's own closing
+    pg = call_pages(box)[-1]
+    assert pg["body"].splitlines() == ["MLB 13:10 ET · T-35m", "Laterton Visitors @ Laterton · PASS · was PLAY Laterton 1u",
+                                       "PASS: 1 game"]
+    assert pg["priority"] == "high"                                                     # B3
+
+
+def test_25_iii_an_attempt_whose_page_was_not_accepted_leaves_the_retry_its_was(box):
+    """Addendum 25 2(iii): "An attempt whose page was not accepted leaves its export in exports/ and does the same to
+    its own games on the retry." The test the ruling names: the retry's page carries the "was" the first would have
+    carried. Fails on 08026e2."""
+    (box.repo / "exports" / f"nfl_predictions_{DAY}.json").write_text(json.dumps(_set_call(nfl_doc(), 301)))
+    box.page_ok = False
+    assert mc.watch(now=NOW, families=("NFL",)) == 1
+    first = runs()[-1]
+    would = call_pages(box)[-1]["body"].splitlines()
+    assert first["failed"] == "page" and "  exec +5.3pp · was PASS" in would
+    assert (box.repo / first["export"]).is_file()                                       # left in exports/
+    box.page_ok = True
+    assert mc.watch(now=NOW + timedelta(minutes=1), families=("NFL",)) == 0
+    retry = call_pages(box)[-1]["body"].splitlines()
+    assert retry[0] == "NFL 13:00 ET · T-34m" and retry[1:] == would[1:]               # the same was
+    assert runs()[-1]["last_calls"]["301"]["call"] == "PASS"                           # from the first's receipt
+
+
+def test_25_iii_where_the_chain_cannot_be_followed_the_files_call_stands(box):
+    """Addendum 25 2(iii): "Where the chain cannot be followed (no receipt names the file), the file's call stands,
+    as today." The afternoon closing's receipt is lost (no export_written): the night game's closing reads the file,
+    PASS, and pages no B3 line."""
+    (box.repo / "exports" / f"mlb_MLB_{DAY}.json").write_text(json.dumps(mlb_doc()))
+    box.docs["MLB"] = _set_call(mlb_doc(), 103)
+    assert mc.run("MLB", start=at(30), now=NOW) == 0
+    lines = [json.loads(x) for x in c.receipts_path().read_text().splitlines()]
+    for r in lines:
+        r.pop("export_written", None)
+    c.receipts_path().write_text("".join(json.dumps(r) + "\n" for r in lines))
+    assert mc.run("MLB", start=at(45), now=NOW + timedelta(minutes=10)) == 0
+    assert runs()[-1]["last_calls"]["103"] == {"call": "PASS", "start": at(45), "source": f"mlb_MLB_{DAY}.json"}
+    pg = call_pages(box)[-1]
+    assert pg["body"].splitlines()[1:] == ["PASS: 1 game"] and pg["priority"] == "default"

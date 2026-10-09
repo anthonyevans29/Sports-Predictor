@@ -24,13 +24,6 @@ started, while the games still answer by id (addendum 21 receipts: 96 of 97 SCHE
 - Never guessed: no answer (an empty response) = NOT FOUND, counted and listed, the row untouched. An
   answer for different teams than the stored row = REFUSED, listed, the row untouched. A lookup error =
   UNRESOLVED (never read as absent), listed, the row untouched.
-
-NAMED GAMES (ARCHITECT 2026-10-09, addendum 23 A1, the closing run's schedule read for NFL): "NFL's schedule read
-is by id: refresh-by-id (#378) for the covered games, and a covered game that is not found, refused, unresolved or
-still rate limited fails the run at that step." `match_ids` selects exactly those stored rows of the competition
-(any status, any date; the window is not applied), and `named_failures` lists every named game the answer did not
-refresh: not found, refused, excluded, no provider id, unresolved, still rate limited, or not stored in the
-competition at all. The CLI's --match-ids exits 1 on any of them. Without match_ids nothing changes.
 """
 from __future__ import annotations
 
@@ -51,7 +44,7 @@ def window(today, days: int) -> tuple[datetime, datetime]:
 
 
 def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=None,
-            source: str = SOURCE, match_ids: set[int] | None = None) -> dict:
+            source: str = SOURCE) -> dict:
     """Refresh the competition's stored SCHEDULED games in the window by id. Returns the receipt."""
     from sqlalchemy import select
 
@@ -90,18 +83,11 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
         if comp is None:
             r["error"] = f"competition {competition_code} not in the DB (run sync-competitions first)"
             return r
-        if match_ids is None:
-            rows = list(s.execute(select(Match).where(
-                Match.competition_id == comp.id,
-                Match.status == MatchStatus.SCHEDULED,
-                Match.utc_date >= lo, Match.utc_date < hi,
-            ).order_by(Match.utc_date, Match.id)).scalars())
-        else:                     # A1 (addendum 23): exactly the named games of this competition, by stored id
-            rows = list(s.execute(select(Match).where(
-                Match.competition_id == comp.id, Match.id.in_(sorted(match_ids)),
-            ).order_by(Match.utc_date, Match.id)).scalars())
-            r["named"] = sorted(match_ids)
-            r["not_selected"] = sorted(set(match_ids) - {m.id for m in rows})
+        rows = list(s.execute(select(Match).where(
+            Match.competition_id == comp.id,
+            Match.status == MatchStatus.SCHEDULED,
+            Match.utc_date >= lo, Match.utc_date < hi,
+        ).order_by(Match.utc_date, Match.id)).scalars())
         r["selected"] = len(rows)
 
         def game(m):
@@ -119,12 +105,8 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
                 continue
             queue.append((m, sid))
         r["asked"] = len(queue)
-        if match_ids is None:
-            report(f"  {competition_code} refresh by id: {len(rows)} stored SCHEDULED game(s) on {lo:%Y-%m-%d} .. "
-                   f"{(hi - timedelta(days=1)):%Y-%m-%d} (UTC) · asking {len(queue)} by id · paced at {rpm}/min")
-        else:
-            report(f"  {competition_code} refresh by id: {len(match_ids)} named game(s), {len(rows)} stored · "
-                   f"asking {len(queue)} by id · paced at {rpm}/min")
+        report(f"  {competition_code} refresh by id: {len(rows)} stored SCHEDULED game(s) on {lo:%Y-%m-%d} .. "
+               f"{(hi - timedelta(days=1)):%Y-%m-%d} (UTC) · asking {len(queue)} by id · paced at {rpm}/min")
 
         answers, rnd = [], 0
         while queue:
@@ -190,19 +172,6 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
     return r
 
 
-NAMED_FAILURE_KEYS = ("not_found", "refused", "excluded", "no_id", "unresolved", "still_rate_limited")
-
-
-def named_failures(r: dict) -> list[str]:
-    """A1 (addendum 23): every named game the answer did not refresh, one line each (empty without match_ids)."""
-    if "named" not in r:
-        return []
-    out = [f"match {mid}: not stored in {r['competition']}" for mid in r.get("not_selected") or []]
-    for key in NAMED_FAILURE_KEYS:
-        out += [f"match {x['match_id']} id {x['id']} {x['game']}: {key.replace('_', ' ')}" for x in r[key]]
-    return out
-
-
 def format_lines(r: dict) -> list[str]:
     """The printed receipt: counts first, then every listed game (both times where a kickoff moved)."""
     if r.get("error"):
@@ -230,6 +199,4 @@ def format_lines(r: dict) -> list[str]:
             why = x.get("why") or x.get("error") or ""
             out.append(f"  {label}: match {x['match_id']} id {x['id']} {x['game']} "
                        f"stored {x['stored_kickoff']}" + (f" — {why}" if why else ""))
-    for mid in r.get("not_selected") or []:
-        out.append(f"  NAMED, NOT STORED in {r['competition']}: match {mid}")
     return out

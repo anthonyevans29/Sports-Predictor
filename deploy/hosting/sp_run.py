@@ -43,7 +43,8 @@ def date_vars(today: date) -> dict:
         "today": today.isoformat(),
         "yesterday": (today - timedelta(days=1)).isoformat(),
         "tomorrow": (today + timedelta(days=1)).isoformat(),
-        "today_plus3": (today + timedelta(days=3)).isoformat(),
+        # {today_plus1}..{today_plus7}: the ncaa-schedule chain's forward week (ARCHITECT 2026-10-09)
+        **{f"today_plus{n}": (today + timedelta(days=n)).isoformat() for n in range(1, 8)},
         "sat": sat.isoformat(),
         "sat_plus3": (sat + timedelta(days=3)).isoformat(),
     }

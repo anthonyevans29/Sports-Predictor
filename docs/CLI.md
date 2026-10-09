@@ -167,6 +167,12 @@ ARCHITECT 2026-10-07), then `sync-kalshi-ncaa`, then `export-fixtures --competit
 the last run (Thursday's slate before Friday's export) leave the window
 instead of reading SCHEDULED.
 
+**NCAA kickoff freshness (host `sp-ncaa-schedule`, daily 10:35 + 22:35 UTC; ARCHITECT 2026-10-09):**
+`sync-matches --competition NCAA --season 2026 --date-from D --date-to D` for each of D = today ..
+today+7, nothing else. The provider files an unannounced college kickoff at 04:00Z (midnight US Eastern)
+and announces the real time days later; this keeps every stored kickoff in the next seven days at most a
+day old ("On the host, the stored kickoff of every NCAA game in the next seven days is at most one day old").
+
 ## Prediction, evaluation, improvement
 
 | Command | Options | Purpose |

@@ -28,6 +28,8 @@ EXPANSION = [("--competition", c, "--season", "2026/27") for c in EXPANSION_CODE
 # sync-kalshi-soccer runs on the shadow chain (soccer-prematch) as CAPTURE ONLY. They are deliberately NOT in
 # WINDOW_KALSHI: the window card spans every competition, and a capture-only league adds no venue line to it.
 KALSHI_CAPTURE_ONLY = EXPANSION_CODES
+# ncaa-schedule's forward window in days past today (ARCHITECT 2026-10-09: "the next seven days")
+NCAA_FORWARD_DAYS = 7
 
 CHAINS: dict[str, dict] = {
     # --- MLB (docs/CLI.md "MLB daily operation") ---
@@ -187,6 +189,19 @@ CHAINS: dict[str, dict] = {
               for d in ("{yesterday}", "{today}", "{tomorrow}")],
             ["sync-kalshi-ncaa"],
             ["export-fixtures", "--competition", "NCAA"],
+        ],
+    },
+    # KICKOFF FRESHNESS (ARCHITECT 2026-10-09, addendum 19 item 3): "On the host, the stored kickoff of
+    # every NCAA game in the next seven days is at most one day old." The provider files an unannounced
+    # college kickoff at 04:00Z (midnight US Eastern) and announces the real time days later; ncaa-market
+    # (Tue-Sat) syncs only yesterday..tomorrow and the window service only its 24 hours, so on 10-09 the
+    # host still held 30 of Saturday's games at 04:00Z. Single-day calls for today..today+7 (the
+    # american-football adapter sends `date` only when from == to), twice a day (sp-ncaa-schedule.timer)
+    # so one failed run still leaves every stored kickoff under a day old. Sync only: no Kalshi, no export.
+    "ncaa-schedule": {
+        "steps": [
+            ["sync-matches", "--competition", "NCAA", "--season", "2026", "--date-from", d, "--date-to", d]
+            for d in ("{today}", *[f"{{today_plus{n}}}" for n in range(1, NCAA_FORWARD_DAYS + 1)])
         ],
     },
     # --- Weekly full-season sync (CLAUDE.md: "full-season weekly") ---

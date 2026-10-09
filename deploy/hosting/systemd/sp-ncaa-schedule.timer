@@ -1,0 +1,16 @@
+# NCAA KICKOFF FRESHNESS (ARCHITECT 2026-10-09, addendum 19 item 3): "On the host, the stored kickoff of
+# every NCAA game in the next seven days is at most one day old." sync-matches NCAA for today..today+7,
+# single-day calls, every day of the week (ncaa-market runs Tue-Sat only). Twice a day, so one failed run
+# still leaves every stored kickoff under a day old. A NEW timer on a live host: see docs/specs/hosting-h1.md.
+# H0-3: no timer fires inside the 04:15-05:15 UTC reboot buffer (tests/test_hosting_pack.py).
+[Unit]
+Description=sports-predictor timer: sp-ncaa-schedule
+
+[Timer]
+OnCalendar=*-*-* 10,22:35:00 UTC
+Unit=sp-chain@ncaa-schedule.service
+Persistent=true
+AccuracySec=1min
+
+[Install]
+WantedBy=timers.target

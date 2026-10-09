@@ -75,3 +75,29 @@
     - Noted, not built: an own-check failure (R6) moves the run's export into logs/; when that export had overwritten the same-named non-closing file (MLB's `mlb_MLB_<date>.json`, the day's NFL/PL file), the file's earlier calls leave exports/ with it, and the next run finds an older file or none. Its receipt holds the last calls; following it needs a ruling.
   - Item 3 (verbatim, ruled, built in the follow-up #390; nothing in this commit): "A covered game the schedule read finds cancelled or postponed has a line of its own: the game and its status, and was with the earlier call when that call was a PLAY or a LADDER. With such a call the page is high priority. It is not counted as a PASS." Noted there, not ruled: "under reading (a) one named game missing from an otherwise good date listing costs every game of that start time its page. I rule on it with a real case in hand."
   - Item 4 (verbatim): "AFTER THIS COMMIT I read its diff and call the merge. It is the third fix round: what the review finds on it goes to the follow-up Issue, unless it would put a wrong line on a page or stop one. Then, in this order: the operator pulls; the two settings go into the laptop's .env by his hand; one supervised manual run on a Saturday Premier League game; the install on my word; the first watch-started run of each family supervised (D3). The NFL by-date receipt from tonight's block goes on the PR before the install."
+- **The NFL by-date receipt before the install (ARCHITECT addendum 30 item 5(a); addendum 25 item 4), posted on #385, verbatim:**
+
+```
+PROBE (ii) NFL BY-DATE LISTING at 2026-10-09T22:12Z (read-only; 4 provider calls; nothing written)
+  season listing: games 328 · by status {'FT': 111, 'AOT': 3, 'NS': 214}
+  2026-10-11: by-date answer holds 12 game(s) · our stored games with a kickoff on that UTC date: 12 · in the by-date answer: 12 · NOT in it: 0 · in the season listing: 12
+    match 15106 id 21578 2026-10-11 13:30Z SCHEDULED: in the by-date answer
+    match 15107 id 21579 2026-10-11 17:00Z SCHEDULED: in the by-date answer
+    match 15108 id 21580 2026-10-11 17:00Z SCHEDULED: in the by-date answer
+    match 15109 id 21581 2026-10-11 17:00Z SCHEDULED: in the by-date answer
+    match 15110 id 21582 2026-10-11 17:00Z SCHEDULED: in the by-date answer
+    match 15111 id 21583 2026-10-11 17:00Z SCHEDULED: in the by-date answer
+    match 15112 id 21584 2026-10-11 17:00Z SCHEDULED: in the by-date answer
+    match 15113 id 21585 2026-10-11 17:00Z SCHEDULED: in the by-date answer
+    match 15115 id 21587 2026-10-11 17:00Z SCHEDULED: in the by-date answer
+    match 15114 id 21586 2026-10-11 20:05Z SCHEDULED: in the by-date answer
+    match 15116 id 21588 2026-10-11 20:25Z SCHEDULED: in the by-date answer
+    match 15117 id 21589 2026-10-11 20:25Z SCHEDULED: in the by-date answer
+  2026-10-12: by-date answer holds 1 game(s) · our stored games with a kickoff on that UTC date: 1 · in the by-date answer: 1 · NOT in it: 0 · in the season listing: 1
+    match 15118 id 21590 2026-10-12 00:20Z SCHEDULED: in the by-date answer
+  2026-10-13: by-date answer holds 1 game(s) · our stored games with a kickoff on that UTC date: 1 · in the by-date answer: 1 · NOT in it: 0 · in the season listing: 1
+    match 15119 id 21591 2026-10-13 00:15Z SCHEDULED: in the by-date answer
+  VERDICT: every stored NFL game of those dates is in its by-date answer
+```
+
+  "The earliest game is match 15106, 13:30Z on 2026-10-11, which is 9:30am ET."

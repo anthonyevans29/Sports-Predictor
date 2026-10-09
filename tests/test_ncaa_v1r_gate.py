@@ -2,8 +2,8 @@
 reads data/, runs the real gate or touches the real registry (every registry write goes to a tmp ledger).
 Pins: --preflight scores nothing and prints the per-season census / neutral count / coverage / D4 baseline, and ends
 with the stream fingerprint (addendum 17 item 1); the run refuses without 2024 + 2025 coverage (each season named),
-without the word, without the fingerprint, on a fingerprint that no longer matches the stream and on a scored set under
-500 (addendum 17 item 2), each before the reservation with nothing written; no OPEN_ITEMS gate; the reservation is
+without the word, without the fingerprint, on a fingerprint that no longer matches the stream, on a scored set under
+500 (addendum 17 item 2) and on an undefined D4 baseline (addendum 21 item 4 (2)), each before the reservation with nothing written; no OPEN_ITEMS gate; the reservation is
 written after the #329 guard and before the first game is scored, carrying the word and the fingerprint; one run; each
 D5 criterion fails on its
 own (margin tie rejects; level; slope incl. non-convergence; rating range); no 2026 game scored; non-regular 2025
@@ -392,6 +392,39 @@ def test_a_scored_set_under_500_refuses_before_the_reservation_and_records_nothi
     _ready(monkeypatch, games=games)
     monkeypatch.setattr(vg, "run_gate", lambda g, model=None: {"n_scored": 500})
     assert vg.run("go", FP(games))["n_scored"] == 500 and os.path.exists(vg.reservation_path())
+
+
+def test_an_undefined_d4_baseline_refuses_before_the_reservation_and_records_nothing(ledger, monkeypatch):
+    """Addendum 21 item 4 (2) (verbatim): "When 2024 has no non-neutral regular game, D4 is undefined and nothing can
+    be scored: the run refuses before the reservation and records nothing, as it does under 500 games. It is not an
+    INVALID run and the read is not spent." 600 scored 2025 games, so only D4 can refuse."""
+    import cli
+    before = Path(ledger).read_bytes()
+    t = datetime(2024, 9, 1)
+    only = [G(9001, 1, 2, "2024", t, 21, 14, neutral=True),                    # 2024: neutral and non-'regular' only
+            G(9002, 1, 2, "2024", t + timedelta(1), 21, 14, st="postseason")]
+    games, _ = stream(base_wins=(0, 0), extra=only)
+    assert vg.d4_baseline(_v(games).games) == (None, 0) and len(vg.scored_set(_v(games).games)) == 600
+    _ready(monkeypatch, games=games)
+    guarded = []
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: guarded.append(1) or "stub")
+
+    def no(*a, **k):
+        raise AssertionError("a game was scored")
+    monkeypatch.setattr(nb.NeutralRuleElo, "predict", no)
+    res = CliRunner().invoke(cli.cli, ["ncaa-v1r-gate", "--architect-word", "Run it.", "--stream-fingerprint",
+                                       FP(games)])
+    assert res.exit_code == 2, res.output
+    assert "REFUSED" in res.output and "D4" in res.output and "undefined" in res.output
+    assert "not an INVALID run" in res.output and "INVALID —" not in res.output
+    assert not os.path.exists(vg.reservation_path()) and not guarded
+    assert Path(ledger).read_bytes() == before and not os.path.exists(reg.IDS_DIR)
+    assert reg.get("ncaa-elo-v1r", str(ledger))["run"] is None
+    with pytest.raises(vg.GateRefused, match="D4"):                    # the pure walk scores nothing either
+        vg.run_gate(games)
+    _ready(monkeypatch, games=calibrated()[0])                          # the read is not spent: a later run proceeds
+    monkeypatch.setattr(vg, "run_gate", lambda g, model=None: {"n_scored": 600})
+    assert vg.run("go", FP())["n_scored"] == 600 and os.path.exists(vg.reservation_path())
 
 
 def test_the_fingerprint_is_stable_and_names_the_walked_stream_with_every_field_the_gate_reads():

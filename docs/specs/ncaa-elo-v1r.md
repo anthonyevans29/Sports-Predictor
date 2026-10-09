@@ -196,6 +196,9 @@ is scored or written.
      scored). Its fingerprint must equal `--stream-fingerprint`. A mismatch refuses, printing both (addendum 17 item 1).
   6. The scored set (the 2025 games whose season_type is exactly `regular`, the level scores already skipped by D2)
      must number at least 500. Under 500 the run refuses and records nothing (addendum 17 item 2, #79's rule).
+  7. The D4 baseline must be defined: the stream's 2024 games include a non-neutral game whose season_type is exactly
+     `regular`. Otherwise the run refuses and records nothing, as under 500; it is not an INVALID run and the read is
+     not spent (addendum 21 item 4 (2)).
 
 **Reservation.** `docs/registry/ncaa-elo-v1r.started.json`, the soccer-expansion-v1 pattern:
   - The registry's cross-ref guard runs first (`registry.cross_ref_guard`, #329 RULED 2026-10-08). `--no-fetch` skips
@@ -220,6 +223,8 @@ fingerprint was checked, so the stream walked is the stream the word refers to.
 **Verdict** (D5):
   - Under 500 scored games: the run refused before the reservation (precondition 6). `run_gate` keeps an INVALID
     verdict for that case as a pure-function backstop; `run()` cannot reach it.
+  - An undefined D4 baseline: the run refused before the reservation (precondition 7). `run_gate` raises the same
+    refusal as a pure-function backstop; it returns no verdict, so there is no INVALID for this case.
   - PASS iff all four hold:
     - (1) log-loss < baseline − 0.010, strict and unrounded, so a tie rejects;
     - (2) |mean p − realized home rate| <= 0.05;
@@ -281,3 +286,16 @@ These were "open to correction" when PR B was first built. The architect ruled o
 **Consequence of rulings 1 and 2 for D6's "a reservation written before the first read".** Both refusals come before
 the reservation and need the stream, so the run now loads the stream (the read `--preflight` already makes: counts
 and the fingerprint, nothing scored) before the reservation. The reservation still precedes the first game scored.
+
+### #375's two readings: RULED (ARCHITECT 2026-10-09, addendum 21 item 4)
+
+The architect ruled on the two readings PR B made (verbatim, each):
+
+1. **The stream read before the reservation: ACCEPTED.** "What D6 seals is the scoring of the test season: a game priced by the candidate and compared with its result. Loading the stream to fingerprint it and to count the scored set scores nothing and prints no figure across games; the preflight makes the same load. The reservation is written before any game is scored."
+
+   This is the reading in the paragraph above ("Consequence of rulings 1 and 2"), accepted as written. Nothing
+   changed in the code.
+2. **An undefined D4 baseline.** "When 2024 has no non-neutral regular game, D4 is undefined and nothing can be scored: the run refuses before the reservation and records nothing, as it does under 500 games. It is not an INVALID run and the read is not spent."
+
+   Built: precondition 7 above. It replaces the earlier path, which reserved, walked nothing and recorded an INVALID
+   run with 0 scored ids.

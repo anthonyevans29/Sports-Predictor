@@ -15,6 +15,12 @@
   - The fingerprint is a sha256 over the walked stream (every game up to the last 2025 game, in walk order). Each game carries match id, kickoff, label season, season_type, merged home and away ids, both scores, the neutral flag and the label source: every field the walk reads or orders by. Spec section 8 lists what reads each one.
   - Both refusals need the stream, so the run loads it before the reservation (the read `--preflight` makes; nothing scored). The reservation still precedes the first game scored.
   - The INVALID-is-recorded path is gone from the run. `run_gate` keeps the INVALID verdict as a pure-function backstop.
+- **#375's two readings, RULED (ARCHITECT 2026-10-09, addendum 21 item 4, verbatim):**
+  1. Accepted. "What D6 seals is the scoring of the test season: a game priced by the candidate and compared with its result. Loading the stream to fingerprint it and to count the scored set scores nothing and prints no figure across games; the preflight makes the same load. The reservation is written before any game is scored."
+  2. "When 2024 has no non-neutral regular game, D4 is undefined and nothing can be scored: the run refuses before the reservation and records nothing, as it does under 500 games. It is not an INVALID run and the read is not spent."
+- **Built on addendum 21 item 4:**
+  - Reading (1), the stream loaded before the reservation (to fingerprint it and count the scored set; nothing scored), is accepted as built. No code change.
+  - Reading (2): an undefined D4 baseline now refuses before the reservation (exit 2, nothing reserved or recorded), as under 500. The path that reserved and recorded an INVALID run with 0 scored ids is gone; `run_gate` raises the same refusal as a pure-function backstop.
 - **`ncaa-v1r-confirm`:** follows the intl-elo-confirm pattern.
   - The freeze goes through `registry.freeze_confirmation_cohort`, which runs the guard.
   - Only a cancelled fixture is substituted. A finished fixture without a label stays pending.

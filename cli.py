@@ -6724,8 +6724,8 @@ def ncaa_v1r_gate_cmd(preflight, word, fingerprint, no_fetch):
     site), frozen first. PASS iff (1) log-loss < baseline − 0.010 (strict, unrounded), (2) |mean p − home rate| <=
     5pp, (3) |slope − 1| <= 0.20 (non-convergence fails), (4) every rating after the last 2025 game in 1000-2000.
     Refused (exit 2, nothing written) unless declared and unrun, --architect-word and --stream-fingerprint given and
-    2024 + 2025 covered (L2 + L3); then, the stream loaded and nothing scored, unless its fingerprint matches and the
-    scored set numbers >= 500 (addendum 17). The reservation (after the #329 cross-ref guard) carries the word and the
+    2024 + 2025 covered (L2 + L3); then, the stream loaded and nothing scored, unless its fingerprint matches, the
+    scored set numbers >= 500 (addendum 17) and the D4 baseline is defined (addendum 21 item 4 (2)). The reservation (after the #329 cross-ref guard) carries the word and the
     fingerprint and precedes the first game scored; ONE run, recorded with its scored ids. #79's ncaa-backtest is
     unchanged. Spec: docs/specs/ncaa-elo-v1r.md."""
     from src.db.database import session_scope

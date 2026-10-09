@@ -11,8 +11,9 @@ registry id `ncaa-elo-v1r` (docs/registry/experiments.json).
     ncaa-v1r-gate --architect-word T --stream-fingerprint F
                                        the ONE run (D3-D6): refused unless declared and unrun, the architect's word
                                        given, 2024 and 2025 covered; then the stream is loaded (nothing scored) and
-                                       the run refuses unless its fingerprint is F and its scored set numbers >= 500
-                                       (addendum 17 items 1, 2); the reservation (after the #329 cross-ref guard),
+                                       the run refuses unless its fingerprint is F, its scored set numbers >= 500
+                                       (addendum 17 items 1, 2) and the D4 baseline is defined (addendum 21 item
+                                       4 (2)); the reservation (after the #329 cross-ref guard),
                                        carrying the word and the fingerprint, is written BEFORE the first game is
                                        scored; the scored ids are recorded (registry.record_run)
 
@@ -211,6 +212,15 @@ def d4_baseline(games) -> tuple[float | None, int]:
     return (sum(g.home_win for g in base) / len(base) if base else None), len(base)
 
 
+def d4_undefined_why() -> str:
+    """Addendum 21 item 4 (2) (verbatim): "When 2024 has no non-neutral regular game, D4 is undefined and nothing can
+    be scored: the run refuses before the reservation and records nothing, as it does under 500 games. It is not an
+    INVALID run and the read is not spent." """
+    return (f"no {nb.V1R_WARMUP} non-neutral '{REGULAR}' game in the stream: the D4 baseline is undefined and nothing "
+            "can be scored (addendum 21 item 4 (2)); nothing reserved or recorded, not an INVALID run, the read is "
+            "not spent")
+
+
 def baseline_p(g, rate: float) -> float:
     """D4: the baseline's home probability: the frozen rate in a non-neutral game, 0.5 at a neutral site."""
     return 0.5 if g.neutral is True else rate
@@ -222,14 +232,13 @@ def _mean(xs):
 
 def run_gate(games, model=None) -> dict:
     """D3-D5 on the D2 stream's games (V1RStream.games: kickoff then match id, level scores already skipped). Pure.
-    Returns the result (every gated and reported quantity, unrounded) and `scored_ids`."""
+    Returns the result (every gated and reported quantity, unrounded) and `scored_ids`. An undefined D4 baseline
+    raises GateRefused before anything is walked (addendum 21 item 4 (2); run() refuses before the reservation)."""
     rate, n_base = d4_baseline(games)                  # FROZEN before any test game is scored (D4)
     out = {"verdict": None, "n_scored": 0, "scored_ids": [], "baseline_home_rate": rate, "baseline_n": n_base,
            "min_scored": MIN_SCORED}
-    if rate is None:
-        out["verdict"] = (f"INVALID — no {nb.V1R_WARMUP} non-neutral 'regular' game in the stream: the D4 baseline "
-                          "is undefined (nothing scored)")
-        return out
+    if rate is None:     # pure backstop: run() refuses before the reservation (addendum 21 item 4 (2))
+        raise GateRefused(d4_undefined_why())
     walk = walked(games)                               # the walk ends after the last 2025 game walked
     if not walk:
         out["verdict"] = f"INVALID — no {nb.V1R_TEST} game in the stream (nothing scored)"
@@ -374,7 +383,8 @@ def run(word: str | None, fingerprint: str | None = None, no_fetch: bool = False
     declared and unrun and unreserved; the architect's word given (non-empty, verbatim); the stream fingerprint
     given; 2024 and 2025 covered (L2 + L3; ingest records and label counts only). Then the stream is loaded
     (load_v1r_stream, the read --preflight makes; no model is built, nothing is scored) and the run refuses unless
-    its fingerprint equals `fingerprint` (item 1) and its scored set numbers >= 500 (item 2). Then the reservation
+    its fingerprint equals `fingerprint` (item 1), its scored set numbers >= 500 (item 2) and the D4 baseline is
+    defined (addendum 21 item 4 (2): 2024 has a non-neutral 'regular' game). Then the reservation
     (after the cross-ref guard), carrying the word and the fingerprint, then the walk over that same loaded stream
     and the verdict. The caller records the run (record())."""
     declared_unrun()
@@ -395,6 +405,8 @@ def run(word: str | None, fingerprint: str | None = None, no_fetch: bool = False
     if n_test < MIN_SCORED:
         raise GateRefused(f"the scored set numbers {n_test} < {MIN_SCORED} (addendum 17 item 2, #79's rule): not "
                           "scored, nothing reserved or recorded; re-run later, the bar does not move")
+    if d4_baseline(v.games)[0] is None:                # addendum 21 item 4 (2): as under 500, before the reservation
+        raise GateRefused(d4_undefined_why())
     reserve({"architect_word": word, "stream_fingerprint": fp, "stream_games": fp_n, "scored_set_n": n_test,
              "coverage": {s_: c.get("share") for s_, c in fbs.items()}}, no_fetch=no_fetch, echo=echo)
     # from here on, the one run is spent

@@ -10,7 +10,7 @@
   - (c) `ncaa-backtest` refuses, exit 2, naming the ruling (quoted verbatim), with or without `--baselines-only`, before anything is read, whatever the #368 fence says. `GATE_STATUS` is `CLOSED`; its line says "NCAA GATE: CLOSED (ruling 2026-10-09, addendum 24)" wherever printed (`ncaa-cfbd-coverage`). The module `ncaa_backtest` stays.
   - (d) `export-ncaa-predictions` refuses, exit 2, naming the ruling (quoted verbatim), once the registry records a verdict for ncaa-elo-v1r other than PASS (`ncaa_shadow.frozen`, before any read). `ncaa-shadow-grade` is untouched.
   - (e) No code: the #368 fence lifted by itself when the run record reached main (`v1r_run_recorded` reads the registry's `run`). The 2025 lines (`ncaa-cfbd-coverage`, `resync-diff`, the source probe) and `ncaa-audit` return.
-  - (f) docs/CLI.md follows the commands; the spec (docs/specs/ncaa-elo-v1r.md) gains a closing section with the run's figures from the record and the ruling.
+  - (f) CLAUDE.md's NCAA line of "Current production state" gains the ruled sentence verbatim; docs/CLI.md follows the commands; the spec (docs/specs/ncaa-elo-v1r.md) gains a closing section with the run's figures from the record and the ruling.
 - **Addendum 24 item 1, verbatim:**
   > 1. NCAA-ELO-V1R: THE VERDICT IS FAIL. The one run is on laptop/ncaa-elo-v1r-run-record: 130b481, one commit on main fbf0d1e, three files under docs/registry. I read the record itself, not the console. Only the entry's run and status changed. 762 ids, sorted and distinct, with the sha256 recorded. My word and the fingerprint are verbatim. Prior reads: none. The figures reconcile to whole games: 451 home wins of 762, and 441 of the 739 away from a neutral site.
 - **Addendum 24 item 2, verbatim:**

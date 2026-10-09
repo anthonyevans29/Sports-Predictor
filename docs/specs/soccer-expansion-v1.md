@@ -98,20 +98,24 @@ confirmation section at the end of `src/walters/soccer_expansion.py`. The declar
   - a regular-season round (F3). A label the code cannot place is never guessed: a freeze refuses when one kicks
     off at or before the 60th fixture, and a substitution refuses when one kicks off at or before a replacement;
   - a kickoff strictly after the verdict's recorded `at`;
-  - not a scored test-set id, and not a stale orphan.
+  - not a scored test-set id, and not a stale orphan;
+  - a season. ARCHITECT 2026-10-08, addendum 16 item 1 (4223907748, verbatim): "A fixture of a surviving league with no season, kicking off at or before the 60th or before a replacement, refuses the freeze or the substitution, as an unplaced round label does. Never guessed, never skipped."
 - **Order and freeze:** eligible fixtures are ordered by (kickoff, fixture id), and the first 60 are frozen once. The
   freeze calls the cross-ref guard (#329) before any write: a refusal writes nothing, and `--no-fetch` skips the
   fetch and says so.
-- **Substitution, unscoreable only:** the intl machinery's own predicate (`intl_shadow._unscoreable`), unchanged.
-  - Released: cancelled (CANC / ABD), or finished under a non-FT code (AWD / WO, AET / PEN) without a 90-minute
-    score.
+- **Substitution, unscoreable only:** this experiment's own predicate, `soccer_expansion.unscoreable` (ARCHITECT
+  2026-10-08, addendum 16 item 1; no longer a delegate of `intl_shadow._unscoreable`, which intl-elo-v2 keeps as built).
+  - Released: cancelled (CANC / ABD); finished under AWD or WO, always, whatever scores the row carries (Q2,
+    verbatim: "In this experiment a game finished under AWD or WO is always released, whatever scores the row carries. The label says the result was not decided on the pitch, and a stored score on such a row cannot be told from an awarded one. It is neither scored nor walked." intl-elo-v2 keeps its predicate as built; if such a row turns up in its cohort I rule on the row. So soccer_expansion.unscoreable stops being a plain delegate.); finished under another non-FT code (AET / PEN) without a 90-minute score; a cohort fixture
+    that later becomes STALE_ORPHAN, reason STALE_ORPHAN (4223907740, verbatim: "It will never have a result. It is released and replaced like a cancelled fixture, reason STALE_ORPHAN.").
+  - Never released: a finished row with no raw status code (C1, verbatim: "A finished row with no raw status code is not a non-FT row. It is never released and never left out of the walk; it is walked and scored as the gate walks it, and it is listed.").
   - Replacement: the next eligible fixture after the cohort, with the raw code as the reason.
   - Never released: a postponed, scheduled or live fixture, or a FT row still waiting for its score. These stay
     pending.
 - **The read:** the gate's own walk, `run_soccer_backtest`, run for each league-season the cohort touches, with:
   - a cold start, min_prior 40, `stage_filter=is_regular` and `batch_same_kickoff=True`;
   - the RUN RECORD's `rho` and `elo_goal_coeff`: the candidate as gated, never refit. If the current production
-    model differs, progress prints it; the read does not move;
+    model differs, progress prints it; the read does not move. RULED (Q1, addendum 16 item 1, verbatim): "The read is priced by the candidate as gated: the run record's rho and elo_goal_coeff, on the gate's own walk. A later production change does not move it.";
   - predict-then-update. Only the frozen cohort is scored.
   - `confirmation_scoring=True` (Codex P1s on #373, rounds 1 and 2): the walk applies the substitution rule through
     ONE predicate, `soccer_expansion.unscoreable` (the intl code's rule, unchanged).
@@ -121,8 +125,11 @@ confirmation section at the end of `src/walters/soccer_expansion.py`. The declar
       after-extra-time one.
     - Progress prints these rows as a DATA NOTE (a regular-season league game should never go to extra time).
     - The argument defaults off, so the gate's one run is unchanged.
-    - Open question 2 on #373 (is AWD / WO with a 90' score always released?) is pending. A ruling changes that one
-      function, and the walk and the substitution move together.
+    - Open question 2 is RULED (Q2 above): AWD / WO always released. A finished row with no raw code is walked as the
+      gate walks it, on its stored score, and listed (C1).
+    - Progress census (C2, verbatim): "Progress prints, per league-season walked, the finished rows counted by raw code, and lists every row the walk left out under the rule: id, kickoff, teams, raw code, scores."
+    - Not changed here (addendum 16 item 1, 4223907730): a non-FT row with a 90-minute score and no aggregate goes to
+      the follow-up Issue. A regular-season league game cannot finish under AET or PEN; if one appears it is listed and I rule on it.
   - A cohort fixture that is finished and scored but not priced by the walk stays pending and is listed as such.
 - **Naive:** each surviving league's 2023/24 H/D/A as the run record stores it (`per_league.<code>.naive_freq`, the
   frozen frequencies the gate used). Only if a league's record lacks it, `naive_for` recomputes it exactly as the

@@ -437,3 +437,119 @@ def test_a_released_awd_fixture_is_neither_scored_nor_walked(ledger, world):
                                                                       **kw)}
     finally:
         _restore(mid, old)
+
+
+# ------------------------------------------------- addendum 16 item 1 (#373 READ) --
+
+def test_an_awd_row_carrying_a_90_minute_score_is_released_and_not_walked(ledger, world):
+    """Q2 (verbatim): "In this experiment a game finished under AWD or WO is always released, whatever scores the row
+    carries. [...] It is neither scored nor walked." intl-elo-v2 keeps its predicate as built."""
+    from src.walters.intl_shadow import _unscoreable as intl_unscoreable
+    from src.walters.soccer_backtest import run_soccer_backtest
+    _freeze(ledger)
+    mid = world["ids"][9]
+    with session_scope() as s:
+        code = s.get(Match, mid).competition.code
+    old = _set(mid, MatchStatus.FINISHED, "AWD", 3, 0, 3, 0)              # a 90' score stored
+    try:
+        with session_scope() as s:
+            m = s.get(Match, mid)
+            assert sx.unscoreable(m) is True and intl_unscoreable(m, "finished") is False
+        kw = dict(dixon_coles_rho=-0.1, elo_goal_coeff=0.0008, stage_filter=sx.is_regular, batch_same_kickoff=True)
+        assert mid not in {x["match_id"] for x in run_soccer_backtest(code, SEASON, 40, confirmation_scoring=True,
+                                                                      **kw)}
+        r = _cli("--substitute")
+        assert r.exit_code == 0 and f"SUBSTITUTED: {mid} (AWD" in r.output, r.output
+        rd = sx.confirmation_read()
+        assert mid not in rd["scored_ids"] and rd["complete"]
+    finally:
+        _restore(mid, old)
+
+
+def test_a_finished_row_with_no_raw_code_is_walked_scored_and_listed(ledger, world):
+    """C1 (verbatim): "A finished row with no raw status code is not a non-FT row. It is never released and never left
+    out of the walk; it is walked and scored as the gate walks it, and it is listed." C2: the census counts it."""
+    from src.walters.soccer_backtest import run_soccer_backtest
+    _freeze(ledger)
+    mid = world["ids"][12]
+    with session_scope() as s:
+        m = s.get(Match, mid)
+        code, hs, as_ = m.competition.code, m.home_score, m.away_score
+    old = _set(mid, MatchStatus.FINISHED, None, hs, as_)                  # rows finished before 27f83c1
+    try:
+        with session_scope() as s:
+            assert sx.unscoreable(s.get(Match, mid)) is False
+        kw = dict(dixon_coles_rho=-0.1, elo_goal_coeff=0.0008, stage_filter=sx.is_regular, batch_same_kickoff=True)
+        gate = {x["match_id"]: x for x in run_soccer_backtest(code, SEASON, 40, **kw)}
+        conf = {x["match_id"]: x for x in run_soccer_backtest(code, SEASON, 40, confirmation_scoring=True, **kw)}
+        assert mid in conf and conf[mid] == gate[mid]                      # walked and scored as the gate walks it
+        rd = sx.confirmation_read()
+        assert mid in rd["scored_ids"] and any(str(mid) in x for x in rd["no_raw_code_rows"])
+        assert sx.substitutions_due(ledger["load"](), *_session_surv()) == []
+        out = _cli().output
+        assert "NO RAW CODE" in out and f"{mid}" in out and "raw NULL" in out, out
+    finally:
+        _restore(mid, old)
+
+
+def _session_surv():
+    """(session, surviving) for a direct substitutions_due call (closed by the caller's GC; read-only)."""
+    from src.db.database import SessionLocal
+    return SessionLocal(), ["PD", "BL1"]
+
+
+def test_progress_prints_the_census_per_league_season_and_lists_rows_left_out(ledger, world):
+    """C2 (verbatim): "Progress prints, per league-season walked, the finished rows counted by raw code, and lists
+    every row the walk left out under the rule: id, kickoff, teams, raw code, scores.\""""
+    _freeze(ledger)
+    mid = world["ids"][14]
+    old = _set(mid, MatchStatus.FINISHED, "WO", 3, 0)
+    try:
+        rd = sx.confirmation_read()
+        cen = {(c["code"], c["season"]): c for c in rd["census"]}
+        assert set(cen) == {("PD", SEASON), ("BL1", SEASON)}
+        with session_scope() as s:
+            m = s.get(Match, mid)
+            code, kick = m.competition.code, m.utc_date
+        c = cen[(code, SEASON)]
+        assert c["by_raw_code"].get("WO") == 1 and c["by_raw_code"]["FT"] >= 1
+        (line,) = c["left_out"]
+        assert line.startswith(f"{mid} · {kick:%Y-%m-%dT%H:%MZ} · SXC {code} ") and "· WO · score 3-0" in line
+        out = _cli().output
+        assert f"walk {code} {SEASON}: finished rows by raw code" in out and f"LEFT OUT (not scored, not walked): {line}" in out
+    finally:
+        _restore(mid, old)
+
+
+def test_a_fixture_with_no_season_before_the_60th_refuses_the_freeze(ledger, world):
+    """4223907748 (verbatim): "A fixture of a surviving league with no season, kicking off at or before the 60th or
+    before a replacement, refuses the freeze or the substitution, as an unplaced round label does. Never guessed, never
+    skipped.\""""
+    mid = world["ids"][20]
+    with session_scope() as s:
+        s.get(Match, mid).season = ""                                     # the column is NOT NULL: blank
+    try:
+        r = _cli("--freeze-cohort", "--no-fetch")
+        assert r.exit_code == 2 and "no season" in r.output and f"{mid}" in r.output, r.output
+        assert not (ledger["ids"] / f"{sx.EID}.cohort.txt").exists()
+    finally:
+        with session_scope() as s:
+            s.get(Match, mid).season = SEASON
+
+
+def test_a_cohort_fixture_that_becomes_stale_orphan_is_released_reason_stale_orphan(ledger, world):
+    """4223907740 (verbatim): "It will never have a result. It is released and replaced like a cancelled fixture,
+    reason STALE_ORPHAN.\""""
+    _freeze(ledger)
+    ids = world["ids"]
+    mid = ids[5]
+    old = _set(mid, MatchStatus.STALE_ORPHAN, None)
+    try:
+        rd = sx.confirmation_read()
+        assert {"id": mid, "status": "stale_orphan"} in rd["pending"] and rd["release_due"] == 1
+        r = _cli("--substitute")
+        assert r.exit_code == 0 and f"SUBSTITUTED: {mid} (STALE_ORPHAN" in r.output, r.output
+        subs = ledger["load"]()["confirmation_cohort"]["substitutions"]
+        assert [(x["released"], x["replacement"], x["reason"]) for x in subs] == [(mid, ids[60], "STALE_ORPHAN")]
+    finally:
+        _restore(mid, old)

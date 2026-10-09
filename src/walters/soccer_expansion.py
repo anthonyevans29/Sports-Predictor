@@ -656,7 +656,8 @@ def shadow_grade(days: int = 30, export_dir: str = "exports", now: datetime | No
 #     (refused when empty or when the computed run verdict is not PASS);
 #   - eligible: a surviving league, a regular-season round (F3; an unplaced label is never guessed), kickoff strictly
 #     after the verdict's `at`, not in the scored test set, not a stale orphan, ANY status; ordered (kickoff, id);
-#   - unscoreable: the intl machinery's own predicate (intl_shadow._unscoreable), unchanged;
+#   - unscoreable: this experiment's own predicate (addendum 16 item 1: AWD / WO always released; a finished row with
+#     no raw code walked and listed), no longer a delegate of intl_shadow._unscoreable;
 #   - the read: the gate's walk exactly (run_soccer_backtest per league-season from a cold start, min_prior 40,
 #     stage_filter is_regular, F5 batching) at the RUN RECORD's rho / elo_goal_coeff (the candidate as gated, never
 #     refit), predict-then-update; only the frozen cohort is scored;
@@ -669,16 +670,62 @@ NAIVE_FROM_RECORD = "run record (per_league.naive_freq, the gate's frozen 2023/2
 NAIVE_RECOMPUTED = "recomputed (naive_for over the stored 2023/24 regular season, exactly as the gate did)"
 
 
+AWARDED = ("AWD", "WO")     # Q2: decided off the pitch
+
+
 def unscoreable(m, status: str | None = None) -> bool:
     """THE ONE predicate (Codex P1 round 2 on #373): what the substitution releases is exactly what the confirmation
-    walk neither scores nor walks (run_soccer_backtest confirmation_scoring). It is the intl machinery's own rule,
-    unchanged (intl_shadow._unscoreable): cancelled, or finished under a non-FT code without a 90-minute score. The
-    architect's open question 2 on #373 (is AWD / WO with a 90' score always released?) is pending; a ruling changes
-    this one function."""
-    from src.walters.intl_shadow import _unscoreable
+    walk neither scores nor walks (run_soccer_backtest confirmation_scoring). ARCHITECT 2026-10-08, addendum 16 item 1:
+    - Q2 (verbatim): "In this experiment a game finished under AWD or WO is always released, whatever scores the row
+      carries. The label says the result was not decided on the pitch, and a stored score on such a row cannot be told
+      from an awarded one. It is neither scored nor walked." intl-elo-v2 keeps its own predicate as built
+      (intl_shadow._unscoreable); this one no longer delegates to it.
+    - C1 (verbatim): "A finished row with no raw status code is not a non-FT row. It is never released and never left
+      out of the walk; it is walked and scored as the gate walks it, and it is listed."
+    Otherwise as before: cancelled, or finished under a non-FT code (AET / PEN ...) without a 90-minute score."""
     if status is None:
         status = m.status.value if hasattr(m.status, "value") else str(m.status)
-    return _unscoreable(m, status)
+    if status == "cancelled":
+        return True
+    if status != "finished":
+        return False
+    raw = (m.status_raw or "").strip().upper()
+    if raw in AWARDED:
+        return True
+    if not raw or raw == "FT":                 # C1: no raw code is walked as the gate walks it
+        return False
+    return m.home_score_90 is None or m.away_score_90 is None
+
+
+def walk_census(s, code: str, season: str) -> dict:
+    """C2 (ARCHITECT 2026-10-08, addendum 16 item 1, verbatim): "Progress prints, per league-season walked, the
+    finished rows counted by raw code, and lists every row the walk left out under the rule: id, kickoff, teams, raw
+    code, scores." The rows are the walk's own (FINISHED, both scores, a kickoff, regular season); no-raw-code rows
+    (C1) are listed too. Read-only."""
+    from sqlalchemy import select
+    from src.db.schema import Match, MatchStatus, Team
+    c = _comp(s, code)
+    out = {"code": code, "season": season, "by_raw_code": {}, "left_out": [], "no_raw_code": []}
+    if c is None:
+        return out
+    rows = s.execute(select(Match).where(
+        Match.competition_id == c.id, Match.season == season, Match.status == MatchStatus.FINISHED,
+        Match.home_score.isnot(None), Match.away_score.isnot(None), Match.utc_date.isnot(None))).scalars().all()
+    rows = sorted((m for m in rows if is_regular(m.stage)), key=lambda m: (m.utc_date, m.id))
+    names = {t.id: t.name for t in s.execute(select(Team).where(Team.id.in_(
+        {m.home_team_id for m in rows} | {m.away_team_id for m in rows}))).scalars()} if rows else {}
+    cnt = Counter((m.status_raw or "").strip().upper() or "raw NULL" for m in rows)
+    out["by_raw_code"] = dict(sorted(cnt.items()))
+
+    def line(m):
+        s90 = (f"{m.home_score_90}-{m.away_score_90}" if m.home_score_90 is not None and m.away_score_90 is not None
+               else "not stored")
+        return (f"{m.id} · {m.utc_date:%Y-%m-%dT%H:%MZ} · {names.get(m.home_team_id, m.home_team_id)} v "
+                f"{names.get(m.away_team_id, m.away_team_id)} · {m.status_raw or 'raw NULL'} · score "
+                f"{m.home_score}-{m.away_score} · 90' {s90}")
+    out["left_out"] = [line(m) for m in rows if unscoreable(m, "finished")]
+    out["no_raw_code"] = [line(m) for m in rows if not (m.status_raw or "").strip()]
+    return out
 
 
 def _reg_paths() -> tuple[str, str]:
@@ -758,7 +805,12 @@ def eligible_fixtures(s, e: dict, surv: list[str]) -> tuple[list[dict], list[dic
                           and m.away_score_90 is not None else None),
              "unscoreable": unscoreable(m, status)}
         pl = placement(m.stage)
-        if pl is None:
+        if not (m.season or "").strip():
+            # ARCHITECT 2026-10-08, addendum 16 item 1 (4223907748, verbatim): "A fixture of a surviving league with
+            # no season, kicking off at or before the 60th or before a replacement, refuses the freeze or the
+            # substitution, as an unplaced round label does. Never guessed, never skipped."
+            unpl.append({**f, "why": "no season"})
+        elif pl is None:
             unpl.append(f)
         elif pl == "regular" and m.id not in test_ids:
             elig.append(f)
@@ -767,7 +819,7 @@ def eligible_fixtures(s, e: dict, surv: list[str]) -> tuple[list[dict], list[dic
 
 def unplaced_through(unpl: list[dict], kickoff) -> list[str]:
     """Unplaced rows kicking off at or before `kickoff`: any one could belong before the chosen fixture."""
-    return [f"{f['code']} {f['id']} {f['stage']!r} {f['kickoff']:%Y-%m-%dT%H:%MZ}" for f in unpl
+    return [f"{f['code']} {f['id']} {f.get('why') or repr(f['stage'])} {f['kickoff']:%Y-%m-%dT%H:%MZ}" for f in unpl
             if f["kickoff"] <= kickoff]
 
 
@@ -803,13 +855,35 @@ def substitutions_due(e: dict, s, surv: list[str]) -> list[dict]:
     last = max(((by_id[i]["kickoff"], i) for i in ever if i in by_id), default=None)
     pool = [f for f in elig if f["id"] not in ever and not f["unscoreable"]
             and (last is None or (f["kickoff"], f["id"]) > last)]
+    orphans = stale_orphans(s, [i for i in co["ids"] if i not in by_id])
     out = []
     for i in co["ids"]:
-        f = by_id.get(i)
+        f = by_id.get(i) or orphans.get(i)
         if f is None or not f["unscoreable"]:
             continue
         out.append({"released": f, "replacement": pool.pop(0) if pool else None,
-                    "reason": (f["status_raw"] or f["status"]).upper()})
+                    "reason": STALE_ORPHAN if i in orphans else (f["status_raw"] or f["status"]).upper()})
+    return out
+
+
+STALE_ORPHAN = "STALE_ORPHAN"
+
+
+def stale_orphans(s, ids) -> dict[int, dict]:
+    """ARCHITECT 2026-10-08, addendum 16 item 1 (4223907740, verbatim): a cohort fixture that later becomes
+    STALE_ORPHAN "will never have a result. It is released and replaced like a cancelled fixture, reason
+    STALE_ORPHAN." {id: fixture dict} for the given ids now stored as STALE_ORPHAN. Read-only."""
+    from sqlalchemy import select
+    from src.db.schema import Competition, Match, MatchStatus
+    ids = list(ids)
+    if not ids:
+        return {}
+    out = {}
+    for m, code in s.execute(select(Match, Competition.code).join(Competition, Match.competition_id == Competition.id)
+                             .where(Match.id.in_(ids), Match.status == MatchStatus.STALE_ORPHAN)).all():
+        out[m.id] = {"id": m.id, "kickoff": m.utc_date, "code": code, "season": m.season, "stage": m.stage,
+                     "status": "stale_orphan", "status_raw": m.status_raw, "has_score": False, "score_90": None,
+                     "unscoreable": True}
     return out
 
 
@@ -829,7 +903,12 @@ def confirmation_read() -> dict:
     by_id = {f["id"]: f for f in elig}
     want = set(co["ids"])
     priced: dict[int, dict] = {}
-    for code, season in sorted({(by_id[i]["code"], by_id[i]["season"]) for i in want if i in by_id}):
+    walked = sorted({(by_id[i]["code"], by_id[i]["season"]) for i in want if i in by_id})
+    with session_scope() as s:
+        census = [walk_census(s, code, season) for code, season in walked]     # C2
+        orphans = stale_orphans(s, [i for i in want if i not in by_id])
+        s.rollback()
+    for code, season in walked:
         for r in run_soccer_backtest(code, season, MIN_PRIOR, dixon_coles_rho=params["rho"],
                                      elo_goal_coeff=params["elo_goal_coeff"], stage_filter=is_regular,
                                      batch_same_kickoff=BATCH_SAME_KICKOFF,
@@ -856,7 +935,7 @@ def confirmation_read() -> dict:
     def why(i):
         f = by_id.get(i)
         if f is None:
-            return "not stored as an eligible fixture"
+            return "stale_orphan" if i in orphans else "not stored as an eligible fixture"
         if f["status"] == "finished" and f["has_score"] and not f["unscoreable"]:
             return "finished, not priced by the walk"          # below min_prior / a club not yet seen: listed, law 4
         return f["status"]
@@ -868,11 +947,17 @@ def confirmation_read() -> dict:
            "unplaced": [f"{f['code']} {f['id']} {f['stage']!r}" for f in unpl],
            # a DATA NOTE: finished under a non-FT code (AET / PEN / AWD / WO ...): read on the 90' score when stored;
            # one the substitution rule releases is neither scored nor walked
-           "non_ft_rows": [f"{f['code']} {f['id']} {f['status_raw'] or 'raw NULL'} (90' {f['score_90'] or 'not stored'}"
+           "non_ft_rows": [f"{f['code']} {f['id']} {f['status_raw']} (90' {f['score_90'] or 'not stored'}"
                            + ("; released, not walked)" if f["unscoreable"] else "; walked on the 90' score)")
-                           for f in elig if f["status"] == "finished" and (f["status_raw"] or "").upper() != "FT"],
+                           for f in elig if f["status"] == "finished" and (f["status_raw"] or "").strip()
+                           and (f["status_raw"] or "").strip().upper() != "FT"],
+           # C1: a finished row with no raw code is walked and scored as the gate walks it, and listed
+           "no_raw_code_rows": [f"{f['code']} {f['id']} (score {'stored' if f['has_score'] else 'not stored'})"
+                                for f in elig if f["status"] == "finished" and not (f["status_raw"] or "").strip()],
            "pending": [{"id": i, "status": why(i)} for i in pending],
-           "release_due": sum(1 for i in pending if (by_id.get(i) or {}).get("unscoreable") and co["state"] == "frozen"),
+           "release_due": sum(1 for i in pending if ((by_id.get(i) or {}).get("unscoreable") or i in orphans)
+                              and co["state"] == "frozen"),
+           "census": census,
            "per_league": per,
            # recordable only as the WHOLE frozen cohort, every fixture labelled
            "complete": co["state"] == "frozen" and not pending and n == plan["n_games"]}

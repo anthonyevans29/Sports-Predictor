@@ -5179,7 +5179,7 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
                                "the cohort is stored yet; sync the schedule")
                     continue
                 reg.substitute_cohort_fixture(ie.EID_V2, f["id"], rep["id"], d["reason"], {
-                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,
+                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,  # incl. STALE_ORPHAN
                     "kickoff": iso(f["kickoff"]),
                     "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]})
                 click.echo(f"  SUBSTITUTED: {f['id']} ({d['reason']}, {iso(f['kickoff'])}) -> {rep['id']} "
@@ -6124,9 +6124,9 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
                 raise SystemExit(2)
             fx = co["fixtures"]
             bad = sx.unplaced_through(co["unplaced"], fx[-1]["kickoff"])
-            if bad:                                  # F3: never guessed
-                click.echo("REFUSED: stage / round labels the code cannot place, at or before the 60th kickoff (F3; "
-                           "never guessed): " + "; ".join(bad))
+            if bad:                                  # F3 + addendum 16 (no season): never guessed
+                click.echo("REFUSED: stage / round labels the code cannot place, or fixtures with no season, at or "
+                           "before the 60th kickoff (F3; never guessed, never skipped): " + "; ".join(bad))
                 raise SystemExit(2)
             basis = {"selected_at": iso(utc_now_naive()), "rule": sx.CONFIRM_RULE, "surviving": surv,
                      "eligible_stored": co["eligible_stored"],
@@ -6153,8 +6153,8 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
             reps = [d["replacement"]["kickoff"] for d in due if d["replacement"] is not None]
             bad = sx.unplaced_through(unpl, max(reps)) if reps else []
             if bad:                                  # F3: an unplaced row could precede a replacement; nothing written
-                click.echo("REFUSED: stage / round labels the code cannot place, at or before a replacement's kickoff "
-                           "(F3; never guessed): " + "; ".join(bad))
+                click.echo("REFUSED: stage / round labels the code cannot place, or fixtures with no season, at or "
+                           "before a replacement's kickoff (F3; never guessed, never skipped): " + "; ".join(bad))
                 raise SystemExit(2)
             ledger, ids_dir = sx._reg_paths()
             for d in due:
@@ -6164,7 +6164,7 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
                                "the cohort is stored yet; sync the schedule")
                     continue
                 reg.substitute_cohort_fixture(sx.EID, f["id"], rep["id"], d["reason"], {
-                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,
+                    "status": f["status"], "status_raw": f["status_raw"], "unscoreable": True,  # incl. STALE_ORPHAN
                     "kickoff": iso(f["kickoff"]), "code": f["code"],
                     "replacement_kickoff": iso(rep["kickoff"]), "replacement_code": rep["code"]},
                     path=ledger, ids_dir=ids_dir)
@@ -6198,6 +6198,16 @@ def soccer_expansion_confirm_cmd(freeze_cohort, substitute, record, ruling, no_f
                    "extra-time AET/PEN): read on the 90' score, never the after-extra-time one; a row the substitution "
                    "rule releases (e.g. AWD / WO without a 90' score) is neither scored nor walked: "
                    + "; ".join(r["non_ft_rows"]))
+    for c in r.get("census") or []:                  # C2 (addendum 16 item 1)
+        click.echo(f"  walk {c['code']} {c['season']}: finished rows by raw code {c['by_raw_code']} · left out under "
+                   f"the rule {len(c['left_out'])}")
+        for line in c["left_out"]:
+            click.echo(f"    LEFT OUT (not scored, not walked): {line}")
+        for line in c["no_raw_code"]:
+            click.echo(f"    NO RAW CODE (C1: walked and scored as the gate walks it): {line}")
+    if r.get("no_raw_code_rows"):
+        click.echo("  NO RAW CODE in the eligible set (C1: never released; walked and scored as the gate walks it): "
+                   + "; ".join(r["no_raw_code_rows"]))
     if r["pending"]:
         click.echo(f"  pending {len(r['pending'])}: {dict(Counter(x['status'] for x in r['pending']))}"
                    + (f" — {r['release_due']} unscoreable: run --substitute" if r["release_due"] else ""))

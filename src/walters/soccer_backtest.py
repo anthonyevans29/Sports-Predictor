@@ -76,7 +76,8 @@ def _confirmation_rows(matches):
     for m in matches:
         if unscoreable(m):
             continue
-        if (m.status_raw or "").upper() == "FT" or m.home_score_90 is None or m.away_score_90 is None:
+        raw = (m.status_raw or "").strip().upper()
+        if raw in ("", "FT") or m.home_score_90 is None or m.away_score_90 is None:   # C1: no raw code walked as is
             out.append(m)
         else:
             out.append(SimpleNamespace(id=m.id, utc_date=m.utc_date, stage=m.stage, status_raw=m.status_raw,

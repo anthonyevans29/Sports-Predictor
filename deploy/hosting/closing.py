@@ -7,6 +7,7 @@ closing autopilot (addendum 13 item 3, addendum 16 item 2), which it replaces.
     closing.py watch [--family F] [--dry-run]                          (= python cli.py closing-watch; every minute)
     closing.py preflight [--shell-set NAMES]     the setup script's checks (380.2): the run's own refusals
     closing.py test-page                         one test page through the card topic (380.2, M2)
+    closing.py install-push                      one exports-mirror push, label install (addendum 23 D1)
 
 C1 (families): MLB, NFL and SOCCER (PL) today: chains.CLOSING_FAMILIES. A shadow has no closing run and is never
 paged as a pick.
@@ -20,8 +21,15 @@ freshen:NFL / freshen:SOCCER, opening with the schedule read and pricing the cov
 C4 (checks): every ruling of addendum 16 item 2 for every family (R1 started test, R2 prices, R3 lock, the refusals,
 R6 moved export, M1 mirror push, the failed-run notification), plus 380.1 (MLB starters) and strict mode (injuries).
 C5/C6 (the page): one page per run, on the phone through sp_notify's ntfy card topic (NTFY_CARD_TOPIC) and on the
-laptop's screen (macOS). NTFY_CARD_TOPIC unset refuses the run; a page ntfy does not accept fails it (the watch
-retries). The topic's value is never printed.
+laptop's screen (macOS). NTFY_CARD_TOPIC unset refuses the run. The topic's value is never printed.
+Addendum 23 (ARCHITECT 2026-10-09, item 3): A1 the schedule read names the covered games (NFL refresh-by-id, SOCCER
+and MLB sync-matches --match-ids) and fails the run when it did not answer; A2 NFL's roster read under strict mode;
+A5 the Kalshi legs the Desk read; B1 the page first, then the push (a failed push after the page is receipted and
+notified, never rerun); B2 the phone page tried three times ten seconds apart, the screen recorded only; B3 a PLAY or
+LADDER now PASS has its own line and makes the page high priority; B4 every line but the head and the PASS count
+names its game; B5 the 2026-10-07 hold names MLB and NFL; B6 a miss once per start time and reason; B7 an NFL PLAY
+beside unresolved injured positions says so; C a covered game whose start moved leaves the run ("start moved" when
+none is left); D1 the setup script's install push (`install-push`).
 380.3 backup, 380.4 decide under the lock (superseded / miss / attempt number / run start), reading 7 (a refusal is
 receipted and notified once per start time and reason).
 
@@ -30,7 +38,7 @@ naming the family (MLB: laptop only); M1 SP_EXPORTS_MIRROR_REMOTE unset; C6 NTFY
 --start; nothing to close (A4).
 
 Receipts: kind "closing" (one line per run, success, failure, refusal or superseded) and kind "closing_miss" (the MLB
-feed unreachable; the lock held into T-5; a due start time first seen inside T-5). The autopilot places nothing and
+feed unreachable; the lock held into T-5; a due start time first seen inside T-5), once per start time and reason. The autopilot places nothing and
 never opens Kalshi's trading API. --dry-run touches nothing: no step, no backup, no receipt, no push, no page, no
 network.
 """
@@ -38,7 +46,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import os
 import re
 import sqlite3
@@ -81,9 +88,12 @@ FEED_PROBE = FEED_BASE + "/sports/1"
 FEED_TIMEOUT_S = 8
 FEED_MISS_TEXT = "MLB feed unreachable: VPN on, Tailscale off"
 # A7: THE OPERATOR HOLD OF 2026-10-07. One row per hold; lifting a hold is deleting its row (a one-line PR). C8:
-# nothing in the Desk moves, so the table is unchanged; it applies to a PLAY of every family.
+# nothing in the Desk moves. B5 (ARCHITECT 2026-10-09, addendum 23, reading 8 RULED): "The hold of 2026-10-07 is the
+# operator's, and it names MLB and NFL. It is not extended to PL here: its row gains its families and nothing else
+# about it changes."
 CLOSING_HOLDS = (
-    {"call": "PLAY", "exec_edge_under_pp": 4.0, "text": "paste to the architect before placing", "since": "2026-10-07"},
+    {"call": "PLAY", "exec_edge_under_pp": 4.0, "text": "paste to the architect before placing", "since": "2026-10-07",
+     "families": ("MLB", "NFL")},
 )
 VOID = ("CANCELLED", "POSTPONED", "STALE_ORPHAN")      # never a game in any window
 STARTED_STATUSES = ("LIVE", "FINISHED")
@@ -93,7 +103,12 @@ REQUIRED_SETTINGS = (MIRROR_SETTING, CARD_TOPIC)       # 380.2: read where the l
 STAKED_CALLS = ("PLAY", "LADDER")                      # a call that stakes units (LADDER: soccer's double chance)
 # R6 (+ 380.1): the failures of the run's own checks. Their export leaves exports/ (moved into logs/, named with the
 # run id), so no call is left behind; a failed push or a failed page leaves the export in place.
-OWN_CHECK_FAILURES = ("stale prices", "stale starters", "missing from export", "target started", "target moved")
+# C (addendum 23): a run left with no game by the schedule read is "start moved".
+OWN_CHECK_FAILURES = ("stale prices", "stale starters", "missing from export", "target started", "start moved")
+# B2 (ARCHITECT 2026-10-09, addendum 23): "The phone page is the page. It is tried three times, ten seconds apart,
+# before the run fails as 'page'. A screen notification that is not posted is recorded and changes nothing."
+PAGE_TRIES = 3
+PAGE_RETRY_S = 10
 TEST_PAGE_TITLE = "Closing watch"
 TEST_PAGE_BODY = "Test: the closing watch is installed (MLB, NFL, SOCCER). Pages arrive here by T-30."
 
@@ -221,14 +236,16 @@ def closing_state(fam: str, start: str) -> dict:
 
 
 def covered_ids(fam: str) -> set:
-    """The games a closing has finished with: covered by a start time that has a success, or three attempts."""
+    """The games a closing has finished with: covered by a start time that has a success, or three attempts. C
+    (addendum 23): a game that left a run because its start moved is a new start time for the watch, never finished
+    with at the old one (a run's `covers` are the games left in it; `moved` names the ones that left)."""
     by_start: dict = {}
     for r in _attempts(fam):
         by_start.setdefault(r.get("start"), []).append(r)
     out = set()
     for rs in by_start.values():
         if any(r.get("exit") == 0 for r in rs) or len(rs) >= MAX_ATTEMPTS:
-            for r in rs:              # a game an attempt found moved is not finished with at this start (#385)
+            for r in rs:              # a game an attempt found moved is not finished with at this start (C)
                 gone = {x.get("match_id") for x in r.get("moved") or []}
                 out.update(x.get("match_id") for x in r.get("covers") or [] if x.get("match_id") not in gone)
     return out
@@ -289,10 +306,16 @@ def page_phone(title: str, body: str, priority: str = "default") -> dict:
         return {"accepted": False, "error": type(e).__name__}
 
 
-def push_mirror() -> dict:
-    """M1: the exports mirror pushed as role laptop, label closing (docs/specs/exports-mirror.md, laptop step)."""
+def page_sleep(seconds: float) -> None:
+    """B2: the wait between phone page tries (tests replace it)."""
+    time.sleep(seconds)
+
+
+def push_mirror(label: str = "closing") -> dict:
+    """M1: the exports mirror pushed as role laptop, label closing (docs/specs/exports-mirror.md, laptop step). D1
+    (addendum 23): the setup script's one push at install uses label install."""
     argv = [sys.executable, str(Path(__file__).resolve().parent / "exports_mirror.py"), "push",
-            "--role", "laptop", "--label", "closing"]
+            "--role", "laptop", "--label", label]
     try:
         r = subprocess.run(argv, cwd=c.REPO, capture_output=True, text=True, timeout=MIRROR_TIMEOUT_S)
         tail = [c.redact(x) for x in ((r.stdout or "") + (r.stderr or "")).strip().splitlines()[-2:]]
@@ -412,11 +435,12 @@ def take_backup(folder: Path, day: date) -> dict:
 
 # ----------------------------------------------------------------------------------------------- summary --
 
-def hold_for(d: dict) -> str | None:
-    """A7: the hold text a Desk row carries, from CLOSING_HOLDS (an unknown exec edge is under the bar)."""
+def hold_for(d: dict, fam: str) -> str | None:
+    """A7: the hold text a Desk row carries, from CLOSING_HOLDS (an unknown exec edge is under the bar), for the
+    families the hold names (B5)."""
     e = ((d.get("exec") or {}).get("edge_pp"))
     for h in CLOSING_HOLDS:
-        if d.get("call") == h["call"] and (e is None or e < h["exec_edge_under_pp"]):
+        if fam in h["families"] and d.get("call") == h["call"] and (e is None or e < h["exec_edge_under_pp"]):
             return h["text"]
     return None
 
@@ -450,7 +474,18 @@ def is_quarantine_shadow(d: dict) -> bool:
                 and any(str(t).startswith("quarantine") and str(t).endswith("(shadow)") for t in d.get("tags") or []))
 
 
-def desk_rows(doc: dict, cover_ids: set, done: datetime, started_ids=frozenset()) -> list[dict]:
+def unresolved_injuries(r: dict) -> int | None:
+    """B7: the injured players whose position did not resolve, both sides (nfl_predict.py's
+    input_quality.injuries.<side>.positions_unresolved: "an empty qb_listed beside these is NOT 'no QB out'").
+    None when the row carries no such field."""
+    inj = (r.get("input_quality") or {}).get("injuries") or {}
+    got = [(inj.get(s) or {}).get("positions_unresolved") for s in ("home", "away")]
+    if all(g is None for g in got):
+        return None
+    return sum(len(g or []) for g in got)
+
+
+def desk_rows(doc: dict, cover_ids: set, done: datetime, started_ids=frozenset(), fam: str = "") -> list[dict]:
     """The export's Desk rows for the run's own games (C2), less the games the ONE started test (R1) calls started
     at `done`, the moment the steps finished: a stored status then LIVE or FINISHED (`started_ids`) or a start time
     at or before `done`."""
@@ -470,7 +505,8 @@ def desk_rows(doc: dict, cover_ids: set, done: datetime, started_ids=frozenset()
                     "exec_edge_pp": _r2((d.get("exec") or {}).get("edge_pp")),
                     "order": (d.get("order") or {}).get("text"), "order_why": (d.get("order") or {}).get("why"),
                     "reason": d.get("reason"), "pass_kind": d.get("pass_kind"),
-                    "kalshi_only_hold": d.get("kalshi_only_hold"), "hold": hold_for(d),
+                    "kalshi_only_hold": d.get("kalshi_only_hold"), "hold": hold_for(d, fam),
+                    "unresolved_injuries": unresolved_injuries(r) if fam == "NFL" else None,
                     "quarantine_shadow": ({"pick": side_team(r, d.get("pick")), "units": d.get("shadow_units"),
                                            "edge_pp": _r2(d.get("edge_pp")),
                                            "exec_edge_pp": _r2((d.get("exec") or {}).get("edge_pp"))}
@@ -506,11 +542,12 @@ def target_started(games: list[dict], start: datetime, done: datetime) -> str | 
     return None
 
 
-def target_moved(covers: list[dict], start: datetime) -> list[dict]:
-    """Codex on #385: the covered games whose stored start time (re-read by match id after the steps, any window,
-    any status) is no longer the start the run covered them at: the schedule read moved them. Reading (conservative):
-    ONE moved covered game fails the run, named, even when the others stayed. A game no longer stored is moved too
-    (law 4)."""
+def start_moved(covers: list[dict], start: datetime) -> list[dict]:
+    """C (ARCHITECT 2026-10-09, addendum 23, the 15:08Z P1): "If the schedule read moves a covered game off the run's
+    start time, that game leaves the run: it is not paged under the old time, and it is a new start time for the
+    watch. A run left with no game ends as a failed attempt, 'start moved', nothing pushed or paged." The covered
+    games whose stored start time (re-read by match id after the steps, any window, any status) is no longer the
+    start the run covered them at. A game no longer stored is moved too (law 4)."""
     ids = [g["match_id"] for g in covers]
     if not ids:
         return []
@@ -562,7 +599,7 @@ def price_captures(con: sqlite3.Connection, match_id, start: datetime) -> dict:
         if t < fp and (sel not in latest or t > latest[sel]):
             latest[sel] = t
     return {"books": min((o.captured_at for o in sess), default=None),
-            "kalshi": min(latest.values(), default=None)}
+            "kalshi": min(latest.values(), default=None), "kalshi_legs": latest}
 
 
 def shows_books(r: dict) -> bool:
@@ -576,9 +613,86 @@ def shows_kalshi(r: dict) -> bool:
             or bool((r.get("market") or {}).get("kalshi")))
 
 
-def stale_prices(doc: dict, rows: list[dict], run_start: datetime) -> list[dict]:
+# A5 (ARCHITECT 2026-10-09, addendum 23): "Where a market has more than one Kalshi leg, the legs that must be fresh
+# are the legs the Desk read for that row: the leg behind each exec block and order line the row carries, the call's
+# and a value shadow's, and every leg where the row's reference is Kalshi. A stale leg the Desk did not read does not
+# fail the run; it is listed in the receipt." The legs are named from src/walters/desk_policy.py's own selection,
+# read here from the export row (C8: closing.py reads the export, never the Desk's code; a test pins the two):
+#   desk_block "exec" = call_exec_block -> exec_block(r, pick) -> side_quotes(r, pick): the pick's own leg when it
+#     carries a ticker; else, two-way, the opponent's ticketed leg (NO); else the pick's leg when its ask is
+#     captured; else k_side, the HOME contract's quotes (kalshi_bid / kalshi_ask: HOME YES, or a two-way AWAY's NO).
+#   desk_block "value_shadow.exec" = exec_block(r, value side) -> side_quotes(r, value side): the same selection.
+#   desk_block "order" = order_line(r, pick, units, ladder): LADDER = NO on the HOME leg; else the pick's ticketed
+#     leg; else, two-way, the opponent's ticketed leg (NO). Named by the order's own ticker where it has one.
+#   desk_block "reference" == "kalshi_only" (kalshi_only_ref, the HOME contract's mid; two-way only): every leg.
+def _three_way(r: dict) -> bool:
+    """desk_policy.normalize's threeWay: a DRAW in the market's fair prices or in the model's probabilities."""
+    mk = r.get("market") or {}
+    sel = mk.get("selections")
+    fair = ({k: (v or {}).get("fair_prob") for k, v in sel.items()} if sel is not None else (mk.get("fair_prob") or {}))
+    return fair.get("DRAW") is not None or ((r.get("prediction") or {}).get("probabilities") or {}).get("draw") is not None
+
+
+def _side_leg(r: dict, side: str | None) -> str | None:
+    """The leg desk_policy.side_quotes reads for `side` (see above). None: no Kalshi contract read."""
+    if side not in ("HOME", "DRAW", "AWAY"):
+        return None
+    legs = r.get("kalshi_legs") or {}
+    leg = legs.get(side) or {}
+    if leg.get("ticker"):
+        return side
+    opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(side)
+    if not _three_way(r) and opp and (legs.get(opp) or {}).get("ticker"):
+        return opp
+    if leg.get("ask") is not None:
+        return side
+    if side == "HOME" or (side == "AWAY" and not _three_way(r)):
+        return "HOME"                     # k_side: the HOME contract's quotes
+    return None
+
+
+def _order_leg(r: dict, d: dict) -> str | None:
+    """The leg desk_policy.order_line writes the order on (see above)."""
+    o = d.get("order")
+    if not o or d.get("call") not in STAKED_CALLS:
+        return None
+    legs = r.get("kalshi_legs") or {}
+    if o.get("ticker"):
+        for sel, leg in legs.items():
+            if (leg or {}).get("ticker") == o["ticker"]:
+                return sel
+    pick = d.get("pick")
+    if d.get("call") == "LADDER":
+        return "HOME" if pick == "AWAY" else None
+    if (legs.get(pick) or {}).get("ticker"):
+        return pick
+    opp = {"HOME": "AWAY", "AWAY": "HOME"}.get(pick)
+    if not _three_way(r) and opp and (legs.get(opp) or {}).get("ticker"):
+        return opp
+    return None
+
+
+def desk_read_legs(r: dict) -> set | None:
+    """A5: the Kalshi legs the Desk read for the export row `r`. None = every leg (the reference is Kalshi)."""
+    d = r.get("desk") or {}
+    if d.get("reference") == "kalshi_only":
+        return None
+    out = set()
+    if d.get("exec") is not None:
+        out.add(_side_leg(r, d.get("pick")))
+    out.add(_order_leg(r, d))
+    vs = d.get("value_shadow") or {}
+    if vs and vs.get("exec") is not None:
+        out.add(_side_leg(r, vs.get("side")))
+    out.discard(None)
+    return out
+
+
+def stale_prices(doc: dict, rows: list[dict], run_start: datetime, unread: list | None = None) -> list[dict]:
     """R2: for every game in the summary, a price the export shows that was captured before the run's start (380.4:
-    the moment the run held the lock). A shown price with no stored capture time is stale too (law 4)."""
+    the moment the run held the lock). A shown price with no stored capture time is stale too (law 4). Kalshi, A5:
+    where the game has more than one Kalshi leg, the legs the Desk read (desk_read_legs) must be fresh; a stale leg
+    it did not read is appended to `unread` and fails nothing. One leg: as before, the leg is checked."""
     by_id = {r.get("match_id"): r for r in doc.get("predictions") or []}
     s0 = utc(run_start)
     out = []
@@ -587,14 +701,32 @@ def stale_prices(doc: dict, rows: list[dict], run_start: datetime) -> list[dict]
         for x in rows:
             r = by_id.get(x["match_id"]) or {}
             caps = price_captures(con, x["match_id"], parse_utc(x["start"]))
-            for kind, shown in (("books", shows_books(r)), ("kalshi", shows_kalshi(r))):
-                if not shown:
-                    continue
-                at = caps[kind]
+
+            def line(kind, at, **extra):
+                return {"match_id": x["match_id"], "game": f"{x['away']} @ {x['home']}", "start_et": x["start_et"],
+                        "price": kind, **extra, "captured_at": iso_z(at) if at else None, "run_start": iso_z(s0)}
+            if shows_books(r):
+                at = caps["books"]
                 if at is None or at < s0:
-                    out.append({"match_id": x["match_id"], "game": f"{x['away']} @ {x['home']}",
-                                "start_et": x["start_et"], "price": kind,
-                                "captured_at": iso_z(at) if at else None, "run_start": iso_z(s0)})
+                    out.append(line("books", at))
+            if not shows_kalshi(r):
+                continue
+            legs = caps["kalshi_legs"]
+            every = set(legs) | set((r.get("kalshi_legs") or {}))
+            if len(every) <= 1:
+                at = caps["kalshi"]
+                if at is None or at < s0:
+                    out.append(line("kalshi", at))
+                continue
+            read = desk_read_legs(r)
+            read = every if read is None else read
+            for sel in sorted(every | read):      # a read leg with no stored capture is stale (law 4)
+                at = legs.get(sel)
+                if at is None or at < s0:
+                    if sel in read:
+                        out.append(line("kalshi", at, leg=sel))
+                    elif unread is not None:
+                        unread.append(line("kalshi", at, leg=sel, read_by_desk=False))
     finally:
         con.close()
     return out
@@ -680,13 +812,21 @@ def wrap(parts: list[str], limit: int = PAGE_MAX_CHARS, indent: str = "  ") -> l
     return out
 
 
+def game_of(x: dict) -> str:
+    return f"{x['away']} @ {x['home']}"
+
+
 def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: dict) -> tuple[str, str, bool]:
     """C5 (ARCHITECT): "In this order: the family, the start time in ET and the minutes to it; one line for each
     PLAY (pick, units, the order line as the export prints it, exec edge, and the hold text where a hold applies);
     one line for each value shadow and each quarantine shadow, ending 'shadow, not staked'; the number of PASS games.
     Where the call differs from the last file's call for the same game, the line ends 'was' and the earlier call.
     High priority when it carries a PLAY. No line over 100 characters." 380.1: a game with a side with no starter
-    listed says so on a line of its own under its call. Returns (title, body, has_play)."""
+    listed says so on a line of its own under its call.
+    Addendum 23: B3 "A game whose last call was a PLAY or a LADDER and is now PASS has a line of its own: the game,
+    PASS, 'was' and the earlier call. It makes the page high priority: an order may be working on the earlier call."
+    B4 "Every line except the head and the PASS count names its game." B7 "An NFL PLAY on a game with injured players
+    whose position did not resolve says so on its line, with the count." Returns (title, body, high)."""
     head = f"{fam} {utc(start).astimezone(NY):%H:%M} ET · T-{max(0, round(minutes_to(start, at)))}m"
     lines = [head]
     starter_note = {}
@@ -698,8 +838,10 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
                                            f"no starter listed for {' and '.join(miss)}", "the model shrinks for it"]
     plays = [x for x in rows if x["call"] in STAKED_CALLS]
     for x in plays:
-        parts = [x["call_text"], x["order"] or f"no order: {x['order_why'] or 'none written'}",
+        parts = [game_of(x), x["call_text"], x["order"] or f"no order: {x['order_why'] or 'none written'}",
                  f"exec {_pp(x['exec_edge_pp'])}"]
+        if x.get("unresolved_injuries"):                # B7
+            parts.append(f"{x['unresolved_injuries']} injured, position unresolved")
         if x["hold"]:
             parts.append(x["hold"])
         was = prev.get(x["match_id"])
@@ -711,19 +853,26 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
     for x in rows:
         v = x.get("value_shadow")
         if v:
-            lines += wrap([f"value shadow {v['side']} {_units(v['units'])}", f"edge {_pp(v['edge_pp'])}",
+            lines += wrap([game_of(x), f"value shadow {v['side']} {_units(v['units'])}", f"edge {_pp(v['edge_pp'])}",
                            f"exec {_pp(v['exec_edge_pp'])}", "shadow, not staked"])
     for x in rows:
         q = x.get("quarantine_shadow")
         if q:
-            lines += wrap([f"quarantine shadow {q['pick']} {_units(q['units'])}", f"edge {_pp(q['edge_pp'])}",
+            lines += wrap([game_of(x), f"quarantine shadow {q['pick']} {_units(q['units'])}",
+                           f"edge {_pp(q['edge_pp'])}",
                            f"exec {_pp(q['exec_edge_pp'])}", "shadow, not staked"])
+    dropped = [x for x in rows if x["call"] == "PASS"
+               and str(prev.get(x["match_id"]) or "").split(" ")[0] in STAKED_CALLS]
+    for x in dropped:                                # B3: was PLAY / LADDER, now PASS
+        lines += wrap([game_of(x), "PASS", f"was {prev[x['match_id']]}"])
+        if x["match_id"] in starter_note:
+            lines += wrap(starter_note.pop(x["match_id"]))
     for mid, note in starter_note.items():           # 380.1 for a game with no call line of its own
         lines += wrap(note)
     n_pass = sum(1 for x in rows if x["call"] == "PASS")
     lines.append(f"PASS: {n_pass} game{'s' if n_pass != 1 else ''}")
     title = f"{fam} closing {utc(start).astimezone(NY):%H:%M} ET"
-    return title, "\n".join(lines), bool(plays)
+    return title, "\n".join(lines), bool(plays) or bool(dropped)
 
 
 def previous_calls(fam: str, ids: set) -> dict:
@@ -819,18 +968,22 @@ def export_candidates(fam: str, start: datetime, at: datetime) -> list[str]:
 
 
 def resolve_steps(fam: str, start: datetime, covers: list[dict], run_start: datetime) -> list[list[str]]:
-    """The family's closing chain with its run-time values. MLB: {today} = the first pitch's NY date (A1). NFL /
-    SOCCER (C3): {start_day}/{end_day} = the UTC dates of the first and last covered start (one schedule read per
-    UTC day; an identical second read is dropped), {match_ids} = the covered games, {within_h} = hours from the
-    run's start to the last covered start (sync-injuries' scope, rounded up)."""
+    """The family's closing chain with its run-time values. MLB: {today} = the first pitch's NY date (A1 of #370),
+    {match_ids} = the covered games (A1 of addendum 23: the schedule read names them). NFL / SOCCER (C3):
+    {match_ids} = the covered games (NFL's refresh-by-id, the odds and the injuries steps); SOCCER's schedule read:
+    {start_day}/{end_day} = the UTC dates of the first and last covered start (one read per UTC day; an identical
+    second read is dropped), {start_day_ids}/{end_day_ids} = that day's covered games."""
     chain = FAMILIES[fam]["chain"]
-    if fam == "MLB":
-        return sp_run.resolve(chain, {}, ny_date(start))
+    ids = ",".join(str(g["match_id"]) for g in sorted(covers, key=lambda g: g["match_id"]))
+    if fam == "MLB":                  # A1: the schedule read names the covered games
+        return sp_run.resolve(chain, {"match_ids": ids}, ny_date(start))
     last = max(g["start"] for g in covers)
-    h = max(0.01, math.ceil(max(0.0, (last - utc(run_start)).total_seconds()) / 36) / 100)
-    v = {"start_day": utc(start).date().isoformat(), "end_day": last.date().isoformat(),
-         "match_ids": ",".join(str(g["match_id"]) for g in sorted(covers, key=lambda g: g["match_id"])),
-         "within_h": f"{h:.2f}"}
+
+    def day_ids(day):                 # A1: each by-date read names that UTC day's covered games
+        return ",".join(str(g["match_id"]) for g in sorted(covers, key=lambda g: g["match_id"])
+                        if utc(g["start"]).date() == day)
+    v = {"start_day": utc(start).date().isoformat(), "end_day": last.date().isoformat(), "match_ids": ids,
+         "start_day_ids": day_ids(utc(start).date()), "end_day_ids": day_ids(last.date())}
     out: list[list[str]] = []
     for st in sp_run.resolve(chain, v, utc(start).date()):
         if not out or st != out[-1]:
@@ -945,8 +1098,15 @@ def _move_export(rec: dict, run_id: str) -> None:
         print(f"✗ export NOT moved: {rec['export_move_error']}")
 
 
-def record_miss(fam: str, start: str, reason: str, detail: str | None = None, text: str | None = None) -> dict:
-    """kind closing_miss: a closing that did not run. Notified (both channels, best effort) and receipted."""
+def record_miss(fam: str, start: str, reason: str, detail: str | None = None, text: str | None = None) -> dict | None:
+    """kind closing_miss: a closing that did not run. Notified (both channels, best effort) and receipted. B6
+    (ARCHITECT 2026-10-09, addendum 23, reading 17 RULED): "A miss is receipted and notified once for a start time and
+    a reason, as a refusal is. An unreachable MLB feed is one miss for that first pitch, not one a minute. The watch
+    keeps trying, silently." A miss already receipted for this start time and reason: nothing written or posted
+    (None)."""
+    if any(r.get("family") == fam and r.get("start") == start and r.get("reason") == reason
+           for r in receipts(("closing_miss",))):
+        return None
     text = text or f"Closing {_start_label(fam, start)}: MISSED: {reason}"
     res = notify_failure(text, fam)
     return c.append_receipt({"kind": "closing_miss", "family": fam, "start": start, "reason": reason,
@@ -991,6 +1151,8 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             rec["failed"] = f"step {i}" + (" (reported failure, exit 0)" if said else "")
             if st[0] == "sync-injuries" and "--strict" in st and rc != 0:
                 rec["failed"] += " (strict: a read it needed failed)"
+            elif st[0] in ("sync-matches", "refresh-by-id") and "--match-ids" in st and rc != 0:
+                rec["failed"] += " (schedule read: a covered game the provider did not answer, A1)"
             return
     cands = export_candidates(fam, s, held)
     written = [p for p in cands if (c.REPO / p).is_file() and (c.REPO / p).stat().st_mtime >= wall0]
@@ -1008,8 +1170,6 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
     rec["completed_at"] = iso_z(done)
     games = schedule(fam, held)
     started_ids = {g["match_id"] for g in games if started(g, done)}
-    cover_ids = {g["match_id"] for g in covers}
-    rows = desk_rows(doc, cover_ids, done, started_ids)
     why = target_started(games, s, done)
     if why:
         rec["failed"] = "target started"
@@ -1017,14 +1177,21 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         print(f"✗ the target {FAMILIES[fam]['noun']} {et(s)} has started ({why}) — no closing for it; a started "
               "game is never retried")
         return
-    moved = target_moved(covers, s)
-    if moved:                         # Codex on #385: never page a game under a start time it no longer has
-        rec["failed"] = "target moved"
+    moved = start_moved(covers, s)
+    if moved:                         # C (addendum 23): a moved game leaves the run; it is a new start time
         rec["moved"] = moved
+        gone = {m["match_id"] for m in moved}
         for m in moved:
-            print(f"✗ target moved: match {m['match_id']} ({m['game']}) covered at {m['covered_start']} (target "
-                  f"{m['target']}), stored start now {m['stored_start'] or 'none (no stored row)'}")
-        return
+            print(f"· start moved: match {m['match_id']} ({m['game']}) left the run: covered at {m['covered_start']} "
+                  f"(run start {m['target']}), stored start now {m['stored_start'] or 'none (no stored row)'}")
+        covers = [g for g in covers if g["match_id"] not in gone]
+        rec["covers"] = _covers_rec(covers)
+        if not covers:
+            rec["failed"] = "start moved"
+            print("✗ start moved: no game is left in the run — nothing pushed or paged")
+            return
+    cover_ids = {g["match_id"] for g in covers}
+    rows = desk_rows(doc, cover_ids, done, started_ids, fam)
     missing = missing_from_export(doc, covers, done, games)
     if missing:
         rec["failed"] = "missing from export"
@@ -1032,7 +1199,13 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         print("✗ missing from export: " + ", ".join(
             f"match {m['match_id']} ({m['start_et']} {m['away']} @ {m['home']})" for m in missing))
         return
-    stale = stale_prices(doc, rows, held)
+    unread: list = []
+    stale = stale_prices(doc, rows, held, unread)
+    if unread:                        # A5: listed in the receipt, fails nothing
+        rec["stale_legs_not_read"] = unread
+        for u in unread:
+            print(f"· stale Kalshi leg the Desk did not read (listed, not a failure): match {u['match_id']} "
+                  f"({u['game']}) {u['leg']} captured {u['captured_at'] or 'never'}")
     if stale:                         # R2: the run checks its prices, not a step's console
         rec["failed"] = "stale prices"
         rec["stale"] = stale
@@ -1051,40 +1224,54 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
                       f"start {x['run_start']}")
             return
     rec["desk_rows"] = [{k: x[k] for k in ("match_id", "start", "call", "pick", "units", "exec_edge_pp", "hold",
-                                           "value_shadow", "quarantine_shadow", "starters_listed")} for x in rows]
+                                           "value_shadow", "quarantine_shadow", "starters_listed",
+                                           "unresolved_injuries")} for x in rows]
     print(f"\n=== {fam} closing summary · {len(rows)} game(s) starting {et(s)} to "
           f"{utc(s + timedelta(minutes=COVER_MIN)).astimezone(NY):%H:%M} ET")
     for x in rows:
         print(summary_block(x))
-    rec["push"] = push_mirror()
-    print(f"· exports mirror (laptop, closing): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
-    if rec["push"].get("exit") != 0:  # Codex on #370: a failed / timed-out push fails the run (R6: export stays)
-        rec["failed"] = "push"
-        return
-    # C5/C6: ONE page per run, phone (ntfy card topic) + the laptop's screen. A page ntfy does not accept fails the
-    # run and the watch retries, as a failed macOS notification does (Codex round 2 on #370).
+    # B1 (ARCHITECT 2026-10-09, addendum 23): "The page goes out as soon as the run's own checks have passed. The
+    # mirror push follows. A closing whose page went out is not run again for a failed push: the failure is receipted
+    # and notified, and the next push from this machine carries the file." C5/C6 + B2: ONE page per run, on the phone
+    # (ntfy card topic, three tries ten seconds apart), then the laptop's screen (recorded, changes nothing).
     at = held + timedelta(seconds=time.time() - t0)
-    title, body, has_play = page_text(fam, s, at, rows, prev)
-    priority = "high" if has_play else "default"
+    title, body, high = page_text(fam, s, at, rows, prev)
+    priority = "high" if high else "default"
     print(f"\n--- page ({priority}) ---\n{body}\n---")
-    try:
-        ph = page_phone(title, body, priority)
-    except Exception as e:  # noqa: BLE001
-        ph = {"accepted": False, "error": type(e).__name__}
+    tries = []
+    for n in range(1, PAGE_TRIES + 1):
+        try:
+            ph = page_phone(title, body, priority)
+        except Exception as e:  # noqa: BLE001
+            ph = {"accepted": False, "error": type(e).__name__}
+        tries.append(ph)
+        if ph.get("accepted") is True:
+            break
+        if n < PAGE_TRIES:
+            page_sleep(PAGE_RETRY_S)
+    rec["page"] = {"title": title, "priority": priority, "lines": body.count("\n") + 1, "text": body,
+                   "phone": ph, "tries": len(tries)}
+    if ph.get("accepted") is not True:
+        rec["page"]["phone_tries"] = tries
+        rec["failed"] = "page"        # nothing pushed: the watch retries the closing
+        return
     try:
         scr = notify(body, title=title)
     except Exception as e:  # noqa: BLE001
         scr = {"posted": False, "text": body, "error": f"{type(e).__name__}: {e}"[:200]}
-    rec["page"] = {"title": title, "priority": priority, "lines": body.count("\n") + 1, "text": body,
-                   "phone": ph, "screen": {"posted": scr.get("posted"),
-                                           **({"skipped": scr["skipped"]} if scr.get("skipped") else {}),
-                                           **({"error": scr["error"]} if scr.get("error") else {})}}
-    if ph.get("accepted") is not True:
-        rec["failed"] = "page"
-    elif scr.get("posted") is not True and not scr.get("skipped"):
-        rec["failed"] = "notify"
-    else:
-        rec["exit"] = 0
+    rec["page"]["screen"] = {"posted": scr.get("posted"),
+                             **({"skipped": scr["skipped"]} if scr.get("skipped") else {}),
+                             **({"error": scr["error"]} if scr.get("error") else {})}
+    rec["exit"] = 0                   # the page went out: the closing happened, whatever the push does
+    rec["push"] = push_mirror()
+    print(f"· exports mirror (laptop, closing): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
+    if rec["push"].get("exit") != 0:  # B1: receipted and notified; never a retry (the page went out)
+        rec["push_failed"] = True
+        rec["push_failure_notification"] = notify_failure(
+            f"Closing {_start_label(fam, rec.get('start'))}: PAGED; mirror push FAILED (exit {rec['push']['exit']}) "
+            "· not run again · the next push from this machine carries the file", fam)
+        print("✗ mirror push failed after the page went out: receipted and notified; the closing is not run again "
+              "(the next push from this machine carries the file)")
 
 
 def _finish(rec: dict, fam: str, trigger: str, run_id: str, t0: float) -> None:
@@ -1148,14 +1335,14 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
     _finish(rec, fam, trigger, run_id, t0)
     if rec["exit"] != 0:
         print(f"✗ closing-run {fam} FAILED ({rec.get('failed')}{': ' + rec['error'] if rec.get('error') else ''}) — "
-              + {"push": "nothing paged; the export stays on disk",
-                 "page": "the export was pushed; the page was not accepted by ntfy, the watch retries",
-                 "notify": "the export was pushed; the screen notification was not posted, the watch retries",
+              + {"page": f"ntfy did not accept the page in {PAGE_TRIES} tries; nothing pushed, the export stays on "
+                         "disk, the watch retries",
                  **{k: "nothing pushed or paged; the export was moved into logs/" for k in OWN_CHECK_FAILURES}}.get(
                   rec.get("failed"), "nothing exported, pushed or paged after the failure"))
         return 1
     print(f"✓ closing-run {fam}: {len(rec['steps'])}/{rec.get('planned_steps')} steps · {rec['export']} · "
-          f"{len(rec['desk_rows'])} Desk row(s) · push exit {rec['push']['exit']} · page accepted")
+          f"{len(rec['desk_rows'])} Desk row(s) · page accepted · push exit {rec['push']['exit']}"
+          + (" (FAILED: receipted and notified)" if rec.get("push_failed") else ""))
     return 0
 
 
@@ -1197,10 +1384,11 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
                               "check integrity, open, hash, hash file"))
         for i, st in enumerate(resolve_steps(fam, s, p["covers"], now), 1):
             print(f"  {i}. python cli.py {' '.join(st)}")
-        print(f"  export: {' or '.join(export_candidates(fam, s, now))} · checks: started (R1), moved, missing, "
-              "prices (R2)"
+        print(f"  export: {' or '.join(export_candidates(fam, s, now))} · checks: started (R1), start moved (C), "
+              "missing, prices (R2, A5 legs)"
               + (", starters (380.1)" if FAMILIES[fam]["starters"] else "")
-              + " · push: exports_mirror.py push --role laptop --label closing · page: ntfy card topic + screen")
+              + " · page: ntfy card topic (3 tries) + screen · then push: exports_mirror.py push --role laptop "
+                "--label closing")
         return 0
     if p.get("refused"):
         return _refuse(p["refused"], fam, start, base, trigger, dry_run=False)
@@ -1218,6 +1406,19 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
             raise
         record_miss(fam, p["start"], "the lock was held until inside T-5")
         print(f"✗ {fam} {p['start_et']}: the chain lock was held until inside T-5 — no attempt; miss recorded")
+        return 1
+    except Exception as e:  # noqa: BLE001 - Codex round 2 on #385: a lock that cannot be taken is a failed run, receipted
+        if entered:
+            raise
+        rec = {**base, "start": p["start"], "start_et": p["start_et"], "covers": _covers_rec(p["covers"]),
+               "attempt": closing_state(fam, p["start"])["attempts"] + 1, "backup": None, "steps": [],
+               "export": None, "desk_rows": [], "push": None, "exit": 1, "failed": "lock",
+               "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
+        print(f"✗ closing-run {fam} FAILED (lock: {rec['error']}) — no step ran")
+        try:
+            _finish(rec, fam, trigger, run_id, time.time())
+        except Exception as e2:  # noqa: BLE001 - the receipt store itself is not writable: the console says so
+            print(f"✗ the failed run could not be receipted either: {type(e2).__name__}")
         return 1
 
 
@@ -1249,10 +1450,10 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
     fams = tuple(f.upper() for f in (families or tuple(FAMILIES)))
     plans = []
     for fam in fams:
-        if _family_refusal(fam):
-            if dry_run:
-                print(f"DRY RUN closing-watch {fam}: would do nothing ({_family_refusal(fam)})")
-            continue
+        # Codex round 2 on #385: a family SP_SKIP_FAMILIES names is still planned; its due start times go through
+        # run(), whose refusal is receipted and notified once per start time and reason (reading 7). No feed check.
+        if _family_refusal(fam) and dry_run:
+            print(f"DRY RUN closing-watch {fam}: a due start time would be REFUSED ({_family_refusal(fam)})")
         try:
             plans.append((fam, due(fam, now)))
         except (FileNotFoundError, sqlite3.Error) as e:
@@ -1285,20 +1486,20 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
     rc = 0
     inside_why = "inside T-5 when the watch saw it: no attempt starts inside T-5"
     for fam, d in plans:              # a start time first found inside T-5 with no closing: a miss, once
+        if _family_refusal(fam):
+            continue                  # its refusal is receipted when a start time is due, not as a miss
         for g in d["inside"]:
             start = iso_z(g["start"])
-            if not any(r.get("family") == fam and r.get("start") == start and r.get("reason") == inside_why
-                       for r in receipts(("closing_miss",))):
-                record_miss(fam, start, inside_why)
+            record_miss(fam, start, inside_why)        # B6: once per start time and reason
     todo = sorted(((g["start"], fam) for fam, d in plans for g in d["due"]))
     for s, fam in todo:
         start = iso_z(s)
-        if FAMILIES[fam]["feed"]:
+        if FAMILIES[fam]["feed"] and not _family_refusal(fam):
             ok, detail = feed_answers()
-            if not ok:
-                record_miss(fam, start, "feed unreachable", detail=detail, text=FEED_MISS_TEXT)
-                print(f"✗ {FEED_MISS_TEXT} ({detail}) — nothing run; miss recorded for {fam} {start}; next tick "
-                      "retries")
+            if not ok:                # B6: one miss per first pitch; later ticks keep trying, silently
+                if record_miss(fam, start, "feed unreachable", detail=detail, text=FEED_MISS_TEXT):
+                    print(f"✗ {FEED_MISS_TEXT} ({detail}) — nothing run; miss recorded for {fam} {start}; the "
+                          "watch keeps trying")
                 continue
         r = run(family=fam, start=start, trigger="watch", now=clock() if fixed_now is None else utc(fixed_now))
         rc = rc or (0 if r == 0 else r)
@@ -1349,6 +1550,7 @@ def main(argv=None) -> int:
     pf = sub.add_parser("preflight")
     pf.add_argument("--shell-set", default="", help="comma-separated names the installing shell had set")
     sub.add_parser("test-page")
+    sub.add_parser("install-push")
     a = ap.parse_args(argv)
     if a.cmd == "run":
         return run(family=a.family, start=a.start, dry_run=a.dry_run)
@@ -1361,6 +1563,11 @@ def main(argv=None) -> int:
         if not bad:
             print(f"✓ preflight: every closing refusal check passes in this environment ({', '.join(FAMILIES)})")
         return 2 if bad else 0
+    if a.cmd == "install-push":       # D1 (addendum 23): "M1 at install: [...] one mirror push [...] label install"
+        res = push_mirror("install")
+        print(f"install push (exports mirror, laptop, label install): exit {res['exit']} "
+              + " | ".join(res.get("tail") or []))
+        return 0 if res.get("exit") == 0 else 1
     res = test_page()
     print("test page: " + ("accepted by ntfy" if res.get("accepted") else
                            f"NOT accepted ({res.get('http') or res.get('error')})"))

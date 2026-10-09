@@ -262,7 +262,11 @@ class IngestionService:
         date_from: str | None = None,
         date_to: str | None = None,
         progress=None,
+        held_ids: set | None = None,
     ) -> SyncResult:
+        """`held_ids` (opt-in, ARCHITECT 2026-10-09 addendum 23 A1): a set the stored match id of every listing
+        written to a stored row is added to, so a caller can tell which games the provider's answer held. Default
+        None: nothing changes."""
         def _report(msg):
             if progress is not None:
                 progress(msg)
@@ -307,7 +311,9 @@ class IngestionService:
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
             for i, nm in enumerate(matches, 1):
-                self._upsert_match(s, nm, comp, result, cache=_cache)
+                _m = self._upsert_match(s, nm, comp, result, cache=_cache)
+                if held_ids is not None and _m is not None and _m.id is not None:
+                    held_ids.add(_m.id)
                 if i % step == 0 or i == total:
                     pct = int(i / total * 100) if total else 100
                     _report(f"  …{i}/{total} ({pct}%) — "
@@ -633,8 +639,6 @@ class IngestionService:
                     continue
                 candidates.append(match)
 
-            if match_ids is not None:
-                candidates = [m for m in candidates if m.id in match_ids]
             if limit:
                 candidates = candidates[:limit]
 
@@ -854,6 +858,12 @@ class IngestionService:
             result.skipped += 1
             result.failed_reads.append(f"team {team.id} ({team.name}): fetch failed: {type(e).__name__}")
             return
+        # A2 (addendum 23): the adapter's own record of a failed roster read (NFL: positions for qb_listed).
+        # failed_reads only: a command's --strict reads it; counts and output stay as they were.
+        rf = getattr(self.adapter, "last_roster_failure", None)
+        if isinstance(rf, str) and rf:
+            result.failed_reads.append(f"team {team.id} ({team.name}): {rf} (positions unresolved: qb_listed "
+                                       "cannot see a QB)")
 
         # Cutoff for "still active" — only keep injuries from the past 14 days
         # or fixtures still in the future. Injuries with no fixture_date keep

@@ -14,6 +14,8 @@
 # own refusal checks in the environment the launched job will have, and refuses to install on any refusal." And M2
 # for the phone: "At install the script sends one test page through the card topic and says what the operator
 # should have seen on his phone."
+# D1 (ARCHITECT 2026-10-09, addendum 23): "M1 at install: the setup script makes one mirror push in the launched
+# environment, label install, and refuses to install if it fails."
 #
 # Usage:   bash scripts/setup_closing_watch.sh
 # Remove:  bash scripts/setup_closing_watch.sh --uninstall
@@ -88,6 +90,16 @@ else
   exit 2
 fi
 
+# D1 (addendum 23): one exports-mirror push in the launched environment, label install (M1 at install).
+if (cd "${REPO_DIR}" && launched_env "${PYTHON}" "${CLOSING}" install-push); then
+  PUSH_RESULT="pushed (label install)"
+else
+  echo "✗ REFUSED: the install push to the exports mirror failed in the launched environment (label install)."
+  echo "  A closing run pushes the mirror after its page; fix the push (SP_EXPORTS_MIRROR_REMOTE in .env, the deploy"
+  echo "  key, the network), then run this script again. The watch is not installed."
+  exit 2
+fi
+
 # No value goes into the plist: the job reads the checkout's .env (or host.env) itself.
 cat > "${PLIST}" <<PLISTEOF
 <?xml version="1.0" encoding="UTF-8"?>
@@ -143,11 +155,13 @@ echo "  On your phone, in the ntfy app subscribed to the card topic, you should 
 echo "  \"Closing watch\" reading \"Test: the closing watch is installed (MLB, NFL, SOCCER). Pages arrive here by T-30.\""
 echo "  If it did not arrive: open the ntfy app, check you are subscribed to the card topic (the one in .env,"
 echo "  NTFY_CARD_TOPIC), and that the app may send notifications."
+echo "Install push (exports mirror): ${PUSH_RESULT}."
 echo "Test notification (screen): ${NOTE_RESULT}."
 echo "  You should have seen a notification titled \"${TEST_TITLE}\" reading \"${TEST_BODY}\" (top right of the screen)."
 echo "  If you did not: System Settings → Notifications → Script Editor (osascript posts as Script Editor):"
 echo "  turn on Allow notifications, alert style Banners or Alerts; check Focus / Do Not Disturb is off."
 echo ""
-echo "The watch needs two things, or no closing runs:"
+echo "The watch needs, or no closing runs:"
 echo "  1. The laptop awake (a sleeping laptop runs no tick; the lid closed on battery sleeps it)."
-echo "  2. VPN on, Tailscale off (the MLB feed: the same network mode as Phase 1 of the morning chain)."
+echo "  2. For MLB only: VPN on, Tailscale off (the MLB feed: the same network mode as Phase 1 of the morning chain)."
+echo "     NFL and SOCCER need neither mode."

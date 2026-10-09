@@ -279,7 +279,10 @@ def box(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "feed_answers", fake_feed)
     monkeypatch.setattr(mc, "notify", lambda body, title="Closing": b.notes.append(body) or {"posted": True})
     monkeypatch.setattr(mc, "page_phone", fake_page)
-    monkeypatch.setattr(mc, "push_mirror", lambda: b.pushes.append(1) or {"exit": 0, "tail": ["pushed"]})
+    b.sleeps = []
+    monkeypatch.setattr(mc, "page_sleep", lambda sec: b.sleeps.append(sec))           # B2: no real wait
+    monkeypatch.setattr(mc, "push_mirror", lambda label="closing": b.pushes.append(label) or {"exit": 0,
+                                                                                        "tail": ["pushed"]})
     real_append = c.append_receipt
 
     def watched_append(rec):
@@ -378,7 +381,9 @@ def test_c1_a_market_only_game_in_the_window_is_never_covered(box):
 def test_c3_mlb_closing_chain_is_370s():
     pre, clo = chains.CHAINS["mlb-preslate"]["steps"], chains.CHAINS["mlb-closing"]["steps"]
     assert len(pre) == len(clo) == 10
-    assert clo[:9] == pre[:9]                                   # opens with the schedule read (sync-matches MLB)
+    assert clo[1:9] == pre[1:9]
+    # A1 (addendum 23): the schedule read names the covered games; mlb-preslate's own step is unchanged
+    assert clo[0] == [*pre[0], "--match-ids", "{match_ids}"] and pre[0][-1] == "{today}"
     assert clo[0][0] == "sync-matches"
     assert clo[9] == [*pre[9], "--date", "{today}", "--desk"]
 
@@ -391,14 +396,16 @@ def test_c3_nfl_and_soccer_closing_chains_are_their_freshen_chains_opening_with_
     opened by the schedule read (status and start time) for its games."""
     clo = chains.CHAINS[chains.CLOSING_FAMILIES[fam]]["steps"]
     fr = chains.CHAINS[freshen]["steps"]
-    assert clo[0] == ["sync-matches", "--competition", comp, "--season", season,
-                      "--date-from", "{start_day}", "--date-to", "{start_day}"]
-    assert clo[1] == ["sync-matches", "--competition", comp, "--season", season,
-                      "--date-from", "{end_day}", "--date-to", "{end_day}"]
-    assert [s[:len(f)] for s, f in zip(clo[2:], fr)] == fr and len(clo) == len(fr) + 2   # derived, never copied
+    if fam == "NFL":          # A1 (addendum 23): NFL's schedule read is by id, for the covered games
+        read = [["refresh-by-id", "--competition", "NFL", "--match-ids", "{match_ids}"]]
+    else:                     # A1: SOCCER's by date, naming each day's covered games
+        read = [["sync-matches", "--competition", comp, "--season", season, "--date-from", d, "--date-to", d,
+                 "--match-ids", ids] for d, ids in (("{start_day}", "{start_day_ids}"), ("{end_day}", "{end_day_ids}"))]
+    assert clo[:len(read)] == read
+    assert [s[:len(f)] for s, f in zip(clo[len(read):], fr)] == fr and len(clo) == len(fr) + len(read)   # derived
     assert clo[-1][-1] == "--desk" and clo[-1][0].startswith("export")
     inj = next(s for s in clo if s[0] == "sync-injuries")
-    assert inj[-3:] == ["--kickoff-within-hours", "{within_h}", "--strict"]
+    assert inj[-3:] == ["--match-ids", "{match_ids}", "--strict"]           # Codex round 2: the covered games
     odds = next(s for s in clo if s[0] in ("sync-odds", "sync-odds-football"))
     assert odds[-2:] == ["--match-ids", "{match_ids}"]
     # freshen chains themselves unchanged (the window service runs them)
@@ -411,17 +418,16 @@ def test_c3_a_run_prices_the_games_it_covers_not_the_whole_league(box):
     cov = mc.cover(games, s, NOW)
     assert [g["match_id"] for g in cov] == [301, 304, 302, 303]
     steps = mc.resolve_steps("NFL", s, cov, NOW)
-    assert steps[0] == ["sync-matches", "--competition", "NFL", "--season", "2026", "--date-from", DAY,
-                        "--date-to", DAY]
-    assert steps[1][0] == "sync-injuries"                  # the identical second schedule read is dropped
-    assert steps[1][-3:] == ["--kickoff-within-hours", "0.67", "--strict"]   # 40 minutes, rounded up
+    assert steps[0] == ["refresh-by-id", "--competition", "NFL", "--match-ids", "301,302,303,304"]   # A1: by id
+    assert steps[1][0] == "sync-injuries"
+    assert steps[1][-3:] == ["--match-ids", "301,302,303,304", "--strict"]   # the covered games' teams only
     assert steps[2] == ["sync-odds-football", "--match-ids", "301,302,303,304"]
     assert steps[-1] == ["export-nfl-predictions", "--desk"]
     # a cover spanning UTC midnight reads both days
     late = [{**cov[0], "start": datetime(2026, 10, 11, 23, 58, tzinfo=timezone.utc)},
             {**cov[1], "start": datetime(2026, 10, 12, 0, 6, tzinfo=timezone.utc)}]
     st2 = mc.resolve_steps("SOCCER", late[0]["start"], late, datetime(2026, 10, 11, 23, 23, tzinfo=timezone.utc))
-    assert [s_[-1] for s_ in st2[:2]] == ["2026-10-11", "2026-10-12"]
+    assert [s_[-3:] for s_ in st2[:2]] == [["2026-10-11", "--match-ids", "301"], ["2026-10-12", "--match-ids", "304"]]
     assert st2[2] == ["sync-odds", "--competition", "PL", "--season", "2026/27", "--match-ids", "301,304"]
 
 
@@ -431,7 +437,8 @@ def test_c3_the_scoping_options_leave_each_commands_default_unchanged():
     import cli
     from src.ingestion import service
     for name, opt in (("sync-odds", "--match-ids"), ("sync-odds-football", "--match-ids"),
-                      ("sync-injuries", "--strict")):
+                      ("sync-injuries", "--strict"), ("sync-injuries", "--match-ids"),
+                      ("sync-matches", "--match-ids"), ("refresh-by-id", "--match-ids")):
         p = next(x for x in cli.cli.commands[name].params if opt in x.opts)
         assert p.default in (None, False), name
     assert inspect.signature(service.sync_odds_nfl).parameters["match_ids"].default is None
@@ -570,7 +577,7 @@ def test_c4_r1_missing_and_started_for_nfl_and_soccer(box, monkeypatch, fam, mid
     first = 301 if fam == "NFL" else 401
 
     def live(argv):
-        if argv[0] == "sync-matches":
+        if argv[0] in ("sync-matches", "refresh-by-id"):
             set_status(box.db, mid, "LIVE")
     slow_steps(box, monkeypatch, 1, live)
     assert mc.run(fam, start=at(35), now=NOW + timedelta(seconds=5)) == 0
@@ -585,11 +592,11 @@ def test_c4_refusals_lock_push_and_failed_run_notice_for_every_family(box, monke
     monkeypatch.setenv("SP_SKIP_FAMILIES", fam)
     assert mc.run(fam, start=at(35), now=NOW) == 2 and runs(fam)[-1]["refused"] == f"SP_SKIP_FAMILIES names {fam} here"
     monkeypatch.delenv("SP_SKIP_FAMILIES")
-    monkeypatch.setattr(mc, "push_mirror", lambda: {"exit": 1, "tail": ["rejected"]})
+    box.fail_cmd["predict-nfl" if fam == "NFL" else "predict"] = (1, ["boom"])
     assert mc.run(fam, start=at(35), trigger="watch", now=NOW) == 1
     r = runs(fam)[-1]
-    assert r["failed"] == "push" and (box.repo / r["export"]).is_file() and call_pages(box) == []   # in place
-    assert box.notes[-1] == f"Closing {fam} 2026-10-11 13:00 ET: FAILED: push · attempt 1/3"
+    assert r["failed"].startswith("step ") and call_pages(box) == [] and box.pushes == []
+    assert box.notes[-1].startswith(f"Closing {fam} 2026-10-11 13:00 ET: FAILED: step ") and "attempt 1/3" in box.notes[-1]
     assert r["failure_notification"]["phone"]["accepted"] is True                   # phone too, best effort
     assert box.receipt_locks[-1] is False and box.lock_seen and not any(box.lock_seen)   # R3
 
@@ -608,11 +615,14 @@ def test_c5_the_page_format(box, capsys):
     assert mc.run("NFL", start=at(35), now=NOW) == 0
     pg = box.pages[-1]
     assert pg["priority"] == "high" and pg["title"] == "NFL closing 13:00 ET"
-    assert pg["body"].splitlines() == [
+    assert pg["body"].splitlines() == [                                              # B4: each line names its game
         "NFL 13:00 ET · T-35m",
-        "PLAY Buffalo 1u · BUY YES KXNFLGAME-26OCT11-BUFH @ 0.55 × 10 · exec +5.3pp · was PASS",
-        "value shadow Tampa Visitors 0.25u · edge +10.0pp · exec +7.5pp · shadow, not staked",
-        "quarantine shadow Newark 0.5u · edge +20.0pp · exec +18.2pp · shadow, not staked",
+        "Buffalo Visitors @ Buffalo · PLAY Buffalo 1u · BUY YES KXNFLGAME-26OCT11-BUFH @ 0.55 × 10",
+        "  exec +5.3pp · was PASS",
+        "Tampa Visitors @ Tampa · value shadow Tampa Visitors 0.25u · edge +10.0pp · exec +7.5pp",
+        "  shadow, not staked",
+        "Newark Visitors @ Newark · quarantine shadow Newark 0.5u · edge +20.0pp · exec +18.2pp",
+        "  shadow, not staked",
         "PASS: 3 games"]
     order = box.docs["NFL"]["predictions"][0]["desk"]["order"]["text"]
     assert order in pg["body"]                                                       # as the export prints it
@@ -624,18 +634,23 @@ def test_c5_mlb_page_hold_wrap_and_no_play_is_default_priority(box):
     assert mc.run("MLB", start=at(30), now=NOW) == 0
     lines = box.pages[-1]["body"].splitlines()
     assert lines[0] == "MLB 12:55 ET · T-30m" and all(len(x) <= 100 for x in lines)
-    assert lines[1] == "PLAY Underhill 0.5u · BUY YES KXMLBGAME-26OCT11-UNDH @ 0.55 × 5 · exec +2.2pp"
-    assert lines[2] == f"  {HOLD}"                                                   # 104 chars: wrapped, never cut
-    assert lines[3] == "PLAY Clearwater 1u · BUY YES KXMLBGAME-26OCT11-CLEH @ 0.52 × 10 · exec +7.1pp"
+    assert lines[1] == ("Underhill Visitors @ Underhill · PLAY Underhill 0.5u · BUY YES KXMLBGAME-26OCT11-UNDH @ 0.55 "
+                        "× 5")
+    assert lines[2] == f"  exec +2.2pp · {HOLD}"                                    # wrapped, never cut
+    assert lines[3].startswith("Clearwater Visitors @ Clearwater · PLAY Clearwater 1u · BUY YES KXMLBGAME-26OCT11-CLEH")
     assert lines[-1] == "PASS: 2 games" and box.pages[-1]["priority"] == "high"
     assert "Kalshiburg" not in box.pages[-1]["body"]          # the kalshi-only hold is a record, never a pick
     assert mc.run("SOCCER", start=at(35), now=NOW) == 0
-    assert box.pages[-1]["body"].splitlines()[1].startswith("PLAY Arsenal 0.5u · BUY YES KXEPLGAME-26OCT11-ARSH")
+    assert box.pages[-1]["body"].splitlines()[1].startswith("Arsenal Visitors @ Arsenal · PLAY Arsenal 0.5u · BUY YES")
     box.docs["SOCCER"]["predictions"] = [p for p in pl_doc()["predictions"]]
     for p in box.docs["SOCCER"]["predictions"]:
         p["desk"]["call"] = "PASS"
     assert mc.run("SOCCER", start=at(35), now=NOW + timedelta(minutes=1)) == 0
-    assert box.pages[-1]["priority"] == "default" and box.pages[-1]["body"].splitlines()[-1] == "PASS: 2 games"
+    # B3: Arsenal was a PLAY in the last file (the run above); now PASS: its own line, high priority
+    assert box.pages[-1]["priority"] == "high" and box.pages[-1]["body"].splitlines()[-2:] == [
+        "Arsenal Visitors @ Arsenal · PASS · was PLAY Arsenal 0.5u", "PASS: 2 games"]
+    assert mc.run("SOCCER", start=at(35), now=NOW + timedelta(minutes=2)) == 0     # last call now PASS: no line
+    assert box.pages[-1]["priority"] == "default" and box.pages[-1]["body"].splitlines()[1:] == ["PASS: 2 games"]
 
 
 def test_c5_wrap_never_exceeds_100_and_keeps_the_ending():
@@ -664,7 +679,9 @@ def test_c6_a_page_ntfy_does_not_accept_fails_the_run_and_the_watch_retries(box)
     box.page_ok = False
     assert mc.watch(now=NOW, families=("NFL",)) == 1
     r = runs()[-1]
-    assert r["failed"] == "page" and r["page"]["phone"] == {"accepted": False, "http": 400} and r["push"]["exit"] == 0
+    assert r["failed"] == "page" and r["page"]["phone"] == {"accepted": False, "http": 400}
+    assert r["page"]["tries"] == 3 and box.sleeps == [10, 10]                      # B2: three tries, 10s apart
+    assert r["push"] is None and box.pushes == []                                   # B1: no push without the page
     box.page_ok = True
     assert mc.watch(now=NOW + timedelta(minutes=1), families=("NFL",)) == 0
     assert runs()[-1]["exit"] == 0 and runs()[-1]["attempt"] == 2
@@ -704,9 +721,11 @@ def test_c7_one_launchd_watch_for_the_three_families_and_no_host_timer():
 # =============================================================================================== C8 policy ==
 
 def test_c8_nothing_in_the_desk_moves():
-    assert mc.CLOSING_HOLDS == ({"call": "PLAY", "exec_edge_under_pp": 4.0, "text": HOLD, "since": "2026-10-07"},)
+    assert mc.CLOSING_HOLDS == ({"call": "PLAY", "exec_edge_under_pp": 4.0, "text": HOLD, "since": "2026-10-07",
+                                 "families": ("MLB", "NFL")},)                       # B5: only its families added
     src = (HOSTING / "closing.py").read_text()
-    assert "desk_policy" not in src.replace("desk_policy.is_quarantine_shadow", "")   # reads the export only
+    import re as _re                                                                 # reads the export only:
+    assert not _re.search(r"^\s*(import|from)\s.*desk_policy", src, _re.M)            # the Desk's code never imported
     for bad in ("trade-api", "/portfolio", "/orders", "kalshi.com", "create_order"):
         assert bad not in src.lower()
     d = {"call": "PASS", "shadow_units": 0.5, "tags": ["quarantine ≥ 15pp (shadow)"]}
@@ -753,8 +772,9 @@ def test_380_1_stale_starters_are_a_failed_attempt_retried_and_a_missing_starter
             p["pitchers"]["away"] = None
     assert mc.watch(now=NOW + timedelta(minutes=1), families=("MLB",)) == 0
     lines = box.pages[-1]["body"].splitlines()
-    i = next(n for n, x in enumerate(lines) if x.startswith("PLAY Clearwater"))
-    assert lines[i + 1:i + 3] == ["Clearwater Visitors @ Clearwater (PLAY Clearwater 1u) · no starter listed for "
+    i = next(n for n, x in enumerate(lines) if x.startswith("Clearwater Visitors @ Clearwater · PLAY Clearwater"))
+    assert lines[i + 1].startswith("  exec ")                                        # the PLAY entry's own wrap
+    assert lines[i + 2:i + 4] == ["Clearwater Visitors @ Clearwater (PLAY Clearwater 1u) · no starter listed for "
                                   "Clearwater Visitors", "  the model shrinks for it"]
     assert all(len(x) <= 100 for x in lines)
     assert runs()[-1]["attempt"] == 2
@@ -813,7 +833,7 @@ def test_strict_mode_fails_the_closing_run_at_that_step(box):
     assert mc.run("NFL", start=at(35), now=NOW) == 1
     r = runs()[-1]
     assert r["failed"] == "step 2 (strict: a read it needed failed)" and r["steps"][-1]["tail"][0].startswith("✗ STRICT")
-    assert [s[0] for s in box.steps] == ["sync-matches", "sync-injuries"] and box.pages == []
+    assert [s[0] for s in box.steps] == ["refresh-by-id", "sync-injuries"] and box.pages == []
 
 
 # ============================================================================================= 380.2 setup ==
@@ -850,6 +870,17 @@ def _setup_sandbox(tmp_path, env_text, shell_env=None):
     (repo / "venv" / "bin").mkdir(parents=True)
     shutil.copy2(ROOT / "scripts" / "setup_closing_watch.sh", repo / "scripts")
     shutil.copytree(HOSTING, repo / "deploy" / "hosting", ignore=shutil.ignore_patterns("__pycache__"))
+    # D1: a FAKE exports mirror in the scratch checkout (never a real push): it records its argv and the settings it
+    # saw (names only), and exits with the code in <repo>/push_rc (default 0)
+    (repo / "deploy" / "hosting" / "exports_mirror.py").write_text(
+        "import os, pathlib, sys\n"
+        "r = pathlib.Path(__file__).resolve().parents[2]\n"
+        "with open(r / 'pushes', 'a') as f:\n"
+        "    f.write(' '.join(sys.argv[1:]) + ' | shell=' + ','.join(sorted(k for k in os.environ if k.startswith"
+        "(('SP_', 'NTFY')))) + '\\n')\n"
+        "rc = (r / 'push_rc').read_text().strip() if (r / 'push_rc').exists() else '0'\n"
+        "print('fake push', rc)\n"
+        "sys.exit(int(rc))\n")
     py = repo / "venv" / "bin" / "python"
     py.write_text(f"#!/bin/sh\nexec {sys.executable} \"$@\"\n")
     py.chmod(0o755)
@@ -909,6 +940,25 @@ def test_380_2_install_sends_one_test_page_and_writes_no_value_into_the_plist(tm
     calls = (home / "calls").read_text().splitlines()
     assert any(x.startswith("launchctl load ") for x in calls) and calls[-1].startswith("osascript")
     assert "The laptop awake" in r.stdout and "VPN on, Tailscale off" in r.stdout
+    # D1: one mirror push, label install, in the launched environment (no setting from the shell)
+    assert (repo / "pushes").read_text().splitlines() == ["push --role laptop --label install | shell="]
+    assert "Install push (exports mirror): pushed (label install)." in r.stdout
+    # D2: the VPN line is MLB's
+    assert "For MLB only: VPN on, Tailscale off" in r.stdout and "NFL and SOCCER need neither mode." in r.stdout
+
+
+def test_d1_a_failed_install_push_refuses_the_install(tmp_path, ntfy):
+    """D1 (addendum 23): "M1 at install: the setup script makes one mirror push in the launched environment, label
+    install, and refuses to install if it fails." Fails on 488db59 (no push at install)."""
+    repo, home, env = _setup_sandbox(tmp_path, _env_text(ntfy.server_port))
+    (repo / "push_rc").write_text("1")
+    r = subprocess.run(["bash", str(repo / "scripts" / "setup_closing_watch.sh")], capture_output=True, text=True,
+                       env={**env, "SP_EXPORTS_MIRROR_REMOTE": "x"})
+    assert r.returncode == 2 and "REFUSED: the install push to the exports mirror failed" in r.stdout
+    assert (repo / "pushes").read_text().splitlines() == ["push --role laptop --label install | shell="]
+    assert not (home / "Library" / "LaunchAgents" / "com.sportspredictor.closingwatch.plist").exists()
+    assert not any(x.startswith("launchctl load") for x in
+                   ((home / "calls").read_text().splitlines() if (home / "calls").exists() else []))
 
 
 def test_380_2_uninstall_removes_both_watches(tmp_path):
@@ -1085,15 +1135,22 @@ def test_a1_ny_date_not_utc(box, monkeypatch):
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
     box.docs["MLB"] = dp.annotate({"sport": "mlb", "predictions": [row(7, "Giants", 0.52, fair_h=0.51, minutes=40,
                                                                        now=now)]}, now=now)
-    assert mc.resolve_steps("MLB", now + timedelta(minutes=40), [], now)[0][-1] == "2026-10-08"
+    assert mc.resolve_steps("MLB", now + timedelta(minutes=40), [], now)[0][-3] == "2026-10-08"
     assert mc.run("MLB", now=now) == 0 and runs()[-1]["export"] == "exports/mlb_MLB_2026-10-08.json"
 
 
 def test_laptop_only_refusal_for_mlb_and_the_watch_skips_it(box, monkeypatch):
     monkeypatch.setenv("SP_SKIP_FAMILIES", "MLB")
-    assert mc.run("MLB", start=at(30), now=NOW) == 2 and runs()[-1]["refused"].startswith("laptop only")
-    assert mc.watch(now=NOW) == 0 and box.feed_calls == 0
+    assert mc.watch(now=NOW) == 2 and box.feed_calls == 0
     assert [r["family"] for r in runs() if not r.get("refused")] == ["NFL", "SOCCER"]
+    # Codex round 2 on #385: the watch's due MLB start time goes through the refusal path: receipted and notified
+    # once for that start time and reason (reading 7), never dropped silently; never a feed check
+    ref = [r for r in runs("MLB") if r.get("trigger") == "watch"]
+    assert len(ref) == 1 and ref[0]["refused"].startswith("laptop only") and ref[0]["start"] == at(30)
+    assert any(n.startswith("Closing MLB 2026-10-11 12:55 ET: REFUSED: laptop only") for n in box.notes)
+    mc.watch(now=NOW + timedelta(minutes=1))
+    assert len([r for r in runs("MLB") if r.get("trigger") == "watch"]) == 1 and box.feed_calls == 0
+    assert mc.run("MLB", start=at(30), now=NOW) == 2 and runs()[-1]["refused"].startswith("laptop only")
 
 
 @pytest.mark.parametrize("said", ["✗ Kalshi sync failed: Max retries exceeded", "Kalshi sync: market fetch failed"])
@@ -1104,9 +1161,13 @@ def test_p1c_the_sync_kalshi_marker_table_stays_as_built(box, said):
     assert mc.STEP_FAILURE_MARKERS == {"sync-kalshi": ("✗ Kalshi sync failed:", "Kalshi sync: ")}
 
 
-def test_p1d_a_screen_notification_not_posted_on_macos_fails_and_off_macos_does_not(box, monkeypatch):
+def test_b2_a_screen_notification_not_posted_is_recorded_and_changes_nothing(box, monkeypatch):
+    """B2 (addendum 23) amends C6: "A screen notification that is not posted is recorded and changes nothing." """
     monkeypatch.setattr(mc, "notify", lambda body, title="": {"posted": False, "error": "osascript exit 1"})
-    assert mc.run("NFL", start=at(35), now=NOW) == 1 and runs()[-1]["failed"] == "notify"
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    r = runs()[-1]
+    assert r["exit"] == 0 and "failed" not in r and r["page"]["screen"] == {"posted": False, "error": "osascript exit 1"}
+    assert box.pushes == ["closing"]
     monkeypatch.setattr(mc, "notify", lambda body, title="": {"posted": False, "skipped": "not macOS"})
     assert mc.run("NFL", start=at(35), now=NOW + timedelta(minutes=1)) == 0
 
@@ -1192,7 +1253,7 @@ def move_on_first_schedule_read(box, monkeypatch, moves):
     done = []
 
     def mv(argv):
-        if argv[0] == "sync-matches" and not done:
+        if argv[0] in ("sync-matches", "refresh-by-id") and not done:
             done.append(1)
             for mid, m in moves.items():
                 set_start(box.db, mid, m)
@@ -1205,19 +1266,19 @@ def doc_start(box, fam, mid, minutes):
             p["utc_date"] = (NOW + timedelta(minutes=minutes)).strftime("%Y-%m-%dT%H:%M:%S")
 
 
-def test_385_p1_every_covered_game_moved_fails_as_target_moved_and_the_new_start_runs(box, monkeypatch):
-    """Codex P1 (closing.py target_started): the schedule read moves every covered game off the target start, still
-    SCHEDULED. The run fails as "target moved" (an own check: export moved out, no push, no call page), naming each
-    game with both times; the old start leaves no group, and the new start is its own key and closes at its T-35."""
+def test_c_every_covered_game_moved_ends_as_start_moved_and_the_new_start_runs(box, monkeypatch):
+    """C (addendum 23; the 15:08Z P1): "A run left with no game ends as a failed attempt, 'start moved', nothing
+    pushed or paged." Each game named with both times; the old start leaves no group, and the new start is its own
+    key and closes at its T-35."""
     move_on_first_schedule_read(box, monkeypatch, {401: 95, 402: 97})
     assert mc.watch(now=NOW, families=("SOCCER",)) == 1
     r = runs("SOCCER")[-1]
-    assert r["failed"] == "target moved" and r["start"] == at(35)
+    assert r["failed"] == "start moved" and r["start"] == at(35) and r["covers"] == []
     assert [(m["match_id"], m["target"], m["covered_start"], m["stored_start"]) for m in r["moved"]] == [
         (401, at(35), at(35), at(95)), (402, at(35), at(37), at(97))]
     assert r["export_moved_to"].startswith(f"logs/{r['run_id']}.")
     assert box.pushes == [] and call_pages(box) == []
-    assert box.notes[-1] == "Closing SOCCER 2026-10-11 13:00 ET: FAILED: target moved · attempt 1/3"
+    assert box.notes[-1] == "Closing SOCCER 2026-10-11 13:00 ET: FAILED: start moved · attempt 1/3"
     mc.watch(now=NOW + timedelta(minutes=1), families=("SOCCER",))
     assert len(runs("SOCCER")) == 1                                    # nothing left at the old start: no retry
     doc_start(box, "SOCCER", 401, 95)
@@ -1228,20 +1289,21 @@ def test_385_p1_every_covered_game_moved_fails_as_target_moved_and_the_new_start
     assert [x["match_id"] for x in r2["covers"]] == [401, 402] and len(call_pages(box)) == 1
 
 
-def test_385_p1_one_covered_game_moved_fails_the_run_and_is_not_counted_closed_at_the_old_start(box, monkeypatch):
-    """Reading (conservative): a partial move fails the run, naming the moved game only. The retry at the old start
-    covers the games still there and succeeds; the moved game is not finished with by the old start's success
-    (covered_ids), so its new start closes at its own T-35."""
+def test_c_one_covered_game_moved_leaves_the_run_and_the_rest_is_paged(box, monkeypatch):
+    """C (addendum 23): "If the schedule read moves a covered game off the run's start time, that game leaves the run:
+    it is not paged under the old time, and it is a new start time for the watch." The run continues with the other
+    games (receipted: the moved game with both times; not a failure); the moved game is not finished with by the old
+    start's success (covered_ids), so its new start closes at its own T-35. Fails on 488db59 (the whole run failed as
+    "target moved")."""
     move_on_first_schedule_read(box, monkeypatch, {304: 95})
-    assert mc.watch(now=NOW, families=("NFL",)) == 1
+    assert mc.watch(now=NOW, families=("NFL",)) == 0
     r = runs("NFL")[-1]
-    assert r["failed"] == "target moved" and [m["match_id"] for m in r["moved"]] == [304]
+    assert r["exit"] == 0 and "failed" not in r and r["attempt"] == 1 and r["start"] == at(35)
+    assert [m["match_id"] for m in r["moved"]] == [304]
     assert r["moved"][0]["covered_start"] == at(36) and r["moved"][0]["stored_start"] == at(95)
-    assert call_pages(box) == []
-    assert mc.watch(now=NOW + timedelta(minutes=1), families=("NFL",)) == 0     # attempt 2, old start, 3 games
-    r = runs("NFL")[-1]
-    assert r["start"] == at(35) and r["attempt"] == 2 and r["exit"] == 0
     assert [x["match_id"] for x in r["covers"]] == [301, 302, 303]
+    assert 304 not in [d["match_id"] for d in r["desk_rows"]]
+    assert len(call_pages(box)) == 1 and "Denver" not in call_pages(box)[0]["body"]   # not paged under the old time
     assert 304 not in mc.covered_ids("NFL")
     doc_start(box, "NFL", 304, 95)
     assert mc.watch(now=NOW + timedelta(minutes=60), families=("NFL",)) == 0
@@ -1302,3 +1364,320 @@ def test_385_p2_strict_injuries_fail_on_a_missing_competition_inside_the_window(
     assert ok.exit_code == 0 and "STRICT" not in ok.output                          # default: unchanged
     empty = CliRunner().invoke(cli.cli, [*args, "--competition", "STRY", "--strict"])
     assert empty.exit_code == 0 and "nothing inside the window" in empty.output     # no games: not a failed read
+
+
+# ============================================================================ addendum 23 (and Codex round 2) ==
+
+def _nfl_strict_fixture(code):
+    """A competition with two teams carrying american-football ids, on the throwaway DB."""
+    from src.db.database import init_db, session_scope
+    from src.db.schema import Competition, CompetitionTeam, Match, MatchStatus, Sport, Team
+    from src.timeutil import utc_now_naive
+    init_db()
+    with session_scope() as s:
+        comp = s.query(Competition).filter_by(code=code).one_or_none()
+        if comp is None:
+            comp = Competition(sport=Sport.NFL, code=code, name=code, area="X", type="LEAGUE")
+            s.add(comp)
+            s.flush()
+        ts = []
+        for i in range(4):
+            t = Team(sport=Sport.NFL, name=f"{code} {i}", external_ids={"api_american_football": f"{code}-{i}"})
+            s.add(t)
+            s.flush()
+            s.add(CompetitionTeam(competition_id=comp.id, team_id=t.id, season="2026"))
+            ts.append(t)
+        ms = []
+        for i in range(2):
+            m = Match(sport=Sport.NFL, competition_id=comp.id, season="2026", status=MatchStatus.SCHEDULED,
+                      utc_date=utc_now_naive() + timedelta(hours=1 + 5 * i), home_team_id=ts[2 * i].id,
+                      away_team_id=ts[2 * i + 1].id)
+            s.add(m)
+            s.flush()
+            ms.append(m.id)
+        return ms, [t.id for t in ts]
+
+
+def test_a2_a_failed_nfl_roster_read_is_a_failed_read_under_strict_default_unchanged(monkeypatch):
+    """A2 (addendum 23; Codex round 2 P1 4231860220): "In strict mode a failed roster read is a failed read. The QB
+    flag halves a PLAY, and a flag we could not look up is not a flag that is off. The adapter records the failure;
+    its default behaviour does not change." The real adapter, its HTTP replaced: the roster read raises (or comes back
+    empty), the injury feed answers."""
+    from click.testing import CliRunner
+
+    import cli
+    from src.adapters.api_american_football import APIAmericanFootballAdapter
+    ms, _ = _nfl_strict_fixture("RSTX")
+    ad = APIAmericanFootballAdapter()
+    mode = {"roster": "raise"}
+
+    def fake_get(path, params=None):
+        if path == "players":
+            if mode["roster"] == "raise":
+                raise ConnectionError("roster down")
+            return {"response": [] if mode["roster"] == "empty" else [{"id": 7, "name": "Q B", "position": "QB"}]}
+        return {"response": [{"player": {"id": 7, "name": "Q B"}, "status": "Out", "description": "knee"}]}
+    monkeypatch.setattr(ad, "_get", fake_get)
+    monkeypatch.setattr(cli, "_adapter_for_competition", lambda code: ad)
+    out = ad.list_injuries("RSTX-0", "2026")
+    assert out[0]["player_position"] is None and ad.last_roster_failure == "roster fetch failed: ConnectionError"
+    args = ["sync-injuries", "--competition", "RSTX", "--season", "2026", "--match-ids", str(ms[0])]
+    ok = CliRunner().invoke(cli.cli, args)
+    assert ok.exit_code == 0 and "STRICT" not in ok.output                          # default: unchanged
+    bad = CliRunner().invoke(cli.cli, [*args, "--strict"])
+    assert bad.exit_code == 1 and "✗ STRICT: 2 injury read(s) failed (RSTX):" in bad.output, bad.output
+    assert "roster fetch failed: ConnectionError (positions unresolved" in bad.output
+    mode["roster"] = "empty"
+    bad = CliRunner().invoke(cli.cli, [*args, "--strict"])
+    assert bad.exit_code == 1 and "roster empty" in bad.output
+    mode["roster"] = "ok"
+    good = CliRunner().invoke(cli.cli, [*args, "--strict"])
+    assert good.exit_code == 0 and "STRICT" not in good.output and ad.last_roster_failure is None
+
+
+def test_codex_r2_the_closing_injury_read_is_scoped_to_the_covered_games(monkeypatch):
+    """Codex round 2 P2 4231860235: --kickoff-within-hours read every team kicking off before the last covered game,
+    so an earlier group's teams were read (and could fail strict) for a later group. --match-ids reads the covered
+    games' teams only; a named game not stored in the competition is a failed read under --strict."""
+    from click.testing import CliRunner
+
+    import cli
+    ms, tids = _nfl_strict_fixture("SCPX")
+    asked = []
+    ad = type("A", (), {"source_name": "api_american_football",
+                        "list_injuries": lambda self, sid, season: asked.append(sid) or []})()
+    monkeypatch.setattr(cli, "_adapter_for_competition", lambda code: ad)
+    res = CliRunner().invoke(cli.cli, ["sync-injuries", "--competition", "SCPX", "--season", "2026",
+                                       "--match-ids", str(ms[1]), "--strict"])
+    assert res.exit_code == 0, res.output
+    assert sorted(asked) == ["SCPX-2", "SCPX-3"]                                    # the earlier game's teams: not read
+    res = CliRunner().invoke(cli.cli, ["sync-injuries", "--competition", "SCPX", "--season", "2026",
+                                       "--match-ids", f"{ms[1]},999999", "--strict"])
+    assert res.exit_code == 1 and "match 999999: not stored in SCPX" in res.output
+    assert chains.CHAINS["nfl-closing"]["steps"][1] == ["sync-injuries", "--competition", "NFL", "--season", "2026",
+                                                        "--match-ids", "{match_ids}", "--strict"]
+
+
+def test_codex_r2_sync_match_stats_runs_without_a_name_error():
+    """Codex round 2 P1 4231860194: sync_match_stats referenced an undefined match_ids (a NameError on every
+    sync-stats call for a stored competition). It runs again: limit applied, stats fetched."""
+    from src.db.database import init_db, session_scope
+    from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+    from src.ingestion.service import IngestionService
+    init_db()
+    with session_scope() as s:
+        comp = Competition(sport=Sport.SOCCER, code="STSX", name="stats", area="X", type="LEAGUE")
+        s.add(comp)
+        s.flush()
+        a, b = Team(sport=Sport.SOCCER, name="STSX a"), Team(sport=Sport.SOCCER, name="STSX b")
+        s.add_all([a, b])
+        s.flush()
+        s.add(Match(sport=Sport.SOCCER, competition_id=comp.id, season="2093/94", status=MatchStatus.FINISHED,
+                    utc_date=datetime(2093, 9, 1), home_team_id=a.id, away_team_id=b.id, external_ids={"fake": "5"}))
+    asked = []
+    ad = type("A", (), {"source_name": "fake", "get_match_stats": lambda self, sid: asked.append(sid) or []})()
+    IngestionService(ad).sync_match_stats("STSX", season="2093/94", limit=5)
+    assert asked == ["5"]
+
+
+@pytest.mark.parametrize("fam,cmd,start", [("NFL", "refresh-by-id", 35), ("SOCCER", "sync-matches", 35),
+                                           ("MLB", "sync-matches", 30)])
+def test_a1_a_schedule_read_that_did_not_answer_fails_the_run_at_that_step(box, fam, cmd, start):
+    """A1 (addendum 23): "A closing run does not page a game whose schedule read did not answer." The read names the
+    covered games (NFL by id; SOCCER and MLB by date with --match-ids) and a non-zero exit fails the run there."""
+    assert mc.run(fam, start=at(start), now=NOW) == 0
+    first = box.steps[0]
+    assert first[0] == cmd and "--match-ids" in first
+    box.steps.clear()
+    box.fail_cmd[cmd] = (1, ["✗ STRICT: 1 named game(s) not refreshed by id"])
+    assert mc.run(fam, start=at(start), now=NOW + timedelta(minutes=1)) == 1
+    r = runs(fam)[-1]
+    assert r["failed"] == "step 1 (schedule read: a covered game the provider did not answer, A1)"
+    assert len(box.steps) == 1 and len(call_pages(box)) == 1                          # the earlier run's page only
+
+
+def _stale_draw_leg(box):
+    """PL: the Kalshi sync re-captures HOME and AWAY but skips the DRAW leg as wide: DRAW keeps its morning
+    snapshot."""
+    inner = box.fake_step
+
+    def step(argv, run_id):
+        if argv[0] == "sync-kalshi-soccer":
+            at_ = run_start_of(run_id) + timedelta(seconds=30)
+            con = sqlite3.connect(c.db_path())
+            for mid in (401, 402):
+                for sel in ("HOME", "AWAY"):
+                    con.execute("INSERT INTO odds_snapshots(match_id, market, selection, devig_prob, captured_at,"
+                                " source, yes_bid, yes_ask) VALUES (?, 'ML', ?, 0.5, ?, 'kalshi', 0.49, 0.5)",
+                                (mid, sel, _ts(at_)))
+            con.commit()
+            con.close()
+            box.steps.append(list(argv))
+            return 0, ["ok"], 0.1
+        return inner(argv, run_id)
+    return step
+
+
+def test_a5_a_stale_kalshi_leg_the_desk_did_not_read_is_listed_and_fails_nothing(box, monkeypatch):
+    """A5 (addendum 23): "Where a market has more than one Kalshi leg, the legs that must be fresh are the legs the
+    Desk read for that row [...] A stale leg the Desk did not read does not fail the run; it is listed in the
+    receipt." PL: the DRAW leg skipped as wide keeps an older snapshot; no row's call, order or value shadow is on the
+    draw. Fails on 488db59 (the run failed as stale prices)."""
+    for p in box.docs["SOCCER"]["predictions"]:
+        assert p["desk"].get("reference") != "kalshi_only"
+        assert (p["desk"].get("value_shadow") or {}).get("side") != "DRAW" and p["desk"]["pick"] != "DRAW"
+    monkeypatch.setattr(mc, "run_step", _stale_draw_leg(box))
+    assert mc.run("SOCCER", start=at(35), now=NOW) == 0
+    r = runs()[-1]
+    assert sorted((x["match_id"], x["leg"]) for x in r["stale_legs_not_read"]) == [(401, "DRAW"), (402, "DRAW")]
+    assert all(x["read_by_desk"] is False for x in r["stale_legs_not_read"]) and len(call_pages(box)) == 1
+
+
+def test_a5_a_stale_leg_the_desk_read_fails_the_run(box, monkeypatch):
+    """A5: a value shadow on the draw reads the DRAW leg (exec_block -> side_quotes): stale there fails the run; and
+    a row whose reference is Kalshi reads every leg."""
+    for p in box.docs["SOCCER"]["predictions"]:
+        if p["match_id"] == 402:
+            p["desk"]["value_shadow"] = {"side": "DRAW", "units": 0.25, "edge_pp": 5.0, "exec": {"edge_pp": 4.0}}
+    monkeypatch.setattr(mc, "run_step", _stale_draw_leg(box))
+    assert mc.run("SOCCER", start=at(35), now=NOW) == 1
+    r = runs()[-1]
+    assert r["failed"] == "stale prices"
+    assert [(x["match_id"], x["price"], x["leg"]) for x in r["stale"]] == [(402, "kalshi", "DRAW")]
+    assert [(x["match_id"], x["leg"]) for x in r["stale_legs_not_read"]] == [(401, "DRAW")]
+    row = {"desk": {"reference": "kalshi_only"}, "kalshi_legs": {"HOME": {}, "AWAY": {}}}
+    assert mc.desk_read_legs(row) is None                                              # every leg
+
+
+def test_a5_the_legs_named_are_the_desks_own_selection():
+    """A5: closing.py names the legs from the export row (C8: it never imports the Desk); this pins its selection to
+    desk_policy's own: side_quotes (the exec blocks) and order_line (the order), on two-way and three-way rows,
+    tickets present and absent."""
+    def nrow(r):
+        return dp.normalize({"sport": "x", "predictions": [r]})[0]
+    two = row(1, "Two", 0.6, fair_h=0.5, comp="NFL", series="KXNFLGAME")
+    three = row(2, "Three", 0.5, fair_h=0.4, fair_d=0.3, draw=0.25, comp="PL", series="KXEPLGAME")
+    noticket = row(3, "Bare", 0.6, fair_h=0.5, comp="NFL", series="KXNFLGAME")
+    noticket["kalshi_legs"] = {"HOME": {"ticker": "T-HOME", "bid": 0.4, "ask": 0.42}, "AWAY": {"ticker": None}}
+    for r in (two, three, noticket):
+        n = nrow(r)
+        for side in ("HOME", "DRAW", "AWAY"):
+            q = dp.side_quotes(n, side)
+            leg = mc._side_leg(r, side)
+            if leg is None:
+                assert q is None or q.get("ask") is None, (r["home_team"], side)
+                continue
+            lg = r["kalshi_legs"].get(leg) or {}
+            want = ((lg.get("bid"), lg.get("ask")) if not q.get("no") else
+                    (None if lg.get("ask") is None else round(1 - lg["ask"], 4),
+                     None if lg.get("bid") is None else round(1 - lg["bid"], 4)))
+            if leg == "HOME" and not lg.get("ticker") and lg.get("ask") is None:
+                want = (r["kalshi_bid"], r["kalshi_ask"])
+            assert (q["bid"], q["ask"]) == want, (r["home_team"], side, leg)
+            for ladder in (False, True):
+                o = dp.order_line(n, side, 1, ladder=ladder)
+                d = {"call": "LADDER" if ladder else "PLAY", "pick": side, "order": o}
+                got = mc._order_leg(r, d)
+                if o and o.get("ticker"):
+                    assert r["kalshi_legs"][got]["ticker"] == o["ticker"], (r["home_team"], side, ladder)
+
+
+def test_b1_the_page_goes_first_and_a_failed_push_is_receipted_notified_and_not_rerun(box, monkeypatch):
+    """B1 (addendum 23): "The page goes out as soon as the run's own checks have passed. The mirror push follows. A
+    closing whose page went out is not run again for a failed push: the failure is receipted and notified, and the
+    next push from this machine carries the file." Fails on 488db59 (push first; a failed push = a failed run)."""
+    order = []
+    inner_page = mc.page_phone
+    monkeypatch.setattr(mc, "page_phone", lambda t, b, p="default": order.append("page") or inner_page(t, b, p))
+    monkeypatch.setattr(mc, "push_mirror", lambda label="closing": order.append("push") or {"exit": 1,
+                                                                                         "tail": ["rejected"]})
+    assert mc.watch(now=NOW, families=("NFL",)) == 0
+    r = runs()[-1]
+    assert order == ["page", "push", "page"]                             # the last: the push-failure notice's phone copy
+    assert r["exit"] == 0 and r["push_failed"] is True and "failed" not in r
+    assert (box.repo / r["export"]).is_file()                                        # in place: the next push takes it
+    assert r["push_failure_notification"]["text"].startswith("Closing NFL 2026-10-11 13:00 ET: PAGED; mirror push "
+                                                             "FAILED (exit 1)")
+    assert len(call_pages(box)) == 1
+    assert mc.watch(now=NOW + timedelta(minutes=1), families=("NFL",)) == 0         # not run again
+    assert len(runs("NFL")) == 1 and len(call_pages(box)) == 1
+    # M1 still refuses the run (and the install: preflight)
+    monkeypatch.delenv("SP_EXPORTS_MIRROR_REMOTE")
+    assert mc.run("NFL", start=at(35), now=NOW) == 2 and "SP_EXPORTS_MIRROR_REMOTE" in runs()[-1]["refused"]
+    assert any("SP_EXPORTS_MIRROR_REMOTE" in x for x in mc.preflight())
+
+
+def test_b2_the_phone_page_is_tried_three_times_before_the_run_fails(box):
+    """B2: "It is tried three times, ten seconds apart, before the run fails as 'page'." A second try accepted is a
+    success."""
+    answers = [{"accepted": False, "http": 502}, {"accepted": True, "http": 200}]
+    box_page = mc.page_phone
+    mc.page_phone = lambda t, b, p="default": box.pages.append({"title": t, "body": b, "priority": p}) or answers.pop(0)
+    try:
+        assert mc.run("NFL", start=at(35), now=NOW) == 0
+    finally:
+        mc.page_phone = box_page
+    r = runs()[-1]
+    assert r["page"]["tries"] == 2 and box.sleeps == [10] and r["exit"] == 0 and box.pushes == ["closing"]
+
+
+def test_b5_the_hold_names_mlb_and_nfl_not_pl(box):
+    """B5 (reading 8 RULED): "The hold of 2026-10-07 is the operator's, and it names MLB and NFL. It is not extended
+    to PL here." A PL PLAY with an exec edge under 4.0pp carries no hold; an NFL one does. Fails on 488db59."""
+    for fam, doc in (("SOCCER", box.docs["SOCCER"]), ("NFL", box.docs["NFL"])):
+        p = doc["predictions"][0]
+        assert p["desk"]["call"] == "PLAY"
+        p["desk"]["exec"]["edge_pp"] = 2.0
+    assert mc.run("SOCCER", start=at(35), now=NOW) == 0
+    assert HOLD not in call_pages(box)[-1]["body"] and runs()[-1]["desk_rows"][0]["hold"] is None
+    assert mc.run("NFL", start=at(35), now=NOW + timedelta(minutes=1)) == 0
+    assert HOLD in call_pages(box)[-1]["body"]
+
+
+def test_b6_a_miss_is_receipted_and_notified_once_per_start_and_reason(box, monkeypatch):
+    """B6 (reading 17 RULED): "An unreachable MLB feed is one miss for that first pitch, not one a minute. The watch
+    keeps trying, silently." Fails on 488db59 (one miss and one notice per tick)."""
+    box.feed = (False, "URLError")
+    for m in range(4):
+        mc.watch(now=NOW - timedelta(minutes=1) + timedelta(minutes=m), families=("MLB",))
+    miss = [r for r in receipts() if r["kind"] == "closing_miss"]
+    assert [(m["start"], m["reason"]) for m in miss] == [(at(30), "feed unreachable")]
+    assert box.notes.count(mc.FEED_MISS_TEXT) == 1 and box.feed_calls == 4              # it kept trying
+    box.feed = (True, "HTTP 200")
+    assert mc.watch(now=NOW + timedelta(minutes=3), families=("MLB",)) == 0          # the feed back: it runs
+    assert runs("MLB")[-1]["exit"] == 0
+    # the lock held until inside T-5, twice for one start time: one miss
+    with hold_lock():
+        for k in range(2):
+            assert mc.run("NFL", start=at(35), trigger="watch", now=NOW + timedelta(minutes=30, seconds=k)) == 1
+    held = [r for r in receipts() if r["kind"] == "closing_miss" and r["family"] == "NFL"]
+    assert len(held) == 1
+
+
+def test_b7_an_nfl_play_beside_unresolved_injured_positions_says_so_with_the_count(box):
+    """B7 (addendum 23): "An NFL PLAY on a game with injured players whose position did not resolve says so on its
+    line, with the count. The Desk is unchanged." nfl_predict.py: an empty qb_listed beside positions_unresolved is
+    not "no QB out". Fails on 488db59."""
+    p = box.docs["NFL"]["predictions"][0]
+    call = dict(p["desk"])
+    p["input_quality"] = {"book_odds": 9, "injuries": {
+        "home": {"count": 2, "qb_listed": [], "positions_unresolved": ["A One", "B Two"]},
+        "away": {"count": 1, "qb_listed": [], "positions_unresolved": ["C Three"]}}}
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    body = call_pages(box)[-1]["body"]
+    assert "3 injured, position unresolved" in body and all(len(x) <= 100 for x in body.splitlines())
+    assert body.splitlines()[1].startswith("Buffalo Visitors @ Buffalo · PLAY Buffalo")
+    assert p["desk"] == call and runs()[-1]["desk_rows"][0]["unresolved_injuries"] == 3     # the Desk unchanged
+
+
+def test_codex_r2_a_lock_that_cannot_be_taken_is_a_receipted_failed_run(box, monkeypatch):
+    """Codex round 2 P2 4231860207: an error taking the lock other than the T-5 timeout (a permissions or filesystem
+    error) escaped with no closing receipt and no failure notification. Now a failed run, 'lock', receipted, the
+    watch notified. Fails on 488db59 (PermissionError raised)."""
+    def broken(timeout):
+        raise PermissionError("lock file not writable")
+    monkeypatch.setattr(mc, "acquire_lock", broken)
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == 1
+    r = runs()[-1]
+    assert r["failed"] == "lock" and r["exit"] == 1 and r["attempt"] == 1 and "PermissionError" in r["error"]
+    assert box.notes[-1] == "Closing NFL 2026-10-11 13:00 ET: FAILED: lock · attempt 1/3" and box.steps == []

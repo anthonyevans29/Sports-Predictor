@@ -195,16 +195,27 @@ def sync_teams_cmd(competition_code: str, season: str | None):
 @click.option("--seasons", default=0, type=int, help="Backfill N most recent seasons.")
 @click.option("--date-from", default=None, help="YYYY-MM-DD")
 @click.option("--date-to", default=None, help="YYYY-MM-DD")
+@click.option("--match-ids", "match_ids", default=None,
+              help="Name stored match ids, comma-separated: exit 1 unless the provider's answer held every one "
+                   "of them (the closing run's schedule read for SOCCER and MLB, ARCHITECT 2026-10-09, addendum "
+                   "23 A1). The sync itself is unchanged. Default: unchanged.")
 def sync_matches_cmd(
     competition_code: str,
     season: str | None,
     seasons: int,
     date_from: str | None,
     date_to: str | None,
+    match_ids: str | None = None,
 ):
     """Pull matches by season or date range. MLB on a host whose
     SP_SKIP_FAMILIES names MLB syncs from the api-sports fallback (PHASE A)."""
+    named = _match_ids_opt(match_ids)
+    if named is not None and seasons > 0:
+        raise click.UsageError("--match-ids names the games of one read; not with --seasons")
     if _mlb_fallback(competition_code):
+        if named is not None:
+            raise click.UsageError("--match-ids is not supported by the MLB api-sports fallback (no per-game "
+                                   "answer to check)")
         if seasons > 0:
             raise click.UsageError("the MLB api-sports fallback takes --season (one season per run)")
         _mlb_fallback_run("matches", season or (date_from or date_to or "")[:4] or None,
@@ -232,11 +243,22 @@ def sync_matches_cmd(
     def _progress(msg):
         console.print(f"[dim]{msg}[/dim]")
 
+    held: set | None = set() if named is not None else None
     result = service.sync_matches(
         competition_code, season=season, date_from=date_from, date_to=date_to,
-        progress=_progress,
+        progress=_progress, **({"held_ids": held} if held is not None else {}),
     )
     console.print(f"[green]✓ Matches ({competition_code}): {result}[/green]")
+    if named is not None:
+        # A1 (addendum 23): "exits non-zero unless the provider's answer held every one of them." Printed plainly
+        # (never rich-wrapped) so the closing run's receipt tail has it.
+        missing = sorted(named - held)
+        if missing:
+            print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the provider's answer "
+                  f"({competition_code} {date_from or ''}..{date_to or ''}): "
+                  + ", ".join(f"match {m}" for m in missing), flush=True)
+            raise SystemExit(1)
+        print(f"✓ the provider's answer held all {len(named)} named game(s)", flush=True)
 
 
 @cli.command("resync-diff")
@@ -671,9 +693,15 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
                    "no provider call.")
 @click.option("--strict", is_flag=True, default=False,
               help="Exit non-zero when a read the sync needed failed (a team's fetch failed, a team with no "
-                   "provider id, the competition missing). Closing chains only (ARCHITECT 2026-10-09, "
-                   "addendum 22, 380.1). Default: unchanged (a failed read is counted as skipped, exit 0).")
-def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None, strict: bool = False):
+                   "provider id, the competition missing; NFL: a team's roster read failed or came back empty, "
+                   "addendum 23 A2). Closing chains only (ARCHITECT 2026-10-09, addendum 22, 380.1). Default: "
+                   "unchanged (a failed read is counted as skipped, exit 0).")
+@click.option("--match-ids", "match_ids", default=None,
+              help="Scope to the teams of these stored match ids of the competition, comma-separated (the closing "
+                   "run's covered games; Codex round 2 on #385). Under --strict a named game not stored in the "
+                   "competition is a failed read. Not with --kickoff-within-hours. Default: unchanged.")
+def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None, strict: bool = False,
+                      match_ids: str | None = None):
     """
     Refresh current injury list for every team in a competition/season.
 
@@ -691,8 +719,27 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
         )
         return
 
+    named = _match_ids_opt(match_ids)
+    if named is not None and within_h is not None:
+        raise click.UsageError("--match-ids and --kickoff-within-hours are two scopes: give one")
     adapter = _adapter_for_competition(competition_code)
     service = IngestionService(adapter)
+    if named is not None:
+        with session_scope() as s:
+            games = s.execute(select(Match).join(Competition, Competition.id == Match.competition_id).where(
+                Competition.code == competition_code, Match.id.in_(sorted(named)))).scalars().all()
+            found = {g.id for g in games}
+            team_ids = sorted({t for g in games for t in (g.home_team_id, g.away_team_id)})
+        print(f"  scope: {len(found)} of {len(named)} named game(s) of {competition_code} -> {len(team_ids)} team(s)",
+              flush=True)
+        result = service.sync_injuries_for_teams(team_ids, season=season) if team_ids else None
+        if result is not None:
+            console.print(f"[green]✓ Injuries ({competition_code}): {result}[/green]")
+        failed = [f"match {m}: not stored in {competition_code}, no read made" for m in sorted(named - found)]
+        failed += list(result.failed_reads) if result is not None else []
+        if strict and failed:
+            _strict_injuries_fail(competition_code, failed)
+        return
     if within_h is not None:
         from datetime import timedelta, timezone
         now = datetime.now(timezone.utc).replace(tzinfo=None)
@@ -5443,7 +5490,12 @@ cli.add_command(sync_odds_football_cmd, name="sync-odds-nfl")
               help="An american-football competition (NCAA, NFL).")
 @click.option("--days", default=7, show_default=True, type=click.IntRange(0, 14),
               help="Stored SCHEDULED games on the UTC dates today .. today+DAYS.")
-def refresh_by_id_cmd(competition_code: str, days: int):
+@click.option("--match-ids", "match_ids", default=None,
+              help="Refresh exactly these stored match ids, comma-separated (any status; --days not applied), and "
+                   "exit 1 unless every one was refreshed: not found, refused, excluded, no provider id, "
+                   "unresolved, still rate limited or not stored each fail. The NFL closing run's schedule read "
+                   "(ARCHITECT 2026-10-09, addendum 23 A1). Default: unchanged.")
+def refresh_by_id_cmd(competition_code: str, days: int, match_ids: str | None = None):
     """ARCHITECT 2026-10-09 (addendum 21 item 1): the kickoff, status and score of every stored SCHEDULED
     game kicking off in the next DAYS days, refreshed from the provider by the game's OWN id (GET
     /games?id=, one per game). A rate-limited answer is deferred and retried (the sync-odds-football
@@ -5461,7 +5513,9 @@ def refresh_by_id_cmd(competition_code: str, days: int):
     if _sport_for_competition(code) != "nfl":
         raise click.UsageError(f"refresh-by-id reads the american-football provider by id; {code} is not "
                                "one of its competitions (NCAA, NFL)")
-    r = rbi.refresh(code, _adapter_for_competition(code), days=days, progress=lambda m: click.echo(m))
+    ids = _match_ids_opt(match_ids)
+    r = rbi.refresh(code, _adapter_for_competition(code), days=days, progress=lambda m: click.echo(m),
+                    **({"match_ids": ids} if ids is not None else {}))
     for ln in rbi.format_lines(r):
         click.echo(ln)
     _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
@@ -5472,6 +5526,12 @@ def refresh_by_id_cmd(competition_code: str, days: int):
         default=str, sort_keys=True))
     if r.get("error"):
         raise SystemExit(2)
+    bad = rbi.named_failures(r)
+    if bad:                      # A1 (addendum 23): a named game the answer did not refresh fails the step
+        print(f"✗ STRICT: {len(bad)} named game(s) not refreshed by id ({code}):", flush=True)
+        for line in bad[:20]:
+            print(f"  ✗ {line}", flush=True)
+        raise SystemExit(1)
     if r["unresolved"] or r["still_rate_limited"]:
         raise SystemExit(1)
 

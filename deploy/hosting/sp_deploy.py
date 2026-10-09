@@ -131,7 +131,9 @@ def _classify(line: str) -> tuple[str, str | None]:
     if body.startswith("-"):
         return "refuse", f"pip option: {body.split()[0]!r}"
     tok = body.split(";", 1)[0]
-    opts = [w for w in tok.split()[1:] if w.startswith("-")]
+    # options are read across the WHOLE line, marker included: pip splits a line's options off at its first
+    # "-"-prefixed word, so `pkg; marker --config-settings=...` carries the option past the `;` (Codex on #310)
+    opts = [w for w in body.split()[1:] if w.startswith("-")]
     if any(not w.startswith("--hash") for w in opts):   # per-requirement options (--config-settings, ...) can name
         return "refuse", f"per-requirement option: {opts[0]!r}"   # inputs the fingerprint cannot see (Codex)
     if "@" in body or "/" in tok or "\\" in tok or tok.split("[")[0].strip().lower().endswith(ARCHIVE_SUFFIXES) \
@@ -634,17 +636,27 @@ def main(argv=None) -> int:
             print(f"  ! requirements.txt {req_reason}: nothing installed — install the target's dependencies by hand")
         if dirty:
             git("checkout", "--", "RESULTS.md")
+        checkout_warning = None
         try:
             git("checkout", "--quiet", "--detach", f"{target}^{{commit}}")
         except subprocess.CalledProcessError as e:
-            c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
-                              "error": f"checkout failed: {(e.stderr or '').strip()[:300]}",
-                              "requirements_installed": installed})
-            print(f"✗ checkout of {target} failed ({(e.stderr or '').strip()[:200]}) — the code stays at "
-                  f"{before_rel or before}"
-                  + (f"; NOTE the venv already has {target}'s requirements installed: re-run the deploy once the "
-                     f"cause is fixed" if installed else ""))
-            return 1
+            # A failing post-checkout hook only changes git's exit status: HEAD and the worktree are ALREADY at the
+            # target (githooks(5); Codex on #310). HEAD decides, never the exit code alone: a checkout that moved is
+            # a deploy (receipted with the warning, its migrations printed), so a retry never sees an empty range.
+            rc, head, _ = _git_rc("rev-parse", "HEAD")
+            if rc == 0 and head.strip() == target_full:
+                checkout_warning = (f"git checkout exited {e.returncode} AFTER HEAD moved to {target} (a "
+                                    f"post-checkout hook?): {(e.stderr or '').strip()[:200]}")
+                print(f"  ! {checkout_warning} — HEAD IS at {target}: the deploy happened")
+            else:
+                c.append_receipt({"kind": "deploy", "exit": 1, "from_sha": before, "tag": target,
+                                  "error": f"checkout failed: {(e.stderr or '').strip()[:300]}",
+                                  "requirements_installed": installed})
+                print(f"✗ checkout of {target} failed ({(e.stderr or '').strip()[:200]}) — the code stays at "
+                      f"{before_rel or before}"
+                      + (f"; NOTE the venv already has {target}'s requirements installed: re-run the deploy once "
+                         f"the cause is fixed" if installed else ""))
+                return 1
         after, after_rel = git("rev-parse", "--short", "HEAD"), c.running_release()
         # ARCHITECT-RULE 2026-10-02 (per-PR fragments): the fold runs in the tag ritual on main
         # (`ledger.py compile --commit`); the host never commits, so this step only REPORTS what the
@@ -658,6 +670,7 @@ def main(argv=None) -> int:
                       "deleted_migrations": plan.get("deleted_migrations", []),
                       "modified_migrations": plan["modified"], "rollback_migrations_skipped": plan["skipped"],
                       "requirements_installed": installed,
+                      **({"checkout_warning": checkout_warning} if checkout_warning else {}),
                       "ledger_fragments_pending": len(pending)})
     print(f"✓ deploy {before_rel or before} -> {after_rel} ({after}, {len(changed)} files)"
           + (f"\n  ✓ requirements installed ({REQUIREMENTS} {req_reason})" if installed else "")

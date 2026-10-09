@@ -30,7 +30,7 @@
   - **Answer: a closing run finds the host's backup, with one exception.**
     - Same folder (both read `SP_BACKUP_DIR` from `host.env`), and the glob matches sp_backup's names.
     - After 00:00 UTC the New York date is still the previous day, whose UTC-dated file exists (taken at 07:20 UTC that day). So an evening run finds it.
-    - **The exception:** a run that holds the lock between New York midnight (04:00 UTC under EDT, 05:00 UTC under EST) and the first daily at 07:20 UTC (06:00 on Sundays). That run finds no `sports_<NY date>*.db` and takes its own `sports_<date>.db` (closing.py:488-531).
+    - **The exception:** a run that holds the lock between New York midnight (04:00 UTC under EDT, 05:00 UTC under EST) and the first daily at 07:20 UTC (06:00 on Sundays). Unless an event backup of that date already exists (a `sports_<NY date>_prerefresh_*.db` or `_precleanup_*.db` from a soccer-refresh or cleanup run after New York midnight, which `todays_backup`'s glob accepts, closing.py:463-470 and (a) below), that run finds no `sports_<NY date>*.db` and takes its own `sports_<date>.db` (closing.py:488-531).
     - sp_run's `todays_daily()` would then accept that file as the day's daily, because the sidecar format matches (closing.py:524; sp_backup.py:84-94). sp-backup.service still writes its own `_HHMMSS` copy.
     - Whether any NFL or PL start time puts a lock in that window is a fact of the fixture list. The code does not decide it.
   - **Three differences as built:**
@@ -60,7 +60,7 @@
   - **How long the timed chains hold it:** the same way, under `sp-chain@.service`.
   - **The bound:** no step has a timeout (sp_run.py:186-201). The only bound on a hold is the unit's `TimeoutStartSec=3h` (deploy/hosting/systemd/sp-chain@.service:23). How long a run actually takes is not in the code. The host's `kind: chain` receipts carry `duration_s` (sp_run.py:476-479).
   - **Timed chains near the closing windows** (systemd units, UTC unless named):
-    - soccer-prematch at Sat 10:30 Europe/London (sp-soccer-saturday.timer:7), 25 minutes before a 12:30 UK kickoff's T-35.
+    - soccer-prematch at Sat 10:30 Europe/London (sp-soccer-saturday.timer:7), 85 minutes before a 12:30 UK kickoff's T-35 at 11:55.
     - nhl-daily at 16:00 (sp-nhl-daily.timer:7), 25 minutes before a Sunday 13:00 ET kickoff's T-35 at 16:25.
     - nfl-lines at 15:00 (sp-nfl-lines.timer:7) and nfl-predict at Sun 14:00 (sp-nfl-predict.timer:8).
     - ncaa-market at Sat 13:00 (sp-ncaa-market.timer:15); ncaa-schedule at 10:35/22:35 (sp-ncaa-schedule.timer:10).
@@ -138,15 +138,15 @@
   - P2, the watch command: the host's unit runs `closing-watch --family NFL --family SOCCER`, never bare (section 5). preflight takes the same `--family` list.
   - P3, the units:
     - Ship `sp-closing-watch.service` and `sp-closing-watch.timer` disabled. The timer has one `OnCalendar` per minute over hours 00..03,06..23 UTC (the window timer's hours), `Persistent=false` and `AccuracySec=1s`.
-    - The service has no `OnFailure=`: the watch notifies its own failures, refusals and misses. A bound such as `TimeoutStartSec=2h` is for the architect to set.
+    - The watch notifies its own refusals, misses and run failures, but only once its Python process is running: an import or startup failure, an unhandled exception and a `TimeoutStartSec` kill never reach that code. So the service keeps an external failure path: `OnFailure=sp-notify@closing-watch.service` (the house pattern, sp-chain@.service:7), with `SuccessExitStatus=2` so that a refusal the watch has already receipted and notified (exit 2, closing.py:1281-1290) does not page again every minute (section 5). `sp_notify.unit_for` maps an unknown instance to `sp-chain@<instance>.service` (sp_notify.py:26-29), so `closing-watch` needs its own entry there, mapping it to `sp-closing-watch.service`: one line and one test. A bound such as `TimeoutStartSec=2h` is for the architect to set.
     - Amend the T11 test with a third list, held until the cutover ruling. That is a test change, and it is named here so it is ruled, not slipped in.
   - P4, the runbook: a host step written now and run on the cutover ruling's word:
-    - `install`, `daemon-reload`, `enable --now sp-closing-watch.timer`, and the append to `timers.enabled`;
-    - then `closing-watch --dry-run`, and one `closing.py test-page` as sp.
-    - The receipts: next elapse, the dry run, the test page accepted.
+    - first, before anything is enabled: the family-scoped preflight (`--family NFL --family SOCCER`, P2), which runs the mirror, backup-folder and card-topic refusal checks that `closing-watch --dry-run` does not; one `closing.py test-page` as sp; and `closing-watch --family NFL --family SOCCER --dry-run`;
+    - only when all three pass: `install`, `daemon-reload`, `enable --now sp-closing-watch.timer`, and the append to `timers.enabled`;
+    - The receipts: the preflight, the test page accepted, the dry run, then the timer's next elapse.
   - P5, the laptop:
     - `setup_closing_watch.sh --family MLB` writes the families into the plist and its preflight.
     - On the cutover day the operator reinstalls it with `--family MLB` **before** the host timer is enabled, at a moment when no NFL or PL start time is within 35 minutes. Receipts: the laptop's `closing-watch --dry-run` lists MLB only, then the host's lists NFL and SOCCER.
-  - P6, read before ruling (read-only, no build): the host's `kind: chain` `duration_s` for window, soccer-prematch, nhl-daily, nfl-lines and nfl-predict over the parallel weeks. That shows how often a closing would wait, and P3's timeout follows from it.
+  - P6, read before ruling (read-only, no build): the host's `kind: chain` `duration_s` for window, soccer-prematch, nhl-daily, nfl-lines and nfl-predict over the parallel weeks. It is an upper bound, not a lock-hold time: the clock starts before `db_lock()` is taken, so it includes any wait for another holder, and it runs on through the window page and the freshens outside the first hold (sp_run.py:443-478). It can show that a chain never holds the lock long enough to matter. It cannot show how often a closing would wait. If it does not settle the question, measuring that needs the lock's own acquire and release times in the receipt: a build, for a ruling. P3's timeout follows from whichever the architect accepts.
   - P7, for a ruling, no build proposed: whether a closing run's own backup should exclude `_pre` event backups and check the sidecar, as sp_backup's `todays_daily` does (section 2(a)).
   - Left as built: the screen half off macOS (recorded as skipped) and the backup folder and date rule (section 2).

@@ -2003,7 +2003,7 @@ def test_392_4233123800_a_called_off_game_of_a_failed_attempt_is_paged_on_the_re
     r = runs("SOCCER")[-1]
     assert r["start"] == at(35) and r["attempt"] == 2 and [x["match_id"] for x in r["covers"]] == [401, 402]
     assert "Arsenal Visitors @ Arsenal · CANCELLED" in call_pages(box)[-1]["body"].splitlines()
-    assert mc.unpaged_called_off("SOCCER") == []                     # carried on an accepted page: done
+    assert mc.unpaged_called_off("SOCCER", NOW + timedelta(minutes=1)) == []   # carried on an accepted page: done
 
 
 def test_392_4233123800_a_start_time_left_with_only_called_off_games_still_forms_a_group(box, monkeypatch):
@@ -2020,3 +2020,66 @@ def test_392_4233123800_a_start_time_left_with_only_called_off_games_still_forms
     assert call_pages(box)[-1]["body"].splitlines()[1:] == ["Arsenal Visitors @ Arsenal · CANCELLED",
                                                             "Fulham Visitors @ Fulham · POSTPONED", "PASS: 0 games"]
     assert mc.watch(now=NOW + timedelta(minutes=2), families=("SOCCER",)) == 0 and len(runs("SOCCER")) == 2
+
+
+# ============================================================================= #390 items 6 and 7 (addendum 28) ==
+
+def test_390_6_a_game_a_successful_run_paged_whose_stored_start_then_moves_runs_at_its_new_start(box):
+    """#390 item 6 (ARCHITECT 2026-10-09, addendum 28 item 2, RULED): "A game is finished with at the start time it was
+    covered at, and at no other. When its stored start is no longer the start a receipt covered it at, that receipt
+    says nothing about it: it is a new start time for the watch, whether the receipt was a success or the last of
+    three attempts." A successful run pages 304 at 13:01 ET; the stored start then moves to 14:00 ET (the makeup of a
+    rained-out game keeps its id): the new start forms its group and runs. Fails on ed5ecbb (covered_ids is a set of
+    match ids: 304 was finished with for good, no group, no closing and no miss)."""
+    assert mc.watch(now=NOW, families=("NFL",)) == 0
+    r = runs("NFL")[-1]
+    assert r["exit"] == 0 and 304 in [x["match_id"] for x in r["covers"]] and 304 in mc.covered_ids("NFL")
+    set_start(box.db, 304, 95)                                       # stored later, after the page went out
+    doc_start(box, "NFL", 304, 95)
+    assert 304 not in mc.covered_ids("NFL")
+    d = mc.due("NFL", NOW + timedelta(minutes=60))
+    assert [[g["match_id"] for g in x["games"]] for x in d["due"]] == [[304]]
+    assert mc.watch(now=NOW + timedelta(minutes=60), families=("NFL",)) == 0
+    r2 = runs("NFL")[-1]
+    assert r2["start"] == at(95) and r2["attempt"] == 1 and r2["exit"] == 0
+    assert [x["match_id"] for x in r2["covers"]] == [304] and len(call_pages(box)) == 2
+    assert 304 in mc.covered_ids("NFL")                              # finished with at its new start
+
+
+def test_390_6_a_game_paged_as_postponed_then_stored_scheduled_at_a_new_start_runs_there(box, monkeypatch):
+    """#390 item 6: "A game paged as cancelled or postponed and later stored as scheduled at another start is such a
+    game." The run pages 301 as POSTPONED at 13:00 ET; the provider later stores it SCHEDULED at 14:00 ET: the new
+    start forms its group and runs. Fails on ed5ecbb (the postponed page finished 301 for good)."""
+    status_on_next_schedule_read(box, monkeypatch, {301: "POSTPONED"})
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == 0
+    r = runs("NFL")[-1]
+    assert [(x["match_id"], x["status"]) for x in r["called_off"]] == [(301, "POSTPONED")]
+    assert "Buffalo Visitors @ Buffalo · POSTPONED" in call_pages(box)[-1]["body"]
+    set_start(box.db, 301, 95)
+    set_status(box.db, 301, "SCHEDULED")
+    doc_start(box, "NFL", 301, 95)
+    assert 301 not in mc.covered_ids("NFL")
+    assert mc.watch(now=NOW + timedelta(minutes=60), families=("NFL",)) == 0
+    r2 = runs("NFL")[-1]
+    assert r2["start"] == at(95) and r2["attempt"] == 1 and r2["exit"] == 0
+    assert [x["match_id"] for x in r2["covers"]] == [301] and "called_off" not in r2
+    assert any(x["match_id"] == 301 for x in r2["desk_rows"])
+
+
+def test_390_7_an_unpaged_called_off_game_leaves_the_watch_with_the_schedule_window(box, monkeypatch, capsys):
+    """#390 item 7 (addendum 28 item 2, a nit): "unpaged_called_off reads every receipt the family has. A game recorded
+    as called off at a start time that ended with one or two failed attempts is added to the watch's games on every
+    tick from then on [...] closing-watch --dry-run lists it for good and the list only grows. Bound it to the window
+    schedule() reads." One failed attempt finds 401 cancelled; inside schedule()'s six hours it is still a game of the
+    watch, seven hours on it is not, and the dry run no longer lists it. Fails on ed5ecbb (401 listed for good)."""
+    status_on_next_schedule_read(box, monkeypatch, {401: "CANCELLED"})
+    box.fail_cmd["predict"] = (1, ["boom"])
+    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    assert [x["match_id"] for x in runs("SOCCER")[-1]["called_off"]] == [401]
+    box.fail_cmd.clear()
+    assert 401 in [g["match_id"] for g in mc.due("SOCCER", NOW + timedelta(hours=5))["games"]]
+    later = NOW + timedelta(hours=7)
+    assert 401 not in [g["match_id"] for g in mc.due("SOCCER", later)["games"]]
+    capsys.readouterr()
+    assert mc.watch(dry_run=True, now=later, families=("SOCCER",)) == 0
+    assert "match 401 " not in capsys.readouterr().out

@@ -157,9 +157,17 @@ def clock() -> datetime:
 
 # --------------------------------------------------------------------------------------------- schedule --
 
-def schedule(fam: str, now: datetime, hours: int = 6) -> list[dict]:
+SCHEDULE_HOURS = 6           # schedule()'s window: the stored games within 6 hours either side of `now`
+
+
+def schedule_window(now: datetime, hours: int = SCHEDULE_HOURS) -> tuple[datetime, datetime]:
+    """[lo, hi): the window schedule() reads (#390 item 7: unpaged_called_off is bounded to it too)."""
+    return utc(now) - timedelta(hours=hours), utc(now) + timedelta(hours=hours)
+
+
+def schedule(fam: str, now: datetime, hours: int = SCHEDULE_HOURS) -> list[dict]:
     """The family's stored schedule around `now`, read-only (mode=ro). No network. Status is the stored enum name."""
-    lo, hi = (utc(now) - timedelta(hours=hours)), (utc(now) + timedelta(hours=hours))
+    lo, hi = schedule_window(now, hours)
     fmt = "%Y-%m-%d %H:%M:%S"
     comps = FAMILIES[fam]["comps"]
     con = c.ro_connect(c.db_path())
@@ -242,34 +250,74 @@ def closing_state(fam: str, start: str) -> dict:
     return {"success": any(r.get("exit") == 0 for r in runs), "attempts": len(runs), "misses": len(misses)}
 
 
+def stored_starts(ids) -> dict:
+    """{match_id: its stored start (aware UTC)}, read-only by match id, any window, any status. A game no longer
+    stored is absent."""
+    ids = sorted({i for i in ids if i is not None})
+    if not ids:
+        return {}
+    con = c.ro_connect(c.db_path())
+    try:
+        rows = con.execute(f"SELECT id, utc_date FROM matches WHERE id IN ({','.join('?' * len(ids))})",
+                           ids).fetchall()
+    finally:
+        con.close()
+    out = {}
+    for i, d in rows:
+        try:
+            out[i] = parse_utc(d)
+        except (TypeError, ValueError):
+            continue                  # law 4: an unreadable start is no start a receipt covered
+    return out
+
+
 def covered_ids(fam: str) -> set:
     """The games a closing has finished with. Codex 4232719331 (ARCHITECT 2026-10-09, addendum 26 item 2(a)): "A game
     is finished with at a start time when a successful attempt for that start time covered it, or when the start time
     has had three attempts and the last of them covered it. An earlier attempt's covers count for nothing on their
     own." C (addendum 23): a game that left a run because its start moved is a new start time for the watch, never
-    finished with at the old one (a run's `covers` are the games left in it; `moved` names the ones that left)."""
+    finished with at the old one (a run's `covers` are the games left in it; `moved` names the ones that left).
+    #390 item 6 (ARCHITECT 2026-10-09, addendum 28 item 2, RULED): "A game is finished with at the start time it was
+    covered at, and at no other. When its stored start is no longer the start a receipt covered it at, that receipt
+    says nothing about it: it is a new start time for the watch, whether the receipt was a success or the last of
+    three attempts. A game paged as cancelled or postponed and later stored as scheduled at another start is such a
+    game." So a finishing receipt finishes a game at the start its cover recorded (`covers[].start`), and the game is
+    returned only while its stored start (re-read by match id) is still that start. A cover with no readable start,
+    or a game no longer stored, is finished with nowhere (law 4)."""
     by_start: dict = {}
     for r in _attempts(fam):
         by_start.setdefault(r.get("start"), []).append(r)
 
     def left_in(r: dict) -> set:
         gone = {x.get("match_id") for x in r.get("moved") or []}
-        return {x.get("match_id") for x in r.get("covers") or [] if x.get("match_id") not in gone}
-    out = set()
+        out_ = set()
+        for x in r.get("covers") or []:
+            if x.get("match_id") in gone:
+                continue
+            try:
+                out_.add((x.get("match_id"), parse_utc(x["start"])))
+            except (KeyError, TypeError, ValueError):
+                continue
+        return out_
+    done = set()
     for rs in by_start.values():
         for r in rs:                  # a successful attempt's covers
             if r.get("exit") == 0:
-                out |= left_in(r)
+                done |= left_in(r)
         if len(rs) >= MAX_ATTEMPTS:   # three attempts: the last one's covers, and only its
-            out |= left_in(rs[-1])
-    return out
+            done |= left_in(rs[-1])
+    now_at = stored_starts(mid for mid, _ in done)
+    return {mid for mid, at in done if mid in now_at and now_at[mid] == at}
 
 
-def unpaged_called_off(fam: str) -> list[dict]:
+def unpaged_called_off(fam: str, now: datetime, hours: int = SCHEDULE_HOURS) -> list[dict]:
     """Codex 4233123800 (#392): a covered game an attempt found cancelled or postponed (`called_off`) leaves
     schedule(), which drops every VOID status, so the watch would never page its line if that attempt failed. It stays
     a game of its start time, in the schedule's shape at the start it was covered at, until that start time has a
-    successful attempt (whose page carried its line) or three attempts."""
+    successful attempt (whose page carried its line) or three attempts. #390 item 7 (addendum 28 item 2): bounded to
+    the window schedule() reads at `now` (covered_start in [now - hours, now + hours)), so a start time that ended
+    with one or two failed attempts is not added to the watch's games for good."""
+    lo, hi = schedule_window(now, hours)
     by_start: dict = {}
     for r in _attempts(fam):
         by_start.setdefault(r.get("start"), []).append(r)
@@ -280,8 +328,11 @@ def unpaged_called_off(fam: str) -> list[dict]:
         for r in rs:
             for x in r.get("called_off") or []:
                 try:
+                    st = parse_utc(x["covered_start"])
+                    if not (lo <= st < hi):
+                        continue
                     out.setdefault(x["match_id"], {
-                        "match_id": x["match_id"], "start": parse_utc(x["covered_start"]),
+                        "match_id": x["match_id"], "start": st,
                         "status": str(x.get("status") or "").upper(), "home": x.get("home"), "away": x.get("away"),
                         "home_team_id": None, "away_team_id": None})
                 except (KeyError, TypeError, ValueError):
@@ -289,11 +340,12 @@ def unpaged_called_off(fam: str) -> list[dict]:
     return list(out.values())
 
 
-def with_called_off(fam: str, games: list[dict]) -> list[dict]:
-    """The stored schedule plus the unpaged called-off games of the family (not already in it): what the watch, the
-    plan and the run's covers read. The run's own checks (missing from export, started) keep reading schedule()."""
+def with_called_off(fam: str, games: list[dict], now: datetime) -> list[dict]:
+    """The stored schedule at `now` plus the unpaged called-off games of the family in the same window (not already
+    in it): what the watch, the plan and the run's covers read. The run's own checks (missing from export, started)
+    keep reading schedule()."""
     have = {g["match_id"] for g in games}
-    extra = [g for g in unpaged_called_off(fam) if g["match_id"] not in have]
+    extra = [g for g in unpaged_called_off(fam, now) if g["match_id"] not in have]
     return sorted(games + extra, key=lambda g: (g["start"], g["match_id"])) if extra else games
 
 
@@ -1160,7 +1212,7 @@ def plan(fam: str, now: datetime, start: str | None) -> dict:
     """The target start time and the games it covers, from the stored schedule (read-only). `refused` when there is
     nothing to close. A manual run with no --start targets the next unstarted start within 90 minutes (#370, accepted
     as built); a watch-started run passes its start time."""
-    games = with_called_off(fam, schedule(fam, now))      # Codex 4233123800
+    games = with_called_off(fam, schedule(fam, now), now)      # Codex 4233123800
     if start:
         s = parse_utc(start)
         if not any(g["start"] == s and not started(g, now) for g in games):
@@ -1510,7 +1562,7 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
             record_miss(fam, start, "the lock came inside T-5", detail=f"lock held at {iso_z(held)}")
             print(f"✗ {fam} {et(s)}: the lock came inside T-5 — no attempt; miss recorded")
             return 1
-    games = with_called_off(fam, schedule(fam, held))     # Codex 4233123800
+    games = with_called_off(fam, schedule(fam, held), held)     # Codex 4233123800
     covers = cover(games, s, held)
     rec = {**base, "start": start, "start_et": et(s), "covers": _covers_rec(covers or p["covers"]),
            "attempt": closing_state(fam, start)["attempts"] + 1, "queued_at": base["queued_at"],
@@ -1637,7 +1689,7 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
 
 def due(fam: str, now: datetime) -> dict:
     """The watch's view of one family at `now` (no network): its start times (C2 groups), and which is due."""
-    games = with_called_off(fam, schedule(fam, now))      # Codex 4233123800
+    games = with_called_off(fam, schedule(fam, now), now)      # Codex 4233123800
     gr = groups(games, now, covered_ids(fam))
     out = {"games": games, "groups": gr, "due": [], "inside": []}
     for g in gr:

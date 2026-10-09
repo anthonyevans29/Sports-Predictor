@@ -84,8 +84,23 @@ def line_move(snaps, kickoff: datetime, now: datetime,
         venues[venue] = {"from": round(ref[1], 4), "to": round(cur[1], 4), "move_pp": mv,
                          "from_at": ref[0].isoformat(), "to_at": cur[0].isoformat(),
                          "alarm": abs(mv) >= threshold_pp}
+        if venue == "book":
+            # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4): beside each book
+            # capture time, the provider's own update time of that capture's
+            # snapshots (the oldest where they differ; null = unknown, never fresh)
+            venues[venue]["from_source_updated_at"] = _book_source_time(snaps, ref[0])
+            venues[venue]["to_source_updated_at"] = _book_source_time(snaps, cur[0])
     return {"flag": LATE_NEWS_FLAG if any(v["alarm"] for v in venues.values()) else None,
             "threshold_pp": threshold_pp, "window_h": window_h, "venues": venues}
+
+
+def _book_source_time(snaps, t: datetime) -> str | None:
+    """The source time of the book capture at `t` (the rows _series reads for
+    the book venue at that stamp), isoformat like from_at / to_at, or None."""
+    from src.timeutil import oldest_source_time
+    rows = [x for x in snaps if x.captured_at == t and x.source != "kalshi" and x.market == "1X2"]
+    v = oldest_source_time(rows)
+    return v.isoformat() if v else None
 
 
 def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:

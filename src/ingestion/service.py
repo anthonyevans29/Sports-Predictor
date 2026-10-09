@@ -2086,23 +2086,30 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
                            selection=ow.selection, bookmaker=ow.bookmaker,
                            price_decimal=ow.price_decimal, line=ow.line,
                            source=ad.source_name,
-                           captured_at=fetched_at))
+                           captured_at=fetched_at,
+                           # the provider's own time (addendum 32 item 4); None = unknown
+                           source_updated_at=ow.source_updated_at))
                 created += 1
             games += 1
             games_by_comp[comp_of(m)] = games_by_comp.get(comp_of(m), 0) + 1
             by_sel: dict[str, list[tuple[str, float]]] = {}
+            used = []
             for ow in rows:
                 if ow.market == "1X2":
                     by_sel.setdefault(ow.selection, []).append((ow.bookmaker, ow.price_decimal))
+                    used.append(ow)
             implied = MarketSnapshot(market="1X2", by_selection=by_sel).average_implied() if by_sel else {}
             over = sum(implied.values())
             if over > 0:
                 stamp = fetched_at
                 n_books = max(len(v) for v in by_sel.values())
+                from src.timeutil import oldest_source_time
+                src_upd = oldest_source_time(used)
                 for sel, prob in implied.items():
                     s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel,
                                        devig_prob=prob / over, line=None, n_books=n_books,
-                                       captured_at=stamp, source=ad.source_name))
+                                       captured_at=stamp, source=ad.source_name,
+                                       source_updated_at=src_upd))
                     snapshots += 1
     if deferred_total:
         report(f"  rate limit: {deferred_total} game(s) deferred ({deferred_label}) · {recovered} recovered after the "

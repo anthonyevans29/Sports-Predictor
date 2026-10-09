@@ -1,8 +1,11 @@
 """ncaa-elo-v1r GATE + CONFIRMATION (ARCHITECT 2026-10-08, addendum 11 item 3, PR B). Synthetic data only: no test
 reads data/, runs the real gate or touches the real registry (every registry write goes to a tmp ledger).
-Pins: --preflight scores nothing and prints the per-season census / neutral count / coverage / D4 baseline; the run
-refuses without 2024 + 2025 coverage (each season named), without the word, while an item is open; the reservation is
-written after the #329 guard and before the first read; one run; INVALID under 500; each D5 criterion fails on its
+Pins: --preflight scores nothing and prints the per-season census / neutral count / coverage / D4 baseline, and ends
+with the stream fingerprint (addendum 17 item 1); the run refuses without 2024 + 2025 coverage (each season named),
+without the word, without the fingerprint, on a fingerprint that no longer matches the stream and on a scored set under
+500 (addendum 17 item 2), each before the reservation with nothing written; no OPEN_ITEMS gate; the reservation is
+written after the #329 guard and before the first game is scored, carrying the word and the fingerprint; one run; each
+D5 criterion fails on its
 own (margin tie rejects; level; slope incl. non-convergence; rating range); no 2026 game scored; non-regular 2025
 walked, never scored; the D4 baseline is 2024 'regular' non-neutral; D7 freeze / substitute / pending / record and
 the CONFIRMED logic with the 0.6931 bar."""
@@ -243,16 +246,23 @@ def ledger(tmp_path, monkeypatch):
     return p
 
 
+def _v(games=None):
+    return nb.v1r_stream(games if games is not None else calibrated()[0], {}, {s_: AT for s_ in nb.V1R_SEASONS})
+
+
+def FP(games=None):
+    """The fingerprint --preflight would print for this synthetic stream."""
+    return vg.stream_fingerprint(_v(games).games)[0]
+
+
 def _ready(monkeypatch, games=None, cov=None):
-    monkeypatch.setattr(vg, "OPEN_ITEMS", ())
     monkeypatch.setattr(vg, "coverage", lambda seasons, s=None: cov or _cov())
     seen = {}
 
     def load(*a, **k):
         seen["reserved_at_read"] = os.path.exists(vg.reservation_path())
         seen["reads"] = seen.get("reads", 0) + 1
-        g = games if games is not None else calibrated()[0]
-        return nb.v1r_stream(g, {}, {s_: AT for s_ in nb.V1R_SEASONS})
+        return _v(games)
     monkeypatch.setattr(nb, "load_v1r_stream", load)
     return seen
 
@@ -260,31 +270,37 @@ def _ready(monkeypatch, games=None, cov=None):
 def test_run_refuses_without_coverage_naming_each_season_before_any_read(ledger, monkeypatch):
     seen = _ready(monkeypatch, cov=_cov(ok=(), present=("2025",)))
     with pytest.raises(vg.GateRefused) as ex:
-        vg.run("go")
+        vg.run("go", FP())
     msg = str(ex.value)
     assert "2024 (not computed)" in msg and "2025 80.0% (80/100)" in msg and "2026" not in msg.split("covered: ")[1]
     assert not seen and not os.path.exists(vg.reservation_path())
     seen = _ready(monkeypatch, cov=_cov(ok=("2024", "2025"), present=("2024", "2025")))   # 2026 not needed
-    vg.run("go")
+    vg.run("go", FP())
     assert seen["reads"] == 1
 
 
-def test_run_refuses_without_the_word_and_while_an_item_is_open(ledger, monkeypatch):
+def test_run_refuses_without_the_word_or_the_fingerprint_before_any_read(ledger, monkeypatch):
     seen = _ready(monkeypatch)
     for word in (None, "", "   "):
         with pytest.raises(vg.GateRefused, match="architect's word"):
-            vg.run(word)
-    monkeypatch.setattr(vg, "OPEN_ITEMS", ("D6 census",))
-    with pytest.raises(vg.GateRefused, match="open items"):
-        vg.run("go")
-    assert vg.OPEN_ITEMS != () and not seen and not os.path.exists(vg.reservation_path())
+            vg.run(word, FP())
+    for fp in (None, "", "   "):
+        with pytest.raises(vg.GateRefused, match="--stream-fingerprint"):
+            vg.run("go", fp)
+    assert not seen and not os.path.exists(vg.reservation_path())
 
 
-def test_shipped_code_has_the_census_item_open():
-    assert vg.OPEN_ITEMS and "census" in vg.OPEN_ITEMS[0]       # emptied only by a PR quoting the architect
+def test_there_is_no_open_items_gate(ledger, monkeypatch):
+    """Addendum 17 item 1 (verbatim): "There is no OPEN_ITEMS gate: one lock is enough, and this is the one that
+    leaves my word in the record." The shipped code runs on the word and the fingerprint alone."""
+    assert not hasattr(vg, "OPEN_ITEMS")
+    assert "OPEN_ITEMS" not in vg.run.__code__.co_names + vg.preflight_lines.__code__.co_names
+    _ready(monkeypatch)
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda eid, no_fetch=False, repo=None: "stub")
+    assert vg.run("go", FP())["n_scored"] == 600
 
 
-def test_reservation_after_the_guard_and_before_the_first_read(ledger, monkeypatch):
+def test_reservation_after_the_guard_and_the_fingerprint_check_and_before_the_first_score(ledger, monkeypatch):
     seen = _ready(monkeypatch)
     order = []
 
@@ -292,28 +308,123 @@ def test_reservation_after_the_guard_and_before_the_first_read(ledger, monkeypat
         order.append(("guard", eid, no_fetch, os.path.exists(vg.reservation_path())))
         return "cross-ref guard: stub"
     monkeypatch.setattr(reg, "cross_ref_guard", guard)
-    vg.run("the word", no_fetch=True)
-    assert order == [("guard", "ncaa-elo-v1r", True, False)]
-    assert seen == {"reserved_at_read": True, "reads": 1}
+    real = vg.run_gate
+
+    def gate(games, model=None):
+        order.append(("score", os.path.exists(vg.reservation_path())))
+        return real(games, model)
+    monkeypatch.setattr(vg, "run_gate", gate)
+    fp = FP()
+    r = vg.run("the word", fp, no_fetch=True)
+    assert order == [("guard", "ncaa-elo-v1r", True, False), ("score", True)]
+    assert seen == {"reserved_at_read": False, "reads": 1}           # loaded once, before the reservation
     saved = json.load(open(vg.reservation_path()))
     assert saved["id"] == "ncaa-elo-v1r" and saved["architect_word"] == "the word" and saved["guard"]
+    assert saved["stream_fingerprint"] == fp and saved["scored_set_n"] == 600
+    assert r["stream_fingerprint"] == fp
 
 
-def test_guard_refusal_means_no_reservation_and_no_read(ledger, monkeypatch):
-    seen = _ready(monkeypatch)
+def test_guard_refusal_means_no_reservation_and_nothing_scored(ledger, monkeypatch):
+    _ready(monkeypatch)
 
     def refuse(eid, no_fetch=False, repo=None):
         raise reg.CrossRefRefused(f"{eid}: a reservation on ref remotes/origin/laptop/x at commit abc")
     monkeypatch.setattr(reg, "cross_ref_guard", refuse)
+
+    def no(*a, **k):
+        raise AssertionError("scored after a guard refusal")
+    monkeypatch.setattr(vg, "run_gate", no)
     with pytest.raises(vg.GateRefused, match="laptop/x at commit abc"):
-        vg.run("go")
-    assert not os.path.exists(vg.reservation_path()) and not seen
+        vg.run("go", FP())
+    assert not os.path.exists(vg.reservation_path())
+
+
+def test_a_mismatched_fingerprint_refuses_before_the_reservation(ledger, monkeypatch):
+    """Addendum 17 item 1: "refuses, before the reservation, when the stream it is about to walk no longer matches"."""
+    import cli
+    before = Path(ledger).read_bytes()
+    games = calibrated()[0]
+    old = FP(games)
+    changed = [g if g.match_id != 15 else nb.Game(**{**g.__dict__, "home_score": 3}) for g in games]
+    _ready(monkeypatch, games=changed)
+    guarded = []
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: guarded.append(1) or "stub")
+
+    def no(*a, **k):
+        raise AssertionError("scored on a stream that does not match the word")
+    monkeypatch.setattr(vg, "run_gate", no)
+    res = CliRunner().invoke(cli.cli, ["ncaa-v1r-gate", "--architect-word", "Run it.", "--stream-fingerprint", old])
+    assert res.exit_code == 2, res.output
+    assert "REFUSED" in res.output and "no longer matches" in res.output and old in res.output
+    assert FP(changed) in res.output
+    assert not os.path.exists(vg.reservation_path()) and not guarded
+    assert Path(ledger).read_bytes() == before and not os.path.exists(reg.IDS_DIR)
+    res = CliRunner().invoke(cli.cli, ["ncaa-v1r-gate", "--architect-word", "Run it."])     # required
+    assert res.exit_code == 2 and "--stream-fingerprint" in res.output
+    assert not os.path.exists(vg.reservation_path())
+
+
+def test_a_scored_set_under_500_refuses_before_the_reservation_and_records_nothing(ledger, monkeypatch):
+    """Addendum 17 item 2 (verbatim): "If it numbers under 500 the run refuses before the reservation and records
+    nothing; no game has been scored." Level scores are not in the scored set."""
+    import cli
+    before = Path(ledger).read_bytes()
+    games, _ = stream(n_test=500)
+    level = nb.Game(**{**games[-1].__dict__, "home_score": 14, "away_score": 14})   # a level score: skipped (D2)
+    games = games[:-1] + [level]
+    assert len(vg.scored_set(_v(games).games)) == 499
+    _ready(monkeypatch, games=games)
+    guarded = []
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda *a, **k: guarded.append(1) or "stub")
+
+    def no(*a, **k):
+        raise AssertionError("a game was scored")
+    monkeypatch.setattr(vg, "run_gate", no)
+    monkeypatch.setattr(nb.NeutralRuleElo, "predict", no)
+    res = CliRunner().invoke(cli.cli, ["ncaa-v1r-gate", "--architect-word", "Run it.", "--stream-fingerprint",
+                                       FP(games)])
+    assert res.exit_code == 2, res.output
+    assert "REFUSED" in res.output and "499 < 500" in res.output and "the bar does not move" in res.output
+    assert not os.path.exists(vg.reservation_path()) and not guarded
+    assert Path(ledger).read_bytes() == before and not os.path.exists(reg.IDS_DIR)
+    assert reg.get("ncaa-elo-v1r", str(ledger))["run"] is None
+    games, _ = stream(n_test=500)                                   # exactly 500: the run proceeds
+    _ready(monkeypatch, games=games)
+    monkeypatch.setattr(vg, "run_gate", lambda g, model=None: {"n_scored": 500})
+    assert vg.run("go", FP(games))["n_scored"] == 500 and os.path.exists(vg.reservation_path())
+
+
+def test_the_fingerprint_is_stable_and_names_the_walked_stream_with_every_field_the_gate_reads():
+    games = calibrated()[0]
+    a, n = vg.stream_fingerprint(_v(games).games)
+    assert len(a) == 64 and int(a, 16) >= 0 and n == 610
+    assert vg.stream_fingerprint(_v(list(reversed(games))).games) == (a, n)     # same stream, any load order
+    assert vg.stream_fingerprint(_v(games).games)[0] == a                       # deterministic
+    assert vg.FINGERPRINT_FIELDS == ("match_id", "utc_date", "season", "season_type", "home_id", "away_id",
+                                     "home_score", "away_score", "neutral", "label_source")
+    g0 = next(g for g in games if g.season == "2025")
+    for field, value in (("match_id", 99_999), ("utc_date", g0.utc_date + timedelta(seconds=1)),
+                         ("season_type", "postseason"), ("home_id", 7), ("away_id", 7), ("home_score", 99),
+                         ("away_score", 0), ("neutral", True), ("label_source", "matches")):
+        g1 = nb.Game(**{**g0.__dict__, field: value})
+        changed = [g1 if g is g0 else g for g in games]
+        assert vg.stream_fingerprint(changed)[0] != a, field
+    moved = [nb.Game(**{**g.__dict__, "season": "2024", "cfbd_season": "2024"}) if g is g0 else g for g in games]
+    assert FP(moved) != a                                                        # the label season
+    # a field the gate never reads does not move it; neither does a 2026 game after the last 2025 game (not walked)
+    assert FP([nb.Game(**{**g.__dict__, "cfbd_id": 1, "stage": "x"}) for g in games]) == a
+    late = G(9999, 1, 2, "2026", datetime(2026, 9, 5), 30, 20)
+    assert FP(games + [late]) == a
+    early = G(9998, 1, 2, "2026", datetime(2025, 9, 1, 0, 30), 30, 20)          # walked: before the last 2025 game
+    assert FP(games + [early]) != a
 
 
 def test_one_run_recorded_and_a_second_refused(ledger, monkeypatch):
     import cli
     _ready(monkeypatch)
-    res = CliRunner().invoke(cli.cli, ["ncaa-v1r-gate", "--architect-word", "Run it. ARCHITECT 2026-10-09"])
+    fp = FP()
+    res = CliRunner().invoke(cli.cli, ["ncaa-v1r-gate", "--architect-word", "Run it. ARCHITECT 2026-10-09",
+                                       "--stream-fingerprint", fp])
     assert res.exit_code == 0, res.output
     want = vg.run_gate(calibrated()[0])["verdict"]                # the real D1 wrapper on the same stream
     assert f"VERDICT (computed; the architect rules): {want}" in res.output
@@ -321,26 +432,30 @@ def test_one_run_recorded_and_a_second_refused(ledger, monkeypatch):
     e = reg.get("ncaa-elo-v1r", str(ledger))
     assert e["status"] == "run" and e["run"]["n_scored"] == 600
     assert e["run"]["result"]["architect_word"] == "Run it. ARCHITECT 2026-10-09"
+    assert e["run"]["result"]["stream_fingerprint"] == fp                 # recorded beside the word
+    saved = json.load(open(vg.reservation_path()))
+    assert saved["architect_word"] == "Run it. ARCHITECT 2026-10-09" and saved["stream_fingerprint"] == fp
     ids = [int(x) for x in open(Path(reg.IDS_DIR) / "ncaa-elo-v1r.txt").read().split()]
     games = calibrated()[0]
     assert ids == sorted(g.match_id for g in games if g.season == "2025" and g.season_type == "regular")
-    again = CliRunner().invoke(cli.cli, ["ncaa-v1r-gate", "--architect-word", "again"])
+    again = CliRunner().invoke(cli.cli, ["ncaa-v1r-gate", "--architect-word", "again", "--stream-fingerprint", fp])
     assert again.exit_code == 2 and "REFUSED" in again.output and "read once" in again.output
     os.remove(vg.reservation_path())                         # even without the file, the registry refuses
     with pytest.raises(vg.GateRefused, match="declared and unrun"):
-        vg.run("again")
+        vg.run("again", fp)
 
 
 def test_an_interrupted_run_spends_the_reservation(ledger, monkeypatch):
     _ready(monkeypatch)
+    monkeypatch.setattr(reg, "cross_ref_guard", lambda eid, no_fetch=False, repo=None: "stub")
 
     def boom(*a, **k):
         raise KeyboardInterrupt
-    monkeypatch.setattr(nb, "load_v1r_stream", boom)
+    monkeypatch.setattr(vg, "run_gate", boom)
     with pytest.raises(KeyboardInterrupt):
-        vg.run("go")
+        vg.run("go", FP())
     with pytest.raises(vg.GateRefused, match="one run, recorded or not"):
-        vg.run("go")
+        vg.run("go", FP())
 
 
 def test_preflight_scores_nothing_and_prints_census_neutral_coverage_baseline(ledger, monkeypatch):
@@ -369,6 +484,13 @@ def test_preflight_scores_nothing_and_prints_census_neutral_coverage_baseline(le
     assert "test set if run now: 600 2025 'regular' games" in out
     assert "gate (2024, 2025) COVERED · confirmation (2024, 2025, 2026) NOT COVERED" in out
     assert "PREFLIGHT only: nothing scored" in out
+    assert "under 500 the run refuses before the reservation" in out
+    assert "open items" not in out
+    last = out.strip().splitlines()[-1]                                       # addendum 17 item 1: the last line
+    fp, n = vg.stream_fingerprint(_v(games).games)
+    assert last.startswith(f"STREAM FINGERPRINT {fp} ({n} games") and n == 611   # 2026 (Sep) not walked
+    again = CliRunner().invoke(cli.cli, ["ncaa-v1r-gate", "--preflight"])
+    assert again.output.strip().splitlines()[-1] == last                     # stable
     assert not os.path.exists(vg.reservation_path()) and Path(ledger).read_bytes() == before
     assert "realized" not in out and "log-loss" not in out                  # no 2025 outcome printed
 

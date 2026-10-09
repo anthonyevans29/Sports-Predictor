@@ -6549,18 +6549,24 @@ def ncaa_cfbd_coverage_cmd():
 @click.option("--architect-word", "word", default=None,
               help="The architect's word to start the ONE run, verbatim (D6: \"it starts only on my word\"); written "
                    "into the reservation and the run record. Required for the run.")
+@click.option("--stream-fingerprint", "fingerprint", default=None,
+              help="The stream fingerprint printed on --preflight's last line (addendum 17 item 1). Required for the "
+                   "run: it refuses, before the reservation, unless the 2024 and 2025 stream it is about to walk "
+                   "still matches; recorded beside the word.")
 @click.option("--no-fetch", "no_fetch", is_flag=True,
               help="Cross-ref guard (#329): skip fetching origin laptop/*; only the refs this clone knows are checked "
                    "and the receipt says other clones were not checked.")
-def ncaa_v1r_gate_cmd(preflight, word, no_fetch):
+def ncaa_v1r_gate_cmd(preflight, word, fingerprint, no_fetch):
     """ncaa-elo-v1r GATE (ARCHITECT 2026-10-08, addendum 11 item 3, D3-D6; GATE-CLASS). Warm-up 2024 (update only);
     test = the 2025 games whose season_type is exactly 'regular' (predict, then update); any other 2025 game walked,
     never scored; no 2026 game scored. Baseline = the 2024 non-neutral 'regular' home win rate (0.5 at a neutral
-    site), frozen first. Under 500 scored: INVALID. PASS iff (1) log-loss < baseline − 0.010 (strict, unrounded),
-    (2) |mean p − home rate| <= 5pp, (3) |slope − 1| <= 0.20 (non-convergence fails), (4) every rating after the last
-    2025 game in 1000-2000. Refused before any read unless declared and unrun, no open item, --architect-word given and
-    2024 + 2025 covered (L2 + L3); the reservation (after the #329 cross-ref guard) precedes the first read; ONE run,
-    recorded with its scored ids. #79's ncaa-backtest is unchanged. Spec: docs/specs/ncaa-elo-v1r.md."""
+    site), frozen first. PASS iff (1) log-loss < baseline − 0.010 (strict, unrounded), (2) |mean p − home rate| <=
+    5pp, (3) |slope − 1| <= 0.20 (non-convergence fails), (4) every rating after the last 2025 game in 1000-2000.
+    Refused (exit 2, nothing written) unless declared and unrun, --architect-word and --stream-fingerprint given and
+    2024 + 2025 covered (L2 + L3); then, the stream loaded and nothing scored, unless its fingerprint matches and the
+    scored set numbers >= 500 (addendum 17). The reservation (after the #329 cross-ref guard) carries the word and the
+    fingerprint and precedes the first game scored; ONE run, recorded with its scored ids. #79's ncaa-backtest is
+    unchanged. Spec: docs/specs/ncaa-elo-v1r.md."""
     from src.db.database import session_scope
     from src.walters import ncaa_backtest as nb
     from src.walters import ncaa_v1r_gate as vg
@@ -6575,8 +6581,8 @@ def ncaa_v1r_gate_cmd(preflight, word, no_fetch):
                 click.echo(line)
             return
         click.echo(f"NCAA-ELO-V1R · ONE RUN · candidate NCAAEloV1 (constants untouched) + D1 neutral rule · word: "
-                   f"{word!r}")
-        r = vg.run(word, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
+                   f"{word!r} · stream fingerprint {fingerprint!r}")
+        r = vg.run(word, fingerprint, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
     except vg.GateRefused as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)

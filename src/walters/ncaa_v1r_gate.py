@@ -6,11 +6,25 @@ pattern. #79's ncaa-backtest stays as it is." The declaration (D1-D9, verbatim):
 registry id `ncaa-elo-v1r` (docs/registry/experiments.json).
 
     ncaa-v1r-gate --preflight          scores nothing; per season the stream by season_type, the neutral count,
-                                       the coverage and the D4 baseline (D6)
-    ncaa-v1r-gate --architect-word T   the ONE run (D3-D6): refused unless declared and unrun, no open item, the
-                                       architect's word given, 2024 and 2025 covered; the reservation (after the
-                                       #329 cross-ref guard) is written BEFORE the first read of the stream; the
-                                       scored ids are recorded (registry.record_run)
+                                       the coverage and the D4 baseline (D6); its last line is the stream
+                                       fingerprint (addendum 17 item 1)
+    ncaa-v1r-gate --architect-word T --stream-fingerprint F
+                                       the ONE run (D3-D6): refused unless declared and unrun, the architect's word
+                                       given, 2024 and 2025 covered; then the stream is loaded (nothing scored) and
+                                       the run refuses unless its fingerprint is F and its scored set numbers >= 500
+                                       (addendum 17 items 1, 2); the reservation (after the #329 cross-ref guard),
+                                       carrying the word and the fingerprint, is written BEFORE the first game is
+                                       scored; the scored ids are recorded (registry.record_run)
+
+ADDENDUM 17 (ARCHITECT 2026-10-08 18:56 ET), item 1 (verbatim): "The run takes my word as --architect-word, verbatim,
+and writes it into the reservation and the run record. There is no OPEN_ITEMS gate: one lock is enough, and this is the
+one that leaves my word in the record. What the word needs is to refer to one stream. --preflight ends with one line, a
+fingerprint of the 2024 and 2025 stream exactly as the gate would walk it: the games in order, with every label field
+the gate reads. The run takes that fingerprint as a required option and refuses, before the reservation, when the
+stream it is about to walk no longer matches. The fingerprint is recorded beside the word."
+Item 2 (verbatim): "The scored set is known before any game is scored: the 2025 games whose season_type is exactly
+'regular', less the level scores. If it numbers under 500 the run refuses before the reservation and records nothing;
+no game has been scored. That is #79's rule: not scored, re-run later, the bar does not move."
     ncaa-v1r-confirm                   D7 on the intl-elo-confirm pattern: --freeze-cohort (once, via
                                        registry.freeze_confirmation_cohort, which calls the guard), --substitute
                                        (cancelled fixtures only), progress, --record --ruling (registry
@@ -41,18 +55,24 @@ COMPETITION = nb.NCAA_COMPETITION_CODE
 GATE_SEASONS = (nb.V1R_WARMUP, nb.V1R_TEST)          # D6: the gate run refuses unless 2024 and 2025 are covered
 CONFIRM_SEASONS = nb.V1R_SEASONS                       # D6: the confirmation read needs 2024, 2025 and 2026
 REGULAR = "regular"                                    # D3 / D4: season_type EXACTLY 'regular'
-MIN_SCORED = nb.MIN_TEST_N                             # D5: under 500 scored games the run is INVALID (#79's)
+MIN_SCORED = nb.MIN_TEST_N                             # D5 / addendum 17 item 2: under 500 the run refuses (#79's)
 LL_MARGIN = nb.LL_MARGIN                               # D5 (1): 0.010 (#79's), strict, unrounded, ties reject
 RATING_MIN, RATING_MAX = nb.RATING_MIN, nb.RATING_MAX  # D5 (4): 1000 to 2000 (#79's)
 CONFIRM_BAR = 0.6931                                   # D7: log-loss <= 0.6931
 
-# "it starts only on my word" (D6). On the soccer-expansion-v1 pattern (its OPEN_FINDINGS): the run refuses while
-# an item the architect must rule on is open. D6 (verbatim): "I confirm the season_type census before the run." This
-# tuple is emptied by a PR that quotes that confirmation; the run then still needs --architect-word (the word,
-# verbatim, written into the reservation and the run record).
-OPEN_ITEMS: tuple = (
-    "D6: the architect confirms the season_type census (ncaa-v1r-gate --preflight) before the run",
-)
+# The stream fingerprint (addendum 17 item 1): "the games in order, with every label field the gate reads". The
+# fields, each read by the walk (run_gate / NeutralRuleElo / NCAAEloV1.predict + update) or defining its order:
+#   match_id      the scored id (run_gate rows, scored_ids) and the order's tie-break (v1r_stream: kickoff, match id)
+#   utc_date      the stored kickoff: the walk's order (v1r_stream sorts by it)
+#   season        the label's season: the split (is_test, d4_baseline, the last 2025 game) and NCAAEloV1's regression
+#   season_type   the test set (is_test: exactly 'regular'), D4 and the not-scored census
+#   home_id, away_id   the J2 merged ids: NCAAEloV1's ratings, cold starts
+#   home_score, away_score   the outcome (home_win) and NCAAEloV1's margin of victory
+#   neutral       D1 (NeutralRuleElo.home_adv), D4 (non-neutral only) and the baseline's 0.5 at a neutral site
+#   label_source  NeutralRuleElo.update counts a cfbd label without a neutral flag (reported)
+FINGERPRINT_FIELDS = ("match_id", "utc_date", "season", "season_type", "home_id", "away_id", "home_score",
+                      "away_score", "neutral", "label_source")
+FINGERPRINT_TAG = f"{EID} stream fingerprint v1"
 
 
 class GateRefused(RuntimeError):
@@ -153,6 +173,37 @@ def is_test(g) -> bool:
     return g.season == nb.V1R_TEST and g.season_type == REGULAR
 
 
+def walked(games) -> list:
+    """The games the gate walks, in stream order: every stream game up to and including the last 2025 game (D3; the
+    end of the walk, addendum 17 item 3: "as built"). [] when the stream holds no 2025 game."""
+    last = max((i for i, g in enumerate(games) if g.season == nb.V1R_TEST), default=None)
+    return [] if last is None else list(games[:last + 1])
+
+
+def scored_set(games) -> list:
+    """Addendum 17 item 2: "the 2025 games whose season_type is exactly 'regular', less the level scores" (the D2
+    stream has already skipped the level scores). Known before any game is scored."""
+    return [g for g in walked(games) if is_test(g)]
+
+
+def _fp_value(v):
+    return v.strftime("%Y-%m-%dT%H:%M:%S.%f") if isinstance(v, datetime) else v
+
+
+def stream_fingerprint(games) -> tuple[str, int]:
+    """Addendum 17 item 1: sha256 over a canonical serialization of the stream exactly as the gate walks it (walked():
+    the 2024 and 2025 games, plus any 2026 game kicking off before the last 2025 game, which the walk updates on), in
+    walk order, each game carrying FINGERPRINT_FIELDS. JSON, sorted keys, no whitespace, one game per list entry.
+    Returns (hex digest, number of games)."""
+    import hashlib
+
+    w = walked(games)
+    body = {"tag": FINGERPRINT_TAG, "fields": list(FINGERPRINT_FIELDS),
+            "games": [[_fp_value(getattr(g, f)) for f in FINGERPRINT_FIELDS] for g in w]}
+    blob = json.dumps(body, sort_keys=True, separators=(",", ":"), ensure_ascii=True)
+    return hashlib.sha256(blob.encode("ascii")).hexdigest(), len(w)
+
+
 def d4_baseline(games) -> tuple[float | None, int]:
     """D4 (verbatim): "the home win rate of the stream's 2024 non-neutral games whose season_type is 'regular'". A
     label without a neutral flag is non-neutral (D1). (rate, n); rate None when n is 0."""
@@ -179,16 +230,17 @@ def run_gate(games, model=None) -> dict:
         out["verdict"] = (f"INVALID — no {nb.V1R_WARMUP} non-neutral 'regular' game in the stream: the D4 baseline "
                           "is undefined (nothing scored)")
         return out
-    last = max((i for i, g in enumerate(games) if g.season == nb.V1R_TEST), default=None)
-    if last is None:
+    walk = walked(games)                               # the walk ends after the last 2025 game walked
+    if not walk:
         out["verdict"] = f"INVALID — no {nb.V1R_TEST} game in the stream (nothing scored)"
         return out
+    last = len(walk) - 1
     model = model or nb.NeutralRuleElo()
     seen: set[int] = set()
-    walked, not_scored = Counter(), Counter()
+    by_season, not_scored = Counter(), Counter()
     rows = []                                          # (match_id, p, q, y, neutral, cold)
-    for g in games[:last + 1]:                          # the walk ends after the last 2025 game walked
-        walked[g.season] += 1
+    for g in walk:
+        by_season[g.season] += 1
         if is_test(g):
             cold = g.home_id not in seen or g.away_id not in seen
             p = model.predict(g)
@@ -201,8 +253,8 @@ def run_gate(games, model=None) -> dict:
     n = len(rows)
     out.update({
         "n_scored": n, "scored_ids": [r[0] for r in rows],
-        "walked_by_season": dict(sorted(walked.items())),
-        "walked_2026": walked.get("2026", 0),            # reported: 2026 games kicking off before the last 2025 game
+        "walked_by_season": dict(sorted(by_season.items())),
+        "walked_2026": by_season.get("2026", 0),            # reported: 2026 games kicking off before the last 2025 game
         "not_walked_after_last_2025": sum(1 for g in games[last + 1:]),
         "walked_not_scored_2025_by_season_type": dict(sorted(not_scored.items())),
         "neutral_updates": getattr(model, "neutral_updates", None),
@@ -243,7 +295,7 @@ def run_gate(games, model=None) -> dict:
         "ll_neutral": _mean([nb._ll(r[1], r[3]) for r in neu]), "n_neutral": len(neu),
         "ll_nonneutral": _mean([nb._ll(r[1], r[3]) for r in non]), "n_nonneutral": len(non),
     })
-    if n < MIN_SCORED:
+    if n < MIN_SCORED:     # pure backstop: run() refuses before the reservation (addendum 17 item 2)
         out["verdict"] = f"INVALID — {n} scored games < {MIN_SCORED} (D5; the criteria below are not a verdict)"
     elif all(crit.values()):
         out["verdict"] = ("PASS — the architect rules; PASS does not make college football a call (D8): the Desk "
@@ -254,7 +306,8 @@ def run_gate(games, model=None) -> dict:
 
 
 def result_record(r: dict, word: str) -> dict:
-    """The durable run record (registry run.result): everything but the scored ids (they are the sidecar)."""
+    """The durable run record (registry run.result): everything but the scored ids (they are the sidecar). The word
+    verbatim, and the stream fingerprint the run checked (r["stream_fingerprint"]) beside it (addendum 17 item 1)."""
     rec = {k: v for k, v in r.items() if k != "scored_ids"}
     rec["bands_79"] = [{**b, "stated": round(b["stated"], 6), "realized": round(b["realized"], 6),
                         "gap": round(b["gap"], 6)} for b in r.get("bands_79") or []]
@@ -269,6 +322,7 @@ def preflight(v, fbs: dict[str, dict]) -> dict:
     count, the coverage and the D4 baseline." Pure over a loaded stream: counts per season, and the D4 baseline (a
     2024 rate). No model is built; no 2025 or 2026 outcome is computed or printed."""
     rate, n_base = d4_baseline(v.games)
+    fp, fp_n = stream_fingerprint(v.games)
     per = {}
     for season in nb.V1R_SEASONS:
         walked = v.by_season(season)
@@ -276,7 +330,7 @@ def preflight(v, fbs: dict[str, dict]) -> dict:
                        "neutral": v.neutral[season], "no_neutral_flag": v.unflagged[season],
                        "level_scores": v.level_by_season[season], "coverage": fbs.get(season)}
     return {"seasons": per, "baseline_home_rate": rate, "baseline_n": n_base,
-            "test_n": sum(1 for g in v.games if is_test(g)),
+            "test_n": len(scored_set(v.games)), "fingerprint": fp, "fingerprint_n": fp_n,
             "gate_covered": not nb.coverage_misses(fbs, GATE_SEASONS),
             "confirm_covered": not nb.coverage_misses(fbs, CONFIRM_SEASONS),
             "stale": len(v.stale), "outside": dict(sorted(v.outside.items())),
@@ -301,37 +355,52 @@ def preflight_lines(pf: dict) -> list[str]:
     L.append(f"  D4 baseline (frozen before any test game is scored): {nb.V1R_WARMUP} non-neutral '{REGULAR}' home "
              f"win rate " + (f"{rate:.6f} (n {pf['baseline_n']})" if rate is not None else
                              f"UNDEFINED (n 0)") + " · 0.5 at a neutral site")
-    L.append(f"  test set if run now: {pf['test_n']} {nb.V1R_TEST} '{REGULAR}' games (D5: under {MIN_SCORED} the run "
-             "is INVALID)")
+    L.append(f"  test set if run now: {pf['test_n']} {nb.V1R_TEST} '{REGULAR}' games (addendum 17 item 2: under "
+             f"{MIN_SCORED} the run refuses before the reservation and records nothing)")
     L.append(f"  coverage: gate ({', '.join(GATE_SEASONS)}) {'COVERED' if pf['gate_covered'] else 'NOT COVERED — the run refuses'}"
              f" · confirmation ({', '.join(CONFIRM_SEASONS)}) {'COVERED' if pf['confirm_covered'] else 'NOT COVERED'}")
     L.append(f"  not walked: stale labels {pf['stale']} · current labels outside the seasons {pf['outside'] or 0} · "
              f"unlabelled or stale by season {pf['unlabelled'] or 0} · J2 merge groups {pf['merge_groups']}")
-    L.append("  open items (the run refuses until ruled): " + ("; ".join(OPEN_ITEMS) or "none"))
     L.append("PREFLIGHT only: nothing scored, nothing reserved, nothing recorded.")
+    L.append(f"STREAM FINGERPRINT {pf['fingerprint']} ({pf['fingerprint_n']} games: the {nb.V1R_WARMUP} and "
+             f"{nb.V1R_TEST} stream as the gate walks it; the run takes it as --stream-fingerprint)")
     return L
 
 
 # ------------------------------------------------------------------------------------------- the DB: the run --
 
-def run(word: str | None, no_fetch: bool = False, echo=None) -> dict:
-    """The ONE run (D6). Every precondition is checked BEFORE the reservation and before the first read of the
-    stream, so a refusal never follows a read: declared and unrun and unreserved; no open item; the architect's word
-    given (non-empty, verbatim); 2024 and 2025 covered (L2 + L3; ingest records and label counts only). Then the
-    reservation (after the cross-ref guard), then the first read (load_v1r_stream), the walk and the verdict. The
-    caller records the run (record())."""
+def run(word: str | None, fingerprint: str | None = None, no_fetch: bool = False, echo=None) -> dict:
+    """The ONE run (D6, addendum 17). Checked BEFORE the reservation, each refusal exit 2 with nothing written:
+    declared and unrun and unreserved; the architect's word given (non-empty, verbatim); the stream fingerprint
+    given; 2024 and 2025 covered (L2 + L3; ingest records and label counts only). Then the stream is loaded
+    (load_v1r_stream, the read --preflight makes; no model is built, nothing is scored) and the run refuses unless
+    its fingerprint equals `fingerprint` (item 1) and its scored set numbers >= 500 (item 2). Then the reservation
+    (after the cross-ref guard), carrying the word and the fingerprint, then the walk over that same loaded stream
+    and the verdict. The caller records the run (record())."""
     declared_unrun()
-    if OPEN_ITEMS:
-        raise GateRefused("open items need the architect's ruling before the run: " + "; ".join(OPEN_ITEMS))
     if not word or not str(word).strip():
         raise GateRefused("the run starts only on the architect's word (D6): pass --architect-word with it verbatim")
+    if not fingerprint or not str(fingerprint).strip():
+        raise GateRefused("the word refers to one stream (addendum 17 item 1): pass --stream-fingerprint with the "
+                          "last line of ncaa-v1r-gate --preflight")
     fbs = coverage(GATE_SEASONS)
     require_coverage(fbs, GATE_SEASONS, "the gate run")
-    reserve({"architect_word": word,
+    v = nb.load_v1r_stream()                           # the stream about to be walked; nothing scored
+    fp, fp_n = stream_fingerprint(v.games)
+    if fp != str(fingerprint).strip():
+        raise GateRefused(f"the stream no longer matches the fingerprint given (addendum 17 item 1): given "
+                          f"{str(fingerprint).strip()}, the stream about to be walked is {fp} ({fp_n} games); "
+                          "nothing reserved, nothing scored — re-run --preflight and take the architect's word on it")
+    n_test = len(scored_set(v.games))
+    if n_test < MIN_SCORED:
+        raise GateRefused(f"the scored set numbers {n_test} < {MIN_SCORED} (addendum 17 item 2, #79's rule): not "
+                          "scored, nothing reserved or recorded; re-run later, the bar does not move")
+    reserve({"architect_word": word, "stream_fingerprint": fp, "stream_games": fp_n, "scored_set_n": n_test,
              "coverage": {s_: c.get("share") for s_, c in fbs.items()}}, no_fetch=no_fetch, echo=echo)
-    # from here on, the one read is spent
-    v = nb.load_v1r_stream()
+    # from here on, the one run is spent
     r = run_gate(v.games)
+    r["stream_fingerprint"] = fp
+    r["stream_games"] = fp_n
     r["census"] = {s_: dict(sorted(c.items())) for s_, c in sorted(v.census.items())}
     r["level_scores_skipped"] = dict(sorted(v.level_by_season.items()))
     r["coverage"] = {s_: c.get("share") for s_, c in fbs.items()}
@@ -353,7 +422,11 @@ def run_lines(r: dict) -> list[str]:
         L.append(f"  walked {r['walked_by_season']} · {nb.V1R_TEST} walked, never scored (by season_type) "
                  f"{r['walked_not_scored_2025_by_season_type'] or 'none'} · after the last {nb.V1R_TEST} game, not "
                  f"walked {r['not_walked_after_last_2025']} · no {nb.V1R_SEASONS[-1]} game scored")
-    L.append(f"  scored: {r['n_scored']} {nb.V1R_TEST} '{REGULAR}' games (D5: under {MIN_SCORED} INVALID)")
+    if r.get("stream_fingerprint"):
+        L.append(f"  stream fingerprint {r['stream_fingerprint']} ({r.get('stream_games')} games walked), checked "
+                 "before the reservation and recorded beside the word")
+    L.append(f"  scored: {r['n_scored']} {nb.V1R_TEST} '{REGULAR}' games (addendum 17 item 2: under {MIN_SCORED} the "
+             "run refuses before the reservation)")
     if r.get("ll_model") is not None:
         L.append(f"  (1) margin: model log-loss {r['ll_model']:.6f} vs baseline {r['ll_baseline']:.6f} − "
                  f"{LL_MARGIN:.3f} = bar {r['bar']:.6f} (strict, unrounded; a tie rejects) -> {ok(r['crit_margin'])}")

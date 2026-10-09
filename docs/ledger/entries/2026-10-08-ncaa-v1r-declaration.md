@@ -55,7 +55,7 @@
   - Still never a Desk call. #79's all-division stream and gate are unchanged.
 - **Interpretations (ACCEPTED AS BUILT, addendum 15 item 4; formerly open to correction):**
   - A stream game's season is its label's (CFBD) season.
-  - The stream still starts from our FINISHED, scored rows.
+  - ~~The stream still starts from our FINISHED, scored rows.~~ WITHDRAWN. ARCHITECT 2026-10-08 19:23 ET, addendum 18 item 1 (verbatim): "#365, the ledger entry's reading list. 'The middle bullet, "The stream still starts from our FINISHED, scored rows", is WITHDRAWN (review round 1; my addendum 13), not accepted. Only readings (1) and (2) of the spec's section 6 were accepted in addendum 15 item 4.'"
   - Upcoming games keep the existing stage-marker skip.
 - **Not in this PR (PR B):** the gate command, `--preflight`, the reservation, the confirmation command.
 - **Stacks on #362** (CFBD scope + join + LABEL SET), which is not yet on main.

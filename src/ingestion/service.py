@@ -713,6 +713,12 @@ class IngestionService:
                     Match.status == MatchStatus.SCHEDULED,
                     Match.utc_date >= utc_now_naive(),
                 )
+            # #387 (ARCHITECT addendum 31 item 1): kickoff, then id, BEFORE the
+            # limit, so --limit N means the next N. --match-ids is unchanged: the
+            # CLI's default limit still caps a named list, so ordering it would
+            # change which named games are priced (Codex on #402).
+            if match_ids is None:
+                stmt = stmt.order_by(Match.utc_date, Match.id)
             candidates: list[Match] = []
             for match in s.execute(stmt).scalars():
                 source_id = (match.external_ids or {}).get(self.source)

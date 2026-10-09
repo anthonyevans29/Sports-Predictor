@@ -1,4 +1,4 @@
-## 2026-10-09 (#PENDING: soccer-expansion-v1 verdict: PASS, surviving set PD; confirmation window open)
+## 2026-10-09 (#379: soccer-expansion-v1 verdict: PASS, surviving set PD; confirmation window open)
 - The one gate run is spliced from the operator's branch `laptop/soccer-expansion-v1-run-record` (35135c4) by cherry-pick, byte for byte: the registry entry's run, `docs/registry/ids/soccer-expansion-v1.txt` (3,445 ids) and `docs/registry/soccer-expansion-v1.started.json`.
   - Candidate production v22 (rho -0.1, elo_goal_coeff 0.0008), run at 2026-10-09T12:24:56Z, no prior read.
 - The verdict is recorded with the architect's ruling verbatim (addendum 20).

@@ -221,6 +221,25 @@ def league():
         return {"up": up.id, "now": start + timedelta(days=60)}
 
 
+def test_shadow_label_a_dropped_league_ends_at_its_own_outcome():
+    """ARCHITECT addendum 24 item 5 (#391): a dropped league's row ends at its own outcome; the experiment's verdict
+    and the open confirmation are the surviving league's. Pinned on the registry's own recorded run."""
+    e = reg.get(sx.EID)
+    assert sx._status_label(e, "PD") == "PASS · verdict PASS · confirmation open"
+    for code in ("SA", "BL1", "FL1", "ELC"):
+        assert sx._status_label(e, code) == "DROPPED — calibration"
+
+
+def test_shadow_label_a_league_dropped_before_the_run_names_its_recorded_reason():
+    """Codex on #395: an F1 league has no per_league entry; its row reads its own pre-run outcome, never '?'."""
+    import copy
+    e = copy.deepcopy(reg.get(sx.EID))
+    e["run"]["result"]["dropped_before_run"] = {"ELC": "no complete stored baseline"}
+    e["run"]["result"]["per_league"].pop("ELC", None)
+    assert sx._status_label(e, "ELC") == "DROPPED before the run — no complete stored baseline"
+    assert sx._status_label(e, "PD") == "PASS · verdict PASS · confirmation open"
+
+
 def test_shadow_rows_carry_no_desk_call_and_write_no_prediction(league, monkeypatch, tmp_path):
     monkeypatch.setattr(sx, "CURRENT_SEASON", "2097/98")
     monkeypatch.setattr(reg, "get", lambda eid, path=None: DECLARED if eid == sx.EID else None)

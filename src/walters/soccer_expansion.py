@@ -495,9 +495,15 @@ def _status_label(e: dict | None, code: str) -> str:
         return "NOT DECLARED"
     if not e.get("run"):
         return "DECLARED — gate not run"
-    pl = ((e["run"].get("result") or {}).get("per_league") or {}).get(code) or {}
+    res = e["run"].get("result") or {}
+    pre = res.get("dropped_before_run") or {}
+    if code in pre:   # F1: dropped before the run, no per_league entry (Codex on #395)
+        return f"DROPPED before the run — {pre[code]}"
+    pl = (res.get("per_league") or {}).get(code) or {}
     v = (e.get("verdict") or {}).get("verdict")
     league = pl.get("verdict", "?")
+    if league != "PASS":   # addendum 24 item 5: a dropped league's row ends at its own outcome (#391)
+        return league
     return f"{league} · verdict {v or 'pending'}" + (" · confirmation open" if e.get("status") == "confirming" else "")
 
 

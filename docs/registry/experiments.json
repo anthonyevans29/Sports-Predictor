@@ -681,7 +681,7 @@
       "reference": "pooled naive (each surviving league's frozen 2023/24 H/D/A frequencies) on the same 60 games, minus 0.010"
     },
     "declared_at": "2026-10-07T15:17:38Z",
-    "status": "run",
+    "status": "confirming",
     "run": {
       "run_at": "2026-10-09T12:24:56Z",
       "n_scored": 3445,
@@ -1310,7 +1310,11 @@
       "prior_reads": [],
       "prior_read_count": 0
     },
-    "verdict": null
+    "verdict": {
+      "verdict": "PASS",
+      "ruling": "PASS, surviving set PD. Every league beat its log-loss bar: PD 1.0027 against 1.0506, SA 0.9980 against 1.0828, BL1 1.0230 against 1.0746, FL1 1.0057 against 1.0596, ELC 1.0589 against 1.0686. PD also holds every gated band; its widest gap is +4.48pp in the 50 to 60% band (n 130). SA, BL1, FL1 and ELC are DROPPED on calibration: SA 50 to 60% +5.52pp (n 162); BL1 10 to 20% +6.30pp (n 247) and 50 to 60% -7.63pp (n 135); FL1 10 to 20% +6.07pp (n 243); ELC 50 to 60% -8.75pp (n 209). The band rule was declared before the run and it decides. The design-stage finding (#363: at these sizes it drops a perfectly calibrated model in about 40%, 40% and 22% of seasons) was recorded before the run as changing nothing, and it changes nothing. The four stay in the shadow and may be declared again on 2026/27. Reported, never gated: the closing market beat the candidate in all five leagues, by 0.050 (PD), 0.042 (SA), 0.042 (BL1), 0.026 (FL1) and 0.028 (ELC) of log-loss. This gate certifies better than naive and calibrated. It does not certify an edge on the market. Confirmation as declared: the first 60 PD league games kicking off after this verdict's recorded time, frozen by fixture id; CONFIRMED iff their log-loss is at most ln 3 and below the naive minus 0.010 on the same games. Sixty games is a small sample: a model as good as this run measured can miss it by chance, and a weaker one can pass it. The declaration stands as frozen. Until CONFIRMED, PD is a shadow like the other four: never a Desk call, never an order line.",
+      "at": "2026-10-09T12:47:39Z"
+    }
   },
   {
     "id": "ncaa-elo-v1r",

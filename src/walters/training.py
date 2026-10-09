@@ -360,6 +360,13 @@ def _train_fresh_mlb(notes: str | None = None) -> TrainResult:
 # --------------------------------------------------------------------------
 
 
+def blend_applied(w, p_in, market) -> bool:
+    """K6's `applied` (ADDENDUM 22, 380.5): the weight is not 0 AND the market's probability differs from the
+    probability entering the blend, home or away. Compared on the two INPUTS, never on the blended output (the
+    renormalisation can move the output's last bit at an identical market or at weight 0)."""
+    return w != 0 and (market[0] != p_in[0] or market[1] != p_in[1])
+
+
 def generate_predictions(
     competition_code: str,
     season: str,
@@ -1342,6 +1349,7 @@ def _generate_predictions_mlb(
                         _mkt_home = _implied["HOME"] / _over
                         _mkt_away = _implied["AWAY"] / _over
                         w = cfg.market_blend_w
+                        _p_in = (pred.p_home, pred.p_away)     # the probabilities entering the blend (380.5)
                         ph = (1 - w) * pred.p_home + w * _mkt_home
                         pa = (1 - w) * pred.p_away + w * _mkt_away
                         _t = ph + pa
@@ -1351,7 +1359,13 @@ def _generate_predictions_mlb(
                             # ADDENDUM 18 item 2 (ARCHITECT): "Applied means the market number moved the
                             # prediction." At w 0 the record reads applied false, enabled true, and keeps the
                             # weight and the market numbers. The probabilities are not touched by this fix.
-                            _blend_rec.update(applied=(w != 0), w=w, market_home=_mkt_home, market_away=_mkt_away)
+                            # ADDENDUM 22, 380.5 (ARCHITECT): "Applied is true only when the weight is not 0 and the
+                            # market's probability differs from the probability entering the blend, home or away. At
+                            # an identical market the record reads applied false, enabled true, and keeps the weight
+                            # and the market numbers, as at weight 0. The comparison is on the two inputs, never on
+                            # the blended output. The probabilities are not touched."
+                            _blend_rec.update(applied=blend_applied(w, _p_in, (_mkt_home, _mkt_away)), w=w,
+                                              market_home=_mkt_home, market_away=_mkt_away)
             existing = s.execute(
                 select(Prediction).where(
                     Prediction.match_id == m.id,

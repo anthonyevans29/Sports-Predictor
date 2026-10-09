@@ -399,6 +399,22 @@ def main(argv=None) -> int:
     overrides = dict(kv.split("=", 1) for kv in a.set)
     unit = a.unit or f"sp-chain@{a.chain}.service"
     run_id = f"{now.strftime('%Y%m%dT%H%M%SZ')}-{a.chain}"
+    # The closing chains (deploy/hosting/closing.py) take run-time placeholders only a closing run computes, so they
+    # are refused BEFORE resolving: a dry run prints the command to use and touches nothing.
+    closing_cmd = chain.get("laptop_only") or chain.get("closing_command")
+    if closing_cmd and a.dry_run:
+        print(f"✗ {a.chain} is not an sp_run chain: dry-run it with `{closing_cmd} --dry-run`.")
+        return 2
+    if chain.get("laptop_only"):
+        print(f"✗ {a.chain} is not an sp_run chain: run it with `{chain['laptop_only']}` (laptop only).")
+        c.append_receipt({"kind": "chain", "unit": unit, "run_id": run_id, "exit": 2,
+                          "refused": "laptop_only"})
+        return 2
+    if chain.get("closing_command"):
+        print(f"✗ {a.chain} is not an sp_run chain: run it with `{chain['closing_command']}`.")
+        c.append_receipt({"kind": "chain", "unit": unit, "run_id": run_id, "exit": 2,
+                          "refused": "closing_only"})
+        return 2
     steps = resolve(a.chain, overrides, today, now=now.replace(tzinfo=None))
 
     gate = active_from(a.chain)
@@ -412,11 +428,6 @@ def main(argv=None) -> int:
         print(f"backup: {chain.get('backup') or 'none'}")
         return 0
 
-    if chain.get("laptop_only"):
-        print(f"✗ {a.chain} is not an sp_run chain: run it with `{chain['laptop_only']}` (laptop only).")
-        c.append_receipt({"kind": "chain", "unit": unit, "run_id": run_id, "exit": 2,
-                          "refused": "laptop_only"})
-        return 2
     if chain.get("operator_only") and not a.operator:
         print(f"✗ {a.chain} is OPERATOR-STARTED only (H0-6): re-run with --operator.")
         c.append_receipt({"kind": "chain", "unit": unit, "run_id": run_id, "exit": 2,

@@ -1,0 +1,27 @@
+## 2026-10-09 (#PENDING: closing runs for every model family, paged by T-30 — ARCHITECT addendum 21 item 3 + addendum 22; closes #380)
+- Rulings verbatim in `docs/ledger/entries/2026-10-09-closing-runs-all-families.md`. Daily-class: no model, gate, threshold or Desk rule changes. Branched from #370's head (c533485), not yet on main.
+- `deploy/hosting/mlb_closing.py` became `deploy/hosting/closing.py`, for the families MLB, NFL and SOCCER (PL) (C1). The commands are `python cli.py closing-run --family F [--start ISO] [--dry-run]` and `python cli.py closing-watch [--family F] [--dry-run]`. `mlb-closing-run` and `mlb-closing-watch` stay as aliases.
+- C2, timing: the watch ticks every minute. A family's earliest unstarted start time not yet closed (by a success or three attempts) covers the games starting within 10 minutes after it. The run for that start time begins between T-35 and T-5 and never inside T-5. A start time first seen inside T-5 is a miss (`kind: closing_miss`), notified once. A run's summary and page hold its own games only. This replaces the 5–65 minute window and the 90-minute summary.
+- C3, chains (`chains.py`): `nfl-closing` and `soccer-closing` are derived from `freshen:NFL` and `freshen:SOCCER`.
+  - They open with the schedule read (`sync-matches`, one UTC day per call).
+  - `sync-injuries` runs with `--kickoff-within-hours <to the last covered start> --strict`.
+  - The book sync runs with `--match-ids <the covered games>`.
+  - The export runs with `--desk`.
+  - `CLOSING_FAMILIES`. `sp_run.py` refuses these chains (`closing_only`) and refuses any closing chain's dry run.
+- New opt-in CLI options; the defaults are unchanged:
+  - `sync-injuries --strict`: exits 1 when a read it needed failed, listing each one (`SyncResult.failed_reads`).
+  - `sync-odds --match-ids` (soccer).
+  - `sync-odds-football --match-ids`.
+- C4, every family gets: the started test, the export-completeness check, the price check against the run's start, the moved export, the mirror push, and the failed-run notification (screen and phone, best effort). 380.1: for MLB, every starter the export lists must have been refreshed (`match_participants.refreshed_at`) at or after the run's start. If not, the attempt fails as `stale starters` and is retried; a side with no listed starter is not stale and gets its own line on the page.
+- C5/C6, the page: one page per run, sent through the ntfy card topic (`NTFY_CARD_TOPIC`) and shown on the laptop's screen. It lists, in order: header; PLAY/LADDER lines (order line, exec edge, hold, `was <earlier call>`); value and quarantine shadow lines ending `shadow, not staked`; the PASS count. Priority is high when the page carries a PLAY. No line is over 100 characters; longer entries continue on indented lines. An unset or whitespace `NTFY_CARD_TOPIC` refuses the run before its first step, and the value is never printed. A page ntfy does not accept fails the run (`page`), and the watch retries.
+- 380.3, backup: a backup the run takes counts only when the copy, integrity check, open, sha256 and hash file all succeed. Otherwise the run fails as `backup` before the first step, and whatever it left is renamed `.failed-<stamp>`, never deleted.
+- 380.4, the lock: the run decides under the chain lock, re-reading the clock and its receipts there. A run started by the watch waits for the lock until T-5 at the latest.
+  - Once it holds the lock, a start time that already has a success or three attempts ends the run as `superseded`: neither an attempt nor a refusal, and nothing is posted.
+  - If it gets the lock inside T-5, that is a miss, receipted and notified.
+  - The attempt number and the run's start (for the price and starter checks) are both taken under the lock.
+- 380.5, K6: `applied` is true only when the weight is not 0 and the market's probability differs from the probability entering the blend (`training.blend_applied`). The probabilities are untouched; the bit-identical K6 test still passes.
+- Reading 7: a refusal on a watch-started run is receipted and notified once per start time and reason.
+- `scripts/setup_mlb_closing_watch.sh` became `scripts/setup_closing_watch.sh`: one LaunchAgent, `com.sportspredictor.closingwatch`, every 60 s, replacing #370's MLB-only job. It reads settings from the checkout's `.env` or host.env only and refuses any setting found only in the shell, naming it. No value goes into the plist. The run's own refusal checks run under `env -i`. It sends one test page through the card topic and refuses to install if ntfy does not accept it. No host timer (C7).
+- Receipts: `kind: closing` with `family`, `start`, `covers`, `attempt`, `run_start`, `queued_at`, `page`, `superseded`; and `kind: closing_miss`. They replace `mlb_closing` and `mlb_closing_miss`.
+- Docs: `docs/CLI.md` rows and the "Closing runs (operator)" section. The #370 ledger entry's R2 quotation is restored as issued.
+- Tests: `tests/test_closing_runs.py` (renamed from `test_mlb_closing_autopilot.py`), 57 tests, one per ruling, plus a dry-run test. The 380.5 test is in `tests/test_mlb_kalshi_only_suspended.py`. `tests/test_hosting_pack.py`'s law-1 option check resolves the closing chains with their example values.

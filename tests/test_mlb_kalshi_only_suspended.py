@@ -394,3 +394,35 @@ def test_desk_rescore_prices_each_row_at_its_own_exec_block_and_a_suspended_row_
     assert "exec — (not priced: no order under the suspension)" in line and "hold raw edge +6.5pp" in line
     qline = next(l for l in res.output.splitlines() if "Quar away @ Quar" in l)
     assert f"cost {ex['Quar']['cost']:.3f}" in qline and f"{ex['Quar']['edge_pp']:+.1f}pp" in qline
+
+
+def test_380_5_applied_is_compared_on_the_inputs_at_an_identical_market(monkeypatch):
+    """ADDENDUM 22, 380.5 (ARCHITECT): "Applied is true only when the weight is not 0 and the market's probability
+    differs from the probability entering the blend, home or away. At an identical market the record reads applied
+    false, enabled true, and keeps the weight and the market numbers, as at weight 0. The comparison is on the two
+    inputs, never on the blended output. The probabilities are not touched." The BLEND game's close is replaced by a
+    market equal to the model number entering the blend (the blend-off run's stored number: same config, blend off)."""
+    from src.walters import close as CL
+    from src.walters.training import blend_applied
+    F, on, off = _k6()
+    ids = F.build()
+    ph, pa = off["BLEND"][0], off["BLEND"][1]
+    real = CL.close_1x2
+
+    def same_market(rows, before, outcomes):
+        if rows and getattr(rows[0], "match_id", None) == ids["BLEND"]:
+            return {"fair": {"HOME": ph, "AWAY": pa}, "books": 2, "captured_at": None}
+        return real(rows, before, outcomes)
+    monkeypatch.setattr(CL, "close_1x2", same_market)
+    rec = F.run(F.V_ON)["BLEND"][2]["market_blend"]
+    assert rec == {"applied": False, "enabled": True, "w": 0.5, "market_home": ph, "market_away": pa}
+    # the rule itself, on the inputs: weight 0, an identical market, either side differing
+    assert blend_applied(0.5, (0.4, 0.6), (0.45, 0.55)) is True
+    assert blend_applied(0.0, (0.4, 0.6), (0.45, 0.55)) is False
+    assert blend_applied(0.5, (0.4, 0.6), (0.4, 0.6)) is False
+    assert blend_applied(0.5, (0.4, 0.6), (0.4, 0.61)) is True
+    # and the probabilities on the real close are untouched: origin/main's, bit-identical (the K6 test's numbers)
+    monkeypatch.setattr(CL, "close_1x2", real)
+    again = F.run(F.V_ON)
+    assert (again["BLEND"][0], again["BLEND"][1]) == MAIN[("on", "BLEND")]
+    assert again["BLEND"][2]["market_blend"]["applied"] is True

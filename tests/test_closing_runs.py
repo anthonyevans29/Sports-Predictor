@@ -1942,3 +1942,48 @@ def test_26_2b_an_export_no_closing_run_wrote_after_the_run_started_comes_before
 
 def iso(dt):
     return dt.strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def status_on_next_schedule_read(box, monkeypatch, statuses):
+    """The next schedule read (sync-matches) stores new statuses for covered games, once. {match_id: status}."""
+    done = []
+    inner = mc.run_step
+
+    def step(argv, run_id):
+        out = inner(argv, run_id)
+        if argv[0] == "sync-matches" and not done:
+            done.append(1)
+            for mid, st in statuses.items():
+                set_status(box.db, mid, st)
+        return out
+    monkeypatch.setattr(mc, "run_step", step)
+
+
+def test_25_3_a_postponed_game_whose_last_call_was_a_play_has_its_own_line_and_the_page_is_high(box, monkeypatch):
+    """Addendum 25 item 3 (#390 item 4, built under addendum 26 item 2(c)): "A covered game the schedule read finds
+    cancelled or postponed has a line of its own: the game and its status, and was with the earlier call when that
+    call was a PLAY or a LADDER. With such a call the page is high priority. It is not counted as a PASS." Fails on
+    f256cdd (the game dropped off the page without a word)."""
+    (box.repo / "exports" / f"nfl_predictions_{DAY}.json").write_text(json.dumps(nfl_doc()))   # morning: 301 PLAY
+    status_on_next_schedule_read(box, monkeypatch, {301: "POSTPONED"})
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    r = runs()[-1]
+    assert [(x["match_id"], x["status"]) for x in r["called_off"]] == [(301, "POSTPONED")]
+    assert 301 not in [x["match_id"] for x in r["desk_rows"]] and 301 in [x["match_id"] for x in r["covers"]]
+    pg = call_pages(box)[-1]
+    lines = pg["body"].splitlines()
+    assert "Buffalo Visitors @ Buffalo · POSTPONED · was PLAY Buffalo 1u" in lines
+    assert lines[-1] == "PASS: 3 games" and pg["priority"] == "high"                # not counted as a PASS
+    assert not any(x.startswith("Buffalo Visitors @ Buffalo · PLAY") for x in lines)
+
+
+def test_25_3_a_run_left_with_only_called_off_games_names_them_not_pass_0(box, monkeypatch):
+    """Addendum 25 item 3: "a run left with only such games pages 'PASS: 0 games'" (the finding). Each game now has
+    its line with its status; with no earlier PLAY or LADDER there is no was and the page is default priority. Fails
+    on f256cdd."""
+    status_on_next_schedule_read(box, monkeypatch, {401: "CANCELLED", 402: "POSTPONED"})
+    assert mc.run("SOCCER", start=at(35), now=NOW) == 0
+    pg = call_pages(box)[-1]
+    assert pg["body"].splitlines() == ["SOCCER 13:00 ET · T-35m", "Arsenal Visitors @ Arsenal · CANCELLED",
+                                       "Fulham Visitors @ Fulham · POSTPONED", "PASS: 0 games"]
+    assert pg["priority"] == "default" and runs()[-1]["exit"] == 0

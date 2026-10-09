@@ -582,6 +582,26 @@ def start_moved(covers: list[dict], start: datetime) -> list[dict]:
     return out
 
 
+CALLED_OFF = ("CANCELLED", "POSTPONED")                # addendum 25 item 3: a covered game's line of its own
+
+
+def called_off(covers: list[dict]) -> list[dict]:
+    """Addendum 25 item 3 (#390 item 4): the covered games whose stored status, re-read by match id after the schedule
+    read, is CANCELLED or POSTPONED: {match_id, game, away, home, covered_start, status}."""
+    ids = [g["match_id"] for g in covers]
+    if not ids:
+        return []
+    con = c.ro_connect(c.db_path())
+    try:
+        st = {i: str(x or "").upper() for i, x in con.execute(
+            f"SELECT id, status FROM matches WHERE id IN ({','.join('?' * len(ids))})", ids).fetchall()}
+    finally:
+        con.close()
+    return [{"match_id": g["match_id"], "game": f"{g['away']} @ {g['home']}", "away": g["away"], "home": g["home"],
+             "covered_start": iso_z(g["start"]), "status": st[g["match_id"]]}
+            for g in covers if st.get(g["match_id"]) in CALLED_OFF]
+
+
 # ------------------------------------------------------------------------------------------------ prices --
 # R2 (ARCHITECT 2026-10-08), for every family (C4): the capture times are read from the stored rows the export read,
 # read-only: books = table `odds`, the match's '1X2' rows before the start, reduced to the LAST CAPTURE SESSION by
@@ -824,7 +844,8 @@ def game_of(x: dict) -> str:
     return f"{x['away']} @ {x['home']}"
 
 
-def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: dict) -> tuple[str, str, bool]:
+def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: dict,
+              off: list[dict] | None = None) -> tuple[str, str, bool]:
     """C5 (ARCHITECT): "In this order: the family, the start time in ET and the minutes to it; one line for each
     PLAY (pick, units, the order line as the export prints it, exec edge, and the hold text where a hold applies);
     one line for each value shadow and each quarantine shadow, ending 'shadow, not staked'; the number of PASS games.
@@ -835,7 +856,10 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
     PASS, 'was' and the earlier call. It makes the page high priority: an order may be working on the earlier call."
     B4 "Every line except the head and the PASS count names its game." B7 "An NFL PLAY on a game with injured players
     whose position did not resolve says so on its line, with the count." `prev`: each game's last call (last_calls,
-    reading 7 as amended by addendum 25 2(iii): "C5's was and B3 read this."). Returns (title, body, high)."""
+    reading 7 as amended by addendum 25 2(iii): "C5's was and B3 read this."). Addendum 25 item 3 (#390 item 4), `off`
+    (called_off): "A covered game the schedule read finds cancelled or postponed has a line of its own: the game and
+    its status, and was with the earlier call when that call was a PLAY or a LADDER. With such a call the page is high
+    priority. It is not counted as a PASS." Returns (title, body, high)."""
     head = f"{fam} {utc(start).astimezone(NY):%H:%M} ET · T-{max(0, round(minutes_to(start, at)))}m"
     lines = [head]
     starter_note = {}
@@ -878,10 +902,16 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
             lines += wrap(starter_note.pop(x["match_id"]))
     for mid, note in starter_note.items():           # 380.1 for a game with no call line of its own
         lines += wrap(note)
+    off_staked = False
+    for x in off or []:                              # addendum 25 item 3: cancelled or postponed, its own line
+        was = prev.get(x["match_id"])
+        staked = str(was or "").split(" ")[0] in STAKED_CALLS
+        off_staked = off_staked or staked
+        lines += wrap([f"{x['away']} @ {x['home']}", x["status"]] + ([f"was {was}"] if staked else []))
     n_pass = sum(1 for x in rows if x["call"] == "PASS")
     lines.append(f"PASS: {n_pass} game{'s' if n_pass != 1 else ''}")
     title = f"{fam} closing {utc(start).astimezone(NY):%H:%M} ET"
-    return title, "\n".join(lines), bool(plays) or bool(dropped)
+    return title, "\n".join(lines), bool(plays) or bool(dropped) or off_staked
 
 
 # THE LAST CALL (ARCHITECT 2026-10-09, addendum 25 item 2(iii); reading 7 amended): "The last call of a game is the
@@ -1229,7 +1259,13 @@ def leave_moved(rec: dict, covers: list[dict], s: datetime) -> list[dict]:
     times (`moved`; `covers` = the games left). Codex 4232307577 (addendum 25 2(ii)): taken as soon as the schedule
     read has run, before a later step can fail, so a failed attempt's receipt never counts a moved game as covered
     (three such attempts would close its new start time for good). Returns the games left."""
-    moved = start_moved(covers, s)
+    off = called_off(covers)          # addendum 25 item 3: a cancelled or postponed game stays, on a line of its own
+    if off:
+        rec["called_off"] = off
+        for x in off:
+            print(f"· {x['status'].lower()}: match {x['match_id']} ({x['game']}): on the page with its status")
+    gone_off = {x["match_id"] for x in off}
+    moved = start_moved([g for g in covers if g["match_id"] not in gone_off], s)
     if moved:
         rec["moved"] = moved
         gone = {m["match_id"] for m in moved}
@@ -1325,7 +1361,8 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         print(f"✗ the target {FAMILIES[fam]['noun']} {et(s)} has started ({why}) — no closing for it; a started "
               "game is never retried")
         return
-    cover_ids = {g["match_id"] for g in covers}
+    off = rec.get("called_off") or []
+    cover_ids = {g["match_id"] for g in covers} - {x["match_id"] for x in off}
     rows = desk_rows(doc, cover_ids, done, started_ids, fam)
     missing = missing_from_export(doc, covers, done, games)
     if missing:
@@ -1370,7 +1407,7 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
     # and notified, and the next push from this machine carries the file." C5/C6 + B2: ONE page per run, on the phone
     # (ntfy card topic, three tries ten seconds apart), then the laptop's screen (recorded, changes nothing).
     at = held + timedelta(seconds=time.time() - t0)
-    title, body, high = page_text(fam, s, at, rows, prev)
+    title, body, high = page_text(fam, s, at, rows, prev, off)
     priority = "high" if high else "default"
     print(f"\n--- page ({priority}) ---\n{body}\n---")
     tries = []

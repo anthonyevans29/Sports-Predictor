@@ -5,4 +5,9 @@
   - The closing receipt's `desk_rows` now carry `call_text` (the call on the page), and the receipt carries `run_start_wall` (the wall clock at the run's start, which file mtimes are compared with).
   - A paged receipt written before `call_text` existed falls back to its export, if that file is still in exports/ with the same bytes.
 - Tests: `tests/test_closing_runs.py` `test_26_2a_*` (2) and `test_26_2b_*` (2). All four fail on f256cdd. No existing test changed.
+- (c) #390 item 4 (addendum 25 item 3), built under addendum 26 item 2(c): a covered game the schedule read finds CANCELLED or POSTPONED gets a line of its own on the page.
+  - `called_off` re-reads the stored status by match id right after the schedule read, in `leave_moved`, and the receipt records the games as `called_off`.
+  - The game stays in `covers`. It is not checked as moved, gets no Desk row and is not counted as a PASS.
+  - `page_text` writes `<game> · <STATUS>`, adding `was <call>` when the last call was a PLAY or a LADDER. That `was` makes the page high priority.
+  - Tests: `test_25_3_*` (2), both failing on f256cdd.
 - Not built: #390 item 3 (an MLB group across midnight in New York) and item 5 (reading (a)'s edge). Both stay open on #390.

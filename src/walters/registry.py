@@ -236,7 +236,10 @@ def production_allowed(eid: str, path: str = LEDGER) -> tuple[bool, str]:
 # record the raw code as reason." A release needs evidence that the fixture
 # can NEVER be scored: stored as cancelled, or finished without a scoreable
 # result. A postponed / scheduled / live fixture is never released.
-RELEASABLE_STATUSES = ("cancelled", "finished")
+# "stale_orphan": ARCHITECT 2026-10-08, addendum 16 item 1 (#373, 4223907740, verbatim): a cohort fixture that later
+# becomes STALE_ORPHAN "will never have a result. It is released and replaced like a cancelled fixture, reason
+# STALE_ORPHAN." Only soccer-expansion-confirm offers such a release; intl-elo-v2's rule never yields one.
+RELEASABLE_STATUSES = ("cancelled", "finished", "stale_orphan")
 
 
 def frozen_cohort(e: dict, ids_dir: str | None = None) -> list[int] | None:

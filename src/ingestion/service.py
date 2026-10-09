@@ -68,8 +68,18 @@ log = logging.getLogger(__name__)
 # (skipped, receipted), never created. An incoming id found in a row's
 # "<source>_prev" history goes back to that row. Retired rows (cancelled,
 # stale_orphan) are never candidates.
+#
+# PLACEHOLDER RE-KEY (ARCHITECT 2026-10-09, addendum 30 item 3, amending the second re-key ruling): "For
+# NCAA, a stored SCHEDULED row at the provider's TBD kickoff holds its natural key for its whole game day. An
+# unknown incoming id for the same home and away team, at a real kickoff within 24 hours of that placeholder,
+# re-keys that row. Every refusal of the 12-hour rule applies as it stands: the stored id still in the
+# listing, a row already claimed in the run, more than one candidate, the pair swapped. A row at a real
+# kickoff keeps the 12-hour window." What a placeholder is and what resolves one is the ONE shared
+# definition (src/ingestion/placeholder.py, also the receipt script's). NFL is untouched: no receipt for how
+# the provider marks an unannounced NFL time.
 REKEY_SOURCES = frozenset({"api_american_football"})
 REKEY_WINDOW_H = 12
+PLACEHOLDER_REKEY_COMPETITIONS = frozenset({"NCAA"})
 
 
 @dataclass
@@ -308,6 +318,7 @@ class IngestionService:
                 # id still listed is a different game, never a re-key target)
                 _cache["__pairs__"] = _pairs
                 _cache["__listed__"] = {str(nm.source_id) for nm in matches}
+                _cache["__placeholder_window__"] = comp.code in PLACEHOLDER_REKEY_COMPETITIONS
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
             for i, nm in enumerate(matches, 1):
@@ -463,8 +474,10 @@ class IngestionService:
         from datetime import timedelta
 
         from src.db.schema import MatchStatus
+        from src.ingestion.placeholder import placeholder_resolved
 
         win = timedelta(hours=REKEY_WINDOW_H)
+        placeholder_window = bool(cache.get("__placeholder_window__"))
         listed = cache["__listed__"]
         claimed = cache.setdefault("__claimed__", set())
         retired = (MatchStatus.CANCELLED, MatchStatus.STALE_ORPHAN)
@@ -495,9 +508,17 @@ class IngestionService:
         if len(back) > 1:
             return None, f"{len(back)} stored rows carry {nm.source_id} in their history ({[m.id for m in back]})"
 
+        def holds(m):
+            # the 12-hour natural-key window; for NCAA a SCHEDULED row at the placeholder kickoff also holds
+            # it against a real kickoff within 24h of the placeholder (addendum 30 item 3)
+            if abs(m.utc_date - nm.utc_date) <= win:
+                return True
+            return (placeholder_window and m.status == MatchStatus.SCHEDULED
+                    and placeholder_resolved(m.utc_date, nm.utc_date))
+
         def near(rows):
             return [m for m in rows if m.status not in retired and m.utc_date is not None
-                    and nm.utc_date is not None and abs(m.utc_date - nm.utc_date) <= win]
+                    and nm.utc_date is not None and holds(m)]
         same = near(cache["__pairs__"].get((home_id, away_id), []))
         if len(same) > 1:
             return None, f"{len(same)} stored rows match its natural key (ambiguous: {[m.id for m in same]})"

@@ -1,4 +1,4 @@
-## 2026-10-09 (#PENDING: NCAA kickoff freshness on the host: a daily forward-week sync, ARCHITECT addendum 19 item 3)
+## 2026-10-09 (#378: NCAA kickoff freshness on the host: a daily forward-week sync, ARCHITECT addendum 19 item 3)
 - Ruling and cause: verbatim in `docs/ledger/entries/2026-10-09-ncaa-host-kickoff-freshness.md`.
 - New host chain `ncaa-schedule` (`deploy/hosting/chains.py`): `sync-matches --competition NCAA --season 2026 --date-from D --date-to D` for D = today .. today+7, single-day calls (the american-football adapter sends `date` only when from == to). Sync only: no Kalshi, no export, no model step. `NCAA_FORWARD_DAYS = 7`.
 - New timer `sp-ncaa-schedule.timer`: every day, 10:35 and 22:35 UTC (outside the H0-3 reboot buffer). Twice a day, so one failed run still leaves every stored kickoff under a day old. Added to the runbook's T11 `TIMERS` list, with the install steps for a live host (`docs/specs/hosting-h1.md`).

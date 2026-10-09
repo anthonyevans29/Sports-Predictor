@@ -202,6 +202,22 @@ def test_the_declaration_stays_as_issued_and_its_withdrawn_sentence_is_marked_no
     assert "and 5 and over as one row, ~~which must" in md and "~~ [WITHDRAWN" in md and ") by whether" in md
 
 
+CORRECTION_A_AS_ISSUED = (  # addendum 27 item 1, verbatim
+    "For 'and the model's and the close's log-loss on the same games.' read: 'and, per league, the model's and "
+    "the close's log-loss over every priced match, not over that cohort: PD 1.0027 and 0.9529 on 680 games, SA "
+    '0.9980 and 0.9563 on 680, BL1 1.0230 and 0.9811 on 529, FL1 1.0057 and 0.9795 on 532, ELC 1.0589 and '
+    "1.0313 on 1,024. The close's is the lower in every league.'"
+)
+
+
+def test_the_head_prints_the_correction_to_a_verbatim_beside_the_amendment():
+    assert vr.CORRECTION_A == CORRECTION_A_AS_ISSUED
+    head = "\n".join(vr._head({"generated_at": "T"}))
+    assert head.index("## The amendment") < head.index("## Correction to (a)")
+    assert '> "' + CORRECTION_A_AS_ISSUED + '"' in head
+    assert "PD 1.0027 and 0.9529 on 680 games" in head and "The close's is the lower in every league." in head
+    assert " ".join(vr.AMENDMENT).count("on the same games") == 1    # (a) itself stays as issued
+
 def test_the_amendment_is_quoted_verbatim_a_to_e():
     assert [x[:4] for x in vr.AMENDMENT] == ["(a) ", "(b) ", "(c) ", "(d) ", "(e) "]
     text = " ".join(vr.AMENDMENT)

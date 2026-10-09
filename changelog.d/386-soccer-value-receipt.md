@@ -10,3 +10,4 @@
 - Refusals (exit 2, nothing written): no run record; ids file sha differs from the record. There is no check of the 5+ row against the run record's cohorts: addendum 23 (b) withdrew that sentence (a different selection), so the earlier cohort check, its banner and exit 3 are gone.
 - Writes nothing to the DB; never under data/. docs/CLI.md row; tests/test_soccer_value_receipt.py (synthetic leagues, throwaway DB, TMP registry).
 - Codex review of 7086c1e: refuses (exit 2, nothing written) when either requested PL season scores no rows, when the ids file is malformed, or when the run record has no ids_sha256; a failed reconciliation removes a PL page an earlier run left at the same --out.
+- The receipt's head prints the architect's correction to (a) of the amendment (addendum 27 item 1) beside the amendment, verbatim, pinned by a test; the amendment stays as issued.

@@ -278,6 +278,16 @@ AMENDMENT = (
 )
 
 
+#: ARCHITECT 2026-10-09 13:40 ET, addendum 27 item 1: a correction to (a) of the amendment. The amendment stays
+#: quoted as issued; the correction stands beside it, verbatim, in the receipt's head.
+CORRECTION_A = (
+    "For 'and the model's and the close's log-loss on the same games.' read: 'and, per league, the model's and "
+    "the close's log-loss over every priced match, not over that cohort: PD 1.0027 and 0.9529 on 680 games, SA "
+    '0.9980 and 0.9563 on 680, BL1 1.0230 and 0.9811 on 529, FL1 1.0057 and 0.9795 on 532, ELC 1.0589 and '
+    "1.0313 on 1,024. The close's is the lower in every league.'"
+)
+
+
 def _declaration_md() -> list[str]:
     """The declaration as issued, its withdrawn fragment struck through and marked (never deleted)."""
     body = [ln.replace(WITHDRAWN, f"~~{WITHDRAWN}~~ {WITHDRAWN_MARK}") for ln in DECLARATION]
@@ -351,7 +361,8 @@ def _head(data: dict) -> list[str]:
             f"Generated {data['generated_at']}. **Not gate evidence and not a policy.**", "",
             "## The declaration (as issued; the withdrawn sentence struck through, not deleted)", ""] + \
         _declaration_md() + ["", "## The amendment (ARCHITECT 2026-10-09, addendum 23 item 2, verbatim)", ""] + \
-        _amendment_md() + [""]
+        _amendment_md() + ["", "## Correction to (a) of the amendment (ARCHITECT 2026-10-09, addendum 27 item 1, "
+                           "verbatim; the amendment above stays as issued)", "", '> "' + CORRECTION_A + '"', ""]
 
 
 def render_main(data: dict) -> str:

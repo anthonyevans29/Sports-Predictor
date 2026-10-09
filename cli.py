@@ -8171,13 +8171,16 @@ def _mlb_closing():
 @click.option("--dry-run", is_flag=True, default=False,
               help="Print what would run; touch nothing (no step, backup, receipt, push or notification).")
 def mlb_closing_run_cmd(first_pitch, dry_run):
-    """MLB CLOSING RUN (ARCHITECT 2026-10-08, addendum 13 item 3, Q2; LAPTOP ONLY). Under the chain lock: a .backup
-    dated today in the operator's backup folder (taken via the .backup API and opened if none), then the ten
+    """MLB CLOSING RUN (ARCHITECT 2026-10-08, addendum 13 item 3, Q2, and addendum 16 item 2; LAPTOP ONLY).
+    Receipted refusals (exit 2) first: a backup folder under data/, SP_EXPORTS_MIRROR_REMOTE unset, a malformed
+    --first-pitch, nothing to close. Then, under the chain lock until the receipt line is written: a .backup dated
+    today in the operator's backup folder (taken via the .backup API and opened if none), then the ten
     CHAINS["mlb-closing"] steps (mlb-preslate's, the export with --date <first pitch's NY date> --desk). Stops at the
-    first failed step; nothing is exported, pushed or notified after a failure. On success: a summary block per game
-    with first pitch within 90 minutes, the exports mirror pushed (role laptop, label closing), one notification per
-    game. One receipt line either way. Refuses when every game in its window has started. Places nothing.
-    (= python deploy/hosting/mlb_closing.py run)"""
+    first failed step. When the steps have finished: one started test (a started target fails the run), every
+    unstarted game in the export, every summary price captured at or after the run's start (else stale prices); a
+    run failing these checks moves its export into logs/. On success: a summary block per unstarted game with first
+    pitch within 90 minutes, the exports mirror pushed (role laptop, label closing), one notification per game. One
+    receipt line either way. Places nothing. (= python deploy/hosting/mlb_closing.py run)"""
     argv = ["run"] + (["--first-pitch", first_pitch] if first_pitch else []) + (["--dry-run"] if dry_run else [])
     raise SystemExit(_mlb_closing().main(argv))
 

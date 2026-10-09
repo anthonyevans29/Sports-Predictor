@@ -5,12 +5,20 @@ reach the MLB feed."
     mlb_closing.py run   [--first-pitch ISO] [--dry-run]     (= python cli.py mlb-closing-run)
     mlb_closing.py watch [--dry-run]                         (= python cli.py mlb-closing-watch; the 5-minute tick)
 
-run (A1-A4): under the chain lock (sp_common.db_lock), a .backup dated today in the operator's backup folder (taken
-through the .backup API and opened when none exists), then the ten steps of CHAINS["mlb-closing"] (chains.py: the
-mlb-preslate steps, the export with --date and --desk), {today} = the first pitch's America/New_York date. Stops at
-the first failed step; after a failure nothing is exported, pushed or notified. On success: one summary block per
-game whose first pitch is within 90 minutes, the exports mirror pushed as role laptop, label closing, and one
-notification per game. One receipt line (kind "mlb_closing") either way.
+run (A1-A4): refusals first, each receipted, exit 2: a backup folder under data/ (R5, checked before anything
+else), the laptop-only rule, SP_EXPORTS_MIRROR_REMOTE unset (M1), a malformed --first-pitch (R4), nothing to close
+(A4). Then, under the chain lock (sp_common.db_lock) from the backup check until the receipt line is written (R3): a
+.backup dated today in the operator's backup folder (taken through the .backup API and opened when none exists),
+then the ten steps of CHAINS["mlb-closing"] (chains.py: the mlb-preslate steps, the export with --date and --desk),
+{today} = the first pitch's America/New_York date. Stops at the first failed step; after a failure nothing is
+exported, pushed or notified. When the steps have finished, ONE started test (R1): a game is started when its stored
+status is then LIVE or FINISHED, or its first pitch is at or before that moment; a started target fails the run. The
+prices are checked (R2): every summary game's book rows and Kalshi quote, where the export shows them, were captured
+at or after the run's start. On success: one summary block per unstarted game whose first pitch is within 90 minutes,
+the exports mirror pushed as role laptop, label closing, and one notification per game. A run that fails its own
+checks (stale prices, a game missing from the export, a started target) moves its export out of exports/ into logs/
+(R6). One receipt line (kind "mlb_closing") either way; a watch-started run that does not succeed posts one
+notification (best effort).
 
 watch (A5-A6): no network to decide. From the stored schedule, the MLB games not started whose first pitch is 5 to
 65 minutes away. A first-pitch time with no successful closing receipt and fewer than three attempts starts one run,
@@ -32,6 +40,7 @@ import sys
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from types import SimpleNamespace
 from zoneinfo import ZoneInfo
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -58,6 +67,10 @@ CLOSING_HOLDS = (
 )
 VOID = ("CANCELLED", "POSTPONED", "STALE_ORPHAN")      # never a game in any window
 STARTED_STATUSES = ("LIVE", "FINISHED")
+MIRROR_SETTING = "SP_EXPORTS_MIRROR_REMOTE"            # M1: a closing run pushes the mirror or it is not a success
+# R6: the failures of the run's own checks. Their export leaves exports/ (moved into logs/, named with the run id),
+# so no call is left behind; a failed push or a failed notification leaves the export in place.
+OWN_CHECK_FAILURES = ("stale prices", "missing from export", "target started")
 
 
 # ------------------------------------------------------------------------------------------------- time --
@@ -309,9 +322,11 @@ def pick_team(row: dict, d: dict) -> str:
     return {"HOME": row.get("home_team"), "AWAY": row.get("away_team")}.get(p) or (p or "-")
 
 
-def desk_rows(doc: dict, now: datetime) -> list[dict]:
-    """The export's Desk rows whose first pitch is within the next 90 minutes (started games are left out: the
-    Desk's started rule already makes them PASS, and the autopilot never shows a call for one)."""
+def desk_rows(doc: dict, now: datetime, done: datetime | None = None, started_ids=frozenset()) -> list[dict]:
+    """The export's Desk rows whose first pitch is within 90 minutes of the run's start `now`, less the games the
+    ONE started test (R1, ARCHITECT 2026-10-08) calls started at `done`, the moment the steps finished: a stored
+    status then LIVE or FINISHED (`started_ids`) or a first pitch at or before `done`. A started game has no summary
+    block and no notification (the Desk's started rule already makes its row PASS)."""
     out = []
     for r in doc.get("predictions") or []:
         d = r.get("desk")
@@ -320,6 +335,8 @@ def desk_rows(doc: dict, now: datetime) -> list[dict]:
         fp = parse_utc(r["utc_date"])
         m = (fp - utc(now)).total_seconds() / 60
         if not 0 < m <= SUMMARY_WINDOW_MIN:
+            continue
+        if r.get("match_id") in started_ids or fp <= utc(done or now):
             continue
         out.append({"match_id": r.get("match_id"), "first_pitch": iso_z(fp), "first_pitch_et": et(fp),
                     "minutes": round(m), "away": r.get("away_team"), "home": r.get("home_team"),
@@ -331,16 +348,103 @@ def desk_rows(doc: dict, now: datetime) -> list[dict]:
     return sorted(out, key=lambda x: (x["first_pitch"], x["match_id"] or 0))
 
 
-def missing_from_export(doc: dict, now: datetime) -> list[dict]:
-    """Codex on #370: every unstarted MLB game in the STORED schedule (re-read after the steps synced it) whose first
-    pitch is within the 90-minute summary window must have a Desk row in the export. Returns the ones that do not."""
+def missing_from_export(doc: dict, now: datetime, done: datetime | None = None,
+                        games: list[dict] | None = None) -> list[dict]:
+    """Codex on #370: every MLB game in the STORED schedule (re-read after the steps synced it) whose first pitch is
+    within 90 minutes of the run's start and that is NOT started at `done` (R1: the one started test, taken when the
+    steps have finished) must have a Desk row in the export. Returns the ones that do not. A started game is not
+    required."""
     have = {r.get("match_id") for r in doc.get("predictions") or [] if r.get("desk")}
-    # `now` is the run's START (Codex round 2): a first pitch after the start is required even if a step synced the
-    # game to LIVE before the export; the elapsed check, not this filter, decides a target that started mid-run.
-    need = [g for g in schedule(now) if 0 < minutes_to(g, now) <= SUMMARY_WINDOW_MIN]
+    games = schedule(now) if games is None else games
+    need = [g for g in games if 0 < minutes_to(g, now) <= SUMMARY_WINDOW_MIN and not started(g, done or now)]
     return [{"match_id": g["match_id"], "first_pitch": iso_z(g["first_pitch"]), "first_pitch_et": et(g["first_pitch"]),
              "away": g["away"], "home": g["home"], "reason": "missing from export"}
             for g in need if g["match_id"] not in have]
+
+
+def target_started(games: list[dict], first_pitch: datetime, done: datetime) -> str | None:
+    """R1: the target first pitch has started when that moment is at or before `done`, or when every stored game at
+    that first pitch has a stored status (re-read after the steps) of LIVE or FINISHED. Returns why, else None."""
+    if utc(first_pitch) <= utc(done):
+        return f"first pitch {iso_z(first_pitch)} at or before {iso_z(done)}, when the steps finished"
+    tg = [g for g in games if g["first_pitch"] == utc(first_pitch)]
+    if tg and all(g["status"] in STARTED_STATUSES for g in tg):
+        return "stored status " + "/".join(sorted({g["status"] for g in tg})) + " when the steps finished"
+    return None
+
+
+# ------------------------------------------------------------------------------------------------ prices --
+# R2 (ARCHITECT 2026-10-08, #370 READ): "The run checks its prices, not a step's console." The capture times are read
+# from the stored rows the export read (src/walters/export.py _collect_rows / _summarize_market, law 1), read-only:
+#   books   table `odds`: the match's market '1X2' rows with captured_at strictly before the first pitch, reduced to
+#           the LAST CAPTURE SESSION by src/walters/close.py last_capture (the one close contract the export's market
+#           block uses). Capture time = the earliest captured_at among those rows (every row the export read).
+#   Kalshi  table `odds_snapshots`, source 'kalshi': per selection the latest row with captured_at strictly before
+#           the first pitch (the export's in-game guard, first-wins per selection). Capture time = the earliest of
+#           those per-selection latest captures (the quote the export shows is built from all of them).
+
+def _close_contract():
+    root = str(Path(__file__).resolve().parents[2])
+    if root not in sys.path:
+        sys.path.insert(0, root)
+    from src.walters.close import last_capture
+    return last_capture
+
+
+def price_captures(con: sqlite3.Connection, match_id, first_pitch: datetime) -> dict:
+    """{"books": datetime|None, "kalshi": datetime|None}: the capture times of the stored rows the export read."""
+    fp = utc(first_pitch)
+    rows = []
+    for bk, sel, line, cap in con.execute(
+            "SELECT bookmaker, selection, line, captured_at FROM odds "
+            "WHERE match_id = ? AND market = '1X2' AND captured_at IS NOT NULL", (match_id,)):
+        rows.append(SimpleNamespace(bookmaker=bk, selection=sel, line=line, market="1X2", captured_at=parse_utc(cap)))
+    sess = _close_contract()(rows, fp)
+    latest: dict = {}
+    for sel, cap in con.execute(
+            "SELECT selection, captured_at FROM odds_snapshots "
+            "WHERE match_id = ? AND source = 'kalshi' AND captured_at IS NOT NULL", (match_id,)):
+        t = parse_utc(cap)
+        if t < fp and (sel not in latest or t > latest[sel]):
+            latest[sel] = t
+    return {"books": min((o.captured_at for o in sess), default=None),
+            "kalshi": min(latest.values(), default=None)}
+
+
+def shows_books(r: dict) -> bool:
+    """The export row shows books: its market block priced at least one complete book (bookmaker_count > 0)."""
+    return bool(((r.get("market") or {}).get("bookmaker_count") or 0) > 0)
+
+
+def shows_kalshi(r: dict) -> bool:
+    """The export row shows a Kalshi quote: the HOME contract's bid/ask, any captured leg, or a kalshi market block."""
+    return (r.get("kalshi_bid") is not None or r.get("kalshi_ask") is not None or bool(r.get("kalshi_legs"))
+            or bool((r.get("market") or {}).get("kalshi")))
+
+
+def stale_prices(doc: dict, rows: list[dict], run_start: datetime) -> list[dict]:
+    """R2: for every game in the summary, a price the export shows that was captured before the run's start. A game
+    with no books, or with no Kalshi quote, is not stale on that count (the Desk already rules on it). A price the
+    export shows with no stored capture time is stale too (law 4: never a guessed freshness)."""
+    by_id = {r.get("match_id"): r for r in doc.get("predictions") or []}
+    start = utc(run_start)
+    out = []
+    con = c.ro_connect(c.db_path())
+    try:
+        for x in rows:
+            r = by_id.get(x["match_id"]) or {}
+            caps = price_captures(con, x["match_id"], parse_utc(x["first_pitch"]))
+            for kind, shown in (("books", shows_books(r)), ("kalshi", shows_kalshi(r))):
+                if not shown:
+                    continue
+                at = caps[kind]
+                if at is None or at < start:
+                    out.append({"match_id": x["match_id"], "game": f"{x['away']} @ {x['home']}",
+                                "first_pitch_et": x["first_pitch_et"], "price": kind,
+                                "captured_at": iso_z(at) if at else None, "run_start": iso_z(start)})
+    finally:
+        con.close()
+    return out
 
 
 def summary_block(x: dict) -> str:
@@ -377,6 +481,37 @@ def _laptop_refusal() -> str | None:
     return None
 
 
+def _backup_folder_refusal(folder: Path) -> str | None:
+    """R5 (ARCHITECT 2026-10-08): "The backup folder is checked before anything else. A folder under data/ refuses
+    the run, receipted, whether or not a backup already sits there." """
+    try:
+        c.refuse_under_data(folder)
+    except SystemExit as e:
+        return f"backup folder under data/ (law 5): {str(e).lstrip('✗ ').strip()}"
+    return None
+
+
+def _mirror_refusal() -> str | None:
+    """M1 (ARCHITECT 2026-10-08): "A closing run pushes the mirror or it is not a success. If SP_EXPORTS_MIRROR_REMOTE
+    is not set, mlb-closing-run refuses before the first step, receipted, naming the setting." """
+    if not (c.setting(MIRROR_SETTING) or "").strip():
+        return (f"{MIRROR_SETTING} is not set (environment, host.env, the checkout's .env): a closing run pushes the "
+                "exports mirror or it is not a success")
+    return None
+
+
+def _first_pitch_refusal(first_pitch: str | None) -> str | None:
+    """R4 (ARCHITECT 2026-10-08): a malformed --first-pitch is "a receipted refusal, exit 2, like the other
+    refusals"."""
+    if first_pitch is None:
+        return None
+    try:
+        parse_utc(first_pitch)
+    except (TypeError, ValueError) as e:
+        return f"malformed --first-pitch {first_pitch!r} (ISO UTC expected, e.g. 2026-10-08T23:05:00Z): {e}"[:300]
+    return None
+
+
 def plan(now: datetime, first_pitch: str | None) -> dict:
     """Target first pitch, NY date and steps, from the stored schedule (read-only). `refused` when A4 says so."""
     games = schedule(now)
@@ -398,22 +533,195 @@ def plan(now: datetime, first_pitch: str | None) -> dict:
             "window": win, "export": f"exports/mlb_MLB_{day.isoformat()}.json"}
 
 
+# --------------------------------------------------------------------------------- failed-run notification --
+# ARCHITECT 2026-10-08 (#370 READ): "Silence must never mean a closing that did not happen. Every watch-started run
+# that does not succeed posts one notification: the first pitch, what failed or why it refused, and for a failed
+# attempt its number out of three. The third says no further attempt will run for that first pitch. A manual run
+# prints to the console, as now. These notifications are best effort: one that cannot be posted is recorded in the
+# receipt and changes nothing else."
+
+def _fp_label(first_pitch: str | None) -> str:
+    try:
+        return et(parse_utc(first_pitch)) if first_pitch else "no first pitch"
+    except (TypeError, ValueError):
+        return f"first pitch {first_pitch!r}"
+
+
+def failure_text(first_pitch: str | None, failed: str | None = None, refused: str | None = None,
+                 attempt: int | None = None) -> str:
+    head = f"Closing {_fp_label(first_pitch)}: "
+    if refused:
+        return head + f"REFUSED: {refused}"
+    t = head + f"FAILED: {failed} · attempt {attempt}/{MAX_ATTEMPTS}"
+    if attempt is not None and attempt >= MAX_ATTEMPTS:
+        t += " · no further attempt will run for this first pitch"
+    return t
+
+
+def notify_failure(text: str) -> dict:
+    """Best effort: the result is recorded in the receipt and changes nothing else."""
+    try:
+        res = notify(text, title=NOTIFY_TITLE)
+    except Exception as e:  # noqa: BLE001
+        res = {"posted": False, "text": text, "error": f"{type(e).__name__}: {e}"[:200]}
+    return {"text": text, "posted": res.get("posted"),
+            **({"skipped": res["skipped"]} if res.get("skipped") else {}),
+            **({"error": res["error"]} if res.get("error") else {})}
+
+
+def _refuse(why: str, first_pitch: str | None, base: dict, trigger: str, dry_run: bool, code: int = 2) -> int:
+    print(("DRY RUN mlb-closing-run: would REFUSE: " if dry_run else "✗ mlb-closing-run REFUSED: ") + why)
+    if dry_run:
+        return code
+    rec = {**base, "first_pitch": first_pitch, "exit": 2, "refused": why, "steps": [], "export": None,
+           "desk_rows": [], "push": None}
+    if trigger == "watch":
+        rec["failure_notification"] = notify_failure(failure_text(first_pitch, refused=why))
+    c.append_receipt(rec)
+    return 2
+
+
+def _move_export(rec: dict, run_id: str) -> None:
+    """R6: "the export it wrote is moved out of exports/ into logs/, named with the run id, and the receipt says
+    where." """
+    if not rec.get("export"):
+        return
+    src = c.REPO / rec["export"]
+    if not src.is_file():
+        return
+    dest = c.REPO / "logs" / f"{run_id}.{src.name}"
+    try:
+        c.refuse_under_data(dest.parent)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        os.replace(src, dest)
+        rec["export_moved_to"] = str(dest.relative_to(c.REPO))
+        print(f"· export moved out of exports/: {rec['export_moved_to']} (no call left behind)")
+    except (OSError, SystemExit) as e:
+        rec["export_move_error"] = c.redact(f"{type(e).__name__}: {e}")[:300]
+        print(f"✗ export NOT moved: {rec['export_move_error']}")
+
+
+def _closing(rec: dict, p: dict, folder: Path, today_ny: date, now: datetime, t0: float, run_id: str) -> None:
+    """The run's body. The caller holds the chain lock (R3) and writes the receipt line afterwards, still under it."""
+    have = todays_backup(folder, today_ny)
+    if have:
+        rec["backup"] = {"file": str(have), "taken": False}
+        print(f"· backup dated {today_ny}: {have}")
+    else:
+        rec["backup"] = take_backup(folder, today_ny)
+        print(f"· backup taken: {rec['backup']['file']} opens={rec['backup']['opens']} "
+              f"integrity={rec['backup']['integrity']}")
+    if rec["backup"].get("taken") and not rec["backup"].get("opens"):
+        rec["failed"] = "backup"
+        print(f"✗ backup failed: {rec['backup'].get('error')} — no step runs")
+        return
+    for i, st in enumerate(p["steps"], 1):
+        line = f"python cli.py {' '.join(st)}"
+        print(f"\n=== [{CHAIN} {i}/{len(p['steps'])}] {line}", flush=True)
+        rc, tail, dur = run_step(st, run_id)
+        srec = {"step": i, "command": line, "exit": rc, "seconds": round(dur, 1)}
+        said = reported_failure(st, tail) if rc == 0 else None
+        if said:                      # exit 0, but the step said it failed (Codex on #370)
+            srec["detected_failure"] = said
+        rec["steps"].append(srec)
+        if rc != 0 or said:
+            rec["failed"] = f"step {i}" + (" (reported failure, exit 0)" if said else "")
+            return
+    ex = c.REPO / p["export"]
+    if not ex.is_file() or ex.stat().st_mtime < t0:
+        rec["failed"] = "export not written"
+        return
+    rec["export"] = p["export"]
+    doc = json.loads(ex.read_text())
+    if not doc.get("desk_meta"):
+        rec["failed"] = "export carries no desk calls"
+        return
+    # R1 (ARCHITECT 2026-10-08): ONE started test, taken when the steps have finished, on the stored schedule re-read
+    # now (the steps synced it). The 90-minute window is still counted from the run's start.
+    done = now + timedelta(seconds=time.time() - t0)
+    rec["completed_at"] = iso_z(done)
+    games = schedule(now)
+    started_ids = {g["match_id"] for g in games if started(g, done)}
+    rows = desk_rows(doc, now, done, started_ids)
+    why = target_started(games, parse_utc(p["first_pitch"]), done)
+    if why:
+        rec["failed"] = "target started"
+        rec["started"] = why
+        print(f"✗ the target first pitch {p['first_pitch_et']} has started ({why}) — no closing for it; a started "
+              "game is never retried")
+        return
+    missing = missing_from_export(doc, now, done, games)
+    if missing:                       # Codex on #370: an omitted imminent game is never a success
+        rec["failed"] = "missing from export"
+        rec["missing"] = missing
+        print("✗ missing from export: " + ", ".join(
+            f"match {m['match_id']} ({m['first_pitch_et']} {m['away']} @ {m['home']})" for m in missing))
+        return
+    stale = stale_prices(doc, rows, now)
+    if stale:                         # R2: the run checks its prices, not a step's console
+        rec["failed"] = "stale prices"
+        rec["stale"] = stale
+        for s_ in stale:
+            print(f"✗ stale prices: match {s_['match_id']} ({s_['first_pitch_et']} {s_['game']}): {s_['price']} "
+                  f"captured {s_['captured_at'] or 'never (no stored row)'}, before the run's start {s_['run_start']}")
+        return
+    rec["desk_rows"] = [{k: x[k] for k in ("match_id", "first_pitch", "call", "pick", "units", "exec_edge_pp",
+                                           "hold")} for x in rows]
+    print(f"\n=== MLB closing summary · {len(rows)} game(s) with first pitch within {SUMMARY_WINDOW_MIN} minutes")
+    for x in rows:
+        print(summary_block(x))
+    rec["push"] = push_mirror()
+    print(f"· exports mirror (laptop, closing): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
+    if rec["push"].get("exit") != 0:  # Codex on #370: a failed / timed-out push fails the run, so the watch
+        rec["failed"] = "push"        # retries it (R6: the export stays in place)
+        return
+    # Codex round 2 on #370: every notification's result is recorded and validated BEFORE exit 0. On macOS a
+    # notification that was not posted (osascript nonzero / timeout / an exception) fails the run, so the watch
+    # retries it. Off macOS nothing is expected to post: that is not a failure.
+    rec["notifications"] = []
+    for x in rows:
+        text = notification_text(x)
+        try:
+            res = notify(text)
+        except Exception as e:  # noqa: BLE001
+            res = {"posted": False, "text": text, "error": f"{type(e).__name__}: {e}"[:200]}
+        rec["notifications"].append({"match_id": x["match_id"], "posted": res.get("posted"),
+                                     **({"skipped": res["skipped"]} if res.get("skipped") else {}),
+                                     **({"error": res["error"]} if res.get("error") else {})})
+    if any(n["posted"] is not True and not n.get("skipped") for n in rec["notifications"]):
+        rec["failed"] = "notify"
+    else:
+        rec["exit"] = 0
+
+
+def _finish(rec: dict, trigger: str, run_id: str, t0: float) -> None:
+    """R6, the failed-run notification and THE receipt line. Called with the chain lock held (R3)."""
+    if rec.get("failed") in OWN_CHECK_FAILURES:
+        _move_export(rec, run_id)
+    if rec["exit"] != 0 and trigger == "watch":
+        rec["failure_notification"] = notify_failure(
+            failure_text(rec.get("first_pitch"), failed=rec.get("failed"), attempt=rec.get("attempt")))
+    rec["seconds"] = round(time.time() - t0, 1)
+    c.append_receipt(rec)
+
+
 def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "operator",
         now: datetime | None = None) -> int:
     now = utc(now or c.utc_now())
-    why = _laptop_refusal()
-    if why:
-        print(f"✗ mlb-closing-run REFUSED: {why}")
-        if not dry_run:                                   # A2: a receipt line either way (Codex on #370)
-            c.append_receipt({"kind": "mlb_closing", "run_id": f"{now:%Y%m%dT%H%M%SZ}-{CHAIN}", "trigger": trigger,
-                              "first_pitch": first_pitch, "exit": 2, "refused": why, "steps": [], "export": None,
-                              "desk_rows": [], "push": None})
-        return 2
+    run_id = f"{now:%Y%m%dT%H%M%SZ}-{CHAIN}"
+    base = {"kind": "mlb_closing", "run_id": run_id, "trigger": trigger}
+    folder = backup_folder()
+    # The refusals, each receipted (exit 2). R5 first: "The backup folder is checked before anything else."
+    for check in (lambda: _backup_folder_refusal(folder), _laptop_refusal, _mirror_refusal,
+                  lambda: _first_pitch_refusal(first_pitch)):
+        why = check()
+        if why:
+            return _refuse(why, first_pitch, base, trigger, dry_run)
     try:
         p = plan(now, first_pitch)
     except (FileNotFoundError, sqlite3.Error) as e:
         p = {"refused": f"no stored schedule readable ({type(e).__name__})", "window": []}
-    folder, today_ny = backup_folder(), ny_date(now)
+    today_ny = ny_date(now)
     if dry_run:
         print("DRY RUN mlb-closing-run (touches nothing: no step, no backup, no receipt, no push, no notification)")
         if p.get("refused"):
@@ -422,122 +730,48 @@ def run(first_pitch: str | None = None, dry_run: bool = False, trigger: str = "o
         have = todays_backup(folder, today_ny)
         print(f"  first pitch {p['first_pitch_et']} ({p['first_pitch']}) · steps take date {p['date_ny']} "
               f"(America/New_York)")
-        print(f"  lock: {c.lock_path()}")
+        print(f"  lock: {c.lock_path()} (held from the backup check until the receipt line is written)")
         print(f"  backup: " + (f"exists {have}" if have else
                                f"none dated {today_ny} in {folder} → would take sports_{today_ny}.db (.backup API) "
                                f"and open it"))
         for i, st in enumerate(p["steps"], 1):
             print(f"  {i}. python cli.py {' '.join(st)}")
-        print(f"  export: {p['export']} · summary + one notification per game with first pitch within "
-              f"{SUMMARY_WINDOW_MIN}m · push: exports_mirror.py push --role laptop --label closing")
+        print(f"  export: {p['export']} · prices checked against the run's start · summary + one notification per "
+              f"unstarted game with first pitch within {SUMMARY_WINDOW_MIN}m · push: exports_mirror.py push --role "
+              f"laptop --label closing")
         return 0
-
-    run_id = f"{now:%Y%m%dT%H%M%SZ}-{CHAIN}"
-    base = {"kind": "mlb_closing", "run_id": run_id, "trigger": trigger}
     if p.get("refused"):
-        print(f"✗ mlb-closing-run REFUSED: {p['refused']}")
-        c.append_receipt({**base, "first_pitch": first_pitch, "exit": 2, "refused": p["refused"],
-                          "steps": [], "export": None, "desk_rows": [], "push": None})
-        return 2
+        return _refuse(p["refused"], first_pitch, base, trigger, dry_run=False)
     rec = {**base, "first_pitch": p["first_pitch"], "first_pitch_et": p["first_pitch_et"], "date_ny": p["date_ny"],
-           "attempt": closing_state(p["first_pitch"])["attempts"] + 1, "backup": None, "steps": [],
-           "export": None, "desk_rows": [], "push": None, "exit": 1}
+           "attempt": closing_state(p["first_pitch"])["attempts"] + 1, "run_start": iso_z(now), "backup": None,
+           "steps": [], "export": None, "desk_rows": [], "push": None, "exit": 1}
     print(f"=== mlb-closing-run · first pitch {p['first_pitch_et']} · date {p['date_ny']} (America/New_York) "
           f"· attempt {rec['attempt']}", flush=True)
     t0 = time.time()
+    written = False
     try:
+        # R3 (ARCHITECT 2026-10-08): "The chain lock is held from the backup check until the receipt line is written."
         with c.db_lock():
-            have = todays_backup(folder, today_ny)
-            if have:
-                rec["backup"] = {"file": str(have), "taken": False}
-                print(f"· backup dated {today_ny}: {have}")
-            else:
-                rec["backup"] = take_backup(folder, today_ny)
-                print(f"· backup taken: {rec['backup']['file']} opens={rec['backup']['opens']} "
-                      f"integrity={rec['backup']['integrity']}")
-            if rec["backup"].get("taken") and not rec["backup"].get("opens"):
-                rec["failed"] = "backup"
-                print(f"✗ backup failed: {rec['backup'].get('error')} — no step runs")
-            else:
-                for i, st in enumerate(p["steps"], 1):
-                    line = f"python cli.py {' '.join(st)}"
-                    print(f"\n=== [{CHAIN} {i}/{len(p['steps'])}] {line}", flush=True)
-                    rc, tail, dur = run_step(st, run_id)
-                    srec = {"step": i, "command": line, "exit": rc, "seconds": round(dur, 1)}
-                    said = reported_failure(st, tail) if rc == 0 else None
-                    if said:                      # exit 0, but the step said it failed (Codex on #370)
-                        srec["detected_failure"] = said
-                    rec["steps"].append(srec)
-                    if rc != 0 or said:
-                        rec["failed"] = f"step {i}" + (" (reported failure, exit 0)" if said else "")
-                        break
-        if not rec.get("failed"):
-            ex = c.REPO / p["export"]
-            if not ex.is_file() or ex.stat().st_mtime < t0:
-                rec["failed"] = "export not written"
-            else:
-                rec["export"] = p["export"]
-                doc = json.loads(ex.read_text())
-                if not doc.get("desk_meta"):
-                    rec["failed"] = "export carries no desk calls"
-                else:
-                    # The window is the run's START (Codex round 2 on #370): a game that starts mid-run is never
-                    # silently dropped from the summary or the completeness check before the elapsed check below.
-                    rows = desk_rows(doc, now)
-                    missing = missing_from_export(doc, now)
-                    done = now + timedelta(seconds=time.time() - t0)
-                    rec["completed_at"] = iso_z(done)
-                    if missing:                   # Codex on #370: an omitted imminent game is never a success
-                        rec["failed"] = "missing from export"
-                        rec["missing"] = missing
-                        print("✗ missing from export: " + ", ".join(
-                            f"match {m['match_id']} ({m['first_pitch_et']} {m['away']} @ {m['home']})"
-                            for m in missing))
-                    elif parse_utc(p["first_pitch"]) <= done:   # the target started while the steps ran
-                        rec["failed"] = "first pitch elapsed during the run"
-                        print(f"✗ first pitch {p['first_pitch_et']} elapsed during the run (completed "
-                              f"{et(done)}) — no closing for it; a started game is never retried")
-                if not rec.get("failed"):
-                    rec["desk_rows"] = [{k: x[k] for k in ("match_id", "first_pitch", "call", "pick", "units",
-                                                           "exec_edge_pp", "hold")} for x in rows]
-                    print(f"\n=== MLB closing summary · {len(rows)} game(s) with first pitch within "
-                          f"{SUMMARY_WINDOW_MIN} minutes")
-                    for x in rows:
-                        print(summary_block(x))
-        if not rec.get("failed"):
-            rec["push"] = push_mirror()
-            print(f"· exports mirror (laptop, closing): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
-            if rec["push"].get("exit") != 0:       # Codex on #370: a failed / timed-out push fails the run, so the
-                rec["failed"] = "push"             # watch retries it (the export the step wrote stays on disk)
-            else:
-                # Codex round 2 on #370: every notification's result is recorded and validated BEFORE exit 0. On
-                # macOS a notification that was not posted (osascript nonzero / timeout / an exception) fails the
-                # run, so the watch retries it. Off macOS nothing is expected to post: that is not a failure.
-                rec["notifications"] = []
-                for x in rows:
-                    text = notification_text(x)
-                    try:
-                        res = notify(text)
-                    except Exception as e:  # noqa: BLE001
-                        res = {"posted": False, "text": text, "error": f"{type(e).__name__}: {e}"[:200]}
-                    rec["notifications"].append({"match_id": x["match_id"], "posted": res.get("posted"),
-                                                 **({"skipped": res["skipped"]} if res.get("skipped") else {}),
-                                                 **({"error": res["error"]} if res.get("error") else {})})
-                if any(n["posted"] is not True and not n.get("skipped") for n in rec["notifications"]):
-                    rec["failed"] = "notify"
-                else:
-                    rec["exit"] = 0
-    except Exception as e:  # noqa: BLE001 - the receipt line is written either way (A2)
-        rec["failed"] = rec.get("failed") or "error"
+            try:
+                _closing(rec, p, folder, today_ny, now, t0, run_id)
+            except Exception as e:  # noqa: BLE001 - the receipt line is written either way (A2)
+                rec["failed"] = rec.get("failed") or "error"
+                rec["error"] = c.redact(f"{type(e).__name__}: {e}")[:300]
+            written = True
+            _finish(rec, trigger, run_id, t0)
+    except Exception as e:  # noqa: BLE001 - the lock itself (or the receipt write) failed
+        if written:
+            raise
+        rec["failed"] = rec.get("failed") or "lock"
         rec["error"] = c.redact(f"{type(e).__name__}: {e}")[:300]
-    rec["seconds"] = round(time.time() - t0, 1)
-    c.append_receipt(rec)
+        _finish(rec, trigger, run_id, t0)
     if rec["exit"] != 0:
         print(f"✗ mlb-closing-run FAILED ({rec.get('failed')}{': ' + rec['error'] if rec.get('error') else ''}) — "
               + {"push": "nothing notified; the export stays on disk",
                  "notify": "the export was pushed; a notification was not posted, the watch retries",
-                 "first pitch elapsed during the run": "nothing pushed or notified; the export stays on disk",
-                 "missing from export": "nothing pushed or notified; the export stays on disk"}.get(
+                 "target started": "nothing pushed or notified; the export was moved into logs/",
+                 "missing from export": "nothing pushed or notified; the export was moved into logs/",
+                 "stale prices": "nothing pushed or notified; the export was moved into logs/"}.get(
                   rec.get("failed"), "nothing exported, pushed or notified after the failure"))
     else:
         print(f"✓ mlb-closing-run: {len(rec['steps'])}/{len(p['steps'])} steps · {rec['export']} · "

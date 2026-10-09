@@ -41,7 +41,12 @@ def make_db(path: Path, games: list[tuple]) -> None:
         "CREATE TABLE teams(id INTEGER PRIMARY KEY, name TEXT);"
         "CREATE TABLE matches(id INTEGER PRIMARY KEY, competition_id INT, utc_date DATETIME, status TEXT,"
         " home_team_id INT, away_team_id INT);"
-        "INSERT INTO competitions VALUES (1, 'MLB'), (2, 'NFL');")
+        "INSERT INTO competitions VALUES (1, 'MLB'), (2, 'NFL');"
+        # the stored price tables the export reads (src/db/schema.py Odds / OddsSnapshot: the columns R2 reads)
+        "CREATE TABLE odds(id INTEGER PRIMARY KEY, match_id INT, bookmaker TEXT, market TEXT, selection TEXT,"
+        " price_decimal REAL, line REAL, captured_at DATETIME, source TEXT);"
+        "CREATE TABLE odds_snapshots(id INTEGER PRIMARY KEY, match_id INT, market TEXT, selection TEXT,"
+        " devig_prob REAL, line REAL, captured_at DATETIME, source TEXT, yes_bid REAL, yes_ask REAL);")
     tid = 0
     for mid, when, status, away, home in games:
         con.execute("INSERT INTO teams VALUES (?, ?)", (tid + 1, home))
@@ -49,11 +54,38 @@ def make_db(path: Path, games: list[tuple]) -> None:
         con.execute("INSERT INTO matches VALUES (?, 1, ?, ?, ?, ?)",
                     (mid, when.strftime("%Y-%m-%d %H:%M:%S.000000"), status, tid + 1, tid + 2))
         tid += 2
+    write_prices(con, NOW - timedelta(hours=3))           # every game carries prices from the morning: stale here
     # an NFL game in the window is never an MLB closing game
     con.execute("INSERT INTO matches VALUES (999, 2, ?, 'SCHEDULED', 1, 2)",
                 ((NOW + timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S.000000"),))
     con.commit()
     con.close()
+
+
+def _ts(dt):
+    return dt.strftime("%Y-%m-%d %H:%M:%S.000000")
+
+
+def write_prices(con, at, kinds=("books", "kalshi")):
+    """What sync-odds / sync-kalshi store, at capture time `at`, for every MLB game not started at `at`: the
+    api_baseball 1X2 board replaced (one capture stamp, src/ingestion/service.py _mlb_store_odds) and a Kalshi
+    HOME/AWAY snapshot appended (source 'kalshi', src/ingestion/kalshi_sync.py)."""
+    for (mid,) in con.execute("SELECT id FROM matches WHERE competition_id = 1 AND utc_date > ?", (_ts(at),)).fetchall():
+        if "books" in kinds:
+            con.execute("DELETE FROM odds WHERE match_id = ? AND source = 'api_baseball'", (mid,))
+            for bk in ("bk1", "bk2"):
+                for sel, px in (("HOME", 1.9), ("AWAY", 1.95)):
+                    con.execute("INSERT INTO odds(match_id, bookmaker, market, selection, price_decimal, captured_at,"
+                                " source) VALUES (?, ?, '1X2', ?, ?, ?, 'api_baseball')", (mid, bk, sel, px, _ts(at)))
+        if "kalshi" in kinds:
+            for sel in ("HOME", "AWAY"):
+                con.execute("INSERT INTO odds_snapshots(match_id, market, selection, devig_prob, captured_at, source,"
+                            " yes_bid, yes_ask) VALUES (?, 'ML', ?, 0.5, ?, 'kalshi', 0.49, 0.5)", (mid, sel, _ts(at)))
+    con.commit()
+
+
+def run_start_of(run_id):
+    return datetime.strptime(run_id[:16], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
 
 
 def scratch_games(now=NOW):
@@ -104,6 +136,8 @@ class Box:
         self.doc = None                # the export the export step "writes"
         self.lock_seen = []
         self.tails = {}                # command -> the console tail it "prints" (exit 0)
+        self.no_fresh = set()          # sync steps that store no fresh prices (a failed sync: R2)
+        self.receipt_locks = []        # lock_free() seen at each receipt write (R3)
 
 
 @pytest.fixture
@@ -115,6 +149,7 @@ def box(tmp_path, monkeypatch):
     monkeypatch.setattr(c, "_DOTENV_CACHE", None)
     for k in ("SP_SKIP_FAMILIES", "NTFY_TOPIC", "SP_EXPORTS_MIRROR_REMOTE"):
         monkeypatch.delenv(k, raising=False)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_REMOTE", "git@example.invalid:scratch/exports.git")   # M1 (push faked)
     monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "logs" / "receipts.jsonl"))
     monkeypatch.setenv("SP_LOCK", str(tmp_path / "logs" / "db.lock"))
     monkeypatch.setenv("SP_BACKUP_DIR", str(tmp_path / "backups"))
@@ -132,6 +167,11 @@ def box(tmp_path, monkeypatch):
         n = len(b.steps)
         if b.fail_at == n:
             return 1, ["boom"], 0.1
+        kind = {"sync-odds": "books", "sync-kalshi": "kalshi"}.get(argv[0])
+        if kind and argv[0] not in b.no_fresh:
+            con = sqlite3.connect(c.db_path())
+            write_prices(con, run_start_of(run_id) + timedelta(seconds=30), (kind,))
+            con.close()
         if argv[0] == "export-predictions":
             day = argv[argv.index("--date") + 1]
             (repo / "exports" / f"mlb_MLB_{day}.json").write_text(json.dumps(b.doc))
@@ -146,6 +186,13 @@ def box(tmp_path, monkeypatch):
     monkeypatch.setattr(mc, "feed_answers", fake_feed)
     monkeypatch.setattr(mc, "notify", lambda body, title=mc.NOTIFY_TITLE: b.notes.append(body) or {"posted": True})
     monkeypatch.setattr(mc, "push_mirror", lambda: b.pushes.append(1) or {"exit": 0, "tail": ["EXPORTS-MIRROR laptop: pushed"]})
+
+    real_append = c.append_receipt
+
+    def watched_append(rec):
+        b.receipt_locks.append(mc.lock_free())
+        return real_append(rec)
+    monkeypatch.setattr(c, "append_receipt", watched_append)
 
     def no_net(*a, **k):
         raise AssertionError("network used")
@@ -247,7 +294,8 @@ def test_a6_at_most_three_attempts_per_first_pitch(box, monkeypatch):
     runs = [r for r in receipts() if r["kind"] == "mlb_closing"]
     assert len(runs) == 3 and all(r["exit"] == 1 for r in runs)
     assert [r["attempt"] for r in runs] == [1, 2, 3]
-    assert box.feed_calls == 3 and box.pushes == [] and box.notes == []
+    assert box.feed_calls == 3 and box.pushes == []
+    assert len(box.notes) == 3                          # one failed-run notification per watch-started attempt
 
 
 # ---------------------------------------------------------------------------------------------- A1-A4 run --
@@ -308,12 +356,13 @@ def test_a3_an_operator_backup_dated_today_counts(box):
     assert receipts()[-1]["backup"] == {"file": str(own), "taken": False}
 
 
-def test_a3_backup_never_under_data_and_no_step_after_a_failed_backup(box, monkeypatch):
-    monkeypatch.setenv("SP_BACKUP_DIR", str(c.REPO / "data" / "bk"))
+def test_a3_no_step_after_a_failed_backup(box, monkeypatch):
+    monkeypatch.setattr(mc, "take_backup", lambda folder, day: {"file": str(folder / "x.db"), "taken": True,
+                                                                "opens": False, "integrity": "malformed",
+                                                                "error": "RuntimeError: integrity_check"})
     assert mc.run(now=NOW) == 1
     r = receipts()[-1]
-    assert r["failed"] == "backup" and "REFUSED" in r["backup"]["error"] and box.steps == []
-    assert not (c.REPO / "data").exists()
+    assert r["failed"] == "backup" and r["backup"]["opens"] is False and box.steps == [] and box.pushes == []
 
 
 def test_a4_refuses_when_every_game_in_its_window_has_started(box, monkeypatch):
@@ -449,9 +498,20 @@ def test_a8_setup_script_syntax_pattern_and_uninstall(tmp_path):
                                           "cli.py") for h in hits), hits
 
 
-FAKE_CLI = '''import os, sys
+FAKE_CLI = '''import os, sqlite3, sys
 a = sys.argv[1:]
 print("ran", " ".join(a))
+if a[0] in ("sync-odds", "sync-kalshi"):            # fresh prices, captured at T_CAPTURE (after the run's start)
+    con = sqlite3.connect(os.environ["DATABASE_URL"][len("sqlite:///"):])
+    for (mid,) in con.execute("SELECT id FROM matches WHERE competition_id = 1").fetchall():
+        for sel in ("HOME", "AWAY"):
+            if a[0] == "sync-odds":
+                con.execute("INSERT INTO odds(match_id, bookmaker, market, selection, price_decimal, captured_at, "
+                            "source) VALUES (?, 'bk1', '1X2', ?, 1.9, ?, 'api_baseball')", (mid, sel, os.environ["T_CAPTURE"]))
+            else:
+                con.execute("INSERT INTO odds_snapshots(match_id, market, selection, devig_prob, captured_at, source) "
+                            "VALUES (?, 'ML', ?, 0.5, ?, 'kalshi')", (mid, sel, os.environ["T_CAPTURE"]))
+    con.commit()
 if a[0] == "export-predictions":
     day = a[a.index("--date") + 1]
     open(f"exports/mlb_MLB_{day}.json", "w").write(open(os.environ["T_DOC"]).read())
@@ -468,6 +528,7 @@ def test_real_step_runner_against_a_fake_cli(box, monkeypatch):
     doc = box.tmp / "doc.json"
     doc.write_text(json.dumps(box.doc))
     monkeypatch.setenv("T_DOC", str(doc))
+    monkeypatch.setenv("T_CAPTURE", "2026-10-08 22:00:30.000000")
     assert mc.run(now=NOW) == 0
     r = receipts()[-1]
     assert [s["exit"] for s in r["steps"]] == [0] * 10 and len(r["desk_rows"]) == 4
@@ -487,7 +548,9 @@ def test_p1a_a_failed_or_timed_out_push_fails_the_run_and_the_watch_retries(box,
     r = receipts()[-1]
     assert r["exit"] == 1 and r["failed"] == "push" and r["push"] == push
     assert r["export"] == "exports/mlb_MLB_2026-10-08.json" and (c.REPO / r["export"]).is_file()   # kept on disk
-    assert box.notes == []
+    assert "export_moved_to" not in r                                       # R6: a failed push leaves it in place
+    assert box.notes == ["Closing 2026-10-08 18:30 ET: FAILED: push · attempt 1/3"]   # no call notified
+    box.notes.clear()
     assert mc.closing_state("2026-10-08T22:30:00Z") == {"success": False, "attempts": 1, "misses": 0}
     monkeypatch.setattr(mc, "push_mirror", lambda: box.pushes.append(1) or {"exit": 0, "tail": ["pushed"]})
     assert mc.watch(now=NOW + timedelta(minutes=5)) == 0                    # the next tick retries: success
@@ -607,27 +670,231 @@ def test_p1e_target_first_pitch_elapsed_during_the_run_is_a_failure_and_never_re
     monkeypatch.setattr(mc, "run_step", slow_step)
     assert mc.watch(now=NOW) == 1                               # T-6: in the window, started
     r = receipts()[-1]
-    assert r["exit"] == 1 and r["failed"] == "first pitch elapsed during the run"
+    assert r["exit"] == 1 and r["failed"] == "target started" and r["started"].startswith("first pitch")
     assert r["completed_at"] == "2026-10-08T22:10:00Z" and r["push"] is None
-    assert box.pushes == [] and box.notes == []
+    assert box.pushes == [] and box.notes == ["Closing 2026-10-08 18:06 ET: FAILED: target started · attempt 1/3"]
     n = len(box.steps)
     assert mc.watch(now=NOW + timedelta(minutes=10)) == 0       # first pitch passed: never retried
     assert len(box.steps) == n and box.feed_calls == 1
 
 
-def test_p1e_the_window_is_the_runs_start(box, monkeypatch):
-    """A game whose first pitch falls inside the run (not the target) is still required in the export and still
-    gets its summary block: nothing is silently dropped by a completion-time window."""
+def _slow_steps(box, monkeypatch, seconds_each, on_step=None):
     clock = {"t": __import__("time").time()}
     monkeypatch.setattr(mc, "time", type("T", (), {"time": staticmethod(lambda: clock["t"])}))
     inner = box.fake_step
 
     def slow_step(argv, run_id):
         out = inner(argv, run_id)
-        clock["t"] += 30                                         # 5 minutes in all: T-3 (Passville) starts mid-run
+        clock["t"] += seconds_each
+        if on_step:
+            on_step(argv)
         return out
     monkeypatch.setattr(mc, "run_step", slow_step)
-    box.doc["predictions"] = [p for p in box.doc["predictions"] if p["match_id"] != 103]
+
+
+def _set_status(db, mid, status):
+    con = sqlite3.connect(db)
+    con.execute("UPDATE matches SET status = ? WHERE id = ?", (status, mid))
+    con.commit()
+    con.close()
+
+
+# ------------------------------------------------------------------------------ ADDENDUM 16 item 2 (#370 READ) --
+
+def test_r1_one_started_test_when_the_steps_have_finished(box, monkeypatch):
+    """R1: a game is started when its stored status is LIVE or FINISHED when the steps have finished, or its first
+    pitch is at or before that moment. A started game has no summary block, no notification, and the export is not
+    required to carry it; the run still succeeds when the target has not started."""
+    def sync_live(argv):                                         # the schedule sync stores 101 as LIVE (early start)
+        if argv[0] == "sync-matches":
+            _set_status(box.db, 101, "LIVE")
+    _slow_steps(box, monkeypatch, 30, sync_live)                 # 5 minutes in all: T-3 (103) starts mid-run
+    box.doc["predictions"] = [p for p in box.doc["predictions"] if p["match_id"] not in (101, 103)]
+    assert mc.run(first_pitch="2026-10-08T22:30:00Z", now=NOW) == 0          # neither is required in the export
+    r = receipts()[-1]
+    assert r["completed_at"] == "2026-10-08T22:05:00Z"
+    assert [d["match_id"] for d in r["desk_rows"]] == [102, 100]             # no block for 101 (LIVE) or 103
+    assert len(box.notes) == 2 and not any("Underhill" in n or "Passville" in n for n in box.notes)
+
+
+def test_r1_a_target_whose_stored_status_is_live_fails_the_run(box, monkeypatch):
+    def sync_live(argv):
+        if argv[0] == "sync-matches":
+            _set_status(box.db, 102, "LIVE")                     # the target, 30 minutes out, stored LIVE
+    _slow_steps(box, monkeypatch, 1, sync_live)
     assert mc.run(first_pitch="2026-10-08T22:30:00Z", now=NOW) == 1
     r = receipts()[-1]
-    assert r["failed"] == "missing from export" and [m["match_id"] for m in r["missing"]] == [103]
+    assert r["failed"] == "target started" and r["started"] == "stored status LIVE when the steps finished"
+    assert box.pushes == [] and box.notes == [] and r["desk_rows"] == []
+
+
+def test_r2_a_failed_book_sync_fails_the_run_as_stale_prices(box, capsys):
+    """R2: the run checks its prices, not a step's console. sync-odds 'succeeds' but stores nothing fresh: every
+    summary game that shows books names its book capture time and the run's start. Nothing pushed, no call
+    notified. The kalshi-only game (no books) is not stale on books."""
+    box.no_fresh = {"sync-odds"}
+    assert mc.run(now=NOW) == 1
+    r = receipts()[-1]
+    assert r["failed"] == "stale prices" and r["push"] is None and box.pushes == [] and box.notes == []
+    assert [(x["match_id"], x["price"]) for x in r["stale"]] == [(103, "books"), (101, "books"), (100, "books")]
+    assert r["stale"][0] == {"match_id": 103, "game": "Passville Visitors @ Passville",
+                             "first_pitch_et": "2026-10-08 18:03 ET", "price": "books",
+                             "captured_at": "2026-10-08T19:00:00Z", "run_start": "2026-10-08T22:00:00Z"}
+    out = capsys.readouterr().out
+    assert ("✗ stale prices: match 101 (2026-10-08 19:02 ET Underhill Visitors @ Underhill): books captured "
+            "2026-10-08T19:00:00Z, before the run's start 2026-10-08T22:00:00Z") in out
+
+
+def test_r2_a_stale_kalshi_quote_fails_and_no_books_or_no_quote_is_not_stale(box):
+    box.no_fresh = {"sync-kalshi"}
+    assert mc.run(now=NOW) == 1
+    r = receipts()[-1]
+    assert r["failed"] == "stale prices" and {x["price"] for x in r["stale"]} == {"kalshi"}
+    assert [x["match_id"] for x in r["stale"]] == [103, 102, 101, 100]
+    # a row with no books and no Kalshi quote is never stale, whatever the stored rows say
+    bare = {"predictions": [{"match_id": 103, "market": {"bookmaker_count": 0}, "kalshi_bid": None,
+                             "kalshi_ask": None, "kalshi_legs": None}]}
+    x = {"match_id": 103, "first_pitch": "2026-10-08T22:03:00Z", "first_pitch_et": "", "away": "A", "home": "H"}
+    assert mc.stale_prices(bare, [x], NOW) == []
+    # the capture times are the stored rows the export read: the last book session, the latest Kalshi per side
+    con = sqlite3.connect(box.db)
+    mc_caps = mc.price_captures(con, 103, mc.parse_utc("2026-10-08T22:03:00Z"))
+    con.close()
+    assert mc_caps["kalshi"] == datetime(2026, 10, 8, 19, 0, tzinfo=timezone.utc)
+    assert mc_caps["books"] == datetime(2026, 10, 8, 22, 0, 30, tzinfo=timezone.utc)
+
+
+def test_r3_the_lock_is_held_from_the_backup_check_until_the_receipt_line(box, monkeypatch):
+    seen = {}
+    real_backup = mc.todays_backup
+    monkeypatch.setattr(mc, "todays_backup", lambda f, d: seen.setdefault("backup", mc.lock_free()) and None
+                        or real_backup(f, d))
+    monkeypatch.setattr(mc, "push_mirror", lambda: seen.setdefault("push", mc.lock_free()) or {"exit": 0, "tail": []})
+    assert mc.run(now=NOW) == 0
+    assert seen == {"backup": False, "push": False}               # held at the backup check and at the push
+    assert box.receipt_locks == [False]                           # and while the receipt line was written
+    assert mc.lock_free()                                         # released after it
+
+
+def test_r4_a_malformed_first_pitch_is_a_receipted_refusal_exit_2(box):
+    assert mc.run(first_pitch="tonight 7pm", now=NOW) == 2
+    r = receipts()[-1]
+    assert r["kind"] == "mlb_closing" and r["exit"] == 2 and r["refused"].startswith("malformed --first-pitch")
+    assert r["first_pitch"] == "tonight 7pm" and box.steps == [] and not (box.tmp / "backups").exists()
+    assert mc.main(["run", "--first-pitch", "2026-13-45T99:00Z"]) == 2
+
+
+def test_r5_a_backup_folder_under_data_refuses_before_anything_else(box, monkeypatch):
+    """R5: checked before anything else; refused, receipted, whether or not a backup already sits there (the
+    folder is never looked into: no file is ever created under data/, not even in the scratch checkout)."""
+    monkeypatch.setenv("SP_BACKUP_DIR", str(c.REPO / "data" / "bk"))
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "MLB")                 # checked AFTER the folder
+    monkeypatch.delenv("SP_EXPORTS_MIRROR_REMOTE")                # checked after the folder too
+    looked = []
+    monkeypatch.setattr(mc, "todays_backup", lambda f, d: looked.append(f) or (f / "sports_2026-10-08.db"))
+    assert mc.run(now=NOW) == 2
+    r = receipts()[-1]
+    assert r["exit"] == 2 and r["refused"].startswith("backup folder under data/") and "law 5" in r["refused"]
+    assert looked == [] and box.steps == [] and box.pushes == [] and not (c.REPO / "data").exists()
+
+
+def test_r6_a_closing_that_fails_its_own_checks_leaves_no_calls_behind(box):
+    box.doc["predictions"] = [p for p in box.doc["predictions"] if p["match_id"] != 101]    # missing from export
+    assert mc.run(now=NOW) == 1
+    r = receipts()[-1]
+    run_id = r["run_id"]
+    assert r["failed"] == "missing from export"
+    assert r["export_moved_to"] == f"logs/{run_id}.mlb_MLB_2026-10-08.json"
+    assert not (c.REPO / "exports" / "mlb_MLB_2026-10-08.json").exists()
+    assert json.loads((c.REPO / r["export_moved_to"]).read_text())["predictions"]           # the file, moved whole
+    box.doc = four_kinds_doc()
+    box.no_fresh = {"sync-odds"}                                                            # stale prices: moved
+    assert mc.run(now=NOW + timedelta(minutes=1)) == 1
+    assert receipts()[-1]["failed"] == "stale prices" and receipts()[-1]["export_moved_to"].startswith("logs/")
+    assert not list((c.REPO / "exports").glob("*.json"))
+
+
+def test_failed_run_notifications_from_the_watch_best_effort(box, monkeypatch, capsys):
+    """Every watch-started run that does not succeed posts one notification: the first pitch, what failed or why it
+    refused, the attempt out of three; the third says no further attempt. A manual run prints only. A notification
+    that cannot be posted is recorded in the receipt and changes nothing else."""
+    one = box.tmp / "one.db"
+    make_db(one, [(1, NOW + timedelta(minutes=30), "SCHEDULED", "A", "H")])
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{one}")
+    for i in range(3):
+        box.fail_at = len(box.steps) + 1
+        assert mc.watch(now=NOW + timedelta(minutes=i)) == 1
+    assert box.notes == ["Closing 2026-10-08 18:30 ET: FAILED: step 1 · attempt 1/3",
+                         "Closing 2026-10-08 18:30 ET: FAILED: step 1 · attempt 2/3",
+                         "Closing 2026-10-08 18:30 ET: FAILED: step 1 · attempt 3/3 · no further attempt will run "
+                         "for this first pitch"]
+    assert receipts()[-1]["failure_notification"]["posted"] is True
+    box.notes.clear()
+    box.fail_at = len(box.steps) + 1
+    assert mc.run(now=NOW) == 1 and box.notes == []                     # a manual run prints to the console only
+    # a watch-started refusal posts why it refused
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_REMOTE", "")
+    assert mc.run(first_pitch="2026-10-08T22:30:00Z", trigger="watch", now=NOW) == 2
+    assert box.notes == ["Closing 2026-10-08 18:30 ET: REFUSED: SP_EXPORTS_MIRROR_REMOTE is not set (environment, "
+                         "host.env, the checkout's .env): a closing run pushes the exports mirror or it is not a "
+                         "success"]
+    # best effort: a notification that raises is recorded, and the run's result is unchanged
+    monkeypatch.setattr(mc, "notify", lambda body, title=mc.NOTIFY_TITLE: (_ for _ in ()).throw(OSError("nc down")))
+    assert mc.run(first_pitch="2026-10-08T22:30:00Z", trigger="watch", now=NOW) == 2
+    assert receipts()[-1]["failure_notification"] == {"text": box.notes[0], "posted": False,
+                                                      "error": "OSError: nc down"}
+
+
+def test_m1_no_mirror_remote_refuses_before_the_first_step(box, monkeypatch):
+    monkeypatch.delenv("SP_EXPORTS_MIRROR_REMOTE")
+    assert mc.run(now=NOW) == 2
+    r = receipts()[-1]
+    assert r["exit"] == 2 and "SP_EXPORTS_MIRROR_REMOTE" in r["refused"]
+    assert box.steps == [] and box.pushes == [] and not (box.tmp / "backups").exists()
+
+
+def _setup_sandbox(tmp_path, env_line):
+    """A scratch checkout for the setup script: the script, sp_common (how the run reads settings), a venv python
+    that is this interpreter, fake launchctl/osascript that record their calls. Never the real checkout's .env."""
+    repo, home, bindir = tmp_path / "repo", tmp_path / "home", tmp_path / "bin"
+    (repo / "scripts").mkdir(parents=True)
+    (repo / "deploy" / "hosting").mkdir(parents=True)
+    (repo / "venv" / "bin").mkdir(parents=True)
+    shutil.copy2(ROOT / "scripts" / "setup_mlb_closing_watch.sh", repo / "scripts")
+    shutil.copy2(HOSTING / "sp_common.py", repo / "deploy" / "hosting")
+    py = repo / "venv" / "bin" / "python"
+    py.write_text(f"#!/bin/sh\nexec {sys.executable} \"$@\"\n")
+    py.chmod(0o755)
+    (repo / ".env").write_text(env_line)
+    home.mkdir()
+    bindir.mkdir()
+    for tool in ("launchctl", "osascript"):
+        (bindir / tool).write_text(f"#!/bin/sh\necho \"{tool} $*\" >> \"$HOME/calls\"\n")
+        (bindir / tool).chmod(0o755)
+    env = {"HOME": str(home), "PATH": f"{bindir}:/usr/bin:/bin", "SP_HOST_ENV": str(tmp_path / "no-host.env")}
+    return repo, home, env
+
+
+def test_m1_the_setup_script_refuses_to_install_without_the_mirror_remote(tmp_path):
+    repo, home, env = _setup_sandbox(tmp_path, "# no mirror remote here\n")
+    r = subprocess.run(["bash", str(repo / "scripts" / "setup_mlb_closing_watch.sh")], capture_output=True,
+                       text=True, env=env)
+    assert r.returncode == 2 and "REFUSED: SP_EXPORTS_MIRROR_REMOTE is not set" in r.stdout
+    assert not (home / "Library" / "LaunchAgents" / "com.sportspredictor.mlbclosingwatch.plist").exists()
+    assert not (home / "calls").exists()                          # no launchctl, no notification
+
+
+def test_m2_the_setup_script_posts_a_test_notification_and_prints_what_the_watch_needs(tmp_path):
+    repo, home, env = _setup_sandbox(tmp_path, "SP_EXPORTS_MIRROR_REMOTE=git@example.invalid:x/exports.git\n")
+    r = subprocess.run(["bash", str(repo / "scripts" / "setup_mlb_closing_watch.sh")], capture_output=True,
+                       text=True, env=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    calls = (home / "calls").read_text().splitlines()
+    assert calls[-1] == ('osascript -e display notification "Test: the MLB closing watch is installed" with title '
+                         '"MLB closing"')
+    assert any(x.startswith("launchctl load ") for x in calls)
+    out = r.stdout
+    assert "Test notification: posted." in out
+    assert 'You should have seen a notification titled "MLB closing"' in out
+    assert "System Settings → Notifications → Script Editor" in out
+    assert "The laptop awake" in out and "VPN on, Tailscale off" in out

@@ -297,6 +297,35 @@ def test_k6_identical_probabilities_before_and_after_the_record():
     assert (on["BLEND"][0], on["BLEND"][1]) == (h / (h + a), a / (h + a))
 
 
+def test_k6_at_weight_0_the_record_reads_applied_false_and_keeps_the_numbers():
+    """ADDENDUM 18 item 2 (ARCHITECT): "Applied means the market number moved the prediction. With market_blend_w
+    at 0 the record reads applied false, enabled true, and keeps the weight and the market numbers. The
+    probabilities are not touched by this fix." """
+    import mlb_blend_fixture as F
+    from src.db.database import session_scope
+    from src.db.schema import ModelVersion, Sport
+    from src.walters import mlb_actionable as MA
+
+    F.build()
+    with session_scope() as s:
+        if s.query(ModelVersion).filter_by(version="k6-blend-w0").one_or_none() is None:
+            s.add(ModelVersion(sport=Sport.MLB, model_family="mlb_pythag_negbin", version="k6-blend-w0",
+                               status="candidate",
+                               parameters={"baseball_config": {"market_blend_enabled": True, "market_blend_w": 0.0}}))
+    zero, off, on = F.run("k6-blend-w0"), F.run(F.V_OFF), F.run(F.V_ON)
+    rec = zero["BLEND"][2]["market_blend"]
+    assert rec["applied"] is False and rec["enabled"] is True and rec["w"] == 0.0
+    assert rec["market_home"] == on["BLEND"][2]["market_blend"]["market_home"]       # the market numbers kept
+    assert rec["market_away"] == on["BLEND"][2]["market_blend"]["market_away"]
+    assert MA.blend_of(zero["BLEND"][2]) == "model alone"
+    # the probabilities: the w-0 blend is the model number (the same branch as before the fix, untouched)
+    assert zero["BLEND"][0] == pytest.approx(off["BLEND"][0], abs=1e-12)
+    assert zero["BLEND"][1] == pytest.approx(off["BLEND"][1], abs=1e-12)
+    for g in ("NOBOOK", "UNPRICD"):                                                  # never priced: unchanged
+        assert zero[g][2]["market_blend"] == {"applied": False, "enabled": True, "w": None, "market_home": None,
+                                              "market_away": None}
+
+
 def test_k6_the_actionable_receipt_splits_by_the_record_and_infers_nothing():
     from src.walters import mlb_actionable as MA
     assert MA.BLENDS == ("blended", "model alone", "not recorded")

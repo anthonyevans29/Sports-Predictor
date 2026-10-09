@@ -1,0 +1,2 @@
+## 2026-10-09 (#396: soccer value receipt — the one run, filed as declared)
+- `docs/receipts/soccer-value-sides-2026-10-09.md` and its PL reference page: the operator's one run of `soccer-value-receipt` on the laptop (main ed5ecbb), spliced from `laptop/soccer-value-receipt` e6e9233 byte for byte (ARCHITECT 2026-10-09, addendum 28 item 5; Issue #383). Reconciliation PASS in all five leagues. Read-only; not gate evidence and not a policy.

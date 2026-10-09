@@ -1281,10 +1281,13 @@ def export_fixtures(
     return path
 
 
-def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
+def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> str:
     """Rolling results document (2026-09-15, user request): last-N-day
     sides/log-loss/CLV per sport, regenerated on demand. Auto-generated —
-    do not hand-edit."""
+    do not hand-edit. Each sport that reports a close also gets its close's
+    capture age over its window (#382): median and largest
+    close_minutes_before_start, with n; `report` (a callable) receives the
+    same figures, one line per sport, for the console."""
     import math
     from datetime import datetime, timedelta
 
@@ -1313,6 +1316,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
              "(soccer HOME/DRAW/AWAY, others HOME/AWAY), de-vigged per book then averaged. A stored "
              "divergence the contract reproduces is VERIFIED; any other stored value is RETAINED-LEGACY and is "
              "reported separately, never pooled into the headline._\n"]
+    from src.walters.close import close_age_line
+    _ages: list = []            # (sport label, close_age_summary) for each sport that reports a close (#382)
     with session_scope() as s:
         cutoff = utc_now_naive() - timedelta(days=days)
         for sport, label in ((Sport.MLB, "MLB"), (Sport.SOCCER, "Soccer (PL)")):
@@ -1347,6 +1352,10 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
                                                   _Snp.match_id.in_([m.id for _, m in rows]))).scalars():
                 snaps_by.setdefault(x.match_id, []).append(x)
             coh = {"verified": [], "legacy": []}
+            # #382: the results rows' close (grading_close_block) and its capture age, per row in the window
+            from src.walters.close import close_age_summary, grading_close_block
+            age = close_age_summary(grading_close_block(s, m)["close_minutes_before_start"] for _, m in rows)
+            _ages.append((label, age))
             for oc, m in rows:
                 c = clv_cohort(oc, preds.get(oc.prediction_id), m, odds_by.get(m.id, []),
                                snaps_by.get(m.id, [])) \
@@ -1360,7 +1369,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
                 + (f"- Mean model-close divergence, verified close: {sum(ver)/len(ver)*100:+.2f}pp (n={len(ver)})\n"
                    if ver else "- Mean model-close divergence, verified close: — (n=0)\n")
                 + (f"- Retained-legacy model-close divergence (separate cohort, not in the headline): "
-                   f"{sum(leg)/len(leg)*100:+.2f}pp (n={len(leg)})\n" if leg else ""))
+                   f"{sum(leg)/len(leg)*100:+.2f}pp (n={len(leg)})\n" if leg else "")
+                + close_age_line(age))
         # NFL from the grade join (no outcome rows during rehearsal). ONE record
         # definition (ARCHITECT 2026-10-06): season to date from live_since, a tie
         # is a push outside the hit denominator, pre-live rows on their own line.
@@ -1369,6 +1379,9 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
             r = grade_nfl(days_back=None)
             if r.get("ok"):
                 pl = r.get("pre_live") or {}
+                nfl_age = r.get("close_minutes_before_start")       # #382; absent = no close reported
+                if nfl_age is not None:
+                    _ages.append(("NFL (season to date, live rows)", nfl_age))
                 lines.append(
                     f"## NFL (live since Week 3, 2026-09-22)\n\n- Sides: **{r['hits']}/{r['decided']}**"
                     + (f" ({r['hits']/r['decided']:.1%})" if r["decided"] else "")
@@ -1382,6 +1395,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
                        + f", n={r['value_shadow_n']})\n"
                        if r.get("mean_value_side_clv_pp") is not None else
                        "- Mean model-close divergence (value side): — (no games with a pre-kickoff book snapshot yet)\n")
+                    + (close_age_line(nfl_age) if nfl_age is not None else "")
                     + (f"\n### NFL pre-live (before 2026-09-22; never pooled)\n\n"
                        f"- Sides: {pl['hits']}/{pl['decided']} · pushes {pl['pushes']}\n"
                        if pl.get("games") else ""))
@@ -1403,4 +1417,9 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md") -> str:
     lines.append("\nDeep detail: `BACKLOG.md`. Change history: `CHANGELOG.md`.\n")
     with open(out_path, "w") as f:
         f.write("\n".join(lines))
+    if report:
+        report("close capture age (close_minutes_before_start; our capture, not the quote, #348):")
+        for label, a in _ages:
+            report(f"  {label}: " + (f"median {a['median']:g} min · largest {a['max']} min · n={a['n']}"
+                                     if a["n"] else "no close in window (n=0)"))
     return out_path

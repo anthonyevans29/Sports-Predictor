@@ -48,7 +48,10 @@ def _reservation(monkeypatch, tmp_path):
 
 def test_registry_declares_it_with_an_executable_plan():
     e = reg.get(sx.EID)
-    assert e and e["status"] == "declared" and e["run"] is None
+    # ARCHITECT 2026-10-09, addendum 20: the one run is recorded (spliced from 35135c4) and the verdict is PASS,
+    # surviving set PD; the entry is confirming, the declaration below unchanged
+    assert e and e["status"] == "confirming" and e["run"]["n_scored"] == 3445 and e["run"]["prior_read_count"] == 0
+    assert e["verdict"]["verdict"] == "PASS" and e["run"]["result"]["surviving"] == ["PD"]
     assert e["declaration"] == "docs/specs/soccer-expansion-v1.md"
     assert reg.check_plan(e["confirmation_plan"]) == {"n_games": 60, "metric": "log_loss", "bar": 1.0986,
                                                      "must_beat_reference": True,

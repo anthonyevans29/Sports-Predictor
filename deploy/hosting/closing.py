@@ -265,6 +265,38 @@ def covered_ids(fam: str) -> set:
     return out
 
 
+def unpaged_called_off(fam: str) -> list[dict]:
+    """Codex 4233123800 (#392): a covered game an attempt found cancelled or postponed (`called_off`) leaves
+    schedule(), which drops every VOID status, so the watch would never page its line if that attempt failed. It stays
+    a game of its start time, in the schedule's shape at the start it was covered at, until that start time has a
+    successful attempt (whose page carried its line) or three attempts."""
+    by_start: dict = {}
+    for r in _attempts(fam):
+        by_start.setdefault(r.get("start"), []).append(r)
+    out: dict = {}
+    for rs in by_start.values():
+        if any(r.get("exit") == 0 for r in rs) or len(rs) >= MAX_ATTEMPTS:
+            continue
+        for r in rs:
+            for x in r.get("called_off") or []:
+                try:
+                    out.setdefault(x["match_id"], {
+                        "match_id": x["match_id"], "start": parse_utc(x["covered_start"]),
+                        "status": str(x.get("status") or "").upper(), "home": x.get("home"), "away": x.get("away"),
+                        "home_team_id": None, "away_team_id": None})
+                except (KeyError, TypeError, ValueError):
+                    continue
+    return list(out.values())
+
+
+def with_called_off(fam: str, games: list[dict]) -> list[dict]:
+    """The stored schedule plus the unpaged called-off games of the family (not already in it): what the watch, the
+    plan and the run's covers read. The run's own checks (missing from export, started) keep reading schedule()."""
+    have = {g["match_id"] for g in games}
+    extra = [g for g in unpaged_called_off(fam) if g["match_id"] not in have]
+    return sorted(games + extra, key=lambda g: (g["start"], g["match_id"])) if extra else games
+
+
 # --------------------------------------------------------------------------------------- side effects --
 # Each is a module-level function so tests replace it; none is reached by --dry-run.
 
@@ -1128,7 +1160,7 @@ def plan(fam: str, now: datetime, start: str | None) -> dict:
     """The target start time and the games it covers, from the stored schedule (read-only). `refused` when there is
     nothing to close. A manual run with no --start targets the next unstarted start within 90 minutes (#370, accepted
     as built); a watch-started run passes its start time."""
-    games = schedule(fam, now)
+    games = with_called_off(fam, schedule(fam, now))      # Codex 4233123800
     if start:
         s = parse_utc(start)
         if not any(g["start"] == s and not started(g, now) for g in games):
@@ -1478,7 +1510,7 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
             record_miss(fam, start, "the lock came inside T-5", detail=f"lock held at {iso_z(held)}")
             print(f"✗ {fam} {et(s)}: the lock came inside T-5 — no attempt; miss recorded")
             return 1
-    games = schedule(fam, held)
+    games = with_called_off(fam, schedule(fam, held))     # Codex 4233123800
     covers = cover(games, s, held)
     rec = {**base, "start": start, "start_et": et(s), "covers": _covers_rec(covers or p["covers"]),
            "attempt": closing_state(fam, start)["attempts"] + 1, "queued_at": base["queued_at"],
@@ -1605,7 +1637,7 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
 
 def due(fam: str, now: datetime) -> dict:
     """The watch's view of one family at `now` (no network): its start times (C2 groups), and which is due."""
-    games = schedule(fam, now)
+    games = with_called_off(fam, schedule(fam, now))      # Codex 4233123800
     gr = groups(games, now, covered_ids(fam))
     out = {"games": games, "groups": gr, "due": [], "inside": []}
     for g in gr:

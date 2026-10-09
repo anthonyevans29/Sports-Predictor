@@ -10,4 +10,8 @@
   - The game stays in `covers`. It is not checked as moved, gets no Desk row and is not counted as a PASS.
   - `page_text` writes `<game> · <STATUS>`, adding `was <call>` when the last call was a PLAY or a LADDER. That `was` makes the page high priority.
   - Tests: `test_25_3_*` (2), both failing on f256cdd.
+- Codex 4233123800 (P1, #392), on (c): `schedule()` drops every CANCELLED and POSTPONED game. So if the attempt that found the game called off failed afterwards (a later step, or a page ntfy did not accept), the watch rebuilt that start time without the game, or, when it was the only game, formed no group at all. The game's line was then never paged.
+  - The fix, in `closing.py`: `unpaged_called_off` and `with_called_off`. A game an attempt recorded in `called_off` stays a game of its start time, at the start it was covered at, until that start time has a successful attempt or three attempts.
+  - `due`, `plan` and the run's covers read the schedule plus those games. The run's own checks (missing from export, started) still read `schedule()`.
+  - Tests: `test_392_4233123800_*` (2), both failing on bc6e107.
 - Not built: #390 item 3 (an MLB group across midnight in New York) and item 5 (reading (a)'s edge). Both stay open on #390.

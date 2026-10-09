@@ -42,3 +42,13 @@
   - **Tests, each failing on f256cdd:**
     - `test_25_3_a_postponed_game_whose_last_call_was_a_play_has_its_own_line_and_the_page_is_high`
     - `test_25_3_a_run_left_with_only_called_off_games_names_them_not_pass_0`
+- **Codex 4233123800 (P1, #392), on (c): real, fixed as trivia under the fence (a correctness bug in the PR's own code).** The finding: "When an attempt fails after the schedule read—such as a later step failing or all three page sends being rejected—recording the game only in this attempt's `called_off` data loses it permanently. The next `watch()` rebuilds its groups from `schedule()`, which filters CANCELLED and POSTPONED through VOID, so the game is never retried or successfully paged."
+  - **Verified on bc6e107.** After the failed attempt, the start time's group was rebuilt from the next stored game (402 at 13:02 instead of 13:00), with the cancelled game left out. When the called-off games were the start time's only games, no group formed and no retry ran.
+  - **Built:** `deploy/hosting/closing.py`:
+    - `unpaged_called_off` returns the games an attempt recorded in `called_off`, at the start they were covered at, while their start time has neither a successful attempt nor three attempts.
+    - `with_called_off` adds them to the stored schedule for `due` (the watch's groups), `plan` and the run's covers.
+    - The run's own checks keep reading `schedule()`.
+    - The retry re-reads the status (`called_off`) and pages the line. A successful attempt's page carried it, and so ends it.
+  - **Tests, each failing on bc6e107:**
+    - `test_392_4233123800_a_called_off_game_of_a_failed_attempt_is_paged_on_the_retry`
+    - `test_392_4233123800_a_start_time_left_with_only_called_off_games_still_forms_a_group`

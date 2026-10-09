@@ -1987,3 +1987,36 @@ def test_25_3_a_run_left_with_only_called_off_games_names_them_not_pass_0(box, m
     assert pg["body"].splitlines() == ["SOCCER 13:00 ET · T-35m", "Arsenal Visitors @ Arsenal · CANCELLED",
                                        "Fulham Visitors @ Fulham · POSTPONED", "PASS: 0 games"]
     assert pg["priority"] == "default" and runs()[-1]["exit"] == 0
+
+
+def test_392_4233123800_a_called_off_game_of_a_failed_attempt_is_paged_on_the_retry(box, monkeypatch):
+    """Codex 4233123800 (#392): the attempt that finds a covered game cancelled fails at a later step; schedule()
+    drops every VOID status, so the retry rebuilt its start time without the game (here: from 402's 13:02 start) and
+    its line was never paged. The game stays a game of its start time until a successful attempt or three attempts:
+    the retry keeps the start time and pages the line. Fails on bc6e107."""
+    status_on_next_schedule_read(box, monkeypatch, {401: "CANCELLED"})
+    box.fail_cmd["predict"] = (1, ["boom"])
+    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    assert [x["match_id"] for x in runs("SOCCER")[-1]["called_off"]] == [401]
+    box.fail_cmd.clear()
+    assert mc.watch(now=NOW + timedelta(minutes=1), families=("SOCCER",)) == 0
+    r = runs("SOCCER")[-1]
+    assert r["start"] == at(35) and r["attempt"] == 2 and [x["match_id"] for x in r["covers"]] == [401, 402]
+    assert "Arsenal Visitors @ Arsenal · CANCELLED" in call_pages(box)[-1]["body"].splitlines()
+    assert mc.unpaged_called_off("SOCCER") == []                     # carried on an accepted page: done
+
+
+def test_392_4233123800_a_start_time_left_with_only_called_off_games_still_forms_a_group(box, monkeypatch):
+    """The same when the called-off games were the start time's only games and the page was not accepted: the start
+    time still forms a group and the retry pages their lines. Fails on bc6e107 (no group, no retry)."""
+    status_on_next_schedule_read(box, monkeypatch, {401: "CANCELLED", 402: "POSTPONED"})
+    box.page_ok = False
+    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    assert runs("SOCCER")[-1]["failed"] == "page"
+    box.page_ok = True
+    assert mc.watch(now=NOW + timedelta(minutes=1), families=("SOCCER",)) == 0
+    r = runs("SOCCER")[-1]
+    assert r["start"] == at(35) and r["attempt"] == 2 and r["exit"] == 0
+    assert call_pages(box)[-1]["body"].splitlines()[1:] == ["Arsenal Visitors @ Arsenal · CANCELLED",
+                                                            "Fulham Visitors @ Fulham · POSTPONED", "PASS: 0 games"]
+    assert mc.watch(now=NOW + timedelta(minutes=2), families=("SOCCER",)) == 0 and len(runs("SOCCER")) == 2

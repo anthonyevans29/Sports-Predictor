@@ -681,8 +681,635 @@
       "reference": "pooled naive (each surviving league's frozen 2023/24 H/D/A frequencies) on the same 60 games, minus 0.010"
     },
     "declared_at": "2026-10-07T15:17:38Z",
-    "status": "declared",
-    "run": null,
+    "status": "run",
+    "run": {
+      "run_at": "2026-10-09T12:24:56Z",
+      "n_scored": 3445,
+      "ids_sha256": "0107e1d0c8609f9b0503bd04db74d2647bb9b3283ab66b31802ed04955a2c56a",
+      "ids_file": "docs/registry/ids/soccer-expansion-v1.txt",
+      "result": {
+        "verdict": "PASS \u2014 surviving set PD",
+        "surviving": [
+          "PD"
+        ],
+        "dropped": [
+          "SA",
+          "BL1",
+          "FL1",
+          "ELC"
+        ],
+        "dropped_before_run": {},
+        "per_league": {
+          "PD": {
+            "n": 680,
+            "ll_model": 1.0027478726023469,
+            "ll_naive": 1.0605594714394333,
+            "bar": 1.0505594714394333,
+            "rps_model": 0.2070098586565803,
+            "rps_naive": 0.22767251914616257,
+            "bands": [
+              {
+                "band": 0,
+                "n": 52,
+                "stated": 0.0686,
+                "realized": 0.1538,
+                "gap": 0.0853,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 1,
+                "n": 241,
+                "stated": 0.1525,
+                "realized": 0.1494,
+                "gap": -0.0031,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 2,
+                "n": 640,
+                "stated": 0.2591,
+                "realized": 0.2562,
+                "gap": -0.0029,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 3,
+                "n": 620,
+                "stated": 0.3392,
+                "realized": 0.3177,
+                "gap": -0.0214,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 4,
+                "n": 222,
+                "stated": 0.4428,
+                "realized": 0.4459,
+                "gap": 0.0031,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 5,
+                "n": 130,
+                "stated": 0.5475,
+                "realized": 0.5923,
+                "gap": 0.0448,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 6,
+                "n": 81,
+                "stated": 0.6458,
+                "realized": 0.716,
+                "gap": 0.0702,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 7,
+                "n": 38,
+                "stated": 0.7454,
+                "realized": 0.7105,
+                "gap": -0.0349,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 8,
+                "n": 15,
+                "stated": 0.833,
+                "realized": 0.8667,
+                "gap": 0.0337,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 9,
+                "n": 1,
+                "stated": 0.9434,
+                "realized": 1.0,
+                "gap": 0.0566,
+                "gated": false,
+                "ok": null
+              }
+            ],
+            "crit_ll": true,
+            "crit_bands": true,
+            "survives": true,
+            "verdict": "PASS",
+            "market": {
+              "n_priced": 680,
+              "n_unpriced": 0,
+              "ll_model": 1.0027478726023469,
+              "ll_market": 0.9528771266559868,
+              "edge_cohort": {
+                "min_edge_pp": 5.0,
+                "n": 212,
+                "hits": 79,
+                "mean_edge_pp": 11.70687821865481
+              }
+            },
+            "naive_freq": {
+              "H": 0.4394736842105263,
+              "D": 0.28157894736842104,
+              "A": 0.2789473684210526,
+              "n": 380
+            }
+          },
+          "SA": {
+            "n": 680,
+            "ll_model": 0.9980373746375881,
+            "ll_naive": 1.0928347355067634,
+            "bar": 1.0828347355067633,
+            "rps_model": 0.20146316165346576,
+            "rps_naive": 0.23355344630927244,
+            "bands": [
+              {
+                "band": 0,
+                "n": 66,
+                "stated": 0.0752,
+                "realized": 0.0758,
+                "gap": 0.0005,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 1,
+                "n": 279,
+                "stated": 0.1583,
+                "realized": 0.1971,
+                "gap": 0.0388,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 2,
+                "n": 589,
+                "stated": 0.2563,
+                "realized": 0.2377,
+                "gap": -0.0187,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 3,
+                "n": 583,
+                "stated": 0.3369,
+                "realized": 0.319,
+                "gap": -0.0178,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 4,
+                "n": 217,
+                "stated": 0.4484,
+                "realized": 0.4562,
+                "gap": 0.0078,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 5,
+                "n": 162,
+                "stated": 0.5435,
+                "realized": 0.5988,
+                "gap": 0.0552,
+                "gated": true,
+                "ok": false
+              },
+              {
+                "band": 6,
+                "n": 95,
+                "stated": 0.6435,
+                "realized": 0.6316,
+                "gap": -0.0119,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 7,
+                "n": 41,
+                "stated": 0.7399,
+                "realized": 0.8049,
+                "gap": 0.0649,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 8,
+                "n": 8,
+                "stated": 0.8313,
+                "realized": 0.625,
+                "gap": -0.2063,
+                "gated": false,
+                "ok": null
+              }
+            ],
+            "crit_ll": true,
+            "crit_bands": false,
+            "survives": false,
+            "verdict": "DROPPED \u2014 calibration",
+            "market": {
+              "n_priced": 680,
+              "n_unpriced": 0,
+              "ll_model": 0.9980373746375881,
+              "ll_market": 0.9562537927930542,
+              "edge_cohort": {
+                "min_edge_pp": 5.0,
+                "n": 225,
+                "hits": 88,
+                "mean_edge_pp": 11.267646898629271
+              }
+            },
+            "naive_freq": {
+              "H": 0.41842105263157897,
+              "D": 0.29473684210526313,
+              "A": 0.2868421052631579,
+              "n": 380
+            }
+          },
+          "BL1": {
+            "n": 529,
+            "ll_model": 1.0230365613576529,
+            "ll_naive": 1.0845711818838895,
+            "bar": 1.0745711818838894,
+            "rps_model": 0.20602218212488374,
+            "rps_naive": 0.23183287033302277,
+            "bands": [
+              {
+                "band": 0,
+                "n": 83,
+                "stated": 0.0578,
+                "realized": 0.0843,
+                "gap": 0.0265,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 1,
+                "n": 247,
+                "stated": 0.1556,
+                "realized": 0.2186,
+                "gap": 0.063,
+                "gated": true,
+                "ok": false
+              },
+              {
+                "band": 2,
+                "n": 590,
+                "stated": 0.2471,
+                "realized": 0.2593,
+                "gap": 0.0122,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 3,
+                "n": 199,
+                "stated": 0.3487,
+                "realized": 0.3317,
+                "gap": -0.017,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 4,
+                "n": 166,
+                "stated": 0.4496,
+                "realized": 0.4578,
+                "gap": 0.0083,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 5,
+                "n": 135,
+                "stated": 0.5503,
+                "realized": 0.4741,
+                "gap": -0.0763,
+                "gated": true,
+                "ok": false
+              },
+              {
+                "band": 6,
+                "n": 79,
+                "stated": 0.6475,
+                "realized": 0.6076,
+                "gap": -0.0399,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 7,
+                "n": 51,
+                "stated": 0.7431,
+                "realized": 0.6078,
+                "gap": -0.1353,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 8,
+                "n": 22,
+                "stated": 0.8457,
+                "realized": 0.8636,
+                "gap": 0.018,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 9,
+                "n": 15,
+                "stated": 0.9334,
+                "realized": 0.7333,
+                "gap": -0.2,
+                "gated": false,
+                "ok": null
+              }
+            ],
+            "crit_ll": true,
+            "crit_bands": false,
+            "survives": false,
+            "verdict": "DROPPED \u2014 calibration",
+            "market": {
+              "n_priced": 529,
+              "n_unpriced": 0,
+              "ll_model": 1.0230365613576529,
+              "ll_market": 0.9810504410987907,
+              "edge_cohort": {
+                "min_edge_pp": 5.0,
+                "n": 266,
+                "hits": 115,
+                "mean_edge_pp": 12.421886157876964
+              }
+            },
+            "naive_freq": {
+              "H": 0.43790849673202614,
+              "D": 0.2647058823529412,
+              "A": 0.2973856209150327,
+              "n": 306
+            }
+          },
+          "FL1": {
+            "n": 532,
+            "ll_model": 1.0056620401290364,
+            "ll_naive": 1.0696357935380991,
+            "bar": 1.0596357935380991,
+            "rps_model": 0.21200603117417555,
+            "rps_naive": 0.23433873033217315,
+            "bands": [
+              {
+                "band": 0,
+                "n": 58,
+                "stated": 0.0693,
+                "realized": 0.0862,
+                "gap": 0.017,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 1,
+                "n": 243,
+                "stated": 0.1574,
+                "realized": 0.2181,
+                "gap": 0.0607,
+                "gated": true,
+                "ok": false
+              },
+              {
+                "band": 2,
+                "n": 595,
+                "stated": 0.2541,
+                "realized": 0.2487,
+                "gap": -0.0053,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 3,
+                "n": 237,
+                "stated": 0.3405,
+                "realized": 0.3418,
+                "gap": 0.0013,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 4,
+                "n": 181,
+                "stated": 0.4458,
+                "realized": 0.4144,
+                "gap": -0.0314,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 5,
+                "n": 131,
+                "stated": 0.5474,
+                "realized": 0.5496,
+                "gap": 0.0022,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 6,
+                "n": 89,
+                "stated": 0.6465,
+                "realized": 0.6404,
+                "gap": -0.0061,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 7,
+                "n": 45,
+                "stated": 0.7409,
+                "realized": 0.5778,
+                "gap": -0.1631,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 8,
+                "n": 13,
+                "stated": 0.838,
+                "realized": 0.8462,
+                "gap": 0.0082,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 9,
+                "n": 4,
+                "stated": 0.9244,
+                "realized": 1.0,
+                "gap": 0.0756,
+                "gated": false,
+                "ok": null
+              }
+            ],
+            "crit_ll": true,
+            "crit_bands": false,
+            "survives": false,
+            "verdict": "DROPPED \u2014 calibration",
+            "market": {
+              "n_priced": 532,
+              "n_unpriced": 0,
+              "ll_model": 1.0056620401290364,
+              "ll_market": 0.9795244061660681,
+              "edge_cohort": {
+                "min_edge_pp": 5.0,
+                "n": 205,
+                "hits": 93,
+                "mean_edge_pp": 11.211939200201929
+              }
+            },
+            "naive_freq": {
+              "H": 0.39215686274509803,
+              "D": 0.2647058823529412,
+              "A": 0.3431372549019608,
+              "n": 306
+            }
+          },
+          "ELC": {
+            "n": 1024,
+            "ll_model": 1.058881450061273,
+            "ll_naive": 1.0786064399303061,
+            "bar": 1.0686064399303061,
+            "rps_model": 0.21994125332994496,
+            "rps_naive": 0.2261406766895121,
+            "bands": [
+              {
+                "band": 0,
+                "n": 51,
+                "stated": 0.0756,
+                "realized": 0.0588,
+                "gap": -0.0168,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 1,
+                "n": 269,
+                "stated": 0.1604,
+                "realized": 0.1784,
+                "gap": 0.0181,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 2,
+                "n": 985,
+                "stated": 0.2607,
+                "realized": 0.2924,
+                "gap": 0.0317,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 3,
+                "n": 1042,
+                "stated": 0.3372,
+                "realized": 0.334,
+                "gap": -0.0033,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 4,
+                "n": 399,
+                "stated": 0.4439,
+                "realized": 0.411,
+                "gap": -0.0329,
+                "gated": true,
+                "ok": true
+              },
+              {
+                "band": 5,
+                "n": 209,
+                "stated": 0.542,
+                "realized": 0.4545,
+                "gap": -0.0875,
+                "gated": true,
+                "ok": false
+              },
+              {
+                "band": 6,
+                "n": 88,
+                "stated": 0.6433,
+                "realized": 0.625,
+                "gap": -0.0183,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 7,
+                "n": 26,
+                "stated": 0.7408,
+                "realized": 0.8077,
+                "gap": 0.0669,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 8,
+                "n": 2,
+                "stated": 0.8363,
+                "realized": 1.0,
+                "gap": 0.1637,
+                "gated": false,
+                "ok": null
+              },
+              {
+                "band": 9,
+                "n": 1,
+                "stated": 0.9016,
+                "realized": 0.0,
+                "gap": -0.9016,
+                "gated": false,
+                "ok": null
+              }
+            ],
+            "crit_ll": true,
+            "crit_bands": false,
+            "survives": false,
+            "verdict": "DROPPED \u2014 calibration",
+            "market": {
+              "n_priced": 1024,
+              "n_unpriced": 0,
+              "ll_model": 1.058881450061273,
+              "ll_market": 1.0313304667458678,
+              "edge_cohort": {
+                "min_edge_pp": 5.0,
+                "n": 373,
+                "hits": 137,
+                "mean_edge_pp": 11.731522945191827
+              }
+            },
+            "naive_freq": {
+              "H": 0.44565217391304346,
+              "D": 0.23369565217391305,
+              "A": 0.32065217391304346,
+              "n": 552
+            }
+          }
+        },
+        "production_version": "v22",
+        "rho": -0.1,
+        "elo_goal_coeff": 0.0008,
+        "min_prior": 40
+      },
+      "prior_reads": [],
+      "prior_read_count": 0
+    },
     "verdict": null
   },
   {

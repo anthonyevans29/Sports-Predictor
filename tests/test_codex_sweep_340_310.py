@@ -25,7 +25,7 @@ def test_per_requirement_option_after_a_marker_is_refused():
     assert sp_deploy._classify('pkg>=1; python_version >= "3.0"')[0] == "spec"
 
 
-def test_failing_post_checkout_hook_after_head_moved_is_a_deploy(repos):  # noqa: F811
+def test_failing_post_checkout_hook_after_head_moved_is_receipted_at_the_target_and_fails(repos):  # noqa: F811
     dev, host = repos["dev"], repos["host"]
     g(dev, "tag", "v1.0.0")
     commit(dev, "migrate_y.py", "pass\n", "c2")
@@ -34,9 +34,9 @@ def test_failing_post_checkout_hook_after_head_moved_is_a_deploy(repos):  # noqa
     hook = host / ".git" / "hooks" / "post-checkout"
     hook.write_text("#!/bin/sh\necho hook-broke >&2\nexit 1\n")
     hook.chmod(hook.stat().st_mode | stat.S_IXUSR)
-    assert sp_deploy.main(["--tag", "v1.0.1"]) == 0
+    assert sp_deploy.main(["--tag", "v1.0.1"]) == 1        # the hook failed: never reported as success (Codex on #409)
     assert g(host, "rev-parse", "HEAD") == g(dev, "rev-parse", "v1.0.1^{commit}")
     assert c.running_release() == "v1.0.1"
     r = receipts(repos["receipts"])[-1]
-    assert r["kind"] == "deploy" and r["exit"] == 0 and r["to_release"] == "v1.0.1"
+    assert r["kind"] == "deploy" and r["exit"] == 1 and r["to_release"] == "v1.0.1"   # where the code IS
     assert r["new_migrations"] == ["migrate_y.py"] and "hook-broke" in r["checkout_warning"]

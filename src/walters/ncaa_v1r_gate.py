@@ -400,10 +400,14 @@ def _verdict_at(e) -> datetime:
     return datetime.fromisoformat(e["verdict"]["at"].replace("Z", "+00:00")).replace(tzinfo=None)
 
 
+STALE_ORPHAN = "stale_orphan"
+
+
 def eligible_fixtures(s, e, merge=None) -> list[dict]:
     """D7: every stored NCAA fixture kicking off after the verdict, by kickoff then id, whose two teams, as merged ids
     (J2), both carry a current label NOW (ncaa_shadow.fbs_teams: current labels only, L3); ANY status. Result
-    availability never enters."""
+    availability never enters. A STALE_ORPHAN row is not a fixture (MatchStatus: "never deleted, never a fixture,
+    never an odds target"), so it is never eligible, at the freeze or as a replacement (Codex on #375)."""
     from sqlalchemy import select
 
     from src.db.schema import Competition, Match, Sport
@@ -421,6 +425,8 @@ def eligible_fixtures(s, e, merge=None) -> list[dict]:
         if merge(m.home_team_id) not in fbs or merge(m.away_team_id) not in fbs:
             continue
         status = m.status.value if hasattr(m.status, "value") else str(m.status)
+        if status == STALE_ORPHAN:      # a retired provider row is "never a fixture" (schema, ARCHITECT 2026-10-03)
+            continue
         out.append({"id": m.id, "kickoff": m.utc_date, "status": status, "status_raw": m.status_raw,
                     "releasable": status == "cancelled"})
     return out
@@ -515,7 +521,10 @@ def confirmation_read() -> dict:
         st = _statuses(s, co["ids"])
         s.rollback()
     v = nb.load_v1r_stream()
-    sc = score_cohort(v.games, co["ids"], float(e["run"]["result"]["baseline_home_rate"]))
+    # D7: "A cancelled fixture is released and replaced by the next eligible one." A cancelled cohort fixture is never
+    # scored, label or not: it stays pending (release due) until --substitute replaces it (Codex on #375).
+    live = [i for i in co["ids"] if (st.get(i) or {}).get("status") != "cancelled"]
+    sc = score_cohort(v.games, live, float(e["run"]["result"]["baseline_home_rate"]))
     plan = e["confirmation_plan"]
     pending = sorted(set(co["ids"]) - set(sc["scored_ids"]))
     return {**sc, "n_games": plan["n_games"], "bar": plan["bar"], "cohort_state": co["state"],

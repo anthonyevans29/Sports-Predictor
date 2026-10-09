@@ -575,6 +575,43 @@ def test_read_scores_the_cohort_by_the_gates_replay_and_records(world):
     assert e["confirmation"]["outcome"] == want and e["confirmation"]["n_scored"] == 100
 
 
+def test_a_labelled_cancelled_cohort_fixture_is_never_scored_and_keeps_the_read_incomplete(world):
+    """Codex on #375: a cancelled cohort fixture that still carries a current label was scored and could complete the
+    cohort. D7: "A cancelled fixture is released and replaced by the next eligible one": it stays pending, release
+    due, until --substitute replaces it."""
+    from src.db.schema import Match, MatchStatus
+    vg.freeze()
+    cohort = reg.frozen_cohort(reg.get("ncaa-elo-v1r", reg.LEDGER), reg.IDS_DIR)
+    with world["db"].session_scope() as s:
+        for mid in cohort:
+            s.get(Match, mid).status = MatchStatus.FINISHED
+            world["label"](s, mid, "2026", 24, 17)
+        s.get(Match, cohort[7]).status = MatchStatus.CANCELLED     # cancelled, label kept
+    r = vg.confirmation_read()
+    assert r["n"] == 99 and cohort[7] not in r["scored_ids"] and not r["complete"]
+    assert {"id": cohort[7], "status": "cancelled"} in r["pending"] and r["release_due"] == 1
+    with pytest.raises(vg.GateRefused):
+        vg.record_confirmation(r, "x")
+
+
+def test_a_stale_orphan_is_never_eligible_at_the_freeze_or_as_a_replacement(world):
+    """Codex on #375: STALE_ORPHAN rows ("never a fixture", schema) entered the cohort and the replacement pool, where
+    one could stay pending for ever (only cancelled rows are released)."""
+    from src.db.schema import Match, MatchStatus
+    fx = world["fixtures"]
+    with world["db"].session_scope() as s:
+        s.get(Match, fx[2]).status = MatchStatus.STALE_ORPHAN      # inside the first 100
+        s.get(Match, fx[101]).status = MatchStatus.STALE_ORPHAN    # the would-be first replacement
+    e = vg.freeze()
+    frozen = reg.frozen_cohort(e, reg.IDS_DIR)
+    assert fx[2] not in frozen and len(frozen) == 100 and fx[100] in frozen
+    with world["db"].session_scope() as s:
+        s.get(Match, fx[5]).status = MatchStatus.CANCELLED
+    assert vg.substitute(echo=lambda *_: None) == 1
+    sub = reg.get("ncaa-elo-v1r", reg.LEDGER)["confirmation_cohort"]["substitutions"]
+    assert [(x["released"], x["replacement"]) for x in sub] == [(fx[5], fx[102])]
+
+
 def test_confirm_refuses_before_a_pass(ledger):
     with pytest.raises(vg.GateRefused, match="no run record"):
         vg.confirming()

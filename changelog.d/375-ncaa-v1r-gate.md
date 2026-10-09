@@ -15,3 +15,4 @@
 - #79's `ncaa-backtest` is unchanged. Nothing was run against a real DB, and the registry entry is unchanged (still `declared`).
 - Docs: docs/CLI.md has two new rows; docs/specs/ncaa-elo-v1r.md has a new section 8, "Commands".
 - Tests: `tests/test_ncaa_v1r_gate.py` (synthetic only).
+- **Codex on #375, round 1 (both verified and fixed).** A cancelled cohort fixture that still carries a current label is never scored: it stays pending, release due, until `--substitute` replaces it (D7). A `STALE_ORPHAN` row ("never a fixture") is never eligible, at the freeze or as a replacement. Two tests, each failing on the previous code.

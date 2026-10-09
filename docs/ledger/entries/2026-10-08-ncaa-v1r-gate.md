@@ -16,3 +16,6 @@
   - the gate walk stops after the last 2025 game;
   - a confirmation fixture whose label falls outside 2024-2026 stays pending.
 - **Finding for the architect, since ruled:** `ncaa-cfbd-coverage` printed the 2025 non-neutral home win rate. It became #368, RULED in addenda 14 and 15 and built on #365 (the test-season fence). `ncaa-v1r-gate --preflight` prints no 2025 outcome.
+- **Codex on #375, round 1 (both verified and fixed):**
+  - P2: a cancelled cohort fixture with a current label was scored and could complete the cohort. D7 ("A cancelled fixture is released and replaced by the next eligible one"): it is now never scored and stays pending until `--substitute`.
+  - P2: `STALE_ORPHAN` rows (schema: "never deleted, never a fixture, never an odds target") entered the cohort and the replacement pool, where one could stay pending for ever. They are now never eligible. Reading: a stale orphan is not one of D7's "stored NCAA fixtures" (open to correction).

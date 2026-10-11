@@ -803,7 +803,8 @@ def _to_csv(rows: list[dict], sport: Sport) -> str:
             "away_pitcher_name", "away_pitcher_era",
         ])
     else:
-        columns.extend(["home_injuries", "away_injuries"])
+        # addendum 36 item 2: each side's rating source (model | default; empty = unlabelled) (Codex on #411)
+        columns.extend(["home_injuries", "away_injuries", "home_rating_source", "away_rating_source"])
 
     writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
@@ -873,6 +874,9 @@ def _to_csv(rows: list[dict], sport: Sport) -> str:
             inj = row.get("injuries") or {}
             flat["home_injuries"] = inj.get("home_count")
             flat["away_injuries"] = inj.get("away_count")
+            rs = (row.get("input_quality") or {}).get("rating_source") or {}
+            flat["home_rating_source"] = rs.get("home")
+            flat["away_rating_source"] = rs.get("away")
 
         writer.writerow(flat)
 

@@ -144,3 +144,16 @@ def test_probabilities_are_untouched_by_the_label(world):
     r = rows[world["one"]]
     # the default row is priced exactly as before the label: the starting rating, nothing else moved
     assert r["away_league_elo"] == 1500.0 and abs(r["p_home"] + r["p_draw"] + r["p_away"] - 1) < 1e-9
+
+
+def test_the_csv_export_carries_both_sides_rating_source(world):
+    """Codex on #411: `export-predictions --format csv` keeps the label."""
+    import csv
+    import io
+    _generate_predictions_soccer(CODE, SEASON, model_version=MV)
+    out = export_predictions(sport=Sport.SOCCER, start_date=KICK - timedelta(days=1),
+                             end_date=KICK + timedelta(days=1), competition_code=CODE,
+                             statuses=[MatchStatus.SCHEDULED], output_format="csv")
+    rows = {int(r["match_id"]): r for r in csv.DictReader(io.StringIO(out))}
+    assert (rows[world["one"]]["home_rating_source"], rows[world["one"]]["away_rating_source"]) == ("model", "default")
+    assert (rows[world["both"]]["home_rating_source"], rows[world["both"]]["away_rating_source"]) == ("model", "model")

@@ -22,6 +22,7 @@
   - `src/walters/desk_policy.py`: `DEFAULT_RATING_RULE`, `pass_kind` `default_rating` (added to `NO_CALL_KINDS`: no order, no exec, no value shadow), reason `default rating: <team(s)> not in the model's rating table → no call (default rating, ARCHITECT 2026-10-10)`; `desk_meta.default_rating_rule`; `default_rating_rule_off()`.
 - **Every export that carries a soccer prediction, and where the label lands:**
   - `export-predictions --sport soccer` (the PL file, `soccer_PL_*.json`): `input_quality.rating_source`; with `--desk` the row's `desk` block is the PASS.
+  - `export-predictions --sport soccer --format csv`: columns `home_rating_source` and `away_rating_source` (Codex on #411).
   - `window-card` (`window_24h.json`): `model.rating_source` on rows whose canonical model row is a soccer prediction; the card's `model.desk` is copied from that row's Desk block, so it reads PASS / `default_rating`.
   - `results-tally` / the soccer results file read graded predictions for the record only; they carry no Desk call and are not changed.
   - Not carrying the production table, so not labelled: `export-soccer-expansion-shadow` (walks its own ratings from the season's matches; never a call) and `export-unl-predictions` (intl-elo-v2, its own engine and ratings).

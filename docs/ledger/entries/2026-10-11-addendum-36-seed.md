@@ -70,7 +70,6 @@ per game: home rating (league) / away rating (league) · model home/draw/away ·
   host   30708 Newcastle @ Coventry        1624.5 (SA) / 1500.0 (null) · 0.2119/0.3107/0.4774 · PASS
   laptop  9226 Newcastle @ Coventry        1567.1 (PL) / 1539.0 (PL) · 0.1404/0.2436/0.6160 · LADDER
 
-===== addendum 37 (2026-10-10 08:27 ET; CORRECTED 2026-10-11 07:08 ET receipt B row 32810) — full text relayed in-session; see transcript.
 ```
 - **Built:**
   - docs/specs/hosting-h1.md B4 carries the item 3 paragraph and #410.

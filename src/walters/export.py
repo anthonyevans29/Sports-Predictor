@@ -590,6 +590,11 @@ def _build_row(
         src_a = fb_iq.get("away_strengths_source")
         row["input_quality"] = {
             "strengths_source": {"home": src_h, "away": src_a},
+            # addendum 36 item 2 (ARCHITECT 2026-10-10): where each side's rating came from, "model" (the
+            # production table) or "default" (not in it). null = a prediction written before the label existed
+            # (unknown; the next predict run labels it).
+            "rating_source": {"home": fb_iq.get("home_rating_source"),
+                              "away": fb_iq.get("away_rating_source")},
             "strengths_backfilled": fb_iq.get("strengths_backfilled"),
             "current_season_matches": fb_iq.get("current_season_matches"),
             # Season-long cohort flag (survives graduation off the prior;

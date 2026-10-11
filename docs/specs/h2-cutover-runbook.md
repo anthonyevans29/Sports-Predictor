@@ -71,6 +71,16 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 1. **TERMINAL (laptop)** (hosting-h1.md H2 step 1):
    - The backup line first, as every morning.
    - `bash scripts/setup_clv_capture.sh --uninstall`.
+   - **The closing watch (#443 RULED, ARCHITECT 2026-10-11, addendum 41 item 5):** "Cutover morning, step 1: the
+     laptop's closing watch is uninstalled with the CLV jobs (scripts/setup_closing_watch.sh --uninstall), and the
+     step's receipt shows it gone." It starts a writing run by itself at T-35 of every start time: one between the
+     reference and the pack leaves the reference older than the pack, one after the pack writes to a database the
+     host does not have.
+     ```
+     bash scripts/setup_closing_watch.sh --uninstall
+     launchctl list | grep -E 'com\.sportspredictor\.(closingwatch|mlbclosingwatch|captureodds)' || echo "none loaded"
+     ```
+     Receipt: paste both consoles; the second must read `none loaded`.
    - Run no chains.
    - Run any pending `migrate_*.py` named in the merge notes (after that
      backup), so the laptop DB is on the current schema.
@@ -86,10 +96,12 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    laptop, after the last sync and immediately before the pack: the PL predictions exported with --start and
    --end given, and the pack carries that file. The host exports with the same dates from the installed
    database." `<start>` / `<end>`: the PL games of the next round (calendar dates, `--end` inclusive); the same
-   two dates go to the host in step 4. The file lands in `exports/`, which the pack carries.
+   two dates go to the host in step 4. The file lands in `exports/`, which the pack carries. The `--out` names the file in the two-date form even when
+   `<start>` equals `<end>` (without it a one-day window writes `soccer_PL_<start>.json`, and step 4 would copy a
+   stale file or none; Codex on #439, #441).
    ```
-   python cli.py export-predictions --sport soccer --competition PL --start <start> --end <end> --status scheduled
-   #   → exports/soccer_PL_<start>_to_<end>.json   (paste its "✓ Wrote N predictions" line)
+   python cli.py export-predictions --sport soccer --competition PL --start <start> --end <end> --status scheduled \
+       --out exports/soccer_PL_<start>_to_<end>.json   # paste its "✓ Wrote N predictions" line
    python deploy/hosting/sp_migrate.py pack --out /tmp/sp_pack_$(date -u +%Y%m%dT%H%M)
    scp -r /tmp/sp_pack_<stamp> sp@sp-vps-1:/home/sp/      # tailnet only; no bucket/email/chat
    ```
@@ -141,7 +153,7 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
      sudo -u sp venv/bin/python deploy/hosting/compare_exports.py /tmp/pl_ref_$T /tmp/pl_host_$T --since 0 \
          --ignore-keys desk,desk_meta,line_move,late_news_flag,exported_at --require-predictions
      ```
-     With `--ignore-keys` the generic timestamp mask is OFF: every other key, database timestamps (`computed_at`, `captured_at`, `injuries_synced_at`) and `match_id` included, is compared; only `git_sha` (code, reported on its own line) is also left out. `exported_at` is the file's write stamp, read off the clock (PENDING the architect's confirmation on #439: it is not in the ruled list, and without it no two files ever compare clean). The console prints the keys left out (`left out of the comparison (--ignore-keys, read off the clock): desk, desk_meta, exported_at, late_news_flag, line_move`) and the count (`predictions compared (rows with a prediction and its probabilities): laptop N · host M`). Paste both lines and the verdict.
+     With `--ignore-keys` the generic timestamp mask is OFF: every other key, database timestamps (`computed_at`, `captured_at`, `injuries_synced_at`) and `match_id` included, is compared; only `git_sha` (code, reported on its own line) is also left out. `exported_at` is left out by name with the other four (CONFIRMED, ARCHITECT 2026-10-11, addendum 41 item 4: "A stored time is a field read from the database, and the cutover's PL check compares it. The time the export was written is read off the clock: it is left out by name, with the other four. The daily compare keeps its timestamp mask."). The console prints the keys left out (`left out of the comparison (--ignore-keys, read off the clock): desk, desk_meta, exported_at, late_news_flag, line_move`) and the count (`predictions compared (rows with a prediction and its probabilities): laptop N · host M`). Paste both lines and the verdict.
      **PASS:** `VERDICT: CLEAN`, one compared file, and N and M both at least 1. A missing host file, or no row with a prediction and its probabilities on either side, is `NO-COVERAGE`, never CLEAN.
      **Anything else ends the cutover for that day** (a number that differs, a row on one side only, NO-COVERAGE, an ERROR): do not run `flip` or `resume`, and restore nothing. The host stays paused (its timers stopped, `SP_WRITER_OF_RECORD=laptop`, the installed DB where `install` put it, the rehearsal DB still at `data/rehearsal_<ts>.db`) until the architect has read the console. The laptop has lost nothing: it is still the writer of record and its database is untouched. Section 3, "Not PASS at the PL check".
    - Steps can also run one at a time (`preflight`, `pause`, `install`,
@@ -161,7 +173,8 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 6. **Fresh-fingerprint compare** (section 2), after the host's first chain.
 7. **TERMINAL (laptop)** (H2 step 7): keep the last `.backup` file cold for
    30 days (the rollback point). The laptop's `data/sports.db` is not
-   written again. The CLV launchd jobs stay uninstalled.
+   written again. The CLV launchd jobs and the closing watch stay uninstalled. What the laptop's watch covers
+   after the flip is the #405 ruling, and no cutover ruling comes before that one (addendum 41 item 5).
 
 ## 2. Fresh-fingerprint compare
 
@@ -258,7 +271,7 @@ own.
   left them. Fix the cause (for example, re-pack after a verify FAIL) and
   re-run `run`. To return to the parallel week instead:
   `sudo systemctl start $(cat /etc/sports-predictor/timers.enabled)`, then
-  reinstall the laptop's CLV jobs. The laptop never stopped being the
+  reinstall the laptop's CLV jobs and its closing watch (`bash scripts/setup_closing_watch.sh`). The laptop never stopped being the
   writer of record.
 - **Refused at pause:** host DB and host.env are untouched. Fix it and
   re-run, or return to the parallel week as above.
@@ -284,7 +297,8 @@ rolling back is an architect ruling. It uses the same protocol in reverse
 2. Host: `sp_migrate.py pack`.
 3. Transfer the pack to the laptop over the tailnet.
 4. Laptop: `verify`, then `install --replace`.
-5. Reinstall launchd (including the CLV jobs).
+5. Reinstall launchd (including the CLV jobs and the closing watch, `bash scripts/setup_closing_watch.sh`;
+   addendum 41 item 5: "The rollback's launchd step installs it again.").
 
 The laptop's 30-day cold `.backup` stays the last-resort rollback point.
 

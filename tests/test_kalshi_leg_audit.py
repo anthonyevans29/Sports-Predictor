@@ -81,6 +81,8 @@ def test_before_the_ticker_column_nothing_can_be_checked_and_it_says_so(tmp_path
     lines = []
     la.report(r, echo=lines.append)
     assert any("does not exist" in x for x in lines)
+    assert lines[-1].strip() == ("KALSHI-LEG-AUDIT two_event_games=0 split_events=0 graded=0 untickered=8 "
+                                 "tickered=0 ticker_column=absent")
 
 
 def test_read_only_the_file_is_unchanged(tmp_path):

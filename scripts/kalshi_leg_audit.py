@@ -144,6 +144,8 @@ def report(r: dict, echo=print) -> None:
          f"WITHOUT a ticker (cannot be checked): {r['untickered']}")
     if not r["ticker_column"]:
         echo("odds_snapshots.market_ticker does not exist (migrate_kalshi_ticker.py not run): nothing can be checked")
+        echo(f"\nKALSHI-LEG-AUDIT two_event_games=0 split_events=0 graded=0 untickered={r['untickered']} tickered=0 "
+             "ticker_column=absent")      # the summary line in both database shapes (Codex on #416)
         return
     echo(f"\nGAMES WHOSE LEGS COME FROM TWO EVENTS: {len(r['two_event_games'])}")
     for g in r["two_event_games"]:

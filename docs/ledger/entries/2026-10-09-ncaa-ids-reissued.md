@@ -71,3 +71,4 @@ PROBE (i) NCAA SEASON LISTING at 2026-10-09T22:12Z (read-only; 1 provider call; 
 > created them. Which ids the two rows of a pair hold, and whether the host's rows were re-keyed again during the
 > day, the files do not say. The host's dedupe-matches --orphans dry run does, and the operator runs it.
 > The ruling of addendum 21 stands as issued: the refresh is by id, and the listing reads find what we do not hold.
+- **The odds question (addendum 32 items 2 and 3, 2026-10-09 19:02 ET):** the payload read (NCAA game 23616 carries response[].update, "2026-10-08T02:15:10+00:00", dropped by the adapter: match 32740's 22:07Z prices were frozen and stamped as fresh) and the ruling on what `update` is are recorded verbatim in docs/ledger/entries/2026-10-09-addendum-32-odds-payload.md.

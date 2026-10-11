@@ -42,6 +42,8 @@ Build order (verbatim): "(1) a read-only payload probe the operator runs for one
 |---|---|---|---|---|
 | NHL | `sync-odds --competition NHL` (`IngestionService.sync_odds`) | `APIHockeyAdapter.list_odds` | `GET https://v1.hockey.api-sports.io/odds?game=<id>` | `API_HOCKEY_KEY`, else `API_FOOTBALL_KEY`, header `x-apisports-key` |
 | NCAA | `sync-odds-football` (`sync_odds_nfl`, NFL+NCAA) | `APIAmericanFootballAdapter.list_odds` | `GET https://v1.american-football.api-sports.io/odds?game=<id>` | `API_AMERICAN_FOOTBALL_KEY`, else `API_FOOTBALL_KEY` |
+| soccer (addendum 32 item 5) | `sync-odds --competition CODE` (`IngestionService.sync_odds`) | `APIFootballAdapter.list_odds` | `GET <adapter base_url>/odds?fixture=<id>` (`v3.football.api-sports.io` unless `API_FOOTBALL_HOST` names RapidAPI); `--competition` required | `API_FOOTBALL_KEY`, the adapter session's headers |
+| MLB (addendum 32 item 5) | `sync-odds --competition MLB --season S` (`IngestionService.sync_odds_mlb`) | `APIBaseballClient.list_odds_window` (`--season` alone); `list_odds_for_game` (`--game` / `--match-id`, the rollover fallback) | `GET https://v1.baseball.api-sports.io/odds?league=1&season=S[&game=<id>]` | `API_BASEBALL_KEY`, else `API_FOOTBALL_KEY`, header `x-apisports-key` |
 
 `.env` is loaded through `config.py`, as `cli.py` does. The probe prints:
 

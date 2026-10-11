@@ -508,3 +508,256 @@ def test_probe_out_never_writes_through_a_hard_link_to_the_database(tmp_path, mo
     monkeypatch.setattr(P, "db_path", lambda: db.resolve())
     ok, msg = P.out_path_ok(str(ex / "probe_nhl.json"))
     assert not ok and "configured database" in msg
+
+
+# ---- ARCHITECT 2026-10-09 addendum 32 item 5: the probe gains soccer (api_football) and MLB (api_baseball) ----
+# SYNTHETIC payloads shaped from what APIFootballAdapter.list_odds and APIBaseballClient._parse_game_odds read, plus
+# invented keys (synthetic_*). They are not a claim about either provider's payload; the operator's live run is.
+
+SOCCER = {
+    "get": "odds", "parameters": {"fixture": "1035"}, "errors": [], "results": 1,
+    "response": [{
+        "league": {"id": 39, "season": 2026}, "fixture": {"id": 1035},
+        "synthetic_updated": "2026-10-09T08:00:00+00:00",                    # invented time-like NAME
+        "bookmakers": [{"id": 8, "name": "BookA", "bets": [
+            {"id": 1, "name": "Match Winner", "values": [
+                {"value": "Home", "odd": "2.10"}, {"value": "Draw", "odd": "3.40"}, {"value": "Away", "odd": "3.50"}]},
+            {"id": 5, "name": "Goals Over/Under", "values": [
+                {"value": "Over 2.5", "odd": "1.90"}, {"value": "Under 2.5", "odd": "1.95"},
+                {"value": "Over 3.5", "odd": "2.80"}]}]}],
+    }],
+}
+
+MLB = {
+    "get": "odds", "parameters": {"league": "1", "season": "2026"}, "errors": [], "results": 1,
+    "response": [{
+        "league": {"id": 1, "season": 2026},
+        "game": {"id": 180001, "date": "2026-10-10T23:05:00+00:00",
+                 "teams": {"home": {"id": 1, "name": "Home Club"}, "away": {"id": 2, "name": "Away Club"}}},
+        "synthetic_stamp": 1791590400,                                       # invented time-like NAME, numeric
+        "bookmakers": [{"id": 2, "name": "BookB", "bets": [
+            {"id": 1, "name": "Home/Away", "values": [{"value": "Home", "odd": "1.80"}, {"value": "Away", "odd": "2.05"}]},
+            {"id": 3, "name": "Over/Under", "values": [{"value": "Over 8.5", "odd": "1.90"},
+                                                        {"value": "Under 8.5", "odd": "1.92"}]},
+            {"id": 4, "name": "Asian Handicap", "values": [{"value": "Home", "odd": "2.40", "handicap": "-1.5"}]}]}],
+    }],
+}
+
+
+@pytest.mark.parametrize("sport,mod,cls,key", [
+    ("soccer", "src.adapters.api_football", "APIFootballAdapter", "api_football"),
+    ("mlb", "src.adapters.api_baseball", "APIBaseballClient", "api_baseball"),
+])
+def test_the_new_sports_target_the_adapter_and_id_key_the_sync_uses(sport, mod, cls, key):
+    import importlib
+    m = importlib.import_module(mod)
+    assert P.SPORTS[sport][:2] == (mod, cls) and P.SPORTS[sport][3] == key
+    if sport == "soccer":
+        assert m.APIFootballAdapter.source_name == key and hasattr(m.APIFootballAdapter, "list_odds")
+    else:
+        from src.ingestion import mlb_apisports
+        assert mlb_apisports.SOURCE == key and P.SPORT_LEAGUE_ID["mlb"] == m.MLB_LEAGUE_ID
+        assert hasattr(m.APIBaseballClient, "list_odds_window") and hasattr(m.APIBaseballClient, "list_odds_for_game")
+
+
+def test_soccer_from_file_names_the_time_like_key_and_the_read_drop_listing(tmp_path, capsys):
+    src = tmp_path / "s.json"
+    src.write_text(json.dumps(SOCCER))
+    assert P.main(["--from-file", str(src), "--sport", "soccer", "--competition", "PL"]) == 0
+    out = capsys.readouterr().out
+    assert "league verified from the payload: PL (39)" in out
+    assert "  response[].synthetic_updated  e.g. \"2026-10-09T08:00:00+00:00\"" in out
+    assert "ADAPTER: APIFootballAdapter.list_odds reads" in out
+    assert "dropped by the adapter: response[].synthetic_updated" in out
+    dr = P.dropped(P.walk(SOCCER), "soccer")
+    assert {"response[].bookmakers[].id", "response[].league.id", "response[].fixture.id",
+            "response[].bookmakers[].bets[].id", "response[].synthetic_updated"} <= set(dr)
+    assert "response[].bookmakers[].bets[].values[].odd" not in dr and "response[].bookmakers[].name" not in dr
+
+
+def test_soccer_usable_quotes_are_what_list_odds_builds():
+    assert P.usable_quotes(SOCCER, "soccer") == 5                # 1X2 x3 + the 2.5 line x2; Over 3.5 is not kept
+    hockey_named = {"response": [{"bookmakers": [{"name": "B", "bets": [
+        {"name": "Home/Away", "values": [{"value": "Home", "odd": "2.1"}]}]}]}]}
+    assert P.usable_quotes(hockey_named, "soccer") == 0         # not an api_football market name
+    assert "INCONCLUSIVE" in "\n".join(P.report(hockey_named, sport="soccer"))
+    assert P.usable_quotes({"response": [{"bookmakers": 1}]}, "soccer") == 0   # drift the adapter raises on
+
+
+def test_soccer_needs_a_mapped_competition_and_its_league(tmp_path, capsys):
+    src = tmp_path / "s.json"
+    src.write_text(json.dumps(SOCCER))
+    assert P.main(["--from-file", str(src), "--sport", "soccer"]) == 2
+    assert "needs --competition" in capsys.readouterr().out
+    assert P.main(["--from-file", str(src), "--sport", "soccer", "--competition", "XYZ"]) == 2
+    assert "not in api_football's _CODE_TO_LEAGUE_ID" in capsys.readouterr().out
+    assert P.main(["--from-file", str(src), "--sport", "soccer", "--competition", "SA"]) == 2
+    out = capsys.readouterr().out
+    assert "not SA's (135)" in out and "VERDICT" not in out
+    assert P.main(["--sport", "soccer", "--game", "1035"]) == 2             # live: refused before any request
+    assert "needs --competition" in capsys.readouterr().out
+    assert P.main(["--sport", "nhl", "--competition", "PL", "--game", "1"]) == 2
+    assert "--competition is for --sport soccer only" in capsys.readouterr().out
+
+
+def test_mlb_from_file_reads_game_date_and_drops_the_rest(tmp_path, capsys):
+    src = tmp_path / "m.json"
+    src.write_text(json.dumps(MLB))
+    assert P.main(["--from-file", str(src), "--sport", "mlb"]) == 0
+    out = capsys.readouterr().out
+    assert "league verified from the payload: MLB (1)" in out
+    assert "  response[].synthetic_stamp  e.g. 1791590400" in out
+    assert "ADAPTER: APIBaseballClient._parse_game_odds reads" in out
+    verdict = [ln for ln in out.splitlines() if ln.startswith("VERDICT")][0]
+    assert "response[].synthetic_stamp" in verdict
+    assert "response[].game.date" not in verdict                  # read by the adapter (commence_time), not dropped
+    dr = P.dropped(P.walk(MLB), "mlb")
+    assert "response[].game.date" not in dr and "response[].bookmakers[].bets[].values[].handicap" not in dr
+    assert "response[].game.teams.home.name" not in dr
+    assert {"response[].game.teams.home.id", "response[].league.id", "response[].bookmakers[].id"} <= set(dr)
+
+
+def test_mlb_usable_quotes_are_what_the_window_parse_builds():
+    assert P.usable_quotes(MLB, "mlb") == 5
+    import copy
+    no_teams = copy.deepcopy(MLB)
+    no_teams["response"][0]["game"].pop("teams")                 # _parse_game_odds returns for a team-less game
+    assert P.usable_quotes(no_teams, "mlb") == 0
+    assert "INCONCLUSIVE" in "\n".join(P.report(no_teams, sport="mlb"))
+    # no --sport: nhl / ncaa only (Codex on #406), the same adapter set the drop listing uses
+    assert P.usable_quotes(SOCCER) == 0                                   # never counted by the soccer parse
+    assert P.usable_quotes(MLB) == P._map_quotes(MLB, None)                # main's nhl / ncaa rule, nothing more
+
+
+def test_an_mlb_payload_is_read_as_mlb_only_with_its_sport(tmp_path, capsys):
+    """Codex on #406: no --sport reads a payload as nhl / ncaa only, quotes and drop listing alike, and says so;
+    an MLB payload is read with --sport mlb, where game.date is read, never offered as a dropped quote time."""
+    f = tmp_path / "mlb.json"
+    f.write_text(json.dumps(MLB))
+    assert P.main(["--from-file", str(f)]) == 0
+    assert "list_odds (nhl/ncaa; no --sport given)" in capsys.readouterr().out
+    assert P.main(["--from-file", str(f), "--sport", "mlb"]) == 0
+    out = capsys.readouterr().out
+    verdict = [ln for ln in out.splitlines() if ln.startswith("VERDICT")]
+    assert verdict and "response[].game.date" not in verdict[0]
+
+
+@pytest.mark.parametrize("argv", [["--sport", "soccer", "--competition", "PL"], ["--sport", "mlb"]])
+def test_new_sports_from_file_errors_are_refused_without_a_verdict(tmp_path, capsys, argv):
+    src = tmp_path / "err.json"
+    src.write_text(json.dumps({"errors": {"requests": "You have reached the request limit"}, "response": []}))
+    assert P.main(["--from-file", str(src), *argv]) == 2
+    out = capsys.readouterr().out
+    assert "returned errors" in out and "VERDICT" not in out
+
+
+def test_the_offline_parse_makes_no_request(monkeypatch):
+    import requests
+
+    def no_net(*a, **k):
+        raise AssertionError("the offline parse must not make a request")
+    monkeypatch.setattr(requests, "get", no_net)
+    monkeypatch.setattr(requests.Session, "get", no_net)
+    assert P.usable_quotes(SOCCER, "soccer") == 5 and P.usable_quotes(MLB, "mlb") == 5
+
+
+class _Got:
+    def __init__(self, resp):
+        self.resp, self.calls = resp, []
+
+    def __call__(self, url, headers=None, params=None, timeout=None):
+        self.calls.append((url, dict(headers or {}), dict(params or {}), timeout))
+        return self.resp
+
+
+def test_soccer_fetch_makes_the_list_odds_request_and_refuses_errors(monkeypatch, capsys):
+    import types
+
+    import requests
+
+    import src.adapters.api_football as af
+    monkeypatch.setattr(af, "settings", types.SimpleNamespace(api_football_key="SECRETKEY123",
+                                                              api_football_host=None))
+    got = _Got(_Resp(200, SOCCER))
+    monkeypatch.setattr(requests, "get", got)
+    assert P.main(["--sport", "soccer", "--competition", "PL", "--game", "1035"]) == 0
+    url, headers, params, _ = got.calls[0]
+    assert url == "https://v3.football.api-sports.io/odds" and params == {"fixture": "1035"}
+    assert headers["x-apisports-key"] == "SECRETKEY123"
+    out = capsys.readouterr().out
+    assert "GET https://v3.football.api-sports.io/odds?fixture=1035 -> HTTP 200" in out
+    assert "APIFootballAdapter.list_odds, provider id key 'api_football'" in out and "SECRETKEY123" not in out
+    for resp, needle in ((_Resp(429, {"message": "Too many requests"}), "HTTP 429"),
+                         (_Resp(200, {"errors": {"plan": "no odds"}, "response": []}), "returned errors"),
+                         (_Resp(200, ["x"]), "not a JSON object")):
+        monkeypatch.setattr(requests, "get", _Got(resp))
+        assert P.main(["--sport", "soccer", "--competition", "PL", "--game", "1035"]) == 2
+        out = capsys.readouterr().out
+        assert needle in out and "VERDICT" not in out and "SECRETKEY123" not in out
+
+
+def test_mlb_fetch_makes_the_sync_window_call_or_its_per_game_fallback(monkeypatch, capsys):
+    import requests
+    monkeypatch.setenv("API_BASEBALL_KEY", "SECRETKEY123")
+    got = _Got(_Resp(200, MLB))
+    monkeypatch.setattr(requests, "get", got)
+    assert P.main(["--sport", "mlb", "--season", "2026"]) == 0
+    assert P.main(["--sport", "mlb", "--season", "2026", "--game", "180001"]) == 0
+    (u1, h1, p1, _), (u2, _, p2, _) = got.calls
+    assert u1 == u2 == "https://v1.baseball.api-sports.io/odds" and h1 == {"x-apisports-key": "SECRETKEY123"}
+    assert p1 == {"league": 1, "season": 2026}                              # list_odds_window
+    assert p2 == {"league": 1, "season": 2026, "game": "180001"}            # list_odds_for_game
+    out = capsys.readouterr().out
+    assert "APIBaseballClient.list_odds_window" in out and "APIBaseballClient.list_odds_for_game" in out
+    assert "GET https://v1.baseball.api-sports.io/odds?league=1&season=2026 -> HTTP 200" in out
+    assert "SECRETKEY123" not in out
+    monkeypatch.setattr(requests, "get", _Got(_Resp(401, {"message": "bad key SECRETKEY123"})))
+    assert P.main(["--sport", "mlb", "--season", "2026"]) == 2
+    out = capsys.readouterr().out
+    assert "HTTP 401" in out and "VERDICT" not in out and "SECRETKEY123" not in out
+
+
+def test_mlb_needs_a_season_and_season_is_mlb_only(capsys):
+    assert P.main(["--sport", "mlb"]) == 2
+    assert "needs --season" in capsys.readouterr().out
+    assert P.main(["--sport", "nhl", "--season", "2026", "--game", "1"]) == 2
+    assert "--season is for --sport mlb only" in capsys.readouterr().out
+
+
+def test_new_sports_without_a_key_are_refused(monkeypatch, capsys):
+    import types
+
+    import src.adapters.api_football as af
+    monkeypatch.setattr(af, "settings", types.SimpleNamespace(api_football_key="", api_football_host=None))
+    monkeypatch.delenv("API_BASEBALL_KEY", raising=False)
+    monkeypatch.delenv("API_FOOTBALL_KEY", raising=False)
+    import config  # noqa: F401  (loaded first so a .env cannot re-set a key after the delenv)
+    for argv in (["--sport", "soccer", "--competition", "PL", "--game", "1"], ["--sport", "mlb", "--season", "2026"]):
+        assert P.main(argv) == 2
+        out = capsys.readouterr().out
+        assert "no provider key" in out and "VERDICT" not in out
+
+
+def test_the_match_id_lookup_for_soccer_and_mlb(tmp_path, monkeypatch, capsys):
+    import sqlite3
+    db = tmp_path / "n.db"
+    con = sqlite3.connect(db)
+    con.execute("CREATE TABLE matches (id INTEGER, competition_id INTEGER, external_ids TEXT)")
+    con.execute("CREATE TABLE competitions (id INTEGER, code TEXT)")
+    con.executemany("INSERT INTO competitions VALUES (?, ?)", [(1, "PL"), (2, "MLB")])
+    con.executemany("INSERT INTO matches VALUES (?, ?, ?)", [
+        (1, 1, json.dumps({"api_football": 1035})), (2, 2, json.dumps({"api_baseball": 180001})),
+        (3, 2, json.dumps({"mlb_stats_api": 777}))])
+    con.commit()
+    con.close()
+    monkeypatch.setattr(P, "db_path", lambda: db)
+    assert P.game_for_match("soccer", 1, competition="PL") == "1035"
+    with pytest.raises(P.Refused, match="is competition 'PL', not SA"):
+        P.game_for_match("soccer", 1, competition="SA")
+    with pytest.raises(P.Refused, match="needs --competition"):
+        P.game_for_match("soccer", 1)
+    assert P.game_for_match("mlb", 2) == "180001"
+    with pytest.raises(P.Refused, match="has no 'api_baseball' id"):
+        P.game_for_match("mlb", 3)
+    with pytest.raises(P.Refused, match="is competition 'PL', not MLB"):
+        P.game_for_match("mlb", 1)

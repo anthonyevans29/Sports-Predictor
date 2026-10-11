@@ -48,7 +48,7 @@ additive `close_unpriced` receipt (quoted books + missing legs).
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 CAPTURE_SESSION = timedelta(minutes=10)
 
@@ -250,20 +250,53 @@ def grading_close(s, match) -> dict | None:
 CLOSE_SOURCE = "close_1x2: last pre-kickoff capture session, complete books de-vigged then averaged (#167/#207)"
 
 
+def minutes_before_start(captured_at: datetime | None, start: datetime | None) -> int | None:
+    """`close_minutes_before_start` (ARCHITECT addendum 31 item 3, #382): whole minutes, ROUNDED DOWN,
+    from the close's capture (`close_at`) to the stored start (`Match.utc_date`); None when either is
+    missing. It is the AGE OF OUR CAPTURE, not of the quote (#348): the provider's own quote time is not
+    stored, so a fresh capture of an unchanged book still reads young."""
+    if captured_at is None or start is None:
+        return None
+    if (captured_at.tzinfo is None) != (start.tzinfo is None):          # compare naive UTC with naive UTC
+        captured_at, start = (x.astimezone(timezone.utc).replace(tzinfo=None) if x.tzinfo else x
+                              for x in (captured_at, start))
+    return (start - captured_at) // timedelta(minutes=1)
+
+
+def close_age_summary(minutes) -> dict:
+    """results-tally's close-age line (#382): over a sport's window, the median and the largest
+    close_minutes_before_start, with n (rows with no close, a None, are not counted)."""
+    import statistics
+    xs = [x for x in minutes if x is not None]
+    return {"n": len(xs), "median": statistics.median(xs) if xs else None, "max": max(xs) if xs else None}
+
+
+def close_age_line(a: dict) -> str:
+    """One RESULTS.md bullet for close_age_summary's dict."""
+    head = "- Close capture age (close_minutes_before_start; our capture, not the quote, #348): "
+    if not a["n"]:
+        return head + "— (n=0)\n"
+    med = a["median"]
+    med = str(int(med)) if float(med).is_integer() else f"{med:.1f}"
+    return head + f"median {med} min, largest {a['max']} min before start (n={a['n']})\n"
+
+
 def grading_close_block(s, match) -> dict:
     """close_block's shape from THE grading close (odds → snapshot → kalshi_only),
     plus `close_reference` ("books" | "kalshi_only" | None) — the results rows'
     per-side close for entry-price CLV, so a row graded against the Kalshi mid
-    says so (ARCHITECT 2026-10-05)."""
+    says so (ARCHITECT 2026-10-05). Carries close_minutes_before_start (#382)
+    beside close_at: the age of our capture, not of the quote (#348)."""
     cl = grading_close(s, match)
     if not priced(cl):
-        return {"close_fair": None, "close_at": None, "close_books": cl["books"] if cl else 0,
-                "close_source": CLOSE_SOURCE, "close_reference": None}
+        return {"close_fair": None, "close_at": None, "close_minutes_before_start": None,
+                "close_books": cl["books"] if cl else 0, "close_source": CLOSE_SOURCE, "close_reference": None}
     src = CLOSE_SOURCE if cl.get("source") != "kalshi_only" else (
         "kalshi_only: mid of the last two-sided pre-kickoff Kalshi HOME quote (no book session pre-kickoff; "
         "ARCHITECT 2026-10-05)")
     return {"close_fair": {k: round(v, 4) for k, v in cl["fair"].items()},
             "close_at": cl["captured_at"].isoformat() if cl["captured_at"] else None,
+            "close_minutes_before_start": minutes_before_start(cl["captured_at"], match.utc_date),
             "close_books": cl["books"], "close_source": src, "close_reference": cl.get("reference", "books"),
             **({"close_kalshi": {k: cl["kalshi"][k] for k in ("bid", "ask", "mid", "spread_c")}}
                if cl.get("source") == "kalshi_only" else {})}
@@ -271,13 +304,17 @@ def grading_close_block(s, match) -> dict:
 
 def close_block(rows, kickoff: datetime | None, sport) -> dict:
     """P0-3 (#208): the per-side closing fair for a results row — `q_close` for
-    entry-price CLV in the Cockpit ledger. {close_fair, close_at, close_books,
-    close_source}; close_fair is None when the close is unpriced or absent
-    (the metric is then unavailable, never inferred)."""
+    entry-price CLV in the Cockpit ledger. {close_fair, close_at,
+    close_minutes_before_start, close_books, close_source}; close_fair is None
+    when the close is unpriced or absent (the metric is then unavailable, never
+    inferred). close_minutes_before_start (#382): whole minutes, rounded down,
+    from close_at to the stored start; null where there is no close. It is the
+    age of OUR CAPTURE, not of the quote (#348) — see minutes_before_start."""
     cl = close_1x2([o for o in rows if getattr(o, "market", None) == "1X2"], kickoff, outcomes_for(sport))
     if not priced(cl):
-        return {"close_fair": None, "close_at": None, "close_books": cl["books"] if cl else 0,
-                "close_source": CLOSE_SOURCE}
+        return {"close_fair": None, "close_at": None, "close_minutes_before_start": None,
+                "close_books": cl["books"] if cl else 0, "close_source": CLOSE_SOURCE}
     return {"close_fair": {k: round(v, 4) for k, v in cl["fair"].items()},
             "close_at": cl["captured_at"].isoformat() if cl["captured_at"] else None,
+            "close_minutes_before_start": minutes_before_start(cl["captured_at"], kickoff),
             "close_books": cl["books"], "close_source": CLOSE_SOURCE}

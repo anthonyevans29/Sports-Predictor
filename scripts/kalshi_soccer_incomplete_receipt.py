@@ -45,6 +45,9 @@ def old_exec(match_id: int) -> float | None:
     from src.walters.venue import kalshi_exec
     with session_scope() as s:
         m = s.get(Match, match_id)
+        from src.walters.kalshi_legs import mismatched      # addendum 37 item 3: mismatched legs are never read
+        if mismatched(s, [match_id]):
+            return None
         snaps = s.execute(select(OddsSnapshot).where(
             OddsSnapshot.match_id == match_id, OddsSnapshot.source == "kalshi",
             OddsSnapshot.selection == "HOME").order_by(OddsSnapshot.captured_at.desc())).scalars()

@@ -117,6 +117,8 @@ def _close_for(odds_rows, snaps, match):
         return sn
     if cl is None and not any(x.captured_at is not None and (match.utc_date is None or x.captured_at < match.utc_date)
                               for x in book):
+        from src.walters.kalshi_legs import guard_snaps
+        snaps, _ = guard_snaps(snaps)      # addendum 37 item 3 (the session from the rows; none = read as before)
         ko = close_from_kalshi(snaps, match.utc_date, oc_)
         if ko is not None:
             return ko

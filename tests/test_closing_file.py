@@ -267,3 +267,15 @@ def test_codex_export_nfl_out_never_writes_under_data_or_onto_the_database(tmp_p
             npx.refuse_out_path(str(bad))
     npx.refuse_out_path(str(tmp_path / "logs" / "ok.json"))                              # anywhere else: fine
     assert db.read_bytes() == b"x"
+
+
+def test_codex_a_closing_file_that_lost_its_rows_is_refused_by_the_quote_age_receipt(tmp_path):
+    """Codex round 3 on #433 (P1): a closing_* file keeping desk_meta but losing `predictions` is a damaged export
+    (refused), never read as a file with no calls."""
+    from src.walters import venue_quote_age as VQ
+    ex = tmp_path / "ex"
+    ex.mkdir()
+    (ex / "closing_NFL_2026-10-11T1700Z.json").write_text(json.dumps(
+        {"sport": "nfl", "desk_meta": {"as_of": "2026-10-11T16:30:00Z"}, "closing": {"family": "NFL"}}))
+    with pytest.raises(Exception, match="closing_NFL_2026-10-11T1700Z.json"):
+        VQ.iter_desk_docs(str(ex))

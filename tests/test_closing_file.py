@@ -269,6 +269,27 @@ def test_codex_export_nfl_out_never_writes_under_data_or_onto_the_database(tmp_p
     assert db.read_bytes() == b"x"
 
 
+def test_codex_round4_the_default_database_is_guarded_when_database_url_is_unset(tmp_path, monkeypatch):
+    """Codex on #433 (P1, round 4): with DATABASE_URL unset the engine still opens config's default; a hard link to
+    THAT file is refused too."""
+    from src.walters import nfl_predict as npx
+    import config
+    db = tmp_path / "default.db"
+    db.write_bytes(b"x")
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    import dataclasses
+    monkeypatch.setattr(config, "settings", dataclasses.replace(config.settings, database_url=f"sqlite:///{db}"))
+    hard = tmp_path / "hard.json"
+    os.link(db, hard)
+    with pytest.raises(ValueError, match="law 5"):
+        npx.refuse_out_path(str(hard))
+    from src.db.database import _engine                                   # the engine's own file is always guarded
+    eng = Path(_engine.url.database).resolve()
+    with pytest.raises(ValueError, match="law 5"):
+        npx.refuse_out_path(str(eng))
+    assert db.read_bytes() == b"x"
+
+
 def test_codex_a_closing_file_that_lost_its_rows_is_refused_by_the_quote_age_receipt(tmp_path):
     """Codex round 3 on #433 (P1): a closing_* file keeping desk_meta but losing `predictions` is a damaged export
     (refused), never read as a file with no calls."""

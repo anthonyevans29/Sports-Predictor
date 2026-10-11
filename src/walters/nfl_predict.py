@@ -150,11 +150,17 @@ def refuse_out_path(out_path: str) -> None:
     from src.walters.unl_ladders import data_dir
     tgt = Path(out_path).resolve()
     data = data_dir()
-    url = os.getenv("DATABASE_URL") or ""
-    db = Path(url.replace("sqlite:///", "")).resolve() if url.startswith("sqlite:///") else None
+    # Codex round 4 on #433: every database this process can mean, not only an explicitly set DATABASE_URL: the
+    # engine's own file (config.settings, the ./data/sports.db default included) and the environment's
+    from config import settings
+    from src.db.database import _engine
+    urls = {os.getenv("DATABASE_URL") or "", settings.database_url or ""}
+    files = {u.replace("sqlite:///", "", 1) for u in urls if u.startswith("sqlite:///")}
+    if _engine.url.get_backend_name() == "sqlite" and _engine.url.database:
+        files.add(_engine.url.database)
     # Codex round 2 on #433: the database's -wal / -shm / -journal sidecars too, and by file identity (a hard link
     # resolves to its own path), as _vqa_out_ok does
-    dbs = [] if db is None else [Path(str(db) + x) for x in ("", "-wal", "-shm", "-journal")]
+    dbs = [Path(str(Path(f).resolve()) + x) for f in sorted(files) for x in ("", "-wal", "-shm", "-journal")]
 
     def same(a, b) -> bool:
         try:

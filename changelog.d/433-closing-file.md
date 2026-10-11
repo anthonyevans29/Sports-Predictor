@@ -7,4 +7,5 @@
 - docs/CLI.md: the closing-run, export-nfl-predictions and backfill rows. Tests: tests/test_closing_file.py; tests/test_closing_runs.py updated for the logs/ export.
 - Codex round 1: `export-nfl-predictions --out` refuses a path under data/ or onto the configured database (law 5); a closing file already written for a family and start is never replaced (a manual rerun's write is refused, receipted and notified).
 - Codex round 2: the `--out` guard also refuses the database's -wal/-shm/-journal sidecars and hard links to them (file identity).
+- Codex round 4 (P1): the guard covers every database the process can mean: `DATABASE_URL`, config's `database_url` (the `./data/sports.db` default when the variable is unset) and the engine's own file.
 - Codex (after the cap): the backfill never writes a closing file missing a paged game; such a run is INCOMPLETE, listed, nothing written.

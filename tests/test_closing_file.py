@@ -279,3 +279,24 @@ def test_codex_a_closing_file_that_lost_its_rows_is_refused_by_the_quote_age_rec
         {"sport": "nfl", "desk_meta": {"as_of": "2026-10-11T16:30:00Z"}, "closing": {"family": "NFL"}}))
     with pytest.raises(Exception, match="closing_NFL_2026-10-11T1700Z.json"):
         VQ.iter_desk_docs(str(ex))
+
+
+def test_codex_the_backfill_never_writes_a_page_record_missing_a_paged_game(tmp_path):
+    """Codex on #433 (P1): a receipt whose Desk rows name a game absent from the found export bytes is INCOMPLETE:
+    listed, nothing written (a closing file is the page's record and is never replaced later)."""
+    import scripts.closing_file_backfill as bf
+    raw = json.dumps(nfl_doc()).encode()
+    m = _mirror(tmp_path, [{f"laptop/{DAY}/nfl_predictions_{DAY}.json": raw}])
+    rec = tmp_path / "receipts.jsonl"
+    rec.write_text(json.dumps(_receipt("A", hashlib.sha256(raw).hexdigest(), [301, 999])) + "\n")
+    ex = tmp_path / "exports"
+    out = []
+    import builtins
+    real = builtins.print
+    builtins.print = lambda *a, **k: out.append(" ".join(map(str, a)))
+    try:
+        assert bf.main(["--mirror", str(m), "--receipts", str(rec), "--exports", str(ex)]) == 0
+    finally:
+        builtins.print = real
+    assert not ex.exists() or not any(ex.iterdir())
+    assert any(x.startswith("INCOMPLETE") and "[999]" in x for x in out)

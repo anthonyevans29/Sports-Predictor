@@ -105,8 +105,9 @@ def rebuild(r: dict, blobs: dict, exports: Path, dry_run: bool) -> dict:
     dest = exports / name
     res.update({"file": f"{exports.name}/{name}", "rows": doc["count"], "page_time": src, "sha256": sha})
     missing = sorted(set(ids) - set(doc["closing"]["match_ids"]), key=str)
-    if missing:
-        res["rows_not_in_export"] = missing
+    if missing:                       # Codex on #433: never write an incomplete record of a page
+        return {**res, "status": "INCOMPLETE", "rows_not_in_export": missing,
+                "why": "the export's bytes lack Desk rows the page carried: nothing rebuilt"}
     if dest.exists():
         same = dest.read_text() == text
         return {**res, "status": "UNCHANGED" if same else "KEPT", **({} if same else

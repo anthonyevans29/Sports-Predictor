@@ -98,3 +98,9 @@ class NormalizedOdds:
     is_closing: bool = False
     #: Handicap/total line (NFL spreads & totals; added 2026-09-05, NFL phase 1)
     line: float | None = None
+    #: The provider's own time for the game's odds (ARCHITECT 2026-10-09,
+    #: addendum 32 items 3-4): american football's response[].update, naive
+    #: UTC. The newest any quote in the answer can be; a quote may be older.
+    #: Never the time of a quote, never our clock. None = unknown (absent,
+    #: unreadable, or a provider whose payload carries no such field).
+    source_updated_at: datetime | None = None

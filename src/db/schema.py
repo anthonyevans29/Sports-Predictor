@@ -259,6 +259,13 @@ class Odds(Base):
     # multiple odds providers without overlap (e.g. soccer from API-Football,
     # MLB from API-Baseball) and replace odds per-source idempotently.
     source: Mapped[str | None] = mapped_column(String(32), index=True)
+    # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 items 3-4): odds.source_updated_at, the provider's own
+    # time for the game's odds (american football response[].update), naive UTC: the newest that any quote in
+    # the answer can be; a quote may be older; never the time of a quote. NULL = unknown, never fresh (every
+    # other source, and every row written before migrate_odds_source_updated_at.py; no backfill).
+    # NOT MAPPED (ARCHITECT 2026-10-09, addendum 35 item 2: "follow the ORDER LINE note of 2026-10-04 in
+    # schema.py: not mapped in the ORM, written and read by guarded Core SQL, and only when the column
+    # exists"): src.db.database.write_source_times / attach_source_times.
 
     match: Mapped[Match] = relationship(back_populates="odds")
 
@@ -301,6 +308,10 @@ class OddsSnapshot(Base):
     # quoted. Added by migrate_kalshi_quotes.py.
     yes_bid: Mapped[float | None] = mapped_column(Float)
     yes_ask: Mapped[float | None] = mapped_column(Float)
+    # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4): odds_snapshots.source_updated_at, on a book
+    # consensus snapshot sync-odds-football appends, the provider's update time of the rows it was built from
+    # (the oldest where they differ; NULL when any is unknown). NULL = unknown, never fresh. Added by
+    # migrate_odds_source_updated_at.py. NOT MAPPED (addendum 35 item 2), like market_ticker below.
     # ORDER LINE (ARCHITECT 2026-10-04): odds_snapshots.market_ticker (added by
     # migrate_kalshi_ticker.py) is deliberately NOT mapped here. The ORM names
     # every mapped column in its INSERT (deferred or not), so a mapped column

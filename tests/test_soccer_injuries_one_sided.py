@@ -267,3 +267,30 @@ def test_base_v11_holds_the_one_sided_rule_off():
         (d,), doc = desk(row_9226(8, 0))
     assert d["call"] == "LADDER" and doc["desk_meta"]["injuries_one_sided_rule"] is False
     assert dp.INJURIES_ONE_SIDED_RULE["on"] is True
+
+
+def test_437_every_aggregate_over_the_rows_the_receipt_stands_behind():
+    """#437 RULED (ARCHITECT 2026-10-11, addendum 41 item 2): a row whose stored 1X2 is not rebuilt to 3 decimals, or
+    whose factor note disagrees with the cut taken back (a missing note included), is left out of every aggregate,
+    counted by reason and listed; the all-rows line stays, marked."""
+    import scripts.soccer_injury_factor_receipt as rc
+
+    def row(pid, *, reproduces=True, notes=("home missing 3 (-9% xG)",), counts=(3, 0), edge=8.0):
+        fb = {"home_injuries_count": counts[0], "away_injuries_count": counts[1], "factor_notes": list(notes)}
+        return {"prediction_id": pid, "match_id": pid, "game": f"A{pid} @ H{pid}", "kickoff": "2026-10-01T14:00:00",
+                "model_version": "v", "counts": counts, "diff": abs(counts[0] - counts[1]), "result": "HOME",
+                "stored": {"HOME": 0.5, "DRAW": 0.3, "AWAY": 0.2}, "bare": {"HOME": 0.55, "DRAW": 0.27, "AWAY": 0.18},
+                "reproduces": reproduces, "model_params_found": True, "ll_stored": 1.0, "ll_bare": 2.0 if pid > 1 else 0.5,
+                "pick": "HOME", "edge_pp": edge, "edge_bare_pp": edge, "note_mismatch": rc.note_mismatch(fb)}
+    rs = [row(1), row(2, reproduces=False), row(3, notes=("home missing 3 (-15% xG)",)), row(4, notes=())]
+    assert rs[2]["note_mismatch"] and rs[3]["note_mismatch"] == ["home: 3 name(s), no note"]
+    sm = rc.summary(rs)
+    assert sm["all"]["n"] == 1 and sm["all"]["ll_without_cut"] == 0.5                     # row 1 alone
+    assert sm["all_rows_reference"]["n"] == 4                                               # the marked line stays
+    assert sm["by_diff"]["3-5"]["n"] == 1 and sm["positive_edge"]["n"] == 1
+    assert sm["left_out_rows"] == 3 and sm["left_out"] == {rc.LEFT_OUT[0]: 1, rc.LEFT_OUT[1]: 2}
+    out = []
+    rc.report(rs, {}, "PL", False, echo=out.append)
+    assert sum(1 for o in out if o.lstrip().startswith("LEFT OUT ")) == 3                   # listed without --list
+    assert any(o.lstrip().startswith("ALL ROWS (reference)") and "n    4" in o for o in out)
+    assert any("left out of every aggregate (#437 RULED): 3 row(s)" in o for o in out)

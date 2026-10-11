@@ -5,3 +5,4 @@
 - Ledger: the addendum 40 item 5 FINDING (#425) and the item 6 ruling.
 - docs/CLI.md: the Desk row and the receipt row. Tests: tests/test_soccer_injuries_one_sided.py.
 - Codex round 1: the receipt looks up the soccer `soccer_elo_poisson` row of a version only, and reads rho / max_goals as of each prediction (audited set-soccer-config edits walked back); a log-loss line over the rows the rebuild reproduces. `base_v11()` holds the one-sided rule off (frozen verify files).
+- #437 RULED (addendum 41 item 2, rides this PR): every aggregate of the receipt over the rows it stands behind (the stored 1X2 rebuilt to 3 decimals and the factor's note agreeing with the cut taken back, a missing note included); a row failing either is left out of every aggregate, counted by reason and listed; the all-rows line stays, marked `ALL ROWS (reference)`. No cut is taken back from the note's rounded percentage.

@@ -14,8 +14,12 @@ How it re-prices (src/models/factors.injury_adjustment, src/models/poisson.predi
 - The stored expected goals (expected_home_score / expected_away_score) already carry the cut. The cut is taken back
   out by dividing each side by (1 - its reduction). The reduction is min(0.25, 0.03 x the side's count): every name
   weighs the default 3%, because the stored rows carry no position (the finding). The factor's own note
-  ("home missing N (-X% xG)") is checked against it, and a row where the note disagrees is counted and listed, never
-  silently re-weighted.
+  ("home missing N (-X% xG)") is checked against it; a side with names and no such note cannot agree.
+- #437 RULED (ARCHITECT 2026-10-11, addendum 41 item 2): "Every aggregate of the receipt is taken over the rows it can
+  stand behind: the stored 1X2 rebuilt to three decimals, and the factor's own note agreeing with the cut the receipt
+  takes back. A row that fails either is left out of every aggregate, counted by reason and listed. The line over all
+  rows stays, marked as such." No cut is taken back from the note's rounded percentage: a row whose note disagrees is
+  left out, not adjusted.
 - The 1X2 is rebuilt from the expected goals as predict_match builds it: independent Poisson to the model's
   max_goals, the Dixon-Coles correction at the model version's poisson.dixon_coles_rho, normalized. As a check, the
   stored expected goals (cut kept) are rebuilt the same way and compared with the stored probabilities: the count
@@ -157,15 +161,29 @@ def bucket(diff: int) -> str:
 
 
 def note_mismatch(fb: dict) -> list[str]:
-    """The factor's own notes against the default-weight reduction: the sides that disagree."""
-    out = []
+    """The factor's own notes against the default-weight reduction: the sides that disagree. A side with names and no
+    note cannot agree (#437 RULED: the note must agree with the cut the receipt takes back)."""
+    out, noted = [], set()
     for n in fb.get("factor_notes") or []:
         m = NOTE.match(str(n))
         if m:
             side, cnt, pct = m.group(1), int(m.group(2)), int(m.group(3))
+            noted.add(side)
             if cnt != fb.get(f"{side}_injuries_count") or pct != int(reduction(cnt) * 100):
                 out.append(f"{side}: note '{n}'")
+    for side in ("home", "away"):
+        c = fb.get(f"{side}_injuries_count")
+        if isinstance(c, int) and c > 0 and side not in noted:
+            out.append(f"{side}: {c} name(s), no note")
     return out
+
+
+LEFT_OUT = ("stored 1X2 not rebuilt to 3 decimals", "factor note disagrees with the cut taken back")
+
+
+def left_out(x: dict) -> list[str]:
+    """#437 RULED: the reasons a row is left out of every aggregate (empty: the receipt stands behind it)."""
+    return ([LEFT_OUT[0]] if not x["reproduces"] else []) + ([LEFT_OUT[1]] if x["note_mismatch"] else [])
 
 
 def rows(s, competition: str) -> tuple[list[dict], dict]:
@@ -226,15 +244,19 @@ def rows(s, competition: str) -> tuple[list[dict], dict]:
 
 
 def summary(rs: list[dict]) -> dict:
+    """#437 RULED: every aggregate over the rows the receipt stands behind; the all-rows line kept, marked."""
     def agg(xs):
         n = len(xs)
         return {"n": n, "ll_stored": round(sum(x["ll_stored"] for x in xs) / n, 4) if n else None,
                 "ll_without_cut": round(sum(x["ll_bare"] for x in xs) / n, 4) if n else None}
-    coh = [x for x in rs if x["edge_pp"] is not None and x["edge_pp"] >= EDGE_PP]
-    return {"all": agg(rs), "all_reproduced": agg([x for x in rs if x["reproduces"]]), "by_diff": {name: agg([x for x in rs if bucket(x["diff"]) == name])
-                                        for name, _, _ in BUCKETS},
+    ok = [x for x in rs if not left_out(x)]
+    coh = [x for x in ok if x["edge_pp"] is not None and x["edge_pp"] >= EDGE_PP]
+    return {"all_rows_reference": agg(rs), "all": agg(ok),
+            "by_diff": {name: agg([x for x in ok if bucket(x["diff"]) == name]) for name, _, _ in BUCKETS},
             "positive_edge": {**agg(coh), "keep_5pp_without_cut": sum(1 for x in coh if x["edge_bare_pp"] >= EDGE_PP)},
-            "no_priced_close": sum(1 for x in rs if x["edge_pp"] is None),
+            "no_priced_close": sum(1 for x in ok if x["edge_pp"] is None),
+            "left_out": {r: sum(1 for x in rs if r in left_out(x)) for r in LEFT_OUT},
+            "left_out_rows": sum(1 for x in rs if left_out(x)),
             "reproduce_3dp": sum(1 for x in rs if x["reproduces"]),
             "note_mismatch": sum(1 for x in rs if x["note_mismatch"]),
             "model_params_missing": sum(1 for x in rs if not x["model_params_found"])}
@@ -255,9 +277,15 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
         d = a["ll_without_cut"] - a["ll_stored"]
         return (f"  {label:<26} n {a['n']:>4} · log loss stored {a['ll_stored']:.4f} · without the cut "
                 f"{a['ll_without_cut']:.4f} · difference {d:+.4f}")
-    echo("LOG LOSS (lower is better; difference = without the cut minus stored)")
+    echo(f"  left out of every aggregate (#437 RULED): {sm['left_out_rows']} row(s) · "
+         + " · ".join(f"{r}: {n}" for r, n in sm["left_out"].items()))
+    for x in rs:
+        if left_out(x):
+            echo(f"    LEFT OUT {x['prediction_id']} · {x['game']} {x['kickoff']} · {'; '.join(left_out(x))}"
+                 + (f" · {'; '.join(x['note_mismatch'])}" if x["note_mismatch"] else ""))
+    echo("LOG LOSS (lower is better; difference = without the cut minus stored; over the rows the receipt stands behind)")
+    echo(line("ALL ROWS (reference)", sm["all_rows_reference"]) + "  ← every row, the left-out ones included")
     echo(line("all", sm["all"]))
-    echo(line("all, rebuilt to 3dp only", sm["all_reproduced"]))
     for name, _, _ in BUCKETS:
         echo(line(f"list-length diff {name}", sm["by_diff"][name]))
     pe = sm["positive_edge"]

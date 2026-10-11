@@ -117,9 +117,20 @@ KALSHI_ONLY_MLB_SUSPENDED = {"on": True}
 KALSHI_ONLY_SUSPENDED_KIND = "kalshi_only_suspended"
 KALSHI_ONLY_SUSPENDED_REASON = ("kalshi-only suspended for MLB: the model number is unblended without books "
                                 "(ARCHITECT 2026-10-07)")
+# DEFAULT RATING (ARCHITECT 2026-10-10, addendum 36 item 2, RULED): "Every soccer prediction says, for each side,
+# where its rating came from: the model's table, or the default because the team is not in the table. It is
+# recorded per side as model or default, in the prediction's factor_breakdown and in the export's input_quality. A
+# row with a default on either side gets no Desk call and no value shadow: it is a PASS, and its reason names the
+# team. desk_meta says the rule is on. No probability changes." Read from input_quality.rating_source; a row without
+# the label (other sports, or a prediction written before it) is unchanged. Checked after the started rule. Its own
+# switch; the frozen golden predates the label (no golden row carries it), so it holds with the rule on.
+DEFAULT_RATING_RULE = {"on": True}
+DEFAULT_RATING_KIND = "default_rating"
+DEFAULT_RATING_RULING = "default rating, ARCHITECT 2026-10-10"
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
                  "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
-                 KALSHI_ONLY_SUSPENDED_KIND)        # + Q3 K1 (2026-10-08)
+                 KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
+                 DEFAULT_RATING_KIND)               # + addendum 36 item 2 (2026-10-10)
 # VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
 # time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
 # unknown age is NO REFERENCE. [...] In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote
@@ -317,6 +328,8 @@ def normalize(doc: dict) -> list[dict]:
             "kalProb": kal_from_prediction(p, mk, market),
             "threeWay": market.get("DRAW") is not None or probs.get("DRAW") is not None,
             "kExec": _kexec_of(p, always=True),     # #130: the pre-split alias is retired
+            # addendum 36 item 2: {"home": "model"|"default"|None, "away": ...} or None (no label)
+            "ratingSrc": (p.get("input_quality") or {}).get("rating_source"),
             "tier": pr.get("tier") or None, "marketOnly": False})
     return out
 
@@ -513,6 +526,17 @@ def started_rule_off():
         yield
     finally:
         STARTED_RULE["on"] = was
+
+
+@contextmanager
+def default_rating_rule_off():
+    """The Desk without the default-rating rule (addendum 36 item 2) — for comparing a file with and without it."""
+    was = DEFAULT_RATING_RULE["on"]
+    DEFAULT_RATING_RULE["on"] = False
+    try:
+        yield
+    finally:
+        DEFAULT_RATING_RULE["on"] = was
 
 
 def has_started(r, now_ms: float) -> bool:
@@ -752,6 +776,15 @@ def intl_venue_unknown(r) -> bool:
     return (r["src"].get("venue_flag") or "unknown") == "unknown"
 
 
+def default_rated_teams(r) -> list[str]:
+    """addendum 36 item 2: the teams of this row whose rating is the default (not in the model's table), home
+    first. Empty when the rule is off or the row carries no label."""
+    rs = r.get("ratingSrc")
+    if not DEFAULT_RATING_RULE["on"] or not isinstance(rs, dict):
+        return []
+    return [name for side, name in (("home", r["home"]), ("away", r["away"])) if rs.get(side) == "default"]
+
+
 def kalshi_only_suspended(r) -> bool:
     """Q3 K1: the suspension covers MLB rows only (K4: NFL and PL keep the 2026-10-01 reference)."""
     return bool(KALSHI_ONLY_MLB_SUSPENDED["on"] and r["sport"] == "MLB")
@@ -781,6 +814,10 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
                 "passKind": SHADOW_LEAGUE_KIND, "mktRef": r["mkt"], "kalOnly": False}
     if STARTED_RULE["on"] and has_started(r, now_ms):
         return _no_call(r, "started", STARTED_REASON)
+    defaulted = default_rated_teams(r)
+    if defaulted:
+        return _no_call(r, DEFAULT_RATING_KIND, f"default rating: {' and '.join(defaulted)} not in the model's "
+                                                f"rating table → no call ({DEFAULT_RATING_RULING})")
     if r["sport"] == "INTL":
         if r["comp"] not in INTL["callComps"]:
             return _no_call(r, "no_series", f"{r['comp'] or '?'}: no wired Kalshi series → prediction without a "
@@ -1358,6 +1395,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "mlb_quarantine_above_pp": MLB_QUARANTINE["abovePP"] if MLB_QUARANTINE["on"] else None,
                         # Q3 (ARCHITECT 2026-10-08): MLB is never a call on a kalshi-only reference
                         "mlb_kalshi_only_suspended": KALSHI_ONLY_MLB_SUSPENDED["on"],
+                        # addendum 36 item 2 (2026-10-10): a default rating on either side is never a call
+                        "default_rating_rule": DEFAULT_RATING_RULE["on"],
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
     return doc
 

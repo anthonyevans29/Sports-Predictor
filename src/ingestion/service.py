@@ -68,8 +68,22 @@ log = logging.getLogger(__name__)
 # (skipped, receipted), never created. An incoming id found in a row's
 # "<source>_prev" history goes back to that row. Retired rows (cancelled,
 # stale_orphan) are never candidates.
+#
+# PLACEHOLDER RE-KEY (ARCHITECT 2026-10-09, addendum 30 item 3, amending the second re-key ruling): "For
+# NCAA, a stored SCHEDULED row at the provider's TBD kickoff holds its natural key for its whole game day. An
+# unknown incoming id for the same home and away team, at a real kickoff within 24 hours of that placeholder,
+# re-keys that row. Every refusal of the 12-hour rule applies as it stands: the stored id still in the
+# listing, a row already claimed in the run, more than one candidate, the pair swapped. A row at a real
+# kickoff keeps the 12-hour window." AMENDED (addendum 33 item 1): "The placeholder window is consulted only
+# where the 12-hour rule would create a row: no candidate within 12 hours, same pair or swapped. It never takes
+# a match away from the 12-hour rule. There the same refusals apply among placeholder rows: the stored id still
+# in the listing, a row already claimed in the run, more than one placeholder candidate, the pair swapped."
+# What a placeholder is and what resolves one is the ONE shared
+# definition (src/ingestion/placeholder.py, also the receipt script's). NFL is untouched: no receipt for how
+# the provider marks an unannounced NFL time.
 REKEY_SOURCES = frozenset({"api_american_football"})
 REKEY_WINDOW_H = 12
+PLACEHOLDER_REKEY_COMPETITIONS = frozenset({"NCAA"})
 
 
 @dataclass
@@ -308,6 +322,7 @@ class IngestionService:
                 # id still listed is a different game, never a re-key target)
                 _cache["__pairs__"] = _pairs
                 _cache["__listed__"] = {str(nm.source_id) for nm in matches}
+                _cache["__placeholder_window__"] = comp.code in PLACEHOLDER_REKEY_COMPETITIONS
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
             for i, nm in enumerate(matches, 1):
@@ -463,8 +478,10 @@ class IngestionService:
         from datetime import timedelta
 
         from src.db.schema import MatchStatus
+        from src.ingestion.placeholder import placeholder_resolved
 
         win = timedelta(hours=REKEY_WINDOW_H)
+        placeholder_window = bool(cache.get("__placeholder_window__"))
         listed = cache["__listed__"]
         claimed = cache.setdefault("__claimed__", set())
         retired = (MatchStatus.CANCELLED, MatchStatus.STALE_ORPHAN)
@@ -495,19 +512,41 @@ class IngestionService:
         if len(back) > 1:
             return None, f"{len(back)} stored rows carry {nm.source_id} in their history ({[m.id for m in back]})"
 
-        def near(rows):
+        def twelve_hours(m):
+            return abs(m.utc_date - nm.utc_date) <= win
+
+        def placeholder_row(m):
+            # NCAA: a SCHEDULED row at the placeholder kickoff, resolved by a real kickoff within 24h of it
+            return m.status == MatchStatus.SCHEDULED and placeholder_resolved(m.utc_date, nm.utc_date)
+
+        def near(rows, holds):
             return [m for m in rows if m.status not in retired and m.utc_date is not None
-                    and nm.utc_date is not None and abs(m.utc_date - nm.utc_date) <= win]
-        same = near(cache["__pairs__"].get((home_id, away_id), []))
-        if len(same) > 1:
-            return None, f"{len(same)} stored rows match its natural key (ambiguous: {[m.id for m in same]})"
-        if same:
-            why = blocked(same[0])
-            return (None, f"stored row {same[0].id} holds its natural key but {why} — not created") if why \
-                else claim(same[0])
-        swapped = near(cache["__pairs__"].get((away_id, home_id), []))
-        if swapped:
-            return None, f"stored row(s) {[m.id for m in swapped]} hold the pair home/away SWAPPED"
+                    and nm.utc_date is not None and holds(m)]
+
+        def decide(same, swapped, what):
+            if len(same) > 1:
+                return None, f"{len(same)} stored rows match its natural key{what} (ambiguous: {[m.id for m in same]})"
+            if same:
+                why = blocked(same[0])
+                return (None, f"stored row {same[0].id} holds its natural key{what} but {why} — not created") \
+                    if why else claim(same[0])
+            return None, f"stored row(s) {[m.id for m in swapped]} hold the pair home/away SWAPPED{what}"
+
+        pairs = cache["__pairs__"]
+        same = near(pairs.get((home_id, away_id), []), twelve_hours)
+        swapped = near(pairs.get((away_id, home_id), []), twelve_hours)
+        if same or swapped:
+            return decide(same, swapped, "")
+        # AMENDED (ARCHITECT 2026-10-09, addendum 33 item 1): "The placeholder window is consulted only where the
+        # 12-hour rule would create a row: no candidate within 12 hours, same pair or swapped. It never takes a
+        # match away from the 12-hour rule. There the same refusals apply among placeholder rows: the stored id
+        # still in the listing, a row already claimed in the run, more than one placeholder candidate, the pair
+        # swapped."
+        if placeholder_window:
+            same = near(pairs.get((home_id, away_id), []), placeholder_row)
+            swapped = near(pairs.get((away_id, home_id), []), placeholder_row)
+            if same or swapped:
+                return decide(same, swapped, " (placeholder window)")
         return None, None
 
     @staticmethod
@@ -713,6 +752,12 @@ class IngestionService:
                     Match.status == MatchStatus.SCHEDULED,
                     Match.utc_date >= utc_now_naive(),
                 )
+            # #387 (ARCHITECT addendum 31 item 1, AMENDED by addendum 33 item 2):
+            # "A named game is never dropped by the limit. With --match-ids every
+            # named game is priced and --limit does not apply. The order is
+            # kickoff, then id, in both modes." Until #402 the limit (CLI default
+            # 20) cut a named list, silently.
+            stmt = stmt.order_by(Match.utc_date, Match.id)
             candidates: list[Match] = []
             for match in s.execute(stmt).scalars():
                 source_id = (match.external_ids or {}).get(self.source)
@@ -722,7 +767,7 @@ class IngestionService:
 
             if match_ids is not None:
                 candidates = [m for m in candidates if m.id in match_ids]
-            if limit:
+            elif limit:
                 candidates = candidates[:limit]
 
             log.info("sync_odds: %d matches (competition=%s, season=%s)",

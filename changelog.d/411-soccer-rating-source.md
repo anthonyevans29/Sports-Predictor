@@ -1,0 +1,6 @@
+## 2026-10-11 (#411: soccer-rating-source — a default rating is labelled and gets no call — ARCHITECT addendum 36 item 2; Refs #410)
+- `_generate_predictions_soccer` (src/walters/training.py): every soccer prediction's `factor_breakdown` carries `home_rating_source` / `away_rating_source`: `model` when the team is in the production model's league rating table, `default` when it is not (EloState.get's starting rating). The report-only rows carry the same two keys. No probability changes.
+- `export-predictions` (soccer, src/walters/export.py): `input_quality.rating_source` {`home`, `away`} beside `strengths_source`; null on a prediction written before the label. The window card's `model` block copies it (`rating_source`, src/walters/window.py).
+- Desk (src/walters/desk_policy.py): a row whose `rating_source` reads `default` on either side is PASS, `pass_kind` `default_rating`, reason naming the team(s): units 0, no order, no exec block, no value shadow, never a parlay leg. Checked after the started rule. `desk_meta.default_rating_rule` = true; `default_rating_rule_off()` for comparison. A row without the label is unchanged; the Desk golden holds.
+- CSV (`export-predictions --format csv`, soccer): `home_rating_source` and `away_rating_source` columns (Codex on #411).
+- Tests: tests/test_soccer_rating_source.py.

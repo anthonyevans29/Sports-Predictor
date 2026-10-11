@@ -145,7 +145,8 @@ def elo_drift_games(s, since) -> list:
 
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                            receipts: dict | None = None,
-                           hours_ahead: float | None = None, desk: bool | None = None) -> str:
+                           hours_ahead: float | None = None, desk: bool | None = None,
+                           out_path: str | None = None) -> str:
     # Export windowing (architect 2026-09-28): the FILE's rows are scoped to
     # kickoffs in [now, now + window]; predictions are generated and stored
     # exactly as before (early-week claims stay for CLV). hours_ahead wins
@@ -293,9 +294,13 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                                            for m in drift]
     for r in rows:
         r.pop("_computed_at", None)
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir,
-                        f"nfl_predictions_{utc_now_naive().strftime('%Y-%m-%d')}.json")
+    if out_path:              # addendum 40 item 2: a closing run names its own file, outside exports/
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        path = out_path
+    else:
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(out_dir,
+                            f"nfl_predictions_{utc_now_naive().strftime('%Y-%m-%d')}.json")
     payload = {
         "exported_at": utc_now_naive().isoformat() + "Z",
         "git_sha": _git_sha(),

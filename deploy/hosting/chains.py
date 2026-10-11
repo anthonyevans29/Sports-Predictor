@@ -304,10 +304,10 @@ CHAINS["freshen:MLB"] = {"steps": [list(s) for s in CHAINS["mlb-preslate"]["step
 # schedule read plus `--match-ids {match_ids}` (the run's covered games); mlb-preslate itself is unchanged.
 CHAINS["mlb-closing"] = {
     "laptop_only": "python cli.py closing-run --family MLB",
-    "example_vars": {"match_ids": "1,2"},
+    "example_vars": {"match_ids": "1,2", "export_out": "logs/20261011T1625Z-mlb-closing.mlb_MLB_2026-10-11.json"},
     "steps": [[*CHAINS["mlb-preslate"]["steps"][0], "--match-ids", "{match_ids}"]]
              + [list(s) for s in CHAINS["mlb-preslate"]["steps"][1:-1]]
-             + [[*CHAINS["mlb-preslate"]["steps"][-1], "--date", "{today}", "--desk"]],
+             + [[*CHAINS["mlb-preslate"]["steps"][-1], "--date", "{today}", "--desk", "--out", "{export_out}"]],
 }
 CHAINS["freshen:SOCCER"] = {"steps": [
     ["sync-odds", *PL],
@@ -340,6 +340,7 @@ CHAINS["freshen:SOCCER"] = {"steps": [
 #   sync-odds-football   --match-ids {match_ids}                      (the covered games only)
 #   sync-odds            --match-ids {match_ids}                      (the covered games only)
 #   the export           --desk                                       (the file carries the Desk's call)
+#                        --out {export_out}                           (addendum 40 item 2: outside exports/)
 # The Kalshi syncs, predict and predict-nfl run as the freshen chains list them (one series listing each; the model
 # step writes every upcoming game, as it always has). Run through `python cli.py closing-run --family F`
 # (deploy/hosting/closing.py), never sp_run, which refuses them. C7: "The host runs NFL and SOCCER with the same
@@ -348,9 +349,14 @@ _CLOSING_ADD = {
     "sync-injuries": ["--match-ids", "{match_ids}", "--strict"],
     "sync-odds-football": ["--match-ids", "{match_ids}"],
     "sync-odds": ["--match-ids", "{match_ids}"],
-    "export-nfl-predictions": ["--desk"],
-    "export-predictions": ["--desk"],
+    "export-nfl-predictions": ["--desk", "--out", "{export_out}"],
+    "export-predictions": ["--desk", "--out", "{export_out}"],
 }
+# ONE CLOSING, ONE PAGE, ONE FILE (ARCHITECT 2026-10-11, addendum 40 item 2): "A closing run does not write, replace
+# or move the family's slate file. The slate chains write it, as they did before 2026-10-09." [...] "The run's export
+# step writes outside exports/." Every closing chain's export step takes --out {export_out}: closing.py sets it to
+# logs/<run id>.<the slate file's name> (the name R6 gave a moved export), and writes exports/closing_<FAMILY>_<start>
+# .json itself once the page went out. The freshen and slate chains are unchanged.
 
 
 def _closing_from_freshen(freshen: str, comp: str, season: str) -> list[list[str]]:
@@ -362,7 +368,8 @@ def _closing_from_freshen(freshen: str, comp: str, season: str) -> list[list[str
 
 # A sample of the run-time placeholders, for the law-1 option check (tests/test_hosting_pack.py) only.
 CLOSING_VARS_EXAMPLE = {"start_day": "2026-10-11", "end_day": "2026-10-11", "match_ids": "1,2",
-                        "start_day_ids": "1,2", "end_day_ids": "1,2"}
+                        "start_day_ids": "1,2", "end_day_ids": "1,2",
+                        "export_out": "logs/20261011T1625Z-nfl-closing.nfl_predictions_2026-10-11.json"}
 CHAINS["nfl-closing"] = {"closing_command": "python cli.py closing-run --family NFL",
                          "example_vars": CLOSING_VARS_EXAMPLE,
                          "steps": _closing_from_freshen("freshen:NFL", "NFL", "2026")}

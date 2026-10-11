@@ -6,6 +6,7 @@ blocked (the setup-script tests run a fake ntfy on 127.0.0.1 in a subprocess san
 import contextlib
 import http.server
 import json
+import os
 import shutil
 import socket
 import sqlite3
@@ -258,12 +259,14 @@ def box(tmp_path, monkeypatch):
             con.commit()
             con.close()
         day = run_start_of(run_id).date().isoformat()
+        out = (repo / argv[argv.index("--out") + 1]) if "--out" in argv else None   # addendum 40 item 2
         if argv[0] == "export-predictions" and "--date" in argv:
-            (repo / "exports" / f"mlb_MLB_{argv[argv.index('--date') + 1]}.json").write_text(json.dumps(b.docs["MLB"]))
+            (out or repo / "exports" / f"mlb_MLB_{argv[argv.index('--date') + 1]}.json").write_text(
+                json.dumps(b.docs["MLB"]))
         elif argv[0] == "export-predictions":
-            (repo / "exports" / f"soccer_PL_{day}.json").write_text(json.dumps(b.docs["SOCCER"]))
+            (out or repo / "exports" / f"soccer_PL_{day}.json").write_text(json.dumps(b.docs["SOCCER"]))
         elif argv[0] == "export-nfl-predictions":
-            (repo / "exports" / f"nfl_predictions_{day}.json").write_text(json.dumps(b.docs["NFL"]))
+            (out or repo / "exports" / f"nfl_predictions_{day}.json").write_text(json.dumps(b.docs["NFL"]))
         return 0, list(b.tails.get(argv[0], ["ok"])), 0.1
 
     def fake_feed():
@@ -385,7 +388,7 @@ def test_c3_mlb_closing_chain_is_370s():
     # A1 (addendum 23): the schedule read names the covered games; mlb-preslate's own step is unchanged
     assert clo[0] == [*pre[0], "--match-ids", "{match_ids}"] and pre[0][-1] == "{today}"
     assert clo[0][0] == "sync-matches"
-    assert clo[9] == [*pre[9], "--date", "{today}", "--desk"]
+    assert clo[9] == [*pre[9], "--date", "{today}", "--desk", "--out", "{export_out}"]   # addendum 40 item 2
 
 
 @pytest.mark.parametrize("fam,freshen,comp,season", [("NFL", "freshen:NFL", "NFL", "2026"),
@@ -403,7 +406,7 @@ def test_c3_nfl_and_soccer_closing_chains_are_their_freshen_chains_opening_with_
     assert not any(st[0] == "refresh-by-id" for st in clo)
     assert clo[:len(read)] == read
     assert [s[:len(f)] for s, f in zip(clo[len(read):], fr)] == fr and len(clo) == len(fr) + len(read)   # derived
-    assert clo[-1][-1] == "--desk" and clo[-1][0].startswith("export")
+    assert clo[-1][-3:] == ["--desk", "--out", "{export_out}"] and clo[-1][0].startswith("export")   # addendum 40
     inj = next(s for s in clo if s[0] == "sync-injuries")
     assert inj[-3:] == ["--match-ids", "{match_ids}", "--strict"]           # Codex round 2: the covered games
     odds = next(s for s in clo if s[0] in ("sync-odds", "sync-odds-football"))
@@ -417,13 +420,13 @@ def test_c3_a_run_prices_the_games_it_covers_not_the_whole_league(box):
     s = NOW + timedelta(minutes=35)
     cov = mc.cover(games, s, NOW)
     assert [g["match_id"] for g in cov] == [301, 304, 302, 303]
-    steps = mc.resolve_steps("NFL", s, cov, NOW)
+    steps = mc.resolve_steps("NFL", s, cov, NOW, "RID")
     assert steps[0] == ["sync-matches", "--competition", "NFL", "--season", "2026", "--date-from", DAY,  # A1 as
                         "--date-to", DAY, "--match-ids", "301,302,303,304"]          # amended: by date (25 2(i))
     assert steps[1][0] == "sync-injuries"
     assert steps[1][-3:] == ["--match-ids", "301,302,303,304", "--strict"]   # the covered games' teams only
     assert steps[2] == ["sync-odds-football", "--match-ids", "301,302,303,304"]
-    assert steps[-1] == ["export-nfl-predictions", "--desk"]
+    assert steps[-1] == ["export-nfl-predictions", "--desk", "--out", f"logs/RID.nfl_predictions_{DAY}.json"]
     # a cover spanning UTC midnight reads both days
     late = [{**cov[0], "start": datetime(2026, 10, 11, 23, 58, tzinfo=timezone.utc)},
             {**cov[1], "start": datetime(2026, 10, 12, 0, 6, tzinfo=timezone.utc)}]
@@ -565,7 +568,8 @@ def test_c4_r2_stale_prices_fail_every_family_and_r6_moves_its_export(box, fam, 
     r = runs(fam)[-1]
     assert r["failed"] == "stale prices" and {x["price"] for x in r["stale"]} == {"books"}
     assert r["stale"][0]["run_start"] == "2026-10-11T16:25:00Z" and r["stale"][0]["captured_at"] == "2026-10-11T13:25:00Z"
-    assert r["export_moved_to"].startswith(f"logs/{r['run_id']}.")                     # R6
+    assert r["export"].startswith(f"logs/{r['run_id']}.") and "export_moved_to" not in r   # R6: never in exports/
+    assert not any((box.repo / "exports").iterdir())                                  # addendum 40 item 2
     assert box.pushes == [] and box.pages == [] and r["push"] is None
 
 
@@ -766,7 +770,7 @@ def test_380_1_stale_starters_are_a_failed_attempt_retried_and_a_missing_starter
     assert r["stale_starters"] == [{"match_id": 102, "game": "Clearwater Visitors @ Clearwater",
                                     "start_et": "2026-10-11 13:03 ET", "side": "away", "team": "Clearwater Visitors",
                                     "refreshed_at": "2026-10-11T13:25:00Z", "run_start": "2026-10-11T16:25:00Z"}]
-    assert r["export_moved_to"].startswith("logs/") and box.pushes == [] and call_pages(box) == []
+    assert r["export"].startswith("logs/") and box.pushes == [] and call_pages(box) == []
     # the operator's fix: that side not listed (the model shrinks); the retry succeeds and the page says so
     for p in box.docs["MLB"]["predictions"]:
         if p["match_id"] == 102:
@@ -1106,9 +1110,10 @@ def test_a2_receipt_on_success_and_steps_under_the_lock(box):
     assert mc.run("MLB", start=at(30), now=NOW) == 0
     assert box.lock_seen == [False] * 10
     r = runs()[-1]
-    assert r["exit"] == 0 and r["date_ny"] == DAY and r["export"] == f"exports/mlb_MLB_{DAY}.json"
+    assert r["exit"] == 0 and r["date_ny"] == DAY and r["export"] == f"logs/{r['run_id']}.mlb_MLB_{DAY}.json"
     assert [s["exit"] for s in r["steps"]] == [0] * 10 and r["push"]["exit"] == 0
-    assert box.steps[-1] == ["export-predictions", "--sport", "mlb", "--competition", "MLB", "--date", DAY, "--desk"]
+    assert box.steps[-1] == ["export-predictions", "--sport", "mlb", "--competition", "MLB", "--date", DAY, "--desk",
+                             "--out", r["export"]]
 
 
 def test_a3_backup_taken_through_the_backup_api_and_found_the_second_time(box, monkeypatch):
@@ -1137,7 +1142,7 @@ def test_a1_ny_date_not_utc(box, monkeypatch):
     box.docs["MLB"] = dp.annotate({"sport": "mlb", "predictions": [row(7, "Giants", 0.52, fair_h=0.51, minutes=40,
                                                                        now=now)]}, now=now)
     assert mc.resolve_steps("MLB", now + timedelta(minutes=40), [], now)[0][-3] == "2026-10-08"
-    assert mc.run("MLB", now=now) == 0 and runs()[-1]["export"] == "exports/mlb_MLB_2026-10-08.json"
+    assert mc.run("MLB", now=now) == 0 and runs()[-1]["export"].endswith(".mlb_MLB_2026-10-08.json")
 
 
 def test_laptop_only_refusal_for_mlb_and_the_watch_skips_it(box, monkeypatch):
@@ -1217,7 +1222,7 @@ if a[0] in ("sync-odds-football", "sync-kalshi-nfl"):
                             "VALUES (?, 'ML', ?, 0.5, ?, 'kalshi')", (mid, sel, T))
     con.commit()
 if a[0] == "export-nfl-predictions":
-    open(os.environ["T_OUT"], "w").write(open(os.environ["T_DOC"]).read())
+    open(a[a.index("--out") + 1] if "--out" in a else os.environ["T_OUT"], "w").write(open(os.environ["T_DOC"]).read())
 if a[0] == os.environ.get("T_FAIL"):
     sys.exit(4)
 '''
@@ -1785,7 +1790,8 @@ def test_25_iii_an_mlb_afternoon_closing_turns_the_night_games_play_into_pass_an
     a = runs()[-1]
     assert "Laterton" not in call_pages(box)[-1]["body"]                                # not paged: not covered
     assert a["last_calls"]["103"] == {"call": "PLAY Laterton 1u", "start": at(45), "source": f"mlb_MLB_{DAY}.json"}
-    assert a["export_written"]["sha256"] == mc._sha256(box.repo / "exports" / f"mlb_MLB_{DAY}.json")
+    assert a["export_written"]["sha256"] == mc._sha256(box.repo / a["export"])      # under logs/ (addendum 40)
+    assert json.loads((box.repo / "exports" / f"mlb_MLB_{DAY}.json").read_text()) == morning   # the slate untouched
     assert mc.run("MLB", start=at(30), now=NOW + timedelta(minutes=1)) == 0           # a second closing export
     b = runs()[-1]
     assert b["last_calls"]["103"]["call"] == "PLAY Laterton 1u"                        # from A's receipt
@@ -1818,15 +1824,16 @@ def test_25_iii_an_attempt_whose_page_was_not_accepted_leaves_the_retry_its_was(
 
 def test_25_iii_where_the_chain_cannot_be_followed_the_files_call_stands(box):
     """Addendum 25 2(iii): "Where the chain cannot be followed (no receipt names the file), the file's call stands,
-    as today." The afternoon closing's receipt is lost (no export_written): the night game's closing reads the file,
-    PASS, and pages no B3 line."""
+    as today." Since addendum 40 item 2 a closing never writes the slate file, so the file no receipt names is a slate
+    chain's: a slate export written after the afternoon closing started (103 repriced to PASS there) is read, and the
+    night game's closing pages no B3 line."""
     (box.repo / "exports" / f"mlb_MLB_{DAY}.json").write_text(json.dumps(mlb_doc()))
     box.docs["MLB"] = _set_call(mlb_doc(), 103)
     assert mc.run("MLB", start=at(30), now=NOW) == 0
-    lines = [json.loads(x) for x in c.receipts_path().read_text().splitlines()]
-    for r in lines:
-        r.pop("export_written", None)
-    c.receipts_path().write_text("".join(json.dumps(r) + "\n" for r in lines))
+    slate = box.repo / "exports" / f"mlb_MLB_{DAY}.json"
+    slate.write_text(json.dumps(_set_call(mlb_doc(), 103), indent=1))    # the slate chain, after the closing
+    w = runs()[-1]["run_start_wall"] + 5
+    os.utime(slate, (w, w))
     assert mc.run("MLB", start=at(45), now=NOW + timedelta(minutes=10)) == 0
     assert runs()[-1]["last_calls"]["103"] == {"call": "PASS", "start": at(45), "source": f"mlb_MLB_{DAY}.json"}
     pg = call_pages(box)[-1]
@@ -1901,8 +1908,8 @@ def test_26_2b_r6_moves_the_failed_attempts_export_and_the_retry_still_says_was(
     box.no_fresh = {"sync-odds"}
     assert mc.run("MLB", start=at(30), now=NOW) == 1
     first = runs()[-1]
-    assert first["failed"] == "stale prices" and first["export_moved_to"].startswith("logs/")       # R6
-    assert not (box.repo / "exports" / f"mlb_MLB_{DAY}.json").exists()
+    assert first["failed"] == "stale prices" and first["export"].startswith("logs/")     # R6: never in exports/
+    assert (box.repo / "exports" / f"mlb_MLB_{DAY}.json").exists()      # addendum 40 item 2: the slate untouched
     assert first["last_calls"]["101"] == {"call": "PASS", "start": at(30), "source": f"mlb_MLB_{DAY}.json"}
     box.no_fresh = set()
     assert mc.run("MLB", start=at(30), now=NOW + timedelta(minutes=1)) == 0

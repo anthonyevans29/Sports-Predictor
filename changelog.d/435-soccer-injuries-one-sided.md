@@ -4,3 +4,4 @@
 - `scripts/soccer_injury_factor_receipt.py` (new, read-only): every graded PL prediction re-priced with the injury cut taken out of its expected goals; log loss both ways (all, by list-length difference, positive-edge cohort with how many keep +5pp).
 - Ledger: the addendum 40 item 5 FINDING (#425) and the item 6 ruling.
 - docs/CLI.md: the Desk row and the receipt row. Tests: tests/test_soccer_injuries_one_sided.py.
+- Codex round 1: the receipt looks up the soccer `soccer_elo_poisson` row of a version only, and reads rho / max_goals as of each prediction (audited set-soccer-config edits walked back); a log-loss line over the rows the rebuild reproduces. `base_v11()` holds the one-sided rule off (frozen verify files).

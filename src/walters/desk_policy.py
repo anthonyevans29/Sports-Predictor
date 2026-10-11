@@ -475,14 +475,15 @@ def base_v11():
     was, was_started = EXEC_RULES["on"], STARTED_RULE["on"]
     was_mlbq, was_qa = MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"]
     was_kos = KALSHI_ONLY_MLB_SUSPENDED["on"]
+    was_one = INJURIES_ONE_SIDED_RULE["on"]    # frozen verification files stay frozen (as Codex asked on #434)
     EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
-    KALSHI_ONLY_MLB_SUSPENDED["on"] = False
+    KALSHI_ONLY_MLB_SUSPENDED["on"] = INJURIES_ONE_SIDED_RULE["on"] = False
     try:
         yield
     finally:
         EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
         MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"] = was_mlbq, was_qa
-        KALSHI_ONLY_MLB_SUSPENDED["on"] = was_kos
+        KALSHI_ONLY_MLB_SUSPENDED["on"], INJURIES_ONE_SIDED_RULE["on"] = was_kos, was_one
 
 
 @contextmanager

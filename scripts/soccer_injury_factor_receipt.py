@@ -50,6 +50,7 @@ EDGE_PP = 5.0                    # the positive-edge cohort
 BUCKETS = (("0", 0, 0), ("1-2", 1, 2), ("3-5", 3, 5), ("6+", 6, 10 ** 6))
 NOTE = re.compile(r"^(home|away) missing (\d+) \(-(\d+)% xG\)$")
 SIDES = ("HOME", "DRAW", "AWAY")
+FAMILY = "soccer_elo_poisson"
 
 
 def db_path(arg: str | None) -> Path:
@@ -96,6 +97,26 @@ def query_only_engine(p: Path):
     def _ro(dbapi_con, _):
         dbapi_con.execute("PRAGMA query_only = ON")
     return eng
+
+
+def poisson_as_of(params: dict, at) -> tuple[float, int]:
+    """(rho, max_goals) as the prediction computed at `at` read them (Codex on #435): the version's current
+    poisson block, with every audited set-soccer-config edit made after `at` walked back (manual_config_edits:
+    {"ts", "field": "poisson.<name>", "from", "to"}; "(default)" = PoissonConfig's default)."""
+    from src.models.poisson import PoissonConfig
+    dflt = PoissonConfig()
+    pz = dict((params or {}).get("poisson") or {})
+    vals = {"dixon_coles_rho": pz.get("dixon_coles_rho", dflt.dixon_coles_rho),
+            "max_goals": pz.get("max_goals", dflt.max_goals)}
+    stamp = at.isoformat() if at is not None else None
+    for e in sorted((params or {}).get("manual_config_edits") or [], key=lambda e: str(e.get("ts") or ""),
+                    reverse=True):
+        f = str(e.get("field") or "")
+        if not f.startswith("poisson.") or f[8:] not in vals or stamp is None or str(e.get("ts") or "") <= stamp:
+            continue
+        old = e.get("from")
+        vals[f[8:]] = getattr(dflt, f[8:]) if old in (None, "(default)") else old
+    return float(vals["dixon_coles_rho"]), int(vals["max_goals"])
 
 
 def reduction(count: int) -> float:
@@ -149,7 +170,7 @@ def note_mismatch(fb: dict) -> list[str]:
 
 def rows(s, competition: str) -> tuple[list[dict], dict]:
     from sqlalchemy import select
-    from src.db.schema import Competition, Match, MatchStatus, ModelVersion, Prediction, PredictionOutcome
+    from src.db.schema import Competition, Match, MatchStatus, ModelVersion, Prediction, PredictionOutcome, Sport
     from src.walters.close import grading_close, priced
     comp = s.execute(select(Competition).where(Competition.code == competition)).scalars().all()
     comp = [c for c in comp if str(getattr(c.sport, "value", c.sport)).lower() == "soccer"]
@@ -176,12 +197,13 @@ def rows(s, competition: str) -> tuple[list[dict], dict]:
         if pred.expected_home_score is None or pred.expected_away_score is None:
             skipped["no expected goals"] += 1
             continue
-        if pred.model_version not in params:
-            mv = s.execute(select(ModelVersion).where(ModelVersion.version == pred.model_version)).scalars().first()
-            pz = ((mv.parameters or {}) if mv else {}).get("poisson") or {}
-            params[pred.model_version] = (float(pz.get("dixon_coles_rho", 0.0)), int(pz.get("max_goals", 10)),
-                                          mv is not None)
-        rho, max_k, known = params[pred.model_version]
+        if pred.model_version not in params:      # Codex on #435: the soccer Elo/Poisson row of that version only
+            mv = s.execute(select(ModelVersion).where(
+                ModelVersion.version == pred.model_version, ModelVersion.sport == Sport.SOCCER,
+                ModelVersion.model_family == FAMILY)).scalars().first()
+            params[pred.model_version] = ((mv.parameters or {}) if mv else None)
+        known = params[pred.model_version] is not None
+        rho, max_k = poisson_as_of(params[pred.model_version] or {}, pred.computed_at)
         stored = {"HOME": pred.home_win_prob, "DRAW": pred.draw_prob, "AWAY": pred.away_win_prob}
         hxg, axg = pred.expected_home_score, pred.expected_away_score
         rebuilt = one_x_two(hxg, axg, rho, max_k)
@@ -209,7 +231,7 @@ def summary(rs: list[dict]) -> dict:
         return {"n": n, "ll_stored": round(sum(x["ll_stored"] for x in xs) / n, 4) if n else None,
                 "ll_without_cut": round(sum(x["ll_bare"] for x in xs) / n, 4) if n else None}
     coh = [x for x in rs if x["edge_pp"] is not None and x["edge_pp"] >= EDGE_PP]
-    return {"all": agg(rs), "by_diff": {name: agg([x for x in rs if bucket(x["diff"]) == name])
+    return {"all": agg(rs), "all_reproduced": agg([x for x in rs if x["reproduces"]]), "by_diff": {name: agg([x for x in rs if bucket(x["diff"]) == name])
                                         for name, _, _ in BUCKETS},
             "positive_edge": {**agg(coh), "keep_5pp_without_cut": sum(1 for x in coh if x["edge_bare_pp"] >= EDGE_PP)},
             "no_priced_close": sum(1 for x in rs if x["edge_pp"] is None),
@@ -224,7 +246,8 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
          f"{len({x['match_id'] for x in rs})} · left out: " + ", ".join(f"{k} {v}" for k, v in skipped.items()))
     echo(f"  stored 1X2 rebuilt from the stored expected goals to 3 decimals: {sm['reproduce_3dp']}/{len(rs)}"
          f" · factor notes disagreeing with the default 3% weight: {sm['note_mismatch']}"
-         f" · model version parameters not found (rho 0 assumed): {sm['model_params_missing']}")
+         f" · model version parameters not found (PoissonConfig defaults): {sm['model_params_missing']}"
+         " · rho and max_goals as of each prediction (set-soccer-config edits walked back)")
 
     def line(label, a):
         if not a["n"]:
@@ -234,6 +257,7 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
                 f"{a['ll_without_cut']:.4f} · difference {d:+.4f}")
     echo("LOG LOSS (lower is better; difference = without the cut minus stored)")
     echo(line("all", sm["all"]))
+    echo(line("all, rebuilt to 3dp only", sm["all_reproduced"]))
     for name, _, _ in BUCKETS:
         echo(line(f"list-length diff {name}", sm["by_diff"][name]))
     pe = sm["positive_edge"]

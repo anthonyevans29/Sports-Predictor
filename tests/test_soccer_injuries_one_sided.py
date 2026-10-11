@@ -219,3 +219,51 @@ def test_the_receipts_fallback_connection_refuses_a_write(tmp_path):
         assert c.execute(text("SELECT COUNT(*) FROM predictions")).scalar() == 0
         with pytest.raises(Exception, match="readonly|read-only|query_only"):
             c.execute(text("INSERT INTO predictions VALUES (1)"))
+
+
+def test_codex_rho_is_read_as_of_the_prediction_and_only_from_the_soccer_model_row():
+    """Codex on #435: (1) ModelVersion.version is unique only with sport and family, so the lookup is scoped to
+    soccer / soccer_elo_poisson; (2) set-soccer-config edits rho in place, so an earlier prediction reads the value
+    before every later audited edit."""
+    import scripts.soccer_injury_factor_receipt as rc
+    params = {"poisson": {"dixon_coles_rho": -0.10, "max_goals": 10},
+              "manual_config_edits": [{"ts": "2091-09-01T00:00:00", "field": "poisson.dixon_coles_rho",
+                                       "from": "(default)", "to": -0.05},
+                                      {"ts": "2091-09-20T00:00:00", "field": "poisson.dixon_coles_rho",
+                                       "from": -0.05, "to": -0.10}]}
+    assert rc.poisson_as_of(params, datetime(2091, 10, 1)) == (-0.10, 10)
+    assert rc.poisson_as_of(params, datetime(2091, 9, 10)) == (-0.05, 10)
+    assert rc.poisson_as_of(params, datetime(2091, 8, 1)) == (0.0, 10)                 # before both: the default
+    init_db()
+    with session_scope() as s:
+        s.add(ModelVersion(sport=Sport.MLB, model_family="mlb_poisson", version="v-shared", status="production",
+                           parameters={}))
+        s.add(ModelVersion(sport=Sport.SOCCER, model_family="soccer_elo_poisson", version="v-shared",
+                           status="retired", parameters={"poisson": {"dixon_coles_rho": -0.10, "max_goals": 10}}))
+        comp = Competition(sport=Sport.SOCCER, code="RSV", name="Shared Version League", area="X", type="LEAGUE")
+        s.add(comp)
+        h, a = Team(sport=Sport.SOCCER, name="RSV H"), Team(sport=Sport.SOCCER, name="RSV A")
+        s.add_all([h, a])
+        s.flush()
+        m = Match(sport=Sport.SOCCER, competition_id=comp.id, season="2091/92", utc_date=datetime(2091, 10, 1, 15),
+                  status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=a.id, home_score=1, away_score=1)
+        s.add(m)
+        s.flush()
+        p = rc.one_x_two(1.3, 1.1, -0.10, 10)
+        pr = Prediction(match_id=m.id, model_version="v-shared", home_win_prob=p["HOME"], draw_prob=p["DRAW"],
+                        away_win_prob=p["AWAY"], expected_home_score=1.3, expected_away_score=1.1,
+                        computed_at=datetime(2091, 9, 30), factor_breakdown={"home_injuries_count": 2,
+                                                                             "away_injuries_count": 2})
+        s.add(pr)
+        s.flush()
+        s.add(PredictionOutcome(prediction_id=pr.id))
+    with session_scope() as s:
+        (x,), _ = rc.rows(s, "RSV")
+    assert x["model_params_found"] and x["reproduces"]                                 # the soccer row's rho -0.10
+
+
+def test_base_v11_holds_the_one_sided_rule_off():
+    with dp.base_v11():
+        (d,), doc = desk(row_9226(8, 0))
+    assert d["call"] == "LADDER" and doc["desk_meta"]["injuries_one_sided_rule"] is False
+    assert dp.INJURIES_ONE_SIDED_RULE["on"] is True

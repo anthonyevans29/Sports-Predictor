@@ -223,6 +223,9 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
             _ksnaps = list(s.execute(select(OddsSnapshot).where(
                 OddsSnapshot.match_id == m.id,
                 OddsSnapshot.source == "kalshi")).scalars())
+            # addendum 37 item 3: legs of two events are never a pair; nothing is computed from them
+            from src.walters.kalshi_legs import guard_snaps, status_block
+            _ksnaps, _kmm = guard_snaps(_ksnaps, s)
             kal = kalshi_home_prob(_ksnaps, m.utc_date)
             gap_pp, venue_flag = venue_gap(_fair.get("HOME"),
                                            kal["home"] if kal else None)
@@ -277,7 +280,9 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                 "input_quality": {
                     "book_odds": (market or {}).get("bookmaker_count", 0),
                     "injuries": inj,
+                    **({"kalshi": "mismatched"} if _kmm else {}),
                 },
+                **({"kalshi": status_block(_kmm)} if _kmm else {}),
             })
         # U2 drift receipt (architect 2026-09-27): games that finished after
         # the earliest exported prediction was written.

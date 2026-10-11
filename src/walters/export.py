@@ -205,6 +205,13 @@ def _collect_rows(
             per_match = kalshi_by_match.setdefault(snap.match_id, {})
             if snap.selection not in per_match:
                 per_match[snap.selection] = snap
+        # LEGS OF TWO EVENTS ARE NEVER A PAIR (ARCHITECT 2026-10-10, addendum 37 item 3): a game whose current legs
+        # name two events, or whose event's legs sit on another game, is read as mismatched: its legs are dropped
+        # here, so nothing is computed from them, and the row names the events.
+        from src.walters import kalshi_legs as _kl
+        kalshi_mismatch = _kl.mismatched(s, match_ids)
+        for _mid in kalshi_mismatch:
+            kalshi_by_match.pop(_mid, None)
 
         # MLB pitcher participants + ERA join
         pitchers_by_match: dict[int, list[MatchParticipant]] = {}
@@ -268,6 +275,7 @@ def _collect_rows(
                 injuries_by_team=injuries_by_team,
                 unused_context=unused_context_by_match.get(m.id),
                 sport=sport,
+                kalshi_mismatch=kalshi_mismatch.get(m.id),
             )
             out.append(row)
     return out
@@ -304,8 +312,10 @@ def _build_row(
     injuries_by_team: dict,
     unused_context: dict | None = None,
     sport: Sport,
+    kalshi_mismatch: list[str] | None = None,
 ) -> dict:
-    """Build one match's export dict."""
+    """Build one match's export dict. `kalshi_mismatch` = the events of a game whose Kalshi legs are mismatched
+    (addendum 37 item 3; its legs are not passed): market.kalshi says so and nothing is computed from them."""
     is_baseball = sport == Sport.MLB
 
     row: dict[str, Any] = {
@@ -451,6 +461,11 @@ def _build_row(
     # book/Kalshi disagreement per game instead of a single blended number.
     row["market"] = _summarize_market(pred, odds, kalshi=kalshi, three_way=(sport == Sport.SOCCER),
                                       before=m.utc_date)
+    if kalshi_mismatch:
+        from src.walters.kalshi_legs import status_block
+        if row["market"] is None:
+            row["market"] = {}
+        row["market"]["kalshi"] = status_block(kalshi_mismatch)
     # K-track (additive, architect 2026-09-30): the HOME contract's Kalshi
     # quotes + fee-adjusted executable cost, as the NFL and fixtures exports
     # carry since K1, so the Desk's exec-edge / join-bid columns work for MLB
@@ -557,7 +572,8 @@ def _build_row(
             },
             "missing_starter_shrink": fb.get("missing_starter_shrink"),
             "book_odds": mkt.get("bookmaker_count") or 0,
-            "kalshi": ("two_sided" if kal.get("normalized")
+            "kalshi": ("mismatched" if kal.get("status") == "mismatched"      # addendum 37 item 3
+                       else "two_sided" if kal.get("normalized")
                        else "one_sided" if kal else "absent"),
         }
     else:
@@ -582,7 +598,9 @@ def _build_row(
         fb_iq = (pred.factor_breakdown or {}) if pred is not None else {}
         mkt_iq = row.get("market") or {}
         kal_iq = mkt_iq.get("kalshi") or {}
-        if kal_iq:
+        if kal_iq.get("status") == "mismatched":       # addendum 37 item 3
+            kal_status = "mismatched"
+        elif kal_iq:
             kal_status = "three_way" if kal_iq.get("normalized") else "partial"
         else:
             kal_status = "absent"
@@ -590,6 +608,11 @@ def _build_row(
         src_a = fb_iq.get("away_strengths_source")
         row["input_quality"] = {
             "strengths_source": {"home": src_h, "away": src_a},
+            # addendum 36 item 2 (ARCHITECT 2026-10-10): where each side's rating came from, "model" (the
+            # production table) or "default" (not in it). null = a prediction written before the label existed
+            # (unknown; the next predict run labels it).
+            "rating_source": {"home": fb_iq.get("home_rating_source"),
+                              "away": fb_iq.get("away_rating_source")},
             "strengths_backfilled": fb_iq.get("strengths_backfilled"),
             "current_season_matches": fb_iq.get("current_season_matches"),
             # Season-long cohort flag (survives graduation off the prior;
@@ -798,7 +821,8 @@ def _to_csv(rows: list[dict], sport: Sport) -> str:
             "away_pitcher_name", "away_pitcher_era",
         ])
     else:
-        columns.extend(["home_injuries", "away_injuries"])
+        # addendum 36 item 2: each side's rating source (model | default; empty = unlabelled) (Codex on #411)
+        columns.extend(["home_injuries", "away_injuries", "home_rating_source", "away_rating_source"])
 
     writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
@@ -868,6 +892,9 @@ def _to_csv(rows: list[dict], sport: Sport) -> str:
             inj = row.get("injuries") or {}
             flat["home_injuries"] = inj.get("home_count")
             flat["away_injuries"] = inj.get("away_count")
+            rs = (row.get("input_quality") or {}).get("rating_source") or {}
+            flat["home_rating_source"] = rs.get("home")
+            flat["away_rating_source"] = rs.get("away")
 
         writer.writerow(flat)
 
@@ -1135,17 +1162,24 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
         if snap.captured_at is not None and snap.captured_at >= m.utc_date:
             continue
         kal.setdefault(snap.selection, snap)
+    # addendum 37 item 3: mismatched legs are never read as a set; nothing is computed from them
+    from src.walters import kalshi_legs as _kl
+    _mm = _kl.mismatched(s, [m.id]).get(m.id)
+    if _mm:
+        kal = {}
     # CORRECTION #117 (architect 2026-09-30): a soccer market is complete only
     # with HOME, DRAW and AWAY. A soccer fixture missing a leg (usually the TIE)
     # is "partial" (the predictions export's soccer word): never "two_sided",
     # so no exec fields and no two-way normalization downstream.
     _soccer = str(getattr(m.sport, "value", m.sport)).lower() == "soccer"
     _legs = {"HOME", "DRAW", "AWAY"} if _soccer else {"HOME", "AWAY"}
-    kal_status = ("two_sided" if _legs <= set(kal)
+    kal_status = ("mismatched" if _mm else "two_sided" if _legs <= set(kal)
                   else ("partial" if _soccer else "one_sided") if kal else "absent")
     counts[f"kalshi_{kal_status}"] += 1
     kalshi = None
-    if kal:
+    if _mm:
+        kalshi = _kl.status_block(_mm)
+    elif kal:
         kalshi = {"status": kal_status,
                   "prob": {k: round(v.devig_prob, 4) for k, v in kal.items()},
                   "captured_at": max(v.captured_at for v in kal.values()).isoformat()}
@@ -1225,7 +1259,8 @@ def export_fixtures(
     counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0, "close_unpriced": 0,
               "duplicates_suppressed": 0, "stale_orphans_excluded": 0,
               "kalshi_two_sided": 0,
-              "kalshi_one_sided": 0, "kalshi_partial": 0, "kalshi_absent": 0}
+              "kalshi_one_sided": 0, "kalshi_partial": 0, "kalshi_absent": 0,
+              "kalshi_mismatched": 0}
     with _scope() as s:
         comp = s.execute(_select(_Comp).where(
             _Comp.code == competition_code)).scalars().first()

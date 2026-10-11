@@ -111,8 +111,12 @@ def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:
     if m.utc_date is None or not (m.utc_date - timedelta(hours=LINE_MOVE_WINDOW_H) <= now < m.utc_date):
         return None
     from src.db.database import attach_source_times
-    # the book venue's source times through the guarded reader (addendum 35 item 2); None before the migration
+    from src.walters.kalshi_legs import guard_snaps
+    # addendum 38 item 2: attach_source_times first (addendum 35 item 2: the book venue's source times through
+    # the guarded reader; None before the migration), then guard_snaps on its result (addendum 37 item 3: no
+    # line move from mismatched Kalshi legs)
     snaps = attach_source_times(s, s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars())
+    snaps, _ = guard_snaps(snaps, s)
     return line_move(snaps, m.utc_date, now, three_way=_is_soccer(m))
 
 

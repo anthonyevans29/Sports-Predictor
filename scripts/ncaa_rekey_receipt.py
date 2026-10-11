@@ -64,6 +64,10 @@ REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO / "deploy" / "hosting"))
 import sp_common as c  # noqa: E402
 
+sys.path.insert(0, str(REPO))
+# ONE definition, shared with the sync's NCAA placeholder re-key (ARCHITECT 2026-10-09, addendum 30 item 3)
+from src.ingestion.placeholder import is_placeholder_kickoff, placeholder_resolved  # noqa: E402,F401
+
 WINDOW_H = 12
 BASE = "https://v1.american-football.api-sports.io"
 
@@ -229,19 +233,6 @@ def max_rowid(con, t) -> int | None:
     except sqlite3.OperationalError:
         return None
     return 0 if v is None else v
-
-
-def is_placeholder_kickoff(dt) -> bool:
-    """The provider's TBD kickoff (ARCHITECT 2026-10-05): 04:00:00Z (midnight US Eastern)."""
-    return dt is not None and (dt.hour, dt.minute, dt.second) == (4, 0, 0)
-
-
-def placeholder_resolved(pre, post) -> bool:
-    """A placeholder 04:00Z kickoff that became a REAL kickoff within 24h (ruled accounted, 2026-10-05);
-    a move onto another placeholder time is a date change, never accounted (#279 review)."""
-    if pre is None or post is None or pre == post:
-        return False
-    return is_placeholder_kickoff(pre) and not is_placeholder_kickoff(post) and abs(post - pre) <= timedelta(hours=24)
 
 
 def twin_group(rows_of_pair, start) -> list:

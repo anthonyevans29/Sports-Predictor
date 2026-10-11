@@ -643,12 +643,15 @@ def _match_ids_opt(value: str | None) -> set[int] | None:
 @click.option("--competition", "competition_code", required=True)
 @click.option("--season", default=None)
 @click.option("--limit", default=20, show_default=True, type=int,
-              help="Max matches to fetch odds for (soccer). Ignored for MLB (daily-grouped pulls).")
+              help="Max matches to fetch odds for (soccer): the next N by kickoff, then id. Does not apply "
+                   "with --match-ids. Ignored for MLB (daily-grouped pulls).")
 @click.option("--days-ahead", default=7, show_default=True, type=int,
               help="For MLB: how many days of upcoming games to fetch odds for.")
 @click.option("--match-ids", "match_ids", default=None,
               help="Soccer: price only these stored match ids, comma-separated (the closing run's games, "
-                   "ARCHITECT 2026-10-09 addendum 21 item 3 C3). Default: unchanged. Not for MLB.")
+                   "ARCHITECT 2026-10-09 addendum 21 item 3 C3). Every named game is priced, in kickoff order; "
+                   "--limit does not apply (addendum 33 item 2; until #402 the limit, default 20, cut a named "
+                   "list). Default: unchanged. Not for MLB.")
 def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ahead: int,
                   match_ids: str | None):
     """
@@ -5685,6 +5688,11 @@ def kalshi_disagreement_cmd(since):
             if prev is None or sn.captured_at > prev.captured_at:
                 kalshi_latest[key] = sn
             match_ids.add(sn.match_id)
+        # addendum 37 item 3: a game whose Kalshi legs are mismatched is never paired
+        from src.walters.kalshi_legs import mismatched as _kmismatched
+        _kmm = _kmismatched(s, match_ids)
+        kalshi_latest = {k: v for k, v in kalshi_latest.items() if k[0] not in _kmm}
+        match_ids -= set(_kmm)
 
         # Book de-vig fair prob per (match, selection) from the Odds table
         # (best price per side, proportional de-vig — mirrors the export).
@@ -8338,7 +8346,7 @@ def export_fixtures_cmd(competition_code, start, end, desk):
           f"spread-derived fair {rc['with_spread_derived']} · "
           f"kalshi two-sided {rc['kalshi_two_sided']} / one-sided "
           f"{rc['kalshi_one_sided']} / partial (soccer, a leg missing) {rc['kalshi_partial']} / "
-          f"absent {rc['kalshi_absent']}")
+          f"absent {rc['kalshi_absent']} / mismatched (addendum 37) {rc.get('kalshi_mismatched', 0)}")
     if rc.get("duplicates_suppressed") or rc.get("stale_orphans_excluded"):
         print(f"  duplicate rows suppressed {rc.get('duplicates_suppressed', 0)} · stale orphans excluded "
               f"{rc.get('stale_orphans_excluded', 0)} (dedupe-matches --orphans)")
@@ -8374,7 +8382,7 @@ def window_card_cmd(hours: int, t90: int):
     print(f"  window {card['window']['from']} -> {card['window']['to']}: games {card['count']}{comps} · "
           f"with model {r['with_model']} · with book consensus {r['with_books']} · kalshi "
           f"two-sided {r['kalshi_two_sided']} / one-sided {r['kalshi_one_sided']} / partial "
-          f"{r.get('kalshi_partial', 0)} / absent {r['kalshi_absent']} · STALE-BOOK? {r['stale_flags']} · quarantined "
+          f"{r.get('kalshi_partial', 0)} / absent {r['kalshi_absent']} / mismatched {r.get('kalshi_mismatched', 0)} · STALE-BOOK? {r['stale_flags']} · quarantined "
           f"{r['quarantined']} · inside T-{t90}: {len(card['t90_signatures'])}", flush=True)
 
 

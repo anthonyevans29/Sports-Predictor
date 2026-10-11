@@ -717,6 +717,15 @@ def _generate_predictions_soccer(
                 poisson_cfg.promoted_defense_prior,
                 ", ".join(sorted(_names)))
 
+        # RATING SOURCE (ARCHITECT 2026-10-10, addendum 36 item 2): "Every soccer prediction says, for each side,
+        # where its rating came from: the model's table, or the default because the team is not in the table. It
+        # is recorded per side as model or default, in the prediction's factor_breakdown and in the export's
+        # input_quality. [...] No probability changes." The table is the production row's league ratings, keyed
+        # by the team ids of the database that trained it; EloState.get answers the starting rating for an id it
+        # does not hold (src/models/elo.py), so "default" is exactly "not in elo_league.ratings".
+        def _rating_source(team_id: int) -> str:
+            return "model" if team_id in elo_league.ratings else "default"
+
         skipped_no_strengths: dict[str, int] = {}
         for m in upcoming:
             home_elo = _effective_elo(m.home_team_id)
@@ -871,6 +880,8 @@ def _generate_predictions_soccer(
                     # rating; otherwise EloState.get fell back to the default.
                     "home_in_pot": m.home_team_id in elo_league.ratings,
                     "away_in_pot": m.away_team_id in elo_league.ratings,
+                    "home_rating_source": _rating_source(m.home_team_id),
+                    "away_rating_source": _rating_source(m.away_team_id),
                     "home_league_elo": round(elo_league.get(m.home_team_id), 1),
                     "away_league_elo": round(elo_league.get(m.away_team_id), 1),
                     "home_cup_elo": round(elo_cup.get(m.home_team_id), 1),
@@ -936,6 +947,9 @@ def _generate_predictions_soccer(
                 factor_breakdown={
                     "home_elo": round(home_elo, 1),
                     "away_elo": round(away_elo, 1),
+                    # addendum 36 item 2: "model" (in the production table) or "default" (not in it)
+                    "home_rating_source": _rating_source(m.home_team_id),
+                    "away_rating_source": _rating_source(m.away_team_id),
                     "home_strengths_source": ("promoted_default"
                         if m.home_team_id in promoted_default_ids else "matches"),
                     "away_strengths_source": ("promoted_default"

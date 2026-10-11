@@ -75,7 +75,8 @@ def snapshot(card: dict) -> dict:
             "home": r.get("home_short") or r.get("home_team"), "away": r.get("away_short") or r.get("away_team"),
             "sport": r.get("sport"), "competition": r.get("competition"),
             "utc_date": r.get("utc_date"), "status": r.get("status"),
-            "priced": bool(r.get("market") or r.get("kalshi")),
+            # addendum 37 item 3: a mismatched Kalshi block carries no price, so it never makes a row priced
+            "priced": bool(r.get("market") or (r.get("kalshi") and r["kalshi"].get("status") != "mismatched")),
             "tier": r.get("tier"), "quarantine": bool(r.get("quarantine")),
             "venue_flag": r.get("venue_flag"), "edge_pp": r.get("edge_pp"),
             "engine": r.get("engine"),

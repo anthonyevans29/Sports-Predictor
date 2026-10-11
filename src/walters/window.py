@@ -87,6 +87,8 @@ def canonical_models(export_dir: str | os.PathLike) -> dict[int, dict]:
                    # the export field OR the row's Desk quarantine shadow (MLB >8pp, Codex on #328)
                    "quarantine": True if desk_quarantined(dk) else r.get("quarantine"),
                    "market_divergence_pp": r.get("market_divergence_pp"),
+                   # addendum 36 item 2: soccer rows carry rating_source (home/away: model | default); else None
+                   "rating_source": (r.get("input_quality") or {}).get("rating_source"),
                    "source_file": f.name, "exported_at": stamp,
                    # F1: the Desk's call when the export carries it (--desk); else None
                    "desk": ({k: dk.get(k) for k in ("call", "units", "pass_kind", "reference",
@@ -123,6 +125,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     from src.walters.provenance import git_sha as _git_sha
     from src.walters.line_move import _is_soccer, line_move_for_match
     from src.walters.venue import kalshi_home_prob, venue_gap
+    from src.walters.kalshi_legs import guard_snaps
     from src.ingestion.mlb_apisports import time_unconfirmed
     from src.db.schema import Injury
     from src.walters.qb_audit import is_qb
@@ -133,7 +136,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     labels: Counter = Counter()
     counts = {"fixtures": 0, "with_books": 0, "with_spread_derived": 0, "close_unpriced": 0,
               "kalshi_two_sided": 0, "kalshi_one_sided": 0, "kalshi_partial": 0,
-              "kalshi_absent": 0}
+              "kalshi_absent": 0, "kalshi_mismatched": 0}
     rows = []
     with session_scope() as s:
         q = (select(Match).where(Match.utc_date >= now, Match.utc_date < hi,
@@ -146,6 +149,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
             fair = ((row.get("market") or {}).get("fair_prob") or {})
             snaps = list(s.execute(select(OddsSnapshot).where(
                 OddsSnapshot.match_id == m.id, OddsSnapshot.source == "kalshi")).scalars())
+            snaps, _ = guard_snaps(snaps, s)       # addendum 37 item 3: mismatched legs are never read
             kal = kalshi_home_prob(snaps, m.utc_date, three_way=_is_soccer(m))   # #117
             gap_pp, flag = venue_gap(fair.get("HOME"), kal["home"] if kal else None)
             # LINE-MOVE ALARM (ruling 2026-09-29): >= 6pp on either venue inside

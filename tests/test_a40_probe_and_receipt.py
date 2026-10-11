@@ -112,3 +112,38 @@ def test_a_copy_that_refuses_mode_ro_opens_query_only_and_a_write_fails(tmp_path
     with pytest.raises(sqlite3.OperationalError, match="readonly"):
         c.execute(f"INSERT INTO {table} VALUES (1)")
     c.close()
+
+
+def test_codex_provider_errors_limit_lines_and_whole_objects(world):
+    """Codex on #436: an errors envelope is a failed read (never "not in the feed"); a player left out by --limit
+    has its own console line; a player object is printed whole."""
+    con, _ = pp.open_read(_db())
+    items = pp.unresolved(con, "A40", competition="A40NFL")
+    con.close()
+    out = []
+    res = pp.probe(items, "KEY", fetch=lambda path, params: {"errors": {"requests": "limit reached"}, "response": []},
+                   echo=out.append)
+    v = {r["player_name"]: r["verdict"] for r in res["results"]}
+    assert v["Skylar Thompson"] == v["Gone Player"] == "provider error (/injuries)"
+    big = {"id": 11, "name": "Skylar Thompson", "position": "QB", "notes": "x" * 600}
+
+    def fetch(path, params):
+        if path == "injuries":
+            return {"response": [{"player": {"id": 11, "name": "Skylar Thompson"}},
+                                 {"player": {"id": 12, "name": "Gone Player"}}]}
+        return {"results": 1, "response": [big]}
+    out = []
+    res = pp.probe(items, "KEY", limit=1, fetch=fetch, echo=out.append)
+    assert any(o.strip() == json.dumps(big, sort_keys=True) for o in out)                # never cut
+    assert any(o.endswith("not asked (--limit 1)") for o in out)
+
+
+def test_codex_out_never_aliases_the_database_or_its_sidecars(tmp_path):
+    db = tmp_path / "live.db"
+    db.write_bytes(b"x")
+    hard = tmp_path / "hard.jsonl"
+    os.link(db, hard)
+    for bad in (db, Path(str(db) + "-wal"), hard, pp.ROOT / "data" / "p.jsonl"):
+        assert pp.out_refusal(str(bad), db), bad
+    assert pp.out_refusal(str(tmp_path / "probe.jsonl"), db) is None
+    assert pp.main(["--db", str(db), "--out", str(Path(str(db) + "-shm"))]) == 2 and db.read_bytes() == b"x"

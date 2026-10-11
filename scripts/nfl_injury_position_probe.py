@@ -93,6 +93,31 @@ def unresolved(con, team_filter: str | None = None, competition: str = "NFL") ->
     return out
 
 
+def out_refusal(out: str, db: Path) -> str | None:
+    """--out never touches storage (Codex on #436): not under data/, not the database, not one of its -wal / -shm /
+    -journal sidecars, and not a hard link or symlink to any of them (compared by resolved path and file identity)."""
+    tgt = Path(out).resolve()
+    data = (ROOT / "data").resolve()
+    if tgt == data or data in tgt.parents:
+        return f"REFUSED: --out {out} is under data/ (law 5)"
+    dbs = [Path(str(db.resolve()) + x) for x in ("", "-wal", "-shm", "-journal")]
+
+    def same(a, b) -> bool:
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            return False
+    if tgt in dbs or (tgt.exists() and any(x.exists() and same(tgt, x) for x in dbs)):
+        return f"REFUSED: --out {out} is the database (or its sidecar) {db}: the probe is read-only"
+    return None
+
+
+def provider_errors(ans: dict):
+    """The api-sports envelope's own errors (an HTTP-200 answer can carry them): a failed read, never evidence."""
+    errs = (ans or {}).get("errors")
+    return errs if errs and (errs if isinstance(errs, list) else list(errs.values())) else None
+
+
 def get_json(path: str, params: dict, key: str, fetch=None) -> dict:
     """GET only. `fetch(path, params) -> dict` is injectable (tests)."""
     if fetch is not None:
@@ -117,6 +142,12 @@ def probe(items: list[dict], key: str, limit: int | None = None, fetch=None, ech
             continue
         feed = get_json("injuries", {"team": sid}, key, fetch)
         calls += 1
+        ferr = provider_errors(feed)
+        if ferr:                          # Codex on #436: a provider error is a failed read, not "not in the feed"
+            echo(f"  /injuries answered errors {ferr}: a failed read; no name of this team is judged")
+            for x in xs:
+                results.append({**x, "verdict": "provider error (/injuries)", "errors": ferr})
+            continue
         ids: dict = {}
         for it in feed.get("response") or []:
             pl = it.get("player") or {}
@@ -130,6 +161,7 @@ def probe(items: list[dict], key: str, limit: int | None = None, fetch=None, ech
                 continue
             if limit is not None and asked >= limit:
                 results.append({**x, "feed_player": pl, "verdict": "not asked (--limit)"})
+                echo(f"  {x['player_name']} (player id {pl['id']}): not asked (--limit {limit})")
                 continue
             ans = get_json("players", {"id": pl["id"]}, key, fetch)
             calls += 1
@@ -137,14 +169,15 @@ def probe(items: list[dict], key: str, limit: int | None = None, fetch=None, ech
             resp = ans.get("response") or []
             objs = [r.get("player") if isinstance(r.get("player"), dict) else r for r in resp]
             pos = [(o.get("position"), o.get("group")) for o in objs]
-            verdict = ("answers a position" if any(p for p, _ in pos) else
+            verdict = ("provider error (/players)" if provider_errors(ans) else
+                       "answers a position" if any(p for p, _ in pos) else
                        "answers a group only" if any(g for _, g in pos) else
                        "answers no position" if objs else "answers nothing")
             results.append({**x, "feed_player": pl, "players_answer": ans, "verdict": verdict})
             echo(f"  {x['player_name']} (player id {pl['id']}): {verdict} · results {ans.get('results', len(resp))}"
                  + (f" · errors {ans.get('errors')}" if ans.get("errors") else ""))
             for o in objs:
-                echo("      " + json.dumps(o, sort_keys=True, default=str)[:400])
+                echo("      " + json.dumps(o, sort_keys=True, default=str))          # every field, never cut
     counts: dict = {}
     for r in results:
         counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
@@ -158,7 +191,11 @@ def main(argv=None) -> int:
     ap.add_argument("--out", help="append one JSON line per player here")
     ap.add_argument("--db")
     a = ap.parse_args(argv)
-    con, form = open_read(db_path(a.db))
+    dbp = db_path(a.db)
+    if a.out and (why := out_refusal(a.out, dbp)):
+        print(why)
+        return 2
+    con, form = open_read(dbp)
     try:
         items = unresolved(con, a.team)
     finally:

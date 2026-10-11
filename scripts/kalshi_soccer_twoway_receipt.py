@@ -49,6 +49,8 @@ def receipt(start: datetime, end: datetime, competition: str | None) -> dict:
             n_soccer += 1
             snaps = list(s.execute(select(OddsSnapshot).where(
                 OddsSnapshot.match_id == m.id, OddsSnapshot.source == "kalshi")).scalars())
+            from src.walters.kalshi_legs import guard_snaps   # addendum 37 item 3
+            snaps, _ = guard_snaps(snaps, s)
             if not snaps:
                 continue
             n_kal += 1

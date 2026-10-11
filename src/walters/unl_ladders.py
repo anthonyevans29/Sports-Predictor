@@ -204,8 +204,13 @@ def receipt(s, competition: str = "UNL", since: datetime = FREEZE_CUTOFF, n: int
     rows = []
     for m in games:
         snaps = list(s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars())
+        from src.walters.kalshi_legs import guard_snaps
+        snaps, _mm = guard_snaps(snaps, s)     # addendum 37 item 3: mismatched legs are never a ladder
         tickers = database.read_kalshi_tickers(s, [x.id for x in snaps if x.source == "kalshi"])
-        rows.append(game_row(m, snaps, tickers, since))
+        row = game_row(m, snaps, tickers, since)
+        if _mm:
+            row.update(qualifies=False, reason=f"kalshi legs mismatched: {', '.join(_mm)}")
+        rows.append(row)
     sample = [r for r in rows if r["qualifies"]][:n]
     return {"competition": competition, "since": since, "n": n, "rows": rows,
             "sample": sample, "complete": len(sample) == n}

@@ -700,6 +700,14 @@ def _close_contract():
     return last_capture
 
 
+def _kalshi_mismatched(con: sqlite3.Connection, match_id) -> list | None:
+    """addendum 37 item 3 (ARCHITECT 2026-10-10): the one helper, src/walters/kalshi_legs.mismatched, on this
+    read-only connection: the events of a game whose Kalshi legs name two events or sit on another game."""
+    _close_contract()                                  # puts the repo root on sys.path
+    from src.walters.kalshi_legs import mismatched
+    return mismatched(con, [match_id]).get(match_id)
+
+
 def price_captures(con: sqlite3.Connection, match_id, start: datetime) -> dict:
     """{"books": datetime|None, "kalshi": datetime|None}: the capture times of the stored rows the export read."""
     fp = utc(start)
@@ -716,6 +724,8 @@ def price_captures(con: sqlite3.Connection, match_id, start: datetime) -> dict:
         t = parse_utc(cap)
         if t < fp and (sel not in latest or t > latest[sel]):
             latest[sel] = t
+    if _kalshi_mismatched(con, match_id):      # addendum 37 item 3: mismatched legs are never read
+        latest = {}
     return {"books": min((o.captured_at for o in sess), default=None),
             "kalshi": min(latest.values(), default=None), "kalshi_legs": latest}
 

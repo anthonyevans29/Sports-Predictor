@@ -1334,6 +1334,11 @@ def read_ledger_summary(path: str | None) -> tuple[dict, str]:
     return counts, f"ledger summary {os.path.basename(path)} generated {d.get('generated_at') or '?'}"
 
 
+def _kalshi_leg_guard_on() -> bool:
+    from src.walters.kalshi_legs import GUARD
+    return bool(GUARD["on"])
+
+
 def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = None,
              counts_source: str = "parameter") -> dict:
     """Attach `desk` to every row the Desk sees, plus `desk_meta`. In place;
@@ -1358,6 +1363,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "mlb_quarantine_above_pp": MLB_QUARANTINE["abovePP"] if MLB_QUARANTINE["on"] else None,
                         # Q3 (ARCHITECT 2026-10-08): MLB is never a call on a kalshi-only reference
                         "mlb_kalshi_only_suspended": KALSHI_ONLY_MLB_SUSPENDED["on"],
+                        # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
+                        "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
     return doc
 

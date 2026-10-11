@@ -5685,6 +5685,11 @@ def kalshi_disagreement_cmd(since):
             if prev is None or sn.captured_at > prev.captured_at:
                 kalshi_latest[key] = sn
             match_ids.add(sn.match_id)
+        # addendum 37 item 3: a game whose Kalshi legs are mismatched is never paired
+        from src.walters.kalshi_legs import mismatched as _kmismatched
+        _kmm = _kmismatched(s, match_ids)
+        kalshi_latest = {k: v for k, v in kalshi_latest.items() if k[0] not in _kmm}
+        match_ids -= set(_kmm)
 
         # Book de-vig fair prob per (match, selection) from the Odds table
         # (best price per side, proportional de-vig — mirrors the export).

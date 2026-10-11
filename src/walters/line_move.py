@@ -95,7 +95,9 @@ def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:
     now = now or datetime.now(timezone.utc).replace(tzinfo=None)   # naive UTC (the storage convention)
     if m.utc_date is None or not (m.utc_date - timedelta(hours=LINE_MOVE_WINDOW_H) <= now < m.utc_date):
         return None
-    snaps = s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars()
+    snaps = list(s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars())
+    from src.walters.kalshi_legs import guard_snaps
+    snaps, _ = guard_snaps(snaps, s)       # addendum 37 item 3: no line move from mismatched Kalshi legs
     return line_move(snaps, m.utc_date, now, three_way=_is_soccer(m))
 
 

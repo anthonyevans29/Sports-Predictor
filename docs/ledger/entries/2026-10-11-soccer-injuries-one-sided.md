@@ -1,0 +1,13 @@
+**2026-10-11 — FINDING (ARCHITECT 2026-10-11 12:31 ET, addendum 40 item 5; #425): a soccer team reads zero injuries until the provider posts its next fixture's list, and the model prices the difference.**
+- Match 9226, Newcastle at Coventry: the laptop's read on Friday 22:10Z held Coventry 8 names, Newcastle none; the host's on Saturday 09:30Z Newcastle 10; the provider on Sunday 7 for that fixture. No PL game was played 09-21 to 10-09, and the 14-day rule had dropped every entry of the 09-19 round, so a team read non-zero only where the provider had posted its next fixture's list.
+- The model takes 3% off a team's expected goals per listed name, 25% at most (no position stored: every name weighs the default). Newcastle 0.616 vs the books' 0.448, edge +16.8pp, a LADDER; with Newcastle's seven names 0.520; with ten 0.500; with no injury term on either side 0.556. The one-sided list moved the price by about ten points. The export's single pair stamp (`injuries_synced_at`) hid the empty side.
+- The factor is live only: no backtest reads injuries, and v22 passed its gate without it. BACKLOG met it 2026-09-12 and 2026-09-20. Nothing was executed on it.
+
+**2026-10-11 — RULING + BUILT (ARCHITECT 2026-10-11 12:31 ET, addendum 40 item 6; #430): A ONE-SIDED LIST GETS NO CALL, AND THE FACTOR IS MEASURED BEFORE ANYTHING ELSE IS SAID ABOUT IT.**
+- **Ruling (verbatim):**
+  > "A soccer row says, for each side, how many names are listed and when that team's list was last written. Where
+  > one side's list is empty and the other's is not, the row gets no Desk call and no value shadow: it is a PASS,
+  > and its reason names the team. desk_meta says the rule is on. No probability changes."
+- **Built:** `input_quality.injuries` {home, away: {count, synced_at}}; `pass_kind` `injuries_one_sided` among NO_CALL_KINDS, built as addendum 36's `default_rating`; `desk_meta.injuries_one_sided_rule`; both lists empty is not one-sided.
+- **The receipt:** `scripts/soccer_injury_factor_receipt.py`, read-only; the operator runs it on the laptop and the console goes on #430 / #425. No model change rides it: what it shows decides whether a candidate goes to the gate.
+- **Parity:** the golden battery's rows carry no injury counts; `desk_parity_verify.py` green and the golden holds with the switch on and off.

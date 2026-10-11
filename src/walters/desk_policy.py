@@ -127,10 +127,20 @@ KALSHI_ONLY_SUSPENDED_REASON = ("kalshi-only suspended for MLB: the model number
 DEFAULT_RATING_RULE = {"on": True}
 DEFAULT_RATING_KIND = "default_rating"
 DEFAULT_RATING_RULING = "default rating, ARCHITECT 2026-10-10"
+# A ONE-SIDED INJURY LIST GETS NO CALL (ARCHITECT 2026-10-11, addendum 40 item 6, RULED): "A soccer row says, for
+# each side, how many names are listed and when that team's list was last written. Where one side's list is empty
+# and the other's is not, the row gets no Desk call and no value shadow: it is a PASS, and its reason names the
+# team. desk_meta says the rule is on. No probability changes." Read from input_quality.injuries.<side>.count; both
+# empty is not one-sided (the model's number then carries no injury term, as the gated model's does). A row without
+# the counts (an older file, the frozen golden's rows) is unchanged. Built as addendum 36's default_rating is.
+INJURIES_ONE_SIDED_RULE = {"on": True}
+INJURIES_ONE_SIDED_KIND = "injuries_one_sided"
+INJURIES_ONE_SIDED_RULING = "one-sided injury list, ARCHITECT 2026-10-11"
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
                  "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
                  KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
-                 DEFAULT_RATING_KIND)               # + addendum 36 item 2 (2026-10-10)
+                 DEFAULT_RATING_KIND,               # + addendum 36 item 2 (2026-10-10)
+                 INJURIES_ONE_SIDED_KIND)           # + addendum 40 item 6 (2026-10-11)
 # VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
 # time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
 # unknown age is NO REFERENCE. [...] In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote
@@ -330,6 +340,8 @@ def normalize(doc: dict) -> list[dict]:
             "kExec": _kexec_of(p, always=True),     # #130: the pre-split alias is retired
             # addendum 36 item 2: {"home": "model"|"default"|None, "away": ...} or None (no label)
             "ratingSrc": (p.get("input_quality") or {}).get("rating_source"),
+            # addendum 40 item 6: {"home": {"count", "synced_at"}, "away": {...}} or None (an older row)
+            "injSides": (p.get("input_quality") or {}).get("injuries"),
             "tier": pr.get("tier") or None, "marketOnly": False})
     return out
 
@@ -526,6 +538,18 @@ def started_rule_off():
         yield
     finally:
         STARTED_RULE["on"] = was
+
+
+@contextmanager
+def injuries_one_sided_rule_off():
+    """The Desk without the one-sided injury list rule (addendum 40 item 6) — for comparing a file with and without
+    it."""
+    was = INJURIES_ONE_SIDED_RULE["on"]
+    INJURIES_ONE_SIDED_RULE["on"] = False
+    try:
+        yield
+    finally:
+        INJURIES_ONE_SIDED_RULE["on"] = was
 
 
 @contextmanager
@@ -785,6 +809,23 @@ def default_rated_teams(r) -> list[str]:
     return [name for side, name in (("home", r["home"]), ("away", r["away"])) if rs.get(side) == "default"]
 
 
+def one_sided_injuries(r) -> tuple[str, str, int] | None:
+    """addendum 40 item 6: (the team whose list is empty, the other team, its count) when exactly one side of a
+    soccer row lists no name and the other lists some; else None (rule off, another sport, no counts, both empty,
+    both listed)."""
+    inj = r.get("injSides")
+    if not INJURIES_ONE_SIDED_RULE["on"] or r["sport"] != "SOCCER" or not isinstance(inj, dict):
+        return None
+    n = {s: (inj.get(s) or {}).get("count") if isinstance(inj.get(s), dict) else None for s in ("home", "away")}
+    if not all(isinstance(v, int) for v in n.values()):
+        return None
+    name = {"home": r["home"], "away": r["away"]}
+    for empty, other in (("home", "away"), ("away", "home")):
+        if n[empty] == 0 and n[other] > 0:
+            return name[empty], name[other], n[other]
+    return None
+
+
 def kalshi_only_suspended(r) -> bool:
     """Q3 K1: the suspension covers MLB rows only (K4: NFL and PL keep the 2026-10-01 reference)."""
     return bool(KALSHI_ONLY_MLB_SUSPENDED["on"] and r["sport"] == "MLB")
@@ -818,6 +859,10 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
     if defaulted:
         return _no_call(r, DEFAULT_RATING_KIND, f"default rating: {' and '.join(defaulted)} not in the model's "
                                                 f"rating table → no call ({DEFAULT_RATING_RULING})")
+    one = one_sided_injuries(r)
+    if one:
+        return _no_call(r, INJURIES_ONE_SIDED_KIND, f"injury list one-sided: {one[0]} lists no name, {one[1]} lists "
+                                                    f"{one[2]} → no call ({INJURIES_ONE_SIDED_RULING})")
     if r["sport"] == "INTL":
         if r["comp"] not in INTL["callComps"]:
             return _no_call(r, "no_series", f"{r['comp'] or '?'}: no wired Kalshi series → prediction without a "
@@ -1402,6 +1447,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "mlb_kalshi_only_suspended": KALSHI_ONLY_MLB_SUSPENDED["on"],
                         # addendum 36 item 2 (2026-10-10): a default rating on either side is never a call
                         "default_rating_rule": DEFAULT_RATING_RULE["on"],
+                        # addendum 40 item 6 (2026-10-11): a one-sided soccer injury list is never a call
+                        "injuries_one_sided_rule": INJURIES_ONE_SIDED_RULE["on"],
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}

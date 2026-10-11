@@ -637,11 +637,21 @@ def _build_row(
                     default=None).isoformat()
                 if (home_inj or away_inj) else None
             ),
+            # ONE-SIDED INJURY LISTS (ARCHITECT 2026-10-11, addendum 40 item 6): "A soccer row says, for each side,
+            # how many names are listed and when that team's list was last written." synced_at null where the team
+            # has no row. injuries_synced_at above and the row's injuries block stay as they are.
+            "injuries": {"home": _injury_side(home_inj), "away": _injury_side(away_inj)},
             "book_odds": mkt_iq.get("bookmaker_count") or 0,
             "kalshi": kal_status,
         }
 
     return row
+
+
+def _injury_side(lst: list) -> dict:
+    """Addendum 40 item 6: one team's listed names and when its list was last written (null: no row)."""
+    stamp = max((i.refreshed_at for i in lst if i.refreshed_at is not None), default=None)
+    return {"count": len(lst), "synced_at": stamp.isoformat() if stamp else None}
 
 
 def _summarize_market(

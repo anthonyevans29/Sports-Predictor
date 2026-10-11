@@ -869,6 +869,8 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 `.backup` DB, `.env`, `exports/` and the receipts log.
 1. TERMINAL (laptop):
    - Uninstall the CLV jobs: `bash scripts/setup_clv_capture.sh --uninstall`.
+   - Uninstall the closing watch: `bash scripts/setup_closing_watch.sh --uninstall`; the step's receipt shows it
+     gone (#443 RULED, addendum 41 item 5; h2-cutover-runbook.md section 1 step 1).
    - Run no chains.
    - Run any pending `migrate_*.py` named in the merge notes (after that
      morning's backup), so the laptop DB is on current schema.
@@ -896,9 +898,12 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
    - **PL PREDICTION CHECK (ARCHITECT 2026-10-10, addendum 36 item 3; #410), before step 5 and before the
      writer flag flips in step 6:** "the host exports the PL predictions from the installed database, and the
      file equals the laptop's last file from that database, number for number." The commands and the PASS
-     rule are h2-cutover-runbook.md section 1 step 4 (the host's file in a fresh directory, the reference
-     copied from the pack's `exports/`, `compare_exports.py`, CLEAN on a reference with predictions). Not
-     PASS: stop before step 6; the flag stays `laptop`.
+     rule are h2-cutover-runbook.md section 1 step 4: the reference is written for the check on the laptop
+     immediately before the pack, with `--start` / `--end` (#422); the host's file goes to a fresh directory;
+     `compare_exports.py --ignore-keys desk,desk_meta,line_move,late_news_flag,exported_at --require-predictions` (#420,
+     #422; the timestamp mask off; `exported_at` confirmed, addendum 41 item 4); CLEAN with at least one row with a prediction and its probabilities on each side. Not PASS: the
+     cutover ends for that day, the host stays paused (timers stopped, flag `laptop`, nothing resumed or
+     restored) until the architect has read the check.
 5. Delete the pack on both machines (`rm -rf`). It holds a DB copy and
    `.env`. Only after the PL check (it reads the laptop's file that `install` copied from the pack).
 6. TERMINAL (host), in order:
@@ -919,7 +924,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 2. Host: `sp_migrate.py pack`.
 3. Transfer the pack to the laptop over the tailnet.
 4. Laptop: `verify`, then `install --replace`.
-5. Reinstall launchd.
+5. Reinstall launchd (the CLV jobs and the closing watch, addendum 41 item 5).
 
 ---
 

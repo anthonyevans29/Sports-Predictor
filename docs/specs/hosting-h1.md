@@ -893,8 +893,14 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
    - `--replace` moves the rehearsal DB aside as `data/rehearsal_<ts>.db`.
      Delete it after the receipts.
    - Any `✗` means: delete the pack and repeat from step 3.
+   - **PL PREDICTION CHECK (ARCHITECT 2026-10-10, addendum 36 item 3; #410), before step 5 and before the
+     writer flag flips in step 6:** "the host exports the PL predictions from the installed database, and the
+     file equals the laptop's last file from that database, number for number." The commands and the PASS
+     rule are h2-cutover-runbook.md section 1 step 4 (the host's file in a fresh directory, the reference
+     copied from the pack's `exports/`, `compare_exports.py`, CLEAN on a reference with predictions). Not
+     PASS: stop before step 6; the flag stays `laptop`.
 5. Delete the pack on both machines (`rm -rf`). It holds a DB copy and
-   `.env`.
+   `.env`. Only after the PL check (it reads the laptop's file that `install` copied from the pack).
 6. TERMINAL (host), in order:
    - Set `SP_WRITER_OF_RECORD=host` in host.env (ARCHITECT-RULE 2026-10-01; `sp_cutover.py flip`
      does it), then the same in the laptop's `.env`. `SP_PARALLEL_MODE` stays the quota mode.

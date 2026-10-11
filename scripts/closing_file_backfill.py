@@ -13,6 +13,10 @@ squash (2026-10-18 06:10Z) drops it: the script has to run before then."
   exports/closing_<FAMILY>_<start>.json through closing.closing_doc / closing_name, the rule the runs use.
 - The page time: the receipt's page.at (runs from this PR on), else its completed_at (the moment the steps finished,
   just before the page; the line says which).
+- THE FILE OF A SECOND PAGE (ARCHITECT 2026-10-11, addendum 41 item 3): "The backfill never overwrites a file; where
+  the receipts hold two pages for one start time it writes the later page's file and lists the earlier." The later
+  page is the one with the later page time; an earlier page of the same family and start is EARLIER: listed, nothing
+  written for it.
 - A receipt that already names its closing file (a run from this PR on) is skipped. A file of that name already on
   disk with the same bytes is UNCHANGED; with other bytes it is KEPT and listed, never overwritten.
 - The rows are the export's rows for the receipt's Desk rows, in the export's order; the receipt's called-off games are
@@ -124,6 +128,34 @@ def rebuild(r: dict, blobs: dict, exports: Path, dry_run: bool) -> dict:
     return {**res, "status": "WRITTEN"}
 
 
+def later_pages(recs: list[dict]) -> dict:
+    """{(family, start UTC): the receipt of the latest page} (addendum 41 item 3). Ties: the later receipt line."""
+    best: dict = {}
+    for i, r in enumerate(recs):
+        try:
+            key = (r.get("family"), mc.parse_utc(r.get("start")).timestamp())
+        except Exception:  # noqa: BLE001 - a start that does not parse is its own group
+            key = (r.get("family"), r.get("start"))
+        t = page_time(r)[0]
+        rank = (t if t is not None else float("-inf"), i)
+        if key not in best or rank >= best[key][0]:
+            best[key] = (rank, r)
+    return {k: v[1] for k, v in best.items()}
+
+
+def _same_start(a: dict, b: dict) -> bool:
+    try:
+        return mc.parse_utc(a.get("start")).timestamp() == mc.parse_utc(b.get("start")).timestamp()
+    except Exception:  # noqa: BLE001
+        return a.get("start") == b.get("start")
+
+
+def earlier(r: dict, later: dict) -> dict:
+    return {"run_id": r.get("run_id"), "family": r.get("family"), "start": r.get("start"), "status": "EARLIER",
+            "why": f"a later page for this start time (run {later.get('run_id')}) is its close: listed, nothing "
+                   "written for this one"}
+
+
 def line(x: dict) -> str:
     t = f"{x['status']:<11} {x['family']} {x['start']} · run {x['run_id']}"
     if x.get("file"):
@@ -150,7 +182,11 @@ def main(argv=None) -> int:
     blobs = mirror_blobs(clone)
     print(f"closing receipts whose page went out: {len(recs)} · mirror blobs (.json, every ref): {len(blobs)} · "
           f"the database is not opened" + (" · DRY RUN: nothing written" if a.dry_run else ""))
-    out = [rebuild(r, blobs, exports, a.dry_run) for r in recs]
+    last = list(later_pages(recs).values())
+    out = []
+    for r in recs:
+        lat = next(x for x in last if x.get("family") == r.get("family") and _same_start(x, r))
+        out.append(rebuild(r, blobs, exports, a.dry_run) if lat is r else earlier(r, lat))
     for x in out:
         print(line(x))
     counts: dict = {}

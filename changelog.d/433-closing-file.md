@@ -9,3 +9,4 @@
 - Codex round 2: the `--out` guard also refuses the database's -wal/-shm/-journal sidecars and hard links to them (file identity).
 - Codex round 4 (P1): the guard covers every database the process can mean: `DATABASE_URL`, config's `database_url` (the `./data/sports.db` default when the variable is unset) and the engine's own file.
 - Codex (after the cap): the backfill never writes a closing file missing a paged game; such a run is INCOMPLETE, listed, nothing written.
+- Addendum 41 item 3 (ARCHITECT 2026-10-11, THE FILE OF A SECOND PAGE): a start time paged a second time: the later page's file replaces the earlier, the earlier kept as `logs/<its run id>.<name>`, the later receipt names it (`closing_file.replaced`: file, sha256, run_id, kept_as); an earlier file that cannot be moved refuses the write (`closing_file_failed`) and stands. The backfill writes the later page's file and lists the earlier (`EARLIER`). This replaces Codex round 1's never-replace.

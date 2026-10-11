@@ -233,17 +233,42 @@ def test_the_backfill_rebuilds_each_paged_run_from_the_mirrors_history_by_sha256
     assert capsys.readouterr().out.splitlines()[-1] == 'CLOSING-BACKFILL {"NOT FOUND": 1, "UNCHANGED": 2, "runs": 3}'
 
 
-def test_codex_a_second_run_for_the_same_start_never_replaces_the_first_file(box):
-    """Codex on #433 (P2): a manual rerun of a closed start pages again, but its file write is refused (receipted
-    and notified); the first run's file and its sha256 stand."""
+def test_a41_3_a_second_page_replaces_the_file_and_the_earlier_is_kept_under_logs(box):
+    """ARCHITECT 2026-10-11, addendum 41 item 3: "Where a start time is paged a second time, the later page is its
+    close. Its file replaces the earlier one. The earlier file is kept under logs/, named with its run id as the run's
+    export is, and the later receipt names the file it replaced and its sha256." (Replaces Codex's never-replace.)"""
     assert mc.run("NFL", start=at(35), now=NOW) == 0
     f = _closing(box, "NFL")
     first = f.read_bytes()
+    run_a = runs()[-1]["run_id"]
+    box.docs["NFL"] = _set_call(nfl_doc(), 301)
+    assert mc.run("NFL", start=at(35), now=NOW + timedelta(minutes=1)) == 0
+    r = runs()[-1]
+    assert not r.get("closing_file_failed") and r["run_id"] != run_a
+    kept = box.repo / "logs" / f"{run_a}.{f.name}"
+    assert kept.read_bytes() == first                                                    # the earlier, kept
+    assert json.loads(f.read_text())["closing"]["run_id"] == r["run_id"]                # the later is the close
+    assert r["closing_file"]["sha256"] == hashlib.sha256(f.read_bytes()).hexdigest()
+    assert r["closing_file"]["replaced"] == {"file": f"exports/{f.name}", "sha256": hashlib.sha256(first).hexdigest(),
+                                             "run_id": run_a, "kept_as": f"logs/{kept.name}"}
+    assert len(call_pages(box)) == 2
+
+
+def test_a41_3_an_earlier_file_that_cannot_be_moved_stands_and_the_write_is_refused(box):
+    """"Where the earlier file cannot be moved, the write is refused and receipted as today (closing_file_failed) and
+    the earlier file stands." Here its kept name under logs/ is already taken: nothing is overwritten."""
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    f = _closing(box, "NFL")
+    first = f.read_bytes()
+    taken = box.repo / "logs" / f"{runs()[-1]['run_id']}.{f.name}"
+    taken.parent.mkdir(parents=True, exist_ok=True)
+    taken.write_text("someone else's")
     box.docs["NFL"] = _set_call(nfl_doc(), 301)
     assert mc.run("NFL", start=at(35), now=NOW + timedelta(minutes=1)) == 0
     r = runs()[-1]
     assert r["closing_file_failed"] is True and r["closing_file"]["error"].startswith("exists")
-    assert f.read_bytes() == first and runs()[-2]["closing_file"]["sha256"] == hashlib.sha256(first).hexdigest()
+    assert f.read_bytes() == first and taken.read_text() == "someone else's"
+    assert "replaced" not in r["closing_file"]
 
 
 @pytest.mark.parametrize("target", ["data/sports.db", "data/x/out.json"])
@@ -321,3 +346,27 @@ def test_codex_the_backfill_never_writes_a_page_record_missing_a_paged_game(tmp_
         builtins.print = real
     assert not ex.exists() or not any(ex.iterdir())
     assert any(x.startswith("INCOMPLETE") and "[999]" in x for x in out)
+
+
+def test_a41_3_the_backfill_writes_the_later_pages_file_and_lists_the_earlier(tmp_path, capsys):
+    """Addendum 41 item 3: "The backfill never overwrites a file; where the receipts hold two pages for one start time
+    it writes the later page's file and lists the earlier." """
+    import scripts.closing_file_backfill as bf
+    first = json.dumps(nfl_doc()).encode()
+    second = json.dumps(_set_call(nfl_doc(), 301, "PLAY")).encode()
+    m = _mirror(tmp_path, [{f"laptop/{DAY}/nfl_predictions_{DAY}.json": first},
+                           {f"laptop/{DAY}/nfl_predictions_{DAY}.json": second}])
+    sha = lambda b: hashlib.sha256(b).hexdigest()                     # noqa: E731
+    rec = tmp_path / "receipts.jsonl"
+    rec.write_text("\n".join(json.dumps(x) for x in [
+        _receipt("LATE", sha(second), [301], page={"phone": {"accepted": True}, "at": "2026-10-11T12:40:00Z"}),
+        _receipt("EARLY", sha(first), [301], start="2026-10-11T12:55:00.000Z",
+                 page={"phone": {"accepted": True}, "at": "2026-10-11T12:25:00Z"})]) + "\n")
+    ex = tmp_path / "exports"
+    assert bf.main(["--mirror", str(m), "--receipts", str(rec), "--exports", str(ex)]) == 0
+    out = capsys.readouterr().out.splitlines()
+    doc = json.loads((ex / "closing_NFL_2026-10-11T1255Z.json").read_text())
+    assert doc["closing"]["run_id"] == "LATE" and doc["predictions"][0]["desk"]["call"] == "PLAY"
+    assert [p.name for p in ex.iterdir()] == ["closing_NFL_2026-10-11T1255Z.json"]
+    assert any(x.startswith("EARLIER     NFL") and "run EARLY" in x and "run LATE" in x for x in out)
+    assert out[-1] == 'CLOSING-BACKFILL {"EARLIER": 1, "WRITTEN": 1, "runs": 2}'

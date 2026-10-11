@@ -46,6 +46,10 @@ time, the run id and the match ids. A run whose page did not go out writes no su
 replace or move the family's slate file." The export step writes logs/<run id>.<slate name> (--out {export_out}); the
 receipt records both files and their sha256 (export_written, closing_file); the page's time is page.at. last_calls
 reads slate files (export_glob) and receipts, as before: a closing file is never read as a slate file.
+Addendum 41 item 3 (THE FILE OF A SECOND PAGE): a start time paged a second time: the later page is its close, its
+file replaces the earlier one, the earlier is kept as logs/<its run id>.<name>, and the later receipt names it
+(closing_file.replaced: file, sha256, run_id, kept_as). An earlier file that cannot be moved: the write is refused
+(closing_file_failed) and the earlier stands.
 
 Refusals (receipted, exit 2), in order: R5 a backup folder under data/ (before anything else); SP_SKIP_FAMILIES
 naming the family (MLB: laptop only); M1 SP_EXPORTS_MIRROR_REMOTE unset; C6 NTFY_CARD_TOPIC unset; R4 a malformed
@@ -1236,26 +1240,57 @@ def closing_doc(doc: dict, fam: str, start: datetime, run_id: str, page_ids: lis
 
 
 def write_closing_file(doc: dict, name: str, mtime: float | None = None) -> dict:
-    """Write exports/<name> atomically (a temporary name beside it, then a rename). {file, sha256} or {error}."""
+    """Write exports/<name> atomically (a temporary name beside it, then a rename). {file, sha256[, replaced]} or
+    {file, error}.
+
+    THE FILE OF A SECOND PAGE (ARCHITECT 2026-10-11, addendum 41 item 3): "Where a start time is paged a second time,
+    the later page is its close. Its file replaces the earlier one. The earlier file is kept under logs/, named with
+    its run id as the run's export is, and the later receipt names the file it replaced and its sha256." "Where the
+    earlier file cannot be moved, the write is refused and receipted as today (closing_file_failed) and the earlier
+    file stands." The earlier file is kept by a hard link at logs/<its run id>.<name> made BEFORE the rename, so the
+    earlier bytes are never without a name; a kept name already taken, or an earlier file that names no run id, is a
+    refusal (nothing is overwritten)."""
+    rel = f"{CLOSING_FILE_DIR}/{name}"
     dest = c.REPO / CLOSING_FILE_DIR / name
     tmp = dest.with_name(f".{name}.tmp")
-    if dest.exists():                  # Codex on #433: one page never silently replaces another's file
-        return {"file": f"{CLOSING_FILE_DIR}/{name}",
-                "error": "exists: a closing file of this family and start is already written, not replaced"}
+    replaced, kept = None, None
     try:
         c.refuse_under_data(dest.parent)
+        if dest.exists() or dest.is_symlink():
+            try:
+                old_run = (json.loads(dest.read_text()).get("closing") or {}).get("run_id")
+            except (OSError, ValueError, AttributeError):
+                old_run = None
+            if not old_run or not re.fullmatch(r"[A-Za-z0-9_.:-]+", str(old_run)) or dest.is_symlink():
+                return {"file": rel, "error": "exists: the earlier closing file names no run id it can be kept "
+                                              "under; it cannot be moved and stands"}
+            kept = c.REPO / "logs" / f"{old_run}.{name}"
+            c.refuse_under_data(kept.parent)
+            if kept.exists() or kept.is_symlink():
+                return {"file": rel, "error": f"exists: logs/{kept.name} is already taken; the earlier closing "
+                                              "file cannot be moved and stands"}
+            replaced = {"file": rel, "sha256": _sha256(dest), "run_id": old_run, "kept_as": f"logs/{kept.name}"}
         dest.parent.mkdir(parents=True, exist_ok=True)
         tmp.write_text(json.dumps(doc, indent=2))
         if mtime is not None:
             os.utime(tmp, (mtime, mtime))
-        os.replace(tmp, dest)
-        return {"file": f"{CLOSING_FILE_DIR}/{name}", "sha256": _sha256(dest)}
+        if kept is not None:
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            os.link(dest, kept)               # refuses an existing name: the earlier file is never overwritten
+            try:
+                os.replace(tmp, dest)
+            except OSError:
+                kept.unlink()                 # the earlier file still stands at its own name
+                raise
+        else:
+            os.replace(tmp, dest)
+        return {"file": rel, "sha256": _sha256(dest), **({"replaced": replaced} if replaced else {})}
     except (OSError, SystemExit, TypeError, ValueError) as e:
         try:
             tmp.unlink()
         except OSError:
             pass
-        return {"file": f"{CLOSING_FILE_DIR}/{name}", "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
+        return {"file": rel, "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
 
 
 def resolve_steps(fam: str, start: datetime, covers: list[dict], run_start: datetime,
@@ -1620,6 +1655,10 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         print(f"✗ closing file NOT written: {cf['error']} — receipted and notified; the closing is not run again")
     else:
         print(f"· closing file: {cf['file']} ({len(rows)} row(s), sha256 {cf['sha256'][:12]})")
+        if cf.get("replaced"):
+            r = cf["replaced"]
+            print(f"· a second page for this start time: it replaced {r['file']} of run {r['run_id']} (sha256 "
+                  f"{r['sha256'][:12]}), kept as {r['kept_as']}")
     rec["push"] = push_mirror()
     print(f"· exports mirror (laptop, closing): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
     if rec["push"].get("exit") != 0:  # B1: receipted and notified; never a retry (the page went out)

@@ -71,3 +71,15 @@ def test_read_only_the_file_is_unchanged(tmp_path):
     before = p.read_bytes()
     assert rc.main(["--competition", "PL", "--season", "2026/27", "--db", str(p)]) == 0
     assert p.read_bytes() == before
+
+
+def test_a_match_side_id_without_a_team_row_stays_visible(tmp_path):
+    p = _db(tmp_path)
+    con = sqlite3.connect(p)
+    con.execute("INSERT INTO matches VALUES (9, 1, '2026/27', 10, 77)")       # 77: no team row
+    con.commit()
+    con.close()
+    con, _ = rc.open_read(p)
+    c = rc.coverage(con, "PL", "2026/27")
+    row = next(r for r in c["rows"] if r["id"] == 77)
+    assert row["name"] == "(no team row)" and row["rating"] is None and c["teams"] == 5

@@ -74,9 +74,10 @@ per game: home rating (league) / away rating (league) · model home/draw/away ·
 ```
 - **Built:**
   - docs/specs/hosting-h1.md B4 carries the item 3 paragraph and #410.
-  - docs/specs/h2-cutover-runbook.md section 1 step 4: after `install`, before `flip`, the PL export check (the steps run one at a time on cutover day; `compare_exports.py --glob 'soccer_PL_*' --since 0`, VERDICT: CLEAN, else the cutover stops before `flip`).
+  - docs/specs/h2-cutover-runbook.md section 1 step 4: after `install`, before `flip`, the PL export check (the steps run one at a time on cutover day; the host's file in a fresh directory, `--status scheduled`, the reference's own dates; `compare_exports.py` on the two directories, VERDICT: CLEAN, else the cutover stops before `flip`).
   - `scripts/soccer_rating_coverage.py` (read-only).
   - Item 2 (the default-rating label and PASS) is #411.
+- **Codex round 1 on #417 (fixed):** the host's export goes to a fresh directory (`install` copies the laptop's exports into `exports/`, so the reference could otherwise compare against itself); `--start` / `--end` come from the reference's file NAME (calendar dates, `--end` inclusive, the chain's own arguments), not its JSON `start_date` / exclusive `end_date`; `--status scheduled`, the chain's own; the coverage receipt keeps a match-side id with no team row.
 - **Readings:** the runbook check uses `compare_exports.py` as "number for number": it masks only timestamp-like keys and `match_id` (machine-local), keys rows on (kickoff, home, away), and is CLEAN only when every other field is identical. "Team of that competition and season" in the receipt is every team id in that competition's stored matches of that season.
 - **Run order (operator, both machines, on the architect's word):** `python3 scripts/soccer_rating_coverage.py --competition PL --season 2026/27`; both consoles on #410.
 - **Receipts:** tests/test_soccer_rating_coverage.py (4 tests): ratings or MISSING and team_to_league per team of the competition-season only, totals, the legacy single-state shape, refusal on zero or two production rows, the file byte-identical after a run.

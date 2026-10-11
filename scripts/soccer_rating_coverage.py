@@ -85,10 +85,12 @@ def coverage(con, competition: str, season: str) -> dict:
     version, params = production(con)
     table = league_table(params)
     t2l = {str(k): v for k, v in (params.get("team_to_league") or {}).items()}
+    # driven from the match-side ids, team names LEFT JOINed (Codex on #417): an id with no team row stays visible
     teams = con.execute(
-        "SELECT t.id, t.name FROM teams t WHERE t.id IN ("
-        " SELECT home_team_id FROM matches WHERE competition_id = ? AND season = ?"
-        " UNION SELECT away_team_id FROM matches WHERE competition_id = ? AND season = ?) ORDER BY t.name, t.id",
+        "SELECT ids.tid, COALESCE(t.name, '(no team row)') FROM ("
+        " SELECT home_team_id AS tid FROM matches WHERE competition_id = ? AND season = ?"
+        " UNION SELECT away_team_id FROM matches WHERE competition_id = ? AND season = ?) ids"
+        " LEFT JOIN teams t ON t.id = ids.tid WHERE ids.tid IS NOT NULL ORDER BY t.name IS NULL, t.name, ids.tid",
         (comp[0], season, comp[0], season)).fetchall()
     rows = [{"id": tid, "name": name, "rating": table.get(str(tid)), "team_to_league": t2l.get(str(tid))}
             for tid, name in teams]

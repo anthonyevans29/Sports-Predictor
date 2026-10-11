@@ -130,18 +130,19 @@ def rows_of(doc) -> int | None:
     return None
 
 
-def diff(a, b, path="$", out=None, limit=40, unmatched=None) -> list[str]:
+def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=frozenset()) -> list[str]:
+    """`ignore`: keys left out at any depth (--ignore-keys; the cutover PL check only, #420)."""
     out = [] if out is None else out
     if len(out) >= limit:
         return out
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(set(a) | set(b)):
-            if TS_KEY.search(str(k)) or k in MASKED:
+            if TS_KEY.search(str(k)) or k in MASKED or k in ignore:
                 continue
             if k not in a or k not in b:
                 out.append(f"{path}.{k}: only in {'host' if k not in a else 'laptop'}")
             else:
-                diff(a[k], b[k], f"{path}.{k}", out, limit, unmatched)
+                diff(a[k], b[k], f"{path}.{k}", out, limit, unmatched, ignore)
     elif is_game_rows(a) and is_game_rows(b):
         ka, kb = keyed(a), keyed(b)            # key FIRST, then compare pairs
         if unmatched is not None:
@@ -149,12 +150,12 @@ def diff(a, b, path="$", out=None, limit=40, unmatched=None) -> list[str]:
             unmatched[path]["laptop"] += sorted(set(ka) - set(kb))
             unmatched[path]["host"] += sorted(set(kb) - set(ka))
         for k in sorted(set(ka) & set(kb)):
-            diff(ka[k], kb[k], f"{path}[{k}]", out, limit, unmatched)
+            diff(ka[k], kb[k], f"{path}[{k}]", out, limit, unmatched, ignore)
     elif isinstance(a, list) and isinstance(b, list):
         if len(a) != len(b):
             out.append(f"{path}: length {len(a)} vs {len(b)}")
         for i, (x, y) in enumerate(zip(a, b)):
-            diff(x, y, f"{path}[{i}]", out, limit, unmatched)
+            diff(x, y, f"{path}[{i}]", out, limit, unmatched, ignore)
     elif a != b:
         out.append(f"{path}: {str(a)[:60]!r} vs {str(b)[:60]!r}")
     return out
@@ -183,7 +184,18 @@ def _main(argv=None) -> int:
                     help="Compare only files dated (YYYY-MM-DD in the name) within the last N UTC days; "
                          "undated files always compared; 0 = everything. Default 3.")
     ap.add_argument("--today", default=None, help=argparse.SUPPRESS)   # tests pin the clock
+    # THE CUTOVER PL CHECK ONLY (#420 RULED, ARCHITECT 2026-10-11, addendum 38): "every field that is read from the
+    # database is compared, number for number. A field that is read off the clock is not compared: the Desk block,
+    # desk_meta, line_move and late_news_flag. The check prints the keys it left out, and a file with no predictions
+    # is still no coverage." Both flags are off by default; every other comparison is unchanged.
+    ap.add_argument("--ignore-keys", default="",
+                    help="Comma-separated keys left out of the comparison at any depth (printed). The cutover PL "
+                         "check only (h2-cutover-runbook.md section 1 step 4).")
+    ap.add_argument("--require-predictions", action="store_true",
+                    help="Count, per side, the rows with a prediction and its probabilities; a compared file with "
+                         "none on either side is NO-COVERAGE (#422 item 4). The cutover PL check only.")
     a = ap.parse_args(argv)
+    ignore = frozenset(k.strip() for k in a.ignore_keys.split(",") if k.strip())
     today = date.fromisoformat(a.today) if a.today else datetime.now(timezone.utc).date()
     missing = [f"{side}={d}" for side, d in (("laptop", a.laptop), ("host", a.host)) if not d.is_dir()]
     if missing:                               # an absent side must never read as "0 compared, CLEAN"
@@ -201,7 +213,10 @@ def _main(argv=None) -> int:
     if a.since > 0:
         print(f"window: --since {a.since} → files dated {today - timedelta(days=a.since - 1)} .. {today} "
               f"(UTC) + undated; {settled} settled file(s) earlier not re-printed")
+    if ignore:
+        print(f"left out of the comparison (--ignore-keys, read off the clock): {', '.join(sorted(ignore))}")
     clean, skew_names, compared = True, set(), 0
+    pred_rows = {"laptop": 0, "host": 0}
     for name in sorted(set(la) | set(ho)):
         if name not in la or name not in ho:
             print(f"· {name}: only on {'host' if name not in la else 'laptop'}")
@@ -214,8 +229,11 @@ def _main(argv=None) -> int:
             clean = False
             continue
         compared += 1
+        if a.require_predictions:
+            for side, doc in (("laptop", x), ("host", y)):
+                pred_rows[side] += predicted_rows(doc)
         um: dict = {}
-        d = diff(x, y, unmatched=um)
+        d = diff(x, y, unmatched=um, ignore=ignore)
         only = {s: [k for v in um.values() for k in v[s]] for s in ("laptop", "host")}
         ok = not d and not only["laptop"] and not only["host"]
         clean &= ok
@@ -236,6 +254,14 @@ def _main(argv=None) -> int:
           f"{settled} outside the window · not matched by {a.glob}: laptop {len(other['laptop'])}, "
           f"host {len(other['host'])}" + (f" (e.g. {', '.join((other['laptop'] + other['host'])[:3])})"
                                           if other['laptop'] or other['host'] else ""))
+    if a.require_predictions:
+        print(f"predictions compared (rows with a prediction and its probabilities): laptop {pred_rows['laptop']} "
+              f"· host {pred_rows['host']}")
+        if compared and (pred_rows["laptop"] == 0 or pred_rows["host"] == 0):
+            print("NO COVERAGE — a side carries no row with a prediction and its probabilities; nothing is "
+                  "verified (#422 item 4), so this is not a clean verdict.")
+            print("VERDICT: NO-COVERAGE (no predictions compared) — not a data verdict")
+            return EXIT_NO_COVERAGE
     if clean and compared == 0:
         print(f"NO COVERAGE — no {a.glob} file was compared on both sides; nothing is verified, so this is "
               f"not a clean verdict.")
@@ -247,6 +273,13 @@ def _main(argv=None) -> int:
           + (f" Code-version skew named for: {', '.join(sorted(skew_names))}." if skew_names else ""))
     print(f"VERDICT: {'CLEAN' if clean else 'DIVERGENT'}")
     return EXIT_CLEAN if clean else EXIT_DIVERGENT
+
+
+def predicted_rows(doc) -> int:
+    """Rows of a predictions export carrying a prediction with probabilities (#422 item 4)."""
+    rows = doc.get("predictions") if isinstance(doc, dict) else None
+    return sum(1 for r in rows or [] if isinstance(r, dict) and isinstance(r.get("prediction"), dict)
+               and r["prediction"].get("probabilities"))
 
 
 def sha_line(x, y) -> str:

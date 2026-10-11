@@ -896,9 +896,12 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
    - **PL PREDICTION CHECK (ARCHITECT 2026-10-10, addendum 36 item 3; #410), before step 5 and before the
      writer flag flips in step 6:** "the host exports the PL predictions from the installed database, and the
      file equals the laptop's last file from that database, number for number." The commands and the PASS
-     rule are h2-cutover-runbook.md section 1 step 4 (the host's file in a fresh directory, the reference
-     copied from the pack's `exports/`, `compare_exports.py`, CLEAN on a reference with predictions). Not
-     PASS: stop before step 6; the flag stays `laptop`.
+     rule are h2-cutover-runbook.md section 1 step 4: the reference is written for the check on the laptop
+     immediately before the pack, with `--start` / `--end` (#422); the host's file goes to a fresh directory;
+     `compare_exports.py --ignore-keys desk,desk_meta,line_move,late_news_flag --require-predictions` (#420,
+     #422); CLEAN with at least one row with a prediction and its probabilities on each side. Not PASS: the
+     cutover ends for that day, the host stays paused (timers stopped, flag `laptop`, nothing resumed or
+     restored) until the architect has read the check.
 5. Delete the pack on both machines (`rm -rf`). It holds a DB copy and
    `.env`. Only after the PL check (it reads the laptop's file that `install` copied from the pack).
 6. TERMINAL (host), in order:

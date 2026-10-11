@@ -81,8 +81,15 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    systemctl list-timers 'sp-*' --no-pager      # receipt: none of the list is waiting
    ```
    `sp_cutover.py run` stops them again (idempotent) and receipts it.
-3. **TERMINAL (laptop)** (H2 step 3): pack and transfer over the tailnet only:
+3. **TERMINAL (laptop)** (H2 step 3): write the PL reference, then pack and transfer over the tailnet only.
+   **The reference is written for the check (#422 RULED, ARCHITECT 2026-10-11, addendum 40 item 9):** "On the
+   laptop, after the last sync and immediately before the pack: the PL predictions exported with --start and
+   --end given, and the pack carries that file. The host exports with the same dates from the installed
+   database." `<start>` / `<end>`: the PL games of the next round (calendar dates, `--end` inclusive); the same
+   two dates go to the host in step 4. The file lands in `exports/`, which the pack carries.
    ```
+   python cli.py export-predictions --sport soccer --competition PL --start <start> --end <end> --status scheduled
+   #   → exports/soccer_PL_<start>_to_<end>.json   (paste its "✓ Wrote N predictions" line)
    python deploy/hosting/sp_migrate.py pack --out /tmp/sp_pack_$(date -u +%Y%m%dT%H%M)
    scp -r /tmp/sp_pack_<stamp> sp@sp-vps-1:/home/sp/      # tailnet only; no bucket/email/chat
    ```
@@ -120,18 +127,23 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 
    - Receipt: paste the six `receipt {...}` lines and the `cutover receipt:` line (run one step at a
      time, `receipt` checks the earlier receipts of the same cutover id), plus the PL check's console.
-   - **PL PREDICTION CHECK (ARCHITECT 2026-10-10, addendum 36 item 3; #410), after `install` and before `flip`:** "the host exports the PL predictions from the installed database, and the file equals the laptop's last file from that database, number for number."
-     So on cutover day the steps run one at a time (the commands above). The reference is the laptop's last `soccer_PL_<start>_to_<end>.json` written from the database the pack carries (exported before the pack was made); its NAME carries the chain's own `--start` / `--end` (calendar dates, `--end` inclusive, as the chain passed them). `install` copies the laptop's exports into `exports/`, so the host's file is written to a fresh, empty directory, never to `exports/`, and the reference is compared from its own directory. With the timers paused and the installed DB in place, on the host:
+   - **PL PREDICTION CHECK (ARCHITECT 2026-10-10, addendum 36 item 3; #410), after `install` and before `flip`:** "the host exports the PL predictions from the installed database, and the file equals the laptop's last file from that database, number for number." As ruled since:
+     - **#420 (ARCHITECT 2026-10-11, addendum 38):** "In the cutover's PL check every field that is read from the database is compared, number for number. A field that is read off the clock is not compared: the Desk block, desk_meta, line_move and late_news_flag. The check prints the keys it left out, and a file with no predictions is still no coverage."
+     - **#422 (ARCHITECT 2026-10-11, addendum 40 item 9):** "The reference is written for the check. [...] The check counts what it compared: at least one row with a prediction and its probabilities on each side, or it is no coverage. It prints the count. A check that does not pass ends the cutover for that day. The host stays paused: its timers stopped, the writer still the laptop, nothing resumed and nothing restored until I have read what the check showed. The laptop has lost nothing."
+
+     The reference is the file step 3 wrote for the check, `soccer_PL_<start>_to_<end>.json`, carried by the pack (so a closing run's file name never enters the check). `install` copies the laptop's exports into `exports/`, so the host's file is written to a fresh, empty directory, never to `exports/`, and the reference is compared from its own directory. With the timers paused and the installed DB in place, on the host, with step 3's two dates:
      ```
      T=$(date -u +%Y%m%dT%H%M%SZ); F=soccer_PL_<start>_to_<end>.json
      mkdir /tmp/pl_ref_$T /tmp/pl_host_$T
-     cp exports/$F /tmp/pl_ref_$T/                 # the laptop's file, as the pack carried it
+     cp exports/$F /tmp/pl_ref_$T/                 # the reference step 3 wrote, as the pack carried it
      sudo -u sp venv/bin/python cli.py export-predictions --sport soccer --competition PL \
-         --start <start> --end <end> --status scheduled [--desk if the reference carries desk_meta] \
-         --out /tmp/pl_host_$T/$F
-     sudo -u sp venv/bin/python deploy/hosting/compare_exports.py /tmp/pl_ref_$T /tmp/pl_host_$T --since 0
+         --start <start> --end <end> --status scheduled --out /tmp/pl_host_$T/$F
+     sudo -u sp venv/bin/python deploy/hosting/compare_exports.py /tmp/pl_ref_$T /tmp/pl_host_$T --since 0 \
+         --ignore-keys desk,desk_meta,line_move,late_news_flag --require-predictions
      ```
-     `--status scheduled` is the chain's own (deploy/hosting/chains.py), so the host reproduces the same row set whatever the cutover day. PASS: `VERDICT: CLEAN` (one compared file) AND the reference carries at least one prediction (`count` > 0; check with `python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['count'])" /tmp/pl_ref_$T/$F`). A missing host file, or a reference with no predictions (two empty files compare CLEAN without testing one number), is NO-COVERAGE, never CLEAN: take the laptop's last PL file that has predictions. Anything else, a number that differs or a row on one side only, stops the cutover before `flip`: the flag stays `laptop`, the laptop stays the writer of record, and the result goes to the architect (rollback: section 3).
+     The console prints the keys left out (`left out of the comparison (--ignore-keys, read off the clock): desk, desk_meta, late_news_flag, line_move`) and the count (`predictions compared (rows with a prediction and its probabilities): laptop N · host M`). Paste both lines and the verdict.
+     **PASS:** `VERDICT: CLEAN`, one compared file, and N and M both at least 1. A missing host file, or no row with a prediction and its probabilities on either side, is `NO-COVERAGE`, never CLEAN.
+     **Anything else ends the cutover for that day** (a number that differs, a row on one side only, NO-COVERAGE, an ERROR): do not run `flip` or `resume`, and restore nothing. The host stays paused (its timers stopped, `SP_WRITER_OF_RECORD=laptop`, the installed DB where `install` put it, the rehearsal DB still at `data/rehearsal_<ts>.db`) until the architect has read the console. The laptop has lost nothing: it is still the writer of record and its database is untouched. Section 3, "Not PASS at the PL check".
    - Steps can also run one at a time (`preflight`, `pause`, `install`,
      `flip`, `resume`, `receipt`) with the same `--pack`; `receipt` reads
      the earlier receipts of the same cutover id.
@@ -254,6 +266,11 @@ own.
   step 3 (hosting-h1.md H2 step 4: any `✗` means re-pack). Do not
   hand-move files in `data/`; a rehearsal DB moved aside stays as
   `data/rehearsal_<ts>.db` until the receipts are pasted.
+- **Not PASS at the PL check** (between `install` and `flip`; #422 RULED, addendum 40 item 9): the cutover ends
+  for that day. Run nothing further: no `flip`, no `resume`, no restore of the rehearsal DB, no timer start. The
+  host stays paused (timers stopped, flag `laptop`, the installed DB in place, `data/rehearsal_<ts>.db` kept)
+  until the architect has read what the check showed; what follows is the architect's ruling. The laptop is
+  still the writer of record and has lost nothing.
 - **Refused at flip or resume:** the DB is installed. Restore the flag
   from its kept copy if needed:
   `sudo cp -p /etc/sports-predictor/host.env.pre-cutover-<ts> /etc/sports-predictor/host.env`.

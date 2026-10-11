@@ -88,10 +88,19 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    ```
    Receipt S1/R1: the db sha256, `integrity=ok`, a row count for every
    table, `absent:` for any manifest item that did not exist.
-4. **TERMINAL (host)** (H2 steps 4 and 6, one command):
+4. **TERMINAL (host)** (H2 steps 4 and 6), one step at a time, because the PL prediction check below
+   (addendum 36 item 3) sits between `install` and `flip`. **Never `run` on cutover day:** `run` executes every
+   step, `flip` and `resume` included, without stopping for the check.
    ```
    cd /opt/sports-predictor
-   sudo venv/bin/python deploy/hosting/sp_cutover.py run --pack /home/sp/sp_pack_<stamp>
+   P=/home/sp/sp_pack_<stamp>
+   sudo venv/bin/python deploy/hosting/sp_cutover.py preflight --pack $P
+   sudo venv/bin/python deploy/hosting/sp_cutover.py pause --pack $P
+   sudo venv/bin/python deploy/hosting/sp_cutover.py install --pack $P
+   # the PL PREDICTION CHECK (below); flip only on its PASS
+   sudo venv/bin/python deploy/hosting/sp_cutover.py flip --pack $P
+   sudo venv/bin/python deploy/hosting/sp_cutover.py resume --pack $P
+   sudo venv/bin/python deploy/hosting/sp_cutover.py receipt --pack $P
    ```
    - It runs as root (systemctl, and host.env is `root:sp 0640`). The steps
      that open the DB or the pack (verify, install) re-run as `sp`
@@ -109,10 +118,10 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
      | resume | `systemctl start` on the list; each `active`; `systemctl start sp-backup.service` | a timer not active; the backup failed or has no `integrity=ok` receipt |
      | receipt | a boot-receipt-style summary: running release, db sha (S2 = S1), R2 = R1, flag, timers, first backup | any earlier step without a successful receipt, or receipts out of order |
 
-   - Receipt: paste the six `receipt {...}` lines, the `cutover receipt:`
-     line and `PASS — 6/6 steps receipted`.
+   - Receipt: paste the six `receipt {...}` lines and the `cutover receipt:` line (run one step at a
+     time, `receipt` checks the earlier receipts of the same cutover id), plus the PL check's console.
    - **PL PREDICTION CHECK (ARCHITECT 2026-10-10, addendum 36 item 3; #410), after `install` and before `flip`:** "the host exports the PL predictions from the installed database, and the file equals the laptop's last file from that database, number for number."
-     So on cutover day the steps run one at a time: `preflight`, `pause`, `install`, then this check, then `flip`, `resume`, `receipt`. The reference is the laptop's last `soccer_PL_<start>_to_<end>.json` written from the database the pack carries (exported before the pack was made); its NAME carries the chain's own `--start` / `--end` (calendar dates, `--end` inclusive, as the chain passed them). `install` copies the laptop's exports into `exports/`, so the host's file is written to a fresh, empty directory, never to `exports/`, and the reference is compared from its own directory. With the timers paused and the installed DB in place, on the host:
+     So on cutover day the steps run one at a time (the commands above). The reference is the laptop's last `soccer_PL_<start>_to_<end>.json` written from the database the pack carries (exported before the pack was made); its NAME carries the chain's own `--start` / `--end` (calendar dates, `--end` inclusive, as the chain passed them). `install` copies the laptop's exports into `exports/`, so the host's file is written to a fresh, empty directory, never to `exports/`, and the reference is compared from its own directory. With the timers paused and the installed DB in place, on the host:
      ```
      T=$(date -u +%Y%m%dT%H%M%SZ); F=soccer_PL_<start>_to_<end>.json
      mkdir /tmp/pl_ref_$T /tmp/pl_host_$T
@@ -122,7 +131,7 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
          --out /tmp/pl_host_$T/$F
      sudo -u sp venv/bin/python deploy/hosting/compare_exports.py /tmp/pl_ref_$T /tmp/pl_host_$T --since 0
      ```
-     `--status scheduled` is the chain's own (deploy/hosting/chains.py), so the host reproduces the same row set whatever the cutover day. PASS: `VERDICT: CLEAN` (one compared file). A missing host file is NO-COVERAGE, never CLEAN. Anything else, a number that differs or a row on one side only, stops the cutover before `flip`: the flag stays `laptop`, the laptop stays the writer of record, and the result goes to the architect (rollback: section 3).
+     `--status scheduled` is the chain's own (deploy/hosting/chains.py), so the host reproduces the same row set whatever the cutover day. PASS: `VERDICT: CLEAN` (one compared file) AND the reference carries at least one prediction (`count` > 0; check with `python3 -c "import json,sys; print(json.load(open(sys.argv[1]))['count'])" /tmp/pl_ref_$T/$F`). A missing host file, or a reference with no predictions (two empty files compare CLEAN without testing one number), is NO-COVERAGE, never CLEAN: take the laptop's last PL file that has predictions. Anything else, a number that differs or a row on one side only, stops the cutover before `flip`: the flag stays `laptop`, the laptop stays the writer of record, and the result goes to the architect (rollback: section 3).
    - Steps can also run one at a time (`preflight`, `pause`, `install`,
      `flip`, `resume`, `receipt`) with the same `--pack`; `receipt` reads
      the earlier receipts of the same cutover id.

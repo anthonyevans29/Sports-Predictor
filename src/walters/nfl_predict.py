@@ -431,6 +431,7 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
         live, pre = tally(), tally()
         ll = 0.0
         clvs = []
+        close_ages = []
         vclvs, vshadow = [], []
         anchor_after = 0
         pre_lines = []
@@ -458,10 +459,12 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
             close_h = None
             odds_rows = list(s.execute(select(Odds).where(
                 Odds.match_id == m.id, Odds.market == "1X2")).scalars())
-            from src.walters.close import close_1x2, outcomes_for, priced
+            from src.walters.close import close_1x2, minutes_before_start, outcomes_for, priced
             _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
             if priced(_cl):
                 close_h = _cl["fair"].get("HOME", 0)
+                # #382: the results row's close_minutes_before_start (close_block, the same close)
+                close_ages.append(minutes_before_start(_cl["captured_at"], m.utc_date))
             clv = None
             if close_h is not None:
                 pick_p = p if pick_home else 1 - p
@@ -486,6 +489,7 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
         if live["games"] == 0 and pre["games"] == 0:
             return {"ok": False, "reason": "no finished NFL games with predictions in window"}
         n = live["games"]
+        from src.walters.close import close_age_summary
         summary = {"ok": True, "live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d}",
                    **live,
                    "logloss": round(ll / n, 4) if n else None,
@@ -496,6 +500,8 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
                    "value_shadow_n": len(vshadow),
                    "mean_value_shadow_clv_pp": round(sum(vshadow) / len(vshadow) * 100, 2) if vshadow else None,
                    "value_anchor_after_prediction_n": anchor_after,
+                   # #382: the close's capture age over the live rows (our capture, not the quote, #348)
+                   "close_minutes_before_start": close_age_summary(close_ages),
                    "pre_live": pre}
         report(f"  ── sides {live['hits']}/{live['decided']} decided"
                + (f" (+{live['pushes']} push)" if live["pushes"] else "")

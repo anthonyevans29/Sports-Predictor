@@ -69,3 +69,39 @@ def test_ignore_keys_reaches_every_depth_and_nothing_else():
     b = {"predictions": [{"home_team": "A", "away_team": "B", "utc_date": "x", "desk": 2, "p": 2}]}
     assert ce.diff(a, b, ignore=frozenset({"desk"})) == ["$.predictions[B @ A x].p: '1' vs '2'"]
     assert len(ce.diff(a, b)) == 2
+
+
+# ---- Codex on #439 -----------------------------------------------------------------------------------------------
+
+def test_the_cutover_mode_compares_database_timestamps_the_generic_mask_would_hide(tmp_path, capsys):
+    a = doc([{**row("Arsenal", 0.55), "computed_at": "2026-10-17T07:00:00",
+              "market": {"captured_at": "2026-10-17T06:00:00"}}])
+    b = doc([{**row("Arsenal", 0.55), "computed_at": "2026-10-17T07:05:00",
+              "market": {"captured_at": "2026-10-17T06:00:00"}}])
+    assert run(tmp_path, a, b) == ce.EXIT_CLEAN                          # the generic mask: as before
+    capsys.readouterr()
+    (tmp_path / "x").mkdir()
+    assert run(tmp_path / "x", a, b, "--ignore-keys", KEYS, "--require-predictions") == ce.EXIT_DIVERGENT
+    out = capsys.readouterr().out
+    assert "computed_at: '2026-10-17T07:00:00' vs '2026-10-17T07:05:00'" in out
+    assert "the timestamp mask is off" in out
+    b["predictions"][0]["computed_at"] = "2026-10-17T07:00:00"
+    b["predictions"][0]["match_id"] = 2                                  # match_id is read from the database too
+    (tmp_path / "y").mkdir()
+    assert run(tmp_path / "y", a, b, "--ignore-keys", KEYS, "--require-predictions") == ce.EXIT_DIVERGENT
+    b["predictions"][0]["match_id"] = 1
+    a["exported_at"], b["exported_at"], a["git_sha"], b["git_sha"] = "t1", "t2", "abc", "def"
+    (tmp_path / "z").mkdir()
+    assert run(tmp_path / "z", a, b, "--ignore-keys", KEYS + ",exported_at", "--require-predictions") == ce.EXIT_CLEAN
+
+
+def test_a_missing_host_file_is_no_coverage_not_divergent(tmp_path, capsys):
+    la, ho = tmp_path / "ref", tmp_path / "host"
+    la.mkdir()
+    ho.mkdir()
+    (la / F).write_text(json.dumps(doc([row("Arsenal", 0.55)])))
+    assert ce.main([str(la), str(ho), "--since", "0"]) == ce.EXIT_DIVERGENT     # without the flag: as before
+    capsys.readouterr()
+    assert ce.main([str(la), str(ho), "--since", "0", "--ignore-keys", KEYS,
+                    "--require-predictions"]) == ce.EXIT_NO_COVERAGE
+    assert capsys.readouterr().out.strip().splitlines()[-1] == "VERDICT: NO-COVERAGE (0 compared) — not a data verdict"

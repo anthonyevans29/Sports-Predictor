@@ -130,14 +130,17 @@ def rows_of(doc) -> int | None:
     return None
 
 
-def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=frozenset()) -> list[str]:
-    """`ignore`: keys left out at any depth (--ignore-keys; the cutover PL check only, #420)."""
+def diff(a, b, path="$", out=None, limit=40, unmatched=None, ignore=None) -> list[str]:
+    """`ignore`: None = the generic mask (TS_KEY + MASKED). A set (--ignore-keys; the cutover PL check only, #420)
+    REPLACES that mask: only those keys and git_sha (code, never read from the database) are left out, so every
+    database-read timestamp and match_id is compared (Codex on #439)."""
     out = [] if out is None else out
     if len(out) >= limit:
         return out
     if isinstance(a, dict) and isinstance(b, dict):
         for k in sorted(set(a) | set(b)):
-            if TS_KEY.search(str(k)) or k in MASKED or k in ignore:
+            if (ignore is None and (TS_KEY.search(str(k)) or k in MASKED)) or (
+                    ignore is not None and (k in ignore or k == "git_sha")):
                 continue
             if k not in a or k not in b:
                 out.append(f"{path}.{k}: only in {'host' if k not in a else 'laptop'}")
@@ -195,7 +198,7 @@ def _main(argv=None) -> int:
                     help="Count, per side, the rows with a prediction and its probabilities; a compared file with "
                          "none on either side is NO-COVERAGE (#422 item 4). The cutover PL check only.")
     a = ap.parse_args(argv)
-    ignore = frozenset(k.strip() for k in a.ignore_keys.split(",") if k.strip())
+    ignore = frozenset(k.strip() for k in a.ignore_keys.split(",") if k.strip()) or None
     today = date.fromisoformat(a.today) if a.today else datetime.now(timezone.utc).date()
     missing = [f"{side}={d}" for side, d in (("laptop", a.laptop), ("host", a.host)) if not d.is_dir()]
     if missing:                               # an absent side must never read as "0 compared, CLEAN"
@@ -215,6 +218,7 @@ def _main(argv=None) -> int:
               f"(UTC) + undated; {settled} settled file(s) earlier not re-printed")
     if ignore:
         print(f"left out of the comparison (--ignore-keys, read off the clock): {', '.join(sorted(ignore))}")
+        print("the timestamp mask is off: every other key is compared (git_sha is reported on its own line)")
     clean, skew_names, compared = True, set(), 0
     pred_rows = {"laptop": 0, "host": 0}
     for name in sorted(set(la) | set(ho)):
@@ -257,10 +261,12 @@ def _main(argv=None) -> int:
     if a.require_predictions:
         print(f"predictions compared (rows with a prediction and its probabilities): laptop {pred_rows['laptop']} "
               f"· host {pred_rows['host']}")
-        if compared and (pred_rows["laptop"] == 0 or pred_rows["host"] == 0):
+        # Codex on #439: a missing host file (nothing compared) is NO-COVERAGE too, never DIVERGENT
+        if compared == 0 or pred_rows["laptop"] == 0 or pred_rows["host"] == 0:
             print("NO COVERAGE — a side carries no row with a prediction and its probabilities; nothing is "
                   "verified (#422 item 4), so this is not a clean verdict.")
-            print("VERDICT: NO-COVERAGE (no predictions compared) — not a data verdict")
+            print(f"VERDICT: NO-COVERAGE ({'0 compared' if not compared else 'no predictions compared'}) — "
+                  "not a data verdict")
             return EXIT_NO_COVERAGE
     if clean and compared == 0:
         print(f"NO COVERAGE — no {a.glob} file was compared on both sides; nothing is verified, so this is "

@@ -139,9 +139,9 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
      sudo -u sp venv/bin/python cli.py export-predictions --sport soccer --competition PL \
          --start <start> --end <end> --status scheduled --out /tmp/pl_host_$T/$F
      sudo -u sp venv/bin/python deploy/hosting/compare_exports.py /tmp/pl_ref_$T /tmp/pl_host_$T --since 0 \
-         --ignore-keys desk,desk_meta,line_move,late_news_flag --require-predictions
+         --ignore-keys desk,desk_meta,line_move,late_news_flag,exported_at --require-predictions
      ```
-     The console prints the keys left out (`left out of the comparison (--ignore-keys, read off the clock): desk, desk_meta, late_news_flag, line_move`) and the count (`predictions compared (rows with a prediction and its probabilities): laptop N · host M`). Paste both lines and the verdict.
+     With `--ignore-keys` the generic timestamp mask is OFF: every other key, database timestamps (`computed_at`, `captured_at`, `injuries_synced_at`) and `match_id` included, is compared; only `git_sha` (code, reported on its own line) is also left out. `exported_at` is the file's write stamp, read off the clock (PENDING the architect's confirmation on #439: it is not in the ruled list, and without it no two files ever compare clean). The console prints the keys left out (`left out of the comparison (--ignore-keys, read off the clock): desk, desk_meta, exported_at, late_news_flag, line_move`) and the count (`predictions compared (rows with a prediction and its probabilities): laptop N · host M`). Paste both lines and the verdict.
      **PASS:** `VERDICT: CLEAN`, one compared file, and N and M both at least 1. A missing host file, or no row with a prediction and its probabilities on either side, is `NO-COVERAGE`, never CLEAN.
      **Anything else ends the cutover for that day** (a number that differs, a row on one side only, NO-COVERAGE, an ERROR): do not run `flip` or `resume`, and restore nothing. The host stays paused (its timers stopped, `SP_WRITER_OF_RECORD=laptop`, the installed DB where `install` put it, the rehearsal DB still at `data/rehearsal_<ts>.db`) until the architect has read the console. The laptop has lost nothing: it is still the writer of record and its database is untouched. Section 3, "Not PASS at the PL check".
    - Steps can also run one at a time (`preflight`, `pause`, `install`,

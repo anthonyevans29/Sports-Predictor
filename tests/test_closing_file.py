@@ -8,6 +8,7 @@ ids. A run whose page did not go out writes no such file. A closing run does not
 slate file." The receipt finding: the 12:55Z NFL run covered one game and wrote 14 rows into the slate file."""
 import hashlib
 import json
+import os
 import subprocess
 import sys
 from datetime import timedelta
@@ -259,5 +260,10 @@ def test_codex_export_nfl_out_never_writes_under_data_or_onto_the_database(tmp_p
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
     with pytest.raises(ValueError, match="law 5"):
         npx.refuse_out_path(str(alias))
+    hard = tmp_path / "hard.json"                                                       # Codex round 2
+    os.link(db, hard)
+    for bad in (hard, Path(str(db) + "-wal"), Path(str(db) + "-shm"), Path(str(db) + "-journal")):
+        with pytest.raises(ValueError, match="law 5"):
+            npx.refuse_out_path(str(bad))
     npx.refuse_out_path(str(tmp_path / "logs" / "ok.json"))                              # anywhere else: fine
     assert db.read_bytes() == b"x"

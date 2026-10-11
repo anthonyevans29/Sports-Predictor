@@ -152,8 +152,18 @@ def refuse_out_path(out_path: str) -> None:
     data = data_dir()
     url = os.getenv("DATABASE_URL") or ""
     db = Path(url.replace("sqlite:///", "")).resolve() if url.startswith("sqlite:///") else None
-    if tgt == data or data in tgt.parents or (db is not None and tgt == db):
-        raise ValueError(f"REFUSED: --out {out_path} is under data/ or is the database (law 5)")
+    # Codex round 2 on #433: the database's -wal / -shm / -journal sidecars too, and by file identity (a hard link
+    # resolves to its own path), as _vqa_out_ok does
+    dbs = [] if db is None else [Path(str(db) + x) for x in ("", "-wal", "-shm", "-journal")]
+
+    def same(a, b) -> bool:
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            return False
+    if (tgt == data or data in tgt.parents or tgt in dbs
+            or (tgt.exists() and any(x.exists() and same(tgt, x) for x in dbs))):
+        raise ValueError(f"REFUSED: --out {out_path} is under data/ or is the database (or its sidecar) (law 5)")
 
 
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",

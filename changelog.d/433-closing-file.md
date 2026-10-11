@@ -6,3 +6,4 @@
 - Ledger: the addendum 40 item 1 FINDING (#423) and the item 2 ruling.
 - docs/CLI.md: the closing-run, export-nfl-predictions and backfill rows. Tests: tests/test_closing_file.py; tests/test_closing_runs.py updated for the logs/ export.
 - Codex round 1: `export-nfl-predictions --out` refuses a path under data/ or onto the configured database (law 5); a closing file already written for a family and start is never replaced (a manual rerun's write is refused, receipted and notified).
+- Codex round 2: the `--out` guard also refuses the database's -wal/-shm/-journal sidecars and hard links to them (file identity).

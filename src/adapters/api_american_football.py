@@ -81,6 +81,24 @@ NFL_LEAGUE_ID = 1
 # probe (260 teams FBS+FCS, Michigan State/Nebraska in list, ~1,500
 # games/season, weeks numeric, FT/AOT/CANC + None-status class).
 _CODE_TO_LEAGUE = {"NFL": NFL_LEAGUE_ID, "NCAA": 2}
+
+
+def parse_source_updated_at(raw) -> datetime | None:
+    """response[].update ("2026-10-08T02:15:10+00:00") -> naive UTC (ARCHITECT
+    2026-10-09, addendum 32 item 4). Absent, not a string, unparseable, or
+    carrying no UTC offset (its zone would be a guess) -> None: never
+    guessed, never our clock."""
+    if not isinstance(raw, str) or not raw.strip():
+        return None
+    try:
+        dt = datetime.fromisoformat(raw.strip().replace("Z", "+00:00"))
+    except ValueError:
+        return None
+    if dt.tzinfo is None or dt.utcoffset() is None:
+        return None
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
+
 def _league_for(code: str) -> int:
     return _CODE_TO_LEAGUE.get((code or "NFL").upper(), NFL_LEAGUE_ID)
 
@@ -312,6 +330,9 @@ class APIAmericanFootballAdapter(DataAdapter):
         now = utc_now_naive()
         out: list[NormalizedOdds] = []
         for block in data.get("response") or []:
+            # response[].update: the provider's own time for this game's odds
+            # (RULED, addendum 32 item 3). None when absent or unreadable.
+            src_upd = parse_source_updated_at(block.get("update"))
             for book in block.get("bookmakers") or []:
                 book_name = book.get("name") or f"book_{book.get('id')}"
                 for bet in book.get("bets") or []:
@@ -333,7 +354,7 @@ class APIAmericanFootballAdapter(DataAdapter):
                             source=self.source_name, bookmaker=book_name,
                             market=market, selection=sel,
                             price_decimal=price_f, captured_at=now,
-                            line=line,
+                            line=line, source_updated_at=src_upd,
                         ))
         return out
 

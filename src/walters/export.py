@@ -590,6 +590,11 @@ def _build_row(
         src_a = fb_iq.get("away_strengths_source")
         row["input_quality"] = {
             "strengths_source": {"home": src_h, "away": src_a},
+            # addendum 36 item 2 (ARCHITECT 2026-10-10): where each side's rating came from, "model" (the
+            # production table) or "default" (not in it). null = a prediction written before the label existed
+            # (unknown; the next predict run labels it).
+            "rating_source": {"home": fb_iq.get("home_rating_source"),
+                              "away": fb_iq.get("away_rating_source")},
             "strengths_backfilled": fb_iq.get("strengths_backfilled"),
             "current_season_matches": fb_iq.get("current_season_matches"),
             # Season-long cohort flag (survives graduation off the prior;
@@ -798,7 +803,8 @@ def _to_csv(rows: list[dict], sport: Sport) -> str:
             "away_pitcher_name", "away_pitcher_era",
         ])
     else:
-        columns.extend(["home_injuries", "away_injuries"])
+        # addendum 36 item 2: each side's rating source (model | default; empty = unlabelled) (Codex on #411)
+        columns.extend(["home_injuries", "away_injuries", "home_rating_source", "away_rating_source"])
 
     writer = csv.DictWriter(buf, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
@@ -868,6 +874,9 @@ def _to_csv(rows: list[dict], sport: Sport) -> str:
             inj = row.get("injuries") or {}
             flat["home_injuries"] = inj.get("home_count")
             flat["away_injuries"] = inj.get("away_count")
+            rs = (row.get("input_quality") or {}).get("rating_source") or {}
+            flat["home_rating_source"] = rs.get("home")
+            flat["away_rating_source"] = rs.get("away")
 
         writer.writerow(flat)
 

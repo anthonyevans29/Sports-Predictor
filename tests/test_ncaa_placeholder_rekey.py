@@ -137,15 +137,35 @@ def test_every_12_hour_refusal_applies_under_the_placeholder_window():
     _match(cid, tids, 0, 1, "9201", PH)
     # a row already claimed in the run: two new ids for one placeholder row -> the second refused
     _match(cid, tids, 2, 3, "9301", PH)
-    # more than one candidate (the placeholder row, and a real-kickoff row 10.5h from the incoming) -> refused
-    _match(cid, tids, 4, 5, "9401", PH)
-    _match(cid, tids, 4, 5, "9402", datetime(2093, 10, 10, 13, 0))
+    # a doubled game (addendum 33 item 1): the placeholder row and its second row at a real kickoff 10.5h from
+    # the incoming -> the 12-hour rule decides, as on main: the real-kickoff row is re-keyed, the placeholder
+    # row is untouched (eb53a44 refused it as two candidates)
+    ph_row = _match(cid, tids, 4, 5, "9401", PH)
+    real_row = _match(cid, tids, 4, 5, "9402", datetime(2093, 10, 10, 13, 0))
     listing = [_nm("NCAA", "d", 0, 1, "9201", PH), _nm("NCAA", "d", 0, 1, "9202", REAL),
                _nm("NCAA", "d", 2, 3, "9302", REAL), _nm("NCAA", "d", 2, 3, "9303", REAL),
                _nm("NCAA", "d", 4, 5, "9403", REAL)]
     r = _sync("NCAA", listing)
-    assert (r.created, r.rekeyed, r.rekey_refused) == (0, 1, 3)
+    assert (r.created, r.rekeyed, r.rekey_refused) == (0, 2, 2)
     assert (_rows(cid, tids, 0, 1), _rows(cid, tids, 2, 3), _rows(cid, tids, 4, 5)) == (1, 1, 2)
+    with session_scope() as s:
+        assert s.get(Match, real_row).external_ids[SRC] == "9403"
+        assert s.get(Match, real_row).external_ids[f"{SRC}_prev"] == ["9402"]
+        ph = s.get(Match, ph_row)
+        assert ph.external_ids == {SRC: "9401"} and ph.utc_date == PH
+
+
+def test_two_placeholder_rows_for_one_pair_are_refused():
+    """More than one placeholder candidate (addendum 33 item 1) -> refused, nothing created or re-keyed."""
+    cid, tids = _world("NCAA", "g")
+    _match(cid, tids, 0, 1, "9701", PH)
+    _match(cid, tids, 0, 1, "9702", PH)
+    r = _sync("NCAA", [_nm("NCAA", "g", 0, 1, "9703", REAL)])
+    assert (r.created, r.rekeyed, r.rekey_refused) == (0, 0, 1)
+    assert _rows(cid, tids, 0, 1) == 2
+    with session_scope() as s:
+        assert sorted((m.external_ids or {}).get(SRC) for m in s.execute(select(Match).where(
+            Match.competition_id == cid, Match.home_team_id == tids[0])).scalars()) == ["9701", "9702"]
 
 
 def test_the_pair_swapped_is_refused_under_the_placeholder_window():

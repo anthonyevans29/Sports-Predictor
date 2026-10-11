@@ -236,7 +236,9 @@ after). **Placeholder re-key (ARCHITECT 2026-10-09, addendum 30 item 3):** "For 
 the provider's TBD kickoff holds its natural key for its whole game day. An unknown incoming id for the same home
 and away team, at a real kickoff within 24 hours of that placeholder, re-keys that row. Every refusal of the
 12-hour rule applies as it stands: the stored id still in the listing, a row already claimed in the run, more than
-one candidate, the pair swapped. A row at a real kickoff keeps the 12-hour window." So a forward-week listing read
+one candidate, the pair swapped. A row at a real kickoff keeps the 12-hour window." **AMENDED (addendum 33 item
+1):** "The placeholder window is consulted only where the 12-hour rule would create a row: no candidate within 12 hours, same pair or swapped. It never takes a match away from the 12-hour rule. There the same refusals apply among placeholder rows: the stored id still in the listing, a row already claimed in the run, more than one placeholder candidate, the pair swapped." So a doubled game (the placeholder row and a second row at the real kickoff) is
+decided by the 12-hour rule, as before: the real-kickoff row is re-keyed, the placeholder row untouched. A forward-week listing read
 that carries an announced time under a new id re-keys the 04:00Z row (`rekeyed=`, old id kept in
 `<source>_prev` and the `<source>_rekeys` log, via `sync`) instead of creating a second row. The placeholder and
 its resolution are one shared definition (`src/ingestion/placeholder.py`, also used by

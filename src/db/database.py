@@ -144,6 +144,70 @@ def read_kalshi_tickers(session, ids) -> dict:
     return {i: t for i, t in session.execute(q, {"ids": ids}) if t}
 
 
+# SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4; addendum 35 item 2, RULED): odds.source_updated_at and
+# odds_snapshots.source_updated_at "follow the ORDER LINE note of 2026-10-04 in schema.py: not mapped in the ORM,
+# written and read by guarded Core SQL, and only when the column exists. A pull or a deploy before the migration
+# keeps working: nothing fails, nothing is written to the field, and every export shows it null." The existence
+# check is per call, never cached (as has_kalshi_ticker).
+SOURCE_TIME_TABLES = ("odds", "odds_snapshots")
+_STORE_FMT = "%Y-%m-%d %H:%M:%S.%f"          # the ORM's SQLite DateTime storage form
+
+
+def has_source_time(table: str) -> bool:
+    """<table>.source_updated_at exists (migrate_odds_source_updated_at.py ran). One PRAGMA per call."""
+    if table not in SOURCE_TIME_TABLES:
+        return False
+    from sqlalchemy import inspect
+    try:
+        return "source_updated_at" in {c["name"] for c in inspect(_engine).get_columns(table)}
+    except Exception:
+        return False
+
+
+def write_source_times(session, table: str, pairs) -> int:
+    """Store the provider's source time on rows of `table` after a flush. `pairs` = [(row_id, naive UTC
+    datetime | None)]; None is left NULL. A no-op (0) until the migration has added the column."""
+    rows = [{"i": i, "t": t.strftime(_STORE_FMT)} for i, t in pairs if i is not None and t is not None]
+    if not rows or not has_source_time(table):
+        return 0
+    from sqlalchemy import text
+    session.execute(text(f"UPDATE {table} SET source_updated_at = :t WHERE id = :i"), rows)
+    return len(rows)
+
+
+def _parse_stored(v):
+    from datetime import datetime
+    if v is None or isinstance(v, datetime):
+        return v
+    try:
+        return datetime.fromisoformat(str(v))
+    except ValueError:
+        return None
+
+
+def attach_source_times(session, rows) -> list:
+    """THE reader (addendum 35 item 2: "The three export blocks read it through one guarded helper"): set the
+    plain attribute `source_updated_at` on each ORM row (Odds or OddsSnapshot) from its table's column, None
+    before the migration or where unknown. Returns the rows, so callers keep src.timeutil.oldest_source_time."""
+    rows = list(rows)
+    by_table: dict = {}
+    for r in rows:
+        t = getattr(getattr(r, "__table__", None), "name", None)
+        if t in SOURCE_TIME_TABLES:
+            by_table.setdefault(t, []).append(r)
+    for t, rs in by_table.items():
+        vals: dict = {}
+        ids = sorted({r.id for r in rs if getattr(r, "id", None) is not None})
+        if ids and session is not None and has_source_time(t):
+            from sqlalchemy import bindparam, text
+            q = text(f"SELECT id, source_updated_at FROM {t} WHERE id IN :ids").bindparams(
+                bindparam("ids", expanding=True))
+            vals = {i: _parse_stored(v) for i, v in session.execute(q, {"ids": ids})}
+        for r in rs:
+            r.source_updated_at = vals.get(getattr(r, "id", None))
+    return rows
+
+
 # PREDICTION HISTORY (ARCHITECT 2026-10-06, #87): every Prediction INSERT, from any
 # write path (predict-nfl, soccer and MLB predict, future ones), is appended to
 # prediction_history in the SAME transaction: a rolled-back run (a dry run, a

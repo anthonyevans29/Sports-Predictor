@@ -349,8 +349,9 @@ def _anchor_source_time(s, m, at):
     (the rows _book_anchor reads), the oldest where they differ; None = unknown."""
     if at is None:
         return None
+    from src.db.database import attach_source_times
     from src.timeutil import oldest_source_time
-    return oldest_source_time(list(s.execute(select(OddsSnapshot).where(
+    return oldest_source_time(attach_source_times(s, s.execute(select(OddsSnapshot).where(
         OddsSnapshot.match_id == m.id, OddsSnapshot.market == "1X2",
         OddsSnapshot.source != "kalshi", OddsSnapshot.captured_at == at)).scalars()))
 

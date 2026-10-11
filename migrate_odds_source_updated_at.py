@@ -15,9 +15,11 @@ never read as fresh." Only sync-odds-football (american football: NFL + NCAA)
 fills it; every other source stays NULL. No backfill: the old rows' source
 times were never kept. Additive and idempotent; never deletes or rewrites.
 
-RUN ORDER: take the daily .backup first (law 5), then run this BEFORE any chain
-after pulling — the ORM now maps both columns, so every odds / odds_snapshots
-query fails with "no such column" until they exist.
+RUN ORDER (ARCHITECT 2026-10-09, addendum 35 item 2): any order. The two columns
+are NOT mapped in the ORM (the ORDER LINE note in schema.py): sync-odds-football
+writes them by guarded Core SQL only when they exist, and every reader shows null
+until then, so a pull or a deploy before this script keeps working. Run by hand,
+after the daily .backup (law 5).
 
 Receipt: per table and source, the rows that carry source_updated_at and the
 rows that do not. Right after migrating every row is NULL; after the next

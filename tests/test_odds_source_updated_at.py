@@ -8,7 +8,13 @@ quote. A row without it has an unknown source time, and unknown is never read as
 Covers: the american-football adapter (present, absent, unreadable), sync-odds-football (odds rows and the
 book consensus snapshots), every export block that shows a capture time for those prices (fixtures market
 block 1X2 + spread-derived, the line-move book venue of the NFL export / window card, the NFL results
-file's value anchor), and migrate_odds_source_updated_at.py run twice."""
+file's value anchor), and migrate_odds_source_updated_at.py run twice.
+
+ADDENDUM 35 item 2 (RULED): the two columns are NOT mapped: written and read by guarded Core SQL, only when they
+exist. "Tests, beside the ones you have: on a database without the two columns, sync-odds-football writes its rows
+and snapshots, the three exports run and show null, and nothing raises. Then the migration, and the same run shows
+the values." The DB tests below run in both states: `_columns(False)` drops the two columns from the throwaway DB
+(SQLite >= 3.35), `_columns(True)` runs migrate_odds_source_updated_at.py itself."""
 import json
 from collections import Counter
 from datetime import datetime, timedelta
@@ -18,7 +24,7 @@ import pytest
 from sqlalchemy import create_engine, select, text
 
 from src.adapters.normalized import NormalizedOdds
-from src.db.database import init_db, session_scope
+from src.db.database import attach_source_times, get_engine, init_db, session_scope, write_source_times
 from src.db.schema import Competition, Match, MatchStatus, Odds, OddsSnapshot, Prediction, Sport, Team
 from src.ingestion import service as svc
 from src.timeutil import oldest_source_time, utc_now_naive
@@ -89,6 +95,27 @@ def test_oldest_source_time_unknown_is_never_fresh():
     assert oldest_source_time([]) is None
 
 
+# ------------------------------------------------------------ the two states ----
+
+def _columns(present: bool):
+    """The throwaway DB with (the migration, run for real) or without the two columns."""
+    from sqlalchemy import inspect
+    init_db()
+    eng = get_engine()
+    if present:
+        import migrate_odds_source_updated_at as mig
+        assert mig.main() == 0
+        return
+    for t in ("odds", "odds_snapshots"):
+        if "source_updated_at" in {c["name"] for c in inspect(eng).get_columns(t)}:
+            with eng.begin() as c:
+                c.execute(text(f"ALTER TABLE {t} DROP COLUMN source_updated_at"))
+
+
+def _times(s, rows):
+    return [r.source_updated_at for r in attach_source_times(s, rows)]
+
+
 # --------------------------------------------------------------- the sync ----
 
 @pytest.fixture
@@ -117,7 +144,7 @@ def games():
         s.query(Match).filter(Match.id.in_(ids)).delete(synchronize_session=False)
 
 
-def test_sync_stores_it_on_every_row_and_snapshot(games, monkeypatch):
+def _fake_sync(games, monkeypatch):
     older = UPD - timedelta(minutes=30)
     per_game = {
         "sua0": [("bk1", "HOME", 1.8, UPD), ("bk1", "AWAY", 2.1, UPD),
@@ -131,20 +158,54 @@ def test_sync_stores_it_on_every_row_and_snapshot(games, monkeypatch):
                 for bk, sel, px, u in per_game[gid]]
     monkeypatch.setattr("src.adapters.api_american_football.APIAmericanFootballAdapter.list_odds", list_odds)
     monkeypatch.setattr(svc, "_odds_sleep", lambda x: None)
-    r = svc.sync_odds_nfl(match_ids=set(games))
+    return svc.sync_odds_nfl(match_ids=set(games)), older
+
+
+def test_without_the_columns_the_sync_writes_its_rows_and_snapshots_and_shows_null(games, monkeypatch):
+    """Addendum 35 item 2: a pull or a deploy before the migration keeps working."""
+    from src.walters.export import _fixture_row
+    from src.walters.line_move import line_move_for_match
+    _columns(False)
+    r, _ = _fake_sync(games, monkeypatch)
+    assert r["games"] == 2 and r["snapshots"] == 4 and r["created"] == 6
+    g0, g1 = games
+    with session_scope() as s:
+        odds = list(s.execute(select(Odds).where(Odds.match_id.in_(games))).scalars())
+        snaps = list(s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id.in_(games))).scalars())
+        assert len(odds) == 6 and len(snaps) == 4
+        assert set(_times(s, odds)) == {None} and set(_times(s, snaps)) == {None}
+        m0 = s.get(Match, g0)
+        line_move_for_match(s, m0, m0.utc_date - timedelta(hours=1))      # the line-move reader runs, nothing raises
+    # the fixtures block runs and shows null (its rows are pre-kickoff: captured now, kickoff in 2 days)
+    with session_scope() as s:
+        mk = _fixture_row(s, s.get(Match, g0), "SUA", Counter(), Counter())["market"]
+        assert mk is not None and mk["source_updated_at"] is None and mk["captured_at"] is not None
+
+
+def test_after_the_migration_the_same_run_stores_it_on_every_row_and_snapshot(games, monkeypatch):
+    from src.walters.export import _fixture_row
+    _columns(True)
+    r, older = _fake_sync(games, monkeypatch)
     assert r["games"] == 2 and r["snapshots"] == 4
     g0, g1 = games
     with session_scope() as s:
         o0 = {(o.bookmaker, o.selection): o.source_updated_at
-              for o in s.execute(select(Odds).where(Odds.match_id == g0)).scalars()}
+              for o in attach_source_times(s, s.execute(select(Odds).where(Odds.match_id == g0)).scalars())}
         assert o0 == {("bk1", "HOME"): UPD, ("bk1", "AWAY"): UPD, ("bk2", "HOME"): older, ("bk2", "AWAY"): older}
-        assert all(o.source_updated_at is None
-                   for o in s.execute(select(Odds).where(Odds.match_id == g1)).scalars())
+        assert set(_times(s, s.execute(select(Odds).where(Odds.match_id == g1)).scalars())) == {None}
         s0 = list(s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == g0)).scalars())
-        assert len(s0) == 2 and {x.source_updated_at for x in s0} == {older}
+        assert len(s0) == 2 and set(_times(s, s0)) == {older}
         assert all(x.captured_at != older for x in s0)               # the capture stamp is our fetch time
         s1 = list(s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == g1)).scalars())
-        assert len(s1) == 2 and all(x.source_updated_at is None for x in s1)
+        assert len(s1) == 2 and set(_times(s, s1)) == {None}
+        mk = _fixture_row(s, s.get(Match, g0), "SUA", Counter(), Counter())["market"]
+        assert mk["source_updated_at"] == older.isoformat()
+
+
+def test_the_orm_never_names_the_columns():
+    """Unmapped (addendum 35 item 2): no mapped attribute, so no ORM INSERT or SELECT names the column."""
+    assert "source_updated_at" not in Odds.__table__.columns
+    assert "source_updated_at" not in OddsSnapshot.__table__.columns
 
 
 # ------------------------------------------------------------ the exports ----
@@ -161,16 +222,20 @@ def _fixture_game(s, tag, rows, ko):
               utc_date=ko, home_team_id=h.id, away_team_id=a.id, external_ids={"suax": tag})
     s.add(m)
     s.flush()
+    pairs = []
     for bk, mkt, sel, px, line, at, u in rows:
-        s.add(Odds(match_id=m.id, bookmaker=bk, market=mkt, selection=sel, price_decimal=px, line=line,
-                   source="api_american_football", captured_at=at, source_updated_at=u))
+        o = Odds(match_id=m.id, bookmaker=bk, market=mkt, selection=sel, price_decimal=px, line=line,
+                 source="api_american_football", captured_at=at)
+        s.add(o)
+        pairs.append((o, u))
     s.flush()
+    write_source_times(s, "odds", [(o.id, u) for o, u in pairs])
     return m
 
 
 def test_fixtures_market_block_shows_it_beside_captured_at():
     from src.walters.export import _fixture_row
-    init_db()
+    _columns(True)
     ko = utc_now_naive() + timedelta(days=1)
     at = ko - timedelta(hours=5)
     older = UPD - timedelta(hours=2)
@@ -202,6 +267,7 @@ def test_fixtures_spread_derived_block_shows_it(monkeypatch):
     init_db()
     monkeypatch.setattr(fb, "FALLBACK_LIVE", True)
     monkeypatch.setattr(fb, "sigma_for", lambda code: 13.5)
+    _columns(True)
     ko = utc_now_naive() + timedelta(days=1)
     at = ko - timedelta(hours=5)
     older = UPD - timedelta(hours=3)
@@ -242,9 +308,10 @@ def test_line_move_book_venue_shows_it_beside_from_at_and_to_at():
     assert b["to_source_updated_at"] == (u1 - timedelta(minutes=5)).isoformat()
 
 
-def test_nfl_results_value_anchor_shows_it(tmp_path):
+@pytest.mark.parametrize("migrated", [False, True])
+def test_nfl_results_value_anchor_shows_it(tmp_path, migrated):
     from src.walters.nfl_predict import export_nfl_results
-    init_db()
+    _columns(migrated)
     ko = utc_now_naive().replace(microsecond=0) - timedelta(days=1)
     anchor_at = ko - timedelta(days=3)
     with session_scope() as s:
@@ -255,7 +322,9 @@ def test_nfl_results_value_anchor_shows_it(tmp_path):
             s.add(c)
             s.flush()
         rows = {}
+        snap_times = []
         for tag, u in (("known", UPD), ("unknown", None)):
+            tag = f"{tag}{int(migrated)}"
             h, a = Team(sport=Sport.NFL, name=f"SUAR {tag} Home"), Team(sport=Sport.NFL, name=f"SUAR {tag} Away")
             s.add_all([h, a])
             s.flush()
@@ -266,11 +335,15 @@ def test_nfl_results_value_anchor_shows_it(tmp_path):
             s.add(Prediction(match_id=m.id, model_version="t", home_win_prob=0.489, away_win_prob=0.511,
                              computed_at=ko - timedelta(days=2)))
             for sel, p in (("HOME", 0.355), ("AWAY", 0.645)):
-                s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel, devig_prob=p, n_books=5,
-                                   captured_at=anchor_at, source="api_american_football", source_updated_at=u))
+                sn = OddsSnapshot(match_id=m.id, market="1X2", selection=sel, devig_prob=p, n_books=5,
+                                  captured_at=anchor_at, source="api_american_football")
+                s.add(sn)
+                snap_times.append((sn, u))
                 s.add(Odds(match_id=m.id, bookmaker="bk", market="1X2", selection=sel, price_decimal=1 / p,
                            source="api_american_football", captured_at=ko - timedelta(hours=1)))
             rows[tag] = m.id
+        s.flush()
+        assert write_source_times(s, "odds_snapshots", [(sn.id, u) for sn, u in snap_times]) == (1 if migrated else 0) * 2
     try:
         path = export_nfl_results(days_back=3, out_dir=str(tmp_path))
     finally:
@@ -288,10 +361,10 @@ def test_nfl_results_value_anchor_shows_it(tmp_path):
             s.query(Match).filter(Match.id.in_(ids)).update({Match.competition_id: park.id},
                                                             synchronize_session=False)
     by = {x["match_id"]: x["graded"] for x in json.load(open(path))["results"]}
-    g = by[rows["known"]]
+    g = by[rows[f"known{int(migrated)}"]]
     assert g["value_anchor_at"] == anchor_at.isoformat()
-    assert g["value_anchor_source_updated_at"] == UPD.isoformat()
-    assert by[rows["unknown"]]["value_anchor_source_updated_at"] is None
+    assert g["value_anchor_source_updated_at"] == (UPD.isoformat() if migrated else None)
+    assert by[rows[f"unknown{int(migrated)}"]]["value_anchor_source_updated_at"] is None
     # the close's own source time on results rows is NOT in this lane (addendum 32 item 4)
     assert not any("source" in k and "close" in k and "updated" in k for k in g)
 

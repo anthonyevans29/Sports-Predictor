@@ -2081,14 +2081,15 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
                 continue
             s.query(Odds).filter(Odds.match_id == m.id,
                                  Odds.source == ad.source_name).delete()
+            src_pairs = []          # (row, the provider's own time) — addendum 32 item 4; None = unknown
             for ow in rows:
-                s.add(Odds(match_id=m.id, market=ow.market,
-                           selection=ow.selection, bookmaker=ow.bookmaker,
-                           price_decimal=ow.price_decimal, line=ow.line,
-                           source=ad.source_name,
-                           captured_at=fetched_at,
-                           # the provider's own time (addendum 32 item 4); None = unknown
-                           source_updated_at=ow.source_updated_at))
+                o = Odds(match_id=m.id, market=ow.market,
+                         selection=ow.selection, bookmaker=ow.bookmaker,
+                         price_decimal=ow.price_decimal, line=ow.line,
+                         source=ad.source_name,
+                         captured_at=fetched_at)
+                s.add(o)
+                src_pairs.append((o, ow.source_updated_at))
                 created += 1
             games += 1
             games_by_comp[comp_of(m)] = games_by_comp.get(comp_of(m), 0) + 1
@@ -2105,12 +2106,23 @@ def sync_odds_nfl(progress=None, match_ids: set[int] | None = None) -> dict:
                 n_books = max(len(v) for v in by_sel.values())
                 from src.timeutil import oldest_source_time
                 src_upd = oldest_source_time(used)
+                snap_rows = []
                 for sel, prob in implied.items():
-                    s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel,
-                                       devig_prob=prob / over, line=None, n_books=n_books,
-                                       captured_at=stamp, source=ad.source_name,
-                                       source_updated_at=src_upd))
+                    sn = OddsSnapshot(match_id=m.id, market="1X2", selection=sel,
+                                      devig_prob=prob / over, line=None, n_books=n_books,
+                                      captured_at=stamp, source=ad.source_name)
+                    s.add(sn)
+                    snap_rows.append(sn)
                     snapshots += 1
+            else:
+                src_upd, snap_rows = None, []
+            # SOURCE TIME by guarded Core SQL after the flush (addendum 35 item 2): the columns are unmapped, so a
+            # database that has not run migrate_odds_source_updated_at.py writes its rows and snapshots and
+            # nothing to the field
+            from src.db.database import write_source_times
+            s.flush()
+            write_source_times(s, "odds", [(o.id, t) for o, t in src_pairs])
+            write_source_times(s, "odds_snapshots", [(sn.id, src_upd) for sn in snap_rows])
     if deferred_total:
         report(f"  rate limit: {deferred_total} game(s) deferred ({deferred_label}) · {recovered} recovered after the "
                f"window" + (f" ({recovered_label})" if recovered else ""))

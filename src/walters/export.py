@@ -1085,6 +1085,7 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
     from src.walters import spread_fallback as _fb
     from src.walters.venue import KALSHI_EXEC_NULL as _KNULL, kalshi_exec as _kexec, kalshi_legs as _kalshi_legs
     from src.timeutil import oldest_source_time as _oldest_src
+    from src.db.database import attach_source_times
 
     all_odds = list(s.execute(_select(_Odds).where(_Odds.match_id == m.id)).scalars())
     labels.update((o.market, o.selection) for o in all_odds)
@@ -1103,7 +1104,7 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
         # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4): beside the capture
         # time, the provider's own update time of the session's rows (the oldest
         # where they differ; null = unknown, never fresh)
-        src_upd = _oldest_src(_cl["rows"])
+        src_upd = _oldest_src(attach_source_times(s, _cl["rows"]))    # the guarded reader (addendum 35)
         market = {
             "bookmaker_count": _cl["books"],
             "bookmaker_count_quoted": _cl["books_quoted"],
@@ -1124,7 +1125,7 @@ def _fixture_row(s, m, competition_code: str, labels, counts: dict) -> dict:
             cap = max((o.captured_at for o in sp.values() if o.captured_at),
                       default=None)
             market["captured_at"] = cap.isoformat() if cap else None
-            src_upd = _oldest_src(sp.values())     # SOURCE TIME (addendum 32 item 4)
+            src_upd = _oldest_src(attach_source_times(s, sp.values()))     # SOURCE TIME (addendum 32 item 4)
             market["source_updated_at"] = src_upd.isoformat() if src_upd else None
             counts["with_spread_derived"] += 1
     kal: dict[str, object] = {}

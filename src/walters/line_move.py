@@ -110,7 +110,9 @@ def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:
     now = now or datetime.now(timezone.utc).replace(tzinfo=None)   # naive UTC (the storage convention)
     if m.utc_date is None or not (m.utc_date - timedelta(hours=LINE_MOVE_WINDOW_H) <= now < m.utc_date):
         return None
-    snaps = s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars()
+    from src.db.database import attach_source_times
+    # the book venue's source times through the guarded reader (addendum 35 item 2); None before the migration
+    snaps = attach_source_times(s, s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars())
     return line_move(snaps, m.utc_date, now, three_way=_is_soccer(m))
 
 

@@ -111,6 +111,15 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 
    - Receipt: paste the six `receipt {...}` lines, the `cutover receipt:`
      line and `PASS — 6/6 steps receipted`.
+   - **PL PREDICTION CHECK (ARCHITECT 2026-10-10, addendum 36 item 3; #410), after `install` and before `flip`:** "the host exports the PL predictions from the installed database, and the file equals the laptop's last file from that database, number for number."
+     So on cutover day the steps run one at a time: `preflight`, `pause`, `install`, then this check, then `flip`, `resume`, `receipt`. With the timers paused and the installed DB in place, on the host:
+     ```
+     sudo -u sp venv/bin/python cli.py export-predictions --sport soccer --competition PL \
+         --start <the laptop file's start_date> --end <its end_date>
+     sudo -u sp venv/bin/python deploy/hosting/compare_exports.py <dir holding the laptop's file> exports \
+         --glob 'soccer_PL_*' --since 0
+     ```
+     The laptop's file is its last `soccer_PL_*.json` written from the database the pack carries (exported before the pack was made). PASS: `VERDICT: CLEAN` on that file. Anything else, a number that differs or a row on one side only, stops the cutover before `flip`: the flag stays `laptop`, the laptop stays the writer of record, and the result goes to the architect (rollback: section 3).
    - Steps can also run one at a time (`preflight`, `pause`, `install`,
      `flip`, `resume`, `receipt`) with the same `--pack`; `receipt` reads
      the earlier receipts of the same cutover id.

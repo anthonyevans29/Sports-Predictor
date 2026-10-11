@@ -440,6 +440,9 @@ PASS requires all three of the following:
   host, never promoted, and the host DB is replaced at H2, so the numbering
   gap is harmless.
 - All four model-bearing timers are enabled with the rest (T11).
+- **AMENDED (ARCHITECT 2026-10-10, addendum 36 item 3; finding #410):** "The production soccer row's ratings and team_to_league are keyed by the team ids of the database that trained them. They are that database's state, not configuration, and a seeded copy is valid only where the team ids are the same. On the host they are not. Nothing is re-keyed there: the cutover replaces that database with the laptop's. Until then the host's soccer model rows are evidence of nothing, I name them in the compare as a class of their own, and no page built from them is a call."
+  - The seed copied the laptop's rows, every column, into a database whose teams the host's own bootstrap had created under other ids; on the host 16 of 20 PL slots read the default 1500.0 and 4 another league's club (#410). The "config only" premise above holds for the poisson configuration, not for `elo.*.ratings` and `team_to_league`.
+  - The cutover runbook (h2-cutover-runbook.md, section 1 step 4) checks the installed database's PL export against the laptop's last file before the writer flag flips.
 
 ---
 

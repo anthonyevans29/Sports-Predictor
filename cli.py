@@ -643,12 +643,15 @@ def _match_ids_opt(value: str | None) -> set[int] | None:
 @click.option("--competition", "competition_code", required=True)
 @click.option("--season", default=None)
 @click.option("--limit", default=20, show_default=True, type=int,
-              help="Max matches to fetch odds for (soccer). Ignored for MLB (daily-grouped pulls).")
+              help="Max matches to fetch odds for (soccer): the next N by kickoff, then id. Does not apply "
+                   "with --match-ids. Ignored for MLB (daily-grouped pulls).")
 @click.option("--days-ahead", default=7, show_default=True, type=int,
               help="For MLB: how many days of upcoming games to fetch odds for.")
 @click.option("--match-ids", "match_ids", default=None,
               help="Soccer: price only these stored match ids, comma-separated (the closing run's games, "
-                   "ARCHITECT 2026-10-09 addendum 21 item 3 C3). Default: unchanged. Not for MLB.")
+                   "ARCHITECT 2026-10-09 addendum 21 item 3 C3). Every named game is priced, in kickoff order; "
+                   "--limit does not apply (addendum 33 item 2; until #402 the limit, default 20, cut a named "
+                   "list). Default: unchanged. Not for MLB.")
 def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ahead: int,
                   match_ids: str | None):
     """

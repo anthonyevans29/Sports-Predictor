@@ -87,6 +87,8 @@ def canonical_models(export_dir: str | os.PathLike) -> dict[int, dict]:
                    # the export field OR the row's Desk quarantine shadow (MLB >8pp, Codex on #328)
                    "quarantine": True if desk_quarantined(dk) else r.get("quarantine"),
                    "market_divergence_pp": r.get("market_divergence_pp"),
+                   # addendum 36 item 2: soccer rows carry rating_source (home/away: model | default); else None
+                   "rating_source": (r.get("input_quality") or {}).get("rating_source"),
                    "source_file": f.name, "exported_at": stamp,
                    # F1: the Desk's call when the export carries it (--desk); else None
                    "desk": ({k: dk.get(k) for k in ("call", "units", "pass_kind", "reference",

@@ -97,6 +97,9 @@ def timing(start: date, end: date) -> dict:
         kalshi = dict(s.execute(select(OddsSnapshot.match_id, func.min(OddsSnapshot.captured_at))
                                 .where(OddsSnapshot.match_id.in_(ids), OddsSnapshot.source == "kalshi")
                                 .group_by(OddsSnapshot.match_id)).all())
+        from src.walters.kalshi_legs import mismatched   # addendum 37 item 3: mismatched legs are never read
+        for _mid in mismatched(s, list(kalshi)):
+            kalshi.pop(_mid, None)
         table = {mid: (n, last) for mid, n, last in s.execute(
             select(Odds.match_id, func.count(func.distinct(Odds.bookmaker)), func.max(Odds.captured_at))
             .where(Odds.match_id.in_(ids), Odds.source == "api_baseball").group_by(Odds.match_id))}

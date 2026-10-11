@@ -162,6 +162,10 @@ def ladders(s, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -
         if m.utc_date is None or x.captured_at >= m.utc_date:      # pre-kickoff only (in-play never)
             continue
         by.setdefault((m.id, x.captured_at), {"comp": c.code, "legs": {}, "match": m})["legs"][x.selection] = x
+    # addendum 37 item 3: a game whose Kalshi legs are mismatched is never read as a ladder
+    from src.walters.kalshi_legs import mismatched
+    _mm = mismatched(s, {k[0] for k in by})
+    by = {k: v for k, v in by.items() if k[0] not in _mm}
     mids = sorted({k[0] for k in by})
     book_by: dict = {}
     pred_by: dict = {}

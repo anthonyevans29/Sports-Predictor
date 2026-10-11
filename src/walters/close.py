@@ -241,6 +241,8 @@ def grading_close(s, match) -> dict | None:
         return sn
     if cl is None and not any(x.captured_at is not None and (match.utc_date is None or x.captured_at < match.utc_date)
                               for x in book_snaps):
+        from src.walters.kalshi_legs import guard_snaps
+        snaps, _ = guard_snaps(snaps, s)   # addendum 37 item 3: no close from mismatched Kalshi legs
         ko = close_from_kalshi(snaps, match.utc_date, outcomes)
         if ko is not None:
             return ko

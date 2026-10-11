@@ -94,6 +94,10 @@ def audit(con, since: str | None = None) -> dict:
                 "graded_error": None, "by_series_day": {}}
     untickered = con.execute(f"SELECT COUNT(*) FROM odds_snapshots s WHERE {where} AND "
                              "(s.market_ticker IS NULL OR s.market_ticker = '')", params).fetchone()[0]
+    # #438 (Codex): tickered counts only the snapshots the audit can place on a game (a match row exists); a tickered
+    # orphan is on the orphans line alone
+    tickered = con.execute(f"SELECT COUNT(*) FROM odds_snapshots s JOIN matches m ON m.id = s.match_id WHERE {where} "
+                           "AND s.market_ticker IS NOT NULL AND s.market_ticker != ''", params).fetchone()[0]
     rows = con.execute(
         "SELECT s.id, s.match_id, s.selection, s.market_ticker, s.captured_at, m.utc_date, "
         "COALESCE(h.name, '?'), COALESCE(a.name, '?') "
@@ -146,7 +150,7 @@ def audit(con, since: str | None = None) -> dict:
     except sqlite3.OperationalError as e:
         graded_error = f"{type(e).__name__}: {e}"
     return {"ticker_column": True, "kalshi_snapshots": total, "untickered": untickered,
-            "tickered": total - untickered, "orphans": orphans, "two_event_games": two_event, "split_events": split,
+            "tickered": tickered, "orphans": orphans, "two_event_games": two_event, "split_events": split,
             "first_day": first_day, "graded": [games[m] for m in graded], "graded_error": graded_error,
             "by_series_day": by_sd}
 
@@ -156,13 +160,13 @@ def _game(g) -> str:
 
 
 def report(r: dict, echo=print) -> None:
-    echo(f"Kalshi snapshots: {r['kalshi_snapshots']} · with a ticker: {r['tickered']} · "
+    echo(f"Kalshi snapshots: {r['kalshi_snapshots']} · with a ticker, on a game: {r['tickered']} · "
          f"WITHOUT a ticker (cannot be checked): {r['untickered']}")
     echo(f"of them with no match row (orphans; their legs are not placed on any game): {r.get('orphans', 0)}")
     if not r["ticker_column"]:
         echo("odds_snapshots.market_ticker does not exist (migrate_kalshi_ticker.py not run): nothing can be checked")
         echo(f"\nKALSHI-LEG-AUDIT two_event_games=0 split_events=0 graded=0 untickered={r['untickered']} tickered=0 "
-             "ticker_column=absent")      # the summary line in both database shapes (Codex on #416)
+             f"orphans={r.get('orphans', 0)} ticker_column=absent")      # the summary line in both database shapes (Codex on #416)
         return
     echo(f"\nGAMES WHOSE LEGS COME FROM TWO EVENTS: {len(r['two_event_games'])}")
     for g in r["two_event_games"]:

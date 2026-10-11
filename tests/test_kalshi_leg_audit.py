@@ -84,7 +84,7 @@ def test_before_the_ticker_column_nothing_can_be_checked_and_it_says_so(tmp_path
     la.report(r, echo=lines.append)
     assert any("does not exist" in x for x in lines)
     assert lines[-1].strip() == ("KALSHI-LEG-AUDIT two_event_games=0 split_events=0 graded=0 untickered=8 "
-                                 "tickered=0 ticker_column=absent")
+                                 "tickered=0 orphans=0 ticker_column=absent")
 
 
 def test_read_only_the_file_is_unchanged(tmp_path):
@@ -105,7 +105,7 @@ def test_orphan_snapshots_are_counted_on_their_own_line_not_as_tickered(tmp_path
     con.close()
     c, _ = la.open_read(p)
     r = la.audit(c)
-    assert (r["kalshi_snapshots"], r["tickered"], r["untickered"], r["orphans"]) == (9, 7, 2, 1)
+    assert (r["kalshi_snapshots"], r["tickered"], r["untickered"], r["orphans"]) == (9, 6, 2, 1)       # #438: the tickered orphan is not tickered
     la.report(r)
     out = capsys.readouterr().out
     assert "with no match row (orphans; their legs are not placed on any game): 1" in out

@@ -143,6 +143,19 @@ def elo_drift_games(s, since) -> list:
         )).scalars() if "pre" not in (m.stage or "").lower()]
 
 
+def refuse_out_path(out_path: str) -> None:
+    """Law 5 for --out (Codex on #433): the resolved target is never under data/ and never the configured
+    database itself (a symlink or alias included). Raises ValueError before anything is opened for writing."""
+    from pathlib import Path
+    from src.walters.unl_ladders import data_dir
+    tgt = Path(out_path).resolve()
+    data = data_dir()
+    url = os.getenv("DATABASE_URL") or ""
+    db = Path(url.replace("sqlite:///", "")).resolve() if url.startswith("sqlite:///") else None
+    if tgt == data or data in tgt.parents or (db is not None and tgt == db):
+        raise ValueError(f"REFUSED: --out {out_path} is under data/ or is the database (law 5)")
+
+
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                            receipts: dict | None = None,
                            hours_ahead: float | None = None, desk: bool | None = None,
@@ -295,6 +308,7 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
     for r in rows:
         r.pop("_computed_at", None)
     if out_path:              # addendum 40 item 2: a closing run names its own file, outside exports/
+        refuse_out_path(out_path)
         os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
         path = out_path
     else:

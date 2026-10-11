@@ -652,10 +652,13 @@ def test_c5_mlb_page_hold_wrap_and_no_play_is_default_priority(box):
         p["desk"]["call"] = "PASS"
     assert mc.run("SOCCER", start=at(35), now=NOW + timedelta(minutes=1)) == 0
     # B3: Arsenal was a PLAY in the last file (the run above); now PASS: its own line, high priority
-    assert box.pages[-1]["priority"] == "high" and box.pages[-1]["body"].splitlines()[-2:] == [
+    # (a manual rerun of a closed start: its closing-file write is refused and noticed, Codex on #433; the run page
+    # is read through call_pages)
+    assert call_pages(box)[-1]["priority"] == "high" and call_pages(box)[-1]["body"].splitlines()[-2:] == [
         "Arsenal Visitors @ Arsenal · PASS · was PLAY Arsenal 0.5u", "PASS: 2 games"]
     assert mc.run("SOCCER", start=at(35), now=NOW + timedelta(minutes=2)) == 0     # last call now PASS: no line
-    assert box.pages[-1]["priority"] == "default" and box.pages[-1]["body"].splitlines()[1:] == ["PASS: 2 games"]
+    assert call_pages(box)[-1]["priority"] == "default" and call_pages(box)[-1]["body"].splitlines()[1:] == [
+        "PASS: 2 games"]
 
 
 def test_c5_wrap_never_exceeds_100_and_keeps_the_ending():

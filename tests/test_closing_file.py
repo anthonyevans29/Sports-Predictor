@@ -230,3 +230,34 @@ def test_the_backfill_rebuilds_each_paged_run_from_the_mirrors_history_by_sha256
     assert out[-1] == 'CLOSING-BACKFILL {"NOT FOUND": 1, "WRITTEN": 2, "runs": 3}'
     assert bf.main(argv) == 0                                                              # once is enough
     assert capsys.readouterr().out.splitlines()[-1] == 'CLOSING-BACKFILL {"NOT FOUND": 1, "UNCHANGED": 2, "runs": 3}'
+
+
+def test_codex_a_second_run_for_the_same_start_never_replaces_the_first_file(box):
+    """Codex on #433 (P2): a manual rerun of a closed start pages again, but its file write is refused (receipted
+    and notified); the first run's file and its sha256 stand."""
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    f = _closing(box, "NFL")
+    first = f.read_bytes()
+    box.docs["NFL"] = _set_call(nfl_doc(), 301)
+    assert mc.run("NFL", start=at(35), now=NOW + timedelta(minutes=1)) == 0
+    r = runs()[-1]
+    assert r["closing_file_failed"] is True and r["closing_file"]["error"].startswith("exists")
+    assert f.read_bytes() == first and runs()[-2]["closing_file"]["sha256"] == hashlib.sha256(first).hexdigest()
+
+
+@pytest.mark.parametrize("target", ["data/sports.db", "data/x/out.json"])
+def test_codex_export_nfl_out_never_writes_under_data_or_onto_the_database(tmp_path, monkeypatch, target):
+    """Codex on #433 (P1): --out is refused before anything is opened when it resolves under data/ or onto the
+    configured database."""
+    from src.walters import nfl_predict as npx
+    with pytest.raises(ValueError, match="law 5"):
+        npx.refuse_out_path(str(ROOT / target))
+    db = tmp_path / "live.db"
+    db.write_bytes(b"x")
+    alias = tmp_path / "alias.json"
+    alias.symlink_to(db)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
+    with pytest.raises(ValueError, match="law 5"):
+        npx.refuse_out_path(str(alias))
+    npx.refuse_out_path(str(tmp_path / "logs" / "ok.json"))                              # anywhere else: fine
+    assert db.read_bytes() == b"x"

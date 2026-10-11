@@ -1239,6 +1239,9 @@ def write_closing_file(doc: dict, name: str, mtime: float | None = None) -> dict
     """Write exports/<name> atomically (a temporary name beside it, then a rename). {file, sha256} or {error}."""
     dest = c.REPO / CLOSING_FILE_DIR / name
     tmp = dest.with_name(f".{name}.tmp")
+    if dest.exists():                  # Codex on #433: one page never silently replaces another's file
+        return {"file": f"{CLOSING_FILE_DIR}/{name}",
+                "error": "exists: a closing file of this family and start is already written, not replaced"}
     try:
         c.refuse_under_data(dest.parent)
         dest.parent.mkdir(parents=True, exist_ok=True)

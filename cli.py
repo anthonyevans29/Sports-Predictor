@@ -5353,9 +5353,15 @@ def export_nfl_predictions_cmd(week, days, desk, out_path):
     closing freshen yields a one-slate file. --week / --days N widen it.
     Prediction generation is unchanged (predict-nfl still stores the whole
     week for CLV); only the file's rows are scoped."""
-    from src.walters.nfl_predict import export_nfl_predictions
+    from src.walters.nfl_predict import export_nfl_predictions, refuse_out_path
     if week and days:
         raise click.UsageError("--week and --days are exclusive")
+    if out_path:                       # law 5 before any read (Codex on #433)
+        try:
+            refuse_out_path(out_path)
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
+            raise SystemExit(2)
     rc: dict = {}
     if week:
         path, how = (export_nfl_predictions(days_ahead=8, receipts=rc, desk=desk or None, out_path=out_path),

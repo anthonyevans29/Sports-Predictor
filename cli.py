@@ -739,6 +739,7 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
         result = service.sync_injuries_for_teams(team_ids, season=season) if team_ids else None
         if result is not None:
             console.print(f"[green]✓ Injuries ({competition_code}): {result}[/green]")
+            _print_empty_answers(competition_code, result)
         failed = [f"match {m}: not stored in {competition_code}, no read made" for m in sorted(named - found)]
         failed += list(result.failed_reads) if result is not None else []
         if strict and failed:
@@ -765,8 +766,22 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
     else:
         result = service.sync_injuries(competition_code, season=season)
     console.print(f"[green]✓ Injuries ({competition_code}): {result}[/green]")
+    _print_empty_answers(competition_code, result)
     if strict and result.failed_reads:
         _strict_injuries_fail(competition_code, result.failed_reads)
+
+
+EMPTY_ANSWER_MARK = "EMPTY-ANSWER"
+
+
+def _print_empty_answers(competition_code: str, result) -> None:
+    # AN EMPTY INJURY LIST IS UNREAD (ARCHITECT 2026-10-11, addendum 40 item 4): "The sync names every team whose
+    # answer was empty, in its console and in the run's receipt, and --strict does not fail on it: the provider
+    # answered." One plain line (never rich-wrapped), so a closing run's step tail carries it to the receipt.
+    teams = list(getattr(result, "empty_answers", None) or [])
+    if teams:
+        print(f"{EMPTY_ANSWER_MARK} ({competition_code}): {len(teams)} team(s) answered no injury entry, "
+              f"stored empty (read as unread): {'; '.join(teams)}", flush=True)
 
 
 def _strict_injuries_fail(competition_code: str, failed_reads: list[str]) -> None:

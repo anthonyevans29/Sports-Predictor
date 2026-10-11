@@ -96,6 +96,10 @@ class SyncResult:
     # STRICT MODE (ARCHITECT 2026-10-09, addendum 22, 380.1): the reads a sync needed and could not make, one line
     # each. Recorded always, read only by a command's --strict; never printed by __str__ (default output unchanged).
     failed_reads: list = field(default_factory=list)
+    # AN EMPTY INJURY LIST IS UNREAD (ARCHITECT 2026-10-11, addendum 40 item 4): "The sync names every team whose
+    # answer was empty, in its console and in the run's receipt, and --strict does not fail on it: the provider
+    # answered." The team names, one per team whose injury read answered no entry. Never a failed read.
+    empty_answers: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -903,6 +907,8 @@ class IngestionService:
             result.skipped += 1
             result.failed_reads.append(f"team {team.id} ({team.name}): fetch failed: {type(e).__name__}")
             return
+        if not injuries:              # addendum 40 item 4: the provider answered, with no entry (named, not failed)
+            result.empty_answers.append(team.name)
         # A2 (addendum 23): the adapter's own record of a failed roster read (NFL: positions for qb_listed).
         # failed_reads only: a command's --strict reads it; counts and output stay as they were.
         rf = getattr(self.adapter, "last_roster_failure", None)

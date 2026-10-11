@@ -127,6 +127,15 @@ KALSHI_ONLY_SUSPENDED_REASON = ("kalshi-only suspended for MLB: the model number
 DEFAULT_RATING_RULE = {"on": True}
 DEFAULT_RATING_KIND = "default_rating"
 DEFAULT_RATING_RULING = "default rating, ARCHITECT 2026-10-10"
+# AN EMPTY NFL INJURY LIST IS UNREAD (ARCHITECT 2026-10-11, addendum 40 item 4, RULED): "An NFL team with no stored
+# injury row is a list we could not read, not a team with nobody hurt. A flag we could not look up is not a flag that
+# is off (addendum 23, A2). Where either team's list is empty, the Desk sizes an NFL PLAY as it sizes a QB-flagged
+# one: half units, and the reason names the team." Read from input_quality.injuries.<side>.count (0 = empty); a row
+# without the count (other sports, an older file, the frozen golden's rows) is unchanged. "Nothing else changes: [...]
+# a quarantine or a PASS is untouched, and no shadow is resized." POLICY_VERSION stays v1.1: v1.1's QB rule read under
+# law 4. Its own switch and its own desk_meta line, as addendum 36's rule has.
+INJURY_EMPTY_RULE = {"on": True}
+INJURY_EMPTY_TAG = "QB unread half units"
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
                  "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
                  KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
@@ -314,6 +323,9 @@ def normalize(doc: dict) -> list[dict]:
         inj = (p.get("input_quality") or {}).get("injuries") or {}
         qbs = list(((inj.get("home") or {}).get("qb_listed")) or []) + \
             list(((inj.get("away") or {}).get("qb_listed")) or [])
+        # addendum 40 item 4: the teams whose stored injury list is empty (count 0); a side without a count: unknown
+        inj_empty = [home if sd == "home" else away for sd in ("home", "away")
+                     if isinstance(inj.get(sd), dict) and inj[sd].get("count") == 0]
         out.append({
             "src": p, "game": f"{_t(away)} @ {_t(home)}", "home": home, "away": away,
             "pick": pick, "prob": best, "mkt": market.get(pick),
@@ -322,7 +334,7 @@ def normalize(doc: dict) -> list[dict]:
             "kal": (p.get("input_quality") or {}).get("kalshi") or None, "sport": sport,
             "utc": p.get("utc_date") or "", "probsAll": probs, "fairAll": market,
             "div": p.get("market_divergence_pp"), "quar": bool(p.get("quarantine")),
-            "books": mk.get("bookmaker_count"), "qbs": qbs,
+            "books": mk.get("bookmaker_count"), "qbs": qbs, "injEmpty": inj_empty,
             "stage": p["stage"] if "stage" in p else MISSING,
             "comp": (p.get("competition") or doc.get("sport") or "").upper(),
             "kalProb": kal_from_prediction(p, mk, market),
@@ -526,6 +538,17 @@ def started_rule_off():
         yield
     finally:
         STARTED_RULE["on"] = was
+
+
+@contextmanager
+def injury_empty_rule_off():
+    """The Desk without the empty-injury-list rule (addendum 40 item 4) — for comparing a file with and without it."""
+    was = INJURY_EMPTY_RULE["on"]
+    INJURY_EMPTY_RULE["on"] = False
+    try:
+        yield
+    finally:
+        INJURY_EMPTY_RULE["on"] = was
 
 
 @contextmanager
@@ -871,6 +894,11 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
             units = min(units, base / 2)
             reasons.append(f"QB-flagged ({', '.join(r['qbs'])}) → half units")
             tags.append("QB-flagged half units")
+        if (call == "PLAY" and r["sport"] == "NFL" and INJURY_EMPTY_RULE["on"] and r.get("injEmpty")
+                and not quarantined):                     # addendum 40 item 4: a quarantine shadow is not resized
+            units = min(units, base / 2)
+            reasons.append(f"injury list empty ({' and '.join(r['injEmpty'])}): QB rule unread → half units")
+            tags.append(INJURY_EMPTY_TAG)
         three_way = r["mktHasDraw"]
         if edge >= e_lad:
             units = base / 2
@@ -1402,6 +1430,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "mlb_kalshi_only_suspended": KALSHI_ONLY_MLB_SUSPENDED["on"],
                         # addendum 36 item 2 (2026-10-10): a default rating on either side is never a call
                         "default_rating_rule": DEFAULT_RATING_RULE["on"],
+                        # addendum 40 item 4 (2026-10-11): an empty NFL injury list sizes a PLAY as QB-flagged
+                        "nfl_injury_list_empty_rule": INJURY_EMPTY_RULE["on"],
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}

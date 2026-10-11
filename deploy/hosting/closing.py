@@ -737,8 +737,10 @@ def shows_books(r: dict) -> bool:
 
 def shows_kalshi(r: dict) -> bool:
     """The export row shows a Kalshi quote: the HOME contract's bid/ask, any captured leg, or a kalshi market block."""
+    k = (r.get("market") or {}).get("kalshi")
+    # addendum 37 item 3: a mismatched block ({status: mismatched, events}) carries no price and is not a quote
     return (r.get("kalshi_bid") is not None or r.get("kalshi_ask") is not None or bool(r.get("kalshi_legs"))
-            or bool((r.get("market") or {}).get("kalshi")))
+            or bool(k and k.get("status") != "mismatched"))
 
 
 # A5 (ARCHITECT 2026-10-09, addendum 23): "Where a market has more than one Kalshi leg, the legs that must be fresh

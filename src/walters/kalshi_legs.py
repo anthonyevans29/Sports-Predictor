@@ -27,11 +27,19 @@ def event_of(ticker) -> str | None:
     return str(ticker).rsplit("-", 1)[0]
 
 
+def _events(t) -> set:
+    """The events of one side's current leg(s): a ticker, or a set of tickers tied at the newest capture."""
+    ts = t if isinstance(t, (set, frozenset, list, tuple)) else [t]
+    return {e for e in (event_of(x) for x in ts) if e}
+
+
 def judge(tickers_by_side: dict, homes_by_event: dict, match_id) -> list[str] | None:
     """Pure. The events of a game's current legs if its legs are mismatched, else None.
-    `tickers_by_side` = {selection: ticker | None} (the game's current legs); `homes_by_event` = {event: set of
-    match ids whose current legs carry that event}. Untickered legs are read as before (they name no event)."""
-    events = sorted({e for e in (event_of(t) for t in tickers_by_side.values()) if e})
+    `tickers_by_side` = {selection: ticker | None | set of tickers} (the game's current legs; a set when several
+    legs of one side tie at the newest capture, Codex on #414: whichever a reader keeps, all are judged);
+    `homes_by_event` = {event: set of match ids whose current legs carry that event}. Untickered legs are read as
+    before (they name no event)."""
+    events = sorted(set().union(*[_events(t) for t in tickers_by_side.values()]) if tickers_by_side else set())
     if not events:
         return None
     if len(events) > 1:
@@ -61,38 +69,46 @@ def has_tickers(conn) -> bool:
 
 
 def current_tickers(conn, match_ids) -> dict:
-    """{match_id: {selection: ticker | None}}: per game and side the newest stored Kalshi leg before kickoff
-    (captured_at < the stored kickoff; a game with no kickoff takes the newest), ties by id."""
+    """{match_id: {selection: set of tickers}}: per game and side the newest stored Kalshi leg(s) before kickoff
+    (captured_at < the stored kickoff; a game with no kickoff takes the newest). Legs tied at that newest capture
+    are all kept (Codex on #414): the readers keep whichever tied row SQLite returns first, so the guard judges
+    every one of them. An untickered leg contributes None."""
     ids = sorted({int(i) for i in match_ids if i is not None})
     out: dict = {}
+    newest: dict = {}
     for k in range(0, len(ids), 500):
         chunk = ids[k:k + 500]
-        sql = ("SELECT s.match_id, s.selection, s.market_ticker FROM odds_snapshots s "
+        sql = ("SELECT s.match_id, s.selection, s.market_ticker, s.captured_at FROM odds_snapshots s "
                "JOIN matches m ON m.id = s.match_id "
                f"WHERE s.source = 'kalshi' AND s.match_id IN ({','.join('?' * len(chunk))}) "
                "AND s.captured_at IS NOT NULL AND (m.utc_date IS NULL OR s.captured_at < m.utc_date) "
                "ORDER BY s.match_id, s.selection, s.captured_at DESC, s.id DESC")
-        for mid, sel, tic in _rows(conn, sql, chunk):
-            per = out.setdefault(mid, {})
-            if sel not in per:
-                per[sel] = tic
+        for mid, sel, tic, cap in _rows(conn, sql, chunk):
+            key = (mid, sel)
+            if key not in newest:
+                newest[key] = cap
+            if cap == newest[key]:
+                out.setdefault(mid, {}).setdefault(sel, set()).add(tic)
     return out
 
 
 def homes_of(conn, events) -> dict:
-    """{event: set of match ids whose CURRENT legs carry that event}."""
+    """{event: set of match ids whose CURRENT legs carry that event}. One scan of the Kalshi rows for all the
+    events together (Codex on #414: not one scan per event)."""
     events = sorted(set(e for e in events if e))
     if not events:
         return {}
     mids: set = set()
-    for ev in events:
+    for k in range(0, len(events), 200):
+        chunk = events[k:k + 200]
+        cond = " OR ".join("substr(market_ticker, 1, ?) = ?" for _ in chunk)
+        params = [x for ev in chunk for x in (len(ev) + 1, ev + "-")]
         for (mid,) in _rows(conn, "SELECT DISTINCT match_id FROM odds_snapshots WHERE source = 'kalshi' "
-                                  "AND substr(market_ticker, 1, ?) = ?", [len(ev) + 1, ev + "-"]):
+                                  f"AND market_ticker IS NOT NULL AND ({cond})", params):
             mids.add(mid)
     homes: dict = {ev: set() for ev in events}
     for mid, legs in current_tickers(conn, mids).items():
-        for t in legs.values():
-            e = event_of(t)
+        for e in set().union(*[_events(t) for t in legs.values()]):
             if e in homes:
                 homes[e].add(mid)
     return homes
@@ -104,7 +120,7 @@ def mismatched(conn, match_ids) -> dict:
     if not GUARD["on"] or not match_ids or not has_tickers(conn):
         return {}
     cur = current_tickers(conn, match_ids)
-    homes = homes_of(conn, {event_of(t) for legs in cur.values() for t in legs.values()})
+    homes = homes_of(conn, {e for legs in cur.values() for t in legs.values() for e in _events(t)})
     out = {}
     for mid, legs in cur.items():
         evs = judge(legs, homes, mid)

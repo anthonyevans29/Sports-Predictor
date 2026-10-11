@@ -191,3 +191,39 @@ def test_the_window_card_carries_no_kalshi_number_for_a_mismatched_row(world, tm
     assert bad["venue_gap_pp"] is None and bad["kalshi_legs"] is None
     assert ok["kalshi_home_norm"] is not None
     assert card["receipts"]["kalshi_mismatched"] >= 5
+
+
+def test_legs_tied_at_the_newest_capture_are_all_judged(world):
+    """Codex on #414: two HOME legs of one game tie at the newest capture with different events; whichever a reader
+    keeps, the game reads mismatched."""
+    with session_scope() as s:
+        m = s.get(Match, world["CLEAN"])
+        mk = lambda: OddsSnapshot(match_id=m.id, market="ML", selection="HOME", devig_prob=.5, n_books=1,
+                                  captured_at=CAP, source="kalshi", yes_bid=.49, yes_ask=.51)
+        foreign, clean = mk(), mk()
+        s.add(foreign)
+        s.flush()
+        s.add(clean)                       # the highest id is the clean leg: an id-only tie-break approves it
+        s.flush()
+        write_kalshi_tickers(s, [(foreign.id, f"{P}OTHER-BC"), (clean.id, f"{P}STANBC-BC")])
+        try:
+            assert kl.mismatched(s, [m.id]).get(m.id) == [f"{P}OTHER", f"{P}STANBC"]
+        finally:
+            s.delete(foreign)
+            s.delete(clean)
+
+
+def test_a_mismatched_block_is_not_a_shown_quote_nor_a_priced_row():
+    """Codex on #414: closing.shows_kalshi and the window pager read the status block as carrying no price."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
+    import closing
+    import sp_window_page
+    block = kl.status_block([f"{P}A", f"{P}B"])
+    assert closing.shows_kalshi({"market": {"kalshi": block}, "kalshi_legs": None}) is False
+    assert closing.shows_kalshi({"market": {"kalshi": {"prob": {"HOME": .5}}}}) is True
+    snap = sp_window_page.snapshot({"fixtures": [
+        {"match_id": 1, "market": None, "kalshi": block},
+        {"match_id": 2, "market": None, "kalshi": {"status": "two_sided", "prob": {"HOME": .5, "AWAY": .5}}}]})
+    assert snap["1"]["priced"] is False and snap["2"]["priced"] is True

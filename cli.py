@@ -8343,7 +8343,7 @@ def export_fixtures_cmd(competition_code, start, end, desk):
           f"spread-derived fair {rc['with_spread_derived']} · "
           f"kalshi two-sided {rc['kalshi_two_sided']} / one-sided "
           f"{rc['kalshi_one_sided']} / partial (soccer, a leg missing) {rc['kalshi_partial']} / "
-          f"absent {rc['kalshi_absent']}")
+          f"absent {rc['kalshi_absent']} / mismatched (addendum 37) {rc.get('kalshi_mismatched', 0)}")
     if rc.get("duplicates_suppressed") or rc.get("stale_orphans_excluded"):
         print(f"  duplicate rows suppressed {rc.get('duplicates_suppressed', 0)} · stale orphans excluded "
               f"{rc.get('stale_orphans_excluded', 0)} (dedupe-matches --orphans)")
@@ -8379,7 +8379,7 @@ def window_card_cmd(hours: int, t90: int):
     print(f"  window {card['window']['from']} -> {card['window']['to']}: games {card['count']}{comps} · "
           f"with model {r['with_model']} · with book consensus {r['with_books']} · kalshi "
           f"two-sided {r['kalshi_two_sided']} / one-sided {r['kalshi_one_sided']} / partial "
-          f"{r.get('kalshi_partial', 0)} / absent {r['kalshi_absent']} · STALE-BOOK? {r['stale_flags']} · quarantined "
+          f"{r.get('kalshi_partial', 0)} / absent {r['kalshi_absent']} / mismatched {r.get('kalshi_mismatched', 0)} · STALE-BOOK? {r['stale_flags']} · quarantined "
           f"{r['quarantined']} · inside T-{t90}: {len(card['t90_signatures'])}", flush=True)
 
 

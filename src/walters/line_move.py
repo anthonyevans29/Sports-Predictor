@@ -84,8 +84,23 @@ def line_move(snaps, kickoff: datetime, now: datetime,
         venues[venue] = {"from": round(ref[1], 4), "to": round(cur[1], 4), "move_pp": mv,
                          "from_at": ref[0].isoformat(), "to_at": cur[0].isoformat(),
                          "alarm": abs(mv) >= threshold_pp}
+        if venue == "book":
+            # SOURCE TIME (ARCHITECT 2026-10-09, addendum 32 item 4): beside each book
+            # capture time, the provider's own update time of that capture's
+            # snapshots (the oldest where they differ; null = unknown, never fresh)
+            venues[venue]["from_source_updated_at"] = _book_source_time(snaps, ref[0])
+            venues[venue]["to_source_updated_at"] = _book_source_time(snaps, cur[0])
     return {"flag": LATE_NEWS_FLAG if any(v["alarm"] for v in venues.values()) else None,
             "threshold_pp": threshold_pp, "window_h": window_h, "venues": venues}
+
+
+def _book_source_time(snaps, t: datetime) -> str | None:
+    """The source time of the book capture at `t` (the rows _series reads for
+    the book venue at that stamp), isoformat like from_at / to_at, or None."""
+    from src.timeutil import oldest_source_time
+    rows = [x for x in snaps if x.captured_at == t and x.source != "kalshi" and x.market == "1X2"]
+    v = oldest_source_time(rows)
+    return v.isoformat() if v else None
 
 
 def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:
@@ -95,9 +110,13 @@ def line_move_for_match(s, m, now: datetime | None = None) -> dict | None:
     now = now or datetime.now(timezone.utc).replace(tzinfo=None)   # naive UTC (the storage convention)
     if m.utc_date is None or not (m.utc_date - timedelta(hours=LINE_MOVE_WINDOW_H) <= now < m.utc_date):
         return None
-    snaps = list(s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars())
+    from src.db.database import attach_source_times
     from src.walters.kalshi_legs import guard_snaps
-    snaps, _ = guard_snaps(snaps, s)       # addendum 37 item 3: no line move from mismatched Kalshi legs
+    # addendum 38 item 2: attach_source_times first (addendum 35 item 2: the book venue's source times through
+    # the guarded reader; None before the migration), then guard_snaps on its result (addendum 37 item 3: no
+    # line move from mismatched Kalshi legs)
+    snaps = attach_source_times(s, s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == m.id)).scalars())
+    snaps, _ = guard_snaps(snaps, s)
     return line_move(snaps, m.utc_date, now, three_way=_is_soccer(m))
 
 

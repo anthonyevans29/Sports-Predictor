@@ -440,6 +440,9 @@ PASS requires all three of the following:
   host, never promoted, and the host DB is replaced at H2, so the numbering
   gap is harmless.
 - All four model-bearing timers are enabled with the rest (T11).
+- **AMENDED (ARCHITECT 2026-10-10, addendum 36 item 3; finding #410):** "The production soccer row's ratings and team_to_league are keyed by the team ids of the database that trained them. They are that database's state, not configuration, and a seeded copy is valid only where the team ids are the same. On the host they are not. Nothing is re-keyed there: the cutover replaces that database with the laptop's. Until then the host's soccer model rows are evidence of nothing, I name them in the compare as a class of their own, and no page built from them is a call."
+  - The seed copied the laptop's rows, every column, into a database whose teams the host's own bootstrap had created under other ids; on the host 16 of 20 PL slots read the default 1500.0 and 4 another league's club (#410). The "config only" premise above holds for the poisson configuration, not for `elo.*.ratings` and `team_to_league`.
+  - The cutover runbook (h2-cutover-runbook.md, section 1 step 4) checks the installed database's PL export against the laptop's last file before the writer flag flips.
 
 ---
 
@@ -890,8 +893,14 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
    - `--replace` moves the rehearsal DB aside as `data/rehearsal_<ts>.db`.
      Delete it after the receipts.
    - Any `✗` means: delete the pack and repeat from step 3.
+   - **PL PREDICTION CHECK (ARCHITECT 2026-10-10, addendum 36 item 3; #410), before step 5 and before the
+     writer flag flips in step 6:** "the host exports the PL predictions from the installed database, and the
+     file equals the laptop's last file from that database, number for number." The commands and the PASS
+     rule are h2-cutover-runbook.md section 1 step 4 (the host's file in a fresh directory, the reference
+     copied from the pack's `exports/`, `compare_exports.py`, CLEAN on a reference with predictions). Not
+     PASS: stop before step 6; the flag stays `laptop`.
 5. Delete the pack on both machines (`rm -rf`). It holds a DB copy and
-   `.env`.
+   `.env`. Only after the PL check (it reads the laptop's file that `install` copied from the pack).
 6. TERMINAL (host), in order:
    - Set `SP_WRITER_OF_RECORD=host` in host.env (ARCHITECT-RULE 2026-10-01; `sp_cutover.py flip`
      does it), then the same in the laptop's `.env`. `SP_PARALLEL_MODE` stays the quota mode.

@@ -1,6 +1,9 @@
 """#387 (ARCHITECT addendum 31 item 1): "sync_odds orders its candidates by
 kickoff, then id, before the limit is applied, so that the limit means the
-next N. --match-ids is unchanged." Throwaway DB, fake adapter, private code."""
+next N." AMENDED (addendum 33 item 2): "A named game is never dropped by the
+limit. With --match-ids every named game is priced and --limit does not apply.
+The order is kickoff, then id, in both modes." Throwaway DB, fake adapter,
+private code."""
 from datetime import datetime, timedelta
 
 from src.db.database import init_db, session_scope
@@ -48,12 +51,15 @@ def test_limit_prices_the_next_n_by_kickoff(monkeypatch):
     assert ad.asked == ["SNN1-early", "SNN1-mid"]   # the two earliest kickoffs, in kickoff order
 
 
-def test_match_ids_selection_is_unchanged(monkeypatch):
-    """--match-ids is unchanged: a named list longer than the limit keeps main's
-    selection (storage order), not the kickoff order (Codex on #402)."""
+def test_a_named_game_is_never_dropped_by_the_limit(monkeypatch):
+    """ARCHITECT addendum 33 item 2 (AMENDED): "A named game is never dropped by
+    the limit. With --match-ids every named game is priced and --limit does not
+    apply. The order is kickoff, then id, in both modes." Three named games and a
+    limit of two: all three are asked, in kickoff order. Fails on main (the limit
+    cut the named list to two, in storage order)."""
     from src.ingestion import service as svc
     ids = _store_three("SNN2")
     monkeypatch.setattr(svc, "utc_now_naive", lambda: NOW)
     ad = RecordingOddsAdapter()
     svc.IngestionService(ad).sync_odds("SNN2", limit=2, match_ids=set(ids.values()))
-    assert ad.asked == ["SNN2-late", "SNN2-mid"]
+    assert ad.asked == ["SNN2-early", "SNN2-mid", "SNN2-late"]

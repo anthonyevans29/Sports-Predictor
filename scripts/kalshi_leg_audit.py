@@ -13,7 +13,7 @@ An event is a market ticker without its last '-' segment (the rule of src/walter
 The series is the ticker's first segment. Captures with no ticker (before migrate_kalshi_ticker.py, or a leg the
 matcher stored without one) are counted, never checked.
 
-Opens the DB read-only (mode=ro URI; a copy that refuses mode=ro falls back to a plain connect used for SELECT only).
+Opens the DB read-only (mode=ro URI; a copy that refuses mode=ro falls back to the plain path with PRAGMA query_only = ON, #421).
 Writes nothing.
 
     python3 scripts/kalshi_leg_audit.py [--since YYYY-MM-DD] [--db PATH]
@@ -25,6 +25,7 @@ import os
 import sqlite3
 import sys
 from collections import defaultdict
+from datetime import datetime
 from pathlib import Path
 
 
@@ -63,9 +64,13 @@ def open_read(p: Path):
         con.execute("SELECT 1 FROM odds_snapshots LIMIT 1")
         return con, "mode=ro URI"
     except sqlite3.OperationalError:
+        # #421 RULED (ARCHITECT 2026-10-11, addendum 38): "A receipt opens the database mode=ro. Where a copy refuses
+        # that, it opens the plain path with query_only set and prints which form it used [...] It opens the
+        # database no third way."
         con = sqlite3.connect(str(p), timeout=60)
+        con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM odds_snapshots LIMIT 1")
-        return con, "plain connect (mode=ro refused), SELECT only"
+        return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
 
 
 def has_ticker_column(con) -> bool:
@@ -79,16 +84,22 @@ def audit(con, since: str | None = None) -> dict:
         where += " AND s.captured_at >= ?"
         params.append(since)
     total = con.execute(f"SELECT COUNT(*) FROM odds_snapshots s WHERE {where}", params).fetchone()[0]
+    # #419 (Codex on #416): every count straight from odds_snapshots; a snapshot whose match row is gone is an
+    # orphan, counted on its own line (never silently read as tickered)
+    orphans = con.execute(f"SELECT COUNT(*) FROM odds_snapshots s LEFT JOIN matches m ON m.id = s.match_id "
+                          f"WHERE {where} AND m.id IS NULL", params).fetchone()[0]
     if not has_ticker_column(con):
         return {"ticker_column": False, "kalshi_snapshots": total, "untickered": total, "tickered": 0,
-                "two_event_games": [], "split_events": [], "first_day": {}, "graded": [], "by_series_day": {}}
+                "orphans": orphans, "two_event_games": [], "split_events": [], "first_day": {}, "graded": [],
+                "graded_error": None, "by_series_day": {}}
+    untickered = con.execute(f"SELECT COUNT(*) FROM odds_snapshots s WHERE {where} AND "
+                             "(s.market_ticker IS NULL OR s.market_ticker = '')", params).fetchone()[0]
     rows = con.execute(
         "SELECT s.id, s.match_id, s.selection, s.market_ticker, s.captured_at, m.utc_date, "
         "COALESCE(h.name, '?'), COALESCE(a.name, '?') "
         "FROM odds_snapshots s JOIN matches m ON m.id = s.match_id "
         "LEFT JOIN teams h ON h.id = m.home_team_id LEFT JOIN teams a ON a.id = m.away_team_id "
         f"WHERE {where} ORDER BY s.captured_at, s.id", params).fetchall()
-    untickered = sum(1 for r in rows if not r[3])
     games = {}
     # (series, day) -> match -> event -> [(selection, ticker, captured_at)]
     by_game: dict = defaultdict(lambda: defaultdict(lambda: defaultdict(list)))
@@ -122,17 +133,22 @@ def audit(con, since: str | None = None) -> dict:
             first_day.setdefault(ser, day)
             by_sd[f"{ser} {day}"] = {"two_event_games": n2, "split_events": ns}
     listed = sorted({g["match_id"] for g in two_event} | {g["match_id"] for e in split for g in e["games"]})
-    graded = []
-    if listed:
-        q = ("SELECT DISTINCT p.match_id FROM predictions p JOIN prediction_outcomes o ON o.prediction_id = p.id "
-             f"WHERE p.match_id IN ({','.join('?' * len(listed))})")
-        try:
-            graded = sorted(r[0] for r in con.execute(q, listed))
-        except sqlite3.OperationalError:
-            graded = []
+    graded, graded_error = [], None
+    # #419 (Codex on #416): an error on the graded query is NOT CHECKED, never a quiet zero; chunked IN lists
+    try:
+        found: set = set()
+        for k in range(0, len(listed), 500):
+            chunk = listed[k:k + 500]
+            q = ("SELECT DISTINCT p.match_id FROM predictions p JOIN prediction_outcomes o ON o.prediction_id = p.id "
+                 f"WHERE p.match_id IN ({','.join('?' * len(chunk))})")
+            found |= {r[0] for r in con.execute(q, chunk)}
+        graded = sorted(found)
+    except sqlite3.OperationalError as e:
+        graded_error = f"{type(e).__name__}: {e}"
     return {"ticker_column": True, "kalshi_snapshots": total, "untickered": untickered,
-            "tickered": total - untickered, "two_event_games": two_event, "split_events": split,
-            "first_day": first_day, "graded": [games[m] for m in graded], "by_series_day": by_sd}
+            "tickered": total - untickered, "orphans": orphans, "two_event_games": two_event, "split_events": split,
+            "first_day": first_day, "graded": [games[m] for m in graded], "graded_error": graded_error,
+            "by_series_day": by_sd}
 
 
 def _game(g) -> str:
@@ -142,6 +158,7 @@ def _game(g) -> str:
 def report(r: dict, echo=print) -> None:
     echo(f"Kalshi snapshots: {r['kalshi_snapshots']} · with a ticker: {r['tickered']} · "
          f"WITHOUT a ticker (cannot be checked): {r['untickered']}")
+    echo(f"of them with no match row (orphans; their legs are not placed on any game): {r.get('orphans', 0)}")
     if not r["ticker_column"]:
         echo("odds_snapshots.market_ticker does not exist (migrate_kalshi_ticker.py not run): nothing can be checked")
         echo(f"\nKALSHI-LEG-AUDIT two_event_games=0 split_events=0 graded=0 untickered={r['untickered']} tickered=0 "
@@ -163,11 +180,15 @@ def report(r: dict, echo=print) -> None:
     echo("\nFIRST DAY EACH SERIES SHOWS ONE")
     for ser, day in sorted(r["first_day"].items()):
         echo(f"  {ser}: {day}")
-    echo(f"\nLISTED GAMES WITH A GRADED PREDICTION: {len(r['graded'])}")
-    for g in r["graded"]:
-        echo(f"  {_game(g)}")
+    if r.get("graded_error"):
+        echo(f"\nLISTED GAMES WITH A GRADED PREDICTION: NOT CHECKED ({r['graded_error']})")
+    else:
+        echo(f"\nLISTED GAMES WITH A GRADED PREDICTION: {len(r['graded'])}")
+        for g in r["graded"]:
+            echo(f"  {_game(g)}")
     echo(f"\nKALSHI-LEG-AUDIT two_event_games={len(r['two_event_games'])} split_events={len(r['split_events'])} "
-         f"graded={len(r['graded'])} untickered={r['untickered']} tickered={r['tickered']}")
+         f"graded={'NOT_CHECKED' if r.get('graded_error') else len(r['graded'])} untickered={r['untickered']} "
+         f"tickered={r['tickered']} orphans={r.get('orphans', 0)}")
 
 
 def main(argv=None) -> int:
@@ -175,13 +196,21 @@ def main(argv=None) -> int:
     ap.add_argument("--since", help="captures on or after this date (YYYY-MM-DD, UTC)")
     ap.add_argument("--db", help="SQLite file (default: DATABASE_URL from the environment or .env)")
     a = ap.parse_args(argv)
+    if a.since is not None:            # #419 (Codex on #416): a malformed date never gives a quiet wrong window
+        try:
+            if datetime.strptime(a.since, "%Y-%m-%d").strftime("%Y-%m-%d") != a.since:
+                raise ValueError
+        except ValueError:
+            print(f"REFUSED: --since {a.since!r} is not a date YYYY-MM-DD")
+            return 2
     con, form = open_read(db_path(a.db))
     try:
         print(f"read-only open: {form}" + (f" · since {a.since}" if a.since else ""))
-        report(audit(con, a.since))
+        r = audit(con, a.since)
+        report(r)
     finally:
         con.close()
-    return 0
+    return 1 if r.get("graded_error") else 0
 
 
 if __name__ == "__main__":

@@ -20,6 +20,11 @@ How it re-prices (src/models/factors.injury_adjustment, src/models/poisson.predi
   takes back. A row that fails either is left out of every aggregate, counted by reason and listed. The line over all
   rows stays, marked as such." No cut is taken back from the note's rounded percentage: a row whose note disagrees is
   left out, not adjusted.
+- #437's third item RULED (ARCHITECT 2026-10-11, addendum 42 item 2): "A side whose stored expected goals sit at the
+  model's floor with a cut applied is a row the receipt cannot stand behind: a cut cannot be taken back from a floored
+  number. The row is left out of every aggregate, counted under its own reason and listed, as the other two are."
+  (predict_match applies the factor, then max(0.05, xG) on each side: the stored number no longer holds what the cut
+  took.)
 - The 1X2 is rebuilt from the expected goals as predict_match builds it: independent Poisson to the model's
   max_goals, the Dixon-Coles correction at the model version's poisson.dixon_coles_rho, normalized. As a check, the
   stored expected goals (cut kept) are rebuilt the same way and compared with the stored probabilities: the count
@@ -50,6 +55,7 @@ sys.path.insert(0, str(ROOT))
 
 DEFAULT_IMPACT = 0.03            # src/models/factors.injury_adjustment: a name with no stored position
 CAP = 0.25                       # ... "Cap at 25% reduction"
+XG_FLOOR = 0.05                  # src/models/poisson.predict_match: max(0.05, xG) after the factor
 EDGE_PP = 5.0                    # the positive-edge cohort
 BUCKETS = (("0", 0, 0), ("1-2", 1, 2), ("3-5", 3, 5), ("6+", 6, 10 ** 6))
 NOTE = re.compile(r"^(home|away) missing (\d+) \(-(\d+)% xG\)$")
@@ -178,12 +184,20 @@ def note_mismatch(fb: dict) -> list[str]:
     return out
 
 
-LEFT_OUT = ("stored 1X2 not rebuilt to 3 decimals", "factor note disagrees with the cut taken back")
+LEFT_OUT = ("stored 1X2 not rebuilt to 3 decimals", "factor note disagrees with the cut taken back",
+            "expected goals at the floor with a cut applied")
+
+
+def floored(hxg: float, axg: float, hc: int, ac: int) -> list[str]:
+    """#437's third item: the sides whose stored xG sits at predict_match's floor while a cut was applied."""
+    return [side for side, xg, n in (("home", hxg, hc), ("away", axg, ac))
+            if reduction(n) > 0 and xg <= XG_FLOOR + 1e-9]
 
 
 def left_out(x: dict) -> list[str]:
     """#437 RULED: the reasons a row is left out of every aggregate (empty: the receipt stands behind it)."""
-    return ([LEFT_OUT[0]] if not x["reproduces"] else []) + ([LEFT_OUT[1]] if x["note_mismatch"] else [])
+    return (([LEFT_OUT[0]] if not x["reproduces"] else []) + ([LEFT_OUT[1]] if x["note_mismatch"] else [])
+            + ([LEFT_OUT[2]] if x.get("floored") else []))
 
 
 def rows(s, competition: str) -> tuple[list[dict], dict]:
@@ -239,7 +253,8 @@ def rows(s, competition: str) -> tuple[list[dict], dict]:
                     "counts": (hc, ac), "diff": abs(hc - ac), "result": res, "stored": stored, "bare": bare,
                     "reproduces": all(stored[k] is not None and abs(rebuilt[k] - stored[k]) < 5e-4 for k in SIDES),
                     "model_params_found": known, "ll_stored": ll(stored[res]), "ll_bare": ll(bare[res]),
-                    "pick": pick, "edge_pp": edge, "edge_bare_pp": edge_bare, "note_mismatch": note_mismatch(fb)})
+                    "pick": pick, "edge_pp": edge, "edge_bare_pp": edge_bare, "note_mismatch": note_mismatch(fb),
+                    "floored": floored(hxg, axg, hc, ac)})
     return out, skipped
 
 
@@ -282,7 +297,8 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
     for x in rs:
         if left_out(x):
             echo(f"    LEFT OUT {x['prediction_id']} · {x['game']} {x['kickoff']} · {'; '.join(left_out(x))}"
-                 + (f" · {'; '.join(x['note_mismatch'])}" if x["note_mismatch"] else ""))
+                 + (f" · {'; '.join(x['note_mismatch'])}" if x["note_mismatch"] else "")
+                 + (f" · floored: {', '.join(x['floored'])}" if x.get("floored") else ""))
     echo("LOG LOSS (lower is better; difference = without the cut minus stored; over the rows the receipt stands behind)")
     echo(line("ALL ROWS (reference)", sm["all_rows_reference"]) + "  ← every row, the left-out ones included")
     echo(line("all", sm["all"]))

@@ -1,4 +1,4 @@
-## 2026-10-11 (#435: soccer-injuries-one-sided — ARCHITECT addendum 40 item 6, A ONE-SIDED LIST GETS NO CALL; Closes #430, finding #425)
+## 2026-10-11 (#435: soccer-injuries-one-sided — ARCHITECT addendum 40 item 6, A ONE-SIDED LIST GETS NO CALL; Closes #430, #437, finding #425)
 - src/walters/export.py: soccer `input_quality.injuries` = {home, away}: {count, synced_at} (null where the team has no row); `injuries_synced_at` and the row's `injuries` block unchanged.
 - src/walters/desk_policy.py: a soccer row with exactly one side's list empty is PASS, `pass_kind` `injuries_one_sided` (among NO_CALL_KINDS: no order, no exec, no value shadow), its reason naming the team; both empty or both listed unchanged. Own switch (`injuries_one_sided_rule_off()`), `desk_meta.injuries_one_sided_rule`. No probability changes.
 - `scripts/soccer_injury_factor_receipt.py` (new, read-only): every graded PL prediction re-priced with the injury cut taken out of its expected goals; log loss both ways (all, by list-length difference, positive-edge cohort with how many keep +5pp).
@@ -6,3 +6,4 @@
 - docs/CLI.md: the Desk row and the receipt row. Tests: tests/test_soccer_injuries_one_sided.py.
 - Codex round 1: the receipt looks up the soccer `soccer_elo_poisson` row of a version only, and reads rho / max_goals as of each prediction (audited set-soccer-config edits walked back); a log-loss line over the rows the rebuild reproduces. `base_v11()` holds the one-sided rule off (frozen verify files).
 - #437 RULED (addendum 41 item 2, rides this PR): every aggregate of the receipt over the rows it stands behind (the stored 1X2 rebuilt to 3 decimals and the factor's note agreeing with the cut taken back, a missing note included); a row failing either is left out of every aggregate, counted by reason and listed; the all-rows line stays, marked `ALL ROWS (reference)`. No cut is taken back from the note's rounded percentage.
+- #437's third item RULED (addendum 42 item 2): a side whose stored expected goals sit at the model's 0.05 floor with a cut applied is a third reason a row is left out (counted under its own reason and listed).

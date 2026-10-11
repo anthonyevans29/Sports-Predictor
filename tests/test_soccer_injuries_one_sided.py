@@ -288,9 +288,22 @@ def test_437_every_aggregate_over_the_rows_the_receipt_stands_behind():
     assert sm["all"]["n"] == 1 and sm["all"]["ll_without_cut"] == 0.5                     # row 1 alone
     assert sm["all_rows_reference"]["n"] == 4                                               # the marked line stays
     assert sm["by_diff"]["3-5"]["n"] == 1 and sm["positive_edge"]["n"] == 1
-    assert sm["left_out_rows"] == 3 and sm["left_out"] == {rc.LEFT_OUT[0]: 1, rc.LEFT_OUT[1]: 2}
+    assert sm["left_out_rows"] == 3 and sm["left_out"] == {rc.LEFT_OUT[0]: 1, rc.LEFT_OUT[1]: 2, rc.LEFT_OUT[2]: 0}
     out = []
     rc.report(rs, {}, "PL", False, echo=out.append)
     assert sum(1 for o in out if o.lstrip().startswith("LEFT OUT ")) == 3                   # listed without --list
     assert any(o.lstrip().startswith("ALL ROWS (reference)") and "n    4" in o for o in out)
     assert any("left out of every aggregate (#437 RULED): 3 row(s)" in o for o in out)
+
+
+def test_437_3_a_side_at_the_xg_floor_with_a_cut_is_left_out_under_its_own_reason():
+    """#437's third item RULED (ARCHITECT 2026-10-11, addendum 42 item 2): a cut cannot be taken back from a floored
+    number. A pre-cut xG of 0.055 cut 25% is stored as 0.05; the rebuild still reproduces (it uses the floored value),
+    so only this reason catches it. A side at the floor with no cut, or a cut side above it, is not floored."""
+    import scripts.soccer_injury_factor_receipt as rc
+    assert rc.floored(0.05, 1.4, 9, 0) == ["home"]
+    assert rc.floored(0.05, 1.4, 0, 3) == [] and rc.floored(0.06, 0.05, 2, 0) == []
+    x = {"reproduces": True, "note_mismatch": [], "floored": ["home"]}
+    assert rc.left_out(x) == [rc.LEFT_OUT[2]]
+    p = rc.one_x_two(0.05, 1.4, -0.10, 10)
+    assert rc.one_x_two(0.05 / (1 - rc.reduction(9)), 1.4, -0.10, 10)["HOME"] != p["HOME"]   # the bogus take-back

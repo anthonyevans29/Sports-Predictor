@@ -743,7 +743,7 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
         failed = [f"match {m}: not stored in {competition_code}, no read made" for m in sorted(named - found)]
         failed += list(result.failed_reads) if result is not None else []
         if strict and failed:
-            _strict_injuries_fail(competition_code, failed)
+            _strict_injuries_fail(competition_code, failed, result)
         return
     if within_h is not None:
         from datetime import timedelta, timezone
@@ -768,7 +768,7 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
     console.print(f"[green]✓ Injuries ({competition_code}): {result}[/green]")
     _print_empty_answers(competition_code, result)
     if strict and result.failed_reads:
-        _strict_injuries_fail(competition_code, result.failed_reads)
+        _strict_injuries_fail(competition_code, result.failed_reads, result)
 
 
 EMPTY_ANSWER_MARK = "EMPTY-ANSWER"
@@ -784,12 +784,15 @@ def _print_empty_answers(competition_code: str, result) -> None:
               f"stored empty (read as unread): {'; '.join(teams)}", flush=True)
 
 
-def _strict_injuries_fail(competition_code: str, failed_reads: list[str]) -> None:
+def _strict_injuries_fail(competition_code: str, failed_reads: list[str], result=None) -> None:
     # STRICT MODE (ARCHITECT 2026-10-09, addendum 22): "the command exits non-zero when a read it needed
     # failed, and the run fails at that step." Printed plainly (never rich-wrapped) so the receipt tail has it.
     print(f"✗ STRICT: {len(failed_reads)} injury read(s) failed ({competition_code}):", flush=True)
     for line in failed_reads[:20]:
         print(f"  ✗ {line}", flush=True)
+    # addendum 40 item 4 (Codex on #434): the empty answers again as the LAST line, so a closing run's 5-line step
+    # tail still carries them to the receipt however many reads failed
+    _print_empty_answers(competition_code, result)
     raise SystemExit(1)
 
 

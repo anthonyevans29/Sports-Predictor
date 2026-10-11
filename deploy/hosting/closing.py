@@ -459,7 +459,8 @@ def empty_answers(argv: list[str], tail: list[str]) -> list[str]:
     out: list[str] = []
     for ln in tail:
         if ln.startswith(EMPTY_ANSWER_MARK) and "): " in ln:
-            out += [t.strip() for t in ln.split("(read as unread): ", 1)[-1].split(";") if t.strip()]
+            out += [t.strip() for t in ln.split("(read as unread): ", 1)[-1].split(";")
+                    if t.strip() and t.strip() not in out]
     return out
 
 

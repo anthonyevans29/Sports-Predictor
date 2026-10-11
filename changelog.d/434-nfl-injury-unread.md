@@ -4,3 +4,4 @@
 - deploy/hosting/closing.py: the page's PLAY line says `injury list empty: <team>` beside B7's count; the receipt records `injury_lists_empty` (and each step's `empty_answers`); THE HOLD OF 2026-10-11, a second `CLOSING_HOLDS` row (NFL only): a PLAY tagged `QB-flagged half units` or `QB unread half units` says `QB: paste to the architect before placing`.
 - Ledger: the addendum 40 item 3 FINDING (#424) and the item 4 ruling; the QB-term limitation is #427.
 - docs/CLI.md: the Desk, sync-injuries and closing-run rows. Tests: tests/test_nfl_injury_unread.py.
+- Codex round 1: `base_v11()` holds the rule off too (the frozen Cockpit verify files stay frozen); a strict failure ends with the `EMPTY-ANSWER` line, so the closing run's 5-line step tail keeps it.

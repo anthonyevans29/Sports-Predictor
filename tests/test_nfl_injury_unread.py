@@ -195,3 +195,29 @@ def test_the_hold_reads_the_desks_qb_tags_nfl_only():
     both = mc.hold_for({**d, "exec": {"edge_pp": 2.0}}, "NFL")
     assert both == "paste to the architect before placing · QB: paste to the architect before placing"
     assert mc.hold_for({**d, "call": "PASS"}, "NFL") is None
+
+
+def test_codex_base_v11_holds_the_rule_off_so_frozen_verify_files_stay_frozen():
+    """Codex on #434: scripts/cockpit_desk_files.py annotates under base_v11(); cockpit_v04_verify's NFL fixture has
+    count 0 on both sides, so the frozen 1u straight must not move."""
+    with dp.base_v11():
+        assert dp.INJURY_EMPTY_RULE["on"] is False
+        (d,), doc = desk(cle_at_nyj(13, 0))
+    assert d["units"] == 1 and doc["desk_meta"]["nfl_injury_list_empty_rule"] is False
+    assert dp.INJURY_EMPTY_RULE["on"] is True                                          # restored
+
+
+def test_codex_a_strict_failure_still_ends_with_the_empty_answer_line(capsys):
+    """Codex on #434: with four or more failed reads the strict lines pushed EMPTY-ANSWER out of the 5-line step
+    tail; it is now printed again as the last line, and the closing parser keeps each team once."""
+    import cli as cli_mod
+    from src.ingestion.service import SyncResult
+    res = SyncResult(empty_answers=["Jacksonville Jaguars"], failed_reads=[f"team {i}: fetch failed" for i in range(6)])
+    cli_mod._print_empty_answers("NFL", res)
+    with pytest.raises(SystemExit):
+        cli_mod._strict_injuries_fail("NFL", res.failed_reads, res)
+    lines = [x for x in capsys.readouterr().out.splitlines() if x.strip()]
+    tail = lines[-5:]                                                                 # sp_run.TAIL
+    assert tail[-1].startswith("EMPTY-ANSWER (NFL)")
+    assert mc.empty_answers(["sync-injuries"], lines) == ["Jacksonville Jaguars"]      # once, not twice
+    assert mc.empty_answers(["sync-injuries"], tail) == ["Jacksonville Jaguars"]

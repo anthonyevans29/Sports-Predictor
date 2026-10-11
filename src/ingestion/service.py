@@ -752,6 +752,12 @@ class IngestionService:
                     Match.status == MatchStatus.SCHEDULED,
                     Match.utc_date >= utc_now_naive(),
                 )
+            # #387 (ARCHITECT addendum 31 item 1, AMENDED by addendum 33 item 2):
+            # "A named game is never dropped by the limit. With --match-ids every
+            # named game is priced and --limit does not apply. The order is
+            # kickoff, then id, in both modes." Until #402 the limit (CLI default
+            # 20) cut a named list, silently.
+            stmt = stmt.order_by(Match.utc_date, Match.id)
             candidates: list[Match] = []
             for match in s.execute(stmt).scalars():
                 source_id = (match.external_ids or {}).get(self.source)
@@ -761,7 +767,7 @@ class IngestionService:
 
             if match_ids is not None:
                 candidates = [m for m in candidates if m.id in match_ids]
-            if limit:
+            elif limit:
                 candidates = candidates[:limit]
 
             log.info("sync_odds: %d matches (competition=%s, season=%s)",

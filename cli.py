@@ -1602,6 +1602,10 @@ def mlb_actionable_receipt_cmd(season, seed, out_path):
     res = MA.receipt(rows, seed=MA.BOOT_SEED if seed is None else seed)
     text_ = MA.format_receipt(res, season=season, run_stamp=stamp)
     print(text_, end="")
+    if not res["splits"]["ok"]:             # #354 (addendum 31 item 2): the cells must sum to the parent
+        console.print("[red]REFUSED: a toss-up split's cells do not sum to the parent row (games, wins); "
+                      "nothing written.[/red]")
+        raise SystemExit(2)
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # exclusive create: a receipt is never overwritten
         with tgt.open("x", encoding="utf-8") as fh:

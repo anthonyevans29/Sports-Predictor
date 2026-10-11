@@ -32,6 +32,13 @@ Definitions (read from the code, law 1):
   recorded. Nothing is inferred for a row with no record."): read from the prediction's own
   `factor_breakdown.market_blend` (written by predict from that PR on): applied true -> blended, applied false ->
   model alone, no record -> not recorded. Never inferred from the config, the close or the version.
+- toss-up splits (#354, ARCHITECT 2026-10-09 addendum 31 item 2): "The parent cohort is the toss-up tier of the
+  regular season, included rows ... Two splits of that cohort and no other: by the calendar month of the first
+  pitch's date in America/New_York, and by pick side, HOME or AWAY." The first pitch is `Match.utc_date` (naive
+  UTC); a row with none is the NO_DATE cell, never dropped. Each split's cells are summed (games, wins) beside the
+  parent's; `splits["ok"]` is False when they differ and the CLI then refuses (exit 2, nothing written). The
+  regular-season toss-up rows left out for want of a book close (each exclusion reason grade_row records) are
+  counted under the same split by reason. The postseason's toss-up rows are one line of their own.
 Writes nothing to the DB.
 """
 from __future__ import annotations
@@ -44,6 +51,9 @@ STAGES = ("regular", "postseason", "unknown")
 BLENDS = ("blended", "model alone", "not recorded")    # Q3 K6: the prediction's own record, nothing inferred
 BOOT_B = 10_000
 BOOT_SEED = 20261007          # pinned: the ruling's date
+SIDES = ("HOME", "AWAY")      # #354: the pick-side split's cells
+NO_DATE = "no first-pitch date"     # #354: the month split's own cell for a row without one
+ET_ZONE = "America/New_York"
 EDGE_ROUND = 9                # float hygiene only: 0.58 - 0.54 must bucket as 4.0pp, not 3.9999999
 
 
@@ -85,6 +95,18 @@ def blend_of(factor_breakdown: dict | None) -> str:
     if applied is False:
         return "model alone"
     return "not recorded"
+
+
+def month_et(first_pitch) -> str:
+    """#354: the calendar month (YYYY-MM) of the first pitch's date in America/New_York; NO_DATE when there is none.
+    A naive datetime is UTC (Match.utc_date)."""
+    if first_pitch is None:
+        return NO_DATE
+    from datetime import timezone
+    from zoneinfo import ZoneInfo
+
+    t = first_pitch if first_pitch.tzinfo else first_pitch.replace(tzinfo=timezone.utc)
+    return t.astimezone(ZoneInfo(ET_ZONE)).strftime("%Y-%m")
 
 
 def roi_unit(hit: bool, fair: float) -> float:
@@ -164,8 +186,45 @@ def collect(s, season: str = "2026") -> list[dict]:
         r["post_first_pitch"] = (pred.computed_at is not None and m.utc_date is not None
                                  and pred.computed_at >= m.utc_date)
         r["model_version"] = pred.model_version
+        r["first_pitch"] = m.utc_date          # #354's month split (ET date of the first pitch)
         out.append(r)
     return out
+
+
+def _wins_cell(rows: list[dict], b: int, seed: int) -> dict:
+    """A tier row's statistics, and its wins."""
+    return {**cell_stats(rows, b, seed), "wins": sum(1 for r in rows if r["hit"])}
+
+
+def _reasons(rows: list[dict]) -> dict[str, int]:
+    out: dict[str, int] = {}
+    for r in rows:
+        out[r["excluded"]] = out.get(r["excluded"], 0) + 1
+    return dict(sorted(out.items()))
+
+
+def toss_up_splits(inc: list[dict], exc: list[dict], b: int = BOOT_B, seed: int = BOOT_SEED) -> dict:
+    """#354 (ARCHITECT 2026-10-09, addendum 31 item 2). Parent: the regular season's toss-up tier, included rows
+    (the same filter as the regular table's toss-up/all row). Splits: month (ET date of first pitch; NO_DATE its own
+    cell) and pick side (SIDES). Each cell: a tier row's statistics and its wins, plus the cohort's rows left out
+    (excluded rows of the same tier and stage), by reason. Postseason toss-up: one line of its own."""
+    cohort = [r for r in inc if r["stage"] == "regular" and r["tier"] == "toss-up"]
+    out_rows = [r for r in exc if r.get("stage") == "regular" and r.get("tier") == "toss-up"]
+    parent = _wins_cell(cohort, b, seed)
+    months = sorted({month_et(r.get("first_pitch")) for r in cohort + out_rows} - {NO_DATE}) + [NO_DATE]
+    res = {"parent": parent, "left_out": _reasons(out_rows)}
+    for name, key, keys in (("month", lambda r: month_et(r.get("first_pitch")), months),
+                            ("side", lambda r: r["side"], SIDES)):
+        cells = [(k, _wins_cell([r for r in cohort if key(r) == k], b, seed),
+                  _reasons([r for r in out_rows if key(r) == k])) for k in keys]
+        tot = {"n": sum(c["n"] for _, c, _ in cells), "wins": sum(c["wins"] for _, c, _ in cells)}
+        res[name] = {"cells": cells, "sum": tot, "ok": tot == {"n": parent["n"], "wins": parent["wins"]}}
+    post = [r for r in inc if r["stage"] == "postseason" and r["tier"] == "toss-up"]
+    res["postseason"] = {**_wins_cell(post, b, seed),
+                         "left_out": _reasons([r for r in exc if r.get("stage") == "postseason"
+                                               and r.get("tier") == "toss-up"])}
+    res["ok"] = res["month"]["ok"] and res["side"]["ok"]
+    return res
 
 
 def receipt(rows: list[dict], b: int = BOOT_B, seed: int = BOOT_SEED) -> dict:
@@ -195,7 +254,8 @@ def receipt(rows: list[dict], b: int = BOOT_B, seed: int = BOOT_SEED) -> dict:
     for r in inc:
         versions[r.get("model_version") or "?"] = versions.get(r.get("model_version") or "?", 0) + 1
     return {"graded": len(rows), "included": len(inc), "excluded": len(exc), "reasons": reasons,
-            "tables": tables, "blend": blend, "negative_edge": sum(1 for r in inc if r["bucket"] == "<0"),   # the bucket, not the raw float (Codex on #324)
+            "tables": tables, "blend": blend, "splits": toss_up_splits(inc, exc, b, seed),
+            "negative_edge": sum(1 for r in inc if r["bucket"] == "<0"),   # the bucket, not the raw float (Codex on #324)
             "post_first_pitch": sum(1 for r in inc if r.get("post_first_pitch")),
             "capped": sum(1 for r in inc if r.get("capped_by_starter")),
             "versions": versions, "b": b, "seed": seed}
@@ -262,4 +322,41 @@ def format_receipt(res: dict, season: str, run_stamp: str) -> str:
                 L.append(f"| {bl} | {tier} | {c['n']} | {_f(c['model_p'], '.3f')} | {_f(c['fair_p'], '.3f')} | "
                          f"{_f(c['hit'], '.3f')} | {c['hit_minus_close_pp']:+.1f} | {ci} | {c['roi'] * 100:+.1f}% |")
         L.append("")
+    if "splits" in res:
+        L += format_splits(res["splits"])
     return "\n".join(L).rstrip() + "\n"
+
+
+def _split_row(label: str, c: dict, left_out: dict | None) -> str:
+    lo = "—" if not left_out else "; ".join(f"{k}: {v}" for k, v in left_out.items())
+    if c["n"] == 0:
+        return f"| {label} | 0 | 0 | — | — | — | — | — | — | {lo} |"
+    ci = "—" if c["ci95"] is None else f"[{c['ci95'][0]:+.1f}, {c['ci95'][1]:+.1f}]"
+    return (f"| {label} | {c['n']} | {c['wins']} | {_f(c['model_p'], '.3f')} | {_f(c['fair_p'], '.3f')} | "
+            f"{_f(c['hit'], '.3f')} | {c['hit_minus_close_pp']:+.1f} | {ci} | {c['roi'] * 100:+.1f}% | {lo} |")
+
+
+def format_splits(sp: dict) -> list[str]:
+    """#354's sections: the toss-up row (regular season, included) by month and by pick side, each with the
+    cells' games and wins summed beside the parent's; then the postseason's toss-up line."""
+    head = ("| {0} | n | wins | mean model p | mean close fair p | hit rate | hit − close (pp) | 95% CI (pp) "
+            "| ROI @ close fair | left out (no book close), by reason |")
+    rule = "|---|---:|---:|---:|---:|---:|---:|---|---:|---|"
+    L = ["## Toss-up splits (#354, ARCHITECT 2026-10-09 addendum 31 item 2)", "",
+         "Parent: the toss-up tier of the regular season, included rows (the regular table's toss-up / all row). "
+         "Two splits and no other. The close is a retrospective reference: ROI @ close fair is not an executable "
+         "return. No threshold and no sizing follows from it.", ""]
+    titles = {"month": ("Toss-up, regular season, by calendar month of first pitch (America/New_York)", "month"),
+              "side": ("Toss-up, regular season, by pick side", "pick side")}
+    p = sp["parent"]
+    for name in ("month", "side"):
+        title, col = titles[name]
+        s = sp[name]
+        L += [f"## {title}", "", head.format(col), rule, _split_row("parent (toss-up, all)", p, sp["left_out"])]
+        L += [_split_row(k, c, lo) for k, c, lo in s["cells"]]
+        L += ["", f"- Σ cells: games {s['sum']['n']}, wins {s['sum']['wins']} · parent: games {p['n']}, "
+                  f"wins {p['wins']} · " + ("reconciled" if s["ok"] else "DIFFERS"), ""]
+    post = sp["postseason"]
+    L += ["## Toss-up, postseason (one line, never pooled)", "", head.format("cohort"), rule,
+          _split_row("postseason toss-up", post, post["left_out"]), ""]
+    return L

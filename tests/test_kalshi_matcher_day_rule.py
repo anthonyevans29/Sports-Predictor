@@ -628,6 +628,20 @@ def test_fetch_keeps_the_markets_under_logs_and_reads_every_series(tmp_path, mon
     assert all(v.get("fetched_at") for v in payload["series"].values())           # each series stamped (#470 item 3)
 
 
+def test_each_series_fetch_time_keeps_its_microseconds(tmp_path, monkeypatch):
+    """Codex on #475: a sync's captured_at keeps microseconds; a fetch time cut to the second would put a capture made
+    earlier in the same second after the fetch, and the replay would not read it."""
+    from src import timeutil
+    from src.adapters.kalshi import KalshiAdapter
+    from src.ingestion import kalshi_replay as kr
+    monkeypatch.setattr(kr, "REPO", tmp_path)
+    monkeypatch.setattr(KalshiAdapter, "__init__", lambda self: None)
+    monkeypatch.setattr(KalshiAdapter, "open_markets_for_series", lambda self, s: KUUTAH)
+    monkeypatch.setattr(timeutil, "utc_now_naive", lambda: datetime(2026, 10, 10, 11, 52, 0, 800000))
+    payload = kr.fetch(only=["KXNCAAFGAME"], progress=lambda _: None)
+    assert payload["series"]["KXNCAAFGAME"]["fetched_at"] == "2026-10-10T11:52:00.800000"
+
+
 def test_the_command_replays_a_kept_file_read_only(scratch, tmp_path):
     from click.testing import CliRunner
 
@@ -804,6 +818,14 @@ def test_the_replay_reads_main_s_newest_legs_at_or_before_the_fetch(scratch):
     r = kr.replay(_payload(now, KXNCAAFGAME=KUUTAH), progress=lambda _: None)["KXNCAAFGAME"]
     assert r["main_at"] == Z("2026-10-10T11:40") and r["main_legs"] == 2 and r["differ"] == []
     assert round(r["main_age_h"], 1) == 0.2
+    # a capture earlier in the same second as the fetch is before it (Codex on #475)
+    sec = Z("2026-10-10T11:52:00.500000")
+    _main_leg(scratch, ku, "AWAY", "KXNCAAFGAME-26OCT10KUUTAH-KU", sec)
+    _main_leg(scratch, ku, "HOME", "KXNCAAFGAME-26OCT10KUUTAH-UTAH", sec)
+    p = _payload(now, KXNCAAFGAME=KUUTAH)
+    p["series"]["KXNCAAFGAME"]["fetched_at"] = "2026-10-10T11:52:00.800000"
+    r = kr.replay(p, progress=lambda _: None)["KXNCAAFGAME"]
+    assert r["main_at"] == sec and r["main_legs"] == 2
 
 
 def test_the_replay_places_each_series_at_its_own_fetch_time(scratch):

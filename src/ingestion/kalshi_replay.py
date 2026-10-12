@@ -78,9 +78,9 @@ def fetch(only: list[str] | None = None, progress=print) -> dict:
             continue
         try:
             mks = adapter.open_markets_for_series(p["series"])
-            # each series stamped after its own fetch, as a sync stamps its run (#470 item 3)
-            payload["series"][p["series"]] = {**p, "markets": mks,
-                                              "fetched_at": utc_now_naive().replace(microsecond=0).isoformat()}
+            # each series stamped after its own fetch, as a sync stamps its run (#470 item 3), to the microsecond as
+            # a sync stores captured_at: a capture made earlier in the same second is before the fetch (Codex on #475)
+            payload["series"][p["series"]] = {**p, "markets": mks, "fetched_at": utc_now_naive().isoformat()}
         except Exception as e:  # noqa: BLE001 - one series' failure is printed; the others replay
             payload["series"][p["series"]] = {**p, "markets": [], "error": f"{type(e).__name__}: {e}"[:200]}
         progress(f"  fetched {p['series']} ({p['competition']}): "

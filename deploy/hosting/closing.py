@@ -61,7 +61,8 @@ file replaces the earlier one, the earlier is kept as logs/<its run id>.<name>, 
 
 Refusals (receipted, exit 2), in order: R5 a backup folder under data/ (before anything else); SP_SKIP_FAMILIES
 naming the family (MLB: laptop only); M1 SP_EXPORTS_MIRROR_REMOTE unset; P1 SP_EXPORTS_MIRROR_ROLE unset or neither
-host nor laptop; C6 NTFY_CARD_TOPIC unset; R4 a malformed --start; nothing to close (A4).
+host nor laptop; C6 NTFY_CARD_TOPIC unset; R4 a malformed --start; nothing to close (A4); under the lock, before any
+step, an export path that already exists (#442: nothing a run kept is opened for writing a second time).
 
 Receipts: kind "closing" (one line per run, success, failure, refusal or superseded) and kind "closing_miss" (the MLB
 feed unreachable; the lock held into T-5; a due start time first seen inside T-5), once per start time and reason. The autopilot places nothing and
@@ -1296,6 +1297,19 @@ def export_candidates(fam: str, start: datetime, at: datetime, run_id: str) -> l
     return [f"logs/{run_id}.{slate_name(fam, start, at)}"]
 
 
+def _export_path_refusal(fam: str, start: datetime, at: datetime, run_id: str) -> str | None:
+    """#442 (ARCHITECT 2026-10-12, addendum 44 item 8): "A run whose export path already exists does not start: a
+    receipted refusal before any step, as R4 and R5 are. Nothing a run kept is opened for writing a second time."
+    Two runs of one family entering in one UTC second share a run id, so the second would overwrite the first's kept
+    export. Read under the lock, with the run's own start (the path names it), before the backup and every step."""
+    out_ = export_candidates(fam, start, at, run_id)[0]
+    path = c.REPO / out_
+    if path.exists() or path.is_symlink():
+        return (f"the export path {out_} already exists (a run of this family entered in the same second, run id "
+                f"{run_id}): nothing a run kept is opened for writing a second time")
+    return None
+
+
 CLOSING_FILE_DIR = "exports"
 
 
@@ -1503,6 +1517,10 @@ def _move_export(rec: dict, run_id: str) -> None:
     if not src.is_file():
         return
     dest = c.REPO / "logs" / f"{run_id}.{src.name}"
+    if dest.exists() or dest.is_symlink():             # #442: nothing a run kept is written a second time
+        rec["export_move_error"] = f"logs/{dest.name} already exists: kept, not replaced; the export stays at {rec['export']}"
+        print(f"✗ export NOT moved: {rec['export_move_error']}")
+        return
     try:
         c.refuse_under_data(dest.parent)
         dest.parent.mkdir(parents=True, exist_ok=True)
@@ -1801,6 +1819,9 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
             record_miss(fam, start, "the lock came inside T-5", detail=f"lock held at {iso_z(held)}")
             print(f"✗ {fam} {et(s)}: the lock came inside T-5 — no attempt; miss recorded")
             return NOTIFIED
+    why = _export_path_refusal(fam, s, held, run_id)
+    if why:                           # #442 (addendum 44 item 8): before any step, as R4 and R5 are
+        return _refuse(why, fam, start, base, trigger, dry_run=False)
     games = with_called_off(fam, schedule(fam, held), held)     # Codex 4233123800
     covers = cover(games, s, held)
     rec = {**base, "start": start, "start_et": et(s), "covers": _covers_rec(covers or p["covers"]),
@@ -1888,6 +1909,10 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
         print("  backup: " + (f"exists {have}" if have else
                               f"none dated {today_ny} in {folder} → would take sports_{today_ny}.db (.backup API), "
                               "check integrity, open, hash, hash file"))
+        why = _export_path_refusal(fam, s, now, run_id)
+        if why:
+            print(f"  would REFUSE: {why}")
+            return 0
         for i, st in enumerate(resolve_steps(fam, s, p["covers"], now, run_id), 1):
             print(f"  {i}. python cli.py {' '.join(st)}")
         print(f"  export: {' or '.join(export_candidates(fam, s, now, run_id))} · then, once the page is accepted, "

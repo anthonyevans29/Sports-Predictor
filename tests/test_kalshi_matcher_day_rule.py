@@ -225,6 +225,8 @@ def test_the_nlcs_event_takes_the_game_on_its_date_though_the_clock_is_three_hou
     assert placed(res) == {(50542, "HOME"): "MIL", (50542, "AWAY"): "LAD"}, res.refused   # Milwaukee at home
     assert res.lines == ["  ! KXMLBGAME-26OCT122000LADMIL: Kalshi's clock 2026-10-12 20:00 ET is 3.0h from our "
                          "kickoff 2026-10-12 17:00 ET (match 50542); the ticker's date gives the game"]
+    # the console prints it though nothing is refused (Codex on #474)
+    assert km.console_lines(res) == ["  refused: none"] + res.lines
 
 
 def test_the_alcs_event_on_its_own_row_prints_no_line():

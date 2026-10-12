@@ -369,6 +369,6 @@ def day_span(markets: list[dict]) -> tuple[datetime, datetime] | None:
 def console_lines(res: Result) -> list[str]:
     """Every refusal counted by its reason, then the lines naming the refused events."""
     if not res.refused:
-        return ["  refused: none"]
+        return ["  refused: none"] + res.lines     # a line a placement carries (a far clock) is printed too
     out = ["  refused, by reason:"] + [f"    {n:>4}  {r}" for r, n in sorted(res.refused.items(), key=lambda x: (-x[1], x[0]))]
     return out + res.lines

@@ -39,6 +39,9 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 - **The laptop's role setting (addendum 45 P1), before the pull that carries it:** the laptop's `.env` holds
   `SP_EXPORTS_MIRROR_ROLE=laptop` (host.env holds `host`). A closing run on a machine without it, or with
   anything but `host` or `laptop`, is refused before any step, and the setup script's preflight says so.
+  **The cutover's preflight checks the host's (addendum 47 item 7(c)):** it refuses unless host.env itself says
+  `SP_EXPORTS_MIRROR_ROLE=host`. `install --replace` copies the pack's `.env` (the laptop's, role `laptop`) over the
+  checkout's, and only host.env's own line keeps the host pushing as `host`.
 - **The host closing-watch rehearsal (ARCHITECT 2026-10-12, addendum 45 P8):** "One rehearsal before the cutover
   day, on my word, and not before the tag that carries P1 is on the host: a single closing-run by hand on the
   host, as sp, for one NFL or PL start time that the laptop's watch has already paged. Its page is a second page
@@ -143,6 +146,14 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    sudo venv/bin/python deploy/hosting/sp_cutover.py resume --pack $P
    sudo venv/bin/python deploy/hosting/sp_cutover.py receipt --pack $P
    ```
+   - **The settings list (ARCHITECT 2026-10-12, addendum 47 item 7(c)):** preflight prints, by name and never by
+     value, each setting whose value on the host changes when the pack's `.env` replaces the checkout's (in the pack
+     and not in the checkout's `.env`; in the checkout's `.env` and not in the pack; in both with different values).
+     A setting to which host.env gives a value is left out, since host.env wins (an empty one, `NAME=`, falls back to the
+     `.env` and stays on the list; addendum 48 item 6). "The list refuses nothing by itself. The cutover
+     ruling names the settings it expects on it, and a name the ruling did not give stops the cutover before pause."
+     The operator pastes the list with the preflight's receipt (`env_changes` in it, names only), and goes on to
+     `pause` only when every name on it is one the ruling gave.
    - It runs as root (systemctl, and host.env is `root:sp 0640`). The steps
      that open the DB or the pack (verify, install) re-run as `sp`
      (`runuser -u sp`), so `data/sports.db`, `.env` and `exports/` stay
@@ -152,7 +163,7 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
 
      | Step | Does | Refuses on |
      |---|---|---|
-     | preflight | `sp_migrate verify` (sha256, integrity, every table count); checks the pack's `DATABASE_URL` is relative; reads the timers list and host.env | missing pack; verify FAIL; an absolute `DATABASE_URL`; a missing or empty timers list, or a non-`sp-*.timer` name in it; host.env missing or not writable; `SP_WRITER_OF_RECORD` on more than one line or with a value other than `laptop`/`host`; any target under `data/` |
+     | preflight | `sp_migrate verify` (sha256, integrity, every table count); checks the pack's `DATABASE_URL` is relative; reads the timers list and host.env | missing pack; verify FAIL; an absolute `DATABASE_URL`; a missing or empty timers list, or a non-`sp-*.timer` name in it; host.env missing or not writable; `SP_WRITER_OF_RECORD` on more than one line or with a value other than `laptop`/`host`; host.env not saying `SP_EXPORTS_MIRROR_ROLE=host` itself (addendum 47 item 7(c)); any target under `data/` |
      | pause | `systemctl stop` on the list, then `is-active` for each timer; lists any `sp-chain@` still running | stop failed; any timer not `inactive` |
      | install | `sp_migrate install --replace` under the DB lock (waits for a running chain) | verify FAIL; S2 ≠ S1; any R2 ≠ R1; lock timeout |
      | flip | sets `SP_WRITER_OF_RECORD=host` in host.env (never touches `SP_PARALLEL_MODE`), line-preserving; keeps `host.env.pre-cutover-<ts>` beside it | ambiguous flag lines; any other key changed |
@@ -219,7 +230,11 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    - The unit runs `closing.py watch --family NFL --family SOCCER` (P2: by name, never bare), every minute of
      every hour (P3: H0-3's one exemption, by name), bounded at 45 minutes. A failed run, a miss or a lock wait
      that ran out leaves exit 3 and a refusal exit 2: both already receipted and notified, both success to the
-     unit. Its failure path (`sp-notify@closing-watch`) is for what the process could not report (#408 item 1).
+     unit. Its failure path (`sp-notify@closing-watch`) is for what the process could not report (#408 item 1),
+     and that page goes out at most once in thirty minutes; every failure is still receipted, and a held-back one
+     names the page it stands behind (addendum 47 item 7(b)). A failure, miss or refusal neither the screen (none
+     on the host) nor the card topic took goes once through the operator topic, and its receipt names the channel
+     that took it (addendum 47 item 7(a)).
      A reboot ends the tick that is running; the next tick retries (#408 item 4).
    - **"was" restarts on the host.** The host's first page computes each game's last call from the host's
      receipts and the host's `exports/` only; it does not use what the laptop last paged. The first host page

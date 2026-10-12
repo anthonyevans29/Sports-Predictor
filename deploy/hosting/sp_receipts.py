@@ -58,7 +58,8 @@ def key_line(r: dict) -> str:
             return f"{head} attempt {r.get('attempt')} FAILED: {r['failed']}"
         push = r.get("push") or {}
         return (f"{head} attempt {r.get('attempt')} paged {len(r.get('covers') or [])} game(s); push exit "
-                f"{push.get('exit')}" + (" FAILED" if r.get("push_failed") else ""))
+                f"{push.get('exit')}" + (" FAILED" if r.get("push_failed") else "")
+                + ("; closing file NOT WRITTEN" if r.get("closing_file_failed") else ""))
     if k == "closing_miss":
         return f"{r.get('family')} {r.get('start')} MISSED: {r.get('reason')}"
     if k == "deploy":
@@ -68,7 +69,13 @@ def key_line(r: dict) -> str:
 
 
 def failed(r: dict) -> bool:
-    return r.get("kind") == "failure" or (r.get("exit") not in (0, None))
+    """ARCHITECT 2026-10-12, addendum 47 item 6 (#453): "Both count as failing in the receipts table: a closing
+    miss, and a closing whose push failed after its page. The page went out, but the mirror is what the compare and
+    the Cockpit read, and it is short of that file until the next push." Addendum 48 item 5 (#459): "A closing
+    whose file was not written counts as failing in the receipts table, and its key line says so. It is the failed
+    push's case and worse: no later push carries a file that was never written." """
+    return (r.get("kind") in ("failure", "closing_miss") or (r.get("exit") not in (0, None))
+            or (r.get("kind") == "closing" and bool(r.get("push_failed") or r.get("closing_file_failed"))))
 
 
 def rows(since: datetime, steps: bool) -> list[dict]:

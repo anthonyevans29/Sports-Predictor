@@ -5361,23 +5361,34 @@ def intl_elo_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
 @click.option("--desk", is_flag=True, default=False,
               help="F1 (#151): add the Desk's call per row (desk + desk_meta). Off by default "
                    "until the parity receipt is ruled; SP_DESK_CALLS=1 also enables it.")
-def export_nfl_predictions_cmd(week, days, desk):
+@click.option("--out", "out_path", default=None,
+              help="File path to write to. Defaults to exports/nfl_predictions_<UTC date>.json. A closing run "
+                   "writes its export outside exports/ (addendum 40 item 2).")
+def export_nfl_predictions_cmd(week, days, desk, out_path):
     """NFL predictions export (LIVE: rehearsal=false; quarantine, venue and Elo fields).
 
     Rows default to the CURRENT SLATE: kickoffs in the next 36 hours, so a
     closing freshen yields a one-slate file. --week / --days N widen it.
     Prediction generation is unchanged (predict-nfl still stores the whole
     week for CLV); only the file's rows are scoped."""
-    from src.walters.nfl_predict import export_nfl_predictions
+    from src.walters.nfl_predict import export_nfl_predictions, refuse_out_path
     if week and days:
         raise click.UsageError("--week and --days are exclusive")
+    if out_path:                       # law 5 before any read (Codex on #433)
+        try:
+            refuse_out_path(out_path)
+        except ValueError as e:
+            console.print(f"[red]{e}[/red]")
+            raise SystemExit(2)
     rc: dict = {}
     if week:
-        path, how = export_nfl_predictions(days_ahead=8, receipts=rc, desk=desk or None), "--week: full look-ahead"
+        path, how = (export_nfl_predictions(days_ahead=8, receipts=rc, desk=desk or None, out_path=out_path),
+                     "--week: full look-ahead")
     elif days:
-        path, how = export_nfl_predictions(days_ahead=days, receipts=rc, desk=desk or None), f"--days {days}"
+        path, how = (export_nfl_predictions(days_ahead=days, receipts=rc, desk=desk or None, out_path=out_path),
+                     f"--days {days}")
     else:
-        path = export_nfl_predictions(hours_ahead=SLATE_WINDOW_H, receipts=rc, desk=desk or None)
+        path = export_nfl_predictions(hours_ahead=SLATE_WINDOW_H, receipts=rc, desk=desk or None, out_path=out_path)
         how = "default: current slate; --week / --days N for more"
     if rc.get("elo_drift_games"):
         print(f"⚠ ELO DRIFT: {len(rc['elo_drift_games'])} NFL game(s) finished after the "

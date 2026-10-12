@@ -143,9 +143,39 @@ def elo_drift_games(s, since) -> list:
         )).scalars() if "pre" not in (m.stage or "").lower()]
 
 
+def refuse_out_path(out_path: str) -> None:
+    """Law 5 for --out (Codex on #433): the resolved target is never under data/ and never the configured
+    database itself (a symlink or alias included). Raises ValueError before anything is opened for writing."""
+    from pathlib import Path
+    from src.walters.unl_ladders import data_dir
+    tgt = Path(out_path).resolve()
+    data = data_dir()
+    # Codex round 4 on #433: every database this process can mean, not only an explicitly set DATABASE_URL: the
+    # engine's own file (config.settings, the ./data/sports.db default included) and the environment's
+    from config import settings
+    from src.db.database import _engine
+    urls = {os.getenv("DATABASE_URL") or "", settings.database_url or ""}
+    files = {u.replace("sqlite:///", "", 1) for u in urls if u.startswith("sqlite:///")}
+    if _engine.url.get_backend_name() == "sqlite" and _engine.url.database:
+        files.add(_engine.url.database)
+    # Codex round 2 on #433: the database's -wal / -shm / -journal sidecars too, and by file identity (a hard link
+    # resolves to its own path), as _vqa_out_ok does
+    dbs = [Path(str(Path(f).resolve()) + x) for f in sorted(files) for x in ("", "-wal", "-shm", "-journal")]
+
+    def same(a, b) -> bool:
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            return False
+    if (tgt == data or data in tgt.parents or tgt in dbs
+            or (tgt.exists() and any(x.exists() and same(tgt, x) for x in dbs))):
+        raise ValueError(f"REFUSED: --out {out_path} is under data/ or is the database (or its sidecar) (law 5)")
+
+
 def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                            receipts: dict | None = None,
-                           hours_ahead: float | None = None, desk: bool | None = None) -> str:
+                           hours_ahead: float | None = None, desk: bool | None = None,
+                           out_path: str | None = None) -> str:
     # Export windowing (architect 2026-09-28): the FILE's rows are scoped to
     # kickoffs in [now, now + window]; predictions are generated and stored
     # exactly as before (early-week claims stay for CLV). hours_ahead wins
@@ -293,9 +323,14 @@ def export_nfl_predictions(days_ahead: int = 8, out_dir: str = "exports",
                                            for m in drift]
     for r in rows:
         r.pop("_computed_at", None)
-    os.makedirs(out_dir, exist_ok=True)
-    path = os.path.join(out_dir,
-                        f"nfl_predictions_{utc_now_naive().strftime('%Y-%m-%d')}.json")
+    if out_path:              # addendum 40 item 2: a closing run names its own file, outside exports/
+        refuse_out_path(out_path)
+        os.makedirs(os.path.dirname(out_path) or ".", exist_ok=True)
+        path = out_path
+    else:
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(out_dir,
+                            f"nfl_predictions_{utc_now_naive().strftime('%Y-%m-%d')}.json")
     payload = {
         "exported_at": utc_now_naive().isoformat() + "Z",
         "git_sha": _git_sha(),

@@ -43,7 +43,8 @@ MODEL_SPORTS = ("MLB", "NFL", "PL")              # build step (4): the live mode
 #: (<sport>[_<COMP>]_results_<date>.json) is not a prediction export.
 DEFAULT_PRED_NAME = re.compile(r"^(soccer|nfl|mlb|nhl)(?:_(?!results_\d{4}-)[A-Za-z0-9]+)*"
                                r"_\d{4}-\d{2}-\d{2}(_to_\d{4}-\d{2}-\d{2})?\.json$", re.I)
-EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_)|predictions|" + DEFAULT_PRED_NAME.pattern, re.I)
+#: closing_<FAMILY>_<start>.json (addendum 40 item 2): a closing run's file, its page's rows only, read as any Desk export
+EXPORT_NAME = re.compile(r"^(fixtures_|desk_parlays_|window_|closing_)|predictions|" + DEFAULT_PRED_NAME.pattern, re.I)
 SPREAD_SPORTS = ("NFL", "NCAA", "NCAAF")
 #: the export families a document-level `sport` may name (schema Sport values + the shadow / intl families)
 #: the competitions a single-league export family carries (src/db/schema.py Sport: NCAA football is Sport.NFL;

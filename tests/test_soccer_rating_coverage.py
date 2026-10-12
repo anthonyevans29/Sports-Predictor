@@ -12,14 +12,14 @@ def _db(tmp_path, production_rows=1, legacy=False):
     p = tmp_path / "rc.db"
     con = sqlite3.connect(p)
     con.executescript("""
-        CREATE TABLE competitions (id INTEGER PRIMARY KEY, code TEXT);
+        CREATE TABLE competitions (id INTEGER PRIMARY KEY, sport TEXT, code TEXT);
         CREATE TABLE teams (id INTEGER PRIMARY KEY, name TEXT);
         CREATE TABLE matches (id INTEGER PRIMARY KEY, competition_id INT, season TEXT, home_team_id INT,
                               away_team_id INT);
         CREATE TABLE model_versions (id INTEGER PRIMARY KEY, sport TEXT, model_family TEXT, version TEXT,
                                      status TEXT, parameters TEXT);
     """)
-    con.execute("INSERT INTO competitions VALUES (1, 'PL'), (2, 'CZE')")
+    con.execute("INSERT INTO competitions VALUES (1, 'SOCCER', 'PL'), (2, 'SOCCER', 'CZE'), (3, 'NFL', 'NFL')")
     con.executemany("INSERT INTO teams VALUES (?, ?)",
                     [(10, "Arsenal"), (11, "Leeds"), (12, "Ipswich"), (13, "Fulham"), (99, "Slavia")])
     con.executemany("INSERT INTO matches VALUES (?, ?, ?, ?, ?)",
@@ -83,3 +83,34 @@ def test_a_match_side_id_without_a_team_row_stays_visible(tmp_path):
     c = rc.coverage(con, "PL", "2026/27")
     row = next(r for r in c["rows"] if r["id"] == 77)
     assert row["name"] == "(no team row)" and row["rating"] is None and c["teams"] == 5
+
+
+# ---- #422 item 5 and #421 ----------------------------------------------------------------------------------------
+
+def test_422_5_the_competition_is_looked_up_as_soccer_and_an_unplaceable_code_refuses(tmp_path, capsys):
+    p = _db(tmp_path)
+    assert rc.main(["--competition", "NFL", "--season", "2026", "--db", str(p)]) == 2       # not soccer
+    assert "REFUSED: 0 soccer competitions with code NFL" in capsys.readouterr().out
+    con = sqlite3.connect(p)
+    con.execute("INSERT INTO competitions VALUES (4, 'soccer', 'PL')")                    # a second PL row
+    con.commit()
+    con.close()
+    assert rc.main(["--competition", "PL", "--season", "2026/27", "--db", str(p)]) == 2
+    assert "REFUSED: 2 soccer competitions with code PL" in capsys.readouterr().out
+
+
+def test_421_a_copy_that_refuses_mode_ro_opens_query_only_and_a_write_fails(tmp_path, monkeypatch):
+    p = _db(tmp_path)
+    real = sqlite3.connect
+
+    def refuse_uri(path, *a, **k):
+        if k.get("uri"):
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(path, *a, **k)
+    monkeypatch.setattr(rc.sqlite3, "connect", refuse_uri)
+    con, form = rc.open_read(p)
+    assert form == "plain path with PRAGMA query_only = ON (mode=ro refused)"
+    import pytest
+    with pytest.raises(sqlite3.OperationalError, match="readonly"):
+        con.execute("DELETE FROM model_versions")
+    assert rc.coverage(con, "PL", "2026/27")["teams"] == 4                                # reads still work

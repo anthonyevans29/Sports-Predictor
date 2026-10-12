@@ -1,0 +1,6 @@
+**2026-10-11 — FINDING (ARCHITECT 2026-10-11 12:31 ET, addendum 40 item 7; #426): Hawai'i under two provider team ids. Receipt first.**
+- This morning's NCAA probe: three stored games (32536 Hawai'i at Wyoming, 32724 San José State at Hawai'i, 32744 Hawai'i at Arizona State) match a listing game by id while our Hawai'i carries team source id 901 and the listing's carries 59. Possibly related to #358 (an HTML-escaped "Hawai&#x27;i" made a second team row).
+- **Built (read-only, nothing else):** `scripts/ncaa_hawaii_receipt.py`: our teams named like Hawai'i with their ids, source ids and game counts, the three games, and what the provider answers for team 59 and for team 901. Nothing is built until the architect has read the console.
+
+**2026-10-11 — PROBE FIRST (ARCHITECT 2026-10-11 12:31 ET, addendum 40 item 4; #432): does the provider answer a position for an injured player by its id?**
+- **Built (read-only):** `scripts/nfl_injury_position_probe.py`. Law 1 from the code: our injuries rows store no provider player id, so the id is read from the provider's own /injuries answer for the team by exact name (a stored name the feed no longer lists is listed, never guessed), then GET /players?id=. The finding's cases: Skylar Thompson (Baltimore), Derek Carr (New Orleans). Nothing is built on it until the architect has read the console.

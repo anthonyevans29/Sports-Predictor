@@ -11,7 +11,7 @@ league table is parameters.elo.league.ratings (the legacy single-state shape, pa
 training.py reads it). Keys are team ids as JSON strings; MISSING means the id is not a key, which is when
 EloState.get answers the starting rating. team_to_league is shown as stored, or "-" when the id is not in it.
 
-Opens the DB read-only (mode=ro URI; a copy that refuses it falls back to a plain connect, SELECT only).
+Opens the DB read-only (mode=ro URI; a copy that refuses it falls back to the plain path with PRAGMA query_only = ON, #421).
 
     python3 scripts/soccer_rating_coverage.py --competition PL --season 2026/27 [--db PATH]
 """
@@ -52,9 +52,13 @@ def open_read(p: Path):
         con.execute("SELECT 1 FROM model_versions LIMIT 1")
         return con, "mode=ro URI"
     except sqlite3.OperationalError:
+        # #421 RULED (ARCHITECT 2026-10-11, addendum 38): "A receipt opens the database mode=ro. Where a copy refuses
+        # that, it opens the plain path with query_only set and prints which form it used [...] It opens the
+        # database no third way."
         con = sqlite3.connect(str(p), timeout=60)
+        con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM model_versions LIMIT 1")
-        return con, "plain connect (mode=ro refused), SELECT only"
+        return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
 
 
 class Refused(Exception):
@@ -79,9 +83,14 @@ def league_table(params: dict) -> dict:
 
 
 def coverage(con, competition: str, season: str) -> dict:
-    comp = con.execute("SELECT id FROM competitions WHERE code = ?", (competition,)).fetchone()
-    if comp is None:
-        raise Refused(f"REFUSED: competition {competition} not in the DB")
+    # #422 item 5 RULED (addendum 40 item 9): "The coverage script looks its competition up as soccer and refuses a
+    # code it cannot place." (sport, code) is the unique pair; a code with no soccer row, or more than one, refuses.
+    rows = con.execute("SELECT id FROM competitions WHERE code = ? AND lower(sport) = 'soccer'",
+                       (competition,)).fetchall()
+    if len(rows) != 1:
+        raise Refused(f"REFUSED: {len(rows)} soccer competitions with code {competition} in the DB (exactly one is "
+                      "placed)")
+    comp = rows[0]
     version, params = production(con)
     table = league_table(params)
     t2l = {str(k): v for k, v in (params.get("team_to_league") or {}).items()}

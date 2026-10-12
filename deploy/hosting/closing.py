@@ -110,9 +110,15 @@ FEED_MISS_TEXT = "MLB feed unreachable: VPN on, Tailscale off"
 # nothing in the Desk moves. B5 (ARCHITECT 2026-10-09, addendum 23, reading 8 RULED): "The hold of 2026-10-07 is the
 # operator's, and it names MLB and NFL. It is not extended to PL here: its row gains its families and nothing else
 # about it changes."
+# THE HOLD OF 2026-10-11 (ARCHITECT, addendum 40 item 4; NFL only): "an NFL PLAY that is QB-flagged, or sized by this
+# rule, says on its page line "QB: paste to the architect before placing". [...] The Desk's call and the file do not
+# change. The hold stands until the model has a quarterback term that has passed its gate" (#427). Read from the
+# Desk's own tags: "QB-flagged half units" (v1.1's QB rule) or "QB unread half units" (the empty-list rule).
 CLOSING_HOLDS = (
     {"call": "PLAY", "exec_edge_under_pp": 4.0, "text": "paste to the architect before placing", "since": "2026-10-07",
      "families": ("MLB", "NFL")},
+    {"call": "PLAY", "tags_any": ("QB-flagged half units", "QB unread half units"),
+     "text": "QB: paste to the architect before placing", "since": "2026-10-11", "families": ("NFL",)},
 )
 VOID = ("CANCELLED", "POSTPONED", "STALE_ORPHAN")      # never a game in any window
 STARTED_STATUSES = ("LIVE", "FINISHED")
@@ -456,6 +462,21 @@ STEP_FAILURE_MARKERS = {
 }
 
 
+EMPTY_ANSWER_MARK = "EMPTY-ANSWER"          # cli.py _print_empty_answers (a test pins the two together)
+
+
+def empty_answers(argv: list[str], tail: list[str]) -> list[str]:
+    """Addendum 40 item 4: the teams a sync-injuries step named as answering empty (its EMPTY-ANSWER line)."""
+    if not argv or argv[0] != "sync-injuries":
+        return []
+    out: list[str] = []
+    for ln in tail:
+        if ln.startswith(EMPTY_ANSWER_MARK) and "): " in ln:
+            out += [t.strip() for t in ln.split("(read as unread): ", 1)[-1].split(";")
+                    if t.strip() and t.strip() not in out]
+    return out
+
+
 def reported_failure(argv: list[str], tail: list[str]) -> str | None:
     for line in tail:
         s = line.strip()
@@ -550,10 +571,17 @@ def hold_for(d: dict, fam: str) -> str | None:
     """A7: the hold text a Desk row carries, from CLOSING_HOLDS (an unknown exec edge is under the bar), for the
     families the hold names (B5)."""
     e = ((d.get("exec") or {}).get("edge_pp"))
+    tags = set(d.get("tags") or [])
+    out = []
     for h in CLOSING_HOLDS:
-        if fam in h["families"] and d.get("call") == h["call"] and (e is None or e < h["exec_edge_under_pp"]):
-            return h["text"]
-    return None
+        if fam not in h["families"] or d.get("call") != h["call"]:
+            continue
+        if "exec_edge_under_pp" in h and not (e is None or e < h["exec_edge_under_pp"]):
+            continue
+        if "tags_any" in h and not tags & set(h["tags_any"]):
+            continue
+        out.append(h["text"])
+    return " · ".join(out) or None
 
 
 def _pp(x) -> str:
@@ -596,6 +624,14 @@ def unresolved_injuries(r: dict) -> int | None:
     return sum(len(g or []) for g in got)
 
 
+def injuries_empty(r: dict) -> list[str]:
+    """Addendum 40 item 4: the teams whose stored injury list is empty (input_quality.injuries.<side>.count 0): "a list
+    we could not read, not a team with nobody hurt". A side without a count is not listed."""
+    inj = (r.get("input_quality") or {}).get("injuries") or {}
+    return [r.get("home_team") if s == "home" else r.get("away_team") for s in ("home", "away")
+            if isinstance(inj.get(s), dict) and inj[s].get("count") == 0]
+
+
 def desk_rows(doc: dict, cover_ids: set, done: datetime, started_ids=frozenset(), fam: str = "") -> list[dict]:
     """The export's Desk rows for the run's own games (C2), less the games the ONE started test (R1) calls started
     at `done`, the moment the steps finished: a stored status then LIVE or FINISHED (`started_ids`) or a start time
@@ -618,6 +654,7 @@ def desk_rows(doc: dict, cover_ids: set, done: datetime, started_ids=frozenset()
                     "reason": d.get("reason"), "pass_kind": d.get("pass_kind"),
                     "kalshi_only_hold": d.get("kalshi_only_hold"), "hold": hold_for(d, fam),
                     "unresolved_injuries": unresolved_injuries(r) if fam == "NFL" else None,
+                    "injuries_empty": injuries_empty(r) if fam == "NFL" else [],
                     "quarantine_shadow": ({"pick": side_team(r, d.get("pick")), "units": d.get("shadow_units"),
                                            "edge_pp": _r2(d.get("edge_pp")),
                                            "exec_edge_pp": _r2((d.get("exec") or {}).get("edge_pp"))}
@@ -984,6 +1021,8 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
                  f"exec {_pp(x['exec_edge_pp'])}"]
         if x.get("unresolved_injuries"):                # B7
             parts.append(f"{x['unresolved_injuries']} injured, position unresolved")
+        if x.get("injuries_empty"):                     # addendum 40 item 4, beside B7's count
+            parts.append(f"injury list empty: {' and '.join(x['injuries_empty'])}")
         if x["hold"]:
             parts.append(x["hold"])
         was = prev.get(x["match_id"])
@@ -1524,6 +1563,11 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         said = reported_failure(st, tail) if rc == 0 else None
         if said:                      # exit 0, but the step said it failed (Codex on #370)
             srec["detected_failure"] = said
+        empty = empty_answers(st, tail)
+        if empty:                     # addendum 40 item 4: "in its console and in the run's receipt"
+            srec["empty_answers"] = empty
+            rec["injury_lists_empty"] = sorted(set(rec.get("injury_lists_empty", [])) | set(empty))
+            print(f"· injury read answered empty (stored empty, read as unread): {'; '.join(empty)}")
         if rc != 0:
             srec["tail"] = tail[-3:]  # e.g. strict mode's "✗ STRICT: ..." lines (addendum 22)
         rec["steps"].append(srec)
@@ -1599,7 +1643,8 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             return
     rec["desk_rows"] = [{k: x[k] for k in ("match_id", "start", "call", "call_text", "pick", "units", "exec_edge_pp",
                                            "hold", "value_shadow", "quarantine_shadow", "starters_listed",
-                                           "unresolved_injuries")} for x in rows]   # call_text: 26 2(b)
+                                           "unresolved_injuries", "injuries_empty")}
+                       for x in rows]   # call_text: 26 2(b); injuries_empty: addendum 40 item 4
     print(f"\n=== {fam} closing summary · {len(rows)} game(s) starting {et(s)} to "
           f"{utc(s + timedelta(minutes=COVER_MIN)).astimezone(NY):%H:%M} ET")
     for x in rows:

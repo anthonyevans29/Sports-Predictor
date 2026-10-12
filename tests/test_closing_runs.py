@@ -730,7 +730,10 @@ def test_c7_one_launchd_watch_for_the_three_families_and_no_host_timer():
 
 def test_c8_nothing_in_the_desk_moves():
     assert mc.CLOSING_HOLDS == ({"call": "PLAY", "exec_edge_under_pp": 4.0, "text": HOLD, "since": "2026-10-07",
-                                 "families": ("MLB", "NFL")},)                       # B5: only its families added
+                                 "families": ("MLB", "NFL")},                        # B5: only its families added
+                                {"call": "PLAY", "tags_any": ("QB-flagged half units", "QB unread half units"),
+                                 "text": "QB: paste to the architect before placing", "since": "2026-10-11",
+                                 "families": ("NFL",)})                              # addendum 40 item 4
     src = (HOSTING / "closing.py").read_text()
     import re as _re                                                                 # reads the export only:
     assert not _re.search(r"^\s*(import|from)\s.*desk_policy", src, _re.M)            # the Desk's code never imported

@@ -3039,3 +3039,47 @@ def test_requirements_round_eleven(sandbox, monkeypatch, capsys):
         return real_write(self, *a, **k)
     monkeypatch.setattr(Path, "write_text", failing)
     assert sp_deploy.record_installed("new") and not state.exists()
+
+
+# ------------------------------------- addendum 47 item 7(b): the closing watch's failure page, once in 30 minutes --
+
+def test_47_7b_the_closing_watch_failure_page_goes_out_at_most_once_in_thirty_minutes(sandbox, monkeypatch):
+    """"For sp-closing-watch.service, by name, the unit's failure page goes out at most once in thirty minutes.
+    Every failure still writes its receipt, and a receipt whose page was held back says so and names the page it
+    stands behind." """
+    import sp_notify
+    from datetime import timedelta
+    sent = []
+    monkeypatch.setattr(sp_notify, "journal_tail", lambda unit, n=30: ["Traceback: boom"])
+    monkeypatch.setattr(sp_notify, "deliver", lambda kind, title, body, extra=None, **k: sent.append(title) or
+                        c.append_receipt({"kind": kind, "title": title, "delivered": True, "channel": "ntfy",
+                                          **(extra or {})}))
+    for _ in range(3):
+        assert sp_notify.main(["failure", "closing-watch"]) == 0
+    rs = [r for r in receipts(sandbox) if r["kind"] == "failure"]
+    assert len(rs) == 3 and len(sent) == 1                                     # every failure receipted, one page
+    assert rs[1]["page_held_back"] is True and rs[1]["stands_behind"]["ts"] == rs[0]["ts"]
+    assert rs[2]["stands_behind"]["ts"] == rs[0]["ts"] and rs[1]["unit"] == "sp-closing-watch.service"
+    later = c.utc_now() + timedelta(minutes=31)
+    assert sp_notify.held_behind("sp-closing-watch.service", now=later) is None   # 30 minutes on: the page goes out
+    assert sp_notify.held_behind("sp-chain@window.service") is None                # by name: no other unit
+    for _ in range(2):
+        sp_notify.main(["failure", "window"])
+    assert len(sent) == 3
+
+
+def test_codex_4250381656_an_undelivered_failure_page_holds_nothing_back(sandbox, monkeypatch):
+    """Codex on #457 (P1): a failure page ntfy did not accept (or no topic) did not go out; the next failure pages."""
+    import sp_notify
+    monkeypatch.setattr(sp_notify, "journal_tail", lambda unit, n=30: [])
+    sent = []
+    ok = {"v": False}
+    monkeypatch.setattr(sp_notify, "deliver", lambda kind, title, body, extra=None, **k: sent.append(ok["v"]) or
+                        c.append_receipt({"kind": kind, "title": title, "delivered": ok["v"], **(extra or {})}))
+    sp_notify.main(["failure", "closing-watch"])
+    sp_notify.main(["failure", "closing-watch"])                     # the first was not delivered: tries again
+    assert sent == [False, False]
+    ok["v"] = True
+    sp_notify.main(["failure", "closing-watch"])
+    sp_notify.main(["failure", "closing-watch"])                     # now one went out: held back
+    assert sent == [False, False, True] and receipts(sandbox)[-1]["page_held_back"] is True

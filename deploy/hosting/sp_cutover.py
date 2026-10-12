@@ -11,7 +11,10 @@ Steps (in order; `run` = all six, the first failure stops):
   preflight  pack present; sp_migrate verify PASS (sha256 + integrity + every
              table count); the pack's DATABASE_URL relative; timers list
              readable; host.env present, writable, at most one
-             SP_WRITER_OF_RECORD line with a known value; no target under data/.
+             SP_WRITER_OF_RECORD line with a known value; host.env itself says
+             SP_EXPORTS_MIRROR_ROLE=host (addendum 47 item 7(c)); no target under data/.
+             Prints, by name only, each setting the pack's .env changes on the host
+             (those host.env gives a value left out); the list refuses nothing by itself.
              Everything that could fail install is refused HERE, before pause.
   pause      systemctl stop <timers.enabled>; every timer must read inactive.
              Running sp-chain@ services are listed (install waits on the DB lock).
@@ -66,6 +69,7 @@ import sp_common as c  # noqa: E402
 import sp_migrate  # noqa: E402
 
 STEPS = ("preflight", "pause", "install", "flip", "resume", "receipt")
+ROLE_SETTING = "SP_EXPORTS_MIRROR_ROLE"     # addendum 47 item 7(c): host.env itself must say host
 TIMERS_ENABLED = Path("/etc/sports-predictor/timers.enabled")   # hosting-h1.md T11
 TIMER_NAME = re.compile(r"^sp-[a-z0-9-]+\.timer$")
 BACKUP_UNIT = "sp-backup.service"
@@ -263,6 +267,27 @@ def step_preflight(ctx: Ctx) -> dict:
     problem = sp_migrate.pack_env_problem(ctx.pack)
     if problem:
         _refuse(ctx, s, problem)
+    # ARCHITECT 2026-10-12, addendum 47 item 7(c): "The cutover's preflight refuses unless host.env itself says
+    # SP_EXPORTS_MIRROR_ROLE=host." (install --replace copies the pack's .env, whose role is the laptop's, over the
+    # checkout's; setting() reads host.env before .env, so only host.env's own line keeps the host's role.)
+    host_env = c.parse_env_file(c.HOST_ENV)
+    role = (host_env.get(ROLE_SETTING) or "").strip()
+    if role != "host":
+        _refuse(ctx, s, f"{c.HOST_ENV} does not say {ROLE_SETTING}=host "
+                        f"({'not set there' if not role else 'it says ' + repr(role[:20])}): the pack's .env "
+                        "replaces the checkout's, and its role is the laptop's")
+    env_changes = env_changes_by_pack(ctx.pack, host_env)
+    if any(env_changes.values()):
+        print("· settings whose value on the host changes when the pack's .env replaces the checkout's "
+              "(names only, never values; those host.env gives a value left out):")
+        for k, label in (("pack_only", "in the pack, not in the checkout's .env"),
+                         ("checkout_only", "in the checkout's .env, not in the pack"),
+                         ("differ", "in both, different values")):
+            print(f"    {label}: {', '.join(env_changes[k]) or '—'}")
+        print("  The cutover ruling names the settings it expects on this list; a name it did not give stops the "
+              "cutover before pause (h2-cutover-runbook.md section 1 step 4).")
+    else:
+        print("· settings changed by the pack's .env: none")
     if _as_service_user(ctx):
         rc, out = ctx.runner(["runuser", "-u", ctx.service_user, "--", sys.executable,
                               str(HERE / "sp_migrate.py"), "verify", "--pack", str(ctx.pack)])
@@ -276,7 +301,26 @@ def step_preflight(ctx: Ctx) -> dict:
     return _receipt(ctx, s, 0, pack=str(ctx.pack), s1=man["files"].get(sp_migrate.DB),
                     n_tables=len(man["counts"]), source_host=man.get("source_host"),
                     pack_git_sha=man.get("git_sha"), timers=len(timers),
-                    timers_file=str(ctx.timers_file), host_env=str(c.HOST_ENV), flag_before=before)
+                    timers_file=str(ctx.timers_file), host_env=str(c.HOST_ENV), flag_before=before,
+                    mirror_role=role, env_changes=env_changes)
+
+
+def env_changes_by_pack(pack: Path, host_env: dict) -> dict:
+    """Addendum 47 item 7(c): "each setting whose value on the host changes when the pack's .env replaces the
+    checkout's: in the pack and not in the checkout's .env, in the checkout's .env and not in the pack, or in both
+    with different values. A setting host.env carries is left out, since host.env wins. The list refuses nothing by
+    itself." Addendum 48 item 6 (#460): "Only a setting to which host.env gives a value is left out of the list."
+    Names only; values are compared, never returned."""
+    if not (pack / sp_migrate.ENV).is_file():  # no env in the pack: install leaves the checkout's .env (Codex on #457)
+        return {"pack_only": [], "checkout_only": [], "differ": []}
+    packed = c.parse_env_file(pack / sp_migrate.ENV)
+    cur_p = c.REPO / ".env"
+    current = c.parse_env_file(cur_p) if cur_p.is_file() else {}
+    keep = lambda k: not (host_env.get(k) or "").strip()   # addendum 48 item 6 (#460): only a value host.env gives
+                                                           # is left out ("NTFY_TOPIC=" falls back to the .env)
+    return {"pack_only": sorted(k for k in packed if k not in current and keep(k)),
+            "checkout_only": sorted(k for k in current if k not in packed and keep(k)),
+            "differ": sorted(k for k in packed if k in current and packed[k] != current[k] and keep(k))}
 
 
 def step_pause(ctx: Ctx) -> dict:

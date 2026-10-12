@@ -435,6 +435,27 @@ def page_phone(title: str, body: str, priority: str = "default") -> dict:
         return {"accepted": False, "error": type(e).__name__}
 
 
+def page_operator(title: str, body: str) -> dict:
+    """Addendum 47 item 7(a): the operator topic (sp_notify's NTFY_TOPIC, the unit failure pages' channel), for a
+    notice neither the screen nor the card topic took. Accepted = HTTP 2xx; the topic is never printed or
+    recorded."""
+    import urllib.error
+    import urllib.request
+    import sp_notify
+    url = sp_notify.ntfy_url("NTFY_TOPIC")
+    if not url:
+        return {"accepted": False, "error": "NTFY_TOPIC unset or invalid"}
+    try:
+        req = urllib.request.Request(url, data=body.encode("utf-8")[:4000], method="POST",
+                                     headers={"Title": title[:200], "Priority": "high"})
+        with urllib.request.urlopen(req, timeout=20) as r:
+            return {"accepted": 200 <= r.status < 300, "http": r.status}
+    except urllib.error.HTTPError as e:
+        return {"accepted": False, "http": e.code}
+    except Exception as e:  # noqa: BLE001 - never the URL, never the message
+        return {"accepted": False, "error": type(e).__name__}
+
+
 def page_sleep(seconds: float) -> None:
     """B2: the wait between phone page tries (tests replace it)."""
     time.sleep(seconds)
@@ -1470,7 +1491,12 @@ def failure_text(fam: str, start: str | None, failed: str | None = None, refused
 
 
 def notify_failure(text: str, fam: str = "") -> dict:
-    """Best effort, both channels: the result is recorded in the receipt and changes nothing else."""
+    """Best effort, both channels: the result is recorded in the receipt and changes nothing else.
+    ARCHITECT 2026-10-12, addendum 47 item 7(a): "A failure, a miss or a refusal that neither the screen nor the card
+    topic took goes once through the operator topic, as sp_notify's page does, and its receipt names the channel
+    that took it. The watch's exit status does not change." On the host the screen posts nothing (not macOS), so an
+    unset or malformed card topic, or a card page ntfy did not accept, would otherwise reach nobody. `channel`: the
+    channel(s) that took it ("card", "screen", "card+screen", "operator"), or None."""
     title = f"{fam} closing".strip()
     text = f"{text}\n{machine_line()}"           # addendum 45: every closing page ends naming the machine
     try:
@@ -1482,9 +1508,19 @@ def notify_failure(text: str, fam: str = "") -> dict:
                                                                                  "skipped": f"{CARD_TOPIC} unset"}
     except Exception as e:  # noqa: BLE001
         ph = {"accepted": False, "error": type(e).__name__}
+    took = [ch for ch, ok in (("card", ph.get("accepted") is True), ("screen", res.get("posted") is True)) if ok]
+    op = None
+    if not took:                      # addendum 47 item 7(a): the operator topic, once, when neither channel took it
+        try:
+            op = page_operator(title, text)
+        except Exception as e:  # noqa: BLE001
+            op = {"accepted": False, "error": type(e).__name__}
+        if op.get("accepted") is True:
+            took = ["operator"]
     return {"text": text, "posted": res.get("posted"),
             **({"skipped": res["skipped"]} if res.get("skipped") else {}),
-            **({"error": res["error"]} if res.get("error") else {}), "phone": ph}
+            **({"error": res["error"]} if res.get("error") else {}), "phone": ph,
+            **({"operator": op} if op is not None else {}), "channel": "+".join(took) or None}
 
 
 def _refuse(why: str, fam: str, start: str | None, base: dict, trigger: str, dry_run: bool) -> int:

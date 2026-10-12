@@ -5,9 +5,17 @@ closing autopilot (addendum 13 item 3, addendum 16 item 2), which it replaces.
 
     closing.py run   --family MLB|NFL|SOCCER [--start ISO] [--dry-run]   (= python cli.py closing-run)
     closing.py watch [--family F] [--dry-run]                          (= python cli.py closing-watch; every minute)
-    closing.py preflight [--shell-set NAMES]     the setup script's checks (380.2): the run's own refusals
-    closing.py test-page                         one test page through the card topic (380.2, M2)
+    closing.py preflight [--shell-set NAMES] [--family F]   the setup script's checks (380.2): the run's own refusals
+    closing.py test-page [--family F]            one test page through the card topic (380.2, M2)
     closing.py install-push                      one exports-mirror push, label install (addendum 23 D1)
+
+Addendum 45 (ARCHITECT 2026-10-12, #405 and #408, P1-P8; C7 stands, everything shipped and held): P1 the mirror
+push's role is SP_EXPORTS_MIRROR_ROLE (host | laptop, no default; unset or neither refuses the run before any step);
+P2 the host's watch runs for NFL and SOCCER by name and preflight takes the same families; P3 the host's own units
+(deploy/hosting/systemd/sp-closing-watch.service + .timer, not enabled) and the watch's exit: 0 success, 2 a refusal,
+3 (NOTIFIED) a failure or miss already receipted and notified, 1 what the process could not report itself; P5 the
+laptop's setup script takes the families. Every closing page, failure notification and the test page end with a line
+naming the machine by role.
 
 C1 (families): MLB, NFL and SOCCER (PL) today: chains.CLOSING_FAMILIES. A shadow has no closing run and is never
 paged as a pick.
@@ -52,8 +60,8 @@ file replaces the earlier one, the earlier is kept as logs/<its run id>.<name>, 
 (closing_file_failed) and the earlier stands.
 
 Refusals (receipted, exit 2), in order: R5 a backup folder under data/ (before anything else); SP_SKIP_FAMILIES
-naming the family (MLB: laptop only); M1 SP_EXPORTS_MIRROR_REMOTE unset; C6 NTFY_CARD_TOPIC unset; R4 a malformed
---start; nothing to close (A4).
+naming the family (MLB: laptop only); M1 SP_EXPORTS_MIRROR_REMOTE unset; P1 SP_EXPORTS_MIRROR_ROLE unset or neither
+host nor laptop; C6 NTFY_CARD_TOPIC unset; R4 a malformed --start; nothing to close (A4).
 
 Receipts: kind "closing" (one line per run, success, failure, refusal or superseded) and kind "closing_miss" (the MLB
 feed unreachable; the lock held into T-5; a due start time first seen inside T-5), once per start time and reason. The autopilot places nothing and
@@ -123,8 +131,11 @@ CLOSING_HOLDS = (
 VOID = ("CANCELLED", "POSTPONED", "STALE_ORPHAN")      # never a game in any window
 STARTED_STATUSES = ("LIVE", "FINISHED")
 MIRROR_SETTING = "SP_EXPORTS_MIRROR_REMOTE"            # M1
+ROLE_SETTING = "SP_EXPORTS_MIRROR_ROLE"                # addendum 45 P1: the machine's role, no default
+ROLES = ("host", "laptop")
 CARD_TOPIC = "NTFY_CARD_TOPIC"                         # C6
-REQUIRED_SETTINGS = (MIRROR_SETTING, CARD_TOPIC)       # 380.2: read where the launched job finds them
+REQUIRED_SETTINGS = (MIRROR_SETTING, ROLE_SETTING, CARD_TOPIC)   # 380.2: read where the launched job finds them
+NOTIFIED = 3                 # addendum 45 P3: the watch's exit for what it already receipted and notified
 STAKED_CALLS = ("PLAY", "LADDER")                      # a call that stakes units (LADDER: soccer's double chance)
 # R6 (+ 380.1): the failures of the run's own checks. Their export never sits in exports/: since addendum 40 item 2
 # the export step writes it under logs/, named with the run id, so no call is left behind (a receipt older than that
@@ -136,7 +147,7 @@ OWN_CHECK_FAILURES = ("stale prices", "stale starters", "missing from export", "
 PAGE_TRIES = 3
 PAGE_RETRY_S = 10
 TEST_PAGE_TITLE = "Closing watch"
-TEST_PAGE_BODY = "Test: the closing watch is installed (MLB, NFL, SOCCER). Pages arrive here by T-30."
+TEST_PAGE_BODY = "Test: the closing watch is installed ({families}). Pages arrive here by T-30."
 
 
 # ------------------------------------------------------------------------------------------------- time --
@@ -428,11 +439,31 @@ def page_sleep(seconds: float) -> None:
     time.sleep(seconds)
 
 
+def mirror_role() -> str | None:
+    """Addendum 45 P1 (ARCHITECT 2026-10-12): "The role is a setting on both machines. push_mirror and install-push
+    take it from SP_EXPORTS_MIRROR_ROLE, as the chains' hook does. Unset, or neither host nor laptop: the run is
+    refused before any step, as M1 is, and preflight says so. There is no default." None when it is not one of
+    ROLES."""
+    role = (c.setting(ROLE_SETTING) or "").strip()
+    return role if role in ROLES else None
+
+
+def machine_line() -> str:
+    """Addendum 45: "Every closing page ends with one line naming the machine by role (host/laptop). Test page
+    too." """
+    role = mirror_role()
+    return f"machine: {role}" if role else f"machine: role unknown ({ROLE_SETTING} unset or invalid)"
+
+
 def push_mirror(label: str = "closing") -> dict:
-    """M1: the exports mirror pushed as role laptop, label closing (docs/specs/exports-mirror.md, laptop step). D1
-    (addendum 23): the setup script's one push at install uses label install."""
+    """M1: the exports mirror pushed with this machine's role (P1, SP_EXPORTS_MIRROR_ROLE), label closing
+    (docs/specs/exports-mirror.md). D1 (addendum 23): the setup script's one push at install uses label install.
+    No role: nothing is pushed (the run refused before any step; install-push refuses)."""
+    role = mirror_role()
+    if not role:
+        return {"exit": None, "tail": [_role_refusal() or "no role"]}
     argv = [sys.executable, str(Path(__file__).resolve().parent / "exports_mirror.py"), "push",
-            "--role", "laptop", "--label", label]
+            "--role", role, "--label", label]
     try:
         r = subprocess.run(argv, cwd=c.REPO, capture_output=True, text=True, timeout=MIRROR_TIMEOUT_S)
         tail = [c.redact(x) for x in ((r.stdout or "") + (r.stderr or "")).strip().splitlines()[-2:]]
@@ -1058,6 +1089,7 @@ def page_text(fam: str, start: datetime, at: datetime, rows: list[dict], prev: d
         lines += wrap([f"{x['away']} @ {x['home']}", x["status"]] + ([f"was {was}"] if staked else []))
     n_pass = sum(1 for x in rows if x["call"] == "PASS")
     lines.append(f"PASS: {n_pass} game{'s' if n_pass != 1 else ''}")
+    lines.append(machine_line())                     # addendum 45: the last line names the machine by role
     title = f"{fam} closing {utc(start).astimezone(NY):%H:%M} ET"
     return title, "\n".join(lines), bool(plays) or bool(dropped) or off_staked
 
@@ -1205,6 +1237,18 @@ def _mirror_refusal() -> str | None:
     return None
 
 
+def _role_refusal() -> str | None:
+    """Addendum 45 P1: unset, or neither host nor laptop, refuses the run before any step, as M1 does. The value is
+    a role, not a secret: an invalid one is shown (cut to 20 characters)."""
+    raw = (c.setting(ROLE_SETTING) or "").strip()
+    if mirror_role():
+        return None
+    if not raw:
+        return (f"{ROLE_SETTING} is not set (environment, host.env, the checkout's .env): a closing run pushes the "
+                "exports mirror as this machine's role, host or laptop; there is no default")
+    return f"{ROLE_SETTING} is {raw[:20]!r}, neither host nor laptop: there is no default"
+
+
 def _card_topic_refusal() -> str | None:
     """C6 (ARCHITECT): "A closing run that cannot page is not a success. NTFY_CARD_TOPIC unset, read through
     sp_common.setting, refuses the run before its first step, receipted, naming the setting [...] The topic's value
@@ -1232,7 +1276,7 @@ def _start_refusal(start: str | None) -> str | None:
 
 def refusal_checks(fam: str, folder: Path, start: str | None = None) -> list:
     """The run's own refusals, in their order (R5 first). The setup script runs the same list (380.2)."""
-    return [lambda: _backup_folder_refusal(folder), lambda: _family_refusal(fam), _mirror_refusal,
+    return [lambda: _backup_folder_refusal(folder), lambda: _family_refusal(fam), _mirror_refusal, _role_refusal,
             _card_topic_refusal, lambda: _start_refusal(start)]
 
 
@@ -1414,6 +1458,7 @@ def failure_text(fam: str, start: str | None, failed: str | None = None, refused
 def notify_failure(text: str, fam: str = "") -> dict:
     """Best effort, both channels: the result is recorded in the receipt and changes nothing else."""
     title = f"{fam} closing".strip()
+    text = f"{text}\n{machine_line()}"           # addendum 45: every closing page ends naming the machine
     try:
         res = notify(text, title=title)
     except Exception as e:  # noqa: BLE001
@@ -1705,7 +1750,8 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             print(f"· a second page for this start time: it replaced {r['file']} of run {r['run_id']} (sha256 "
                   f"{r['sha256'][:12]}), kept as {r['kept_as']}")
     rec["push"] = push_mirror()
-    print(f"· exports mirror (laptop, closing): exit {rec['push']['exit']} {' | '.join(rec['push']['tail'])}")
+    print(f"· exports mirror ({mirror_role()}, closing): exit {rec['push']['exit']} "
+          f"{' | '.join(rec['push']['tail'])}")
     if rec["push"].get("exit") != 0:  # B1: receipted and notified; never a retry (the page went out)
         rec["push_failed"] = True
         rec["push_failure_notification"] = notify_failure(
@@ -1724,6 +1770,14 @@ def _finish(rec: dict, fam: str, trigger: str, run_id: str, t0: float) -> None:
             failure_text(fam, rec.get("start"), failed=rec.get("failed"), attempt=rec.get("attempt")), fam)
     rec["seconds"] = round(time.time() - t0, 1)
     c.append_receipt(rec)
+
+
+def _failed_exit(trigger: str) -> int:
+    """Addendum 45 P3 (ARCHITECT 2026-10-12): "What the watch has already receipted and notified leaves with a status
+    of its own; the unit counts that status and a refusal's as success, and its failure path is for what the process
+    could not report itself." A watch-started run that failed or missed, once its receipt line is written and its
+    notification posted (best effort), exits NOTIFIED (3). A run by hand notifies nothing and keeps exit 1."""
+    return NOTIFIED if trigger == "watch" else 1
 
 
 def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, trigger: str, run_id: str) -> int:
@@ -1746,7 +1800,7 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
         if minutes_to(s, held) < NO_ATTEMPT_INSIDE_MIN:
             record_miss(fam, start, "the lock came inside T-5", detail=f"lock held at {iso_z(held)}")
             print(f"✗ {fam} {et(s)}: the lock came inside T-5 — no attempt; miss recorded")
-            return 1
+            return NOTIFIED
     games = with_called_off(fam, schedule(fam, held), held)     # Codex 4233123800
     covers = cover(games, s, held)
     rec = {**base, "start": start, "start_et": et(s), "covers": _covers_rec(covers or p["covers"]),
@@ -1763,7 +1817,7 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
         rec["started"] = f"no unstarted game at {iso_z(s)} when the run held the lock ({iso_z(held)})"
         _finish(rec, fam, trigger, run_id, t0)
         print(f"✗ closing-run {fam} FAILED (target started)")
-        return 1
+        return _failed_exit(trigger)
     rec["run_start_wall"] = _WALL()   # addendum 26 2(b): an export written after this moment comes before its calls
     wall0 = rec["run_start_wall"] - 1.0   # the export must be written by this run's own step (1s: coarse mtimes)
     try:                      # addendum 25 2(iii): the last calls found before the first step, every game found
@@ -1788,7 +1842,7 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
                     for k in OWN_CHECK_FAILURES},
                  "start moved": "no further step ran after the schedule read; nothing exported, pushed or paged"}.get(
                   rec.get("failed"), "nothing exported, pushed or paged after the failure"))
-        return 1
+        return _failed_exit(trigger)
     print(f"✓ closing-run {fam}: {len(rec['steps'])}/{rec.get('planned_steps')} steps · {rec['export']} · "
           f"{len(rec['desk_rows'])} Desk row(s) · page accepted · closing file "
           + ("NOT written (receipted and notified)" if rec.get("closing_file_failed") else
@@ -1840,8 +1894,8 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
               f"{CLOSING_FILE_DIR}/{closing_name(fam, s)} · checks: started (R1), start moved (C), "
               "missing, prices (R2, A5 legs)"
               + (", starters (380.1)" if FAMILIES[fam]["starters"] else "")
-              + " · page: ntfy card topic (3 tries) + screen · then push: exports_mirror.py push --role laptop "
-                "--label closing")
+              + " · page: ntfy card topic (3 tries) + screen · then push: exports_mirror.py push --role "
+                f"{mirror_role()} --label closing")
         return 0
     if p.get("refused"):
         return _refuse(p["refused"], fam, start, base, trigger, dry_run=False)
@@ -1859,7 +1913,7 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
             raise
         record_miss(fam, p["start"], "the lock was held until inside T-5")
         print(f"✗ {fam} {p['start_et']}: the chain lock was held until inside T-5 — no attempt; miss recorded")
-        return 1
+        return NOTIFIED
     except Exception as e:  # noqa: BLE001 - Codex round 2 on #385: a lock that cannot be taken is a failed run, receipted
         if entered:
             raise
@@ -1872,7 +1926,8 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
             _finish(rec, fam, trigger, run_id, time.time())
         except Exception as e2:  # noqa: BLE001 - the receipt store itself is not writable: the console says so
             print(f"✗ the failed run could not be receipted either: {type(e2).__name__}")
-        return 1
+            return 1                  # P3: not reported by the process, so the unit's failure path reports it
+        return _failed_exit(trigger)
 
 
 # -------------------------------------------------------------------------------------------------- watch --
@@ -1895,6 +1950,8 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
     """C2: the tick, every minute, for every family. Decides from the stored schedule and the receipts, no network;
     each due start time starts one run (earliest first), MLB's after checking its feed answers (A6). A start time
     first found inside T-5 with no closing is a miss (receipted and notified once). Otherwise exit 0, silent.
+    Addendum 45 P3, the exit: 0 success or nothing due; 2 a refusal; NOTIFIED (3) a failed run or a miss, receipted
+    and notified; 1 what the process could not report itself (an unhandled error also ends it non-zero).
     `now` (tests) fixes the tick's time for every run; else each queued run reads clock() when it starts (Codex on
     #385: the time spent running earlier closings in the same tick counts toward the next run's T-5 / started
     checks and its T-minus)."""
@@ -1944,6 +2001,7 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
         for g in d["inside"]:
             start = iso_z(g["start"])
             record_miss(fam, start, inside_why)        # B6: once per start time and reason
+            rc = worse(rc, NOTIFIED)
     todo = sorted(((g["start"], fam) for fam, d in plans for g in d["due"]))
     for s, fam in todo:
         start = iso_z(s)
@@ -1953,15 +2011,27 @@ def watch(dry_run: bool = False, now: datetime | None = None, families: tuple[st
                 if record_miss(fam, start, "feed unreachable", detail=detail, text=FEED_MISS_TEXT):
                     print(f"✗ {FEED_MISS_TEXT} ({detail}) — nothing run; miss recorded for {fam} {start}; the "
                           "watch keeps trying")
+                rc = worse(rc, NOTIFIED)
                 continue
         r = run(family=fam, start=start, trigger="watch", now=clock() if fixed_now is None else utc(fixed_now))
-        rc = rc or (0 if r == 0 else r)
+        rc = worse(rc, r)
     return rc
+
+
+# Addendum 45 P3: the tick's exit is its worst run's. 1 (what the process could not report: the unit's failure path)
+# outranks NOTIFIED (3, a failure or miss already receipted and notified), which outranks a refusal (2, receipted and
+# notified once per start time and reason), which outranks success (0). The unit counts 2 and 3 as success.
+_EXIT_RANK = {0: 0, 2: 1, NOTIFIED: 2}
+
+
+def worse(a: int, b: int) -> int:
+    return max((a, b), key=lambda x: _EXIT_RANK.get(x, 3))
 
 
 # ---------------------------------------------------------------------------------- setup checks (380.2) --
 
-def preflight(shell_set: tuple[str, ...] = (), families: tuple[str, ...] | None = None) -> list[str]:
+def preflight(shell_set: tuple[str, ...] = (), families: tuple[str, ...] | None = None,
+              expect_role: str | None = None) -> list[str]:
     """380.2 (ARCHITECT): "The setup script reads each required setting where the launched job will find it: the
     checkout's .env or host.env, never the installing shell. A setting present only in the shell refuses the
     install, naming it. [...] The script proves it: it runs the run's own refusal checks in the environment the
@@ -1974,6 +2044,10 @@ def preflight(shell_set: tuple[str, ...] = (), families: tuple[str, ...] | None 
         if name in shell_set and not in_files:
             out.append(f"{name} is set only in the installing shell: the launched job reads the checkout's .env "
                        "or host.env, never the shell")
+    role = mirror_role()
+    if expect_role and role and role != expect_role:   # Codex on #449: the laptop's installer takes the laptop's role
+        out.append(f"{ROLE_SETTING} is {role!r} here; this machine is the {expect_role}: a push as {role} "
+                   f"would write into the mirror's {role}/ side")
     folder = backup_folder()
     for fam in families or tuple(FAMILIES):
         for check in refusal_checks(fam, folder):
@@ -1983,10 +2057,15 @@ def preflight(shell_set: tuple[str, ...] = (), families: tuple[str, ...] | None 
     return out
 
 
-def test_page() -> dict:
+def test_page_body(families: tuple[str, ...] | None = None) -> str:
+    """The test page's text: the families the watch is installed for (addendum 45 P5), then the machine's line."""
+    return TEST_PAGE_BODY.format(families=", ".join(families or tuple(FAMILIES))) + "\n" + machine_line()
+
+
+def test_page(families: tuple[str, ...] | None = None) -> dict:
     """M2 for the phone (380.2): "At install the script sends one test page through the card topic and says what the
-    operator should have seen on his phone." """
-    return page_phone(TEST_PAGE_TITLE, TEST_PAGE_BODY, "default")
+    operator should have seen on his phone." Addendum 45: it names the families and ends with the machine's role."""
+    return page_phone(TEST_PAGE_TITLE, test_page_body(families), "default")
 
 
 def main(argv=None) -> int:
@@ -2002,26 +2081,37 @@ def main(argv=None) -> int:
     w.add_argument("--dry-run", action="store_true")
     pf = sub.add_parser("preflight")
     pf.add_argument("--shell-set", default="", help="comma-separated names the installing shell had set")
-    sub.add_parser("test-page")
+    pf.add_argument("--family", action="append", type=str.upper, choices=tuple(FAMILIES), default=None,
+                    help="the families the watch will run for (addendum 45 P2/P5; repeatable; default all three)")
+    pf.add_argument("--expect-role", choices=ROLES, default=None,
+                    help="refuse unless SP_EXPORTS_MIRROR_ROLE is this role (the laptop's setup script: laptop)")
+    tp = sub.add_parser("test-page")
+    tp.add_argument("--family", action="append", type=str.upper, choices=tuple(FAMILIES), default=None)
     sub.add_parser("install-push")
     a = ap.parse_args(argv)
+    fams = tuple(dict.fromkeys(a.family)) if a.cmd != "run" and getattr(a, "family", None) else None
     if a.cmd == "run":
         return run(family=a.family, start=a.start, dry_run=a.dry_run)
     if a.cmd == "watch":
-        return watch(dry_run=a.dry_run, families=tuple(a.family) if a.family else None)
+        return watch(dry_run=a.dry_run, families=fams)
     if a.cmd == "preflight":
-        bad = preflight(tuple(x.strip() for x in a.shell_set.split(",") if x.strip()))
+        bad = preflight(tuple(x.strip() for x in a.shell_set.split(",") if x.strip()), fams, a.expect_role)
         for b in bad:
             print(f"✗ REFUSED: {b}")
         if not bad:
-            print(f"✓ preflight: every closing refusal check passes in this environment ({', '.join(FAMILIES)})")
+            print(f"✓ preflight: every closing refusal check passes in this environment "
+                  f"({', '.join(fams or tuple(FAMILIES))}; role {mirror_role()})")
         return 2 if bad else 0
     if a.cmd == "install-push":       # D1 (addendum 23): "M1 at install: [...] one mirror push [...] label install"
+        why = _role_refusal()         # addendum 45 P1: no role, no push
+        if why:
+            print(f"✗ REFUSED: {why}")
+            return 2
         res = push_mirror("install")
-        print(f"install push (exports mirror, laptop, label install): exit {res['exit']} "
+        print(f"install push (exports mirror, {mirror_role()}, label install): exit {res['exit']} "
               + " | ".join(res.get("tail") or []))
         return 0 if res.get("exit") == 0 else 1
-    res = test_page()
+    res = test_page(fams)
     print("test page: " + ("accepted by ntfy" if res.get("accepted") else
                            f"NOT accepted ({res.get('http') or res.get('error')})"))
     return 0 if res.get("accepted") else 1

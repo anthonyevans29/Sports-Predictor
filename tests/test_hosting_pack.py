@@ -104,10 +104,21 @@ def _timers():
     return out
 
 
+# H0-3's one exemption, by name (ARCHITECT 2026-10-12, addendum 45 P3): "H0-3's buffer is for chains that write on a
+# schedule. A tick with no start due reads the stored schedule and ends, so this one timer is exempt from the buffer
+# by name [...] and no start time is ever without a tick." Its own form is test_closing_watch_timer_form below.
+H0_3_EXEMPT = {"sp-closing-watch.timer": "the closing watch's tick: a tick with no start due reads the stored "
+                                         "schedule and ends; no start time is ever without a tick (addendum 45 P3)"}
+
+
 def test_no_timer_in_reboot_buffer_and_targets_exist():
     days = {"Mon": 0, "Tue": 1, "Wed": 2, "Thu": 3, "Fri": 4, "Sat": 5, "Sun": 6}
-    for fname, (cals, unit) in _timers().items():
+    timers = _timers()
+    assert set(H0_3_EXEMPT) <= set(timers) and len(H0_3_EXEMPT) == 1           # one timer, by name
+    for fname, (cals, unit) in timers.items():
         assert cals, fname
+        if fname in H0_3_EXEMPT:
+            continue                  # its own form: test_closing_watch_timer_form; every other timer still H0-3
         m = re.match(r"sp-chain@(.+)\.service$", unit)
         if m:
             assert m.group(1) in chains.CHAINS and m.group(1) != "soccer-refresh"
@@ -129,6 +140,29 @@ def test_no_timer_in_reboot_buffer_and_targets_exist():
                     assert not (4 * 60 + 15 <= minutes <= 5 * 60 + 15), f"{fname} {cal} -> {u:%H:%M}Z"
             if mm.group(1):
                 assert all(d in days for d in mm.group(1).split(","))
+
+
+def test_closing_watch_timer_form():
+    """Addendum 45 P3: "One calendar line: every minute of every hour." Persistent=false, AccuracySec=1s, its own
+    service, OnFailure to sp-notify with closing-watch -> sp-closing-watch.service, the 45-minute bound, NFL and
+    SOCCER by name (P2), and the watch's own statuses (refusal 2, notified 3) counted as success."""
+    t = (HOSTING / "systemd" / "sp-closing-watch.timer").read_text()
+    assert re.findall(r"^OnCalendar=(.+)$", t, re.M) == ["*-*-* *:*:00 UTC"]   # one line, every minute, UTC
+    assert re.search(r"^Unit=sp-closing-watch\.service$", t, re.M)
+    assert re.search(r"^Persistent=false$", t, re.M) and re.search(r"^AccuracySec=1s$", t, re.M)
+    u = (HOSTING / "systemd" / "sp-closing-watch.service").read_text()
+    assert re.search(r"^OnFailure=sp-notify@closing-watch\.service$", u, re.M)
+    assert re.search(r"^ExecStart=\S+python deploy/hosting/closing\.py watch --family NFL --family SOCCER$", u, re.M)
+    assert re.search(r"^SuccessExitStatus=2 3$", u, re.M) and re.search(r"^TimeoutStartSec=45min$", u, re.M)
+    assert re.search(r"^User=sp$", u, re.M) and "EnvironmentFile=-/etc/sports-predictor/host.env" in u
+    import closing
+    assert closing.NOTIFIED == 3
+    rb = (ROOT / "docs" / "specs" / "h2-cutover-runbook.md").read_text()          # Codex on #449: the host's role
+    assert "closing.py preflight --family NFL --family SOCCER --expect-role host" in rb
+    assert closing.main(["preflight", "--expect-role", "host", "--family", "NFL"]) in (0, 2)   # the option parses
+    import sp_notify
+    assert sp_notify.unit_for("closing-watch") == "sp-closing-watch.service"
+    assert sp_notify.unit_for("window") == "sp-chain@window.service"             # the rest unchanged
 
 
 def test_soccer_refresh_is_operator_only(sandbox):
@@ -387,13 +421,17 @@ def test_pull_selects_newest_daily_and_verifies(sandbox):
 
 def test_ncaa_timer_ships_enabled_in_runbook():
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
-    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + MLB_LAPTOP_ONLY
+    t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + MLB_LAPTOP_ONLY + HELD_FOR_CUTOVER
     assert "HELD_B4" not in rb  # B4 ruled: the model-bearing timers enable with the rest
     enabled = t11[:t11.index("MLB_LAPTOP_ONLY=")]
     for mlb in ("sp-mlb-morning.timer", "sp-mlb-preslate.timer", "sp-clv-capture.timer"):
         assert mlb not in enabled, f"{mlb} must stay OFF the host enable list (statsapi ASN block)"
+    # Addendum 45 P3: "A third list in the T11 test names the units that are shipped and held for the cutover ruling."
+    held = t11[t11.index("HELD_FOR_CUTOVER="):].split("\n")[0]
+    assert re.findall(r"sp-[\w-]+\.timer", held) == ["sp-closing-watch.timer"]
+    assert "sp-closing-watch" not in enabled and "sp-closing-watch" not in t11[:t11.index("HELD_FOR_CUTOVER=")]
     for f in (HOSTING / "systemd").glob("*.timer"):
-        assert f.name in t11, f"{f.name} missing from the T11 enable list"
+        assert f.name in t11, f"{f.name} missing from the T11 lists"
 
 
 # ------------------------------------------- H1a fresh bootstrap (09-27) ----

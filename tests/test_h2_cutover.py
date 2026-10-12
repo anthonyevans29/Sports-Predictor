@@ -20,7 +20,7 @@ import sp_common as c  # noqa: E402
 import sp_cutover  # noqa: E402
 import sp_migrate  # noqa: E402
 
-REAL_ENV_TEXT = "# real host.env (sandbox stand-in)\nSP_WRITER_OF_RECORD=laptop\nSP_SKIP_FAMILIES=MLB\n"
+REAL_ENV_TEXT = "# real host.env (sandbox stand-in)\nSP_WRITER_OF_RECORD=laptop\nSP_SKIP_FAMILIES=MLB\nSP_EXPORTS_MIRROR_ROLE=host\n"
 
 
 class FakeSystemctl:
@@ -315,3 +315,39 @@ def test_writer_of_record_stamped_on_receipts_and_named_by_compare(tmp_path, mon
     (tmp_path / "l").mkdir(); (tmp_path / "h").mkdir()
     compare_exports.main([str(tmp_path / "l"), str(tmp_path / "h"), "--since", "0"])
     assert "writer of record: laptop — canonical side: laptop" in capsys.readouterr().out
+
+
+# ------------------------------- addendum 47 item 7(c): the role in host.env, the settings the pack's .env changes --
+
+@pytest.mark.parametrize("env_text, why", [
+    ("SP_WRITER_OF_RECORD=laptop\n", "not set there"),
+    ("SP_WRITER_OF_RECORD=laptop\nSP_EXPORTS_MIRROR_ROLE=laptop\n", "it says 'laptop'"),
+])
+def test_47_7c_preflight_refuses_unless_host_env_itself_says_the_host_role(world, host, monkeypatch, env_text, why):
+    """"The cutover's preflight refuses unless host.env itself says SP_EXPORTS_MIRROR_ROLE=host." The environment
+    saying host does not count: only host.env's own line survives the pack's .env."""
+    world["real_env"].write_text(env_text)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
+    assert _real(world, host, step="preflight") == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "preflight" and "does not say SP_EXPORTS_MIRROR_ROLE=host" in r["refused"] and why in r["refused"]
+
+
+def test_47_7c_preflight_prints_the_settings_the_pack_changes_by_name_never_by_value(world, host, capsys):
+    """"It also prints, by name and never by value, each setting whose value on the host changes when the pack's .env
+    replaces the checkout's [...] A setting host.env carries is left out, since host.env wins. The list refuses
+    nothing by itself." The pack's .env: DATABASE_URL. The host checkout's .env: DATABASE_URL (another value),
+    NTFY_TOPIC (not in the pack), SP_EXPORTS_MIRROR_ROLE and SP_SKIP_FAMILIES (host.env carries them: left out)."""
+    (host["h"] / ".env").write_text("DATABASE_URL=sqlite:///./data/other.db\nNTFY_TOPIC=host-secret-topic\n"
+                                    "SP_EXPORTS_MIRROR_ROLE=laptop\nSP_SKIP_FAMILIES=NONE\n")
+    capsys.readouterr()
+    assert _real(world, host, step="preflight") == 0                      # the list refuses nothing by itself
+    out = capsys.readouterr().out
+    assert "in the pack, not in the checkout's .env: —" in out
+    assert "in the checkout's .env, not in the pack: NTFY_TOPIC" in out
+    assert "in both, different values: DATABASE_URL" in out
+    assert "host-secret-topic" not in out and "other.db" not in out and "SP_SKIP_FAMILIES" not in out
+    r = _lines(world["real_receipts"])[-1]
+    assert r["exit"] == 0 and r["mirror_role"] == "host"
+    assert r["env_changes"] == {"pack_only": [], "checkout_only": ["NTFY_TOPIC"], "differ": ["DATABASE_URL"]}
+    assert "host-secret-topic" not in world["real_receipts"].read_text()

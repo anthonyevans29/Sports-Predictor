@@ -39,6 +39,43 @@ def journal_tail(unit: str, n: int = 30) -> list[str]:
     return [c.redact(x) for x in out.splitlines()]
 
 
+# ARCHITECT 2026-10-12, addendum 47 item 7(b): "For sp-closing-watch.service, by name, the unit's failure page goes
+# out at most once in thirty minutes. Every failure still writes its receipt, and a receipt whose page was held back
+# says so and names the page it stands behind." (A unit that ticks every minute would page 1,440 times a day.)
+THROTTLED_UNITS = ("sp-closing-watch.service",)
+THROTTLE_MIN = 30
+
+
+def held_behind(unit: str, now=None) -> dict | None:
+    """For a throttled unit: the failure page that went out for it within the last THROTTLE_MIN minutes (a receipt
+    of kind failure for the unit, not itself held back), as {"ts", "title"}; else None (the page goes out)."""
+    import json
+    from datetime import timedelta
+    if unit not in THROTTLED_UNITS:
+        return None
+    p = c.receipts_path()
+    if not p.exists():
+        return None
+    now = now or c.utc_now()
+    since = now - timedelta(minutes=THROTTLE_MIN)
+    last = None
+    for line in p.read_text(encoding="utf-8").splitlines():
+        try:
+            r = json.loads(line)
+        except json.JSONDecodeError:
+            continue
+        if r.get("kind") == "failure" and r.get("unit") == unit and not r.get("page_held_back"):
+            last = r
+    if not last:
+        return None
+    from datetime import datetime
+    try:
+        ts = datetime.fromisoformat(str(last["ts"]).replace("Z", "+00:00"))
+    except (KeyError, ValueError):
+        return None
+    return {"ts": last["ts"], "title": last.get("title")} if ts >= since else None
+
+
 TOPIC_VARS = ("NTFY_TOPIC", "NTFY_CARD_TOPIC")
 
 
@@ -106,8 +143,17 @@ def main(argv=None) -> int:
     if argv[0] == "failure":
         unit = unit_for(argv[1])
         tail = journal_tail(unit)
-        deliver("failure", f"sports-predictor FAILED: {unit}",
-                "\n".join([f"{unit} failed on {c.host_name()}"] + tail), {"unit": unit})
+        title = f"sports-predictor FAILED: {unit}"
+        body = "\n".join([f"{unit} failed on {c.host_name()}"] + tail)
+        behind = held_behind(unit)
+        if behind:                    # addendum 47 item 7(b): receipted, the page held back
+            c.append_receipt({"kind": "failure", "title": title, "body": c.redact(body)[:2000], "delivered": False,
+                              "channel": None, "unit": unit, "page_held_back": True,
+                              "stands_behind": behind})
+            print(f"[failure] {title}: page held back (at most one in {THROTTLE_MIN} min for {unit}); stands "
+                  f"behind the page of {behind['ts']}", flush=True)
+            return 0
+        deliver("failure", title, body, {"unit": unit})
     else:
         deliver("page", "sports-predictor: operator action", argv[1])
     return 0

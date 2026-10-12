@@ -68,7 +68,11 @@ def key_line(r: dict) -> str:
 
 
 def failed(r: dict) -> bool:
-    return r.get("kind") == "failure" or (r.get("exit") not in (0, None))
+    """ARCHITECT 2026-10-12, addendum 47 item 6 (#453): "Both count as failing in the receipts table: a closing
+    miss, and a closing whose push failed after its page. The page went out, but the mirror is what the compare and
+    the Cockpit read, and it is short of that file until the next push." """
+    return (r.get("kind") in ("failure", "closing_miss") or (r.get("exit") not in (0, None))
+            or (r.get("kind") == "closing" and bool(r.get("push_failed"))))
 
 
 def rows(since: datetime, steps: bool) -> list[dict]:

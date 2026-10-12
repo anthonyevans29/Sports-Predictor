@@ -47,6 +47,18 @@ last call of a game is the call the operator was last shown for it: its call on 
 it or, when no page has covered it, its call in the newest export that no closing run wrote. An export a closing run
 wrote never supplies the last call of a game that run did not page. C5's was and B3 read this."
 
+Addendum 40 (ARCHITECT 2026-10-11, item 2, ONE CLOSING, ONE PAGE, ONE FILE): "For a game of a closing family the
+close is its closing page. [...] A closing run whose page went out writes exports/closing_<FAMILY>_<start>.json: the
+games on its page and no other, each row as the run's export gave it, and a closing block naming the family, the start
+time, the run id and the match ids. A run whose page did not go out writes no such file. A closing run does not write,
+replace or move the family's slate file." The export step writes logs/<run id>.<slate name> (--out {export_out}); the
+receipt records both files and their sha256 (export_written, closing_file); the page's time is page.at. last_calls
+reads slate files (export_glob) and receipts, as before: a closing file is never read as a slate file.
+Addendum 41 item 3 (THE FILE OF A SECOND PAGE): a start time paged a second time: the later page is its close, its
+file replaces the earlier one, the earlier is kept as logs/<its run id>.<name>, and the later receipt names it
+(closing_file.replaced: file, sha256, run_id, kept_as). An earlier file that cannot be moved: the write is refused
+(closing_file_failed) and the earlier stands.
+
 Refusals (receipted, exit 2), in order: R5 a backup folder under data/ (before anything else); SP_SKIP_FAMILIES
 naming the family (MLB: laptop only); M1 SP_EXPORTS_MIRROR_REMOTE unset; P1 SP_EXPORTS_MIRROR_ROLE unset or neither
 host nor laptop; C6 NTFY_CARD_TOPIC unset; R4 a malformed --start; nothing to close (A4).
@@ -125,8 +137,9 @@ CARD_TOPIC = "NTFY_CARD_TOPIC"                         # C6
 REQUIRED_SETTINGS = (MIRROR_SETTING, ROLE_SETTING, CARD_TOPIC)   # 380.2: read where the launched job finds them
 NOTIFIED = 3                 # addendum 45 P3: the watch's exit for what it already receipted and notified
 STAKED_CALLS = ("PLAY", "LADDER")                      # a call that stakes units (LADDER: soccer's double chance)
-# R6 (+ 380.1): the failures of the run's own checks. Their export leaves exports/ (moved into logs/, named with the
-# run id), so no call is left behind; a failed push or a failed page leaves the export in place.
+# R6 (+ 380.1): the failures of the run's own checks. Their export never sits in exports/: since addendum 40 item 2
+# the export step writes it under logs/, named with the run id, so no call is left behind (a receipt older than that
+# names an export R6 moved there).
 # C (addendum 23): a run left with no game by the schedule read is "start moved".
 OWN_CHECK_FAILURES = ("stale prices", "stale starters", "missing from export", "target started", "start moved")
 # B2 (ARCHITECT 2026-10-09, addendum 23): "The phone page is the page. It is tried three times, ten seconds apart,
@@ -1267,35 +1280,122 @@ def refusal_checks(fam: str, folder: Path, start: str | None = None) -> list:
             _card_topic_refusal, lambda: _start_refusal(start)]
 
 
-def export_candidates(fam: str, start: datetime, at: datetime) -> list[str]:
-    """The file the family's export step writes. MLB: exports/mlb_MLB_<first pitch's NY date>.json (--date). NFL /
-    SOCCER: the export's own name, stamped with the UTC date the export runs (src/walters/nfl_predict.py; cli.py
-    export-predictions with no --date): today's and tomorrow's, the run picks the one written by its own step."""
+def slate_name(fam: str, start: datetime, at: datetime) -> str:
+    """The family's slate file name (what its slate chain writes into exports/): MLB mlb_MLB_<first pitch's NY
+    date>.json; NFL / SOCCER the export's own name for the UTC date the run starts."""
     if fam == "MLB":
-        return [f"exports/mlb_MLB_{ny_date(start).isoformat()}.json"]
-    stem = {"NFL": "nfl_predictions_", "SOCCER": "soccer_PL_"}[fam]
-    d = utc(at).date()
-    return [f"exports/{stem}{x.isoformat()}.json" for x in (d, d + timedelta(days=1))]
+        return f"mlb_MLB_{ny_date(start).isoformat()}.json"
+    return {"NFL": "nfl_predictions_", "SOCCER": "soccer_PL_"}[fam] + f"{utc(at).date().isoformat()}.json"
 
 
-def resolve_steps(fam: str, start: datetime, covers: list[dict], run_start: datetime) -> list[list[str]]:
+def export_candidates(fam: str, start: datetime, at: datetime, run_id: str) -> list[str]:
+    """The file the run's export step writes (its `--out {export_out}`). Addendum 40 item 2 (ARCHITECT 2026-10-11):
+    "A closing run does not write, replace or move the family's slate file. [...] The run's export step writes
+    outside exports/. [...] The full export is kept under logs/ with the run id, as R6 names a moved export today":
+    logs/<run id>.<the slate file's name>."""
+    return [f"logs/{run_id}.{slate_name(fam, start, at)}"]
+
+
+CLOSING_FILE_DIR = "exports"
+
+
+def closing_name(fam: str, start: datetime) -> str:
+    """Addendum 40 item 2: exports/closing_<FAMILY>_<start>.json, <start> the run's start time in UTC written
+    2026-10-11T1700Z (no colon: the mirror's kind is then closing_<FAMILY>)."""
+    return f"closing_{fam}_{utc(start):%Y-%m-%dT%H%MZ}.json"
+
+
+def closing_doc(doc: dict, fam: str, start: datetime, run_id: str, page_ids: list, called: list[dict]) -> dict:
+    """ONE CLOSING, ONE PAGE, ONE FILE (ARCHITECT 2026-10-11, addendum 40 item 2): "the games on its page and no
+    other, each row as the run's export gave it, and a closing block naming the family, the start time, the run id
+    and the match ids." The games on its page are the run's Desk rows, the PASS games included; a called-off game is
+    named in the closing block and has no row. "Everything else in the document is the export's own (exported_at,
+    git_sha, desk_meta); count is the rows kept." Pure."""
+    keep = set(page_ids)
+    rows = [r for r in doc.get("predictions") or [] if r.get("match_id") in keep]
+    out = {k: v for k, v in doc.items() if k != "predictions"}
+    out["count"] = len(rows)
+    out["predictions"] = rows
+    out["closing"] = {"family": fam, "start": iso_z(start), "run_id": run_id,
+                      "match_ids": [r.get("match_id") for r in rows],
+                      "called_off": [{"match_id": x["match_id"], "status": x["status"]} for x in called]}
+    return out
+
+
+def write_closing_file(doc: dict, name: str, mtime: float | None = None) -> dict:
+    """Write exports/<name> atomically (a temporary name beside it, then a rename). {file, sha256[, replaced]} or
+    {file, error}.
+
+    THE FILE OF A SECOND PAGE (ARCHITECT 2026-10-11, addendum 41 item 3): "Where a start time is paged a second time,
+    the later page is its close. Its file replaces the earlier one. The earlier file is kept under logs/, named with
+    its run id as the run's export is, and the later receipt names the file it replaced and its sha256." "Where the
+    earlier file cannot be moved, the write is refused and receipted as today (closing_file_failed) and the earlier
+    file stands." The earlier file is kept by a hard link at logs/<its run id>.<name> made BEFORE the rename, so the
+    earlier bytes are never without a name; a kept name already taken, or an earlier file that names no run id, is a
+    refusal (nothing is overwritten)."""
+    rel = f"{CLOSING_FILE_DIR}/{name}"
+    dest = c.REPO / CLOSING_FILE_DIR / name
+    tmp = dest.with_name(f".{name}.tmp")
+    replaced, kept = None, None
+    try:
+        c.refuse_under_data(dest.parent)
+        if dest.exists() or dest.is_symlink():
+            try:
+                old_run = (json.loads(dest.read_text()).get("closing") or {}).get("run_id")
+            except (OSError, ValueError, AttributeError):
+                old_run = None
+            if not old_run or not re.fullmatch(r"[A-Za-z0-9_.:-]+", str(old_run)) or dest.is_symlink():
+                return {"file": rel, "error": "exists: the earlier closing file names no run id it can be kept "
+                                              "under; it cannot be moved and stands"}
+            kept = c.REPO / "logs" / f"{old_run}.{name}"
+            c.refuse_under_data(kept.parent)
+            if kept.exists() or kept.is_symlink():
+                return {"file": rel, "error": f"exists: logs/{kept.name} is already taken; the earlier closing "
+                                              "file cannot be moved and stands"}
+            replaced = {"file": rel, "sha256": _sha256(dest), "run_id": old_run, "kept_as": f"logs/{kept.name}"}
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        tmp.write_text(json.dumps(doc, indent=2))
+        if mtime is not None:
+            os.utime(tmp, (mtime, mtime))
+        if kept is not None:
+            kept.parent.mkdir(parents=True, exist_ok=True)
+            os.link(dest, kept)               # refuses an existing name: the earlier file is never overwritten
+            try:
+                os.replace(tmp, dest)
+            except OSError:
+                kept.unlink()                 # the earlier file still stands at its own name
+                raise
+        else:
+            os.replace(tmp, dest)
+        return {"file": rel, "sha256": _sha256(dest), **({"replaced": replaced} if replaced else {})}
+    except (OSError, SystemExit, TypeError, ValueError) as e:
+        try:
+            tmp.unlink()
+        except OSError:
+            pass
+        return {"file": rel, "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
+
+
+def resolve_steps(fam: str, start: datetime, covers: list[dict], run_start: datetime,
+                  run_id: str = "RUN") -> list[list[str]]:
     """The family's closing chain with its run-time values. MLB: {today} = the first pitch's NY date (A1 of #370),
     {match_ids} = the covered games (A1 of addendum 23: the schedule read names them). NFL / SOCCER (C3):
     {match_ids} = the covered games (the odds and the injuries steps); the schedule read (A1 as amended, addendum 25
     2(i): NFL takes the SOCCER form): {start_day}/{end_day} = the UTC dates of the first and last covered start (one
     read per UTC day; an identical second read is dropped), {start_day_ids}/{end_day_ids} = that day's covered
-    games."""
+    games. {export_out} (addendum 40 item 2): the export step's file, logs/<run id>.<the slate file's name>."""
     chain = FAMILIES[fam]["chain"]
     ids = ",".join(str(g["match_id"]) for g in sorted(covers, key=lambda g: g["match_id"]))
+    out_ = export_candidates(fam, start, run_start, run_id)[0]
     if fam == "MLB":                  # A1: the schedule read names the covered games
-        return sp_run.resolve(chain, {"match_ids": ids}, ny_date(start))
+        return sp_run.resolve(chain, {"match_ids": ids, "export_out": out_}, ny_date(start))
     last = max(g["start"] for g in covers)
 
     def day_ids(day):                 # A1: each by-date read names that UTC day's covered games
         return ",".join(str(g["match_id"]) for g in sorted(covers, key=lambda g: g["match_id"])
                         if utc(g["start"]).date() == day)
     v = {"start_day": utc(start).date().isoformat(), "end_day": last.date().isoformat(), "match_ids": ids,
-         "start_day_ids": day_ids(utc(start).date()), "end_day_ids": day_ids(last.date())}
+         "start_day_ids": day_ids(utc(start).date()), "end_day_ids": day_ids(last.date()), "export_out": out_}
     out: list[list[str]] = []
     for st in sp_run.resolve(chain, v, utc(start).date()):
         if not out or st != out[-1]:
@@ -1396,6 +1496,9 @@ def _move_export(rec: dict, run_id: str) -> None:
     where." """
     if not rec.get("export"):
         return
+    if not str(rec["export"]).startswith("exports/"):      # addendum 40 item 2: written under logs/, never exports/
+        print(f"· export kept in logs/: {rec['export']} (never in exports/: no call left behind)")
+        return
     src = c.REPO / rec["export"]
     if not src.is_file():
         return
@@ -1461,7 +1564,7 @@ def note_export(rec: dict, fam: str, s: datetime, held: datetime, wall0: float) 
     """Addendum 25 2(iii): "A closing receipt records the sha256 of the export it wrote". Whatever the outcome: the
     family's export file this run's own step wrote (mtime at or after the run's start), before R6 can move it."""
     try:
-        written = [p for p in export_candidates(fam, s, held)
+        written = [p for p in export_candidates(fam, s, held, rec["run_id"])
                    if (c.REPO / p).is_file() and (c.REPO / p).stat().st_mtime >= wall0]
         if written:
             rec["export_written"] = {"file": written[-1], "sha256": _sha256(c.REPO / written[-1])}
@@ -1490,8 +1593,11 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         print(f"✗ backup failed: {rec['backup'].get('error')} — no step runs"
               + (f"; set aside: {', '.join(rec['backup']['set_aside'])}" if rec["backup"].get("set_aside") else ""))
         return
-    steps = resolve_steps(fam, s, covers, held)
+    steps = resolve_steps(fam, s, covers, held, run_id)
     rec["planned_steps"] = len(steps)
+    logs = c.REPO / "logs"            # addendum 40 item 2: the export step writes here, never into exports/
+    c.refuse_under_data(logs)
+    logs.mkdir(parents=True, exist_ok=True)
     chain = FAMILIES[fam]["chain"]
     reads = schedule_reads(steps)
     for i, st in enumerate(steps, 1):
@@ -1523,7 +1629,7 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             rec["failed"] = "start moved"
             print("✗ start moved: no game is left in the run — no further step, nothing pushed or paged")
             return
-    cands = export_candidates(fam, s, held)
+    cands = export_candidates(fam, s, held, run_id)
     written = [p for p in cands if (c.REPO / p).is_file() and (c.REPO / p).stat().st_mtime >= wall0]
     if not written:
         rec["failed"] = "export not written"
@@ -1608,7 +1714,7 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         if n < PAGE_TRIES:
             page_sleep(PAGE_RETRY_S)
     rec["page"] = {"title": title, "priority": priority, "lines": body.count("\n") + 1, "text": body,
-                   "phone": ph, "tries": len(tries)}
+                   "phone": ph, "tries": len(tries), "at": iso_z(held + timedelta(seconds=time.time() - t0))}
     if ph.get("accepted") is not True:
         rec["page"]["phone_tries"] = tries
         rec["failed"] = "page"        # nothing pushed: the watch retries the closing
@@ -1621,6 +1727,28 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
                              **({"skipped": scr["skipped"]} if scr.get("skipped") else {}),
                              **({"error": scr["error"]} if scr.get("error") else {})}
     rec["exit"] = 0                   # the page went out: the closing happened, whatever the push does
+    # ONE CLOSING, ONE PAGE, ONE FILE (ARCHITECT 2026-10-11, addendum 40 item 2): "It is written when the phone has
+    # accepted the page and before the push, so the push carries it. A write that fails is receipted and notified as a
+    # failed push is, and the closing is not run again."
+    name = closing_name(fam, s)
+    try:
+        cdoc = closing_doc(doc, fam, s, run_id, [x["match_id"] for x in rows], off)
+        cf = write_closing_file(cdoc, name)
+    except Exception as e:  # noqa: BLE001 - receipted and notified, never a retry (the page went out)
+        cf = {"file": f"{CLOSING_FILE_DIR}/{name}", "error": c.redact(f"{type(e).__name__}: {e}")[:300]}
+    rec["closing_file"] = cf
+    if cf.get("error"):
+        rec["closing_file_failed"] = True
+        rec["closing_file_failure_notification"] = notify_failure(
+            f"Closing {_start_label(fam, rec.get('start'))}: PAGED; closing file NOT written ({cf['file']}) "
+            "· not run again", fam)
+        print(f"✗ closing file NOT written: {cf['error']} — receipted and notified; the closing is not run again")
+    else:
+        print(f"· closing file: {cf['file']} ({len(rows)} row(s), sha256 {cf['sha256'][:12]})")
+        if cf.get("replaced"):
+            r = cf["replaced"]
+            print(f"· a second page for this start time: it replaced {r['file']} of run {r['run_id']} (sha256 "
+                  f"{r['sha256'][:12]}), kept as {r['kept_as']}")
     rec["push"] = push_mirror()
     print(f"· exports mirror ({mirror_role()}, closing): exit {rec['push']['exit']} "
           f"{' | '.join(rec['push']['tail'])}")
@@ -1708,14 +1836,18 @@ def _under_lock(fam: str, p: dict, base: dict, folder: Path, held: datetime, tri
     _finish(rec, fam, trigger, run_id, t0)
     if rec["exit"] != 0:
         print(f"✗ closing-run {fam} FAILED ({rec.get('failed')}{': ' + rec['error'] if rec.get('error') else ''}) — "
-              + {"page": f"ntfy did not accept the page in {PAGE_TRIES} tries; nothing pushed, the export stays on "
-                         "disk, the watch retries",
-                 **{k: "nothing pushed or paged; the export was moved into logs/" for k in OWN_CHECK_FAILURES},
+              + {"page": f"ntfy did not accept the page in {PAGE_TRIES} tries; nothing pushed, the export stays "
+                         "under logs/, the watch retries",
+                 **{k: "nothing pushed or paged; the export stays in logs/ (never in exports/)"
+                    for k in OWN_CHECK_FAILURES},
                  "start moved": "no further step ran after the schedule read; nothing exported, pushed or paged"}.get(
                   rec.get("failed"), "nothing exported, pushed or paged after the failure"))
         return _failed_exit(trigger)
     print(f"✓ closing-run {fam}: {len(rec['steps'])}/{rec.get('planned_steps')} steps · {rec['export']} · "
-          f"{len(rec['desk_rows'])} Desk row(s) · page accepted · push exit {rec['push']['exit']}"
+          f"{len(rec['desk_rows'])} Desk row(s) · page accepted · closing file "
+          + ("NOT written (receipted and notified)" if rec.get("closing_file_failed") else
+             (rec.get("closing_file") or {}).get("file", "?"))
+          + f" · push exit {rec['push']['exit']}"
           + (" (FAILED: receipted and notified)" if rec.get("push_failed") else ""))
     return 0
 
@@ -1756,9 +1888,10 @@ def run(family: str = "MLB", start: str | None = None, dry_run: bool = False, tr
         print("  backup: " + (f"exists {have}" if have else
                               f"none dated {today_ny} in {folder} → would take sports_{today_ny}.db (.backup API), "
                               "check integrity, open, hash, hash file"))
-        for i, st in enumerate(resolve_steps(fam, s, p["covers"], now), 1):
+        for i, st in enumerate(resolve_steps(fam, s, p["covers"], now, run_id), 1):
             print(f"  {i}. python cli.py {' '.join(st)}")
-        print(f"  export: {' or '.join(export_candidates(fam, s, now))} · checks: started (R1), start moved (C), "
+        print(f"  export: {' or '.join(export_candidates(fam, s, now, run_id))} · then, once the page is accepted, "
+              f"{CLOSING_FILE_DIR}/{closing_name(fam, s)} · checks: started (R1), start moved (C), "
               "missing, prices (R2, A5 legs)"
               + (", starters (380.1)" if FAMILIES[fam]["starters"] else "")
               + " · page: ntfy card topic (3 tries) + screen · then push: exports_mirror.py push --role "

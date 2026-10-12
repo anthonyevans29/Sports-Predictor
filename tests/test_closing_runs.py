@@ -1258,7 +1258,8 @@ def test_real_step_runner_against_a_fake_cli(box, monkeypatch):
     assert mc.run("NFL", start=at(35), now=NOW) == 0
     assert [s["exit"] for s in runs()[-1]["steps"]] == [0] * 6
     monkeypatch.setenv("T_FAIL", "predict-nfl")
-    assert mc.run("NFL", start=at(35), now=NOW) == 1
+    # one second later: a second run in the same second would find the first's export path (#442, refused)
+    assert mc.run("NFL", start=at(35), now=NOW + timedelta(seconds=1)) == 1
     assert [s["exit"] for s in runs()[-1]["steps"]] == [0] * 4 + [4]
 
 
@@ -2337,3 +2338,45 @@ def test_48_5_459_a_closing_whose_file_was_not_written_counts_as_failing_and_say
          "covers": [1], "push": {"exit": 0}, "closing_file_failed": True}
     assert sp_receipts.failed(r) and sp_receipts.key_line(r).endswith("push exit 0; closing file NOT WRITTEN")
     assert "**0**" in sp_receipts.table([r])
+
+
+# ============================================================================== #442 kept exports (addendum 44) ==
+
+def test_442_a_second_run_in_the_same_second_refuses_before_any_step_and_keeps_the_first_export(box, capsys):
+    """#442 (ARCHITECT 2026-10-12, addendum 44 item 8): "A run whose export path already exists does not start: a
+    receipted refusal before any step, as R4 and R5 are. Nothing a run kept is opened for writing a second time."
+    Two operator runs of one family entering in one UTC second share a run id and so the export path."""
+    assert mc.run("MLB", start=at(30), now=NOW) == 0
+    first = runs()[-1]
+    kept = box.repo / first["export"]
+    sha, n_steps, n_pages, n_pushes = mc._sha256(kept), len(box.steps), len(box.pages), len(box.pushes)
+    assert first["export_written"]["sha256"] == sha
+    box.docs["MLB"] = _set_call(mlb_doc(), 101)                       # a second write would change the bytes
+    assert mc.run("MLB", start=at(30), now=NOW) == 2
+    second = runs()[-1]
+    assert second["run_id"] == first["run_id"] and second["exit"] == 2 and second["steps"] == []
+    assert second["refused"].startswith(f"the export path {first['export']} already exists"), second
+    assert len(box.steps) == n_steps and len(box.pages) == n_pages and len(box.pushes) == n_pushes
+    assert mc._sha256(kept) == sha                                    # the first run's export is untouched
+    assert "REFUSED: the export path" in capsys.readouterr().out
+    assert mc.run("MLB", start=at(30), now=NOW, dry_run=True) == 0   # the dry run says so and touches nothing
+    assert "would REFUSE: the export path" in capsys.readouterr().out and runs()[-1] == second
+
+
+def test_442_a_run_one_second_later_has_its_own_export_path(box):
+    assert mc.run("MLB", start=at(30), now=NOW) == 0
+    assert mc.run("MLB", start=at(30), now=NOW + timedelta(seconds=1)) == 0
+    a, b = runs()[-2:]
+    assert a["export"] != b["export"] and (box.repo / a["export"]).is_file() and (box.repo / b["export"]).is_file()
+
+
+def test_442_an_export_moved_out_of_exports_never_replaces_a_kept_file(box):
+    """R6's move (an export written under exports/ by an older chain) keeps a file already at its logs/ name."""
+    (box.repo / "exports" / "x.json").write_text("new")
+    (box.repo / "logs").mkdir(exist_ok=True)
+    (box.repo / "logs" / "RID.x.json").write_text("kept")
+    rec = {"export": "exports/x.json"}
+    mc._move_export(rec, "RID")
+    assert (box.repo / "logs" / "RID.x.json").read_text() == "kept"
+    assert (box.repo / "exports" / "x.json").read_text() == "new" and "export_moved_to" not in rec
+    assert rec["export_move_error"].startswith("logs/RID.x.json already exists"), rec

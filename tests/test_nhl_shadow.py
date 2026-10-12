@@ -228,3 +228,65 @@ def test_the_grade_never_counts_a_no_fit_file_as_v7_and_still_counts_its_referen
         with session_scope() as s:
             m = s.get(Match, nhl["up"])
             m.status, m.home_score, m.away_score = MatchStatus.SCHEDULED, None, None
+
+
+# =================================================================== addendum 50 item 3 (#466): the v7 line ==
+
+def _finish(nhl):
+    with session_scope() as s:
+        m = s.get(Match, nhl["up"])
+        m.status, m.home_score, m.away_score = MatchStatus.FINISHED, 3, 2
+
+
+def test_a_v1_era_row_is_never_on_the_v7_line_and_counts_on_the_reference_line_by_its_own_number(nhl, tmp_path,
+                                                                                                    fit_ok):
+    """ARCHITECT 2026-10-12: "The v7 line counts a row that names v7 from a file whose fit was made, and no other row.
+    A row that names the reference counts on the reference line by its own number." The files of 2026-09-30 to 10-02
+    name v1, carry no reference block and no xg_model: fit_made reads them as made."""
+    _scheduled(nhl)
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    for f in tmp_path.glob("nhl_shadow_*.json"):
+        f.unlink()
+    era = json.loads(json.dumps(doc))
+    era["model_version"] = "nhl_elo_v1"
+    era["fit"] = {k: v for k, v in era["fit"].items() if k != "xg_model"}
+    row = era["predictions"][0]
+    row["model_version"], row["gate_verdict"] = "nhl_elo_v1", sh.REFERENCE_VERDICT
+    row.pop("reference")
+    row["prediction"]["home_win_prob"] = 0.61
+    (tmp_path / "nhl_shadow_2033-01-10_1200.json").write_text(json.dumps(era))
+    _finish(nhl)
+    try:
+        r = sh.grade(days=10000, export_dir=str(tmp_path), now=NOW + timedelta(days=1))
+        close = (1 / 1.8) / (1 / 1.8 + 1 / 2.1)
+        assert r["graded"] == 1 and r["not_v7"] == 1 and r["no_fit"] == 0
+        assert r["priced"] == 0 and r["mean_clv_pp"] is None and r["value_side_n"] == 0          # not on the v7 line
+        assert r["reference_priced"] == 1 and r["reference_mean_clv_pp"] == round((0.61 - close) * 100, 2)
+        assert "[names the reference: not v7, the reference line] v1_H=0.610" in r["lines"][0]
+        assert "value=— (not graded: not a v7 row)" in r["lines"][0] and "ref v1_H=0.610" in r["lines"][0]
+        md = sh.results_section(10000, export_dir=str(tmp_path))
+        assert "(1 naming the reference (nhl_elo_v1): the reference line only, never v7)" in md
+        assert md.count("— (no v7-fit call graded: 1 naming the reference (nhl_elo_v1))") == 2
+    finally:
+        _scheduled(nhl)
+
+
+def test_a_no_fit_row_with_a_book_anchor_says_not_graded_never_no_anchor(nhl, tmp_path, no_fit):
+    """#466: "value=— (no anchor)" was printed for a no-fit row whose game has a pre-kickoff book anchor."""
+    from src.db.schema import OddsSnapshot
+    _scheduled(nhl)
+    sh.export(now=NOW, out_dir=str(tmp_path))
+    with session_scope() as s:
+        for sel, pr in (("HOME", 0.55), ("AWAY", 0.45)):
+            s.add(OddsSnapshot(match_id=nhl["up"], market="1X2", selection=sel, devig_prob=pr, n_books=3,
+                               captured_at=NOW - timedelta(hours=2), source="sh_books"))
+    _finish(nhl)
+    try:
+        r = sh.grade(days=10000, export_dir=str(tmp_path), now=NOW + timedelta(days=1))
+        assert r["no_fit"] == 1 and r["unanchored"] == 0
+        assert "value=— (not graded: no xG fit)" in r["lines"][0] and "no anchor" not in r["lines"][0]
+    finally:
+        _scheduled(nhl)
+        with session_scope() as s:
+            s.query(OddsSnapshot).filter(OddsSnapshot.match_id == nhl["up"],
+                                         OddsSnapshot.source == "sh_books").delete(synchronize_session=False)

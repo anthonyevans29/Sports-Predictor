@@ -100,6 +100,10 @@ class SyncResult:
     # answer was empty, in its console and in the run's receipt, and --strict does not fail on it: the provider
     # answered." The team names, one per team whose injury read answered no entry. Never a failed read.
     empty_answers: list = field(default_factory=list)
+    # THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): summed over the teams read. {asked,
+    # answered_position, answered_none, from_kept, kept, failed: [..], ambiguous: [..]}; empty when no listed player
+    # lacked a roster position. A failed lookup is also a failed read (--strict); an answer with no position is not.
+    position_lookups: dict = field(default_factory=dict)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -900,6 +904,10 @@ class IngestionService:
             result.skipped += 1
             result.failed_reads.append(f"team {team.id} ({team.name}): no {self.source} id, no read made")
             return
+        lookup_ready = bool(getattr(self.adapter, "look_up_positions", False))   # addendum 44 item 4 (NFL reads)
+        if lookup_ready:
+            from src.walters.player_positions import known_answers
+            self.adapter.known_positions = known_answers(s, self.source)
         try:
             injuries = self.adapter.list_injuries(source_id, season)
         except Exception as e:
@@ -915,6 +923,18 @@ class IngestionService:
         if isinstance(rf, str) and rf:
             result.failed_reads.append(f"team {team.id} ({team.name}): {rf} (positions unresolved: qb_listed "
                                        "cannot see a QB)")
+        look = getattr(self.adapter, "last_position_lookup", None) if lookup_ready else None
+        if isinstance(look, dict):
+            from src.walters.player_positions import keep_answers
+            kept = keep_answers(s, self.source, look.get("new_answers") or [])
+            agg = result.position_lookups
+            for k in ("asked", "answered_position", "answered_none", "from_kept"):
+                agg[k] = agg.get(k, 0) + int(look.get(k) or 0)
+            agg["kept"] = agg.get("kept", 0) + kept
+            for k in ("failed", "ambiguous", "resolved_by_lookup"):
+                agg.setdefault(k, []).extend(f"{team.name}: {x}" for x in look.get(k) or [])
+            for f in look.get("failed") or []:  # "Under --strict a lookup that fails is a failed read"
+                result.failed_reads.append(f"team {team.id} ({team.name}): position lookup failed: {f}")
 
         # Cutoff for "still active" — only keep injuries from the past 14 days
         # or fixtures still in the future. Injuries with no fixture_date keep

@@ -794,6 +794,28 @@ class PredictionHistory(Base):
     )
 
 
+class PlayerPositionAnswer(Base):
+    """
+    THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): "A listed player whose position the roster does
+    not give is asked for by his provider id. The answer is kept, so a player is asked once and not at every read."
+    One row per (source, provider player id): the `position` field of the provider's /players?id= answer, verbatim.
+    Addendum 46 item 2 (RULED): "Only an answer that gives a position is kept. An answer that gives none, an empty
+    answer included, leaves the player unresolved and counted. It is not a failed read, it is not kept, and he is
+    asked again at the next read." A lookup that failed is never stored either. Only the position field is taken: nothing else
+    of an answer is stored or shown. Created by migrate_player_position_answers.py; every read and write is guarded
+    by the table's existence (src/walters/player_positions.py), so a pull or a deploy before the migration keeps
+    working: the players are then asked at every read and nothing is kept.
+    """
+
+    __tablename__ = "player_position_answers"
+
+    source: Mapped[str] = mapped_column(String(64), primary_key=True)
+    player_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    player_name: Mapped[str | None] = mapped_column(String(128))
+    position: Mapped[str] = mapped_column(String(32), nullable=False)    # addendum 46: positions only
+    answered_at: Mapped[datetime] = mapped_column(DateTime, default=utc_now_naive)
+
+
 # ---------------------------------------------------------------------------
 # Model versioning & evaluation (Phase 2)
 # ---------------------------------------------------------------------------

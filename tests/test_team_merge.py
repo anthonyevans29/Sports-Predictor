@@ -321,3 +321,45 @@ def test_the_international_path_reads_every_recorded_id(monkeypatch):
     with session_scope() as s:
         assert svc._find_team_by_source(s, Sport.SOCCER, "api_football", "n2").id == tid
         assert svc._find_team_by_source(s, Sport.SOCCER, "api_football", "n1").id == tid
+
+
+# ======================================================================= #467: lineups by every recorded id ==
+
+def test_a_lineup_carrying_a_merged_rows_recorded_id_is_kept(monkeypatch):
+    """#467 (Codex on #465): sync_lineups wipes a match's lineups, then maps the response's team ids. A merged row's
+    recorded id (<source>_also) mapped to no team, so that side's lineup was lost."""
+    from datetime import timedelta
+
+    from src.db.database import init_db, session_scope
+    from src.db.schema import Lineup
+    from src.ingestion.service import IngestionService
+    from src.timeutil import utc_now_naive
+    init_db()
+    src = "lineup_src_467"
+    with session_scope() as s:
+        comp = Competition(sport=Sport.SOCCER, code="L467", name="L467", area="X", type="LEAGUE")
+        s.add(comp)
+        s.flush()
+        home = Team(sport=Sport.SOCCER, name="Merged City", external_ids={src: "h1", f"{src}_also": ["h2"]})
+        away = Team(sport=Sport.SOCCER, name="Plain Town", external_ids={src: "a1"})
+        s.add_all([home, away])
+        s.flush()
+        m = Match(sport=Sport.SOCCER, competition_id=comp.id, season="2026/27", status=MatchStatus.SCHEDULED,
+                  utc_date=utc_now_naive() + timedelta(minutes=30), home_team_id=home.id, away_team_id=away.id,
+                  external_ids={src: "f1"})
+        s.add(m)
+        s.flush()
+        mid, hid, aid = m.id, home.id, away.id
+
+    class Fake:
+        source_name = src
+
+        def list_lineup_confirmed(self, fixture_id):
+            return [{"team_source_id": "h2", "player_name": "Home Keeper", "is_starter": True},     # the recorded id
+                    {"team_source_id": "a1", "player_name": "Away Keeper", "is_starter": True}]
+    svc = IngestionService.__new__(IngestionService)
+    svc.adapter, svc.source = Fake(), src
+    svc.sync_lineups("L467", "2026/27", only_match_id=mid)
+    with session_scope() as s:
+        got = {(x.team_id, x.player_name) for x in s.query(Lineup).filter(Lineup.match_id == mid)}
+    assert got == {(hid, "Home Keeper"), (aid, "Away Keeper")}

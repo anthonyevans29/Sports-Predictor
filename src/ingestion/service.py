@@ -1112,7 +1112,9 @@ class IngestionService:
 
                 # Wipe old lineups for this match and re-insert
                 s.query(Lineup).filter(Lineup.match_id == match.id).delete()
-                # Resolve team_source_id → team_id
+                # Resolve team_source_id → team_id: every provider id a row answers to, its own first, so a merged
+                # row's recorded id never loses that side's lineup after the wipe above (#467, Codex on #465)
+                from src.ingestion.team_merge import source_ids
                 source_to_team_id: dict[str, int] = {}
                 for team in (match.home_team, match.away_team):
                     if team is None:
@@ -1120,6 +1122,10 @@ class IngestionService:
                     sid = (team.external_ids or {}).get(self.source)
                     if sid:
                         source_to_team_id[str(sid)] = team.id
+                for team in (match.home_team, match.away_team):
+                    if team is not None:
+                        for sid in source_ids(team.external_ids, self.source):
+                            source_to_team_id.setdefault(sid, team.id)
 
                 written_this_match = 0
                 for row in lineup_data:

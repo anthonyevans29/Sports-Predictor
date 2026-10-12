@@ -794,18 +794,16 @@ POSITION_LOOKUP_MARK = "POSITION-LOOKUP"
 
 def _print_position_lookups(competition_code: str, result) -> None:
     # THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): "What the provider does not answer stays
-    # unresolved, counted [...] A name the feed lists under two ids is ambiguous: not asked, counted and listed."
-    # One plain line when any listed player lacked a roster position; then the ambiguous and failed names.
+    # unresolved, counted [...]" One plain line when any listed player lacked a roster position; then the failed
+    # names. Addendum 47 item 3: entries are told apart by provider id, so there is no ambiguous count.
     lk = getattr(result, "position_lookups", None) or {}
-    if not lk or not any(lk.get(k) for k in ("asked", "from_kept", "failed", "ambiguous")):
+    if not lk or not any(lk.get(k) for k in ("asked", "from_kept", "failed")):
         return
     print(f"{POSITION_LOOKUP_MARK} ({competition_code}): asked by provider id {lk.get('asked', 0)} "
           f"(answered a position {lk.get('answered_position', 0)}, answered none {lk.get('answered_none', 0)}, "
           f"failed {len(lk.get('failed') or [])}) · from kept answers {lk.get('from_kept', 0)} · "
-          f"resolved by lookup {len(lk.get('resolved_by_lookup') or [])} · kept {lk.get('kept', 0)} new · "
-          f"ambiguous, not asked {len(lk.get('ambiguous') or [])}", flush=True)
-    for x in lk.get("ambiguous") or []:
-        print(f"  ambiguous name (not asked): {x}", flush=True)
+          f"resolved by lookup {len(lk.get('resolved_by_lookup') or [])} · kept {lk.get('kept', 0)} new",
+          flush=True)
     for x in lk.get("failed") or []:
         print(f"  lookup failed: {x}", flush=True)
 
@@ -5105,6 +5103,9 @@ def export_nhl_predictions_cmd(hours):
           f"ties skipped {f['ties_skipped']} · window skips {doc['skipped'] or 'none'}")
     print(f"  v7 xG: {f.get('xg_model', 'loaded')} · updates on xG {f['xg_updates']} · goal fallbacks "
           f"{f['goal_margin_fallbacks']} · reference {doc['reference_model']['model_version']}")
+    if doc.get("v7_unavailable"):    # addendum 49 (#463): the file names the model it ran
+        print(f"  ✗ {doc['v7_unavailable']}: this file and its rows are {doc['model_version']} "
+              f"({doc['gate_verdict']}) and no other")
 
 
 @cli.command("nhl-shadow-grade")
@@ -5606,7 +5607,7 @@ def sync_kalshi_ncaa_cmd():
                       f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
                       f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
     else:
-        console.print(f"[red]✗ Kalshi NCAA: {r.get('reason') or r.get('error')}[/red]")
+        console.print(f"[red]✗ Kalshi NCAA: {r.get('error')}[/red]")
 
 
 @cli.command("sync-kalshi-nhl")
@@ -5627,7 +5628,7 @@ def sync_kalshi_nhl_cmd():
                       f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
                       f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
     else:
-        console.print(f"[red]✗ Kalshi NHL: {r.get('reason') or r.get('error')}[/red]")
+        console.print(f"[red]✗ Kalshi NHL: {r.get('error')}[/red]")
 
 
 @cli.command("sync-kalshi-nfl")
@@ -7565,6 +7566,36 @@ def kalshi_probe_cmd(keywords, series_ticker, title_grep, show_markets):
                       + f"; showing {min(show_markets, len(mkts))} raw:[/dim]")
         for mk in mkts[:show_markets]:
             console.print(_json.dumps(mk, indent=2, default=str))
+
+
+@cli.command("kalshi-replay")
+@click.option("--series", "only", multiple=True,
+              help="Only these series or competitions (repeatable; default: every series the syncs read).")
+@click.option("--from-file", "from_file", default=None,
+              help="Replay markets kept by an earlier run (logs/kalshi_replay_<stamp>.json) instead of fetching.")
+def kalshi_replay_cmd(only, from_file):
+    """THE MATCHER'S READ-ONLY REPLAY (ARCHITECT 2026-10-12, addendum 50 item 6(b)). Fetches each series' open
+    markets once (MLB, NFL, NHL, NCAA and each soccer series that resolves), keeps them under logs/, places them with
+    the new matcher (src/ingestion/kalshi_match.py) on the stored games opened read-only, and stores nothing. Per
+    series: what the new matcher places and refuses, by reason, beside the legs main's matcher stored at its last
+    sync, then every leg that differs. Run in the morning block straight after the day's Kalshi syncs."""
+    import json as _json
+
+    from src.ingestion import kalshi_replay as kr
+
+    if from_file:
+        payload = _json.loads(open(from_file).read())
+        click.echo(f"KALSHI-REPLAY · markets kept at {payload.get('fetched_at')} (from {from_file}) · read-only, "
+                   "nothing stored")
+    else:
+        click.echo("KALSHI-REPLAY · fetching each series' open markets once · read-only, nothing stored")
+        payload = kr.fetch(list(only) or None, progress=click.echo)
+        click.echo(f"  markets kept at {payload['kept_at']} (public market data: send it with this console)")
+    if only and from_file:
+        want = {x.upper() for x in only}
+        payload["series"] = {k: v for k, v in payload["series"].items()
+                             if k.upper() in want or str(v.get("competition", "")).upper() in want}
+    kr.replay(payload, progress=click.echo)
 
 
 @cli.command("sync-kalshi-soccer")

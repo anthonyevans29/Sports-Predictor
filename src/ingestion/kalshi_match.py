@@ -21,7 +21,15 @@ ticker's own date (a placeholder and a second row) refuse the event under a reas
 dedupe-matches has to merge.
 
 Pure: no network, no database. place() takes the markets and the stored games (objects with id, utc_date (naive
-UTC), home_team.name, away_team.name) and returns the placements and the refusals by reason.
+UTC), home_team.name, away_team.name, status) and returns the placements and the refusals by reason.
+
+Addendum 50 item 6(c), verbatim: "A row whose status is cancelled, postponed or stale orphan is not a game for the
+matcher: it takes no market and is not counted among the rows of a pair." A row that has started or finished stays a
+game: its markets are refused as in play, the true reason.
+
+Addendum 50 item 6(b): main takes this module, its tests and a read-only replay (src/ingestion/kalshi_replay.py,
+`cli.py kalshi-replay`) first and by itself; the two sync paths stay as they are until the switch PR, called on the
+replay's console.
 """
 from __future__ import annotations
 
@@ -40,6 +48,8 @@ MAX_START_DRIFT = timedelta(hours=5)     # the time gate as built: occurrence vs
 MAX_TICK_DRIFT = timedelta(hours=2)      # the time gate as built: the ticker's ET clock time vs our kickoff
 
 # Refusal reasons (each counted; the console prints the counts by reason).
+NOT_GAMES = frozenset({"cancelled", "postponed", "stale_orphan"})   # addendum 50 6(c): rows that are not games
+
 NO_PRICE = "no price"
 NO_DATE = "no date in the ticker"
 NO_PAIR = "the event's markets do not name two teams"
@@ -149,6 +159,12 @@ def et_text(utc_naive: datetime | None) -> str:
     return "—" if utc_naive is None else utc_naive.replace(tzinfo=UTC).astimezone(ET).strftime("%Y-%m-%d %H:%M ET")
 
 
+def is_game(g) -> bool:
+    """Addendum 50 6(c): a cancelled, postponed or stale-orphan row is not a game for the matcher."""
+    st = getattr(g, "status", None)
+    return str(getattr(st, "value", st) or "").lower() not in NOT_GAMES
+
+
 def occurrence(market: dict) -> datetime | None:
     from src.adapters.kalshi import KalshiAdapter
     return KalshiAdapter.occurrence(market)
@@ -160,6 +176,7 @@ class Result:
     refused: Counter = field(default_factory=Counter)  # reason -> markets refused for it
     lines: list = field(default_factory=list)          # console lines (time-gate and date refusals, two rows)
     matched_events: int = 0
+    why: dict = field(default_factory=dict)            # market ticker -> the reason it was refused
 
     @property
     def in_play(self) -> int:
@@ -183,6 +200,8 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
 
     def refuse(mks, reason, n=None):
         res.refused[reason] += len(mks) if n is None else n
+        for mk in mks:
+            res.why[mk.get("ticker")] = reason
 
     for ev, mks in by_event.items():
         live = []
@@ -213,7 +232,7 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
         if day is None:
             refuse(live, NO_DATE)
             continue
-        on_day = [g for g in games if g.utc_date and g.home_team and g.away_team
+        on_day = [g for g in games if g.utc_date and g.home_team and g.away_team and is_game(g)
                   and abs((et_day(g.utc_date) - day).days) <= 1]
         # names before time: the best fit among the competition's games on the event's day
         fits = []

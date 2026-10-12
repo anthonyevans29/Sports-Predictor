@@ -4,6 +4,7 @@ time gate choose only inside that one pair; two markets claiming one side are bo
 counted by its reason. The slate is receipt A/B of addendum 37 (KXNCAAFGAME, 2026-10-10), names in the "St." form
 the receipt quotes; synthetic rows and a throwaway DB only."""
 from datetime import datetime, timedelta
+import json
 from types import SimpleNamespace as NS
 
 import pytest
@@ -222,67 +223,160 @@ def test_the_ticker_stamp_reads_date_and_clock_in_us_eastern():
     assert not res.placed and res.refused == {km.NO_DATE: 2}
 
 
-# --- the series' own competition, through the sync (throwaway DB) ---
+# --- addendum 50 6(c): rows that are not games ---
 
-def _db_game(comp_code, home, away, kick):
-    from src.db.database import session_scope
+@pytest.mark.parametrize("status", ["stale_orphan", "postponed", "cancelled"])
+def test_a_row_that_is_not_a_game_takes_no_market_and_is_not_a_row_of_the_pair(status):
+    """"A row whose status is cancelled, postponed or stale orphan is not a game for the matcher: it takes no market
+    and is not counted among the rows of a pair." Beside its live twin on the date it no longer refuses the event."""
+    live = game(40061, "South Carolina State", "Charleston Southern", Z("2026-10-10T16:00"))
+    stale = game(40062, "South Carolina State", "Charleston Southern", Z("2026-10-10T22:00"))
+    stale.status = status
+    res = run(SCSTCHSO, [stale, live], now=Z("2026-10-10T11:52"))
+    assert placed(res) == {(40061, "AWAY"): "SCST", (40061, "HOME"): "CHSO"} and not res.refused
+    res = run(SCSTCHSO, [stale], now=Z("2026-10-10T11:52"))
+    assert not res.placed and res.refused == {km.NO_FIT: 2}
+
+
+def test_a_started_or_finished_row_stays_a_game_and_its_markets_are_refused_in_play():
+    played = game(40063, "South Carolina State", "Charleston Southern", Z("2026-10-10T16:00"))
+    played.status = "finished"
+    res = run(SCSTCHSO, [played], now=Z("2026-10-10T19:00"))
+    assert not res.placed and res.refused == {km.IN_PLAY: 2}
+    assert res.why == {mk["ticker"]: km.IN_PLAY for mk in SCSTCHSO}                 # each market's own reason
+
+
+# --- the read-only replay (addendum 50 6(b)), on a scratch database ---
+
+@pytest.fixture
+def scratch(tmp_path, monkeypatch):
+    """A scratch SQLite with the schema and the ticker column; the replay's read-only session opens it mode=ro."""
+    import contextlib
+
+    from sqlalchemy import create_engine, text
+    from sqlalchemy.orm import Session
+
+    from src.db.schema import Base
+    from src.walters import venue_quote_age as vqa
+    path = tmp_path / "replay.db"
+    eng = create_engine(f"sqlite:///{path}")
+    Base.metadata.create_all(eng)
+    with eng.begin() as c:
+        c.execute(text("ALTER TABLE odds_snapshots ADD COLUMN market_ticker VARCHAR"))
+
+    @contextlib.contextmanager
+    def ro():
+        e = create_engine(f"sqlite:///file:{path.as_posix()}?mode=ro&uri=true", connect_args={"uri": True})
+        ss = Session(e)
+        try:
+            yield ss
+        finally:
+            ss.rollback()
+            ss.close()
+            e.dispose()
+    monkeypatch.setattr(vqa, "readonly_session", ro)
+    yield eng
+    eng.dispose()
+
+
+def _seed(eng, comp_code, home, away, kick, sport="NFL"):
+    from sqlalchemy.orm import Session
+
     from src.db.schema import Competition, Match, MatchStatus, Sport, Team
-    with session_scope() as s:
-        comp = s.execute(select(Competition).where(Competition.code == comp_code)).scalar_one_or_none()
+    with Session(eng) as s:
+        comp = s.query(Competition).filter_by(code=comp_code).one_or_none()
         if comp is None:
-            comp = Competition(sport=Sport.NFL, code=comp_code, name=comp_code, area="USA", type="LEAGUE")
+            comp = Competition(sport=Sport[sport], code=comp_code, name=comp_code, area="USA", type="LEAGUE")
             s.add(comp)
             s.flush()
-        h, a = Team(sport=Sport.NFL, name=home), Team(sport=Sport.NFL, name=away)
+        h, a = Team(sport=Sport[sport], name=home), Team(sport=Sport[sport], name=away)
         s.add_all([h, a])
         s.flush()
-        m = Match(sport=Sport.NFL, competition_id=comp.id, season="2026", utc_date=kick,
+        m = Match(sport=Sport[sport], competition_id=comp.id, season="2026", utc_date=kick,
                   status=MatchStatus.SCHEDULED, home_team_id=h.id, away_team_id=a.id)
         s.add(m)
-        s.flush()
+        s.commit()
         return m.id
 
 
-def _sync(monkeypatch, series, markets):
-    from src.adapters.kalshi import KalshiAdapter
-    from src.ingestion import kalshi_sync
-    monkeypatch.setattr(KalshiAdapter, "status", lambda self: {"trading_active": True})
-    monkeypatch.setattr(KalshiAdapter, "sports_filters", lambda self: {})
-    monkeypatch.setattr(KalshiAdapter, "open_markets_for_series", lambda self, s: markets)
+def _main_leg(eng, mid, sel, ticker, at, market="ML"):
+    from sqlalchemy import text
+    with eng.begin() as c:
+        c.execute(text("INSERT INTO odds_snapshots (match_id, market, selection, devig_prob, n_books, captured_at, "
+                       "source, market_ticker) VALUES (:m, :mk, :s, 0.5, 1, :at, 'kalshi', :t)"),
+                  {"m": mid, "mk": market, "s": sel, "at": at, "t": ticker})
+
+
+def _payload(now, **series):
+    comps = {"KXNCAAFGAME": "NCAA", "KXNFLGAME": "NFL", "KXMLBGAME": "MLB", "KXNHLGAME": "NHL"}
+    return {"fetched_at": now.isoformat(), "series": {
+        k: {"series": k, "competition": comps[k], "path": "shared", "markets": v} for k, v in series.items()}}
+
+
+def test_the_replay_places_on_the_series_own_competition_compares_with_main_and_stores_nothing(scratch):
+    from sqlalchemy import text
+
+    from src.ingestion import kalshi_replay as kr
+    now = Z("2026-10-10T11:52")
+    ku = _seed(scratch, "NCAA", "Utah", "Kansas", Z("2026-10-11T02:15"))
+    hou = _seed(scratch, "NCAA", "Kansas State", "Houston", Z("2026-10-10T19:30"))
+    pro = _seed(scratch, "NFL", "Green Bay Packers", "Chicago Bears", Z("2026-10-10T17:00"))
+    t = "KXNCAAFGAME-26OCT10KUUTAH"
+    _main_leg(scratch, hou, "HOME", f"{t}-KU", Z("2026-10-10T11:40"))                     # main's wrong leg
+    _main_leg(scratch, ku, "AWAY", f"{t}-UTAH", Z("2026-10-10T11:40"))                    # main's leg on the wrong side
+    _main_leg(scratch, hou, "AWAY", "KXNCAAFGAME-26OCT10HOUKSU-HOU", Z("2026-10-10T11:40"))  # not in the markets now
+    _main_leg(scratch, ku, "HOME", "OLD-TICKER", Z("2026-10-09T11:40"))                   # an older sync: not read
+    before = scratch.connect().execute(text("SELECT COUNT(*) FROM odds_snapshots")).scalar()
     lines = []
-    r = kalshi_sync.sync_kalshi_mlb(series_override=series, progress=lines.append)
-    return r, lines
+    out = kr.replay(_payload(now, KXNCAAFGAME=KUUTAH), progress=lines.append)
+    r = out["KXNCAAFGAME"]
+    assert r["placed"] == 2 and r["main_legs"] == 3 and r["main_at"] == Z("2026-10-10T11:40")
+    assert sorted(d.split(":", 1)[1].split("·")[0].strip() for d in r["differ"]) == [
+        "on another game or side", "on another game or side", "stored by main and refused now"]
+    assert any(f"{t}-KU: on another game or side · main {hou} Houston @ Kansas State HOME · new {ku} Kansas @ Utah "
+               "AWAY" in ln for ln in lines), lines
+    assert any("not in the open markets now" in ln for ln in lines)
+    assert scratch.connect().execute(text("SELECT COUNT(*) FROM odds_snapshots")).scalar() == before   # nothing stored
+    # a college market never lands on the NFL game, and the reverse
+    nfl = kr.replay(_payload(now, KXNFLGAME=event("26OCT10CHIGB", [("CHI", "Chicago"), ("GB", "Green Bay")],
+                                                  series="KXNFLGAME")), progress=lambda _: None)["KXNFLGAME"]
+    assert nfl["placed"] == 2 and nfl["games"] == 1 and pro
+    col = kr.replay(_payload(now, KXNCAAFGAME=event("26OCT10CHIGB", [("CHI", "Chicago"), ("GB", "Green Bay")])),
+                    progress=lambda _: None)["KXNCAAFGAME"]
+    assert col["placed"] == 0 and col["refused"] == {km.NO_FIT: 2}
 
 
-def _kalshi_rows(mid):
-    from src.db.database import session_scope
-    from src.db.schema import OddsSnapshot
-    with session_scope() as s:
-        return {o.selection for o in s.execute(select(OddsSnapshot).where(
-            OddsSnapshot.match_id == mid, OddsSnapshot.source == "kalshi")).scalars()}
+def test_fetch_keeps_the_markets_under_logs_and_reads_every_series(tmp_path, monkeypatch):
+    from src.adapters.kalshi import KalshiAdapter
+    from src.ingestion import kalshi_replay as kr
+    monkeypatch.setattr(kr, "REPO", tmp_path)
+    monkeypatch.setattr(KalshiAdapter, "__init__", lambda self: None)
+    asked = []
+    monkeypatch.setattr(KalshiAdapter, "open_markets_for_series", lambda self, s: asked.append(s) or KUUTAH)
+    payload = kr.fetch(progress=lambda _: None)
+    assert asked[:4] == ["KXMLBGAME", "KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME"]
+    assert set(asked[4:]) == set(KalshiAdapter.SOCCER_GAME_SERIES.values())          # each soccer series resolved
+    kept = tmp_path / payload["kept_at"]
+    assert kept.parent == tmp_path / "logs" and json.loads(kept.read_text())["series"]["KXNCAAFGAME"]["markets"] == KUUTAH
+    assert payload["series"]["KXEPLGAME"]["path"] == "soccer" and payload["series"]["KXEPLGAME"]["competition"] == "PL"
 
 
-def test_a_college_market_is_never_placed_on_an_nfl_game_and_the_reverse(monkeypatch):
-    from src.db.database import init_db
-    from src.timeutil import utc_now_naive
-    init_db()
-    kick = utc_now_naive().replace(second=0, microsecond=0) + timedelta(hours=20)
-    stamp = km.et_day(kick).strftime("%y%b%d").upper()
-    nfl = _db_game("NFL", "Kestrelo Hawks", "Pumaro Cats", kick)
-    ncaa = _db_game("NCAA", "Quillon State", "Varrow Tech", kick)
-    college = event(stamp + "DRPDRK", [("DRP", "Pumaro Cats"), ("DRK", "Kestrelo Hawks")])
-    r, lines = _sync(monkeypatch, "KXNCAAFGAME", college)
-    assert r["ok"] and r["competition"] == "NCAA" and r["stored"] == 0, r
-    assert r["refused"] == {km.NO_FIT: 2} and any(km.NO_FIT in ln for ln in lines), lines
-    pro = event(stamp + "DRTDRS", [("DRT", "Varrow Tech"), ("DRS", "Quillon State")], series="KXNFLGAME")
-    r, _ = _sync(monkeypatch, "KXNFLGAME", pro)
-    assert r["ok"] and r["competition"] == "NFL" and r["stored"] == 0 and r["refused"] == {km.NO_FIT: 2}, r
-    assert _kalshi_rows(nfl) == set() and _kalshi_rows(ncaa) == set()
-    r, _ = _sync(monkeypatch, "KXNCAAFGAME", event(stamp + "DRTDRS", [("DRT", "Varrow Tech"),
-                                                                        ("DRS", "Quillon State")]))
-    assert r["stored"] == 2 and _kalshi_rows(ncaa) == {"HOME", "AWAY"} and _kalshi_rows(nfl) == set(), r
+def test_the_sync_paths_are_main_s_until_the_switch():
+    """Addendum 50 6(b): "the two sync paths stay as they are" in this PR."""
+    import inspect
+
+    from src.ingestion import kalshi_sync
+    assert "kalshi_match" not in inspect.getsource(kalshi_sync)
 
 
-def test_a_series_with_no_competition_is_refused(monkeypatch):
-    r, _ = _sync(monkeypatch, "KXNOSUCHGAME", event("26OCT10AB", [("A", "Alpha"), ("B", "Beta")]))
-    assert not r["ok"] and "names no competition" in r["reason"], r
+def test_the_command_replays_a_kept_file_read_only(scratch, tmp_path):
+    from click.testing import CliRunner
+
+    import cli
+    _seed(scratch, "NCAA", "Utah", "Kansas", Z("2026-10-11T02:15"))
+    f = tmp_path / "kalshi_replay_20261010T115200Z.json"
+    f.write_text(json.dumps(_payload(Z("2026-10-10T11:52"), KXNCAAFGAME=KUUTAH)))
+    r = CliRunner().invoke(cli.cli, ["kalshi-replay", "--from-file", str(f)])
+    assert r.exit_code == 0, r.output
+    assert "read-only, nothing stored" in r.output and "== KXNCAAFGAME (NCAA, shared path)" in r.output
+    assert "new: placed 2 · refused 0" in r.output and "legs that differ: 2" in r.output

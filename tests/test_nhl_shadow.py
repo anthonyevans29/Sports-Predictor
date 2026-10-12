@@ -59,7 +59,22 @@ def nhl():
     return ids
 
 
-def test_export_stamps_every_row_and_prices_only_the_window(nhl, tmp_path):
+FIT_MADE = {"xg_model": "2023-24 fit, 3 attempts, no na level", "games_with_xg": 0}
+NO_FIT = {"xg_model": "unavailable (no eligible 2023-24 shot after the rules)"}
+
+
+@pytest.fixture
+def fit_ok(monkeypatch):
+    """The fit was made (the laptop's case). This test DB holds no shots, which is the host's case (addendum 49)."""
+    monkeypatch.setattr(sh, "live_xg", lambda: ({}, dict(FIT_MADE)))
+
+
+@pytest.fixture
+def no_fit(monkeypatch):
+    monkeypatch.setattr(sh, "live_xg", lambda: ({}, dict(NO_FIT)))
+
+
+def test_export_stamps_every_row_and_prices_only_the_window(nhl, tmp_path, fit_ok):
     path, doc = sh.export(now=NOW, out_dir=str(tmp_path))
     assert Path(path).name == "nhl_shadow_2033-01-10_1200.json"
     # ARCHITECT 2026-10-02: the engine switches to v7, labelled with its verdict; v1 rides as the reference
@@ -94,7 +109,7 @@ def test_no_prediction_rows_and_the_window_card_ignores_the_shadow(nhl, tmp_path
     assert nhl["up"] not in window.canonical_models(tmp_path)
 
 
-def test_grade_is_live_clv_only_from_the_last_call_before_puck_drop(nhl, tmp_path):
+def test_grade_is_live_clv_only_from_the_last_call_before_puck_drop(nhl, tmp_path, fit_ok):
     early = NOW - timedelta(hours=10)
     sh.export(now=early, out_dir=str(tmp_path))                     # an older call
     _, doc = sh.export(now=NOW, out_dir=str(tmp_path))              # the last call before puck drop
@@ -144,3 +159,72 @@ def test_v7_with_xg_moves_on_the_xg_margin_and_without_it_equals_v1():
     flip = {gx[0].match_id: (0.5, 3.0)}                      # the home side won on goals but lost on xG
     m_xg, r_xg, rc = sh.fit(games, NOW, xg=flip)
     assert rc["xg_updates"] == 1 and m_xg.predict(g) < r_xg.predict(g)
+
+
+# ===================================================================== addendum 49 (#463): a shadow names its model ==
+
+def _scheduled(nhl):
+    """The module's game back in the window (an earlier test grades it as finished)."""
+    with session_scope() as s:
+        m = s.get(Match, nhl["up"])
+        m.status, m.home_score, m.away_score = MatchStatus.SCHEDULED, None, None
+
+
+def test_with_the_fit_unavailable_the_file_and_rows_carry_the_reference_name_verdict_and_reason(nhl, tmp_path, no_fit):
+    """ARCHITECT 2026-10-12: "Where the xG fit cannot be made, the file and its rows carry the reference model's name
+    and verdict and no other, and the file says that v7 was not available and why." """
+    _scheduled(nhl)
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    assert (doc["model_version"], doc["gate_verdict"]) == (sh.REFERENCE_VERSION, sh.REFERENCE_VERDICT)
+    assert doc["v7_unavailable"] == ("nhl_elo_v7_xg_margin_no_na was not available: the xG fit could not be made "
+                                     "(unavailable (no eligible 2023-24 shot after the rules))")
+    assert doc["fit"]["xg_model"] == NO_FIT["xg_model"] and "nhl_elo_v1" in doc["note"]
+    r = doc["predictions"][0]
+    assert (r["model_version"], r["gate_verdict"]) == (sh.REFERENCE_VERSION, sh.REFERENCE_VERDICT)
+    assert r["prediction"]["home_win_prob"] == r["reference"]["home_win_prob"]          # v1's number, v1's name
+    names = {v for row in doc["predictions"] for v in (row["model_version"], row["reference"]["model_version"])}
+    assert names == {"nhl_elo_v1"} and sh.GATE_VERDICT not in json.dumps(doc["predictions"])
+    assert doc["fit"]["goal_margin_fallbacks"] == doc["fit"]["games_used"]               # counted as today
+
+
+def test_with_the_fit_available_the_rows_are_unchanged(nhl, tmp_path, fit_ok):
+    _scheduled(nhl)
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    assert "v7_unavailable" not in doc and doc["note"] == sh.NOTE
+    r = doc["predictions"][0]
+    assert (r["model_version"], r["gate_verdict"]) == (sh.MODEL_VERSION, sh.GATE_VERDICT)
+    assert set(r) >= {"engine", "prediction", "reference", "market"}
+    assert r["reference"]["model_version"] == "nhl_elo_v1"
+
+
+def test_the_grade_never_counts_a_no_fit_file_as_v7_and_still_counts_its_reference_line(nhl, tmp_path, fit_ok):
+    """"A file made without the fit is never graded as v7, whatever name it carries": the ten host files say v7
+    in their rows; the grade reads the fit block."""
+    _scheduled(nhl)
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    for f in tmp_path.glob("nhl_shadow_*.json"):
+        f.unlink()
+    host = json.loads(json.dumps(doc))                                  # v7's name, no fit: the host's files
+    host["fit"] = {**host["fit"], **NO_FIT, "xg_updates": 0}
+    (tmp_path / "nhl_shadow_2033-01-10_1200.json").write_text(json.dumps(host))
+    with session_scope() as s:
+        m = s.get(Match, nhl["up"])
+        m.status, m.home_score, m.away_score = MatchStatus.FINISHED, 3, 2
+    try:
+        r = sh.grade(days=10000, export_dir=str(tmp_path), now=NOW + timedelta(days=1))
+        assert r["graded"] == 1 and r["no_fit"] == 1
+        assert r["priced"] == 0 and r["mean_clv_pp"] is None and r["value_side_n"] == 0       # never v7
+        close = (1 / 1.8) / (1 / 1.8 + 1 / 2.1)
+        pr = doc["predictions"][0]["reference"]["home_win_prob"]
+        assert r["reference_priced"] == 1 and r["reference_mean_clv_pp"] == round(
+            ((pr - close) if pr >= 0.5 else ((1 - pr) - (1 - close))) * 100, 2)              # the reference counts
+        assert "[no xG fit: not v7, the reference only]" in r["lines"][0]
+        md = sh.results_section(10000, export_dir=str(tmp_path))
+        assert "1 from files made without the xG fit: the reference line only, never v7" in md
+        # Codex on #464: the empty v7 line names the reason, never "no stored close" / "unanchored"
+        assert md.count("— (no v7-fit call graded: all 1 came from files made without the xG fit)") == 2
+        assert "no stored close" not in md and "unanchored" not in md
+    finally:
+        with session_scope() as s:
+            m = s.get(Match, nhl["up"])
+            m.status, m.home_score, m.away_score = MatchStatus.SCHEDULED, None, None

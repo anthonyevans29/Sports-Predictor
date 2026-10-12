@@ -2276,3 +2276,64 @@ def test_codex_4248918614_preflight_expect_role_host_refuses_the_laptop_role(box
     assert any("SP_EXPORTS_MIRROR_ROLE is 'laptop' here; this machine is the host" in x for x in bad)
     monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
     assert mc.preflight(families=("NFL", "SOCCER"), expect_role="host") == []
+
+
+# ================================================= addendum 47 items 6 and 7(a): before the tag that carries #449 ==
+
+def test_47_7a_a_notice_neither_channel_took_goes_once_through_the_operator_topic(box, monkeypatch):
+    """"A failure, a miss or a refusal that neither the screen nor the card topic took goes once through the operator
+    topic, as sp_notify's page does, and its receipt names the channel that took it. The watch's exit status does not
+    change." On the host the screen posts nothing; here the card page is not accepted either."""
+    ops = []
+    monkeypatch.setattr(mc, "notify", lambda body, title="Closing": {"posted": False, "skipped": "not macOS"})
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: ops.append((t, b)) or {"accepted": True, "http": 200})
+    box.page_ok = False
+    box.fail_cmd["sync-matches"] = (1, ["boom"])
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == mc.NOTIFIED       # exit unchanged
+    n = runs()[-1]["failure_notification"]
+    assert len(ops) == 1 and ops[0][1].endswith("\nmachine: laptop") and "FAILED" in ops[0][1]
+    assert n["channel"] == "operator" and n["operator"] == {"accepted": True, "http": 200}
+    # a miss: the same
+    assert mc.record_miss("NFL", at(50), "the lock was held until inside T-5")["notified"]["channel"] == "operator"
+    assert len(ops) == 2
+    # the card topic took it: no operator page, the receipt says card
+    box.page_ok = True
+    assert mc.record_miss("NFL", at(65), "the lock came inside T-5")["notified"]["channel"] == "card"
+    assert len(ops) == 2
+
+
+def test_47_7a_a_refusal_for_an_unset_card_topic_reaches_the_operator_topic(box, monkeypatch):
+    ops = []
+    monkeypatch.setattr(mc, "notify", lambda body, title="Closing": {"posted": False, "skipped": "not macOS"})
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: ops.append(b) or {"accepted": True, "http": 200})
+    monkeypatch.setenv("NTFY_CARD_TOPIC", "")
+    assert mc.watch(now=NOW, families=("NFL",)) == 2                                  # exit unchanged
+    r = runs()[-1]
+    assert "NTFY_CARD_TOPIC" in r["refused"] and r["failure_notification"]["channel"] == "operator"
+    assert len(ops) == 1 and "REFUSED" in ops[0]
+    assert mc.watch(now=NOW + timedelta(minutes=1), families=("NFL",)) == 2 and len(ops) == 1   # once
+    monkeypatch.setattr(mc, "page_operator", lambda t, b: {"accepted": False, "error": "NTFY_TOPIC unset or invalid"})
+    assert mc.record_miss("NFL", at(80), "x")["notified"]["channel"] is None          # nobody took it: says so
+
+
+def test_47_6_453_a_closing_miss_and_a_failed_push_after_the_page_count_as_failing():
+    """#453 RULED: "Both count as failing in the receipts table: a closing miss, and a closing whose push failed
+    after its page." """
+    import sp_receipts
+    miss = {"ts": "2026-10-12T17:00:00Z", "kind": "closing_miss", "family": "NFL", "start": "S", "reason": "r"}
+    pushf = {"ts": "2026-10-12T17:01:00Z", "kind": "closing", "family": "NFL", "start": "S", "exit": 0,
+             "push_failed": True, "push": {"exit": 1}, "attempt": 1, "covers": [1]}
+    ok = {**pushf, "ts": "2026-10-12T17:02:00Z", "push_failed": None, "push": {"exit": 0}}
+    assert sp_receipts.failed(miss) and sp_receipts.failed(pushf) and not sp_receipts.failed(ok)
+    t = sp_receipts.table([ok, miss, pushf]).splitlines()
+    assert "closing_miss:NFL" in t[2] and "closing:NFL" in t[3] and "push exit 1 FAILED" in t[3]
+
+
+def test_48_5_459_a_closing_whose_file_was_not_written_counts_as_failing_and_says_so():
+    """#459 RULED (addendum 48 item 5): "A closing whose file was not written counts as failing in the receipts
+    table, and its key line says so." """
+    import sp_receipts
+    r = {"ts": "2026-10-12T17:00:00Z", "kind": "closing", "family": "NFL", "start": "S", "exit": 0, "attempt": 1,
+         "covers": [1], "push": {"exit": 0}, "closing_file_failed": True}
+    assert sp_receipts.failed(r) and sp_receipts.key_line(r).endswith("push exit 0; closing file NOT WRITTEN")
+    assert "**0**" in sp_receipts.table([r])

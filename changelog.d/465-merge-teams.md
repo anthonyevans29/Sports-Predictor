@@ -3,4 +3,4 @@
 - Addendum 50 item 5: `--apply` takes the pairs it merges (`--pair KEPT:MERGED`, as the dry run prints each candidate) and merges those and no other; a named pair that is not a candidate when the apply reads the database is refused with its reason; `--apply` without a pair is refused. A `competition_teams` membership of the other row in a competition and season the kept row is in too is one membership: dropped, not re-pointed, and counted by the dry run; every other unique-table conflict refuses the pair.
 - A listing carrying either id finds the kept row: `service._find_team_by_source`, `refresh_by_id`, `resync_diff` and dedupe-matches read every provider id on a row (`team_merge.source_ids`).
 - src/adapters/api_american_football.py: provider team names are unescaped where read.
-- Tests: tests/test_team_merge.py (11).
+- Tests: tests/test_team_merge.py (17 at #465's head; the count corrected by #469, addendum 51 item 6).

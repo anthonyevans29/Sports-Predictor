@@ -241,7 +241,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     now = now or utc_now_naive()
     calls = last_calls(export_dir)
     clvs, vclvs, lines, ref_clvs = [], [], [], []
-    graded = unpriced = unanchored = no_fit = 0
+    graded = unpriced = unanchored = no_fit = not_v7 = 0
     with session_scope() as s:
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
             m = s.get(Match, mid)
@@ -250,7 +250,12 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             graded += 1
             p = c["prediction"]["home_win_prob"]
             pick_home = p >= 0.5
-            as_v7 = c.get("fit_made", True)       # a file made without the fit is never graded as v7 (addendum 49)
+            # ARCHITECT 2026-10-12 (addendum 50 item 3, #466): "The v7 line counts a row that names v7 from a file whose
+            # fit was made, and no other row. A row that names the reference counts on the reference line by its own
+            # number." The v1-era files (2026-09-30 to 10-02) name v1 and carry no reference block.
+            names_v7 = c.get("model_version") == MODEL_VERSION
+            made = c.get("fit_made", True)        # a file made without the fit is never graded as v7 (addendum 49)
+            as_v7 = names_v7 and made
             odds = list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             close_h = None
             from src.walters.close import close_1x2, outcomes_for, priced
@@ -264,8 +269,11 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                     clvs.append(clv)
             elif as_v7:
                 unpriced += 1
-            # v1 rides along as the reference (ruled 2026-10-02); older v1-only rows carry none
+            # v1 rides along as the reference (ruled 2026-10-02); a row that names the reference and carries no
+            # reference block counts on the reference line by its own number (addendum 50 item 3)
             pr = (c.get("reference") or {}).get("home_win_prob")
+            if pr is None and c.get("model_version") == REFERENCE_VERSION:
+                pr = p
             ref_clv = None
             if pr is not None and close_h is not None:
                 ref_clv = (pr if pr >= 0.5 else 1 - pr) - (close_h if pr >= 0.5 else 1 - close_h)
@@ -277,19 +285,25 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             elif anchor_h is None and as_v7:
                 unanchored += 1
             if not as_v7:
-                no_fit += 1
+                not_v7 += 1
+                no_fit += 0 if made else 1
+            tag = ("" if as_v7 else "[no xG fit: not v7, the reference only] " if not made
+                   else "[names the reference: not v7, the reference line] ")
+            # #466: a row kept off the v7 line says why, never "no anchor" when it has one
+            no_vg = ("— (not graded: no xG fit)" if not made else "— (not graded: not a v7 row)" if not as_v7
+                     else "— (no anchor)")
             line = (f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
-                    + ("[no xG fit: not v7, the reference only] " if not as_v7 else "")
+                    + tag
                     + f"{c.get('model_version', '?').replace('nhl_elo_', '')}_H={p:.3f} "
                     f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                     f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
-                    f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else '— (no anchor)'}"
+                    f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else no_vg}"
                     + (f" · ref v1_H={pr:.3f} div={'%+.1fpp' % (ref_clv * 100) if ref_clv is not None else '—'}"
                        if pr is not None else ""))
             lines.append(line)
             if progress:
                 progress(line)
-    return {"graded": graded, "priced": len(clvs), "unpriced": unpriced, "no_fit": no_fit,
+    return {"graded": graded, "priced": len(clvs), "unpriced": unpriced, "no_fit": no_fit, "not_v7": not_v7,
             "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None,
             "value_side_n": len(vclvs), "unanchored": unanchored,
             "mean_value_side_clv_pp": round(sum(vclvs) / len(vclvs) * 100, 2) if vclvs else None,
@@ -304,14 +318,21 @@ def results_section(days: int, export_dir: str = "exports") -> str:
     if not r["graded"]:
         return head + ("Live model-close divergence only. No graded shadow calls in window "
                        f"({r['calls_on_file']} calls on file).\n")
-    # Codex on #464: when every graded call is a no-fit file's, the v7 line is empty by ruling, not for want of
-    # a close or an anchor; it says so instead of blaming the market data
+    # Codex on #464: when no graded call is on the v7 line, the line is empty by ruling, not for want of a close or
+    # an anchor; it says so instead of blaming the market data. Addendum 50 item 3 (#466): a row that names the
+    # reference is not on the v7 line either.
+    ref_named = r.get("not_v7", 0) - r.get("no_fit", 0)
+    why_not = "; ".join(x for x in (
+        f"{r['no_fit']} from files made without the xG fit" if r.get("no_fit") else "",
+        f"{ref_named} naming the reference ({REFERENCE_VERSION})" if ref_named else "") if x)
     none_v7 = (f"— (no v7-fit call graded: all {r['no_fit']} came from files made without the xG fit)"
-               if r.get("no_fit") and r["no_fit"] >= r["graded"] else None)
+               if r.get("no_fit") and r["no_fit"] >= r["graded"]
+               else f"— (no v7-fit call graded: {why_not})" if r.get("not_v7") and r["not_v7"] >= r["graded"] else None)
     return head + (
         f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}"
         + (f" ({r['no_fit']} from files made without the xG fit: the reference line only, never v7)"
-           if r.get("no_fit") else "") + "\n"
+           if r.get("no_fit") and not ref_named else
+           f" ({why_not}: the reference line only, never v7)" if why_not else "") + "\n"
         "- Mean pick-vs-close: "
         + (f"{r['mean_clv_pp']:+.2f}pp (n={r['priced']} priced)" if r["mean_clv_pp"] is not None
            else none_v7 or f"— (no stored close; {r['unpriced']} unpriced)") + "\n"

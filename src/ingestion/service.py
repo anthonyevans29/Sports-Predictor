@@ -101,7 +101,7 @@ class SyncResult:
     # answered." The team names, one per team whose injury read answered no entry. Never a failed read.
     empty_answers: list = field(default_factory=list)
     # THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): summed over the teams read. {asked,
-    # answered_position, answered_none, from_kept, kept, failed: [..], ambiguous: [..]}; empty when no listed player
+    # answered_position, answered_none, from_kept, kept, failed: [..]}; empty when no listed player
     # lacked a roster position. A failed lookup is also a failed read (--strict); an answer with no position is not.
     position_lookups: dict = field(default_factory=dict)
 
@@ -942,7 +942,7 @@ class IngestionService:
             for k in ("asked", "answered_position", "answered_none", "from_kept"):
                 agg[k] = agg.get(k, 0) + int(look.get(k) or 0)
             agg["kept"] = agg.get("kept", 0) + kept
-            for k in ("failed", "ambiguous", "resolved_by_lookup"):
+            for k in ("failed", "resolved_by_lookup"):
                 agg.setdefault(k, []).extend(f"{team.name}: {x}" for x in look.get(k) or [])
             for f in look.get("failed") or []:  # "Under --strict a lookup that fails is a failed read"
                 result.failed_reads.append(f"team {team.id} ({team.name}): position lookup failed: {f}")

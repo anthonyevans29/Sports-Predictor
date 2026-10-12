@@ -874,18 +874,16 @@ POSITION_LOOKUP_MARK = "POSITION-LOOKUP"
 
 def _print_position_lookups(competition_code: str, result) -> None:
     # THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): "What the provider does not answer stays
-    # unresolved, counted [...] A name the feed lists under two ids is ambiguous: not asked, counted and listed."
-    # One plain line when any listed player lacked a roster position; then the ambiguous and failed names.
+    # unresolved, counted [...]" One plain line when any listed player lacked a roster position; then the failed
+    # names. Addendum 47 item 3: entries are told apart by provider id, so there is no ambiguous count.
     lk = getattr(result, "position_lookups", None) or {}
-    if not lk or not any(lk.get(k) for k in ("asked", "from_kept", "failed", "ambiguous")):
+    if not lk or not any(lk.get(k) for k in ("asked", "from_kept", "failed")):
         return
     print(f"{POSITION_LOOKUP_MARK} ({competition_code}): asked by provider id {lk.get('asked', 0)} "
           f"(answered a position {lk.get('answered_position', 0)}, answered none {lk.get('answered_none', 0)}, "
           f"failed {len(lk.get('failed') or [])}) · from kept answers {lk.get('from_kept', 0)} · "
-          f"resolved by lookup {len(lk.get('resolved_by_lookup') or [])} · kept {lk.get('kept', 0)} new · "
-          f"ambiguous, not asked {len(lk.get('ambiguous') or [])}", flush=True)
-    for x in lk.get("ambiguous") or []:
-        print(f"  ambiguous name (not asked): {x}", flush=True)
+          f"resolved by lookup {len(lk.get('resolved_by_lookup') or [])} · kept {lk.get('kept', 0)} new",
+          flush=True)
     for x in lk.get("failed") or []:
         print(f"  lookup failed: {x}", flush=True)
 
@@ -5185,6 +5183,9 @@ def export_nhl_predictions_cmd(hours):
           f"ties skipped {f['ties_skipped']} · window skips {doc['skipped'] or 'none'}")
     print(f"  v7 xG: {f.get('xg_model', 'loaded')} · updates on xG {f['xg_updates']} · goal fallbacks "
           f"{f['goal_margin_fallbacks']} · reference {doc['reference_model']['model_version']}")
+    if doc.get("v7_unavailable"):    # addendum 49 (#463): the file names the model it ran
+        print(f"  ✗ {doc['v7_unavailable']}: this file and its rows are {doc['model_version']} "
+              f"({doc['gate_verdict']}) and no other")
 
 
 @cli.command("nhl-shadow-grade")

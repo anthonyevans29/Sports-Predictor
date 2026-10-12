@@ -5,7 +5,8 @@
 # status and a refusal's as success, and its failure path is for what the process could not report itself."
 # Exit 3 = a failed run or a miss, receipted and notified; exit 2 = a refusal, receipted and notified once per start
 # time and reason. Both count as success here. OnFailure pages what the watch could not report (a start-up or
-# unhandled error, exit 1, the 45-minute bound).
+# unhandled error, exit 1, the 45-minute bound); sp_notify sends that page at most once in thirty minutes for
+# this unit, by name, and receipts every failure (addendum 47 item 7(b)).
 [Unit]
 Description=sports-predictor closing watch (NFL, SOCCER)
 Wants=network-online.target

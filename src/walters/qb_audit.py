@@ -43,39 +43,94 @@ def _initial_key(name: str) -> str | None:
 
 
 def roster_index(roster: list[dict]) -> dict:
-    """Provider roster rows -> lookups by id, full name, and initial+surname
-    (the latter only where unique on the roster, never a guess)."""
-    by_id, by_name, by_init, init_count = {}, {}, {}, {}
+    """Provider roster rows -> lookups by id, full name, and initial+surname.
+
+    ARCHITECT 2026-10-12, addendum 47 item 4 (#451): "A group is not a position. In the roster join, as in the lookup,
+    only the position field resolves a player. A roster row without one leaves him unresolved, and where the lookup
+    runs he is asked by id." Only `position` is read (never `group`).
+    Addendum 47 item 3 (#454): "A name the roster holds more than once resolves nobody by name." Held more than once
+    by this join's own comparison (_norm: "Michael Carter" and "Michael Carter II" are one name held twice), counted
+    over every roster row, with a position or not. by_name and by_init are unique-only; never a guess."""
+    by_id, by_name, by_init, name_count, init_count = {}, {}, {}, {}, {}
     for rp in roster or []:
         p = rp.get("player") if isinstance(rp.get("player"), dict) else rp
-        pos = p.get("position") or p.get("group")
+        nm = _norm(p.get("name") or "")
+        k = _initial_key(p.get("name") or "")
+        if nm:
+            name_count[nm] = name_count.get(nm, 0) + 1
+        if k:
+            init_count[k] = init_count.get(k, 0) + 1
+        pos = p.get("position")
+        pos = pos.strip() if isinstance(pos, str) else pos
         if not pos:
             continue
         if p.get("id") is not None:
             by_id[p["id"]] = str(pos)
-        if p.get("name"):
-            by_name[_norm(p["name"])] = str(pos)
-            k = _initial_key(p["name"])
-            if k:
-                init_count[k] = init_count.get(k, 0) + 1
-                by_init[k] = str(pos)
-    return {"by_id": by_id, "by_name": by_name,
+        if nm:
+            by_name[nm] = str(pos)
+        if k:
+            by_init[k] = str(pos)
+    return {"by_id": by_id,
+            "by_name": {k: v for k, v in by_name.items() if name_count[k] == 1},
             "by_init": {k: v for k, v in by_init.items() if init_count[k] == 1},
             "size": len(roster or [])}
 
 
-def resolve_position(player: dict, idx: dict) -> tuple[str | None, str | None]:
-    """(position, how): by provider id, then exact name, then a UNIQUE
-    initial+surname match. (None, None) stays None: unknown, never guessed."""
+def resolve_position(player: dict, idx: dict, by_name: bool = True) -> tuple[str | None, str | None]:
+    """(position, how): by provider id, then a UNIQUE exact name, then a UNIQUE initial+surname match. (None, None)
+    stays None: unknown, never guessed. by_name=False: the id alone (addendum 47 item 3: entries that share a name
+    and differ in id are "resolved by its own id, from the roster and then by the lookup, never by a name")."""
     pid, name = player.get("id"), player.get("name") or ""
     if pid is not None and pid in idx["by_id"]:
         return idx["by_id"][pid], "roster_id"
+    if not by_name:
+        return None, None
     if _norm(name) in idx["by_name"]:
         return idx["by_name"][_norm(name)], "roster_name"
     k = _initial_key(name)
     if k and k in idx["by_init"]:
         return idx["by_init"][k], "roster_initial"
     return None, None
+
+
+def injury_entries(items: list[dict]) -> list[tuple[dict, bool]]:
+    """THE ENTRIES OF THE INJURIES READ (ARCHITECT 2026-10-12, addendum 47 item 3, #454, its fourth sentence as
+    addendum 48 item 3 rewrote it): "In the injuries read an entry is told apart by its provider id. One id listed
+    more than once is one entry, the first. Entries that share a name and differ in id are different players: each
+    is kept, and each is resolved by its own id, from the roster and then by the lookup, never by a name. An entry
+    with no id is resolved by name as today. It is not kept where an entry with an id has its name. Entries with no
+    id that share a name are one entry, the first." The ONE place the adapter's read and the audit (audit_live) take
+    the entries. Returns [(item, by_name)]: by_name is False for an entry with an id whose name any other entry of
+    the read has, one without an id included (thread 4250343104, confirmed by addendum 48 item 3), so it is resolved
+    by its own id alone. Names compare by _norm. Entries with no name are skipped (no row to write)."""
+    kept, seen_ids = [], set()
+    for item in items or []:
+        pl = item.get("player") or {}
+        if not (pl.get("name") or "").strip():
+            continue
+        if pl.get("id") is not None:
+            if str(pl["id"]) in seen_ids:
+                continue                   # one id listed more than once: one entry, the first
+            seen_ids.add(str(pl["id"]))
+        kept.append(item)
+    name_n: dict = {}
+    id_names: set = set()
+    for item in kept:
+        nm = _norm(item["player"]["name"])
+        name_n[nm] = name_n.get(nm, 0) + 1
+        if item["player"].get("id") is not None:
+            id_names.add(nm)
+    out, noid_seen = [], set()
+    for item in kept:
+        nm = _norm(item["player"]["name"])
+        if item["player"].get("id") is None:
+            if nm in id_names or nm in noid_seen:
+                continue                   # an entry with an id has its name / no-id entries of one name: the first
+            noid_seen.add(nm)
+            out.append((item, True))       # resolved by name as today
+        else:
+            out.append((item, name_n[nm] == 1))
+    return out
 
 
 def _old_filter_drops(date_str: str | None, now: datetime) -> bool:
@@ -97,9 +152,9 @@ def audit_live(injuries: list[dict], roster: list[dict], now: datetime,
                          for rp in roster or []
                          if is_qb((rp.get("player") if isinstance(rp.get("player"), dict) else rp).get("position"))})
     items = []
-    for it in injuries or []:
+    for it, by_name in injury_entries(injuries):         # the read's own entries (addendum 47 item 3)
         pl = it.get("player") or {}
-        pos, how = resolve_position(pl, idx)
+        pos, how = resolve_position(pl, idx, by_name=by_name)
         old_pos = idx["by_id"].get(pl.get("id"))          # the pre-fix join: id only
         items.append({"name": pl.get("name"), "id": pl.get("id"), "status": it.get("status"),
                       "date": it.get("date"), "position": pos, "resolved_by": how,

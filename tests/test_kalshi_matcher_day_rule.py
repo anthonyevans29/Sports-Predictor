@@ -186,16 +186,81 @@ def test_one_each_a_derby_event_never_lands_on_a_game_of_one_of_its_teams():
 
 # --- clock tickers (MLB): the time gate as built, inside the one pair ---
 
-def test_an_mlb_clock_ticker_keeps_the_time_gate_and_prints_both_times():
+def test_an_mlb_clock_ticker_takes_the_game_on_its_own_date_and_prints_a_far_clock():
+    """Addendum 52 item 4: on a clock ticker with no game number, the ticker's own date is the gate. A kickoff 8h40
+    from the clock on the same date was refused by main's gate; it is now placed, with the line giving both times."""
     cin_sf = game(40041, "Cincinnati Reds", "San Francisco Giants", Z("2026-08-25T01:45"))
     mk = event("26AUG242145CINSF", [("CIN", "Cincinnati"), ("SF", "San Francisco")], series="KXMLBGAME",
                occ="2026-08-25T04:45:00Z")
     res = run(mk, [cin_sf], now=Z("2026-08-24T18:00"))
-    assert placed(res) == {(40041, "AWAY"): "CIN", (40041, "HOME"): "SF"}
-    moved = game(40042, "Cincinnati Reds", "San Francisco Giants", Z("2026-08-24T17:05"))   # 8h40 off
+    assert placed(res) == {(40041, "AWAY"): "CIN", (40041, "HOME"): "SF"} and not res.lines
+    moved = game(40042, "Cincinnati Reds", "San Francisco Giants", Z("2026-08-24T17:05"))   # 8h40 off, same date
     res = run(mk, [moved], now=Z("2026-08-24T12:00"))
-    assert not res.placed and res.refused == {km.TIME_GATE: 2}
-    assert any("2026-08-24 21:45 ET" in ln and "2026-08-24 13:05 ET" in ln for ln in res.lines), res.lines
+    assert placed(res) == {(40042, "AWAY"): "CIN", (40042, "HOME"): "SF"} and not res.refused
+    assert res.lines == ["  ! KXMLBGAME-26AUG242145CINSF: Kalshi's clock 2026-08-24 21:45 ET is 8.7h from our kickoff "
+                         "2026-08-24 13:05 ET (match 40042); the ticker's date gives the game"]
+
+
+# --- addendum 52: the NLCS game of 2026-10-12, on today's shapes ---
+
+LADMIL = event("26OCT122000LADMIL", [("MIL", "Milwaukee"), ("LAD", "Los Angeles D")], series="KXMLBGAME",
+               occ="2026-10-13T03:00:00Z")
+CLETB = event("26OCT122000CLETB", [("TB", "Tampa Bay"), ("CLE", "Cleveland")], series="KXMLBGAME",
+              occ="2026-10-13T03:00:00Z")
+
+
+def _nlcs():
+    today = game(50542, "Los Angeles Dodgers", "Milwaukee Brewers", Z("2026-10-12T21:00"))   # 5:00pm ET
+    last_night = game(50530, "Los Angeles Dodgers", "Milwaukee Brewers", Z("2026-10-12T00:00"))   # 8pm ET 10-11
+    last_night.status = "finished"
+    alcs = game(50543, "Cleveland Guardians", "Tampa Bay Rays", Z("2026-10-13T00:00"))          # 8:00pm ET
+    return today, last_night, alcs
+
+
+def test_the_nlcs_event_takes_the_game_on_its_date_though_the_clock_is_three_hours_off():
+    """KXMLBGAME-26OCT122000LADMIL: Kalshi's clock 8:00pm ET, occurrence the clock plus three hours, our first pitch
+    5:00pm ET. Main's gate wants 2h of the clock or 5h of occurrence (3h and 6h here) and matched nothing."""
+    today, last_night, alcs = _nlcs()
+    res = run(LADMIL, [last_night, today, alcs], now=Z("2026-10-12T20:27"))
+    assert placed(res) == {(50542, "HOME"): "MIL", (50542, "AWAY"): "LAD"}, res.refused   # Milwaukee at home
+    assert res.lines == ["  ! KXMLBGAME-26OCT122000LADMIL: Kalshi's clock 2026-10-12 20:00 ET is 3.0h from our "
+                         "kickoff 2026-10-12 17:00 ET (match 50542); the ticker's date gives the game"]
+
+
+def test_the_alcs_event_on_its_own_row_prints_no_line():
+    today, last_night, alcs = _nlcs()
+    res = run(CLETB, [last_night, today, alcs], now=Z("2026-10-12T20:27"))
+    assert placed(res) == {(50543, "HOME"): "TB", (50543, "AWAY"): "CLE"} and not res.lines and not res.refused
+
+
+def test_no_game_of_the_pair_on_the_date_refuses_and_places_nothing_on_the_days_either_side():
+    """The 21:00 row taken away, the pair's games of the day before and the day after beside it."""
+    _, last_night, _ = _nlcs()
+    tomorrow = game(50550, "Milwaukee Brewers", "Los Angeles Dodgers", Z("2026-10-14T00:00"))   # 8pm ET 10-13
+    res = run(LADMIL, [last_night, tomorrow], now=Z("2026-10-12T12:00"), hours=72)
+    assert not res.placed and res.refused == {km.NO_GAME_ON_DATE: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-26OCT122000LADMIL: ticker date 2026-10-12, clock 2026-10-12 20:00 ET; no game "
+                         "of the pair on that date; our kickoffs 50530 2026-10-11 20:00 ET; 50550 2026-10-13 20:00 ET: "
+                         "refused"]
+
+
+def test_two_games_of_the_pair_on_the_date_with_no_game_number_are_two_rows():
+    today, _, _ = _nlcs()
+    second = game(50599, "Los Angeles Dodgers", "Milwaukee Brewers", Z("2026-10-13T00:00"))   # 8pm ET, same date
+    res = run(LADMIL, [today, second], now=Z("2026-10-12T12:00"))
+    assert not res.placed and res.refused == {km.TWO_ROWS: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-26OCT122000LADMIL: 2 stored rows of one pair on 2026-10-12 (ids 50542, 50599): "
+                         "refused; dedupe-matches has to merge them"]
+
+
+def test_main_s_gate_matched_none_of_the_nlcs_markets():
+    """The receipt the ruling asks for: main's time gate (2h of the clock or 5h of occurrence) admits no game."""
+    from datetime import timedelta
+    today, last_night, alcs = _nlcs()
+    clock, occ = km.ticker_stamp(LADMIL[0])[1], km.occurrence(LADMIL[0])
+    admitted = [g.id for g in (today, last_night, alcs) if abs(g.utc_date - clock) <= timedelta(hours=2)
+                or abs(g.utc_date - occ) <= timedelta(hours=5)]
+    assert admitted == [50543]                       # only the ALCS game, which the names then refuse
 
 
 def test_an_mlb_doubleheader_takes_its_g1_g2_suffix_inside_the_pair():

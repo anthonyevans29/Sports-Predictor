@@ -20,6 +20,12 @@ the ticker carries a clock time, the time gate stays as built, inside the one pa
 ticker's own date (a placeholder and a second row) refuse the event under a reason of their own, naming the rows
 dedupe-matches has to merge.
 
+Addendum 52 item 4 (2026-10-12), replacing the day rule's last sentence above: "Where the ticker carries a clock time
+and no game number, the event's game is the one game of the pair whose stored kickoff, read in US Eastern, falls on
+the ticker's own date. Nothing else is read there: not the clock, not occurrence_datetime, not a day either side."
+An event with a game number (G1, G2) is admitted by its clock alone (addendum 51 item 3, lane #472).
+occurrence_datetime places nothing and refuses nothing on any series.
+
 Pure: no network, no database. place() takes the markets and the stored games (objects with id, utc_date (naive
 UTC), home_team.name, away_team.name, status) and returns the placements and the refusals by reason.
 
@@ -44,8 +50,7 @@ UTC = ZoneInfo("UTC")
 _MONTHS = ["JAN", "FEB", "MAR", "APR", "MAY", "JUN", "JUL", "AUG", "SEP", "OCT", "NOV", "DEC"]
 # the date stamp right after the series prefix: -26OCT10 (date only) or -26OCT012000 (date + ET clock time)
 _STAMP = re.compile(r"-(\d{2})(" + "|".join(_MONTHS) + r")(\d{2})(\d{4})?(?=[A-Z])")
-MAX_START_DRIFT = timedelta(hours=5)     # the time gate as built: occurrence vs our kickoff
-MAX_TICK_DRIFT = timedelta(hours=2)      # the time gate as built: the ticker's ET clock time vs our kickoff
+MAX_TICK_DRIFT = timedelta(hours=2)      # a numbered event's gate; elsewhere the threshold of the clock line
 
 # Refusal reasons (each counted; the console prints the counts by reason).
 NOT_GAMES = frozenset({"cancelled", "postponed", "stale_orphan"})   # addendum 50 6(c): rows that are not games
@@ -58,6 +63,7 @@ PAIR_TIE = "best fit shared by two pairs of teams"
 TWO_ROWS = "two stored rows of the pair on the ticker's date"
 DATE_TIE = "the date cannot separate two games of the pair"
 TIME_GATE = "the time gate passes no game of the pair"
+NO_GAME_ON_DATE = "no game of the pair on the ticker's date"
 TIME_TIE = "the time gate passes two games of the pair"
 OUTSIDE_WINDOW = "the pair's game is outside the run's window"
 SIDE_TIE = "the names cannot tell home from away"
@@ -250,14 +256,18 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
             refuse(live, PAIR_TIE)
             continue
         pair_games = sorted(top, key=lambda x: x[0].utc_date)
-        # inside the one pair: the day rule (date-only tickers) or the time gate as built (clock tickers)
+
+        def two_rows(own):
+            refuse(live, TWO_ROWS)
+            res.lines.append(f"  ✗ {ev}: {len(own)} stored rows of one pair on {day} (ids "
+                             f"{', '.join(str(g.id) for g, _ in own)}): refused; dedupe-matches has to merge them")
+        # Inside the one pair the gate chooses first (addendum 51 item 4, as addendum 52 item 4 reads it): "the day
+        # rule on a date-only ticker; on a clock ticker the ticker's own date, or the clock where the event carries a
+        # game number."
         if clock is None:
             own = [x for x in pair_games if et_day(x[0].utc_date) == day]
             if len(own) > 1:
-                refuse(live, TWO_ROWS)
-                res.lines.append(f"  ✗ {ev}: {len(own)} stored rows of one pair on {day} (ids "
-                                 f"{', '.join(str(g.id) for g, _ in own)}): refused; dedupe-matches has to merge "
-                                 f"them")
+                two_rows(own)
                 continue
             chosen = own or pair_games
             if len(chosen) != 1:
@@ -267,30 +277,48 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                                  f"cannot separate them, refused")
                 continue
         else:
-            # as built (M13, 2026-08-25): a game near either anchor, occurrence (5h) or the ticker's ET clock
-            # time (2h); with no occurrence the clock filter applies only when it finds a game
-            occ = occurrence(live[0])
-            near_tick = [x for x in pair_games if abs(x[0].utc_date - clock) <= MAX_TICK_DRIFT]
+            occ = occurrence(live[0])           # printed only: it places nothing and refuses nothing (addendum 52)
             mg = re.search(r"G(\d)$", ev or "") or re.search(r"G(\d)-", live[0].get("ticker") or "")
             if mg:
-                # a doubleheader's game (G1/G2): the ticker's own clock admits it, never the 5h occurrence window,
-                # so a G2 market is not placed on G1 when G2 is not stored (Codex on #461, P1); two games near the
-                # clock are told apart by the suffix, earlier/later
-                chosen = near_tick
+                # Addendum 51 item 3: "an event whose ticker carries a game number (G1, G2) is admitted by that clock
+                # alone: a game of the pair passes only when its stored kickoff is within two hours of it. [...] Where
+                # two games of the pair pass, G1 takes the earlier and G2 the later, as built." (lane #472)
+                chosen = [x for x in pair_games if abs(x[0].utc_date - clock) <= MAX_TICK_DRIFT]
                 if len(chosen) > 1 and 1 <= int(mg.group(1)) <= len(chosen):
                     chosen = [chosen[int(mg.group(1)) - 1]]
-            elif occ is not None:
-                chosen = [x for x in pair_games if x in near_tick or abs(x[0].utc_date - occ) <= MAX_START_DRIFT]
+                if not chosen:
+                    refuse(live, TIME_GATE)
+                    res.lines.append(f"  ✗ {ev}: time gate: Kalshi {et_text(clock)} (occurrence {et_text(occ)}); "
+                                     f"ours {'; '.join(f'{g.id} {et_text(g.utc_date)}' for g, _ in pair_games)}")
+                    continue
+                if len(chosen) != 1:
+                    refuse(live, TIME_TIE)
+                    continue
             else:
-                chosen = near_tick or pair_games
-            if not chosen:
-                refuse(live, TIME_GATE)
-                res.lines.append(f"  ✗ {ev}: time gate: Kalshi {et_text(clock)} (occurrence {et_text(occ)}); ours "
-                                 f"{'; '.join(f'{g.id} {et_text(g.utc_date)}' for g, _ in pair_games)}")
-                continue
-            if len(chosen) != 1:
-                refuse(live, TIME_TIE)
-                continue
+                # Addendum 52 item 4: "Where the ticker carries a clock time and no game number, the event's game is
+                # the one game of the pair whose stored kickoff, read in US Eastern, falls on the ticker's own date.
+                # Nothing else is read there: not the clock, not occurrence_datetime, not a day either side. Two
+                # games of the pair on that date refuse the event as two rows do on a date-only ticker, naming them.
+                # No game of the pair on that date refuses the event under a reason of its own, and its line prints
+                # the ticker's date and clock and our kickoffs of the pair in US Eastern. Where the date gives the
+                # game and the clock is more than two hours from its kickoff, a line says so with both times,
+                # whether or not the market is then placed."
+                own = [x for x in pair_games if et_day(x[0].utc_date) == day]
+                if len(own) > 1:
+                    two_rows(own)
+                    continue
+                if not own:
+                    refuse(live, NO_GAME_ON_DATE)
+                    res.lines.append(f"  ✗ {ev}: ticker date {day}, clock {et_text(clock)}; no game of the pair on "
+                                     f"that date; our kickoffs "
+                                     f"{'; '.join(f'{g.id} {et_text(g.utc_date)}' for g, _ in pair_games)}: refused")
+                    continue
+                chosen = own
+                g0 = own[0][0]
+                if abs(g0.utc_date - clock) > MAX_TICK_DRIFT:
+                    hours = abs(g0.utc_date - clock).total_seconds() / 3600
+                    res.lines.append(f"  ! {ev}: Kalshi's clock {et_text(clock)} is {hours:.1f}h from our kickoff "
+                                     f"{et_text(g0.utc_date)} (match {g0.id}); the ticker's date gives the game")
         g, home_name = chosen[0]
         if not (lo <= g.utc_date <= hi):
             refuse(live, OUTSIDE_WINDOW)

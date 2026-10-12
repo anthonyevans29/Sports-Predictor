@@ -33,9 +33,9 @@ Addendum 50 item 6(c), verbatim: "A row whose status is cancelled, postponed or 
 matcher: it takes no market and is not counted among the rows of a pair." A row that has started or finished stays a
 game: its markets are refused as in play, the true reason.
 
-Addendum 50 item 6(b): main takes this module, its tests and a read-only replay (src/ingestion/kalshi_replay.py,
-`cli.py kalshi-replay`) first and by itself; the two sync paths stay as they are until the switch PR, called on the
-replay's console.
+Addendum 50 item 6(b): main took this module, its tests and a read-only replay (src/ingestion/kalshi_replay.py,
+`cli.py kalshi-replay`) first and by itself. The switch PR, called on the replay's console, puts both sync paths on
+it (src/ingestion/kalshi_sync.py).
 """
 from __future__ import annotations
 
@@ -180,7 +180,7 @@ def occurrence(market: dict) -> datetime | None:
 class Result:
     placed: dict = field(default_factory=dict)        # (match_id, side) -> market
     refused: Counter = field(default_factory=Counter)  # reason -> markets refused for it
-    lines: list = field(default_factory=list)          # console lines (time-gate and date refusals, two rows)
+    lines: list = field(default_factory=list)          # console lines (gate and date refusals, two rows, a far clock)
     matched_events: int = 0
     why: dict = field(default_factory=dict)            # market ticker -> the reason it was refused
 
@@ -292,7 +292,11 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                                      f"ours {'; '.join(f'{g.id} {et_text(g.utc_date)}' for g, _ in pair_games)}")
                     continue
                 if len(chosen) != 1:
+                    # addendum 51 item 4: a time-tie refusal prints its line, as the two-row refusal does
                     refuse(live, TIME_TIE)
+                    res.lines.append(f"  ✗ {ev}: time gate passes {len(chosen)} games of the pair: Kalshi "
+                                     f"{et_text(clock)} (occurrence {et_text(occ)}); passed "
+                                     f"{'; '.join(f'{g.id} {et_text(g.utc_date)}' for g, _ in chosen)}: refused")
                     continue
             else:
                 # Addendum 52 item 4: "Where the ticker carries a clock time and no game number, the event's game is

@@ -60,12 +60,14 @@ def nfl_game():
 
 def test_sync_stores_quotes_and_exports_carry_exec_cost(nfl_game, monkeypatch, tmp_path):
     from src.ingestion import kalshi_sync
+    from src.ingestion.kalshi_match import et_day
     occ = nfl_game["kick"].strftime("%Y-%m-%dT%H:%M:%SZ")
+    ev = f"KXNFLGAME-{et_day(nfl_game['kick']):%y%b%d}".upper() + "OMEKAP"   # the switch: the ticker's date is the day
     markets = [
-        {"ticker": "K-H", "event_ticker": "EV1", "title": "Omega vs Kappa Winner?",
+        {"ticker": f"{ev}-KAP", "event_ticker": ev, "title": "Omega vs Kappa Winner?",
          "yes_sub_title": "Kappa", "occurrence_datetime": occ,
          "yes_bid_dollars": "0.53", "yes_ask_dollars": "0.55"},
-        {"ticker": "K-A", "event_ticker": "EV1", "title": "Omega vs Kappa Winner?",
+        {"ticker": f"{ev}-OME", "event_ticker": ev, "title": "Omega vs Kappa Winner?",
          "yes_sub_title": "Omega", "occurrence_datetime": occ,
          "yes_bid_dollars": "0.45", "yes_ask_dollars": "0.47"},
     ]

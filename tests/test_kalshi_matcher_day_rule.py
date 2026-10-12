@@ -184,7 +184,7 @@ def test_one_each_a_derby_event_never_lands_on_a_game_of_one_of_its_teams():
     assert placed(res) == {(40032, "HOME"): "MCI", (40032, "AWAY"): "MUN", (40032, "DRAW"): "TIE"}
 
 
-# --- clock tickers (MLB): the time gate as built, inside the one pair ---
+# --- clock tickers (MLB): the ticker's own date gives the game; a game number is admitted by its clock ---
 
 def test_an_mlb_clock_ticker_takes_the_game_on_its_own_date_and_prints_a_far_clock():
     """Addendum 52 item 4: on a clock ticker with no game number, the ticker's own date is the gate. A kickoff 8h40
@@ -371,7 +371,8 @@ def _main_leg(eng, mid, sel, ticker, at, market="ML"):
     with eng.begin() as c:
         c.execute(text("INSERT INTO odds_snapshots (match_id, market, selection, devig_prob, n_books, captured_at, "
                        "source, market_ticker) VALUES (:m, :mk, :s, 0.5, 1, :at, 'kalshi', :t)"),
-                  {"m": mid, "mk": market, "s": sel, "at": at, "t": ticker})
+                  {"m": mid, "mk": market, "s": sel, "t": ticker,
+                   "at": at.isoformat(" ", timespec="microseconds")})   # ISO text, as the ORM writes it
 
 
 def _payload(now, **series):
@@ -421,19 +422,12 @@ def test_fetch_keeps_the_markets_under_logs_and_reads_every_series(tmp_path, mon
     asked = []
     monkeypatch.setattr(KalshiAdapter, "open_markets_for_series", lambda self, s: asked.append(s) or KUUTAH)
     payload = kr.fetch(progress=lambda _: None)
-    assert asked[:4] == ["KXMLBGAME", "KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME"]
+    assert set(asked[:4]) == {"KXMLBGAME", "KXNFLGAME", "KXNHLGAME", "KXNCAAFGAME"}
     assert set(asked[4:]) == set(KalshiAdapter.SOCCER_GAME_SERIES.values())          # each soccer series resolved
     kept = tmp_path / payload["kept_at"]
     assert kept.parent == tmp_path / "logs" and json.loads(kept.read_text())["series"]["KXNCAAFGAME"]["markets"] == KUUTAH
     assert payload["series"]["KXEPLGAME"]["path"] == "soccer" and payload["series"]["KXEPLGAME"]["competition"] == "PL"
-
-
-def test_the_sync_paths_are_main_s_until_the_switch():
-    """Addendum 50 6(b): "the two sync paths stay as they are" in this PR."""
-    import inspect
-
-    from src.ingestion import kalshi_sync
-    assert "kalshi_match" not in inspect.getsource(kalshi_sync)
+    assert all(v.get("fetched_at") for v in payload["series"].values())           # each series stamped (#470 item 3)
 
 
 def test_the_command_replays_a_kept_file_read_only(scratch, tmp_path):
@@ -500,3 +494,126 @@ def test_the_replay_names_main_s_newest_legs_with_their_age_and_flags_an_old_cap
     assert round(r["main_age_h"], 1) == 24.2
     assert any("captured 2026-10-09T11:40:00 (24.2h before these markets were fetched)" in ln for ln in lines), lines
     assert any(ln.startswith("  ⚠ main's newest legs are 24.2h old") for ln in lines)
+
+
+# --- the switch (addendum 50 6(b)): both sync paths place with this module; what rides it (addendum 51 item 7) ---
+
+def test_both_sync_paths_place_with_the_one_module():
+    import inspect
+
+    from src.ingestion import kalshi_sync
+    src = inspect.getsource(kalshi_sync)
+    assert src.count("km.place(") == 2 and "MAX_START_DRIFT" not in src and "side_score" not in src
+
+
+def test_one_map_of_series_to_competition_for_the_syncs_and_the_replay():
+    """Addendum 51 item 7: the replay's series read venue.KALSHI_SERIES_BY_COMPETITION, as the syncs do."""
+    from src.adapters.kalshi import KalshiAdapter
+    from src.ingestion import kalshi_replay as kr
+    from src.ingestion.kalshi_sync import series_competition
+    from src.walters.venue import KALSHI_SERIES_BY_COMPETITION
+    assert kr.shared_series() == {"KXNFLGAME": "NFL", "KXNHLGAME": "NHL", "KXNCAAFGAME": "NCAA", "KXMLBGAME": "MLB"}
+    assert all(series_competition(s) == c for s, c in kr.shared_series().items())
+    assert series_competition(KalshiAdapter.GAME_SERIES[0]) == "MLB" and series_competition("KXNOSUCHGAME") is None
+    # a competition in both maps has one series
+    assert all(KalshiAdapter.SOCCER_GAME_SERIES[c] == s for c, s in KALSHI_SERIES_BY_COMPETITION.items()
+               if c in KalshiAdapter.SOCCER_GAME_SERIES)
+
+
+def _mlb_row(home, away, kick, status=None):
+    from src.db.database import init_db, session_scope
+    from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+    init_db()
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.code == "MLB")).scalar_one_or_none()
+        if comp is None:
+            comp = Competition(sport=Sport.MLB, code="MLB", name="MLB", area="USA", type="LEAGUE")
+            s.add(comp)
+        teams = []
+        for name in (home, away):
+            t = s.execute(select(Team).where(Team.name == name)).scalars().first()
+            if t is None:
+                t = Team(sport=Sport.MLB, name=name)
+                s.add(t)
+            teams.append(t)
+        s.flush()
+        m = Match(sport=Sport.MLB, competition_id=comp.id, season="2091", utc_date=kick,
+                  status=status or MatchStatus.SCHEDULED, home_team_id=teams[0].id, away_team_id=teams[1].id)
+        s.add(m)
+        s.flush()
+        return m.id
+
+
+def test_the_shared_sync_stores_what_the_module_places_and_prints_its_lines(monkeypatch):
+    """The NLCS shape on the sync path: the ticker's own date gives the game though the clock is 3h off; a cancelled
+    row of the pair on the date is not a game (6(c)); the far-clock line is printed on the sync's console."""
+    from src.adapters.kalshi import KalshiAdapter
+    from src.db.database import session_scope
+    from src.db.schema import MatchStatus, OddsSnapshot
+    from src.ingestion import kalshi_sync
+    mid = _mlb_row("Marrow Mudhens", "Quillfort Quokkas", Z("2091-10-12T21:00"))             # 5:00pm ET
+    gone = _mlb_row("Marrow Mudhens", "Quillfort Quokkas", Z("2091-10-12T23:00"), MatchStatus.CANCELLED)
+    mks = event("91OCT122000QQMM", [("MM", "Marrow"), ("QQ", "Quillfort")], series="KXMLBGAME",
+                occ="2091-10-13T03:00:00Z", bid="0.53", ask="0.55")
+    monkeypatch.setattr(KalshiAdapter, "status", lambda self: {"trading_active": True})
+    monkeypatch.setattr(KalshiAdapter, "sports_filters", lambda self: {})
+    monkeypatch.setattr(KalshiAdapter, "game_series_markets", lambda self: mks)
+    lines = []
+    r = kalshi_sync.sync_kalshi_mlb(date_from=Z("2091-10-11T00:00"), date_to=Z("2091-10-14T00:00"),
+                                    progress=lines.append)
+    assert r["ok"] and r["stored"] == 2 and r["matched"] == 2 and r["unmatched"] == 0 and r["refused"] == {}, r
+    assert "  refused: none" in lines
+    assert any(ln.startswith("  ! KXMLBGAME-91OCT122000QQMM: Kalshi's clock 2091-10-12 20:00 ET is 3.0h from our "
+                             f"kickoff 2091-10-12 17:00 ET (match {mid})") for ln in lines), lines
+    with session_scope() as s:
+        got = {o.selection: (o.devig_prob, o.market) for o in s.execute(select(OddsSnapshot).where(
+            OddsSnapshot.match_id.in_([mid, gone]), OddsSnapshot.source == "kalshi")).scalars()
+            if o.match_id == mid}
+        assert s.execute(select(OddsSnapshot).where(OddsSnapshot.match_id == gone)).first() is None
+    assert got == {"HOME": (0.54, "ML"), "AWAY": (0.54, "ML")}
+
+
+def test_the_shared_sync_refuses_a_series_with_no_competition(monkeypatch):
+    from src.adapters.kalshi import KalshiAdapter
+    from src.ingestion import kalshi_sync
+    monkeypatch.setattr(KalshiAdapter, "status", lambda self: {"trading_active": True})
+    monkeypatch.setattr(KalshiAdapter, "sports_filters", lambda self: {})
+    monkeypatch.setattr(KalshiAdapter, "open_markets_for_series", lambda self, s: KUUTAH)
+    r = kalshi_sync.sync_kalshi_mlb(series_override="KXNOSUCHGAME")
+    assert not r["ok"] and "no competition for KXNOSUCHGAME" in r["reason"]
+
+
+def test_a_time_tie_prints_the_clock_occurrence_and_each_game_that_passed():
+    """Addendum 51 item 4: a time-tie refusal prints its line, as the two-row refusal does."""
+    g1 = game(40061, "St. Louis Cardinals", "Chicago Cubs", Z("2026-09-12T17:05"))
+    g2 = game(40062, "St. Louis Cardinals", "Chicago Cubs", Z("2026-09-12T18:05"))
+    res = run(event("26SEP121305STLCHCG3", [("STL", "St. Louis"), ("CHC", "Chicago C")], series="KXMLBGAME",
+                    occ="2026-09-12T20:00:00Z"), [g1, g2], now=Z("2026-09-12T12:00"))
+    assert not res.placed and res.refused == {km.TIME_TIE: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-26SEP121305STLCHCG3: time gate passes 2 games of the pair: Kalshi "
+                         "2026-09-12 13:05 ET (occurrence 2026-09-12 16:00 ET); passed 40061 2026-09-12 13:05 ET; "
+                         "40062 2026-09-12 14:05 ET: refused"]
+
+
+def test_the_replay_reads_main_s_newest_legs_at_or_before_the_fetch(scratch):
+    """#470 item 2: a --from-file replay after a later sync compares with the capture before its fetch."""
+    from src.ingestion import kalshi_replay as kr
+    now = Z("2026-10-10T11:52")
+    ku = _seed(scratch, "NCAA", "Utah", "Kansas", Z("2026-10-11T02:15"))
+    _main_leg(scratch, ku, "AWAY", "KXNCAAFGAME-26OCT10KUUTAH-KU", Z("2026-10-10T11:40"))
+    _main_leg(scratch, ku, "HOME", "KXNCAAFGAME-26OCT10KUUTAH-UTAH", Z("2026-10-10T11:40"))
+    _main_leg(scratch, ku, "AWAY", "KXNCAAFGAME-26OCT10KUUTAH-KU", Z("2026-10-10T15:00"))   # a sync after the fetch
+    r = kr.replay(_payload(now, KXNCAAFGAME=KUUTAH), progress=lambda _: None)["KXNCAAFGAME"]
+    assert r["main_at"] == Z("2026-10-10T11:40") and r["main_legs"] == 2 and r["differ"] == []
+    assert round(r["main_age_h"], 1) == 0.2
+
+
+def test_the_replay_places_each_series_at_its_own_fetch_time(scratch):
+    """#470 item 3: a game that starts between the run's first fetch and this series' fetch is in play here."""
+    from src.ingestion import kalshi_replay as kr
+    _seed(scratch, "NCAA", "Kansas State", "Houston", Z("2026-10-10T19:30"))
+    p = _payload(Z("2026-10-10T19:20"), KXNCAAFGAME=HOUKSU)
+    assert kr.replay(p, progress=lambda _: None)["KXNCAAFGAME"]["placed"] == 2
+    p["series"]["KXNCAAFGAME"]["fetched_at"] = "2026-10-10T19:31:00"
+    r = kr.replay(p, progress=lambda _: None)["KXNCAAFGAME"]
+    assert r["placed"] == 0 and r["refused"] == {km.IN_PLAY: 2}

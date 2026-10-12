@@ -441,13 +441,15 @@ class APIAmericanFootballAdapter(DataAdapter):
         data = self._get("injuries", params={"team": team_source_id})
         out: list[dict] = []
         items = data.get("response") or []
-        # THE ENTRIES OF THE INJURIES READ (ARCHITECT 2026-10-12, addendum 47 item 3, #454; it replaces addendum 44 item
-        # 4's "a name the feed lists under two ids is ambiguous"): "In the injuries read an entry is told apart by its
-        # provider id. One id listed more than once is one entry, the first. Entries that share a name and differ in
-        # id are different players: each is kept, and each is resolved by its own id, from the roster and then by the
-        # lookup, never by a name. An entry with no id is resolved by name as today, and is kept only where no other
-        # entry has its name. A name the roster holds more than once resolves nobody by name." Names compare as the
-        # roster join does (qb_audit._norm).
+        # THE ENTRIES OF THE INJURIES READ (ARCHITECT 2026-10-12, addendum 47 item 3, #454, its fourth sentence as
+        # addendum 48 item 3 rewrote it; it replaces addendum 44 item 4's "a name the feed lists under two ids is
+        # ambiguous"):
+        # "In the injuries read an entry is told apart by its provider id. One id listed more than once is one entry,
+        # the first. Entries that share a name and differ in id are different players: each is kept, and each is
+        # resolved by its own id, from the roster and then by the lookup, never by a name. An entry with no id is
+        # resolved by name as today. It is not kept where an entry with an id has its name. Entries with no id that
+        # share a name are one entry, the first. A name the roster holds more than once resolves nobody by name."
+        # Names compare as the roster join does (qb_audit._norm).
         entries = injury_entries(items)    # qb_audit: the one place the entries are taken (the audit too)
         # THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): "A listed player whose position the roster
         # does not give is asked for by his provider id. The answer is kept, so a player is asked once and not at

@@ -248,8 +248,9 @@ def test_codex_4248901861_a_rate_limit_stops_the_lookups_for_the_rest_of_the_com
 # ================================== addendum 47 items 3 and 4: the entries of the injuries read (#454), group (#451) ==
 # "In the injuries read an entry is told apart by its provider id. One id listed more than once is one entry, the
 # first. Entries that share a name and differ in id are different players: each is kept, and each is resolved by its
-# own id, from the roster and then by the lookup, never by a name. An entry with no id is resolved by name as today,
-# and is kept only where no other entry has its name. A name the roster holds more than once resolves nobody by name."
+# own id, from the roster and then by the lookup, never by a name. An entry with no id is resolved by name as today.
+# It is not kept where an entry with an id has its name. Entries with no id that share a name are one entry, the
+# first. A name the roster holds more than once resolves nobody by name." (fourth sentence: addendum 48 item 3)
 # "A group is not a position. In the roster join, as in the lookup, only the position field resolves a player."
 
 def _rows(team_ids):
@@ -346,3 +347,13 @@ def test_codex_4250343097_the_live_qb_audit_takes_the_reads_entries():
            {"player": {"name": "John Smith"}, "status": "Out"}]                 # no id, shared name: not kept
     a = audit_live(inj, roster, datetime(2026, 10, 12))
     assert [(i["id"], i["position"]) for i in a["items"]] == [(2, None), (3, None)]   # never the roster QB by name
+
+
+def test_48_two_entries_with_no_id_and_one_name_are_one_entry_the_first_resolved_by_name(monkeypatch):
+    """Addendum 48 item 3 (the fourth sentence of addendum 47 item 3 as it now reads): "An entry with no id is
+    resolved by name as today. It is not kept where an entry with an id has its name. Entries with no id that share
+    a name are one entry, the first." A listed player never becomes nobody."""
+    d = Double({"PLU-0": [{"name": "Twin Name"}, {"name": "Twin Name"}], "PLU-1": []}, {},
+               roster={"PLU-0": [{"id": 501, "name": "Twin Name", "position": "QB"}]})
+    r, ts = _run(monkeypatch, "PLU", d, "--strict")
+    assert r.exit_code == 0 and _rows(ts) == [("Twin Name", "QB")] and d.calls["players_by_id"] == 0, r.output

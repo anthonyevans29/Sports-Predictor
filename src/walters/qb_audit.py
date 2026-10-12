@@ -94,14 +94,15 @@ def resolve_position(player: dict, idx: dict, by_name: bool = True) -> tuple[str
 
 
 def injury_entries(items: list[dict]) -> list[tuple[dict, bool]]:
-    """THE ENTRIES OF THE INJURIES READ (ARCHITECT 2026-10-12, addendum 47 item 3, #454): "In the injuries read an
-    entry is told apart by its provider id. One id listed more than once is one entry, the first. Entries that share
-    a name and differ in id are different players: each is kept, and each is resolved by its own id, from the roster
-    and then by the lookup, never by a name. An entry with no id is resolved by name as today, and is kept only where
-    no other entry has its name." The ONE place the adapter's read and the audit (audit_live) take the entries.
-    Returns [(item, by_name)]: by_name is False for an entry whose name another entry of the read has (names compared
-    by _norm), id-less ones included (Codex on #456), so it is resolved by its own id alone. Entries with no name are
-    skipped (no row to write)."""
+    """THE ENTRIES OF THE INJURIES READ (ARCHITECT 2026-10-12, addendum 47 item 3, #454, its fourth sentence as
+    addendum 48 item 3 rewrote it): "In the injuries read an entry is told apart by its provider id. One id listed
+    more than once is one entry, the first. Entries that share a name and differ in id are different players: each
+    is kept, and each is resolved by its own id, from the roster and then by the lookup, never by a name. An entry
+    with no id is resolved by name as today. It is not kept where an entry with an id has its name. Entries with no
+    id that share a name are one entry, the first." The ONE place the adapter's read and the audit (audit_live) take
+    the entries. Returns [(item, by_name)]: by_name is False for an entry with an id whose name any other entry of
+    the read has, one without an id included (thread 4250343104, confirmed by addendum 48 item 3), so it is resolved
+    by its own id alone. Names compare by _norm. Entries with no name are skipped (no row to write)."""
     kept, seen_ids = [], set()
     for item in items or []:
         pl = item.get("player") or {}
@@ -113,15 +114,22 @@ def injury_entries(items: list[dict]) -> list[tuple[dict, bool]]:
             seen_ids.add(str(pl["id"]))
         kept.append(item)
     name_n: dict = {}
+    id_names: set = set()
     for item in kept:
         nm = _norm(item["player"]["name"])
         name_n[nm] = name_n.get(nm, 0) + 1
-    out = []
+        if item["player"].get("id") is not None:
+            id_names.add(nm)
+    out, noid_seen = [], set()
     for item in kept:
-        shared = name_n[_norm(item["player"]["name"])] > 1
-        if item["player"].get("id") is None and shared:
-            continue                       # no id, and another entry has its name: not kept
-        out.append((item, not shared))
+        nm = _norm(item["player"]["name"])
+        if item["player"].get("id") is None:
+            if nm in id_names or nm in noid_seen:
+                continue                   # an entry with an id has its name / no-id entries of one name: the first
+            noid_seen.add(nm)
+            out.append((item, True))       # resolved by name as today
+        else:
+            out.append((item, name_n[nm] == 1))
     return out
 
 

@@ -196,3 +196,11 @@ def test_the_test_double_count_for_the_pr(monkeypatch, capsys):
     assert "asked by provider id 10 (answered a position 8, answered none 1, failed 1)" in line1
     assert "resolved by lookup 8" in line1 and "kept 9 new" in line1
     assert "ambiguous, not asked 1" in line1 and _kept(198, 199) == {}
+
+
+def test_a_strict_failure_prints_the_lookup_block_once_and_empty_answer_stays_last(monkeypatch):
+    d = Double({"PLI-0": [{"id": 71, "name": "Fails"}], "PLI-1": []}, {"71": "raise"})
+    r, _ = _run(monkeypatch, "PLI", d, "--strict")
+    lines = r.output.strip().splitlines()
+    assert r.exit_code == 1 and sum(x.startswith("POSITION-LOOKUP") for x in lines) == 1
+    assert lines[-1].startswith("EMPTY-ANSWER (PLI)")

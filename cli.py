@@ -774,11 +774,12 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
 EMPTY_ANSWER_MARK = "EMPTY-ANSWER"
 
 
-def _print_empty_answers(competition_code: str, result) -> None:
+def _print_empty_answers(competition_code: str, result, positions: bool = True) -> None:
     # AN EMPTY INJURY LIST IS UNREAD (ARCHITECT 2026-10-11, addendum 40 item 4): "The sync names every team whose
     # answer was empty, in its console and in the run's receipt, and --strict does not fail on it: the provider
     # answered." One plain line (never rich-wrapped), so a closing run's step tail carries it to the receipt.
-    _print_position_lookups(competition_code, result)          # before EMPTY-ANSWER, which stays the last line
+    if positions:                                              # before EMPTY-ANSWER, which stays the last line
+        _print_position_lookups(competition_code, result)
     teams = list(getattr(result, "empty_answers", None) or [])
     if teams:
         print(f"{EMPTY_ANSWER_MARK} ({competition_code}): {len(teams)} team(s) answered no injury entry, "
@@ -814,7 +815,7 @@ def _strict_injuries_fail(competition_code: str, failed_reads: list[str], result
         print(f"  ✗ {line}", flush=True)
     # addendum 40 item 4 (Codex on #434): the empty answers again as the LAST line, so a closing run's 5-line step
     # tail still carries them to the receipt however many reads failed
-    _print_empty_answers(competition_code, result)
+    _print_empty_answers(competition_code, result, positions=False)   # the lookup block was printed once already
     raise SystemExit(1)
 
 

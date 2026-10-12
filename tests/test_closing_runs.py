@@ -1444,14 +1444,18 @@ def test_a2_a_failed_nfl_roster_read_is_a_failed_read_under_strict_default_uncha
         return {"response": [{"player": {"id": 7, "name": "Q B"}, "status": "Out", "description": "knee"}]}
     monkeypatch.setattr(ad, "_get", fake_get)
     monkeypatch.setattr(cli, "_adapter_for_competition", lambda code: ad)
+    monkeypatch.setattr(cli, "POSITION_LOOKUP_COMPS", ("NFL", "RSTX"))   # RSTX stands for NFL (addendum 44 item 4)
     out = ad.list_injuries("RSTX-0", "2026")
     assert out[0]["player_position"] is None and ad.last_roster_failure == "roster fetch failed: ConnectionError"
     args = ["sync-injuries", "--competition", "RSTX", "--season", "2026", "--match-ids", str(ms[0])]
     ok = CliRunner().invoke(cli.cli, args)
     assert ok.exit_code == 0 and "STRICT" not in ok.output                          # default: unchanged
     bad = CliRunner().invoke(cli.cli, [*args, "--strict"])
-    assert bad.exit_code == 1 and "✗ STRICT: 2 injury read(s) failed (RSTX):" in bad.output, bad.output
+    # addendum 44 item 4: the roster gave no position, so each team's listed player is asked by id; that read fails
+    # too here (the fake's /players raises), and "under --strict a lookup that fails is a failed read": 2 + 2
+    assert bad.exit_code == 1 and "✗ STRICT: 4 injury read(s) failed (RSTX):" in bad.output, bad.output
     assert "roster fetch failed: ConnectionError (positions unresolved" in bad.output
+    assert "position lookup failed: Q B (player id 7): ConnectionError" in bad.output
     mode["roster"] = "empty"
     bad = CliRunner().invoke(cli.cli, [*args, "--strict"])
     assert bad.exit_code == 1 and "roster empty" in bad.output

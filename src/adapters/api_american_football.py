@@ -441,13 +441,35 @@ class APIAmericanFootballAdapter(DataAdapter):
         data = self._get("injuries", params={"team": team_source_id})
         out: list[dict] = []
         seen: set[str] = set()
-        for item in data.get("response") or []:
+        items = data.get("response") or []
+        # THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): "A listed player whose position the roster
+        # does not give is asked for by his provider id. The answer is kept, so a player is asked once and not at
+        # every read. [...] What the provider does not answer stays unresolved, counted and on the page as today.
+        # Under --strict a lookup that fails is a failed read; an answer that holds no position is not. A name the
+        # feed lists under two ids is ambiguous: not asked, counted and listed." (#440)
+        ids_by_name: dict = {}
+        for item in items:
+            pl = item.get("player") or {}
+            nm = (pl.get("name") or "").strip()
+            if nm and pl.get("id") is not None:
+                ids_by_name.setdefault(nm, set()).add(str(pl["id"]))
+        # The lookup is NFL's (addendum 44 item 4): it runs only when the caller turns it on for an NFL read
+        # (cli.py sync-injuries --competition NFL). NCAA, served by this adapter too, makes no lookup (Codex
+        # 4248625990: ~260 teams, uncapped).
+        lookups_on = bool(getattr(self, "look_up_positions", False))
+        known = getattr(self, "known_positions", None) or {}
+        look = {"asked": 0, "answered_position": 0, "answered_none": 0, "from_kept": 0, "failed": [],
+                "ambiguous": [], "new_answers": [], "resolved_by_lookup": [], "this_read": {}}
+        self.last_position_lookup = look
+        for item in items:
             player = item.get("player") or {}
             name = (player.get("name") or "").strip()
             if not name or name in seen:
                 continue
             seen.add(name)
             position, _how = resolve_position(player, idx)
+            if position is None and lookups_on:
+                position = self._look_up_position(player, name, ids_by_name.get(name) or set(), known, look)
             out.append({
                 "player_name": name,
                 "player_position": position,
@@ -458,6 +480,56 @@ class APIAmericanFootballAdapter(DataAdapter):
                 "current_status": True,
             })
         return out
+
+    def _look_up_position(self, player: dict, name: str, ids: set, known: dict, look: dict) -> str | None:
+        """The position lookup for one listed player whose position the roster did not give (addendum 44 item 4).
+        Only the answer's `position` field is taken (never `group`, never any other field). Returns the position or
+        None (unresolved). Mutates `look`: the counts, the failed and ambiguous names, the new answers to keep."""
+        pid = player.get("id")
+        if len(ids) > 1:                   # #440: one name under two ids: not asked, counted and listed
+            look["ambiguous"].append(f"{name} (ids {', '.join(sorted(ids))})")
+            return None
+        if pid is None:
+            return None                    # no id to ask with: unresolved, as today
+        pid = str(pid)
+        if pid in look["this_read"]:       # one id under two names in this read: one call (Codex 4248626014)
+            return look["this_read"][pid]
+        if pid in known:                   # a position kept from an earlier answer, not a second call
+            look["from_kept"] += 1
+            look["resolved_by_lookup"].append(name)
+            return known[pid]
+        if getattr(self, "_lookup_rate_limited", None):   # Codex on #448 (P1): no lookup after a rate limit
+            look["failed"].append(f"{name} (player id {pid}): not asked, rate limited earlier in this command "
+                                  f"(retry after {self._lookup_rate_limited:g}s)")
+            return None
+        look["asked"] += 1
+        look["this_read"][pid] = None
+        try:
+            ans = self._get("players", params={"id": pid})
+        except RateLimited as e:           # the quota is spent: stop asking for the rest of this command
+            self._lookup_rate_limited = float(e.retry_after or 60)
+            look["failed"].append(f"{name} (player id {pid}): RateLimited")
+            return None
+        except Exception as e:             # a lookup that fails: a failed read under --strict, nothing kept
+            look["failed"].append(f"{name} (player id {pid}): {type(e).__name__}")
+            return None
+        errs = ans.get("errors") if isinstance(ans, dict) else None
+        if errs:                           # the provider answered with errors: a failed lookup, nothing kept
+            look["failed"].append(f"{name} (player id {pid}): provider errors")
+            return None
+        objs = [r.get("player") if isinstance(r.get("player"), dict) else r
+                for r in (ans.get("response") or []) if isinstance(r, dict)]
+        pos = next((str(o["position"]).strip() for o in objs
+                    if str(o.get("id", pid)) == pid and isinstance(o.get("position"), str) and o["position"].strip()),
+                   None)
+        if pos:                            # addendum 46 item 2: "Only an answer that gives a position is kept."
+            look["new_answers"].append({"player_id": pid, "player_name": name, "position": pos})
+            look["answered_position"] += 1
+            look["resolved_by_lookup"].append(name)
+        else:                              # no position, an empty answer included: unresolved and counted; not a
+            look["answered_none"] += 1     # failed read, not kept, asked again at the next read (addendum 46 item 2)
+        look["this_read"][pid] = pos
+        return pos
 
     @property
     def requests_remaining(self) -> int | None:

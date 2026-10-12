@@ -75,8 +75,14 @@ def diff(adapter, competition_code: str, season: str | None, date_from: str | No
             eid = (m.external_ids or {}).get(source)
             if eid is not None:
                 ours[str(eid)] = m
-        team_src = {t.id: (t.external_ids or {}).get(source) for t in
-                    s.execute(select(Team).where(Team.sport == comp.sport)).scalars()}
+        from src.ingestion.team_merge import source_ids
+        team_src, team_ids = {}, {}
+        for t in s.execute(select(Team).where(Team.sport == comp.sport)).scalars():
+            team_src[t.id] = (t.external_ids or {}).get(source)
+            team_ids[t.id] = source_ids(t.external_ids, source)     # a merged row's every id (addendum 44 item 3)
+
+        def _src_for(tid, listed):
+            return str(listed) if str(listed) in team_ids.get(tid, ()) else str(team_src.get(tid))
         names = {t.id: t.name for t in s.execute(select(Team).where(Team.sport == comp.sport)).scalars()}
         seen = set()
         for nm in listing:
@@ -85,8 +91,8 @@ def diff(adapter, competition_code: str, season: str | None, date_from: str | No
                 rc["provider_only"] += 1
                 continue
             seen.add(str(nm.source_id))
-            row = classify_row({"home_src": str(team_src.get(m.home_team_id)),
-                                "away_src": str(team_src.get(m.away_team_id)),
+            row = classify_row({"home_src": _src_for(m.home_team_id, nm.home_team_source_id),
+                                "away_src": _src_for(m.away_team_id, nm.away_team_source_id),
                                 "home_score": m.home_score, "away_score": m.away_score,
                                 "utc_date": m.utc_date}, nm)
             rc["matched"] += 1

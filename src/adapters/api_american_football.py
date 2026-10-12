@@ -28,6 +28,8 @@ parse the numeric week into matchday where possible — the weekly cadence
 """
 from __future__ import annotations
 
+import html
+
 import logging
 import os
 import time
@@ -197,7 +199,8 @@ class APIAmericanFootballAdapter(DataAdapter):
         for item in data.get("response") or []:
             # response items are either flat team dicts or {"team": {...}}
             t = item.get("team") if isinstance(item.get("team"), dict) else item
-            tid, name = t.get("id"), t.get("name")
+            # #358 / addendum 44 item 3: the provider sends some names HTML-escaped ("Hawai&#x27;i")
+            tid, name = t.get("id"), html.unescape(t.get("name") or "")
             if tid is None or not name:
                 continue
             why = _non_competitive(team_names=(name,))
@@ -267,7 +270,8 @@ class APIAmericanFootballAdapter(DataAdapter):
                 continue
             week_raw = game.get("week")
             why = _non_competitive(week_raw, game.get("stage"),
-                                   team_names=(home.get("name"), away.get("name")))
+                                   team_names=(html.unescape(home.get("name") or ""),
+                                               html.unescape(away.get("name") or "")))
             if why:
                 print(f"  excluded non-competitive game: id={gid} {utc:%Y-%m-%d} "
                       f"{home.get('name')!r} v {away.get('name')!r} "

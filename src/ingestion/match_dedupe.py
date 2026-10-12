@@ -268,7 +268,10 @@ def _team_sids(s, source: str, team_ids) -> dict:
 
     from src.db.schema import Team
 
-    return {t.id: (t.external_ids or {}).get(source)
+    from src.ingestion.team_merge import source_ids
+
+    # every provider id a row answers to: a merged row holds more than one (addendum 44 item 3)
+    return {t.id: source_ids(t.external_ids, source)
             for t in s.execute(select(Team).where(Team.id.in_(set(team_ids)))).scalars()}
 
 
@@ -380,9 +383,10 @@ def orphans(competition_code: str, adapter, source: str = "api_american_football
                     err = f"{type(g).__name__}: {str(g)[:120]}"
                     continue
                 for nm in g:
-                    if nm.home_team_source_id == hs and nm.away_team_source_id == as_:
+                    h_, a_ = str(nm.home_team_source_id), str(nm.away_team_source_id)
+                    if hs and as_ and h_ in hs and a_ in as_:
                         found.append(nm)
-                    elif nm.home_team_source_id == as_ and nm.away_team_source_id == hs:
+                    elif hs and as_ and h_ in as_ and a_ in hs:
                         swapped.append(nm)
             return list({nm.source_id: nm for nm in found}.values()), swapped, err
 

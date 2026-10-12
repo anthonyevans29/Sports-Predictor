@@ -471,6 +471,72 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
     _dedupe_state_lines(r, source)
 
 
+
+@cli.command("merge-teams")
+@click.option("--apply", is_flag=True, help="MERGE the candidate pairs (default: dry run, writes nothing).")
+@click.option("--backup", "backup_path", default=None,
+              help="Required with --apply: a .backup file taken just before (integrity checked; its teams count "
+                   "must equal the live DB's), as dedupe-matches has it.")
+def merge_teams_cmd(apply, backup_path):
+    """ONE PROGRAM IS ONE TEAM ROW (ARCHITECT 2026-10-12, addendum 44 item 3; #426, #358). Two team rows are a
+    candidate pair only when their names are equal once unescaped and reduced to letters and digits without case,
+    their sport is the same, no stored game has the two playing each other, and no day holds a game of each.
+    --apply: the lower id keeps its row, every reference to the other is re-pointed, the other row's provider id is
+    recorded on it, and the emptied row is deleted. Anything else is listed and left; a unique-table conflict or a
+    reference the command does not know refuses the pair, naming the table. Nothing is applied before the
+    architect has read the dry run."""
+    import json as _json
+    import sqlite3
+
+    from src.db.schema import Team as _T
+    from src.ingestion import team_merge as tm
+    from src.timeutil import utc_now_naive
+
+    if not settings.database_url.startswith("sqlite:///"):
+        raise click.ClickException("merge-teams reads a SQLite database only")
+    if apply:
+        _verify_backup(backup_path, "teams", _T)
+    con = sqlite3.connect(settings.database_url.replace("sqlite:///", ""), isolation_level=None)
+    try:
+        p = tm.plan(con)
+        click.echo(f"MERGE-TEAMS · {'APPLY' if apply else 'DRY RUN (nothing written)'} · candidate pairs "
+                   f"{len(p['candidates'])} · listed and left {len(p['left'])}")
+        ent = p["entity_names"]
+        click.echo("  stored team names carrying an HTML entity, by sport: "
+                   + (", ".join(f"{sp} {len(v)}" for sp, v in sorted(ent.items())) or "none"))
+        for sp, v in sorted(ent.items()):
+            for tid, name in v:
+                click.echo(f"    {sp} team {tid} {name!r}")
+        click.echo(f"  references read from the live DB: {', '.join(p['refs'])}")
+        if p["unknown_refs"]:
+            click.echo(f"  columns the command does not know (a pair with rows there is refused): "
+                       f"{', '.join(p['unknown_refs'])}")
+
+        def row(r):
+            return (f"team {r['id']} {r['name']!r} external_ids {_json.dumps(r['ext'], sort_keys=True)} "
+                    f"· {r.get('games', 0)} game(s)")
+        for c in p["candidates"]:
+            click.echo(f"  [candidate] {c['sport']} {c['key']!r}: keeps {row(c['keep'])}")
+            click.echo(f"              merges {row(c['other'])}")
+            click.echo(f"              re-points {c['moves'] or 'nothing'}")
+        for x in p["left"]:
+            click.echo(f"  [left] {x['sport']} {x['key']!r}: {x['why']}")
+            for r in x["rows"]:
+                click.echo(f"         {row(r)}")
+        if not apply:
+            return
+        before = tm.counts(con)["teams"]
+        res = tm.apply(con, utc_now_naive().isoformat(timespec="seconds"))
+        after = tm.counts(con)["teams"]
+        for m in res["merged"]:
+            click.echo(f"  MERGED team {m['other']} into {m['keep']} · re-pointed {m['moves'] or 'nothing'} · "
+                       f"external_ids now {_json.dumps(m['external_ids'], sort_keys=True)}")
+        for x in res["refused"]:
+            click.echo(f"  REFUSED team {x['other']} into {x['keep']}: {x['why']}")
+        click.echo(f"  merged {len(res['merged'])} · refused {len(res['refused'])} · teams {before} -> {after}")
+    finally:
+        con.close()
+
 def _dedupe_state_lines(r, source):
     """ARCHITECT 2026-10-03: an apply that found nothing to merge printed "merged 0" on a table whose rows
     were already re-keyed in place — the summary reports the STATE, not only this run's delta."""

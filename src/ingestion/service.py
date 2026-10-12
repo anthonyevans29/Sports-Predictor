@@ -259,11 +259,17 @@ class IngestionService:
     ) -> Team | None:
         # JSON containment on SQLite is limited — fetch all teams of this sport and filter.
         # Fine for now (hundreds of teams); revisit if it gets slow.
+        # A merged row answers to every provider id recorded on it (addendum 44 item 3: "a listing carrying
+        # either id finds it"); its own id first, so an unmerged row is found exactly as before.
+        from src.ingestion.team_merge import source_ids
         stmt = select(Team).where(Team.sport == sport)
+        also = None
         for team in s.execute(stmt).scalars():
             if (team.external_ids or {}).get(source) == source_id:
                 return team
-        return None
+            if also is None and str(source_id) in source_ids(team.external_ids, source):
+                also = team
+        return also
 
     @staticmethod
     def _link_team_to_competition(

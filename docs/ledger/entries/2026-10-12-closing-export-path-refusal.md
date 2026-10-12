@@ -1,0 +1,4 @@
+**2026-10-12 — RULED + BUILT (ARCHITECT 2026-10-12 08:41 ET, addendum 44 item 8; #442, Codex's P2 on #433 after the cap): a closing run whose export path already exists does not start. PR #462.**
+- **Ruling (verbatim):** "A run whose export path already exists does not start: a receipted refusal before any step, as R4 and R5 are. Nothing a run kept is opened for writing a second time." The name stays the ruled one (`logs/<run_id>.<slate>`).
+- **Built:** closing.py checks the path under the lock, with the run's own start, before any step; R6's move never replaces a kept name. The dry run says it would refuse.
+- **Cause:** `run_id` has one-second resolution and the slate name depends on the family and date only, so two same-family runs entering in one UTC second shared a path, and the second's export step overwrote the first's kept export (its receipt's sha256 then named other bytes).

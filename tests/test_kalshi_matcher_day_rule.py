@@ -691,11 +691,14 @@ def test_a_game_inside_the_window_with_its_event_refused_alarms(monkeypatch, pat
     code = f"A54A{path[:2].upper()}"
     _a54_comp(code, sport)
     _a54_row(code, sport, f"Fox Fens {code}", f"Eel Elks {code}", Z("2026-10-14T23:00"))   # tomorrow, in the window
-    mks = event("26OCT14XYZ", [("X", "Xeno"), ("Y", "Yuma")], series=f"KX{code}GAME")      # names that fit no game
-    r, lines = _a54_sync(monkeypatch, path, code, mks)
-    assert r["ok"] and r["stored"] == 0 and r["refused"] == {km.NO_FIT: 2}, r
-    assert r["alarm"] and any(ln.startswith("  ⚠ MATCHED ZERO with 2 markets read and 1 unstarted game(s) of the "
-                                            "competition inside the run's window") for ln in lines), lines
+    own = event("26OCT14EEFF", [("EE", f"Eel Elks {code}"), ("FF", f"Fox Fens {code}")], series=f"KX{code}GAME",
+                bid=None, ask=None)                                                         # its own event, unpriced
+    unread = event("26OCT14XYZ", [("X", "Xeno"), ("Y", "Yuma")], series=f"KX{code}GAME")   # names read as no fit
+    for mks, refused in ((own, {km.NO_PRICE: 2}), (unread, {km.NO_FIT: 2})):
+        r, lines = _a54_sync(monkeypatch, path, code, mks)
+        assert r["ok"] and r["stored"] == 0 and r["refused"] == refused, r
+        assert r["alarm"] and any(ln.startswith("  ⚠ MATCHED ZERO with 2 markets read and 1 unstarted game(s) of the "
+                                                "competition inside the run's window") for ln in lines), lines
 
 
 @pytest.mark.parametrize("path,sport", [("shared", "NFL"), ("soccer", "SOCCER")])

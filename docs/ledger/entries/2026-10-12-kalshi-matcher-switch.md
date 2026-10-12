@@ -1,0 +1,15 @@
+**2026-10-12 — BUILT (ARCHITECT addendum 50 item 6(b), addendum 51 item 7, addendum 53 item 4): the Kalshi matcher switch. Both sync paths place with kalshi_match. PR #475. Not called before the architect has read the morning kalshi-replay console.**
+- **What:** sync_kalshi_mlb (MLB, NFL, NHL, NCAA) and sync_kalshi_soccer store what kalshi_match.place places, on the stored games of the series' own competition on the events' days, and print every refusal by reason. The replay loads its games the same way, so its console is the switched sync's.
+- **Riders (addendum 51 item 7):**
+  - #470 item 2: main's legs at or before the fetch.
+  - #470 item 3: a fetch time for each series.
+  - The time-tie line (item 4).
+  - One series-to-competition map (venue.KALSHI_SERIES_BY_COMPETITION).
+  - The replay tests' capture time as ISO text.
+  - #461's test count.
+- **The nit (addendum 53):** the heading over the clock-ticker tests is reworded.
+- **What the syncs now do differently:**
+  - A market with no date in its ticker is refused.
+  - The shared path reads the series' competition, not the sport. The NCAA sync passed sport=NFL.
+  - The soccer path reads rows of every status. A started game is refused as in play; a cancelled, postponed or stale-orphan row is not a game.
+- **Closes #470.**

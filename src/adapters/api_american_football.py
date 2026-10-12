@@ -488,11 +488,10 @@ class APIAmericanFootballAdapter(DataAdapter):
         if pid is None:
             return None                    # no id to ask with: unresolved, as today
         pid = str(pid)
-        if pid in known:                   # asked before: the kept answer, not a second call
+        if pid in known:                   # a position kept from an earlier answer, not a second call
             look["from_kept"] += 1
-            if known[pid]:
-                look["resolved_by_lookup"].append(name)
-            return known[pid] or None
+            look["resolved_by_lookup"].append(name)
+            return known[pid]
         look["asked"] += 1
         try:
             ans = self._get("players", params={"id": pid})
@@ -508,12 +507,12 @@ class APIAmericanFootballAdapter(DataAdapter):
         pos = next((str(o["position"]).strip() for o in objs
                     if str(o.get("id", pid)) == pid and isinstance(o.get("position"), str) and o["position"].strip()),
                    None)
-        look["new_answers"].append({"player_id": pid, "player_name": name, "position": pos})
-        if pos:
+        if pos:                            # addendum 46 item 2: "Only an answer that gives a position is kept."
+            look["new_answers"].append({"player_id": pid, "player_name": name, "position": pos})
             look["answered_position"] += 1
             look["resolved_by_lookup"].append(name)
-        else:                              # an answer with no position: unresolved, and not a failed read
-            look["answered_none"] += 1
+        else:                              # no position, an empty answer included: unresolved and counted; not a
+            look["answered_none"] += 1     # failed read, not kept, asked again at the next read (addendum 46 item 2)
         return pos
 
     @property

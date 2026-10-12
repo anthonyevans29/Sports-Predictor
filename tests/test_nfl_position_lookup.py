@@ -5,7 +5,10 @@ NFL adapter with its HTTP replaced (the test double):
 player is asked once and not at every read. A quarterback found that way is a quarterback for the rule like any
 other. What the provider does not answer stays unresolved, counted and on the page as today. Under --strict a lookup
 that fails is a failed read; an answer that holds no position is not. A name the feed lists under two ids is
-ambiguous: not asked, counted and listed." Only the position field is taken."""
+ambiguous: not asked, counted and listed." Only the position field is taken.
+Addendum 46 item 2 (RULED): "Only an answer that gives a position is kept. An answer that gives none, an empty answer
+included, leaves the player unresolved and counted. It is not a failed read, it is not kept, and he is asked again at
+the next read." """
 from datetime import timedelta
 
 import pytest
@@ -111,16 +114,22 @@ def test_asked_by_id_kept_and_a_quarterback_so_found_is_a_quarterback(monkeypatc
     assert "asked by provider id 0 " in r2.output and "from kept answers 2 · resolved by lookup 2" in r2.output
 
 
-def test_an_answer_without_a_position_is_unresolved_kept_and_not_a_failed_read(monkeypatch):
+def test_46_an_answer_without_a_position_is_unresolved_not_kept_and_asked_again(monkeypatch):
+    """Addendum 46 item 2: an answer with no position (an empty answer, or a group only) is counted, is not a failed
+    read, is NOT kept, and the player is asked again at the next read."""
     d = Double({"PLB-0": [{"id": 21, "name": "No Pos"}], "PLB-1": [{"id": 22, "name": "Group Only"}]},
                {"21": {"response": []}, "22": _ans(22, group="Defense")})      # nothing, and a group only
     r, ts = _run(monkeypatch, "PLB", d, "--strict")
     assert r.exit_code == 0 and "STRICT" not in r.output, r.output
     assert _stored(ts) == {"No Pos": None, "Group Only": None}               # only the position field is taken
-    assert _kept(21, 22) == {"21": None, "22": None}
-    assert "answered a position 0, answered none 2, failed 0" in r.output
+    assert _kept(21, 22) == {}                                               # nothing kept for them
+    assert "answered a position 0, answered none 2, failed 0" in r.output and "kept 0 new" in r.output
+    r2, _ = _run(monkeypatch, "PLB", d, "--strict")
+    assert r2.exit_code == 0 and d.calls["players_by_id"] == 4               # asked again at the second read
+    assert sorted(d.asked_ids) == ["21", "21", "22", "22"] and _kept(21, 22) == {}
+    d.answers["21"] = _ans(21, position="QB")                                # the provider answers later: kept then
     _run(monkeypatch, "PLB", d, "--strict")
-    assert d.calls["players_by_id"] == 2                                     # not asked again
+    assert _kept(21) == {"21": "QB"} and _stored(ts)["No Pos"] == "QB"
 
 
 @pytest.mark.parametrize("bad", ["raise", "errors"])
@@ -176,8 +185,9 @@ def test_the_roster_position_still_comes_first_no_lookup_when_it_answers(monkeyp
 
 def test_the_test_double_count_for_the_pr(monkeypatch, capsys):
     """The PR's receipt (addendum 44 item 4: "from a run on the test double, how many names resolve by lookup and the
-    calls made"): 12 listed names the roster does not give across two teams: 8 answer a position (2 QBs), 2 answer
-    none, 1 lookup fails, 1 name is listed under two ids. First read, then a second read of the same teams."""
+    calls made"): 12 listed names the roster does not give across two teams: 8 answer a position (2 QBs), 1 answers
+    empty, 1 lookup fails, 1 name is listed under two ids. First read, then a second read of the same teams. Addendum
+    46 item 2: "its second read asks the failed one and the empty one." """
     inj = {"PLH-0": [{"id": i, "name": f"P{i}"} for i in range(101, 107)]
            + [{"id": 199, "name": "Twice"}, {"id": 198, "name": "Twice"}],
            "PLH-1": [{"id": i, "name": f"P{i}"} for i in range(107, 111)]}
@@ -192,10 +202,13 @@ def test_the_test_double_count_for_the_pr(monkeypatch, capsys):
     line2 = next(x for x in r2.output.splitlines() if x.startswith("POSITION-LOOKUP"))
     print(f"\nTEST-DOUBLE RECEIPT: first read {first} /players?id= call(s): {line1}")
     print(f"TEST-DOUBLE RECEIPT: second read {second} call(s): {line2}")
-    assert first == 10 and second == 1                                       # the failed one only is asked again
+    assert first == 10 and second == 2                                       # the failed one and the empty one
+    assert sorted(d.asked_ids[first:]) == ["109", "110"]
     assert "asked by provider id 10 (answered a position 8, answered none 1, failed 1)" in line1
-    assert "resolved by lookup 8" in line1 and "kept 9 new" in line1
-    assert "ambiguous, not asked 1" in line1 and _kept(198, 199) == {}
+    assert "resolved by lookup 8" in line1 and "kept 8 new" in line1
+    assert "ambiguous, not asked 1" in line1 and _kept(198, 199, 109, 110) == {}
+    assert "asked by provider id 2 (answered a position 0, answered none 1, failed 1) · from kept answers 8 · " \
+           "resolved by lookup 8 · kept 0 new" in line2
 
 
 def test_a_strict_failure_prints_the_lookup_block_once_and_empty_answer_stays_last(monkeypatch):

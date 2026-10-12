@@ -2,7 +2,9 @@
 Migration (2026-10-12, ARCHITECT addendum 44 item 4, THE POSITION LOOKUP): creates player_position_answers, the kept
 answers of the provider's /players?id= for listed players whose position the roster does not give: "The answer is
 kept, so a player is asked once and not at every read." One row per (source, provider player id): the answer's
-position field verbatim, or NULL when it held none. Nothing else of an answer is stored.
+position field verbatim (NOT NULL). Addendum 46 item 2 (RULED): "Only an answer that gives a position is kept. An
+answer that gives none, an empty answer included, leaves the player unresolved and counted. It is not a failed read,
+it is not kept, and he is asked again at the next read." Nothing else of an answer is stored.
 
 Additive and idempotent: creates one table if missing; never deletes or rewrites. It touches no other table (nothing
 new is asked of the odds tables). Until it runs, sync-injuries still works (the 2026-10-04 convention: a pull or a
@@ -37,10 +39,9 @@ def main() -> int:
         print("+ Creating player_position_answers...")
         PlayerPositionAnswer.__table__.create(engine, checkfirst=True)
     with engine.connect() as conn:
-        n, pos, last = conn.execute(text(
-            "SELECT COUNT(*), COUNT(position), MAX(answered_at) FROM player_position_answers")).one()
-    print(f"\nplayer_position_answers: {n} answer(s) kept ({pos} with a position, {n - pos} with none); "
-          f"latest {last or '—'}")
+        n, last = conn.execute(text(
+            "SELECT COUNT(*), MAX(answered_at) FROM player_position_answers")).one()
+    print(f"\nplayer_position_answers: {n} position(s) kept; latest {last or '—'}")
     print("0 rows = no injury read since migrating (no backfill: the answers come from the next reads).")
     return 0
 

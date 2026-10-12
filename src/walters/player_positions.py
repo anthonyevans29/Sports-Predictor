@@ -2,7 +2,9 @@
 THE POSITION LOOKUP'S STORE (ARCHITECT 2026-10-12, addendum 44 item 4).
 
 "A listed player whose position the roster does not give is asked for by his provider id. The answer is kept, so a
-player is asked once and not at every read." The answers live in player_position_answers (src/db/schema.py
+player is asked once and not at every read." Addendum 46 item 2 (RULED): "Only an answer that gives a position is
+kept. An answer that gives none, an empty answer included, leaves the player unresolved and counted. It is not a
+failed read, it is not kept, and he is asked again at the next read." The answers live in player_position_answers (src/db/schema.py
 PlayerPositionAnswer), created by migrate_player_position_answers.py. Every read and write here is guarded by the
 table's existence, checked per call and never cached (as has_prediction_history): "a pull or a deploy before any
 migration keeps working". Before the migration nothing is read or kept, so the players are asked at every read.
@@ -27,21 +29,23 @@ def table_ready(conn) -> bool:
 
 
 def known_answers(session, source: str) -> dict:
-    """{provider player id (str): position or None} for every answer kept from `source`; {} before the migration."""
+    """{provider player id (str): position} for every answer kept from `source`; {} before the migration."""
     from src.db.schema import PlayerPositionAnswer
     if not table_ready(session.connection()):
         return {}
     session.flush()                  # the session does not autoflush: an answer kept earlier in this run is read too
     rows = session.execute(select(PlayerPositionAnswer.player_id, PlayerPositionAnswer.position).where(
-        PlayerPositionAnswer.source == source)).all()
+        PlayerPositionAnswer.source == source, PlayerPositionAnswer.position.is_not(None))).all()
     return {str(pid): pos for pid, pos in rows}
 
 
 def keep_answers(session, source: str, answers: list[dict]) -> int:
-    """Store new answers [{player_id, player_name, position}] (position None = answered with no position). An id
-    already kept is left as it is. Returns how many were written; 0, with a warning, before the migration."""
+    """Store new answers [{player_id, player_name, position}] that give a position (addendum 46 item 2: an answer
+    without one is never kept). An id already kept is left as it is. Returns how many were written; 0, with a
+    warning, before the migration."""
     from src.db.schema import PlayerPositionAnswer
     from src.timeutil import utc_now_naive
+    answers = [a for a in answers if a.get("position")]
     if not answers:
         return 0
     if not table_ready(session.connection()):

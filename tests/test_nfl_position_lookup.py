@@ -80,6 +80,8 @@ def _run(monkeypatch, code, double, *extra):
     ad = APIAmericanFootballAdapter()
     monkeypatch.setattr(ad, "_get", double.get)
     monkeypatch.setattr(cli, "_adapter_for_competition", lambda c: ad)
+    if not getattr(double, "ncaa", False):          # the scratch codes stand for NFL (cli.POSITION_LOOKUP_COMPS)
+        monkeypatch.setattr(cli, "POSITION_LOOKUP_COMPS", ("NFL", code))
     r = CliRunner().invoke(cli.cli, ["sync-injuries", "--competition", code, "--season", "2026",
                                      "--match-ids", str(mid), *extra])
     return r, ts
@@ -217,3 +219,27 @@ def test_a_strict_failure_prints_the_lookup_block_once_and_empty_answer_stays_la
     lines = r.output.strip().splitlines()
     assert r.exit_code == 1 and sum(x.startswith("POSITION-LOOKUP") for x in lines) == 1
     assert lines[-1].startswith("EMPTY-ANSWER (PLI)")
+
+
+def test_codex_4248625990_ncaa_makes_no_lookup():
+    """Codex 4248625990: NCAA is served by the same adapter; the lookup is NFL's (addendum 44 item 4), so an NCAA
+    read asks no /players?id= and keeps nothing."""
+    import cli
+    assert cli.POSITION_LOOKUP_COMPS == ("NFL",)
+
+
+def test_codex_4248625990_a_read_outside_the_lookup_comps_asks_nothing(monkeypatch):
+    d = Double({"PLJ-0": [{"id": 81, "name": "College Qb"}], "PLJ-1": []}, {"81": _ans(81, position="QB")})
+    d.ncaa = True
+    r, ts = _run(monkeypatch, "PLJ", d, "--strict")
+    assert r.exit_code == 0 and d.calls["players_by_id"] == 0 and _stored(ts) == {"College Qb": None}
+    assert "POSITION-LOOKUP" not in r.output and _kept(81) == {}
+
+
+def test_codex_4248626014_one_id_under_two_names_is_asked_once_in_a_read(monkeypatch):
+    d = Double({"PLK-0": [{"id": 91, "name": "J. Doe"}, {"id": 91, "name": "John Doe"}], "PLK-1": []},
+               {"91": {"response": []}})
+    r, ts = _run(monkeypatch, "PLK", d, "--strict")
+    assert r.exit_code == 0 and d.calls["players_by_id"] == 1, r.output
+    assert "asked by provider id 1 (answered a position 0, answered none 1, failed 0)" in r.output
+    assert _stored(ts) == {"J. Doe": None, "John Doe": None}

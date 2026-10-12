@@ -727,6 +727,8 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
     if named is not None and within_h is not None:
         raise click.UsageError("--match-ids and --kickoff-within-hours are two scopes: give one")
     adapter = _adapter_for_competition(competition_code)
+    # THE POSITION LOOKUP is NFL's (addendum 44 item 4); NCAA shares the adapter and makes none (Codex 4248625990)
+    adapter.look_up_positions = competition_code.upper() in POSITION_LOOKUP_COMPS
     service = IngestionService(adapter)
     if named is not None:
         with session_scope() as s:
@@ -786,6 +788,7 @@ def _print_empty_answers(competition_code: str, result, positions: bool = True) 
               f"stored empty (read as unread): {'; '.join(teams)}", flush=True)
 
 
+POSITION_LOOKUP_COMPS = ("NFL",)   # addendum 44 item 4: the lookup is NFL's; NCAA shares the adapter, none
 POSITION_LOOKUP_MARK = "POSITION-LOOKUP"
 
 

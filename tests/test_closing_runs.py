@@ -1424,6 +1424,7 @@ def test_a2_a_failed_nfl_roster_read_is_a_failed_read_under_strict_default_uncha
         return {"response": [{"player": {"id": 7, "name": "Q B"}, "status": "Out", "description": "knee"}]}
     monkeypatch.setattr(ad, "_get", fake_get)
     monkeypatch.setattr(cli, "_adapter_for_competition", lambda code: ad)
+    monkeypatch.setattr(cli, "POSITION_LOOKUP_COMPS", ("NFL", "RSTX"))   # RSTX stands for NFL (addendum 44 item 4)
     out = ad.list_injuries("RSTX-0", "2026")
     assert out[0]["player_position"] is None and ad.last_roster_failure == "roster fetch failed: ConnectionError"
     args = ["sync-injuries", "--competition", "RSTX", "--season", "2026", "--match-ids", str(ms[0])]

@@ -453,9 +453,13 @@ class APIAmericanFootballAdapter(DataAdapter):
             nm = (pl.get("name") or "").strip()
             if nm and pl.get("id") is not None:
                 ids_by_name.setdefault(nm, set()).add(str(pl["id"]))
+        # The lookup is NFL's (addendum 44 item 4): it runs only when the caller turns it on for an NFL read
+        # (cli.py sync-injuries --competition NFL). NCAA, served by this adapter too, makes no lookup (Codex
+        # 4248625990: ~260 teams, uncapped).
+        lookups_on = bool(getattr(self, "look_up_positions", False))
         known = getattr(self, "known_positions", None) or {}
         look = {"asked": 0, "answered_position": 0, "answered_none": 0, "from_kept": 0, "failed": [],
-                "ambiguous": [], "new_answers": [], "resolved_by_lookup": []}
+                "ambiguous": [], "new_answers": [], "resolved_by_lookup": [], "this_read": {}}
         self.last_position_lookup = look
         for item in items:
             player = item.get("player") or {}
@@ -464,7 +468,7 @@ class APIAmericanFootballAdapter(DataAdapter):
                 continue
             seen.add(name)
             position, _how = resolve_position(player, idx)
-            if position is None:
+            if position is None and lookups_on:
                 position = self._look_up_position(player, name, ids_by_name.get(name) or set(), known, look)
             out.append({
                 "player_name": name,
@@ -488,11 +492,14 @@ class APIAmericanFootballAdapter(DataAdapter):
         if pid is None:
             return None                    # no id to ask with: unresolved, as today
         pid = str(pid)
+        if pid in look["this_read"]:       # one id under two names in this read: one call (Codex 4248626014)
+            return look["this_read"][pid]
         if pid in known:                   # a position kept from an earlier answer, not a second call
             look["from_kept"] += 1
             look["resolved_by_lookup"].append(name)
             return known[pid]
         look["asked"] += 1
+        look["this_read"][pid] = None
         try:
             ans = self._get("players", params={"id": pid})
         except Exception as e:             # a lookup that fails: a failed read under --strict, nothing kept
@@ -513,6 +520,7 @@ class APIAmericanFootballAdapter(DataAdapter):
             look["resolved_by_lookup"].append(name)
         else:                              # no position, an empty answer included: unresolved and counted; not a
             look["answered_none"] += 1     # failed read, not kept, asked again at the next read (addendum 46 item 2)
+        look["this_read"][pid] = pos
         return pos
 
     @property

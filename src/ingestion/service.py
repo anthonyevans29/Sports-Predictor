@@ -904,7 +904,7 @@ class IngestionService:
             result.skipped += 1
             result.failed_reads.append(f"team {team.id} ({team.name}): no {self.source} id, no read made")
             return
-        lookup_ready = hasattr(self.adapter, "_look_up_position")       # addendum 44 item 4 (the NFL adapter)
+        lookup_ready = bool(getattr(self.adapter, "look_up_positions", False))   # addendum 44 item 4 (NFL reads)
         if lookup_ready:
             from src.walters.player_positions import known_answers
             self.adapter.known_positions = known_answers(s, self.source)

@@ -310,7 +310,9 @@ def env_changes_by_pack(pack: Path, host_env: dict) -> dict:
     checkout's: in the pack and not in the checkout's .env, in the checkout's .env and not in the pack, or in both
     with different values. A setting host.env carries is left out, since host.env wins. The list refuses nothing by
     itself." Names only; values are compared, never returned."""
-    packed = c.parse_env_file(pack / sp_migrate.ENV) if (pack / sp_migrate.ENV).is_file() else {}
+    if not (pack / sp_migrate.ENV).is_file():  # no env in the pack: install leaves the checkout's .env (Codex on #457)
+        return {"pack_only": [], "checkout_only": [], "differ": []}
+    packed = c.parse_env_file(pack / sp_migrate.ENV)
     cur_p = c.REPO / ".env"
     current = c.parse_env_file(cur_p) if cur_p.is_file() else {}
     keep = lambda k: k not in host_env

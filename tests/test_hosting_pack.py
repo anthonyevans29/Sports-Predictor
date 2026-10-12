@@ -3066,3 +3066,20 @@ def test_47_7b_the_closing_watch_failure_page_goes_out_at_most_once_in_thirty_mi
     for _ in range(2):
         sp_notify.main(["failure", "window"])
     assert len(sent) == 3
+
+
+def test_codex_4250381656_an_undelivered_failure_page_holds_nothing_back(sandbox, monkeypatch):
+    """Codex on #457 (P1): a failure page ntfy did not accept (or no topic) did not go out; the next failure pages."""
+    import sp_notify
+    monkeypatch.setattr(sp_notify, "journal_tail", lambda unit, n=30: [])
+    sent = []
+    ok = {"v": False}
+    monkeypatch.setattr(sp_notify, "deliver", lambda kind, title, body, extra=None, **k: sent.append(ok["v"]) or
+                        c.append_receipt({"kind": kind, "title": title, "delivered": ok["v"], **(extra or {})}))
+    sp_notify.main(["failure", "closing-watch"])
+    sp_notify.main(["failure", "closing-watch"])                     # the first was not delivered: tries again
+    assert sent == [False, False]
+    ok["v"] = True
+    sp_notify.main(["failure", "closing-watch"])
+    sp_notify.main(["failure", "closing-watch"])                     # now one went out: held back
+    assert sent == [False, False, True] and receipts(sandbox)[-1]["page_held_back"] is True

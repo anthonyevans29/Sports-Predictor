@@ -48,7 +48,8 @@ THROTTLE_MIN = 30
 
 def held_behind(unit: str, now=None) -> dict | None:
     """For a throttled unit: the failure page that went out for it within the last THROTTLE_MIN minutes (a receipt
-    of kind failure for the unit, not itself held back), as {"ts", "title"}; else None (the page goes out)."""
+    of kind failure for the unit, not itself held back, and delivered: a page ntfy did not accept, or with no topic,
+    did not go out, so the next failure tries again), as {"ts", "title"}; else None (the page goes out)."""
     import json
     from datetime import timedelta
     if unit not in THROTTLED_UNITS:
@@ -64,7 +65,8 @@ def held_behind(unit: str, now=None) -> dict | None:
             r = json.loads(line)
         except json.JSONDecodeError:
             continue
-        if r.get("kind") == "failure" and r.get("unit") == unit and not r.get("page_held_back"):
+        if (r.get("kind") == "failure" and r.get("unit") == unit and not r.get("page_held_back")
+                and r.get("delivered") is True):   # Codex on #457: a page that was not delivered did not go out
             last = r
     if not last:
         return None

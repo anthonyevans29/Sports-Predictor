@@ -351,3 +351,14 @@ def test_47_7c_preflight_prints_the_settings_the_pack_changes_by_name_never_by_v
     assert r["exit"] == 0 and r["mirror_role"] == "host"
     assert r["env_changes"] == {"pack_only": [], "checkout_only": ["NTFY_TOPIC"], "differ": ["DATABASE_URL"]}
     assert "host-secret-topic" not in world["real_receipts"].read_text()
+
+
+def test_codex_4250381661_a_pack_without_an_env_changes_no_setting(tmp_path, monkeypatch):
+    """Codex on #457: install leaves the checkout's .env when the pack has none, so nothing is listed."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".env").write_text("NTFY_TOPIC=x\nDATABASE_URL=sqlite:///./data/sports.db\n")
+    monkeypatch.setattr(c, "REPO", repo)
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    assert sp_cutover.env_changes_by_pack(pack, {}) == {"pack_only": [], "checkout_only": [], "differ": []}

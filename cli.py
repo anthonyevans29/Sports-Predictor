@@ -5606,7 +5606,7 @@ def sync_kalshi_ncaa_cmd():
                       f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
                       f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
     else:
-        console.print(f"[red]✗ Kalshi NCAA: {r.get('error')}[/red]")
+        console.print(f"[red]✗ Kalshi NCAA: {r.get('reason') or r.get('error')}[/red]")
 
 
 @cli.command("sync-kalshi-nhl")
@@ -5627,7 +5627,7 @@ def sync_kalshi_nhl_cmd():
                       f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
                       f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
     else:
-        console.print(f"[red]✗ Kalshi NHL: {r.get('error')}[/red]")
+        console.print(f"[red]✗ Kalshi NHL: {r.get('reason') or r.get('error')}[/red]")
 
 
 @cli.command("sync-kalshi-nfl")

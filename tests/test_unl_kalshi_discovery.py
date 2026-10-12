@@ -70,11 +70,13 @@ def test_unl_legs_are_stored_as_a_three_way_set(monkeypatch):
         s.flush()
         mid = m.id
     occ = (ko + timedelta(hours=2)).isoformat() + "Z"
-    legs = [{"ticker": "KXUEFANLGAME-X-ZED", "event_ticker": "EV1", "yes_sub_title": "Zedlandia",
+    from src.ingestion.kalshi_match import et_day                 # the event's date, read in US Eastern
+    ev = "KXUEFANLGAME-" + et_day(ko).strftime("%y%b%d").upper() + "ZEDQOR"
+    legs = [{"ticker": ev + "-ZED", "event_ticker": ev, "yes_sub_title": "Zedlandia",
              "yes_bid_dollars": "0.44", "yes_ask_dollars": "0.46", "occurrence_datetime": occ},
-            {"ticker": "KXUEFANLGAME-X-QOR", "event_ticker": "EV1", "yes_sub_title": "Qorvania",
+            {"ticker": ev + "-QOR", "event_ticker": ev, "yes_sub_title": "Qorvania",
              "yes_bid_dollars": "0.29", "yes_ask_dollars": "0.31", "occurrence_datetime": occ},
-            {"ticker": "KXUEFANLGAME-X-TIE", "event_ticker": "EV1", "yes_sub_title": "Tie",
+            {"ticker": ev + "-TIE", "event_ticker": ev, "yes_sub_title": "Tie",
              "yes_bid_dollars": "0.25", "yes_ask_dollars": "0.27", "occurrence_datetime": occ}]
     asked = []
 

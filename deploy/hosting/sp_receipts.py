@@ -48,6 +48,19 @@ def key_line(r: dict) -> str:
     if k == "boot":
         return (f"boot {(r.get('boot_id') or '')[:8]} {r.get('release') or 'release ?'} kernel {r.get('kernel')} "
                 f"{r.get('reason') or ''}")
+    if k == "closing":                # addendum 45 (#408): the closing line's key line
+        head = f"{r.get('family')} {r.get('start')}"
+        if r.get("refused"):
+            return f"{head} refused: {r['refused']}"
+        if r.get("superseded"):
+            return f"{head} superseded ({r.get('why')})"
+        if r.get("failed"):
+            return f"{head} attempt {r.get('attempt')} FAILED: {r['failed']}"
+        push = r.get("push") or {}
+        return (f"{head} attempt {r.get('attempt')} paged {len(r.get('covers') or [])} game(s); push exit "
+                f"{push.get('exit')}" + (" FAILED" if r.get("push_failed") else ""))
+    if k == "closing_miss":
+        return f"{r.get('family')} {r.get('start')} MISSED: {r.get('reason')}"
     if k == "deploy":
         return (f"{r.get('from_release') or r.get('from_sha')} -> {r.get('to_release') or r.get('to_sha')}"
                 f" ({r.get('to_sha')})")
@@ -90,6 +103,14 @@ def backup_sha(r: dict) -> str:
     return sha if isinstance(sha, str) else ""
 
 
+def duration(r: dict):
+    """The dur s column. Writers differ (addendum 45, #408: "closing writes `seconds`, the table reads `duration_s`";
+    the side that changes was left to the build): the chain and step receipts write `duration_s`, the closing receipt
+    `seconds`. The table reads both; no receipt changes shape."""
+    v = r.get("duration_s")
+    return r.get("seconds", "") if v is None else v
+
+
 def table(rs: list[dict]) -> str:
     rs = sorted(rs, key=lambda r: (not failed(r), r["ts"]))
     lines = ["| time (UTC) | host | what | exit | dur s | key line | backup sha |",
@@ -100,10 +121,12 @@ def table(rs: list[dict]) -> str:
             what = f"{r.get('run_id', '').split('-', 1)[-1]} #{r.get('step')}"
         elif r.get("kind") in ("backup", "page", "failure", "boot", "deploy"):
             what = r["kind"] + (f":{r['backup_kind']}" if r.get("backup_kind") else "")
+        elif r.get("kind") in ("closing", "closing_miss"):
+            what = f"{r['kind']}:{r.get('family')}"
         b = backup_sha(r)
         ex = "—" if r.get("exit") is None else str(r.get("exit"))
         lines.append(f"| {r['ts'][5:16].replace('T', ' ')} | {r.get('host')} | {what} | "
-                     f"{'**' + ex + '**' if failed(r) else ex} | {r.get('duration_s', '')} | "
+                     f"{'**' + ex + '**' if failed(r) else ex} | {duration(r)} | "
                      f"{key_line(r).replace('|', '/')} | {b[:12]} |")
     return "\n".join(lines)
 

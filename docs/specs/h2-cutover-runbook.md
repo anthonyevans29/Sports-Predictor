@@ -31,9 +31,31 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
     `H2 DRY RUN: PASS`.
   - It never touches `data/`, the real DB, `.env`, host.env or systemd.
     It refuses a work dir under `data/` (law 5).
-- **Open prerequisite (hosting-h1.md H2 step 7):** the H2-era decision on
-  how MLB reaches the host after cutover (statsapi ASN block). Settle it
-  before the cutover; cutover must not strand MLB.
+- **MLB after the flip (RULED 2026-10-12, addendum 45 item 4; it no longer holds the cutover):** "MLB stays a
+  laptop duty to the season's last game. After the flip the laptop's database is written by the MLB chains, the
+  MLB capture jobs and the MLB watch, and by nothing else, and it is the record for MLB predictions and for
+  nothing else. How MLB reaches the host is decided before Opening Day 2027; it no longer holds the cutover."
+  The 2027 decision is Issue #97. The steps are section 1 step 7.
+- **The laptop's role setting (addendum 45 P1), before the pull that carries it:** the laptop's `.env` holds
+  `SP_EXPORTS_MIRROR_ROLE=laptop` (host.env holds `host`). A closing run on a machine without it, or with
+  anything but `host` or `laptop`, is refused before any step, and the setup script's preflight says so.
+- **The host closing-watch rehearsal (ARCHITECT 2026-10-12, addendum 45 P8):** "One rehearsal before the cutover
+  day, on my word, and not before the tag that carries P1 is on the host: a single closing-run by hand on the
+  host, as sp, for one NFL or PL start time that the laptop's watch has already paged. Its page is a second page
+  for that start, and the operator acts on the laptop's. I read its receipt and its duration before I rule the
+  cutover." TERMINAL (host), only on that word, with that start time:
+  ```
+  sudo -u sp venv/bin/python cli.py closing-run --family NFL --start <ISO UTC start the laptop paged>
+  sudo -u sp venv/bin/python deploy/hosting/sp_receipts.py --since 2h   # the closing line: exit, dur s, key line
+  ```
+  **A closing run started by hand on a machine that is not the writer of record is unguarded:** nothing in the
+  code stops it, and nothing tells it the other machine already paged (each machine reads only its own
+  receipts). P8's run is such a run, which is why its page is a second page and the laptop's is the one acted
+  on. The page ends `machine: host`.
+- **No timer moves (addendum 45 P6):** "In twelve days no chain held the lock, or waited for it, longer than seven
+  minutes, and the watch allows thirty. A closing run meets the hourly chain only where its T-35 falls between
+  five and twelve past the hour, a kickoff at about a quarter to, and then it waits for it. The units with no run
+  in the read are read once they have run; they do not hold the enable."
 - **Readiness readout (#85, ARCHITECT lane 2 2026-10-04).** TERMINAL (host),
   read-only:
   ```
@@ -170,11 +192,53 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    on both machines (`rm -rf`; it holds a DB copy and `.env`). Keep
    `host.env.pre-cutover-<ts>`; it holds no secrets and is the flag's
    rollback point.
+5b. **TERMINAL (host): the host's closing watch (ARCHITECT 2026-10-12, addendum 45 P4; #405, #408 items 2 and 3).**
+   "The runbook's host step, in this order: preflight for the two families, one test page as sp, the dry run,
+   then install-push with the role host. Only when all four pass: install, daemon-reload, enable, and the line in
+   timers.enabled. Their output is console evidence, pasted by the operator; nothing new writes a receipt."
+   ```
+   cd /opt/sports-predictor
+   sudo -u sp venv/bin/python deploy/hosting/closing.py preflight --family NFL --family SOCCER
+   sudo -u sp venv/bin/python deploy/hosting/closing.py test-page --family NFL --family SOCCER
+   sudo -u sp venv/bin/python deploy/hosting/closing.py watch --family NFL --family SOCCER --dry-run
+   sudo -u sp venv/bin/python deploy/hosting/closing.py install-push
+   ```
+   - Pass: preflight prints `✓ preflight: ... (NFL, SOCCER; role host)`; the phone shows the test page
+     "Test: the closing watch is installed (NFL, SOCCER). Pages arrive here by T-30." ending `machine: host`
+     (the console says `accepted by ntfy`); the dry run lists the NFL and SOCCER start times; the install push
+     prints `install push (exports mirror, host, label install): exit 0`.
+   - Any one not passing: stop here; nothing is installed or enabled. Paste the consoles to the architect.
+   - Only when all four pass:
+     ```
+     sudo install -m 0644 deploy/hosting/systemd/sp-closing-watch.service deploy/hosting/systemd/sp-closing-watch.timer /etc/systemd/system/
+     sudo systemctl daemon-reload
+     sudo systemctl enable --now sp-closing-watch.timer
+     echo sp-closing-watch.timer | sudo tee -a /etc/sports-predictor/timers.enabled
+     systemctl list-timers sp-closing-watch.timer --no-pager   # next elapse within the minute
+     ```
+   - The unit runs `closing.py watch --family NFL --family SOCCER` (P2: by name, never bare), every minute of
+     every hour (P3: H0-3's one exemption, by name), bounded at 45 minutes. A failed run, a miss or a lock wait
+     that ran out leaves exit 3 and a refusal exit 2: both already receipted and notified, both success to the
+     unit. Its failure path (`sp-notify@closing-watch`) is for what the process could not report (#408 item 1).
+     A reboot ends the tick that is running; the next tick retries (#408 item 4).
+   - **"was" restarts on the host.** The host's first page computes each game's last call from the host's
+     receipts and the host's `exports/` only; it does not use what the laptop last paged. The first host page
+     for a game the laptop paged before the flip can lack its `was`, or show one from the file the pack carried.
 6. **Fresh-fingerprint compare** (section 2), after the host's first chain.
 7. **TERMINAL (laptop)** (H2 step 7): keep the last `.backup` file cold for
-   30 days (the rollback point). The laptop's `data/sports.db` is not
-   written again. The CLV launchd jobs and the closing watch stay uninstalled. What the laptop's watch covers
-   after the flip is the #405 ruling, and no cutover ruling comes before that one (addendum 41 item 5).
+   30 days (the rollback point). **MLB after the flip (ARCHITECT 2026-10-12, addendum 45 item 4 and P5):** the
+   laptop's database is written by the MLB chains, the MLB capture jobs and the MLB watch, and by nothing else,
+   and it is the record for MLB predictions and for nothing else. "After the flip the laptop's watch covers MLB and
+   nothing else, and only while an MLB game remains in the season: it is installed again, for MLB, once the host's
+   timer is enabled and its first tick has been read." So, once step 5b's timer is enabled and its first tick read
+   (`journalctl -u sp-closing-watch -n 20 --no-pager`), and only while an MLB game remains in the season:
+   ```
+   bash scripts/setup_clv_capture.sh                          # the CLV capture jobs: capture-odds --sport mlb only
+   bash scripts/setup_closing_watch.sh --family MLB           # the closing watch for MLB and nothing else
+   python cli.py closing-watch --family MLB --dry-run         # receipt: MLB start times only
+   ```
+   The setup script's consoles name MLB only (its preflight, its test page, its plist and its closing words).
+   With no MLB game left in the season, nothing is reinstalled.
 
 ## 2. Fresh-fingerprint compare
 
@@ -206,6 +270,7 @@ the paste):
 | code-version skew (guarded) | the comparator prints `code-version skew: laptop <sha> ≠ host <sha>` | only when both files carry `git_sha` and the line is printed; `NOT claimable` otherwise |
 | WAIVER W1 | see below | ruled waiver |
 | WAIVER W2 | see below | RATIFIED for MLB only (2026-10-01) |
+| MLB laptop duty (addendum 45) | after the flip, an MLB prediction file on the laptop only | ARCHITECT 2026-10-12, addendum 45 item 4: the laptop is the record for MLB predictions to the season's last game |
 
 **Not allowed:** model probabilities that differ on a matched row with no
 new input on the host side (results, injuries, lineups). The host now
@@ -314,7 +379,7 @@ The laptop's 30-day cold `.backup` stays the last-resort rollback point.
   set the laptop's `.env` to `SP_WRITER_OF_RECORD=host` by hand**, so both
   sides agree.
 - **RESOLVED 2026-10-01 — W2** is ratified for MLB only (see section 2).
-- **MLB after cutover:** MLB predictions are a laptop duty (PHASE B
-  negative). After cutover, MLB prediction files appear as
-  `only on laptop` until the H2-era MLB decision lands. That is not a
-  waiver; it is that open decision.
+- **RESOLVED 2026-10-12 — MLB after cutover** (addendum 45 item 4): MLB stays a laptop duty to the season's last
+  game. After the flip, MLB prediction files appear as `only on laptop`, named in the paste as
+  "MLB laptop duty (addendum 45)" (section 2). How MLB reaches the host is decided before Opening Day 2027
+  (Issue #97); it no longer holds the cutover.

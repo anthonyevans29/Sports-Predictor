@@ -80,6 +80,14 @@ set by `SP_IMPROVE_HOLD_ON_PASS=1`, which the chain template sets.
 **H0-3 reboot window.** No timer fires between 04:15 and 05:15 UTC. CI
 checks this for both DST states. Unattended-upgrades reboots at 04:30, and
 every boot writes a receipt.
+- **The one exemption, by name (ARCHITECT 2026-10-12, addendum 45 P3):**
+  `sp-closing-watch.timer`, every minute of every hour. "H0-3's buffer is
+  for chains that write on a schedule. A tick with no start due reads the
+  stored schedule and ends, so this one timer is exempt from the buffer by
+  name [...] and no start time is ever without a tick." A reboot ends the
+  tick that is running; the next tick retries (#408 item 4). Every other
+  timer stays outside 04:15-05:15 UTC, CI-checked
+  (tests/test_hosting_pack.py `H0_3_EXEMPT`, `test_closing_watch_timer_form`).
 
 **Locking.** Chains serialize on one flock. A timer that fires while another
 chain holds the lock waits; it is not skipped.
@@ -713,12 +721,17 @@ TIMERS="sp-backup.timer sp-backup-prune.timer sp-soccer-friday.timer sp-soccer-s
   sp-nhl-daily.timer sp-weekly-fullseason.timer sp-ncaa-market.timer sp-window.timer
   sp-mlb-history.timer sp-intl-daily.timer sp-exports-squash.timer sp-ncaa-schedule.timer"
 MLB_LAPTOP_ONLY="sp-mlb-morning.timer sp-mlb-preslate.timer sp-clv-capture.timer"   # NOT enabled: statsapi 406 on the DO ASN (H1b note)
+HELD_FOR_CUTOVER="sp-closing-watch.timer"   # NOT enabled: shipped and held for the cutover ruling (addendum 45 P3, C7)
 echo $TIMERS | sudo tee /etc/sports-predictor/timers.enabled   # the list H2 steps 2 and 6 reuse
 systemctl enable --now sp-boot-receipt.service sp-web.service
 systemctl enable --now $TIMERS
 systemctl list-timers 'sp-*' --no-pager     # receipt: next-elapse for each
 ```
-- Every shipped timer is on `TIMERS` or `MLB_LAPTOP_ONLY`; CI checks it.
+- Every shipped timer is on `TIMERS`, `MLB_LAPTOP_ONLY` or `HELD_FOR_CUTOVER`; CI checks it.
+- `HELD_FOR_CUTOVER` (ARCHITECT 2026-10-12, addendum 45 P3: "A third list in the T11 test names the units that
+  are shipped and held for the cutover ruling"): `sp-closing-watch.timer`. C7 stands: the cutover ruling decides
+  when it runs. Its step is h2-cutover-runbook.md section 1 step 5b; install.sh copies the unit and enables
+  nothing, and no deploy enables it.
 - `TIMERS` includes the soccer model-bearing timers (B4, seeded registry)
   and `sp-ncaa-market.timer` (H0-11).
 - The MLB timers stay off. They are shipped and CI-validated, ready for
@@ -912,12 +925,13 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
    - Run `systemctl start $(cat /etc/sports-predictor/timers.enabled)`.
    - Run `systemctl start sp-backup.service` and paste its receipt.
 7. The laptop keeps its last `.backup` file cold for 30 days (the rollback
-   point). Its `data/sports.db` is not written again.
-   - **H2-era decision, deliberately deferred:** how MLB reaches the host
-     DB after cutover, given the statsapi ASN block (H1b note). Options
-     named: a Tailscale exit node via the Mac, or a residential egress.
-     Settle it before this step. Until then MLB stays on the laptop, and
-     cutover must not strand it.
+   point). **MLB after the flip (ARCHITECT 2026-10-12, addendum 45 item 4, RULED):** "MLB stays a laptop duty to
+   the season's last game. After the flip the laptop's database is written by the MLB chains, the MLB capture
+   jobs and the MLB watch, and by nothing else, and it is the record for MLB predictions and for nothing else.
+   How MLB reaches the host is decided before Opening Day 2027; it no longer holds the cutover." The steps are
+   h2-cutover-runbook.md section 1 step 7: once the host's closing-watch timer is enabled and its first tick has
+   been read, the laptop reinstalls the CLV capture jobs (MLB only) and the closing watch with `--family MLB`;
+   with no MLB game left in the season, nothing is reinstalled. The 2027 decision is Issue #97.
 
 **Rollback** uses the same protocol in reverse:
 1. Stop the host timers.
@@ -1012,7 +1026,7 @@ sqlite3 -readonly "$f" "PRAGMA integrity_check;"; sha256sum "$f"; cat "$f.sha256
 |---|---|
 | H0-1 | US-East required. DO NYC 2vCPU/4GB (about $24) default; Hetzner US CPX acceptable. Verify live price at purchase (P1). |
 | H0-2 | $30/mo ceiling all-in, including off-host backup storage. |
-| H0-3 | Auto-reboot allowed at 04:30 UTC. Every timer sits outside 04:15 to 05:15 (CI-checked). Boots are receipted. |
+| H0-3 | Auto-reboot allowed at 04:30 UTC. Every timer sits outside 04:15 to 05:15 (CI-checked). Boots are receipted. Amended 2026-10-12 (addendum 45 P3) for one timer, by name: `sp-closing-watch.timer` ticks every minute of every hour (a tick with no start due reads the stored schedule and ends); every other timer stays outside 04:15-05:15 UTC, CI-checked. |
 | H0-4 | SSH tunnel (H1). tailscale-serve is an H3 question. |
 | H0-5 | improve unattended with a hard guard: PASS is HELD and pages; `ratify-candidate` is the only promotion path on the host. |
 | H0-6 | soccer-refresh is operator-started. No timer; `sp-chain@soccer-refresh` refuses without `--operator`. |

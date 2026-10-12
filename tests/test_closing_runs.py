@@ -32,6 +32,7 @@ NOW = datetime(2026, 10, 11, 16, 25, tzinfo=timezone.utc)          # Sunday 12:2
 DAY = "2026-10-11"
 REAL_NOTIFY = mc.notify                                            # before any fixture replaces it
 REAL_PAGE = mc.page_phone
+REAL_PUSH = mc.push_mirror
 HOLD = "paste to the architect before placing"
 TOPIC = "sp-card-topic-scratch-7f3k"                               # a scratch value: never printed, never paged
 COMPS = {"MLB": 1, "NFL": 2, "PL": 3}
@@ -214,9 +215,11 @@ def box(tmp_path, monkeypatch):
     monkeypatch.setattr(c, "REPO", repo)
     monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
     monkeypatch.setattr(c, "_DOTENV_CACHE", None)
-    for k in ("SP_SKIP_FAMILIES", "NTFY_TOPIC", "NTFY_CARD_TOPIC", "NTFY_SERVER", "SP_EXPORTS_MIRROR_REMOTE"):
+    for k in ("SP_SKIP_FAMILIES", "NTFY_TOPIC", "NTFY_CARD_TOPIC", "NTFY_SERVER", "SP_EXPORTS_MIRROR_REMOTE",
+              "SP_EXPORTS_MIRROR_ROLE"):
         monkeypatch.delenv(k, raising=False)
     monkeypatch.setenv("SP_EXPORTS_MIRROR_REMOTE", "git@example.invalid:scratch/exports.git")   # M1 (push faked)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "laptop")                                     # P1 (addendum 45)
     monkeypatch.setenv("NTFY_CARD_TOPIC", TOPIC)                                                # C6 (page faked)
     monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "logs" / "receipts.jsonl"))
     monkeypatch.setenv("SP_LOCK", str(tmp_path / "logs" / "db.lock"))
@@ -295,6 +298,9 @@ def box(tmp_path, monkeypatch):
     monkeypatch.setattr(socket, "create_connection", no_net)
     monkeypatch.setattr(socket.socket, "connect", no_net)
     return b
+
+
+MACHINE = "machine: laptop"      # addendum 45: every closing page ends naming the machine by role
 
 
 def lock_free() -> bool:
@@ -525,11 +531,11 @@ def test_c2_at_most_three_attempts_and_none_inside_t5(box):
         mc.watch(now=NOW + timedelta(minutes=i), families=("MLB",))
     att = runs("MLB")
     assert [r["attempt"] for r in att] == [1, 2, 3] and all(r["exit"] == 1 for r in att)
-    assert box.notes[2].endswith("attempt 3/3 · no further attempt will run for this first pitch")
+    assert box.notes[2].endswith("attempt 3/3 · no further attempt will run for this first pitch\nmachine: laptop")   # addendum 45
     # SOCCER: its start time first seen inside T-5 (the laptop slept): no attempt, a miss, notified once
     box.fail_cmd.clear()
-    for m in (31, 32):
-        assert mc.watch(now=NOW + timedelta(minutes=m), families=("SOCCER",)) == 0
+    for m in (31, 32):                # addendum 45 P3: a miss is receipted and notified, its own status
+        assert mc.watch(now=NOW + timedelta(minutes=m), families=("SOCCER",)) == mc.NOTIFIED
     assert {x["match_id"] for r in runs("SOCCER") for x in r["covers"]} == {403}     # 401/402: no attempt
     miss = [r for r in receipts() if r["kind"] == "closing_miss" and r["family"] == "SOCCER"]
     assert len(miss) == 1 and miss[0]["reason"].startswith("inside T-5") and miss[0]["start"] == at(35)
@@ -594,7 +600,7 @@ def test_c4_refusals_lock_push_and_failed_run_notice_for_every_family(box, monke
     assert mc.run(fam, start=at(35), now=NOW) == 2 and runs(fam)[-1]["refused"] == f"SP_SKIP_FAMILIES names {fam} here"
     monkeypatch.delenv("SP_SKIP_FAMILIES")
     box.fail_cmd["predict-nfl" if fam == "NFL" else "predict"] = (1, ["boom"])
-    assert mc.run(fam, start=at(35), trigger="watch", now=NOW) == 1
+    assert mc.run(fam, start=at(35), trigger="watch", now=NOW) == mc.NOTIFIED
     r = runs(fam)[-1]
     assert r["failed"].startswith("step ") and call_pages(box) == [] and box.pushes == []
     assert box.notes[-1].startswith(f"Closing {fam} 2026-10-11 13:00 ET: FAILED: step ") and "attempt 1/3" in box.notes[-1]
@@ -624,7 +630,7 @@ def test_c5_the_page_format(box, capsys):
         "  shadow, not staked",
         "Newark Visitors @ Newark · quarantine shadow Newark 0.5u · edge +20.0pp · exec +18.2pp",
         "  shadow, not staked",
-        "PASS: 3 games"]
+        "PASS: 3 games", MACHINE]
     order = box.docs["NFL"]["predictions"][0]["desk"]["order"]["text"]
     assert order in pg["body"]                                                       # as the export prints it
     assert box.notes[-1] == pg["body"]                                               # the screen: the same page
@@ -639,7 +645,7 @@ def test_c5_mlb_page_hold_wrap_and_no_play_is_default_priority(box):
                         "× 5")
     assert lines[2] == f"  exec +2.2pp · {HOLD}"                                    # wrapped, never cut
     assert lines[3].startswith("Clearwater Visitors @ Clearwater · PLAY Clearwater 1u · BUY YES KXMLBGAME-26OCT11-CLEH")
-    assert lines[-1] == "PASS: 2 games" and box.pages[-1]["priority"] == "high"
+    assert lines[-2:] == ["PASS: 2 games", MACHINE] and box.pages[-1]["priority"] == "high"
     assert "Kalshiburg" not in box.pages[-1]["body"]          # the kalshi-only hold is a record, never a pick
     assert mc.run("SOCCER", start=at(35), now=NOW) == 0
     assert box.pages[-1]["body"].splitlines()[1].startswith("Arsenal Visitors @ Arsenal · PLAY Arsenal 0.5u · BUY YES")
@@ -648,10 +654,10 @@ def test_c5_mlb_page_hold_wrap_and_no_play_is_default_priority(box):
         p["desk"]["call"] = "PASS"
     assert mc.run("SOCCER", start=at(35), now=NOW + timedelta(minutes=1)) == 0
     # B3: Arsenal was a PLAY in the last file (the run above); now PASS: its own line, high priority
-    assert box.pages[-1]["priority"] == "high" and box.pages[-1]["body"].splitlines()[-2:] == [
-        "Arsenal Visitors @ Arsenal · PASS · was PLAY Arsenal 0.5u", "PASS: 2 games"]
+    assert box.pages[-1]["priority"] == "high" and box.pages[-1]["body"].splitlines()[-3:] == [
+        "Arsenal Visitors @ Arsenal · PASS · was PLAY Arsenal 0.5u", "PASS: 2 games", MACHINE]
     assert mc.run("SOCCER", start=at(35), now=NOW + timedelta(minutes=2)) == 0     # last call now PASS: no line
-    assert box.pages[-1]["priority"] == "default" and box.pages[-1]["body"].splitlines()[1:] == ["PASS: 2 games"]
+    assert box.pages[-1]["priority"] == "default" and box.pages[-1]["body"].splitlines()[1:] == ["PASS: 2 games", MACHINE]
 
 
 def test_c5_wrap_never_exceeds_100_and_keeps_the_ending():
@@ -678,7 +684,7 @@ def test_c6_no_card_topic_refuses_before_the_first_step_and_never_prints_a_value
 
 def test_c6_a_page_ntfy_does_not_accept_fails_the_run_and_the_watch_retries(box):
     box.page_ok = False
-    assert mc.watch(now=NOW, families=("NFL",)) == 1
+    assert mc.watch(now=NOW, families=("NFL",)) == mc.NOTIFIED
     r = runs()[-1]
     assert r["failed"] == "page" and r["page"]["phone"] == {"accepted": False, "http": 400}
     assert r["page"]["tries"] == 3 and box.sleeps == [10, 10]                      # B2: three tries, 10s apart
@@ -710,13 +716,17 @@ def test_c6_the_real_page_posts_to_the_card_topic_and_records_no_topic(monkeypat
 
 # ================================================================================================ C7 where ==
 
-def test_c7_one_launchd_watch_for_the_three_families_and_no_host_timer():
+def test_c7_one_launchd_watch_and_the_host_units_shipped_held():
+    """C7 stands (addendum 45): the laptop has one launchd job (its families in the plist since P5); the host's
+    closing units exist only as sp-closing-watch.service + .timer, shipped and held (P3): no other unit names a
+    closing, and the timer is on T11's HELD_FOR_CUTOVER list, never on TIMERS (tests/test_hosting_pack.py)."""
     sh = (ROOT / "scripts" / "setup_closing_watch.sh").read_text()
-    assert "INTERVAL_S=60" in sh and "<string>closing-watch</string>" in sh and "--family" not in sh.split(
+    assert "INTERVAL_S=60" in sh and "<string>closing-watch</string>" in sh and "${PLIST_FAMILIES}" in sh.split(
         "<array>")[1].split("</array>")[0]
     assert not (ROOT / "scripts" / "setup_mlb_closing_watch.sh").exists()
-    units = " ".join(p.read_text() for p in (HOSTING / "systemd").glob("*"))
-    assert "closing-run" not in units and "closing-watch" not in units and "-closing" not in units   # C7
+    named = sorted(p.name for p in (HOSTING / "systemd").glob("*")
+                   if any(w in p.read_text() for w in ("closing-run", "closing-watch", "closing.py")))
+    assert named == ["sp-closing-watch.service", "sp-closing-watch.timer"]                  # C7 / P3
 
 
 # =============================================================================================== C8 policy ==
@@ -763,7 +773,7 @@ def test_380_1_stale_starters_are_a_failed_attempt_retried_and_a_missing_starter
     not stale [...] On the page that game says so, on a line of its own under its call." A failed attempt, not a
     refusal."""
     box.stale_sides = {(102, "away")}
-    assert mc.watch(now=NOW, families=("MLB",)) == 1
+    assert mc.watch(now=NOW, families=("MLB",)) == mc.NOTIFIED
     r = runs()[-1]
     assert r["failed"] == "stale starters" and "refused" not in r and r["attempt"] == 1
     assert r["stale_starters"] == [{"match_id": 102, "game": "Clearwater Visitors @ Clearwater",
@@ -898,8 +908,9 @@ def _setup_sandbox(tmp_path, env_text, shell_env=None):
     return repo, home, env
 
 
-def _env_text(port, topic=True, mirror=True):
+def _env_text(port, topic=True, mirror=True, role="laptop"):
     return ((f"SP_EXPORTS_MIRROR_REMOTE=git@example.invalid:x/exports.git\n" if mirror else "")
+            + (f"SP_EXPORTS_MIRROR_ROLE={role}\n" if role else "")
             + (f"NTFY_CARD_TOPIC={TOPIC}\n" if topic else "") + f"NTFY_SERVER=http://127.0.0.1:{port}\n"
             + "SP_BACKUP_DIR=/tmp/sp-closing-test-backups\n")
 
@@ -934,7 +945,8 @@ def test_380_2_install_sends_one_test_page_and_writes_no_value_into_the_plist(tm
     r = subprocess.run(["bash", str(repo / "scripts" / "setup_closing_watch.sh")], capture_output=True, text=True,
                        env=env)
     assert r.returncode == 0, r.stdout + r.stderr
-    assert _Ntfy.got == [(f"/{TOPIC}", "Closing watch", mc.TEST_PAGE_BODY)]           # one page, the card topic
+    assert _Ntfy.got == [(f"/{TOPIC}", "Closing watch", "Test: the closing watch is installed (MLB, NFL, SOCCER). "
+                                                         f"Pages arrive here by T-30.\n{MACHINE}")]   # one page, card topic
     plist = (home / "Library" / "LaunchAgents" / "com.sportspredictor.closingwatch.plist").read_text()
     assert TOPIC not in plist and "example.invalid" not in plist and "EnvironmentVariables" not in plist
     assert "<integer>60</integer>" in plist and "<string>closing-watch</string>" in plist
@@ -1031,13 +1043,13 @@ def test_380_4_superseded_under_the_lock_is_neither_an_attempt_nor_a_refusal(box
 def test_380_4_a_watch_run_that_gets_the_lock_inside_t5_is_a_miss(box, monkeypatch):
     clock = fake_clock(monkeypatch)
     monkeypatch.setattr(mc, "acquire_lock", _lock_then(lambda: clock.__setitem__("t", clock["t"] + 31 * 60)))
-    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == 1
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == mc.NOTIFIED
     m = receipts()[-1]
     assert m["kind"] == "closing_miss" and m["reason"] == "the lock came inside T-5" and box.steps == []
-    assert box.notes == [f"Closing NFL 2026-10-11 13:00 ET: MISSED: the lock came inside T-5"]
+    assert box.notes == [f"Closing NFL 2026-10-11 13:00 ET: MISSED: the lock came inside T-5\nmachine: laptop"]
     assert runs() == []                                                              # not an attempt
     with hold_lock():                                                                # held until T-5: a miss too
-        assert mc.run("NFL", start=at(35), trigger="watch", now=NOW + timedelta(minutes=30)) == 1
+        assert mc.run("NFL", start=at(35), trigger="watch", now=NOW + timedelta(minutes=30)) == mc.NOTIFIED
     assert receipts()[-1]["reason"] == "the lock was held until inside T-5"
 
 
@@ -1055,11 +1067,11 @@ def test_380_4_attempt_number_and_run_start_are_taken_under_the_lock(box, monkey
         clock["t"] += 120
     monkeypatch.setattr(mc, "acquire_lock", _lock_then(wait))
     box.no_fresh = {"sync-odds-football", "sync-kalshi-nfl"}
-    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == 1
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == mc.NOTIFIED
     r = runs()[-1]
     assert r["attempt"] == 3 and r["run_start"] == "2026-10-11T16:27:00Z" and r["queued_at"] == "2026-10-11T16:25:00Z"
     assert r["failed"] == "stale prices" and r["stale"][0]["captured_at"] == "2026-10-11T16:26:00Z"
-    assert box.notes[-1].endswith("attempt 3/3 · no further attempt will run for this kickoff")
+    assert box.notes[-1].endswith("attempt 3/3 · no further attempt will run for this kickoff\nmachine: laptop")
 
 
 # ============================================================================================ reading 7 ==
@@ -1098,11 +1110,11 @@ def test_feed_is_the_mlb_adapters_base_url():
 
 def test_a6_feed_unreachable_runs_nothing_for_mlb_only(box):
     box.feed = (False, "URLError")
-    assert mc.watch(now=NOW) == 0
+    assert mc.watch(now=NOW) == mc.NOTIFIED                                          # addendum 45 P3: the miss
     assert [r["family"] for r in runs()] == ["NFL", "SOCCER"]                       # NFL / PL need no feed
     miss = [r for r in receipts() if r["kind"] == "closing_miss"]
     assert [(m["family"], m["reason"]) for m in miss] == [("MLB", "feed unreachable")]
-    assert mc.FEED_MISS_TEXT in box.notes
+    assert mc.FEED_MISS_TEXT + "\nmachine: laptop" in box.notes
 
 
 def test_a2_receipt_on_success_and_steps_under_the_lock(box):
@@ -1187,7 +1199,7 @@ def test_notify_on_macos_uses_osascript_quoted(monkeypatch):
 
 def test_r1_a_target_that_starts_during_the_run_fails_and_is_never_retried(box, monkeypatch):
     slow_steps(box, monkeypatch, 60 * 6)                                             # 7 steps x 6 min
-    assert mc.watch(now=NOW, families=("NFL",)) == 1
+    assert mc.watch(now=NOW, families=("NFL",)) == mc.NOTIFIED
     r = runs()[-1]
     assert r["failed"] == "target started" and r["started"].startswith("start ")
     mc.watch(now=NOW + timedelta(minutes=36), families=("NFL",))
@@ -1276,14 +1288,14 @@ def test_c_every_covered_game_moved_ends_as_start_moved_and_the_new_start_runs(b
     key and closes at its T-35. Since addendum 25 2(ii) (Codex 4232307577) the moves are taken right after the
     schedule read: a run left with no game ends there, no further step, no export."""
     move_on_first_schedule_read(box, monkeypatch, {401: 95, 402: 97})
-    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    assert mc.watch(now=NOW, families=("SOCCER",)) == mc.NOTIFIED
     r = runs("SOCCER")[-1]
     assert r["failed"] == "start moved" and r["start"] == at(35) and r["covers"] == []
     assert [(m["match_id"], m["target"], m["covered_start"], m["stored_start"]) for m in r["moved"]] == [
         (401, at(35), at(35), at(95)), (402, at(35), at(37), at(97))]
     assert [st[0] for st in box.steps] == ["sync-matches"] and r["export"] is None and "export_moved_to" not in r
     assert box.pushes == [] and call_pages(box) == []
-    assert box.notes[-1] == "Closing SOCCER 2026-10-11 13:00 ET: FAILED: start moved · attempt 1/3"
+    assert box.notes[-1] == "Closing SOCCER 2026-10-11 13:00 ET: FAILED: start moved · attempt 1/3\nmachine: laptop"
     mc.watch(now=NOW + timedelta(minutes=1), families=("SOCCER",))
     assert len(runs("SOCCER")) == 1                                    # nothing left at the old start: no retry
     doc_start(box, "SOCCER", 401, 95)
@@ -1326,7 +1338,7 @@ def test_385_p1_watch_reads_the_clock_for_each_queued_run(box, monkeypatch):
         if argv[0] == "export-nfl-predictions":
             off["d"] = timedelta(minutes=31)
     slow_steps(box, monkeypatch, 0, slow_nfl)
-    assert mc.watch(families=("NFL", "SOCCER")) == 1
+    assert mc.watch(families=("NFL", "SOCCER")) == mc.NOTIFIED
     assert [(r["family"], r["exit"]) for r in runs()] == [("NFL", 0)]
     miss = [r for r in receipts() if r["kind"] == "closing_miss"]
     assert [(m["family"], m["start"], m["reason"]) for m in miss] == [("SOCCER", at(35), "the lock came inside T-5")]
@@ -1648,14 +1660,14 @@ def test_b6_a_miss_is_receipted_and_notified_once_per_start_and_reason(box, monk
         mc.watch(now=NOW - timedelta(minutes=1) + timedelta(minutes=m), families=("MLB",))
     miss = [r for r in receipts() if r["kind"] == "closing_miss"]
     assert [(m["start"], m["reason"]) for m in miss] == [(at(30), "feed unreachable")]
-    assert box.notes.count(mc.FEED_MISS_TEXT) == 1 and box.feed_calls == 4              # it kept trying
+    assert box.notes.count(mc.FEED_MISS_TEXT + "\nmachine: laptop") == 1 and box.feed_calls == 4  # it kept trying
     box.feed = (True, "HTTP 200")
     assert mc.watch(now=NOW + timedelta(minutes=3), families=("MLB",)) == 0          # the feed back: it runs
     assert runs("MLB")[-1]["exit"] == 0
     # the lock held until inside T-5, twice for one start time: one miss
     with hold_lock():
         for k in range(2):
-            assert mc.run("NFL", start=at(35), trigger="watch", now=NOW + timedelta(minutes=30, seconds=k)) == 1
+            assert mc.run("NFL", start=at(35), trigger="watch", now=NOW + timedelta(minutes=30, seconds=k)) == mc.NOTIFIED
     held = [r for r in receipts() if r["kind"] == "closing_miss" and r["family"] == "NFL"]
     assert len(held) == 1
 
@@ -1683,10 +1695,10 @@ def test_codex_r2_a_lock_that_cannot_be_taken_is_a_receipted_failed_run(box, mon
     def broken(timeout):
         raise PermissionError("lock file not writable")
     monkeypatch.setattr(mc, "acquire_lock", broken)
-    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == 1
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == mc.NOTIFIED
     r = runs()[-1]
     assert r["failed"] == "lock" and r["exit"] == 1 and r["attempt"] == 1 and "PermissionError" in r["error"]
-    assert box.notes[-1] == "Closing NFL 2026-10-11 13:00 ET: FAILED: lock · attempt 1/3" and box.steps == []
+    assert box.notes[-1] == "Closing NFL 2026-10-11 13:00 ET: FAILED: lock · attempt 1/3\nmachine: laptop" and box.steps == []
 
 
 # ================================================================================== addendum 25 (item 2) ==
@@ -1699,7 +1711,7 @@ def test_25_ii_4232307577_a_move_is_recorded_before_a_later_step_fails(box, monk
     move_on_first_schedule_read(box, monkeypatch, {402: 95})
     box.fail_cmd["predict"] = (1, ["boom"])
     for m in range(3):
-        assert mc.watch(now=NOW + timedelta(minutes=m), families=("SOCCER",)) == 1
+        assert mc.watch(now=NOW + timedelta(minutes=m), families=("SOCCER",)) == mc.NOTIFIED
     att = runs("SOCCER")
     assert [r["attempt"] for r in att] == [1, 2, 3] and all(r["failed"].startswith("step ") for r in att)
     assert [m["match_id"] for m in att[0]["moved"]] == [402] and [x["match_id"] for x in att[0]["covers"]] == [401]
@@ -1797,7 +1809,7 @@ def test_25_iii_an_mlb_afternoon_closing_turns_the_night_games_play_into_pass_an
     assert mc.run("MLB", start=at(45), now=NOW + timedelta(minutes=10)) == 0          # the night game's own closing
     pg = call_pages(box)[-1]
     assert pg["body"].splitlines() == ["MLB 13:10 ET · T-35m", "Laterton Visitors @ Laterton · PASS · was PLAY Laterton 1u",
-                                       "PASS: 1 game"]
+                                       "PASS: 1 game", MACHINE]
     assert pg["priority"] == "high"                                                     # B3
 
 
@@ -1807,7 +1819,7 @@ def test_25_iii_an_attempt_whose_page_was_not_accepted_leaves_the_retry_its_was(
     carried. Fails on 08026e2."""
     (box.repo / "exports" / f"nfl_predictions_{DAY}.json").write_text(json.dumps(_set_call(nfl_doc(), 301)))
     box.page_ok = False
-    assert mc.watch(now=NOW, families=("NFL",)) == 1
+    assert mc.watch(now=NOW, families=("NFL",)) == mc.NOTIFIED
     first = runs()[-1]
     would = call_pages(box)[-1]["body"].splitlines()
     assert first["failed"] == "page" and "  exec +5.3pp · was PASS" in would
@@ -1833,7 +1845,7 @@ def test_25_iii_where_the_chain_cannot_be_followed_the_files_call_stands(box):
     assert mc.run("MLB", start=at(45), now=NOW + timedelta(minutes=10)) == 0
     assert runs()[-1]["last_calls"]["103"] == {"call": "PASS", "start": at(45), "source": f"mlb_MLB_{DAY}.json"}
     pg = call_pages(box)[-1]
-    assert pg["body"].splitlines()[1:] == ["PASS: 1 game"] and pg["priority"] == "default"
+    assert pg["body"].splitlines()[1:] == ["PASS: 1 game", MACHINE] and pg["priority"] == "default"
 
 
 # ======================================================================= addendum 26 item 2: #390 follow-up ==
@@ -1861,7 +1873,7 @@ def test_26_2a_4232719331_a_retry_that_finds_the_move_frees_the_game_from_an_ear
     402, then a retry that finds 402 moved and succeeds: 402 is not finished with at the old start, and its new start
     runs. Fails on f256cdd (the failed attempt's covers closed 402 for good)."""
     box.fail_cmd["predict"] = (1, ["boom"])
-    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    assert mc.watch(now=NOW, families=("SOCCER",)) == mc.NOTIFIED
     assert [x["match_id"] for x in runs("SOCCER")[-1]["covers"]] == [401, 402]
     assert mc.covered_ids("SOCCER") == set()                         # one failed attempt: nothing finished
     box.fail_cmd.clear()
@@ -1882,9 +1894,9 @@ def test_26_2a_three_failed_attempts_finish_only_the_last_attempts_covers(box, m
     and fails too. Only the last attempt's covers are finished with: 401, not 402. Fails on f256cdd."""
     box.fail_cmd["predict"] = (1, ["boom"])
     for m in range(2):
-        assert mc.watch(now=NOW + timedelta(minutes=m), families=("SOCCER",)) == 1
+        assert mc.watch(now=NOW + timedelta(minutes=m), families=("SOCCER",)) == mc.NOTIFIED
     move_on_next_schedule_read(box, monkeypatch, {402: 95})
-    assert mc.watch(now=NOW + timedelta(minutes=2), families=("SOCCER",)) == 1
+    assert mc.watch(now=NOW + timedelta(minutes=2), families=("SOCCER",)) == mc.NOTIFIED
     att = runs("SOCCER")
     assert [r["attempt"] for r in att] == [1, 2, 3]
     assert [[x["match_id"] for x in r["covers"]] for r in att] == [[401, 402], [401, 402], [401]]
@@ -1976,7 +1988,7 @@ def test_25_3_a_postponed_game_whose_last_call_was_a_play_has_its_own_line_and_t
     pg = call_pages(box)[-1]
     lines = pg["body"].splitlines()
     assert "Buffalo Visitors @ Buffalo · POSTPONED · was PLAY Buffalo 1u" in lines
-    assert lines[-1] == "PASS: 3 games" and pg["priority"] == "high"                # not counted as a PASS
+    assert lines[-2:] == ["PASS: 3 games", MACHINE] and pg["priority"] == "high"                # not counted as a PASS
     assert not any(x.startswith("Buffalo Visitors @ Buffalo · PLAY") for x in lines)
 
 
@@ -1988,7 +2000,7 @@ def test_25_3_a_run_left_with_only_called_off_games_names_them_not_pass_0(box, m
     assert mc.run("SOCCER", start=at(35), now=NOW) == 0
     pg = call_pages(box)[-1]
     assert pg["body"].splitlines() == ["SOCCER 13:00 ET · T-35m", "Arsenal Visitors @ Arsenal · CANCELLED",
-                                       "Fulham Visitors @ Fulham · POSTPONED", "PASS: 0 games"]
+                                       "Fulham Visitors @ Fulham · POSTPONED", "PASS: 0 games", MACHINE]
     assert pg["priority"] == "default" and runs()[-1]["exit"] == 0
 
 
@@ -1999,7 +2011,7 @@ def test_392_4233123800_a_called_off_game_of_a_failed_attempt_is_paged_on_the_re
     the retry keeps the start time and pages the line. Fails on bc6e107."""
     status_on_next_schedule_read(box, monkeypatch, {401: "CANCELLED"})
     box.fail_cmd["predict"] = (1, ["boom"])
-    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    assert mc.watch(now=NOW, families=("SOCCER",)) == mc.NOTIFIED
     assert [x["match_id"] for x in runs("SOCCER")[-1]["called_off"]] == [401]
     box.fail_cmd.clear()
     assert mc.watch(now=NOW + timedelta(minutes=1), families=("SOCCER",)) == 0
@@ -2014,14 +2026,14 @@ def test_392_4233123800_a_start_time_left_with_only_called_off_games_still_forms
     time still forms a group and the retry pages their lines. Fails on bc6e107 (no group, no retry)."""
     status_on_next_schedule_read(box, monkeypatch, {401: "CANCELLED", 402: "POSTPONED"})
     box.page_ok = False
-    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    assert mc.watch(now=NOW, families=("SOCCER",)) == mc.NOTIFIED
     assert runs("SOCCER")[-1]["failed"] == "page"
     box.page_ok = True
     assert mc.watch(now=NOW + timedelta(minutes=1), families=("SOCCER",)) == 0
     r = runs("SOCCER")[-1]
     assert r["start"] == at(35) and r["attempt"] == 2 and r["exit"] == 0
     assert call_pages(box)[-1]["body"].splitlines()[1:] == ["Arsenal Visitors @ Arsenal · CANCELLED",
-                                                            "Fulham Visitors @ Fulham · POSTPONED", "PASS: 0 games"]
+                                                            "Fulham Visitors @ Fulham · POSTPONED", "PASS: 0 games", MACHINE]
     assert mc.watch(now=NOW + timedelta(minutes=2), families=("SOCCER",)) == 0 and len(runs("SOCCER")) == 2
 
 
@@ -2077,7 +2089,7 @@ def test_390_7_an_unpaged_called_off_game_leaves_the_watch_with_the_schedule_win
     watch, seven hours on it is not, and the dry run no longer lists it. Fails on ed5ecbb (401 listed for good)."""
     status_on_next_schedule_read(box, monkeypatch, {401: "CANCELLED"})
     box.fail_cmd["predict"] = (1, ["boom"])
-    assert mc.watch(now=NOW, families=("SOCCER",)) == 1
+    assert mc.watch(now=NOW, families=("SOCCER",)) == mc.NOTIFIED
     assert [x["match_id"] for x in runs("SOCCER")[-1]["called_off"]] == [401]
     box.fail_cmd.clear()
     assert 401 in [g["match_id"] for g in mc.due("SOCCER", NOW + timedelta(hours=5))["games"]]
@@ -2086,3 +2098,147 @@ def test_390_7_an_unpaged_called_off_game_leaves_the_watch_with_the_schedule_win
     capsys.readouterr()
     assert mc.watch(dry_run=True, now=later, families=("SOCCER",)) == 0
     assert "match 401 " not in capsys.readouterr().out
+
+
+# ================================================================== addendum 45: the host closing watch (P1-P8) ==
+
+def _push_argv(monkeypatch, role):
+    seen = []
+
+    class R:
+        returncode, stdout, stderr = 0, "pushed\n", ""
+    real = subprocess.run
+    monkeypatch.setattr(mc, "push_mirror", REAL_PUSH)                                 # the box fakes it
+    monkeypatch.setattr(mc.subprocess, "run", lambda argv, **k: (seen.append(argv) or R()) if any(
+        "exports_mirror.py" in str(a) for a in argv) else real(argv, **k))
+    if role is None:
+        monkeypatch.delenv("SP_EXPORTS_MIRROR_ROLE", raising=False)
+    else:
+        monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", role)
+    return REAL_PUSH("closing"), seen
+
+
+@pytest.mark.parametrize("role", ["host", "laptop"])
+def test_p1_the_push_takes_the_role_from_the_setting_on_both_machines(box, monkeypatch, role):
+    """P1: "push_mirror and install-push take it from SP_EXPORTS_MIRROR_ROLE, as the chains' hook does." """
+    res, seen = _push_argv(monkeypatch, role)
+    assert res["exit"] == 0 and seen[0][-4:] == ["--role", role, "--label", "closing"]
+    assert sp_run.mirror_after_step.__code__ and "SP_EXPORTS_MIRROR_ROLE" in (HOSTING / "sp_run.py").read_text()
+    seen.clear()
+    assert mc.main(["install-push"]) == 0 and seen[0][-4:] == ["--role", role, "--label", "install"]
+
+
+@pytest.mark.parametrize("role", [None, "", "Host ", "server"])
+def test_p1_no_role_refuses_the_run_before_any_step_and_preflight_says_so(box, monkeypatch, capsys, role):
+    """P1: "Unset, or neither host nor laptop: the run is refused before any step, as M1 is, and preflight says so.
+    There is no default." Nothing is pushed by install-push either."""
+    res, seen = _push_argv(monkeypatch, role)
+    assert res["exit"] is None and seen == []                                        # no push, no guess
+    assert mc.run("NFL", start=at(35), trigger="watch", now=NOW) == 2
+    r = runs()[-1]
+    assert "SP_EXPORTS_MIRROR_ROLE" in r["refused"] and box.steps == [] and box.pushes == []
+    assert not (box.tmp / "backups").exists() or not any((box.tmp / "backups").iterdir())   # before any step
+    assert any("SP_EXPORTS_MIRROR_ROLE" in x for x in mc.preflight(families=("NFL", "SOCCER")))
+    capsys.readouterr()
+    assert mc.main(["install-push"]) == 2 and seen == []
+    assert "REFUSED: SP_EXPORTS_MIRROR_ROLE" in capsys.readouterr().out
+    assert box.notes[-1].endswith("machine: role unknown (SP_EXPORTS_MIRROR_ROLE unset or invalid)")
+
+
+def test_p3_the_watch_exit_status_for_each_outcome(box, monkeypatch):
+    """P3: "What the watch has already receipted and notified leaves with a status of its own; the unit counts that
+    status and a refusal's as success, and its failure path is for what the process could not report itself."
+    Success 0; a refusal 2; a failed run 3 (NOTIFIED); a miss 3; what it could not report 1; an unhandled error ends
+    the process (non-zero, the unit's failure path)."""
+    assert mc.watch(now=NOW, families=("NFL",)) == 0                                  # success
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "SOCCER")
+    assert mc.watch(now=NOW, families=("SOCCER",)) == 2                               # a refusal
+    assert runs("SOCCER")[-1]["refused"] and runs("SOCCER")[-1]["failure_notification"]
+    monkeypatch.delenv("SP_SKIP_FAMILIES")
+    box.fail_cmd["sync-matches"] = (1, ["boom"])
+    assert mc.watch(now=NOW, families=("MLB",)) == mc.NOTIFIED == 3                   # a failed run, notified
+    assert runs("MLB")[-1]["exit"] == 1 and runs("MLB")[-1]["failure_notification"]["text"]
+    box.fail_cmd.clear()
+    assert mc.watch(now=NOW + timedelta(minutes=31), families=("SOCCER",)) == mc.NOTIFIED   # a miss (inside T-5)
+    assert [m["reason"][:10] for m in receipts() if m["kind"] == "closing_miss"] == ["inside T-5"]
+    assert mc.worse(2, mc.NOTIFIED) == mc.NOTIFIED and mc.worse(mc.NOTIFIED, 1) == 1 and mc.worse(0, 2) == 2
+    monkeypatch.setattr(mc, "due", lambda fam, now: (_ for _ in ()).throw(RuntimeError("bug")))
+    with pytest.raises(RuntimeError):                                                 # unhandled: the process ends
+        mc.main(["watch", "--family", "NFL"])                                         # non-zero, OnFailure pages
+    unit = (HOSTING / "systemd" / "sp-closing-watch.service").read_text()
+    assert "SuccessExitStatus=2 3\n" in unit and "OnFailure=sp-notify@closing-watch.service" in unit
+
+
+def test_p3_a_failure_the_watch_could_not_receipt_exits_1_for_the_units_failure_path(box, monkeypatch):
+    """P3: "its failure path is for what the process could not report itself": a lock that cannot be taken whose
+    failed-run receipt cannot be written either exits 1, never NOTIFIED."""
+    monkeypatch.setattr(mc, "acquire_lock", lambda t: (_ for _ in ()).throw(PermissionError("lock dir")))
+    monkeypatch.setattr(c, "append_receipt", lambda rec: (_ for _ in ()).throw(OSError("receipts not writable")))
+    assert mc.watch(now=NOW, families=("NFL",)) == 1
+
+
+@pytest.mark.parametrize("role", ["host", "laptop"])
+def test_every_closing_page_and_the_test_page_end_naming_the_machine(box, monkeypatch, role):
+    """Addendum 45: "Every closing page ends with one line naming the machine by role (host/laptop). Test page
+    too." """
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", role)
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    assert call_pages(box)[-1]["body"].splitlines()[-1] == f"machine: {role}"
+    assert runs()[-1]["page"]["text"].splitlines()[-1] == f"machine: {role}"
+    box.fail_cmd["sync-matches"] = (1, ["boom"])
+    assert mc.run("SOCCER", start=at(35), trigger="watch", now=NOW) == mc.NOTIFIED
+    assert box.pages[-1]["body"].startswith("Closing SOCCER") and box.pages[-1]["body"].endswith(f"\nmachine: {role}")
+    assert mc.test_page(("NFL", "SOCCER")) == {"accepted": True, "http": 200}
+    assert box.pages[-1]["body"] == ("Test: the closing watch is installed (NFL, SOCCER). Pages arrive here by "
+                                     f"T-30.\nmachine: {role}")
+
+
+def test_p5_the_setup_script_takes_the_families(tmp_path, ntfy):
+    """P5: "The laptop's setup script takes the families, and the plist, its preflight, its test page and its
+    closing words all carry them." --family MLB: the laptop after the flip."""
+    repo, home, env = _setup_sandbox(tmp_path, _env_text(ntfy.server_port))
+    r = subprocess.run(["bash", str(repo / "scripts" / "setup_closing_watch.sh"), "--family", "mlb"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 0, r.stdout + r.stderr
+    plist = (home / "Library" / "LaunchAgents" / "com.sportspredictor.closingwatch.plist").read_text()
+    args = plist.split("<array>")[1].split("</array>")[0]
+    assert args.split("<string>closing-watch</string>")[1].split() == ["<string>--family</string>",
+                                                                        "<string>MLB</string>"]
+    assert "preflight: every closing refusal check passes in this environment (MLB; role laptop)" in r.stdout
+    assert _Ntfy.got == [(f"/{TOPIC}", "Closing watch", "Test: the closing watch is installed (MLB). Pages arrive "
+                                                         f"here by T-30.\n{MACHINE}")]
+    assert "✓ closing watch installed: every minute, for MLB (SOCCER = PL), and no other family." in r.stdout
+    assert "closing-watch --family MLB --dry-run" in r.stdout and "installed (MLB)." in r.stdout
+    assert "For MLB only: VPN on, Tailscale off" in r.stdout and "need neither mode" not in r.stdout
+    # NFL + SOCCER only: no MLB line; a family outside the three refuses
+    _Ntfy.got = []
+    r = subprocess.run(["bash", str(repo / "scripts" / "setup_closing_watch.sh"), "--family", "NFL", "--family",
+                        "SOCCER"], capture_output=True, text=True, env=env)
+    assert r.returncode == 0 and "for NFL, SOCCER (SOCCER = PL)" in r.stdout and "VPN" not in r.stdout
+    assert "NFL and SOCCER need neither mode." in r.stdout and "(NFL, SOCCER; role laptop)" in r.stdout
+    r = subprocess.run(["bash", str(repo / "scripts" / "setup_closing_watch.sh"), "--family", "NHL"],
+                       capture_output=True, text=True, env=env)
+    assert r.returncode == 2 and "--family takes MLB, NFL or SOCCER" in r.stdout
+
+
+def test_p1_the_setup_script_refuses_without_the_role(tmp_path, ntfy):
+    repo, home, env = _setup_sandbox(tmp_path, _env_text(ntfy.server_port, role=None))
+    r = subprocess.run(["bash", str(repo / "scripts" / "setup_closing_watch.sh")], capture_output=True, text=True,
+                       env=env)
+    assert r.returncode == 2 and "REFUSED: SP_EXPORTS_MIRROR_ROLE is not set" in r.stdout
+    assert not (home / "Library" / "LaunchAgents" / "com.sportspredictor.closingwatch.plist").exists()
+    assert _Ntfy.got == [] and not (repo / "pushes").exists()
+
+
+def test_408_the_receipts_table_shows_a_closing_lines_duration_and_key_line(box):
+    """#408 / addendum 45: closing writes `seconds`, the table read `duration_s`; the table now reads both and has a
+    key line for closing and closing_miss. No receipt changes shape."""
+    import sp_receipts
+    assert mc.run("NFL", start=at(35), now=NOW) == 0
+    r = runs()[-1]
+    assert "seconds" in r and "duration_s" not in r
+    row = [x for x in sp_receipts.table([r]).splitlines() if "closing:NFL" in x][0].split(" | ")
+    assert row[4] == str(r["seconds"]) and row[5] == f"NFL {at(35)} attempt 1 paged {len(r['covers'])} game(s); push exit 0"
+    assert sp_receipts.key_line({"kind": "closing_miss", "family": "SOCCER", "start": "S", "reason": "x"}) == \
+        "SOCCER S MISSED: x"
+    assert sp_receipts.duration({"duration_s": 4.2, "seconds": 9}) == 4.2

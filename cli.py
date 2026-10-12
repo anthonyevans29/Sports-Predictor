@@ -8654,13 +8654,13 @@ def _closing():
 def closing_run_cmd(family, start, dry_run):
     """CLOSING RUN for one model family (ARCHITECT 2026-10-09, addendum 21 item 3 + addendum 22; #370's frame).
     Receipted refusals (exit 2) first: a backup folder under data/, SP_SKIP_FAMILIES naming the family (MLB: laptop
-    only), SP_EXPORTS_MIRROR_REMOTE unset, NTFY_CARD_TOPIC unset, a malformed --start, nothing to close. Then, under
+    only), SP_EXPORTS_MIRROR_REMOTE unset, SP_EXPORTS_MIRROR_ROLE unset or neither host nor laptop, NTFY_CARD_TOPIC unset, a malformed --start, nothing to close. Then, under
     the chain lock (waits while held): a .backup dated today (taken via the .backup API when none: copy, integrity,
     open, hash, hash file, or the run fails), then the family's closing chain for the games starting within 10
     minutes after the start time (deploy/hosting/chains.py: mlb-closing, nfl-closing, soccer-closing). Checks: one
     started test, every covered game in the export, every price captured at or after the run's start, MLB starters
-    refreshed at or after it. On success: the exports mirror pushed (laptop, closing) and ONE page (phone via the
-    ntfy card topic + the laptop's screen). One receipt line (kind closing) either way. Places nothing.
+    refreshed at or after it. On success: ONE page (phone via the ntfy card topic + the laptop's screen), then
+    the exports mirror pushed (role SP_EXPORTS_MIRROR_ROLE, label closing; unset or neither host nor laptop refuses). One receipt line (kind closing) either way. Places nothing.
     (= python deploy/hosting/closing.py run)"""
     argv = ["run", "--family", family.upper()] + (["--start", start] if start else []) \
         + (["--dry-run"] if dry_run else [])
@@ -8674,10 +8674,12 @@ def closing_run_cmd(family, start, dry_run):
 @click.option("--dry-run", is_flag=True, default=False,
               help="Print every family's start times and what would run; touch nothing (no network either).")
 def closing_watch_cmd(families, dry_run):
-    """CLOSING WATCH, the tick every minute (scripts/setup_closing_watch.sh, one launchd job for MLB, NFL, SOCCER).
+    """CLOSING WATCH, the tick every minute (laptop: scripts/setup_closing_watch.sh --family F, one launchd job; host:
+    sp-closing-watch.timer for NFL and SOCCER, shipped held, addendum 45).
     No network to decide: per family, the earliest unstarted start time not yet closed; at T-35 (no attempt inside
     T-5, at most three per start time) it starts closing-run for it, covering the games within the 10 minutes after
-    it (MLB: after checking the MLB feed answers). Otherwise exit 0, silent. (= python deploy/hosting/closing.py
+    it (MLB: after checking the MLB feed answers). Otherwise exit 0, silent. Exit: 0 success, 2 a refusal, 3 a
+    failure or miss already receipted and notified, 1 what it could not report. (= python deploy/hosting/closing.py
     watch)"""
     argv = ["watch"] + [x for f in families for x in ("--family", f.upper())] + (["--dry-run"] if dry_run else [])
     raise SystemExit(_closing().main(argv))

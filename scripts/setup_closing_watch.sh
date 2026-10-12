@@ -17,7 +17,12 @@
 # D1 (ARCHITECT 2026-10-09, addendum 23): "M1 at install: the setup script makes one mirror push in the launched
 # environment, label install, and refuses to install if it fails."
 #
-# Usage:   bash scripts/setup_closing_watch.sh
+# Addendum 45 P5 (ARCHITECT 2026-10-12): "The laptop's setup script takes the families, and the plist, its preflight,
+# its test page and its closing words all carry them. After the flip the laptop's watch covers MLB and nothing else,
+# and only while an MLB game remains in the season." --family is repeatable (MLB, NFL, SOCCER); none given means the
+# three, named in the plist all the same. P1: SP_EXPORTS_MIRROR_ROLE (laptop here) is a required setting.
+#
+# Usage:   bash scripts/setup_closing_watch.sh [--family MLB] [--family NFL] [--family SOCCER]
 # Remove:  bash scripts/setup_closing_watch.sh --uninstall
 
 set -euo pipefail
@@ -34,7 +39,7 @@ PLIST_DIR="${HOME}/Library/LaunchAgents"
 PLIST="${PLIST_DIR}/${LABEL}.plist"
 OLD_PLIST="${PLIST_DIR}/${OLD_LABEL}.plist"
 INTERVAL_S=60
-REQUIRED="SP_EXPORTS_MIRROR_REMOTE NTFY_CARD_TOPIC"
+REQUIRED="SP_EXPORTS_MIRROR_REMOTE SP_EXPORTS_MIRROR_ROLE NTFY_CARD_TOPIC"
 
 if [[ "${1:-}" == "--uninstall" ]]; then
   launchctl unload "${PLIST}" 2>/dev/null || true
@@ -48,6 +53,41 @@ if [[ "${1:-}" == "--uninstall" ]]; then
   echo "✓ closing watch uninstalled (no more ticks; nothing else changed)."
   exit 0
 fi
+
+# P5: the families, in the order given, each once.
+FAMILIES=()
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --family)
+      fam="$(printf '%s' "${2:-}" | tr '[:lower:]' '[:upper:]')"
+      case "${fam}" in
+        MLB|NFL|SOCCER) ;;
+        *) echo "✗ --family takes MLB, NFL or SOCCER (got '${2:-}')"; exit 2 ;;
+      esac
+      if [[ ! " ${FAMILIES[*]:-} " == *" ${fam} "* ]]; then FAMILIES+=("${fam}"); fi
+      shift 2 ;;
+    *) echo "✗ unknown argument '$1' (usage: --family MLB|NFL|SOCCER, repeatable; or --uninstall)"; exit 2 ;;
+  esac
+done
+if [[ ${#FAMILIES[@]} -eq 0 ]]; then FAMILIES=(MLB NFL SOCCER); fi
+FAMILY_ARGS=()
+PLIST_FAMILIES=""
+for fam in "${FAMILIES[@]}"; do
+  FAMILY_ARGS+=(--family "${fam}")
+  PLIST_FAMILIES="${PLIST_FAMILIES}        <string>--family</string>
+        <string>${fam}</string>
+"
+done
+FAMILY_LIST="$(IFS=,; echo "${FAMILIES[*]}" | sed 's/,/, /g')"
+HAS_MLB=0
+OTHERS=""
+for fam in "${FAMILIES[@]}"; do
+  if [[ "${fam}" == "MLB" ]]; then
+    HAS_MLB=1
+  else
+    OTHERS="${OTHERS:+${OTHERS} and }${fam}"
+  fi
+done
 
 mkdir -p "${LOG_DIR}" "${PLIST_DIR}"
 
@@ -73,16 +113,17 @@ for name in ${REQUIRED}; do
 done
 
 # The run's own refusal checks (deploy/hosting/closing.py preflight: a backup folder under data/, SP_SKIP_FAMILIES
-# naming a family, SP_EXPORTS_MIRROR_REMOTE unset (M1), NTFY_CARD_TOPIC unset (C6)), in the launched environment,
+# naming a family, SP_EXPORTS_MIRROR_REMOTE unset (M1), SP_EXPORTS_MIRROR_ROLE unset or neither host nor laptop
+# (addendum 45 P1), NTFY_CARD_TOPIC unset (C6)) for the families given (P5), in the launched environment,
 # from the checkout's working directory, plus "set only in the installing shell".
-if ! (cd "${REPO_DIR}" && launched_env "${PYTHON}" "${CLOSING}" preflight --shell-set "${SHELL_SET}"); then
+if ! (cd "${REPO_DIR}" && launched_env "${PYTHON}" "${CLOSING}" preflight --shell-set "${SHELL_SET}" "${FAMILY_ARGS[@]}"); then
   echo "✗ REFUSED: the closing watch is not installed (a closing run would refuse in the launched environment)."
   echo "  Put each setting in ${REPO_DIR}/.env (or host.env), never only in your shell, then run this script again."
   exit 2
 fi
 
 # M2 for the phone (380.2), BEFORE loading: a closing run that cannot page is not a success (C6).
-if (cd "${REPO_DIR}" && launched_env "${PYTHON}" "${CLOSING}" test-page); then
+if (cd "${REPO_DIR}" && launched_env "${PYTHON}" "${CLOSING}" test-page "${FAMILY_ARGS[@]}"); then
   PAGE_RESULT="accepted by ntfy"
 else
   echo "✗ REFUSED: ntfy did not accept the test page through the card topic (NTFY_CARD_TOPIC; value not shown)."
@@ -113,7 +154,7 @@ cat > "${PLIST}" <<PLISTEOF
         <string>${PYTHON}</string>
         <string>${CLI}</string>
         <string>closing-watch</string>
-    </array>
+${PLIST_FAMILIES}    </array>
     <key>WorkingDirectory</key>
     <string>${REPO_DIR}</string>
     <key>StartInterval</key>
@@ -126,14 +167,14 @@ cat > "${PLIST}" <<PLISTEOF
 </plist>
 PLISTEOF
 
-if [[ -f "${OLD_PLIST}" ]]; then        # one watch for the three families (C7): #370's MLB-only job goes
+if [[ -f "${OLD_PLIST}" ]]; then        # one watch for the families given (C7): #370's MLB-only job goes
   launchctl unload "${OLD_PLIST}" 2>/dev/null || true
   rm -f "${OLD_PLIST}"
-  echo "removed ${OLD_LABEL} (#370's MLB-only watch; this one covers MLB)"
+  echo "removed ${OLD_LABEL} (#370's MLB-only watch; this one is the laptop's only watch)"
 fi
 launchctl unload "${PLIST}" 2>/dev/null || true
 launchctl load "${PLIST}"
-echo "loaded ${LABEL} (closing-watch every ${INTERVAL_S}s)"
+echo "loaded ${LABEL} (closing-watch every ${INTERVAL_S}s for ${FAMILY_LIST})"
 
 # M2 (ARCHITECT 2026-10-08): the screen's test notification, what the operator should have seen, where to allow it.
 TEST_TITLE="Closing watch"
@@ -145,14 +186,15 @@ else
 fi
 
 echo ""
-echo "✓ closing watch installed: every minute, for MLB, NFL and SOCCER (PL)."
+echo "✓ closing watch installed: every minute, for ${FAMILY_LIST} (SOCCER = PL), and no other family."
 echo "  Logs: ${LOG_DIR}/closing_watch.log"
-echo "  Test now:  ${PYTHON} ${CLI} closing-watch --dry-run"
+echo "  Test now:  ${PYTHON} ${CLI} closing-watch ${FAMILY_ARGS[*]} --dry-run"
 echo "  Uninstall: bash scripts/setup_closing_watch.sh --uninstall"
 echo ""
 echo "Test page (phone): ${PAGE_RESULT}."
 echo "  On your phone, in the ntfy app subscribed to the card topic, you should have seen a page titled"
-echo "  \"Closing watch\" reading \"Test: the closing watch is installed (MLB, NFL, SOCCER). Pages arrive here by T-30.\""
+echo "  \"Closing watch\" reading \"Test: the closing watch is installed (${FAMILY_LIST}). Pages arrive here by T-30.\""
+echo "  and ending with the line \"machine: <this machine's role>\" (SP_EXPORTS_MIRROR_ROLE; laptop here)."
 echo "  If it did not arrive: open the ntfy app, check you are subscribed to the card topic (the one in .env,"
 echo "  NTFY_CARD_TOPIC), and that the app may send notifications."
 echo "Install push (exports mirror): ${PUSH_RESULT}."
@@ -163,5 +205,9 @@ echo "  turn on Allow notifications, alert style Banners or Alerts; check Focus 
 echo ""
 echo "The watch needs, or no closing runs:"
 echo "  1. The laptop awake (a sleeping laptop runs no tick; the lid closed on battery sleeps it)."
-echo "  2. For MLB only: VPN on, Tailscale off (the MLB feed: the same network mode as Phase 1 of the morning chain)."
-echo "     NFL and SOCCER need neither mode."
+if [[ ${HAS_MLB} -eq 1 ]]; then
+  echo "  2. For MLB only: VPN on, Tailscale off (the MLB feed: the same network mode as Phase 1 of the morning chain)."
+fi
+if [[ -n "${OTHERS}" ]]; then
+  echo "     ${OTHERS} need neither mode."
+fi

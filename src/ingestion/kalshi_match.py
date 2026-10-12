@@ -147,7 +147,7 @@ def ticker_stamp(market: dict) -> tuple[date | None, datetime | None]:
         try:
             clock = (datetime(d.year, d.month, d.day, hh, mm, tzinfo=ET).astimezone(UTC).replace(tzinfo=None))
         except ValueError:
-            return d, None
+            return None, None           # a clock field that is no time: unparseable, refused (Codex on #461)
     return d, clock
 
 
@@ -271,14 +271,18 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
             # time (2h); with no occurrence the clock filter applies only when it finds a game
             occ = occurrence(live[0])
             near_tick = [x for x in pair_games if abs(x[0].utc_date - clock) <= MAX_TICK_DRIFT]
-            if occ is not None:
+            mg = re.search(r"G(\d)$", ev or "") or re.search(r"G(\d)-", live[0].get("ticker") or "")
+            if mg:
+                # a doubleheader's game (G1/G2): the ticker's own clock admits it, never the 5h occurrence window,
+                # so a G2 market is not placed on G1 when G2 is not stored (Codex on #461, P1); two games near the
+                # clock are told apart by the suffix, earlier/later
+                chosen = near_tick
+                if len(chosen) > 1 and 1 <= int(mg.group(1)) <= len(chosen):
+                    chosen = [chosen[int(mg.group(1)) - 1]]
+            elif occ is not None:
                 chosen = [x for x in pair_games if x in near_tick or abs(x[0].utc_date - occ) <= MAX_START_DRIFT]
             else:
                 chosen = near_tick or pair_games
-            if len(chosen) > 1:                 # doubleheader: the event's G1/G2 suffix, earlier/later game
-                mg = re.search(r"G(\d)$", ev or "") or re.search(r"G(\d)-", live[0].get("ticker") or "")
-                if mg and 1 <= int(mg.group(1)) <= len(chosen):
-                    chosen = [chosen[int(mg.group(1)) - 1]]
             if not chosen:
                 refuse(live, TIME_GATE)
                 res.lines.append(f"  ✗ {ev}: time gate: Kalshi {et_text(clock)} (occurrence {et_text(occ)}); ours "

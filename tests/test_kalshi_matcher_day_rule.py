@@ -380,3 +380,56 @@ def test_the_command_replays_a_kept_file_read_only(scratch, tmp_path):
     assert r.exit_code == 0, r.output
     assert "read-only, nothing stored" in r.output and "== KXNCAAFGAME (NCAA, shared path)" in r.output
     assert "new: placed 2 · refused 0" in r.output and "legs that differ: 2" in r.output
+
+
+# --- Codex on #461 (round 1) ---
+
+def test_a_g2_market_is_not_placed_on_g1_when_g2_is_not_stored():
+    """P1: the 5h occurrence window admitted G1 for a G2 market when G2 was missing; a suffix admits by the clock."""
+    g1 = game(40071, "St. Louis Cardinals", "Chicago Cubs", Z("2026-09-12T17:05"))
+    legs = [("STL", "St. Louis"), ("CHC", "Chicago C")]
+    m2 = event("26SEP121905STLCHCG2", legs, series="KXMLBGAME", occ="2026-09-12T20:00:00Z")   # G2 at 23:05Z
+    res = run(m2, [g1], now=Z("2026-09-12T12:00"))
+    assert not res.placed and res.refused == {km.TIME_GATE: 2}
+    m1 = event("26SEP121305STLCHCG1", legs, series="KXMLBGAME", occ="2026-09-12T20:00:00Z")
+    assert set(placed(run(m1, [g1], now=Z("2026-09-12T12:00")))) == {(40071, "AWAY"), (40071, "HOME")}
+
+
+def test_a_clock_field_that_is_no_time_is_unparseable_and_refused():
+    """P2: '2460' kept the date and went down the date-only branch."""
+    assert km.ticker_stamp({"event_ticker": "KXMLBGAME-26OCT012460PHIATL"}) == (None, None)
+    g = game(40072, "Philadelphia Phillies", "Atlanta Braves", Z("2026-10-02T00:00"))
+    res = run(event("26OCT012460PHIATL", [("PHI", "Philadelphia"), ("ATL", "Atlanta")], series="KXMLBGAME"), [g],
+              now=Z("2026-10-01T12:00"))
+    assert not res.placed and res.refused == {km.NO_DATE: 2}
+
+
+def test_the_replay_plan_reads_discoverable_soccer_competitions_and_lists_the_unresolved(monkeypatch):
+    """P2: a competition configured for discovery is read as sync-kalshi-soccer reads it; unresolved is listed."""
+    from src.adapters.kalshi import KalshiAdapter
+    from src.ingestion import kalshi_replay as kr
+    monkeypatch.setattr(KalshiAdapter, "__init__", lambda self: None)
+    monkeypatch.setattr(KalshiAdapter, "SOCCER_SERIES_DISCOVERY", {"XA": ["x"], "XB": ["y"]})
+    real = KalshiAdapter.resolve_soccer_series
+
+    def resolve(self, code, override=None):
+        return {"XA": ("KXXAGAME", "discovered"), "XB": (None, "2 game series match: refused")}.get(code) or \
+            real(self, code, override)
+    monkeypatch.setattr(KalshiAdapter, "resolve_soccer_series", resolve)
+    plan = {p["competition"]: p for p in kr.series_plan(KalshiAdapter())}
+    assert plan["XA"]["series"] == "KXXAGAME" and plan["XA"]["path"] == "soccer"
+    assert plan["XB"]["unresolved"] == "2 game series match: refused"
+    assert {"PL", "UNL", "MLB", "NCAA"} <= set(plan)
+
+
+def test_the_replay_names_main_s_newest_legs_with_their_age_and_flags_an_old_capture(scratch):
+    """P2: a sync that stored nothing leaves no row; the newest legs are named with their age, an old one flagged."""
+    from src.ingestion import kalshi_replay as kr
+    now = Z("2026-10-10T11:52")
+    ku = _seed(scratch, "NCAA", "Utah", "Kansas", Z("2026-10-11T02:15"))
+    _main_leg(scratch, ku, "AWAY", "KXNCAAFGAME-26OCT10KUUTAH-KU", Z("2026-10-09T11:40"))     # yesterday's run
+    lines = []
+    r = kr.replay(_payload(now, KXNCAAFGAME=KUUTAH), progress=lines.append)["KXNCAAFGAME"]
+    assert round(r["main_age_h"], 1) == 24.2
+    assert any("captured 2026-10-09T11:40:00 (24.2h before these markets were fetched)" in ln for ln in lines), lines
+    assert any(ln.startswith("  ⚠ main's newest legs are 24.2h old") for ln in lines)

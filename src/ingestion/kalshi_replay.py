@@ -30,16 +30,23 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parents[2]
 SHARED = {"KXMLBGAME": "MLB", "KXNFLGAME": "NFL", "KXNHLGAME": "NHL", "KXNCAAFGAME": "NCAA"}
 SOCCER_MAX_SPREAD = 0.10        # the soccer sync's default guard (UNL's frozen value too)
+STALE_MAIN_H = 3.0              # main's newest stored legs older than this are flagged (the replay runs after syncs)
 
 
 def series_plan(adapter, only: list[str] | None = None) -> list[dict]:
     """[{series, competition, path}] for every series the syncs read: the four two-way series, then each soccer
     competition whose series resolves (mapped or discovered, as sync-kalshi-soccer resolves it)."""
     out = [{"series": s, "competition": c, "path": "shared"} for s, c in SHARED.items()]
-    for code in adapter.SOCCER_GAME_SERIES:
+    # the mapped competitions and the discoverable ones, as sync-kalshi-soccer resolves them (Codex on #461); a code
+    # whose series does not resolve is listed with why, never silently left out
+    codes = list(adapter.SOCCER_GAME_SERIES) + [c for c in getattr(adapter, "SOCCER_SERIES_DISCOVERY", {})
+                                                 if c not in adapter.SOCCER_GAME_SERIES]
+    for code in codes:
         series, how = adapter.resolve_soccer_series(code, None)
         if series:
             out.append({"series": series, "competition": code, "path": "soccer", "how": how})
+        else:
+            out.append({"series": f"(unresolved {code})", "competition": code, "path": "soccer", "unresolved": how})
     if only:
         want = {x.upper() for x in only}
         out = [p for p in out if p["series"].upper() in want or p["competition"].upper() in want]
@@ -55,6 +62,10 @@ def fetch(only: list[str] | None = None, progress=print) -> dict:
     now = utc_now_naive().replace(microsecond=0)
     payload = {"kind": "kalshi_replay_markets", "fetched_at": now.isoformat(), "series": {}}
     for p in series_plan(adapter, only):
+        if p.get("unresolved"):
+            payload["series"][p["series"]] = {**p, "markets": [], "error": f"series not resolved: {p['unresolved']}"}
+            progress(f"  {p['competition']}: series not resolved ({p['unresolved']})")
+            continue
         try:
             mks = adapter.open_markets_for_series(p["series"])
             payload["series"][p["series"]] = {**p, "markets": mks}
@@ -164,13 +175,23 @@ def replay(payload: dict, progress=print) -> dict:
             progress(f"  new: placed {len(res.placed)} · refused {sum(res.refused.values())}")
             for ln in km.console_lines(res):
                 progress(ln)
-            progress(f"  main's last sync {main['at'].isoformat() if main['at'] else '— (no kalshi legs stored)'}: "
-                     f"{len(main['legs'])} tickered legs" + (f" · {main['untickered']} without a ticker (counted, not "
-                                                              "compared)" if main["untickered"] else ""))
+            # The newest legs main stored, by capture time. A sync that stored nothing leaves no row, so these can be
+            # an older run's: the age is printed and an old capture flagged, never presented as this morning's (Codex
+            # on #461)
+            age_h = (now - main["at"]).total_seconds() / 3600 if main["at"] else None
+            progress("  main's newest stored legs: "
+                     + (f"captured {main['at'].isoformat()} ({age_h:.1f}h before these markets were fetched)"
+                        if main["at"] else "— (no kalshi legs stored)")
+                     + f": {len(main['legs'])} tickered legs"
+                     + (f" · {main['untickered']} without a ticker (counted, not compared)" if main["untickered"] else ""))
+            if age_h is not None and age_h > STALE_MAIN_H:
+                progress(f"  ⚠ main's newest legs are {age_h:.1f}h old: a later sync stored none, or did not run. "
+                         "The differences below are against that older capture.")
             progress(f"  legs that differ: {len(differ)}")
             for ln in differ:
                 progress(ln)
             out[series] = {"placed": len(res.placed), "refused": dict(res.refused), "main_legs": len(main["legs"]),
+                           "main_age_h": age_h,
                            "main_at": main["at"], "untickered": main["untickered"], "differ": differ,
                            "games": len(games)}
     return out

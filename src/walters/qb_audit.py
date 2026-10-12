@@ -43,33 +43,48 @@ def _initial_key(name: str) -> str | None:
 
 
 def roster_index(roster: list[dict]) -> dict:
-    """Provider roster rows -> lookups by id, full name, and initial+surname
-    (the latter only where unique on the roster, never a guess)."""
-    by_id, by_name, by_init, init_count = {}, {}, {}, {}
+    """Provider roster rows -> lookups by id, full name, and initial+surname.
+
+    ARCHITECT 2026-10-12, addendum 47 item 4 (#451): "A group is not a position. In the roster join, as in the lookup,
+    only the position field resolves a player. A roster row without one leaves him unresolved, and where the lookup
+    runs he is asked by id." Only `position` is read (never `group`).
+    Addendum 47 item 3 (#454): "A name the roster holds more than once resolves nobody by name." Held more than once
+    by this join's own comparison (_norm: "Michael Carter" and "Michael Carter II" are one name held twice), counted
+    over every roster row, with a position or not. by_name and by_init are unique-only; never a guess."""
+    by_id, by_name, by_init, name_count, init_count = {}, {}, {}, {}, {}
     for rp in roster or []:
         p = rp.get("player") if isinstance(rp.get("player"), dict) else rp
-        pos = p.get("position") or p.get("group")
+        nm = _norm(p.get("name") or "")
+        k = _initial_key(p.get("name") or "")
+        if nm:
+            name_count[nm] = name_count.get(nm, 0) + 1
+        if k:
+            init_count[k] = init_count.get(k, 0) + 1
+        pos = p.get("position")
+        pos = pos.strip() if isinstance(pos, str) else pos
         if not pos:
             continue
         if p.get("id") is not None:
             by_id[p["id"]] = str(pos)
-        if p.get("name"):
-            by_name[_norm(p["name"])] = str(pos)
-            k = _initial_key(p["name"])
-            if k:
-                init_count[k] = init_count.get(k, 0) + 1
-                by_init[k] = str(pos)
-    return {"by_id": by_id, "by_name": by_name,
+        if nm:
+            by_name[nm] = str(pos)
+        if k:
+            by_init[k] = str(pos)
+    return {"by_id": by_id,
+            "by_name": {k: v for k, v in by_name.items() if name_count[k] == 1},
             "by_init": {k: v for k, v in by_init.items() if init_count[k] == 1},
             "size": len(roster or [])}
 
 
-def resolve_position(player: dict, idx: dict) -> tuple[str | None, str | None]:
-    """(position, how): by provider id, then exact name, then a UNIQUE
-    initial+surname match. (None, None) stays None: unknown, never guessed."""
+def resolve_position(player: dict, idx: dict, by_name: bool = True) -> tuple[str | None, str | None]:
+    """(position, how): by provider id, then a UNIQUE exact name, then a UNIQUE initial+surname match. (None, None)
+    stays None: unknown, never guessed. by_name=False: the id alone (addendum 47 item 3: entries that share a name
+    and differ in id are "resolved by its own id, from the roster and then by the lookup, never by a name")."""
     pid, name = player.get("id"), player.get("name") or ""
     if pid is not None and pid in idx["by_id"]:
         return idx["by_id"][pid], "roster_id"
+    if not by_name:
+        return None, None
     if _norm(name) in idx["by_name"]:
         return idx["by_name"][_norm(name)], "roster_name"
     k = _initial_key(name)

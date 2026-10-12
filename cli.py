@@ -7648,6 +7648,36 @@ def kalshi_probe_cmd(keywords, series_ticker, title_grep, show_markets):
             console.print(_json.dumps(mk, indent=2, default=str))
 
 
+@cli.command("kalshi-replay")
+@click.option("--series", "only", multiple=True,
+              help="Only these series or competitions (repeatable; default: every series the syncs read).")
+@click.option("--from-file", "from_file", default=None,
+              help="Replay markets kept by an earlier run (logs/kalshi_replay_<stamp>.json) instead of fetching.")
+def kalshi_replay_cmd(only, from_file):
+    """THE MATCHER'S READ-ONLY REPLAY (ARCHITECT 2026-10-12, addendum 50 item 6(b)). Fetches each series' open
+    markets once (MLB, NFL, NHL, NCAA and each soccer series that resolves), keeps them under logs/, places them with
+    the new matcher (src/ingestion/kalshi_match.py) on the stored games opened read-only, and stores nothing. Per
+    series: what the new matcher places and refuses, by reason, beside the legs main's matcher stored at its last
+    sync, then every leg that differs. Run in the morning block straight after the day's Kalshi syncs."""
+    import json as _json
+
+    from src.ingestion import kalshi_replay as kr
+
+    if from_file:
+        payload = _json.loads(open(from_file).read())
+        click.echo(f"KALSHI-REPLAY · markets kept at {payload.get('fetched_at')} (from {from_file}) · read-only, "
+                   "nothing stored")
+    else:
+        click.echo("KALSHI-REPLAY · fetching each series' open markets once · read-only, nothing stored")
+        payload = kr.fetch(list(only) or None, progress=click.echo)
+        click.echo(f"  markets kept at {payload['kept_at']} (public market data: send it with this console)")
+    if only and from_file:
+        want = {x.upper() for x in only}
+        payload["series"] = {k: v for k, v in payload["series"].items()
+                             if k.upper() in want or str(v.get("competition", "")).upper() in want}
+    kr.replay(payload, progress=click.echo)
+
+
 @cli.command("sync-kalshi-soccer")
 @click.option("--competition", "competition_code", default="PL")
 @click.option("--max-spread", default=0.10, help="Skip legs with ask-bid wider than this (unliquid = noise, not a price).")

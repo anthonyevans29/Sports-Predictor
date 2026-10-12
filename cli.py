@@ -778,10 +778,32 @@ def _print_empty_answers(competition_code: str, result) -> None:
     # AN EMPTY INJURY LIST IS UNREAD (ARCHITECT 2026-10-11, addendum 40 item 4): "The sync names every team whose
     # answer was empty, in its console and in the run's receipt, and --strict does not fail on it: the provider
     # answered." One plain line (never rich-wrapped), so a closing run's step tail carries it to the receipt.
+    _print_position_lookups(competition_code, result)          # before EMPTY-ANSWER, which stays the last line
     teams = list(getattr(result, "empty_answers", None) or [])
     if teams:
         print(f"{EMPTY_ANSWER_MARK} ({competition_code}): {len(teams)} team(s) answered no injury entry, "
               f"stored empty (read as unread): {'; '.join(teams)}", flush=True)
+
+
+POSITION_LOOKUP_MARK = "POSITION-LOOKUP"
+
+
+def _print_position_lookups(competition_code: str, result) -> None:
+    # THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): "What the provider does not answer stays
+    # unresolved, counted [...] A name the feed lists under two ids is ambiguous: not asked, counted and listed."
+    # One plain line when any listed player lacked a roster position; then the ambiguous and failed names.
+    lk = getattr(result, "position_lookups", None) or {}
+    if not lk or not any(lk.get(k) for k in ("asked", "from_kept", "failed", "ambiguous")):
+        return
+    print(f"{POSITION_LOOKUP_MARK} ({competition_code}): asked by provider id {lk.get('asked', 0)} "
+          f"(answered a position {lk.get('answered_position', 0)}, answered none {lk.get('answered_none', 0)}, "
+          f"failed {len(lk.get('failed') or [])}) · from kept answers {lk.get('from_kept', 0)} · "
+          f"resolved by lookup {len(lk.get('resolved_by_lookup') or [])} · kept {lk.get('kept', 0)} new · "
+          f"ambiguous, not asked {len(lk.get('ambiguous') or [])}", flush=True)
+    for x in lk.get("ambiguous") or []:
+        print(f"  ambiguous name (not asked): {x}", flush=True)
+    for x in lk.get("failed") or []:
+        print(f"  lookup failed: {x}", flush=True)
 
 
 def _strict_injuries_fail(competition_code: str, failed_reads: list[str], result=None) -> None:

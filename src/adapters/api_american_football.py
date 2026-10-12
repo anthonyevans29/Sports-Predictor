@@ -441,13 +441,31 @@ class APIAmericanFootballAdapter(DataAdapter):
         data = self._get("injuries", params={"team": team_source_id})
         out: list[dict] = []
         seen: set[str] = set()
-        for item in data.get("response") or []:
+        items = data.get("response") or []
+        # THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): "A listed player whose position the roster
+        # does not give is asked for by his provider id. The answer is kept, so a player is asked once and not at
+        # every read. [...] What the provider does not answer stays unresolved, counted and on the page as today.
+        # Under --strict a lookup that fails is a failed read; an answer that holds no position is not. A name the
+        # feed lists under two ids is ambiguous: not asked, counted and listed." (#440)
+        ids_by_name: dict = {}
+        for item in items:
+            pl = item.get("player") or {}
+            nm = (pl.get("name") or "").strip()
+            if nm and pl.get("id") is not None:
+                ids_by_name.setdefault(nm, set()).add(str(pl["id"]))
+        known = getattr(self, "known_positions", None) or {}
+        look = {"asked": 0, "answered_position": 0, "answered_none": 0, "from_kept": 0, "failed": [],
+                "ambiguous": [], "new_answers": [], "resolved_by_lookup": []}
+        self.last_position_lookup = look
+        for item in items:
             player = item.get("player") or {}
             name = (player.get("name") or "").strip()
             if not name or name in seen:
                 continue
             seen.add(name)
             position, _how = resolve_position(player, idx)
+            if position is None:
+                position = self._look_up_position(player, name, ids_by_name.get(name) or set(), known, look)
             out.append({
                 "player_name": name,
                 "player_position": position,
@@ -458,6 +476,45 @@ class APIAmericanFootballAdapter(DataAdapter):
                 "current_status": True,
             })
         return out
+
+    def _look_up_position(self, player: dict, name: str, ids: set, known: dict, look: dict) -> str | None:
+        """The position lookup for one listed player whose position the roster did not give (addendum 44 item 4).
+        Only the answer's `position` field is taken (never `group`, never any other field). Returns the position or
+        None (unresolved). Mutates `look`: the counts, the failed and ambiguous names, the new answers to keep."""
+        pid = player.get("id")
+        if len(ids) > 1:                   # #440: one name under two ids: not asked, counted and listed
+            look["ambiguous"].append(f"{name} (ids {', '.join(sorted(ids))})")
+            return None
+        if pid is None:
+            return None                    # no id to ask with: unresolved, as today
+        pid = str(pid)
+        if pid in known:                   # asked before: the kept answer, not a second call
+            look["from_kept"] += 1
+            if known[pid]:
+                look["resolved_by_lookup"].append(name)
+            return known[pid] or None
+        look["asked"] += 1
+        try:
+            ans = self._get("players", params={"id": pid})
+        except Exception as e:             # a lookup that fails: a failed read under --strict, nothing kept
+            look["failed"].append(f"{name} (player id {pid}): {type(e).__name__}")
+            return None
+        errs = ans.get("errors") if isinstance(ans, dict) else None
+        if errs:                           # the provider answered with errors: a failed lookup, nothing kept
+            look["failed"].append(f"{name} (player id {pid}): provider errors")
+            return None
+        objs = [r.get("player") if isinstance(r.get("player"), dict) else r
+                for r in (ans.get("response") or []) if isinstance(r, dict)]
+        pos = next((str(o["position"]).strip() for o in objs
+                    if str(o.get("id", pid)) == pid and isinstance(o.get("position"), str) and o["position"].strip()),
+                   None)
+        look["new_answers"].append({"player_id": pid, "player_name": name, "position": pos})
+        if pos:
+            look["answered_position"] += 1
+            look["resolved_by_lookup"].append(name)
+        else:                              # an answer with no position: unresolved, and not a failed read
+            look["answered_none"] += 1
+        return pos
 
     @property
     def requests_remaining(self) -> int | None:

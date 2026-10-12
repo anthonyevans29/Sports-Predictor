@@ -473,11 +473,14 @@ def dedupe_matches_cmd(competition_code, source, apply, backup_path, sample, orp
 
 
 @cli.command("merge-teams")
-@click.option("--apply", is_flag=True, help="MERGE the candidate pairs (default: dry run, writes nothing).")
+@click.option("--apply", is_flag=True, help="MERGE the named pairs (default: dry run, writes nothing).")
+@click.option("--pair", "pairs", multiple=True, metavar="KEPT:MERGED",
+              help="With --apply: a pair to merge, by its two ids as the dry run printed them (repeatable). "
+                   "--apply without a pair is refused; only the named pairs are merged.")
 @click.option("--backup", "backup_path", default=None,
               help="Required with --apply: a .backup file taken just before (integrity checked; its teams count "
                    "must equal the live DB's), as dedupe-matches has it.")
-def merge_teams_cmd(apply, backup_path):
+def merge_teams_cmd(apply, pairs, backup_path):
     """ONE PROGRAM IS ONE TEAM ROW (ARCHITECT 2026-10-12, addendum 44 item 3; #426, #358). Two team rows are a
     candidate pair only when their names are equal once unescaped and reduced to letters and digits without case,
     their sport is the same, no stored game has the two playing each other, and no day holds a game of each.
@@ -494,7 +497,17 @@ def merge_teams_cmd(apply, backup_path):
 
     if not settings.database_url.startswith("sqlite:///"):
         raise click.ClickException("merge-teams reads a SQLite database only")
+    if pairs and not apply:
+        raise click.UsageError("--pair names a pair to merge and is read only with --apply")
     if apply:
+        # addendum 50 item 5(a): "--apply without a pair is refused"; the pairs are read before anything is opened
+        if not pairs:
+            raise click.UsageError("REFUSED: --apply without a pair. Name each pair the dry run printed: "
+                                   "--pair KEPT:MERGED (repeatable). Only the named pairs are merged.")
+        try:
+            named = [tm.parse_pair(x) for x in pairs]
+        except ValueError as e:
+            raise click.UsageError(f"REFUSED: {e}")
         _verify_backup(backup_path, "teams", _T)
     con = sqlite3.connect(settings.database_url.replace("sqlite:///", ""), isolation_level=None)
     try:
@@ -516,7 +529,8 @@ def merge_teams_cmd(apply, backup_path):
             return (f"team {r['id']} {r['name']!r} external_ids {_json.dumps(r['ext'], sort_keys=True)} "
                     f"· {r.get('games', 0)} game(s)")
         for c in p["candidates"]:
-            click.echo(f"  [candidate] {c['sport']} {c['key']!r}: keeps {row(c['keep'])}")
+            click.echo(f"  [candidate] --pair {tm.pair_text(c['keep']['id'], c['other']['id'])} · {c['sport']} "
+                       f"{c['key']!r}: keeps {row(c['keep'])}")
             click.echo(f"              merges {row(c['other'])}")
             click.echo(f"              re-points {c['moves'] or 'nothing'}")
         for x in p["left"]:
@@ -526,7 +540,7 @@ def merge_teams_cmd(apply, backup_path):
         if not apply:
             return
         before = tm.counts(con)["teams"]
-        res = tm.apply(con, utc_now_naive().isoformat(timespec="seconds"))
+        res = tm.apply(con, utc_now_naive().isoformat(timespec="seconds"), named)
         after = tm.counts(con)["teams"]
         for m in res["merged"]:
             click.echo(f"  MERGED team {m['other']} into {m['keep']} · re-pointed {m['moves'] or 'nothing'} · "

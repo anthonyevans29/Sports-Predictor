@@ -90,7 +90,7 @@ def test_apply_keeps_the_lower_id_repoints_records_the_provider_id_and_deletes_t
     path, eng = db
     keep, other = hawaii(eng)
     con = con_of(path)
-    res = tm.apply(con, "2026-10-12T19:00:00")
+    res = tm.apply(con, "2026-10-12T19:00:00", [(keep, other)])
     assert [(m["keep"], m["other"]) for m in res["merged"]] == [(keep, other)] and not res["refused"]
     assert con.execute("SELECT COUNT(*) FROM teams WHERE id = ?", (other,)).fetchone()[0] == 0
     for t, c in tm.live_refs(con):
@@ -104,13 +104,61 @@ def test_apply_keeps_the_lower_id_repoints_records_the_provider_id_and_deletes_t
     assert tm.plan(con)["candidates"] == []                                 # nothing left to merge
 
 
-def test_a_unique_table_conflict_refuses_the_pair_and_names_the_table(db):
+def test_the_same_membership_is_one_membership_dropped_and_counted(db):
+    """Addendum 50 item 5(b): "Where the other row is a member of a competition and season of which the kept row is
+    a member too, it is one membership: the other row's is dropped, not re-pointed, and the dry run counts it." """
     path, eng = db
     keep, other = hawaii(eng, both_in_2026=True)
-    p = tm.plan(con_of(path))
+    con = con_of(path)
+    p = tm.plan(con)
+    assert [(c["keep"]["id"], c["other"]["id"]) for c in p["candidates"]] == [(keep, other)], p["left"]
+    assert p["candidates"][0]["moves"]["dropped: competition_teams.team_id"] == 1
+    assert "competition_teams.team_id" not in p["candidates"][0]["moves"]          # its only row is the duplicate
+    res = tm.apply(con, "T", [(keep, other)])
+    assert [m["keep"] for m in res["merged"]] == [keep], res
+    assert sorted(r[0] for r in con.execute("SELECT season FROM competition_teams WHERE team_id = ?", (keep,))) == \
+        ["2024", "2026"]                                                            # one membership per season
+
+
+def test_every_other_unique_table_conflict_refuses_the_pair_and_names_the_table(db):
+    path, eng = db
+    keep, other = hawaii(eng)
+    from src.db.schema import BullpenSeasonStats
+    with Session(eng) as s:
+        s.add_all([BullpenSeasonStats(team_id=tid, season="2026") for tid in (keep, other)])
+        s.commit()
+    con = con_of(path)
+    p = tm.plan(con)
     assert not p["candidates"]
-    assert p["left"][0]["why"].startswith("a unique-table conflict: competition_teams"), p["left"]
-    assert tm.apply(con_of(path), "x") == {"merged": [], "refused": []}
+    assert p["left"][0]["why"].startswith("a unique-table conflict: bullpen_season_stats"), p["left"]
+    res = tm.apply(con, "x", [(keep, other)])
+    assert not res["merged"] and res["refused"][0]["why"].startswith(
+        "not a candidate pair when the apply read the database: a unique-table conflict: bullpen_season_stats")
+
+
+def test_the_apply_merges_the_named_pairs_and_no_other(db):
+    """Addendum 50 item 5(a): "--apply takes the pairs it merges, each by its two ids as the dry run printed them,
+    and merges those and no other. A named pair that is not a candidate when the apply reads the database is refused
+    with its reason. --apply without a pair is refused." """
+    path, eng = db
+    keep, other = hawaii(eng)
+    with Session(eng) as s:
+        a, b = team(s, "Lone Star", "s1"), team(s, "Lone  Star!", "s2")                  # a second candidate pair
+        s.commit()
+        a_id, b_id = a.id, b.id
+    con = con_of(path)
+    assert {(c["keep"]["id"], c["other"]["id"]) for c in tm.plan(con)["candidates"]} == {(keep, other), (a_id, b_id)}
+    with pytest.raises(ValueError, match="without a pair is refused"):
+        tm.apply(con, "T", [])
+    res = tm.apply(con, "T", [(keep, other), (b_id, a_id), (keep, 999999)])
+    assert [(m["keep"], m["other"]) for m in res["merged"]] == [(keep, other)]            # that one and no other
+    why = {(x["keep"], x["other"]): x["why"] for x in res["refused"]}
+    assert why[(b_id, a_id)] == f"not as the dry run prints it: the pair is {a_id}:{b_id} (the lower id keeps its row)"
+    assert why[(keep, 999999)].startswith("not a candidate pair when the apply read the database")
+    assert con.execute("SELECT COUNT(*) FROM teams WHERE id IN (?, ?)", (a_id, b_id)).fetchone()[0] == 2
+    assert tm.parse_pair(" 1385:1744 ") == (1385, 1744) and tm.pair_text(1385, 1744) == "1385:1744"
+    with pytest.raises(ValueError):
+        tm.parse_pair("1385-1744")
 
 
 def test_a_reference_the_command_does_not_know_refuses_the_pair_and_names_the_table(db):
@@ -198,7 +246,11 @@ def test_the_command_refuses_apply_without_a_backup_and_the_dry_run_writes_nothi
     from src.db.database import init_db
     init_db()
     r = CliRunner().invoke(cli.cli, ["merge-teams", "--apply"])
+    assert r.exit_code != 0 and "REFUSED: --apply without a pair" in r.output
+    r = CliRunner().invoke(cli.cli, ["merge-teams", "--apply", "--pair", "1:2"])
     assert r.exit_code != 0 and "--backup" in r.output
+    r = CliRunner().invoke(cli.cli, ["merge-teams", "--apply", "--pair", "1-2"])
+    assert r.exit_code != 0 and "is not a pair" in r.output
     r = CliRunner().invoke(cli.cli, ["merge-teams"])
     assert r.exit_code == 0 and "DRY RUN (nothing written)" in r.output, r.output
     assert "stored team names carrying an HTML entity, by sport" in r.output
@@ -246,7 +298,7 @@ def test_apply_rereads_the_rows_under_the_lock(db, monkeypatch):
         c.execute("UPDATE teams SET external_ids = ? WHERE id = ?", (json.dumps({SRC: "59", "other_src": "x"}), keep))
         return p
     monkeypatch.setattr(tm, "plan", plan_then_ingest)
-    res = tm.apply(con, "T")
+    res = tm.apply(con, "T", [(keep, other)])
     assert [m["keep"] for m in res["merged"]] == [keep]
     ext = json.loads(con.execute("SELECT external_ids FROM teams WHERE id = ?", (keep,)).fetchone()[0])
     assert ext["other_src"] == "x" and ext[f"{SRC}_also"] == ["901"]

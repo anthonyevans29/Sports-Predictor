@@ -138,8 +138,21 @@ def _games(con, tid: int) -> list:
         (tid, tid))]
 
 
+# Addendum 50 item 5(b): "Where the other row is a member of a competition and season of which the kept row is a
+# member too, it is one membership: the other row's is dropped, not re-pointed, and the dry run counts it. Every other
+# unique-table conflict refuses the pair, as ruled." competition_teams holds its three key columns and nothing else.
+SAME_MEMBERSHIP = ("competition_teams", "team_id")
+
+
+def _clash_where(t: str, col: str, key: list[str]) -> str:
+    """A row x of the other team whose key, with the team swapped, is already the kept team's (y)."""
+    others = [k for k in key if k != col]
+    return " AND ".join(f"y.{_q(k)} IS x.{_q(k)}" for k in others) or "1"
+
+
 def check_pair(con, keep: dict, other: dict, refs: set, known: set) -> tuple[str | None, dict]:
-    """(why the pair is left, or None; what the merge would move). keep has the lower id."""
+    """(why the pair is left, or None; what the merge would move). keep has the lower id. The moves hold, per
+    reference, the rows re-pointed; a same membership dropped is counted under "dropped: <table>.<column>"."""
     a, b = keep["id"], other["id"]
     ga, gb = _games(con, a), _games(con, b)
     met = [g[0] for g in ga if b in (g[2], g[3])]
@@ -157,17 +170,21 @@ def check_pair(con, keep: dict, other: dict, refs: set, known: set) -> tuple[str
             continue
         if (t, col) not in known:
             return f"a reference the command does not know: {t}.{col} holds {n} row(s) of team {b}", {}
+        dropped = 0
         for key in unique_keys(con, t):
             if col not in key:
                 continue
-            others = [k for k in key if k != col]
-            join = " AND ".join(f"x.{_q(k)} IS y.{_q(k)}" for k in others) or "1"
-            clash = con.execute(f"SELECT COUNT(*) FROM {_q(t)} x JOIN {_q(t)} y ON {join} "
+            clash = con.execute(f"SELECT COUNT(*) FROM {_q(t)} x JOIN {_q(t)} y ON {_clash_where(t, col, key)} "
                                 f"WHERE x.{_q(col)} = ? AND y.{_q(col)} = ?", (b, a)).fetchone()[0]
-            if clash:
+            if clash and (t, col) == SAME_MEMBERSHIP:
+                dropped = max(dropped, clash)       # one membership: the other row's is dropped (addendum 50 5(b))
+            elif clash:
                 return (f"a unique-table conflict: {t} ({', '.join(key)}) holds {clash} row(s) of team {b} that would "
                         f"duplicate team {a}'s"), {}
-        moves[f"{t}.{col}"] = n
+        if n - dropped:
+            moves[f"{t}.{col}"] = n - dropped
+        if dropped:
+            moves[f"dropped: {t}.{col}"] = dropped
     return None, moves
 
 
@@ -203,12 +220,45 @@ def plan(con) -> dict:
     return out
 
 
-def apply(con, at: str) -> dict:
-    """Merge every candidate pair of plan(): re-point, record the provider ids, delete the emptied row. One
-    transaction per pair, re-checked inside it; a pair that fails its check is left, never forced."""
+def pair_text(keep_id: int, other_id: int) -> str:
+    """A pair in the form the dry run prints it and --apply takes it: <kept id>:<merged id>."""
+    return f"{keep_id}:{other_id}"
+
+
+def parse_pair(text: str) -> tuple[int, int]:
+    a, sep, b = str(text).strip().partition(":")
+    if not sep or not a.strip().isdigit() or not b.strip().isdigit():
+        raise ValueError(f"{text!r} is not a pair <kept id>:<merged id> as the dry run prints it")
+    return int(a), int(b)
+
+
+def apply(con, at: str, pairs: list[tuple[int, int]]) -> dict:
+    """Addendum 50 item 5(a): "--apply takes the pairs it merges, each by its two ids as the dry run printed them,
+    and merges those and no other. A named pair that is not a candidate when the apply reads the database is refused
+    with its reason. --apply without a pair is refused." Per named pair: re-point, record the provider ids, delete the
+    emptied row; one transaction per pair, re-checked inside it; a pair that fails its check is left, never forced."""
+    if not pairs:
+        raise ValueError("--apply without a pair is refused: name each pair the dry run printed (--pair KEPT:MERGED)")
     res = {"merged": [], "refused": []}
     refs, known = live_refs(con), known_refs()
-    for c in plan(con)["candidates"]:
+    p = plan(con)
+    cands = {(c["keep"]["id"], c["other"]["id"]): c for c in p["candidates"]}
+    left = {}
+    for x in p["left"]:
+        for r in x["rows"]:
+            left.setdefault(r["id"], x["why"])
+    todo = []
+    for a_id, b_id in pairs:
+        if (a_id, b_id) in cands:
+            todo.append(cands[(a_id, b_id)])
+        elif (b_id, a_id) in cands:
+            res["refused"].append({"keep": a_id, "other": b_id, "why": f"not as the dry run prints it: the pair is "
+                                   f"{pair_text(b_id, a_id)} (the lower id keeps its row)"})
+        else:
+            why = left.get(a_id) if left.get(a_id) == left.get(b_id) and a_id in left else None
+            res["refused"].append({"keep": a_id, "other": b_id, "why": "not a candidate pair when the apply read the "
+                                   "database" + (f": {why}" if why else " (names, sport or the rows themselves differ)")})
+    for c in todo:
         keep, other = c["keep"], c["other"]
         try:
             con.execute("BEGIN IMMEDIATE")
@@ -228,7 +278,14 @@ def apply(con, at: str) -> dict:
                 con.execute("ROLLBACK")
                 res["refused"].append({"keep": keep["id"], "other": other["id"], "why": why})
                 continue
-            for tc in moves:
+            for tc in [k for k in moves if k.startswith("dropped: ")]:       # one membership (addendum 50 5(b))
+                t, col = tc[len("dropped: "):].split(".", 1)
+                for key in unique_keys(con, t):
+                    if col in key:
+                        con.execute(f"DELETE FROM {_q(t)} AS x WHERE x.{_q(col)} = ? AND EXISTS (SELECT 1 FROM "
+                                    f"{_q(t)} y WHERE y.{_q(col)} = ? AND {_clash_where(t, col, key)})",
+                                    (other["id"], keep["id"]))
+            for tc in [k for k in moves if not k.startswith("dropped: ")]:
                 t, col = tc.split(".", 1)
                 con.execute(f"UPDATE {_q(t)} SET {_q(col)} = ? WHERE {_q(col)} = ?", (keep["id"], other["id"]))
             ext = merged_ext(keep["ext"], other["ext"], other["id"], at)

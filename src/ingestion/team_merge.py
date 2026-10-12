@@ -53,6 +53,7 @@ def source_ids(ext: dict | None, source: str) -> set[str]:
 def merged_ext(keep: dict | None, other: dict | None, other_id: int, at: str) -> dict:
     """The kept row's external_ids with the other row's provider ids recorded on it."""
     out = dict(keep or {})
+    prior = list((other or {}).get("merged_from") or [])      # the other row's own earlier merges (Codex on #465)
     for k, v in (other or {}).items():
         if k == "merged_from":
             continue
@@ -66,7 +67,7 @@ def merged_ext(keep: dict | None, other: dict | None, other_id: int, at: str) ->
             if str(v) not in {str(x) for x in cur}:
                 cur.append(v)
             out[f"{k}{ALSO}"] = cur
-    out["merged_from"] = list(out.get("merged_from") or []) + [
+    out["merged_from"] = list(out.get("merged_from") or []) + prior + [
         {"team_id": other_id, "external_ids": {k: v for k, v in (other or {}).items() if k != "merged_from"},
          "at": at}]
     return out
@@ -173,7 +174,7 @@ def check_pair(con, keep: dict, other: dict, refs: set, known: set) -> tuple[str
 def plan(con) -> dict:
     """The dry run: every group of rows whose names are equal once unescaped and reduced, within a sport; a pair is a
     candidate or is listed and left with why. Reads only."""
-    rows = [{"id": r[0], "sport": r[1], "name": r[2], "ext": json.loads(r[3]) if isinstance(r[3], str) else (r[3] or {})}
+    rows = [{"id": r[0], "sport": r[1], "name": r[2], "ext": _ext(r[3])}
             for r in con.execute("SELECT id, sport, name, external_ids FROM teams ORDER BY id")]
     groups = defaultdict(list)
     for r in rows:
@@ -211,6 +212,17 @@ def apply(con, at: str) -> dict:
         keep, other = c["keep"], c["other"]
         try:
             con.execute("BEGIN IMMEDIATE")
+            # re-read both rows under the write lock: an ingest between the plan and the lock must not be overwritten
+            # with the plan's copy (Codex on #465)
+            cur = {r[0]: r for r in con.execute("SELECT id, name, external_ids FROM teams WHERE id IN (?, ?)",
+                                                 (keep["id"], other["id"]))}
+            if set(cur) != {keep["id"], other["id"]} or tm_key(cur[keep["id"]][1]) != tm_key(cur[other["id"]][1]):
+                con.execute("ROLLBACK")
+                res["refused"].append({"keep": keep["id"], "other": other["id"],
+                                       "why": "a row changed or left between the plan and the lock"})
+                continue
+            keep = {**keep, "ext": _ext(cur[keep["id"]][2])}
+            other = {**other, "ext": _ext(cur[other["id"]][2])}
             why, moves = check_pair(con, keep, other, refs, known)
             if why:
                 con.execute("ROLLBACK")
@@ -239,6 +251,14 @@ def apply(con, at: str) -> dict:
                 pass
             res["refused"].append({"keep": keep["id"], "other": other["id"], "why": f"{type(e).__name__}: {e}"[:300]})
     return res
+
+
+def tm_key(name) -> str:
+    return canon(name)
+
+
+def _ext(raw) -> dict:
+    return json.loads(raw) if isinstance(raw, str) else (raw or {})
 
 
 def counts(con) -> Counter:

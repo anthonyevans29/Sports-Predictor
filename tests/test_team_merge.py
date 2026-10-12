@@ -202,3 +202,70 @@ def test_the_command_refuses_apply_without_a_backup_and_the_dry_run_writes_nothi
     r = CliRunner().invoke(cli.cli, ["merge-teams"])
     assert r.exit_code == 0 and "DRY RUN (nothing written)" in r.output, r.output
     assert "stored team names carrying an HTML entity, by sport" in r.output
+
+
+# ============================================================================== Codex on #465 (round 1) ==
+
+def test_a_sync_found_by_the_recorded_id_keeps_the_rows_own_id():
+    """P1: syncing team 901 onto {59, also [901]} must not make 901 the row's id (a later 59 would make a new row)."""
+    from types import SimpleNamespace as NS
+
+    from src.db.database import init_db, session_scope
+    from src.ingestion.service import IngestionService, SyncResult
+    init_db()
+    with session_scope() as s:
+        t = Team(sport=Sport.NFL, name="Kept Rainbows", external_ids={SRC: "k59", f"{SRC}_also": ["k901"]})
+        s.add(t)
+        s.flush()
+        svc = IngestionService.__new__(IngestionService)
+        nt = NS(sport=Sport.NFL, source=SRC, source_id="k901", name="Kept Rainbows", short_name=None, tla=None,
+                area=None, founded=None, venue=None)
+        got = svc._upsert_team(s, nt, SyncResult())
+        assert got.id == t.id and got.external_ids[SRC] == "k59" and got.external_ids[f"{SRC}_also"] == ["k901"]
+        assert IngestionService._find_team_by_source(s, Sport.NFL, SRC, "k59").id == t.id
+        nt2 = NS(**{**vars(nt), "source_id": "k59"})
+        assert svc._upsert_team(s, nt2, SyncResult()).id == t.id
+
+
+def test_a_merged_rows_earlier_merges_are_carried_forward():
+    out = tm.merged_ext({SRC: "1"}, {SRC: "2", "merged_from": [{"team_id": 9, "external_ids": {SRC: "3"}, "at": "A"}]},
+                        5, "B")
+    assert [m["team_id"] for m in out["merged_from"]] == [9, 5]
+    assert out["merged_from"][0] == {"team_id": 9, "external_ids": {SRC: "3"}, "at": "A"}
+
+
+def test_apply_rereads_the_rows_under_the_lock(db, monkeypatch):
+    """P2: an ingest that writes a provider id between the plan and the lock is kept, not overwritten."""
+    path, eng = db
+    keep, other = hawaii(eng)
+    con = con_of(path)
+    real_plan = tm.plan
+
+    def plan_then_ingest(c):
+        p = real_plan(c)
+        c.execute("UPDATE teams SET external_ids = ? WHERE id = ?", (json.dumps({SRC: "59", "other_src": "x"}), keep))
+        return p
+    monkeypatch.setattr(tm, "plan", plan_then_ingest)
+    res = tm.apply(con, "T")
+    assert [m["keep"] for m in res["merged"]] == [keep]
+    ext = json.loads(con.execute("SELECT external_ids FROM teams WHERE id = ?", (keep,)).fetchone()[0])
+    assert ext["other_src"] == "x" and ext[f"{SRC}_also"] == ["901"]
+
+
+def test_the_international_path_reads_every_recorded_id(monkeypatch):
+    from src.ingestion import intl_history as ih
+    from src.db.database import init_db, session_scope
+    init_db()
+    with session_scope() as s:
+        t = Team(sport=Sport.SOCCER, name="Merged Nation", external_ids={"api_football": "n1",
+                                                                          "api_football_also": ["n2"]})
+        s.add(t)
+        s.flush()
+        tid = t.id
+    svc = ih._cached_service(type("A", (), {"source_name": "api_football"})()) if hasattr(ih, "_cached_service") \
+        else None
+    if svc is None:
+        pytest.skip("no cached service")
+    with session_scope() as s:
+        assert svc._find_team_by_source(s, Sport.SOCCER, "api_football", "n2").id == tid
+        assert svc._find_team_by_source(s, Sport.SOCCER, "api_football", "n1").id == tid

@@ -233,7 +233,12 @@ class IngestionService:
             team.founded = nt.founded or team.founded
             team.venue = nt.venue or team.venue
             ext = dict(team.external_ids or {})
-            ext[nt.source] = nt.source_id
+            # Codex on #465 (P1): a listing found by an id a merge recorded never displaces the row's own id, or
+            # a later listing carrying that own id would make a new row and undo the merge
+            own = ext.get(nt.source)
+            if own is None or str(own) == str(nt.source_id) or \
+                    str(nt.source_id) not in {str(x) for x in (ext.get(f"{nt.source}_also") or [])}:
+                ext[nt.source] = nt.source_id
             team.external_ids = ext
             result.updated += 1
             return team

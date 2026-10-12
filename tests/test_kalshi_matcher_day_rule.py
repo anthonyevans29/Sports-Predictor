@@ -370,6 +370,42 @@ def test_a_numbered_event_dated_after_an_event_out_of_step_is_refused_behind_it(
                          "its date 2026-10-12 is before the day of the run 2026-10-13"]
 
 
+def test_today_s_seven_events_place_four_legs_and_leave_the_later_events_to_their_own_reasons():
+    """Addendum 55 item 3: the seven open events of 2026-10-12 (#473) on the rows as stored at 4:27pm. Tomorrow's rows
+    are not stored, so 26OCT132000CLETB and 26OCT142000MILLAD are out of step; the three events after them could not
+    have been placed and keep their own reasons, with no line of the behind kind."""
+    today, last_night, alcs_today = _nlcs()
+    mil_lad = [("MIL", "Milwaukee"), ("LAD", "Los Angeles D")]
+    tb_cle = [("TB", "Tampa Bay"), ("CLE", "Cleveland")]
+    seven = (LADMIL + CLETB + event("26OCT132000CLETB", tb_cle, series="KXMLBGAME")
+             + event("26OCT142000MILLAD", mil_lad, series="KXMLBGAME")
+             + event("26OCT152000MILLAD", mil_lad, series="KXMLBGAME") + alcs("26OCT151800TBCLE")
+             + alcs("26OCT161800TBCLE"))
+    res = run(seven, [last_night, today, alcs_today], now=Z("2026-10-12T20:27"))
+    assert placed(res) == {(50542, "HOME"): "MIL", (50542, "AWAY"): "LAD", (50543, "HOME"): "TB",
+                           (50543, "AWAY"): "CLE"}                                   # the same four legs as main
+    assert res.refused == {km.NO_GAME_ON_DATE: 2, km.NO_FIT: 8} and km.BEHIND not in res.refused
+    assert not any("refused behind" in ln for ln in res.lines), res.lines
+    by_event = {}
+    for m in seven:
+        by_event.setdefault(km.event_of(m), []).append(m)
+    behind = km.behind_out_of_step(by_event, [last_night, today, alcs_today], now=Z("2026-10-12T20:27"),
+                                   is_tie=lambda m: False, implied_prob=lambda m: 0.5)
+    assert set(behind) == {"KXMLBGAME-26OCT152000MILLAD", "KXMLBGAME-26OCT151800TBCLE",
+                           "KXMLBGAME-26OCT161800TBCLE"}                 # behind, but none would have been placed
+
+
+def test_the_next_day_s_row_not_stored_with_a_third_event_after_it():
+    """The third event is refused for its own reason (no game of the competition on its day fits it), no behind line."""
+    _, _, alcs_today = _nlcs()
+    tb_cle = [("TB", "Tampa Bay"), ("CLE", "Cleveland")]
+    res = run(CLETB + event("26OCT132000CLETB", tb_cle, series="KXMLBGAME")
+              + event("26OCT142000CLETB", tb_cle, series="KXMLBGAME"), [alcs_today], now=Z("2026-10-12T20:27"))
+    assert placed(res) == {(50543, "HOME"): "TB", (50543, "AWAY"): "CLE"}
+    assert res.refused == {km.NO_GAME_ON_DATE: 2, km.NO_FIT: 2}
+    assert not any("refused behind" in ln for ln in res.lines), res.lines
+
+
 def test_a_date_only_series_is_outside_the_rule():
     """There a moved game is followed a day either side (two events on one game are both refused already): an older
     event of the pair with no game near its date, and dated before the run's day, holds nothing behind it."""

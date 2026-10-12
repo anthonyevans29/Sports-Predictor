@@ -34,7 +34,8 @@ that is not a game is not one here. No event of the same two names dated after a
 run, with or without a game number: it is refused under a reason of its own, and its line names the earliest event out
 of step and says why that one is. Events dated before the earliest one are placed as ruled." An event out of step is
 refused already, under its own reason; it counts whether or not its markets carry a price. A date-only series is
-outside the rule.
+outside the rule. Addendum 55 item 3: "The reason 'behind' and its line are for a market that would otherwise have
+been placed. A market refused for a reason of its own keeps that reason, and no such line is printed for it."
 
 Pure: no network, no database. place() takes the markets and the stored games (objects with id, utc_date (naive
 UTC), home_team.name, away_team.name, status) and returns the placements and the refusals by reason.
@@ -245,8 +246,9 @@ def _game_number(ev, market):
 
 def behind_out_of_step(by_event: dict, games: list, *, now: datetime, is_tie, implied_prob, spread=None,
                        max_spread=None) -> dict:
-    """Addendum 54 item 6: {event: its console line} for every clock-series event refused behind an event of the
-    same two names out of step. Out of step (an event with no game number): no game of its two teams on its date (the
+    """Addendum 54 item 6: {event: its console line} for every clock-series event behind an event of the same two
+    names out of step; place() refuses its markets as behind only where they would otherwise take their place on a
+    game (addendum 55 item 3). Out of step (an event with no game number): no game of its two teams on its date (the
     pair place() would choose, the best fit on the event's day; no fit at all is no game), or its date before the
     day of the run (US Eastern). Every market of an event is read, priced or not. The names are the group: an event
     out of step may fit no stored game."""
@@ -320,10 +322,6 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
         day, clock = ticker_stamp(live[0])
         if day is None:
             refuse(live, NO_DATE)
-            continue
-        if ev in behind:                        # addendum 54 item 6: behind an event of the same two names
-            refuse(live, BEHIND)
-            res.lines.append(behind[ev])
             continue
         top = _best_fits(names, day, games)
         if not top:
@@ -416,6 +414,14 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                 side = "HOME" if yes == home_name else "AWAY"
             if g.utc_date <= now:               # in play on OUR clock, never assumed pre-game
                 refuse([mk], IN_PLAY)
+                continue
+            if ev in behind:
+                # addendum 55 item 3: "The reason 'behind' and its line are for a market that would otherwise have
+                # been placed. A market refused for a reason of its own keeps that reason, and no such line is
+                # printed for it." So it is read here, where the market would take its place on a game.
+                refuse([mk], BEHIND)
+                if behind[ev] not in res.lines:
+                    res.lines.append(behind[ev])
                 continue
             claims.setdefault((g.id, side), []).append(mk)
     for key, mks in claims.items():

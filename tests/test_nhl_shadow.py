@@ -221,6 +221,9 @@ def test_the_grade_never_counts_a_no_fit_file_as_v7_and_still_counts_its_referen
         assert "[no xG fit: not v7, the reference only]" in r["lines"][0]
         md = sh.results_section(10000, export_dir=str(tmp_path))
         assert "1 from files made without the xG fit: the reference line only, never v7" in md
+        # Codex on #464: the empty v7 line names the reason, never "no stored close" / "unanchored"
+        assert md.count("— (no v7-fit call graded: all 1 came from files made without the xG fit)") == 2
+        assert "no stored close" not in md and "unanchored" not in md
     finally:
         with session_scope() as s:
             m = s.get(Match, nhl["up"])

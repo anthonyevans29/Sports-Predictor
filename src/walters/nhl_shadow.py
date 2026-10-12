@@ -304,17 +304,21 @@ def results_section(days: int, export_dir: str = "exports") -> str:
     if not r["graded"]:
         return head + ("Live model-close divergence only. No graded shadow calls in window "
                        f"({r['calls_on_file']} calls on file).\n")
+    # Codex on #464: when every graded call is a no-fit file's, the v7 line is empty by ruling, not for want of
+    # a close or an anchor; it says so instead of blaming the market data
+    none_v7 = (f"— (no v7-fit call graded: all {r['no_fit']} came from files made without the xG fit)"
+               if r.get("no_fit") and r["no_fit"] >= r["graded"] else None)
     return head + (
         f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}"
         + (f" ({r['no_fit']} from files made without the xG fit: the reference line only, never v7)"
            if r.get("no_fit") else "") + "\n"
         "- Mean pick-vs-close: "
         + (f"{r['mean_clv_pp']:+.2f}pp (n={r['priced']} priced)" if r["mean_clv_pp"] is not None
-           else f"— (no stored close; {r['unpriced']} unpriced)") + "\n"
+           else none_v7 or f"— (no stored close; {r['unpriced']} unpriced)") + "\n"
         + "- Mean value-side-vs-close: "
         + (f"{r['mean_value_side_clv_pp']:+.2f}pp (n={r['value_side_n']} anchored)"
            if r["mean_value_side_clv_pp"] is not None
-           else f"— ({r['unanchored']} unanchored: no pre-kickoff book snapshot)") + "\n"
+           else none_v7 or f"— ({r['unanchored']} unanchored: no pre-kickoff book snapshot)") + "\n"
         + f"- Reference {REFERENCE_VERSION} ({REFERENCE_VERDICT}) pick-vs-close: "
         + (f"{r['reference_mean_clv_pp']:+.2f}pp (n={r['reference_priced']})" if r["reference_mean_clv_pp"] is not None
            else "— (no reference rows priced yet)") + "\n")

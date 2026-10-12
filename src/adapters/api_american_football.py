@@ -422,7 +422,7 @@ class APIAmericanFootballAdapter(DataAdapter):
         # failure; its default behaviour does not change." Recorded on `last_roster_failure` (None = the roster
         # read answered with players) for this call; the service lists it in failed_reads, which only a
         # command's --strict reads. An empty roster is recorded too: no position can resolve from it.
-        from src.walters.qb_audit import _norm, resolve_position, roster_index
+        from src.walters.qb_audit import injury_entries, resolve_position, roster_index
         self.last_roster_failure = None
         roster: list = []
         try:
@@ -448,24 +448,7 @@ class APIAmericanFootballAdapter(DataAdapter):
         # lookup, never by a name. An entry with no id is resolved by name as today, and is kept only where no other
         # entry has its name. A name the roster holds more than once resolves nobody by name." Names compare as the
         # roster join does (qb_audit._norm).
-        entries, seen_ids = [], set()
-        for item in items:
-            pl = item.get("player") or {}
-            if not (pl.get("name") or "").strip():
-                continue                   # no name: no row to write, as before
-            if pl.get("id") is not None:
-                if str(pl["id"]) in seen_ids:
-                    continue               # one id listed more than once: one entry, the first
-                seen_ids.add(str(pl["id"]))
-            entries.append(item)
-        name_n: dict = {}
-        ids_by_name: dict = {}
-        for item in entries:
-            pl = item["player"]
-            nm = _norm(pl["name"])
-            name_n[nm] = name_n.get(nm, 0) + 1
-            if pl.get("id") is not None:
-                ids_by_name.setdefault(nm, set()).add(str(pl["id"]))
+        entries = injury_entries(items)    # qb_audit: the one place the entries are taken (the audit too)
         # THE POSITION LOOKUP (ARCHITECT 2026-10-12, addendum 44 item 4): "A listed player whose position the roster
         # does not give is asked for by his provider id. The answer is kept, so a player is asked once and not at
         # every read. [...] Under --strict a lookup that fails is a failed read; an answer that holds no position is
@@ -476,18 +459,12 @@ class APIAmericanFootballAdapter(DataAdapter):
         look = {"asked": 0, "answered_position": 0, "answered_none": 0, "from_kept": 0, "failed": [],
                 "new_answers": [], "resolved_by_lookup": []}
         self.last_position_lookup = look
-        for item in entries:
+        for item, by_name in entries:
             player = item["player"]
             name = player["name"].strip()
-            nm = _norm(name)
-            if player.get("id") is None:
-                if name_n[nm] > 1:         # an entry with no id is kept only where no other entry has its name
-                    continue
-                position, _how = resolve_position(player, idx)
-            else:                          # shared name, different ids: by its own id, never by a name
-                position, _how = resolve_position(player, idx, by_name=len(ids_by_name.get(nm) or ()) < 2)
-                if position is None and lookups_on:
-                    position = self._look_up_position(player, name, known, look)
+            position, _how = resolve_position(player, idx, by_name=by_name)
+            if position is None and player.get("id") is not None and lookups_on:
+                position = self._look_up_position(player, name, known, look)
             out.append({
                 "player_name": name,
                 "player_position": position,

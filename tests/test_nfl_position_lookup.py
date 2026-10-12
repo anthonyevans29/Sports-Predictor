@@ -323,3 +323,26 @@ def test_451_a_group_is_not_a_position_the_roster_row_leaves_him_unresolved_and_
                roster={"PLS-0": [{"id": 98, "name": "Grp Only", "group": "Offense"}]})
     r, ts = _run(monkeypatch, "PLS", d, "--strict")
     assert r.exit_code == 0 and _rows(ts) == [("Grp Only", "QB")] and d.asked_ids == ["98"], r.output
+
+
+def test_codex_4250343104_an_id_entry_sharing_its_name_with_an_id_less_one_is_never_resolved_by_name(monkeypatch):
+    """Codex on #456: the id-less entry is dropped, and the id entry that shares its name is resolved by its own id
+    alone; the roster's other player of that name never gives it a position."""
+    d = Double({"PLT-0": [{"id": 99, "name": "Kai Moss"}, {"name": "Kai Moss"}], "PLT-1": []},
+               {"99": _ans(99, position="S")},
+               roster={"PLT-0": [{"id": 500, "name": "Kai Moss", "position": "QB"}]})
+    r, ts = _run(monkeypatch, "PLT", d, "--strict")
+    assert r.exit_code == 0 and _rows(ts) == [("Kai Moss", "S")] and d.asked_ids == ["99"], r.output
+
+
+def test_codex_4250343097_the_live_qb_audit_takes_the_reads_entries():
+    """Codex on #456: nfl-qb-audit --live classifies the same entries the read keeps, resolved the same way."""
+    from datetime import datetime
+    from src.walters.qb_audit import audit_live
+    roster = [{"id": 1, "name": "John Smith", "position": "QB"}]
+    inj = [{"player": {"id": 2, "name": "John Smith"}, "status": "Out"},
+           {"player": {"id": 3, "name": "John Smith"}, "status": "Out"},
+           {"player": {"id": 2, "name": "J. Smith"}, "status": "Out"},          # one id twice: the first
+           {"player": {"name": "John Smith"}, "status": "Out"}]                 # no id, shared name: not kept
+    a = audit_live(inj, roster, datetime(2026, 10, 12))
+    assert [(i["id"], i["position"]) for i in a["items"]] == [(2, None), (3, None)]   # never the roster QB by name

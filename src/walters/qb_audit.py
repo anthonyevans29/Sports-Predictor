@@ -93,6 +93,38 @@ def resolve_position(player: dict, idx: dict, by_name: bool = True) -> tuple[str
     return None, None
 
 
+def injury_entries(items: list[dict]) -> list[tuple[dict, bool]]:
+    """THE ENTRIES OF THE INJURIES READ (ARCHITECT 2026-10-12, addendum 47 item 3, #454): "In the injuries read an
+    entry is told apart by its provider id. One id listed more than once is one entry, the first. Entries that share
+    a name and differ in id are different players: each is kept, and each is resolved by its own id, from the roster
+    and then by the lookup, never by a name. An entry with no id is resolved by name as today, and is kept only where
+    no other entry has its name." The ONE place the adapter's read and the audit (audit_live) take the entries.
+    Returns [(item, by_name)]: by_name is False for an entry whose name another entry of the read has (names compared
+    by _norm), id-less ones included (Codex on #456), so it is resolved by its own id alone. Entries with no name are
+    skipped (no row to write)."""
+    kept, seen_ids = [], set()
+    for item in items or []:
+        pl = item.get("player") or {}
+        if not (pl.get("name") or "").strip():
+            continue
+        if pl.get("id") is not None:
+            if str(pl["id"]) in seen_ids:
+                continue                   # one id listed more than once: one entry, the first
+            seen_ids.add(str(pl["id"]))
+        kept.append(item)
+    name_n: dict = {}
+    for item in kept:
+        nm = _norm(item["player"]["name"])
+        name_n[nm] = name_n.get(nm, 0) + 1
+    out = []
+    for item in kept:
+        shared = name_n[_norm(item["player"]["name"])] > 1
+        if item["player"].get("id") is None and shared:
+            continue                       # no id, and another entry has its name: not kept
+        out.append((item, not shared))
+    return out
+
+
 def _old_filter_drops(date_str: str | None, now: datetime) -> bool:
     if not date_str:
         return False
@@ -112,9 +144,9 @@ def audit_live(injuries: list[dict], roster: list[dict], now: datetime,
                          for rp in roster or []
                          if is_qb((rp.get("player") if isinstance(rp.get("player"), dict) else rp).get("position"))})
     items = []
-    for it in injuries or []:
+    for it, by_name in injury_entries(injuries):         # the read's own entries (addendum 47 item 3)
         pl = it.get("player") or {}
-        pos, how = resolve_position(pl, idx)
+        pos, how = resolve_position(pl, idx, by_name=by_name)
         old_pos = idx["by_id"].get(pl.get("id"))          # the pre-fix join: id only
         items.append({"name": pl.get("name"), "id": pl.get("id"), "status": it.get("status"),
                       "date": it.get("date"), "position": pos, "resolved_by": how,

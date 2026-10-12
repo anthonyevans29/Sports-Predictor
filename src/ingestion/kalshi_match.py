@@ -26,6 +26,17 @@ the ticker's own date. Nothing else is read there: not the clock, not occurrence
 An event with a game number (G1, G2) is admitted by its clock alone (addendum 51 item 3, lane #472).
 occurrence_datetime places nothing and refuses nothing on any series.
 
+Addendum 54 item 6 (2026-10-12, finding #476: a postponement inside a series put the next game's market on the
+postponed game's row), beside addendum 52 item 4, which stands, verbatim: "On a series whose ticker carries a clock
+time, the events of the same two names are read together. An event with no game number is out of step when no game of
+its two teams is on its date, or when its date is before the day of the run. Dates are read in US Eastern, and a row
+that is not a game is not one here. No event of the same two names dated after an event out of step is placed in that
+run, with or without a game number: it is refused under a reason of its own, and its line names the earliest event out
+of step and says why that one is. Events dated before the earliest one are placed as ruled." An event out of step is
+refused already, under its own reason; it counts whether or not its markets carry a price. A date-only series is
+outside the rule. Addendum 55 item 3: "The reason 'behind' and its line are for a market that would otherwise have
+been placed. A market refused for a reason of its own keeps that reason, and no such line is printed for it."
+
 Pure: no network, no database. place() takes the markets and the stored games (objects with id, utc_date (naive
 UTC), home_team.name, away_team.name, status) and returns the placements and the refusals by reason.
 
@@ -71,6 +82,7 @@ YES_UNKNOWN = "the market's yes team is neither of the event's names"
 IN_PLAY = "in play (our kickoff has passed)"
 WIDE_SPREAD = "spread wider than the guard"
 TWO_CLAIMS = "two markets claim one side of one game"
+BEHIND = "behind an event of the same two names out of step"
 
 
 def norm_tokens(name: str) -> set[str]:
@@ -189,6 +201,87 @@ class Result:
         return self.refused.get(IN_PLAY, 0)
 
 
+def _live(mks, implied_prob, spread, max_spread) -> list[dict]:
+    """The event's markets with a price, inside the spread guard where one is set."""
+    return [mk for mk in mks if implied_prob(mk) is not None
+            and not (max_spread is not None and spread is not None and (spread(mk) or 0) > max_spread)]
+
+
+def _names(mks, first, is_tie) -> list[str]:
+    """The event's two names, from the event's own markets (siblings: one name each); the old "A vs B" title of
+    `first` is the fallback for an old-format title. The yes team alone never places a market."""
+    from src.adapters.kalshi import KalshiAdapter
+    names = []
+    for mk in mks:
+        if not is_tie(mk):
+            nm = (mk.get("yes_sub_title") or "").strip()
+            if nm and nm not in names:
+                names.append(nm)
+    if len(names) != 2:
+        tt = KalshiAdapter.title_teams(first)
+        names = list(tt) if tt else names
+    return names
+
+
+def _best_fits(names, day, games) -> list:
+    """Names before time: [(game, which name is home)] of the best fit among the competition's games on the event's
+    day (the ticker's date, a day either side, US Eastern; rows that are not games left out). [] when none fits."""
+    on_day = [g for g in games if g.utc_date and g.home_team and g.away_team and is_game(g)
+              and abs((et_day(g.utc_date) - day).days) <= 1]
+    fits = []
+    for g in on_day:
+        f = fit((names[0], names[1]), g.home_team.name, g.away_team.name)
+        if f is not None:
+            fits.append((f[0], g, f[1]))
+    if not fits:
+        return []
+    best = max(sc for sc, _, _ in fits)
+    return [(g, home_name) for sc, g, home_name in fits if sc == best]
+
+
+def _game_number(ev, market):
+    """The event's game number (G1, G2), read as place() reads it."""
+    return re.search(r"G(\d)$", ev or "") or re.search(r"G(\d)-", market.get("ticker") or "")
+
+
+def behind_out_of_step(by_event: dict, games: list, *, now: datetime, is_tie, implied_prob, spread=None,
+                       max_spread=None) -> dict:
+    """Addendum 54 item 6: {event: its console line} for every clock-series event behind an event of the same two
+    names out of step; place() refuses its markets as behind only where they would otherwise take their place on a
+    game (addendum 55 item 3). Out of step (an event with no game number): no game of its two teams on its date (the
+    pair place() would choose, the best fit on the event's day; no fit at all is no game), or its date before the
+    day of the run (US Eastern). Every market of an event is read, priced or not. The names are the group: an event
+    out of step may fit no stored game."""
+    run_day = et_day(now)
+    heads, out = [], {}
+    for ev, mks in by_event.items():
+        live = _live(mks, implied_prob, spread, max_spread)
+        first = live[0] if live else mks[0]
+        names = _names(mks, first, is_tie)
+        day, clock = ticker_stamp(first)
+        if len(names) != 2 or day is None or clock is None:      # a date-only series is outside the rule
+            continue
+        key = frozenset(n.lower() for n in names)
+        heads.append((key, day, ev))
+        if _game_number(ev, first):
+            continue                                            # a numbered event is never out of step itself
+        why = []
+        if not any(et_day(g.utc_date) == day for g, _ in _best_fits(names, day, games)):
+            why.append(f"no game of its two teams on its date {day}")
+        if day < run_day:
+            why.append(f"its date {day} is before the day of the run {run_day}")
+        if why:
+            out.setdefault(key, []).append((day, ev, why))
+    lines = {}
+    for key, day, ev in heads:
+        if key not in out:
+            continue
+        d0, ev0, why0 = min(out[key], key=lambda x: (x[0], x[1]))       # the earliest event out of step
+        if day > d0:
+            lines[ev] = f"  ✗ {ev}: refused behind {ev0}, out of step: {' and '.join(why0)}"
+    return lines
+
+
 def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: datetime,
           is_tie=None, implied_prob=None, spread=None, max_spread: float | None = None) -> Result:
     """Place the markets on the games. `games`: the stored games of the series' own competition (any window: the day
@@ -203,6 +296,8 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
     for mk in markets:
         by_event.setdefault(event_of(mk), []).append(mk)
     claims: dict[tuple[int, str], list[dict]] = {}
+    behind = behind_out_of_step(by_event, games, now=now, is_tie=is_tie, implied_prob=implied_prob, spread=spread,
+                                max_spread=max_spread)
 
     def refuse(mks, reason, n=None):
         res.refused[reason] += len(mks) if n is None else n
@@ -220,17 +315,7 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                 live.append(mk)
         if not live:
             continue
-        # the event's two names, from the event's own markets (siblings: one name each); the old "A vs B" title is
-        # the fallback for an old-format title. The yes team alone never places a market.
-        names = []
-        for mk in mks:
-            if not is_tie(mk):
-                nm = (mk.get("yes_sub_title") or "").strip()
-                if nm and nm not in names:
-                    names.append(nm)
-        if len(names) != 2:
-            tt = KalshiAdapter.title_teams(live[0])
-            names = list(tt) if tt else names
+        names = _names(mks, live[0], is_tie)
         if len(names) != 2:
             refuse(live, NO_PAIR)
             continue
@@ -238,19 +323,10 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
         if day is None:
             refuse(live, NO_DATE)
             continue
-        on_day = [g for g in games if g.utc_date and g.home_team and g.away_team and is_game(g)
-                  and abs((et_day(g.utc_date) - day).days) <= 1]
-        # names before time: the best fit among the competition's games on the event's day
-        fits = []
-        for g in on_day:
-            f = fit((names[0], names[1]), g.home_team.name, g.away_team.name)
-            if f is not None:
-                fits.append((f[0], g, f[1]))
-        if not fits:
+        top = _best_fits(names, day, games)
+        if not top:
             refuse(live, NO_FIT)
             continue
-        best = max(s for s, _, _ in fits)
-        top = [(g, home_name) for s, g, home_name in fits if s == best]
         pairs = {frozenset((g.home_team_id, g.away_team_id)) for g, _ in top}
         if len(pairs) > 1:
             refuse(live, PAIR_TIE)
@@ -342,6 +418,14 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                 side = "HOME" if yes == home_name else "AWAY"
             if g.utc_date <= now:               # in play on OUR clock, never assumed pre-game
                 refuse([mk], IN_PLAY)
+                continue
+            if ev in behind:
+                # addendum 55 item 3: "The reason 'behind' and its line are for a market that would otherwise have
+                # been placed. A market refused for a reason of its own keeps that reason, and no such line is
+                # printed for it." So it is read here, where the market would take its place on a game.
+                refuse([mk], BEHIND)
+                if behind[ev] not in res.lines:
+                    res.lines.append(behind[ev])
                 continue
             claims.setdefault((g.id, side), []).append(mk)
     for key, mks in claims.items():

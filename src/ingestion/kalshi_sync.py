@@ -45,6 +45,24 @@ def stored_games(sess, comp_ids, markets: list[dict]) -> list:
                             Match.utc_date <= span[1])).scalars() if g.utc_date]
 
 
+def _alarm(sess, comp_ids, res: km.Result, markets: list[dict], now, lo, hi, report) -> bool:
+    """The zero-placement alarm (ARCHITECT 2026-10-12, addendum 54 item 3), verbatim: "The alarm is for a run that had
+    a game to price and priced none. It prints when no market is placed although markets were read and a game of the
+    competition that has not started is inside the run's window. A game outside the window does not count, nor one
+    that has started, nor a row that is not a game." Started is read on our kickoff, as the in-play refusal reads it."""
+    if res.placed or not markets or not comp_ids:
+        return False
+    due = [g for g in sess.execute(
+        select(Match).where(Match.competition_id.in_(list(comp_ids)), Match.utc_date >= lo, Match.utc_date <= hi,
+                            Match.utc_date > now)).scalars() if km.is_game(g)]
+    if not due:
+        return False
+    report(f"  ⚠ MATCHED ZERO with {len(markets)} markets read and {len(due)} unstarted game(s) of the competition "
+           "inside the run's window — matcher may be broken (see 2026-09-13 title-format incident). Probe the "
+           "payload before trusting 'absent'.")
+    return True
+
+
 def _store(sess, res: km.Result, *, now, market: str, implied_prob, yes_quotes) -> int:
     """Store each placed leg as an OddsSnapshot(source="kalshi") with its quotes and its market ticker."""
     stored_legs = []                                 # ORDER LINE: (snapshot, ticker)
@@ -129,23 +147,23 @@ def sync_kalshi_mlb(date_from=None, date_to=None, progress=None,
     lo = date_from or (now - timedelta(days=1))
     hi = date_to or (now + timedelta(days=2))
     with session_scope() as sess:
-        comp_ids = list(sess.execute(select(Competition.id).where(Competition.code.in_(comp_codes))).scalars())
+        comps = dict(sess.execute(select(Competition.code, Competition.id).where(Competition.code.in_(comp_codes))).all())
+        missing = sorted(comp_codes - set(comps))
+        if missing:                                  # as the soccer path answers (addendum 54 item 4(b))
+            return {"ok": False, "series": _series_label, "reason": f"competition {', '.join(missing)} not in DB"}
+        comp_ids = list(comps.values())
         games = stored_games(sess, comp_ids, all_markets)
         report(f"  {len(games)} stored {'/'.join(sorted(comp_codes))} games on the events' days")
         res = km.place(all_markets, games, now=now, lo=lo, hi=hi, implied_prob=adapter.implied_prob)
         for ln in km.console_lines(res):
             report(ln)
         stored = _store(sess, res, now=now, market="ML", implied_prob=adapter.implied_prob, yes_quotes=adapter.yes_quotes)
+        # Sentinel (2026-09-17, extending the soccer guard to the shared path); its condition as addendum 54 item 3
+        # rules it
+        alarm = _alarm(sess, comp_ids, res, all_markets, now, lo, hi, report)
     counts = km.legacy_counts(res)
-    matched = counts["matched"]
-
-    # Sentinel (2026-09-17, extending the soccer guard to the shared path):
-    # zero matches with BOTH sides present is an alarm, not a statistic.
-    if matched == 0 and games and all_markets:
-        report("  ⚠ MATCHED ZERO with games AND markets present — matcher may "
-               "be broken (see 2026-09-13 title-format incident). Probe the "
-               "payload before trusting 'absent'.")
-    return {"ok": True, "series": _series_label, "markets": len(all_markets), **counts, "stored": stored}
+    return {"ok": True, "series": _series_label, "markets": len(all_markets), **counts, "stored": stored,
+            "alarm": alarm}
 
 
 def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=None,
@@ -205,14 +223,9 @@ def sync_kalshi_soccer(competition_code: str = "PL", date_from=None, date_to=Non
             report(ln)
         stored = _store(sess, res, now=now, market="1X2", implied_prob=KalshiAdapter.implied_prob,
                         yes_quotes=KalshiAdapter.yes_quotes)
+        # Sentinel (2026-09-14): two matchweeks went dark before anyone noticed; its condition as addendum 54 item 3
+        # rules it
+        alarm = _alarm(sess, [comp.id], res, all_markets, now, lo, hi, report)
     counts = km.legacy_counts(res)
-    matched = counts["matched"]
-
-    # Sentinel (2026-09-14): two matchweeks went dark before anyone noticed —
-    # zero matches with BOTH sides present is an alarm, not a statistic.
-    if matched == 0 and games and all_markets:
-        report("  ⚠ MATCHED ZERO with games AND markets present — matcher may "
-               "be broken (see 2026-09-13 title-format incident). Probe the "
-               "payload before trusting 'absent'.")
     return {"ok": True, "series": series, "series_how": how, "markets": len(all_markets), **counts,
-            "wide_spread": res.refused.get(km.WIDE_SPREAD, 0), "stored": stored}
+            "wide_spread": res.refused.get(km.WIDE_SPREAD, 0), "stored": stored, "alarm": alarm}

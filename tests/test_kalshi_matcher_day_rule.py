@@ -617,3 +617,118 @@ def test_the_replay_places_each_series_at_its_own_fetch_time(scratch):
     p["series"]["KXNCAAFGAME"]["fetched_at"] = "2026-10-10T19:31:00"
     r = kr.replay(p, progress=lambda _: None)["KXNCAAFGAME"]
     assert r["placed"] == 0 and r["refused"] == {km.IN_PLAY: 2}
+
+
+# --- addendum 54 item 3: the alarm; item 4(a)(b): the commands' refusals ---
+
+NOW54 = Z("2026-10-13T15:00")                                                     # a Tuesday, 11:00 ET
+
+
+def _a54_comp(code, sport):
+    from src.db.database import init_db, session_scope
+    from src.db.schema import Competition, Sport
+    init_db()
+    with session_scope() as s:
+        if s.execute(select(Competition).where(Competition.code == code)).scalar_one_or_none() is None:
+            s.add(Competition(sport=Sport[sport], code=code, name=code, area="X", type="LEAGUE"))
+
+
+def _a54_row(code, sport, home, away, kick, status=None):
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, MatchStatus, Sport, Team
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.code == code)).scalar_one()
+        h, a = Team(sport=Sport[sport], name=home), Team(sport=Sport[sport], name=away)
+        s.add_all([h, a])
+        s.flush()
+        m = Match(sport=Sport[sport], competition_id=comp.id, season="2026", utc_date=kick,
+                  status=status or MatchStatus.SCHEDULED, home_team_id=h.id, away_team_id=a.id)
+        s.add(m)
+        s.flush()
+        return m.id
+
+
+def _a54_sync(monkeypatch, path, code, markets):
+    """Run the shared or the soccer sync at NOW54 on fixed markets; returns (result, console lines)."""
+    from src.adapters.kalshi import KalshiAdapter
+    from src.ingestion import kalshi_sync
+    from src.walters import venue
+    series = f"KX{code}GAME"
+    monkeypatch.setattr(kalshi_sync, "utc_now_naive", lambda: NOW54)
+    monkeypatch.setattr(KalshiAdapter, "status", lambda self: {"trading_active": True})
+    monkeypatch.setattr(KalshiAdapter, "sports_filters", lambda self: {})
+    monkeypatch.setattr(KalshiAdapter, "open_markets_for_series", lambda self, s: markets)
+    lines = []
+    if path == "shared":
+        monkeypatch.setitem(venue.KALSHI_SERIES_BY_COMPETITION, code, series)
+        return kalshi_sync.sync_kalshi_mlb(series_override=series, progress=lines.append), lines
+    return kalshi_sync.sync_kalshi_soccer(code, series_override=series, progress=lines.append), lines
+
+
+def _alarmed(lines):
+    return any("MATCHED ZERO" in ln for ln in lines)
+
+
+@pytest.mark.parametrize("path,sport", [("shared", "NFL"), ("soccer", "SOCCER")])
+def test_the_tuesday_shape_is_quiet(monkeypatch, path, sport):
+    """Addendum 54 item 3's receipt: a date-only series on a Tuesday at 15:00Z, its two games more than two days out
+    (the shared path's window) or past the soccer path's: refused as outside the window, and no alarm."""
+    code = f"A54T{path[:2].upper()}"
+    _a54_comp(code, sport)
+    far = Z("2026-10-21T17:00") if path == "soccer" else Z("2026-10-18T17:00")   # Sunday; soccer: past its 7 days
+    _a54_row(code, sport, f"Bram Bats {code}", f"Aard Ants {code}", far)
+    _a54_row(code, sport, f"Dune Dogs {code}", f"Cove Cats {code}", far + timedelta(hours=3))
+    day = f"{far:%y%b%d}".upper()
+    mks = (event(f"{day}AABB", [("AA", f"Aard Ants {code}"), ("BB", f"Bram Bats {code}")], series=f"KX{code}GAME")
+           + event(f"{day}CCDD", [("CC", f"Cove Cats {code}"), ("DD", f"Dune Dogs {code}")], series=f"KX{code}GAME"))
+    r, lines = _a54_sync(monkeypatch, path, code, mks)
+    assert r["ok"] and r["refused"] == {km.OUTSIDE_WINDOW: 4} and r["stored"] == 0, r
+    assert not r["alarm"] and not _alarmed(lines), lines
+
+
+@pytest.mark.parametrize("path,sport", [("shared", "NFL"), ("soccer", "SOCCER")])
+def test_a_game_inside_the_window_with_its_event_refused_alarms(monkeypatch, path, sport):
+    code = f"A54A{path[:2].upper()}"
+    _a54_comp(code, sport)
+    _a54_row(code, sport, f"Fox Fens {code}", f"Eel Elks {code}", Z("2026-10-14T23:00"))   # tomorrow, in the window
+    mks = event("26OCT14XYZ", [("X", "Xeno"), ("Y", "Yuma")], series=f"KX{code}GAME")      # names that fit no game
+    r, lines = _a54_sync(monkeypatch, path, code, mks)
+    assert r["ok"] and r["stored"] == 0 and r["refused"] == {km.NO_FIT: 2}, r
+    assert r["alarm"] and any(ln.startswith("  ⚠ MATCHED ZERO with 2 markets read and 1 unstarted game(s) of the "
+                                            "competition inside the run's window") for ln in lines), lines
+
+
+@pytest.mark.parametrize("path,sport", [("shared", "NFL"), ("soccer", "SOCCER")])
+def test_a_window_that_holds_only_a_started_game_is_quiet(monkeypatch, path, sport):
+    """Nor a row that is not a game: a cancelled row inside the window does not count either."""
+    from src.db.schema import MatchStatus
+    code = f"A54S{path[:2].upper()}"
+    _a54_comp(code, sport)
+    _a54_row(code, sport, f"Gull Gnus {code}", f"Hare Hogs {code}", Z("2026-10-13T13:00"))       # started 2h ago
+    _a54_row(code, sport, f"Ibis Imps {code}", f"Jay Jays {code}", Z("2026-10-14T23:00"), MatchStatus.CANCELLED)
+    mks = event("26OCT13HHGG", [("HH", f"Hare Hogs {code}"), ("GG", f"Gull Gnus {code}")], series=f"KX{code}GAME")
+    r, lines = _a54_sync(monkeypatch, path, code, mks)
+    assert r["ok"] and r["stored"] == 0 and r["refused"] == {km.IN_PLAY: 2} and r["in_play"] == 2, r
+    assert not r["alarm"] and not _alarmed(lines), lines
+
+
+def test_the_shared_sync_with_its_competition_not_in_the_db_answers_as_the_soccer_path(monkeypatch):
+    """Addendum 54 item 4(b): not ok, competition not in DB (it said '0 stored games' and refused all for no fit)."""
+    _a54_comp("A54SEED", "NFL")                                                    # the schema exists
+    r, lines = _a54_sync(monkeypatch, "shared", "A54NODB", KUUTAH)
+    assert not r["ok"] and r["reason"] == "competition A54NODB not in DB", r
+    assert not any("stored" in ln and "games on the events' days" in ln for ln in lines)
+
+
+@pytest.mark.parametrize("cmd", ["sync-kalshi-ncaa", "sync-kalshi-nhl"])
+def test_the_ncaa_and_nhl_commands_print_the_sync_s_reason(monkeypatch, cmd):
+    """Addendum 54 item 4(a): they printed r.get('error'), so a refusal read 'None'."""
+    from click.testing import CliRunner
+
+    import cli
+    from src.ingestion import kalshi_sync
+    monkeypatch.setattr(kalshi_sync, "sync_kalshi_mlb", lambda **kw: {
+        "ok": False, "reason": "no open markets in X (series ticker may have changed — check available series)",
+        "sports_available": ["Hockey", "Football"]})
+    out = CliRunner().invoke(cli.cli, [cmd]).output
+    assert "no open markets in X" in out and "None" not in out and "Kalshi sports: Hockey, Football" in out, out

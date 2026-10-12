@@ -192,6 +192,14 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    on both machines (`rm -rf`; it holds a DB copy and `.env`). Keep
    `host.env.pre-cutover-<ts>`; it holds no secrets and is the flag's
    rollback point.
+
+   **NHL shadow post-check (ARCHITECT 2026-10-12, addendum 49 item 3; #463), read by the architect:** "After it
+   the pack has brought the shots: the first nhl-daily on the host must print the fit made on the laptop's count of
+   attempts, and no fallback beyond games that have no shots." Before the flip the host's shadow is known to differ
+   (it has held no 2023-24 shot since 2026-10-03, and its files name v1). No shots are backfilled on the host
+   before the flip; the pack carries them. Paste the `export-nhl-predictions` lines of that run (`v7 xG: 2023-24
+   fit, <N> attempts` with N the laptop's count, and `goal fallbacks` no more than the games without shots), and
+   no `✗ nhl_elo_v7_xg_margin_no_na was not available` line.
 5b. **TERMINAL (host): the host's closing watch (ARCHITECT 2026-10-12, addendum 45 P4; #405, #408 items 2 and 3).**
    "The runbook's host step, in this order: preflight for the two families, one test page as sp, the dry run,
    then install-push with the role host. Only when all four pass: install, daemon-reload, enable, and the line in

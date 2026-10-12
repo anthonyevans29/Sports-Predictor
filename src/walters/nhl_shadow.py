@@ -68,6 +68,18 @@ NOTE = ("REFERENCE MODEL — FAILED GATE. nhl_elo_v7 (xG margin, no 'na' level) 
         "candidate and FAILED the frozen gate (0.6885 vs the 0.6866 bar); nhl_elo_v1 (0.6909) rides "
         "along as the reference. Shadow only: never a call, never a venue input, never logged to the "
         "ledger. NHL runs MARKET-ONLY. Graded on live model-close divergence only.")
+# ARCHITECT 2026-10-12 (addendum 49 item 2, #463): "A shadow names the model it ran. Where the xG fit cannot be made,
+# the file and its rows carry the reference model's name and verdict and no other, and the file says that v7 was
+# not available and why. A file made without the fit is never graded as v7, whatever name it carries."
+NOTE_NO_FIT = ("REFERENCE MODEL — FAILED GATE. The xG fit could not be made, so this file is nhl_elo_v1 (0.6909 vs "
+               "the 0.6866 bar) and no other model. Shadow only: never a call, never a venue input, never logged to "
+               "the ledger. NHL runs MARKET-ONLY. Graded on live model-close divergence only, as the reference.")
+
+
+def fit_made(fit_block: dict | None) -> bool:
+    """Whether a file's fit block says the xG fit was made. The grade reads this, not the name (addendum 49): the
+    host's files of 2026-10-03 on say xg_model "unavailable (...)" under v7's name."""
+    return not str((fit_block or {}).get("xg_model", "")).startswith("unavailable")
 
 
 def _season_starts() -> dict:
@@ -140,6 +152,7 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS) -> dict:
 
     now = now or utc_now_naive()
     model, ref, rc = fit(nb.load_games(), now)
+    v7 = fit_made(rc)            # the fit could not be made: the rows are the reference's, by name and number
     starts = _season_starts()
     rows, skipped = [], Counter()
     with session_scope() as s:
@@ -154,17 +167,19 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS) -> dict:
             if why:
                 skipped[f"preseason_{why}"] += 1
                 continue
-            p = model.predict(g)
             p_ref = ref.predict(g)
+            p = model.predict(g) if v7 else p_ref
+            elo = model if v7 else ref
             row = _fixture_row(s, m, "NHL", Counter(), Counter())
             pick_home = p >= 0.5
             row.update({
-                "engine": ENGINE, "model_version": MODEL_VERSION, "gate_verdict": GATE_VERDICT,
+                "engine": ENGINE, "model_version": MODEL_VERSION if v7 else REFERENCE_VERSION,
+                "gate_verdict": GATE_VERDICT if v7 else REFERENCE_VERDICT,
                 "prediction": {"home_win_prob": round(p, 4), "away_win_prob": round(1 - p, 4),
                                "top_pick": "home_win" if pick_home else "away_win",
                                "top_pick_prob": round(p if pick_home else 1 - p, 4),
-                               "elo_home": round(model.rating(m.home_team_id), 1),
-                               "elo_away": round(model.rating(m.away_team_id), 1),
+                               "elo_home": round(elo.rating(m.home_team_id), 1),
+                               "elo_away": round(elo.rating(m.away_team_id), 1),
                                "home_adv_applied": rc["home_advantage"]},
                 "reference": {"model_version": REFERENCE_VERSION, "gate_verdict": REFERENCE_VERDICT,
                               "home_win_prob": round(p_ref, 4)},
@@ -178,10 +193,14 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
     now = r["now"]
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
-    doc = {"sport": "nhl", "engine": ENGINE, "model_version": MODEL_VERSION, "gate_verdict": GATE_VERDICT,
+    v7 = fit_made(r["fit"])
+    doc = {"sport": "nhl", "engine": ENGINE, "model_version": MODEL_VERSION if v7 else REFERENCE_VERSION,
+           "gate_verdict": GATE_VERDICT if v7 else REFERENCE_VERDICT,
            "reference_model": {"model_version": REFERENCE_VERSION, "gate_verdict": REFERENCE_VERDICT},
            "contains_predictions": False,   # nothing here is a live prediction (doctrine)
-           "exported_at": now.isoformat(), "window_hours": hours, "note": NOTE,
+           "exported_at": now.isoformat(), "window_hours": hours, "note": NOTE if v7 else NOTE_NO_FIT,
+           **({} if v7 else {"v7_unavailable": f"{MODEL_VERSION} was not available: the xG fit could not be made "
+                                               f"({r['fit'].get('xg_model')})"}),
            "fit": r["fit"], "skipped": r["skipped"], "count": len(r["rows"]), "predictions": r["rows"]}
     with open(path, "w") as f:
         json.dump(doc, f, indent=2, default=str)
@@ -199,12 +218,13 @@ def last_calls(export_dir: str = "exports") -> dict[int, dict]:
         if doc.get("engine") != ENGINE:
             continue
         at = doc.get("exported_at") or ""
+        made = fit_made(doc.get("fit"))       # addendum 49: the fit block decides, never the name
         for r in doc.get("predictions") or []:
             mid, ko = r.get("match_id"), r.get("utc_date") or ""
             if mid is None or not at or at >= ko:
                 continue
             if mid not in out or at >= out[mid]["exported_at"]:
-                out[mid] = {**r, "exported_at": at, "source_file": f.name}
+                out[mid] = {**r, "exported_at": at, "source_file": f.name, "fit_made": made}
     return out
 
 
@@ -221,7 +241,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     now = now or utc_now_naive()
     calls = last_calls(export_dir)
     clvs, vclvs, lines, ref_clvs = [], [], [], []
-    graded = unpriced = unanchored = 0
+    graded = unpriced = unanchored = no_fit = 0
     with session_scope() as s:
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
             m = s.get(Match, mid)
@@ -230,6 +250,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             graded += 1
             p = c["prediction"]["home_win_prob"]
             pick_home = p >= 0.5
+            as_v7 = c.get("fit_made", True)       # a file made without the fit is never graded as v7 (addendum 49)
             odds = list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             close_h = None
             from src.walters.close import close_1x2, outcomes_for, priced
@@ -239,8 +260,9 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             clv = None
             if close_h is not None:
                 clv = (p if pick_home else 1 - p) - (close_h if pick_home else 1 - close_h)
-                clvs.append(clv)
-            else:
+                if as_v7:
+                    clvs.append(clv)
+            elif as_v7:
                 unpriced += 1
             # v1 rides along as the reference (ruled 2026-10-02); older v1-only rows carry none
             pr = (c.get("reference") or {}).get("home_win_prob")
@@ -249,13 +271,16 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 ref_clv = (pr if pr >= 0.5 else 1 - pr) - (close_h if pr >= 0.5 else 1 - close_h)
                 ref_clvs.append(ref_clv)
             anchor_h, _ = _book_anchor(s, m)
-            vg = value_side_grade(p, anchor_h, close_h)
+            vg = value_side_grade(p, anchor_h, close_h) if as_v7 else None
             if vg:
                 vclvs.append(vg["value_side_clv"])
-            elif anchor_h is None:
+            elif anchor_h is None and as_v7:
                 unanchored += 1
+            if not as_v7:
+                no_fit += 1
             line = (f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
-                    f"{c.get('model_version', '?').replace('nhl_elo_', '')}_H={p:.3f} "
+                    + ("[no xG fit: not v7, the reference only] " if not as_v7 else "")
+                    + f"{c.get('model_version', '?').replace('nhl_elo_', '')}_H={p:.3f} "
                     f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                     f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
                     f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else '— (no anchor)'}"
@@ -264,7 +289,7 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             lines.append(line)
             if progress:
                 progress(line)
-    return {"graded": graded, "priced": len(clvs), "unpriced": unpriced,
+    return {"graded": graded, "priced": len(clvs), "unpriced": unpriced, "no_fit": no_fit,
             "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None,
             "value_side_n": len(vclvs), "unanchored": unanchored,
             "mean_value_side_clv_pp": round(sum(vclvs) / len(vclvs) * 100, 2) if vclvs else None,
@@ -280,8 +305,10 @@ def results_section(days: int, export_dir: str = "exports") -> str:
         return head + ("Live model-close divergence only. No graded shadow calls in window "
                        f"({r['calls_on_file']} calls on file).\n")
     return head + (
-        f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}\n"
-        f"- Mean pick-vs-close: "
+        f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}"
+        + (f" ({r['no_fit']} from files made without the xG fit: the reference line only, never v7)"
+           if r.get("no_fit") else "") + "\n"
+        "- Mean pick-vs-close: "
         + (f"{r['mean_clv_pp']:+.2f}pp (n={r['priced']} priced)" if r["mean_clv_pp"] is not None
            else f"— (no stored close; {r['unpriced']} unpriced)") + "\n"
         + "- Mean value-side-vs-close: "

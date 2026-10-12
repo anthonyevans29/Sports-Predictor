@@ -5105,6 +5105,9 @@ def export_nhl_predictions_cmd(hours):
           f"ties skipped {f['ties_skipped']} · window skips {doc['skipped'] or 'none'}")
     print(f"  v7 xG: {f.get('xg_model', 'loaded')} · updates on xG {f['xg_updates']} · goal fallbacks "
           f"{f['goal_margin_fallbacks']} · reference {doc['reference_model']['model_version']}")
+    if doc.get("v7_unavailable"):    # addendum 49 (#463): the file names the model it ran
+        print(f"  ✗ {doc['v7_unavailable']}: this file and its rows are {doc['model_version']} "
+              f"({doc['gate_verdict']}) and no other")
 
 
 @cli.command("nhl-shadow-grade")

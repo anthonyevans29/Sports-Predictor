@@ -233,7 +233,12 @@ class IngestionService:
             team.founded = nt.founded or team.founded
             team.venue = nt.venue or team.venue
             ext = dict(team.external_ids or {})
-            ext[nt.source] = nt.source_id
+            # Codex on #465 (P1): a listing found by an id a merge recorded never displaces the row's own id, or
+            # a later listing carrying that own id would make a new row and undo the merge
+            own = ext.get(nt.source)
+            if own is None or str(own) == str(nt.source_id) or \
+                    str(nt.source_id) not in {str(x) for x in (ext.get(f"{nt.source}_also") or [])}:
+                ext[nt.source] = nt.source_id
             team.external_ids = ext
             result.updated += 1
             return team
@@ -259,11 +264,17 @@ class IngestionService:
     ) -> Team | None:
         # JSON containment on SQLite is limited — fetch all teams of this sport and filter.
         # Fine for now (hundreds of teams); revisit if it gets slow.
+        # A merged row answers to every provider id recorded on it (addendum 44 item 3: "a listing carrying
+        # either id finds it"); its own id first, so an unmerged row is found exactly as before.
+        from src.ingestion.team_merge import source_ids
         stmt = select(Team).where(Team.sport == sport)
+        also = None
         for team in s.execute(stmt).scalars():
             if (team.external_ids or {}).get(source) == source_id:
                 return team
-        return None
+            if also is None and str(source_id) in source_ids(team.external_ids, source):
+                also = team
+        return also
 
     @staticmethod
     def _link_team_to_competition(

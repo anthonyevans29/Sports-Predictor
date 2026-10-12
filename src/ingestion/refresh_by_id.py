@@ -142,10 +142,15 @@ def refresh(competition_code: str, adapter, days: int = 7, now=None, progress=No
             if nm is None:
                 r["excluded"].append(line(m, sid, why="the provider's game is non-competitive (filtered)"))
                 continue
-            def tsid(t):
+            def tsid(t, listed):
+                # a merged row answers to each provider id recorded on it (addendum 44 item 3)
+                from src.ingestion.team_merge import source_ids
+                ids = source_ids(t.external_ids, source) if t is not None else set()
+                if str(listed) in ids:
+                    return str(listed)
                 v = (t.external_ids or {}).get(source) if t is not None else None
                 return str(v) if v is not None else None
-            hs, as_ = tsid(m.home_team), tsid(m.away_team)
+            hs, as_ = tsid(m.home_team, nm.home_team_source_id), tsid(m.away_team, nm.away_team_source_id)
             if (str(nm.home_team_source_id), str(nm.away_team_source_id)) != (hs, as_):
                 r["refused"].append(line(m, sid, why=f"the answer's teams {nm.home_team_source_id}/"
                                                      f"{nm.away_team_source_id} are not the stored row's {hs}/{as_}"))

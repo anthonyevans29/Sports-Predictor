@@ -160,10 +160,9 @@ def stored_senior(source: str = "api_football") -> set[str]:
         ids = set()
         for h, a in s.execute(select(Match.home_team_id, Match.away_team_id).where(Match.competition_id.in_(comps))):
             ids.update((h, a))
+        from src.ingestion.team_merge import source_ids
         for t in s.execute(select(Team).where(Team.id.in_(ids))).scalars():
-            sid = (t.external_ids or {}).get(source)
-            if sid:
-                out.add(str(sid))
+            out |= source_ids(t.external_ids, source)       # a merged row's every id (Codex on #465)
         s.rollback()
     return out
 
@@ -237,10 +236,15 @@ def _cached_service(adapter):
 
         def _find_team_by_source(self, s, sport, source, source_id):
             if self._teams is None:
+                from src.ingestion.team_merge import source_ids
                 self._teams = {}
-                for t in s.execute(select(Team).where(Team.sport == sport)).scalars():
+                rows = list(s.execute(select(Team).where(Team.sport == sport)).scalars())
+                for t in rows:                                  # own ids first, as _find_team_by_source
                     sid = (t.external_ids or {}).get(source)
                     if sid:
+                        self._teams.setdefault(sid, t)
+                for t in rows:                                  # then the ids a merge recorded (Codex on #465)
+                    for sid in source_ids(t.external_ids, source):
                         self._teams.setdefault(sid, t)
             return self._teams.get(source_id)
 

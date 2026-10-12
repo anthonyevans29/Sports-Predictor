@@ -1913,7 +1913,7 @@ def preflight(shell_set: tuple[str, ...] = (), families: tuple[str, ...] | None 
                        "or host.env, never the shell")
     role = mirror_role()
     if expect_role and role and role != expect_role:   # Codex on #449: the laptop's installer takes the laptop's role
-        out.append(f"{ROLE_SETTING} is {role!r} here; this installer is for the {expect_role}: a push as {role} "
+        out.append(f"{ROLE_SETTING} is {role!r} here; this machine is the {expect_role}: a push as {role} "
                    f"would write into the mirror's {role}/ side")
     folder = backup_folder()
     for fam in families or tuple(FAMILIES):

@@ -2250,7 +2250,15 @@ def test_codex_4248790027_the_laptop_installer_refuses_the_host_role(tmp_path, n
     repo, home, env = _setup_sandbox(tmp_path, _env_text(ntfy.server_port, role="host"))
     r = subprocess.run(["bash", str(repo / "scripts" / "setup_closing_watch.sh")], capture_output=True, text=True,
                        env=env)
-    assert r.returncode == 2 and "REFUSED: SP_EXPORTS_MIRROR_ROLE is 'host' here; this installer is for the laptop" \
+    assert r.returncode == 2 and "REFUSED: SP_EXPORTS_MIRROR_ROLE is 'host' here; this machine is the laptop" \
         in r.stdout, r.stdout
     assert _Ntfy.got == [] and not (repo / "pushes").exists()
     assert not (home / "Library" / "LaunchAgents" / "com.sportspredictor.closingwatch.plist").exists()
+
+
+def test_codex_4248918614_preflight_expect_role_host_refuses_the_laptop_role(box, monkeypatch):
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "laptop")
+    bad = mc.preflight(families=("NFL", "SOCCER"), expect_role="host")
+    assert any("SP_EXPORTS_MIRROR_ROLE is 'laptop' here; this machine is the host" in x for x in bad)
+    monkeypatch.setenv("SP_EXPORTS_MIRROR_ROLE", "host")
+    assert mc.preflight(families=("NFL", "SOCCER"), expect_role="host") == []

@@ -157,6 +157,9 @@ def test_closing_watch_timer_form():
     assert re.search(r"^User=sp$", u, re.M) and "EnvironmentFile=-/etc/sports-predictor/host.env" in u
     import closing
     assert closing.NOTIFIED == 3
+    rb = (ROOT / "docs" / "specs" / "h2-cutover-runbook.md").read_text()          # Codex on #449: the host's role
+    assert "closing.py preflight --family NFL --family SOCCER --expect-role host" in rb
+    assert closing.main(["preflight", "--expect-role", "host", "--family", "NFL"]) in (0, 2)   # the option parses
     import sp_notify
     assert sp_notify.unit_for("closing-watch") == "sp-closing-watch.service"
     assert sp_notify.unit_for("window") == "sp-chain@window.service"             # the rest unchanged

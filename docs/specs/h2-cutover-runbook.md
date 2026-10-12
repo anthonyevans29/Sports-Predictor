@@ -198,12 +198,12 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    timers.enabled. Their output is console evidence, pasted by the operator; nothing new writes a receipt."
    ```
    cd /opt/sports-predictor
-   sudo -u sp venv/bin/python deploy/hosting/closing.py preflight --family NFL --family SOCCER
+   sudo -u sp venv/bin/python deploy/hosting/closing.py preflight --family NFL --family SOCCER --expect-role host
    sudo -u sp venv/bin/python deploy/hosting/closing.py test-page --family NFL --family SOCCER
    sudo -u sp venv/bin/python deploy/hosting/closing.py watch --family NFL --family SOCCER --dry-run
    sudo -u sp venv/bin/python deploy/hosting/closing.py install-push
    ```
-   - Pass: preflight prints `✓ preflight: ... (NFL, SOCCER; role host)`; the phone shows the test page
+   - Pass: preflight prints `✓ preflight: ... (NFL, SOCCER; role host)` (`--expect-role host` refuses any other role: a host pushing as `laptop` would write into the mirror's laptop side); the phone shows the test page
      "Test: the closing watch is installed (NFL, SOCCER). Pages arrive here by T-30." ending `machine: host`
      (the console says `accepted by ntfy`); the dry run lists the NFL and SOCCER start times; the install push
      prints `install push (exports mirror, host, label install): exit 0`.

@@ -2242,3 +2242,15 @@ def test_408_the_receipts_table_shows_a_closing_lines_duration_and_key_line(box)
     assert sp_receipts.key_line({"kind": "closing_miss", "family": "SOCCER", "start": "S", "reason": "x"}) == \
         "SOCCER S MISSED: x"
     assert sp_receipts.duration({"duration_s": 4.2, "seconds": 9}) == 4.2
+
+
+def test_codex_4248790027_the_laptop_installer_refuses_the_host_role(tmp_path, ntfy):
+    """Codex on #449 (P1): this installer is the laptop's; a .env saying host would push the laptop's exports into
+    the mirror's host/ side. Refused before the test page and the push."""
+    repo, home, env = _setup_sandbox(tmp_path, _env_text(ntfy.server_port, role="host"))
+    r = subprocess.run(["bash", str(repo / "scripts" / "setup_closing_watch.sh")], capture_output=True, text=True,
+                       env=env)
+    assert r.returncode == 2 and "REFUSED: SP_EXPORTS_MIRROR_ROLE is 'host' here; this installer is for the laptop" \
+        in r.stdout, r.stdout
+    assert _Ntfy.got == [] and not (repo / "pushes").exists()
+    assert not (home / "Library" / "LaunchAgents" / "com.sportspredictor.closingwatch.plist").exists()

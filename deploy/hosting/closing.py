@@ -1897,7 +1897,8 @@ def worse(a: int, b: int) -> int:
 
 # ---------------------------------------------------------------------------------- setup checks (380.2) --
 
-def preflight(shell_set: tuple[str, ...] = (), families: tuple[str, ...] | None = None) -> list[str]:
+def preflight(shell_set: tuple[str, ...] = (), families: tuple[str, ...] | None = None,
+              expect_role: str | None = None) -> list[str]:
     """380.2 (ARCHITECT): "The setup script reads each required setting where the launched job will find it: the
     checkout's .env or host.env, never the installing shell. A setting present only in the shell refuses the
     install, naming it. [...] The script proves it: it runs the run's own refusal checks in the environment the
@@ -1910,6 +1911,10 @@ def preflight(shell_set: tuple[str, ...] = (), families: tuple[str, ...] | None 
         if name in shell_set and not in_files:
             out.append(f"{name} is set only in the installing shell: the launched job reads the checkout's .env "
                        "or host.env, never the shell")
+    role = mirror_role()
+    if expect_role and role and role != expect_role:   # Codex on #449: the laptop's installer takes the laptop's role
+        out.append(f"{ROLE_SETTING} is {role!r} here; this installer is for the {expect_role}: a push as {role} "
+                   f"would write into the mirror's {role}/ side")
     folder = backup_folder()
     for fam in families or tuple(FAMILIES):
         for check in refusal_checks(fam, folder):
@@ -1945,6 +1950,8 @@ def main(argv=None) -> int:
     pf.add_argument("--shell-set", default="", help="comma-separated names the installing shell had set")
     pf.add_argument("--family", action="append", type=str.upper, choices=tuple(FAMILIES), default=None,
                     help="the families the watch will run for (addendum 45 P2/P5; repeatable; default all three)")
+    pf.add_argument("--expect-role", choices=ROLES, default=None,
+                    help="refuse unless SP_EXPORTS_MIRROR_ROLE is this role (the laptop's setup script: laptop)")
     tp = sub.add_parser("test-page")
     tp.add_argument("--family", action="append", type=str.upper, choices=tuple(FAMILIES), default=None)
     sub.add_parser("install-push")
@@ -1955,7 +1962,7 @@ def main(argv=None) -> int:
     if a.cmd == "watch":
         return watch(dry_run=a.dry_run, families=fams)
     if a.cmd == "preflight":
-        bad = preflight(tuple(x.strip() for x in a.shell_set.split(",") if x.strip()), fams)
+        bad = preflight(tuple(x.strip() for x in a.shell_set.split(",") if x.strip()), fams, a.expect_role)
         for b in bad:
             print(f"✗ REFUSED: {b}")
         if not bad:

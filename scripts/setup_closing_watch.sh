@@ -116,7 +116,7 @@ done
 # naming a family, SP_EXPORTS_MIRROR_REMOTE unset (M1), SP_EXPORTS_MIRROR_ROLE unset or neither host nor laptop
 # (addendum 45 P1), NTFY_CARD_TOPIC unset (C6)) for the families given (P5), in the launched environment,
 # from the checkout's working directory, plus "set only in the installing shell".
-if ! (cd "${REPO_DIR}" && launched_env "${PYTHON}" "${CLOSING}" preflight --shell-set "${SHELL_SET}" "${FAMILY_ARGS[@]}"); then
+if ! (cd "${REPO_DIR}" && launched_env "${PYTHON}" "${CLOSING}" preflight --shell-set "${SHELL_SET}" --expect-role laptop "${FAMILY_ARGS[@]}"); then
   echo "✗ REFUSED: the closing watch is not installed (a closing run would refuse in the launched environment)."
   echo "  Put each setting in ${REPO_DIR}/.env (or host.env), never only in your shell, then run this script again."
   exit 2

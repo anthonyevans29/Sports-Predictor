@@ -265,6 +265,204 @@ def test_main_s_gate_matched_none_of_the_nlcs_markets():
     assert admitted == [50543]                       # only the ALCS game, which the names then refuse
 
 
+# --- addendum 54 item 6: an event out of step (finding #476), on the ALCS shapes ---
+
+def alcs(stamp, **kw):
+    """An ALCS event in Cleveland: Tampa Bay at Cleveland."""
+    return event(stamp, [("TB", "Tampa Bay"), ("CLE", "Cleveland")], series="KXMLBGAME", **kw)
+
+
+E15, E16, E17 = alcs("26OCT151800TBCLE"), alcs("26OCT161800TBCLE"), alcs("26OCT171800TBCLE")   # Games 3, 4, 5
+
+
+def _alcs_rows(g3_kick, g3_status=None, g4_kick=Z("2026-10-17T22:00"), g5_kick=None):
+    """Game 3 rained out of Thursday 2026-10-15 (6pm ET); Game 4 moved to Saturday; Game 5 to Sunday."""
+    g3 = game(60003, "Tampa Bay Rays", "Cleveland Guardians", g3_kick)
+    if g3_status:
+        g3.status = g3_status
+    rows = [g3, game(60004, "Tampa Bay Rays", "Cleveland Guardians", g4_kick)]
+    if g5_kick:
+        rows.append(game(60005, "Tampa Bay Rays", "Cleveland Guardians", g5_kick))
+    return rows
+
+
+def test_the_receipt_s_friday_refuses_the_next_event_behind_the_rained_out_one():
+    """The run is Friday 11am ET. Game 3 is played Friday 6pm ET; Game 4 moved to Saturday. 26OCT15 is refused for
+    no game on its date, 26OCT16 behind it; nothing on the moved row (main and the switch put 26OCT16 on it)."""
+    rows = _alcs_rows(Z("2026-10-16T22:00"))
+    res = run(E15 + E16, rows, now=Z("2026-10-16T15:00"))
+    assert not res.placed and res.refused == {km.NO_GAME_ON_DATE: 2, km.BEHIND: 2}
+    assert res.lines[-1] == ("  ✗ KXMLBGAME-26OCT161800TBCLE: refused behind KXMLBGAME-26OCT151800TBCLE, out of step: "
+                             "no game of its two teams on its date 2026-10-15 and its date 2026-10-15 is before the "
+                             "day of the run 2026-10-16")
+    assert placed(run(E16, rows, now=Z("2026-10-16T15:00"))) == {(60003, "HOME"): "CLE", (60003, "AWAY"): "TB"}  # alone
+
+
+def test_the_saturday_after_refuses_game_5_s_event_behind_game_4_s():
+    """Game 3 finished and its event gone; 26OCT16 open with the finished game on its date: in play, and out of step
+    (its date before the run's). Game 5's event is refused behind it; nothing on Game 4's row."""
+    rows = _alcs_rows(Z("2026-10-16T22:00"), "finished", g5_kick=Z("2026-10-18T22:00"))
+    res = run(E16 + E17, rows, now=Z("2026-10-17T15:00"))
+    assert not res.placed and res.refused == {km.IN_PLAY: 2, km.BEHIND: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-26OCT171800TBCLE: refused behind KXMLBGAME-26OCT161800TBCLE, out of step: "
+                         "its date 2026-10-16 is before the day of the run 2026-10-17"]
+
+
+def test_the_evening_of_the_rainout_the_postponed_row_is_not_a_game():
+    """Game 3's row postponed and still on Thursday: not a game, so 26OCT15 is out of step (no game on its date) and
+    26OCT16 is refused behind it."""
+    rows = _alcs_rows(Z("2026-10-15T22:00"), "postponed", g4_kick=Z("2026-10-16T22:00"))
+    res = run(E15 + E16, rows, now=Z("2026-10-16T03:00"))                       # Thursday 11pm ET
+    assert not res.placed and res.refused == {km.NO_GAME_ON_DATE: 2, km.BEHIND: 2}
+    assert res.lines[-1] == ("  ✗ KXMLBGAME-26OCT161800TBCLE: refused behind KXMLBGAME-26OCT151800TBCLE, out of step: "
+                             "no game of its two teams on its date 2026-10-15")
+
+
+def test_a_normal_day_has_nothing_out_of_step():
+    """Today's shapes (#474): the NLCS and ALCS events of 2026-10-12 and tomorrow's ALCS event with its row."""
+    today, last_night, alcs_today = _nlcs()
+    tomorrow = game(50560, "Cleveland Guardians", "Tampa Bay Rays", Z("2026-10-14T00:00"))     # 8pm ET 10-13
+    cletb13 = event("26OCT132000CLETB", [("TB", "Tampa Bay"), ("CLE", "Cleveland")], series="KXMLBGAME")
+    res = run(LADMIL + CLETB + cletb13, [last_night, today, alcs_today, tomorrow], now=Z("2026-10-12T20:27"))
+    assert km.BEHIND not in res.refused and not res.refused
+    assert set(placed(res)) == {(50542, "HOME"), (50542, "AWAY"), (50543, "HOME"), (50543, "AWAY"),
+                                (50560, "HOME"), (50560, "AWAY")}
+
+
+def test_the_next_day_s_row_not_yet_stored_refuses_tomorrow_s_event_as_today():
+    _, _, alcs_today = _nlcs()
+    cletb13 = event("26OCT132000CLETB", [("TB", "Tampa Bay"), ("CLE", "Cleveland")], series="KXMLBGAME")
+    res = run(CLETB + cletb13, [alcs_today], now=Z("2026-10-12T20:27"))
+    assert placed(res) == {(50543, "HOME"): "TB", (50543, "AWAY"): "CLE"}
+    assert res.refused == {km.NO_GAME_ON_DATE: 2} and km.BEHIND not in res.refused
+
+
+def test_yesterday_s_event_still_open_holds_today_s_behind_it_and_another_pair_is_placed():
+    _, _, alcs_yday = _nlcs()
+    alcs_yday.status = "finished"
+    alcs_tonight = game(50560, "Cleveland Guardians", "Tampa Bay Rays", Z("2026-10-14T00:00"))  # 8pm ET 10-13
+    nlcs = game(50561, "Los Angeles Dodgers", "Milwaukee Brewers", Z("2026-10-13T21:00"))       # 5pm ET 10-13
+    cletb13 = event("26OCT132000CLETB", [("TB", "Tampa Bay"), ("CLE", "Cleveland")], series="KXMLBGAME")
+    ladmil13 = event("26OCT131700LADMIL", [("MIL", "Milwaukee"), ("LAD", "Los Angeles D")], series="KXMLBGAME")
+    rows = [alcs_yday, alcs_tonight, nlcs]
+    res = run(CLETB + cletb13 + ladmil13, rows, now=Z("2026-10-13T15:00"))
+    assert placed(res) == {(50561, "HOME"): "MIL", (50561, "AWAY"): "LAD"}
+    assert res.refused == {km.IN_PLAY: 2, km.BEHIND: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-26OCT132000CLETB: refused behind KXMLBGAME-26OCT122000CLETB, out of step: "
+                         "its date 2026-10-12 is before the day of the run 2026-10-13"]
+    # it counts whether or not its markets carry a price
+    unpriced = event("26OCT122000CLETB", [("TB", "Tampa Bay"), ("CLE", "Cleveland")], series="KXMLBGAME",
+                     bid=None, ask=None)
+    res = run(unpriced + cletb13, rows, now=Z("2026-10-13T15:00"))
+    assert not res.placed and res.refused == {km.NO_PRICE: 2, km.BEHIND: 2}
+
+
+def test_a_numbered_event_dated_after_an_event_out_of_step_is_refused_behind_it():
+    _, _, alcs_yday = _nlcs()
+    alcs_yday.status = "finished"
+    g2 = game(50562, "Cleveland Guardians", "Tampa Bay Rays", Z("2026-10-13T17:05"))           # 1:05pm ET 10-13
+    numbered = event("26OCT131305CLETBG2", [("TB", "Tampa Bay"), ("CLE", "Cleveland")], series="KXMLBGAME")
+    assert set(placed(run(numbered, [alcs_yday, g2], now=Z("2026-10-13T12:00")))) == {(50562, "HOME"),
+                                                                                      (50562, "AWAY")}   # alone
+    res = run(CLETB + numbered, [alcs_yday, g2], now=Z("2026-10-13T12:00"))
+    assert not res.placed and res.refused == {km.IN_PLAY: 2, km.BEHIND: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-26OCT131305CLETBG2: refused behind KXMLBGAME-26OCT122000CLETB, out of step: "
+                         "its date 2026-10-12 is before the day of the run 2026-10-13"]
+
+
+def test_today_s_seven_events_place_four_legs_and_leave_the_later_events_to_their_own_reasons():
+    """Addendum 55 item 3: the seven open events of 2026-10-12 (#473) on the rows as stored at 4:27pm. Tomorrow's rows
+    are not stored, so 26OCT132000CLETB and 26OCT142000MILLAD are out of step; the three events after them could not
+    have been placed and keep their own reasons, with no line of the behind kind."""
+    today, last_night, alcs_today = _nlcs()
+    mil_lad = [("MIL", "Milwaukee"), ("LAD", "Los Angeles D")]
+    tb_cle = [("TB", "Tampa Bay"), ("CLE", "Cleveland")]
+    seven = (LADMIL + CLETB + event("26OCT132000CLETB", tb_cle, series="KXMLBGAME")
+             + event("26OCT142000MILLAD", mil_lad, series="KXMLBGAME")
+             + event("26OCT152000MILLAD", mil_lad, series="KXMLBGAME") + alcs("26OCT151800TBCLE")
+             + alcs("26OCT161800TBCLE"))
+    res = run(seven, [last_night, today, alcs_today], now=Z("2026-10-12T20:27"))
+    assert placed(res) == {(50542, "HOME"): "MIL", (50542, "AWAY"): "LAD", (50543, "HOME"): "TB",
+                           (50543, "AWAY"): "CLE"}                                   # the same four legs as main
+    assert res.refused == {km.NO_GAME_ON_DATE: 2, km.NO_FIT: 8} and km.BEHIND not in res.refused
+    assert not any("refused behind" in ln for ln in res.lines), res.lines
+    by_event = {}
+    for m in seven:
+        by_event.setdefault(km.event_of(m), []).append(m)
+    behind = km.behind_out_of_step(by_event, [last_night, today, alcs_today], now=Z("2026-10-12T20:27"),
+                                   is_tie=lambda m: False, implied_prob=lambda m: 0.5)
+    assert set(behind) == {"KXMLBGAME-26OCT152000MILLAD", "KXMLBGAME-26OCT151800TBCLE",
+                           "KXMLBGAME-26OCT161800TBCLE"}                 # behind, but none would have been placed
+
+
+def test_the_next_day_s_row_not_stored_with_a_third_event_after_it():
+    """The third event is refused for its own reason (no game of the competition on its day fits it), no behind line."""
+    _, _, alcs_today = _nlcs()
+    tb_cle = [("TB", "Tampa Bay"), ("CLE", "Cleveland")]
+    res = run(CLETB + event("26OCT132000CLETB", tb_cle, series="KXMLBGAME")
+              + event("26OCT142000CLETB", tb_cle, series="KXMLBGAME"), [alcs_today], now=Z("2026-10-12T20:27"))
+    assert placed(res) == {(50543, "HOME"): "TB", (50543, "AWAY"): "CLE"}
+    assert res.refused == {km.NO_GAME_ON_DATE: 2, km.NO_FIT: 2}
+    assert not any("refused behind" in ln for ln in res.lines), res.lines
+
+
+def test_the_receipt_s_friday_holds_every_later_event_not_only_the_next():
+    """Game 5's event, open too, would take Game 4's moved Saturday row: it is behind 26OCT15 as well."""
+    rows = _alcs_rows(Z("2026-10-16T22:00"))
+    res = run(E15 + E16 + E17, rows, now=Z("2026-10-16T15:00"))
+    assert not res.placed and res.refused == {km.NO_GAME_ON_DATE: 2, km.BEHIND: 4}
+    assert [ln.split(":")[0] for ln in res.lines if "refused behind" in ln] == [
+        "  ✗ KXMLBGAME-26OCT161800TBCLE", "  ✗ KXMLBGAME-26OCT171800TBCLE"]
+
+
+def test_the_line_names_the_earliest_of_two_events_out_of_step_and_why_that_one_is():
+    """The Saturday after, with Game 3's event not yet settled: 26OCT15 and 26OCT16 are both out of step; Game 5's
+    line names 26OCT15 and its own reasons. 26OCT16 keeps its own reason, in play (addendum 55 item 3)."""
+    rows = _alcs_rows(Z("2026-10-16T22:00"), "finished", g5_kick=Z("2026-10-18T22:00"))
+    res = run(E15 + E16 + E17, rows, now=Z("2026-10-17T15:00"))
+    assert not res.placed and res.refused == {km.NO_GAME_ON_DATE: 2, km.IN_PLAY: 2, km.BEHIND: 2}
+    assert [ln for ln in res.lines if "refused behind" in ln] == [
+        "  ✗ KXMLBGAME-26OCT171800TBCLE: refused behind KXMLBGAME-26OCT151800TBCLE, out of step: no game of its two "
+        "teams on its date 2026-10-15 and its date 2026-10-15 is before the day of the run 2026-10-17"]
+
+
+def test_the_same_two_names_in_the_other_order_are_one_pair_across_the_venue_flip():
+    """Yesterday's 26OCT122000CLETB (Tampa Bay, Cleveland) still open; today's game in Cleveland lists its names the
+    other way round. By names, not by their order: today's event is behind."""
+    _, _, alcs_yday = _nlcs()
+    alcs_yday.status = "finished"
+    at_cle = game(60013, "Tampa Bay Rays", "Cleveland Guardians", Z("2026-10-13T22:00"))
+    flipped = event("26OCT131800TBCLE", [("CLE", "Cleveland"), ("TB", "Tampa Bay")], series="KXMLBGAME")
+    assert set(placed(run(flipped, [alcs_yday, at_cle], now=Z("2026-10-13T15:00")))) == {(60013, "HOME"),
+                                                                                          (60013, "AWAY")}  # alone
+    res = run(CLETB + flipped, [alcs_yday, at_cle], now=Z("2026-10-13T15:00"))
+    assert not res.placed and res.refused == {km.IN_PLAY: 2, km.BEHIND: 2}
+
+
+def test_a_numbered_event_is_never_out_of_step_itself():
+    """Yesterday's G2 event still open beside today's event of the pair: only an event with no game number is out of
+    step, so today's is placed (the G2 keeps its own reason)."""
+    g2_yday = game(50570, "Cleveland Guardians", "Tampa Bay Rays", Z("2026-10-12T21:05"))       # 5:05pm ET 10-12
+    g2_yday.status = "finished"
+    tonight = game(50560, "Cleveland Guardians", "Tampa Bay Rays", Z("2026-10-14T00:00"))       # 8pm ET 10-13
+    g2_ev = event("26OCT121705CLETBG2", [("TB", "Tampa Bay"), ("CLE", "Cleveland")], series="KXMLBGAME")
+    cletb13 = event("26OCT132000CLETB", [("TB", "Tampa Bay"), ("CLE", "Cleveland")], series="KXMLBGAME")
+    res = run(g2_ev + cletb13, [g2_yday, tonight], now=Z("2026-10-13T15:00"))
+    assert placed(res) == {(50560, "HOME"): "TB", (50560, "AWAY"): "CLE"}
+    assert res.refused == {km.IN_PLAY: 2} and km.BEHIND not in res.refused
+
+
+def test_a_date_only_series_is_outside_the_rule():
+    """There a moved game is followed a day either side (two events on one game are both refused already): an older
+    event of the pair with no game near its date, and dated before the run's day, holds nothing behind it."""
+    sat = game(60100, "Houston", "Kansas State", Z("2026-10-17T19:30"))
+    old_ev = event("26OCT14HOUKSU", [("HOU", "Houston"), ("KSU", "Kansas St.")])
+    sat_ev = event("26OCT17HOUKSU", [("HOU", "Houston"), ("KSU", "Kansas St.")])
+    res = run(old_ev + sat_ev, [sat], now=Z("2026-10-17T12:00"))
+    assert placed(res) == {(60100, "HOME"): "KSU", (60100, "AWAY"): "HOU"}
+    assert res.refused == {km.NO_FIT: 2} and km.BEHIND not in res.refused
+
+
 def test_an_mlb_doubleheader_takes_its_g1_g2_suffix_inside_the_pair():
     g1 = game(40051, "St. Louis Cardinals", "Chicago Cubs", Z("2026-09-12T17:05"))
     g2 = game(40052, "St. Louis Cardinals", "Chicago Cubs", Z("2026-09-12T23:05"))

@@ -2327,3 +2327,13 @@ def test_47_6_453_a_closing_miss_and_a_failed_push_after_the_page_count_as_faili
     assert sp_receipts.failed(miss) and sp_receipts.failed(pushf) and not sp_receipts.failed(ok)
     t = sp_receipts.table([ok, miss, pushf]).splitlines()
     assert "closing_miss:NFL" in t[2] and "closing:NFL" in t[3] and "push exit 1 FAILED" in t[3]
+
+
+def test_48_5_459_a_closing_whose_file_was_not_written_counts_as_failing_and_says_so():
+    """#459 RULED (addendum 48 item 5): "A closing whose file was not written counts as failing in the receipts
+    table, and its key line says so." """
+    import sp_receipts
+    r = {"ts": "2026-10-12T17:00:00Z", "kind": "closing", "family": "NFL", "start": "S", "exit": 0, "attempt": 1,
+         "covers": [1], "push": {"exit": 0}, "closing_file_failed": True}
+    assert sp_receipts.failed(r) and sp_receipts.key_line(r).endswith("push exit 0; closing file NOT WRITTEN")
+    assert "**0**" in sp_receipts.table([r])

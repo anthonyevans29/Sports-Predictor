@@ -14,7 +14,7 @@ Steps (in order; `run` = all six, the first failure stops):
              SP_WRITER_OF_RECORD line with a known value; host.env itself says
              SP_EXPORTS_MIRROR_ROLE=host (addendum 47 item 7(c)); no target under data/.
              Prints, by name only, each setting the pack's .env changes on the host
-             (host.env's own left out); the list refuses nothing by itself.
+             (those host.env gives a value left out); the list refuses nothing by itself.
              Everything that could fail install is refused HERE, before pause.
   pause      systemctl stop <timers.enabled>; every timer must read inactive.
              Running sp-chain@ services are listed (install waits on the DB lock).
@@ -279,7 +279,7 @@ def step_preflight(ctx: Ctx) -> dict:
     env_changes = env_changes_by_pack(ctx.pack, host_env)
     if any(env_changes.values()):
         print("· settings whose value on the host changes when the pack's .env replaces the checkout's "
-              "(names only, never values; host.env's own settings left out):")
+              "(names only, never values; those host.env gives a value left out):")
         for k, label in (("pack_only", "in the pack, not in the checkout's .env"),
                          ("checkout_only", "in the checkout's .env, not in the pack"),
                          ("differ", "in both, different values")):
@@ -309,13 +309,15 @@ def env_changes_by_pack(pack: Path, host_env: dict) -> dict:
     """Addendum 47 item 7(c): "each setting whose value on the host changes when the pack's .env replaces the
     checkout's: in the pack and not in the checkout's .env, in the checkout's .env and not in the pack, or in both
     with different values. A setting host.env carries is left out, since host.env wins. The list refuses nothing by
-    itself." Names only; values are compared, never returned."""
+    itself." Addendum 48 item 6 (#460): "Only a setting to which host.env gives a value is left out of the list."
+    Names only; values are compared, never returned."""
     if not (pack / sp_migrate.ENV).is_file():  # no env in the pack: install leaves the checkout's .env (Codex on #457)
         return {"pack_only": [], "checkout_only": [], "differ": []}
     packed = c.parse_env_file(pack / sp_migrate.ENV)
     cur_p = c.REPO / ".env"
     current = c.parse_env_file(cur_p) if cur_p.is_file() else {}
-    keep = lambda k: k not in host_env
+    keep = lambda k: not (host_env.get(k) or "").strip()   # addendum 48 item 6 (#460): only a value host.env gives
+                                                           # is left out ("NTFY_TOPIC=" falls back to the .env)
     return {"pack_only": sorted(k for k in packed if k not in current and keep(k)),
             "checkout_only": sorted(k for k in current if k not in packed and keep(k)),
             "differ": sorted(k for k in packed if k in current and packed[k] != current[k] and keep(k))}

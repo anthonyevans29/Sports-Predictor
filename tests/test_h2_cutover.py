@@ -362,3 +362,17 @@ def test_codex_4250381661_a_pack_without_an_env_changes_no_setting(tmp_path, mon
     pack = tmp_path / "pack"
     pack.mkdir()
     assert sp_cutover.env_changes_by_pack(pack, {}) == {"pack_only": [], "checkout_only": [], "differ": []}
+
+
+def test_48_6_460_a_setting_host_env_leaves_empty_is_still_listed(tmp_path, monkeypatch):
+    """#460 item 1 RULED (addendum 48 item 6): "Only a setting to which host.env gives a value is left out of the
+    list." NTFY_TOPIC= in host.env falls back to the .env, so the pack changes it."""
+    repo = tmp_path / "repo"
+    repo.mkdir()
+    (repo / ".env").write_text("NTFY_TOPIC=old-topic\n")
+    monkeypatch.setattr(c, "REPO", repo)
+    pack = tmp_path / "pack"
+    pack.mkdir()
+    (pack / sp_migrate.ENV).write_text("NTFY_TOPIC=new-topic\n")
+    assert sp_cutover.env_changes_by_pack(pack, {"NTFY_TOPIC": ""})["differ"] == ["NTFY_TOPIC"]
+    assert sp_cutover.env_changes_by_pack(pack, {"NTFY_TOPIC": "host-topic"})["differ"] == []

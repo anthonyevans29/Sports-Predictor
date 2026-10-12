@@ -149,7 +149,8 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    - **The settings list (ARCHITECT 2026-10-12, addendum 47 item 7(c)):** preflight prints, by name and never by
      value, each setting whose value on the host changes when the pack's `.env` replaces the checkout's (in the pack
      and not in the checkout's `.env`; in the checkout's `.env` and not in the pack; in both with different values).
-     A setting host.env carries is left out, since host.env wins. "The list refuses nothing by itself. The cutover
+     A setting to which host.env gives a value is left out, since host.env wins (an empty one, `NAME=`, falls back to the
+     `.env` and stays on the list; addendum 48 item 6). "The list refuses nothing by itself. The cutover
      ruling names the settings it expects on it, and a name the ruling did not give stops the cutover before pause."
      The operator pastes the list with the preflight's receipt (`env_changes` in it, names only), and goes on to
      `pause` only when every name on it is one the ruling gave.

@@ -498,10 +498,18 @@ class APIAmericanFootballAdapter(DataAdapter):
             look["from_kept"] += 1
             look["resolved_by_lookup"].append(name)
             return known[pid]
+        if getattr(self, "_lookup_rate_limited", None):   # Codex on #448 (P1): no lookup after a rate limit
+            look["failed"].append(f"{name} (player id {pid}): not asked, rate limited earlier in this command "
+                                  f"(retry after {self._lookup_rate_limited:g}s)")
+            return None
         look["asked"] += 1
         look["this_read"][pid] = None
         try:
             ans = self._get("players", params={"id": pid})
+        except RateLimited as e:           # the quota is spent: stop asking for the rest of this command
+            self._lookup_rate_limited = float(e.retry_after or 60)
+            look["failed"].append(f"{name} (player id {pid}): RateLimited")
+            return None
         except Exception as e:             # a lookup that fails: a failed read under --strict, nothing kept
             look["failed"].append(f"{name} (player id {pid}): {type(e).__name__}")
             return None

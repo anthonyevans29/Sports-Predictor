@@ -56,6 +56,9 @@ class Double:
             a = self.answers.get(str(params["id"]))
             if a == "raise":
                 raise ConnectionError("players down")
+            if a == "429":
+                from src.adapters.api_american_football import RateLimited
+                raise RateLimited("players", 60)
             if a == "errors":
                 return {"errors": {"requests": "limit"}, "response": []}
             return a if a is not None else {"response": []}
@@ -243,3 +246,17 @@ def test_codex_4248626014_one_id_under_two_names_is_asked_once_in_a_read(monkeyp
     assert r.exit_code == 0 and d.calls["players_by_id"] == 1, r.output
     assert "asked by provider id 1 (answered a position 0, answered none 1, failed 0)" in r.output
     assert _stored(ts) == {"J. Doe": None, "John Doe": None}
+
+
+def test_codex_4248901861_a_rate_limit_stops_the_lookups_for_the_rest_of_the_command(monkeypatch):
+    """Codex on #448 (P1): after a RateLimited answer no further /players?id= is made in the command (the closing
+    step is time-bound and each further call would be two doomed requests). The ones not asked are failed reads
+    under --strict, listed, and nothing is kept for them."""
+    d = Double({"PLL-0": [{"id": 1001, "name": "First"}, {"id": 1002, "name": "Second"}],
+                "PLL-1": [{"id": 1003, "name": "Third"}]},
+               {"1001": "429", "1002": _ans(1002, position="QB"), "1003": _ans(1003, position="WR")})
+    r, ts = _run(monkeypatch, "PLL", d, "--strict")
+    assert r.exit_code == 1 and d.calls["players_by_id"] == 1, r.output                # one call, then none
+    assert "position lookup failed: First (player id 1001): RateLimited" in r.output
+    assert "Second (player id 1002): not asked, rate limited earlier in this command (retry after 60s)" in r.output
+    assert "Third (player id 1003): not asked, rate limited" in r.output and _kept(1001, 1002, 1003) == {}

@@ -1,0 +1,11 @@
+**2026-10-13 — RULED + BUILT (ARCHITECT 2026-10-13 13:11 ET, addendum 61 item 3, #498): CL makes no venue call; KXUCLGAME carries its fee M. PR #505.**
+- **(1), verbatim:** "'No call' in addendum 58 covers the venue engine. CL is a three-way Kalshi soccer market, as UNL is, and it stays out of venue-edge on UNL's ground (INTL policy v0, rule 5): until the skew test (#286) is read and I rule on it. Its stop reads 'three-way soccer — no venue call before the skew test is read (CL)'. The charter's 'cups when priced' waits on that same ruling."
+- **(2), verbatim:** "KXUCLGAME carries (1.0, 1.0) in KALSHI_FEE_M, as the fee schedule ruling (#93) names UCL. It costs a fill. It prices no call."
+- "The stop goes into desk_policy's engine and into the Cockpit's mirror of it, with their tests. The Cockpit is republished only on the operator's word." Why #499 was not held: "every venue row is held by the quote-age rule today (your receipt on #498), and that hold does not lift before this stop is on main."
+- **As built:**
+  - `desk_policy.SKEW_TEST_VENUE_COMPS = ("CL",)` stops `venue_edge` right after UNL's stop, before the in-play check and before the computation, with the ruled reason.
+  - Its own switch, `SKEW_TEST_VENUE_RULE`, is off only under `base_v11()`: the frozen pre-F1c golden carries CL fixture rows the JS engine measured.
+  - `venue.KALSHI_FEE_M["KXUCLGAME"] = (1.0, 1.0)`; CL stays out of `KALSHI_SERIES_BY_COMPETITION`, so no call is priced through it.
+  - The Cockpit repo copy's legend and PASS-reason list name the stop; it renders the reason from the file (F1c).
+- This supersedes two lines of the 2026-10-13 kalshi-cl-series entry (#499): "Nothing CL-specific stops a venue call once that hold lifts" and "KALSHI_FEE_M has no KXUCLGAME entry. None was added." Both were true when written and are changed by this ruling.
+- Closes #498.

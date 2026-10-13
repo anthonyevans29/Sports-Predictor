@@ -210,7 +210,10 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    (it has held no 2023-24 shot since 2026-10-03, and its files name v1). No shots are backfilled on the host
    before the flip; the pack carries them. Paste the `export-nhl-predictions` lines of that run (`v7 xG: 2023-24
    fit, <N> attempts` with N the laptop's count, and `goal fallbacks` no more than the games without shots), and
-   no `✗ nhl_elo_v7_xg_margin_no_na was not available` line.
+   no `✗ nhl_elo_v7_xg_margin_no_na was not available` line. (ARCHITECT 2026-10-13, addendum 63 item 2: a walk that
+   took the goal-margin fallback for any game is not v7. Its file and rows read `nhl_elo_v7_goal_margin_fallback`, the
+   run prints `✗ the walk took the goal-margin fallback for <n> of <N> games`, and nhl-shadow-grade grades it on its own
+   line, never pooled with v7.)
 5b. **TERMINAL (host): the host's closing watch (ARCHITECT 2026-10-12, addendum 45 P4; #405, #408 items 2 and 3).**
    "The runbook's host step, in this order: preflight for the two families, one test page as sp, the dry run,
    then install-push with the role host. Only when all four pass: install, daemon-reload, enable, and the line in

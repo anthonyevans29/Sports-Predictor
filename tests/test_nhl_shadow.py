@@ -74,7 +74,17 @@ def no_fit(monkeypatch):
     monkeypatch.setattr(sh, "live_xg", lambda: ({}, dict(NO_FIT)))
 
 
-def test_export_stamps_every_row_and_prices_only_the_window(nhl, tmp_path, fit_ok):
+@pytest.fixture
+def fit_full(monkeypatch):
+    """The fit was made and every decided game has an xG margin: no goal-margin fallback, so the file is v7. (With
+    fit_ok this DB's games carry no shots, so every one falls back: addendum 63 item 2 names that file the fallback.)"""
+    from src.walters import nhl_backtest as nb
+    xg = {g.match_id: (float(g.home_score) + 0.25, float(g.away_score)) for g in nb.load_games()
+          if g.match_id is not None and g.home_score is not None and g.away_score is not None}
+    monkeypatch.setattr(sh, "live_xg", lambda: (dict(xg), dict(FIT_MADE)))
+
+
+def test_export_stamps_every_row_and_prices_only_the_window(nhl, tmp_path, fit_full):
     path, doc = sh.export(now=NOW, out_dir=str(tmp_path))
     assert Path(path).name == "nhl_shadow_2033-01-10_1200.json"
     # ARCHITECT 2026-10-02: the engine switches to v7, labelled with its verdict; v1 rides as the reference
@@ -90,13 +100,14 @@ def test_export_stamps_every_row_and_prices_only_the_window(nhl, tmp_path, fit_o
     assert (r["engine"], r["model_version"], r["gate_verdict"]) == (doc["engine"], doc["model_version"], doc["gate_verdict"])
     # v7 and v1 exactly as gated: recompute independently
     from src.walters import nhl_backtest as nb
-    model, ref, fit = sh.fit(nb.load_games(), NOW)
+    model, ref, fit = sh.fit(nb.load_games(), NOW, xg=sh.live_xg()[0])
+    fit.update(sh.live_xg()[1])
     g = nb.Game(nhl["home_team"], nhl["away_team"], "2032", NOW + timedelta(hours=7), 0, 0)
     assert r["prediction"]["home_win_prob"] == round(model.predict(g), 4)
     assert r["reference"] == {"model_version": "nhl_elo_v1", "gate_verdict": sh.REFERENCE_VERDICT,
                               "home_win_prob": round(ref.predict(g), 4)}
     assert doc["fit"] == fit and fit["home_advantage"] > 0   # from the train season's home rate
-    assert fit["goal_margin_fallbacks"] == fit["games_used"] - fit["xg_updates"]   # no shots here: all fall back
+    assert fit["goal_margin_fallbacks"] == 0 and fit["xg_updates"] == fit["games_used"]   # every game on xG: v7
     assert r["market"]["fair_prob"]["HOME"] > 0.5            # the books' reference rides along
 
 
@@ -109,7 +120,7 @@ def test_no_prediction_rows_and_the_window_card_ignores_the_shadow(nhl, tmp_path
     assert nhl["up"] not in window.canonical_models(tmp_path)
 
 
-def test_grade_is_live_clv_only_from_the_last_call_before_puck_drop(nhl, tmp_path, fit_ok):
+def test_grade_is_live_clv_only_from_the_last_call_before_puck_drop(nhl, tmp_path, fit_full):
     early = NOW - timedelta(hours=10)
     sh.export(now=early, out_dir=str(tmp_path))                     # an older call
     _, doc = sh.export(now=NOW, out_dir=str(tmp_path))              # the last call before puck drop
@@ -187,7 +198,7 @@ def test_with_the_fit_unavailable_the_file_and_rows_carry_the_reference_name_ver
     assert doc["fit"]["goal_margin_fallbacks"] == doc["fit"]["games_used"]               # counted as today
 
 
-def test_with_the_fit_available_the_rows_are_unchanged(nhl, tmp_path, fit_ok):
+def test_with_the_fit_available_the_rows_are_unchanged(nhl, tmp_path, fit_full):
     _scheduled(nhl)
     _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
     assert "v7_unavailable" not in doc and doc["note"] == sh.NOTE
@@ -290,3 +301,168 @@ def test_a_no_fit_row_with_a_book_anchor_says_not_graded_never_no_anchor(nhl, tm
         with session_scope() as s:
             s.query(OddsSnapshot).filter(OddsSnapshot.match_id == nhl["up"],
                                          OddsSnapshot.source == "sh_books").delete(synchronize_session=False)
+
+
+
+# ============================================= addendum 63 item 2: a shadow that ran the fallback is not v7 ==
+
+def test_a_walk_with_any_goal_margin_fallback_is_named_the_fallback_on_the_header_and_every_row(nhl, tmp_path,
+                                                                                               fit_ok):
+    """ARCHITECT 2026-10-13: "A shadow run whose fit took the goal-margin fallback for any game is not v7. Its
+    model_version reads nhl_elo_v7_goal_margin_fallback, on the file's header and on every row, and the fit block
+    stays as it is." This DB's games carry no shots: the fit is made and every game falls back."""
+    from src.walters import nhl_backtest as nb
+    _scheduled(nhl)
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    model, ref, fit = sh.fit(nb.load_games(), NOW, xg={})
+    fit.update(FIT_MADE)
+    assert doc["fit"] == fit and fit["goal_margin_fallbacks"] > 0                 # the fit block as it is
+    assert doc["model_version"] == "nhl_elo_v7_goal_margin_fallback" == sh.FALLBACK_VERSION
+    assert all(r["model_version"] == sh.FALLBACK_VERSION for r in doc["predictions"]) and doc["predictions"]
+    assert doc["not_v7"] == (f"the walk took the goal-margin fallback for {fit['goal_margin_fallbacks']} of "
+                             f"{fit['games_used']} games: this file is nhl_elo_v7_goal_margin_fallback, not "
+                             "nhl_elo_v7_xg_margin_no_na (ARCHITECT 2026-10-13, addendum 63 item 2)")
+    assert doc["note"] == sh.NOTE_FALLBACK and "v7_unavailable" not in doc
+    g = nb.Game(nhl["home_team"], nhl["away_team"], "2032", NOW + timedelta(hours=7), 0, 0)
+    r = doc["predictions"][0]
+    assert r["prediction"]["home_win_prob"] == round(model.predict(g), 4)          # the numbers the walk ran
+    assert r["reference"]["model_version"] == "nhl_elo_v1"
+    assert sh.MODEL_VERSION not in json.dumps(doc["predictions"])
+
+
+def test_one_fallback_game_is_enough_and_none_is_v7(nhl, tmp_path, monkeypatch):
+    from src.walters import nhl_backtest as nb
+    games = [g for g in nb.load_games() if g.match_id is not None and g.home_score is not None]
+    all_xg = {g.match_id: (float(g.home_score) + 0.25, float(g.away_score)) for g in games}
+    one_short = dict(all_xg)
+    one_short.pop(next(iter(one_short)))
+    _scheduled(nhl)
+    monkeypatch.setattr(sh, "live_xg", lambda: (dict(one_short), dict(FIT_MADE)))
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    assert doc["fit"]["goal_margin_fallbacks"] == 1 and doc["model_version"] == sh.FALLBACK_VERSION
+    monkeypatch.setattr(sh, "live_xg", lambda: (dict(all_xg), dict(FIT_MADE)))
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path / "v7"))
+    assert doc["fit"]["goal_margin_fallbacks"] == 0 and doc["model_version"] == sh.MODEL_VERSION
+    assert "not_v7" not in doc and doc["note"] == sh.NOTE
+
+
+def test_the_no_fit_file_still_names_the_reference(nhl, tmp_path, no_fit):
+    """Addendum 49 stands where the fit could not be made at all: v1's name and numbers."""
+    _scheduled(nhl)
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    assert doc["model_version"] == sh.REFERENCE_VERSION and "not_v7" not in doc
+
+
+@pytest.mark.parametrize("fit, name", [
+    ({"xg_model": "2023-24 fit", "goal_margin_fallbacks": 0}, "nhl_elo_v7_xg_margin_no_na"),
+    ({"xg_model": "2023-24 fit", "goal_margin_fallbacks": 3}, "nhl_elo_v7_goal_margin_fallback"),
+    ({"xg_model": "unavailable (x)", "goal_margin_fallbacks": 2879}, "nhl_elo_v1"),
+    ({}, "nhl_elo_v7_xg_margin_no_na"), (None, "nhl_elo_v7_xg_margin_no_na"),
+    ({"xg_model": "2023-24 fit", "goal_margin_fallbacks": True}, "nhl_elo_v7_xg_margin_no_na"),
+])
+def test_the_fit_block_decides_the_name(fit, name):
+    assert sh.shadow_name(fit) == name
+
+
+def _two_games(nhl):
+    """A second game in the window beside the module's, with its own books."""
+    with session_scope() as s:
+        m0 = s.get(Match, nhl["up"])
+        m = Match(sport=Sport.NHL, competition_id=m0.competition_id, season="2032", utc_date=NOW + timedelta(hours=7),
+                  status=MatchStatus.SCHEDULED, home_team_id=nhl["away_team"], away_team_id=nhl["home_team"])
+        s.add(m)
+        s.flush()
+        for bk in ("b1", "b2"):
+            for sel, price in (("HOME", 2.2), ("AWAY", 1.7)):
+                s.add(Odds(match_id=m.id, source="t", bookmaker=bk, market="1X2", selection=sel,
+                           price_decimal=price, captured_at=NOW))
+        return m.id
+
+
+def test_the_grade_never_pools_a_fallback_file_with_a_v7_file_and_says_which_it_graded(nhl, tmp_path, fit_full):
+    """ "nhl-shadow-grade never pools a fallback file with a v7 file: it grades each name on its own and says which it
+    graded." Game A's last call is in a v7 file, game B's in a fallback file."""
+    _scheduled(nhl)
+    b = _two_games(nhl)
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    for f in tmp_path.glob("nhl_shadow_*.json"):
+        f.unlink()
+    rows = {r["match_id"]: r for r in doc["predictions"]}
+    v7 = {**doc, "predictions": [rows[nhl["up"]]]}
+    fb = json.loads(json.dumps({**doc, "predictions": [rows[b]]}))
+    fb["fit"] = {**fb["fit"], "goal_margin_fallbacks": 4}
+    fb["model_version"] = fb["predictions"][0]["model_version"] = sh.FALLBACK_VERSION
+    (tmp_path / "nhl_shadow_2033-01-10_1200.json").write_text(json.dumps(v7))
+    (tmp_path / "nhl_shadow_2033-01-10_1201.json").write_text(json.dumps(fb))
+    with session_scope() as s:
+        for mid in (nhl["up"], b):
+            m = s.get(Match, mid)
+            m.status, m.home_score, m.away_score = MatchStatus.FINISHED, 3, 2
+    try:
+        r = sh.grade(days=10000, export_dir=str(tmp_path), now=NOW + timedelta(days=1))
+        close_a, close_b = (1 / 1.8) / (1 / 1.8 + 1 / 2.1), (1 / 2.2) / (1 / 2.2 + 1 / 1.7)
+
+        def clv(p, c):
+            return (p - c) if p >= 0.5 else ((1 - p) - (1 - c))
+        pa, pb = rows[nhl["up"]]["prediction"]["home_win_prob"], rows[b]["prediction"]["home_win_prob"]
+        assert r["graded"] == 2 and r["priced"] == 1 and r["fallback"] == 1 and r["fallback_priced"] == 1
+        assert r["mean_clv_pp"] == round(clv(pa, close_a) * 100, 2)                 # the v7 line: game A only
+        assert r["fallback_mean_clv_pp"] == round(clv(pb, close_b) * 100, 2)        # the fallback line: game B only
+        assert r["graded_by_name"] == {"nhl_elo_v7_xg_margin_no_na": 1, "nhl_elo_v7_goal_margin_fallback": 1,
+                                       "nhl_elo_v1 (reference line only)": 0}
+        assert r["reference_priced"] == 2                                            # v1 rides beside both
+        tagged = [ln for ln in r["lines"] if "[goal-margin fallback: not v7, its own line]" in ln]
+        assert len(tagged) == 1 and "v7_goal_margin_fallback_H=" in tagged[0]
+        md = sh.results_section(10000, export_dir=str(tmp_path))
+        assert ("- nhl_elo_v7_goal_margin_fallback (not v7: its own line, never pooled with v7; addendum 63 item 2), "
+                f"1 graded: pick-vs-close {clv(pb, close_b) * 100:+.2f}pp (n=1 priced)") in md
+        assert "(1 from walks with the goal-margin fallback (nhl_elo_v7_goal_margin_fallback): never v7; the " \
+               "fallback on its own line below)" in md
+        assert f"Mean pick-vs-close: {clv(pa, close_a) * 100:+.2f}pp (n=1 priced)" in md
+        assert ("- Graded by name: nhl_elo_v7_xg_margin_no_na 1 · nhl_elo_v7_goal_margin_fallback 1 · "
+                "nhl_elo_v1 (reference line only) 0") in md
+    finally:
+        with session_scope() as s:
+            s.query(Odds).filter(Odds.match_id == b).delete(synchronize_session=False)
+            s.query(Match).filter(Match.id == b).delete(synchronize_session=False)
+        _scheduled(nhl)
+
+
+def test_an_older_file_named_v7_whose_fit_block_counts_a_fallback_is_graded_on_the_fallback_line(nhl, tmp_path,
+                                                                                                  fit_full):
+    """The fit block decides, never the name (addendum 49): a file written before this ruling names v7 but its walk
+    took the fallback; it is graded as the fallback, never as v7."""
+    _scheduled(nhl)
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    for f in tmp_path.glob("nhl_shadow_*.json"):
+        f.unlink()
+    old = json.loads(json.dumps(doc))
+    old["fit"] = {**old["fit"], "goal_margin_fallbacks": 12}
+    assert old["model_version"] == old["predictions"][0]["model_version"] == sh.MODEL_VERSION
+    (tmp_path / "nhl_shadow_2033-01-10_1200.json").write_text(json.dumps(old))
+    _finish(nhl)
+    try:
+        r = sh.grade(days=10000, export_dir=str(tmp_path), now=NOW + timedelta(days=1))
+        assert r["priced"] == 0 and r["mean_clv_pp"] is None and r["value_side_n"] == 0      # never v7
+        assert r["fallback"] == 1 and r["fallback_priced"] == 1 and r["not_v7"] == 1 and r["no_fit"] == 0
+        assert "[goal-margin fallback: not v7, its own line] v7_goal_margin_fallback_H=" in r["lines"][0]
+        md = sh.results_section(10000, export_dir=str(tmp_path))
+        assert md.count("— (no v7-fit call graded: 1 from walks with the goal-margin fallback "
+                        "(nhl_elo_v7_goal_margin_fallback))") == 2
+    finally:
+        _scheduled(nhl)
+
+
+def test_the_cli_prints_the_fallback_on_export_and_grades_by_name(nhl, tmp_path, fit_ok, monkeypatch):
+    from click.testing import CliRunner
+
+    import cli
+    _scheduled(nhl)
+    monkeypatch.chdir(tmp_path)
+    out = CliRunner().invoke(cli.cli, ["export-nhl-predictions"])
+    assert out.exit_code == 0, out.output
+    assert "model nhl_elo_v7_goal_margin_fallback" in out.output
+    assert "✗ the walk took the goal-margin fallback for " in out.output
+    out = CliRunner().invoke(cli.cli, ["nhl-shadow-grade", "--days", "10000"])
+    assert out.exit_code == 0, out.output
+    assert "── graded by name: nhl_elo_v7_xg_margin_no_na " in out.output

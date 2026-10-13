@@ -1,0 +1,9 @@
+**2026-10-13 — LANE STEP BUILT (ARCHITECT 2026-10-13 10:12 ET, addendum 59 item 5(h); roadmap lane nfl-qb): the NFL quarterback probe, read-only. PR #489.**
+- **Ruling (verbatim):** "The quarterback probe, a PR of its own after the roadmap's. It follows scripts/lineup_history_probe.py: ids from the adapter's own mapping, never from memory; it never stops on an error; it writes nothing; the whole output is pasted to me. Its questions, for the NFL seasons 2023 to 2026: per game and team, who started at quarterback, and where the provider says so; each quarterback's passing line per game, and which fields; how far back each holds; and whether a game not yet played names its starter."
+- **The roadmap's steps for nfl-qb (#488):**
+  - this PR open, its checks green (code, due 2026-10-21);
+  - its run, the receipt to the architect (operator, 2026-10-23);
+  - the architect's ruling: a candidate declared, or a written no (2026-11-02).
+- **As built:** scripts/nfl_qb_probe.py. The league id and host are imported from the adapter, and the QB positions from qb_audit. Who started is read only where the provider says so (a key or stat name that says "start"). The most passing attempts are printed, labelled OUR READ, never the provider's word. GET only; nothing written; no database.
+- **The hold of 2026-10-11 stands** until a quarterback term passes its frozen gate and its confirmation (#427).
+- Refs #427. Refs #486.

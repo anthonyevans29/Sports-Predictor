@@ -955,3 +955,86 @@ def test_the_ncaa_and_nhl_commands_print_the_sync_s_reason(monkeypatch, cmd):
         "sports_available": ["Hockey", "Football"]})
     out = CliRunner().invoke(cli.cli, [cmd]).output
     assert "no open markets in X" in out and "None" not in out and "Kalshi sports: Hockey, Football" in out, out
+
+
+# --- addendum 57 item 6: the matcher's pins (lane #479), on the shapes of the morning's console ---
+
+def _soccer(stamp, legs, series):
+    """A soccer event: a market per name and the Tie leg."""
+    return event(stamp, legs + [("TIE", "Tie")], series=series)
+
+
+def _is_tie(m):
+    return m["yes_sub_title"] == "Tie"
+
+
+PIN_CASES = [
+    # (event, its games, now, is_tie, {(match_id, side): ticker suffix})
+    (lambda: event("26OCT16CLMBPENN", [("CLMB", "Columbia"), ("PENN", "Penn")]),
+     lambda: [game(32835, "Columbia", "Pennsylvania", Z("2026-10-17T17:00"))], None,
+     {(32835, "HOME"): "PENN", (32835, "AWAY"): "CLMB"}),
+    (lambda: event("26OCT23YALEPENN", [("PENN", "Penn"), ("YALE", "Yale")]),
+     lambda: [game(32901, "Yale", "Pennsylvania", Z("2026-10-24T17:00"))], None,
+     {(32901, "HOME"): "PENN", (32901, "AWAY"): "YALE"}),
+    (lambda: event("26OCT17ALBYSTON", [("STON", "Stony Brook"), ("ALBY", "University at Albany")]),
+     lambda: [game(32902, "UAlbany", "Stony Brook", Z("2026-10-17T17:00"))], None,
+     {(32902, "HOME"): "STON", (32902, "AWAY"): "ALBY"}),
+    (lambda: event("26OCT24ALBYURI", [("URI", "Rhode Island"), ("ALBY", "University at Albany")]),
+     lambda: [game(32903, "UAlbany", "Rhode Island", Z("2026-10-24T17:00"))], None,
+     {(32903, "HOME"): "URI", (32903, "AWAY"): "ALBY"}),
+    (lambda: event("26OCT17LIUWAG", [("LIU", "LIU"), ("WAG", "Wagner")]),
+     lambda: [game(32904, "Long Island University", "Wagner", Z("2026-10-17T17:00"))], None,
+     {(32904, "HOME"): "WAG", (32904, "AWAY"): "LIU"}),
+    (lambda: event("26OCT24STNHLIU", [("LIU", "LIU"), ("STNH", "Stonehill")]),
+     lambda: [game(32905, "Stonehill", "Long Island University", Z("2026-10-24T17:00"))], None,
+     {(32905, "HOME"): "LIU", (32905, "AWAY"): "STNH"}),
+    (lambda: _soccer("26OCT17RCSPSG", [("PSG", "PSG"), ("RCS", "Strasbourg Alsace")], "KXLIGUE1GAME"),
+     lambda: [game(70001, "Paris Saint Germain", "Strasbourg", Z("2026-10-17T19:00"))], _is_tie,
+     {(70001, "HOME"): "RCS", (70001, "AWAY"): "PSG", (70001, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT25PSGOL", [("OL", "Lyon"), ("PSG", "PSG")], "KXLIGUE1GAME"),
+     lambda: [game(70002, "Lyon", "Paris Saint Germain", Z("2026-10-25T19:45"))], _is_tie,
+     {(70002, "HOME"): "PSG", (70002, "AWAY"): "OL", (70002, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT18PARREN", [("PAR", "Paris FC"), ("REN", "Stade Rennais")], "KXLIGUE1GAME"),
+     lambda: [game(70003, "Rennes", "Paris FC", Z("2026-10-18T13:00"))], _is_tie,
+     {(70003, "HOME"): "PAR", (70003, "AWAY"): "REN", (70003, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT25RENRCS", [("REN", "Stade Rennais"), ("RCS", "Strasbourg Alsace")], "KXLIGUE1GAME"),
+     lambda: [game(70004, "Strasbourg", "Rennes", Z("2026-10-25T15:00"))], _is_tie,
+     {(70004, "HOME"): "REN", (70004, "AWAY"): "RCS", (70004, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT18BMGTSG", [("TSG", "Hoffenheim"), ("BMG", "M´gladbach")], "KXBUNDESLIGAGAME"),
+     lambda: [game(70005, "TSG Hoffenheim", "Borussia Mönchengladbach", Z("2026-10-18T15:30"))], _is_tie,
+     {(70005, "HOME"): "BMG", (70005, "AWAY"): "TSG", (70005, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT23VFBBMG", [("BMG", "M´gladbach"), ("VFB", "Stuttgart")], "KXBUNDESLIGAGAME"),
+     lambda: [game(70006, "Borussia Mönchengladbach", "VfB Stuttgart", Z("2026-10-23T18:30"))], _is_tie,
+     {(70006, "HOME"): "VFB", (70006, "AWAY"): "BMG", (70006, "DRAW"): "TIE"}),
+]
+
+
+@pytest.mark.parametrize("case", range(len(PIN_CASES)))
+def test_each_refused_event_of_the_console_fits_its_game_with_its_pin(case, monkeypatch):
+    mk, rows, is_tie, want = PIN_CASES[case]
+    markets, games = mk(), rows()
+    now = games[0].utc_date - timedelta(days=1)
+    kw = {"is_tie": is_tie} if is_tie else {}
+    res = km.place(markets, games, now=now, lo=now - timedelta(days=1), hi=now + timedelta(days=8), **kw)
+    assert placed(res) == want and not res.refused, res.refused
+    monkeypatch.setattr(km, "PINS", {})                        # without the pin: refused for no fit, as on main
+    res = km.place(markets, games, now=now, lo=now - timedelta(days=1), hi=now + timedelta(days=8), **kw)
+    assert not res.placed and res.refused == {km.NO_FIT: len(markets)}, res.refused
+
+
+def test_a_pin_reads_a_name_whole_penn_st_is_not_penn():
+    """Penn St. still fits Penn State, and does not fit Pennsylvania."""
+    psu = game(70010, "Michigan", "Penn State", Z("2026-10-17T19:30"))
+    upenn = game(70011, "Columbia", "Pennsylvania", Z("2026-10-17T17:00"))
+    now = Z("2026-10-16T12:00")
+    res = run(event("26OCT17MICHPSU", [("MICH", "Michigan"), ("PSU", "Penn St.")]), [psu, upenn], now=now)
+    assert placed(res) == {(70010, "HOME"): "PSU", (70010, "AWAY"): "MICH"}
+    res = run(event("26OCT17CLMBPSU", [("CLMB", "Columbia"), ("PSU", "Penn St.")]), [upenn], now=now)
+    assert not res.placed and res.refused == {km.NO_FIT: 2}
+    assert "Penn St." not in km.PINS and km.PINS["Penn"] == "Pennsylvania"
+
+
+def test_a_pinned_name_with_no_game_of_its_pair_is_refused_as_today():
+    other = game(70012, "Brown", "Harvard", Z("2026-10-17T17:00"))
+    res = run(event("26OCT16CLMBPENN", [("CLMB", "Columbia"), ("PENN", "Penn")]), [other], now=Z("2026-10-16T12:00"))
+    assert not res.placed and res.refused == {km.NO_FIT: 2}

@@ -37,6 +37,12 @@ refused already, under its own reason; it counts whether or not its markets carr
 outside the rule. Addendum 55 item 3: "The reason 'behind' and its line are for a market that would otherwise have
 been placed. A market refused for a reason of its own keeps that reason, and no such line is printed for it."
 
+Addendum 57 item 6 (2026-10-13, lane #479), the matcher's pins, verbatim: "In the Kalshi matcher, Penn is
+Pennsylvania; University at Albany is UAlbany; LIU is Long Island University; PSG is Paris Saint Germain; Stade
+Rennais is Rennes; M´gladbach, as Kalshi writes it with an acute accent (U+00B4), is Borussia Mönchengladbach. A pin
+reads one of the event's two names whole, as the module takes them, and never a word of a name: Penn St. is not Penn.
+Nothing else in the matcher changes: the event's two names still fit one game one each, and a tie is refused."
+
 Pure: no network, no database. place() takes the markets and the stored games (objects with id, utc_date (naive
 UTC), home_team.name, away_team.name, status) and returns the placements and the refusals by reason.
 
@@ -83,6 +89,18 @@ IN_PLAY = "in play (our kickoff has passed)"
 WIDE_SPREAD = "spread wider than the guard"
 TWO_CLAIMS = "two markets claim one side of one game"
 BEHIND = "behind an event of the same two names out of step"
+
+
+# Addendum 57 item 6: an event's name, whole as the module takes it (the market's yes_sub_title, stripped), -> the
+# name the fit reads in its place. Never a word of a name ("Penn St." is not "Penn").
+PINS = {
+    "Penn": "Pennsylvania",
+    "University at Albany": "UAlbany",
+    "LIU": "Long Island University",
+    "PSG": "Paris Saint Germain",
+    "Stade Rennais": "Rennes",
+    "M\u00b4gladbach": "Borussia M\u00f6nchengladbach",
+}
 
 
 def norm_tokens(name: str) -> set[str]:
@@ -228,11 +246,14 @@ def _best_fits(names, day, games) -> list:
     day (the ticker's date, a day either side, US Eastern; rows that are not games left out). [] when none fits."""
     on_day = [g for g in games if g.utc_date and g.home_team and g.away_team and is_game(g)
               and abs((et_day(g.utc_date) - day).days) <= 1]
+    # the pins (addendum 57 item 6): each name read whole; which name is home is given back as the event's own name
+    pinned = (PINS.get(names[0], names[0]), PINS.get(names[1], names[1]))
     fits = []
     for g in on_day:
-        f = fit((names[0], names[1]), g.home_team.name, g.away_team.name)
+        f = fit(pinned, g.home_team.name, g.away_team.name)
         if f is not None:
-            fits.append((f[0], g, f[1]))
+            home_name = None if f[1] is None else (names[0] if f[1] == pinned[0] else names[1])
+            fits.append((f[0], g, home_name))
     if not fits:
         return []
     best = max(sc for sc, _, _ in fits)

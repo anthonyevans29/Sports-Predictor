@@ -49,6 +49,9 @@ class FakeSystemctl:
         elif verb == "is-active":
             st = ["active" if u in self.active else "inactive" for u in units]
             return (0 if all(s == "active" for s in st) else 3), "\n".join(st)
+        elif verb == "list-units" and "--type=timer" in argv:   # as systemd lists them: --plain --no-legend
+            return 0, "\n".join(f"{u} loaded active waiting Timer" for u in sorted(self.active)
+                                if u.endswith(".timer"))
         return 0, ""
 
     def verbs(self):
@@ -215,6 +218,8 @@ def host(world, monkeypatch):
 
 
 def _real(world, host, step="run", runner=None):
+    if runner is None:          # never the real systemctl in a test: the preflight reads the active timers (57.8)
+        runner = FakeSystemctl(active=host["timers"].read_text().split())
     return sp_cutover.main([step, "--pack", str(world["pack"]), "--timers-file", str(host["timers"])],
                            runner=runner)
 
@@ -376,3 +381,70 @@ def test_48_6_460_a_setting_host_env_leaves_empty_is_still_listed(tmp_path, monk
     (pack / sp_migrate.ENV).write_text("NTFY_TOPIC=new-topic\n")
     assert sp_cutover.env_changes_by_pack(pack, {"NTFY_TOPIC": ""})["differ"] == ["NTFY_TOPIC"]
     assert sp_cutover.env_changes_by_pack(pack, {"NTFY_TOPIC": "host-topic"})["differ"] == []
+
+
+# ---------------------------------- addendum 57 item 8 (#481): the active timers ----
+
+def test_57_8_an_active_sp_timer_off_the_list_refuses_the_preflight_and_names_it(world, host):
+    """"The cutover's preflight reads the sp timers that are active on the host. An active timer that is not on the
+    list refuses the preflight, and the refusal names it. The operator corrects the list by hand; the tool never
+    writes it." The host of 2026-10-13: two active timers not on the list."""
+    listed = host["timers"].read_text().split()
+    before = host["timers"].read_bytes()
+    fake = FakeSystemctl(active=listed + ["sp-intl-daily.timer", "sp-exports-squash.timer"])
+    assert _real(world, host, runner=fake) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "preflight" and r["exit"] == 1
+    assert "sp-exports-squash.timer, sp-intl-daily.timer" in r["refused"] and str(host["timers"]) in r["refused"]
+    assert r["timers_off_list"] == ["sp-exports-squash.timer", "sp-intl-daily.timer"]
+    assert host["timers"].read_bytes() == before                  # the tool never writes the list
+    assert "stop" not in fake.verbs() and world["real_env"].read_text() == REAL_ENV_TEXT   # nothing paused or flipped
+
+
+def test_57_8_an_active_sp_timer_the_list_cannot_carry_is_named_never_dropped(world, host):
+    """systemd's 'sp-*' also lists a templated or underscored timer. It is active and off the list, so it refuses and
+    is named like any other, and the refusal says the list cannot carry it as built."""
+    listed = host["timers"].read_text().split()
+    fake = FakeSystemctl(active=listed + ["sp-chain@mlb.timer", "sp-soccer_refresh.timer"])
+    assert _real(world, host, runner=fake) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "preflight" and r["exit"] == 1
+    assert r["timers_off_list"] == ["sp-chain@mlb.timer", "sp-soccer_refresh.timer"]
+    assert "sp-chain@mlb.timer, sp-soccer_refresh.timer cannot go on the list as built" in r["refused"]
+    assert "stop" not in fake.verbs()
+
+
+def test_57_8_the_list_corrected_by_hand_passes_and_the_receipt_counts_the_active_timers(world, host):
+    fake = FakeSystemctl(active=host["timers"].read_text().split() + ["sp-intl-daily.timer"])
+    host["timers"].write_text(host["timers"].read_text() + "sp-intl-daily.timer\n")   # the operator's hand
+    assert _real(world, host, step="preflight", runner=fake) == 0
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "preflight" and r["timers_active"] == 4 and r["timers"] == 4
+
+
+def test_57_8_a_listed_timer_that_is_not_active_and_other_units_refuse_nothing(world, host):
+    """Only an active sp timer off the list refuses: an inactive listed timer, a service, a non-sp timer do not."""
+    listed = host["timers"].read_text().split()
+    fake = FakeSystemctl(active=listed[1:] + ["sp-chain@mlb.service", "apt-daily.timer"])
+    assert _real(world, host, step="preflight", runner=fake) == 0
+    assert _lines(world["real_receipts"])[-1]["timers_active"] == len(listed) - 1
+
+
+def test_57_8_a_listing_that_cannot_be_read_refuses(world, host):
+    class NoList(FakeSystemctl):
+        def __call__(self, argv):
+            if argv[1:2] == ["list-units"]:
+                self.calls.append([str(a) for a in argv])
+                return 1, "Failed to connect to bus"
+            return super().__call__(argv)
+    fake = NoList(active=host["timers"].read_text().split())
+    assert _real(world, host, step="preflight", runner=fake) == 1
+    assert "cannot read the active sp timers" in _lines(world["real_receipts"])[-1]["refused"]
+
+
+def test_57_8_the_dry_run_scratch_list_is_its_own_and_passes(world, capsys):
+    """The dry run's scratch list stays as it is: its stand-in reports the scratch list's timers as the active ones."""
+    run = sp_cutover.DryRunner(active=sp_cutover.runbook_timers())
+    rc, out = run(["systemctl", "list-units", "--type=timer", "--state=active", "--no-legend", "--plain", "sp-*"])
+    assert rc == 0 and sorted(ln.split()[0] for ln in out.splitlines()) == sorted(sp_cutover.runbook_timers())
+    assert _dry(world, world["tmp"] / "scratch57") == 0

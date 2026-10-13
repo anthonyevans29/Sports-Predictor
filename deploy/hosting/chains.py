@@ -252,6 +252,10 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
     "NHL": [["sync-kalshi-nhl"]],
     "PL": [["sync-kalshi-soccer", "--competition", "PL"]],
     "UNL": [["sync-kalshi-soccer", "--competition", "UNL"]],
+    # CL (ARCHITECT 2026-10-13, addendum 58): market-only like UNL, read on the window card. "The host takes it with
+    # the tag that carries it." No CL sync goes into the operator's block before the architect has read one
+    # replay console with CL in it (item 3).
+    "CL": [["sync-kalshi-soccer", "--competition", "CL"]],
 }
 CHAINS["window"] = {"window_plan": True, "post": "window_page", "steps": []}
 

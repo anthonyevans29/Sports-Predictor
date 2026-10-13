@@ -1,0 +1,21 @@
+**2026-10-13 — RULED + BUILT (ARCHITECT 2026-10-13 09:42 ET, addendum 58): CL reads Kalshi through KXUCLGAME, wired since 2026-10-13. PR #499.**
+- **Ruling, item 1 (verbatim):** "CL reads Kalshi through the series KXUCLGAME. It is wired as PL is: the soccer path, three legs, the same spread guard, the same placement. Nothing else about the cups changes: CL stays market-only, with no model and no call."
+- **The architect's receipts** (Kalshi's public API through a web fetch, 2026-10-13 09:36 to 09:41 ET):
+  - /series/KXUCLGAME: "UEFA Champions League Game", category Sports, tag Soccer.
+  - 36 open events, nine each dated 26OCT13, 26OCT14, 26OCT20 and 26OCT21. The ticker is date-only, as PL's is.
+  - KXUCLGAME-26OCT13ARSLIL: -ARS "Arsenal", -LIL "Lille", -TIE "Tie".
+  - The host's window card of 13:06Z carried the nine games of the day under CL, each with ten books and no Kalshi block.
+  - The nine titles against the stored names share a word one each (18 pairs). The architect's run of the module placed all 27 legs, the Tie legs as DRAW.
+- **As built (item 2):**
+  - `SOCCER_GAME_SERIES` gains CL -> KXUCLGAME (pinned). The replay reads it with the rest, and `sync-kalshi-soccer --competition CL` stores what the placement places.
+  - The host window chain syncs CL as it syncs UNL.
+  - docs/CLI.md's rows say CL is wired since 2026-10-13.
+  - Tests: the Arsenal event's three legs on Lille @ Arsenal, sides and the Tie leg; a CL event whose two names fit no stored game refused for no fit.
+- **Item 3 (verbatim):** "THE FIRST READ IS MINE. No CL sync goes into the operator's block before I have read one replay console with CL in it: every placement's name against its side, and every refusal for no fit. The host takes it with the tag that carries it."
+- Addendum 58 asked for this to ride the pins PR. #482 merged before it reached this session, so it is a PR of its own (addendum 60 item 2).
+- **Finding (#498, needs-ruling, attributed to this PR's wiring):** a CL window-card row now carries a Kalshi block beside its books, and the venue engine computes it as a market-only row.
+  - Today the quote-age rule holds it: PASS, no reference, no call.
+  - Nothing CL-specific stops a venue call once that hold lifts. The charter reads "cups when priced"; UNL and the expansion leagues have their own stops.
+  - The fee schedule ruling names UCL at M=1, but `KALSHI_FEE_M` has no KXUCLGAME entry. None was added.
+  - Not acted on.
+- Refs #498.

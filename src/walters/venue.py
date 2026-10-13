@@ -64,8 +64,10 @@ K_TRACK_NOTE = "K-track: informational until the executable-edge ruling"
 # small (NFL maker 100 @ 50c: $0.11 vs the published $0.44). MLB live M=1 is never priced here, because
 # MLB is never executed live (doctrine, ruling (4)). Combos: maker = 50% of
 # taker (fills classification only). Our exports are pre-kickoff captures
-# only (in-play never), so the pre-live M applies. UCL is in the ruling, but
-# no UCL series is wired, so no ticker is guessed for it.
+# only (in-play never), so the pre-live M applies. UCL is in the ruling; its
+# series KXUCLGAME is wired for reading since 2026-10-13 (addendum 58), but CL
+# stays market-only with no call ("nothing else about the cups changes"), so
+# it is not priced here.
 KALSHI_FEE_M = {                       # series -> (taker M, maker M), pre-live
     "KXNFLGAME": (1.0, 1.0), "KXNHLGAME": (1.0, 1.0), "KXNCAAFGAME": (1.0, 1.0),
     "KXEPLGAME": (1.0, 1.0), "KXMLBGAME": (0.5, 0.5),

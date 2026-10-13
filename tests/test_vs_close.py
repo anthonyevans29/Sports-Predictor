@@ -108,3 +108,22 @@ def test_block_from_rows_feeds_only_decided_rows_with_a_close():
     rows = [_row("H", {"HOME": 0.55, "AWAY": 0.45}), _row("A", None), _row("T", {"HOME": 0.5, "AWAY": 0.5}, push=True)]
     b = vc.block_from_rows(rows)
     assert b["games"] == 1 and b["model_beat_close"] == 1
+
+
+def test_the_block_is_a_function_of_the_games_never_of_their_order():
+    """Review of the record PR: the rows come in an order set by machine-local ids (or SQLite's order among games at
+    one kickoff), and compare_exports diffs every field before a tag; the same games give the same block."""
+    import random
+    pairs = [(0.5 + (i % 13) / 50, 0.45 + (i % 7) / 40) for i in range(23)]
+    want = vc.block(pairs)
+    for seed in range(5):
+        shuffled = pairs[:]
+        random.Random(seed).shuffle(shuffled)
+        assert vc.block(shuffled) == want
+    assert vc.block(list(reversed(pairs))) == want
+
+
+def test_no_figure_is_a_negative_zero():
+    import json
+    b = vc.block([(0.5, 0.50001), (0.5, 0.49999), (0.5, 0.5)])
+    assert "-0.0" not in json.dumps(b) and "-0.0000" not in vc.line(b)

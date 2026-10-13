@@ -1094,14 +1094,18 @@ function vsCloseLine(b){
 }
 function recordLines(doc,name){
   const rec=doc&&doc.record; if(!rec) return [];
-  const fam=String(doc.sport||doc.competition_code||"?").toUpperCase()+(doc.competition_code&&doc.sport!==doc.competition_code?` ${doc.competition_code}`:"");
+  const sp=String(doc.sport||doc.competition_code||"?").toUpperCase(), cc=String(doc.competition_code||"").toUpperCase();
+  const fam=sp+(cc&&cc!==sp?` ${cc}`:"");
   const pct=(h,d)=>d?` (${(100*h/d).toFixed(1)}%)`:"";
+  // a file exported before addendum 63 has no line against the close: its win rate is not shown either
+  const old=`${fam} · ${name}: exported before addendum 63, no record against the close, so no win rate is shown; re-export`;
+  if(!rec.vs_close) return [old];
   const dec=rec.decided!=null?rec.decided:rec.games;
   const out=[`${fam} model record · ${name}: top-pick hits ${rec.hits}/${dec}${pct(rec.hits,dec)}`
     +(rec.pushes?` · pushes ${rec.pushes}`:"")+` · ${vsCloseLine(rec.vs_close)}`];
   const pre=doc.pre_live&&doc.pre_live.record;
-  if(pre&&pre.games) out.push(`${fam} pre-live (never pooled): hits ${pre.hits}/${pre.decided}${pct(pre.hits,pre.decided)}`
-    +(pre.pushes?` · pushes ${pre.pushes}`:"")+` · ${vsCloseLine(pre.vs_close)}`);
+  if(pre&&pre.games) out.push(pre.vs_close?`${fam} pre-live (never pooled): hits ${pre.hits}/${pre.decided}${pct(pre.hits,pre.decided)}`
+    +(pre.pushes?` · pushes ${pre.pushes}`:"")+` · ${vsCloseLine(pre.vs_close)}`:`${fam} pre-live: no record against the close, so no win rate is shown`);
   return out;
 }
 function dayDiff(a,b){

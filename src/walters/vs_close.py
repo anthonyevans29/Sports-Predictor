@@ -13,7 +13,9 @@ is a push), is not fed. Per game, the log-loss is -ln(max(p, 1e-12)), the floor 
 difference is the close's log-loss minus the model's, so a positive mean is the model ahead; the model beat the close
 in a game where its log-loss is strictly lower (a tie is not a beat). The interval is a percentile bootstrap (the
 250th and 9,750th of the 10,000 sorted resampled means) of the mean difference, resampling games, with a seed pinned
-to the ruling's date; fewer than two games have no interval.
+to the ruling's date; fewer than two games have no interval. The block is a function of the set of games, never of
+their order (the pairs are sorted first), and carries no negative zero, so the laptop's file and the host's agree on
+the same games and the Cockpit prints the file's figures as Python does.
 """
 from __future__ import annotations
 
@@ -45,13 +47,20 @@ def _ci(d: list[float], seed: int, resamples: int) -> list[float] | None:
         return None
     rng = random.Random(seed)
     means = sorted(sum(rng.choices(d, k=n)) / n for _ in range(resamples))
-    return [round(means[int(0.025 * resamples)], 4), round(means[int(0.975 * resamples) - 1], 4)]
+    return [_r4(means[int(0.025 * resamples)]), _r4(means[int(0.975 * resamples) - 1])]
+
+
+def _r4(x: float) -> float:
+    """Four places, and never a negative zero (the Cockpit prints the file's figures and must print the same)."""
+    return round(x, 4) + 0.0
 
 
 def block(pairs, seed: int = SEED, resamples: int = RESAMPLES) -> dict:
     """The record's line against the close, from (model p of the outcome, close p of the outcome) per decided game
     with a close. Every key is always present; with no game the figures are null and the count 0."""
-    pairs = [(float(m), float(c)) for m, c in pairs]
+    # sorted first: the block is a function of the set of games, never of their order, which comes from machine-local
+    # ids or SQLite's order among games at one kickoff (the laptop's file and the host's must agree on the same games)
+    pairs = sorted((float(m), float(c)) for m, c in pairs)
     out = {"games": len(pairs), "model_log_loss": None, "close_log_loss": None, "close_minus_model": None,
            "ci95": None, "model_beat_close": 0, "resamples": resamples, "seed": seed}
     if not pairs:
@@ -60,8 +69,8 @@ def block(pairs, seed: int = SEED, resamples: int = RESAMPLES) -> dict:
     lc = [log_loss(c) for _, c in pairs]
     d = [c - m for m, c in zip(lm, lc)]
     n = len(d)
-    out.update({"model_log_loss": round(sum(lm) / n, 4), "close_log_loss": round(sum(lc) / n, 4),
-                "close_minus_model": round(sum(d) / n, 4), "ci95": _ci(d, seed, resamples),
+    out.update({"model_log_loss": _r4(sum(lm) / n), "close_log_loss": _r4(sum(lc) / n),
+                "close_minus_model": _r4(sum(d) / n), "ci95": _ci(d, seed, resamples),
                 "model_beat_close": sum(1 for x in d if x > 0)})
     return out
 

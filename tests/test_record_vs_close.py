@@ -289,6 +289,7 @@ def test_the_cockpit_line_is_the_python_line_word_for_word(tmp_path):
     html = COCKPIT.read_text()
     blocks = [None, vc.block([]), vc.block([(0.6, 0.5)]), vc.block([(0.7, FAIR_H), (0.35, FAIR_A), (0.61, 0.6)]),
               {**vc.block([(0.6, 0.55), (0.4, 0.45)]), "kalshi_only_closes": 1},
+              vc.block([(0.5, 0.50001), (0.5, 0.49999), (0.5, 0.5)]),                  # zeros, never "-0.0000"
               {"games": 46, "model_log_loss": 0.6104, "close_log_loss": 0.6419, "close_minus_model": 0.0315,
                "ci95": [-0.029, 0.091], "model_beat_close": 26, "resamples": 10_000, "seed": 20261013}]
     script = tmp_path / "t.js"
@@ -297,7 +298,14 @@ def test_the_cockpit_line_is_the_python_line_word_for_word(tmp_path):
                       + "console.log(JSON.stringify(B.map(vsCloseLine)));\n"
                       + "const doc={sport:'nfl',record:{games:3,decided:2,hits:1,pushes:1,vs_close:B[3]},"
                         "pre_live:{record:{games:1,decided:1,hits:1,pushes:0,vs_close:B[2]}}};\n"
-                      + "console.log(JSON.stringify(recordLines(doc,'nfl_NFL_results_2026-10-13.json')));\n")
+                      + "console.log(JSON.stringify(recordLines(doc,'nfl_NFL_results_2026-10-13.json')));\n"
+                      # a file exported before addendum 63 has a record and no line: its win rate is not shown
+                      + "const old={sport:'nfl',record:{games:3,decided:2,hits:1,pushes:1},"
+                        "pre_live:{record:{games:1,decided:1,hits:1,pushes:0}}};\n"
+                      + "console.log(JSON.stringify(recordLines(old,'nfl_NFL_results_2026-10-12.json')));\n"
+                      + "console.log(JSON.stringify(recordLines({sport:'mlb',competition_code:'MLB',"
+                        "record:{games:1,hits:1,vs_close:B[2]}},'m.json').concat(recordLines({sport:'soccer',"
+                        "competition_code:'PL',record:{games:1,hits:0,vs_close:B[2]}},'p.json'))));\n")
     out = subprocess.run(["node", str(script)], capture_output=True, text=True, check=True).stdout.splitlines()
     got = json.loads(out[0])
     assert got[0] == "vs close: not in this file (exported before addendum 63)"
@@ -307,3 +315,10 @@ def test_the_cockpit_line_is_the_python_line_word_for_word(tmp_path):
                       + vc.line(blocks[3]))
     assert rec[1] == "NFL pre-live (never pooled): hits 1/1 (100.0%) · " + vc.line(blocks[2])
     assert all(re.search(r"hits \d+/\d+", x) and " · vs close: " in x for x in rec)
+    old = json.loads(out[2])
+    assert old == ["NFL · nfl_NFL_results_2026-10-12.json: exported before addendum 63, no record against the close, "
+                   "so no win rate is shown; re-export"]
+    assert not any(re.search(r"hits \d", x) for x in old)                  # never a win rate without its line
+    fams = json.loads(out[3])
+    assert fams[0].startswith("MLB model record · m.json: top-pick hits 1/1 (100.0%) · vs close: 1 game")
+    assert fams[1].startswith("SOCCER PL model record · p.json: top-pick hits 0/1 (0.0%) · vs close: 1 game")

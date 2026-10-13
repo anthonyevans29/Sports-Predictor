@@ -1,0 +1,22 @@
+**2026-10-13 — RULED + BUILT (ARCHITECT 2026-10-13 10:12 ET, addendum 59 items 2 and 3): a pin fits its own team and no other; the namesake fit without a pin is a limitation. PR #482.**
+- **Finding (#484, Codex P1 on #482's 8c51f89, attributed):** as built on 8c51f89, a pin read its pin's name through the word fit. The pinned name therefore fit any stored team sharing one word with it: Borussia Dortmund through borussia, Paris FC through paris, Rhode Island through island. Addendum 12 set this guard for the closing-odds pins ("Never add ath, borussia or stade"), and addendum 57 did not repeat it.
+- **Ruling, item 2 (verbatim):** "A pin names one stored team. A pinned name fits a team only where the team's stored name reads as the pin's name: the same words under norm_tokens, no more and no fewer. Against every other team a pinned name scores nothing, whatever word they share: PSG does not fit Paris FC, M´gladbach does not fit Borussia Dortmund, LIU does not fit Rhode Island. Against its own team it scores what the pin's name scores on #482's head. An event's name that is not pinned is read as before. One each, the best fit and the refused tie do not change."
+- **The architect's run** on #482's merge preview (6d989be), in memory only:
+  - The twelve events fit their own games with the head's scores, 2 to 4 (each event's fit, over its two names).
+  - Three events the head fit with a score of 2 are refused:
+    - Bayern Munich / M´gladbach on a lone Bayern München @ Borussia Dortmund row;
+    - Lyon / PSG on a lone Lyon @ Paris FC row;
+    - Brown / LIU on a lone Brown @ Rhode Island row.
+- **The stored names the six pins were read against:**
+  - Pennsylvania, UAlbany and Long Island University: fixtures_NCAA_2026-10-13.json.
+  - Paris Saint Germain and Rennes: the laptop's soccer_expansion_shadow export of 2026-10-09 22:12.
+  - Borussia Mönchengladbach: the host's window card of 2026-10-10.
+  - Each is its pin's name word for word.
+- **As built:** `_as_scored` in src/ingestion/kalshi_match.py. An unpinned name is itself. A pinned name is its pin's name against its own team and scores nothing against any other. `side_score` and `_distinct_score` read it, and `_best_fits` passes the event's own names to the fit.
+- **Limitation #485 (item 3, verbatim in part):** "the same shape without a pin is main's fit, and item 2 does not change it. A name Kalshi writes in full fits a namesake through one shared word when its own game is not stored and its opponent has a game against the namesake within a day of the ticker's date."
+  - #484's case: Lyon / Paris FC on a lone Lyon @ Paris Saint Germain row (2). It still places with #482, since Paris FC is not pinned.
+  - "This morning's own names show it with no pin at all" (main, before the pins): Columbia / Penn (2) on a lone Columbia @ Penn State row; Stony Brook / University at Albany (3) on a lone Long Island University @ Stony Brook row. With #482 both are refused for no fit: Penn and University at Albany are pinned, and a pinned name scores nothing against another team.
+  - What stands against it today: the day window, one each, the best fit, and the architect's read of the wide probe's 569 placed legs (none on a wrong game).
+  - Reopening condition: a ruling on a stricter fit, read on a replay before it is built.
+- Addendum 58's wiring was not pasted to this session, so #482 carries item 2 alone.
+- **Closes #484.** Refs #485.

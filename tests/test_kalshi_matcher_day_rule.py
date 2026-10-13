@@ -955,3 +955,200 @@ def test_the_ncaa_and_nhl_commands_print_the_sync_s_reason(monkeypatch, cmd):
         "sports_available": ["Hockey", "Football"]})
     out = CliRunner().invoke(cli.cli, [cmd]).output
     assert "no open markets in X" in out and "None" not in out and "Kalshi sports: Hockey, Football" in out, out
+
+
+# --- addendum 57 item 6: the matcher's pins (lane #479), on the shapes of the morning's console ---
+
+def _soccer(stamp, legs, series):
+    """A soccer event: a market per name and the Tie leg."""
+    return event(stamp, legs + [("TIE", "Tie")], series=series)
+
+
+def _is_tie(m):
+    return m["yes_sub_title"] == "Tie"
+
+
+PIN_CASES = [
+    # (event, its games, now, is_tie, {(match_id, side): ticker suffix})
+    (lambda: event("26OCT16CLMBPENN", [("CLMB", "Columbia"), ("PENN", "Penn")]),
+     lambda: [game(32835, "Columbia", "Pennsylvania", Z("2026-10-17T17:00"))], None,
+     {(32835, "HOME"): "PENN", (32835, "AWAY"): "CLMB"}),
+    (lambda: event("26OCT23YALEPENN", [("PENN", "Penn"), ("YALE", "Yale")]),
+     lambda: [game(32901, "Yale", "Pennsylvania", Z("2026-10-24T17:00"))], None,
+     {(32901, "HOME"): "PENN", (32901, "AWAY"): "YALE"}),
+    (lambda: event("26OCT17ALBYSTON", [("STON", "Stony Brook"), ("ALBY", "University at Albany")]),
+     lambda: [game(32902, "UAlbany", "Stony Brook", Z("2026-10-17T17:00"))], None,
+     {(32902, "HOME"): "STON", (32902, "AWAY"): "ALBY"}),
+    (lambda: event("26OCT24ALBYURI", [("URI", "Rhode Island"), ("ALBY", "University at Albany")]),
+     lambda: [game(32903, "UAlbany", "Rhode Island", Z("2026-10-24T17:00"))], None,
+     {(32903, "HOME"): "URI", (32903, "AWAY"): "ALBY"}),
+    (lambda: event("26OCT17LIUWAG", [("LIU", "LIU"), ("WAG", "Wagner")]),
+     lambda: [game(32904, "Long Island University", "Wagner", Z("2026-10-17T17:00"))], None,
+     {(32904, "HOME"): "WAG", (32904, "AWAY"): "LIU"}),
+    (lambda: event("26OCT24STNHLIU", [("LIU", "LIU"), ("STNH", "Stonehill")]),
+     lambda: [game(32905, "Stonehill", "Long Island University", Z("2026-10-24T17:00"))], None,
+     {(32905, "HOME"): "LIU", (32905, "AWAY"): "STNH"}),
+    (lambda: _soccer("26OCT17RCSPSG", [("PSG", "PSG"), ("RCS", "Strasbourg Alsace")], "KXLIGUE1GAME"),
+     lambda: [game(70001, "Paris Saint Germain", "Strasbourg", Z("2026-10-17T19:00"))], _is_tie,
+     {(70001, "HOME"): "RCS", (70001, "AWAY"): "PSG", (70001, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT25PSGOL", [("OL", "Lyon"), ("PSG", "PSG")], "KXLIGUE1GAME"),
+     lambda: [game(70002, "Lyon", "Paris Saint Germain", Z("2026-10-25T19:45"))], _is_tie,
+     {(70002, "HOME"): "PSG", (70002, "AWAY"): "OL", (70002, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT18PARREN", [("PAR", "Paris FC"), ("REN", "Stade Rennais")], "KXLIGUE1GAME"),
+     lambda: [game(70003, "Rennes", "Paris FC", Z("2026-10-18T13:00"))], _is_tie,
+     {(70003, "HOME"): "PAR", (70003, "AWAY"): "REN", (70003, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT25RENRCS", [("REN", "Stade Rennais"), ("RCS", "Strasbourg Alsace")], "KXLIGUE1GAME"),
+     lambda: [game(70004, "Strasbourg", "Rennes", Z("2026-10-25T15:00"))], _is_tie,
+     {(70004, "HOME"): "REN", (70004, "AWAY"): "RCS", (70004, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT18BMGTSG", [("TSG", "Hoffenheim"), ("BMG", "M´gladbach")], "KXBUNDESLIGAGAME"),
+     lambda: [game(70005, "TSG Hoffenheim", "Borussia Mönchengladbach", Z("2026-10-18T15:30"))], _is_tie,
+     {(70005, "HOME"): "BMG", (70005, "AWAY"): "TSG", (70005, "DRAW"): "TIE"}),
+    (lambda: _soccer("26OCT23VFBBMG", [("BMG", "M´gladbach"), ("VFB", "Stuttgart")], "KXBUNDESLIGAGAME"),
+     lambda: [game(70006, "Borussia Mönchengladbach", "VfB Stuttgart", Z("2026-10-23T18:30"))], _is_tie,
+     {(70006, "HOME"): "VFB", (70006, "AWAY"): "BMG", (70006, "DRAW"): "TIE"}),
+]
+
+
+@pytest.mark.parametrize("case", range(len(PIN_CASES)))
+def test_each_refused_event_of_the_console_fits_its_game_with_its_pin(case, monkeypatch):
+    mk, rows, is_tie, want = PIN_CASES[case]
+    markets, games = mk(), rows()
+    now = games[0].utc_date - timedelta(days=1)
+    kw = {"is_tie": is_tie} if is_tie else {}
+    res = km.place(markets, games, now=now, lo=now - timedelta(days=1), hi=now + timedelta(days=8), **kw)
+    assert placed(res) == want and not res.refused, res.refused
+    monkeypatch.setattr(km, "PINS", {})                        # without the pin: refused for no fit, as on main
+    res = km.place(markets, games, now=now, lo=now - timedelta(days=1), hi=now + timedelta(days=8), **kw)
+    assert not res.placed and res.refused == {km.NO_FIT: len(markets)}, res.refused
+
+
+def test_a_pin_reads_a_name_whole_penn_st_is_not_penn():
+    """Penn St. still fits Penn State, and does not fit Pennsylvania."""
+    psu = game(70010, "Michigan", "Penn State", Z("2026-10-17T19:30"))
+    upenn = game(70011, "Columbia", "Pennsylvania", Z("2026-10-17T17:00"))
+    now = Z("2026-10-16T12:00")
+    res = run(event("26OCT17MICHPSU", [("MICH", "Michigan"), ("PSU", "Penn St.")]), [psu, upenn], now=now)
+    assert placed(res) == {(70010, "HOME"): "PSU", (70010, "AWAY"): "MICH"}
+    res = run(event("26OCT17CLMBPSU", [("CLMB", "Columbia"), ("PSU", "Penn St.")]), [upenn], now=now)
+    assert not res.placed and res.refused == {km.NO_FIT: 2}
+    assert "Penn St." not in km.PINS and km.PINS["Penn"] == "Pennsylvania"
+
+
+NO_PAIR_CASES = [
+    # (event, the day's games, is_tie): the pinned team plays, against someone else; no game of the event's pair
+    (lambda: event("26OCT16CLMBPENN", [("CLMB", "Columbia"), ("PENN", "Penn")]),
+     lambda: [game(70012, "Princeton", "Pennsylvania", Z("2026-10-16T23:00"))], None),
+    (lambda: event("26OCT16CLMBPENN", [("CLMB", "Columbia"), ("PENN", "Penn")]),
+     lambda: [game(70012, "Princeton", "Pennsylvania", Z("2026-10-16T23:00")),
+              game(70013, "Columbia", "Dartmouth", Z("2026-10-16T23:00"))], None),
+    (lambda: _soccer("26OCT17RCSPSG", [("PSG", "PSG"), ("RCS", "Strasbourg Alsace")], "KXLIGUE1GAME"),
+     lambda: [game(70014, "Lyon", "Paris Saint Germain", Z("2026-10-17T19:00"))], _is_tie),
+]
+
+
+@pytest.mark.parametrize("case", range(len(NO_PAIR_CASES)))
+def test_a_pinned_name_with_no_game_of_its_pair_is_refused_as_today(case, monkeypatch):
+    """The pinned team's own game against another side is not the event's game: one name alone never places it."""
+    mk, rows, is_tie = NO_PAIR_CASES[case]
+    markets, games = mk(), rows()
+    kw = {"is_tie": is_tie} if is_tie else {}
+    res = run(markets, games, now=Z("2026-10-16T12:00"), **kw)
+    assert not res.placed and res.refused == {km.NO_FIT: len(markets)}, res.refused
+    monkeypatch.setattr(km, "PINS", {})                        # as today: main refuses it the same way
+    res = run(markets, games, now=Z("2026-10-16T12:00"), **kw)
+    assert not res.placed and res.refused == {km.NO_FIT: len(markets)}, res.refused
+
+
+# --- addendum 59 item 2 (#484): a pin fits its own team and no other ---
+
+HEAD_SCORES = [2, 2, 3, 3, 4, 4, 4, 4, 3, 2, 3, 3]          # fit() on #482's head (8c51f89), the pin's name in place
+
+
+@pytest.mark.parametrize("case", range(len(PIN_CASES)))
+def test_each_pinned_event_scores_on_its_own_game_what_the_head_gave_it(case):
+    """"Against its own team it scores what the pin's name scores on #482's head": each event's fit on its own game
+    is what 8c51f89 gave it (totals of 2 to 4 over the two names)."""
+    mk, rows, is_tie, want = PIN_CASES[case]
+    markets, g = mk(), rows()[0]
+    names = km._names(markets, markets[0], is_tie or (lambda m: False))
+    f = km.fit(tuple(names), g.home_team.name, g.away_team.name)
+    home = next(sfx for (mid, side), sfx in want.items() if side == "HOME")
+    assert f is not None and f[0] == HEAD_SCORES[case]
+    assert f[1] == next(m["yes_sub_title"] for m in markets if m["ticker"].endswith("-" + home))
+
+
+NAMESAKE_CASES = [
+    # (event, the lone row: the opponent against the namesake the pin's name shares a word with); the head placed each
+    (lambda: _soccer("26OCT18FCBBMG", [("FCB", "Bayern Munich"), ("BMG", "M´gladbach")], "KXBUNDESLIGAGAME"),
+     lambda: [game(70020, "Bayern München", "Borussia Dortmund", Z("2026-10-18T16:30"))], _is_tie),
+    (lambda: _soccer("26OCT25PSGOL", [("OL", "Lyon"), ("PSG", "PSG")], "KXLIGUE1GAME"),
+     lambda: [game(70021, "Lyon", "Paris FC", Z("2026-10-25T19:45"))], _is_tie),
+    (lambda: event("26OCT24BRWNLIU", [("BRWN", "Brown"), ("LIU", "LIU")]),
+     lambda: [game(70022, "Brown", "Rhode Island", Z("2026-10-24T17:00"))], None),
+]
+
+
+@pytest.mark.parametrize("case", range(len(NAMESAKE_CASES)))
+def test_a_pinned_name_never_fits_a_namesake_through_a_shared_word(case):
+    """"PSG does not fit Paris FC, M´gladbach does not fit Borussia Dortmund, LIU does not fit Rhode Island": with
+    the pins on, each event is refused for no fit on the lone row the head placed it on with a score of 2."""
+    mk, rows, is_tie = NAMESAKE_CASES[case]
+    markets, games = mk(), rows()
+    pinned = next(m["yes_sub_title"] for m in markets if m["yes_sub_title"] in km.PINS)
+    g = games[0]
+    pin_tokens = km.norm_tokens(km.PINS[pinned])
+    assert pin_tokens & (km.norm_tokens(g.home_team.name) | km.norm_tokens(g.away_team.name))   # a word is shared
+    kw = {"is_tie": is_tie} if is_tie else {}
+    now = g.utc_date - timedelta(days=1)
+    res = km.place(markets, games, now=now, lo=now - timedelta(days=1), hi=now + timedelta(days=3), **kw)
+    assert not res.placed and res.refused == {km.NO_FIT: len(markets)}, res.refused
+
+
+@pytest.mark.parametrize("pinned, opponent, stored", [
+    ("Penn", "Columbia", "Pennsylvania Quakers"),               # one word more than the pin's name
+    ("LIU", "Wagner", "Long Island University Sharks"),         # one word more
+    ("LIU", "Wagner", "Long Island"),                           # one word fewer
+])
+def test_a_pinned_name_needs_the_same_words_not_a_shared_one(pinned, opponent, stored):
+    """"The same words under norm_tokens, no more and no fewer": a stored name one word off the pin's is another
+    team, and the event is refused for no fit."""
+    g = game(70023, opponent, stored, Z("2026-10-17T17:00"))
+    res = run(event("26OCT17PINX", [("OPP", opponent), ("PIN", pinned)]), [g], now=Z("2026-10-16T12:00"))
+    assert not res.placed and res.refused == {km.NO_FIT: 2}, res.refused
+
+
+@pytest.mark.parametrize("pinned, other, opponent", [
+    ("Stade Rennais", "Stade Brestois 29", "Lyon"),             # stade: a word of the raw Kalshi name
+    ("University at Albany", "Long Island University", "Stony Brook"),   # university: likewise
+])
+def test_a_pinned_name_scores_nothing_through_a_word_of_its_raw_kalshi_name(pinned, other, opponent):
+    """The pinned name is its pin against its own team and nothing against any other: the raw name's own words never
+    fit either (Stade Rennais does not fit Stade Brestois 29 through stade)."""
+    assert km.norm_tokens(pinned) & km.norm_tokens(other)
+    assert km.side_score(pinned, other) == 0.0 and km._distinct_score(pinned, other, set()) == 0.0
+    res = run(event("26OCT17PINRAW", [("OPP", opponent), ("PIN", pinned)]),
+              [game(70025, opponent, other, Z("2026-10-17T17:00"))], now=Z("2026-10-16T12:00"))
+    assert not res.placed and res.refused == {km.NO_FIT: 2}, res.refused
+
+
+@pytest.mark.parametrize("pinned, stored, opponent, score", [
+    ("PSG", "Paris Saint-Germain", "Lyon", 3.0),                 # a hyphen
+    ("LIU", "long island university", "Wagner", 3.0),            # case
+    ("M´gladbach", "BORUSSIA MÖNCHENGLADBACH", "VfB Stuttgart", 2.0),
+])
+def test_a_pinned_names_own_team_is_read_under_norm_tokens_not_as_a_string(pinned, stored, opponent, score):
+    """"The same words under norm_tokens": a stored name that differs from the pin's only in punctuation or case is
+    the pin's own team, placed with the score the pin's name has on it."""
+    assert km.side_score(pinned, stored) == km.side_score(km.PINS[pinned], stored) == score
+    res = run(event("26OCT17PINCASE", [("OPP", opponent), ("PIN", pinned)]),
+              [game(70026, opponent, stored, Z("2026-10-17T17:00"))], now=Z("2026-10-16T12:00"))
+    assert placed(res) == {(70026, "HOME"): "PIN", (70026, "AWAY"): "OPP"}, res.refused
+
+
+def test_an_event_name_that_is_not_pinned_is_read_as_before():
+    """"An event's name that is not pinned is read as before": Paris FC still fits a lone Lyon @ Paris Saint Germain
+    row through paris, as on main (#484's receipt; logged as a limitation, addendum 59 item 3)."""
+    res = run(_soccer("26OCT25PFCOL", [("OL", "Lyon"), ("PFC", "Paris FC")], "KXLIGUE1GAME"),
+              [game(70024, "Lyon", "Paris Saint Germain", Z("2026-10-25T19:45"))], now=Z("2026-10-24T12:00"),
+              is_tie=_is_tie)
+    assert placed(res) == {(70024, "HOME"): "PFC", (70024, "AWAY"): "OL", (70024, "DRAW"): "TIE"}

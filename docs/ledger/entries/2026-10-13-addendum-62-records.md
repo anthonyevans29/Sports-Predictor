@@ -1,0 +1,7 @@
+**2026-10-13 — RECORDED (ARCHITECT 2026-10-13 16:37 ET, addendum 62 items 1, 2 and 5): main after the four calls; #505 and #503 called and merged; the laptop's code for tonight's MLB closing. PR #506.**
+- **Item 1, main 9001b72:** "#499, #488, #497 and #489 merged at the heads I called, in that order, between 17:15:04Z and 17:15:22Z. 1998 passed, 3 skipped (your 1997 and 4). `python cli.py roadmap --today 2026-10-14` on that tree: seven lanes, two milestones, overdue 0, exit 0."
+- **Item 2, called at 16:37 ET:**
+  - #505 at 2545997: 2007 passed, 3 skipped. "The stop sits after UNL's and before the in-play check, so a CL row never reaches the computation; the frozen battery runs with it off, as with every rule that postdates it. No review comment."
+  - #503 at b70f55b: 2035 passed, 3 skipped. "Both roots answered; the review of b70f55b found nothing more."
+  - The operator merged #505 then #503, each by its head, to main f20124c. This session's full run on f20124c: 2043 passed, 4 skipped.
+- **Item 5, for the record (verbatim):** "The laptop is on main 88a67fa (pulled 2026-10-13 07:54 ET, before #475 merged). Tonight's MLB closing (CLE at TB, 8:00pm ET; the watch starts the run about 7:25pm) prices on that code: main's matcher, the #433 closing file, the #435 one-sided injury rule. The switch and everything merged today reach the laptop in the block of 2026-10-14, which pins to main as it stands after item 2's merges."

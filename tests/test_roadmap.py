@@ -577,7 +577,8 @@ def test_the_ci_step_passes_a_move_with_its_line(tmp_path):
     st["due"] = "2026-10-13"
     _head(root, head)
     rc, out = _check(root)
-    assert rc == 0 and out == [f"✓ ROADMAP: every date docs/roadmap.json moves against {_point(root)} has its moved line"]
+    assert rc == 0 and out == [f"✓ ROADMAP: every date docs/roadmap.json moves against {_point(root)} has its moved line, "
+                               "and every moved line the base holds is kept"]
 
 
 def test_the_ci_step_on_a_base_with_no_roadmap_compares_nothing(tmp_path):
@@ -725,3 +726,109 @@ def test_one_moved_line_records_one_move():
     assert len(errs) == 1 and errs[0].startswith("lane 'unl' step "), errs
     hl["moved"].append(_mv("earliest_live", old, "2026-11-20", why="the step's own line"))
     assert rm.check_moves(base, head) == []
+
+
+
+# --- addendum 62 item 3 (#504): the base's moved lines stay on the head, word for word, in order ---
+
+def _with_lines(lane_id, lines):
+    def edit(d):
+        _lane(d, lane_id)["moved"] += [dict(x) for x in lines]
+    return _broken(edit)
+
+
+def test_a_base_line_rewritten_to_cover_a_later_move_fails_and_names_the_line():
+    """The base moved cups step 1 from 2026-10-14 to 2026-10-20; the head moves it on to 2026-10-27 and rewrites that
+    line to cover the new move instead of appending one. The date check is satisfied; the record is not."""
+    def prior(d):
+        st = _lane(d, "cups")["steps"][0]
+        _lane(d, "cups")["moved"].append(_mv(st["what"], st["due"], "2026-10-20"))
+        st["due"] = "2026-10-20"
+        _lane(d, "cups")["steps"][1]["due"] = "2026-10-21"
+    base = _broken(prior)
+    assert rm.validate(base) == []
+    head = copy.deepcopy(base)
+    st, line = _lane(head, "cups")["steps"][0], _lane(head, "cups")["moved"][0]
+    line.update(was="2026-10-20", now="2026-10-27", moved_on="2026-10-21")
+    st["due"] = "2026-10-27"
+    _lane(head, "cups")["steps"][1]["due"] = "2026-10-28"
+    errs = rm.check_moves(base, head)
+    old = _lane(base, "cups")["moved"][0]
+    assert any(e == (f"lane 'cups' moved 1: the base's line (moved_on {old['moved_on']!r}, which {old['which']!r}, "
+                     f"was '{_lane(_real(), 'cups')['steps'][0]['due']}', now \"2026-10-20\") is changed or removed on "
+                     "the head (every moved line the base holds stays, word for word)") for e in errs), errs
+
+
+def test_a_base_line_removed_with_no_date_changed_fails():
+    base = _with_lines("nhl", [_mv("earliest_live", "2027-01-15", "2027-01-22")])
+    head = copy.deepcopy(base)
+    _lane(head, "nhl")["moved"] = []
+    errs = rm.check_moves(base, head)
+    assert len(errs) == 1 and errs[0].startswith("lane 'nhl' moved 1: the base's line (moved_on '2026-10-20', "
+                                                 "which 'earliest_live', was '2027-01-15', now \"2027-01-22\")")
+    assert errs[0].endswith("is changed or removed on the head (every moved line the base holds stays, word for word)")
+
+
+def test_a_line_appended_passes():
+    base = _with_lines("nhl", [_mv("earliest_live", "2027-01-15", "2027-01-22")])
+    head = copy.deepcopy(base)
+    _lane(head, "nhl")["moved"].append(_mv("a note", "2026-10-01", "2026-10-02"))
+    assert rm.check_moves(base, head) == []
+
+
+def test_the_base_order_kept_and_the_heads_lines_after_it_passes():
+    first, second = _mv("earliest_live", "2027-01-15", "2027-01-18"), _mv("earliest_live", "2027-01-18", "2027-01-22")
+    base = _with_lines("nhl", [first, second])
+    head = copy.deepcopy(base)
+    st = _lane(head, "nhl")["steps"][0]
+    _lane(head, "nhl")["moved"].append(_mv(st["what"], st["due"], "2026-10-31"))
+    st["due"] = "2026-10-31"
+    assert rm.validate(head) == [] and rm.check_moves(base, head) == []
+
+
+def test_the_base_lines_out_of_order_fail_naming_each():
+    first, second = _mv("earliest_live", "2027-01-15", "2027-01-18"), _mv("earliest_live", "2027-01-18", "2027-01-22")
+    base = _with_lines("nhl", [first, second])
+    head = copy.deepcopy(base)
+    _lane(head, "nhl")["moved"].reverse()
+    errs = rm.check_moves(base, head)
+    assert [e.split(":")[0] for e in errs] == ["lane 'nhl' moved 1", "lane 'nhl' moved 2"]
+    assert all("is on the head out of the base's order (the head only appends)" in e for e in errs)
+
+
+def test_a_line_inserted_before_the_bases_lines_fails():
+    base = _with_lines("nhl", [_mv("earliest_live", "2027-01-15", "2027-01-22")])
+    head = copy.deepcopy(base)
+    _lane(head, "nhl")["moved"].insert(0, _mv("a note", "2026-10-01", "2026-10-02"))
+    errs = rm.check_moves(base, head)
+    assert len(errs) == 1 and "out of the base's order" in errs[0]
+
+
+def test_a_lane_only_one_side_holds_needs_nothing_from_the_kept_lines_rule():
+    base = _with_lines("nhl", [_mv("earliest_live", "2027-01-15", "2027-01-22")])
+    head = copy.deepcopy(base)
+    head["lanes"] = [ln for ln in head["lanes"] if ln["lane"] != "nhl"]         # the lane is gone: the ruling carries it
+    assert rm.check_moves(base, head) == []
+
+
+def test_the_ci_step_fails_a_rewritten_base_line(tmp_path):
+    base = _with_lines("nhl", [_mv("earliest_live", "2027-01-15", "2027-01-22")])
+    root = _repo(tmp_path, base)
+    head = copy.deepcopy(base)
+    _lane(head, "nhl")["moved"][0]["why"] = "a different reason"
+    _head(root, head)
+    rc, out = _check(root)
+    assert rc == 1 and out[0].startswith("✗ ROADMAP: lane 'nhl' moved 1: the base's line ")
+    assert "addendum 62 item 3" in out[-1]
+
+
+def test_the_real_roadmap_records_the_quarterback_probe_done():
+    """Addendum 62 item 4: lane nfl-qb, its first step, done on 2026-10-13, receipt "PR #489 merged at 7e6e88c".
+    No date moves; the print reads the lane's next step as the operator's run, due 2026-10-23."""
+    lane = _lane(_real(), "nfl-qb")
+    assert lane["steps"][0]["done"] == {"date": "2026-10-13", "receipt": "PR #489 merged at 7e6e88c"}
+    assert [st["due"] for st in lane["steps"]] == ["2026-10-21", "2026-10-23", "2026-11-02"] and lane["moved"] == []
+    nx = rm.next_step(lane)
+    assert nx[0] == 2 and nx[1]["owner"] == "operator" and nx[1]["due"] == "2026-10-23"
+    lines, _ = rm.report(date(2026, 10, 14))
+    assert f"  next: {lane['steps'][1]['what']} · operator · due 2026-10-23 · in 9 days" in lines

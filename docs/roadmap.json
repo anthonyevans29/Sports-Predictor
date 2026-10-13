@@ -204,7 +204,7 @@
           "what": "a read-only probe of the provider's quarterback data: its PR open, its checks green (see (h))",
           "owner": "code",
           "due": "2026-10-21",
-          "done": null
+          "done": {"date": "2026-10-13", "receipt": "PR #489 merged at 7e6e88c"}
         },
         {
           "what": "its run, the receipt to me",

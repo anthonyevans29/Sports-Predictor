@@ -307,10 +307,14 @@ def report(today: date, path: Path | None = None, taxonomy_path: Path | None = N
 
 # --------------------------------------------------------------------------------------------- the base check --
 
-def _written(lines: list[dict], which: str, was, now) -> bool:
-    """A moved line the head adds: which word for word, was the base's date, now the head's (null for a cleared
-    earliest_live)."""
-    return any(mv.get("which") == which and mv.get("was") == was and "now" in mv and mv["now"] == now for mv in lines)
+def _written(lines: list[dict], used: set, which: str, was, now) -> bool:
+    """A moved line the head adds, not yet the line of another move (Codex on #503: one line records one move): which
+    word for word, was the base's date, now the head's (null for a cleared earliest_live). Takes the line."""
+    for i, mv in enumerate(lines):
+        if i not in used and mv.get("which") == which and mv.get("was") == was and "now" in mv and mv["now"] == now:
+            used.add(i)
+            return True
+    return False
 
 
 def _added_lines(head_moved: list, base_moved) -> list[dict]:
@@ -345,10 +349,10 @@ def check_moves(base, head) -> list[str]:
         if b is None:                      # "A lane ... that only one side holds needs nothing from this check"
             continue
         name = f"lane {ln['lane']!r}"
-        lines = _added_lines(ln["moved"], b.get("moved"))
+        lines, used = _added_lines(ln["moved"], b.get("moved")), set()
         bel, hel = b.get("earliest_live"), ln["earliest_live"]
         # "A date set where the base had none needs no moved line." Moved or cleared needs one.
-        if real_date(bel) is not None and bel != hel and not _written(lines, "earliest_live", bel, hel):
+        if real_date(bel) is not None and bel != hel and not _written(lines, used, "earliest_live", bel, hel):
             now = "null (cleared)" if hel is None else hel
             errs.append(f"{name}: earliest_live {bel} -> {now} has no moved line on the head "
                         f"(which 'earliest_live', was {bel!r}, now {json.dumps(hel)})")
@@ -360,7 +364,7 @@ def check_moves(base, head) -> list[str]:
             bs = bsteps.get(st["what"])
             if bs is None or real_date(bs.get("due")) is None:   # "... or a step that only one side holds"; a due
                 continue                   # set where the base had none needs no moved line
-            if bs["due"] != st["due"] and not _written(lines, st["what"], bs["due"], st["due"]):
+            if bs["due"] != st["due"] and not _written(lines, used, st["what"], bs["due"], st["due"]):
                 errs.append(f"{name} step {j}: due {bs.get('due')} -> {st['due']} has no moved line on the head "
                             f"(which {st['what']!r}, was {bs.get('due')!r}, now {st['due']!r})")
     return errs

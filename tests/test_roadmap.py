@@ -700,3 +700,28 @@ def test_a_file_that_is_not_utf8_is_refused_by_name(tmp_path):
     _head(root2, _real())
     rc, out = _check(root2, ref="base2")
     assert rc == 2 and "is not UTF-8" in out[0], out
+
+
+
+def test_one_moved_line_records_one_move():
+    """Codex on #503: a step whose what is the word earliest_live, moved from the same date to the same date as the
+    lane's earliest_live, needs two lines; one line covers one move."""
+    def edit(d):
+        ln = _lane(d, "unl")
+        ln["steps"][-1]["what"] = "earliest_live"
+    base = _broken(edit)
+    assert rm.validate(base) == []
+    ln = _lane(base, "unl")
+    old = ln["earliest_live"]
+    ln["steps"][-1]["due"] = old                       # both dates read the same day on the base
+    assert rm.validate(base) == []
+    head = copy.deepcopy(base)
+    hl = _lane(head, "unl")
+    hl["earliest_live"] = "2026-11-20"
+    hl["steps"][-1]["due"] = "2026-11-20"
+    hl["moved"].append(_mv("earliest_live", old, "2026-11-20"))
+    assert rm.validate(head) == []
+    errs = rm.check_moves(base, head)
+    assert len(errs) == 1 and errs[0].startswith("lane 'unl' step "), errs
+    hl["moved"].append(_mv("earliest_live", old, "2026-11-20", why="the step's own line"))
+    assert rm.check_moves(base, head) == []

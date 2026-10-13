@@ -239,3 +239,50 @@ def test_q3_lists_every_call_made_with_its_status(monkeypatch, tmp_path):
         '  ✗ status 429 · historical/markets/KXNHLGAME-26JUN14CARVGK-CAR/candlesticks '
         + json.dumps(next(p for path, p in fake.asked if path.startswith("historical/markets/KXNHLGAME-26JUN14")),
                      sort_keys=True) + ' · {"error": "too many requests"}']
+
+
+DB_BYTES = b"SQLite format 3\x00" + b"\x01" * 84                       # a database's header and some pages
+
+
+@pytest.mark.parametrize("how", ["itself", "hard link", "symlink", "wal sidecar", "relative"])
+def test_out_is_never_the_configured_database_wherever_it_lives(monkeypatch, tmp_path, how):
+    """Codex P1 on #497: DATABASE_URL may point outside data/, and a hard link resolves to its own path."""
+    import os
+    db = tmp_path / "elsewhere" / "sports.db"
+    db.parent.mkdir()
+    db.write_bytes(DB_BYTES)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
+    monkeypatch.chdir(tmp_path)
+    target = {"itself": db, "hard link": tmp_path / "link.json", "symlink": tmp_path / "sym.json",
+              "wal sidecar": Path(str(db) + "-wal"), "relative": Path("elsewhere/sports.db")}[how]
+    if how == "hard link":
+        os.link(db, target)
+    elif how == "symlink":
+        os.symlink(db, target)
+    out = []
+    assert khp.main(["--out", str(target)], echo=out.append, adapter=_adapter(Fake())) == 2
+    assert out[0].startswith(f"REFUSED: --out {target}") and "read-only" in out[0]
+    assert db.read_bytes() == DB_BYTES and not Path(str(db) + "-wal").exists()
+
+
+def test_out_is_never_any_existing_sqlite_file_and_an_ordinary_file_is_written(monkeypatch, tmp_path):
+    backup = tmp_path / "sports_2026-10-13.db"                       # not the configured one: a backup, say
+    backup.write_bytes(DB_BYTES)
+    out = []
+    assert khp.main(["--out", str(backup)], echo=out.append, adapter=_adapter(Fake())) == 2
+    assert "is an SQLite database" in out[0] and backup.read_bytes() == DB_BYTES
+    old = tmp_path / "probe.json"
+    old.write_text("{}")
+    rc, _, _ = _run(tmp_path, monkeypatch, argv=("--series", "KXNHLGAME", "--out", str(old)))
+    assert rc == 0 and json.loads(old.read_text())["cutoff"] == CUTOFF
+
+
+def test_the_default_database_path_is_refused_from_the_repository_root(monkeypatch, tmp_path):
+    monkeypatch.delenv("DATABASE_URL", raising=False)
+    import config
+    from types import SimpleNamespace
+    monkeypatch.setattr(config, "settings", SimpleNamespace(database_url="sqlite:///./data/sports.db"))
+    monkeypatch.chdir(tmp_path)                                      # run from anywhere: the root's path is still read
+    files = khp._db_files()
+    assert (khp.ROOT / "data" / "sports.db").resolve() in files
+    assert Path(str((khp.ROOT / "data" / "sports.db").resolve()) + "-journal") in files

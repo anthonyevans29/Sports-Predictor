@@ -287,12 +287,46 @@ def probe_series(calls: Calls, keeper: Keeper, plan: dict, echo=print) -> dict:
     return out
 
 
+def _db_files() -> list[Path]:
+    """Every database file this checkout can mean (law 5), read from the configuration and never opened: DATABASE_URL
+    and config.settings' (the ./data/sports.db default included), relative ones against the working directory and the
+    repository root, each with its -wal / -shm / -journal sidecars."""
+    import os
+    from config import settings
+    urls = {os.getenv("DATABASE_URL") or "", settings.database_url or ""}
+    files = {u.replace("sqlite:///", "", 1) for u in urls if u.startswith("sqlite:///")}
+    paths = set()
+    for f in files:
+        paths |= {Path(f).resolve(), (ROOT / f).resolve()} if not Path(f).is_absolute() else {Path(f).resolve()}
+    return [Path(str(p) + x) for p in sorted(paths) for x in ("", "-wal", "-shm", "-journal")]
+
+
 def out_refusal(out: str) -> str | None:
-    """--out never lands under data/ (law 5)."""
+    """--out never touches storage (law 5; Codex on #497): not under data/, not the configured database or one of its
+    sidecars, not a hard link or symlink to any of them (by resolved path and by file identity), and not any existing
+    SQLite file (its header read, nothing else)."""
+    import os
     tgt = Path(out).resolve()
     data = (ROOT / "data").resolve()
     if tgt == data or data in tgt.parents:
         return f"REFUSED: --out {out} is under data/ (law 5)"
+
+    def same(a, b) -> bool:
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            return False
+    dbs = _db_files()
+    if tgt in dbs or (tgt.exists() and any(x.exists() and same(tgt, x) for x in dbs)):
+        return f"REFUSED: --out {out} is the database (or its sidecar): the probe is read-only (law 5)"
+    if tgt.is_file():
+        try:
+            with open(tgt, "rb") as fh:
+                head = fh.read(16)
+        except OSError:
+            head = b""
+        if head == b"SQLite format 3\x00":
+            return f"REFUSED: --out {out} is an SQLite database: the probe is read-only (law 5)"
     return None
 
 

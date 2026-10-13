@@ -620,6 +620,11 @@ def main(argv=None) -> int:
         sys.path.insert(0, str(Path(__file__).resolve().parent))   # local and offline: no token needed
         import ledger_fragments
         return ledger_fragments.main(argv)
+    if mode == "check-roadmap":                  # ARCHITECT 2026-10-13, addendum 60 item 3 (#490): beside
+        sys.path.insert(0, str(ROOT))            # check-fragments, offline; the head's file against the base's
+        from src import roadmap
+        base = argv[argv.index("--base") + 1] if "--base" in argv[:-1] else "origin/main"
+        return roadmap.check_base(base, ROOT)
     if mode == "check-body":                     # LEDGER rule 5, enforced: offline, body via env
         stray = stray_closing_refs(os.environ.get("PR_BODY", ""))
         if stray:

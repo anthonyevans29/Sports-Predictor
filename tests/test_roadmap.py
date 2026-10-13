@@ -85,9 +85,9 @@ def test_overdue_steps_and_milestones_are_counted_and_the_exit_stays_0(tmp_path,
     lines = out.output.splitlines()
     by = {ln["lane"]: ln for ln in doc["lanes"]}
     # ncaa: its first step (due 2026-10-16) is a day late; cups: both steps (10-14, 10-15) are late
-    assert f"  next: {by['ncaa']['steps'][0]['what']} · architect · due 2026-10-16 · OVERDUE 1 days" in lines
+    assert f"  next: {by['ncaa']['steps'][0]['what']} · architect · due 2026-10-16 · OVERDUE 1 day" in lines
     assert any(ln.startswith(f"  next: {by['cups']['steps'][0]['what']}") and
-               ln.endswith("OVERDUE 3 days (+1 more steps overdue)") for ln in lines)
+               ln.endswith("OVERDUE 3 days (+1 more step overdue)") for ln in lines)
     assert "  M1 · 2026-10-15 · OVERDUE 2 days" in lines and not any("M2" in ln for ln in lines)
     assert lines[-1] == "overdue: 4"                    # ncaa 1 + cups 2 + milestone M1
 
@@ -103,12 +103,14 @@ def test_a_done_step_is_not_next_and_not_overdue():
 
 
 @pytest.mark.parametrize("due, today, text", [
-    ("2026-10-14", "2026-10-13", "in 1 days"), ("2026-10-20", "2026-10-13", "in 7 days"),
-    ("2026-10-13", "2026-10-13", "today"),
-    ("2026-10-12", "2026-10-13", "OVERDUE 1 days"), ("2026-10-08", "2026-10-13", "OVERDUE 5 days"),
+    ("2026-10-14", "2026-10-13", "in 1 day"), ("2026-10-15", "2026-10-13", "in 2 days"),
+    ("2026-10-20", "2026-10-13", "in 7 days"), ("2026-10-13", "2026-10-13", "today"),
+    ("2026-10-12", "2026-10-13", "OVERDUE 1 day"), ("2026-10-11", "2026-10-13", "OVERDUE 2 days"),
+    ("2026-10-08", "2026-10-13", "OVERDUE 5 days"),
 ])
 def test_the_count_of_days(due, today, text):
-    """5(e)'s forms verbatim: "in N days", "today" or "OVERDUE N days", N = 1 included (a morning page may match them)."""
+    """5(e)'s forms "in N days", "today" or "OVERDUE N days"; addendum 61 item 5: "One day is singular: 'in 1 day',
+    'OVERDUE 1 day'"."""
     assert rm.when(date.fromisoformat(due), date.fromisoformat(today)) == text
 
 
@@ -164,6 +166,9 @@ def _broken(edit):
 def _lane(doc, lane_id):
     return next(ln for ln in doc["lanes"] if ln["lane"] == lane_id)
 
+
+_MOVE = {"moved_on": "2026-10-20", "which": "steps[2].due", "was": "2026-10-20", "now": "2026-10-22",
+         "why": "the declaration came two days late", "ruling": "addendum 60 item 1"}
 
 BROKEN = [
     ("lane ids unique", lambda d: _lane(d, "pd").__setitem__("lane", "unl"), "lane 'unl': lane id not unique"),
@@ -221,11 +226,15 @@ BROKEN = [
     ("a lane to declare has a step left",
      lambda d: [st.__setitem__("done", {"date": "2026-10-23", "receipt": "r"}) for st in _lane(d, "leagues")["steps"]],
      "lane 'leagues': state 'to declare' and no step left to do"),
+    ("within a lane no two steps share a what (addendum 60 item 3)",
+     lambda d: _lane(d, "ncaa")["steps"][3].__setitem__("what", _lane(d, "ncaa")["steps"][1]["what"]),
+     "lane 'ncaa' step 4: what"),
+    ("a cleared now only for earliest_live (addendum 61 item 4)",
+     lambda d: _lane(d, "ncaa")["moved"].append({**_MOVE, "now": None}), "lane 'ncaa' moved 1: missing now"),
+    ("was is always a real date (addendum 61 item 4)",
+     lambda d: _lane(d, "ncaa")["moved"].append({**_MOVE, "which": "earliest_live", "was": None, "now": None}),
+     "lane 'ncaa' moved 1: missing was"),
 ]
-
-_MOVE = {"moved_on": "2026-10-20", "which": "steps[2].due", "was": "2026-10-20", "now": "2026-10-22",
-         "why": "the declaration came two days late", "ruling": "addendum 60 item 1"}
-
 
 # (d): "the day it was moved, which date, what it was, what it is now, why, and the addendum and item"
 SIX_PARTS = ("moved_on", "which", "was", "now", "why", "ruling")
@@ -323,6 +332,8 @@ def test_an_iso_week_today_exits_2():
     ({"milestones": "none"}, "the taxonomy: no 'milestones' list"),
     ({"milestones": ["bad"]}, "milestone 1: not an object"),
     ({"milestones": [{"due_on": "2026-10-30"}]}, "milestone 1: no title"),
+    ({"milestones": [{"title": "Cutover ~Oct 8", "description": ""}]}, "milestone 'Cutover ~Oct 8': no due_on"),
+    ({"milestones": [{"description": ""}]}, "milestone 1: no due_on"),
 ])
 def test_a_taxonomy_of_the_wrong_shape_exits_2_and_names_the_entry(tax, msg, tmp_path, monkeypatch):
     """Codex on #488: a taxonomy of valid JSON in the wrong shape refuses (exit 2, naming it), never a traceback."""
@@ -343,3 +354,251 @@ def test_a_milestone_date_that_is_not_real_exits_2_and_names_it(tmp_path, monkey
                                                                                 "due_on": "2026-10-32"}]}, "t.json"))
     out = _cli("--today", "2026-10-13")
     assert out.exit_code == 2 and "milestone 'Cutover ~Oct 8': due_on '2026-10-32'" in out.output
+
+
+# --- addendum 61 items 4 and 5 ---
+
+def test_the_plural_tail_stays_plural_past_one(tmp_path, monkeypatch):
+    doc = _real()
+    tax = {"milestones": []}
+    monkeypatch.setattr(rm, "ROADMAP_PATH", _write(tmp_path, doc))
+    monkeypatch.setattr(rm, "TAXONOMY_PATH", _write(tmp_path, tax, "t.json"))
+    lines, _ = rm.report(date(2026, 11, 9), path=tmp_path / "r.json", taxonomy_path=tmp_path / "t.json")
+    ncaa = _lane(doc, "ncaa")
+    late = rm.overdue_steps(ncaa, date(2026, 11, 9))
+    assert len(late) >= 3
+    assert any(ln.startswith(f"  next: {ncaa['steps'][0]['what']}") and
+               ln.endswith(f"(+{len(late) - 1} more steps overdue)") for ln in lines), lines
+
+
+def test_a_cleared_earliest_live_has_its_moved_line_with_now_null():
+    """#492 RULED: "Clearing one is a move ... its moved line has which earliest_live, was the date, now null, and
+    why. In a moved line now may be null where which is earliest_live; was is always a real date." """
+    def edit(d):
+        ln = _lane(d, "unl")
+        ln["moved"].append({"moved_on": "2026-11-12", "which": "earliest_live", "was": ln["earliest_live"],
+                            "now": None, "why": "the confirmation failed", "ruling": "addendum 70 item 1"})
+        ln["earliest_live"] = None
+    assert rm.validate(_broken(edit)) == []
+
+
+def test_a_moved_line_must_carry_now_even_when_it_is_null():
+    doc = _broken(lambda d: _lane(d, "unl")["moved"].append(
+        {"moved_on": "2026-11-12", "which": "earliest_live", "was": "2026-11-12", "why": "w", "ruling": "r"}))
+    assert any(e.startswith("lane 'unl' moved 1: missing now") for e in rm.validate(doc))
+
+
+def test_the_real_taxonomy_writes_every_due_on_key():
+    """#494 (addendum 61 item 5): every milestone of the tracked taxonomy carries the key."""
+    tax = json.loads(rm.TAXONOMY_PATH.read_text(encoding="utf-8"))
+    assert all("due_on" in m for m in tax["milestones"])
+
+
+# --- the base check (addendum 60 item 3; addendum 61 item 4), #490 ---
+
+def _base_head(edit):
+    base = _real()
+    head = copy.deepcopy(base)
+    edit(head)
+    return base, head
+
+
+def _mv(which, was, now, **kw):
+    return {"moved_on": "2026-10-20", "which": which, "was": was, "now": now, "why": "the ruling's why",
+            "ruling": "addendum 62 item 1", **kw}
+
+
+def test_an_unchanged_file_passes():
+    base, head = _base_head(lambda d: None)
+    assert rm.check_moves(base, head) == []
+
+
+def test_a_due_moved_with_no_moved_line_fails_naming_the_lane_and_the_date():
+    base, head = _base_head(lambda d: _lane(d, "cups")["steps"][0].__setitem__("due", "2026-10-13"))
+    what = _lane(base, "cups")["steps"][0]["what"]
+    old = _lane(base, "cups")["steps"][0]["due"]
+    assert rm.check_moves(base, head) == [
+        f"lane 'cups' step 1: due {old} -> 2026-10-13 has no moved line on the head "
+        f"(which {what!r}, was {old!r}, now '2026-10-13')"]
+
+
+def test_a_due_moved_with_its_moved_line_passes():
+    def edit(d):
+        st = _lane(d, "cups")["steps"][0]
+        _lane(d, "cups")["moved"].append(_mv(st["what"], st["due"], "2026-10-13"))
+        st["due"] = "2026-10-13"
+    base, head = _base_head(edit)
+    assert rm.validate(head) == [] and rm.check_moves(base, head) == []
+
+
+@pytest.mark.parametrize("bad", ["which", "was", "now"])
+def test_a_moved_line_that_does_not_match_the_move_fails(bad):
+    def edit(d):
+        st = _lane(d, "cups")["steps"][0]
+        line = _mv(st["what"], st["due"], "2026-10-13")
+        line[bad] = {"which": st["what"] + " ", "was": "2026-10-01", "now": "2026-10-12"}[bad]
+        _lane(d, "cups")["moved"].append(line)
+        st["due"] = "2026-10-13"
+    base, head = _base_head(edit)
+    errs = rm.check_moves(base, head)
+    assert len(errs) == 1 and errs[0].startswith("lane 'cups' step 1: due "), errs
+
+
+def test_an_earliest_live_moved_needs_its_line_and_passes_with_it():
+    lane = _lane(_real(), "unl")
+    base, head = _base_head(lambda d: _lane(d, "unl").__setitem__("earliest_live", "2026-11-20"))
+    assert rm.check_moves(base, head) == [
+        f"lane 'unl': earliest_live {lane['earliest_live']} -> 2026-11-20 has no moved line on the head "
+        f"(which 'earliest_live', was {lane['earliest_live']!r}, now \"2026-11-20\")"]
+
+    def edit(d):
+        ln = _lane(d, "unl")
+        ln["moved"].append(_mv("earliest_live", ln["earliest_live"], "2026-11-20"))
+        ln["earliest_live"] = "2026-11-20"
+    base, head = _base_head(edit)
+    assert rm.validate(head) == [] and rm.check_moves(base, head) == []
+
+
+def test_an_earliest_live_cleared_needs_its_line_with_now_null():
+    """Addendum 61 item 4: "An earliest_live cleared needs its moved line, with now null." """
+    was = _lane(_real(), "unl")["earliest_live"]
+    base, head = _base_head(lambda d: _lane(d, "unl").__setitem__("earliest_live", None))
+    assert rm.check_moves(base, head) == [
+        f"lane 'unl': earliest_live {was} -> null (cleared) has no moved line on the head "
+        f"(which 'earliest_live', was {was!r}, now null)"]
+
+    def edit(d):
+        ln = _lane(d, "unl")
+        ln["moved"].append(_mv("earliest_live", ln["earliest_live"], None))
+        ln["earliest_live"] = None
+    base, head = _base_head(edit)
+    assert rm.validate(head) == [] and rm.check_moves(base, head) == []
+
+
+def test_a_first_earliest_live_set_needs_no_moved_line():
+    """"Setting a first earliest_live is not a move and needs no moved line." """
+    assert _lane(_real(), "leagues")["earliest_live"] is None
+    base, head = _base_head(lambda d: _lane(d, "leagues").__setitem__("earliest_live", "2027-03-01"))
+    assert rm.check_moves(base, head) == []
+
+
+def test_a_lane_or_a_step_only_one_side_holds_needs_nothing():
+    def edit(d):
+        d["lanes"].append({**copy.deepcopy(_lane(d, "cups")), "lane": "new-lane"})
+        d["lanes"] = [ln for ln in d["lanes"] if ln["lane"] != "pd"]
+        _lane(d, "ncaa")["steps"][5]["what"] += " (renamed)"         # a step the base does not hold, word for word
+        _lane(d, "ncaa")["steps"][5]["due"] = "2026-12-31"
+    base, head = _base_head(edit)
+    assert rm.check_moves(base, head) == []
+
+
+def test_several_moves_each_named():
+    def edit(d):
+        _lane(d, "cups")["steps"][0]["due"] = "2026-10-13"
+        _lane(d, "nhl")["earliest_live"] = "2027-02-01"
+    base, head = _base_head(edit)
+    errs = rm.check_moves(base, head)
+    assert [e.split(":")[0] for e in errs] == ["lane 'nhl'", "lane 'cups' step 1"]     # in the file's order
+
+
+def test_no_base_file_or_a_base_of_another_shape_needs_nothing():
+    head = _real()
+    assert rm.check_moves(None, head) == [] and rm.check_moves({"lanes": "x"}, head) == []
+
+
+# --- the CI step: the working tree against a base commit, by git ---
+
+def _repo(tmp_path, base_doc):
+    import subprocess
+    root = tmp_path / "repo"
+    (root / "docs").mkdir(parents=True)
+    g = ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
+    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    if base_doc is not None:
+        (root / "docs" / "roadmap.json").write_text(base_doc if isinstance(base_doc, str) else json.dumps(base_doc))
+    (root / "README").write_text("x")
+    subprocess.run(g + ["add", "-A"], check=True)
+    subprocess.run(g + ["commit", "-q", "-m", "base"], check=True)
+    subprocess.run(g + ["tag", "base"], check=True)
+    return root
+
+
+def _head(root, doc):
+    (root / "docs" / "roadmap.json").write_text(json.dumps(doc))
+
+
+def _check(root, ref="base"):
+    out = []
+    return rm.check_base(ref, root, echo=out.append), out
+
+
+def test_the_ci_step_passes_an_unchanged_file(tmp_path):
+    root = _repo(tmp_path, _real())
+    rc, out = _check(root)
+    assert rc == 0 and out == ["✓ ROADMAP: docs/roadmap.json is unchanged against base"]
+
+
+def test_the_ci_step_fails_a_move_without_its_line_and_never_rewrites_the_file(tmp_path):
+    root = _repo(tmp_path, _real())
+    head = _real()
+    _lane(head, "cups")["steps"][0]["due"] = "2026-10-13"
+    _head(root, head)
+    before = (root / "docs" / "roadmap.json").read_bytes()
+    rc, out = _check(root)
+    assert rc == 1 and out[0].startswith("✗ ROADMAP: lane 'cups' step 1: due ") and "2026-10-13" in out[0]
+    assert (root / "docs" / "roadmap.json").read_bytes() == before
+
+
+def test_the_ci_step_passes_a_move_with_its_line(tmp_path):
+    root = _repo(tmp_path, _real())
+    head = _real()
+    st = _lane(head, "cups")["steps"][0]
+    _lane(head, "cups")["moved"].append(_mv(st["what"], st["due"], "2026-10-13"))
+    st["due"] = "2026-10-13"
+    _head(root, head)
+    rc, out = _check(root)
+    assert rc == 0 and out == ["✓ ROADMAP: every date docs/roadmap.json moves against base has its moved line"]
+
+
+def test_the_ci_step_on_a_base_with_no_roadmap_compares_nothing(tmp_path):
+    root = _repo(tmp_path, None)
+    _head(root, _real())
+    rc, out = _check(root)
+    assert rc == 0 and out == ["✓ ROADMAP: docs/roadmap.json is not on the base base: nothing to compare"]
+
+
+def test_the_ci_step_fails_a_head_that_does_not_validate(tmp_path):
+    root = _repo(tmp_path, _real())
+    head = _real()
+    _lane(head, "ncaa")["steps"][3]["what"] = _lane(head, "ncaa")["steps"][1]["what"]
+    _head(root, head)
+    rc, out = _check(root)
+    assert rc == 1 and out[0].startswith("✗ ROADMAP: the head's docs/roadmap.json does not validate: lane 'ncaa' step 4")
+
+
+def test_the_ci_step_refuses_a_base_it_cannot_read(tmp_path):
+    root = _repo(tmp_path, "{not json")
+    _head(root, _real())
+    rc, out = _check(root)
+    assert rc == 2 and "cannot be read as JSON" in out[0]
+    rc, out = _check(root, ref="no-such-ref")
+    assert rc == 2 and out[0] == "✗ ROADMAP: the base 'no-such-ref' is not a commit here: nothing can be compared"
+
+
+def test_ledger_py_runs_the_check_with_its_base(monkeypatch):
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("ledger_cli", rm.ROOT / "scripts" / "ledger.py")
+    ledger = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(ledger)
+    seen = []
+    monkeypatch.setattr(rm, "check_base", lambda base, root: seen.append((base, root)) or 0)
+    assert ledger.main(["check-roadmap", "--base", "origin/main"]) == 0
+    assert seen == [("origin/main", rm.ROOT)]
+
+
+def test_the_ci_job_that_reads_the_base_runs_the_check_beside_check_fragments():
+    ci = (rm.ROOT / ".github" / "workflows" / "ci.yml").read_text(encoding="utf-8")
+    job = ci.split("\n  fragments:\n", 1)[1]
+    assert "fetch-depth: 0" in job
+    i, j = job.index("ledger.py check-fragments --base"), job.index("ledger.py check-roadmap --base")
+    assert i < j and 'check-roadmap --base "origin/${{ github.base_ref }}"' in job

@@ -7,4 +7,5 @@
   - The ruled validation runs in code and as a test on the real file.
 - CLAUDE.md, Queue section: the model lanes come first; the dates live in docs/roadmap.json and `python cli.py roadmap` prints them; no date moves a bar (5(c), quoted). docs/CLI.md: the `roadmap` row.
 - .github/ledger/taxonomy.json (item 6): "Cutover ~Oct 8" due_on 2026-10-08 -> 2026-10-30; "Executable-edge ruling (2 wks of ladders)" 2026-10-13 -> 2026-10-20. The operator changes the same two on GitHub by hand.
-- Tests: tests/test_roadmap.py (35).
+- docs/LEDGER.md: the milestone table carries the two moved dates.
+- Tests: tests/test_roadmap.py (79). A date is real only as YYYY-MM-DD (an ISO week such as 2026-W01-1, or a basic-format string, is refused). A taxonomy of the wrong shape, a lone-surrogate text field and JSON nested past the parser's depth each exit 2. The print uses 5(e)'s forms verbatim ("in N days", "OVERDUE N days", N = 1 included). Each validation rule, each of the six parts and each moved date has a test that fails when the rule is removed.

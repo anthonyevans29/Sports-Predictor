@@ -85,9 +85,9 @@ def test_overdue_steps_and_milestones_are_counted_and_the_exit_stays_0(tmp_path,
     lines = out.output.splitlines()
     by = {ln["lane"]: ln for ln in doc["lanes"]}
     # ncaa: its first step (due 2026-10-16) is a day late; cups: both steps (10-14, 10-15) are late
-    assert f"  next: {by['ncaa']['steps'][0]['what']} · architect · due 2026-10-16 · OVERDUE 1 day" in lines
+    assert f"  next: {by['ncaa']['steps'][0]['what']} · architect · due 2026-10-16 · OVERDUE 1 days" in lines
     assert any(ln.startswith(f"  next: {by['cups']['steps'][0]['what']}") and
-               ln.endswith("OVERDUE 3 days (+1 more step overdue)") for ln in lines)
+               ln.endswith("OVERDUE 3 days (+1 more steps overdue)") for ln in lines)
     assert "  M1 · 2026-10-15 · OVERDUE 2 days" in lines and not any("M2" in ln for ln in lines)
     assert lines[-1] == "overdue: 4"                    # ncaa 1 + cups 2 + milestone M1
 
@@ -103,11 +103,12 @@ def test_a_done_step_is_not_next_and_not_overdue():
 
 
 @pytest.mark.parametrize("due, today, text", [
-    ("2026-10-14", "2026-10-13", "in 1 day"), ("2026-10-20", "2026-10-13", "in 7 days"),
+    ("2026-10-14", "2026-10-13", "in 1 days"), ("2026-10-20", "2026-10-13", "in 7 days"),
     ("2026-10-13", "2026-10-13", "today"),
-    ("2026-10-12", "2026-10-13", "OVERDUE 1 day"), ("2026-10-08", "2026-10-13", "OVERDUE 5 days"),
+    ("2026-10-12", "2026-10-13", "OVERDUE 1 days"), ("2026-10-08", "2026-10-13", "OVERDUE 5 days"),
 ])
 def test_the_count_of_days(due, today, text):
+    """5(e)'s forms verbatim: "in N days", "today" or "OVERDUE N days", N = 1 included (a morning page may match them)."""
     assert rm.when(date.fromisoformat(due), date.fromisoformat(today)) == text
 
 
@@ -197,7 +198,83 @@ BROKEN = [
                                                  "now": "soon", "why": "late", "ruling": "addendum 60 item 1"}),
      "lane 'ncaa' moved 1: now 'soon' is not a real date"),
     ("a lane keeps its keys", lambda d: _lane(d, "pd").pop("vs_close"), "lane 'pd': missing vs_close"),
+    ("a lane id", lambda d: d["lanes"][1].__setitem__("lane", " "), "lane 2: no lane id"),
+    ("a title", lambda d: _lane(d, "pd").__setitem__("title", ""), "lane 'pd': no title"),
+    ("a registry id or null", lambda d: _lane(d, "pd").__setitem__("registry_id", ""),
+     "lane 'pd': registry_id '' is neither null nor an id"),
+    ("live_needs", lambda d: _lane(d, "pd").__setitem__("live_needs", " "), "lane 'pd': no live_needs"),
+    ("text the print can write", lambda d: _lane(d, "pd").__setitem__("title", "\ud83d"), "lane 'pd': no title"),
+    ("steps a list", lambda d: _lane(d, "pd").__setitem__("steps", "two"), "lane 'pd': steps is not a list"),
+    ("a step an object", lambda d: _lane(d, "pd")["steps"].__setitem__(0, "x"), "lane 'pd' step 1: not an object"),
+    ("a step keeps its keys", lambda d: _lane(d, "pd")["steps"][0].pop("due"), "lane 'pd' step 1: missing due"),
+    ("a step's what", lambda d: _lane(d, "pd")["steps"][0].__setitem__("what", ""), "lane 'pd' step 1: no what"),
+    ("a done step's receipt kept", lambda d: _lane(d, "cups")["steps"][0].__setitem__("done", {"date": "2026-10-14"}),
+     "lane 'cups' step 1: done is neither null nor {date, receipt}"),
+    ("a done step's receipt not blank",
+     lambda d: _lane(d, "cups")["steps"][0].__setitem__("done", {"date": "2026-10-14", "receipt": " "}),
+     "lane 'cups' step 1: done with no receipt"),
+    ("moved a list", lambda d: _lane(d, "pd").__setitem__("moved", "none"), "lane 'pd': moved is not a list"),
+    ("a moved line an object", lambda d: _lane(d, "pd")["moved"].append("x"), "lane 'pd' moved 1: not an object"),
+    ("a confirming lane has a step left",
+     lambda d: [st.__setitem__("done", {"date": "2026-11-12", "receipt": "r"}) for st in _lane(d, "unl")["steps"]],
+     "lane 'unl': state 'confirming' and no step left to do"),
+    ("a lane to declare has a step left",
+     lambda d: [st.__setitem__("done", {"date": "2026-10-23", "receipt": "r"}) for st in _lane(d, "leagues")["steps"]],
+     "lane 'leagues': state 'to declare' and no step left to do"),
 ]
+
+_MOVE = {"moved_on": "2026-10-20", "which": "steps[2].due", "was": "2026-10-20", "now": "2026-10-22",
+         "why": "the declaration came two days late", "ruling": "addendum 60 item 1"}
+
+
+# (d): "the day it was moved, which date, what it was, what it is now, why, and the addendum and item"
+SIX_PARTS = ("moved_on", "which", "was", "now", "why", "ruling")
+
+
+def test_the_six_parts_are_the_ruled_six():
+    assert tuple(rm.MOVED_PARTS) == SIX_PARTS
+
+
+@pytest.mark.parametrize("part", SIX_PARTS)
+def test_every_moved_line_has_its_six_parts_each_one(part):
+    doc = _broken(lambda d: _lane(d, "ncaa")["moved"].append({k: v for k, v in _MOVE.items() if k != part}))
+    assert any(e.startswith(f"lane 'ncaa' moved 1: missing {part}") for e in rm.validate(doc)), rm.validate(doc)
+
+
+@pytest.mark.parametrize("part", ["moved_on", "was", "now"])
+def test_each_date_of_a_moved_line_is_a_real_date(part):
+    doc = _broken(lambda d: _lane(d, "ncaa")["moved"].append({**_MOVE, part: "2026-13-01"}))
+    assert any(e.startswith(f"lane 'ncaa' moved 1: {part} '2026-13-01' is not a real date") for e in rm.validate(doc))
+
+
+@pytest.mark.parametrize("state", ["live", "closed"])
+def test_a_live_or_closed_lane_may_have_every_step_done(state):
+    def edit(d):
+        ln = _lane(d, "cups")
+        ln["state"] = state
+        for st in ln["steps"]:
+            st["done"] = {"date": "2026-10-15", "receipt": "the ruling on the data"}
+    assert rm.validate(_broken(edit)) == []
+
+
+def test_two_steps_due_the_same_day_do_not_go_backwards():
+    assert rm.validate(_broken(lambda d: _lane(d, "ncaa")["steps"][3].__setitem__("due", "2026-11-08"))) == []
+
+
+def test_a_milestone_due_today_is_today_and_not_overdue(tmp_path, monkeypatch):
+    monkeypatch.setattr(rm, "TAXONOMY_PATH", _write(tmp_path, {"milestones": [
+        {"title": "M0", "due_on": "2026-10-13", "description": ""}]}, "t.json"))
+    out = _cli("--today", "2026-10-13")
+    lines = out.output.splitlines()
+    assert out.exit_code == 0 and "  M0 · 2026-10-13 · today" in lines and lines[-1] == "overdue: 0"
+
+
+def test_a_file_nested_past_the_parsers_depth_exits_2(tmp_path, monkeypatch):
+    p = tmp_path / "r.json"
+    p.write_text("[" * 200000)
+    monkeypatch.setattr(rm, "ROADMAP_PATH", p)
+    out = _cli("--today", "2026-10-13")
+    assert out.exit_code == 2 and "cannot be read as JSON" in out.output
 
 
 @pytest.mark.parametrize("rule, edit, msg", BROKEN, ids=[b[0] for b in BROKEN])
@@ -224,6 +301,41 @@ def test_a_file_that_is_not_json_exits_2(tmp_path, monkeypatch):
     monkeypatch.setattr(rm, "ROADMAP_PATH", p)
     out = _cli("--today", "2026-10-13")
     assert out.exit_code == 2 and "cannot be read as JSON" in out.output
+
+
+@pytest.mark.parametrize("bad", ["2026-W01-1", "2026-W42-5", "20261013xx", "2026111199", "20261016  ",
+                                 "2026-10-13T00", " 2026-10-13", "２０２６-10-13"])
+def test_only_a_calendar_date_written_yyyy_mm_dd_is_a_real_date(bad):
+    """Codex on #488: date.fromisoformat reads the ISO week 2026-W01-1 as 2025-12-29; it is not a YYYY-MM-DD date."""
+    assert rm.real_date(bad) is None
+    assert rm.real_date("2026-10-13") == date(2026, 10, 13)
+    doc = _broken(lambda d: _lane(d, "cups")["steps"][0].__setitem__("due", bad))
+    assert any(e.startswith("lane 'cups' step 1: due") for e in rm.validate(doc))
+
+
+def test_an_iso_week_today_exits_2():
+    out = _cli("--today", "2026-W01-1")
+    assert out.exit_code == 2 and "not a real date" in out.output
+
+
+@pytest.mark.parametrize("tax, msg", [
+    (["not", "an", "object"], "the taxonomy: not an object"),
+    ({"milestones": "none"}, "the taxonomy: no 'milestones' list"),
+    ({"milestones": ["bad"]}, "milestone 1: not an object"),
+    ({"milestones": [{"due_on": "2026-10-30"}]}, "milestone 1: no title"),
+])
+def test_a_taxonomy_of_the_wrong_shape_exits_2_and_names_the_entry(tax, msg, tmp_path, monkeypatch):
+    """Codex on #488: a taxonomy of valid JSON in the wrong shape refuses (exit 2, naming it), never a traceback."""
+    monkeypatch.setattr(rm, "TAXONOMY_PATH", _write(tmp_path, tax, "t.json"))
+    out = _cli("--today", "2026-10-13")
+    assert out.exit_code == 2 and msg in out.output, out.output
+
+
+def test_the_ledger_guide_shows_the_moved_milestone_dates():
+    """Codex on #488: docs/LEDGER.md's milestone table carries the same two dates as the taxonomy (item 6)."""
+    guide = (rm.ROOT / "docs" / "LEDGER.md").read_text(encoding="utf-8")
+    assert "| Cutover ~Oct 8 | due 2026-10-30" in guide
+    assert "| Executable-edge ruling (2 wks of ladders) | due 2026-10-20" in guide
 
 
 def test_a_milestone_date_that_is_not_real_exits_2_and_names_it(tmp_path, monkeypatch):

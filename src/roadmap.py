@@ -32,6 +32,7 @@ Pure: reads two tracked JSON files, writes nothing.
 from __future__ import annotations
 
 import json
+import re
 from datetime import date
 from pathlib import Path
 
@@ -49,13 +50,17 @@ DONE_KEYS = ("date", "receipt")
 MOVED_PARTS = ("moved_on", "which", "was", "now", "why", "ruling")
 
 
+_YMD = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+
+
 class RoadmapError(ValueError):
     """A file that does not validate: the message names the entry."""
 
 
 def real_date(v) -> date | None:
-    """A real date written YYYY-MM-DD, else None ('2026-02-30' and '2026-1-5' are not)."""
-    if not isinstance(v, str) or len(v) != 10:
+    """A real date written YYYY-MM-DD, else None ('2026-02-30', '2026-1-5' and the ISO week '2026-W01-1', which
+    date.fromisoformat would read as 2025-12-29, are not)."""
+    if not isinstance(v, str) or not _YMD.fullmatch(v):
         return None
     try:
         return date.fromisoformat(v)
@@ -64,7 +69,14 @@ def real_date(v) -> date | None:
 
 
 def _text(v) -> bool:
-    return isinstance(v, str) and bool(v.strip())
+    """Non-empty text the print can write (a lone surrogate from a JSON escape cannot be written: not text)."""
+    if not isinstance(v, str) or not v.strip():
+        return False
+    try:
+        v.encode("utf-8")
+    except UnicodeEncodeError:
+        return False
+    return True
 
 
 def _done(step: dict) -> bool:
@@ -167,9 +179,20 @@ def validate(doc) -> list[str]:
 
 
 def validate_milestones(tax) -> list[str]:
-    """Each milestone that has a due_on: a real date."""
+    """The taxonomy as the print reads it: an object whose milestones are a list of objects, each with a title, and
+    a due_on that is null or a real date."""
+    if not isinstance(tax, dict):
+        return ["the taxonomy: not an object"]
+    ms = tax.get("milestones")
+    if not isinstance(ms, list):
+        return ["the taxonomy: no 'milestones' list"]
     errs = []
-    for m in (tax or {}).get("milestones") or []:
+    for i, m in enumerate(ms, 1):
+        if not isinstance(m, dict):
+            errs.append(f"milestone {i}: not an object")
+            continue
+        if not _text(m.get("title")):
+            errs.append(f"milestone {i}: no title")
         if m.get("due_on") is not None and real_date(m["due_on"]) is None:
             errs.append(f"milestone {m.get('title')!r}: due_on {m['due_on']!r} is not a real date (YYYY-MM-DD)")
     return errs
@@ -178,8 +201,8 @@ def validate_milestones(tax) -> list[str]:
 def _read(path: Path, what: str):
     try:
         return json.loads(Path(path).read_text(encoding="utf-8"))
-    except (OSError, ValueError) as e:
-        raise RoadmapError(f"{what} {path}: cannot be read as JSON ({e})") from None
+    except (OSError, ValueError, RecursionError) as e:
+        raise RoadmapError(f"{what} {path}: cannot be read as JSON ({type(e).__name__})") from None
 
 
 def load(path: Path | None = None) -> dict:
@@ -203,11 +226,11 @@ def overdue_steps(lane: dict, today: date) -> list[int]:
 
 
 def when(due: date, today: date) -> str:
+    """The ruled forms, verbatim: "in N days", "today" or "OVERDUE N days" (N = 1 included)."""
     n = (due - today).days
     if n == 0:
         return "today"
-    unit = "day" if abs(n) == 1 else "days"
-    return f"in {n} {unit}" if n > 0 else f"OVERDUE {-n} {unit}"
+    return f"in {n} days" if n > 0 else f"OVERDUE {-n} days"
 
 
 def report(today: date, path: Path | None = None, taxonomy_path: Path | None = None) -> tuple[list[str], int]:
@@ -233,10 +256,10 @@ def report(today: date, path: Path | None = None, taxonomy_path: Path | None = N
             continue
         j, st = nx
         more = len([k for k in late if k != j])
-        tail = f" (+{more} more step{'s' if more != 1 else ''} overdue)" if more else ""
+        tail = f" (+{more} more steps overdue)" if more else ""
         lines.append(f"  next: {st['what']} · {st['owner']} · due {st['due']} · "
                      f"{when(real_date(st['due']), today)}{tail}")
-    dated = [m for m in tax.get("milestones") or [] if m.get("due_on")]
+    dated = [m for m in tax["milestones"] if m.get("due_on")]
     lines.append(f"MILESTONES ({tp.parent.name}/{tp.name}, those with a due_on)")
     for m in dated:
         d = real_date(m["due_on"])

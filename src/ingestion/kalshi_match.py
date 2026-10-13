@@ -42,6 +42,12 @@ Pennsylvania; University at Albany is UAlbany; LIU is Long Island University; PS
 Rennais is Rennes; M´gladbach, as Kalshi writes it with an acute accent (U+00B4), is Borussia Mönchengladbach. A pin
 reads one of the event's two names whole, as the module takes them, and never a word of a name: Penn St. is not Penn.
 Nothing else in the matcher changes: the event's two names still fit one game one each, and a tie is refused."
+Addendum 59 item 2 (2026-10-13, #484), verbatim: "A pin names one stored team. A pinned name fits a team only where
+the team's stored name reads as the pin's name: the same words under norm_tokens, no more and no fewer. Against every
+other team a pinned name scores nothing, whatever word they share: PSG does not fit Paris FC, M´gladbach does not
+fit Borussia Dortmund, LIU does not fit Rhode Island. Against its own team it scores what the pin's name scores on
+#482's head. An event's name that is not pinned is read as before. One each, the best fit and the refused tie do not
+change."
 
 Pure: no network, no database. place() takes the markets and the stored games (objects with id, utc_date (naive
 UTC), home_team.name, away_team.name, status) and returns the placements and the refusals by reason.
@@ -92,7 +98,8 @@ BEHIND = "behind an event of the same two names out of step"
 
 
 # Addendum 57 item 6: an event's name, whole as the module takes it (the market's yes_sub_title, stripped), -> the
-# name the fit reads in its place. Never a word of a name ("Penn St." is not "Penn").
+# one stored team it names. Never a word of a name ("Penn St." is not "Penn"). Addendum 59 item 2: the pinned name
+# fits that team alone (_as_scored).
 PINS = {
     "Penn": "Pennsylvania",
     "University at Albany": "UAlbany",
@@ -114,8 +121,23 @@ def _initials(name: str) -> set[str]:
     return {w.lower() for w in (name or "").split() if len(w) == 1 and w.isalpha()}
 
 
+def _as_scored(kalshi_name: str, team_name: str) -> str | None:
+    """The name scored against `team_name`. An unpinned name is itself, read as before. A pinned name is its pin's
+    name against its own team, the one whose stored name has the same words as the pin's name under norm_tokens, no
+    more and no fewer, and None (it scores nothing) against every other team, whatever word they share (addendum 59
+    item 2)."""
+    pin = PINS.get(kalshi_name)
+    if pin is None:
+        return kalshi_name
+    return pin if norm_tokens(team_name) == norm_tokens(pin) else None
+
+
 def side_score(kalshi_name: str, team_name: str) -> float:
-    """Word overlap, with an initial-letter tiebreak worth half a point ("Chicago C" -> Cubs)."""
+    """Word overlap, with an initial-letter tiebreak worth half a point ("Chicago C" -> Cubs). A pinned name scores
+    as its pin's name against its own team and 0 against any other (_as_scored)."""
+    kalshi_name = _as_scored(kalshi_name, team_name)
+    if kalshi_name is None:
+        return 0.0
     ttok = norm_tokens(team_name)
     score = float(len(norm_tokens(kalshi_name) & ttok))
     if any(any(t.startswith(i) for t in ttok) for i in _initials(kalshi_name)):
@@ -125,8 +147,11 @@ def side_score(kalshi_name: str, team_name: str) -> float:
 
 def _distinct_score(kalshi_name: str, team_name: str, shared: set[str]) -> float:
     """Against the team's distinctive tokens only (two-team cities share the city token), plus the short-acronym
-    form ('WS' -> White Sox). The side tiebreak of the shared path, kept."""
+    form ('WS' -> White Sox). The side tiebreak of the shared path, kept. A pinned name as in side_score."""
     from src.ingestion.team_aliases import norm_token_list
+    kalshi_name = _as_scored(kalshi_name, team_name)
+    if kalshi_name is None:
+        return 0.0
     distinct = norm_tokens(team_name) - shared
     score = float(len(norm_tokens(kalshi_name) & distinct))
     if any(any(t.startswith(i) for t in distinct) for i in _initials(kalshi_name)):
@@ -246,14 +271,13 @@ def _best_fits(names, day, games) -> list:
     day (the ticker's date, a day either side, US Eastern; rows that are not games left out). [] when none fits."""
     on_day = [g for g in games if g.utc_date and g.home_team and g.away_team and is_game(g)
               and abs((et_day(g.utc_date) - day).days) <= 1]
-    # the pins (addendum 57 item 6): each name read whole; which name is home is given back as the event's own name
-    pinned = (PINS.get(names[0], names[0]), PINS.get(names[1], names[1]))
+    # the pins (addendum 57 item 6, addendum 59 item 2): each name read whole by the scoring, a pinned one against its
+    # own team only
     fits = []
     for g in on_day:
-        f = fit(pinned, g.home_team.name, g.away_team.name)
+        f = fit((names[0], names[1]), g.home_team.name, g.away_team.name)
         if f is not None:
-            home_name = None if f[1] is None else (names[0] if f[1] == pinned[0] else names[1])
-            fits.append((f[0], g, home_name))
+            fits.append((f[0], g, f[1]))
     if not fits:
         return []
     best = max(sc for sc, _, _ in fits)

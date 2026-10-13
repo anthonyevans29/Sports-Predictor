@@ -74,6 +74,33 @@ NOTE = ("REFERENCE MODEL — FAILED GATE. nhl_elo_v7 (xG margin, no 'na' level) 
 NOTE_NO_FIT = ("REFERENCE MODEL — FAILED GATE. The xG fit could not be made, so this file is nhl_elo_v1 (0.6909 vs "
                "the 0.6866 bar) and no other model. Shadow only: never a call, never a venue input, never logged to "
                "the ledger. NHL runs MARKET-ONLY. Graded on live model-close divergence only, as the reference.")
+# ARCHITECT 2026-10-13 17:15 ET (addendum 63 item 2), verbatim: "A shadow run whose fit took the goal-margin fallback for
+# any game is not v7. Its model_version reads nhl_elo_v7_goal_margin_fallback, on the file's header and on every row,
+# and the fit block stays as it is. nhl-shadow-grade never pools a fallback file with a v7 file: it grades each name on
+# its own and says which it graded." The hold stands: NHL makes no call either way. Where the xG fit could not be made
+# at all, addendum 49's rule above still names the file nhl_elo_v1, with v1's numbers.
+FALLBACK_VERSION = "nhl_elo_v7_goal_margin_fallback"
+NOTE_FALLBACK = ("REFERENCE MODEL — FAILED GATE, NOT v7. The xG fit was made, but the walk took the goal-margin fallback "
+                 "for at least one game (no stored shots), so this file is nhl_elo_v7_goal_margin_fallback and not v7 "
+                 "(ARCHITECT 2026-10-13). Shadow only: never a call, never a venue input, never logged to the ledger. "
+                 "NHL runs MARKET-ONLY. Graded on live model-close divergence only, on its own line, never pooled with "
+                 "v7.")
+
+
+def fallbacks(fit_block: dict | None) -> int:
+    """How many games a file's walk updated on goals instead of xG (its fit block's goal_margin_fallbacks; 0 where
+    the block does not say, as the v1-era files of 2026-09-30 to 10-02 do not)."""
+    v = (fit_block or {}).get("goal_margin_fallbacks")
+    return v if isinstance(v, int) and not isinstance(v, bool) and v > 0 else 0
+
+
+def shadow_name(fit_block: dict | None) -> str:
+    """The model a file's walk ran, read from its fit block (addendum 49: the fit block decides, never the name):
+    no fit -> the reference (addendum 49); a fit with any goal-margin fallback -> the fallback (addendum 63 item 2);
+    otherwise v7."""
+    if not fit_made(fit_block):
+        return REFERENCE_VERSION
+    return FALLBACK_VERSION if fallbacks(fit_block) else MODEL_VERSION
 
 
 def fit_made(fit_block: dict | None) -> bool:
@@ -153,6 +180,7 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS) -> dict:
     now = now or utc_now_naive()
     model, ref, rc = fit(nb.load_games(), now)
     v7 = fit_made(rc)            # the fit could not be made: the rows are the reference's, by name and number
+    name = shadow_name(rc)       # addendum 63 item 2: a walk with any goal-margin fallback is not v7
     starts = _season_starts()
     rows, skipped = [], Counter()
     with session_scope() as s:
@@ -173,7 +201,7 @@ def build_rows(now: datetime | None = None, hours: int = WINDOW_HOURS) -> dict:
             row = _fixture_row(s, m, "NHL", Counter(), Counter())
             pick_home = p >= 0.5
             row.update({
-                "engine": ENGINE, "model_version": MODEL_VERSION if v7 else REFERENCE_VERSION,
+                "engine": ENGINE, "model_version": name,
                 "gate_verdict": GATE_VERDICT if v7 else REFERENCE_VERDICT,
                 "prediction": {"home_win_prob": round(p, 4), "away_win_prob": round(1 - p, 4),
                                "top_pick": "home_win" if pick_home else "away_win",
@@ -194,13 +222,19 @@ def export(now: datetime | None = None, hours: int = WINDOW_HOURS, out_dir: str 
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     path = str(Path(out_dir) / f"{FILE_PREFIX}{now.strftime('%Y-%m-%d_%H%M')}.json")
     v7 = fit_made(r["fit"])
-    doc = {"sport": "nhl", "engine": ENGINE, "model_version": MODEL_VERSION if v7 else REFERENCE_VERSION,
+    name = shadow_name(r["fit"])
+    fb = fallbacks(r["fit"])
+    doc = {"sport": "nhl", "engine": ENGINE, "model_version": name,
            "gate_verdict": GATE_VERDICT if v7 else REFERENCE_VERDICT,
            "reference_model": {"model_version": REFERENCE_VERSION, "gate_verdict": REFERENCE_VERDICT},
            "contains_predictions": False,   # nothing here is a live prediction (doctrine)
-           "exported_at": now.isoformat(), "window_hours": hours, "note": NOTE if v7 else NOTE_NO_FIT,
+           "exported_at": now.isoformat(), "window_hours": hours,
+           "note": NOTE_NO_FIT if not v7 else NOTE_FALLBACK if name == FALLBACK_VERSION else NOTE,
            **({} if v7 else {"v7_unavailable": f"{MODEL_VERSION} was not available: the xG fit could not be made "
                                                f"({r['fit'].get('xg_model')})"}),
+           **({"not_v7": f"the walk took the goal-margin fallback for {fb} of {r['fit'].get('games_used')} games: "
+                         f"this file is {FALLBACK_VERSION}, not {MODEL_VERSION} (ARCHITECT 2026-10-13, addendum 63 "
+                         f"item 2)"} if name == FALLBACK_VERSION else {}),
            "fit": r["fit"], "skipped": r["skipped"], "count": len(r["rows"]), "predictions": r["rows"]}
     with open(path, "w") as f:
         json.dump(doc, f, indent=2, default=str)
@@ -219,12 +253,13 @@ def last_calls(export_dir: str = "exports") -> dict[int, dict]:
             continue
         at = doc.get("exported_at") or ""
         made = fit_made(doc.get("fit"))       # addendum 49: the fit block decides, never the name
+        fit_name = shadow_name(doc.get("fit"))  # addendum 63 item 2: any goal-margin fallback is not v7
         for r in doc.get("predictions") or []:
             mid, ko = r.get("match_id"), r.get("utc_date") or ""
             if mid is None or not at or at >= ko:
                 continue
             if mid not in out or at >= out[mid]["exported_at"]:
-                out[mid] = {**r, "exported_at": at, "source_file": f.name, "fit_made": made}
+                out[mid] = {**r, "exported_at": at, "source_file": f.name, "fit_made": made, "fit_name": fit_name}
     return out
 
 
@@ -241,7 +276,9 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     now = now or utc_now_naive()
     calls = last_calls(export_dir)
     clvs, vclvs, lines, ref_clvs = [], [], [], []
+    fb_clvs, fb_vclvs = [], []            # addendum 63 item 2: the fallback's own line, never pooled with v7
     graded = unpriced = unanchored = no_fit = not_v7 = 0
+    fallback = fb_unpriced = fb_unanchored = 0
     with session_scope() as s:
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
             m = s.get(Match, mid)
@@ -255,7 +292,13 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             # number." The v1-era files (2026-09-30 to 10-02) name v1 and carry no reference block.
             names_v7 = c.get("model_version") == MODEL_VERSION
             made = c.get("fit_made", True)        # a file made without the fit is never graded as v7 (addendum 49)
-            as_v7 = names_v7 and made
+            # ARCHITECT 2026-10-13 (addendum 63 item 2): "nhl-shadow-grade never pools a fallback file with a v7 file:
+            # it grades each name on its own and says which it graded." A row that names the fallback, or names v7 from
+            # a file whose fit block counts a goal-margin fallback, is on the fallback line; the fit block decides.
+            fit_name = c.get("fit_name", MODEL_VERSION if made else REFERENCE_VERSION)
+            as_fb = made and (c.get("model_version") == FALLBACK_VERSION
+                              or (names_v7 and fit_name == FALLBACK_VERSION))
+            as_v7 = names_v7 and made and not as_fb
             odds = list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars())
             close_h = None
             from src.walters.close import close_1x2, outcomes_for, priced
@@ -267,8 +310,12 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 clv = (p if pick_home else 1 - p) - (close_h if pick_home else 1 - close_h)
                 if as_v7:
                     clvs.append(clv)
+                elif as_fb:
+                    fb_clvs.append(clv)
             elif as_v7:
                 unpriced += 1
+            elif as_fb:
+                fb_unpriced += 1
             # v1 rides along as the reference (ruled 2026-10-02); a row that names the reference and carries no
             # reference block counts on the reference line by its own number (addendum 50 item 3)
             pr = (c.get("reference") or {}).get("home_win_prob")
@@ -279,22 +326,27 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                 ref_clv = (pr if pr >= 0.5 else 1 - pr) - (close_h if pr >= 0.5 else 1 - close_h)
                 ref_clvs.append(ref_clv)
             anchor_h, _ = _book_anchor(s, m)
-            vg = value_side_grade(p, anchor_h, close_h) if as_v7 else None
+            vg = value_side_grade(p, anchor_h, close_h) if (as_v7 or as_fb) else None
             if vg:
-                vclvs.append(vg["value_side_clv"])
+                (vclvs if as_v7 else fb_vclvs).append(vg["value_side_clv"])
             elif anchor_h is None and as_v7:
                 unanchored += 1
+            elif anchor_h is None and as_fb:
+                fb_unanchored += 1
             if not as_v7:
                 not_v7 += 1
                 no_fit += 0 if made else 1
+                fallback += 1 if as_fb else 0
             tag = ("" if as_v7 else "[no xG fit: not v7, the reference only] " if not made
+                   else "[goal-margin fallback: not v7, its own line] " if as_fb
                    else "[names the reference: not v7, the reference line] ")
             # #466: a row kept off the v7 line says why, never "no anchor" when it has one
-            no_vg = ("— (not graded: no xG fit)" if not made else "— (not graded: not a v7 row)" if not as_v7
-                     else "— (no anchor)")
+            no_vg = ("— (not graded: no xG fit)" if not made else "— (no anchor)" if (as_v7 or as_fb)
+                     else "— (not graded: not a v7 row)")
+            shown = FALLBACK_VERSION if as_fb else c.get("model_version", "?")
             line = (f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
                     + tag
-                    + f"{c.get('model_version', '?').replace('nhl_elo_', '')}_H={p:.3f} "
+                    + f"{shown.replace('nhl_elo_', '')}_H={p:.3f} "
                     f"close_H={'%.3f' % close_h if close_h is not None else '  — '} "
                     f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'} "
                     f"value={(vg['side'] + ' %+.1fpp' % (vg['value_side_clv'] * 100)) if vg else no_vg}"
@@ -303,7 +355,14 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             lines.append(line)
             if progress:
                 progress(line)
+    mean = (lambda xs: round(sum(xs) / len(xs) * 100, 2) if xs else None)
     return {"graded": graded, "priced": len(clvs), "unpriced": unpriced, "no_fit": no_fit, "not_v7": not_v7,
+            # addendum 63 item 2: the fallback graded on its own, and which name each graded call was graded as
+            "fallback": fallback, "fallback_priced": len(fb_clvs), "fallback_unpriced": fb_unpriced,
+            "fallback_mean_clv_pp": mean(fb_clvs), "fallback_value_side_n": len(fb_vclvs),
+            "fallback_unanchored": fb_unanchored, "fallback_mean_value_side_clv_pp": mean(fb_vclvs),
+            "graded_by_name": {MODEL_VERSION: graded - not_v7, FALLBACK_VERSION: fallback,
+                               f"{REFERENCE_VERSION} (reference line only)": not_v7 - fallback},
             "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None,
             "value_side_n": len(vclvs), "unanchored": unanchored,
             "mean_value_side_clv_pp": round(sum(vclvs) / len(vclvs) * 100, 2) if vclvs else None,
@@ -321,18 +380,21 @@ def results_section(days: int, export_dir: str = "exports") -> str:
     # Codex on #464: when no graded call is on the v7 line, the line is empty by ruling, not for want of a close or
     # an anchor; it says so instead of blaming the market data. Addendum 50 item 3 (#466): a row that names the
     # reference is not on the v7 line either.
-    ref_named = r.get("not_v7", 0) - r.get("no_fit", 0)
+    fb = r.get("fallback", 0)
+    ref_named = r.get("not_v7", 0) - r.get("no_fit", 0) - fb
     why_not = "; ".join(x for x in (
         f"{r['no_fit']} from files made without the xG fit" if r.get("no_fit") else "",
-        f"{ref_named} naming the reference ({REFERENCE_VERSION})" if ref_named else "") if x)
+        f"{ref_named} naming the reference ({REFERENCE_VERSION})" if ref_named else "",
+        f"{fb} from walks with the goal-margin fallback ({FALLBACK_VERSION})" if fb else "") if x)
     none_v7 = (f"— (no v7-fit call graded: all {r['no_fit']} came from files made without the xG fit)"
                if r.get("no_fit") and r["no_fit"] >= r["graded"]
                else f"— (no v7-fit call graded: {why_not})" if r.get("not_v7") and r["not_v7"] >= r["graded"] else None)
     return head + (
         f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}"
         + (f" ({r['no_fit']} from files made without the xG fit: the reference line only, never v7)"
-           if r.get("no_fit") and not ref_named else
-           f" ({why_not}: the reference line only, never v7)" if why_not else "") + "\n"
+           if r.get("no_fit") and not ref_named and not fb else
+           f" ({why_not}: the reference line only, never v7)" if why_not and not fb else
+           f" ({why_not}: never v7; the fallback on its own line below)" if why_not else "") + "\n"
         "- Mean pick-vs-close: "
         + (f"{r['mean_clv_pp']:+.2f}pp (n={r['priced']} priced)" if r["mean_clv_pp"] is not None
            else none_v7 or f"— (no stored close; {r['unpriced']} unpriced)") + "\n"
@@ -340,6 +402,14 @@ def results_section(days: int, export_dir: str = "exports") -> str:
         + (f"{r['mean_value_side_clv_pp']:+.2f}pp (n={r['value_side_n']} anchored)"
            if r["mean_value_side_clv_pp"] is not None
            else none_v7 or f"— ({r['unanchored']} unanchored: no pre-kickoff book snapshot)") + "\n"
+        + (f"- {FALLBACK_VERSION} (not v7: its own line, never pooled with v7; addendum 63 item 2), "
+           f"{fb} graded: pick-vs-close "
+           + (f"{r['fallback_mean_clv_pp']:+.2f}pp (n={r['fallback_priced']} priced)"
+              if r.get("fallback_mean_clv_pp") is not None else f"— ({r.get('fallback_unpriced', 0)} unpriced)")
+           + " · value-side "
+           + (f"{r['fallback_mean_value_side_clv_pp']:+.2f}pp (n={r['fallback_value_side_n']} anchored)"
+              if r.get("fallback_mean_value_side_clv_pp") is not None
+              else f"— ({r.get('fallback_unanchored', 0)} unanchored)") + "\n" if fb else "")
         + f"- Reference {REFERENCE_VERSION} ({REFERENCE_VERDICT}) pick-vs-close: "
         + (f"{r['reference_mean_clv_pp']:+.2f}pp (n={r['reference_priced']})" if r["reference_mean_clv_pp"] is not None
            else "— (no reference rows priced yet)") + "\n")

@@ -5186,6 +5186,8 @@ def export_nhl_predictions_cmd(hours):
     if doc.get("v7_unavailable"):    # addendum 49 (#463): the file names the model it ran
         print(f"  ✗ {doc['v7_unavailable']}: this file and its rows are {doc['model_version']} "
               f"({doc['gate_verdict']}) and no other")
+    if doc.get("not_v7"):            # addendum 63 item 2: any goal-margin fallback is not v7
+        print(f"  ✗ {doc['not_v7']}")
 
 
 @cli.command("nhl-shadow-grade")
@@ -5199,6 +5201,13 @@ def nhl_shadow_grade_cmd(days):
           f"{r['mean_clv_pp']}pp (n={r['priced']}) · value-side {r['mean_value_side_clv_pp']}pp "
           f"(n={r['value_side_n']}; unanchored {r['unanchored']}) · reference v1 pick-vs-close "
           f"{r['reference_mean_clv_pp']}pp (n={r['reference_priced']})")
+    # ARCHITECT 2026-10-13 (addendum 63 item 2): each name graded on its own, and the grade says which
+    print("  ── graded by name: " + " · ".join(f"{k} {v}" for k, v in r["graded_by_name"].items()))
+    if r["fallback"]:
+        print(f"  ── nhl_elo_v7_goal_margin_fallback (not v7, never pooled): pick-vs-close "
+              f"{r['fallback_mean_clv_pp']}pp (n={r['fallback_priced']}) · value-side "
+              f"{r['fallback_mean_value_side_clv_pp']}pp (n={r['fallback_value_side_n']}; unanchored "
+              f"{r['fallback_unanchored']})")
 
 
 @cli.command("export-ncaa-predictions")

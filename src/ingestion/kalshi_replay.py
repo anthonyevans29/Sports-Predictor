@@ -12,14 +12,17 @@ morning block, straight after the day's Kalshi syncs. The switch PR carries that
   market data. The operator sends it to me.
 
 How it reads, so the console can be checked against it:
-- The stored games: the series' own competition (venue.KALSHI_SERIES_BY_COMPETITION; a soccer series by the
-  competition it is resolved for), every row whose kickoff falls in the span of the events' days (kalshi_match.day_span),
-  through a mode=ro session (venue_quote_age.readonly_session): nothing is written to the database.
+- The stored games: the series' own competition (the one map, venue.KALSHI_SERIES_BY_COMPETITION, read by
+  kalshi_sync.series_competition; a soccer series by the competition it is resolved for), loaded as the syncs load
+  them (kalshi_sync.stored_games: every row whose kickoff falls in the span of the events' days), through a mode=ro
+  session (venue_quote_age.readonly_session): nothing is written to the database.
 - The window each sync uses by default: the shared path now-1d..now+2d, the soccer path now-1d..now+7d with its 0.10
-  spread guard and its Tie legs. `now` is the moment the markets were fetched.
+  spread guard and its Tie legs. `now` is the moment that series' markets were fetched (each series is stamped after
+  its own fetch, as a sync stamps its run: #470 item 3).
 - "The legs main's matcher stored at its last sync": the kalshi snapshots of the competition's games written at the
-  newest capture time (one sync run writes every leg with one captured_at), each with its stored market ticker. Legs
-  are compared by ticker; a stored leg with no ticker (before the ticker column) is counted, not compared.
+  newest capture time at or before that fetch (one sync run writes every leg with one captured_at; a sync after the
+  fetch is not read: #470 item 2), each with its stored market ticker. Legs are compared by ticker; a stored leg with
+  no ticker (before the ticker column) is counted, not compared.
 """
 from __future__ import annotations
 
@@ -28,15 +31,22 @@ from datetime import datetime, timedelta
 from pathlib import Path
 
 REPO = Path(__file__).resolve().parents[2]
-SHARED = {"KXMLBGAME": "MLB", "KXNFLGAME": "NFL", "KXNHLGAME": "NHL", "KXNCAAFGAME": "NCAA"}
 SOCCER_MAX_SPREAD = 0.10        # the soccer sync's default guard (UNL's frozen value too)
 STALE_MAIN_H = 3.0              # main's newest stored legs older than this are flagged (the replay runs after syncs)
 
 
+def shared_series() -> dict:
+    """{series: competition} of the two-way series the shared path reads: the one map
+    (venue.KALSHI_SERIES_BY_COMPETITION) less the soccer competitions (addendum 51 item 7)."""
+    from src.adapters.kalshi import KalshiAdapter
+    from src.walters.venue import KALSHI_SERIES_BY_COMPETITION
+    return {s: c for c, s in KALSHI_SERIES_BY_COMPETITION.items() if c not in KalshiAdapter.SOCCER_GAME_SERIES}
+
+
 def series_plan(adapter, only: list[str] | None = None) -> list[dict]:
-    """[{series, competition, path}] for every series the syncs read: the four two-way series, then each soccer
+    """[{series, competition, path}] for every series the syncs read: the two-way series, then each soccer
     competition whose series resolves (mapped or discovered, as sync-kalshi-soccer resolves it)."""
-    out = [{"series": s, "competition": c, "path": "shared"} for s, c in SHARED.items()]
+    out = [{"series": s, "competition": c, "path": "shared"} for s, c in shared_series().items()]
     # the mapped competitions and the discoverable ones, as sync-kalshi-soccer resolves them (Codex on #461); a code
     # whose series does not resolve is listed with why, never silently left out
     codes = list(adapter.SOCCER_GAME_SERIES) + [c for c in getattr(adapter, "SOCCER_SERIES_DISCOVERY", {})
@@ -68,7 +78,9 @@ def fetch(only: list[str] | None = None, progress=print) -> dict:
             continue
         try:
             mks = adapter.open_markets_for_series(p["series"])
-            payload["series"][p["series"]] = {**p, "markets": mks}
+            # each series stamped after its own fetch, as a sync stamps its run (#470 item 3), to the microsecond as
+            # a sync stores captured_at: a capture made earlier in the same second is before the fetch (Codex on #475)
+            payload["series"][p["series"]] = {**p, "markets": mks, "fetched_at": utc_now_naive().isoformat()}
         except Exception as e:  # noqa: BLE001 - one series' failure is printed; the others replay
             payload["series"][p["series"]] = {**p, "markets": [], "error": f"{type(e).__name__}: {e}"[:200]}
         progress(f"  fetched {p['series']} ({p['competition']}): "
@@ -82,9 +94,9 @@ def fetch(only: list[str] | None = None, progress=print) -> dict:
     return payload
 
 
-def _main_legs(s, comp_id: int, market: str) -> dict:
-    """The legs main's matcher stored at its last sync: {ticker or (match_id, selection): (match_id, selection)},
-    with the capture time and the count of untickered legs."""
+def _main_legs(s, comp_id: int, market: str, before: datetime | None = None) -> dict:
+    """The legs main's matcher stored at its last sync at or before `before` (the series' fetch: #470 item 2):
+    {ticker: (match_id, selection)}, with the capture time and the count of untickered legs."""
     from sqlalchemy import func, select, text
 
     from src.db.schema import Match, OddsSnapshot
@@ -93,7 +105,8 @@ def _main_legs(s, comp_id: int, market: str) -> dict:
             .where(Match.competition_id == comp_id, OddsSnapshot.source == "kalshi", OddsSnapshot.market == market))
     # the newest capture time, compared inside SQL (the stored text is matched as stored)
     newest = (select(func.max(OddsSnapshot.captured_at)).join(Match, Match.id == OddsSnapshot.match_id)
-              .where(Match.competition_id == comp_id, OddsSnapshot.source == "kalshi", OddsSnapshot.market == market)
+              .where(Match.competition_id == comp_id, OddsSnapshot.source == "kalshi", OddsSnapshot.market == market,
+                     *([OddsSnapshot.captured_at <= before] if before is not None else []))
               .scalar_subquery())
     rows = list(s.execute(base.where(OddsSnapshot.captured_at == newest)).scalars())
     if not rows:
@@ -123,9 +136,9 @@ def replay(payload: dict, progress=print) -> dict:
     from src.adapters.kalshi import KalshiAdapter
     from src.db.schema import Competition, Match
     from src.ingestion import kalshi_match as km
+    from src.ingestion.kalshi_sync import stored_games
     from src.walters.venue_quote_age import readonly_session
 
-    now = datetime.fromisoformat(payload["fetched_at"])
     out = {}
     with readonly_session() as s:
         for series, p in payload["series"].items():
@@ -141,16 +154,15 @@ def replay(payload: dict, progress=print) -> dict:
                 progress(f"{head} · competition {p['competition']} not in the DB")
                 out[series] = {"error": "competition not in DB"}
                 continue
-            span = km.day_span(mks)
-            games = [] if span is None else [g for g in s.execute(
-                select(Match).where(Match.competition_id == comp.id, Match.utc_date >= span[0],
-                                    Match.utc_date <= span[1])).scalars() if g.utc_date]
+            # the series' own fetch time (#470 item 3); a file kept before it was stamped per series has the run's
+            now = datetime.fromisoformat(p.get("fetched_at") or payload["fetched_at"])
+            games = stored_games(s, [comp.id], mks)
             lo, hi = now - timedelta(days=1), now + timedelta(days=7 if soccer else 2)
             res = km.place(mks, games, now=now, lo=lo, hi=hi, implied_prob=KalshiAdapter.implied_prob,
                            is_tie=KalshiAdapter.is_tie_market if soccer else None,
                            spread=KalshiAdapter.spread_dollars if soccer else None,
                            max_spread=SOCCER_MAX_SPREAD if soccer else None)
-            main = _main_legs(s, comp.id, "1X2" if soccer else "ML")
+            main = _main_legs(s, comp.id, "1X2" if soccer else "ML", before=now)
             new = {mk.get("ticker"): key for key, mk in res.placed.items()}
             names = {g.id: f"{g.away_team.name} @ {g.home_team.name}" for g in games if g.home_team and g.away_team}
 

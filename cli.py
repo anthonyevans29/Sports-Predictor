@@ -5686,8 +5686,10 @@ def sync_kalshi_ncaa_cmd():
         console.print(f"  series {r.get('series')} · {r.get('markets')} markets · "
                       f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
                       f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
-    else:
-        console.print(f"[red]✗ Kalshi NCAA: {r.get('error')}[/red]")
+    else:                                   # the sync answers with a reason, as for NFL (addendum 54 item 4(a))
+        console.print(f"[yellow]✗ Kalshi NCAA: {r.get('reason')}[/yellow]")
+        if r.get("sports_available"):
+            console.print(f"  Kalshi sports: {', '.join(r['sports_available'][:12])}")
 
 
 @cli.command("sync-kalshi-nhl")
@@ -5707,8 +5709,10 @@ def sync_kalshi_nhl_cmd():
         console.print(f"  series {r.get('series')} · {r.get('markets')} markets · "
                       f"matched {r.get('matched')} · unmatched {r.get('unmatched')} "
                       f"(ambiguous {r.get('ambiguous')}) · in-play {r.get('in_play')} ")
-    else:
-        console.print(f"[red]✗ Kalshi NHL: {r.get('error')}[/red]")
+    else:                                   # the sync answers with a reason, as for NFL (addendum 54 item 4(a))
+        console.print(f"[yellow]✗ Kalshi NHL: {r.get('reason')}[/yellow]")
+        if r.get("sports_available"):
+            console.print(f"  Kalshi sports: {', '.join(r['sports_available'][:12])}")
 
 
 @cli.command("sync-kalshi-nfl")

@@ -1,0 +1,26 @@
+**2026-10-12 — BUILT (ARCHITECT addendum 50 item 6(b), addendum 51 item 7, addendum 53 item 4, addendum 54 items 3 and 4): the Kalshi matcher switch. Both sync paths place with kalshi_match. PR #475. Not called before the architect has read the morning kalshi-replay console.**
+- **What:** sync_kalshi_mlb (MLB, NFL, NHL, NCAA) and sync_kalshi_soccer store what kalshi_match.place places, on the stored games of the series' own competition on the events' days, and print every refusal by reason. The replay loads its games the same way, so its console is the switched sync's.
+- **Riders (addendum 51 item 7):**
+  - #470 item 2: main's legs at or before the fetch.
+  - #470 item 3: a fetch time for each series.
+  - The time-tie line (item 4).
+  - One series-to-competition map (venue.KALSHI_SERIES_BY_COMPETITION).
+  - The replay tests' capture time as ISO text.
+  - #461's test count.
+- **The nit (addendum 53):** the heading over the clock-ticker tests is reworded.
+- **THE ALARM (addendum 54 item 3), verbatim:** "The alarm is for a run that had a game to price and priced none. It prints when no market is placed although markets were read and a game of the competition that has not started is inside the run's window. A game outside the window does not count, nor one that has started, nor a row that is not a game." Both paths. Why: the switch's games are the rows on the events' days, where main's were the rows in the run's window. Read that way, the zero-match sentinel would print on every quiet day (the NFL sync of a Tuesday, its games more than two days out, every event refused as outside the window). Started is read on our kickoff, as the in-play refusal reads it. The line counts the markets read and the unstarted games of the competition in the window; the summary carries `alarm`.
+- **The nits (addendum 54 item 4):**
+  - sync-kalshi-ncaa and sync-kalshi-nhl print the sync's reason (they printed `error`, which reads None).
+  - The shared path whose competition is not in the database answers not ok, "competition X not in DB", as the soccer path does.
+  - docs/CLI.md: each of the five sync rows says where a market is placed; kalshi-replay has a row.
+- **What the syncs now do differently. All of it is ruled; read here when a console reads differently from main's:**
+  - A market with no date in its ticker is refused.
+  - The shared path reads the series' competition, not the sport. The NCAA sync passed sport=NFL.
+  - An event with one market places nothing: the yes-team fallback is gone. The event's two names come from its own markets (the old "A vs B" title is still read where a market carries one).
+  - Two markets on one side of one game are both refused, where main kept the first.
+  - A best fit shared by two pairs of teams is refused.
+  - The window is read last, on the one game the gate chose. Outside the window is a refusal, never another game.
+  - occurrence_datetime gates nothing: the shared path's five hours, and the soccer path's five hours and its in-play test, are gone. In play is read on our kickoff alone.
+  - The soccer path's SCHEDULED-only read is gone. It reads rows of every status: a started game is refused as in play; a cancelled, postponed or stale-orphan row is not a game.
+  - The zero-match alarm prints on the ruled condition above, not on "no match with games and markets present".
+- **Closes #470.**

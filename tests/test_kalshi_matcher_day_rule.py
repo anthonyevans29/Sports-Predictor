@@ -1116,6 +1116,20 @@ def test_a_pinned_name_needs_the_same_words_not_a_shared_one(pinned, opponent, s
     assert not res.placed and res.refused == {km.NO_FIT: 2}, res.refused
 
 
+@pytest.mark.parametrize("pinned, other, opponent", [
+    ("Stade Rennais", "Stade Brestois 29", "Lyon"),             # stade: a word of the raw Kalshi name
+    ("University at Albany", "Long Island University", "Stony Brook"),   # university: likewise
+])
+def test_a_pinned_name_scores_nothing_through_a_word_of_its_raw_kalshi_name(pinned, other, opponent):
+    """The pinned name is its pin against its own team and nothing against any other: the raw name's own words never
+    fit either (Stade Rennais does not fit Stade Brestois 29 through stade)."""
+    assert km.norm_tokens(pinned) & km.norm_tokens(other)
+    assert km.side_score(pinned, other) == 0.0 and km._distinct_score(pinned, other, set()) == 0.0
+    res = run(event("26OCT17PINRAW", [("OPP", opponent), ("PIN", pinned)]),
+              [game(70025, opponent, other, Z("2026-10-17T17:00"))], now=Z("2026-10-16T12:00"))
+    assert not res.placed and res.refused == {km.NO_FIT: 2}, res.refused
+
+
 def test_an_event_name_that_is_not_pinned_is_read_as_before():
     """"An event's name that is not pinned is read as before": Paris FC still fits a lone Lyon @ Paris Saint Germain
     row through paris, as on main (#484's receipt; logged as a limitation, addendum 59 item 3)."""

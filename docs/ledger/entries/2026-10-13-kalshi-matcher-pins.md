@@ -1,0 +1,12 @@
+**2026-10-13 — LANE + RULED + BUILT (ARCHITECT 2026-10-13 09:01 ET, addendum 57 item 6; lane #479): the Kalshi matcher's pins. PR #482.**
+- **Finding (the morning's kalshi-replay console and the wide probe, attributed):** the module refused 13 events for no fit, where Kalshi writes a name the stored team's name shares no word with. Main placed none of them at the morning's windows either, so no leg differs; the module is the first to say why.
+  - The events: KXNCAAFGAME-26OCT16CLMBPENN, -26OCT23YALEPENN, -26OCT17ALBYSTON, -26OCT24ALBYURI, -26OCT17LIUWAG, -26OCT24STNHLIU; KXLIGUE1GAME-26OCT17RCSPSG, -26OCT25PSGOL, -26OCT18PARREN, -26OCT25RENRCS; KXBUNDESLIGAGAME-26OCT18BMGTSG, -26OCT23VFBBMG.
+  - The thirteenth is KXNCAAFGAME-26OCT16UNMHAW (Hawai'i). It gets no pin: the stored name is the escaped one, and the team merge (#426) mends it.
+- **Ruling (verbatim):** "In the Kalshi matcher, Penn is Pennsylvania; University at Albany is UAlbany; LIU is Long Island University; PSG is Paris Saint Germain; Stade Rennais is Rennes; M´gladbach, as Kalshi writes it with an acute accent (U+00B4), is Borussia Mönchengladbach. A pin reads one of the event's two names whole, as the module takes them, and never a word of a name: Penn St. is not Penn. Nothing else in the matcher changes: the event's two names still fit one game one each, and a tie is refused."
+- **Where the stored names were read:**
+  - Pennsylvania: fixtures_NCAA_2026-10-13.json, match 32835.
+  - UAlbany and Long Island University: that morning's odds lines.
+  - Paris Saint Germain and Rennes: the laptop's soccer_expansion_shadow export of 2026-10-09.
+  - Borussia Mönchengladbach: addendum 12's pin, not read from a file that day.
+- **As built:** `PINS` in src/ingestion/kalshi_match.py, read by the fit's scoring (`_as_scored`, since addendum 59 item 2: see the entry 2026-10-13-kalshi-pin-own-team) inside `_best_fits`, the one fit that place() and the out-of-step pre-pass share. Which name is home comes back as the event's own name. Small, and nothing waits on it: college is market-only and the two leagues are shadows.
+- **Closes #479.**

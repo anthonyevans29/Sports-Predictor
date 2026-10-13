@@ -1,0 +1,228 @@
+{
+  "ruled": "ARCHITECT 2026-10-13 10:12 ET, addendum 59 item 5 (Issue #486): the model lanes come first and carry dates. This file changes only in a PR that quotes the ruling for the change. \"A date on the roadmap is a commitment to do the step, never to its outcome. No date is a reason to move a bar, to shorten a confirmation, to run anything before its declaration says, or to shorten a review. A run that fails moves its lane to the next candidate, and the roadmap says so the same day.\"",
+  "rules": [
+    "A lane's next step is its first step not done. A step is overdue when its due date is before today and it is not done.",
+    "A due date or an earliest-live date changes only by my ruling, entered in the lane's moved list: the day it was moved, which date, what it was, what it is now, why, and the addendum and item. The earlier date is never erased.",
+    "A calendar step is a count of games or a kickoff, and its date is a projection. When the schedule says otherwise it is moved like any other date, and the reason is the schedule.",
+    "A lane that goes live stays in the file, its state live. A lane a ruling ends stays in the file, its state closed, with the ruling."
+  ],
+  "lanes": [
+    {
+      "lane": "unl",
+      "title": "Nations League",
+      "issue": 220,
+      "registry_id": "intl-elo-v2",
+      "state": "confirming",
+      "steps": [
+        {
+          "what": "the 60th cohort fixture (41643, kickoff 2026-11-11T21:00Z) is played",
+          "owner": "calendar",
+          "due": "2026-11-11",
+          "done": null
+        },
+        {
+          "what": "the confirmation record step, in the morning block",
+          "owner": "operator",
+          "due": "2026-11-12",
+          "done": null
+        }
+      ],
+      "earliest_live": "2026-11-12",
+      "live_needs": "CONFIRMED, computed by the registry on the cohort of record. Then the INTL Desk policy v0 as built (#325): half units until 30 INTL calls are graded, UNL only.",
+      "vs_close": "not read",
+      "moved": []
+    },
+    {
+      "lane": "pd",
+      "title": "La Liga",
+      "issue": 322,
+      "registry_id": "soccer-expansion-v1",
+      "state": "confirming",
+      "steps": [
+        {
+          "what": "the 60th cohort fixture (kickoff 2026-11-22T16:00Z) is played",
+          "owner": "calendar",
+          "due": "2026-11-22",
+          "done": null
+        },
+        {
+          "what": "the confirmation record step, in the morning block",
+          "owner": "operator",
+          "due": "2026-11-23",
+          "done": null
+        }
+      ],
+      "earliest_live": "2026-11-23",
+      "live_needs": "CONFIRMED on the frozen cohort of 60. Then the Desk's SOCCER policy unchanged, half units until 30 calls are graded in the league.",
+      "vs_close": "behind. The closing market beat the candidate by 0.050 of log-loss on the test seasons (the verdict's reported line).",
+      "moved": []
+    },
+    {
+      "lane": "ncaa",
+      "title": "College football",
+      "issue": 79,
+      "registry_id": null,
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "the declaration of the next candidate, to Code as an addendum",
+          "owner": "architect",
+          "due": "2026-10-16",
+          "done": null
+        },
+        {
+          "what": "the declaration PR open, its checks green, nothing run",
+          "owner": "code",
+          "due": "2026-10-20",
+          "done": null
+        },
+        {
+          "what": "the 500th both-FBS regular-season game of 2026 is final and labelled (274 were at the run of 2026-10-09)",
+          "owner": "calendar",
+          "due": "2026-11-08",
+          "done": null
+        },
+        {
+          "what": "the one run, on my word, and the verdict",
+          "owner": "architect",
+          "due": "2026-11-09",
+          "done": null
+        },
+        {
+          "what": "the 100th confirmation fixture is played",
+          "owner": "calendar",
+          "due": "2026-11-21",
+          "done": null
+        },
+        {
+          "what": "the confirmation record and the Desk policy ruling",
+          "owner": "architect",
+          "due": "2026-11-23",
+          "done": null
+        }
+      ],
+      "earliest_live": "2026-11-24",
+      "live_needs": "PASS, CONFIRMED on 100 fixtures, and a Desk policy ruling of its own (D8 of the v1r declaration: the neutral flag before kickoff and the shadow's record against the close).",
+      "vs_close": "not read. No college candidate has been scored against a close.",
+      "moved": []
+    },
+    {
+      "lane": "leagues",
+      "title": "Serie A, Bundesliga, Ligue 1, Championship",
+      "issue": 322,
+      "registry_id": null,
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "the re-declaration on 2026/27 games, to Code as an addendum; it dates the steps after it",
+          "owner": "architect",
+          "due": "2026-10-23",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "set by the re-declaration: a gate per league on this season's games, then a confirmation.",
+      "vs_close": "behind. The closing market beat the candidate by 0.042 (SA), 0.042 (BL1), 0.026 (FL1) and 0.028 (ELC) of log-loss on the test seasons.",
+      "moved": []
+    },
+    {
+      "lane": "nhl",
+      "title": "Hockey",
+      "issue": 105,
+      "registry_id": null,
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "candidate nine declared to Code, or my written ruling that there is none worth a run",
+          "owner": "architect",
+          "due": "2026-10-30",
+          "done": null
+        },
+        {
+          "what": "the 600th regular-season game of 2026-27 is final (a projection; the stored schedule gives the date in the block of 2026-10-14)",
+          "owner": "calendar",
+          "due": "2026-12-28",
+          "done": null
+        },
+        {
+          "what": "the one run, on my word, and the verdict",
+          "owner": "architect",
+          "due": "2026-12-29",
+          "done": null
+        },
+        {
+          "what": "the last confirmation game is played (150 games in the last three declarations)",
+          "owner": "calendar",
+          "due": "2027-01-20",
+          "done": null
+        },
+        {
+          "what": "the confirmation record and the Desk policy ruling",
+          "owner": "architect",
+          "due": "2027-01-21",
+          "done": null
+        }
+      ],
+      "earliest_live": "2027-01-22",
+      "live_needs": "PASS at the frozen bar on 600 or more games of 2026-27 (log-loss 0.6866 or under, the calibration bands, the ratings range), CONFIRMED, and a Desk policy ruling.",
+      "vs_close": "behind. The shadow (v7) reads 0.6747 against the market's 0.6482 over the 64 games graded to 2026-10-13 (my read of the laptop's shadow exports on the mirror). The bar certifies better than the schedule, not better than the market.",
+      "moved": []
+    },
+    {
+      "lane": "cups",
+      "title": "Champions League, EFL Cup, Europa League",
+      "issue": 106,
+      "registry_id": null,
+      "state": "blocked",
+      "steps": [
+        {
+          "what": "the lineup-history probe run (scripts/lineup_history_probe.py, #78), its receipt to me",
+          "owner": "operator",
+          "due": "2026-10-14",
+          "done": null
+        },
+        {
+          "what": "my ruling on the data: a dated plan for a rotation-aware candidate, or that there is none",
+          "owner": "architect",
+          "due": "2026-10-15",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "a rotation-aware candidate on as-of lineup data that passes the frozen cup exam, then its confirmation.",
+      "vs_close": "not read",
+      "moved": []
+    },
+    {
+      "lane": "nfl-qb",
+      "title": "NFL: the quarterback term",
+      "issue": 427,
+      "registry_id": null,
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "a read-only probe of the provider's quarterback data: its PR open, its checks green (see (h))",
+          "owner": "code",
+          "due": "2026-10-21",
+          "done": null
+        },
+        {
+          "what": "its run, the receipt to me",
+          "owner": "operator",
+          "due": "2026-10-23",
+          "done": null
+        },
+        {
+          "what": "my ruling: a candidate declared, or a written no",
+          "owner": "architect",
+          "due": "2026-11-02",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "a quarterback term that passes its frozen gate and its confirmation. The hold of 2026-10-11 ends with it and not before.",
+      "vs_close": "ahead, with no quarterback term. The live model reads 0.6104 against the close's 0.6419 over the 46 games with a close and a result to 2026-10-13 (my read of nfl_NFL_results_2026-10-13.json).",
+      "moved": []
+    }
+  ]
+}

@@ -147,6 +147,17 @@ become MORE binding under an income goal, never less."
 The queue's ORDER lives on the GitHub Project board "sports_predictor
 queue"; open state is the Issue list (docs/LEDGER.md). Read order from the
 board, never from chat. The pre-board queue text is history (git log).
+- **The model lanes come first** (ARCHITECT 2026-10-13, addendum 59 item 5):
+  "On the board's Queue the model lanes stand above every other lane. Only a
+  fix to something that is live and wrong stands above them."
+- **The dates live in docs/roadmap.json**, and `python cli.py roadmap` prints
+  them (read-only; exit 0 whatever is overdue, 2 on a file that does not
+  validate).
+- **No date moves a bar** (addendum 59 item 5(c)): "A date on the roadmap is a
+  commitment to do the step, never to its outcome. No date is a reason to move
+  a bar, to shorten a confirmation, to run anything before its declaration
+  says, or to shorten a review. A run that fails moves its lane to the next
+  candidate, and the roadmap says so the same day."
 
 ## Operational notes
 - Morning chains open with the backup line. 2-day sync windows daily;

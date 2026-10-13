@@ -1066,7 +1066,8 @@ HEAD_SCORES = [2, 2, 3, 3, 4, 4, 4, 4, 3, 2, 3, 3]          # fit() on #482's he
 
 @pytest.mark.parametrize("case", range(len(PIN_CASES)))
 def test_each_pinned_event_scores_on_its_own_game_what_the_head_gave_it(case):
-    """"Against its own team it scores what the pin's name scores on #482's head": 2 to 4 on the twelve events."""
+    """"Against its own team it scores what the pin's name scores on #482's head": each event's fit on its own game
+    is what 8c51f89 gave it (totals of 2 to 4 over the two names)."""
     mk, rows, is_tie, want = PIN_CASES[case]
     markets, g = mk(), rows()[0]
     names = km._names(markets, markets[0], is_tie or (lambda m: False))
@@ -1128,6 +1129,20 @@ def test_a_pinned_name_scores_nothing_through_a_word_of_its_raw_kalshi_name(pinn
     res = run(event("26OCT17PINRAW", [("OPP", opponent), ("PIN", pinned)]),
               [game(70025, opponent, other, Z("2026-10-17T17:00"))], now=Z("2026-10-16T12:00"))
     assert not res.placed and res.refused == {km.NO_FIT: 2}, res.refused
+
+
+@pytest.mark.parametrize("pinned, stored, opponent, score", [
+    ("PSG", "Paris Saint-Germain", "Lyon", 3.0),                 # a hyphen
+    ("LIU", "long island university", "Wagner", 3.0),            # case
+    ("M´gladbach", "BORUSSIA MÖNCHENGLADBACH", "VfB Stuttgart", 2.0),
+])
+def test_a_pinned_names_own_team_is_read_under_norm_tokens_not_as_a_string(pinned, stored, opponent, score):
+    """"The same words under norm_tokens": a stored name that differs from the pin's only in punctuation or case is
+    the pin's own team, placed with the score the pin's name has on it."""
+    assert km.side_score(pinned, stored) == km.side_score(km.PINS[pinned], stored) == score
+    res = run(event("26OCT17PINCASE", [("OPP", opponent), ("PIN", pinned)]),
+              [game(70026, opponent, stored, Z("2026-10-17T17:00"))], now=Z("2026-10-16T12:00"))
+    assert placed(res) == {(70026, "HOME"): "PIN", (70026, "AWAY"): "OPP"}, res.refused
 
 
 def test_an_event_name_that_is_not_pinned_is_read_as_before():

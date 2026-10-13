@@ -8,5 +8,5 @@
   - UAlbany and Long Island University: that morning's odds lines.
   - Paris Saint Germain and Rennes: the laptop's soccer_expansion_shadow export of 2026-10-09.
   - Borussia Mönchengladbach: addendum 12's pin, not read from a file that day.
-- **As built:** `PINS` in src/ingestion/kalshi_match.py, read in `_best_fits`, the one fit that place() and the out-of-step pre-pass share. Which name is home comes back as the event's own name. Small, and nothing waits on it: college is market-only and the two leagues are shadows.
+- **As built:** `PINS` in src/ingestion/kalshi_match.py, read by the fit's scoring (`_as_scored`, since addendum 59 item 2: see the entry 2026-10-13-kalshi-pin-own-team) inside `_best_fits`, the one fit that place() and the out-of-step pre-pass share. Which name is home comes back as the event's own name. Small, and nothing waits on it: college is market-only and the two leagues are shadows.
 - **Closes #479.**

@@ -38,7 +38,8 @@ import requests
 from dotenv import load_dotenv
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from src.adapters.api_american_football import _CODE_TO_LEAGUE, DIRECT_BASE  # noqa: E402
+from src.adapters.api_american_football import _CODE_TO_LEAGUE, DIRECT_BASE, APIAmericanFootballAdapter  # noqa: E402
+from src.db.schema import MatchStatus  # noqa: E402
 from src.walters.qb_audit import QB_POSITIONS  # noqa: E402  the QB position names the QB audit reads
 
 load_dotenv(".env")
@@ -47,8 +48,9 @@ KEY = os.getenv("API_AMERICAN_FOOTBALL_KEY") or os.getenv("API_FOOTBALL_KEY") or
 LEAGUE = _CODE_TO_LEAGUE["NFL"]
 RPM = float(os.getenv("API_AMERICAN_FOOTBALL_RPM", "10"))
 DEFAULT_SEASONS = [2023, 2024, 2025, 2026]
-FINISHED = ("FT", "AOT")            # the adapter's _STATUS: finished
-NOT_PLAYED = ("NS",)                # the adapter's _STATUS: scheduled
+# A game's status and kickoff are read by the adapter's own parse (_parse_games: _STATUS, an unknown status
+# SCHEDULED, the score-presence rule, the non-competitive filter), never by a list of this probe's own.
+_ADAPTER = APIAmericanFootballAdapter()      # its parse only: no request is made through it
 PASSING = "passing"                 # the group name, compared lowercased and stripped
 
 _last = [0.0]
@@ -112,13 +114,34 @@ def game_label(row):
 
 
 def declared_coverage(league_row):
-    """{season_year: the season's coverage block, verbatim}."""
-    return {s.get("year"): s.get("coverage") for s in league_row.get("seasons") or [] if isinstance(s, dict)}
+    """{season_year: the season's coverage block, verbatim}. A seasons value or a year of another shape is left
+    out, never raised on (Codex on #489)."""
+    seasons = league_row.get("seasons") if isinstance(league_row, dict) else None
+    if not isinstance(seasons, list):
+        return {}
+    return {s["year"]: s.get("coverage") for s in seasons
+            if isinstance(s, dict) and isinstance(s.get("year"), (int, str))}
+
+
+def parsed(row):
+    """(status, naive-UTC kickoff) as the adapter's own parse reads the row; None when it drops the row (no id, a
+    non-competitive game) or cannot read it."""
+    try:
+        got = _ADAPTER._parse_games({"response": [row]}, "NFL", "")
+    except Exception:
+        return None
+    return (got[0].status, got[0].utc_date) if got else None
+
+
+def _by_kickoff(rows, status):
+    """The rows the adapter reads with `status`, by the adapter's kickoff."""
+    keyed = [(p[1], i, r) for i, r in enumerate(rows) if (p := parsed(r)) is not None and p[0] == status]
+    return [r for _, _, r in sorted(keyed, key=lambda x: (x[0], x[1]))]
 
 
 def sample_finished(rows):
     """The first, the middle and the last finished game by kickoff (deduped)."""
-    done = sorted((r for r in rows if game_status(r) in FINISHED), key=lambda r: game_kickoff(r)[0])
+    done = _by_kickoff(rows, MatchStatus.FINISHED)
     if not done:
         return []
     picks = [done[0], done[len(done) // 2], done[-1]]
@@ -131,8 +154,14 @@ def sample_finished(rows):
 
 
 def next_unplayed(rows):
-    left = sorted((r for r in rows if game_status(r) in NOT_PLAYED), key=lambda r: game_kickoff(r)[0])
+    """The first game the adapter reads as scheduled (an unknown status included, as the adapter reads it)."""
+    left = _by_kickoff(rows, MatchStatus.SCHEDULED)
     return left[0] if left else None
+
+
+def roster_player(row):
+    """A roster row's player object, flat or wrapped as {"player": {...}} (as qb_audit.roster_index reads it)."""
+    return row.get("player") if isinstance(row.get("player"), dict) else row
 
 
 def start_paths(obj, path=""):
@@ -245,31 +274,40 @@ def probe_unplayed(row, season, echo=print):
     gid = game_id(row)
     echo(f"  Q3 {season} next unplayed: {game_label(row)}")
     code, errs, g = get("games", id=gid)
-    echo(f"    /games?id: {len(g)} row(s) (HTTP {code}){_err(errs)} · keys "
-         f"{sorted(g[0].keys()) if g and isinstance(g[0], dict) else []} · 'start' in it: "
-         f"{start_paths(g) or 'nothing'}")
+    echo(f"    /games?id: {len(g)} row(s) (HTTP {code}){_err(errs)} · 'start' in it: {start_paths(g) or 'nothing'}")
+    for r in g:                                                      # the whole answer, verbatim (Codex on #489)
+        echo("      " + json.dumps(r, sort_keys=True, default=str))
     code, errs, st = get("games/statistics/players", id=gid)
-    named = [((tb.get("team") or {}).get("name"), gr.get("name"), (pl.get("player") or {}))
-             for tb in st if isinstance(tb, dict) for gr in (tb.get("groups") or []) if isinstance(gr, dict)
-             for pl in (gr.get("players") or []) if isinstance(pl, dict)]
-    echo(f"    /games/statistics/players: {len(st)} team block(s), {len(named)} player(s) named (HTTP {code}){_err(errs)}"
-         f" · 'start' in it: {start_paths(st) or 'nothing'}")
-    for team, group, pl in named:                                    # every one named, never cut (Codex on #489)
-        echo(f"      {team} · {group} · {pl.get('id')} {pl.get('name')}")
+    try:                    # a malformed answer here never keeps the rosters from being asked (Codex on #489)
+        named = [(((tb.get("team") or {}) if isinstance(tb.get("team"), dict) else {}).get("name"), gr.get("name"),
+                  pl.get("player"))
+                 for tb in st if isinstance(tb, dict) for gr in (tb.get("groups") or []) if isinstance(gr, dict)
+                 for pl in (gr.get("players") or []) if isinstance(pl, dict)]
+        echo(f"    /games/statistics/players: {len(st)} team block(s), {len(named)} player(s) named "
+             f"(HTTP {code}){_err(errs)} · 'start' in it: {start_paths(st) or 'nothing'}")
+        for team, group, pl in named:                                # every one named, never cut
+            echo(f"      {team} · {group} · "
+                 + (f"{pl.get('id')} {pl.get('name')}" if isinstance(pl, dict) else json.dumps(pl, default=str)))
+    except Exception as e:
+        echo(f"    /games/statistics/players: ✗ {type(e).__name__}: {e} — continuing to the rosters · raw "
+             f"{json.dumps(st, default=str)}")
     teams = row.get("teams") or {}
     for side in ("away", "home"):
         t = teams.get(side) or {}
         if t.get("id") is None:
             echo(f"    roster {side}: no team id in the game row")
             continue
-        code, errs, roster = get("players", team=t["id"], season=season)
-        qbs = [p for p in roster if isinstance(p, dict)
-               and str((p.get("position") or "")).strip().upper() in QB_POSITIONS]
-        echo(f"    roster {side} {t.get('id')} {t.get('name')}: {len(roster)} player(s), {len(qbs)} at QB "
-             f"(HTTP {code}){_err(errs)}")
-        for p in qbs:
-            echo("      " + json.dumps(p, sort_keys=True, default=str))          # every field, never cut
-            echo(f"        'start' in this quarterback's entry: {start_paths(p) or 'nothing'}")
+        try:
+            code, errs, roster = get("players", team=t["id"], season=season)
+            qbs = [r for r in roster if isinstance(r, dict) and isinstance(roster_player(r), dict)
+                   and str((roster_player(r).get("position") or "")).strip().upper() in QB_POSITIONS]
+            echo(f"    roster {side} {t.get('id')} {t.get('name')}: {len(roster)} player(s), {len(qbs)} at QB "
+                 f"(HTTP {code}){_err(errs)}")
+            for r in qbs:
+                echo("      " + json.dumps(r, sort_keys=True, default=str))          # every field, never cut
+                echo(f"        'start' in this quarterback's entry: {start_paths(r) or 'nothing'}")
+        except Exception as e:
+            echo(f"    roster {side}: ✗ {type(e).__name__}: {e} — continuing")
 
 
 def probe_season(season, echo=print):
@@ -330,15 +368,19 @@ def main(argv=None, echo=print):
 
     echo(f"\nQ1 — /leagues?id={LEAGUE}")
     code, errs, rows = get("leagues", id=LEAGUE)
-    if not rows or not isinstance(rows[0], dict):
-        echo(f"  /leagues: NO ROWS (HTTP {code}){_err(errs)}")
-    else:
-        cov = declared_coverage(rows[0])
-        years = sorted(y for y in cov if isinstance(y, int))
-        echo(f"  seasons listed: {years[0] if years else '-'}..{years[-1] if years else '-'} ({len(years)})")
-        for y in years:
-            if y in seasons or not seasons:
-                echo(f"  {y} coverage: {json.dumps(cov[y], sort_keys=True, default=str)}")
+    try:                    # an answer of an unexpected shape is a finding; the seasons are still probed
+        if not rows or not isinstance(rows[0], dict):
+            echo(f"  /leagues: NO ROWS (HTTP {code}){_err(errs)}")
+        else:
+            cov = declared_coverage(rows[0])
+            years = sorted(y for y in cov if isinstance(y, int))
+            echo(f"  seasons listed: {years[0] if years else '-'}..{years[-1] if years else '-'} ({len(years)})"
+                 + ("" if cov else f" · the seasons as sent: {json.dumps(rows[0].get('seasons'), default=str)}"))
+            for y in years:
+                if y in seasons or not seasons:
+                    echo(f"  {y} coverage: {json.dumps(cov[y], sort_keys=True, default=str)}")
+    except Exception as e:
+        echo(f"  ✗ Q1: {type(e).__name__}: {e} — continuing")
 
     summaries = []
     for s in seasons:

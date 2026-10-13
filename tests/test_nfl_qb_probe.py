@@ -210,3 +210,71 @@ def test_the_rosters_start_evidence_is_read_from_its_quarterbacks_only(monkeypat
     text = _run_with(monkeypatch, tmp_path, roster=roster)
     assert "'start' in this quarterback's entry: ['depth_start=1']" in text
     assert "starter=true" not in text and "C. Lineman" not in text
+
+
+# --- Codex on #489, second round (cc71fa3) ---
+
+def test_wrapped_roster_rows_are_read_as_the_qb_audit_reads_them(monkeypatch, tmp_path):
+    """P1: a roster row shaped {"player": {...}} is unwrapped (qb_audit.roster_index's own reading)."""
+    roster = [{"player": {"id": 101, "name": "A. Starter", "position": "QB"}},
+              {"player": {"id": 103, "name": "C. Lineman", "position": "OT"}}]
+    text = _run_with(monkeypatch, tmp_path, roster=roster)
+    assert "2 player(s), 1 at QB" in text and '"name": "A. Starter"' in text and "C. Lineman" not in text
+
+
+def test_the_unplayed_games_own_answer_is_printed_whole(monkeypatch, tmp_path):
+    """P1: /games?id is printed verbatim, so a player named under any key (not only one saying 'start') shows."""
+    out = []
+    base = _fake([])
+
+    def get(path, **p):
+        if path == "games" and p.get("id") == 15:
+            return 200, {}, [{**GAMES[5], "quarterback": {"home": {"id": 101, "name": "A. Starter"}}}]
+        return base(path, **p)
+    monkeypatch.setattr(qbp, "KEY", "k")
+    monkeypatch.setattr(qbp, "get", get)
+    monkeypatch.chdir(tmp_path)
+    assert qbp.main(["--seasons", "2025"], echo=out.append) == 0
+    assert any('"quarterback": {"home": {"id": 101, "name": "A. Starter"}}' in ln for ln in out)
+
+
+def test_a_leagues_answer_of_another_shape_never_stops_the_run(monkeypatch, tmp_path):
+    """P1: a seasons value that is not a list, or a year that is a list: Q1 says so and every season is probed."""
+    for seasons in (5, [{"year": [2025], "coverage": {}}]):
+        out = []
+        base = _fake([])
+
+        def get(path, _s=seasons, **p):
+            if path == "leagues":
+                return 200, {}, [{"seasons": _s}]
+            return base(path, **p)
+        monkeypatch.setattr(qbp, "KEY", "k")
+        monkeypatch.setattr(qbp, "get", get)
+        monkeypatch.chdir(tmp_path)
+        assert qbp.main(["--seasons", "2025"], echo=out.append) == 0
+        text = "\n".join(out)
+        assert "seasons listed: -..- (0)" in text and "=== NFL 2025" in text
+        assert text.splitlines()[-1].startswith("✓ NFL quarterback probe complete")
+
+
+def test_a_malformed_unplayed_statistics_answer_still_reaches_both_rosters(monkeypatch, tmp_path):
+    """P1: a team or player of another shape in the unplayed game's statistics: both rosters are still asked."""
+    odd = [{"team": "Away", "groups": [{"name": "Passing", "players": [{"player": "D. Probable"}]}]},
+           {"team": {"id": 1}, "groups": [{"name": "Passing", "players": [{"player": {"id": 9, "name": "X"}}]}]}]
+    text = _run_with(monkeypatch, tmp_path, unplayed=odd)
+    assert "2 player(s) named" in text and '"D. Probable"' in text
+    assert text.count("at QB (HTTP 200)") == 2
+
+
+def test_an_unknown_status_is_unplayed_as_the_adapter_reads_it():
+    """P1: the adapter reads an unknown status short as SCHEDULED (_STATUS.get(short, SCHEDULED)); so does Q3."""
+    rows = [_row(20, 100, "FT"), _row(21, 300, "TBD"), _row(22, 200, "NS")]
+    assert qbp.game_id(qbp.next_unplayed(rows)) == 22
+    assert qbp.game_id(qbp.next_unplayed([_row(21, 300, "TBD")])) == 21
+
+
+def test_a_kickoff_the_adapter_cannot_read_drops_only_that_row():
+    """A string timestamp beside a missing one never stops the sampling: the adapter's parse drops the row."""
+    bad = _row(30, "soon", "FT")
+    rows = [bad, _row(31, 100, "FT"), _row(32, 200, "FT")]
+    assert [qbp.game_id(r) for r in qbp.sample_finished(rows)] == [31, 32]

@@ -1034,7 +1034,26 @@ def test_a_pin_reads_a_name_whole_penn_st_is_not_penn():
     assert "Penn St." not in km.PINS and km.PINS["Penn"] == "Pennsylvania"
 
 
-def test_a_pinned_name_with_no_game_of_its_pair_is_refused_as_today():
-    other = game(70012, "Brown", "Harvard", Z("2026-10-17T17:00"))
-    res = run(event("26OCT16CLMBPENN", [("CLMB", "Columbia"), ("PENN", "Penn")]), [other], now=Z("2026-10-16T12:00"))
-    assert not res.placed and res.refused == {km.NO_FIT: 2}
+NO_PAIR_CASES = [
+    # (event, the day's games, is_tie): the pinned team plays, against someone else; no game of the event's pair
+    (lambda: event("26OCT16CLMBPENN", [("CLMB", "Columbia"), ("PENN", "Penn")]),
+     lambda: [game(70012, "Princeton", "Pennsylvania", Z("2026-10-16T23:00"))], None),
+    (lambda: event("26OCT16CLMBPENN", [("CLMB", "Columbia"), ("PENN", "Penn")]),
+     lambda: [game(70012, "Princeton", "Pennsylvania", Z("2026-10-16T23:00")),
+              game(70013, "Columbia", "Dartmouth", Z("2026-10-16T23:00"))], None),
+    (lambda: _soccer("26OCT17RCSPSG", [("PSG", "PSG"), ("RCS", "Strasbourg Alsace")], "KXLIGUE1GAME"),
+     lambda: [game(70014, "Lyon", "Paris Saint Germain", Z("2026-10-17T19:00"))], _is_tie),
+]
+
+
+@pytest.mark.parametrize("case", range(len(NO_PAIR_CASES)))
+def test_a_pinned_name_with_no_game_of_its_pair_is_refused_as_today(case, monkeypatch):
+    """The pinned team's own game against another side is not the event's game: one name alone never places it."""
+    mk, rows, is_tie = NO_PAIR_CASES[case]
+    markets, games = mk(), rows()
+    kw = {"is_tie": is_tie} if is_tie else {}
+    res = run(markets, games, now=Z("2026-10-16T12:00"), **kw)
+    assert not res.placed and res.refused == {km.NO_FIT: len(markets)}, res.refused
+    monkeypatch.setattr(km, "PINS", {})                        # as today: main refuses it the same way
+    res = run(markets, games, now=Z("2026-10-16T12:00"), **kw)
+    assert not res.placed and res.refused == {km.NO_FIT: len(markets)}, res.refused

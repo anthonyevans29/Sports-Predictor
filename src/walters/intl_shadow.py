@@ -462,9 +462,11 @@ def results_section(days: int, export_dir: str = "exports") -> str:
     r = grade(days=days, export_dir=export_dir)
     head = f"## UNL — SHADOW, CONFIRMATION WINDOW ({MODEL_VERSION} · PASS, production only on CONFIRMED)\n\n"
     if not r["graded"]:
-        return head + f"Live model-close divergence only. No graded shadow calls in window ({r['calls_on_file']} calls on file).\n"
+        return head + (f"Live model-close divergence and the record against the close. No graded shadow calls in window "
+                       f"({r['calls_on_file']} calls on file).\n")
     from src.walters.vs_close import line
-    return head + (f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}\n"
+    return head + (f"- Live model-close divergence and the record against the close; not a record of calls. Graded "
+                   f"calls: {r['graded']}\n"
                    "- Mean pick-vs-close: "
                    + (f"{r['mean_clv_pp']:+.2f}pp (n={r['priced']} priced)" if r["mean_clv_pp"] is not None
                       else f"— (no stored close; {r['unpriced']} unpriced)") + "\n"

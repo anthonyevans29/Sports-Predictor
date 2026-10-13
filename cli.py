@@ -5200,8 +5200,11 @@ def export_nhl_predictions_cmd(hours):
 @click.option("--days", default=30, show_default=True, type=int)
 def nhl_shadow_grade_cmd(days):
     """Live CLV of the NHL SHADOW calls (pick-vs-close + value-side) from the
-    shadow exports on disk. Read-only; no hit rate, no log-loss: not a record."""
+    shadow exports on disk, and the record against the close of each name on its
+    own (ARCHITECT 2026-10-13, addendum 63 items 2 and 3). Read-only; no hit
+    rate: not a record of calls."""
     from src.walters.nhl_shadow import grade
+    from src.walters.vs_close import line as _vs_line
     r = grade(days=days, progress=print)
     print(f"  ── graded {r['graded']} (calls on file {r['calls_on_file']}) · mean pick-vs-close "
           f"{r['mean_clv_pp']}pp (n={r['priced']}) · value-side {r['mean_value_side_clv_pp']}pp "
@@ -5214,6 +5217,11 @@ def nhl_shadow_grade_cmd(days):
               f"{r['fallback_mean_clv_pp']}pp (n={r['fallback_priced']}) · value-side "
               f"{r['fallback_mean_value_side_clv_pp']}pp (n={r['fallback_value_side_n']}; unanchored "
               f"{r['fallback_unanchored']})")
+    # addendum 63 item 3: the record against the close, each name on its own (never pooled)
+    print("  ── the record against the close, each name on its own"
+          + (f" ({r['undecided']} graded without a decided score left out)" if r.get("undecided") else "") + ":")
+    for k, v in r["vs_close"].items():
+        print(f"     {k}: {_vs_line(v)}")
 
 
 @cli.command("export-ncaa-predictions")

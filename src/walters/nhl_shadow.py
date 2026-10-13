@@ -16,9 +16,10 @@ the market-only NHL launch. It is never a call.
   log to the ledger.
 - The window card skips engine "model_shadow" docs, so NHL rows stay
   market_only there.
-- Grading records live CLV only, pick-vs-close and value-side, into a
-  shadow section of RESULTS.md, with v1's pick-vs-close beside it. No hit
-  rate and no log-loss: this is not a record.
+- Grading records live CLV, pick-vs-close and value-side, into a shadow
+  section of RESULTS.md, with v1's pick-vs-close beside it. No hit rate:
+  this is not a record of calls. Its one log-loss line is the record against
+  the close, each name on its own (ARCHITECT 2026-10-13, addendum 63 item 3).
 
 THE MODELS ARE AS GATED (law 3: nothing is tuned here):
 - v7 = the frozen declaration (docs/specs/nhl-xg-v7.md): the 2023-24 xG fit
@@ -67,13 +68,15 @@ LIVE_SEASON_STARTS = {"2026": date(2026, 9, 29)}
 NOTE = ("REFERENCE MODEL — FAILED GATE. nhl_elo_v7 (xG margin, no 'na' level) is the best measured NHL "
         "candidate and FAILED the frozen gate (0.6885 vs the 0.6866 bar); nhl_elo_v1 (0.6909) rides "
         "along as the reference. Shadow only: never a call, never a venue input, never logged to the "
-        "ledger. NHL runs MARKET-ONLY. Graded on live model-close divergence only.")
+        "ledger. NHL runs MARKET-ONLY. Graded against the close only (divergence and the record against the "
+        "close).")
 # ARCHITECT 2026-10-12 (addendum 49 item 2, #463): "A shadow names the model it ran. Where the xG fit cannot be made,
 # the file and its rows carry the reference model's name and verdict and no other, and the file says that v7 was
 # not available and why. A file made without the fit is never graded as v7, whatever name it carries."
 NOTE_NO_FIT = ("REFERENCE MODEL — FAILED GATE. The xG fit could not be made, so this file is nhl_elo_v1 (0.6909 vs "
                "the 0.6866 bar) and no other model. Shadow only: never a call, never a venue input, never logged to "
-               "the ledger. NHL runs MARKET-ONLY. Graded on live model-close divergence only, as the reference.")
+               "the ledger. NHL runs MARKET-ONLY. Graded against the close only (divergence and the record "
+               "against the close), as the reference.")
 # ARCHITECT 2026-10-13 17:15 ET (addendum 63 item 2), verbatim: "A shadow run whose fit took the goal-margin fallback for
 # any game is not v7. Its model_version reads nhl_elo_v7_goal_margin_fallback, on the file's header and on every row,
 # and the fit block stays as it is. nhl-shadow-grade never pools a fallback file with a v7 file: it grades each name on
@@ -83,8 +86,8 @@ FALLBACK_VERSION = "nhl_elo_v7_goal_margin_fallback"
 NOTE_FALLBACK = ("REFERENCE MODEL — FAILED GATE, NOT v7. The xG fit was made, but the walk took the goal-margin fallback "
                  "for at least one game (no stored shots), so this file is nhl_elo_v7_goal_margin_fallback and not v7 "
                  "(ARCHITECT 2026-10-13). Shadow only: never a call, never a venue input, never logged to the ledger. "
-                 "NHL runs MARKET-ONLY. Graded on live model-close divergence only, on its own line, never pooled with "
-                 "v7.")
+                 "NHL runs MARKET-ONLY. Graded against the close only (divergence and the record against the close), "
+                 "on its own line, never pooled with v7.")
 
 
 def fallbacks(fit_block: dict | None) -> int:
@@ -279,6 +282,8 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
     fb_clvs, fb_vclvs = [], []            # addendum 63 item 2: the fallback's own line, never pooled with v7
     graded = unpriced = unanchored = no_fit = not_v7 = 0
     fallback = fb_unpriced = fb_unanchored = 0
+    pairs = {MODEL_VERSION: [], FALLBACK_VERSION: [], REFERENCE_VERSION: []}   # addendum 63 item 3, per name
+    undecided = 0
     with session_scope() as s:
         for mid, c in sorted(calls.items(), key=lambda kv: kv[1].get("utc_date") or ""):
             m = s.get(Match, mid)
@@ -325,6 +330,18 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             if pr is not None and close_h is not None:
                 ref_clv = (pr if pr >= 0.5 else 1 - pr) - (close_h if pr >= 0.5 else 1 - close_h)
                 ref_clvs.append(ref_clv)
+            # ARCHITECT 2026-10-13 (addendum 63 item 3): the record against the close, each name on its own (item 2),
+            # over the decided games with a close: both scores stored and not level (overtime and the shootout decide
+            # every NHL game, nhl_backtest's convention); the outcome's probability by the call and by the close
+            if m.home_score is None or m.away_score is None or m.home_score == m.away_score:
+                undecided += 1
+            elif close_h is not None:
+                side = "HOME" if m.home_score > m.away_score else "AWAY"
+                cp = _cl["fair"][side]
+                if as_v7 or as_fb:
+                    pairs[MODEL_VERSION if as_v7 else FALLBACK_VERSION].append((p if side == "HOME" else 1 - p, cp))
+                if pr is not None:
+                    pairs[REFERENCE_VERSION].append((pr if side == "HOME" else 1 - pr, cp))
             anchor_h, _ = _book_anchor(s, m)
             vg = value_side_grade(p, anchor_h, close_h) if (as_v7 or as_fb) else None
             if vg:
@@ -356,7 +373,11 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
             if progress:
                 progress(line)
     mean = (lambda xs: round(sum(xs) / len(xs) * 100, 2) if xs else None)
+    from src.walters.vs_close import block
     return {"graded": graded, "priced": len(clvs), "unpriced": unpriced, "no_fit": no_fit, "not_v7": not_v7,
+            # addendum 63 item 3: the record against the close per name, never pooled; v1's line reads every graded
+            # call that carries v1's number (its reference block, or a row that names v1)
+            "vs_close": {k: block(v) for k, v in pairs.items()}, "undecided": undecided,
             # addendum 63 item 2: the fallback graded on its own, and which name each graded call was graded as
             "fallback": fallback, "fallback_priced": len(fb_clvs), "fallback_unpriced": fb_unpriced,
             "fallback_mean_clv_pp": mean(fb_clvs), "fallback_value_side_n": len(fb_vclvs),
@@ -372,11 +393,12 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
 
 
 def results_section(days: int, export_dir: str = "exports") -> str:
+    from src.walters.vs_close import line
     r = grade(days=days, export_dir=export_dir)
     head = f"## NHL — REFERENCE MODEL, FAILED GATE (shadow · {MODEL_VERSION} · {GATE_VERDICT})\n\n"
     if not r["graded"]:
-        return head + ("Live model-close divergence only. No graded shadow calls in window "
-                       f"({r['calls_on_file']} calls on file).\n")
+        return head + ("Live model-close divergence and the record against the close. No graded shadow calls in "
+                       f"window ({r['calls_on_file']} calls on file).\n")
     # Codex on #464: when no graded call is on the v7 line, the line is empty by ruling, not for want of a close or
     # an anchor; it says so instead of blaming the market data. Addendum 50 item 3 (#466): a row that names the
     # reference is not on the v7 line either.
@@ -390,7 +412,8 @@ def results_section(days: int, export_dir: str = "exports") -> str:
                if r.get("no_fit") and r["no_fit"] >= r["graded"]
                else f"— (no v7-fit call graded: {why_not})" if r.get("not_v7") and r["not_v7"] >= r["graded"] else None)
     return head + (
-        f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}"
+        f"- Live model-close divergence and the record against the close; no hit rate, not a record of calls. "
+        f"Graded calls: {r['graded']}"
         + (f" ({r['no_fit']} from files made without the xG fit: the reference line only, never v7)"
            if r.get("no_fit") and not ref_named and not fb else
            f" ({why_not}: the reference line only, never v7)" if why_not and not fb else
@@ -414,4 +437,8 @@ def results_section(days: int, export_dir: str = "exports") -> str:
               else f"— ({r.get('fallback_unanchored', 0)} unanchored)") + "\n" if fb else "")
         + f"- Reference {REFERENCE_VERSION} ({REFERENCE_VERDICT}) pick-vs-close: "
         + (f"{r['reference_mean_clv_pp']:+.2f}pp (n={r['reference_priced']})" if r["reference_mean_clv_pp"] is not None
-           else "— (no reference rows priced yet)") + "\n")
+           else "— (no reference rows priced yet)") + "\n"
+        # ARCHITECT 2026-10-13 (addendum 63 item 3): the record against the close, each name on its own (item 2)
+        + "- The record against the close, each name on its own (addendum 63 item 3"
+        + (f"; {r['undecided']} graded without a decided score left out" if r.get("undecided") else "") + "):\n"
+        + "".join(f"  - {k}: {line(v)}\n" for k, v in r["vs_close"].items()))

@@ -143,9 +143,19 @@ def test_grade_is_live_clv_only_from_the_last_call_before_puck_drop(nhl, tmp_pat
     pr = doc["predictions"][0]["reference"]["home_win_prob"]                     # v1 beside it, same close
     assert r["reference_mean_clv_pp"] == round(((pr - close) if pr >= 0.5 else ((1 - pr) - (1 - close))) * 100, 2)
     assert "ref v1_H=" in r["lines"][0] and "v7_xg_margin_no_na_H=" in r["lines"][0]
+    # ARCHITECT 2026-10-13 (addendum 63 item 3): the record against the close, each name on its own (home won 3-2)
+    from src.walters.vs_close import block, line
+    assert r["vs_close"] == {sh.MODEL_VERSION: block([(p, close)]), sh.FALLBACK_VERSION: block([]),
+                             sh.REFERENCE_VERSION: block([(pr, close)])}
+    assert r["undecided"] == 0
     md = sh.results_section(10000, export_dir=str(tmp_path))
-    assert md.startswith("## NHL — REFERENCE MODEL, FAILED GATE") and "Live model-close divergence only; not a record" in md
+    assert md.startswith("## NHL — REFERENCE MODEL, FAILED GATE")
+    assert "Live model-close divergence and the record against the close; no hit rate, not a record of calls" in md
     assert "unanchored" in md and "Reference nhl_elo_v1" in md
+    assert ("- The record against the close, each name on its own (addendum 63 item 3):\n"
+            f"  - {sh.MODEL_VERSION}: {line(block([(p, close)]))}\n"
+            f"  - {sh.FALLBACK_VERSION}: vs close: no decided game with a close\n"
+            f"  - {sh.REFERENCE_VERSION}: {line(block([(pr, close)]))}\n") in md
 
 
 def test_nhl_daily_chain_exports_the_shadow_and_never_predicts():
@@ -421,6 +431,12 @@ def test_the_grade_never_pools_a_fallback_file_with_a_v7_file_and_says_which_it_
         assert f"Mean pick-vs-close: {clv(pa, close_a) * 100:+.2f}pp (n=1 priced)" in md
         assert ("- Graded by name: nhl_elo_v7_xg_margin_no_na 1 · nhl_elo_v7_goal_margin_fallback 1 · "
                 "nhl_elo_v1 (reference line only) 0") in md
+        # addendum 63 item 3: the record against the close, each name on its own, never pooled (both home wins)
+        from src.walters.vs_close import block
+        ra, rb = rows[nhl["up"]]["reference"]["home_win_prob"], rows[b]["reference"]["home_win_prob"]
+        assert r["vs_close"][sh.MODEL_VERSION] == block([(pa, close_a)])
+        assert r["vs_close"][sh.FALLBACK_VERSION] == block([(pb, close_b)])
+        assert r["vs_close"][sh.REFERENCE_VERSION] == block([(ra, close_a), (rb, close_b)])
     finally:
         with session_scope() as s:
             s.query(Odds).filter(Odds.match_id == b).delete(synchronize_session=False)
@@ -466,3 +482,23 @@ def test_the_cli_prints_the_fallback_on_export_and_grades_by_name(nhl, tmp_path,
     out = CliRunner().invoke(cli.cli, ["nhl-shadow-grade", "--days", "10000"])
     assert out.exit_code == 0, out.output
     assert "── graded by name: nhl_elo_v7_xg_margin_no_na " in out.output
+    # addendum 63 item 3: one line per name, each its own record against the close
+    assert "── the record against the close, each name on its own" in out.output
+    for name in (sh.MODEL_VERSION, sh.FALLBACK_VERSION, sh.REFERENCE_VERSION):
+        assert f"     {name}: vs close: " in out.output
+
+
+def test_a_game_without_a_decided_score_is_left_out_of_the_record_against_the_close(nhl, tmp_path, fit_full):
+    """Addendum 63 item 3 reads decided games only: a FINISHED game with a score missing (or level, a data defect in
+    hockey) is graded for divergence as before, never fed to the record against the close, and counted."""
+    _, doc = sh.export(now=NOW, out_dir=str(tmp_path))
+    with session_scope() as s:
+        m = s.get(Match, nhl["up"])
+        m.status, m.home_score, m.away_score = MatchStatus.FINISHED, 3, None
+    try:
+        r = sh.grade(days=10000, export_dir=str(tmp_path), now=NOW + timedelta(days=1))
+        assert r["graded"] == 1 and r["priced"] == 1 and r["undecided"] == 1
+        assert all(b["games"] == 0 for b in r["vs_close"].values())
+        assert "1 graded without a decided score left out" in sh.results_section(10000, export_dir=str(tmp_path))
+    finally:
+        _scheduled(nhl)

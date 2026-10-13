@@ -278,3 +278,17 @@ def test_a_kickoff_the_adapter_cannot_read_drops_only_that_row():
     bad = _row(30, "soon", "FT")
     rows = [bad, _row(31, 100, "FT"), _row(32, 200, "FT")]
     assert [qbp.game_id(r) for r in qbp.sample_finished(rows)] == [31, 32]
+
+
+# --- Codex on #489, third round (853d0ee) ---
+
+def test_a_game_with_no_status_and_both_totals_is_finished_not_unplayed():
+    """P1: the adapter's documented score-presence rule (its code never reaches it for an absent status: #493)."""
+    done = {**_row(40, 100, "FT"), "game": {**_row(40, 100, "FT")["game"], "status": {}},
+            "scores": {"home": {"total": 20}, "away": {"total": 17}}}
+    nostatus = {**_row(41, 150, "NS"), "scores": {"home": {"total": None}, "away": {"total": None}}}
+    nostatus["game"] = {k: v for k, v in nostatus["game"].items() if k != "status"}
+    rows = [done, nostatus, _row(42, 200, "NS")]
+    assert [qbp.game_id(r) for r in qbp.sample_finished(rows)] == [40]
+    assert qbp.game_id(qbp.next_unplayed(rows)) == 41             # no status and no totals: still unplayed
+    assert qbp.game_id(qbp.next_unplayed([done, _row(42, 200, "NS")])) == 42

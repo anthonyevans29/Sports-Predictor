@@ -6,4 +6,4 @@
   - Q3 the next unplayed game: /games?id, /games/statistics/players and both rosters' quarterbacks, verbatim.
   - A per-season summary at the end.
   - It never stops on an error, writes nothing, opens no database, and never prints the key. The operator runs it and pastes the whole output to the architect.
-- Tests: tests/test_nfl_qb_probe.py (19), offline.
+- Tests: tests/test_nfl_qb_probe.py (20), offline.

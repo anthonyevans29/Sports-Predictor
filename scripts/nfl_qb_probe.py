@@ -123,14 +123,31 @@ def declared_coverage(league_row):
             if isinstance(s, dict) and isinstance(s.get("year"), (int, str))}
 
 
+def _no_status_both_totals(row):
+    """No status claim (absent, {}, a null or "None" short) and both final totals present."""
+    st = _game(row).get("status")
+    short = st.get("short") if isinstance(st, dict) else st
+    scores = row.get("scores") if isinstance(row, dict) else None
+    scores = scores if isinstance(scores, dict) else {}
+    totals = [(v.get("total") if isinstance(v, dict) else v) for v in (scores.get("home"), scores.get("away"))]
+    return short in (None, "", "None") and all(t is not None for t in totals)
+
+
 def parsed(row):
     """(status, naive-UTC kickoff) as the adapter's own parse reads the row; None when it drops the row (no id, a
-    non-competitive game) or cannot read it."""
+    non-competitive game) or cannot read it. The adapter's documented score-presence rule ("a game with both totals
+    and no status claim is finished") is applied here too: its code sets the short to NS first, so the rule never
+    fires there for an absent status (#493)."""
     try:
         got = _ADAPTER._parse_games({"response": [row]}, "NFL", "")
     except Exception:
         return None
-    return (got[0].status, got[0].utc_date) if got else None
+    if not got:
+        return None
+    status = got[0].status
+    if status == MatchStatus.SCHEDULED and _no_status_both_totals(row):
+        status = MatchStatus.FINISHED
+    return status, got[0].utc_date
 
 
 def _by_kickoff(rows, status):

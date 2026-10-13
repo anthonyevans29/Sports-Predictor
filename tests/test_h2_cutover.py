@@ -401,6 +401,19 @@ def test_57_8_an_active_sp_timer_off_the_list_refuses_the_preflight_and_names_it
     assert "stop" not in fake.verbs() and world["real_env"].read_text() == REAL_ENV_TEXT   # nothing paused or flipped
 
 
+def test_57_8_an_active_sp_timer_the_list_cannot_carry_is_named_never_dropped(world, host):
+    """systemd's 'sp-*' also lists a templated or underscored timer. It is active and off the list, so it refuses and
+    is named like any other, and the refusal says the list cannot carry it as built."""
+    listed = host["timers"].read_text().split()
+    fake = FakeSystemctl(active=listed + ["sp-chain@mlb.timer", "sp-soccer_refresh.timer"])
+    assert _real(world, host, runner=fake) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "preflight" and r["exit"] == 1
+    assert r["timers_off_list"] == ["sp-chain@mlb.timer", "sp-soccer_refresh.timer"]
+    assert "sp-chain@mlb.timer, sp-soccer_refresh.timer cannot go on the list as built" in r["refused"]
+    assert "stop" not in fake.verbs()
+
+
 def test_57_8_the_list_corrected_by_hand_passes_and_the_receipt_counts_the_active_timers(world, host):
     fake = FakeSystemctl(active=host["timers"].read_text().split() + ["sp-intl-daily.timer"])
     host["timers"].write_text(host["timers"].read_text() + "sp-intl-daily.timer\n")   # the operator's hand

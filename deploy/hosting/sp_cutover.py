@@ -253,15 +253,16 @@ def _last_ok(ctx: Ctx, step: str) -> tuple[int, dict] | None:
 # --------------------------------------------------------------- steps ----
 
 def active_sp_timers(ctx: Ctx, step: str) -> list[str]:
-    """The sp timers active on the host now, as systemd lists them (addendum 57 item 8). A listing that cannot be
-    read refuses: an unread listing is never read as empty."""
+    """The sp timers active on the host now, as systemd lists them (addendum 57 item 8), whatever their names: one
+    the list's name pattern cannot carry (sp-x@y.timer, an underscore) is still an active sp timer and is kept, never
+    dropped. A listing that cannot be read refuses: an unread listing is never read as empty."""
     rc, out = ctx.runner(["systemctl", "list-units", "--type=timer", "--state=active", "--no-legend", "--plain",
                           "sp-*"])
     if rc != 0:
         _refuse(ctx, step, f"cannot read the active sp timers: systemctl list-units exit {rc}: "
                            f"{c.redact(out.strip())[:200]}")
     units = (ln.split()[0] for ln in out.splitlines() if ln.split())
-    return sorted({u for u in units if TIMER_NAME.match(u)})
+    return sorted({u for u in units if u.startswith("sp-") and u.endswith(".timer")})
 
 
 def step_preflight(ctx: Ctx) -> dict:
@@ -278,8 +279,11 @@ def step_preflight(ctx: Ctx) -> dict:
     active = active_sp_timers(ctx, s)
     off_list = [t for t in active if t not in timers]
     if off_list:
+        odd = [t for t in off_list if not TIMER_NAME.match(t)]
         _refuse(ctx, s, f"active sp timers not on the timers list {ctx.timers_file}: {', '.join(off_list)} "
-                        "(add them to the list by hand; the tool never writes it)", timers_off_list=off_list)
+                        "(add them to the list by hand; the tool never writes it)"
+                        + (f"; {', '.join(odd)} cannot go on the list as built (its names match "
+                           f"{TIMER_NAME.pattern})" if odd else ""), timers_off_list=off_list)
     if not c.HOST_ENV.is_file():
         _refuse(ctx, s, f"host env missing: {c.HOST_ENV} (never created here — law 4)")
     hits = _flag_lines(c.HOST_ENV.read_text())

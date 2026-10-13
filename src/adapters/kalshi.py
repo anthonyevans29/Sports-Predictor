@@ -221,7 +221,10 @@ class KalshiAdapter:
     # pinned series never makes a league live." Capture only: the shadow chain
     # syncs them (deploy/hosting/chains.py KALSHI_CAPTURE_ONLY); nothing exports
     # those leagues' rows to the Desk until soccer-expansion-v1 is CONFIRMED.
-    SOCCER_GAME_SERIES = {"PL": "KXEPLGAME", "UNL": "KXUEFANLGAME",
+    # ARCHITECT 2026-10-13 09:42 ET, addendum 58 item 1, verbatim: "CL reads Kalshi through the series KXUCLGAME. It
+    # is wired as PL is: the soccer path, three legs, the same spread guard, the same placement. Nothing else about
+    # the cups changes: CL stays market-only, with no model and no call."
+    SOCCER_GAME_SERIES = {"PL": "KXEPLGAME", "UNL": "KXUEFANLGAME", "CL": "KXUCLGAME",
                           "PD": "KXLALIGAGAME", "SA": "KXSERIEAGAME", "BL1": "KXBUNDESLIGAGAME",
                           "FL1": "KXLIGUE1GAME", "ELC": "KXEFLCHAMPIONSHIPGAME"}
     # Ruled series with no wired competition or chain: recorded, never synced.

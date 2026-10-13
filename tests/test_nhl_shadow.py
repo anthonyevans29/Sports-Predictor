@@ -419,6 +419,8 @@ def test_the_grade_never_pools_a_fallback_file_with_a_v7_file_and_says_which_it_
         assert "(1 from walks with the goal-margin fallback (nhl_elo_v7_goal_margin_fallback): never v7; the " \
                "fallback on its own line below)" in md
         assert f"Mean pick-vs-close: {clv(pa, close_a) * 100:+.2f}pp (n=1 priced)" in md
+        assert ("- Graded by name: nhl_elo_v7_xg_margin_no_na 1 · nhl_elo_v7_goal_margin_fallback 1 · "
+                "nhl_elo_v1 (reference line only) 0") in md
     finally:
         with session_scope() as s:
             s.query(Odds).filter(Odds.match_id == b).delete(synchronize_session=False)

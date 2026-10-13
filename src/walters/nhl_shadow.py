@@ -395,6 +395,8 @@ def results_section(days: int, export_dir: str = "exports") -> str:
            if r.get("no_fit") and not ref_named and not fb else
            f" ({why_not}: the reference line only, never v7)" if why_not and not fb else
            f" ({why_not}: never v7; the fallback on its own line below)" if why_not else "") + "\n"
+        # addendum 63 item 2: "it grades each name on its own and says which it graded"
+        + "- Graded by name: " + " · ".join(f"{k} {v}" for k, v in r["graded_by_name"].items()) + "\n"
         "- Mean pick-vs-close: "
         + (f"{r['mean_clv_pp']:+.2f}pp (n={r['priced']} priced)" if r["mean_clv_pp"] is not None
            else none_v7 or f"— (no stored close; {r['unpriced']} unpriced)") + "\n"

@@ -189,8 +189,9 @@ def test_every_start_path_is_printed_never_cut(monkeypatch, tmp_path):
         {"player": {"id": i, "name": f"P{i}"}, "statistics": [{"name": "games started", "value": "1"}]}
         for i in range(12)]}]}]
     text = _run_with(monkeypatch, tmp_path, players=many)
-    assert "(12 key(s) or stat name(s) say 'start'):" in text
-    assert all(f"groups[0].players[{i}].statistics[0].name='games started'" in text for i in range(12))
+    assert "(12 key(s) or stat name(s) say 'start', each with whose it is):" in text
+    assert all(f"team 1 Home · group 'Passing' · {i} P{i}: statistics[0].name='games started' (value '1')" in text
+               for i in range(12))
 
 
 def test_the_unplayed_games_statistics_name_their_players_and_starter_fields(monkeypatch, tmp_path):
@@ -198,9 +199,9 @@ def test_the_unplayed_games_statistics_name_their_players_and_starter_fields(mon
     named = [{"team": {"id": 2, "name": "Away"}, "groups": [{"name": "Passing", "players": [
         {"player": {"id": 201, "name": "D. Probable", "starter": True}, "statistics": []}]}]}]
     text = _run_with(monkeypatch, tmp_path, unplayed=named)
-    assert "1 team block(s), 1 player(s) named" in text
+    assert "1 team block(s), 1 player(s) named, 0 entr(ies) naming nobody" in text
     assert "      Away · Passing · 201 D. Probable" in text
-    assert "[0].groups[0].players[0].player.starter=true" in text
+    assert "team 2 Away · group 'Passing' · 201 D. Probable: player.starter=true" in text
 
 
 def test_the_rosters_start_evidence_is_read_from_its_quarterbacks_only(monkeypatch, tmp_path):
@@ -262,7 +263,7 @@ def test_a_malformed_unplayed_statistics_answer_still_reaches_both_rosters(monke
     odd = [{"team": "Away", "groups": [{"name": "Passing", "players": [{"player": "D. Probable"}]}]},
            {"team": {"id": 1}, "groups": [{"name": "Passing", "players": [{"player": {"id": 9, "name": "X"}}]}]}]
     text = _run_with(monkeypatch, tmp_path, unplayed=odd)
-    assert "2 player(s) named" in text and '"D. Probable"' in text
+    assert "1 player(s) named, 1 entr(ies) naming nobody" in text and '{"player": "D. Probable"}' in text
     assert text.count("at QB (HTTP 200)") == 2
 
 
@@ -292,3 +293,91 @@ def test_a_game_with_no_status_and_both_totals_is_finished_not_unplayed():
     assert [qbp.game_id(r) for r in qbp.sample_finished(rows)] == [40]
     assert qbp.game_id(qbp.next_unplayed(rows)) == 41             # no status and no totals: still unplayed
     assert qbp.game_id(qbp.next_unplayed([done, _row(42, 200, "NS")])) == 42
+
+
+# --- addendum 60 item 5: #491 goes into #489; "A probe's receipt cuts nothing" ---
+
+def test_nothing_the_probe_prints_is_cut():
+    """No slice of anything printed: a long 'start' value, a long error body, a raw shape, all whole."""
+    import inspect
+    src = inspect.getsource(qbp)
+    assert "[:" not in src.replace("[:]", "")
+    long_value = {"depth": [{"id": i, "name": f"Q{i}"} for i in range(30)]}
+    got = qbp.start_paths({"starters": long_value})
+    assert got == [f"starters={__import__('json').dumps(long_value, sort_keys=True)}"]
+
+
+def test_a_year_sent_as_digits_is_that_year_in_q1(monkeypatch, tmp_path):
+    out = []
+    base = _fake([])
+
+    def get(path, **p):
+        if path == "leagues":
+            return 200, {}, [{"seasons": [{"year": "2025", "coverage": {"games": {"statistics": {"players": True}}}},
+                                          {"year": "twenty", "coverage": {}}]}]
+        return base(path, **p)
+    monkeypatch.setattr(qbp, "KEY", "k")
+    monkeypatch.setattr(qbp, "get", get)
+    monkeypatch.chdir(tmp_path)
+    assert qbp.main(["--seasons", "2025"], echo=out.append) == 0
+    text = "\n".join(out)
+    assert "seasons listed: 2025..2025 (1)" in text and '2025 coverage: {"games"' in text
+    assert "seasons whose year is not a year: ['twenty']" in text
+
+
+def test_a_status_or_stage_of_another_shape_is_tallied_by_its_repr(monkeypatch, tmp_path):
+    odd = _row(50, 50, "FT")
+    odd["game"] = {**odd["game"], "status": {"short": ["FT"]}, "stage": {"x": 1}}
+    rows = GAMES + [odd]
+    out = []
+    base = _fake([])
+
+    def get(path, **p):
+        if path == "games" and "season" in p:
+            return 200, {}, rows
+        return base(path, **p)
+    monkeypatch.setattr(qbp, "KEY", "k")
+    monkeypatch.setattr(qbp, "get", get)
+    monkeypatch.chdir(tmp_path)
+    assert qbp.main(["--seasons", "2025"], echo=out.append) == 0
+    text = "\n".join(out)
+    assert "by status {'FT': 3, 'AOT': 1, 'NS': 2, 'CANC': 1, \"['FT']\": 1}" in text
+    assert "by stage {'Regular Season': 7, \"{'x': 1}\": 1}" in text
+    assert "game 10 (" in text                          # the season's samples still run
+
+
+def test_a_malformed_group_never_drops_the_finished_game(monkeypatch, tmp_path):
+    odd = [{"team": {"id": 1, "name": "Home"}, "groups": ["junk", {"name": "Passing", "players": [
+        "junk", {"player": {"id": 101, "name": "A. Starter"}, "statistics": [{"name": "comp att", "value": "22/31"}]}]}]},
+           {"team": {"id": 2, "name": "Away"}, "groups": "not a list"}]
+    text = _run_with(monkeypatch, tmp_path, players=odd)
+    assert "101 A. Starter: comp att=22/31" in text
+    assert "groups not a list: \"not a list\"" in text
+    assert "✗" not in text
+
+
+def test_start_fields_say_whose_they_are_and_a_lineman_is_told_from_the_quarterback(monkeypatch, tmp_path):
+    odd = [{"team": {"id": 1, "name": "Home"}, "groups": [
+        {"name": "Passing", "players": [{"player": {"id": 101, "name": "A. Starter"},
+                                         "statistics": [{"name": "comp att", "value": "22/31"}]}]},
+        {"name": "Defensive", "players": [{"player": {"id": 103, "name": "C. Lineman"},
+                                           "statistics": [{"name": "games started", "value": "1"}]}]}]}]
+    text = _run_with(monkeypatch, tmp_path, players=odd)
+    assert "team 1 Home · group 'Defensive' · 103 C. Lineman: statistics[0].name='games started'" in text
+    assert "group 'Passing' · 101 A. Starter:" not in text
+
+
+def test_a_tie_on_attempts_never_compares_names(monkeypatch, tmp_path):
+    odd = [{"team": {"id": 1, "name": "Home"}, "groups": [{"name": "Passing", "players": [
+        {"player": {"id": 101, "name": "A. Starter"}, "statistics": [{"name": "comp att", "value": "10/20"}]},
+        {"player": {"id": 102, "name": None}, "statistics": [{"name": "comp att", "value": "9/20"}]}]}]}]
+    text = _run_with(monkeypatch, tmp_path, players=odd)
+    assert "most attempts (OUR READ, not the provider's word):" in text and "✗" not in text
+
+
+def test_a_placeholder_entry_is_not_counted_as_named(monkeypatch, tmp_path):
+    ph = [{"team": {"id": 2, "name": "Away"}, "groups": [{"name": "Passing", "players": [
+        {"statistics": []}, {"player": None, "statistics": []}, {"player": {"id": 201, "name": "D. Probable"}}]}]}]
+    text = _run_with(monkeypatch, tmp_path, unplayed=ph)
+    assert "1 team block(s), 1 player(s) named, 2 entr(ies) naming nobody" in text
+    assert 'no identity: {"statistics": []}' in text and 'no identity: {"player": null, "statistics": []}' in text

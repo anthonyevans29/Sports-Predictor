@@ -71,7 +71,7 @@ def get(path, **params):
     try:
         body = r.json()
     except ValueError:
-        return r.status_code, {"body": r.text[:120]}, []
+        return r.status_code, {"body": r.text}, []
     if not isinstance(body, dict):
         return r.status_code, {"body": "not a JSON object"}, []
     errs = body.get("errors") or {}
@@ -191,7 +191,7 @@ def start_paths(obj, path=""):
         for k, v in obj.items():
             p = f"{path}.{k}" if path else str(k)
             if "start" in str(k).lower():
-                found.append(f"{p}={json.dumps(v, default=str)[:60]}")
+                found.append(f"{p}={json.dumps(v, sort_keys=True, default=str)}")
             if stat and k == "name" and isinstance(v, str) and "start" in v.lower():
                 found.append(f"{p}={v!r} (value {obj.get('value')!r})")
             found += start_paths(v, p)
@@ -205,7 +205,7 @@ def raw_shape(teams):
     """The answer's own shape: a team block's keys, a group's keys and names, and its first player entry verbatim."""
     tb = next((t for t in teams if isinstance(t, dict)), None)
     if tb is None:
-        return f"no team block is an object: {json.dumps(teams, default=str)[:200]}"
+        return f"no team block is an object: {json.dumps(teams, default=str)}"
     groups = tb.get("groups") if isinstance(tb.get("groups"), list) else []
     g = next((x for x in groups if isinstance(x, dict)), {})
     first = next((p for p in (g.get("players") or []) if isinstance(p, dict)), None) if isinstance(g, dict) else None
@@ -216,12 +216,54 @@ def raw_shape(teams):
 def passing_lines(team_block):
     """[(player, [(stat name, value)])] of the team's passing group, verbatim."""
     out = []
-    for grp in team_block.get("groups") or []:
-        if str(grp.get("name") or "").strip().lower() != PASSING:
+    for grp in _list(team_block.get("groups")):
+        if not isinstance(grp, dict) or str(grp.get("name") or "").strip().lower() != PASSING:
             continue
-        for p in grp.get("players") or []:
-            stats = [(s.get("name"), s.get("value")) for s in p.get("statistics") or [] if isinstance(s, dict)]
-            out.append((p.get("player") or {}, stats))
+        for p in _list(grp.get("players")):
+            if not isinstance(p, dict):
+                continue
+            stats = [(s.get("name"), s.get("value")) for s in _list(p.get("statistics")) if isinstance(s, dict)]
+            out.append((p.get("player") if isinstance(p.get("player"), dict) else {}, stats))
+    return out
+
+
+def _list(v):
+    """A list as sent, else [] (a string or an object where a list belongs is not iterated)."""
+    return v if isinstance(v, list) else []
+
+
+def _key(v):
+    """A tally key: the value when it is text, a number or null, else its repr (a list or an object is not a key)."""
+    return v if v is None or isinstance(v, (str, int, float)) else repr(v)
+
+
+def _who(entry):
+    """A player entry's identity as the answer gives it: "id name", or the entry whole when it names nobody."""
+    pl = entry.get("player") if isinstance(entry, dict) else None
+    if isinstance(pl, dict) and (pl.get("id") is not None or pl.get("name")):
+        return f"{pl.get('id')} {pl.get('name')}"
+    return f"no identity: {json.dumps(entry, sort_keys=True, default=str)}"
+
+
+def start_evidence(teams):
+    """Every 'start' key or stat name in a statistics answer, each with whose it is: the team, the group and the
+    player entry it sits in (id and name), so a field on a quarterback is told from one on anyone else."""
+    out = []
+    for i, tb in enumerate(teams):
+        if not isinstance(tb, dict):
+            out += [f"team block {i}: {x}" for x in start_paths(tb)]
+            continue
+        team = tb.get("team") if isinstance(tb.get("team"), dict) else {}
+        tname = f"team {team.get('id')} {team.get('name')}"
+        out += [f"{tname}: {x}" for x in start_paths({k: v for k, v in tb.items() if k != "groups"})]
+        for grp in _list(tb.get("groups")):
+            if not isinstance(grp, dict):
+                out += [f"{tname} · a group of another shape: {x}" for x in start_paths(grp)]
+                continue
+            gname = f"{tname} · group {grp.get('name')!r}"
+            out += [f"{gname}: {x}" for x in start_paths({k: v for k, v in grp.items() if k != "players"})]
+            for entry in _list(grp.get("players")):
+                out += [f"{gname} · {_who(entry)}: {x}" for x in start_paths(entry)]
     return out
 
 
@@ -249,14 +291,17 @@ def probe_game(row, echo=print):
     if not teams:
         echo(f"    /games/statistics/players: NO ROWS (HTTP {code}){_err(errs)}")
         return found
-    found["start_fields"] = start_paths(teams)
+    found["start_fields"] = start_evidence(teams)
     echo(f"    raw shape (law 1: the answer as sent, whatever this probe expects): {raw_shape(teams)}")
     for tb in teams:
         if not isinstance(tb, dict):
-            echo(f"    a team block that is not an object: {json.dumps(tb, default=str)[:80]}")
+            echo(f"    a team block that is not an object: {json.dumps(tb, default=str)}")
             continue
-        team = tb.get("team") or {}
-        groups = [str(g.get("name")) for g in (tb.get("groups") or []) if isinstance(g, dict)]
+        team = tb.get("team") if isinstance(tb.get("team"), dict) else {}
+        groups = [str(g.get("name")) if isinstance(g, dict) else f"(not an object: {json.dumps(g, default=str)})"
+                  for g in _list(tb.get("groups"))]
+        if not isinstance(tb.get("groups"), list):
+            groups = f"not a list: {json.dumps(tb.get('groups'), default=str)}"
         lines = passing_lines(tb)
         echo(f"    team {team.get('id')} {team.get('name')}: groups {groups}")
         if not lines:
@@ -273,12 +318,13 @@ def probe_game(row, echo=print):
         tops = [(attempts(s), p.get("name")) for p, s in lines]
         tops = [t for t in tops if t[0] is not None]
         if tops:
-            n, who = max(tops)
+            n, who = max(tops, key=lambda t: t[0])                 # by attempts alone (Codex on #489)
             echo(f"      most attempts (OUR READ, not the provider's word): {who} ({n})")
         else:
             echo("      most attempts: no stat gives attempts")
     if found["start_fields"]:
-        echo(f"    the provider says who started ({len(found['start_fields'])} key(s) or stat name(s) say 'start'):")
+        echo(f"    the provider says who started ({len(found['start_fields'])} key(s) or stat name(s) say 'start', "
+             "each with whose it is):")
         for path in found["start_fields"]:                           # every one, never cut (Codex on #489)
             echo(f"      {path}")
     else:
@@ -296,15 +342,19 @@ def probe_unplayed(row, season, echo=print):
         echo("      " + json.dumps(r, sort_keys=True, default=str))
     code, errs, st = get("games/statistics/players", id=gid)
     try:                    # a malformed answer here never keeps the rosters from being asked (Codex on #489)
-        named = [(((tb.get("team") or {}) if isinstance(tb.get("team"), dict) else {}).get("name"), gr.get("name"),
-                  pl.get("player"))
-                 for tb in st if isinstance(tb, dict) for gr in (tb.get("groups") or []) if isinstance(gr, dict)
-                 for pl in (gr.get("players") or []) if isinstance(pl, dict)]
-        echo(f"    /games/statistics/players: {len(st)} team block(s), {len(named)} player(s) named "
-             f"(HTTP {code}){_err(errs)} · 'start' in it: {start_paths(st) or 'nothing'}")
-        for team, group, pl in named:                                # every one named, never cut
-            echo(f"      {team} · {group} · "
-                 + (f"{pl.get('id')} {pl.get('name')}" if isinstance(pl, dict) else json.dumps(pl, default=str)))
+        entries = [(((tb.get("team") or {}) if isinstance(tb.get("team"), dict) else {}).get("name"), gr.get("name"),
+                    pl)
+                   for tb in st if isinstance(tb, dict) for gr in _list(tb.get("groups")) if isinstance(gr, dict)
+                   for pl in _list(gr.get("players")) if isinstance(pl, dict)]
+        named = [e for e in entries if not _who(e[2]).startswith("no identity")]
+        echo(f"    /games/statistics/players: {len(st)} team block(s), {len(named)} player(s) named, "
+             f"{len(entries) - len(named)} entr(ies) naming nobody (HTTP {code}){_err(errs)}")
+        for team, group, entry in entries:                           # every entry, never cut
+            echo(f"      {team} · {group} · {_who(entry)}")
+        ev = start_evidence(st)
+        echo(f"    'start' in it: {'nothing' if not ev else ''}")
+        for x in ev:
+            echo(f"      {x}")
     except Exception as e:
         echo(f"    /games/statistics/players: ✗ {type(e).__name__}: {e} — continuing to the rosters · raw "
              f"{json.dumps(st, default=str)}")
@@ -335,8 +385,9 @@ def probe_season(season, echo=print):
         return {"season": season, "games": 0, "sampled": [], "passing": 0, "start_fields": 0}
     by_status, by_stage = {}, {}
     for r in rows:
-        by_status[game_status(r)] = by_status.get(game_status(r), 0) + 1
-        by_stage[_game(r).get("stage")] = by_stage.get(_game(r).get("stage"), 0) + 1
+        st_k, sg_k = _key(game_status(r)), _key(_game(r).get("stage") if isinstance(_game(r), dict) else None)
+        by_status[st_k] = by_status.get(st_k, 0) + 1
+        by_stage[sg_k] = by_stage.get(sg_k, 0) + 1
     echo(f"  Q2 /games: {len(rows)} listed · by status {by_status} · by stage {by_stage}")
     out = {"season": season, "games": len(rows), "sampled": [], "passing": 0, "start_fields": 0, "fields": set()}
     for r in sample_finished(rows):
@@ -389,8 +440,12 @@ def main(argv=None, echo=print):
         if not rows or not isinstance(rows[0], dict):
             echo(f"  /leagues: NO ROWS (HTTP {code}){_err(errs)}")
         else:
-            cov = declared_coverage(rows[0])
+            raw = declared_coverage(rows[0])
+            cov = {(int(y) if isinstance(y, str) and y.strip().isdigit() else y): v for y, v in raw.items()}
             years = sorted(y for y in cov if isinstance(y, int))
+            odd = [y for y in cov if not isinstance(y, int)]
+            if odd:
+                echo(f"  seasons whose year is not a year: {odd}")
             echo(f"  seasons listed: {years[0] if years else '-'}..{years[-1] if years else '-'} ({len(years)})"
                  + ("" if cov else f" · the seasons as sent: {json.dumps(rows[0].get('seasons'), default=str)}"))
             for y in years:

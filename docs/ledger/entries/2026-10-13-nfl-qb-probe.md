@@ -6,4 +6,6 @@
   - the architect's ruling: a candidate declared, or a written no (2026-11-02).
 - **As built:** scripts/nfl_qb_probe.py. The league id and host are imported from the adapter, and the QB positions from qb_audit. Who started is read only where the provider says so (a key or stat name that says "start"). The most passing attempts are printed, labelled OUR READ, never the provider's word. GET only; nothing written; no database.
 - **The hold of 2026-10-11 stands** until a quarterback term passes its frozen gate and its confirmation (#427).
-- Refs #427. Refs #486.
+- **Addendum 60 item 5 (verbatim):** "#491 goes into #489 now, not into a later change: the value is printed whole. A probe's receipt cuts nothing, because what it prints is all I rule on." Every item #491 held is built here: nothing printed is cut; each "start" field names its team, group and player; Q3 counts only named players; shapes it does not expect never drop a game; digit-string years read as years; most attempts by attempts alone.
+- **Finding #493 (from the review):** the adapters' score-presence rule never fires. The probe applies it itself; the adapters are unchanged.
+- Closes #491. Refs #427. Refs #486. Refs #493.

@@ -97,6 +97,14 @@ INTL_COUNT_KEY = "intl_graded"
 # captured (deploy/hosting/chains.py KALSHI_CAPTURE_ONLY) and the window card spans every competition, so the venue
 # engine never makes a call on them (Codex on #326). CI pins this set to soccer_expansion.LEAGUES.
 SHADOW_VENUE_COMPS = frozenset({"PD", "SA", "BL1", "FL1", "ELC"})
+# CL (ARCHITECT 2026-10-13 13:11 ET, addendum 61 item 3(1), #498), verbatim: "'No call' in addendum 58 covers the venue
+# engine. CL is a three-way Kalshi soccer market, as UNL is, and it stays out of venue-edge on UNL's ground (INTL policy
+# v0, rule 5): until the skew test (#286) is read and I rule on it. Its stop reads 'three-way soccer — no venue call
+# before the skew test is read (CL)'. The charter's 'cups when priced' waits on that same ruling."
+SKEW_TEST_VENUE_COMPS = ("CL",)
+SKEW_TEST_VENUE_REASON = "three-way soccer — no venue call before the skew test is read ({})"
+# Its own switch: the frozen golden (pre-F1c) predates it and runs with it off (base_v11()), as the quote-age rule does.
+SKEW_TEST_VENUE_RULE = {"on": True}
 # S1 (ARCHITECT 2026-10-08, addendum 9 item 1): the same set keys the MODEL path. "desk_call returns PASS for a model
 # row whose competition is in the set: reason 'shadow league: never a call until CONFIRMED', no order, no value
 # shadow. A league leaves the set only in a reviewed PR after CONFIRMED, by ruling." (predict / export-predictions
@@ -382,6 +390,10 @@ def _venue_edge(r, now_ms: float) -> dict:
     if r["sport"] == "UNL":
         out["reason"] = "single venue — no pair (UNL)"
         return out
+    cl = next((c for c in SKEW_TEST_VENUE_COMPS if c in (r["sport"], r.get("comp") or "")), None)
+    if cl and SKEW_TEST_VENUE_RULE["on"]:                                         # addendum 61 item 3(1): on UNL's ground, until the skew test is read
+        out["reason"] = SKEW_TEST_VENUE_REASON.format(cl)
+        return out
     if r["sport"] in SHADOW_VENUE_COMPS or (r.get("comp") or "") in SHADOW_VENUE_COMPS:
         out["reason"] = (f"shadow league ({r.get('comp') or r['sport']}, soccer-expansion-v1): Kalshi captured for the "
                          "record only — never a venue call until CONFIRMED")
@@ -489,15 +501,17 @@ def base_v11():
     was_kos = KALSHI_ONLY_MLB_SUSPENDED["on"]
     was_one = INJURIES_ONE_SIDED_RULE["on"]    # frozen verification files stay frozen (as Codex asked on #434)
     was_inj = INJURY_EMPTY_RULE["on"]          # Codex on #434: frozen verification files stay frozen
+    was_skew = SKEW_TEST_VENUE_RULE["on"]      # addendum 61 item 3(1) postdates the frozen battery's CL rows
     EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
     KALSHI_ONLY_MLB_SUSPENDED["on"] = INJURIES_ONE_SIDED_RULE["on"] = INJURY_EMPTY_RULE["on"] = False
+    SKEW_TEST_VENUE_RULE["on"] = False
     try:
         yield
     finally:
         EXEC_RULES["on"], STARTED_RULE["on"] = was, was_started
         MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"] = was_mlbq, was_qa
         KALSHI_ONLY_MLB_SUSPENDED["on"], INJURIES_ONE_SIDED_RULE["on"] = was_kos, was_one
-        INJURY_EMPTY_RULE["on"] = was_inj
+        INJURY_EMPTY_RULE["on"], SKEW_TEST_VENUE_RULE["on"] = was_inj, was_skew
 
 
 @contextmanager

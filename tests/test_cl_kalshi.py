@@ -109,9 +109,10 @@ def test_the_host_window_syncs_cl_as_it_syncs_unl():
 
 
 def test_cl_stays_market_only_no_venue_pricing_series():
-    """'Nothing else about the cups changes': no fee schedule or venue series is added for CL."""
-    from src.walters.venue import KALSHI_FEE_M, KALSHI_SERIES_BY_COMPETITION
-    assert "CL" not in KALSHI_SERIES_BY_COMPETITION and "KXUCLGAME" not in KALSHI_FEE_M
+    """'Nothing else about the cups changes': no venue series is added for CL, so no call is priced through it.
+    Addendum 61 item 3(2) adds KXUCLGAME's fee M for a fill (tests/test_cl_venue_stop.py)."""
+    from src.walters.venue import KALSHI_SERIES_BY_COMPETITION
+    assert "CL" not in KALSHI_SERIES_BY_COMPETITION
 
 
 def test_sync_kalshi_soccer_cl_stores_what_the_placement_places(monkeypatch):
@@ -173,9 +174,8 @@ def test_sync_kalshi_soccer_cl_stores_what_the_placement_places(monkeypatch):
 
 
 def test_a_cl_row_with_its_kalshi_legs_makes_no_venue_call_today():
-    """'no call': with books and a two-sided Kalshi block, the window card's CL row is held by the quote-age rule
-    (ARCHITECT 2026-10-07): PASS / no reference, its numbers kept. What happens when that hold lifts is the
-    architect's (escalated, not coded here)."""
+    """'no call': with books and a two-sided Kalshi block, the window card's CL row makes no venue call. Since
+    addendum 61 item 3(1) (#498) its own stop says why, before the quote-age rule is reached."""
     from datetime import timezone
     from src.walters import desk_policy as dp
     now = datetime(2026, 10, 13, 16, 0, tzinfo=timezone.utc)
@@ -185,4 +185,4 @@ def test_a_cl_row_with_its_kalshi_legs_makes_no_venue_call_today():
                       "captured_at": "2026-10-13T15:30:00"},
            "kalshi": {"status": "two_sided", "prob": {"HOME": 0.55, "AWAY": 0.20, "DRAW": 0.25}}}
     v = dp.window_venue(row, ms)
-    assert (v["eligible"], v["kind"], v["reason"]) == (False, "noref", dp.QUOTE_AGE_REASON), v
+    assert (v["eligible"], v["reason"]) == (False, "three-way soccer — no venue call before the skew test is read (CL)"), v

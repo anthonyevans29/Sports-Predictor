@@ -65,12 +65,15 @@ K_TRACK_NOTE = "K-track: informational until the executable-edge ruling"
 # MLB is never executed live (doctrine, ruling (4)). Combos: maker = 50% of
 # taker (fills classification only). Our exports are pre-kickoff captures
 # only (in-play never), so the pre-live M applies. UCL is in the ruling; its
-# series KXUCLGAME is wired for reading since 2026-10-13 (addendum 58), but CL
-# stays market-only with no call ("nothing else about the cups changes"), so
-# it is not priced here.
+# series KXUCLGAME is wired for reading since 2026-10-13 (addendum 58) and
+# carries the ruled M for a fill since addendum 61 item 3(2); CL makes no call.
 KALSHI_FEE_M = {                       # series -> (taker M, maker M), pre-live
     "KXNFLGAME": (1.0, 1.0), "KXNHLGAME": (1.0, 1.0), "KXNCAAFGAME": (1.0, 1.0),
     "KXEPLGAME": (1.0, 1.0), "KXMLBGAME": (0.5, 0.5),
+    # ARCHITECT 2026-10-13, addendum 61 item 3(2), #498: "KXUCLGAME carries (1.0, 1.0) in KALSHI_FEE_M, as the fee
+    # schedule ruling (#93) names UCL. It costs a fill. It prices no call." (CL is not in
+    # KALSHI_SERIES_BY_COMPETITION, so no call is priced through it.)
+    "KXUCLGAME": (1.0, 1.0),
 }
 # Competition code -> the Kalshi game series its quotes come from (cli
 # sync-kalshi-* and adapters/kalshi.py SOCCER_GAME_SERIES). A code missing

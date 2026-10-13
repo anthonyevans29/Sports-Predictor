@@ -221,7 +221,7 @@ def probe_game(row, echo=print):
         names = [n for n, _ in lines[0][1]]
         echo(f"      passing fields ({len(names)}): {names} · a player object's keys: {sorted(lines[0][0].keys())}")
         for player, stats in lines:
-            found["fields"].update(n for n, _ in stats)
+            found["fields"].update(repr(n) if not isinstance(n, str) else n for n, _ in stats)
             echo(f"      {player.get('id')} {player.get('name')}: "
                  + " · ".join(f"{n}={v}" for n, v in stats))
         tops = [(attempts(s), p.get("name")) for p, s in lines]
@@ -231,8 +231,12 @@ def probe_game(row, echo=print):
             echo(f"      most attempts (OUR READ, not the provider's word): {who} ({n})")
         else:
             echo("      most attempts: no stat gives attempts")
-    echo("    the provider says who started: "
-         + ("; ".join(found["start_fields"][:8]) if found["start_fields"] else "NO key or stat name says 'start'"))
+    if found["start_fields"]:
+        echo(f"    the provider says who started ({len(found['start_fields'])} key(s) or stat name(s) say 'start'):")
+        for path in found["start_fields"]:                           # every one, never cut (Codex on #489)
+            echo(f"      {path}")
+    else:
+        echo("    the provider says who started: NO key or stat name says 'start'")
     return found
 
 
@@ -245,9 +249,13 @@ def probe_unplayed(row, season, echo=print):
          f"{sorted(g[0].keys()) if g and isinstance(g[0], dict) else []} · 'start' in it: "
          f"{start_paths(g) or 'nothing'}")
     code, errs, st = get("games/statistics/players", id=gid)
-    named = sum(len(gr.get("players") or []) for tb in st if isinstance(tb, dict) for gr in tb.get("groups") or []
-                if isinstance(gr, dict))
-    echo(f"    /games/statistics/players: {len(st)} team block(s), {named} player(s) named (HTTP {code}){_err(errs)}")
+    named = [((tb.get("team") or {}).get("name"), gr.get("name"), (pl.get("player") or {}))
+             for tb in st if isinstance(tb, dict) for gr in (tb.get("groups") or []) if isinstance(gr, dict)
+             for pl in (gr.get("players") or []) if isinstance(pl, dict)]
+    echo(f"    /games/statistics/players: {len(st)} team block(s), {len(named)} player(s) named (HTTP {code}){_err(errs)}"
+         f" · 'start' in it: {start_paths(st) or 'nothing'}")
+    for team, group, pl in named:                                    # every one named, never cut (Codex on #489)
+        echo(f"      {team} · {group} · {pl.get('id')} {pl.get('name')}")
     teams = row.get("teams") or {}
     for side in ("away", "home"):
         t = teams.get(side) or {}
@@ -258,9 +266,10 @@ def probe_unplayed(row, season, echo=print):
         qbs = [p for p in roster if isinstance(p, dict)
                and str((p.get("position") or "")).strip().upper() in QB_POSITIONS]
         echo(f"    roster {side} {t.get('id')} {t.get('name')}: {len(roster)} player(s), {len(qbs)} at QB "
-             f"(HTTP {code}){_err(errs)} · 'start' in the roster: {start_paths(roster) or 'nothing'}")
+             f"(HTTP {code}){_err(errs)}")
         for p in qbs:
             echo("      " + json.dumps(p, sort_keys=True, default=str))          # every field, never cut
+            echo(f"        'start' in this quarterback's entry: {start_paths(p) or 'nothing'}")
 
 
 def probe_season(season, echo=print):
@@ -343,7 +352,7 @@ def main(argv=None, echo=print):
     echo("\nSUMMARY (how far back each holds)")
     for x in summaries:
         echo(f"  {x['season']}: games listed {x['games']} · sampled {x['sampled']} · passing lines {x['passing']} · "
-             f"'start' fields {x['start_fields']} · passing fields {sorted(x.get('fields') or [])}")
+             f"'start' fields {x['start_fields']} · passing fields {sorted(x.get('fields') or [], key=str)}")
     echo(f"\n✓ NFL quarterback probe complete · {_calls[0]} requests — paste this whole output to the architect. "
          "Nothing was written.")
     return 0

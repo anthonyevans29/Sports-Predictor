@@ -152,3 +152,61 @@ def test_the_real_get_never_raises(monkeypatch):
     monkeypatch.setattr(qbp.requests, "get", boom)
     monkeypatch.setattr(qbp, "RPM", 1e9)
     assert qbp.get("status") == (None, {"request": "ConnectionError"}, [])
+
+
+# --- Codex on #489 (3a327ed) ---
+
+def _run_with(monkeypatch, tmp_path, players=PLAYERS, unplayed=None, roster=None):
+    out = []
+    base = _fake([], players)
+
+    def get(path, **p):
+        if path == "games/statistics/players" and p.get("id") == 15 and unplayed is not None:
+            return 200, {}, unplayed
+        if path == "players" and roster is not None:
+            return 200, {}, roster
+        return base(path, **p)
+    monkeypatch.setattr(qbp, "KEY", "k")
+    monkeypatch.setattr(qbp, "get", get)
+    monkeypatch.chdir(tmp_path)
+    assert qbp.main(["--seasons", "2025"], echo=out.append) == 0
+    return "\n".join(out)
+
+
+def test_a_stat_with_no_name_never_stops_the_summary(monkeypatch, tmp_path):
+    """P1: a statistics entry with a null name beside named ones: the summary still prints and the run ends."""
+    odd = [{"team": {"id": 1, "name": "Home"}, "groups": [{"name": "Passing", "players": [
+        {"player": {"id": 101, "name": "A. Starter"},
+         "statistics": [{"name": "comp att", "value": "22/31"}, {"name": None, "value": "7"}]}]}]}]
+    text = _run_with(monkeypatch, tmp_path, players=odd)
+    assert "passing fields ['None', 'comp att']" in text
+    assert text.splitlines()[-1].startswith("✓ NFL quarterback probe complete")
+
+
+def test_every_start_path_is_printed_never_cut(monkeypatch, tmp_path):
+    """P2: twelve players carrying 'games started': all twelve are printed."""
+    many = [{"team": {"id": 1, "name": "Home"}, "groups": [{"name": "Passing", "players": [
+        {"player": {"id": i, "name": f"P{i}"}, "statistics": [{"name": "games started", "value": "1"}]}
+        for i in range(12)]}]}]
+    text = _run_with(monkeypatch, tmp_path, players=many)
+    assert "(12 key(s) or stat name(s) say 'start'):" in text
+    assert all(f"groups[0].players[{i}].statistics[0].name='games started'" in text for i in range(12))
+
+
+def test_the_unplayed_games_statistics_name_their_players_and_starter_fields(monkeypatch, tmp_path):
+    """P1: Q3 prints every player the unplayed game's statistics name, and where the answer says 'start'."""
+    named = [{"team": {"id": 2, "name": "Away"}, "groups": [{"name": "Passing", "players": [
+        {"player": {"id": 201, "name": "D. Probable", "starter": True}, "statistics": []}]}]}]
+    text = _run_with(monkeypatch, tmp_path, unplayed=named)
+    assert "1 team block(s), 1 player(s) named" in text
+    assert "      Away · Passing · 201 D. Probable" in text
+    assert "[0].groups[0].players[0].player.starter=true" in text
+
+
+def test_the_rosters_start_evidence_is_read_from_its_quarterbacks_only(monkeypatch, tmp_path):
+    """P2: a 'start' field on a lineman is not evidence about the quarterback; each QB's own entry is read."""
+    roster = [{"id": 101, "name": "A. Starter", "position": "QB", "depth_start": 1},
+              {"id": 103, "name": "C. Lineman", "position": "OT", "starter": True}]
+    text = _run_with(monkeypatch, tmp_path, roster=roster)
+    assert "'start' in this quarterback's entry: ['depth_start=1']" in text
+    assert "starter=true" not in text and "C. Lineman" not in text

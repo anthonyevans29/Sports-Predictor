@@ -1,0 +1,13 @@
+## 2026-10-13 (#503: roadmap-base-check — ARCHITECT addendum 60 item 3 (#490); addendum 61 items 4 and 5 (#492, #494))
+- src/roadmap.py `check_moves` / `check_base`, run as `python scripts/ledger.py check-roadmap --base origin/<base>` in CI's `fragments` job after check-fragments.
+  - A PR's `docs/roadmap.json` is read against the file where it branched (the merge-base).
+  - For each lane both sides hold, a moved `earliest_live` and a moved `due` (on a step with the same `what`) each need a moved line the head adds: `which` the step's what or `earliest_live`, `was` the base's date, `now` the head's.
+  - A cleared earliest_live needs its line with `now` null. A first date set, and a lane or step only one side holds, need nothing.
+  - It fails naming the lane and the date, and never writes the file.
+- Validation:
+  - within a lane no two steps share a `what`;
+  - a moved line's `now` may be null where `which` is `earliest_live`;
+  - a milestone with no `due_on` key is refused, named (#494).
+- The print: "in 1 day", "OVERDUE 1 day", "(+1 more step overdue)".
+- Tests: tests/test_roadmap.py 115 (35 new cases).
+- Ledger: the records of addendum 61 items 1, 2, 6 and 7: merging by the called head (#502), the four calls, #500 and #501 closed on their ruling, #493 waiting on the count.

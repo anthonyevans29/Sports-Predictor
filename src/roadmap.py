@@ -308,15 +308,31 @@ def report(today: date, path: Path | None = None, taxonomy_path: Path | None = N
 # --------------------------------------------------------------------------------------------- the base check --
 
 def _written(lines: list[dict], which: str, was, now) -> bool:
-    """A moved line on the head: which word for word, was the base's date, now the head's (null for a cleared
+    """A moved line the head adds: which word for word, was the base's date, now the head's (null for a cleared
     earliest_live)."""
     return any(mv.get("which") == which and mv.get("was") == was and "now" in mv and mv["now"] == now for mv in lines)
 
 
+def _added_lines(head_moved: list, base_moved) -> list[dict]:
+    """The moved lines the head adds: its list less the base's, line for line. A line already on the base was written
+    for an earlier move and is never the line of this one (a second failed run is written again)."""
+    left = [mv for mv in base_moved if isinstance(mv, dict)] if isinstance(base_moved, list) else []
+    added = []
+    for mv in head_moved:
+        if not isinstance(mv, dict):
+            continue
+        if mv in left:
+            left.remove(mv)
+        else:
+            added.append(mv)
+    return added
+
+
 def check_moves(base, head) -> list[str]:
     """Addendum 60 item 3 as amended by addendum 61 item 4: every date the head moves from the base has its moved line
-    on the head. One message per date without one, naming the lane and the date. [] when every move is written.
-    `head` is a file that validates; `base` is the base's file as read (None where the base has none)."""
+    on the head, a line the head adds. One message per date without one, naming the lane and the date. [] when every
+    move is written. `head` is a file that validates; `base` is the base's file as read (None where the base has
+    none)."""
     if not isinstance(base, dict) or not isinstance(base.get("lanes"), list):
         return []
     blanes: dict = {}
@@ -329,10 +345,10 @@ def check_moves(base, head) -> list[str]:
         if b is None:                      # "A lane ... that only one side holds needs nothing from this check"
             continue
         name = f"lane {ln['lane']!r}"
-        lines = [mv for mv in ln["moved"] if isinstance(mv, dict)]
+        lines = _added_lines(ln["moved"], b.get("moved"))
         bel, hel = b.get("earliest_live"), ln["earliest_live"]
         # "A date set where the base had none needs no moved line." Moved or cleared needs one.
-        if bel is not None and bel != hel and not _written(lines, "earliest_live", bel, hel):
+        if real_date(bel) is not None and bel != hel and not _written(lines, "earliest_live", bel, hel):
             now = "null (cleared)" if hel is None else hel
             errs.append(f"{name}: earliest_live {bel} -> {now} has no moved line on the head "
                         f"(which 'earliest_live', was {bel!r}, now {json.dumps(hel)})")
@@ -342,9 +358,9 @@ def check_moves(base, head) -> list[str]:
                 bsteps.setdefault(st["what"], st)   # "the same step where its what is the same, word for word"
         for j, st in enumerate(ln["steps"], 1):
             bs = bsteps.get(st["what"])
-            if bs is None:                 # "... or a step that only one side holds"
-                continue
-            if bs.get("due") != st["due"] and not _written(lines, st["what"], bs.get("due"), st["due"]):
+            if bs is None or real_date(bs.get("due")) is None:   # "... or a step that only one side holds"; a due
+                continue                   # set where the base had none needs no moved line
+            if bs["due"] != st["due"] and not _written(lines, st["what"], bs["due"], st["due"]):
                 errs.append(f"{name} step {j}: due {bs.get('due')} -> {st['due']} has no moved line on the head "
                             f"(which {st['what']!r}, was {bs.get('due')!r}, now {st['due']!r})")
     return errs
@@ -355,30 +371,47 @@ def _git(root: Path, *args) -> subprocess.CompletedProcess:
 
 
 def check_base(base_ref: str, root: Path | None = None, echo=print) -> int:
-    """The CI step: the head's docs/roadmap.json (the working tree) against the file on `base_ref`. 0 when the file is
-    unchanged or every move has its moved line; 1 naming each lane and date otherwise, or a head that does not
-    validate; 2 when the base cannot be read. Never writes the file."""
+    """The CI step: the head's docs/roadmap.json (the working tree) against the file on its base, read where the head
+    branched from `base_ref` (their merge-base, as check-fragments' `base...HEAD`), so a date the base moved after the
+    branch point is never charged to the pull request. 0 when the file is unchanged or every move has its moved line;
+    1 naming each lane and date otherwise, or a head that cannot be read or does not validate; 2 when the base cannot
+    be read. Never writes the file."""
     root = Path(root or ROOT)
     rel = ROADMAP_REL
     if _git(root, "rev-parse", "--verify", "--quiet", f"{base_ref}^{{commit}}").returncode != 0:
         echo(f"✗ ROADMAP: the base {base_ref!r} is not a commit here: nothing can be compared")
         return 2
-    head_path = root / rel
-    head_text = head_path.read_text(encoding="utf-8") if head_path.exists() else None
-    shown = _git(root, "show", f"{base_ref}:{rel}")
-    if shown.returncode != 0:
-        if _git(root, "cat-file", "-e", f"{base_ref}:{rel}").returncode != 0:
-            echo(f"✓ ROADMAP: {rel} is not on the base {base_ref}: nothing to compare")
-            return 0
-        echo(f"✗ ROADMAP: {rel} on {base_ref} cannot be read: {shown.stderr.strip()}")
+    mb = _git(root, "merge-base", base_ref, "HEAD")
+    if mb.returncode != 0 or not mb.stdout.strip():
+        echo(f"✗ ROADMAP: the head has no merge-base with {base_ref}: nothing can be compared")
         return 2
-    base_text = shown.stdout
-    if head_text == base_text:
-        echo(f"✓ ROADMAP: {rel} is unchanged against {base_ref}")
+    point = mb.stdout.strip()
+    at = f"{base_ref} (merge-base {point[:7]})"
+    head_path = root / rel
+    head_bytes = head_path.read_bytes() if head_path.exists() else None
+    shown = subprocess.run(["git", "-C", str(root), "show", f"{point}:{rel}"], capture_output=True)
+    if shown.returncode != 0:
+        if _git(root, "cat-file", "-e", f"{point}:{rel}").returncode != 0:
+            echo(f"✓ ROADMAP: {rel} is not on the base {at}: nothing to compare")
+            return 0
+        echo(f"✗ ROADMAP: {rel} on {at} cannot be read: {shown.stderr.decode('utf-8', 'replace').strip()}")
+        return 2
+    if head_bytes == shown.stdout:
+        echo(f"✓ ROADMAP: {rel} is unchanged against {at}")
         return 0
-    if head_text is None:
-        echo(f"✗ ROADMAP: {rel} is on the base {base_ref} and not on the head")
+    if head_bytes is None:
+        echo(f"✗ ROADMAP: {rel} is on the base {at} and not on the head")
         return 1
+    try:
+        head_text = head_bytes.decode("utf-8")
+    except UnicodeDecodeError as e:
+        echo(f"✗ ROADMAP: the head's {rel} is not UTF-8 ({e.reason} at byte {e.start})")
+        return 1
+    try:
+        base_text = shown.stdout.decode("utf-8")
+    except UnicodeDecodeError as e:
+        echo(f"✗ ROADMAP: {rel} on {at} is not UTF-8 ({e.reason} at byte {e.start})")
+        return 2
     try:
         head = json.loads(head_text)
     except (ValueError, RecursionError) as e:
@@ -392,7 +425,7 @@ def check_base(base_ref: str, root: Path | None = None, echo=print) -> int:
     try:
         base = json.loads(base_text)
     except (ValueError, RecursionError) as e:
-        echo(f"✗ ROADMAP: {rel} on {base_ref} cannot be read as JSON ({type(e).__name__})")
+        echo(f"✗ ROADMAP: {rel} on {at} cannot be read as JSON ({type(e).__name__})")
         return 2
     fails = check_moves(base, head)
     if fails:
@@ -400,5 +433,5 @@ def check_base(base_ref: str, root: Path | None = None, echo=print) -> int:
             echo(f"✗ ROADMAP: {f}")
         echo("  A date moves only with its moved line (ARCHITECT 2026-10-13, addendum 60 item 3; addendum 61 item 4).")
         return 1
-    echo(f"✓ ROADMAP: every date {rel} moves against {base_ref} has its moved line")
+    echo(f"✓ ROADMAP: every date {rel} moves against {at} has its moved line")
     return 0

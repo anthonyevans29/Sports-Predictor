@@ -623,7 +623,13 @@ def main(argv=None) -> int:
     if mode == "check-roadmap":                  # ARCHITECT 2026-10-13, addendum 60 item 3 (#490): beside
         sys.path.insert(0, str(ROOT))            # check-fragments, offline; the head's file against the base's
         from src import roadmap
-        base = argv[argv.index("--base") + 1] if "--base" in argv[:-1] else "origin/main"
+        base = "origin/main"
+        if "--base" in argv:
+            i = argv.index("--base")
+            if i + 1 >= len(argv) or not argv[i + 1] or argv[i + 1].startswith("-"):
+                print("✗ ROADMAP: --base needs a ref (e.g. origin/main)")
+                return 2
+            base = argv[i + 1]
         return roadmap.check_base(base, ROOT)
     if mode == "check-body":                     # LEDGER rule 5, enforced: offline, body via env
         stray = stray_closing_refs(os.environ.get("PR_BODY", ""))

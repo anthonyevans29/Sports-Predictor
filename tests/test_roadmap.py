@@ -508,12 +508,26 @@ def test_no_base_file_or_a_base_of_another_shape_needs_nothing():
 
 # --- the CI step: the working tree against a base commit, by git ---
 
+@pytest.fixture(autouse=True)
+def _plain_git(monkeypatch):
+    """The test repositories never read the machine's git config (signing, hooks, templates)."""
+    import os
+    monkeypatch.setenv("GIT_CONFIG_GLOBAL", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_SYSTEM", os.devnull)
+    monkeypatch.setenv("GIT_CONFIG_NOSYSTEM", "1")
+
+
+def _g(root):
+    return ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false",
+            "-c", "tag.gpgsign=false", "-c", "core.hooksPath=/dev/null"]
+
+
 def _repo(tmp_path, base_doc):
     import subprocess
     root = tmp_path / "repo"
     (root / "docs").mkdir(parents=True)
-    g = ["git", "-C", str(root), "-c", "user.name=t", "-c", "user.email=t@t", "-c", "commit.gpgsign=false"]
-    subprocess.run(["git", "init", "-q", str(root)], check=True)
+    g = _g(root)
+    subprocess.run(["git", "init", "-q", "-b", "main", str(root)], check=True)
     if base_doc is not None:
         (root / "docs" / "roadmap.json").write_text(base_doc if isinstance(base_doc, str) else json.dumps(base_doc))
     (root / "README").write_text("x")
@@ -532,10 +546,16 @@ def _check(root, ref="base"):
     return rm.check_base(ref, root, echo=out.append), out
 
 
+def _point(root, ref="base"):
+    import subprocess
+    sha = subprocess.run(["git", "-C", str(root), "rev-parse", ref], capture_output=True, text=True).stdout.strip()
+    return f"{ref} (merge-base {sha[:7]})"
+
+
 def test_the_ci_step_passes_an_unchanged_file(tmp_path):
     root = _repo(tmp_path, _real())
     rc, out = _check(root)
-    assert rc == 0 and out == ["✓ ROADMAP: docs/roadmap.json is unchanged against base"]
+    assert rc == 0 and out == [f"✓ ROADMAP: docs/roadmap.json is unchanged against {_point(root)}"]
 
 
 def test_the_ci_step_fails_a_move_without_its_line_and_never_rewrites_the_file(tmp_path):
@@ -557,14 +577,14 @@ def test_the_ci_step_passes_a_move_with_its_line(tmp_path):
     st["due"] = "2026-10-13"
     _head(root, head)
     rc, out = _check(root)
-    assert rc == 0 and out == ["✓ ROADMAP: every date docs/roadmap.json moves against base has its moved line"]
+    assert rc == 0 and out == [f"✓ ROADMAP: every date docs/roadmap.json moves against {_point(root)} has its moved line"]
 
 
 def test_the_ci_step_on_a_base_with_no_roadmap_compares_nothing(tmp_path):
     root = _repo(tmp_path, None)
     _head(root, _real())
     rc, out = _check(root)
-    assert rc == 0 and out == ["✓ ROADMAP: docs/roadmap.json is not on the base base: nothing to compare"]
+    assert rc == 0 and out == [f"✓ ROADMAP: docs/roadmap.json is not on the base {_point(root)}: nothing to compare"]
 
 
 def test_the_ci_step_fails_a_head_that_does_not_validate(tmp_path):
@@ -592,8 +612,11 @@ def test_ledger_py_runs_the_check_with_its_base(monkeypatch):
     spec.loader.exec_module(ledger)
     seen = []
     monkeypatch.setattr(rm, "check_base", lambda base, root: seen.append((base, root)) or 0)
-    assert ledger.main(["check-roadmap", "--base", "origin/main"]) == 0
-    assert seen == [("origin/main", rm.ROOT)]
+    assert ledger.main(["check-roadmap", "--base", "origin/release-1"]) == 0     # not the fallback
+    assert seen == [("origin/release-1", rm.ROOT)]
+    assert ledger.main(["check-roadmap", "--base"]) == 2                          # a --base with no ref is refused
+    assert ledger.main(["check-roadmap", "--base", "--pr"]) == 2
+    assert seen == [("origin/release-1", rm.ROOT)]
 
 
 def test_the_ci_job_that_reads_the_base_runs_the_check_beside_check_fragments():
@@ -602,3 +625,78 @@ def test_the_ci_job_that_reads_the_base_runs_the_check_beside_check_fragments():
     assert "fetch-depth: 0" in job
     i, j = job.index("ledger.py check-fragments --base"), job.index("ledger.py check-roadmap --base")
     assert i < j and 'check-roadmap --base "origin/${{ github.base_ref }}"' in job
+
+
+# --- the review of the first build (each fails on it) ---
+
+def test_a_line_already_on_the_base_is_never_the_line_of_a_new_move():
+    """A second failed run is written again: a clear the base already recorded does not cover this clear."""
+    def prior(d):
+        ln = _lane(d, "unl")
+        ln["moved"].append(_mv("earliest_live", ln["earliest_live"], None, why="run 1 failed"))
+    base = _broken(prior)                          # earliest_live was set again after run 1 (a set needs no line)
+    assert rm.validate(base) == []
+    head = copy.deepcopy(base)
+    _lane(head, "unl")["earliest_live"] = None
+    errs = rm.check_moves(base, head)
+    assert len(errs) == 1 and errs[0].startswith("lane 'unl': earliest_live ") and "null (cleared)" in errs[0]
+    _lane(head, "unl")["moved"].append(_mv("earliest_live", _lane(base, "unl")["earliest_live"], None,
+                                           moved_on="2026-12-01", why="run 2 failed"))
+    assert rm.validate(head) == [] and rm.check_moves(base, head) == []
+
+
+def test_a_step_moved_back_needs_its_own_line_each_time():
+    def prior(d):
+        st = _lane(d, "cups")["steps"][0]
+        _lane(d, "cups")["moved"] += [_mv(st["what"], st["due"], "2026-10-13"), _mv(st["what"], "2026-10-13", st["due"])]
+    base = _broken(prior)
+    head = copy.deepcopy(base)
+    _lane(head, "cups")["steps"][0]["due"] = "2026-10-13"
+    assert len(rm.check_moves(base, head)) == 1
+    st = _lane(head, "cups")["steps"][0]
+    _lane(head, "cups")["moved"].append(_mv(st["what"], _lane(base, "cups")["steps"][0]["due"], "2026-10-13",
+                                            moved_on="2026-10-21"))
+    assert rm.check_moves(base, head) == []
+
+
+def test_a_due_the_base_never_had_needs_no_moved_line():
+    """"A date set where the base had none needs no moved line." (a base step with no real due)"""
+    base = _real()
+    _lane(base, "cups")["steps"][0]["due"] = None
+    head = _real()
+    assert rm.check_moves(base, head) == []
+
+
+def test_the_ci_step_reads_the_base_where_the_head_branched(tmp_path):
+    """A date the base moved after the branch point is never charged to a pull request that left the file alone."""
+    import subprocess
+    root = _repo(tmp_path, _real())
+    g = _g(root)
+    subprocess.run(g + ["checkout", "-q", "-b", "pr"], check=True)
+    (root / "README").write_text("the pull request's own change")
+    subprocess.run(g + ["commit", "-q", "-am", "pr"], check=True)
+    subprocess.run(g + ["checkout", "-q", "main"], check=True)
+    moved = _real()
+    st = _lane(moved, "cups")["steps"][0]
+    _lane(moved, "cups")["moved"].append(_mv(st["what"], st["due"], "2026-10-13"))
+    st["due"] = "2026-10-13"
+    _head(root, moved)
+    subprocess.run(g + ["commit", "-q", "-am", "main moves a date"], check=True)
+    subprocess.run(g + ["checkout", "-q", "pr"], check=True)
+    rc, out = _check(root, ref="main")
+    assert rc == 0 and out[0].startswith("✓ ROADMAP: docs/roadmap.json is unchanged against main (merge-base "), out
+
+
+def test_a_file_that_is_not_utf8_is_refused_by_name(tmp_path):
+    root = _repo(tmp_path, _real())
+    (root / "docs" / "roadmap.json").write_bytes(b'{"lanes": ["\xff"]}')
+    rc, out = _check(root)
+    assert rc == 1 and out[0].startswith("✗ ROADMAP: the head's docs/roadmap.json is not UTF-8")
+    root2 = _repo(tmp_path / "b", '{"lanes": []}')
+    import subprocess
+    (root2 / "docs" / "roadmap.json").write_bytes(b'{"lanes": ["\xff"]}')
+    subprocess.run(_g(root2) + ["commit", "-q", "-am", "a base that is not UTF-8"], check=True)
+    subprocess.run(_g(root2) + ["tag", "-f", "base2"], check=True, capture_output=True)
+    _head(root2, _real())
+    rc, out = _check(root2, ref="base2")
+    assert rc == 2 and "is not UTF-8" in out[0], out

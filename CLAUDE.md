@@ -152,7 +152,9 @@ board, never from chat. The pre-board queue text is history (git log).
   fix to something that is live and wrong stands above them."
 - **The dates live in docs/roadmap.json**, and `python cli.py roadmap` prints
   them (read-only; exit 0 whatever is overdue, 2 on a file that does not
-  validate).
+  validate). A date moves only with its moved line: CI's `check-roadmap`
+  reads the base's file and fails a PR that moves one without it (addendum 60
+  item 3; a cleared earliest_live is a move with `now` null, addendum 61 item 4).
 - **No date moves a bar** (addendum 59 item 5(c)): "A date on the roadmap is a
   commitment to do the step, never to its outcome. No date is a reason to move
   a bar, to shorten a confirmation, to run anything before its declaration

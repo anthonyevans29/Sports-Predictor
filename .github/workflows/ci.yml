@@ -41,3 +41,6 @@ jobs:
         run: pip install -q -r requirements.txt
       - name: Fragments added; shared ledger files untouched
         run: python scripts/ledger.py check-fragments --base "origin/${{ github.base_ref }}" --pr "${{ github.event.pull_request.number }}"
+      - name: Roadmap dates move only with their moved lines (ARCHITECT 2026-10-13, addendum 60 item 3)
+        if: ${{ !cancelled() }}
+        run: python scripts/ledger.py check-roadmap --base "origin/${{ github.base_ref }}"

@@ -9,5 +9,5 @@
   - a moved line's `now` may be null where `which` is `earliest_live`;
   - a milestone with no `due_on` key is refused, named (#494).
 - The print: "in 1 day", "OVERDUE 1 day", "(+1 more step overdue)".
-- Tests: tests/test_roadmap.py 115 (35 new cases).
+- Tests: tests/test_roadmap.py 115 (36 new cases; 79 on main).
 - Ledger: the records of addendum 61 items 1, 2, 6 and 7: merging by the called head (#502), the four calls, #500 and #501 closed on their ruling, #493 waiting on the count.

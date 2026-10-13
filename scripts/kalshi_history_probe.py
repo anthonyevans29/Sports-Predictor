@@ -121,7 +121,7 @@ def parse_ts(v) -> datetime | None:
             dt = datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
         except ValueError:
             return None
-        return dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)
+        return (dt if dt.tzinfo else dt.replace(tzinfo=timezone.utc)).astimezone(timezone.utc)
     return None
 
 
@@ -216,7 +216,8 @@ def candle_lines(candles: list) -> tuple[dict, list[str]]:
     """Q2's counts and the lines of the first, every thirtieth and the last candlestick."""
     cs = [c for c in candles if isinstance(c, dict)]
     both = sum(1 for c in cs if _close(c, "yes_bid") is not None and _close(c, "yes_ask") is not None)
-    idx = sorted(set(list(range(0, len(cs), EVERY)) + ([len(cs) - 1] if cs else [])))
+    # the first (#1), every thirtieth (#30, #60, ...) and the last, one-based as printed
+    idx = sorted({0, len(cs) - 1} | set(range(EVERY - 1, len(cs), EVERY))) if cs else []
     lines = []
     for i in idx:
         c = cs[i]
@@ -340,9 +341,9 @@ def main(argv=None, echo=print, adapter: KalshiAdapter | None = None, logs: Path
     echo("\nQ3 — the calls")
     refused = [c for c in calls.made if c.get("status") != 200 or c.get("error")]
     echo(f"  {len(calls.made)} calls · {len(calls.made) - len(refused)} answered · {len(refused)} refused or failed")
-    for c in refused:
-        echo(f"  ✗ status {c.get('status')} · {c['path']} {json.dumps(c['params'], sort_keys=True)} · "
-             f"{c.get('error')}")
+    for c in calls.made:                         # every call made, in order; a refused one with its status and body
+        line = f"status {c.get('status')} · {c['path']} {json.dumps(c['params'], sort_keys=True)}"
+        echo(f"  ✗ {line} · {c.get('error')}" if c in refused else f"  ✓ {line}")
     echo("\nkept payloads (send these with the console):")
     for kind, path in sorted(keeper.kept.items()):
         echo(f"  {kind}: {path}")

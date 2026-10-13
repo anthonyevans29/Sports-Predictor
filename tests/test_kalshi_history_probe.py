@@ -133,7 +133,7 @@ def test_q2_takes_the_first_middle_and_last_event_and_reads_six_hours_of_minutes
     assert "361 came back, 361 carry both a bid and an ask" in text
     lines = [ln.strip() for ln in text.splitlines() if ln.strip().startswith("#")]
     numbers = sorted({int(ln.split()[0][1:]) for ln in lines})
-    assert numbers == [1, 31, 61, 91, 121, 151, 181, 211, 241, 271, 301, 331, 361]
+    assert numbers == [1, 30, 60, 90, 120, 150, 180, 210, 240, 270, 300, 330, 360, 361]   # first, every 30th, last
     assert "yes_bid close '0.5200' · yes_ask close '0.5300'" in text
 
 
@@ -208,6 +208,34 @@ def test_nothing_it_prints_is_cut():
 
 @pytest.mark.parametrize("v, want", [
     ("2026-06-15T02:58:23Z", "2026-06-15T02:58:23Z"), (1781492303, "2026-06-15T02:58:23Z"),
+    ("2026-03-31T23:30:00-04:00", "2026-04-01T03:30:00Z"), ("2026-03-31T23:30:00", "2026-03-31T23:30:00Z"),
     ("not a time", "-"), (None, "-"), (True, "-")])
 def test_times_are_read_as_iso_or_epoch_seconds(v, want):
     assert khp.iso(khp.parse_ts(v)) == want
+
+
+@pytest.mark.parametrize("n, want", [(1, [1]), (29, [1, 29]), (30, [1, 30]), (31, [1, 30, 31]), (60, [1, 30, 60])])
+def test_the_first_every_thirtieth_and_the_last_candle(n, want):
+    _, lines = khp.candle_lines(_candles(n))
+    assert [int(ln.split()[0][1:]) for ln in lines] == want
+
+
+def test_an_offset_close_time_is_read_in_utc_for_its_month(monkeypatch, tmp_path):
+    late = [_mk("KXNHLGAME-26MAR31GGGHHH", "GGG", "2026-03-31T23:30:00-04:00")]
+    fake = Fake({"historical/markets": lambda path, p: {"markets": late, "cursor": ""}})
+    rc, text, _ = _run(tmp_path, monkeypatch, fake)
+    assert "first close 2026-04-01T03:30:00Z" in text and "events by month: {'2026-04': 1}" in text
+
+
+def test_q3_lists_every_call_made_with_its_status(monkeypatch, tmp_path):
+    fake = Fake({"historical/markets/KXNHLGAME-26JUN14CARVGK-CAR": _http(429, '{"error": "too many requests"}')})
+    rc, text, fake = _run(tmp_path, monkeypatch, fake)
+    q3 = text.split("\nQ3 — the calls\n", 1)[1].split("\nkept payloads", 1)[0].splitlines()
+    rows = [ln for ln in q3 if ln.startswith(("  ✓ ", "  ✗ "))]
+    assert len(rows) == len(fake.asked) and q3[0] == f"  {len(fake.asked)} calls · {len(fake.asked) - 1} answered · 1 refused or failed"
+    assert "  ✓ status 200 · historical/cutoff {}" in rows
+    assert ('  ✓ status 200 · historical/markets {"cursor": "c2", "limit": 200, "series_ticker": "KXNHLGAME"}' in rows), rows
+    assert [ln for ln in rows if ln.startswith("  ✗ ")] == [
+        '  ✗ status 429 · historical/markets/KXNHLGAME-26JUN14CARVGK-CAR/candlesticks '
+        + json.dumps(next(p for path, p in fake.asked if path.startswith("historical/markets/KXNHLGAME-26JUN14")),
+                     sort_keys=True) + ' · {"error": "too many requests"}']

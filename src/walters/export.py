@@ -1036,6 +1036,7 @@ def export_results(
             })
 
     rows.sort(key=lambda r: (r["date"] or "", r["match_id"]))
+    from src.walters.vs_close import block_from_rows
     payload = {
         "exported_at": utc_now_naive().isoformat() + "Z",
         "git_sha": _git_sha(),
@@ -1044,6 +1045,11 @@ def export_results(
         "end_date": end_date.isoformat(),
         "competition_code": competition_code,
         "count": len(rows),
+        # ARCHITECT 2026-10-13 (addendum 63 item 3): the record block, its win rate and, over the decided games that
+        # have a close, the record against the close. Every row here is decided (MLB never grades a tied final; a
+        # soccer draw is an outcome), so the win rate's denominator is the count.
+        "record": {"games": len(rows), "hits": sum(1 for r in rows if r["graded"]["top_pick_hit"]),
+                   "vs_close": block_from_rows(rows)},
         "totals_pulse": _compute_totals_pulse(rows),
         "results": rows,
     }
@@ -1371,6 +1377,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
              "divergence the contract reproduces is VERIFIED; any other stored value is RETAINED-LEGACY and is "
              "reported separately, never pooled into the headline._\n"]
     from src.walters.close import close_age_line
+    from src.walters.vs_close import line as _vs_line
     _ages: list = []            # (sport label, close_age_summary) for each sport that reports a close (#382)
     with session_scope() as s:
         cutoff = utc_now_naive() - timedelta(days=days)
@@ -1408,8 +1415,20 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
             coh = {"verified": [], "legacy": []}
             # #382: the results rows' close (grading_close_block) and its capture age, per row in the window
             from src.walters.close import close_age_summary, grading_close_block
-            age = close_age_summary(grading_close_block(s, m)["close_minutes_before_start"] for _, m in rows)
+            gcbs = [grading_close_block(s, m) for _, m in rows]
+            age = close_age_summary(g["close_minutes_before_start"] for g in gcbs)
             _ages.append((label, age))
+            # ARCHITECT 2026-10-13 (addendum 63 item 3): the record against the close, over this section's games, read
+            # as the results file reads its rows (the same prediction, outcome and grading close)
+            from src.walters.vs_close import block_from_rows
+            vs = block_from_rows(
+                {"predicted": {"home_win_prob": getattr(preds.get(oc.prediction_id), "home_win_prob", None),
+                               "draw_prob": getattr(preds.get(oc.prediction_id), "draw_prob", None),
+                               "away_win_prob": getattr(preds.get(oc.prediction_id), "away_win_prob", None)},
+                 "actual": {"home_score": oc.actual_home_score, "away_score": oc.actual_away_score,
+                            "result": oc.actual_result.value if oc.actual_result else None},
+                 "graded": g}
+                for (oc, m), g in zip(rows, gcbs))
             for oc, m in rows:
                 c = clv_cohort(oc, preds.get(oc.prediction_id), m, odds_by.get(m.id, []),
                                snaps_by.get(m.id, [])) \
@@ -1419,6 +1438,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
             ver, leg = coh["verified"], coh["legacy"]
             lines.append(
                 f"## {label}\n\n- Sides: **{hits}/{n}** ({hits/n:.1%})\n"
+                + f"- {_vs_line(vs)}\n"
                 + (f"- Mean log-loss: {sum(lls)/len(lls):.4f} (n={len(lls)})\n" if lls else "- Mean log-loss: — (n=0)\n")
                 + (f"- Mean model-close divergence, verified close: {sum(ver)/len(ver)*100:+.2f}pp (n={len(ver)})\n"
                    if ver else "- Mean model-close divergence, verified close: — (n=0)\n")
@@ -1440,6 +1460,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
                     f"## NFL (live since Week 3, 2026-09-22)\n\n- Sides: **{r['hits']}/{r['decided']}**"
                     + (f" ({r['hits']/r['decided']:.1%})" if r["decided"] else "")
                     + f" · pushes {r['pushes']} (ties: outside the hit denominator)\n"
+                    # ARCHITECT 2026-10-13 (addendum 63 item 3): beside the win rate, always
+                    + f"- {_vs_line(r.get('vs_close'))}\n"
                     + (f"- Mean log-loss: {r['logloss']:.4f}\n" if r.get("logloss") is not None else "")
                     + (f"- Mean model-close divergence (pick): {r['mean_clv_pp']:+.2f}pp\n"
                        if r.get("mean_clv_pp") is not None else "")
@@ -1452,6 +1474,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
                     + (close_age_line(nfl_age) if nfl_age is not None else "")
                     + (f"\n### NFL pre-live (before 2026-09-22; never pooled)\n\n"
                        f"- Sides: {pl['hits']}/{pl['decided']} · pushes {pl['pushes']}\n"
+                       f"- {_vs_line(pl.get('vs_close'))}\n"
                        if pl.get("games") else ""))
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")

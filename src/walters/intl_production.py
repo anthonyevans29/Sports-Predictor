@@ -298,6 +298,7 @@ def results(now: datetime | None = None, days: int | None = None) -> dict:
 def export_results(now: datetime | None = None, days: int | None = None,
                    out_dir: str = "exports") -> tuple[str, dict]:
     """exports/intl_INTL_results_<YYYY-MM-DD>.json (the NFL results-file grammar, sport "intl")."""
+    from src.walters.vs_close import block_from_rows
     r = results(now, days)
     now, rows = r["now"], r["rows"]
     doc = {"exported_at": now.isoformat() + "Z", "sport": SPORT, "model_version": MODEL_VERSION,
@@ -308,7 +309,9 @@ def export_results(now: datetime | None = None, days: int | None = None,
            "note": "record is variance, not signal — for the consumer to grade against",
            "window": r["window"],
            "record": {"games": len(rows), "hits": sum(1 for x in rows if x["graded"]["top_pick_hit"]),
-                      "decided": len(rows), "ungraded": len(r["ungraded"])},
+                      "decided": len(rows), "ungraded": len(r["ungraded"]),
+                      # ARCHITECT 2026-10-13 (addendum 63 item 3): over the decided games that have a close
+                      "vs_close": block_from_rows(rows)},
            "count": len(rows), "results": rows, "ungraded": r["ungraded"]}
     Path(out_dir).mkdir(parents=True, exist_ok=True)
     path = str(Path(out_dir) / f"{RESULTS_PREFIX}{now.strftime('%Y-%m-%d')}.json")

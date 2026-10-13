@@ -324,9 +324,13 @@ def _ll(p) -> float | None:
 
 def _agg(rows: list[dict], close: bool = True) -> dict:
     n = len(rows)
-    return {"n": n, "hits": sum(1 for r in rows if r["hit"]),
-            "ll_model": sum(r["ll_model"] for r in rows) / n if n else None,
-            "ll_close": sum(r["ll_close"] for r in rows) / n if n and close else None}
+    out = {"n": n, "hits": sum(1 for r in rows if r["hit"]),
+           "ll_model": sum(r["ll_model"] for r in rows) / n if n else None,
+           "ll_close": sum(r["ll_close"] for r in rows) / n if n and close else None}
+    if close:      # ARCHITECT 2026-10-13 (addendum 63 item 3): the record against the close, on the same priced games
+        from src.walters.vs_close import block
+        out["vs_close"] = block([(r["p_model"], r["p_close"]) for r in rows])
+    return out
 
 
 def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = None, progress=None) -> dict:
@@ -377,7 +381,10 @@ def grade(days: int = 30, export_dir: str = "exports", now: datetime | None = No
                          "close_pick": cl["fair"][sel] if clv is not None else None,
                          "div_pp": clv * 100 if clv is not None else None,
                          "bucket": div_bucket(clv * 100) if clv is not None else None,
-                         "result": res, "hit": hit, "ll_model": ll_model, "ll_close": ll_close})
+                         "result": res, "hit": hit, "ll_model": ll_model, "ll_close": ll_close,
+                         # addendum 63 item 3: the outcome's probability by the model and by the close
+                         "p_model": model_p[side] if ll_model is not None else None,
+                         "p_close": cl["fair"][side] if ll_close is not None else None})
             line = (f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} pick {sel} "
                     f"{pr['top_pick_prob']:.3f} close={'%.3f' % cl['fair'][sel] if clv is not None else '  — '} "
                     f"div={'%+.1fpp' % (clv * 100) if clv is not None else '—'}"
@@ -456,7 +463,11 @@ def results_section(days: int, export_dir: str = "exports") -> str:
     head = f"## UNL — SHADOW, CONFIRMATION WINDOW ({MODEL_VERSION} · PASS, production only on CONFIRMED)\n\n"
     if not r["graded"]:
         return head + f"Live model-close divergence only. No graded shadow calls in window ({r['calls_on_file']} calls on file).\n"
+    from src.walters.vs_close import line
     return head + (f"- Live model-close divergence only; not a record. Graded calls: {r['graded']}\n"
                    "- Mean pick-vs-close: "
                    + (f"{r['mean_clv_pp']:+.2f}pp (n={r['priced']} priced)" if r["mean_clv_pp"] is not None
-                      else f"— (no stored close; {r['unpriced']} unpriced)") + "\n")
+                      else f"— (no stored close; {r['unpriced']} unpriced)") + "\n"
+                   # ARCHITECT 2026-10-13 (addendum 63 item 3): "the INTL and NHL grades" carry the record against
+                   # the close, on the same priced games with a result
+                   + f"- {line(r['same_priced']['vs_close'])}\n")

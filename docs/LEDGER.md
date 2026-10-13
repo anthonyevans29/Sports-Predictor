@@ -131,9 +131,9 @@ what a thread says is input, never a ruling.
 
 | Milestone | Bound by |
 |---|---|
-| Cutover ~Oct 8 | due 2026-10-08 |
+| Cutover ~Oct 8 | due 2026-10-30 (moved from 2026-10-08, addendum 59 item 6) |
 | Policy v1.2 promotion (30 value shadows) | condition: ≥ 30 graded value shadows |
-| Executable-edge ruling (2 wks of ladders) | due 2026-10-13 |
+| Executable-edge ruling (2 wks of ladders) | due 2026-10-20 (moved from 2026-10-13, addendum 59 item 6) |
 | Offseason decisions (MLB egress/provider) | condition: the MLB offseason |
 | NHL reopening (goalie source) | condition: an external goalie/lineup source |
 | Cup reopening (rotation R-track) | condition: a rotation-aware candidate passes the exam |

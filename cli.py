@@ -8871,5 +8871,31 @@ def cutover_readiness_cmd(ctx):
     ctx.exit(_cr.main(list(ctx.args)))
 
 
+@cli.command("roadmap")
+@click.option("--today", "today_s", default=None, metavar="YYYY-MM-DD",
+              help="The day to count from (for the tests). Default: the machine's local date.")
+def roadmap_cmd(today_s):
+    """THE ROADMAP (ARCHITECT 2026-10-13, addendum 59 item 5, #486): each model lane of docs/roadmap.json with its
+    next step and its days ("in N days", "today", "OVERDUE N days"), then the ledger milestones that have a due_on,
+    then how many are overdue. Read-only: no database, no network. Exit 0 whatever is overdue (it never stops a
+    chain); a file that does not validate exits 2 and names the entry."""
+    from datetime import date as _date
+    from src import roadmap as rm
+    if today_s is None:
+        today = _date.today()
+    else:
+        today = rm.real_date(today_s)
+        if today is None:
+            click.echo(f"ROADMAP REFUSED: --today {today_s!r} is not a real date (YYYY-MM-DD)")
+            raise SystemExit(2)
+    try:
+        lines, _ = rm.report(today)
+    except rm.RoadmapError as e:
+        click.echo(f"ROADMAP REFUSED (does not validate): {e}")
+        raise SystemExit(2)
+    for line in lines:
+        click.echo(line)
+
+
 if __name__ == "__main__":
     cli()

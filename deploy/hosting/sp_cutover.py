@@ -10,7 +10,9 @@ decides or triggers it; this only executes the sequence once ruled.
 Steps (in order; `run` = all six, the first failure stops):
   preflight  pack present; sp_migrate verify PASS (sha256 + integrity + every
              table count); the pack's DATABASE_URL relative; timers list
-             readable; host.env present, writable, at most one
+             readable; every sp timer active on the host is on the list (addendum
+             57 item 8: one off the list refuses, named; the list is never
+             written here); host.env present, writable, at most one
              SP_WRITER_OF_RECORD line with a known value; host.env itself says
              SP_EXPORTS_MIRROR_ROLE=host (addendum 47 item 7(c)); no target under data/.
              Prints, by name only, each setting the pack's .env changes on the host
@@ -130,6 +132,9 @@ class DryRunner:
             states = ["active" if u in self.active else "inactive" for u in units]
             return (0 if all(s == "active" for s in states) else 3), "\n".join(states)
         if verb == "list-units":
+            if "--type=timer" in argv:          # the scratch list's timers, all active (addendum 57 item 8)
+                return 0, "\n".join(f"{u} loaded active waiting" for u in sorted(self.active)
+                                    if u.startswith("sp-") and u.endswith(".timer"))
             return 0, ""
         return 1, f"dry-run: unknown systemctl verb {verb}"
 
@@ -247,6 +252,18 @@ def _last_ok(ctx: Ctx, step: str) -> tuple[int, dict] | None:
 
 # --------------------------------------------------------------- steps ----
 
+def active_sp_timers(ctx: Ctx, step: str) -> list[str]:
+    """The sp timers active on the host now, as systemd lists them (addendum 57 item 8). A listing that cannot be
+    read refuses: an unread listing is never read as empty."""
+    rc, out = ctx.runner(["systemctl", "list-units", "--type=timer", "--state=active", "--no-legend", "--plain",
+                          "sp-*"])
+    if rc != 0:
+        _refuse(ctx, step, f"cannot read the active sp timers: systemctl list-units exit {rc}: "
+                           f"{c.redact(out.strip())[:200]}")
+    units = (ln.split()[0] for ln in out.splitlines() if ln.split())
+    return sorted({u for u in units if TIMER_NAME.match(u)})
+
+
 def step_preflight(ctx: Ctx) -> dict:
     s = "preflight"
     if ctx.pack is None or not (ctx.pack / sp_migrate.MANIFEST).is_file():
@@ -254,6 +271,15 @@ def step_preflight(ctx: Ctx) -> dict:
     _no_data(ctx, s, (ctx.pack, ctx.timers_file, c.HOST_ENV, c.receipts_path(), c.lock_path(),
                       ctx.scratch))
     timers = read_timers(ctx, s)
+    # ARCHITECT 2026-10-13, addendum 57 item 8 (#481), verbatim: "The cutover's preflight reads the sp timers that
+    # are active on the host. An active timer that is not on the list refuses the preflight, and the refusal names
+    # it. The operator corrects the list by hand; the tool never writes it." (The pause stops only the listed timers:
+    # one off the list would stay armed while the database is replaced.)
+    active = active_sp_timers(ctx, s)
+    off_list = [t for t in active if t not in timers]
+    if off_list:
+        _refuse(ctx, s, f"active sp timers not on the timers list {ctx.timers_file}: {', '.join(off_list)} "
+                        "(add them to the list by hand; the tool never writes it)", timers_off_list=off_list)
     if not c.HOST_ENV.is_file():
         _refuse(ctx, s, f"host env missing: {c.HOST_ENV} (never created here — law 4)")
     hits = _flag_lines(c.HOST_ENV.read_text())
@@ -300,7 +326,7 @@ def step_preflight(ctx: Ctx) -> dict:
                 s1=man["files"].get(sp_migrate.DB))
     return _receipt(ctx, s, 0, pack=str(ctx.pack), s1=man["files"].get(sp_migrate.DB),
                     n_tables=len(man["counts"]), source_host=man.get("source_host"),
-                    pack_git_sha=man.get("git_sha"), timers=len(timers),
+                    pack_git_sha=man.get("git_sha"), timers=len(timers), timers_active=len(active),
                     timers_file=str(ctx.timers_file), host_env=str(c.HOST_ENV), flag_before=before,
                     mirror_role=role, env_changes=env_changes)
 

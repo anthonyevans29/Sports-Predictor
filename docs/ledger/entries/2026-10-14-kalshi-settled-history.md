@@ -9,7 +9,18 @@
     - the spread guard (a settled market's quote is its candles');
     - the run's window (the window here is --since/--until).
   - Each event is placed alone, so "behind an event out of step", a rule between open events, never fires.
-- **Law 1, owed:** the payloads' keys (`kalshi_history.KEYS`) are the architect's receipt of the probe's console (addendum 66 item 6) and the probe's own reader, not the kept files.
-  - The files are the laptop's, and this session cannot reach the exchange (its proxy refuses the CONNECT).
-  - The five kept files replace the stand-ins under tests/fixtures/kalshi_history/ before merge, and KEYS is checked against them.
-  - settled_time's key is read from them; until then the column is null.
+- **Law 1, read (addendum 68 items 3 and 5):** the payloads' keys (`kalshi_history.KEYS`) are enumerated from the five kept files of 2026-10-14 11:54Z.
+  - Source: the operator's branch laptop/kalshi-payloads-1014 (34723f1), tests/fixtures/kalshi_history/raw/. The raw files never land on main; the branch is deleted after #521 merges.
+  - Which key differed: no key of the receipt (addendum 66 item 6) or of the probe's reader differs from the files.
+    - The cutoff is `market_settled_ts`, and the lists are `markets` / `cursor`.
+    - The market keys are `ticker` / `event_ticker` / `yes_sub_title` / `result` / `close_time`.
+    - Historical candles read `yes_bid.close` / `yes_ask.close`, live candles read `yes_bid.close_dollars` / `yes_ask.close_dollars`, and both carry `end_period_ts`.
+  - settled_time's key, which the receipt did not name, is `settlement_ts`. It is on all 200 markets of each kept page; the column was null until now.
+  - Read in the files besides the keys:
+    - A price is a dollar string, and end_period_ts is epoch seconds.
+    - A zero-volume minute carries a null `price` with its bid and ask present (42 of the 292 historical candles).
+    - A tied NFL game settles both legs as result "scalar" (0.50): 2 of 200 historical, 4 of 200 live. That is stored as kalshi_result null with "result as read: 'scalar'" in notes; the table holds 'yes', 'no' or null.
+  - The fixtures are the kept files trimmed: whole objects only, in the kept order and the kept format (tests/fixtures/kalshi_history/README.md names the raw files' sha256 and the rule).
+    - The cutoff file is byte for byte.
+    - Each page keeps three events (six markets) of its 200.
+    - Each candle reply keeps every candle up to the kickoff the tests store, and the five after it.

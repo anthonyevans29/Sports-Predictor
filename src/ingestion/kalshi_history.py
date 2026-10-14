@@ -50,13 +50,16 @@ How it reads, so the receipt can be checked against it:
 - --dry-run makes every read, prints what would be stored, and writes nothing (the table need not exist).
 
 The payloads' keys (law 1: "read each by its own keys from the kept payloads of 2026-10-14 under logs/ (law 1:
-enumerate the keys from those files, not from memory)"): KEYS below is the one place they are named. As built here
-they are the architect's receipt of the probe's console (addendum 66 item 6: "the historical endpoint's candles carry
-yes_bid.close / yes_ask.close / volume / open_interest (no _dollars suffix); the live series endpoint's carry
-close_dollars / volume_fp / open_interest_fp") and the probe's own reader (scripts/kalshi_history_probe.py: markets /
-cursor, candlesticks, end_period_ts, ticker / event_ticker / close_time / result). The kept files have not reached the
-session that wrote this; tests/fixtures/kalshi_history/ holds them once they do, and KEYS is checked against them
-(settled_time's key is read from them; until then settled_time is null).
+enumerate the keys from those files, not from memory)"): KEYS below is the one place they are named, enumerated from
+the five kept files (2026-10-14 11:54Z, branch laptop/kalshi-payloads-1014, addendum 68 item 5), trimmed into
+tests/fixtures/kalshi_history/, where the tests check every key against them. Every key of the architect's receipt
+(addendum 66 item 6: "the historical endpoint's candles carry yes_bid.close / yes_ask.close / volume / open_interest
+(no _dollars suffix); the live series endpoint's carry close_dollars / volume_fp / open_interest_fp") and of the
+probe's reader (scripts/kalshi_history_probe.py: markets / cursor, candlesticks, end_period_ts, ticker / event_ticker /
+close_time / result) is the files' own; settled_time's, which the receipt did not name, is settlement_ts (on every
+market of both kept pages). As the files send them: a price is a dollar string ("0.4500"), end_period_ts is epoch
+seconds, a zero-volume minute carries a null price with its bid and ask present, and a tied NFL game settles both legs
+as result "scalar" (0.50), stored as kalshi_result null with the result as read in notes.
 """
 from __future__ import annotations
 
@@ -76,12 +79,12 @@ PAGE_LIMIT = 200                 # the adapter's own page size (KalshiAdapter.op
 MAX_PAGES = 5000                 # a guard against a cursor that never ends; reaching it is printed, never silent
 EPOCH = datetime(1970, 1, 1)     # `now` for the matcher: before every game, so its in-play refusal never reads
 
-# The one place the payloads' keys are named (see the docstring: the receipt's keys until the kept files are read).
+# The one place the payloads' keys are named, as the kept files of 2026-10-14 name them (the docstring).
 KEYS = {
     "cutoff": "market_settled_ts",
     "list": "markets", "cursor": "cursor",
     "ticker": "ticker", "event": "event_ticker", "yes_sub_title": "yes_sub_title", "result": "result",
-    "close_time": "close_time", "settled_time": None,          # None: not yet enumerated from the kept files
+    "close_time": "close_time", "settled_time": "settlement_ts",
     "candles": "candlesticks", "end": "end_period_ts",
     # (the bid's parent, the ask's parent, the leaf) per candle shape; each shape is read by its own keys only
     "historical": ("yes_bid", "yes_ask", "close"),
@@ -316,7 +319,7 @@ def _new_row(series: str, source: str, m: dict, fetched_at: datetime, placed: di
     row = {"ticker": ticker, "event_ticker": m.get(KEYS["event"]), "series": series, "side": side, "match_id": mid,
            "yes_sub_title": m.get(KEYS["yes_sub_title"]), "kalshi_result": None,
            "close_time": parse_ts(m.get(KEYS["close_time"])),
-           "settled_time": parse_ts(m.get(KEYS["settled_time"])) if KEYS["settled_time"] else None,
+           "settled_time": parse_ts(m.get(KEYS["settled_time"])),
            "source": source, "fetched_at": fetched_at, "last_ts": None, "last_bid": None, "last_ask": None,
            "last_mid": None, "candles_6h": None, "candles_two_sided": None, "gaps": None, "raw_first_candle": None}
     notes = []

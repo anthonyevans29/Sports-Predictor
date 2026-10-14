@@ -18,9 +18,27 @@
   - settled_time's key, which the receipt did not name, is `settlement_ts`. It is on all 200 markets of each kept page; the column was null until now.
   - Read in the files besides the keys:
     - A price is a dollar string, and end_period_ts is epoch seconds.
-    - A zero-volume minute carries a null `price` with its bid and ask present (42 of the 292 historical candles).
+    - A time is ISO with a fraction of 0 to 6 digits.
+    - A zero-volume minute of the historical shape carries `price.close` / `open` / `high` / `low` / `mean` null, with `price.previous` set and its bid and ask present (42 of the 292 historical candles; the live reply has none).
+    - An empty side of a market's book is sent at size zero (`yes_bid_size_fp` / `yes_ask_size_fp` "0.00" on all 400 markets), priced 0.00 for a bid and 1.00 for an ask (0.00 on the two legs of KXNFLGAME-26JAN25LASEA).
     - A tied NFL game settles both legs as result "scalar" (0.50): 2 of 200 historical, 4 of 200 live. That is stored as kalshi_result null with "result as read: 'scalar'" in notes; the table holds 'yes', 'no' or null.
   - The fixtures are the kept files trimmed: whole objects only, in the kept order and the kept format (tests/fixtures/kalshi_history/README.md names the raw files' sha256 and the rule).
     - The cutoff file is byte for byte.
-    - Each page keeps three events (six markets) of its 200.
+    - Each page keeps three events (six markets) of its 100 events (200 markets).
     - Each candle reply keeps every candle up to the kickoff the tests store, and the five after it.
+- **From the review of the kept-payload commit (an adversarial review, each finding verified by reproduction):**
+  - **Two-sided is ruling 9's predicate:** `0 < bid <= ask < 1` (#286, ARCHITECT 2026-10-06, "two-sided = 0 < bid <= ask < 1"; `k_receipt.leg_two_sided`).
+    - The files send an empty side at size zero, priced 0.00 (a bid) or 1.00 (an ask). Read as a price, a minute with no bid became the stored quote with a mid of ask/2.
+    - In the kept replies such minutes come only after the games end, so no stored value of the kept data changes.
+    - This reading of ruling 9 here is for the architect's read on #521.
+  - **A fraction of 4 or 5 digits is read whole on Python 3.10** (docs/CLI.md says 3.10+). There, fromisoformat takes only 3 or 6 digits.
+    - Without the fix, settled_time was null on 58 of the 400 kept markets.
+    - A close_time of 4 or 5 digits (16 of 200 historical) read as missing, and the market was stored with no quote and never asked again.
+  - **The --dry-run receipt prints each row's settled_time,** and the run prints how many rows have none.
+  - **Tests strengthened where the rewrite on the kept files had weakened them:**
+    - the close leaf of each shape on kept minutes whose open / high / low differ;
+    - a cap and a failed page or returning cursor in the second list, after the first is read whole;
+    - --until's own day;
+    - a stored first candle whose price is null;
+    - a kept historical page row's result and settled_time;
+    - an unreadable timestamp inside the window.

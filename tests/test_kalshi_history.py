@@ -185,7 +185,7 @@ def test_every_key_is_read_from_the_kept_files():
                                ("live_candlesticks", "live", "historical")):
         cs = _load(name)[K["candles"]]
         assert cs and all(isinstance(c[K["end"]], int) for c in cs)
-        assert all(None not in kh.bid_ask(c, shape) for c in cs)               # every kept candle two-sided
+        assert all(kh.two_sided(*kh.bid_ask(c, shape)) for c in cs)            # every kept candle two-sided
         assert all(kh.bid_ask(c, other) == (None, None) for c in cs)           # and read by its own keys only
 
 
@@ -196,13 +196,18 @@ def test_a_stored_row_reads_each_shape_by_its_own_keys(nfl):
     fake = FakeKalshi()
     run, out = go(adapter=fake)
     got = rows()
-    h = got[H_TICKER]
+    h = got[H_TICKER]          # its listing is written in the test (no result, no settlement_ts): both stay null
     assert (h["source"], h["match_id"], h["side"], h["kalshi_result"]) == ("historical", nfl["LACDET"], "AWAY", None)
     assert h["last_ts"] == datetime(2025, 8, 1, 0, 0) and (h["last_bid"], h["last_ask"]) == (0.45, 0.46)
     assert h["last_mid"] == pytest.approx(0.455)
     # (18:00, 00:00]: the kept reply starts at 21:56, with minutes missing here and there
     assert (h["candles_6h"], h["candles_two_sided"], h["gaps"]) == (107, 107, 253)
     assert got[H_TICKER.replace("-LAC", "-DET")]["side"] == "HOME"
+    kept = _leg("historical_markets_page", "KXNFLGAME-26AUG13LACHOU-LAC")       # a kept historical page row
+    hr = got[kept["ticker"]]
+    assert (hr["source"], hr["match_id"], hr["side"]) == ("historical", nfl["LACHOU"], "AWAY")
+    assert hr["kalshi_result"] == kept["result"] == "yes"
+    assert hr["settled_time"] == kh.parse_ts(kept["settlement_ts"]) == datetime(2026, 8, 14, 2, 57, 24, 703233)
     lv = got[L_TICKER]
     assert (lv["source"], lv["match_id"], lv["side"], lv["kalshi_result"]) == ("live", nfl["BUFLAR"], "HOME", "no")
     assert lv["close_time"] == datetime(2026, 10, 13, 3, 48, 50)
@@ -219,18 +224,36 @@ def test_a_stored_row_reads_each_shape_by_its_own_keys(nfl):
     assert [q.get("cursor") for p, q in fake.calls if p == "historical/markets"] == [None, H_CURSOR]
     assert [q.get("cursor") for p, q in fake.calls if p == "markets"] == [None, L_CURSOR]
     assert all(r["fetched_at"] == NOW for r in got.values())
+    # the close leaf, on kept minutes whose open / high / low differ from it (the kickoff minutes above do not)
+    hist = _load("historical_candlesticks")["candlesticks"]
+    for kick, quote in ((datetime(2025, 7, 31, 23, 54), (0.46, 0.47)), (datetime(2025, 7, 31, 23, 59), (0.45, 0.46))):
+        st = kh.window_stats(hist, kick, "historical")
+        assert (st["last_ts"], st["last_bid"], st["last_ask"]) == (kick, *quote)
+    st = kh.window_stats(_load("live_candlesticks")["candlesticks"], datetime(2026, 10, 13, 0, 16), "live")
+    assert (st["last_bid"], st["last_ask"]) == (0.58, 0.60)
     assert "  cutoff market_settled_ts: 2026-08-15T00:00:00Z" in out
     assert "  stored: 14 (placed on a stored game 10, refused and kept 4) · already stored 0" in out
 
 
 def test_a_null_price_minute_stays_null(nfl):
-    """A zero-volume minute carries a null price with bid and ask present (the kept historical reply holds them): it
-    is two-sided, and the price is never read or filled; the first candle is kept as sent. A minute with no ask (none
-    in the kept files: one is written here from a kept candle) is one-sided, and nothing fills it."""
-    go()
-    h = rows()[H_TICKER]
+    """A zero-volume minute of the historical shape carries price.close / open / high / low / mean null (price.previous
+    set) with its bid and ask present: it is two-sided, its price is never read or filled, and as the row's first
+    candle it is stored as sent, nulls and all (the reply is the kept one from its first zero-volume minute). A minute
+    with no ask (none in the kept files: one is written here from a kept candle) is one-sided, and nothing fills it."""
     kept = _load("historical_candlesticks")["candlesticks"]
-    assert h["raw_first_candle"] == kept[0]
+    i = next(n for n, c in enumerate(kept) if c["price"]["close"] is None)
+
+    class FromZeroVolume(FakeKalshi):
+        def _get(self, path, params=None):
+            if path == f"historical/markets/{H_TICKER}/candlesticks":
+                self.calls.append((path, dict(params or {})))
+                return {"candlesticks": kept[i:], "ticker": H_TICKER}
+            return super()._get(path, params)
+    go(adapter=FromZeroVolume())
+    h = rows()[H_TICKER]
+    assert h["raw_first_candle"] == kept[i] and h["raw_first_candle"]["volume"] == "0.00"
+    assert [h["raw_first_candle"]["price"][k] for k in ("close", "open", "high", "low", "mean")] == [None] * 5
+    assert h["raw_first_candle"]["price"]["previous"] == "0.4600"
     null_price = [c for c in kept if c["price"]["close"] is None]
     assert null_price and all(c["volume"] == "0.00" for c in null_price)
     assert all(kh.bid_ask(c, "historical") == (float(c["yes_bid"]["close"]), float(c["yes_ask"]["close"]))
@@ -242,6 +265,24 @@ def test_a_null_price_minute_stays_null(nfl):
     assert kh.bid_ask(at_kick, "live") == (0.61, None)
     st = kh.window_stats(live, datetime(2026, 10, 13, 0, 15), "live")
     assert st["last_ts"] == datetime(2026, 10, 13, 0, 14) and st["candles_two_sided"] == 146    # not filled from it
+
+
+def test_an_empty_side_is_not_a_quote():
+    """Ruling 9 of #286, "two-sided = 0 < bid <= ask < 1": the kept files send an empty side at size zero, priced
+    0.00 (a bid) or 1.00 (an ask): every kept market's settled book; the raw replies after the games end (a 0.00 bid
+    on the live one's last minute, 1.00 asks on the historical one's). At kickoff, an empty side, or a crossed quote,
+    is not the quote: it falls back to the minute before, and the minute is not counted two-sided. Written here from
+    the kept kickoff candle, since the kept files hold no empty side before a kickoff."""
+    for m in _load("historical_markets_page")["markets"] + _load("settled_markets_page")["markets"]:
+        assert (m["yes_bid_dollars"], m["yes_bid_size_fp"]) == ("0.0000", "0.00") and m["yes_ask_size_fp"] == "0.00"
+    kick = datetime(2026, 10, 13, 0, 15)
+    for bid, ask in (("0.0000", "0.6200"), ("0.6100", "1.0000"), ("0.6300", "0.6200")):
+        live = copy.deepcopy(_load("live_candlesticks")["candlesticks"])
+        at = next(c for c in live if c["end_period_ts"] == _ts(kick))
+        at["yes_bid"]["close_dollars"], at["yes_ask"]["close_dollars"] = bid, ask
+        assert kh.bid_ask(at, "live") == (float(bid), float(ask)) and not kh.two_sided(float(bid), float(ask))
+        st = kh.window_stats(live, kick, "live")
+        assert st["last_ts"] == datetime(2026, 10, 13, 0, 14) and st["candles_two_sided"] == st["candles_6h"] - 1
 
 
 def test_a_tied_game_is_kept_with_its_result_as_read(nfl):
@@ -288,13 +329,14 @@ def test_the_cap_stops_the_run_prints_where_and_the_next_run_resumes(nfl):
 
 
 def test_the_cap_inside_a_list_stores_nothing_and_prints_the_cursor(nfl):
-    """A list cut short is never half-read: nothing is placed or stored, and the run names the list and the kept
-    cursor it stopped at."""
-    run, out = go(max_calls=2)
+    """A list cut short is never half-read: nothing is placed or stored, not even the markets of the historical list,
+    read whole before the cap cuts the live one; the run names the list and the kept cursor it stopped at."""
+    run, out = go(max_calls=4)
+    assert run.listed == {"historical": 8, "live": 6}
     assert rows() == {} and run.rows == []
-    assert out[-1] == (f"  STOPPED at the cap (2 calls) while listing historical (historical/markets), before page 2 "
-                       f"at cursor {H_CURSOR}; nothing is placed or stored from a list cut short (a larger "
-                       "--max-calls lists it whole)")
+    assert out[-1] == (f"  STOPPED at the cap (4 calls) while listing live (markets), before page 2 at cursor "
+                       f"{L_CURSOR}; nothing is placed or stored from a list cut short (a larger --max-calls lists "
+                       "it whole)")
 
 
 def test_dry_run_writes_nothing_and_prints_what_would_be_stored(nfl):
@@ -309,7 +351,9 @@ def test_dry_run_writes_nothing_and_prints_what_would_be_stored(nfl):
     run, out = go(dry_run=True)
     assert counts() == before and rows() == {}
     assert "  would be stored: 14 (placed on a stored game 10, refused and kept 4) · already stored 0" in out
-    assert any(ln.startswith(f"    {L_TICKER} · live · match ") and "bid 0.61 ask 0.62" in ln for ln in out)
+    assert any(ln.startswith(f"    {L_TICKER} · live · match ") and "settled 2026-10-13 03:53:55Z" in ln
+               and "bid 0.61 ask 0.62" in ln for ln in out)
+    assert "  rows with settled_time null: 2" in out          # the two legs whose listing is written in the test
 
 
 def test_a_run_writes_its_one_table_and_nothing_else(nfl):
@@ -329,7 +373,7 @@ def test_since_and_until_keep_the_markets_of_their_game_days(nfl):
     run, out = go(since=date(2026, 10, 1))
     assert {t.split("-")[1] for t in rows()} == {"26OCT12BUFLAR", "26OCT11NYGWAS", "26OCT11DETARI"}
     assert run.out_of_range == 8
-    go(until=date(2025, 12, 31))
+    go(until=date(2025, 7, 31))                                    # H_TICKER's own day: --until is inclusive
     assert H_TICKER in rows() and "KXNFLGAME-26AUG13LACHOU-LAC" not in rows()
 
 
@@ -345,37 +389,44 @@ def test_the_command_runs_dry_and_refuses_a_bad_date(nfl, monkeypatch):
     assert bad.exit_code == 2 and "REFUSED: --since '2026-13-01' is not a date" in bad.output
 
 
-def test_a_failed_page_stores_nothing_and_the_next_run_places_both_legs(nfl):
-    """A list that does not reach its end is never half-read: the page the kept cursor asks for fails, nothing is
-    placed or stored; the next run lists it whole and places both legs of its event."""
+CUTS = [("historical", "historical/markets", H_CURSOR, "  markets listed: 6 (historical 6, live settled 0)"),
+        ("live", "markets", L_CURSOR, "  markets listed: 14 (historical 8, live settled 6)")]
+
+
+@pytest.mark.parametrize("source, path, cursor, listed", CUTS)
+def test_a_failed_page_stores_nothing_and_the_next_run_places_both_legs(nfl, source, path, cursor, listed):
+    """A list that does not reach its end is never half-read: the page a kept cursor asks for fails, and nothing is
+    placed or stored, not even a list read whole before it; the next run lists both whole and places every leg."""
     import requests
 
     class Failing(FakeKalshi):
-        def _get(self, path, params=None):
-            if path == "historical/markets" and (params or {}).get("cursor") == H_CURSOR:
-                self.calls.append((path, dict(params)))
+        def _get(self, p, params=None):
+            if p == path and (params or {}).get("cursor") == cursor:
+                self.calls.append((p, dict(params)))
                 resp = requests.Response()
                 resp.status_code = 429
                 raise requests.HTTPError(response=resp)
-            return super()._get(path, params)
+            return super()._get(p, params)
     run, out = go(adapter=Failing())
     assert rows() == {} and run.rows == []
-    assert any("historical: page 2 of historical/markets failed (status 429): the list stops here, and nothing is "
+    assert any(f"{source}: page 2 of {path} failed (status 429): the list stops here, and nothing is "
                "placed or stored" in ln for ln in out)
-    assert "  markets listed: 6 (historical 6, live settled 0)" in out
+    assert listed in out
     go()
     got = rows()
     assert (got[H_TICKER]["match_id"], got[H_TICKER]["side"]) == (nfl["LACDET"], "AWAY")
     assert got[H_TICKER.replace("-LAC", "-DET")]["side"] == "HOME"
 
 
-def test_a_cursor_that_comes_back_ends_the_list_short_and_stores_nothing(nfl):
+@pytest.mark.parametrize("source, path, cursor, listed", CUTS)
+def test_a_cursor_that_comes_back_ends_the_list_short_and_stores_nothing(nfl, source, path, cursor, listed):
     pages = kept_pages()
-    pages["historical/markets"][H_CURSOR] = {"markets": [], "cursor": H_CURSOR}
+    pages[path][cursor] = {"markets": [], "cursor": cursor}
     fake = FakeKalshi(pages=pages)
     run, out = go(adapter=fake)
-    assert rows() == {} and len(fake.calls) == 3          # the cutoff and two pages: the cap is not spent
-    assert any(f"the cursor {H_CURSOR!r} came back on page 2 of historical/markets" in ln for ln in out)
+    assert rows() == {} and run.rows == [] and listed in out
+    assert not any(p.endswith("/candlesticks") for p, _ in fake.calls)      # nothing placed, no candle asked
+    assert any(f"the cursor {cursor!r} came back on page 2 of {path}" in ln for ln in out)
 
 
 @pytest.mark.parametrize("status, stored", [(404, True), (400, True), (429, False), (503, False), (408, False)])
@@ -404,10 +455,27 @@ def test_a_candle_call_refused_for_good_is_stored_without_a_quote(nfl, status, s
 
 def test_an_unreadable_timestamp_is_skipped_never_a_crash():
     assert kh.parse_ts(1_751_670_300_000_000) is None and kh.parse_ts("2025-13-45T00:00:00Z") is None
-    cs = _load("historical_candlesticks")["candlesticks"] + [{"end_period_ts": 1_751_670_300_000_000,
-                                                             "yes_bid": {"close": 0.1}, "yes_ask": {"close": 0.2}}]
+    micro = _ts(datetime(2025, 7, 31, 23, 0, 30)) * 1_000_000     # a minute inside the window, in microseconds
+    assert kh.parse_ts(micro) is None
+    cs = _load("historical_candlesticks")["candlesticks"] + [{"end_period_ts": micro,
+                                                             "yes_bid": {"close": "0.10"}, "yes_ask": {"close": "0.20"}}]
     st = kh.window_stats(cs, datetime(2025, 8, 1, 0, 0), "historical")
     assert st["last_ts"] == datetime(2025, 8, 1, 0, 0) and st["candles_6h"] == 107
+
+
+def test_a_time_with_a_four_or_five_digit_fraction_is_read_whole():
+    """The kept files send fractions of 0 to 6 digits ("2026-10-11T20:53:48.99019Z"); every one is read to the
+    microsecond, on 3.10 as on 3.11+ (3.10's fromisoformat takes only three or six digits)."""
+    assert kh.parse_ts("2026-10-11T20:53:48.99019Z") == datetime(2026, 10, 11, 20, 53, 48, 990190)
+    assert kh.parse_ts("2026-01-27T04:15:20.2697Z") == datetime(2026, 1, 27, 4, 15, 20, 269700)
+    assert kh.parse_ts("2025-12-09T04:50:04.119Z") == datetime(2025, 12, 9, 4, 50, 4, 119000)
+    assert kh.parse_ts("2026-10-13T03:48:50Z") == datetime(2026, 10, 13, 3, 48, 50)
+    for page in ("historical_markets_page", "settled_markets_page"):
+        for m in _load(page)["markets"]:
+            for k in ("close_time", "settled_time"):
+                v = m[kh.KEYS[k]]
+                frac = v.split(".")[1].rstrip("Z") if "." in v else ""
+                assert kh.parse_ts(v).microsecond == int((frac + "000000")[:6])
 
 
 # ---- the MLB shape (a clock in the ticker), written here: the kept files are NFL --------------------------------------

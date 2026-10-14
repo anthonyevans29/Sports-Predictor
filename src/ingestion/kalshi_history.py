@@ -40,10 +40,14 @@ How it reads, so the receipt can be checked against it:
   for good (a 4xx other than 408 / 429) stores the market with no quote and the status in notes; any other failure
   stores nothing for it (listed; the next run asks again). Nothing is retried in the run.
 - Per market from its candles: last_ts / last_bid / last_ask / last_mid of the last candle at or before kickoff that
-  carries both a bid and an ask (a candle carries one when the shape's bid and ask keys hold a price in 0..1; a null
-  is never filled, and the mid is the two's mean); candles_6h (candles whose end falls in the six hours up to
-  kickoff), candles_two_sided (of those, the ones carrying both), gaps (the minutes of those six hours with no candle:
-  360 less the distinct minutes present), raw_first_candle (the first candle returned, whole).
+  carries both a bid and an ask (a null is never filled, and the mid is the two's mean); candles_6h (candles whose end
+  falls in the six hours up to kickoff), candles_two_sided (of those, the ones carrying both), gaps (the minutes of
+  those six hours with no candle: 360 less the distinct minutes present), raw_first_candle (the first candle
+  returned, whole). A candle carries both when its bid and ask, read by the shape's own keys, are two-sided as ruling
+  9 of #286 defines it (ARCHITECT 2026-10-06, "two-sided = 0 < bid <= ask < 1"): the kept files send an empty side
+  at size zero, priced 0.00 (a bid) or 1.00 (an ask; 0.00 on two legs) (yes_bid_size_fp / yes_ask_size_fp "0.00" on
+  all 400 markets of the kept pages), and an empty side is not a quote. This reading of the ruling here is for the
+  architect's read on #521.
 - --max-calls (default 300; the probe's whole run was 241): every call counts. At the cap the run stops cleanly: what
   it holds is stored (unless --dry-run), and it prints where it stopped (the list and its cursor, or the market whose
   candles it would have fetched next).
@@ -57,13 +61,15 @@ tests/fixtures/kalshi_history/, where the tests check every key against them. Ev
 (no _dollars suffix); the live series endpoint's carry close_dollars / volume_fp / open_interest_fp") and of the
 probe's reader (scripts/kalshi_history_probe.py: markets / cursor, candlesticks, end_period_ts, ticker / event_ticker /
 close_time / result) is the files' own; settled_time's, which the receipt did not name, is settlement_ts (on every
-market of both kept pages). As the files send them: a price is a dollar string ("0.4500"), end_period_ts is epoch
-seconds, a zero-volume minute carries a null price with its bid and ask present, and a tied NFL game settles both legs
-as result "scalar" (0.50), stored as kalshi_result null with the result as read in notes.
+market of both kept pages). As the files send them: a price is a dollar string ("0.4500"); a time is ISO with a
+fraction of 0 to 6 digits ("…24.64689Z"); end_period_ts is epoch seconds; a zero-volume minute of the historical shape
+carries price.close / open / high / low / mean null (price.previous set) with its bid and ask present; and a tied NFL
+game settles both legs as result "scalar" (0.50), stored as kalshi_result null with the result as read in notes.
 """
 from __future__ import annotations
 
 import json
+import re
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -71,6 +77,7 @@ from datetime import date, datetime, timedelta, timezone
 import requests
 
 from src.ingestion import kalshi_match as km
+from src.walters.k_receipt import leg_two_sided
 
 TABLE = "kalshi_settled_markets"
 MAX_CALLS = 300                  # the ruling's default
@@ -93,6 +100,9 @@ KEYS = {
 SOURCES = (("historical", "historical/markets", {}), ("live", "markets", {"status": "settled"}))
 
 
+_FRACTION = re.compile(r"\.(\d+)")
+
+
 class Capped(Exception):
     """The run reached --max-calls."""
 
@@ -103,12 +113,15 @@ class ListCut(Exception):
 
 
 def parse_ts(v) -> datetime | None:
-    """An ISO time (Z or offset) or epoch seconds -> naive UTC; None when it is neither."""
+    """An ISO time (Z or offset) or epoch seconds -> naive UTC; None when it is neither. The fraction is read to six
+    digits on every Python the project runs (3.10's fromisoformat takes only three or six; the kept files send four
+    and five too, "…24.64689Z")."""
     try:
         if isinstance(v, (int, float)) and not isinstance(v, bool):
             return datetime.fromtimestamp(v, tz=timezone.utc).replace(tzinfo=None)
         if isinstance(v, str) and v.strip():
-            dt = datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
+            iso = v.strip().replace("Z", "+00:00")
+            dt = datetime.fromisoformat(_FRACTION.sub(lambda m: "." + (m.group(1) + "000000")[:6], iso, count=1))
             return (dt.astimezone(timezone.utc) if dt.tzinfo else dt).replace(tzinfo=None)
     except (ValueError, OverflowError, OSError):     # unreadable (e.g. a millisecond epoch): None, never a crash
         return None
@@ -135,6 +148,12 @@ def bid_ask(candle: dict, shape: str) -> tuple[float | None, float | None]:
             _price(a.get(leaf)) if isinstance(a, dict) else None)
 
 
+def two_sided(bid: float | None, ask: float | None) -> bool:
+    """Ruling 9 of #286 (ARCHITECT 2026-10-06): "two-sided = 0 < bid <= ask < 1" (k_receipt.leg_two_sided). A 0.00
+    bid, or a 1.00 or 0.00 ask, is an empty side, as the kept files send it."""
+    return leg_two_sided(bid, ask)
+
+
 def window_stats(candles: list, kickoff: datetime, shape: str) -> dict:
     """The row's quote and counts from one market's candles (the docstring's list)."""
     cs = [c for c in candles if isinstance(c, dict)]
@@ -147,7 +166,7 @@ def window_stats(candles: list, kickoff: datetime, shape: str) -> dict:
         if end is None or end > kickoff:
             continue
         bid, ask = bid_ask(c, shape)
-        two = bid is not None and ask is not None
+        two = two_sided(bid, ask)
         if two and (last is None or end > last[0]):
             last = (end, bid, ask)
         if end > lo:
@@ -212,7 +231,6 @@ def _refused_for_good(why: str | None) -> bool:
     """A candle call the exchange refused for good: an HTTP 4xx other than 408 and 429. Its market is stored with a
     null quote and the status in notes, so the run never asks it again; a transport error, a 5xx, a 408, a 429 or a
     200 with no list is not stored, and the next run asks again (never in this run)."""
-    import re
     m = re.match(r"status (\d{3})$", why or "")
     return bool(m) and 400 <= int(m.group(1)) < 500 and int(m.group(1)) not in (408, 429)
 
@@ -502,12 +520,14 @@ def _receipt(run: Run, calls: Calls, echo) -> None:
             echo(f"    {t}: {why}")
     nolast = sum(1 for r in run.rows if r["last_ts"] is None)
     echo(f"  rows with last_ts null (no two-sided candle before kickoff, or no candles): {nolast}")
+    echo(f"  rows with settled_time null: {sum(1 for r in run.rows if r['settled_time'] is None)}")
     if run.dry_run:
         for r in run.rows:
             q = (f"last {r['last_ts']:%Y-%m-%d %H:%M}Z bid {r['last_bid']} ask {r['last_ask']} mid {r['last_mid']}"
                  if r["last_ts"] else "no last quote")
+            st = f"{r['settled_time']:%Y-%m-%d %H:%M:%S}Z" if r["settled_time"] else "-"
             echo(f"    {r['ticker']} · {r['source']} · match {r['match_id'] or '-'} {r['side'] or '-'} · result "
-                 f"{r['kalshi_result'] or '-'} · {q} · 6h {r['candles_6h']} two-sided {r['candles_two_sided']} gaps "
-                 f"{r['gaps']}" + (f" · {r['notes']}" if r["notes"] else ""))
+                 f"{r['kalshi_result'] or '-'} · settled {st} · {q} · 6h {r['candles_6h']} two-sided "
+                 f"{r['candles_two_sided']} gaps {r['gaps']}" + (f" · {r['notes']}" if r["notes"] else ""))
     if run.stopped:
         echo(f"  STOPPED at {run.stopped}")

@@ -925,6 +925,15 @@ def _json_safe(o):
 # for the external prediction model to consume in the morning run.
 # ----------------------------------------------------------------------
 
+class UnknownCompetition(ValueError):
+    """export_results was asked for a competition code the database does not hold (addendum 64 item 3, #511)."""
+
+    def __init__(self, code: str):
+        self.code = code
+        super().__init__(f"unknown competition code {code!r}: no competition with that code is stored; the export "
+                         "never falls back to every row (ARCHITECT 2026-10-13, addendum 64 item 3)")
+
+
 def export_results(
     *,
     sport: Sport,
@@ -962,13 +971,16 @@ def export_results(
                    Match.utc_date < end_date,
                    PredictionOutcome.actual_home_score.isnot(None))
         )
-        if competition_code:
+        if competition_code is not None:          # an empty code is a code: it fails the lookup, never "every row"
             from src.db.schema import Competition
             comp = s.execute(
                 select(Competition).where(Competition.code == competition_code)
             ).scalar_one_or_none()
-            if comp:
-                q = q.where(Match.competition_id == comp.id)
+            # ARCHITECT 2026-10-13 (addendum 64 item 3, #511): "export-results with a competition code it does not know
+            # refuses, exit 2, naming the code; it never falls back to every row."
+            if comp is None:
+                raise UnknownCompetition(competition_code)
+            q = q.where(Match.competition_id == comp.id)
 
         for pred, oc, m in s.execute(q).all():
             home = m.home_team.name if m.home_team else None
@@ -1381,7 +1393,7 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
     _ages: list = []            # (sport label, close_age_summary) for each sport that reports a close (#382)
     with session_scope() as s:
         cutoff = utc_now_naive() - timedelta(days=days)
-        for sport, label in ((Sport.MLB, "MLB"), (Sport.SOCCER, "Soccer (PL)")):
+        for sport, label, code in ((Sport.MLB, "MLB", None), (Sport.SOCCER, "Soccer (PL)", "PL")):
             # Outcomes link via prediction_id -> Prediction -> Match
             # (2026-09-15 hotfix: first ship guessed match_id; read the
             # schema, then write the join).
@@ -1390,6 +1402,11 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
                        Prediction.id == PredictionOutcome.prediction_id)
                  .join(Match, Match.id == Prediction.match_id)
                  .where(Match.sport == sport, Match.utc_date >= cutoff))
+            if code:
+                # ARCHITECT 2026-10-13 (addendum 64 item 3, #511): "The RESULTS.md section headed Soccer (PL) reads PL
+                # rows and no other: its query filters by the competition it names."
+                from src.db.schema import Competition as _Comp
+                q = q.join(_Comp, _Comp.id == Match.competition_id).where(_Comp.code == code)
             rows = s.execute(q).all()
             n = len(rows)
             if not n:
@@ -1420,15 +1437,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
             _ages.append((label, age))
             # ARCHITECT 2026-10-13 (addendum 63 item 3): the record against the close, over this section's games, read
             # as the results file reads its rows (the same prediction, outcome and grading close)
-            from src.walters.vs_close import block_from_rows
-            vs = block_from_rows(
-                {"predicted": {"home_win_prob": getattr(preds.get(oc.prediction_id), "home_win_prob", None),
-                               "draw_prob": getattr(preds.get(oc.prediction_id), "draw_prob", None),
-                               "away_win_prob": getattr(preds.get(oc.prediction_id), "away_win_prob", None)},
-                 "actual": {"home_score": oc.actual_home_score, "away_score": oc.actual_away_score,
-                            "result": oc.actual_result.value if oc.actual_result else None},
-                 "graded": g}
-                for (oc, m), g in zip(rows, gcbs))
+            from src.walters.vs_close import block_from_rows, outcome_row
+            vs = block_from_rows(outcome_row(preds.get(oc.prediction_id), oc, g) for (oc, m), g in zip(rows, gcbs))
             for oc, m in rows:
                 c = clv_cohort(oc, preds.get(oc.prediction_id), m, odds_by.get(m.id, []),
                                snaps_by.get(m.id, [])) \

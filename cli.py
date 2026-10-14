@@ -2462,7 +2462,7 @@ def calibration_cmd(sport: str, window_days: int | None):
     from src.walters.calibration import compute_calibration, suggested_temperature
 
     sport_enum = Sport.MLB if sport in ("mlb", "baseball") else Sport.SOCCER
-    report = compute_calibration(sport=sport_enum, window_days=window_days)
+    report = compute_calibration(sport=sport_enum, window_days=window_days, with_vs_close=True)
 
     if report.total == 0:
         console.print("[yellow]No scored predictions found for that filter.[/yellow]")
@@ -2472,6 +2472,10 @@ def calibration_cmd(sport: str, window_days: int | None):
     console.print(f"\n[bold]Calibration report — {report.sport.upper()} ({window_str})[/bold]")
     console.print(f"  Scored predictions: {report.total}")
     console.print(f"  Overall hit rate:   {report.overall_hit_rate*100:.1f}%")
+    # ARCHITECT 2026-10-13 (addendum 64 item 2): "A win rate of the model's own picks carries the line against the
+    # close", by vs_close, over the same games (the per-bin rates are calibration, not a record, and carry nothing)
+    from src.walters.vs_close import line as _vs_line
+    print(f"                      {_vs_line(report.vs_close)}")
     console.print(f"  Avg log-loss:       {report.avg_log_loss:.4f}")
     console.print(f"  Expected Calibration Error (ECE): {report.ece*100:.2f}pp")
     console.print()
@@ -5269,6 +5273,9 @@ def ncaa_shadow_grade_cmd(days):
           f"{r['log_loss']} · Brier {r['brier']} · mean pick-vs-close {r['mean_clv_pp']}pp (n={r['priced']}; "
           f"unpriced {r['unpriced']}) · value-side {r['mean_value_side_clv_pp']}pp (n={r['value_side_n']}; "
           f"unanchored {r['unanchored']})")
+    # ARCHITECT 2026-10-13 (addendum 64 item 2): the hit rate carries the line against the close, per the shadow's close
+    from src.walters.vs_close import line as _vs_line
+    print(f"  ── {_vs_line(r.get('vs_close'))}")
 
 
 @cli.command("export-unl-predictions")
@@ -8467,11 +8474,15 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
     start = day.replace(hour=8, minute=0, second=0, microsecond=0)
     end = start + timedelta(days=1)
 
+    from src.walters.export import UnknownCompetition
     try:
         payload = export_results(
             sport=sport_enum, start_date=start, end_date=end,
             competition_code=competition_code, output_format="json",
         )
+    except UnknownCompetition as e:              # addendum 64 item 3 (#511): refuse, exit 2, naming the code
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
     except Exception as e:
         console.print(f"[red]✗ Results export failed: {e}[/red]")
         return

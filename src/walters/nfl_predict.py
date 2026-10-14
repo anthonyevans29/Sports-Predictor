@@ -489,6 +489,7 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
         vclvs, vshadow = [], []
         anchor_after = 0
         pre_lines = []
+        live_pairs, pre_pairs = [], []        # addendum 63 item 3: decided games with a close
         for pred, m in s.execute(q).all():
             y = 1 if m.home_score > m.away_score else 0   # the frozen gate's convention (tie = home loss)
             tie = m.home_score == m.away_score
@@ -504,6 +505,15 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
                 t["decided"] += 1
                 t["hits"] += hit
             mark = "PUSH" if tie else ("HIT " if hit else "miss")
+            odds_rows = list(s.execute(select(Odds).where(
+                Odds.match_id == m.id, Odds.market == "1X2")).scalars())
+            from src.walters.close import close_1x2, minutes_before_start, outcomes_for, priced
+            _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
+            if not tie and priced(_cl):
+                # addendum 63 item 3: the outcome's probability by the model and by the close, as the results
+                # file's rows carry them (close_block's four-place fair), so the grade and the file read alike
+                side = "HOME" if y == 1 else "AWAY"
+                (pre_pairs if is_pre else live_pairs).append((p if y == 1 else 1 - p, round(_cl["fair"][side], 4)))
             if is_pre:
                 pre_lines.append(f"  {m.away_team.name[:14]:14} @ {m.home_team.name[:15]:15} "
                                  f"{m.away_score:>2}-{m.home_score:<2} model_H={p:.3f} {mark}")
@@ -511,10 +521,6 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
             ll += -(y * math.log(max(p, 1e-12))
                     + (1 - y) * math.log(max(1 - p, 1e-12)))
             close_h = None
-            odds_rows = list(s.execute(select(Odds).where(
-                Odds.match_id == m.id, Odds.market == "1X2")).scalars())
-            from src.walters.close import close_1x2, minutes_before_start, outcomes_for, priced
-            _cl = close_1x2(odds_rows, m.utc_date, outcomes_for(m.sport))   # #167 + #207 contract
             if priced(_cl):
                 close_h = _cl["fair"].get("HOME", 0)
                 # #382: the results row's close_minutes_before_start (close_block, the same close)
@@ -544,8 +550,12 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
             return {"ok": False, "reason": "no finished NFL games with predictions in window"}
         n = live["games"]
         from src.walters.close import close_age_summary
+        from src.walters.vs_close import block, line
+        vs_live, vs_pre = block(live_pairs), block(pre_pairs)
         summary = {"ok": True, "live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d}",
                    **live,
+                   # ARCHITECT 2026-10-13 (addendum 63 item 3): the record against the close, beside the win rate
+                   "vs_close": vs_live,
                    "logloss": round(ll / n, 4) if n else None,
                    "mean_clv_pp": round(sum(clvs) / len(clvs) * 100, 2) if clvs else None,
                    # value side (architect 2026-09-29) — beside, never replacing, pick-vs-close
@@ -556,11 +566,12 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
                    "value_anchor_after_prediction_n": anchor_after,
                    # #382: the close's capture age over the live rows (our capture, not the quote, #348)
                    "close_minutes_before_start": close_age_summary(close_ages),
-                   "pre_live": pre}
+                   "pre_live": {**pre, "vs_close": vs_pre}}
         report(f"  ── sides {live['hits']}/{live['decided']} decided"
                + (f" (+{live['pushes']} push)" if live["pushes"] else "")
                + f" · log-loss {summary['logloss']} · "
                f"mean model-close divergence {summary['mean_clv_pp']}pp (n={len(clvs)} priced)")
+        report(f"  ── {line(vs_live)}")
         report(f"  ── value side vs close {summary['mean_value_side_clv_pp']}pp "
                f"(n={len(vclvs)} anchored; {n - len(vclvs)} unanchored — no pre-kickoff book snapshot) · "
                f"value-shadow cohort {summary['mean_value_shadow_clv_pp']}pp (n={len(vshadow)}) · "
@@ -569,6 +580,7 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
             report(f"  ── pre-live (before {NFL_LIVE_SINCE:%Y-%m-%d}; never pooled): "
                    f"{pre['hits']}/{pre['decided']} decided"
                    + (f" (+{pre['pushes']} push)" if pre["pushes"] else ""))
+            report(f"  ── pre-live {line(vs_pre)}")
             for line in pre_lines:
                 report(line)
         return summary
@@ -586,10 +598,17 @@ def _is_pre_live(m) -> bool:
 
 def _season_record(rows: list) -> dict:
     """Hits over DECIDED games. A tie is a PUSH (ARCHITECT 2026-10-05): neither
-    hit nor miss, out of the hit denominator, counted separately."""
+    hit nor miss, out of the hit denominator, counted separately.
+
+    Every block that holds a win rate (the season and each week) carries its
+    line against the close, over its decided games with a close (ARCHITECT
+    2026-10-13, addendum 63 item 3: "A win rate is never printed without it")."""
+    from src.walters.vs_close import block_from_rows
     by_week: dict = {}
+    rows_by_week: dict = {}
     for r in rows:
         w = by_week.setdefault(str(r["week"]), {"games": 0, "decided": 0, "hits": 0, "pushes": 0})
+        rows_by_week.setdefault(str(r["week"]), []).append(r)
         w["games"] += 1
         if r["graded"].get("push"):
             w["pushes"] += 1
@@ -597,7 +616,10 @@ def _season_record(rows: list) -> dict:
         w["decided"] += 1
         w["hits"] += 1 if r["graded"]["top_pick_hit"] else 0
     tot = {k: sum(w[k] for w in by_week.values()) for k in ("games", "decided", "hits", "pushes")}
-    return {**tot, "by_week": dict(sorted(by_week.items(), key=lambda kv: (len(kv[0]), kv[0])))}
+    for k, w in by_week.items():
+        w["vs_close"] = block_from_rows(rows_by_week[k])
+    return {**tot, "vs_close": block_from_rows(rows),
+            "by_week": dict(sorted(by_week.items(), key=lambda kv: (len(kv[0]), kv[0])))}
 
 
 def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -> str:

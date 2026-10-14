@@ -91,6 +91,14 @@ def test_log_loss_hand_computed_and_same_priced_restriction(world, tmp_path):
     a = r["all_scored"]
     assert a["n"] == 3 and a["ll_model"] == pytest.approx((-math.log(0.5) - math.log(0.3) - math.log(0.35)) / 3)
     assert {k: v["n"] for k, v in r["buckets"].items()} == {"<4": 1, "4-10": 0, "10-15": 0, ">=15": 1}
+    # ARCHITECT 2026-10-13 (addendum 63 item 3): the record against the close on the same priced games, and on each
+    # bucket, from the outcome's probability by the model and by the close (g1: H 0.5 vs fair_h; g3: A 0.35 vs 0.25)
+    from src.walters.vs_close import block
+    assert sp["vs_close"] == block([(0.5, fair_h), (0.35, 0.25)])
+    assert sp["vs_close"]["model_beat_close"] == 2 and sp["vs_close"]["ci95"] is not None
+    assert r["buckets"]["<4"]["vs_close"] == block([(0.5, fair_h)])
+    assert r["buckets"]["4-10"]["vs_close"]["games"] == 0
+    assert "vs_close" not in a                                     # the all-scored line is the model side only
     # the original summary keys are unchanged
     assert r["mean_clv_pp"] == round(((0.5 - fair_h) + 0.2 + (0.5 - 0.5)) / 3 * 100, 2)
 
@@ -116,3 +124,9 @@ def test_cli_prints_the_new_sections(world, tmp_path, monkeypatch):
     assert out.exit_code == 0, out.output
     assert "mean pick-vs-close" in out.output and "SAME priced games: n 2" in out.output
     assert ">=15: n   1" in out.output and "result H hit Y" in out.output
+    # addendum 63 item 3: the hits line is never printed without the line against the close; each bucket has its own
+    lines = out.output.splitlines()
+    i = next(k for k, x in enumerate(lines) if "── with a result 3" in x)
+    assert lines[i + 1].startswith("  ── vs close: 2 games · ") and "model beat the close 2/2" in lines[i + 1]
+    j = next(k for k, x in enumerate(lines) if ">=15: n   1" in x)
+    assert lines[j + 1].strip().startswith("vs close: 1 game · ")

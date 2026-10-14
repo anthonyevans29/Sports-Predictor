@@ -141,7 +141,9 @@ def test_ties_are_pushes_and_pre_live_rows_are_never_pooled(tmp_path):
     assert t["graded"]["push"] is True and t["graded"]["top_pick_hit"] is None and t["actual"]["result"] == "T"
     assert t["graded"]["log_loss"] == round(-__import__("math").log(0.6), 4)  # gate convention: tie = home loss
     w6 = doc["record"]["by_week"]["6"]
-    assert w6 == {"games": 2, "decided": 1, "hits": 1, "pushes": 1}
+    # addendum 63 item 3: every block holding a win rate also carries its line against the close (no odds here)
+    assert {k: v for k, v in w6.items() if k != "vs_close"} == {"games": 2, "decided": 1, "hits": 1, "pushes": 1}
+    assert w6["vs_close"]["games"] == 0 and doc["record"]["vs_close"]["games"] == 0
     assert doc["record"]["live_since"] == f"{NFL_LIVE_SINCE:%Y-%m-%d}" and doc["count"] == len(doc["results"])
     assert doc["record"]["games"] == doc["count"]
     assert {r["match_id"] for r in doc["pre_live"]["results"]} == {pre, pres}
@@ -212,7 +214,9 @@ def test_nfl_grade_and_results_md_state_the_one_record_definition(tmp_path):
         lines = []
         r = grade_nfl(days_back=None, progress=lines.append)
         assert (r["games"], r["decided"], r["hits"], r["pushes"]) == (3, 2, 1, 1)
-        assert r["pre_live"] == {"games": 2, "decided": 2, "hits": 1, "pushes": 0}
+        assert {k: v for k, v in r["pre_live"].items() if k != "vs_close"} == {"games": 2, "decided": 2, "hits": 1,
+                                                                                 "pushes": 0}
+        assert r["pre_live"]["vs_close"]["games"] == 0 and r["vs_close"]["games"] == 0   # addendum 63 item 3
         assert any("PUSH" in x and "OneDef 1" in x for x in lines)
         assert any("sides 1/2 decided (+1 push)" in x for x in lines)
         assert any("pre-live (before" in x and "never pooled" in x for x in lines)

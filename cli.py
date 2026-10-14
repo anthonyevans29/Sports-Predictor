@@ -4898,6 +4898,7 @@ def export_nfl_results_cmd(days_back, match_ids):
     import json as _json
 
     from src.walters.nfl_predict import export_nfl_results
+    from src.walters.vs_close import line as _vs_line
     path = export_nfl_results(days_back=days_back)
     doc = _json.load(open(path))
     w, rec = doc.get("window") or {}, doc.get("record") or {}
@@ -4906,15 +4907,20 @@ def export_nfl_results_cmd(days_back, match_ids):
                                         else f"{w.get('days')}d from {w.get('from')}")
           + f" · live since {rec.get('live_since')} · games {rec.get('games')} · top-pick hits "
           f"{rec.get('hits')}/{rec.get('decided')} decided · pushes {rec.get('pushes')}")
+    # ARCHITECT 2026-10-13 (addendum 63 item 3): "A win rate is never printed without it."
+    print(f"  {_vs_line(rec.get('vs_close'))}")
 
     def _wk(v):                                   # pushes are out of the hit denominator (ARCHITECT 2026-10-05)
         return f"{v['hits']}/{v['decided']}" + (f" +{v['pushes']}P" if v.get("pushes") else "")
-    print("by week: " + " · ".join(f"W{k} {_wk(v)}" for k, v in (rec.get("by_week") or {}).items()))
+    print("by week:")
+    for k, v in (rec.get("by_week") or {}).items():
+        print(f"  W{k} {_wk(v)} · {_vs_line(v.get('vs_close'))}")
     pre = doc.get("pre_live") or {}
     if pre.get("count"):
         prec = pre.get("record") or {}
         print(f"pre-live (never pooled): games {pre['count']} · hits {prec.get('hits')}/{prec.get('decided')}"
               f" · pushes {prec.get('pushes')}")
+        print(f"  {_vs_line(prec.get('vs_close'))}")
     live_ids = {r["match_id"] for r in doc.get("results") or []}
     pre_ids = {r["match_id"] for r in pre.get("results") or []}
     for mid in match_ids:
@@ -5194,8 +5200,11 @@ def export_nhl_predictions_cmd(hours):
 @click.option("--days", default=30, show_default=True, type=int)
 def nhl_shadow_grade_cmd(days):
     """Live CLV of the NHL SHADOW calls (pick-vs-close + value-side) from the
-    shadow exports on disk. Read-only; no hit rate, no log-loss: not a record."""
+    shadow exports on disk, and the record against the close of each name on its
+    own (ARCHITECT 2026-10-13, addendum 63 items 2 and 3). Read-only; no hit
+    rate: not a record of calls."""
     from src.walters.nhl_shadow import grade
+    from src.walters.vs_close import line as _vs_line
     r = grade(days=days, progress=print)
     print(f"  ── graded {r['graded']} (calls on file {r['calls_on_file']}) · mean pick-vs-close "
           f"{r['mean_clv_pp']}pp (n={r['priced']}) · value-side {r['mean_value_side_clv_pp']}pp "
@@ -5208,6 +5217,11 @@ def nhl_shadow_grade_cmd(days):
               f"{r['fallback_mean_clv_pp']}pp (n={r['fallback_priced']}) · value-side "
               f"{r['fallback_mean_value_side_clv_pp']}pp (n={r['fallback_value_side_n']}; unanchored "
               f"{r['fallback_unanchored']})")
+    # addendum 63 item 3: the record against the close, each name on its own (never pooled)
+    print("  ── the record against the close, each name on its own"
+          + (f" ({r['undecided']} graded without a decided score left out)" if r.get("undecided") else "") + ":")
+    for k, v in r["vs_close"].items():
+        print(f"     {k}: {_vs_line(v)}")
 
 
 @cli.command("export-ncaa-predictions")
@@ -5323,6 +5337,8 @@ def export_intl_results_cmd(days_back):
     print(f"  {doc['record_scope']}")
     print(f"  window: {doc['window']['kind']} · graded {rec['games']} (90-minute result) · top-pick hits "
           f"{rec['hits']}/{rec['decided']} · ungraded {rec['ungraded']}")
+    from src.walters.vs_close import line as _vs_line      # addendum 63 item 3: beside the win rate, always
+    print(f"  {_vs_line(rec.get('vs_close'))}")
     for u in doc["ungraded"]:
         print(f"  UNGRADED match {u['match_id']} {u['away_team']} @ {u['home_team']} {u['utc_date'][:10]}: "
               f"{u['reason']}")
@@ -5340,10 +5356,14 @@ def unl_shadow_grade_cmd(days):
     r = grade(days=days, progress=print)
     print(f"  ── graded {r['graded']} (calls on file {r['calls_on_file']}) · mean pick-vs-close "
           f"{r['mean_clv_pp']}pp (n={r['priced']}; unpriced {r['unpriced']})")
+    from src.walters.vs_close import line as _vs_line
     f3 = lambda x: "—" if x is None else f"{x:.4f}"
     a, sp = r["all_scored"], r["same_priced"]
     print(f"  ── with a result {a['n']} (no result {r['no_result']}) · hits {a['hits']}/{a['n']} · "
           f"model log-loss {f3(a['ll_model'])} (all with a result, priced or not)")
+    # ARCHITECT 2026-10-13 (addendum 63 item 3): "A win rate is never printed without it": the record against the
+    # close is over the decided games that have a close, the same priced games below
+    print(f"  ── {_vs_line(sp.get('vs_close'))}")
     print(f"  ── SAME priced games: n {sp['n']} (priced {r['priced']}, of them without a result "
           f"{r['priced_no_result']}; unpriced {r['unpriced']} left out) · model log-loss {f3(sp['ll_model'])} · "
           f"book-close log-loss {f3(sp['ll_close'])} · hits {sp['hits']}/{sp['n']}")
@@ -5352,6 +5372,7 @@ def unl_shadow_grade_cmd(days):
         b = r["buckets"][name]
         print(f"     {name:>6}: n {b['n']:>3} · hits {b['hits']:>3} · model LL {f3(b['ll_model'])} · "
               f"close LL {f3(b['ll_close'])}")
+        print(f"             {_vs_line(b.get('vs_close'))}")
 
 
 @cli.command("intl-elo-confirm")
@@ -8479,6 +8500,9 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
     console.print(f"  [dim]top-pick {hits}/{n} · totals-direction {tot_ok}/{len(tot_graded)} "
                   f"({n - len(tot_graded)} no line) "
                   "(record is variance, not signal — for the consumer to grade against)[/dim]")
+    # ARCHITECT 2026-10-13 (addendum 63 item 3): "A win rate is never printed without it."
+    from src.walters.vs_close import line as _vs_line
+    print(f"  {_vs_line((data.get('record') or {}).get('vs_close'))}")
 
     # totals pulse now lives in the payload (audit layer reads it from the file);
     # print it from there so console and file are the same single source of truth.

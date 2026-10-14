@@ -165,7 +165,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
 
 <div class="card deskonly shadowref" id="shadowCard" hidden>
   <h2 style="margin-top:0">Shadow models — never a call <span class="note" id="shadowNote"></span></h2>
-  <div class="note">Shadow only: never a Desk call, never a venue input, never logged to the ledger. Graded on live model-close divergence only (RESULTS.md shadow section).</div>
+  <div class="note">Shadow only: never a Desk call, never a venue input, never logged to the ledger. Graded against the close only: the divergence and the record against the close (RESULTS.md shadow section).</div>
   <div class="tablewrap"><table id="shadowTable"><thead><tr><th>Game</th><th>When (UTC)</th><th>Reference pick</th><th>Books' fair</th><th>Kalshi</th><th>Engine</th></tr></thead><tbody></tbody></table></div>
 </div>
 
@@ -226,6 +226,7 @@ details.sig pre{max-height:220px;margin:6px 0 0}
         <input type="file" id="kalshiCsvFile" accept=".csv,text/csv"></div>
     </div>
     <div class="note" id="ledgerNote" style="margin-top:8px"></div>
+    <div class="note" id="modelRecord" style="margin-top:6px;white-space:pre-wrap" title="Each results file's model record, read from its record block as written (ARCHITECT 2026-10-13, addendum 63 item 3); never recomputed here"></div>
   </div>
   <div class="card"><div id="ledgerTotals" class="summary">No calls logged yet.</div>
     <div id="ledgerTables"></div></div>
@@ -1068,6 +1069,45 @@ function outcomesFromDoc(doc){
       m.fair_prob?{fair:m.fair_prob,at:m.captured_at||null,source:`fixtures market (${m.fair_source||"1X2"})`}:null); }
   return out;
 }
+// ---------------------------------------------------------------------
+// THE MODEL RECORD AGAINST THE CLOSE (ARCHITECT 2026-10-13, addendum 63 item 3):
+// "Every results export ... carries, in its record block, over the decided games
+// that have a close: the games, the model's log-loss, the close's, the paired
+// difference close minus model, its bootstrap 95% interval ..., and the count of
+// games the model beat the close. The Cockpit shows that line beside the win
+// rate. A win rate is never printed without it." Read from doc.record AS
+// WRITTEN, never recomputed here (F1c: the Cockpit computes no policy; a JS
+// bootstrap would not reproduce the file's seeded one). The text mirrors
+// src/walters/vs_close.py line().
+// ---------------------------------------------------------------------
+function vsCloseLine(b){
+  if(!b) return "vs close: not in this file (exported before addendum 63)";
+  const n=b.games||0;
+  if(!n) return "vs close: no decided game with a close";
+  const sg=v=>(v>=0?"+":"")+v.toFixed(4), ci=b.ci95;
+  const interval=ci?`95% ${sg(ci[0])} to ${sg(ci[1])}, ${(b.resamples||10000).toLocaleString("en-US")} resamples, seed ${b.seed}`
+    :"no interval under two games";
+  const k=b.kalshi_only_closes||0;
+  return `vs close: ${n} game${n===1?"":"s"} · model ${b.model_log_loss.toFixed(4)} · close ${b.close_log_loss.toFixed(4)}`
+    +` · close − model ${sg(b.close_minus_model)} (${interval}) · model beat the close ${b.model_beat_close}/${n}`
+    +(k?` · ${k} of the closes the Kalshi-only mid`:"");
+}
+function recordLines(doc,name){
+  const rec=doc&&doc.record; if(!rec) return [];
+  const sp=String(doc.sport||doc.competition_code||"?").toUpperCase(), cc=String(doc.competition_code||"").toUpperCase();
+  const fam=sp+(cc&&cc!==sp?` ${cc}`:"");
+  const pct=(h,d)=>d?` (${(100*h/d).toFixed(1)}%)`:"";
+  // a file exported before addendum 63 has no line against the close: its win rate is not shown either
+  const old=`${fam} · ${name}: exported before addendum 63, no record against the close, so no win rate is shown; re-export`;
+  if(!rec.vs_close) return [old];
+  const dec=rec.decided!=null?rec.decided:rec.games;
+  const out=[`${fam} model record · ${name}: top-pick hits ${rec.hits}/${dec}${pct(rec.hits,dec)}`
+    +(rec.pushes?` · pushes ${rec.pushes}`:"")+` · ${vsCloseLine(rec.vs_close)}`];
+  const pre=doc.pre_live&&doc.pre_live.record;
+  if(pre&&pre.games) out.push(pre.vs_close?`${fam} pre-live (never pooled): hits ${pre.hits}/${pre.decided}${pct(pre.hits,pre.decided)}`
+    +(pre.pushes?` · pushes ${pre.pushes}`:"")+` · ${vsCloseLine(pre.vs_close)}`:`${fam} pre-live: no record against the close, so no win rate is shown`);
+  return out;
+}
 function dayDiff(a,b){
   if(!a||!b) return Infinity;
   const d=x=>Date.UTC(+x.slice(0,4),+x.slice(5,7)-1,+x.slice(8,10));
@@ -1196,11 +1236,13 @@ function gradeLedger(L,outs){
 }
 $("resultsFile").addEventListener("change",async e=>{
   const fs=Array.from(e.target.files); if(!fs.length)return;
-  let outs=[], picks=[];
+  let outs=[], picks=[], recs=[];
   for(const f of fs){
-    try{ const doc=JSON.parse(await f.text()); outs=outs.concat(outcomesFromDoc(doc)); picks=picks.concat(picksFromDoc(doc,f.name)); }
+    try{ const doc=JSON.parse(await f.text()); outs=outs.concat(outcomesFromDoc(doc)); picks=picks.concat(picksFromDoc(doc,f.name));
+      recs=recs.concat(recordLines(doc,f.name)); }
     catch(err){ $("ledgerNote").textContent=`Could not parse ${f.name}: ${err.message}`; return; }
   }
+  $("modelRecord").textContent=recs.join("\n");      // addendum 63 item 3: the win rate never without its line
   const L=loadLedger(); const n=gradeLedger(L,outs); const np=harvestPicks(L,picks); const dd=saveLedger(L);
   const open=L.calls.filter(c=>c.status==="open").length;
   $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`

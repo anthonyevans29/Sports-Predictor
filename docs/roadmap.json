@@ -223,6 +223,31 @@
       "live_needs": "a quarterback term that passes its frozen gate and its confirmation. The hold of 2026-10-11 ends with it and not before.",
       "vs_close": "ahead, with no quarterback term. The live model reads 0.6104 against the close's 0.6419 over the 46 games with a close and a result to 2026-10-13 (my read of nfl_NFL_results_2026-10-13.json).",
       "moved": []
+    },
+    {
+      "lane": "mlb-pitchers",
+      "title": "MLB: the pitcher layer, tested as of each game",
+      "issue": 507,
+      "registry_id": null,
+      "state": "to declare",
+      "steps": [
+        {
+          "what": "the as-of reconstruction of the pitcher statistics the live model reads, from the stored appearances (docs/historical_backfill_assessment.md tier 1), as a read-only receipt: coverage per season",
+          "owner": "code",
+          "due": "2026-10-28",
+          "done": null
+        },
+        {
+          "what": "my declaration: the backtest with the pitcher layer on and off, the same games, the MLB bar (0.0050) as the pre-committed margin, on the 2025 and 2026 regular seasons; the result shapes the 2027 model",
+          "owner": "architect",
+          "due": "2026-10-31",
+          "done": null
+        }
+      ],
+      "earliest_live": null,
+      "live_needs": "MLB is live. The lane's exit is a measured contribution of the pitcher layer, on or off, before the 2027 season; a layer that does not clear the margin is retired from the live model by a ruling.",
+      "vs_close": "ahead on the small 2026 sample the mirror holds (27 decided games from 09-29, 14 picks right; the 16 with a close: model 0.6923 against the close's 0.7098), too few to say.",
+      "moved": []
     }
   ]
 }

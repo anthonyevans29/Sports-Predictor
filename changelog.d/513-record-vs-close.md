@@ -1,0 +1,11 @@
+## 2026-10-13 (#513: record-vs-close — ARCHITECT addendum 63 items 3 and 4, #512, #507)
+- src/walters/vs_close.py (new): the record against the close, one helper for every family. `block()` takes (model p, close p) of the outcome that happened, per decided game with a close. It returns the games, the model's log-loss, the close's, close minus model, its bootstrap 95% interval (10,000 resamples, seed 20261013, `random.Random`, the 250th and 9,750th sorted means) and the count of games the model beat the close (strictly lower log-loss). The block is a function of the set of games (sorted first) and carries no negative zero. `line()` prints it.
+- NFL: `record.vs_close`, each `record.by_week[w].vs_close` and `pre_live.record.vs_close` in the results file. `grade_nfl` returns the same blocks, read as the file reads its rows. The receipt, nfl-grade and the RESULTS.md NFL section print each under its win rate.
+- MLB and PL: `export_results` gains a `record` block: `games`, `hits` and `vs_close`, plus `kalshi_only_closes`. The export-results console and the RESULTS.md MLB and Soccer (PL) sections print the line.
+- INTL: `record.vs_close` in the production results file, printed by export-intl-results. unl-shadow-grade carries `vs_close` on the same priced games and on each |model − close| bucket, prints it under the hits line and each bucket, and its RESULTS.md section prints it.
+- NHL: nhl-shadow-grade returns `vs_close` per name, never pooled: v7, the goal-margin fallback, and the v1 reference. It covers decided games with a priced close and counts `undecided`. The console and RESULTS.md print one line per name.
+- The shadow sections and the NHL file notes now read "against the close only" instead of "divergence only".
+- tools/cockpit.html (the repo copy; republished only on the operator's word): the Ledger card shows each loaded results file's model record. It shows the win rate with its line, read from the file's record block and never recomputed.
+- docs/roadmap.json: the mlb-pitchers lane (#507), addendum 63 item 4's text.
+- docs/CLI.md: the rows of every command above.
+- Tests: tests/test_vs_close.py (16) and tests/test_record_vs_close.py (10; one runs the Cockpit's line in node against the Python line). Additions to the NFL, UNL and NHL tests.

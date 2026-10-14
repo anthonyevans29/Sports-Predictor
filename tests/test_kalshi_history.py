@@ -608,6 +608,49 @@ def test_the_migration_writes_its_marker_once(nfl, capsys):
         assert kh.migrated(rs)
 
 
+@pytest.fixture
+def fresh_db(tmp_path, monkeypatch):
+    """A throwaway DB of its own (the shared test DB carries the marker): tests/test_ncaa_cfbd_labels.py's."""
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+    eng = create_engine(f"sqlite:///{tmp_path / 'fresh.db'}", future=True)
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    return eng
+
+
+def test_a_forced_reset_drops_the_marker_so_a_run_refuses_again(fresh_db):
+    """Codex on #521 (the second leg of #333's convention): drop_all() drops only mapped tables, so a forced reset
+    (`init-db --force`: drop_db, then init_db) would leave the unmapped marker beside a recreated empty table, and
+    the gate would read "migrated" for a table the migration never made. drop_db() drops the marker too."""
+    from src.db.database import drop_db, init_db, session_scope
+    init_db()
+    assert _mig().main() == 0
+    with session_scope() as s:
+        assert kh.migrated(s)
+    drop_db()                                                      # the init-db --force path ...
+    init_db()                                                      # ... drop, then recreate
+    assert inspect(fresh_db).has_table(kh.TABLE) and not inspect(fresh_db).has_table(kh.MIGRATION_MARKER)
+    with session_scope() as s:
+        assert not kh.migrated(s)
+    assert _mig().main() == 0                                      # re-migrating unlocks it again
+    with session_scope() as s:
+        assert kh.migrated(s)
+
+
+def test_init_db_force_drops_the_marker(fresh_db):
+    import cli
+    from src.db.database import init_db
+    init_db()
+    assert _mig().main() == 0 and inspect(fresh_db).has_table(kh.MIGRATION_MARKER)
+    res = CliRunner().invoke(cli.cli, ["init-db", "--force"], input="y\n")
+    assert res.exit_code == 0, res.output
+    assert inspect(fresh_db).has_table(kh.TABLE) and not inspect(fresh_db).has_table(kh.MIGRATION_MARKER)
+
+
 def test_the_migration_never_creates_a_database(tmp_path, monkeypatch, capsys):
     """Law 5: with no DB file at the configured path the migration refuses (exit 1) and creates neither the file nor
     its directory."""

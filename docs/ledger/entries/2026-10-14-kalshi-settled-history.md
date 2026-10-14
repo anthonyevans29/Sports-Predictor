@@ -46,3 +46,6 @@
   - `KalshiSettledMarket` is mapped, so any `init_db()` (create_all, run by many scheduled commands) creates the table. A run could then write before the backed-up migration ran.
   - migrate_kalshi_settled_markets.py now writes a one-row marker, `kalshi_settled_markets_migration`, by Core SQL. It is unmapped, so create_all never makes it. This is the convention of `ncaa_cfbd.MIGRATION_MARKER` (Codex on #333) and `V2_MIGRATION_MARKER` (#367).
   - A run without --dry-run refuses unless the table AND the marker's row exist. --dry-run still reads without either.
+  - **Codex's second P2 (on f0a564f), fixed as the rest of the same fix:** `drop_db()` (`init-db --force`) now drops the marker too.
+    - drop_all() drops only mapped tables. A forced reset therefore left the marker beside a recreated empty table, and the gate read "migrated".
+    - `drop_db()` already drops the two CFBD markers for this reason (#333), so the convention cited above has two legs. The first push carried only one.

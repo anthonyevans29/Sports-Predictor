@@ -1,0 +1,13 @@
+## 2026-10-14 (#523: cockpit-fill-units — ARCHITECT addendum 67 item 3, #487)
+- tools/cockpit.html (repo copy; the live Cockpit is republished on the operator's word after the architect's read): the B-track fills exposure reads units on the loaded files' own unit basis.
+  - `fillUnitBasis` reads the order lines as `desk_policy.file_unit_basis` reads a file's.
+  - "1u = $N": a team-outcome's units are the entry cost of the contracts paying on it (qty × entry, fees left out) ÷ N.
+  - "1u = N contracts": contracts ÷ N, with N from the file.
+  - No unit basis in the loaded files: contracts only, labelled "contracts (no unit basis in file)", with no cap comparison. Loaded files that disagree on the basis are treated the same way, naming both.
+- `FILL_UNIT_CONTRACTS=10` goes. The page holds no dollar figure of its own. A note in the file's header comment names the rule.
+- Tests: tests/test_cockpit_fill_units.py (5; the page's functions under node):
+  - the constant gone and no dollar figure held;
+  - a dollar unit: $23.00 of entry over $20 is 1.15u, under the cap, and over $15 is 1.53u, over it;
+  - a contracts unit, read from the file;
+  - no basis: contracts and the label, never a unit;
+  - two files that disagree.

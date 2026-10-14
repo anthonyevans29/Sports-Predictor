@@ -162,3 +162,52 @@ def test_it_writes_nothing_and_never_creates_a_database(db, tmp_path, capsys):
     with pytest.raises(SystemExit, match="no database at"):
         probe.main(["--db", str(missing), "--no-network"])
     assert not missing.exists()
+
+
+def test_codex_on_522_p2_takes_the_next_scheduled_game_and_skips_malformed_ids(db, capsys, monkeypatch):
+    """P2 reads only a SCHEDULED game: an earlier CANCELLED, POSTPONED or STALE_ORPHAN row (a retired provider id,
+    never a fixture) is passed over; a row whose external_ids is not a JSON object is one game with no id, never the
+    end of the probe."""
+    import sqlite3
+    con = sqlite3.connect(db)
+    comp, home, away = con.execute("SELECT competition_id, home_team_id, away_team_id FROM matches LIMIT 1").fetchone()
+    for i, (status, ext) in enumerate([("CANCELLED", json.dumps({SRC: "999101"})),
+                                       ("STALE_ORPHAN", json.dumps({SRC: "999102"})),
+                                       ("POSTPONED", json.dumps({SRC: "999103"})),
+                                       ("SCHEDULED", "not json"), ("SCHEDULED", "[1]")]):
+        con.execute("INSERT INTO matches (sport, competition_id, season, utc_date, status, home_team_id, "
+                    "away_team_id, external_ids) VALUES ('MLB', ?, '2026', ?, ?, ?, ?, ?)",
+                    (comp, f"2098-0{i + 1}-01 23:00:00.000000", status, home, away, ext))
+    con.commit()
+    con.close()
+    asked = []
+
+    def fake(self, path, params=None):
+        asked.append(params["gamePk"])
+        return schedule(params["gamePk"])
+    monkeypatch.setattr(MLBStatsAPIAdapter, "_get", fake)
+    monkeypatch.setattr(MLBStatsAPIAdapter, "_throttle", lambda self: None)
+    out = run(capsys, "--db", str(db), "--seasons", "2025", "--sample", "1")
+    assert asked[-1] == "999001" and not {"999101", "999102", "999103"} & set(asked)
+    assert "P2 the next unplayed game: match " in out and "gamePk 999001" in out and "(stored status SCHEDULED)" in out
+
+
+def test_codex_on_522_a_starter_with_no_team_id_names_no_side(tmp_path, capsys):
+    """A starter row with a null or empty team_source_id names no side: a game whose only starters have none is
+    counted under neither, and one with a single identified side under one side."""
+    import sqlite3
+    p = tmp_path / "nulls.db"
+    build(p)
+    con = sqlite3.connect(p)
+    m7, m8 = [r[0] for r in con.execute("SELECT id FROM matches WHERE season='2025' ORDER BY utc_date LIMIT 2 OFFSET 7")]
+    con.execute("INSERT INTO pitcher_appearances (match_id, source_game_id, game_date, team_source_id, pitcher_id, "
+                "is_starter, captured_at) VALUES (?, '1007', '2025-04-08', NULL, 'n7', 1, '2025-04-09')", (m7,))
+    con.execute("INSERT INTO pitcher_appearances (match_id, source_game_id, game_date, team_source_id, pitcher_id, "
+                "is_starter, captured_at) VALUES (?, '1008', '2025-04-09', '', 'e8', 1, '2025-04-10')", (m8,))
+    con.execute("INSERT INTO pitcher_appearances (match_id, source_game_id, game_date, team_source_id, pitcher_id, "
+                "is_starter, captured_at) VALUES (?, '1008', '2025-04-09', '147', 's8', 1, '2025-04-10')", (m8,))
+    con.commit()
+    con.close()
+    out = run(capsys, "--db", str(p), "--no-network")
+    # base fixture: 5 both · 2 one · 5 neither; game 7 (null team only) stays neither, game 8 gains one side
+    assert "  pitcher_appearances: starters for both sides 5/12 · one side only 3 · neither 4" in out

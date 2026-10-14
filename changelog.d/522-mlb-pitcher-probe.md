@@ -3,11 +3,14 @@
   - D0: every table whose name or columns speak of a pitcher or a starter, with its columns, and the ones it reads: pitcher_appearances, then match_participants as a second read.
   - D1: per season (2024..2026), the MLB games by stored status; the finished games with a starter recorded for both sides, one side only, or neither (is_starter = 1, by match_id or by the statsapi id in source_game_id); and match_participants' starting pitchers by kind.
   - P1: ten finished games per season, evenly spaced by kickoff, through statsapi's /schedule?gamePk&hydrate=probablePitcher (the adapter's own call and pace). Per game: whether both probables are named, and the keys read.
-  - P2: the next unplayed game: whether the probables are named now, and every key of the answer that speaks of a time. It says so when the payload does not give the hour they appeared.
+  - P2: the next unplayed game (status SCHEDULED, after now; a cancelled, postponed or stale-orphan row is passed over, Codex on #522): whether the probables are named now, and every key of the answer that speaks of a time. It says so when the payload does not give the hour they appeared.
+  - A row whose external_ids is not a JSON object carrying the id is one game with no id, never the end of the probe. A starter with no team id names no side (both Codex on #522).
   - Summary per season: starters recorded x/y · probables available on the sample z/10.
-- Tests: tests/test_mlb_pitcher_probe.py (6), on a throwaway SQLite file built from the app's schema and a stubbed statsapi:
+- Tests: tests/test_mlb_pitcher_probe.py (8), on a throwaway SQLite file built from the app's schema and a stubbed statsapi:
   - both / one / neither, with a starter found by source_game_id;
   - the ten-game sample and its count;
   - the payload that does not give the hour, and one that does;
   - a failed call printed and the probe going on;
   - nothing written and no database created.
+  - P2 passing over cancelled, stale-orphan and postponed rows and malformed ids;
+  - a starter with a null or empty team id counted under no side.

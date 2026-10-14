@@ -25,7 +25,7 @@ season: starters recorded x/y, probables available on the sample z/10. The block
                                    &hydrate=probablePitcher (the adapter's own call, get_probable_pitchers' params);
                                    per game, whether teams.home and teams.away each name a probablePitcher, and the
                                    keys the answer's game block and probablePitcher blocks carry
-  P2  the next unplayed game       the DB's next MLB game not finished, after now, with a statsapi id: the same call;
+  P2  the next unplayed game       the DB's next MLB game SCHEDULED, after now, with a statsapi id: the same call;
                                    whether the probables are named now; and every key of the game block and of each
                                    probablePitcher block whose name speaks of a time or a date (the hour they appeared,
                                    if the payload says; a payload that does not say is printed as not saying)
@@ -54,6 +54,8 @@ DEFAULT_SEASONS = ["2024", "2025", "2026"]
 SAMPLE = 10
 COMPETITION = "MLB"
 FINISHED = "FINISHED"            # MatchStatus.FINISHED as stored (an Enum column stores the member's name)
+SCHEDULED = "SCHEDULED"          # the one status of a game not yet played: not live, postponed, cancelled or a
+                                 # stale orphan (a retired provider id, never a fixture)
 WORDS = ("pitch", "starter", "participant")
 TIME_WORDS = ("time", "date", "updated", "ts", "when", "announced")
 APPEARANCES = "pitcher_appearances"
@@ -108,6 +110,16 @@ def source_name() -> str:
     return MLBStatsAPIAdapter.source_name
 
 
+def game_pk(ext, src: str) -> str | None:
+    """The statsapi game id in a stored external_ids value; None where the value is not a JSON object carrying it
+    (a malformed row is one game with no id, never the end of the probe)."""
+    try:
+        d = json.loads(ext) if isinstance(ext, str) else ext
+    except ValueError:
+        return None
+    return str(d[src]) if isinstance(d, dict) and d.get(src) is not None else None
+
+
 def season_games(con, season: str) -> list[dict]:
     """The MLB competition's games of one stored season: id, kickoff, status, the statsapi game id (or None)."""
     src = source_name()
@@ -117,24 +129,21 @@ def season_games(con, season: str) -> list[dict]:
         (COMPETITION, season)).fetchall()
     out = []
     for mid, kick, status, ext in rows:
-        try:
-            gid = (json.loads(ext) if isinstance(ext, str) else (ext or {})).get(src)
-        except (ValueError, AttributeError):
-            gid = None
-        out.append({"id": mid, "kickoff": kick, "status": status, "game_pk": None if gid is None else str(gid)})
+        out.append({"id": mid, "kickoff": kick, "status": status, "game_pk": game_pk(ext, src)})
     return out
 
 
 def starters(con, games: list[dict]) -> dict[int, int]:
     """{match id: sides with a starter} from pitcher_appearances (is_starter = 1), by match_id or by the statsapi game
-    id in source_game_id; a side is a distinct team_source_id."""
+    id in source_game_id; a side is a distinct team_source_id (a starter with no team id names no side and is not
+    counted)."""
     by_pk = {g["game_pk"]: g["id"] for g in games if g["game_pk"]}
     ids = {g["id"] for g in games}
     sides: dict[int, set] = {}
     for mid, sgid, team in con.execute(
             f"SELECT match_id, source_game_id, team_source_id FROM {APPEARANCES} WHERE is_starter = 1"):
         m = mid if mid in ids else by_pk.get(str(sgid)) if sgid is not None else None
-        if m is not None:
+        if m is not None and team not in (None, ""):
             sides.setdefault(m, set()).add(team)
     return {m: len(s) for m, s in sides.items()}
 
@@ -288,14 +297,14 @@ def main(argv=None) -> int:
     if prov:
         nxt = con.execute(
             "SELECT m.id, m.utc_date, m.status, m.external_ids FROM matches m JOIN competitions c "
-            "ON c.id = m.competition_id WHERE c.code = ? AND m.status != ? AND m.utc_date > ? "
-            "ORDER BY m.utc_date, m.id", (COMPETITION, FINISHED, now.strftime("%Y-%m-%d %H:%M:%S"))).fetchall()
-        nxt = [r for r in nxt if (json.loads(r[3]) if isinstance(r[3], str) else (r[3] or {})).get(src) is not None]
+            "ON c.id = m.competition_id WHERE c.code = ? AND m.status = ? AND m.utc_date > ? "
+            "ORDER BY m.utc_date, m.id", (COMPETITION, SCHEDULED, now.strftime("%Y-%m-%d %H:%M:%S"))).fetchall()
+        nxt = [(mid, kick, status, game_pk(ext, src)) for mid, kick, status, ext in nxt]
+        nxt = [r for r in nxt if r[3] is not None]
         if not nxt:
-            print("\nP2 the next unplayed game: none stored after now with a statsapi id")
+            print("\nP2 the next unplayed game: none stored (status SCHEDULED, after now) with a statsapi id")
         else:
-            mid, kick, status, ext = nxt[0]
-            gpk = str((json.loads(ext) if isinstance(ext, str) else ext).get(src))
+            mid, kick, status, gpk = nxt[0]
             block, why = prov.game_block(gpk)
             print(f"\nP2 the next unplayed game: match {mid} gamePk {gpk} {kick} (stored status {status})")
             if block is None:

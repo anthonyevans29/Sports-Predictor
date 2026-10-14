@@ -419,6 +419,42 @@ def test_pull_selects_newest_daily_and_verifies(sandbox):
         pull_backup.main(["--dest", str(c.REPO / "data" / "bk")])
 
 
+def test_pull_verifies_a_wal_copy_immutable_and_leaves_its_folder_as_found(sandbox, monkeypatch):
+    """#517 (ARCHITECT 2026-10-14, addendum 68 item 2): "an immutable read-only open of a WAL copy with no sidecars
+    returns integrity ok and leaves the folder as it found it, and verify_and_place takes that path." The laptop's
+    (macOS) mode=ro open of such a copy fails ("unable to open database file"); Linux's creates the -shm and -wal
+    beside it, so a mode=ro verify here would leave them in the folder."""
+    live = sandbox / "wal_live.db"
+    src = sqlite3.connect(live)
+    assert src.execute("PRAGMA journal_mode=wal").fetchone()[0] == "wal"
+    src.execute("CREATE TABLE t(x)")
+    src.executemany("INSERT INTO t VALUES (?)", [(i,) for i in range(50)])
+    src.commit()
+    pulled = sandbox / "pulled"
+    pulled.mkdir()
+    part = pulled / "sports_2026-10-14_093021.db.partial"
+    dst = sqlite3.connect(part)
+    src.backup(dst)
+    dst.close()
+    src.close()
+    assert part.read_bytes()[18:20] == b"\x02\x02"                 # the copy is WAL-mode, no sidecar beside it
+    assert sorted(x.name for x in pulled.iterdir()) == [part.name]
+    assert c.copy_integrity(part) == "ok"
+    assert sorted(x.name for x in pulled.iterdir()) == [part.name]  # nothing created beside it
+    side = pulled / "sports_2026-10-14_093021.db.sha256.partial"
+    side.write_text(f"{c.sha256_file(part)}  sports_2026-10-14_093021.db\n")
+    uris = []
+    real = sqlite3.connect
+    monkeypatch.setattr(c.sqlite3, "connect", lambda d, *a, **k: uris.append(str(d)) or real(d, *a, **k))
+    final = pulled / "sports_2026-10-14_093021.db"
+    out = pull_backup.verify_and_place(part, side, final)
+    assert out["integrity"] == "ok"
+    assert uris and all(u.endswith("?mode=ro&immutable=1") for u in uris)   # verify_and_place takes that path
+    assert sorted(x.name for x in pulled.iterdir()) == [final.name, final.name + ".sha256"]
+    # the live DB is never opened immutable (#340 stands)
+    assert "immutable" not in inspect.getsource(c.ro_connect)
+
+
 def test_ncaa_timer_ships_enabled_in_runbook():
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
     t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + MLB_LAPTOP_ONLY + HELD_FOR_CUTOVER

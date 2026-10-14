@@ -6,6 +6,7 @@ the receipt quotes; synthetic rows and a throwaway DB only."""
 from datetime import datetime, timedelta
 import json
 from types import SimpleNamespace as NS
+import unicodedata
 
 import pytest
 from sqlalchemy import select
@@ -1152,3 +1153,62 @@ def test_an_event_name_that_is_not_pinned_is_read_as_before():
               [game(70024, "Lyon", "Paris Saint Germain", Z("2026-10-25T19:45"))], now=Z("2026-10-24T12:00"),
               is_tie=_is_tie)
     assert placed(res) == {(70024, "HOME"): "PFC", (70024, "AWAY"): "OL", (70024, "DRAW"): "TIE"}
+
+
+# --- addendum 66 item 4 (2026-10-14): "the Kalshi name "Fenerbahce" pins to the stored club "Fenerbahçe"" ---
+
+FEN = "Fenerbah\u00e7e"          # the stored club as the host's window card prints it, ç as U+00E7
+
+
+def _avlfen():
+    """KXUCLGAME-26OCT14AVLFEN, refused by the laptop's wide probe of 2026-10-14 for no fit ("stored names sharing a
+    word: ['Aston Villa']"): Fenerbahçe @ Aston Villa, CL, 2026-10-14 19:00Z."""
+    return _soccer("26OCT14AVLFEN", [("AVL", "Aston Villa"), ("FEN", "Fenerbahce")], "KXUCLGAME")
+
+
+def test_fenerbahce_pins_to_the_stored_club_under_the_same_words():
+    """The pin's norm tokens equal the stored name's (as the other pins'); unpinned, the two spellings share no word,
+    since norm_tokens folds no accent."""
+    assert km.PINS["Fenerbahce"] == FEN and unicodedata.normalize("NFC", FEN) == FEN
+    assert km.norm_tokens(km.PINS["Fenerbahce"]) == km.norm_tokens(FEN) == {"fenerbah\u00e7e"}
+    assert not km.norm_tokens("Fenerbahce") & km.norm_tokens(FEN)
+    assert km.side_score("Fenerbahce", FEN) == km.side_score(FEN, FEN) == 1.0
+
+
+def test_the_refused_cl_event_fits_its_game_with_the_pin(monkeypatch):
+    """The true case: the probe's refused event places on its game, sides by the names, Tie as DRAW; without the pin
+    it is refused for no fit, as on main."""
+    markets, games = _avlfen(), [game(70030, FEN, "Aston Villa", Z("2026-10-14T19:00"))]
+    res = run(markets, games, now=Z("2026-10-13T19:00"), is_tie=_is_tie)
+    assert placed(res) == {(70030, "HOME"): "AVL", (70030, "AWAY"): "FEN", (70030, "DRAW"): "TIE"}, res.refused
+    assert not res.refused
+    monkeypatch.setattr(km, "PINS", {})
+    res = run(markets, games, now=Z("2026-10-13T19:00"), is_tie=_is_tie)
+    assert not res.placed and res.refused == {km.NO_FIT: 3}, res.refused
+
+
+@pytest.mark.parametrize("stored", [
+    FEN + " SK",                                            # one word more than the pin's name
+    unicodedata.normalize("NFD", FEN),                      # ç decomposed (c + U+0327): another spelling, not the stored one
+])
+def test_fenerbahce_fits_only_the_stored_spelling(stored):
+    """"A pin names one stored team": a stored name whose words differ from the pin's is not its team, and the event
+    is refused for no fit."""
+    assert km.norm_tokens(stored) != km.norm_tokens(FEN)
+    assert km.side_score("Fenerbahce", stored) == 0.0 and km._distinct_score("Fenerbahce", stored, set()) == 0.0
+    res = run(_avlfen(), [game(70031, stored, "Aston Villa", Z("2026-10-14T19:00"))], now=Z("2026-10-13T19:00"),
+              is_tie=_is_tie)
+    assert not res.placed and res.refused == {km.NO_FIT: 3}, res.refused
+
+
+def test_fenerbahce_with_no_game_of_its_pair_is_refused_as_today(monkeypatch):
+    """Namesake-free: the pinned club's own game against another side is not the event's game, and the pinned name
+    scores nothing against the other clubs of the day."""
+    games = [game(70032, FEN, "Galatasaray", Z("2026-10-14T19:00")),
+             game(70033, "Aston Villa Women", "Chelsea", Z("2026-10-14T19:00"))]
+    assert all(km.side_score("Fenerbahce", t) == 0.0 for t in ("Galatasaray", "Aston Villa Women", "Chelsea"))
+    res = run(_avlfen(), games, now=Z("2026-10-13T19:00"), is_tie=_is_tie)
+    assert not res.placed and res.refused == {km.NO_FIT: 3}, res.refused
+    monkeypatch.setattr(km, "PINS", {})                        # as today: main refuses it the same way
+    res = run(_avlfen(), games, now=Z("2026-10-13T19:00"), is_tie=_is_tie)
+    assert not res.placed and res.refused == {km.NO_FIT: 3}, res.refused

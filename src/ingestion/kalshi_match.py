@@ -48,6 +48,9 @@ other team a pinned name scores nothing, whatever word they share: PSG does not 
 fit Borussia Dortmund, LIU does not fit Rhode Island. Against its own team it scores what the pin's name scores on
 #482's head. An event's name that is not pinned is read as before. One each, the best fit and the refused tie do not
 change."
+Addendum 66 item 4 (2026-10-14), verbatim: "the Kalshi name "Fenerbahce" pins to the stored club "Fenerbahçe"." The
+pin's name is written as the club is stored, ç as U+00E7: norm_tokens folds no accent, so "Fenerbahce" alone shares
+no word with it (the wide probe's refusal of KXUCLGAME-26OCT14AVLFEN and -26OCT20FENSLA for no fit).
 
 Pure: no network, no database. place() takes the markets and the stored games (objects with id, utc_date (naive
 UTC), home_team.name, away_team.name, status) and returns the placements and the refusals by reason.
@@ -107,6 +110,7 @@ PINS = {
     "PSG": "Paris Saint Germain",
     "Stade Rennais": "Rennes",
     "M\u00b4gladbach": "Borussia M\u00f6nchengladbach",
+    "Fenerbahce": "Fenerbah\u00e7e",           # addendum 66 item 4; ç is U+00E7, as the club is stored
 }
 
 

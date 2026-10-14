@@ -7,10 +7,15 @@
   - It writes that table and nothing else.
   - Refused markets are kept with match_id null and the reason in notes, and the refusals are listed by reason.
   - Each candle shape is read by its own keys (`KEYS`), and a null price is never filled.
-  - A stored ticker is skipped, so a run resumes by the table. At the cap the run stops cleanly and prints where; a list cut short stores nothing.
+  - A stored ticker is skipped, so a run resumes by the table. At the cap the run stops cleanly and prints where.
+  - A list that does not reach its end (the cap, a failed page, a page with no list, a cursor that comes back) stores nothing.
+  - The claims rule is read across events: two markets claiming one side of one game are both refused.
+  - A series whose competition is not in the DB refuses before any call.
+  - A candle window that starts at or after close_time asks nothing. A candle call refused for good (a 4xx other than 408/429) is stored with no quote; other failures store nothing and are asked again.
+  - An unreadable timestamp is skipped, never a crash.
   - `--dry-run` reads and writes nothing.
-- migrate_kalshi_settled_markets.py: creates the table. Additive and idempotent; run after the daily .backup.
+- migrate_kalshi_settled_markets.py: creates the table. Additive and idempotent; run after the daily .backup. With no DB file at the configured path it refuses and creates nothing (law 5).
 - docs/CLI.md: the `kalshi-history` row.
-- Tests: tests/test_kalshi_history.py (11), on tests/fixtures/kalshi_history/.
+- Tests: tests/test_kalshi_history.py (23), on tests/fixtures/kalshi_history/.
   - The fixtures are stand-ins written to the receipt's keys, replaced by the probe's kept files before merge.
-  - Covered: each shape read by its own keys; a null-price minute kept null and a one-sided minute never filled; an unmatched market kept with its reason; an unmatched date-only market fetches no candles; the cap stops the run, prints where, and the next run resumes on all of an event's legs; a list cut short stores nothing and names the cursor; --dry-run writes nothing; a run writes its one table and nothing else; --since/--until; an unread series refused; the command.
+  - Covered: each shape read by its own keys; a null-price minute kept null and a one-sided minute never filled; an unmatched market kept with its reason; an unmatched date-only market fetches no candles; the cap stops the run, prints where, and the next run resumes on all of an event's legs; a list cut short stores nothing and names the cursor; --dry-run writes nothing; a run writes its one table and nothing else; --since/--until; an unread series refused; the command; and, from the review before the PR opened, the claims across events, a failed page, a cursor that comes back, a competition not in the DB, an unreadable timestamp, a window after close_time, a candle call refused for good or not (404, 400 / 429, 503, 408), and the migration never creating a database.

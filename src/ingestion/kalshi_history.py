@@ -13,15 +13,19 @@ grading, no prediction row is touched; grading keeps reading what it reads today
 How it reads, so the receipt can be checked against it:
 - The cutoff first (/historical/cutoff, one call), printed. Then both lists of the series, paged by cursor alone (no
   time filter is sent: the probe found max_close_ts does not narrow the historical list): /historical/markets
-  (source 'historical', settled before the cutoff) and /markets?status=settled (source 'live'). A page that fails
-  ends that list and is printed; it is never retried.
+  (source 'historical', settled before the cutoff) and /markets?status=settled (source 'live'). A list that does not
+  reach its end (a page that fails or holds no list, a cursor that comes back, the page guard) is printed, never
+  retried, and nothing of the run is placed or stored, as for the cap: an event split across the cut would be
+  matched on part of its legs. The series' competition must be in the DB, or the run refuses before any call.
 - --since / --until keep the markets whose game day falls inside them: the ticker's date (US Eastern, as the matcher
   reads it), else the close_time's UTC date; a market with neither is counted and left out when either is given.
 - A market already in the table is counted and skipped: its candles are never fetched twice, and a run resumes where
   the last one stopped by the table itself.
 - Matching, per event: the event's markets go through the shared matcher (kalshi_match.place: the same fit, the same
   pins, the same refusals) against the stored games of the series' own competition on the event's days, loaded as
-  the syncs load them (kalshi_sync.stored_games' span, kalshi_match.day_span). Four refusals of the live sync are
+  the syncs load them (kalshi_sync.stored_games' span, kalshi_match.day_span); the claims rule is read across the
+  events, as one place() call reads it (two markets claiming one side of one game are both refused). Four refusals
+  of the live sync are
   conditions of an open market and cannot hold for a settled one, so they are not read: in play (every settled game
   has started: `now` is set before any game), no price and the spread guard (a settled market's quote is its
   candles', read below), and the run's window (the window here is --since/--until, applied above). Each event is
@@ -31,9 +35,10 @@ How it reads, so the receipt can be checked against it:
 - Kickoff for the window: the stored game's kickoff when matched; when unmatched, the ticker's date-and-time when the
   ticker carries a clock (the MLB shape); else no candles are fetched and notes says so. Candles:
   /historical/markets/{ticker}/candlesticks for a historical market, /series/{series}/markets/{ticker}/candlesticks for
-  a live one; period_interval=1, start_ts = kickoff - 6h, end_ts = close_time. A market with no close_time fetches no
-  candles (notes says so). A candle call that fails stores nothing for that market (it is listed; the next run asks
-  again), and is never retried in the run.
+  a live one; period_interval=1, start_ts = kickoff - 6h, end_ts = close_time. A market with no close_time, or whose
+  window starts at or after its close_time, fetches no candles (notes says so). A candle call the exchange refuses
+  for good (a 4xx other than 408 / 429) stores the market with no quote and the status in notes; any other failure
+  stores nothing for it (listed; the next run asks again). Nothing is retried in the run.
 - Per market from its candles: last_ts / last_bid / last_ask / last_mid of the last candle at or before kickoff that
   carries both a bid and an ask (a candle carries one when the shape's bid and ask keys hold a price in 0..1; a null
   is never filled, and the mid is the two's mean); candles_6h (candles whose end falls in the six hours up to
@@ -89,16 +94,21 @@ class Capped(Exception):
     """The run reached --max-calls."""
 
 
+class ListCut(Exception):
+    """A list did not reach its end (a page failed or held no list, the cursor came back, the page guard): nothing of
+    it is placed or stored, as for the cap (an event split across the cut would be matched on part of its legs)."""
+
+
 def parse_ts(v) -> datetime | None:
     """An ISO time (Z or offset) or epoch seconds -> naive UTC; None when it is neither."""
-    if isinstance(v, (int, float)) and not isinstance(v, bool):
-        return datetime.fromtimestamp(v, tz=timezone.utc).replace(tzinfo=None)
-    if isinstance(v, str) and v.strip():
-        try:
+    try:
+        if isinstance(v, (int, float)) and not isinstance(v, bool):
+            return datetime.fromtimestamp(v, tz=timezone.utc).replace(tzinfo=None)
+        if isinstance(v, str) and v.strip():
             dt = datetime.fromisoformat(v.strip().replace("Z", "+00:00"))
-        except ValueError:
-            return None
-        return (dt.astimezone(timezone.utc) if dt.tzinfo else dt).replace(tzinfo=None)
+            return (dt.astimezone(timezone.utc) if dt.tzinfo else dt).replace(tzinfo=None)
+    except (ValueError, OverflowError, OSError):     # unreadable (e.g. a millisecond epoch): None, never a crash
+        return None
     return None
 
 
@@ -195,6 +205,15 @@ def game_day(m: dict) -> date | None:
     return ct.date() if ct else None
 
 
+def _refused_for_good(why: str | None) -> bool:
+    """A candle call the exchange refused for good: an HTTP 4xx other than 408 and 429. Its market is stored with a
+    null quote and the status in notes, so the run never asks it again; a transport error, a 5xx, a 408, a 429 or a
+    200 with no list is not stored, and the next run asks again (never in this run)."""
+    import re
+    m = re.match(r"status (\d{3})$", why or "")
+    return bool(m) and 400 <= int(m.group(1)) < 500 and int(m.group(1)) not in (408, 429)
+
+
 def _settled_price(_m) -> float:
     """The matcher's price reader for a settled market: never None, so its no-price refusal is not read (a settled
     market's quote is its candles', read by window_stats)."""
@@ -220,35 +239,38 @@ class Run:
     list_notes: list = field(default_factory=list)
     no_ticker: int = 0
     duplicates: int = 0
+    candle_refused: int = 0                                  # 4xx answers: stored with a null quote
 
 
 def list_source(calls: Calls, run: Run, source: str, path: str, params: dict, series: str) -> list[dict]:
-    """Every market of one list, paged to its end by cursor. A page that fails ends the list (printed); the cap stops
-    the run, naming the list and the cursor it stopped at."""
-    markets, cursor = [], None
-    for n in range(MAX_PAGES):
-        p = {"series_ticker": series, **params, "limit": PAGE_LIMIT, **({"cursor": cursor} if cursor else {})}
-        try:
-            data, why = calls.get(path, p)
-        except Capped:
-            run.stopped = (f"the cap ({calls.cap} calls) while listing {source} ({path}), before page {n + 1}"
-                           f"{f' at cursor {cursor}' if cursor else ''}")
-            raise
-        if data is None:
-            run.list_notes.append(f"{source}: page {n + 1} of {path} failed ({why}): the list stops here")
-            break
-        page = data.get(KEYS["list"])
-        if not isinstance(page, list):
-            run.list_notes.append(f"{source}: page {n + 1} of {path} holds no '{KEYS['list']}' list: the list stops")
-            break
-        markets.extend(m for m in page if isinstance(m, dict))
-        cursor = data.get(KEYS["cursor"])
-        if not cursor:
-            break
-    else:
-        run.list_notes.append(f"{source}: {MAX_PAGES} pages read and the cursor goes on: the list stops here")
-    run.listed[source] += len(markets)
-    return markets
+    """Every market of one list, paged to its end by cursor. The cap stops the run (Capped), naming the list and the
+    cursor it stopped at; a page that fails or holds no list, a cursor that comes back, and the page guard end it short
+    (ListCut), printed. Never retried. What was read is counted either way."""
+    markets, cursor, seen = [], None, set()
+    try:
+        for n in range(MAX_PAGES):
+            p = {"series_ticker": series, **params, "limit": PAGE_LIMIT, **({"cursor": cursor} if cursor else {})}
+            try:
+                data, why = calls.get(path, p)
+            except Capped:
+                run.stopped = (f"the cap ({calls.cap} calls) while listing {source} ({path}), before page {n + 1}"
+                               f"{f' at cursor {cursor}' if cursor else ''}")
+                raise
+            if data is None:
+                raise ListCut(f"{source}: page {n + 1} of {path} failed ({why})")
+            page = data.get(KEYS["list"])
+            if not isinstance(page, list):
+                raise ListCut(f"{source}: page {n + 1} of {path} holds no '{KEYS['list']}' list")
+            markets.extend(m for m in page if isinstance(m, dict))
+            cursor = data.get(KEYS["cursor"])
+            if not cursor:
+                return markets
+            if cursor in seen:
+                raise ListCut(f"{source}: the cursor {cursor!r} came back on page {n + 1} of {path}")
+            seen.add(cursor)
+        raise ListCut(f"{source}: {MAX_PAGES} pages read and the cursor goes on")
+    finally:
+        run.listed[source] += len(markets)
 
 
 def place_events(markets: list[dict], games: list, is_tie) -> tuple[dict, dict, list]:
@@ -271,6 +293,19 @@ def place_events(markets: list[dict], games: list, is_tie) -> tuple[dict, dict, 
             placed[mk.get(KEYS["ticker"])] = (mid, by_id[mid].utc_date, side)
         why.update(res.why)
         lines.extend(res.lines)
+    # the matcher's claims rule, across events as one place() call reads it: two markets that claim one side of one
+    # game are both refused (kalshi_match: "two markets claim one side of one game"); placing each event alone keeps
+    # only "behind" (a rule between open events) from reading
+    claims: dict[tuple, list[str]] = {}
+    for t, (mid, _, side) in placed.items():
+        claims.setdefault((mid, side), []).append(t)
+    for (mid, side), ts in claims.items():
+        if len(ts) > 1:
+            for t in ts:
+                del placed[t]
+                why[t] = km.TWO_CLAIMS
+            lines.append(f"  ✗ match {mid} {side}: {len(ts)} markets of {len({km.event_of({'ticker': t}) for t in ts})} "
+                         f"events claim it ({', '.join(sorted(ts))}): all refused")
     return placed, why, lines
 
 
@@ -300,6 +335,8 @@ def _new_row(series: str, source: str, m: dict, fetched_at: datetime, placed: di
         nok = "no candles fetched: unmatched and the ticker carries no clock"
     elif row["close_time"] is None:
         nok = "no candles fetched: the market carries no close_time"
+    elif kickoff - timedelta(hours=WINDOW_H) >= row["close_time"]:
+        nok = "no candles fetched: the window (kickoff - 6h) starts at or after close_time"
     if nok:
         run.no_candles[nok] += 1
         notes.append(nok)
@@ -329,6 +366,10 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
                          "KalshiAdapter.SOCCER_GAME_SERIES): nothing is listed")
     with readonly_session() as rs:
         has_table = inspect(rs.get_bind()).has_table(TABLE)
+        comp_id = rs.execute(select(Competition.id).where(Competition.code == comp_code)).scalar_one_or_none()
+    if comp_id is None:                                       # as the syncs answer: nothing is listed or stored
+        raise ValueError(f"REFUSED: competition {comp_code} (of {series}) is not in the DB: sync-competitions, "
+                         "sync-teams and sync-matches first; nothing is listed or stored")
     if not has_table and not dry_run:
         raise ValueError(f"REFUSED: {TABLE} does not exist (run migrate_kalshi_settled_markets.py after the daily "
                          ".backup); --dry-run reads without it")
@@ -349,6 +390,10 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
         # a list cut short is never half-read: an event split across the cut would be matched on part of its legs
         listed = []
         run.stopped += "; nothing is placed or stored from a list cut short (a larger --max-calls lists it whole)"
+    except ListCut as e:
+        listed = []
+        run.list_notes.append(f"{e}: the list stops here, and nothing is placed or stored from a list that did not "
+                              "reach its end (the next run lists it whole)")
 
     # 2. the matching: every listed market in range, stored or not, so an event is always placed on all its legs
     in_range, seen = [], set()
@@ -375,10 +420,7 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
         with readonly_session() as rs:
             if has_table:
                 stored = set(rs.execute(select(KalshiSettledMarket.ticker)).scalars())
-            comp_id = rs.execute(select(Competition.id).where(Competition.code == comp_code)).scalar_one_or_none()
-            if comp_id is None:
-                run.list_notes.append(f"competition {comp_code} is not in the DB: every market is refused for no fit")
-            games = stored_games(rs, [comp_id] if comp_id else [], [m for _, m in in_range])
+            games = stored_games(rs, [comp_id], [m for _, m in in_range])
             placed, why, run.refused_lines = place_events([m for _, m in in_range], games, is_tie)
 
     # 3. the candles (network), market by market, for the ones not yet stored
@@ -397,16 +439,23 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
                 data, cwhy = calls.get(path, params)
             except Capped:
                 run.stopped = (f"the cap ({calls.cap} calls) before the candles of {ticker} ({source}); "
-                               f"{len(todo) - i} market(s) left for the next run, which skips the stored ones")
+                               f"{len(todo) - i} market(s) left for the next run, which skips the stored ones"
+                               + (f" ({len(run.candle_failed) - run.candle_refused} market(s) whose candle call "
+                                  "failed this run are asked again first)"
+                                  if len(run.candle_failed) > run.candle_refused else ""))
                 break
             run.candle_calls += 1
             candles = data.get(KEYS["candles"]) if data else None
             if not isinstance(candles, list):
                 run.candle_failed.append((ticker, cwhy or f"no '{KEYS['candles']}' list"))
-                continue
-            row.update(window_stats(candles, kickoff, source))
-            if row["last_ts"] is None:
-                notes.append("no two-sided candle at or before kickoff")
+                if not _refused_for_good(cwhy):
+                    continue                                # not stored: the next run asks again
+                notes.append(f"candle call refused ({cwhy}): no quote")   # a 4xx answer: stored, never asked again
+                run.candle_refused += 1
+            else:
+                row.update(window_stats(candles, kickoff, source))
+                if row["last_ts"] is None:
+                    notes.append("no two-sided candle at or before kickoff")
         row["notes"] = "; ".join(notes) or None
         run.rows.append(row)
         if row["match_id"] is None:
@@ -444,7 +493,8 @@ def _receipt(run: Run, calls: Calls, echo) -> None:
     for nok, n in sorted(run.no_candles.items()):
         echo(f"    {n:>5}  {nok}")
     if run.candle_failed:
-        echo(f"  ✗ candle calls that failed (nothing stored for them; the next run asks again): {len(run.candle_failed)}")
+        echo(f"  ✗ candle calls that failed: {len(run.candle_failed)} ({run.candle_refused} refused for good: stored "
+             f"with no quote; {len(run.candle_failed) - run.candle_refused} not stored: the next run asks again)")
         for t, why in run.candle_failed:
             echo(f"    {t}: {why}")
     nolast = sum(1 for r in run.rows if r["last_ts"] is None)

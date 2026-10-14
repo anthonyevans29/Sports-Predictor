@@ -16,12 +16,12 @@
     "close": 0.45
    },
    "price": {
-    "open": 0.42,
-    "low": 0.42,
-    "high": 0.42,
-    "close": 0.42
+    "open": null,
+    "low": null,
+    "high": null,
+    "close": null
    },
-   "volume": 3,
+   "volume": 0,
    "open_interest": 120
   },
   {

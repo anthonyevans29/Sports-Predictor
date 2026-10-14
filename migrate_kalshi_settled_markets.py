@@ -24,6 +24,11 @@ from src.db.schema import KalshiSettledMarket
 
 
 def main() -> int:
+    from src.walters.venue_quote_age import db_file_path
+    path = db_file_path()
+    if path is not None and not path.is_file():                 # law 5: a migration never creates a database
+        print(f"✗ no DB file at {path} — nothing to migrate (a migration never creates a database).")
+        return 1
     engine = get_engine()
     names = inspect(engine).get_table_names()
     if "matches" not in names:

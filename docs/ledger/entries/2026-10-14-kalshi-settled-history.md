@@ -1,0 +1,51 @@
+**2026-10-14 — RULED (ARCHITECT 2026-10-14 10:01 ET, addendum 67 item 1): the Kalshi settled-market history ingest, `kalshi-history`, writing one new table, `kalshi_settled_markets` (#519).**
+- **Ruling (verbatim):** "KALSHI SETTLED-MARKET HISTORY, the ingest (K-track data lane; the Issue of addendum 66 item 6 is its ticket). What it is: a stored record of every settled Kalshi game market in our series, with the last two-sided quote before kickoff, so the backtests and the older-season tests have a Kalshi close where no book close exists. Read-only against the exchange (public endpoints, no key); it writes ONE new table and nothing else — no odds snapshot, no close used by grading, no prediction row is touched; grading keeps reading what it reads today until a later ruling says otherwise. - Command: `python cli.py kalshi-history --series KXMLBGAME [--since YYYY-MM-DD] [--until YYYY-MM-DD] [--dry-run] [--max-calls N]`. One series per run. --dry-run lists what would be stored and stores nothing. Default --max-calls 300 (the probe's whole run was 241 calls); the run stops cleanly at the cap and prints where it stopped (the cursor), so the next run resumes; never a retry loop on a non-200. - Sources, both: `/historical/markets?series_ticker=…` (settled before the cutoff; page by cursor) and `/markets?series_ticker=…&status=settled` (settled after it). Candles: `/historical/markets/{ticker}/candlesticks` for the first, `/series/{s}/markets/{t}/candlesticks` for the second, period_interval=1, start_ts = kickoff − 6h, end_ts = close_time. The two candle shapes differ (historical: yes_bid.close / yes_ask.close / volume / open_interest; live: close_dollars / volume_fp / open_interest_fp); read each by its own keys from the kept payloads of 2026-10-14 under logs/ (law 1: enumerate the keys from those files, not from memory); a null price in a zero-volume minute is left null, never filled. - Table `kalshi_settled_markets`: ticker (unique), event_ticker, series, side ('HOME' | 'AWAY' | 'DRAW' | null), match_id (nullable), yes_sub_title, kalshi_result ('yes' | 'no' | null), close_time, settled_time, source ('historical' | 'live'), fetched_at, last_ts (the end_period_ts of the last candle at or before kickoff that carries both a bid and an ask), last_bid, last_ask, last_mid, candles_6h (count), candles_two_sided (count), gaps (minutes missing in the 6h window), raw_first_candle (json), notes. - Matching: the market's event day and the two names go through the shared matcher as the live sync does (src/ingestion/kalshi_match, the same fit, the same pins, the same refusals) against the stored games of that day; a refusal stores the row with match_id null and the refusal reason in notes — refused rows are kept, never guessed, and are listed at the end of the run by reason, like the replay does. - Kickoff for the window: the stored game's kickoff when matched; when unmatched, the ticker's date-and-time when the ticker carries a clock (the MLB shape), else no candles are fetched and notes says so. - Receipts at the end of every run: markets listed / stored / already stored / refused by reason; candle calls made; rows with last_ts null (no two-sided candle before kickoff); the cutoff read at the start. - Tests on the kept payloads (both shapes, the cutoff file, a settled page and a historical page), with a throwaway DB: a stored row's last_bid/last_ask come from the right keys for each shape; a null-price minute stays null; an unmatched market stores match_id null with its reason; the cap stops the run and prints the cursor; --dry-run writes nothing. Gate-class contract fields are not touched, so no backtest is owed; this is an ingest. PR body: the receipt of a --dry-run on KXMLBGAME --since 2026-10-01 is enough (a real pull is the operator's block, after my read)."
+- **As built:** src/ingestion/kalshi_history.py, the command, migrate_kalshi_settled_markets.py and tests/test_kalshi_history.py. The table is written and nothing else; nothing reads it as a close until a later ruling.
+- **How the matcher is read for a settled market:**
+  - These refusals are the matcher's own, unchanged: no pair, no date, no fit, a pair tie, two rows, a date tie, the time gate, no game on the date, a time tie, a side tie, an unknown yes team, two claims (read across events, as one place() call reads it).
+  - Four refusals of the live sync are conditions of an open market and cannot hold for a settled one, so they are not read:
+    - in play (`now` is set before every game);
+    - no price;
+    - the spread guard (a settled market's quote is its candles');
+    - the run's window (the window here is --since/--until).
+  - Each event is placed alone, so "behind an event out of step", a rule between open events, never fires.
+- **Law 1, read (addendum 68 items 3 and 5):** the payloads' keys (`kalshi_history.KEYS`) are enumerated from the five kept files of 2026-10-14 11:54Z.
+  - Source: the operator's branch laptop/kalshi-payloads-1014 (34723f1), tests/fixtures/kalshi_history/raw/. The raw files never land on main; the branch is deleted after #521 merges.
+  - Which key differed: no key of the receipt (addendum 66 item 6) or of the probe's reader differs from the files.
+    - The cutoff is `market_settled_ts`, and the lists are `markets` / `cursor`.
+    - The market keys are `ticker` / `event_ticker` / `yes_sub_title` / `result` / `close_time`.
+    - Historical candles read `yes_bid.close` / `yes_ask.close`, live candles read `yes_bid.close_dollars` / `yes_ask.close_dollars`, and both carry `end_period_ts`.
+  - settled_time's key, which the receipt did not name, is `settlement_ts`. It is on all 200 markets of each kept page; the column was null until now.
+  - Read in the files besides the keys:
+    - A price is a dollar string, and end_period_ts is epoch seconds.
+    - A time is ISO with a fraction of 0 to 6 digits.
+    - A zero-volume minute of the historical shape carries `price.close` / `open` / `high` / `low` / `mean` null, with `price.previous` set and its bid and ask present (42 of the 292 historical candles; the live reply has none).
+    - An empty side of a market's book is sent at size zero (`yes_bid_size_fp` / `yes_ask_size_fp` "0.00" on all 400 markets), priced 0.00 for a bid and 1.00 for an ask (0.00 on the two legs of KXNFLGAME-26JAN25LASEA).
+    - A tied NFL game settles both legs as result "scalar" (0.50): 2 of 200 historical, 4 of 200 live. That is stored as kalshi_result null with "result as read: 'scalar'" in notes; the table holds 'yes', 'no' or null.
+  - The fixtures are the kept files trimmed: whole objects only, in the kept order and the kept format (tests/fixtures/kalshi_history/README.md names the raw files' sha256 and the rule).
+    - The cutoff file is byte for byte.
+    - Each page keeps three events (six markets) of its 100 events (200 markets).
+    - Each candle reply keeps every candle up to the kickoff the tests store, and the five after it.
+- **From the review of the kept-payload commit (an adversarial review, each finding verified by reproduction):**
+  - **Two-sided is ruling 9's predicate:** `0 < bid <= ask < 1` (#286, ARCHITECT 2026-10-06, "two-sided = 0 < bid <= ask < 1"; `k_receipt.leg_two_sided`).
+    - The files send an empty side at size zero, priced 0.00 (a bid) or 1.00 (an ask). Read as a price, a minute with no bid became the stored quote with a mid of ask/2.
+    - In the kept replies such minutes come only after the games end, so no stored value of the kept data changes.
+    - This reading of ruling 9 here is for the architect's read on #521.
+  - **A fraction of 4 or 5 digits is read whole on Python 3.10** (docs/CLI.md says 3.10+). There, fromisoformat takes only 3 or 6 digits.
+    - Without the fix, settled_time was null on 58 of the 400 kept markets.
+    - A close_time of 4 or 5 digits (16 of 200 historical) read as missing, and the market was stored with no quote and never asked again.
+  - **The --dry-run receipt prints each row's settled_time,** and the run prints how many rows have none.
+  - **Tests strengthened where the rewrite on the kept files had weakened them:**
+    - the close leaf of each shape on kept minutes whose open / high / low differ;
+    - a cap and a failed page or returning cursor in the second list, after the first is read whole;
+    - --until's own day;
+    - a stored first candle whose price is null;
+    - a kept historical page row's result and settled_time;
+    - an unreadable timestamp inside the window.
+- **Codex P2 on #521 (e988275), fixed: the write gate reads the migration's own marker, not the table.**
+  - `KalshiSettledMarket` is mapped, so any `init_db()` (create_all, run by many scheduled commands) creates the table. A run could then write before the backed-up migration ran.
+  - migrate_kalshi_settled_markets.py now writes a one-row marker, `kalshi_settled_markets_migration`, by Core SQL. It is unmapped, so create_all never makes it. This is the convention of `ncaa_cfbd.MIGRATION_MARKER` (Codex on #333) and `V2_MIGRATION_MARKER` (#367).
+  - A run without --dry-run refuses unless the table AND the marker's row exist. --dry-run still reads without either.
+  - **Codex's second P2 (on f0a564f), fixed as the rest of the same fix:** `drop_db()` (`init-db --force`) now drops the marker too.
+    - drop_all() drops only mapped tables. A forced reset therefore left the marker beside a recreated empty table, and the gate read "migrated".
+    - `drop_db()` already drops the two CFBD markers for this reason (#333), so the convention cited above has two legs. The first push carried only one.

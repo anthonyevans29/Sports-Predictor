@@ -1228,3 +1228,42 @@ class BullpenSeasonStats(Base):
     __table_args__ = (
         Index("ix_bss_team_season", "team_id", "season", unique=True),
     )
+
+
+class KalshiSettledMarket(Base):
+    """
+    KALSHI SETTLED-MARKET HISTORY (ARCHITECT 2026-10-14 10:01 ET, addendum 67 item 1; Issue #519): "a stored record
+    of every settled Kalshi game market in our series, with the last two-sided quote before kickoff, so the
+    backtests and the older-season tests have a Kalshi close where no book close exists." Written ONLY by
+    `kalshi-history` (src/ingestion/kalshi_history.py), which writes this table and nothing else: no odds snapshot,
+    no close used by grading, no prediction row. Nothing reads it as a close until a later ruling says so.
+
+    One row per market ticker (unique), inserted once and never updated or deleted by the ingest. A market the shared
+    matcher refuses is kept with match_id and side null and the refusal reason in notes, never guessed. Prices are
+    the exchange's own (dollars, 0..1), read by each candle shape's own keys; a null price is never filled.
+    Created by migrate_kalshi_settled_markets.py.
+    """
+
+    __tablename__ = "kalshi_settled_markets"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    ticker: Mapped[str] = mapped_column(String(128), unique=True, index=True)
+    event_ticker: Mapped[str | None] = mapped_column(String(128), index=True)
+    series: Mapped[str] = mapped_column(String(64), index=True)
+    side: Mapped[str | None] = mapped_column(String(8))                          # 'HOME' | 'AWAY' | 'DRAW' | null
+    match_id: Mapped[int | None] = mapped_column(ForeignKey("matches.id"), index=True)
+    yes_sub_title: Mapped[str | None] = mapped_column(String(128))
+    kalshi_result: Mapped[str | None] = mapped_column(String(8))                 # 'yes' | 'no' | null
+    close_time: Mapped[datetime | None] = mapped_column(DateTime)               # naive UTC
+    settled_time: Mapped[datetime | None] = mapped_column(DateTime)             # naive UTC
+    source: Mapped[str] = mapped_column(String(16))                              # 'historical' | 'live'
+    fetched_at: Mapped[datetime] = mapped_column(DateTime)
+    last_ts: Mapped[datetime | None] = mapped_column(DateTime)                  # end_period_ts, naive UTC
+    last_bid: Mapped[float | None] = mapped_column(Float)
+    last_ask: Mapped[float | None] = mapped_column(Float)
+    last_mid: Mapped[float | None] = mapped_column(Float)
+    candles_6h: Mapped[int | None] = mapped_column(Integer)
+    candles_two_sided: Mapped[int | None] = mapped_column(Integer)
+    gaps: Mapped[int | None] = mapped_column(Integer)                            # minutes missing in the 6h window
+    raw_first_candle: Mapped[dict | None] = mapped_column(JSON)
+    notes: Mapped[str | None] = mapped_column(String(2000))

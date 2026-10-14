@@ -7719,6 +7719,44 @@ def kalshi_replay_cmd(only, from_file):
     kr.replay(payload, progress=click.echo)
 
 
+@cli.command("kalshi-history")
+@click.option("--series", required=True, help="One Kalshi game series per run (e.g. KXMLBGAME), as the syncs read it.")
+@click.option("--since", default=None, help="Keep the markets whose game day is on or after this date (YYYY-MM-DD).")
+@click.option("--until", default=None, help="Keep the markets whose game day is on or before this date (YYYY-MM-DD).")
+@click.option("--dry-run", is_flag=True, help="Make every read and print what would be stored; write nothing.")
+@click.option("--max-calls", default=300, type=click.IntRange(min=1), show_default=True,
+              help="Calls to the exchange in all; the run stops cleanly at the cap and prints where it stopped.")
+def kalshi_history_cmd(series, since, until, dry_run, max_calls):
+    """KALSHI SETTLED-MARKET HISTORY (ARCHITECT 2026-10-14, addendum 67 item 1; #519). Lists the series' settled
+    markets (historical and live-settled, public endpoints, no key), places each event with the shared matcher on
+    the stored games, reads each market's one-minute candles from six hours before kickoff to its close, and stores
+    one row per market in kalshi_settled_markets: the last two-sided quote at or before kickoff and its counts. It
+    writes that table and nothing else; nothing reads it as a close until a later ruling. Refused markets are kept
+    with match_id null and the reason in notes."""
+    from datetime import date as _date
+
+    from src.ingestion.kalshi_history import run_history
+    from src.walters.venue_quote_age import Refused
+
+    def _day(v, flag):
+        if v is None:
+            return None
+        try:
+            return _date.fromisoformat(v)
+        except ValueError:
+            click.echo(f"REFUSED: {flag} {v!r} is not a date (YYYY-MM-DD)")
+            raise SystemExit(2)
+    lo, hi = _day(since, "--since"), _day(until, "--until")
+    if lo and hi and lo > hi:
+        click.echo(f"REFUSED: --since {lo} is after --until {hi}")
+        raise SystemExit(2)
+    try:
+        run_history(series.strip(), since=lo, until=hi, dry_run=dry_run, max_calls=max_calls, echo=click.echo)
+    except (ValueError, Refused) as e:
+        click.echo(str(e) if str(e).startswith("REFUSED") else f"REFUSED: {e}")
+        raise SystemExit(2)
+
+
 @cli.command("sync-kalshi-soccer")
 @click.option("--competition", "competition_code", default="PL")
 @click.option("--max-spread", default=0.10, help="Skip legs with ask-bid wider than this (unliquid = noise, not a price).")

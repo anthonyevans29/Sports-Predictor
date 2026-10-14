@@ -43,6 +43,12 @@ Clearing one is a move, and it is how a failed run is written: its moved line ha
 now null, and why. In a moved line now may be null where which is earliest_live; was is always a real date. A step's
 due is never cleared: a step is done, moved, or removed by a quoted ruling."
 
+#504 RULED (ARCHITECT 2026-10-13 16:37 ET, addendum 62 item 3), verbatim: "Every moved line the base holds is on the head,
+word for word, and in the base's order; the head only appends. A moved line changed or removed fails the pull request,
+and the refusal names the lane and the line. A lane only one side holds needs nothing from this: the ruling the pull
+request quotes carries it, and I read it." Why: "'The earlier date is never erased' (addendum 59 item 5(d)) is a
+sentence about the record, and the record is the moved list."
+
 Addendum 61 item 5: "#494 is in: a milestone with no due_on key is refused, named." And: "One day is singular: 'in 1
 day', 'OVERDUE 1 day', '(+1 more step overdue)'. Addendum 59 5(e) named the pattern, not the grammar."
 
@@ -332,11 +338,38 @@ def _added_lines(head_moved: list, base_moved) -> list[dict]:
     return added
 
 
+def _line(mv) -> str:
+    """A moved line as a refusal names it."""
+    if not isinstance(mv, dict):
+        return json.dumps(mv, default=str)
+    return (f"(moved_on {mv.get('moved_on')!r}, which {mv.get('which')!r}, was {mv.get('was')!r}, "
+            f"now {json.dumps(mv.get('now'))})")
+
+
+def _kept_lines(name: str, head_moved: list, base_moved) -> list[str]:
+    """Addendum 62 item 3 (#504): "Every moved line the base holds is on the head, word for word, and in the base's
+    order; the head only appends." One message per base line that is not at its place, naming the lane and the line."""
+    if not isinstance(base_moved, list):
+        return []
+    errs = []
+    for k, mv in enumerate(base_moved, 1):
+        if k <= len(head_moved) and head_moved[k - 1] == mv:
+            continue
+        if mv in head_moved:
+            errs.append(f"{name} moved {k}: the base's line {_line(mv)} is on the head out of the base's order "
+                        f"(the head only appends)")
+        else:
+            errs.append(f"{name} moved {k}: the base's line {_line(mv)} is changed or removed on the head "
+                        f"(every moved line the base holds stays, word for word)")
+    return errs
+
+
 def check_moves(base, head) -> list[str]:
     """Addendum 60 item 3 as amended by addendum 61 item 4: every date the head moves from the base has its moved line
-    on the head, a line the head adds. One message per date without one, naming the lane and the date. [] when every
-    move is written. `head` is a file that validates; `base` is the base's file as read (None where the base has
-    none)."""
+    on the head, a line the head adds. Addendum 62 item 3: every moved line the base holds is on the head, word for
+    word, in the base's order. One message per date without its line and per base line not kept, naming the lane and
+    the date or the line. [] when every move is written and every line kept. `head` is a file that validates; `base`
+    is the base's file as read (None where the base has none)."""
     if not isinstance(base, dict) or not isinstance(base.get("lanes"), list):
         return []
     blanes: dict = {}
@@ -349,6 +382,7 @@ def check_moves(base, head) -> list[str]:
         if b is None:                      # "A lane ... that only one side holds needs nothing from this check"
             continue
         name = f"lane {ln['lane']!r}"
+        errs += _kept_lines(name, ln["moved"], b.get("moved"))   # "A lane only one side holds needs nothing from this"
         lines, used = _added_lines(ln["moved"], b.get("moved")), set()
         bel, hel = b.get("earliest_live"), ln["earliest_live"]
         # "A date set where the base had none needs no moved line." Moved or cleared needs one.
@@ -435,7 +469,9 @@ def check_base(base_ref: str, root: Path | None = None, echo=print) -> int:
     if fails:
         for f in fails:
             echo(f"✗ ROADMAP: {f}")
-        echo("  A date moves only with its moved line (ARCHITECT 2026-10-13, addendum 60 item 3; addendum 61 item 4).")
+        echo("  A date moves only with its moved line, and every moved line the base holds stays on the head, word for "
+             "word, in its order (ARCHITECT 2026-10-13, addendum 60 item 3; addendum 61 item 4; addendum 62 item 3).")
         return 1
-    echo(f"✓ ROADMAP: every date {rel} moves against {at} has its moved line")
+    echo(f"✓ ROADMAP: every date {rel} moves against {at} has its moved line, and every moved line the base holds "
+         "is kept")
     return 0

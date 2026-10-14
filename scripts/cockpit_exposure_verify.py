@@ -7,7 +7,9 @@ Ledger tab's file input. Checks:
 - opposing two-way fills hedge: cash at risk = gross + fees − the smaller side;
 - a NO contract pays on every other outcome (NO on the away = the home side);
 - soccer settles three ways: a home + away pair is NOT hedged (the tie);
-- a team-outcome above the 1.25u cap-equivalent (10 contracts per 1u) is flagged;
+- a team-outcome above the 1.25u cap-equivalent is flagged, on the unit basis a loaded file's order lines
+  declare (#487, addendum 67 item 3: here "1u = 10 contracts", as a file exported with SP_UNIT_USD unset says);
+  with no basis in the loaded files the table shows contracts, labelled, and no unit;
 - a fill whose contract role the ticker does not decide is excluded, counted;
 - load-order invariance: the same fills in reverse order give the same result;
 - an MLB doubleheader (two intraday event tickers, same teams and date) is TWO
@@ -82,7 +84,10 @@ def main():
         page.click("#tabLedger")
         page.set_input_files("#kalshiCsvFile", path)
         page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('Kalshi CSV')")
-        x = page.evaluate("fillExposure(loadLedger())")
+        # the basis a desk file exported with SP_UNIT_USD unset declares (desk_policy.unit_size's label), read by the
+        # page's own reader (#487, addendum 67 item 3): the page holds no unit of its own
+        B10 = "fillUnitBasis([{fileDesk:{order:{unit:'1u = 10 contracts (SP_UNIT_USD unset)'}}}])"
+        x = page.evaluate(f"fillExposure(loadLedger(),{B10})")
         g = {gm["teams"]: gm for gm in x["games"] if gm["family"] != "MLB"}
         dh = [gm for gm in x["games"] if gm["family"] == "MLB"]
         oc = {t: {o["outcome"]: o for o in gm["outcomes"]} for t, gm in g.items()}
@@ -121,15 +126,25 @@ def main():
         amb = page.evaluate("""(()=>{const L=loadLedger();
             const f=L.fills.find(x=>String(x.ticker).startsWith('KXNFLGAME-26SEP28BUFKC-KC'));
             L.fills=[...L.fills,{...f,id:'amb-1',ticker:'KXNFLGAME-26SEP28-BUFKC-KC'}];
-            return fillExposure(L);})()""")
+            return fillExposure(L,""" + B10 + """);})()""")
         check("ambiguous event identity: excluded and counted apart, the BUFKC event unchanged",
               amb["excludedEvent"] == 1 and next(gm for gm in amb["games"] if gm["teams"] == "BUFKC")["fills"] == 2,
               json.dumps([amb["excludedEvent"], amb["summary"]]))
-        rev = page.evaluate("(()=>{const L=loadLedger(); L.fills=L.fills.slice().reverse(); return fillExposure(L);})()")
+        rev = page.evaluate(f"(()=>{{const L=loadLedger(); L.fills=L.fills.slice().reverse(); return fillExposure(L,{B10});}})()")
         check("load-order invariance: reversed fills give the identical result", rev == x)
         tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""
-        check("Ledger tab renders the exposure table (cash at risk, the cap beside)",
-              "BUFKC" in tbl and "1.50u > 1.25u" in tbl and "cash at risk" in tbl.lower(), tbl[:300])
+        check("Ledger tab renders the exposure table; no desk file loaded: contracts, labelled, no unit (#487)",
+              "BUFKC" in tbl and "contracts (no unit basis in file)" in tbl.lower() and "15 ct · if it lands" in tbl
+              and "≈" not in tbl and "cash at risk" in tbl.lower(), tbl[:300])
+        # a loaded desk file whose order lines declare 1u = 10 contracts: the cap beside, on the file's basis
+        page.evaluate("rows=[{fileDesk:{order:{text:'BUY', unit:'1u = 10 contracts (SP_UNIT_USD unset)'}}}]; renderLedger()")
+        tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""
+        check("with a desk file's 1u = 10 contracts: 15 ct ≈ 1.50u > 1.25u", "1.50u > 1.25u" in tbl, tbl[:300])
+        page.evaluate("rows=[{fileDesk:{order:{text:'BUY', unit:'1u = $5'}}}]; renderLedger()")
+        tbl = page.inner_text("#exposureTable") if page.query_selector("#exposureTable") else ""
+        check("with a desk file's 1u = $5: 15 ct at 0.60 = $9.00 of entry ≈ 1.80u > 1.25u", "1.80u > 1.25u" in tbl,
+              tbl[:300])
+        page.evaluate("rows=[]; renderLedger()")
         txt = "\n".join(page.evaluate("realizedLines(loadLedger())"))
         check("P&L text carries the headline (diagnostic, cap/sizing unchanged)",
               "B-track fills exposure (diagnostic, cap/sizing unchanged)" in txt

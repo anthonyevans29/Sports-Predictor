@@ -67,7 +67,7 @@ def _run(tmp_path, rows):
                     _fn(html, "tickerRole"), _fn(html, "fillUnitBasis"), _fn(html, "fillUnitLabel"),
                     _fn(html, "fillExposure"), _fn(html, "exposureOutcomeName"), _fn(html, "exposureHeadline"),
                     _fn(html, "exposureHTML"),
-                    f"const rows={json.dumps(rows)};",
+                    f"const rows={json.dumps(rows)}; let fileParlays=null;",   # the page's two globals
                     f"const L={json.dumps({'fills': FILLS})};",
                     "const b=fillUnitBasis(rows), x=fillExposure(L,b);",
                     "const home=x.games[0].outcomes.find(o=>o.outcome==='HOME');",
@@ -117,3 +117,28 @@ def test_files_that_disagree_on_the_unit_show_contracts_and_name_both(tmp_path):
     out = _run(tmp_path, [_row("1u = $20"), _row("1u = $25")])
     assert out["label"] == "contracts (the loaded files' unit bases differ: 1u = $20 vs 1u = $25)"
     assert out["home"]["units"] is None and out["over"] is None
+
+
+@needs_node
+def test_a_parlay_files_ticket_legs_count_as_loaded_order_lines(tmp_path):
+    """Codex on #523: every accepted loaded file counts, a desk_parlays file's ticket legs included (its legs carry
+    desk_policy's order lines, unit and all). A parlays file alone gives its basis; beside prediction rows that
+    disagree, the bases conflict and nothing is picked."""
+    html = _html()
+    parl = {"kind": "desk_parlays_v1", "tickets": [{"legs": [{"order": {"text": "BUY", "unit": "1u = $20"}},
+                                                             {"order": {"text": "BUY", "unit": "1u = $20"}}]}]}
+    js = "\n".join([_fn(html, "fillUnitBasis"), _fn(html, "fillUnitLabel"),
+                    f"const P={json.dumps(parl)};",
+                    "console.log(JSON.stringify([fillUnitBasis([],P), fillUnitLabel(fillUnitBasis([],P)),"
+                    f"fillUnitLabel(fillUnitBasis({json.dumps([_row('1u = $25')])},P)), fillUnitBasis([],null)]));"])
+    f = tmp_path / "parl.js"
+    f.write_text(js)
+    out = json.loads(subprocess.run(["node", str(f)], capture_output=True, text=True, check=True).stdout)
+    assert out[0] == {"mode": "usd", "value": 20} and out[1] == "1u = $20"
+    assert out[2] == "contracts (the loaded files' unit bases differ: 1u = $25 vs 1u = $20)"
+    assert out[3] is None
+
+
+def test_the_page_reads_the_basis_from_the_rows_and_the_parlays_file():
+    html = _html()
+    assert html.count("fillUnitBasis(rows,fileParlays)") == 2 and "fillUnitBasis(rows)" not in html

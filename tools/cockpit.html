@@ -2167,12 +2167,15 @@ function realizedHTML(L){
 const THREE_WAY_FAMILIES=new Set(["EPL","UCL","FACUP","UEFANL"]);
 const BTRACK_CAP_U=1.25;
 // The unit basis of the loaded files, read from their order lines as desk_policy.file_unit_basis reads a file's:
-// "1u = $N" (SP_UNIT_USD set) or "1u = N contracts" (unset). One basis across every loaded row's order -> it;
-// none -> null; more than one -> {conflict} (never a pick between them).
-function fillUnitBasis(rs){
+// "1u = $N" (SP_UNIT_USD set) or "1u = N contracts" (unset). Every accepted loaded file counts: the prediction and
+// fixtures rows' orders and a desk_parlays file's ticket legs' orders. One basis across them -> it; none -> null;
+// more than one -> {conflict} (never a pick between them).
+function fillUnitBasis(rs,parlays){
   const seen=new Map();
-  for(const r of rs||[]){
-    const u=String((((r||{}).fileDesk||{}).order||{}).unit||"").trim(); if(!u) continue;
+  const units=(rs||[]).map(r=>(((r||{}).fileDesk||{}).order||{}).unit)
+    .concat(((parlays||{}).tickets||[]).flatMap(t=>((t||{}).legs||[]).map(l=>((l||{}).order||{}).unit)));
+  for(const raw of units){
+    const u=String(raw||"").trim(); if(!u) continue;
     let m=u.match(/^1u = \$([0-9.]+)/), b=null;
     if(m&&+m[1]>0) b={mode:"usd",value:+m[1]};
     else if((m=u.match(/^1u = ([0-9]+) contracts\b/))&&+m[1]>0) b={mode:"contracts",value:+m[1]};
@@ -2236,7 +2239,7 @@ function exposureHeadline(x){ const s=x.summary;
     +(x.excludedRole?` · ${x.excludedRole} fill(s) excluded (contract role not decided by the ticker)`:"")
     +(x.excludedEvent?` · ${x.excludedEvent} fill(s) excluded (event identity ambiguous)`:""); }
 function exposureHTML(L){
-  const x=fillExposure(L,fillUnitBasis(rows)); if(!x.games.length&&!x.excluded) return "";
+  const x=fillExposure(L,fillUnitBasis(rows,fileParlays)); if(!x.games.length&&!x.excluded) return "";
   const $$=v=>(v<0?"−$":"$")+Math.abs(v).toFixed(2);
   const trs=x.games.slice(0,25).map(g=>`<tr><td>${esc(g.key)}</td><td>${g.fills}</td>`
     +`<td>${$$(g.gross)}</td><td>${$$(g.fees)}</td><td>${g.hedge?$$(g.hedge):"—"}</td><td><b>${$$(g.cashAtRisk)}</b></td><td>`
@@ -2263,7 +2266,7 @@ function realizedLines(L){
     (()=>{const fc=feeClassSummary(fs); return `fee class (open legs, fee vs formula): ${fc.txt}`
       +(fc.live?` · ${fc.live} MLB fill(s) at the LIVE rate (doctrine: MLB is never executed live)`:"");})(),
     `unmatched-but-plausible for manual review: ${fs.filter(x=>x.plausible).length}`,
-    exposureHeadline(fillExposure(L,fillUnitBasis(rows))),""];
+    exposureHeadline(fillExposure(L,fillUnitBasis(rows,fileParlays))),""];
 }
 $("kalshiCsvFile").addEventListener("change",async e=>{
   const f=e.target.files[0]; if(!f)return;

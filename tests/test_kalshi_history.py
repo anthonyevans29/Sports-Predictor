@@ -86,12 +86,24 @@ class FakeKalshi(KalshiAdapter):
         return route(path, params, self.pages)
 
 
+def _mig():
+    """migrate_kalshi_settled_markets.py, loaded as the operator runs it."""
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("mig", Path(__file__).resolve().parents[1]
+                                                  / "migrate_kalshi_settled_markets.py")
+    mig = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mig)
+    return mig
+
+
 def _world(code, sport, series, games):
-    """Competition `code` with its games {key: (away, home, kickoff UTC)}, read for `series`; no stored row of the
-    series (the throwaway DB is shared by the session). Returns {key: match id}."""
+    """Competition `code` with its games {key: (away, home, kickoff UTC)}, read for `series`, on a DB the migration has
+    run on (idempotent); no stored row of the series (the throwaway DB is shared by the session). Returns {key: match
+    id}."""
     from src.db.database import get_engine, init_db, session_scope
     from src.db.schema import Competition, Match, MatchStatus, Team
     init_db()
+    assert _mig().main() == 0
     with session_scope() as s:
         comp = s.execute(select(Competition).where(Competition.code == code)).scalar_one_or_none()
         if comp is None:
@@ -558,18 +570,50 @@ def test_a_competition_not_in_the_db_refuses_before_any_call(nfl, monkeypatch):
     assert fake.calls == []
 
 
+@pytest.mark.parametrize("marker", ["kalshi_settled_markets_migration_not_run",
+                                    "kalshi_settled_markets_migration_empty"])
+def test_a_table_init_db_made_without_the_marker_refuses_a_run(nfl, monkeypatch, marker):
+    """Codex P2 on #521 (the convention of ncaa_cfbd's marker, Codex on #333): the table is mapped, so any init_db()
+    makes it; only the migration's own marker row proves the backed-up migration ran. With the table present
+    (init_db) and no marker table, or one with no row (made here, in the throwaway DB), a run refuses before any
+    call; --dry-run still reads."""
+    from src.db.database import get_engine, init_db
+    init_db()
+    if marker.endswith("_empty"):
+        with get_engine().begin() as c:
+            c.execute(text(f"CREATE TABLE IF NOT EXISTS {marker} (id INTEGER PRIMARY KEY)"))
+    monkeypatch.setattr(kh, "MIGRATION_MARKER", marker)
+    fake = FakeKalshi()
+    with pytest.raises(ValueError, match=r"REFUSED: kalshi_settled_markets is not migrated \(no migration marker "
+                                         rf"{marker}; an init_db\(\)-created table does not count\)"):
+        go(adapter=fake)
+    assert fake.calls == [] and rows() == {}
+    run, out = go(dry_run=True)
+    assert "  would be stored: 14 (placed on a stored game 10, refused and kept 4) · already stored 0" in out
+
+
+def test_the_migration_writes_its_marker_once(nfl, capsys):
+    """The migration alone writes the one-row marker, by Core SQL (unmapped: create_all never makes it); a second run
+    keeps it."""
+    from src.db.database import get_engine
+    from src.db.schema import Base
+    from src.walters.venue_quote_age import readonly_session
+    assert kh.MIGRATION_MARKER not in Base.metadata.tables
+    assert _mig().main() == 0
+    assert f"· Kept migration marker {kh.MIGRATION_MARKER}" in capsys.readouterr().out
+    with get_engine().connect() as c:
+        assert c.execute(text(f"SELECT id, script FROM {kh.MIGRATION_MARKER}")).all() == [
+            (1, "migrate_kalshi_settled_markets.py")]
+    with readonly_session() as rs:
+        assert kh.migrated(rs)
+
+
 def test_the_migration_never_creates_a_database(tmp_path, monkeypatch, capsys):
     """Law 5: with no DB file at the configured path the migration refuses (exit 1) and creates neither the file nor
     its directory."""
-    import importlib.util
-
     from src.walters import venue_quote_age
     missing = tmp_path / "nowhere" / "sports.db"
     monkeypatch.setattr(venue_quote_age, "db_file_path", lambda: missing)   # the configured DB's path, read by it
-    spec = importlib.util.spec_from_file_location("mig", Path(__file__).resolve().parents[1]
-                                                  / "migrate_kalshi_settled_markets.py")
-    mig = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mig)
-    assert mig.main() == 1
+    assert _mig().main() == 1
     assert f"no DB file at {missing}" in capsys.readouterr().out
     assert not missing.exists() and not missing.parent.exists()

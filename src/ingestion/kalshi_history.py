@@ -51,7 +51,9 @@ How it reads, so the receipt can be checked against it:
 - --max-calls (default 300; the probe's whole run was 241): every call counts. At the cap the run stops cleanly: what
   it holds is stored (unless --dry-run), and it prints where it stopped (the list and its cursor, or the market whose
   candles it would have fetched next).
-- --dry-run makes every read, prints what would be stored, and writes nothing (the table need not exist).
+- --dry-run makes every read, prints what would be stored, and writes nothing (the table need not exist). A run
+  without it writes only when migrate_kalshi_settled_markets.py has run: the table AND that script's migration marker
+  (MIGRATION_MARKER below; an init_db()-created table does not count).
 
 The payloads' keys (law 1: "read each by its own keys from the kept payloads of 2026-10-14 under logs/ (law 1:
 enumerate the keys from those files, not from memory)"): KEYS below is the one place they are named, enumerated from
@@ -80,6 +82,12 @@ from src.ingestion import kalshi_match as km
 from src.walters.k_receipt import leg_two_sided
 
 TABLE = "kalshi_settled_markets"
+# The migration marker (Codex P2 on #521; the convention of ncaa_cfbd.MIGRATION_MARKER, Codex on #333).
+# KalshiSettledMarket is mapped in Base.metadata, so ANY init_db() (create_all, run by many scheduled commands) creates
+# an empty kalshi_settled_markets; the table's existence does not prove the backed-up migration ran.
+# migrate_kalshi_settled_markets.py, and nothing else, creates this one-row table by Core SQL (deliberately NOT mapped,
+# so create_all can never make it), and a run without --dry-run writes only when both exist.
+MIGRATION_MARKER = "kalshi_settled_markets_migration"
 MAX_CALLS = 300                  # the ruling's default
 WINDOW_H = 6                     # "start_ts = kickoff − 6h"
 PAGE_LIMIT = 200                 # the adapter's own page size (KalshiAdapter.open_markets_for_series)
@@ -101,6 +109,19 @@ SOURCES = (("historical", "historical/markets", {}), ("live", "markets", {"statu
 
 
 _FRACTION = re.compile(r"\.(\d+)")
+
+
+def migrated(rs) -> bool:
+    """True only when migrate_kalshi_settled_markets.py ran: the table exists AND the marker table that script alone
+    writes holds its row. An init_db()-created table without the marker is NOT migrated."""
+    from sqlalchemy import inspect, text
+    try:
+        ins = inspect(rs.get_bind())
+        if not (ins.has_table(TABLE) and ins.has_table(MIGRATION_MARKER)):
+            return False
+        return bool(rs.execute(text(f"SELECT COUNT(*) FROM {MIGRATION_MARKER}")).scalar())
+    except Exception:  # noqa: BLE001 - an unreadable marker is not a migration
+        return False
 
 
 class Capped(Exception):
@@ -387,13 +408,15 @@ def run_history(series: str, *, since: date | None = None, until: date | None = 
                          "KalshiAdapter.SOCCER_GAME_SERIES): nothing is listed")
     with readonly_session() as rs:
         has_table = inspect(rs.get_bind()).has_table(TABLE)
+        ready = migrated(rs)
         comp_id = rs.execute(select(Competition.id).where(Competition.code == comp_code)).scalar_one_or_none()
     if comp_id is None:                                       # as the syncs answer: nothing is listed or stored
         raise ValueError(f"REFUSED: competition {comp_code} (of {series}) is not in the DB: sync-competitions, "
                          "sync-teams and sync-matches first; nothing is listed or stored")
-    if not has_table and not dry_run:
-        raise ValueError(f"REFUSED: {TABLE} does not exist (run migrate_kalshi_settled_markets.py after the daily "
-                         ".backup); --dry-run reads without it")
+    if not ready and not dry_run:
+        raise ValueError(f"REFUSED: {TABLE} is not migrated (no migration marker {MIGRATION_MARKER}; an "
+                         "init_db()-created table does not count): take the daily .backup, then run "
+                         "`python migrate_kalshi_settled_markets.py`; --dry-run reads without it")
     is_tie = adapter.is_tie_market if soccer else None
     calls = Calls(adapter, max_calls)
     echo(f"kalshi-history {series} ({comp_code}{', three legs' if soccer else ''}) · "

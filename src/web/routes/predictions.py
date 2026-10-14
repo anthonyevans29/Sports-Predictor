@@ -278,19 +278,24 @@ async def predictions_dashboard(request: Request):
 
         # Per-model aggregate stats — joined to sport via the underlying Match
         model_stats: list[dict] = []
+        from src.walters.vs_close import block_from_outcomes, line as vs_line
         for mv in model_versions:
-            rows = list(s.execute(
-                select(PredictionOutcome)
-                .join(Prediction, Prediction.id == PredictionOutcome.prediction_id)
+            triples = list(s.execute(
+                select(Prediction, PredictionOutcome, Match)
+                .join(PredictionOutcome, PredictionOutcome.prediction_id == Prediction.id)
                 .join(Match, Match.id == Prediction.match_id)
                 .where(
                     Prediction.model_version == mv.version,
                     Match.sport == sport_enum,
                 )
-            ).scalars())
+            ).all())
+            rows = [oc for _, oc, _ in triples]
             if not rows:
                 continue
             n = len(rows)
+            # ARCHITECT 2026-10-13 (addendum 64 item 2): "A win rate of the model's own picks carries the line against
+            # the close" — by vs_close, over the same games, against the grading close
+            vs = block_from_outcomes(s, triples)
             ll_vals = [r.log_loss for r in rows if r.log_loss is not None]
             br_vals = [r.brier_score for r in rows if r.brier_score is not None]
             avg_ll = sum(ll_vals) / len(ll_vals) if ll_vals else 0
@@ -303,6 +308,8 @@ async def predictions_dashboard(request: Request):
                 "log_loss": round(avg_ll, 4),
                 "brier_score": round(avg_brier, 4),
                 "top_pick_accuracy": round(top_pick_acc, 3),
+                "vs_close": vs,
+                "vs_close_line": vs_line(vs),
                 "created_at": mv.created_at,
             })
 

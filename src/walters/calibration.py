@@ -68,6 +68,9 @@ class CalibrationReport:
     ece: float                       # expected calibration error
     bins: list[CalibrationBin] = field(default_factory=list)
     window_days: int | None = None
+    # ARCHITECT 2026-10-13 (addendum 64 item 2): the overall hit rate carries the line against the close, by
+    # vs_close, over the same games (computed only when asked: with_vs_close=True)
+    vs_close: dict | None = None
 
     def reliable_bins(self) -> list[CalibrationBin]:
         return [b for b in self.bins if b.reliable and b.count > 0]
@@ -78,6 +81,7 @@ def compute_calibration(
     sport: Sport,
     window_days: int | None = None,
     bin_width: float = 0.05,
+    with_vs_close: bool = False,
 ) -> CalibrationReport:
     """
     Build a calibration report for scored predictions.
@@ -87,6 +91,8 @@ def compute_calibration(
         window_days: if set, only include predictions for matches in the
                      last N days. None = all scored predictions.
         bin_width: confidence bin granularity (default 0.05 = 5% bins)
+        with_vs_close: also compute the record against the close over the
+                     games the hit rate counts (addendum 64 item 2)
 
     Returns a CalibrationReport.
     """
@@ -109,6 +115,8 @@ def compute_calibration(
     hit_total = 0
     log_loss_sum = 0.0
     log_loss_n = 0
+    counted = []                     # the games the hit rate counts, for the line against the close
+    vs = None
 
     with session_scope() as s:
         stmt = (
@@ -130,6 +138,7 @@ def compute_calibration(
             top_prob = max(probs)
 
             total += 1
+            counted.append((pred, outcome, match))
             hit = bool(outcome.top_pick_hit)
             if hit:
                 hit_total += 1
@@ -146,6 +155,9 @@ def compute_calibration(
                     if hit:
                         b.hits += 1
                     break
+        if with_vs_close:
+            from src.walters.vs_close import block_from_outcomes
+            vs = block_from_outcomes(s, counted)
 
     # Expected Calibration Error: sample-weighted average |gap|
     ece = 0.0
@@ -162,6 +174,7 @@ def compute_calibration(
         ece=ece,
         bins=[b for b in bins if b.count > 0],
         window_days=window_days,
+        vs_close=vs,
     )
 
 

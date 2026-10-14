@@ -53,6 +53,7 @@
               <th class="text-right px-3 py-2">N</th>
               <th class="text-right px-3 py-2">Log loss</th>
               <th class="text-right px-3 py-2">Top pick</th>
+              <th class="text-left px-3 py-2">Against the close</th>
             </tr>
           </thead>
           <tbody class="divide-y divide-slate-100">
@@ -66,6 +67,8 @@
                 <td class="px-3 py-2 text-right tabular-nums">{{ m.n }}</td>
                 <td class="px-3 py-2 text-right tabular-nums">{{ m.log_loss }}</td>
                 <td class="px-3 py-2 text-right tabular-nums">{{ (m.top_pick_accuracy * 100)|round(1) }}%</td>
+                {# addendum 64 item 2: the win rate is never shown without its line against the close #}
+                <td class="px-3 py-2 text-xs text-slate-600">{{ m.vs_close_line }}</td>
               </tr>
             {% endfor %}
           </tbody>

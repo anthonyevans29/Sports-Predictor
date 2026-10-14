@@ -134,3 +134,22 @@ def block_from_rows(rows, seed: int = SEED, resamples: int = RESAMPLES) -> dict:
         out["kalshi_only_closes"] = sum(1 for r, _ in fed if (r.get("graded") or {}).get("close_reference")
                                         == "kalshi_only")
     return out
+
+
+def outcome_row(pred, oc, graded: dict) -> dict:
+    """A stored prediction and its graded outcome in the results row's shape, with the close block a results row
+    carries (`graded`), so a record read from the database reads its games as the results file does."""
+    return {"predicted": {"home_win_prob": getattr(pred, "home_win_prob", None),
+                          "draw_prob": getattr(pred, "draw_prob", None),
+                          "away_win_prob": getattr(pred, "away_win_prob", None)},
+            "actual": {"home_score": oc.actual_home_score, "away_score": oc.actual_away_score,
+                       "result": oc.actual_result.value if oc.actual_result else None},
+            "graded": graded}
+
+
+def block_from_outcomes(s, rows, seed: int = SEED, resamples: int = RESAMPLES) -> dict:
+    """The block over stored (Prediction, PredictionOutcome, Match) rows, each against THE grading close
+    (close.grading_close_block, as the MLB and PL results rows read it). ARCHITECT 2026-10-13 (addendum 64 item 2):
+    "A win rate of the model's own picks carries the line against the close" (calibration, the web dashboard)."""
+    from src.walters.close import grading_close_block
+    return block_from_rows((outcome_row(p, oc, grading_close_block(s, m)) for p, oc, m in rows), seed, resamples)

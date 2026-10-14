@@ -231,6 +231,11 @@ def test_grade_reads_the_last_row_before_kickoff(mine, tmp_path):
         assert r["hit_rate"] == (1.0 if p >= 0.5 else 0.0)                 # graded on the CFBD score
         assert r["brier"] == round((p - 1) ** 2, 4) and r["priced"] == 1
         assert "result 31-13 (cfbd)" in r["lines"][0] and r["lines"][0].endswith("NOT gate evidence")
+        # ARCHITECT 2026-10-13 (addendum 64 item 2): the hit rate carries the line against the close, per the
+        # shadow's own close (the odds table's 1.7 / 2.25, home won on the CFBD score)
+        from src.walters.vs_close import block
+        fair_h = (1 / 1.7) / (1 / 1.7 + 1 / 2.25)
+        assert r["vs_close"] == block([(p, fair_h)]) and r["vs_close"]["games"] == 1
         # Codex on #344: a reused match id (different teams / kickoff in the artifact) is never graded against it
         doc = json.loads(sorted(ex.glob("ncaa_shadow_*.json"))[-1].read_text())
         doc["predictions"][0]["home_team"] = "Someone Else"

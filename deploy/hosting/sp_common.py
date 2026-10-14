@@ -293,3 +293,22 @@ def integrity(p: Path) -> str:
     finally:
         con.close()
     return "ok" if rows == ["ok"] else "; ".join(rows[:5])
+
+
+def copy_integrity(p: Path) -> str:
+    """PRAGMA integrity_check on a COPY nobody writes (a pulled .backup), opened "?mode=ro&immutable=1".
+
+    ARCHITECT 2026-10-14 (addendum 68 item 2, #517): "pull_backup's verify opens the pulled COPY with
+    "?mode=ro&immutable=1" [...] the live DB is never opened immutable (#340 stands)." A WAL-mode copy with no
+    -shm/-wal beside it cannot be opened mode=ro by the laptop's (macOS) SQLite, which has to create the -shm
+    ("unable to open database file"); Linux's creates it and leaves the -shm and -wal behind. Immutable reads the
+    file as it is and creates nothing beside it. Never for the live DB: ro_connect stays mode=ro (an immutable open
+    skips SQLite's change detection, Codex on #340)."""
+    if not p.exists():
+        raise FileNotFoundError(p)
+    con = sqlite3.connect(Path(p).resolve().as_uri() + "?mode=ro&immutable=1", uri=True, timeout=60)
+    try:
+        rows = [r[0] for r in con.execute("PRAGMA integrity_check")]
+    finally:
+        con.close()
+    return "ok" if rows == ["ok"] else "; ".join(rows[:5])

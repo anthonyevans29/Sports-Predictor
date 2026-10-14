@@ -9,7 +9,8 @@ $0 and off-provider.
   (prerefresh copies are not pulled).
 - scp's the file and its .sha256 sidecar to <dest>/<name>.partial.
 - Verifies the sha256 against the sidecar, and runs a read-only
-  integrity_check.
+  integrity_check on the copy, opened ?mode=ro&immutable=1 (a WAL copy with
+  no -shm beside it; addendum 68 item 2, #517).
 - Only then renames it into place (mode 0600) and appends a receipt
   (kind "pull") to this machine's receipts log.
 - Already pulled with the same sha = a receipted no-op.
@@ -45,7 +46,7 @@ def verify_and_place(partial: Path, sidecar: Path, final: Path) -> dict:
     got = c.sha256_file(partial)
     if got != want:
         raise RuntimeError(f"sha256 mismatch: sidecar {want[:12]} vs pulled {got[:12]}")
-    integ = c.integrity(partial)
+    integ = c.copy_integrity(partial)     # the pulled COPY, immutable (addendum 68 item 2, #517); never the live DB
     if integ != "ok":
         raise RuntimeError(f"integrity_check: {integ}")
     os.chmod(partial, 0o600)

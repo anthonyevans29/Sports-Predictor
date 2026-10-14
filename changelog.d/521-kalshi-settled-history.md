@@ -1,0 +1,16 @@
+## 2026-10-14 (#521: kalshi-settled-history — ARCHITECT addendum 67 item 1, #519)
+- `kalshi-history --series S [--since] [--until] [--dry-run] [--max-calls N]` (src/ingestion/kalshi_history.py): the Kalshi settled-market history ingest.
+  - It reads the cutoff, then `/historical/markets` and `/markets?status=settled`, paged by cursor.
+  - Each event is placed by the shared matcher on the stored games of its days. The live sync's in-play, no-price, spread and window refusals are not read for a settled market.
+  - Each market's one-minute candles are read from kickoff − 6h to its close.
+  - It stores one row per market in the new table `kalshi_settled_markets`: the last two-sided quote at or before kickoff, and its counts.
+  - It writes that table and nothing else.
+  - Refused markets are kept with match_id null and the reason in notes, and the refusals are listed by reason.
+  - Each candle shape is read by its own keys (`KEYS`), and a null price is never filled.
+  - A stored ticker is skipped, so a run resumes by the table. At the cap the run stops cleanly and prints where; a list cut short stores nothing.
+  - `--dry-run` reads and writes nothing.
+- migrate_kalshi_settled_markets.py: creates the table. Additive and idempotent; run after the daily .backup.
+- docs/CLI.md: the `kalshi-history` row.
+- Tests: tests/test_kalshi_history.py (11), on tests/fixtures/kalshi_history/.
+  - The fixtures are stand-ins written to the receipt's keys, replaced by the probe's kept files before merge.
+  - Covered: each shape read by its own keys; a null-price minute kept null and a one-sided minute never filled; an unmatched market kept with its reason; an unmatched date-only market fetches no candles; the cap stops the run, prints where, and the next run resumes on all of an event's legs; a list cut short stores nothing and names the cursor; --dry-run writes nothing; a run writes its one table and nothing else; --since/--until; an unread series refused; the command.

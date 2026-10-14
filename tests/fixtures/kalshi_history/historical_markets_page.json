@@ -1,0 +1,41 @@
+{
+ "markets": [
+  {
+   "ticker": "KXZKHGAME-25JUL041910ALPBET-ALP",
+   "event_ticker": "KXZKHGAME-25JUL041910ALPBET",
+   "yes_sub_title": "Alpha",
+   "title": "Alpha wins",
+   "result": "yes",
+   "close_time": "2025-07-05T03:00:00Z",
+   "status": "finalized"
+  },
+  {
+   "ticker": "KXZKHGAME-25JUL041910ALPBET-BET",
+   "event_ticker": "KXZKHGAME-25JUL041910ALPBET",
+   "yes_sub_title": "Beta",
+   "title": "Beta wins",
+   "result": "no",
+   "close_time": "2025-07-05T03:00:00Z",
+   "status": "finalized"
+  },
+  {
+   "ticker": "KXZKHGAME-25JUL052005GAMDEL-GAM",
+   "event_ticker": "KXZKHGAME-25JUL052005GAMDEL",
+   "yes_sub_title": "Gamma",
+   "title": "Gamma wins",
+   "result": "no",
+   "close_time": "2025-07-06T04:00:00Z",
+   "status": "finalized"
+  },
+  {
+   "ticker": "KXZKHGAME-25JUL052005GAMDEL-DEL",
+   "event_ticker": "KXZKHGAME-25JUL052005GAMDEL",
+   "yes_sub_title": "Delta",
+   "title": "Delta wins",
+   "result": "yes",
+   "close_time": "2025-07-06T04:00:00Z",
+   "status": "finalized"
+  }
+ ],
+ "cursor": ""
+}

@@ -1,0 +1,23 @@
+{
+ "markets": [
+  {
+   "ticker": "KXZKHGAME-26SEP011905ALPBET-ALP",
+   "event_ticker": "KXZKHGAME-26SEP011905ALPBET",
+   "yes_sub_title": "Alpha",
+   "title": "Alpha wins",
+   "result": "no",
+   "close_time": "2026-09-02T03:00:00Z",
+   "status": "finalized"
+  },
+  {
+   "ticker": "KXZKHGAME-26SEP011905ALPBET-BET",
+   "event_ticker": "KXZKHGAME-26SEP011905ALPBET",
+   "yes_sub_title": "Beta",
+   "title": "Beta wins",
+   "result": "yes",
+   "close_time": "2026-09-02T03:00:00Z",
+   "status": "finalized"
+  }
+ ],
+ "cursor": ""
+}

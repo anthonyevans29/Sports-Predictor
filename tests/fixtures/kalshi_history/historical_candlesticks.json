@@ -1,0 +1,155 @@
+{
+ "ticker": "KXZKHGAME-25JUL041910ALPBET-ALP",
+ "candlesticks": [
+  {
+   "end_period_ts": 1751649000,
+   "yes_bid": {
+    "open": 0.4,
+    "low": 0.4,
+    "high": 0.4,
+    "close": 0.4
+   },
+   "yes_ask": {
+    "open": 0.45,
+    "low": 0.45,
+    "high": 0.45,
+    "close": 0.45
+   },
+   "price": {
+    "open": 0.42,
+    "low": 0.42,
+    "high": 0.42,
+    "close": 0.42
+   },
+   "volume": 3,
+   "open_interest": 120
+  },
+  {
+   "end_period_ts": 1751649060,
+   "yes_bid": {
+    "open": 0.41,
+    "low": 0.41,
+    "high": 0.41,
+    "close": 0.41
+   },
+   "yes_ask": {
+    "open": 0.46,
+    "low": 0.46,
+    "high": 0.46,
+    "close": 0.46
+   },
+   "price": {
+    "open": null,
+    "low": null,
+    "high": null,
+    "close": null
+   },
+   "volume": 0,
+   "open_interest": 120
+  },
+  {
+   "end_period_ts": 1751666400,
+   "yes_bid": {
+    "open": 0.5,
+    "low": 0.5,
+    "high": 0.5,
+    "close": 0.5
+   },
+   "yes_ask": {
+    "open": 0.55,
+    "low": 0.55,
+    "high": 0.55,
+    "close": 0.55
+   },
+   "price": {
+    "open": 0.52,
+    "low": 0.52,
+    "high": 0.52,
+    "close": 0.52
+   },
+   "volume": 7,
+   "open_interest": 120
+  },
+  {
+   "end_period_ts": 1751670300,
+   "yes_bid": {
+    "open": 0.52,
+    "low": 0.52,
+    "high": 0.52,
+    "close": 0.52
+   },
+   "yes_ask": {
+    "open": 0.53,
+    "low": 0.53,
+    "high": 0.53,
+    "close": 0.53
+   },
+   "price": {
+    "open": null,
+    "low": null,
+    "high": null,
+    "close": null
+   },
+   "volume": 0,
+   "open_interest": 120
+  },
+  {
+   "end_period_ts": 1751670480,
+   "yes_bid": {
+    "open": null,
+    "low": null,
+    "high": null,
+    "close": null
+   },
+   "yes_ask": {
+    "open": 0.54,
+    "low": 0.54,
+    "high": 0.54,
+    "close": 0.54
+   },
+   "price": {
+    "open": null,
+    "low": null,
+    "high": null,
+    "close": null
+   },
+   "volume": 0,
+   "open_interest": 120
+  },
+  {
+   "end_period_ts": 1751670540,
+   "yes_bid": {
+    "close_dollars": "0.6000"
+   },
+   "yes_ask": {
+    "close_dollars": "0.6100"
+   },
+   "price": {},
+   "volume": 0,
+   "open_interest": 120
+  },
+  {
+   "end_period_ts": 1751671200,
+   "yes_bid": {
+    "open": 0.9,
+    "low": 0.9,
+    "high": 0.9,
+    "close": 0.9
+   },
+   "yes_ask": {
+    "open": 0.95,
+    "low": 0.95,
+    "high": 0.95,
+    "close": 0.95
+   },
+   "price": {
+    "open": 0.93,
+    "low": 0.93,
+    "high": 0.93,
+    "close": 0.93
+   },
+   "volume": 40,
+   "open_interest": 120
+  }
+ ]
+}

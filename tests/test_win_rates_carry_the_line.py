@@ -108,6 +108,11 @@ def test_export_results_refuses_an_unknown_competition_code(iso_db, tmp_path):
     assert res.exit_code == 2, res.output
     assert "REFUSED: unknown competition code 'NOPE'" in res.output and "never falls back to every row" in res.output
     assert not (tmp_path / "x.json").exists()                              # nothing written
+    # review of the PR: an empty code is a code it does not know, never "every row"
+    blank = CliRunner().invoke(cli.cli, ["export-results", "--sport", "mlb", "--competition", "",
+                                         "--out", str(tmp_path / "y.json")])
+    assert blank.exit_code == 2 and "REFUSED: unknown competition code ''" in blank.output, blank.output
+    assert not (tmp_path / "y.json").exists()
     doc = json.loads(export_results(sport=Sport.MLB, start_date=utc_now_naive() - timedelta(days=3),
                                     end_date=utc_now_naive(), competition_code="MLB"))
     assert doc["count"] == 3                                                # a known code reads as before

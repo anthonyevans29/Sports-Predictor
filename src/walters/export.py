@@ -971,7 +971,7 @@ def export_results(
                    Match.utc_date < end_date,
                    PredictionOutcome.actual_home_score.isnot(None))
         )
-        if competition_code:
+        if competition_code is not None:          # an empty code is a code: it fails the lookup, never "every row"
             from src.db.schema import Competition
             comp = s.execute(
                 select(Competition).where(Competition.code == competition_code)

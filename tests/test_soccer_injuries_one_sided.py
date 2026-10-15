@@ -307,3 +307,129 @@ def test_437_3_a_side_at_the_xg_floor_with_a_cut_is_left_out_under_its_own_reaso
     assert rc.left_out(x) == [rc.LEFT_OUT[2]]
     p = rc.one_x_two(0.05, 1.4, -0.10, 10)
     assert rc.one_x_two(0.05 / (1 - rc.reduction(9)), 1.4, -0.10, 10)["HOME"] != p["HOME"]   # the bogus take-back
+
+
+def test_the_receipt_isolates_the_guard_per_case_and_counts_the_calls_only_it_changed():
+    """Addendum 74 item 3 (#425): for each case the Desk's call with the one-sided-list guard on and with its own switch
+    off, as of the prediction's computed_at against the book reference an export built then carried; the receipt counts
+    the cases where only the guard changed the call. Nine graded cases on the receipt's own shape (stored xG 0.76 /
+    1.822 at rho -0.10, AWAY 0.616; two books; computed 3h before kickoff, books at 4h unless said):
+    0  8/0 books 0.448, a later session at 1h reads 0.600: held; LADDER (X2) off: changed, a draw: won
+    1  6/2 books 0.448: LADDER either way
+    2  8/0 books 0.600: held; PASS noref off: not changed
+    3  6/2 books 0.600: PASS noref either way (a PASS the guard did not make)
+    4  8/0 books 0.448, no factor note: left out of every aggregate (counted in the all-rows line only)
+    5  8/0 books 0.448, the home rating the default: default_rating either way (an earlier rule)
+    6  0/5 books 0.448, computed 10 minutes after kickoff: started either way (an earlier rule)
+    7  0/3 books 0.560: held; PLAY AWAY off: changed, a home win: lost
+    8  0/3 books only at 1h (after computed_at): no reference then; held; PASS noref off: not changed"""
+    import scripts.soccer_injury_factor_receipt as rc
+    init_db()
+    hxg, axg = 0.76, 1.822
+    p = rc.one_x_two(hxg, axg, -0.10, 10)
+    lad, flat, play = ({"HOME": 0.300, "DRAW": 0.252, "AWAY": 0.448}, {"HOME": 0.180, "DRAW": 0.220, "AWAY": 0.600},
+                       {"HOME": 0.200, "DRAW": 0.240, "AWAY": 0.560})
+    H4, H1 = timedelta(hours=-4), timedelta(hours=-1)
+    cases = [  # counts, [(books offset, fair)], result, extra factor_breakdown, computed_at offset, notes kept
+        ((8, 0), [(H4, lad), (H1, flat)], (1, 1), {}, timedelta(hours=-3), True),
+        ((6, 2), [(H4, lad)], (1, 0), {}, timedelta(hours=-3), True),
+        ((8, 0), [(H4, flat)], (0, 1), {}, timedelta(hours=-3), True),
+        ((6, 2), [(H4, flat)], (0, 1), {}, timedelta(hours=-3), True),
+        ((8, 0), [(H4, lad)], (0, 2), {}, timedelta(hours=-3), False),
+        ((8, 0), [(H4, lad)], (0, 2), {"home_rating_source": "default", "away_rating_source": "model"},
+         timedelta(hours=-3), True),
+        ((0, 5), [(H4, lad)], (0, 2), {}, timedelta(minutes=10), True),
+        ((0, 3), [(H4, play)], (1, 0), {}, timedelta(hours=-3), True),
+        ((0, 3), [(H1, lad)], (0, 2), {}, timedelta(hours=-3), True)]
+    pids = []
+    with session_scope() as s:
+        comp = Competition(sport=Sport.SOCCER, code="RIG", name="Guard League", area="X", type="LEAGUE")
+        s.add(comp)
+        s.add(ModelVersion(sport=Sport.SOCCER, model_family="soccer_elo_poisson", version="v-rig", status="retired",
+                           parameters={"poisson": {"dixon_coles_rho": -0.10, "max_goals": 10}}))
+        s.flush()
+        for i, ((hc, ac), books, (hs, as_), extra, at, noted) in enumerate(cases):
+            h, a = Team(sport=Sport.SOCCER, name=f"RIG H{i}"), Team(sport=Sport.SOCCER, name=f"RIG A{i}")
+            s.add_all([h, a])
+            s.flush()
+            ko = datetime(2091, 10, 13 + i, 19, 0)
+            m = Match(sport=Sport.SOCCER, competition_id=comp.id, season="2091/92", utc_date=ko,
+                      status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=a.id, home_score=hs, away_score=as_)
+            s.add(m)
+            s.flush()
+            notes = [f"{side} missing {n} (-{int(rc.reduction(n) * 100)}% xG)" for side, n in (("home", hc), ("away", ac))
+                     if n and noted]
+            pr = Prediction(match_id=m.id, model_version="v-rig", home_win_prob=p["HOME"], draw_prob=p["DRAW"],
+                            away_win_prob=p["AWAY"], expected_home_score=hxg, expected_away_score=axg,
+                            computed_at=ko + at,
+                            factor_breakdown={"home_injuries_count": hc, "away_injuries_count": ac,
+                                              "factor_notes": notes, **extra})
+            s.add(pr)
+            s.flush()
+            pids.append(pr.id)
+            s.add(PredictionOutcome(prediction_id=pr.id))
+            for off, fair in books:
+                for bk in ("b1", "b2"):
+                    for sel, f in fair.items():
+                        s.add(Odds(match_id=m.id, bookmaker=bk, market="1X2", selection=sel, price_decimal=1 / f,
+                                   captured_at=ko + off, source="t"))
+    with session_scope() as s:
+        rs, skipped = rc.rows(s, "RIG")
+    by = {x["prediction_id"]: x for x in rs}
+    held = {"call": "PASS", "units": 0, "pass_kind": "injuries_one_sided"}
+    assert by[pids[0]]["desk_on"] == held and by[pids[0]]["desk_off"]["call"] == "LADDER"
+    assert by[pids[0]]["desk_ref"] == {"books": 2, "captured_at": "2091-10-13T15:00:00"}       # as of computed_at
+    assert by[pids[0]]["edge_pp"] == pytest.approx((p["AWAY"] - 0.600) * 100)                  # the grading close
+    assert by[pids[1]]["desk_on"] == by[pids[1]]["desk_off"] and by[pids[1]]["desk_on"]["call"] == "LADDER"
+    assert by[pids[2]]["desk_on"] == held and by[pids[2]]["desk_off"]["pass_kind"] == "noref"
+    assert by[pids[3]]["desk_on"] == by[pids[3]]["desk_off"] == {"call": "PASS", "units": 0, "pass_kind": "noref"}
+    assert rc.left_out(by[pids[4]]) and by[pids[4]]["desk_on"] == held and by[pids[4]]["desk_off"]["call"] == "LADDER"
+    for i, kind in ((5, "default_rating"), (6, "started")):
+        assert by[pids[i]]["desk_on"] == by[pids[i]]["desk_off"] == {"call": "PASS", "units": 0, "pass_kind": kind}
+    assert by[pids[7]]["desk_on"] == held and by[pids[7]]["desk_off"]["call"] == "PLAY"
+    assert by[pids[8]]["desk_ref"] is None and by[pids[8]]["desk_off"]["pass_kind"] == "noref"
+    assert by[pids[8]]["edge_pp"] == pytest.approx((p["AWAY"] - 0.448) * 100)                 # the close still prices
+    sm = rc.summary(rs)
+    assert sm["guard"] == {"n": 8, "not_evaluated": 0, "one_sided": 6, "held": 4,
+                           "one_sided_earlier": {"default_rating": 1, "started": 1},
+                           "earlier": {"default_rating": 1, "started": 1},
+                           "held_off": {"LADDER": 1, "PASS noref": 2, "PLAY": 1}, "changed_call": 2,
+                           "changed_graded": {"LADDER X2 won": 1, "PLAY AWAY lost": 1},
+                           "changed_ids": [pids[0], pids[7]]}
+    g = sm["guard"]
+    assert g["one_sided"] == g["held"] + sum(g["one_sided_earlier"].values())
+    ga = sm["guard_all_rows_reference"]
+    assert (ga["n"], ga["one_sided"], ga["held"], ga["changed_call"]) == (9, 7, 5, 3)
+    assert dp.INJURIES_ONE_SIDED_RULE["on"] is True                    # the switch default is untouched
+    out = []
+    rc.report(rs, skipped, "RIG", True, echo=out.append)
+    assert any(o.startswith("THE ONE-SIDED-LIST GUARD, ISOLATED (addendum 74 item 3)") for o in out)
+    assert ("  over the rows the receipt stands behind: n 8 (not evaluated, no computed_at: 0) · reached by an earlier "
+            "rule first (both runs alike): default_rating 1 · started 1") in out
+    assert ("  one-sided lists (the guard's condition) 6: held by the guard 4 · reached by an earlier rule first 2 "
+            "(default_rating 1 · started 1)") in out
+    assert "  the guard held (PASS injuries_one_sided) 4 · with it off those read: LADDER 1 · PASS noref 2 · PLAY 1" in out
+    assert (f"  cases where only the guard changed the call: 2/8 · graded by the instrument: LADDER X2 won 1 · "
+            f"PLAY AWAY lost 1 · predictions {pids[0]}, {pids[7]}") in out
+    assert any(o.startswith(f"  {pids[0]} ·") and o.endswith("PASS injuries_one_sided / LADDER · ref 2 books at "
+                                                             "2091-10-13T15:00:00") for o in out)
+    assert any(o.startswith(f"  {pids[8]} ·") and o.endswith("PASS injuries_one_sided / PASS noref · ref none")
+               for o in out)
+    assert '"guard": {"changed_call": 2' in out[-1]
+
+
+def test_the_guard_block_reads_only_rows_that_carry_both_calls_and_grades_by_the_instrument():
+    import scripts.soccer_injury_factor_receipt as rc
+    on = {"call": "PASS", "units": 0, "pass_kind": "injuries_one_sided"}
+    rs = [{"prediction_id": 1, "result": "HOME", "pick": "AWAY", "counts": (0, 4), "desk_on": on,
+           "desk_off": {"call": "PLAY", "units": 1, "pass_kind": None}},
+          {"prediction_id": 2, "result": "HOME", "pick": "HOME", "counts": (0, 4), "desk_on": None, "desk_off": None},
+          {"prediction_id": 3, "result": "HOME", "pick": "HOME", "counts": (3, 0)}]            # an older row: no calls
+    assert rc.guard_summary(rs) == {"n": 1, "not_evaluated": 2, "one_sided": 1, "held": 1, "one_sided_earlier": {},
+                                    "earlier": {}, "held_off": {"PLAY": 1}, "changed_call": 1,
+                                    "changed_graded": {"PLAY AWAY lost": 1}, "changed_ids": [1]}
+    assert [rc.instrument("LADDER", "AWAY", r) for r in ("AWAY", "DRAW", "HOME")] == \
+        ["LADDER X2 won", "LADDER X2 won", "LADDER X2 lost"]
+    assert rc.instrument("LADDER", "DRAW", "DRAW") == "LADDER DRAW not graded"
+    assert [rc.instrument("PLAY", "HOME", r) for r in ("HOME", "DRAW")] == ["PLAY HOME won", "PLAY HOME lost"]
+    assert [rc.one_sided(c) for c in ((0, 0), (0, 2), (3, 0), (6, 2))] == [False, True, True, False]

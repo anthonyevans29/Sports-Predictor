@@ -1,0 +1,11 @@
+## 2026-10-15 (#536: injury-guard-isolated — ARCHITECT addendum 74 item 3, #425)
+- scripts/soccer_injury_factor_receipt.py: the one-sided-list guard, isolated. Measurement only: no rule, threshold or switch default changes.
+  - Each case is given to the Desk as the predictions export built at the prediction's computed_at carried it, and evaluated as of that moment: the stored 1X2; the book reference `export._summarize_market` built then (`close_1x2` over the odds-table 1X2 rows captured by computed_at, cut at kickoff, fair to 4 decimals); the stored list counts and rating sources.
+  - That reference is not the grading close. The edge and cohort lines keep the grading close; the Desk reads what it had.
+  - `desk_policy.evaluate` runs with every switch as it stands, then again with the guard's own switch off (`injuries_one_sided_rule_off`).
+  - Per case, both calls. The receipt counts the one-sided cases, the ones the guard held and what they read without it, the ones an earlier rule reached first (shadow league, kickoff clock, started, default rating) by kind, and the cases where only the guard changed the call (PLAY / LADDER / PASS).
+  - A changed call is graded by its own instrument: a PLAY on its side; a LADDER on AWAY as X2 (a draw wins); a LADDER on a draw pick is not graded.
+  - The counts are over the rows the receipt stands behind (#437), with the all-rows reference line marked. A prediction with no computed_at is not evaluated, and counted. `--list` shows both calls per row and the reference the Desk read.
+  - No Kalshi quote is given. On a three-way soccer row the Desk takes no Kalshi-only reference, so a quote changes a call's units, never the call; the EPL tickers carry no clock.
+- The log-loss lines are unchanged: they measure the injury factor (the cut kept against taken out), not the guard.
+- tests/test_soccer_injuries_one_sided.py (2 new), on the receipt's own DB shape, nine cases: held then LADDER (changed, graded X2 on a draw), held then PLAY (changed), held then PASS noref (not changed), a later session the Desk never saw, no reference by computed_at, a non-guard PASS, a left-out row, and default-rating and started cases reached before the guard.

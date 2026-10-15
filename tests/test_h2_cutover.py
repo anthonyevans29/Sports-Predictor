@@ -569,14 +569,19 @@ def test_79_4_an_unread_gate_refuses_never_reads_as_a_pass(world, host, capsys, 
     assert "nhl-shot-sync" not in capsys.readouterr().out             # no stream dates read: no command printed
 
 
-@pytest.mark.parametrize("read", [{"error": "OperationalError: no such table: nhl_shot_events"},
-                                  {"bar": 95.0, "seasons": {}}])
-def test_80_3_an_unread_host_record_never_refuses(world, host, capsys, read):
-    """The host's live read is the record: unread, it says so without a fault mark, and the preflight still passes on
-    the pack's gate."""
+@pytest.mark.parametrize("read,line", [
+    ({"error": "OperationalError: no such table: nhl_shot_events"}, "the host's live NHL shot GATE: not read ("),
+    ({"bar": 95.0, "seasons": {}}, "the host's live NHL shot GATE: the read named no season or no bar"),
+    ({"bar": 95.0, "seasons": {"2024": {"games": 0, "with_shots": 0, "first": None, "last": None}}},
+     "the host's live NHL shot GATE stream 2024: 0/0 = 0.0% [BELOW >= 95%]"),
+])
+def test_80_3_an_unread_host_record_never_refuses_and_prints_no_fault_mark(world, host, capsys, read, line):
+    """The host's live read is the record: unread, empty, or with no stream games, it says so with no ✗ anywhere, and
+    the preflight still passes on the pack's gate."""
     assert _real(world, host, step="preflight", host_shot=read) == 0
     out = capsys.readouterr().out
-    assert "· for the record, never refuses: the host's live NHL shot GATE: " in out and "nhl-shot-sync" not in out
+    assert f"· for the record, never refuses: {line}" in out and "nhl-shot-sync" not in out
+    assert not any(o.startswith("✗") for o in out.splitlines())
     assert _lines(world["real_receipts"])[-1]["shot_gate_host"] == read
 
 
@@ -787,10 +792,68 @@ def test_80_3_shot_gate_reads_the_packs_db_as_a_copy_and_leaves_it_as_it_was(tmp
 
 
 def test_80_3_shot_gate_on_a_pack_without_a_db_refuses_and_creates_nothing(tmp_path):
+    """--pack names the pack's sports.db and nothing else: a pack without one refuses on THAT path (the live
+    DATABASE_URL is never read in its place) and nothing is created on either side."""
     import subprocess
     pk = tmp_path / "sp_pack_empty"
     pk.mkdir()
-    env = {**os.environ, "SP_HOST_ENV": str(tmp_path / "no-host.env")}
+    live = tmp_path / "live" / "sports.db"
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{live}", "SP_HOST_ENV": str(tmp_path / "no-host.env")}
     r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate", "--pack", str(pk)],
                        capture_output=True, text=True, env=env, cwd=tmp_path, timeout=120)
-    assert r.returncode == 1 and "no database at" in r.stdout and list(pk.iterdir()) == []
+    assert r.returncode == 1 and f"no database at {pk.resolve() / 'sports.db'}" in r.stdout
+    assert list(pk.iterdir()) == [] and not live.parent.exists()
+
+
+def test_80_3_the_live_read_is_mode_ro_never_immutable(tmp_path):
+    """#340: the host's live DB is read mode=ro, never immutable: a row committed to its WAL and not yet checkpointed
+    is read (an immutable open would miss it). The pack's copy is the only immutable read."""
+    import subprocess
+    from datetime import datetime
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from src.db.schema import Match, NHLShotEvent
+    db = tmp_path / "live.db"
+    _nhl_db(db)
+    con = sqlite3.connect(db)
+    assert con.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    con.execute("PRAGMA wal_autocheckpoint=0")
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    eng = create_engine(f"sqlite:///{db}")
+    with Session(eng) as s_:                                   # the 2024 game of 2025-06-17 gains its shot events
+        m = s_.query(Match).filter(Match.utc_date == datetime(2025, 6, 17, 0)).one()
+        s_.add(NHLShotEvent(nhl_game_id=2000, event_id=1, match_id=m.id, game_start=m.utc_date,
+                            event_type="shot-on-goal"))
+        s_.commit()
+    assert (tmp_path / "live.db-wal").stat().st_size > 0      # the row lives only in the WAL
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{db}", "SP_HOST_ENV": str(tmp_path / "no-host.env")}
+    r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate"], capture_output=True, text=True,
+                       env=env, cwd=tmp_path, timeout=120)
+    line = [ln for ln in r.stdout.splitlines() if ln.startswith(sp_cutover.SHOT_GATE_TAG)]
+    assert r.returncode == 0 and len(line) == 1, r.stdout + r.stderr
+    got = json.loads(line[0][len(sp_cutover.SHOT_GATE_TAG):])
+    assert got["source"] == "live" and got["seasons"]["2024"]["with_shots"] == 3
+    con.close()
+    eng.dispose()
+
+
+def test_80_3_an_off_list_timer_active_is_never_hidden_by_the_stop(world, host, capsys):
+    """Every listed timer inactive but an sp timer active OFF the list: not "already stopped". Addendum 57 item 8's
+    refusal names the off-list timer (and 79.4 the listed ones); the stop line is not printed."""
+    listed = host["timers"].read_text().split()
+    assert _real(world, host, step="preflight", runner=FakeSystemctl(active=["sp-intl-daily.timer"])) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert "stopped" not in r and r["timers_off_list"] == ["sp-intl-daily.timer"]
+    assert r["timers_listed_inactive"] == listed
+    assert "active sp timers not on the timers list" in r["refused"]
+    assert "timers already stopped" not in capsys.readouterr().out
+
+
+def test_80_3_a_refusal_for_another_check_keeps_both_shot_reads_on_its_receipt(world, host):
+    """The host's read is the record: a preflight refused on another check still receipts both reads."""
+    listed = host["timers"].read_text().split()
+    fake = FakeSystemctl(active=listed + ["sp-intl-daily.timer"])
+    assert _real(world, host, step="preflight", runner=fake, host_shot=HOST_GATE) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["refused"].startswith("active sp timers not on the timers list")
+    assert r["shot_gate_pack"] == PASS_GATE and r["shot_gate_host"] == HOST_GATE

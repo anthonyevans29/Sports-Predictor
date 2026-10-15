@@ -19,9 +19,12 @@ Steps (in order; `run` = all six, the first failure stops):
              SP_EXPORTS_MIRROR_ROLE=host (addendum 47 item 7(c)); no target under data/.
              Addendum 79 item 4: every listed timer is active (one that is not refuses,
              named). Addendum 80 item 3: the preflight runs BEFORE runbook step 2 stops the
-             timers; when every listed timer is inactive it stops at once and prints only
-             "timers already stopped: run the preflight before step 2" (exit 1, receipt
-             `stopped`, never a refusal). The NHL shot GATE (nhl-shot-coverage's own numbers,
+             timers. Past the pack, data/ and timer-list reads, when every listed timer is
+             inactive and no sp timer off the list is active, it stops: it prints "timers
+             already stopped: run the preflight before step 2" and its receipt (exit 1,
+             `stopped`, never `refused`; no ✗, REFUSED or FAIL line), runs no further check
+             (no shot read, no verify), and `run` goes no further. An active sp timer off the
+             list still refuses, named (addendum 57 item 8). The NHL shot GATE (nhl-shot-coverage's own numbers,
              read by `shot-gate` as the service user) reads the PACK's DB, the laptop's that
              install puts in place, and refuses below 95% in any season it names (named with
              its share); the host's live DB is read and printed for the record and never
@@ -114,7 +117,8 @@ class Refused(Exception):
 
 class Stopped(Refused):
     """Addendum 80 item 3 (Q1): a run that is not the step (the preflight after runbook step 2). It stops like a
-    refusal (exit 1, nothing after it runs) and prints its message alone, never as a fault."""
+    refusal (exit 1, nothing after it runs); its line and its receipt are already printed, and drive() adds no ✗,
+    REFUSED or FAIL line."""
 
 
 def _euid() -> int:  # tests pin it
@@ -406,7 +410,8 @@ def backfill_lines(ctx: Ctx, read: dict) -> list[str]:
     firsts = sorted(b["first"] for b in seasons.values() if b.get("first"))
     lasts = sorted(b["last"] for b in seasons.values() if b.get("last"))
     if not firsts or not lasts:
-        return ["✗ the host's NHL shot backfill: no stream date read, so no command is printed (law 4)"]
+        return ["· the host's NHL shot backfill: no stream date read, so no command is printed (law 4; the host's "
+                "read is the record and never refuses)"]
     start = (date.fromisoformat(firsts[0]) - timedelta(days=1)).isoformat()
     py = f"sudo -u {ctx.service_user} venv/bin/python"
     sync = f"{py} cli.py nhl-shot-sync --start {start} --end {lasts[-1]}"
@@ -437,10 +442,13 @@ def step_preflight(ctx: Ctx) -> dict:
     # one off the list would stay armed while the database is replaced.)
     active = active_sp_timers(ctx, s)
     listed_inactive = [t for t in timers if t not in active]
+    off_list = [t for t in active if t not in timers]
     # ARCHITECT 2026-10-15, addendum 80 item 3 (Q1), verbatim: "The preflight runs BEFORE runbook step 2 stops the
     # timers [...] A run after step 2 is not the preflight; sp_cutover prints "timers already stopped: run the
     # preflight before step 2" when every listed timer is inactive, rather than a refusal that reads as a fault."
-    if len(listed_inactive) == len(timers):
+    # An sp timer active OFF the list is not "already stopped": addendum 57 item 8's refusal names it, so the stop
+    # never stands in for it (the checks below refuse, naming both lists).
+    if len(listed_inactive) == len(timers) and not off_list:
         print(TIMERS_STOPPED)
         _receipt(ctx, s, 1, stopped=TIMERS_STOPPED, timers=len(timers), timers_active=len(active),
                  timers_listed_inactive=listed_inactive, timers_file=str(ctx.timers_file))
@@ -460,7 +468,6 @@ def step_preflight(ctx: Ctx) -> dict:
             extra.update(kw)
         return ok
 
-    off_list = [t for t in active if t not in timers]
     odd = [t for t in off_list if not TIMER_NAME.match(t)]
     check(not off_list, f"active sp timers on the host: {len(active)} · not on the list: "
                         f"{', '.join(off_list) or 'none'}",
@@ -517,14 +524,14 @@ def step_preflight(ctx: Ctx) -> dict:
         host_lines, host_below = shot_gate_lines(shot_host, HOST_WHOSE)
         for ln in lines + host_lines:
             print(ln)
-        if host_below and "error" not in shot_host:
+        if host_below and "error" not in shot_host and shot_host.get("seasons"):   # a read, and below: never ✗
             for ln in backfill_lines(ctx, shot_host):
                 print(ln)
-        if gate_fails:
-            fails.extend(gate_fails)
-            extra.update(shot_gate_pack=shot_pack, shot_gate_host=shot_host)
+        fails.extend(gate_fails)
+    extra.update(shot_gate_pack=shot_pack if shot_pack is not None else "not read (dry run)",
+                 shot_gate_host=shot_host if shot_host is not None else "not read (dry run)")
     if fails:
-        _refuse(ctx, s, " | ".join(fails), **extra)          # one refusal, every failed check named
+        _refuse(ctx, s, " | ".join(fails), **extra)          # one refusal, every failed check named; both reads kept
     env_changes = env_changes_by_pack(ctx.pack, host_env)
     if any(env_changes.values()):
         print("· settings whose value on the host changes when the pack's .env replaces the checkout's "
@@ -546,14 +553,13 @@ def step_preflight(ctx: Ctx) -> dict:
     man = _manifest(ctx)
     if rc != 0:
         _refuse(ctx, s, "sp_migrate verify FAIL (see the migrate receipt)", pack=str(ctx.pack),
-                s1=man["files"].get(sp_migrate.DB))
+                s1=man["files"].get(sp_migrate.DB), **extra)
     return _receipt(ctx, s, 0, pack=str(ctx.pack), s1=man["files"].get(sp_migrate.DB),
                     n_tables=len(man["counts"]), source_host=man.get("source_host"),
                     pack_git_sha=man.get("git_sha"), timers=len(timers), timers_active=len(active),
                     timers_listed_inactive=listed_inactive, timers_file=str(ctx.timers_file),
                     host_env=str(c.HOST_ENV), flag_before=before, mirror_role=role, env_changes=env_changes,
-                    shot_gate_pack=shot_pack if shot_pack is not None else "not read (dry run)",
-                    shot_gate_host=shot_host if shot_host is not None else "not read (dry run)")
+                    **extra)
 
 
 def env_changes_by_pack(pack: Path, host_env: dict) -> dict:

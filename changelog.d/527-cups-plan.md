@@ -6,11 +6,12 @@
     - Step A's probe written (code, 2026-10-19);
     - Step A run on the CL matchday (operator, 2026-10-20);
     - Step B's ingest PR with its dry-run receipt (code, 2026-10-29);
-    - Step C's declaration (architect, 2026-11-05).
+    - Step C's declaration, or, if Step A shows lineups only after T-45 for most fixtures, a post-lineup closing design or a written no (architect, 2026-11-05).
   - earliest_live 2027-01-20. live_needs reads Step C's bar.
   - No moved line: the lane had no earliest_live before. Addendum 61 item 4 makes a first earliest_live not a move, and a moved line's `was` is always a real date. That point is put to the architect on the PR.
   - `python cli.py roadmap` prints overdue 0.
 - tests/test_roadmap.py: the four tests that took the cups lane's old state from the real file now set it themselves.
   - Two of them now clear the done steps first.
   - The step-not-done rule is still tested on a blocked lane.
-  - The base-line rewrite test now moves the lane's last step.
+  - The base-line rewrite test now moves the lane's last step and reads the line it appends, wherever it lands.
+  - The overdue-count and plural-tail tests clear the ncaa lane's done steps too, so the college declaration's done step (owed 2026-10-16) does not break them.

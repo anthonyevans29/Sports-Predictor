@@ -77,7 +77,7 @@ def test_overdue_steps_and_milestones_are_counted_and_the_exit_stays_0(tmp_path,
     tax = {"milestones": [{"title": "M1", "due_on": "2026-10-15", "description": ""},
                           {"title": "M2", "due_on": None, "description": ""}]}
     by = {ln["lane"]: ln for ln in doc["lanes"]}
-    for st in by["cups"]["steps"][:2]:              # cups as it stood before addendum 71: its first two steps not done
+    for st in by["ncaa"]["steps"] + by["cups"]["steps"]:        # the two lanes' steps, none done, whatever the file says
         st["done"] = None
     (tmp_path / "r.json").write_text(json.dumps(doc))
     (tmp_path / "t.json").write_text(json.dumps(tax))
@@ -365,6 +365,8 @@ def test_a_milestone_date_that_is_not_real_exits_2_and_names_it(tmp_path, monkey
 
 def test_the_plural_tail_stays_plural_past_one(tmp_path, monkeypatch):
     doc = _real()
+    for st in _lane(doc, "ncaa")["steps"]:                      # none done, whatever the file says
+        st["done"] = None
     tax = {"milestones": []}
     monkeypatch.setattr(rm, "ROADMAP_PATH", _write(tmp_path, doc))
     monkeypatch.setattr(rm, "TAXONOMY_PATH", _write(tmp_path, tax, "t.json"))
@@ -752,12 +754,12 @@ def test_a_base_line_rewritten_to_cover_a_later_move_fails_and_names_the_line():
     base = _broken(prior)
     assert rm.validate(base) == []
     head = copy.deepcopy(base)
-    st, line = _lane(head, "cups")["steps"][-1], _lane(head, "cups")["moved"][0]
+    st, line = _lane(head, "cups")["steps"][-1], _lane(head, "cups")["moved"][-1]
     line.update(was="2026-12-01", now="2026-12-08", moved_on="2026-10-21")
     st["due"] = "2026-12-08"
     errs = rm.check_moves(base, head)
-    old = _lane(base, "cups")["moved"][0]
-    assert any(e == (f"lane 'cups' moved 1: the base's line (moved_on {old['moved_on']!r}, which {old['which']!r}, "
+    old, n = _lane(base, "cups")["moved"][-1], len(_lane(base, "cups")["moved"])
+    assert any(e == (f"lane 'cups' moved {n}: the base's line (moved_on {old['moved_on']!r}, which {old['which']!r}, "
                      f"was '{_lane(_real(), 'cups')['steps'][-1]['due']}', now \"2026-12-01\") is changed or "
                      "removed on the head (every moved line the base holds stays, word for word)") for e in errs), errs
 

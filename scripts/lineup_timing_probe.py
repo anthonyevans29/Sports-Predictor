@@ -363,9 +363,12 @@ def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
             asked = asked or now
             at = (f["kickoff"] - asked).total_seconds() / 60
             head = f"  {asked:%H:%M:%S}Z T-{off} (asked at {_t(at)}) · match {f['id']}"
+            # a request sent past the limit is missed whatever came back, a failure included (Codex on #528)
+            late = (f" · MISSED (asked {(asked - when).total_seconds() / 60:.1f} min past its time: not counted "
+                    "under its label)") if asked - when > LATE_LIMIT else ""
             if err:
-                st["polls"].append({"off": off, "outcome": FAILED, "at": at})
-                print(f"{head}: ✗ {err}")
+                st["polls"].append({"off": off, "outcome": MISSED} if late else {"off": off, "outcome": FAILED, "at": at})
+                print(f"{head}: ✗ {err}{late}")
                 continue
             if st["keys"] is None:
                 st["keys"] = payload_keys(raw)
@@ -373,10 +376,9 @@ def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
             ok = eleven_per_side(sd)
             body = " · ".join(f"{s['side']} (team {tid or '-'}) {s['starters']} starters + {s['bench']} bench"
                               for tid, s in sd.items()) or "no lineup yet (an answer with no player)"
-            if asked - when > LATE_LIMIT:
+            if late:
                 st["polls"].append({"off": off, "outcome": MISSED})
-                print(f"{head}: {body} · MISSED (asked {(asked - when).total_seconds() / 60:.1f} min past its time: "
-                      "not counted under its label)")
+                print(f"{head}: {body}{late}")
                 continue
             st["polls"].append({"off": off, "outcome": ELEVENS if ok else SHORT, "at": at})
             print(f"{head}: {body}" + (" · ELEVEN PER SIDE" if ok else ""))
@@ -393,7 +395,8 @@ def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
             continue
         st = state[i]
         n = Counter(q["outcome"] for q in st["polls"])
-        cut = bool(interrupted) and len(st["polls"]) < len(OFFSETS)
+        # cut off: a poll interrupted in its call (its last one included, Codex on #528), or polls never reached
+        cut = n[CUT] > 0 or (bool(interrupted) and len(st["polls"]) < len(OFFSETS))
         text, key = verdict(st["polls"], cut)
         tally[key] += 1
         print(f"  {fixture_line(f)} · stored status {f['status']} · fixture {f['fid']}: {text} · polls answered "

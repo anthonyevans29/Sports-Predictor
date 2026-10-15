@@ -411,3 +411,35 @@ def test_ctrl_c_during_a_call_is_printed_and_counted(world, capsys):
     assert "15:15Z T-90 · match 2: INTERRUPTED during the call" in out
     assert "interrupted 1" in line_of(out, "1005") and "cut off by the interrupt" in line_of(out, "1005")
     assert "HTTP requests 4 (by status {200: 3, 'no answer': 1})" in out
+
+
+def test_an_interrupted_final_poll_cuts_the_fixture_off(world, capsys):
+    """Codex on #528: Ctrl-C in a fixture's seventh and last call leaves seven polls; the fixture is still cut off."""
+    world.scripts["1002"] = [EMPTY] * 6 + [KeyboardInterrupt()]
+    _, out, _, _ = go(world, at(14, 30), capsys)
+    ln = line_of(out, "1002")
+    assert "18:45Z T-15 · match 3: INTERRUPTED during the call" in out
+    assert "no poll of the 6 answered came back with eleven per side · cut off by the interrupt" in ln
+    assert ln.endswith("polls answered 6, failed 0, missed 0, interrupted 1")
+    assert "cut off by the interrupt 1" in out
+
+
+def test_a_failed_request_asked_past_the_limit_is_missed_not_failed(world, capsys, monkeypatch):
+    """Codex on #528: a request sent past the limit is missed, whatever came back; a failure is not counted under
+    its label either."""
+    world.scripts["1001"] = [(500, EMPTY), lineup("50", "60")]
+    clock, prov = world.make(at(14, 30))
+    monkeypatch.setattr(api_football, "_RATE_LIMIT_SECONDS", 6.0)
+    first = {"done": False}
+
+    def adapter_sleep(s):
+        clock.sleep(400 if not first["done"] else s)
+        first["done"] = True
+    monkeypatch.setattr(api_football.time, "sleep", adapter_sleep)
+    probe.run(["--db", str(world.db), "--date", DAY], clock=clock, sleep=clock.sleep, provider=prov)
+    out = capsys.readouterr().out
+    assert "14:51:40Z T-120 (asked at T-113.3) · match 1: ✗ HTTPError: 500 Error for url: fixtures/lineups · MISSED " \
+           "(asked 6.7 min past its time: not counted under its label)" in out
+    ln = line_of(out, "1001")
+    assert "first eleven per side at T-90" in ln and ln.endswith("failed 0, missed 1")
+    assert "failed 1" in out.split("calls: ")[1]                      # the call itself is still counted as failed

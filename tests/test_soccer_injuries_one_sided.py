@@ -405,6 +405,7 @@ def test_the_receipt_isolates_the_guard_per_case_and_counts_the_calls_only_it_ch
                            "one_sided_earlier": {"default_rating": 1, "started": 1},
                            "earlier": {"default_rating": 1, "started": 1},
                            "held_off": {"LADDER": 1, "PASS noref": 2, "PLAY": 1}, "changed_call": 2,
+                           "changed_by_reference": {"odds": 1, "snapshot": 1},
                            "changed_graded": {"LADDER X2 won": 1, "PLAY AWAY lost": 1},
                            "changed_ids": [pids[0], pids[7]]}
     g = sm["guard"]
@@ -421,14 +422,14 @@ def test_the_receipt_isolates_the_guard_per_case_and_counts_the_calls_only_it_ch
     assert ("  one-sided lists (the guard's condition) 6: held by the guard 4 · reached by an earlier rule first 2 "
             "(default_rating 1 · started 1)") in out
     assert "  the guard held (PASS injuries_one_sided) 4 · with it off those read: LADDER 1 · PASS noref 2 · PLAY 1" in out
-    assert (f"  cases where only the guard changed the call: 2/8 · graded by the instrument: LADDER X2 won 1 · "
-            f"PLAY AWAY lost 1 · predictions {pids[0]}, {pids[7]}") in out
+    assert (f"  cases where only the guard changed the call: 2/8 · their reference read from: odds 1 · snapshot 1 · "
+            f"graded by the instrument: LADDER X2 won 1 · PLAY AWAY lost 1 · predictions {pids[0]}, {pids[7]}") in out
     assert any(o.startswith(f"  {pids[0]} ·") and o.endswith("PASS injuries_one_sided / LADDER · ref 2 books at "
                                                              "2091-10-13T15:00:00 (snapshot)") for o in out)
     assert any(o.startswith(f"  {pids[8]} ·") and o.endswith(f"not evaluated: {rc.UNKNOWN_REF}") for o in out)
     assert any(o.startswith(f"  {pids[9]} ·") and o.endswith("PASS injuries_one_sided / PASS noref · ref none")
                for o in out)
-    assert '"guard": {"changed_call": 2' in out[-1]
+    assert '"guard": {"changed_by_reference": {"odds": 1, "snapshot": 1}, "changed_call": 2' in out[-1]
 
 
 def test_the_as_of_reference_reads_the_session_the_export_read_then():
@@ -469,7 +470,7 @@ def test_the_guard_block_reads_only_rows_that_carry_both_calls_and_grades_by_the
     assert rc.guard_summary(rs) == {"n": 1, "not_evaluated": {"no computed_at": 1, "no desk calls": 1},
                                     "reference": {"snapshot": 1}, "one_sided": 1, "held": 1, "one_sided_earlier": {},
                                     "earlier": {}, "held_off": {"PLAY": 1}, "changed_call": 1,
-                                    "changed_graded": {"PLAY AWAY lost": 1}, "changed_ids": [1]}
+                                    "changed_by_reference": {"snapshot": 1}, "changed_graded": {"PLAY AWAY lost": 1}, "changed_ids": [1]}
     assert [rc.instrument("LADDER", "AWAY", r) for r in ("AWAY", "DRAW", "HOME")] == \
         ["LADDER X2 won", "LADDER X2 won", "LADDER X2 lost"]
     assert rc.instrument("LADDER", "DRAW", "DRAW") == "LADDER DRAW not graded"

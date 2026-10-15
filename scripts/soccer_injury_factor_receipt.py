@@ -51,7 +51,9 @@ the cases where only the guard changed the call. Measurement only; no rule, thre
   odds table's session read unpriced is no reference). Neither table holding a session by then: no reference, unless
   the odds table holds a later one, when the session read then may have been replaced (an unpriced sync writes no
   snapshot, and before #167 no sync did): the reference is UNKNOWN and the case is not evaluated, counted by reason
-  (law 4). This reference is NOT the grading close above (that close is read at kickoff): the edge and cohort lines
+  (law 4). A snapshot is the last PRICED session by then: an unpriced session that a later sync replaced leaves no
+  trace, so there the receipt reads the priced snapshot before it where the export had none. The changed cases are
+  split by where their reference was read, so a change that rests on a snapshot read shows. This reference is NOT the grading close above (that close is read at kickoff): the edge and cohort lines
   keep the grading close, the Desk reads what it had. The Desk is desk_policy.evaluate, every switch as it stands; the
   second run differs by the guard's own switch alone (desk_policy.injuries_one_sided_rule_off), so a call that
   differs is a call the guard alone changed. A prediction with no computed_at is not evaluated, counted.
@@ -412,6 +414,8 @@ def guard_summary(xs: list[dict]) -> dict:
             "one_sided_earlier": kinds([x for x in earlier if one_sided(x["counts"])]), "earlier": kinds(earlier),
             "held_off": dict(sorted(Counter(label(x["desk_off"]) for x in held).items())),
             "changed_call": len(changed),
+            "changed_by_reference": dict(sorted(Counter((x.get("desk_ref") or {}).get("from") or "none"
+                                                        for x in changed).items())),
             "changed_graded": dict(sorted(Counter(instrument(x["desk_off"]["call"], x["pick"], x["result"])
                                                   for x in changed).items())),
             "changed_ids": [x["prediction_id"] for x in changed]}
@@ -483,8 +487,8 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
     echo(f"  one-sided lists (the guard's condition) {g['one_sided']}: held by the guard {g['held']} · reached by an "
          f"earlier rule first {sum(g['one_sided_earlier'].values())} ({kv(g['one_sided_earlier'])})")
     echo(f"  the guard held (PASS injuries_one_sided) {g['held']} · with it off those read: {kv(g['held_off'])}")
-    echo(f"  cases where only the guard changed the call: {g['changed_call']}/{g['n']} · graded by the instrument: "
-         f"{kv(g['changed_graded'])}"
+    echo(f"  cases where only the guard changed the call: {g['changed_call']}/{g['n']} · their reference read from: "
+         f"{kv(g['changed_by_reference'])} · graded by the instrument: {kv(g['changed_graded'])}"
          + (f" · predictions {', '.join(str(i) for i in g['changed_ids'])}" if g["changed_ids"] else ""))
     echo(f"  ALL ROWS (reference): n {ga['n']} · one-sided {ga['one_sided']} · held {ga['held']} · changed "
          f"{ga['changed_call']} · not evaluated {sum(ga['not_evaluated'].values())}  ← every row, the left-out ones "

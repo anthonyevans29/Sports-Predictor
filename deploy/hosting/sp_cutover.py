@@ -6,6 +6,7 @@ decides or triggers it; this only executes the sequence once ruled.
 
     sp_cutover.py <step> --pack <dir> [--timers-file F] [--lock-timeout S]
     sp_cutover.py run    --pack <dir> --dry-run --scratch <DIR>
+    sp_cutover.py shot-gate      (internal: the preflight's read of the NHL shot GATE)
 
 Steps (in order; `run` = all six, the first failure stops):
   preflight  pack present; sp_migrate verify PASS (sha256 + integrity + every
@@ -15,6 +16,12 @@ Steps (in order; `run` = all six, the first failure stops):
              written here); host.env present, writable, at most one
              SP_WRITER_OF_RECORD line with a known value; host.env itself says
              SP_EXPORTS_MIRROR_ROLE=host (addendum 47 item 7(c)); no target under data/.
+             Addendum 79 item 4: every listed timer is active (one that is not refuses,
+             named), and the host's NHL shot GATE streams (nhl-shot-coverage's own numbers,
+             read by `shot-gate` as the service user) are at or above 95% in every season
+             they name (one below refuses, named with its share; the backfill's exact host
+             command is printed, --dry-run first, and never run here; the dry run does not
+             read the gate). Each check prints its line; one refusal names every failure.
              Prints, by name only, each setting the pack's .env changes on the host
              (those host.env gives a value left out); the list refuses nothing by itself.
              Everything that could fail install is refused HERE, before pause.
@@ -62,6 +69,7 @@ import subprocess
 import sys
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Callable
 
@@ -75,6 +83,7 @@ ROLE_SETTING = "SP_EXPORTS_MIRROR_ROLE"     # addendum 47 item 7(c): host.env it
 TIMERS_ENABLED = Path("/etc/sports-predictor/timers.enabled")   # hosting-h1.md T11
 TIMER_NAME = re.compile(r"^sp-[a-z0-9-]+\.timer$")
 BACKUP_UNIT = "sp-backup.service"
+SHOT_GATE_TAG = "SHOT-GATE "             # addendum 79 item 4: the one line `sp_cutover.py shot-gate` prints
 # The writer-of-record setting H2 step 6 names: the existing H0-16 variable
 # (grep: sp_run.metered_skip, etc/host.env.example). Values: full | designated.
 FLAG, FLAG_VALUE, FLAG_KNOWN = "SP_WRITER_OF_RECORD", "host", ("laptop", "host")
@@ -151,6 +160,7 @@ class Ctx:
     service_user: str = "sp"
     cutover_id: str = ""
     done: dict = field(default_factory=dict)
+    shot_read: Callable | None = None      # addendum 79 item 4: tests inject a fake host read (None: host_shot_read)
 
 
 # ------------------------------------------------------------ plumbing ----
@@ -265,47 +275,196 @@ def active_sp_timers(ctx: Ctx, step: str) -> list[str]:
     return sorted({u for u in units if u.startswith("sp-") and u.endswith(".timer")})
 
 
+def _shot_argv(ctx: Ctx) -> list:
+    argv = [sys.executable, str(HERE / "sp_cutover.py"), "shot-gate"]
+    return ["runuser", "-u", ctx.service_user, "--", *argv] if _as_service_user(ctx) else argv
+
+
+def host_shot_read(ctx: Ctx) -> dict:
+    """The host's NHL shot GATE streams (addendum 79 item 4): `sp_cutover.py shot-gate` in a process of its own (as
+    the service user when run as root, as install is), whose one SHOT-GATE line is returned as read. Anything else is
+    {"error": ...}: an unread gate is never read as a pass (law 4)."""
+    rc, out = ctx.runner(_shot_argv(ctx))
+    line = next((ln for ln in reversed(out.splitlines()) if ln.startswith(SHOT_GATE_TAG)), None)
+    if line is None:
+        return {"error": f"the read printed no {SHOT_GATE_TAG.strip()} line (exit {rc}): "
+                         f"{c.redact(out.strip())[-200:]}"}
+    try:
+        d = json.loads(line[len(SHOT_GATE_TAG):])
+    except ValueError as e:
+        return {"error": f"its {SHOT_GATE_TAG.strip()} line is not JSON ({e})"}
+    if not isinstance(d, dict):
+        return {"error": f"its {SHOT_GATE_TAG.strip()} line is not an object"}
+    if rc != 0 and "error" not in d:
+        return {"error": f"the read exit {rc}"}
+    return d
+
+
+def shot_gate_read() -> int:
+    """`sp_cutover.py shot-gate` (internal, never a step): the live DB's NHL shot GATE streams as ONE line
+    `SHOT-GATE {json}`, read-only. The counts are nhl_shots.coverage()["gate_stream"] (nhl-shot-coverage's own numbers,
+    never re-derived); per season, the first and last UTC date of nhl_backtest's own stream (the backfill's span). The
+    app is pointed at the DB's absolute path before it is imported; a missing file is refused (never created) and
+    init_db is never called."""
+    def out(d: dict) -> None:
+        print(SHOT_GATE_TAG + json.dumps(d, sort_keys=True))
+    p = c.db_path()
+    if not p.is_file():
+        out({"error": f"no database at {p} (never created here)"})
+        return 1
+    os.environ["DATABASE_URL"] = f"sqlite:///{p}"
+    sys.path.insert(0, str(c.REPO))
+    try:
+        from src.ingestion import nhl_shots as nsh
+        from src.walters import nhl_backtest as nb
+        gate = nsh.coverage()["gate_stream"]
+        st = nb.build_stream(nb.load_games())
+        seasons = {}
+        for season, games in ((nb.TRAIN_SEASON, st.train), (nb.TEST_SEASON, st.test)):
+            b = gate.get(season) or {"games": 0, "with_shots": 0}
+            days = sorted(g.utc_date.date() for g in games)
+            seasons[season] = {"games": b["games"], "with_shots": b["with_shots"],
+                               "first": days[0].isoformat() if days else None,
+                               "last": days[-1].isoformat() if days else None}
+    except Exception as e:  # noqa: BLE001 - printed as unread; the preflight refuses on it (law 4)
+        out({"error": f"{type(e).__name__}: {c.redact(str(e))[:200]}"})
+        return 1
+    out({"db": str(p), "bar": nsh.FEEDABLE["games_with_events"], "seasons": seasons})
+    return 0
+
+
+def shot_gate_lines(read: dict) -> tuple[list[str], list[str]]:
+    """(printed lines, failures) for a shot read: one line per GATE-stream season with nhl-shot-coverage's own PASS
+    rule (games read and the share at or above the bar); a season below it is a failure named with its share."""
+    if "error" in read:
+        return [f"✗ NHL shot GATE: not read ({read['error']})"], [f"the host's NHL shot GATE streams not read "
+                                                                    f"({read['error']})"]
+    bar, seasons = read.get("bar"), read.get("seasons") or {}
+    if not isinstance(bar, (int, float)) or not seasons:
+        return ["✗ NHL shot GATE: the read named no season or no bar"], ["the host's NHL shot GATE read named no "
+                                                                          "season or no bar"]
+    lines, below = [], []
+    for season, b in sorted(seasons.items()):
+        n, w = b.get("games") or 0, b.get("with_shots") or 0
+        pct = w / n * 100 if n else 0.0
+        ok = bool(n) and pct >= bar
+        lines.append(f"{'·' if ok else '✗'} NHL shot GATE stream {season}: {w}/{n} = {pct:.1f}% "
+                     f"[{'PASS' if ok else 'BELOW'} >= {bar:g}%]")
+        if not ok:
+            below.append(f"{season} {w}/{n} = {pct:.1f}%")
+    return lines, ([f"the host's NHL shot GATE streams below {bar:g}%: {', '.join(below)} (the backfill: the "
+                    "command printed above)"] if below else [])
+
+
+def backfill_lines(ctx: Ctx, read: dict) -> list[str]:
+    """Addendum 79 item 4: the exact host command for the shot backfill, printed and never run. --start is the day
+    before the first GATE-stream game's UTC date (the sync walks the schedule by local dates and skips games already
+    stored); --end is the last one's (the sync keeps games up to a day past --end). The backup line is
+    nhl-shot-sync's own docstring ("Take the .backup first")."""
+    seasons = read.get("seasons") or {}
+    firsts = sorted(b["first"] for b in seasons.values() if b.get("first"))
+    lasts = sorted(b["last"] for b in seasons.values() if b.get("last"))
+    if not firsts or not lasts:
+        return ["✗ the host's NHL shot backfill: no stream date read, so no command is printed (law 4)"]
+    start = (date.fromisoformat(firsts[0]) - timedelta(days=1)).isoformat()
+    py = f"sudo -u {ctx.service_user} venv/bin/python"
+    sync = f"{py} cli.py nhl-shot-sync --start {start} --end {lasts[-1]}"
+    return ["· the host's NHL shot backfill (printed here, never run; the operator's block after the architect reads "
+            "the dry run):",
+            f"    cd {c.REPO}",
+            f"    {sync} --dry-run",
+            f"    {py} deploy/hosting/sp_backup.py daily",
+            f"    {sync}",
+            f"    {py} cli.py nhl-shot-coverage",
+            f"  (--start {start}: the day before the first GATE-stream game, {firsts[0]} UTC; --end {lasts[-1]}: the "
+            "last one's)"]
+
+
 def step_preflight(ctx: Ctx) -> dict:
     s = "preflight"
     if ctx.pack is None or not (ctx.pack / sp_migrate.MANIFEST).is_file():
         _refuse(ctx, s, f"missing pack (no {sp_migrate.MANIFEST} in {ctx.pack})")
     _no_data(ctx, s, (ctx.pack, ctx.timers_file, c.HOST_ENV, c.receipts_path(), c.lock_path(),
                       ctx.scratch))
+    print(f"· pack {ctx.pack}: its {sp_migrate.MANIFEST} present · no target under data/")
     timers = read_timers(ctx, s)
     # ARCHITECT 2026-10-13, addendum 57 item 8 (#481), verbatim: "The cutover's preflight reads the sp timers that
     # are active on the host. An active timer that is not on the list refuses the preflight, and the refusal names
     # it. The operator corrects the list by hand; the tool never writes it." (The pause stops only the listed timers:
     # one off the list would stay armed while the database is replaced.)
     active = active_sp_timers(ctx, s)
+    # ARCHITECT 2026-10-15, addendum 79 item 4: "deploy/hosting/sp_cutover.py's preflight refuses when any listed
+    # timer is not active (naming it) and when the host's nhl-shot-coverage GATE streams for the seasons it names
+    # read below 95% (naming the stream and its percentage), and prints each check as a line." Past the pack, the
+    # data/ guard and the two timer reads (nothing else reads without them), every check prints its line and the
+    # preflight refuses ONCE, naming every check that failed.
+    fails: list[str] = []
+    extra: dict = {}
+
+    def check(ok: bool, line: str, reason: str | None = None, **kw) -> bool:
+        print(f"{'·' if ok else '✗'} {line}")
+        if not ok:
+            fails.append(reason or line)
+            extra.update(kw)
+        return ok
+
     off_list = [t for t in active if t not in timers]
-    if off_list:
-        odd = [t for t in off_list if not TIMER_NAME.match(t)]
-        _refuse(ctx, s, f"active sp timers not on the timers list {ctx.timers_file}: {', '.join(off_list)} "
-                        "(add them to the list by hand; the tool never writes it)"
-                        + (f"; {', '.join(odd)} cannot go on the list as built (its names match "
-                           f"{TIMER_NAME.pattern})" if odd else ""), timers_off_list=off_list)
-    if not c.HOST_ENV.is_file():
-        _refuse(ctx, s, f"host env missing: {c.HOST_ENV} (never created here — law 4)")
-    hits = _flag_lines(c.HOST_ENV.read_text())
-    if len(hits) > 1:
-        _refuse(ctx, s, f"{FLAG} set on {len(hits)} lines of {c.HOST_ENV} — ambiguous, fix by hand")
-    before = _flag_value(hits[0][1]) if hits else None
-    if before is not None and before not in FLAG_KNOWN:
-        _refuse(ctx, s, f"{FLAG}={before!r} is not one of {FLAG_KNOWN} (law 4)")
-    if not ctx.dry_run and not (os.access(c.HOST_ENV, os.W_OK) and os.access(c.HOST_ENV.parent, os.W_OK)):
-        _refuse(ctx, s, f"{c.HOST_ENV} not writable by this user — run with sudo")
+    odd = [t for t in off_list if not TIMER_NAME.match(t)]
+    check(not off_list, f"active sp timers on the host: {len(active)} · not on the list: "
+                        f"{', '.join(off_list) or 'none'}",
+          f"active sp timers not on the timers list {ctx.timers_file}: {', '.join(off_list)} "
+          "(add them to the list by hand; the tool never writes it)"
+          + (f"; {', '.join(odd)} cannot go on the list as built (its names match {TIMER_NAME.pattern})"
+             if odd else ""), timers_off_list=off_list)
+    listed_inactive = [t for t in timers if t not in active]
+    check(not listed_inactive, f"timers list {ctx.timers_file}: {len(timers)} · listed but not active: "
+                               f"{', '.join(listed_inactive) or 'none'}",
+          f"listed sp timers not active on the host: {', '.join(listed_inactive)} (start them, or take them off the "
+          "list by hand, before the cutover)", timers_listed_inactive=listed_inactive)
+    before, role, host_env = None, "", {}
+    if check(c.HOST_ENV.is_file(), f"host env {c.HOST_ENV}: " + ("present" if c.HOST_ENV.is_file() else "MISSING"),
+             f"host env missing: {c.HOST_ENV} (never created here — law 4)"):
+        hits = _flag_lines(c.HOST_ENV.read_text())
+        before = _flag_value(hits[0][1]) if len(hits) == 1 else None
+        check(len(hits) <= 1, f"{FLAG} lines in host.env: {len(hits)}",
+              f"{FLAG} set on {len(hits)} lines of {c.HOST_ENV} — ambiguous, fix by hand")
+        check(before is None or before in FLAG_KNOWN, f"{FLAG} now: {before or 'unset'}",
+              f"{FLAG}={before!r} is not one of {FLAG_KNOWN} (law 4)")
+        if not ctx.dry_run:
+            check(os.access(c.HOST_ENV, os.W_OK) and os.access(c.HOST_ENV.parent, os.W_OK),
+                  f"host env writable by this user: {'yes' if os.access(c.HOST_ENV, os.W_OK) else 'no'}",
+                  f"{c.HOST_ENV} not writable by this user — run with sudo")
+        # ARCHITECT 2026-10-12, addendum 47 item 7(c): "The cutover's preflight refuses unless host.env itself says
+        # SP_EXPORTS_MIRROR_ROLE=host." (install --replace copies the pack's .env, whose role is the laptop's, over
+        # the checkout's; setting() reads host.env before .env, so only host.env's own line keeps the host's role.)
+        host_env = c.parse_env_file(c.HOST_ENV)
+        role = (host_env.get(ROLE_SETTING) or "").strip()
+        check(role == "host", f"host.env's own {ROLE_SETTING}: {role[:20] or 'not set'}",
+              f"{c.HOST_ENV} does not say {ROLE_SETTING}=host "
+              f"({'not set there' if not role else 'it says ' + repr(role[:20])}): the pack's .env "
+              "replaces the checkout's, and its role is the laptop's")
+    else:
+        print("  (host.env not read: its checks wait for the file)")
     problem = sp_migrate.pack_env_problem(ctx.pack)
-    if problem:
-        _refuse(ctx, s, problem)
-    # ARCHITECT 2026-10-12, addendum 47 item 7(c): "The cutover's preflight refuses unless host.env itself says
-    # SP_EXPORTS_MIRROR_ROLE=host." (install --replace copies the pack's .env, whose role is the laptop's, over the
-    # checkout's; setting() reads host.env before .env, so only host.env's own line keeps the host's role.)
-    host_env = c.parse_env_file(c.HOST_ENV)
-    role = (host_env.get(ROLE_SETTING) or "").strip()
-    if role != "host":
-        _refuse(ctx, s, f"{c.HOST_ENV} does not say {ROLE_SETTING}=host "
-                        f"({'not set there' if not role else 'it says ' + repr(role[:20])}): the pack's .env "
-                        "replaces the checkout's, and its role is the laptop's")
+    check(not problem, f"the pack's .env: {problem or 'DATABASE_URL relative'}", problem)
+    # Addendum 79 item 4 (#520): the host's NHL shot GATE streams, and the backfill's command when one is below.
+    if ctx.dry_run:
+        print("· NHL shot GATE: not read in a dry run (the scratch DB holds no NHL games; the real preflight reads "
+              "the host's)")
+        shot = None
+    else:
+        shot = (ctx.shot_read or host_shot_read)(ctx)
+        lines, gate_fails = shot_gate_lines(shot)
+        for ln in lines:
+            print(ln)
+        if gate_fails and "error" not in shot:
+            for ln in backfill_lines(ctx, shot):
+                print(ln)
+        if gate_fails:
+            fails.extend(gate_fails)
+            extra["shot_gate"] = shot
+    if fails:
+        _refuse(ctx, s, " | ".join(fails), **extra)          # one refusal, every failed check named
     env_changes = env_changes_by_pack(ctx.pack, host_env)
     if any(env_changes.values()):
         print("· settings whose value on the host changes when the pack's .env replaces the checkout's "
@@ -331,8 +490,9 @@ def step_preflight(ctx: Ctx) -> dict:
     return _receipt(ctx, s, 0, pack=str(ctx.pack), s1=man["files"].get(sp_migrate.DB),
                     n_tables=len(man["counts"]), source_host=man.get("source_host"),
                     pack_git_sha=man.get("git_sha"), timers=len(timers), timers_active=len(active),
-                    timers_file=str(ctx.timers_file), host_env=str(c.HOST_ENV), flag_before=before,
-                    mirror_role=role, env_changes=env_changes)
+                    timers_listed_inactive=listed_inactive, timers_file=str(ctx.timers_file),
+                    host_env=str(c.HOST_ENV), flag_before=before, mirror_role=role, env_changes=env_changes,
+                    shot_gate=shot if shot is not None else "not read (dry run)")
 
 
 def env_changes_by_pack(pack: Path, host_env: dict) -> dict:
@@ -625,9 +785,10 @@ def dry_run(pack: Path | None, scratch: Path, timers_seed: Path | None, runner: 
 
 # ---------------------------------------------------------------- main ----
 
-def main(argv=None, runner: Runner | None = None) -> int:
+def main(argv=None, runner: Runner | None = None, shot_read: Callable | None = None) -> int:
     ap = argparse.ArgumentParser(description="H2 cutover orchestrator (host side).")
-    ap.add_argument("step", choices=[*STEPS, "run"])
+    ap.add_argument("step", choices=[*STEPS, "run", "shot-gate"],
+                    help="shot-gate: internal, the preflight's read of the host's NHL shot GATE streams (never a step)")
     ap.add_argument("--pack", type=Path)
     ap.add_argument("--timers-file", type=Path, default=None,
                     help=f"default: SP_TIMERS_ENABLED or {TIMERS_ENABLED}")
@@ -642,6 +803,8 @@ def main(argv=None, runner: Runner | None = None) -> int:
     if a.dry_run:
         return dry_run(a.pack, a.scratch, a.timers_file, runner)
     c.load_host_env()
+    if a.step == "shot-gate":
+        return shot_gate_read()
     if _euid() == 0:  # root reading the sp-owned checkout: let git (release name) read it
         os.environ.setdefault("GIT_CONFIG_COUNT", "1")
         os.environ.setdefault("GIT_CONFIG_KEY_0", "safe.directory")
@@ -650,7 +813,7 @@ def main(argv=None, runner: Runner | None = None) -> int:
     pack = a.pack.resolve() if a.pack else None
     ctx = Ctx(pack=pack, timers_file=timers_file, runner=runner or system_runner,
               lock_timeout=a.lock_timeout, service_user=c.setting("SP_SERVICE_USER") or "sp",
-              cutover_id=pack.name if pack else "nopack")
+              cutover_id=pack.name if pack else "nopack", shot_read=shot_read)
     return drive(ctx, STEPS if a.step == "run" else [a.step])
 
 

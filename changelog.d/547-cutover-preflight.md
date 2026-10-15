@@ -1,0 +1,16 @@
+## 2026-10-15 (#547: cutover-preflight — ARCHITECT addendum 79 item 4, #495, #520)
+- deploy/hosting/sp_cutover.py, the preflight:
+  - **A listed timer that is not active refuses**, named on the refused line and on the receipt (`timers_listed_inactive`; [] on a pass). Addendum 79 item 4 is later than #495's "It refuses nothing for it".
+  - **The host's NHL shot GATE streams are read** by `sp_cutover.py shot-gate`, an internal command and never a step.
+    - It runs in a process of its own, as the service user under root (as install is), with the app pointed at the DB's absolute path. A missing DB is refused and never created; `init_db` is never called.
+    - The counts are `nhl_shots.coverage()["gate_stream"]`, nhl-shot-coverage's own numbers. Each season also carries its first and last stream date.
+    - Each season prints `NHL shot GATE stream <season>: w/n = x% [PASS|BELOW >= 95%]` with nhl-shot-coverage's own rule (the unrounded share).
+    - A season below 95% refuses, named with its share. A read that fails or names no season refuses: never read as a pass.
+  - **Below 95%, the backfill's exact host command is printed and never run:** `cd <checkout>`, `nhl-shot-sync --start <the day before the first stream game> --end <the last> --dry-run`, the `.backup` (`sp_backup.py daily`, nhl-shot-sync's own docstring), the same sync without `--dry-run`, then `nhl-shot-coverage`.
+  - **Each check prints its own line** (`·` passed, `✗` failed). Past the pack, the data/ guard and the two timer reads, the preflight refuses once, naming every failed check (joined with ` | `). A single failure's text is unchanged.
+  - The receipt carries `shot_gate` (the read, or "not read (dry run)").
+  - The dry run does not read the gate (the scratch DB holds no NHL games) and says so.
+- docs/specs/h2-cutover-runbook.md: the preflight row names the new refusals.
+- tests/test_h2_cutover.py:
+  - The listed-but-inactive test now refuses and names the timer; a second test shows other units refuse nothing.
+  - 9 new tests: #520's host numbers, the laptop's, the 95% boundary (1326 and 1327 of 1396), an unread gate, one refusal naming three failures, the dry run, the host read's argv and parsing, and `shot-gate` end to end on a throwaway NHL DB in a subprocess.

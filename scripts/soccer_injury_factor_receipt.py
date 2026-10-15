@@ -41,14 +41,20 @@ the cases where only the guard changed the call. Measurement only; no rule, thre
 - The log-loss lines above measure the injury FACTOR (the cut kept against taken out); they do not read the Desk, so
   they cannot say what the guard (desk_policy's one-sided-list rule) changed. This block does.
 - Each case is given to the Desk as the predictions export built at the prediction's computed_at carried it, and
-  evaluated as of that moment: the stored 1X2; the book reference as export._summarize_market builds it then (close_1x2
-  over the odds-table 1X2 rows captured by computed_at, cut at kickoff, three-way, fair to 4 decimals, the count of
-  complete books; none priced by then: no reference); the stored list counts as input_quality.injuries and the stored
-  rating sources as input_quality.rating_source. This reference is NOT the grading close above (that close is read at
-  kickoff and falls back to snapshots; the export reads the odds table only): the edge and cohort lines keep the
-  grading close, the Desk reads what it had. The Desk is desk_policy.evaluate, every switch as it stands; the second
-  run differs by the guard's own switch alone (desk_policy.injuries_one_sided_rule_off), so a call that differs is a
-  call the guard alone changed. A prediction with no computed_at is not evaluated, counted.
+  evaluated as of that moment: the stored 1X2 to 4 decimals (the export's rounding); the book reference the export's
+  _summarize_market read then (close_1x2 over the odds table, cut at kickoff, three-way, fair to 4 decimals, the count
+  of complete books); the stored list counts as input_quality.injuries and the stored rating sources as
+  input_quality.rating_source. Since #167 sync_odds REPLACES a source's odds rows on every sync and appends the same
+  close_1x2 consensus to odds_snapshots, so the session the export read at computed_at survives in the odds table only
+  until the next sync: the reference is the latest session by computed_at in either table (the odds table's own rows,
+  or a non-Kalshi 1X2 snapshot session, close.close_from_snapshots; the later stamp wins, the odds table on a tie; the
+  odds table's session read unpriced is no reference). Neither table holding a session by then: no reference, unless
+  the odds table holds a later one, when the session read then may have been replaced (an unpriced sync writes no
+  snapshot, and before #167 no sync did): the reference is UNKNOWN and the case is not evaluated, counted by reason
+  (law 4). This reference is NOT the grading close above (that close is read at kickoff): the edge and cohort lines
+  keep the grading close, the Desk reads what it had. The Desk is desk_policy.evaluate, every switch as it stands; the
+  second run differs by the guard's own switch alone (desk_policy.injuries_one_sided_rule_off), so a call that
+  differs is a call the guard alone changed. A prediction with no computed_at is not evaluated, counted.
 - The block also counts the one-sided cases (exactly one list empty, the other with names: the guard's own condition)
   an earlier rule reached first (shadow league, kickoff clock, started, default rating: the Desk checks those before
   the guard, so both runs read the same), by kind; one-sided = held + reached earlier. A changed call is graded by its
@@ -226,7 +232,8 @@ def left_out(x: dict) -> list[str]:
 
 def rows(s, competition: str) -> tuple[list[dict], dict]:
     from sqlalchemy import select
-    from src.db.schema import Competition, Match, MatchStatus, ModelVersion, Odds, Prediction, PredictionOutcome, Sport
+    from src.db.schema import (Competition, Match, MatchStatus, ModelVersion, Odds, OddsSnapshot, Prediction,
+                               PredictionOutcome, Sport)
     from src.walters.close import grading_close, priced
     comp = s.execute(select(Competition).where(Competition.code == competition)).scalars().all()
     comp = [c for c in comp if str(getattr(c.sport, "value", c.sport)).lower() == "soccer"]
@@ -269,7 +276,10 @@ def rows(s, competition: str) -> tuple[list[dict], dict]:
         if m.id not in closes:
             cl = grading_close(s, m)
             closes[m.id] = cl if priced(cl) else None
-            odds[m.id] = list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars())
+            odds[m.id] = (list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars()),
+                          list(s.execute(select(OddsSnapshot).where(
+                              OddsSnapshot.match_id == m.id, OddsSnapshot.market == "1X2",
+                              OddsSnapshot.source != "kalshi")).scalars()))
         close = closes[m.id]
         fair = close["fair"] if close else None
         pick = max(SIDES, key=lambda k: stored[k] or 0)
@@ -286,16 +296,28 @@ def rows(s, competition: str) -> tuple[list[dict], dict]:
     return out, skipped
 
 
-def as_of_reference(odds: list, at, kickoff) -> dict | None:
-    """The book reference a predictions export built at `at` carried (export._summarize_market): close_1x2 over the
-    odds-table 1X2 rows captured by then, cut at kickoff, three-way; fair to 4 decimals as the export rounds it.
-    None: no priced session by then (the export carried no reference)."""
-    from src.walters.close import THREE_WAY, close_1x2, priced
-    cl = close_1x2([o for o in odds if o.captured_at is not None and o.captured_at <= at], kickoff, THREE_WAY)
-    if not priced(cl):
-        return None
+def as_of_reference(odds: list, snaps: list, at, kickoff) -> tuple[dict | None, str]:
+    """(the book reference a predictions export built at `at` read, where it came from): "odds" or "snapshot" (with
+    the reference), "none" (no session by then in either table), "unknown" (none by then, but the odds table holds a
+    later one: the session read then may have been replaced). See the module docstring (#167's replace-on-sync)."""
+    from src.walters.close import THREE_WAY, close_1x2, close_from_snapshots, priced
+
+    def by_then(xs):
+        return [x for x in xs if x.captured_at is not None and x.captured_at <= at]
+    tab = close_1x2(by_then(odds), kickoff, THREE_WAY)
+    snap = close_from_snapshots(by_then(snaps), kickoff, THREE_WAY)
+    if tab is not None and (snap is None or tab["captured_at"] >= snap["captured_at"]):
+        cl, src = (tab, "odds") if priced(tab) else (None, "none")
+    elif snap is not None:
+        cl, src = snap, "snapshot"
+    else:
+        later = any(o.captured_at is not None and o.captured_at > at and (kickoff is None or o.captured_at < kickoff)
+                    for o in odds)
+        return None, ("unknown" if later else "none")
+    if cl is None:
+        return None, src
     return {"books": cl["books"], "fair": {k: round(v, 4) for k, v in cl["fair"].items()},
-            "captured_at": cl["captured_at"]}
+            "captured_at": cl["captured_at"]}, src
 
 
 def desk_row(m, competition: str, stored: dict, ref: dict | None, hc: int, ac: int, fb: dict) -> dict:
@@ -305,33 +327,47 @@ def desk_row(m, competition: str, stored: dict, ref: dict | None, hc: int, ac: i
               if ref else {"selections": {}, "bookmaker_count": 0})
     return {"match_id": m.id, "home_team": m.home_team.name, "away_team": m.away_team.name,
             "utc_date": m.utc_date.isoformat() if m.utc_date else None, "competition": competition,
-            "prediction": {"probabilities": {"home_win": stored["HOME"], "draw": stored["DRAW"],
-                                             "away_win": stored["AWAY"]}},
+            "prediction": {"probabilities": {"home_win": r4(stored["HOME"]), "draw": r4(stored["DRAW"]),
+                                             "away_win": r4(stored["AWAY"])}},
             "market": market,
             "input_quality": {"injuries": {"home": {"count": hc}, "away": {"count": ac}},
                               "rating_source": {"home": fb.get("home_rating_source"),
                                                 "away": fb.get("away_rating_source")}}}
 
 
+def r4(v):
+    """export._build_row's rounding of the probabilities (None stays None)."""
+    return round(v, 4) if v is not None else None
+
+
 def _call(c: dict) -> dict:
     return {"call": c["call"], "units": c["units"], "pass_kind": c["passKind"]}
 
 
-def guard_calls(m, competition: str, stored: dict, odds: list, hc: int, ac: int, fb: dict, at) -> dict:
-    """{"desk_on", "desk_off", "desk_ref"}: the Desk's call as of `at` (the prediction's computed_at) as its switches
-    stand, and with the guard's own switch off; the reference it read. No computed_at: not evaluated (None)."""
+UNKNOWN_REF = "reference at computed_at unknown (the odds table holds only a later session, no snapshot by then)"
+NO_COMPUTED_AT = "no computed_at"
+
+
+def guard_calls(m, competition: str, stored: dict, odds: tuple, hc: int, ac: int, fb: dict, at) -> dict:
+    """{"desk_on", "desk_off", "desk_ref", "desk_skip"}: the Desk's call as of `at` (the prediction's computed_at) as
+    its switches stand, and with the guard's own switch off; the reference it read ({"books", "captured_at", "from"}
+    or None); why a case is not evaluated (None when it is)."""
+    skip = {"desk_on": None, "desk_off": None, "desk_ref": None}
     if at is None:
-        return {"desk_on": None, "desk_off": None, "desk_ref": None}
+        return {**skip, "desk_skip": NO_COMPUTED_AT}
     from datetime import datetime, timezone
     from src.walters import desk_policy as dp
-    ref = as_of_reference(odds, at, m.utc_date)
+    ref, src = as_of_reference(odds[0], odds[1], at, m.utc_date)
+    if src == "unknown":
+        return {**skip, "desk_skip": UNKNOWN_REF}
     now_ms = (at.replace(tzinfo=timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)).total_seconds() * 1000
     doc = {"sport": "soccer", "predictions": [desk_row(m, competition, stored, ref, hc, ac, fb)]}
     on = dp.evaluate(doc, now_ms)["calls"][0][1]
     with dp.injuries_one_sided_rule_off():
         off = dp.evaluate(doc, now_ms)["calls"][0][1]
-    return {"desk_on": _call(on), "desk_off": _call(off),
-            "desk_ref": ({"books": ref["books"], "captured_at": ref["captured_at"].isoformat()} if ref else None)}
+    return {"desk_on": _call(on), "desk_off": _call(off), "desk_skip": None,
+            "desk_ref": ({"books": ref["books"], "captured_at": ref["captured_at"].isoformat(), "from": src}
+                         if ref else None)}
 
 
 def one_sided(counts) -> bool:
@@ -368,7 +404,11 @@ def guard_summary(xs: list[dict]) -> dict:
 
     def kinds(ys):
         return dict(sorted(Counter(y["desk_on"]["pass_kind"] for y in ys).items()))
-    return {"n": len(seen), "not_evaluated": len(xs) - len(seen), "one_sided": len(sided), "held": len(held),
+    return {"n": len(seen),
+            "not_evaluated": dict(sorted(Counter(x.get("desk_skip") or "no desk calls" for x in xs
+                                                 if not x.get("desk_on")).items())),
+            "reference": dict(sorted(Counter((x.get("desk_ref") or {}).get("from") or "none" for x in seen).items())),
+            "one_sided": len(sided), "held": len(held),
             "one_sided_earlier": kinds([x for x in earlier if one_sided(x["counts"])]), "earlier": kinds(earlier),
             "held_off": dict(sorted(Counter(label(x["desk_off"]) for x in held).items())),
             "changed_call": len(changed),
@@ -431,13 +471,15 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
     g, ga = sm["guard"], sm["guard_all_rows_reference"]
     echo("THE ONE-SIDED-LIST GUARD, ISOLATED (addendum 74 item 3): the Desk's call per case with the guard on and off "
          "(desk_policy.injuries_one_sided_rule_off; every other switch as it stands; as of the prediction's "
-         "computed_at: the stored 1X2, the odds-table book reference an export built then carried (not the grading "
-         "close), the stored counts and rating sources; no Kalshi quote)")
+         "computed_at: the stored 1X2, the book reference an export built then read (the latest session by then in "
+         "the odds table or odds_snapshots; not the grading close), the stored counts and rating sources; no Kalshi "
+         "quote)")
 
     def kv(d):
         return " · ".join(f"{k} {v}" for k, v in d.items()) or "-"
-    echo(f"  over the rows the receipt stands behind: n {g['n']} (not evaluated, no computed_at: {g['not_evaluated']})"
-         f" · reached by an earlier rule first (both runs alike): {kv(g['earlier'])}")
+    echo(f"  over the rows the receipt stands behind: n {g['n']} · the Desk's reference read from: {kv(g['reference'])}"
+         f" · not evaluated: {kv(g['not_evaluated'])}")
+    echo(f"  reached by an earlier rule first (both runs alike): {kv(g['earlier'])}")
     echo(f"  one-sided lists (the guard's condition) {g['one_sided']}: held by the guard {g['held']} · reached by an "
          f"earlier rule first {sum(g['one_sided_earlier'].values())} ({kv(g['one_sided_earlier'])})")
     echo(f"  the guard held (PASS injuries_one_sided) {g['held']} · with it off those read: {kv(g['held_off'])}")
@@ -445,18 +487,19 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
          f"{kv(g['changed_graded'])}"
          + (f" · predictions {', '.join(str(i) for i in g['changed_ids'])}" if g["changed_ids"] else ""))
     echo(f"  ALL ROWS (reference): n {ga['n']} · one-sided {ga['one_sided']} · held {ga['held']} · changed "
-         f"{ga['changed_call']}  ← every row, the left-out ones included")
+         f"{ga['changed_call']} · not evaluated {sum(ga['not_evaluated'].values())}  ← every row, the left-out ones "
+         "included")
     if listing:
         echo("ROWS (prediction · game · counts home/away · result · stored H/D/A · without the cut H/D/A · pick edge "
-             "stored / without · the Desk guard on / off · its reference: books at capture)")
+             "stored / without · the Desk guard on / off · its reference: books at capture (odds table or snapshot))")
         for x in rs:
             f3 = lambda p: "/".join(f"{p[k]:.3f}" for k in SIDES)      # noqa: E731
             e = "-" if x["edge_pp"] is None else f"{x['edge_pp']:+.1f} / {x['edge_bare_pp']:+.1f}pp"
             ref = x.get("desk_ref")
             gd = (f" · {x['desk_on']['call']} {x['desk_on']['pass_kind'] or ''}".rstrip()
                   + f" / {x['desk_off']['call']} {x['desk_off']['pass_kind'] or ''}".rstrip()
-                  + (f" · ref {ref['books']} books at {ref['captured_at']}" if ref else " · ref none")
-                  ) if x.get("desk_on") else ""
+                  + (f" · ref {ref['books']} books at {ref['captured_at']} ({ref['from']})" if ref else " · ref none")
+                  ) if x.get("desk_on") else (f" · not evaluated: {x['desk_skip']}" if x.get("desk_skip") else "")
             echo(f"  {x['prediction_id']} · {x['game']} {x['kickoff']} · {x['counts'][0]}/{x['counts'][1]} · "
                  f"{x['result']} · {f3(x['stored'])} · {f3(x['bare'])} · {x['pick']} {e}{gd}"
                  + (f" · NOTE {'; '.join(x['note_mismatch'])}" if x["note_mismatch"] else ""))

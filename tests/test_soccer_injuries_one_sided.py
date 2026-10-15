@@ -467,7 +467,8 @@ def test_the_guard_block_reads_only_rows_that_carry_both_calls_and_grades_by_the
     import scripts.soccer_injury_factor_receipt as rc
     on = {"call": "PASS", "units": 0, "pass_kind": "injuries_one_sided"}
     rs = [{"prediction_id": 1, "result": "HOME", "pick": "AWAY", "counts": (0, 4), "desk_on": on,
-           "desk_off": {"call": "PLAY", "units": 1, "pass_kind": None}, "desk_ref": {"from": "snapshot"}},
+           "desk_off": {"call": "PLAY", "units": 1, "pass_kind": None}, "desk_ref": {"from": "snapshot"},
+           "desk_pick": "AWAY"},
           {"prediction_id": 2, "result": "HOME", "pick": "HOME", "counts": (0, 4), "desk_on": None, "desk_off": None,
            "desk_skip": rc.NO_COMPUTED_AT},
           {"prediction_id": 3, "result": "HOME", "pick": "HOME", "counts": (3, 0)}]            # an older row: no calls
@@ -482,6 +483,28 @@ def test_the_guard_block_reads_only_rows_that_carry_both_calls_and_grades_by_the
     assert [rc.one_sided(c) for c in ((0, 0), (0, 2), (3, 0), (6, 2))] == [False, True, True, False]
     assert rc.desk_row(_match_stub(), "PL", {"HOME": 0.539951, "DRAW": None, "AWAY": 0.2}, None, 0, 1, {})[
         "prediction"]["probabilities"] == {"home_win": 0.54, "draw": None, "away_win": 0.2}      # the export's 4dp
+
+
+def test_537_a_changed_call_is_graded_on_the_desks_own_pick_from_the_rounded_1x2():
+    """#537 FIXED (addendum 79 item 1): the Desk picks from the export's 4-decimal probabilities, walking HOME, DRAW,
+    AWAY and moving only on a strictly greater one (desk_policy.normalize). AWAY 0.50001 and DRAW 0.49997 sit within
+    0.0001 of each other and both round to 0.5000: the Desk picks DRAW, while the unrounded pick (rows()'s, the edge
+    lines') is AWAY. A draw: the guard's changed call, a PLAY with it off, is graded on the Desk's DRAW, a win."""
+    from types import SimpleNamespace as N
+    import scripts.soccer_injury_factor_receipt as rc
+    stored = {"HOME": 0.00002, "DRAW": 0.49997, "AWAY": 0.50001}
+    assert abs(stored["AWAY"] - stored["DRAW"]) < 1e-4 and rc.r4(stored["AWAY"]) == rc.r4(stored["DRAW"]) == 0.5
+    assert max(rc.SIDES, key=lambda k: stored[k]) == "AWAY"                       # rows()'s unrounded pick
+    fair = {"HOME": 0.10, "DRAW": 0.44, "AWAY": 0.46}                              # DRAW +6pp: a PLAY with the guard off
+    odds = [N(market="1X2", bookmaker=bk, selection=k, price_decimal=1 / v, captured_at=datetime(2091, 1, 1, 15),
+              line=None) for bk in ("b1", "b2") for k, v in fair.items()]
+    g = rc.guard_calls(_match_stub(), "PL", stored, (odds, []), 0, 3, {}, datetime(2091, 1, 1, 16))
+    assert g["desk_pick"] == "DRAW" and g["desk_ref"]["from"] == "odds"
+    assert g["desk_on"]["pass_kind"] == dp.INJURIES_ONE_SIDED_KIND and g["desk_off"]["call"] == "PLAY"
+    x = {"prediction_id": 1, "result": "DRAW", "pick": "AWAY", "counts": (0, 3), **g}
+    s = rc.guard_summary([x])
+    assert s["changed_call"] == 1 and s["changed_graded"] == {"PLAY DRAW won": 1}   # never "PLAY AWAY lost"
+    assert rc.guard_calls(_match_stub(), "PL", stored, (odds, []), 0, 3, {}, None)["desk_pick"] is None
 
 
 def _match_stub():

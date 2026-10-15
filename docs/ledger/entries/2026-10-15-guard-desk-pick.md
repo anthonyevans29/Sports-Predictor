@@ -1,0 +1,5 @@
+**2026-10-15 — FIXED (ARCHITECT 2026-10-15 13:55 ET, addendum 79 item 1): the guard receipt grades a changed call on the Desk's own pick, from the 4-decimal probabilities (#537, #543).**
+- **Verbatim:** "#537 FIXED (small, first): the guard receipt grades a changed call on the Desk's own pick — the one desk_policy.normalize picks from the 4-decimal probabilities, ties in HOME/DRAW/AWAY order — not on rows()'s unrounded pick. Keep the receipt's instrument lines; add a test with two leading sides within 0.0001. Monday's run reads the fixed receipt."
+- **In #543:** `guard_calls` keeps the pick of the row the Desk's own run evaluated, and `changed_graded` grades on it. The instrument lines are kept, and the edge and cohort lines keep the unrounded pick.
+- **The test:** AWAY 0.50001 and DRAW 0.49997 both round to 0.5000. The Desk picks DRAW, and the call with the guard off is a PLAY. On a draw it grades "PLAY DRAW won"; main's receipt graded "PLAY AWAY lost".
+- Monday 2026-10-19's run reads the fixed receipt.

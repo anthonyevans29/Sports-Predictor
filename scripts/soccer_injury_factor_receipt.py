@@ -62,6 +62,11 @@ the cases where only the guard changed the call. Measurement only; no rule, thre
   the guard, so both runs read the same), by kind; one-sided = held + reached earlier. A changed call is graded by its
   own instrument: a PLAY wins on its side; a LADDER on AWAY is X2 (wins on a draw or an away win); a LADDER on a draw
   pick (1X or X2, written by hand) is not graded.
+- #537 FIXED (ARCHITECT 2026-10-15, addendum 79 item 1): "the guard receipt grades a changed call on the Desk's own
+  pick — the one desk_policy.normalize picks from the 4-decimal probabilities, ties in HOME/DRAW/AWAY order — not on
+  rows()'s unrounded pick." The side graded is the pick of the row the Desk's own run evaluated. Two leading sides
+  within 0.0001 of each other can round to the same value, and the Desk then keeps the first of them in that order.
+  The edge and cohort lines keep the unrounded pick.
 - No Kalshi quote and no Kalshi legs are given. Kalshi snapshots exist, but on a soccer row (three-way) the Desk takes
   no Kalshi-only reference (desk_policy.kalshi_only_ref), so a quote could change a call's units (the executable-cost
   gate) and never the call; and the EPL tickers (KXEPLGAME-26SEP27CHEARS-ARS) carry no clock, so the kickoff-clock
@@ -350,10 +355,11 @@ NO_COMPUTED_AT = "no computed_at"
 
 
 def guard_calls(m, competition: str, stored: dict, odds: tuple, hc: int, ac: int, fb: dict, at) -> dict:
-    """{"desk_on", "desk_off", "desk_ref", "desk_skip"}: the Desk's call as of `at` (the prediction's computed_at) as
-    its switches stand, and with the guard's own switch off; the reference it read ({"books", "captured_at", "from"}
-    or None); why a case is not evaluated (None when it is)."""
-    skip = {"desk_on": None, "desk_off": None, "desk_ref": None}
+    """{"desk_on", "desk_off", "desk_ref", "desk_pick", "desk_skip"}: the Desk's call as of `at` (the prediction's
+    computed_at) as its switches stand, and with the guard's own switch off; the reference it read ({"books",
+    "captured_at", "from"} or None); the side the Desk picked (normalize's, from the 4-decimal probabilities: #537);
+    why a case is not evaluated (None when it is)."""
+    skip = {"desk_on": None, "desk_off": None, "desk_ref": None, "desk_pick": None}
     if at is None:
         return {**skip, "desk_skip": NO_COMPUTED_AT}
     from datetime import datetime, timezone
@@ -363,10 +369,10 @@ def guard_calls(m, competition: str, stored: dict, odds: tuple, hc: int, ac: int
         return {**skip, "desk_skip": UNKNOWN_REF}
     now_ms = (at.replace(tzinfo=timezone.utc) - datetime(1970, 1, 1, tzinfo=timezone.utc)).total_seconds() * 1000
     doc = {"sport": "soccer", "predictions": [desk_row(m, competition, stored, ref, hc, ac, fb)]}
-    on = dp.evaluate(doc, now_ms)["calls"][0][1]
+    row, on = dp.evaluate(doc, now_ms)["calls"][0]
     with dp.injuries_one_sided_rule_off():
         off = dp.evaluate(doc, now_ms)["calls"][0][1]
-    return {"desk_on": _call(on), "desk_off": _call(off), "desk_skip": None,
+    return {"desk_on": _call(on), "desk_off": _call(off), "desk_pick": row["pick"], "desk_skip": None,
             "desk_ref": ({"books": ref["books"], "captured_at": ref["captured_at"].isoformat(), "from": src}
                          if ref else None)}
 
@@ -390,7 +396,7 @@ def instrument(call: str, pick: str, result: str) -> str:
 def guard_summary(xs: list[dict]) -> dict:
     """Addendum 74 item 3: the one-sided cases, the ones the guard held and what they read with it off, the ones an
     earlier rule reached first (by kind), and the cases where only the guard changed the call (the call itself:
-    PLAY / LADDER / PASS), each graded by the instrument the call would have been."""
+    PLAY / LADDER / PASS), each graded by the instrument the call would have been, on the Desk's own pick (#537)."""
     from collections import Counter
     from src.walters import desk_policy as dp
     earlier_kinds = (dp.SHADOW_LEAGUE_KIND, dp.KICKOFF_CLOCK_KIND, "started", dp.DEFAULT_RATING_KIND)  # _desk_call
@@ -415,7 +421,7 @@ def guard_summary(xs: list[dict]) -> dict:
             "changed_call": len(changed),
             "changed_by_reference": dict(sorted(Counter((x.get("desk_ref") or {}).get("from") or "none"
                                                         for x in changed).items())),
-            "changed_graded": dict(sorted(Counter(instrument(x["desk_off"]["call"], x["pick"], x["result"])
+            "changed_graded": dict(sorted(Counter(instrument(x["desk_off"]["call"], x["desk_pick"], x["result"])
                                                   for x in changed).items())),
             "changed_ids": [x["prediction_id"] for x in changed]}
 

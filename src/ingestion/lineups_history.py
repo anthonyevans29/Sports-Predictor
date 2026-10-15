@@ -123,6 +123,26 @@ def stored_season(code: str, season: str) -> str:
     return s
 
 
+def refuse_save_dir(save: str) -> None:
+    """Law 5 for --save, before anything is created: the target, resolved, is never data/ or under it, by path and by
+    file identity (a symlink, or another letter case on a case-insensitive disk, reaching data/: every existing
+    ancestor is compared with os.path.samefile), as nfl_predict.refuse_out_path guards --out (#433)."""
+    from pathlib import Path
+
+    from src.walters.unl_ladders import data_dir
+    tgt, data = Path(save).expanduser().resolve(), data_dir()
+
+    def same(a, b) -> bool:
+        try:
+            return os.path.samefile(a, b)
+        except OSError:
+            return False
+    if tgt == data or data in tgt.parents or (data.exists() and any(
+            anc.exists() and same(anc, data) for anc in (tgt, *tgt.parents))):
+        raise Refused(f"REFUSED: --save {save} reaches data/ ({data}): ingest files are never written under it "
+                      "(law 5); nothing is asked or stored")
+
+
 def _plan(code: str, season: str):
     """(competition id, the season's fixtures, history starters per (match, team), whether the table exists),
     read mode=ro. Refuses before any call: not one of the four, not in the DB, no finished fixture under the
@@ -238,9 +258,7 @@ def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_ca
                       "four); nothing is asked or stored")
     stored = stored_season(code, season)
     if save:
-        root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-        if os.path.abspath(save).startswith(os.path.join(root, "data")):
-            raise Refused("REFUSED: --save is never under data/ (law 5)")
+        refuse_save_dir(save)
     _, fixtures, held, has_table = _plan(code, stored)
     if not has_table and not dry_run:
         raise Refused("REFUSED: the DB has no lineups table; this command never creates one (--dry-run reads "

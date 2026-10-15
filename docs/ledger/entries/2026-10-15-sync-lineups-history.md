@@ -1,4 +1,4 @@
-**2026-10-15 — DRAFT (ARCHITECT 2026-10-15 10:16 ET, addendum 74 item 1): Step B, sync-lineups-history, built on the plan's defaults; open questions listed for the architect (#106, #537).**
+**2026-10-15 — DRAFT (ARCHITECT 2026-10-15 10:16 ET, addendum 74 item 1): Step B, sync-lineups-history, built on the plan's defaults; open questions listed for the architect (#106, #538).**
 - **Item 1, as ruled:** "sync-lineups-history --competition CL|UEL|EFL|FAC --season YYYY [--dry-run] [--max-calls N]". It uses the existing lineups table and adds nothing unless needed. It is idempotent; --dry-run writes nothing; the cap stops cleanly. The coverage receipt per competition-season is both / fixtures / one / none, and calls. Tests run on a kept real payload under tests/fixtures/ with a throwaway DB. Seasons: the re-exam's pot (read from experiments.json) and 2025/26. PR by 2026-10-29; a draft earlier is welcome.
 - **Read for it (law 1):**
   - The eleven and the bench fit the table as it stands (match_id, team_id, kind, formation, is_starter, player_name, player_position, shirt_number, source, refreshed_at).

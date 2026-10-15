@@ -279,10 +279,28 @@ def test_save_keeps_each_answer_whole_and_never_under_data(fresh_db, tmp_path):
     p = payload(770, side(HOME_SID, "H"), side(AWAY_SID, "A"))
     run(adapter_with({"770": p}), "CL", SEASON, dry_run=True, save=str(tmp_path / "kept"))
     assert json.loads((tmp_path / "kept" / "770.json").read_text()) == p
-    import os
-    root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    with pytest.raises(Refused, match="never under data/"):
-        run(adapter_with({}), "CL", SEASON, dry_run=True, save=os.path.join(root, "data", "kept"))
+    from src.walters.unl_ladders import data_dir
+    with pytest.raises(Refused, match="reaches data/"):
+        run(adapter_with({}), "CL", SEASON, dry_run=True, save=str(data_dir() / "kept"))
+    assert not (data_dir() / "kept").exists()
+
+
+def test_save_refuses_a_symlink_into_data_and_allows_a_sibling_named_like_it(fresh_db, tmp_path, monkeypatch):
+    """The review on #538: a path reaching data/ through a symlink is refused by file identity; a directory whose
+    name merely starts with 'data' is not data/. data_dir() is pointed at a stand-in under tmp_path (the test never
+    touches the real data/)."""
+    import src.walters.unl_ladders as ul
+    from src.ingestion.lineups_history import Refused, refuse_save_dir
+    fake = tmp_path / "repo" / "data"
+    fake.mkdir(parents=True)
+    monkeypatch.setattr(ul, "data_dir", lambda: fake.resolve())
+    (tmp_path / "link").symlink_to(fake)
+    with pytest.raises(Refused, match="reaches data/"):
+        refuse_save_dir(str(tmp_path / "link" / "kept"))
+    with pytest.raises(Refused, match="reaches data/"):
+        refuse_save_dir(str(fake))
+    refuse_save_dir(str(tmp_path / "repo" / "data-kept"))         # a sibling: allowed
+    assert not (fake / "kept").exists()
 
 
 def test_the_cli_command_refuses_with_exit_2_and_names_the_four(fresh_db):

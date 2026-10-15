@@ -505,6 +505,15 @@ def test_537_a_changed_call_is_graded_on_the_desks_own_pick_from_the_rounded_1x2
     s = rc.guard_summary([x])
     assert s["changed_call"] == 1 and s["changed_graded"] == {"PLAY DRAW won": 1}   # never "PLAY AWAY lost"
     assert rc.guard_calls(_match_stub(), "PL", stored, (odds, []), 0, 3, {}, None)["desk_pick"] is None
+    ll = rc.ll(stored["DRAW"])                                  # the listing names the Desk's pick where it differs
+    row = {**x, "match_id": 1, "game": "A @ H", "kickoff": "2091-01-01T19:00:00", "model_version": "v", "diff": 3,
+           "stored": stored, "bare": stored, "reproduces": True, "model_params_found": True, "ll_stored": ll,
+           "ll_bare": ll, "edge_pp": 4.0, "edge_bare_pp": 4.0, "note_mismatch": [], "floored": []}
+    out = []
+    rc.report([row], {"no injury counts": 0, "no expected goals": 0}, "PL", True, echo=out.append)
+    assert any(o.endswith("· AWAY +4.0 / +4.0pp · PASS injuries_one_sided / PLAY (the Desk's pick DRAW) · ref 2 "
+                          "books at 2091-01-01T15:00:00 (odds)") for o in out)
+    assert any("graded by the instrument: PLAY DRAW won 1" in o for o in out)
 
 
 def _match_stub():

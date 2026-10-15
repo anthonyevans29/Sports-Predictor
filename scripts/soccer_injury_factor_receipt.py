@@ -66,7 +66,7 @@ the cases where only the guard changed the call. Measurement only; no rule, thre
   pick — the one desk_policy.normalize picks from the 4-decimal probabilities, ties in HOME/DRAW/AWAY order — not on
   rows()'s unrounded pick." The side graded is the pick of the row the Desk's own run evaluated. Two leading sides
   within 0.0001 of each other can round to the same value, and the Desk then keeps the first of them in that order.
-  The edge and cohort lines keep the unrounded pick.
+  The edge and cohort lines keep the unrounded pick; the --list row names the Desk's pick where the two differ.
 - No Kalshi quote and no Kalshi legs are given. Kalshi snapshots exist, but on a soccer row (three-way) the Desk takes
   no Kalshi-only reference (desk_policy.kalshi_only_ref), so a quote could change a call's units (the executable-cost
   gate) and never the call; and the EPL tickers (KXEPLGAME-26SEP27CHEARS-ARS) carry no clock, so the kickoff-clock
@@ -507,6 +507,7 @@ def report(rs: list[dict], skipped: dict, competition: str, listing: bool, echo=
             ref = x.get("desk_ref")
             gd = (f" · {x['desk_on']['call']} {x['desk_on']['pass_kind'] or ''}".rstrip()
                   + f" / {x['desk_off']['call']} {x['desk_off']['pass_kind'] or ''}".rstrip()
+                  + (f" (the Desk's pick {x['desk_pick']})" if x.get("desk_pick") not in (None, x["pick"]) else "")
                   + (f" · ref {ref['books']} books at {ref['captured_at']} ({ref['from']})" if ref else " · ref none")
                   ) if x.get("desk_on") else (f" · not evaluated: {x['desk_skip']}" if x.get("desk_skip") else "")
             echo(f"  {x['prediction_id']} · {x['game']} {x['kickoff']} · {x['counts'][0]}/{x['counts'][1]} · "

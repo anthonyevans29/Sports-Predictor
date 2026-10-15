@@ -477,3 +477,55 @@ def test_a_competition_outside_the_three_is_refused_by_the_parser(world, capsys)
     with pytest.raises(SystemExit) as e:
         probe.run(["--db", str(world.db), "--competition", "PL"], clock=clock, sleep=clock.sleep)
     assert e.value.code == 2 and "invalid choice: 'PL'" in capsys.readouterr().err
+
+
+def _europa_row(world, code, fid):
+    """A Europa League competition stored under `code` (UEL or EL: api_football maps both to league 3) with one row on
+    the day, on the test's throwaway DB."""
+    eng = create_engine(f"sqlite:///{world.db}")
+    with Session(eng) as s:
+        comp = Competition(sport=Sport.SOCCER, code=code, name="UEFA Europa League", area="Europe", type="CUP")
+        s.add(comp)
+        s.flush()
+        home, away = s.query(Team).filter(Team.name.in_(["Club 55", "Club 65"])).order_by(Team.name).all()
+        s.add(Match(sport=Sport.SOCCER, competition_id=comp.id, season="2026/27", utc_date=LATE, home_team_id=home.id,
+                    away_team_id=away.id, status=MatchStatus.SCHEDULED, external_ids={SRC: fid}))
+        s.commit()
+    eng.dispose()
+
+
+def test_el_is_a_choice_and_reads_its_own_rows(world, capsys, monkeypatch):
+    """Addendum 76 item 2: "choices CL|UEL|EL|EFL"."""
+    _europa_row(world, "EL", "3001")
+    clock, prov = world.make(at(16, 0))
+    monkeypatch.setattr(probe, "Provider", lambda *a, **kw: pytest.fail("--plan built a provider"))
+    assert probe.run(["--db", str(world.db), "--date", DAY, "--plan", "--competition", "EL"], clock=clock,
+                     sleep=clock.sleep, provider=prov) == 0
+    out = capsys.readouterr().out
+    assert "  1 EL row(s) stored with a kickoff on 2026-10-20\n" in out and "fixture 3001" in out
+    assert "PLAN (7 polls; --plan: no call made)" in out
+
+
+@pytest.mark.parametrize("asked,stored", [("UEL", "EL"), ("EL", "UEL")])
+def test_a_day_with_no_row_under_the_code_asked_names_the_other_europa_code(world, capsys, asked, stored):
+    """Addendum 76 item 2: the "0 rows" line says how many rows the other Europa League code holds that day, so the
+    operator re-runs with the right code; nothing is read as the other code (no poll, exit 1)."""
+    _europa_row(world, stored, "3002")
+    clock, prov = world.make(at(16, 0))
+    rc = probe.run(["--db", str(world.db), "--date", DAY, "--competition", asked], clock=clock, sleep=clock.sleep,
+                   provider=prov)
+    out = capsys.readouterr().out
+    assert rc == 1 and world.asked == [] and "Nothing to poll" in out and "fixture 3002" not in out
+    assert (f"  0 {asked} row(s) stored with a kickoff on 2026-10-20 · {stored} holds 1 row(s) that day: the Europa "
+            f"League is stored under {stored} here; re-run with --competition {stored} (rows are never read as the "
+            "other code)") in out
+
+
+def test_neither_europa_code_on_the_day_says_so_and_cl_names_no_other_code(world, capsys):
+    clock, prov = world.make(at(16, 0))
+    assert probe.run(["--db", str(world.db), "--date", "2026-10-22", "--competition", "UEL"], clock=clock,
+                     sleep=clock.sleep, provider=prov) == 1
+    assert "  0 UEL row(s) stored with a kickoff on 2026-10-22 · EL holds 0 row(s) that day\n" in capsys.readouterr().out
+    clock, prov = world.make(at(16, 0))
+    probe.run(["--db", str(world.db), "--date", "2026-10-22"], clock=clock, sleep=clock.sleep, provider=prov)
+    assert "  0 CL row(s) stored with a kickoff on 2026-10-22\n" in capsys.readouterr().out

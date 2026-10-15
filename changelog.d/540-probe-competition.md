@@ -1,3 +1,4 @@
 ## 2026-10-15 (#540: probe-competition — ARCHITECT addendum 75 item 3(a))
-- scripts/lineup_timing_probe.py takes `--competition CL|UEL|EFL` (default CL): the stored competition code whose rows on the day are polled. The polls, the late rule and the summary are the same for each, and the header and the D0 lines name the code read.
-- tests/test_lineup_timing_probe.py: 2 new. A UEL row on the day is polled only under `--competition UEL` and CL stays the default; a code outside the three is refused by the parser.
+- scripts/lineup_timing_probe.py takes `--competition CL|UEL|EL|EFL` (default CL): the stored competition code whose rows on the day are polled. The polls, the late rule and the summary are the same for each, and the header and the D0 lines name the code read.
+- The Europa League is stored under UEL or EL (the adapter maps both; addendum 76 item 2). A day with no row under the code asked says how many rows the other code holds that day, so the operator re-runs with the right one. Nothing is read as the other code.
+- tests/test_lineup_timing_probe.py: 6 new. A UEL row on the day is polled only under `--competition UEL` and CL stays the default; EL reads its own rows; the 0-rows line names the other Europa League code both ways (UEL→EL, EL→UEL) and says 0 when neither holds a row; a code outside the four is refused by the parser.

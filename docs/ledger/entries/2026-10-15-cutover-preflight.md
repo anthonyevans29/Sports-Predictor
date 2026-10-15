@@ -1,5 +1,9 @@
 **2026-10-15 — LANE (ARCHITECT 2026-10-15 13:55 ET, addendum 79 item 4): the cutover preflight refuses a listed timer that is not active and a host NHL shot GATE stream below 95%, prints each check as a line, and prints the backfill's host command (#495, #520, #548; for the 2026-10-30 decision).**
 - **Verbatim:** "THE CUTOVER PREFLIGHT PR (#495 + #520; for the 2026-10-30 decision): deploy/hosting/sp_cutover.py's preflight refuses when any listed timer is not active (naming it) and when the host's nhl-shot-coverage GATE streams for the seasons it names read below 95% (naming the stream and its percentage), and prints each check as a line. It also prints, read-only, the exact host command for the shot backfill the host has never run (`nhl-shot-sync` with --start/--end spanning the 2024 and 2025 streams, --dry-run first), so the operator's host block can be written from its output; the backfill itself is the operator's block after my read of the dry run. Tests on a fake host read."
-- **Supersedes** #495's addendum 60 item 6 line "It refuses nothing for it" (a listed timer that is not active now refuses, named). Flagged in #548 for the architect's confirmation.
+- **Supersedes** #495's addendum 60 item 6 line "It refuses nothing for it": a listed timer that is not active now refuses, named.
+- **Needs a ruling before merge (#548 opens as a draft):** the runbook's section 1 step 2 stops every listed timer before step 4 runs the preflight. In that order this check refuses every listed timer on the cutover morning. The architect rules the order:
+  - the preflight before step 2;
+  - step 2 dropped for `pause`;
+  - or the refusal scoped.
 - **The read:** `sp_cutover.py shot-gate` (internal), as the service user, on the DB at `DATABASE_URL`: nhl-shot-coverage's own GATE numbers plus each season's first and last stream date. It never creates a DB, never calls `init_db`, and never runs the backfill. #548 asks which DB the architect means: the live one, or the pack's that install puts in its place.
 - **The backfill** is the operator's block after the architect reads its dry run. Outstanding work remains on #520.

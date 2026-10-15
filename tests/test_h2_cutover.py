@@ -490,11 +490,13 @@ def test_79_4_the_hosts_gate_below_95_refuses_naming_each_stream_and_prints_the_
     out = capsys.readouterr().out.splitlines()
     assert "✗ NHL shot GATE stream 2024: 0/1396 = 0.0% [BELOW >= 95%]" in out
     assert "✗ NHL shot GATE stream 2025: 0/1394 = 0.0% [BELOW >= 95%]" in out
-    i = out.index("· the host's NHL shot backfill (printed here, never run; the operator's block after the architect "
-                  "reads the dry run):")
-    assert out[i + 1:i + 7] == [
+    i = out.index("· the host's NHL shot backfill (printed here, never run). FIRST, the dry run, pasted to the "
+                  "architect:")
+    assert out[i + 1:i + 9] == [
         f"    cd {host['h']}",
         "    sudo -u sp venv/bin/python cli.py nhl-shot-sync --start 2024-10-07 --end 2026-06-19 --dry-run",
+        "  STOP: the write below is the operator's block after the architect has read that dry run.",
+        f"    cd {host['h']}",
         "    sudo -u sp venv/bin/python deploy/hosting/sp_backup.py daily",
         "    sudo -u sp venv/bin/python cli.py nhl-shot-sync --start 2024-10-07 --end 2026-06-19",
         "    sudo -u sp venv/bin/python cli.py nhl-shot-coverage",
@@ -546,7 +548,8 @@ def test_79_4_every_check_prints_its_line_and_one_refusal_names_them_all(world, 
     for line in ("✗ active sp timers on the host: 3 · not on the list: sp-intl-daily.timer",
                  f"✗ timers list {host['timers']}: 3 · listed but not active: {listed[0]}",
                  f"· host env {world['real_env']}: present", "· SP_WRITER_OF_RECORD lines in host.env: 1",
-                 "· SP_WRITER_OF_RECORD now: laptop", "· host.env's own SP_EXPORTS_MIRROR_ROLE: host",
+                 "· SP_WRITER_OF_RECORD now: 'laptop'", "· host.env's own SP_EXPORTS_MIRROR_ROLE: host",
+                 "· host env writable by this user: file yes · its directory yes",
                  "· the pack's .env: DATABASE_URL relative", "✗ NHL shot GATE stream 2025: 0/1394 = 0.0% [BELOW >= 95%]"):
         assert line in out
     assert out.count("✗ REFUSED preflight") == 1
@@ -626,3 +629,45 @@ def test_79_4_shot_gate_reads_a_real_db_in_a_process_of_its_own_and_never_create
     r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate"], capture_output=True, text=True,
                        env={**env, "DATABASE_URL": f"sqlite:///{missing}"}, cwd=tmp_path, timeout=120)
     assert r.returncode == 1 and "no database at" in r.stdout and not missing.exists() and not missing.parent.exists()
+
+
+@pytest.mark.parametrize("env_text,lines", [
+    ("SP_WRITER_OF_RECORD=bogus\nSP_WRITER_OF_RECORD=laptop\nSP_EXPORTS_MIRROR_ROLE=host\n",
+     ["✗ SP_WRITER_OF_RECORD lines in host.env: 2", "  (SP_WRITER_OF_RECORD's value not read: it is set on 2 lines)"]),
+    ("SP_WRITER_OF_RECORD=\nSP_EXPORTS_MIRROR_ROLE=host\n", ["✗ SP_WRITER_OF_RECORD now: ''"]),
+    ("SP_EXPORTS_MIRROR_ROLE=host\n", ["· SP_WRITER_OF_RECORD now: unset (no line)"]),
+])
+def test_79_4_the_flag_lines_say_what_was_read(world, host, capsys, env_text, lines):
+    world["real_env"].write_text(env_text)
+    _real(world, host, step="preflight")
+    out = capsys.readouterr().out.splitlines()
+    for ln in lines:
+        assert ln in out
+    assert not any(o.startswith("· SP_WRITER_OF_RECORD now") for o in out) or "unset (no line)" in lines[0]
+
+
+def test_79_4_the_writable_line_names_the_file_and_its_directory(world, host, capsys, monkeypatch):
+    real = os.access
+    monkeypatch.setattr(sp_cutover.os, "access", lambda p, m: False if Path(p) == world["real_env"].parent else real(p, m))
+    assert _real(world, host, step="preflight") == 1
+    out = capsys.readouterr().out
+    assert "✗ host env writable by this user: file yes · its directory no" in out
+
+
+def test_79_4_shot_gate_writes_nothing_to_the_db_it_reads(tmp_path):
+    """The read is mode=ro on a connection of its own: a non-WAL DB keeps its bytes and its journal mode, and no -wal
+    or -shm is left beside it."""
+    import hashlib
+    import subprocess
+    db = tmp_path / "host.db"
+    _nhl_db(db)
+    before = hashlib.sha256(db.read_bytes()).hexdigest()
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{db}", "SP_HOST_ENV": str(tmp_path / "no-host.env")}
+    r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate"], capture_output=True, text=True,
+                       env=env, cwd=tmp_path, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == before
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["host.db"]
+    con = sqlite3.connect(db)
+    assert con.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    con.close()

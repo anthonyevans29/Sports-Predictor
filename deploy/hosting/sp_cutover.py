@@ -21,7 +21,9 @@ Steps (in order; `run` = all six, the first failure stops):
              read by `shot-gate` as the service user) are at or above 95% in every season
              they name (one below refuses, named with its share; the backfill's exact host
              command is printed, --dry-run first, and never run here; the dry run does not
-             read the gate). Each check prints its line; one refusal names every failure.
+             read the gate). Past the pack, data/ and timer-list reads, each check prints its
+             line and one refusal names every failure; sp_migrate verify runs only when they
+             all pass.
              Prints, by name only, each setting the pack's .env changes on the host
              (those host.env gives a value left out); the list refuses nothing by itself.
              Everything that could fail install is refused HERE, before pause.
@@ -304,8 +306,8 @@ def shot_gate_read() -> int:
     """`sp_cutover.py shot-gate` (internal, never a step): the live DB's NHL shot GATE streams as ONE line
     `SHOT-GATE {json}`, read-only. The counts are nhl_shots.coverage()["gate_stream"] (nhl-shot-coverage's own numbers,
     never re-derived); per season, the first and last UTC date of nhl_backtest's own stream (the backfill's span). The
-    app is pointed at the DB's absolute path before it is imported; a missing file is refused (never created) and
-    init_db is never called."""
+    app's sessions read through a mode=ro connection of their own (no WAL pragma, no mkdir, nothing written); a
+    missing file is refused (never created) and init_db is never called."""
     def out(d: dict) -> None:
         print(SHOT_GATE_TAG + json.dumps(d, sort_keys=True))
     p = c.db_path()
@@ -315,8 +317,16 @@ def shot_gate_read() -> int:
     os.environ["DATABASE_URL"] = f"sqlite:///{p}"
     sys.path.insert(0, str(c.REPO))
     try:
+        from sqlalchemy import create_engine
+
+        import src.db.database as dbm
         from src.ingestion import nhl_shots as nsh
         from src.walters import nhl_backtest as nb
+        # READ-ONLY for real: the app's sessions are rebound to an engine of their own on a mode=ro connection (the
+        # live DB's open, sp_common.ro_connect's), so the app engine's connect hooks (PRAGMA journal_mode=WAL, the
+        # data/ mkdir) never run and nothing is written. Never immutable on the live DB (#340).
+        uri = p.resolve().as_uri() + "?mode=ro"
+        dbm.SessionLocal.configure(bind=create_engine("sqlite://", creator=lambda: sqlite3.connect(uri, uri=True)))
         gate = nsh.coverage()["gate_stream"]
         st = nb.build_stream(nb.load_games())
         seasons = {}
@@ -369,10 +379,11 @@ def backfill_lines(ctx: Ctx, read: dict) -> list[str]:
     start = (date.fromisoformat(firsts[0]) - timedelta(days=1)).isoformat()
     py = f"sudo -u {ctx.service_user} venv/bin/python"
     sync = f"{py} cli.py nhl-shot-sync --start {start} --end {lasts[-1]}"
-    return ["· the host's NHL shot backfill (printed here, never run; the operator's block after the architect reads "
-            "the dry run):",
+    return ["· the host's NHL shot backfill (printed here, never run). FIRST, the dry run, pasted to the architect:",
             f"    cd {c.REPO}",
             f"    {sync} --dry-run",
+            "  STOP: the write below is the operator's block after the architect has read that dry run.",
+            f"    cd {c.REPO}",
             f"    {py} deploy/hosting/sp_backup.py daily",
             f"    {sync}",
             f"    {py} cli.py nhl-shot-coverage",
@@ -426,13 +437,17 @@ def step_preflight(ctx: Ctx) -> dict:
              f"host env missing: {c.HOST_ENV} (never created here — law 4)"):
         hits = _flag_lines(c.HOST_ENV.read_text())
         before = _flag_value(hits[0][1]) if len(hits) == 1 else None
-        check(len(hits) <= 1, f"{FLAG} lines in host.env: {len(hits)}",
-              f"{FLAG} set on {len(hits)} lines of {c.HOST_ENV} — ambiguous, fix by hand")
-        check(before is None or before in FLAG_KNOWN, f"{FLAG} now: {before or 'unset'}",
-              f"{FLAG}={before!r} is not one of {FLAG_KNOWN} (law 4)")
+        if check(len(hits) <= 1, f"{FLAG} lines in host.env: {len(hits)}",
+                 f"{FLAG} set on {len(hits)} lines of {c.HOST_ENV} — ambiguous, fix by hand"):
+            check(before is None or before in FLAG_KNOWN,
+                  f"{FLAG} now: " + ("unset (no line)" if before is None else repr(before)),
+                  f"{FLAG}={before!r} is not one of {FLAG_KNOWN} (law 4)")
+        else:
+            print(f"  ({FLAG}'s value not read: it is set on {len(hits)} lines)")
         if not ctx.dry_run:
-            check(os.access(c.HOST_ENV, os.W_OK) and os.access(c.HOST_ENV.parent, os.W_OK),
-                  f"host env writable by this user: {'yes' if os.access(c.HOST_ENV, os.W_OK) else 'no'}",
+            w_file, w_dir = os.access(c.HOST_ENV, os.W_OK), os.access(c.HOST_ENV.parent, os.W_OK)
+            check(w_file and w_dir, f"host env writable by this user: file {'yes' if w_file else 'no'} · its "
+                                    f"directory {'yes' if w_dir else 'no'}",
                   f"{c.HOST_ENV} not writable by this user — run with sudo")
         # ARCHITECT 2026-10-12, addendum 47 item 7(c): "The cutover's preflight refuses unless host.env itself says
         # SP_EXPORTS_MIRROR_ROLE=host." (install --replace copies the pack's .env, whose role is the laptop's, over

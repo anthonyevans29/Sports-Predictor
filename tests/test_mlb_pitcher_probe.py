@@ -211,3 +211,31 @@ def test_codex_on_522_a_starter_with_no_team_id_names_no_side(tmp_path, capsys):
     out = run(capsys, "--db", str(p), "--no-network")
     # base fixture: 5 both · 2 one · 5 neither; game 7 (null team only) stays neither, game 8 gains one side
     assert "  pitcher_appearances: starters for both sides 5/12 · one side only 3 · neither 4" in out
+
+
+def test_the_games_with_neither_starter_carry_their_range_months_provenance_and_the_backfill_sentence(db, capsys):
+    """Addendum 74 item 2 (#507): per season, the games with neither starter: their date range, count by month, which
+    sync wrote them (matches.external_ids keys), and, from the code, whether a re-run of sync-appearances fills them."""
+    import sqlite3
+    con = sqlite3.connect(db)                        # the test's own throwaway copy: game 11 gets a reliever row only
+    mid = con.execute("SELECT id FROM matches WHERE json_extract(external_ids, '$.mlb_stats_api') = '1011'").fetchone()[0]
+    con.execute("INSERT INTO pitcher_appearances (match_id, source_game_id, game_date, team_source_id, pitcher_id, "
+                "is_starter, captured_at) VALUES (?, '1011', '2025-04-12 23:00:00', '147', 'r11', 0, "
+                "'2025-04-13 00:00:00')", (mid,))
+    con.commit()
+    con.close()
+    out = run(capsys, "--db", str(db), "--no-network")
+    assert "  pitcher_appearances: starters for both sides 5/12 · one side only 2 · neither 5" in out
+    assert "  neither starter, season 2025: 5 game(s) · 2025-04-08..2025-04-12 (stored kickoff, UTC)" in out
+    assert "    by month: 2025-04 5" in out
+    assert ("    provenance read: matches.external_ids keys (mlb_stats_api = statsapi's sync-matches; api_baseball = "
+            "the api-sports fallback, mlb_apisports.sync_matches): mlb_stats_api 5") in out
+    assert ("    as sync-appearances reads them: no pitcher_appearances row for its statsapi id 4 · rows for its id but "
+            "no starter 1 · no statsapi id 0") in out
+    assert "so a re-run fills the 4 game(s) with no row where the boxscore answers; the 1 game(s) holding rows but " \
+           "no starter are skipped unless --refresh" in out
+    # 2024: its one finished game carries no statsapi id: no command fills it
+    assert "  neither starter, season 2024: 1 game(s) · 2024-05-01..2024-05-01 (stored kickoff, UTC)" in out
+    assert "the api-sports fallback, mlb_apisports.sync_matches): (no key) 1" in out
+    assert "no pitcher_appearances row for its statsapi id 0 · rows for its id but no starter 0 · no statsapi id 1" in out
+    assert "and the 1 game(s) with no statsapi id are skipped either way, so for them a command is missing." in out

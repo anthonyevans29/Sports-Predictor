@@ -279,9 +279,8 @@ def rows(s, competition: str) -> tuple[list[dict], dict]:
             cl = grading_close(s, m)
             closes[m.id] = cl if priced(cl) else None
             odds[m.id] = (list(s.execute(select(Odds).where(Odds.match_id == m.id, Odds.market == "1X2")).scalars()),
-                          list(s.execute(select(OddsSnapshot).where(
-                              OddsSnapshot.match_id == m.id, OddsSnapshot.market == "1X2",
-                              OddsSnapshot.source != "kalshi")).scalars()))
+                          list(s.execute(select(OddsSnapshot).where(            # Kalshi rows: close_from_snapshots
+                              OddsSnapshot.match_id == m.id, OddsSnapshot.market == "1X2")).scalars()))  # drops them
         close = closes[m.id]
         fair = close["fair"] if close else None
         pick = max(SIDES, key=lambda k: stored[k] or 0)

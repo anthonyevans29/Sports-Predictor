@@ -315,8 +315,9 @@ def test_the_receipt_isolates_the_guard_per_case_and_counts_the_calls_only_it_ch
     the cases where only the guard changed the call. Ten graded cases on the receipt's own shape (stored xG 0.76 /
     1.822 at rho -0.10, AWAY 0.616; two books; computed 3h before kickoff). As sync_odds leaves them since #167: a
     sync REPLACES the odds rows and appends its consensus to odds_snapshots.
-    0  8/0 a 4h sync at 0.448 (a snapshot now), replaced by a 1h sync at 0.600: held; LADDER (X2) off from the
-       snapshot: changed, a draw: won (the grading close reads 0.600)
+    0  8/0 a 4h sync at 0.448 (a snapshot now, source NULL as a legacy row), replaced by a 1h sync at 0.600, and a
+       Kalshi row at 3h30 that never reads as books: held; LADDER (X2) off from the snapshot: changed, a draw: won
+       (the grading close reads 0.600)
     1  6/2 a 4h sync at 0.448 (odds rows and its snapshot, the same session): LADDER either way, read from the odds
     2  8/0 books 0.600 at 4h: held; PASS noref off: not changed
     3  6/2 books 0.600: PASS noref either way (a PASS the guard did not make)
@@ -379,7 +380,10 @@ def test_the_receipt_isolates_the_guard_per_case_and_counts_the_calls_only_it_ch
             for off, fair in snaps:
                 for sel, f in fair.items():
                     s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel, devig_prob=f, line=None, n_books=2,
-                                       captured_at=ko + off, source="t"))
+                                       captured_at=ko + off, source=None if i == 0 else "t"))   # Codex: NULL source
+                if i == 0:                                       # a later Kalshi row by then never reads as books
+                    s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel, devig_prob=0.9, line=None,
+                                       n_books=0, captured_at=ko + timedelta(hours=-3, minutes=-30), source="kalshi"))
     with session_scope() as s:
         rs, skipped = rc.rows(s, "RIG")
     by = {x["prediction_id"]: x for x in rs}

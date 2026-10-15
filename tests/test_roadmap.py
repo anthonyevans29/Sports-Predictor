@@ -76,6 +76,9 @@ def test_overdue_steps_and_milestones_are_counted_and_the_exit_stays_0(tmp_path,
     doc = _real()
     tax = {"milestones": [{"title": "M1", "due_on": "2026-10-15", "description": ""},
                           {"title": "M2", "due_on": None, "description": ""}]}
+    by = {ln["lane"]: ln for ln in doc["lanes"]}
+    for st in by["cups"]["steps"][:2]:              # cups as it stood before addendum 71: its first two steps not done
+        st["done"] = None
     (tmp_path / "r.json").write_text(json.dumps(doc))
     (tmp_path / "t.json").write_text(json.dumps(tax))
     monkeypatch.setattr(rm, "ROADMAP_PATH", tmp_path / "r.json")
@@ -83,8 +86,7 @@ def test_overdue_steps_and_milestones_are_counted_and_the_exit_stays_0(tmp_path,
     out = _cli("--today", "2026-10-17")
     assert out.exit_code == 0, out.output
     lines = out.output.splitlines()
-    by = {ln["lane"]: ln for ln in doc["lanes"]}
-    # ncaa: its first step (due 2026-10-16) is a day late; cups: both steps (10-14, 10-15) are late
+    # ncaa: its first step (due 2026-10-16) is a day late; cups: its first two steps (10-14, 10-15) are late
     assert f"  next: {by['ncaa']['steps'][0]['what']} · architect · due 2026-10-16 · OVERDUE 1 day" in lines
     assert any(ln.startswith(f"  next: {by['cups']['steps'][0]['what']}") and
                ln.endswith("OVERDUE 3 days (+1 more step overdue)") for ln in lines)
@@ -95,6 +97,8 @@ def test_overdue_steps_and_milestones_are_counted_and_the_exit_stays_0(tmp_path,
 def test_a_done_step_is_not_next_and_not_overdue():
     doc = _real()
     lane = next(ln for ln in doc["lanes"] if ln["lane"] == "cups")
+    for st in lane["steps"]:
+        st["done"] = None
     lane["steps"][0]["done"] = {"date": "2026-10-14", "receipt": "the probe's console, pasted on #78"}
     assert rm.validate(doc) == []
     assert rm.next_step(lane)[0] == 2
@@ -188,7 +192,8 @@ BROKEN = [
     ("a real earliest_live", lambda d: _lane(d, "unl").__setitem__("earliest_live", "2026-11-31"),
      "lane 'unl': earliest_live '2026-11-31' is not a real date"),
     ("a lane not live or closed has a step not done",
-     lambda d: [st.__setitem__("done", {"date": "2026-10-14", "receipt": "r"}) for st in _lane(d, "cups")["steps"]],
+     lambda d: [_lane(d, "cups").__setitem__("state", "blocked")] +
+     [st.__setitem__("done", {"date": "2026-10-14", "receipt": "r"}) for st in _lane(d, "cups")["steps"]],
      "lane 'cups': state 'blocked' and no step left to do"),
     ("due dates never go backwards", lambda d: _lane(d, "ncaa")["steps"][3].__setitem__("due", "2026-11-07"),
      "lane 'ncaa' step 4: due 2026-11-07 goes backwards from step 3's 2026-11-08"),
@@ -738,25 +743,23 @@ def _with_lines(lane_id, lines):
 
 
 def test_a_base_line_rewritten_to_cover_a_later_move_fails_and_names_the_line():
-    """The base moved cups step 1 from 2026-10-14 to 2026-10-20; the head moves it on to 2026-10-27 and rewrites that
-    line to cover the new move instead of appending one. The date check is satisfied; the record is not."""
+    """The base moved cups' last step to 2026-12-01; the head moves it on to 2026-12-08 and rewrites that line to cover
+    the new move instead of appending one. The date check is satisfied; the record is not."""
     def prior(d):
-        st = _lane(d, "cups")["steps"][0]
-        _lane(d, "cups")["moved"].append(_mv(st["what"], st["due"], "2026-10-20"))
-        st["due"] = "2026-10-20"
-        _lane(d, "cups")["steps"][1]["due"] = "2026-10-21"
+        st = _lane(d, "cups")["steps"][-1]
+        _lane(d, "cups")["moved"].append(_mv(st["what"], st["due"], "2026-12-01"))
+        st["due"] = "2026-12-01"
     base = _broken(prior)
     assert rm.validate(base) == []
     head = copy.deepcopy(base)
-    st, line = _lane(head, "cups")["steps"][0], _lane(head, "cups")["moved"][0]
-    line.update(was="2026-10-20", now="2026-10-27", moved_on="2026-10-21")
-    st["due"] = "2026-10-27"
-    _lane(head, "cups")["steps"][1]["due"] = "2026-10-28"
+    st, line = _lane(head, "cups")["steps"][-1], _lane(head, "cups")["moved"][0]
+    line.update(was="2026-12-01", now="2026-12-08", moved_on="2026-10-21")
+    st["due"] = "2026-12-08"
     errs = rm.check_moves(base, head)
     old = _lane(base, "cups")["moved"][0]
     assert any(e == (f"lane 'cups' moved 1: the base's line (moved_on {old['moved_on']!r}, which {old['which']!r}, "
-                     f"was '{_lane(_real(), 'cups')['steps'][0]['due']}', now \"2026-10-20\") is changed or removed on "
-                     "the head (every moved line the base holds stays, word for word)") for e in errs), errs
+                     f"was '{_lane(_real(), 'cups')['steps'][-1]['due']}', now \"2026-12-01\") is changed or "
+                     "removed on the head (every moved line the base holds stays, word for word)") for e in errs), errs
 
 
 def test_a_base_line_removed_with_no_date_changed_fails():

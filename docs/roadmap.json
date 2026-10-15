@@ -194,7 +194,7 @@
           "done": null
         },
         {
-          "what": "Step A: the timing probe run on the CL matchday, the laptop awake 12:30pm to 3:00pm ET, its receipt to me the same evening",
+          "what": "Step A: the timing probe run on the CL matchday, the laptop awake 10:30am to 3:00pm ET, its receipt to me the same evening",
           "owner": "operator",
           "due": "2026-10-20",
           "done": null
@@ -206,14 +206,14 @@
           "done": null
         },
         {
-          "what": "Step C: the R-track candidate declaration, its frozen bar written before any result (the exam harness's bar at the 2026-09-25 FAIL, same exam set, split and metric; a rotation term built only from lineups readable at or before the time Step A shows; one attempt), or, if Step A shows lineups only after T-45 for most fixtures, a post-lineup closing design or a written no (the bar does not loosen)",
+          "what": "Step C: the R-track candidate declaration, its frozen bar written before any result: a PASS at cup_exam's frozen gate as it stood at the 2026-09-25 FAIL (mean error <= 8.0pp, <= 13 rows over 8pp, sign >= 80%), on the same exam set, split and metric; the prior result, fix-v2's 14.76pp, is the record it has to better and not the bar; a rotation term built only from lineups readable at or before the time Step A shows; one attempt. Or, if Step A shows lineups only after T-45 for most fixtures, a post-lineup closing design or a written no (the bar does not loosen)",
           "owner": "architect",
           "due": "2026-11-05",
           "done": null
         }
       ],
-      "earliest_live": "2027-01-20",
-      "live_needs": "a PASS at Step C's frozen bar (the fix-v2 re-exam's 14.76pp floor to beat, on the same exam set, split and metric) with a rotation term built only from lineups readable at or before the time Step A shows, then the forward confirmation every lane carries. Until then cups stay market-only; no venue call on CL (#505).",
+      "earliest_live": "2027-02-16",
+      "live_needs": "a PASS at cup_exam's frozen gate as it stood at the 2026-09-25 FAIL (mean error <= 8.0pp, <= 13 rows over 8pp, sign >= 80%), on the same exam set, split and metric, with a rotation term built only from lineups readable at or before the time Step A shows; the prior result, fix-v2's 14.76pp, is the record it has to better and not the bar. Then the forward confirmation every lane carries. Until then cups stay market-only; no venue call on CL (#505).",
       "vs_close": "not read",
       "moved": []
     },

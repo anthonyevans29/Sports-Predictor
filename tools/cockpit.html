@@ -534,7 +534,10 @@ function passKindTag(k){
     :k==="shadow_league"?'<span class="passkind">shadow league</span>'
     // Q3 K1 (ARCHITECT 2026-10-08): an MLB row the 2026-10-01 rule would have called on the kalshi-only mid is
     // PASS with no reference — units 0, no order, no shadow units (desk_policy.KALSHI_ONLY_SUSPENDED_KIND)
-    :k==="kalshi_only_suspended"?'<span class="passkind">kalshi-only suspended</span>':"";
+    :k==="kalshi_only_suspended"?'<span class="passkind">kalshi-only suspended</span>'
+    // addendum 72 item 1 (ARCHITECT 2026-10-15): a stored kickoff more than 2h from the Kalshi ticker's clock is PASS,
+    // no order, no value shadow; the reason names both clocks (desk_policy.KICKOFF_CLOCK_KIND, rendered from the file)
+    :k==="kickoff_clock"?'<span class="passkind">kickoff disputed</span>':"";
 }
 // Q3 K3: the file's kalshi_only_hold — what the 2026-10-01 rule would have done, FOR THE RECORD ONLY. Never a call:
 // nothing here is counted, logged or staked.
@@ -641,7 +644,8 @@ function policy(){
     if(call==="PASS"){passes++; if(passKind==="noref")passNoRef++; else if(passKind==="floor")passFloor++; else if(passKind==="started")passStarted++; else if(passKind==="shadow_league")passShadow++; else if(passKind==="kalshi_only_suspended")passKoSusp++;}
     else if(call==="LADDER")ladders++; else plays++;
     const tr=document.createElement("tr");
-    if(passKind==="noref"||passKind==="started"||passKind==="shadow_league"||passKind==="kalshi_only_suspended") tr.className="noref";
+    if(passKind==="noref"||passKind==="started"||passKind==="shadow_league"||passKind==="kalshi_only_suspended"
+       ||passKind==="kickoff_clock") tr.className="noref";
     tr.innerHTML=`<td data-game="${esc(r.game)}">${esc(r.game)}${koLine(r)}</td><td title="${esc(r.pick)}">${esc(sideName(r,r.pick))}</td>
       <td>${r.prob.toFixed(3)}</td><td>${mktRef!=null?mktRef.toFixed(3)+(kalOnly?' <span class="passkind">kalshi-only</span>':""):"—"}</td>
       <td>${edge!=null?(edge>0?"+":"")+edge.toFixed(1)+"pp":"—"}${execHTMLFrom(r.fileDesk.exec,r.prob)}</td>

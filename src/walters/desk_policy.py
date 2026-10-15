@@ -153,11 +153,24 @@ INJURIES_ONE_SIDED_RULING = "one-sided injury list, ARCHITECT 2026-10-11"
 # law 4. Its own switch and its own desk_meta line, as addendum 36's rule has.
 INJURY_EMPTY_RULE = {"on": True}
 INJURY_EMPTY_TAG = "QB unread half units"
+# A STORED KICKOFF THE MARKET'S CLOCK DISPUTES GETS NO CALL (ARCHITECT 2026-10-15 08:46 ET, addendum 72 item 1, RULED,
+# law 4): "a row whose stored kickoff and Kalshi clock disagree by more than MAX_TICK_DRIFT (2h, kalshi_match.py:79 —
+# the matcher's own threshold, read it, do not add a second one) gets NO Desk call: PASS, units 0, no order, no value
+# shadow, a new no-call kind in NO_CALL_KINDS with the reason naming both clocks ("stored kickoff 2026-10-15 13:00 ET
+# vs Kalshi's clock 18:00 ET: no call"). The clock is read from the leg's own ticker (the MLB shape carries it; a
+# shape without a clock is not compared and nothing changes). The closing file carries the kind and both clocks".
+# The threshold and the ticker's clock are the matcher's own (kalshi_match.MAX_TICK_DRIFT, ticker_stamp); every leg
+# with a ticker is read, and any one past the threshold holds the row. Checked after S1 and before the started rule:
+# a started test reads the stored kickoff, the clock this rule disputes. The row's desk block carries both clocks
+# (`kickoff_clock`). Its own switch and desk_meta line; the frozen golden runs with it off (base_v11()).
+KICKOFF_CLOCK_RULE = {"on": True}
+KICKOFF_CLOCK_KIND = "kickoff_clock"
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
                  "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
                  KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
                  DEFAULT_RATING_KIND,               # + addendum 36 item 2 (2026-10-10)
-                 INJURIES_ONE_SIDED_KIND)           # + addendum 40 item 6 (2026-10-11)
+                 INJURIES_ONE_SIDED_KIND,           # + addendum 40 item 6 (2026-10-11)
+                 KICKOFF_CLOCK_KIND)                # + addendum 72 item 1 (2026-10-15)
 # VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
 # time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
 # unknown age is NO REFERENCE. [...] In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote
@@ -502,9 +515,10 @@ def base_v11():
     was_one = INJURIES_ONE_SIDED_RULE["on"]    # frozen verification files stay frozen (as Codex asked on #434)
     was_inj = INJURY_EMPTY_RULE["on"]          # Codex on #434: frozen verification files stay frozen
     was_skew = SKEW_TEST_VENUE_RULE["on"]      # addendum 61 item 3(1) postdates the frozen battery's CL rows
+    was_clock = KICKOFF_CLOCK_RULE["on"]       # addendum 72 item 1: frozen verification files stay frozen
     EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
     KALSHI_ONLY_MLB_SUSPENDED["on"] = INJURIES_ONE_SIDED_RULE["on"] = INJURY_EMPTY_RULE["on"] = False
-    SKEW_TEST_VENUE_RULE["on"] = False
+    SKEW_TEST_VENUE_RULE["on"] = KICKOFF_CLOCK_RULE["on"] = False
     try:
         yield
     finally:
@@ -512,6 +526,7 @@ def base_v11():
         MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"] = was_mlbq, was_qa
         KALSHI_ONLY_MLB_SUSPENDED["on"], INJURIES_ONE_SIDED_RULE["on"] = was_kos, was_one
         INJURY_EMPTY_RULE["on"], SKEW_TEST_VENUE_RULE["on"] = was_inj, was_skew
+        KICKOFF_CLOCK_RULE["on"] = was_clock
 
 
 @contextmanager
@@ -601,6 +616,17 @@ def default_rating_rule_off():
         yield
     finally:
         DEFAULT_RATING_RULE["on"] = was
+
+
+@contextmanager
+def kickoff_clock_rule_off():
+    """The Desk without the kickoff-clock rule (addendum 72 item 1) — for comparing a file with and without it."""
+    was = KICKOFF_CLOCK_RULE["on"]
+    KICKOFF_CLOCK_RULE["on"] = False
+    try:
+        yield
+    finally:
+        KICKOFF_CLOCK_RULE["on"] = was
 
 
 def has_started(r, now_ms: float) -> bool:
@@ -829,6 +855,36 @@ def kalshi_only_ref(r, now_ms: float) -> dict:
 
 # ------------------------------------------------------------------ policy --
 
+def kickoff_clock_drift(r):
+    """Addendum 72 item 1: (the stored kickoff, Kalshi's clock), both naive UTC, where a leg's own ticker carries a
+    clock (kalshi_match.ticker_stamp) more than kalshi_match.MAX_TICK_DRIFT from the row's stored kickoff; else None:
+    the rule off, an unknown kickoff, no leg with a ticker, or a ticker shape without a clock (not compared)."""
+    if not KICKOFF_CLOCK_RULE["on"]:
+        return None
+    from src.ingestion.kalshi_match import MAX_TICK_DRIFT, ticker_stamp
+    t = utc_ms(r["utc"])
+    if t != t:
+        return None
+    stored = datetime(1970, 1, 1) + timedelta(milliseconds=t)
+    legs = (r.get("src") or {}).get("kalshi_legs") or {}
+    for side in sorted(legs):
+        tk = (legs.get(side) or {}).get("ticker")
+        if not tk or not isinstance(tk, str):
+            continue
+        _, clock = ticker_stamp({"ticker": tk})
+        if clock is not None and abs(stored - clock) > MAX_TICK_DRIFT:
+            return stored, clock
+    return None
+
+
+def kickoff_clock_reason(stored: datetime, clock: datetime) -> str:
+    """The ruled reason: "stored kickoff 2026-10-15 13:00 ET vs Kalshi's clock 18:00 ET: no call" (Kalshi's clock
+    keeps its date where it falls on another US Eastern day)."""
+    from src.ingestion.kalshi_match import et_text
+    st, kal = et_text(stored), et_text(clock)
+    return f"stored kickoff {st} vs Kalshi's clock {kal[11:] if kal[:10] == st[:10] else kal}: no call"
+
+
 def _no_call(r, kind: str, reason: str) -> dict:
     return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": [kind], "reasons": [reason],
             "execUnits": None, "shadowUnits": 0, "passKind": kind, "mktRef": r["mkt"], "kalOnly": False}
@@ -893,6 +949,11 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
         return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": ["shadow league"],
                 "reasons": [SHADOW_LEAGUE_REASON], "execUnits": None, "shadowUnits": 0,
                 "passKind": SHADOW_LEAGUE_KIND, "mktRef": r["mkt"], "kalOnly": False}
+    drift = kickoff_clock_drift(r)                      # addendum 72 item 1: checked before the started rule
+    if drift:
+        out = _no_call(r, KICKOFF_CLOCK_KIND, kickoff_clock_reason(*drift))
+        out["clockHold"] = drift
+        return out
     if STARTED_RULE["on"] and has_started(r, now_ms):
         return _no_call(r, "started", STARTED_REASON)
     defaulted = default_rated_teams(r)
@@ -1428,6 +1489,14 @@ def desk_block(r, c, v, ven) -> dict:
            "venue": venue_block(ven)}
     if c.get("koHold"):                                   # Q3 K3: for the record only; nothing reads it as a call
         out["kalshi_only_hold"] = {k: _num(x) for k, x in c["koHold"].items()}
+    if c.get("clockHold"):                                # addendum 72 item 1: both clocks, for the closing file
+        from src.ingestion.kalshi_match import MAX_TICK_DRIFT, et_text
+        stored, clock = c["clockHold"]
+        out["kickoff_clock"] = {"stored_kickoff": stored.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                                "stored_kickoff_et": et_text(stored),
+                                "kalshi_clock": clock.strftime("%Y-%m-%dT%H:%M:%SZ"), "kalshi_clock_et": et_text(clock),
+                                "drift_h": round(abs((clock - stored).total_seconds()) / 3600, 2),
+                                "max_drift_h": MAX_TICK_DRIFT.total_seconds() / 3600}
     if v:
         out["value_shadow"] = {"side": v["side"], "edge_pp": _num(v["edge"]), "model_p": _num(v["modelP"]),
                                "market_p": _num(v["marketP"]), "role": v["role"], "units": VALUE["units"],
@@ -1496,6 +1565,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "injuries_one_sided_rule": INJURIES_ONE_SIDED_RULE["on"],
                         # addendum 40 item 4 (2026-10-11): an empty NFL injury list sizes a PLAY as QB-flagged
                         "nfl_injury_list_empty_rule": INJURY_EMPTY_RULE["on"],
+                        # addendum 72 item 1 (2026-10-15): a stored kickoff the Kalshi clock disputes is never a call
+                        "kickoff_clock_rule": KICKOFF_CLOCK_RULE["on"],
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
@@ -1538,7 +1609,7 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
 
 
 def file_unit_basis(doc: dict):
-    """The unit sizing the FILE was produced under, read from its own order lines ("1u = $20" -> "20"; "1u = 10
+    """The unit sizing the FILE was produced under, read from its own order lines ("1u = $N" -> "N"; "1u = 10
     contracts" -> "" = SP_UNIT_USD unset). None when the file carries no order (the caller's env then stands)."""
     import re
     for r in (doc.get("predictions") or []) + (doc.get("fixtures") or []):

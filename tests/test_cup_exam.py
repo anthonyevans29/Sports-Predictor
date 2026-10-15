@@ -465,3 +465,36 @@ def test_drift_invalid_takes_precedence_over_coverage():
     r = cup_exam.score_exam(key, priced, known - {0, 1, 2})   # 3 unmatched AND < 45
     assert r.invalid and r.under_coverage
     assert r.verdict.startswith("INVALID — 3 key rows unmatched/unpriced")
+
+
+def test_q9_history_lineups_never_reach_the_report_only_pricing(cup_db):
+    """Q9 (ARCHITECT 2026-10-15, addendum 75 item 2): training.py's two whole-table lineup readers take kind in
+    ('projected', 'confirmed'). Arsenal holds confirmed regulars (R0..R10, on a league game the exam does not price);
+    a finished EFL fixture of Arsenal's then gains a 'history' eleven of other names (H0..H10), as sync-lineups-history
+    would store it. Unguarded, that eleven reads as 11 missing regulars (a 15% cut) on the exam's price; guarded, the
+    exam's rows are identical with and without it."""
+    from sqlalchemy import delete
+
+    from src.db.schema import Lineup
+    from src.walters.training import LIVE_LINEUP_KINDS
+    assert LIVE_LINEUP_KINDS == ("projected", "confirmed")
+    arsenal, fixture = cup_db["teams"]["Arsenal"], cup_db["finished"][0]          # Arsenal v Wrexham, 3-0
+    with session_scope() as s:
+        league_game = s.execute(select(Match.id).where(
+            Match.id.in_(cup_db["league"]),
+            (Match.home_team_id == arsenal) | (Match.away_team_id == arsenal))).scalars().first()
+    try:
+        with session_scope() as s:
+            s.add_all(Lineup(match_id=league_game, team_id=arsenal, kind="confirmed", is_starter=True,
+                             player_name=f"R{k}") for k in range(11))
+        before = {r["match_id"]: r for r in _generate_predictions_soccer("EFL", SEASON, include_finished=True)}
+        with session_scope() as s:
+            s.add_all(Lineup(match_id=fixture, team_id=arsenal, kind="history", is_starter=True,
+                             player_name=f"H{k}") for k in range(11))
+        after = {r["match_id"]: r for r in _generate_predictions_soccer("EFL", SEASON, include_finished=True)}
+        assert after == before
+        assert after[fixture]["p_home"] == before[fixture]["p_home"]
+    finally:
+        with session_scope() as s:
+            s.execute(delete(Lineup).where(Lineup.team_id == arsenal, Lineup.player_name.like("R%")
+                                           | Lineup.player_name.like("H%")))

@@ -318,11 +318,13 @@ async def match_detail(request: Request, match_id: int):
             match.competition_id, match.season,
         ) if match.away_team else None
 
-        # Lineups (soccer)
+        # Lineups (soccer): the kinds sync-lineups writes only (Q9, addendum 75 item 2); a
+        # finished cup fixture's "history" rows are not this page's pre-match lineup
         from src.db.schema import Lineup
+        from src.walters.training import LIVE_LINEUP_KINDS
         lineups = list(s.execute(
             select(Lineup)
-            .where(Lineup.match_id == match.id)
+            .where(Lineup.match_id == match.id, Lineup.kind.in_(LIVE_LINEUP_KINDS))
             .order_by(Lineup.team_id, Lineup.is_starter.desc(), Lineup.player_name)
         ).scalars())
         home_lineup = [l for l in lineups if l.team_id == match.home_team_id]

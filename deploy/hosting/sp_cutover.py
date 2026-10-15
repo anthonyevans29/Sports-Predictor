@@ -6,7 +6,8 @@ decides or triggers it; this only executes the sequence once ruled.
 
     sp_cutover.py <step> --pack <dir> [--timers-file F] [--lock-timeout S]
     sp_cutover.py run    --pack <dir> --dry-run --scratch <DIR>
-    sp_cutover.py shot-gate      (internal: the preflight's read of the NHL shot GATE)
+    sp_cutover.py shot-gate [--pack <dir>]   (internal: the preflight's read of the NHL shot GATE; --pack reads the
+                                              pack's DB, without it the host's live DB)
 
 Steps (in order; `run` = all six, the first failure stops):
   preflight  pack present; sp_migrate verify PASS (sha256 + integrity + every
@@ -17,13 +18,18 @@ Steps (in order; `run` = all six, the first failure stops):
              SP_WRITER_OF_RECORD line with a known value; host.env itself says
              SP_EXPORTS_MIRROR_ROLE=host (addendum 47 item 7(c)); no target under data/.
              Addendum 79 item 4: every listed timer is active (one that is not refuses,
-             named), and the host's NHL shot GATE streams (nhl-shot-coverage's own numbers,
-             read by `shot-gate` as the service user) are at or above 95% in every season
-             they name (one below refuses, named with its share; the backfill's exact host
-             command is printed, --dry-run first, and never run here; the dry run does not
-             read the gate). Past the pack, data/ and timer-list reads, each check prints its
-             line and one refusal names every failure; sp_migrate verify runs only when they
-             all pass.
+             named). Addendum 80 item 3: the preflight runs BEFORE runbook step 2 stops the
+             timers; when every listed timer is inactive it stops at once and prints only
+             "timers already stopped: run the preflight before step 2" (exit 1, receipt
+             `stopped`, never a refusal). The NHL shot GATE (nhl-shot-coverage's own numbers,
+             read by `shot-gate` as the service user) reads the PACK's DB, the laptop's that
+             install puts in place, and refuses below 95% in any season it names (named with
+             its share); the host's live DB is read and printed for the record and never
+             refuses. Below 95% on the host, the backfill's exact host command is printed,
+             --dry-run first, never run here, "optional before cutover; not a prerequisite".
+             The dry run reads neither. Past the pack, data/ and timer-list reads, each check
+             prints its line and one refusal names every failure; sp_migrate verify runs only
+             when they all pass.
              Prints, by name only, each setting the pack's .env changes on the host
              (those host.env gives a value left out); the list refuses nothing by itself.
              Everything that could fail install is refused HERE, before pause.
@@ -43,8 +49,10 @@ Steps (in order; `run` = all six, the first failure stops):
              own receipts (cutover id = the pack dir name).
 
 Every step appends a receipt {kind: cutover, step, exit, cutover_id} and a
-failing step refuses (exit 1, receipt carries `refused`). After `pause` a
-refusal leaves the timers STOPPED by design (runbook: Rollback).
+failing step refuses (exit 1, receipt carries `refused`); a preflight run after
+runbook step 2 stops instead (exit 1, receipt carries `stopped`, addendum 80
+item 3). After `pause` a refusal leaves the timers STOPPED by design (runbook:
+Rollback).
 
 Privileges: run as root (`sudo venv/bin/python ...`) — systemctl and the
 root:sp host.env need it. As root, every step that opens the DB or the pack
@@ -86,6 +94,12 @@ TIMERS_ENABLED = Path("/etc/sports-predictor/timers.enabled")   # hosting-h1.md 
 TIMER_NAME = re.compile(r"^sp-[a-z0-9-]+\.timer$")
 BACKUP_UNIT = "sp-backup.service"
 SHOT_GATE_TAG = "SHOT-GATE "             # addendum 79 item 4: the one line `sp_cutover.py shot-gate` prints
+# ARCHITECT 2026-10-15, addendum 80 item 3, verbatim: (Q1) "sp_cutover prints "timers already stopped: run the
+# preflight before step 2" when every listed timer is inactive"; (Q3) the backfill print "labelled "optional before
+# cutover; not a prerequisite"".
+TIMERS_STOPPED = "timers already stopped: run the preflight before step 2"
+BACKFILL_OPTIONAL = "optional before cutover; not a prerequisite"
+PACK_WHOSE, HOST_WHOSE = "the pack's", "the host's live"       # whose NHL shot GATE streams a line reads
 # The writer-of-record setting H2 step 6 names: the existing H0-16 variable
 # (grep: sp_run.metered_skip, etc/host.env.example). Values: full | designated.
 FLAG, FLAG_VALUE, FLAG_KNOWN = "SP_WRITER_OF_RECORD", "host", ("laptop", "host")
@@ -96,6 +110,11 @@ Runner = Callable[[list], "tuple[int, str]"]
 
 class Refused(Exception):
     pass
+
+
+class Stopped(Refused):
+    """Addendum 80 item 3 (Q1): a run that is not the step (the preflight after runbook step 2). It stops like a
+    refusal (exit 1, nothing after it runs) and prints its message alone, never as a fault."""
 
 
 def _euid() -> int:  # tests pin it
@@ -162,7 +181,7 @@ class Ctx:
     service_user: str = "sp"
     cutover_id: str = ""
     done: dict = field(default_factory=dict)
-    shot_read: Callable | None = None      # addendum 79 item 4: tests inject a fake host read (None: host_shot_read)
+    shot_read: Callable | None = None      # tests inject a fake read (ctx, pack: bool) -> dict (None: run_shot_read)
 
 
 # ------------------------------------------------------------ plumbing ----
@@ -277,16 +296,17 @@ def active_sp_timers(ctx: Ctx, step: str) -> list[str]:
     return sorted({u for u in units if u.startswith("sp-") and u.endswith(".timer")})
 
 
-def _shot_argv(ctx: Ctx) -> list:
-    argv = [sys.executable, str(HERE / "sp_cutover.py"), "shot-gate"]
+def _shot_argv(ctx: Ctx, pack: bool) -> list:
+    argv = [sys.executable, str(HERE / "sp_cutover.py"), "shot-gate", *(["--pack", str(ctx.pack)] if pack else [])]
     return ["runuser", "-u", ctx.service_user, "--", *argv] if _as_service_user(ctx) else argv
 
 
-def host_shot_read(ctx: Ctx) -> dict:
-    """The host's NHL shot GATE streams (addendum 79 item 4): `sp_cutover.py shot-gate` in a process of its own (as
-    the service user when run as root, as install is), whose one SHOT-GATE line is returned as read. Anything else is
-    {"error": ...}: an unread gate is never read as a pass (law 4)."""
-    rc, out = ctx.runner(_shot_argv(ctx))
+def run_shot_read(ctx: Ctx, pack: bool) -> dict:
+    """An NHL shot GATE read (addendum 79 item 4; addendum 80 item 3: pack=True the PACK's DB, which gates; False the
+    host's live DB, for the record): `sp_cutover.py shot-gate` in a process of its own (as the service user when run
+    as root, as install is), whose one SHOT-GATE line is returned as read. Anything else is {"error": ...}: an unread
+    gate is never read as a pass (law 4)."""
+    rc, out = ctx.runner(_shot_argv(ctx, pack))
     line = next((ln for ln in reversed(out.splitlines()) if ln.startswith(SHOT_GATE_TAG)), None)
     if line is None:
         return {"error": f"the read printed no {SHOT_GATE_TAG.strip()} line (exit {rc}): "
@@ -302,15 +322,18 @@ def host_shot_read(ctx: Ctx) -> dict:
     return d
 
 
-def shot_gate_read() -> int:
-    """`sp_cutover.py shot-gate` (internal, never a step): the live DB's NHL shot GATE streams as ONE line
-    `SHOT-GATE {json}`, read-only. The counts are nhl_shots.coverage()["gate_stream"] (nhl-shot-coverage's own numbers,
-    never re-derived); per season, the first and last UTC date of nhl_backtest's own stream (the backfill's span). The
-    app's sessions read through a mode=ro connection of their own (no WAL pragma, no mkdir, nothing written); a
-    missing file is refused (never created) and init_db is never called."""
+def shot_gate_read(pack: Path | None = None) -> int:
+    """`sp_cutover.py shot-gate [--pack <dir>]` (internal, never a step): one DB's NHL shot GATE streams as ONE line
+    `SHOT-GATE {json}`, read-only. With --pack, the pack's DB (<dir>/sports.db, the laptop's that install puts in
+    place; addendum 80 item 3), opened as sp_migrate opens the pack's copy (sp_common.copy_connect: mode=ro and
+    immutable, nothing created beside it, addendum 73 item 4); without it, the host's live DB (DATABASE_URL), mode=ro
+    (sp_common.ro_connect; never immutable on the live DB, #340). The counts are nhl_shots.coverage()["gate_stream"]
+    (nhl-shot-coverage's own numbers, never re-derived); per season, the first and last UTC date of nhl_backtest's own
+    stream (the backfill's span). The app's sessions read through that connection of their own (no WAL pragma, no
+    mkdir, nothing written); a missing file is refused (never created) and init_db is never called."""
     def out(d: dict) -> None:
         print(SHOT_GATE_TAG + json.dumps(d, sort_keys=True))
-    p = c.db_path()
+    p = pack / sp_migrate.DB if pack is not None else c.db_path()
     if not p.is_file():
         out({"error": f"no database at {p} (never created here)"})
         return 1
@@ -322,11 +345,11 @@ def shot_gate_read() -> int:
         import src.db.database as dbm
         from src.ingestion import nhl_shots as nsh
         from src.walters import nhl_backtest as nb
-        # READ-ONLY for real: the app's sessions are rebound to an engine of their own on a mode=ro connection (the
-        # live DB's open, sp_common.ro_connect's), so the app engine's connect hooks (PRAGMA journal_mode=WAL, the
-        # data/ mkdir) never run and nothing is written. Never immutable on the live DB (#340).
-        uri = p.resolve().as_uri() + "?mode=ro"
-        dbm.SessionLocal.configure(bind=create_engine("sqlite://", creator=lambda: sqlite3.connect(uri, uri=True)))
+        # READ-ONLY for real: the app's sessions are rebound to an engine of their own on sp_common's own read-only
+        # open (the pack's copy: copy_connect; the live DB: ro_connect, never immutable, #340), so the app engine's
+        # connect hooks (PRAGMA journal_mode=WAL, the data/ mkdir) never run and nothing is written.
+        connect = c.copy_connect if pack is not None else c.ro_connect
+        dbm.SessionLocal.configure(bind=create_engine("sqlite://", creator=lambda: connect(p)))
         gate = nsh.coverage()["gate_stream"]
         st = nb.build_stream(nb.load_games())
         seasons = {}
@@ -339,35 +362,43 @@ def shot_gate_read() -> int:
     except Exception as e:  # noqa: BLE001 - printed as unread; the preflight refuses on it (law 4)
         out({"error": f"{type(e).__name__}: {c.redact(str(e))[:200]}"})
         return 1
-    out({"db": str(p), "bar": nsh.FEEDABLE["games_with_events"], "seasons": seasons})
+    out({"db": str(p), "source": "pack" if pack is not None else "live", "bar": nsh.FEEDABLE["games_with_events"],
+         "seasons": seasons})
     return 0
 
 
-def shot_gate_lines(read: dict) -> tuple[list[str], list[str]]:
+def shot_gate_lines(read: dict, whose: str = PACK_WHOSE) -> tuple[list[str], list[str]]:
     """(printed lines, failures) for a shot read: one line per GATE-stream season with nhl-shot-coverage's own PASS
-    rule (games read and the share at or above the bar); a season below it is a failure named with its share."""
+    rule (games read and the share at or above the bar); a season below it is a failure named with its share.
+    whose=PACK_WHOSE gates (addendum 80 item 3); HOST_WHOSE is the record: its lines carry no fault mark, and the
+    caller never refuses on its failures."""
+    gates = whose == PACK_WHOSE
+    head = "" if gates else "for the record, never refuses: "
+    bad = "✗" if gates else "·"
+    tail = " (the pack carries the laptop's DB, the one install puts in place)" if gates else ""
     if "error" in read:
-        return [f"✗ NHL shot GATE: not read ({read['error']})"], [f"the host's NHL shot GATE streams not read "
-                                                                    f"({read['error']})"]
+        return ([f"{bad} {head}{whose} NHL shot GATE: not read ({read['error']})"],
+                [f"{whose} NHL shot GATE streams not read ({read['error']})"])
     bar, seasons = read.get("bar"), read.get("seasons") or {}
     if not isinstance(bar, (int, float)) or not seasons:
-        return ["✗ NHL shot GATE: the read named no season or no bar"], ["the host's NHL shot GATE read named no "
-                                                                          "season or no bar"]
+        return ([f"{bad} {head}{whose} NHL shot GATE: the read named no season or no bar"],
+                [f"{whose} NHL shot GATE read named no season or no bar"])
     lines, below = [], []
     for season, b in sorted(seasons.items()):
         n, w = b.get("games") or 0, b.get("with_shots") or 0
         pct = w / n * 100 if n else 0.0
         ok = bool(n) and pct >= bar
-        lines.append(f"{'·' if ok else '✗'} NHL shot GATE stream {season}: {w}/{n} = {pct:.1f}% "
+        lines.append(f"{'·' if ok else bad} {head}{whose} NHL shot GATE stream {season}: {w}/{n} = {pct:.1f}% "
                      f"[{'PASS' if ok else 'BELOW'} >= {bar:g}%]")
         if not ok:
             below.append(f"{season} {w}/{n} = {pct:.1f}%")
-    return lines, ([f"the host's NHL shot GATE streams below {bar:g}%: {', '.join(below)} (the backfill: the "
-                    "command printed above)"] if below else [])
+    return lines, ([f"{whose} NHL shot GATE streams below {bar:g}%: {', '.join(below)}{tail}"] if below else [])
 
 
 def backfill_lines(ctx: Ctx, read: dict) -> list[str]:
-    """Addendum 79 item 4: the exact host command for the shot backfill, printed and never run. --start is the day
+    """Addendum 79 item 4: the exact host command for the shot backfill, printed and never run; addendum 80 item 3:
+    "optional before cutover; not a prerequisite" (the host catching up is still useful if the cutover slips). --start
+    is the day
     before the first GATE-stream game's UTC date (the sync walks the schedule by local dates and skips games already
     stored); --end is the last one's (the sync keeps games up to a day past --end). The backup line is
     nhl-shot-sync's own docstring ("Take the .backup first")."""
@@ -379,7 +410,8 @@ def backfill_lines(ctx: Ctx, read: dict) -> list[str]:
     start = (date.fromisoformat(firsts[0]) - timedelta(days=1)).isoformat()
     py = f"sudo -u {ctx.service_user} venv/bin/python"
     sync = f"{py} cli.py nhl-shot-sync --start {start} --end {lasts[-1]}"
-    return ["· the host's NHL shot backfill (printed here, never run). FIRST, the dry run, pasted to the architect:",
+    return [f"· the host's NHL shot backfill: {BACKFILL_OPTIONAL} (addendum 80 item 3: the pack's DB is the one the "
+            "cutover installs). Printed here, never run. FIRST, the dry run, pasted to the architect:",
             f"    cd {c.REPO}",
             f"    {sync} --dry-run",
             "  STOP: the write below is the operator's block after the architect has read that dry run.",
@@ -404,6 +436,15 @@ def step_preflight(ctx: Ctx) -> dict:
     # it. The operator corrects the list by hand; the tool never writes it." (The pause stops only the listed timers:
     # one off the list would stay armed while the database is replaced.)
     active = active_sp_timers(ctx, s)
+    listed_inactive = [t for t in timers if t not in active]
+    # ARCHITECT 2026-10-15, addendum 80 item 3 (Q1), verbatim: "The preflight runs BEFORE runbook step 2 stops the
+    # timers [...] A run after step 2 is not the preflight; sp_cutover prints "timers already stopped: run the
+    # preflight before step 2" when every listed timer is inactive, rather than a refusal that reads as a fault."
+    if len(listed_inactive) == len(timers):
+        print(TIMERS_STOPPED)
+        _receipt(ctx, s, 1, stopped=TIMERS_STOPPED, timers=len(timers), timers_active=len(active),
+                 timers_listed_inactive=listed_inactive, timers_file=str(ctx.timers_file))
+        raise Stopped(TIMERS_STOPPED)
     # ARCHITECT 2026-10-15, addendum 79 item 4: "deploy/hosting/sp_cutover.py's preflight refuses when any listed
     # timer is not active (naming it) and when the host's nhl-shot-coverage GATE streams for the seasons it names
     # read below 95% (naming the stream and its percentage), and prints each check as a line." Past the pack, the
@@ -427,7 +468,6 @@ def step_preflight(ctx: Ctx) -> dict:
           "(add them to the list by hand; the tool never writes it)"
           + (f"; {', '.join(odd)} cannot go on the list as built (its names match {TIMER_NAME.pattern})"
              if odd else ""), timers_off_list=off_list)
-    listed_inactive = [t for t in timers if t not in active]
     check(not listed_inactive, f"timers list {ctx.timers_file}: {len(timers)} · listed but not active: "
                                f"{', '.join(listed_inactive) or 'none'}",
           f"listed sp timers not active on the host: {', '.join(listed_inactive)} (start them, or take them off the "
@@ -462,22 +502,27 @@ def step_preflight(ctx: Ctx) -> dict:
         print("  (host.env not read: its checks wait for the file)")
     problem = sp_migrate.pack_env_problem(ctx.pack)
     check(not problem, f"the pack's .env: {problem or 'DATABASE_URL relative'}", problem)
-    # Addendum 79 item 4 (#520): the host's NHL shot GATE streams, and the backfill's command when one is below.
+    # ARCHITECT 2026-10-15, addendum 80 item 3 (Q3), verbatim: "The shot gate reads the PACK's DB — the laptop's, the
+    # one the cutover installs — and refuses on it; the host's live DB is read and printed for the record [...] and
+    # never refuses." Below the bar on the host, the backfill's command is printed: optional, not a prerequisite.
     if ctx.dry_run:
-        print("· NHL shot GATE: not read in a dry run (the scratch DB holds no NHL games; the real preflight reads "
-              "the host's)")
-        shot = None
+        print("· NHL shot GATE: not read in a dry run (the scratch world holds no NHL games; the real preflight reads "
+              "the pack's DB, which gates, and the host's live DB, for the record)")
+        shot_pack = shot_host = None
     else:
-        shot = (ctx.shot_read or host_shot_read)(ctx)
-        lines, gate_fails = shot_gate_lines(shot)
-        for ln in lines:
+        read = ctx.shot_read or run_shot_read
+        shot_pack = read(ctx, True)
+        lines, gate_fails = shot_gate_lines(shot_pack, PACK_WHOSE)
+        shot_host = read(ctx, False)
+        host_lines, host_below = shot_gate_lines(shot_host, HOST_WHOSE)
+        for ln in lines + host_lines:
             print(ln)
-        if gate_fails and "error" not in shot:
-            for ln in backfill_lines(ctx, shot):
+        if host_below and "error" not in shot_host:
+            for ln in backfill_lines(ctx, shot_host):
                 print(ln)
         if gate_fails:
             fails.extend(gate_fails)
-            extra["shot_gate"] = shot
+            extra.update(shot_gate_pack=shot_pack, shot_gate_host=shot_host)
     if fails:
         _refuse(ctx, s, " | ".join(fails), **extra)          # one refusal, every failed check named
     env_changes = env_changes_by_pack(ctx.pack, host_env)
@@ -507,7 +552,8 @@ def step_preflight(ctx: Ctx) -> dict:
                     pack_git_sha=man.get("git_sha"), timers=len(timers), timers_active=len(active),
                     timers_listed_inactive=listed_inactive, timers_file=str(ctx.timers_file),
                     host_env=str(c.HOST_ENV), flag_before=before, mirror_role=role, env_changes=env_changes,
-                    shot_gate=shot if shot is not None else "not read (dry run)")
+                    shot_gate_pack=shot_pack if shot_pack is not None else "not read (dry run)",
+                    shot_gate_host=shot_host if shot_host is not None else "not read (dry run)")
 
 
 def env_changes_by_pack(pack: Path, host_env: dict) -> dict:
@@ -714,6 +760,8 @@ def drive(ctx: Ctx, steps) -> int:
         print(f"── {st}")
         try:
             ctx.done[st] = STEP_FN[st](ctx)
+        except Stopped:                      # addendum 80 item 3: its one line is already printed; never a fault
+            return 1
         except Refused as e:
             print(str(e))
             if "pause" in ctx.done and "resume" not in ctx.done:
@@ -803,7 +851,8 @@ def dry_run(pack: Path | None, scratch: Path, timers_seed: Path | None, runner: 
 def main(argv=None, runner: Runner | None = None, shot_read: Callable | None = None) -> int:
     ap = argparse.ArgumentParser(description="H2 cutover orchestrator (host side).")
     ap.add_argument("step", choices=[*STEPS, "run", "shot-gate"],
-                    help="shot-gate: internal, the preflight's read of the host's NHL shot GATE streams (never a step)")
+                    help="shot-gate: internal, the preflight's read of an NHL shot GATE (never a step): with --pack the "
+                         "pack's DB, without it the host's live DB")
     ap.add_argument("--pack", type=Path)
     ap.add_argument("--timers-file", type=Path, default=None,
                     help=f"default: SP_TIMERS_ENABLED or {TIMERS_ENABLED}")
@@ -819,7 +868,7 @@ def main(argv=None, runner: Runner | None = None, shot_read: Callable | None = N
         return dry_run(a.pack, a.scratch, a.timers_file, runner)
     c.load_host_env()
     if a.step == "shot-gate":
-        return shot_gate_read()
+        return shot_gate_read(a.pack.resolve() if a.pack else None)
     if _euid() == 0:  # root reading the sp-owned checkout: let git (release name) read it
         os.environ.setdefault("GIT_CONFIG_COUNT", "1")
         os.environ.setdefault("GIT_CONFIG_KEY_0", "safe.directory")

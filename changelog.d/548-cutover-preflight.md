@@ -1,19 +1,29 @@
-## 2026-10-15 (#548: cutover-preflight — ARCHITECT addendum 79 item 4, #495, #520)
+## 2026-10-15 (#548: cutover-preflight — ARCHITECT addendum 79 item 4 and addendum 80 item 3, #495, #520)
 - deploy/hosting/sp_cutover.py, the preflight:
-  - **A listed timer that is not active refuses**, named on the refused line and on the receipt (`timers_listed_inactive`; [] on a pass). Addendum 79 item 4 is later than #495's "It refuses nothing for it".
-  - **The host's NHL shot GATE streams are read** by `sp_cutover.py shot-gate`, an internal command and never a step.
-    - It runs in a process of its own, as the service user under root (as install is). The app's sessions read through a mode=ro connection of their own: no WAL pragma, no mkdir, nothing written. A missing DB is refused and never created; `init_db` is never called.
+  - **A listed timer that is not active refuses**, named on the refused line and on the receipt (`timers_listed_inactive`; [] on a pass). Addendum 79 item 4 supersedes #495's "It refuses nothing for it" (addendum 80 item 3, Q2).
+  - **The preflight runs before runbook step 2 (addendum 80 item 3, Q1).** When EVERY listed timer is inactive (a run after step 2, which is not the preflight), it stops at once. It prints only `timers already stopped: run the preflight before step 2`, writes a receipt with exit 1 and `stopped`, never `refused`, and checks nothing else. `run` goes no further.
+  - **The NHL shot GATE reads the PACK's DB, and refuses on it (addendum 80 item 3, Q3):** `<pack>/sports.db`, the laptop's DB that `install` puts in place. The host's live DB is read the same way and printed for the record; it never refuses.
+    - Both are read by `sp_cutover.py shot-gate`, an internal command and never a step: `--pack <dir>` for the pack, nothing for the live DB.
+    - It runs in a process of its own, as the service user under root (as install is). The app's sessions read through a connection of their own, sp_common's own read-only open. For the pack that is `copy_connect` (mode=ro and immutable, as sp_migrate opens the pack's copy); for the live DB it is `ro_connect` (mode=ro, never immutable, #340). No WAL pragma, no mkdir, nothing written. A missing DB is refused and never created; `init_db` is never called.
     - The counts are `nhl_shots.coverage()["gate_stream"]`, nhl-shot-coverage's own numbers. Each season also carries its first and last stream date.
-    - Each season prints `NHL shot GATE stream <season>: w/n = x% [PASS|BELOW >= 95%]` with nhl-shot-coverage's own rule (the unrounded share).
-    - A season below 95% refuses, named with its share. A read that fails or names no season refuses: never read as a pass.
-  - **Below 95%, the backfill's exact host command is printed and never run:**
+    - Each season prints `the pack's NHL shot GATE stream <season>: w/n = x% [PASS|BELOW >= 95%]` with nhl-shot-coverage's own rule (the unrounded share). The host's lines read `for the record, never refuses: the host's live NHL shot GATE stream …`, with no fault mark.
+    - A pack season below 95% refuses, named with its share. A pack read that fails or names no season refuses: never read as a pass.
+  - **Below 95% on the host, the backfill's exact host command is printed and never run, labelled "optional before cutover; not a prerequisite":**
     - first, `cd <checkout>` and `nhl-shot-sync --start <the day before the first stream game> --end <the last> --dry-run`;
     - a STOP line;
     - then the write: the `.backup` (`sp_backup.py daily`, nhl-shot-sync's own docstring), the same sync without `--dry-run`, and `nhl-shot-coverage`.
   - **Each check prints its own line** (`·` passed, `✗` failed); the flag and writable lines say exactly what was read. Past the pack, the data/ guard and the two timer reads, the preflight refuses once, naming every failed check (joined with ` | `). `sp_migrate verify` runs only when they all pass. A single failure's text is unchanged.
-  - The receipt carries `shot_gate` (the read, or "not read (dry run)").
-  - The dry run does not read the gate (the scratch DB holds no NHL games) and says so.
-- docs/specs/h2-cutover-runbook.md: the preflight row names the new refusals.
+  - The receipt carries `shot_gate_pack` and `shot_gate_host` (each read, or "not read (dry run)").
+  - The dry run reads neither (the scratch world holds no NHL games) and says so.
+- docs/specs/h2-cutover-runbook.md: the preflight row names the new refusals, the record read and the stop after step 2.
 - tests/test_h2_cutover.py:
   - The listed-but-inactive test now refuses and names the timer; a second test shows other units refuse nothing.
-  - 14 new tests: #520's host numbers, the laptop's, the 95% boundary (1326 and 1327 of 1396), an unread gate, one refusal naming three failures, the dry run, the host read's argv and parsing, `shot-gate` end to end on a throwaway NHL DB in a subprocess, the DB's bytes unchanged by the read, and the flag and writable lines.
+  - New tests (addendum 79 item 4): the laptop's numbers, the 95% boundary (1326 and 1327 of 1396), an unread gate, one refusal naming three failures, the dry run, the read's argv and parsing, `shot-gate` end to end on a throwaway NHL DB in a subprocess, the DB's bytes unchanged by the read, and the flag and writable lines.
+  - Addendum 80 item 3:
+    - the pack below 95% refuses;
+    - #520's host numbers (0/1396, 0/1394) never refuse and print the optional backfill;
+    - an unread host record never refuses;
+    - every listed timer stopped prints the one line, with no fault mark and nothing else run;
+    - one listed timer stopped is still the 79.4 refusal;
+    - `shot-gate --pack` reads the pack's copy (a WAL-header copy too) and leaves it byte for byte, with nothing beside it;
+    - a pack without a DB refuses and creates nothing.

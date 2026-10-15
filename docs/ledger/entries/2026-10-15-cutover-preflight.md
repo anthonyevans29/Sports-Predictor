@@ -1,9 +1,12 @@
 **2026-10-15 — LANE (ARCHITECT 2026-10-15 13:55 ET, addendum 79 item 4): the cutover preflight refuses a listed timer that is not active and a host NHL shot GATE stream below 95%, prints each check as a line, and prints the backfill's host command (#495, #520, #548; for the 2026-10-30 decision).**
 - **Verbatim:** "THE CUTOVER PREFLIGHT PR (#495 + #520; for the 2026-10-30 decision): deploy/hosting/sp_cutover.py's preflight refuses when any listed timer is not active (naming it) and when the host's nhl-shot-coverage GATE streams for the seasons it names read below 95% (naming the stream and its percentage), and prints each check as a line. It also prints, read-only, the exact host command for the shot backfill the host has never run (`nhl-shot-sync` with --start/--end spanning the 2024 and 2025 streams, --dry-run first), so the operator's host block can be written from its output; the backfill itself is the operator's block after my read of the dry run. Tests on a fake host read."
-- **Supersedes** #495's addendum 60 item 6 line "It refuses nothing for it": a listed timer that is not active now refuses, named.
-- **Needs a ruling before merge (#548 opens as a draft):** the runbook's section 1 step 2 stops every listed timer before step 4 runs the preflight. In that order this check refuses every listed timer on the cutover morning. The architect rules the order:
-  - the preflight before step 2;
-  - step 2 dropped for `pause`;
-  - or the refusal scoped.
-- **The read:** `sp_cutover.py shot-gate` (internal), as the service user, on the DB at `DATABASE_URL`: nhl-shot-coverage's own GATE numbers plus each season's first and last stream date. It never creates a DB, never calls `init_db`, and never runs the backfill. #548 asks which DB the architect means: the live one, or the pack's that install puts in its place.
-- **The backfill** is the operator's block after the architect reads its dry run. Outstanding work remains on #520.
+- **Supersedes** #495's addendum 60 item 6 line "It refuses nothing for it": a listed timer that is not active now refuses, named. RULED (ARCHITECT 2026-10-15 16:12 ET, addendum 80 item 3, Q2): "Yes: addendum 79 item 4 supersedes #495's "refuses nothing". #495 closes with #548".
+- **The order (addendum 80 item 3, Q1, verbatim):** "The preflight runs BEFORE runbook step 2 stops the timers [...] A run after step 2 is not the preflight; sp_cutover prints "timers already stopped: run the preflight before step 2" when every listed timer is inactive, rather than a refusal that reads as a fault." The tool does so.
+  - The runbook's move of the preflight line is open on #548: the preflight reads the pack, which step 3 makes after step 2.
+- **Which DB (addendum 80 item 3, Q3, verbatim):** "The shot gate reads the PACK's DB — the laptop's, the one the cutover installs — and refuses on it; the host's live DB is read and printed for the record [...] and never refuses. This changes #520: the host backfill is NOT a cutover prerequisite".
+  - The read is `sp_cutover.py shot-gate --pack <dir>` (internal), as the service user, on `<pack>/sports.db` opened as sp_migrate opens the pack's copy. The host's live DB is read by `shot-gate` with no `--pack`.
+  - It never creates a DB, never calls `init_db`, and never runs the backfill.
+- **The backfill** stays printed, "optional before cutover; not a prerequisite". The prerequisite is the pack's streams at or above 95%, plus the host's own daily shot sync active after the cutover.
+  - The `nhl-daily` chain (deploy/hosting/chains.py) runs `nhl-shot-sync --start {yesterday} --end {today}` every day at 16:00 UTC, since ae92e01 (2026-10-02).
+  - `sp-nhl-daily.timer` is on the T11 list that `resume` starts (hosting-h1.md).
+  - #520's title and resolution condition are amended to match.

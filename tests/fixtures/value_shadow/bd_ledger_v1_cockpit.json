@@ -1,0 +1,441 @@
+{
+ "meta": {
+  "policy_version": "v1.1",
+  "auto_claims": [
+   "NFL|Miami Dolphins @ Buffalo Bills|2026-10-16T18:00:00|HOME|straight|model_edge||2026-10-15T18:28:51Z",
+   "NFL|Philadelphia Eagles @ Chicago Bears|2026-10-16T18:00:00|HOME|value_shadow|model_edge||2026-10-15T18:28:51Z",
+   "NFL|Dallas Cowboys @ New York Giants|2026-10-16T18:00:00|AWAY|value_shadow|model_edge||2026-10-15T18:28:51Z",
+   "NFL|Los Angeles Rams @ Seattle Seahawks|2026-10-16T18:00:00|HOME|value_shadow|model_edge||2026-10-15T18:28:51Z",
+   "NFL|Minnesota Vikings @ Green Bay Packers|2026-10-16T18:00:00|HOME|value_shadow|model_edge||2026-10-15T18:28:51Z",
+   "SOCCER|Chelsea @ Arsenal|2026-10-16T18:00:00|DRAW|value_shadow|model_edge||2026-10-15T18:28:51Z"
+  ],
+  "b_shadow": {
+   "2026-10-15T18:28:51Z": {
+    "as_of": "2026-10-15T18:28:51Z",
+    "log_date": "2026-10-15",
+    "capped": 0,
+    "deduped": 0,
+    "qb_shared": [],
+    "cuts": []
+   }
+  }
+ },
+ "calls": [
+  {
+   "log_date": "2026-10-15",
+   "sport": "NFL",
+   "game": "Miami Dolphins @ Buffalo Bills",
+   "home": "Buffalo Bills",
+   "away": "Miami Dolphins",
+   "kickoff": "2026-10-16T18:00:00",
+   "three_way": false,
+   "status": "graded",
+   "quarantine": false,
+   "captured_at": "2026-10-15T18:28:51.639Z",
+   "qb_listed": [],
+   "stage": null,
+   "pick": "HOME",
+   "tier": "lean",
+   "engine": "model_edge",
+   "call_type": "straight",
+   "units": 1,
+   "model_p": 0.66,
+   "market_p": 0.6,
+   "kalshi_exec_cost": null,
+   "kalshi_exec_cost_maker": null,
+   "kalshi_join_bid": null,
+   "venue_hint": "books",
+   "reference": "books",
+   "rules": [
+    "edge ≥ floor"
+   ],
+   "claim_as_of": "2026-10-15T18:28:51Z",
+   "claim_source": "auto",
+   "id": "NFL|Miami Dolphins @ Buffalo Bills|2026-10-15|model_edge|straight|",
+   "reprices": [
+    {
+     "at": "2026-10-15T18:28:51.000Z",
+     "market_p": 0.6,
+     "model_p": 0.66
+    },
+    {
+     "at": "2026-10-15T18:28:51.639Z",
+     "market_p": 0.6,
+     "model_p": 0.66
+    }
+   ],
+   "claim_at": "2026-10-15T18:28:51.000Z",
+   "claim_market_p": 0.6,
+   "claim_model_p": 0.66,
+   "claim_exec_cost": null,
+   "claim_exec_cost_maker": null,
+   "exec_mode": "close_default",
+   "executed_at": "2026-10-15T18:28:51.639Z",
+   "exec_market_p": 0.6,
+   "exec_cost": null,
+   "exec_cost_maker": null,
+   "result": "win",
+   "graded_date": "2026-10-15",
+   "close_ref": {
+    "version": "p0-3 v2",
+    "q_close": 0.61,
+    "fair": {
+     "HOME": 0.61,
+     "AWAY": 0.39
+    },
+    "close_at": "2026-10-16T18:00:00",
+    "close_source": "close_1x2",
+    "ref_move_claim": 0.01,
+    "ref_move_relog": 0.01,
+    "quoted_edge_relog": null
+   },
+   "units_returned": 1.6667,
+   "claim_units_returned": 1.6667
+  },
+  {
+   "log_date": "2026-10-15",
+   "sport": "NFL",
+   "game": "Philadelphia Eagles @ Chicago Bears",
+   "home": "Chicago Bears",
+   "away": "Philadelphia Eagles",
+   "kickoff": "2026-10-16T18:00:00",
+   "three_way": false,
+   "status": "graded",
+   "quarantine": false,
+   "captured_at": "2026-10-15T18:28:51.639Z",
+   "qb_listed": [],
+   "stage": null,
+   "pick": "HOME",
+   "tier": "shadow",
+   "engine": "model_edge",
+   "call_type": "value_shadow",
+   "units": 0,
+   "shadow_units": 0.25,
+   "model_p": 0.489,
+   "market_p": 0.355,
+   "value_edge_pp": 13.4,
+   "value_role": "dog",
+   "kalshi_exec_cost": null,
+   "kalshi_exec_cost_maker": null,
+   "top_pick": "AWAY",
+   "venue_hint": "books",
+   "rules": [
+    "value-side shadow (v1.2 candidate)"
+   ],
+   "claim_as_of": "2026-10-15T18:28:51Z",
+   "claim_source": "auto",
+   "id": "NFL|Philadelphia Eagles @ Chicago Bears|2026-10-15|model_edge|value_shadow|",
+   "reprices": [
+    {
+     "at": "2026-10-15T18:28:51.000Z",
+     "market_p": 0.355,
+     "model_p": 0.489
+    },
+    {
+     "at": "2026-10-15T18:28:51.639Z",
+     "market_p": 0.355,
+     "model_p": 0.489
+    }
+   ],
+   "claim_at": "2026-10-15T18:28:51.000Z",
+   "claim_market_p": 0.355,
+   "claim_model_p": 0.489,
+   "claim_exec_cost": null,
+   "claim_exec_cost_maker": null,
+   "exec_mode": "close_default",
+   "executed_at": "2026-10-15T18:28:51.639Z",
+   "exec_market_p": 0.355,
+   "exec_cost": null,
+   "exec_cost_maker": null,
+   "result": "win",
+   "graded_date": "2026-10-15",
+   "close_ref": {
+    "version": "p0-3 v2",
+    "q_close": 0.372,
+    "fair": {
+     "HOME": 0.372,
+     "AWAY": 0.628
+    },
+    "close_at": "2026-10-16T18:00:00",
+    "close_source": "close_1x2",
+    "ref_move_claim": 0.017,
+    "ref_move_relog": 0.017,
+    "quoted_edge_relog": null
+   },
+   "units_returned": 0,
+   "shadow_returned": 0.7042,
+   "claim_units_returned": 0,
+   "claim_shadow_returned": 0.7042
+  },
+  {
+   "log_date": "2026-10-15",
+   "sport": "NFL",
+   "game": "Dallas Cowboys @ New York Giants",
+   "home": "New York Giants",
+   "away": "Dallas Cowboys",
+   "kickoff": "2026-10-16T18:00:00",
+   "three_way": false,
+   "status": "graded",
+   "quarantine": false,
+   "captured_at": "2026-10-15T18:28:51.639Z",
+   "qb_listed": [],
+   "stage": null,
+   "pick": "AWAY",
+   "tier": "shadow",
+   "engine": "model_edge",
+   "call_type": "value_shadow",
+   "units": 0,
+   "shadow_units": 0.25,
+   "model_p": 0.30000000000000004,
+   "market_p": 0.22,
+   "value_edge_pp": 8,
+   "value_role": "dog",
+   "kalshi_exec_cost": null,
+   "kalshi_exec_cost_maker": null,
+   "top_pick": "HOME",
+   "venue_hint": "books",
+   "rules": [
+    "value-side shadow (v1.2 candidate)"
+   ],
+   "claim_as_of": "2026-10-15T18:28:51Z",
+   "claim_source": "auto",
+   "id": "NFL|Dallas Cowboys @ New York Giants|2026-10-15|model_edge|value_shadow|",
+   "reprices": [
+    {
+     "at": "2026-10-15T18:28:51.000Z",
+     "market_p": 0.22,
+     "model_p": 0.30000000000000004
+    },
+    {
+     "at": "2026-10-15T18:28:51.639Z",
+     "market_p": 0.22,
+     "model_p": 0.30000000000000004
+    }
+   ],
+   "claim_at": "2026-10-15T18:28:51.000Z",
+   "claim_market_p": 0.22,
+   "claim_model_p": 0.30000000000000004,
+   "claim_exec_cost": null,
+   "claim_exec_cost_maker": null,
+   "exec_mode": "close_default",
+   "executed_at": "2026-10-15T18:28:51.639Z",
+   "exec_market_p": 0.22,
+   "exec_cost": null,
+   "exec_cost_maker": null,
+   "result": "loss",
+   "graded_date": "2026-10-15",
+   "units_returned": 0,
+   "shadow_returned": 0,
+   "claim_units_returned": 0,
+   "claim_shadow_returned": 0
+  },
+  {
+   "log_date": "2026-10-15",
+   "sport": "NFL",
+   "game": "Los Angeles Rams @ Seattle Seahawks",
+   "home": "Seattle Seahawks",
+   "away": "Los Angeles Rams",
+   "kickoff": "2026-10-16T18:00:00",
+   "three_way": false,
+   "status": "graded",
+   "quarantine": false,
+   "captured_at": "2026-10-15T18:28:51.639Z",
+   "qb_listed": [],
+   "stage": null,
+   "pick": "HOME",
+   "tier": "shadow",
+   "engine": "model_edge",
+   "call_type": "value_shadow",
+   "units": 0,
+   "shadow_units": 0.25,
+   "model_p": 0.47,
+   "market_p": 0.4,
+   "value_edge_pp": 7,
+   "value_role": "dog",
+   "kalshi_exec_cost": null,
+   "kalshi_exec_cost_maker": null,
+   "top_pick": "AWAY",
+   "venue_hint": "books",
+   "rules": [
+    "value-side shadow (v1.2 candidate)"
+   ],
+   "claim_as_of": "2026-10-15T18:28:51Z",
+   "claim_source": "auto",
+   "id": "NFL|Los Angeles Rams @ Seattle Seahawks|2026-10-15|model_edge|value_shadow|",
+   "reprices": [
+    {
+     "at": "2026-10-15T18:28:51.000Z",
+     "market_p": 0.4,
+     "model_p": 0.47
+    },
+    {
+     "at": "2026-10-15T18:28:51.639Z",
+     "market_p": 0.4,
+     "model_p": 0.47
+    }
+   ],
+   "claim_at": "2026-10-15T18:28:51.000Z",
+   "claim_market_p": 0.4,
+   "claim_model_p": 0.47,
+   "claim_exec_cost": null,
+   "claim_exec_cost_maker": null,
+   "exec_mode": "close_default",
+   "executed_at": "2026-10-15T18:28:51.639Z",
+   "exec_market_p": 0.4,
+   "exec_cost": null,
+   "exec_cost_maker": null,
+   "result": "push",
+   "graded_date": "2026-10-15",
+   "close_ref": {
+    "version": "p0-3 v2",
+    "q_close": 0.415,
+    "fair": {
+     "HOME": 0.415,
+     "AWAY": 0.585
+    },
+    "close_at": "2026-10-16T18:00:00",
+    "close_source": "close_1x2",
+    "ref_move_claim": 0.015,
+    "ref_move_relog": 0.015,
+    "quoted_edge_relog": null
+   },
+   "units_returned": 0,
+   "shadow_returned": 0.25,
+   "claim_units_returned": 0,
+   "claim_shadow_returned": 0.25
+  },
+  {
+   "log_date": "2026-10-15",
+   "sport": "NFL",
+   "game": "Minnesota Vikings @ Green Bay Packers",
+   "home": "Green Bay Packers",
+   "away": "Minnesota Vikings",
+   "kickoff": "2026-10-16T18:00:00",
+   "three_way": false,
+   "status": "open",
+   "quarantine": false,
+   "captured_at": "2026-10-15T18:28:51.639Z",
+   "qb_listed": [],
+   "stage": null,
+   "pick": "HOME",
+   "tier": "shadow",
+   "engine": "model_edge",
+   "call_type": "value_shadow",
+   "units": 0,
+   "shadow_units": 0.25,
+   "model_p": 0.45,
+   "market_p": 0.38,
+   "value_edge_pp": 7,
+   "value_role": "dog",
+   "kalshi_exec_cost": null,
+   "kalshi_exec_cost_maker": null,
+   "top_pick": "AWAY",
+   "venue_hint": "books",
+   "rules": [
+    "value-side shadow (v1.2 candidate)"
+   ],
+   "claim_as_of": "2026-10-15T18:28:51Z",
+   "claim_source": "auto",
+   "id": "NFL|Minnesota Vikings @ Green Bay Packers|2026-10-15|model_edge|value_shadow|",
+   "reprices": [
+    {
+     "at": "2026-10-15T18:28:51.000Z",
+     "market_p": 0.38,
+     "model_p": 0.45
+    },
+    {
+     "at": "2026-10-15T18:28:51.639Z",
+     "market_p": 0.38,
+     "model_p": 0.45
+    }
+   ],
+   "claim_at": "2026-10-15T18:28:51.000Z",
+   "claim_market_p": 0.38,
+   "claim_model_p": 0.45,
+   "claim_exec_cost": null,
+   "claim_exec_cost_maker": null,
+   "exec_mode": "close_default",
+   "executed_at": "2026-10-15T18:28:51.639Z",
+   "exec_market_p": 0.38,
+   "exec_cost": null,
+   "exec_cost_maker": null
+  },
+  {
+   "log_date": "2026-10-15",
+   "sport": "SOCCER",
+   "game": "Chelsea @ Arsenal",
+   "home": "Arsenal",
+   "away": "Chelsea",
+   "kickoff": "2026-10-16T18:00:00",
+   "three_way": true,
+   "status": "graded",
+   "quarantine": false,
+   "captured_at": "2026-10-15T18:28:51.756Z",
+   "qb_listed": [],
+   "stage": null,
+   "pick": "DRAW",
+   "tier": "shadow",
+   "engine": "model_edge",
+   "call_type": "value_shadow",
+   "units": 0,
+   "shadow_units": 0.25,
+   "model_p": 0.33,
+   "market_p": 0.27,
+   "value_edge_pp": 6,
+   "value_role": "draw",
+   "kalshi_exec_cost": null,
+   "kalshi_exec_cost_maker": null,
+   "top_pick": "HOME",
+   "venue_hint": "books",
+   "rules": [
+    "value-side shadow (v1.2 candidate)"
+   ],
+   "claim_as_of": "2026-10-15T18:28:51Z",
+   "claim_source": "auto",
+   "id": "SOCCER|Chelsea @ Arsenal|2026-10-15|model_edge|value_shadow|",
+   "reprices": [
+    {
+     "at": "2026-10-15T18:28:51.000Z",
+     "market_p": 0.27,
+     "model_p": 0.33
+    },
+    {
+     "at": "2026-10-15T18:28:51.756Z",
+     "market_p": 0.27,
+     "model_p": 0.33
+    }
+   ],
+   "claim_at": "2026-10-15T18:28:51.000Z",
+   "claim_market_p": 0.27,
+   "claim_model_p": 0.33,
+   "claim_exec_cost": null,
+   "claim_exec_cost_maker": null,
+   "exec_mode": "close_default",
+   "executed_at": "2026-10-15T18:28:51.756Z",
+   "exec_market_p": 0.27,
+   "exec_cost": null,
+   "exec_cost_maker": null,
+   "result": "win",
+   "graded_date": "2026-10-15",
+   "close_ref": {
+    "version": "p0-3 v2",
+    "q_close": 0.28,
+    "fair": {
+     "HOME": 0.46,
+     "AWAY": 0.26,
+     "DRAW": 0.28
+    },
+    "close_at": "2026-10-16T18:00:00",
+    "close_source": "close_1x2",
+    "ref_move_claim": 0.01,
+    "ref_move_relog": 0.01,
+    "quoted_edge_relog": null
+   },
+   "units_returned": 0,
+   "shadow_returned": 0.9259,
+   "claim_units_returned": 0,
+   "claim_shadow_returned": 0.9259
+  }
+ ],
+ "system_picks": []
+}

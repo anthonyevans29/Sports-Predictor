@@ -17,8 +17,11 @@ WHAT THE SCHEMA SAYS (read at main c51324d):
   computed_at, the three probabilities; nothing else) (src/db/database.py). It came with #301 (merged 2026-10-06) with
   no backfill: before it, a game has at most its one current row. The versions per game are its rows before kickoff.
 - Soccer and MLB re-predict every SCHEDULED fixture with no kickoff guard, so a current row can be computed after
-  kickoff: counted on its own line. NHL, NCAA, UNL, cups and the expansion leagues write no prediction rows (shadow
-  files or market-only): 0 by construction.
+  kickoff: counted on its own line. The writers of predictions rows are those three (src/walters/training.py takes any
+  soccer competition code, cups included); the NHL and NCAA shadows write files only. One writer appends history with
+  NO predictions row: the production INTL export (export-intl-predictions, src/walters/intl_production.py, refused
+  until registry.production_allowed("intl-elo-v2")) appends one prediction_history row per exported UNL fixture
+  (Codex on #547). No sport's count is assumed: every group is read from the tables.
 - Book history lives in TWO tables. odds_snapshots: one de-vigged consensus session per sync (soccer, cups and NHL
   since #167, merged 2026-10-01; NFL/NCAA since 2026-09-29; MLB since 2026-10-02, capture-run copies before it). The
   odds table: since #167 each sync REPLACES a source's rows, so it holds the last session; before #167 the soccer,
@@ -30,9 +33,18 @@ WHAT THE SCHEMA SAYS (read at main c51324d):
   legs are MISMATCHED (their tickers name two events, or their event's legs sit on another game: addendum 37 item 3,
   src/walters/kalshi_legs.py) is read by no reader; it is counted apart and never as Kalshi history.
   kalshi_settled_markets (one row per market, from candles) is printed apart.
-- A capture session is one captured_at: sessions per game = distinct captured_at before kickoff. A session is
-  COMPLETE when it carries every outcome (HOME and AWAY; soccer HOME, DRAW and AWAY), the close's own rule
-  (src/walters/close.py: an incomplete session is never a price); games with a complete session are printed apart.
+- A capture session, and when it is COMPLETE, is read the way the close reads each table (src/walters/close.py: an
+  incomplete session is never a price); games with a complete session are printed apart. The outcome set is HOME and
+  AWAY (soccer HOME, DRAW and AWAY).
+  odds_snapshots (close_from_snapshots): a session is one captured_at; complete when it carries every outcome (the
+  de-vigged legs summing above 0, as the close checks).
+  The odds table (close_1x2, the #207 contract): a session is the last captured_at t before a cutoff and every row
+  within CAPTURE_SESSION (10 minutes) before it, the latest row per (bookmaker, selection, line); complete when ONE
+  bookmaker quoted every outcome at a price above 1.0. Books are never pooled (Codex on #547): three books quoting one
+  leg each are no price. Sessions are counted as successive cutoffs see them, newest first; complete = some cutoff
+  before kickoff gives a priced close. The two tables' sessions are printed apart, never added (one sync writes both).
+  Kalshi: a session is one captured_at, complete when every leg is stored. That is a count of stored legs, not the
+  Kalshi grading close (close_from_kalshi reads one two-sided HOME quote inside the Desk's 2c spread cap).
 - Closing files: <exports>/closing_<FAMILY>_<start>.json, match ids in closing.match_ids (else predictions[].match_id).
   Files under <exports>/host/ come from the host, whose match ids are its own: counted, never matched.
 
@@ -51,6 +63,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from bisect import bisect_left, bisect_right
 import os
 import sqlite3
 import statistics
@@ -60,18 +73,25 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
+from src.walters.close import CAPTURE_SESSION  # noqa: E402  (the close's own session window, read, never restated)
 
 SINCE = "2026-09-20"
 CHUNK = 500
 TWO_WAY, THREE_WAY = frozenset({"HOME", "AWAY"}), frozenset({"HOME", "DRAW", "AWAY"})
+SESSION_MS = int(CAPTURE_SESSION.total_seconds() * 1000)
+SNAP_SESSION = "a session = one captured_at"
+ODDS_SESSION = "a session = the close's 10-minute window; complete = one book quoting every outcome"
 KEYS = ("graded = matches.status FINISHED with home_score and away_score, kickoff matches.utc_date in [since, until) "
         "· sport = matches.sport; NCAA = sport NFL with competition code NCAA; soccer split by competition code "
         "· before kickoff = julianday(stamp) < julianday(matches.utc_date) · prediction = predictions.computed_at "
         "(current row) or prediction_history.computed_at · book = odds_snapshots and the odds table, market 1X2, "
         "source not kalshi (NULL counts; football-data-uk closes left out) · kalshi = odds_snapshots source kalshi, "
-        "a game with mismatched legs (addendum 37 item 3) never counted · session = a distinct captured_at; complete = "
-        "every outcome (HOME+AWAY; soccer +DRAW) · closing file = <exports>/closing_*.json closing.match_ids (else "
-        "predictions[].match_id)")
+        "a game with mismatched legs (addendum 37 item 3) never counted · outcomes = HOME+AWAY (soccer +DRAW) · "
+        "odds_snapshots session = one captured_at, complete = every outcome (close_from_snapshots) · "
+        "odds table session = a captured_at t and the rows 10 minutes before it, latest per (bookmaker, selection, line), "
+        "complete = ONE bookmaker quoting every outcome above 1.0, books never pooled (close_1x2) · kalshi session = one "
+        "captured_at, complete = every leg stored (not the Kalshi grading close) · closing file = "
+        "<exports>/closing_*.json closing.match_ids (else predictions[].match_id)")
 
 
 def db_path(arg: str | None) -> Path:
@@ -104,6 +124,9 @@ def open_read(p: Path):
     except sqlite3.OperationalError:
         if con is not None:
             con.close()
+        # #421 RULED (ARCHITECT 2026-10-11, addendum 38): "A receipt opens the database mode=ro. Where a copy refuses
+        # that, it opens the plain path with query_only set and prints which form it used [...] It opens the
+        # database no third way." (#421 put the -wal/-shm question, immutable or refusing, to the architect.)
         con = sqlite3.connect(str(p), timeout=60)
         con.execute("PRAGMA query_only = ON")
         con.execute("SELECT 1 FROM matches LIMIT 1")
@@ -166,29 +189,87 @@ def spread(xs: list[float], fmt="{:.1f}") -> str:
     return "/".join(fmt.format(v) for v in (min(xs), statistics.median(xs), max(xs)))
 
 
-def captures(rows: dict[int, list], games: list[dict], need) -> dict:
-    """Over the games with a capture before kickoff: sessions per game (a session = one captured_at, its rows' julian
-    day in r[0], its selection in r[1]), first and last capture age (hours), and the games with a COMPLETE session
-    (every outcome `need(game)` names)."""
-    per, first, last, earliest = [], [], [], None
-    have, complete = set(), set()
+def ms_of(jd: float) -> int:
+    """A julian day as integer milliseconds (SQLite keeps a stamp to the millisecond): window edges compare exactly."""
+    return round(jd * 86_400_000)
+
+
+def stamp_sessions(rows: list, need) -> tuple[int, bool]:
+    """odds_snapshots and Kalshi (close_from_snapshots): a session is one captured_at; it is COMPLETE when every outcome
+    in `need` has a value (r[2]: devig_prob; Kalshi: 1, the stored leg) and the values sum above 0, as the close
+    checks. rows: (julian day, selection, value), all before kickoff. -> (sessions, complete)."""
+    sess: dict = {}
+    for jd, sel, val in rows:
+        legs = sess.setdefault(jd, {})
+        if val is not None:
+            legs[sel] = val
+    return len(sess), any(all(k in legs for k in need) and sum(legs[k] for k in need) > 0 for legs in sess.values())
+
+
+def window_sessions(rows: list, need) -> tuple[int, bool]:
+    """The odds table as close_1x2 reads it (src/walters/close.py, the #207 contract): at a cutoff, the session is the
+    last captured_at t before it and every row from t - CAPTURE_SESSION to t, the latest row per (bookmaker,
+    selection, line) (on equal stamps the first read, as last_capture keeps it). It is COMPLETE when ONE bookmaker
+    quoted every outcome in `need` at a price above 1.0; books are never pooled (Codex on #547). Sessions are counted
+    as successive cutoffs see them: the newest t, then the newest stamp older than t - CAPTURE_SESSION, and so on.
+    Complete = some cutoff before kickoff gives a priced close (every stamp is tried as t, newest first). rows: (julian
+    day, selection, bookmaker, price, line) in id order, all before kickoff. -> (sessions, complete)."""
+    pts = sorted(((ms_of(r[0]), n, r) for n, r in enumerate(rows)), key=lambda x: (x[0], x[1]))
+    keys = [x[0] for x in pts]
+    stamps = sorted(set(keys), reverse=True)
+    sessions, edge = 0, None
+    for t in stamps:
+        if edge is None or t < edge:
+            sessions, edge = sessions + 1, t - SESSION_MS
+    for t in stamps:
+        latest: dict = {}
+        for ms, _, (_, sel, bk, px, line) in pts[bisect_left(keys, t - SESSION_MS):bisect_right(keys, t)]:
+            k = (bk, sel, line)
+            if k not in latest or ms > latest[k][0]:
+                latest[k] = (ms, px)
+        books: dict = {}
+        for (bk, sel, _), (_, px) in latest.items():
+            if sel in need and px is not None and px > 1.0:
+                books.setdefault(bk, set()).add(sel)
+        if any(need <= sels for sels in books.values()):
+            return sessions, True
+    return sessions, False
+
+
+def summary(per_game: dict) -> dict:
+    """{games, ids, complete, sessions per game, first and last capture age (hours), earliest} over per-game
+    {first, last, sessions, complete, ko} (julian days). sessions None = not counted for that reading."""
+    v = list(per_game.values())
+    return {"games": len(v), "ids": set(per_game), "complete": sum(1 for x in v if x["complete"]),
+            "complete_ids": {i for i, x in per_game.items() if x["complete"]},
+            "sessions": [x["sessions"] for x in v if x["sessions"] is not None],
+            "first_h": [(x["ko"] - x["first"]) * 24 for x in v], "last_h": [(x["ko"] - x["last"]) * 24 for x in v],
+            "earliest": min((x["first"] for x in v), default=None), "per_game": per_game}
+
+
+def captures(rows: dict[int, list], games: list[dict], need, sessions) -> dict:
+    """Over the games with a capture before kickoff (r[0]: its julian day): sessions per game and whether one is
+    COMPLETE (`sessions(the game's rows before kickoff, need(game))` -> (count, complete)), first and last capture age."""
+    per_game = {}
     for g in games:
-        sess: dict = {}
-        for r in rows.get(g["id"], []):
-            if r[0] is not None and r[0] < g["ko"]:
-                sess.setdefault(r[0], set()).add(r[1])
-        if not sess:
+        pre = [r for r in rows.get(g["id"], []) if r[0] is not None and r[0] < g["ko"]]
+        if not pre:
             continue
-        stamps = sorted(sess)
-        have.add(g["id"])
-        if any(need(g) <= sels for sels in sess.values()):
-            complete.add(g["id"])
-        per.append(len(stamps))
-        first.append((g["ko"] - stamps[0]) * 24)
-        last.append((g["ko"] - stamps[-1]) * 24)
-        earliest = stamps[0] if earliest is None else min(earliest, stamps[0])
-    return {"games": len(have), "ids": have, "complete": len(complete), "sessions": per, "first_h": first,
-            "last_h": last, "earliest": earliest}
+        n, ok = sessions(pre, need(g))
+        per_game[g["id"]] = {"first": min(r[0] for r in pre), "last": max(r[0] for r in pre), "sessions": n,
+                             "complete": ok, "ko": g["ko"]}
+    return summary(per_game)
+
+
+def union(a: dict, b: dict) -> dict:
+    """Book history over both tables, per game: the first and last capture over both, complete in either. Sessions are
+    not added across the tables (one sync writes both), so they are read per table."""
+    per = {}
+    for i in a["ids"] | b["ids"]:
+        xs = [c["per_game"][i] for c in (a, b) if i in c["per_game"]]
+        per[i] = {"first": min(x["first"] for x in xs), "last": max(x["last"] for x in xs), "sessions": None,
+                  "complete": any(x["complete"] for x in xs), "ko": xs[0]["ko"]}
+    return summary(per)
 
 
 def jd_text(jd) -> str:
@@ -213,13 +294,12 @@ def inventory(con, since: str, until: str, exports: Path) -> dict:
                     ids) if hist_ok else {}
     outc = by_match(con, "SELECT p.match_id, o.id FROM prediction_outcomes o JOIN predictions p ON p.id = o.prediction_id "
                          "WHERE p.match_id IN ({ids})", ids)
-    snap = by_match(con, "SELECT match_id, julianday(captured_at), selection FROM odds_snapshots WHERE match_id IN "
-                         "({ids}) AND market = '1X2' AND (source IS NULL OR source != 'kalshi')", ids)
-    board = by_match(con, "SELECT match_id, julianday(captured_at), selection FROM odds WHERE match_id IN ({ids}) "
-                          "AND market = '1X2' AND (source IS NULL OR (source != 'kalshi' AND source NOT LIKE "
-                          "'football-data-uk:%'))", ids)
-    book = {i: snap.get(i, []) + board.get(i, []) for i in set(snap) | set(board)}
-    kal = by_match(con, "SELECT match_id, julianday(captured_at), selection FROM odds_snapshots WHERE match_id IN "
+    snap = by_match(con, "SELECT match_id, julianday(captured_at), selection, devig_prob FROM odds_snapshots WHERE "
+                         "match_id IN ({ids}) AND market = '1X2' AND (source IS NULL OR source != 'kalshi')", ids)
+    board = by_match(con, "SELECT match_id, julianday(captured_at), selection, bookmaker, price_decimal, line FROM odds "
+                          "WHERE match_id IN ({ids}) AND market = '1X2' AND (source IS NULL OR (source != 'kalshi' "
+                          "AND source NOT LIKE 'football-data-uk:%')) ORDER BY id", ids)
+    kal = by_match(con, "SELECT match_id, julianday(captured_at), selection, 1 FROM odds_snapshots WHERE match_id IN "
                         "({ids}) AND source = 'kalshi'", ids)
     mism = kalshi_legs.mismatched(con, ids)
     kal_read = {i: rows for i, rows in kal.items() if i not in mism}
@@ -239,15 +319,16 @@ def inventory(con, since: str, until: str, exports: Path) -> dict:
         versions = {g["id"]: sum(1 for r in hist.get(g["id"], []) if r[0] is not None and r[0] < g["ko"]) for g in gs}
         hv = {i for i, n in versions.items() if n}
         either = cur | hv
-        b, k = captures(book, gs, need_of), captures(kal_read, gs, need_of)
-        bs, bo = captures(snap, gs, need_of), captures(board, gs, need_of)
+        bs, bo = captures(snap, gs, need_of, stamp_sessions), captures(board, gs, need_of, window_sessions)
+        b, k = union(bs, bo), captures(kal_read, gs, need_of, stamp_sessions)
         cl = {g["id"] for g in gs} & cf["ids"]
         four = either & b["ids"] & k["ids"] & cl
         out[name] = {"graded": len(gs), "pred_current": len(cur), "pred_history": len(hv), "pred_either": len(either),
                      "pred_current_after_ko": len(late), "versions": [versions[i] for i in sorted(hv)],
                      "outcome_games": sum(1 for g in gs if outc.get(g["id"])), "book": b,
-                     "book_snapshots": bs["games"], "book_odds_table": bo["games"],
-                     "book_odds_table_only": len(bo["ids"] - bs["ids"]), "kalshi": k,
+                     "book_snapshots": bs, "book_odds_table": bo,
+                     "book_odds_table_only": len(bo["ids"] - bs["ids"]),
+                     "book_complete_odds_table_only": len(bo["complete_ids"] - bs["complete_ids"]), "kalshi": k,
                      "kalshi_mismatched": sum(1 for g in gs if g["id"] in mism),
                      "settled_markets": sum(1 for g in gs if ksm.get(g["id"])), "closing": len(cl),
                      "all_four": len(four)}
@@ -255,12 +336,18 @@ def inventory(con, since: str, until: str, exports: Path) -> dict:
             "first_history": first_hist, "tickers": kalshi_legs.has_tickers(con)}
 
 
-def _cap(label: str, c: dict) -> str:
+def _cap(label: str, c: dict, sessions: str | None = None) -> str:
     if not c["games"]:
         return f"  {label}: 0 games"
-    return (f"  {label}: {c['games']} games ({c['complete']} with a complete session) · sessions per game "
-            f"{spread(c['sessions'], '{:g}')} · first capture {spread(c['first_h'])}h before kickoff · last capture "
-            f"{spread(c['last_h'])}h before kickoff (min/median/max) · earliest {jd_text(c['earliest'])} UTC")
+    ses = sessions or f"sessions per game {spread(c['sessions'], '{:g}')}"
+    return (f"  {label}: {c['games']} games ({c['complete']} with a complete session) · {ses} · first capture "
+            f"{spread(c['first_h'])}h before kickoff · last capture {spread(c['last_h'])}h before kickoff "
+            f"(min/median/max) · earliest {jd_text(c['earliest'])} UTC")
+
+
+def _table(c: dict, session: str) -> str:
+    return (f"{c['games']} games ({c['complete']} complete), sessions per game {spread(c['sessions'], '{:g}')} "
+            f"({session})" if c["games"] else "0 games")
 
 
 def report(inv: dict, form: str, since: str, until: str, exports: Path, echo=print) -> None:
@@ -286,9 +373,10 @@ def report(inv: dict, form: str, since: str, until: str, exports: Path, echo=pri
              f"either {g['pred_either']} · current row computed at/after kickoff {g['pred_current_after_ko']} · "
              f"versions per game (history rows before kickoff) {spread(g['versions'], '{:g}')} (min/median/max over "
              f"{len(g['versions'])} games) · games with a prediction_outcomes row {g['outcome_games']}")
-        echo(_cap("book history before kickoff", g["book"]))
-        echo(f"    of it: odds_snapshots {g['book_snapshots']} games · the odds table {g['book_odds_table']} games "
-             f"({g['book_odds_table_only']} in the odds table only)")
+        echo(_cap("book history before kickoff", g["book"], "sessions per table below"))
+        echo(f"    of it: odds_snapshots {_table(g['book_snapshots'], SNAP_SESSION)} · the odds table "
+             f"{_table(g['book_odds_table'], ODDS_SESSION)} · in the odds table only: {g['book_odds_table_only']} "
+             f"games, complete only there {g['book_complete_odds_table_only']}")
         echo(_cap("kalshi snapshots before kickoff", g["kalshi"])
              + f" · mismatched legs, never read (addendum 37 item 3): {g['kalshi_mismatched']} games")
         echo(f"  kalshi_settled_markets rows: "

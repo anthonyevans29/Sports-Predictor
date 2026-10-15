@@ -6,8 +6,13 @@
   - **NFL book snapshots** begin 2026-09-29. **MLB** snapshots before 2026-10-02 were capture-run copies.
   - **Kalshi:** bid/ask begin 2026-09-27. Tickers reached main with #272 (2026-10-05) and need `migrate_kalshi_ticker.py`; without a ticker, no leg can be judged mismatched, and the probe says so.
   - **Closing files** begin with #433 (2026-10-12); the 10-09 to 10-12 ones exist only if the one-time backfill ran.
-  - **NHL, NCAA, UNL and the cups** write no prediction rows.
+  - **NHL and NCAA** shadows write files only. **UNL** has no predictions row, but the production INTL export appends prediction_history when production is allowed (Codex on #547). The **cups** get rows only if the soccer predictor is run for them. The probe assumes no sport's count.
 - **Read as every reader reads them:**
   - Kalshi legs mismatched under addendum 37 item 3 are never counted; they are printed apart.
-  - A session is complete only with every outcome: close.py's rule, printed beside the plain count.
+  - A session is complete only when the close would price it, read per table as close.py reads it:
+    - odds_snapshots: one captured_at.
+    - The odds table: the 10-minute capture window, with one bookmaker quoting every outcome. Books are never pooled (Codex on #547).
+    - Kalshi: a stored-legs count, labelled as such.
+  - It is printed beside the plain count.
+  - The mode=ro fallback stays as #421 ruled (addendum 38: "It opens the database no third way"). Codex's P1 asking for another form is answered with the ruling.
 - **The operator's run (laptop, checkout root):** `python3 scripts/replay_inventory_probe.py`, pasted whole.

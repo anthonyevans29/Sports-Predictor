@@ -137,10 +137,14 @@ def test_nfl_counts_versions_captures_and_all_four(world, capsys):
     assert b[1] == ("  stored prediction before kickoff: current row 1 · history 1 · either 1 · current row computed "
                     "at/after kickoff 1 · versions per game (history rows before kickoff) 3/3/3 (min/median/max over 1 "
                     "games) · games with a prediction_outcomes row 0")
-    assert b[2] == ("  book history before kickoff: 2 games (2 with a complete session) · sessions per game 1/2/3 · first "
-                    "capture 3.0/25.5/48.0h before kickoff · last capture 1.0/2.0/3.0h before kickoff (min/median/max) · "
-                    "earliest 2026-09-29 18:00 UTC")
-    assert b[3] == "    of it: odds_snapshots 2 games · the odds table 1 games (0 in the odds table only)"
+    assert b[2] == ("  book history before kickoff: 2 games (2 with a complete session) · sessions per table below · "
+                    "first capture 3.0/25.5/48.0h before kickoff · last capture 1.0/2.0/3.0h before kickoff "
+                    "(min/median/max) · earliest 2026-09-29 18:00 UTC")
+    # the board row is one book's HOME leg only: an odds-table session, never a complete one
+    assert b[3] == ("    of it: odds_snapshots 2 games (2 complete), sessions per game 1/2/3 (a session = one captured_at) "
+                    "· the odds table 1 games (0 complete), sessions per game 1/1/1 (a session = the close's 10-minute "
+                    "window; complete = one book quoting every outcome) · in the odds table only: 0 games, complete "
+                    "only there 0")
     assert b[4] == ("  kalshi snapshots before kickoff: 1 games (1 with a complete session) · sessions per game 2/2/2 · "
                     "first capture 30.0/30.0/30.0h before kickoff · last capture 0.5/0.5/0.5h before kickoff "
                     "(min/median/max) · earliest 2026-09-30 12:00 UTC · mismatched legs, never read (addendum 37 item "
@@ -153,8 +157,9 @@ def test_nfl_counts_versions_captures_and_all_four(world, capsys):
 def test_ncaa_rides_sport_nfl_and_a_null_source_is_book(world, capsys):
     b = block(run(world, capsys), "NCAA")
     assert b[0] == "NCAA: graded 1" and "current row 0 · history 0 · either 0" in b[1]
-    assert b[2].startswith("  book history before kickoff: 1 games (1 with a complete session) · sessions per game 1/1/1 · "
+    assert b[2].startswith("  book history before kickoff: 1 games (1 with a complete session) · sessions per table below · "
                            "first capture 5.0/5.0/5.0h")
+    assert b[3].startswith("    of it: odds_snapshots 1 games (1 complete), sessions per game 1/1/1")
     assert b[4].startswith("  kalshi snapshots before kickoff: 1 games")
     assert b[7].endswith(": 0")
 
@@ -164,7 +169,8 @@ def test_soccer_splits_book_from_kalshi_by_source_and_reads_a_closing_file_by_it
     assert "current row 1 · history 0 · either 1 · current row computed at/after kickoff 0" in b[1]
     assert b[1].endswith("games with a prediction_outcomes row 1")
     # the kalshi 1X2 session at 2h never reads as book (source alone tells them apart in soccer): one book session
-    assert "sessions per game 1/1/1 · first capture 6.0/6.0/6.0h before kickoff · last capture 6.0/6.0/6.0h" in b[2]
+    assert "sessions per table below · first capture 6.0/6.0/6.0h before kickoff · last capture 6.0/6.0/6.0h" in b[2]
+    assert b[3].startswith("    of it: odds_snapshots 1 games (1 complete), sessions per game 1/1/1 ")
     assert "first capture 2.0/2.0/2.0h" in b[4]
     assert b[6].endswith("/, by match id): 1 games") and b[7].endswith(": 1")
 
@@ -238,9 +244,11 @@ def test_pre_167_soccer_book_history_lives_in_the_odds_table(tmp_path, capsys):
     eng.dispose()
     assert rip.main(["--db", str(db), "--exports", str(tmp_path / "none"), "--until", "2026-10-12"]) == 0
     b = block(capsys.readouterr().out.splitlines(), "SOCCER PL")
-    assert b[2].startswith("  book history before kickoff: 1 games (1 with a complete session) · sessions per game 5/5/5 · "
+    assert b[2].startswith("  book history before kickoff: 1 games (1 with a complete session) · sessions per table below · "
                            "first capture 30.0/30.0/30.0h before kickoff · last capture 1.0/1.0/1.0h")
-    assert b[3] == "    of it: odds_snapshots 0 games · the odds table 1 games (1 in the odds table only)"
+    assert b[3] == ("    of it: odds_snapshots 0 games · the odds table 1 games (1 complete), sessions per game 5/5/5 (a "
+                    "session = the close's 10-minute window; complete = one book quoting every outcome) · in the odds "
+                    "table only: 1 games, complete only there 1")
 
 
 def test_mismatched_kalshi_legs_are_never_read_as_kalshi_history(world, capsys):
@@ -298,3 +306,107 @@ def test_the_fallback_open_is_query_only(world, monkeypatch):
             con.execute("CREATE TABLE x (i INTEGER)")
     finally:
         con.close()
+
+
+def one_comp(tmp_path, code, sport, n, rows):
+    """A throwaway DB with `n` finished games of one competition, kickoff 2026-10-0{i+1} 18:00, and the rows
+    `rows(session, match ids, kickoffs)` adds. -> the probe's lines for the group."""
+    db = tmp_path / f"{code}.db"
+    eng = create_engine(f"sqlite:///{db}")
+    Base.metadata.create_all(eng)
+    with Session(eng) as s:
+        comp = Competition(sport=sport, code=code, name=code, area="X", type="LEAGUE")
+        s.add(comp)
+        s.flush()
+        ids, kos = [], []
+        for i in range(n):
+            h, a = Team(sport=sport, name=f"H{i}"), Team(sport=sport, name=f"A{i}")
+            s.add_all([h, a])
+            s.flush()
+            m = Match(sport=sport, competition_id=comp.id, season="2026", utc_date=K[i + 1],
+                      status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=a.id, home_score=1, away_score=0)
+            s.add(m)
+            s.flush()
+            ids.append(m.id)
+            kos.append(K[i + 1])
+        rows(s, ids, kos)
+        s.commit()
+    eng.dispose()
+    return db
+
+
+def board(s, mid, at, bk, sel, px=2.5, source="api_football"):
+    s.add(Odds(match_id=mid, bookmaker=bk, market="1X2", selection=sel, price_decimal=px, captured_at=at, source=source))
+
+
+def probe(db, tmp_path, capsys, name):
+    assert rip.main(["--db", str(db), "--exports", str(tmp_path / "none"), "--until", "2026-10-12"]) == 0
+    return block(capsys.readouterr().out.splitlines(), name)
+
+
+def test_odds_table_books_are_never_pooled(tmp_path, capsys):
+    """Codex on #547: close_1x2 de-vigs a book only when it quoted every outcome (the #207 contract). Three books
+    quoting one leg each at one stamp is a session and no price; one complete book among partial ones is a price; a
+    leg at 1.0 is no quote (the close reads prices above 1.0)."""
+    def rows(s, ids, kos):
+        for bk, sel in (("b1", "HOME"), ("b2", "DRAW"), ("b3", "AWAY")):      # pooled, never complete
+            board(s, ids[0], kos[0] - H(2), bk, sel)
+        for sel in ("HOME", "DRAW", "AWAY"):                                   # b1 complete, b2 partial
+            board(s, ids[1], kos[1] - H(2), "b1", sel)
+        board(s, ids[1], kos[1] - H(2), "b2", "HOME")
+        for sel, px in (("HOME", 2.5), ("DRAW", 1.0), ("AWAY", 2.5)):          # a 1.0 draw is no quote
+            board(s, ids[2], kos[2] - H(2), "b1", sel, px)
+    b = probe(one_comp(tmp_path, "PL", Sport.SOCCER, 3, rows), tmp_path, capsys, "SOCCER PL")
+    assert b[2].startswith("  book history before kickoff: 3 games (1 with a complete session) · ")
+    assert b[3].startswith("    of it: odds_snapshots 0 games · the odds table 3 games (1 complete), sessions per game "
+                           "1/1/1 ")
+
+
+def test_one_sync_stamped_row_by_row_is_one_session(tmp_path, capsys):
+    """The odds table's session is the close's window (CAPTURE_SESSION, 10 minutes back from the last stamp), not one
+    captured_at: an MLB-style run stamps each row apart, and its legs are one session, complete. Legs 11 minutes apart
+    are two sessions, and no cutoff sees both: never complete."""
+    def rows(s, ids, kos):
+        board(s, ids[0], kos[0] - H(3), "b1", "HOME", source="api_baseball")
+        board(s, ids[0], kos[0] - H(3) + timedelta(seconds=20), "b1", "AWAY", source="api_baseball")
+        board(s, ids[0], kos[0] - H(1), "b1", "HOME", source="api_baseball")
+        board(s, ids[0], kos[0] - H(1) + timedelta(minutes=10), "b1", "AWAY", source="api_baseball")  # the edge is in
+        board(s, ids[1], kos[1] - H(5), "b1", "HOME", source="api_baseball")
+        board(s, ids[1], kos[1] - H(5) + timedelta(minutes=11), "b1", "AWAY", source="api_baseball")
+    b = probe(one_comp(tmp_path, "MLB", Sport.MLB, 2, rows), tmp_path, capsys, "MLB")
+    assert b[3].startswith("    of it: odds_snapshots 0 games · the odds table 2 games (1 complete), sessions per game "
+                           "2/2/2 ")
+
+
+def test_window_sessions_directly():
+    need = rip.TWO_WAY
+    jd = lambda minutes: 2461000.0 + minutes / 1440          # noqa: E731
+    assert rip.window_sessions([(jd(0), "HOME", "b", 2.0, None), (jd(10), "AWAY", "b", 2.0, None)], need) == (1, True)
+    assert rip.window_sessions([(jd(0), "HOME", "b", 2.0, None), (jd(10.5), "AWAY", "b", 2.0, None)], need) == (2, False)
+    assert rip.window_sessions([(jd(0), "HOME", "a", 2.0, None), (jd(0), "AWAY", "b", 2.0, None)], need) == (1, False)
+    # the latest row per (bookmaker, selection, line) is the one read: a later 1.0 replaces a priced leg at that cutoff,
+    # and an earlier cutoff (before the 1.0) still prices
+    rows = [(jd(0), "HOME", "b", 2.0, None), (jd(1), "AWAY", "b", 2.0, None), (jd(2), "HOME", "b", 1.0, None)]
+    assert rip.window_sessions(rows, need) == (1, True)
+    assert rip.window_sessions(rows[1:], need) == (1, False)
+
+
+def test_a_snapshot_session_missing_a_leg_is_no_complete_session(tmp_path, capsys):
+    """close_from_snapshots: a session is one captured_at and prices only with every outcome. A HOME leg alone at
+    one stamp and an AWAY leg alone at the next are two captures, never a price (stamps are never joined)."""
+    def rows(s, ids, kos):
+        for sel, at in (("HOME", kos[0] - H(2)), ("AWAY", kos[0] - H(2) + timedelta(seconds=5))):
+            s.add(OddsSnapshot(match_id=ids[0], market="1X2", selection=sel, devig_prob=0.5, line=None, n_books=3,
+                               captured_at=at, source="api_american_football"))
+    b = probe(one_comp(tmp_path, "NFL", Sport.NFL, 1, rows), tmp_path, capsys, "NFL")
+    assert b[3].startswith("    of it: odds_snapshots 1 games (0 complete), sessions per game 2/2/2 ")
+
+
+def test_unl_history_is_read_like_any_sport(tmp_path, capsys):
+    """Codex on #547: the production INTL export appends prediction_history for a UNL fixture with no predictions row
+    (src/walters/intl_production.py). Nothing is assumed per sport: the history row is counted."""
+    def rows(s, ids, kos):
+        s.add(PredictionHistory(match_id=ids[0], model_version="intl_elo_v2", computed_at=kos[0] - H(20),
+                                home_win_prob=0.4, draw_prob=0.3, away_win_prob=0.3))
+    b = probe(one_comp(tmp_path, "UNL", Sport.SOCCER, 1, rows), tmp_path, capsys, "SOCCER UNL")
+    assert "current row 0 · history 1 · either 1 · current row computed at/after kickoff 0" in b[1]

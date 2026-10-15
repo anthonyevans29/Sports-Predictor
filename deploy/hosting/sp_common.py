@@ -263,12 +263,13 @@ def ro_connect(p: Path) -> sqlite3.Connection:
     return sqlite3.connect(Path(p).resolve().as_uri() + "?mode=ro", uri=True, timeout=60)  # Windows/space-safe
 
 
-def table_counts(p: Path, tables: tuple | None = None) -> dict:
+def table_counts(p: Path, tables: tuple | None = None, copy: bool = False) -> dict:
     """Read-only SELECT COUNT(*). tables=None enumerates every user table from
-    sqlite_master (law 1). An unreadable count is null, never 0 (law 4)."""
+    sqlite_master (law 1). An unreadable count is null, never 0 (law 4).
+    copy=True: `p` is a COPY nobody writes, opened as copy_connect opens it (addendum 73 item 4, #532)."""
     out: dict = {}
     try:
-        con = ro_connect(p)
+        con = copy_connect(p) if copy else ro_connect(p)
     except (FileNotFoundError, sqlite3.Error):
         return {t: None for t in (tables or ())}
     try:
@@ -304,11 +305,18 @@ def copy_integrity(p: Path) -> str:
     ("unable to open database file"); Linux's creates it and leaves the -shm and -wal behind. Immutable reads the
     file as it is and creates nothing beside it. Never for the live DB: ro_connect stays mode=ro (an immutable open
     skips SQLite's change detection, Codex on #340)."""
-    if not p.exists():
-        raise FileNotFoundError(p)
-    con = sqlite3.connect(Path(p).resolve().as_uri() + "?mode=ro&immutable=1", uri=True, timeout=60)
+    con = copy_connect(p)
     try:
         rows = [r[0] for r in con.execute("PRAGMA integrity_check")]
     finally:
         con.close()
     return "ok" if rows == ["ok"] else "; ".join(rows[:5])
+
+
+def copy_connect(p: Path) -> sqlite3.Connection:
+    """An open of a COPY nobody writes, "?mode=ro&immutable=1": copy_integrity's open, closing.take_backup's open of
+    its finished copy, and sp_migrate's reads of the pack's copy (ARCHITECT 2026-10-15, addendum 73 item 4, #532).
+    It creates nothing beside the file. Never for the live DB (#340): ro_connect stays mode=ro."""
+    if not p.exists():
+        raise FileNotFoundError(p)
+    return sqlite3.connect(Path(p).resolve().as_uri() + "?mode=ro&immutable=1", uri=True, timeout=60)

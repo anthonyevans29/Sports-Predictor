@@ -50,7 +50,7 @@ def pack(out: Path) -> int:
             d.close()
             s.close()
     os.chmod(out / DB, 0o600)
-    integ = c.integrity(out / DB)
+    integ = c.copy_integrity(out / DB)          # the pack's copy, immutable: nothing beside it (addendum 73 item 4)
     if integ != "ok":
         raise SystemExit(f"✗ integrity_check on the copy: {integ}")
     files = {DB: c.sha256_file(out / DB)}
@@ -72,7 +72,7 @@ def pack(out: Path) -> int:
         shutil.copyfile(rp, out / RECEIPTS)
         files[RECEIPTS] = c.sha256_file(out / RECEIPTS)
     man = {"created": c.iso(), "source_host": c.host_name(), "git_sha": c.git_sha(),
-           "integrity": integ, "files": files, "counts": c.table_counts(out / DB),
+           "integrity": integ, "files": files, "counts": c.table_counts(out / DB, copy=True),
            "absent": [n for n in (ENV, EXPORTS, RECEIPTS)
                       if not any(k == n or k.startswith(n + "/") for k in files)]}
     (out / MANIFEST).write_text(json.dumps(man, indent=1, sort_keys=True))
@@ -96,10 +96,13 @@ def _verify(pk: Path, db_override: Path | None = None) -> tuple[bool, list[str],
         elif c.sha256_file(p) != sha:
             problems.append(f"sha256 mismatch {rel}")
     dbp = db_override or pk / DB
-    integ = c.integrity(dbp) if dbp.exists() else "missing"
+    # addendum 73 item 4: the pack's own copy is opened immutable; an override is the installed DB, the live one from
+    # then on, and stays mode=ro (#340)
+    copy = db_override is None
+    integ = (c.copy_integrity(dbp) if copy else c.integrity(dbp)) if dbp.exists() else "missing"
     if integ != "ok":
         problems.append(f"integrity {integ}")
-    counts = c.table_counts(dbp) if dbp.exists() else {}
+    counts = c.table_counts(dbp, copy=copy) if dbp.exists() else {}
     for t in sorted(set(man["counts"]) | set(counts)):
         if man["counts"].get(t) != counts.get(t) or counts.get(t) is None:
             problems.append(f"count {t}: R1={man['counts'].get(t)} R2={counts.get(t)}")

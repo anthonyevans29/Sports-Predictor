@@ -39,8 +39,10 @@ It never stops on an error: a call that fails is printed and counted. It writes 
 
 STEP A EXTENDS (ARCHITECT 2026-10-15 12:00 ET, addendum 75 item 3(a)), verbatim in part: "The timing probe takes
 --competition (CL default; UEL; EFL; the same polls), and runs on Thursday 2026-10-23 (the UEL matchday) and on the
-next EFL round that has stored rows". --competition names the stored competition code whose rows are polled
-(competitions.code); everything else (the polls, the late rule, the summary) is the same for each.
+next EFL round that has stored rows". The UEL run date is Thursday 2026-10-22: 2026-10-23 is a Friday, and UEL
+matchday 3 is the Thursday (the roadmap step, #539, is dated 10-22; pass --date 2026-10-22, since --date defaults to
+today in UTC). --competition names the stored competition code whose rows are polled (competitions.code); everything
+else (the polls, the late rule, the summary) is the same for each.
 
 Run:  python3 scripts/lineup_timing_probe.py [--competition CL|UEL|EFL] [--db PATH] [--date YYYY-MM-DD] [--plan]
 --competition is the stored code (default CL). --date is the day in UTC (default: today in UTC). --plan prints the

@@ -136,23 +136,25 @@ def test_nfl_counts_versions_captures_and_all_four(world, capsys):
     assert b[0] == "NFL: graded 2"                         # 3 is scheduled, 4 is before since
     assert b[1] == ("  stored prediction before kickoff: current row 1 · history 1 · either 1 · current row computed "
                     "at/after kickoff 1 · versions per game (history rows before kickoff) 3/3/3 (min/median/max over 1 "
-                    "games) · prediction_outcomes rows 0")
-    assert b[2] == ("  book snapshots before kickoff: 2 games · sessions per game 1/2/3 · first capture 3.0/25.5/48.0h "
-                    "before kickoff · last capture 1.0/2.0/3.0h before kickoff (min/median/max) · earliest 2026-09-29 "
-                    "18:00 UTC")
-    assert b[3] == "  odds table (the current board only) before kickoff: 1 games"
-    assert b[4] == ("  kalshi snapshots before kickoff: 1 games · sessions per game 2/2/2 · first capture 30.0/30.0/30.0h "
-                    "before kickoff · last capture 0.5/0.5/0.5h before kickoff (min/median/max) · earliest 2026-09-30 "
-                    "12:00 UTC")
+                    "games) · games with a prediction_outcomes row 0")
+    assert b[2] == ("  book history before kickoff: 2 games (2 with a complete session) · sessions per game 1/2/3 · first "
+                    "capture 3.0/25.5/48.0h before kickoff · last capture 1.0/2.0/3.0h before kickoff (min/median/max) · "
+                    "earliest 2026-09-29 18:00 UTC")
+    assert b[3] == "    of it: odds_snapshots 2 games · the odds table 1 games (0 in the odds table only)"
+    assert b[4] == ("  kalshi snapshots before kickoff: 1 games (1 with a complete session) · sessions per game 2/2/2 · "
+                    "first capture 30.0/30.0/30.0h before kickoff · last capture 0.5/0.5/0.5h before kickoff "
+                    "(min/median/max) · earliest 2026-09-30 12:00 UTC · mismatched legs, never read (addendum 37 item "
+                    "3): 0 games")
     assert b[5] == "  kalshi_settled_markets rows: 0 games"
     assert b[6].endswith("/, by match id): 1 games")
-    assert b[7] == "  all four (a stored prediction + book snapshots + kalshi snapshots + a closing file): 1"
+    assert b[7] == "  all four (a stored prediction + book history + kalshi history + a closing file): 1"
 
 
 def test_ncaa_rides_sport_nfl_and_a_null_source_is_book(world, capsys):
     b = block(run(world, capsys), "NCAA")
     assert b[0] == "NCAA: graded 1" and "current row 0 · history 0 · either 0" in b[1]
-    assert b[2].startswith("  book snapshots before kickoff: 1 games · sessions per game 1/1/1 · first capture 5.0/5.0/5.0h")
+    assert b[2].startswith("  book history before kickoff: 1 games (1 with a complete session) · sessions per game 1/1/1 · "
+                           "first capture 5.0/5.0/5.0h")
     assert b[4].startswith("  kalshi snapshots before kickoff: 1 games")
     assert b[7].endswith(": 0")
 
@@ -160,14 +162,16 @@ def test_ncaa_rides_sport_nfl_and_a_null_source_is_book(world, capsys):
 def test_soccer_splits_book_from_kalshi_by_source_and_reads_a_closing_file_by_its_rows(world, capsys):
     b = block(run(world, capsys), "SOCCER PL")
     assert "current row 1 · history 0 · either 1 · current row computed at/after kickoff 0" in b[1]
-    assert b[1].endswith("prediction_outcomes rows 1")
-    assert "first capture 6.0/6.0/6.0h" in b[2] and "first capture 2.0/2.0/2.0h" in b[4]
+    assert b[1].endswith("games with a prediction_outcomes row 1")
+    # the kalshi 1X2 session at 2h never reads as book (source alone tells them apart in soccer): one book session
+    assert "sessions per game 1/1/1 · first capture 6.0/6.0/6.0h before kickoff · last capture 6.0/6.0/6.0h" in b[2]
+    assert "first capture 2.0/2.0/2.0h" in b[4]
     assert b[6].endswith("/, by match id): 1 games") and b[7].endswith(": 1")
 
 
 def test_mlb_totals_are_never_book_and_settled_markets_are_counted(world, capsys):
     b = block(run(world, capsys), "MLB")
-    assert b[2] == "  book snapshots before kickoff: 0 games"
+    assert b[2] == "  book history before kickoff: 0 games"
     assert b[4].startswith("  kalshi snapshots before kickoff: 1 games")
     assert b[5] == "  kalshi_settled_markets rows: 1 games" and b[7].endswith(": 0")
 
@@ -177,7 +181,7 @@ def test_the_json_line_and_a_since_window(world, capsys):
     js = json.loads(out[-1].removeprefix("REPLAY-INVENTORY "))
     assert js["games"] == 3 and set(js["groups"]) == {"MLB", "NCAA", "SOCCER PL"}
     assert js["groups"]["SOCCER PL"]["all_four"] == 1 and js["closing_files"] == 3 and js["host_closing_files"] == 1
-    assert js["groups"]["MLB"]["kalshi"] == {"games": 1, "earliest": "2026-10-07 17:00"}
+    assert js["groups"]["MLB"]["kalshi"] == {"games": 1, "complete": 1, "earliest": "2026-10-07 17:00"}
 
 
 def test_an_older_database_without_the_newer_tables_says_so(world, capsys, tmp_path):
@@ -189,7 +193,7 @@ def test_an_older_database_without_the_newer_tables_says_so(world, capsys, tmp_p
     con.commit()
     con.close()
     out = run(world, capsys)
-    assert out[2].endswith("prediction_history: NO such table in this database")
+    assert "prediction_history: NO such table in this database" in out[2]
     assert "  kalshi_settled_markets rows: NO such table in this database" in out
     assert "history 0" in block(out, "NFL")[1]
 
@@ -204,3 +208,93 @@ def test_the_probe_never_creates_a_database_and_writes_nothing(tmp_path, world):
     rip.main(["--db", str(db), "--exports", str(world[1]), "--until", "2026-10-12"])
     assert (db.stat().st_mtime_ns, db.stat().st_size) == before
     assert sorted(p.name for p in db.parent.iterdir() if p.name.startswith("throwaway")) == ["throwaway.db"]
+
+
+def test_pre_167_soccer_book_history_lives_in_the_odds_table(tmp_path, capsys):
+    """Before #167 (2026-10-01) the soccer sync APPENDED a full book set to the odds table on every run and wrote no
+    snapshot; a finished game's rows are never deleted. Those games' book history is the odds table's: read, with its
+    sessions and ages, and said to be the odds table's only."""
+    db = tmp_path / "legacy.db"
+    eng = create_engine(f"sqlite:///{db}")
+    Base.metadata.create_all(eng)
+    ko = datetime(2026, 9, 27, 14, 0)
+    with Session(eng) as s:
+        comp = Competition(sport=Sport.SOCCER, code="PL", name="PL", area="X", type="LEAGUE")
+        h, a = Team(sport=Sport.SOCCER, name="H"), Team(sport=Sport.SOCCER, name="A")
+        s.add_all([comp, h, a])
+        s.flush()
+        m = Match(sport=Sport.SOCCER, competition_id=comp.id, season="2026/27", utc_date=ko,
+                  status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=a.id, home_score=2, away_score=1)
+        s.add(m)
+        s.flush()
+        for hrs in (30, 20, 10, 2, 1):
+            for bk in ("b1", "b2"):
+                for sel in ("HOME", "DRAW", "AWAY"):
+                    s.add(Odds(match_id=m.id, bookmaker=bk, market="1X2", selection=sel, price_decimal=3.0,
+                               captured_at=ko - H(hrs), source="api_football"))
+        s.add(Odds(match_id=m.id, bookmaker="fdcuk_close", market="1X2", selection="HOME", price_decimal=2.0,
+                   captured_at=ko - H(40), is_closing=True, source="football-data-uk:2026-27"))  # never a session
+        s.commit()
+    eng.dispose()
+    assert rip.main(["--db", str(db), "--exports", str(tmp_path / "none"), "--until", "2026-10-12"]) == 0
+    b = block(capsys.readouterr().out.splitlines(), "SOCCER PL")
+    assert b[2].startswith("  book history before kickoff: 1 games (1 with a complete session) · sessions per game 5/5/5 · "
+                           "first capture 30.0/30.0/30.0h before kickoff · last capture 1.0/1.0/1.0h")
+    assert b[3] == "    of it: odds_snapshots 0 games · the odds table 1 games (1 in the odds table only)"
+
+
+def test_mismatched_kalshi_legs_are_never_read_as_kalshi_history(world, capsys):
+    """Addendum 37 item 3: legs whose event sits on another game are read by no reader. The two NCAA games below carry
+    the same event's legs (the market_ticker column added as migrate_kalshi_ticker.py adds it): neither counts as
+    Kalshi history, both are counted apart, and neither reaches all four."""
+    import sqlite3
+    db, _, ids = world
+    con = sqlite3.connect(db)
+    con.execute("ALTER TABLE odds_snapshots ADD COLUMN market_ticker VARCHAR(128)")
+    mid = con.execute("SELECT id FROM matches WHERE id = ?", (ids[5],)).fetchone()[0]
+    con.execute("UPDATE odds_snapshots SET market_ticker = 'KXNCAAFGAME-26OCT05AB-' || selection "
+                "WHERE source = 'kalshi' AND match_id = ?", (mid,))
+    for sel in ("HOME", "AWAY"):           # the same event's legs on the NFL game 2 as well
+        con.execute("INSERT INTO odds_snapshots (match_id, market, selection, devig_prob, n_books, captured_at, source, "
+                    "market_ticker) VALUES (?, 'ML', ?, 0.5, 1, ?, 'kalshi', ?)",
+                    (ids[2], sel, str(K[2] - H(2)), f"KXNCAAFGAME-26OCT05AB-{sel}"))
+    con.commit()
+    con.close()
+    out = run(world, capsys)
+    ncaa, nfl = block(out, "NCAA"), block(out, "NFL")
+    assert ncaa[4] == ("  kalshi snapshots before kickoff: 0 games · mismatched legs, never read (addendum 37 item 3): "
+                       "1 games")
+    assert nfl[4].startswith("  kalshi snapshots before kickoff: 1 games") and nfl[4].endswith(": 1 games")
+    assert "market_ticker: NOT in this database" not in out[2]
+
+
+def test_an_incomplete_session_is_counted_but_never_complete(world, capsys):
+    """A soccer Kalshi session missing its DRAW leg is a capture, never a price (close.py's rule): the game counts as
+    having Kalshi snapshots, and not as having a complete session."""
+    import sqlite3
+    db, _, ids = world
+    con = sqlite3.connect(db)
+    con.execute("DELETE FROM odds_snapshots WHERE source = 'kalshi' AND match_id = ? AND selection = 'DRAW'", (ids[6],))
+    con.commit()
+    con.close()
+    b = block(run(world, capsys), "SOCCER PL")
+    assert b[4].startswith("  kalshi snapshots before kickoff: 1 games (0 with a complete session)")
+
+
+def test_the_fallback_open_is_query_only(world, monkeypatch):
+    """#421: a copy that refuses mode=ro is opened by its plain path with PRAGMA query_only = ON: a write refuses."""
+    import sqlite3
+    real = sqlite3.connect
+
+    def refuse_uri(target, *a, **kw):
+        if kw.get("uri"):
+            raise sqlite3.OperationalError("unable to open database file")
+        return real(target, *a, **kw)
+    monkeypatch.setattr(rip.sqlite3, "connect", refuse_uri)
+    con, form = rip.open_read(world[0])
+    try:
+        assert form == "plain path with PRAGMA query_only = ON (mode=ro refused)"
+        with pytest.raises(sqlite3.OperationalError, match="readonly"):
+            con.execute("CREATE TABLE x (i INTEGER)")
+    finally:
+        con.close()

@@ -1,15 +1,18 @@
 ## 2026-10-15 (#547: replay-inventory — ARCHITECT addendum 79 item 3, #75)
 - scripts/replay_inventory_probe.py (new, read-only): what the DB can replay, per sport, for the graded games since 2026-09-20 (FINISHED with both scores; kickoff in [--since, --until)). Soccer is split by competition code; NCAA is sport NFL with code NCAA.
   - Per sport it prints:
-    - **Stored predictions before kickoff:** the current row, the prediction_history rows, either, and current rows computed at or after kickoff. Versions per game are history rows before kickoff (min/median/max). It also counts prediction_outcomes rows.
-    - **Book snapshots before kickoff** (odds_snapshots 1X2, source not kalshi; NULL counts as book): games, sessions per game, first and last capture age vs kickoff, and the earliest capture.
-    - **The odds table's current board**, apart.
-    - **Kalshi snapshots before kickoff** (source kalshi), the same figures.
+    - **Stored predictions before kickoff:** the current row, the prediction_history rows, either, and current rows computed at or after kickoff. Versions per game are history rows before kickoff (min/median/max). It also counts the games with a prediction_outcomes row.
+    - **Book history before kickoff:** games, those with a complete session, sessions per game, first and last capture age vs kickoff, and the earliest capture.
+      - Read from odds_snapshots and the odds table: market 1X2, source not kalshi; NULL counts as book; the football-data-uk closes are left out.
+      - Each table's share is printed. Before #167 (2026-10-01) the soccer, cup and NHL syncs appended every run to the odds table, so for those games it is the only book history.
+    - **Kalshi snapshots before kickoff** (source kalshi), the same figures. A game whose legs are mismatched (addendum 37 item 3, `kalshi_legs.mismatched`) is never counted, and is printed apart.
     - **kalshi_settled_markets** rows.
     - **Closing files** in the laptop's exports/, by match id. Host copies under exports/host/ are counted, never matched, because their match ids are the host's own.
     - **All four.**
-  - The header prints the keys, and the schema's answer on versions:
+  - A session is one captured_at. It is complete when it carries every outcome (HOME and AWAY; soccer adds DRAW), close.py's own rule.
+  - The printed keys line names every key, the sport grouping included.
+  - The header gives the schema's answer on versions:
     - `predictions` is current-only: every writer deletes the match's rows and inserts one.
     - `prediction_history` is append-only since #301 (2026-10-06, no backfill). The probe prints this DB's first history stamp.
-  - A missing table (older DB) is said, never assumed. The DB opens mode=ro (#421's fallback); none is ever created.
-- tests/test_replay_inventory_probe.py: 8 tests on a throwaway SQLite.
+  - A missing table or column (older DB) is said, never assumed. The DB opens mode=ro; the #421 fallback is the plain path with `query_only`. None is ever created.
+- tests/test_replay_inventory_probe.py: 12 tests on throwaway SQLite files: pre-#167 odds-table history, mismatched legs, an incomplete session, and the query-only fallback included.

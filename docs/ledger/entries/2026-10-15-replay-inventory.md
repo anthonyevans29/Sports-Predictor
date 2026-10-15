@@ -1,9 +1,13 @@
 **2026-10-15 — LANE (ARCHITECT 2026-10-15 13:55 ET, addendum 79 item 3): the replay inventory probe for the K-track replay spec Tuesday 2026-10-20 (#75, #547).**
 - **Verbatim:** "THE REPLAY INVENTORY (for the K-track replay spec Tuesday 2026-10-20, #75; read-only). Before I write the spec, what the DB can replay faithfully: `scripts/replay_inventory_probe.py` prints, per sport, for the graded games since 2026-09-20: how many have a stored prediction row with computed_at before kickoff (and how many versions per game, if prediction rows are kept per run or overwritten — read the schema and say which); how many have book snapshots before kickoff (count per game, first and last capture age vs kickoff); how many have Kalshi snapshots before kickoff (same); how many have a closing file on the laptop (exports/closing_*.json, matched by match id); how many have all four. Keys used printed. The spec is built on what this prints, not on what I remember."
 - **The schema's answer:** predictions are OVERWRITTEN per run. Every writer deletes the match's rows and inserts one (soccer, MLB in training.py; NFL in nfl_predict.py). The per-run versions live only in prediction_history: append-only since #301 (2026-10-06), no backfill, the three probabilities only.
-- **Known before the run (from the code; the probe prints the DB's own dates):**
-  - Soccer book snapshots begin with #167 (2026-10-01); NFL with 2026-09-29. MLB snapshots before 2026-10-02 were capture-run copies.
-  - Kalshi bid/ask begin 2026-09-27, tickers 2026-10-04.
-  - Closing files begin with #433 (2026-10-12); the 10-09 to 10-12 ones exist only if the one-time backfill ran.
-  - NHL, NCAA, UNL and the cups write no prediction rows.
+- **Known from the code before the run** (the probe prints each group's earliest book and Kalshi capture and the DB's first history stamp):
+  - **Soccer, cup and NHL book snapshots** begin with #167 (2026-10-01). Before it, those syncs appended every run to the odds table, and the probe reads that history.
+  - **NFL book snapshots** begin 2026-09-29. **MLB** snapshots before 2026-10-02 were capture-run copies.
+  - **Kalshi:** bid/ask begin 2026-09-27. Tickers reached main with #272 (2026-10-05) and need `migrate_kalshi_ticker.py`; without a ticker, no leg can be judged mismatched, and the probe says so.
+  - **Closing files** begin with #433 (2026-10-12); the 10-09 to 10-12 ones exist only if the one-time backfill ran.
+  - **NHL, NCAA, UNL and the cups** write no prediction rows.
+- **Read as every reader reads them:**
+  - Kalshi legs mismatched under addendum 37 item 3 are never counted; they are printed apart.
+  - A session is complete only with every outcome: close.py's rule, printed beside the plain count.
 - **The operator's run (laptop, checkout root):** `python3 scripts/replay_inventory_probe.py`, pasted whole.

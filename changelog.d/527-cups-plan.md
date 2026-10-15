@@ -1,0 +1,17 @@
+## 2026-10-15 (#527: cups-plan — ARCHITECT addendum 71 item 3, #106)
+- docs/roadmap.json, lane cups: state blocked → declared, on addendum 71's plan.
+  - The probe step done {2026-10-14, logs/lineup_history_probe_2026-10-14.txt}.
+  - The ruling step done {2026-10-15, addendum 71}.
+  - Steps A, B and C with their owners and dates:
+    - Step A's probe written (code, 2026-10-19);
+    - Step A run on the CL matchday, the laptop awake 10:30am to 3:00pm ET (operator, 2026-10-20; addendum 73 item 3);
+    - Step B's ingest PR with its dry-run receipt (code, 2026-10-29);
+    - Step C's declaration at cup_exam's frozen gate as it stood at the 2026-09-25 FAIL (mean error <= 8.0pp, <= 13 rows over 8pp, sign >= 80%; fix-v2's 14.76pp is the record to better, not the bar; addendum 73 item 2(b)), or, if Step A shows lineups only after T-45 for most fixtures, a post-lineup closing design or a written no (architect, 2026-11-05).
+  - earliest_live 2027-02-16, the knockout play-offs' first leg (addendum 73 item 2(c) corrects addendum 71's 2027-01-20, league-phase Matchday 7). live_needs reads the same gate.
+  - No moved line: a first earliest_live is not a move (addendum 61 item 4; ruled to govern by addendum 73 item 2(a)).
+  - `python cli.py roadmap` prints overdue 0.
+- tests/test_roadmap.py: the four tests that took the cups lane's old state from the real file now set it themselves.
+  - Two of them now clear the done steps first.
+  - The step-not-done rule is still tested on a blocked lane.
+  - The base-line rewrite test now moves the lane's last step and reads the line it appends, wherever it lands.
+  - The overdue-count and plural-tail tests clear the ncaa lane's done steps too, so the college declaration's done step (owed 2026-10-16) does not break them.

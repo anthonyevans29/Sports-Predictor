@@ -173,23 +173,47 @@
       "title": "Champions League, EFL Cup, Europa League",
       "issue": 106,
       "registry_id": null,
-      "state": "blocked",
+      "state": "declared",
       "steps": [
         {
           "what": "the lineup-history probe run (scripts/lineup_history_probe.py, #78), its receipt to me",
           "owner": "operator",
           "due": "2026-10-14",
-          "done": null
+          "done": {"date": "2026-10-14", "receipt": "logs/lineup_history_probe_2026-10-14.txt"}
         },
         {
           "what": "my ruling on the data: a dated plan for a rotation-aware candidate, or that there is none",
           "owner": "architect",
           "due": "2026-10-15",
+          "done": {"date": "2026-10-15", "receipt": "addendum 71 (ARCHITECT 2026-10-15 07:36 ET): the plan, steps A, B and C"}
+        },
+        {
+          "what": "Step A's probe written: scripts/lineup_timing_probe.py (read-only; polls api_football.list_lineup_confirmed at T-120, T-90, T-75, T-60, T-45, T-30 and T-15), its PR open, its checks green",
+          "owner": "code",
+          "due": "2026-10-19",
+          "done": null
+        },
+        {
+          "what": "Step A: the timing probe run on the CL matchday, the laptop awake 10:30am to 3:00pm ET, its receipt to me the same evening",
+          "owner": "operator",
+          "due": "2026-10-20",
+          "done": null
+        },
+        {
+          "what": "Step B: the as-of lineup ingest for the exam set (sync-lineups-history --competition CL|UEL|EFL|FAC --season YYYY, the existing lineups table), its PR with the dry-run receipt",
+          "owner": "code",
+          "due": "2026-10-29",
+          "done": null
+        },
+        {
+          "what": "Step C: the R-track candidate declaration, its frozen bar written before any result: a PASS at cup_exam's frozen gate as it stood at the 2026-09-25 FAIL (mean error <= 8.0pp, <= 13 rows over 8pp, sign >= 80%), on the same exam set, split and metric; the prior result, fix-v2's 14.76pp, is the record it has to better and not the bar; a rotation term built only from lineups readable at or before the time Step A shows; one attempt. Or, if Step A shows lineups only after T-45 for most fixtures, a post-lineup closing design or a written no (the bar does not loosen)",
+          "owner": "architect",
+          "due": "2026-11-05",
           "done": null
         }
       ],
-      "earliest_live": null,
-      "live_needs": "a rotation-aware candidate on as-of lineup data that passes the frozen cup exam, then its confirmation.",
+      "earliest_live": "2027-02-16",
+      "live_needs": "a PASS at cup_exam's frozen gate as it stood at the 2026-09-25 FAIL (mean error <= 8.0pp, <= 13 rows over 8pp, sign >= 80%), on the same exam set, split and metric, with a rotation term built only from lineups readable at or before the time Step A shows; the prior result, fix-v2's 14.76pp, is the record it has to better and not the bar. Then the forward confirmation every lane carries. Until then cups stay market-only; no venue call on CL (#505).",
       "vs_close": "not read",
       "moved": []
     },

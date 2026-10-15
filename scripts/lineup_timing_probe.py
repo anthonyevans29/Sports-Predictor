@@ -37,8 +37,14 @@ adapter drops a slot with no player name (a placeholder), so a side with a place
 
 It never stops on an error: a call that fails is printed and counted. It writes nothing: no row, no file.
 
-Run:  python3 scripts/lineup_timing_probe.py [--db PATH] [--date YYYY-MM-DD] [--plan]
---date is the day in UTC (default: today in UTC). --plan prints the fixtures and their poll times and makes no call.
+STEP A EXTENDS (ARCHITECT 2026-10-15 12:00 ET, addendum 75 item 3(a)), verbatim in part: "The timing probe takes
+--competition (CL default; UEL; EFL; the same polls), and runs on Thursday 2026-10-23 (the UEL matchday) and on the
+next EFL round that has stored rows". --competition names the stored competition code whose rows are polled
+(competitions.code); everything else (the polls, the late rule, the summary) is the same for each.
+
+Run:  python3 scripts/lineup_timing_probe.py [--competition CL|UEL|EFL] [--db PATH] [--date YYYY-MM-DD] [--plan]
+--competition is the stored code (default CL). --date is the day in UTC (default: today in UTC). --plan prints the
+fixtures and their poll times and makes no call.
 Start it before the first poll you want; it exits after its last poll (Ctrl-C prints the summary so far).
 Paste the whole output to the architect.
 """
@@ -56,7 +62,8 @@ from pathlib import Path
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-COMPETITION = "CL"
+COMPETITIONS = ("CL", "UEL", "EFL")            # addendum 75 item 3(a): CL default; UEL; EFL
+COMPETITION = COMPETITIONS[0]
 OFFSETS = (120, 90, 75, 60, 45, 30, 15)       # minutes before kickoff, the ruling's polls
 LATE_LIMIT = timedelta(minutes=5)             # a poll later than this is missed, never counted under its label
 ELEVEN = 11
@@ -127,9 +134,9 @@ def _kickoff(v) -> datetime | None:
     return k.replace(tzinfo=timezone.utc) if k.tzinfo is None else k.astimezone(timezone.utc)
 
 
-def day_fixtures(con, day: date, src: str) -> list[dict]:
-    """The CL competition's stored rows with a kickoff on the day (UTC), in kickoff order; each with why it is not
-    polled, or None."""
+def day_fixtures(con, day: date, src: str, competition: str = COMPETITION) -> list[dict]:
+    """The competition's stored rows (competitions.code; CL by default) with a kickoff on the day (UTC), in kickoff
+    order; each with why it is not polled, or None."""
     from src.ingestion.kalshi_match import NOT_GAMES
     from src.ingestion.team_merge import source_ids
     lo, hi = f"{day:%Y-%m-%d} 00:00:00", f"{day + timedelta(days=1):%Y-%m-%d} 00:00:00"
@@ -138,7 +145,7 @@ def day_fixtures(con, day: date, src: str) -> list[dict]:
         "FROM matches m JOIN competitions c ON c.id = m.competition_id "
         "LEFT JOIN teams ht ON ht.id = m.home_team_id LEFT JOIN teams at ON at.id = m.away_team_id "
         "WHERE c.code = ? AND m.utc_date >= ? AND m.utc_date < ? ORDER BY m.utc_date, m.id",
-        (COMPETITION, lo, hi)).fetchall()
+        (competition, lo, hi)).fetchall()
     out = []
     for mid, kick, status, ext, hname, hext, aname, aext in rows:
         fid = _ext(ext).get(src)
@@ -290,7 +297,10 @@ def verdict(polls: list[dict], cut: bool) -> tuple[str, str]:
 
 
 def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
-    ap = argparse.ArgumentParser(description="addendum 71 Step A: when CL lineups become readable, read-only")
+    ap = argparse.ArgumentParser(description="addendum 71 Step A (75 item 3): when a cup's lineups become readable, "
+                                             "read-only")
+    ap.add_argument("--competition", default=COMPETITION, choices=COMPETITIONS,
+                    help="the stored competition code whose rows are polled (default CL)")
     ap.add_argument("--db", default=None)
     ap.add_argument("--date", default=None, help="the day in UTC, YYYY-MM-DD (default: today in UTC)")
     ap.add_argument("--plan", action="store_true", help="print the fixtures and the poll times; make no call")
@@ -301,7 +311,7 @@ def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
     except ValueError:
         print(f"✗ --date {a.date!r} is not a real date (YYYY-MM-DD). Stop.")
         return 2
-    print(f"LINEUP TIMING PROBE · {start:%Y-%m-%d %H:%M:%S}Z · day {day} (UTC) · competition {COMPETITION} · "
+    print(f"LINEUP TIMING PROBE · {start:%Y-%m-%d %H:%M:%S}Z · day {day} (UTC) · competition {a.competition} · "
           "read-only, nothing written")
     print(f"  polls at {_offs(OFFSETS)} minutes · a poll more than {int(LATE_LIMIT.total_seconds() // 60)} minutes "
           "past its time is missed, never counted under its label")
@@ -310,11 +320,11 @@ def run(argv=None, clock=_clock, sleep=time.sleep, provider=None) -> int:
     con, form = open_read(p)
     src = source_name()
     print(f"\nD0 database {p} · opened via {form}")
-    print(f"  READ: matches (id, utc_date, status, external_ids['{src}']) of competitions.code = '{COMPETITION}', "
+    print(f"  READ: matches (id, utc_date, status, external_ids['{src}']) of competitions.code = '{a.competition}', "
           "teams (name, external_ids) for the sides")
-    fixtures = day_fixtures(con, day, src)
+    fixtures = day_fixtures(con, day, src, a.competition)
     con.close()
-    print(f"  {len(fixtures)} {COMPETITION} row(s) stored with a kickoff on {day}")
+    print(f"  {len(fixtures)} {a.competition} row(s) stored with a kickoff on {day}")
     for f in fixtures:
         print(f"  {fixture_line(f)} · stored status {f['status']} · fixture {f['fid'] or '-'}"
               + (f" · NOT POLLED: {f['skip']}" if f["skip"] else ""))

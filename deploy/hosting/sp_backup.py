@@ -2,6 +2,9 @@
 """SQLite online-backup (the `.backup` API — sqlite3_backup via Python's
 Connection.backup, the same mechanism as the sqlite3 CLI's `.backup`), then
 PRAGMA integrity_check on the COPY, sha256, a `.sha256` sidecar and a receipt.
+The check opens the copy ?mode=ro&immutable=1 (sp_common.copy_integrity), so
+no -shm/-wal is made beside the .partial (ARCHITECT 2026-10-15, addendum 72
+item 4, #517); a failed run removes every *.partial* in the folder.
 
     sp_backup.py daily        -> sports_YYYY-MM-DD.db   (second run same day: _HHMM suffix)
     sp_backup.py prerefresh   -> sports_YYYY-MM-DD_prerefresh_HHMM.db
@@ -58,7 +61,9 @@ def run_backup(kind: str, lock: bool = True) -> dict:
                 d.close()
                 s.close()
         os.chmod(tmp, 0o600)
-        rec["integrity"] = c.integrity(tmp)
+        # addendum 72 item 4 (#517): the copy is opened immutable, as pull_backup's is since #526. The mode=ro open
+        # made a .partial-shm and a .partial-wal beside a WAL copy on Linux, and nothing removed them.
+        rec["integrity"] = c.copy_integrity(tmp)
         if rec["integrity"] != "ok":
             raise RuntimeError(f"integrity_check: {rec['integrity']}")
         tmp.rename(dest)
@@ -68,7 +73,8 @@ def run_backup(kind: str, lock: bool = True) -> dict:
         rec["exit"] = 0
     except Exception as e:  # receipt first, then fail loudly
         rec["error"] = c.redact(f"{type(e).__name__}: {e}")
-        tmp.unlink(missing_ok=True)
+        for p in dest_dir.glob("*.partial*"):        # the .partial and anything beside it (addendum 72 item 4)
+            p.unlink(missing_ok=True)
     c.append_receipt(rec)
     return rec
 

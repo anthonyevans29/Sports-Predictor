@@ -10,6 +10,7 @@ import json
 import re
 import sqlite3
 import sys
+import types
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -453,6 +454,76 @@ def test_pull_verifies_a_wal_copy_immutable_and_leaves_its_folder_as_found(sandb
     assert sorted(x.name for x in pulled.iterdir()) == [final.name, final.name + ".sha256"]
     # the live DB is never opened immutable (#340 stands)
     assert "immutable" not in inspect.getsource(c.ro_connect)
+
+
+def _wal(db: Path) -> None:
+    con = sqlite3.connect(db)
+    assert con.execute("PRAGMA journal_mode=wal").fetchone()[0] == "wal"
+    con.close()
+
+
+def test_the_host_backup_of_a_wal_db_verifies_immutable_and_leaves_no_partial_sidecar(sandbox, monkeypatch):
+    """#517 (ARCHITECT 2026-10-15, addendum 72 item 4): "every daily of 10-11..10-15 (07:20 and 09:30) sits beside a
+    32768-byte .partial-shm and an empty .partial-wal [...] written by the host's own verify (Linux opens the .partial
+    copy mode=ro and makes them [...]). [...] the host's verify opens the copy the way #526's does (immutable=1, so no
+    sidecar is made in the first place)." On a mode=ro verify this folder holds the two sidecars."""
+    _wal(sandbox / "live" / "sports.db")
+    uris = []
+    real = sqlite3.connect
+    monkeypatch.setattr(c.sqlite3, "connect", lambda d, *a, **k: uris.append(str(d)) or real(d, *a, **k))
+    rec = sp_backup.run_backup("daily")
+    assert rec["exit"] == 0 and rec["integrity"] == "ok"
+    bk = sandbox / "backups"
+    assert sorted(x.name for x in bk.iterdir()) == [rec["file"], rec["file"] + ".sha256"]
+    assert (bk / rec["file"]).read_bytes()[18:20] == b"\x02\x02"           # the copy is WAL-mode
+    assert any(u.endswith(".db.partial?mode=ro&immutable=1") for u in uris)  # the verify took the immutable open
+    assert "immutable" not in inspect.getsource(c.ro_connect)               # the live DB never (#340 stands)
+
+
+def test_a_failed_host_backup_removes_every_partial_and_nothing_else(sandbox, monkeypatch):
+    """Addendum 72 item 4: "the cleanup globs of pull_backup and sp_backup take "*.partial*"". A failed run leaves no
+    .partial, .partial-shm or .partial-wal in the folder; the backups and their .sha256 files stay."""
+    bk = sandbox / "backups"
+    bk.mkdir()
+    keep = ["sports_2026-10-11.db", "sports_2026-10-11.db.sha256"]
+    gone = ["sports_2026-10-11.db.partial-shm", "sports_2026-10-11.db.partial-wal",
+            "sports_2026-10-11_092959.db.partial-shm"]
+    for n in keep + gone:
+        (bk / n).write_bytes(b"x")
+    monkeypatch.setattr(c, "copy_integrity", lambda p: "*** in database main *** Page 2 is never used")
+    rec = sp_backup.run_backup("daily")
+    assert rec["exit"] == 1 and "integrity_check" in rec["error"]
+    assert sorted(x.name for x in bk.iterdir()) == keep
+
+
+def test_a_failed_pull_removes_every_partial(sandbox, monkeypatch):
+    """Addendum 72 item 4: pull_backup's cleanup glob takes "*.partial*": the .partial, the .sha256.partial and
+    anything beside them."""
+    dest = sandbox / "pulled"
+    dest.mkdir()
+    for n in ("sports_2026-10-15.db.partial", "sports_2026-10-15.db.sha256.partial",
+              "sports_2026-10-15.db.partial-shm", "sports_2026-10-15.db.partial-wal"):
+        (dest / n).write_bytes(b"x")
+    (dest / "sports_2026-10-14.db").write_bytes(b"kept")
+
+    def run(cmd, **kw):
+        if cmd[0] == "ssh" and cmd[-1].startswith("ls"):
+            return types.SimpleNamespace(stdout="sports_2026-10-15.db\nsports_2026-10-15.db.sha256\n")
+        if cmd[0] == "ssh":
+            return types.SimpleNamespace(stdout="0" * 64 + "  sports_2026-10-15.db\n")
+        raise pull_backup.subprocess.CalledProcessError(1, cmd)               # scp fails
+    monkeypatch.setattr(pull_backup.subprocess, "run", run)
+    assert pull_backup.main(["--dest", str(dest)]) == 1
+    assert sorted(x.name for x in dest.iterdir()) == ["sports_2026-10-14.db"]
+
+
+def test_prune_leaves_partial_files_to_the_cleanup(tmp_path):
+    """Addendum 72 item 4: "sp_prune leaves them to that cleanup": an old backup is planned, never a .partial* file."""
+    for n in ("sports_2026-09-01.db", "sports_2026-09-01.db.sha256", "sports_2026-09-01.db.partial",
+              "sports_2026-09-01.db.partial-shm", "sports_2026-09-01.db.partial-wal"):
+        (tmp_path / n).write_bytes(b"x")
+    doomed = sp_prune.plan(tmp_path, datetime(2026, 11, 30, tzinfo=timezone.utc), keep_daily=0, retain_days=14)
+    assert [p.name for p in doomed] == ["sports_2026-09-01.db"]
 
 
 def test_ncaa_timer_ships_enabled_in_runbook():

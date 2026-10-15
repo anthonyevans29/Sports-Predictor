@@ -88,7 +88,7 @@ def main(argv=None) -> int:
             rec.update(verify_and_place(partial, sidecar, final), exit=0)
     except Exception as e:  # receipt first, then fail loudly
         rec["error"] = c.redact(f"{type(e).__name__}: {e}")[:300]
-        for p in dest.glob("*.partial"):
+        for p in dest.glob("*.partial*"):            # the .partial and anything beside it (addendum 72 item 4)
             p.unlink(missing_ok=True)
     c.append_receipt(rec)
     print(f"{'✓' if rec['exit'] == 0 else '✗'} pull {rec['file']} from {a.host}: "

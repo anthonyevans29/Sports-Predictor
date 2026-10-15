@@ -1,0 +1,11 @@
+## 2026-10-15 (#528: lineup-timing-probe — ARCHITECT addendum 71 item 2, Step A, #106)
+- scripts/lineup_timing_probe.py, read-only, writes nothing. For the day's CL fixtures with a stored row, it polls `APIFootballAdapter.list_lineup_confirmed` (the call sync-lineups uses, with the adapter's pace and parse) at T-120, T-90, T-75, T-60, T-45, T-30 and T-15.
+  - Each poll prints the starters and the bench per side. Its minute is the minute the counted answer was asked for: after the adapter's pace and after its one retry of a 429.
+  - A poll more than 5 minutes past its time (a late start, a laptop that slept) is printed as missed and never counted under its label.
+  - Per fixture: the first poll with eleven starters per side, and the poll before it answered without them. Polls between those two that failed or were missed are named, because the lineup may have been readable at one of them. Also the keys the answer carries, and the polls answered, failed and missed.
+  - The fixtures are then counted by that first poll. A fixture whose earlier polls were not all answered is counted apart.
+  - Printed once: the keys the adapter reads, and the calls (calls, HTTP requests by status, failures).
+  - Not polled, with the reason printed: a row with no fixture id, a kickoff that cannot be read, or a stored status the matcher counts as not a game (kalshi_match.NOT_GAMES).
+  - The database is opened mode=ro (query_only where a copy refuses it, #421).
+  - `--plan` prints the fixtures and their poll times and makes no call. `--date` is the day in UTC.
+- tests/test_lineup_timing_probe.py (26 tests): a throwaway DB from the app's schema, the real adapter with its HTTP session stubbed (a real request fails the test), and a fake clock.

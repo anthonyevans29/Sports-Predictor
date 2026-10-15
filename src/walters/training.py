@@ -394,6 +394,11 @@ def generate_predictions(
     raise ValueError(f"Predictions not yet supported for sport {sport}")
 
 
+# Q9 (ARCHITECT 2026-10-15, addendum 75 item 2): the lineup kinds the pricing reads: sync-lineups' own. Rows of any
+# other kind ("history": sync-lineups-history's finished cup fixtures) never reach a prediction or the cup exam.
+LIVE_LINEUP_KINDS = ("projected", "confirmed")
+
+
 def _generate_predictions_soccer(
     competition_code: str,
     season: str,
@@ -566,9 +571,13 @@ def _generate_predictions_soccer(
 
         # Lineup kind by (match_id, team_id) — refined granularity over the
         # match-level kind, since home & away can have different lineup states.
+        # Q9 (ARCHITECT 2026-10-15, addendum 75 item 2): only the kinds sync-lineups
+        # writes (LIVE_LINEUP_KINDS); a finished cup fixture's "history" rows
+        # (sync-lineups-history) never reach the pricing, the report-only exam included.
         lineup_kind_by_match_team: dict[tuple[int, int], str] = {}
         for ln in s.execute(
             select(Lineup.match_id, Lineup.team_id, Lineup.kind).distinct()
+            .where(Lineup.kind.in_(LIVE_LINEUP_KINDS))
         ).all():
             mid, tid, kind = ln
             # If we have confirmed lineup, that beats projected
@@ -585,7 +594,8 @@ def _generate_predictions_soccer(
         # Starters per (match_id, team_id) — used for lineup_adjustment
         starters_by_match_team: dict[tuple[int, int], list] = {}
         for ln in s.execute(
-            select(Lineup).where(Lineup.is_starter == True)  # noqa: E712
+            select(Lineup).where(Lineup.is_starter == True,  # noqa: E712
+                                 Lineup.kind.in_(LIVE_LINEUP_KINDS))
         ).scalars():
             starters_by_match_team.setdefault((ln.match_id, ln.team_id), []).append(ln)
 

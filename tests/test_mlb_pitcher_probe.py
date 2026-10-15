@@ -232,8 +232,15 @@ def test_the_games_with_neither_starter_carry_their_range_months_provenance_and_
             "the api-sports fallback, mlb_apisports.sync_matches): mlb_stats_api 5") in out
     assert ("    as sync-appearances reads them: no pitcher_appearances row for its statsapi id 4 · rows for its id but "
             "no starter 1 · no statsapi id 0") in out
-    assert "so a re-run fills the 4 game(s) with no row where the boxscore answers; the 1 game(s) holding rows but " \
-           "no starter are skipped unless --refresh" in out
+    assert "so a re-run writes rows for the 4 game(s) with no row where the boxscore answers, with a starter only " \
+           "where the boxscore's per-game stats.pitching.gamesStarted is 1" in out          # Codex on #535: rows != starter
+    assert "at most --limit games a run (default 2000, in no set order: raise it when more are eligible)" in out
+    assert "the 1 game(s) holding rows but no starter are skipped unless --refresh, which makes every finished game " \
+           "with a statsapi id a target (a full season is over the default --limit) and deletes their rows, committed " \
+           "before any request, so a game whose request fails or returns nothing is left with no rows (take a " \
+           ".backup first)" in out                                                       # Codex on #535 (P1)
+    sentence = [o for o in out.splitlines() if o.startswith("    from the code (cli.py sync-appearances")]
+    assert len(sentence) == 2 and all(o.count(". ") == 0 and o.endswith(".") for o in sentence)   # one sentence each
     # 2024: its one finished game carries no statsapi id: no command fills it
     assert "  neither starter, season 2024: 1 game(s) · 2024-05-01..2024-05-01 (stored kickoff, UTC)" in out
     assert "the api-sports fallback, mlb_apisports.sync_matches): (no key) 1" in out

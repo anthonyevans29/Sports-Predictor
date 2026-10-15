@@ -173,12 +173,17 @@ def neither_lines(con, season: str, games: list[dict]) -> list[str]:
         "api-sports fallback, mlb_apisports.sync_matches): " + " · ".join(f"{k} {n}" for k, n in sorted(prov.items())),
         f"    as sync-appearances reads them: no pitcher_appearances row for its statsapi id {a} · rows for its id "
         f"but no starter {b} · no statsapi id {c}",
-        f"    from the code (cli.py sync-appearances, read 2026-10-15): `python cli.py sync-appearances --season "
-        f"{season}` (its default --backfill, --limit 2000) asks statsapi's boxscore for each finished game with a "
-        f"statsapi id and no pitcher_appearances row, so a re-run fills the {a} game(s) with no row where the "
-        f"boxscore answers; the {b} game(s) holding rows but no starter are skipped unless --refresh, which deletes "
-        f"and re-captures them; and the {c} game(s) with no statsapi id are skipped either way, so for them a command "
-        "is missing.",
+        f"    from the code (cli.py sync-appearances and MLBStatsAPIAdapter.get_game_pitcher_appearances, read "
+        f"2026-10-15): `python cli.py sync-appearances --season {season}` (its default --backfill) asks statsapi's "
+        "boxscore for each finished game with a statsapi id and no pitcher_appearances row, at most --limit games a "
+        "run (default 2000, in no set order: raise it when more are eligible), so a re-run writes rows for the "
+        f"{a} game(s) with no row where the boxscore answers, with a starter only where the boxscore's per-game "
+        "stats.pitching.gamesStarted is 1 (the adapter's only test: no season-stats or max-outs fallback); the "
+        f"{b} game(s) holding rows but no starter are skipped unless --refresh, which makes every finished game with a "
+        "statsapi id a target (a full season is over the default --limit) and deletes their rows, committed before "
+        "any request, so a game whose request fails or returns nothing is left with no rows (take a .backup first) "
+        "and a re-captured game gets a starter only where its boxscore now carries gamesStarted; and the "
+        f"{c} game(s) with no statsapi id are skipped either way, so for them a command is missing.",
     ]
 
 

@@ -191,12 +191,24 @@
           "what": "Step A's probe written: scripts/lineup_timing_probe.py (read-only; polls api_football.list_lineup_confirmed at T-120, T-90, T-75, T-60, T-45, T-30 and T-15), its PR open, its checks green",
           "owner": "code",
           "due": "2026-10-19",
-          "done": null
+          "done": {"date": "2026-10-15", "receipt": "#528 merged 2026-10-15 at 8a571fa (called in addendum 75 item 1)"}
         },
         {
           "what": "Step A: the timing probe run on the CL matchday, the laptop awake 10:30am to 3:00pm ET, its receipt to me the same evening",
           "owner": "operator",
           "due": "2026-10-20",
+          "done": null
+        },
+        {
+          "what": "Step A, UEL: the timing probe run on the UEL matchday (--competition UEL, the same polls), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",
+          "owner": "operator",
+          "due": "2026-10-22",
+          "done": null
+        },
+        {
+          "what": "Step A, EFL: the timing probe run on the next EFL round with stored rows (--competition EFL, the same polls; its date named by the operator), the laptop awake from T-130 of the first kickoff, its receipt to me the same evening",
+          "owner": "operator",
+          "due": "2026-10-27",
           "done": null
         },
         {

@@ -1,0 +1,13 @@
+## 2026-10-15 (#531: backup-partial-sidecars — ARCHITECT addendum 72 item 4, #517)
+- deploy/hosting/sp_backup.py: the host's verify opens the `.partial` copy `?mode=ro&immutable=1`, through `sp_common.copy_integrity`, as pull_backup's has since #526.
+  - Its own mode=ro open (`c.integrity` → `ro_connect`) made a 32768-byte `.partial-shm` and an empty `.partial-wal` beside a WAL copy on Linux. Nothing removed them; that is the host's 64 sidecars of 10-11..10-15.
+  - A failed run removes every `*.partial*` in the folder. It used to remove the `.partial` only.
+- deploy/hosting/pull_backup.py: a failed pull's cleanup glob takes `*.partial*` (it took `*.partial`).
+- sp_prune is unchanged: it plans `sports_*.db` names only, and leaves `.partial*` files to the cleanup (a test pins it).
+- tests/test_hosting_pack.py (4 new), each on a throwaway folder:
+  - a WAL source's daily backup verifies through the immutable open and leaves the `.db` and its `.sha256` only;
+  - a failed backup removes every `*.partial*` and nothing else;
+  - a failed pull removes every `*.partial*`;
+  - prune never plans a `.partial*`.
+  - The first three fail on main.
+- The 64 existing files on the host: removed in the operator's next host block, after this PR is on a tag (the host runs tags), never by hand before.

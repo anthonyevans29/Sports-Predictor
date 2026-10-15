@@ -1,4 +1,4 @@
-## 2026-10-15 (#547: cutover-preflight — ARCHITECT addendum 79 item 4, #495, #520)
+## 2026-10-15 (#548: cutover-preflight — ARCHITECT addendum 79 item 4, #495, #520)
 - deploy/hosting/sp_cutover.py, the preflight:
   - **A listed timer that is not active refuses**, named on the refused line and on the receipt (`timers_listed_inactive`; [] on a pass). Addendum 79 item 4 is later than #495's "It refuses nothing for it".
   - **The host's NHL shot GATE streams are read** by `sp_cutover.py shot-gate`, an internal command and never a step.

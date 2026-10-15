@@ -597,11 +597,11 @@ def take_backup(folder: Path, day: date) -> dict:
             s.close()
         rec["copied"] = True
         os.chmod(tmp, 0o600)
-        rec["integrity"] = c.integrity(tmp)              # opens the copy read-only
+        rec["integrity"] = c.copy_integrity(tmp)         # the copy, immutable: nothing beside it (addendum 73 item 4)
         if rec["integrity"] != "ok":
             raise RuntimeError(f"integrity_check: {rec['integrity']}")
         os.replace(tmp, dest)
-        con = c.ro_connect(dest)
+        con = c.copy_connect(dest)                       # the finished copy, immutable likewise (addendum 73 item 4)
         try:
             con.execute("SELECT count(*) FROM sqlite_master").fetchone()
         finally:

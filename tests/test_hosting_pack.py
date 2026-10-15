@@ -526,6 +526,55 @@ def test_prune_leaves_partial_files_to_the_cleanup(tmp_path):
     assert [p.name for p in doomed] == ["sports_2026-09-01.db"]
 
 
+def _uris(monkeypatch):
+    uris = []
+    real = sqlite3.connect
+    monkeypatch.setattr(c.sqlite3, "connect", lambda d, *a, **k: uris.append(str(d)) or real(d, *a, **k))
+    return uris
+
+
+def test_the_closing_backup_of_a_wal_db_opens_its_copies_immutable(sandbox, monkeypatch):
+    """#532 (ARCHITECT 2026-10-15, addendum 73 item 4): "copy_integrity for the copies; the final copy's open in
+    take_backup likewise". A WAL source's closing backup leaves the .db and its .sha256 and nothing beside them; on
+    the mode=ro opens Linux left a .partial-shm / .partial-wal and a .db-shm / .db-wal here (the Mac cannot open such
+    a copy mode=ro at all, #517)."""
+    import closing
+    _wal(sandbox / "live" / "sports.db")
+    uris = _uris(monkeypatch)
+    folder = sandbox / "closing-backups"
+    rec = closing.take_backup(folder, date(2026, 10, 15))
+    assert rec["ok"] and rec["integrity"] == "ok" and rec["opens"]
+    assert sorted(x.name for x in folder.iterdir()) == ["sports_2026-10-15.db", "sports_2026-10-15.db.sha256"]
+    copies = [u for u in uris if "closing-backups" in u and u.startswith("file:")]   # the reads (the write is a path)
+    assert copies and all(u.endswith("?mode=ro&immutable=1") for u in copies)               # .partial and final
+    assert any(u.endswith(".db.partial?mode=ro&immutable=1") for u in copies)
+    assert any(u.endswith("sports_2026-10-15.db?mode=ro&immutable=1") for u in copies)
+    live = [u for u in uris if u.endswith("live/sports.db?mode=ro")]
+    assert live and not any("live/sports.db" in u and "immutable" in u for u in uris)       # the live DB never (#340)
+
+
+def test_the_migrate_pack_reads_its_copy_immutable_and_install_reads_the_live_db_mode_ro(sandbox, monkeypatch):
+    """#532 (addendum 73 item 4): sp_migrate's pack and verify read the pack's copy immutable; install's verify reads
+    the installed DB, the live one from then on, mode=ro (#340)."""
+    _wal(sandbox / "live" / "sports.db")
+    uris = _uris(monkeypatch)
+    pk = sandbox / "pack"
+    assert sp_migrate.main(["pack", "--out", str(pk)]) == 0
+    assert not [x.name for x in pk.iterdir() if x.name.endswith(("-shm", "-wal"))]
+    assert sp_migrate.main(["verify", "--pack", str(pk)]) == 0
+    pack_db = [u for u in uris if "/pack/sports.db" in u and u.startswith("file:")]
+    assert pack_db and all(u.endswith("?mode=ro&immutable=1") for u in pack_db)
+    host = sandbox / "host"
+    host.mkdir()
+    monkeypatch.setattr(c, "REPO", host)
+    monkeypatch.setattr(c, "_DOTENV_CACHE", None)
+    monkeypatch.setenv("DATABASE_URL", "sqlite:///./data/sports.db")
+    uris.clear()
+    assert sp_migrate.main(["install", "--pack", str(pk)]) == 0
+    installed = [u for u in uris if "/host/data/sports.db" in u and u.startswith("file:")]
+    assert installed and all(u.endswith("?mode=ro") for u in installed)
+
+
 def test_ncaa_timer_ships_enabled_in_runbook():
     rb = (ROOT / "docs" / "specs" / "hosting-h1.md").read_text()
     t11 = rb[rb.index("TIMERS=\""):rb.index("echo $TIMERS")]  # TIMERS + MLB_LAPTOP_ONLY + HELD_FOR_CUTOVER

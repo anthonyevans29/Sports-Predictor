@@ -1,0 +1,12 @@
+## 2026-10-15 (#534: copy-verify-immutable — ARCHITECT addendum 73 item 4, #532)
+- deploy/hosting/sp_common.py: `copy_connect(p)`, the immutable open of a copy nobody writes (`?mode=ro&immutable=1`).
+  - `copy_integrity` opens through it, unchanged in behaviour.
+  - `table_counts(..., copy=True)` reads a copy through it.
+  - `ro_connect` stays mode=ro, so the live DB is never opened immutable (#340).
+- deploy/hosting/closing.py `take_backup`: the `.partial` is checked with `copy_integrity`, and the finished copy is opened with `copy_connect`. Both were mode=ro.
+- deploy/hosting/sp_migrate.py:
+  - `pack` checks and counts the pack's copy through the immutable open.
+  - `verify` does the same on the pack's own copy. With `install`'s override, the installed DB (the live one from then on) stays mode=ro.
+- tests/test_hosting_pack.py (2 new), on a WAL source in a throwaway folder; both fail on main:
+  - the closing backup leaves the `.db` and its `.sha256` and nothing beside them, and every read of the copies is immutable;
+  - the pack folder holds no `-shm` / `-wal`, verify reads the pack immutable, and install reads the installed DB mode=ro.

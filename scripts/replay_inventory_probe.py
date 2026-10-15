@@ -1,0 +1,276 @@
+"""
+THE REPLAY INVENTORY (ARCHITECT 2026-10-15, addendum 79 item 3; for the K-track replay spec Tuesday 2026-10-20, #75),
+READ-ONLY:
+
+"Before I write the spec, what the DB can replay faithfully: `scripts/replay_inventory_probe.py` prints, per sport, for
+the graded games since 2026-09-20: how many have a stored prediction row with computed_at before kickoff (and how many
+versions per game, if prediction rows are kept per run or overwritten — read the schema and say which); how many have
+book snapshots before kickoff (count per game, first and last capture age vs kickoff); how many have Kalshi snapshots
+before kickoff (same); how many have a closing file on the laptop (exports/closing_*.json, matched by match id); how
+many have all four. Keys used printed. The spec is built on what this prints, not on what I remember."
+
+WHAT THE SCHEMA SAYS (read at main c51324d):
+- predictions is CURRENT-ONLY per match: every writer deletes the match's rows (whatever the model_version) and inserts
+  one, so a run OVERWRITES the last (soccer and MLB: src/walters/training.py _generate_predictions_*; NFL:
+  src/walters/nfl_predict.py predict_nfl). predictions.match_id is not unique in the DB; one row is a writer convention.
+- prediction_history is APPEND-ONLY: a Session after_flush hook copies every new Prediction (match_id, model_version,
+  computed_at, the three probabilities; nothing else) (src/db/database.py). It came with #301 (merged 2026-10-06) with
+  no backfill: before it, a game has at most its one current row. The versions per game are its rows before kickoff.
+- Soccer and MLB re-predict every SCHEDULED fixture with no kickoff guard, so a current row can be computed after
+  kickoff: counted on its own line. NHL, NCAA, UNL, cups and the expansion leagues write no prediction rows (shadow
+  files or market-only): 0 by construction.
+- Book history: odds_snapshots rows with market "1X2" and a source other than "kalshi" (a NULL source counts as book,
+  as the Python readers read it). The odds table holds only the current board (sync_odds replaces a source's rows on
+  every sync): printed apart. Kalshi history: odds_snapshots rows with source "kalshi" (market "ML" two-way, "1X2"
+  soccer); kalshi_settled_markets (one row per market, from candles): printed apart.
+- A capture session is one captured_at: sessions per game = distinct captured_at before kickoff.
+- Closing files: <exports>/closing_<FAMILY>_<start>.json, match ids in closing.match_ids (else predictions[].match_id).
+  Files under <exports>/host/ come from the host, whose match ids are its own: counted, never matched.
+
+THE KEYS: a graded game = matches.status FINISHED with home_score and away_score, kickoff (matches.utc_date) in
+[--since, --until). Before kickoff = julianday(the stamp) < julianday(matches.utc_date) (the stamp as stored, any
+SQLite time format). Sport: the matches.sport name; NCAA = sport NFL with competition code NCAA; soccer is split by
+competition code. "All four" = a stored prediction before kickoff (current row or history) + a book snapshot + a Kalshi
+snapshot before kickoff + a closing file.
+
+Opens the database mode=ro (a copy that refuses it: the plain path with PRAGMA query_only = ON, #421) and never
+creates one. Writes nothing.
+
+    python3 scripts/replay_inventory_probe.py [--db PATH] [--since 2026-09-20] [--until YYYY-MM-DD] [--exports exports]
+"""
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sqlite3
+import statistics
+import sys
+from datetime import datetime, timedelta, timezone
+from pathlib import Path
+
+SINCE = "2026-09-20"
+CHUNK = 500
+KEYS = ("graded = matches.status FINISHED with home_score and away_score, kickoff matches.utc_date in [since, until) "
+        "· before kickoff = julianday(stamp) < julianday(matches.utc_date) · prediction = predictions.computed_at "
+        "(current row) or prediction_history.computed_at · book = odds_snapshots market 1X2, source not kalshi (NULL "
+        "counts) · kalshi = odds_snapshots source kalshi · session = a distinct captured_at · closing file = "
+        "<exports>/closing_*.json closing.match_ids (else predictions[].match_id)")
+
+
+def db_path(arg: str | None) -> Path:
+    if arg:
+        return Path(arg)
+    url = os.getenv("DATABASE_URL")
+    if not url:
+        try:
+            from dotenv import load_dotenv
+            load_dotenv(".env")
+            url = os.getenv("DATABASE_URL")
+        except ImportError:
+            pass
+    url = url or "sqlite:///./data/sports.db"
+    if not url.startswith("sqlite:///"):
+        raise SystemExit(f"not a SQLite URL ({url.split(':')[0]}): the probe is SQLite-only")
+    return Path(url.replace("sqlite:///", ""))
+
+
+def open_read(p: Path):
+    """(connection, form): mode=ro first; a copy that refuses it, the plain path with query_only set (#421). Never
+    creates a database."""
+    if not p.is_file():
+        raise SystemExit(f"no database at {p}: the probe never creates one")
+    try:
+        con = sqlite3.connect(p.resolve().as_uri() + "?mode=ro", uri=True)
+        con.execute("SELECT 1 FROM matches LIMIT 1")
+        return con, "mode=ro URI"
+    except sqlite3.OperationalError:
+        con = sqlite3.connect(str(p), timeout=60)
+        con.execute("PRAGMA query_only = ON")
+        con.execute("SELECT 1 FROM matches LIMIT 1")
+        return con, "plain path with PRAGMA query_only = ON (mode=ro refused)"
+
+
+def has_table(con, name: str) -> bool:
+    return con.execute("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (name,)).fetchone() is not None
+
+
+def graded_games(con, since: str, until: str) -> list[dict]:
+    q = ("SELECT m.id, m.sport, c.code, m.utc_date, julianday(m.utc_date) FROM matches m "
+         "JOIN competitions c ON c.id = m.competition_id "
+         "WHERE m.status = 'FINISHED' AND m.home_score IS NOT NULL AND m.away_score IS NOT NULL "
+         "AND julianday(m.utc_date) >= julianday(?) AND julianday(m.utc_date) < julianday(?) ORDER BY m.utc_date, m.id")
+    return [{"id": i, "sport": sport, "code": code, "kickoff": ko, "ko": jd}
+            for i, sport, code, ko, jd in con.execute(q, (since, until)) if jd is not None]
+
+
+def group_of(g: dict) -> str:
+    sport = str(g["sport"] or "?").upper()
+    if sport == "NFL" and g["code"] == "NCAA":
+        return "NCAA"
+    if sport == "SOCCER":
+        return f"SOCCER {g['code']}"
+    return sport
+
+
+def by_match(con, sql: str, ids: list[int], extra: tuple = ()) -> dict[int, list]:
+    """{match_id: [the row's other columns, ...]} over `ids`, in chunks (one query per chunk)."""
+    out: dict[int, list] = {}
+    for i in range(0, len(ids), CHUNK):
+        part = ids[i:i + CHUNK]
+        marks = ",".join("?" * len(part))
+        for row in con.execute(sql.format(ids=marks), (*part, *extra)):
+            out.setdefault(row[0], []).append(row[1:])
+    return out
+
+
+def closing_ids(exports: Path) -> dict:
+    """The laptop's closing files: every match id they name; the host copies are counted only."""
+    files = sorted(exports.glob("closing_*.json")) if exports.is_dir() else []
+    ids, bad = set(), []
+    for f in files:
+        try:
+            d = json.loads(f.read_text())
+            cl = d.get("closing") or {}
+            got = cl.get("match_ids") if isinstance(cl.get("match_ids"), list) else [
+                r.get("match_id") for r in d.get("predictions") or [] if isinstance(r, dict)]
+            ids.update(i for i in got if isinstance(i, int))
+        except (OSError, ValueError, AttributeError):
+            bad.append(f.name)
+    host = sorted((exports / "host").glob("closing_*.json")) if (exports / "host").is_dir() else []
+    return {"files": len(files), "ids": ids, "unreadable": bad, "host_files": len(host)}
+
+
+def spread(xs: list[float], fmt="{:.1f}") -> str:
+    if not xs:
+        return "-"
+    return "/".join(fmt.format(v) for v in (min(xs), statistics.median(xs), max(xs)))
+
+
+def captures(rows: dict[int, list], games: list[dict]) -> dict:
+    """Over the games with a capture before kickoff: sessions per game, first and last capture age (hours)."""
+    per, first, last, earliest = [], [], [], None
+    have = set()
+    for g in games:
+        stamps = sorted({r[0] for r in rows.get(g["id"], []) if r[0] is not None and r[0] < g["ko"]})
+        if not stamps:
+            continue
+        have.add(g["id"])
+        per.append(len(stamps))
+        first.append((g["ko"] - stamps[0]) * 24)
+        last.append((g["ko"] - stamps[-1]) * 24)
+        earliest = stamps[0] if earliest is None else min(earliest, stamps[0])
+    return {"games": len(have), "ids": have, "sessions": per, "first_h": first, "last_h": last,
+            "earliest": earliest}
+
+
+def jd_text(jd) -> str:
+    """A julian day as UTC text (julianday 2440587.5 = 1970-01-01T00:00Z)."""
+    if jd is None:
+        return "-"
+    dt = datetime(1970, 1, 1) + timedelta(days=jd - 2440587.5) + timedelta(seconds=30)   # to the nearest minute
+    return dt.strftime("%Y-%m-%d %H:%M")
+
+
+def inventory(con, since: str, until: str, exports: Path) -> dict:
+    games = graded_games(con, since, until)
+    ids = [g["id"] for g in games]
+    hist_ok, ksm_ok = has_table(con, "prediction_history"), has_table(con, "kalshi_settled_markets")
+    pred = by_match(con, "SELECT match_id, julianday(computed_at) FROM predictions WHERE match_id IN ({ids})", ids)
+    hist = by_match(con, "SELECT match_id, julianday(computed_at) FROM prediction_history WHERE match_id IN ({ids})",
+                    ids) if hist_ok else {}
+    outc = by_match(con, "SELECT p.match_id, o.id FROM prediction_outcomes o JOIN predictions p ON p.id = o.prediction_id "
+                         "WHERE p.match_id IN ({ids})", ids)
+    book = by_match(con, "SELECT match_id, julianday(captured_at), source FROM odds_snapshots WHERE match_id IN ({ids}) "
+                         "AND market = '1X2' AND (source IS NULL OR source != 'kalshi')", ids)
+    kal = by_match(con, "SELECT match_id, julianday(captured_at), market FROM odds_snapshots WHERE match_id IN ({ids}) "
+                        "AND source = 'kalshi'", ids)
+    board = by_match(con, "SELECT match_id, julianday(captured_at) FROM odds WHERE match_id IN ({ids}) AND market = '1X2'",
+                     ids)
+    ksm = by_match(con, "SELECT match_id, ticker FROM kalshi_settled_markets WHERE match_id IN ({ids})",
+                   ids) if ksm_ok else {}
+    cf = closing_ids(exports)
+    first_hist = con.execute("SELECT MIN(julianday(computed_at)), COUNT(*) FROM prediction_history").fetchone() if hist_ok else None
+    groups: dict[str, list] = {}
+    for g in games:
+        groups.setdefault(group_of(g), []).append(g)
+    out = {}
+    for name in sorted(groups):
+        gs = groups[name]
+        cur = {g["id"] for g in gs if any(r[0] is not None and r[0] < g["ko"] for r in pred.get(g["id"], []))}
+        late = {g["id"] for g in gs if pred.get(g["id"]) and g["id"] not in cur}
+        versions = {g["id"]: sum(1 for r in hist.get(g["id"], []) if r[0] is not None and r[0] < g["ko"]) for g in gs}
+        hv = {i for i, n in versions.items() if n}
+        either = cur | hv
+        b, k = captures(book, gs), captures(kal, gs)
+        bd = {g["id"] for g in gs if any(r[0] is not None and r[0] < g["ko"] for r in board.get(g["id"], []))}
+        cl = {g["id"] for g in gs} & cf["ids"]
+        four = either & b["ids"] & k["ids"] & cl
+        out[name] = {"graded": len(gs), "pred_current": len(cur), "pred_history": len(hv), "pred_either": len(either),
+                     "pred_current_after_ko": len(late), "versions": [versions[i] for i in sorted(hv)],
+                     "outcome_rows": sum(1 for g in gs if outc.get(g["id"])), "book": b, "odds_board": len(bd),
+                     "kalshi": k, "settled_markets": sum(1 for g in gs if ksm.get(g["id"])), "closing": len(cl),
+                     "all_four": len(four)}
+    return {"games": len(games), "groups": out, "closing": cf, "history_table": hist_ok, "settled_table": ksm_ok,
+            "first_history": first_hist}
+
+
+def _cap(label: str, c: dict) -> str:
+    if not c["games"]:
+        return f"  {label}: 0 games"
+    return (f"  {label}: {c['games']} games · sessions per game {spread(c['sessions'], '{:g}')} · first capture "
+            f"{spread(c['first_h'])}h before kickoff · last capture {spread(c['last_h'])}h before kickoff "
+            f"(min/median/max) · earliest {jd_text(c['earliest'])} UTC")
+
+
+def report(inv: dict, form: str, since: str, until: str, exports: Path, echo=print) -> None:
+    echo(f"REPLAY INVENTORY PROBE (ARCHITECT 2026-10-15, addendum 79 item 3; #75): read-only · {form} · graded games "
+         f"with kickoff in [{since}, {until}) UTC: {inv['games']}")
+    echo(f"keys: {KEYS}")
+    fh = inv["first_history"]
+    echo("schema: predictions is CURRENT-ONLY per match (every writer deletes the match's rows and inserts one: a run "
+         "OVERWRITES) · prediction_history is APPEND-ONLY, one row per run per match, since #301 (2026-10-06, no "
+         "backfill) · " + (f"prediction_history here: {fh[1]} rows, first computed_at {jd_text(fh[0])} UTC"
+                           if inv["history_table"] else "prediction_history: NO such table in this database"))
+    cf = inv["closing"]
+    echo(f"closing files: {exports}/closing_*.json {cf['files']} files, {len(cf['ids'])} match ids"
+         + (f", unreadable {len(cf['unreadable'])} ({', '.join(cf['unreadable'])})" if cf["unreadable"] else "")
+         + f" · {exports}/host/closing_*.json {cf['host_files']} files, not matched (the host's match ids are its own)")
+    for name, g in inv["groups"].items():
+        echo(f"{name}: graded {g['graded']}")
+        echo(f"  stored prediction before kickoff: current row {g['pred_current']} · history {g['pred_history']} · "
+             f"either {g['pred_either']} · current row computed at/after kickoff {g['pred_current_after_ko']} · "
+             f"versions per game (history rows before kickoff) {spread(g['versions'], '{:g}')} (min/median/max over "
+             f"{len(g['versions'])} games) · prediction_outcomes rows {g['outcome_rows']}")
+        echo(_cap("book snapshots before kickoff", g["book"]))
+        echo(f"  odds table (the current board only) before kickoff: {g['odds_board']} games")
+        echo(_cap("kalshi snapshots before kickoff", g["kalshi"]))
+        echo(f"  kalshi_settled_markets rows: "
+             + (f"{g['settled_markets']} games" if inv["settled_table"] else "NO such table in this database"))
+        echo(f"  closing file ({exports}/, by match id): {g['closing']} games")
+        echo(f"  all four (a stored prediction + book snapshots + kalshi snapshots + a closing file): {g['all_four']}")
+    js = {name: {k: (v if not isinstance(v, dict) else {"games": v["games"], "earliest": jd_text(v["earliest"])})
+                 for k, v in g.items() if k != "versions"} for name, g in inv["groups"].items()}
+    echo("REPLAY-INVENTORY " + json.dumps({"since": since, "until": until, "games": inv["games"], "groups": js,
+                                           "closing_files": cf["files"], "host_closing_files": cf["host_files"]},
+                                          sort_keys=True))
+
+
+def main(argv=None) -> int:
+    ap = argparse.ArgumentParser(description="addendum 79 item 3: what the DB can replay, per sport")
+    ap.add_argument("--db", default=None)
+    ap.add_argument("--since", default=SINCE, help="first kickoff day, UTC (default 2026-09-20)")
+    ap.add_argument("--until", default=None, help="kickoffs before this day, UTC (default: now)")
+    ap.add_argument("--exports", default="exports", help="the laptop's exports folder (closing_*.json)")
+    a = ap.parse_args(argv)
+    until = a.until or datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+    con, form = open_read(db_path(a.db))
+    try:
+        report(inventory(con, a.since, until, Path(a.exports)), form, a.since, until, Path(a.exports))
+    finally:
+        con.close()
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

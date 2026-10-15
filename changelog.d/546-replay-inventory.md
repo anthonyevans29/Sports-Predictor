@@ -1,0 +1,15 @@
+## 2026-10-15 (#546: replay-inventory — ARCHITECT addendum 79 item 3, #75)
+- scripts/replay_inventory_probe.py (new, read-only): what the DB can replay, per sport, for the graded games since 2026-09-20 (FINISHED with both scores; kickoff in [--since, --until)). Soccer is split by competition code; NCAA is sport NFL with code NCAA.
+  - Per sport it prints:
+    - **Stored predictions before kickoff:** the current row, the prediction_history rows, either, and current rows computed at or after kickoff. Versions per game are history rows before kickoff (min/median/max). It also counts prediction_outcomes rows.
+    - **Book snapshots before kickoff** (odds_snapshots 1X2, source not kalshi; NULL counts as book): games, sessions per game, first and last capture age vs kickoff, and the earliest capture.
+    - **The odds table's current board**, apart.
+    - **Kalshi snapshots before kickoff** (source kalshi), the same figures.
+    - **kalshi_settled_markets** rows.
+    - **Closing files** in the laptop's exports/, by match id. Host copies under exports/host/ are counted, never matched, because their match ids are the host's own.
+    - **All four.**
+  - The header prints the keys, and the schema's answer on versions:
+    - `predictions` is current-only: every writer deletes the match's rows and inserts one.
+    - `prediction_history` is append-only since #301 (2026-10-06, no backfill). The probe prints this DB's first history stamp.
+  - A missing table (older DB) is said, never assumed. The DB opens mode=ro (#421's fallback); none is ever created.
+- tests/test_replay_inventory_probe.py: 8 tests on a throwaway SQLite.

@@ -1,4 +1,4 @@
-## 2026-10-15 (#546: replay-inventory — ARCHITECT addendum 79 item 3, #75)
+## 2026-10-15 (#547: replay-inventory — ARCHITECT addendum 79 item 3, #75)
 - scripts/replay_inventory_probe.py (new, read-only): what the DB can replay, per sport, for the graded games since 2026-09-20 (FINISHED with both scores; kickoff in [--since, --until)). Soccer is split by competition code; NCAA is sport NFL with code NCAA.
   - Per sport it prints:
     - **Stored predictions before kickoff:** the current row, the prediction_history rows, either, and current rows computed at or after kickoff. Versions per game are history rows before kickoff (min/median/max). It also counts prediction_outcomes rows.

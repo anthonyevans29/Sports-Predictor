@@ -498,3 +498,25 @@ def test_q9_history_lineups_never_reach_the_report_only_pricing(cup_db):
         with session_scope() as s:
             s.execute(delete(Lineup).where(Lineup.team_id == arsenal, Lineup.player_name.like("R%")
                                            | Lineup.player_name.like("H%")))
+
+
+def test_q9_the_kind_reader_never_reports_a_history_lineup(cup_db):
+    """Q9's first reader (lineup_kind_by_match_team, the DISTINCT of kinds): its one visible output is the
+    lineup_kind a SCHEDULED match's stored prediction carries. A history eleven on it (never written by #538, which
+    reads FINISHED fixtures only; here to pin the filter) leaves lineup_kind None, as with no lineup; unguarded it reads
+    'history'."""
+    from sqlalchemy import delete
+
+    from src.db.schema import Lineup
+    sched, chelsea = cup_db["scheduled"], cup_db["teams"]["Chelsea"]
+    try:
+        with session_scope() as s:
+            s.add_all(Lineup(match_id=sched, team_id=chelsea, kind="history", is_starter=True,
+                             player_name=f"K{k}") for k in range(11))
+        assert _generate_predictions_soccer("EFL", SEASON, only_match_id=sched) == 1
+        with session_scope() as s:
+            p = s.execute(select(Prediction).where(Prediction.match_id == sched)).scalar_one()
+            assert (p.factor_breakdown or {}).get("lineup_kind") is None
+    finally:
+        with session_scope() as s:
+            s.execute(delete(Lineup).where(Lineup.match_id == sched, Lineup.kind == "history"))

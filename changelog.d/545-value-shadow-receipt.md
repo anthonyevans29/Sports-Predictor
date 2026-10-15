@@ -1,13 +1,15 @@
 ## 2026-10-15 (#545: value-shadow-receipt — ARCHITECT addendum 79 item 2, #86; finding #544)
 - scripts/value_shadow_receipt.py (new, read-only): every value shadow in a Cockpit ledger export (`bd_ledger_v1_<date>.json`, from "Export ledger (JSON)"), units only, no dollar figure.
-  - Per row: the kickoff, sport, game, side, the edge at the call, the close, the result (won / lost / push / void / ungraded) and units (0.25u notional; net over the settled rows).
+  - **Per row:** the kickoff, sport, game, side, the edge at the call, the close, the result (won / lost / push / void / ungraded) and units (0.25u notional; net over the settled rows).
     - The edge at the call is the claim's: claim_model_p minus claim_market_p. Without a claim it is value_edge_pp, labelled "last log".
-    - The close is `close_ref.q_close`.
-  - Totals over all value shadows and over the rows with a close only: graded n, the record, units net. Then "n/30": the Cockpit's own counter, every value shadow with a result.
-  - Settlement follows the Cockpit's `settledBets`: a call the kickoff audit excludes is out of the net; a flagged one settles at `tz_audit.price_used`.
-  - Staked: a truthy `staked` field, or the text "value shadow, staked" in any string of a call. A call of another type marked so is listed apart and kept out of the totals. Neither the repo Cockpit nor the live artifact has such a field today.
-  - A ledger with no value shadow prints "→ n=0 of 30". A file that is not a ledger export is refused. Fills (dollars) are never read.
+    - The close is `close_ref.q_close`. The game's score is not in the ledger: the call's graded result is.
+  - **Totals** over all value shadows and over the rows with a close only: graded n, the record, units net.
+  - **n/30** prints both Cockpit readings: the policy card's (every value shadow with a result) and the P&L block's (its settled rows, after the kickoff audit).
+  - **Settlement follows the Cockpit's `settledBets`:** a row the kickoff audit excludes is out of the net, and its settled record is printed apart. A flagged row is re-settled at `tz_audit.price_used`, rounded as the Cockpit's toFixed(4) rounds.
+  - **Staked:** a truthy `staked` field, or the text "value shadow, staked" in any string of a call. A call of another type marked so is listed apart, with its own units, and kept out of the totals. Neither the repo Cockpit nor the live artifact has such a field today.
+  - **A Kalshi fill on a shadow's side:** the Cockpit's own fill matcher (`src/walters/ledger_fills.py`) books it off-book as "matches a quarantine SHADOW". The receipt re-fits it to the value shadow and counts it on the row. Its prices and size are never printed.
+  - A ledger with no value shadow prints "→ n=0 of 30". A file that is not a ledger export is refused.
   - The docstring carries the law-1 read of where `value_shadow_graded` comes from and why the closing runs read none (#544).
 - scripts/value_shadow_fixture_capture.py (new): writes the test fixture through the Cockpit's own code. It drives tools/cockpit.html headless: logs, grades, and saves the "Export ledger (JSON)" text.
 - tests/fixtures/value_shadow/bd_ledger_v1_cockpit.json: the kept ledger shape, 6 calls (5 value shadows: won, lost, push, ungraded, a soccer DRAW won; 3 with a close).
-- tests/test_value_shadow_receipt.py: 12 tests.
+- tests/test_value_shadow_receipt.py: 14 tests.

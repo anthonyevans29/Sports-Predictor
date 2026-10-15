@@ -40,12 +40,12 @@ def test_the_kept_ledger_is_the_cockpits_own_shape():
 def test_every_value_shadow_per_row_and_the_totals_on_the_kept_ledger():
     out, res = run(kept())
     assert out[0].startswith("VALUE-SHADOW RECEIPT (ARCHITECT 2026-10-15, addendum 79 item 2; #86)")
-    assert out[1] == ("ledger: bd_ledger_v1_test.json · calls 6 · meta.policy_version v1.1 (the Cockpit rewrites it "
-                      "on every load)")
+    assert out[1] == ("ledger: bd_ledger_v1_test.json · calls 6 · fills 0 (never priced here) · meta.policy_version "
+                      "v1.1 (the Cockpit rewrites it on every load)")
     assert out[2].startswith('keys: value shadow = call_type "value_shadow"')
     rows = [o for o in out if o.startswith("  2")]
     assert len(rows) == 5                                             # the Buffalo straight is not a shadow
-    day = rows[0][2:18]
+    day = "2026-10-16 18:00"                                          # the kept fixture's kickoff, UTC
     assert rows[0] == f"  {day} · SOCCER · Chelsea @ Arsenal · DRAW · edge +6.0pp (claim) · close 0.280 · won · 0.25u, net +0.6759u"
     assert (f"  {day} · NFL · Dallas Cowboys @ New York Giants · AWAY (Dallas Cowboys) · edge +8.0pp (claim) · no close"
             " · lost · 0.25u, net -0.2500u") in rows
@@ -59,11 +59,13 @@ def test_every_value_shadow_per_row_and_the_totals_on_the_kept_ledger():
             "+0.8801u over 4 settled (notional 1u)") in out
     assert ("  the rows with a close only: n 3 · graded 3 · record won 2 · lost 0 · push 1 · void 0 · ungraded 0 · "
             "units net +1.1301u over 3 settled (notional 0.75u)") in out
-    assert "  staked: 0 (a staked field 0 · the label 0) · marked but not a value_shadow call: 0" in out
-    assert out[-2] == ("n/30 (the Cockpit's counter: every value shadow with a result, push and void included): "
-                       "4 of 30")
+    assert ("  staked: 0 (a staked field 0 · the label 0) · marked but not a value_shadow call: 0 · with a Kalshi "
+            "fill on their side: 0") in out
+    assert out[-2] == ("n/30: the policy card's counter (every value shadow with a result) 4 of 30 · the P&L block's "
+                       "(its settled rows, the kickoff audit applied) 4 of 30")
     js = json.loads(out[-1].removeprefix("VALUE-SHADOW-RECEIPT "))
-    assert js["n_of_30"] == "4 of 30" and js["all"]["units_net"] == 0.8801 and js["with_close"]["n"] == 3
+    assert js["n_of_30"] == "4 of 30" and js["n_of_30_pnl"] == "4 of 30" and js["all"]["units_net"] == 0.8801
+    assert js["with_close"]["n"] == 3 and js["with_fill"] == 0
     assert res["all"]["record"] == {"won": 2, "lost": 1, "push": 1, "void": 0}
     assert not any("$" in o for o in out)                             # no dollar figure anywhere
 
@@ -90,8 +92,10 @@ def test_staked_shadows_are_read_by_a_field_or_the_label_and_another_call_so_mar
     assert any(o.endswith("net +0.4542u · STAKED (a staked field)") for o in out)
     assert any(o.endswith("net -0.2500u · STAKED (the label)") for o in out)
     i = out.index('MARKED "value shadow, staked" BUT NOT call_type value_shadow (listed, kept out of the totals):')
-    assert "Miami Dolphins @ Buffalo Bills" in out[i + 1] and out[i + 1].endswith("· call_type straight")
-    assert "  staked: 2 (a staked field 1 · the label 1) · marked but not a value_shadow call: 1" in out
+    assert "Miami Dolphins @ Buffalo Bills" in out[i + 1] and out[i + 1].endswith(
+        "· won · 1u, net +0.6667u · STAKED (the label) · call_type straight")        # its own units, not a shadow's
+    assert ("  staked: 2 (a staked field 1 · the label 1) · marked but not a value_shadow call: 1 · with a Kalshi "
+            "fill on their side: 0") in out
     assert res["all"]["n"] == 5 and res["all"]["units_net"] == 0.8801     # the straight stays out of the totals
 
 
@@ -105,7 +109,18 @@ def test_the_kickoff_audit_settles_as_the_cockpit_does():
     assert a["units_net"] == pytest.approx(round(0.25 / 0.25 - 0.25 - 0.25 + 0, 4))   # draw at 0.25; NYG lost; push
     assert any("Chicago Bears" in o and o.endswith("close 0.372 · won · 0.25u · kickoff audit: excluded") for o in out)
     assert any("Arsenal" in o and "net +0.7500u · kickoff audit: flagged" in o for o in out)
-    assert "out of the P&L by the kickoff audit 1" in next(o for o in out if o.startswith("  all value shadows"))
+    tot = next(o for o in out if o.startswith("  all value shadows"))
+    assert tot.endswith("out of the P&L by the kickoff audit 1 (the settled record: won 1 · lost 1 · push 1 · void 0)")
+    assert out[-2].endswith("4 of 30 · the P&L block's (its settled rows, the kickoff audit applied) 3 of 30")
+
+
+def test_a_flagged_row_is_resettled_as_the_cockpit_rounds_it():
+    """settledBets re-settles a flagged row with +settleReturn(...).toFixed(4): a tie rounds up (JS), never to even
+    (Python's round). 0.25 / 0.32 = 0.78125 -> 0.7813."""
+    L = kept()
+    call(L, "Chicago Bears")["tz_audit"] = {"flag": "x", "excluded": False, "price_used": 0.32}
+    r = vsr.row(call(L, "Chicago Bears"))
+    assert r["net"] == pytest.approx(0.5313) and vsr.js_fixed4(0.78125) == 0.7813 and round(0.78125, 4) == 0.7812
 
 
 def test_a_void_counts_graded_and_settles_its_stake_back():
@@ -114,7 +129,7 @@ def test_a_void_counts_graded_and_settles_its_stake_back():
     c.update(status="graded", result="void", shadow_returned=0.25)
     _, res = run(L)
     assert res["all"]["record"]["void"] == 1 and res["all"]["graded"] == 5 and res["all"]["ungraded"] == 0
-    assert res["all"]["units_net"] == 0.8801
+    assert res["all"]["settled"] == 5 and res["all"]["notional"] == 1.25 and res["all"]["units_net"] == 0.8801
 
 
 def test_a_ledger_with_no_value_shadow_says_n_0_of_30():
@@ -157,3 +172,23 @@ def test_the_kept_fixture_is_not_mutated_by_the_receipt():
     snap = copy.deepcopy(L)
     run(L)
     assert L == snap
+
+
+def test_a_kalshi_fill_on_a_shadows_side_is_counted_never_priced():
+    """The Cockpit books a real fill on a value shadow's side off-book ("matches a quarantine SHADOW"), with no link
+    to the shadow. The receipt re-fits it through the Cockpit's own matcher (the Python port) and counts it on the row;
+    its prices and size are dollars and are never printed."""
+    L = kept()
+    L["fills"] = [{"id": "f1", "ticker": "KXNFLGAME-26OCT16PHICHI-CHI", "side": "yes", "qty": 7, "entry": 0.37,
+                   "exit": 1.0, "staked": 2.59, "fees": 0.12, "open_fee": 0.12, "close_fee": 0, "pnl_pre": 4.41,
+                   "pnl_net": 4.29, "title": "Chicago wins — Philadelphia"},
+                  {"id": "f2", "ticker": "KXNFLGAME-26OCT16MIABUF-BUF", "side": "yes", "qty": 5, "entry": 0.6,
+                   "exit": 1.0, "staked": 3.0, "fees": 0.1, "title": "Buffalo wins — Miami"}]     # a real call's fill
+    out, res = run(L)
+    assert res["with_fill"] == 1
+    assert any(o.startswith("  2026-10-16 18:00 · NFL · Philadelphia Eagles @ Chicago Bears") and
+               o.endswith("· Kalshi fills on its side: 1 (off-book; never priced here)") for o in out)
+    assert out[1].startswith("ledger: bd_ledger_v1_test.json · calls 6 · fills 2 (never priced here)")
+    assert res["all"]["units_net"] == 0.8801                          # a fill changes no unit
+    text = "\n".join(out)
+    assert not any(x in text for x in ("$", "2.59", "4.29", "0.37 ", "qty"))   # no dollar figure, no size

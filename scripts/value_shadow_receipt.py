@@ -10,7 +10,7 @@ call, the close, the result, won/lost/push/ungraded, units; totals: graded n, re
 rows with a close only. No dollar figure anywhere (units only). Paste-whole output; tests on a kept ledger shape. If
 the ledger holds no shadow rows at all, the receipt says so and Monday's ruling is "n=0 of 30"."
 
-WHERE value_shadow_graded COMES FROM TODAY (read from the code, main c51324d):
+WHERE value_shadow_graded COMES FROM TODAY (read from the code, main c51324d; finding #544):
 - desk_policy.COUNT_KEYS names it beside postseason_graded and kalshi_only_graded. The Python Desk decides nothing
   with it: evaluate() passes only postseason_graded (and intl_graded) to desk_call. It is copied into desk_meta.counts
   with counts_source.
@@ -18,33 +18,39 @@ WHERE value_shadow_graded COMES FROM TODAY (read from the code, main c51324d):
   "value_shadow" and a result (push and void included), over its own bd_ledger_v1 in the browser's localStorage.
 - The ledger summary (kind bd_ledger_summary_v1) has ONE producer: the Cockpit's "Export ledger summary" button. It is a
   browser download named ledger_summary.json; the page asks the operator to save it by hand as
-  exports/ledger_summary.json. No command, chain step, mirror or host job writes or moves it.
+  exports/ledger_summary.json. Nothing PRODUCES it in exports/ (sp_migrate's pack and the exports mirror would copy one
+  saved there; the mirror, as it stands, holds none).
 - Every --desk export reads SP_LEDGER_SUMMARY, else exports/ledger_summary.json relative to the working directory
   (desk_policy.maybe_annotate). A closing step runs `python cli.py export-... --desk` with the checkout root as its
   working directory and no SP_LEDGER_SUMMARY in any example env. "default 0 (no ledger summary)" is the text
-  read_ledger_summary returns only when no file is at that path: the laptop's checkout has no
-  exports/ledger_summary.json. exports/ is gitignored, the step is manual and documented only on the button and in
-  docs/CLI.md, so the file was never saved there. (Every desk file in the exports mirror, laptop and host, reads it.)
+  read_ledger_summary returns only when no file is at that path. exports/ is gitignored and the save is a manual step
+  documented only on the button and in docs/CLI.md. Every desk file the exports mirror keeps (14 days: 109 files,
+  laptop and host, the closing files among them) reads that text: at none of those export times was a file there.
 - So the n for #86 cannot come from desk_meta. It comes from the ledger itself, which this receipt reads from the
   Cockpit's "Export ledger (JSON)" file (bd_ledger_v1_<date>.json).
 
 HOW THE LEDGER HOLDS A VALUE SHADOW (tools/cockpit.html, and the live Cockpit artifact published 2026-10-03, alike):
 a call with call_type "value_shadow", engine model_edge, units 0, shadow_units 0.25 (notional), pick = the value side.
 claim_model_p / claim_market_p are frozen at the first capture (the claim); value_edge_pp is overwritten by every
-re-log. Grading sets status "graded", result win / loss / push / void (push: a two-way tie), shadow_returned (units at
-fair odds: 0.25 / p on a win, 0.25 back on a push or void, 0 on a loss), and close_ref.q_close (the pick's closing
-fair) when the results file carried a close. The kickoff audit (#178) marks tz_audit: excluded = out of the P&L,
-flagged = settled at tz_audit.price_used. Neither copy of the Cockpit has a "staked" field or a note path for a shadow.
+re-log. Grading sets status "graded", result win / loss / push / void (push: a two-way tie; the game's score is not
+stored on the call), shadow_returned (units at fair odds: 0.25 / p on a win, 0.25 back on a push or void, 0 on a loss),
+and close_ref.q_close (the pick's closing fair) when the results file carried a close. The kickoff audit (#178) marks
+tz_audit: excluded = out of the P&L, flagged = settled at tz_audit.price_used. The Cockpit shows TWO n/30 readings: the
+policy card's (every value shadow with a result) and the P&L block's (its settled rows: the audit-excluded ones left
+out); the receipt prints both. Neither copy of the Cockpit has a "staked" field or a note path for a shadow; a real
+Kalshi fill on a shadow's side is booked off-book as "matches a quarantine SHADOW (off-policy play)", with no link.
 
 WHAT THE RECEIPT READS (the keys are printed with the output):
 - a value shadow: call_type "value_shadow";
 - staked: a truthy "staked" field on the call, or the text "value shadow, staked" in any string of it (any call_type).
-  A call of another type marked so is listed in its own block and kept out of the totals;
+  A call of another type marked so is listed in its own block, with its own units, and kept out of the totals;
+- a Kalshi fill on its side: the ledger's fills, classified by the Cockpit's own matcher (src/walters/ledger_fills.py,
+  its port), whose category is "matches a quarantine SHADOW (off-policy play)" and whose game and side fit the value
+  shadow. Counted only: a fill's prices and sizes are dollars and are never printed;
 - date: the kickoff (UTC); side: pick; edge at the call: (claim_model_p - claim_market_p) x 100, else value_edge_pp
-  (no claim recorded: the last log's edge, labelled); the close: close_ref.q_close; the result: result, status open =
-  ungraded; units: shadow_units notional, net = returned - staked over the settled rows (the Cockpit's settledBets).
-- graded n is the Cockpit's own n/30 counter (every value shadow with a result). Fills are never read: they carry
-  dollars.
+  (no claim recorded: the last log's edge, labelled); the close: close_ref.q_close; the result: the call's graded
+  result (won / lost / push / void), status open = ungraded; units: shadow_units notional, net = returned - staked over
+  the settled rows (the Cockpit's settledBets; a flagged row re-settled as the Cockpit does, toFixed(4)).
 
 Refuses a file that is not a bd_ledger_v1 export (no calls array, or a call that is not an object). Writes nothing.
 
@@ -55,17 +61,26 @@ from __future__ import annotations
 import argparse
 import json
 import sys
+from collections import Counter
+from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 
 REVIEW_N = 30                       # tools/cockpit.html VALUE.reviewN (#86: promotion after >= 30 graded)
 VALUE_SHADOW = "value_shadow"
+SHADOWS = ("quarantine_shadow", "value_shadow")        # tools/cockpit.html isShadow
 STAKED_TEXT = "value shadow, staked"
+SHADOW_FILL = "matches a quarantine SHADOW (off-policy play)"   # the Cockpit's matchFill category for any shadow
 OUTCOME = {"win": "won", "loss": "lost", "push": "push", "void": "void"}
 KEYS = ('value shadow = call_type "value_shadow" · staked = a truthy "staked" field, or the text '
-        f'"{STAKED_TEXT}" in any string of the call · date = kickoff (UTC) · side = pick · edge at the call = '
-        "(claim_model_p - claim_market_p) x 100, else value_edge_pp (last log) · close = close_ref.q_close · "
-        "result = result (status open: ungraded) · units = shadow_units; net = returned - staked over the settled "
-        "rows (tz_audit excluded: out; flagged: at tz_audit.price_used)")
+        f'"{STAKED_TEXT}" in any string of the call · fill on its side = a ledger fill the Cockpit books "{SHADOW_FILL}" '
+        "whose game and side fit (counted, never priced) · date = kickoff (UTC) · side = pick · edge at the call = "
+        "(claim_model_p - claim_market_p) x 100, else value_edge_pp (last log) · close = close_ref.q_close · result = "
+        "the call's graded result (the game's score is not in the ledger; status open: ungraded) · units = "
+        "shadow_units; net = returned - staked over the settled rows (tz_audit excluded: out; flagged: at "
+        "tz_audit.price_used)")
 
 
 def refusal(L) -> str | None:
@@ -100,6 +115,11 @@ def staked_by(c: dict) -> str | None:
     return None
 
 
+def js_fixed4(x: float) -> float:
+    """Number.prototype.toFixed(4) on the exact binary value, ties away from zero (the Cockpit's +x.toFixed(4))."""
+    return float(Decimal(x).quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP))
+
+
 def settle(units: float, result: str | None, p) -> float:
     """tools/cockpit.html settleReturn: fair odds, decimal = 1 / p."""
     if result == "win":
@@ -117,53 +137,89 @@ def edge_at_call(c: dict) -> tuple[float | None, str]:
     return (float(e), "last log") if isinstance(e, (int, float)) else (None, "none")
 
 
-def row(c: dict) -> dict:
+def _num(v) -> float:
+    return float(v) if isinstance(v, (int, float)) else 0.0
+
+
+def row(c: dict, fills: int = 0) -> dict:
+    """One call as the receipt prints it. A shadow settles on shadow_units / shadow_returned, any other call on
+    units / units_returned (the Cockpit's settledBets)."""
     graded = c.get("status") == "graded" and c.get("result") in OUTCOME
     au = c.get("tz_audit") if isinstance(c.get("tz_audit"), dict) else None
     excluded = bool(au and au.get("excluded"))
-    u = c.get("shadow_units")
-    u = float(u) if isinstance(u, (int, float)) else 0.0
+    sh = c.get("call_type") in SHADOWS
+    u = _num(c.get("shadow_units") if sh else c.get("units"))
     net = None
     if graded and not excluded:
-        if au:
-            returned = round(settle(u, c["result"], au.get("price_used")), 4)
-        else:
-            sr = c.get("shadow_returned")
-            returned = float(sr) if isinstance(sr, (int, float)) else 0.0
+        returned = (js_fixed4(settle(u, c["result"], au.get("price_used"))) if au
+                    else _num(c.get("shadow_returned") if sh else c.get("units_returned")))
         net = returned - u
     q = (c.get("close_ref") or {}).get("q_close") if isinstance(c.get("close_ref"), dict) else None
     edge, basis = edge_at_call(c)
-    return {"kickoff": c.get("kickoff"), "log_date": c.get("log_date"), "sport": c.get("sport"),
+    return {"id": c.get("id"), "kickoff": c.get("kickoff"), "log_date": c.get("log_date"), "sport": c.get("sport"),
             "home": c.get("home"), "away": c.get("away"), "game": c.get("game"), "pick": c.get("pick"),
             "edge_pp": edge, "edge_basis": basis, "close": q if isinstance(q, (int, float)) else None,
             "outcome": OUTCOME[c["result"]] if graded else "ungraded", "units": u, "net": net,
             "audit": "excluded" if excluded else ("flagged" if au else None), "staked": staked_by(c),
-            "call_type": c.get("call_type")}
+            "fills": fills, "call_type": c.get("call_type")}
+
+
+def shadow_fills(L: dict) -> dict:
+    """{value-shadow call id: the fills on its side}: the ledger's fills the Cockpit's own matcher (the Python port)
+    books as matching a shadow, re-fitted to the value shadow whose game and side they fit (the nearest start). The
+    fills' prices and sizes are never read past the matcher."""
+    from src.walters import ledger_fills as lf
+    shadows = [c for c in L["calls"] if c.get("call_type") == VALUE_SHADOW]
+    out: Counter = Counter()
+    if not shadows or not L.get("fills"):
+        return {}
+    for fx in lf.classify_fills(L):
+        if fx.get("category") != SHADOW_FILL or fx.get("composite"):
+            continue
+
+        def near(c, fx=fx):
+            d = (c.get("kickoff") or c.get("log_date") or "")[:10]
+            return c.get("sport") in fx["sports"] and lf.day_diff(d, fx["date"]) <= 1
+
+        def agrees(c, fx=fx):
+            if fx.get("backed_role"):
+                return fx["backed_role"] == c.get("pick")
+            name = {"HOME": c.get("home"), "AWAY": c.get("away")}.get(c.get("pick"), "Draw")
+            b = fx.get("backed")
+            return bool(b and name) and (b == name if "Draw" in (b, name) else lf._tok_subset(b, name))
+        fit = [c for c in lf._start_nearest(fx, [c for c in shadows if near(c) and lf.game_fits(fx, c)]) if agrees(c)]
+        if fit:
+            out[fit[0].get("id")] += 1
+    return dict(out)
 
 
 def totals(rs: list[dict]) -> dict:
     graded = [r for r in rs if r["outcome"] != "ungraded"]
     settled = [r for r in graded if r["net"] is not None]
     rec = {k: sum(1 for r in graded if r["outcome"] == k) for k in ("won", "lost", "push", "void")}
+    rec_pl = {k: sum(1 for r in settled if r["outcome"] == k) for k in ("won", "lost", "push", "void")}
     return {"n": len(rs), "graded": len(graded), "record": rec, "ungraded": len(rs) - len(graded),
-            "settled": len(settled), "audit_excluded": sum(1 for r in graded if r["audit"] == "excluded"),
+            "settled": len(settled), "record_settled": rec_pl,
+            "audit_excluded": sum(1 for r in graded if r["audit"] == "excluded"),
             "notional": round(sum(r["units"] for r in settled), 4),
             "units_net": round(sum(r["net"] for r in settled), 4)}
 
 
 def read(L: dict) -> dict:
-    vs = sorted((row(c) for c in L["calls"] if c.get("call_type") == VALUE_SHADOW),
+    fills = shadow_fills(L)
+    vs = sorted((row(c, fills.get(c.get("id"), 0)) for c in L["calls"] if c.get("call_type") == VALUE_SHADOW),
                 key=lambda r: (r["kickoff"] is None, r["kickoff"] or "", r["game"] or ""))
     other = [row(c) for c in L["calls"] if c.get("call_type") != VALUE_SHADOW and staked_by(c)]
     return {"rows": vs, "other_staked": other, "all": totals(vs),
             "with_close": totals([r for r in vs if r["close"] is not None]),
             "staked": {"field": sum(1 for r in vs if r["staked"] == "field"),
-                       "text": sum(1 for r in vs if r["staked"] == "text")}}
+                       "text": sum(1 for r in vs if r["staked"] == "text")},
+            "with_fill": sum(1 for r in vs if r["fills"])}
 
 
 def _side(r: dict) -> str:
-    team = {"HOME": r["home"], "AWAY": r["away"], "DRAW": "draw"}.get(r["pick"] or "")
-    return f"{r['pick'] or '-'}" + (f" ({team})" if team and team != "draw" else "")
+    team = {"HOME": r["home"], "AWAY": r["away"]}.get(r["pick"] or "")
+    return f"{r['pick'] or '-'}" + (f" ({team})" if team else "")
 
 
 def _line(r: dict) -> str:
@@ -174,23 +230,28 @@ def _line(r: dict) -> str:
     units = f"{r['units']:g}u" + ("" if r["net"] is None else f", net {r['net']:+.4f}u")
     return (f"  {when} · {r['sport'] or '-'} · {game} · {_side(r)} · edge {edge} · {close} · {r['outcome']} · {units}"
             + (f" · kickoff audit: {r['audit']}" if r["audit"] else "")
-            + (f" · STAKED ({'a staked field' if r['staked'] == 'field' else 'the label'})" if r["staked"] else ""))
+            + (f" · STAKED ({'a staked field' if r['staked'] == 'field' else 'the label'})" if r["staked"] else "")
+            + (f" · Kalshi fills on its side: {r['fills']} (off-book; never priced here)" if r["fills"] else ""))
+
+
+def _rec(rec: dict) -> str:
+    return f"won {rec['won']} · lost {rec['lost']} · push {rec['push']} · void {rec['void']}"
 
 
 def _tot(label: str, t: dict) -> str:
-    rec = t["record"]
-    return (f"  {label}: n {t['n']} · graded {t['graded']} · record won {rec['won']} · lost {rec['lost']} · "
-            f"push {rec['push']} · void {rec['void']} · ungraded {t['ungraded']} · units net {t['units_net']:+.4f}u "
-            f"over {t['settled']} settled (notional {t['notional']:g}u)"
-            + (f" · out of the P&L by the kickoff audit {t['audit_excluded']}" if t["audit_excluded"] else ""))
+    return (f"  {label}: n {t['n']} · graded {t['graded']} · record {_rec(t['record'])} · ungraded {t['ungraded']} · "
+            f"units net {t['units_net']:+.4f}u over {t['settled']} settled (notional {t['notional']:g}u)"
+            + (f" · out of the P&L by the kickoff audit {t['audit_excluded']} (the settled record: "
+               f"{_rec(t['record_settled'])})" if t["audit_excluded"] else ""))
 
 
 def report(L: dict, name: str, echo=print) -> dict:
     out = read(L)
     a, wc = out["all"], out["with_close"]
     echo("VALUE-SHADOW RECEIPT (ARCHITECT 2026-10-15, addendum 79 item 2; #86): read-only, units only, no dollar figure")
-    echo(f"ledger: {name} · calls {len(L['calls'])} · meta.policy_version "
-         f"{(L.get('meta') or {}).get('policy_version', '-')} (the Cockpit rewrites it on every load)")
+    echo(f"ledger: {name} · calls {len(L['calls'])} · fills {len(L.get('fills') or [])} (never priced here) · "
+         f"meta.policy_version {(L.get('meta') or {}).get('policy_version', '-')} (the Cockpit rewrites it on every "
+         "load)")
     echo(f"keys: {KEYS}")
     if not out["rows"] and not out["other_staked"]:
         echo("VALUE SHADOWS: none in this ledger (0 calls with call_type value_shadow, 0 marked "
@@ -207,12 +268,16 @@ def report(L: dict, name: str, echo=print) -> dict:
         echo(_tot("all value shadows", a))
         echo(_tot("the rows with a close only", wc))
         echo(f"  staked: {out['staked']['field'] + out['staked']['text']} (a staked field {out['staked']['field']} · "
-             f"the label {out['staked']['text']}) · marked but not a value_shadow call: {len(out['other_staked'])}")
-        echo(f"n/30 (the Cockpit's counter: every value shadow with a result, push and void included): "
-             f"{a['graded']} of {REVIEW_N}")
+             f"the label {out['staked']['text']}) · marked but not a value_shadow call: {len(out['other_staked'])} · "
+             f"with a Kalshi fill on their side: {out['with_fill']}")
+        echo(f"n/30: the policy card's counter (every value shadow with a result) {a['graded']} of {REVIEW_N} · the "
+             f"P&L block's (its settled rows, the kickoff audit applied) {min(a['settled'], REVIEW_N)} of {REVIEW_N}")
     echo("VALUE-SHADOW-RECEIPT " + json.dumps({"ledger": name, "calls": len(L["calls"]), "all": a, "with_close": wc,
                                                 "staked": out["staked"], "other_staked": len(out["other_staked"]),
-                                                "n_of_30": f"{a['graded']} of {REVIEW_N}"}, sort_keys=True))
+                                                "with_fill": out["with_fill"],
+                                                "n_of_30": f"{a['graded']} of {REVIEW_N}",
+                                                "n_of_30_pnl": f"{min(a['settled'], REVIEW_N)} of {REVIEW_N}"},
+                                               sort_keys=True))
     return out
 
 

@@ -14,6 +14,9 @@ The ledger it writes: five value shadows, all kickoff tomorrow (the Cockpit capt
   NFL  Minnesota Vikings @ Green Bay Packers value HOME (dog)  · no result  · ungraded
   PL   Chelsea @ Arsenal                     value DRAW        · 1-1        · won  · a close
 plus the real calls the same files make (the Buffalo straight, the top picks' PASSes are not logged).
+The desk files are annotated as scripts/cockpit_desk_files.upload does by default, under desk_policy.base_v11()
+(the frozen pre-addendum policy the Cockpit verifies use): the five value shadows read the same either way; only the
+Buffalo straight's units would differ under today's rules.
 
     python3 scripts/value_shadow_fixture_capture.py [--out tests/fixtures/value_shadow/bd_ledger_v1_cockpit.json]
 

@@ -7,7 +7,8 @@ headless Chromium over synthetic desk files, logs the value shadows the files ca
 "Re-log at T-60"), grades them from synthetic results files, and saves JSON.stringify(loadLedger(), null, 1): the
 exact text the "Export ledger (JSON)" button downloads (bd_ledger_v1_<date>.json).
 
-The ledger it writes: five value shadows, all kickoff tomorrow (the Cockpit captures a call only before kickoff):
+The ledger it writes: five value shadows, all kickoff 2091-10-16 18:00 UTC (fixed, and in the future: the Cockpit
+captures a call only before kickoff):
   NFL  Philadelphia Eagles @ Chicago Bears   value HOME (dog)  · CHI 27-7   · won  · a close in the results file
   NFL  Dallas Cowboys @ New York Giants      value AWAY (dog)  · NYG 24-10  · lost · no close
   NFL  Los Angeles Rams @ Seattle Seahawks   value HOME (dog)  · 20-20      · push (a two-way tie) · a close
@@ -30,7 +31,6 @@ import os
 import sys
 import tempfile
 import threading
-from datetime import datetime, timedelta, timezone
 
 from playwright.sync_api import sync_playwright
 
@@ -39,8 +39,8 @@ import cockpit_desk_files as cdf  # noqa: E402  (F1c: the Cockpit renders desk f
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, "tests", "fixtures", "value_shadow", "bd_ledger_v1_cockpit.json")
-D1 = (datetime.now(timezone.utc).replace(microsecond=0, second=0, minute=0) + timedelta(days=1)).strftime(
-    "%Y-%m-%dT%H:%M:%S")
+D1 = "2091-10-16T18:00:00"     # a fixed kickoff in the future: re-running the capture reproduces the kept dates (Codex on
+#                              #545); the Cockpit captures a call only before its kickoff
 
 
 def nfl(home, away, p_home, fair_home):

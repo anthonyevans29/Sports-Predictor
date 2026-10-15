@@ -45,7 +45,7 @@ def test_every_value_shadow_per_row_and_the_totals_on_the_kept_ledger():
     assert out[2].startswith('keys: value shadow = call_type "value_shadow"')
     rows = [o for o in out if o.startswith("  2")]
     assert len(rows) == 5                                             # the Buffalo straight is not a shadow
-    day = "2026-10-16 18:00"                                          # the kept fixture's kickoff, UTC
+    day = "2091-10-16 18:00"                                          # the kept fixture's fixed kickoff, UTC
     assert rows[0] == f"  {day} · SOCCER · Chelsea @ Arsenal · DRAW · edge +6.0pp (claim) · close 0.280 · won · 0.25u, net +0.6759u"
     assert (f"  {day} · NFL · Dallas Cowboys @ New York Giants · AWAY (Dallas Cowboys) · edge +8.0pp (claim) · no close"
             " · lost · 0.25u, net -0.2500u") in rows
@@ -99,10 +99,27 @@ def test_staked_shadows_are_read_by_a_field_or_the_label_and_another_call_so_mar
     assert res["all"]["n"] == 5 and res["all"]["units_net"] == 0.8801     # the straight stays out of the totals
 
 
+POST, PRE = "2091-10-16T19:00:00.000Z", "2091-10-16T17:00:00.000Z"      # an hour after / before the fixed kickoff
+
+
+def post_kickoff(c, pre_price=None):
+    """The #178 shape: the execution (and the claim when no pre-kickoff price is given) logged after the true kickoff;
+    a pre-kickoff reprice at `pre_price` when given."""
+    c["executed_at"] = POST
+    c["reprices"] = [{"at": POST, "market_p": 0.5, "model_p": 0.6}]
+    if pre_price is None:
+        c["claim_at"] = POST
+    else:
+        c["reprices"].insert(0, {"at": PRE, "market_p": pre_price, "model_p": 0.6})
+    return c
+
+
 def test_the_kickoff_audit_settles_as_the_cockpit_does():
+    """auditCall recomputed from the stored stamps: no pre-kickoff price -> out of the P&L; an execution after kickoff
+    with a pre-kickoff reprice -> settled at that reprice."""
     L = kept()
-    call(L, "Chicago Bears")["tz_audit"] = {"flag": "x", "excluded": True}
-    call(L, "Arsenal")["tz_audit"] = {"flag": "x", "excluded": False, "price_used": 0.25}
+    post_kickoff(call(L, "Chicago Bears"))
+    post_kickoff(call(L, "Arsenal"), pre_price=0.25)
     out, res = run(L)
     a = res["all"]
     assert (a["graded"], a["settled"], a["audit_excluded"]) == (4, 3, 1)
@@ -118,7 +135,7 @@ def test_a_flagged_row_is_resettled_as_the_cockpit_rounds_it():
     """settledBets re-settles a flagged row with +settleReturn(...).toFixed(4): a tie rounds up (JS), never to even
     (Python's round). 0.25 / 0.32 = 0.78125 -> 0.7813."""
     L = kept()
-    call(L, "Chicago Bears")["tz_audit"] = {"flag": "x", "excluded": False, "price_used": 0.32}
+    post_kickoff(call(L, "Chicago Bears"), pre_price=0.32)
     r = vsr.row(call(L, "Chicago Bears"))
     assert r["net"] == pytest.approx(0.5313) and vsr.js_fixed4(0.78125) == 0.7813 and round(0.78125, 4) == 0.7812
 
@@ -179,16 +196,41 @@ def test_a_kalshi_fill_on_a_shadows_side_is_counted_never_priced():
     to the shadow. The receipt re-fits it through the Cockpit's own matcher (the Python port) and counts it on the row;
     its prices and size are dollars and are never printed."""
     L = kept()
-    L["fills"] = [{"id": "f1", "ticker": "KXNFLGAME-26OCT16PHICHI-CHI", "side": "yes", "qty": 7, "entry": 0.37,
+    L["fills"] = [{"id": "f1", "ticker": "KXNFLGAME-91OCT16PHICHI-CHI", "side": "yes", "qty": 7, "entry": 0.37,
                    "exit": 1.0, "staked": 2.59, "fees": 0.12, "open_fee": 0.12, "close_fee": 0, "pnl_pre": 4.41,
                    "pnl_net": 4.29, "title": "Chicago wins — Philadelphia"},
-                  {"id": "f2", "ticker": "KXNFLGAME-26OCT16MIABUF-BUF", "side": "yes", "qty": 5, "entry": 0.6,
+                  {"id": "f2", "ticker": "KXNFLGAME-91OCT16MIABUF-BUF", "side": "yes", "qty": 5, "entry": 0.6,
                    "exit": 1.0, "staked": 3.0, "fees": 0.1, "title": "Buffalo wins — Miami"}]     # a real call's fill
     out, res = run(L)
     assert res["with_fill"] == 1
-    assert any(o.startswith("  2026-10-16 18:00 · NFL · Philadelphia Eagles @ Chicago Bears") and
+    assert any(o.startswith("  2091-10-16 18:00 · NFL · Philadelphia Eagles @ Chicago Bears") and
                o.endswith("· Kalshi fills on its side: 1 (off-book; never priced here)") for o in out)
     assert out[1].startswith("ledger: bd_ledger_v1_test.json · calls 6 · fills 2 (never priced here)")
     assert res["all"]["units_net"] == 0.8801                          # a fill changes no unit
     text = "\n".join(out)
     assert not any(x in text for x in ("$", "2.59", "4.29", "0.37 ", "qty"))   # no dollar figure, no size
+
+
+def test_the_stored_audit_mark_is_never_read_the_audit_is_recomputed():
+    """Codex on #545: a ledger last saved before markAudit carries no tz_audit, and the Cockpit's P&L recomputes the
+    audit anyway. A missing mark on a post-kickoff row still excludes it; a stale mark on a clean row changes nothing."""
+    L = kept()
+    c = post_kickoff(call(L, "Chicago Bears"))
+    c.pop("tz_audit", None)
+    stale = call(L, "Arsenal")
+    stale["tz_audit"] = {"flag": "post-kickoff (tz bug)", "excluded": True, "price_used": None}
+    _, res = run(L)
+    assert res["all"]["audit_excluded"] == 1 and res["all"]["settled"] == 3
+    assert next(r for r in res["rows"] if r["home"] == "Arsenal")["audit"] is None
+
+
+@pytest.mark.parametrize("s,ok", [("2091-10-16T18:00:00", True), ("2091-10-16T18:00:00Z", True),
+                                  ("2091-10-16T18:00:00.000Z", True), ("2091-10-16T14:00:00-04:00", True),
+                                  ("2091-10-16", False), ("bad", None), (None, None)])
+def test_utc_ms_reads_stamps_as_the_cockpits_utcms(s, ok):
+    ko = vsr.utc_ms("2091-10-16T18:00:00")
+    x = vsr.utc_ms(s)
+    if ok is None:
+        assert x != x                                                  # NaN
+    else:
+        assert (x == ko) is ok

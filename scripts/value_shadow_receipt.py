@@ -34,8 +34,9 @@ a call with call_type "value_shadow", engine model_edge, units 0, shadow_units 0
 claim_model_p / claim_market_p are frozen at the first capture (the claim); value_edge_pp is overwritten by every
 re-log. Grading sets status "graded", result win / loss / push / void (push: a two-way tie; the game's score is not
 stored on the call), shadow_returned (units at fair odds: 0.25 / p on a win, 0.25 back on a push or void, 0 on a loss),
-and close_ref.q_close (the pick's closing fair) when the results file carried a close. The kickoff audit (#178) marks
-tz_audit: excluded = out of the P&L, flagged = settled at tz_audit.price_used. The Cockpit shows TWO n/30 readings: the
+and close_ref.q_close (the pick's closing fair) when the results file carried a close. The kickoff audit (#178,
+auditCall) is recomputed by the P&L on every read: excluded = out of the P&L, flagged = settled at the audited price
+(the stored tz_audit is only a mark set on save). The Cockpit shows TWO n/30 readings: the
 policy card's (every value shadow with a result) and the P&L block's (its settled rows: the audit-excluded ones left
 out); the receipt prints both. Neither copy of the Cockpit has a "staked" field or a note path for a shadow; a real
 Kalshi fill on a shadow's side is booked off-book as "matches a quarantine SHADOW (off-policy play)", with no link.
@@ -50,7 +51,8 @@ WHAT THE RECEIPT READS (the keys are printed with the output):
 - date: the kickoff (UTC); side: pick; edge at the call: (claim_model_p - claim_market_p) x 100, else value_edge_pp
   (no claim recorded: the last log's edge, labelled); the close: close_ref.q_close; the result: the call's graded
   result (won / lost / push / void), status open = ungraded; units: shadow_units notional, net = returned - staked over
-  the settled rows (the Cockpit's settledBets; a flagged row re-settled as the Cockpit does, toFixed(4)).
+  the settled rows (the Cockpit's settledBets, with its kickoff audit auditCall RECOMPUTED from the stored stamps,
+  never read from the stored tz_audit mark; a flagged row re-settled as the Cockpit does, toFixed(4)).
 
 Refuses a file that is not a bd_ledger_v1 export (no calls array, or a call that is not an object). Writes nothing.
 
@@ -60,8 +62,10 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
 import sys
 from collections import Counter
+from datetime import datetime, timezone
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 
@@ -79,8 +83,8 @@ KEYS = ('value shadow = call_type "value_shadow" · staked = a truthy "staked" f
         "whose game and side fit (counted, never priced) · date = kickoff (UTC) · side = pick · edge at the call = "
         "(claim_model_p - claim_market_p) x 100, else value_edge_pp (last log) · close = close_ref.q_close · result = "
         "the call's graded result (the game's score is not in the ledger; status open: ungraded) · units = "
-        "shadow_units; net = returned - staked over the settled rows (tz_audit excluded: out; flagged: at "
-        "tz_audit.price_used)")
+        "shadow_units; net = returned - staked over the settled rows (the kickoff audit recomputed as the Cockpit's "
+        "auditCall: excluded = out; flagged = at the audited price)")
 
 
 def refusal(L) -> str | None:
@@ -129,6 +133,56 @@ def settle(units: float, result: str | None, p) -> float:
     return 0.0
 
 
+def utc_ms(s) -> float:
+    """tools/cockpit.html utcMs: a naive date-time is UTC (a "Z" is appended), a date-only string is UTC; anything
+    unparseable is NaN."""
+    if not s:
+        return math.nan
+    s = str(s)
+    try:
+        d = datetime.fromisoformat(s[:-1] + "+00:00" if s[-1:] in ("z", "Z") else s)
+    except ValueError:
+        return math.nan
+    if d.tzinfo is None:
+        d = d.replace(tzinfo=timezone.utc)
+    return d.timestamp() * 1000
+
+
+def audit_call(c: dict) -> dict:
+    """tools/cockpit.html auditCall (#178), recomputed here as the Cockpit's settledBets recomputes it, never read from
+    the stored tz_audit mark (a ledger last saved before the mark existed carries none: Codex on #545). A claim, an
+    execution (legacy: captured_at) or a reprice at/after the true UTC kickoff flags the position; its price is then
+    the execution's if that was pre-kickoff, else the last pre-kickoff reprice, else the claim's if pre-kickoff, else
+    none: the position leaves the P&L (excluded)."""
+    ko = utc_ms(c.get("kickoff"))
+    if not math.isfinite(ko):
+        return {"flagged": False}
+
+    def post(t):
+        x = utc_ms(t)
+        return math.isfinite(x) and x >= ko
+    exec_p = c.get("exec_market_p") if c.get("exec_market_p") is not None else c.get("market_p")
+    claim_post = c.get("claim_at") is not None and post(c.get("claim_at"))
+    exec_at = next((c.get(k) for k in ("executed_at", "captured_at") if c.get(k) is not None), None)
+    exec_post = exec_at is not None and post(exec_at)
+    reps = [x for x in (c.get("reprices") if isinstance(c.get("reprices"), list) else [])
+            if isinstance(x, dict) and x.get("at") is not None]
+    post_reps = sum(1 for x in reps if post(x["at"]))
+    if not claim_post and not exec_post and not post_reps:
+        return {"flagged": False}
+    price = None
+    if not exec_post:
+        price = exec_p
+    else:
+        pre = sorted((x for x in reps if not post(x["at"]) and x.get("market_p") is not None),
+                     key=lambda x: utc_ms(x["at"]) if math.isfinite(utc_ms(x["at"])) else -math.inf)
+        if pre:
+            price = pre[-1]["market_p"]
+        elif c.get("claim_at") is not None and not claim_post and c.get("claim_market_p") is not None:
+            price = c["claim_market_p"]
+    return {"flagged": True, "price": price, "excluded": price is None}
+
+
 def edge_at_call(c: dict) -> tuple[float | None, str]:
     m, k = c.get("claim_model_p"), c.get("claim_market_p")
     if isinstance(m, (int, float)) and isinstance(k, (int, float)):
@@ -145,13 +199,13 @@ def row(c: dict, fills: int = 0) -> dict:
     """One call as the receipt prints it. A shadow settles on shadow_units / shadow_returned, any other call on
     units / units_returned (the Cockpit's settledBets)."""
     graded = c.get("status") == "graded" and c.get("result") in OUTCOME
-    au = c.get("tz_audit") if isinstance(c.get("tz_audit"), dict) else None
-    excluded = bool(au and au.get("excluded"))
+    au = audit_call(c)
+    excluded = au["flagged"] and au["excluded"]
     sh = c.get("call_type") in SHADOWS
     u = _num(c.get("shadow_units") if sh else c.get("units"))
     net = None
     if graded and not excluded:
-        returned = (js_fixed4(settle(u, c["result"], au.get("price_used"))) if au
+        returned = (js_fixed4(settle(u, c["result"], au["price"])) if au["flagged"]
                     else _num(c.get("shadow_returned") if sh else c.get("units_returned")))
         net = returned - u
     q = (c.get("close_ref") or {}).get("q_close") if isinstance(c.get("close_ref"), dict) else None
@@ -160,7 +214,7 @@ def row(c: dict, fills: int = 0) -> dict:
             "home": c.get("home"), "away": c.get("away"), "game": c.get("game"), "pick": c.get("pick"),
             "edge_pp": edge, "edge_basis": basis, "close": q if isinstance(q, (int, float)) else None,
             "outcome": OUTCOME[c["result"]] if graded else "ungraded", "units": u, "net": net,
-            "audit": "excluded" if excluded else ("flagged" if au else None), "staked": staked_by(c),
+            "audit": "excluded" if excluded else ("flagged" if au["flagged"] else None), "staked": staked_by(c),
             "fills": fills, "call_type": c.get("call_type")}
 
 

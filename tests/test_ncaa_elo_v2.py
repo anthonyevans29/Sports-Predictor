@@ -743,6 +743,50 @@ def test_the_gate_command_by_id(ledger, monkeypatch):
     assert r.exit_code == 2 and "--stream-fingerprint" in r.output
 
 
+def _confirmation_loaders(monkeypatch, games):
+    """The confirmation's loaders over in-memory games: load_v1r_games(seasons) returns the labels of `seasons` only
+    (as the store's loader does), and every call is recorded. load_streams (both streams) must not be called."""
+    calls = {"games": [], "streams": []}
+
+    def load_games(seasons=None):
+        calls["games"].append(seasons)
+        return [g for g in games if seasons is None or g.cfbd_season in seasons]
+
+    def load_streams(seasons_list, games_=None):
+        calls["streams"].append((tuple(tuple(s_) for s_ in seasons_list), sorted({g.cfbd_season for g in games_})))
+        return [_v(games_, tuple(s_)) for s_ in seasons_list]
+
+    def both(spec=vg.V1R):
+        raise AssertionError("the confirmation read loaded the second read's stream")
+    monkeypatch.setattr(nb, "load_v1r_games", load_games)
+    monkeypatch.setattr(nb, "load_v1r_streams", load_streams)
+    monkeypatch.setattr(vg, "load_streams", both)
+    return calls
+
+
+def test_a_confirmation_read_loads_no_2023_row(ledger, monkeypatch):
+    """ARCHITECT 2026-10-16, addendum 95 item 2 (Codex on #553, round 3): D10's season is touched by the one run and
+    nothing else, so the confirmation of a declaration with a second read loads its own seasons' labels only."""
+    _freeze_s(ledger, 283.25)
+    entries = json.loads(Path(ledger).read_text())
+    e = next(x for x in entries if x["id"] == "ncaa-elo-v2")
+    e.update({"status": "confirming", "verdict": {"verdict": "PASS", "ruling": "PASS. ARCHITECT", "at": "2026-11-10T00:00:00Z"},
+              "run": {"run_at": "2026-11-09T00:00:00Z", "n_scored": 0, "ids_file": None,
+                      "result": {"baseline_home_rate": 0.6}}})
+    Path(ledger).write_text(json.dumps(entries, indent=2))
+    games = second_stream() + main_stream(n_test=40)                     # the store holds 2023 labels too
+    assert "2023" in {g.cfbd_season for g in games}
+    ids = [g.match_id for g in games if g.season == "2026"][-10:]
+    monkeypatch.setattr(vg, "coverage", lambda seasons, s=None: _cov())
+    calls = _confirmation_loaders(monkeypatch, games)
+    monkeypatch.setattr(vg, "cohort", lambda e_, s: {"state": "frozen", "ids": ids, "n_games": 100,
+                                                     "eligible_stored": 10})
+    monkeypatch.setattr(vg, "_statuses", lambda s, ids_: {i: {"status": "finished"} for i in ids_})
+    assert vg.confirmation_read(V2)["n"] == 10
+    assert calls["games"] == [("2024", "2025", "2026")]                 # the loader's seasons: no 2023
+    assert calls["streams"] == [((("2024", "2025", "2026"),), ["2024", "2025", "2026"])]   # one stream, no 2023 row
+
+
 def test_the_confirmation_by_id_refuses_before_a_run_and_scores_with_the_frozen_s(ledger, monkeypatch):
     with pytest.raises(vg.GateRefused, match="ncaa-elo-v2 has no run record"):
         vg.confirming(V2)
@@ -759,7 +803,7 @@ def test_the_confirmation_by_id_refuses_before_a_run_and_scores_with_the_frozen_
     games = main_stream(n_test=40)
     ids = [g.match_id for g in games if g.season == "2026"][-10:]
     monkeypatch.setattr(vg, "coverage", lambda seasons, s=None: _cov())
-    monkeypatch.setattr(vg, "load_streams", lambda spec=vg.V1R: (_v(games, V2.seasons), None))
+    _confirmation_loaders(monkeypatch, games)
     monkeypatch.setattr(vg, "cohort", lambda e_, s: {"state": "frozen", "ids": ids, "n_games": 100,
                                                      "eligible_stored": 10})
     monkeypatch.setattr(vg, "_statuses", lambda s, ids_: {i: {"status": "finished"} for i in ids_})

@@ -981,7 +981,11 @@ def confirmation_read(spec: Spec = V1R) -> dict:
         co = cohort(e, s)
         st = _statuses(s, co["ids"])
         s.rollback()
-    v = load_streams(spec)[0]
+    # D10's season is touched by the one run and nothing else (ARCHITECT 2026-10-16, addendum 95 item 2; Codex on
+    # #553): a declaration with a second read loads its own seasons' labels only, never the second read's (2023);
+    # v1r reads as it always has.
+    v = (load_streams(spec)[0] if spec.second is None
+         else nb.load_v1r_streams((spec.seasons,), nb.load_v1r_games(spec.seasons))[0])
     # D7: "A cancelled fixture is released and replaced by the next eligible one." A cancelled cohort fixture is never
     # scored, label or not: it stays pending (release due) until --substitute replaces it (Codex on #375).
     live = [i for i in co["ids"] if (st.get(i) or {}).get("status") != "cancelled"]

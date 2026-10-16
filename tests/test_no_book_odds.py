@@ -35,6 +35,8 @@ class FakeBaseball:
         self.window = window if window is not None else [ow("NBO Nowhere", "NBO Elsewhere", "HOME", 1.9, days=3)]
 
     def list_odds_window(self, season):
+        if isinstance(self.window, Exception):
+            raise self.window
         return self.window
 
     def list_games_on_date(self, season, date_str):
@@ -45,7 +47,10 @@ class FakeBaseball:
 
     def list_odds_for_game(self, season, game_id):
         self.asked.append(game_id)
-        return self.odds.get(game_id, [])
+        got = self.odds.get(game_id, [])
+        if isinstance(got, Exception):
+            raise got
+        return got
 
 
 def ow(home, away, sel, px, hours=2, days=0, book="bk", gid=1):
@@ -107,7 +112,7 @@ SYNC_ARGV = ["sync-odds", "--competition", "MLB", "--season", "2026"]
 
 
 def test_the_mlb_sync_names_each_game_it_left_with_no_book_odds_and_the_closing_run_reads_its_line(monkeypatch):
-    """The sync's own answer, recorded on the result and printed as one plain line (the step's last), which the
+    """The sync's own answer, recorded on the result and printed as one plain line (before the summary), which the
     closing run reads by match id: the 10-15 game as "provider listed the game, no odds"."""
     import cli
     from src.ingestion.service import NO_BOOK_ODDS_WHY
@@ -178,8 +183,9 @@ def test_when_the_fallback_never_runs_the_run_gives_its_own_answer(monkeypatch):
         f"run [{NO_BOOK_ODDS_RUN_WHY['window_failed']}]")
 
 
-def test_sync_odds_prints_the_line_last_so_the_step_tail_carries_it(monkeypatch):
-    """The wiring: `sync-odds --competition MLB` ends with the NO-BOOK-ODDS line, inside sp_run's five-line tail."""
+def test_sync_odds_prints_the_line_inside_the_step_tail_and_the_summary_stays_last(monkeypatch):
+    """The wiring: `sync-odds --competition MLB` prints the NO-BOOK-ODDS line just before its summary, inside sp_run's
+    five-line tail; the summary stays the last line, which sp_receipts reads as a step receipt's key line."""
     import cli
     from click.testing import CliRunner
 
@@ -189,8 +195,11 @@ def test_sync_odds_prints_the_line_last_so_the_step_tail_carries_it(monkeypatch)
     out = CliRunner().invoke(cli.cli, SYNC_ARGV)
     assert out.exit_code == 0, out.output
     lines = [x for x in out.output.splitlines() if x.strip()]
-    assert lines[-1].startswith("NO-BOOK-ODDS (MLB): ")
-    assert mc.no_book_odds(SYNC_ARGV, lines[-mc.sp_run.TAIL:])[ids["listed"]] == LISTED
+    assert lines[-1].startswith("✓ MLB odds: ") and lines[-2].startswith("NO-BOOK-ODDS (MLB): ")
+    tail = lines[-mc.sp_run.TAIL:]
+    assert mc.no_book_odds(SYNC_ARGV, tail)[ids["listed"]] == LISTED
+    import sp_receipts
+    assert sp_receipts.key_line({"kind": "step", "tail": tail}).startswith("✓ MLB odds: ")   # the counts stay
 
 
 def _tail_1015(mid):
@@ -307,3 +316,45 @@ def test_the_receipt_command_prints_the_tally_in_its_postseason_split(monkeypatc
     assert seen == [("2091", Path(cli.__file__).resolve().parent / "exports")]
     post = out.read_text().split("## Postseason (stage F/D/L/W)", 1)[1].split("\n## ", 1)[0]
     assert "- closing runs with no provider odds: 2 of 3" in post
+
+
+def test_a_failed_window_read_and_no_key_each_give_the_run_its_own_answer(monkeypatch):
+    """Both return before the fallback, like the empty window: the run's answer, never silence."""
+    from src.adapters import api_baseball
+    from src.adapters.api_baseball import APIBaseballError
+    from src.ingestion.service import NO_BOOK_ODDS_RUN_WHY, IngestionService
+
+    _, _, fake = _games("NBA6", window=APIBaseballError("GET /odds: HTTP 429"))
+    res, logged = _sync(monkeypatch, fake)
+    assert res.no_book_odds_run == "window_failed" and res.no_book_odds == [] and "✗ odds fetch" in logged[0]
+    assert _line(res) == f"NO-BOOK-ODDS (MLB): run [{NO_BOOK_ODDS_RUN_WHY['window_failed']}]"
+    monkeypatch.setattr(api_baseball.APIBaseballClient, "from_env", classmethod(lambda cls: None))
+    res = IngestionService(NS(source_name="mlb_stats_api")).sync_odds_mlb(season=2026)
+    assert res.no_book_odds_run == "no_key"
+    assert _line(res) == f"NO-BOOK-ODDS (MLB): run [{NO_BOOK_ODDS_RUN_WHY['no_key']}]"
+
+
+def test_the_fallbacks_other_answers_a_failed_odds_read_the_doubleheader_guard_and_a_one_sided_board(monkeypatch):
+    """Each per-game outcome is named with its own answer: a per-game odds read that failed, a provider id the
+    doubleheader guard already gave the twin game, and a board stored with no complete book."""
+    from src.adapters.api_baseball import APIBaseballError
+
+    ids, names, fake = _games("NBA7")
+    one_side = [NS(market="1X2", selection="HOME", bookmaker=f"bk{i}", price_decimal=1.8, line=None) for i in range(3)]
+    fake.odds = {190164: APIBaseballError("GET /odds?game=190164: HTTP 500"), 190170: one_side}
+    with session_scope() as s:                               # the listed game's twin, an hour later: same teams
+        m = s.get(Match, ids["listed"])
+        twin = Match(sport=Sport.MLB, competition_id=m.competition_id, season="2026",
+                     utc_date=m.utc_date + timedelta(hours=1), status=MatchStatus.SCHEDULED,
+                     home_team_id=m.home_team_id, away_team_id=m.away_team_id)
+        s.add(twin)
+        s.flush()
+        twin_id = twin.id
+    res, _ = _sync(monkeypatch, fake)
+    got = {g["match_id"]: (g["answer"], g["game_id"]) for g in res.no_book_odds}
+    assert got[ids["listed"]] == ("failed", 190164)
+    assert got[twin_id] == ("claimed", 190164)
+    assert got[ids["priced"]] == ("incomplete", 190170)
+    line = _line(res)
+    for answer in ("the provider's odds read failed", "doubleheader guard", "provider odds stored, no complete book"):
+        assert answer in line

@@ -758,8 +758,8 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
         adapter = _adapter_for_competition(competition_code)
         service = IngestionService(adapter)
         result = service.sync_odds_mlb(season=season_int, days_ahead=days_ahead)
+        _print_no_book_odds(result)          # before the summary, which stays the step receipt's key line
         console.print(f"[green]✓ MLB odds: {result}[/green]")
-        _print_no_book_odds(result)
         return
 
     adapter = _adapter_for_competition(competition_code)
@@ -860,8 +860,9 @@ NO_BOOK_ODDS_MARK = "NO-BOOK-ODDS"
 
 def _print_no_book_odds(result) -> None:
     # THE PROVIDER'S ANSWER WHEN BOOKS ARE 0 (ARCHITECT 2026-10-16, addendum 97 item 2(a), #550/#514): one plain line
-    # (never rich-wrapped) naming each game the MLB sync left with no book odds and the provider's answer for it, the
-    # step's last line, so a closing run's step tail carries it to the closing file.
+    # (never rich-wrapped) naming each game the MLB sync left with no book odds and the provider's answer for it. It
+    # is printed just before the "✓ MLB odds" summary: inside a closing run's five-line step tail, which carries it to
+    # the closing file, while the summary stays the last line (sp_receipts' key line).
     # When the per-game fallback never ran, the line carries the run's own answer instead: "run [<answer>]".
     from src.ingestion.service import NO_BOOK_ODDS_RUN_WHY, NO_BOOK_ODDS_WHY
     games = list(getattr(result, "no_book_odds", None) or [])

@@ -267,6 +267,29 @@ def test_a_failed_card_step_still_ends_the_chain_and_no_page_is_posted(sandbox, 
     assert posted == [] and "page" not in chain
 
 
+def test_the_last_output_lines_name_the_failed_sync_step_so_the_failure_page_carries_it(sandbox, monkeypatch, capsys):
+    """sp_notify pages the journal's last 30 lines. A run that went on past a failed sync step pushed that step's
+    output out of them, so the chain's closing lines name each failure (step, command, exit, last line, redacted)."""
+    (c.REPO / "cli.py").write_text(FAKE_CLI)
+    _window_like(monkeypatch, [["sync-matches", "--competition", "UEL", "fail"]] + [["sync-odds", str(k)]
+                                                                                   for k in range(20)]
+                 + [["window-card", "--hours", "24"]])
+    capsys.readouterr()
+    assert sp_run.main(["t-win"]) == 3
+    out = capsys.readouterr().out.rstrip("\n").split("\n")
+    assert "· sync step 1/22 failed (exit 3): python cli.py sync-matches --competition UEL fail" in "\n".join(out)
+    assert out[-1].startswith("  ✗ step 1/22 exit=3: python cli.py sync-matches --competition UEL fail — boom ")
+    assert "abc123secret" not in out[-1] and "[REDACTED]" in out[-1]     # the receipt's redacted tail, not the stream
+    assert out[-2].startswith("✗ t-win: exit=3 steps 21/22")
+    assert not any(x.startswith("  ✗ stopped at") for x in out)
+    _window_like(monkeypatch, [["sync-matches", "fail"], ["window-card", "fail"], ["export-after"]])
+    capsys.readouterr()
+    assert sp_run.main(["t-win"]) == 3
+    tail = capsys.readouterr().out.rstrip("\n").split("\n")[-3:]
+    assert tail[0].startswith("  ✗ step 1/3 exit=3: python cli.py sync-matches fail")
+    assert tail[1].startswith("  ✗ step 2/3 exit=3: python cli.py window-card fail") and tail[2] == "  ✗ stopped at step 2/3"
+
+
 def test_only_the_window_chain_runs_on_and_other_chains_still_stop_at_the_first_failure(sandbox, monkeypatch):
     assert chains.CHAINS["window"].get("continue_on_sync_failure") is True
     assert not any(ch.get("continue_on_sync_failure") for name, ch in chains.CHAINS.items() if name != "window")

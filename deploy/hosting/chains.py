@@ -236,7 +236,9 @@ CHAINS: dict[str, dict] = {
 #       american-football family (sport NFL: NFL + NCAA), which is priced once
 #       by sync-odds-football;
 #   then the Kalshi syncs for the competitions in WINDOW_KALSHI, then
-#   `window-card`. After a clean run, sp_window_page pages CARD DELTAS (post).
+#   `window-card`. After a clean run, or a run where only sync steps failed
+#   and the card ran (addendum 84 item 2(b)), sp_window_page pages CARD
+#   DELTAS (post).
 # NO predict/improve step, ever: model fields stay canonical from their slot.
 # SP_SKIP_FAMILIES (host.env, e.g. "MLB") drops a family's sync-matches only
 # (statsapi.mlb.com 406s the DO ASN; MLB syncing is a laptop duty).

@@ -255,8 +255,9 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
     `continue_sync` (addendum 84 item 2(b)): a failed step whose command starts
     SYNC_PREFIX is receipted as now and the run goes on; a failed card/export
     step still stops it. The exit is the FIRST failed step's (non-zero when any
-    step failed). `report` (a dict) receives `failed` [(step, command, exit)]
-    and `stopped_at` (the step that stopped the run, or None)."""
+    step failed). `report` (a dict) receives `failed` [(step, command, exit,
+    the step's last redacted output line)] and `stopped_at` (the step that
+    stopped the run, or None)."""
     ok, first_rc = 0, 0
     if report is not None:
         report.update(failed=[], stopped_at=None)
@@ -295,11 +296,11 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
         mirror_after_step(unit, i, st[0], run_id)
         if rc != 0:
             if report is not None:
-                report["failed"].append((i, line, rc))
+                report["failed"].append((i, line, rc, next((x for x in reversed(tail) if x.strip()), "")))
             first_rc = first_rc or rc
             if continue_sync and st[0].startswith(SYNC_PREFIX):
-                print(f"· sync step failed (exit {rc}): recorded; the chain runs on (addendum 84 item 2(b))",
-                      flush=True)
+                print(f"· sync step {i}/{len(steps)} failed (exit {rc}): {line} — recorded; the chain runs on "
+                      "(addendum 84 item 2(b))", flush=True)
                 continue
             if report is not None:
                 report["stopped_at"] = i
@@ -512,7 +513,7 @@ def main(argv=None) -> int:
     if gate:
         rec["active_from"] = gate
     if step_report["failed"]:
-        rec["failed_steps"] = [{"step": i, "command": cmd, "exit": rc} for i, cmd, rc in step_report["failed"]]
+        rec["failed_steps"] = [{"step": i, "command": cmd, "exit": rc} for i, cmd, rc, _ in step_report["failed"]]
         rec["stopped_at"] = step_report["stopped_at"]
     if backup_rec is not None:
         rec["backup"] = {k: backup_rec.get(k) for k in ("file", "sha256", "integrity")}
@@ -533,6 +534,12 @@ def main(argv=None) -> int:
     print(f"\n{'✓' if chain_exit == 0 else '✗'} {a.chain}: exit={chain_exit} "
           f"steps {ok}/{len(steps)} in {rec['duration_s']}s · running {c.running_release() or 'release ?'}"
           f" · writer of record {c.writer_of_record() or '?'}")
+    # The failure page (sp_notify) carries the journal's last 30 lines; a run that went on past a failed sync step
+    # has pushed that step's output out of them, so the failures are named here, at the very end.
+    for i, cmd, rc, last in step_report["failed"]:
+        print(f"  ✗ step {i}/{len(steps)} exit={rc}: {cmd}" + (f" — {last.strip()[:200]}" if last.strip() else ""))
+    if step_report["stopped_at"] is not None:
+        print(f"  ✗ stopped at step {step_report['stopped_at']}/{len(steps)}")
     return chain_exit
 
 

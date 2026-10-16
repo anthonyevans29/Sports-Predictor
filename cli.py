@@ -277,6 +277,8 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
     never rewrites home/away on existing rows (it would only overwrite scores)."""
     from src.ingestion import resync_diff as rd
 
+    if not (season or "").strip():      # a blank --season lists every season, as none does (review on #561): the
+        season = None                   # NCAA fences below then read it as including 2025 and 2026
     r = rd.diff(_adapter_for_competition(competition_code), competition_code, season,
                 date_from, date_to, sample)
     if r.get("error"):
@@ -4638,12 +4640,13 @@ def backtest_cmd(season, competition_code):
                                        totals_bias_by_band)
     from rich.table import Table
 
+    from src.walters import ncaa_backtest as _nb
     from src.walters import soccer_expansion as _sx
     console.print(f"[cyan]Backtesting {season} (leakage-free, point-in-time "
                   f"profiles)... this walks the full season, give it a moment.[/cyan]")
     try:
         results = run_backtest(season=season, competition_code=competition_code)
-    except _sx.ExpansionRefused as e:        # soccer-expansion-v1 seal (Codex on #326)
+    except (_sx.ExpansionRefused, _nb.FenceRefused) as e:   # soccer-expansion-v1 seal (Codex on #326); 2026 fence
         console.print(f"[red]REFUSED: {e}[/red]")
         raise SystemExit(2)
     if not results:
@@ -6152,8 +6155,13 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
                   "override with --rho) · elo_goal_coeff = "
                   + (f"{coeff} (production {prod[0]})" if prod else
                      "config default — NO production model resolved") + "[/dim]")
-    results = run_soccer_backtest(competition_code, season, min_prior,
-                                  dixon_coles_rho=rho, elo_goal_coeff=coeff)
+    from src.walters import ncaa_backtest as _nb
+    try:
+        results = run_soccer_backtest(competition_code, season, min_prior,
+                                      dixon_coles_rho=rho, elo_goal_coeff=coeff)
+    except _nb.FenceRefused as e:                          # the 2026 fence (addendum 86 item 3, Q2)
+        console.print(f"[red]REFUSED: {e}[/red]")
+        raise SystemExit(2)
     if not results:
         console.print("[yellow]No results — competition/season not found or too few "
                       "finished matches.[/yellow]")
@@ -6260,8 +6268,13 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
         t.add_column(c, justify="left" if c == "rho" else "right")
 
     best = None
+    from src.walters import ncaa_backtest as _nb
     for rho in rho_list:
-        results = run_soccer_backtest(competition_code, season, dixon_coles_rho=rho)
+        try:
+            results = run_soccer_backtest(competition_code, season, dixon_coles_rho=rho)
+        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
+            console.print(f"[red]REFUSED: {e}[/red]")
+            raise SystemExit(2)
         if not results:
             continue
         cal = soccer_calibration(results)
@@ -6714,10 +6727,15 @@ def elo_coeff_sweep_cmd(competition_code, season, coeffs, rho):
               "pick edge", "+edge bucket", "-edge bucket"):
         t.add_column(c, justify="right")
 
+    from src.walters import ncaa_backtest as _nb
     for raw in coeffs.split(","):
         coeff = float(raw.strip())
-        results = run_soccer_backtest(competition_code, season,
-                                      dixon_coles_rho=rho, elo_goal_coeff=coeff)
+        try:
+            results = run_soccer_backtest(competition_code, season,
+                                          dixon_coles_rho=rho, elo_goal_coeff=coeff)
+        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
+            console.print(f"[red]REFUSED: {e}[/red]")
+            raise SystemExit(2)
         if not results:
             console.print("[yellow]no results[/yellow]")
             return

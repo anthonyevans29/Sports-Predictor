@@ -575,6 +575,23 @@ def v2_fence_refusal(command: str) -> str:
             f"{V2_FENCE_RULING}, verbatim: \"{V2_FENCE}\"")
 
 
+class FenceRefused(RuntimeError):
+    """A generic walk refused by the 2026 fence (v2_fence_walk)."""
+
+
+def v2_fence_walk(competition_code, season) -> str | None:
+    """The 2026 fence on the generic walks (backtest; soccer-backtest and its rho and coefficient sweeps): they score
+    whatever competition they are given, so NCAA with 2026 among its seasons (no season: every season) would print
+    2026 outcome figures. Refused while the ncaa-elo-v2 run is unrecorded (review on #561). None = allowed."""
+    if (competition_code or "").strip().upper() != NCAA_COMPETITION_CODE:
+        return None
+    s_ = "" if season is None else str(season).strip()
+    if s_ not in ("", V2_TEST) or v2_run_recorded():
+        return None
+    return (f"{NCAA_COMPETITION_CODE} {s_ or '(every season)'}: {V2_TEST} is among its seasons and the {V2_EID} run "
+            f"is not recorded. {V2_FENCE_RULING}, verbatim: \"{V2_FENCE}\"")
+
+
 class NeutralRuleElo:
     """D1 (verbatim): "NCAAEloV1 with its constants untouched [...] neutral_site_rule is
     no_home_advantage_at_neutral: a game whose label says neutral is priced and updated with home advantage 0. A
@@ -922,8 +939,9 @@ def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dic
         if fenced and season == V1R_TEST:
             out(f"    home win rate: {FENCED_RATE}")
             continue
-        if fenced_v2 and season == V2_TEST:
-            out(f"    home win rate: {V2_FENCED_RATE}")
+        if fenced_v2 and season == V2_TEST:              # the counts stay (addendum 86 item 3, Q2)
+            out(f"    home win rate: {V2_FENCED_RATE} (n non-neutral {c['n_nonneutral']}, uncovered n "
+                f"{c['uncovered']})")
             continue
         out(f"    home win rate: non-neutral (covered, CFBD neutral=False) {_rate(c['home_rate_nonneutral'])} "
             f"(n {c['n_nonneutral']}) · all stream games {_rate(c['home_rate_all'])} · uncovered games "

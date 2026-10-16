@@ -186,6 +186,7 @@ Nothing in D5 moves for it.
     - `ncaa-audit` refuses 2026 among its seasons, exit 2, naming the ruling; its default is 2025 alone.
     - `resync-diff --competition NCAA` withholds its home-rate line when the listing includes 2026, and keeps n and the single-game samples.
     - The source probe withholds 2026's rate-and-margin lines and keeps n.
+    - The generic walks (`backtest`, `soccer-backtest`, `dixon-coles-sweep`, `elo-coeff-sweep`) score any competition they are given. They refuse NCAA with 2026 among their seasons ("no command prints"). Found by the review before the PR opened.
 
 **A note on D9, not a question.** D9 says the 2026 games through 2026-10-09 "were walked by v1r's shadow exports".
 The shadow's verdict refusal, addendum 24 item 2(d), verbatim in `ncaa_shadow.VERDICT_REFUSAL`, reads "No shadow

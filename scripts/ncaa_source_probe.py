@@ -62,6 +62,16 @@ def fenced_notice(year) -> str:
     return V2_FENCED_RATE if str(year) == V2_TEST else FENCED_RATE
 
 
+def fenced_year(year, recs) -> str | None:
+    """The fenced season a block's rate-and-margin lines cover, or None: `year` itself, or else a season the records
+    carry in their own `season` field (CFBD serves it). A --from-file replay is read once per --year, so a file of 2026
+    games under another --year is fenced as 2026 (review on #561)."""
+    if fenced(year):
+        return str(year)
+    seasons = {str(r.get("season")) for r in recs if isinstance(r, dict) and r.get("season") is not None}
+    return next((s_ for s_ in sorted(seasons) if fenced(s_)), None)
+
+
 def compare(records: list, keys: dict, session, division: str | None = None) -> dict:
     """Row-level comparison against OUR NCAA matches. Read-only."""
     from src.db.schema import Sport
@@ -197,11 +207,12 @@ def main(argv=None) -> int:
             if sc:
                 print(f"  SCORES (our orientation): agree {c.get('score_agree', 0)}/{sc} = "
                       f"{c.get('score_agree', 0) / sc * 100:.1f}%")
+        fy = fenced_year(year, recs)
         for b in ("nonneutral", "neutral"):
             S, O = r["source"][b], r["ours_on_joined"][b]
-            if fenced(year):        # #368 fence (ARCHITECT 2026-10-08, addendum 15 item 1(b)): n, never the rates
+            if fy:                  # #368 fence (ARCHITECT 2026-10-08, addendum 15 item 1(b)): n, never the rates
                 print(f"  {b}: SOURCE n {S['n']} · OURS on joined n {O['n']} · home rate and margin "
-                      f"{fenced_notice(year)}")
+                      f"{fenced_notice(fy)}")
                 continue
             print(f"  {b}: SOURCE n {S['n']} home rate {fmt(S['home_rate'], True)} margin {fmt(S['home_margin'])}"
                   f" · OURS on joined n {O['n']} home rate {fmt(O['home_rate'], True)} margin {fmt(O['home_margin'])}")

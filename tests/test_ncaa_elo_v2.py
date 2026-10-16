@@ -248,7 +248,10 @@ def test_the_roadmap_lane_names_the_declaration_and_the_step_done():
     ln = next(x for x in doc["lanes"] if x["lane"] == "ncaa")
     assert (ln["registry_id"], ln["state"]) == ("ncaa-elo-v2", "declared")
     assert ln["steps"][0]["done"]["date"] == "2026-10-16" and "addendum 81" in ln["steps"][0]["done"]["receipt"]
-    assert ln["steps"][1]["done"] is None and ln["moved"] == []
+    done = ln["steps"][1]["done"]                     # #553 merged (ARCHITECT 2026-10-16, addendum 96 item 1)
+    assert done["date"] == "2026-10-16" and "#553 merged at 81ea7c0" in done["receipt"]
+    assert "addendum 96" in done["receipt"]
+    assert ln["steps"][2]["done"] is None and ln["moved"] == []
 
 
 # ------------------------------------------------------------------------------------------------ D1: the model --

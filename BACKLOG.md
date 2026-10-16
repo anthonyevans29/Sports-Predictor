@@ -22,6 +22,17 @@ specific reason they're not being built now.
 
 ### MLB / baseball
 
+**2026-10-16 — FIX (main's CI red on the v1.4.0 commit, ARCHITECT 2026-10-16 09:29 ET, addendum 84 item 1): three tests read a ledger fragment that the compile folds and deletes (#551).**
+- **The fact:** CI's smoke job on c546168, the ledger compile ruled as v1.4.0 ("the operator cuts it once CI on that commit is green"), failed. The fragments job was skipped.
+  - A local run on c546168 gives 3 failed, 2260 passed, 4 skipped.
+  - The three tests read `docs/ledger/entries/2026-10-08-ncaa-v1r-declaration.md`, which the compile folded into BACKLOG.md and deleted: test_ncaa_v1r_declaration's D1-D9 verbatim check, and test_ncaa_v1r_fence's two D9-correction checks.
+  - Everything they quote is in BACKLOG.md verbatim, under the entry's heading, exactly once.
+- **The fix (tests only, no behaviour):**
+  - `tests/ledger_text.entry_text` reads the fragment while it exists and the folded block after the compile.
+  - The three tests read through it.
+  - A guard test keeps any test from reading a fragment file directly again.
+- **The tag:** c546168 itself stays red. The tag is the architect's to re-rule: on the merge commit of this fix, or on c546168 with this read.
+
 **2026-10-15 — LANE (ARCHITECT 2026-10-15 13:55 ET, addendum 79 item 2): the value-shadow receipt for the n=30 ruling Monday 2026-10-19 (#86, #545); the law-1 read is finding #544.**
 - **Verbatim:** "THE VALUE-SHADOW RECEIPT (for the n=30 ruling Monday 2026-10-19, #86; read-only). Law 1 first: say where the ledger's "value_shadow_graded" count comes from today (desk_policy.COUNT_KEYS; the closing files read "counts_source: default 0 (no ledger summary)" — so what produces the summary, and why the laptop's closing runs read none). Then `scripts/value_shadow_receipt.py`: every value shadow the ledger holds (staked or not; the operator's small stakes on shadows are logged "value shadow, staked"), per row: date, game, side, edge_pp at the call, the close, the result, won/lost/push/ungraded, units; totals: graded n, record, units net, and the same over the rows with a close only. No dollar figure anywhere (units only). Paste-whole output; tests on a kept ledger shape. If the ledger holds no shadow rows at all, the receipt says so and Monday's ruling is "n=0 of 30"."
 - **The law-1 read (#544):** the count is computed only by the Cockpit, over its own ledger in the browser. The summary that carries it into an export is a browser download that nothing saves into `exports/`. So every desk file reads "default 0 (no ledger summary)": all 109 in the exports mirror, including the 16 dated closing files of 10-10 to 10-15. The n for #86 comes from the ledger export, which the receipt reads.

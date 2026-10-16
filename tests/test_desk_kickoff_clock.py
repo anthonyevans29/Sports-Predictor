@@ -1,6 +1,7 @@
 """A STORED KICKOFF THE MARKET'S CLOCK DISPUTES GETS NO CALL (ARCHITECT 2026-10-15 08:46 ET, addendum 72 item 1, RULED,
 law 4): a row whose stored kickoff and the Kalshi clock in its leg's own ticker disagree by more than
-kalshi_match.MAX_TICK_DRIFT gets no Desk call: PASS, units 0, no order, no value shadow, pass kind kickoff_clock, the
+kalshi_match.MAX_TICK_DRIFT (superseded for the Desk by addendum 83 item 2, below: DESK_CLOCK_DRIFT, 1h, inclusive)
+gets no Desk call: PASS, units 0, no order, no value shadow, pass kind kickoff_clock, the
 reason naming both clocks. A ticker shape without a clock is not compared. The closing file carries the kind and both
 clocks. Tests on the day's rows: 50546 TB at CLE (stored 13:00 ET, KXMLBGAME-26OCT151800TBCLE: 18:00 ET) is held;
 50547 MIL at LAD (20:00 ET both) is untouched.

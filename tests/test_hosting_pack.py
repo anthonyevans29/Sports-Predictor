@@ -222,6 +222,62 @@ def test_sp_run_receipts_page_and_stop_at_failure(sandbox, monkeypatch):
     assert [r["kind"] for r in receipts(sandbox)].count("backup") == 1
 
 
+# --- the window chain runs on past a failed SYNC step (ARCHITECT 2026-10-16, addendum 84 item 2(b)) ----------------
+# "in the window chain a sync step's failure is recorded and notified as now, but does not stop the chain — the later
+# sync steps and the card/export steps run; a failure in a card/export step still ends the chain. [...] the chain's
+# exit stays 1 when any step failed, so the failure notice still fires." The case of 2026-10-15 14:05Z: step 1,
+# sync-matches UEL 2026/27, raised the provider's free-plan refusal and the chain stopped at 0/15.
+
+def _window_like(monkeypatch, steps):
+    import sp_window_page
+    posted = []
+    monkeypatch.setattr(sp_window_page, "run", lambda p: posted.append(p) or {
+        "deltas": {}, "paged": False, "digest": False, "suppressed": 0, "freshen_needed": []})
+    monkeypatch.setitem(chains.CHAINS, "t-win", {"steps": steps, "post": "window_page",
+                                                 "continue_on_sync_failure": True})
+    return posted
+
+
+def test_a_failed_sync_step_is_recorded_the_rest_and_the_card_run_and_the_exit_stays_non_zero(sandbox, monkeypatch):
+    (c.REPO / "cli.py").write_text(FAKE_CLI)
+    posted = _window_like(monkeypatch, [["sync-matches", "--competition", "UEL", "fail"], ["sync-odds", "x"],
+                                        ["sync-kalshi-soccer", "fail"], ["window-card", "--hours", "24"]])
+    assert sp_run.main(["t-win"]) == 3                       # non-zero: systemd's OnFailure still pages
+    steps = [r for r in receipts(sandbox) if r["kind"] == "step"]
+    assert [s_["command"].split()[2] for s_ in steps] == ["sync-matches", "sync-odds", "sync-kalshi-soccer",
+                                                          "window-card"]
+    assert [s_["exit"] for s_ in steps] == [3, 0, 3, 0]
+    assert all("continued" in s_ for s_ in steps if s_["exit"]) and not any("continued" in s_ for s_ in steps
+                                                                           if not s_["exit"])
+    chain = receipts(sandbox)[-1]
+    assert chain["kind"] == "chain" and chain["exit"] == 3 and chain["steps_ok"] == 2 and chain["stopped_at"] is None
+    assert [f["step"] for f in chain["failed_steps"]] == [1, 3]
+    assert len(posted) == 1                                  # the card ran, so the hour's page is not blanked
+    assert "page" in chain
+
+
+def test_a_failed_card_step_still_ends_the_chain_and_no_page_is_posted(sandbox, monkeypatch):
+    (c.REPO / "cli.py").write_text(FAKE_CLI)
+    posted = _window_like(monkeypatch, [["sync-matches", "fail"], ["window-card", "fail"], ["export-after"]])
+    assert sp_run.main(["t-win"]) == 3
+    steps = [r for r in receipts(sandbox) if r["kind"] == "step"]
+    assert [s_["command"].split()[2] for s_ in steps] == ["sync-matches", "window-card"]   # export-after never runs
+    chain = receipts(sandbox)[-1]
+    assert chain["stopped_at"] == 2 and [f["step"] for f in chain["failed_steps"]] == [1, 2]
+    assert posted == [] and "page" not in chain
+
+
+def test_only_the_window_chain_runs_on_and_other_chains_still_stop_at_the_first_failure(sandbox, monkeypatch):
+    assert chains.CHAINS["window"].get("continue_on_sync_failure") is True
+    assert not any(ch.get("continue_on_sync_failure") for name, ch in chains.CHAINS.items() if name != "window")
+    (c.REPO / "cli.py").write_text(FAKE_CLI)
+    monkeypatch.setitem(chains.CHAINS, "t-plain", {"steps": [["sync-matches", "fail"], ["sync-odds"]]})
+    assert sp_run.main(["t-plain"]) == 3
+    steps = [r for r in receipts(sandbox) if r["kind"] == "step"]
+    assert len(steps) == 1 and "continued" not in steps[0]
+    assert receipts(sandbox)[-1]["stopped_at"] == 1
+
+
 def test_designated_days_skip_metered_only(sandbox, monkeypatch):
     (c.REPO / "cli.py").write_text(FAKE_CLI)
     monkeypatch.setenv("SP_PARALLEL_MODE", "designated")

@@ -257,7 +257,13 @@ WINDOW_KALSHI: dict[str, list[list[str]]] = {
     # replay console with CL in it (item 3).
     "CL": [["sync-kalshi-soccer", "--competition", "CL"]],
 }
-CHAINS["window"] = {"window_plan": True, "post": "window_page", "steps": []}
+# A SYNC STEP'S FAILURE DOES NOT STOP THE WINDOW CHAIN (ARCHITECT 2026-10-16 09:29 ET, addendum 84 item 2(b),
+# RULED, verbatim): "in the window chain a sync step's failure is recorded and notified as now, but does not stop the
+# chain — the later sync steps and the card/export steps run; a failure in a card/export step still ends the chain.
+# The hourly card is what the host page and the Cockpit read; one provider hiccup should not blank an hour. [...] the
+# chain's exit stays 1 when any step failed, so the failure notice still fires." A sync step is one whose command
+# starts "sync-" (sp_run.SYNC_PREFIX); any other step (window-card) is a card/export step.
+CHAINS["window"] = {"window_plan": True, "post": "window_page", "steps": [], "continue_on_sync_failure": True}
 
 # PROXIMITY TIERS (architect ruling 2026-09-27): each competition's steps
 # scale with the time to ITS next kickoff inside the window.

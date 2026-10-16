@@ -1,0 +1,14 @@
+## 2026-10-16 (#556: window-sync-continue — ARCHITECT addendum 84 item 2(b), #555)
+- deploy/hosting/sp_run.py: `run_steps(..., continue_sync=, report=)`.
+  - In a chain flagged `continue_on_sync_failure`, a failed step whose command starts `sync-` (`SYNC_PREFIX`) is receipted as now, marked `continued`, and the run goes on.
+  - A failed card/export step still stops it.
+  - The return is the first failed step's exit: non-zero when any step failed, so systemd's OnFailure notice fires as before.
+  - The chain receipt adds `failed_steps` ([{step, command, exit}]) and `stopped_at`.
+  - The window page post runs after a clean run, or when only sync steps failed and the card ran.
+- deploy/hosting/chains.py: `CHAINS["window"]` carries `continue_on_sync_failure: True`, with the ruling quoted. No other chain does.
+- docs/specs/hosting-h1.md: the `sp_run.py` row says so.
+- tests/test_hosting_pack.py (3 new), on a fake step list:
+  - two failed sync steps: the rest and the card run, the page posts, the exit is non-zero;
+  - a failed card step: the chain ends and no page is posted;
+  - only the window chain runs on.
+- #551's test fix is ported (tests/ledger_text.py): main at c546168 is red without it.

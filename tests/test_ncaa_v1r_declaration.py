@@ -21,7 +21,9 @@ from src.walters import registry as reg
 
 ROOT = Path(__file__).resolve().parent.parent
 SPEC = ROOT / "docs" / "specs" / "ncaa-elo-v1r.md"
-LEDGER = ROOT / "docs" / "ledger" / "entries" / "2026-10-08-ncaa-v1r-declaration.md"
+# The BACKLOG entry: a fragment until the tag ritual's compile folds it into BACKLOG.md (tests/ledger_text.py)
+LEDGER_ENTRY = ("2026-10-08-ncaa-v1r-declaration",
+                "**2026-10-08 — DECLARATION (ARCHITECT, addendum 11, item 3, PR A): ncaa-elo-v1r declared")
 
 D = {
     "D1": "D1. Candidate: NCAAEloV1 with its constants untouched: k_factor 24, home_advantage 55, mov_base 2.2, "
@@ -111,11 +113,12 @@ def test_registry_entry_is_declared_with_the_verbatim_gate_window_and_plan(tmp_p
 
 
 def test_spec_and_ledger_quote_d1_to_d9_and_the_d5_note_verbatim():
-    for path in (SPEC, LEDGER):
-        text_ = " ".join(path.read_text().split())          # line wrapping never changes a word
+    from ledger_text import entry_text, flat
+    for name, raw in ((SPEC.name, SPEC.read_text()), (LEDGER_ENTRY[0], entry_text(*LEDGER_ENTRY))):
+        text_ = flat(raw)                                    # line wrapping never changes a word
         for k, v in D.items():
-            assert v in text_, f"{path.name}: {k} not verbatim"
-        assert D5_NOTE in text_, f"{path.name}: the D5 note not verbatim"
+            assert v in text_, f"{name}: {k} not verbatim"
+        assert D5_NOTE in text_, f"{name}: the D5 note not verbatim"
         assert "docs/receipts/ncaa-v1r-design-2026-10-08.md" in text_
         assert TEST_SET in text_
 

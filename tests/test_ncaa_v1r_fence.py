@@ -38,11 +38,19 @@ def _flat(path: Path) -> str:
     return " ".join(path.read_text().split())
 
 
+def _spec_and_entry():
+    """(name, flattened text) for the spec and the BACKLOG entry: the entry is a fragment until the tag ritual's
+    compile folds it into BACKLOG.md (tests/ledger_text.py)."""
+    from ledger_text import entry_text, flat
+    spec = ROOT / "docs" / "specs" / "ncaa-elo-v1r.md"
+    entry = flat(entry_text("2026-10-08-ncaa-v1r-declaration",
+                            "**2026-10-08 — DECLARATION (ARCHITECT, addendum 11, item 3, PR A): ncaa-elo-v1r declared"))
+    return [(spec.name, _flat(spec)), ("2026-10-08-ncaa-v1r-declaration", entry)]
+
+
 def test_d9_correction_stands_beside_d9_verbatim_in_spec_ledger_and_registry():
-    for path in (ROOT / "docs" / "specs" / "ncaa-elo-v1r.md",
-                 ROOT / "docs" / "ledger" / "entries" / "2026-10-08-ncaa-v1r-declaration.md"):
-        text_ = _flat(path)
-        assert D9 in text_ and CORRECTION in text_ and FENCE in text_, path.name
+    for path, text_ in _spec_and_entry():
+        assert D9 in text_ and CORRECTION in text_ and FENCE in text_, path
         assert text_.index(D9) < text_.index(CORRECTION)
     e = reg.get(nb.V1R_EID)
     assert e["prior_reads_note"].startswith(D9) and CORRECTION in e["prior_reads_note"]
@@ -139,11 +147,9 @@ def test_the_addendum_15_correction_in_force_stands_beside_d9_and_the_addendum_1
     """ARCHITECT 2026-10-08, addendum 15 item 1(a): D9 and the addendum 14 correction stay quoted as issued; this one
     stands beside them and is the one in force, in the spec, the ledger entry and prior_reads_note. Item 3 (the
     level-score ruling) is quoted in the spec and the ledger entry."""
-    for path in (ROOT / "docs" / "specs" / "ncaa-elo-v1r.md",
-                 ROOT / "docs" / "ledger" / "entries" / "2026-10-08-ncaa-v1r-declaration.md"):
-        text_ = _flat(path)
-        assert text_.index(D9) < text_.index(CORRECTION) < text_.index(CORRECTION_IN_FORCE), path.name
-        assert LEVEL_RULING in text_, path.name
+    for path, text_ in _spec_and_entry():
+        assert text_.index(D9) < text_.index(CORRECTION) < text_.index(CORRECTION_IN_FORCE), path
+        assert LEVEL_RULING in text_, path
     note = reg.get(nb.V1R_EID)["prior_reads_note"]
     assert note.startswith(D9) and note.index(CORRECTION) < note.index(CORRECTION_IN_FORCE)
     assert "CORRECTION IN FORCE" in note

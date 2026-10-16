@@ -174,6 +174,8 @@ def test_the_generic_walks_refuse_ncaa_with_2026_among_their_seasons(monkeypatch
     for cmd in (["backtest", "--competition", "NCAA", "--season", "2026"],
                 ["soccer-backtest", "--competition", "NCAA", "--season", "2026"],
                 ["soccer-backtest", "--competition", "NCAA"],
+                *(["soccer-backtest", "--competition", "NCAA", "--season", "2026", "--candidate", k]   # Codex on #561
+                  for k in ("time-decay", "dixon-coles-fit", "s14-totals")),
                 ["dixon-coles-sweep", "--competition", "NCAA"],
                 ["elo-coeff-sweep", "--competition", "NCAA", "--season", "2026"]):
         res = CliRunner().invoke(cli, cmd)

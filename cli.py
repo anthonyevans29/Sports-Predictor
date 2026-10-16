@@ -6133,6 +6133,11 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run
         click.echo(f"REFUSED: {_why}")
         raise SystemExit(2)
+    from src.walters import ncaa_backtest as _nb
+    _why = _nb.v2_fence_walk(competition_code, season)
+    if _why:                 # the 2026 fence (addendum 86 item 3, Q2), before any candidate mode (Codex on #561)
+        click.echo(f"REFUSED: {_why}")
+        raise SystemExit(2)
     if candidate == "time-decay":
         _soccer_time_decay_candidate(competition_code, season, min_prior)
         return
@@ -6155,13 +6160,8 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
                   "override with --rho) · elo_goal_coeff = "
                   + (f"{coeff} (production {prod[0]})" if prod else
                      "config default — NO production model resolved") + "[/dim]")
-    from src.walters import ncaa_backtest as _nb
-    try:
-        results = run_soccer_backtest(competition_code, season, min_prior,
-                                      dixon_coles_rho=rho, elo_goal_coeff=coeff)
-    except _nb.FenceRefused as e:                          # the 2026 fence (addendum 86 item 3, Q2)
-        console.print(f"[red]REFUSED: {e}[/red]")
-        raise SystemExit(2)
+    results = run_soccer_backtest(competition_code, season, min_prior,
+                                  dixon_coles_rho=rho, elo_goal_coeff=coeff)
     if not results:
         console.print("[yellow]No results — competition/season not found or too few "
                       "finished matches.[/yellow]")

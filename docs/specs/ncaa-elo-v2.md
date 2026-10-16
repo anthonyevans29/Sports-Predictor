@@ -181,6 +181,12 @@ Nothing in D5 moves for it.
 - **Q2 (a 2026 fence), RULED: yes, in a separate small PR after this one merges and before 2026-11-09.** Verbatim: "YES, a 2026 fence, in v1r's form, as a SEPARATE small PR after #553 merges and before 2026-11-09: until v2's one run is recorded, no command prints an outcome figure of the 2026 season (a rate, a margin, a count of wins). ncaa-cfbd-coverage prints no 2026 home win rate or margin in either block (counts, coverage, census and neutral counts stay); ncaa-audit with 2026 among its seasons refuses, exit 2, naming this ruling (its default seasons become 2025 alone until the run); resync-diff --competition NCAA and scripts/ncaa_source_probe.py keep their single-game listings (the level ruling: a game with its score is how a defect is checked) and drop any aggregate outcome line over 2026. D9 of v2 already records every 2026 read to date; the fence keeps that list from growing. Gates bind more under the income goal, never less."
   - The question listed the four reads that print 2026 outcome figures today: `ncaa-cfbd-coverage` (both blocks), `ncaa-audit` (default seasons 2025 and 2026), `resync-diff --competition NCAA` and `scripts/ncaa_source_probe.py`.
   - Nothing in this PR changes them. The fence is its own PR.
+  - **Built in #561:** `ncaa_backtest.V2_FENCE` (this ruling, verbatim), lifted only by the registry recording the ncaa-elo-v2 run (`v2_run_recorded`).
+    - `ncaa-cfbd-coverage` withholds every 2026 home win rate in both blocks.
+    - `ncaa-audit` refuses 2026 among its seasons, exit 2, naming the ruling; its default is 2025 alone.
+    - `resync-diff --competition NCAA` withholds its home-rate line when the listing includes 2026, and keeps n and the single-game samples.
+    - The source probe withholds 2026's rate-and-margin lines and keeps n.
+    - The generic walks (`backtest`, `soccer-backtest`, `dixon-coles-sweep`, `elo-coeff-sweep`) score any competition they are given. They refuse NCAA with 2026 among their seasons ("no command prints"). Found by the review before the PR opened.
 
 **A note on D9, not a question.** D9 says the 2026 games through 2026-10-09 "were walked by v1r's shadow exports".
 The shadow's verdict refusal, addendum 24 item 2(d), verbatim in `ncaa_shadow.VERDICT_REFUSAL`, reads "No shadow

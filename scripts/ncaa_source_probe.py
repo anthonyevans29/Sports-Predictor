@@ -41,7 +41,7 @@ sys.path.insert(0, ROOT)
 from src.ingestion.ncaa_cfbd import (  # noqa: E402,F401
     BASE, FIELDS, OPTIONAL, CFBDError, discover, fetch, parse_start, refuse_save_path,
 )
-from src.walters.ncaa_backtest import FENCED_RATE  # noqa: E402
+from src.walters.ncaa_backtest import FENCED_RATE, V2_FENCED_RATE, V2_TEST  # noqa: E402
 
 SAMPLE = 15
 
@@ -49,9 +49,27 @@ SAMPLE = 15
 def fenced(year) -> bool:
     """The test-season fence (ARCHITECT 2026-10-08, addendum 15 item 1(b), verbatim): "Until the run is recorded,
     for 2025 its two rate-and-margin lines print n and the withheld notice in place of the rates and margins. The
-    rest of its receipt stays." Lifted only by the registry recording the ncaa-elo-v1r run."""
-    from src.walters.ncaa_backtest import V1R_TEST, v1r_run_recorded
-    return str(year) == V1R_TEST and not v1r_run_recorded()
+    rest of its receipt stays." Lifted only by the registry recording the ncaa-elo-v1r run. And the 2026 fence
+    (ARCHITECT 2026-10-16, addendum 86 item 3, Q2: "drop any aggregate outcome line over 2026"), the same way for
+    2026 until the ncaa-elo-v2 run is recorded."""
+    from src.walters.ncaa_backtest import V1R_TEST, v1r_run_recorded, v2_run_recorded
+    return ((str(year) == V1R_TEST and not v1r_run_recorded())
+            or (str(year) == V2_TEST and not v2_run_recorded()))
+
+
+def fenced_notice(year) -> str:
+    """The withheld notice for `year`'s fence: v1r's for 2025, ncaa-elo-v2's for 2026."""
+    return V2_FENCED_RATE if str(year) == V2_TEST else FENCED_RATE
+
+
+def fenced_year(year, recs) -> str | None:
+    """The fenced season a block's rate-and-margin lines cover, or None: `year` itself, or else a season the records
+    carry in their own `season` field (CFBD serves it). A --from-file replay is read once per --year, so a file of 2026
+    games under another --year is fenced as 2026 (review on #561)."""
+    if fenced(year):
+        return str(year)
+    seasons = {str(r.get("season")) for r in recs if isinstance(r, dict) and r.get("season") is not None}
+    return next((s_ for s_ in sorted(seasons) if fenced(s_)), None)
 
 
 def compare(records: list, keys: dict, session, division: str | None = None) -> dict:
@@ -189,10 +207,12 @@ def main(argv=None) -> int:
             if sc:
                 print(f"  SCORES (our orientation): agree {c.get('score_agree', 0)}/{sc} = "
                       f"{c.get('score_agree', 0) / sc * 100:.1f}%")
+        fy = fenced_year(year, recs)
         for b in ("nonneutral", "neutral"):
             S, O = r["source"][b], r["ours_on_joined"][b]
-            if fenced(year):        # #368 fence (ARCHITECT 2026-10-08, addendum 15 item 1(b)): n, never the rates
-                print(f"  {b}: SOURCE n {S['n']} · OURS on joined n {O['n']} · home rate and margin {FENCED_RATE}")
+            if fy:                  # #368 fence (ARCHITECT 2026-10-08, addendum 15 item 1(b)): n, never the rates
+                print(f"  {b}: SOURCE n {S['n']} · OURS on joined n {O['n']} · home rate and margin "
+                      f"{fenced_notice(fy)}")
                 continue
             print(f"  {b}: SOURCE n {S['n']} home rate {fmt(S['home_rate'], True)} margin {fmt(S['home_margin'])}"
                   f" · OURS on joined n {O['n']} home rate {fmt(O['home_rate'], True)} margin {fmt(O['home_margin'])}")

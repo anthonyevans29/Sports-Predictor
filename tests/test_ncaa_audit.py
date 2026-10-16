@@ -183,6 +183,8 @@ def test_cli_audit_reads_everything_and_writes_nothing(monkeypatch):
     fenced = CliRunner().invoke(cli, ["ncaa-audit", "--limit", "5"])
     assert fenced.exit_code == 2 and "ncaa-audit REFUSED (exit 2)" in fenced.output
     monkeypatch.setattr(nb, "v1r_run_recorded", recorded)    # the committed registry records the run (addendum 24 (e))
+    # the 2026 fence (addendum 86 item 3, Q2) is tests/test_ncaa_2026_fence.py's; here, after the ncaa-elo-v2 run
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a: True)
     res = CliRunner().invoke(cli, ["ncaa-audit", "--limit", "5"])
     assert res.exit_code == 0, res.output
     out = res.output

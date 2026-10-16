@@ -277,6 +277,8 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
     never rewrites home/away on existing rows (it would only overwrite scores)."""
     from src.ingestion import resync_diff as rd
 
+    if not (season or "").strip():      # a blank --season lists every season, as none does (review on #561): the
+        season = None                   # NCAA fences below then read it as including 2025 and 2026
     r = rd.diff(_adapter_for_competition(competition_code), competition_code, season,
                 date_from, date_to, sample)
     if r.get("error"):
@@ -297,6 +299,10 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
     if competition_code.upper() == "NCAA" and season in (None, nb.V1R_TEST) and not nb.v1r_run_recorded():
         # #368 fence: an NCAA listing that includes 2025 prints no home win rate until the v1r run is recorded
         click.echo(f"  home win rate (decided games): {nb.FENCED_RATE} (n ours={no}, provider={np_})")
+    elif competition_code.upper() == "NCAA" and season in (None, nb.V2_TEST) and not nb.v2_run_recorded():
+        # the 2026 fence (addendum 86 item 3, Q2): an NCAA listing that includes 2026 prints no home win rate until
+        # the ncaa-elo-v2 run is recorded; the single-game samples stay
+        click.echo(f"  home win rate (decided games): {nb.V2_FENCED_RATE} (n ours={no}, provider={np_})")
     else:
         click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
     for k, lines in sorted(r["samples"].items()):
@@ -4655,12 +4661,13 @@ def backtest_cmd(season, competition_code):
                                        totals_bias_by_band)
     from rich.table import Table
 
+    from src.walters import ncaa_backtest as _nb
     from src.walters import soccer_expansion as _sx
     console.print(f"[cyan]Backtesting {season} (leakage-free, point-in-time "
                   f"profiles)... this walks the full season, give it a moment.[/cyan]")
     try:
         results = run_backtest(season=season, competition_code=competition_code)
-    except _sx.ExpansionRefused as e:        # soccer-expansion-v1 seal (Codex on #326)
+    except (_sx.ExpansionRefused, _nb.FenceRefused) as e:   # soccer-expansion-v1 seal (Codex on #326); 2026 fence
         console.print(f"[red]REFUSED: {e}[/red]")
         raise SystemExit(2)
     if not results:
@@ -6147,6 +6154,11 @@ def soccer_backtest_cmd(competition_code, season, min_prior, rho, candidate):
     if _why:                 # ARCHITECT 2026-10-07: nobody reads these test seasons outside the one run
         click.echo(f"REFUSED: {_why}")
         raise SystemExit(2)
+    from src.walters import ncaa_backtest as _nb
+    _why = _nb.v2_fence_walk(competition_code, season)
+    if _why:                 # the 2026 fence (addendum 86 item 3, Q2), before any candidate mode (Codex on #561)
+        click.echo(f"REFUSED: {_why}")
+        raise SystemExit(2)
     if candidate == "time-decay":
         _soccer_time_decay_candidate(competition_code, season, min_prior)
         return
@@ -6277,8 +6289,13 @@ def dixon_coles_sweep_cmd(competition_code, season, rhos):
         t.add_column(c, justify="left" if c == "rho" else "right")
 
     best = None
+    from src.walters import ncaa_backtest as _nb
     for rho in rho_list:
-        results = run_soccer_backtest(competition_code, season, dixon_coles_rho=rho)
+        try:
+            results = run_soccer_backtest(competition_code, season, dixon_coles_rho=rho)
+        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
+            console.print(f"[red]REFUSED: {e}[/red]")
+            raise SystemExit(2)
         if not results:
             continue
         cal = soccer_calibration(results)
@@ -6731,10 +6748,15 @@ def elo_coeff_sweep_cmd(competition_code, season, coeffs, rho):
               "pick edge", "+edge bucket", "-edge bucket"):
         t.add_column(c, justify="right")
 
+    from src.walters import ncaa_backtest as _nb
     for raw in coeffs.split(","):
         coeff = float(raw.strip())
-        results = run_soccer_backtest(competition_code, season,
-                                      dixon_coles_rho=rho, elo_goal_coeff=coeff)
+        try:
+            results = run_soccer_backtest(competition_code, season,
+                                          dixon_coles_rho=rho, elo_goal_coeff=coeff)
+        except _nb.FenceRefused as e:                      # the 2026 fence (addendum 86 item 3, Q2)
+            console.print(f"[red]REFUSED: {e}[/red]")
+            raise SystemExit(2)
         if not results:
             console.print("[yellow]no results[/yellow]")
             return
@@ -7007,7 +7029,8 @@ def ncaa_backtest_cmd(baselines_only, candidate):
 
 @cli.command("ncaa-audit")
 @click.option("--season", "seasons", multiple=True, metavar="YYYY",
-              help="Restrict the per-season sections (repeatable). Default: 2025 and 2026.")
+              help="Restrict the per-season sections (repeatable). Default: 2025 and 2026; 2025 alone until the "
+                   "ncaa-elo-v2 run is recorded, and 2026 refuses until then (the 2026 fence, addendum 86 item 3).")
 @click.option("--limit", type=int, default=20, show_default=True,
               help="Length of every list (exclusions, pairings, top home-share teams, top values).")
 def ncaa_audit_cmd(seasons, limit):
@@ -7022,8 +7045,16 @@ def ncaa_audit_cmd(seasons, limit):
     if not nb.v1r_run_recorded():   # #368 fence (addendum 14 item 2(b)): refuse before anything is read
         click.echo(nb.fence_refusal("ncaa-audit"))
         raise SystemExit(2)
+    given = tuple(str(s_) for s_ in seasons)
+    run_seasons = given or na.AUDIT_SEASONS
+    if not nb.v2_run_recorded():    # the 2026 fence (addendum 86 item 3, Q2): refuse before anything is read
+        if nb.V2_TEST in given:
+            click.echo(nb.v2_fence_refusal("ncaa-audit"))
+            raise SystemExit(2)
+        if not given:                                                   # the default: 2025 alone until the run
+            run_seasons = tuple(s_ for s_ in na.AUDIT_SEASONS if s_ != nb.V2_TEST)
     data = na.load(top=limit)
-    na.report(data, seasons=tuple(seasons) or na.AUDIT_SEASONS, limit=limit, out=click.echo)
+    na.report(data, seasons=run_seasons, limit=limit, out=click.echo)
 
 
 @cli.command("ncaa-cfbd-labels")

@@ -83,6 +83,7 @@ def _stream_and_v1r():
 
 
 def test_coverage_withholds_every_2025_home_rate_and_keeps_counts_until_the_run_is_recorded(monkeypatch):
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a: True)     # v1r's fence alone (2026's: test_ncaa_2026_fence)
     st, v = _stream_and_v1r()
     lifted = []
     nb.coverage_report(st, out=lifted.append, fbs=None, v1r=v)              # the committed registry: run recorded
@@ -97,7 +98,8 @@ def test_coverage_withholds_every_2025_home_rate_and_keeps_counts_until_the_run_
     assert "sanity read" not in text_
     assert [ln for ln in fenced if ln.startswith("    home win rate: ")][0].endswith(nb.FENCED_RATE)
     for season in ("2024", "2026"):                                        # only 2025 is fenced
-        assert f"  {season}: walked 4" in text_ and "home win rate non-neutral 1.000 (n 4)" in text_
+        line = [ln for ln in fenced if ln.startswith(f"  {season}: walked ")]
+        assert len(line) == 1 and "walked 4" in line[0] and "home win rate non-neutral 1.000 (n 4)" in line[0]
     assert "  2025: stream games" in text_                                  # #79's counts stay
     opened = []
     nb.coverage_report(st, out=opened.append, fbs=None, v1r=v, fenced=False)
@@ -132,6 +134,7 @@ def test_resync_diff_withholds_the_ncaa_home_rate_when_the_listing_includes_2025
     monkeypatch.setattr(rd, "diff", lambda *a, **k: {"source": "x", "listing": 3, "counts": {}, "samples": {},
                                                     "home_rate": {"ours": ["0.612", 3], "provider": ["0.587", 3]}})
     monkeypatch.setattr(rd, "verdict", lambda c: "ok")
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a: True)     # v1r's fence alone (2026's: test_ncaa_2026_fence)
     monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: False)            # the fence as it stood before the run
     for args, withheld in ((["--season", "2025"], True), ([], True), (["--season", "2026"], False)):
         out = CliRunner().invoke(cli.cli, ["resync-diff", "--competition", "NCAA", *args]).output

@@ -135,9 +135,14 @@
               </span>
             {% endif %}
           </h3>
+          {% if aggregates_withheld %}
+            <!-- The 2026 fence (ARCHITECT 2026-10-16, addendum 100 item 1): record and form strip withheld -->
+            <p class="px-4 pt-3 text-xs text-slate-500">{{ aggregates_withheld }}</p>
+          {% endif %}
           {% if form and form.results %}
             <div class="px-4 py-3">
               <!-- Form pills -->
+              {% if not aggregates_withheld %}
               <div class="flex items-center gap-3 mb-3">
                 <span class="text-[10px] uppercase text-slate-500">Last 5</span>
                 <div class="flex gap-1">
@@ -159,6 +164,7 @@
                   {% endif %}
                 </span>
               </div>
+              {% endif %}
               <!-- Recent results list -->
               <ul class="space-y-1 text-xs">
                 {% for r in form.results[:5] %}
@@ -303,9 +309,13 @@
       <h2 class="px-5 py-3 border-b border-slate-200 font-semibold flex items-baseline justify-between text-sm">
         <span>Head-to-head — last {{ h2h.meetings|length }}</span>
         <span class="text-xs font-normal text-slate-500">
+          {% if aggregates_withheld %}
+            {{ aggregates_withheld }}
+          {% else %}
           {{ match.home_team.name }} {{ h2h.team_a_wins }} ·
           Draws {{ h2h.draws }} ·
           {{ h2h.team_b_wins }} {{ match.away_team.name }}
+          {% endif %}
         </span>
       </h2>
       <ul class="divide-y divide-slate-100">

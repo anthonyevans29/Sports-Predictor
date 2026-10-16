@@ -1,4 +1,4 @@
-"""THE 2026 FENCE IN THE WEB APP (ARCHITECT 2026-10-16, addendum 99 item 2(2)), verbatim: "the web app's hand-typed
+"""THE 2026 FENCE IN THE WEB APP (ARCHITECT 2026-10-16, addendum 99 item 2(2); the match page, addendum 100 item 1), verbatim: "the web app's hand-typed
 `/?league=NCAA` standings show 2026 wins and losses — RULED: fence it, one line, in the next small docs/ops PR (a
 league=NCAA view answers "withheld until the ncaa-elo-v2 run is recorded" until then)". And #560's line (addendum 99
 item 5: "#560's mkdir line rides with it"). On the throwaway test DB."""
@@ -73,6 +73,46 @@ def test_the_league_ncaa_view_answers_withheld_in_place_of_the_table(client, mon
     assert nb.V2_FENCED_RATE not in html
     assert "Fence Owls" in html.split("League table", 1)[1].split("Recent results", 1)[0]
     assert (ROOT / "data").exists() == data_before                     # nothing written under data/ (law 5)
+
+
+def test_the_ncaa_2026_match_page_withholds_record_form_and_head_to_head_and_keeps_the_games(client, monkeypatch):
+    """ARCHITECT 2026-10-16, addendum 100 item 1 (#567, Codex's P1 on #566): "in `/matches/<id>` for an NCAA fixture of
+    season 2026, while the ncaa-elo-v2 run is unrecorded, the per-team record (W-D-L, points), the form strip and
+    the head-to-head aggregate are replaced by the same withheld notice the league view shows; the fixture's own
+    score, the two teams' names and the single-game lists stay (the level ruling)". Any other league untouched; the
+    run recorded lifts it."""
+    _ncaa_games()
+    monkeypatch.setattr(nb, "V2_TEST", SEASON)
+    with session_scope() as s:
+        mid = s.execute(select(Match.id).join(Team, Team.id == Match.home_team_id).where(
+            Team.name == "Fence Owls", Match.season == SEASON).order_by(Match.utc_date.desc())).scalars().first()
+    html = client.get(f"/matches/{mid}").text
+    assert html.count(nb.V2_FENCED_RATE) == 3                          # each side's record and form, and the h2h line
+    assert "W–" not in html and " pts" not in html and "Last 5" not in html and "Draws" not in html
+    assert "Fence Owls" in html and "Fence Hawks" in html              # the two teams
+    assert "14" in html and "21" in html and "31" in html and "10" in html   # the fixture's and the listed games' scores
+    assert "Head-to-head" in html                                      # the meetings list stays
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a: True)        # the run recorded: every figure returns
+    html = client.get(f"/matches/{mid}").text
+    assert nb.V2_FENCED_RATE not in html and "W–" in html and "Last 5" in html and "Draws" in html
+
+
+def test_another_leagues_match_page_is_untouched(client, monkeypatch):
+    """The same season and teams under another competition: no notice, every figure shown."""
+    monkeypatch.setattr(nb, "V2_TEST", SEASON)
+    init_db()
+    with session_scope() as s:
+        comp = Competition(sport=Sport.SOCCER, code="FNCX", name="Fence control", area="X", type="LEAGUE")
+        h, a = Team(sport=Sport.SOCCER, name="Control Owls"), Team(sport=Sport.SOCCER, name="Control Hawks")
+        s.add_all([comp, h, a])
+        s.flush()
+        m = Match(sport=Sport.SOCCER, competition_id=comp.id, season=SEASON, utc_date=datetime(2999, 9, 2, 19),
+                  status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=a.id, home_score=2, away_score=1)
+        s.add(m)
+        s.flush()
+        mid = m.id
+    html = client.get(f"/matches/{mid}").text
+    assert nb.V2_FENCED_RATE not in html and "W–" in html
 
 
 def test_the_release_notes_step_makes_logs_first():

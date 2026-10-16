@@ -211,6 +211,30 @@ def test_an_empty_answer_and_nameless_blocks_are_none_and_asked_again(fresh_db):
     assert ad.asked == ["770", "771"]                           # nothing records an answer that stored nothing
 
 
+def test_a_nameless_answer_never_replaces_a_stored_eleven_and_is_counted_and_listed(fresh_db):
+    """ARCHITECT 2026-10-16, addendum 98 item 1: a later NAMELESS answer for a side never replaces an eleven stored
+    from an earlier named answer; the receipt counts such sides and lists the fixture ids; completeness reads from the
+    stored rows. A side with no stored rows that answers nameless stays unstored."""
+    ids, home, away = seed(n=1, fixture_ids=["770"])
+    first, out = run(adapter_with({"770": payload(770, side(HOME_SID, "H"), side(AWAY_SID, "A", 0, 0, nameless=11))}),
+                     "CL", SEASON)
+    assert first.one == 1 and "  answered nameless, earlier eleven kept: 0" in out    # the away side: never stored
+
+    def table():
+        with fresh_db.connect() as c:
+            return c.execute(text("SELECT * FROM lineups ORDER BY id")).all()
+    before = table()
+    assert len(before) == 18 and {r.team_id for r in rows(fresh_db)} == {home}
+    again, out = run(adapter_with({"770": payload(770, side(HOME_SID, "H", 0, 0, nameless=11),
+                                                  side(AWAY_SID, "A", 0, 0, nameless=11))}), "CL", SEASON)
+    assert table() == before                                     # every row as it was: ids and ingest time included
+    assert (again.both, again.one, dict(again.none), again.rows) == (0, 1, {}, 0)   # still one: the stored eleven
+    assert "  answered nameless, earlier eleven kept: 1 · fixture ids 770" in out
+    assert f"    match {ids[0]} (fixture 770): team {home} kept its stored eleven; the answer's block for it had no " \
+           "named slot" in out
+    assert [(f.fixture_id, tid) for f, tid in again.nameless_kept] == [("770", home)]
+
+
 def test_one_side_short_of_eleven_is_one_and_an_unmapped_side_is_never_matched_by_name(fresh_db):
     ids, _, _ = seed(n=2, fixture_ids=["770", "771"])
     answers = {"770": payload(770, side(HOME_SID, "H"), side(AWAY_SID, "A", n_start=10)),

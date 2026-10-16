@@ -120,6 +120,7 @@ class Run:
     anomalies: list = field(default_factory=list)
     lines: list = field(default_factory=list)
     stopped: str = ""
+    nameless_kept: list = field(default_factory=list)  # (fixture, team id): answered nameless, earlier eleven kept
 
 
 def stored_season(code: str, season: str) -> str:
@@ -254,17 +255,18 @@ def _save(save: str | None, f: Fixture, keep: dict) -> None:
             json.dump(keep["raw"], fh, indent=1, sort_keys=True)
 
 
-def _named_blocks(raw) -> tuple[int, int]:
-    """(team blocks in the answer, of them the blocks whose every slot had no name: the parser drops those slots)."""
+def _named_blocks(raw) -> tuple[int, list]:
+    """(team blocks in the answer, the provider team ids of the blocks whose every slot had no name: the parser drops
+    those slots). The ids read as the parser reads them: str of the block's team id."""
     blocks = (raw or {}).get(KEYS["response"]) if isinstance(raw, dict) else None
     if not isinstance(blocks, list):
-        return 0, 0
-    nameless = 0
+        return 0, []
+    nameless = []
     for b in blocks:
         slots = list((b or {}).get(KEYS["starters"]) or []) + list((b or {}).get(KEYS["bench"]) or [])
         if not any(isinstance(((s or {}).get(KEYS["player"]) or {}).get(KEYS["name"]), str)
                    and ((s or {}).get(KEYS["player"]) or {}).get(KEYS["name"]).strip() for s in slots):
-            nameless += 1
+            nameless.append(str(((b or {}).get(KEYS["team"]) or {}).get(KEYS["team_id"], "")))
     return len(blocks), nameless
 
 
@@ -401,7 +403,13 @@ def _store(run: Run, f: Fixture, answer: list, raw, held: dict, now, dry_run: bo
     run.sides += len(by_side)
     after = {tid: starters.get(tid, held.get((f.match_id, tid), 0)) for tid in (f.home_id, f.away_id)}
     elevens = sum(1 for n in after.values() if n == ELEVEN)
-    blocks, nameless = _named_blocks(raw)
+    blocks, nameless_sids = _named_blocks(raw)
+    nameless = len(nameless_sids)
+    # ARCHITECT 2026-10-16, addendum 98 item 1: a later NAMELESS answer for a side never replaces an eleven stored
+    # from an earlier named answer (the parser drops its slots, so nothing above deletes them); counted, never acted on.
+    kept = [tid for tid in (f.home_id, f.away_id) if tid not in by_side and held.get((f.match_id, tid), 0) == ELEVEN
+            and any(f.ids.get(sid) == tid for sid in nameless_sids)]
+    run.nameless_kept += [(f, tid) for tid in kept]
     if elevens == 2:
         run.both += 1
         place = "both"
@@ -420,7 +428,8 @@ def _store(run: Run, f: Fixture, answer: list, raw, held: dict, now, dry_run: bo
                                   f"{len(by_side.get(tid, [])) - starters.get(tid, 0)} bench"
                                   for tid in (f.home_id, f.away_id))
                      + (f" · unmapped slots {unmapped}" if unmapped else "")
-                     + (f" · nameless team blocks {nameless}" if nameless else ""))
+                     + (f" · nameless team blocks {nameless}" if nameless else "")
+                     + "".join(f" · team {tid} answered nameless, earlier eleven kept" for tid in kept))
 
 
 def _receipt(run: Run, echo, max_calls: int) -> None:
@@ -432,6 +441,12 @@ def _receipt(run: Run, echo, max_calls: int) -> None:
          f"{run.no_fixture_id}" + (" (a dry run: the table plus what would be stored)" if run.dry_run else ""))
     if run.none:
         echo("    none, by why: " + " · ".join(f"{k} {v}" for k, v in sorted(run.none.items())))
+    echo(f"  answered nameless, earlier eleven kept: {len(run.nameless_kept)}"     # addendum 98 item 1
+         + (" · fixture ids " + ", ".join(dict.fromkeys(str(f.fixture_id) for f, _ in run.nameless_kept))
+            if run.nameless_kept else ""))
+    for f, tid in run.nameless_kept:
+        echo(f"    match {f.match_id} (fixture {f.fixture_id}): team {tid} kept its stored eleven; the answer's block "
+             "for it had no named slot")
     echo(f"  {w}: {run.rows} row(s) on {run.sides} side(s) of {run.fixtures_written if not run.dry_run else '-'}"
          f" fixture(s) written · both elevens already stored (skipped, no call) {run.already}")
     echo(f"  calls {run.calls} of {max_calls} · HTTP requests "

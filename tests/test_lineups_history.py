@@ -319,3 +319,62 @@ def test_only_the_lineups_table_changes(fresh_db):
     assert {t for t in after if after[t] != before[t]} == {"lineups"}
     with fresh_db.connect() as c:
         assert c.execute(select(func.count()).select_from(text("lineups"))).scalar() == 36
+
+
+# --- --since (ARCHITECT 2026-10-16 09:22 ET, addendum 83 item 5(b)) ---------------------------------------------------
+# "#538 takes `--since YYYY-MM-DD` (fixtures on or after the date) and FAC 2025/26 is pulled --since 2025-11-01 (the
+# First Round Proper); the receipt prints the fixtures left out by it."
+
+def test_since_asks_only_the_fixtures_on_or_after_it_and_lists_every_one_left_out(fresh_db):
+    from datetime import date
+    mids, hid, aid = seed(code="FAC", n=4, fixture_ids=["770", "771", "772", "773"])    # 2091-09-01 .. 09-04, 19:00Z
+    ad = adapter_with({f: payload(int(f), side(HOME_SID, "H"), side(AWAY_SID, "A")) for f in ("772", "773")})
+    r, out = run(ad, "FAC", SEASON, max_calls=10, since=date(2091, 9, 3))
+    assert ad.asked == ["772", "773"] and r.calls == 2                   # the two before it are never asked
+    assert {x.match_id for x in rows(fresh_db)} == set(mids[2:])
+    assert out[0].endswith("· --since 2091-09-03: fixtures on or after it only")
+    assert ("  --since 2091-09-03: finished fixtures 4 · on or after it 2 · left out 2 (never asked, never counted "
+            "below; every one is listed at the end of the receipt)") in out
+    assert (f"  COVERAGE FAC {SEASON}: fixtures with both elevens 2 / fixtures 2 · one 0 · none 0 · failed 0 · "
+            "not asked 0 · no fixture id 0") in out
+    i = out.index("  LEFT OUT by --since 2091-09-03: 2 finished fixture(s) before it, never asked")
+    assert out[i + 1:] == [f"    match {mids[0]} (fixture 770, 2091-09-01) · teams {hid} v {aid}",
+                           f"    match {mids[1]} (fixture 771, 2091-09-02) · teams {hid} v {aid}"]
+
+
+def test_since_is_on_or_after_the_kickoffs_utc_date_and_an_unknown_kickoff_is_left_out():
+    from datetime import date
+
+    from src.ingestion.lineups_history import Fixture, split_since
+    fx = [Fixture(1, "1", datetime(2025, 10, 31, 23, 59), 1, 2, {}),
+          Fixture(2, "2", datetime(2025, 11, 1, 0, 0), 1, 2, {}),
+          Fixture(3, "3", None, 1, 2, {}),
+          Fixture(4, "4", datetime(2025, 11, 2, 15), 1, 2, {})]
+    keep, out = split_since(fx, date(2025, 11, 1))
+    assert [f.match_id for f in keep] == [2, 4] and [f.match_id for f in out] == [1, 3]
+    assert split_since(fx, None) == (fx, [])
+
+
+def test_without_since_nothing_is_left_out_and_the_receipt_says_nothing_of_it(fresh_db):
+    seed(n=2, fixture_ids=["770", "771"])
+    ad = adapter_with({f: payload(int(f), side(HOME_SID, "H"), side(AWAY_SID, "A")) for f in ("770", "771")})
+    r, out = run(ad, "CL", SEASON, max_calls=10)
+    assert r.calls == 2 and r.left_out == [] and not any("since" in o.lower() for o in out)
+
+
+def test_the_cli_reads_since_as_a_date_and_refuses_another_shape(fresh_db, monkeypatch):
+    import cli
+    from src.ingestion import lineups_history as lh
+    seen = {}
+
+    def fake(code, season, **k):
+        seen.update(k)
+    monkeypatch.setattr(lh, "run_lineups_history", fake)
+    res = CliRunner().invoke(cli.cli, ["sync-lineups-history", "--competition", "FAC", "--season", "2025",
+                                       "--since", "2025-11-01", "--dry-run"])
+    assert res.exit_code == 0, res.output
+    from datetime import date
+    assert seen["since"] == date(2025, 11, 1)
+    res = CliRunner().invoke(cli.cli, ["sync-lineups-history", "--competition", "FAC", "--season", "2025",
+                                       "--since", "01/11/2025"])
+    assert res.exit_code == 2 and "--since" in res.output

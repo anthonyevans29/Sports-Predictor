@@ -6,8 +6,15 @@ be stored as it is), idempotent, paced at the adapter's limit, with a coverage r
 (fixtures with both elevens / fixtures). The seasons are the exam set's (the re-exam's pot) and 2025/26; the pulls are
 the operator's blocks after my read of the dry run."
 
-    python cli.py sync-lineups-history --competition CL|UEL|EFL|FAC --season YYYY [--dry-run] [--max-calls N]
-                                       [--save DIR]
+    python cli.py sync-lineups-history --competition CL|UEL|EFL|FAC --season YYYY [--since YYYY-MM-DD] [--dry-run]
+                                       [--max-calls N] [--save DIR]
+
+--since (ARCHITECT 2026-10-16 09:22 ET, addendum 83 item 5(b), RULED, verbatim): "FAC 2025/26 holds 869 finished
+fixtures and its preliminary rounds carry no lineup (3 of 3 sampled empty, as the 10-14 probe found): #538 takes
+`--since YYYY-MM-DD` (fixtures on or after the date) and FAC 2025/26 is pulled --since 2025-11-01 (the First Round
+Proper); the receipt prints the fixtures left out by it." A fixture is on or after the date when its stored kickoff's
+UTC date is; one without a stored kickoff cannot be shown to be, so it is left out. The left-out fixtures are never
+asked and never counted in the coverage line; the receipt prints their count and every one of them.
 
 How it reads and writes, so the receipt can be checked against it (law 1: every name below is the code's own):
 - The table as it stands (src/db/schema.py Lineup: match_id, team_id, kind, formation, is_starter, player_name,
@@ -94,6 +101,8 @@ class Run:
     code: str
     season: str
     dry_run: bool
+    since: object = None                         # --since (a date) or None
+    left_out: list = field(default_factory=list)  # the finished fixtures before --since, never asked (Fixture)
     fixtures: int = 0
     no_fixture_id: int = 0
     already: int = 0
@@ -245,8 +254,20 @@ def _named_blocks(raw) -> tuple[int, int]:
     return len(blocks), nameless
 
 
+def split_since(fixtures: list, since) -> tuple[list, list]:
+    """Addendum 83 item 5(b): (the fixtures on or after `since`, the fixtures it leaves out), each in the plan's
+    order. On or after = the stored kickoff's UTC date >= since; a fixture with no stored kickoff is left out (it
+    cannot be shown to be on or after). `since` None keeps every fixture."""
+    if since is None:
+        return list(fixtures), []
+    keep, out = [], []
+    for f in fixtures:
+        (keep if f.kickoff is not None and f.kickoff.date() >= since else out).append(f)
+    return keep, out
+
+
 def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_calls: int = MAX_CALLS,
-                        echo=print, adapter=None, save: str | None = None) -> Run:
+                        echo=print, adapter=None, save: str | None = None, since=None) -> Run:
     """The ingest (module docstring). Returns the run; the receipt is echoed."""
     from src.db.database import session_scope
     from src.db.schema import Lineup
@@ -263,12 +284,14 @@ def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_ca
     if not has_table and not dry_run:
         raise Refused("REFUSED: the DB has no lineups table; this command never creates one (--dry-run reads "
                       "without it)")
-    run = Run(code=code, season=stored, dry_run=dry_run, fixtures=len(fixtures))
+    fixtures, left_out = split_since(fixtures, since)
+    run = Run(code=code, season=stored, dry_run=dry_run, since=since, left_out=left_out, fixtures=len(fixtures))
     from src.adapters import api_football as af
     echo(f"sync-lineups-history · {code} {stored}"
          + (f" (--season {season} read as {stored!r}, the adapter's rule)" if str(season).strip() != stored else "")
          + f" · {'DRY RUN: nothing is written' if dry_run else f'writes lineups (kind {HISTORY_KIND!r}) only'}"
-         + f" · max calls {max_calls}")
+         + f" · max calls {max_calls}"
+         + (f" · --since {since:%Y-%m-%d}: fixtures on or after it only" if since is not None else ""))
     todo = []
     for f in fixtures:
         if f.fixture_id is None:
@@ -282,6 +305,10 @@ def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_ca
                 run.anomalies.append(f"match {f.match_id} team {tid}: {held[(f.match_id, tid)]} history starters "
                                      "stored (more than eleven): rewritten if asked")
     run.to_ask = len(todo)
+    if since is not None:
+        echo(f"  --since {since:%Y-%m-%d}: finished fixtures {run.fixtures + len(left_out)} · on or after it "
+             f"{run.fixtures} · left out {len(left_out)} (never asked, never counted below; every one is listed at "
+             "the end of the receipt)")
     echo(f"  plan (no call yet): finished fixtures {run.fixtures} · no fixture id {run.no_fixture_id} · both elevens "
          f"already stored {run.already} · to ask {run.to_ask} · calls a whole run needs {run.to_ask} · about "
          f"{run.to_ask * af._RATE_LIMIT_SECONDS / 60:.1f} min at {af._RATE_LIMIT_SECONDS:g} s a request "
@@ -407,3 +434,9 @@ def _receipt(run: Run, echo, max_calls: int) -> None:
             echo(ln)
     if run.stopped:
         echo(f"  STOPPED at {run.stopped}")
+    if run.since is not None:
+        echo(f"  LEFT OUT by --since {run.since:%Y-%m-%d}: {len(run.left_out)} finished fixture(s) before it, never "
+             "asked")
+        for f in run.left_out:
+            echo(f"    match {f.match_id} (fixture {f.fixture_id}, "
+                 f"{f'{f.kickoff:%Y-%m-%d}' if f.kickoff else 'no kickoff'}) · teams {f.home_id} v {f.away_id}")

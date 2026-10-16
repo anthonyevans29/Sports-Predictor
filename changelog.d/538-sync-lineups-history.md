@@ -1,5 +1,5 @@
 ## 2026-10-15 (#538: sync-lineups-history, DRAFT — ARCHITECT addendum 74 item 1; addendum 71's Step B; #106)
-- `python cli.py sync-lineups-history --competition CL|UEL|EFL|FAC --season YYYY [--dry-run] [--max-calls N] [--save DIR]` (src/ingestion/lineups_history.py).
+- `python cli.py sync-lineups-history --competition CL|UEL|EFL|FAC --season YYYY [--since YYYY-MM-DD] [--dry-run] [--max-calls N] [--save DIR]` (src/ingestion/lineups_history.py).
   - For the FINISHED fixtures of one cup-season it stores each side's starting eleven and bench from `/fixtures/lineups`, read through the adapter's own `list_lineup_confirmed`, pace and parser.
   - Rows go in the existing `lineups` table with `kind` `history`. No column is added. Never `confirmed`: the live lineup factor reads every team's last confirmed starters across competitions.
   - Sides are mapped by provider id (merged ids included), never by name. Rows carry the ingest time only.
@@ -7,5 +7,7 @@
 - The coverage receipt per competition-season: fixtures with both elevens / fixtures, then one / none (by why) / failed / not asked / no fixture id, rows, and calls with HTTP requests by status.
 - `--max-calls` (default 100) stops cleanly between fixtures. A payload error or a 401/403/429 stops the run; other failures are listed and asked again next run.
 - `--dry-run` reads mode=ro, prints the plan before any call, and writes nothing. `--save` keeps each answer whole, never under data/ (checked by resolved path and file identity, as `--out` is guarded on #433).
+- `--since YYYY-MM-DD` (ARCHITECT 2026-10-16, addendum 83 item 5(b)) keeps only the fixtures on or after the date: the stored kickoff's UTC date, and a fixture with no kickoff is left out. Each left-out fixture is never asked and stays out of the coverage line. The receipt counts them and lists every one: match id, fixture id, date, teams. FAC 2025/26 is pulled `--since 2025-11-01`, the First Round Proper, because its preliminary rounds carry no lineup.
+- The run list (addendum 83 item 5(a)): CL 2026/27, EFL 2026/27, CL 2025/26, UEL 2025/26, EFL 2025/26, FAC 2025/26.
 - src/db/schema.py: the Lineup docstring names the `history` kind (comment only, no DDL). docs/CLI.md: the command's row.
-- tests/test_lineups_history.py (16 new) on a throwaway DB with the adapter's real parser. The payload is SYNTHETIC until the operator's kept answers replace it (the PR stays draft until then).
+- tests/test_lineups_history.py (20 new; 4 for `--since`) on a throwaway DB with the adapter's real parser. The payload is SYNTHETIC until the operator's kept answers replace it (the PR stays draft until then).

@@ -1,5 +1,0 @@
-## 2026-10-12 (#464: nhl-shadow-names-its-model — ARCHITECT addendum 49, #463)
-- src/walters/nhl_shadow.py: a shadow names the model it ran. Where the xG fit cannot be made (`live_xg` answers `xg_model` "unavailable (...)"), the file and its rows carry `nhl_elo_v1` and v1's verdict and number and no other model, and the file carries `v7_unavailable` with the reason. With the fit made, the file is unchanged (byte for byte against main). The grade reads each file's fit block, not its name (`fit_made`): a no-fit file is never counted on the v7 line, its reference line still counts, and RESULTS.md's NHL section says how many such calls it holds. This covers the ten host files of 2026-10-03 on.
-- cli `export-nhl-predictions`: a line when v7 was not available.
-- docs/specs/h2-cutover-runbook.md step 5: the ruled NHL shadow post-check (the first host nhl-daily after the flip prints the fit on the laptop's count of attempts and no fallback beyond games without shots).
-- Tests: tests/test_nhl_shadow.py (the no-fit file and rows; rows unchanged with the fit; the grade never counts a no-fit file as v7 and keeps its reference line).

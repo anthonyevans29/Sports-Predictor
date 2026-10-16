@@ -104,12 +104,28 @@ class SyncResult:
     # answered_position, answered_none, from_kept, kept, failed: [..]}; empty when no listed player
     # lacked a roster position. A failed lookup is also a failed read (--strict); an answer with no position is not.
     position_lookups: dict = field(default_factory=dict)
+    # THE PROVIDER'S ANSWER WHEN BOOKS ARE 0 (ARCHITECT 2026-10-16, addendum 97 item 2(a), #550/#514): every game
+    # sync_odds_mlb's per-game fallback left with no book odds, with the provider's answer for it. {match_id, game,
+    # game_id, answer}; answer in NO_BOOK_ODDS_WHY. Never printed by __str__ (the CLI prints its own line).
+    no_book_odds: list = field(default_factory=list)
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
         if self.rekeyed or self.rekey_refused:
             out += f" rekeyed={self.rekeyed} rekey_refused={self.rekey_refused}"
         return out
+
+
+# THE PROVIDER'S ANSWER WHEN BOOKS ARE 0 (ARCHITECT 2026-10-16, addendum 97 item 2(a)): what sync_odds_mlb's per-game
+# fallback was told for a game it left with no complete book. "listed" is the ruling's own words.
+NO_BOOK_ODDS_WHY = {
+    "listed": "provider listed the game, no odds",
+    "unlisted": "provider did not list the game",
+    "claimed": "provider game id already taken by another game (doubleheader guard)",
+    "failed": "the provider's odds read failed",
+    "started": "the game had started, nothing stored",
+    "incomplete": "provider odds stored, no complete book",
+}
 
 
 def _mlb_store_odds(s, match, rows) -> tuple[int, bool] | None:
@@ -1714,31 +1730,42 @@ class IngestionService:
                             delta = 0.0
                         if gid is None or delta < gid_delta:
                             gid, gid_delta = g.get("id"), delta
+                    def _none(answer, game_id=None):
+                        result.no_book_odds.append({
+                            "match_id": m.id, "game": f"{m.away_team.name} @ {m.home_team.name}",
+                            "game_id": game_id, "answer": answer})
                     if gid in claimed_gids:
                         _log(f"    · provider id {gid} already claimed — "
                              f"skipping {m.away_team.name} @ "
                              f"{m.home_team.name} (doubleheader guard)")
+                        _none("claimed", gid)
                         continue
                     if gid is not None:
                         claimed_gids.add(gid)
                     if gid is None:
                         _log(f"    · no provider game id for "
                              f"{m.away_team.name} @ {m.home_team.name}")
+                        _none("unlisted")
                         continue
                     try:
                         rows = client.list_odds_for_game(season=season,
                                                          game_id=gid)
                     except APIBaseballError as e:
                         _log(f"    ✗ per-game odds {gid}: {e}")
+                        _none("failed", gid)
                         continue
                     if not rows:
                         _log(f"    · provider has no odds yet for "
                              f"{m.away_team.name} @ {m.home_team.name} "
                              f"(game {gid})")
+                        _none("listed", gid)
                         continue
                     stored = _mlb_store_odds(s, m, rows)
                     if stored is None:
+                        _none("started", gid)
                         continue
+                    if not stored[1]:
+                        _none("incomplete", gid)
                     result.created += stored[0]
                     filled += 1
                     result.updated += 1

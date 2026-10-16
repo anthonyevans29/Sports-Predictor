@@ -759,6 +759,7 @@ def sync_odds_cmd(competition_code: str, season: str | None, limit: int, days_ah
         service = IngestionService(adapter)
         result = service.sync_odds_mlb(season=season_int, days_ahead=days_ahead)
         console.print(f"[green]✓ MLB odds: {result}[/green]")
+        _print_no_book_odds(result)
         return
 
     adapter = _adapter_for_competition(competition_code)
@@ -854,6 +855,19 @@ def sync_injuries_cmd(competition_code: str, season: str, within_h: float | None
 
 
 EMPTY_ANSWER_MARK = "EMPTY-ANSWER"
+NO_BOOK_ODDS_MARK = "NO-BOOK-ODDS"
+
+
+def _print_no_book_odds(result) -> None:
+    # THE PROVIDER'S ANSWER WHEN BOOKS ARE 0 (ARCHITECT 2026-10-16, addendum 97 item 2(a), #550/#514): one plain line
+    # (never rich-wrapped) naming each game the MLB sync left with no book odds and the provider's answer for it, the
+    # step's last line, so a closing run's step tail carries it to the closing file.
+    from src.ingestion.service import NO_BOOK_ODDS_WHY
+    games = list(getattr(result, "no_book_odds", None) or [])
+    if games:
+        print(f"{NO_BOOK_ODDS_MARK} (MLB): {len(games)} game(s) with no book odds: " + "; ".join(
+            f"match {g['match_id']} [{NO_BOOK_ODDS_WHY.get(g['answer'], g['answer'])}] {g['game']}"
+            + (f" (game {g['game_id']})" if g.get("game_id") is not None else "") for g in games), flush=True)
 
 
 def _print_empty_answers(competition_code: str, result, positions: bool = True) -> None:
@@ -1724,7 +1738,9 @@ def mlb_actionable_receipt_cmd(season, seed, out_path):
         raise SystemExit(2)
     with session_scope() as s:
         rows = MA.collect(s, season=season)
+        tally = MA.closing_tally(s, season, root / "exports")       # addendum 97 item 2(b): read-only
     res = MA.receipt(rows, seed=MA.BOOT_SEED if seed is None else seed)
+    res["closing_tally"] = tally
     text_ = MA.format_receipt(res, season=season, run_stamp=stamp)
     print(text_, end="")
     if not res["splits"]["ok"]:             # #354 (addendum 31 item 2): the cells must sum to the parent

@@ -530,6 +530,25 @@ def empty_answers(argv: list[str], tail: list[str]) -> list[str]:
     return out
 
 
+NO_BOOK_ODDS_MARK = "NO-BOOK-ODDS"          # cli.py _print_no_book_odds (a test pins the two together)
+# ARCHITECT 2026-10-16, addendum 97 item 2(a): a covered MLB game whose row shows no book and whose run's sync step
+# named no answer for it. Not a guess at the provider's answer (law 4).
+BOOKS_NO_ANSWER = "the sync step named no answer for the game"
+
+
+def no_book_odds(argv: list[str], tail: list[str]) -> dict:
+    """Addendum 97 item 2(a) (#550/#514): {match id: the provider's answer} from an MLB sync-odds step's NO-BOOK-ODDS
+    line, the step's own answer for each game it left with no book odds ("provider listed the game, no odds", ...)."""
+    if not argv or argv[0] != "sync-odds":
+        return {}
+    out: dict = {}
+    for ln in tail:
+        if ln.startswith(NO_BOOK_ODDS_MARK):
+            for mid, why in re.findall(r"match (\d+) \[([^\]]+)\]", ln):
+                out[int(mid)] = why
+    return out
+
+
 def reported_failure(argv: list[str], tail: list[str]) -> str | None:
     for line in tail:
         s = line.strip()
@@ -1340,12 +1359,20 @@ def closing_name(fam: str, start: datetime) -> str:
     return f"closing_{fam}_{utc(start):%Y-%m-%dT%H%MZ}.json"
 
 
-def closing_doc(doc: dict, fam: str, start: datetime, run_id: str, page_ids: list, called: list[dict]) -> dict:
+def closing_doc(doc: dict, fam: str, start: datetime, run_id: str, page_ids: list, called: list[dict],
+                books_why: dict | None = None) -> dict:
     """ONE CLOSING, ONE PAGE, ONE FILE (ARCHITECT 2026-10-11, addendum 40 item 2): "the games on its page and no
     other, each row as the run's export gave it, and a closing block naming the family, the start time, the run id
     and the match ids." The games on its page are the run's Desk rows, the PASS games included; a called-off game is
     named in the closing block and has no row. "Everything else in the document is the export's own (exported_at,
-    git_sha, desk_meta); count is the rows kept." Pure."""
+    git_sha, desk_meta); count is the rows kept." Pure.
+
+    THE MLB BOOKS LINE (ARCHITECT 2026-10-16, addendum 97 item 2(a), #550/#514): "the closing file's MLB books line
+    says WHY when n is 0: "books: provider listed the game, no odds" (from the sync step's own answer, which the run
+    already has) rather than a bare count; the closing-file schema gains that string field (null when books exist)".
+    For MLB, given the run's answers (`books_why`, {match id: answer}), the closing block's `books` holds one entry a
+    row: {match_id, n (the row's market.bookmaker_count), why}; why is null when n > 0, else the sync step's answer,
+    else BOOKS_NO_ANSWER. The rows stay as the export gave them."""
     keep = set(page_ids)
     rows = [r for r in doc.get("predictions") or [] if r.get("match_id") in keep]
     out = {k: v for k, v in doc.items() if k != "predictions"}
@@ -1354,6 +1381,13 @@ def closing_doc(doc: dict, fam: str, start: datetime, run_id: str, page_ids: lis
     out["closing"] = {"family": fam, "start": iso_z(start), "run_id": run_id,
                       "match_ids": [r.get("match_id") for r in rows],
                       "called_off": [{"match_id": x["match_id"], "status": x["status"]} for x in called]}
+    if fam == "MLB" and books_why is not None:
+        books = []
+        for r in rows:
+            n = int((r.get("market") or {}).get("bookmaker_count") or 0)
+            books.append({"match_id": r.get("match_id"), "n": n,
+                          "why": None if n > 0 else books_why.get(r.get("match_id"), BOOKS_NO_ANSWER)})
+        out["closing"]["books"] = books
     return out
 
 
@@ -1662,6 +1696,10 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
         said = reported_failure(st, tail) if rc == 0 else None
         if said:                      # exit 0, but the step said it failed (Codex on #370)
             srec["detected_failure"] = said
+        nob = no_book_odds(st, tail)
+        if nob:                       # addendum 97 item 2(a): the provider's answer, for the closing file's books
+            srec["no_book_odds"] = {str(k): v for k, v in sorted(nob.items())}
+            rec.setdefault("books_why", {}).update(nob)
         empty = empty_answers(st, tail)
         if empty:                     # addendum 40 item 4: "in its console and in the run's receipt"
             srec["empty_answers"] = empty
@@ -1786,7 +1824,8 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
     # failed push is, and the closing is not run again."
     name = closing_name(fam, s)
     try:
-        cdoc = closing_doc(doc, fam, s, run_id, [x["match_id"] for x in rows], off)
+        cdoc = closing_doc(doc, fam, s, run_id, [x["match_id"] for x in rows], off,
+                           books_why=rec.get("books_why", {}) if fam == "MLB" else None)
         cf = write_closing_file(cdoc, name)
     except Exception as e:  # noqa: BLE001 - receipted and notified, never a retry (the page went out)
         cf = {"file": f"{CLOSING_FILE_DIR}/{name}", "error": c.redact(f"{type(e).__name__}: {e}")[:300]}

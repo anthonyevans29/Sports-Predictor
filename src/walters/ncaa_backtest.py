@@ -575,6 +575,16 @@ def v2_fence_refusal(command: str) -> str:
             f"{V2_FENCE_RULING}, verbatim: \"{V2_FENCE}\"")
 
 
+def v2_fence_view(competition_code, season) -> str | None:
+    """The web app's league view (ARCHITECT 2026-10-16, addendum 99 item 2(2)): "the web app's hand-typed
+    `/?league=NCAA` standings show 2026 wins and losses — RULED: fence it, one line [...] (a league=NCAA view answers
+    "withheld until the ncaa-elo-v2 run is recorded" until then)". The notice while NCAA's shown season is 2026 and
+    the run is unrecorded, else None. The single games of the view's lists stay (the level ruling)."""
+    if (competition_code or "").strip().upper() != NCAA_COMPETITION_CODE or str(season) != V2_TEST:
+        return None
+    return None if v2_run_recorded() else V2_FENCED_RATE
+
+
 class FenceRefused(RuntimeError):
     """A generic walk refused by the 2026 fence (v2_fence_walk)."""
 

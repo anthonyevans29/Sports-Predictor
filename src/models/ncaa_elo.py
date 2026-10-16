@@ -99,11 +99,11 @@ class NCAAEloV1:
 # "Candidate: NCAAEloV1's structure and constants (k_factor 24, home_advantage 55, mov_base 2.2, season_regression
 # 0.25, default_rating 1500, neutral rule no_home_advantage_at_neutral) with ONE fitted parameter: the logistic scale
 # s in P(home) = 1 / (1 + 10^(-(dr + ha) / s)), fitted by maximum likelihood on the 2024 and 2025 regular-season games
-# of the stream (D2) and then frozen; v1 is s = 400." P(home) is NCAAEloV1._expected_home, which the update reads too
-# (the expected score), so s replaces 400 in both, as nhl_elo.NHLEloV8 replaced its fitted divisor. That reading is
-# Q1 on the declaration PR: intl-elo-v2's ratified fit kept the update at /400 and scaled the price only ("It is the
-# rating dynamics, not the probability the model states"); the other reading is this one method. Nothing else differs
-# from v1; v1 keeps its fixed 400.
+# of the stream (D2) and then frozen; v1 is s = 400."
+# PRICE ONLY (ARCHITECT 2026-10-16, addendum 86 item 3, Q1, verbatim): "s enters the stated probability and nothing
+# else; the update keeps v1's expected score at /400, so the ratings walk exactly as NCAAEloV1's do and v1r's ratings
+# are v2's ratings." So v2 overrides predict() only: the update is NCAAEloV1.update, whose expected score is
+# NCAAEloV1._expected_home at /400. Nothing else differs from v1; v1 keeps its fixed 400.
 # --------------------------------------------------------------------------
 
 V1_SCALE = 400.0
@@ -115,6 +115,8 @@ class NCAAEloV2(NCAAEloV1):
 
     name = "ncaa_elo_v2"
 
-    def _expected_home(self, home_id: int, away_id: int) -> float:
-        diff = self.rating(away_id) - (self.rating(home_id) + self.cfg.home_advantage)
-        return 1.0 / (1.0 + 10 ** (diff / self.scale))
+    def predict(self, g) -> float:
+        for tid in (g.home_id, g.away_id):
+            self._regress_if_new_season(tid, g.season)
+        diff = self.rating(g.away_id) - (self.rating(g.home_id) + self.cfg.home_advantage)
+        return 1.0 / (1.0 + 10 ** (diff / self.scale))          # the price at s; the update's /400 is v1's

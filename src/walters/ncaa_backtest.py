@@ -745,14 +745,17 @@ def v1r_stream(games: list[Game], teams: dict[int, str], stamps: dict[str, datet
     return v
 
 
-def load_v1r_games() -> list[Game]:
+def load_v1r_games(seasons: tuple | None = None) -> list[Game]:
     """Read-only, D2 as worded ("stored NCAA games that carry a current CFBD both-FBS label [...] Home and away,
     the scores and the neutral flag come from the label"): EVERY stored NCAA match carrying a side-table label,
     whatever our local status or scores (Codex on #365: the ingest joins exact fits on our unscored rows and stores
     CFBD's scores, and such a label counts toward the coverage fact, so the stream must walk it). Built by
     game_from_rows, so the label's orientation, scores and neutral flag apply; v1r_stream then keeps the current
     ones (L3). Our FINISHED scored rows WITHOUT a label (#79's load_games) are added only so the stream can count
-    them as unlabelled; they are never walked. #79's load_games / build_stream are unchanged."""
+    them as unlabelled; they are never walked. #79's load_games / build_stream are unchanged.
+    `seasons` (ncaa-elo-v2's fit of s, Codex on #553): only the labels whose CFBD season is one of `seasons`, and no
+    unlabelled row (never walked), so no other season's label or score is read. The stream's season is the label's,
+    so v1r_stream(..., seasons) walks the same games either way. None = every label, as v1r has always read."""
     from sqlalchemy import inspect, select
 
     from src.db.database import session_scope
@@ -762,17 +765,46 @@ def load_v1r_games() -> list[Game]:
     out: list[Game] = []
     with session_scope() as s:
         if inspect(s.connection()).has_table(NCAACFBDLabel.__tablename__):
-            rows = s.execute(
-                select(Match, NCAACFBDLabel)
-                .join(NCAACFBDLabel, NCAACFBDLabel.match_id == Match.id)
-                .join(Competition, Match.competition_id == Competition.id)
-                .where(Match.sport == Sport.NFL, Competition.code == NCAA_COMPETITION_CODE)
-                .options(*label_load_options(s))
-                .order_by(Match.utc_date, Match.id)).all()
+            q = (select(Match, NCAACFBDLabel)
+                 .join(NCAACFBDLabel, NCAACFBDLabel.match_id == Match.id)
+                 .join(Competition, Match.competition_id == Competition.id)
+                 .where(Match.sport == Sport.NFL, Competition.code == NCAA_COMPETITION_CODE))
+            if seasons is not None:
+                q = q.where(NCAACFBDLabel.season.in_([str(x) for x in seasons]))
+            rows = s.execute(q.options(*label_load_options(s)).order_by(Match.utc_date, Match.id)).all()
             out = [game_from_rows(m, lab) for m, lab in rows]
         s.rollback()
+    if seasons is not None:
+        return out
     labelled = {g.match_id for g in out}
     return out + [g for g in load_games() if g.match_id not in labelled and g.label_source != "cfbd"]
+
+
+def count_current_labels_before(cutoff: datetime, seasons) -> int:
+    """Read-only: the stored NCAA matches kicking off at or before `cutoff` whose CURRENT CFBD label (L3: fetched_at
+    equal to its season's latest ingest record) is of one of `seasons`. Reads each label's season and stamp
+    and its match's kickoff, never a score (ncaa-elo-v2's fit of s reads no later season's outcome, Codex on #553).
+    A level score is therefore not excluded as v1r_stream excludes it: the count is never under the number of such
+    games v1r's walk updated on."""
+    from sqlalchemy import inspect, select
+
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match, NCAACFBDLabel, Sport
+    from src.ingestion.ncaa_cfbd import latest_record_stamps
+
+    with session_scope() as s:
+        if not inspect(s.connection()).has_table(NCAACFBDLabel.__tablename__):
+            s.rollback()
+            return 0
+        stamps = latest_record_stamps(s)
+        rows = s.execute(
+            select(NCAACFBDLabel.season, NCAACFBDLabel.fetched_at)
+            .join(Match, NCAACFBDLabel.match_id == Match.id)
+            .join(Competition, Match.competition_id == Competition.id)
+            .where(Match.sport == Sport.NFL, Competition.code == NCAA_COMPETITION_CODE,
+                   NCAACFBDLabel.season.in_([str(x) for x in seasons]), Match.utc_date <= cutoff)).all()
+        s.rollback()
+    return sum(1 for season, at in rows if stamps.get(season or "") is not None and at == stamps[season or ""])
 
 
 def load_v1r_stream(games: list[Game] | None = None) -> V1RStream:

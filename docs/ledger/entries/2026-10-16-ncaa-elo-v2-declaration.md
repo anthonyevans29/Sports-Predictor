@@ -19,15 +19,15 @@
   - `--preflight` for both streams, under one fingerprint.
   - The roadmap's ncaa lane: step 1 done, state declared.
 - **Read as built (section 8 of the spec):**
-  - s enters the expected score the update reads, as NHLEloV8's divisor did. intl-elo-v2's ratified fit read the same words the other way and kept the update at /400: Q1.
+  - s enters the stated probability only; the update keeps /400 (Q1, RULED: addendum 86 item 3, "PRICE ONLY").
   - The run needs 2024, 2025 and 2026 covered.
   - The 500 refusal is "no 2026 game before that day".
   - 2023's week is CFBD's, stored by the 2023 ingest PR. "Weeks 1-4" means 'regular' games with a week before 5; a game without a week is walked and never scored.
   - The second read's preconditions decide its result, never the run.
   - The ids sidecar holds both reads.
 - **For the architect:**
-  - Q1: whether s enters the update. The fit is not run before the ruling.
-  - Q2: whether a 2026 fence is wanted. Four reads print 2026 outcome figures today: ncaa-cfbd-coverage, ncaa-audit, resync-diff NCAA and the source probe.
+  - Q1, RULED (addendum 86 item 3): "PRICE ONLY. s enters the stated probability and nothing else; the update keeps v1's expected score at /400, so the ratings walk exactly as NCAAEloV1's do and v1r's ratings are v2's ratings." The fit is run only on the architect's block, after the architect's read of ncaa-fit-scale.
+  - Q2, RULED (addendum 86 item 3): "YES, a 2026 fence, in v1r's form, as a SEPARATE small PR after #553 merges and before 2026-11-09". The four reads that print 2026 outcome figures today: ncaa-cfbd-coverage, ncaa-audit, resync-diff NCAA and the source probe.
   - A note on D9: addendum 24 item 2(d) reads "No shadow file has been written".
 - **Next:**
   - The fit's printout from the operator on #553.

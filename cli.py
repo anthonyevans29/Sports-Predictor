@@ -7162,14 +7162,14 @@ def ncaa_gate_cmd(eid, preflight, word, fingerprint, no_fetch):
 @click.option("--id", "eid", default="ncaa-elo-v2", show_default=True, type=click.Choice(["ncaa-elo-v2"]),
               help="The registry id of a declaration with a fitted logistic scale.")
 def ncaa_fit_scale_cmd(eid):
-    """ncaa-elo-v2 D1: THE FIT OF s (ARCHITECT 2026-10-16, addendum 81 item 2), READ-ONLY. Walks the D2 stream's
-    2024 and 2025 games only (no 2026 game is walked or read) with the D1 wrapper at scale s, predict then update,
-    and maximizes the log-likelihood of the 'regular' games over s: the declared grid 100..1000 by 5, then a
+    """ncaa-elo-v2 D1: THE FIT OF s (ARCHITECT 2026-10-16, addendum 81 item 2), READ-ONLY. Loads the 2024 and 2025
+    labels only and walks those games (no 2026 label or score is read) with the D1 wrapper at scale s, predict then
+    update; s is the price only, the update at /400 (addendum 86 item 3, Q1), and maximizes the log-likelihood of the 'regular' games over s: the declared grid 100..1000 by 5, then a
     golden-section search within one step of the best grid value to 1e-6 (src/walters/ncaa_scale_fit.py). Prints the
     fitted s (exactly, to be frozen by the declaration PR), the log-likelihood curve at s = 300..500 by 25, the slope
     b the fitted s gives on 2025 (reported, not a gate), the training fingerprint, and two checks against v1r's
-    recorded run (b at s = 400 on 2025; v1r's stream fingerprint). Refuses (exit 2) unless the entry is declared and
-    2024 and 2025 are covered. Writes nothing; scores no 2026 game."""
+    recorded run (b at s = 400 on 2025; v1r's stream fingerprint). Refuses (exit 2) unless the entry is declared,
+    2024 and 2025 are covered, and each has a 'regular' game. Writes nothing; scores no 2026 game."""
     from src.walters import ncaa_scale_fit as fs
     from src.walters import ncaa_v1r_gate as vg
 

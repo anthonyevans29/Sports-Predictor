@@ -3,7 +3,8 @@ data only: no test reads data/, runs the real gate or the real fit, or touches t
 write goes to a tmp ledger). Pins:
 - the registry entry (declared, unrun; D5 and D7 verbatim; the plan; v1's constants; the neutral rule; s null until
   the fit is frozen; D9, D10 and D11 verbatim) and the spec and ledger quoting D1-D11 verbatim; the roadmap lane;
-- D1: NCAAEloV2 at s = 400 is v1 exactly; s enters the expected score the update reads (NHLEloV8's precedent);
+- D1: NCAAEloV2 at s = 400 is v1 exactly; s is the price only, the update at /400 (addendum 86 item 3, Q1): any s
+  walks v1's ratings;
 - the gate's machinery parameterised by registry id (v1r unchanged: tests/test_ncaa_v1r_gate.py): the run refuses
   until s is frozen, without the word or the fingerprint, without 2024, 2025 and 2026 covered, on a fingerprint
   mismatch, under 500 and without D4, each before the reservation; D3 (2024 and 2025 update only, 2026 'regular'
@@ -11,8 +12,9 @@ write goes to a tmp ledger). Pins:
 - D10: the second read's cold start, weeks 1-4 walked and the baseline's, scored from week 5, INVALID under 500 or
   without its baseline, NOT READ without coverage (never a refusal of the gate), and the combined verdict;
 - --preflight prints both streams and no outcome the run would score; the frozen s and the training stream check;
-- the fit of s: training seasons only, the declared search (maximum, bracket edge, tie toward 400), the curve, the
-  slope on 2025, the checks against v1r's recorded run; the commands by id."""
+- the fit of s: training seasons only (the command loads no other season's label or score), each with a 'regular'
+  game, the declared search (maximum, bracket edge, tie toward 400), the curve, the slope on 2025, the checks against
+  v1r's recorded run; the commands by id."""
 import json
 import os
 from datetime import datetime, timedelta
@@ -216,6 +218,7 @@ def test_registry_entry_is_declared_unrun_with_the_verbatim_gate_window_plan_and
     assert e["constants"] == {k: getattr(d, k) for k in ("k_factor", "home_advantage", "mov_base",
                                                          "season_regression", "default_rating")}
     assert e[vg.SCALE_KEY]["s"] is None and e[vg.SCALE_KEY]["fit"] is None    # D1: frozen by the PR from the fit
+    assert "PRICE ONLY (ARCHITECT 2026-10-16, addendum 86 item 3, Q1)" in e[vg.SCALE_KEY]["rule"]
     assert e["second_read"] == D["D10"] and e["benchmark"] == D["D11"] and e["prior_reads_note"] == D["D9"]
     assert reg._retired_refusal(e["test_set"], e["id"]) is None
     assert reg.prior_reads(e["test_set"], None, before_id="ncaa-elo-v2") == []
@@ -243,19 +246,28 @@ def test_the_roadmap_lane_names_the_declaration_and_the_step_done():
 
 # ------------------------------------------------------------------------------------------------ D1: the model --
 
-def test_v2_at_400_is_v1_and_s_enters_the_update_as_well():
+def test_v2_at_400_is_v1_and_s_is_the_price_only_the_ratings_v1s():
     g = [G(1, 1, 2, "2024", datetime(2024, 9, 1), 30, 10), G(2, 2, 1, "2024", datetime(2024, 9, 8), 3, 24),
-         G(3, 1, 2, "2025", datetime(2025, 9, 1), 17, 20, neutral=True)]
+         G(3, 1, 2, "2025", datetime(2025, 9, 1), 17, 20, neutral=True), G(4, 2, 3, "2025", datetime(2025, 9, 8), 7, 9)]
     v1, v2 = NCAAEloV1(), NCAAEloV2(scale=400.0)
     for x in g:
         assert v1.predict(x) == v2.predict(x)
         v1.update(x)
         v2.update(x)
     assert v1.ratings() == v2.ratings()
-    a, b = nb.NeutralRuleElo(scale=400.0), nb.NeutralRuleElo(scale=300.0)
-    a.update(g[0])
-    b.update(g[0])
-    assert a.ratings() != b.ratings()                         # the expected score reads s (NHLEloV8's precedent)
+    # PRICE ONLY (addendum 86 item 3, Q1): at any s the walk is v1's, rating for rating, neutral games included; only
+    # the stated probability moves, and it moves away from 0.5 the same way (s < 400 states it more strongly)
+    ref, models = nb.NeutralRuleElo(), [nb.NeutralRuleElo(scale=s_) for s_ in (150.0, 300.0, 400.0, 617.25)]
+    for x in g:
+        p_ref = ref.predict(x)
+        ps = [m.predict(x) for m in models]
+        ref.update(x)
+        for m in models:
+            m.update(x)
+            assert m.ratings() == ref.ratings()
+        if p_ref != 0.5:
+            assert ps[2] == p_ref and (ps[0] - 0.5) * (p_ref - 0.5) > 0
+            assert abs(ps[0] - 0.5) > abs(ps[1] - 0.5) > abs(p_ref - 0.5) > abs(ps[3] - 0.5)
     w = nb.NeutralRuleElo(scale=300.0)                        # the neutral rule wraps v2 the same way
     assert w.predict(g[2]) == 0.5 and isinstance(w.m, NCAAEloV2) and w.m.scale == 300.0
     assert isinstance(nb.NeutralRuleElo().m, NCAAEloV1) and not isinstance(nb.NeutralRuleElo().m, NCAAEloV2)
@@ -567,16 +579,32 @@ def test_the_fit_refuses_any_game_outside_2024_and_2025():
     assert fs.walk(vg.training_games(main_stream(n_test=5), V2), 400.0)["n"] == 20
 
 
+def test_the_fit_refuses_a_training_season_without_a_regular_game_before_any_walk(monkeypatch):
+    walks = []
+    monkeypatch.setattr(fs, "walk", lambda train, s_, spec=V2: walks.append(s_) or {"ll": -1.0, "n": 1})
+    both = vg.training_games(main_stream(n_test=0), V2)
+    no25 = [g for g in both if g.season == "2024"] + [nb.Game(**{**g.__dict__, "season_type": "postseason"})
+                                                      for g in both if g.season == "2025"]
+    for train, gone in ((no25, "2025"), ([g for g in both if g.season == "2025"], "2024"), ([], "2024, 2025")):
+        with pytest.raises(fs.FitRefused, match=f"no 'regular' game of {gone} in the training stream"):
+            fs.fit(train)
+    with pytest.raises(fs.FitRefused, match="2026"):
+        fs.fit(main_stream(n_test=5))
+    assert walks == []
+    assert fs.check_training(both) == {"2024": 10, "2025": 10} and fs.fit(both)["n"] == 20
+
+
 def test_the_search_finds_the_maximum_flags_the_edge_and_breaks_ties_toward_400(monkeypatch):
+    train = vg.training_games(main_stream(n_test=0), V2)
     for peak in (283.4, 412.77):
         monkeypatch.setattr(fs, "walk", lambda train, s_, spec=V2, p=peak: {"ll": -(s_ - p) ** 2, "n": 1})
-        f = fs.fit([])
+        f = fs.fit(train)
         assert abs(f["s"] - peak) < 1e-5 and not f["on_bracket_edge"] and f["grid_best"] == round(peak / 5) * 5
     monkeypatch.setattr(fs, "walk", lambda train, s_, spec=V2: {"ll": -(s_ - 40.0) ** 2, "n": 1})
-    f = fs.fit([])
+    f = fs.fit(train)
     assert f["on_bracket_edge"] and f["grid_best"] == 100.0 and f["s"] == 100.0
     monkeypatch.setattr(fs, "walk", lambda train, s_, spec=V2: {"ll": -1.0, "n": 1})
-    assert fs.fit([])["s"] == 400.0
+    assert fs.fit(train)["s"] == 400.0
 
 
 def test_the_fit_on_a_real_walk_beats_every_curve_point_and_never_reads_2026():
@@ -615,6 +643,72 @@ def test_the_fit_on_a_real_walk_beats_every_curve_point_and_never_reads_2026():
     rec = {"run": {"result": {"slope_b": c["at_400"]["b"], "stream_fingerprint": c["v1r_fingerprint_today"]}}}
     L = fs.lines(fs.compute(v, {vg.SCALE_KEY: {"s": None}}, rec))
     assert "-> REPRODUCED" in "\n".join(L) and "-> SAME" in "\n".join(L)
+
+
+def _fresh_db(tmp_path, monkeypatch):
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import sessionmaker
+
+    import src.db.database as db
+    eng = create_engine(f"sqlite:///{tmp_path / 'fit.db'}", future=True)
+    monkeypatch.setattr(db, "_engine", eng)
+    monkeypatch.setattr(db, "SessionLocal", sessionmaker(bind=eng, autoflush=False, future=True,
+                                                         expire_on_commit=False))
+    db.init_db()
+    return db
+
+
+def test_the_fit_command_loads_the_2024_and_2025_labels_only_and_counts_later_games_without_a_score(
+        tmp_path, ledger, monkeypatch):
+    """Codex on #553 (P1): the fit's read loads no 2026 (or 2023) label or score, and no unlabelled row; the later-
+    season count reads kickoffs and stamps only, current labels only."""
+    from src.db.schema import (Competition, Match, MatchStatus, NCAACFBDIngestRecord, NCAACFBDLabel, Sport, Team)
+    db = _fresh_db(tmp_path, monkeypatch)
+    with db.session_scope() as s:
+        comp = Competition(sport=Sport.NFL, code="NCAA", name="NCAA", area="USA", type="LEAGUE")
+        t = [Team(sport=Sport.NFL, name=n) for n in "ABCDEF"]
+        s.add_all([comp, *t])
+        s.flush()
+        ids = {}
+
+        def match(i, season, at, label=True, stamp=AT, status=MatchStatus.FINISHED):
+            m = Match(sport=Sport.NFL, competition_id=comp.id, season=season, utc_date=at, status=status,
+                      home_team_id=t[i % 6].id, away_team_id=t[(i + 1) % 6].id, stage="FBS (Division I-A)",
+                      home_score=21, away_score=14)
+            s.add(m)
+            s.flush()
+            if label:
+                s.add(NCAACFBDLabel(match_id=m.id, source="cfbd", source_game_id=m.id, season=season,
+                                    orientation="same", neutral=False, home_score=21 + i % 2, away_score=14,
+                                    fetched_at=stamp, season_type="regular"))
+            ids.setdefault(season, []).append(m.id)
+            return m.id
+
+        for season, start in (("2023", datetime(2023, 9, 2)), ("2024", datetime(2024, 9, 1)),
+                              ("2025", datetime(2025, 9, 1)), ("2026", datetime(2026, 9, 1))):
+            for i in range(8):
+                match(i, season, start + timedelta(days=i))
+        early = match(0, "2026", datetime(2025, 9, 3))                                # a 2026 label before the end
+        match(1, "2026", datetime(2025, 9, 4), stamp=AT - timedelta(days=3))         # stale: not current, not counted
+        unl = match(2, "2025", datetime(2025, 9, 5), label=False)                    # an unlabelled FINISHED row
+        for season in ("2023", "2024", "2025", "2026"):
+            s.add(NCAACFBDIngestRecord(season=season, division="fbs", fetched_at=AT, payload_file="p.json",
+                                       records=8, in_scope=8, joined=8, unlabelled=[]))
+    games = nb.load_v1r_games(("2024", "2025"))
+    assert {g.cfbd_season for g in games} == {"2024", "2025"} and len(games) == 16
+    assert early not in {g.match_id for g in games} and unl not in {g.match_id for g in games}
+    assert len(nb.load_v1r_games()) == 8 * 4 + 2 + 1                                   # v1r's read: unchanged
+    last25 = datetime(2025, 9, 8)
+    assert nb.count_current_labels_before(last25, ("2026",)) == 1                      # the early one, current only
+    assert nb.count_current_labels_before(datetime(2025, 9, 2), ("2026",)) == 0
+    assert nb.count_current_labels_before(last25, ("2023",)) == 8                      # 2023 is not v1r's: not asked
+    seen = []
+    real = nb.load_v1r_games
+    monkeypatch.setattr(nb, "load_v1r_games", lambda seasons=None: seen.append(seasons) or real(seasons))
+    monkeypatch.setattr(vg, "coverage", lambda seasons, s=None: _cov())
+    c = fs.run(V2)
+    assert seen == [("2024", "2025")] and c["training_games"] == 16 and c["later_walked_before"] == 1
+    assert c["by_season"] == {"2024": 8, "2025": 8}
 
 
 def test_fit_command_refuses_without_2024_and_2025_coverage(ledger, monkeypatch):

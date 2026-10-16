@@ -5,8 +5,8 @@
   - `logistic_scale` {s: null, fit: null}: the run refuses until this PR freezes s from the fit's printout.
   - D9, D10 and D11 verbatim (`prior_reads_note`, `second_read`, `benchmark`).
   - Test set: "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)".
-- docs/specs/ncaa-elo-v2.md: item 1 and D1-D11 verbatim, the registry entry, the declared procedure of the fit of s, the parameterised gate, the second read, ten interpretations and two questions (Q1: whether s enters the update; Q2: a 2026 fence).
-- src/models/ncaa_elo.py: `NCAAEloV2`, which is NCAAEloV1 with the logistic scale s in the expected score (the price and the update read it, as NHLEloV8's divisor; intl-elo-v2's ratified fit kept the update at /400, so this is Q1). At s = 400 it is v1 exactly.
+- docs/specs/ncaa-elo-v2.md: item 1 and D1-D11 verbatim, the registry entry, the declared procedure of the fit of s, the parameterised gate, the second read, ten interpretations and the two questions, both RULED by addendum 86 item 3 (Q1: price only, update at 400; Q2: a 2026 fence, its own PR after this one merges).
+- src/models/ncaa_elo.py: `NCAAEloV2`, which is NCAAEloV1 with the logistic scale s in the stated probability only. PRICE ONLY (addendum 86 item 3, Q1): it overrides `predict`, and the update keeps v1's expected score at /400, so its ratings are v1's at every s. At s = 400 it is v1 exactly.
 - src/walters/ncaa_backtest.py:
   - `NeutralRuleElo(scale=)`: None keeps v1.
   - `Game.week`: CFBD's week once the 2023 ingest stores it; None until then.

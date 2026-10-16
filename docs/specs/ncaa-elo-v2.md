@@ -70,13 +70,11 @@ scores no 2026 game.
 **The procedure, declared here before any fit is run:**
 
 - **The model.** The shared D1 wrapper with s: `ncaa_backtest.NeutralRuleElo(scale=s)` over `ncaa_elo.NCAAEloV2`.
-  - s replaces 400 in P(home) = 1 / (1 + 10^(-(dr + ha) / s)).
-  - v1's P(home) is `NCAAEloV1._expected_home`. The update reads it too, as the expected score. So s enters both the price and the update.
-  - **The house has two precedents, and they read the same words two ways.**
-    - `nhl_elo.NHLEloV8` (docs/specs/nhl-xg-v8.md) fitted "the logistic divisor (rating-to-probability)" inside the expected score, which its update reads too. That is the reading built here, for the same model family: a logistic Elo whose one expected-score function both prices and updates.
-    - intl-elo-v2 (docs/specs/intl-elo-v2.md, ratified and PASSED) fitted "the rating-to-probability scale" on the price only: "The update's expected score keeps v1's /400. It is the rating dynamics, not the probability the model states." That model prices through a separate soccer goals mapping (c), so its price and its update were already two functions.
+  - s replaces 400 in the stated P(home) = 1 / (1 + 10^(-(dr + ha) / s)), and nowhere else.
+  - **Price only, update at 400** (ARCHITECT 2026-10-16, addendum 86 item 3, Q1, verbatim): "PRICE ONLY. s enters the stated probability and nothing else; the update keeps v1's expected score at /400, so the ratings walk exactly as NCAAEloV1's do and v1r's ratings are v2's ratings. That is what D1 means by "NCAAEloV1's structure and constants" with ONE fitted parameter and "nothing else is fitted": a scale inside the update changes the rating dynamics (the effective K), which is a second knob under one name. intl-elo-v2's reading is the house's; NHLEloV8 fitted its divisor inside the update as a different declaration."
+  - In code: `NCAAEloV2` overrides `predict` only. Its update is `NCAAEloV1.update`, whose expected score is `NCAAEloV1._expected_home` at /400.
+  - So at every s the ratings walk exactly as v1's do, rating for rating, neutral games included. Only the stated probability moves (tested).
   - At s = 400, v2 is v1 exactly: same probabilities, same ratings (tested).
-  - **This reading is question Q1 of the PR.** The other reading leaves the update at 400 and changes only the price. It is one line in `NCAAEloV2`. No fit should be run before the architect confirms one of the two.
 - **The games.**
   - The D2 stream's 2024 and 2025 games, in stream order. Every one is walked: predict, then update. Postseason games and games without a season_type are walked.
   - The likelihood is over the games whose season_type is exactly 'regular'.
@@ -157,7 +155,7 @@ Nothing in D5 moves for it.
 
 ## 8. Interpretations (as built; each for the architect's confirmation)
 
-- **I1, s in the update too.** NHLEloV8's precedent; intl-elo-v2's reads the other way (section 4). This is **Q1**.
+- **I1, price only, update at 400. RULED** (ARCHITECT 2026-10-16, addendum 86 item 3, Q1, verbatim): "PRICE ONLY. s enters the stated probability and nothing else; the update keeps v1's expected score at /400, so the ratings walk exactly as NCAAEloV1's do and v1r's ratings are v2's ratings. That is what D1 means by "NCAAEloV1's structure and constants" with ONE fitted parameter and "nothing else is fitted": a scale inside the update changes the rating dynamics (the effective K), which is a second knob under one name. intl-elo-v2's reading is the house's; NHLEloV8 fitted its divisor inside the update as a different declaration." (section 4).
 - **I2, the gate run's coverage.** The run needs 2024, 2025 and 2026 covered, the seasons it walks. v1r's D6 named the seasons its run walked (2024, 2025), and D6 of v2 makes only 2023's coverage a precondition "of the SECOND read, not of the gate".
 - **I3, "frozen at --preflight".** The number --preflight prints is the number the run uses. The fingerprint check guarantees it; there is no separate store.
 - **I4, "The gate scores no 2026 game before that day".** The run's 500 refusal enforces it. There is no date check: the roadmap's 2026-11-08 is a projection (the roadmap's own rule for a calendar step).
@@ -168,25 +166,13 @@ Nothing in D5 moves for it.
 - **I9, the fit's games.** It walks 2024 and 2025 only, strictly (section 4).
 - **I10, the frozen s.** Exactly as printed. A CHANGED training stream is printed, not refused (section 4).
 
-## 9. Questions for the architect (needs-ruling)
+## 9. Questions for the architect: both RULED (ARCHITECT 2026-10-16, addendum 86 item 3)
 
-- **Q1 (D1).** Does s enter the expected score the update reads, or only the price, with the update kept at 400?
-  - As built, it enters both: NHLEloV8's precedent, and the literal P(home) of NCAAEloV1, the one function v1 prices and updates with.
-  - The other precedent is intl-elo-v2's, ratified: "The update's expected score keeps v1's /400. It is the rating dynamics, not the probability the model states."
-  - Item 1's words ("the map from rating difference to probability") fit either reading.
-  - The fit's figures differ between the two: on a synthetic season whose true scale was 280, the both-reading fitted s ≈ 351, because the ratings rescale with it.
-  - The other reading is one line in `NCAAEloV2`.
-  - The fit is not run until this is ruled.
-- **Q2 (a 2026 fence).** v1r's declaration carried a test-season fence (addendum 14 item 2(b)), and it was
-  lifted by v1r's run. v2's declaration orders none. Today four reads print 2026 outcome figures, a home win rate
-  or a margin across games (law 1: read from the code, not run):
-  - `ncaa-cfbd-coverage`, in the v1r stream block (`V1RStream.lines`) and in #79's block;
-  - `ncaa-audit`, whose default seasons are 2025 and 2026;
-  - `resync-diff --competition NCAA`, whose fence covered 2025 only;
-  - `scripts/ncaa_source_probe.py`, likewise.
-
-  Is a 2026 fence wanted until v2's run is recorded? Nothing is changed here until you rule. (`ncaa-backtest`
-  refuses for good. `ncaa-shadow-grade` has no file to read, per addendum 24 item 2(d).)
+- **Q1 (D1), RULED: price only, update at 400.** The question was whether s enters the expected score the update reads, or only the price. Verbatim: "PRICE ONLY. s enters the stated probability and nothing else; the update keeps v1's expected score at /400, so the ratings walk exactly as NCAAEloV1's do and v1r's ratings are v2's ratings. That is what D1 means by "NCAAEloV1's structure and constants" with ONE fitted parameter and "nothing else is fitted": a scale inside the update changes the rating dynamics (the effective K), which is a second knob under one name. intl-elo-v2's reading is the house's; NHLEloV8 fitted its divisor inside the update as a different declaration."
+  - As first built, s entered both. The PR now follows the ruling: `NCAAEloV2` overrides the price alone (section 4, I1).
+- **Q2 (a 2026 fence), RULED: yes, in a separate small PR after this one merges and before 2026-11-09.** Verbatim: "YES, a 2026 fence, in v1r's form, as a SEPARATE small PR after #553 merges and before 2026-11-09: until v2's one run is recorded, no command prints an outcome figure of the 2026 season (a rate, a margin, a count of wins). ncaa-cfbd-coverage prints no 2026 home win rate or margin in either block (counts, coverage, census and neutral counts stay); ncaa-audit with 2026 among its seasons refuses, exit 2, naming this ruling (its default seasons become 2025 alone until the run); resync-diff --competition NCAA and scripts/ncaa_source_probe.py keep their single-game listings (the level ruling: a game with its score is how a defect is checked) and drop any aggregate outcome line over 2026. D9 of v2 already records every 2026 read to date; the fence keeps that list from growing. Gates bind more under the income goal, never less."
+  - The question listed the four reads that print 2026 outcome figures today: `ncaa-cfbd-coverage` (both blocks), `ncaa-audit` (default seasons 2025 and 2026), `resync-diff --competition NCAA` and `scripts/ncaa_source_probe.py`.
+  - Nothing in this PR changes them. The fence is its own PR.
 
 **A note on D9, not a question.** D9 says the 2026 games through 2026-10-09 "were walked by v1r's shadow exports".
 The shadow's verdict refusal, addendum 24 item 2(d), verbatim in `ncaa_shadow.VERDICT_REFUSAL`, reads "No shadow
@@ -196,9 +182,9 @@ never fewer, so it stands as issued.
 ## 10. The order from here
 
 1. This PR is open, its checks green, nothing run (roadmap step, due 2026-10-20).
-2. Q1 is ruled.
-3. The operator runs `python cli.py ncaa-fit-scale --id ncaa-elo-v2` on the laptop and pastes the printout on this PR.
-4. The PR freezes s and the architect merges.
+2. Q1 is ruled: price only (addendum 86 item 3). Q2 is ruled: a 2026 fence, its own PR after this one merges and before 2026-11-09.
+3. The architect reads `ncaa-fit-scale` and writes the operator's block. The operator runs it on the laptop and pastes the printout on this PR. Nothing is run before that block.
+4. The PR freezes s and the architect merges. The 2026 fence PR follows (Q2).
 5. The 2023 ingest PR lands by 2026-11-01: the provider's 2023 listing whole, the CFBD 2023 labels and their week.
 6. The 500th 2026 game is final and labelled (projected 2026-11-08). `python cli.py ncaa-gate --id ncaa-elo-v2 --preflight` goes to the architect.
 7. The one run, on the word and the fingerprint (2026-11-09).

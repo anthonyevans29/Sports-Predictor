@@ -9,11 +9,15 @@ training set, reported, not a gate). Nothing else is fitted."
 
 THE PROCEDURE, declared here before any fit is run (docs/specs/ncaa-elo-v2.md, "The fit of s"):
   * The model: the shared D1 wrapper with s (ncaa_backtest.NeutralRuleElo(scale=s) over ncaa_elo.NCAAEloV2): s
-    replaces 400 in P(home), which the update reads too (the expected score), as nhl_elo.NHLEloV8's fitted divisor
-    (Q1 on the declaration PR: intl-elo-v2's ratified fit scaled the price only and kept the update at /400).
+    replaces 400 in the stated P(home) and nowhere else. PRICE ONLY (ARCHITECT 2026-10-16, addendum 86 item 3, Q1,
+    verbatim): "s enters the stated probability and nothing else; the update keeps v1's expected score at /400, so
+    the ratings walk exactly as NCAAEloV1's do and v1r's ratings are v2's ratings."
   * The games: the D2 stream's 2024 and 2025 games (training_games), in stream order: every one is walked (predict,
     then update; postseason and a game without a season_type are walked); the likelihood is over the games whose
-    season_type is exactly 'regular'. No 2026 game is walked or read: fit() refuses any game outside 2024 and 2025.
+    season_type is exactly 'regular'. No 2026 game is walked or read: the command loads the labels of 2024 and 2025
+    only (ncaa_backtest.load_v1r_games(seasons), Codex on #553), and fit() refuses any game outside 2024 and 2025.
+    fit() also refuses unless EACH of 2024 and 2025 has a 'regular' game in the likelihood (Codex on #553): D1 fits on
+    both seasons, never on one.
   * The likelihood of s: the sum of log P(result) over those games, each priced before its own update by a fresh
     model walking from the first 2024 game (a cold start: v1r's stream starts in 2024); p clipped as
     ncaa_backtest._ll clips it (1e-12).
@@ -25,7 +29,7 @@ THE PROCEDURE, declared here before any fit is run (docs/specs/ncaa-elo-v2.md, "
   * Frozen: the fitted s exactly as printed (Python's repr, which round-trips), written into the registry entry
     (ncaa-elo-v2, logistic_scale.s) by the declaration PR with the training fingerprint the fit read.
 
-Read-only: reads the stored games and the registry; writes nothing; scores no 2026 game.
+Read-only: reads the stored 2024 and 2025 games and the registry; writes nothing; reads no 2026 label or score.
 """
 from __future__ import annotations
 
@@ -66,6 +70,21 @@ def walk(train, scale: float, spec: vg.Spec = vg.V2) -> dict:
     return {"s": scale, "ll": ll, "n": n, "pairs": pairs}
 
 
+def check_training(train, spec: vg.Spec = vg.V2) -> dict[str, int]:
+    """Refuses (FitRefused) a game outside the training seasons, and a training season with no 'regular' game: the
+    likelihood is over BOTH seasons' 'regular' games (D1), so a season contributing none is refused, never fitted on
+    the other alone (Codex on #553). Returns the 'regular' count per training season. Pure."""
+    bad = sorted({g.season for g in train if g.season not in spec.warmup})
+    if bad:
+        raise FitRefused(f"the fit reads {', '.join(spec.warmup)} only; given games of {', '.join(bad)}")
+    n = {s_: sum(1 for g in train if g.season == s_ and g.season_type == vg.REGULAR) for s_ in spec.warmup}
+    empty = [s_ for s_, k in n.items() if k == 0]
+    if empty:
+        raise FitRefused(f"no '{vg.REGULAR}' game of {', '.join(empty)} in the training stream: D1 fits s on the "
+                         f"{' and '.join(spec.warmup)} '{vg.REGULAR}' games, so nothing is fitted on fewer seasons")
+    return n
+
+
 def grid() -> list[float]:
     k = int(round((BRACKET[1] - BRACKET[0]) / GRID_STEP))
     return [BRACKET[0] + GRID_STEP * i for i in range(k + 1)]
@@ -73,7 +92,9 @@ def grid() -> list[float]:
 
 def fit(train, spec: vg.Spec = vg.V2) -> dict:
     """The declared search (module docstring). Returns the fitted s, its log-likelihood, the grid's best value, the
-    bracket-edge flag, the number of walks, and the 'regular' count. Pure (but walks the training games ~220 times)."""
+    bracket-edge flag, the number of walks, and the 'regular' count. Refuses as check_training does, before any walk.
+    Pure (but walks the training games ~220 times)."""
+    check_training(train, spec)
     lls = {}
 
     def f(s_):
@@ -118,10 +139,12 @@ def slope_on(train, scale: float, season: str, spec: vg.Spec = vg.V2) -> dict:
     return {"season": season, "n": len(pairs), "a": a, "b": b}
 
 
-def compute(v, entry: dict | None, v1r_entry: dict | None, spec: vg.Spec = vg.V2) -> dict:
+def compute(v, entry: dict | None, v1r_entry: dict | None, spec: vg.Spec = vg.V2, later: int | None = None) -> dict:
     """The fit's printout over a loaded D2 stream: the training games (2024 and 2025 only), the fit, the curve, the
     slope on 2025 at the fitted s, and two checks against v1r's recorded run (its stream fingerprint, and b at
-    s = 400 on 2025). Pure."""
+    s = 400 on 2025). `later`: the later-season games kicking off before the last 2025 game, as run() counts them
+    from the store without reading a score (its stream holds 2024 and 2025 only); None = counted from `v` (a stream
+    that holds later seasons). Pure."""
     train = vg.training_games(v.games, spec)
     tfp, tn = vg.training_fingerprint(v.games, spec)
     ft = fit(train, spec)
@@ -135,7 +158,8 @@ def compute(v, entry: dict | None, v1r_entry: dict | None, spec: vg.Spec = vg.V2
             "by_season": {s_: sum(1 for g in train if g.season == s_) for s_ in spec.warmup},
             "regular_by_season": {s_: sum(1 for g in train if g.season == s_ and g.season_type == vg.REGULAR)
                                   for s_ in spec.warmup},
-            "later_walked_before": sum(1 for g in vg.walked(v.games, vg.V1R.gate) if g.season not in spec.warmup),
+            "later_walked_before": (later if later is not None else
+                                    sum(1 for g in vg.walked(v.games, vg.V1R.gate) if g.season not in spec.warmup)),
             "fit": ft, "curve": curve(train, spec), "slope": slope_on(train, ft["s"], last, spec),
             "at_400": at400, "v1r_recorded_b": res.get("slope_b"),
             "v1r_recorded_fingerprint": res.get("stream_fingerprint"), "v1r_fingerprint_today": v1r_fp,
@@ -175,8 +199,8 @@ def lines(c: dict, spec: vg.Spec = vg.V2) -> list[str]:
              f"today {c['v1r_fingerprint_today']} vs recorded {c['v1r_recorded_fingerprint']} -> "
              + ("SAME" if same_fp else "CHANGED"))
     L.append(f"  later-season games kicking off before the last {spec.warmup[-1]} game: {c['later_walked_before']} "
-             f"(v1r's walk updated on any such game; this fit reads {seasons} only; 0 expected, and the REPRODUCED "
-             "check above assumes it)")
+             f"(v1r's walk updated on any such game; this fit reads {seasons} only; 0 expected, and both checks "
+             "above assume it)")
     L.append("  frozen in the registry entry: " + (repr(c["frozen"]) if c["frozen"] is not None else
                                                   "not yet — the declaration PR freezes the FITTED s above"))
     L.append(f"FIT ONLY: nothing scored on {spec.gate.test}, nothing reserved, nothing recorded, nothing written.")
@@ -185,8 +209,9 @@ def lines(c: dict, spec: vg.Spec = vg.V2) -> list[str]:
 
 def run(spec: vg.Spec = vg.V2) -> dict:
     """The command's read: the declared entry (any status), the training seasons covered (L2 + L3), one read of the
-    stream, then compute(). Refuses (FitRefused) an unscaled declaration, an absent entry, or a training season not
-    covered."""
+    2024 and 2025 labels only (no other season's label or score is loaded, Codex on #553) and the count of later-
+    season games before the last 2025 game (kickoffs and stamps only), then compute(). Refuses (FitRefused) an
+    unscaled declaration, an absent entry, a training season not covered, or one without a 'regular' game."""
     from src.walters import registry as reg
 
     if not spec.scaled:
@@ -198,5 +223,8 @@ def run(spec: vg.Spec = vg.V2) -> dict:
         vg.require_coverage(vg.coverage(spec.warmup), spec.warmup, "the fit of s")
     except vg.GateRefused as err:
         raise FitRefused(str(err))
-    v = vg.load_streams(spec)[0]
-    return compute(v, e, reg.get(vg.EID, reg.LEDGER), spec)
+    v = nb.load_v1r_streams((spec.warmup,), nb.load_v1r_games(spec.warmup))[0]
+    last = [g.utc_date for g in v.games if g.season == vg.V1R.gate.test]
+    later_seasons = [s_ for s_ in vg.V1R.seasons if s_ not in spec.warmup]          # v1r's stream's later season: 2026
+    later = nb.count_current_labels_before(last[-1], later_seasons) if last else 0
+    return compute(v, e, reg.get(vg.EID, reg.LEDGER), spec, later=later)

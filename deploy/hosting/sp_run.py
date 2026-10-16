@@ -4,7 +4,12 @@
     sp_run.py <chain> [--set key=value ...] [--dry-run] [--operator]
 
 - Steps run in order; the first non-zero exit stops the chain (its exit is
-  the chain's exit, so systemd's OnFailure pages).
+  the chain's exit, so systemd's OnFailure pages). A chain flagged
+  `continue_on_sync_failure` (the window chain, ARCHITECT 2026-10-16,
+  addendum 84 item 2(b)) records a failed SYNC step and runs on; a failed
+  card/export step still stops it; its exit is the first failed step's, so
+  the notice still fires, and its post (the window page) runs when only sync
+  steps failed.
 - One `step` receipt per step (exit, duration, last <=5 console lines,
   redacted) and one `chain` receipt per run (backup, counts, exports).
 - A console line starting "SP-PAGE:" (improve's H0-5 hold) pages the
@@ -239,11 +244,23 @@ def transient_class(rc: int, tail: list[str]) -> str | None:
     return None
 
 
-def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dict) -> tuple[int, int]:
+SYNC_PREFIX = "sync-"      # addendum 84 item 2(b): a sync step's command starts with it; any other is card/export
+
+
+def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dict,
+              continue_sync: bool = False, report: dict | None = None) -> tuple[int, int]:
     """Run steps in order (caller holds the DB lock); receipt each; stop at the
     first failure. Transient failures are retried (RETRY_BACKOFF_S) and the
-    receipt says "retried N". Returns (exit, steps_ok)."""
-    ok = 0
+    receipt says "retried N". Returns (exit, steps_ok).
+    `continue_sync` (addendum 84 item 2(b)): a failed step whose command starts
+    SYNC_PREFIX is receipted as now and the run goes on; a failed card/export
+    step still stops it. The exit is the FIRST failed step's (non-zero when any
+    step failed). `report` (a dict) receives `failed` [(step, command, exit,
+    the step's last redacted output line)] and `stopped_at` (the step that
+    stopped the run, or None)."""
+    ok, first_rc = 0, 0
+    if report is not None:
+        report.update(failed=[], stopped_at=None)
     for i, st in enumerate(steps, 1):
         line = f"python cli.py {' '.join(st)}"
         if metered_skip(st[0], today):
@@ -273,12 +290,23 @@ def run_steps(steps, label: str, unit: str, run_id: str, today: date, quota: dic
             rec.update(retried=len(attempts) - 1, attempts=attempts)
             print(f"· retried {len(attempts) - 1}: {'ok' if rc == 0 else f'still failing (exit {rc})'}",
                   flush=True)
+        if rc != 0 and continue_sync and st[0].startswith(SYNC_PREFIX):
+            rec["continued"] = "addendum 84 item 2(b): a sync step's failure does not stop the window chain"
         c.append_receipt(rec)
         mirror_after_step(unit, i, st[0], run_id)
         if rc != 0:
-            return rc, ok
+            if report is not None:
+                report["failed"].append((i, line, rc, next((x for x in reversed(tail) if x.strip()), "")))
+            first_rc = first_rc or rc
+            if continue_sync and st[0].startswith(SYNC_PREFIX):
+                print(f"· sync step {i}/{len(steps)} failed (exit {rc}): {line} — recorded; the chain runs on "
+                      "(addendum 84 item 2(b))", flush=True)
+                continue
+            if report is not None:
+                report["stopped_at"] = i
+            return first_rc, ok
         ok += 1
-    return 0, ok
+    return first_rc, ok
 
 
 def mirror_after_step(unit: str, i: int, cmd: str, run_id: str) -> None:
@@ -445,6 +473,7 @@ def main(argv=None) -> int:
     exports_before = {p: p.stat().st_mtime for p in (c.REPO / "exports").glob("*")} \
         if (c.REPO / "exports").exists() else {}
     backup_rec, chain_exit, ok = None, 0, 0
+    step_report: dict = {"failed": [], "stopped_at": None}
     quota = new_quota()
     with c.db_lock():
         need = chain.get("backup")
@@ -457,13 +486,17 @@ def main(argv=None) -> int:
             backup_rec = {"file": p.name, "sha256": c.sha256_file(p), "integrity": "verified-sidecar"}
 
         if chain_exit == 0:
-            chain_exit, ok = run_steps(steps, a.chain, unit, run_id, today, quota)
+            chain_exit, ok = run_steps(steps, a.chain, unit, run_id, today, quota,
+                                       continue_sync=bool(chain.get("continue_on_sync_failure")), report=step_report)
 
     exports = sorted(str(p.relative_to(c.REPO)) for p in (c.REPO / "exports").glob("*")
                      if exports_before.get(p) != p.stat().st_mtime) \
         if (c.REPO / "exports").exists() else []
     page_rec, freshens = None, []
-    if chain_exit == 0 and chain.get("post") == "window_page":
+    # addendum 84 item 2(b): the post runs after a clean run, or when only sync steps failed and the card ran
+    sync_only = (chain_exit != 0 and bool(step_report["failed"]) and step_report["stopped_at"] is None
+                 and (backup_rec is None or backup_rec.get("exit", 0) == 0))
+    if (chain_exit == 0 or sync_only) and chain.get("post") == "window_page":
         import sp_window_page
         page_rec = sp_window_page.run(c.REPO / "exports" / "window_24h.json")
         if page_rec.get("freshen_needed"):
@@ -479,6 +512,9 @@ def main(argv=None) -> int:
            "counts": c.table_counts(c.db_path(), c.CHAIN_COUNT_TABLES), "exports": exports}
     if gate:
         rec["active_from"] = gate
+    if step_report["failed"]:
+        rec["failed_steps"] = [{"step": i, "command": cmd, "exit": rc} for i, cmd, rc, _ in step_report["failed"]]
+        rec["stopped_at"] = step_report["stopped_at"]
     if backup_rec is not None:
         rec["backup"] = {k: backup_rec.get(k) for k in ("file", "sha256", "integrity")}
     if page_rec is not None:
@@ -498,6 +534,12 @@ def main(argv=None) -> int:
     print(f"\n{'✓' if chain_exit == 0 else '✗'} {a.chain}: exit={chain_exit} "
           f"steps {ok}/{len(steps)} in {rec['duration_s']}s · running {c.running_release() or 'release ?'}"
           f" · writer of record {c.writer_of_record() or '?'}")
+    # The failure page (sp_notify) carries the journal's last 30 lines; a run that went on past a failed sync step
+    # has pushed that step's output out of them, so the failures are named here, at the very end.
+    for i, cmd, rc, last in step_report["failed"]:
+        print(f"  ✗ step {i}/{len(steps)} exit={rc}: {cmd}" + (f" — {last.strip()[:200]}" if last.strip() else ""))
+    if step_report["stopped_at"] is not None:
+        print(f"  ✗ stopped at step {step_report['stopped_at']}/{len(steps)}")
     return chain_exit
 
 

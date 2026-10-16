@@ -3,12 +3,15 @@
 Every test runs on a throwaway DB of its own (fresh_db: the engine AND the mode=ro reader point at tmp_path) and the
 real APIFootballAdapter parser (list_lineup_confirmed) behind a fake HTTP session: no network, no key, no data/.
 
-THE PAYLOAD IS SYNTHETIC FOR NOW: no real /fixtures/lineups answer is kept in the repo (the 2026-10-14 probe kept
-summaries only). Its shape is the adapter's keys (lineups_history.KEYS) in the envelope the Step A tests use. The kept
-real answers the ruling asks for come from the operator's capped dry run with --save; they replace PAYLOAD under
-tests/fixtures/lineups_history/ before this leaves draft."""
+THE KEPT ANSWERS (ARCHITECT 2026-10-16, addendum 83 item 5(c)): seven real /fixtures/lineups answers of 2026-10-16
+13:19Z, byte for byte, are in tests/fixtures/lineups_history/ (its README). Six have lineups (CL 2025/26 x3, EFL 2026/27
+x3), and one is the empty FAC answer, kept deliberately. The tests on them run the real parser over every kept side. The
+synthetic payload below stays only for the shapes no kept answer holds: nameless slots, short sides, an unmapped side,
+refusals and the cap."""
+import hashlib
 import json
 from datetime import datetime
+from pathlib import Path
 
 import pytest
 from click.testing import CliRunner
@@ -378,3 +381,78 @@ def test_the_cli_reads_since_as_a_date_and_refuses_another_shape(fresh_db, monke
     res = CliRunner().invoke(cli.cli, ["sync-lineups-history", "--competition", "FAC", "--season", "2025",
                                        "--since", "01/11/2025"])
     assert res.exit_code == 2 and "--since" in res.output
+
+
+# --- the kept answers (ARCHITECT 2026-10-16, addendum 83 item 5(c); tests/fixtures/lineups_history/README.md) ----------
+
+FIX = Path(__file__).parent / "fixtures" / "lineups_history"
+KEPT = {"1383422": ("CL", "1165", "691"), "1383423": ("CL", "3502", "375"), "1383424": ("CL", "3684", "579"),
+        "1554097": ("EFL", "1381", "1339"), "1554098": ("EFL", "1828", "1362"), "1567390": ("EFL", "56", "1342")}
+EMPTY = "1419290"                                                   # FAC 2025/26, kept deliberately
+SHA256 = {"1383422": "e9e0091464ed4304d75020f21ea531c5fc7b4e16e430ebb4d646455a26d55491",
+          "1383423": "05aa094db0d47de521525a842d4c2241e0e906f44f0a7c50f81e8aad5d2c22c8",
+          "1383424": "1301e5fc131337087e697e5d2233e7f549f4d5d6ddfba532673fc948584d9755",
+          "1554097": "f344111122772e8bdb663c672c7f7c23e5cbb0eb7543d88aff08970a269e6e28",
+          "1554098": "c6ceaca714494a4e4aba99c14fbfd48745075fb14f78373c622d9ee1a1fe426a",
+          "1567390": "5a5d47df558d93d77768b98a93cdde3326d77673965e15c877f7f11545ba09a4",
+          "1419290": "93cd7347f373b5f90c06f80a54fa7d4ab3c8de16f48e6002ebd0ed9d0c03874a"}
+
+
+def kept(fid):
+    return json.loads((FIX / f"{fid}.json").read_text())
+
+
+def test_the_kept_answers_are_the_operators_bytes_and_carry_every_key_the_adapter_reads():
+    from src.ingestion.lineups_history import ELEVEN, KEYS
+    assert sorted(p.stem for p in FIX.glob("*.json")) == sorted([*KEPT, EMPTY])
+    for fid, sha in SHA256.items():                     # byte for byte the operator's kept files (df877e3)
+        assert hashlib.sha256((FIX / f"{fid}.json").read_bytes()).hexdigest() == sha, fid
+    for fid, (_code, h, a) in KEPT.items():
+        p = kept(fid)
+        assert p[KEYS["errors"]] == [] and p["parameters"] == {"fixture": fid}
+        assert [str(b[KEYS["team"]][KEYS["team_id"]]) for b in p[KEYS["response"]]] == [h, a]
+        for b in p[KEYS["response"]]:
+            assert KEYS["formation"] in b and len(b[KEYS["starters"]]) == ELEVEN and b[KEYS["bench"]]
+            for slot in b[KEYS["starters"]] + b[KEYS["bench"]]:
+                assert {KEYS["name"], KEYS["pos"], KEYS["number"]} <= set(slot[KEYS["player"]])
+                assert slot[KEYS["player"]][KEYS["name"]].strip()               # every kept slot is named
+    assert sum(b[KEYS["formation"]] is None for fid in KEPT for b in kept(fid)[KEYS["response"]]) == 3
+    e = kept(EMPTY)
+    assert (e[KEYS["response"]], e["results"], e[KEYS["errors"]]) == ([], 0, [])
+
+
+def test_the_kept_answers_store_both_elevens_and_every_bench_and_a_null_formation_stays_null(fresh_db):
+    seeded = {}
+    for fid, (code, h, a) in KEPT.items():
+        (mid,), hid, aid = seed(code, fixture_ids=[fid], home_ext={"api_football": h}, away_ext={"api_football": a})
+        seeded[fid] = (mid, {h: hid, a: aid})
+    answers = {fid: kept(fid) for fid in KEPT}
+    for code, rows_, sides in (("CL", 37 + 46 + 45, 6), ("EFL", 38 + 40 + 40, 6)):
+        r, out = run(adapter_with(answers), code, SEASON, max_calls=10)
+        assert (f"  COVERAGE {code} {SEASON}: fixtures with both elevens 3 / fixtures 3 · one 0 · none 0 · failed 0 "
+                "· not asked 0 · no fixture id 0") in out, out
+        assert (f"  stored: {rows_} row(s) on {sides} side(s) of 3 fixture(s) written · both elevens already stored "
+                "(skipped, no call) 0") in out, out
+    with fresh_db.connect() as c:
+        stored = c.execute(text("SELECT match_id, team_id, is_starter, formation, player_position, player_name "
+                                "FROM lineups WHERE kind = 'history'")).all()
+    for fid, (mid, by_provider) in seeded.items():
+        for b in kept(fid)["response"]:
+            tid = by_provider[str(b["team"]["id"])]
+            mine = [x for x in stored if x.match_id == mid and x.team_id == tid]
+            assert sum(1 for x in mine if x.is_starter) == 11 and len(mine) == 11 + len(b["substitutes"]), fid
+            assert {x.formation for x in mine} == {b["formation"]}, fid          # a null formation stays null
+            names = {s["player"]["name"] for s in b["startXI"] + b["substitutes"]}
+            assert {x.player_name for x in mine} == names, fid
+    assert sum(1 for x in stored if x.formation is None) == (11 + 11) + (11 + 9) + (11 + 9)   # 579, 1828, 1362
+    assert sum(1 for x in stored if x.player_position is None) == 6
+
+
+def test_the_kept_empty_answer_is_none_an_empty_answer_and_stores_nothing(fresh_db):
+    seed("FAC", fixture_ids=[EMPTY])
+    before = counts(fresh_db)
+    r, out = run(adapter_with({EMPTY: kept(EMPTY)}), "FAC", SEASON, max_calls=5)
+    assert counts(fresh_db) == before and r.calls == 1
+    assert (f"  COVERAGE FAC {SEASON}: fixtures with both elevens 0 / fixtures 1 · one 0 · none 1 · failed 0 · "
+            "not asked 0 · no fixture id 0") in out
+    assert "    none, by why: an empty answer 1" in out

@@ -1,0 +1,486 @@
+{
+ "errors": [],
+ "get": "fixtures/lineups",
+ "paging": {
+  "current": 1,
+  "total": 1
+ },
+ "parameters": {
+  "fixture": "1383423"
+ },
+ "response": [
+  {
+   "coach": {
+    "id": 27713,
+    "name": "Guga Nergadze",
+    "photo": "https://media.api-sports.io/football/coachs/27713.png"
+   },
+   "formation": "4-3-3",
+   "startXI": [
+    {
+     "player": {
+      "grid": "1:1",
+      "id": 41379,
+      "name": "G. Makaridze",
+      "number": 31,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:4",
+      "id": 276605,
+      "name": "D. Agyakwa",
+      "number": 24,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:3",
+      "id": 204163,
+      "name": "I. Gelashvili",
+      "number": 3,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:2",
+      "id": 24404,
+      "name": "G. Jgerenaia",
+      "number": 4,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:1",
+      "id": 342459,
+      "name": "G. Tabatadze",
+      "number": 23,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:3",
+      "id": 291999,
+      "name": "A. Zohouri",
+      "number": 20,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:2",
+      "id": 24609,
+      "name": "B. Kardava",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:1",
+      "id": 93084,
+      "name": "D. Klas",
+      "number": 33,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:3",
+      "id": 273295,
+      "name": "G. Mamageishvili",
+      "number": 11,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:2",
+      "id": 24758,
+      "name": "I. Sikharulidze",
+      "number": 18,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:1",
+      "id": 125750,
+      "name": "I. Tabatadze",
+      "number": 7,
+      "pos": "M"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 24545,
+      "name": "T. Megrelishvili",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 410304,
+      "name": "N. Dadiani",
+      "number": 6,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 306190,
+      "name": "A. Dzagania",
+      "number": 9,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 24777,
+      "name": "L. Silagadze",
+      "number": 10,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 109686,
+      "name": "M. Vrbanec",
+      "number": 13,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 24682,
+      "name": "G. Goshteliani",
+      "number": 14,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 423228,
+      "name": "D. Kvartskhava",
+      "number": 19,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 395823,
+      "name": "A. Amisulashvili",
+      "number": 25,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 200240,
+      "name": "T. Akhvlediani",
+      "number": 29,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 274894,
+      "name": "N. Khorkheli",
+      "number": 30,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 45896,
+      "name": "A. Rusevic",
+      "number": 32,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 24461,
+      "name": "G. Kobuladze",
+      "number": 40,
+      "pos": "D"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "11df33",
+      "number": "222226",
+      "primary": "11df33"
+     },
+     "player": {
+      "border": "ff0000",
+      "number": "ffffff",
+      "primary": "ff0000"
+     }
+    },
+    "id": 3502,
+    "logo": "https://media.api-sports.io/football/teams/3502.png",
+    "name": "Saburtalo"
+   }
+  },
+  {
+   "coach": {
+    "id": 27382,
+    "name": "Endika Gavina",
+    "photo": "https://media.api-sports.io/football/coachs/27382.png"
+   },
+   "formation": "4-4-2",
+   "startXI": [
+    {
+     "player": {
+      "grid": "1:1",
+      "id": 278454,
+      "name": "M. Ellborg",
+      "number": 33,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:4",
+      "id": 2733,
+      "name": "J. Stryger",
+      "number": 17,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:3",
+      "id": 19124,
+      "name": "P. Jansson",
+      "number": 18,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:2",
+      "id": 137131,
+      "name": "C. Rosler",
+      "number": 19,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:1",
+      "id": 129964,
+      "name": "Busanello",
+      "number": 25,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:4",
+      "id": 135515,
+      "name": "J. Karlsson",
+      "number": 2,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:3",
+      "id": 306955,
+      "name": "O. Rosengren",
+      "number": 7,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:2",
+      "id": 39141,
+      "name": "L. Johnsen",
+      "number": 23,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:1",
+      "id": 335095,
+      "name": "H. Bolin",
+      "number": 38,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:2",
+      "id": 342464,
+      "name": "D. T. Gudjohnsen",
+      "number": 32,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:1",
+      "id": 48169,
+      "name": "O. Berg",
+      "number": 16,
+      "pos": "M"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 39056,
+      "name": "Ricardo Friedrich",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 1962,
+      "name": "O. Lewicki",
+      "number": 6,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 840,
+      "name": "A. Sigurdsson",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 988,
+      "name": "I. Kiese",
+      "number": 9,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 287374,
+      "name": "E. Ekong",
+      "number": 11,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 19319,
+      "name": "M. Olsson",
+      "number": 13,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 160925,
+      "name": "T. Ali",
+      "number": 22,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 48196,
+      "name": "S. Haksabanovic",
+      "number": 29,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 394916,
+      "name": "Z. Loukili",
+      "number": 34,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 443779,
+      "name": "N. Zatterstrom",
+      "number": 35,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 424637,
+      "name": "A. Skogmar",
+      "number": 37,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 377168,
+      "name": "K. Busuladzic",
+      "number": 40,
+      "pos": "M"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "fd671c",
+      "number": "050505",
+      "primary": "fd671c"
+     },
+     "player": {
+      "border": "2c3b5f",
+      "number": "ffffff",
+      "primary": "2c3b5f"
+     }
+    },
+    "id": 375,
+    "logo": "https://media.api-sports.io/football/teams/375.png",
+    "name": "Malmo FF"
+   }
+  }
+ ],
+ "results": 2
+}

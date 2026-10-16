@@ -1,0 +1,476 @@
+{
+ "errors": [],
+ "get": "fixtures/lineups",
+ "paging": {
+  "current": 1,
+  "total": 1
+ },
+ "parameters": {
+  "fixture": "1383424"
+ },
+ "response": [
+  {
+   "coach": {
+    "id": 25982,
+    "name": "Sandro Perkovic",
+    "photo": "https://media.api-sports.io/football/coachs/25982.png"
+   },
+   "formation": "4-2-3-1",
+   "startXI": [
+    {
+     "player": {
+      "grid": "1:1",
+      "id": 65409,
+      "name": "O. Cancarevic",
+      "number": 22,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:4",
+      "id": 41160,
+      "name": "H. Ferreira",
+      "number": 7,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:3",
+      "id": 41236,
+      "name": "G. Silva",
+      "number": 37,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:2",
+      "id": 390607,
+      "name": "S. Muradyan",
+      "number": 3,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:1",
+      "id": 41996,
+      "name": "D. Sualehe",
+      "number": 33,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:2",
+      "id": 46920,
+      "name": "Y. Eteki",
+      "number": 88,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:1",
+      "id": 24121,
+      "name": "G. Sangare",
+      "number": 17,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:3",
+      "id": 14308,
+      "name": "A. Grgic",
+      "number": 77,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:2",
+      "id": 272457,
+      "name": "G. Manvelyan",
+      "number": 27,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:1",
+      "id": 22017,
+      "name": "V. Pinson",
+      "number": 93,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "5:1",
+      "id": 41529,
+      "name": "G. Gregorio",
+      "number": 8,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 456518,
+      "name": "A. Ploshchadnyi",
+      "number": 92,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 109750,
+      "name": "E. Boakye",
+      "number": 6,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 122688,
+      "name": "Matheus Aias",
+      "number": 9,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 75935,
+      "name": "A. Dashyan",
+      "number": 10,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 37465,
+      "name": "I. Oulad Omar",
+      "number": 11,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 304050,
+      "name": "T. Oshima",
+      "number": 14,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 15514,
+      "name": "H. Hambardzumyan",
+      "number": 19,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 481174,
+      "name": "Z. Khudaverdyan",
+      "number": 24,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 8817,
+      "name": "N. Zolotic",
+      "number": 44,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 7721,
+      "name": "M. Jakolis",
+      "number": 47,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 409126,
+      "name": "G. Abrahamyan",
+      "number": 65,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 61266,
+      "name": "H. Harutyunyan",
+      "number": 99,
+      "pos": "M"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "fafb00",
+      "number": "000000",
+      "primary": "fafb00"
+     },
+     "player": {
+      "border": "000000",
+      "number": "dd0000",
+      "primary": "000000"
+     }
+    },
+    "id": 3684,
+    "logo": "https://media.api-sports.io/football/teams/3684.png",
+    "name": "FC Noah"
+   }
+  },
+  {
+   "coach": {
+    "id": null,
+    "name": null
+   },
+   "formation": null,
+   "startXI": [
+    {
+     "player": {
+      "grid": null,
+      "id": 55869,
+      "name": "M. Mijatovic",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 66754,
+      "name": "D. Grivic",
+      "number": 3,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 66863,
+      "name": "M. Djurickovic",
+      "number": 4,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 268348,
+      "name": "I. Serikov",
+      "number": 5,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 49083,
+      "name": "A. Orahovac",
+      "number": 55,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 66839,
+      "name": "O. Gasevic",
+      "number": 15,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 66793,
+      "name": "I. Ivanovic",
+      "number": 7,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 72528,
+      "name": "L. Strumia",
+      "number": 92,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 45381,
+      "name": "N. Piscevic",
+      "number": 32,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 66834,
+      "name": "M. Milickovic",
+      "number": 10,
+      "pos": null
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 67035,
+      "name": "I. Bulatovic",
+      "number": 11,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 319446,
+      "name": "F. Domazetovic",
+      "number": 21,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 55870,
+      "name": "L. Mirkovic",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 96568,
+      "name": "O. Sarkic",
+      "number": 13,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 11175,
+      "name": "M. Vusurovic",
+      "number": 17,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 45779,
+      "name": "P. Grbic",
+      "number": 18,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 449700,
+      "name": "L. Savovic",
+      "number": 22,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 394679,
+      "name": "A. Camaj",
+      "number": 24,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 34567,
+      "name": "V. Adzic",
+      "number": 33,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 293551,
+      "name": "D. Dakic",
+      "number": 35,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 303988,
+      "name": "P. Vukovic",
+      "number": 36,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 394949,
+      "name": "D. Vukanic",
+      "number": 44,
+      "pos": "M"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "d4ea85",
+      "number": "222226",
+      "primary": "d4ea85"
+     },
+     "player": {
+      "border": "000099",
+      "number": "dd0000",
+      "primary": "000099"
+     }
+    },
+    "id": 579,
+    "logo": "https://media.api-sports.io/football/teams/579.png",
+    "name": "Buducnost Podgorica"
+   }
+  }
+ ],
+ "results": 2
+}

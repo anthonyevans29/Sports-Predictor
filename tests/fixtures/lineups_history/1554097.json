@@ -1,0 +1,414 @@
+{
+ "errors": [],
+ "get": "fixtures/lineups",
+ "paging": {
+  "current": 1,
+  "total": 1
+ },
+ "parameters": {
+  "fixture": "1554097"
+ },
+ "response": [
+  {
+   "coach": {
+    "id": 29084,
+    "name": "Darrell Clarke",
+    "photo": "https://media.api-sports.io/football/coachs/29084.png"
+   },
+   "formation": "4-2-3-1",
+   "startXI": [
+    {
+     "player": {
+      "grid": "1:1",
+      "id": 282999,
+      "name": "H. Male",
+      "number": 12,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:4",
+      "id": 118975,
+      "name": "J. Senior",
+      "number": 2,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:3",
+      "id": 17915,
+      "name": "N. Smith",
+      "number": 5,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:2",
+      "id": 17777,
+      "name": "J. Turnbull",
+      "number": 4,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:1",
+      "id": 379618,
+      "name": "J. Slater",
+      "number": 3,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:2",
+      "id": 20182,
+      "name": "S. Finley",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:1",
+      "id": 138805,
+      "name": "L. O'Connor",
+      "number": 22,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:3",
+      "id": 82948,
+      "name": "J. Davies",
+      "number": 15,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:2",
+      "id": 17929,
+      "name": "T. Conlon",
+      "number": 11,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:1",
+      "id": 284185,
+      "name": "C. Whitaker",
+      "number": 7,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "5:1",
+      "id": 107787,
+      "name": "J. Ironside",
+      "number": 9,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 19505,
+      "name": "T. Ince",
+      "number": 10,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 19333,
+      "name": "C. Baker-Richardson",
+      "number": 19,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 284266,
+      "name": "L. Warrington",
+      "number": 25,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 346525,
+      "name": "B. Faulkner",
+      "number": 16,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 45319,
+      "name": "P. Brough",
+      "number": 23,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 167213,
+      "name": "O. Scott",
+      "number": 14,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 445892,
+      "name": "C. Veevers",
+      "number": 20,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 459488,
+      "name": "Z. Okoro",
+      "number": 17,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 671566,
+      "name": "S. Mann",
+      "number": 27,
+      "pos": "F"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "cc66c6",
+      "number": "000000",
+      "primary": "cc66c6"
+     },
+     "player": {
+      "border": "ffffff",
+      "number": "090f17",
+      "primary": "ffffff"
+     }
+    },
+    "id": 1381,
+    "logo": "https://media.api-sports.io/football/teams/1381.png",
+    "name": "Tranmere"
+   }
+  },
+  {
+   "coach": {
+    "id": 26474,
+    "name": "Jim McNulty",
+    "photo": "https://media.api-sports.io/football/coachs/26474.png"
+   },
+   "formation": "4-2-3-1",
+   "startXI": [
+    {
+     "player": {
+      "grid": "1:1",
+      "id": 449076,
+      "name": "N. Ramming",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:4",
+      "id": 82350,
+      "name": "T. Adebayo-Rowling",
+      "number": 13,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:3",
+      "id": 20229,
+      "name": "E. Ebanks-Landell",
+      "number": 6,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:2",
+      "id": 167108,
+      "name": "S. Sherring",
+      "number": 26,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:1",
+      "id": 339279,
+      "name": "B. Bilongo",
+      "number": 27,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:2",
+      "id": 92984,
+      "name": "E. Francis",
+      "number": 14,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:1",
+      "id": 19612,
+      "name": "R. East",
+      "number": 4,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:3",
+      "id": 171047,
+      "name": "C. Hayes",
+      "number": 7,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:2",
+      "id": 17516,
+      "name": "H. Gilmour",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:1",
+      "id": 17920,
+      "name": "L. Hannant",
+      "number": 19,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "5:1",
+      "id": 18135,
+      "name": "E. Dieseruvwe",
+      "number": 9,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 284338,
+      "name": "S. Waller",
+      "number": 20,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 671567,
+      "name": "J. Spaven",
+      "number": 12,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 298060,
+      "name": "Z. Silcott-Duberry",
+      "number": 11,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 330584,
+      "name": "D. Moss",
+      "number": 22,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 379626,
+      "name": "C. Pettit",
+      "number": 16,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 18142,
+      "name": "D. Rodney",
+      "number": 10,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 671565,
+      "name": "T. Bradley",
+      "number": 54,
+      "pos": "D"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "00ff00",
+      "number": "ffffff",
+      "primary": "00ff00"
+     },
+     "player": {
+      "border": "0055aa",
+      "number": "ffffff",
+      "primary": "0055aa"
+     }
+    },
+    "id": 1339,
+    "logo": "https://media.api-sports.io/football/teams/1339.png",
+    "name": "Rochdale"
+   }
+  }
+ ],
+ "results": 2
+}

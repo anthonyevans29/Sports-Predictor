@@ -1,0 +1,13 @@
+{
+ "errors": [],
+ "get": "fixtures/lineups",
+ "paging": {
+  "current": 1,
+  "total": 1
+ },
+ "parameters": {
+  "fixture": "1419290"
+ },
+ "response": [],
+ "results": 0
+}

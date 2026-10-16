@@ -1,0 +1,430 @@
+{
+ "errors": [],
+ "get": "fixtures/lineups",
+ "paging": {
+  "current": 1,
+  "total": 1
+ },
+ "parameters": {
+  "fixture": "1554098"
+ },
+ "response": [
+  {
+   "coach": {
+    "id": null,
+    "name": null
+   },
+   "formation": null,
+   "startXI": [
+    {
+     "player": {
+      "grid": null,
+      "id": 288129,
+      "name": "A. McNally",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 20003,
+      "name": "M. Williams",
+      "number": 24,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 284225,
+      "name": "Z. Johnson",
+      "number": 5,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 1446,
+      "name": "Z. Medley",
+      "number": 4,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 19261,
+      "name": "J. Hunt",
+      "number": 32,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 19389,
+      "name": "A. Hunt",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 17514,
+      "name": "O. Banks",
+      "number": 28,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 405724,
+      "name": "B. Brookes",
+      "number": 14,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 155862,
+      "name": "O. Pearce",
+      "number": 10,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 180296,
+      "name": "J. Grey",
+      "number": 7,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 118926,
+      "name": "D. Akinyemi",
+      "number": 20,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 20483,
+      "name": "G. Sykes-Kenworthy",
+      "number": 31,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 18284,
+      "name": "G. Olley",
+      "number": 22,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 18131,
+      "name": "M. Shelton",
+      "number": 19,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 18210,
+      "name": "R. Fallowfield",
+      "number": 2,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 128570,
+      "name": "J. Felix",
+      "number": 23,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 19777,
+      "name": "A. Read",
+      "number": 16,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 118360,
+      "name": "A. Newby",
+      "number": 30,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 321536,
+      "name": "C. McArthur",
+      "number": 33,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 586257,
+      "name": "B. Farrar",
+      "number": 25,
+      "pos": "F"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "808080",
+      "number": "000000",
+      "primary": "ffffff"
+     },
+     "player": {
+      "border": "808080",
+      "number": "ffffff",
+      "primary": "000099"
+     }
+    },
+    "id": 1828,
+    "logo": "https://media.api-sports.io/football/teams/1828.png",
+    "name": "York"
+   }
+  },
+  {
+   "coach": {
+    "id": null,
+    "name": null
+   },
+   "formation": null,
+   "startXI": [
+    {
+     "player": {
+      "grid": null,
+      "id": 51146,
+      "name": "V. Mannone",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 82060,
+      "name": "K. Gordon",
+      "number": 2,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 53187,
+      "name": "P. Farquharson",
+      "number": 6,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 275102,
+      "name": "C. Barker",
+      "number": 5,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 286505,
+      "name": "A. Adeyemo",
+      "number": 22,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 283130,
+      "name": "J. Arthurs",
+      "number": 20,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 192906,
+      "name": "K. Krasniqi",
+      "number": 25,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 328808,
+      "name": "M. Ebiowei",
+      "number": 7,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 154806,
+      "name": "L. Watson",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 140665,
+      "name": "S. Duke-McKenna",
+      "number": 10,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 557008,
+      "name": "G. Di Biase",
+      "number": 14,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 557547,
+      "name": "J. Izquierdo",
+      "number": 31,
+      "pos": null
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 137229,
+      "name": "A. Odimayo",
+      "number": 24,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 17778,
+      "name": "J. Williams",
+      "number": 26,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 350370,
+      "name": "J. Russell",
+      "number": 16,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 442926,
+      "name": "N. Tinsdale",
+      "number": 28,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 119929,
+      "name": "D. Orsi-Dadomo",
+      "number": 9,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 389308,
+      "name": "O. Kamara",
+      "number": 17,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 557390,
+      "name": "P. Arganese-McDermott",
+      "number": 4,
+      "pos": null
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 445923,
+      "name": "O. Aderoju",
+      "number": 11,
+      "pos": "F"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "f972a1",
+      "number": "ffffff",
+      "primary": "f972a1"
+     },
+     "player": {
+      "border": "efeeee",
+      "number": "c92627",
+      "primary": "efeeee"
+     }
+    },
+    "id": 1362,
+    "logo": "https://media.api-sports.io/football/teams/1362.png",
+    "name": "Crawley Town"
+   }
+  }
+ ],
+ "results": 2
+}

@@ -469,13 +469,13 @@ def test_the_one_run_reserves_first_reads_both_streams_and_records_every_scored_
 
     def gate(games, model=None, read=None):
         order.append((read.name if read else "v1r", os.path.exists(vg.reservation_path(V2)), model.m.scale))
-        models.append((id(model), dict(model.ratings())))
+        models.append((model, dict(model.ratings())))          # the model itself: an id() of a freed one recurs
         return real(games, model, read)
     monkeypatch.setattr(vg, "run_gate", gate)
     r = vg.run("the word", fp, spec=V2)
     assert seen == {"reserved_at_read": False, "reads": 1}
     assert order == [("the gate", True, 300.0), ("the second read", True, 300.0)]
-    assert models[0][0] != models[1][0] and models[1][1] == {}          # D10: a fresh model, every team at default
+    assert models[0][0] is not models[1][0] and models[1][1] == {}      # D10: a fresh model, every team at default
     cold = vg.second_read(_v(second_stream(), ("2023",)).games, nb.NeutralRuleElo(scale=300.0), None, V2.second)
     assert (r["second_read"]["rating_min"], r["second_read"]["ll_model"]) == (cold["rating_min"], cold["ll_model"])
     saved = json.load(open(vg.reservation_path(V2)))

@@ -535,8 +535,10 @@ function passKindTag(k){
     // Q3 K1 (ARCHITECT 2026-10-08): an MLB row the 2026-10-01 rule would have called on the kalshi-only mid is
     // PASS with no reference — units 0, no order, no shadow units (desk_policy.KALSHI_ONLY_SUSPENDED_KIND)
     :k==="kalshi_only_suspended"?'<span class="passkind">kalshi-only suspended</span>'
-    // addendum 72 item 1 (ARCHITECT 2026-10-15): a stored kickoff more than 2h from the Kalshi ticker's clock is PASS,
-    // no order, no value shadow; the reason names both clocks (desk_policy.KICKOFF_CLOCK_KIND, rendered from the file)
+    // addendum 72 item 1 (ARCHITECT 2026-10-15): a stored kickoff the Kalshi ticker's clock disputes is PASS, no
+    // order, no value shadow; the reason names both clocks (desk_policy.KICKOFF_CLOCK_KIND, rendered from the file).
+    // The Desk's threshold: desk_policy.DESK_CLOCK_DRIFT, 1h, inclusive (addendum 83 item 2, 2026-10-16; it was
+    // more than the matcher's 2h under addendum 72). The Cockpit compares no clocks itself.
     :k==="kickoff_clock"?'<span class="passkind">kickoff disputed</span>':"";
 }
 // Q3 K3: the file's kalshi_only_hold — what the 2026-10-01 rule would have done, FOR THE RECORD ONLY. Never a call:

@@ -217,7 +217,14 @@ def test_registry_entry_is_declared_unrun_with_the_verbatim_gate_window_plan_and
     d = NCAAEloConfig()
     assert e["constants"] == {k: getattr(d, k) for k in ("k_factor", "home_advantage", "mov_base",
                                                          "season_regression", "default_rating")}
-    assert e[vg.SCALE_KEY]["s"] is None and e[vg.SCALE_KEY]["fit"] is None    # D1: frozen by the PR from the fit
+    # D1, FROZEN by the declaration PR from the operator's printout (ARCHITECT 2026-10-16, addendum 93 item 2)
+    assert e[vg.SCALE_KEY]["s"] == 279.14222651259433 and repr(e[vg.SCALE_KEY]["s"]) == "279.14222651259433"
+    assert vg.scale_state(V2, e) == (279.14222651259433, None)
+    assert e[vg.SCALE_KEY]["fit"]["training_fingerprint"] == ("a5568a48718d7ea18e7d397c8c3be4ff11c03651574c38cbcf6d0"
+                                                             "6f882f3ab47")
+    assert e[vg.SCALE_KEY]["fit"]["regular_games"] == {"2024": 752, "2025": 762}
+    assert (e[vg.SCALE_KEY]["fit"]["log_likelihood"], e[vg.SCALE_KEY]["fit"]["b_2025"]) == (-870.104578, 0.99133)
+    assert e[vg.SCALE_KEY]["fit"]["head"] == "4790737" and "addendum 93" in e[vg.SCALE_KEY]["fit"]["ruling"]
     assert "PRICE ONLY (ARCHITECT 2026-10-16, addendum 86 item 3, Q1)" in e[vg.SCALE_KEY]["rule"]
     assert e["second_read"] == D["D10"] and e["benchmark"] == D["D11"] and e["prior_reads_note"] == D["D9"]
     assert reg._retired_refusal(e["test_set"], e["id"]) is None
@@ -435,6 +442,7 @@ def _ready(monkeypatch, main=None, second=None, cov=None):
 
 
 def test_the_run_refuses_until_s_is_frozen_before_anything_is_read(ledger, monkeypatch):
+    _freeze_s(ledger, None)                                       # the entry as declared, before addendum 93's freeze
     seen, fp = _ready(monkeypatch)
     asked = []
     monkeypatch.setattr(vg, "coverage", lambda seasons, s=None: asked.append(seasons) or _cov())
@@ -544,6 +552,7 @@ def _pf(ledger, main, second, fit_fp=None, s_=None):
 
 
 def test_preflight_prints_both_streams_and_no_2026_or_scored_2023_outcome(ledger):
+    _freeze_s(ledger, None)                                       # the entry as declared, before addendum 93's freeze
     main, second = main_stream(), second_stream(no_week=2)
     L = _pf(ledger, main, second)
     assert L[0].startswith("NCAA-ELO-V2 · PREFLIGHT (D6: scores nothing)") and L[-1].startswith("STREAM FINGERPRINT ")

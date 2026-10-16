@@ -56,7 +56,7 @@ own fields, so the keys below were added to the same entry afterwards, as for v1
 | `training_cutoff` | s only, then D2, D3 and D4 in one line | |
 | `neutral_site_rule` | `no_home_advantage_at_neutral` | D1 |
 | `constants` | `{k_factor 24.0, home_advantage 55.0, mov_base 2.2, season_regression 0.25, default_rating 1500.0}` | D1: v1's, untouched |
-| `logistic_scale` | `{s: null, fit: null, rule: ...}` | D1: s is frozen here, from the fit's printout (section 4); the run refuses while it is null |
+| `logistic_scale` | `{s, fit, rule}`: declared `{s: null, fit: null}`; frozen at s = 279.14222651259433 by addendum 93 | D1: s is frozen here, from the fit's printout (section 4); the run refuses while it is null |
 | `second_read` | D10 verbatim | |
 | `benchmark` | D11 verbatim | |
 | `ratified` | D10's general ruling, verbatim | soccer-expansion-v1's key for pre-run rulings |
@@ -95,6 +95,14 @@ scores no 2026 game.
   - CHECK, against v1r's recorded run: at s = 400, b on 2025 against v1r's recorded 1.420537 (REPRODUCED or NOT REPRODUCED, to 1e-9), and v1r's stream fingerprint today against the recorded one (SAME or CHANGED).
   - The check reads v1r's own run record. 2025 is v1r's retired test season, and its figures were ruled on 2026-10-09.
 - **Frozen.** The operator pastes the printout on this PR. The PR then writes s into the entry exactly as printed (`logistic_scale.s`), with `fit` = the training fingerprint, the training game count, the log-likelihood and the receipt. The run reads s from there. `--preflight` prints it, beside whether today's 2024-2025 stream is still the one the fit read (SAME, or CHANGED since the fit). On CHANGED, the frozen s stands, the line says so, and the architect reads it before the word; the run does not refuse. A frozen s whose `fit` records no training fingerprint reads UNKNOWN, never CHANGED.
+- **FROZEN: s = 279.14222651259433** (ARCHITECT 2026-10-16, addendum 93). The registry entry holds it in `logistic_scale.s`, exactly as printed, with `logistic_scale.fit`:
+  - the training fingerprint `a5568a48718d7ea18e7d397c8c3be4ff11c03651574c38cbcf6d06f882f3ab47`;
+  - regular games 2024 752 / 2025 762;
+  - log-likelihood −870.104578;
+  - b_2025 0.991330;
+  - fitted 2026-10-16 by the operator's block, at #553's head 4790737.
+  - The fit, as read (addendum 93 item 1, verbatim): "training stream 1,606 games walked (2024 798, 2025 808); in the likelihood 1,514 'regular' games (2024 752, 2025 762); 216 walks; best grid value 280 (inside the bracket, not on an edge); FITTED s = 279.14222651259433, log-likelihood −870.104578, mean log-loss 0.574706 (at s = 400: −882.854996, 0.583127; the curve falls monotonically from 300 to 500). b on 2025 at the fitted s: 0.991330 (intercept −0.0078) — in-sample, reported, not a gate; it says the fit did what D1 asked and nothing about 2026. Both reproduction checks hold: b at s = 400 on 2025 = 1.420537 vs v1r's recorded 1.4205373351680064 → REPRODUCED; v1r's stream fingerprint today 8019c4ff… = recorded → SAME. Later-season games before the last 2025 game: 0. Cross-check (mine, arithmetic): 400 / 1.42054 = 281.6, within one grid step of the fitted value, as a price-only rescale should be. Nothing scored on 2026, nothing reserved, nothing written"
+  - The console is logs/ncaa_fit_scale_2026-10-16.txt (19 lines), posted on #553.
 
 ## 5. The gate, parameterised by registry id (D6)
 

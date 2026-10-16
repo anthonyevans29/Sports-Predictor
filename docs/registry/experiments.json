@@ -1568,8 +1568,19 @@
       "default_rating": 1500.0
     },
     "logistic_scale": {
-      "s": null,
-      "fit": null,
+      "s": 279.14222651259433,
+      "fit": {
+        "training_fingerprint": "a5568a48718d7ea18e7d397c8c3be4ff11c03651574c38cbcf6d06f882f3ab47",
+        "regular_games": {
+          "2024": 752,
+          "2025": 762
+        },
+        "log_likelihood": -870.104578,
+        "b_2025": 0.99133,
+        "fitted": "2026-10-16, by the operator's block (block_1016_fit.txt; console logs/ncaa_fit_scale_2026-10-16.txt)",
+        "head": "4790737",
+        "ruling": "ARCHITECT 2026-10-16, addendum 93 item 2"
+      },
       "rule": "D1: fitted by maximum likelihood on the 2024 and 2025 regular-season games of the stream and then frozen; the declared procedure is src/walters/ncaa_scale_fit.py (docs/specs/ncaa-elo-v2.md, section 4); s is written here, exactly as ncaa-fit-scale prints it, by the declaration PR, with the training fingerprint the fit read. The run refuses while s is null. PRICE ONLY (ARCHITECT 2026-10-16, addendum 86 item 3, Q1): s enters the stated probability and nothing else; the update keeps v1's expected score at /400."
     },
     "second_read": "D10. THE SECOND READ (older season as test \u2014 RULED generally here): a season that predates every training season, whose games the candidate never walked, is a legitimate additional test, and it can only BLOCK: the lane goes live only if BOTH the gate (D5 on 2026) and the second read pass; a second read that fails is a FAIL of the candidate. For v2: the 2023 FBS regular season, labels from CFBD (792 both-FBS completed games listed as of the 10-13 probe), the games from the provider's 2023 listing (3,720 listed), ingested whole by Code's PR before 2026-11-01, read ONCE by the run: ratings start at default_rating for every team (no 2022 warm-up: a cold start, so the first 4 weeks' games are walked and not scored; the scored set is 2023 regular games from week 5, which must number \u2265 500 or the second read is INVALID and I rule again), the fitted s applied, D5's four tests with D4's baseline taken from 2023's own weeks 1-4 non-neutral games. Safeguards: the season is declared whole here, nothing of it is fitted, and its census (--preflight) is read by me before the run; the run is the same one run (one word, one fingerprint covering both streams).",

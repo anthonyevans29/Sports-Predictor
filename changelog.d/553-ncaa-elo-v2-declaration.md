@@ -2,7 +2,7 @@
 - docs/registry/experiments.json: `ncaa-elo-v2` declared through `registry.declare`: status declared, run and verdict null.
   - D5 is the gate and D7 the confirmation window, both verbatim. The plan is v1r's numbers: 100, log_loss, 0.6931, beat the D4 baseline − 0.010.
   - v1's constants and the neutral rule.
-  - `logistic_scale` {s: null, fit: null}: the run refuses until this PR freezes s from the fit's printout.
+  - `logistic_scale`: s = 279.14222651259433, frozen exactly as the fit printed it (ARCHITECT addendum 93), with `fit` = the training fingerprint a5568a48…f3ab47, regular games 2024 752 / 2025 762, log-likelihood −870.104578, b_2025 0.991330, the operator's block at head 4790737. The run refuses while s is null.
   - D9, D10 and D11 verbatim (`prior_reads_note`, `second_read`, `benchmark`).
   - Test set: "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)".
 - docs/specs/ncaa-elo-v2.md: item 1 and D1-D11 verbatim, the registry entry, the declared procedure of the fit of s, the parameterised gate, the second read, ten interpretations and the two questions, both RULED by addendum 86 item 3 (Q1: price only, update at 400; Q2: a 2026 fence, its own PR after this one merges).

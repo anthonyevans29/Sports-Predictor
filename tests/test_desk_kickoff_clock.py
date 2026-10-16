@@ -3,7 +3,10 @@ law 4): a row whose stored kickoff and the Kalshi clock in its leg's own ticker 
 kalshi_match.MAX_TICK_DRIFT gets no Desk call: PASS, units 0, no order, no value shadow, pass kind kickoff_clock, the
 reason naming both clocks. A ticker shape without a clock is not compared. The closing file carries the kind and both
 clocks. Tests on the day's rows: 50546 TB at CLE (stored 13:00 ET, KXMLBGAME-26OCT151800TBCLE: 18:00 ET) is held;
-50547 MIL at LAD (20:00 ET both) is untouched."""
+50547 MIL at LAD (20:00 ET both) is untouched.
+THE DESK'S OWN THRESHOLD (ARCHITECT 2026-10-16, addendum 83 item 2, RULED): DESK_CLOCK_DRIFT = 1h in desk_policy,
+inclusive ("at or more than 60 minutes apart hold the row"); the matcher's MAX_TICK_DRIFT stays 2h for placement.
+"Today's 50548 (8pm vs 6pm) then holds; yesterday's 50546 (1pm vs 6pm) holds; 50547 (8pm vs 8pm) does not." (verbatim)."""
 import importlib.util
 import os
 import re
@@ -46,13 +49,39 @@ def annotate(*rows, now=NOW):
     return {r["match_id"]: r["desk"] for r in doc["predictions"]}, doc
 
 
-def test_the_rule_reads_the_matchers_own_threshold(monkeypatch):
-    assert MAX_TICK_DRIFT == timedelta(hours=2)
+def tb_cle_tonight():
+    """50548 (addendum 83 item 1): statsapi and the host at 8:00pm ET (2026-10-17T00:00Z), the ticker at 6:00pm ET."""
+    return mlb(50548, "Cleveland Guardians", "Tampa Bay Rays", "2026-10-17T00:00:00", "KXMLBGAME-26OCT161800TBCLE")
+
+
+def test_the_desk_reads_its_own_one_hour_threshold_and_the_matcher_keeps_two(monkeypatch):
+    """Addendum 83 item 2: "the Desk's own threshold is ONE HOUR, its own constant (DESK_CLOCK_DRIFT = 1h in
+    desk_policy; the matcher's MAX_TICK_DRIFT stays 2h for placement, which is a different question)"."""
+    assert dp.DESK_CLOCK_DRIFT == timedelta(hours=1) and MAX_TICK_DRIFT == timedelta(hours=2)
     assert dp.KICKOFF_CLOCK_KIND in dp.NO_CALL_KINDS and dp.KICKOFF_CLOCK_RULE["on"] is True
     from src.ingestion import kalshi_match
-    monkeypatch.setattr(kalshi_match, "MAX_TICK_DRIFT", timedelta(hours=6))     # no second threshold of its own
-    desk, _ = annotate(tb_cle())
-    assert desk[50546]["pass_kind"] != "kickoff_clock" and desk[50546]["call"] == "PLAY"
+    monkeypatch.setattr(kalshi_match, "MAX_TICK_DRIFT", timedelta(hours=6))     # the matcher's never moves the Desk's
+    desk, doc = annotate(tb_cle_tonight())
+    assert desk[50548]["pass_kind"] == "kickoff_clock"
+    assert doc["desk_meta"]["kickoff_clock_rule"] is True and doc["desk_meta"]["kickoff_clock_hold_h"] == 1.0
+    monkeypatch.setattr(dp, "DESK_CLOCK_DRIFT", timedelta(hours=3))             # the Desk's own constant decides
+    desk, _ = annotate(tb_cle_tonight())
+    assert desk[50548]["pass_kind"] != "kickoff_clock" and desk[50548]["call"] == "PLAY"
+
+
+def test_50548_tb_at_cle_tonight_is_held_at_exactly_two_hours():
+    """Addendum 83 item 1: two hours apart is exactly MAX_TICK_DRIFT, so the matcher printed no clock line and #530's
+    "more than" 2h would not fire; the Desk's own inclusive hour holds it."""
+    stored, clock = datetime(2026, 10, 17, 0, 0), datetime(2026, 10, 16, 22, 0)
+    assert abs(stored - clock) == MAX_TICK_DRIFT and not abs(stored - clock) > MAX_TICK_DRIFT    # #530 would pass it
+    desk, _ = annotate(tb_cle_tonight(), now=datetime(2026, 10, 16, 21, 25, tzinfo=timezone.utc))
+    d = desk[50548]
+    reason = "stored kickoff 2026-10-16 20:00 ET vs Kalshi's clock 18:00 ET: no call"
+    assert (d["call"], d["units"], d["pass_kind"], d["reason"]) == ("PASS", 0, "kickoff_clock", reason)
+    assert d["order"] is None and d["value_shadow"] is None and d["exec"] is None
+    assert d["kickoff_clock"] == {"stored_kickoff": "2026-10-17T00:00:00Z", "stored_kickoff_et": "2026-10-16 20:00 ET",
+                                  "kalshi_clock": "2026-10-16T22:00:00Z", "kalshi_clock_et": "2026-10-16 18:00 ET",
+                                  "drift_h": 2.0, "max_drift_h": 1.0}
 
 
 def test_50546_tb_at_cle_is_held_with_both_clocks():
@@ -63,7 +92,7 @@ def test_50546_tb_at_cle_is_held_with_both_clocks():
     assert d["order"] is None and d["value_shadow"] is None and d["exec"] is None
     assert d["kickoff_clock"] == {"stored_kickoff": "2026-10-15T17:00:00Z", "stored_kickoff_et": "2026-10-15 13:00 ET",
                                   "kalshi_clock": "2026-10-15T22:00:00Z", "kalshi_clock_et": "2026-10-15 18:00 ET",
-                                  "drift_h": 5.0, "max_drift_h": 2.0}
+                                  "drift_h": 5.0, "max_drift_h": 1.0}
     assert doc["desk_meta"]["kickoff_clock_rule"] is True
     with dp.kickoff_clock_rule_off():                  # the call the rule holds: a PLAY on 5pp
         off, _ = annotate(tb_cle())
@@ -100,12 +129,14 @@ def test_the_held_row_is_never_a_value_shadow():
 
 
 @pytest.mark.parametrize("utc, held", [
-    ("2026-10-15T20:00:00", False),       # 16:00 ET vs 18:00 ET: exactly the threshold, not more
-    ("2026-10-15T19:59:00", True),        # 2h01m
-    ("2026-10-16T00:00:00", False),       # 20:00 ET vs 18:00 ET: 2h, the other way
-    ("2026-10-16T00:01:00", True),
+    ("2026-10-15T21:00:00", True),        # 17:00 ET vs 18:00 ET: exactly 60 minutes holds (addendum 83: inclusive)
+    ("2026-10-15T21:01:00", False),       # 59 minutes
+    ("2026-10-15T23:00:00", True),        # 19:00 ET vs 18:00 ET: 60 minutes, the other way
+    ("2026-10-15T22:59:00", False),
+    ("2026-10-15T22:00:00", False),       # the same clock
+    ("2026-10-15T20:00:00", True),        # 2h: the matcher's threshold, which #530 let through, now held
 ])
-def test_more_than_the_threshold_holds_and_the_threshold_itself_does_not(utc, held):
+def test_at_or_more_than_the_hour_holds_and_under_it_does_not(utc, held):
     r = tb_cle()
     r["utc_date"] = utc
     desk, _ = annotate(r)

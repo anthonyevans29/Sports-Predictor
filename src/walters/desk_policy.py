@@ -159,12 +159,18 @@ INJURY_EMPTY_TAG = "QB unread half units"
 # shadow, a new no-call kind in NO_CALL_KINDS with the reason naming both clocks ("stored kickoff 2026-10-15 13:00 ET
 # vs Kalshi's clock 18:00 ET: no call"). The clock is read from the leg's own ticker (the MLB shape carries it; a
 # shape without a clock is not compared and nothing changes). The closing file carries the kind and both clocks".
-# The threshold and the ticker's clock are the matcher's own (kalshi_match.MAX_TICK_DRIFT, ticker_stamp); every leg
-# with a ticker is read, and any one past the threshold holds the row. Checked after S1 and before the started rule:
-# a started test reads the stored kickoff, the clock this rule disputes. The row's desk block carries both clocks
-# (`kickoff_clock`). Its own switch and desk_meta line; the frozen golden runs with it off (base_v11()).
+# The ticker's clock is the matcher's own (kalshi_match.ticker_stamp); every leg with a ticker is read, and any one at
+# or past the threshold holds the row. Checked after S1 and before the started rule: a started test reads the stored
+# kickoff, the clock this rule disputes. The row's desk block carries both clocks (`kickoff_clock`). Its own switch and
+# desk_meta line; the frozen golden runs with it off (base_v11()).
+# THE DESK'S OWN THRESHOLD (ARCHITECT 2026-10-16 09:22 ET, addendum 83 item 2, RULED, superseding addendum 72's "read
+# it, do not add a second one" for the Desk): "the Desk's own threshold is ONE HOUR, its own constant (DESK_CLOCK_DRIFT
+# = 1h in desk_policy; the matcher's MAX_TICK_DRIFT stays 2h for placement, which is a different question), inclusive:
+# a stored kickoff and a leg's ticker clock at or more than 60 minutes apart hold the row. Today's 50548 (8pm vs 6pm)
+# then holds; yesterday's 50546 (1pm vs 6pm) holds; 50547 (8pm vs 8pm) does not."
 KICKOFF_CLOCK_RULE = {"on": True}
 KICKOFF_CLOCK_KIND = "kickoff_clock"
+DESK_CLOCK_DRIFT = timedelta(hours=1)
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
                  "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
                  KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
@@ -857,11 +863,12 @@ def kalshi_only_ref(r, now_ms: float) -> dict:
 
 def kickoff_clock_drift(r):
     """Addendum 72 item 1: (the stored kickoff, Kalshi's clock), both naive UTC, where a leg's own ticker carries a
-    clock (kalshi_match.ticker_stamp) more than kalshi_match.MAX_TICK_DRIFT from the row's stored kickoff; else None:
-    the rule off, an unknown kickoff, no leg with a ticker, or a ticker shape without a clock (not compared)."""
+    clock (kalshi_match.ticker_stamp) at or more than DESK_CLOCK_DRIFT (1h, addendum 83 item 2, inclusive) from the
+    row's stored kickoff; else None: the rule off, an unknown kickoff, no leg with a ticker, or a ticker shape without a
+    clock (not compared)."""
     if not KICKOFF_CLOCK_RULE["on"]:
         return None
-    from src.ingestion.kalshi_match import MAX_TICK_DRIFT, ticker_stamp
+    from src.ingestion.kalshi_match import ticker_stamp
     t = utc_ms(r["utc"])
     if t != t:
         return None
@@ -872,7 +879,7 @@ def kickoff_clock_drift(r):
         if not tk or not isinstance(tk, str):
             continue
         _, clock = ticker_stamp({"ticker": tk})
-        if clock is not None and abs(stored - clock) > MAX_TICK_DRIFT:
+        if clock is not None and abs(stored - clock) >= DESK_CLOCK_DRIFT:
             return stored, clock
     return None
 
@@ -1490,13 +1497,13 @@ def desk_block(r, c, v, ven) -> dict:
     if c.get("koHold"):                                   # Q3 K3: for the record only; nothing reads it as a call
         out["kalshi_only_hold"] = {k: _num(x) for k, x in c["koHold"].items()}
     if c.get("clockHold"):                                # addendum 72 item 1: both clocks, for the closing file
-        from src.ingestion.kalshi_match import MAX_TICK_DRIFT, et_text
+        from src.ingestion.kalshi_match import et_text
         stored, clock = c["clockHold"]
         out["kickoff_clock"] = {"stored_kickoff": stored.strftime("%Y-%m-%dT%H:%M:%SZ"),
                                 "stored_kickoff_et": et_text(stored),
                                 "kalshi_clock": clock.strftime("%Y-%m-%dT%H:%M:%SZ"), "kalshi_clock_et": et_text(clock),
                                 "drift_h": round(abs((clock - stored).total_seconds()) / 3600, 2),
-                                "max_drift_h": MAX_TICK_DRIFT.total_seconds() / 3600}
+                                "max_drift_h": DESK_CLOCK_DRIFT.total_seconds() / 3600}
     if v:
         out["value_shadow"] = {"side": v["side"], "edge_pp": _num(v["edge"]), "model_p": _num(v["modelP"]),
                                "market_p": _num(v["marketP"]), "role": v["role"], "units": VALUE["units"],
@@ -1567,6 +1574,8 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "nfl_injury_list_empty_rule": INJURY_EMPTY_RULE["on"],
                         # addendum 72 item 1 (2026-10-15): a stored kickoff the Kalshi clock disputes is never a call
                         "kickoff_clock_rule": KICKOFF_CLOCK_RULE["on"],
+                        # addendum 83 item 2 (2026-10-16): the Desk's own threshold, inclusive (the matcher's is 2h)
+                        "kickoff_clock_hold_h": DESK_CLOCK_DRIFT.total_seconds() / 3600,
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}

@@ -1,2 +1,0 @@
-## 2026-10-12 (#447: mlb-actionable-splits-receipt — the declared toss-up splits, one run, filed as declared; Closes #354)
-- `docs/receipts/mlb-actionable-2026-10-12T1214Z.md`: the operator's one run of the MLB actionable receipt with the #354 splits (by month of first pitch, by pick side) on the laptop at main 30b4d96, cherry-picked from `laptop/mlb-actionable-splits` 705196b with its blob unchanged (80806c6). Both splits reconcile with the parent (278 games, 163 wins). Read-only; no policy change (ARCHITECT 2026-10-12, addendum 44 item 6).

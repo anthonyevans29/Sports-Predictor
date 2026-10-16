@@ -1,9 +1,0 @@
-**2026-10-14 — RULED (ARCHITECT 2026-10-14 10:01 ET, addendum 67 item 3, building #487's ruling of 2026-10-13): the Cockpit's fill units are read from the loaded file's own unit basis; FILL_UNIT_CONTRACTS=10 goes.**
-- **Ruling (verbatim):** "COCKPIT FILL UNITS (#487; tools/cockpit.html). Ruled on 10-13: the fill's units are the entry cost divided by the unit dollars READ FROM THE FILE's order lines ("1u = $N"), the way desk_policy.file_unit_basis reads it; FILL_UNIT_CONTRACTS=10 goes. The page never hardcodes a dollar figure; a file whose order lines carry no unit basis shows the fill in contracts with the label "contracts (no unit basis in file)", never a guessed unit. Repo copy only, as always: the live Cockpit is republished on the operator's word after my line-by-line read. PR with its fragment; a short note in the file's header comment naming the rule."
-- **#487's ruling (2026-10-13, verbatim):** "With the unit declared in dollars, a fill's units are its entry cost in dollars, fees left out, over the dollars of one unit. The dollars of one unit are read from the file's own order lines, as desk_policy.file_unit_basis reads them; the Cockpit holds no figure of its own. Contracts over ten is the reading for a file whose order lines say 1u = 10 contracts, and for nothing else."
-- **As built:**
-  - "1u = $N": the entry cost of the contracts paying on the outcome, ÷ N.
-  - "1u = N contracts": contracts ÷ N, with N read from the file. This is #487's "contracts over ten" for a file that says 1u = 10 contracts; the page holds no ten of its own.
-  - No basis in the loaded files: contracts, labelled "contracts (no unit basis in file)", with no cap comparison.
-  - Loaded files whose bases differ are never picked between: contracts, naming both bases.
-- Repo copy only. The live Cockpit is republished on the operator's word, after the architect's line-by-line read.

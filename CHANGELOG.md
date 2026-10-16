@@ -4,6 +4,1156 @@ Human-readable record of what shipped, newest first. Deep detail and the
 reasoning behind each change live in `BACKLOG.md`; this file is the summary.
 Every drop adds an entry going forward.
 
+## 2026-10-15 (#547: replay-inventory — ARCHITECT addendum 79 item 3, #75)
+- scripts/replay_inventory_probe.py (new, read-only): what the DB can replay, per sport, for the graded games since 2026-09-20 (FINISHED with both scores; kickoff in [--since, --until)). Soccer is split by competition code; NCAA is sport NFL with code NCAA.
+  - Per sport it prints:
+    - **Stored predictions before kickoff:** the current row, the prediction_history rows, either, and current rows computed at or after kickoff. Versions per game are history rows before kickoff (min/median/max). It also counts the games with a prediction_outcomes row.
+    - **Book history before kickoff:** games, those with a complete session, first and last capture age vs kickoff, and the earliest capture.
+      - Read from odds_snapshots and the odds table: market 1X2, source not kalshi; NULL counts as book; the football-data-uk closes are left out.
+      - Each table's share is printed, with its own sessions per game and complete games. Sessions are never added across the two tables, because one sync writes both. Before #167 (2026-10-01) the soccer, cup and NHL syncs appended every run to the odds table, so for those games it is the only book history.
+    - **Kalshi snapshots before kickoff** (source kalshi), the same figures. A game whose legs are mismatched (addendum 37 item 3, `kalshi_legs.mismatched`) is never counted, and is printed apart.
+    - **kalshi_settled_markets** rows.
+    - **Closing files** in the laptop's exports/, by match id. Host copies under exports/host/ are counted, never matched, because their match ids are the host's own.
+    - **All four.**
+  - Sessions and completeness are read the way close.py reads each table. The outcomes are HOME and AWAY; soccer adds DRAW.
+    - **odds_snapshots** (`close_from_snapshots`): a session is one captured_at; it is complete when it carries every outcome.
+    - **The odds table** (`close_1x2`, the #207 contract): a session is a captured_at t and the rows in the 10 minutes before it, the latest per (bookmaker, selection, line). It is complete when ONE bookmaker quoted every outcome above 1.0. Books are never pooled (Codex on #547). A random-input check against `close_1x2` itself matched 4,000 of 4,000.
+    - **Kalshi:** a session is one captured_at, complete when every leg is stored. That is a count of stored legs, not the Kalshi grading close.
+  - The printed keys line names every key, the sport grouping included.
+  - The header gives the schema's answer on versions:
+    - `predictions` is current-only: every writer deletes the match's rows and inserts one.
+    - `prediction_history` is append-only since #301 (2026-10-06, no backfill). The probe prints this DB's first history stamp.
+    - No sport's count is assumed. The production INTL export appends UNL history with no predictions row (Codex on #547).
+  - A missing table or column (older DB) is said, never assumed. The DB opens mode=ro; the fallback is the plain path with `query_only`, as #421 ruled ("no third way"). None is ever created.
+- tests/test_replay_inventory_probe.py: 17 tests on throwaway SQLite files. They cover pre-#167 odds-table history, mismatched legs, an incomplete session, the query-only fallback, pooled books, the 10-minute window and UNL history.
+
+## 2026-10-15 (#545: value-shadow-receipt — ARCHITECT addendum 79 item 2, #86; finding #544)
+- scripts/value_shadow_receipt.py (new, read-only): every value shadow in a Cockpit ledger export (`bd_ledger_v1_<date>.json`, from "Export ledger (JSON)"), units only, no dollar figure.
+  - **Per row:** the kickoff, sport, game, side, the edge at the call, the close, the result (won / lost / push / void / ungraded) and units (0.25u notional; net over the settled rows).
+    - The edge at the call is the claim's: claim_model_p minus claim_market_p. Without a claim it is value_edge_pp, labelled "last log".
+    - The close is `close_ref.q_close`. The game's score is not in the ledger: the call's graded result is.
+  - **Totals** over all value shadows and over the rows with a close only: graded n, the record, units net.
+  - **n/30** prints both Cockpit readings: the policy card's (every value shadow with a result) and the P&L block's (its settled rows, after the kickoff audit).
+  - **Settlement follows the Cockpit's `settledBets`:**
+    - The kickoff audit (`auditCall`, #178) is recomputed from the stored stamps, never read from the stored `tz_audit` mark: a ledger last saved before the mark existed carries none (Codex on #545). The port matches the Cockpit's own JS on 400 of 400 randomized cases.
+    - A row the audit excludes is out of the net, and its settled record is printed apart.
+    - A flagged row is re-settled at the audited price, rounded as the Cockpit's toFixed(4) rounds.
+  - **Staked:** a truthy `staked` field, or the text "value shadow, staked" in any string of a call. A call of another type marked so is listed apart, with its own units, and kept out of the totals. Neither the repo Cockpit nor the live artifact has such a field today.
+  - **A Kalshi fill on a shadow's side:** the Cockpit's own fill matcher (`src/walters/ledger_fills.py`) books it off-book as "matches a quarantine SHADOW". The receipt re-fits it to the value shadow and counts it on the row. Its prices and size are never printed.
+  - A ledger with no value shadow prints "→ n=0 of 30". A file that is not a ledger export is refused.
+  - The docstring carries the law-1 read of where `value_shadow_graded` comes from and why the closing runs read none (#544).
+- scripts/value_shadow_fixture_capture.py (new): writes the test fixture through the Cockpit's own code. It drives tools/cockpit.html headless: logs, grades, and saves the "Export ledger (JSON)" text.
+- tests/fixtures/value_shadow/bd_ledger_v1_cockpit.json: the kept ledger shape, 6 calls (5 value shadows: won, lost, push, ungraded, a soccer DRAW won; 3 with a close). Every kickoff is fixed at 2091-10-16 18:00 UTC, so a re-capture reproduces it (Codex on #545).
+- tests/test_value_shadow_receipt.py: 22 tests.
+
+## 2026-10-15 (#543: guard-desk-pick — ARCHITECT addendum 79 item 1, #537)
+- scripts/soccer_injury_factor_receipt.py: a changed call is now graded on the Desk's own pick, not on the receipt's unrounded pick.
+  - The Desk's pick is the one `desk_policy.normalize` takes from the export's 4-decimal probabilities: it walks HOME, DRAW, AWAY and moves only on a strictly greater value, so a tie goes to the first side.
+  - `guard_calls` keeps the pick of the row the Desk's own run evaluated (`desk_pick`; None when the case is not evaluated). `guard_summary`'s `changed_graded` grades on it.
+  - The instrument rules (`instrument()`) are kept; only the side passed to them changed. The edge and cohort lines keep the unrounded pick. The `--list` row names the Desk's pick where the two differ.
+  - Two leading sides within 0.0001 of each other can round to the same value. On main, AWAY 0.50001 / DRAW 0.49997 on a draw graded "PLAY AWAY lost"; now it grades "PLAY DRAW won", the Desk's DRAW.
+- tests/test_soccer_injuries_one_sided.py: 1 new test, that tie case run through `guard_calls`, `guard_summary` and the `--list` report. The summary unit test's row carries `desk_pick`.
+
+## 2026-10-15 (#541: lineup-kind-guard, GATE-CLASS — ARCHITECT addendum 75 item 2, Q9)
+- src/walters/training.py: the two whole-table lineup readers of the soccer pricing take `kind in ('projected', 'confirmed')` (`LIVE_LINEUP_KINDS`, sync-lineups' own kinds): `lineup_kind_by_match_team` and `starters_by_match_team`. A finished cup fixture's `history` rows (sync-lineups-history, #538) never reach a prediction, the report-only cup exam or the fix-v2 tuning. The recent-XI reader already reads `confirmed` only.
+- src/web/routes/matches.py: the match page's lineup reads the same two kinds.
+- On today's DB nothing changes: no `history` row exists until #538's first pull. The frozen receipt is the architect's block on the laptop (the PR body).
+- Tests, each pinning one filter: it fails with that filter alone removed.
+  - tests/test_cup_exam.py, the starters reader: the exam's rows are identical with and without a history eleven that, unguarded, reads as 11 missing regulars.
+  - tests/test_cup_exam.py, the kind reader: a history eleven on a scheduled match leaves the stored lineup_kind None; unguarded it reads 'history'.
+  - tests/test_lineup_kind_guard.py (2), the match page.
+
+## 2026-10-15 (#540: probe-competition — ARCHITECT addendum 75 item 3(a))
+- scripts/lineup_timing_probe.py takes `--competition CL|UEL|EL|EFL` (default CL): the stored competition code whose rows on the day are polled. The polls, the late rule and the summary are the same for each, and the header and the D0 lines name the code read.
+- The Europa League is stored under UEL or EL (the adapter maps both; addendum 76 item 2). A day with no row under the code asked says how many rows the other code holds that day, so the operator re-runs with the right one. Nothing is read as the other code.
+- tests/test_lineup_timing_probe.py: 6 new. A UEL row on the day is polled only under `--competition UEL` and CL stays the default; EL reads its own rows; the 0-rows line names the other Europa League code both ways (UEL→EL, EL→UEL) and says 0 when neither holds a row; a code outside the four is refused by the parser.
+
+## 2026-10-15 (#539: cups-probe-steps — ARCHITECT addendum 75 item 3)
+- docs/roadmap.json, the cups lane: two operator steps between Step A (CL, 10-20) and Step B (10-29). Step A, UEL is the timing probe on the UEL matchday, due 2026-10-22. Step A, EFL is the probe on the next EFL round with stored rows, its date named by the operator (2026-10-27 until named). Step A's probe step is done (#528 merged).
+- CLAUDE.md, the cups paragraph: "CUP MODEL TRACK: reopened 2026-10-15 on a dated plan …; EFL/CL/UEL stay MARKET-ONLY until a PASS and its confirmation. The exam harness + fix-v2 machinery stay merged." This replaces "SUSPENDED … for the season". Nothing else in that paragraph changes.
+
+## 2026-10-15 (#536: injury-guard-isolated — ARCHITECT addendum 74 item 3, #425)
+- scripts/soccer_injury_factor_receipt.py: the one-sided-list guard, isolated. Measurement only: no rule, threshold or switch default changes.
+  - Each case is given to the Desk as the predictions export built at the prediction's computed_at read it, and evaluated as of that moment: the stored 1X2 to 4 decimals; the book reference the export read then; the stored list counts and rating sources.
+  - Since #167 `sync_odds` replaces a source's odds rows on every sync and appends the same `close_1x2` consensus to `odds_snapshots`. So the reference is the latest session by computed_at in either table: the later stamp wins, and the odds table wins a tie. An odds-table session read unpriced is no reference.
+  - Where neither table has a session by then but the odds table holds a later one, the session read then may have been replaced. That case is counted as reference unknown and not evaluated (law 4).
+  - A snapshot is the last priced session by then. An unpriced session that a later sync replaced leaves no trace, so there the receipt reads the priced snapshot before it where the export had none. The changed cases are split by where their reference was read (odds table / snapshot / none).
+  - That reference is not the grading close. The edge and cohort lines keep the grading close; the Desk reads what it had.
+  - `desk_policy.evaluate` runs with every switch as it stands, then again with the guard's own switch off (`injuries_one_sided_rule_off`).
+  - Per case, both calls. The receipt counts the one-sided cases, the ones the guard held and what they read without it, the ones an earlier rule reached first (shadow league, kickoff clock, started, default rating) by kind, and the cases where only the guard changed the call (PLAY / LADDER / PASS).
+  - A changed call is graded by its own instrument: a PLAY on its side; a LADDER on AWAY as X2 (a draw wins); a LADDER on a draw pick is not graded.
+  - The counts are over the rows the receipt stands behind (#437), with the all-rows reference line marked. They say where each Desk reference was read from (odds table / snapshot / none). Cases not evaluated are counted by reason (no computed_at, reference unknown). `--list` shows both calls per row and the reference the Desk read.
+  - No Kalshi quote is given. On a three-way soccer row the Desk takes no Kalshi-only reference, so a quote changes a call's units, never the call; the EPL tickers carry no clock.
+- The log-loss lines are unchanged: they measure the injury factor (the cut kept against taken out), not the guard.
+- tests/test_soccer_injuries_one_sided.py (3 new), on the receipt's own DB shape. The fixture has ten cases, stored the way `sync_odds` leaves them: held then LADDER read from a snapshot of a replaced session (changed, graded X2 on a draw); held then PLAY (changed); held then PASS noref (not changed); a non-guard PASS; a left-out row; default-rating and started cases reached before the guard; a replaced history read as unknown; and no odds at all read as no reference. A unit test covers the as-of reference rules, and another the summary (not-evaluated reasons, instrument grading, the export's 4-decimal probabilities).
+
+## 2026-10-15 (#535: pitcher-neither-receipt — ARCHITECT addendum 74 item 2, #507)
+- scripts/mlb_pitcher_probe.py (read-only): per season, the finished games with neither starter recorded.
+  - Their date range and count by month (stored kickoff, UTC).
+  - Their provenance: `matches.external_ids` keys, printed as read (mlb_stats_api = statsapi's sync-matches; api_baseball = the api-sports fallback).
+  - The split as `cli.py sync-appearances` reads a game: no pitcher_appearances row for its statsapi id / rows but no starter / no statsapi id.
+  - One sentence from the code: a re-run of `sync-appearances --season YYYY` writes rows for the first group where statsapi's boxscore answers, at most `--limit` games a run (default 2000, in no set order). It writes a starter only where the boxscore's per-game `gamesStarted` is 1. The second group is skipped unless `--refresh`.
+  - `--refresh` makes every finished game with a statsapi id a target and deletes their rows, committed before any request. A game whose request fails or returns nothing is left with no rows, so the sentence says to take a .backup first. The third group is skipped either way, so for it a command is missing.
+- tests/test_mlb_pitcher_probe.py: 1 new, on the throwaway DB (2025: four games with no row and one with a reliever row only; 2024: one game with no statsapi id).
+
+## 2026-10-15 (#534: copy-verify-immutable — ARCHITECT addendum 73 item 4, #532)
+- deploy/hosting/sp_common.py: `copy_connect(p)`, the immutable open of a copy nobody writes (`?mode=ro&immutable=1`).
+  - `copy_integrity` opens through it, unchanged in behaviour.
+  - `table_counts(..., copy=True)` reads a copy through it.
+  - `ro_connect` stays mode=ro, so the live DB is never opened immutable (#340).
+- deploy/hosting/closing.py `take_backup`: the `.partial` is checked with `copy_integrity`, and the finished copy is opened with `copy_connect`. Both were mode=ro.
+- deploy/hosting/sp_migrate.py:
+  - `pack` checks and counts the pack's copy through the immutable open.
+  - `verify` does the same on the pack's own copy. With `install`'s override, the installed DB (the live one from then on) stays mode=ro.
+- tests/test_hosting_pack.py (2 new), on a WAL source in a throwaway folder; both fail on main:
+  - the closing backup leaves the `.db` and its `.sha256` and nothing beside them, and every read of the copies is immutable;
+  - the pack folder holds no `-shm` / `-wal`, verify reads the pack immutable, and install reads the installed DB mode=ro.
+
+## 2026-10-15 (#531: backup-partial-sidecars — ARCHITECT addendum 72 item 4, #517)
+- deploy/hosting/sp_backup.py: the host's verify opens the `.partial` copy `?mode=ro&immutable=1`, through `sp_common.copy_integrity`, as pull_backup's has since #526.
+  - Its own mode=ro open (`c.integrity` → `ro_connect`) made a 32768-byte `.partial-shm` and an empty `.partial-wal` beside a WAL copy on Linux. Nothing removed them; that is the host's 64 sidecars of 10-11..10-15.
+  - A failed run removes every `*.partial*` in the folder. It used to remove the `.partial` only.
+- deploy/hosting/pull_backup.py: a failed pull's cleanup glob takes `*.partial*` (it took `*.partial`).
+- sp_prune is unchanged: it plans `sports_*.db` names only, and leaves `.partial*` files to the cleanup (a test pins it).
+- tests/test_hosting_pack.py (4 new), each on a throwaway folder:
+  - a WAL source's daily backup verifies through the immutable open and leaves the `.db` and its `.sha256` only;
+  - a failed backup removes every `*.partial*` and nothing else;
+  - a failed pull removes every `*.partial*`;
+  - prune never plans a `.partial*`.
+  - The first three fail on main.
+- The 64 existing files on the host: removed in the operator's next host block, after this PR is on a tag (the host runs tags), never by hand before.
+
+## 2026-10-15 (#530: kickoff-clock-hold — ARCHITECT addendum 72 item 1, #529)
+- src/walters/desk_policy.py: a row whose stored kickoff and the Kalshi clock in a leg's own ticker disagree by more than `kalshi_match.MAX_TICK_DRIFT` (2h, the matcher's own threshold, read there) gets no Desk call. The rule's own switch is on.
+  - The row is PASS: units 0, no order, no exec block, no value shadow, never a parlay leg.
+  - Its pass kind is `kickoff_clock`, now in NO_CALL_KINDS. The reason names both clocks: "stored kickoff 2026-10-15 13:00 ET vs Kalshi's clock 18:00 ET: no call".
+  - The clock is read with `kalshi_match.ticker_stamp`. A ticker shape without a clock is not compared, and a row with no ticker is unchanged.
+  - The rule is checked after S1 and before the started rule.
+  - The desk block carries `kickoff_clock`: both clocks in UTC and ET, the drift and the threshold. desk_meta carries `kickoff_clock_rule`.
+  - The frozen battery runs with the rule off (`base_v11()`); `kickoff_clock_rule_off()` compares a file with and without it.
+  - POLICY_VERSION stays v1.1, the file's convention since F1: no rule since has bumped it.
+- The closing file holds each row as the export gave it (closing.closing_doc, addendum 40 item 2), so it carries the kind, the reason and both clocks. closing.py is unchanged.
+- tools/cockpit.html (repo copy): the kind's tag reads "kickoff disputed" and its row is greyed, as for the other no-call kinds. The reason is rendered from the file.
+- The file_unit_basis docstring's dollar example reads "$N" (addendum 68 item 6).
+- tests/test_desk_kickoff_clock.py (23 tests), on the day's rows:
+  - 50546 TB at CLE (13:00 vs 18:00 ET) is held;
+  - 50547 MIL at LAD (20:00 vs 20:00 ET) is untouched;
+  - the threshold is the matcher's (patched there, the rule follows);
+  - the threshold itself does not hold, and two hours and one minute does, either way round;
+  - a ticker shape without a clock, and a row with no ticker, are not compared;
+  - any one leg past the threshold holds the row;
+  - a value-bearing row loses its shadow;
+  - the rule comes after S1 and before started;
+  - the closing file carries the kind and both clocks, and the Cockpit carries the tag.
+
+## 2026-10-15 (#528: lineup-timing-probe — ARCHITECT addendum 71 item 2, Step A, #106)
+- scripts/lineup_timing_probe.py, read-only, writes nothing. For the day's CL fixtures with a stored row, it polls `APIFootballAdapter.list_lineup_confirmed` (the call sync-lineups uses, with the adapter's pace and parse) at T-120, T-90, T-75, T-60, T-45, T-30 and T-15.
+  - Each poll prints the starters and the bench per side. Its minute is the minute the counted answer was asked for: after the adapter's pace and after its one retry of a 429.
+  - A poll more than 5 minutes past its time (a late start, a laptop that slept) is printed as missed and never counted under its label.
+  - Per fixture: the first poll with eleven starters per side, and the poll before it answered without them. Polls between those two that failed or were missed are named, because the lineup may have been readable at one of them. Also the keys the answer carries, and the polls answered, failed and missed.
+  - The fixtures are then counted by that first poll. A fixture whose earlier polls were not all answered is counted apart.
+  - Printed once: the keys the adapter reads, and the calls (calls, HTTP requests by status, failures).
+  - Not polled, with the reason printed: a row with no fixture id, a kickoff that cannot be read, or a stored status the matcher counts as not a game (kalshi_match.NOT_GAMES).
+  - The database is opened mode=ro (query_only where a copy refuses it, #421).
+  - `--plan` prints the fixtures and their poll times and makes no call. `--date` is the day in UTC.
+- tests/test_lineup_timing_probe.py (26 tests): a throwaway DB from the app's schema, the real adapter with its HTTP session stubbed (a real request fails the test), and a fake clock.
+
+## 2026-10-15 (#527: cups-plan — ARCHITECT addendum 71 item 3, #106)
+- docs/roadmap.json, lane cups: state blocked → declared, on addendum 71's plan.
+  - The probe step done {2026-10-14, logs/lineup_history_probe_2026-10-14.txt}.
+  - The ruling step done {2026-10-15, addendum 71}.
+  - Steps A, B and C with their owners and dates:
+    - Step A's probe written (code, 2026-10-19);
+    - Step A run on the CL matchday, the laptop awake 10:30am to 3:00pm ET (operator, 2026-10-20; addendum 73 item 3);
+    - Step B's ingest PR with its dry-run receipt (code, 2026-10-29);
+    - Step C's declaration at cup_exam's frozen gate as it stood at the 2026-09-25 FAIL (mean error <= 8.0pp, <= 13 rows over 8pp, sign >= 80%; fix-v2's 14.76pp is the record to better, not the bar; addendum 73 item 2(b)), or, if Step A shows lineups only after T-45 for most fixtures, a post-lineup closing design or a written no (architect, 2026-11-05).
+  - earliest_live 2027-02-16, the knockout play-offs' first leg (addendum 73 item 2(c) corrects addendum 71's 2027-01-20, league-phase Matchday 7). live_needs reads the same gate.
+  - No moved line: a first earliest_live is not a move (addendum 61 item 4; ruled to govern by addendum 73 item 2(a)).
+  - `python cli.py roadmap` prints overdue 0.
+- tests/test_roadmap.py: the four tests that took the cups lane's old state from the real file now set it themselves.
+  - Two of them now clear the done steps first.
+  - The step-not-done rule is still tested on a blocked lane.
+  - The base-line rewrite test now moves the lane's last step and reads the line it appends, wherever it lands.
+  - The overdue-count and plural-tail tests clear the ncaa lane's done steps too, so the college declaration's done step (owed 2026-10-16) does not break them.
+
+## 2026-10-14 (#526: backup-pull-verify-wal — ARCHITECT addendum 68 item 2, #517)
+- deploy/hosting/pull_backup.py: the verify opens the pulled COPY with `?mode=ro&immutable=1`, through the new `sp_common.copy_integrity`.
+  - The laptop's (macOS) SQLite cannot open a WAL-mode copy with no -shm beside it as mode=ro ("unable to open database file").
+  - Immutable reads the copy as it is and creates nothing beside it.
+  - The live DB is never opened immutable: `ro_connect` stays mode=ro (#340).
+- Tests: tests/test_hosting_pack.py (1 new):
+  - a WAL `.backup` copy with no sidecars verifies with integrity ok through the immutable path, and the folder is left as found (the final file and its .sha256);
+  - `ro_connect` holds no immutable open.
+  - On the old mode=ro verify it fails (Linux would leave the -shm and -wal).
+
+## 2026-10-14 (#523: cockpit-fill-units — ARCHITECT addendum 67 item 3, #487)
+- tools/cockpit.html (repo copy; the live Cockpit is republished on the operator's word after the architect's read): the B-track fills exposure reads units on the loaded files' own unit basis.
+  - `fillUnitBasis` reads the order lines as `desk_policy.file_unit_basis` reads a file's, across every accepted loaded file: the prediction and fixtures rows, and a desk_parlays file's ticket legs (Codex on #523).
+  - "1u = $N": a team-outcome's units are the entry cost of the contracts paying on it (qty × entry, fees left out) ÷ N.
+  - "1u = N contracts": contracts ÷ N, with N from the file.
+  - No unit basis in the loaded files: contracts only, labelled "contracts (no unit basis in file)", with no cap comparison. Loaded files that disagree on the basis are treated the same way, naming both.
+- `FILL_UNIT_CONTRACTS=10` goes. The page holds no dollar figure of its own. A note in the file's header comment names the rule.
+- scripts/cockpit_exposure_verify.py (Codex on #523) passes the basis a file with "1u = 10 contracts" declares, read by the page's own reader. It checks the table with no file loaded (contracts, labelled, no unit), with a file of 1u = 10 contracts (1.50u > 1.25u) and with a file of 1u = $5 (1.80u > 1.25u): 18/18 green. scripts/cockpit_maker_taker_verify.py: 26/26.
+- Tests: tests/test_cockpit_fill_units.py (7; the page's functions under node):
+  - the constant gone and no dollar figure held;
+  - a dollar unit: $23.00 of entry over $20 is 1.15u, under the cap, and over $15 is 1.53u, over it;
+  - a contracts unit, read from the file;
+  - no basis: contracts and the label, never a unit;
+  - two files that disagree.
+  - a parlays file's ticket legs give the basis alone, and conflict with rows that disagree;
+  - the page reads the rows and the parlays file at both call sites.
+
+## 2026-10-14 (#522: mlb-pitcher-probe — ARCHITECT addendum 67 item 2; roadmap lane mlb-pitchers, #507)
+- scripts/mlb_pitcher_probe.py: MLB pitcher coverage, read-only. It writes nothing and opens the database mode=ro, falling back to the plain path with query_only (#421).
+  - D0: every table whose name or columns speak of a pitcher or a starter, with its columns, and the ones it reads: pitcher_appearances, then match_participants as a second read.
+  - D1: per season (2024..2026), the MLB games by stored status; the finished games with a starter recorded for both sides, one side only, or neither (is_starter = 1, by match_id or by the statsapi id in source_game_id); and match_participants' starting pitchers by kind.
+  - P1: ten finished games per season, evenly spaced by kickoff, through statsapi's /schedule?gamePk&hydrate=probablePitcher (the adapter's own call and pace). Per game: whether both probables are named, and the keys read.
+  - P2: the next unplayed game (status SCHEDULED, after now; a cancelled, postponed or stale-orphan row is passed over, Codex on #522): whether the probables are named now, and every key of the answer that speaks of a time. It says so when the payload does not give the hour they appeared.
+  - A row whose external_ids is not a JSON object carrying the id is one game with no id, never the end of the probe. A starter with no team id names no side (both Codex on #522).
+  - Summary per season: starters recorded x/y · probables available on the sample z/10.
+- Tests: tests/test_mlb_pitcher_probe.py (8), on a throwaway SQLite file built from the app's schema and a stubbed statsapi:
+  - both / one / neither, with a starter found by source_game_id;
+  - the ten-game sample and its count;
+  - the payload that does not give the hour, and one that does;
+  - a failed call printed and the probe going on;
+  - nothing written and no database created.
+  - P2 passing over cancelled, stale-orphan and postponed rows and malformed ids;
+  - a starter with a null or empty team id counted under no side.
+
+## 2026-10-14 (#521: kalshi-settled-history — ARCHITECT addendum 67 item 1, #519)
+- `kalshi-history --series S [--since] [--until] [--dry-run] [--max-calls N]` (src/ingestion/kalshi_history.py): the Kalshi settled-market history ingest.
+  - It reads the cutoff, then `/historical/markets` and `/markets?status=settled`, paged by cursor.
+  - Each event is placed by the shared matcher on the stored games of its days. The live sync's in-play, no-price, spread and window refusals are not read for a settled market.
+  - Each market's one-minute candles are read from kickoff − 6h to its close.
+  - It stores one row per market in the new table `kalshi_settled_markets`: the last two-sided quote at or before kickoff, and its counts.
+  - It writes that table and nothing else.
+  - Refused markets are kept with match_id null and the reason in notes, and the refusals are listed by reason.
+  - Each candle shape is read by its own keys (`KEYS`), and a null price is never filled.
+  - A stored ticker is skipped, so a run resumes by the table. At the cap the run stops cleanly and prints where.
+  - A list that does not reach its end (the cap, a failed page, a page with no list, a cursor that comes back) stores nothing.
+  - The claims rule is read across events: two markets claiming one side of one game are both refused.
+  - A series whose competition is not in the DB refuses before any call.
+  - A candle window that starts at or after close_time asks nothing. A candle call refused for good (a 4xx other than 408/429) is stored with no quote; other failures store nothing and are asked again.
+  - An unreadable timestamp is skipped, never a crash.
+  - `--dry-run` reads and writes nothing.
+- migrate_kalshi_settled_markets.py: creates the table and the one-row migration marker `kalshi_settled_markets_migration`, by Core SQL. Additive and idempotent; run after the daily .backup. With no DB file at the configured path it refuses and creates nothing (law 5).
+  - A run without --dry-run writes only when the table AND the marker exist (Codex P2 on #521, the convention of ncaa_cfbd's marker from #333). The table is mapped, so any init_db() creates it; its existence does not prove the backed-up migration ran.
+  - `drop_db()` (`init-db --force`) drops the marker with the mapped tables, as it drops the two CFBD markers. Otherwise a forced reset would leave the marker beside a recreated empty table.
+- docs/CLI.md: the `kalshi-history` row.
+- `KEYS` is enumerated from the probe's five kept files of 2026-10-14 (laptop/kalshi-payloads-1014; addendum 68 item 5).
+  - No key of the receipt differs from the files.
+  - settled_time's key is `settlement_ts`, which the receipt did not name.
+- Two-sided is ruling 9's `0 < bid <= ask < 1` (#286): the kept files send an empty side at size zero, priced 0.00 (a bid) or 1.00 (an ask), and an empty side is not a quote. This reading is for the architect's read.
+- A time's fraction of 4 or 5 digits, as the kept files send it, is read whole on Python 3.10 too.
+- The --dry-run receipt prints each row's settled_time, and the count of rows with none.
+- Tests: tests/test_kalshi_history.py (35), on tests/fixtures/kalshi_history/: the kept files trimmed (whole objects, the kept format; the cutoff file byte for byte).
+  - Every key in `KEYS` is checked against every kept market and candle, and each shape's candles are read by their own keys only.
+  - The MLB clock shape, which the kept NFL files do not carry, is written in the four tests that need it.
+  - Covered: each shape read by its own keys into a stored row (the kept candles: 0.45/0.46 historical, 0.61/0.62 live, settled_time from settlement_ts), and the close leaf where open / high / low differ; a zero-volume minute two-sided, its null price stored as sent, and a one-sided minute never filled; an empty side or a crossed quote not a quote; a 4- or 5-digit fraction read whole; a tie's "scalar" kept null with the result as read; unmatched markets kept with their reason and no candle call; the cap stops the run, prints where, and the next run resumes on all of an event's legs; a list cut short stores nothing, even after the other list is read whole, and names the kept cursor; --dry-run writes nothing; a run writes its one table and nothing else; --since/--until; the command; the window on the stored kickoff, not the ticker clock; an unmatched clock market's candles on the ticker clock; the claims across events; a failed page; a cursor that comes back; an unread series and a competition not in the DB refused before any call; an unreadable timestamp; a window after close_time; a candle call refused for good or not (404, 400 / 429, 503, 408); a table init_db() made, with no marker or an empty one, refusing a run while --dry-run still reads; the migration writing its marker once; a forced reset (drop_db, and `init-db --force`) dropping the marker so a run refuses again; and the migration never creating a database.
+
+## 2026-10-14 (#518: kalshi-pin-fenerbahce — ARCHITECT addendum 66 item 4)
+- src/ingestion/kalshi_match.py: a pin, "Fenerbahce" (as Kalshi writes it) is the stored club "Fenerbahçe".
+  - The pin's name is written with ç as U+00E7, the NFC form the host's window card prints.
+  - Its norm tokens equal the stored name's, as the other pins' do. norm_tokens folds no accent, so "Fenerbahce" alone shares no word with the stored name. That is why the laptop's wide probe refused KXUCLGAME-26OCT14AVLFEN and -26OCT20FENSLA for no fit.
+  - Nothing else in the matcher changes: one each, the best fit, a tie refused, a pinned name fitting its own team and no other.
+- Tests: tests/test_kalshi_matcher_day_rule.py (5 new):
+  - the pin's tokens equal the stored name's, and the two spellings share no word unpinned;
+  - the true case: Fenerbahçe @ Aston Villa places on its game with the Tie as DRAW, and is refused for no fit without the pin;
+  - a stored name with one word more (Fenerbahçe SK), or with ç decomposed (c + U+0327), is not the pin's team and is refused;
+  - the club's own game against another side, with Aston Villa absent, is refused as today.
+
+## 2026-10-14 (#516: win-rates-carry-the-line — ARCHITECT addendum 64 items 2 and 3, #510, #511)
+- calibration: the overall hit rate carries the line against the close (`vs_close`) over the same games, against the grading close. `compute_calibration(with_vs_close=True)`; the command prints the line under the hit rate. The per-bin rates carry nothing ("a frequency per band is calibration, not a record").
+- The web dashboard (/predictions): each model version's top-pick accuracy carries its line, in an "Against the close" column.
+- ncaa-shadow-grade: the hit rate carries `vs_close`, per the shadow's own close (the odds table), printed under the summary.
+- src/walters/vs_close.py: `outcome_row` and `block_from_outcomes` build a stored prediction's results row against the grading close. Calibration, the web route and the RESULTS.md MLB/PL sections use them; nothing is computed twice.
+- RESULTS.md: the "Soccer (PL)" section reads PL rows and no other (the query filters by the competition it names).
+- export-results: a competition code the database does not hold refuses, exit 2, naming the code (`UnknownCompetition`). It never falls back to every row, and nothing is written.
+- Unchanged by the ruling:
+  - the Cockpit's ledger hit rates, whose mean CLV is their line;
+  - the frozen receipts and backtests.
+- docs/CLI.md: a `calibration` row; the export-results, results-tally and ncaa-shadow-grade rows.
+- Tests: tests/test_win_rates_carry_the_line.py (5); tests/test_ncaa_shadow.py's grade test reads the line. All six fail on main 84c26f4.
+
+## 2026-10-13 (#513: record-vs-close — ARCHITECT addendum 63 items 3 and 4, #512, #507)
+- src/walters/vs_close.py (new): the record against the close, one helper for every family. `block()` takes (model p, close p) of the outcome that happened, per decided game with a close. It returns the games, the model's log-loss, the close's, close minus model, its bootstrap 95% interval (10,000 resamples, seed 20261013, `random.Random`, the 250th and 9,750th sorted means) and the count of games the model beat the close (strictly lower log-loss). The block is a function of the set of games (sorted first) and carries no negative zero. `line()` prints it.
+- NFL: `record.vs_close`, each `record.by_week[w].vs_close` and `pre_live.record.vs_close` in the results file. `grade_nfl` returns the same blocks, read as the file reads its rows. The receipt, nfl-grade and the RESULTS.md NFL section print each under its win rate.
+- MLB and PL: `export_results` gains a `record` block: `games`, `hits` and `vs_close`, plus `kalshi_only_closes`. The export-results console and the RESULTS.md MLB and Soccer (PL) sections print the line.
+- INTL: `record.vs_close` in the production results file, printed by export-intl-results. unl-shadow-grade carries `vs_close` on the same priced games and on each |model − close| bucket, prints it under the hits line and each bucket, and its RESULTS.md section prints it.
+- NHL: nhl-shadow-grade returns `vs_close` per name, never pooled: v7, the goal-margin fallback, and the v1 reference. It covers decided games with a priced close and counts `undecided`. The console and RESULTS.md print one line per name.
+- The shadow sections and the NHL file notes now read "against the close only" instead of "divergence only".
+- tools/cockpit.html (the repo copy; republished only on the operator's word): the Ledger card shows each loaded results file's model record. It shows the win rate with its line, read from the file's record block and never recomputed.
+- docs/roadmap.json: the mlb-pitchers lane (#507), addendum 63 item 4's text.
+- docs/CLI.md: the rows of every command above.
+- Tests: tests/test_vs_close.py (16) and tests/test_record_vs_close.py (10; one runs the Cockpit's line in node against the Python line). Additions to the NFL, UNL and NHL tests.
+
+## 2026-10-13 (#509: nhl-shadow-fallback-name — ARCHITECT addendum 63 item 2, #508)
+- src/walters/nhl_shadow.py: a walk that took the goal-margin fallback for any game is not v7. `shadow_name(fit_block)` reads the name from the fit block: no fit gives `nhl_elo_v1` (addendum 49, unchanged); a fit with `goal_margin_fallbacks` above 0 gives `nhl_elo_v7_goal_margin_fallback`; otherwise `nhl_elo_v7_xg_margin_no_na`. The name is on the header and on every row. The fit block is written as it is. A fallback file carries its own note and a `not_v7` line; `gate_verdict` is unchanged (v7's declaration includes the goal fallback).
+- nhl-shadow-grade never pools a fallback file with a v7 file. The fallback has its own line: pick-vs-close, value-side, unpriced, unanchored. The file's fit block decides, so an older v7-named file whose walk took the fallback is graded there. `graded_by_name` counts each name's calls; the console and the RESULTS.md shadow section print it.
+- cli.py: `export-nhl-predictions` prints `not_v7` as a `✗` line; `nhl-shadow-grade` prints the names graded and the fallback's line.
+- docs/CLI.md (both rows); docs/specs/h2-cutover-runbook.md (the NHL post-check note).
+- Tests: tests/test_nhl_shadow.py, 12 new cases (11 fail on main); three v7 cases moved to a fixture with xG for every game.
+
+## 2026-10-13 (#506: roadmap-moved-lines-kept — ARCHITECT addendum 62 items 3 (#504) and 4)
+- src/roadmap.py: the base check keeps the record. Every moved line the base holds is on the head, word for word, and in the base's order; the head only appends. A line changed or removed, or out of the base's order, fails the PR, naming the lane and the line. A lane only one side holds needs nothing from this (#504).
+- docs/roadmap.json: lane nfl-qb, step 1 (the quarterback data probe) done on 2026-10-13, receipt "PR #489 merged at 7e6e88c". No date moves; the print reads the operator's run, due 2026-10-23, as the lane's next step.
+- docs/CLI.md, docs/LEDGER.md and CLAUDE.md say so. Tests: tests/test_roadmap.py 125 (9 new cases).
+
+## 2026-10-13 (#505: cl-venue-stop — ARCHITECT addendum 61 item 3, #498)
+- src/walters/desk_policy.py: CL makes no venue call. `SKEW_TEST_VENUE_COMPS = ("CL",)` stops `venue_edge` right after UNL's stop, with the ruled reason "three-way soccer — no venue call before the skew test is read (CL)", on the window card and in a CL fixtures file. Its own switch, `SKEW_TEST_VENUE_RULE`, is off only under `base_v11()`, for the frozen pre-F1c golden battery's CL rows, as every rule that postdates it is.
+- src/walters/venue.py: `KALSHI_FEE_M["KXUCLGAME"] = (1.0, 1.0)` ("It costs a fill. It prices no call."). CL stays out of `KALSHI_SERIES_BY_COMPETITION`.
+- tools/cockpit.html (the repo copy; republished only on the operator's word): the charter's "cups when priced" waits on the skew-test ruling, and the stop is named in the charter and the PASS-reason list.
+- Tests: tests/test_cl_venue_stop.py (9); tests/test_cl_kalshi.py's two CL tests now read the stop and the fee entry.
+
+## 2026-10-13 (#503: roadmap-base-check — ARCHITECT addendum 60 item 3 (#490); addendum 61 items 4 and 5 (#492, #494))
+- src/roadmap.py `check_moves` / `check_base`, run as `python scripts/ledger.py check-roadmap --base origin/<base>` in CI's `fragments` job after check-fragments.
+  - A PR's `docs/roadmap.json` is read against the file where it branched (the merge-base).
+  - For each lane both sides hold, a moved `earliest_live` and a moved `due` (on a step with the same `what`) each need a moved line the head adds: `which` the step's what or `earliest_live`, `was` the base's date, `now` the head's.
+  - A cleared earliest_live needs its line with `now` null. A first date set, and a lane or step only one side holds, need nothing.
+  - It fails naming the lane and the date, and never writes the file.
+- Validation:
+  - within a lane no two steps share a `what`;
+  - a moved line's `now` may be null where `which` is `earliest_live`;
+  - a milestone with no `due_on` key is refused, named (#494).
+- The print: "in 1 day", "OVERDUE 1 day", "(+1 more step overdue)".
+- Tests: tests/test_roadmap.py 116 (37 new cases; 79 on main). One moved line records one move (Codex on #503). Open for a ruling: #504 (a base moved line rewritten or deleted).
+- Ledger: the records of addendum 61 items 1, 2, 6 and 7: merging by the called head (#502), the four calls, #500 and #501 closed on their ruling, #493 waiting on the count.
+
+## 2026-10-13 (#499: kalshi-cl-series — ARCHITECT addendum 58)
+- src/adapters/kalshi.py: CL reads Kalshi through KXUCLGAME, wired since 2026-10-13 ("wired as PL is: the soccer path, three legs, the same spread guard, the same placement"; CL stays market-only, with no model and no call). `SOCCER_GAME_SERIES` gains `"CL": "KXUCLGAME"`, pinned: no discovery call. `kalshi-replay` reads it with the other soccer series; `sync-kalshi-soccer --competition CL` stores what `kalshi_match.place` places.
+- deploy/hosting/chains.py: `WINDOW_KALSHI` syncs CL as it syncs UNL. The host takes it with the tag that carries it (item 3); no CL sync goes into the operator's block before the architect has read one replay console with CL in it.
+- docs/CLI.md: the `sync-kalshi-soccer` and `kalshi-replay` rows say CL is wired and since when. src/walters/venue.py: the stale "no UCL series is wired" comment is corrected (comment only; no fee entry added).
+- Tests: tests/test_cl_kalshi.py (27): the Arsenal event's three legs on Lille @ Arsenal (HOME ARS, AWAY LIL, DRAW TIE); a CL event whose two names fit no stored game refused for no fit (3); the same spread guard; the receipt's 18 name pairs; the replay plan; the window chain; no venue series for CL; the sync storing three legs; a CL row with Kalshi legs makes no venue call today (quote-age hold). Open question #498 (needs-ruling): whether "no call" covers venue-edge once that hold lifts, and the KXUCLGAME fee entry.
+
+## 2026-10-13 (#497: kalshi-history-probe — ARCHITECT addendum 60 item 7; finding #496)
+- scripts/kalshi_history_probe.py: the read-only probe of Kalshi's price history for settled markets.
+  - It uses the adapter's own base, pace (no pause) and page size (200), through `KalshiAdapter._get`, and records every call with its status.
+  - Q0: the historical cutoff.
+  - Q1: for each series in kalshi-replay's `series_plan`, the historical and live settled market lists, paged by cursor to their end: markets, events, first and last close, events by month.
+  - Q2: three events per series (first, middle, last), with one-minute candlesticks for the six hours before each market's close (counts; the first, every thirtieth and the last).
+  - Q3: every call made, in order, with its status; each one refused with its body whole.
+  - It keeps one raw payload of each kind under logs/. `--out` writes JSON and is refused under data/, as the configured database or one of its sidecars wherever it lives (a hard link or symlink included), and as any existing SQLite file. Nothing printed is cut. Nothing is ingested.
+- Tests: tests/test_kalshi_history_probe.py (17), offline.
+
+## 2026-10-13 (#489: nfl-qb-probe — ARCHITECT addendum 59 item 5(h); lane nfl-qb, #427)
+- scripts/nfl_qb_probe.py: the read-only quarterback probe, for the NFL seasons 2023 to 2026. It follows scripts/lineup_history_probe.py.
+  - Ids come from the adapter's own mapping: `_CODE_TO_LEAGUE["NFL"]` and `DIRECT_BASE` from src/adapters/api_american_football.py; QB position names from qb_audit.QB_POSITIONS.
+  - Q0 /status. Q1 /leagues coverage per season, verbatim.
+  - Q2 per season: three finished games (first, middle, last) through /games/statistics/players. It prints the raw shape, the groups, the passing players with every stat name and value, every key or stat name that says "start" (or that none does), and the most attempts, labelled OUR READ.
+  - Q3 the next unplayed game: /games?id, /games/statistics/players and both rosters' quarterbacks, verbatim.
+  - A per-season summary at the end.
+  - It never stops on an error, writes nothing, opens no database, and never prints the key. The operator runs it and pastes the whole output to the architect.
+- Addendum 60 item 5 (#491 into #489): "A probe's receipt cuts nothing." Nothing the probe prints is sliced (a "start" value, an error body, a raw shape, a team block of another shape).
+  - Every "start" field is printed with whose it is: team, group, and the player entry's id and name.
+  - Q3 counts only entries that name a player, and prints the others whole.
+  - A group, entry, status or stage of an unexpected shape is reported and never drops a game.
+  - A year sent as digits is that year in Q1.
+  - The most attempts are taken by attempts alone.
+- Tests: tests/test_nfl_qb_probe.py (27), offline.
+
+## 2026-10-13 (#488: model-roadmap — ARCHITECT addendum 59 items 5 and 6; Issue #486)
+- docs/roadmap.json: the model roadmap, the first content of addendum 59 item 5(g) word for word. There are seven lanes: unl #220, pd #322, ncaa #79, leagues #322, nhl #105, cups #106 and nfl-qb #427. Each lane carries its state, its dated steps (owner architect, operator, code or calendar; `done` null or `{date, receipt}`), earliest_live, live_needs, vs_close, and a `moved` list (`{moved_on, which, was, now, why, ruling}`). The file is tracked and never under data/, and it changes only in a PR that quotes the ruling for the change.
+- src/roadmap.py + `python cli.py roadmap [--today YYYY-MM-DD]`: read-only, with no database and no network.
+  - Per lane, in the file's order: title, Issue, state, earliest live and the record against the close, then its next step with `in N days`, `today` or `OVERDUE N days`.
+  - Then the ledger milestones that have a due_on, and a last line `overdue: N`.
+  - It exits 0 whatever is overdue. A file that does not validate exits 2 and names the entry.
+  - The ruled validation runs in code and as a test on the real file.
+- CLAUDE.md, Queue section: the model lanes come first; the dates live in docs/roadmap.json and `python cli.py roadmap` prints them; no date moves a bar (5(c), quoted). docs/CLI.md: the `roadmap` row.
+- .github/ledger/taxonomy.json (item 6): "Cutover ~Oct 8" due_on 2026-10-08 -> 2026-10-30; "Executable-edge ruling (2 wks of ladders)" 2026-10-13 -> 2026-10-20. The operator changes the same two on GitHub by hand.
+- docs/LEDGER.md: the milestone table carries the two moved dates.
+- Tests: tests/test_roadmap.py (79). A date is real only as YYYY-MM-DD (an ISO week such as 2026-W01-1, or a basic-format string, is refused). A taxonomy of the wrong shape, a lone-surrogate text field and JSON nested past the parser's depth each exit 2. The print uses 5(e)'s forms verbatim ("in N days", "OVERDUE N days", N = 1 included). Each validation rule, each of the six parts and each moved date has a test that fails when the rule is removed.
+
+## 2026-10-13 (#483: cutover-active-timers — ARCHITECT addendum 57 item 8; #481)
+- deploy/hosting/sp_cutover.py: the preflight reads the sp timers active on the host (`systemctl list-units --type=timer --state=active --no-legend --plain 'sp-*'`). An active `sp-*.timer` not on the timers list refuses the preflight, before anything is paused, and the refusal names each one with the list's path (receipt `timers_off_list`). Every active sp timer is kept whatever its name: one the list's name pattern cannot carry (`sp-x@y.timer`, an underscore) refuses and is named like any other, and the refusal says the list cannot carry it as built. A listing that cannot be read refuses. The list is never written. The preflight receipt carries `timers_active`. The dry run's stand-in reports its scratch list's timers as the active ones, so the dry run's scratch list stays as it is.
+- docs/specs/h2-cutover-runbook.md: the preflight row names the read and the refusal.
+- Tests: tests/test_h2_cutover.py (26). The host's shape of 2026-10-13 (two active timers off the list) refuses and names both; an active templated or underscored sp timer refuses and is named, never dropped; the list corrected by hand passes; an inactive listed timer, a service and a non-sp timer refuse nothing; an unreadable listing refuses; the dry run passes. `_real()` defaults to the fake runner, so no test calls the real systemctl.
+
+## 2026-10-13 (#482: kalshi-matcher-pins — ARCHITECT addendum 57 item 6; lane #479)
+- src/ingestion/kalshi_match.py: the matcher's pins. Penn is Pennsylvania; University at Albany is UAlbany; LIU is Long Island University; PSG is Paris Saint Germain; Stade Rennais is Rennes; M´gladbach (U+00B4) is Borussia Mönchengladbach. A pin (`PINS`) reads one of the event's two names whole, as the module takes it (the market's yes_sub_title, stripped), never a word of a name: Penn St. is not Penn. The fit's scoring (`side_score`, `_distinct_score`, through `_as_scored`; `_best_fits` is the one fit place() and the out-of-step pre-pass share) reads each name through the pins; which name is home comes back as the event's own name. Nothing else changes: one each, the best fit, a pair tie refused.
+- Addendum 59 item 2 (#484): a pin fits its own team and no other. A pinned name scores against a team only where the team's stored name has the same words as the pin's name under norm_tokens, no more and no fewer (`_as_scored`, read by `side_score` and `_distinct_score`); against every other team it scores nothing, whatever word they share (PSG does not fit Paris FC, M´gladbach does not fit Borussia Dortmund, LIU does not fit Rhode Island). Against its own team it scores what the pin's name scored on 8c51f89 (1 to 3 per name; the twelve events' fits on their own games total 2 to 4, as on 8c51f89). An event's name that is not pinned is read as before; one each, the best fit and the refused tie do not change. `_best_fits` passes the event's own names to the fit.
+- Tests: tests/test_kalshi_matcher_day_rule.py (104): the twelve events of the 2026-10-13 console, each placed with its pin and refused for no fit without it; Penn St. fits Penn State and not Pennsylvania; a pinned name with no game of its pair is refused as today, with the pinned team on the day against another side (Princeton @ Pennsylvania, alone and with Columbia @ Dartmouth; Lyon @ Paris Saint Germain), so one name alone never places a game. Addendum 59 item 2: the twelve events score on their own games what the head gave them; Bayern Munich / M´gladbach on a lone Bayern München @ Borussia Dortmund row, Lyon / PSG on a lone Lyon @ Paris FC row and Brown / LIU on a lone Brown @ Rhode Island row are refused for no fit with the pins on; a stored name one word more or one word fewer than the pin's name is refused; a pinned name scores nothing through a word of its raw Kalshi name (Stade Rennais against Stade Brestois 29, University at Albany against Long Island University); a stored name that differs from the pin's only in punctuation or case is the pin's own team (Paris Saint-Germain, long island university, BORUSSIA MÖNCHENGLADBACH); an unpinned name is read as before (Paris FC on a lone Lyon @ Paris Saint Germain row, limitation #485).
+
+## 2026-10-12 (#477: kalshi-out-of-step — ARCHITECT addendum 54 item 6, addendum 55 item 3; finding #476, lane #478)
+- src/ingestion/kalshi_match.py: on a series whose ticker carries a clock time, the events of the same two names are read together (`behind_out_of_step`, before any event is placed; every market read, priced or not). An event with no game number is out of step when no game of its two teams is on its date (the pair place() would choose; no fit is no game; a row that is not a game is not one), or when its date is before the run's day (US Eastern). Every event of the same names dated after the earliest one out of step, with or without a game number, is refused as "behind an event of the same two names out of step", and its line names that event and why, only where the market would otherwise take its place on a game (addendum 55 item 3); a market refused for a reason of its own keeps that reason, with no behind line. The event out of step keeps its own reason. A date-only series is outside the rule. place()'s names and best-fit code moved into `_names` / `_best_fits` (no behaviour change).
+- Tests: tests/test_kalshi_matcher_day_rule.py (48): every later event held, not only the next; the earliest of two events out of step named; the same two names across a venue flip; a numbered event never out of step itself; today's seven open events (four legs as main, nothing behind, the later events under their own reasons); the next day's row not stored with a third event after it; the ruling's seven ALCS shapes (the receipt's Friday, the Saturday after, the evening of the rainout, a normal day, the next day's row not yet stored, yesterday's event still open (priced and unpriced), a numbered event behind) and a date-only series outside the rule; #474's tests unchanged.
+
+## 2026-10-12 (#475: kalshi-matcher-switch — ARCHITECT addendum 50 item 6(b), addendum 51 item 7, addendum 53 item 4, addendum 54 items 3-4; called on the morning replay console, not before)
+- src/ingestion/kalshi_sync.py: both sync paths (sync_kalshi_mlb for MLB/NFL/NHL/NCAA, sync_kalshi_soccer) place with kalshi_match.place. Games: the stored rows of the series' own competition on the events' days (stored_games; 6(c) rows are not games). The console prints the refusals by reason and the module's lines. The summary keys are as before, plus `refused` by reason. The old three-gate matchers and MAX_START_DRIFT are removed. The shared path finds its competition from venue.KALSHI_SERIES_BY_COMPETITION (series_competition) and refuses a series the map does not name once. `sport` is kept for the callers and read nowhere.
+- src/ingestion/kalshi_replay.py: the two-way series come from the same map (shared_series). Each series is stamped after its own fetch, to the microsecond as a sync stores captured_at (Codex on #475), and replayed at that time (#470 item 3). Main's newest legs are read at or before that fetch (#470 item 2). Games are loaded with the syncs' stored_games.
+- src/ingestion/kalshi_match.py: a time-tie refusal prints Kalshi's clock and occurrence and each passing game's id and ET kickoff (addendum 51 item 4). No rule changes.
+- The alarm (addendum 54 item 3), both paths: it prints when no market is placed although markets were read and a game of the competition that has not started is inside the run's window; a game outside the window, one that has started and a row that is not a game do not count. The summary carries `alarm`. The shared path whose competition is not in the database answers not ok, "competition X not in DB" (item 4(b)). cli sync-kalshi-ncaa / sync-kalshi-nhl print the sync's reason, as sync-kalshi-nfl does (item 4(a)). docs/CLI.md: the five sync rows say where a market is placed; a kalshi-replay row (item 4(c)).
+- Tests: tests/test_kalshi_matcher_day_rule.py (50 on this PR; 64 with #477's merged from main). The replay tests' raw INSERT carries the capture time as ISO text. The clock-ticker heading is reworded (addendum 53). tests/test_k1_kalshi_quotes.py and tests/test_unl_kalshi_discovery.py fixtures carry real-form dated event tickers in place of `EV1`. changelog.d/461's test count is corrected.
+
+## 2026-10-12 (#474: kalshi-clock-ticker-date — ARCHITECT addendum 52; finding #473)
+- src/ingestion/kalshi_match.py: on a clock ticker with no game number, the event's game is the pair's one game whose stored kickoff, read in US Eastern, falls on the ticker's own date; nothing else is read there (not the clock, not occurrence_datetime, not a day either side). Two games on that date refuse as two rows, naming them; none refuses under a reason of its own ("no game of the pair on the ticker's date") with a line giving the ticker date, its clock and our kickoffs of the pair in ET; a clock more than two hours from the chosen game's kickoff prints a line with both times, whether or not the market is placed. A numbered event (G1/G2) keeps the clock alone (addendum 51 item 3, lane #472). occurrence_datetime places nothing and refuses nothing on any series. The sync paths are unchanged (the switch PR).
+- Tests: tests/test_kalshi_matcher_day_rule.py (34): the NLCS and ALCS events of 2026-10-12 on today's shapes, the missing row, two rows on the date, main's gate on the same rows; the 8h40 clock test now expects placement and the line.
+
+## 2026-10-12 (#469: lineups-every-id — #467, Codex on #465)
+- src/ingestion/service.py `sync_lineups`: a lineup row's team is found by every provider id a team row answers to (`team_merge.source_ids`: its own id first, then the ids a merge recorded), so a merged row's recorded id no longer loses that side's lineup after the match's lineups are wiped.
+- Tests: tests/test_team_merge.py (18 with this one: a lineup carrying a merged row's recorded id is kept).
+- docs/CLI.md: a `merge-teams` row (`--pair KEPT:MERGED`, `--backup`). changelog.d/465-merge-teams.md: the test count corrected (17 at #465's head; it said 11). Addendum 51 item 6.
+
+## 2026-10-12 (#468: nhl-shadow-v7-line — ARCHITECT addendum 50 item 3, #466)
+- src/walters/nhl_shadow.py `grade`: the v7 line counts a row that names v7 from a file whose fit was made, and no other row; a row that names the reference counts on the reference line by its own number (the v1-era files of 2026-09-30 to 10-02 name v1 and carry no reference block: they leave the v7 line). A row kept off the v7 line says why on its line (`not graded: no xG fit` / `not graded: not a v7 row`), never "no anchor" when it has one; RESULTS.md's NHL section names how many calls are off the v7 line and why. `grade()` returns `not_v7`.
+- Tests: tests/test_nhl_shadow.py (a v1-era row on the reference line by its own number; a no-fit row with a book anchor).
+
+## 2026-10-12 (#465: merge-teams — ARCHITECT addendum 44 item 3; Hawai'i, #426, #358)
+- cli `merge-teams` + src/ingestion/team_merge.py (new): one program is one team row. Dry run by default; `--apply` only with `--backup` taken just before (dedupe-matches' check, on the teams count). A candidate pair: names equal once unescaped and reduced to letters and digits without case, the same sport, no stored game between the two, no day (UTC or US Eastern) holding a game of each; anything else is listed and left. The lower id keeps its row; every reference read from the live DB is re-pointed; the other row's provider ids are recorded on it (`<source>_also`, `merged_from`); the emptied row is deleted. A unique-table conflict or a reference the command does not know refuses the pair, naming the table. The dry run counts stored team names carrying an HTML entity, by sport.
+- Addendum 50 item 5: `--apply` takes the pairs it merges (`--pair KEPT:MERGED`, as the dry run prints each candidate) and merges those and no other; a named pair that is not a candidate when the apply reads the database is refused with its reason; `--apply` without a pair is refused. A `competition_teams` membership of the other row in a competition and season the kept row is in too is one membership: dropped, not re-pointed, and counted by the dry run; every other unique-table conflict refuses the pair.
+- A listing carrying either id finds the kept row: `service._find_team_by_source`, `refresh_by_id`, `resync_diff` and dedupe-matches read every provider id on a row (`team_merge.source_ids`).
+- src/adapters/api_american_football.py: provider team names are unescaped where read.
+- Tests: tests/test_team_merge.py (17 at #465's head; the count corrected by #469, addendum 51 item 6).
+
+## 2026-10-12 (#464: nhl-shadow-names-its-model — ARCHITECT addendum 49, #463)
+- src/walters/nhl_shadow.py: a shadow names the model it ran. Where the xG fit cannot be made (`live_xg` answers `xg_model` "unavailable (...)"), the file and its rows carry `nhl_elo_v1` and v1's verdict and number and no other model, and the file carries `v7_unavailable` with the reason. With the fit made, the file is unchanged (byte for byte against main). The grade reads each file's fit block, not its name (`fit_made`): a no-fit file is never counted on the v7 line, its reference line still counts, and RESULTS.md's NHL section says how many such calls it holds. This covers the ten host files of 2026-10-03 on.
+- cli `export-nhl-predictions`: a line when v7 was not available.
+- docs/specs/h2-cutover-runbook.md step 5: the ruled NHL shadow post-check (the first host nhl-daily after the flip prints the fit on the laptop's count of attempts and no fallback beyond games without shots).
+- Tests: tests/test_nhl_shadow.py (the no-fit file and rows; rows unchanged with the fit; the grade never counts a no-fit file as v7 and keeps its reference line).
+
+## 2026-10-12 (#462: closing-export-path-refusal — ARCHITECT addendum 44 item 8, #442 ruled)
+- deploy/hosting/closing.py: a run whose export path (`logs/<run_id>.<slate>`) already exists does not start. The check runs under the lock with the run's own start, before the schedule read, the backup and every step, and is refused like any other refusal (exit 2, receipted, notified on a watch). The dry run says it would refuse. R6's move out of exports/ never replaces a file already at its logs/ name (`export_move_error`). Two runs of one family entering in one UTC second share a run id; the second no longer overwrites the first's kept export.
+- Tests: tests/test_closing_runs.py (#442: the same-second refusal keeps the first export and runs no step; a run one second later has its own path; the move keeps a taken name). test_real_step_runner_against_a_fake_cli's second run moves one second later.
+
+## 2026-10-12 (#461: kalshi-matcher-day-rule — the matcher's first PR: the module, its tests and a read-only replay; ARCHITECT addendum 37 item 2, addendum 44 item 1, addendum 50 item 6)
+- src/ingestion/kalshi_match.py (new, pure): the ruled placement. The event's two names come from its own markets (sibling `yes_sub_title`s; the "A vs B" title is the fallback). They must fit a game one each ("St." = State), among the stored games of the series' own competition on the event's day: the ticker's date read in US Eastern, a day either side. A best fit shared by two pairs is refused. Inside the one pair, a date-only ticker takes its own date before a day off; two stored rows on the date are refused under their own reason, naming the ids dedupe-matches has to merge; a date that cannot separate the pair's games refuses, printing the ticker date and our ET kickoffs. A clock ticker keeps the time gate as built and the G1/G2 suffix. Then the run's window decides. Two markets claiming one side are both refused. Every refusal is counted by its reason, and each refused market's reason is kept. Addendum 50 6(c): a cancelled, postponed or stale-orphan row is not a game.
+- cli `kalshi-replay` + src/ingestion/kalshi_replay.py (new, addendum 50 6(b)): fetches each series' open markets once (MLB, NFL, NHL, NCAA, each soccer series that resolves), keeps them in logs/kalshi_replay_<stamp>.json, places them with the new module on the stored games through a mode=ro session, and stores nothing. Per series it prints what the new module places and refuses, by reason, beside the legs main stored at its last sync, then every leg that differs. `--from-file` replays a kept file; `--series` narrows.
+- The two sync paths are unchanged (the switch is its own PR, called on the replay's console).
+- Tests: tests/test_kalshi_matcher_day_rule.py (29 at this PR's merge; 64 at the switch, #475, with #477 merged).
+
+## 2026-10-12 (#457: closing-watch-before-tag — ARCHITECT addendum 47 items 6 and 7, addendum 48 items 5 and 6; Closes #453, #455, #459, #460)
+- deploy/hosting/sp_receipts.py (`failed`, `key_line`): a closing miss, and a closing whose push failed after its page, count as failing (#453): "the mirror is what the compare and the Cockpit read, and it is short of that file until the next push." Rider (addendum 48 item 5, #459): a closing whose file was not written (`closing_file_failed`) counts as failing too, and its key line says `closing file NOT WRITTEN`.
+- deploy/hosting/closing.py (`notify_failure`, new `page_operator`): a failure, a miss or a refusal that neither the screen nor the card topic took goes once through the operator topic (`NTFY_TOPIC`, as sp_notify's page), and the notification's receipt names the channel that took it (`channel`: card / screen / card+screen / operator / none). The watch's exit status does not change (7(a)).
+- deploy/hosting/sp_notify.py (`held_behind`): for `sp-closing-watch.service`, by name, the unit's failure page goes out at most once in thirty minutes; every failure still writes its receipt, and a held-back one says so (`page_held_back`) and names the page it stands behind (`stands_behind`) (7(b)); only a delivered page holds the next back (Codex 4250381656).
+- deploy/hosting/sp_cutover.py (preflight): refuses unless host.env itself says `SP_EXPORTS_MIRROR_ROLE=host`; prints, by name only, each setting whose value on the host changes when the pack's `.env` replaces the checkout's (only a setting to which host.env gives a value is left out, addendum 48 item 6 / #460 item 1; the list refuses nothing by itself), and receipts it as `env_changes` (7(c)); a pack with no env lists nothing, since install then leaves the checkout's .env (Codex 4250381661).
+- docs: h2-cutover-runbook.md (section 0's role line; step 4's settings list and refusal row; step 5b's notes), CLI.md, the unit's comment. Tests: test_closing_runs.py (3), test_hosting_pack.py (1), test_h2_cutover.py (3); the cutover test's host.env stand-in carries the role.
+
+## 2026-10-12 (#456: injuries-read-entries — ARCHITECT addendum 47 items 3 and 4; Closes #454, #451)
+- src/adapters/api_american_football.py (`list_injuries`): an entry of the injuries read is told apart by its provider id. One id listed more than once is one entry, the first. Entries that share a name and differ in id are different players: each is kept and resolved by its own id (the roster's id join, then the position lookup), never by a name. "An entry with no id is resolved by name as today. It is not kept where an entry with an id has its name. Entries with no id that share a name are one entry, the first." (the fourth sentence as addendum 48 item 3 rewrote it; names compared as the roster join does, `qb_audit._norm`). Before, the read kept the first entry of a name and dropped the rest, so a quarterback listed second under a shared name was dropped. It replaces addendum 44 item 4's "a name the feed lists under two ids is ambiguous" (#440): the console line loses its ambiguous count, and the in-read memo goes (one id is one entry).
+- src/walters/qb_audit.py (`roster_index`, `resolve_position`): only a roster row's `position` resolves a player, never `group` (#451). A name the roster holds more than once (by `_norm`: "Michael Carter" and "Michael Carter II" are one name) resolves nobody by name: `by_name` is unique-only, as `by_init` was, and both are counted over every roster row. `resolve_position(..., by_name=False)` resolves by id alone.
+- Two rows of one name on one team are now possible in `injuries`; every reader of the table's `player_name` takes a list (nfl_predict qb_listed / positions_unresolved, the window's qb_news and digest, export, the web route). One downstream reader does key by name: the window card page (`deploy/hosting/sp_window_page.py`, QB news keyed `team_id|player`), so two same-name injured QBs on one team share one news item there. RULED a limitation (addendum 48 item 4, #458).
+- `qb_audit.injury_entries` is the one place the entries are taken: the adapter's read and `nfl-qb-audit --live` (`audit_live`) both use it (Codex 4250343097). An entry whose name another entry of the read has, an id-less one included, is resolved by its own id alone (Codex 4250343104).
+- docs/CLI.md: the sync-injuries row. Tests: tests/test_nfl_position_lookup.py (10 new, one for addendum 48 item 3: the six of the ruling and #451; the #440 test and the in-read memo test removed; the test-double receipt now asks the two ids of one name).
+
+## 2026-10-12 (#449: host-closing-watch — ARCHITECT addendum 45, #405 and #408 ruled P1-P8; shipped HELD, C7 stands)
+- deploy/hosting/closing.py: P1 the mirror push's role comes from `SP_EXPORTS_MIRROR_ROLE` (`push_mirror` and `install-push`); unset, or neither `host` nor `laptop`, refuses the run before any step (receipted, exit 2), refuses `install-push`, and preflight says so; no default. P2/P5 `preflight` and `test-page` take `--family`. P3 the watch's exit: 0 success, 2 a refusal, 3 (`NOTIFIED`) a failed run or a miss already receipted and notified, 1 what the process could not report itself. Every closing page, failure/miss notification and the test page end with `machine: host` or `machine: laptop`.
+- deploy/hosting/systemd/sp-closing-watch.service + .timer (new, NOT enabled): `closing.py watch --family NFL --family SOCCER`, every minute of every hour (`OnCalendar=*-*-* *:*:00 UTC`, Persistent=false, AccuracySec=1s), `SuccessExitStatus=2 3`, `TimeoutStartSec=45min`, `OnFailure=sp-notify@closing-watch.service`. deploy/hosting/sp_notify.py: `unit_for("closing-watch")` → `sp-closing-watch.service`.
+- deploy/hosting/sp_receipts.py: the table reads a closing line's `seconds` as its duration and has key lines for `closing` and `closing_miss` (no receipt changes shape).
+- scripts/setup_closing_watch.sh: `--family` (repeatable; none = MLB, NFL, SOCCER) carried by the plist, the preflight, the test page and the closing words; `SP_EXPORTS_MIRROR_ROLE` is a required setting, and it must be `laptop` (`preflight --expect-role laptop`; Codex 4248790027: a laptop `.env` saying `host` would push into the mirror's host side). The runbook's host preflight passes `--expect-role host` (Codex 4248918614).
+- docs: hosting-h1.md (H0-3 amended for this one timer, by name; T11's third list `HELD_FOR_CUTOVER`; H2 step 7 MLB after the flip), h2-cutover-runbook.md (section 0: the role setting, P8's rehearsal, P6, the unguarded hand run; section 1 step 5b the host step in P4's order and "was" restarting on the host; step 7 the MLB laptop duty; section 2 the "MLB laptop duty (addendum 45)" class; section 4 resolved), CLI.md, host.env.example.
+- Tests: tests/test_closing_runs.py (role argv on both settings and refusal when unset or invalid; the watch's exit for success, refusal, failed run, miss, unreported failure and unhandled error; the page's last line on both roles; the setup script with `--family MLB`; the receipts table), tests/test_hosting_pack.py (the timer's own form and its H0-3 exemption by name, every other timer still H0-3; T11's held list).
+
+## 2026-10-12 (#448: nfl-position-lookup — ARCHITECT addendum 44 item 4, THE POSITION LOOKUP; Closes #440)
+- src/adapters/api_american_football.py: a listed injured player whose position the roster does not give is asked for by his provider id (`/players?id=`); only the answer's `position` field is taken. A name the injury feed lists under two ids is ambiguous: not asked, counted and listed (#440). A failed lookup (an exception, or a provider answer with errors) is recorded.
+- src/ingestion/service.py + src/walters/player_positions.py: an answer that gives a position is kept in `player_position_answers` (one row per source and provider player id; position NOT NULL), read before each team's read and written after it, guarded by the table's existence. A kept position is used instead of a call. Addendum 46 item 2: an answer that gives none, an empty answer included, leaves the player unresolved and counted; it is not a failed read, it is not kept, and he is asked again at the next read. `SyncResult.position_lookups` sums the counts; a failed lookup is a failed read (`--strict`).
+- The lookup runs for `--competition NFL` only (`cli.POSITION_LOOKUP_COMPS`; NCAA shares the adapter and makes none, Codex 4248625990); one id under two names is asked once in a read (Codex 4248626014). After a rate-limit answer no further lookup is made in the command; the ones not asked are failed reads under `--strict`, listed and not kept (Codex 4248901861).
+- cli.py: `sync-injuries` prints `POSITION-LOOKUP (<COMP>): …` before the empty-answers line (which stays last), and the ambiguous and failed names.
+- migrate_player_position_answers.py (new, additive, idempotent): creates `player_position_answers`. Before it runs, the lookup is still made and nothing is kept.
+- docs/CLI.md: the sync-injuries row. Tests: tests/test_nfl_position_lookup.py (13); tests/test_closing_runs.py's A2 strict count now includes the failed lookups.
+
+## 2026-10-12 (#447: mlb-actionable-splits-receipt — the declared toss-up splits, one run, filed as declared; Closes #354)
+- `docs/receipts/mlb-actionable-2026-10-12T1214Z.md`: the operator's one run of the MLB actionable receipt with the #354 splits (by month of first pitch, by pick side) on the laptop at main 30b4d96, cherry-picked from `laptop/mlb-actionable-splits` 705196b with its blob unchanged (80806c6). Both splits reconcile with the parent (278 games, 163 wins). Read-only; no policy change (ARCHITECT 2026-10-12, addendum 44 item 6).
+
+## 2026-10-11 (#439: cutover-pl-check-420 — #420 RULED (addendum 38) + #422 items 1-4 RULED (addendum 40 item 9) + addendum 41 items 4-5 (#443) + #441; Closes #420, #441, #443)
+- deploy/hosting/compare_exports.py: `--ignore-keys` (keys left out at any depth, printed; it replaces the generic timestamp mask, so database timestamps and `match_id` are compared, `git_sha` reported on its own line) and `--require-predictions` (the count of rows with a prediction and its probabilities on each side; none, or nothing compared (a missing host file), is NO-COVERAGE). Both off by default.
+- docs/specs/h2-cutover-runbook.md: the PL reference is written for the check on the laptop immediately before the pack, with `--start` / `--end`; the host exports with the same dates; the check leaves out desk, desk_meta, line_move and late_news_flag and exported_at (the file's write stamp, CONFIRMED by addendum 41 item 4), prints them and the predictions count; a check that does not pass ends the cutover for that day, the host stays paused (timers stopped, flag laptop, nothing resumed or restored) until the architect has read it; section 3 gains that case. hosting-h1.md H2 step 4 points to it.
+- docs/specs/h2-cutover-runbook.md (#443 RULED, addendum 41 item 5): cutover morning step 1 uninstalls the laptop's closing watch with the CLV jobs and its receipt shows it gone (`launchctl list` reads `none loaded`); the rollback's launchd step and the preflight-refusal return reinstall it; after the flip the #405 ruling governs. hosting-h1.md H2 step 1 and Rollback the same.
+- docs/specs/h2-cutover-runbook.md (#441, Codex on #439): step 3's reference export takes `--out exports/soccer_PL_<start>_to_<end>.json`, so a one-day window still writes the name step 4 copies.
+- docs/CLI.md: the compare row. Tests: tests/test_compare_exports_pl_check.py.
+
+## 2026-10-11 (#438: receipts-ro-419 — #419 + #421 (addendum 38 item 4) + #422 item 5; Closes #419, #421)
+- `scripts/kalshi_leg_audit.py` (#419): every count straight from `odds_snapshots`, orphans (no match row) on their own line and never counted as tickered (`tickered` = tickered snapshots with a match row), `orphans=N` in the summary line of both database shapes; `--since` validated as `YYYY-MM-DD` (exit 2 otherwise); a graded query that fails is `NOT CHECKED` and exits 1; the IN list is chunked.
+- `scripts/kalshi_leg_audit.py` and `scripts/soccer_rating_coverage.py` (#421 RULED): a copy that refuses mode=ro is opened on the plain path with `PRAGMA query_only = ON`, and the console says which form it used.
+- `scripts/soccer_rating_coverage.py` (#422 item 5 RULED): the competition is looked up as soccer; a code with none, or more than one, refuses.
+- docs/CLI.md: both rows. Tests: tests/test_kalshi_leg_audit.py, tests/test_soccer_rating_coverage.py.
+
+## 2026-10-11 (#436: a40-probe-receipt — ARCHITECT addendum 40 items 4 (PROBE FIRST) and 7 (RECEIPT FIRST); Refs #432, #426)
+- `scripts/nfl_injury_position_probe.py` (new, read-only): for the stored NFL injured players whose position did not resolve, the player id from the provider's own /injuries answer (by exact name; our rows store no id), then GET /players?id=: does the provider answer a position? For the operator's run; console on #432.
+- `scripts/ncaa_hawaii_receipt.py` (new, read-only): our teams named like Hawai'i (ids, source ids, game counts), the three games, and the provider's answer for team 59 and team 901. For the operator's run; console on #426.
+- Ledger: the addendum 40 item 7 FINDING (#426).
+- docs/CLI.md: their rows. Tests: tests/test_a40_probe_and_receipt.py.
+- Codex round 1: the probe's `--out` never aliases the database, its sidecars or data/; a provider errors envelope is a failed read (`provider error`), never "not in the feed"; a player left out by `--limit` has its console line; player objects are printed whole.
+
+## 2026-10-11 (#435: soccer-injuries-one-sided — ARCHITECT addendum 40 item 6, A ONE-SIDED LIST GETS NO CALL; Closes #430, #437, finding #425)
+- src/walters/export.py: soccer `input_quality.injuries` = {home, away}: {count, synced_at} (null where the team has no row); `injuries_synced_at` and the row's `injuries` block unchanged.
+- src/walters/desk_policy.py: a soccer row with exactly one side's list empty is PASS, `pass_kind` `injuries_one_sided` (among NO_CALL_KINDS: no order, no exec, no value shadow), its reason naming the team; both empty or both listed unchanged. Own switch (`injuries_one_sided_rule_off()`), `desk_meta.injuries_one_sided_rule`. No probability changes.
+- `scripts/soccer_injury_factor_receipt.py` (new, read-only): every graded PL prediction re-priced with the injury cut taken out of its expected goals; log loss both ways (all, by list-length difference, positive-edge cohort with how many keep +5pp).
+- Ledger: the addendum 40 item 5 FINDING (#425) and the item 6 ruling.
+- docs/CLI.md: the Desk row and the receipt row. Tests: tests/test_soccer_injuries_one_sided.py.
+- Codex round 1: the receipt looks up the soccer `soccer_elo_poisson` row of a version only, and reads rho / max_goals as of each prediction (audited set-soccer-config edits walked back); a log-loss line over the rows the rebuild reproduces. `base_v11()` holds the one-sided rule off (frozen verify files).
+- #437 RULED (addendum 41 item 2, rides this PR): every aggregate of the receipt over the rows it stands behind (the stored 1X2 rebuilt to 3 decimals and the factor's note agreeing with the cut taken back, a missing note included); a row failing either is left out of every aggregate, counted by reason and listed; the all-rows line stays, marked `ALL ROWS (reference)`. No cut is taken back from the note's rounded percentage.
+- #437's third item RULED (addendum 42 item 2): a side whose stored expected goals sit at the model's 0.05 floor with a cut applied is a third reason a row is left out (counted under its own reason and listed).
+
+## 2026-10-11 (#434: nfl-injury-unread — ARCHITECT addendum 40 item 4, AN EMPTY NFL INJURY LIST IS UNREAD; Closes #429, finding #424)
+- src/walters/desk_policy.py: where either team's stored injury list is empty (`input_quality.injuries.<side>.count` 0), an NFL PLAY is sized as a QB-flagged one: half units, reason "injury list empty (<team>): QB rule unread → half units", tag `QB unread half units`. Quarantines, PASSes and shadows untouched; POLICY_VERSION v1.1. Own switch (`injury_empty_rule_off()`), `desk_meta.nfl_injury_list_empty_rule`.
+- src/ingestion/service.py / cli.py: `SyncResult.empty_answers`; `sync-injuries` prints one `EMPTY-ANSWER (<COMP>): ...` line naming each team whose answer was empty; `--strict` does not fail on it.
+- deploy/hosting/closing.py: the page's PLAY line says `injury list empty: <team>` beside B7's count; the receipt records `injury_lists_empty` (and each step's `empty_answers`); THE HOLD OF 2026-10-11, a second `CLOSING_HOLDS` row (NFL only): a PLAY tagged `QB-flagged half units` or `QB unread half units` says `QB: paste to the architect before placing`.
+- Ledger: the addendum 40 item 3 FINDING (#424) and the item 4 ruling; the QB-term limitation is #427.
+- docs/CLI.md: the Desk, sync-injuries and closing-run rows. Tests: tests/test_nfl_injury_unread.py.
+- Codex round 1: `base_v11()` holds the rule off too (the frozen Cockpit verify files stay frozen); a strict failure ends with the `EMPTY-ANSWER` line, so the closing run's 5-line step tail keeps it.
+
+## 2026-10-11 (#433: closing-file — ARCHITECT addendum 40 item 2, ONE CLOSING, ONE PAGE, ONE FILE; Closes #428, finding #423)
+- deploy/hosting/closing.py: a closing run whose page went out writes `exports/closing_<FAMILY>_<start>.json` (the page's games only, each row as the export gave it, `count` the rows kept, a `closing` block: family, start, run_id, match_ids, called_off) after the phone accepted the page and before the push; a failed write is receipted and notified, never rerun. The run's export step writes `logs/<run id>.<slate name>` (`--out {export_out}`), so a closing run never writes, replaces or moves the slate file. The receipt records both files and their sha256 and `page.at`.
+- deploy/hosting/chains.py: the three closing chains' export step takes `--out {export_out}`. cli.py / nfl_predict.py: `export-nfl-predictions --out PATH`.
+- src/walters/venue_quote_age.py: `closing_` among the Desk export names.
+- `scripts/closing_file_backfill.py` (new): rebuilds the closing files of past paged runs from the exports-mirror clone's history by the receipt's sha256 (run once, before the 2026-10-18 06:10Z squash). Never opens the database.
+- Ledger: the addendum 40 item 1 FINDING (#423) and the item 2 ruling.
+- docs/CLI.md: the closing-run, export-nfl-predictions and backfill rows. Tests: tests/test_closing_file.py; tests/test_closing_runs.py updated for the logs/ export.
+- Codex round 1: `export-nfl-predictions --out` refuses a path under data/ or onto the configured database (law 5); a closing file already written for a family and start is never replaced (a manual rerun's write is refused, receipted and notified).
+- Codex round 2: the `--out` guard also refuses the database's -wal/-shm/-journal sidecars and hard links to them (file identity).
+- Codex round 4 (P1): the guard covers every database the process can mean: `DATABASE_URL`, config's `database_url` (the `./data/sports.db` default when the variable is unset) and the engine's own file.
+- Codex (after the cap): the backfill never writes a closing file missing a paged game; such a run is INCOMPLETE, listed, nothing written.
+- Addendum 41 item 3 (ARCHITECT 2026-10-11, THE FILE OF A SECOND PAGE): a start time paged a second time: the later page's file replaces the earlier, the earlier kept as `logs/<its run id>.<name>`, the later receipt names it (`closing_file.replaced`: file, sha256, run_id, kept_as); an earlier file that cannot be moved refuses the write (`closing_file_failed`) and stands. The backfill writes the later page's file and lists the earlier (`EARLIER`). This replaces Codex round 1's never-replace.
+
+## 2026-10-11 (#417: addendum-36-seed — ARCHITECT addendum 36 items 1, 3 and 4; Refs #410)
+- Ledger: the item 1 FINDING (the host's soccer model runs on default or other clubs' ratings) with its receipt, the BACKLOG entry for #410.
+- docs/specs/hosting-h1.md B4: the item 3 amendment (the seeded ratings and team_to_league are the training database's state, not configuration; the host's soccer model rows are evidence of nothing until the cutover).
+- docs/specs/h2-cutover-runbook.md: one check after `install` and before `flip`: the installed database's PL export equals the laptop's last file from that database, number for number (`compare_exports.py`, VERDICT: CLEAN).
+- `scripts/soccer_rating_coverage.py` (new, read-only): per team of a competition and season, its id, name, production league rating or MISSING, and team_to_league; totals. Tests: tests/test_soccer_rating_coverage.py.
+
+## 2026-10-11 (#416: kalshi-leg-audit — ARCHITECT addendum 37 items 1 and 4; Refs #413)
+- `scripts/kalshi_leg_audit.py` (new, read-only): by series and capture day, the games whose ticketed legs name two events and the events whose legs sit on two games (match id, teams, kickoff, tickers, capture times); totals, first day per series, listed games with a graded prediction, and the count of untickered captures. For the operator's runs on both machines; consoles on #413.
+- Ledger: the addendum 37 item 1 FINDING (BACKLOG entry for #413).
+- docs/CLI.md: its row. Tests: tests/test_kalshi_leg_audit.py (a throwaway SQLite file).
+
+## 2026-10-11 (#415: addendum-34-rulings — ledger only, ARCHITECT addendum 34 item 7)
+- docs/ledger/entries/2026-10-11-addendum-34-rulings.md: the rulings of addendum 34 items 2 (#404: grade_nfl accepted as grading; the close-age line follows the field, none for the NHL / UNL shadow sections) and 3 (#340: mode=ro stands, never immutable). No code.
+
+## 2026-10-11 (#414: kalshi-leg-guard — legs of two events are never a pair — ARCHITECT addendum 37 item 3; Refs #413)
+- `src/walters/kalshi_legs.py` (new): the one helper. A game's current Kalshi legs (newest per side before kickoff) are read as a set only when their stored tickers name one event and that event's current legs sit on no other game; else the game is mismatched and its events are named. Works on a SQLAlchemy session or a raw sqlite3 connection; answers nothing before `migrate_kalshi_ticker.py`; legs with no ticker are read as before; nothing stored is touched.
+- Readers guarded (a mismatched game's legs are dropped before anything is computed): export.py (`_collect_rows` for the MLB/soccer predictions exports, `_fixture_row` for fixtures / the window card / the shadow files), nfl_predict.py (export-nfl-predictions), window.py (venue gap), line_move.py (`line_move_for_match`), close.py (`grading_close`'s Kalshi-only close), clv_restate.py (`_close_for`), k_receipt.py (`ladders`), unl_ladders.py (`receipt`), mlb_odds_timing.py, cli.py `kalshi-disagreement`, deploy/hosting/closing.py (`price_captures`), scripts/kalshi_soccer_incomplete_receipt.py and scripts/kalshi_soccer_twoway_receipt.py.
+- Export contract (additive): `kalshi.status` `mismatched` with `events`; `kalshi_legs` null; exec fields null; `input_quality.kalshi` `mismatched`; `counts.kalshi_mismatched`; `desk_meta.kalshi_leg_guard`.
+- Tests: tests/test_kalshi_leg_guard.py.
+
+## 2026-10-11 (#412: kalshi-event-probe — ARCHITECT addendum 37 item 2, Law 1 first)
+- `scripts/kalshi_event_probe.py` (new, read-only, GET only, no key): per event ticker (default: the nine KXNCAAFGAME events of the addendum 37 receipt), the event object and its markets at any status, every time field verbatim, the ticker's date stamp as written; `--out` appends one JSON line per event. For the operator's laptop run; its console and file go in the matcher PR before item 2 is built.
+- docs/CLI.md: its row. Tests: tests/test_kalshi_event_probe.py (fake fetch, no network).
+
+## 2026-10-11 (#411: soccer-rating-source — a default rating is labelled and gets no call — ARCHITECT addendum 36 item 2; Refs #410)
+- `_generate_predictions_soccer` (src/walters/training.py): every soccer prediction's `factor_breakdown` carries `home_rating_source` / `away_rating_source`: `model` when the team is in the production model's league rating table, `default` when it is not (EloState.get's starting rating). The report-only rows carry the same two keys. No probability changes.
+- `export-predictions` (soccer, src/walters/export.py): `input_quality.rating_source` {`home`, `away`} beside `strengths_source`; null on a prediction written before the label. The window card's `model` block copies it (`rating_source`, src/walters/window.py).
+- Desk (src/walters/desk_policy.py): a row whose `rating_source` reads `default` on either side is PASS, `pass_kind` `default_rating`, reason naming the team(s): units 0, no order, no exec block, no value shadow, never a parlay leg. Checked after the started rule. `desk_meta.default_rating_rule` = true; `default_rating_rule_off()` for comparison. A row without the label is unchanged; the Desk golden holds.
+- CSV (`export-predictions --format csv`, soccer): `home_rating_source` and `away_rating_source` columns (Codex on #411).
+- Tests: tests/test_soccer_rating_source.py.
+
+## 2026-10-09 (#409: Codex sweep of #340 and #310, two deploy fixes)
+- `sp_deploy`: a `git checkout` that exits nonzero after HEAD already moved to the target (a failing post-checkout hook) is now receipted at the target with `checkout_warning` and its new migrations printed; the receipt and the exit stay nonzero, since the hook may not have finished (Codex on #409). Before, it was receipted as a failed checkout with the old code "still" live, and a retry saw an empty range, so the migrations were never printed (Codex P1 4200879012 on #310).
+- `sp_deploy._classify`: per-requirement options are read across the whole line. A `--config-settings` / `-C` after an environment marker (`pkg>=1; python_version >= "3.0" --config-settings=...`, which pip accepts) is refused like one before it; before, the marker split dropped it and the line counted as a plain specifier (Codex P2 4200879018 on #310).
+- #340's two threads (4211712334, 4211712341) were already settled on main (0c87fe1, f53b611); nothing changed for them.
+
+## 2026-10-09 (#407: odds source time stored and shown — ARCHITECT addendum 32 item 4, export contract + migration)
+- Ruling (verbatim, item 4): "sync-odds-football stores the source's update time with what it writes: on every odds row, and on every book consensus snapshot it appends. Every export block that shows a capture time for those prices shows source_updated_at beside it, in the same form; where a session's rows differ, the oldest. The Desk does not read it. #91 and the quote-age rule stay exactly as built: every computed venue row is still held."
+- Adapter: `NormalizedOdds.source_updated_at` (optional, default None). The american-football adapter's `list_odds` parses `response[].update` ("2026-10-08T02:15:10+00:00") to naive UTC. Absent, not a string, unparseable, or with no UTC offset: None, never guessed, never our clock. Hockey, soccer and MLB adapters untouched.
+- Schema: nullable `source_updated_at` on `odds` and `odds_snapshots`, NOT mapped in the ORM (ARCHITECT addendum 35 item 2: the ORDER LINE convention): written by `database.write_source_times` and read by `database.attach_source_times` (guarded Core SQL, only when the column exists; per call, never cached). Migration `migrate_odds_source_updated_at.py`: additive, idempotent, receipt of rows that carry the field and rows that do not, per table and source. No backfill.
+- Sync (`sync_odds_nfl`, sync-odds-football, NFL + NCAA): every odds row stores it; every book consensus snapshot stores the oldest of its 1X2 rows, and unknown when any row is unknown.
+- Exports (named from the code): `src/walters/export.py` `_fixture_row` `market` block, 1X2 close and the dark spread-derived fallback (export-fixtures, the window card, the NHL/intl shadow rows that share the grammar); `src/walters/line_move.py` `line_move` book venue `from_source_updated_at` / `to_source_updated_at` (export-nfl-predictions, the window card); `src/walters/nfl_predict.py` export-nfl-results `graded.value_anchor_source_updated_at`. Contract text in docs/CLI.md.
+- Not in this PR (per the ruling): the close's own source time on results rows (`close_at`, close.py), any rule that reads the field, any resume of the venue engine. The Desk does not read it; the Desk golden is unchanged.
+- RUN ORDER (addendum 35 item 2): any order. Before the migration the sync writes its rows and snapshots and every export shows the field null; the migration is preceded by a `.backup` and run by hand.
+- Tests: tests/test_odds_source_updated_at.py (adapter present / absent / unreadable; the sync and the exports on a database WITHOUT the columns (rows and snapshots written, null shown, nothing raises) and after the migration (the values); the export blocks; the ORM never names the columns; the migration run twice).
+
+## 2026-10-09 (#406: odds payload probe gains soccer and MLB (addendum 32 item 5); addendum 32 items 2 and 3 recorded for #399)
+- `scripts/odds_payload_probe.py --sport soccer --competition CODE --game ID` probes the request `sync-odds` makes for a soccer competition (`APIFootballAdapter.list_odds`, `/odds?fixture=`); `--sport mlb --season S` probes the call `sync-odds --competition MLB` makes (`APIBaseballClient.list_odds_window`, `/odds?league=1&season=S`), and `--game` / `--match-id` its per-game rollover fallback. Same refusals as nhl/ncaa; the read/drop listing is per adapter. Read-only: nothing is stored.
+- Ledger: addendum 32 item 2 (the odds payload read: American football's `response[].update` is dropped by the adapter; hockey has no such field) and item 3 (the ruling on what `update` is) recorded for Issue #399, with the operator's receipts verbatim.
+
+## 2026-10-09 (#405: the host and the closing runs (C7), an account from the code — ARCHITECT addendum 31 item 4)
+- Docs only, nothing built: docs/ledger/entries/2026-10-09-host-closing-account.md accounts for closing-run / closing-watch on the host as they stand on main (mirror role, backup, page, lock, MLB, receipts, a timer unit, the laptop's watch), with a file and line for every point, and ends with a proposal for the architect's ruling.
+
+## 2026-10-09 (#404: close_minutes_before_start on every results row with close_at, and its median / largest / n in results-tally — ARCHITECT addendum 31 item 3, #382 first half; export contract, additive)
+- Ruling (verbatim): "Every results row that carries close_at also carries close_minutes_before_start: whole minutes, rounded down, from the close's capture to the stored start, and null where there is no close. It is the age of our capture, not of the quote (#348), and the field's doc line says so. results-tally prints, for each sport that reports a close, the median and the largest over its window, with n. Nothing is renamed and nothing is removed."
+- `src/walters/close.py`: new `minutes_before_start(captured_at, start)` (whole minutes, floored; None when either time is missing). Both builders of `close_at`, `close_block` and `grading_close_block`, now emit `close_minutes_before_start` beside it (null when there is no close), so all three carriers get it: the results export (`export-results`, MLB / soccer), `export-nfl-results` and `export-intl-results`. Doc line in the builders' docstrings and docs/CLI.md: the age of OUR capture, not of the quote (#348).
+- `results-tally`: each sport that reports a close (MLB, Soccer (PL), NFL) gets a RESULTS.md line with the median and largest `close_minutes_before_start` over its window, with n, and the console prints the same, one line per sport. MLB / soccer use the results rows' close (`grading_close_block`) over the rolling window; NFL uses `grade_nfl`'s live season-to-date rows (the same close as `close_block`), which now carries a `close_minutes_before_start` summary.
+- Nothing renamed or removed: `clv`, `value_side_clv`, `close_at` and the rest of each row stand as they were. No export-contract golden pins the field set; none needed updating.
+- Tests: `tests/test_close_minutes_before_start.py` (6, all failing on main): floor to whole minutes and null; both builders; every results carrier (MLB, soccer, NFL, INTL) carries it wherever `close_at` is; the kalshi_only close; results-tally's median / largest / n per sport, on an isolated throwaway DB.
+
+## 2026-10-09 (#403: the declared MLB receipt built — toss-up splits by month and pick side, #354; ARCHITECT addendum 31 item 2)
+- `mlb-actionable-receipt` extended, nothing else in it changed (the existing output is a byte-identical prefix of the new one on both test fixtures). New sections after the blend table: the regular season's toss-up row (included rows) split by the calendar month of the first pitch's date in America/New_York (`Match.utc_date`, naive UTC; a row with none is the `no first-pitch date` cell, always printed) and by pick side (HOME / AWAY). Each cell prints a tier row's columns and its wins, and the toss-up rows left out for want of a book close in that cell, by reason.
+- Under each split: `Σ cells: games, wins · parent: games, wins · reconciled|DIFFERS`. On DIFFERS the command prints the receipt, refuses (exit 2) and writes no file.
+- The postseason's toss-up rows: one line of their own, never pooled. The blend split unchanged (Q3).
+- Tests: `tests/test_mlb_receipt_splits.py` (month split with an ET rollover game, pick-side split, no-date cell, postseason line, CLI output, refusal by an injected mismatch). Read-only; no threshold, no sizing.
+
+## 2026-10-09 (#402: sync_odds --limit means the next N; Closes #387)
+- `IngestionService.sync_odds` (soccer path) now orders its candidates by kickoff (`utc_date`), then `id`, before `--limit` is applied, so the limit prices the next N scheduled games instead of the first N in storage order. AMENDED (ARCHITECT addendum 33 item 2): "A named game is never dropped by the limit. With --match-ids every named game is priced and --limit does not apply. The order is kickoff, then id, in both modes." Until this PR the limit (CLI default 20) cut a named `--match-ids` list, silently.
+- The window service's `sync-odds --limit <n>` (deploy/hosting/sp_run.py) now prices that competition's next n scheduled games; the premise in deploy/hosting/chains.py ("sync_odds takes the next N scheduled games") is now true. Neither file changed.
+- Test: tests/test_sync_odds_next_n.py (three upcoming games stored out of kickoff order, limit 2: the two earliest are priced; fails on main) and `test_a_named_game_is_never_dropped_by_the_limit` (three named games, limit 2: all three asked, in kickoff order; fails on main).
+
+## 2026-10-09 (#401: ncaa-placeholder-rekey — ARCHITECT addendum 30 items 3 and 4)
+- `sync-matches` (NCAA only): a stored SCHEDULED row at the provider's 04:00Z placeholder kickoff holds its natural key against a real kickoff within 24 hours; an unknown incoming id for the same home/away pair re-keys that row (`rekeyed=`, old id kept in `<source>_prev` and the `<source>_rekeys` log) instead of creating a second row. AMENDED (addendum 33 item 1): the placeholder window is consulted only where the 12-hour rule would create a row (no candidate within 12 hours, same pair or swapped); there the same refusals apply among placeholder rows (stored id still listed, row already claimed in the run, more than one placeholder candidate, pair swapped). A doubled game's real-kickoff row is re-keyed by the 12-hour rule, as on main; the placeholder row is untouched. A row at a real kickoff keeps the 12-hour window. NFL unchanged.
+- `src/ingestion/placeholder.py`: `is_placeholder_kickoff` / `placeholder_resolved` moved here from `scripts/ncaa_rekey_receipt.py`, which now imports them (one definition, shared; script behaviour unchanged).
+- docs/CLI.md: the laptop morning chain reads NCAA by date (today..today+7, one day per call) and then runs `refresh-by-id`, as `ncaa-schedule` does on the host.
+
+## 2026-10-09 (#400: ledger — the college provider re-issued its game ids (#399); a correction to addendum 21; two receipts; nothing built)
+- Finding #399: the provider re-issued its 2026 college game ids on 2026-10-09. No live college row has a fresh book price tonight. The odds side waits on a read-only probe and a ruling.
+- The architect's correction of addendum 21 item 1: on the host, the announced times arrived on second rows (27 pairings twice on 2026-10-09). Also posted on #377.
+- Receipts: NFL's by-date listing before the install (added to the closing-runs entry, posted on #385). PL's missing close season is 2025/26 (added to #397's entry, posted on #397).
+
+## 2026-10-09 (#398: ledger — the architect's read of the soccer value receipt; PL close finding; #390 item 8; nothing built)
+- The architect's read of the soccer value receipt (#396), verbatim. It is not a policy and changes none: value shadows stay unstaked (#86).
+- Finding #397: half of PL 2024/25 + 2025/26 has no stored fdcuk_close, so the receipt's PL page stands on one season. The page is not regenerated.
+- #390 item 8, noted and not ruled: a moved game landing on a start time that already had its closing yields superseded receipts each tick, then a late miss with the wrong reason.
+
+## 2026-10-09 (#396: soccer value receipt — the one run, filed as declared)
+- `docs/receipts/soccer-value-sides-2026-10-09.md` and its PL reference page: the operator's one run of `soccer-value-receipt` on the laptop (main ed5ecbb), spliced from `laptop/soccer-value-receipt` e6e9233 byte for byte (ARCHITECT 2026-10-09, addendum 28 item 5; Issue #383). Reconciliation PASS in all five leagues. Read-only; not gate evidence and not a policy.
+
+## 2026-10-09 (#395: sx-shadow-dropped-label — a dropped league's shadow row ends at its own outcome)
+- `_status_label` (src/walters/soccer_expansion.py): a league whose own gate outcome is not PASS returns that outcome only. soccer_expansion_shadow rows for SA, BL1, FL1 and ELC now read "DROPPED — calibration", no longer "DROPPED — calibration · verdict PASS · confirmation open" (the PASS and the open confirmation are PD's). PD's label is unchanged: "PASS · verdict PASS · confirmation open". ARCHITECT addendum 24 item 5; Issue #391.
+- Pin: tests/test_soccer_expansion.py::test_shadow_label_a_dropped_league_ends_at_its_own_outcome, on the registry's recorded run (fails on ed5ecbb). Labels only: no gate, threshold, verdict or prediction changes.
+- Codex on #395: a league dropped before the run (F1, no per_league entry) reads "DROPPED before the run — <recorded reason>", never "?".
+
+## 2026-10-09 (#394: closing runs, #390 items 6 and 7 — ARCHITECT addendum 28 item 2; references #390, does not close it)
+- Rulings verbatim in `docs/ledger/entries/2026-10-09-closing-390-items-6-7.md`. Daily-class: no model, gate, threshold or Desk rule changes.
+- Item 6 (RULED): `deploy/hosting/closing.py` `covered_ids`. A game is finished with only at the start its cover recorded (`covers[].start`). A finishing receipt (a success, or the last of three attempts) counts the game only while its stored start, re-read by match id (`stored_starts`, new), is still that start.
+  - A game a successful run paged, whose stored start then moves, forms a group at its new start, and that group runs. So does a game paged as cancelled or postponed that is later stored as scheduled at another start.
+  - On ed5ecbb, `covered_ids` was a set of match ids, so such a game got no closing and no miss.
+- Item 7 (nit): `unpaged_called_off(fam, now)` is bounded to the window `schedule()` reads, [now - 6h, now + 6h) (`schedule_window`, `SCHEDULE_HOURS`, new). `with_called_off` takes the same `now`. Before this, a called-off game whose start time ended with one or two failed attempts stayed in the watch's games, and in `closing-watch --dry-run`, for good.
+- Tests: `tests/test_closing_runs.py` `test_390_6_*` (2) and `test_390_7_*` (1), all three failing on ed5ecbb. One existing assertion changed only for the new signature: `unpaged_called_off("SOCCER", NOW + 1m)`.
+- Not built: the note beside item 5 (not ruled).
+
+## 2026-10-09 (#393: ncaa-elo-v1r verdict: FAIL on the spread test; 2025 retired as a college test season; ncaa-backtest closed; no college shadow)
+- The one gate run is spliced from the operator's branch `laptop/ncaa-elo-v1r-run-record` (130b481) by cherry-pick, byte for byte: the registry entry's run, `docs/registry/ids/ncaa-elo-v1r.txt` (762 ids) and `docs/registry/ncaa-elo-v1r.started.json`.
+  - Candidate NCAAEloV1, v1's constants untouched, on the CFBD both-FBS stream; run at 2026-10-09T16:18:32Z, no prior read.
+- The verdict is recorded with the architect's ruling verbatim (addendum 24 item 1): FAIL.
+  - (1) Margin passes: log-loss 0.559642 against a bar of 0.664889. (2) Level passes: gap 1.818pp against 5pp.
+  - (3) Spread fails: slope b 1.420537, outside 0.80 to 1.20 (too timid). (4) Range passes: ratings 1121.1 to 1906.2.
+  - Status `closed`, verdict recorded at 2026-10-09T17:49:27Z. No confirmation window, no cohort. College football stays market-only.
+- `registry.RETIRED_TEST_SETS` retires "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)"; the next candidate declares the NCAA FBS 2026 regular season as it accrues (>= 500 games).
+- `ncaa-backtest` refuses, exit 2, naming addendum 24 item 2(c), with or without `--baselines-only`, for good. `GATE_STATUS` is `CLOSED` (ruling 2026-10-09).
+- `export-ncaa-predictions` refuses, exit 2, naming addendum 24 item 2(d), while the registry records a non-PASS verdict for ncaa-elo-v1r. `ncaa-shadow-grade` is unchanged.
+- The #368 test-season fence lifts by itself with the run record: the 2025 lines and `ncaa-audit` return (no code).
+
+## 2026-10-09 (#392: closing runs, the #390 follow-up — ARCHITECT addendum 26 item 2; references #390, does not close it)
+- Rulings verbatim in `docs/ledger/entries/2026-10-09-closing-390-followup.md`. Daily-class: no model, gate, threshold or Desk rule changes. It gates the watch's install, not #385's merge.
+- (a) Codex 4232719331: `deploy/hosting/closing.py` `covered_ids`. A game is finished with at a start time only when a successful attempt for that start time covered it, or when the start time has had three attempts and the last of them covered it. An earlier attempt's covers no longer count on their own. Before this, one failed attempt followed by a retry that found the game moved closed the game for good at a start time it no longer had.
+- (b) R6 moving the export: `last_calls` follows the receipts, not the files. The base is the newest closing receipt of the family that carries `last_calls`, with the calls that run paged laid over it when its page went out. An export that no closing run wrote, written after that run started, comes before it for the games it holds. With no such receipt, the files' calls stand, as before.
+  - The closing receipt's `desk_rows` now carry `call_text` (the call on the page), and the receipt carries `run_start_wall` (the wall clock at the run's start, which file mtimes are compared with).
+  - A paged receipt written before `call_text` existed falls back to its export, if that file is still in exports/ with the same bytes.
+- Tests: `tests/test_closing_runs.py` `test_26_2a_*` (2) and `test_26_2b_*` (2). All four fail on f256cdd. No existing test changed.
+- (c) #390 item 4 (addendum 25 item 3), built under addendum 26 item 2(c): a covered game the schedule read finds CANCELLED or POSTPONED gets a line of its own on the page.
+  - `called_off` re-reads the stored status by match id right after the schedule read, in `leave_moved`, and the receipt records the games as `called_off`.
+  - The game stays in `covers`. It is not checked as moved, gets no Desk row and is not counted as a PASS.
+  - `page_text` writes `<game> · <STATUS>`, adding `was <call>` when the last call was a PLAY or a LADDER. That `was` makes the page high priority.
+  - Tests: `test_25_3_*` (2), both failing on f256cdd.
+- Codex 4233123800 (P1, #392), on (c): `schedule()` drops every CANCELLED and POSTPONED game. So if the attempt that found the game called off failed afterwards (a later step, or a page ntfy did not accept), the watch rebuilt that start time without the game, or, when it was the only game, formed no group at all. The game's line was then never paged.
+  - The fix, in `closing.py`: `unpaged_called_off` and `with_called_off`. A game an attempt recorded in `called_off` stays a game of its start time, at the start it was covered at, until that start time has a successful attempt or three attempts.
+  - `due`, `plan` and the run's covers read the schedule plus those games. The run's own checks (missing from export, started) still read `schedule()`.
+  - Tests: `test_392_4233123800_*` (2), both failing on bc6e107.
+- Not built: #390 item 3 (an MLB group across midnight in New York) and item 5 (reading (a)'s edge). Both stay open on #390.
+
+## 2026-10-09 (#386: soccer-value-receipt — the declared read-only receipt of value sides against the close)
+- New READ-ONLY command `soccer-value-receipt [--out PATH]` (ARCHITECT 2026-10-09, addendum 21 item 6, amended before any read by addendum 23 item 2; Issue #383). Not gate evidence and not a policy; the operator runs it and the receipt goes to docs/receipts by PR.
+  - Reads soccer-expansion-v1's 3,445 scored ids from the registry's ids file and re-prices them with the gate's own walk at the run record's rho / elo_goal_coeff, against fdcuk_close de-vigged as `market_side` does.
+  - Value outcome = the largest model p minus close p. Tables: league (PD, SA, BL1, FL1, ELC, pooled) x edge bucket (under 5pp, 5-10, 10-15, 15+, 5+ as one row) x value outcome is the top pick; the 5+ row by kind (home, draw, away).
+  - Columns: n, mean model p, mean close p, hit rate, hit - close pp and flat-stake return at the close's fair price, each with a seeded percentile bootstrap 95% interval (the match resampled within the cell, seed 20261009, 10,000 resamples, the return interval from the same draws); a cell of fewer than two matches prints no interval.
+  - Buckets hold their lower edge at the gate's tolerance (5.0 is in 5 to 10); under 5 is 0 to 5; ties go to the first of home, draw, away.
+  - PL 2024/25 + 2025/26 on a page of their own (`<stem>-pl-reference.md`), pooled over its two seasons as each league is, for reference; PL's live read (#92) is not this.
+- The receipt prints the declaration AS ISSUED, its withdrawn sentence ("which must reproduce the run record's cohorts: 79 of 212, 88 of 225, 115 of 266, 93 of 205, 137 of 373") struck through and marked `[WITHDRAWN, ARCHITECT 2026-10-09 addendum 23 (b)]`, not deleted; the amendment (a)-(e) verbatim beside it.
+- Reconciliation (amendment (b)), before any table: under `market_side`'s own rule the walk reproduces, per league, the run record's n_priced, both log-losses (model and close) and the cohort's count, hits and mean edge (floats to 1e-9; also the scored ids and each league's n). If it does not, the receipt is written with the declaration, the amendment and the difference only (no table, no PL page) and the command exits 2.
+- Refusals (exit 2, nothing written): no run record; ids file sha differs from the record. There is no check of the 5+ row against the run record's cohorts: addendum 23 (b) withdrew that sentence (a different selection), so the earlier cohort check, its banner and exit 3 are gone.
+- Writes nothing to the DB; never under data/. docs/CLI.md row; tests/test_soccer_value_receipt.py (synthetic leagues, throwaway DB, TMP registry).
+- Codex review of 7086c1e: refuses (exit 2, nothing written) when either requested PL season scores no rows, when the ids file is malformed, or when the run record has no ids_sha256; a failed reconciliation removes a PL page an earlier run left at the same --out.
+- The receipt's head prints the architect's correction to (a) of the amendment (addendum 27 item 1) beside the amendment, verbatim, pinned by a test; the amendment stays as issued.
+
+## 2026-10-09 (#385: closing runs for every model family, paged by T-30 — ARCHITECT addendum 21 item 3 + addendum 22; closes #380)
+- Rulings verbatim in `docs/ledger/entries/2026-10-09-closing-runs-all-families.md`. Daily-class: no model, gate, threshold or Desk rule changes. Branched from #370's head (c533485), not yet on main.
+- `deploy/hosting/mlb_closing.py` became `deploy/hosting/closing.py`, for the families MLB, NFL and SOCCER (PL) (C1). The commands are `python cli.py closing-run --family F [--start ISO] [--dry-run]` and `python cli.py closing-watch [--family F] [--dry-run]`. `mlb-closing-run` and `mlb-closing-watch` stay as aliases.
+- C2, timing: the watch ticks every minute. A family's earliest unstarted start time not yet closed (by a success or three attempts) covers the games starting within 10 minutes after it. The run for that start time begins between T-35 and T-5 and never inside T-5. A start time first seen inside T-5 is a miss (`kind: closing_miss`), notified once. A run's summary and page hold its own games only. This replaces the 5–65 minute window and the 90-minute summary.
+- C3, chains (`chains.py`): `nfl-closing` and `soccer-closing` are derived from `freshen:NFL` and `freshen:SOCCER`.
+  - They open with the schedule read: ~~NFL `refresh-by-id --match-ids <the covered games>`~~ (SUPERSEDED by addendum 25 2(i): NFL takes the SOCCER form), SOCCER `sync-matches` one UTC day per call with `--match-ids` (addendum 23 A1).
+  - `sync-injuries` runs with `--match-ids <the covered games> --strict` (Codex round 2; was `--kickoff-within-hours`).
+  - The book sync runs with `--match-ids <the covered games>`.
+  - The export runs with `--desk`.
+  - `CLOSING_FAMILIES`. `sp_run.py` refuses these chains (`closing_only`) and refuses any closing chain's dry run.
+- New opt-in CLI options; the defaults are unchanged:
+  - `sync-injuries --strict`: exits 1 when a read it needed failed, listing each one (`SyncResult.failed_reads`).
+  - `sync-odds --match-ids` (soccer).
+  - `sync-odds-football --match-ids`.
+- C4, every family gets: the started test, the export-completeness check, the price check against the run's start, the moved export, the mirror push, and the failed-run notification (screen and phone, best effort). 380.1: for MLB, every starter the export lists must have been refreshed (`match_participants.refreshed_at`) at or after the run's start. If not, the attempt fails as `stale starters` and is retried; a side with no listed starter is not stale and gets its own line on the page.
+- C5/C6, the page: one page per run, sent through the ntfy card topic (`NTFY_CARD_TOPIC`) and shown on the laptop's screen. It lists, in order: header; PLAY/LADDER lines (order line, exec edge, hold, `was <earlier call>`); value and quarantine shadow lines ending `shadow, not staked`; the PASS count. Priority is high when the page carries a PLAY. No line is over 100 characters; longer entries continue on indented lines. An unset or whitespace `NTFY_CARD_TOPIC` refuses the run before its first step, and the value is never printed. A page ntfy does not accept fails the run (`page`), and the watch retries.
+- 380.3, backup: a backup the run takes counts only when the copy, integrity check, open, sha256 and hash file all succeed. Otherwise the run fails as `backup` before the first step, and whatever it left is renamed `.failed-<stamp>`, never deleted.
+- 380.4, the lock: the run decides under the chain lock, re-reading the clock and its receipts there. A run started by the watch waits for the lock until T-5 at the latest.
+  - Once it holds the lock, a start time that already has a success or three attempts ends the run as `superseded`: neither an attempt nor a refusal, and nothing is posted.
+  - If it gets the lock inside T-5, that is a miss, receipted and notified.
+  - The attempt number and the run's start (for the price and starter checks) are both taken under the lock.
+- 380.5, K6: `applied` is true only when the weight is not 0 and the market's probability differs from the probability entering the blend (`training.blend_applied`). The probabilities are untouched; the bit-identical K6 test still passes.
+- Reading 7: a refusal on a watch-started run is receipted and notified once per start time and reason.
+- `scripts/setup_mlb_closing_watch.sh` became `scripts/setup_closing_watch.sh`: one LaunchAgent, `com.sportspredictor.closingwatch`, every 60 s, replacing #370's MLB-only job. It reads settings from the checkout's `.env` or host.env only and refuses any setting found only in the shell, naming it. No value goes into the plist. The run's own refusal checks run under `env -i`. It sends one test page through the card topic and refuses to install if ntfy does not accept it. No host timer (C7).
+- Receipts: `kind: closing` with `family`, `start`, `covers`, `attempt`, `run_start`, `queued_at`, `page`, `superseded`; and `kind: closing_miss`. They replace `mlb_closing` and `mlb_closing_miss`.
+- Docs: `docs/CLI.md` rows and the "Closing runs (operator)" section. The #370 ledger entry's R2 quotation is restored as issued.
+- Tests: `tests/test_closing_runs.py` (renamed from `test_mlb_closing_autopilot.py`), 62 tests, one per ruling, plus a dry-run test and five for Codex round 1. The 380.5 test is in `tests/test_mlb_kalshi_only_suspended.py`. `tests/test_hosting_pack.py`'s law-1 option check resolves the closing chains with their example values.
+- Codex round 1 on #385, four fixes, each with a test that fails on 140d0ee:
+  - `target moved` (P1; SUPERSEDED by addendum 23 C, below): after the steps, a covered game whose stored start (re-read by match id) is no longer the start it was covered at fails the run as `target moved`, naming each game with the target, its covered start and its stored start. It is an own-check failure: the export is moved into logs/, nothing is pushed, no call is paged. Reading (conservative): one moved game fails the run even when the others stayed. A game an attempt found moved is not counted as closed by that start time's later success or third attempt; its new start time is its own receipt key and closes at its own T-35.
+  - `watch` (P1): each queued run in one tick reads `clock()` when it starts, so the time spent on earlier closings counts toward its T-5 and started checks and its T-minus. A test-supplied `now` still fixes the tick's time.
+  - `sync-injuries --strict` (P2): with `--kickoff-within-hours`, a competition not in the DB now fails the read (exit 1, `✗ STRICT: ...`) instead of returning at the empty-window branch. The default and an empty window are unchanged.
+  - `parse_utc` (P2): any explicit offset (`-04:00`, `+02:00`, `-0400`) converts to UTC; `Z`, naive and the stored `2026-10-08 23:05:00.000000` read as before.
+- ARCHITECT addendum 23 item 3 (rulings verbatim in the ledger entry; the round-1 fixes above went up in 1c4f44e before this ruling arrived). Main merged in first (#370, #378, #381, #375).
+  - A1, the schedule read is strict: SUPERSEDED for NFL by addendum 25 2(i), below: ~~`refresh-by-id --match-ids` (exactly the named games; exit 1 on any not found, refused, excluded, without an id, unresolved, still rate limited or not stored) opens `nfl-closing`~~; `sync-matches --match-ids` (exit 1 unless the provider's answer held every named game) opens `soccer-closing` and `mlb-closing`. Defaults unchanged.
+  - A2: the american-football adapter records a failed or empty roster read (`last_roster_failure`); `sync-injuries --strict` fails on it. Default unchanged.
+  - A5: for Kalshi with more than one leg, only the legs the Desk read for the row (the call's and a value shadow's exec block, the order line, every leg under a Kalshi reference) must be fresh; a stale unread leg is listed (`stale_legs_not_read`).
+  - B1/B2: the page goes first (phone tried three times, ten seconds apart), then the mirror push; a failed push after the page is receipted (`push_failed`) and notified, never rerun. A screen notification not posted is recorded only (`failed: notify` is gone).
+  - B3/B4/B7: a game whose last call (SUPERSEDED: "the last call" is now addendum 25 2(iii)'s, below) was PLAY/LADDER and is now PASS gets `<game> · PASS · was <call>` and makes the page high priority; every line but the head and the PASS count names its game; an NFL PLAY says `<n> injured, position unresolved`.
+  - B5: the 2026-10-07 hold names MLB and NFL (`families`), not PL. B6: a miss is receipted and notified once per start time and reason.
+  - C: a covered game the schedule read moved leaves the run (receipted, a new start time for the watch); a run left with none fails as `start moved`.
+  - D1: `closing.py install-push`; the setup script makes one mirror push (label install) under `env -i` and refuses to install if it fails. D2: the VPN line is MLB's.
+  - Codex round 2: `sync_match_stats` NameError (an undefined `match_ids`) removed; the closing injury read scoped by `sync-injuries --match-ids`; a lock error is a receipted failed attempt (`lock`); a family `SP_SKIP_FAMILIES` names is refused (receipted and notified once) instead of dropped by the watch.
+  - Findings logged, nothing built (F): `sync_odds` `--limit` without ORDER BY; PL lineups no chain refreshes; the export's latest Kalshi snapshot per leg.
+  - Tests: `tests/test_closing_runs.py` 78 (the round-1 moved tests updated to C), `tests/test_refresh_by_id.py` +3 (A1 and #378's UNRESOLVED note; SUPERSEDED by addendum 25 2(i): the refresh-by-id A1 test is gone, the sync-matches one moved to `tests/test_sync_matches_named.py`, the UNRESOLVED test stays).
+- ARCHITECT addendum 25 item 2 (2026-10-09 12:45 ET; rulings verbatim in the ledger entry). Main had not moved (fbf0d1e). Addendum 24 itself was not relayed to the builder; its item 3 is applied as addendum 25 2(i) states it.
+  - 2(i), A1 amended: `nfl-closing` opens with `sync-matches --competition NFL --season 2026` by date, one UTC day per call, each naming that day's covered games (`--match-ids {start_day_ids}` / `{end_day_ids}`), the SOCCER form (`chains._closing_from_freshen`, the `by_id` branch removed). `refresh-by-id --match-ids` and `named_failures` are removed: `src/ingestion/refresh_by_id.py` and `cli.py refresh_by_id_cmd` are what #378 merged; `tests/test_refresh_by_id.py` is #378's plus the UNRESOLVED test. The `sync-matches --match-ids` test moved to `tests/test_sync_matches_named.py`. Reading (a) now applies to NFL too.
+  - 2(ii), Codex 4232307577: a covered game the schedule read moved leaves the run right after the read (`closing.leave_moved`, `schedule_reads`), before a later step can fail, so a failed attempt's `covers` never holds it and three failed attempts do not close its new start; also when the read itself fails. A run left with no game ends there as `start moved` (no further step, no export).
+  - 2(ii), Codex 4232307584: `_order_leg` names a leg only by the ticker the order carries; an order with no ticker (a LADDER with no HOME ticker) read no leg, so its stale HOME snapshot is listed in `stale_legs_not_read`, not a failure.
+  - 2(iii), the last call (reading 7 amended): "The last call of a game is the call the operator was last shown for it: its call on the last closing page that covered it or, when no page has covered it, its call in the newest export that no closing run wrote. An export a closing run wrote never supplies the last call of a game that run did not page. C5's was and B3 read this." Built: `closing.last_calls`. A closing receipt records `export_written` (file, sha256 of the export it wrote, whatever the outcome, before R6 moves it) and `last_calls` (the last call it found before its first step for every game of the family found, start no more than 24 hours before the run). The newest family file a closing receipt names is followed: that run's paged calls (page accepted) and, for every other game, its receipt's last calls; a file no receipt names keeps its own calls, and older files fill the games it lacks. C5's `was` and B3 read it.
+  - Item 3 (postponed or cancelled covered games): ruled, built in the follow-up #390; nothing here.
+  - Tests: `tests/test_closing_runs.py` 84: 6 new, all failing on 08026e2 as written, five of them on behaviour (the unfollowable-chain test pins today's behaviour and fails there only on the new receipt field); the NFL read tests updated to the by-date form; the all-moved test now expects no step after the read and no export.
+
+## 2026-10-09 (#384: findings logged and a receipt declared, addendum 21 items 5 and 6; nothing built)
+- Finding #382: the recorded close is our last capture, and it is old. NFL: median 111 minutes before kickoff, none inside 30. MLB: median 60. The `clv` field names are left as they are until a ruled contract change.
+- #357 gains the 2024 count (178 games stored one day early). #376 gains two non-blocking notes.
+- Declared before any read (#383): the soccer value receipt. Value sides of the soccer-expansion-v1 scored ids against the de-vigged fdcuk close, by league, edge bucket and top-pick, with a PL reference page. Read-only; not gate evidence.
+- The declaration amended before any read (ARCHITECT 2026-10-09, addendum 23 item 2): what was known, the cohort sentence withdrawn (marked, not deleted) in favour of a market_side reconciliation, the bootstrap, bucket edges and ties, and how to read it. Addendum 23's merge calls recorded.
+- Logged, nothing built (ARCHITECT 2026-10-09, addendum 25 item 3; #390): the closing page's line for a covered game the schedule read finds cancelled or postponed, ruled now and built in the follow-up.
+- The architect's correction to (a) of the amendment (addendum 27 item 1): the known log-losses are per league over every priced match, not over the cohort. Quoted beside the amendment.
+- Finding logged, nothing built (addendum 24 item 5, #391): a DROPPED league's soccer-expansion shadow rows carry PD's verdict and "confirmation open".
+
+## 2026-10-09 (#381: soccer-expansion-v1 confirmation cohort spliced, 60 PD fixtures)
+- The cohort frozen on the laptop is spliced from `laptop/soccer-expansion-v1-cohort` (716c56c) by cherry-pick, byte for byte: the registry entry's `confirmation_cohort` and `docs/registry/ids/soccer-expansion-v1.cohort.txt`.
+  - 60 PD fixtures, 2026-10-09T19:00Z through 2026-11-22T16:00Z, frozen at 14:14:16Z, after the verdict (12:47:39Z).
+- PD stays a shadow until CONFIRMED.
+
+## 2026-10-09 (#379: soccer-expansion-v1 verdict: PASS, surviving set PD; confirmation window open)
+- The one gate run is spliced from the operator's branch `laptop/soccer-expansion-v1-run-record` (35135c4) by cherry-pick, byte for byte: the registry entry's run, `docs/registry/ids/soccer-expansion-v1.txt` (3,445 ids) and `docs/registry/soccer-expansion-v1.started.json`.
+  - Candidate production v22 (rho -0.1, elo_goal_coeff 0.0008), run at 2026-10-09T12:24:56Z, no prior read.
+- The verdict is recorded with the architect's ruling verbatim (addendum 20).
+  - PASS, surviving set PD (log-loss 1.0027 against 1.0506; every gated band held).
+  - SA, BL1, FL1 and ELC beat their log-loss bars but are dropped on calibration; they stay in the shadow.
+  - The closing market beat the candidate in all five leagues (reported, never gated).
+  - Status `confirming`, verdict recorded at 2026-10-09T12:47:39Z. The confirmation is the first 60 PD league games kicking off after that time.
+- Until CONFIRMED, PD is a shadow: never a Desk call, never an order line.
+
+## 2026-10-09 (#378: NCAA kickoff freshness on the host: a daily forward-week sync, ARCHITECT addendum 19 item 3)
+- Ruling and cause: verbatim in `docs/ledger/entries/2026-10-09-ncaa-host-kickoff-freshness.md`.
+- New host chain `ncaa-schedule` (`deploy/hosting/chains.py`): `sync-matches --competition NCAA --season 2026 --date-from D --date-to D` for D = today .. today+7, single-day calls (the american-football adapter sends `date` only when from == to). Sync only: no Kalshi, no export, no model step. `NCAA_FORWARD_DAYS = 7`.
+- New timer `sp-ncaa-schedule.timer`: every day, 10:35 and 22:35 UTC (outside the H0-3 reboot buffer). Twice a day, so one failed run still leaves every stored kickoff under a day old. Added to the runbook's T11 `TIMERS` list, with the install steps for a live host (`docs/specs/hosting-h1.md`).
+- `sp_run.date_vars` gains `{today_plus1}`..`{today_plus7}` (`{today_plus3}` unchanged).
+- `ncaa-market`, the window service and the adapter are unchanged.
+- Docs: `docs/CLI.md` (NCAA kickoff freshness paragraph), `docs/specs/hosting-h1.md` (timer table, T11, live-host install).
+- Test: `tests/test_hosting_pack.py::test_every_ncaa_kickoff_in_the_next_seven_days_is_refreshed_every_day`. For each weekday it resolves every chain whose timer fires that day and requires single-day NCAA syncs covering today..today+7. On the old chains it fails on Monday with all eight dates missing (no NCAA sync fires on Monday).
+- Host action after the tag that carries it is deployed: install and enable the new timer (runbook), then run `sp_run.py ncaa-schedule` once.
+- **Amended by ARCHITECT addendum 21 item 1 (2026-10-09): the refresh is by id.** The provider's listing no longer carries college games that have not started, but the games still answer by id. Ruling and receipts are verbatim in the ledger entry.
+  - New command `refresh-by-id --competition NCAA --days 7` (`src/ingestion/refresh_by_id.py`). It takes every stored SCHEDULED game on the UTC dates today..today+7 and makes one `GET /games?id=` per game (the adapter's `get_game`). It applies kickoff, status (the adapter's map; unknown stays SCHEDULED) and score.
+  - Rate limits follow the sync-odds-football rule: paced at `SP_ODDS_FOOTBALL_RPM`, deferred on `RateLimited` and retried after Retry-After for up to `ODDS_RETRY_ROUNDS` rounds, never dropped.
+  - NOT FOUND is counted, listed and untouched. Other teams are REFUSED and lookup errors are UNRESOLVED; both are untouched. The step exits 1 on unresolved or still-limited games.
+  - The receipt is printed (asked, unchanged, updated, each kickoff moved with both times, each not found) and appended to the receipts log as kind `refresh_by_id`.
+  - `ncaa-schedule` keeps its eight listing reads and runs `refresh-by-id` last. The timer, the window service, `ncaa-market` and the adapter are unchanged.
+  - Laptop: `docs/CLI.md` morning chain, Phase 1, runs `refresh-by-id --competition NCAA --days 7`.
+  - Docs: `docs/CLI.md` (command row, NCAA kickoff paragraph, morning chain) and `docs/specs/hosting-h1.md` (timer table, install note).
+  - Tests: `tests/test_refresh_by_id.py`. Its chain test fails on the pre-amendment chain, where the kickoff stays at 04:00Z, and passes now. Rate limit, not-found and receipt-count tests are alongside, plus `test_every_day_the_host_refreshes_ncaa_games_by_id`.
+
+## 2026-10-08 (#375: ncaa-elo-v1r gate command (D3-D6, --preflight, reservation, one recorded run) and confirmation command (D7); not run)
+- **`ncaa-v1r-gate`** (new; `src/walters/ncaa_v1r_gate.py`; ARCHITECT 2026-10-08, addendum 11 item 3, PR B). It follows the soccer-expansion-v1 pattern.
+  - `--preflight` scores nothing. Per season it prints the stream by season_type, the neutral count, the coverage and the D4 baseline (D6).
+  - The run's preconditions, each checked before the reservation (exit 2, nothing written): declared and unrun; `--architect-word` given; `--stream-fingerprint` given; 2024 and 2025 covered (L2 + L3, each missing season named); the loaded stream's fingerprint matches; the scored set numbers >= 500.
+  - The reservation `docs/registry/ncaa-elo-v1r.started.json` is written after the #329 cross-ref guard, carries the word and the fingerprint, and precedes the first game scored.
+  - Then the D3 walk: 2024 is update only; 2025 `regular` games are predicted, then updated; every other 2025 game is walked, never scored; no 2026 game is scored. Then the D5 verdict.
+  - The run is recorded with its scored ids (`registry.record_run`).
+- **`ncaa-v1r-confirm`** (new) follows the intl-elo-confirm pattern for D7.
+  - `--freeze-cohort` freezes the first 100 eligible fixtures, through `registry.freeze_confirmation_cohort`, which runs the guard.
+  - `--substitute` replaces cancelled fixtures only. A finished fixture without a label stays pending.
+  - The read reuses the gate's replay. `--record --ruling` computes CONFIRMED iff log-loss <= 0.6931 and < the D4 baseline − 0.010 on the same games.
+  - The command refuses unless 2024, 2025 and 2026 are covered.
+- **One D5 implementation.** `ncaa_backtest.logistic_slope / level_gap / level_ok / slope_ok` are extracted from `scripts/ncaa_v1r_design_receipt.py`, which now imports them. Re-running the receipt after the extraction gave output byte-identical to before (Runtime line aside).
+- `ncaa_backtest.coverage_misses` is shared by the shadow, the gate and the confirmation. The shadow's refusal text is unchanged.
+- #79's `ncaa-backtest` is unchanged. Nothing was run against a real DB, and the registry entry is unchanged (still `declared`).
+- Docs: docs/CLI.md has two new rows; docs/specs/ncaa-elo-v1r.md has a new section 8, "Commands".
+- Tests: `tests/test_ncaa_v1r_gate.py` (synthetic only).
+- **Codex on #375, round 1 (both verified and fixed).** A cancelled cohort fixture that still carries a current label is never scored: it stays pending, release due, until `--substitute` replaces it (D7). A `STALE_ORPHAN` row ("never a fixture") is never eligible, at the freeze or as a replacement. Two tests, each failing on the previous code.
+- **Addendum 17 (ARCHITECT 2026-10-08 18:56 ET), PR B's four choices RULED and built.** Quoted verbatim in the spec (section 8) and the ledger entry.
+  - Item 1: there is no `OPEN_ITEMS` gate (removed). `--preflight` ends with `STREAM FINGERPRINT <sha256>`: the 2024 and 2025 stream as the gate walks it, each game with match id, kickoff, label season, season_type, merged home and away ids, scores, neutral flag and label source. The run requires it as `--stream-fingerprint` and refuses, before the reservation, when the stream no longer matches. The fingerprint is recorded beside the word in the reservation and the run record.
+  - Item 2: the scored set (2025 `regular` games, level scores already skipped) is counted before the reservation. Under 500 the run refuses and records nothing; it is no longer recorded as INVALID.
+  - Items 3 and 4: the end of the walk and the pending confirmation fixture stand as built.
+  - Tests: four new (no `OPEN_ITEMS`; a mismatched fingerprint and a scored set under 500 each refuse before the reservation with nothing written; the fingerprint is stable and moves with every field it carries), the two open-item tests removed, seven updated for the required fingerprint. Each new test fails on the previous code.
+- **Addendum 21 item 4 (ARCHITECT 2026-10-09), #375's two readings RULED.** Quoted verbatim in the spec (section 8) and the ledger entry.
+  - Reading (1), accepted: "What D6 seals is the scoring of the test season: a game priced by the candidate and compared with its result. Loading the stream to fingerprint it and to count the scored set scores nothing and prints no figure across games; the preflight makes the same load. The reservation is written before any game is scored." The stream read before the reservation stands as built.
+  - Reading (2): "When 2024 has no non-neutral regular game, D4 is undefined and nothing can be scored: the run refuses before the reservation and records nothing, as it does under 500 games. It is not an INVALID run and the read is not spent." Built: the run refuses (exit 2) before the reservation when 2024 has no non-neutral `regular` game, and records nothing. The earlier path reserved and recorded an INVALID run with 0 scored ids. `run_gate` raises the same refusal as a backstop.
+  - Test: `test_an_undefined_d4_baseline_refuses_before_the_reservation_and_records_nothing` (fails on the previous code, which recorded 0 scored ids).
+- **Addendum 18 item 1:** the #365 declaration ledger entry marks its middle reading, "The stream still starts from our FINISHED, scored rows", WITHDRAWN, quoting the ruling.
+
+## 2026-10-08 (#373: soccer-expansion-confirm, the soccer-expansion-v1 confirmation window on the intl-elo-confirm pattern)
+- New command `soccer-expansion-confirm` (ARCHITECT 2026-10-08, addendum 11, item 4). Flags: `--freeze-cohort`, `--substitute`, `--record --ruling TEXT` and `--no-fetch`; no flag prints progress. Flags and refusals mirror `intl-elo-confirm`, and the writes go through the same registry functions.
+- Refusals: it refuses unless the registry holds the run record, a PASS verdict and a non-empty surviving set.
+- Cohort: the first 60 fixtures by (kickoff, id) of the surviving leagues. Each must be a regular-season round (F3; an unplaced label refuses a freeze or substitution it could precede), kick off after the verdict, and be neither a test-set id nor a stale orphan; any status counts. The cohort is frozen once, after the cross-ref guard (#329).
+- Substitution: only unscoreable fixtures are released, using the intl predicate unchanged. A FT row still waiting for its score stays pending.
+- The read: the gate's own walk (per league-season cold start, min_prior 40, F5 batching) at the run record's rho / elo_goal_coeff. It reports pooled log-loss vs the pooled naive − 0.010, with per-league lines (reported, not gated).
+- Naive source: the run record's per-league 2023/24 `naive_freq`. Only when one is absent does `naive_for` recompute it, and it is labelled.
+- `registry.record_confirmation` computes the outcome: bar 1.0986 inclusive, reference strict, so a tie fails.
+- Docs: CLI.md row; spec section 5a.
+- Tests: 17 new tests (`tests/test_soccer_expansion_confirm.py`, synthetic leagues, tmp registry).
+- Review round 1 (Codex P1, verified): `run_soccer_backtest` gains the opt-in `score_90_extra_time` (default off, so the gate and every existing command are unchanged). The confirm read passes it: an AET/PEN row is scored AND walked on its stored 90-minute score; one without that score is left out of the walk. Progress prints such rows as a DATA NOTE. One new test.
+- Review round 2 (Codex P1, verified): the opt-in is renamed `confirmation_scoring` (default off; the gate is unchanged). The walk now uses the substitution's ONE predicate (`soccer_expansion.unscoreable`, the intl rule): a released row such as AWD / WO without a 90' score is neither scored nor walked; a non-FT row with a 90' score walks on the 90' score. One new test. The test module now tears down its league rows, so test order no longer matters.
+- **Addendum 16 item 1 (#373 READ):** awarded games (AWD / WO) are always released, whatever scores the row carries; a finished row with no raw status code is never released, is walked and scored as the gate walks it, and is listed; progress prints a per-league-season census by raw code and lists every row the walk left out (id, kickoff, teams, raw code, scores); a fixture with no season at or before the 60th or a replacement refuses the freeze or the substitution; a cohort fixture that becomes STALE_ORPHAN is released, reason STALE_ORPHAN. The read stays on the candidate as gated (Q1).
+
+## 2026-10-08 (#371: NCAA CFBD v2 migration marker — ARCHITECT, addendum 13 item 1; Closes #367)
+- `migrate_ncaa_cfbd_v2.py` now also creates the one-row marker table `ncaa_cfbd_v2_migration` (Core SQL, unmapped in the ORM, the `ncaa_cfbd_labels_migration` convention) and writes its row if missing, printing `+ Wrote` or `· Kept`. Additive and idempotent; nothing else in the script changed.
+- The non-dry `ncaa-cfbd-labels` gate is now `ncaa_cfbd.v2_migrated()`: `ncaa_cfbd_labels.season_type`, `ncaa_cfbd_ingest_records` AND the marker row. An `init_db()`-created table and column no longer count. The refusal names the marker and says: take the .backup, then run `python migrate_ncaa_cfbd_v2.py`. A `--dry-run` needs none of it. Readers (`records_ready`, coverage, the shadow) are unchanged.
+- `drop_db()` (`init-db --force`) drops `ncaa_cfbd_v2_migration` as well, like the labels marker.
+- Operator: if `migrate_ncaa_cfbd_v2.py` ran before this PR (no marker), run it once more after the .backup. It finds both objects, keeps them, and writes only the marker.
+- Tests: `tests/test_ncaa_cfbd_v2_marker.py` (4; all fail on main, pass here). Existing CFBD tests now run the v2 script before a non-dry ingest.
+
+## 2026-10-08 (#370: MLB closing-run autopilot — ARCHITECT addendum 13 item 3, Q2; laptop only)
+- Ruling: A1–A9 verbatim in `docs/ledger/entries/2026-10-08-mlb-closing-autopilot.md`. Stacks on #369 (Q3): the summary block shows its `kalshi_only_hold`.
+- `chains.py`: `CHAINS["mlb-closing"]`, derived from `mlb-preslate`, never copied. Steps 1–9 are its own. Step 10 is its export plus `--date {today} --desk`, so the file carries the Desk's call. `{today}` is the first pitch's America/New_York date, because the export's default slate is the UTC date and would drop a 22:10 ET game run after 20:00 ET. The chain is marked `laptop_only`, and `sp_run.py` refuses it (exit 2, receipted). `mlb-preslate` and `freshen:MLB` are unchanged.
+- New `deploy/hosting/mlb_closing.py`, exposed as `python cli.py mlb-closing-run` and `python cli.py mlb-closing-watch`.
+  - `run`, under the chain lock. First a `.backup` dated today (NY) in the operator's backup folder (`SP_BACKUP_DIR`, else `~/backups`). If none exists, one is taken through the `.backup` API, integrity-checked, opened, and given a sha256 sidecar; it is never written under `data/`. Then the ten steps. The run stops at the first failure, and after a failure there is no export, push or notification. On success: a summary block per game with first pitch within 90 minutes, `exports_mirror.py push --role laptop --label closing`, and one macOS notification per game.
+  - One `kind: mlb_closing` receipt line either way: first pitch, steps (exit and seconds), export, Desk rows, push, backup, attempt.
+  - The run refuses when every game in its window has started.
+  - `watch` decides from the stored schedule with no network: MLB games not started, first pitch 5–65 minutes away, no success receipt for that first-pitch time, fewer than three attempts. It runs only if the feed (`statsapi.mlb.com/api/v1/sports/1`) answers. If not, it posts "MLB feed unreachable: VPN on, Tailscale off", writes a `kind: mlb_closing_miss` receipt and retries on the next tick. It is silent otherwise, and while a chain holds the lock.
+  - A7 hold: `CLOSING_HOLDS`, a one-row table (a PLAY with exec edge under 4.0pp, or unknown, gets "paste to the architect before placing" on its notification and order line). It places nothing and never opens Kalshi's trading API.
+  - `--dry-run` on both commands touches nothing: no step, backup, receipt, push, notification or network.
+- `scripts/setup_mlb_closing_watch.sh`: a LaunchAgent (`com.sportspredictor.mlbclosingwatch`, `StartInterval` 300, logs under `logs/`) on the `setup_clv_capture.sh` pattern. The operator installs it; `--uninstall` is the off switch.
+- Docs: `docs/CLI.md` rows plus the "MLB closing autopilot (operator)" section.
+- Tests: `tests/test_mlb_closing_autopilot.py`, 27 tests, synthetic, with a scratch schedule in a throwaway DB and the network blocked.
+- Review round 1 (Codex on #370): a failed or timed-out mirror push fails the run (`failed: push`, no notification; the export stays on disk), so the watch retries within 3 attempts. An unstarted stored game within 90 minutes with no Desk row in the export fails the run (`failed: missing from export`, `missing` lists the match ids; no push, no notification). A `sync-kalshi` step that prints "✗ Kalshi sync failed:" or "Kalshi sync: <reason>" but exits 0 is a failed step (`detected_failure`); the shared command is unchanged. A laptop-only refusal (SP_SKIP_FAMILIES names MLB) now appends a refused `mlb_closing` receipt, except on `--dry-run`. 35 tests.
+- Review round 2 (Codex on #370): each notification result is recorded in the receipt (`notifications`) and validated before exit 0; on macOS a notification osascript did not post (nonzero exit, timeout, exception) fails the run (`failed: notify`) and the watch retries; off macOS "not macOS" is not a failure. A run whose target first pitch passes before the steps finish fails (`failed: first pitch elapsed during the run`, `completed_at`; no push, no notification), and the watch never retries a started first pitch. The summary rows and the export-completeness check use the run START, so a game starting mid-run is not silently dropped. 41 tests.
+- Merged main (#369 on main) into the branch first.
+- Addendum 16 item 2 (ARCHITECT 2026-10-08, #370 READ), rulings verbatim in the ledger entry:
+  - R1: one started test, taken when the steps have finished (stored status re-read: LIVE/FINISHED, or first pitch at or before that moment). A started game has no summary block or notification and is not required in the export. A started target fails the run (`target started`, which replaces `first pitch elapsed during the run`).
+  - R2: the run checks its prices. For every summary game, the stored book rows (`odds`, the last 1X2 capture session before first pitch) and the Kalshi quote (`odds_snapshots` source `kalshi`, latest per side before first pitch) the export shows must be captured at or after the run's start. If not: `stale prices`, naming the game and both times; nothing pushed or notified. No shared command changes; the sync-kalshi marker table stays.
+  - R3: the chain lock is held from the backup check until the receipt line is written.
+  - R4: a malformed `--first-pitch` is a receipted refusal, exit 2.
+  - R5: the backup folder is checked before anything else; under `data/` it refuses the run, receipted, whether or not a backup sits there.
+  - R6: a run failing on stale prices, a game missing from the export or a started target moves its export to `logs/<run id>.<file>` (`export_moved_to`). A failed push or notification leaves it in place.
+  - Failed-run notification: a watch-started run that does not succeed posts one notification (first pitch, what failed or why it refused, attempt n/3; the third says no further attempt). It is best effort and recorded in `failure_notification`. A manual run prints only.
+  - M1: `SP_EXPORTS_MIRROR_REMOTE` unset is a receipted refusal (exit 2) before the first step, and `setup_mlb_closing_watch.sh` refuses to install.
+  - M2: the setup script posts a test notification, says what should have appeared and where to allow it (System Settings → Notifications → Script Editor), and prints the two needs: the laptop awake, and VPN on with Tailscale off.
+  - Backup folder and manual-run targeting: accepted as built.
+  - Tests: one per ruling (R1–R6, failed-run notification, M1, M2) in `tests/test_mlb_closing_autopilot.py`; 52 tests.
+- Addendum 18 item 2 (#369's K6 record): at `market_blend_w` 0 the record reads `applied` false, `enabled` true, and keeps the weight and market numbers. Probabilities untouched. One test (`tests/test_mlb_kalshi_only_suspended.py`).
+
+## 2026-10-08 (#369: MLB kalshi-only suspended; the MLB blend record — ARCHITECT addendum 13 item 2, Q3)
+- Ruling: K1–K6 verbatim in `docs/ledger/entries/2026-10-08-mlb-kalshi-only-suspended.md`.
+- Desk (`desk_policy.desk_call`), K1: an MLB row the 2026-10-01 rule would call on the kalshi-only mid is PASS with no reference. `pass_kind` is `kalshi_only_suspended` (added to `NO_CALL_KINDS`), tag `kalshi-only suspended (MLB)`, reason "kalshi-only suspended for MLB: the model number is unblended without books (ARCHITECT 2026-10-07)". Units 0, shadow units 0, no order, no exec block, no value shadow, never a parlay leg. `reference`, `market_ref` and `edge_pp` are null.
+- K3: such a row carries `kalshi_only_hold` {`mid`, `bid`, `ask`, `spread_c`, `raw_edge_pp`, `equal_footing_edge_pp`, `would_call`, `would_units`}. The raw edge is model pick p minus the pick side's mid (AWAY = 1 − mid), as the 2026-10-01 rule measured it; the equal-footing edge is half of it. The would-be call and units are the pre-K1 path's own output (`_desk_call`), not a copy of its logic. Nothing reads the block as a call.
+- K4: NFL and PL are unchanged (tests compare their desk blocks with the suspension on and off). The Cockpit's kalshi-only review counter (`kalshiOnlyGraded`, also the ledger summary's `kalshi_only_graded`) no longer counts MLB rows.
+- Switch `KALSHI_ONLY_MLB_SUSPENDED`, as the #328 quarantine has: off under `base_v11()` (the frozen golden, byte-unchanged; parity battery 14/14 green). Forced on inside `base_v11()`, 22 golden call rows would differ, so the switch is load-bearing. `addendum_off()` holds it on, as it holds the quarantine. `desk_meta.mlb_kalshi_only_suspended` records it. `kalshi_only_suspension_off()` exists for tests only.
+- `desk-rescore`: a published MLB PLAY the suspension now holds reads `kalshi-only suspended`, never "halved".
+- K6: MLB predict (`training._generate_predictions_mlb`) writes `factor_breakdown.market_blend` = {`applied`, `enabled`, `w`, `market_home`, `market_away`} on each prediction. It records the existing blend branch and changes nothing in it. The fixed fixture (`tests/mlb_blend_fixture.py`) gives bit-identical probabilities on origin/main and on this branch: six of six, blend on and off.
+- #354 data: `mlb-actionable-receipt` rows carry `blend` (blended / model alone / not recorded), from `market_blend.applied` only. The receipt adds one read-only table, blend x tier for all stages. Rows predicted before K6 are "not recorded". #354's month and pick-side splits are not built here.
+- Cockpit (repo copy only; the live page is republished only on the operator's word): the pass-kind tag "kalshi-only suspended", the row greyed, the summary count, the hold rendered as "hold (record only, not a call)", and the policy card text.
+- Tests: `tests/test_mlb_kalshi_only_suspended.py`. `tests/test_mlb_big_edge_quarantine.py` now reads the kalshi-only shadow sizing with the suspension off, and asserts K1 with it on.
+- Headless verifies (Playwright, not in CI), both green:
+  - `scripts/cockpit_mlb_quarantine_verify.py` 11/11. The MLB kalshi-only row is never logged, and the slate shows the suspended PASS with its hold. The #328 kalshi-only mid check moves to an NFL row.
+  - `scripts/cockpit_kalshi_only_verify.py` 15/15. The seeded ledger counts 4 NFL rows; 2 MLB rows are not counted.
+- Codex P1 on #369, fixed: a pre-Q3 export with a published MLB kalshi-only PLAY crashed `desk-rescore` with a TypeError on the None edge. The rescore row now carries `hold_raw_edge_pp`, printed as "hold raw edge … (not a live edge)", and the formatter prints "—" for any None edge. Test: `test_desk_rescore_cli_prints_the_suspension_with_the_holds_raw_edge`.
+- **Addendum 15 item 2 (ARCHITECT 2026-10-08, RULED): the rescore prices the row's own order.** `desk-rescore` now carries the exec cost and exec edge of the row's own `exec` block under the current Desk (one helper, `desk_policy.call_exec_block`, read by both `desk_block` and the rescore): the same size, and none where the Desk writes no exec block. A suspended row reads "exec — (not priced: no order under the suspension)" and keeps the hold's raw edge. This also fixes the sibling on main since #328: a quarantine shadow was priced at one unit on the rescore line and at its shadow size in its exec block (#374). Test: `test_desk_rescore_prices_each_row_at_its_own_exec_block_and_a_suspended_row_not_at_all` (suspended, half-size quarantine shadow, plain PLAY; the unit in contracts and in dollars).
+
+## 2026-10-08 (#366: soccer-expansion-v1 closing-odds name pins; second preflight read)
+- `team_aliases.TOKEN_SYNONYMS` gains five football-data entries (ARCHITECT 2026-10-08, addendum 12): bilbao -> athletic, espanol -> espanyol, m'gladbach -> mönchengladbach, hamburg -> hamburger, brest -> brestois. Nothing else in the matcher changes.
+- The football-data closes ingest (`soccer_odds_history`) normalizes both names to Unicode NFC before scoring, so an NFD-stored Mönchengladbach still matches. The shared tokenizer is otherwise unchanged, because the Kalshi matchers run on it.
+- Guard: ath, borussia and stade are never synonyms (pinned by a test).
+- Tests cover the architect's hard cases, the NFD form, a re-run storing nothing, and a tie still refused.
+- Ledger: the second soccer preflight read, and #363 (design-stage band-rule finding).
+
+## 2026-10-08 (#365: ncaa-elo-v1r declared, not run; design receipt OK; the NCAA shadow walks the declared stream)
+- **Design receipt (step (a)).** Adds `scripts/ncaa_v1r_design_receipt.py`, a seeded simulation of the ncaa-elo-v1r gate design (ARCHITECT addendum 11, item 3). It reads no stored game and opens no database.
+  - Receipt: `docs/receipts/ncaa-v1r-design-2026-10-08.md`. Stop condition: OK.
+  - Settings (110,140) / (150,170) / (190,210), the committed receipt (the round-1 re-run below): mean slope 0.985 / 1.160 / 1.335; band rule 29.5% / 31.0% / 24.0%; D5 (2)&(3) 87.0% / 59.5% / 15.5%. (The first run, superseded, read 87.5% / 26.5% in the first setting; also OK.)
+  - 675 scored games per season.
+  - Tests in `tests/test_ncaa_v1r_design_receipt.py`.
+- **Declaration (step (b)).** `ncaa-elo-v1r` is in `docs/registry/experiments.json`, declared through `registry.declare`. It is not run (status declared, run null, verdict null).
+  - test_set: "NCAA FBS 2025 regular season (CFBD both-FBS labels; warm-up 2024)".
+  - gate: D5 verbatim. Confirmation window: D7 verbatim.
+  - Plan: 100 games, log_loss, bar 0.6931, must beat the D4 baseline minus 0.010.
+  - `neutral_site_rule`: no_home_advantage_at_neutral, with v1's untouched `constants`.
+  - `prior_reads_note` names the VOID 2026-09-30 v1 run (D9).
+  - `prior_reads_note` also carries the addendum 14 correction to D9 (#368): no candidate has been scored on the test set; one 2025 outcome figure (non-neutral home win rate 0.597, n 652) was read before the declaration.
+  - The spec, `docs/specs/ncaa-elo-v1r.md`, quotes D1–D9 and the architect's D5 note verbatim.
+- **Shadow (step (c)).** `export-ncaa-predictions` now walks D2's stream: current CFBD labels, seasons 2024, 2025 and 2026, kickoff then match id, postseason included.
+  - Level scores are skipped, counted and listed.
+  - Neutral games are priced and updated with home advantage 0. A label without a neutral flag is treated as non-neutral and counted.
+  - It refuses unless 2024, 2025 and 2026 are all covered (D6), naming each season that misses.
+  - Upcoming rows say which home advantage they applied and that the neutral flag is unknown before the game (D8).
+  - One D1 wrapper, `ncaa_backtest.NeutralRuleElo`, is shared by the shadow and the design receipt.
+  - The file's `fit` block reports games walked per season, the season_type census, the level-score list and the count of labels without a neutral flag.
+- `ncaa-cfbd-coverage` always prints 2024, 2025 and 2026 and says whether the condition holds in all three.
+- #79's all-division stream, gate and numbers are unchanged. NCAA stays market-only.
+- The gate command, `--preflight`, the reservation and the confirmation command are PR B.
+- Adds `tests/test_ncaa_v1r_declaration.py` and a D8 row test in `tests/test_ncaa_shadow.py`.
+- **Codex on #365, round 1.** P1: the v1r stream reads every stored NCAA match that carries a label, whatever our local status or scores (`load_v1r_games`; D2: the scores come from the label), so it counts the same current labels the coverage fact does. P2: the design receipt's cross-conference round is now drawn uniformly over valid matchings by rejection sampling. Re-run receipt: (110,140) / (150,170) / (190,210): slope 0.985 / 1.160 / 1.335, band rule 29.5% / 31.0% / 24.0%, D5 (2)&(3) 87.0% / 59.5% / 15.5%. Stop condition still OK.
+- Addendum 13 item 1: the classification-field ruling (both fields required with division fbs; the refusal writes a zero record; a dry run prints the refusal and joins nothing) is quoted in the CFBD labels spec and pinned by a dry-run test. The code landed with #362.
+- **#368 (addendum 14 item 2): the test-season fence.** Until the registry records the ncaa-elo-v1r run, no command prints a 2025 outcome figure. `ncaa-cfbd-coverage` withholds the 2025 home win rate in both blocks (counts, coverage, census and neutral counts stay). `ncaa-backtest` and `ncaa-audit` refuse with exit 2, naming the ruling. `resync-diff --competition NCAA` withholds its home win rate line when the listing includes 2025. The D9 correction is quoted beside D9 in the spec, the ledger entry and the registry. Closes the #372 item (this fragment's summary figures).
+- **Addendum 15 (#365 read).** The D9 correction in force (addendum 15 item 1(a), superseding addendum 14's) is quoted beside D9 in the spec, the ledger entry and `prior_reads_note`; it names every prior read of the 2025 home rate and margin and what was declared with them known. `scripts/ncaa_source_probe.py` closes the fence's one hole: for 2025, until the run is recorded, its two rate-and-margin lines print n and the withheld notice. Level-score entries stay listed (item 3, no change). The two section-6 readings are accepted as built (item 4).
+
+## 2026-10-08 (#364: registry cross-ref guard — #329 RULED, parts 1 and 2)
+- New shared guard `registry.cross_ref_guard(eid, no_fetch=False)`. It first fetches origin `laptop/*` (`+refs/heads/laptop/*:refs/remotes/origin/laptop/*`); a failed fetch refuses.
+- It then scans every ref the clone knows (`refs/heads`, `refs/remotes`; symbolic refs skipped) for a cohort, a run record or a reservation of the experiment that this working tree does not hold identically. Each kind is compared on its ledger field and its file: `confirmation_cohort` + `ids/<eid>.cohort.txt`; `run` + `ids/<eid>.txt`; `<eid>.started.json`.
+- A hit refuses (a `RegistryError`; the CLI exits 2) naming every ref and its full commit, plus the sha256 when the record carries one. Nothing is written.
+- Callers: `registry.freeze_confirmation_cohort` (every cohort freeze; `intl-elo-confirm --freeze-cohort`) and `soccer_expansion.reserve` (the one-run reservation; `soccer-expansion-gate`). Both call the guard before any write.
+- New `--no-fetch` flag on `intl-elo-confirm` (with `--freeze-cohort`) and `soccer-expansion-gate`. It skips the fetch only, and the receipt prints `other clones not checked`.
+- Receipt (read-only, `--no-fetch`, this clone): intl-elo-v2 is refused on the VOID 2026-10-07 cohort (`origin/laptop/intl-elo-v2-cohort`, e697533, sha256 419872ed…) and on `laptop/intl-elo-v2-run-record`. soccer-expansion-v1 passes (453 refs scanned).
+- Tests: `tests/test_registry_cross_ref_guard.py` (13, synthetic git repos under tmp_path). `tests/conftest.py` stubs the guard for every other test, so no test reads or fetches the real repo's refs.
+
+## 2026-10-08 (#362: NCAA CFBD scope + join — ARCHITECT, addendum 10 item 3)
+- Data lane: no model constant changed; #79's all-division stream and its acceptance numbers are unchanged; the ncaa-elo-v1r declaration is not written.
+- J1: `ncaa-cfbd-labels` retries a first-pass-unmatched game within ±36h by the same name tiers. It joins (`join_via dateshift`, listed with both kickoffs and the offset) only on exactly one (match, orientation), a match the first pass did not join, and agreeing scores. A name fit whose scores disagree stays unmatched and is listed with both scores.
+- J2: our team names are html-unescaped before normalization in the join and alias vetting. In the v1r stream and the shadow, ids whose unescaped names are identical are one team, keyed by the lowest id: a read-time mapping, with every group and changed name listed. `teams` is never written.
+- J3: aliases pinned: App State -> Appalachian State, Massachusetts -> UMass, Buffalo -> Buffalo State, Rice -> Rice Owls.
+- J4: `ncaa_cfbd_labels.season_type` (nullable; new `migrate_ncaa_cfbd_season_type.py`, additive and idempotent), filled from CFBD's `seasonType` as served and carried on `Game` as data only. The ingest refuses to write until the migration runs. Readers work before it.
+- SCOPE:
+  - The v1r stream (`ncaa_backtest.v1r_stream`, walked by the NCAA shadow) is the CFBD-labelled games only.
+  - The 95% coverage condition is now labelled ÷ CFBD's completed both-FBS games per season (it divided by every all-division stream game). The ingest receipt prints it and lists every unlabelled game.
+  - `ncaa-cfbd-coverage` and the shadow's precondition re-read it from the side table and the saved payload it names.
+- Tests: `tests/test_ncaa_cfbd_scope_join.py` (21, synthetic fixtures). Spec: docs/specs/ncaa-cfbd-labels.md; docs/specs/ncaa-shadow.md and docs/CLI.md updated.
+- Codex on #362:
+  - Every non-dry ingest run persists its receipt per season in new `ncaa_cfbd_ingest_receipts` (new `migrate_ncaa_cfbd_ingest_receipts.py`), zero joins included.
+  - Coverage and the shadow's precondition read the latest receipt, so a zero-join re-ingest reads 0/N.
+  - The v1r stream and the shadow's FBS test admit only labels that receipt joined (`admitted_labels`); stale rows, e.g. from a `--division ''` run, are listed and never walked.
+- ARCHITECT addendum 11 item 2 (2026-10-08): J5 and LABEL SET L1-L4 (verbatim in docs/specs/ncaa-cfbd-labels.md and the ledger entry). Substring-tier joins need agreeing scores (first pass and retry; a failed first-pass substring goes to the retry). Ingest records go in `ncaa_cfbd_ingest_records`, replacing ee4276a's receipt table. Coverage = the latest record. A label is current when its fetched_at equals the latest record's (the stream and the shadow's FBS team set read current labels only). A non-dry run needs division fbs. ONE migrate script, `migrate_ncaa_cfbd_v2.py`, replaces the two unmerged ones.
+  - Codex P1 (on #365): with division fbs, a payload missing either classification field refuses (exit 2; zero-scope record) and `in_scope_reason` never admits a game without both fields.
+
+## 2026-10-08 (#361: soccer-expansion-v1 first preflight read; ledger only)
+- Ledger note, nothing built. The architect read the first `soccer-expansion-gate --preflight` (laptop, c3a3744).
+- The PL backtest is identical before and after #326.
+- F3 placements are confirmed for the test seasons.
+- 2023/24 is stored for none of the five leagues, so the run would refuse today. The operator syncs it (teams, then matches) and ingests the football-data closes for the ten test league-seasons.
+- The one run follows the architect's read of the second preflight, not before Friday morning.
+- The 2023/24 backfill joins the soccer-refresh pot: Monday's refresh drift line is read with that in mind.
+
+## 2026-10-08 (#356: shadow leagues are never a call — ARCHITECT addendum 9 item 1, S1)
+- Ruling (verbatim): "Real, and not a merge blocker: it needs a manual predict plus export on a shadow league, which no chain and no operator block runs, and main has carried the same generic path all along. Fix today in its own small PR, both halves, keyed on the one set desk_policy.SHADOW_VENUE_COMPS. (a) predict and export-predictions refuse a competition in the set, exit 2, naming export-soccer-expansion-shadow. (b) desk_call returns PASS for a model row whose competition is in the set: reason 'shadow league: never a call until CONFIRMED', no order, no value shadow. A league leaves the set only in a reviewed PR after CONFIRMED, by ruling."
+- CLI: `predict` and `export-predictions` refuse `--competition` PD / SA / BL1 / FL1 / ELC (any case) before any DB read. They exit 2 and name `export-soccer-expansion-shadow`. The set is imported from `desk_policy.SHADOW_VENUE_COMPS`; there is no second list.
+- Desk (`desk_policy.desk_call`): a model row whose competition is in the set is PASS, `pass_kind` `shadow_league`, tag `shadow league`, reason `shadow league: never a call until CONFIRMED`. It has 0 units, no order, no exec block and no value shadow, and is never a parlay leg. The check runs before the started rule, so a started shadow-league row keeps this reason.
+- No switch: no row of the frozen golden (`tests/golden/desk_js_v1_1.json.gz`) is in the set, so the golden is byte-unchanged and the battery passes as is.
+- Cockpit (repo copy): `passKindTag` renders `shadow_league` as "shadow league", the row is greyed like `started`, and the summary counts it.
+- Tests: `tests/test_shadow_league_no_call.py`.
+- Not covered by the ruling (reported, unchanged): the web admin predict job and the match-page refresh still call `generate_predictions` without the check. `export-predictions` without `--competition` still lists the leagues' matches (no chain runs it). Any prediction row on them is PASS under (b).
+
+## 2026-10-08 (#355: MLB actionable receipt read: no policy change)
+- Ledger only. The architect read the MLB actionable receipt (operator console, run 2026-10-08T1336Z). The Desk keeps pMin 0 for MLB, and the prediction layer's actionable flag stays a label.
+- Two findings, neither a policy: #352 (the toss-up tier beat the close in the three buckets with more than one game; the fourth populated bucket, 8 to 15pp, holds one game, a loss: ARCHITECT correction 2026-10-08, addendum 10) and #353 (Desk-reachable volume is about 4% of priced games).
+- Follow-up receipt declared now, read-only, to run after Q3: the toss-up row split by calendar month and by pick side, plus Q3's blend split (#354).
+- The receipt file is spliced from the operator's laptop/mlb-actionable-receipt branch, not retyped.
+
+## 2026-10-08 (#350: sp_receipts reads every writer's backup shape)
+- deploy/hosting/sp_receipts.py: new `backup_sha()` feeds the table's backup-sha column. It accepts the chain receipt's dict `backup` (sp_run.py), the file-name string `backup` of the migrations (sp_deploy.py) and cleanup (remove_allstar_rows.py) receipts, the cleanup's sibling `backup_sha256`, and the backup receipt's top-level `sha256`. A name with no sha shows empty. Any other shape shows empty and does not crash. Fixes the host crash `AttributeError: 'str' object has no attribute 'get'` (ARCHITECT 2026-10-08 addendum 8 item 3).
+- tests/test_sp_receipts_backup_shape.py: a mixed receipts.jsonl (chain dict, migrations string, cleanup string+sha, odd list) renders end to end through `main(["--since","24h"])`. It fails on the old code with the host's exact error at line 89.
+- Other receipts.jsonl readers checked (sp_cutover.py, cutover_readiness.py, sp_migrate.py, sp_common.py, scripts/h2_dry_run.py): none reads `backup`, so nothing else changed. No writer changes, and no receipt line is rewritten. Read-only tool; no prediction outputs changed.
+
+## 2026-10-08 (#349: review stop rule in CLAUDE.md)
+- CLAUDE.md: the REVIEW STOP RULE (ARCHITECT 2026-10-08, addendum 7 item 2), verbatim, under the review rules. Merge-readiness = green CI + every P1 fixed or ruled. P2s get one fix round. After round two, read-only P2s go to ONE follow-up Issue and money-path P2s are listed for the architect. Hard cap of three review rounds. A merge-from-main push needs green CI only. A policy change ships before its tooling.
+- Sweep paragraph amended: after the cap, an open thread is answered with the PR's follow-up Issue number, not another fix round.
+- Docs only; no code, no outputs changed.
+
+## 2026-10-07 (#346: NCAA / NFL delineation — ARCHITECT, daily-class)
+- `sync-odds-football`: the window line names each competition it covers, counted from the games in the window ("NCAA odds: 48 upcoming games · NFL odds: 12 upcoming games in window · paced at 280/min"), instead of "NFL odds: 60 upcoming games" for an NFL+NCAA window. The per-game lines ("no odds yet", "no provider id", "odds fetch") name the competition. The summary reads "Football odds: created=N across G games (NCAA a · NFL b)", from the games actually priced, instead of the hardcoded "(NFL+NCAA)". `sync_odds_nfl` returns `games_by_competition`.
+- Export rows: every fixtures row (`export-fixtures`, and the window card through the shared `_fixture_row`) carries `competition` (the Competition code) and `family`: "NCAAF" for college, "NFL" for NFL, the upper-cased sport otherwise. A window-card college row keeps `sport: "nfl"` because sp_run's `FRESHEN_FAMILY` keys on (sport, competition); its `competition` (NCAA) and `family` (NCAAF) name it.
+- `window-card`: the games count names each competition ("games 37 (MLB 5 · NCAA 20 · NFL 12)"). `capture-weather-nfl`: skipped games are counted per competition ("skipped=50 (NCAA 48 · NFL 2)").
+- Labels only: no probability, policy, gate or grading logic changes.
+- Codex on #346: the rate-limit lines (retry, still limited, deferred / recovered) name each competition; the repo Cockpit's window table renders `family` before `sport` ("NCAAF · NCAA"; older files keep the sport); the shadow clause is #344's (unmerged), not this PR's.
+- Codex on #346: the odds summary names every competition in the window, priced of in-window ("NCAA 0/48 · NFL 0/12 priced/in window"), so a run that priced nothing still says which competitions it covered.
+
+## 2026-10-07 (#344: NCAA shadow — ARCHITECT, addendum 6 item 1)
+- New `export-ncaa-predictions` writes `exports/ncaa_shadow_<stamp>.json`: `ncaa_elo_v1r` (v1, constants untouched) for every FBS game in the next 36h.
+  - Each row has `engine: model_shadow`, `competition: NCAA`, `family: NCAAF`, and `gate_verdict` "UNGATED — shadow only" until the registry records a verdict.
+  - The fixtures market block sits beside the prediction.
+  - It is never a call, never a venue input and never in the ledger.
+- It REFUSES (exit 2) until `ncaa-elo-v1r` is declared with its `neutral_site_rule` and the CFBD side table covers 95% or more of the stream in both seasons.
+- New `ncaa-shadow-grade` grades the last row before kickoff: results (hit rate, log-loss, Brier, on the CFBD score where labelled) and model-vs-close. It is labelled NOT gate evidence.
+- Codex on #344: the declaration must also freeze `constants` = v1's untouched values; files are second-stamped and created exclusively; grading skips (and counts) an artifact row whose teams / kickoff / competition are not the match's; every grade line says NOT gate evidence.
+- Not on any chain; spec docs/specs/ncaa-shadow.md (#343).
+
+## 2026-10-07 (#342: sync-pitchers count line — ARCHITECT, daily-class)
+- `sync-pitchers`: the per-date line counts this run's upcoming games with a probable over this run's upcoming games, and prints the date-wide count of games with a probable separately: `2/3 upcoming games with probable pitchers (4 date-wide, started games included)`. It used to print the batch size (every game on the date, started ones included) over the upcoming count, for example `4/3` at 21:59Z on 2026-10-07 (#341). This is a log line only; nothing written to the DB changes.
+
+## 2026-10-07 (#340: venue-edge quote age — ARCHITECT, gate-class)
+- Ruling (verbatim): "#91 means the age of the QUOTE. A fetch time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for unknown age is NO REFERENCE. From today the operator places no VENUE order on either machine's files. In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote age unknown: no reference') and the venue block keeps its numbers for the record. [...] The engine resumes only when a quote time is stored and #91 is applied to it, by ruling." Full text: docs/specs/venue-quote-age.md.
+- Desk (`desk_policy`):
+  - Every venue row the engine computes is now PASS / noref, reason `book quote age unknown: no reference`, with 0 units and no order.
+  - The venue block keeps side, div, book, Kalshi and exec numbers, plus `quote_age_hold` (the engine's would-be verdict).
+  - Rows that stop before the computation (no pair, UNL, in-play, #91 capture age, books < 4) keep their own reason.
+  - The rule has its own switch, `QUOTE_AGE_RULE`. `base_v11()` turns it off, so the frozen golden is unchanged. `desk_meta.venue_quote_age_rule` records it.
+  - The window card is held too. Parlays never had venue legs; a test now pins that.
+- Cockpit: held venue rows render PASS · no reference with the file's numbers. The T-60 re-run hint is suppressed on them. Verify: `scripts/cockpit_venue_quote_age_verify.py` (11/11).
+- `scripts/odds_payload_probe.py` (read-only): dumps every field of the NHL / NCAA odds response from the sync's own endpoint, the time-like keys, and the paths the adapter drops. From the code, the adapters read only bookmaker / bet / value / odd and stamp the fetch time; the repo holds no payload. Branch (2): no column. The staleness-test proposal (N unchanged captures) goes to a ruling.
+- New `venue-calls-receipt` (step 3) and `quote-age-report` (step 4). Both are read-only, and `--out` refuses data/.
+- Codex on #340 (five findings, verified and fixed):
+  - Probe: an unsuccessful response (non-2xx, a non-JSON body, or a non-empty `errors` field, the adapters' own `_get` checks) is refused with exit 2, its reason and no verdict. A `--from-file` payload that carries errors is refused the same way.
+  - Probe: every list element is scanned for key paths and time-like fields. `--max-items` now limits only the samples printed, so a timestamp found only in a late bookmaker / bet / value is reported.
+  - Receipt: a re-logged ledger position anchors at its frozen `claim_at`. `upsertCalls()` overwrites the top-level `claim_as_of` / `captured_at` with the newest log, so those are not used. Later re-logs (`reprices`) are reported on the position and never counted as separate calls.
+  - Receipt + report: export rows resolve by stable identity, because match_id is machine-local. A local match_id is used only once the DB row's teams and kickoff check out. Mirrored `exports/host/` files, and any mismatch, resolve by exact team names + kickoff ±12h. An ambiguous match is reported as unresolved, never guessed.
+  - Report: only rows whose reference session is verified (file fair == capture at 4 dp) enter median / p90 / max. Mismatched and unverifiable rows are counted and listed as excluded, with the reason.
+  - Probe: a missing provider key and every `--match-id` preflight failure are refusals too (exit 2, reason stated), not a bare exit 1.
+  - Receipt: a MANUAL ledger claim (stamped at the click, never a file's `as_of`) merges onto its position by identity (sport, teams, kickoff, side): the latest file call at or before the click. No such file means it stays its own row and is never guessed onto a later file.
+  - Both receipts refuse (exit 2) an `--exports-dir` that is missing, misspelled or a file, never reporting an empty audit. `venue-calls-receipt` refuses a ledger whose calls array has any non-object entry, as `k-track-receipt` does.
+  - Report: a row decided at or after its kickoff is excluded by its timestamps, not only by `pass_kind == "started"`. Files older than the started-game rule (2026-10-06) carry no marker, and such a row would otherwise inflate both ages.
+  - Probe: a missing, unreadable or truncated `--from-file` is a refusal (exit 2, reason, no verdict), not a traceback.
+  - Probe: a transport failure (DNS, TLS, connection, timeout) is a refusal: exit 2, key-redacted reason, no verdict. Report: every excluded row is listed with its reason, never truncated at 50.
+  - Report: an NFL snapshot is de-vigged by average-then-normalise (sync-odds-football), while the export's fair is per-book normalise-then-average (`close_1x2`), so the two differ at 4 dp whenever books' overrounds differ. A snapshot that mismatches is now re-derived from the same session's stored odds rows (same source and `captured_at`) with the export's formula before the row is called unverified. Still a mismatch, or no odds rows left for that session: excluded, with that reason.
+  - Receipt: two files with the same call identity (teams, kickoff, side, `as_of`) are merged as copies only when their market numbers agree too (fair at 4 dp, capture time, books, book / Kalshi p, div). Otherwise each is listed as its own call, flagged CONFLICT, and never merged.
+  - Receipt: an exact-time ledger claim among conflicting file rows attaches only to the row whose book p / Kalshi p / div it carries. If none or several fit, it attaches to none and both rows say LEDGER AMBIGUOUS. Report: same match + `as_of` with a different book fair keeps both rows, flagged as conflicting copies. A desk export with an unparseable `desk_meta.as_of` is refused, never skipped silently. Identity resolution is sport-scoped (NFL / NHL / MLB directly, other codes through their Competition); an unknown sport is unfiltered and says so.
+  - A desk export with a non-object `fixtures` / `predictions` entry is refused, never skipped or a traceback. Report: mirrored host exports are listed but never measured, since this DB holds the laptop's captures and not the host's. Captures are compared with `desk_meta.as_of` at the second (its serialized precision), so a capture in the export's own second is the reference and its age floors at 0.
+  - Receipt: a VENUE call that only host files hold gets verdict `HOST: NOT MEASURED`, never a MOVED / NEVER MOVED verdict from this DB's captures, and it is totalled separately. `--exports-dir exports/host` is recognised as the mirror itself. A `fixtures` / `predictions` value that is not a list is refused. Probe: an odds response with no bookmaker / bet / value objects is INCONCLUSIVE, never a no-time-field verdict. A camel-case `…Ts` key (`quoteTs`) is time-like; `bets` / `results` are not.
+  - Report: when duplicate model rows are merged, a local copy makes the row local in whatever order the copies were found (for example `exports/laptop/` sorting after `host/`), so the row is measured rather than excluded as mirrored.
+  - Receipt: a VENUE call whose reference is not the 1X2 consensus (an NCAA `spread_derived` fair) gets `NOT 1X2: NOT MEASURED`, totalled separately. It never gets an anchor or a movement verdict from the unrelated 1X2 sessions.
+  - Receipt: a re-logged ledger claim carries the prices frozen at the claim (`claim_model_p`, plus `claim_market_p` where it is the Kalshi price). What the Cockpit did not freeze (div; Kalshi p behind an executable cost) is unknown and named, never the latest reprice. An unreadable export file (`fixtures_*`, `*predictions*`, `desk_parlays_*`, `window_*`) is refused rather than omitted; other broken JSON is only counted.
+  - A document carrying `desk_meta` with a missing, null or empty `as_of` (or a non-object `desk_meta`) is refused, the same as an unparseable one. A ledger whose venue claim has a damaged `reprices` array is refused.
+  - Receipt: re-logs are compared to the claim at full precision, so a same-second re-log is kept. A ledger-only NFL / NCAA claim has an unknown reference source (the ledger keeps no `fair_source`) and is `NOT 1X2: NOT MEASURED`. A present but unparseable `claim_at` refuses the ledger. A call whose anchor session's fair differs from the call's own gets `ANCHOR MISMATCH: NOT MEASURED`, never a movement verdict from a substitute session.
+  - Receipt: only a manual claim (`claim_source` not `auto`) falls back to its position. An auto-claim whose exact export is gone stays its own row. Claim-time Kalshi p is decided by the frozen `claim_exec_cost` alone, so a legacy claim keeps `claim_market_p` after an executable re-log. A row whose `desk` is not an object is refused. Every re-log is listed.
+  - Receipt: the claim's divergence is compared at 2 dp, its serialized precision. A VENUE file row with no parseable `market.captured_at` is `NO CAPTURE TIME: NOT MEASURED`, never anchored on a substitute capture. A legacy claim (no `claim_at`) with a damaged `claim_as_of` / `captured_at`, or a claim with no time at all, refuses the ledger. A file fair verifies only with the session's full outcome set.
+  - Both receipts open the DB read-only (a `mode=ro` SQLite URI, with no connect hook, no WAL pragma and no commit). A missing DB file is refused, never created. A ledger claim anchors at full precision, since `claim_at` keeps milliseconds. A file call whose anchor's snapshot differs from the file is re-derived from that session's odds rows (the export's formula) before ANCHOR MISMATCH. A `fixtures_*` / `*predictions*` export without its rows key is refused.
+  - Read-only open creates no WAL sidecars. With no `-wal` / `-shm` on disk (checkpointed), the DB opens `immutable`; with both present it opens `mode=ro`; with exactly one present it is refused. Files that differ only in `fair_source` are separate calls, never merged copies. Probe: a schema verdict needs `values[]` objects carrying both `value` and `odd`; anything less is INCONCLUSIVE.
+  - Probe: the `--match-id` lookup opens the DB the same sidecar-safe way (immutable when checkpointed; refused with exactly one sidecar). A row whose `market` is not an object, or whose `fair_prob` is not an object of numbers, is refused at discovery rather than crashing while rounding.
+  - A re-logged venue claim's claim-time Kalshi p is unknown. `snapshotCalls()` freezes the executable cost in `claim_market_p` and never sets `kalshi_exec_cost`, so that value cannot be read as Kalshi p; this supersedes the earlier legacy-claim rule. A file VENUE call with no fair is `NO FILE FAIR: NOT MEASURED`. An anchor verified by odds-row re-derivation keeps `file == anchor snapshot: NO` and prints the basis it was verified by. A malformed `market.selections` or a non-numeric VENUE field is refused at discovery. Probe: a verdict needs one `values[]` object with a non-empty value and an odd > 1.
+  - Probe: a quote counts only by the adapter's own rules: the bet name is in `_MARKET_MAP` and the value normalises via `_normalize_selection`, for `--sport`'s adapter, or either adapter from a file. Non-numeric or unhashable `bookmaker_count` / `captured_at`, or non-numeric venue claim prices in the ledger, are refused. `export-predictions`' default names (`<sport>[_<COMP>]_<date>.json`) are required inputs, so an unreadable one refuses.
+  - The read-only open is `mode=ro` again and never `immutable`, which supersedes the sidecar rule above. An immutable open skips SQLite's change detection, so a write or checkpoint by the app during a receipt could be missed or read torn. SQLite may create its own `-wal` / `-shm` sidecars for a WAL database, as every reader does; the database content is never written. Same for the probe's `--match-id` lookup. Age report: literal snapshot equality and odds-row re-derivation are counted apart (`file_rederived`), and mirrored rows are left out of the per-sport capture diagnostics. A default-named prediction export (`<sport>[_<COMP>]_<date>.json`) must carry `predictions`.
+  - A non-string `market.fair_source` is refused at discovery, never left to raise an unhashable signature error.
+  - Report: the reference source and its raw fair are part of copy identity, so two different `spread_derived` references for one game are both kept and flagged, never collapsed. Discovery refuses a non-string identity field (desk `engine` / `call` / `side` / `reference` / `pass_kind`, or a row's teams / kickoff / competition), never a traceback while hashing.
+  - A default prediction export name with an underscore competition code (`soccer_UEFA_EURO_<date>.json`, `WCQ_EU`, `CNL_Q`) is a required input too; a `_results_` export still is not. A venue ledger claim with a non-string `sport` / `home` / `away` / `kickoff` / `pick` / `claim_source` refuses the ledger.
+  - A desk row whose `match_id` is not an integer or null is refused at discovery (it is passed to the DB lookup). Probe: `quoteTS` / `oddsTS` are time-like; a scalar `response` / `bookmakers` / `bets` / `values` container holds no quotes (INCONCLUSIVE), never a traceback.
+  - Probe: both schema verdicts need a usable quote. A time-like field in a response with no usable quote (a fixture date) is listed as unattributable, and the verdict is INCONCLUSIVE.
+  - Desk exports under any `--out` name: an unreadable file whose text still carries desk blocks is refused, and a desk document with no `fixtures` / `predictions` / `tickets` is refused. An NFL / NCAA file row with no `market.fair_source` has an unknown reference: `NOT 1X2: NOT MEASURED` in the receipt, no 1X2 fair in the age report. Probe: a non-string bet name is no market, never a traceback.
+- Evidence (ARCHITECT, addendum 5 II): LAD@ATL's nine-book MLB consensus (ATL 0.4302) was unchanged from the host's 14:05Z capture to the laptop's 21:59:58Z capture, two seconds before first pitch. Kalshi was also unchanged (0.42 / 0.43). Recorded in the spec as evidence for step (4); no code or policy change.
+- Evidence (ARCHITECT, addendum 6 item 3): SJ@STL. The same five-book consensus (SJ 0.5265) at 14:56Z, 16:00Z and 22:09Z while Kalshi's SJ ask went 0.46 to 0.42. The laptop Desk at 22:09:27Z still printed VENUE 0.25u with an order, div 10.7pp, `stale_book_zone` true. `venue-calls-receipt` now prints each call's `stale_book_zone` as written and totals TRUE / false / unknown (ledger-only or not on file). A non-boolean value is refused at discovery.
+  - Cockpit policy card: the VENUE-EDGE line states the hold (book quote age unknown: no reference; place no venue order) and gives the frozen rule only as what applies once the hold lifts. Verify 12/12.
+  - A desk document with missing or non-string sport metadata (and rows without their own competition) is refused, never read as an out-of-scope sport. A generated export name whose JSON root is not an object is refused. A ledger re-log earlier than the frozen `claim_at` refuses the ledger. Probe `--match-id`: the match must be the asked league (NFL and NCAA share the provider id key), and its `external_ids` must be a JSON object.
+  - Copies of one VENUE call that disagree on `stale_book_zone` keep both readings (CONFLICTING across copies, totalled apart), never whichever was read first. A legacy claim's logs earlier than its fallback claim time are listed apart, never as re-logs after the claim. Probe: `asOf` / `as_of` keys are time-like.
+  - Report percentiles are nearest-rank with ties half-up (Python's ties-to-even `round()` alternated ranks). A ledger claim's divergence is compared with the Cockpit's `toFixed(2)` rule (`desk_policy.js_fixed`), so 6.125 matches its 6.13. 1X2 model-reference copies dedupe at 4 dp; the raw fair distinguishes spread references only.
+  - A row the Desk annotates (a scheduled or status-less fixtures row; a predictions row with a probability) without its `desk` object refuses the export, never read as a non-call. Probe: `--from-file`, `--game` and `--match-id` are mutually exclusive (a conflict is refused), and a `--match-id`'s provider id must be a string or integer.
+  - Damaged desk exports are refused however they broke: an unreadable file whose text carries a rows key (`fixtures` / `predictions`, so a prefix truncation before the first desk block is caught), Desk rows in a document with no `desk_meta`, and a Desk-annotated row whose `desk` lacks `engine` / `call`. Probe: a direct `--game` payload is checked against the league it names (`response[].league.id`: NHL 57, NCAA 2, from the adapters); another league is refused, and no league id prints LEAGUE UNVERIFIED on the verdict.
+  - Every unreadable JSON under the exports dir refuses both receipts (an export may carry any `--out` name and break before any marker); this supersedes the name / marker sniffs above. A ledger-only claim is measured only when its frozen book p equals the anchor's side probability (else ANCHOR MISMATCH; no book p: LEDGER UNVERIFIED, both NOT MEASURED). Probe: `--from-file` with `--sport` is league-checked like a fetch, and a scalar `response` names no league.
+  - Any export that parses as null, a scalar or `[]` is refused whatever its name (a non-empty list is another file kind). Probe: a `--match-id` fetch whose payload names another league is refused too.
+  - A predictions row whose `prediction` is not an object (or null) refuses the export. A fixture VENUE call takes its row's own `competition` before the document's sport metadata.
+  - A scalar `fixtures` / `predictions` container is refused before any row is read (no traceback). A document whose only sport source is an unknown `sport` (not soccer / nfl / mlb / nhl / ncaa / unl / intl) is refused. Probe: a numeric-string league id is read as that league; a malformed league id refuses.
+  - A desk block's `engine` / `call` / `reference` must be desk_policy's own vocabulary (model_edge PLAY / PASS / LADDER; venue_edge VENUE / PASS; books / kalshi_only / null); a corrupted value refuses. A ledger claim whose frozen prices contradict its only candidate file call attaches to none, and the file row says so. Cockpit: a held row's kickoff cell gives no "re-run by" instruction (verify 13/13).
+  - A desk block's `reference` is checked against its engine and call: a model PLAY / LADDER must carry books / kalshi_only, a VENUE block none. `--out` refuses a `.json` path under `--exports-dir` (discovery would refuse the text receipt as a damaged export). Probe: a quote-bearing response item with no league id leaves the payload LEAGUE UNVERIFIED.
+  - The model-reference report resolves a row's sport with the same precedence discovery accepts (row competition, then the document's `competition_code` / `competition` / `sport`), so a PL document named only by `competition` keeps its rows. Probe: a price that is not a finite decimal above 1 (0, 1, NaN, Infinity) is no usable quote.
+  - NaN / Infinity (which `json.load` accepts) are not receipt numbers. A ledger call whose `engine` is not model_edge / venue_edge refuses. A competition that contradicts its document's single-league sport (nfl + NFA) refuses. A generated-name export emptied to an object with no metadata or rows refuses. `--out` may not be the `--ledger` file.
+  - An empty object `{}` under any name refuses (as null / scalar / `[]` already did). `--out` refuses the configured SQLite database file and its -wal / -shm / -journal sidecars, wherever DATABASE_URL points.
+  - Discovery reads `.JSON` (any case) and an extension-less file that parses as a desk document (`--out exports/audit`); every other file is counted on the sources line as "other file(s) not read".
+  - Discovery reads a desk document under any file name (`--out exports/audit.txt`); rows carrying even an empty `desk: {}` without `desk_meta` refuse; a subdirectory that cannot be scanned refuses. A ledger venue claim with an unparseable kickoff refuses. `--out` refuses a `.json` name under the exports dir in any case.
+  - quote-age-report: an NFL predictions row's `market.selections` (the export's 1X2 close, unlabelled) keeps its fair; only the unlabelled `fair_prob` shape is treated as possibly spread-derived (P1: every books-backed NFL row was unmeasured). A file captured_at after the call's as_of leaves the call unmeasured. A VENUE call whose book_p is not its side's fair refuses; a row competition contradicting the document's competition_code refuses (soccer included). `--out` never names a discovered export, whatever its suffix.
+  - A VENUE row's book_p / side fair is checked numeric before it is compared (refusal, never a traceback). A file of any name that begins as a JSON object but does not parse refuses as a damaged export.
+  - A ledger venue claim whose `claim_source` is not "auto" or absent refuses. A document carrying both `fixtures` and `predictions` lists refuses. Probe: `--out` refuses the configured database file and its sidecars.
+  - A timestamp whose offset overflows on UTC conversion is invalid (refusal, never a traceback); a VENUE side that is not a string refuses before any lookup. Probe: `--out` never replaces an existing desk export (generated name, a desk document, or a mirrored host copy).
+  - `--out` naming a directory, or a path under an existing file, refuses before the scan (never an IsADirectoryError).
+  - Probe: `--out` refuses a generated desk export name (or the host mirror) whether or not the file exists, and a path under an existing file.
+  - Any row carrying a `desk` key (whatever its value) without `desk_meta` refuses the document.
+  - Any file whose text parses as JSON, whatever its suffix, goes through the same damage checks as a `.json` export (an emptied `--out exports/audit.txt` refuses). A desk block whose engine is foreign to its row family (model_edge on a fixtures row, venue_edge on a predictions row) refuses.
+  - A venue_edge block whose call contradicts its own `venue.eligible` (PASS + eligible, VENUE + not) refuses. A file that cannot be opened refuses; undecodable bytes that begin as a JSON object refuse, other binary files are counted. Probe: an empty payload `{}` is refused and never written.
+  - `--out` (receipts and probe) compares file identity, not only the path: a hard link to the database, its sidecars, the `--ledger` file or a discovered export refuses.
+
+## 2026-10-07 (#337: record — the v1.3.0 release gate (PASS) and the host's 2026-10-07 deploy / migration / intl history load)
+- Ledger only: the architect's v1.3.0 RELEASE GATE ruling (compare_exports DIVERGENT, every line an allowed class, GATE: PASS, tag at the ledger-compile commit 0023368) and the host's RECORD of 2026-10-07 (deploy at 15:45Z, `migrate_prediction_history` via `sp_deploy --run-migrations`, the 2018+ international history loaded, `intl-daily` green on v1.3.0), both verbatim. The release Issue (docs/RELEASES.md step 4) follows.
+
+## 2026-10-07 (#335: daily-class — NCAA midweek timer, mirror settings from .env, missing key refused, nhl_probe.jsonl ignored)
+- `sp-ncaa-market.timer` gains Tue + Wed 16:00 UTC, so midweek FBS games get a host fixtures file. A changed timer is installed on the host by hand after the tag's deploy (`docs/specs/hosting-h1.md`).
+- `sp_common.setting` reads the environment, then host.env, then the checkout's `.env` (the environment wins). `exports_mirror.py` reads REMOTE / KEY / ROLE / DIR / AUTHOR through it, so the laptop's `.env` carries them.
+- `exports_mirror.py push` REFUSES (exit 2) an SSH remote whose key file does not exist, naming the path, before any git step. It never pushes keyless. `docs/specs/exports-mirror.md` corrects the laptop key name to the default `~/.ssh/sp_exports_deploy_key`.
+- `.gitignore`: `/nhl_probe.jsonl` (the NHL probe's `--out` in the repo root).
+
+## 2026-10-07 (#333: NCAA CFBD label lane — ARCHITECT, data lane)
+- CollegeFootballData (CFBD) becomes the NCAA label source of record (ruling 2026-10-07, item 6). No model change; GATE #79 unchanged and still SUSPENDED-PENDING-DATA.
+- New side table `ncaa_cfbd_labels` keyed by our match id: CFBD game id, orientation (same / swapped), neutral flag, both scores in OUR orientation, season, provenance (source, payload file, fetched_at, correction reason). Created by `migrate_ncaa_cfbd_labels.py` (run after the `.backup`). The matches table is never written.
+- New `ncaa-cfbd-labels --year 2025 --year 2026 [--from-file] [--dry-run] [--save-dir] [--division] [--unmatched-names]` (`src/ingestion/ncaa_cfbd.py`):
+  - fetches CFBD `/games` (`CFBD_API_KEY` from `.env`, never printed) and saves the raw payload under `exports/cfbd/` (gitignored);
+  - joins each completed both-FBS game to our NCAA match (exact names before substring, either orientation; ambiguity refused);
+  - upserts the side table and prints a per-season receipt, listing every score-corrected row with its reason and every refusal.
+- Pinned alias map `src/ingestion/ncaa_cfbd_aliases.json`, shipped EMPTY. An alias never overrides an exact match; one whose target names 0 or more than 1 of our teams is refused. The operator fills it in a reviewed PR from `--unmatched-names`.
+- The NCAA stream (`ncaa_backtest.load_games`) reads orientation, scores and neutral from the side table where a row exists, else the matches row. `ncaa-backtest` prints the uncovered share per season. Neutral is carried on the Game as data only.
+- New read-only `ncaa-cfbd-coverage`: per season, stream games, covered, share, swapped, neutral, score-corrected, the non-neutral home rate, and whether the >= 95% condition holds (a computed fact; the gate's status does not change).
+- The CFBD fetch / field discovery moved from `scripts/ncaa_source_probe.py` into `src/ingestion/ncaa_cfbd.py`; the probe imports them and keeps its own compare.
+- `config.Settings.cfbd_api_key`; `CFBD_API_KEY` added to `.env.example` and to the hosting `SECRET_ENV` redaction list.
+- Spec: `docs/specs/ncaa-cfbd-labels.md`. Tests: `tests/test_ncaa_cfbd_labels.py` (21, synthetic records only).
+- Codex on #333 (fix 1): the ingest's guard now requires the migration marker `ncaa_cfbd_labels_migration` (written only by `migrate_ncaa_cfbd_labels.py`, unmapped in the ORM), not just the table, since any `init_db()` creates the table. A `--dry-run` still needs neither.
+- Codex on #333 (fix 2): `--division ''` (all classifications) now omits the CFBD `classification` query parameter instead of sending `classification=fbs`; the probe shares `fetch` and gets the same fix.
+- Codex on #333 (fix 3): the raw-payload save directory (`--save-dir`, and the probe's `--save`) must be under `exports/` when it is inside the repository; any other in-repo path is refused (real paths, symlinks resolved), `data/` stays refused, paths outside the repository are accepted. Only `data/` was refused before, so `--save-dir src/cfbd` would have written a licensed payload to a tracked path.
+- Codex on #333 (fix 4): `drop_db()` (`init-db --force`) now also drops the unmapped marker `ncaa_cfbd_labels_migration`; `drop_all()` left it behind, so after a forced reset the guard read "migrated" for the empty side table `init_db()` recreated. The ingest refuses again until the migration is re-run.
+
+## 2026-10-07 (#331: intl-elo-v2 confirmation cohort of record — the 2026-10-03 freeze spliced; ARCHITECT addendum 3 A)
+- Spliced `laptop/intl-cohort-freeze` bf556b4 (cherry-picked, operator authorship kept): `docs/registry/experiments.json` intl-elo-v2 `confirmation_cohort` (n 60, sha256 `94416b7c…`, frozen_at 2026-10-03T12:01:42Z, eligible_stored 120, finished 7 / scheduled 53, UNL 41 / CNL 19, last kickoff 2026-11-11T21:00Z) and `docs/registry/ids/intl-elo-v2.cohort.txt`. Sidecar verified: 60 distinct ids, `registry._ids_sha` == the recorded sha; `registry.frozen_cohort` reads it back.
+- The 2026-10-07 freeze (`laptop/intl-elo-v2-cohort` e697533, sha256 `419872ed…`) is VOID, kept on its branch as a record, never merged; #318 closed unmerged. It differs by one fixture: 48559 in place of 41643.
+- The hourly comment sweep (a scheduled Claude Code routine, NOT repository code: nothing in this repo runs or enforces it) now reports any `laptop/*` registry write that is not on main after a day. A repo-side guard for `--freeze-cohort` is proposed for a ruling (#329).
+- Ruling verbatim: "The intl-elo-v2 confirmation cohort was frozen ON TIME by the operator on 2026-10-03T12:01:42Z (branch laptop/intl-cohort-freeze, commit bf556b4: 60 fixtures, sha256 94416b7c…, 7 finished / 53 scheduled at freeze, 120 eligible stored, last kickoff 2026-11-11T21:00Z) and never spliced. The architect, not having read the laptop branches, ordered a second freeze on 2026-10-07 (laptop/intl-elo-v2-cohort, e697533, sha256 419872ed…), which differs in one fixture: 48559 (kickoff 2026-11-09T21:00Z, first stored by the 2026-10-07 sync) in place of 41643. A cohort is frozen once and never changes; a fixture listed after the freeze does not enter it. THE 2026-10-03 FREEZE IS THE COHORT OF RECORD. The 2026-10-07 freeze is VOID: a duplicate made in error, kept on its branch as a record, never merged. The addendum-1 text ('executed on 2026-10-07, after 59 of the 60 had been played') is withdrawn: it was wrong. The 59 labelled fixtures are common to both lists, so the read at 2026-10-07T14:17Z stands for the cohort of record: 59/60, log-loss 0.8400, naive 1.0364, reference 1.0264, bar 1.0986. Not a verdict. The 60th fixture is 41643, kickoff 2026-11-11T21:00Z; the record step is the operator's on 2026-11-12. Finding for the ledger: a registry write that lives only on an unmerged laptop branch is invisible to the next freeze, which is how a second one was accepted."
+
+## 2026-10-07 (#328: MLB big-edge quarantine — ARCHITECT, gate-class)
+- Desk (`src/walters/desk_policy.py`): an MLB row whose edge against its reference is above 8pp is QUARANTINED: PASS, units 0, `shadow_units` at the size it would have staked, reason naming the ruling, tag `quarantine > 8pp (shadow)`, no order. The edge is the Desk's own, so the book close and the kalshi-only mid quarantine alike; the postseason and kalshi-only multipliers size the shadow as they would have sized units. Exactly 8.00pp plays (float-noise tolerance). The MLB 15pp caution tier is superseded. `base_v11()` keeps the old behaviour for the frozen goldens; `desk_meta.mlb_quarantine_above_pp` records the threshold in force.
+- Cockpit (`tools/cockpit.html`): a quarantine shadow is now the FILE's Desk call (PASS + shadow units + a `quarantine … (shadow)` tag), not only an NFL row with `quarantine: true`; the MLB legend line carries the rule. Without this the Cockpit would have shown MLB quarantines as plain PASSes and logged nothing. New `scripts/cockpit_mlb_quarantine_verify.py` (4/4).
+- Ruling verbatim: "MLB BIG-EDGE QUARANTINE. Receipt: operator console 2026-10-07, calibration-market --sport mlb (since 2026-06-14; 1,397 scored, 1,364 with a close; edge = model top-pick probability minus the close's fair probability for the same side). Model above the close by more than 8pp: n=34, model 55.3%, won 20.6% (7 of 34). Above by 2 to 8pp (the >2 row less the >8 row): n=228, model 53.8%, won 55.3% (126). Within 2pp: n=609, 54.7% -> 55.8%. Below by more than 2pp: n=493, 55.8% -> 64.1%. The moderate band holds up; the big-edge band loses to the market's own price. RULED, effective with the 2026-10-07 slate: an MLB row whose edge against its reference is above 8pp is QUARANTINED: never a straight play, logged as a quarantine shadow at the size it would have staked (the NFL contract, at 8pp for MLB). The MLB 15pp caution tier is superseded. The 4pp floor and the rest of v1.1 stand. First review with the tier x edge receipt (item 2). Until the code lands the operator applies it by hand from the closing-run summary."
+- Codex on #328: the quarantine shadow records the Desk's own reference (a kalshi-only mid, `reference: kalshi_only`), and the Card, the audit text and the ledger's `quarantine` flag read the file's Desk call (`rowQuar`), so an MLB quarantine shows its chip, border and reason. The verify is now 7/7.
+- Codex on #328, round 2 (fixed):
+  - (P1) `desk-rescore` held the quarantine constant: its "before" side now runs under `addendum_off()` (#87 + started off, MLB quarantine as it is) instead of `base_v11()`, so a pre-rule MLB >8pp PLAY is no longer counted "halved by #87"; a published PLAY the current Desk quarantines gets its own verdict `quarantined` and its own console/receipt line. `base_v11()` (the golden battery's policy) is unchanged.
+  - (P1) Window card: `canonical_models()` ORs the row's Desk quarantine shadow (PASS, `shadow_units` > 0, a `quarantine … (shadow)` tag: the Cockpit's fileQuar) into `quarantine`, so an MLB >8pp row is flagged on the Next-24h card, in `receipts.quarantined` and in the pager's quarantine flips.
+  - (P2) Cockpit Ask prompt: the house doctrine states the quarantine per sport (NFL/INTL divergence >= 15pp; MLB edge vs its reference > 8pp, ARCHITECT 2026-10-07; the MLB 15pp caution tier superseded), not "quarantine>=15pp".
+  - (P3) Cockpit Card reasoning: the file's Desk reason is pushed raw (the final `esc(why.join(...))` escapes it once), so "> 8pp" no longer shows as "&gt;". The MLB-quarantine verify is now 9/9.
+
+## 2026-10-07 (#326: soccer-expansion-v1 — ARCHITECT, gate-class declaration, NO run)
+- soccer-expansion-v1 is DECLARED in the registry with its executable confirmation plan (#322). The spec is `docs/specs/soccer-expansion-v1.md` (the ruling verbatim, the operational definitions, findings F1–F6).
+- `soccer-expansion-gate [--preflight]`:
+  - the one run, per league, on PD/SA/BL1/FL1/ELC, test seasons 2024/25 + 2025/26;
+  - refused unless declared and unrun, while F1–F6 are open, and before any scoring if a 2023/24 naive is missing or a test season would score nothing;
+  - `--preflight` scores nothing.
+- `soccer-backtest` refuses these leagues while the experiment is unrun.
+- `export-soccer-expansion-shadow` (model_shadow, no Desk call, no prediction row) and `soccer-expansion-shadow-grade` (read-only).
+- `soccer-prematch` / `soccer-morning-after` and the laptop routine add the five leagues' 2026/27 `sync-matches` / `sync-odds`, data only. Kalshi series PINNED (ARCHITECT 2026-10-07, addendum 2): PD KXLALIGAGAME, SA KXSERIEAGAME, BL1 KXBUNDESLIGAGAME, FL1 KXLIGUE1GAME, ELC KXEFLCHAMPIONSHIPGAME in `SOCCER_GAME_SERIES`; EL1 / EFL / CZE recorded, not wired (`SOCCER_SERIES_RESERVED`). Each league's `sync-kalshi-soccer` runs on `soccer-prematch` and the laptop routine as CAPTURE ONLY, not in the window chain; "A pinned series never makes a league live."
+- Codex on #326:
+  - the generic `backtest` walk (`src/walters/backtest.py run_backtest`) is sealed on these leagues too (`backtest --competition BL1` refuses, exit 2).
+  - the seal is enforced in `run_soccer_backtest` (every path, the sweeps included);
+  - the pre-scoring check refuses a test season the walk would score nothing in: the walk's own predicate (>= min_prior prior rows and both teams among them), from fixture order and team ids, no score read;
+  - F5 (fixtures sharing a kickoff: the walk updates after each row) is an open finding for a ruling; the run refuses until it is ruled;
+  - the run reserves the gate before its first read (an exclusive `docs/registry/soccer-expansion-v1.started.json`); an interrupted, failed or concurrent attempt is refused until ruled;
+  - the run record keeps each league's calibration band rows;
+  - F6 (a league with no gated calibration band passes the bands criterion vacuously) is an open finding for a ruling.
+- Rulings on F1–F5 (ARCHITECT 2026-10-07, addendum 3, item B; quoted verbatim in spec section 7a). F6 is not ruled, so the run still refuses:
+  - F1: a league without a complete stored 2023/24 regular season (a full double round-robin, every row finished with both scores) is dropped before the run, never read, and named with its reason (`dropped_before_run` in the verdict and the record). All five dropped refuses;
+  - F2: no change; per league-season from a cold start, min_prior 40, the two test seasons pooled per league;
+  - F3: only regular-season rounds are scored and walked, in the test seasons and the 2023/24 baseline. `placement()` maps `Match.stage` (api-football `league.round`, verbatim) to regular / playoff / unplaced. `--preflight` prints every label with its count and placement; an unplaced label refuses the run;
+  - F4: TIES REJECT. `crit_ll` is now `ll_model < ll_naive − 0.010`, unrounded, no tolerance;
+  - F5: `run_soccer_backtest` gains two opt-in arguments, both default off so every existing command reproduces its numbers: `stage_filter` and `batch_same_kickoff` (same-kickoff fixtures predicted from one pre-state). The gate passes both; `scoreable_count` mirrors the batched predicate.
+  - the Desk's venue engine never calls PD / SA / BL1 / FL1 / ELC (`desk_policy.SHADOW_VENUE_COMPS`, pinned to the leagues): their Kalshi capture reaches the 24h window card, which spans every competition, so without this a gap there could print a VENUE line.
+  - F6 ruled (2026-10-08): a league with no calibration band at >= 100 observations is DROPPED, "no gated band"; it never passes on log-loss alone (intl / NHL / NCAA gates unchanged). The registry operator correction (R1) has no machine-readable field to land in: it stays open and the run still refuses until directed.
+  - R1 ruled (2026-10-08, addendum 8): no new field or schema. The entry gains `ratified` beside the byte-identical `gate` (the F1-F6 reading of record; F4: the gate's <= is read as strict). The addendum 7 operator sentence is withdrawn and kept quoted in spec 7b. `OPEN_FINDINGS` is empty.
+
+## 2026-10-07 (#325: intl-golive-dark — ARCHITECT, gate-class, built DARK)
+- Desk: `POLICY["INTL"]` = the SOCCER block with qNever (INTL DESK POLICY v0, #323). Nothing changes for anyone: only a production intl file reaches it.
+  - Half units until 30 INTL calls are graded (`intl_graded` in the ledger summary; absent = 0).
+  - UNL only: CNL rows are PASS `no_series`.
+  - An unknown venue on a home-abroad side is PASS `venue_unknown`. The list stays empty until it is ruled by name.
+  - The v1.1 goldens are unchanged.
+- `export-intl-predictions`: the shadow's intl-elo-v2 rows re-shaped for the Desk.
+  - Each row carries `market_divergence_pp` / `quarantine` (the NFL contract), `venue_flag` and `competition`.
+  - It REFUSES and writes nothing until `registry.production_allowed("intl-elo-v2")`.
+  - `export-unl-predictions` is unchanged.
+- `intl-home-abroad-receipt` (read-only, `--out` to docs/receipts/):
+  - per national team, listed-home games since 2022 with a known neutral_v3 and the share abroad;
+  - venue-id coverage per current competition-season.
+- `unl-shadow-grade` adds per row the result, the hit, model and book-close log-loss, the same-priced-games aggregate, and the |model − close| buckets (<4, 4-10, 10-15, >=15pp). Not to be run until this entry's BACKLOG fragment is merged.
+- Codex on #325:
+  - the Cockpit logs INTL quarantine shadows and emits `intl_graded` in the ledger summary;
+  - `export-intl-predictions --desk`;
+  - full team names in the home-abroad receipt;
+  - `--hours 0` exports an empty window (only an omitted window falls back to the default);
+  - new `scripts/cockpit_intl_verify.py`.
+  - `export-intl-predictions` refuses and writes nothing when `prediction_history` is missing, or when the rows appended differ from the fixtures in the file (rolled back): the history is the only grading record of these calls.
+  - KXUEFANLGAME fills now match INTL calls as well as UNL ones, in the Cockpit and in `ledger_fills.py` alike (they fell to the FUN book).
+  - The 90-minute grading path was escalated; it is ruled in addendum 3, item C (below).
+- ARCHITECT 2026-10-07 addendum 3, item C (verbatim): "INTL calls are graded on the 90-MINUTE result, never on a score that includes extra time or penalties. The results path for an INTL call reads the stored 90-minute score; where a game went beyond 90 minutes and no 90-minute score is stored, the call is left ungraded and listed, never graded on the later score. Before this merges, read the settlement rule from the KXUEFANLGAME payload itself (rules_primary) and quote it in the PR: if Kalshi settles on anything other than the result at the end of regulation, stop and return to the architect. Confirmed from your list: the gap is measured on the top-pick side; 'current season' is one with a scheduled or live fixture. Amended: the production INTL export writes no predictions row, but it DOES append to prediction_history on every export (model version, three probabilities, computed_at), as the K-track rule requires of every model sport."
+  - New `export-intl-results`: production INTL calls graded on the 90-minute result only. A game past 90 minutes (AET / PEN) with no stored 90-minute score is listed as ungraded, with its reason.
+  - The Cockpit grades an INTL call only from that file, never from a fixtures file's extra-time score.
+  - `export-intl-predictions` appends to `prediction_history` on every export, through the shared append helper. It still writes no `predictions` row.
+  - The KXUEFANLGAME settlement rule (rules_primary), read by the operator on the laptop on 2026-10-08 (five markets, two UNL games of 2026-10-06), settles "after 90 minutes plus stoppage time (does not include extra time or penalties)": the result at the end of regulation. Ruling C is met (ARCHITECT 2026-10-08, addendum 8, 2a). Verbatim in the PR body.
+  - the production file is written to a temporary path inside the history transaction and published by an atomic rename only after the commit; a failed commit leaves no file and never overwrites an earlier one.
+  - the temporary export file is removed by the helper itself if the history transaction fails on commit (the test now fails that transaction, not build()'s reads); the home-abroad receipt ends each team name with " | " so a long name never runs into the country.
+  - Publication is now part of the history transaction. The JSON goes to a unique temporary file (mkstemp), and is published by `os.link` as the transaction's last step, never overwriting: an export for the same minute already on disk refuses. If the commit fails after publication, the published file is removed, so no prediction_history row outlives a failed publication. The Desk annotation uses the export's own `now` (`desk_meta.as_of` == `exported_at`); `maybe_annotate` takes an optional `now`, and the wall clock stays the default.
+  - Ruled (2026-10-08, addendum 8, 2b): `export-intl-results` is the MODEL's record. It grades every exported production prediction of intl_elo_v2; a Desk PASS is a prediction without a bet, not a missing prediction. The file carries one header line (`record_scope`), every row names its competition, and history rows store no Desk call. The no-window `window.kind` is now `all_production_predictions`.
+
+## 2026-10-07 (#324: mlb-actionable-receipt — ARCHITECT, read-only receipt)
+- New read-only command `mlb-actionable-receipt` (#321). It reads graded MLB predictions that have a book close, season to date, with the postseason split out.
+  - Rows: the prediction layer's tier (`classify_tier`) × the edge vs the close (<0, 0-4, 4-8, 8-15, >=15pp). ARCHITECT 2026-10-07 (addendum 3 D), verbatim: "Negative edges get their own bucket: <0, 0-4, 4-8, 8-15, >=15. Kalshi-only closes stay excluded and are counted on the receipt. Nothing else changes." This receipt is the review instrument for the MLB big-edge quarantine (#327).
+  - Columns: n, mean model p, mean close fair p, hit rate, hit − close (pp) with a pinned-seed bootstrap 95% CI, and flat-stake ROI at the close fair price.
+  - The header says the edge is against the CLOSE, a proxy for the Desk's T-60 reference.
+  - Writes `docs/receipts/` via `--out`.
+- No policy change.
+
+## 2026-10-07 (#320: ncaa-tomorrow-kalshi-label — ARCHITECT, daily-class)
+- `ncaa-market` chain: adds a single-day `sync-matches` for {tomorrow} after {yesterday} and {today}. Kickoffs at 8pm ET or later fall on the next UTC date (#319).
+- Kalshi syncs: the discovery line names the series actually fetched (`KXNHLGAME`, `KXNCAAFGAME`, …) instead of "MLB" for every sport.
+
 ## 2026-10-06 (#316: evening-rulings-310 — ARCHITECT, ledger only)
 - Records the 2026-10-06 evening rulings verbatim:
   - #310 merges at 99faed0 (follow-up ruling, amending e1a2146);

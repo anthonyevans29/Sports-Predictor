@@ -129,8 +129,62 @@ def season_games(con, season: str) -> list[dict]:
         (COMPETITION, season)).fetchall()
     out = []
     for mid, kick, status, ext in rows:
-        out.append({"id": mid, "kickoff": kick, "status": status, "game_pk": game_pk(ext, src)})
+        out.append({"id": mid, "kickoff": kick, "status": status, "game_pk": game_pk(ext, src),
+                    "ext_keys": ext_keys(ext)})
     return out
+
+
+def ext_keys(ext) -> tuple:
+    """The keys of a stored external_ids value, sorted: which provider syncs wrote or touched the row (addendum 74
+    item 2: the provenance a matches row carries). A value that is not a JSON object has none."""
+    try:
+        d = json.loads(ext) if isinstance(ext, str) else ext
+    except ValueError:
+        return ()
+    return tuple(sorted(d)) if isinstance(d, dict) else ()
+
+
+def neither_split(con, games: list[dict]) -> dict:
+    """Addendum 74 item 2: the finished games with neither starter recorded, split as `cli.py sync-appearances` reads
+    a game: it targets each finished game with a statsapi id whose id is in no pitcher_appearances row's
+    source_game_id; a game whose id already has rows is skipped unless --refresh; a game with no statsapi id is
+    skipped always."""
+    have = {str(r[0]) for r in con.execute(f"SELECT DISTINCT source_game_id FROM {APPEARANCES}")}
+    no_row = [g for g in games if g["game_pk"] and g["game_pk"] not in have]
+    rows_no_starter = [g for g in games if g["game_pk"] and g["game_pk"] in have]
+    no_id = [g for g in games if not g["game_pk"]]
+    return {"no_row": no_row, "rows_no_starter": rows_no_starter, "no_id": no_id}
+
+
+def neither_lines(con, season: str, games: list[dict]) -> list[str]:
+    """The receipt's missing line (addendum 74 item 2): date range, count by month, provenance, and from the code
+    whether a re-run of sync-appearances fills them."""
+    if not games:
+        return [f"  neither starter, season {season}: none"]
+    days = sorted(str(g["kickoff"])[:10] for g in games)
+    months = Counter(str(g["kickoff"])[:7] for g in games)
+    prov = Counter("+".join(g["ext_keys"]) or "(no key)" for g in games)
+    split = neither_split(con, games)
+    a, b, c = len(split["no_row"]), len(split["rows_no_starter"]), len(split["no_id"])
+    return [
+        f"  neither starter, season {season}: {len(games)} game(s) · {days[0]}..{days[-1]} (stored kickoff, UTC)",
+        "    by month: " + " · ".join(f"{m} {n}" for m, n in sorted(months.items())),
+        "    provenance read: matches.external_ids keys (mlb_stats_api = statsapi's sync-matches; api_baseball = the "
+        "api-sports fallback, mlb_apisports.sync_matches): " + " · ".join(f"{k} {n}" for k, n in sorted(prov.items())),
+        f"    as sync-appearances reads them: no pitcher_appearances row for its statsapi id {a} · rows for its id "
+        f"but no starter {b} · no statsapi id {c}",
+        f"    from the code (cli.py sync-appearances and MLBStatsAPIAdapter.get_game_pitcher_appearances, read "
+        f"2026-10-15): `python cli.py sync-appearances --season {season}` (its default --backfill) asks statsapi's "
+        "boxscore for each finished game with a statsapi id and no pitcher_appearances row, at most --limit games a "
+        "run (default 2000, in no set order: raise it when more are eligible), so a re-run writes rows for the "
+        f"{a} game(s) with no row where the boxscore answers, with a starter only where the boxscore's per-game "
+        "stats.pitching.gamesStarted is 1 (the adapter's only test: no season-stats or max-outs fallback); the "
+        f"{b} game(s) holding rows but no starter are skipped unless --refresh, which makes every finished game with a "
+        "statsapi id a target (a full season is over the default --limit) and deletes their rows, committed before "
+        "any request, so a game whose request fails or returns nothing is left with no rows (take a .backup first) "
+        "and a re-captured game gets a starter only where its boxscore now carries gamesStarted; and the "
+        f"{c} game(s) with no statsapi id are skipped either way, so for them a command is missing.",
+    ]
 
 
 def starters(con, games: list[dict]) -> dict[int, int]:
@@ -267,6 +321,8 @@ def main(argv=None) -> int:
             neither = sum(1 for g in fin if sides.get(g["id"], 0) == 0)
             print(f"  {APPEARANCES}: starters for both sides {both}/{len(fin)} · one side only {one} · neither "
                   f"{neither}")
+            for line in neither_lines(con, season, [g for g in fin if sides.get(g["id"], 0) == 0]):
+                print(line)
         if use_par:
             pc = participants(con, fin)
             print(f"  {PARTICIPANTS} (second read): " + (" · ".join(

@@ -1,6 +1,0 @@
-## 2026-10-13 (#509: nhl-shadow-fallback-name — ARCHITECT addendum 63 item 2, #508)
-- src/walters/nhl_shadow.py: a walk that took the goal-margin fallback for any game is not v7. `shadow_name(fit_block)` reads the name from the fit block: no fit gives `nhl_elo_v1` (addendum 49, unchanged); a fit with `goal_margin_fallbacks` above 0 gives `nhl_elo_v7_goal_margin_fallback`; otherwise `nhl_elo_v7_xg_margin_no_na`. The name is on the header and on every row. The fit block is written as it is. A fallback file carries its own note and a `not_v7` line; `gate_verdict` is unchanged (v7's declaration includes the goal fallback).
-- nhl-shadow-grade never pools a fallback file with a v7 file. The fallback has its own line: pick-vs-close, value-side, unpriced, unanchored. The file's fit block decides, so an older v7-named file whose walk took the fallback is graded there. `graded_by_name` counts each name's calls; the console and the RESULTS.md shadow section print it.
-- cli.py: `export-nhl-predictions` prints `not_v7` as a `✗` line; `nhl-shadow-grade` prints the names graded and the fallback's line.
-- docs/CLI.md (both rows); docs/specs/h2-cutover-runbook.md (the NHL post-check note).
-- Tests: tests/test_nhl_shadow.py, 12 new cases (11 fail on main); three v7 cases moved to a fixture with xG for every game.

@@ -133,10 +133,13 @@ become MORE binding under an income goal, never less."
   margin, level and range passed. 2025 is RETIRED as a college test season; the
   next candidate declares the 2026 regular season as it accrues. No college
   shadow and no ncaa-backtest until then. The bar did not move.
-- **UNL / cups (EFL, CL, UEL)**: market-only. CUP MODEL TRACK
-  SUSPENDED 2026-09-25 (fix-v2 re-exam FAIL, 14.76pp: a rotation
-  information floor). EFL/CL/UEL stay market-only for the season; the
-  exam harness + fix-v2 machinery stay merged. Reopens only via a
+- **UNL / cups (EFL, CL, UEL)**: market-only. CUP MODEL TRACK:
+  reopened 2026-10-15 on a dated plan (addendum 71, corrected by 73):
+  Step A timing probes (CL 10-20, UEL 10-22, EFL next round), Step B
+  as-of lineup ingest (PR by 10-29), Step C declaration 11-05 at
+  cup_exam's frozen gate; earliest_live 2027-02-16; EFL/CL/UEL stay
+  MARKET-ONLY until a PASS and its confirmation. The exam harness +
+  fix-v2 machinery stay merged. Reopens only via a
   rotation-aware candidate on as-of lineup data (R-track, winter).
   UNL likely market-only permanently.
 - Season strings: soccer clubs "2026/27"; WC "2026"; UNL "2026/27";

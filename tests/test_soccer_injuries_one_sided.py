@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 import pytest
 
 from src.db.database import init_db, session_scope
-from src.db.schema import (Competition, Injury, Match, MatchStatus, ModelVersion, Odds, Prediction,
+from src.db.schema import (Competition, Injury, Match, MatchStatus, ModelVersion, Odds, OddsSnapshot, Prediction,
                            PredictionOutcome, Sport, Team)
 from src.walters import desk_policy as dp
 from src.walters.export import export_predictions
@@ -307,3 +307,215 @@ def test_437_3_a_side_at_the_xg_floor_with_a_cut_is_left_out_under_its_own_reaso
     assert rc.left_out(x) == [rc.LEFT_OUT[2]]
     p = rc.one_x_two(0.05, 1.4, -0.10, 10)
     assert rc.one_x_two(0.05 / (1 - rc.reduction(9)), 1.4, -0.10, 10)["HOME"] != p["HOME"]   # the bogus take-back
+
+
+def test_the_receipt_isolates_the_guard_per_case_and_counts_the_calls_only_it_changed():
+    """Addendum 74 item 3 (#425): for each case the Desk's call with the one-sided-list guard on and with its own switch
+    off, as of the prediction's computed_at against the book reference an export built then read; the receipt counts
+    the cases where only the guard changed the call. Ten graded cases on the receipt's own shape (stored xG 0.76 /
+    1.822 at rho -0.10, AWAY 0.616; two books; computed 3h before kickoff). As sync_odds leaves them since #167: a
+    sync REPLACES the odds rows and appends its consensus to odds_snapshots.
+    0  8/0 a 4h sync at 0.448 (a snapshot now, source NULL as a legacy row), replaced by a 1h sync at 0.600, and a
+       Kalshi row at 3h30 that never reads as books: held; LADDER (X2) off from the snapshot: changed, a draw: won
+       (the grading close reads 0.600)
+    1  6/2 a 4h sync at 0.448 (odds rows and its snapshot, the same session): LADDER either way, read from the odds
+    2  8/0 books 0.600 at 4h: held; PASS noref off: not changed
+    3  6/2 books 0.600: PASS noref either way (a PASS the guard did not make)
+    4  8/0 books 0.448, no factor note: left out of every aggregate (counted in the all-rows line only)
+    5  8/0 books 0.448, the home rating the default: default_rating either way (an earlier rule)
+    6  0/5 books 0.448, computed 10 minutes after kickoff: started either way (an earlier rule)
+    7  0/3 books 0.560: held; PLAY AWAY off: changed, a home win: lost
+    8  0/3 odds rows only at 1h, no snapshot: the session read at computed_at may have been replaced: not evaluated
+    9  0/3 no odds and no snapshot at all: no reference; held; PASS noref off: not changed"""
+    import scripts.soccer_injury_factor_receipt as rc
+    init_db()
+    hxg, axg = 0.76, 1.822
+    p = rc.one_x_two(hxg, axg, -0.10, 10)
+    lad, flat, play = ({"HOME": 0.300, "DRAW": 0.252, "AWAY": 0.448}, {"HOME": 0.180, "DRAW": 0.220, "AWAY": 0.600},
+                       {"HOME": 0.200, "DRAW": 0.240, "AWAY": 0.560})
+    H4, H1, H3 = timedelta(hours=-4), timedelta(hours=-1), timedelta(hours=-3)
+    cases = [  # counts, odds rows [(offset, fair)], snapshots [(offset, fair)], result, extra fb, computed_at, noted
+        ((8, 0), [(H1, flat)], [(H4, lad), (H1, flat)], (1, 1), {}, H3, True),
+        ((6, 2), [(H4, lad)], [(H4, lad)], (1, 0), {}, H3, True),
+        ((8, 0), [(H4, flat)], [], (0, 1), {}, H3, True),
+        ((6, 2), [(H4, flat)], [], (0, 1), {}, H3, True),
+        ((8, 0), [(H4, lad)], [], (0, 2), {}, H3, False),
+        ((8, 0), [(H4, lad)], [], (0, 2), {"home_rating_source": "default", "away_rating_source": "model"}, H3, True),
+        ((0, 5), [(H4, lad)], [], (0, 2), {}, timedelta(minutes=10), True),
+        ((0, 3), [(H4, play)], [], (1, 0), {}, H3, True),
+        ((0, 3), [(H1, lad)], [], (0, 2), {}, H3, True),
+        ((0, 3), [], [], (0, 2), {}, H3, True)]
+    pids = []
+    with session_scope() as s:
+        comp = Competition(sport=Sport.SOCCER, code="RIG", name="Guard League", area="X", type="LEAGUE")
+        s.add(comp)
+        s.add(ModelVersion(sport=Sport.SOCCER, model_family="soccer_elo_poisson", version="v-rig", status="retired",
+                           parameters={"poisson": {"dixon_coles_rho": -0.10, "max_goals": 10}}))
+        s.flush()
+        for i, ((hc, ac), books, snaps, (hs, as_), extra, at, noted) in enumerate(cases):
+            h, a = Team(sport=Sport.SOCCER, name=f"RIG H{i}"), Team(sport=Sport.SOCCER, name=f"RIG A{i}")
+            s.add_all([h, a])
+            s.flush()
+            ko = datetime(2091, 10, 13 + i, 19, 0)
+            m = Match(sport=Sport.SOCCER, competition_id=comp.id, season="2091/92", utc_date=ko,
+                      status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=a.id, home_score=hs, away_score=as_)
+            s.add(m)
+            s.flush()
+            notes = [f"{side} missing {n} (-{int(rc.reduction(n) * 100)}% xG)" for side, n in (("home", hc), ("away", ac))
+                     if n and noted]
+            pr = Prediction(match_id=m.id, model_version="v-rig", home_win_prob=p["HOME"], draw_prob=p["DRAW"],
+                            away_win_prob=p["AWAY"], expected_home_score=hxg, expected_away_score=axg,
+                            computed_at=ko + at,
+                            factor_breakdown={"home_injuries_count": hc, "away_injuries_count": ac,
+                                              "factor_notes": notes, **extra})
+            s.add(pr)
+            s.flush()
+            pids.append(pr.id)
+            s.add(PredictionOutcome(prediction_id=pr.id))
+            for off, fair in books:
+                for bk in ("b1", "b2"):
+                    for sel, f in fair.items():
+                        s.add(Odds(match_id=m.id, bookmaker=bk, market="1X2", selection=sel, price_decimal=1 / f,
+                                   captured_at=ko + off, source="t"))
+            for off, fair in snaps:
+                for sel, f in fair.items():
+                    s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel, devig_prob=f, line=None, n_books=2,
+                                       captured_at=ko + off, source=None if i == 0 else "t"))   # Codex: NULL source
+                if i == 0:                                       # a later Kalshi row by then never reads as books
+                    s.add(OddsSnapshot(match_id=m.id, market="1X2", selection=sel, devig_prob=0.9, line=None,
+                                       n_books=0, captured_at=ko + timedelta(hours=-3, minutes=-30), source="kalshi"))
+    with session_scope() as s:
+        rs, skipped = rc.rows(s, "RIG")
+    by = {x["prediction_id"]: x for x in rs}
+    held = {"call": "PASS", "units": 0, "pass_kind": "injuries_one_sided"}
+    assert by[pids[0]]["desk_on"] == held and by[pids[0]]["desk_off"]["call"] == "LADDER"
+    assert by[pids[0]]["desk_ref"] == {"books": 2, "captured_at": "2091-10-13T15:00:00", "from": "snapshot"}
+    assert by[pids[0]]["edge_pp"] == pytest.approx((p["AWAY"] - 0.600) * 100)                  # the grading close
+    assert by[pids[1]]["desk_on"] == by[pids[1]]["desk_off"] and by[pids[1]]["desk_on"]["call"] == "LADDER"
+    assert by[pids[1]]["desk_ref"]["from"] == "odds"                                            # a tie: the odds table
+    assert by[pids[2]]["desk_on"] == held and by[pids[2]]["desk_off"]["pass_kind"] == "noref"
+    assert by[pids[3]]["desk_on"] == by[pids[3]]["desk_off"] == {"call": "PASS", "units": 0, "pass_kind": "noref"}
+    assert rc.left_out(by[pids[4]]) and by[pids[4]]["desk_on"] == held and by[pids[4]]["desk_off"]["call"] == "LADDER"
+    for i, kind in ((5, "default_rating"), (6, "started")):
+        assert by[pids[i]]["desk_on"] == by[pids[i]]["desk_off"] == {"call": "PASS", "units": 0, "pass_kind": kind}
+    assert by[pids[7]]["desk_on"] == held and by[pids[7]]["desk_off"]["call"] == "PLAY"
+    assert by[pids[8]]["desk_on"] is None and by[pids[8]]["desk_skip"] == rc.UNKNOWN_REF
+    assert by[pids[8]]["edge_pp"] == pytest.approx((p["AWAY"] - 0.448) * 100)                 # the close still prices
+    assert by[pids[9]]["desk_ref"] is None and by[pids[9]]["desk_on"] == held
+    assert by[pids[9]]["desk_off"]["pass_kind"] == "noref" and by[pids[9]]["edge_pp"] is None
+    sm = rc.summary(rs)
+    assert sm["guard"] == {"n": 8, "not_evaluated": {rc.UNKNOWN_REF: 1},
+                           "reference": {"none": 1, "odds": 6, "snapshot": 1}, "one_sided": 6, "held": 4,
+                           "one_sided_earlier": {"default_rating": 1, "started": 1},
+                           "earlier": {"default_rating": 1, "started": 1},
+                           "held_off": {"LADDER": 1, "PASS noref": 2, "PLAY": 1}, "changed_call": 2,
+                           "changed_by_reference": {"odds": 1, "snapshot": 1},
+                           "changed_graded": {"LADDER X2 won": 1, "PLAY AWAY lost": 1},
+                           "changed_ids": [pids[0], pids[7]]}
+    g = sm["guard"]
+    assert g["one_sided"] == g["held"] + sum(g["one_sided_earlier"].values())
+    ga = sm["guard_all_rows_reference"]
+    assert (ga["n"], ga["one_sided"], ga["held"], ga["changed_call"]) == (9, 7, 5, 3)
+    assert dp.INJURIES_ONE_SIDED_RULE["on"] is True                    # the switch default is untouched
+    out = []
+    rc.report(rs, skipped, "RIG", True, echo=out.append)
+    assert any(o.startswith("THE ONE-SIDED-LIST GUARD, ISOLATED (addendum 74 item 3)") for o in out)
+    assert (f"  over the rows the receipt stands behind: n 8 · the Desk's reference read from: none 1 · odds 6 · "
+            f"snapshot 1 · not evaluated: {rc.UNKNOWN_REF} 1") in out
+    assert "  reached by an earlier rule first (both runs alike): default_rating 1 · started 1" in out
+    assert ("  one-sided lists (the guard's condition) 6: held by the guard 4 · reached by an earlier rule first 2 "
+            "(default_rating 1 · started 1)") in out
+    assert "  the guard held (PASS injuries_one_sided) 4 · with it off those read: LADDER 1 · PASS noref 2 · PLAY 1" in out
+    assert (f"  cases where only the guard changed the call: 2/8 · their reference read from: odds 1 · snapshot 1 · "
+            f"graded by the instrument: LADDER X2 won 1 · PLAY AWAY lost 1 · predictions {pids[0]}, {pids[7]}") in out
+    assert any(o.startswith(f"  {pids[0]} ·") and o.endswith("PASS injuries_one_sided / LADDER · ref 2 books at "
+                                                             "2091-10-13T15:00:00 (snapshot)") for o in out)
+    assert any(o.startswith(f"  {pids[8]} ·") and o.endswith(f"not evaluated: {rc.UNKNOWN_REF}") for o in out)
+    assert any(o.startswith(f"  {pids[9]} ·") and o.endswith("PASS injuries_one_sided / PASS noref · ref none")
+               for o in out)
+    assert '"guard": {"changed_by_reference": {"odds": 1, "snapshot": 1}, "changed_call": 2' in out[-1]
+
+
+def test_the_as_of_reference_reads_the_session_the_export_read_then():
+    """The later session wins across the two tables (the odds table on a tie); an unpriced odds-table session read then
+    is no reference even with an older snapshot; a later odds session alone is unknown; nothing at all is none."""
+    from types import SimpleNamespace as N
+    import scripts.soccer_injury_factor_receipt as rc
+    ko, at = datetime(2091, 1, 1, 19), datetime(2091, 1, 1, 16)
+
+    def book(t, bk, fair, sels=("HOME", "DRAW", "AWAY")):
+        return [N(market="1X2", bookmaker=bk, selection=k, price_decimal=1 / fair[k], captured_at=t, line=None)
+                for k in sels]
+
+    def snap(t, fair):
+        return [N(market="1X2", selection=k, devig_prob=v, n_books=3, captured_at=t, source="api_football")
+                for k, v in fair.items()]
+    f1, f2 = {"HOME": 0.5, "DRAW": 0.25, "AWAY": 0.25}, {"HOME": 0.123456, "DRAW": 0.3, "AWAY": 0.576544}
+    t12, t14 = datetime(2091, 1, 1, 12), datetime(2091, 1, 1, 14)
+    ref, src = rc.as_of_reference(book(t12, "b", f1), snap(t14, f2), at, ko)
+    assert src == "snapshot" and ref == {"books": 3, "fair": {"HOME": 0.1235, "DRAW": 0.3, "AWAY": 0.5765},
+                                         "captured_at": t14}
+    assert rc.as_of_reference(book(t14, "b", f1), snap(t12, f2), at, ko)[1] == "odds"
+    assert rc.as_of_reference(book(t14, "b", f1), snap(t14, f2), at, ko)[1] == "odds"
+    assert rc.as_of_reference(book(t14, "b", f1, ("HOME", "AWAY")), snap(t12, f2), at, ko) == (None, "none")
+    assert rc.as_of_reference(book(datetime(2091, 1, 1, 18), "b", f1), [], at, ko) == (None, "unknown")
+    assert rc.as_of_reference([], [], at, ko) == (None, "none")
+    assert rc.as_of_reference(book(datetime(2091, 1, 1, 20), "b", f1), [], at, ko) == (None, "none")  # after kickoff
+
+
+def test_the_guard_block_reads_only_rows_that_carry_both_calls_and_grades_by_the_instrument():
+    import scripts.soccer_injury_factor_receipt as rc
+    on = {"call": "PASS", "units": 0, "pass_kind": "injuries_one_sided"}
+    rs = [{"prediction_id": 1, "result": "HOME", "pick": "AWAY", "counts": (0, 4), "desk_on": on,
+           "desk_off": {"call": "PLAY", "units": 1, "pass_kind": None}, "desk_ref": {"from": "snapshot"},
+           "desk_pick": "AWAY"},
+          {"prediction_id": 2, "result": "HOME", "pick": "HOME", "counts": (0, 4), "desk_on": None, "desk_off": None,
+           "desk_skip": rc.NO_COMPUTED_AT},
+          {"prediction_id": 3, "result": "HOME", "pick": "HOME", "counts": (3, 0)}]            # an older row: no calls
+    assert rc.guard_summary(rs) == {"n": 1, "not_evaluated": {"no computed_at": 1, "no desk calls": 1},
+                                    "reference": {"snapshot": 1}, "one_sided": 1, "held": 1, "one_sided_earlier": {},
+                                    "earlier": {}, "held_off": {"PLAY": 1}, "changed_call": 1,
+                                    "changed_by_reference": {"snapshot": 1}, "changed_graded": {"PLAY AWAY lost": 1}, "changed_ids": [1]}
+    assert [rc.instrument("LADDER", "AWAY", r) for r in ("AWAY", "DRAW", "HOME")] == \
+        ["LADDER X2 won", "LADDER X2 won", "LADDER X2 lost"]
+    assert rc.instrument("LADDER", "DRAW", "DRAW") == "LADDER DRAW not graded"
+    assert [rc.instrument("PLAY", "HOME", r) for r in ("HOME", "DRAW")] == ["PLAY HOME won", "PLAY HOME lost"]
+    assert [rc.one_sided(c) for c in ((0, 0), (0, 2), (3, 0), (6, 2))] == [False, True, True, False]
+    assert rc.desk_row(_match_stub(), "PL", {"HOME": 0.539951, "DRAW": None, "AWAY": 0.2}, None, 0, 1, {})[
+        "prediction"]["probabilities"] == {"home_win": 0.54, "draw": None, "away_win": 0.2}      # the export's 4dp
+
+
+def test_537_a_changed_call_is_graded_on_the_desks_own_pick_from_the_rounded_1x2():
+    """#537 FIXED (addendum 79 item 1): the Desk picks from the export's 4-decimal probabilities, walking HOME, DRAW,
+    AWAY and moving only on a strictly greater one (desk_policy.normalize). AWAY 0.50001 and DRAW 0.49997 sit within
+    0.0001 of each other and both round to 0.5000: the Desk picks DRAW, while the unrounded pick (rows()'s, the edge
+    lines') is AWAY. A draw: the guard's changed call, a PLAY with it off, is graded on the Desk's DRAW, a win."""
+    from types import SimpleNamespace as N
+    import scripts.soccer_injury_factor_receipt as rc
+    stored = {"HOME": 0.00002, "DRAW": 0.49997, "AWAY": 0.50001}
+    assert abs(stored["AWAY"] - stored["DRAW"]) < 1e-4 and rc.r4(stored["AWAY"]) == rc.r4(stored["DRAW"]) == 0.5
+    assert max(rc.SIDES, key=lambda k: stored[k]) == "AWAY"                       # rows()'s unrounded pick
+    fair = {"HOME": 0.10, "DRAW": 0.44, "AWAY": 0.46}                              # DRAW +6pp: a PLAY with the guard off
+    odds = [N(market="1X2", bookmaker=bk, selection=k, price_decimal=1 / v, captured_at=datetime(2091, 1, 1, 15),
+              line=None) for bk in ("b1", "b2") for k, v in fair.items()]
+    g = rc.guard_calls(_match_stub(), "PL", stored, (odds, []), 0, 3, {}, datetime(2091, 1, 1, 16))
+    assert g["desk_pick"] == "DRAW" and g["desk_ref"]["from"] == "odds"
+    assert g["desk_on"]["pass_kind"] == dp.INJURIES_ONE_SIDED_KIND and g["desk_off"]["call"] == "PLAY"
+    x = {"prediction_id": 1, "result": "DRAW", "pick": "AWAY", "counts": (0, 3), **g}
+    s = rc.guard_summary([x])
+    assert s["changed_call"] == 1 and s["changed_graded"] == {"PLAY DRAW won": 1}   # never "PLAY AWAY lost"
+    assert rc.guard_calls(_match_stub(), "PL", stored, (odds, []), 0, 3, {}, None)["desk_pick"] is None
+    ll = rc.ll(stored["DRAW"])                                  # the listing names the Desk's pick where it differs
+    row = {**x, "match_id": 1, "game": "A @ H", "kickoff": "2091-01-01T19:00:00", "model_version": "v", "diff": 3,
+           "stored": stored, "bare": stored, "reproduces": True, "model_params_found": True, "ll_stored": ll,
+           "ll_bare": ll, "edge_pp": 4.0, "edge_bare_pp": 4.0, "note_mismatch": [], "floored": []}
+    out = []
+    rc.report([row], {"no injury counts": 0, "no expected goals": 0}, "PL", True, echo=out.append)
+    assert any(o.endswith("· AWAY +4.0 / +4.0pp · PASS injuries_one_sided / PLAY (the Desk's pick DRAW) · ref 2 "
+                          "books at 2091-01-01T15:00:00 (odds)") for o in out)
+    assert any("graded by the instrument: PLAY DRAW won 1" in o for o in out)
+
+
+def _match_stub():
+    from types import SimpleNamespace as N
+    return N(id=1, home_team=N(name="H"), away_team=N(name="A"), utc_date=datetime(2091, 1, 1, 19))

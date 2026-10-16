@@ -1,3 +1,0 @@
-## 2026-10-12 (#468: nhl-shadow-v7-line — ARCHITECT addendum 50 item 3, #466)
-- src/walters/nhl_shadow.py `grade`: the v7 line counts a row that names v7 from a file whose fit was made, and no other row; a row that names the reference counts on the reference line by its own number (the v1-era files of 2026-09-30 to 10-02 name v1 and carry no reference block: they leave the v7 line). A row kept off the v7 line says why on its line (`not graded: no xG fit` / `not graded: not a v7 row`), never "no anchor" when it has one; RESULTS.md's NHL section names how many calls are off the v7 line and why. `grade()` returns `not_v7`.
-- Tests: tests/test_nhl_shadow.py (a v1-era row on the reference line by its own number; a no-fit row with a book anchor).

@@ -51,8 +51,13 @@ def test_the_closing_file_holds_the_pages_games_and_no_other(box, fam):
     exported = {p["match_id"]: p for p in box.docs[fam]["predictions"]}
     assert all(p == exported[p["match_id"]] for p in doc["predictions"])                  # each row as given
     assert doc["count"] == len(paged) < len(box.docs[fam]["predictions"])                 # no other game
-    assert doc["closing"] == {"family": fam, "start": at(START[fam]), "run_id": r["run_id"],
-                              "match_ids": [p["match_id"] for p in doc["predictions"]], "called_off": []}
+    expect = {"family": fam, "start": at(START[fam]), "run_id": r["run_id"],
+              "match_ids": [p["match_id"] for p in doc["predictions"]], "called_off": []}
+    if fam == "MLB":          # the MLB books line (ARCHITECT 2026-10-16, addendum 97 item 2(a)): n, and why when 0
+        expect["books"] = [{"match_id": p["match_id"], "n": p["market"]["bookmaker_count"],
+                            "why": None if p["market"]["bookmaker_count"] else mc.BOOKS_NO_ANSWER}
+                           for p in doc["predictions"]]
+    assert doc["closing"] == expect
     assert doc["desk_meta"] == box.docs[fam]["desk_meta"] and doc["sport"] == box.docs[fam]["sport"]
     # the receipt records both files and their sha256
     assert r["closing_file"] == {"file": f"exports/{f.name}", "sha256": hashlib.sha256(f.read_bytes()).hexdigest()}

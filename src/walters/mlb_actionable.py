@@ -39,10 +39,18 @@ Definitions (read from the code, law 1):
   parent's; `splits["ok"]` is False when they differ and the CLI then refuses (exit 2, nothing written). The
   regular-season toss-up rows left out for want of a book close (each exclusion reason grade_row records) are
   counted under the same split by reason. The postseason's toss-up rows are one line of their own.
+- closing runs with no provider odds (ARCHITECT 2026-10-16, addendum 97 item 2(b), #550/#514): "A tally line in
+  mlb-actionable-receipt's postseason split: "closing runs with no provider odds: N of M" — read-only; so the
+  postseason record states how often the books reference was absent." A closing run is one
+  exports/closing_MLB_<start>.json, the close of its start time (addendum 40 item 2; a second page's file replaces
+  the first, addendum 41 item 3). M counts the runs with a postseason row of the season (Match.season and
+  export.mlb_stage(Match.stage), read from the DB by the row's match id); N those in which such a row shows no book
+  (market.bookmaker_count 0). An unreadable file is counted and named, never guessed.
 Writes nothing to the DB.
 """
 from __future__ import annotations
 
+import json
 import random
 
 TIERS = ("toss-up", "lean", "strong")
@@ -191,6 +199,50 @@ def collect(s, season: str = "2026") -> list[dict]:
     return out
 
 
+CLOSING_GLOB = "closing_MLB_*.json"      # addendum 40 item 2: exports/closing_<FAMILY>_<start>.json
+
+
+def closing_tally(s, season: str, exports_dir) -> dict:
+    """Addendum 97 item 2(b): the season's postseason MLB closing runs, and those with no provider odds. Read-only:
+    the closing files under `exports_dir` and Match.season / Match.stage by match id."""
+    from pathlib import Path
+
+    from sqlalchemy import select
+
+    from src.db.schema import Match
+    from src.walters.export import mlb_stage
+
+    files, unreadable = [], []
+    for p in sorted(Path(exports_dir).glob(CLOSING_GLOB)):
+        try:
+            rows = json.loads(p.read_text()).get("predictions") or []
+            rows = [r for r in rows if isinstance(r, dict)]
+        except (OSError, ValueError, AttributeError):
+            unreadable.append(p.name)
+            continue
+        files.append((p.name, rows))
+    ids = sorted({r.get("match_id") for _, rows in files for r in rows if isinstance(r.get("match_id"), int)})
+    meta = {mid: (ss, st) for mid, ss, st in s.execute(
+        select(Match.id, Match.season, Match.stage).where(Match.id.in_(ids))).all()} if ids else {}
+
+    def post(r):
+        ss, st = meta.get(r.get("match_id"), (None, None))
+        return ss == str(season) and mlb_stage(st) == "postseason"
+    runs, none, games, games_none = [], [], 0, 0
+    for name, rows in files:
+        pr = [r for r in rows if post(r)]
+        if not pr:
+            continue
+        runs.append(name)
+        zero = [r for r in pr if int((r.get("market") or {}).get("bookmaker_count") or 0) == 0]
+        games += len(pr)
+        games_none += len(zero)
+        if zero:
+            none.append(name)
+    return {"runs": len(runs), "no_odds": len(none), "no_odds_files": none, "games": games,
+            "games_no_odds": games_none, "unreadable": unreadable}
+
+
 def _wins_cell(rows: list[dict], b: int, seed: int) -> dict:
     """A tier row's statistics, and its wins."""
     return {**cell_stats(rows, b, seed), "wins": sum(1 for r in rows if r["hit"])}
@@ -305,6 +357,8 @@ def format_receipt(res: dict, season: str, run_stamp: str) -> str:
             L.append(f"| {tier} | {label} | {c['n']} | {_f(c['model_p'], '.3f')} | {_f(c['fair_p'], '.3f')} | "
                      f"{_f(c['hit'], '.3f')} | {c['hit_minus_close_pp']:+.1f} | {ci} | {c['roi'] * 100:+.1f}% |")
         L.append("")
+        if st == "postseason" and res.get("closing_tally") is not None:
+            L += format_closing_tally(res["closing_tally"])
     if "blend" in res:
         L += ["## By market-blend record (Q3 K6, all stages) · " + " · ".join(
                   f"{bl} {res['blend'][bl]['n']}" for bl in BLENDS), "",
@@ -325,6 +379,18 @@ def format_receipt(res: dict, season: str, run_stamp: str) -> str:
     if "splits" in res:
         L += format_splits(res["splits"])
     return "\n".join(L).rstrip() + "\n"
+
+
+def format_closing_tally(ct: dict) -> list[str]:
+    """Addendum 97 item 2(b): the tally line, verbatim, then what it counts."""
+    L = [f"- closing runs with no provider odds: {ct['no_odds']} of {ct['runs']}",
+         f"  - a closing run = one exports/closing_MLB_<start>.json with a postseason row of the season; no provider "
+         f"odds = such a row shows no book (market.bookmaker_count 0) · games: {ct['games_no_odds']} of "
+         f"{ct['games']}" + (f" · unreadable files {len(ct['unreadable'])}: {', '.join(ct['unreadable'])}"
+                             if ct["unreadable"] else "")]
+    if ct["no_odds_files"]:
+        L.append(f"  - with no provider odds: {', '.join(ct['no_odds_files'])}")
+    return L + [""]
 
 
 def _split_row(label: str, c: dict, left_out: dict | None) -> str:

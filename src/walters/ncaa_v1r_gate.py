@@ -617,11 +617,14 @@ def preflight_lines(pf: dict, spec: Spec = V1R) -> list[str]:
                              f"UNDEFINED (n 0)") + " · 0.5 at a neutral site")
     if "scale" in pf:
         sc = pf["scale"]
-        same = sc["fit_training_fingerprint"] == sc["training_fingerprint"]
+        rec = sc["fit_training_fingerprint"]
+        state = ("UNKNOWN — logistic_scale.fit records no training_fingerprint (the fit's receipt is incomplete; the "
+                 "architect reads this line)" if not rec else
+                 "SAME" if rec == sc["training_fingerprint"] else
+                 "CHANGED since the fit (the frozen s stands; the architect reads this line)")
         L.append(f"  logistic scale s (D1): " + (
-            f"{sc['s']!r} FROZEN · the fit read training stream {sc['fit_training_fingerprint'] or '— (not recorded)'}"
-            f" · today's training stream {sc['training_fingerprint']} ({sc['training_games']} games): "
-            + ("SAME" if same else "CHANGED since the fit (the frozen s stands; the architect reads this line)")
+            f"{sc['s']!r} FROZEN · the fit read training stream {rec or '— (not recorded)'}"
+            f" · today's training stream {sc['training_fingerprint']} ({sc['training_games']} games): {state}"
             if sc["s"] is not None else f"NOT FROZEN — the run refuses: {sc['why']}"))
     L.append(f"  test set if run now: {pf['test_n']} {spec.gate.scored_what()} (addendum 17 item 2: under "
              f"{MIN_SCORED} the run refuses before the reservation and records nothing)")
@@ -675,11 +678,12 @@ def second_read(games, model, covered_why: str | None, read: Read | None = None)
 def combined_verdict(gate: str, second: str) -> str:
     """D10 (verbatim in part): "the lane goes live only if BOTH the gate (D5 on 2026) and the second read pass; a
     second read that fails is a FAIL of the candidate." Computed; the architect rules."""
-    g, s2 = gate.split()[0], second.split()[0]
+    g, s2 = gate.split(" — ")[0].strip(), second.split(" — ")[0].strip()
     if "FAIL" in (g, s2):
+        why = ("D10: a second read that fails is a FAIL of the candidate" if s2 == "FAIL" else
+               f"D10: the lane goes live only if BOTH the gate and the second read pass; the second read: {s2}")
         return ("FAIL — " + "; ".join(f"{who}: {v}" for who, v in (("the gate", gate), ("the second read", second))
-                                      if v.split()[0] == "FAIL")
-                + " (D10: a second read that fails is a FAIL of the candidate)")
+                                      if v.split(" — ")[0].strip() == "FAIL") + f" ({why})")
     if g == "PASS" and s2 == "PASS":
         return ("PASS — the gate and the second read both pass; the architect rules; PASS does not make college "
                 "football a call (D8): the Desk stays market-only for NCAA")
@@ -773,7 +777,7 @@ def record(r: dict, word: str, spec: Spec = V1R) -> dict:
     return reg.record_run(spec.eid, ids, rec, reg.LEDGER, reg.IDS_DIR)
 
 
-def _read_lines(r: dict, read: Read, under: str) -> list[str]:
+def _read_lines(r: dict, read: Read, under: str, fp_what: str | None = None) -> list[str]:
     f = lambda x, d=4: "—" if x is None else f"{x:.{d}f}"          # noqa: E731
     ok = lambda b: "PASS" if b else "FAIL"                          # noqa: E731
     L = [f"  D4 baseline: {read.baseline_what()} home win rate {f(r.get('baseline_home_rate'), 6)} "
@@ -784,8 +788,10 @@ def _read_lines(r: dict, read: Read, under: str) -> list[str]:
                  f"not walked {r[f'not_walked_after_last_{read.test}']}"
                  + "".join(f" · no {a} game scored" for a in read.after[-1:]))
     if r.get("stream_fingerprint"):
-        L.append(f"  stream fingerprint {r['stream_fingerprint']} ({r.get('stream_games')} games walked), checked "
-                 "before the reservation and recorded beside the word")
+        L.append(f"  stream fingerprint {r['stream_fingerprint']} ("
+                 + (f"{r.get('stream_games')} games walked" if fp_what is None else
+                    f"{r.get('stream_games')} games: {fp_what}")
+                 + "), checked before the reservation and recorded beside the word")
     L.append(f"  scored: {r['n_scored']} {read.scored_what()} ({under})")
     if r.get("ll_model") is not None:
         L.append(f"  (1) margin: model log-loss {r['ll_model']:.6f} vs baseline {r['ll_baseline']:.6f} − "
@@ -816,7 +822,8 @@ def run_lines(r: dict, spec: Spec = V1R) -> list[str]:
     L = []
     if spec.scaled and r.get("logistic_scale") is not None:
         L.append(f"  logistic scale s (D1, frozen in the registry entry): {r['logistic_scale']!r}")
-    L += _read_lines(r, spec.gate, f"addendum 17 item 2: under {MIN_SCORED} the run refuses before the reservation")
+    L += _read_lines(r, spec.gate, f"addendum 17 item 2: under {MIN_SCORED} the run refuses before the reservation",
+                     None if spec.second is None else spec.fp_what)
     if spec.second is None:
         L.append(f"  VERDICT (computed; the architect rules): {r['verdict']}")
         return L

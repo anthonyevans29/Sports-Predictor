@@ -116,7 +116,9 @@ ITEM1 = (
 
 
 SPEC = ROOT / "docs" / "specs" / "ncaa-elo-v2.md"
-LEDGER_ENTRY = ROOT / "docs" / "ledger" / "entries" / "2026-10-16-ncaa-elo-v2-declaration.md"
+# the BACKLOG entry: a fragment until the tag ritual's compile folds it into BACKLOG.md (tests/ledger_text.py)
+LEDGER_ENTRY = ("2026-10-16-ncaa-elo-v2-declaration",
+                "**2026-10-16 — DECLARED (ARCHITECT 2026-10-16 07:53 ET, addendum 81 item 2): ncaa-elo-v2")
 TEST_SET = "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)"
 AT = datetime(2026, 10, 16, 12)
 V2 = vg.V2
@@ -220,10 +222,11 @@ def test_registry_entry_is_declared_unrun_with_the_verbatim_gate_window_plan_and
 
 
 def test_spec_and_ledger_quote_d1_to_d11_and_item_1_verbatim():
-    for path in (SPEC, LEDGER_ENTRY):
-        text_ = " ".join(path.read_text().split())          # line wrapping never changes a word
+    from ledger_text import entry_text, flat
+    for name, raw in ((SPEC.name, SPEC.read_text()), (LEDGER_ENTRY[0], entry_text(*LEDGER_ENTRY))):
+        text_ = flat(raw)                                    # line wrapping never changes a word
         for k, v in D.items():
-            assert v in text_, f"{path.name}: {k} not verbatim"
+            assert v in text_, f"{name}: {k} not verbatim"
         assert TEST_SET in text_
     assert ITEM1 in " ".join(SPEC.read_text().split())
 
@@ -349,6 +352,23 @@ def test_the_lane_goes_live_only_if_both_pass_and_a_failed_second_read_fails_the
     assert v.startswith(head + " —")
     if head == "PASS":
         assert "Desk stays market-only" in v
+    failed_second = second.startswith("FAIL")
+    assert ("a second read that fails is a FAIL of the candidate" in v) is failed_second
+    if head == "NO VERDICT":                                   # each read's whole status, never a truncated word
+        assert f"the second read {second.split(' — ')[0]}:" in v and "the gate PASS," in v
+    if head == "FAIL" and not failed_second:
+        assert f"the second read: {second.split(' — ')[0]})" in v and "goes live only if BOTH" in v
+
+
+def test_the_combined_verdict_strings_in_full():
+    assert vg.combined_verdict("PASS — x", "NOT READ — 2023 not covered (L2 + L3)") == (
+        "NO VERDICT — the gate PASS, the second read NOT READ: D10, the lane goes live only if both pass; the "
+        "architect rules again")
+    assert vg.combined_verdict("FAIL — (1) margin", "INVALID — 480 scored games < 500") == (
+        "FAIL — the gate: FAIL — (1) margin (D10: the lane goes live only if BOTH the gate and the second read "
+        "pass; the second read: INVALID)")
+    assert vg.combined_verdict("PASS — x", "FAIL — (3) spread") == (
+        "FAIL — the second read: FAIL — (3) spread (D10: a second read that fails is a FAIL of the candidate)")
 
 
 # ------------------------------------------------------------------------------------------ the fingerprint --
@@ -404,17 +424,22 @@ def _ready(monkeypatch, main=None, second=None, cov=None):
 
 def test_the_run_refuses_until_s_is_frozen_before_anything_is_read(ledger, monkeypatch):
     seen, fp = _ready(monkeypatch)
+    asked = []
+    monkeypatch.setattr(vg, "coverage", lambda seasons, s=None: asked.append(seasons) or _cov())
     with pytest.raises(vg.GateRefused, match="logistic scale s is not frozen"):
         vg.run("go", fp, spec=V2)
-    assert not seen and not os.path.exists(vg.reservation_path(V2))
+    assert not seen and not asked and not os.path.exists(vg.reservation_path(V2))   # not even the coverage read
 
 
 def test_the_run_refuses_without_word_fingerprint_or_2024_2025_2026_coverage(ledger, monkeypatch):
     _freeze_s(ledger)
-    seen, fp = _ready(monkeypatch, cov=_cov(ok=("2023", "2024", "2025")))
-    for word, f in ((None, fp), ("  ", fp), ("go", None), ("go", " ")):
-        with pytest.raises(vg.GateRefused):
+    seen, fp = _ready(monkeypatch)                             # coverage full: only the word or the print refuses
+    for word, f, why in ((None, fp, "architect's word"), ("  ", fp, "architect's word"),
+                         ("go", None, "--stream-fingerprint"), ("go", " ", "--stream-fingerprint")):
+        with pytest.raises(vg.GateRefused, match=why):
             vg.run(word, f, spec=V2)
+    assert not seen
+    seen, fp = _ready(monkeypatch, cov=_cov(ok=("2023", "2024", "2025")))
     with pytest.raises(vg.GateRefused, match=r"2026 80\.0% \(80/100\)"):
         vg.run("go", fp, spec=V2)
     assert not seen and not os.path.exists(vg.reservation_path(V2))
@@ -440,13 +465,19 @@ def test_the_one_run_reserves_first_reads_both_streams_and_records_every_scored_
     order = []
     real = vg.run_gate
 
+    models = []
+
     def gate(games, model=None, read=None):
         order.append((read.name if read else "v1r", os.path.exists(vg.reservation_path(V2)), model.m.scale))
+        models.append((id(model), dict(model.ratings())))
         return real(games, model, read)
     monkeypatch.setattr(vg, "run_gate", gate)
     r = vg.run("the word", fp, spec=V2)
     assert seen == {"reserved_at_read": False, "reads": 1}
     assert order == [("the gate", True, 300.0), ("the second read", True, 300.0)]
+    assert models[0][0] != models[1][0] and models[1][1] == {}          # D10: a fresh model, every team at default
+    cold = vg.second_read(_v(second_stream(), ("2023",)).games, nb.NeutralRuleElo(scale=300.0), None, V2.second)
+    assert (r["second_read"]["rating_min"], r["second_read"]["ll_model"]) == (cold["rating_min"], cold["ll_model"])
     saved = json.load(open(vg.reservation_path(V2)))
     assert saved["id"] == "ncaa-elo-v2" and saved["architect_word"] == "the word" and saved["stream_fingerprint"] == fp
     assert saved["logistic_scale"] == 300.0 and saved["second_read"]["covered"] is True
@@ -455,6 +486,9 @@ def test_the_one_run_reserves_first_reads_both_streams_and_records_every_scored_
     assert r["verdict"] == vg.combined_verdict(r["verdict_gate"], r["second_read"]["verdict"])
     lines = vg.run_lines(r, V2)
     assert any(x.startswith("  THE GATE (D5 on 2026): ") for x in lines)
+    assert f"  stream fingerprint {fp} ({len(main_stream()) + len(second_stream())} games: the 2024-2026 stream " \
+           "and the 2023 second-read stream as the run walks them), checked before the reservation and recorded " \
+           "beside the word" in lines
     assert any(x.startswith("  THE SECOND READ: ") for x in lines) and lines[-1].startswith("  VERDICT")
     e = vg.record(r, "the word", V2)
     ids = (Path(reg.IDS_DIR) / "ncaa-elo-v2.txt").read_text().split()
@@ -464,6 +498,18 @@ def test_the_one_run_reserves_first_reads_both_streams_and_records_every_scored_
     assert "scored_ids" not in e["run"]["result"]["second_read"] and e["run"]["result"]["architect_word"] == "the word"
     with pytest.raises(vg.GateRefused, match="declared and unrun"):
         vg.run("again", fp, spec=V2)
+
+
+@pytest.mark.parametrize("second, why", [
+    (dict(n_scored=499), "INVALID — 499 scored games < 500"),
+    (dict(early=0, early_wins=0), "INVALID — no 2023 non-neutral 'regular' (weeks before 5) game"),
+])
+def test_the_second_reads_invalid_states_never_refuse_the_run(ledger, monkeypatch, second, why):
+    _freeze_s(ledger)
+    seen, fp = _ready(monkeypatch, second=second_stream(**second))
+    r = vg.run("go", fp, spec=V2)
+    assert r["second_read"]["verdict"].startswith(why) and os.path.exists(vg.reservation_path(V2))
+    assert not r["verdict"].startswith("PASS")
 
 
 def test_2023_not_covered_never_refuses_the_gate_the_second_read_is_not_read(ledger, monkeypatch):
@@ -507,6 +553,8 @@ def test_preflight_shows_the_frozen_s_and_whether_the_training_stream_is_the_fit
     assert "300.0 FROZEN" in "\n".join(_pf(ledger, main, second, tfp, 300.0))
     assert ": SAME" in "\n".join(_pf(ledger, main, second, tfp, 300.0))
     assert "CHANGED since the fit" in "\n".join(_pf(ledger, main, second, "f" * 64, 300.0))
+    unknown = "\n".join(_pf(ledger, main, second, None, 300.0))
+    assert "UNKNOWN — logistic_scale.fit records no training_fingerprint" in unknown and "CHANGED" not in unknown
     # the training fingerprint reads 2024 and 2025 only: a 2026 result never moves it
     assert vg.training_fingerprint(_v(main_stream(flip_2026=True), V2.seasons).games, V2)[0] == tfp
 
@@ -558,6 +606,11 @@ def test_the_fit_on_a_real_walk_beats_every_curve_point_and_never_reads_2026():
     L = fs.lines(c)
     assert any(x.startswith(f"  FITTED s = {c['fit']['s']!r}") for x in L) and "NOT REPRODUCED" in "\n".join(L)
     assert L[-1].startswith("FIT ONLY: nothing scored on 2026")
+    assert any(x.startswith("  later-season games kicking off before the last 2025 game: 0 ") for x in L)
+    early26 = G(10**7, 1, 2, "2026", datetime(2025, 9, 10), 9, 30)       # a 2026 game before the last 2025 one
+    c2 = fs.compute(_v(games + g26 + [early26], V2.seasons), {vg.SCALE_KEY: {"s": None}}, None)
+    assert c2["fit"] == c["fit"]                                           # the fit never reads it
+    assert any(x.startswith("  later-season games kicking off before the last 2025 game: 1 ") for x in fs.lines(c2))
     # the check against v1r's recorded run: b at s = 400 on 2025, and v1r's stream fingerprint
     rec = {"run": {"result": {"slope_b": c["at_400"]["b"], "stream_fingerprint": c["v1r_fingerprint_today"]}}}
     L = fs.lines(fs.compute(v, {vg.SCALE_KEY: {"s": None}}, rec))
@@ -592,3 +645,23 @@ def test_the_confirmation_by_id_refuses_before_a_run_and_scores_with_the_frozen_
         vg.confirming(V2)
     r = CliRunner().invoke(cli_mod.cli, ["ncaa-confirm", "--id", "ncaa-elo-v2"])
     assert r.exit_code == 2 and "ncaa-elo-v2 has no run record" in r.output
+    # a PASS recorded on the tmp ledger, s frozen at 283.25: D7 scores the cohort by v2's own replay at that s
+    _freeze_s(ledger, 283.25)
+    entries = json.loads(Path(ledger).read_text())
+    e = next(x for x in entries if x["id"] == "ncaa-elo-v2")
+    e.update({"status": "confirming", "verdict": {"verdict": "PASS", "ruling": "PASS. ARCHITECT", "at": "2026-11-10T00:00:00Z"},
+              "run": {"run_at": "2026-11-09T00:00:00Z", "n_scored": 0, "ids_file": None,
+                      "result": {"baseline_home_rate": 0.6}}})
+    Path(ledger).write_text(json.dumps(entries, indent=2))
+    games = main_stream(n_test=40)
+    ids = [g.match_id for g in games if g.season == "2026"][-10:]
+    monkeypatch.setattr(vg, "coverage", lambda seasons, s=None: _cov())
+    monkeypatch.setattr(vg, "load_streams", lambda spec=vg.V1R: (_v(games, V2.seasons), None))
+    monkeypatch.setattr(vg, "cohort", lambda e_, s: {"state": "frozen", "ids": ids, "n_games": 100,
+                                                     "eligible_stored": 10})
+    monkeypatch.setattr(vg, "_statuses", lambda s, ids_: {i: {"status": "finished"} for i in ids_})
+    got = vg.confirmation_read(V2)
+    walked = _v(games, V2.seasons).games
+    at_s = vg.score_cohort(walked, ids, 0.6, nb.NeutralRuleElo(scale=283.25))
+    at_400 = vg.score_cohort(walked, ids, 0.6)
+    assert got["n"] == 10 and got["log_loss"] == at_s["log_loss"] and got["log_loss"] != at_400["log_loss"]

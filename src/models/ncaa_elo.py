@@ -100,8 +100,10 @@ class NCAAEloV1:
 # 0.25, default_rating 1500, neutral rule no_home_advantage_at_neutral) with ONE fitted parameter: the logistic scale
 # s in P(home) = 1 / (1 + 10^(-(dr + ha) / s)), fitted by maximum likelihood on the 2024 and 2025 regular-season games
 # of the stream (D2) and then frozen; v1 is s = 400." P(home) is NCAAEloV1._expected_home, which the update reads too
-# (the expected score), so s replaces 400 in both, as nhl_elo.NHLEloV8 replaced it (the house precedent for a fitted
-# logistic divisor). Nothing else differs from v1; v1 keeps its fixed 400.
+# (the expected score), so s replaces 400 in both, as nhl_elo.NHLEloV8 replaced its fitted divisor. That reading is
+# Q1 on the declaration PR: intl-elo-v2's ratified fit kept the update at /400 and scaled the price only ("It is the
+# rating dynamics, not the probability the model states"); the other reading is this one method. Nothing else differs
+# from v1; v1 keeps its fixed 400.
 # --------------------------------------------------------------------------
 
 V1_SCALE = 400.0

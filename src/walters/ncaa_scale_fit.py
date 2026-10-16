@@ -9,7 +9,8 @@ training set, reported, not a gate). Nothing else is fitted."
 
 THE PROCEDURE, declared here before any fit is run (docs/specs/ncaa-elo-v2.md, "The fit of s"):
   * The model: the shared D1 wrapper with s (ncaa_backtest.NeutralRuleElo(scale=s) over ncaa_elo.NCAAEloV2): s
-    replaces 400 in P(home), which the update reads too (the expected score), as nhl_elo.NHLEloV8's fitted divisor.
+    replaces 400 in P(home), which the update reads too (the expected score), as nhl_elo.NHLEloV8's fitted divisor
+    (Q1 on the declaration PR: intl-elo-v2's ratified fit scaled the price only and kept the update at /400).
   * The games: the D2 stream's 2024 and 2025 games (training_games), in stream order: every one is walked (predict,
     then update; postseason and a game without a season_type are walked); the likelihood is over the games whose
     season_type is exactly 'regular'. No 2026 game is walked or read: fit() refuses any game outside 2024 and 2025.
@@ -173,9 +174,9 @@ def lines(c: dict, spec: vg.Spec = vg.V2) -> list[str]:
              + f" vs recorded {rb!r} -> {'REPRODUCED' if same_b else 'NOT REPRODUCED'} · v1r's stream fingerprint "
              f"today {c['v1r_fingerprint_today']} vs recorded {c['v1r_recorded_fingerprint']} -> "
              + ("SAME" if same_fp else "CHANGED"))
-    if c["later_walked_before"]:
-        L.append(f"  note: {c['later_walked_before']} game(s) of a later season kick off before the last "
-                 f"{spec.warmup[-1]} game: v1r's walk updated on them, this fit does not (it reads {seasons} only)")
+    L.append(f"  later-season games kicking off before the last {spec.warmup[-1]} game: {c['later_walked_before']} "
+             f"(v1r's walk updated on any such game; this fit reads {seasons} only; 0 expected, and the REPRODUCED "
+             "check above assumes it)")
     L.append("  frozen in the registry entry: " + (repr(c["frozen"]) if c["frozen"] is not None else
                                                   "not yet — the declaration PR freezes the FITTED s above"))
     L.append(f"FIT ONLY: nothing scored on {spec.gate.test}, nothing reserved, nothing recorded, nothing written.")

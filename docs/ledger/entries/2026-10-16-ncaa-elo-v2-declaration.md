@@ -1,4 +1,4 @@
-**2026-10-16 — DECLARED (ARCHITECT 2026-10-16 07:53 ET, addendum 81 item 2): ncaa-elo-v2, tested on the 2026 regular season as it accrues, with a second read on 2023 that can only block; nothing run (#79, #551).**
+**2026-10-16 — DECLARED (ARCHITECT 2026-10-16 07:53 ET, addendum 81 item 2): ncaa-elo-v2, tested on the 2026 regular season as it accrues, with a second read on 2023 that can only block; nothing run (#79, #553).**
 - **The declaration, D1-D11 verbatim:**
   - D1. Candidate: NCAAEloV1's structure and constants (k_factor 24, home_advantage 55, mov_base 2.2, season_regression 0.25, default_rating 1500, neutral rule no_home_advantage_at_neutral) with ONE fitted parameter: the logistic scale s in P(home) = 1 / (1 + 10^(-(dr + ha) / s)), fitted by maximum likelihood on the 2024 and 2025 regular-season games of the stream (D2) and then frozen; v1 is s = 400. Code's PR prints the fitted s, the fit's log-likelihood curve at s = 300..500 by 25, and the slope b that the fitted s gives on 2025 (a read of the training set, reported, not a gate). Nothing else is fitted.
   - D2. Stream: as v1r's D2 (stored NCAA games with a current CFBD both-FBS label, seasons 2024, 2025, 2026, kickoff then id; labels give home/away, scores, neutral; level scores skipped, counted, listed), plus 2023 under D10.
@@ -12,14 +12,14 @@
   - D10. THE SECOND READ (older season as test — RULED generally here): a season that predates every training season, whose games the candidate never walked, is a legitimate additional test, and it can only BLOCK: the lane goes live only if BOTH the gate (D5 on 2026) and the second read pass; a second read that fails is a FAIL of the candidate. For v2: the 2023 FBS regular season, labels from CFBD (792 both-FBS completed games listed as of the 10-13 probe), the games from the provider's 2023 listing (3,720 listed), ingested whole by Code's PR before 2026-11-01, read ONCE by the run: ratings start at default_rating for every team (no 2022 warm-up: a cold start, so the first 4 weeks' games are walked and not scored; the scored set is 2023 regular games from week 5, which must number ≥ 500 or the second read is INVALID and I rule again), the fitted s applied, D5's four tests with D4's baseline taken from 2023's own weeks 1-4 non-neutral games. Safeguards: the season is declared whole here, nothing of it is fitted, and its census (--preflight) is read by me before the run; the run is the same one run (one word, one fingerprint covering both streams).
   - D11. Kalshi close as a benchmark: kalshi_settled_markets (KXNCAAFGAME, from 2025-08-23) is read beside the verdict for the 2026 scored games where a row exists — reported, never gated — and 2023 has none; nothing in D5 moves for it. (That read waits on the table's first NCAA pull, a later block.)
 - **Done:**
-  - The registry entry, declared and unrun, with the test set "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)". `logistic_scale.s` stays null until the fit's printout is pasted on #551; #551 then freezes it.
+  - The registry entry, declared and unrun, with the test set "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)". `logistic_scale.s` stays null until the fit's printout is pasted on #553; #553 then freezes it.
   - docs/specs/ncaa-elo-v2.md.
   - The gate's machinery, parameterised by registry id: v1r unchanged, `ncaa-gate --id` and `ncaa-confirm --id`.
   - The fit (`ncaa-fit-scale`), which reads 2024 and 2025 only.
   - `--preflight` for both streams, under one fingerprint.
   - The roadmap's ncaa lane: step 1 done, state declared.
 - **Read as built (section 8 of the spec):**
-  - s enters the expected score the update reads, as NHLEloV8's divisor did.
+  - s enters the expected score the update reads, as NHLEloV8's divisor did. intl-elo-v2's ratified fit read the same words the other way and kept the update at /400: Q1.
   - The run needs 2024, 2025 and 2026 covered.
   - The 500 refusal is "no 2026 game before that day".
   - 2023's week is CFBD's, stored by the 2023 ingest PR. "Weeks 1-4" means 'regular' games with a week before 5; a game without a week is walked and never scored.
@@ -30,7 +30,7 @@
   - Q2: whether a 2026 fence is wanted. Four reads print 2026 outcome figures today: ncaa-cfbd-coverage, ncaa-audit, resync-diff NCAA and the source probe.
   - A note on D9: addendum 24 item 2(d) reads "No shadow file has been written".
 - **Next:**
-  - The fit's printout from the operator on #551.
+  - The fit's printout from the operator on #553.
   - The 2023 ingest PR by 2026-11-01.
   - --preflight to the architect when the 500th 2026 game is final.
   - The one run on 2026-11-09, on the word.

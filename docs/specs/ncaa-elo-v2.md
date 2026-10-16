@@ -72,7 +72,9 @@ scores no 2026 game.
 - **The model.** The shared D1 wrapper with s: `ncaa_backtest.NeutralRuleElo(scale=s)` over `ncaa_elo.NCAAEloV2`.
   - s replaces 400 in P(home) = 1 / (1 + 10^(-(dr + ha) / s)).
   - v1's P(home) is `NCAAEloV1._expected_home`. The update reads it too, as the expected score. So s enters both the price and the update.
-  - This is how `nhl_elo.NHLEloV8` fitted its logistic divisor, the house precedent ("the logistic divisor (rating-to-probability)").
+  - **The house has two precedents, and they read the same words two ways.**
+    - `nhl_elo.NHLEloV8` (docs/specs/nhl-xg-v8.md) fitted "the logistic divisor (rating-to-probability)" inside the expected score, which its update reads too. That is the reading built here, for the same model family: a logistic Elo whose one expected-score function both prices and updates.
+    - intl-elo-v2 (docs/specs/intl-elo-v2.md, ratified and PASSED) fitted "the rating-to-probability scale" on the price only: "The update's expected score keeps v1's /400. It is the rating dynamics, not the probability the model states." That model prices through a separate soccer goals mapping (c), so its price and its update were already two functions.
   - At s = 400, v2 is v1 exactly: same probabilities, same ratings (tested).
   - **This reading is question Q1 of the PR.** The other reading leaves the update at 400 and changes only the price. It is one line in `NCAAEloV2`. No fit should be run before the architect confirms one of the two.
 - **The games.**
@@ -94,7 +96,7 @@ scores no 2026 game.
   - the slope b (and intercept a) that the fitted s gives on 2025's 'regular' games, using D5 (3)'s `ncaa_backtest.logistic_slope`. This is a read of the training set, reported, not a gate;
   - CHECK, against v1r's recorded run: at s = 400, b on 2025 against v1r's recorded 1.420537 (REPRODUCED or NOT REPRODUCED, to 1e-9), and v1r's stream fingerprint today against the recorded one (SAME or CHANGED).
   - The check reads v1r's own run record. 2025 is v1r's retired test season, and its figures were ruled on 2026-10-09.
-- **Frozen.** The operator pastes the printout on this PR. The PR then writes s into the entry exactly as printed (`logistic_scale.s`), with `fit` = the training fingerprint, the training game count, the log-likelihood and the receipt. The run reads s from there. `--preflight` prints it, beside whether today's 2024-2025 stream is still the one the fit read (SAME, or CHANGED since the fit). On CHANGED, the frozen s stands, the line says so, and the architect reads it before the word; the run does not refuse.
+- **Frozen.** The operator pastes the printout on this PR. The PR then writes s into the entry exactly as printed (`logistic_scale.s`), with `fit` = the training fingerprint, the training game count, the log-likelihood and the receipt. The run reads s from there. `--preflight` prints it, beside whether today's 2024-2025 stream is still the one the fit read (SAME, or CHANGED since the fit). On CHANGED, the frozen s stands, the line says so, and the architect reads it before the word; the run does not refuse. A frozen s whose `fit` records no training fingerprint reads UNKNOWN, never CHANGED.
 
 ## 5. The gate, parameterised by registry id (D6)
 
@@ -155,7 +157,7 @@ Nothing in D5 moves for it.
 
 ## 8. Interpretations (as built; each for the architect's confirmation)
 
-- **I1, s in the update too.** NHLEloV8's precedent (section 4). This is **Q1**.
+- **I1, s in the update too.** NHLEloV8's precedent; intl-elo-v2's reads the other way (section 4). This is **Q1**.
 - **I2, the gate run's coverage.** The run needs 2024, 2025 and 2026 covered, the seasons it walks. v1r's D6 named the seasons its run walked (2024, 2025), and D6 of v2 makes only 2023's coverage a precondition "of the SECOND read, not of the gate".
 - **I3, "frozen at --preflight".** The number --preflight prints is the number the run uses. The fingerprint check guarantees it; there is no separate store.
 - **I4, "The gate scores no 2026 game before that day".** The run's 500 refusal enforces it. There is no date check: the roadmap's 2026-11-08 is a projection (the roadmap's own rule for a calendar step).
@@ -168,9 +170,13 @@ Nothing in D5 moves for it.
 
 ## 9. Questions for the architect (needs-ruling)
 
-- **Q1 (D1).** Does s enter the expected score the update reads (as built: NHLEloV8's precedent, and the literal
-  P(home) of NCAAEloV1), or only the price, with the update kept at 400? The fit's figures differ between the two
-  readings. The fit is not run until this is ruled.
+- **Q1 (D1).** Does s enter the expected score the update reads, or only the price, with the update kept at 400?
+  - As built, it enters both: NHLEloV8's precedent, and the literal P(home) of NCAAEloV1, the one function v1 prices and updates with.
+  - The other precedent is intl-elo-v2's, ratified: "The update's expected score keeps v1's /400. It is the rating dynamics, not the probability the model states."
+  - Item 1's words ("the map from rating difference to probability") fit either reading.
+  - The fit's figures differ between the two: on a synthetic season whose true scale was 280, the both-reading fitted s ≈ 351, because the ratings rescale with it.
+  - The other reading is one line in `NCAAEloV2`.
+  - The fit is not run until this is ruled.
 - **Q2 (a 2026 fence).** v1r's declaration carried a test-season fence (addendum 14 item 2(b)), and it was
   lifted by v1r's run. v2's declaration orders none. Today four reads print 2026 outcome figures, a home win rate
   or a margin across games (law 1: read from the code, not run):

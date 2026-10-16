@@ -1,0 +1,432 @@
+{
+ "errors": [],
+ "get": "fixtures/lineups",
+ "paging": {
+  "current": 1,
+  "total": 1
+ },
+ "parameters": {
+  "fixture": "1567390"
+ },
+ "response": [
+  {
+   "coach": {
+    "id": 28341,
+    "name": "Roy Hodgson",
+    "photo": "https://media.api-sports.io/football/coachs/28341.png"
+   },
+   "formation": "4-2-3-1",
+   "startXI": [
+    {
+     "player": {
+      "grid": "1:1",
+      "id": 276989,
+      "name": "S. Tickle",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:4",
+      "id": 130861,
+      "name": "G. Tanner",
+      "number": 19,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:3",
+      "id": 20103,
+      "name": "R. Dickie",
+      "number": 16,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:2",
+      "id": 349224,
+      "name": "L. Eissat",
+      "number": 2,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:1",
+      "id": 17805,
+      "name": "C. Pring",
+      "number": 3,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:2",
+      "id": 68128,
+      "name": "J. Knight",
+      "number": 12,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:1",
+      "id": 20409,
+      "name": "A. Randell",
+      "number": 4,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:3",
+      "id": 19646,
+      "name": "J. Wallace",
+      "number": 17,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:2",
+      "id": 19211,
+      "name": "M. Bird",
+      "number": 6,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:1",
+      "id": 153400,
+      "name": "S. Greenwood",
+      "number": 20,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "5:1",
+      "id": 180556,
+      "name": "L. Tolaj",
+      "number": 9,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 20016,
+      "name": "B. Collins",
+      "number": 40,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 19712,
+      "name": "J. Williams",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 207200,
+      "name": "N. Eile",
+      "number": 38,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 303460,
+      "name": "D. Ballard",
+      "number": 23,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 69403,
+      "name": "S. Twine",
+      "number": 10,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 15705,
+      "name": "E. Riis",
+      "number": 18,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 18648,
+      "name": "R. Atkinson",
+      "number": 5,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 296135,
+      "name": "G. Yah",
+      "number": 27,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 348800,
+      "name": "Y. Hirakawa",
+      "number": 7,
+      "pos": "F"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "003802",
+      "number": "ffffff",
+      "primary": "003802"
+     },
+     "player": {
+      "border": "cc0000",
+      "number": "ffffff",
+      "primary": "cc0000"
+     }
+    },
+    "id": 56,
+    "logo": "https://media.api-sports.io/football/teams/56.png",
+    "name": "Bristol City"
+   }
+  },
+  {
+   "coach": {
+    "id": 28336,
+    "name": "Darren Byfield",
+    "photo": "https://media.api-sports.io/football/coachs/28336.png"
+   },
+   "formation": "5-4-1",
+   "startXI": [
+    {
+     "player": {
+      "grid": "1:1",
+      "id": 308676,
+      "name": "J. Ward",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:5",
+      "id": 377799,
+      "name": "E. Ahui",
+      "number": 22,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:4",
+      "id": 295912,
+      "name": "H. Burke",
+      "number": 5,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:3",
+      "id": 346978,
+      "name": "D. Skura",
+      "number": 25,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:2",
+      "id": 119162,
+      "name": "R. Leak",
+      "number": 26,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:1",
+      "id": 323377,
+      "name": "M. Hancock",
+      "number": 3,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:4",
+      "id": 284468,
+      "name": "C. Clarke",
+      "number": 17,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:3",
+      "id": 470046,
+      "name": "I. Moore",
+      "number": 15,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:2",
+      "id": 7564,
+      "name": "S. Sprangler",
+      "number": 6,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:1",
+      "id": 194498,
+      "name": "R. Smith",
+      "number": 11,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:1",
+      "id": 138934,
+      "name": "A. Pressley",
+      "number": 19,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 592997,
+      "name": "J. Kilroy",
+      "number": 21,
+      "pos": null
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 286760,
+      "name": "J. Connolly",
+      "number": 4,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 167134,
+      "name": "V. Harper",
+      "number": 18,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 345435,
+      "name": "C. Crew",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 19183,
+      "name": "A. Adomah",
+      "number": 37,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 45197,
+      "name": "A. Dallas",
+      "number": 9,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 154803,
+      "name": "L. Simper",
+      "number": 10,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 284238,
+      "name": "T. Sodje",
+      "number": 7,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 310562,
+      "name": "R. Browne",
+      "number": 2,
+      "pos": "D"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "ffff00",
+      "number": "000000",
+      "primary": "ffff00"
+     },
+     "player": {
+      "border": "ffffff",
+      "number": "dc1304",
+      "primary": "ffffff"
+     }
+    },
+    "id": 1342,
+    "logo": "https://media.api-sports.io/football/teams/1342.png",
+    "name": "Walsall"
+   }
+  }
+ ],
+ "results": 2
+}

@@ -969,9 +969,14 @@ class Lineup(Base):
     `kind` distinguishes:
       - "projected" — heuristic guess (recent starting XI minus injuries)
       - "confirmed" — official lineup, available ~T-20min from kickoff
+      - "history" — a FINISHED cup fixture's eleven and bench, written by
+        sync-lineups-history (addendum 74 item 1). Its refreshed_at is the
+        ingest time, never a publication time. Never "confirmed": the live
+        lineup factor reads every team's last confirmed starters.
 
-    When sync-lineups runs, all rows for a given (match, team) are deleted
-    and rewritten. We don't track lineup history.
+    When sync-lineups runs (upcoming SCHEDULED matches only), all rows of the
+    match are deleted and rewritten. sync-lineups-history replaces only the
+    history rows of a (match, team) it is answered for.
     """
 
     __tablename__ = "lineups"
@@ -979,7 +984,7 @@ class Lineup(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     match_id: Mapped[int] = mapped_column(ForeignKey("matches.id"), index=True)
     team_id: Mapped[int] = mapped_column(ForeignKey("teams.id"), index=True)
-    kind: Mapped[str] = mapped_column(String(16), default="projected")  # projected | confirmed
+    kind: Mapped[str] = mapped_column(String(16), default="projected")  # projected | confirmed | history
 
     formation: Mapped[str | None] = mapped_column(String(16))  # "4-3-3", "3-5-2"
     is_starter: Mapped[bool] = mapped_column(Boolean, default=True)

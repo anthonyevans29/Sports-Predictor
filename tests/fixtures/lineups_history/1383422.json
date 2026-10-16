@@ -1,0 +1,405 @@
+{
+ "errors": [],
+ "get": "fixtures/lineups",
+ "paging": {
+  "current": 1,
+  "total": 1
+ },
+ "parameters": {
+  "fixture": "1383422"
+ },
+ "response": [
+  {
+   "coach": {
+    "id": 27447,
+    "name": "Miika Nuutinen",
+    "photo": "https://media.api-sports.io/football/coachs/27447.png"
+   },
+   "formation": "4-2-3-1",
+   "startXI": [
+    {
+     "player": {
+      "grid": "1:1",
+      "id": 7060,
+      "name": "J. Kreidl",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:4",
+      "id": 55388,
+      "name": "S. Savolainen",
+      "number": 6,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:3",
+      "id": 129635,
+      "name": "I. Cisse",
+      "number": 15,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:2",
+      "id": 275188,
+      "name": "S. Miettinen",
+      "number": 16,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:1",
+      "id": 15898,
+      "name": "C. Antwi",
+      "number": 25,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:2",
+      "id": 19349,
+      "name": "J. Oksanen",
+      "number": 13,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:1",
+      "id": 55472,
+      "name": "D. Arifi",
+      "number": 10,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:3",
+      "id": 264134,
+      "name": "J. Luyeye-Lutumba",
+      "number": 21,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:2",
+      "id": 318083,
+      "name": "O. Ruoppi",
+      "number": 34,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:1",
+      "id": 55376,
+      "name": "P. Pennanen",
+      "number": 8,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "5:1",
+      "id": 265509,
+      "name": "A. Sadiku",
+      "number": 11,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 173855,
+      "name": "A. Hakala",
+      "number": 12,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 55562,
+      "name": "J. Voutilainen",
+      "number": 7,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 55382,
+      "name": "A. Heinonen",
+      "number": 17,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 380752,
+      "name": "E. Tanninen",
+      "number": 18,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 489935,
+      "name": "M. Toure",
+      "number": 20,
+      "pos": "F"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 51028,
+      "name": "N. Hamalainen",
+      "number": 22,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 263910,
+      "name": "A. Lotjonen",
+      "number": 23,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 434046,
+      "name": "B. Armah",
+      "number": 24,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 298070,
+      "name": "R. Salo",
+      "number": 26,
+      "pos": "M"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "0ea6eb",
+      "number": "696c7d",
+      "primary": "0ea6eb"
+     },
+     "player": {
+      "border": "ffef2f",
+      "number": "cd5313",
+      "primary": "ffef2f"
+     }
+    },
+    "id": 1165,
+    "logo": "https://media.api-sports.io/football/teams/1165.png",
+    "name": "KuPS"
+   }
+  },
+  {
+   "coach": {
+    "id": 27647,
+    "name": "Igor Picusceac",
+    "photo": "https://media.api-sports.io/football/coachs/27647.png"
+   },
+   "formation": "4-1-4-1",
+   "startXI": [
+    {
+     "player": {
+      "grid": "1:1",
+      "id": 7855,
+      "name": "E. Timbur",
+      "number": 1,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:4",
+      "id": 37820,
+      "name": "H. Asmelash",
+      "number": 29,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:3",
+      "id": 198485,
+      "name": "D. Koy Lupano",
+      "number": 4,
+      "pos": null
+     }
+    },
+    {
+     "player": {
+      "grid": "2:2",
+      "id": 106009,
+      "name": "V. Jardan",
+      "number": 22,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "2:1",
+      "id": 196940,
+      "name": "F. Takyi",
+      "number": 30,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "3:1",
+      "id": 295428,
+      "name": "C. Nwaeze",
+      "number": 5,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:4",
+      "id": 128258,
+      "name": "N. Khali",
+      "number": 25,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:3",
+      "id": 278450,
+      "name": "A. Yoda",
+      "number": 18,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:2",
+      "id": 56069,
+      "name": "R. Ginsari",
+      "number": 10,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "4:1",
+      "id": 8644,
+      "name": "S. Keita",
+      "number": 27,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": "5:1",
+      "id": 199652,
+      "name": "K. Kalabatama",
+      "number": 28,
+      "pos": "F"
+     }
+    }
+   ],
+   "substitutes": [
+    {
+     "player": {
+      "grid": null,
+      "id": 363540,
+      "name": "D. Vornic",
+      "number": 12,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 163476,
+      "name": "F. Dujmovic",
+      "number": 31,
+      "pos": "G"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 112959,
+      "name": "I. Ghimp",
+      "number": 6,
+      "pos": "D"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 543975,
+      "name": "D. Lisu",
+      "number": 7,
+      "pos": null
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 430925,
+      "name": "S. Chele",
+      "number": 11,
+      "pos": "M"
+     }
+    },
+    {
+     "player": {
+      "grid": null,
+      "id": 112930,
+      "name": "I. Arhirii",
+      "number": 17,
+      "pos": "D"
+     }
+    }
+   ],
+   "team": {
+    "colors": {
+     "goalkeeper": {
+      "border": "00ff00",
+      "number": "000000",
+      "primary": "00ff00"
+     },
+     "player": {
+      "border": "ff0000",
+      "number": "ffffff",
+      "primary": "ff0000"
+     }
+    },
+    "id": 691,
+    "logo": "https://media.api-sports.io/football/teams/691.png",
+    "name": "Milsami Orhei"
+   }
+  }
+ ],
+ "results": 2
+}

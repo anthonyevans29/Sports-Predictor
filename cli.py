@@ -1037,6 +1037,33 @@ def sync_lineups_cmd(competition_code: str, season: str, limit: int):
     console.print(f"[green]✓ Lineups ({competition_code}): {result}[/green]")
 
 
+@cli.command("sync-lineups-history")
+@click.option("--competition", "competition_code", required=True, type=click.Choice(("CL", "UEL", "EFL", "FAC")),
+              help="One cup per run.")
+@click.option("--season", required=True, help="As stored (2025/26) or the start year (2025, read as 2025/26).")
+@click.option("--dry-run", is_flag=True, help="Print the plan, make the reads up to --max-calls, write nothing.")
+@click.option("--max-calls", default=100, type=click.IntRange(min=1), show_default=True,
+              help="Lineup calls in all; the run stops cleanly at the cap and prints where it stopped.")
+@click.option("--save", default=None, help="Keep each answer whole as DIR/<fixture id>.json (never under data/).")
+@click.option("--since", type=click.DateTime(formats=["%Y-%m-%d"]), default=None,
+              help="Only the fixtures on or after this date (the stored kickoff's UTC date); the receipt lists every "
+                   "one left out (ARCHITECT 2026-10-16, addendum 83 item 5(b): FAC 2025/26 --since 2025-11-01).")
+def sync_lineups_history_cmd(competition_code, season, dry_run, max_calls, save, since):
+    """CUP LINEUP HISTORY (ARCHITECT 2026-10-15, addendum 74 item 1; addendum 71's Step B; #106). For the finished
+    fixtures of one cup-season, the starting eleven and bench per side from /fixtures/lineups, stored in the lineups
+    table as kind 'history' (never 'confirmed', which the live lineup factor reads). Idempotent (a fixture holding
+    both elevens is skipped), paced by the adapter, with a coverage receipt (fixtures with both elevens / fixtures).
+    Rows carry the ingest time only. src/ingestion/lineups_history.py."""
+    from src.ingestion.lineups_history import Refused, run_lineups_history
+    from src.walters.venue_quote_age import Refused as ReadRefused
+    try:
+        run_lineups_history(competition_code, season, dry_run=dry_run, max_calls=max_calls, echo=click.echo,
+                            save=save, since=since.date() if since is not None else None)
+    except (Refused, ReadRefused) as e:
+        click.echo(str(e) if str(e).startswith("REFUSED") else f"REFUSED: {e}")
+        raise SystemExit(2)
+
+
 @cli.command("sync-players")
 @click.option("--competition", "competition_code", required=True, help="e.g. PL")
 @click.option("--season", required=True, help="e.g. 2025/26")

@@ -1,0 +1,18 @@
+## 2026-10-16 (#561: ncaa-2026-fence — ARCHITECT addendum 86 item 3 (Q2); addendum 96 item 1)
+- src/walters/ncaa_backtest.py: the 2026 fence, in v1r's form.
+  - `V2_FENCE` holds the ruling verbatim, with `V2_FENCE_RULING`, `V2_FENCED_RATE` and `v2_fence_refusal`.
+  - `v2_run_recorded()` reads only the registry: ncaa-elo-v2's `run`; an absent entry reads as not recorded. The fence lifts with the recorded run, never by a flag.
+  - `coverage_report(..., fenced_v2=None)` and `V1RStream.lines(..., fenced_v2=True)`: ncaa-cfbd-coverage prints no 2026 home win rate in either block. Counts, coverage, the census and the neutral counts stay.
+- cli.py:
+  - `ncaa-audit` with 2026 among its seasons refuses, exit 2, naming the ruling, before anything is read. Its default seasons are 2025 alone until the run.
+  - `resync-diff --competition NCAA` prints the home-rate line as withheld when the listing includes 2026 (no `--season`, or 2026). n and the single-game samples stay.
+- scripts/ncaa_source_probe.py: 2026's rate-and-margin lines print n and ncaa-elo-v2's withheld notice (`fenced_notice`).
+- docs/roadmap.json: the ncaa lane's step 2 ("the declaration PR open, its checks green, nothing run") is done, receipt "#553 merged at 81ea7c0" (addendum 96 item 1).
+- docs/specs/ncaa-elo-v2.md (Q2 built) and docs/CLI.md (the three commands' rows).
+- tests/test_ncaa_2026_fence.py (5):
+  - the ruling verbatim, and the registry-only switch;
+  - coverage in both blocks;
+  - ncaa-audit's refusal and its default seasons;
+  - resync-diff;
+  - the probe.
+- tests/test_ncaa_audit.py and tests/test_ncaa_v1r_fence.py: the two tests that read 2026 now say which fence they exercise.

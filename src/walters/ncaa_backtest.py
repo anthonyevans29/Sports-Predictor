@@ -543,6 +543,38 @@ def fence_refusal(command: str) -> str:
             f"recorded. {FENCE_RULING}, verbatim: \"{TEST_SEASON_FENCE}\"")
 
 
+# THE 2026 FENCE (ARCHITECT 2026-10-16, addendum 86 item 3, Q2, verbatim below), in v1r's form: until the registry
+# records ncaa-elo-v2's one run, ncaa-cfbd-coverage withholds every 2026 home win rate, ncaa-audit refuses 2026 among
+# its seasons (default 2025 alone), and resync-diff's NCAA home-rate line and the source probe's rate-and-margin lines
+# withhold 2026. Lifted by the recorded run, never by a flag.
+V2_EID = "ncaa-elo-v2"
+V2_TEST = "2026"
+V2_FENCE = ("YES, a 2026 fence, in v1r's form, as a SEPARATE small PR after #553 merges and before 2026-11-09: until v2's "
+            'one run is recorded, no command prints an outcome figure of the 2026 season (a rate, a margin, a count of '
+            'wins). ncaa-cfbd-coverage prints no 2026 home win rate or margin in either block (counts, coverage, census and '
+            'neutral counts stay); ncaa-audit with 2026 among its seasons refuses, exit 2, naming this ruling (its default '
+            'seasons become 2025 alone until the run); resync-diff --competition NCAA and scripts/ncaa_source_probe.py keep '
+            'their single-game listings (the level ruling: a game with its score is how a defect is checked) and drop any '
+            'aggregate outcome line over 2026. D9 of v2 already records every 2026 read to date; the fence keeps that list '
+            'from growing. Gates bind more under the income goal, never less.')
+V2_FENCE_RULING = "ARCHITECT 2026-10-16, addendum 86 item 3 (Q2)"
+V2_FENCED_RATE = f"withheld until the {V2_EID} run is recorded ({V2_FENCE_RULING})"
+
+
+def v2_run_recorded(registry_path: str | None = None) -> bool:
+    """True once the registry records ncaa-elo-v2's one run (`run` set). The 2026 fence reads only this; an absent
+    entry reads as not recorded (fenced)."""
+    from src.walters import registry as reg
+
+    e = reg.get(V2_EID, registry_path) if registry_path else reg.get(V2_EID)
+    return bool(e and e.get("run"))
+
+
+def v2_fence_refusal(command: str) -> str:
+    return (f"{command} REFUSED (exit 2): {V2_TEST} is among its seasons and the {V2_EID} run is not recorded. "
+            f"{V2_FENCE_RULING}, verbatim: \"{V2_FENCE}\"")
+
+
 class NeutralRuleElo:
     """D1 (verbatim): "NCAAEloV1 with its constants untouched [...] neutral_site_rule is
     no_home_advantage_at_neutral: a game whose label says neutral is priced and updated with home advantage 0. A
@@ -670,15 +702,17 @@ class V1RStream:
     def by_season(self, season: str) -> list[Game]:
         return [g for g in self.games if g.season == season]
 
-    def lines(self, fenced: bool = True) -> list[str]:
-        """`fenced` (the default): the 2025 home win rate is withheld (TEST_SEASON_FENCE); counts stay."""
+    def lines(self, fenced: bool = True, fenced_v2: bool = True) -> list[str]:
+        """`fenced` (the default): the 2025 home win rate is withheld (TEST_SEASON_FENCE); `fenced_v2` (the default):
+        the 2026 home win rate is withheld (V2_FENCE); counts stay."""
         L = ["NCAA-ELO-V1R STREAM (D2, ARCHITECT 2026-10-08, addendum 11 item 3): stored games carrying a CURRENT "
              f"CFBD both-FBS label, seasons {', '.join(V1R_SEASONS)} (the label's season), kickoff then match id, "
              "postseason included; a game without one is neither walked nor scored"]
         for season in V1R_SEASONS:
             walked = self.by_season(season)
             nn = [g for g in walked if g.neutral is not True]
-            rate = FENCED_RATE if fenced and season == V1R_TEST else _rate(_home_rate(nn))
+            rate = (FENCED_RATE if fenced and season == V1R_TEST else
+                    V2_FENCED_RATE if fenced_v2 and season == V2_TEST else _rate(_home_rate(nn)))
             L.append(f"  {season}: walked {len(walked)} · by season_type {self.census.get(season, {})} · neutral "
                      f"{self.neutral[season]} (home advantage 0, D1) · no neutral flag {self.unflagged[season]} "
                      f"(non-neutral, counted) · level scores {self.level_by_season[season]} · home win rate "
@@ -844,17 +878,22 @@ def coverage_misses(fbs: dict[str, dict], seasons) -> list[str]:
 
 
 def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dict | None = None,
-                    v1r: V1RStream | None = None, fenced: bool | None = None) -> dict[str, dict]:
+                    v1r: V1RStream | None = None, fenced: bool | None = None,
+                    fenced_v2: bool | None = None) -> dict[str, dict]:
     """`ncaa-cfbd-coverage`: the per-season receipt the architect reads.
     `fbs` = ncaa_cfbd.stored_coverage (the SCOPE condition: labelled / CFBD's
     completed both-FBS games, >= 95%, every unlabelled game listed); `stream`
     = #79's all-division stream (information); `v1r` = the v1r stream receipt.
     States the condition as a computed fact; never declares the gate un-suspended. `fenced` (None = read the
-    registry): no 2025 home win rate in either block until the v1r run is recorded (TEST_SEASON_FENCE)."""
+    registry): no 2025 home win rate in either block until the v1r run is recorded (TEST_SEASON_FENCE). `fenced_v2`
+    (None = read the registry): no 2026 home win rate in either block until the ncaa-elo-v2 run is recorded
+    (V2_FENCE)."""
     from src.ingestion.ncaa_cfbd import stored_coverage_lines
 
     if fenced is None:
         fenced = not v1r_run_recorded()
+    if fenced_v2 is None:
+        fenced_v2 = not v2_run_recorded()
 
     cov = label_coverage(stream)
     out(f"NCAA CFBD LABEL COVERAGE · SCOPE condition (ARCHITECT 2026-10-08): the side table labels >= "
@@ -871,7 +910,7 @@ def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dic
     out(f"  coverage condition in ALL THREE seasons ({', '.join(V1R_SEASONS)}): "
         f"{'HOLDS' if held else 'DOES NOT HOLD'} (computed fact)")
     if v1r is not None:
-        for line in v1r.lines(fenced=fenced):
+        for line in v1r.lines(fenced=fenced, fenced_v2=fenced_v2):
             out(line)
     out(f"#79 ALL-DIVISION STREAM (information; declared 2026-09-30, unchanged): FINISHED, both scores, "
         f"pre/postseason excluded, ties skipped")
@@ -882,6 +921,9 @@ def coverage_report(stream: Stream, out: Callable[[str], None] = print, fbs: dic
             f"{c['neutral']} · score-corrected {c['score_corrected']}")
         if fenced and season == V1R_TEST:
             out(f"    home win rate: {FENCED_RATE}")
+            continue
+        if fenced_v2 and season == V2_TEST:
+            out(f"    home win rate: {V2_FENCED_RATE}")
             continue
         out(f"    home win rate: non-neutral (covered, CFBD neutral=False) {_rate(c['home_rate_nonneutral'])} "
             f"(n {c['n_nonneutral']}) · all stream games {_rate(c['home_rate_all'])} · uncovered games "

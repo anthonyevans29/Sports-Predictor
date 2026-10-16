@@ -132,6 +132,7 @@ def test_resync_diff_withholds_the_ncaa_home_rate_when_the_listing_includes_2025
     monkeypatch.setattr(rd, "diff", lambda *a, **k: {"source": "x", "listing": 3, "counts": {}, "samples": {},
                                                     "home_rate": {"ours": ["0.612", 3], "provider": ["0.587", 3]}})
     monkeypatch.setattr(rd, "verdict", lambda c: "ok")
+    monkeypatch.setattr(nb, "v2_run_recorded", lambda *a: True)     # v1r's fence alone (2026's: test_ncaa_2026_fence)
     monkeypatch.setattr(nb, "v1r_run_recorded", lambda *a: False)            # the fence as it stood before the run
     for args, withheld in ((["--season", "2025"], True), ([], True), (["--season", "2026"], False)):
         out = CliRunner().invoke(cli.cli, ["resync-diff", "--competition", "NCAA", *args]).output

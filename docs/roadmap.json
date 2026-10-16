@@ -77,7 +77,10 @@
           "what": "the declaration PR open, its checks green, nothing run",
           "owner": "code",
           "due": "2026-10-20",
-          "done": null
+          "done": {
+            "date": "2026-10-16",
+            "receipt": "#553 merged at 81ea7c0 (ARCHITECT 2026-10-16, addendum 96 item 1: CALLED at 9331906)"
+          }
         },
         {
           "what": "the 500th both-FBS regular-season game of 2026 is final and labelled (274 were at the run of 2026-10-09)",

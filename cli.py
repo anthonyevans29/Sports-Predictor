@@ -297,6 +297,10 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
     if competition_code.upper() == "NCAA" and season in (None, nb.V1R_TEST) and not nb.v1r_run_recorded():
         # #368 fence: an NCAA listing that includes 2025 prints no home win rate until the v1r run is recorded
         click.echo(f"  home win rate (decided games): {nb.FENCED_RATE} (n ours={no}, provider={np_})")
+    elif competition_code.upper() == "NCAA" and season in (None, nb.V2_TEST) and not nb.v2_run_recorded():
+        # the 2026 fence (addendum 86 item 3, Q2): an NCAA listing that includes 2026 prints no home win rate until
+        # the ncaa-elo-v2 run is recorded; the single-game samples stay
+        click.echo(f"  home win rate (decided games): {nb.V2_FENCED_RATE} (n ours={no}, provider={np_})")
     else:
         click.echo(f"  home win rate (decided games): ours {ro} (n={no}) · provider {rp} (n={np_})")
     for k, lines in sorted(r["samples"].items()):
@@ -6986,7 +6990,8 @@ def ncaa_backtest_cmd(baselines_only, candidate):
 
 @cli.command("ncaa-audit")
 @click.option("--season", "seasons", multiple=True, metavar="YYYY",
-              help="Restrict the per-season sections (repeatable). Default: 2025 and 2026.")
+              help="Restrict the per-season sections (repeatable). Default: 2025 and 2026; 2025 alone until the "
+                   "ncaa-elo-v2 run is recorded, and 2026 refuses until then (the 2026 fence, addendum 86 item 3).")
 @click.option("--limit", type=int, default=20, show_default=True,
               help="Length of every list (exclusions, pairings, top home-share teams, top values).")
 def ncaa_audit_cmd(seasons, limit):
@@ -7001,8 +7006,16 @@ def ncaa_audit_cmd(seasons, limit):
     if not nb.v1r_run_recorded():   # #368 fence (addendum 14 item 2(b)): refuse before anything is read
         click.echo(nb.fence_refusal("ncaa-audit"))
         raise SystemExit(2)
+    given = tuple(str(s_) for s_ in seasons)
+    run_seasons = given or na.AUDIT_SEASONS
+    if not nb.v2_run_recorded():    # the 2026 fence (addendum 86 item 3, Q2): refuse before anything is read
+        if nb.V2_TEST in given:
+            click.echo(nb.v2_fence_refusal("ncaa-audit"))
+            raise SystemExit(2)
+        if not given:                                                   # the default: 2025 alone until the run
+            run_seasons = tuple(s_ for s_ in na.AUDIT_SEASONS if s_ != nb.V2_TEST)
     data = na.load(top=limit)
-    na.report(data, seasons=tuple(seasons) or na.AUDIT_SEASONS, limit=limit, out=click.echo)
+    na.report(data, seasons=run_seasons, limit=limit, out=click.echo)
 
 
 @cli.command("ncaa-cfbd-labels")

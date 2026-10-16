@@ -1537,5 +1537,55 @@
     "ratified": "ARCHITECT 2026-10-08, addendum 11 item 3 (pre-run, frozen; D1-D9 verbatim in docs/specs/ncaa-elo-v1r.md). Note on D5 (verbatim): \"Tests (2) and (3) replace #79's band rule for this declaration only, before any v1r number exists. #79's own declaration is untouched, and my sentence in addendum 10 that its acceptance numbers do not move stands for #79. For v1r the margin, the rating range and the 500 games are #79's; the calibration test is D5's.\"",
     "design_receipt": "docs/receipts/ncaa-v1r-design-2026-10-08.md (step (a), stop condition OK: first setting D5 (2)&(3) 87.0%, band rule 29.5%; re-run with the uniform cross-conference draw after Codex on #365, first run 87.5% / 26.5%)",
     "prior_reads_note": "D9. Prior reads of this test set: none. The 2026-09-30 run of v1 (all divisions, scrambled 2025 labels, VOID by the 2026-10-01 ruling) scored 2026 games; the entry names it. CORRECTION (ARCHITECT 2026-10-08, addendum 14 item 2(a), #368, verbatim): \"For 'Prior reads of this test set: none.' read 'No candidate has been scored on this test set. One outcome figure of the test season was read before this declaration: its non-neutral home win rate on the labels then held, 0.597 on 652 games (operator console, ingest of 2026-10-08 14:07Z; the label sanity check ordered on 2026-10-07, when 2025 was the warm-up season). D5 (2) compares the model with a figure of that kind and was declared with it known. D5 (1), (3) and (4) were not informed by it.'\" CORRECTION IN FORCE (ARCHITECT 2026-10-08, addendum 15 item 1(a), #368, superseding the addendum 14 correction, which stays quoted as issued; verbatim): \"For 'Prior reads of this test set: none.' read: 'No candidate has been scored on this test set. The season's home win rate and mean home margin were read before this declaration, more than once. Under the provider's labels, since found scrambled: 0.489 in the void v1 run (2026-09-30); by stage and by month in ncaa-audit, FBS 0.404 with -6.05 points (2026-10-01); 0.489 at the source in resync-diff (2026-10-01); 0.445 with -2.67 points in the #176 probe (2026-10-07). Under CFBD's labels: 0.597 with +5.23 points on non-neutral games in the same probe, which also printed both figures for the season's 64 neutral-site games; and 0.597 on 652 labelled non-neutral games (operator console, 2026-10-08 14:07Z). Declared with these figures known: D1's neutral-site rule, D4, and D5's tests (2) and (3). Fixed before any of them was read: D1's constants, and the margin of 0.010, the rating range and the 500 games, which are #79's (frozen 2026-09-30, before any run).'\""
+  },
+  {
+    "id": "ncaa-elo-v2",
+    "sport": "ncaa",
+    "lane": "#79 (ncaa-elo-v2 declared ARCHITECT 2026-10-16, addendum 81 item 2; roadmap lane ncaa)",
+    "candidate": "NCAAEloV1's structure and constants (k_factor 24, home_advantage 55, mov_base 2.2, season_regression 0.25, default_rating 1500, neutral rule no_home_advantage_at_neutral) with ONE fitted parameter: the logistic scale s in P(home) = 1 / (1 + 10^(-(dr + ha) / s)) (D1); src/models/ncaa_elo.NCAAEloV2 through the shared D1 wrapper ncaa_backtest.NeutralRuleElo(scale=s)",
+    "declaration": "docs/specs/ncaa-elo-v2.md",
+    "training_cutoff": "the logistic scale s only: fitted by maximum likelihood on the stream's 2024 and 2025 regular-season games and then frozen (D1; logistic_scale); nothing else is fitted. D2: v1r's stream (current CFBD both-FBS labels, seasons 2024-2026, kickoff then match id) plus 2023 under D10. D3: 2024 and 2025 training and warm-up, update only; the test set is the 2026 games whose season_type is exactly 'regular', scored when the 500th is final and labelled. D4: the 2024 and 2025 non-neutral regular-season home win rate, one number, frozen at --preflight (0.5 at a neutral site)",
+    "test_set": "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)",
+    "gate": "v1r's D5 verbatim \u2014 under 500 scored games INVALID; PASS iff margin (model log-loss < baseline \u2212 0.010, ties reject), level (|mean p_home \u2212 home rate| \u2264 5pp), spread (b within 0.20 of 1, non-convergence fails), range (ratings within 1000-2000) \u2014 on the 2026 scored set. The reported-never-gated figures as v1r's.",
+    "confirmation_window": "as v1r's D7 (the first 100 stored fixtures after the verdict, frozen once; CONFIRMED iff log-loss \u2264 0.6931 and < the D4 baseline \u2212 0.010 on the same games).",
+    "confirmation_plan": {
+      "n_games": 100,
+      "metric": "log_loss",
+      "bar": 0.6931,
+      "must_beat_reference": true,
+      "reference": "the D4 baseline on the same games minus 0.010"
+    },
+    "declared_at": "2026-10-16T13:00:17Z",
+    "status": "declared",
+    "run": null,
+    "verdict": null,
+    "neutral_site_rule": "no_home_advantage_at_neutral",
+    "constants": {
+      "k_factor": 24.0,
+      "home_advantage": 55.0,
+      "mov_base": 2.2,
+      "season_regression": 0.25,
+      "default_rating": 1500.0
+    },
+    "logistic_scale": {
+      "s": 279.14222651259433,
+      "fit": {
+        "training_fingerprint": "a5568a48718d7ea18e7d397c8c3be4ff11c03651574c38cbcf6d06f882f3ab47",
+        "regular_games": {
+          "2024": 752,
+          "2025": 762
+        },
+        "log_likelihood": -870.104578,
+        "b_2025": 0.99133,
+        "fitted": "2026-10-16, by the operator's block (block_1016_fit.txt; console logs/ncaa_fit_scale_2026-10-16.txt)",
+        "head": "4790737",
+        "ruling": "ARCHITECT 2026-10-16, addendum 93 item 2"
+      },
+      "rule": "D1: fitted by maximum likelihood on the 2024 and 2025 regular-season games of the stream and then frozen; the declared procedure is src/walters/ncaa_scale_fit.py (docs/specs/ncaa-elo-v2.md, section 4); s is written here, exactly as ncaa-fit-scale prints it, by the declaration PR, with the training fingerprint the fit read. The run refuses while s is null. PRICE ONLY (ARCHITECT 2026-10-16, addendum 86 item 3, Q1): s enters the stated probability and nothing else; the update keeps v1's expected score at /400."
+    },
+    "second_read": "D10. THE SECOND READ (older season as test \u2014 RULED generally here): a season that predates every training season, whose games the candidate never walked, is a legitimate additional test, and it can only BLOCK: the lane goes live only if BOTH the gate (D5 on 2026) and the second read pass; a second read that fails is a FAIL of the candidate. For v2: the 2023 FBS regular season, labels from CFBD (792 both-FBS completed games listed as of the 10-13 probe), the games from the provider's 2023 listing (3,720 listed), ingested whole by Code's PR before 2026-11-01, read ONCE by the run: ratings start at default_rating for every team (no 2022 warm-up: a cold start, so the first 4 weeks' games are walked and not scored; the scored set is 2023 regular games from week 5, which must number \u2265 500 or the second read is INVALID and I rule again), the fitted s applied, D5's four tests with D4's baseline taken from 2023's own weeks 1-4 non-neutral games. Safeguards: the season is declared whole here, nothing of it is fitted, and its census (--preflight) is read by me before the run; the run is the same one run (one word, one fingerprint covering both streams).",
+    "benchmark": "D11. Kalshi close as a benchmark: kalshi_settled_markets (KXNCAAFGAME, from 2025-08-23) is read beside the verdict for the 2026 scored games where a row exists \u2014 reported, never gated \u2014 and 2023 has none; nothing in D5 moves for it. (That read waits on the table's first NCAA pull, a later block.)",
+    "ratified": "ARCHITECT 2026-10-16 07:53 ET, addendum 81 item 2 (pre-run, frozen; D1-D11 verbatim in docs/specs/ncaa-elo-v2.md). D10's ruling, generally (verbatim): \"a season that predates every training season, whose games the candidate never walked, is a legitimate additional test, and it can only BLOCK: the lane goes live only if BOTH the gate (D5 on 2026) and the second read pass; a second read that fails is a FAIL of the candidate.\"",
+    "prior_reads_note": "D9. Prior reads: the 2026 season's games through 2026-10-09 (274 both-FBS finals) were walked by v1r's shadow exports and by nothing scored; no candidate has been scored on 2026; this declaration is written with v1r's 2025 figures known (item 1), and with no figure of 2026 read beyond the shadow's own rows, which carry no verdict."
   }
 ]

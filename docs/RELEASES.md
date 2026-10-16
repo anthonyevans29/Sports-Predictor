@@ -46,15 +46,18 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    This folds `changelog.d/` and `docs/ledger/entries/` into CHANGELOG.md /
    BACKLOG.md in date order, deletes them, and commits that alone
    (ARCHITECT-RULE 2026-10-02; docs/LEDGER.md). The notes are then the
-   CHANGELOG slice since the previous tag:
+   CHANGELOG slice since the previous tag, written to the notes file the
+   tag step reads (`logs/` is gitignored):
    ```
-   python3 scripts/release_notes.py --to <sha>
+   python3 scripts/release_notes.py --to <sha> > logs/release_notes_vX.Y.Z.txt
    ```
    This is read-only. A section whose body changed since the previous tag
-   is listed as AMENDED.
+   is listed as AMENDED. The script exits non-zero when it cannot read
+   CHANGELOG.md, and the file then holds only its `✗` line: never tag from
+   such a file.
 3. **The architect rules the tag.** Anthony cuts it and pushes it:
    ```
-   git tag -a vX.Y.Z <sha> --cleanup=verbatim -F <notes>
+   git tag -a vX.Y.Z <sha> --cleanup=verbatim -F logs/release_notes_vX.Y.Z.txt
    git push origin vX.Y.Z
    ```
    Claude Code never cuts or pushes a tag.

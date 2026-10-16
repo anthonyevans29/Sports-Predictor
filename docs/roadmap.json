@@ -61,14 +61,17 @@
       "lane": "ncaa",
       "title": "College football",
       "issue": 79,
-      "registry_id": null,
-      "state": "to declare",
+      "registry_id": "ncaa-elo-v2",
+      "state": "declared",
       "steps": [
         {
           "what": "the declaration of the next candidate, to Code as an addendum",
           "owner": "architect",
           "due": "2026-10-16",
-          "done": null
+          "done": {
+            "date": "2026-10-16",
+            "receipt": "addendum 81 (ARCHITECT 2026-10-16 07:53 ET): ncaa-elo-v2, D1-D11"
+          }
         },
         {
           "what": "the declaration PR open, its checks green, nothing run",

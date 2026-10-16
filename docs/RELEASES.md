@@ -46,18 +46,27 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    This folds `changelog.d/` and `docs/ledger/entries/` into CHANGELOG.md /
    BACKLOG.md in date order, deletes them, and commits that alone
    (ARCHITECT-RULE 2026-10-02; docs/LEDGER.md). The notes are then the
-   CHANGELOG slice since the previous tag:
+   CHANGELOG slice since the previous tag, written to the notes file the
+   tag step reads (`logs/` is gitignored):
    ```
-   python3 scripts/release_notes.py --to <sha>
+   python3 scripts/release_notes.py --to <sha> > logs/release_notes_vX.Y.Z.txt
    ```
    This is read-only. A section whose body changed since the previous tag
-   is listed as AMENDED.
+   is listed as AMENDED. The script exits non-zero when it cannot read
+   CHANGELOG.md, and the file then holds only its `✗` line: never tag from
+   such a file.
 3. **The architect rules the tag.** Anthony cuts it and pushes it:
    ```
-   git tag -a vX.Y.Z <sha> -m "<notes>"
+   git tag -a vX.Y.Z <sha> --cleanup=verbatim -F logs/release_notes_vX.Y.Z.txt
    git push origin vX.Y.Z
    ```
    Claude Code never cuts or pushes a tag.
+   - `--cleanup=verbatim` is required from v1.5.0 on (ARCHITECT 2026-10-16,
+     addendum 88 item 3; #557). Without it, git's default cleanup strips
+     every line beginning with `#`. That is the notes' header and every
+     `## ` section heading.
+   - v1.4.0 was cut with `-F` alone and lost those lines (see the release
+     record below). A tag never moves, so it stands as cut.
 4. **The ledger records the release.** Open an Issue labelled `release`
    (plus track:H, class:lane, sport:all, size:S) on the per-release
    milestone `vX.Y.Z`. Paste the notes and the compare verdict into it.
@@ -67,6 +76,26 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    ```
    The deploy receipt names the from and to releases and any new
    `migrate_*.py` files. Run those by hand, after a backup.
+
+## Release record
+One line per tag, from v1.4.0 on. Each release's Issue carries its notes and
+its compare verdict.
+
+| Tag | Cut (UTC) | Commit | Tag object | Release Issue |
+|---|---|---|---|---|
+| `v1.4.0` | 2026-10-16 14:18:21Z | `684462e3d5078ff2c906db73362a220917bf1fcb` | `253bacd00327446936cdb16ea37a76deafc20ff1` | #556 |
+
+- **v1.4.0** (ARCHITECT 2026-10-16, addendum 87). The commit is the ledger
+  compile over 53a0e83, the #551 merge over c546168.
+  - Its tag message lost every line of the notes beginning with `#`
+    (addendum 88 item 3; #557). Cut with `-F` and git's default cleanup,
+    it lacks the header ("# Release notes · 684462e… · since v1.3.0") and
+    all 105 `## ` section headings: 106 lines.
+  - The section bodies are all there, but without their headings they run
+    on with nothing between them.
+  - The full notes are in #556: `python3 scripts/release_notes.py --to
+    684462e3d5078ff2c906db73362a220917bf1fcb` (105 sections since v1.3.0,
+    no AMENDED line).
 
 ## Hotfix path
 A hotfix gets a patch tag (`vX.Y.Z+1`) through the same ritual. There is no

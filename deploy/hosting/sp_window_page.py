@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """Window-card pager (architect spec 2026-09-27). It runs as the `window`
-chain's post-step after a clean run. It is stdlib-only and reads the card
-JSON only.
+chain's post-step after a clean run, or after a run where only `sync-` steps
+failed and window-card ran (ARCHITECT 2026-10-16, addendum 84 item 2(b)). It
+is stdlib-only and reads the card JSON only.
 
 Delivery: the SECOND private ntfy topic, NTFY_CARD_TOPIC (read from .env).
 It is DELTA-DRIVEN: it pushes only when the card changed since the previous

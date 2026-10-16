@@ -6,11 +6,11 @@
 - Idempotent: a fixture holding both elevens is skipped with no call. Any other is asked, and each answered side's history rows are replaced. Other kinds are never touched. One session per fixture.
 - The coverage receipt per competition-season: fixtures with both elevens / fixtures, then one / none (by why) / failed / not asked / no fixture id, rows, and calls with HTTP requests by status.
 - `--max-calls` (default 100) stops cleanly between fixtures. A payload error or a 401/403/429 stops the run; other failures are listed and asked again next run.
-- `--dry-run` reads mode=ro, prints the plan before any call, and writes nothing. `--save` keeps each answer whole, never under data/ (checked by resolved path and file identity, as `--out` is guarded on #433).
+- `--dry-run` reads mode=ro, prints the plan before any call, and writes nothing. `--save` keeps each answer whole, a quota or plan refusal included (its 200 body is kept before the adapter raises on it, Codex on #538), never under data/ (checked by resolved path and file identity, as `--out` is guarded on #433).
 - `--since YYYY-MM-DD` (ARCHITECT 2026-10-16, addendum 83 item 5(b)) keeps only the fixtures on or after the date: the stored kickoff's UTC date, and a fixture with no kickoff is left out. Each left-out fixture is never asked and stays out of the coverage line. The receipt counts them and lists every one: match id, fixture id, date, teams. FAC 2025/26 is pulled `--since 2025-11-01`, the First Round Proper, because its preliminary rounds carry no lineup.
 - The run list (addendum 83 item 5(a)): CL 2026/27, EFL 2026/27, CL 2025/26, UEL 2025/26, EFL 2025/26, FAC 2025/26.
 - src/db/schema.py: the Lineup docstring names the `history` kind (comment only, no DDL). docs/CLI.md: the command's row.
-- tests/test_lineups_history.py (23 new; 4 for `--since`) on a throwaway DB with the adapter's real parser.
+- tests/test_lineups_history.py (24 new; 4 for `--since`) on a throwaway DB with the adapter's real parser.
   - Three run on the kept answers (tests/fixtures/lineups_history/, its README; addendum 83 item 5(c)): seven real /fixtures/lineups answers of 2026-10-16 13:19Z, byte for byte from laptop/lineups-payloads-1016 (df877e3). Six have lineups (CL 2025/26 x3, EFL 2026/27 x3); one is the empty FAC answer, kept deliberately. The other two FAC answers are dropped as duplicates.
   - The kept answers' keys; both elevens and every bench stored (246 rows), three null formations stored as null, six null positions; the empty answer counted as "none · an empty answer" with nothing written.
   - The synthetic payload stays only for the shapes no kept answer holds: nameless slots, short sides, an unmapped side, refusals and the cap.

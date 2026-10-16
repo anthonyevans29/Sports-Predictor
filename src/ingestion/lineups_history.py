@@ -221,7 +221,9 @@ def _both(f: Fixture, held: dict) -> bool:
 
 
 def _instrument(adapter, run: Run, keep: dict) -> None:
-    """Count the adapter's HTTP requests by status (its 429 retry included) and keep each answer's raw payload."""
+    """Count the adapter's HTTP requests by status (its 429 retry included) and keep each answer's raw payload. A 200's
+    body is kept as it arrives, before the adapter checks its errors block, so a quota or plan refusal is kept whole
+    too (Codex on #538)."""
     sess_get, raw_get = adapter._session.get, adapter._get
 
     def counted(*a, **k):
@@ -231,6 +233,11 @@ def _instrument(adapter, run: Run, keep: dict) -> None:
             run.http[type(e).__name__] += 1
             raise
         run.http[str(getattr(resp, "status_code", "?"))] += 1
+        if getattr(resp, "status_code", None) == 200:
+            try:
+                keep["raw"] = resp.json()
+            except Exception:  # noqa: BLE001 - an unreadable body is the adapter's to raise; nothing is kept
+                keep.pop("raw", None)
         return resp
 
     def kept(path, params=None):
@@ -238,6 +245,13 @@ def _instrument(adapter, run: Run, keep: dict) -> None:
         keep["raw"] = data
         return data
     adapter._session.get, adapter._get = counted, kept
+
+
+def _save(save: str | None, f: Fixture, keep: dict) -> None:
+    """--save: the answer kept whole as <fixture id>.json (refuse_save_dir has already refused data/)."""
+    if save and keep.get("raw") is not None:
+        with open(os.path.join(save, f"{f.fixture_id}.json"), "w") as fh:
+            json.dump(keep["raw"], fh, indent=1, sort_keys=True)
 
 
 def _named_blocks(raw) -> tuple[int, int]:
@@ -333,6 +347,7 @@ def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_ca
                 try:
                     answer = adapter.list_lineup_confirmed(f.fixture_id)
                 except RuntimeError as e:               # the payload's errors block: a quota or plan refusal
+                    _save(save, f, keep)                # the refusal's answer is kept whole too (Codex on #538)
                     run.failed.append(f"match {f.match_id} (fixture {f.fixture_id}): {e}")
                     run.stopped = f"a payload error on match {f.match_id} (fixture {f.fixture_id}): {e}"
                     break
@@ -346,9 +361,7 @@ def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_ca
                 except Exception as e:  # noqa: BLE001 - a failed call is listed; the next run asks it again
                     run.failed.append(f"match {f.match_id} (fixture {f.fixture_id}): {type(e).__name__}: {e}")
                     continue
-                if save and keep.get("raw") is not None:
-                    with open(os.path.join(save, f"{f.fixture_id}.json"), "w") as fh:
-                        json.dump(keep["raw"], fh, indent=1, sort_keys=True)
+                _save(save, f, keep)
                 _store(run, f, answer or [], keep.get("raw"), held, now, dry_run, session_scope, Lineup)
         except Capped as c:
             nxt = c.args[0]

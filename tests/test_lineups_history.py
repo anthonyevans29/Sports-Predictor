@@ -288,6 +288,19 @@ def test_save_keeps_each_answer_whole_and_never_under_data(fresh_db, tmp_path):
     assert not (data_dir() / "kept").exists()
 
 
+def test_save_keeps_a_payload_error_answer_whole_before_the_run_stops(fresh_db, tmp_path):
+    """Codex on #538: a 200 whose errors block is set (a quota or plan refusal) makes the adapter raise before it
+    returns; --save still keeps that answer whole, and the run still stops on it."""
+    ids, _, _ = seed(n=2, fixture_ids=["770", "771"])
+    refusal = {"get": "fixtures/lineups", "parameters": {"fixture": "770"}, "response": [], "results": 0,
+               "errors": {"plan": "Free plans do not have access to this season, try from 2022 to 2024."}}
+    r, out = run(adapter_with({"770": refusal, "771": payload(771, side(HOME_SID, "H"), side(AWAY_SID, "A"))}),
+                 "CL", SEASON, dry_run=True, save=str(tmp_path / "kept"))
+    assert json.loads((tmp_path / "kept" / "770.json").read_text()) == refusal
+    assert not (tmp_path / "kept" / "771.json").exists() and r.not_asked == 1         # the run stopped on it
+    assert out[-1].startswith(f"  STOPPED at a payload error on match {ids[0]} (fixture 770): API-Football error:")
+
+
 def test_save_refuses_a_symlink_into_data_and_allows_a_sibling_named_like_it(fresh_db, tmp_path, monkeypatch):
     """The review on #538: a path reaching data/ through a symlink is refused by file identity; a directory whose
     name merely starts with 'data' is not data/. data_dir() is pointed at a stand-in under tmp_path (the test never

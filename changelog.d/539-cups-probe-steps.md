@@ -1,3 +1,0 @@
-## 2026-10-15 (#539: cups-probe-steps — ARCHITECT addendum 75 item 3)
-- docs/roadmap.json, the cups lane: two operator steps between Step A (CL, 10-20) and Step B (10-29). Step A, UEL is the timing probe on the UEL matchday, due 2026-10-22. Step A, EFL is the probe on the next EFL round with stored rows, its date named by the operator (2026-10-27 until named). Step A's probe step is done (#528 merged).
-- CLAUDE.md, the cups paragraph: "CUP MODEL TRACK: reopened 2026-10-15 on a dated plan …; EFL/CL/UEL stay MARKET-ONLY until a PASS and its confirmation. The exam harness + fix-v2 machinery stay merged." This replaces "SUSPENDED … for the season". Nothing else in that paragraph changes.

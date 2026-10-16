@@ -217,11 +217,27 @@ def host(world, monkeypatch):
     return {"h": h, "timers": timers}
 
 
-def _real(world, host, step="run", runner=None):
+# Addendum 79 item 4: NHL shot GATE streams, as `sp_cutover.py shot-gate` prints them. The laptop's numbers (#520:
+# 1396/1396, 1394/1394) pass; the host's of 2026-10-14 (0/1396, 0/1394) do not. Addendum 80 item 3: the pack's DB (the
+# laptop's) gates; the host's live DB is read for the record and never refuses.
+PASS_GATE = {"db": "/home/sp/sp_pack/sports.db", "source": "pack", "bar": 95.0, "seasons": {
+    "2024": {"games": 1396, "with_shots": 1396, "first": "2024-10-08", "last": "2025-06-17"},
+    "2025": {"games": 1394, "with_shots": 1394, "first": "2025-10-07", "last": "2026-06-19"}}}
+HOST_GATE = {**PASS_GATE, "db": "/opt/sports-predictor/data/sports.db", "source": "live",
+             "seasons": {k: {**v, "with_shots": 0} for k, v in PASS_GATE["seasons"].items()}}
+
+
+def _real(world, host, step="run", runner=None, shot=PASS_GATE, host_shot=PASS_GATE, seen=None):
+    """`shot` is the pack's read (it gates), `host_shot` the host's live read (for the record)."""
     if runner is None:          # never the real systemctl in a test: the preflight reads the active timers (57.8)
         runner = FakeSystemctl(active=host["timers"].read_text().split())
+
+    def read(ctx, pack):
+        if seen is not None:
+            seen.append(pack)
+        return shot if pack else host_shot
     return sp_cutover.main([step, "--pack", str(world["pack"]), "--timers-file", str(host["timers"])],
-                           runner=runner)
+                           runner=runner, shot_read=read)
 
 
 def test_real_mode_sequence_with_fake_systemctl(world, host):
@@ -422,12 +438,30 @@ def test_57_8_the_list_corrected_by_hand_passes_and_the_receipt_counts_the_activ
     assert r["step"] == "preflight" and r["timers_active"] == 4 and r["timers"] == 4
 
 
-def test_57_8_a_listed_timer_that_is_not_active_and_other_units_refuse_nothing(world, host):
-    """Only an active sp timer off the list refuses: an inactive listed timer, a service, a non-sp timer do not."""
+def test_79_4_a_listed_timer_that_is_not_active_refuses_the_preflight_and_is_named(world, host, capsys):
+    """ARCHITECT 2026-10-15, addendum 79 item 4: "deploy/hosting/sp_cutover.py's preflight refuses when any listed timer
+    is not active (naming it)". (#495's addendum 60 item 6 had it named and refusing nothing: addendum 79 is later.)"""
     listed = host["timers"].read_text().split()
-    fake = FakeSystemctl(active=listed[1:] + ["sp-chain@mlb.service", "apt-daily.timer"])
+    fake = FakeSystemctl(active=listed[1:])
+    assert _real(world, host, step="preflight", runner=fake) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["step"] == "preflight" and r["exit"] == 1 and r["timers_listed_inactive"] == [listed[0]]
+    assert f"listed sp timers not active on the host: {listed[0]}" in r["refused"]
+    out = capsys.readouterr().out
+    assert f"✗ timers list {host['timers']}: 3 · listed but not active: {listed[0]}" in out
+    assert "stop" not in fake.verbs() and world["real_env"].read_text() == REAL_ENV_TEXT
+
+
+def test_57_8_other_units_refuse_nothing_and_the_receipt_names_no_inactive_timer(world, host, capsys):
+    """A service, a non-sp timer: neither is an sp timer, so neither refuses (57.8 and 79.4 read sp-*.timer only)."""
+    listed = host["timers"].read_text().split()
+    fake = FakeSystemctl(active=listed + ["sp-chain@mlb.service", "apt-daily.timer"])
     assert _real(world, host, step="preflight", runner=fake) == 0
-    assert _lines(world["real_receipts"])[-1]["timers_active"] == len(listed) - 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["timers_active"] == len(listed) and r["timers_listed_inactive"] == []
+    out = capsys.readouterr().out
+    assert f"· timers list {host['timers']}: 3 · listed but not active: none" in out
+    assert "· active sp timers on the host: 3 · not on the list: none" in out
 
 
 def test_57_8_a_listing_that_cannot_be_read_refuses(world, host):
@@ -448,3 +482,378 @@ def test_57_8_the_dry_run_scratch_list_is_its_own_and_passes(world, capsys):
     rc, out = run(["systemctl", "list-units", "--type=timer", "--state=active", "--no-legend", "--plain", "sp-*"])
     assert rc == 0 and sorted(ln.split()[0] for ln in out.splitlines()) == sorted(sp_cutover.runbook_timers())
     assert _dry(world, world["tmp"] / "scratch57") == 0
+
+
+# ------------------------------- addendum 79 item 4 (#520): the host's NHL shot GATE streams ----
+
+def test_80_3_the_packs_streams_below_95_refuse_naming_each_stream(world, host, capsys):
+    """ARCHITECT 2026-10-15, addendum 80 item 3 (Q3): "The shot gate reads the PACK's DB — the laptop's, the one the
+    cutover installs — and refuses on it". A pack below 95% refuses, naming each stream and its share; no backfill
+    command is printed for it (the host's backfill does not change the pack)."""
+    fake = FakeSystemctl(active=host["timers"].read_text().split())
+    low = {**HOST_GATE, "db": PASS_GATE["db"], "source": "pack"}
+    assert _real(world, host, step="preflight", runner=fake, shot=low) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["refused"] == ("the pack's NHL shot GATE streams below 95%: 2024 0/1396 = 0.0%, 2025 0/1394 = 0.0% "
+                            "(the pack carries the laptop's DB, the one install puts in place)")
+    assert r["shot_gate_pack"] == low and r["shot_gate_host"] == PASS_GATE
+    out = capsys.readouterr().out.splitlines()
+    assert "✗ the pack's NHL shot GATE stream 2024: 0/1396 = 0.0% [BELOW >= 95%]" in out
+    assert "✗ the pack's NHL shot GATE stream 2025: 0/1394 = 0.0% [BELOW >= 95%]" in out
+    assert not any("nhl-shot-sync" in o for o in out)
+    assert "stop" not in fake.verbs() and [c_[0] for c_ in fake.calls] == ["systemctl"]   # nothing run but the reads
+
+
+def test_80_3_the_hosts_live_streams_below_95_never_refuse_and_print_the_optional_backfill(world, host, capsys):
+    """#520's host (2026-10-14): 0/1396 and 0/1394, read for the record. With the pack at the laptop's numbers the
+    preflight PASSES; the host's lines carry no fault mark, and the backfill's exact host command is printed,
+    --dry-run first, never run, labelled "optional before cutover; not a prerequisite" (addendum 80 item 3)."""
+    fake = FakeSystemctl(active=host["timers"].read_text().split())
+    assert _real(world, host, step="preflight", runner=fake, host_shot=HOST_GATE) == 0
+    r = _lines(world["real_receipts"])[-1]
+    assert r["exit"] == 0 and r["shot_gate_pack"] == PASS_GATE and r["shot_gate_host"] == HOST_GATE
+    out = capsys.readouterr().out.splitlines()
+    assert "· the pack's NHL shot GATE stream 2024: 1396/1396 = 100.0% [PASS >= 95%]" in out
+    assert ("· for the record, never refuses: the host's live NHL shot GATE stream 2024: 0/1396 = 0.0% "
+            "[BELOW >= 95%]") in out
+    assert ("· for the record, never refuses: the host's live NHL shot GATE stream 2025: 0/1394 = 0.0% "
+            "[BELOW >= 95%]") in out
+    i = out.index("· the host's NHL shot backfill: optional before cutover; not a prerequisite (addendum 80 item 3: "
+                  "the pack's DB is the one the cutover installs). Printed here, never run. FIRST, the dry run, pasted "
+                  "to the architect:")
+    assert out[i + 1:i + 9] == [
+        f"    cd {host['h']}",
+        "    sudo -u sp venv/bin/python cli.py nhl-shot-sync --start 2024-10-07 --end 2026-06-19 --dry-run",
+        "  STOP: the write below is the operator's block after the architect has read that dry run.",
+        f"    cd {host['h']}",
+        "    sudo -u sp venv/bin/python deploy/hosting/sp_backup.py daily",
+        "    sudo -u sp venv/bin/python cli.py nhl-shot-sync --start 2024-10-07 --end 2026-06-19",
+        "    sudo -u sp venv/bin/python cli.py nhl-shot-coverage",
+        "  (--start 2024-10-07: the day before the first GATE-stream game, 2024-10-08 UTC; --end 2026-06-19: the "
+        "last one's)"]
+    assert not any(o.startswith("✗") for o in out)
+    assert "stop" not in fake.verbs() and [c_[0] for c_ in fake.calls] == ["systemctl"]
+
+
+def test_79_4_the_laptops_numbers_pass_and_the_receipt_carries_both_reads(world, host, capsys):
+    seen = []
+    assert _real(world, host, step="preflight", seen=seen) == 0
+    assert seen == [True, False]                                          # the pack's DB, then the host's live one
+    r = _lines(world["real_receipts"])[-1]
+    assert r["exit"] == 0 and r["shot_gate_pack"] == PASS_GATE and r["shot_gate_host"] == PASS_GATE
+    out = capsys.readouterr().out
+    assert "· the pack's NHL shot GATE stream 2024: 1396/1396 = 100.0% [PASS >= 95%]" in out
+    assert "nhl-shot-sync" not in out                                     # nothing to backfill: no command
+
+
+@pytest.mark.parametrize("w,ok", [(1326, False), (1327, True)])
+def test_79_4_the_bar_is_nhl_shot_coverages_own(world, host, capsys, w, ok):
+    """1326/1396 = 94.99% prints 95.0% and is BELOW (the unrounded share decides, as nhl-shot-coverage's line does);
+    1327/1396 = 95.06% passes."""
+    gate = {**PASS_GATE, "seasons": {**PASS_GATE["seasons"], "2024": {**PASS_GATE["seasons"]["2024"], "with_shots": w}}}
+    assert _real(world, host, step="preflight", shot=gate) == (0 if ok else 1)
+    out = capsys.readouterr().out
+    pct = f"{w / 1396 * 100:.1f}"
+    assert f"the pack's NHL shot GATE stream 2024: {w}/1396 = {pct}% [{'PASS' if ok else 'BELOW'} >= 95%]" in out
+
+
+@pytest.mark.parametrize("read,why", [
+    ({"error": "OperationalError: no such table: nhl_shot_events"}, "not read (OperationalError: no such table"),
+    ({"bar": 95.0, "seasons": {}}, "named no season or no bar"),
+])
+def test_79_4_an_unread_gate_refuses_never_reads_as_a_pass(world, host, capsys, read, why):
+    assert _real(world, host, step="preflight", shot=read) == 1
+    assert f"the pack's NHL shot GATE {'streams ' if 'not read' in why else 'read '}" \
+        in _lines(world["real_receipts"])[-1]["refused"]
+    assert why in _lines(world["real_receipts"])[-1]["refused"]
+    assert "nhl-shot-sync" not in capsys.readouterr().out             # no stream dates read: no command printed
+
+
+@pytest.mark.parametrize("read,line", [
+    ({"error": "OperationalError: no such table: nhl_shot_events"}, "the host's live NHL shot GATE: not read ("),
+    ({"bar": 95.0, "seasons": {}}, "the host's live NHL shot GATE: the read named no season or no bar"),
+    ({"bar": 95.0, "seasons": {"2024": {"games": 0, "with_shots": 0, "first": None, "last": None}}},
+     "the host's live NHL shot GATE stream 2024: 0/0 = 0.0% [BELOW >= 95%]"),
+])
+def test_80_3_an_unread_host_record_never_refuses_and_prints_no_fault_mark(world, host, capsys, read, line):
+    """The host's live read is the record: unread, empty, or with no stream games, it says so with no ✗ anywhere, and
+    the preflight still passes on the pack's gate."""
+    assert _real(world, host, step="preflight", host_shot=read) == 0
+    out = capsys.readouterr().out
+    assert f"· for the record, never refuses: {line}" in out and "nhl-shot-sync" not in out
+    assert not any(o.startswith("✗") for o in out.splitlines())
+    assert _lines(world["real_receipts"])[-1]["shot_gate_host"] == read
+
+
+def test_79_4_every_check_prints_its_line_and_one_refusal_names_them_all(world, host, capsys):
+    """Off the list, listed but inactive, and the gate below, at once: one refusal names all three, and each check
+    printed its line."""
+    listed = host["timers"].read_text().split()
+    fake = FakeSystemctl(active=listed[1:] + ["sp-intl-daily.timer"])
+    low = {**HOST_GATE, "source": "pack"}
+    assert _real(world, host, step="preflight", runner=fake, shot=low) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["refused"].count(" | ") == 2 and r["timers_off_list"] == ["sp-intl-daily.timer"]
+    assert r["timers_listed_inactive"] == [listed[0]] and r["shot_gate_pack"] == low
+    out = capsys.readouterr().out
+    for line in ("✗ active sp timers on the host: 3 · not on the list: sp-intl-daily.timer",
+                 f"✗ timers list {host['timers']}: 3 · listed but not active: {listed[0]}",
+                 f"· host env {world['real_env']}: present", "· SP_WRITER_OF_RECORD lines in host.env: 1",
+                 "· SP_WRITER_OF_RECORD now: 'laptop'", "· host.env's own SP_EXPORTS_MIRROR_ROLE: host",
+                 "· host env writable by this user: file yes · its directory yes",
+                 "· the pack's .env: DATABASE_URL relative",
+                 "✗ the pack's NHL shot GATE stream 2025: 0/1394 = 0.0% [BELOW >= 95%]"):
+        assert line in out
+    assert out.count("✗ REFUSED preflight") == 1
+
+
+def test_79_4_the_dry_run_says_the_gate_is_not_read_there(world, capsys):
+    assert _dry(world, world["tmp"] / "scratch79") == 0
+    out = capsys.readouterr().out
+    assert ("· NHL shot GATE: not read in a dry run (the scratch world holds no NHL games; the real preflight reads "
+            "the pack's DB, which gates, and the host's live DB, for the record)") in out
+    r = next(x for x in _lines(world["tmp"] / "scratch79" / "log" / "receipts.jsonl") if x.get("step") == "preflight")
+    assert r["shot_gate_pack"] == "not read (dry run)" and r["shot_gate_host"] == "not read (dry run)"
+
+
+def test_79_4_the_host_read_runs_as_the_service_user_and_returns_its_one_line(world, monkeypatch):
+    seen = []
+
+    def runner(argv):
+        seen.append([str(a) for a in argv])
+        return 0, "noise\n" + sp_cutover.SHOT_GATE_TAG + json.dumps(PASS_GATE) + "\n"
+    ctx = sp_cutover.Ctx(pack=world["pack"], timers_file=world["tmp"] / "t", runner=runner)
+    monkeypatch.setattr(sp_cutover, "_euid", lambda: 0)
+    assert sp_cutover.run_shot_read(ctx, False) == PASS_GATE
+    assert seen[0][:4] == ["runuser", "-u", "sp", "--"] and seen[0][-2:] == [str(sp_cutover.HERE / "sp_cutover.py"),
+                                                                           "shot-gate"]
+    assert sp_cutover.run_shot_read(ctx, True) == PASS_GATE              # addendum 80 item 3: the pack's DB
+    assert seen[1][-3:] == ["shot-gate", "--pack", str(world["pack"])]
+    for rc, out, why in ((1, "Traceback ...", "printed no SHOT-GATE line (exit 1)"),
+                         (0, sp_cutover.SHOT_GATE_TAG + "{bad", "is not JSON"),
+                         (2, sp_cutover.SHOT_GATE_TAG + json.dumps(PASS_GATE), "the read exit 2")):
+        ctx.runner = lambda argv, rc=rc, out=out: (rc, out)
+        assert why in sp_cutover.run_shot_read(ctx, True)["error"]
+
+
+def _nhl_db(path):
+    """A throwaway DB holding two GATE-stream seasons: 2024 (3 games from 2024-10-08, 2 with shot events; a preseason
+    game before it, cut) and 2025 (2 games, 1 with shot events)."""
+    from datetime import datetime
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from src.db.schema import Base, Competition, Match, MatchStatus, NHLShotEvent, Sport, Team
+    eng = create_engine(f"sqlite:///{path}")
+    Base.metadata.create_all(eng)
+    with Session(eng) as s:
+        comp = Competition(sport=Sport.NHL, code="NHL", name="NHL", area="NA", type="LEAGUE")
+        h, a = Team(sport=Sport.NHL, name="H"), Team(sport=Sport.NHL, name="A")
+        s.add_all([comp, h, a])
+        s.flush()
+        games = [("2024", datetime(2024, 10, 1, 23)), ("2024", datetime(2024, 10, 8, 23)),
+                 ("2024", datetime(2024, 12, 1, 0)), ("2024", datetime(2025, 6, 17, 0)),
+                 ("2025", datetime(2025, 10, 7, 23)), ("2025", datetime(2026, 6, 19, 0))]
+        for i, (season, when) in enumerate(games):
+            m = Match(sport=Sport.NHL, competition_id=comp.id, season=season, utc_date=when,
+                      status=MatchStatus.FINISHED, home_team_id=h.id, away_team_id=a.id, home_score=3, away_score=2)
+            s.add(m)
+            s.flush()
+            if i in (1, 2, 4):
+                s.add(NHLShotEvent(nhl_game_id=1000 + i, event_id=1, match_id=m.id, game_start=when,
+                                   event_type="shot-on-goal"))
+        s.commit()
+    eng.dispose()
+
+
+def test_79_4_shot_gate_reads_a_real_db_in_a_process_of_its_own_and_never_creates_one(tmp_path):
+    import subprocess
+    db = tmp_path / "host.db"
+    _nhl_db(db)
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{db}", "SP_HOST_ENV": str(tmp_path / "no-host.env")}
+    r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate"], capture_output=True, text=True,
+                       env=env, cwd=tmp_path, timeout=120)
+    line = [ln for ln in r.stdout.splitlines() if ln.startswith(sp_cutover.SHOT_GATE_TAG)]
+    assert r.returncode == 0 and len(line) == 1, r.stdout + r.stderr
+    got = json.loads(line[0][len(sp_cutover.SHOT_GATE_TAG):])
+    assert got["bar"] == 95.0 and got["seasons"] == {
+        "2024": {"games": 3, "with_shots": 2, "first": "2024-10-08", "last": "2025-06-17"},
+        "2025": {"games": 2, "with_shots": 1, "first": "2025-10-07", "last": "2026-06-19"}}
+    assert not (tmp_path / "data").exists()                      # nothing created beside the run
+    missing = tmp_path / "none" / "sports.db"
+    r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate"], capture_output=True, text=True,
+                       env={**env, "DATABASE_URL": f"sqlite:///{missing}"}, cwd=tmp_path, timeout=120)
+    assert r.returncode == 1 and "no database at" in r.stdout and not missing.exists() and not missing.parent.exists()
+
+
+@pytest.mark.parametrize("env_text,lines", [
+    ("SP_WRITER_OF_RECORD=bogus\nSP_WRITER_OF_RECORD=laptop\nSP_EXPORTS_MIRROR_ROLE=host\n",
+     ["✗ SP_WRITER_OF_RECORD lines in host.env: 2", "  (SP_WRITER_OF_RECORD's value not read: it is set on 2 lines)"]),
+    ("SP_WRITER_OF_RECORD=\nSP_EXPORTS_MIRROR_ROLE=host\n", ["✗ SP_WRITER_OF_RECORD now: ''"]),
+    ("SP_EXPORTS_MIRROR_ROLE=host\n", ["· SP_WRITER_OF_RECORD now: unset (no line)"]),
+])
+def test_79_4_the_flag_lines_say_what_was_read(world, host, capsys, env_text, lines):
+    world["real_env"].write_text(env_text)
+    _real(world, host, step="preflight")
+    out = capsys.readouterr().out.splitlines()
+    for ln in lines:
+        assert ln in out
+    assert not any(o.startswith("· SP_WRITER_OF_RECORD now") for o in out) or "unset (no line)" in lines[0]
+
+
+def test_79_4_the_writable_line_names_the_file_and_its_directory(world, host, capsys, monkeypatch):
+    real = os.access
+    monkeypatch.setattr(sp_cutover.os, "access", lambda p, m: False if Path(p) == world["real_env"].parent else real(p, m))
+    assert _real(world, host, step="preflight") == 1
+    out = capsys.readouterr().out
+    assert "✗ host env writable by this user: file yes · its directory no" in out
+
+
+def test_79_4_shot_gate_writes_nothing_to_the_db_it_reads(tmp_path):
+    """The read is mode=ro on a connection of its own: a non-WAL DB keeps its bytes and its journal mode, and no -wal
+    or -shm is left beside it."""
+    import hashlib
+    import subprocess
+    db = tmp_path / "host.db"
+    _nhl_db(db)
+    before = hashlib.sha256(db.read_bytes()).hexdigest()
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{db}", "SP_HOST_ENV": str(tmp_path / "no-host.env")}
+    r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate"], capture_output=True, text=True,
+                       env=env, cwd=tmp_path, timeout=120)
+    assert r.returncode == 0, r.stdout + r.stderr
+    assert hashlib.sha256(db.read_bytes()).hexdigest() == before
+    assert sorted(x.name for x in tmp_path.iterdir()) == ["host.db"]
+    con = sqlite3.connect(db)
+    assert con.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    con.close()
+
+
+# ------------------------------- addendum 80 item 3: the preflight before step 2; the pack's DB gates ----
+
+def test_80_3_a_preflight_after_step_2_stops_with_its_one_line_never_a_fault(world, host, capsys):
+    """ARCHITECT 2026-10-15, addendum 80 item 3 (Q1), verbatim: "A run after step 2 is not the preflight; sp_cutover
+    prints "timers already stopped: run the preflight before step 2" when every listed timer is inactive, rather than a
+    refusal that reads as a fault." It stops (exit 1: `run` goes no further), checks nothing else and reads no DB."""
+    fake = FakeSystemctl(active=[])                                       # runbook step 2 stopped every listed timer
+    seen = []
+    assert _real(world, host, step="run", runner=fake, seen=seen) == 1
+    out = capsys.readouterr().out.splitlines()
+    assert "timers already stopped: run the preflight before step 2" in out
+    assert not any(o.startswith("✗") or "REFUSED" in o or "FAIL" in o for o in out)
+    assert seen == [] and "stop" not in fake.verbs()                      # no shot read, no pause
+    rs = [r for r in _lines(world["real_receipts"]) if r["kind"] == "cutover"]
+    assert [r["step"] for r in rs] == ["preflight"]
+    r = rs[0]
+    assert r["exit"] == 1 and r["stopped"] == "timers already stopped: run the preflight before step 2"
+    assert "refused" not in r and r["timers_listed_inactive"] == host["timers"].read_text().split()
+    assert world["real_env"].read_text() == REAL_ENV_TEXT
+
+
+def test_80_3_one_listed_timer_stopped_is_still_the_79_4_refusal(world, host, capsys):
+    """Only EVERY listed timer inactive reads as a run after step 2; one of three is addendum 79 item 4's refusal."""
+    listed = host["timers"].read_text().split()
+    assert _real(world, host, step="preflight", runner=FakeSystemctl(active=listed[:2])) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert "stopped" not in r and r["refused"].startswith(f"listed sp timers not active on the host: {listed[2]}")
+
+
+def _pack_dir(tmp_path, wal=False):
+    pk = tmp_path / "sp_pack_x"
+    pk.mkdir()
+    _nhl_db(pk / "sports.db")
+    if wal:                                                               # a .backup of a WAL DB keeps the WAL header
+        con = sqlite3.connect(pk / "sports.db")
+        assert con.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+        con.close()
+        assert not (pk / "sports.db-wal").exists()
+    return pk
+
+
+@pytest.mark.parametrize("wal", [False, True])
+def test_80_3_shot_gate_reads_the_packs_db_as_a_copy_and_leaves_it_as_it_was(tmp_path, wal):
+    """`shot-gate --pack <dir>` reads <dir>/sports.db (addendum 80 item 3: the pack's DB gates), opened as sp_migrate
+    opens the pack's copy (copy_connect, addendum 73 item 4): its bytes unchanged, nothing beside it, and the live
+    DATABASE_URL never opened."""
+    import hashlib
+    import subprocess
+    pk = _pack_dir(tmp_path, wal)
+    before = hashlib.sha256((pk / "sports.db").read_bytes()).hexdigest()
+    live = tmp_path / "live" / "sports.db"
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{live}", "SP_HOST_ENV": str(tmp_path / "no-host.env")}
+    r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate", "--pack", str(pk)],
+                       capture_output=True, text=True, env=env, cwd=tmp_path, timeout=120)
+    line = [ln for ln in r.stdout.splitlines() if ln.startswith(sp_cutover.SHOT_GATE_TAG)]
+    assert r.returncode == 0 and len(line) == 1, r.stdout + r.stderr
+    got = json.loads(line[0][len(sp_cutover.SHOT_GATE_TAG):])
+    assert got["source"] == "pack" and got["db"] == str(pk.resolve() / "sports.db")
+    assert got["seasons"]["2024"] == {"games": 3, "with_shots": 2, "first": "2024-10-08", "last": "2025-06-17"}
+    assert hashlib.sha256((pk / "sports.db").read_bytes()).hexdigest() == before
+    assert sorted(x.name for x in pk.iterdir()) == ["sports.db"]
+    assert not live.parent.exists()
+
+
+def test_80_3_shot_gate_on_a_pack_without_a_db_refuses_and_creates_nothing(tmp_path):
+    """--pack names the pack's sports.db and nothing else: a pack without one refuses on THAT path (the live
+    DATABASE_URL is never read in its place) and nothing is created on either side."""
+    import subprocess
+    pk = tmp_path / "sp_pack_empty"
+    pk.mkdir()
+    live = tmp_path / "live" / "sports.db"
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{live}", "SP_HOST_ENV": str(tmp_path / "no-host.env")}
+    r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate", "--pack", str(pk)],
+                       capture_output=True, text=True, env=env, cwd=tmp_path, timeout=120)
+    assert r.returncode == 1 and f"no database at {pk.resolve() / 'sports.db'}" in r.stdout
+    assert list(pk.iterdir()) == [] and not live.parent.exists()
+
+
+def test_80_3_the_live_read_is_mode_ro_never_immutable(tmp_path):
+    """#340: the host's live DB is read mode=ro, never immutable: a row committed to its WAL and not yet checkpointed
+    is read (an immutable open would miss it). The pack's copy is the only immutable read."""
+    import subprocess
+    from datetime import datetime
+    from sqlalchemy import create_engine
+    from sqlalchemy.orm import Session
+    from src.db.schema import Match, NHLShotEvent
+    db = tmp_path / "live.db"
+    _nhl_db(db)
+    con = sqlite3.connect(db)
+    assert con.execute("PRAGMA journal_mode=WAL").fetchone()[0] == "wal"
+    con.execute("PRAGMA wal_autocheckpoint=0")
+    con.execute("PRAGMA wal_checkpoint(TRUNCATE)")
+    eng = create_engine(f"sqlite:///{db}")
+    with Session(eng) as s_:                                   # the 2024 game of 2025-06-17 gains its shot events
+        m = s_.query(Match).filter(Match.utc_date == datetime(2025, 6, 17, 0)).one()
+        s_.add(NHLShotEvent(nhl_game_id=2000, event_id=1, match_id=m.id, game_start=m.utc_date,
+                            event_type="shot-on-goal"))
+        s_.commit()
+    assert (tmp_path / "live.db-wal").stat().st_size > 0      # the row lives only in the WAL
+    env = {**os.environ, "DATABASE_URL": f"sqlite:///{db}", "SP_HOST_ENV": str(tmp_path / "no-host.env")}
+    r = subprocess.run([sys.executable, str(HOSTING / "sp_cutover.py"), "shot-gate"], capture_output=True, text=True,
+                       env=env, cwd=tmp_path, timeout=120)
+    line = [ln for ln in r.stdout.splitlines() if ln.startswith(sp_cutover.SHOT_GATE_TAG)]
+    assert r.returncode == 0 and len(line) == 1, r.stdout + r.stderr
+    got = json.loads(line[0][len(sp_cutover.SHOT_GATE_TAG):])
+    assert got["source"] == "live" and got["seasons"]["2024"]["with_shots"] == 3
+    con.close()
+    eng.dispose()
+
+
+def test_80_3_an_off_list_timer_active_is_never_hidden_by_the_stop(world, host, capsys):
+    """Every listed timer inactive but an sp timer active OFF the list: not "already stopped". Addendum 57 item 8's
+    refusal names the off-list timer (and 79.4 the listed ones); the stop line is not printed."""
+    listed = host["timers"].read_text().split()
+    assert _real(world, host, step="preflight", runner=FakeSystemctl(active=["sp-intl-daily.timer"])) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert "stopped" not in r and r["timers_off_list"] == ["sp-intl-daily.timer"]
+    assert r["timers_listed_inactive"] == listed
+    assert "active sp timers not on the timers list" in r["refused"]
+    assert "timers already stopped" not in capsys.readouterr().out
+
+
+def test_80_3_a_refusal_for_another_check_keeps_both_shot_reads_on_its_receipt(world, host):
+    """The host's read is the record: a preflight refused on another check still receipts both reads."""
+    listed = host["timers"].read_text().split()
+    fake = FakeSystemctl(active=listed + ["sp-intl-daily.timer"])
+    assert _real(world, host, step="preflight", runner=fake, host_shot=HOST_GATE) == 1
+    r = _lines(world["real_receipts"])[-1]
+    assert r["refused"].startswith("active sp timers not on the timers list")
+    assert r["shot_gate_pack"] == PASS_GATE and r["shot_gate_host"] == HOST_GATE

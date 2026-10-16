@@ -534,11 +534,13 @@ NO_BOOK_ODDS_MARK = "NO-BOOK-ODDS"          # cli.py _print_no_book_odds (a test
 # ARCHITECT 2026-10-16, addendum 97 item 2(a): a covered MLB game whose row shows no book and whose run's sync step
 # named no answer for it. Not a guess at the provider's answer (law 4).
 BOOKS_NO_ANSWER = "the sync step named no answer for the game"
+RUN_KEY = "run"                              # no_book_odds: the run-level answer, for every row with no game's own
 
 
 def no_book_odds(argv: list[str], tail: list[str]) -> dict:
     """Addendum 97 item 2(a) (#550/#514): {match id: the provider's answer} from an MLB sync-odds step's NO-BOOK-ODDS
-    line, the step's own answer for each game it left with no book odds ("provider listed the game, no odds", ...)."""
+    line, the step's own answer for each game it left with no book odds ("provider listed the game, no odds", ...).
+    The run-level answer (the fallback never ran: "run [<answer>]") is kept under RUN_KEY."""
     if not argv or argv[0] != "sync-odds":
         return {}
     out: dict = {}
@@ -546,6 +548,9 @@ def no_book_odds(argv: list[str], tail: list[str]) -> dict:
         if ln.startswith(NO_BOOK_ODDS_MARK):
             for mid, why in re.findall(r"match (\d+) \[([^\]]+)\]", ln):
                 out[int(mid)] = why
+            run = re.search(r": run \[([^\]]+)\]$", ln)
+            if run:
+                out[RUN_KEY] = run.group(1)
     return out
 
 
@@ -1371,8 +1376,9 @@ def closing_doc(doc: dict, fam: str, start: datetime, run_id: str, page_ids: lis
     says WHY when n is 0: "books: provider listed the game, no odds" (from the sync step's own answer, which the run
     already has) rather than a bare count; the closing-file schema gains that string field (null when books exist)".
     For MLB, given the run's answers (`books_why`, {match id: answer}), the closing block's `books` holds one entry a
-    row: {match_id, n (the row's market.bookmaker_count), why}; why is null when n > 0, else the sync step's answer,
-    else BOOKS_NO_ANSWER. The rows stay as the export gave them."""
+    row: {match_id, n (the row's market.bookmaker_count), why}; why is null when n > 0, else the sync step's answer
+    for the game, else its run-level answer (RUN_KEY: the fallback never ran), else BOOKS_NO_ANSWER. The rows stay as
+    the export gave them."""
     keep = set(page_ids)
     rows = [r for r in doc.get("predictions") or [] if r.get("match_id") in keep]
     out = {k: v for k, v in doc.items() if k != "predictions"}
@@ -1386,7 +1392,8 @@ def closing_doc(doc: dict, fam: str, start: datetime, run_id: str, page_ids: lis
         for r in rows:
             n = int((r.get("market") or {}).get("bookmaker_count") or 0)
             books.append({"match_id": r.get("match_id"), "n": n,
-                          "why": None if n > 0 else books_why.get(r.get("match_id"), BOOKS_NO_ANSWER)})
+                          "why": None if n > 0 else (books_why.get(r.get("match_id"))
+                                                     or books_why.get(RUN_KEY) or BOOKS_NO_ANSWER)})
         out["closing"]["books"] = books
     return out
 
@@ -1698,7 +1705,7 @@ def _closing(rec: dict, fam: str, s: datetime, covers: list[dict], folder: Path,
             srec["detected_failure"] = said
         nob = no_book_odds(st, tail)
         if nob:                       # addendum 97 item 2(a): the provider's answer, for the closing file's books
-            srec["no_book_odds"] = {str(k): v for k, v in sorted(nob.items())}
+            srec["no_book_odds"] = {str(k): v for k, v in sorted(nob.items(), key=lambda kv: str(kv[0]))}
             rec.setdefault("books_why", {}).update(nob)
         empty = empty_answers(st, tail)
         if empty:                     # addendum 40 item 4: "in its console and in the run's receipt"

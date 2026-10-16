@@ -105,9 +105,12 @@ class SyncResult:
     # lacked a roster position. A failed lookup is also a failed read (--strict); an answer with no position is not.
     position_lookups: dict = field(default_factory=dict)
     # THE PROVIDER'S ANSWER WHEN BOOKS ARE 0 (ARCHITECT 2026-10-16, addendum 97 item 2(a), #550/#514): every game
-    # sync_odds_mlb's per-game fallback left with no book odds, with the provider's answer for it. {match_id, game,
-    # game_id, answer}; answer in NO_BOOK_ODDS_WHY. Never printed by __str__ (the CLI prints its own line).
+    # sync_odds_mlb left with no complete book (the per-game fallback's games, and a bulk-matched game stored with
+    # none), with the provider's answer for it. {match_id, game, game_id, answer}; answer in NO_BOOK_ODDS_WHY.
+    # no_book_odds_run: the run's own answer when the fallback never ran (NO_BOOK_ODDS_RUN_WHY), else None. Never
+    # printed by __str__ (the CLI prints its own line).
     no_book_odds: list = field(default_factory=list)
+    no_book_odds_run: str | None = None
 
     def __str__(self) -> str:
         out = f"created={self.created} updated={self.updated} skipped={self.skipped}"
@@ -120,11 +123,19 @@ class SyncResult:
 # fallback was told for a game it left with no complete book. "listed" is the ruling's own words.
 NO_BOOK_ODDS_WHY = {
     "listed": "provider listed the game, no odds",
-    "unlisted": "provider did not list the game",
+    "unmatched": "no game in the provider's listing matched it",
+    "listing_failed": "the provider's games listing read failed",
     "claimed": "provider game id already taken by another game (doubleheader guard)",
     "failed": "the provider's odds read failed",
     "started": "the game had started, nothing stored",
     "incomplete": "provider odds stored, no complete book",
+}
+# The run-level answer when the per-game fallback never ran (review before #563): it names no game, so the closing
+# run gives it to every covered row with no book and no per-game answer.
+NO_BOOK_ODDS_RUN_WHY = {
+    "no_key": "no provider key, no odds read made",
+    "window_failed": "the provider's odds window read failed, no per-game read made",
+    "window_empty": "the provider's odds window was empty, no per-game read made",
 }
 
 
@@ -1592,19 +1603,24 @@ class IngestionService:
         client = APIBaseballClient.from_env()
         if client is None:
             _log("Skipping odds sync: no API_BASEBALL_KEY in env.")
-            return SyncResult()
+            return SyncResult(no_book_odds_run="no_key")
 
         result = SyncResult()
         unmatched_events: list[str] = []
+
+        def _none(m, answer, game_id=None):
+            result.no_book_odds.append({"match_id": m.id, "game": f"{m.away_team.name} @ {m.home_team.name}",
+                                        "game_id": game_id, "answer": answer})
 
         try:
             odds_rows = client.list_odds_window(season=season)
         except APIBaseballError as e:
             _log(f"✗ odds fetch: {e}")
-            return SyncResult(skipped=1)
+            return SyncResult(skipped=1, no_book_odds_run="window_failed")
 
         if not odds_rows:
             _log(f"  · no odds returned for season {season} (window may be empty right now)")
+            result.no_book_odds_run = "window_empty"
             return result
 
         _log(f"Pulled {len(odds_rows)} odds rows, "
@@ -1637,6 +1653,8 @@ class IngestionService:
                 if stored is None:
                     post_first_pitch += 1
                     continue
+                if not stored[1]:            # stored, but no complete book: the fallback never asks it again
+                    _none(match, "incomplete", game_id)
                 result.created += stored[0]
                 snapshots += stored[1]
                 result.updated += 1
@@ -1682,6 +1700,7 @@ class IngestionService:
                 dates = sorted({m.utc_date.strftime("%Y-%m-%d")
                                 for m in missing})
                 provider_games: list[dict] = []
+                listing_failed: set[str] = set()
                 for d in dates:
                     try:
                         provider_games.extend(
@@ -1689,6 +1708,7 @@ class IngestionService:
                                                       date_str=d))
                     except APIBaseballError as e:
                         _log(f"    ✗ games listing {d}: {e}")
+                        listing_failed.add(d)
                 filled = 0
                 claimed_gids: set[int] = set()
                 for m in missing:
@@ -1730,42 +1750,39 @@ class IngestionService:
                             delta = 0.0
                         if gid is None or delta < gid_delta:
                             gid, gid_delta = g.get("id"), delta
-                    def _none(answer, game_id=None):
-                        result.no_book_odds.append({
-                            "match_id": m.id, "game": f"{m.away_team.name} @ {m.home_team.name}",
-                            "game_id": game_id, "answer": answer})
                     if gid in claimed_gids:
                         _log(f"    · provider id {gid} already claimed — "
                              f"skipping {m.away_team.name} @ "
                              f"{m.home_team.name} (doubleheader guard)")
-                        _none("claimed", gid)
+                        _none(m, "claimed", gid)
                         continue
                     if gid is not None:
                         claimed_gids.add(gid)
                     if gid is None:
                         _log(f"    · no provider game id for "
                              f"{m.away_team.name} @ {m.home_team.name}")
-                        _none("unlisted")
+                        _none(m, "listing_failed" if m.utc_date.strftime("%Y-%m-%d") in listing_failed
+                              else "unmatched")
                         continue
                     try:
                         rows = client.list_odds_for_game(season=season,
                                                          game_id=gid)
                     except APIBaseballError as e:
                         _log(f"    ✗ per-game odds {gid}: {e}")
-                        _none("failed", gid)
+                        _none(m, "failed", gid)
                         continue
                     if not rows:
                         _log(f"    · provider has no odds yet for "
                              f"{m.away_team.name} @ {m.home_team.name} "
                              f"(game {gid})")
-                        _none("listed", gid)
+                        _none(m, "listed", gid)
                         continue
                     stored = _mlb_store_odds(s, m, rows)
                     if stored is None:
-                        _none("started", gid)
+                        _none(m, "started", gid)
                         continue
                     if not stored[1]:
-                        _none("incomplete", gid)
+                        _none(m, "incomplete", gid)
                     result.created += stored[0]
                     filled += 1
                     result.updated += 1

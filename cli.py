@@ -862,12 +862,16 @@ def _print_no_book_odds(result) -> None:
     # THE PROVIDER'S ANSWER WHEN BOOKS ARE 0 (ARCHITECT 2026-10-16, addendum 97 item 2(a), #550/#514): one plain line
     # (never rich-wrapped) naming each game the MLB sync left with no book odds and the provider's answer for it, the
     # step's last line, so a closing run's step tail carries it to the closing file.
-    from src.ingestion.service import NO_BOOK_ODDS_WHY
+    # When the per-game fallback never ran, the line carries the run's own answer instead: "run [<answer>]".
+    from src.ingestion.service import NO_BOOK_ODDS_RUN_WHY, NO_BOOK_ODDS_WHY
     games = list(getattr(result, "no_book_odds", None) or [])
+    run = getattr(result, "no_book_odds_run", None)
     if games:
         print(f"{NO_BOOK_ODDS_MARK} (MLB): {len(games)} game(s) with no book odds: " + "; ".join(
             f"match {g['match_id']} [{NO_BOOK_ODDS_WHY.get(g['answer'], g['answer'])}] {g['game']}"
             + (f" (game {g['game_id']})" if g.get("game_id") is not None else "") for g in games), flush=True)
+    elif run:
+        print(f"{NO_BOOK_ODDS_MARK} (MLB): run [{NO_BOOK_ODDS_RUN_WHY.get(run, run)}]", flush=True)
 
 
 def _print_empty_answers(competition_code: str, result, positions: bool = True) -> None:

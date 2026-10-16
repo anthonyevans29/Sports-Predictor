@@ -19,7 +19,11 @@ SEASON = "2999"      # above any season another test stores for NCAA, so the vie
 
 
 @pytest.fixture
-def client():
+def client(tmp_path, monkeypatch):
+    """The app, with its preferences file in tmp_path: the home route auto-pins a focus team into
+    data/preferences.json when one is stored, and a test never writes under data/ (law 5)."""
+    from src.web import preferences
+    monkeypatch.setattr(preferences, "_PREFS_PATH", tmp_path / "preferences.json")
     return TestClient(app, base_url="http://127.0.0.1:8000", client=("127.0.0.1", 50000))
 
 
@@ -54,7 +58,10 @@ def test_the_view_helper_withholds_ncaa_2026_alone_until_the_run_is_recorded(mon
 def test_the_league_ncaa_view_answers_withheld_in_place_of_the_table(client, monkeypatch):
     """The league view shows the season it stores last (SEASON here, the fence's season patched to it): the table's
     wins and losses are withheld; the single games of the results list stay (the level ruling)."""
+    data_before = (ROOT / "data").exists()
     _ncaa_games()
+    with session_scope() as s:                                  # a focus team stored: the route's auto-pin fires
+        s.add(Team(sport=Sport.SOCCER, name="Arsenal"))
     monkeypatch.setattr(nb, "V2_TEST", SEASON)
     html = client.get("/?league=NCAA").text
     assert nb.V2_FENCED_RATE in html
@@ -65,6 +72,7 @@ def test_the_league_ncaa_view_answers_withheld_in_place_of_the_table(client, mon
     html = client.get("/?league=NCAA").text
     assert nb.V2_FENCED_RATE not in html
     assert "Fence Owls" in html.split("League table", 1)[1].split("Recent results", 1)[0]
+    assert (ROOT / "data").exists() == data_before                     # nothing written under data/ (law 5)
 
 
 def test_the_release_notes_step_makes_logs_first():

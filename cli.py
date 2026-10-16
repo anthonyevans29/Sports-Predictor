@@ -7090,30 +7090,97 @@ def ncaa_v1r_gate_cmd(preflight, word, fingerprint, no_fetch):
     scored set numbers >= 500 (addendum 17) and the D4 baseline is defined (addendum 21 item 4 (2)). The reservation (after the #329 cross-ref guard) carries the word and the
     fingerprint and precedes the first game scored; ONE run, recorded with its scored ids. #79's ncaa-backtest is
     unchanged. Spec: docs/specs/ncaa-elo-v1r.md."""
-    from src.db.database import session_scope
-    from src.walters import ncaa_backtest as nb
+    _ncaa_gate("ncaa-elo-v1r", preflight, word, fingerprint, no_fetch)
+
+
+_NCAA_CANDIDATE = {
+    "ncaa-elo-v1r": "candidate NCAAEloV1 (constants untouched) + D1 neutral rule",
+    "ncaa-elo-v2": "candidate NCAAEloV2 (v1's constants, the frozen logistic scale s) + D1 neutral rule; second read "
+                   "2023 (D10)",
+}
+
+
+def _ncaa_gate(eid, preflight, word, fingerprint, no_fetch):
+    """The NCAA gate's machinery for the declaration `eid` names (src/walters/ncaa_v1r_gate.py, parameterised by
+    registry id: ARCHITECT 2026-10-16, addendum 81 item 2, D6)."""
     from src.walters import ncaa_v1r_gate as vg
 
     try:
-        vg.declared_unrun()
+        spec = vg.spec_of(eid)
+        e = vg.declared_unrun(spec)
         if preflight:
-            with session_scope() as s:
-                fbs = vg.coverage(nb.V1R_SEASONS, s)
-                s.rollback()
-            for line in vg.preflight_lines(vg.preflight(nb.load_v1r_stream(), fbs)):
+            for line in vg.preflight_lines(vg.preflight_read(spec, e), spec):
                 click.echo(line)
             return
-        click.echo(f"NCAA-ELO-V1R · ONE RUN · candidate NCAAEloV1 (constants untouched) + D1 neutral rule · word: "
+        click.echo(f"{spec.title} · ONE RUN · {_NCAA_CANDIDATE[spec.eid]} · word: "
                    f"{word!r} · stream fingerprint {fingerprint!r}")
-        r = vg.run(word, fingerprint, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
+        r = vg.run(word, fingerprint, no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"), spec=spec)
     except vg.GateRefused as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
-    for line in vg.run_lines(r):
+    for line in vg.run_lines(r, spec):
         click.echo(line)
-    e = vg.record(r, word)
+    e = vg.record(r, word, spec)
     click.echo(f"  recorded: {e['run']['n_scored']} scored ids · sha {e['run']['ids_sha256'][:12]}… · "
                f"{e['run']['ids_file']} (commit docs/registry/ in a PR)")
+
+
+@cli.command("ncaa-gate")
+@click.option("--id", "eid", required=True, type=click.Choice(["ncaa-elo-v1r", "ncaa-elo-v2"]),
+              help="The registry id of the declaration the gate serves (ARCHITECT 2026-10-16, addendum 81 item 2, "
+                   "D6: ncaa-v1r-gate's machinery, parameterised by registry id).")
+@click.option("--preflight", is_flag=True,
+              help="D6: scores nothing; prints the census per season, the coverage, the D4 baseline(s), the frozen s "
+                   "(v2) and the second read's census (v2, D10); its last line is the stream fingerprint.")
+@click.option("--architect-word", "word", default=None,
+              help="The architect's word to start the ONE run, verbatim; written into the reservation and the run "
+                   "record. Required for the run.")
+@click.option("--stream-fingerprint", "fingerprint", default=None,
+              help="The stream fingerprint printed on --preflight's last line. Required for the run: it refuses, "
+                   "before the reservation, unless the stream(s) it is about to walk still match; recorded beside "
+                   "the word.")
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="Cross-ref guard (#329): skip fetching origin laptop/*; only the refs this clone knows are checked "
+                   "and the receipt says other clones were not checked.")
+def ncaa_gate_cmd(eid, preflight, word, fingerprint, no_fetch):
+    """THE NCAA GATE BY REGISTRY ID (GATE-CLASS). `--id ncaa-elo-v1r` is ncaa-v1r-gate exactly. `--id ncaa-elo-v2`
+    (ARCHITECT 2026-10-16, addendum 81 item 2; docs/specs/ncaa-elo-v2.md): the D2 stream 2024-2026 walked with the
+    D1 wrapper at the FROZEN logistic scale s (the run refuses until the registry entry freezes it); 2024 and 2025
+    update only; the 2026 games whose season_type is exactly 'regular' predicted, then updated; D4 = the 2024 AND 2025
+    non-neutral 'regular' home win rate; D5 = v1r's four tests. D10, the second read, in the same one run: the 2023
+    stream from the same read, a cold start at the frozen s, scored from week 5, D4 from its own weeks 1-4; it can
+    only block. Refused (exit 2, nothing written) unless declared and unrun, the word and the fingerprint given, s
+    frozen, and 2024, 2025 and 2026 covered; then, the streams loaded and nothing scored, unless the fingerprint
+    (both streams) matches, the 2026 scored set numbers >= 500 and the D4 baseline is defined. 2023's coverage is a
+    precondition of the second read, not of the gate: printed at --preflight, carried in the reservation. The
+    reservation (after the #329 cross-ref guard) precedes the first game scored; ONE run, recorded with every id
+    either read scored. PASS makes no call (D8): the Desk stays market-only for NCAA."""
+    _ncaa_gate(eid, preflight, word, fingerprint, no_fetch)
+
+
+@cli.command("ncaa-fit-scale")
+@click.option("--id", "eid", default="ncaa-elo-v2", show_default=True, type=click.Choice(["ncaa-elo-v2"]),
+              help="The registry id of a declaration with a fitted logistic scale.")
+def ncaa_fit_scale_cmd(eid):
+    """ncaa-elo-v2 D1: THE FIT OF s (ARCHITECT 2026-10-16, addendum 81 item 2), READ-ONLY. Walks the D2 stream's
+    2024 and 2025 games only (no 2026 game is walked or read) with the D1 wrapper at scale s, predict then update,
+    and maximizes the log-likelihood of the 'regular' games over s: the declared grid 100..1000 by 5, then a
+    golden-section search within one step of the best grid value to 1e-6 (src/walters/ncaa_scale_fit.py). Prints the
+    fitted s (exactly, to be frozen by the declaration PR), the log-likelihood curve at s = 300..500 by 25, the slope
+    b the fitted s gives on 2025 (reported, not a gate), the training fingerprint, and two checks against v1r's
+    recorded run (b at s = 400 on 2025; v1r's stream fingerprint). Refuses (exit 2) unless the entry is declared and
+    2024 and 2025 are covered. Writes nothing; scores no 2026 game."""
+    from src.walters import ncaa_scale_fit as fs
+    from src.walters import ncaa_v1r_gate as vg
+
+    try:
+        spec = vg.spec_of(eid)
+        c = fs.run(spec)
+    except (fs.FitRefused, vg.GateRefused) as e:
+        click.echo(f"REFUSED: {e}")
+        raise SystemExit(2)
+    for line in fs.lines(c, spec):
+        click.echo(line)
 
 
 @cli.command("ncaa-v1r-confirm")
@@ -7137,27 +7204,33 @@ def ncaa_v1r_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
     the D2 stream), the label's flags applied, whatever the season_type. CONFIRMED iff log-loss <= 0.6931 and < the
     D4 baseline's log-loss − 0.010 on the same games. Refused unless PASS and 2024, 2025 and 2026 covered (D6).
     Without flags: progress only. PASS / CONFIRMED do not make college football a call (D8)."""
+    _ncaa_confirm("ncaa-elo-v1r", freeze_cohort, substitute, record, ruling, no_fetch)
+
+
+def _ncaa_confirm(eid, freeze_cohort, substitute, record, ruling, no_fetch):
+    """The NCAA confirmation read's machinery for the declaration `eid` names (D7; parameterised by registry id)."""
     from collections import Counter
 
     from src.walters import ncaa_v1r_gate as vg
     from src.walters import registry as reg
     try:
+        spec = vg.spec_of(eid)
         if freeze_cohort:
-            e = vg.freeze(no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"))
+            e = vg.freeze(no_fetch=no_fetch, echo=lambda line: click.echo(f"  {line}"), spec=spec)
             c = e["confirmation_cohort"]
             b = c["basis"]
             click.echo(f"FROZEN: {c['n']} fixtures · sha256 {c['ids_sha256'][:16]}… · {b['first_kickoff']} .. "
                        f"{b['last_kickoff']} · {b['status_at_freeze']} — commit docs/registry/ in a PR")
             return
         if substitute:
-            n = vg.substitute(echo=click.echo)
+            n = vg.substitute(echo=click.echo, spec=spec)
             click.echo(f"SUBSTITUTE: {n} released and replaced" + (" — commit docs/registry/ in a PR" if n else ""))
             return
-        r = vg.confirmation_read()
+        r = vg.confirmation_read(spec)
     except (vg.GateRefused, reg.RegistryError) as e:
         click.echo(f"REFUSED: {e}")
         raise SystemExit(2)
-    click.echo(f"NCAA-ELO-V1R CONFIRMATION · cohort {r['cohort_state'].upper()} ({r['cohort_size']}/{r['n_games']} "
+    click.echo(f"{spec.title} CONFIRMATION · cohort {r['cohort_state'].upper()} ({r['cohort_size']}/{r['n_games']} "
                f"fixtures; {r['eligible_stored']} eligible stored) · {r['n']}/{r['n_games']} labelled"
                + (f" · first {r['first_game_at']}" if r["first_game_at"] else ""))
     if r["pending"]:
@@ -7173,11 +7246,32 @@ def ncaa_v1r_confirm_cmd(freeze_cohort, substitute, record, ruling, no_fetch):
         click.echo("REFUSED: --record needs --ruling (the architect's text, verbatim)")
         raise SystemExit(2)
     try:
-        e = vg.record_confirmation(r, ruling)
+        e = vg.record_confirmation(r, ruling, spec)
     except (vg.GateRefused, reg.RegistryError) as err:
         click.echo(f"REFUSED: {err}")
         raise SystemExit(2)
     click.echo(f"  RECORDED: {e['confirmation']['outcome']} · status {e['status']} — commit docs/registry/ in a PR")
+
+
+@cli.command("ncaa-confirm")
+@click.option("--id", "eid", required=True, type=click.Choice(["ncaa-elo-v1r", "ncaa-elo-v2"]),
+              help="The registry id of the declaration whose confirmation window this reads (D7).")
+@click.option("--freeze-cohort", is_flag=True,
+              help="Freeze the first 100 eligible fixture ids into the registry (once; needs >= 100 stored; calls the "
+                   "#329 cross-ref guard).")
+@click.option("--substitute", is_flag=True,
+              help="Release CANCELLED cohort fixtures and record the next eligible fixture after the cohort as each "
+                   "one's substitute (registry write; commit in a PR).")
+@click.option("--record", is_flag=True, help="Record the confirmation (needs the frozen cohort complete and --ruling).")
+@click.option("--ruling", default=None, help="The architect's ruling text, verbatim (with --record).")
+@click.option("--no-fetch", "no_fetch", is_flag=True,
+              help="With --freeze-cohort, cross-ref guard (#329): skip fetching origin laptop/*.")
+def ncaa_confirm_cmd(eid, freeze_cohort, substitute, record, ruling, no_fetch):
+    """THE NCAA CONFIRMATION READ BY REGISTRY ID (D7). `--id ncaa-elo-v1r` is ncaa-v1r-confirm exactly; `--id
+    ncaa-elo-v2` is v2's D7, "as v1r's D7", scored by v2's own replay (its stream, the D1 wrapper at the frozen s).
+    Refused unless the entry has its run and a PASS verdict and 2024, 2025 and 2026 are covered. PASS / CONFIRMED do
+    not make college football a call (D8)."""
+    _ncaa_confirm(eid, freeze_cohort, substitute, record, ruling, no_fetch)
 
 
 @cli.command("nhl-backtest")

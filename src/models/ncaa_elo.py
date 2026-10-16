@@ -92,3 +92,27 @@ class NCAAEloV1:
 
     def ratings(self) -> dict[int, float]:
         return dict(self._ratings)
+
+
+# --------------------------------------------------------------------------
+# ncaa-elo-v2 (ARCHITECT 2026-10-16, addendum 81 item 2; declaration docs/specs/ncaa-elo-v2.md), D1 verbatim:
+# "Candidate: NCAAEloV1's structure and constants (k_factor 24, home_advantage 55, mov_base 2.2, season_regression
+# 0.25, default_rating 1500, neutral rule no_home_advantage_at_neutral) with ONE fitted parameter: the logistic scale
+# s in P(home) = 1 / (1 + 10^(-(dr + ha) / s)), fitted by maximum likelihood on the 2024 and 2025 regular-season games
+# of the stream (D2) and then frozen; v1 is s = 400." P(home) is NCAAEloV1._expected_home, which the update reads too
+# (the expected score), so s replaces 400 in both, as nhl_elo.NHLEloV8 replaced it (the house precedent for a fitted
+# logistic divisor). Nothing else differs from v1; v1 keeps its fixed 400.
+# --------------------------------------------------------------------------
+
+V1_SCALE = 400.0
+
+
+@dataclass
+class NCAAEloV2(NCAAEloV1):
+    scale: float = V1_SCALE
+
+    name = "ncaa_elo_v2"
+
+    def _expected_home(self, home_id: int, away_id: int) -> float:
+        diff = self.rating(away_id) - (self.rating(home_id) + self.cfg.home_advantage)
+        return 1.0 / (1.0 + 10 ** (diff / self.scale))

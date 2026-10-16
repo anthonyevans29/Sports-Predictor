@@ -1,0 +1,29 @@
+## 2026-10-16 (#551: ncaa-elo-v2 declared — ARCHITECT addendum 81 item 2, #79; nothing run)
+- docs/registry/experiments.json: `ncaa-elo-v2` declared through `registry.declare`: status declared, run and verdict null.
+  - D5 is the gate and D7 the confirmation window, both verbatim. The plan is v1r's numbers: 100, log_loss, 0.6931, beat the D4 baseline − 0.010.
+  - v1's constants and the neutral rule.
+  - `logistic_scale` {s: null, fit: null}: the run refuses until this PR freezes s from the fit's printout.
+  - D9, D10 and D11 verbatim (`prior_reads_note`, `second_read`, `benchmark`).
+  - Test set: "NCAA FBS 2026 regular season as it accrues (CFBD both-FBS labels; training and warm-up 2024 and 2025)".
+- docs/specs/ncaa-elo-v2.md: item 1 and D1-D11 verbatim, the registry entry, the declared procedure of the fit of s, the parameterised gate, the second read, ten interpretations and two questions (Q1: whether s enters the update; Q2: a 2026 fence).
+- src/models/ncaa_elo.py: `NCAAEloV2`, which is NCAAEloV1 with the logistic scale s in the expected score (the price and the update read it, as NHLEloV8's divisor). At s = 400 it is v1 exactly.
+- src/walters/ncaa_backtest.py:
+  - `NeutralRuleElo(scale=)`: None keeps v1.
+  - `Game.week`: CFBD's week once the 2023 ingest stores it; None until then.
+  - `v1r_stream(seasons=)` and `load_v1r_streams`: one read, several streams.
+- src/walters/ncaa_v1r_gate.py: the gate's machinery, parameterised by registry id (`Spec`, `Read`, `SPECS`, `spec_of`), as D6 orders.
+  - **v1r is unchanged:** its tests pass unchanged, and a before/after capture of its pure outputs is byte-identical.
+  - **v2:**
+    - D4 is read over 2024 and 2025, and the 2026 'regular' games are scored.
+    - The frozen s; the run refuses while it is not frozen.
+    - The run needs 2024, 2025 and 2026 covered.
+    - One fingerprint covers the 2024-2026 stream and the 2023 second-read stream, the week included.
+    - The D10 second read: a cold start, scored from week 5, with its own weeks 1-4 baseline. It is NOT READ without 2023 coverage and INVALID under 500 or without its baseline, and it never refuses the run.
+    - The combined verdict. The record's ids sidecar holds both reads' ids.
+- src/walters/ncaa_scale_fit.py (new): D1's fit. Maximum likelihood over the 2024 and 2025 'regular' games, walking only those seasons.
+  - The search: a grid of 100..1000 by 5, then golden-section to 1e-6. The bracket edge is flagged; a tie goes toward 400.
+  - It prints the curve at 300..500 by 25, the fitted s exactly, b on 2025, the training fingerprint, and two checks against v1r's recorded run.
+- cli.py: `ncaa-gate --id`, `ncaa-confirm --id` and `ncaa-fit-scale --id ncaa-elo-v2`. `ncaa-v1r-gate` and `ncaa-v1r-confirm` are unchanged.
+- docs/roadmap.json, lane ncaa: step 1 done (addendum 81), state declared, registry_id ncaa-elo-v2.
+- docs/CLI.md: the three commands.
+- tests/test_ncaa_elo_v2.py: 37 tests.

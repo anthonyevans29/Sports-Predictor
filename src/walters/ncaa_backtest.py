@@ -132,6 +132,9 @@ class Game:
     cfbd_id: int | None = None
     cfbd_season: str | None = None
     label_fetched_at: datetime | None = None
+    # ncaa-elo-v2 D10 (ARCHITECT 2026-10-16, addendum 81 item 2): CFBD's week as served, from the side table once the
+    # 2023 ingest PR stores it; None until then (law 4: unknown stays unknown). Only the 2023 second read reads it.
+    week: int | None = None
 
     @property
     def home_win(self) -> int:
@@ -343,17 +346,20 @@ def game_from_rows(m, label=None) -> Game:
                     m.stage or "", match_id=m.id)
     corrected = (label.home_score, label.away_score) != (m.home_score, m.away_score)
     st = label.__dict__.get("season_type") if hasattr(label, "__dict__") else None   # unloaded pre-J4: None
+    wk = label.__dict__.get("week") if hasattr(label, "__dict__") else None          # no column yet: None (D10)
     if label.orientation == "swapped":
         return Game(m.away_team_id, m.home_team_id, m.season, m.utc_date, label.away_score, label.home_score,
                     m.stage or "", neutral=label.neutral, label_source="cfbd", orientation="swapped",
                     score_corrected=corrected, match_id=m.id, season_type=st,
                     cfbd_id=getattr(label, "source_game_id", None),
-                cfbd_season=getattr(label, "season", None), label_fetched_at=getattr(label, "fetched_at", None))
+                cfbd_season=getattr(label, "season", None), label_fetched_at=getattr(label, "fetched_at", None),
+                    week=wk)
     return Game(m.home_team_id, m.away_team_id, m.season, m.utc_date, label.home_score, label.away_score,
                 m.stage or "", neutral=label.neutral, label_source="cfbd", orientation="same",
                 score_corrected=corrected, match_id=m.id, season_type=st,
                 cfbd_id=getattr(label, "source_game_id", None),
-                cfbd_season=getattr(label, "season", None), label_fetched_at=getattr(label, "fetched_at", None))
+                cfbd_season=getattr(label, "season", None), label_fetched_at=getattr(label, "fetched_at", None),
+                week=wk)
 
 
 def load_games() -> list[Game]:
@@ -544,13 +550,16 @@ class NeutralRuleElo:
     thin wrapper swaps the model's cfg for dataclasses.replace(cfg, home_advantage=0.0) for the duration of the
     predict / update call of a game whose `neutral` is True, then restores it. The v1 math is untouched. Shared by
     the shadow (ncaa_shadow.V1R) and the design receipt (scripts/ncaa_v1r_design_receipt.py).
-    `neutral_home_advantage` True = the other declarable rule (home advantage at neutral sites too)."""
+    `neutral_home_advantage` True = the other declarable rule (home advantage at neutral sites too).
+    `scale` (ncaa-elo-v2 D1, ARCHITECT 2026-10-16, addendum 81 item 2): None = NCAAEloV1 (its fixed 400); a number =
+    NCAAEloV2 with that logistic scale, the rest of v1 untouched (the neutral rule wraps it the same way)."""
 
-    def __init__(self, neutral_home_advantage: bool = False):
-        from src.models.ncaa_elo import NCAAEloConfig, NCAAEloV1
+    def __init__(self, neutral_home_advantage: bool = False, scale: float | None = None):
+        from src.models.ncaa_elo import NCAAEloConfig, NCAAEloV1, NCAAEloV2
 
         self.cfg = NCAAEloConfig()
-        self.m = NCAAEloV1(self.cfg)
+        self.m = NCAAEloV1(self.cfg) if scale is None else NCAAEloV2(self.cfg, scale=float(scale))
+        self.scale = scale
         self.neutral_home_advantage = neutral_home_advantage
         self.neutral_updates = 0
         self.unflagged_updates = 0          # a label without a neutral flag: non-neutral, counted (D1)
@@ -687,12 +696,14 @@ class V1RStream:
         return L + self.merge.lines()
 
 
-def v1r_stream(games: list[Game], teams: dict[int, str], stamps: dict[str, datetime]) -> V1RStream:
+def v1r_stream(games: list[Game], teams: dict[int, str], stamps: dict[str, datetime],
+               seasons: tuple = V1R_SEASONS) -> V1RStream:
     """D2 + L3 + J2. Keep only games carrying a CURRENT CFBD label. L3 (verbatim): "A label is current when its
     fetched_at equals that of its season's latest ingest record. The v1r stream and the shadow's FBS team set
     read current labels only. A stale label is kept, counted and listed, never walked." `stamps` =
     ncaa_cfbd.latest_record_stamps ({CFBD season: latest record's fetched_at}). The season is the label's (CFBD)
-    season; only V1R_SEASONS are walked. Home / away, scores and the neutral flag are the label's (game_from_rows
+    season; only `seasons` are walked (V1R_SEASONS by default; ncaa-elo-v2's D10 second read builds its 2023 stream
+    with ("2023",) from the same read, addendum 81 item 2). Home / away, scores and the neutral flag are the label's (game_from_rows
     already applied them). Both team ids mapped through team_merge. Order: stored kickoff, then match id. Every
     game walked, postseason included (no stage exclusion); a level score is skipped, counted and listed. Pure."""
     from dataclasses import replace
@@ -713,7 +724,7 @@ def v1r_stream(games: list[Game], teams: dict[int, str], stamps: dict[str, datet
             continue
         season = str(g.cfbd_season)
         v.labelled[season] += 1
-        if season not in V1R_SEASONS:
+        if season not in seasons:
             v.outside[season] += 1
             continue
         kept.append(replace(g, home_id=tm(g.home_id), away_id=tm(g.away_id), season=season))
@@ -767,6 +778,13 @@ def load_v1r_games() -> list[Game]:
 def load_v1r_stream(games: list[Game] | None = None) -> V1RStream:
     """Read-only: load_v1r_games() (or `games`) restricted to the v1r stream (D2): current labels only (L3),
     seasons V1R_SEASONS, the team merge built over every team in an NCAA match."""
+    return load_v1r_streams((V1R_SEASONS,), games)[0]
+
+
+def load_v1r_streams(seasons_list, games: list[Game] | None = None) -> list[V1RStream]:
+    """Read-only: ONE read of the stored games (load_v1r_games(), or `games`), the team names and the ingest stamps,
+    then one D2 stream per entry of `seasons_list`, each restricted to its seasons. ncaa-elo-v2 walks its 2024-2026
+    stream and its 2023 second-read stream from the same read, so one fingerprint covers both (D10, addendum 81)."""
     from src.db.database import session_scope
     from src.ingestion.ncaa_cfbd import latest_record_stamps, ncaa_teams
 
@@ -774,7 +792,8 @@ def load_v1r_stream(games: list[Game] | None = None) -> V1RStream:
         teams = ncaa_teams(s)
         stamps = latest_record_stamps(s)
         s.rollback()
-    return v1r_stream(load_v1r_games() if games is None else games, teams, stamps)
+    games = load_v1r_games() if games is None else games
+    return [v1r_stream(games, teams, stamps, tuple(seasons)) for seasons in seasons_list]
 
 
 def coverage_misses(fbs: dict[str, dict], seasons) -> list[str]:

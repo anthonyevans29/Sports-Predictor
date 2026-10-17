@@ -1,4 +1,4 @@
-## 2026-10-17 (#575: void-redated — ARCHITECT addendum 106 item 4, addendum 107 item A2; #574, sibling #568)
+## 2026-10-17 (#577: void-redated — ARCHITECT addendum 106 item 4, addendum 107 item A2; #574, sibling #568)
 - src/walters/redated.py (new): the rule in one place. `redated_label(recorded start, current utc_date)` returns "void: re-dated <old> → <new>" (UTC, `YYYY-MM-DD HH:MMZ`) when the two differ by more than `desk_policy.DESK_CLOCK_DRIFT` (1h). Exactly 1h is not void; a start with no clock, missing or unparseable, is not compared.
   - `closing_starts` reads `exports/closing_*.json` (never `host/`) into each match's closing rows (the run's start, the row's `utc_date`). An unreadable file is counted, never fatal.
   - `void_label`: a match is void when it has closing rows, none within the rule of its current start (the fresh closing on the new date is the graded row), and its latest is re-dated.

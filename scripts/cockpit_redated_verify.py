@@ -213,7 +213,7 @@ def main():
               and relog[0]["kickoff"] == "2026-10-18T21:00:00", json.dumps(relog)[:200])
 
         print("A SERIES (the ±1-day join, #574 question 1)")
-        # one day's results file is the only match for the neighbouring day's open call (same teams): before #575 it
+        # one day's results file is the only match for the neighbouring day's open call (same teams): before #577 it
         # was graded on the neighbour's game; now void, and graded at the intake that holds its own result
         series = {"meta": {"policy_version": "v1.1"}, "calls": [
             call("series_d1", "New York Mets", "Philadelphia Phillies", "2026-10-16T23:05:00", "2026-10-16")]}

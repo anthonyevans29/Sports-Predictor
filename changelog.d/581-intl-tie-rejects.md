@@ -1,4 +1,4 @@
-## 2026-10-17 (#580: intl-tie-rejects — #330, ARCHITECT addendum 112 item 2, gate-class by label; Closes #330)
+## 2026-10-17 (#581: intl-tie-rejects — #330, ARCHITECT addendum 112 item 2, gate-class by label; Closes #330)
 - src/walters/intl_elo.py `run()`: the log-loss criterion `crit_ll` is now `ll_model < ll_naive − 0.010`, unrounded, no tolerance, so a tie rejects (soccer-expansion-v1's F4 form, #326). It was `(ll_naive − ll_model) >= 0.010 − 1e-12`, which passed equality and anything within 1e-12 of it. One comparison: the walk, the bar, the bands and the verdict wording do not change. The module docstring quotes the ruling.
 - Immaterial to the recorded verdicts (the run records' unrounded numbers, nothing re-run): intl-elo-v2 0.7889 against bar 1.0424 (0.2534 under it) and intl-elo-v1 0.8507 against bar 1.0431 (0.1924 under it) both pass the strict form, as recorded. No run record or registry entry is touched; the gate text (spec section 6, "A tie is a rejection.") is unchanged.
 - The confirmation's criterion (`registry.record_confirmation`: `metric < reference`) was already strict and is unchanged.

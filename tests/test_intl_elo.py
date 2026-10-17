@@ -3,8 +3,9 @@ the update (draws S=0.5 with max(margin,1), gap factor 1; H +100 / 0 /
 unknown +100; K by class), the soccer Elo->Poisson three-way, the naive
 baseline, the RULE CHECK and the pre-declared v2 host-city rule, the 90-minute
 label (AET/PEN without one excluded), walk-forward (a game's own result never
-reaches its prediction), the unruled CNL_Q refusal, and the CLI's registry
-refusal before any data load. Synthetic data; the real ledger is untouched."""
+reaches its prediction), the unruled CNL_Q refusal, the strict log-loss
+criterion (#330: a tie rejects), and the CLI's registry refusal before any
+data load. Synthetic data; the real ledger is untouched."""
 import math
 from datetime import datetime, timedelta
 
@@ -121,6 +122,44 @@ def test_cnl_q_is_nations_league_class_and_an_unknown_code_refuses():
     games = _stream() + [G(10**6, "ZZZ_NEW", 1, 2, 1, 0, datetime(2018, 9, 1))]
     with pytest.raises(ValueError, match="K class not ruled for ZZZ_NEW"):
         ie.run(games)
+
+
+def test_330_a_tie_rejects_at_exact_equality(monkeypatch):
+    """#330 RULED (ARCHITECT 2026-10-17, addendum 112 item 2): "the code moves to the text (a tie is a rejection,
+    law 3)". PASS iff log-loss < naive - 0.010 on unrounded values; equality fails (soccer-expansion-v1's F4 form)."""
+    t = datetime(2019, 1, 1)
+    train = [G(1, "UNL", 1, 2, 1, 0, t), G(2, "FRIENDLIES_INT", 2, 1, 0, 0, t + timedelta(days=1), neutral=True)]
+    games = train + [G(3, "UNL", 1, 2, 2, 1, datetime(2024, 10, 10), season="2024/25")]   # one test game: n 1
+    nb = ie.naive(train)
+    a = 1.05
+    b = a - ie.LL_MARGIN                                   # the bar, computed exactly as run computes it
+
+    def at(model):
+        monkeypatch.setattr(ie, "ll3", lambda p, o: a if p in (nb["home"], nb["neutral"]) else model)
+        return ie.run(games)
+
+    r = at(b)
+    assert r["n_test"] == 1 and r["ll_model"] == r["bar"] == b and r["ll_naive"] == a
+    assert not [x for x in r["bands"] if x["gated"]]       # no gated band: the log-loss criterion decides alone
+    assert (r["ll_naive"] - r["ll_model"]) >= ie.LL_MARGIN - 1e-12   # the old comparison would have passed it
+    assert r["crit_ll"] is False and r["verdict"] == "FAIL — log-loss margin"
+    r = at(math.nextafter(b, 0))                           # one ulp under the bar passes
+    assert r["crit_ll"] is True and r["verdict"] == "PASS"
+    r = at(math.nextafter(b, 2))                           # one ulp over the bar fails
+    assert r["crit_ll"] is False and r["verdict"] == "FAIL — log-loss margin"
+    r = at(b + 5e-13)                                      # inside the old 1e-12 tolerance: no longer a pass
+    assert (a - r["ll_model"]) >= ie.LL_MARGIN - 1e-12 and r["crit_ll"] is False
+
+
+def test_330_the_recorded_verdicts_hold_under_the_strict_form():
+    """#330: "Immaterial to the recorded verdict". Both run records stay as written; the strict criterion on their
+    unrounded numbers reads as each recorded crit_ll, with headroom under the bar of 0.1924 (v1) and 0.2534 (v2)."""
+    from src.walters import registry as reg
+    for eid, headroom in (("intl-elo-v1", 0.1924), ("intl-elo-v2", 0.2534)):
+        r = reg.get(eid)["run"]["result"]
+        assert r["crit_ll"] is True and r["bar"] == r["ll_naive"] - ie.LL_MARGIN
+        assert r["ll_model"] < r["ll_naive"] - ie.LL_MARGIN
+        assert round(r["bar"] - r["ll_model"], 4) == headroom
 
 
 def test_load_uses_90_minute_labels_and_excludes_aet_without_one():

@@ -19,6 +19,14 @@ ARCHITECT 2026-10-02 (ruling, then ARCHITECT-RULE on #232, pre-run, frozen):
 
 Refused before any data is read unless the registry holds `intl-elo-v1`
 declared and unrun. The ONE run records its scored ids and result.
+
+#330 RULED (ARCHITECT 2026-10-17, addendum 112 item 2): "the code moves to
+the text (a tie is a rejection, law 3)". The log-loss criterion is strict on
+unrounded values, ll_model < ll_naive - 0.010 (the spec's section 6: "A tie
+is a rejection"), soccer-expansion-v1's F4 form; equality fails. Until then
+the code passed equality (a 1e-12 tolerance). No run record is touched: both
+recorded verdicts keep their numbers (v1 0.8507 vs bar 1.0431, v2 0.7889 vs
+bar 1.0424).
 """
 from __future__ import annotations
 
@@ -258,7 +266,7 @@ def run(games: list[Game], c_mult: float = 1.0, k_mult: float = 1.0) -> dict:
     n = len(test)
     bands = calibration_bands(pairs)
     ll_model, ll_naive = ll_m / n, ll_n / n
-    crit_ll = (ll_naive - ll_model) >= LL_MARGIN - 1e-12
+    crit_ll = ll_model < ll_naive - LL_MARGIN             # #330: strict, no tolerance; a tie rejects
     crit_bands = all(b["ok"] for b in bands if b["gated"])
     verdict = "PASS" if crit_ll and crit_bands else "FAIL — " + ", ".join(
         w for w, ok in (("log-loss margin", crit_ll), ("calibration", crit_bands)) if not ok)

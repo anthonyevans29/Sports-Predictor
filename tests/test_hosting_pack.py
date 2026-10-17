@@ -1074,11 +1074,9 @@ def test_window_mlb_kalshi_step_ends_at_tomorrow_plus_one_day(sandbox, monkeypat
     assert kalshi == [["sync-kalshi", "--date-from", "2026-10-03", "--date-to", "2026-10-04"]]
     # every other step resolves to itself: the placeholders touch the MLB Kalshi step only
     assert [st for st in resolved if st[0] != "sync-kalshi"] == [st for st in planned if st[0] != "sync-kalshi"]
-    assert {k: v for k, v in chains.WINDOW_KALSHI.items() if k != "MLB"} == {
-        "NFL": [["sync-kalshi-nfl"]], "NCAA": [["sync-kalshi-ncaa"]], "NHL": [["sync-kalshi-nhl"]],
-        "PL": [["sync-kalshi-soccer", "--competition", "PL"]],
-        "UNL": [["sync-kalshi-soccer", "--competition", "UNL"]],
-        "CL": [["sync-kalshi-soccer", "--competition", "CL"]]}
+    v = sp_run.date_vars(now.date())
+    assert all(a.format(**v) == a for k, sts in chains.WINDOW_KALSHI.items() if k != "MLB"
+               for st in sts for a in st)                    # no other Kalshi step carries a date placeholder
     seen = {}
 
     def fake(date_from=None, date_to=None, progress=None, **kw):

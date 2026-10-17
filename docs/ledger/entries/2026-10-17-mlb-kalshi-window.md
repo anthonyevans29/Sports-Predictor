@@ -8,9 +8,9 @@
   - The Issue's window (before #205, `--date-to` read as midnight) was [D 00:00Z, D+1 00:00Z]. A first pitch after 00:00Z on D+1 stayed outside it until the 00:05Z run rolled {today}. #205 fixed that (BACKLOG's #204/#175 backfill entry), but no PR closed #175.
 - **Built (#PRNUM):**
   - No change to the step or the sync.
-  - Two tests pin the ruled end. (1) The window chain as sp_run resolves it: the MLB Kalshi step alone takes the dates, and through the CLI its window ends at D+2 00:00Z less a microsecond. (2) A 00:30Z first pitch on D+1 is stored by the step from a 23:05Z run on D and refused by the Issue's window.
+  - One test pins the ruled end: the window chain as sp_run resolves it, where the MLB Kalshi step alone takes the dates and, through the CLI, its window ends at D+2 00:00Z less a microsecond. A second shows the Issue's case: a 00:30Z first pitch on D+1 is stored by the step from a 23:05Z run on D and refused by the Issue's window.
   - docs/CLI.md's `sync-kalshi` row and snapshot-retention (F4) say so.
 - **Receipt (the private export mirror, read-only; match ids and counts only):**
   - Match **41248**: a night game whose first pitch is after 00:05Z on the day after its window run's UTC date. It carries a two-sided Kalshi capture taken by that day's window run (the host's window card of that run). The Issue's window could not have stored it.
-  - Counts over the mirror's 14 host window cards: 21 MLB rows. 9 have a first pitch on D+1 after 00:00Z, and 8 of those carry a Kalshi capture taken on D. 2 of the 8 are night games past 00:05Z (41248, 41429).
+  - Counts over the mirror's 14 host window cards: 21 MLB rows. 9 have a first pitch on D+1 after 00:00Z, and 8 of those carry a Kalshi capture taken on D. All 8 are outside the Issue's window. 2 of the 8 are #175's own shape, night games of D's evening (ET) whose first pitch falls after UTC midnight: 41248 and 41429. The other 6 are day games of D+1.
 - **Open for the architect:** the reading of "{tomorrow}+1 day". As the window's end, it holds today and this PR changes no behaviour. As the step's `--date-to` (`--date-to {today_plus2}`), the window would end at {tomorrow}+2 days and add the games 24 to 72 hours out. That is one line, held off this PR until ruled.

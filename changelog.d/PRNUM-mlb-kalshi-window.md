@@ -3,5 +3,5 @@
 - docs/CLI.md: the `sync-kalshi` row says what `--date-from` / `--date-to` keep and where the window step's window ends.
 - docs/specs/snapshot-retention.md: (F4) says #205 fixed the boundary it describes.
 - tests:
-  - test_hosting_pack.py: the window chain as sp_run resolves it on a UTC day D. The MLB Kalshi step is `--date-from D --date-to D+1`, every other step resolves to itself, and the other Kalshi steps are as they were. Through the CLI, the step's window runs from D 00:00Z to D+2 00:00Z less a microsecond, past the 24 hours of the day's last window run.
+  - test_hosting_pack.py: the window chain as sp_run resolves it on a UTC day D. The MLB Kalshi step is `--date-from D --date-to D+1`, every other step resolves to itself, and no other Kalshi step carries a date placeholder. Through the CLI, the step's window runs from D 00:00Z to D+2 00:00Z less a microsecond, past the 24 hours of the day's last window run.
   - test_kalshi_inplay_guard.py: a run at 23:05Z on D and a first pitch at 00:30Z on D+1. The step stores both legs; the Issue's window refuses them as outside the run's window.

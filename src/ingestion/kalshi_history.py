@@ -15,7 +15,8 @@ How it reads, so the receipt can be checked against it:
   time filter is sent: the probe found max_close_ts does not narrow the historical list): /historical/markets
   (source 'historical', settled before the cutoff) and /markets?status=settled (source 'live'). A list that does not
   reach its end (a page that fails or holds no list, a cursor that comes back, the page guard) is printed, never
-  retried, and nothing of the run is placed or stored, as for the cap: an event split across the cut would be
+  retried (a 429 alone is first asked again, as below, for any call: the cutoff, a page or a candle call), and nothing
+  of the run is placed or stored, as for the cap: an event split across the cut would be
   matched on part of its legs. The series' competition must be in the DB, or the run refuses before any call.
 - --since / --until keep the markets whose game day falls inside them: the ticker's date (US Eastern, as the matcher
   reads it), else the close_time's UTC date; a market with neither is counted and left out when either is given.
@@ -38,7 +39,10 @@ How it reads, so the receipt can be checked against it:
   a live one; period_interval=1, start_ts = kickoff - 6h, end_ts = close_time. A market with no close_time, or whose
   window starts at or after its close_time, fetches no candles (notes says so). A candle call the exchange refuses
   for good (a 4xx other than 408 / 429) stores the market with no quote and the status in notes; any other failure
-  stores nothing for it (listed; the next run asks again). Nothing is retried in the run.
+  stores nothing for it (listed; the next run asks again). A 429 is asked again in the run (ARCHITECT 2026-10-17,
+  addendum 104 item 2: "on a 429, wait and retry the same call once (2s, then 5s) before counting it failed; one line
+  in the receipt "429 retries: N""): after 2 s, then after 5 s, each a call against the cap; a third 429 counts the
+  call failed. Nothing else is retried in the run.
 - Per market from its candles: last_ts / last_bid / last_ask / last_mid of the last candle at or before kickoff that
   carries both a bid and an ask (a null is never filled, and the mid is the two's mean); candles_6h (candles whose end
   falls in the six hours up to kickoff), candles_two_sided (of those, the ones carrying both), gaps (the minutes of
@@ -72,6 +76,7 @@ from __future__ import annotations
 
 import json
 import re
+import time
 from collections import Counter
 from dataclasses import dataclass, field
 from datetime import date, datetime, timedelta, timezone
@@ -200,30 +205,45 @@ def window_stats(candles: list, kickoff: datetime, shape: str) -> dict:
     return out
 
 
+#: Addendum 104 item 2: the waits before the same call is asked again after a 429 (2 s, then 5 s).
+RETRY_429_WAITS = (2, 5)
+_wait = time.sleep                                         # the tests replace it; the run waits for real
+
+
 class Calls:
-    """Every call to the exchange, counted against the cap; a failed call is recorded, never retried."""
+    """Every call to the exchange, counted against the cap; a failed call is recorded. A 429 alone is asked again
+    (RETRY_429_WAITS), each retry a call against the cap and counted in `retries_429`; nothing else is retried."""
 
     def __init__(self, adapter, cap: int):
         self.adapter, self.cap = adapter, cap
         self.made = 0
+        self.retries_429 = 0
         self.failed: list[str] = []
 
     def get(self, path: str, params: dict | None = None):
-        """(answer, None) or (None, why). Raises Capped before a call past the cap."""
+        """(answer, None) or (None, why). Raises Capped before a call past the cap. A retry is never made past
+        the cap: a 429 that meets the cap counts the call failed (the next run asks again)."""
         if self.made >= self.cap:
             raise Capped()
-        self.made += 1
-        try:
-            data = self.adapter._get(path, params)
-        except requests.HTTPError as e:
-            resp = getattr(e, "response", None)
-            why = f"status {getattr(resp, 'status_code', None)}"
-        except Exception as e:  # noqa: BLE001 - a call that fails is recorded and the run goes on without it
-            why = f"{type(e).__name__}: {e}"
-        else:
-            if isinstance(data, dict):
-                return data, None
-            why = "an answer that is not an object"
+        waits = list(RETRY_429_WAITS)
+        while True:
+            self.made += 1
+            try:
+                data = self.adapter._get(path, params)
+            except requests.HTTPError as e:
+                status = getattr(getattr(e, "response", None), "status_code", None)
+                if status == 429 and waits and self.made < self.cap:
+                    self.retries_429 += 1
+                    _wait(waits.pop(0))
+                    continue
+                why = f"status {status}"
+            except Exception as e:  # noqa: BLE001 - a call that fails is recorded and the run goes on without it
+                why = f"{type(e).__name__}: {e}"
+            else:
+                if isinstance(data, dict):
+                    return data, None
+                why = "an answer that is not an object"
+            break
         self.failed.append(f"{path} {json.dumps(params or {}, sort_keys=True)}: {why}")
         return None, why
 
@@ -251,7 +271,7 @@ def game_day(m: dict) -> date | None:
 def _refused_for_good(why: str | None) -> bool:
     """A candle call the exchange refused for good: an HTTP 4xx other than 408 and 429. Its market is stored with a
     null quote and the status in notes, so the run never asks it again; a transport error, a 5xx, a 408, a 429 or a
-    200 with no list is not stored, and the next run asks again (never in this run)."""
+    200 with no list is not stored, and the next run asks again (a 429 is first asked again in this run: Calls)."""
     m = re.match(r"status (\d{3})$", why or "")
     return bool(m) and 400 <= int(m.group(1)) < 500 and int(m.group(1)) not in (408, 429)
 
@@ -287,7 +307,7 @@ class Run:
 def list_source(calls: Calls, run: Run, source: str, path: str, params: dict, series: str) -> list[dict]:
     """Every market of one list, paged to its end by cursor. The cap stops the run (Capped), naming the list and the
     cursor it stopped at; a page that fails or holds no list, a cursor that comes back, and the page guard end it short
-    (ListCut), printed. Never retried. What was read is counted either way."""
+    (ListCut), printed. Never retried, but for a 429 (Calls). What was read is counted either way."""
     markets, cursor, seen = [], None, set()
     try:
         for n in range(MAX_PAGES):
@@ -536,6 +556,7 @@ def _receipt(run: Run, calls: Calls, echo) -> None:
     echo(f"  candle calls made: {run.candle_calls} · calls in all: {calls.made} of {calls.cap}")
     for nok, n in sorted(run.no_candles.items()):
         echo(f"    {n:>5}  {nok}")
+    echo(f"  429 retries: {calls.retries_429}")
     if run.candle_failed:
         echo(f"  ✗ candle calls that failed: {len(run.candle_failed)} ({run.candle_refused} refused for good: stored "
              f"with no quote; {len(run.candle_failed) - run.candle_refused} not stored: the next run asks again)")

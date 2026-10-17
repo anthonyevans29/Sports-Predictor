@@ -407,7 +407,7 @@ def test_the_dry_run_lists_every_change_with_its_id_and_writes_nothing():
     assert (f"    match {ids[9106]} · provider 9106 · 2024-09-07 17:00:00Z · Regular Season · stored SCHEDULED → "
             "FINISHED (a change)") in out
     assert not [ln for ln in out if ln.startswith("  NFL STAGE")]                # ZSPF is not nfl_elo_v1's competition
-    # X + Y = N: 9107 is a change but holds no stored scores, so it is not among the 6
+    # X + Y = N: 9107 is NEEDS SCORES, not a change: it holds no stored scores, so it is not among the 6
     assert "  stored SCHEDULED with both scores: 6 · the rule changes 2 · the rule leaves 4" in out
     assert f"    left: match {ids[9109]} · provider 9109 · 2024-09-07 17:00:00Z · Regular Season · the provider " \
            "states 'NS' (a sync would write SCHEDULED; not the rule's)" in out
@@ -447,7 +447,8 @@ def test_the_dry_run_lists_every_change_with_its_id_and_writes_nothing():
         "listed_no_status_both_scores": 5, "listed_none_text_both_scores": 2, "already": 1, "none_text_unchanged": 1,
         "left_alone_until_kickoff_age": 0, "not_stored": 2, "sched_both_scores": 6, "sched_both_changed": 2,
         "left": 4, "needs_scores": 1, "needs_scores_ids": [ids[9107]], "apply_ids": [ids[9101]],
-        "held_nfl_not_preseason_ids": [], "held_rekeyed_ids": [], "none_text_change_ids": [ids[9106]],
+        "held_nfl_not_preseason_ids": [], "held_rekeyed_ids": [], "held_placeholder_ids": [],
+        "none_text_change_ids": [ids[9106]],
         "clock_moved": {"placeholder": 0, "date only": 0},
         "onto_stored": 8, "rekeyed": 0, "created": 3, "refused": 0, "skipped": 1,
         "also_status": 1, "also_kickoff": 1, "also_scores": 1, "also_fields": 1, "also_created": 2}
@@ -756,7 +757,8 @@ def test_the_dry_run_names_each_nfl_change_s_stage_class(fresh):
     assert (f"    match {ids[504]} · provider 504 · 2024-09-07 17:00:00Z · Regular Season · stored SCHEDULED → FINISHED "
             f"(a change · {HELD})") in out
     assert ("  NFL STAGE (nfl_elo_v1's preseason test, nfl_predict.is_preseason, on the stored stage; the apply writes no "
-            f"stage): of the rule's 3 change(s), {PRE} 1 · {HELD} 2") in out
+            f"stage): of the rule's 3 change(s), {PRE} 1 · preseason, off the APPLY line for another reason (held or "
+            f"the text 'None', each line below) 0 · {HELD} 2") in out
     assert "  stored SCHEDULED with both scores: 4 · the rule changes 3 · the rule leaves 1" in out
     assert ("  APPLY (status only; on the architect's word, after a fresh .backup): python cli.py score-presence-apply "
             f"--competition NFL --season 2024 --match-ids {ids[501]} --backup <PATH>") in out
@@ -1066,6 +1068,36 @@ def _rows_ncaa():
                       for m in s.execute(select(Match).where(Match.competition_id == comp.id)).scalars())
 
 
+def test_a_row_at_the_ncaa_placeholder_kickoff_is_held_even_without_a_re_key(fresh):
+    """#493 review round 2 (P1): the placeholder window's other door. A stored SCHEDULED NCAA row at the TBD placeholder
+    (04:00Z, provider 111), and a doubled listing: the same game under 333 at a real kickoff, and under 111 at the
+    placeholder, both with no status and the stored totals. 111 resolves onto the row with no re-key; before this fix
+    it went on the APPLY line, the apply wrote FINISHED, and a later sync's placeholder window (SCHEDULED rows only)
+    no longer held 333 off, so it created a twin. Now every change on an NCAA row stored at the placeholder kickoff is
+    HELD and refused, and the sync behaves exactly as with no apply."""
+    from src.db.schema import Sport
+    from src.ingestion import score_presence as sp
+    from src.ingestion.service import IngestionService
+    ph, real = datetime(2024, 9, 7, 4), datetime(2024, 9, 7, 20)
+    ids = _world("NCAA", Sport.NFL, "api_american_football", [(111, S, 21, 14, ph)], key="D{}".format)
+    payload = {"response": [_af_game(333, "D1110", "D1111", real, totals=(21, 14)),
+                            _af_game(111, "D1110", "D1111", ph, totals=(21, 14))]}
+    ad = _faked(APIAmericanFootballAdapter(), payload)
+    out = []
+    assert sp.run(["NCAA"], ["2024"], lambda c: ad, out=out.append, now=NOW) == 0
+    assert "  APPLY: nothing to apply for NCAA 2024" in out
+    assert f"  HELD ({sp.HELD_PLACEHOLDER_WHY}): match ids {ids[111]}" in out
+    tail = json.loads(out[-1].split(" ", 1)[1])["by_competition_season"]["NCAA 2024"]
+    assert tail["held_placeholder_ids"] == [ids[111]] and tail["apply_ids"] == []
+    before = _dump(fresh)
+    res = []
+    assert sp.apply("NCAA", "2024", [ids[111]], lambda c: ad, out=res.append, now=NOW) == 1
+    assert f"    match {ids[111]}: HELD ({sp.HELD_PLACEHOLDER_WHY})" in res
+    assert _dump(fresh) == before                                                # nothing written
+    r = IngestionService(_faked(APIAmericanFootballAdapter(), payload)).sync_matches("NCAA", "2024")
+    assert r.created == 0                                                        # no twin: the row was never FINISHED
+
+
 def test_a_placeholder_re_key_is_held_and_the_apply_cannot_make_a_twin(fresh):
     """#493 review (P1): a stored SCHEDULED NCAA row at the provider's TBD placeholder (04:00Z), listed under a new id at
     a real kickoff 16h later (outside 12 hours: only the placeholder window finds it). Before the fix the dry run put it
@@ -1083,7 +1115,7 @@ def test_a_placeholder_re_key_is_held_and_the_apply_cannot_make_a_twin(fresh):
     before = _dump(fresh)
     res = []
     assert sp.apply("NCAA", "2024", [ids[7001]], lambda c: ad, out=res.append, now=NOW) == 1
-    assert f"    match {ids[7001]}: HELD ({HELD_REKEY}) · provider 7001 → 7999" in res
+    assert f"    match {ids[7001]}: HELD ({HELD_REKEY}) · provider 7001 → 7999; HELD ({sp.HELD_PLACEHOLDER_WHY})" in res
     assert _dump(fresh) == before                                                # nothing written
     assert (f"    match {ids[7001]} · provider 7001 → 7999 (re-keyed) · 2024-09-07 04:00:00Z · Regular Season · no status "
             "sent · SCHEDULED → FINISHED") in out

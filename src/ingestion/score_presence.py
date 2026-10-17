@@ -57,6 +57,8 @@ import json
 from datetime import timedelta
 from typing import Callable
 
+from src.ingestion.placeholder import is_placeholder_kickoff
+
 COMPETITIONS = ("NFL", "NCAA", "NHL")       # the competitions of the two adapters that carry the rule
 NO_STATUS, NONE_TEXT = "no status sent", "text 'None'"
 PRESEASON_APPLIED = "preseason (applied with the rest)"
@@ -70,6 +72,10 @@ HELD_REKEY_WHY = ("re-keyed: the sync answers this game under a new provider id;
                   "re-key (the row keeps its old provider id and kickoff), and where the sync matched it through the "
                   "NCAA placeholder window (SCHEDULED rows only) the next sync no longer finds it once FINISHED and "
                   "creates a twin; for the architect")
+HELD_PLACEHOLDER_WHY = ("stored at the NCAA TBD placeholder kickoff: the sync's placeholder window re-keys only SCHEDULED rows, "
+                        "so a status-only FINISHED here would let a later listing of this game under another id (a "
+                        "doubled listing, a real kickoff) create a twin; held until the kickoff is resolved; for the "
+                        "architect")
 NEEDS_SCORES_WHY = ("the rule reads FINISHED, but the stored scores are {what}: a status-only write cannot complete "
                     "the row (addendum 116 item 4 (1): never scores; addendum 112 item 4: no score, not FINISHED); held "
                     "for the architect")
@@ -241,7 +247,7 @@ def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict]
     missing or differ from the listing's totals (not changes: held). r["why_row"] says, for every stored row a listed
     game resolves to that is not a change, why not."""
     from src.adapters.api_sports_status import CLOCK_DATE_ONLY, CLOCK_PLACEHOLDER, LONGEST_GAME_H, no_status, sport_key
-    from src.ingestion.service import created_status
+    from src.ingestion.service import PLACEHOLDER_REKEY_COMPETITIONS, created_status
 
     key = sport_key(competition_code, listing[0].sport if listing else None)
     h = LONGEST_GAME_H[key]
@@ -277,7 +283,9 @@ def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict]
             r["rekeyed"].append(m)
         if cls:
             e = {**m, "class": cls, "new": new, "until": until, "moved": moved, "clock": clock,
-                 "nfl": nfl_class(competition_code, m["stage"])}
+                 "nfl": nfl_class(competition_code, m["stage"]),
+                 "placeholder": competition_code in PLACEHOLDER_REKEY_COMPETITIONS
+                 and is_placeholder_kickoff(m["utc_date"])}
             if new is None:
                 r["not_yet"].append(e)
                 r["why_row"][m["id"]] = f"the rule leaves it alone ({cls}, both scores, but {clock} is after now)"
@@ -360,8 +368,11 @@ def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict]
 def holds(m: dict) -> list[str]:
     """Why the apply refuses a change, each with its own HELD line: HELD_NFL_WHY (an NFL row not preseason, item 4
     (2)), HELD_REKEY_WHY (a row the sync re-keys: any re-key, the placeholder window, the 12-hour pair or the row's
-    `_prev` history). Empty: the apply accepts it."""
-    return ([HELD_NFL_WHY] if m.get("nfl") == NOT_PRESEASON_HELD else []) + ([HELD_REKEY_WHY] if m.get("rekey") else [])
+    `_prev` history), HELD_PLACEHOLDER_WHY (an NCAA row stored at the TBD placeholder kickoff: the placeholder
+    window's other door, a doubled listing under another id). Empty: the apply accepts it."""
+    return (([HELD_NFL_WHY] if m.get("nfl") == NOT_PRESEASON_HELD else [])
+            + ([HELD_REKEY_WHY] if m.get("rekey") else [])
+            + ([HELD_PLACEHOLDER_WHY] if m.get("placeholder") else []))
 
 
 def apply_ids(r: dict) -> list[int]:
@@ -378,6 +389,11 @@ def none_text_ids(r: dict) -> list[int]:
 def held_ids(r: dict) -> list[int]:
     """The changes that are NFL rows not preseason (addendum 116 item 4 (2): held, their own Issue), ascending."""
     return sorted(m["id"] for m in r["changes"] if m["nfl"] == NOT_PRESEASON_HELD)
+
+
+def placeholder_held_ids(r: dict) -> list[int]:
+    """The changes on an NCAA row stored at the TBD placeholder kickoff (held: HELD_PLACEHOLDER_WHY), ascending."""
+    return sorted(m["id"] for m in r["changes"] if m.get("placeholder"))
 
 
 def rekey_held_ids(r: dict) -> list[int]:
@@ -492,10 +508,13 @@ def lines(code: str, season: str, source: str, r: dict) -> list[str]:
              f"says so): the NCAA TBD placeholder {r['clock_moved'][CLOCK_PLACEHOLDER]} · a date with no time "
              f"{r['clock_moved'][CLOCK_DATE_ONLY]}")
     if code == "NFL":                                       # nfl_class: nfl_elo_v1's competition only
+        on_apply = set(apply_ids(r))
+        pre = [m for m in r["changes"] if m["nfl"] == PRESEASON_APPLIED]
+        pre_off = [m for m in pre if m["id"] not in on_apply]
         L.append(f"  NFL STAGE (nfl_elo_v1's preseason test, nfl_predict.is_preseason, on the stored stage; the apply "
                  f"writes no stage): of the rule's {len(r['changes'])} change(s), {PRESEASON_APPLIED} "
-                 f"{len([1 for m in r['changes'] if m['nfl'] == PRESEASON_APPLIED])} · {NOT_PRESEASON_HELD} "
-                 f"{len(held_ids(r))}")
+                 f"{len(pre) - len(pre_off)} · preseason, off the APPLY line for another reason (held or the text "
+                 f"'None', each line below) {len(pre_off)} · {NOT_PRESEASON_HELD} {len(held_ids(r))}")
     L.append(f"  stored SCHEDULED with both scores: {r['sched_both']} · the rule changes {r['sched_both_changed']} · "
              f"the rule leaves {len(r['left'])}")
     for m in r["left"]:
@@ -510,6 +529,9 @@ def lines(code: str, season: str, source: str, r: dict) -> list[str]:
         L.append(f"  HELD ({HELD_NFL_WHY}): match ids {ids(held)}")
     if rekeyed:
         L.append(f"  HELD ({HELD_REKEY_WHY}): match ids {ids(rekeyed)}")
+    placeholder = placeholder_held_ids(r)
+    if placeholder:
+        L.append(f"  HELD ({HELD_PLACEHOLDER_WHY}): match ids {ids(placeholder)}")
     if text:
         L.append(f"  THE TEXT 'None' CHANGES (not on the APPLY line: addendum 116 item 4 (4) expects none; the "
                  f"architect's word whether these ids are applied; score-presence-apply accepts them when named): "
@@ -554,7 +576,7 @@ def summary(r: dict) -> dict:
             "left_alone_until_kickoff_age": len(r["not_yet"]), "not_stored": len(r["not_stored"]),
             "sched_both_scores": r["sched_both"], "sched_both_changed": r["sched_both_changed"], "left": len(r["left"]),
             "needs_scores": len(r["needs_scores"]), "needs_scores_ids": needs_scores_ids(r),
-            "apply_ids": apply_ids(r), "held_nfl_not_preseason_ids": held_ids(r), "held_rekeyed_ids": rekey_held_ids(r),
+            "apply_ids": apply_ids(r), "held_nfl_not_preseason_ids": held_ids(r), "held_rekeyed_ids": rekey_held_ids(r), "held_placeholder_ids": placeholder_held_ids(r),
             "none_text_change_ids": none_text_ids(r), "clock_moved": dict(r["clock_moved"]),
             "onto_stored": r["onto_stored"], "rekeyed": len(r["rekeyed"]), "created": len(r["created"]),
             "refused": len(r["refused"]), "skipped": len(r["skipped"]),
@@ -731,6 +753,8 @@ def apply(competition_code: str, season: str, match_ids, adapter_for: Callable,
                 why.append(f"HELD ({HELD_NFL_WHY}) · stored stage {m['stage'] or 'none'!r}")
             if m.get("rekey"):
                 why.append(f"HELD ({HELD_REKEY_WHY}) · provider {m['rekey']}")
+            if m.get("placeholder"):
+                why.append(f"HELD ({HELD_PLACEHOLDER_WHY})")
             refused.append({"id": mid, "why": "; ".join(why)})
     out(f"{code} {season} · source {source} · listing {r['listing']} games · stored {r['stored']} rows · the rule's "
         f"change set {len(changes)} · named {len(named)}: {','.join(map(str, named))}")

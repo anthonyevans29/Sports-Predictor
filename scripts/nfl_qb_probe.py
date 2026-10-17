@@ -127,7 +127,8 @@ def parsed(row):
     """(status, naive-UTC kickoff) as the adapter's own parse reads the row; None when it drops the row (no id, a
     non-competitive game) or cannot read it. The score-presence rule ("a game with both totals and no status claim is
     finished") is the adapter's own since #493 (it reads the provider's raw status), so the probe no longer applies
-    it itself."""
+    it itself. A game with no status and both totals before kickoff + 5h parses with status None (addendum 116 item 4
+    (3): no status yet), so it is neither a finished nor an unplayed game here."""
     try:
         got = _ADAPTER._parse_games({"response": [row]}, "NFL", "")
     except Exception:

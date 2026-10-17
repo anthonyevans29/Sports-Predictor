@@ -33,6 +33,13 @@ log = logging.getLogger(__name__)
 MODEL_VERSION = "nfl_elo_v1"
 
 
+def is_preseason(stage: str | None) -> bool:
+    """nfl_elo_v1's preseason test on a stored stage ("pre" in it, any case): such a row is never walked into the
+    ratings (_current_ratings). Shared with the score-presence apply (#493, ARCHITECT 2026-10-17 addendum 116 item 4
+    (2)), whose NFL rows are applied only when this says preseason."""
+    return "pre" in (stage or "").lower()
+
+
 def _current_ratings(progress=None) -> _State:
     cfg = NFLEloConfig()
     st = _State()
@@ -44,7 +51,7 @@ def _current_ratings(progress=None) -> _State:
                 Match.away_score.is_not(None),
             ).order_by(Match.utc_date, Match.id)
         ).scalars())
-        games = [m for m in games if "pre" not in (m.stage or "").lower()]
+        games = [m for m in games if not is_preseason(m.stage)]
         if progress:
             progress(scope_line("ratings", games))
         for m in games:

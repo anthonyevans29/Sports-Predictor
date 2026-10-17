@@ -1,56 +1,94 @@
 """
-SCORE-PRESENCE DRY RUN (#493) — read-only: every stored row the adapters' fixed score-presence rule would change at the
-next sync of its season, counted per competition-season, with the ids. It writes nothing. The ruling, verbatim
-(ARCHITECT 2026-10-16, addendum 81 item 3): "Code's PR fixes the ordering, prints a --dry-run listing of every row the
-rule would change (count per competition-season, and the ids), and the operator's block runs it after the backup; the
-receipt is pasted on the PR before merge."
+SCORE-PRESENCE (#493): the read-only DRY RUN, and the status-only APPLY of the rows it lists.
+
+The rulings, verbatim:
+  * ARCHITECT 2026-10-16, addendum 81 item 3: "Code's PR fixes the ordering, prints a --dry-run listing of every row
+    the rule would change (count per competition-season, and the ids), and the operator's block runs it after the
+    backup; the receipt is pasted on the PR before merge."
+  * ARCHITECT 2026-10-17, addendum 116 item 4 (1): "Apply vehicle: NO whole-season sync. A status-only apply is built:
+    `score-presence-apply --competition --season --match-ids` sets status (and nothing else — never utc_date, never
+    scores) on the rows the dry run listed, backup first, in a laptop block on my word. The fingerprint is untouched
+    by construction; the PR proves it with the fingerprint printed before and after on the test DB."
+  * (2): "NFL 2024: the dry run prints each row's stage. Preseason rows are applied with the rest. Regular-season rows
+    are NOT applied by this PR: they change nfl_elo_v1's ratings and need a gate verdict (CLAUDE.md); they get their
+    own Issue with the list and wait for the NFL re-declaration lane. The dry run names which of the 16 fall where."
+  * (3) and (4), the kickoff-age condition and the text "None": src/adapters/api_sports_status.py.
 
 HOW (law 1: read from the code):
-  * The vehicle that writes is sync-matches. For each listed game, _apply_match_updates sets the stored status to the
-    adapter's and also writes the kickoff, matchday, stage, season, status code and every present score. So the dry
-    run makes the same single /games call a season read makes (no date). It parses the answer with the adapter's own
-    _parse_games and keeps each game's provider status as sent (raw_shorts).
-  * The fix changes exactly two classes of listed game, both with their two totals present (fix_class):
-      ABSENT     no status stated: FINISHED now (before #493: SCHEDULED)
-      NONE_TEXT  the provider's own text "None", a stated status the map lacks: SCHEDULED now (before #493: FINISHED)
-    Every other listed game parses as it did before the fix (src/adapters/api_sports_status.py).
-  * Each listed game is resolved to the stored row the sync writes AS THE SYNC RESOLVES IT (resolve): the sync's own
-    cache over the competition's rows (IngestionService._match_cache), its two teams by provider id (a team not
-    stored: the sync skips the game), the row holding its provider id, and for a re-keyed source (api_american_football:
-    NFL, NCAA) the sync's own _rekey_candidate (the row's `_prev` history, the same pair within 12 hours, the NCAA
-    placeholder window; a refusal creates nothing). A stored row is CHANGED when its stored status differs from the
-    fixed parse's.
-  * The receipt also reconciles the stored SCHEDULED rows carrying both scores (the count addendum 81 cites: NCAA 2024
-    120, NFL 2024 16): the rule changes X of them and leaves Y, X + Y = N. And it says what the same whole-season sync
-    would write besides the rule: other status changes, kickoffs, scores, stages, matchdays, seasons and status codes,
-    the provider ids it re-keys, and the listed games it creates (the adapters send no half-time, 90-minute, result or
-    referee field, so the sync writes nothing else); and the listed games it writes nothing for (refused, skipped).
-    The kickoffs matter: matches.utc_date is one of the NCAA stream fingerprints' fields
-    (ncaa_v1r_gate.FINGERPRINT_FIELDS) and orders the walk; matches.status is neither.
+  * The rule is the adapters' own parse (api_sports_status.game_status, read by both _parse_games). read_listing makes
+    the single /games call a season read makes (no date), parses it with the adapter's _parse_games at one `now`, and
+    keeps each game's provider status as sent (raw_shorts). The dry run and the apply read it the same way.
+  * resolve: each listed game resolved to the stored row the sync would write AS THE SYNC RESOLVES IT, with the sync's
+    own pieces: the cache over the competition's rows (IngestionService._match_cache), its two teams by provider id (a
+    team not stored: the sync skips the game), the row holding its provider id, and for a re-keyed source
+    (api_american_football: NFL, NCAA) the sync's own _rekey_candidate (the row's `_prev` history, the same pair
+    within 12 hours, the NCAA placeholder window; a refusal creates nothing). It runs on rows detached from the session.
+  * compare: THE RULE'S CHANGE SET is every listed game with NO status (none sent, or the text "None": the same as
+    absent) and both totals, resolved to a stored row whose status differs from the rule's (FINISHED, once now >=
+    kickoff + the sport's longest game). Before that the rule leaves the stored status alone: listed, never changed.
+    The text "None" rows are listed in their own section, for the record.
+  * NFL (nfl_elo_v1's competition, nfl_backtest.NFL_COMPETITION_CODE): each change is classed by nfl_elo_v1's own
+    preseason test (nfl_predict.is_preseason) on the STORED stage, the one its walk reads (the apply writes no stage):
+    PRESEASON_APPLIED, or REGULAR_HELD (they change nfl_elo_v1's ratings; the apply refuses them).
+  * apply: the same read, resolution and rule at its own `now`. It refuses AS A WHOLE (nothing written) when a named id
+    is not in the change set for that competition-season, or is an NFL regular-season row; then writes Match.status
+    alone, one UPDATE per row restricted to the status column and guarded by the status the read saw. For NCAA it
+    prints ncaa-elo-v2's stream and training fingerprints before and after (ncaa_fingerprints): neither reads a
+    status (ncaa_v1r_gate.FINGERPRINT_FIELDS; load_v1r_games: "whatever our local status or scores").
+  * The dry run also reconciles the stored SCHEDULED rows carrying both scores (addendum 81's NCAA 2024 120 and NFL
+    2024 16): the rule changes X of them and leaves Y, X + Y = N. And it says, for information only, what a
+    whole-season sync would write besides: it is NOT the vehicle (addendum 116 item 4 (1)).
 Scores are never printed (the NCAA fences print no outcome); ids, kickoffs, stages and statuses are.
 """
 from __future__ import annotations
 
 import json
+from datetime import timedelta
 from typing import Callable
 
 COMPETITIONS = ("NFL", "NCAA", "NHL")       # the competitions of the two adapters that carry the rule
-ABSENT, NONE_TEXT = "absent", "text 'None'"
+NO_STATUS, NONE_TEXT = "no status sent", "text 'None'"
+PRESEASON_APPLIED = "preseason (applied)"
+REGULAR_HELD = "regular season (held: needs a gate verdict; own Issue)"
 
 
 def fix_class(short: str | None, home_total, away_total) -> str | None:
-    """Pure. The class of the #493 fix a listed game falls in (ABSENT / NONE_TEXT), or None when the fix leaves its
-    parse as it was: a total missing, or any other stated status."""
+    """Pure. The rule's class of a listed game: NO_STATUS (no status sent) or NONE_TEXT (the provider's text "None",
+    the same as absent: addendum 116 item 4 (4)), both with their two totals; None when the rule does not read it as
+    no status with both scores (a total missing, or a stated status)."""
+    from src.adapters.api_sports_status import NONE_TEXT as TEXT
+
     if home_total is None or away_total is None:
         return None
     if short is None:
-        return ABSENT
-    return NONE_TEXT if short == "None" else None
+        return NO_STATUS
+    return NONE_TEXT if short == TEXT else None
 
 
-def read_listing(adapter, competition_code: str, season: str) -> tuple[list, dict]:
+def hours_for(competition_code: str, sport=None) -> int:
+    """The longest game, in hours, the adapter's parse reads for the competition's games (api_sports_status.sport_key:
+    a hockey game reads NHL's whatever the code)."""
+    from src.adapters.api_sports_status import LONGEST_GAME_H, sport_key
+
+    return LONGEST_GAME_H[sport_key(competition_code, sport)]
+
+
+def nfl_class(competition_code: str, stage: str | None) -> str | None:
+    """Addendum 116 item 4 (2), NFL rows only (nfl_elo_v1's competition): PRESEASON_APPLIED when nfl_elo_v1's own
+    preseason test (nfl_predict.is_preseason) reads the stored `stage` as preseason, else REGULAR_HELD. None for any
+    other competition."""
+    from src.walters.nfl_backtest import NFL_COMPETITION_CODE
+    from src.walters.nfl_predict import is_preseason
+
+    if competition_code != NFL_COMPETITION_CODE:
+        return None
+    return PRESEASON_APPLIED if is_preseason(stage) else REGULAR_HELD
+
+
+def read_listing(adapter, competition_code: str, season: str, now=None) -> tuple[list, dict]:
     """(the adapter's NormalizedMatch rows, {provider id: provider short or None}) for one season: the single /games
-    call list_matches makes for a season read without a date, parsed by the adapter's own _parse_games."""
+    call list_matches makes for a season read without a date, parsed by the adapter's own _parse_games at `now` (the
+    rule's clock; None = utc now)."""
     from src.adapters.api_american_football import _league_for
     from src.adapters.api_hockey import NHL_LEAGUE_ID, APIHockeyAdapter
 
@@ -58,9 +96,9 @@ def read_listing(adapter, competition_code: str, season: str) -> tuple[list, dic
     shorts: dict = {}
     if isinstance(adapter, APIHockeyAdapter):
         data = adapter._get("games", params={"league": NHL_LEAGUE_ID, "season": year})
-        return adapter._parse_games(data, str(year), raw_shorts=shorts), shorts
+        return adapter._parse_games(data, str(year), raw_shorts=shorts, now=now), shorts
     data = adapter._get("games", params={"league": _league_for(competition_code), "season": year})
-    return adapter._parse_games(data, competition_code, str(year), raw_shorts=shorts), shorts
+    return adapter._parse_games(data, competition_code, str(year), raw_shorts=shorts, now=now), shorts
 
 
 def stored_seasons(competition_code: str) -> list[str] | None:
@@ -111,6 +149,7 @@ def resolve(competition_code: str, season: str, source: str, listing: list) -> t
     from src.db.database import session_scope
     from src.db.schema import Competition, Match
     from src.ingestion.service import IngestionService as IS
+    from src.ingestion.service import created_status
 
     out: dict = {}
     with session_scope() as s:
@@ -141,7 +180,7 @@ def resolve(competition_code: str, season: str, source: str, listing: list) -> t
                         cache.pop(old, None)
                     rekey = f"{old or '—'} → {pid}"
             if m is None:                                   # a new game: the sync creates it
-                made = SimpleNamespace(id=None, utc_date=nm.utc_date, status=nm.status,
+                made = SimpleNamespace(id=None, utc_date=nm.utc_date, status=created_status(nm),
                                        external_ids={nm.source: nm.source_id})
                 if nm.source_id:
                     cache[nm.source_id] = made
@@ -158,25 +197,33 @@ def resolve(competition_code: str, season: str, source: str, listing: list) -> t
     return rows, out
 
 
-def compare(listing: list, shorts: dict, rows: list[dict], resolved: dict) -> dict:
-    """Pure. One competition-season: the fixed parse (`listing`, `shorts`), each listed game resolved to what the sync
-    does with it (`resolved`, from resolve), against the season's stored `rows`."""
-    r = {"listing": len(listing), "stored": len(rows), "changes": [], "already": [], "not_stored": [],
-         "other_status": [], "kickoff": [], "scores": [], "fields": [], "rekeyed": [], "created": [], "refused": [],
-         "skipped": [], "onto_stored": 0, "left": [], "sched_both": 0, "sched_both_changed": 0,
-         "classes": {ABSENT: 0, NONE_TEXT: 0}}
+def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict], resolved: dict) -> dict:
+    """Pure. One competition-season: the rule's parse (`listing`, `shorts`), each listed game resolved to what the
+    sync does with it (`resolved`, from resolve), against the season's stored `rows`. r["changes"] is the rule's
+    change set (each entry: the stored row, its class, the new status, its NFL class or None); r["why_row"] says, for
+    every stored row a listed game resolves to that is not a change, why not."""
+    from src.adapters.api_sports_status import no_status
+    from src.ingestion.service import created_status
+
+    h = hours_for(competition_code, listing[0].sport if listing else None)
+    r = {"code": competition_code, "hours": h, "listing": len(listing), "stored": len(rows), "changes": [],
+         "already": [], "not_yet": [], "not_stored": [], "other_status": [], "kickoff": [], "scores": [], "fields": [],
+         "rekeyed": [], "created": [], "refused": [], "skipped": [], "onto_stored": 0, "left": [], "sched_both": 0,
+         "sched_both_changed": 0, "classes": {NO_STATUS: 0, NONE_TEXT: 0}, "why_row": {}}
     listed, by_row = {}, {}
     for nm in listing:
         pid = str(nm.source_id)
         short = shorts.get(pid)
         cls = fix_class(short, nm.home_score, nm.away_score)
+        new = None if nm.status is None else nm.status.name
+        until = nm.utc_date + timedelta(hours=h) if nm.utc_date is not None else None
         listed[pid] = (nm, short, cls)
         if cls:
             r["classes"][cls] += 1
         got = resolved[pid]
         if got["row"] is None:                              # no stored row: the sync creates, refuses or skips it
-            g = {"pid": pid, "class": cls, "utc_date": nm.utc_date, "new": nm.status.name, "fate": got["fate"],
-                 "why": got.get("why")}
+            g = {"pid": pid, "class": cls, "utc_date": nm.utc_date, "new": created_status(nm).name,
+                 "fate": got["fate"], "why": got.get("why")}
             if cls:
                 r["not_stored"].append(g)
             r[got["fate"]].append(g)
@@ -186,12 +233,23 @@ def compare(listing: list, shorts: dict, rows: list[dict], resolved: dict) -> di
         by_row[m["id"]] = pid
         if m["rekey"]:
             r["rekeyed"].append(m)
-        new = nm.status.name
         if cls:
-            (r["changes"] if m["status"] != new else r["already"]).append(
-                {**m, "class": cls, "new": new})
-        elif m["status"] != new:
-            r["other_status"].append({**m, "new": new, "short": short})
+            e = {**m, "class": cls, "new": new, "until": until, "nfl": nfl_class(competition_code, m["stage"])}
+            if new is None:
+                r["not_yet"].append(e)
+                r["why_row"][m["id"]] = (f"the rule leaves it alone ({cls}, both scores, but kickoff + {h}h = "
+                                         f"{_when(until)}Z is after now)")
+            elif m["status"] != new:
+                r["changes"].append(e)
+            else:
+                r["already"].append(e)
+                r["why_row"][m["id"]] = f"already {new} as the rule reads ({cls})"
+        else:
+            r["why_row"][m["id"]] = (
+                f"not the rule's: the provider states {short!r}" if not no_status(short) else
+                "not the rule's: no status and a score missing in the listing (SCHEDULED: no score, not FINISHED)")
+            if new is not None and m["status"] != new:
+                r["other_status"].append({**m, "new": new, "short": short})
         if m["utc_date"] != nm.utc_date:
             r["kickoff"].append({**m, "new_utc": nm.utc_date})
         if ((nm.home_score is not None and nm.home_score != m["home_score"])
@@ -216,29 +274,42 @@ def compare(listing: list, shorts: dict, rows: list[dict], resolved: dict) -> di
         if pid is None:                                     # no listed game resolves to it
             got = resolved.get(m["pid"]) if m["pid"] is not None else None
             if got is None:
-                why = "not in the listing (the sync does not touch it)"
+                why = "not in the listing (the rule does not touch it)"
             elif got["row"] is not None:
-                why = (f"its provider id is listed, but the sync writes that game to match {got['row']['id']} (it "
-                       f"does not touch this row)")
+                why = (f"its provider id is listed, but the sync resolves that game to match {got['row']['id']} (the "
+                       f"rule does not touch this row)")
             else:
-                why = (f"listed, but {_fate({**got, 'new': listed[m['pid']][0].status.name})} (it does not touch "
-                       f"this row)")
+                why = (f"listed, but {_fate({**got, 'new': created_status(listed[m['pid']][0]).name})} (the rule "
+                       f"does not touch this row)")
             r["left"].append({**m, "rekey": None, "why": why})
             continue
         nm, short, cls = listed[pid]
-        if cls and nm.status.name != m["status"]:
+        new = None if nm.status is None else nm.status.name
+        if cls and new is not None and new != m["status"]:
             r["sched_both_changed"] += 1
             continue                                        # the rule changes it (listed above)
-        if cls == NONE_TEXT:
-            why = "the provider states 'None' (a stated status the map lacks: stays SCHEDULED, law 4)"
-        elif short is None:
-            why = "no status stated and a score missing in the listing: stays SCHEDULED (no score, not FINISHED)"
+        if cls and new is None:
+            why = (f"no status ({cls}) and both scores in the listing, but kickoff + {h}h = "
+                   f"{_when(nm.utc_date + timedelta(hours=h))}Z is after now: the stored status is left alone")
+        elif no_status(short):
+            why = ("no status (none sent, or the text 'None') and a score missing in the listing: stays SCHEDULED (no "
+                   "score, not FINISHED)")
         else:
-            why = f"the provider states {short!r} (the sync writes {nm.status.name})"
+            why = f"the provider states {short!r} (a sync would write {new}; not the rule's)"
         r["left"].append({**m, "rekey": resolved[pid]["rekey"], "why": why})
-    for k in ("changes", "already", "other_status", "kickoff", "scores", "fields", "rekeyed"):
+    for k in ("changes", "already", "not_yet", "other_status", "kickoff", "scores", "fields", "rekeyed"):
         r[k].sort(key=lambda x: (x["utc_date"] is None, x["utc_date"] or 0, x["id"]))
     return r
+
+
+def apply_ids(r: dict) -> list[int]:
+    """The change set's ids the apply accepts (every change but an NFL regular-season one), ascending."""
+    return sorted(m["id"] for m in r["changes"] if m["nfl"] != REGULAR_HELD)
+
+
+def held_ids(r: dict) -> list[int]:
+    """The change set's NFL regular-season ids (addendum 116 item 4 (2): held, their own Issue), ascending."""
+    return sorted(m["id"] for m in r["changes"] if m["nfl"] == REGULAR_HELD)
 
 
 def _when(d) -> str:
@@ -253,6 +324,10 @@ def _row(m) -> str:
     return f"match {m['id']} · provider {_pid(m)} · {_when(m['utc_date'])}Z · {m['stage'] or 'no stage'}"
 
 
+def _nfl(m) -> str:
+    return f" · {m['nfl']}" if m.get("nfl") else ""
+
+
 def _fate(g) -> str:
     if g["fate"] == "created":
         return f"the sync creates it {g['new']}"
@@ -261,28 +336,77 @@ def _fate(g) -> str:
     return f"the sync skips it: {g['why']}"
 
 
+def header(title: str, what: str, now) -> list[str]:
+    """The receipt's first lines (the dry run's and the apply's): the rulings, the rule, the constants and `now`."""
+    from src.adapters.api_sports_status import longest_game_text
+
+    return [f"{title} (#493; ARCHITECT 2026-10-16 addendum 81 item 3, 2026-10-17 addendum 112 item 4 and addendum 116 "
+            f"item 4) · {what}",
+            "  the rule: no provider status (none sent, or the text 'None') with both scores is FINISHED once now >= "
+            "kickoff + the sport's longest game, and before that the stored status is left alone; no status with a "
+            "score missing is SCHEDULED; a status the provider stated keeps its mapping (an unknown code SCHEDULED)",
+            f"  longest game (addendum 116 item 4 (3)): {longest_game_text()} · now {_when(now)}Z"]
+
+
 def lines(code: str, season: str, source: str, r: dict) -> list[str]:
-    """One competition-season's receipt, every row whole (#491: a receipt cuts nothing)."""
+    """One competition-season's dry-run receipt, every row whole (#491: a receipt cuts nothing)."""
+    h = r["hours"]
+
+    def of(k, cls):
+        return [x for x in r[k] if x["class"] == cls]
+
     also_created = [g for g in r["created"] if not g["class"]]      # the rule's own are under "not stored"
     L = [f"{code} {season} · source {source} · listing {r['listing']} games · stored {r['stored']} rows",
          f"  THE SYNC'S RESOLUTION (each listed game as sync_matches resolves it): onto a stored row "
          f"{r['onto_stored']} (re-keyed {len(r['rekeyed'])}) · creates {len(r['created'])} · refuses "
          f"{len(r['refused'])} · skips {len(r['skipped'])} (a team not stored)",
-         f"  THE RULE CHANGES {len(r['changes'])} stored row(s) at the next sync of {code} {season} · listed with both "
-         f"scores and no status stated {r['classes'][ABSENT]} · listed with both scores and the text 'None' "
-         f"{r['classes'][NONE_TEXT]} · already as the fixed parse reads {len(r['already'])} · not stored "
-         f"{len(r['not_stored'])}"]
-    for m in r["changes"]:
-        L.append(f"    {_row(m)} · {m['class']} · {m['status']} → {m['new']}")
-    for m in r["already"]:
+         f"  THE RULE CHANGES {len(r['changes'])} stored row(s) of {code} {season} (status only, score-presence-apply):"
+         f" no status sent {len(of('changes', NO_STATUS))} · the text 'None' {len(of('changes', NONE_TEXT))}",
+         f"  NO STATUS SENT, both scores: listed {r['classes'][NO_STATUS]} · changes {len(of('changes', NO_STATUS))} "
+         f"· already as the rule reads {len(of('already', NO_STATUS))} · left alone until kickoff + {h}h "
+         f"{len(of('not_yet', NO_STATUS))} · not stored {len(of('not_stored', NO_STATUS))}"]
+    for m in of("changes", NO_STATUS):
+        L.append(f"    {_row(m)} · {m['class']} · {m['status']} → {m['new']}{_nfl(m)}")
+    for m in of("already", NO_STATUS):
         L.append(f"    already: {_row(m)} · {m['class']} · {m['status']}")
-    for g in r["not_stored"]:
+    for m in of("not_yet", NO_STATUS):
+        L.append(f"    left alone: {_row(m)} · {m['class']} · stored {m['status']} kept (kickoff + {h}h = "
+                 f"{_when(m['until'])}Z is after now)")
+    for g in of("not_stored", NO_STATUS):
         L.append(f"    not stored: provider {g['pid']} · {_when(g['utc_date'])}Z · {g['class']} · {_fate(g)}")
+    L.append(f"  THE TEXT 'None', both scores (no status, the same as absent: addendum 116 item 4 (4); for the "
+             f"record): listed {r['classes'][NONE_TEXT]} · stored as the rule reads, nothing flips "
+             f"{len(of('already', NONE_TEXT))} · changes {len(of('changes', NONE_TEXT))} · left alone until kickoff + "
+             f"{h}h {len(of('not_yet', NONE_TEXT))} · not stored {len(of('not_stored', NONE_TEXT))}")
+    for m in of("already", NONE_TEXT):
+        L.append(f"    {_row(m)} · stored {m['status']} → {m['new']} (unchanged)")
+    for m in of("changes", NONE_TEXT):
+        L.append(f"    {_row(m)} · stored {m['status']} → {m['new']} (a change{_nfl(m)})")
+    for m in of("not_yet", NONE_TEXT):
+        L.append(f"    left alone: {_row(m)} · stored {m['status']} kept (kickoff + {h}h = {_when(m['until'])}Z is "
+                 f"after now)")
+    for g in of("not_stored", NONE_TEXT):
+        L.append(f"    not stored: provider {g['pid']} · {_when(g['utc_date'])}Z · {_fate(g)}")
+    if code == "NFL":                                       # nfl_class: nfl_elo_v1's competition only
+        L.append(f"  NFL STAGE (nfl_elo_v1's preseason test, nfl_predict.is_preseason, on the stored stage; the apply "
+                 f"writes no stage): of the rule's {len(r['changes'])} change(s), {PRESEASON_APPLIED} "
+                 f"{len(apply_ids(r))} · {REGULAR_HELD} {len(held_ids(r))}")
     L.append(f"  stored SCHEDULED with both scores: {r['sched_both']} · the rule changes {r['sched_both_changed']} · "
              f"the rule leaves {len(r['left'])}")
     for m in r["left"]:
         L.append(f"    left: {_row(m)} · {m['why']}")
-    L.append(f"  THE SAME WHOLE-SEASON SYNC ALSO WRITES (not the rule's): status {len(r['other_status'])} · kickoff "
+    ok, held = apply_ids(r), held_ids(r)
+    if ok:
+        L.append(f"  APPLY (status only; on the architect's word, after a fresh .backup): python cli.py "
+                 f"score-presence-apply --competition {code} --season {season} --match-ids "
+                 f"{','.join(map(str, ok))} --backup <PATH>")
+    else:
+        L.append(f"  APPLY: nothing to apply for {code} {season}")
+    if held:
+        L.append(f"  HELD (NFL regular season: they change nfl_elo_v1's ratings and need a gate verdict; their own "
+                 f"Issue, the NFL re-declaration lane): match ids {','.join(map(str, held))}")
+    L.append(f"  A WHOLE-SEASON SYNC WOULD ALSO WRITE (information only: it is not the vehicle, addendum 116 item 4 "
+             f"(1); score-presence-apply writes status alone): status {len(r['other_status'])} · kickoff "
              f"{len(r['kickoff'])} · scores {len(r['scores'])} (values not printed) · stage, matchday, season, status "
              f"code {len(r['fields'])} · provider id (re-key) {len(r['rekeyed'])} · listed games it creates "
              f"{len(also_created)}")
@@ -300,8 +424,8 @@ def lines(code: str, season: str, source: str, r: dict) -> list[str]:
         L.append(f"    re-key: {_row(m)}")
     for g in also_created:
         L.append(f"    creates: provider {g['pid']} · {_when(g['utc_date'])}Z · {g['new']}")
-    L.append(f"  THE SYNC WRITES NOTHING FOR: refused {len(r['refused'])} · skipped {len(r['skipped'])} (a team not "
-             f"stored)")
+    L.append(f"  A WHOLE-SEASON SYNC WOULD WRITE NOTHING FOR: refused {len(r['refused'])} · skipped "
+             f"{len(r['skipped'])} (a team not stored)")
     for g in r["refused"]:
         L.append(f"    refused: provider {g['pid']} · {_when(g['utc_date'])}Z · {g['why']}")
     if r["skipped"]:
@@ -310,20 +434,29 @@ def lines(code: str, season: str, source: str, r: dict) -> list[str]:
 
 
 def summary(r: dict) -> dict:
+    def n(k, cls):
+        return len([1 for x in r[k] if x["class"] == cls])
+
     return {"listing": r["listing"], "stored": r["stored"], "changes": len(r["changes"]),
-            "listed_absent_both_scores": r["classes"][ABSENT], "listed_none_text_both_scores": r["classes"][NONE_TEXT],
-            "already": len(r["already"]), "not_stored": len(r["not_stored"]), "sched_both_scores": r["sched_both"],
-            "sched_both_changed": r["sched_both_changed"], "left": len(r["left"]),
+            "changes_no_status": n("changes", NO_STATUS), "changes_none_text": n("changes", NONE_TEXT),
+            "listed_no_status_both_scores": r["classes"][NO_STATUS],
+            "listed_none_text_both_scores": r["classes"][NONE_TEXT],
+            "already": n("already", NO_STATUS), "none_text_unchanged": n("already", NONE_TEXT),
+            "left_alone_until_kickoff_age": len(r["not_yet"]), "not_stored": len(r["not_stored"]),
+            "sched_both_scores": r["sched_both"], "sched_both_changed": r["sched_both_changed"], "left": len(r["left"]),
+            "apply_ids": apply_ids(r), "held_nfl_regular_season_ids": held_ids(r),
             "onto_stored": r["onto_stored"], "rekeyed": len(r["rekeyed"]), "created": len(r["created"]),
             "refused": len(r["refused"]), "skipped": len(r["skipped"]),
             "also_status": len(r["other_status"]), "also_kickoff": len(r["kickoff"]), "also_scores": len(r["scores"]),
             "also_fields": len(r["fields"]),
             "also_created": len([1 for g in r["created"] if not g["class"]])}
 
+
 def missing_db() -> str | None:
     """The configured SQLite file's path when it does not exist, else None. The app's engine creates what is missing on
-    its first connection (src/db/database.py: the directory, then a new WAL file), so a dry run checks first: it never
-    creates a database (law 5). A non-SQLite URL has no file to check."""
+    its first connection (src/db/database.py: the directory, then a new WAL file), so the dry run and the apply check
+    first: neither ever creates a database (law 5; the shared guard's check, src/db/migrate_guard.py). A non-SQLite URL
+    has no file to check."""
     from pathlib import Path
 
     from src.db.database import get_engine
@@ -336,19 +469,21 @@ def missing_db() -> str | None:
     return None if path is not None and path.is_file() else str(path or ":memory:")
 
 
-def run(competitions, seasons, adapter_for: Callable, out: Callable[[str], None] = print) -> int:
+def run(competitions, seasons, adapter_for: Callable, out: Callable[[str], None] = print, now=None) -> int:
     """The dry run over `competitions` (each of COMPETITIONS) and `seasons` (stored season strings; none = every season
-    the DB stores for the competition). `adapter_for(code)` gives the competition's adapter. One /games call per
-    competition-season. Writes nothing. Exit 2 when there is no database file (nothing opened, nothing read); 1 when a
-    listing could not be read (that competition-season is named, the others still run); else 0."""
+    the DB stores for the competition). `adapter_for(code)` gives the competition's adapter; `now` is the rule's clock
+    (None = utc now, read once). One /games call per competition-season. Writes nothing. Exit 2 when there is no
+    database file (nothing opened, nothing read); 1 when a listing could not be read (that competition-season is named,
+    the others still run); else 0."""
+    from src.adapters.api_sports_status import LONGEST_GAME_H, rule_now
+
     gone = missing_db()
     if gone:
         out(f"✗ no database at {gone}; the dry run never creates one (law 5) · nothing read")
         return 2
-    out("SCORE-PRESENCE DRY RUN (#493; ARCHITECT 2026-10-16 addendum 81 item 3, 2026-10-17 addendum 112 item 4) · "
-        "READ-ONLY, writes nothing · the rule: a provider status that is ABSENT with both scores present is FINISHED; "
-        "a status the provider stated keeps its mapping (an unknown code SCHEDULED); the text 'None' is a stated "
-        "status")
+    now = rule_now(now)
+    for ln in header("SCORE-PRESENCE DRY RUN", "READ-ONLY, writes nothing", now):
+        out(ln)
     totals, failed = {}, []
     for code in competitions:
         code = code.upper()
@@ -364,16 +499,153 @@ def run(competitions, seasons, adapter_for: Callable, out: Callable[[str], None]
         source = adapter.source_name
         for season in todo:
             try:
-                listing, shorts = read_listing(adapter, code, season)
+                listing, shorts = read_listing(adapter, code, season, now)
             except Exception as e:                          # one listing that cannot be read never stops the others
                 failed.append(f"{code} {season}")
                 out(f"✗ {code} {season}: the listing could not be read ({type(e).__name__}: {e}) · nothing compared")
                 continue
-            r = compare(listing, shorts, *resolve(code, season, source, listing))
+            r = compare(code, listing, shorts, *resolve(code, season, source, listing))
             for ln in lines(code, season, source, r):
                 out(ln)
             totals[f"{code} {season}"] = summary(r)
     out("SCORE-PRESENCE-DRY-RUN " + json.dumps({"changes_total": sum(v["changes"] for v in totals.values()),
                                                "by_competition_season": totals, "unread": failed,
+                                               "now": _when(now) + "Z", "longest_game_h": LONGEST_GAME_H,
                                                "written": 0}, sort_keys=True))
     return 1 if failed else 0
+
+
+# ------------------------------------------------------------------------------------------------- the apply --
+
+class StatusMoved(RuntimeError):
+    """A row's stored status is no longer the one the change set read: the whole write is rolled back."""
+
+
+def ncaa_fingerprints() -> dict:
+    """ncaa-elo-v2's two fingerprints, by its own functions (src/walters/ncaa_v1r_gate.py) over its own read
+    (load_streams(V2): one read of the stored games, both streams): "stream" = stream_fingerprint over the D2 stream and
+    the D10 second-read stream (what `ncaa-gate --id ncaa-elo-v2 --preflight` prints as STREAM FINGERPRINT and the run
+    takes as --stream-fingerprint); "training" = training_fingerprint (the stream the fit of s read; --preflight's
+    "today's training stream"). Each (sha256 hex, games)."""
+    from src.walters import ncaa_v1r_gate as vg
+
+    v, second = vg.load_streams(vg.V2)
+    return {"stream": vg.stream_fingerprint(v.games, vg.V2, second.games if second is not None else None),
+            "training": vg.training_fingerprint(v.games, vg.V2)}
+
+
+def write_status(changes: list[dict]) -> None:
+    """Writes Match.status alone (addendum 116 item 4 (1): "sets status (and nothing else — never utc_date, never
+    scores)"): one UPDATE per row, restricted to the status column and guarded by the status the change set read
+    (UPDATE matches SET status = new WHERE id = ? AND status = stored). One transaction: a row whose status moved since
+    the read raises StatusMoved and nothing is written."""
+    from sqlalchemy import update
+
+    from src.db.database import session_scope
+    from src.db.schema import Match, MatchStatus
+
+    with session_scope() as s:
+        for m in changes:
+            res = s.execute(update(Match)
+                            .where(Match.id == m["id"], Match.status == MatchStatus[m["status"]])
+                            .values(status=MatchStatus[m["new"]])
+                            .execution_options(synchronize_session=False))
+            if res.rowcount != 1:
+                raise StatusMoved(f"match {m['id']}: its stored status is no longer {m['status']} (it moved since "
+                                  f"the read)")
+
+
+def apply(competition_code: str, season: str, match_ids, adapter_for: Callable,
+          out: Callable[[str], None] = print, now=None) -> int:
+    """`score-presence-apply` (addendum 116 item 4 (1)). Reads the listing, resolves it and computes the rule's change
+    set exactly as the dry run does (at `now`; None = utc now). Refuses AS A WHOLE, nothing written, every reason
+    named, when a named id is not in the change set for that competition-season or is an NFL regular-season row
+    (item 4 (2)), or when the listing cannot be read. Then writes Match.status alone on the named rows (write_status)
+    and prints each id stored → new, the count and, for NCAA, ncaa-elo-v2's fingerprints before and after.
+    Exit 0 applied; 1 refused (or a fingerprint moved, which status cannot do); 2 no database file. The caller (the
+    CLI) verifies the .backup first."""
+    from src.adapters.api_sports_status import LONGEST_GAME_H, rule_now
+
+    code = competition_code.upper()
+    named = sorted({int(x) for x in match_ids})
+    gone = missing_db()
+    if gone:
+        out(f"✗ no database at {gone}; the apply never creates one (law 5) · nothing written")
+        return 2
+    now = rule_now(now)
+    for ln in header("SCORE-PRESENCE APPLY", "writes Match.status ONLY, on named rows of the rule's change set; "
+                     "refuses as a whole", now):
+        out(ln)
+
+    def tail(**kw):
+        out("SCORE-PRESENCE-APPLY " + json.dumps({"competition": code, "season": season, "named": named,
+                                                  "now": _when(now) + "Z", "longest_game_h": LONGEST_GAME_H,
+                                                  "written_columns": ["status"] if kw.get("applied") else [], **kw},
+                                                 sort_keys=True))
+
+    if code not in COMPETITIONS or stored_seasons(code) is None:
+        why = (f"{code} is not a competition of the rule ({', '.join(COMPETITIONS)})" if code not in COMPETITIONS
+               else f"{code} is not in the DB")
+        out(f"  REFUSED as a whole · nothing written: {why}")
+        tail(applied=0, refused=[{"id": None, "why": why}])
+        return 1
+    adapter = adapter_for(code)
+    source = adapter.source_name
+    try:
+        listing, shorts = read_listing(adapter, code, season, now)
+    except Exception as e:
+        why = f"the listing could not be read ({type(e).__name__}: {e})"
+        out(f"  REFUSED as a whole · nothing written: {code} {season}: {why}")
+        tail(applied=0, refused=[{"id": None, "why": why}])
+        return 1
+    rows, resolved = resolve(code, season, source, listing)
+    r = compare(code, listing, shorts, rows, resolved)
+    changes = {m["id"]: m for m in r["changes"]}
+    in_season = {m["id"] for m in rows}
+    refused = []
+    for mid in named:
+        m = changes.get(mid)
+        if m is None:
+            why = r["why_row"].get(mid) or ("no listed game resolves to it" if mid in in_season
+                                            else f"not a stored row of {code} {season}")
+            refused.append({"id": mid, "why": f"not in the rule's change set for {code} {season}: {why}"})
+        elif m["nfl"] == REGULAR_HELD:
+            refused.append({"id": mid, "why": f"an NFL regular-season row (stored stage {m['stage'] or 'none'!r}): "
+                                              f"held, it changes nfl_elo_v1's ratings and needs a gate verdict "
+                                              f"(addendum 116 item 4 (2)); its own Issue"})
+    out(f"{code} {season} · source {source} · listing {r['listing']} games · stored {r['stored']} rows · the rule's "
+        f"change set {len(changes)} · named {len(named)}: {','.join(map(str, named))}")
+    if refused:
+        out(f"  REFUSED as a whole · nothing written · {len(refused)} of {len(named)} named id(s) refused:")
+        for x in refused:
+            out(f"    match {x['id']}: {x['why']}")
+        tail(applied=0, refused=refused)
+        return 1
+    accepted = [changes[mid] for mid in named]
+    fps = {"before": ncaa_fingerprints()} if code == "NCAA" else {}
+    try:
+        write_status(accepted)
+    except StatusMoved as e:
+        out(f"  REFUSED as a whole · nothing written (rolled back): {e}")
+        tail(applied=0, refused=[{"id": None, "why": str(e)}])
+        return 1
+    out(f"  APPLIED · Match.status only · {len(accepted)} row(s):")
+    for m in accepted:
+        out(f"    {_row(m)} · {m['class']} · {m['status']} → {m['new']}{_nfl(m)}")
+    out(f"  count {len(accepted)} · written: status only (no kickoff, score, stage, season, status code or provider "
+        f"id; no row created or deleted)")
+    same = True
+    if fps:
+        fps["after"] = ncaa_fingerprints()
+        for k, what in (("stream", "stream fingerprint (both streams)"), ("training", "training fingerprint")):
+            (b, bn), (a, an) = fps["before"][k], fps["after"][k]
+            same = same and (b, bn) == (a, an)
+            out(f"  ncaa-elo-v2 {what}: before {b} ({bn} games) · after {a} ({an} games) · "
+                f"{'SAME' if (b, bn) == (a, an) else 'CHANGED'}")
+    if not same:
+        out("  ✗ a fingerprint CHANGED, which status cannot do (no field of either, no filter of the walk): the write "
+            "is committed; restore from the .backup and report it")
+    tail(applied=len(accepted), ids=[m["id"] for m in accepted], refused=[],
+         fingerprints={w: {k: list(v) for k, v in d.items()} for w, d in fps.items()},
+         fingerprints_same=same if fps else None)
+    return 0 if same else 1

@@ -44,6 +44,18 @@ from src.timeutil import utc_now_naive
 log = logging.getLogger(__name__)
 
 
+#: The status a NEW row gets when the listing carries no status for its game (NormalizedMatch.status None: the
+#: api-sports score-presence rule before kickoff + the sport's longest game, #493, ARCHITECT 2026-10-17 addendum 116
+#: item 4 (3)): what the adapters already give a game without a stated status (their "NS" default). A stored row keeps
+#: its own status (_apply_match_updates).
+NO_STATUS_CREATED = MatchStatus.SCHEDULED
+
+
+def created_status(nm: NormalizedMatch) -> MatchStatus:
+    """The status a row created from `nm` is stored with: nm.status, or NO_STATUS_CREATED when it carries none."""
+    return nm.status if nm.status is not None else NO_STATUS_CREATED
+
+
 # RE-KEY FALLBACK (ARCHITECT 2026-10-03, priority): an NCAA resync created
 # 1006 rows — the provider listed known fixtures under NEW game ids, the
 # source-id lookup missed, and each became a duplicate (a stale scheduled
@@ -465,7 +477,7 @@ class IngestionService:
             matchday=nm.matchday,
             stage=nm.stage,
             utc_date=nm.utc_date,
-            status=nm.status,
+            status=created_status(nm),
             status_raw=nm.status_raw,
             home_team_id=home.id,
             away_team_id=away.id,
@@ -492,7 +504,10 @@ class IngestionService:
 
     @staticmethod
     def _apply_match_updates(match: Match, nm: NormalizedMatch) -> None:
-        match.status = nm.status
+        # None: no status for this game (the score-presence rule before kickoff + the longest game, addendum 116
+        # item 4 (3)): the stored status is left alone, never overwritten
+        if nm.status is not None:
+            match.status = nm.status
         if nm.status_raw:  # never blank a stored code with an absent one
             match.status_raw = nm.status_raw
         # Correct the season if the adapter now reports a different one. This

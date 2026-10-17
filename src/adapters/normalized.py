@@ -46,7 +46,10 @@ class NormalizedMatch:
     competition_code: str  # e.g. "PL" — adapter must use the same code as its competition
     season: str  # "2024/25" or "2024" depending on sport
     utc_date: datetime
-    status: MatchStatus
+    # None = NO status for this game (the api-sports score-presence rule before kickoff + the sport's longest
+    # game, #493 addendum 116 item 4 (3)): the sync leaves a stored row's status alone and creates a new row
+    # SCHEDULED (IngestionService.created_status). Every other parse states one.
+    status: MatchStatus | None
     home_team_source_id: str
     away_team_source_id: str
     source: str

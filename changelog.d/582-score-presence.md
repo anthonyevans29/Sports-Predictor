@@ -1,26 +1,52 @@
-## 2026-10-17 (#582: score-presence — #493, ARCHITECT addendum 81 item 3, addendum 112 item 4)
-- src/adapters/api_sports_status.py (new): the status rule both api-sports game adapters read. `provider_short` reads the provider's short as sent, BEFORE any `NS` default; None means no status stated: the block missing, null or empty, or its short null or empty. `game_status`: no status stated with both totals is FINISHED; no status with a total missing is SCHEDULED (no score, not FINISHED); a stated short keeps its mapping, and a code the map lacks is SCHEDULED, whatever the scores. The literal text `None` is a stated status (no parse of ours writes it): SCHEDULED.
-- src/adapters/api_american_football.py (NFL, NCAA) and src/adapters/api_hockey.py (NHL): `_parse_games` reads the raw status through those two functions. **Behaviour change at the next sync of a season:**
-  - a game sent with no status and both totals is stored FINISHED (it was SCHEDULED: the rule never fired);
-  - a game sent with the text `None` and both totals is stored SCHEDULED (it was FINISHED).
-  - The hockey parse moves from `list_matches` into `_parse_games`, as the american-football adapter has it; the call and the rows are unchanged. Hockey's `status_raw` keeps a stated `None` text verbatim (it was dropped); a status not stated is still null. Both parses take an opt-in `raw_shorts` dict (the dry run's); by default nothing changes.
-- src/ingestion/score_presence.py + cli.py `score-presence-dry-run` (new, READ-ONLY): every stored row the rule would change at the next sync of its season, counted per competition-season, with the ids. It makes the season read's one `/games` call, parses it with the adapter's own `_parse_games`, and resolves each listed game to the stored row as the sync resolves it (the sync's own cache, team lookup and re-key, on rows detached from the session). It prints:
-  - the sync's resolution of the listing (onto a stored row, re-keyed, created, refused, skipped);
-  - the rule's changes (a re-keyed row with `old → new`), rows already as the fixed parse reads, and listed rule-class games not stored, with what the sync does with each;
-  - the stored SCHEDULED rows carrying both scores: how many the rule changes and every one it leaves, with why (the two add up to the count);
-  - what the same whole-season sync would write besides: other statuses, kickoffs, scores (values never printed), stages, matchdays, seasons and status codes, re-keyed provider ids, and the listed games it creates; then the listed games it writes nothing for (refused, skipped).
+## 2026-10-17 (#582: score-presence — #493, ARCHITECT addendum 81 item 3, addendum 112 item 4, addendum 116 item 4)
+- src/adapters/api_sports_status.py (new): the status rule both api-sports game adapters read.
+  - `provider_short` reads the provider's short as sent, BEFORE any `NS` default.
+  - `no_status` is True when there is none: the block missing, null or empty, its short null or empty, or the literal text `None` (addendum 116 item 4 (4): the same as absent).
+  - `game_status`:
+    - no status with a total missing is SCHEDULED (no score, not FINISHED);
+    - no status with both totals is FINISHED once now >= kickoff + `LONGEST_GAME_H` of the sport (SOCCER 3h, NHL 4h, NFL/NCAA 5h, MLB 6h; addendum 116 item 4 (3)), and before that None: no status for the game;
+    - a stated short keeps its mapping, and a code the map lacks is SCHEDULED, whatever the scores.
+- src/adapters/api_american_football.py (NFL, NCAA) and src/adapters/api_hockey.py (NHL): `_parse_games` reads the raw status through those functions, with an injectable `now` (default: utc now, once per answer). **Behaviour change at the next sync:**
+  - a game sent with no status and both totals is stored FINISHED once kickoff + 5h (NHL 4h) has passed (it was SCHEDULED: the rule never fired);
+  - before that, the stored status is left alone and a new game is created SCHEDULED, so a game in play with running totals never reads FINISHED;
+  - the text `None` with both totals reads FINISHED, as before this PR, now subject to the same age condition.
+  - The hockey parse moves from `list_matches` into `_parse_games`; the call and the rows are unchanged. Hockey's `status_raw` is null when no status is stated (the text `None` included).
+  - Both parses take an opt-in `raw_shorts` dict (the dry run's); by default nothing changes.
+- src/adapters/normalized.py: `NormalizedMatch.status` may be None (no status for the game).
+- src/ingestion/service.py:
+  - `_apply_match_updates` leaves the stored status alone when the parse carries none;
+  - a created row gets `created_status(nm)` (SCHEDULED when none);
+  - `sync_matches`' match cache moves, unchanged, into `IngestionService._match_cache`, which the dry run shares.
+- src/walters/nfl_predict.py: nfl_elo_v1's preseason test, inline in `_current_ratings`, is now `is_preseason(stage)`, called there (unchanged behaviour) and by the dry run and the apply.
+- src/ingestion/score_presence.py + cli.py `score-presence-dry-run` (new, READ-ONLY): every stored row the rule changes, per competition-season, with the ids. It makes the season read's one `/games` call, parses it with the adapter's own `_parse_games`, and resolves each listed game to the stored row as the sync resolves it. It prints:
+  - the header with the rule, the constants and `now`;
+  - the sync's resolution;
+  - the rule's changes (a re-keyed row with `old → new`), rows already as the rule reads, rows left alone until kickoff + the longest game, and listed rule-class games not stored;
+  - the text `None` rows in their own section, for the record;
+  - for NFL, each change's class by `is_preseason` on the stored stage (`preseason (applied)` / `regular season (held: needs a gate verdict; own Issue)`) with a count of each;
+  - the stored SCHEDULED rows carrying both scores (changed + left = the count);
+  - the `score-presence-apply` line for the accepted ids and a `HELD` line for the NFL regular-season ids;
+  - for information only, what a whole-season sync would write besides (not the vehicle).
   - The last line is `SCORE-PRESENCE-DRY-RUN {counts}`. It writes nothing, refuses (exit 2) when the database file is absent, and exits 1 when a listing could not be read.
-- src/ingestion/service.py: `sync_matches`' match cache moves, unchanged, into `IngestionService._match_cache`, which the dry run shares.
-- scripts/nfl_qb_probe.py: the probe no longer applies the score-presence rule itself; it reads the adapter's parse only, as its header says.
-- docs/CLI.md: the `score-presence-dry-run` row.
+- cli.py `score-presence-apply` (new, STATUS ONLY, addendum 116 item 4 (1)): `--competition --season --match-ids --backup`.
+  - It checks the database file first, then the `.backup`.
+  - It recomputes the change set exactly as the dry run does, and refuses as a whole (nothing written, exit 1, every reason named) for an id not in it or for an NFL regular-season row.
+  - It writes `matches.status` alone, one guarded UPDATE per row.
+  - It prints each id stored → new, the count, and for NCAA ncaa-elo-v2's stream and training fingerprints before and after (`SAME`).
+- scripts/nfl_qb_probe.py: the probe reads the adapter's parse only (no rule of its own); its docstring says a game with no status yet is neither finished nor unplayed.
+- docs/CLI.md: the `score-presence-dry-run` and `score-presence-apply` rows.
 - tests:
-  - test_score_presence.py (16), on the new tests/fixtures/api_sports_status: provider-shaped rows, written, not kept (no kept answer exists; its README says so). Covered:
-    - every status shape, both adapters, including #493's five-row receipt table;
-    - a stated status (`NS` included) is never overridden by scores; no status with a score missing is not FINISHED;
-    - hockey's `status_raw`; `raw_shorts` is opt-in;
-    - the dry run's lines, ids and counts, and that it writes nothing;
-    - a re-key by the same pair within 12 hours (and the real sync on the same answer doing what the receipt says), a re-key by the row's `_prev` history, and a refusal;
-    - the stored SCHEDULED rows with both scores: changed + left = the count;
-    - an unreadable listing exits 1; no database file refuses and creates nothing;
-    - the CLI command.
+  - test_score_presence.py (48), on tests/fixtures/api_sports_status: provider-shaped rows, written, not kept (no kept answer exists; its README says so). Covered:
+    - every status shape, both adapters; the text `None` is no status in every path;
+    - the age condition on both sides of the threshold for NFL, NCAA and NHL;
+    - a stored FINISHED, LIVE or SCHEDULED row left alone by the sync before the threshold, and a new row created SCHEDULED;
+    - the dry run's lines, ids, counts, NFL stage classes and the text-None section, and that it writes nothing;
+    - re-keys and a refusal resolved as the sync resolves them;
+    - the apply:
+      - refuses an id not in the change set, an NFL regular-season id and a row left alone by the age condition (nothing written);
+      - writes only status, every other column of every row compared;
+      - prints the NCAA fingerprints before == after;
+      - rolls back a row that moved;
+      - refuses with no database file;
+      - runs through the CLI with a verified backup.
   - test_nfl_qb_probe.py: one docstring.

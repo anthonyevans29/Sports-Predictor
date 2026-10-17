@@ -38,7 +38,7 @@ from typing import Any
 
 import requests
 
-from src.adapters.api_sports_status import game_status, provider_short
+from src.adapters.api_sports_status import game_status, provider_short, rule_now, sport_key
 from src.adapters.base import DataAdapter
 from src.adapters.normalized import (
     NormalizedCompetition,
@@ -264,9 +264,14 @@ class APIAmericanFootballAdapter(DataAdapter):
         return True, (got[0] if got else None)
 
     def _parse_games(self, data: dict, competition_code: str, season: str,
-                     raw_shorts: dict | None = None) -> list[NormalizedMatch]:
+                     raw_shorts: dict | None = None, now: datetime | None = None) -> list[NormalizedMatch]:
         """`raw_shorts` (opt-in, the score-presence dry run, #493): a dict each parsed game's provider status is added
-        to, {provider id: the short as sent, None when absent}. Default None: nothing changes."""
+        to, {provider id: the short as sent, None when absent}. Default None: nothing changes. `now`: the clock the
+        score-presence rule's kickoff-age condition reads (addendum 116 item 4 (3)); None = utc now, read once for the
+        whole answer. A game with no status and both totals before kickoff + 5h parses with status None: no status
+        for this game, the stored one is left alone (src/adapters/api_sports_status.py)."""
+        now = rule_now(now)
+        key = sport_key(competition_code)                   # NFL / NCAA: their longest game
         out: list[NormalizedMatch] = []
         for g in data.get("response") or []:
             game = g.get("game") or g
@@ -308,9 +313,11 @@ class APIAmericanFootballAdapter(DataAdapter):
             _h_total = hs.get("total") if isinstance(hs, dict) else hs
             _a_total = as_.get("total") if isinstance(as_, dict) else as_
             # Score-presence beats status-absence (2026-09-05), on the RAW status
-            # (#493): absent + both totals -> FINISHED; absent + a total missing
-            # -> SCHEDULED; a stated short keeps its mapping (unknown SCHEDULED)
-            status = game_status(short, _STATUS, _h_total, _a_total)
+            # (#493): no status (absent or the text "None") + both totals ->
+            # FINISHED once kickoff + the longest game has passed, else None (the
+            # stored status is left alone); no status + a total missing ->
+            # SCHEDULED; a stated short keeps its mapping (unknown SCHEDULED)
+            status = game_status(short, _STATUS, _h_total, _a_total, utc, key, now)
             if raw_shorts is not None:
                 raw_shorts[str(gid)] = short
             out.append(NormalizedMatch(

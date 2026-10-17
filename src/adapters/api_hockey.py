@@ -23,7 +23,7 @@ from typing import Any
 
 import requests
 
-from src.adapters.api_sports_status import game_status, provider_short
+from src.adapters.api_sports_status import game_status, no_status, provider_short, rule_now, sport_key
 from src.adapters.base import DataAdapter
 from src.adapters.normalized import (
     NormalizedCompetition,
@@ -147,10 +147,15 @@ class APIHockeyAdapter(DataAdapter):
         data = self._get("games", params=params)
         return self._parse_games(data, str(params.get("season", "")))
 
-    def _parse_games(self, data: dict, season: str, raw_shorts: dict | None = None) -> list[NormalizedMatch]:
+    def _parse_games(self, data: dict, season: str, raw_shorts: dict | None = None,
+                     now: datetime | None = None) -> list[NormalizedMatch]:
         """One /games answer -> NormalizedMatch rows (list_matches' parse, moved here as the american-football adapter
         has it, #493). `raw_shorts` (opt-in, the score-presence dry run): a dict each parsed game's provider status is
-        added to, {provider id: the short as sent, None when absent}. Default None: nothing changes."""
+        added to, {provider id: the short as sent, None when absent}. Default None: nothing changes. `now`: the clock
+        the score-presence rule's kickoff-age condition reads (addendum 116 item 4 (3)); None = utc now, read once for
+        the whole answer. A game with no status and both totals before kickoff + 4h parses with status None: no status
+        for this game, the stored one is left alone (src/adapters/api_sports_status.py)."""
+        now = rule_now(now)
         out: list[NormalizedMatch] = []
         for g in data.get("response") or []:
             game = g.get("game") or g
@@ -189,9 +194,11 @@ class APIHockeyAdapter(DataAdapter):
             _h_total = hs.get("total") if isinstance(hs, dict) else hs
             _a_total = as_.get("total") if isinstance(as_, dict) else as_
             # Score-presence beats status-absence (2026-09-05), on the RAW status
-            # (#493): absent + both totals -> FINISHED; absent + a total missing
-            # -> SCHEDULED; a stated short keeps its mapping (unknown SCHEDULED)
-            status = game_status(raw_short, _STATUS, _h_total, _a_total)
+            # (#493): no status (absent or the text "None") + both totals ->
+            # FINISHED once kickoff + the longest game has passed, else None (the
+            # stored status is left alone); no status + a total missing ->
+            # SCHEDULED; a stated short keeps its mapping (unknown SCHEDULED)
+            status = game_status(raw_short, _STATUS, _h_total, _a_total, utc, sport_key("NHL", Sport.NHL), now)
             if raw_shorts is not None:
                 raw_shorts[str(gid)] = raw_short
             out.append(NormalizedMatch(
@@ -206,8 +213,8 @@ class APIHockeyAdapter(DataAdapter):
                 stage=str(game.get("stage") or "") or None,
                 # the raw code the _STATUS map collapses (FT vs AOT vs AP):
                 # OT/SO wins become distinguishable (H2 groundwork, 2026-09-26);
-                # None = no status stated (a stated "None" text is kept, #493)
-                status_raw=raw_short,
+                # None = no status (absent, or the text "None": addendum 116 item 4 (4))
+                status_raw=(None if no_status(raw_short) else raw_short),
                 home_score=hs.get("total") if isinstance(hs, dict) else hs,
                 away_score=as_.get("total") if isinstance(as_, dict) else as_,
             ))

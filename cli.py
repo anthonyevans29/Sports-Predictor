@@ -324,16 +324,48 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
               help="A season string as stored, e.g. 2024 (repeatable). Default: every season the DB stores for the "
                    "competition.")
 def score_presence_dry_run_cmd(competitions, seasons):
-    """READ-ONLY (#493; ARCHITECT 2026-10-16, addendum 81 item 3): every stored row the adapters' score-presence rule
-    would change at the next sync of its season (a provider status ABSENT with both scores present: FINISHED), counted
-    per competition-season with the ids, each listed game resolved to its stored row as the sync resolves it (re-keys
-    included); and what the same whole-season sync would write besides (other statuses, kickoffs, scores, stages,
-    matchdays, seasons, status codes, re-keyed ids, created games). One /games call per competition-season. Writes nothing: the operator runs it after the backup.
-    Exit 1 when a listing could not be read."""
+    """READ-ONLY (#493; ARCHITECT 2026-10-16 addendum 81 item 3; 2026-10-17 addendum 116 item 4): every stored row the
+    adapters' score-presence rule changes (no provider status, none sent or the text 'None', with both scores:
+    FINISHED once now >= kickoff + the sport's longest game; before that the stored status is left alone), counted per
+    competition-season with the ids, each listed game resolved to its stored row as the sync resolves it (re-keys
+    included). NFL changes carry their stored stage's class (preseason applied, regular season held); the text 'None'
+    rows are listed apart, for the record. Ends each competition-season with the score-presence-apply line for its
+    ids, and lists for information what a whole-season sync would write besides (it is not the vehicle). One /games
+    call per competition-season. Writes nothing: the operator runs it after the backup. Exit 1 when a listing could
+    not be read; 2 when there is no database file."""
     from src.ingestion import score_presence as sp
 
     raise SystemExit(sp.run([c.upper() for c in competitions] or list(sp.COMPETITIONS), list(seasons),
                             _adapter_for_competition, out=click.echo))
+
+
+@cli.command("score-presence-apply")
+@click.option("--competition", required=True, type=click.Choice(["NFL", "NCAA", "NHL"], case_sensitive=False),
+              help="NFL, NCAA or NHL: one competition per run.")
+@click.option("--season", required=True, help="One season string as stored, e.g. 2024.")
+@click.option("--match-ids", "match_ids", required=True,
+              help="The stored match ids the dry run listed for this competition-season, comma-separated.")
+@click.option("--backup", "backup_path", default=None,
+              help="Required: a .backup file taken just before (integrity checked; its matches count must equal the "
+                   "live DB's), as dedupe-matches checks it.")
+def score_presence_apply_cmd(competition, season, match_ids, backup_path):
+    """#493, STATUS ONLY (ARCHITECT 2026-10-17, addendum 116 item 4 (1)): "sets status (and nothing else — never
+    utc_date, never scores) on the rows the dry run listed, backup first, in a laptop block on my word." Re-reads the
+    provider's listing and recomputes the rule's change set exactly as score-presence-dry-run does; refuses AS A WHOLE
+    (nothing written, every reason named, exit 1) when a named id is not in that change set for the competition-season
+    or is an NFL regular-season row (item 4 (2): held for a gate verdict). Writes Match.status alone, one guarded
+    UPDATE per row; prints each id stored -> new, the count, and for NCAA ncaa-elo-v2's stream and training
+    fingerprints before and after. Refuses (exit 2) when the database file is absent or the backup does not verify."""
+    from src.db.schema import Match as _M
+    from src.ingestion import score_presence as sp
+
+    named = _match_ids_opt(match_ids)
+    gone = sp.missing_db()                  # before the backup check: its count would open (and create) the DB
+    if gone:
+        click.echo(f"✗ no database at {gone}; the apply never creates one (law 5) · nothing written")
+        raise SystemExit(2)
+    _verify_backup(backup_path, "matches", _M)
+    raise SystemExit(sp.apply(competition.upper(), season, sorted(named), _adapter_for_competition, out=click.echo))
 
 
 @cli.command("odds-audit")

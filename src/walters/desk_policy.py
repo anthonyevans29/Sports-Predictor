@@ -26,12 +26,14 @@ Presentation-only pieces (KO line, re-run hint, HTML) are not ported.
 """
 from __future__ import annotations
 
+import io
 import json
 import math
 import os
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from decimal import ROUND_HALF_UP, Decimal
+from pathlib import Path
 
 POLICY_VERSION = "v1.1"
 INF = math.inf
@@ -171,12 +173,46 @@ INJURY_EMPTY_TAG = "QB unread half units"
 KICKOFF_CLOCK_RULE = {"on": True}
 KICKOFF_CLOCK_KIND = "kickoff_clock"
 DESK_CLOCK_DRIFT = timedelta(hours=1)
+# THE HOST FENCE (ARCHITECT 2026-10-17 10:15 ET, addendum 109 item 3, RULED; #410; it codifies addendum 36 item 3):
+# "when the writer-of-record role is host, every soccer model_edge row is PASS, pass_kind "host_fence", reason "host:
+# ratings keyed to the laptop's team ids (#410); the cutover replaces this database". rating_source is untouched; the
+# row's model numbers stay in the file for the compare. The host pager never sees a soccer PLAY from the host. [...] The
+# fence lifts with the cutover (the ruling that cuts over names it). No re-keying on the host (addendum 36 stands)."
+# THE ROLE (ARCHITECT 2026-10-17, addendum 110 item 1, RULED): "the fence keys off the machine's own role,
+# SP_EXPORTS_MIRROR_ROLE=host (addendum 45 P1), not SP_WRITER_OF_RECORD, which reads laptop on both machines until the
+# cutover flips it. Lift through a named switch the cutover PR turns off. ONE FLIP (law 4, conservative unknowns): an
+# unknown or missing role is FENCED, not open. A machine that cannot say it is the laptop does not get to make a soccer
+# call." Addendum 114 item 3: "the cutover PR does the flip and turns the switch off in the same change; the fence
+# reads the switch, never SP_WRITER_OF_RECORD." Only an exact "laptop" leaves the row as it is; "host", unset and any
+# other value fence, each with its own reason (a value that is neither host nor laptop: addendum 115 item 3b's words). The role is read by machine_role(): the machine's own
+# host.env, then the process environment, then the checkout's .env. Checked first, before S1: it overrides every call.
+# It lifts by this switch, HOST_FENCE_RULE. The frozen golden predates it and runs with it off (base_v11()).
+HOST_FENCE_RULE = {"on": True}
+HOST_FENCE_KIND = "host_fence"
+# Addendum 115 item 3a: "INTL rows ARE fenced under role host. The ruling's "soccer" means every model-edge row of the
+# soccer family whose ratings are keyed to the laptop's team ids — intl-elo is copied the same way."
+HOST_FENCE_SPORTS = ("SOCCER", "INTL")
+HOST_FENCE_REASON = "host: ratings keyed to the laptop's team ids (#410); the cutover replaces this database"
+ROLE_ENV = "SP_EXPORTS_MIRROR_ROLE"                 # deploy/hosting/closing.py ROLE_SETTING; host.env / the laptop's .env
+ROLES = ("host", "laptop")
+HOST_FENCE_UNSET_REASON = f"host fence: role unknown ({ROLE_ENV} unset)"     # addendum 110 item 1, verbatim
+# Addendum 116 item 2 (law 4): "a host.env that EXISTS but cannot be read makes the role UNKNOWN — fenced, reason "host
+# fence: role unknown (host.env unreadable)" — and nothing after it is consulted. Only a host.env that does not exist
+# (the laptop) falls through to the environment and the checkout's .env."
+HOST_FENCE_UNREADABLE_REASON = "host fence: role unknown (host.env unreadable)"   # addendum 116 item 2, verbatim
+HOST_ENV_UNREADABLE = object()                       # _env_file(strict=True)'s answer for a file it cannot read
+HOST_ENV_DEFAULT = "/etc/sports-predictor/host.env"  # deploy/hosting/sp_common.py HOST_ENV; SP_HOST_ENV overrides it
+# The checkout's .env, the one config.py loads (PROJECT_ROOT = the directory holding config.py, two above this file;
+# load_dotenv(PROJECT_ROOT / ".env")); sp_common._dotenv reads the same file (REPO / ".env"). tests/conftest.py points
+# it at a file that does not exist.
+DOTENV = Path(__file__).resolve().parents[2] / ".env"
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
                  "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
                  KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
                  DEFAULT_RATING_KIND,               # + addendum 36 item 2 (2026-10-10)
                  INJURIES_ONE_SIDED_KIND,           # + addendum 40 item 6 (2026-10-11)
-                 KICKOFF_CLOCK_KIND)                # + addendum 72 item 1 (2026-10-15)
+                 KICKOFF_CLOCK_KIND,                # + addendum 72 item 1 (2026-10-15)
+                 HOST_FENCE_KIND)                   # + addendum 109 item 3 (2026-10-17)
 # VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
 # time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
 # unknown age is NO REFERENCE. [...] In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote
@@ -522,9 +558,10 @@ def base_v11():
     was_inj = INJURY_EMPTY_RULE["on"]          # Codex on #434: frozen verification files stay frozen
     was_skew = SKEW_TEST_VENUE_RULE["on"]      # addendum 61 item 3(1) postdates the frozen battery's CL rows
     was_clock = KICKOFF_CLOCK_RULE["on"]       # addendum 72 item 1: frozen verification files stay frozen
+    was_fence = HOST_FENCE_RULE["on"]          # addendum 109 item 3: the golden holds whatever the machine's role
     EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
     KALSHI_ONLY_MLB_SUSPENDED["on"] = INJURIES_ONE_SIDED_RULE["on"] = INJURY_EMPTY_RULE["on"] = False
-    SKEW_TEST_VENUE_RULE["on"] = KICKOFF_CLOCK_RULE["on"] = False
+    SKEW_TEST_VENUE_RULE["on"] = KICKOFF_CLOCK_RULE["on"] = HOST_FENCE_RULE["on"] = False
     try:
         yield
     finally:
@@ -532,7 +569,7 @@ def base_v11():
         MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"] = was_mlbq, was_qa
         KALSHI_ONLY_MLB_SUSPENDED["on"], INJURIES_ONE_SIDED_RULE["on"] = was_kos, was_one
         INJURY_EMPTY_RULE["on"], SKEW_TEST_VENUE_RULE["on"] = was_inj, was_skew
-        KICKOFF_CLOCK_RULE["on"] = was_clock
+        KICKOFF_CLOCK_RULE["on"], HOST_FENCE_RULE["on"] = was_clock, was_fence
 
 
 @contextmanager
@@ -633,6 +670,17 @@ def kickoff_clock_rule_off():
         yield
     finally:
         KICKOFF_CLOCK_RULE["on"] = was
+
+
+@contextmanager
+def host_fence_rule_off():
+    """The Desk without the host fence (addendum 109 item 3) — for comparing a file with and without it."""
+    was = HOST_FENCE_RULE["on"]
+    HOST_FENCE_RULE["on"] = False
+    try:
+        yield
+    finally:
+        HOST_FENCE_RULE["on"] = was
 
 
 def has_started(r, now_ms: float) -> bool:
@@ -934,6 +982,75 @@ def kalshi_only_suspended(r) -> bool:
     return bool(KALSHI_ONLY_MLB_SUSPENDED["on"] and r["sport"] == "MLB")
 
 
+def _env_file(path, strict: bool = False):
+    """An env file's KEY=VALUE pairs, read with config.py's reader (python-dotenv). A file that does not exist reads {}
+    and the next source decides. One that exists but cannot be read (host.env is root:sp 0640; a directory): with
+    `strict` (host.env, addendum 116 item 2) HOST_ENV_UNREADABLE, which makes the role unknown and stops the reading;
+    without it {} (the checkout's .env, the last source: nothing after it either way)."""
+    from dotenv import dotenv_values
+    try:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except FileNotFoundError:
+        return {}
+    except OSError:
+        return HOST_ENV_UNREADABLE if strict else {}
+    return dotenv_values(stream=io.StringIO(text))
+
+
+def role_reading(env=None) -> tuple[str | None, object]:
+    """(role, value): this machine's SP_EXPORTS_MIRROR_ROLE (addendum 45 P1: host | laptop, no default). `value` is
+    the stripped value that decided, "" when no source holds one, HOST_ENV_UNREADABLE when host.env exists but cannot
+    be read; `role` is it when it is host or laptop, else None.
+    The first source with a non-empty value decides, in this order:
+      1. the machine's own host.env (SP_HOST_ENV, else HOST_ENV_DEFAULT; only the host has one). First, so a run typed
+         by hand on the host is fenced (#410 review): closing.mirror_role() reads the environment first
+         (sp_common.setting), so a closing-run typed by hand, with no EnvironmentFile, signs its page "machine: host"
+         from host.env while its export step's environment has no role, or the laptop's .env role. A host.env that
+         exists but cannot be read decides too: the role is unknown and nothing after it is read (addendum 116 item 2),
+         so a user who cannot read it is never answered by the checkout's .env, which on the host says laptop.
+      2. the process environment (the units' EnvironmentFile, sp_run's load_host_env, config.py's load_dotenv).
+      3. the checkout's .env (DOTENV), so an entry point that never imports config (a script) reads the laptop's
+         line as cli.py does (addendum 110 item 1: "The laptop's .env carries the role line").
+    A value there that is neither host nor laptop decides too: the role is unknown (law 4), never the next source's.
+    `env`: read that mapping alone, not the machine (tests)."""
+    reads = (lambda: env,) if env is not None else (
+        lambda: _env_file(os.environ.get("SP_HOST_ENV", HOST_ENV_DEFAULT), strict=True), lambda: os.environ,
+        lambda: _env_file(DOTENV))
+    for read in reads:                                  # lazily: the .env is read only when nothing before it says
+        got = read()
+        if got is HOST_ENV_UNREADABLE:
+            return None, HOST_ENV_UNREADABLE
+        value = (got.get(ROLE_ENV) or "").strip()
+        if value:
+            return (value if value in ROLES else None), value
+    return None, ""
+
+
+def machine_role(env=None) -> str | None:
+    """This machine's role, host or laptop; None when it is unknown (role_reading)."""
+    return role_reading(env)[0]
+
+
+def host_fenced(r) -> str | None:
+    """Addendum 109 item 3 + addendum 110 item 1 + addendum 115 item 3: the fence's reason for a soccer or INTL model
+    row while the fence is on, on a machine whose role is host or unknown; None (not fenced) on the laptop, for every
+    other row, or with the switch off. Only model rows reach desk_call; a market-only row (the venue engine) is never
+    fenced."""
+    if not (HOST_FENCE_RULE["on"] and r["sport"] in HOST_FENCE_SPORTS):
+        return None
+    role, value = role_reading()
+    if role == "laptop":
+        return None
+    if role == "host":
+        return HOST_FENCE_REASON
+    if value is HOST_ENV_UNREADABLE:
+        return HOST_FENCE_UNREADABLE_REASON
+    if value:
+        return f"host fence: role '{value}' is not host or laptop"                # addendum 115 item 3b, approved
+    return HOST_FENCE_UNSET_REASON
+
+
 def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
     """The Desk's call for ONE model-sport row: the v1.1 policy (_desk_call), then Q3 K1 (ARCHITECT 2026-10-08):
     an MLB row whose reference would be the kalshi-only mid is PASS with no reference; its would-be call is kept
@@ -952,6 +1069,9 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0
 
 def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
     """The Cockpit's policy() body for ONE model-sport row (Desk v1.1 and its addenda, before Q3 K1)."""
+    fence = host_fenced(r)                              # addendum 109 item 3 (#410): first, it overrides every call
+    if fence:
+        return _no_call(r, HOST_FENCE_KIND, fence)
     if (r.get("comp") or "") in SHADOW_VENUE_COMPS:     # S1 (ARCHITECT 2026-10-08), checked before started
         return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": ["shadow league"],
                 "reasons": [SHADOW_LEAGUE_REASON], "execUnits": None, "shadowUnits": 0,
@@ -1576,6 +1696,10 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "kickoff_clock_rule": KICKOFF_CLOCK_RULE["on"],
                         # addendum 83 item 2 (2026-10-16): the Desk's own threshold, inclusive (the matcher's is 2h)
                         "kickoff_clock_hold_h": DESK_CLOCK_DRIFT.total_seconds() / 3600,
+                        # addendum 109 item 3 (2026-10-17): under role host (or unknown, addendum 110 item 1) every
+                        # soccer model row is PASS host_fence (the role itself is not written here: it would part every
+                        # laptop/host desk file in the compare)
+                        "host_fence_rule": HOST_FENCE_RULE["on"],
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}
@@ -1692,10 +1816,15 @@ def _rescore(doc: dict) -> list[dict]:
                     "hold_raw_edge_pp": (c.get("koHold") or {}).get("raw_edge_pp"),
                     "published_units": d.get("units"), "v11_units": b["units"], "addendum_units": c["units"],
                     "addendum_call": c["call"],
+                    # the PASS's own reason (the host fence's names the machine's role: host, unset or the value)
+                    "pass_reason": (c.get("reasons") or [None])[0] if c["call"] == "PASS" else None,
                     # a published PLAY the CURRENT quarantine now shadows is its own transition, never "halved"
                     # ... and so is one the Q3 suspension now holds (MLB kalshi-only, ARCHITECT 2026-10-08)
+                    # ... and one the host fence now holds (addendum 109 item 3, 110 item 1; #410): it is on in both
+                    # sides (addendum_off holds it), so 0u = 0u would read "unchanged" on a machine not the laptop
                     "verdict": ("quarantined" if is_quarantine_shadow(c) else
                                 "kalshi-only suspended" if c.get("passKind") == KALSHI_ONLY_SUSPENDED_KIND else
+                                "host fence" if c.get("passKind") == HOST_FENCE_KIND else
                                 "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
                                 else "raised")})
     return out

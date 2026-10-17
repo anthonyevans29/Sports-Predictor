@@ -5189,7 +5189,7 @@ def desk_rescore_cmd(files, out_path):
         console.print(f"[red]REFUSED: {tgt} exists — a receipt is never overwritten.[/red]")
         raise SystemExit(2)
     lines = [f"DESK RESCORE (#87 v1.1 addendum, rule 3) · run {stamp}"]
-    n = halved = quarantined = suspended = 0
+    n = halved = quarantined = suspended = fenced = 0
     for f in files:
         doc = _json.load(open(f))
         meta = doc.get("desk_meta") or {}
@@ -5204,10 +5204,13 @@ def desk_rescore_cmd(files, out_path):
             halved += x["verdict"] == "halved"
             quarantined += x["verdict"] == "quarantined"     # its own transition, never "halved" (Codex on #328)
             suspended += x["verdict"] == "kalshi-only suspended"     # Q3 K1 (ARCHITECT 2026-10-08): its own too
+            fenced += x["verdict"] == "host fence"                   # addendum 109 item 3 (#410): its own too
             xe = "—" if x["exec_edge_pp"] is None else f"{x['exec_edge_pp']:+.1f}pp"
             xc = "no executable quote" if x["exec_cost"] is None else f"cost {x['exec_cost']:.3f}"
             if x["verdict"] == "kalshi-only suspended":     # addendum 15 item 2: a suspended row is not priced
                 xe, xc = "—", "not priced: no order under the suspension"
+            if x["verdict"] == "host fence":                # nor a fenced one: the fence's reason names the role
+                xe, xc = "—", f"not priced: {x['pass_reason']}"
             # a None edge prints as — (never a crash: Codex P1 on #369); a suspended row shows its hold's raw edge
             fe = "—" if x["fair_edge_pp"] is None else f"{x['fair_edge_pp']:+.1f}pp"
             if x.get("hold_raw_edge_pp") is not None:
@@ -5222,6 +5225,9 @@ def desk_rescore_cmd(files, out_path):
     if suspended:
         lines.append(f"{suspended} MLB PLAY(s) now PASS under the kalshi-only suspension (Q3, ARCHITECT 2026-10-08) — "
                      f"not counted as halved")
+    if fenced:
+        lines.append(f"{fenced} soccer / INTL PLAY(s) now PASS under the host fence (this machine's role is not laptop; "
+                     f"#410) — not counted as halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)
     try:                                    # EXCLUSIVE create: two runs racing on one name never overwrite (Codex)

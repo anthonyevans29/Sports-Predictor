@@ -108,6 +108,33 @@ def test_a_deploy_before_the_migration_pages_nothing_new():
     assert qb(before, after) == [] and page.qb_rekey(before, after) == {"carried": 0, "baseline": []}
 
 
+
+def test_a_deploy_before_the_migration_holds_an_id_less_same_name_pair_as_a_baseline():
+    """The state written before this change held ONE entry for two id-less same-name QBs (the last item's status).
+    Read against the entry that now holds both, under the same key, it is a change of format, not news: a baseline
+    when its one status is among theirs. A status that is among neither still pages; from the next run both sides
+    hold the pair and a change in either one pages."""
+    before = old_format(card(row(1, "CHI", "GB", THU, [("John Smith", "Out")])))
+    for pair in ([("John Smith", "Out"), ("John Smith", "Questionable")], [("John Smith", "Out"), ("John Smith", "Out")]):
+        now = card(row(1, "CHI", "GB", THU, pair))
+        assert qb(before, now) == []
+        assert page.qb_rekey(before, now) == {"carried": 0, "baseline": ["9|John Smith"]}
+    was_q = old_format(card(row(1, "CHI", "GB", THU, [("John Smith", "Questionable")])))
+    now = card(row(1, "CHI", "GB", THU, [("John Smith", "Out"), ("John Smith", "Out")]))
+    assert heads(qb(was_q, now)) == ["QB NEWS CHI John Smith (no provider id, 2 entries): Questionable -> Out / Out "
+                                     "· 1 game(s)"]
+    later = card(row(1, "CHI", "GB", THU, [("John Smith", "Out"), ("John Smith", "Doubtful")]))
+    assert heads(qb(now, later)) == ["QB NEWS CHI John Smith (no provider id, 2 entries): Out / Out -> Doubtful / Out "
+                                     "· 1 game(s)"]
+
+
+def test_a_player_whose_row_loses_its_provider_id_keeps_the_label():
+    """Carried from his id key to a row with no id (the feed listed him without one), his page line still says so."""
+    before = card(row(1, "CHI", "GB", THU, [("C. Williams", "Out", "1001")]))
+    now = card(row(1, "CHI", "GB", THU, [("C. Williams", "Questionable")]))
+    assert heads(qb(before, now)) == ["QB NEWS CHI C. Williams (no provider id): Out -> Questionable · 1 game(s)"]
+
+
 # --------------------------------------------------- the change of key ----
 
 def test_the_first_run_with_ids_carries_each_player_to_his_id_and_pages_only_real_changes():

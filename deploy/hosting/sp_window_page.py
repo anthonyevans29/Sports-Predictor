@@ -117,7 +117,7 @@ def _qbs(items) -> dict:
         sts = sorted(x.get("status") or "" for x, _, _ in qs)
         out[k] = {"team": q.get("team"), "player": q.get("player"),
                   "status": sts[0] if len(sts) == 1 else " / ".join(v or "listed" for v in sts),
-                  "player_id": pid, "name_key": name_key, "n": len(qs)}
+                  "statuses": sts, "player_id": pid, "name_key": name_key, "n": len(qs)}
     return out
 
 
@@ -186,6 +186,14 @@ def _rekey(was: dict, now: dict) -> dict:
             if k.startswith("id:"):
                 ids_by_name.setdefault(e.get("name_key"), []).append(k)
         for k in [k for k in a if not k.startswith("id:")]:
+            # a state written before this change (no `n`: one status, the last item's) against an entry that now
+            # holds two or more id-less items under the same key is a change of format, not news, when its one
+            # status is among theirs: a baseline. Only (was, now) can match: this code always writes `n`.
+            if (k in b and "n" not in a[k] and (b[k].get("n") or 1) > 1
+                    and (a[k].get("status") or "") in (b[k].get("statuses") or [])):
+                skip.add(k)
+                baseline.append(k)
+                continue
             js = ids_by_name.get(k) or []
             if not js or k in b:
                 continue
@@ -230,7 +238,7 @@ def qb_deltas(prev: dict, cur: dict) -> list[dict]:
             continue
         q = b or a
         out.append({"cls": "qb_news", "id": k, "g": cur[stayed[0]], "player": q["player"], "team": q["team"],
-                    "by_name": not k.startswith("id:"), "n": q.get("n") or 1,
+                    "by_name": not q.get("player_id"), "n": q.get("n") or 1,
                     "was": a["status"] if a else None, "now": b["status"] if b else None,
                     "games": [cur[mid] for mid in sorted(stayed)]})
     return out

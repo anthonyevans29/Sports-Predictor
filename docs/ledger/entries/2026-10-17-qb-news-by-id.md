@@ -14,6 +14,7 @@
   - From one read the ingest keeps at most one id-less entry per name, and none where an entry with an id has that name (addendum 47 item 3, as addendum 48 item 3 rewrote it). So the merged entry occurs only in rows stored before the migration.
 - **The first runs after the deploy.**
   - Before the migration, and until the next `sync-injuries` after it, every item has no id, so the keys are the old ones and nothing new pages.
+    - One exception, receipted rather than paged: two id-less same-name items on one team. The old state held one entry for them, with the last item's status. Read against the entry that now holds both under the same key, it is a change of format. If its one status is among theirs, that name makes no delta on that run and is listed in `qb_rekey.baseline`. A status among neither still pages, and from the next run a change in either one pages.
   - On the first run where a player's id arrives, he is carried from his name key to his id, so a key change is not news. A real status change on that run still pages, by id.
   - Where two or more ids share one old name key (the collapsed pair itself), the old single entry cannot be told apart. That name makes no delta on that run and is listed in the receipt's `qb_rekey.baseline`. From the next run each is compared by his own id.
   - The receipt's `qb_rekey.carried` counts the carried players.
@@ -21,6 +22,7 @@
   - laptop: `python migrate_injury_player_source_id.py`
   - host: the `--run-migrations` line that `sp_deploy.py` prints for the release that carries it (`sudo -u sp sh -c '… deploy/hosting/sp_deploy.py --expect <sha> --run-migrations migrate_injury_player_source_id.py'`).
   - It is additive and idempotent, with no backfill. Its receipt counts, per source, the rows with and without the id. It refuses with no database file (the shared guard, #524) and with no `injuries` table.
+- **A rollback across this change.** A pre-#458 pager reads a state this one wrote (`id:<id>` keys) as every id-keyed QB gone and every name-keyed QB new. On the first window run after such a rollback, each QB listed with an id pages twice: once off the list, once listed. This is not a fix; it is said here so the page is expected.
 - **Not changed:** the window card's T-90 signature. It digests each row's content, so two same-name rows already count separately there; adding the id would change every signature once at deploy and fire freshens with no news. Also unchanged: the QB rule, the closing page and `qb_listed`, which read the rows and see both (addendum 48 item 4). The hockey and soccer injury reads keep no id; their rows stay null and no QB is read from them.
 - **The test (as ruled):** two same-name quarterbacks on one team, ids 2 and 3. Both appear, and a status change in either one pages. It fails on the old pager, which held one key, `{'9|John Smith'}`.
 - **Open for the architect:**

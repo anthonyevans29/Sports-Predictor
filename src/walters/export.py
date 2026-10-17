@@ -1507,6 +1507,10 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exp
                        f"- Sides: {pl['hits']}/{pl['decided']} · pushes {pl['pushes']}\n"
                        f"- {_vs_line(pl.get('vs_close'))}\n"
                        if pl.get("games") else ""))
+            elif r.get("redated"):                # addendum 106 item 4: every game re-dated, named as MLB/Soccer do
+                lines.append(f"## NFL (live since Week 3, 2026-09-22)\n\nNo graded games in window.\n\n"
+                             f"- Void: re-dated {r['redated']} (out of every line above): "
+                             + "; ".join(r.get("redated_rows") or []) + "\n")
         except Exception:
             lines.append("## NFL (live since Week 3, 2026-09-22)\n\nGrade unavailable.\n")
     # NHL SHADOW (architect 2026-09-30): the failed reference model's live CLV,

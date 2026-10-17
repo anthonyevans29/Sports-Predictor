@@ -303,6 +303,64 @@ def test_export_nfl_results_prints_the_count(iso_db, tmp_path):
     assert any(x.startswith("window: season_to_date season 2026") and "games 1 · top-pick hits 0/1" in x for x in out)
 
 
+def test_export_nfl_results_match_receipt_and_pre_live_line_leave_a_redated_row_out(iso_db, tmp_path):
+    from click.testing import CliRunner
+
+    import cli
+    from src.db.database import session_scope
+    from src.db.schema import Competition
+    _nfl_world(tmp_path)
+    with session_scope() as s:                       # a pre-live game (Week 1) whose only closing row is re-dated
+        c = s.query(Competition).filter_by(code="NFL").one()
+        _game(s, c, Sport.NFL, 70003, "Dallas Cowboys", "New York Giants", datetime(2026, 9, 13, 20, 25), 20, 17,
+              0.60, outcome=False, week=1)
+    write_closing(tmp_path / "ex", datetime(2026, 9, 13, 17, 0),
+                  [{"match_id": 70003, "home_team": "Dallas Cowboys", "away_team": "New York Giants",
+                    "utc_date": "2026-09-13T17:00:00"}], fam="NFL")
+    (tmp_path / "ex").rename(tmp_path / "exports")
+    res = CliRunner().invoke(cli.cli, ["export-nfl-results", "--match", "70001", "--match", "70002",
+                                       "--match", "70003", "--match", "4242"])
+    assert res.exit_code == 0, res.output
+    out = res.output.splitlines()
+    assert "pre-live (never pooled): games 0 · hits 0/0 · pushes 0" in out    # the record's games, not the row count
+    i = out.index("  void: re-dated 2 (kept in the file, out of every tally above)")
+    assert out[i + 2] == ("    match 70003 New York Giants @ Dallas Cowboys: "
+                          "void: re-dated 2026-09-13 17:00Z → 2026-09-13 20:25Z")
+    assert out[-4:] == ["match 70001: IN the file (void: re-dated, out of every record)",
+                        "match 70002: IN the file (season record)",
+                        "match 70003: IN the file (void: re-dated, out of every record)",
+                        "match 4242: NOT in the file"]
+
+
+def test_nfl_grade_names_the_void_rows_when_every_game_in_the_window_is_redated(iso_db, tmp_path):
+    from click.testing import CliRunner
+
+    import cli
+    from src.db.database import session_scope
+    from src.walters.export import results_tally
+    from src.walters.nfl_predict import grade_nfl
+    with session_scope() as s:
+        c = _comp(s, Sport.NFL, "NFL")
+        _game(s, c, Sport.NFL, 70001, "Kansas City Chiefs", "Buffalo Bills", datetime(2026, 10, 18, 20, 25), 27, 10,
+              0.70, outcome=False, week=7)                                   # flexed from 17:00Z, the only game
+    write_closing(tmp_path / "exports", datetime(2026, 10, 18, 17, 0),
+                  [{"match_id": 70001, "home_team": "Kansas City Chiefs", "away_team": "Buffalo Bills",
+                    "utc_date": "2026-10-18T17:00:00"}], fam="NFL")
+    named = f"match 70001 Buffalo Bills @ Kansas City Chiefs: {FLEX}"
+    lines = []
+    g = grade_nfl(days_back=None, progress=lines.append)
+    assert g == {"ok": False, "reason": "no finished NFL games with predictions in window", "redated": 1,
+                 "redated_rows": [named]}
+    assert lines == ["  ── void: re-dated 1 (out of every line here)", f"     {named}"]
+    res = CliRunner().invoke(cli.cli, ["nfl-grade"])
+    assert res.exit_code == 0, res.output
+    assert "── void: re-dated 1 (out of every line here)" in res.output and "70001" in res.output
+    out = tmp_path / "RESULTS.md"
+    results_tally(days=36500, out_path=str(out))
+    assert (f"## NFL (live since Week 3, 2026-09-22)\n\nNo graded games in window.\n\n"
+            f"- Void: re-dated 1 (out of every line above): {named}\n") in out.read_text()
+
+
 # ---- INTL ----------------------------------------------------------------------------------------------------------
 
 def test_intl_results_leave_the_redated_game_out(iso_db, tmp_path):
@@ -353,6 +411,13 @@ def test_the_k_receipt_leaves_a_redated_call_out_and_counts_it():
     L = _ledger()
     base = "\n".join(K.format_fills(L, LO, HI))
     assert "  void: re-dated 0 (out of the reconciliation and the CLV)" in base
+    never = copy.deepcopy(L)                                # a void call never eligible is not counted as leaving
+    never["calls"][3]["void_redated"] = FLEX                # c4: a value shadow, units 0, in the window
+    never["calls"].append({**never["calls"][1], "id": "c7", "call_type": "parlay_leg", "parlay_id": "P-1",
+                           "units": 0.25, "status": "void", "void_redated": FLEX})
+    txt = "\n".join(K.format_fills(never, LO, HI))
+    assert "  void: re-dated 0 (out of the reconciliation and the CLV)" in txt and "- VOID" not in txt
+    assert K.reconcile(never, LO, HI)["funnel"] == K.reconcile(L, LO, HI)["funnel"]
     L["calls"].append({**L["calls"][1], "id": "c6", "game": "Bills @ Jets", "home": "New York Jets",
                        "away": "Buffalo Bills", "status": "void", "void_redated": FLEX})
     rec = K.reconcile(L, LO, HI)

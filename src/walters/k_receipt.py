@@ -281,25 +281,26 @@ def _in_window(c: dict, since: datetime, until: datetime) -> bool:
     return t is not None and since <= t < until
 
 
+def _real_call(c: dict) -> bool:
+    """A real system call: a straight or ladder (never a parlay leg), units > 0, not a shadow."""
+    from src.walters.ledger_fills import is_shadow
+    return c.get("call_type") in ("straight", "ladder") and (c.get("units") or 0) > 0 and not is_shadow(c)
+
+
 def eligible_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[dict]:
     """Eligible = a real system call: a straight or ladder, units > 0, not a shadow, not a
     parlay leg, its kickoff (else log date) inside the window. A call the Cockpit voided as
     re-dated (void_redated, ARCHITECT 2026-10-17, addendum 106 item 4) never is: it is counted
     on its own line (redated_calls)."""
-    from src.walters.ledger_fills import is_shadow
-    out = []
-    for c in L.get("calls") or []:
-        if c.get("call_type") not in ("straight", "ladder") or not (c.get("units") or 0) > 0 or is_shadow(c) \
-                or c.get("void_redated"):
-            continue
-        if _in_window(c, since, until):
-            out.append(c)
-    return out
+    return [c for c in L.get("calls") or []
+            if _real_call(c) and not c.get("void_redated") and _in_window(c, since, until)]
 
 
 def redated_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[dict]:
-    """The calls in the window the Cockpit voided as re-dated (any call type): out of every tally here."""
-    return [c for c in L.get("calls") or [] if c.get("void_redated") and _in_window(c, since, until)]
+    """The calls in the window that would have been eligible but the Cockpit voided as re-dated:
+    out of every tally here. A void shadow or parlay leg was never in the reconciliation."""
+    return [c for c in L.get("calls") or []
+            if _real_call(c) and c.get("void_redated") and _in_window(c, since, until)]
 
 
 def _recorded_quote(c: dict):

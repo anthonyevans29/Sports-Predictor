@@ -557,7 +557,12 @@ def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "e
                       + (" ⚠ ANCHOR AFTER PREDICTION" if vg["anchor_before_prediction"] is False else "")
                       if vg else ""))
         if live["games"] == 0 and pre["games"] == 0:
-            return {"ok": False, "reason": "no finished NFL games with predictions in window"}
+            if redated:                           # addendum 106 item 4: every game re-dated, still named and counted
+                report(f"  ── void: re-dated {len(redated)} (out of every line here)")
+                for x in redated:
+                    report(f"     {x}")
+            return {"ok": False, "reason": "no finished NFL games with predictions in window",
+                    "redated": len(redated), "redated_rows": redated}
         n = live["games"]
         from src.walters.close import close_age_summary
         from src.walters.vs_close import block, line

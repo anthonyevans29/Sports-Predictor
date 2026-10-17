@@ -799,7 +799,7 @@ function upsertCalls(L,fresh,opts){
   for(const c of fresh){ const k=callKey(c); c.id=c.id||k;
     if(!idx.has(k)&&opts.relog&&pos.has(instKey(c))){      // same position, earlier log day
       const i=pos.get(instKey(c)), cur=L.calls[i];
-      if(cur.status==="graded"){kept++;continue;}
+      if(cur.status==="graded"||settledVoidLeg(L,cur)){kept++;continue;}
       L.calls[i]=stampTiming({...cur,...c,id:cur.id,log_date:cur.log_date,
         ...(cur.parlay_id?{parlay_id:cur.parlay_id}:{}),last_logged:c.log_date},c,false);
       reopened(L.calls[i]); repriced++; continue; }
@@ -807,7 +807,7 @@ function upsertCalls(L,fresh,opts){
       idx.set(k,L.calls.length); pos.set(instKey(c),L.calls.length);
       L.calls.push(opts.relog?stampTiming(c,c,true):c); added++; continue; }
     const i=idx.get(k), cur=L.calls[i];
-    if(cur.status==="graded"&&c.status!=="graded"){kept++;}   // graded history is never rewritten
+    if((cur.status==="graded"||settledVoidLeg(L,cur))&&c.status!=="graded"){kept++;}   // graded history is never rewritten
     else if(opts.incoming&&JSON.stringify(cur)===JSON.stringify({...c,id:cur.id})){kept++;}
     else if(opts.incoming){L.calls[i]={...c,id:cur.id};updated++;}
     else {L.calls[i]=reopened(stampTiming({...cur,...c,id:cur.id},c,false));updated++;}
@@ -817,6 +817,10 @@ function upsertCalls(L,fresh,opts){
 // addendum 106 item 4: a re-log reopens a call void as re-dated (its kickoff is the fresh capture's); the label goes
 // with the status, and the next results intake decides again
 function reopened(c){ if(c.status==="open") delete c.void_redated; return c; }
+// ... except a parlay leg void as re-dated whose ticket has settled without it (a ticket settles once; its legs only
+// reach "graded" there): that ticket's history, never reopened, regraded or re-settled
+function settledVoidLeg(L,c){ return c.call_type==="parlay_leg"&&!!c.void_redated
+  &&L.calls.some(x=>x.parlay_id===c.parlay_id&&x.status==="graded"); }
 function baseCall(r,logDate){
   return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
     kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:rowQuar(r),
@@ -1227,6 +1231,7 @@ function gradeLedger(L,outs){
     if(c.status==="graded"||c.result){                       // #208: graded earlier, close arrives later
       if(!c.close_ref&&c.call_type!=="parlay_leg"){ const b=clvBlock(c,findOutcome(c,outs)); if(b) c.close_ref=b; }
       continue; }
+    if(settledVoidLeg(L,c)) continue;
     const o=findOutcome(c,outs); if(!o) continue;
     // addendum 106 item 4: a result whose start moved more than the hour from the call's kickoff voids the call (no
     // result, status "void", out of every tally); the fresh call at the new start is graded here as any other
@@ -1252,8 +1257,9 @@ function gradeLedger(L,outs){
   // parlay tickets settle when every leg has a result
   const tickets={}; L.calls.filter(c=>c.call_type==="parlay_leg").forEach(c=>(tickets[c.parlay_id]=tickets[c.parlay_id]||[]).push(c));
   for(const legs of Object.values(tickets)){
-    // a leg void as re-dated (addendum 106 item 4) is never graded: it drops from its ticket, as a void leg does
-    if(legs.every(l=>l.status==="graded"||l.void_redated)) continue;
+    // a leg void as re-dated (addendum 106 item 4) is never graded: it drops from its ticket, as a void leg does.
+    // A ticket settles once: any graded leg means it has (graded history is never rewritten)
+    if(legs.some(l=>l.status==="graded")||legs.every(l=>l.void_redated)) continue;
     // settles when every leg has a result — or at once on a losing leg
     // ("all legs win" is then impossible; later legs keep their own result)
     if(legs.some(l=>!l.result&&!l.void_redated)&&!legs.some(l=>l.result==="loss")) continue;
@@ -1384,7 +1390,7 @@ function equitySVG(bets){
 // 50-position revisit.
 function earlyMarkerLine(){
   const seen=new Set(), pos=[];
-  for(const c of loadLedger().calls){ if(c.exec_mode!=="operator_early") continue;
+  for(const c of loadLedger().calls){ if(c.exec_mode!=="operator_early"||c.void_redated) continue;   // re-dated: out of every tally (addendum 106 item 4)
     const k=c.parlay_id||c.id; if(seen.has(k)) continue; seen.add(k); pos.push(c); }
   const below=pos.filter(c=>(c.early_inputs||{}).below_marker===true).length;
   return `Early executions: ${pos.length} position(s) · below the provisional ${EARLY_MARKER_PP}pp marker: ${below}`

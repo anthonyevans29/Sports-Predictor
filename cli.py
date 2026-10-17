@@ -4981,14 +4981,18 @@ def export_nfl_results_cmd(days_back, match_ids):
     pre = doc.get("pre_live") or {}
     if pre.get("count"):
         prec = pre.get("record") or {}
-        print(f"pre-live (never pooled): games {pre['count']} · hits {prec.get('hits')}/{prec.get('decided')}"
+        print(f"pre-live (never pooled): games {prec.get('games')} · hits {prec.get('hits')}/{prec.get('decided')}"
               f" · pushes {prec.get('pushes')}")
         print(f"  {_vs_line(prec.get('vs_close'))}")
-    _redated_lines((doc.get("results") or []) + (pre.get("results") or []))
+    rows_all = (doc.get("results") or []) + (pre.get("results") or [])
+    _redated_lines(rows_all)
+    # addendum 106 item 4: a re-dated row is in the file and out of both records
+    rd_ids = {r["match_id"] for r in rows_all if r.get("redated")}
     live_ids = {r["match_id"] for r in doc.get("results") or []}
     pre_ids = {r["match_id"] for r in pre.get("results") or []}
     for mid in match_ids:
-        print(f"match {mid}: " + ("IN the file (season record)" if mid in live_ids else
+        print(f"match {mid}: " + ("IN the file (void: re-dated, out of every record)" if mid in rd_ids else
+                                  "IN the file (season record)" if mid in live_ids else
                                   "IN the file (pre-live, not in the season record)" if mid in pre_ids
                                   else "NOT in the file"))
 

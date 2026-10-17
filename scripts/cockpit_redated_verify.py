@@ -15,7 +15,10 @@ Over a crafted ledger and a results file, through the Cockpit's own intake (#res
 - every tally counts the graded calls only: settledBets, the n/30 counters, the ledger summary, the CLV references;
   the ledger lists the void calls with the label, the P&L block and the intake note count them;
 - the labels are word for word src/walters/redated.py redated_label's; a re-log reopens a void call (no label);
-- a series' neighbouring day (#574 question 1): the next day's result voids an open call, its own day's grades it.
+- a series' neighbouring day (#574 question 1): the next day's result voids an open call, its own day's grades it;
+- a ticket settles once: a leg voided at intake 1 (the ticket settles on its other leg) and matched to its own game at
+  intake 2 stays void, the ticket's return and result do not change, and a re-log never reopens that leg;
+- the early-execution count (the n/50 revisit) leaves a void call out.
 
     python3 scripts/cockpit_redated_verify.py
 
@@ -54,8 +57,8 @@ def call(cid, home, away, kickoff, log_date, pick="HOME", market_p=0.56, call_ty
 
 
 LEDGER = {"meta": {"policy_version": "v1.1"}, "calls": [
-    call("old", *TB_CLE, "2026-10-17T00:00:00", "2026-10-16"),                          # 50548 at its old start
-    call("fresh", *TB_CLE, "2026-10-18T21:00:00", "2026-10-18"),                        # 50548 at its new start
+    call("old", *TB_CLE, "2026-10-17T00:00:00", "2026-10-16", exec_mode="operator_early"),   # 50548 at its old start
+    call("fresh", *TB_CLE, "2026-10-18T21:00:00", "2026-10-18", exec_mode="operator_early"), # 50548 at its new start
     call("old_shadow", *TB_CLE, "2026-10-17T00:00:00", "2026-10-16", pick="AWAY", market_p=0.44,
          call_type="value_shadow", shadow_units=0.25),
     call("mil_lad", "Los Angeles Dodgers", "Milwaukee Brewers", "2026-10-16T00:00:00", "2026-10-15",
@@ -84,6 +87,16 @@ RESULTS = {"sport": "mlb", "results": [
     res(2, "Texas Rangers", "Houston Astros", "2026-10-18T00:01:00", 3, 2),
     res(3, "Toronto Blue Jays", "Seattle Mariners", "2026-10-18", 3, 2),
 ]}
+
+
+def intake(page, path):
+    """One results file through the Cockpit's own intake: (the intake note, the stored calls by id)."""
+    page.evaluate("document.getElementById('ledgerNote').textContent='';"
+                  "document.getElementById('resultsFile').value=''")
+    page.set_input_files("#resultsFile", [path])
+    page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('finished results read')")
+    calls = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1'))")["calls"]
+    return page.inner_text("#ledgerNote"), {c["id"]: c for c in calls}
 
 
 def main():
@@ -170,6 +183,9 @@ def main():
               and lab61 in lst, lst[:300])
         pnl = page.inner_text("#pnlBlock")
         check("the P&L block counts them on a line of their own", "Void: re-dated 4 (out of every line above" in pnl)
+        check("the early executions count the fresh call only (old and fresh both executed early)",
+              "Early executions: 1 position(s)" in pnl and "(1/50)" in pnl,
+              next((x for x in pnl.splitlines() if x.startswith("Early executions")), ""))
         check("the intake note counts them", "void: re-dated 4" in note)
 
         print("IDEMPOTENT + PARITY")
@@ -206,11 +222,7 @@ def main():
             f = os.path.join(tmp, f"series_{day}.json")
             with open(f, "w") as fh:
                 json.dump({"sport": "mlb", "results": [res(9, "New York Mets", "Philadelphia Phillies", date, hs, 2)]}, fh)
-            page.evaluate("document.getElementById('ledgerNote').textContent='';"
-                          "document.getElementById('resultsFile').value=''")
-            page.set_input_files("#resultsFile", [f])
-            page.wait_for_function("document.getElementById('ledgerNote').textContent.includes('finished results read')")
-            c = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1'))")["calls"][0]
+            c = intake(page, f)[1]["series_d1"]
             if day == "d2":
                 check("the next day's result voids the open call, never grades it",
                       c.get("void_redated") == "void: re-dated 2026-10-16 23:05Z → 2026-10-17 23:05Z"
@@ -218,6 +230,42 @@ def main():
             else:
                 check("its own day's result grades it and clears the label",
                       c["status"] == "graded" and c["result"] == "win" and "void_redated" not in c, json.dumps(c)[:200])
+
+        print("A TICKET SETTLES ONCE (graded history is never rewritten)")
+        # leg A is the series' game 2; intake 1 (the 10-16 slate) holds game 1, the only match for A: A is void and the
+        # ticket settles on leg B alone. Intake 2 (the 10-17 slate) holds game 2, a loss: the settled ticket stands
+        leg = functools.partial(call, call_type="parlay_leg", parlay_id="P-2026-10-16-Y", units=0.25, tier="parlay")
+        page.evaluate("l => localStorage.setItem('bd_ledger_v1', JSON.stringify(l))", {
+            "meta": {"policy_version": "v1.1"}, "calls": [
+                leg("leg_a", "New York Mets", "Philadelphia Phillies", "2026-10-17T23:05:00", "2026-10-16"),
+                leg("leg_b", "Milwaukee Brewers", "Los Angeles Dodgers", "2026-10-16T20:00:00", "2026-10-16")]})
+        slates = []
+        for day, rows in (("1016", [res(11, "New York Mets", "Philadelphia Phillies", "2026-10-16T23:05:00", 6, 2),
+                                    res(12, "Milwaukee Brewers", "Los Angeles Dodgers", "2026-10-16T20:00:00", 4, 1)]),
+                          ("1017", [res(13, "New York Mets", "Philadelphia Phillies", "2026-10-17T23:05:00", 1, 2)])):
+            slates.append(os.path.join(tmp, f"ticket_{day}.json"))
+            with open(slates[-1], "w") as fh:
+                json.dump({"sport": "mlb", "results": rows}, fh)
+        lab_a = "void: re-dated 2026-10-17 23:05Z → 2026-10-16 23:05Z"
+        n1, t1 = intake(page, slates[0])
+        check("intake 1: leg A void, the ticket settles on leg B alone (a win at 0.25 / 0.56)",
+              t1["leg_a"].get("void_redated") == lab_a and t1["leg_b"]["status"] == "graded"
+              and t1["leg_b"]["ticket_result"] == "win" and abs(t1["leg_b"]["units_returned"] - 0.25 / 0.56) < 1e-3
+              and "1 calls/tickets graded" in n1, json.dumps(t1["leg_b"])[:200])
+        relog = page.evaluate("""([sameDay, laterDay]) => { const L=loadLedger();
+            const r=[upsertCalls(L,[sameDay],{relog:true}), upsertCalls(L,[laterDay],{relog:true})];
+            return [r, L.calls.find(c=>c.id==='leg_a')]; }""",
+                              [leg("x", "New York Mets", "Philadelphia Phillies", "2026-10-18T23:05:00", "2026-10-16"),
+                               leg("y", "New York Mets", "Philadelphia Phillies", "2026-10-17T23:05:00", "2026-10-17",
+                                   parlay_id="P-2026-10-17-Y")])
+        check("a re-log (same day at a new kickoff, or a later day) never reopens the settled ticket's void leg",
+              [r["kept"] for r in relog[0]] == [1, 1] and relog[1] == t1["leg_a"], json.dumps(relog)[:300])
+        n2, t2 = intake(page, slates[1])
+        check("intake 2: leg A's own game (a loss) leaves it void with its label and no result",
+              t2["leg_a"].get("void_redated") == lab_a and t2["leg_a"]["status"] == "void" and "result" not in t2["leg_a"],
+              json.dumps(t2["leg_a"])[:200])
+        check("... the ticket's return and result are unchanged and nothing is graded",
+              t2["leg_b"] == t1["leg_b"] and "0 calls/tickets graded" in n2, n2[:120])
         check("no page errors", not errors, "; ".join(errors))
         browser.close()
     srv.shutdown()

@@ -59,6 +59,8 @@ def diff(adapter, competition_code: str, season: str | None, date_from: str | No
     from src.db.database import session_scope
     from src.db.schema import Competition, Match, MatchStatus, Team
 
+    if hasattr(adapter, "listing_writes"):
+        adapter.listing_writes = False          # resync-diff writes nothing: the range note says "reading" (#570)
     listing = adapter.list_matches(competition_code, season, date_from, date_to)
     rc, samples = Counter(), {}
     home_rate = {"ours": [0, 0], "provider": [0, 0]}          # [home wins, decided]

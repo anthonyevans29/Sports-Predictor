@@ -218,9 +218,28 @@ class APIAmericanFootballAdapter(DataAdapter):
     # Matches
     # ------------------------------------------------------------------
 
+    #: Whether this instance's listings are written (sync-matches) or only read (resync-diff sets it False): the
+    #: range note says which (ARCHITECT 2026-10-17, addendum 106 item 3, #570).
+    listing_writes = True
+
+    def range_note(self, season: str | None, date_from: str | None, date_to: str | None) -> str | None:
+        """ARCHITECT 2026-10-17, addendum 106 item 3 (#570), verbatim: "When date_from ≠ date_to, one line before the
+        fetch: "RANGE A..B is not supported by this provider: reading and writing the whole <season> listing" and the
+        receipt's STRICT label says the same." The provider's /games takes one `date`, so a range is never sent: the
+        whole season's listing is read (and, under sync-matches, written). None when no range was asked."""
+        if not (date_from or date_to) or date_from == date_to:
+            return None
+        year = int(str(season).split("/")[0]) if season else None
+        listing = f"the whole {year} listing" if year is not None else "the whole listing (no --season given)"
+        what = "reading and writing" if self.listing_writes else "reading"
+        return f"RANGE {date_from or ''}..{date_to or ''} is not supported by this provider: {what} {listing}"
+
     def list_matches(self, competition_code: str, season: str | None = None,
                      date_from: str | None = None,
                      date_to: str | None = None) -> list[NormalizedMatch]:
+        note = self.range_note(season, date_from, date_to)
+        if note:
+            print(note, flush=True)                     # before the fetch (#570); no behaviour change
         params: dict[str, Any] = {"league": _league_for(competition_code)}
         if season:
             # Tolerate both "2026" and "2026/27" — the league year is the

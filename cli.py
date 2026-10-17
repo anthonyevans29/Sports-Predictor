@@ -254,12 +254,16 @@ def sync_matches_cmd(
         # A1 (addendum 23): "exits non-zero unless the provider's answer held every one of them." Printed plainly
         # (never rich-wrapped) so the closing run's receipt tail has it.
         missing = sorted(named - held)
+        # #570 (addendum 106 item 3): where the adapter cannot send a range, the label says what was read instead
+        range_note = getattr(service.adapter, "range_note", None)
+        note = range_note(season, date_from, date_to) if range_note else None
         if missing:
             print(f"✗ STRICT: {len(missing)} of {len(named)} named game(s) not in the provider's answer "
-                  f"({competition_code} {date_from or ''}..{date_to or ''}): "
+                  f"({competition_code} {date_from or ''}..{date_to or ''}{f': {note}' if note else ''}): "
                   + ", ".join(f"match {m}" for m in missing), flush=True)
             raise SystemExit(1)
-        print(f"✓ the provider's answer held all {len(named)} named game(s)", flush=True)
+        print(f"✓ the provider's answer held all {len(named)} named game(s)" + (f" ({note})" if note else ""),
+              flush=True)
 
 
 @cli.command("resync-diff")

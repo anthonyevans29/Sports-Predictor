@@ -222,9 +222,10 @@ def _both(f: Fixture, held: dict) -> bool:
 
 
 def _instrument(adapter, run: Run, keep: dict) -> None:
-    """Count the adapter's HTTP requests by status (its 429 retry included) and keep each answer's raw payload. A 200's
-    body is kept as it arrives, before the adapter checks its errors block, so a quota or plan refusal is kept whole
-    too (Codex on #538)."""
+    """Count the adapter's HTTP requests by status (its 429 retry included) and keep each answer's raw payload. The body
+    is kept as it arrives, before the adapter checks its status or its errors block, so a quota or plan refusal is kept
+    whole too (Codex on #538), and so is a 401, 403, 429 or 5xx answer's decoded body (#565): the run's last answer, as
+    the adapter's own 429 retry leaves it. A body that does not decode keeps nothing."""
     sess_get, raw_get = adapter._session.get, adapter._get
 
     def counted(*a, **k):
@@ -234,11 +235,10 @@ def _instrument(adapter, run: Run, keep: dict) -> None:
             run.http[type(e).__name__] += 1
             raise
         run.http[str(getattr(resp, "status_code", "?"))] += 1
-        if getattr(resp, "status_code", None) == 200:
-            try:
-                keep["raw"] = resp.json()
-            except Exception:  # noqa: BLE001 - an unreadable body is the adapter's to raise; nothing is kept
-                keep.pop("raw", None)
+        try:
+            keep["raw"] = resp.json()
+        except Exception:  # noqa: BLE001 - an unreadable body is the adapter's to raise; nothing is kept
+            keep.pop("raw", None)
         return resp
 
     def kept(path, params=None):
@@ -248,10 +248,13 @@ def _instrument(adapter, run: Run, keep: dict) -> None:
     adapter._session.get, adapter._get = counted, kept
 
 
-def _save(save: str | None, f: Fixture, keep: dict) -> None:
-    """--save: the answer kept whole as <fixture id>.json (refuse_save_dir has already refused data/)."""
+def _save(save: str | None, f: Fixture, keep: dict, status: int | str | None = None) -> None:
+    """--save: the answer kept whole as <fixture id>.json (refuse_save_dir has already refused data/). An HTTP error
+    answer's body (#565) is kept as <fixture id>.http<status>.json, so it never replaces a lineup answer an earlier
+    run kept for the fixture, and its name says what it is."""
     if save and keep.get("raw") is not None:
-        with open(os.path.join(save, f"{f.fixture_id}.json"), "w") as fh:
+        name = f"{f.fixture_id}.json" if status is None else f"{f.fixture_id}.http{status}.json"
+        with open(os.path.join(save, name), "w") as fh:
             json.dump(keep["raw"], fh, indent=1, sort_keys=True)
 
 
@@ -339,7 +342,6 @@ def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_ca
         _instrument(adapter, run, keep)
         if save:
             os.makedirs(save, exist_ok=True)
-        now = utc_now_naive()
         try:
             for f in todo:
                 if run.calls >= max_calls:
@@ -355,6 +357,7 @@ def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_ca
                     break
                 except requests.HTTPError as e:
                     status = getattr(getattr(e, "response", None), "status_code", None)
+                    _save(save, f, keep, status or "?")  # its decoded body may be the only explanation (#565)
                     run.failed.append(f"match {f.match_id} (fixture {f.fixture_id}): status {status}")
                     if status in STOP_STATUSES:         # 429 after the adapter's own retry; the key or plan refused
                         run.stopped = f"status {status} on match {f.match_id} (fixture {f.fixture_id})"
@@ -364,7 +367,8 @@ def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_ca
                     run.failed.append(f"match {f.match_id} (fixture {f.fixture_id}): {type(e).__name__}: {e}")
                     continue
                 _save(save, f, keep)
-                _store(run, f, answer or [], keep.get("raw"), held, now, dry_run, session_scope, Lineup)
+                # each fixture's rows carry the time they were stored, never the run's start (#565)
+                _store(run, f, answer or [], keep.get("raw"), held, utc_now_naive(), dry_run, session_scope, Lineup)
         except Capped as c:
             nxt = c.args[0]
             run.stopped = f"the cap ({max_calls} calls) before match {nxt.match_id} (fixture {nxt.fixture_id})"

@@ -42,6 +42,9 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
   **The cutover's preflight checks the host's (addendum 47 item 7(c)):** it refuses unless host.env itself says
   `SP_EXPORTS_MIRROR_ROLE=host`. `install --replace` copies the pack's `.env` (the laptop's, role `laptop`) over the
   checkout's, and only host.env's own line keeps the host pushing as `host`.
+- **The host fence (ARCHITECT 2026-10-17, addendum 109 item 3; #410):** until the cutover, every soccer model row the host's Desk sees is PASS `host_fence` (the machine's `SP_EXPORTS_MIRROR_ROLE` is `host`, read from host.env first, then the environment, then the checkout's `.env`, so a run typed by hand, such as P8's `closing-run` below, is fenced as the timers' runs are; an unknown role is fenced too, addendum 110 item 1). "The fence lifts with the cutover (the ruling that cuts over names it)." The fence reads the switch `desk_policy.HOST_FENCE_RULE`, never `SP_WRITER_OF_RECORD`: "the cutover PR does the flip and turns the switch off in the same change" (addendum 114 item 3). The PL check below leaves the desk block out (`--ignore-keys desk,...`), so the fence does not touch it, and nothing else in the cutover reads the switch:
+  - **Before `flip` (step 4, after `install`, the timers still paused), TERMINAL (host):** `sudo -u sp venv/bin/python -c "from src.walters.desk_policy import HOST_FENCE_RULE; print(HOST_FENCE_RULE)"` prints `{'on': False}` (the tag carries the cutover's PR). Anything else: do not `flip`, and return it to the architect; the writer of record would mark every PL row PASS `host_fence`.
+  - **After the flip:** the host's first PL `--desk` file reads `desk_meta.host_fence_rule: false`; paste that line with the post-check receipts (step 5).
 - **The host closing-watch rehearsal (ARCHITECT 2026-10-12, addendum 45 P8):** "One rehearsal before the cutover
   day, on my word, and not before the tag that carries P1 is on the host: a single closing-run by hand on the
   host, as sp, for one NFL or PL start time that the laptop's watch has already paged. Its page is a second page
@@ -142,6 +145,7 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
    sudo venv/bin/python deploy/hosting/sp_cutover.py pause --pack $P
    sudo venv/bin/python deploy/hosting/sp_cutover.py install --pack $P
    # the PL PREDICTION CHECK (below); flip only on its PASS
+   # the HOST FENCE CHECK (section 0): HOST_FENCE_RULE prints {'on': False}; flip only then
    sudo venv/bin/python deploy/hosting/sp_cutover.py flip --pack $P
    sudo venv/bin/python deploy/hosting/sp_cutover.py resume --pack $P
    sudo venv/bin/python deploy/hosting/sp_cutover.py receipt --pack $P

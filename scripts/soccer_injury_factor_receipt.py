@@ -399,7 +399,8 @@ def guard_summary(xs: list[dict]) -> dict:
     PLAY / LADDER / PASS), each graded by the instrument the call would have been, on the Desk's own pick (#537)."""
     from collections import Counter
     from src.walters import desk_policy as dp
-    earlier_kinds = (dp.SHADOW_LEAGUE_KIND, dp.KICKOFF_CLOCK_KIND, "started", dp.DEFAULT_RATING_KIND)  # _desk_call
+    earlier_kinds = (dp.HOST_FENCE_KIND, dp.SHADOW_LEAGUE_KIND, dp.KICKOFF_CLOCK_KIND, "started",
+                     dp.DEFAULT_RATING_KIND)  # _desk_call's order (the host fence first: addendum 109 item 3)
     seen = [x for x in xs if x.get("desk_on")]
     held = [x for x in seen if x["desk_on"]["pass_kind"] == dp.INJURIES_ONE_SIDED_KIND]
     changed = [x for x in seen if x["desk_on"]["call"] != x["desk_off"]["call"]]

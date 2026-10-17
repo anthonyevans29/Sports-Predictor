@@ -253,7 +253,7 @@ def test_two_games_of_the_pair_on_the_date_with_no_game_number_are_two_rows():
     res = run(LADMIL, [today, second], now=Z("2026-10-12T12:00"))
     assert not res.placed and res.refused == {km.TWO_ROWS: 2}
     assert res.lines == ["  ✗ KXMLBGAME-26OCT122000LADMIL: 2 stored rows of one pair on 2026-10-12 (ids 50542, 50599): "
-                         "refused; dedupe-matches has to merge them"]
+                         "refused; two games of the pair that day; the clock does not separate them"]
 
 
 def test_main_s_gate_matched_none_of_the_nlcs_markets():

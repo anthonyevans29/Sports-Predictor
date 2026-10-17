@@ -465,6 +465,73 @@ def test_a_candle_call_refused_for_good_is_stored_without_a_quote(nfl, status, s
     assert any(ln.startswith("  ✗ candle calls that failed: 1 (") for ln in out)
 
 
+@pytest.fixture(autouse=True)
+def waits(monkeypatch):
+    """Addendum 104 item 2's waits before a 429 is asked again, recorded instead of slept (every test in the file)."""
+    got = []
+    monkeypatch.setattr(kh, "_wait", got.append)
+    return got
+
+
+def _limited(n429):
+    """A fake whose candle call for L_TICKER answers 429 `n429` times, then its kept answer."""
+    import requests
+
+    class Limited(FakeKalshi):
+        left = n429
+
+        def _get(self, path, params=None):
+            if path.endswith("/candlesticks") and L_TICKER in path and self.left:
+                self.left -= 1
+                self.calls.append((path, dict(params)))
+                resp = requests.Response()
+                resp.status_code = 429
+                raise requests.HTTPError(response=resp)
+            return super()._get(path, params)
+    return Limited()
+
+
+@pytest.mark.parametrize("n429, slept", [(1, [2]), (2, [2, 5])])
+def test_a_429_is_asked_again_after_2s_then_5s_and_the_answer_is_stored(nfl, waits, n429, slept):
+    """ARCHITECT 2026-10-17, addendum 104 item 2: "on a 429, wait and retry the same call once (2s, then 5s) before
+    counting it failed; one line in the receipt "429 retries: N"". Each retry is a call against the cap."""
+    _, base = go(dry_run=True)                                     # the same run with no 429: nothing written
+    fake = _limited(n429)
+    run, out = go(adapter=fake)
+    got = rows()
+    assert waits == slept and L_TICKER in got and got[L_TICKER]["notes"] is None and not run.candle_failed
+    assert f"  429 retries: {n429}" in out and "  429 retries: 0" in base
+    asked = [p for p, _ in fake.calls if p.endswith("/candlesticks") and L_TICKER in p]
+    assert len(asked) == n429 + 1
+    made = lambda o: int(next(ln for ln in o if "calls in all:" in ln).split("calls in all: ")[1].split(" of")[0])
+    assert made(out) == made(base) + n429                          # the retries count as calls
+
+
+def test_a_third_429_counts_the_call_failed_and_the_next_run_asks_again(nfl, waits):
+    run, out = go(adapter=_limited(3))
+    assert waits == [2, 5] and L_TICKER not in rows()
+    assert run.candle_failed == [(L_TICKER, "status 429")] and "  429 retries: 2" in out
+    go()
+    assert L_TICKER in rows()
+
+
+def test_a_429_that_meets_the_cap_is_not_asked_again(nfl, waits):
+    """A retry is never made past the cap: the 429 counts the call failed, and the cap stops the run before the next
+    market."""
+    probe = FakeKalshi()
+    go(adapter=probe, dry_run=True)
+    calls = [p for p, _ in probe.calls]
+    at = next(i for i, p in enumerate(calls) if p.endswith("/candlesticks") and L_TICKER in p) + 1   # its call is the cap's last
+    run, out = go(adapter=_limited(1), max_calls=at, dry_run=True)
+    assert waits == [] and "  429 retries: 0" in out
+    assert (L_TICKER, "status 429") in run.candle_failed
+
+
+def test_the_receipt_always_says_how_many_429_retries(nfl):
+    run, out = go(dry_run=True)
+    assert "  429 retries: 0" in out
+
+
 def test_an_unreadable_timestamp_is_skipped_never_a_crash():
     assert kh.parse_ts(1_751_670_300_000_000) is None and kh.parse_ts("2025-13-45T00:00:00Z") is None
     micro = _ts(datetime(2025, 7, 31, 23, 0, 30)) * 1_000_000     # a minute inside the window, in microseconds

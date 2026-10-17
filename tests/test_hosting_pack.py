@@ -1057,6 +1057,42 @@ def test_window_kalshi_table_pinned_to_adapter_series():
             assert st[0] in cli.commands
 
 
+def test_window_mlb_kalshi_step_ends_at_tomorrow_plus_one_day(sandbox, monkeypatch):
+    """#175 (ARCHITECT 2026-10-17 10:40 ET, addendum 112 item 8), RULED: "the step's window ends at {tomorrow}+1 day".
+    The window chain as sp_run resolves it for a run on UTC day D: the MLB Kalshi step is the only step the date
+    placeholders touch, and its `--date-to {tomorrow}` is the whole UTC day (cli.py, since #205). So the step's
+    window is our kickoffs from D 00:00Z up to D+2 00:00Z: it ends at {tomorrow}+1 day, and it holds the 24 hours
+    of every window run on D."""
+    from click.testing import CliRunner
+    from src.ingestion import kalshi_sync
+    now = datetime(2026, 10, 3, 20, 0)
+    _window_db(sandbox / "w.db", now)
+    monkeypatch.setenv("DATABASE_URL", f"sqlite:///{sandbox / 'w.db'}")
+    planned = sp_run.window_steps(now)
+    resolved = sp_run.resolve("window", {}, now.date(), now=now)
+    kalshi = [st for st in resolved if st[0] == "sync-kalshi"]
+    assert kalshi == [["sync-kalshi", "--date-from", "2026-10-03", "--date-to", "2026-10-04"]]
+    # every other step resolves to itself: the placeholders touch the MLB Kalshi step only
+    assert [st for st in resolved if st[0] != "sync-kalshi"] == [st for st in planned if st[0] != "sync-kalshi"]
+    assert {k: v for k, v in chains.WINDOW_KALSHI.items() if k != "MLB"} == {
+        "NFL": [["sync-kalshi-nfl"]], "NCAA": [["sync-kalshi-ncaa"]], "NHL": [["sync-kalshi-nhl"]],
+        "PL": [["sync-kalshi-soccer", "--competition", "PL"]],
+        "UNL": [["sync-kalshi-soccer", "--competition", "UNL"]],
+        "CL": [["sync-kalshi-soccer", "--competition", "CL"]]}
+    seen = {}
+
+    def fake(date_from=None, date_to=None, progress=None, **kw):
+        seen.update(lo=date_from, hi=date_to)
+        return {"ok": False, "reason": "test"}
+    monkeypatch.setattr(kalshi_sync, "sync_kalshi_mlb", fake)
+    r = CliRunner().invoke(_cli(), kalshi[0])
+    assert r.exit_code == 0, r.output
+    assert seen["lo"] == datetime(2026, 10, 3)
+    assert seen["hi"] == datetime(2026, 10, 5) - timedelta(microseconds=1)       # {tomorrow} + 1 day
+    last_run = datetime.combine(now.date(), datetime.max.time())                  # the day's last window run
+    assert last_run + timedelta(hours=chains.WINDOW_HOURS) <= seen["hi"]
+
+
 def _card(games, t90=None):
     return {"fixtures": [dict({"match_id": i, "home_team": f"H{i}", "away_team": f"A{i}",
                                "sport": "nfl", "competition": "NFL",

@@ -49,9 +49,10 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    CHANGELOG slice since the previous tag, written to the notes file the
    tag step reads (`logs/` is gitignored):
    ```
-   python3 scripts/release_notes.py --to <sha> > logs/release_notes_vX.Y.Z.txt
+   mkdir -p logs && python3 scripts/release_notes.py --to <sha> > logs/release_notes_vX.Y.Z.txt
    ```
-   This is read-only. A section whose body changed since the previous tag
+   `mkdir -p logs` first: a fresh or cleaned checkout has no `logs/`, and the redirect fails before the script
+   runs (#560). This is read-only. A section whose body changed since the previous tag
    is listed as AMENDED. The script exits non-zero when it cannot read
    CHANGELOG.md, and the file then holds only its `✗` line: never tag from
    such a file.

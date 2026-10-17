@@ -317,6 +317,13 @@ async def match_detail(request: Request, match_id: int):
             s, match.away_team,
             match.competition_id, match.season,
         ) if match.away_team else None
+        # The 2026 fence (ARCHITECT 2026-10-16, addendum 100 item 1): an NCAA 2026 fixture's per-team record, form
+        # strip and head-to-head aggregate read the withheld notice until the ncaa-elo-v2 run is recorded; the
+        # fixture's score, the teams and the single-game lists stay (the level ruling)
+        from src.walters.ncaa_backtest import v2_fence_view
+        aggregates_withheld = v2_fence_view(match.competition.code if match.competition else None, match.season)
+        if aggregates_withheld:
+            home_record = away_record = None
 
         # Lineups (soccer): the kinds sync-lineups writes only (Q9, addendum 75 item 2); a
         # finished cup fixture's "history" rows are not this page's pre-match lineup
@@ -385,7 +392,8 @@ async def match_detail(request: Request, match_id: int):
 
         # Prediction narrative (only when we have a prediction and form for both sides)
         narrative = None
-        if pred_row is not None and home_form is not None and away_form is not None and h2h is not None:
+        if (pred_row is not None and home_form is not None and away_form is not None and h2h is not None
+                and not aggregates_withheld):          # the narrative reads form and head-to-head tallies
             narrative = build_prediction_narrative(
                 pred=pred_row,
                 match=match,
@@ -421,6 +429,7 @@ async def match_detail(request: Request, match_id: int):
             "home_form": home_form,
             "away_form": away_form,
             "h2h": h2h,
+            "aggregates_withheld": aggregates_withheld,
             "home_record": home_record,
             "away_record": away_record,
             "home_lineup": home_lineup,

@@ -236,6 +236,12 @@ python cli.py sync-matches --competition {{ league_code }} --seasons 3</code></p
               </table>
             {% endif %}
           </section>
+        {% elif standings_withheld %}
+          <!-- The 2026 fence (ARCHITECT 2026-10-16, addendum 99 item 2(2)) -->
+          <section class="bg-white rounded-lg shadow-sm border border-slate-200">
+            <h2 class="px-5 py-3 border-b border-slate-200 font-semibold">League table</h2>
+            <p class="px-5 py-6 text-sm text-slate-500">{{ standings_withheld }}</p>
+          </section>
         {% endif %}
 
         <!-- Recent results -->

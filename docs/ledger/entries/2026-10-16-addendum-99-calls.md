@@ -1,0 +1,21 @@
+**2026-10-16 — CALLED AND RULED (ARCHITECT 2026-10-16 15:18 ET, addendum 99): #563, #561, #538 and #548 called and merged in that order; #561's generic-walk extension stays; #562 declined for now; the field inventory is a limitation (#564); the web view's NCAA table is fenced (#566); #560's line rides #566.**
+- **Called (items 1-4):**
+  - #563 at 3cc38e3: #550 and #514 end with it, as ruled.
+  - #561 at 258cebb.
+  - #538 at 9992fd2: the real pulls are the operator's Saturday block.
+  - #548 at 1608df8.
+  - Merge order (item 5): #563, #561, #538, #548.
+- **RULED (item 2), verbatim:**
+  - "the generic walks (backtest, soccer-backtest and its two sweeps, --candidate included) REFUSE NCAA 2026 — RULED: that extension STAYS (the ruling's general clause: "no command prints an outcome figure of the 2026 season"; a refusal on NCAA only, every other competition untouched)."
+  - "RULED: #562's proposal (read the listing, not the option) is DECLINED for now; the option-based fence is the wider one and the 2025-only window's rate is a small loss until 11-09. #562 stays open as the record."
+  - "(1) ncaa-audit's field inventory — latent, no NCAA writer sets those columns: an Issue (finding, class:limitation), no change; (2) the web app's hand-typed `/?league=NCAA` standings show 2026 wins and losses — RULED: fence it, one line, in the next small docs/ops PR (a league=NCAA view answers "withheld until the ncaa-elo-v2 run is recorded" until then), not blocking #561; (3) ncaa-shadow-grade — nothing to do."
+- **For Code (item 5), verbatim:** "Then Code: delete the payload branch; the Issue for the field inventory; the web NCAA line in its next small PR; #560's mkdir line rides with it."
+- **Done:**
+  - The field inventory is #564 (class:limitation).
+  - The web NCAA line and #560's line are #566.
+  - #538's two round-2 P2s, which the call did not take up, live in its one follow-up, #565 (the review stop rule).
+- **Not done from this session:** deleting `laptop/lineups-payloads-1016`. This session's GitHub access refuses a branch delete (git push and the API alike).
+  - The seven kept answers on main were checked byte for byte against the branch (df877e3), so it is safe to delete.
+  - The operator deletes it with `git push origin --delete laptop/lineups-payloads-1016`.
+- **RULED (ARCHITECT 2026-10-16 17:05 ET, addendum 100 item 1; #567, Codex's P1 on #566), verbatim:** "in `/matches/<id>` for an NCAA fixture of season 2026, while the ncaa-elo-v2 run is unrecorded, the per-team record (W-D-L, points), the form strip and the head-to-head aggregate are replaced by the same withheld notice the league view shows; the fixture's own score, the two teams' names and the single-game lists stay (the level ruling). One condition reading the same helper #566 added, plus a test; pushed to #566. Any other season or league untouched. The fence lifts with the run, as everything else does."
+  - Built in #566: `/matches/<id>` reads `v2_fence_view` for its fixture. The notice replaces each side's record and form strip and the head-to-head aggregate. The fixture's score, the teams and the single-game lists stay. #567 ends with that push.

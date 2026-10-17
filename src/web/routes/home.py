@@ -74,6 +74,7 @@ async def home(request: Request):
         upcoming_fixtures: list[dict] = []
         recent_results: list[dict] = []
         standings: list[dict] = []
+        standings_withheld: str | None = None
         value_edges: list[dict] = []
         latest_by_match: dict[int, "Prediction"] = {}
         no_data = comp is None or chosen_season is None
@@ -158,8 +159,11 @@ async def home(request: Request):
             recent_matches = list(s.execute(recent_q).scalars())
             recent_results = [_fixture_dict(m) for m in recent_matches]
 
-            # Standings — only for league-type competitions
-            if comp.type == "LEAGUE":
+            # Standings — only for league-type competitions; NCAA 2026's are withheld until the ncaa-elo-v2 run
+            # is recorded (ARCHITECT 2026-10-16, addendum 99 item 2(2))
+            from src.walters.ncaa_backtest import v2_fence_view
+            standings_withheld = v2_fence_view(comp.code, chosen_season)
+            if comp.type == "LEAGUE" and not standings_withheld:
                 all_finished_q = (
                     select(Match)
                     .options(selectinload(Match.home_team), selectinload(Match.away_team))
@@ -228,6 +232,7 @@ async def home(request: Request):
             "upcoming_fixtures": upcoming_fixtures,
             "recent_results": recent_results,
             "standings": standings,
+            "standings_withheld": standings_withheld,
             "standings_sport": "baseball" if (comp_dict and comp_dict["code"] in ("MLB", "MLB_SPRING")) else "soccer",
             "pinned_clubs": pinned_clubs,
             "value_edges": value_edges,

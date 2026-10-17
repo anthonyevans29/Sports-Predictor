@@ -1,0 +1,13 @@
+## 2026-10-16 (#566: web-ncaa-fence — ARCHITECT addendum 99 items 2(2) and 5, addendum 100 item 1; #560, #567)
+- src/walters/ncaa_backtest.py: `v2_fence_view(code, season)` returns the withheld notice while the shown season is NCAA's 2026 and the ncaa-elo-v2 run is unrecorded, else None.
+- src/web/routes/home.py + templates/league_dashboard.html: the league view (`/?league=NCAA`) withholds its 2026 league table until the run is recorded. The table's place reads "withheld until the ncaa-elo-v2 run is recorded" (the 2026 fence, addendum 86 item 3, Q2). Its single-game lists stay (the level ruling); every other league is unchanged.
+- src/web/routes/matches.py + templates/match_detail.html (ARCHITECT 2026-10-16, addendum 100 item 1; #567, Codex's P1 on #566): an NCAA 2026 fixture's page reads the same notice while the run is unrecorded, through the same helper. The notice replaces each side's record (W-D-L, points), its form strip (the last-5 pills and the goals for/against totals) and the head-to-head aggregate line. The prediction narrative, which reads those tallies, is not built.
+  - The fixture's own score, the two teams and the single-game lists (each side's recent games, the head-to-head meetings, each with its score) stay.
+  - Any other league or season is unchanged.
+- docs/RELEASES.md: the ritual's step 2 makes `logs/` first (`mkdir -p logs && python3 scripts/release_notes.py ...`). A fresh or cleaned checkout has no `logs/`, and the redirect failed before the script ran (#560, Codex on #558 round 2).
+- tests/test_web_ncaa_fence.py (5):
+  - the helper: NCAA 2026 alone, lifted by the recorded run;
+  - the league view: the notice in the table's place, the single games kept, the table back once recorded;
+  - the NCAA 2026 match page: record, form strip and head-to-head aggregate withheld, the teams, scores and single games kept, every figure back once recorded;
+  - another league's match page, untouched;
+  - the release step's `mkdir -p logs`.

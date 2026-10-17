@@ -67,6 +67,10 @@ class NormalizedMatch:
     full_time_result: Result | None = None
     venue: str | None = None
     referee: str | None = None
+    # True when the parse read the kickoff from a date with no time (the api-sports game adapters, no timestamp sent):
+    # utc_date is that date's midnight UTC and the kickoff time is unknown. The score-presence rule's age clock counts
+    # from the end of that date (#493, src/adapters/api_sports_status.py age_start). The sync does not read it.
+    kickoff_date_only: bool = False
 
 
 @dataclass

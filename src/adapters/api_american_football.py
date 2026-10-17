@@ -38,7 +38,7 @@ from typing import Any
 
 import requests
 
-from src.adapters.api_sports_status import game_status, provider_short, rule_now, sport_key
+from src.adapters.api_sports_status import game_status, is_date_only, provider_short, rule_now, sport_key
 from src.adapters.base import DataAdapter
 from src.adapters.normalized import (
     NormalizedCompetition,
@@ -268,8 +268,10 @@ class APIAmericanFootballAdapter(DataAdapter):
         """`raw_shorts` (opt-in, the score-presence dry run, #493): a dict each parsed game's provider status is added
         to, {provider id: the short as sent, None when absent}. Default None: nothing changes. `now`: the clock the
         score-presence rule's kickoff-age condition reads (addendum 116 item 4 (3)); None = utc now, read once for the
-        whole answer. A game with no status and both totals before kickoff + 5h parses with status None: no status
-        for this game, the stored one is left alone (src/adapters/api_sports_status.py)."""
+        whole answer. A game with no status and both totals before kickoff + 5h (api_sports_status.age_until: an NCAA
+        kickoff at the provider's TBD placeholder counts from the end of its game day, a kickoff sent as a date with no
+        time from the end of that UTC date) parses with status None: no status for this game, the stored one is left
+        alone (src/adapters/api_sports_status.py)."""
         now = rule_now(now)
         key = sport_key(competition_code)                   # NFL / NCAA: their longest game
         out: list[NormalizedMatch] = []
@@ -281,6 +283,7 @@ class APIAmericanFootballAdapter(DataAdapter):
             dt_block = game.get("date") or {}
             # provider gives {"date": "...", "time": "...", "timestamp": ...}
             ts = dt_block.get("timestamp") if isinstance(dt_block, dict) else None
+            date_only = False
             if ts:
                 utc = datetime.fromtimestamp(int(ts), tz=timezone.utc).replace(tzinfo=None)
             else:
@@ -289,6 +292,8 @@ class APIAmericanFootballAdapter(DataAdapter):
                     continue
                 utc = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                 utc = utc.astimezone(timezone.utc).replace(tzinfo=None) if utc.tzinfo else utc
+                # a date with no time: the kickoff time is unknown (the age clock counts from the end of the date)
+                date_only = is_date_only(raw)
             # the provider's own short BEFORE any "NS" default: None = no status stated (#493)
             short = provider_short(game.get("status"))
             home = (teams.get("home") or {})
@@ -317,7 +322,7 @@ class APIAmericanFootballAdapter(DataAdapter):
             # FINISHED once kickoff + the longest game has passed, else None (the
             # stored status is left alone); no status + a total missing ->
             # SCHEDULED; a stated short keeps its mapping (unknown SCHEDULED)
-            status = game_status(short, _STATUS, _h_total, _a_total, utc, key, now)
+            status = game_status(short, _STATUS, _h_total, _a_total, utc, key, now, date_only=date_only)
             if raw_shorts is not None:
                 raw_shorts[str(gid)] = short
             out.append(NormalizedMatch(
@@ -332,6 +337,7 @@ class APIAmericanFootballAdapter(DataAdapter):
                 stage=str(game.get("stage") or "") or None,
                 home_score=hs.get("total") if isinstance(hs, dict) else hs,
                 away_score=as_.get("total") if isinstance(as_, dict) else as_,
+                kickoff_date_only=date_only,
             ))
         return out
 

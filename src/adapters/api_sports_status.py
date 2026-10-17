@@ -22,17 +22,28 @@ So a game's status, from its provider short (provider_short) and its two totals 
   - a STATED short keeps its mapping; a code the map lacks is SCHEDULED (law 4), whatever the scores;
   - NO status (the block missing, null or empty, its short null or empty, or the literal text "None": no_status) with a
     total missing is what the "NS" default maps to (SCHEDULED): no score, not FINISHED;
-  - NO status with both totals is FINISHED once now >= kickoff + LONGEST_GAME_H of the sport; before that the answer is
+  - NO status with both totals is FINISHED once now >= kickoff + LONGEST_GAME_H of the sport (the age clock, below);
+    before that the answer is
     None: NO STATUS FOR THIS GAME. IngestionService then leaves the stored row's status as it is
     (_apply_match_updates skips the column) and creates a new row SCHEDULED (created_status), so a game in play with
     running totals never reads FINISHED.
 "now" is utc_now_naive() read at parse time (once per listing), or the caller's (tests, the dry run, the apply).
+
+THE AGE CLOCK (age_start / age_until: one helper, read by the rule and by the score-presence receipt, #493 review)
+counts from the kickoff the parse read, except where that kickoff is not a kickoff time (law 4: an unknown never
+becomes a write):
+  - an NCAA kickoff at the provider's TBD placeholder (src/ingestion/placeholder.py is_placeholder_kickoff: 04:00:00Z,
+    midnight US Eastern) counts from the end of that game day, the placeholder module's own window
+    (PLACEHOLDER_RESOLVE_H after it), before the sport's hours are added;
+  - a kickoff the parse read from a date with no time (no timestamp sent: is_date_only; the parse stores that date's
+    midnight UTC) counts from the end of that UTC date.
 """
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import date, datetime, timedelta
 
 from src.db.schema import MatchStatus
+from src.ingestion.placeholder import PLACEHOLDER_RESOLVE_H, is_placeholder_kickoff
 from src.timeutil import utc_now_naive
 
 #: ARCHITECT 2026-10-17, addendum 116 item 4 (3): each sport's longest game, in hours. A game with no status and both
@@ -79,14 +90,52 @@ def longest_game_text() -> str:
     return " · ".join(f"{k} {h}h" for k, h in LONGEST_GAME_H.items())
 
 
+#: Why the age clock starts later than the kickoff the parse read (age_start's second answer).
+CLOCK_PLACEHOLDER, CLOCK_DATE_ONLY = "placeholder", "date only"
+
+
+def is_date_only(raw) -> bool:
+    """True when the provider's date text carries no time: date.fromisoformat reads it whole (e.g. "2026-10-18"). The
+    parse reads such a text as that date's midnight UTC, so the kickoff time is unknown."""
+    try:
+        date.fromisoformat(str(raw))
+    except ValueError:
+        return False
+    return True
+
+
+def age_start(kickoff: datetime | None, sport: str, date_only: bool = False) -> tuple[datetime | None, str | None]:
+    """(where the age clock starts, why it is not the kickoff: None, CLOCK_PLACEHOLDER or CLOCK_DATE_ONLY).
+    No kickoff: (None, None), nothing to age.
+    - `date_only` (the parse read the kickoff from a date with no time): the end of that UTC date.
+    - NCAA at the provider's TBD placeholder (is_placeholder_kickoff): the end of that game day, kickoff +
+      PLACEHOLDER_RESOLVE_H (the placeholder module's own window).
+    - Otherwise the kickoff."""
+    if kickoff is None:
+        return None, None
+    if date_only:
+        return datetime(kickoff.year, kickoff.month, kickoff.day) + timedelta(days=1), CLOCK_DATE_ONLY
+    if sport == "NCAA" and is_placeholder_kickoff(kickoff):
+        return kickoff + timedelta(hours=PLACEHOLDER_RESOLVE_H), CLOCK_PLACEHOLDER
+    return kickoff, None
+
+
+def age_until(kickoff: datetime | None, sport: str, date_only: bool = False) -> datetime | None:
+    """When a game with no status and both totals reads FINISHED: age_start + LONGEST_GAME_H[sport]; None with no
+    kickoff."""
+    start, _ = age_start(kickoff, sport, date_only)
+    return None if start is None else start + timedelta(hours=LONGEST_GAME_H[sport])
+
+
 def game_status(short: str | None, mapping: dict, home_total, away_total, kickoff: datetime | None, sport: str,
-                now: datetime | None = None) -> MatchStatus | None:
+                now: datetime | None = None, date_only: bool = False) -> MatchStatus | None:
     """One game's status from its provider short (provider_short), its two final totals and its kickoff.
 
     - A stated short keeps its mapping; a code the map lacks is SCHEDULED (law 4), whatever the scores.
     - NO status (no_status) with a total missing: what the "NS" default maps to (SCHEDULED). Conservative unknowns: no
       score, not FINISHED.
-    - NO status with both totals: FINISHED when now >= kickoff + LONGEST_GAME_H[sport] (score-presence beats
+    - NO status with both totals: FINISHED when now >= age_until(kickoff, sport, date_only) (the kickoff + the sport's
+      longest game, the clock moved for an NCAA TBD placeholder kickoff or a date with no time; score-presence beats
       status-absence, 2026-09-05: 16 of 2024's NFL games arrived with NO status block at all but full final totals).
       Before that, or with no kickoff to age, None: no status for this game, the stored status is left alone (a game in
       play with running totals never reads FINISHED).
@@ -95,6 +144,7 @@ def game_status(short: str | None, mapping: dict, home_total, away_total, kickof
         return mapping.get(short, MatchStatus.SCHEDULED)
     if home_total is None or away_total is None:
         return mapping.get("NS", MatchStatus.SCHEDULED)
-    if kickoff is not None and rule_now(now) >= kickoff + timedelta(hours=LONGEST_GAME_H[sport]):
+    until = age_until(kickoff, sport, date_only)
+    if until is not None and rule_now(now) >= until:
         return MatchStatus.FINISHED
     return None

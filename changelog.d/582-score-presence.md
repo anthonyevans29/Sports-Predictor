@@ -4,15 +4,19 @@
   - `no_status` is True when there is none: the block missing, null or empty, its short null or empty, or the literal text `None` (addendum 116 item 4 (4): the same as absent).
   - `game_status`:
     - no status with a total missing is SCHEDULED (no score, not FINISHED);
-    - no status with both totals is FINISHED once now >= kickoff + `LONGEST_GAME_H` of the sport (SOCCER 3h, NHL 4h, NFL/NCAA 5h, MLB 6h; addendum 116 item 4 (3)), and before that None: no status for the game;
+    - no status with both totals is FINISHED once now >= the age clock, `age_until(kickoff, sport, date_only)`: kickoff + `LONGEST_GAME_H` of the sport (SOCCER 3h, NHL 4h, NFL/NCAA 5h, MLB 6h; addendum 116 item 4 (3)); before that None: no status for the game;
     - a stated short keeps its mapping, and a code the map lacks is SCHEDULED, whatever the scores.
+  - The age clock (`age_start` / `age_until`, one helper read by the rule and by the score-presence receipt): an NCAA kickoff at the provider's TBD placeholder (`src/ingestion/placeholder.py` `is_placeholder_kickoff`, 04:00:00Z) counts from the end of that game day (`PLACEHOLDER_RESOLVE_H`, 24h) before the sport's hours; a kickoff the parse read from a date with no time (`is_date_only`) counts from the end of that UTC date.
 - src/adapters/api_american_football.py (NFL, NCAA) and src/adapters/api_hockey.py (NHL): `_parse_games` reads the raw status through those functions, with an injectable `now` (default: utc now, once per answer). **Behaviour change at the next sync:**
   - a game sent with no status and both totals is stored FINISHED once kickoff + 5h (NHL 4h) has passed (it was SCHEDULED: the rule never fired);
   - before that, the stored status is left alone and a new game is created SCHEDULED, so a game in play with running totals never reads FINISHED;
-  - the text `None` with both totals reads FINISHED, as before this PR, now subject to the same age condition.
+  - the text `None` with both totals reads FINISHED, as before this PR, now subject to the same age condition;
+  - an NCAA game listed at the TBD placeholder (04:00Z) with no status and running totals no longer reads FINISHED on its game day: it reads FINISHED from placeholder + 24h + 5h;
+  - a game whose kickoff the parse read from a date with no time (no timestamp sent; both parses, the stored kickoff unchanged at that date's midnight UTC) reads FINISHED from the end of that UTC date + the sport's hours, not from midnight + the hours;
+  - the NFL rows the apply holds are NOT held by a sync: any whole-season NFL sync of a season holding them (`sync-matches --competition NFL --season 2024`, `--seasons N` with N >= 3, `bootstrap.py run` / `catch-up --apply`) writes them FINISHED and nfl_elo_v1's walk reads them; the current season goes through the daily sync per ruling (3). Behaviour unchanged here; for the architect (the ledger entry). No NFL 2024 season sync before the NFL re-declaration lane's verdict.
   - The hockey parse moves from `list_matches` into `_parse_games`; the call and the rows are unchanged. Hockey's `status_raw` is null when no status is stated (the text `None` included).
   - Both parses take an opt-in `raw_shorts` dict (the dry run's); by default nothing changes.
-- src/adapters/normalized.py: `NormalizedMatch.status` may be None (no status for the game).
+- src/adapters/normalized.py: `NormalizedMatch.status` may be None (no status for the game); `kickoff_date_only` (default False) says the parse read the kickoff from a date with no time (the receipt reads it; the sync does not).
 - src/ingestion/service.py:
   - `_apply_match_updates` leaves the stored status alone when the parse carries none;
   - a created row gets `created_status(nm)` (SCHEDULED when none);
@@ -21,29 +25,33 @@
 - src/ingestion/score_presence.py + cli.py `score-presence-dry-run` (new, READ-ONLY): every stored row the rule changes, per competition-season, with the ids. It makes the season read's one `/games` call, parses it with the adapter's own `_parse_games`, and resolves each listed game to the stored row as the sync resolves it. It prints:
   - the header with the rule, the constants and `now`;
   - the sync's resolution;
-  - the rule's changes (a re-keyed row with `old → new`), rows already as the rule reads, rows left alone until kickoff + the longest game, and listed rule-class games not stored;
+  - the rule's changes (a re-keyed row with `old → new`): a change is a row whose stored scores are both present and the listing's totals; rows already as the rule reads, rows left alone until the age clock, and listed rule-class games not stored;
   - the text `None` rows in their own section, for the record;
-  - for NFL, each change's class by `is_preseason` on the stored stage (`preseason (applied)` / `regular season (held: needs a gate verdict; own Issue)`) with a count of each;
-  - the stored SCHEDULED rows carrying both scores (changed + left = the count);
-  - the `score-presence-apply` line for the accepted ids and a `HELD` line for the NFL regular-season ids;
+  - `NEEDS SCORES` (held for the architect): rows the rule reads FINISHED whose stored scores are missing or differ from the listing's totals, with ids, never a score; a status-only write cannot complete them (not changes);
+  - `AGE CLOCK MOVED`: the rule-class games whose clock starts after the kickoff sent (the TBD placeholder, a date with no time); each such row says so;
+  - for NFL, each change's class by `is_preseason` on the stored stage (`preseason (applied with the rest)` / `not preseason (held: regular season or postseason, nfl_elo_v1's walk reads it; needs a gate verdict; own Issue)`: the held class is regular season AND postseason) with a count of each;
+  - the stored SCHEDULED rows carrying both scores (changed + left = the count; a NEEDS SCORES row is left, with why);
+  - the `score-presence-apply` line (`APPLY`) for the changes with no hold and no text `None`; a `HELD (NFL not preseason …)` line; a `HELD (re-keyed …)` line (any re-key: a status-only write cannot carry it, and after one on a placeholder-window row the next sync created a twin, reproduced); and a `THE TEXT 'None' CHANGES` line (off the APPLY line: addendum 116 item 4 (4) expects none; the architect's word whether they are applied);
   - for information only, what a whole-season sync would write besides (not the vehicle).
-  - The last line is `SCORE-PRESENCE-DRY-RUN {counts}`. It writes nothing, refuses (exit 2) when the database file is absent, and exits 1 when a listing could not be read.
+  - The last line is `SCORE-PRESENCE-DRY-RUN {counts}` (per competition-season `apply_ids`, `held_nfl_not_preseason_ids`, `held_rekeyed_ids`, `none_text_change_ids`, `needs_scores`, `needs_scores_ids`, `clock_moved`, and the counts). It writes nothing, refuses (exit 2) when the database file is absent, and exits 1 when a listing could not be read.
 - cli.py `score-presence-apply` (new, STATUS ONLY, addendum 116 item 4 (1)): `--competition --season --match-ids --backup`.
   - It checks the database file first, then the `.backup`.
-  - It recomputes the change set exactly as the dry run does, and refuses as a whole (nothing written, exit 1, every reason named) for an id not in it or for an NFL regular-season row.
+  - It recomputes the change set exactly as the dry run does, and refuses as a whole (nothing written, exit 1, every reason named) for an id not in it (a NEEDS SCORES row included), for an NFL row not preseason, or for a row the sync re-keys. A text `None` change is accepted when named.
   - It writes `matches.status` alone, one guarded UPDATE per row.
   - It prints each id stored → new, the count, and for NCAA ncaa-elo-v2's stream and training fingerprints before and after (`SAME`).
 - scripts/nfl_qb_probe.py: the probe reads the adapter's parse only (no rule of its own); its docstring says a game with no status yet is neither finished nor unplayed.
-- docs/CLI.md: the `score-presence-dry-run` and `score-presence-apply` rows.
+- docs/CLI.md: the `score-presence-dry-run` and `score-presence-apply` rows (each says the NFL hold is the apply's only).
 - tests:
-  - test_score_presence.py (48), on tests/fixtures/api_sports_status: provider-shaped rows, written, not kept (no kept answer exists; its README says so). Covered:
+  - test_score_presence.py (57), on tests/fixtures/api_sports_status: provider-shaped rows, written, not kept (no kept answer exists; its README says so). Covered:
     - every status shape, both adapters; the text `None` is no status in every path;
-    - the age condition on both sides of the threshold for NFL, NCAA and NHL;
+    - the age condition on both sides of the threshold for NFL, NCAA and NHL; the age clock helper; an NCAA game at the TBD placeholder in play (parse and sync) never FINISHED, FINISHED from placeholder + 29h; a kickoff sent as a date with no time (three block shapes, both parses) counted from the end of that date;
     - a stored FINISHED, LIVE or SCHEDULED row left alone by the sync before the threshold, and a new row created SCHEDULED;
-    - the dry run's lines, ids, counts, NFL stage classes and the text-None section, and that it writes nothing;
-    - re-keys and a refusal resolved as the sync resolves them;
+    - the dry run's lines, ids, counts, NFL stage classes (a Post Season row is "not preseason"), the text-None section and line, NEEDS SCORES, the HELD lines, the moved age clock, and that it writes nothing;
+    - re-keys and a refusal resolved as the sync resolves them; a re-keyed change held;
     - the apply:
-      - refuses an id not in the change set, an NFL regular-season id and a row left alone by the age condition (nothing written);
+      - refuses an id not in the change set, a NEEDS SCORES row (no stored score; a stored LIVE row at a running score), an NFL row not preseason, a re-keyed row and a row left alone by the age condition (nothing written);
+      - a placeholder re-key: refused, then the next sync re-keys the row in place (`created 0`, `rekeyed 1`; before the fix the apply wrote it and the sync created a twin);
+      - accepts a text-`None` change when named;
       - writes only status, every other column of every row compared;
       - prints the NCAA fingerprints before == after;
       - rolls back a row that moved;

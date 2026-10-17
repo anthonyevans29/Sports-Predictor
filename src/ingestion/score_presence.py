@@ -25,16 +25,27 @@ HOW (law 1: read from the code):
     within 12 hours, the NCAA placeholder window; a refusal creates nothing). It runs on rows detached from the session.
   * compare: THE RULE'S CHANGE SET is every listed game with NO status (none sent, or the text "None": the same as
     absent) and both totals, resolved to a stored row whose status differs from the rule's (FINISHED, once now >=
-    kickoff + the sport's longest game). Before that the rule leaves the stored status alone: listed, never changed.
-    The text "None" rows are listed in their own section, for the record.
+    the age clock: api_sports_status.age_until, the same helper the parse reads) AND whose stored scores are both
+    present and equal the listing's totals. Before the age clock the rule leaves the stored status alone: listed, never
+    changed. A row the rule reads FINISHED whose stored scores are missing or differ is NEEDS SCORES, not a change: a
+    status-only write cannot complete it (item 4 (1): never scores; addendum 112 item 4: no score, not FINISHED); held
+    for the architect, the apply refuses it. The text "None" rows are listed in their own section, for the record.
   * NFL (nfl_elo_v1's competition, nfl_backtest.NFL_COMPETITION_CODE): each change is classed by nfl_elo_v1's own
     preseason test (nfl_predict.is_preseason) on the STORED stage, the one its walk reads (the apply writes no stage):
-    PRESEASON_APPLIED, or REGULAR_HELD (they change nfl_elo_v1's ratings; the apply refuses them).
+    PRESEASON_APPLIED, or NOT_PRESEASON_HELD (regular season and postseason: every row the walk reads; they change
+    nfl_elo_v1's ratings; the apply refuses them). The hold lives in the apply only: a whole-season sync applies the
+    adapters' rule to every row it parses (the ledger entry, "For the architect").
+  * HELD off the APPLY line (#493 review): a NOT_PRESEASON_HELD change; a change whose row the sync re-keys (a
+    status-only write cannot carry the re-key; after it the NCAA placeholder window, SCHEDULED rows only, no longer
+    finds the row and the next sync creates a twin); the apply refuses both. A text "None" change is off the APPLY
+    line on its own line (item 4 (4) expects none: the architect's word whether it is applied); the apply accepts it
+    when it is named.
   * apply: the same read, resolution and rule at its own `now`. It refuses AS A WHOLE (nothing written) when a named id
-    is not in the change set for that competition-season, or is an NFL regular-season row; then writes Match.status
-    alone, one UPDATE per row restricted to the status column and guarded by the status the read saw. For NCAA it
-    prints ncaa-elo-v2's stream and training fingerprints before and after (ncaa_fingerprints): neither reads a
-    status (ncaa_v1r_gate.FINGERPRINT_FIELDS; load_v1r_games: "whatever our local status or scores").
+    is not in the change set for that competition-season (NEEDS SCORES included), is an NFL row not preseason, or is
+    re-keyed; then writes Match.status alone, one UPDATE per row restricted to the status column and guarded by the
+    status the read saw. For NCAA it prints ncaa-elo-v2's stream and training fingerprints before and after
+    (ncaa_fingerprints): neither reads a status (ncaa_v1r_gate.FINGERPRINT_FIELDS; load_v1r_games: "whatever our local
+    status or scores").
   * The dry run also reconciles the stored SCHEDULED rows carrying both scores (addendum 81's NCAA 2024 120 and NFL
     2024 16): the rule changes X of them and leaves Y, X + Y = N. And it says, for information only, what a
     whole-season sync would write besides: it is NOT the vehicle (addendum 116 item 4 (1)).
@@ -48,8 +59,20 @@ from typing import Callable
 
 COMPETITIONS = ("NFL", "NCAA", "NHL")       # the competitions of the two adapters that carry the rule
 NO_STATUS, NONE_TEXT = "no status sent", "text 'None'"
-PRESEASON_APPLIED = "preseason (applied)"
-REGULAR_HELD = "regular season (held: needs a gate verdict; own Issue)"
+PRESEASON_APPLIED = "preseason (applied with the rest)"
+NOT_PRESEASON_HELD = ("not preseason (held: regular season or postseason, nfl_elo_v1's walk reads it; needs a gate "
+                      "verdict; own Issue)")
+#: Why a change is held off the APPLY line and refused by the apply (holds); the receipt's HELD lines and the refusal.
+HELD_NFL_WHY = ("NFL not preseason, regular season and postseason: the rows nfl_elo_v1's walk reads (nfl_predict."
+                "is_preseason false); they change its ratings and need a gate verdict (addendum 116 item 4 (2)); their "
+                "own Issue, the NFL re-declaration lane")
+HELD_REKEY_WHY = ("re-keyed: the sync answers this game under a new provider id; a status-only write cannot carry the "
+                  "re-key (the row keeps its old provider id and kickoff), and where the sync matched it through the "
+                  "NCAA placeholder window (SCHEDULED rows only) the next sync no longer finds it once FINISHED and "
+                  "creates a twin; for the architect")
+NEEDS_SCORES_WHY = ("the rule reads FINISHED, but the stored scores are {what}: a status-only write cannot complete "
+                    "the row (addendum 116 item 4 (1): never scores; addendum 112 item 4: no score, not FINISHED); held "
+                    "for the architect")
 
 
 def fix_class(short: str | None, home_total, away_total) -> str | None:
@@ -65,24 +88,16 @@ def fix_class(short: str | None, home_total, away_total) -> str | None:
     return NONE_TEXT if short == TEXT else None
 
 
-def hours_for(competition_code: str, sport=None) -> int:
-    """The longest game, in hours, the adapter's parse reads for the competition's games (api_sports_status.sport_key:
-    a hockey game reads NHL's whatever the code)."""
-    from src.adapters.api_sports_status import LONGEST_GAME_H, sport_key
-
-    return LONGEST_GAME_H[sport_key(competition_code, sport)]
-
-
 def nfl_class(competition_code: str, stage: str | None) -> str | None:
     """Addendum 116 item 4 (2), NFL rows only (nfl_elo_v1's competition): PRESEASON_APPLIED when nfl_elo_v1's own
-    preseason test (nfl_predict.is_preseason) reads the stored `stage` as preseason, else REGULAR_HELD. None for any
-    other competition."""
+    preseason test (nfl_predict.is_preseason) reads the stored `stage` as preseason, else NOT_PRESEASON_HELD (regular
+    season AND postseason: every stage its walk reads). None for any other competition."""
     from src.walters.nfl_backtest import NFL_COMPETITION_CODE
     from src.walters.nfl_predict import is_preseason
 
     if competition_code != NFL_COMPETITION_CODE:
         return None
-    return PRESEASON_APPLIED if is_preseason(stage) else REGULAR_HELD
+    return PRESEASON_APPLIED if is_preseason(stage) else NOT_PRESEASON_HELD
 
 
 def read_listing(adapter, competition_code: str, season: str, now=None) -> tuple[list, dict]:
@@ -197,33 +212,60 @@ def resolve(competition_code: str, season: str, source: str, listing: list) -> t
     return rows, out
 
 
+def clock_start(moved: str | None) -> str:
+    """Where the age clock starts, as the receipt names it (api_sports_status.age_start's why: None = the kickoff)."""
+    from src.adapters.api_sports_status import CLOCK_DATE_ONLY, CLOCK_PLACEHOLDER
+    from src.ingestion.placeholder import PLACEHOLDER_RESOLVE_H
+
+    return {None: "kickoff",
+            CLOCK_PLACEHOLDER: f"kickoff + {PLACEHOLDER_RESOLVE_H}h (the end of the TBD placeholder's game day)",
+            CLOCK_DATE_ONLY: "the end of the kickoff's UTC date (no kickoff time sent)"}[moved]
+
+
+def age(nm, key: str, h: int) -> tuple:
+    """(the age clock's end for a listed game, why its start moved or None, the receipt's text): the rule's own helper
+    (api_sports_status.age_start, the one game_status reads through age_until), so the receipt says what the parse did.
+    The text: "kickoff + 5h = <when>Z", its start named when the clock moved."""
+    from src.adapters.api_sports_status import age_start
+
+    start, moved = age_start(nm.utc_date, key, getattr(nm, "kickoff_date_only", False))
+    until = start + timedelta(hours=h) if start is not None else None
+    return until, moved, f"{clock_start(moved)} + {h}h = {_when(until)}Z"
+
+
 def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict], resolved: dict) -> dict:
     """Pure. One competition-season: the rule's parse (`listing`, `shorts`), each listed game resolved to what the
     sync does with it (`resolved`, from resolve), against the season's stored `rows`. r["changes"] is the rule's
-    change set (each entry: the stored row, its class, the new status, its NFL class or None); r["why_row"] says, for
-    every stored row a listed game resolves to that is not a change, why not."""
-    from src.adapters.api_sports_status import no_status
+    change set: the rows a status-only write completes (each entry: the stored row, its class, the new status, the
+    age clock, its NFL class or None). r["needs_scores"]: the rows the rule reads FINISHED whose stored scores are
+    missing or differ from the listing's totals (not changes: held). r["why_row"] says, for every stored row a listed
+    game resolves to that is not a change, why not."""
+    from src.adapters.api_sports_status import CLOCK_DATE_ONLY, CLOCK_PLACEHOLDER, LONGEST_GAME_H, no_status, sport_key
     from src.ingestion.service import created_status
 
-    h = hours_for(competition_code, listing[0].sport if listing else None)
+    key = sport_key(competition_code, listing[0].sport if listing else None)
+    h = LONGEST_GAME_H[key]
     r = {"code": competition_code, "hours": h, "listing": len(listing), "stored": len(rows), "changes": [],
-         "already": [], "not_yet": [], "not_stored": [], "other_status": [], "kickoff": [], "scores": [], "fields": [],
-         "rekeyed": [], "created": [], "refused": [], "skipped": [], "onto_stored": 0, "left": [], "sched_both": 0,
-         "sched_both_changed": 0, "classes": {NO_STATUS: 0, NONE_TEXT: 0}, "why_row": {}}
+         "needs_scores": [], "already": [], "not_yet": [], "not_stored": [], "other_status": [], "kickoff": [],
+         "scores": [], "fields": [], "rekeyed": [], "created": [], "refused": [], "skipped": [], "onto_stored": 0,
+         "left": [], "sched_both": 0, "sched_both_changed": 0, "classes": {NO_STATUS: 0, NONE_TEXT: 0},
+         "clock_moved": {CLOCK_PLACEHOLDER: 0, CLOCK_DATE_ONLY: 0}, "why_row": {}}
     listed, by_row = {}, {}
     for nm in listing:
         pid = str(nm.source_id)
         short = shorts.get(pid)
         cls = fix_class(short, nm.home_score, nm.away_score)
         new = None if nm.status is None else nm.status.name
-        until = nm.utc_date + timedelta(hours=h) if nm.utc_date is not None else None
+        until, moved, clock = age(nm, key, h)
         listed[pid] = (nm, short, cls)
         if cls:
             r["classes"][cls] += 1
+            if moved:
+                r["clock_moved"][moved] += 1
         got = resolved[pid]
         if got["row"] is None:                              # no stored row: the sync creates, refuses or skips it
             g = {"pid": pid, "class": cls, "utc_date": nm.utc_date, "new": created_status(nm).name,
-                 "fate": got["fate"], "why": got.get("why")}
+                 "fate": got["fate"], "why": got.get("why"), "moved": moved}
             if cls:
                 r["not_stored"].append(g)
             r[got["fate"]].append(g)
@@ -234,16 +276,24 @@ def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict]
         if m["rekey"]:
             r["rekeyed"].append(m)
         if cls:
-            e = {**m, "class": cls, "new": new, "until": until, "nfl": nfl_class(competition_code, m["stage"])}
+            e = {**m, "class": cls, "new": new, "until": until, "moved": moved, "clock": clock,
+                 "nfl": nfl_class(competition_code, m["stage"])}
             if new is None:
                 r["not_yet"].append(e)
-                r["why_row"][m["id"]] = (f"the rule leaves it alone ({cls}, both scores, but kickoff + {h}h = "
-                                         f"{_when(until)}Z is after now)")
-            elif m["status"] != new:
-                r["changes"].append(e)
-            else:
+                r["why_row"][m["id"]] = f"the rule leaves it alone ({cls}, both scores, but {clock} is after now)"
+            elif m["status"] == new:
                 r["already"].append(e)
                 r["why_row"][m["id"]] = f"already {new} as the rule reads ({cls})"
+            elif m["home_score"] is None or m["away_score"] is None:
+                e["scores_are"] = "missing"
+                r["needs_scores"].append(e)
+                r["why_row"][m["id"]] = NEEDS_SCORES_WHY.format(what="missing")
+            elif (m["home_score"], m["away_score"]) != (nm.home_score, nm.away_score):
+                e["scores_are"] = "different from the listing's totals"
+                r["needs_scores"].append(e)
+                r["why_row"][m["id"]] = NEEDS_SCORES_WHY.format(what="different from the listing's totals")
+            else:                                           # both stored scores present and the listing's: a change
+                r["changes"].append(e)
         else:
             r["why_row"][m["id"]] = (
                 f"not the rule's: the provider states {short!r}" if not no_status(short) else
@@ -266,6 +316,8 @@ def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict]
             what.append(f"status code {m['status_raw'] or '—'} → {nm.status_raw}")
         if what:
             r["fields"].append({**m, "what": " · ".join(what)})
+    change_ids = {m["id"] for m in r["changes"]}
+    needs_ids = {m["id"] for m in r["needs_scores"]}
     for m in rows:                                          # the stored SCHEDULED rows carrying both scores
         if m["status"] != "SCHEDULED" or m["home_score"] is None or m["away_score"] is None:
             continue
@@ -285,31 +337,57 @@ def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict]
             continue
         nm, short, cls = listed[pid]
         new = None if nm.status is None else nm.status.name
-        if cls and new is not None and new != m["status"]:
+        if m["id"] in change_ids:
             r["sched_both_changed"] += 1
             continue                                        # the rule changes it (listed above)
-        if cls and new is None:
-            why = (f"no status ({cls}) and both scores in the listing, but kickoff + {h}h = "
-                   f"{_when(nm.utc_date + timedelta(hours=h))}Z is after now: the stored status is left alone")
+        if m["id"] in needs_ids:
+            why = (f"NEEDS SCORES (held): {r['why_row'][m['id']]}")
+        elif cls and new is None:
+            why = (f"no status ({cls}) and both scores in the listing, but {age(nm, key, h)[2]} is after now: the "
+                   f"stored status is left alone")
         elif no_status(short):
             why = ("no status (none sent, or the text 'None') and a score missing in the listing: stays SCHEDULED (no "
                    "score, not FINISHED)")
         else:
             why = f"the provider states {short!r} (a sync would write {new}; not the rule's)"
         r["left"].append({**m, "rekey": resolved[pid]["rekey"], "why": why})
-    for k in ("changes", "already", "not_yet", "other_status", "kickoff", "scores", "fields", "rekeyed"):
+    for k in ("changes", "needs_scores", "already", "not_yet", "other_status", "kickoff", "scores", "fields",
+              "rekeyed"):
         r[k].sort(key=lambda x: (x["utc_date"] is None, x["utc_date"] or 0, x["id"]))
     return r
 
 
+def holds(m: dict) -> list[str]:
+    """Why the apply refuses a change, each with its own HELD line: HELD_NFL_WHY (an NFL row not preseason, item 4
+    (2)), HELD_REKEY_WHY (a row the sync re-keys: any re-key, the placeholder window, the 12-hour pair or the row's
+    `_prev` history). Empty: the apply accepts it."""
+    return ([HELD_NFL_WHY] if m.get("nfl") == NOT_PRESEASON_HELD else []) + ([HELD_REKEY_WHY] if m.get("rekey") else [])
+
+
 def apply_ids(r: dict) -> list[int]:
-    """The change set's ids the apply accepts (every change but an NFL regular-season one), ascending."""
-    return sorted(m["id"] for m in r["changes"] if m["nfl"] != REGULAR_HELD)
+    """The APPLY line's ids, ascending: the changes with no hold, but a text "None" change (none_text_ids)."""
+    return sorted(m["id"] for m in r["changes"] if not holds(m) and m["class"] != NONE_TEXT)
+
+
+def none_text_ids(r: dict) -> list[int]:
+    """The text "None" changes with no hold, ascending: off the APPLY line, on their own (addendum 116 item 4 (4)
+    expects none; the architect's word whether they are applied). The apply accepts them when they are named."""
+    return sorted(m["id"] for m in r["changes"] if not holds(m) and m["class"] == NONE_TEXT)
 
 
 def held_ids(r: dict) -> list[int]:
-    """The change set's NFL regular-season ids (addendum 116 item 4 (2): held, their own Issue), ascending."""
-    return sorted(m["id"] for m in r["changes"] if m["nfl"] == REGULAR_HELD)
+    """The changes that are NFL rows not preseason (addendum 116 item 4 (2): held, their own Issue), ascending."""
+    return sorted(m["id"] for m in r["changes"] if m["nfl"] == NOT_PRESEASON_HELD)
+
+
+def rekey_held_ids(r: dict) -> list[int]:
+    """The changes whose row the sync re-keys (held: a status-only write cannot carry the re-key), ascending."""
+    return sorted(m["id"] for m in r["changes"] if m.get("rekey"))
+
+
+def needs_scores_ids(r: dict) -> list[int]:
+    """The rows the rule reads FINISHED whose stored scores are missing or differ (NEEDS SCORES, held), ascending."""
+    return sorted(m["id"] for m in r["needs_scores"])
 
 
 def _when(d) -> str:
@@ -328,6 +406,10 @@ def _nfl(m) -> str:
     return f" · {m['nfl']}" if m.get("nfl") else ""
 
 
+def _moved(m) -> str:
+    return f" · age clock from {clock_start(m['moved'])}" if m.get("moved") else ""
+
+
 def _fate(g) -> str:
     if g["fate"] == "created":
         return f"the sync creates it {g['new']}"
@@ -339,21 +421,31 @@ def _fate(g) -> str:
 def header(title: str, what: str, now) -> list[str]:
     """The receipt's first lines (the dry run's and the apply's): the rulings, the rule, the constants and `now`."""
     from src.adapters.api_sports_status import longest_game_text
+    from src.ingestion.placeholder import PLACEHOLDER_RESOLVE_H
 
     return [f"{title} (#493; ARCHITECT 2026-10-16 addendum 81 item 3, 2026-10-17 addendum 112 item 4 and addendum 116 "
             f"item 4) · {what}",
             "  the rule: no provider status (none sent, or the text 'None') with both scores is FINISHED once now >= "
             "kickoff + the sport's longest game, and before that the stored status is left alone; no status with a "
             "score missing is SCHEDULED; a status the provider stated keeps its mapping (an unknown code SCHEDULED)",
-            f"  longest game (addendum 116 item 4 (3)): {longest_game_text()} · now {_when(now)}Z"]
+            f"  longest game (addendum 116 item 4 (3)): {longest_game_text()} · now {_when(now)}Z",
+            f"  the age clock (api_sports_status.age_until, the rule's and this receipt's): from the kickoff; an NCAA "
+            f"kickoff at the provider's TBD placeholder (04:00:00Z) from the end of its game day (kickoff + "
+            f"{PLACEHOLDER_RESOLVE_H}h, src/ingestion/placeholder.py); a kickoff sent as a date with no time from the "
+            f"end of that UTC date; a row whose clock moved says so"]
 
 
 def lines(code: str, season: str, source: str, r: dict) -> list[str]:
     """One competition-season's dry-run receipt, every row whole (#491: a receipt cuts nothing)."""
+    from src.adapters.api_sports_status import CLOCK_DATE_ONLY, CLOCK_PLACEHOLDER
+
     h = r["hours"]
 
     def of(k, cls):
         return [x for x in r[k] if x["class"] == cls]
+
+    def ids(xs):
+        return ",".join(map(str, xs))
 
     also_created = [g for g in r["created"] if not g["class"]]      # the rule's own are under "not stored"
     L = [f"{code} {season} · source {source} · listing {r['listing']} games · stored {r['stored']} rows",
@@ -363,48 +455,65 @@ def lines(code: str, season: str, source: str, r: dict) -> list[str]:
          f"  THE RULE CHANGES {len(r['changes'])} stored row(s) of {code} {season} (status only, score-presence-apply):"
          f" no status sent {len(of('changes', NO_STATUS))} · the text 'None' {len(of('changes', NONE_TEXT))}",
          f"  NO STATUS SENT, both scores: listed {r['classes'][NO_STATUS]} · changes {len(of('changes', NO_STATUS))} "
-         f"· already as the rule reads {len(of('already', NO_STATUS))} · left alone until kickoff + {h}h "
+         f"· needs scores {len(of('needs_scores', NO_STATUS))} · already as the rule reads "
+         f"{len(of('already', NO_STATUS))} · left alone until the age clock (kickoff + {h}h) "
          f"{len(of('not_yet', NO_STATUS))} · not stored {len(of('not_stored', NO_STATUS))}"]
     for m in of("changes", NO_STATUS):
-        L.append(f"    {_row(m)} · {m['class']} · {m['status']} → {m['new']}{_nfl(m)}")
+        L.append(f"    {_row(m)} · {m['class']} · {m['status']} → {m['new']}{_nfl(m)}{_moved(m)}")
     for m in of("already", NO_STATUS):
-        L.append(f"    already: {_row(m)} · {m['class']} · {m['status']}")
+        L.append(f"    already: {_row(m)} · {m['class']} · {m['status']}{_moved(m)}")
     for m in of("not_yet", NO_STATUS):
-        L.append(f"    left alone: {_row(m)} · {m['class']} · stored {m['status']} kept (kickoff + {h}h = "
-                 f"{_when(m['until'])}Z is after now)")
+        L.append(f"    left alone: {_row(m)} · {m['class']} · stored {m['status']} kept ({m['clock']} is after now)")
     for g in of("not_stored", NO_STATUS):
-        L.append(f"    not stored: provider {g['pid']} · {_when(g['utc_date'])}Z · {g['class']} · {_fate(g)}")
+        L.append(f"    not stored: provider {g['pid']} · {_when(g['utc_date'])}Z · {g['class']} · {_fate(g)}"
+                 f"{_moved(g)}")
     L.append(f"  THE TEXT 'None', both scores (no status, the same as absent: addendum 116 item 4 (4); for the "
              f"record): listed {r['classes'][NONE_TEXT]} · stored as the rule reads, nothing flips "
-             f"{len(of('already', NONE_TEXT))} · changes {len(of('changes', NONE_TEXT))} · left alone until kickoff + "
-             f"{h}h {len(of('not_yet', NONE_TEXT))} · not stored {len(of('not_stored', NONE_TEXT))}")
+             f"{len(of('already', NONE_TEXT))} · changes {len(of('changes', NONE_TEXT))} · needs scores "
+             f"{len(of('needs_scores', NONE_TEXT))} · left alone until the age clock (kickoff + {h}h) "
+             f"{len(of('not_yet', NONE_TEXT))} · not stored {len(of('not_stored', NONE_TEXT))}")
     for m in of("already", NONE_TEXT):
-        L.append(f"    {_row(m)} · stored {m['status']} → {m['new']} (unchanged)")
+        L.append(f"    {_row(m)} · stored {m['status']} → {m['new']} (unchanged){_moved(m)}")
     for m in of("changes", NONE_TEXT):
-        L.append(f"    {_row(m)} · stored {m['status']} → {m['new']} (a change{_nfl(m)})")
+        L.append(f"    {_row(m)} · stored {m['status']} → {m['new']} (a change{_nfl(m)}){_moved(m)}")
     for m in of("not_yet", NONE_TEXT):
-        L.append(f"    left alone: {_row(m)} · stored {m['status']} kept (kickoff + {h}h = {_when(m['until'])}Z is "
-                 f"after now)")
+        L.append(f"    left alone: {_row(m)} · stored {m['status']} kept ({m['clock']} is after now)")
     for g in of("not_stored", NONE_TEXT):
-        L.append(f"    not stored: provider {g['pid']} · {_when(g['utc_date'])}Z · {_fate(g)}")
+        L.append(f"    not stored: provider {g['pid']} · {_when(g['utc_date'])}Z · {_fate(g)}{_moved(g)}")
+    need = needs_scores_ids(r)
+    L.append(f"  NEEDS SCORES (held for the architect: the rule reads FINISHED, but the stored scores are missing or "
+             f"differ from the listing's totals; a status-only write cannot complete the row, addendum 116 item 4 (1) "
+             f"and addendum 112 item 4; not on the APPLY line, score-presence-apply refuses them; scores not printed): "
+             f"{len(need)}" + (f" · match ids {ids(need)}" if need else ""))
+    for m in r["needs_scores"]:
+        L.append(f"    {_row(m)} · {m['class']} · stored {m['status']} → {m['new']} · stored scores "
+                 f"{m['scores_are']}{_nfl(m)}{_moved(m)}")
+    L.append(f"  AGE CLOCK MOVED (listed games of the rule's class counted from later than the kickoff sent, each row "
+             f"says so): the NCAA TBD placeholder {r['clock_moved'][CLOCK_PLACEHOLDER]} · a date with no time "
+             f"{r['clock_moved'][CLOCK_DATE_ONLY]}")
     if code == "NFL":                                       # nfl_class: nfl_elo_v1's competition only
         L.append(f"  NFL STAGE (nfl_elo_v1's preseason test, nfl_predict.is_preseason, on the stored stage; the apply "
                  f"writes no stage): of the rule's {len(r['changes'])} change(s), {PRESEASON_APPLIED} "
-                 f"{len(apply_ids(r))} · {REGULAR_HELD} {len(held_ids(r))}")
+                 f"{len([1 for m in r['changes'] if m['nfl'] == PRESEASON_APPLIED])} · {NOT_PRESEASON_HELD} "
+                 f"{len(held_ids(r))}")
     L.append(f"  stored SCHEDULED with both scores: {r['sched_both']} · the rule changes {r['sched_both_changed']} · "
              f"the rule leaves {len(r['left'])}")
     for m in r["left"]:
         L.append(f"    left: {_row(m)} · {m['why']}")
-    ok, held = apply_ids(r), held_ids(r)
+    ok, held, rekeyed, text = apply_ids(r), held_ids(r), rekey_held_ids(r), none_text_ids(r)
     if ok:
         L.append(f"  APPLY (status only; on the architect's word, after a fresh .backup): python cli.py "
-                 f"score-presence-apply --competition {code} --season {season} --match-ids "
-                 f"{','.join(map(str, ok))} --backup <PATH>")
+                 f"score-presence-apply --competition {code} --season {season} --match-ids {ids(ok)} --backup <PATH>")
     else:
         L.append(f"  APPLY: nothing to apply for {code} {season}")
     if held:
-        L.append(f"  HELD (NFL regular season: they change nfl_elo_v1's ratings and need a gate verdict; their own "
-                 f"Issue, the NFL re-declaration lane): match ids {','.join(map(str, held))}")
+        L.append(f"  HELD ({HELD_NFL_WHY}): match ids {ids(held)}")
+    if rekeyed:
+        L.append(f"  HELD ({HELD_REKEY_WHY}): match ids {ids(rekeyed)}")
+    if text:
+        L.append(f"  THE TEXT 'None' CHANGES (not on the APPLY line: addendum 116 item 4 (4) expects none; the "
+                 f"architect's word whether these ids are applied; score-presence-apply accepts them when named): "
+                 f"match ids {ids(text)}")
     L.append(f"  A WHOLE-SEASON SYNC WOULD ALSO WRITE (information only: it is not the vehicle, addendum 116 item 4 "
              f"(1); score-presence-apply writes status alone): status {len(r['other_status'])} · kickoff "
              f"{len(r['kickoff'])} · scores {len(r['scores'])} (values not printed) · stage, matchday, season, status "
@@ -444,7 +553,9 @@ def summary(r: dict) -> dict:
             "already": n("already", NO_STATUS), "none_text_unchanged": n("already", NONE_TEXT),
             "left_alone_until_kickoff_age": len(r["not_yet"]), "not_stored": len(r["not_stored"]),
             "sched_both_scores": r["sched_both"], "sched_both_changed": r["sched_both_changed"], "left": len(r["left"]),
-            "apply_ids": apply_ids(r), "held_nfl_regular_season_ids": held_ids(r),
+            "needs_scores": len(r["needs_scores"]), "needs_scores_ids": needs_scores_ids(r),
+            "apply_ids": apply_ids(r), "held_nfl_not_preseason_ids": held_ids(r), "held_rekeyed_ids": rekey_held_ids(r),
+            "none_text_change_ids": none_text_ids(r), "clock_moved": dict(r["clock_moved"]),
             "onto_stored": r["onto_stored"], "rekeyed": len(r["rekeyed"]), "created": len(r["created"]),
             "refused": len(r["refused"]), "skipped": len(r["skipped"]),
             "also_status": len(r["other_status"]), "also_kickoff": len(r["kickoff"]), "also_scores": len(r["scores"]),
@@ -559,9 +670,12 @@ def apply(competition_code: str, season: str, match_ids, adapter_for: Callable,
           out: Callable[[str], None] = print, now=None) -> int:
     """`score-presence-apply` (addendum 116 item 4 (1)). Reads the listing, resolves it and computes the rule's change
     set exactly as the dry run does (at `now`; None = utc now). Refuses AS A WHOLE, nothing written, every reason
-    named, when a named id is not in the change set for that competition-season or is an NFL regular-season row
-    (item 4 (2)), or when the listing cannot be read. Then writes Match.status alone on the named rows (write_status)
-    and prints each id stored → new, the count and, for NCAA, ncaa-elo-v2's fingerprints before and after.
+    named, when a named id is not in the change set for that competition-season (a NEEDS SCORES row included: the
+    rule reads FINISHED but its stored scores are missing or differ), is held (holds: an NFL row not preseason, item 4
+    (2); a row the sync re-keys), or when the listing cannot be read. A text "None" change, off the APPLY line, is
+    accepted when named (the architect's word carried out). Then writes Match.status alone on the named rows
+    (write_status) and prints each id stored → new, the count and, for NCAA, ncaa-elo-v2's fingerprints before and
+    after.
     Exit 0 applied; 1 refused (or a fingerprint moved, which status cannot do); 2 no database file. The caller (the
     CLI) verifies the .backup first."""
     from src.adapters.api_sports_status import LONGEST_GAME_H, rule_now
@@ -601,6 +715,7 @@ def apply(competition_code: str, season: str, match_ids, adapter_for: Callable,
     rows, resolved = resolve(code, season, source, listing)
     r = compare(code, listing, shorts, rows, resolved)
     changes = {m["id"]: m for m in r["changes"]}
+    needs = set(needs_scores_ids(r))
     in_season = {m["id"] for m in rows}
     refused = []
     for mid in named:
@@ -608,11 +723,15 @@ def apply(competition_code: str, season: str, match_ids, adapter_for: Callable,
         if m is None:
             why = r["why_row"].get(mid) or ("no listed game resolves to it" if mid in in_season
                                             else f"not a stored row of {code} {season}")
-            refused.append({"id": mid, "why": f"not in the rule's change set for {code} {season}: {why}"})
-        elif m["nfl"] == REGULAR_HELD:
-            refused.append({"id": mid, "why": f"an NFL regular-season row (stored stage {m['stage'] or 'none'!r}): "
-                                              f"held, it changes nfl_elo_v1's ratings and needs a gate verdict "
-                                              f"(addendum 116 item 4 (2)); its own Issue"})
+            refused.append({"id": mid, "why": f"NEEDS SCORES (held): {why}" if mid in needs else
+                            f"not in the rule's change set for {code} {season}: {why}"})
+        elif holds(m):                                      # an NFL row not preseason, or a row the sync re-keys
+            why = []
+            if m["nfl"] == NOT_PRESEASON_HELD:
+                why.append(f"HELD ({HELD_NFL_WHY}) · stored stage {m['stage'] or 'none'!r}")
+            if m.get("rekey"):
+                why.append(f"HELD ({HELD_REKEY_WHY}) · provider {m['rekey']}")
+            refused.append({"id": mid, "why": "; ".join(why)})
     out(f"{code} {season} · source {source} · listing {r['listing']} games · stored {r['stored']} rows · the rule's "
         f"change set {len(changes)} · named {len(named)}: {','.join(map(str, named))}")
     if refused:

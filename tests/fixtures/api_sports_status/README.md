@@ -15,8 +15,10 @@ lineups_history precedent), and the tests stay as they are.
 The shapes are #493's receipt table, plus the edges the rulings name. Both totals are present (american football 20-17,
 hockey 3-2) unless the row says otherwise. Addendum 116 item 4 (4): the literal text `"None"` is NO status, the same as
 absent. Addendum 116 item 4 (3): no status with both totals is FINISHED only once now >= kickoff + the sport's longest
-game (NFL/NCAA 5h, NHL 4h); every fixture game kicks off in 2024, long past that, so the column below is what the parse
-reads today. Before the threshold the same rows parse with no status for the game (None: the stored status is left
+game (NFL/NCAA 5h, NHL 4h; the age clock, src/adapters/api_sports_status.py age_until, counts an NCAA kickoff at the
+provider's TBD placeholder from the end of its game day and a date sent with no time from the end of that date); every
+fixture game kicks off in 2024 with a timestamp (american football) or a full ISO time (hockey), long past that, so the
+column below is what the parse reads today. Before the threshold the same rows parse with no status for the game (None: the stored status is left
 alone); tests/test_score_presence.py builds those rows in memory, on both sides of the threshold.
 
 | american football | hockey | status as sent | parsed (#493, addendum 116) | before #493 |

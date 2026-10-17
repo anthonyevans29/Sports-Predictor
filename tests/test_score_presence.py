@@ -27,7 +27,20 @@ from src.db.schema import MatchStatus
 FIX = Path(__file__).parent / "fixtures" / "api_sports_status"
 S, F, L = MatchStatus.SCHEDULED, MatchStatus.FINISHED, MatchStatus.LIVE
 NOW = datetime(2026, 10, 17, 17, 15)          # the rule's clock in these tests (the fixtures' games are in 2024)
-HELD = "regular season (held: needs a gate verdict; own Issue)"
+HELD = "not preseason (held: regular season or postseason, nfl_elo_v1's walk reads it; needs a gate verdict; own Issue)"
+PRE = "preseason (applied with the rest)"
+HELD_NFL = ("NFL not preseason, regular season and postseason: the rows nfl_elo_v1's walk reads (nfl_predict.is_preseason "
+            "false); they change its ratings and need a gate verdict (addendum 116 item 4 (2)); their own Issue, the NFL "
+            "re-declaration lane")
+HELD_REKEY = ("re-keyed: the sync answers this game under a new provider id; a status-only write cannot carry the re-key "
+              "(the row keeps its old provider id and kickoff), and where the sync matched it through the NCAA placeholder "
+              "window (SCHEDULED rows only) the next sync no longer finds it once FINISHED and creates a twin; for the "
+              "architect")
+NEEDS = ("  NEEDS SCORES (held for the architect: the rule reads FINISHED, but the stored scores are missing or differ from "
+         "the listing's totals; a status-only write cannot complete the row, addendum 116 item 4 (1) and addendum 112 item "
+         "4; not on the APPLY line, score-presence-apply refuses them; scores not printed): ")
+TEXT_NONE = ("  THE TEXT 'None' CHANGES (not on the APPLY line: addendum 116 item 4 (4) expects none; the architect's word "
+             "whether these ids are applied; score-presence-apply accepts them when named): match ids ")
 
 AF_EXPECTED = {9101: F, 9102: F, 9103: F, 9104: F, 9105: F, 9106: F, 9107: F, 9108: S, 9109: S, 9110: F, 9111: L,
                9112: S}
@@ -333,7 +346,10 @@ HEADER = [
     "  the rule: no provider status (none sent, or the text 'None') with both scores is FINISHED once now >= kickoff + "
     "the sport's longest game, and before that the stored status is left alone; no status with a score missing is "
     "SCHEDULED; a status the provider stated keeps its mapping (an unknown code SCHEDULED)",
-    "  longest game (addendum 116 item 4 (3)): SOCCER 3h · NHL 4h · NFL 5h · NCAA 5h · MLB 6h · now 2026-10-17 17:15:00Z"]
+    "  longest game (addendum 116 item 4 (3)): SOCCER 3h · NHL 4h · NFL 5h · NCAA 5h · MLB 6h · now 2026-10-17 17:15:00Z",
+    "  the age clock (api_sports_status.age_until, the rule's and this receipt's): from the kickoff; an NCAA kickoff at the "
+    "provider's TBD placeholder (04:00:00Z) from the end of its game day (kickoff + 24h, src/ingestion/placeholder.py); a "
+    "kickoff sent as a date with no time from the end of that UTC date; a row whose clock moved says so"]
 
 
 def test_the_dry_run_lists_every_change_with_its_id_and_writes_nothing():
@@ -343,9 +359,10 @@ def test_the_dry_run_lists_every_change_with_its_id_and_writes_nothing():
         (9101, S, 20, 17, _af_ko()),          # no status sent + both scores, stored SCHEDULED: THE RULE CHANGES IT
         (9102, F, 20, 17, _af_ko()),          # no status sent + both scores, already FINISHED
         (9105, F, 20, 17, _af_ko()),          # the text "None", stored FINISHED: stays FINISHED (for the record)
-        (9106, S, 20, 17, _af_ko()),          # the text "None", stored SCHEDULED: no status, the same as absent: a change
-        (9107, S, None, None, _af_ko()),      # no status sent + both scores, stored SCHEDULED WITHOUT scores: a change,
-                                              # not one of the stored SCHEDULED rows with both scores
+        (9106, S, 20, 17, _af_ko()),          # the text "None", stored SCHEDULED: no status, the same as absent: a change,
+                                              # off the APPLY line (item 4 (4) expects none: the architect's word)
+        (9107, S, None, None, _af_ko()),      # no status sent + both scores, stored SCHEDULED WITHOUT scores: NEEDS SCORES
+                                              # (a status-only write cannot complete it), not a stored row with both
         (9109, S, 20, 17, _af_ko()),          # a stated NS with both scores: left
         (9110, S, 20, 17, _af_ko(6)),         # FT, stored SCHEDULED a day off: a sync's change + a kickoff (info only)
         (9112, S, 20, 17, _af_ko(), {"stage": "Pre Season", "matchday": None}),   # XYZ: a sync's stage + matchday
@@ -361,18 +378,21 @@ def test_the_dry_run_lists_every_change_with_its_id_and_writes_nothing():
     text = "\n".join(out)
     assert out[0] == ("SCORE-PRESENCE DRY RUN (#493; ARCHITECT 2026-10-16 addendum 81 item 3, 2026-10-17 addendum 112 "
                       "item 4 and addendum 116 item 4) · READ-ONLY, writes nothing")
-    assert out[1:3] == HEADER
+    assert out[1:4] == HEADER
     assert "ZSPF 2024 · source api_american_football · listing 12 games · stored 9 rows" in out
     assert ("  THE SYNC'S RESOLUTION (each listed game as sync_matches resolves it): onto a stored row 8 (re-keyed 0) "
             "· creates 3 · refuses 0 · skips 1 (a team not stored)") in out
-    assert ("  THE RULE CHANGES 3 stored row(s) of ZSPF 2024 (status only, score-presence-apply): no status sent 2 · "
+    assert ("  THE RULE CHANGES 2 stored row(s) of ZSPF 2024 (status only, score-presence-apply): no status sent 1 · "
             "the text 'None' 1") in out
-    assert ("  NO STATUS SENT, both scores: listed 5 · changes 2 · already as the rule reads 1 · left alone until "
-            "kickoff + 5h 0 · not stored 2") in out
+    assert ("  NO STATUS SENT, both scores: listed 5 · changes 1 · needs scores 1 · already as the rule reads 1 · left "
+            "alone until the age clock (kickoff + 5h) 0 · not stored 2") in out
     assert (f"    match {ids[9101]} · provider 9101 · 2024-09-07 17:00:00Z · Regular Season · no status sent · "
             "SCHEDULED → FINISHED") in out
-    assert (f"    match {ids[9107]} · provider 9107 · 2024-09-07 17:00:00Z · Regular Season · no status sent · "
-            "SCHEDULED → FINISHED") in out
+    # 9107 holds no stored score: the rule reads FINISHED, but a status-only write cannot complete it (P1, #493 review)
+    assert NEEDS + f"1 · match ids {ids[9107]}" in out
+    assert (f"    match {ids[9107]} · provider 9107 · 2024-09-07 17:00:00Z · Regular Season · no status sent · stored "
+            "SCHEDULED → FINISHED · stored scores missing") in out
+    assert not [ln for ln in out if ln.startswith(f"    match {ids[9107]}") and ln.endswith("SCHEDULED → FINISHED")]
     assert f"    already: match {ids[9102]} · provider 9102 · 2024-09-07 17:00:00Z · Regular Season · no status " \
            "sent · FINISHED" in out
     assert "    not stored: provider 9103 · 2024-09-07 17:00:00Z · no status sent · the sync creates it FINISHED" in out
@@ -380,8 +400,8 @@ def test_the_dry_run_lists_every_change_with_its_id_and_writes_nothing():
            "stored" in out
     # (4): the text "None" in its own section, for the record: the stored FINISHED one does not flip
     assert ("  THE TEXT 'None', both scores (no status, the same as absent: addendum 116 item 4 (4); for the record): "
-            "listed 2 · stored as the rule reads, nothing flips 1 · changes 1 · left alone until kickoff + 5h 0 · not "
-            "stored 0") in out
+            "listed 2 · stored as the rule reads, nothing flips 1 · changes 1 · needs scores 0 · left alone until the "
+            "age clock (kickoff + 5h) 0 · not stored 0") in out
     assert (f"    match {ids[9105]} · provider 9105 · 2024-09-07 17:00:00Z · Regular Season · stored FINISHED → "
             "FINISHED (unchanged)") in out
     assert (f"    match {ids[9106]} · provider 9106 · 2024-09-07 17:00:00Z · Regular Season · stored SCHEDULED → "
@@ -397,10 +417,13 @@ def test_the_dry_run_lists_every_change_with_its_id_and_writes_nothing():
            "states 'XYZ' (a sync would write SCHEDULED; not the rule's)" in out
     assert f"    left: match {ids[None]} · provider — · 2024-09-07 17:00:00Z · Regular Season · not in the listing " \
            "(the rule does not touch it)" in out
-    apply_ids = ",".join(str(i) for i in sorted((ids[9101], ids[9106], ids[9107])))
+    # the APPLY line: 9101 alone; the text "None" change 9106 on its own line (P2, #493 review); 9107 on no apply line
     assert ("  APPLY (status only; on the architect's word, after a fresh .backup): python cli.py score-presence-apply "
-            f"--competition ZSPF --season 2024 --match-ids {apply_ids} --backup <PATH>") in out
+            f"--competition ZSPF --season 2024 --match-ids {ids[9101]} --backup <PATH>") in out
+    assert TEXT_NONE + str(ids[9106]) in out
     assert not [ln for ln in out if ln.startswith("  HELD")]
+    assert "  AGE CLOCK MOVED (listed games of the rule's class counted from later than the kickoff sent, each row says " \
+           "so): the NCAA TBD placeholder 0 · a date with no time 0" in out
     assert ("  A WHOLE-SEASON SYNC WOULD ALSO WRITE (information only: it is not the vehicle, addendum 116 item 4 (1); "
             "score-presence-apply writes status alone): status 1 · kickoff 1 · scores 1 (values not printed) · stage, "
             "matchday, season, status code 1 · provider id (re-key) 0 · listed games it creates 2") in out
@@ -417,13 +440,15 @@ def test_the_dry_run_lists_every_change_with_its_id_and_writes_nothing():
     assert "20-17" not in text and "17-20" not in text                           # no score is printed
     tail = json.loads(out[-1].split(" ", 1)[1])
     assert out[-1].startswith("SCORE-PRESENCE-DRY-RUN {")
-    assert tail["changes_total"] == 3 and tail["written"] == 0 and tail["unread"] == []
+    assert tail["changes_total"] == 2 and tail["written"] == 0 and tail["unread"] == []
     assert tail["now"] == "2026-10-17 17:15:00Z" and tail["longest_game_h"]["NFL"] == 5
     assert tail["by_competition_season"]["ZSPF 2024"] == {
-        "listing": 12, "stored": 9, "changes": 3, "changes_no_status": 2, "changes_none_text": 1,
+        "listing": 12, "stored": 9, "changes": 2, "changes_no_status": 1, "changes_none_text": 1,
         "listed_no_status_both_scores": 5, "listed_none_text_both_scores": 2, "already": 1, "none_text_unchanged": 1,
         "left_alone_until_kickoff_age": 0, "not_stored": 2, "sched_both_scores": 6, "sched_both_changed": 2,
-        "left": 4, "apply_ids": sorted((ids[9101], ids[9106], ids[9107])), "held_nfl_regular_season_ids": [],
+        "left": 4, "needs_scores": 1, "needs_scores_ids": [ids[9107]], "apply_ids": [ids[9101]],
+        "held_nfl_not_preseason_ids": [], "held_rekeyed_ids": [], "none_text_change_ids": [ids[9106]],
+        "clock_moved": {"placeholder": 0, "date only": 0},
         "onto_stored": 8, "rekeyed": 0, "created": 3, "refused": 0, "skipped": 1,
         "also_status": 1, "also_kickoff": 1, "also_scores": 1, "also_fields": 1, "also_created": 2}
 
@@ -463,34 +488,42 @@ def _af_game(gid, home, away, when, totals=(20, 17), short=None, stage="Regular 
             "scores": {"home": {"total": totals[0]}, "away": {"total": totals[1]}}}
 
 
-def test_a_game_the_sync_re_keys_onto_a_stored_row_is_the_rule_s_change():
+def test_a_game_the_sync_re_keys_onto_a_stored_row_is_the_rule_s_change_held_off_the_apply_line(fresh):
     """A stored row the next sync re-keys (the same pair within 12 hours, under a new provider id) is resolved as the
-    sync resolves it: the rule's change, its kickoff and its re-key are on the receipt, and the sync then does it."""
+    sync resolves it: the rule's change, its kickoff and its re-key are on the receipt, and the sync then does it. A
+    status-only write cannot carry the re-key: the change is HELD off the APPLY line and the apply refuses it (#493
+    review, P1)."""
     from src.db.database import session_scope
     from src.db.schema import Match, Sport
     from src.ingestion import score_presence as sp
     from src.ingestion.service import IngestionService
     key = "ZSPK{}".format
-    ids = _world("ZSPK", Sport.NFL, "api_american_football", [(111, S, 20, 17, _af_ko())], key=key)
+    ids = _world("NCAA", Sport.NFL, "api_american_football", [(111, S, 20, 17, _af_ko())], key=key)
     before = _statuses(ids)
     payload = {"response": [_af_game(222, "ZSPK1110", "ZSPK1111", datetime(2024, 9, 7, 18))]}
     out = []
     ad = _faked(APIAmericanFootballAdapter(), payload)
-    assert sp.run(["ZSPK"], ["2024"], lambda c: ad, out=out.append, now=NOW) == 0
+    assert sp.run(["NCAA"], ["2024"], lambda c: ad, out=out.append, now=NOW) == 0
     assert _statuses(ids) == before                                              # writes nothing
     assert ("  THE SYNC'S RESOLUTION (each listed game as sync_matches resolves it): onto a stored row 1 (re-keyed 1) "
             "· creates 0 · refuses 0 · skips 0 (a team not stored)") in out
-    assert ("  NO STATUS SENT, both scores: listed 1 · changes 1 · already as the rule reads 0 · left alone until "
-            "kickoff + 5h 0 · not stored 0") in out
+    assert ("  NO STATUS SENT, both scores: listed 1 · changes 1 · needs scores 0 · already as the rule reads 0 · left "
+            "alone until the age clock (kickoff + 5h) 0 · not stored 0") in out
     assert (f"    match {ids[111]} · provider 111 → 222 (re-keyed) · 2024-09-07 17:00:00Z · Regular Season · no status "
             "sent · SCHEDULED → FINISHED") in out
     assert "  stored SCHEDULED with both scores: 1 · the rule changes 1 · the rule leaves 0" in out
+    assert "  APPLY: nothing to apply for NCAA 2024" in out
+    assert f"  HELD ({HELD_REKEY}): match ids {ids[111]}" in out
+    rc_out = []
+    assert sp.apply("NCAA", "2024", [ids[111]], lambda c: ad, out=rc_out.append, now=NOW) == 1
+    assert f"    match {ids[111]}: HELD ({HELD_REKEY}) · provider 111 → 222" in rc_out
+    assert _statuses(ids) == before                                              # the apply wrote nothing
     assert not [ln for ln in out if ln.startswith("    left:")]
     assert (f"    kickoff: match {ids[111]} · provider 111 → 222 (re-keyed) · 2024-09-07 17:00:00Z → "
             "2024-09-07 18:00:00Z") in out
     assert f"    re-key: match {ids[111]} · provider 111 → 222 (re-keyed) · 2024-09-07 17:00:00Z · Regular Season" in out
     # the sync, on the same answer, does what the receipt says
-    res = IngestionService(ad).sync_matches("ZSPK", "2024")
+    res = IngestionService(ad).sync_matches("NCAA", "2024")
     assert (res.rekeyed, res.created) == (1, 0)
     with session_scope() as s:
         m = s.get(Match, ids[111])
@@ -570,8 +603,8 @@ def test_the_dry_run_reads_hockey_and_every_stored_season_by_default():
             "(unchanged)") in out
     assert ("  THE SYNC'S RESOLUTION (each listed game as sync_matches resolves it): onto a stored row 3 (re-keyed 0) "
             "· creates 0 · refuses 0 · skips 11 (a team not stored)") in out
-    assert ("  NO STATUS SENT, both scores: listed 6 · changes 1 · already as the rule reads 0 · left alone until "
-            "kickoff + 4h 0 · not stored 5") in out
+    assert ("  NO STATUS SENT, both scores: listed 6 · changes 1 · needs scores 0 · already as the rule reads 0 · left "
+            "alone until the age clock (kickoff + 4h) 0 · not stored 5") in out
 
 
 def test_a_listing_that_cannot_be_read_is_named_and_exits_1(capsys):
@@ -702,8 +735,12 @@ NFL_PAYLOAD = {"response": [_af_game(501, "N5010", "N5011", _af_ko(), stage="Pre
 
 def test_the_dry_run_names_each_nfl_change_s_stage_class(fresh):
     """Addendum 116 item 4 (2): each NFL change carries nfl_elo_v1's own preseason test on its stored stage; the
-    summary counts each class; the apply line names the preseason ids only, the held ones are listed for their Issue."""
+    summary counts each class; the apply line names the preseason ids only, the held ones are listed for their Issue.
+    The held class is every row the walk reads, regular season AND postseason: labelled "not preseason" (#493 review)."""
     from src.ingestion import score_presence as sp
+    assert [sp.nfl_class("NFL", st) for st in ("Pre Season", "Regular Season", "Post Season", None)] == \
+        [PRE, HELD, HELD, HELD]
+    assert sp.nfl_class("NCAA", "Post Season") is None
     ids = _nfl_world()
     out = []
     assert sp.run(["NFL"], ["2024"], lambda c: _faked(APIAmericanFootballAdapter(), NFL_PAYLOAD), out=out.append,
@@ -711,7 +748,7 @@ def test_the_dry_run_names_each_nfl_change_s_stage_class(fresh):
     assert ("  THE RULE CHANGES 3 stored row(s) of NFL 2024 (status only, score-presence-apply): no status sent 2 · "
             "the text 'None' 1") in out
     assert (f"    match {ids[501]} · provider 501 · 2024-09-07 17:00:00Z · Pre Season · no status sent · SCHEDULED → "
-            "FINISHED · preseason (applied)") in out
+            f"FINISHED · {PRE}") in out
     assert (f"    match {ids[502]} · provider 502 · 2024-09-07 17:00:00Z · Regular Season · no status sent · SCHEDULED "
             f"→ FINISHED · {HELD}") in out
     assert (f"    match {ids[503]} · provider 503 · 2024-09-07 17:00:00Z · Regular Season · stored FINISHED → FINISHED "
@@ -719,14 +756,15 @@ def test_the_dry_run_names_each_nfl_change_s_stage_class(fresh):
     assert (f"    match {ids[504]} · provider 504 · 2024-09-07 17:00:00Z · Regular Season · stored SCHEDULED → FINISHED "
             f"(a change · {HELD})") in out
     assert ("  NFL STAGE (nfl_elo_v1's preseason test, nfl_predict.is_preseason, on the stored stage; the apply writes no "
-            f"stage): of the rule's 3 change(s), preseason (applied) 1 · {HELD} 2") in out
+            f"stage): of the rule's 3 change(s), {PRE} 1 · {HELD} 2") in out
     assert "  stored SCHEDULED with both scores: 4 · the rule changes 3 · the rule leaves 1" in out
     assert ("  APPLY (status only; on the architect's word, after a fresh .backup): python cli.py score-presence-apply "
             f"--competition NFL --season 2024 --match-ids {ids[501]} --backup <PATH>") in out
-    assert ("  HELD (NFL regular season: they change nfl_elo_v1's ratings and need a gate verdict; their own Issue, the "
-            f"NFL re-declaration lane): match ids {ids[502]},{ids[504]}") in out
+    assert f"  HELD ({HELD_NFL}): match ids {ids[502]},{ids[504]}" in out
+    assert not [ln for ln in out if ln.startswith("  THE TEXT 'None' CHANGES")]  # 504 is held, never "on the word"
     tail = json.loads(out[-1].split(" ", 1)[1])["by_competition_season"]["NFL 2024"]
-    assert (tail["apply_ids"], tail["held_nfl_regular_season_ids"]) == ([ids[501]], [ids[502], ids[504]])
+    assert (tail["apply_ids"], tail["held_nfl_not_preseason_ids"], tail["none_text_change_ids"]) == \
+        ([ids[501]], [ids[502], ids[504]], [])
 
 
 def test_the_apply_refuses_as_a_whole_and_writes_only_status_on_what_it_accepts(fresh):
@@ -744,12 +782,11 @@ def test_the_apply_refuses_as_a_whole_and_writes_only_status_on_what_it_accepts(
     assert out[0] == ("SCORE-PRESENCE APPLY (#493; ARCHITECT 2026-10-16 addendum 81 item 3, 2026-10-17 addendum 112 "
                       "item 4 and addendum 116 item 4) · writes Match.status ONLY, on named rows of the rule's change "
                       "set; refuses as a whole")
-    assert out[1:3] == HEADER
-    assert out[3] == (f"NFL 2024 · source api_american_football · listing 5 games · stored 5 rows · the rule's change set "
+    assert out[1:4] == HEADER
+    assert out[4] == (f"NFL 2024 · source api_american_football · listing 5 games · stored 5 rows · the rule's change set "
                       f"3 · named 3: {ids[501]},{ids[502]},{ids[504]}")
-    assert out[4] == "  REFUSED as a whole · nothing written · 2 of 3 named id(s) refused:"
-    assert out[5] == (f"    match {ids[502]}: an NFL regular-season row (stored stage 'Regular Season'): held, it "
-                      "changes nfl_elo_v1's ratings and needs a gate verdict (addendum 116 item 4 (2)); its own Issue")
+    assert out[5] == "  REFUSED as a whole · nothing written · 2 of 3 named id(s) refused:"
+    assert out[6] == f"    match {ids[502]}: HELD ({HELD_NFL}) · stored stage 'Regular Season'"
     assert json.loads(out[-1].split(" ", 1)[1])["applied"] == 0
     # ids not in the change set: refused as a whole, each reason named
     rc, out = apply(ids[501], ids[503], ids[505], 999999)
@@ -763,10 +800,10 @@ def test_the_apply_refuses_as_a_whole_and_writes_only_status_on_what_it_accepts(
     rc, out = apply(ids[501])
     assert rc == 0, out
     assert _only_status_changed(before, _dump(fresh), {ids[501]})
-    assert out[4:7] == [
+    assert out[5:8] == [
         "  APPLIED · Match.status only · 1 row(s):",
         f"    match {ids[501]} · provider 501 · 2024-09-07 17:00:00Z · Pre Season · no status sent · SCHEDULED → "
-        "FINISHED · preseason (applied)",
+        f"FINISHED · {PRE}",
         "  count 1 · written: status only (no kickoff, score, stage, season, status code or provider id; no row created "
         "or deleted)"]
     tail = json.loads(out[-1].split(" ", 1)[1])
@@ -779,10 +816,12 @@ def test_the_apply_refuses_as_a_whole_and_writes_only_status_on_what_it_accepts(
 
 
 def test_the_apply_refuses_a_row_left_alone_by_the_kickoff_age_condition(fresh):
+    """A stored LIVE row whose scores are the listing's (the sync writes scores as it always has): refused before
+    kickoff + 4h, applied at it."""
     from src.db.schema import Sport
     from src.ingestion import score_presence as sp
     ko = datetime(2026, 10, 17, 16, 15)
-    ids = _world("NHL", Sport.NHL, "api_hockey", [(901, L, 1, 0, ko)], key="H{}".format, season="2026")
+    ids = _world("NHL", Sport.NHL, "api_hockey", [(901, L, 2, 1, ko)], key="H{}".format, season="2026")
     payload = {"response": [{"id": 901, "date": ko.replace(tzinfo=timezone.utc).isoformat(),
                              "teams": {"home": {"id": "H9010"}, "away": {"id": "H9011"}},
                              "scores": {"home": 2, "away": 1}}]}
@@ -918,3 +957,248 @@ def test_the_apply_cli_verifies_the_backup_then_applies(fresh, tmp_path, monkeyp
     assert res.output.startswith(f"backup verified: {bk.resolve()}")
     assert "  APPLIED · Match.status only · 1 row(s):" in res.output
     assert _only_status_changed(before, _dump(fresh), {ids[501]})
+
+
+# --- #493 review: what a status-only write cannot complete, re-keys, the text "None" and the age clock ---
+
+def _hockey_game(gid, ko, totals, status=_NO_KEY, key="H{}".format):
+    row = {"id": gid, "date": ko.replace(tzinfo=timezone.utc).isoformat(),
+           "teams": {"home": {"id": f"{key(gid)}0"}, "away": {"id": f"{key(gid)}1"}},
+           "scores": {"home": totals[0], "away": totals[1]}}
+    if status is not _NO_KEY:
+        row["status"] = status
+    return row
+
+
+def _nhl_world():
+    """NHL 2026: four stored rows whose listed games carry no status (one the text "None") and both totals, long past
+    kickoff + 4h."""
+    from src.db.schema import Sport
+    ko = datetime(2026, 10, 8, 23)
+    ids = _world("NHL", Sport.NHL, "api_hockey", [
+        (911, S, None, None, ko),     # stored with no score, listed 3-2: NEEDS SCORES (missing)
+        (912, L, 1, 0, ko),           # stored LIVE at a running 1-0, listed final 2-1: NEEDS SCORES (they differ)
+        (913, S, 2, 1, ko),           # stored the listing's 2-1: a change, on the APPLY line
+        (914, S, 4, 1, ko),           # the text "None", stored the listing's 4-1: a change, on its own line
+    ], key="H{}".format, season="2026")
+    payload = {"response": [_hockey_game(911, ko, (3, 2)), _hockey_game(912, ko, (2, 1)),
+                            _hockey_game(913, ko, (2, 1)), _hockey_game(914, ko, (4, 1), {"short": "None"})]}
+    return ids, payload
+
+
+def test_a_row_whose_stored_scores_are_missing_or_differ_needs_scores_and_the_apply_refuses_it(fresh):
+    """#493 review (P1): a status-only write never puts FINISHED on a row whose stored scores are missing (a FINISHED
+    row with no score) or differ from the listing's totals (an in-play score read as the final). Such a row is NEEDS
+    SCORES: listed with its id (never a score), off the APPLY and HELD lines, counted, and refused by the apply."""
+    from src.ingestion import score_presence as sp
+    ids, payload = _nhl_world()
+    ad = lambda c: _faked(APIHockeyAdapter(), payload)                          # noqa: E731
+    # the apply refuses each, as a whole, and writes nothing (before the fix: FINISHED with no score / a stale score)
+    before = _dump(fresh)
+    for named in ([ids[911]], [ids[912], ids[913]]):
+        res = []
+        assert sp.apply("NHL", "2026", named, ad, out=res.append, now=NOW) == 1
+        assert _dump(fresh) == before
+    res = []
+    assert sp.apply("NHL", "2026", [ids[911], ids[912]], ad, out=res.append, now=NOW) == 1
+    assert (f"    match {ids[911]}: NEEDS SCORES (held): the rule reads FINISHED, but the stored scores are missing: a "
+            "status-only write cannot complete the row (addendum 116 item 4 (1): never scores; addendum 112 item 4: no "
+            "score, not FINISHED); held for the architect") in res
+    assert (f"    match {ids[912]}: NEEDS SCORES (held): the rule reads FINISHED, but the stored scores are different from "
+            "the listing's totals: a status-only write cannot complete the row (addendum 116 item 4 (1): never scores; "
+            "addendum 112 item 4: no score, not FINISHED); held for the architect") in res
+    assert _dump(fresh) == before
+    # the dry run: listed with ids, off the APPLY and HELD lines, counted
+    out = []
+    assert sp.run(["NHL"], ["2026"], ad, out=out.append, now=NOW) == 0
+    text = "\n".join(out)
+    assert NEEDS + f"2 · match ids {ids[911]},{ids[912]}" in out
+    assert (f"    match {ids[911]} · provider 911 · 2026-10-08 23:00:00Z · Regular Season · no status sent · stored "
+            "SCHEDULED → FINISHED · stored scores missing") in out
+    assert (f"    match {ids[912]} · provider 912 · 2026-10-08 23:00:00Z · Regular Season · no status sent · stored LIVE "
+            "→ FINISHED · stored scores different from the listing's totals") in out
+    assert ("  THE RULE CHANGES 2 stored row(s) of NHL 2026 (status only, score-presence-apply): no status sent 1 · the "
+            "text 'None' 1") in out
+    assert ("  NO STATUS SENT, both scores: listed 3 · changes 1 · needs scores 2 · already as the rule reads 0 · left "
+            "alone until the age clock (kickoff + 4h) 0 · not stored 0") in out
+    apply_line = [ln for ln in out if ln.startswith("  APPLY")]
+    assert apply_line == ["  APPLY (status only; on the architect's word, after a fresh .backup): python cli.py "
+                          f"score-presence-apply --competition NHL --season 2026 --match-ids {ids[913]} --backup <PATH>"]
+    assert not [ln for ln in out if ln.startswith("  HELD")]
+    assert [ln for ln in out if ln.startswith("  THE TEXT 'None' CHANGES")] == [TEXT_NONE + str(ids[914])]
+    assert "3-2" not in text and "1-0" not in text and "(3, 2)" not in text           # no score is printed
+    tail = json.loads(out[-1].split(" ", 1)[1])["by_competition_season"]["NHL 2026"]
+    assert (tail["needs_scores"], tail["needs_scores_ids"], tail["apply_ids"], tail["changes"]) == \
+        (2, [ids[911], ids[912]], [ids[913]], 2)
+    # the one row a status-only write completes
+    assert sp.apply("NHL", "2026", [ids[913]], ad, out=[].append, now=NOW) == 0
+    assert _only_status_changed(before, _dump(fresh), {ids[913]})
+
+
+def test_a_text_none_change_is_off_the_apply_line_and_applied_only_when_named(fresh):
+    """#493 review (P2): addendum 116 item 4 (4) expects no text "None" change; one the receipt shows is on its own line,
+    never on the APPLY line, and counted. The architect's word is carried out by naming it: the apply accepts it."""
+    from src.ingestion import score_presence as sp
+    ids, payload = _nhl_world()
+    ad = lambda c: _faked(APIHockeyAdapter(), payload)                          # noqa: E731
+    out = []
+    assert sp.run(["NHL"], ["2026"], ad, out=out.append, now=NOW) == 0
+    assert TEXT_NONE + str(ids[914]) in out
+    assert (f"    match {ids[914]} · provider 914 · 2026-10-08 23:00:00Z · Regular Season · stored SCHEDULED → FINISHED (a "
+            "change)") in out
+    assert [ln for ln in out if ln.startswith("  APPLY")][0].endswith(f"--match-ids {ids[913]} --backup <PATH>")
+    tail = json.loads(out[-1].split(" ", 1)[1])["by_competition_season"]["NHL 2026"]
+    assert (tail["none_text_change_ids"], tail["changes_none_text"]) == ([ids[914]], 1)
+    before = _dump(fresh)
+    res = []
+    assert sp.apply("NHL", "2026", [ids[914]], ad, out=res.append, now=NOW) == 0, res
+    assert f"    match {ids[914]} · provider 914 · 2026-10-08 23:00:00Z · Regular Season · text 'None' · SCHEDULED → " \
+           "FINISHED" in res
+    assert _only_status_changed(before, _dump(fresh), {ids[914]})
+
+
+def _rows_ncaa():
+    from src.db.database import session_scope
+    from src.db.schema import Competition, Match
+    with session_scope() as s:
+        comp = s.execute(select(Competition).where(Competition.code == "NCAA")).scalar_one()
+        return sorted((m.id, m.status, m.utc_date, m.external_ids.get("api_american_football"))
+                      for m in s.execute(select(Match).where(Match.competition_id == comp.id)).scalars())
+
+
+def test_a_placeholder_re_key_is_held_and_the_apply_cannot_make_a_twin(fresh):
+    """#493 review (P1): a stored SCHEDULED NCAA row at the provider's TBD placeholder (04:00Z), listed under a new id at
+    a real kickoff 16h later (outside 12 hours: only the placeholder window finds it). Before the fix the dry run put it
+    on the APPLY line, the apply wrote FINISHED, and the next sync (the placeholder window reads SCHEDULED rows only)
+    created a twin. Now it is HELD, the apply refuses it, and the sync re-keys the row in place."""
+    from src.db.schema import Sport
+    from src.ingestion import score_presence as sp
+    from src.ingestion.service import IngestionService
+    placeholder, real = datetime(2024, 9, 7, 4), datetime(2024, 9, 7, 20)
+    ids = _world("NCAA", Sport.NFL, "api_american_football", [(7001, S, 21, 14, placeholder)], key="P{}".format)
+    payload = {"response": [_af_game(7999, "P70010", "P70011", real, totals=(21, 14))]}
+    ad = _faked(APIAmericanFootballAdapter(), payload)
+    out = []
+    assert sp.run(["NCAA"], ["2024"], lambda c: ad, out=out.append, now=NOW) == 0
+    before = _dump(fresh)
+    res = []
+    assert sp.apply("NCAA", "2024", [ids[7001]], lambda c: ad, out=res.append, now=NOW) == 1
+    assert f"    match {ids[7001]}: HELD ({HELD_REKEY}) · provider 7001 → 7999" in res
+    assert _dump(fresh) == before                                                # nothing written
+    assert (f"    match {ids[7001]} · provider 7001 → 7999 (re-keyed) · 2024-09-07 04:00:00Z · Regular Season · no status "
+            "sent · SCHEDULED → FINISHED") in out
+    assert "  APPLY: nothing to apply for NCAA 2024" in out
+    assert f"  HELD ({HELD_REKEY}): match ids {ids[7001]}" in out
+    assert json.loads(out[-1].split(" ", 1)[1])["by_competition_season"]["NCAA 2024"]["held_rekeyed_ids"] == [ids[7001]]
+    # the next sync: the row re-keyed in place, no twin
+    r = IngestionService(ad).sync_matches("NCAA", "2024")
+    assert (r.created, r.rekeyed) == (0, 1)
+    assert _rows_ncaa() == [(ids[7001], F, real, "7999")]
+
+
+def test_the_age_clock_helper_moves_for_the_tbd_placeholder_and_a_date_with_no_time():
+    from src.ingestion.placeholder import PLACEHOLDER_RESOLVE_H, is_placeholder_kickoff
+    ph = datetime(2026, 10, 24, 4)
+    assert is_placeholder_kickoff(ph) and PLACEHOLDER_RESOLVE_H == 24
+    assert ass.age_start(ph, "NCAA") == (ph + timedelta(hours=24), ass.CLOCK_PLACEHOLDER)
+    assert ass.age_until(ph, "NCAA") == datetime(2026, 10, 25, 9)                # the end of its game day + 5h
+    assert ass.age_start(ph, "NFL") == (ph, None)                                # NFL: no placeholder receipt
+    assert ass.age_until(ph, "NFL") == datetime(2026, 10, 24, 9)
+    day = datetime(2026, 10, 18)
+    assert ass.age_start(day, "NFL", date_only=True) == (datetime(2026, 10, 19), ass.CLOCK_DATE_ONLY)
+    assert ass.age_until(day, "NHL", date_only=True) == datetime(2026, 10, 19, 4)
+    assert ass.age_until(datetime(2026, 10, 18, 17), "NFL") == datetime(2026, 10, 18, 22)
+    assert ass.age_start(None, "NCAA") == (None, None) and ass.age_until(None, "NCAA") is None
+    assert [ass.is_date_only(x) for x in ("2026-10-18", "2026-10-18T17:00:00+00:00", "2026-10-18 17:00", "")] == \
+        [True, False, False, False]
+
+
+def test_an_ncaa_game_at_the_tbd_placeholder_in_play_never_reads_finished(fresh, monkeypatch):
+    """#493 review (P2): an NCAA game listed at the provider's TBD placeholder (04:00Z) with no status and running
+    totals at 20:20Z on game day: before the fix 20:20 >= 04:00 + 5h read FINISHED mid-game. The age clock counts from
+    the end of that game day (placeholder + 24h) before the 5h: None (the stored status left alone) until then."""
+    from src.db.schema import Sport
+    from src.ingestion.service import IngestionService
+    ph = datetime(2026, 10, 24, 4)
+    in_play = datetime(2026, 10, 24, 20, 20)
+    edge = ph + timedelta(hours=24 + 5)
+    assert _parse_one("NCAA", ph, _NO_KEY, totals=(14, 7), now=in_play).status is None
+    assert _parse_one("NCAA", ph, "None", totals=(14, 7), now=edge - timedelta(seconds=1)).status is None
+    assert _parse_one("NCAA", ph, _NO_KEY, totals=(14, 7), now=edge).status == F
+    assert _parse_one("NFL", ph, _NO_KEY, now=ph + timedelta(hours=5)).status == F    # NFL: kickoff + 5h, as ruled
+    # through the sync: a stored LIVE and a stored SCHEDULED row at the placeholder keep their status in play
+    _team_world("NCAA", Sport.NFL, "api_american_football", [(6101, L, ph, None), (6102, S, ph, None)])
+    payload = {"response": [{"game": {"id": gid, "date": {"timestamp": int(ph.replace(tzinfo=timezone.utc).timestamp())}},
+                             "teams": {"home": {"id": f"NCAA{gid}0"}, "away": {"id": f"NCAA{gid}1"}},
+                             "scores": {"home": {"total": 14}, "away": {"total": 7}}} for gid in (6101, 6102)]}
+    clock = [in_play]
+    monkeypatch.setattr(ass, "utc_now_naive", lambda: clock[0])
+    IngestionService(_faked(APIAmericanFootballAdapter(), payload)).sync_matches("NCAA", "2026")
+    assert {k: v[0] for k, v in _rows_of("NCAA").items()} == {"6101": L, "6102": S}
+    clock[0] = edge
+    IngestionService(_faked(APIAmericanFootballAdapter(), payload)).sync_matches("NCAA", "2026")
+    assert {k: v[0] for k, v in _rows_of("NCAA").items()} == {"6101": F, "6102": F}
+
+
+@pytest.mark.parametrize("block", [{"date": "2026-10-18", "time": "17:00"}, {"date": "2026-10-18"}, "2026-10-18"])
+def test_a_kickoff_sent_as_a_date_with_no_time_counts_from_the_end_of_that_date(block):
+    """#493 review (P2): with no timestamp the american-football parse reads the date alone (the time is dropped), so
+    the kickoff parses as midnight UTC. Before the fix a 17:00Z game in play at 17:50Z read FINISHED (00:00 + 5h). The
+    kickoff time is unknown: the age clock counts from the end of that UTC date. The stored kickoff is unchanged."""
+    def one(now, code="NFL"):
+        row = {"game": {"id": 1, "date": block}, "teams": {"home": {"id": 10}, "away": {"id": 11}},
+               "scores": {"home": {"total": 14}, "away": {"total": 7}}}
+        return APIAmericanFootballAdapter()._parse_games({"response": [row]}, code, "2026", now=now)[0]
+    got = one(datetime(2026, 10, 18, 17, 50))
+    assert got.status is None and got.utc_date == datetime(2026, 10, 18)        # in play: not FINISHED
+    assert got.kickoff_date_only is True
+    assert one(datetime(2026, 10, 19, 5) - timedelta(seconds=1)).status is None
+    assert one(datetime(2026, 10, 19, 5)).status == F
+    assert one(datetime(2026, 10, 19, 5), "NCAA").status == F                    # midnight is no TBD placeholder
+    # the hockey parse reads the same fallback: a date with no time, NHL's 4h from the end of the date
+    if isinstance(block, str):
+        row = {"id": 1, "date": block, "teams": {"home": {"id": 10}, "away": {"id": 11}},
+               "scores": {"home": 2, "away": 1}}
+        hk = APIHockeyAdapter()._parse_games({"response": [row]}, "2026", now=datetime(2026, 10, 18, 23, 50))[0]
+        assert (hk.status, hk.kickoff_date_only) == (None, True)
+        assert APIHockeyAdapter()._parse_games({"response": [row]}, "2026",
+                                               now=datetime(2026, 10, 19, 4))[0].status == F
+    # a timestamp: the kickoff is known, nothing moves
+    assert _parse_one("NFL", datetime(2026, 10, 18, 17), _NO_KEY, now=datetime(2026, 10, 18, 22)).kickoff_date_only \
+        is False
+
+
+def test_the_receipt_says_when_a_row_s_age_clock_moved(fresh):
+    """#493 review (P2): the receipt reads the rule's own helper (age_until), so it says what the parse did: a row whose
+    clock starts at the end of the TBD placeholder's game day, or the end of a date sent with no time, says so."""
+    from src.db.schema import Sport
+    from src.ingestion import score_presence as sp
+    ph, day = datetime(2026, 10, 24, 4), datetime(2026, 10, 24)
+    ids = _world("NCAA", Sport.NFL, "api_american_football", [(6201, S, 14, 7, ph), (6202, S, 21, 3, day)],
+                 key="Q{}".format, season="2026")
+    dated = _af_game(6202, "Q62020", "Q62021", day, totals=(21, 3))
+    dated["game"]["date"] = {"date": "2026-10-24", "time": "19:30"}             # no timestamp
+    payload = {"response": [_af_game(6201, "Q62010", "Q62011", ph, totals=(14, 7)), dated]}
+
+    def dry(now):
+        out = []
+        assert sp.run(["NCAA"], ["2026"], lambda c: _faked(APIAmericanFootballAdapter(), payload), out=out.append,
+                      now=now) == 0
+        return out
+    out = dry(datetime(2026, 10, 24, 20, 20))
+    assert (f"    left alone: match {ids[6201]} · provider 6201 · 2026-10-24 04:00:00Z · Regular Season · no status sent · "
+            "stored SCHEDULED kept (kickoff + 24h (the end of the TBD placeholder's game day) + 5h = 2026-10-25 "
+            "09:00:00Z is after now)") in out
+    assert (f"    left alone: match {ids[6202]} · provider 6202 · 2026-10-24 00:00:00Z · Regular Season · no status sent · "
+            "stored SCHEDULED kept (the end of the kickoff's UTC date (no kickoff time sent) + 5h = 2026-10-25 "
+            "05:00:00Z is after now)") in out
+    assert "  AGE CLOCK MOVED (listed games of the rule's class counted from later than the kickoff sent, each row says " \
+           "so): the NCAA TBD placeholder 1 · a date with no time 1" in out
+    assert "  APPLY: nothing to apply for NCAA 2026" in out
+    out = dry(datetime(2026, 10, 25, 9))
+    assert (f"    match {ids[6201]} · provider 6201 · 2026-10-24 04:00:00Z · Regular Season · no status sent · SCHEDULED "
+            "→ FINISHED · age clock from kickoff + 24h (the end of the TBD placeholder's game day)") in out
+    assert (f"    match {ids[6202]} · provider 6202 · 2026-10-24 00:00:00Z · Regular Season · no status sent · SCHEDULED "
+            "→ FINISHED · age clock from the end of the kickoff's UTC date (no kickoff time sent)") in out
+    assert json.loads(out[-1].split(" ", 1)[1])["by_competition_season"]["NCAA 2026"]["clock_moved"] == \
+        {"placeholder": 1, "date only": 1}

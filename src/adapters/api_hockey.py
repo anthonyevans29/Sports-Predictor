@@ -23,7 +23,7 @@ from typing import Any
 
 import requests
 
-from src.adapters.api_sports_status import game_status, no_status, provider_short, rule_now, sport_key
+from src.adapters.api_sports_status import game_status, is_date_only, no_status, provider_short, rule_now, sport_key
 from src.adapters.base import DataAdapter
 from src.adapters.normalized import (
     NormalizedCompetition,
@@ -153,8 +153,9 @@ class APIHockeyAdapter(DataAdapter):
         has it, #493). `raw_shorts` (opt-in, the score-presence dry run): a dict each parsed game's provider status is
         added to, {provider id: the short as sent, None when absent}. Default None: nothing changes. `now`: the clock
         the score-presence rule's kickoff-age condition reads (addendum 116 item 4 (3)); None = utc now, read once for
-        the whole answer. A game with no status and both totals before kickoff + 4h parses with status None: no status
-        for this game, the stored one is left alone (src/adapters/api_sports_status.py)."""
+        the whole answer. A game with no status and both totals before kickoff + 4h (a kickoff sent as a date with no
+        time: the end of that UTC date + 4h; api_sports_status.age_until) parses with status None: no status for this
+        game, the stored one is left alone (src/adapters/api_sports_status.py)."""
         now = rule_now(now)
         out: list[NormalizedMatch] = []
         for g in data.get("response") or []:
@@ -165,6 +166,7 @@ class APIHockeyAdapter(DataAdapter):
             dt_block = game.get("date") or {}
             # provider gives {"date": "...", "time": "...", "timestamp": ...}
             ts = dt_block.get("timestamp") if isinstance(dt_block, dict) else None
+            date_only = False
             if ts:
                 utc = datetime.fromtimestamp(int(ts), tz=timezone.utc).replace(tzinfo=None)
             else:
@@ -173,6 +175,8 @@ class APIHockeyAdapter(DataAdapter):
                     continue
                 utc = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                 utc = utc.astimezone(timezone.utc).replace(tzinfo=None) if utc.tzinfo else utc
+                # a date with no time: the kickoff time is unknown (the age clock counts from the end of the date)
+                date_only = is_date_only(raw)
             # raw provider code BEFORE the "NS" default: an absent status must
             # stay absent in status_raw (conservative unknowns), not become "NS";
             # the score-presence rule reads it too (#493)
@@ -198,7 +202,8 @@ class APIHockeyAdapter(DataAdapter):
             # FINISHED once kickoff + the longest game has passed, else None (the
             # stored status is left alone); no status + a total missing ->
             # SCHEDULED; a stated short keeps its mapping (unknown SCHEDULED)
-            status = game_status(raw_short, _STATUS, _h_total, _a_total, utc, sport_key("NHL", Sport.NHL), now)
+            status = game_status(raw_short, _STATUS, _h_total, _a_total, utc, sport_key("NHL", Sport.NHL), now,
+                                 date_only=date_only)
             if raw_shorts is not None:
                 raw_shorts[str(gid)] = raw_short
             out.append(NormalizedMatch(
@@ -217,6 +222,7 @@ class APIHockeyAdapter(DataAdapter):
                 status_raw=(None if no_status(raw_short) else raw_short),
                 home_score=hs.get("total") if isinstance(hs, dict) else hs,
                 away_score=as_.get("total") if isinstance(as_, dict) else as_,
+                kickoff_date_only=date_only,
             ))
         return out
 

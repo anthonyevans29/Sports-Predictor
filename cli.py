@@ -326,13 +326,17 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
 def score_presence_dry_run_cmd(competitions, seasons):
     """READ-ONLY (#493; ARCHITECT 2026-10-16 addendum 81 item 3; 2026-10-17 addendum 116 item 4): every stored row the
     adapters' score-presence rule changes (no provider status, none sent or the text 'None', with both scores:
-    FINISHED once now >= kickoff + the sport's longest game; before that the stored status is left alone), counted per
-    competition-season with the ids, each listed game resolved to its stored row as the sync resolves it (re-keys
-    included). NFL changes carry their stored stage's class (preseason applied, regular season held); the text 'None'
-    rows are listed apart, for the record. Ends each competition-season with the score-presence-apply line for its
-    ids, and lists for information what a whole-season sync would write besides (it is not the vehicle). One /games
-    call per competition-season. Writes nothing: the operator runs it after the backup. Exit 1 when a listing could
-    not be read; 2 when there is no database file."""
+    FINISHED once now >= the age clock, kickoff + the sport's longest game, an NCAA TBD placeholder kickoff from the
+    end of its game day, a date with no time from the end of that date; before that the stored status is left alone),
+    counted per competition-season with the ids, each listed game resolved to its stored row as the sync resolves it
+    (re-keys included). A change is a row whose stored scores are the listing's; one whose stored scores are missing
+    or differ is NEEDS SCORES (held: a status-only write cannot complete it). NFL changes carry their stored stage's
+    class (preseason applied with the rest; not preseason, regular season and postseason, held); the text 'None' rows
+    are listed apart, for the record. Ends each competition-season with the score-presence-apply line for its ids, a
+    HELD line for the NFL rows not preseason and one for the rows the sync re-keys, a line for the text 'None' changes
+    (off the APPLY line: the architect's word), and lists for information what a whole-season sync would write besides
+    (it is not the vehicle). One /games call per competition-season. Writes nothing: the operator runs it after the
+    backup. Exit 1 when a listing could not be read; 2 when there is no database file."""
     from src.ingestion import score_presence as sp
 
     raise SystemExit(sp.run([c.upper() for c in competitions] or list(sp.COMPETITIONS), list(seasons),
@@ -353,9 +357,11 @@ def score_presence_apply_cmd(competition, season, match_ids, backup_path):
     utc_date, never scores) on the rows the dry run listed, backup first, in a laptop block on my word." Re-reads the
     provider's listing and recomputes the rule's change set exactly as score-presence-dry-run does; refuses AS A WHOLE
     (nothing written, every reason named, exit 1) when a named id is not in that change set for the competition-season
-    or is an NFL regular-season row (item 4 (2): held for a gate verdict). Writes Match.status alone, one guarded
-    UPDATE per row; prints each id stored -> new, the count, and for NCAA ncaa-elo-v2's stream and training
-    fingerprints before and after. Refuses (exit 2) when the database file is absent or the backup does not verify."""
+    (a NEEDS SCORES row included), is an NFL row not preseason (item 4 (2): held for a gate verdict) or is a row the
+    sync re-keys (held: a status-only write cannot carry the re-key). A text 'None' change is accepted when named.
+    Writes Match.status alone, one guarded UPDATE per row; prints each id stored -> new, the count, and for NCAA
+    ncaa-elo-v2's stream and training fingerprints before and after. Refuses (exit 2) when the database file is
+    absent or the backup does not verify."""
     from src.db.schema import Match as _M
     from src.ingestion import score_presence as sp
 

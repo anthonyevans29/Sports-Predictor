@@ -42,8 +42,13 @@ v7"."
     closing has finished with), the done line says what the watch does with it, as the watch decides: inside T-5 a
     miss, no attempt (closing.due's "inside", closing.watch); ahead or due, superseded when the start time has a
     success or three attempts (closing.closing_state, as closing._under_lock reads it), else `(attempt N of 3: the
-    watch tries again)`; and it names the group's games the run's covers do not hold. A game a closing finished with
-    whose run is no done line of the day (its run started the day before) keeps its line, `a closing finished with …`.
+    watch tries again)`; and it names the group's games the run's covers do not hold. Then the export file the run
+    landed in, the receipt's own `closing_file` (addendum 40 item 2; C7's "the export file each lands in"): `closing
+    file exports/<name>`, or, where closing.py's write failed after the page went out (`closing_file_failed`, or an
+    error in `closing_file`: the run is exit 0 and never run again), `closing file NOT written (exports/<name>):
+    receipted and notified, not run again`, closing.py's own words. Only the receipt is read, nothing under exports/.
+    A game a closing finished with whose run is no done line of the day (its run started the day before) keeps its
+    line, `a closing finished with …`.
 
     The model status, per competition, in the ruled order, each read from data and code (no competition named here):
       LIVE         a closing family covers it (closing.FAMILIES[fam]["comps"]; the families are chains.CLOSING_FAMILIES,
@@ -61,7 +66,9 @@ v7"."
                    nhl-daily runs export-nhl-predictions, v7, every day: the ruling's own example) and how a declared
                    lane would (NCAA's has no shadow export scheduled: CLAUDE.md "No college shadow ... until then").
                    The tag is the vN token of the shadow's id as the code names it (the registry id in (a), the shadow
-                   module's model id in (b)), the full id where it has none.
+                   module's model id in (b)), the full id where it has none. A chain outside its season gate on the
+                   day runs nothing (sp_run.active_from: its active_from_env setting, else chains.py's date; sp_run
+                   skips it, or fails it on a malformed setting): no schedule that day, the gate named on the line.
       MARKET-ONLY  the code's own market-only sets, imported (market_only_sets): desk_policy.SHADOW_VENUE_COMPS (the set
                    cli._refuse_shadow_league refuses), chains.EXPANSION_CODES, chains.KALSHI_CAPTURE_ONLY,
                    export._MARKET_ONLY_REASON (the market-only fixtures file's NHL, NCAA, UNL) and cup_coeff.EXAM_COMPS
@@ -82,9 +89,9 @@ v7"."
 Read-only: the DB is opened mode=ro (sp_common.ro_connect: a missing file is refused, never created), plus
 docs/roadmap.json, docs/registry/experiments.json, the watch's schedule inputs (chains.py, closing.py) and its receipt
 log (sp_common.receipts_path(): SP_RECEIPTS or logs/receipts.jsonl, read as closing.receipts reads it; no file is no
-receipt) and the settings _family_refusal reads. No row, no export, no receipt is written; no provider call. SQLite
-itself may leave its -wal/-shm sidecars beside a WAL file, as for every ro_connect reader. Exit 0 whatever the gaps (it
-never stops a chain); a date that is not real or a DB that cannot be read exits 2.
+receipt) and the settings _family_refusal and sp_run.active_from read. No row, no export, no receipt is written; no
+provider call. SQLite itself may leave its -wal/-shm sidecars beside a WAL file, as for every ro_connect reader. Exit 0
+whatever the gaps (it never stops a chain); a date that is not real or a DB that cannot be read exits 2.
 """
 from __future__ import annotations
 
@@ -278,20 +285,36 @@ def scheduled_shadows() -> list[dict]:
     return out
 
 
+def chain_inactive(name: str, day: date) -> str | None:
+    """sp_run's own season gate (sp_run.active_from: the chain's active_from_env setting, else chains.py's ruled date):
+    why the chain runs nothing on `day`, or None. A malformed setting fails the chain in sp_run: it runs nothing."""
+    import sp_run
+    try:
+        gate = sp_run.active_from(name)
+    except SystemExit as e:
+        return f"{name} runs nothing ({e})"
+    if gate and day.isoformat() < gate["date"]:
+        return f"{name} inactive until {gate['date']} [{gate['source']}]"
+    return None
+
+
 def shadow_tag(model_id: str) -> str:
     """The vN token of a shadow's id as the code names it (nhl_elo_v7_xg_margin_no_na v7, intl-elo-v2 v2,
     soccer-expansion-v1 v1); the full id where it has none (ncaa_elo_v1r)."""
     return next((t for t in re.split(r"[-_]", model_id) if re.fullmatch(r"v[0-9]+", t)), model_id)
 
 
-def shadow_of(code: str, lanes: list[dict], entries: dict) -> tuple[str | None, str]:
+def shadow_of(code: str, lanes: list[dict], entries: dict, day: date) -> tuple[str | None, str]:
     """(the shadow's tag, where it was read) when a lane naming the competition makes it SHADOW, else (None, why not).
     The module docstring's rule: a confirming lane whose registry entry is confirming, or a lane in any state whose
-    competition a chain runs a shadow export for."""
+    competition a chain runs a shadow export for on `day` (a chain outside its season gate runs nothing)."""
     naming = [ln for ln in lanes if code in (ln.get("competitions") or [])]
     if not naming:
         return None, f"no roadmap lane names {code}"
     runs = [r for r in scheduled_shadows() if code in r["comps"]]
+    off = {r["chain"]: chain_inactive(r["chain"], day) for r in runs}     # sp_run's season gate, on the day
+    gated = "; ".join(sorted({v for v in off.values() if v}))
+    runs = [r for r in runs if not off[r["chain"]]]
     whys = []
     for ln in naming:
         src = f"roadmap lane {ln['lane']}: {ln['state']}"
@@ -308,13 +331,15 @@ def shadow_of(code: str, lanes: list[dict], entries: dict) -> tuple[str | None, 
         if runs:
             r = runs[0]
             return shadow_tag(r["model"]), f"{src}; chain {r['chain']} runs {r['command']} ({r['model']})"
-        whys.append(f"{src}, no shadow export scheduled for {code} (chains.py)")
+        whys.append(f"{src}, no shadow export scheduled for {code} (chains.py{': ' + gated if gated else ''})")
     return None, "; ".join(whys)
 
 
-def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str | None = None) -> dict:
+def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str | None = None,
+                 day: date | None = None) -> dict:
     """{status: LIVE | SHADOW | MARKET-ONLY | UNKNOWN, label: as printed, from: where it was read, shadow: the shadow's
-    tag or None}, in the ruled order (addendum 111 item 2). The table is the module docstring's."""
+    tag or None}, in the ruled order (addendum 111 item 2), on `day` (default today, ET). The table is the module
+    docstring's."""
     fam = family_of(code)
     if fam:
         model, src = live_model(fam, prod)
@@ -324,7 +349,8 @@ def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str 
     else:
         why_not_live = f"no closing family covers {code}"
     market = [where for where, codes in market_only_sets() if code in codes]
-    tag, why = (None, f"shadow not judged: {unread}") if unread else shadow_of(code, lanes, entries)
+    day = day or cl.ny_date(cl.clock())
+    tag, why = (None, f"shadow not judged: {unread}") if unread else shadow_of(code, lanes, entries, day)
     if tag and market:                # the ruling's both: "MARKET-ONLY · shadow v7"
         return {"status": "MARKET-ONLY", "label": f"MARKET-ONLY · shadow {tag}",
                 "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": tag}
@@ -365,12 +391,13 @@ def watch_groups(fam: str, games: list[dict], day: date, now: datetime) -> dict:
     groups the watch will run, as it forms them: closing.groups() on closing.due()'s own inputs (the stored games plus
     the unpaged called-off ones, less the games a closing has finished with, read from the watch's receipts), the day
     standing in for schedule()'s window. A done group is the run shown for its start time (state done, its run_id and
-    exit): the latest success where there is one, else the latest run. A group the watch still forms at a done start
-    time is no second group: the done one carries what the watch does with it (`next`: "miss" inside T-5, "superseded"
-    with a success or three attempts, "again" otherwise; `open` when again) and the group's games its covers do not
-    hold (`left`). Each other group's state at `now` is due()'s: ahead (before T-35), due (T-35 to T-5: the watch runs
-    it now) or inside (inside T-5: a miss, no attempt, no file). {"groups" by start time, "finished": the ids a closing
-    has finished with, "unread": why the receipts could not be read}."""
+    exit, its `file` the receipt's closing_file and `file_failed` whether closing.py failed to write it): the latest
+    success where there is one, else the latest run. A group the watch still forms at a done start time is no second
+    group: the done one carries what the watch does with it (`next`: "miss" inside T-5, "superseded" with a success or
+    three attempts, "again" otherwise; `open` when again) and the group's games its covers do not hold (`left`). Each
+    other group's state at `now` is due()'s: ahead (before T-35), due (T-35 to T-5: the watch runs it now) or inside
+    (inside T-5: a miss, no attempt, no file). {"groups" by start time, "finished": the ids a closing has finished with,
+    "unread": why the receipts could not be read}."""
     comps = cl.FAMILIES[fam]["comps"]
     comp_of = {g["match_id"]: g["comp"] for g in games}
     fam_games = [g for g in games if g["comp"] in comps and not g["void"]]
@@ -401,7 +428,10 @@ def watch_groups(fam: str, games: list[dict], day: date, now: datetime) -> dict:
             # a run that recorded no covers is still a run of the day: its family's, where it has one competition
             "comps": comps_of(x.get("match_id") for x in r.get("covers") or [])
             or (list(comps) if len(comps) == 1 else []),
-            "file": (r.get("closing_file") or {}).get("file")} for s, r in done.items()]
+            "file": (r.get("closing_file") or {}).get("file"),
+            # closing.py's write that failed after the page went out: exit 0, never run again (_closing)
+            "file_failed": bool(r.get("closing_file_failed") or (r.get("closing_file") or {}).get("error"))}
+           for s, r in done.items()]
     try:
         for gr in cl.groups(fam_games, now, covered):
             m = cl.minutes_to(gr["start"], now)
@@ -442,7 +472,7 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
     for code in sorted({g["comp"] for g in games}):
         mine = [g for g in games if g["comp"] == code and not g["void"]]
         void = [g for g in games if g["comp"] == code and g["void"]]
-        st = model_status(code, lanes, entries, prod, unread)
+        st = model_status(code, lanes, entries, prod, unread, day)
         by_model: dict = {}
         for g in mine:
             for mv, at in preds.get(g["match_id"], []):
@@ -516,7 +546,8 @@ def _computed(m: dict) -> str:
 
 def _group_text(g: dict, day: date) -> str:
     """One closing group: done (addendum 111 item 1: "done (run <run_id>, <exit>)", then what the watch does with the
-    start time, if it still forms a group there), due now, ahead, or a miss."""
+    start time, if it still forms a group there, then the closing file the run's receipt names, or NOT written), due
+    now, ahead, or a miss."""
     head = f"T-{cl.RUN_LEAD_MIN} {_run_time(g['start'], day)} [{', '.join(map(str, g['match_ids']))}]"
     if g["state"] == "done":
         tail = {"again": f" (attempt {g['attempts']} of {cl.MAX_ATTEMPTS}: the watch tries again)",
@@ -524,6 +555,10 @@ def _group_text(g: dict, day: date) -> str:
                 "superseded": f" ({g['why']}: the watch runs it no more)"}.get(g["next"], "")
         if g["left"]:
             tail += f"; not in its covers: {', '.join(map(str, g['left']))}"
+        if g["file_failed"]:          # closing.py's own words: the page went out, the file did not (addendum 40 item 2)
+            tail += f"; closing file NOT written ({g['file']}): receipted and notified, not run again"
+        elif g["file"]:
+            tail += f"; closing file {g['file']}"
         return f"{head} done (run {g['run_id']}, {g['exit']}){tail}"
     if g["state"] == "inside":
         return f"{head} inside T-5: no attempt, no file (the watch records a miss)"

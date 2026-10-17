@@ -110,6 +110,7 @@ def env(tmp_path, monkeypatch):
     monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
     monkeypatch.setattr(c, "_DOTENV_CACHE", {})
     monkeypatch.delenv("SP_SKIP_FAMILIES", raising=False)
+    monkeypatch.delenv("SP_NHL_ACTIVE_FROM", raising=False)          # nhl-daily's season gate: chains.py's date
     road = tmp_path / "roadmap.json"
     road.write_text(json.dumps({"lanes": LANES}))
     assert rm.validate(json.loads(road.read_text())) == []          # the scratch file is a valid roadmap
@@ -273,6 +274,44 @@ def test_nhl_qualifies_as_shadow_by_the_shadow_export_nhl_daily_runs(env, monkey
             "NHL (chains.py)) ·") in line_of(run("--date", DAY)[1], "NHL")
 
 
+NHL_GATED = ("· MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane nhl: to declare, no shadow export scheduled "
+             "for NHL ")
+
+
+@pytest.mark.parametrize("setting, gated", [
+    (None, None),                                                  # chains.py's 2026-09-29: active on 10-17
+    ("2026-10-17", None),                                          # the gate's own day: sp_run runs the chain
+    ("2026-10-18", "nhl-daily inactive until 2026-10-18 [SP_NHL_ACTIVE_FROM]"),
+    ("2026-13-01", "nhl-daily runs nothing (SP_NHL_ACTIVE_FROM='2026-13-01' is not a YYYY-MM-DD date — fix host.env "
+                   "(ruled default for nhl-daily: 2026-09-29))"),
+], ids=["unset", "the-gates-own-day", "the-day-before-the-gate", "malformed"])
+def test_a_shadow_chain_outside_its_season_gate_is_no_schedule_that_day(env, monkeypatch, setting, gated):
+    """sp_run skips a chain before its active_from (the chain's active_from_env setting, else chains.py's date) and
+    fails it on a malformed setting: nhl-daily runs no export-nhl-predictions that day, so NHL carries no shadow that
+    day, the gate named on its line (sp_run.active_from, the chain's own gate, never a copy)."""
+    if setting is not None:
+        monkeypatch.setenv("SP_NHL_ACTIVE_FROM", setting)
+    make_db(env, [(501, "NHL", "2026-10-17 23:00", "SCHEDULED")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    nhl = line_of(out, "NHL")
+    if gated is None:
+        assert f"· MARKET-ONLY · shadow v7 ({NHL_SHADOW}) ·" in nhl
+    else:
+        assert f"{NHL_GATED}(chains.py: {gated})) ·" in nhl
+        assert "shadow v7" not in nhl
+    assert out[-1] == "GAPS: none"
+
+
+def test_a_past_day_before_the_chains_py_gate_has_no_shadow(env):
+    """--date 2026-09-25, no setting: chains.py's ruled 2026-09-29 had not come, nhl-daily ran nothing that day."""
+    make_db(env, [(501, "NHL", "2026-09-25 23:00", "SCHEDULED")])
+    rc, out = run("--date", "2026-09-25")
+    assert rc == 0
+    assert (f"{NHL_GATED}(chains.py: nhl-daily inactive until 2026-09-29 [chains.py default (override: "
+            "SP_NHL_ACTIVE_FROM)])) ·") in line_of(out, "NHL")
+
+
 def test_a_declared_lane_is_shadow_only_where_a_chain_runs_its_shadow_export(env, monkeypatch):
     """NCAA's lane is declared and no chain runs a college shadow (CLAUDE.md: "No college shadow ... until then"):
     MARKET-ONLY. Were a chain to run export-ncaa-predictions it would be reported, never hidden: the tag falls back to
@@ -350,13 +389,17 @@ RULED = {   # addendum 111 item 2's examples, on the tracked roadmap and registr
 }
 
 
-def test_the_real_files_and_code_derive_the_ruled_statuses():
+def test_the_real_files_and_code_derive_the_ruled_statuses(tmp_path, monkeypatch):
     """On the tracked roadmap and registry, the code's own sets and chains, and the two production rows the predict
-    path would resolve (MLB v2, PL v22): the ruling's statuses, word for word."""
+    path would resolve (MLB v2, PL v22): the ruling's statuses, word for word, on the ruling's day (no machine
+    setting: nhl-daily's season gate is chains.py's date)."""
+    monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
+    monkeypatch.setattr(c, "_DOTENV_CACHE", {})
+    monkeypatch.delenv("SP_NHL_ACTIVE_FROM", raising=False)
     lanes, entries, unread = cm.read_ledgers()
     assert unread is None
     prod = {("mlb", "mlb_pythag_negbin"): ["v2"], ("soccer", "soccer_elo_poisson"): ["v22"]}
-    got = {code: cm.model_status(code, lanes, entries, prod) for code in RULED}
+    got = {code: cm.model_status(code, lanes, entries, prod, day=NOW.date()) for code in RULED}
     assert {code: (s["status"], s["label"]) for code, s in got.items()} == RULED, got
     assert got["PL"]["from"] == "closing family SOCCER; production soccer_elo_poisson v22"
     assert got["MLB"]["from"] == "closing family MLB; production mlb_pythag_negbin v2"
@@ -647,12 +690,38 @@ def test_a_later_failed_run_never_hides_a_success(env, monkeypatch):
             failed="stale prices", covers=COVERS_1_2)
     assert cl.closing_state("MLB", "2026-09-20T17:05:00Z")["success"] is True
     mlb = line_of(run("--date", "2026-09-20")[1], "MLB")
-    assert mlb.endswith("· closing: T-35 12:30 ET [1, 2] done (run OK1, 0); T-35 12:45 ET [3, 4] → "
+    assert mlb.endswith("· closing: T-35 12:30 ET [1, 2] done (run OK1, 0); closing file "
+                        "exports/closing_MLB_2026-09-20T1705Z.json; T-35 12:45 ET [3, 4] → "
                         "exports/closing_MLB_2026-09-20T1720Z.json (due now)")
     assert "OP2" not in mlb and ", 1)" not in mlb and "(attempt" not in mlb
     g = cm.coverage(datetime(2026, 9, 20).date(), now)["competitions"][0]["groups"][0]
-    assert (g["run_id"], g["exit"], g["attempts"], g["file"]) == (
-        "OK1", 0, 2, "exports/closing_MLB_2026-09-20T1705Z.json")
+    assert (g["run_id"], g["exit"], g["attempts"], g["file"], g["file_failed"]) == (
+        "OK1", 0, 2, "exports/closing_MLB_2026-09-20T1705Z.json", False)
+
+
+@pytest.mark.parametrize("failed", [{"closing_file_failed": True}, {}], ids=["flagged", "error-only"])
+def test_a_closing_file_not_written_is_said_on_the_done_line(env, monkeypatch, failed):
+    """The page went out (exit 0) but closing.py's write of exports/closing_... failed (write_closing_file's {file,
+    error}; _closing adds closing_file_failed and never runs the start time again): closing_state holds a success and
+    the watch forms no group there, so nothing else on the line would show it. The done line says the file was NOT
+    written, in closing.py's own words; the map carries the flag. Read from the receipt alone (exports/ is not read)."""
+    now = utc("2026-10-17 13:40")
+    monkeypatch.setattr(cl, "clock", lambda: now)
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")], [(401, "v22", "2026-10-17 10:00")])
+    name = "exports/closing_SOCCER_2026-10-17T1400Z.json"
+    receipt(family="SOCCER", run_id="20261017T132500Z-soccer-closing", trigger="watch", start="2026-10-17T14:00:00Z",
+            exit=0, covers=[{"match_id": 401, "start": "2026-10-17T14:00:00Z"}],
+            closing_file={"file": name, "error": "exists: the earlier closing file names no run id it can be kept "
+                                                 "under; it cannot be moved and stands"}, **failed)
+    assert cl.closing_state("SOCCER", "2026-10-17T14:00:00Z")["success"] is True     # never run again
+    assert cl.due("SOCCER", now)["groups"] == []
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert line_of(out, "PL").endswith(
+        f"· closing: T-35 09:25 ET [401] done (run 20261017T132500Z-soccer-closing, 0); closing file NOT written "
+        f"({name}): receipted and notified, not run again; none left to run")
+    g = cm.coverage(datetime(2026, 10, 17).date(), now)["competitions"][0]["groups"][0]
+    assert (g["state"], g["exit"], g["file"], g["file_failed"]) == ("done", 0, name, True)
 
 
 def test_a_family_this_machine_refuses_shows_the_refusal_and_claims_no_gap(env, monkeypatch):

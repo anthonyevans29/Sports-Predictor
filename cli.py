@@ -1512,9 +1512,9 @@ def intl_elo_backtest_cmd(preflight, candidate):
     declaration docs/specs/intl-elo-v1.md (registry intl-elo-v1). Refused
     before any data load unless the registry holds intl-elo-v1 declared and
     unrun. ONE run: walk-forward predict-then-update over 2018+, scored on
-    UNL 2024/25 + WCQ_EU 2025-03..2026-03; bar = naive - 0.010 + the bands;
-    RPS reported; the run is recorded in the registry. --preflight reads no
-    test outcome."""
+    UNL 2024/25 + WCQ_EU 2025-03..2026-03; log-loss < naive - 0.010
+    (unrounded; a tie rejects, #330) + the bands; RPS reported; the run is
+    recorded in the registry. --preflight reads no test outcome."""
     from collections import Counter
     from src.db.database import init_db, session_scope
     from src.ingestion.intl_history import norm_city

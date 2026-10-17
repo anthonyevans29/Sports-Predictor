@@ -88,6 +88,8 @@ def test_card_rows_sorted_joined_and_repriced(seeded, tmp_path):
     assert [r["match_id"] for r in mine] == [seeded["nfl"], seeded["soc"]]  # kickoff order
     assert seeded["out"] not in [r["match_id"] for r in card["fixtures"]]   # outside 24h
     nfl, soc = mine
+    # addendum 109 item 2 (a): every Desk call card carries match_id and its kickoff (export._fixture_row's)
+    assert nfl["utc_date"] == (NOW + timedelta(hours=2)).isoformat() and soc["match_id"] == seeded["soc"]
     # model fields copied, not recomputed
     assert nfl["model"]["model_version"] == "nfl_elo_v1" and nfl["tier"] == "strong"
     assert nfl["quarantine"] is True and nfl["engine"] == "model_edge"

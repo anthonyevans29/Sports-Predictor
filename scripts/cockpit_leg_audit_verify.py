@@ -124,7 +124,9 @@ def main():
         check("marks: A not_play, B/C/D play, T3/T4 unmarked",
               lc == {"P-T1-1": "not_play", "P-T1-2": "play", "P-T2-1": "play", "P-T2-2": "play",
                      "P-T3-1": None, "P-T3-2": None, "P-T4-1": None, "P-T4-2": None}, json.dumps(lc))
-        strip = lambda c: {k: v for k, v in c.items() if k not in ("leg_check", "tz_audit")}
+        # marks, never stored fields: leg_check, tz_audit and the legacy-join label (addendum 114 item 2: every graded
+        # call without a match id carries legacy_join; its result and returns are untouched)
+        strip = lambda c: {k: v for k, v in c.items() if k not in ("leg_check", "tz_audit", "legacy_join")}
         check("never deleted: same calls, every stored field unchanged but the marks",
               len(after) == len(before) and [strip(c) for c in after] == [strip(c) for c in before],
               f"{len(before)} → {len(after)}")

@@ -95,9 +95,12 @@ def main():
         # ARCHITECT 2026-10-07 addendum 3, item C: graded on the 90-MINUTE result only. A UNL fixtures file whose
         # score includes extra time (2-1 AET) must NOT grade the INTL call; the INTL results file (1-1 at 90') does,
         # and a 90-minute draw loses a HOME pick (three-way).
-        fx = {"competition_code": "UNL", "fixtures": [{"home_team": "Probeland", "away_team": "Probeland B",
-              "utc_date": K, "status": "finished", "home_score": 2, "away_score": 1}]}
-        res = {"sport": "intl", "results": [{"home_team": "Probeland", "away_team": "Probeland B", "utc_date": K,
+        # each row carries its match id, as the exports write it: the call pairs by it (addendum 109 item 2)
+        mid = hash("Probeland") % 10**6
+        fx = {"competition_code": "UNL", "fixtures": [{"match_id": mid, "home_team": "Probeland",
+              "away_team": "Probeland B", "utc_date": K, "status": "finished", "home_score": 2, "away_score": 1}]}
+        res = {"sport": "intl", "results": [{"match_id": mid, "home_team": "Probeland", "away_team": "Probeland B",
+               "utc_date": K,
                "predicted": {"top_pick": "home_win"},
                "actual": {"home_score": 1, "away_score": 1, "result": "D", "score_basis": "score_90",
                           "status_raw": "AET", "after_extra_time": {"home_score": 2, "away_score": 1}},

@@ -47,6 +47,14 @@ WHAT THE SCHEMA SAYS (read at main c51324d):
   Kalshi grading close (close_from_kalshi reads one two-sided HOME quote inside the Desk's 2c spread cap).
 - Closing files: <exports>/closing_<FAMILY>_<start>.json, match ids in closing.match_ids (else predictions[].match_id).
   Files under <exports>/host/ come from the host, whose match ids are its own: counted, never matched.
+- VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 107 item A2): "Grading, the results exports and the replay inventory
+  label a closing row whose recorded start differs from the match's current utc_date by more than DESK_CLOCK_DRIFT as
+  "void: re-dated <old start> → <new start>" and exclude it from every tally; the fresh closing on the new date is the
+  graded row." A game's closing is void, listed with the label and left out of closing and all four, when none of its
+  closing rows' recorded starts (their utc_date) is within the rule of the kickoff and its latest closing row is
+  re-dated by the rule (src/walters/redated.py void_label). A latest row whose start cannot be compared is not void.
+  A latest row recorded at the provider's placeholder kickoff (04:00:00Z) reads "void: placeholder kickoff" instead
+  (addendum 109 item 2 Q2): one void state, the two labels counted apart.
 
 THE KEYS (printed): a graded game = matches.status FINISHED with home_score and away_score, kickoff (matches.utc_date)
 in [--since, --until). Before kickoff = julianday(the stamp) < julianday(matches.utc_date) (the stamp as stored, any
@@ -74,6 +82,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from src.walters.close import CAPTURE_SESSION  # noqa: E402  (the close's own session window, read, never restated)
+from src.walters.redated import closing_starts, void_counts, void_label  # noqa: E402  (addendum 107 item A2)
 
 SINCE = "2026-09-20"
 CHUNK = 500
@@ -91,7 +100,10 @@ KEYS = ("graded = matches.status FINISHED with home_score and away_score, kickof
         "odds table session = a captured_at t and the rows 10 minutes before it, latest per (bookmaker, selection, line), "
         "complete = ONE bookmaker quoting every outcome above 1.0, books never pooled (close_1x2) · kalshi session = one "
         "captured_at, complete = every leg stored (not the Kalshi grading close) · closing file = "
-        "<exports>/closing_*.json closing.match_ids (else predictions[].match_id)")
+        "<exports>/closing_*.json closing.match_ids (else predictions[].match_id); a game with no closing row's "
+        "utc_date within DESK_CLOCK_DRIFT of its kickoff and its latest re-dated is void: re-dated, never a closing "
+        "(addendum 107 item A2); void: placeholder kickoff when that latest row was recorded at 04:00:00Z "
+        "(addendum 109 item 2)")
 
 
 def db_path(arg: str | None) -> Path:
@@ -306,6 +318,7 @@ def inventory(con, since: str, until: str, exports: Path) -> dict:
     ksm = by_match(con, "SELECT match_id, ticker FROM kalshi_settled_markets WHERE match_id IN ({ids})",
                    ids) if ksm_ok else {}
     cf = closing_ids(exports)
+    starts = closing_starts(exports)["rows"]
     first_hist = (con.execute("SELECT MIN(julianday(computed_at)), COUNT(*) FROM prediction_history").fetchone()
                   if hist_ok else None)
     groups: dict[str, list] = {}
@@ -322,6 +335,10 @@ def inventory(con, since: str, until: str, exports: Path) -> dict:
         bs, bo = captures(snap, gs, need_of, stamp_sessions), captures(board, gs, need_of, window_sessions)
         b, k = union(bs, bo), captures(kal_read, gs, need_of, stamp_sessions)
         cl = {g["id"] for g in gs} & cf["ids"]
+        # addendum 107 item A2: a closing whose every row is re-dated is void, out of closing and all four
+        redated = sorted((g["id"], lab) for g in gs if g["id"] in cl
+                         and (lab := void_label(starts.get(g["id"]), g["kickoff"])))
+        cl -= {i for i, _ in redated}
         four = either & b["ids"] & k["ids"] & cl
         out[name] = {"graded": len(gs), "pred_current": len(cur), "pred_history": len(hv), "pred_either": len(either),
                      "pred_current_after_ko": len(late), "versions": [versions[i] for i in sorted(hv)],
@@ -331,7 +348,7 @@ def inventory(con, since: str, until: str, exports: Path) -> dict:
                      "book_complete_odds_table_only": len(bo["complete_ids"] - bs["complete_ids"]), "kalshi": k,
                      "kalshi_mismatched": sum(1 for g in gs if g["id"] in mism),
                      "settled_markets": sum(1 for g in gs if ksm.get(g["id"])), "closing": len(cl),
-                     "all_four": len(four)}
+                     "all_four": len(four), "closing_redated": len(redated), "redated": redated}
     return {"games": len(games), "groups": out, "closing": cf, "history_table": hist_ok, "settled_table": ksm_ok,
             "first_history": first_hist, "tickers": kalshi_legs.has_tickers(con)}
 
@@ -383,11 +400,17 @@ def report(inv: dict, form: str, since: str, until: str, exports: Path, echo=pri
              + (f"{g['settled_markets']} games" if inv["settled_table"] else "NO such table in this database"))
         echo(f"  closing file ({exports}/, by match id): {g['closing']} games")
         echo(f"  all four (a stored prediction + book history + kalshi history + a closing file): {g['all_four']}")
+        echo(f"  closing void (games left out of closing and all four): "
+             f"{void_counts(lab for _, lab in g['redated'])}")
+        for i, lab in g["redated"]:
+            echo(f"    match {i}: {lab}")
     js = {name: {k: (v if not isinstance(v, dict) else {"games": v["games"], "complete": v["complete"],
                                                          "earliest": jd_text(v["earliest"])})
-                 for k, v in g.items() if k != "versions"} for name, g in inv["groups"].items()}
+                 for k, v in g.items() if k not in ("versions", "redated")} for name, g in inv["groups"].items()}
     echo("REPLAY-INVENTORY " + json.dumps({"since": since, "until": until, "games": inv["games"], "groups": js,
-                                           "closing_files": cf["files"], "host_closing_files": cf["host_files"]},
+                                           "closing_files": cf["files"], "host_closing_files": cf["host_files"],
+                                           "closing_redated": sum(g["closing_redated"]
+                                                                  for g in inv["groups"].values())},
                                           sort_keys=True))
 
 

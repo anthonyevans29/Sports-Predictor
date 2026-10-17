@@ -4,14 +4,28 @@ to the laptop's team ids (#410); the cutover replaces this database". rating_sou
 numbers stay in the file for the compare. The host pager never sees a soccer PLAY from the host. Test: a
 two-mis-keyed-clubs fixture under role host → PASS host_fence; under role laptop → unchanged. The fence lifts with the
 cutover (the ruling that cuts over names it). No re-keying on the host (addendum 36 stands)."
-The role read (built pending the architect's confirmation on #410): the machine's SP_EXPORTS_MIRROR_ROLE, from its
-own host.env first, then the process environment; exactly "host"; unset or any other value leaves the row as it is.
-The switch: desk_policy.HOST_FENCE_RULE. tests/conftest.py points SP_HOST_ENV at a file that does not exist."""
+THE ROLE (addendum 110 item 1, RULED), verbatim: "#410 host fence — Code's reading is right and is the ruling: the
+fence keys off the machine's own role, SP_EXPORTS_MIRROR_ROLE=host (addendum 45 P1), not SP_WRITER_OF_RECORD, which
+reads laptop on both machines until the cutover flips it. Lift through a named switch the cutover PR turns off. ONE
+FLIP (law 4, conservative unknowns): an unknown or missing role is FENCED, not open. A machine that cannot say it is the
+laptop does not get to make a soccer call. Reason text for that case: "host fence: role unknown (SP_EXPORTS_MIRROR_ROLE
+unset)". The laptop's .env carries the role line (the morning block checks it every day), so the laptop is never caught
+by it. Tests: role host → PASS host_fence; role laptop → unchanged; role unset → PASS host_fence (role unknown)."
+Addendum 111 item 4: "The fence tests: pinning the existing soccer Desk tests to role laptop and leaving the frozen
+golden untouched is right; the three ruled cases are the only new behaviour."
+Addendum 114 item 3: ""Lifted by the flip" (addendum 113) and "the named switch the cutover PR turns off" (addendum
+110) are the same thing: the cutover PR does the flip and turns the switch off in the same change; the fence reads the
+switch, never SP_WRITER_OF_RECORD. Code's reading is the ruling."
+The role is read from the machine's host.env (SP_HOST_ENV), then the environment, then the checkout's .env
+(desk_policy.DOTENV). The reason for a value that is neither host nor laptop is built pending the architect's word.
+tests/conftest.py pins every test to role laptop in the environment, with both files at a path that does not exist."""
 import copy
+import io
 import json
 import os
 import subprocess
 import sys
+import tokenize
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -20,12 +34,19 @@ import pytest
 from src.walters import desk_policy as dp
 from src.walters import window
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "deploy" / "hosting"))
-sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT / "deploy" / "hosting"))
+sys.path.insert(0, str(ROOT / "scripts"))
 import sp_window_page as page  # noqa: E402
 
 REASON = "host: ratings keyed to the laptop's team ids (#410); the cutover replaces this database"   # the ruled words
+UNSET = "host fence: role unknown (SP_EXPORTS_MIRROR_ROLE unset)"                   # addendum 110 item 1, verbatim
 NOW = datetime(2026, 10, 17, 15, 0, tzinfo=timezone.utc)
+
+
+def unknown(value):
+    """The reason for a value that is neither host nor laptop (built pending the architect's word)."""
+    return f"host fence: role unknown (SP_EXPORTS_MIRROR_ROLE={value})"
 
 
 def pl(mid, home, away, leagues, probs, fair, legs=None, src=("model", "model"), comp="PL",
@@ -71,22 +92,42 @@ def annotate(*rows, sport="soccer"):
     return {r["match_id"]: r["desk"] for r in doc["predictions"]}, doc
 
 
+def reason(desk, mid=410001):
+    d = desk[mid]
+    return d["reason"] if (d["call"], d["units"], d["pass_kind"]) == ("PASS", 0, "host_fence") else None
+
+
 @pytest.fixture
 def role(monkeypatch):
+    """The environment's role (conftest pins laptop); None deletes it."""
     def set_role(v):
         if v is None:
             monkeypatch.delenv(dp.ROLE_ENV, raising=False)
         else:
             monkeypatch.setenv(dp.ROLE_ENV, v)
-    set_role(None)
     return set_role
 
 
-def test_the_rule_its_kind_and_its_reason():
+@pytest.fixture
+def files(tmp_path, monkeypatch):
+    """The machine's host.env (SP_HOST_ENV) and the checkout's .env (desk_policy.DOTENV); None: no such file."""
+    def write(host_env=None, dotenv=None):
+        for name, text in (("host.env", host_env), (".env", dotenv)):
+            p = tmp_path / name
+            p.unlink(missing_ok=True)
+            if text is not None:
+                p.write_text(text)
+        monkeypatch.setenv("SP_HOST_ENV", str(tmp_path / "host.env"))
+        monkeypatch.setattr(dp, "DOTENV", tmp_path / ".env")
+    return write
+
+
+def test_the_rule_its_kind_and_its_reasons():
     assert dp.HOST_FENCE_RULE["on"] is True and dp.HOST_FENCE_KIND == "host_fence"
     assert dp.HOST_FENCE_KIND in dp.NO_CALL_KINDS and dp.HOST_FENCE_REASON == REASON
+    assert dp.HOST_FENCE_UNSET_REASON == UNSET
     assert dp.ROLE_ENV == "SP_EXPORTS_MIRROR_ROLE"          # addendum 45 P1's setting, not SP_WRITER_OF_RECORD
-    src = (Path(__file__).resolve().parents[1] / "deploy" / "hosting" / "closing.py").read_text()
+    src = (ROOT / "deploy" / "hosting" / "closing.py").read_text()
     assert 'ROLE_SETTING = "SP_EXPORTS_MIRROR_ROLE"' in src  # the closing watch reads the same setting
 
 
@@ -112,35 +153,98 @@ def test_two_mis_keyed_clubs_under_role_host_are_pass_host_fence(role):
     assert "machine_role" not in doc["desk_meta"]          # the role would part every laptop/host desk file
 
 
-def test_under_role_laptop_and_role_unset_the_row_is_unchanged(role):
-    role(None)
-    unset, doc_unset = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
+def test_under_role_laptop_the_row_is_unchanged(role):
+    """The ruled test, second case: under role laptop each call is the call without the fence (a PLAY, a LADDER, a
+    value shadow). desk_meta is the same on either machine."""
     role("laptop")
     lap, doc_lap = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
+    role("host")
     with dp.host_fence_rule_off():
-        role("host")
         off, _ = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
-    assert unset == lap == off
+    _, doc_host = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
+    assert lap == off
     assert lap[410001]["call"] == "PLAY" and lap[410003]["call"] == "LADDER"
     assert lap[410002]["call"] == "PASS" and lap[410002]["value_shadow"]["side"] == "DRAW"
     assert all(d["pass_kind"] != "host_fence" for d in lap.values())
-    assert doc_unset["desk_meta"] == doc_lap["desk_meta"]       # the same file on either machine
-    assert dp.machine_role() == "host" and dp.machine_role({}) is None
-    assert dp.machine_role({dp.ROLE_ENV: "laptop"}) == "laptop"
+    assert doc_host["desk_meta"] == doc_lap["desk_meta"]      # the same desk_meta on either machine
+    assert dp.machine_role() == "host" and dp.machine_role({dp.ROLE_ENV: "laptop"}) == "laptop"
 
 
-@pytest.mark.parametrize("value", ["", "HOST", "Host", "hosts", "writer", "laptop-host", "1"])
-def test_a_role_that_is_not_exactly_host_does_not_fence(role, value):
-    """Unset or invalid: no fence (the reading posted on #410). Case and spelling are not guessed; surrounding
-    whitespace is stripped, as closing.mirror_role() strips it."""
+@pytest.mark.parametrize("value", [None, "", "   ", "\n"])
+def test_under_role_unset_every_soccer_model_row_is_pass_host_fence_role_unknown(role, value):
+    """The ruled test, third case (addendum 110 item 1): "role unset → PASS host_fence (role unknown)", with the ruled
+    reason. An empty value is unset. The row's other fields are unchanged; no order, exec block or value shadow."""
+    role(value)
+    rows = [mun_ful(), cov_mci_value(), cov_mci_ladder()]
+    before = copy.deepcopy(rows)
+    desk, doc = annotate(*rows)
+    for mid, d in desk.items():
+        assert (d["call"], d["units"], d["pass_kind"], d["reason"]) == ("PASS", 0, "host_fence", UNSET), mid
+        assert d["reasons"] == [UNSET] and d["tags"] == ["host_fence"] and d["edge_pp"] is None
+        assert d["order"] is None and d["exec"] is None and d["value_shadow"] is None and d["shadow_units"] == 0
+    assert [{k: v for k, v in r.items() if k != "desk"} for r in doc["predictions"]] == before
+    assert dp.role_reading() == (None, "") and dp.machine_role() is None
+
+
+@pytest.mark.parametrize("value", ["HOST", "Host", "hosts", "writer", "laptop-host", "1", "Laptop", " LAPTOP\n"])
+def test_a_role_that_is_neither_host_nor_laptop_is_pass_host_fence_naming_the_value(role, value):
+    """Neither host nor laptop: the role is unknown, so the row is fenced (law 4). Case and spelling are not guessed.
+    The reason names the value as read, stripped (built pending the architect's word)."""
+    role(value)
+    desk, _ = annotate(mun_ful())
+    assert reason(desk) == unknown(value.strip()) and dp.role_reading() == (None, value.strip())
+
+
+def test_surrounding_whitespace_is_stripped_as_closing_mirror_role_strips_it(role):
     role("laptop")
     lap, _ = annotate(mun_ful())
-    role(value)
-    desk, doc = annotate(mun_ful())
-    assert desk == lap and dp.machine_role() is None
+    role("  laptop\n")
+    assert annotate(mun_ful())[0] == lap
     role("  host\n")
-    desk, _ = annotate(mun_ful())
-    assert desk[410001]["pass_kind"] == "host_fence"
+    assert reason(annotate(mun_ful())[0]) == REASON
+
+
+def test_the_checkouts_env_alone_says_laptop_so_a_script_without_config_is_not_fenced(role, files):
+    """Addendum 110 item 1: "The laptop's .env carries the role line [...] so the laptop is never caught by it." No
+    role in the environment (a script that never imports config, so load_dotenv never ran) and no host.env: the .env
+    decides. The environment comes before it."""
+    role("laptop")
+    lap, _ = annotate(mun_ful())
+    role(None)
+    files(dotenv="API_FOOTBALL_KEY=x\nSP_EXPORTS_MIRROR_ROLE=laptop\n")
+    assert dp.role_reading() == ("laptop", "laptop") and annotate(mun_ful())[0] == lap
+    files(dotenv="SP_EXPORTS_MIRROR_ROLE=host\n")
+    assert reason(annotate(mun_ful())[0]) == REASON
+    files(dotenv="SP_EXPORTS_MIRROR_ROLE=Laptop\n")
+    assert reason(annotate(mun_ful())[0]) == unknown("Laptop")
+    for text in ("SP_EXPORTS_MIRROR_ROLE=\n", "API_FOOTBALL_KEY=x\n", None):
+        files(dotenv=text)
+        assert reason(annotate(mun_ful())[0]) == UNSET, text
+    files(dotenv="SP_EXPORTS_MIRROR_ROLE=host\n")             # the environment comes before the .env
+    role("laptop")
+    assert annotate(mun_ful())[0] == lap
+    files(dotenv="SP_EXPORTS_MIRROR_ROLE=laptop\n")
+    role("host")
+    assert reason(annotate(mun_ful())[0]) == REASON
+
+
+def test_an_unreadable_file_falls_through_to_the_next_source(role, files, monkeypatch):
+    """A file that cannot be read (host.env is root:sp 0640) reads as empty: the next source decides."""
+    import dotenv
+    real = dotenv.dotenv_values
+
+    def guarded(path):
+        if str(path).endswith("host.env"):
+            raise PermissionError(13, "Permission denied", str(path))
+        return real(path)
+    monkeypatch.setattr(dotenv, "dotenv_values", guarded)
+    files(host_env="SP_EXPORTS_MIRROR_ROLE=host\n", dotenv="SP_EXPORTS_MIRROR_ROLE=laptop\n")
+    role("host")
+    assert dp.role_reading() == ("host", "host")
+    role(None)
+    assert dp.role_reading() == ("laptop", "laptop")
+    files(host_env="SP_EXPORTS_MIRROR_ROLE=host\n")
+    assert dp.role_reading() == (None, "") and reason(annotate(mun_ful())[0]) == UNSET
 
 
 def test_host_env_is_read_first_so_a_hand_run_on_the_host_is_fenced(role, tmp_path, monkeypatch):
@@ -148,7 +252,7 @@ def test_host_env_is_read_first_so_a_hand_run_on_the_host_is_fenced(role, tmp_pa
     closing.mirror_role() finds host in host.env (sp_common.setting: the environment, then host.env) and signs its page
     "machine: host", while its export step's environment carries no role, or the laptop's role from the checkout's
     .env (install --replace copies the laptop's; config.py's load_dotenv reads it). The Desk reads host.env first, so
-    that export is fenced too."""
+    that export is fenced too: host.env's host beats the environment's laptop."""
     import closing
     host_env = tmp_path / "host.env"
     host_env.write_text("SP_WRITER_OF_RECORD=laptop\nSP_EXPORTS_MIRROR_ROLE=host\n")
@@ -161,49 +265,100 @@ def test_host_env_is_read_first_so_a_hand_run_on_the_host_is_fenced(role, tmp_pa
     assert (desk[410001]["call"], desk[410001]["pass_kind"], desk[410001]["reason"]) == ("PASS", "host_fence", REASON)
     role("laptop")                                           # the checkout's .env, copied from the laptop
     desk, _ = annotate(mun_ful())
-    assert dp.machine_role() == "host" and desk[410001]["pass_kind"] == "host_fence"
+    assert dp.machine_role() == "host" and reason(desk) == REASON
     env = {k: v for k, v in os.environ.items() if k != dp.ROLE_ENV}      # sp_run.run_step's child: {**os.environ}
     out = subprocess.run([sys.executable, "-c", "from src.walters import desk_policy as dp; print(dp.machine_role())"],
-                         cwd=Path(__file__).resolve().parents[1], env=env, capture_output=True, text=True, check=True)
+                         cwd=ROOT, env=env, capture_output=True, text=True, check=True)
     assert out.stdout.strip() == "host"
 
 
-def test_without_a_role_in_host_env_the_environment_decides(role, tmp_path, monkeypatch):
-    """A host.env with no role line, or one that is not host or laptop, does not decide: the environment does. A
-    machine with no host.env (the laptop, CI: conftest's SP_HOST_ENV names no file) reads the environment alone."""
+def test_host_env_decides_when_it_holds_a_value_and_the_environment_when_it_does_not(role, files):
+    """A host.env with no role line, or an empty one, does not decide: the environment does, then the .env. A value
+    there decides, valid or not: one that is neither host nor laptop is unknown, never the environment's laptop."""
     role("laptop")
     lap, _ = annotate(mun_ful())
-    host_env = tmp_path / "host.env"
-    monkeypatch.setenv("SP_HOST_ENV", str(host_env))
-    for text in ("SP_WRITER_OF_RECORD=laptop\n", "SP_EXPORTS_MIRROR_ROLE=HOST\n", "SP_EXPORTS_MIRROR_ROLE=\n"):
-        host_env.write_text(text)
+    for text in ("SP_WRITER_OF_RECORD=laptop\n", "SP_EXPORTS_MIRROR_ROLE=\n", "SP_EXPORTS_MIRROR_ROLE=  \n"):
+        files(host_env=text)
         role("laptop")
-        desk, _ = annotate(mun_ful())
-        assert desk == lap and dp.machine_role() == "laptop", text
+        assert annotate(mun_ful())[0] == lap and dp.machine_role() == "laptop", text
         role("host")
-        desk, _ = annotate(mun_ful())
-        assert desk[410001]["pass_kind"] == "host_fence" and dp.machine_role() == "host", text
+        assert reason(annotate(mun_ful())[0]) == REASON and dp.machine_role() == "host", text
         role(None)
-        assert dp.machine_role() is None, text
-    host_env.write_text("SP_EXPORTS_MIRROR_ROLE=laptop\n")   # host.env's own word wins over the environment
+        assert reason(annotate(mun_ful())[0]) == UNSET and dp.machine_role() is None, text
+    files(host_env="SP_EXPORTS_MIRROR_ROLE=HOST\n")
+    role("laptop")
+    assert reason(annotate(mun_ful())[0]) == unknown("HOST") and dp.machine_role() is None
+    files(host_env="SP_EXPORTS_MIRROR_ROLE=laptop\n")         # host.env's own word wins over the environment
     role("host")
     assert dp.machine_role() == "laptop" and annotate(mun_ful())[0] == lap
 
 
-def test_the_switch_off_under_role_host_restores_the_call(role):
+@pytest.mark.parametrize("who", ["host", None, "", "HOST", "laptop", ".env laptop", "host.env host"])
+def test_the_switch_off_leaves_every_row_unchanged_under_every_role(role, files, who):
     role("laptop")
-    lap, _ = annotate(mun_ful())
-    role("host")
+    lap, _ = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
+    if who == ".env laptop":
+        role(None)
+        files(dotenv="SP_EXPORTS_MIRROR_ROLE=laptop\n")
+    elif who == "host.env host":
+        files(host_env="SP_EXPORTS_MIRROR_ROLE=host\n")
+    else:
+        role(who)
     with dp.host_fence_rule_off():
-        off, doc = annotate(mun_ful())
+        off, doc = annotate(mun_ful(), cov_mci_value(), cov_mci_ladder())
     assert off == lap and off[410001]["call"] == "PLAY"
-    assert doc["desk_meta"]["host_fence_rule"] is False and dp.machine_role() == "host"
+    assert doc["desk_meta"]["host_fence_rule"] is False
     assert dp.HOST_FENCE_RULE["on"] is True
 
 
-def test_the_fence_comes_first_and_overrides_every_call_and_every_other_kind(role):
-    """A LADDER, a value shadow, a default rating, a shadow league and a started game: under role host each soccer
-    model row is host_fence (checked first), with no order, exec block or value shadow."""
+def test_the_switch_the_cutover_pr_turns_off_is_the_one_the_fence_reads(role, files, monkeypatch):
+    """Addendum 114 item 3: "the cutover PR does the flip and turns the switch off in the same change; the fence reads
+    the switch, never SP_WRITER_OF_RECORD." The cutover PR's line, HOST_FENCE_RULE = {"on": False}, alone lifts the
+    fence under role host and role unknown. SP_WRITER_OF_RECORD, laptop or host or unset, in host.env, the environment
+    or the .env, and sp_common.writer_of_record() whatever it says, change nothing; desk_policy names it nowhere in
+    its code (comments aside)."""
+    import sp_common
+    role("laptop")
+    lap, _ = annotate(mun_ful())
+    for who in ("host", None, "HOST"):
+        role(who)
+        assert annotate(mun_ful())[0][410001]["pass_kind"] == "host_fence", who
+        monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", False)      # the cutover PR's change
+        off, doc = annotate(mun_ful())
+        assert off == lap and doc["desk_meta"]["host_fence_rule"] is False, who
+        monkeypatch.setitem(dp.HOST_FENCE_RULE, "on", True)
+    for wor in ("laptop", "host", None):
+        line = f"SP_WRITER_OF_RECORD={wor}\n" if wor else ""
+        monkeypatch.setattr(sp_common, "writer_of_record", lambda w=wor: w)
+        if wor:
+            monkeypatch.setenv("SP_WRITER_OF_RECORD", wor)
+        else:
+            monkeypatch.delenv("SP_WRITER_OF_RECORD", raising=False)
+        got = {}
+        for who in ("host", "laptop", None):
+            role(who)
+            files(host_env=line or None, dotenv=line or None)
+            got[who] = reason(annotate(mun_ful())[0])
+        assert got == {"host": REASON, "laptop": None, None: UNSET}, wor
+    toks = list(tokenize.generate_tokens(io.StringIO(Path(dp.__file__).read_text()).readline))
+    assert not [t.string for t in toks if t.type == tokenize.NAME and t.string in ("sp_common", "writer_of_record")]
+    assert not [t.string for t in toks if t.type == tokenize.STRING and "WRITER_OF_RECORD" in t.string.upper()]
+
+
+def test_the_env_file_the_role_falls_back_to_is_the_one_config_loads():
+    """desk_policy.DOTENV is config.py's PROJECT_ROOT / ".env" (the file its load_dotenv reads), the same file as
+    sp_common's REPO / ".env". Read in a fresh process: conftest points it elsewhere in this one."""
+    code = ("import sys; sys.path.insert(0, 'deploy/hosting'); import config, sp_common; "
+            "from src.walters import desk_policy as dp; "
+            "print(dp.DOTENV == (config.PROJECT_ROOT / '.env').resolve() == (sp_common.REPO / '.env').resolve())")
+    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "True"
+
+
+@pytest.mark.parametrize("who", ["host", None])
+def test_the_fence_comes_first_and_overrides_every_call_and_every_other_kind(role, who):
+    """A LADDER, a value shadow, a default rating, a shadow league and a started game: under role host, or an unknown
+    role, each soccer model row is host_fence (checked first), with no order, exec block or value shadow."""
     rows = [mun_ful(), cov_mci_value(), cov_mci_ladder(),
             pl(410004, "Leeds", "Arsenal", (None, "PL"), (0.56, 0.24, 0.20), (0.50, 0.27, 0.23),
                src=("default", "model")),
@@ -213,18 +368,19 @@ def test_the_fence_comes_first_and_overrides_every_call_and_every_other_kind(rol
     role("laptop")
     lap, _ = annotate(*rows)
     assert [lap[m]["pass_kind"] for m in (410004, 410005, 410006)] == ["default_rating", "shadow_league", "started"]
-    role("host")
+    role(who)
+    why = REASON if who == "host" else UNSET
     desk, doc = annotate(*rows)
     for mid, d in desk.items():
-        assert (d["call"], d["units"], d["pass_kind"], d["reason"]) == ("PASS", 0, "host_fence", REASON), mid
+        assert (d["call"], d["units"], d["pass_kind"], d["reason"]) == ("PASS", 0, "host_fence", why), mid
         assert d["order"] is None and d["exec"] is None and d["value_shadow"] is None and d["shadow_units"] == 0
     parlays = dp.parlays_doc([("soccer.json", {"sport": "soccer", "predictions": copy.deepcopy(rows)})], now=NOW)
     assert parlays["live_legs"] == 0 and parlays["tickets"] == []           # never a parlay leg
 
 
-def test_other_sports_and_market_only_rows_are_untouched_under_role_host(role):
+def test_other_sports_and_market_only_rows_are_untouched_under_role_host_and_role_unknown(role):
     """Only soccer model rows are fenced: an MLB and an NFL model row, and a soccer market-only fixtures file (the
-    venue engine, not model_edge), read the same under role host as under role laptop."""
+    venue engine, not model_edge), read the same under role host and an unknown role as under role laptop."""
     mlb = {"match_id": 501, "home_team": "Cleveland Guardians", "away_team": "Tampa Bay Rays",
            "utc_date": "2026-10-18T00:00:00", "competition": "MLB", "stage": "postseason",
            "prediction": {"probabilities": {"home_win": 0.61, "draw": None, "away_win": 0.39}, "tier": "lean"},
@@ -240,25 +396,26 @@ def test_other_sports_and_market_only_rows_are_untouched_under_role_host(role):
                     "fair_prob": {"HOME": 0.45, "DRAW": 0.28, "AWAY": 0.27}},
          "kalshi": {"status": "two_sided", "prob": {"HOME": 0.38, "DRAW": 0.30, "AWAY": 0.32}}}]}
     out = {}
-    for who in ("laptop", "host"):
+    for who in ("laptop", "host", None):
         role(who)
         m, _ = annotate(mlb, sport="mlb")
         n, _ = annotate(nfl, sport="nfl")
         f = copy.deepcopy(fixtures)
         dp.annotate(f, now=NOW)
         out[who] = (m, n, f["fixtures"][0]["desk"])
-    assert out["host"] == out["laptop"]
+    assert out["host"] == out["laptop"] == out[None]
     assert out["host"][0][501]["call"] == "PLAY" and out["host"][1][601]["call"] == "PLAY"
     assert out["host"][2]["engine"] == "venue_edge" and out["host"][2]["pass_kind"] != "host_fence"
 
 
 def test_the_window_card_copies_the_fence_and_the_pager_reads_pass(role, tmp_path):
     """The card copies each row's Desk call from the export on disk (window.canonical_models); the pager's row reads
-    it. A fenced row is PASS 0u there: no staked call reaches the host pager. The model numbers ride along."""
+    it. A fenced row is PASS 0u there, under role host or an unknown role: no staked call reaches the host pager. The
+    model numbers ride along."""
     texts = {}
-    for who in ("laptop", "host"):
+    for who in ("laptop", "host", None):
         role(who)
-        d = tmp_path / who
+        d = tmp_path / str(who)
         d.mkdir()
         doc = {"sport": "soccer", "exported_at": "2026-10-17T15:00:00", "predictions": [mun_ful()]}
         dp.annotate(doc, now=NOW)
@@ -274,17 +431,19 @@ def test_the_window_card_copies_the_fence_and_the_pager_reads_pass(role, tmp_pat
         g = page.snapshot({"fixtures": [card_row]})["410001"]
         texts[who] = (m["desk"], page.row_text(g))
     lap_desk, lap_text = texts["laptop"]
-    host_desk, host_text = texts["host"]
     assert lap_desk["call"] == "PLAY" and "PLAY 1u" in lap_text
-    assert (host_desk["call"], host_desk["units"], host_desk["pass_kind"]) == ("PASS", 0, "host_fence")
-    assert "PASS" in host_text and "PLAY" not in host_text and "model MUN 56.0%" in host_text
+    for who in ("host", None):
+        desk, text = texts[who]
+        assert (desk["call"], desk["units"], desk["pass_kind"]) == ("PASS", 0, "host_fence"), who
+        assert "PASS" in text and "PLAY" not in text and "model MUN 56.0%" in text, who
 
 
-def test_the_frozen_golden_holds_under_role_host(role):
-    """base_v11() holds the fence off, so the golden battery (tests/test_desk_golden.py) passes whatever the
-    machine's role; it runs with the role unset in CI."""
+@pytest.mark.parametrize("who", ["host", None])
+def test_the_frozen_golden_holds_under_role_host_and_role_unknown(role, who):
+    """base_v11() holds the fence off, so the golden battery (tests/test_desk_golden.py, untouched) passes whatever
+    the machine's role: under role host, and with the role unset."""
     import desk_battery as b
-    role("host")
+    role(who)
     results = b.check_against_golden()
     assert results and all(n > 0 and not bad for _, n, bad in results)
     assert dp.HOST_FENCE_RULE["on"] is True

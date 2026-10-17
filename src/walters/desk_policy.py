@@ -32,6 +32,7 @@ import os
 from datetime import datetime, timedelta, timezone
 from contextlib import contextmanager
 from decimal import ROUND_HALF_UP, Decimal
+from pathlib import Path
 
 POLICY_VERSION = "v1.1"
 INF = math.inf
@@ -176,18 +177,27 @@ DESK_CLOCK_DRIFT = timedelta(hours=1)
 # ratings keyed to the laptop's team ids (#410); the cutover replaces this database". rating_source is untouched; the
 # row's model numbers stay in the file for the compare. The host pager never sees a soccer PLAY from the host. [...] The
 # fence lifts with the cutover (the ruling that cuts over names it). No re-keying on the host (addendum 36 stands)."
-# The role is the machine's own setting, SP_EXPORTS_MIRROR_ROLE (host | laptop, no default; addendum 45 P1), not
-# SP_WRITER_OF_RECORD, which reads laptop on both machines until the cutover flips it (built pending the architect's
-# confirmation on #410). The machine's own host.env is read first, then the process environment (machine_role()).
-# Only "host" fences; unset or any other value leaves the row as it is. Checked first, before S1: it overrides every
-# call. It lifts by this switch, which the cutover's PR turns off. The frozen golden predates it and runs with it off
-# (base_v11()).
+# THE ROLE (ARCHITECT 2026-10-17, addendum 110 item 1, RULED): "the fence keys off the machine's own role,
+# SP_EXPORTS_MIRROR_ROLE=host (addendum 45 P1), not SP_WRITER_OF_RECORD, which reads laptop on both machines until the
+# cutover flips it. Lift through a named switch the cutover PR turns off. ONE FLIP (law 4, conservative unknowns): an
+# unknown or missing role is FENCED, not open. A machine that cannot say it is the laptop does not get to make a soccer
+# call." Addendum 114 item 3: "the cutover PR does the flip and turns the switch off in the same change; the fence
+# reads the switch, never SP_WRITER_OF_RECORD." Only an exact "laptop" leaves the row as it is; "host", unset and any
+# other value fence, each with its own reason (the reason for a value that is neither host nor laptop is built pending
+# the architect's word: the ruled text names only "unset"). The role is read by machine_role(): the machine's own
+# host.env, then the process environment, then the checkout's .env. Checked first, before S1: it overrides every call.
+# It lifts by this switch, HOST_FENCE_RULE. The frozen golden predates it and runs with it off (base_v11()).
 HOST_FENCE_RULE = {"on": True}
 HOST_FENCE_KIND = "host_fence"
 HOST_FENCE_REASON = "host: ratings keyed to the laptop's team ids (#410); the cutover replaces this database"
 ROLE_ENV = "SP_EXPORTS_MIRROR_ROLE"                 # deploy/hosting/closing.py ROLE_SETTING; host.env / the laptop's .env
 ROLES = ("host", "laptop")
+HOST_FENCE_UNSET_REASON = f"host fence: role unknown ({ROLE_ENV} unset)"     # addendum 110 item 1, verbatim
 HOST_ENV_DEFAULT = "/etc/sports-predictor/host.env"  # deploy/hosting/sp_common.py HOST_ENV; SP_HOST_ENV overrides it
+# The checkout's .env, the one config.py loads (PROJECT_ROOT = the directory holding config.py, two above this file;
+# load_dotenv(PROJECT_ROOT / ".env")); sp_common._dotenv reads the same file (REPO / ".env"). tests/conftest.py points
+# it at a file that does not exist.
+DOTENV = Path(__file__).resolve().parents[2] / ".env"
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
                  "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
                  KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
@@ -964,31 +974,56 @@ def kalshi_only_suspended(r) -> bool:
     return bool(KALSHI_ONLY_MLB_SUSPENDED["on"] and r["sport"] == "MLB")
 
 
+def _env_file(path) -> dict:
+    """An env file's KEY=VALUE pairs, read with config.py's reader (python-dotenv). A missing file reads {}; so does an
+    unreadable one (host.env is root:sp 0640), and the next source decides."""
+    from dotenv import dotenv_values
+    try:
+        return dotenv_values(path)
+    except OSError:
+        return {}
+
+
+def role_reading(env=None) -> tuple[str | None, str]:
+    """(role, value): this machine's SP_EXPORTS_MIRROR_ROLE (addendum 45 P1: host | laptop, no default). `value` is
+    the stripped value that decided, "" when no source holds one; `role` is it when it is host or laptop, else None.
+    The first source with a non-empty value decides, in this order:
+      1. the machine's own host.env (SP_HOST_ENV, else HOST_ENV_DEFAULT; only the host has one). First, so a run typed
+         by hand on the host is fenced (#410 review): closing.mirror_role() reads the environment first
+         (sp_common.setting), so a closing-run typed by hand, with no EnvironmentFile, signs its page "machine: host"
+         from host.env while its export step's environment has no role, or the laptop's .env role.
+      2. the process environment (the units' EnvironmentFile, sp_run's load_host_env, config.py's load_dotenv).
+      3. the checkout's .env (DOTENV), so an entry point that never imports config (a script) reads the laptop's
+         line as cli.py does (addendum 110 item 1: "The laptop's .env carries the role line").
+    A value there that is neither host nor laptop decides too: the role is unknown (law 4), never the next source's.
+    `env`: read that mapping alone, not the machine (tests)."""
+    reads = (lambda: env,) if env is not None else (
+        lambda: _env_file(os.environ.get("SP_HOST_ENV", HOST_ENV_DEFAULT)), lambda: os.environ,
+        lambda: _env_file(DOTENV))
+    for read in reads:                                  # lazily: the .env is read only when nothing before it says
+        value = (read().get(ROLE_ENV) or "").strip()
+        if value:
+            return (value if value in ROLES else None), value
+    return None, ""
+
+
 def machine_role(env=None) -> str | None:
-    """This machine's role, SP_EXPORTS_MIRROR_ROLE (addendum 45 P1: host | laptop, no default). The machine's own
-    host.env (SP_HOST_ENV, else HOST_ENV_DEFAULT; only the host has one) is read first and wins, then the process
-    environment (the units' EnvironmentFile, sp_run's load_host_env, config.py's load_dotenv of the checkout's .env).
-    closing.mirror_role() reads the environment first (sp_common.setting), so a closing-run typed by hand on the host,
-    with no EnvironmentFile, signs its page "machine: host" from host.env while its export step's environment has no
-    role, or the laptop's .env role: reading host.env first keeps that export fenced (#410 review). None when neither
-    holds host or laptop. `env`: read that mapping alone, not the machine (tests)."""
-    if env is None:
-        try:
-            from dotenv import dotenv_values           # config.py's reader (python-dotenv); a missing file reads {}
-            hv = (dotenv_values(os.environ.get("SP_HOST_ENV", HOST_ENV_DEFAULT)).get(ROLE_ENV) or "").strip()
-        except OSError:                                # unreadable (host.env is root:sp 0640): the environment decides
-            hv = ""
-        if hv in ROLES:
-            return hv
-        env = os.environ
-    role = (env.get(ROLE_ENV) or "").strip()
-    return role if role in ROLES else None
+    """This machine's role, host or laptop; None when it is unknown (role_reading)."""
+    return role_reading(env)[0]
 
 
-def host_fenced(r) -> bool:
-    """Addendum 109 item 3: a soccer model row on a machine whose role is host, while the fence is on. Only model rows
-    reach desk_call; a market-only row (the venue engine) is never fenced."""
-    return bool(HOST_FENCE_RULE["on"] and r["sport"] == "SOCCER" and machine_role() == "host")
+def host_fenced(r) -> str | None:
+    """Addendum 109 item 3 + addendum 110 item 1: the fence's reason for a soccer model row while the fence is on, on a
+    machine whose role is host or unknown; None (not fenced) on the laptop, for every other row, or with the switch
+    off. Only model rows reach desk_call; a market-only row (the venue engine) is never fenced."""
+    if not (HOST_FENCE_RULE["on"] and r["sport"] == "SOCCER"):
+        return None
+    role, value = role_reading()
+    if role == "laptop":
+        return None
+    if role == "host":
+        return HOST_FENCE_REASON
+    return f"host fence: role unknown ({ROLE_ENV}={value})" if value else HOST_FENCE_UNSET_REASON
 
 
 def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
@@ -1009,8 +1044,9 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0
 
 def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
     """The Cockpit's policy() body for ONE model-sport row (Desk v1.1 and its addenda, before Q3 K1)."""
-    if host_fenced(r):                                  # addendum 109 item 3 (#410): first, it overrides every call
-        return _no_call(r, HOST_FENCE_KIND, HOST_FENCE_REASON)
+    fence = host_fenced(r)                              # addendum 109 item 3 (#410): first, it overrides every call
+    if fence:
+        return _no_call(r, HOST_FENCE_KIND, fence)
     if (r.get("comp") or "") in SHADOW_VENUE_COMPS:     # S1 (ARCHITECT 2026-10-08), checked before started
         return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": ["shadow league"],
                 "reasons": [SHADOW_LEAGUE_REASON], "execUnits": None, "shadowUnits": 0,
@@ -1635,8 +1671,9 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "kickoff_clock_rule": KICKOFF_CLOCK_RULE["on"],
                         # addendum 83 item 2 (2026-10-16): the Desk's own threshold, inclusive (the matcher's is 2h)
                         "kickoff_clock_hold_h": DESK_CLOCK_DRIFT.total_seconds() / 3600,
-                        # addendum 109 item 3 (2026-10-17): under role host every soccer model row is PASS host_fence
-                        # (the role itself is not written here: it would part every laptop/host desk file in the compare)
+                        # addendum 109 item 3 (2026-10-17): under role host (or unknown, addendum 110 item 1) every
+                        # soccer model row is PASS host_fence (the role itself is not written here: it would part every
+                        # laptop/host desk file in the compare)
                         "host_fence_rule": HOST_FENCE_RULE["on"],
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),

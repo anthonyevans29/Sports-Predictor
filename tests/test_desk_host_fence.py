@@ -438,6 +438,60 @@ def test_the_window_card_copies_the_fence_and_the_pager_reads_pass(role, tmp_pat
         assert "PASS" in text and "PLAY" not in text and "model MUN 56.0%" in text, who
 
 
+def laptop_desk_file():
+    """A desk file the laptop published: mun_ful() a full-unit PLAY."""
+    doc = {"sport": "soccer", "predictions": [mun_ful()]}
+    dp.annotate(doc, now=NOW)
+    assert doc["predictions"][0]["desk"]["call"] == "PLAY" and doc["predictions"][0]["desk"]["units"] == 1
+    return doc
+
+
+@pytest.mark.parametrize("who, why", [("host", REASON), (None, UNSET), ("HOST", unknown("HOST"))])
+def test_desk_rescore_reports_a_fenced_play_as_host_fence_never_unchanged(role, who, why):
+    """#410 review: the fence is on in both of desk-rescore's sides (addendum_off holds it), so a laptop PLAY
+    re-scored on a machine whose role is host or unknown is 0u on both, and 0 = 0 read "unchanged". It is its own
+    transition, as the quarantine and the kalshi-only suspension are, and it carries the fence's reason."""
+    role("laptop")
+    doc = laptop_desk_file()
+    (x,) = dp.rescore(doc)
+    assert (x["published_units"], x["v11_units"], x["addendum_units"], x["addendum_call"], x["verdict"]) == \
+        (1, 1, 1, "PLAY", "unchanged") and x["pass_reason"] is None
+    role(who)
+    (x,) = dp.rescore(doc)
+    assert (x["published_units"], x["v11_units"], x["addendum_units"], x["addendum_call"], x["verdict"]) == \
+        (1, 0, 0, "PASS", "host fence") and x["pass_reason"] == why
+    with dp.host_fence_rule_off():                             # the switch off: the laptop's line, whatever the role
+        (x,) = dp.rescore(doc)
+    assert (x["v11_units"], x["addendum_units"], x["verdict"]) == (1, 1, "unchanged")
+
+
+@pytest.mark.parametrize("who, why", [("host", REASON), (None, UNSET)])
+def test_desk_rescore_cli_prints_host_fence_and_its_count_not_unchanged(role, tmp_path, who, why):
+    """The console and the receipt name the fence and its reason (not "no executable quote": the row had a Kalshi
+    ask), count it on its own line, and never as halved. On the laptop neither appears."""
+    from click.testing import CliRunner
+
+    import cli
+    role("laptop")
+    p = tmp_path / "soccer.json"
+    p.write_text(json.dumps(laptop_desk_file()))
+    out = {}
+    for w in ("laptop", who):
+        role(w)
+        res = CliRunner().invoke(cli.cli, ["desk-rescore", str(p), "--out", str(tmp_path / f"r-{w}.md")])
+        assert res.exit_code == 0, (res.output, repr(res.exception))
+        out[w] = res.output
+    assert "UNCHANGED" in out["laptop"] and "HOST FENCE" not in out["laptop"] and "host fence" not in out["laptop"]
+    line = next(l for l in out[who].splitlines() if "Fulham @ Manchester United" in l)
+    assert f"exec — (not priced: {why})" in line and line.endswith("addendum 0 · HOST FENCE")
+    assert "UNCHANGED" not in out[who] and "no executable quote" not in out[who]
+    assert "0 would have been halved" in out[who]
+    assert ("1 soccer PLAY(s) now PASS under the host fence (this machine's role is not laptop; #410) — not counted "
+            "as halved") in out[who]
+    receipt = (tmp_path / f"r-{who}.md").read_text()
+    assert line in receipt and "under the host fence" in receipt
+
+
 @pytest.mark.parametrize("who", ["host", None])
 def test_the_frozen_golden_holds_under_role_host_and_role_unknown(role, who):
     """base_v11() holds the fence off, so the golden battery (tests/test_desk_golden.py, untouched) passes whatever

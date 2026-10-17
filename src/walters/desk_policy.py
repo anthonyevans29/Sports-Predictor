@@ -1791,10 +1791,15 @@ def _rescore(doc: dict) -> list[dict]:
                     "hold_raw_edge_pp": (c.get("koHold") or {}).get("raw_edge_pp"),
                     "published_units": d.get("units"), "v11_units": b["units"], "addendum_units": c["units"],
                     "addendum_call": c["call"],
+                    # the PASS's own reason (the host fence's names the machine's role: host, unset or the value)
+                    "pass_reason": (c.get("reasons") or [None])[0] if c["call"] == "PASS" else None,
                     # a published PLAY the CURRENT quarantine now shadows is its own transition, never "halved"
                     # ... and so is one the Q3 suspension now holds (MLB kalshi-only, ARCHITECT 2026-10-08)
+                    # ... and one the host fence now holds (addendum 109 item 3, 110 item 1; #410): it is on in both
+                    # sides (addendum_off holds it), so 0u = 0u would read "unchanged" on a machine not the laptop
                     "verdict": ("quarantined" if is_quarantine_shadow(c) else
                                 "kalshi-only suspended" if c.get("passKind") == KALSHI_ONLY_SUSPENDED_KIND else
+                                "host fence" if c.get("passKind") == HOST_FENCE_KIND else
                                 "halved" if c["units"] < b["units"] else "unchanged" if c["units"] == b["units"]
                                 else "raised")})
     return out

@@ -336,12 +336,24 @@ def test_save_keeps_an_http_error_answers_body_whether_the_run_stops_or_moves_on
     p772 = payload(772, side(HOME_SID, "H"), side(AWAY_SID, "A"))
     ad = adapter_with({"770": (500, down), "771": (429, limited), "772": p772})
     r, out = run(ad, "CL", SEASON, dry_run=True, save=str(tmp_path / "kept"))
-    assert json.loads((tmp_path / "kept" / "770.json").read_text()) == down        # listed, and the run moved on
-    assert json.loads((tmp_path / "kept" / "771.json").read_text()) == limited     # kept before the run stopped
-    assert not (tmp_path / "kept" / "772.json").exists() and r.not_asked == 1
+    assert json.loads((tmp_path / "kept" / "770.http500.json").read_text()) == down    # listed; the run moved on
+    assert json.loads((tmp_path / "kept" / "771.http429.json").read_text()) == limited # kept before the run stopped
+    assert sorted(x.name for x in (tmp_path / "kept").iterdir()) == ["770.http500.json", "771.http429.json"]
+    assert r.not_asked == 1
     assert ad.asked == ["770", "771", "771"]                                      # the adapter's one 429 retry
     assert out[-1].startswith(f"  STOPPED at status 429 on match {ids[1]} (fixture 771)")
     assert "  calls 2 of 100 · HTTP requests 429 ×2 · 500 ×1" in out
+
+
+def test_an_error_body_never_replaces_a_lineup_answer_kept_by_an_earlier_run(fresh_db, tmp_path):
+    """The review on #571: a fixture kept with one eleven is asked again by the next run; if that run's answer is a
+    503 with a body, the body is kept beside the earlier answer (<fixture id>.http503.json), never over it."""
+    ids, _, _ = seed(n=1, fixture_ids=["770"])
+    one = payload(770, side(HOME_SID, "H"), side(AWAY_SID, "A", n_start=10))
+    run(adapter_with({"770": one}), "CL", SEASON, save=str(tmp_path / "kept"))
+    run(adapter_with({"770": (503, {"message": "Service Unavailable"})}), "CL", SEASON, save=str(tmp_path / "kept"))
+    assert json.loads((tmp_path / "kept" / "770.json").read_text()) == one
+    assert json.loads((tmp_path / "kept" / "770.http503.json").read_text()) == {"message": "Service Unavailable"}
 
 
 def test_each_fixtures_rows_carry_the_time_they_were_stored(fresh_db, monkeypatch):

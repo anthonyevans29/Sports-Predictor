@@ -248,10 +248,13 @@ def _instrument(adapter, run: Run, keep: dict) -> None:
     adapter._session.get, adapter._get = counted, kept
 
 
-def _save(save: str | None, f: Fixture, keep: dict) -> None:
-    """--save: the answer kept whole as <fixture id>.json (refuse_save_dir has already refused data/)."""
+def _save(save: str | None, f: Fixture, keep: dict, status: int | str | None = None) -> None:
+    """--save: the answer kept whole as <fixture id>.json (refuse_save_dir has already refused data/). An HTTP error
+    answer's body (#565) is kept as <fixture id>.http<status>.json, so it never replaces a lineup answer an earlier
+    run kept for the fixture, and its name says what it is."""
     if save and keep.get("raw") is not None:
-        with open(os.path.join(save, f"{f.fixture_id}.json"), "w") as fh:
+        name = f"{f.fixture_id}.json" if status is None else f"{f.fixture_id}.http{status}.json"
+        with open(os.path.join(save, name), "w") as fh:
             json.dump(keep["raw"], fh, indent=1, sort_keys=True)
 
 
@@ -353,8 +356,8 @@ def run_lineups_history(code: str, season: str, *, dry_run: bool = False, max_ca
                     run.stopped = f"a payload error on match {f.match_id} (fixture {f.fixture_id}): {e}"
                     break
                 except requests.HTTPError as e:
-                    _save(save, f, keep)                # its decoded body may be the only explanation (#565)
                     status = getattr(getattr(e, "response", None), "status_code", None)
+                    _save(save, f, keep, status or "?")  # its decoded body may be the only explanation (#565)
                     run.failed.append(f"match {f.match_id} (fixture {f.fixture_id}): status {status}")
                     if status in STOP_STATUSES:         # 429 after the adapter's own retry; the key or plan refused
                         run.stopped = f"status {status} on match {f.match_id} (fixture {f.fixture_id})"

@@ -1,0 +1,12 @@
+**2026-10-17 — #570: the american-football adapter says when it turns a date range into a whole-season read and write; #571 and #572 called; the host NCAA watch closed.**
+- **Calls (ARCHITECT 2026-10-17 09:25 ET, addendum 106 items 1-2):**
+  - #571 called at 2ff217f52bb0991c059c8c59f16a009c9b1a1ccc.
+  - #572 called at 727bc9155bf6a7db6739dc9ff6fca8715b5193f8 ("Wording only in the matcher; no verdict path changes. Non-gate.").
+  - On #569, track:ops / class:finding stand ("the fixed set has no track:data; no re-label").
+- **Host watch (state):** "Host: 13:00Z NCAA file has 0 placeholder kickoffs — watch item CLOSED, no Issue."
+- **Ruling (addendum 106 item 3), verbatim:**
+  - "Today, immediately (small PR, non-gate): the adapter PRINTS it. When date_from ≠ date_to, one line before the fetch: "RANGE A..B is not supported by this provider: reading and writing the whole <season> listing" and the receipt's STRICT label says the same. No behaviour change yet: the morning chains have been relying on that season-wide refresh without anyone knowing, and I will not change what they write on a Saturday."
+  - "Then (separate PR, after a receipt): Code posts on #570, from the next two mornings' consoles, how many rows each NCAA/NFL range line updated OUTSIDE its window (the kickoff moves and status changes it carried). With that receipt I rule between "split a range into one call per day" and "keep the season read, documented". Not before."
+  - "For #399's 13 old rows: Code's narrower shape is the one — SINGLE-DAY lines, strict --match-ids per date (eleven 2024 dates, one 2025 date), backup first, on my word in a laptop block Monday or later. No range line is run; nothing touches the 2024 training fingerprint by accident. A fingerprint CHANGED after those single-day lines would itself be a finding to bring me, not something to accept."
+- **Built:** the print line and the STRICT label (`range_note`). `resync-diff` says `reading`. Nothing else changes.
+- **Still open on #570:** the two mornings' receipt, then the ruling.

@@ -1,0 +1,17 @@
+## 2026-10-17 (#577: host-fence — ARCHITECT addendum 109 item 3; #410)
+- src/walters/desk_policy.py: the host fence. Under role host, every soccer model row is PASS, `pass_kind` `host_fence`, reason "host: ratings keyed to the laptop's team ids (#410); the cutover replaces this database".
+  - It is checked first, before S1 and every other rule, so it overrides any PLAY, LADDER or other PASS kind. It is in NO_CALL_KINDS: units 0, no order, no exec block, no value shadow, no shadow units, never a parlay leg.
+  - `rating_source`, `model_p` and the prediction block are unchanged; the row's model numbers stay in the file for the compare. MLB, NFL, INTL and market-only rows (the venue engine) are untouched.
+  - The role is the machine's `SP_EXPORTS_MIRROR_ROLE` (addendum 45 P1: host | laptop, no default), read from the process environment by `machine_role()`. On the host the units' EnvironmentFile and sp_run's `load_host_env` put it there; on the laptop, config.py's `load_dotenv` reads it from `.env`. Only `host` fences (surrounding whitespace stripped, as `closing.mirror_role()` strips it); unset or any other value leaves the row as it is. It is not `SP_WRITER_OF_RECORD`, which reads laptop on both machines until the cutover flips it. This reading was built pending the architect's confirmation on #410.
+  - The switch is `HOST_FENCE_RULE`, which the cutover's PR turns off ("the fence lifts with the cutover"). `host_fence_rule_off()` is for comparison. `base_v11()` holds it off, so the frozen golden passes whatever the machine's role.
+  - desk_meta gains `host_fence_rule` (the switch). The role itself is not written there: it would part every laptop/host desk file in the daily compare.
+- The window card copies each row's Desk call (`window.canonical_models`), so on the host a fenced row reads PASS 0u on the card and on the pager's line.
+- docs/CLI.md (the `--desk` row), docs/specs/hosting-h1.md (under addendum 36 item 3) and docs/specs/h2-cutover-runbook.md (section 0): the fence, its role setting and its switch.
+- tests/test_desk_host_fence.py (15):
+  - the ruled test: two mis-keyed clubs (both `model`, foreign league labels, a full-unit PLAY with an order line on the laptop) under role host are PASS `host_fence` with the ruled reason; the row's other fields are unchanged;
+  - role laptop, role unset and the switch off under role host all leave the rows unchanged (a PLAY, a LADDER, a value shadow);
+  - seven values that are not exactly `host` do not fence;
+  - the fence overrides a LADDER, a value shadow, `default_rating`, `shadow_league` and `started`, and no fenced row is a parlay leg;
+  - MLB and NFL model rows and a soccer market-only fixtures file read the same under role host as under role laptop;
+  - the card's copy reads PASS 0u under role host, and the pager line shows PASS and no PLAY;
+  - the golden battery passes under role host.

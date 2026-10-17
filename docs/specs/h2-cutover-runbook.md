@@ -42,6 +42,7 @@ Labels follow hosting-h1.md: **TERMINAL (laptop)**, **TERMINAL (host)**.
   **The cutover's preflight checks the host's (addendum 47 item 7(c)):** it refuses unless host.env itself says
   `SP_EXPORTS_MIRROR_ROLE=host`. `install --replace` copies the pack's `.env` (the laptop's, role `laptop`) over the
   checkout's, and only host.env's own line keeps the host pushing as `host`.
+- **The host fence (ARCHITECT 2026-10-17, addendum 109 item 3; #410):** until the cutover, every soccer model row the host's Desk sees is PASS `host_fence` (the machine's `SP_EXPORTS_MIRROR_ROLE` is `host`). "The fence lifts with the cutover (the ruling that cuts over names it)." The switch is `desk_policy.HOST_FENCE_RULE`, and the cutover's PR turns it off. The PL check below leaves the desk block out (`--ignore-keys desk,...`), so the fence does not touch it.
 - **The host closing-watch rehearsal (ARCHITECT 2026-10-12, addendum 45 P8):** "One rehearsal before the cutover
   day, on my word, and not before the tag that carries P1 is on the host: a single closing-run by hand on the
   host, as sp, for one NFL or PL start time that the laptop's watch has already paged. Its page is a second page

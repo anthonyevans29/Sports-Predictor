@@ -171,12 +171,28 @@ INJURY_EMPTY_TAG = "QB unread half units"
 KICKOFF_CLOCK_RULE = {"on": True}
 KICKOFF_CLOCK_KIND = "kickoff_clock"
 DESK_CLOCK_DRIFT = timedelta(hours=1)
+# THE HOST FENCE (ARCHITECT 2026-10-17 10:15 ET, addendum 109 item 3, RULED; #410; it codifies addendum 36 item 3):
+# "when the writer-of-record role is host, every soccer model_edge row is PASS, pass_kind "host_fence", reason "host:
+# ratings keyed to the laptop's team ids (#410); the cutover replaces this database". rating_source is untouched; the
+# row's model numbers stay in the file for the compare. The host pager never sees a soccer PLAY from the host. [...] The
+# fence lifts with the cutover (the ruling that cuts over names it). No re-keying on the host (addendum 36 stands)."
+# The role is the machine's own setting, SP_EXPORTS_MIRROR_ROLE (host | laptop, no default; addendum 45 P1), not
+# SP_WRITER_OF_RECORD, which reads laptop on both machines until the cutover flips it (built pending the architect's
+# confirmation on #410). Only "host" fences; unset or any other value leaves the row as it is. Checked first, before
+# S1: it overrides every call. It lifts by this switch, which the cutover's PR turns off. The frozen golden predates it
+# and runs with it off (base_v11()).
+HOST_FENCE_RULE = {"on": True}
+HOST_FENCE_KIND = "host_fence"
+HOST_FENCE_REASON = "host: ratings keyed to the laptop's team ids (#410); the cutover replaces this database"
+ROLE_ENV = "SP_EXPORTS_MIRROR_ROLE"                 # deploy/hosting/closing.py ROLE_SETTING; host.env / the laptop's .env
+ROLES = ("host", "laptop")
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
                  "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
                  KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
                  DEFAULT_RATING_KIND,               # + addendum 36 item 2 (2026-10-10)
                  INJURIES_ONE_SIDED_KIND,           # + addendum 40 item 6 (2026-10-11)
-                 KICKOFF_CLOCK_KIND)                # + addendum 72 item 1 (2026-10-15)
+                 KICKOFF_CLOCK_KIND,                # + addendum 72 item 1 (2026-10-15)
+                 HOST_FENCE_KIND)                   # + addendum 109 item 3 (2026-10-17)
 # VENUE-EDGE: QUOTE AGE (ARCHITECT 2026-10-07, addendum 4 E, gate-class): "#91 means the age of the QUOTE. A fetch
 # time is not a quote age; where the quote's own time is not known the age is UNKNOWN, and the ratified rule for
 # unknown age is NO REFERENCE. [...] In code, from the next tag: venue-edge emits no call (PASS, noref, 'book quote
@@ -522,9 +538,10 @@ def base_v11():
     was_inj = INJURY_EMPTY_RULE["on"]          # Codex on #434: frozen verification files stay frozen
     was_skew = SKEW_TEST_VENUE_RULE["on"]      # addendum 61 item 3(1) postdates the frozen battery's CL rows
     was_clock = KICKOFF_CLOCK_RULE["on"]       # addendum 72 item 1: frozen verification files stay frozen
+    was_fence = HOST_FENCE_RULE["on"]          # addendum 109 item 3: the golden holds whatever the machine's role
     EXEC_RULES["on"] = STARTED_RULE["on"] = MLB_QUARANTINE["on"] = QUOTE_AGE_RULE["on"] = False
     KALSHI_ONLY_MLB_SUSPENDED["on"] = INJURIES_ONE_SIDED_RULE["on"] = INJURY_EMPTY_RULE["on"] = False
-    SKEW_TEST_VENUE_RULE["on"] = KICKOFF_CLOCK_RULE["on"] = False
+    SKEW_TEST_VENUE_RULE["on"] = KICKOFF_CLOCK_RULE["on"] = HOST_FENCE_RULE["on"] = False
     try:
         yield
     finally:
@@ -532,7 +549,7 @@ def base_v11():
         MLB_QUARANTINE["on"], QUOTE_AGE_RULE["on"] = was_mlbq, was_qa
         KALSHI_ONLY_MLB_SUSPENDED["on"], INJURIES_ONE_SIDED_RULE["on"] = was_kos, was_one
         INJURY_EMPTY_RULE["on"], SKEW_TEST_VENUE_RULE["on"] = was_inj, was_skew
-        KICKOFF_CLOCK_RULE["on"] = was_clock
+        KICKOFF_CLOCK_RULE["on"], HOST_FENCE_RULE["on"] = was_clock, was_fence
 
 
 @contextmanager
@@ -633,6 +650,17 @@ def kickoff_clock_rule_off():
         yield
     finally:
         KICKOFF_CLOCK_RULE["on"] = was
+
+
+@contextmanager
+def host_fence_rule_off():
+    """The Desk without the host fence (addendum 109 item 3) — for comparing a file with and without it."""
+    was = HOST_FENCE_RULE["on"]
+    HOST_FENCE_RULE["on"] = False
+    try:
+        yield
+    finally:
+        HOST_FENCE_RULE["on"] = was
 
 
 def has_started(r, now_ms: float) -> bool:
@@ -934,6 +962,21 @@ def kalshi_only_suspended(r) -> bool:
     return bool(KALSHI_ONLY_MLB_SUSPENDED["on"] and r["sport"] == "MLB")
 
 
+def machine_role(env=None) -> str | None:
+    """This machine's role, SP_EXPORTS_MIRROR_ROLE (addendum 45 P1: host | laptop, no default), read from the process
+    environment as src reads every host.env setting (mlb_apisports.fallback_engaged's SP_SKIP_FAMILIES): the units'
+    EnvironmentFile and sp_run's load_host_env put host.env there, config.py's load_dotenv the laptop's .env. None
+    when unset or neither, as deploy/hosting/closing.py mirror_role() reads it."""
+    role = ((os.environ if env is None else env).get(ROLE_ENV) or "").strip()
+    return role if role in ROLES else None
+
+
+def host_fenced(r) -> bool:
+    """Addendum 109 item 3: a soccer model row on a machine whose role is host, while the fence is on. Only model rows
+    reach desk_call; a market-only row (the venue engine) is never fenced."""
+    return bool(HOST_FENCE_RULE["on"] and r["sport"] == "SOCCER" and machine_role() == "host")
+
+
 def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
     """The Desk's call for ONE model-sport row: the v1.1 policy (_desk_call), then Q3 K1 (ARCHITECT 2026-10-08):
     an MLB row whose reference would be the kalshi-only mid is PASS with no reference; its would-be call is kept
@@ -952,6 +995,8 @@ def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0
 
 def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:
     """The Cockpit's policy() body for ONE model-sport row (Desk v1.1 and its addenda, before Q3 K1)."""
+    if host_fenced(r):                                  # addendum 109 item 3 (#410): first, it overrides every call
+        return _no_call(r, HOST_FENCE_KIND, HOST_FENCE_REASON)
     if (r.get("comp") or "") in SHADOW_VENUE_COMPS:     # S1 (ARCHITECT 2026-10-08), checked before started
         return {"call": "PASS", "units": 0, "cls": "pass", "edge": None, "tags": ["shadow league"],
                 "reasons": [SHADOW_LEAGUE_REASON], "execUnits": None, "shadowUnits": 0,
@@ -1576,6 +1621,9 @@ def annotate(doc: dict, *, now: datetime | None = None, counts: dict | None = No
                         "kickoff_clock_rule": KICKOFF_CLOCK_RULE["on"],
                         # addendum 83 item 2 (2026-10-16): the Desk's own threshold, inclusive (the matcher's is 2h)
                         "kickoff_clock_hold_h": DESK_CLOCK_DRIFT.total_seconds() / 3600,
+                        # addendum 109 item 3 (2026-10-17): under role host every soccer model row is PASS host_fence
+                        # (the role itself is not written here: it would part every laptop/host desk file in the compare)
+                        "host_fence_rule": HOST_FENCE_RULE["on"],
                         # addendum 37 item 3 (2026-10-10): legs of two events are never a pair (read in the export)
                         "kalshi_leg_guard": _kalshi_leg_guard_on(),
                         "source": "src/walters/desk_policy.py (F1 port of the Cockpit Desk v1.1)"}

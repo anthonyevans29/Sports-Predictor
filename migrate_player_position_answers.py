@@ -24,11 +24,14 @@ import sys
 from sqlalchemy import inspect, text
 
 from src.db.database import get_engine
+from src.db.migrate_guard import refuse_missing_db
 from src.db.schema import PlayerPositionAnswer
 
 
 def main() -> int:
     engine = get_engine()
+    if refuse_missing_db(engine):                               # law 5: a migration never creates a database
+        return 1
     names = inspect(engine).get_table_names()
     if "matches" not in names:
         print("✗ matches table doesn't exist — not a sports_predictor DB; nothing to migrate.")

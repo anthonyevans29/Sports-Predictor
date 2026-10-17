@@ -18,6 +18,7 @@ import sys
 from sqlalchemy import inspect, text
 
 from src.db.database import get_engine, init_db
+from src.db.migrate_guard import refuse_missing_db
 
 
 # (table, column, sqlite_column_definition)
@@ -30,6 +31,8 @@ NEW_PREDICTION_COLUMNS = [
 
 def main() -> int:
     engine = get_engine()
+    if refuse_missing_db(engine):                               # law 5: a migration never creates a database
+        return 1
     inspector = inspect(engine)
 
     print("Inspecting current schema...")

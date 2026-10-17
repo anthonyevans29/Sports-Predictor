@@ -18,6 +18,7 @@ import sys
 from sqlalchemy import inspect, text
 
 from src.db.database import get_engine
+from src.db.migrate_guard import refuse_missing_db
 
 
 _NEW_COLS = [
@@ -30,6 +31,8 @@ _NEW_COLS = [
 
 def main() -> int:
     engine = get_engine()
+    if refuse_missing_db(engine):                               # law 5: a migration never creates a database
+        return 1
     inspector = inspect(engine)
 
     if "bullpen_season_stats" not in inspector.get_table_names():

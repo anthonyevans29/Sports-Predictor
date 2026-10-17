@@ -407,6 +407,7 @@ def test_migration_is_additive_idempotent_and_receipts(tmp_path, monkeypatch, ca
 def test_migration_refuses_without_the_tables(tmp_path, monkeypatch, capsys):
     import migrate_odds_source_updated_at as mig
     eng = create_engine(f"sqlite:///{tmp_path / 'empty.db'}")
+    eng.connect().close()               # an existing DB without the tables (a missing file: tests/test_migrate_guard.py)
     monkeypatch.setattr(mig, "get_engine", lambda: eng)
     assert mig.main() == 1
     assert "nothing to migrate" in capsys.readouterr().out

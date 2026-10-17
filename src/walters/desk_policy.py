@@ -1162,7 +1162,12 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
                 reasons.append(f"edge ≥ {js_str(e_lad)}pp → reduced-size straight (2-way board: no DC instrument),"
                                f" half units")
                 tags.append("ladder-size on 2-way board")
-        if edge >= e_hair and not (MLB_QUARANTINE["on"] and r["sport"] == "MLB"):   # MLB: superseded (2026-10-07)
+        # #181 (ARCHITECT 2026-10-17 16:55 ET, addendum 117 item 2(a)): "The stale "caution" text on the eight NHL rows
+        # is replaced by the pass text (reason as the Desk gives it); nothing else on those rows changes." A row that is
+        # already PASS here is the pre-gate branch (passAll) only: it gets neither the caution's size nor its reason and
+        # tag. A row the quarantine turns PASS below is still a PLAY here: its shadow keeps the caution's size and tag.
+        if (edge >= e_hair and call != "PASS"
+                and not (MLB_QUARANTINE["on"] and r["sport"] == "MLB")):   # MLB: superseded (2026-10-07)
             units, cls = base / 2, "caution"
             reasons.append(f"edge ≥ {js_str(e_hair)}pp → market-is-right caution (cohort: big edges historically"
                            f" anti-predictive)")
@@ -1230,6 +1235,13 @@ def _desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 
         reasons.append(f"books {js_str(r['books'])} < {PASSCLASS['minBooks']} → thin reference")
     if call != "PASS":
         pass_kind = None
+    else:
+        # #181 (ARCHITECT 2026-10-17 10:40 ET, addendum 112 item 9, RULED): "a PASS row carries units 0 and class
+        # pass, every sport". The pre-gate branch (passAll) leaves the sizing chain running; its big-edge caution set
+        # 0.5u / caution on a PASS row (ported from the JS for parity) and no longer runs there (addendum 117 item 2(a),
+        # above). This line holds the rule for every PASS path whatever the chain does. POLICY_VERSION stays v1.1
+        # (addendum 117 item 2(b)): a display defect, not a Desk-rule change.
+        units, cls = 0, "pass"
     return {"call": call, "units": units, "cls": cls, "edge": edge, "tags": tags, "reasons": reasons,
             "execUnits": exec_units,
             "shadowUnits": shadow_units, "passKind": pass_kind, "mktRef": mkt_ref, "kalOnly": kal_only}
@@ -1597,13 +1609,19 @@ def desk_block(r, c, v, ven) -> dict:
     market-only rows: the venue engine). Every row also carries `venue`, the
     venue engine's verdict as the Cockpit's venue table shows it."""
     if r["marketOnly"]:
-        return {"engine": "venue_edge", "call": ("VENUE" if ven["eligible"] else "PASS"),
-                "units": VENUE["units"] if ven["eligible"] else 0, "side": ven["side"],
-                "div_pp": _num(ven["divPP"]), "book_p": _num(ven["bookP"]), "kalshi_p": _num(ven["kalP"]),
-                "pass_kind": None if ven["eligible"] else ven["kind"], "reason": ven["reason"],
-                "stale_book_zone": ven["divPP"] is not None and abs(ven["divPP"]) >= VENUE["staleGapPP"],
-                "order": order_line(r, ven["side"], VENUE["units"]) if ven["eligible"] else None,
-                "venue": venue_block(ven)}
+        out = {"engine": "venue_edge", "call": ("VENUE" if ven["eligible"] else "PASS"),
+               "units": VENUE["units"] if ven["eligible"] else 0}
+        if not ven["eligible"]:
+            # #181 (ARCHITECT 2026-10-17 16:55 ET, addendum 117 item 2(c)): "Venue rows: the same rule — a PASS venue
+            # row is 0 units / class pass. Every PASS, every engine." A VENUE row carries no class (it never did).
+            out["cls"] = "pass"
+        out.update({"side": ven["side"],
+                    "div_pp": _num(ven["divPP"]), "book_p": _num(ven["bookP"]), "kalshi_p": _num(ven["kalP"]),
+                    "pass_kind": None if ven["eligible"] else ven["kind"], "reason": ven["reason"],
+                    "stale_book_zone": ven["divPP"] is not None and abs(ven["divPP"]) >= VENUE["staleGapPP"],
+                    "order": order_line(r, ven["side"], VENUE["units"]) if ven["eligible"] else None,
+                    "venue": venue_block(ven)})
+        return out
     out = {"engine": "model_edge", "call": c["call"], "units": c["units"], "cls": c["cls"],
            "tier": r["tier"], "pick": r["pick"], "model_p": _num(r["prob"]), "market_ref": _num(c["mktRef"]),
            "reference": ("kalshi_only" if c["kalOnly"] else "books") if c["mktRef"] is not None else None,
@@ -1734,6 +1752,8 @@ def parlays_doc(named_docs, *, now: datetime | None = None, counts: dict | None 
                           "as_of": now.astimezone(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ"),
                           "counts": {k: int((counts or {}).get(k) or 0) for k in COUNT_KEYS},
                           "counts_source": counts_source,
+                          # #418 (addendum 112 item 11): the same field the --desk exports carry (annotate)
+                          "kalshi_leg_guard": _kalshi_leg_guard_on(),
                           "source": "src/walters/desk_policy.py build_parlays (F1 port, #183 semantics)"},
             "b_track_shadow": shadow,
             "pricing": ({"basis": "executable (ask + taker fee per leg)", "label": PARLAY_LABEL,

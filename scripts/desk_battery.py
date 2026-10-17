@@ -8,6 +8,11 @@ frozen in tests/golden/desk_js_v1_1.json.gz (captured by
 scripts/desk_golden_capture.py against the pre-F1c cockpit.html, before the
 deletion). tests/test_desk_golden.py and scripts/desk_parity_verify.py check
 the Python Desk (src/walters/desk_policy.py) against them row for row.
+One amendment by ruling (#181, ARCHITECT 2026-10-17, addendum 112 item 9 and
+addendum 117 item 2): the golden's eight pre-gate NHL PASS rows with edge >=
+15pp read units 0 / cls "pass" (the JS wrote 0.5 / "caution") and carry
+neither the big-edge caution reason nor its tag; nothing else moved, and the
+capture metadata is untouched.
 """
 import math
 import os

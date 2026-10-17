@@ -2,7 +2,13 @@
 the DELETED in-browser Desk's last known outputs, frozen in
 tests/golden/desk_js_v1_1.json.gz (scripts/desk_golden_capture.py, pre-F1c
 cockpit.html; clock and counts pinned, non-UTC browser). Row for row, every
-field, floats exact. No browser."""
+field, floats exact. No browser.
+
+One amendment by ruling (#181, ARCHITECT 2026-10-17, addendum 112 item 9: "a PASS row carries units 0 and class pass,
+every sport; golden updated for exactly those rows"; addendum 117 item 2(a): "The stale "caution" text on the eight NHL
+rows is replaced by the pass text (reason as the Desk gives it); nothing else on those rows changes."): the eight
+pre-gate NHL PASS rows with edge >= 15pp read units 0 / cls "pass" where the JS wrote 0.5 / "caution", and carry neither
+the big-edge caution reason nor its tag. No other field or row moved; the capture metadata is untouched (item 2(d))."""
 import os
 import sys
 

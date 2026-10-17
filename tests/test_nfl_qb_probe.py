@@ -284,7 +284,7 @@ def test_a_kickoff_the_adapter_cannot_read_drops_only_that_row():
 # --- Codex on #489, third round (853d0ee) ---
 
 def test_a_game_with_no_status_and_both_totals_is_finished_not_unplayed():
-    """P1: the adapter's documented score-presence rule (its code never reaches it for an absent status: #493)."""
+    """P1: the score-presence rule, the adapter's own since #493 (the probe reads the adapter's parse only)."""
     done = {**_row(40, 100, "FT"), "game": {**_row(40, 100, "FT")["game"], "status": {}},
             "scores": {"home": {"total": 20}, "away": {"total": 17}}}
     nostatus = {**_row(41, 150, "NS"), "scores": {"home": {"total": None}, "away": {"total": None}}}

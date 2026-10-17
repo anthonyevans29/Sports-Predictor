@@ -1,0 +1,22 @@
+## 2026-10-17 (#582: score-presence — #493, ARCHITECT addendum 81 item 3, addendum 112 item 4)
+- src/adapters/api_sports_status.py (new): the status rule both api-sports game adapters read. `provider_short` reads the provider's short as sent, BEFORE any `NS` default; None means no status stated: the block missing, null or empty, or its short null or empty. `game_status`: no status stated with both totals is FINISHED; no status with a total missing is SCHEDULED (no score, not FINISHED); a stated short keeps its mapping, and a code the map lacks is SCHEDULED, whatever the scores. The literal text `None` is a stated status (no parse of ours writes it): SCHEDULED.
+- src/adapters/api_american_football.py (NFL, NCAA) and src/adapters/api_hockey.py (NHL): `_parse_games` reads the raw status through those two functions. **Behaviour change at the next sync of a season:**
+  - a game sent with no status and both totals is stored FINISHED (it was SCHEDULED: the rule never fired);
+  - a game sent with the text `None` and both totals is stored SCHEDULED (it was FINISHED).
+  - The hockey parse moves from `list_matches` into `_parse_games`, as the american-football adapter has it; the call and the rows are unchanged. Hockey's `status_raw` keeps a stated `None` text verbatim (it was dropped); a status not stated is still null. Both parses take an opt-in `raw_shorts` dict (the dry run's); by default nothing changes.
+- src/ingestion/score_presence.py + cli.py `score-presence-dry-run` (new, READ-ONLY): every stored row the rule would change at the next sync of its season, counted per competition-season, with the ids. It makes the season read's one `/games` call, parses it with the adapter's own `_parse_games`, and compares by provider id. It prints:
+  - the rule's changes, rows already as the fixed parse reads, and listed rows not stored;
+  - the stored SCHEDULED rows carrying both scores that the rule leaves, each with why;
+  - what the same whole-season sync would write besides: other statuses, kickoffs and scores (values never printed).
+  - The last line is `SCORE-PRESENCE-DRY-RUN {counts}`. It writes nothing, refuses (exit 2) when the database file is absent, and exits 1 when a listing could not be read.
+- scripts/nfl_qb_probe.py: the probe no longer applies the score-presence rule itself; it reads the adapter's parse only, as its header says.
+- docs/CLI.md: the `score-presence-dry-run` row.
+- tests:
+  - test_score_presence.py (13), on the new tests/fixtures/api_sports_status: provider-shaped rows, written, not kept (no kept answer exists; its README says so). Covered:
+    - every status shape, both adapters, including #493's five-row receipt table;
+    - a stated status (`NS` included) is never overridden by scores; no status with a score missing is not FINISHED;
+    - hockey's `status_raw`; `raw_shorts` is opt-in;
+    - the dry run's lines, ids and counts, and that it writes nothing;
+    - an unreadable listing exits 1; no database file refuses and creates nothing;
+    - the CLI command.
+  - test_nfl_qb_probe.py: one docstring.

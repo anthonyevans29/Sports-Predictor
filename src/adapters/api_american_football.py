@@ -38,6 +38,7 @@ from typing import Any
 
 import requests
 
+from src.adapters.api_sports_status import game_status, provider_short
 from src.adapters.base import DataAdapter
 from src.adapters.normalized import (
     NormalizedCompetition,
@@ -262,7 +263,10 @@ class APIAmericanFootballAdapter(DataAdapter):
         got = self._parse_games(data, competition_code, "")
         return True, (got[0] if got else None)
 
-    def _parse_games(self, data: dict, competition_code: str, season: str) -> list[NormalizedMatch]:
+    def _parse_games(self, data: dict, competition_code: str, season: str,
+                     raw_shorts: dict | None = None) -> list[NormalizedMatch]:
+        """`raw_shorts` (opt-in, the score-presence dry run, #493): a dict each parsed game's provider status is added
+        to, {provider id: the short as sent, None when absent}. Default None: nothing changes."""
         out: list[NormalizedMatch] = []
         for g in data.get("response") or []:
             game = g.get("game") or g
@@ -280,9 +284,8 @@ class APIAmericanFootballAdapter(DataAdapter):
                     continue
                 utc = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                 utc = utc.astimezone(timezone.utc).replace(tzinfo=None) if utc.tzinfo else utc
-            status_block = game.get("status") or {}
-            short = (status_block.get("short") if isinstance(status_block, dict)
-                     else str(status_block)) or "NS"
+            # the provider's own short BEFORE any "NS" default: None = no status stated (#493)
+            short = provider_short(game.get("status"))
             home = (teams.get("home") or {})
             away = (teams.get("away") or {})
             if gid is None or home.get("id") is None or away.get("id") is None:
@@ -304,15 +307,12 @@ class APIAmericanFootballAdapter(DataAdapter):
             as_ = (scores.get("away") or {})
             _h_total = hs.get("total") if isinstance(hs, dict) else hs
             _a_total = as_.get("total") if isinstance(as_, dict) else as_
-            status = _STATUS.get(short, MatchStatus.SCHEDULED)
-            # Score-presence beats status-absence (2026-09-05): 16 of 2024's
-            # games arrive with NO status block at all but full final totals.
-            # A game with both totals and no status claim is finished with
-            # lazy upstream metadata — infer, but ONLY when status is absent,
-            # never over an explicit live/scheduled short.
-            if (short in (None, "", "None") and _h_total is not None
-                    and _a_total is not None):
-                status = MatchStatus.FINISHED
+            # Score-presence beats status-absence (2026-09-05), on the RAW status
+            # (#493): absent + both totals -> FINISHED; absent + a total missing
+            # -> SCHEDULED; a stated short keeps its mapping (unknown SCHEDULED)
+            status = game_status(short, _STATUS, _h_total, _a_total)
+            if raw_shorts is not None:
+                raw_shorts[str(gid)] = short
             out.append(NormalizedMatch(
                 sport=Sport.NFL, competition_code=(competition_code or "NFL").upper(),
                 season=season,

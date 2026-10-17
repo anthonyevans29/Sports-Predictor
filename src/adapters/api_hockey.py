@@ -23,6 +23,7 @@ from typing import Any
 
 import requests
 
+from src.adapters.api_sports_status import game_status, provider_short
 from src.adapters.base import DataAdapter
 from src.adapters.normalized import (
     NormalizedCompetition,
@@ -144,6 +145,12 @@ class APIHockeyAdapter(DataAdapter):
         if date_from and date_from == date_to:
             params["date"] = date_from
         data = self._get("games", params=params)
+        return self._parse_games(data, str(params.get("season", "")))
+
+    def _parse_games(self, data: dict, season: str, raw_shorts: dict | None = None) -> list[NormalizedMatch]:
+        """One /games answer -> NormalizedMatch rows (list_matches' parse, moved here as the american-football adapter
+        has it, #493). `raw_shorts` (opt-in, the score-presence dry run): a dict each parsed game's provider status is
+        added to, {provider id: the short as sent, None when absent}. Default None: nothing changes."""
         out: list[NormalizedMatch] = []
         for g in data.get("response") or []:
             game = g.get("game") or g
@@ -161,12 +168,10 @@ class APIHockeyAdapter(DataAdapter):
                     continue
                 utc = datetime.fromisoformat(str(raw).replace("Z", "+00:00"))
                 utc = utc.astimezone(timezone.utc).replace(tzinfo=None) if utc.tzinfo else utc
-            status_block = game.get("status") or {}
             # raw provider code BEFORE the "NS" default: an absent status must
-            # stay absent in status_raw (conservative unknowns), not become "NS"
-            raw_short = (status_block.get("short") if isinstance(status_block, dict)
-                         else (str(status_block) if status_block else None))
-            short = raw_short or "NS"
+            # stay absent in status_raw (conservative unknowns), not become "NS";
+            # the score-presence rule reads it too (#493)
+            raw_short = provider_short(game.get("status"))
             home = (teams.get("home") or {})
             away = (teams.get("away") or {})
             if gid is None or home.get("id") is None or away.get("id") is None:
@@ -183,18 +188,15 @@ class APIHockeyAdapter(DataAdapter):
             as_ = scores.get("away")
             _h_total = hs.get("total") if isinstance(hs, dict) else hs
             _a_total = as_.get("total") if isinstance(as_, dict) else as_
-            status = _STATUS.get(short, MatchStatus.SCHEDULED)
-            # Score-presence beats status-absence (2026-09-05): 16 of 2024's
-            # games arrive with NO status block at all but full final totals.
-            # A game with both totals and no status claim is finished with
-            # lazy upstream metadata — infer, but ONLY when status is absent,
-            # never over an explicit live/scheduled short.
-            if (short in (None, "", "None") and _h_total is not None
-                    and _a_total is not None):
-                status = MatchStatus.FINISHED
+            # Score-presence beats status-absence (2026-09-05), on the RAW status
+            # (#493): absent + both totals -> FINISHED; absent + a total missing
+            # -> SCHEDULED; a stated short keeps its mapping (unknown SCHEDULED)
+            status = game_status(raw_short, _STATUS, _h_total, _a_total)
+            if raw_shorts is not None:
+                raw_shorts[str(gid)] = raw_short
             out.append(NormalizedMatch(
                 sport=Sport.NHL, competition_code="NHL",
-                season=str(params.get("season", "")),
+                season=season,
                 utc_date=utc,
                 status=status,
                 home_team_source_id=str(home["id"]),
@@ -203,8 +205,9 @@ class APIHockeyAdapter(DataAdapter):
                 matchday=matchday,
                 stage=str(game.get("stage") or "") or None,
                 # the raw code the _STATUS map collapses (FT vs AOT vs AP):
-                # OT/SO wins become distinguishable (H2 groundwork, 2026-09-26)
-                status_raw=(raw_short if raw_short not in (None, "", "None") else None),
+                # OT/SO wins become distinguishable (H2 groundwork, 2026-09-26);
+                # None = no status stated (a stated "None" text is kept, #493)
+                status_raw=raw_short,
                 home_score=hs.get("total") if isinstance(hs, dict) else hs,
                 away_score=as_.get("total") if isinstance(as_, dict) else as_,
             ))

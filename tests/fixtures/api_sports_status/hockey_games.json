@@ -1,0 +1,438 @@
+{
+ "errors": [],
+ "get": "games",
+ "parameters": {
+  "league": "57",
+  "season": "2024"
+ },
+ "response": [
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9201,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "teams": {
+    "away": {
+     "id": 92011,
+     "name": "Away 9201"
+    },
+    "home": {
+     "id": 92010,
+     "name": "Home 9201"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9202,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": null,
+   "teams": {
+    "away": {
+     "id": 92021,
+     "name": "Away 9202"
+    },
+    "home": {
+     "id": 92020,
+     "name": "Home 9202"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9203,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": {},
+   "teams": {
+    "away": {
+     "id": 92031,
+     "name": "Away 9203"
+    },
+    "home": {
+     "id": 92030,
+     "name": "Home 9203"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9204,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": {
+    "long": null,
+    "short": null
+   },
+   "teams": {
+    "away": {
+     "id": 92041,
+     "name": "Away 9204"
+    },
+    "home": {
+     "id": 92040,
+     "name": "Home 9204"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9205,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": "None",
+   "teams": {
+    "away": {
+     "id": 92051,
+     "name": "Away 9205"
+    },
+    "home": {
+     "id": 92050,
+     "name": "Home 9205"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9206,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": {
+    "long": "None",
+    "short": "None"
+   },
+   "teams": {
+    "away": {
+     "id": 92061,
+     "name": "Away 9206"
+    },
+    "home": {
+     "id": 92060,
+     "name": "Home 9206"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9207,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": {
+    "long": "",
+    "short": ""
+   },
+   "teams": {
+    "away": {
+     "id": 92071,
+     "name": "Away 9207"
+    },
+    "home": {
+     "id": 92070,
+     "name": "Home 9207"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9208,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": null,
+    "home": null
+   },
+   "teams": {
+    "away": {
+     "id": 92081,
+     "name": "Away 9208"
+    },
+    "home": {
+     "id": 92080,
+     "name": "Home 9208"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9209,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": {
+    "long": "Not Started",
+    "short": "NS"
+   },
+   "teams": {
+    "away": {
+     "id": 92091,
+     "name": "Away 9209"
+    },
+    "home": {
+     "id": 92090,
+     "name": "Home 9209"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9210,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": {
+    "long": "Finished",
+    "short": "FT"
+   },
+   "teams": {
+    "away": {
+     "id": 92101,
+     "name": "Away 9210"
+    },
+    "home": {
+     "id": 92100,
+     "name": "Home 9210"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9211,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": {
+    "long": "After Over Time",
+    "short": "AOT"
+   },
+   "teams": {
+    "away": {
+     "id": 92111,
+     "name": "Away 9211"
+    },
+    "home": {
+     "id": 92110,
+     "name": "Home 9211"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9212,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": {
+    "long": "Second Period",
+    "short": "P2"
+   },
+   "teams": {
+    "away": {
+     "id": 92121,
+     "name": "Away 9212"
+    },
+    "home": {
+     "id": 92120,
+     "name": "Home 9212"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9213,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 0
+   },
+   "teams": {
+    "away": {
+     "id": 92131,
+     "name": "Away 9213"
+    },
+    "home": {
+     "id": 92130,
+     "name": "Home 9213"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  },
+  {
+   "date": "2024-10-08T23:00:00+00:00",
+   "id": 9214,
+   "league": {
+    "id": 57,
+    "name": "NHL",
+    "season": 2024
+   },
+   "scores": {
+    "away": 2,
+    "home": 3
+   },
+   "status": {
+    "long": "Unknown",
+    "short": "XYZ"
+   },
+   "teams": {
+    "away": {
+     "id": 92141,
+     "name": "Away 9214"
+    },
+    "home": {
+     "id": 92140,
+     "name": "Home 9214"
+    }
+   },
+   "time": "23:00",
+   "timer": null,
+   "timestamp": 1728428400,
+   "timezone": "UTC",
+   "week": null
+  }
+ ],
+ "results": 14
+}

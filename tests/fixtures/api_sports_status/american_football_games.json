@@ -1,0 +1,505 @@
+{
+ "errors": [],
+ "get": "games",
+ "parameters": {
+  "league": "1",
+  "season": "2024"
+ },
+ "response": [
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9101,
+    "stage": "Regular Season",
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91011,
+     "name": "Away 9101"
+    },
+    "home": {
+     "id": 91010,
+     "name": "Home 9101"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9102,
+    "stage": "Regular Season",
+    "status": null,
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91021,
+     "name": "Away 9102"
+    },
+    "home": {
+     "id": 91020,
+     "name": "Home 9102"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9103,
+    "stage": "Regular Season",
+    "status": {},
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91031,
+     "name": "Away 9103"
+    },
+    "home": {
+     "id": 91030,
+     "name": "Home 9103"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9104,
+    "stage": "Regular Season",
+    "status": {
+     "long": null,
+     "short": null,
+     "timer": null
+    },
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91041,
+     "name": "Away 9104"
+    },
+    "home": {
+     "id": 91040,
+     "name": "Home 9104"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9105,
+    "stage": "Regular Season",
+    "status": "None",
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91051,
+     "name": "Away 9105"
+    },
+    "home": {
+     "id": 91050,
+     "name": "Home 9105"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9106,
+    "stage": "Regular Season",
+    "status": {
+     "long": "None",
+     "short": "None",
+     "timer": null
+    },
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91061,
+     "name": "Away 9106"
+    },
+    "home": {
+     "id": 91060,
+     "name": "Home 9106"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9107,
+    "stage": "Regular Season",
+    "status": {
+     "long": "",
+     "short": "",
+     "timer": null
+    },
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91071,
+     "name": "Away 9107"
+    },
+    "home": {
+     "id": 91070,
+     "name": "Home 9107"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9108,
+    "stage": "Regular Season",
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": null
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91081,
+     "name": "Away 9108"
+    },
+    "home": {
+     "id": 91080,
+     "name": "Home 9108"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9109,
+    "stage": "Regular Season",
+    "status": {
+     "long": "Not Started",
+     "short": "NS",
+     "timer": null
+    },
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91091,
+     "name": "Away 9109"
+    },
+    "home": {
+     "id": 91090,
+     "name": "Home 9109"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9110,
+    "stage": "Regular Season",
+    "status": {
+     "long": "Finished",
+     "short": "FT",
+     "timer": null
+    },
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91101,
+     "name": "Away 9110"
+    },
+    "home": {
+     "id": 91100,
+     "name": "Home 9110"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9111,
+    "stage": "Regular Season",
+    "status": {
+     "long": "Third Quarter",
+     "short": "Q3",
+     "timer": "07"
+    },
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91111,
+     "name": "Away 9111"
+    },
+    "home": {
+     "id": 91110,
+     "name": "Home 9111"
+    }
+   }
+  },
+  {
+   "game": {
+    "date": {
+     "date": "2024-09-07",
+     "time": "17:00",
+     "timestamp": 1725728400,
+     "timezone": "UTC"
+    },
+    "id": 9112,
+    "stage": "Regular Season",
+    "status": {
+     "long": "Unknown",
+     "short": "XYZ",
+     "timer": null
+    },
+    "week": "Week 1"
+   },
+   "league": {
+    "id": 1,
+    "name": "NFL",
+    "season": "2024"
+   },
+   "scores": {
+    "away": {
+     "quarter_1": null,
+     "total": 17
+    },
+    "home": {
+     "quarter_1": null,
+     "total": 20
+    }
+   },
+   "teams": {
+    "away": {
+     "id": 91121,
+     "name": "Away 9112"
+    },
+    "home": {
+     "id": 91120,
+     "name": "Home 9112"
+    }
+   }
+  }
+ ],
+ "results": 12
+}

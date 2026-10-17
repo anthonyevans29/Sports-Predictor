@@ -316,6 +316,25 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
     click.echo("RESYNC-DIFF VERDICT: " + rd.verdict(c))
 
 
+@cli.command("score-presence-dry-run")
+@click.option("--competition", "competitions", multiple=True,
+              type=click.Choice(["NFL", "NCAA", "NHL"], case_sensitive=False),
+              help="NFL, NCAA or NHL (repeatable). Default: all three.")
+@click.option("--season", "seasons", multiple=True,
+              help="A season string as stored, e.g. 2024 (repeatable). Default: every season the DB stores for the "
+                   "competition.")
+def score_presence_dry_run_cmd(competitions, seasons):
+    """READ-ONLY (#493; ARCHITECT 2026-10-16, addendum 81 item 3): every stored row the adapters' score-presence rule
+    would change at the next sync of its season (a provider status ABSENT with both scores present: FINISHED), counted
+    per competition-season with the ids; and what the same whole-season sync would write besides (other statuses,
+    kickoffs, scores). One /games call per competition-season. Writes nothing: the operator runs it after the backup.
+    Exit 1 when a listing could not be read."""
+    from src.ingestion import score_presence as sp
+
+    raise SystemExit(sp.run([c.upper() for c in competitions] or list(sp.COMPETITIONS), list(seasons),
+                            _adapter_for_competition, out=click.echo))
+
+
 @cli.command("odds-audit")
 def odds_audit_cmd():
     """#167 (a), READ-ONLY: per odds source — matches holding MORE THAN ONE

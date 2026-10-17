@@ -1,0 +1,17 @@
+## 2026-10-17 (#576: coverage — ARCHITECT addendum 107 item C7)
+- cli.py `coverage [--date YYYY-MM-DD]`, built in deploy/hosting/coverage_map.py: the day's coverage, read-only. The DB is opened mode=ro (a missing file is refused, never created); nothing is written; no provider call.
+  - The day: `--date`, default today in US Eastern. A game belongs to the day by its US Eastern date (`closing.ny_date`). Void games (`closing.VOID`) are named and not counted.
+  - One line per competition with games that day: the games; LIVE, SHADOW, MARKET-ONLY or UNKNOWN, with where it was read; the stored prediction rows by model_version with the latest computed_at (ET), and the games with none; the closing groups the watch will run (`started …`, then `T-35 HH:MM ET [match ids] → exports/closing_<FAMILY>_<start>.json`).
+  - The closing pieces are closing.py's own: `groups()` over the family's games of the day at now, `RUN_LEAD_MIN`, `closing_name()`, `CLOSING_FILE_DIR`. The watch's receipts are not read.
+  - The status: LIVE where a closing family covers the competition (chains.CLOSING_FAMILIES, C1), or a roadmap lane is live, or its registry entry is in production. SHADOW where the roadmap lane named for it (lane id = competition code) is confirming and its registry entry is too. MARKET-ONLY for a lane in any other state. UNKNOWN, with the reason, where nothing names the competition, the lane and the registry disagree, or a file cannot be read.
+  - Then the gaps in capitals: a LIVE competition with a game that has no row, `PL: 4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run`, or `MLB: 2 GAMES, 1 PREDICTION ROW, NONE FOR 50549`. The hint names the chain whose predict step matches the closing chain's word for word (SOCCER soccer-prematch, MLB mlb-preslate, NFL nfl-predict); no chain found, no hint. Then one line naming the UNKNOWN competitions, for which no gap is judged. SHADOW and MARKET-ONLY competitions write no prediction rows, so no gap is claimed for them.
+  - Exit 0 whatever the gaps; a `--date` that is not real or a DB that cannot be read exits 2.
+- docs/CLI.md: the `coverage` row.
+- tests/test_coverage_map.py (17 tests, throwaway DB):
+  - the spec's three: a day with rows, a day with a gap (the spec's example line word for word), a market-only sport (NHL from the roadmap, NCAA from the roadmap and the registry);
+  - SHADOW and the three UNKNOWN reasons, and an unreadable roadmap;
+  - the closing groups and files on a day with two start times (the 10-minute boundary: 14:10 joins 14:00, 14:11 starts the next), and started games leaving them;
+  - the default date across the UTC midnight, and the 25-hour day of 2026-11-01;
+  - no write transaction (every connection mode=ro, every statement a SELECT, the file's sha256 unchanged, no new file) and no network;
+  - a missing DB is refused and not created; a date that is not real is refused; the SELECTs run on the ORM's real schema;
+  - the hint's derivation from chains.py, and the two predict commands pinned as the only writers of prediction rows.

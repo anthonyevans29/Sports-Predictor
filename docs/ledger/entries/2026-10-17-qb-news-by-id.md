@@ -1,5 +1,6 @@
-**2026-10-17 — The window page keys QB news by provider player id, the name display only; `injuries` stores the id (#458, #PRNUM).**
+**2026-10-17 — The window page keys QB news by team id and provider player id, the name display only; `injuries` stores the id (#458, #PRNUM).**
 - **Ruling (ARCHITECT 2026-10-17 10:40 ET, addendum 112 item 10), verbatim:** "#458 — the window page keys QB news by team and player name, so two same-name injured QBs collapse. RULED: key by provider player id, name as display only; the test uses two same-name players."
+- **The key (ARCHITECT 2026-10-17 16:55 ET, addendum 117 item 3), verbatim:** "#458 — the key is (team id, provider player id). The ruling named the provider id to replace the name; a player listed on two teams' reports in one window (a trade, a provider error) is two entries, and collapsing them would hide one. Build it that way; the two-team test stays."
 - **The limitation (#458, addendum 48 item 4):** the pager keyed each game's QB news by `f"{team_id}|{player}"`. With #456, two same-name entries on one team are two `injuries` rows and two `qb_news` items. If both were quarterbacks, the last item's status overwrote the first's, and a change in the hidden one paged nothing.
 - **Built (#PRNUM):**
   - **The id, from the feed.** The american-football adapter (NFL, NCAA) already tells entries apart by `response[].player.id` (addendum 47 item 3; the 2026-09-09 raw probe: player = id/name/image). `list_injuries` now returns it as `player_source_id`, a string, None for an entry with none. tests/fixtures holds no injuries payload; the field is the one `injury_entries` and the position lookup already read.
@@ -7,7 +8,10 @@
     - Not mapped in the ORM: the ORDER LINE note of 2026-10-04, as addendum 35 item 2 ruled for `odds.source_updated_at`. `injuries` is read by every chain: the window card hourly, and `sync-injuries` and the NFL export in the closing chain. The release ritual checks the tag out first and runs migrations by hand afterwards. A mapped column would fail every one of those queries until the script ran.
     - `sync-injuries` writes the id after the flush by guarded Core SQL. It is a no-op before the migration.
   - **The card.** Each `qb_news` item carries `player_id`, null where the row has none.
-  - **The page.** A QB is keyed `id:<id>`. The name is display only.
+  - **The page.** A QB is keyed by his team id and his provider id, `id:<team_id>|<id>` (addendum 117 item 3). The name is display only.
+    - One id on two teams' reports in one window (a trade, a provider error) is two entries, one per team. Each pages on his own team's games. When one team's game leaves the card, that entry leaves with it, and nothing pages for the other.
+    - The `id:` prefix keeps the key apart from the id-less `<team_id>|<name>` key; a team id is a number. Each entry also carries `name_key`, `<team_id>|<name>`. The key change finds a player's id key through it and never parses a key.
+    - Before the ruling this branch keyed `id:<id>`. That was never pushed, merged or deployed: no remote ref holds those commits, the host deploys tags only, and the laptop runs `main`. So no window state holds that format, and none is migrated.
 - **Rows with no id (law 4).** These are rows stored before the migration and the next sync, or entries the feed lists with no id.
   - They keep the old key, `<team_id>|<name>`, and the page line says `(no provider id)`.
   - Items with no id that share a team and name are one entry holding every status, sorted, and counted: `(no provider id, N entries)`. A change in any of them pages. None is ever overwritten.
@@ -26,9 +30,15 @@
 - **A rollback across this change.** A pre-#458 pager reads a state this one wrote as its old keys gone and new keys appearing. On the first window run after such a rollback, in one notification (held in quiet hours, 00:00-07:00 ET): each id-keyed QB gives an `off the list` line; each team-and-name key gives one line with the last item's status, so a same-name pair with ids collapses back into one line; and an id-less pair entry gives one `A / B -> B` line. This is not a fix; it is said here so the lines are expected.
 - **Not changed:** the window card's T-90 signature. It digests each row's content, so two same-name rows already count separately there; adding the id would change every signature once at deploy and fire freshens with no news. Also unchanged: the QB rule, the closing page and `qb_listed`, which read the rows and see both (addendum 48 item 4). The hockey and soccer injury reads keep no id; their rows stay null and no QB is read from them.
 - **The test (as ruled):** two same-name quarterbacks on one team, ids 2 and 3. Both appear, and a status change in either one pages. It fails on the old pager, which held one key, `{'9|John Smith'}`.
+- **The two-team test (addendum 117 item 3: "the two-team test stays"):** one provider id, 77, on CHI's report (Thursday) and DET's (Sunday).
+  - Two entries, `id:9|77` and `id:7|77`. A status change on either team pages for that team, on that team's game only.
+  - When CHI's game leaves the card, nothing pages. On the id-alone key it paged `Out -> Questionable`, a change nobody made. A real DET change on that run pages with DET's own last status.
+  - The same id on both teams of one game is two entries.
+  - The first run with ids carries each team's listing to its own key and pages nothing.
+  - Run against the id-alone key, all four fail on behaviour. The DET change paged nothing. CHI's game leaving paged `Out -> Questionable`. The one game held one `(2 entries)` entry under DET's name. The key change paged DET `off the list`.
 - **Open for the architect:**
   1. The column is unmapped (the ORDER LINE convention), not mapped on the model.
   2. The collapsed pair makes no delta on the run its ids arrive when its statuses are unchanged (a receipted baseline), and pages one folded line when they changed.
   3. An item with no id is labelled on every page line.
-  4. The key is the id alone, not the source and team. One feed (api-sports american-football, NFL and NCAA) is the only source of QB rows. Found in review: if the provider lists one player id on two teams' reports (a traded QB still listed, stale, on his former team), both listings are one entry and the first game's wins. A change on the second team pages nothing, and when the first game leaves the card the entry switches and pages a non-change. The key as it was kept the teams apart. Keying `id:<team_id>|<id>` keeps them apart and still keys by the provider's id; it is not built, because the ruling names the id.
+  4. RULED (addendum 117 item 3): the key is (team id, provider player id). "#458 — the key is (team id, provider player id). The ruling named the provider id to replace the name; a player listed on two teams' reports in one window (a trade, a provider error) is two entries, and collapsing them would hide one. Build it that way; the two-team test stays." Built as `id:<team_id>|<id>`, with the two-team test above.
 - **Ledger:** #458 (`class:limitation`): the PR body carries `Closes #458` and `Resolves limitation`.

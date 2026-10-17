@@ -941,6 +941,7 @@ def export_results(
     end_date: datetime,
     competition_code: str | None = None,
     output_format: str = "json",
+    exports_dir: str = "exports",
 ) -> str:
     """
     Export GRADED games (prediction + actual outcome) in a date range. Unlike
@@ -948,6 +949,10 @@ def export_results(
     looking: what did we predict, and what happened. Only includes games with a
     written outcome. Keyed by match so the consumer can join to the prediction
     file it already has.
+
+    VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): a row whose
+    match is void by its closing rows in `exports_dir` (redated.void_label)
+    keeps its fields, gains "redated" (the label), and leaves every tally here.
     """
     from src.db.schema import Prediction, PredictionOutcome, Match, Team
     from sqlalchemy import select
@@ -1048,7 +1053,10 @@ def export_results(
             })
 
     rows.sort(key=lambda r: (r["date"] or "", r["match_id"]))
+    from src.walters.redated import label_rows
     from src.walters.vs_close import block_from_rows
+    redated = label_rows(rows, exports_dir, "date")
+    tallied = [r for r in rows if not r.get("redated")]       # addendum 106 item 4: out of every tally, row kept
     payload = {
         "exported_at": utc_now_naive().isoformat() + "Z",
         "git_sha": _git_sha(),
@@ -1059,10 +1067,10 @@ def export_results(
         "count": len(rows),
         # ARCHITECT 2026-10-13 (addendum 63 item 3): the record block, its win rate and, over the decided games that
         # have a close, the record against the close. Every row here is decided (MLB never grades a tied final; a
-        # soccer draw is an outcome), so the win rate's denominator is the count.
-        "record": {"games": len(rows), "hits": sum(1 for r in rows if r["graded"]["top_pick_hit"]),
-                   "vs_close": block_from_rows(rows)},
-        "totals_pulse": _compute_totals_pulse(rows),
+        # soccer draw is an outcome), so the win rate's denominator is `games` (a re-dated row is not tallied).
+        "record": {"games": len(tallied), "hits": sum(1 for r in tallied if r["graded"]["top_pick_hit"]),
+                   "vs_close": block_from_rows(tallied), "redated": redated},
+        "totals_pulse": _compute_totals_pulse(tallied),
         "results": rows,
     }
     if output_format == "json":
@@ -1353,13 +1361,15 @@ def export_fixtures(
     return path
 
 
-def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> str:
+def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None, exports_dir: str = "exports") -> str:
     """Rolling results document (2026-09-15, user request): last-N-day
     sides/log-loss/CLV per sport, regenerated on demand. Auto-generated —
     do not hand-edit. Each sport that reports a close also gets its close's
     capture age over its window (#382): median and largest
     close_minutes_before_start, with n; `report` (a callable) receives the
-    same figures, one line per sport, for the console."""
+    same figures, one line per sport, for the console. A game void by its
+    closing rows in `exports_dir` (ARCHITECT 2026-10-17, addendum 106 item 4)
+    leaves every line of its section, which then names it on a line of its own."""
     import math
     from datetime import datetime, timedelta
 
@@ -1391,6 +1401,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
     from src.walters.close import close_age_line
     from src.walters.vs_close import line as _vs_line
     _ages: list = []            # (sport label, close_age_summary) for each sport that reports a close (#382)
+    from src.walters.redated import closing_starts, void_label
+    closing = closing_starts(exports_dir)["rows"]
     with session_scope() as s:
         cutoff = utc_now_naive() - timedelta(days=days)
         for sport, label, code in ((Sport.MLB, "MLB", None), (Sport.SOCCER, "Soccer (PL)", "PL")):
@@ -1408,9 +1420,16 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
                 from src.db.schema import Competition as _Comp
                 q = q.join(_Comp, _Comp.id == Match.competition_id).where(_Comp.code == code)
             rows = s.execute(q).all()
+            # addendum 106 item 4: a re-dated game leaves every line of the section and is named on its own
+            labels = {m.id: lab for _, m in rows if (lab := void_label(closing.get(m.id), m.utc_date))}
+            redated = [f"match {m.id} {m.away_team.name if m.away_team else '?'} @ "
+                       f"{m.home_team.name if m.home_team else '?'}: {labels[m.id]}" for _, m in rows if m.id in labels]
+            rows = [(oc, m) for oc, m in rows if m.id not in labels]
+            void_line = (f"- Void: re-dated {len(redated)} (out of every line above): " + "; ".join(redated) + "\n"
+                         if redated else "")
             n = len(rows)
             if not n:
-                lines.append(f"## {label}\n\nNo graded games in window.\n")
+                lines.append(f"## {label}\n\nNo graded games in window.\n" + (f"\n{void_line}" if void_line else ""))
                 continue
             hits = sum(1 for oc, m in rows if oc.top_pick_hit)
             lls = [oc.log_loss for oc, m in rows if oc.log_loss is not None]
@@ -1454,13 +1473,13 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
                    if ver else "- Mean model-close divergence, verified close: — (n=0)\n")
                 + (f"- Retained-legacy model-close divergence (separate cohort, not in the headline): "
                    f"{sum(leg)/len(leg)*100:+.2f}pp (n={len(leg)})\n" if leg else "")
-                + close_age_line(age))
+                + close_age_line(age) + void_line)
         # NFL from the grade join (no outcome rows during rehearsal). ONE record
         # definition (ARCHITECT 2026-10-06): season to date from live_since, a tie
         # is a push outside the hit denominator, pre-live rows on their own line.
         try:
             from src.walters.nfl_predict import grade_nfl
-            r = grade_nfl(days_back=None)
+            r = grade_nfl(days_back=None, exports_dir=exports_dir)
             if r.get("ok"):
                 pl = r.get("pre_live") or {}
                 nfl_age = r.get("close_minutes_before_start")       # #382; absent = no close reported
@@ -1482,6 +1501,8 @@ def results_tally(days: int = 30, out_path: str = "RESULTS.md", report=None) -> 
                        if r.get("mean_value_side_clv_pp") is not None else
                        "- Mean model-close divergence (value side): — (no games with a pre-kickoff book snapshot yet)\n")
                     + (close_age_line(nfl_age) if nfl_age is not None else "")
+                    + (f"- Void: re-dated {r['redated']} (out of every line above): "
+                       + "; ".join(r.get("redated_rows") or []) + "\n" if r.get("redated") else "")
                     + (f"\n### NFL pre-live (before 2026-09-22; never pooled)\n\n"
                        f"- Sides: {pl['hits']}/{pl['decided']} · pushes {pl['pushes']}\n"
                        f"- {_vs_line(pl.get('vs_close'))}\n"

@@ -436,7 +436,7 @@ def value_side_grade(p_home: float, anchor_home: float | None, close_home: float
             "shadow": (v_home != (p_home >= 0.5)) and abs(edge_home) * 100 >= VALUE_FLOOR_PP}
 
 
-def grade_nfl(days_back: int | None = None, progress=None) -> dict:
+def grade_nfl(days_back: int | None = None, progress=None, exports_dir: str = "exports") -> dict:
     """
     NFL grading (2026-09-14, built for Week 1's first read): joins
     predictions vs finished games and the latest banked book consensus.
@@ -450,6 +450,10 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
     the frozen gate's convention (tie = home loss). The default (`days_back=None`)
     reads the season to date (the latest season holding a finished predicted
     game); `days_back=N` is the rolling read (`nfl-grade --days N`).
+
+    VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): a game void by
+    its closing rows in `exports_dir` (redated.void_label) leaves every tally
+    and is named on its own line, as the results file labels it.
     """
     from datetime import datetime, timedelta
     import math
@@ -458,6 +462,7 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
 
     from src.db.database import session_scope
     from src.db.schema import Match, MatchStatus, Odds, Prediction, Sport
+    from src.walters.redated import closing_starts, void_label
     from src.walters.value import MarketSnapshot
 
     def report(msg):
@@ -490,7 +495,12 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
         anchor_after = 0
         pre_lines = []
         live_pairs, pre_pairs = [], []        # addendum 63 item 3: decided games with a close
+        closing, redated = closing_starts(exports_dir)["rows"], []
         for pred, m in s.execute(q).all():
+            lab = void_label(closing.get(m.id), m.utc_date)
+            if lab:                               # addendum 106 item 4: out of every tally, named below
+                redated.append(f"match {m.id} {m.away_team.name} @ {m.home_team.name}: {lab}")
+                continue
             y = 1 if m.home_score > m.away_score else 0   # the frozen gate's convention (tie = home loss)
             tie = m.home_score == m.away_score
             p = pred.home_win_prob
@@ -566,6 +576,7 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
                    "value_anchor_after_prediction_n": anchor_after,
                    # #382: the close's capture age over the live rows (our capture, not the quote, #348)
                    "close_minutes_before_start": close_age_summary(close_ages),
+                   "redated": len(redated), "redated_rows": redated,
                    "pre_live": {**pre, "vs_close": vs_pre}}
         report(f"  ── sides {live['hits']}/{live['decided']} decided"
                + (f" (+{live['pushes']} push)" if live["pushes"] else "")
@@ -576,6 +587,9 @@ def grade_nfl(days_back: int | None = None, progress=None) -> dict:
                f"(n={len(vclvs)} anchored; {n - len(vclvs)} unanchored — no pre-kickoff book snapshot) · "
                f"value-shadow cohort {summary['mean_value_shadow_clv_pp']}pp (n={len(vshadow)}) · "
                f"anchor after prediction: {anchor_after}/{len(vclvs)}")
+        report(f"  ── void: re-dated {len(redated)} (out of every line here)")
+        for x in redated:
+            report(f"     {x}")
         if pre["games"]:
             report(f"  ── pre-live (before {NFL_LIVE_SINCE:%Y-%m-%d}; never pooled): "
                    f"{pre['hits']}/{pre['decided']} decided"
@@ -631,7 +645,11 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
     lifetime record summed from the files could not reconcile. Default now:
     SEASON TO DATE — every finished, predicted NFL game of the latest season
     holding a finished game — with the window and the season record in the
-    file. `days_back` keeps the old rolling window when asked for."""
+    file. `days_back` keeps the old rolling window when asked for.
+
+    VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): a row whose
+    match is void by its closing rows in `out_dir` keeps its fields, gains
+    "redated" (the label) and leaves both records (season and pre-live)."""
     import json as _json
     import math
     import os as _os
@@ -715,11 +733,17 @@ def export_nfl_results(days_back: int | None = None, out_dir: str = "exports") -
     _os.makedirs(out_dir, exist_ok=True)
     path = _os.path.join(out_dir, f"nfl_NFL_results_{utc_now_naive().strftime('%Y-%m-%d')}.json")
     flags = [r.pop("_pre_live") for r in rows]
+    from src.walters.redated import label_rows
+    label_rows(rows, out_dir, "utc_date")
     live = [r for r, f in zip(rows, flags) if not f]
     pre = [r for r, f in zip(rows, flags) if f]
-    record = {"live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d}", **_season_record(live)}
+
+    def _rec(rs):                                 # addendum 106 item 4: a re-dated row leaves every tally
+        return {**_season_record([r for r in rs if not r.get("redated")]),
+                "redated": sum(1 for r in rs if r.get("redated"))}
+    record = {"live_since": f"{NFL_LIVE_SINCE:%Y-%m-%d}", **_rec(live)}
     pre_live = {"note": "preseason + pre-live rows (before Week 3); never pooled into the season record",
-                "count": len(pre), "record": _season_record(pre), "results": pre}
+                "count": len(pre), "record": _rec(pre), "results": pre}
     with open(path, "w") as f:
         _json.dump({"exported_at": utc_now_naive().isoformat() + "Z",
                     "git_sha": _git_sha(),

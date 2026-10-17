@@ -54,6 +54,10 @@ WHAT THE RECEIPT READS (the keys are printed with the output):
   the settled rows (the Cockpit's settledBets, with its kickoff audit auditCall RECOMPUTED from the stored stamps,
   never read from the stored tz_audit mark; a flagged row re-settled as the Cockpit does, toFixed(4)).
 
+VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): a call the Cockpit voided as re-dated (void_redated, the
+label "void: re-dated <old start> → <new start>"; no result) is excluded from every total and the n/30, and listed and
+counted on its own line. The fresh call on the new date is the graded row.
+
 Refuses a file that is not a bd_ledger_v1 export (no calls array, or a call that is not an object). Writes nothing.
 
     python3 scripts/value_shadow_receipt.py --ledger PATH/bd_ledger_v1_<date>.json
@@ -261,10 +265,15 @@ def totals(rs: list[dict]) -> dict:
 
 def read(L: dict) -> dict:
     fills = shadow_fills(L)
-    vs = sorted((row(c, fills.get(c.get("id"), 0)) for c in L["calls"] if c.get("call_type") == VALUE_SHADOW),
-                key=lambda r: (r["kickoff"] is None, r["kickoff"] or "", r["game"] or ""))
-    other = [row(c) for c in L["calls"] if c.get("call_type") != VALUE_SHADOW and staked_by(c)]
-    return {"rows": vs, "other_staked": other, "all": totals(vs),
+    order = lambda r: (r["kickoff"] is None, r["kickoff"] or "", r["game"] or "")     # noqa: E731
+    vs = sorted((row(c, fills.get(c.get("id"), 0)) for c in L["calls"]
+                 if c.get("call_type") == VALUE_SHADOW and not c.get("void_redated")), key=order)
+    other = [row(c) for c in L["calls"]
+             if c.get("call_type") != VALUE_SHADOW and staked_by(c) and not c.get("void_redated")]
+    # addendum 106 item 4: out of every total, listed with the label
+    void = sorted(({**row(c), "outcome": c["void_redated"]} for c in L["calls"]
+                   if c.get("void_redated") and (c.get("call_type") == VALUE_SHADOW or staked_by(c))), key=order)
+    return {"rows": vs, "other_staked": other, "void_redated": void, "all": totals(vs),
             "with_close": totals([r for r in vs if r["close"] is not None]),
             "staked": {"field": sum(1 for r in vs if r["staked"] == "field"),
                        "text": sum(1 for r in vs if r["staked"] == "text")},
@@ -307,7 +316,7 @@ def report(L: dict, name: str, echo=print) -> dict:
          f"meta.policy_version {(L.get('meta') or {}).get('policy_version', '-')} (the Cockpit rewrites it on every "
          "load)")
     echo(f"keys: {KEYS}")
-    if not out["rows"] and not out["other_staked"]:
+    if not out["rows"] and not out["other_staked"] and not out["void_redated"]:
         echo("VALUE SHADOWS: none in this ledger (0 calls with call_type value_shadow, 0 marked "
              f"\"{STAKED_TEXT}\") → n=0 of {REVIEW_N}")
     else:
@@ -324,10 +333,15 @@ def report(L: dict, name: str, echo=print) -> dict:
         echo(f"  staked: {out['staked']['field'] + out['staked']['text']} (a staked field {out['staked']['field']} · "
              f"the label {out['staked']['text']}) · marked but not a value_shadow call: {len(out['other_staked'])} · "
              f"with a Kalshi fill on their side: {out['with_fill']}")
+        echo(f"void: re-dated {len(out['void_redated'])} (out of every total and the n/30; the fresh call on the new "
+             "date is the graded row)")
+        for r in out["void_redated"]:
+            echo(_line(r) + (f" · call_type {r['call_type']}" if r["call_type"] != VALUE_SHADOW else ""))
         echo(f"n/30: the policy card's counter (every value shadow with a result) {a['graded']} of {REVIEW_N} · the "
              f"P&L block's (its settled rows, the kickoff audit applied) {min(a['settled'], REVIEW_N)} of {REVIEW_N}")
     echo("VALUE-SHADOW-RECEIPT " + json.dumps({"ledger": name, "calls": len(L["calls"]), "all": a, "with_close": wc,
                                                 "staked": out["staked"], "other_staked": len(out["other_staked"]),
+                                                "void_redated": len(out["void_redated"]),
                                                 "with_fill": out["with_fill"],
                                                 "n_of_30": f"{a['graded']} of {REVIEW_N}",
                                                 "n_of_30_pnl": f"{min(a['settled'], REVIEW_N)} of {REVIEW_N}"},

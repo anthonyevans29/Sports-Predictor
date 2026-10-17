@@ -276,18 +276,30 @@ def _call_time(c: dict):
         return None
 
 
+def _in_window(c: dict, since: datetime, until: datetime) -> bool:
+    t = _call_time(c)
+    return t is not None and since <= t < until
+
+
 def eligible_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[dict]:
     """Eligible = a real system call: a straight or ladder, units > 0, not a shadow, not a
-    parlay leg, its kickoff (else log date) inside the window."""
+    parlay leg, its kickoff (else log date) inside the window. A call the Cockpit voided as
+    re-dated (void_redated, ARCHITECT 2026-10-17, addendum 106 item 4) never is: it is counted
+    on its own line (redated_calls)."""
     from src.walters.ledger_fills import is_shadow
     out = []
     for c in L.get("calls") or []:
-        if c.get("call_type") not in ("straight", "ladder") or not (c.get("units") or 0) > 0 or is_shadow(c):
+        if c.get("call_type") not in ("straight", "ladder") or not (c.get("units") or 0) > 0 or is_shadow(c) \
+                or c.get("void_redated"):
             continue
-        t = _call_time(c)
-        if t is not None and since <= t < until:
+        if _in_window(c, since, until):
             out.append(c)
     return out
+
+
+def redated_calls(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WINDOW_TO) -> list[dict]:
+    """The calls in the window the Cockpit voided as re-dated (any call type): out of every tally here."""
+    return [c for c in L.get("calls") or [] if c.get("void_redated") and _in_window(c, since, until)]
 
 
 def _recorded_quote(c: dict):
@@ -340,7 +352,8 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                      "day": _call_day(c), "pick": c.get("pick"), "call_type": c.get("call_type"),
                      "engine": c.get("engine"), "units": c.get("units"), **d})
     matched_fills = [f for f in fills if f.get("book") == "system_matched"]
-    outside = [f for f in matched_fills if f.get("call_id") not in ids]
+    void_ids = {c.get("id") for c in redated_calls(L, since, until)}     # addendum 106 item 4: neither in nor out
+    outside = [f for f in matched_fills if f.get("call_id") not in ids and f.get("call_id") not in void_ids]
     inside = [f for f in matched_fills if f.get("call_id") in ids]
     tally = {k: sum(1 for r in rows if r["disposition"] == k) for k in DISPOSITIONS}
     return {"since": since, "until": until, "rows": rows, "tally": tally,
@@ -349,6 +362,7 @@ def reconcile(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_WIND
                        "matched": tally["MATCHED"]},
             "ledger": {"fills": len(fills), "system_matched": len(matched_fills),
                        "matched_in_window": len(inside), "matched_outside_window": len(outside),
+                       "matched_redated": sum(1 for f in matched_fills if f.get("call_id") in void_ids),
                        "qty": sum(f.get("qty") or 0 for f in inside),
                        "open_fees": sum(f.get("open_fee") or 0 for f in inside
                                         if isinstance(f.get("open_fee"), (int, float))),
@@ -376,9 +390,10 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
     lg = rec["ledger"]
     out = [f"FILLS · ledger export: {lg['fills']} fills · books " +
            " · ".join(f"{k} {v}" for k, v in rec["books"].items()),
-           f"  system_matched in window: {lg['matched_in_window']} (outside window {lg['matched_outside_window']})"
-           f" · qty {lg['qty']} · opening fees ${lg['open_fees']:.2f} · fees ${lg['fees']:.2f}"
-           f" · realised P&L pre-fee ${lg['pnl_pre']:+.2f} net ${lg['pnl_net']:+.2f}",
+           (f"  system_matched in window: {lg['matched_in_window']} (outside window {lg['matched_outside_window']}"
+            + (f"; on a call void: re-dated {lg['matched_redated']}" if lg["matched_redated"] else "")
+            + f") · qty {lg['qty']} · opening fees ${lg['open_fees']:.2f} · fees ${lg['fees']:.2f}"
+              f" · realised P&L pre-fee ${lg['pnl_pre']:+.2f} net ${lg['pnl_net']:+.2f}"),
            "  opening-fee class: " + " · ".join(f"{k} {v}" for k, v in lg["fee_classes"].items() if v),
            *[f"  ! AMBIGUOUS fill [{a['fill_id']}] {a['ticker']}: {len(a['candidates'])} calls fit "
              f"({', '.join(map(str, a['candidates']))}); attributed to {a['attributed_to']} as the Cockpit does — "
@@ -410,6 +425,11 @@ def format_fills(L: dict, since: datetime = K_WINDOW_FROM, until: datetime = K_W
                f"{rec['funnel']['cost_recorded']} · matched {rec['funnel']['matched']}")
     out.append("  " + " · ".join(f"{k} {t[k]}" for k in DISPOSITIONS)
                + " (UNATTEMPTED / ATTEMPTED_UNFILLED need order records the ledger does not carry)")
+    rd = redated_calls(L, since, until)          # addendum 106 item 4: counted here, out of every tally above
+    out.append(f"  void: re-dated {len(rd)} (out of the reconciliation and the CLV)")
+    for c in rd:
+        out.append(f"- VOID {c.get('sport')} {c.get('game')} · {c.get('call_type')} {c.get('pick')} · "
+                   f"{c['void_redated']}")
     for r in rec["rows"]:
         line = (f"- {r['disposition']:<11} {r['sport']} {r['game']} · {r['day']} · {r['call_type']} "
                 f"{r['pick']} · {r['units']}u · {r['why']}")

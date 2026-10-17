@@ -574,7 +574,7 @@ function koLine(r,held){
 // straight + ladder). stage null = unknown: labelled, never guessed.
 const POSTSEASON={reviewN:30};
 function gradedCount(pred){
-  try{ return loadLedger().calls.filter(c=>c.result&&pred(c)).length; }catch(e){ return 0; }
+  try{ return loadLedger().calls.filter(c=>c.result&&!c.void_redated&&pred(c)).length; }catch(e){ return 0; }
 }
 function postseasonGraded(){
   return gradedCount(c=>c.stage==="postseason"&&c.engine==="model_edge"
@@ -802,7 +802,7 @@ function upsertCalls(L,fresh,opts){
       if(cur.status==="graded"){kept++;continue;}
       L.calls[i]=stampTiming({...cur,...c,id:cur.id,log_date:cur.log_date,
         ...(cur.parlay_id?{parlay_id:cur.parlay_id}:{}),last_logged:c.log_date},c,false);
-      repriced++; continue; }
+      reopened(L.calls[i]); repriced++; continue; }
     if(!idx.has(k)){
       idx.set(k,L.calls.length); pos.set(instKey(c),L.calls.length);
       L.calls.push(opts.relog?stampTiming(c,c,true):c); added++; continue; }
@@ -810,10 +810,13 @@ function upsertCalls(L,fresh,opts){
     if(cur.status==="graded"&&c.status!=="graded"){kept++;}   // graded history is never rewritten
     else if(opts.incoming&&JSON.stringify(cur)===JSON.stringify({...c,id:cur.id})){kept++;}
     else if(opts.incoming){L.calls[i]={...c,id:cur.id};updated++;}
-    else {L.calls[i]=stampTiming({...cur,...c,id:cur.id},c,false);updated++;}
+    else {L.calls[i]=reopened(stampTiming({...cur,...c,id:cur.id},c,false));updated++;}
   }
   return {added,updated,kept,repriced};
 }
+// addendum 106 item 4: a re-log reopens a call void as re-dated (its kickoff is the fresh capture's); the label goes
+// with the status, and the next results intake decides again
+function reopened(c){ if(c.status==="open") delete c.void_redated; return c; }
 function baseCall(r,logDate){
   return {log_date:logDate,sport:r.sport,game:`${r.away} @ ${r.home}`,home:r.home,away:r.away,
     kickoff:r.utc||null,three_way:!!r.threeWay,status:"open",quarantine:rowQuar(r),
@@ -1126,6 +1129,21 @@ function dayDiff(a,b){
   const d=x=>Date.UTC(+x.slice(0,4),+x.slice(5,7)-1,+x.slice(8,10));
   return Math.abs(d(a)-d(b))/86400000;
 }
+// VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4 / addendum 107 item A2): "a closing row whose recorded
+// start differs from the match's current utc_date by more than DESK_CLOCK_DRIFT is labelled "void: re-dated <old
+// start> → <new start>" and excluded from every tally; the fresh closing run on the new date is the graded row." A
+// call's kickoff is the start it was called at; a result's date is the match's current utc_date. More than the hour
+// (exactly 1h is not void); a date with no clock on either side is not compared. The Python rule:
+// src/walters/redated.py redated_label (same text).
+const REDATED_DRIFT_MS=3600000;   // desk_policy.DESK_CLOCK_DRIFT (1h)
+function redatedLabel(recorded,current){
+  const clock=x=>/T\d\d:\d\d/.test(String(x||""));
+  if(!clock(recorded)||!clock(current)) return null;
+  const a=utcMs(recorded), b=utcMs(current);
+  if(!isFinite(a)||!isFinite(b)||Math.abs(b-a)<=REDATED_DRIFT_MS) return null;
+  const t=ms=>new Date(ms).toISOString().slice(0,16).replace("T"," ")+"Z";
+  return `void: re-dated ${t(a)} → ${t(b)}`;
+}
 // INTL calls (ARCHITECT 2026-10-07 addendum 3, item C): "graded on the 90-MINUTE result, never on a score that
 // includes extra time or penalties". Only an INTL results file (export-intl-results: actual = the 90-minute
 // score; games without one are listed there as ungraded) may grade them: a fixtures file's score includes extra
@@ -1210,6 +1228,11 @@ function gradeLedger(L,outs){
       if(!c.close_ref&&c.call_type!=="parlay_leg"){ const b=clvBlock(c,findOutcome(c,outs)); if(b) c.close_ref=b; }
       continue; }
     const o=findOutcome(c,outs); if(!o) continue;
+    // addendum 106 item 4: a result whose start moved more than the hour from the call's kickoff voids the call (no
+    // result, status "void", out of every tally); the fresh call at the new start is graded here as any other
+    const rd=redatedLabel(c.kickoff,o.date);
+    if(rd){ c.void_redated=rd; c.status="void"; continue; }
+    if(c.void_redated){ delete c.void_redated; c.status="open"; }
     c.result=legResult(c,o); c.graded_date=today;
     if(c.call_type!=="parlay_leg"){ const b=clvBlock(c,o); if(b) c.close_ref=b; }
     if(c.call_type!=="parlay_leg"){
@@ -1229,20 +1252,22 @@ function gradeLedger(L,outs){
   // parlay tickets settle when every leg has a result
   const tickets={}; L.calls.filter(c=>c.call_type==="parlay_leg").forEach(c=>(tickets[c.parlay_id]=tickets[c.parlay_id]||[]).push(c));
   for(const legs of Object.values(tickets)){
-    if(legs.every(l=>l.status==="graded")) continue;
+    // a leg void as re-dated (addendum 106 item 4) is never graded: it drops from its ticket, as a void leg does
+    if(legs.every(l=>l.status==="graded"||l.void_redated)) continue;
     // settles when every leg has a result — or at once on a losing leg
     // ("all legs win" is then impossible; later legs keep their own result)
-    if(legs.some(l=>!l.result)&&!legs.some(l=>l.result==="loss")) continue;
+    if(legs.some(l=>!l.result&&!l.void_redated)&&!legs.some(l=>l.result==="loss")) continue;
     const stake=legs[0].units;
     const pay=price=>{ if(legs.some(l=>l.result==="loss")) return 0;
       const live=legs.filter(l=>l.result==="win");            // void/push legs drop
       return live.length?live.reduce((x,l)=>x/(price(l)||1),stake):stake; };
     const ret=pay(execP);
-    const cret=legs.every(l=>l.claim_market_p!=null)?pay(l=>l.claim_market_p):null;
+    const kept=legs.filter(l=>!l.void_redated);
+    const cret=kept.every(l=>l.claim_market_p!=null)?pay(l=>l.claim_market_p):null;
     const res=ret===0?"loss":(legs.every(l=>l.result!=="win")?"void":"win");
-    legs.forEach(l=>{l.status="graded";l.units_returned=+ret.toFixed(4);l.ticket_result=res;
+    kept.forEach(l=>{l.status="graded";l.units_returned=+ret.toFixed(4);l.ticket_result=res;
       if(cret!=null) l.claim_units_returned=+cret.toFixed(4);
-      l.graded_date=legs.map(x=>x.graded_date).sort().pop();});
+      l.graded_date=kept.map(x=>x.graded_date).sort().pop();});
     graded++;
   }
   return graded;
@@ -1257,8 +1282,8 @@ $("resultsFile").addEventListener("change",async e=>{
   }
   $("modelRecord").textContent=recs.join("\n");      // addendum 63 item 3: the win rate never without its line
   const L=loadLedger(); const n=gradeLedger(L,outs); const np=harvestPicks(L,picks); const dd=saveLedger(L);
-  const open=L.calls.filter(c=>c.status==="open").length;
-  $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
+  const open=L.calls.filter(c=>c.status==="open").length, nv=L.calls.filter(c=>c.void_redated).length;
+  $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · void: re-dated ${nv} (listed below, out of every tally) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
     +dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
 });
@@ -1273,7 +1298,7 @@ function settledBets(L){
     if(c.status!=="graded") continue;
     if(c.call_type==="parlay_leg"){
       if(seen.has(c.parlay_id)) continue; seen.add(c.parlay_id);
-      const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id);
+      const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id&&!x.void_redated);   // addendum 106 item 4: dropped
       if(legs.some(l=>l.leg_check&&l.leg_check.status==="not_play")){lastAudit.legNotPlay++; continue;}   // #183: out of the P&L
       const au=new Map(legs.map(l=>[l,auditCall(l)]));
       const flagged=legs.some(l=>au.get(l).flagged);
@@ -1413,7 +1438,7 @@ function seriesStats(label,pts){
 // stays available either way.
 function executedPositions(L){
   const graded=new Map(L.calls.filter(c=>c.status==="graded"&&c.close_ref&&!isShadow(c)
-    &&c.call_type!=="parlay_leg").map(c=>[c.id,c]));
+    &&c.call_type!=="parlay_leg"&&!c.void_redated).map(c=>[c.id,c]));
   const by=new Map(), unpriced=new Set();
   for(const f of classifyFills(L)){
     if(f.book!=="system_matched"||!f.call_id||!(f.qty>0)||f.entry==null) continue;
@@ -1435,7 +1460,7 @@ function executedPositions(L){
     fee_combined:pos.filter(p=>p.fee_status==="combined_only").length};
 }
 function clvLines(L){
-  const refs=L.calls.filter(c=>c.status==="graded"&&c.close_ref&&!isShadow(c)&&c.call_type!=="parlay_leg");
+  const refs=L.calls.filter(c=>c.status==="graded"&&c.close_ref&&!isShadow(c)&&c.call_type!=="parlay_leg"&&!c.void_redated);
   const ref=(f)=>refs.filter(c=>c.close_ref[f]!=null).map(c=>({v:c.close_ref[f],day:c.graded_date||c.log_date,c}));
   const {pos,unpriced,fee_missing,fee_combined}=executedPositions(L);
   const ex=k=>pos.filter(p=>p[k]!=null).map(p=>({v:p[k],day:p.day,c:p.c}));
@@ -1477,6 +1502,7 @@ function pnlBlock(L){
     `Quarantine counterfactual (shadow, NOT staked): n ${cf.n} · notional staked ${fmt(cf.staked)} · net ${cf.net>=0?"+":""}${fmt(cf.net)} · hit ${cf.hit==null?"—":fmt(cf.hit,1)+"%"}`,
     `Value-side counterfactual (v1.2 candidate shadow, NOT staked): n ${vf.n} · notional staked ${fmt(vf.staked)} · net ${vf.net>=0?"+":""}${fmt(vf.net)} · hit ${vf.hit==null?"—":fmt(vf.hit,1)+"%"} · promotion review at ${VALUE.reviewN} graded (${Math.min(vf.n,VALUE.reviewN)}/${VALUE.reviewN}), version bump only`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
+    `Void: re-dated ${L.calls.filter(c=>c.void_redated).length} (out of every line above; the fresh call on the new date is the graded one)`,
     bShadowLine(L,bets),
     auditLine(),
     ...realizedLines(L),
@@ -1505,8 +1531,11 @@ function renderLedger(){
   $("ruleTable").innerHTML=groupTable("by rule",rb,b=>b.rule+(b.shadow?" [shadow]":""));
   const open=L.calls.filter(c=>c.status==="open"&&!c.result);
   const waiting=L.calls.filter(c=>c.status==="open"&&c.result).length;
+  const vr=L.calls.filter(c=>c.void_redated);       // addendum 106 item 4: listed with the label, out of every tally
+  const voidHTML=vr.length?`<div class="note" id="voidRedated"><b>${vr.length} call(s) void</b> (out of every tally; the fresh call on the new date is the graded one):`
+    +vr.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)} · ${esc(c.engine)} ${esc(c.call_type)} · <b>${esc(c.void_redated)}</b>`).join("")+"</div>":"";
   const px=v=>v==null?"—":(+v).toFixed(3), hm=s=>s?String(s).slice(5,16).replace("T"," "):"";
-  $("openList").innerHTML=(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th>Order / fill</th><th></th></tr></thead><tbody>`
+  $("openList").innerHTML=voidHTML+(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th>Order / fill</th><th></th></tr></thead><tbody>`
     +open.map(c=>{const early=c.exec_mode==="operator_early";
       const canExec=!early&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
       return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`
@@ -1604,7 +1633,7 @@ $("exportLedgerBtn").addEventListener("click",()=>{
 // cautious default). Counts only: no positions, no prices.
 function ledgerSummary(){
   const per={};
-  for(const c of loadLedger().calls){ if(!c.result) continue;
+  for(const c of loadLedger().calls){ if(!c.result||c.void_redated) continue;
     for(const t of (c.rules&&c.rules.length?c.rules:["(no rule tag)"])) per[t]=(per[t]||0)+1; }
   return {kind:"bd_ledger_summary_v1",generated_at:new Date().toISOString(),policy_version:POLICY_VERSION,
     counts:{postseason_graded:postseasonGraded(),value_shadow_graded:valueShadowGraded(),

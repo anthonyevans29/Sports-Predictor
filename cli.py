@@ -4984,6 +4984,7 @@ def export_nfl_results_cmd(days_back, match_ids):
         print(f"pre-live (never pooled): games {pre['count']} · hits {prec.get('hits')}/{prec.get('decided')}"
               f" · pushes {prec.get('pushes')}")
         print(f"  {_vs_line(prec.get('vs_close'))}")
+    _redated_lines((doc.get("results") or []) + (pre.get("results") or []))
     live_ids = {r["match_id"] for r in doc.get("results") or []}
     pre_ids = {r["match_id"] for r in pre.get("results") or []}
     for mid in match_ids:
@@ -5408,6 +5409,7 @@ def export_intl_results_cmd(days_back):
     for u in doc["ungraded"]:
         print(f"  UNGRADED match {u['match_id']} {u['away_team']} @ {u['home_team']} {u['utc_date'][:10]}: "
               f"{u['reason']}")
+    _redated_lines(doc["results"])
 
 
 @cli.command("unl-shadow-grade")
@@ -8661,6 +8663,15 @@ def find_team_cmd(name_fragment: str):
         console.print(table)
 
 
+def _redated_lines(rows) -> None:
+    """VOID: RE-DATED (ARCHITECT 2026-10-17, addendum 106 item 4): the results rows void as re-dated, counted on a line
+    of their own and named. Each stays in the file (the Cockpit grades the fresh call from it), out of every tally."""
+    rd = [r for r in rows if r.get("redated")]
+    print(f"  void: re-dated {len(rd)} (kept in the file, out of every tally above)")
+    for r in rd:
+        print(f"    match {r.get('match_id')} {r.get('away_team')} @ {r.get('home_team')}: {r['redated']}")
+
+
 @cli.command("export-results")
 @click.option("--sport", type=click.Choice(["mlb", "baseball", "soccer"]), default="mlb")
 @click.option("--competition", "competition_code", default="MLB")
@@ -8718,17 +8729,20 @@ def export_results_cmd(sport, competition_code, date_str, out_path):
         console.print(f"[yellow]No graded games for {day.strftime('%Y-%m-%d')} "
                       "(not evaluated yet, or none that day).[/yellow]")
         return
-    hits = sum(1 for r in data["results"] if r["graded"]["top_pick_hit"])
-    tot_graded = [r for r in data["results"]
+    # addendum 106 item 4: a re-dated row stays in the file and out of every tally below
+    tallied = [r for r in data["results"] if not r.get("redated")]
+    hits = sum(1 for r in tallied if r["graded"]["top_pick_hit"])
+    tot_graded = [r for r in tallied
                   if r["graded"]["total_correct"] is not None]
     tot_ok = sum(1 for r in tot_graded if r["graded"]["total_correct"])
     console.print(f"[green]✓ Wrote {n} results to {out_path}[/green]")
-    console.print(f"  [dim]top-pick {hits}/{n} · totals-direction {tot_ok}/{len(tot_graded)} "
-                  f"({n - len(tot_graded)} no line) "
+    console.print(f"  [dim]top-pick {hits}/{len(tallied)} · totals-direction {tot_ok}/{len(tot_graded)} "
+                  f"({len(tallied) - len(tot_graded)} no line) "
                   "(record is variance, not signal — for the consumer to grade against)[/dim]")
     # ARCHITECT 2026-10-13 (addendum 63 item 3): "A win rate is never printed without it."
     from src.walters.vs_close import line as _vs_line
     print(f"  {_vs_line((data.get('record') or {}).get('vs_close'))}")
+    _redated_lines(data["results"])
 
     # totals pulse now lives in the payload (audit layer reads it from the file);
     # print it from there so console and file are the same single source of truth.

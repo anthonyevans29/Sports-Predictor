@@ -178,14 +178,16 @@ DESK_CLOCK_DRIFT = timedelta(hours=1)
 # fence lifts with the cutover (the ruling that cuts over names it). No re-keying on the host (addendum 36 stands)."
 # The role is the machine's own setting, SP_EXPORTS_MIRROR_ROLE (host | laptop, no default; addendum 45 P1), not
 # SP_WRITER_OF_RECORD, which reads laptop on both machines until the cutover flips it (built pending the architect's
-# confirmation on #410). Only "host" fences; unset or any other value leaves the row as it is. Checked first, before
-# S1: it overrides every call. It lifts by this switch, which the cutover's PR turns off. The frozen golden predates it
-# and runs with it off (base_v11()).
+# confirmation on #410). The machine's own host.env is read first, then the process environment (machine_role()).
+# Only "host" fences; unset or any other value leaves the row as it is. Checked first, before S1: it overrides every
+# call. It lifts by this switch, which the cutover's PR turns off. The frozen golden predates it and runs with it off
+# (base_v11()).
 HOST_FENCE_RULE = {"on": True}
 HOST_FENCE_KIND = "host_fence"
 HOST_FENCE_REASON = "host: ratings keyed to the laptop's team ids (#410); the cutover replaces this database"
 ROLE_ENV = "SP_EXPORTS_MIRROR_ROLE"                 # deploy/hosting/closing.py ROLE_SETTING; host.env / the laptop's .env
 ROLES = ("host", "laptop")
+HOST_ENV_DEFAULT = "/etc/sports-predictor/host.env"  # deploy/hosting/sp_common.py HOST_ENV; SP_HOST_ENV overrides it
 NO_CALL_KINDS = ("started", SHADOW_LEAGUE_KIND,    # PASS rows with no order, no exec block, no value shadow
                  "no_series", "venue_unknown",      # + INTL v0 rules (4) and (3) (#325)
                  KALSHI_ONLY_SUSPENDED_KIND,        # + Q3 K1 (2026-10-08)
@@ -963,11 +965,23 @@ def kalshi_only_suspended(r) -> bool:
 
 
 def machine_role(env=None) -> str | None:
-    """This machine's role, SP_EXPORTS_MIRROR_ROLE (addendum 45 P1: host | laptop, no default), read from the process
-    environment as src reads every host.env setting (mlb_apisports.fallback_engaged's SP_SKIP_FAMILIES): the units'
-    EnvironmentFile and sp_run's load_host_env put host.env there, config.py's load_dotenv the laptop's .env. None
-    when unset or neither, as deploy/hosting/closing.py mirror_role() reads it."""
-    role = ((os.environ if env is None else env).get(ROLE_ENV) or "").strip()
+    """This machine's role, SP_EXPORTS_MIRROR_ROLE (addendum 45 P1: host | laptop, no default). The machine's own
+    host.env (SP_HOST_ENV, else HOST_ENV_DEFAULT; only the host has one) is read first and wins, then the process
+    environment (the units' EnvironmentFile, sp_run's load_host_env, config.py's load_dotenv of the checkout's .env).
+    closing.mirror_role() reads the environment first (sp_common.setting), so a closing-run typed by hand on the host,
+    with no EnvironmentFile, signs its page "machine: host" from host.env while its export step's environment has no
+    role, or the laptop's .env role: reading host.env first keeps that export fenced (#410 review). None when neither
+    holds host or laptop. `env`: read that mapping alone, not the machine (tests)."""
+    if env is None:
+        try:
+            from dotenv import dotenv_values           # config.py's reader (python-dotenv); a missing file reads {}
+            hv = (dotenv_values(os.environ.get("SP_HOST_ENV", HOST_ENV_DEFAULT)).get(ROLE_ENV) or "").strip()
+        except OSError:                                # unreadable (host.env is root:sp 0640): the environment decides
+            hv = ""
+        if hv in ROLES:
+            return hv
+        env = os.environ
+    role = (env.get(ROLE_ENV) or "").strip()
     return role if role in ROLES else None
 
 

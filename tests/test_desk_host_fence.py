@@ -4,10 +4,13 @@ to the laptop's team ids (#410); the cutover replaces this database". rating_sou
 numbers stay in the file for the compare. The host pager never sees a soccer PLAY from the host. Test: a
 two-mis-keyed-clubs fixture under role host → PASS host_fence; under role laptop → unchanged. The fence lifts with the
 cutover (the ruling that cuts over names it). No re-keying on the host (addendum 36 stands)."
-The role read (built pending the architect's confirmation on #410): the machine's SP_EXPORTS_MIRROR_ROLE, exactly
-"host"; unset or any other value leaves the row as it is. The switch: desk_policy.HOST_FENCE_RULE."""
+The role read (built pending the architect's confirmation on #410): the machine's SP_EXPORTS_MIRROR_ROLE, from its
+own host.env first, then the process environment; exactly "host"; unset or any other value leaves the row as it is.
+The switch: desk_policy.HOST_FENCE_RULE. tests/conftest.py points SP_HOST_ENV at a file that does not exist."""
 import copy
 import json
+import os
+import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -138,6 +141,53 @@ def test_a_role_that_is_not_exactly_host_does_not_fence(role, value):
     role("  host\n")
     desk, _ = annotate(mun_ful())
     assert desk[410001]["pass_kind"] == "host_fence"
+
+
+def test_host_env_is_read_first_so_a_hand_run_on_the_host_is_fenced(role, tmp_path, monkeypatch):
+    """#410 review (P1): a closing-run typed by hand on the host (the P8 rehearsal, under sudo) has no EnvironmentFile.
+    closing.mirror_role() finds host in host.env (sp_common.setting: the environment, then host.env) and signs its page
+    "machine: host", while its export step's environment carries no role, or the laptop's role from the checkout's
+    .env (install --replace copies the laptop's; config.py's load_dotenv reads it). The Desk reads host.env first, so
+    that export is fenced too."""
+    import closing
+    host_env = tmp_path / "host.env"
+    host_env.write_text("SP_WRITER_OF_RECORD=laptop\nSP_EXPORTS_MIRROR_ROLE=host\n")
+    monkeypatch.setenv("SP_HOST_ENV", str(host_env))
+    monkeypatch.setattr(closing.c, "HOST_ENV", host_env)
+    role(None)
+    assert closing.mirror_role() == "host" and closing.machine_line() == "machine: host"
+    assert dp.machine_role() == "host"
+    desk, _ = annotate(mun_ful())
+    assert (desk[410001]["call"], desk[410001]["pass_kind"], desk[410001]["reason"]) == ("PASS", "host_fence", REASON)
+    role("laptop")                                           # the checkout's .env, copied from the laptop
+    desk, _ = annotate(mun_ful())
+    assert dp.machine_role() == "host" and desk[410001]["pass_kind"] == "host_fence"
+    env = {k: v for k, v in os.environ.items() if k != dp.ROLE_ENV}      # sp_run.run_step's child: {**os.environ}
+    out = subprocess.run([sys.executable, "-c", "from src.walters import desk_policy as dp; print(dp.machine_role())"],
+                         cwd=Path(__file__).resolve().parents[1], env=env, capture_output=True, text=True, check=True)
+    assert out.stdout.strip() == "host"
+
+
+def test_without_a_role_in_host_env_the_environment_decides(role, tmp_path, monkeypatch):
+    """A host.env with no role line, or one that is not host or laptop, does not decide: the environment does. A
+    machine with no host.env (the laptop, CI: conftest's SP_HOST_ENV names no file) reads the environment alone."""
+    role("laptop")
+    lap, _ = annotate(mun_ful())
+    host_env = tmp_path / "host.env"
+    monkeypatch.setenv("SP_HOST_ENV", str(host_env))
+    for text in ("SP_WRITER_OF_RECORD=laptop\n", "SP_EXPORTS_MIRROR_ROLE=HOST\n", "SP_EXPORTS_MIRROR_ROLE=\n"):
+        host_env.write_text(text)
+        role("laptop")
+        desk, _ = annotate(mun_ful())
+        assert desk == lap and dp.machine_role() == "laptop", text
+        role("host")
+        desk, _ = annotate(mun_ful())
+        assert desk[410001]["pass_kind"] == "host_fence" and dp.machine_role() == "host", text
+        role(None)
+        assert dp.machine_role() is None, text
+    host_env.write_text("SP_EXPORTS_MIRROR_ROLE=laptop\n")   # host.env's own word wins over the environment
+    role("host")
+    assert dp.machine_role() == "laptop" and annotate(mun_ful())[0] == lap
 
 
 def test_the_switch_off_under_role_host_restores_the_call(role):

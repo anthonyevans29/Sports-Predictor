@@ -26,3 +26,13 @@ def _no_real_cross_ref_guard(monkeypatch):
     from src.walters import registry
     monkeypatch.setattr(registry, "cross_ref_guard",
                         lambda eid, no_fetch=False, repo=None: f"cross-ref guard: test stub ({eid})")
+
+
+@pytest.fixture(autouse=True)
+def _no_machine_role(monkeypatch):
+    """Addendum 109 item 3 (#410): the Desk's host fence reads the machine's SP_EXPORTS_MIRROR_ROLE, from host.env
+    (SP_HOST_ENV) first, then the environment. No test inherits the machine's role (a real host.env, host.env exported
+    into the shell, a .env read by config.py's load_dotenv): a test that needs one sets it (tests/test_desk_host_fence.py's
+    role fixture, tests/test_closing_runs.py's box). Per test, since load_dotenv runs after this file is imported."""
+    monkeypatch.delenv("SP_EXPORTS_MIRROR_ROLE", raising=False)
+    monkeypatch.setenv("SP_HOST_ENV", str(_TMP / "no-host.env"))

@@ -516,6 +516,24 @@ def test_537_a_changed_call_is_graded_on_the_desks_own_pick_from_the_rounded_1x2
     assert any("graded by the instrument: PLAY DRAW won 1" in o for o in out)
 
 
+def test_under_role_host_a_one_sided_case_reads_as_reached_by_the_host_fence_first(monkeypatch):
+    """Addendum 109 item 3 (#410 review): the host fence is _desk_call's first rule. Under role host a one-sided case
+    is PASS host_fence with the guard on and off; the receipt counts it as reached by an earlier rule (host_fence),
+    never dropped from every bucket."""
+    from types import SimpleNamespace as N
+    import scripts.soccer_injury_factor_receipt as rc
+    stored = {"HOME": 0.10, "DRAW": 0.30, "AWAY": 0.60}
+    fair = {"HOME": 0.20, "DRAW": 0.26, "AWAY": 0.54}
+    odds = [N(market="1X2", bookmaker=bk, selection=k, price_decimal=1 / v, captured_at=datetime(2091, 1, 1, 15),
+              line=None) for bk in ("b1", "b2") for k, v in fair.items()]
+    monkeypatch.setenv(dp.ROLE_ENV, "host")
+    g = rc.guard_calls(_match_stub(), "PL", stored, (odds, []), 0, 3, {}, datetime(2091, 1, 1, 16))
+    assert g["desk_on"] == g["desk_off"] == {"call": "PASS", "units": 0, "pass_kind": dp.HOST_FENCE_KIND}
+    s = rc.guard_summary([{"prediction_id": 1, "result": "AWAY", "pick": "AWAY", "counts": (0, 3), **g}])
+    assert (s["one_sided"], s["held"], s["changed_call"]) == (1, 0, 0)
+    assert s["one_sided_earlier"] == s["earlier"] == {"host_fence": 1}
+
+
 def _match_stub():
     from types import SimpleNamespace as N
     return N(id=1, home_team=N(name="H"), away_team=N(name="A"), utc_date=datetime(2091, 1, 1, 19))

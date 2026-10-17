@@ -9163,11 +9163,12 @@ def coverage_cmd(date_s):
     """THE DAY'S COVERAGE (ARCHITECT 2026-10-17 09:30 ET, addendum 107 item C7): the first step of every morning block.
     One line per competition with games that day (by the US Eastern date, as the closing watch dates a first pitch):
     the games; LIVE, SHADOW or MARKET-ONLY (from the closing families, the roadmap and the registry; UNKNOWN with its
-    reason where they do not say); the stored prediction rows by model with the latest computed_at, and the games with
-    none; the closing groups the watch will run (T-35 in ET, the match ids) and the file each lands in
-    (exports/closing_<FAMILY>_<start>.json). Then the gaps in capitals ("PL: 4 GAMES, 0 PREDICTION ROWS —
-    soccer-prematch has not run"). Read-only: the DB opened mode=ro, nothing written, no provider call. Exit 0 whatever
-    the gaps (it never stops a chain); a --date that is not real or a DB that cannot be read exits 2.
+    reason where they do not say); the stored prediction rows by model with their computed_at (a range when the rows
+    differ), and the games with none; the closing groups the watch will run (closing.due's own inputs, the watch's
+    receipts included; T-35 in ET, the match ids) and the file each lands in (exports/closing_<FAMILY>_<start>.json).
+    Then the gaps in capitals ("PL: 4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run"). Read-only: the DB
+    opened mode=ro, no row or export written, no provider call. Exit 0 whatever the gaps (it never stops a chain); a
+    --date that is not real or a DB that cannot be read exits 2.
     (= python deploy/hosting/coverage_map.py)"""
     import sys as _sys
     from pathlib import Path as _P

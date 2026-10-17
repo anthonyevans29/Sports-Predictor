@@ -1,7 +1,8 @@
 """THE DAY'S COVERAGE (ARCHITECT 2026-10-17 09:30 ET, addendum 107 item C7): `python cli.py coverage [--date]`.
 "Tests on the throwaway DB: a day with rows, a day with a gap, a market-only sport." Against a SCRATCH schedule under
 tmp_path (the tables the command reads, src/db/schema.py names; one test on the real schema), with a scratch roadmap
-and registry where the status rule is under test. The clock is fixed; the no-write test blocks the network."""
+and registry where the status rule is under test, and a scratch receipts file for the watch's. The clock is fixed; the
+no-write test blocks the network."""
 import hashlib
 import inspect
 import json
@@ -9,7 +10,7 @@ import re
 import socket
 import sqlite3
 import sys
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -20,6 +21,7 @@ sys.path.insert(0, str(ROOT / "deploy" / "hosting"))
 
 import closing as cl  # noqa: E402
 import coverage_map as cm  # noqa: E402
+import sp_common as c  # noqa: E402
 
 from src import roadmap as rm  # noqa: E402
 from src.walters import registry as reg  # noqa: E402
@@ -37,9 +39,12 @@ def utc(s):
     return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
 
 
-def make_db(path: Path, games, preds=()) -> None:
-    """games: (match_id, competition, UTC start 'YYYY-MM-DD HH:MM', status); preds: (match_id, model, UTC computed)."""
+def make_db(path: Path, games, preds=(), wal: bool = False) -> None:
+    """games: (match_id, competition, UTC start 'YYYY-MM-DD HH:MM', status); preds: (match_id, model, UTC computed).
+    wal: the file in WAL mode, as src/db/database.py leaves the real DB (the mode persists in the file)."""
     con = sqlite3.connect(path)
+    if wal:
+        con.execute("PRAGMA journal_mode=WAL")
     con.executescript(
         "CREATE TABLE competitions(id INTEGER PRIMARY KEY, code TEXT);"
         "CREATE TABLE teams(id INTEGER PRIMARY KEY, name TEXT);"
@@ -73,9 +78,14 @@ ENTRIES = [{"id": "intl-x", "status": "confirming"}, {"id": "ncaa-x", "status": 
 
 @pytest.fixture
 def env(tmp_path, monkeypatch):
-    """A scratch DB, a scratch roadmap and registry, and the fixed clock."""
+    """A scratch DB, a scratch roadmap and registry, a scratch receipts file (none yet), no machine settings, and the
+    fixed clock."""
     db = tmp_path / "scratch.db"
     monkeypatch.setenv("DATABASE_URL", f"sqlite:///{db}")
+    monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "receipts.jsonl"))
+    monkeypatch.setattr(c, "HOST_ENV", tmp_path / "no-host.env")
+    monkeypatch.setattr(c, "_DOTENV_CACHE", {})
+    monkeypatch.delenv("SP_SKIP_FAMILIES", raising=False)
     road = tmp_path / "roadmap.json"
     road.write_text(json.dumps({"lanes": LANES}))
     assert rm.validate(json.loads(road.read_text())) == []          # the scratch file is a valid roadmap
@@ -114,9 +124,27 @@ def test_a_day_with_rows(env):
     mlb = line_of(out, "MLB")
     assert "· 2 games ·" in mlb
     assert "· LIVE (closing family MLB) ·" in mlb
-    assert "· rows: mlb_v2 2 (latest 2026-10-17 07:30 ET) ·" in mlb          # computed_at in ET, the latest one
+    assert "· rows: mlb_v2 2 (computed 2026-10-17 07:02 ET to 2026-10-17 07:30 ET) ·" in mlb    # computed_at in ET
     assert "· without rows: none ·" in mlb
     assert out[-1] == "GAPS: none"
+
+
+def test_an_old_row_is_never_hidden_behind_a_fresh_one(env):
+    """(model, computed_at): three rows computed this morning and one a week old print as a range, and the map holds
+    each game's own computed_at. A stale row is no gap (the spec's gap is a game with no row)."""
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED"), (402, "PL", "2026-10-17 14:00", "SCHEDULED"),
+                  (403, "PL", "2026-10-17 16:30", "SCHEDULED"), (404, "PL", "2026-10-17 16:30", "SCHEDULED")],
+            [(401, "v22", "2026-10-17 11:00"), (402, "v22", "2026-10-17 11:00"), (403, "v22", "2026-10-17 11:00"),
+             (404, "v22", "2026-10-10 11:00")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert ("· rows: v22 4 (computed 2026-10-10 07:00 ET to 2026-10-17 07:00 ET) · without rows: none ·"
+            in line_of(out, "PL"))
+    assert out[-1] == "GAPS: none"
+    m = cm.coverage(datetime(2026, 10, 17).date(), NOW)["competitions"][0]["rows"][0]
+    assert (m["earliest"], m["latest"]) == (utc("2026-10-10 11:00"), utc("2026-10-17 11:00"))
+    assert m["computed"] == {401: utc("2026-10-17 11:00"), 402: utc("2026-10-17 11:00"), 403: utc("2026-10-17 11:00"),
+                             404: utc("2026-10-10 11:00")}
 
 
 def test_a_day_with_a_gap(env):
@@ -226,10 +254,70 @@ def test_started_games_leave_the_closing_groups(env, monkeypatch):
             [(401, "v22", "2026-10-17 10:00"), (402, "v22", "2026-10-17 10:00")])
     rc, out = run()
     assert rc == 0
-    assert line_of(out, "PL").endswith(
-        "· closing: started 401; T-35 09:35 ET [402] → exports/closing_SOCCER_2026-10-17T1410Z.json")
+    assert "· rows: v22 2 (latest 2026-10-17 06:00 ET) ·" in line_of(out, "PL")     # one computed_at: no range
+    assert line_of(out, "PL").endswith(                                    # T-5 <= 5 minutes <= T-35: due now
+        "· closing: started 401; T-35 09:35 ET [402] → exports/closing_SOCCER_2026-10-17T1410Z.json (due now)")
     monkeypatch.setattr(cl, "clock", lambda: utc("2026-10-17 18:00"))
     assert line_of(run()[1], "PL").endswith("· closing: started 401, 402; none left to run")
+
+
+def receipt(**rec) -> None:
+    """One closing receipt in the scratch receipts file (the fields closing.covered_ids reads)."""
+    with open(c.receipts_path(), "a", encoding="utf-8") as f:
+        f.write(json.dumps({"kind": "closing", **rec}) + "\n")
+
+
+def test_the_closing_groups_are_the_watchs_own_after_a_closing(env, monkeypatch):
+    """closing.due()'s own inputs, the watch's receipts included: the 17:05Z closing succeeded covering 1 and 2, so
+    after first pitch the watch's next start time is 17:20Z [3, 4], never 2 re-anchored at 17:13Z (a file the watch
+    never writes). Each group's state is due()'s: due now from T-35 to T-5; inside T-5 a miss, no file."""
+    games = [(1, "MLB", "2026-09-20 17:05", "SCHEDULED"), (2, "MLB", "2026-09-20 17:13", "SCHEDULED"),
+             (3, "MLB", "2026-09-20 17:20", "SCHEDULED"), (4, "MLB", "2026-09-20 17:27", "SCHEDULED")]
+    make_db(env, games, [(m, "mlb_v2", "2026-09-20 11:00") for m, *_ in games])
+    receipt(family="MLB", start="2026-09-20T17:05:00Z", exit=0,
+            covers=[{"match_id": 1, "start": "2026-09-20T17:05:00Z"}, {"match_id": 2, "start": "2026-09-20T17:13:00Z"}])
+    for at, state, tail in (
+            ("2026-09-20 17:08", "due", "· closing: started 1; a closing finished with 2; T-35 12:45 ET [3, 4] → "
+                                        "exports/closing_MLB_2026-09-20T1720Z.json (due now)"),
+            ("2026-09-20 17:16", "inside", "· closing: started 1, 2; T-35 12:45 ET [3, 4] inside T-5: no attempt, no "
+                                           "file (the watch records a miss)")):
+        now = utc(at)
+        watch = cl.due("MLB", now)
+        mlb = cm.coverage(datetime(2026, 9, 20).date(), now)["competitions"][0]
+        assert [(g["start"], g["match_ids"]) for g in mlb["groups"]] == [
+            (g["start"], [x["match_id"] for x in g["games"]]) for g in watch["groups"]]
+        assert [(g["start"], g["match_ids"]) for g in mlb["groups"]] == [(utc("2026-09-20 17:20"), [3, 4])]
+        assert [g["state"] for g in mlb["groups"]] == [state] and watch[state] == watch["groups"]
+        monkeypatch.setattr(cl, "clock", lambda now=now: now)
+        assert line_of(run("--date", "2026-09-20")[1], "MLB").endswith(tail)
+    assert mlb["groups"][0]["file"] is None
+
+
+def test_a_family_this_machine_refuses_shows_the_refusal_and_claims_no_gap(env, monkeypatch):
+    """The host (host.env: SP_SKIP_FAMILIES=MLB) runs no MLB chain and its watch refuses MLB's start times
+    (closing._family_refusal): MLB's line names the refusal in place of its groups, and no gap sends the operator to a
+    chain this machine never runs. A family not refused keeps its gap."""
+    monkeypatch.setenv("SP_SKIP_FAMILIES", "MLB")
+    make_db(env, [(50548, "MLB", "2026-10-18 00:00", "SCHEDULED"), (50549, "MLB", "2026-10-17 20:05", "SCHEDULED"),
+                  (401, "PL", "2026-10-17 14:00", "SCHEDULED")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    mlb = line_of(out, "MLB")
+    assert "· LIVE (closing family MLB) · rows: none · without rows: 50549, 50548 ·" in mlb
+    assert mlb.endswith("· closing: refused here (laptop only: SP_SKIP_FAMILIES names MLB here (the host cannot reach "
+                        "the MLB feed))")
+    assert gaps(out) == ["PL: 1 GAME, 0 PREDICTION ROWS — soccer-prematch has not run"]
+    assert cm.coverage(datetime(2026, 10, 17).date(), NOW)["competitions"][0]["groups"] == []
+
+
+def test_receipts_that_cannot_be_read_show_no_groups(env, monkeypatch, tmp_path):
+    """Law 4: the watch's receipts unreadable, the groups are not shown (never the groups with nothing finished)."""
+    (tmp_path / "receipts-folder").mkdir()
+    monkeypatch.setenv("SP_RECEIPTS", str(tmp_path / "receipts-folder"))
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")], [(401, "v22", "2026-10-17 10:00")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert line_of(out, "PL").endswith("· closing: not shown (the watch's receipts cannot be read: IsADirectoryError)")
 
 
 # ------------------------------------------------------------------------------------------------ the day --
@@ -263,9 +351,13 @@ def test_no_game_that_day(env):
 
 # ------------------------------------------------------------------------------------------- read-only --
 
-def test_it_opens_no_write_transaction_and_makes_no_provider_call(env, monkeypatch):
+@pytest.mark.parametrize("wal", [False, True], ids=["rollback-journal", "wal"])
+def test_it_opens_no_write_transaction_and_makes_no_provider_call(env, monkeypatch, wal):
+    """On a rollback-journal file nothing new appears. On a WAL file (the real DB's mode) SQLite itself leaves its -wal
+    and -shm sidecars beside the file, as for every ro_connect reader: the -wal is empty (no frame written) and the
+    file's bytes are unchanged."""
     make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED"), (501, "NHL", "2026-10-17 23:00", "SCHEDULED")],
-            [(401, "v22", "2026-10-17 10:00")])
+            [(401, "v22", "2026-10-17 10:00")], wal=wal)
     before = hashlib.sha256(env.read_bytes()).hexdigest()
     listing = sorted(p.name for p in env.parent.iterdir())
     real, opened, statements = sqlite3.connect, [], []
@@ -294,7 +386,10 @@ def test_it_opens_no_write_transaction_and_makes_no_provider_call(env, monkeypat
     assert opened and all(t.endswith("?mode=ro") and u is True for t, u in opened), opened
     assert statements and all(s.lstrip().upper().startswith("SELECT") for s in statements), statements
     assert hashlib.sha256(env.read_bytes()).hexdigest() == before
-    assert sorted(p.name for p in env.parent.iterdir()) == listing          # no journal, no WAL, no new file
+    new = {p.name for p in env.parent.iterdir()} - set(listing)
+    assert new <= ({env.name + "-wal", env.name + "-shm"} if wal else set()), new     # no journal, no new file
+    sidecar = env.parent / (env.name + "-wal")
+    assert not sidecar.exists() or sidecar.stat().st_size == 0               # no WAL frame written
 
 
 def test_a_missing_db_is_refused_and_never_created(env):
@@ -302,6 +397,17 @@ def test_a_missing_db_is_refused_and_never_created(env):
     assert rc == 2
     assert out == [f"COVERAGE REFUSED: no database at {env}: nothing is created (the DB is opened read-only)"]
     assert not env.exists()
+
+
+def test_a_db_that_cannot_be_opened_is_refused_never_a_traceback(env, monkeypatch, tmp_path):
+    """A DATABASE_URL naming a folder, or not SQLite at all: COVERAGE REFUSED and exit 2."""
+    for url, why in ((f"sqlite:///{tmp_path}", f"the DB at {tmp_path} cannot be read: "),
+                     ("postgresql://x/y",
+                      "Not a SQLite URL: postgresql://…: the coverage map reads a SQLite DB only")):
+        monkeypatch.setenv("DATABASE_URL", url)
+        out = []
+        assert cm.run(DAY, echo=out.append) == 2
+        assert len(out) == 1 and out[0].startswith(f"COVERAGE REFUSED: {why}"), out
 
 
 def test_a_date_that_is_not_real_is_refused(env):
@@ -340,8 +446,9 @@ def test_no_writer_found_no_hint(env, monkeypatch):
 
 
 def test_the_predict_commands_are_the_writers_of_prediction_rows():
-    """PREDICT_COMMANDS (law 1): Prediction rows are constructed only in training.py and nfl_predict.py, reached by
-    `predict` and `predict-nfl`."""
+    """PREDICT_COMMANDS (law 1): Prediction rows are constructed only in training.py and nfl_predict.py, reached among
+    the cli commands by `predict` and `predict-nfl` (the web UI's refresh and admin predict job reach
+    training.generate_predictions too)."""
     import cli
     made = re.compile(r"(?<![\w.])(?<!class )Prediction\(")             # a constructed row, not the class itself
     files = [*(ROOT / "src").rglob("*.py"), ROOT / "cli.py", ROOT / "main.py"]

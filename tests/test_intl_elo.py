@@ -143,9 +143,9 @@ def test_330_a_tie_rejects_at_exact_equality(monkeypatch):
     assert not [x for x in r["bands"] if x["gated"]]       # no gated band: the log-loss criterion decides alone
     assert (r["ll_naive"] - r["ll_model"]) >= ie.LL_MARGIN - 1e-12   # the old comparison would have passed it
     assert r["crit_ll"] is False and r["verdict"] == "FAIL — log-loss margin"
-    r = at(math.nextafter(b, 0))                           # the margin one ulp above 0.010 passes
+    r = at(math.nextafter(b, 0))                           # one ulp under the bar passes
     assert r["crit_ll"] is True and r["verdict"] == "PASS"
-    r = at(math.nextafter(b, 2))                           # one ulp below fails
+    r = at(math.nextafter(b, 2))                           # one ulp over the bar fails
     assert r["crit_ll"] is False and r["verdict"] == "FAIL — log-loss margin"
     r = at(b + 5e-13)                                      # inside the old 1e-12 tolerance: no longer a pass
     assert (a - r["ll_model"]) >= ie.LL_MARGIN - 1e-12 and r["crit_ll"] is False

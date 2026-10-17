@@ -3,4 +3,4 @@
 - Immaterial to the recorded verdicts (the run records' unrounded numbers, nothing re-run): intl-elo-v2 0.7889 against bar 1.0424 (0.2534 under it) and intl-elo-v1 0.8507 against bar 1.0431 (0.1924 under it) both pass the strict form, as recorded. No run record or registry entry is touched; the gate text (spec section 6, "A tie is a rejection.") is unchanged.
 - The confirmation's criterion (`registry.record_confirmation`: `metric < reference`) was already strict and is unchanged.
 - cli.py `intl-elo-backtest` docstring and the docs/CLI.md row: the criterion reads `log-loss < naive − 0.010` (unrounded; a tie rejects).
-- tests/test_intl_elo.py (2): exact equality now rejects (the old comparison would have passed it); a margin one ulp above 0.010 passes and one ulp below fails; a model inside the old 1e-12 tolerance fails. Both recorded `crit_ll` values hold under the strict form.
+- tests/test_intl_elo.py (2): exact equality now rejects (the old comparison would have passed it); a model one ulp under the bar passes and one ulp over it fails; a model inside the old 1e-12 tolerance fails. Both recorded `crit_ll` values hold under the strict form.

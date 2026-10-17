@@ -183,12 +183,14 @@ DESK_CLOCK_DRIFT = timedelta(hours=1)
 # unknown or missing role is FENCED, not open. A machine that cannot say it is the laptop does not get to make a soccer
 # call." Addendum 114 item 3: "the cutover PR does the flip and turns the switch off in the same change; the fence
 # reads the switch, never SP_WRITER_OF_RECORD." Only an exact "laptop" leaves the row as it is; "host", unset and any
-# other value fence, each with its own reason (the reason for a value that is neither host nor laptop is built pending
-# the architect's word: the ruled text names only "unset"). The role is read by machine_role(): the machine's own
+# other value fence, each with its own reason (a value that is neither host nor laptop: addendum 115 item 3b's words). The role is read by machine_role(): the machine's own
 # host.env, then the process environment, then the checkout's .env. Checked first, before S1: it overrides every call.
 # It lifts by this switch, HOST_FENCE_RULE. The frozen golden predates it and runs with it off (base_v11()).
 HOST_FENCE_RULE = {"on": True}
 HOST_FENCE_KIND = "host_fence"
+# Addendum 115 item 3a: "INTL rows ARE fenced under role host. The ruling's "soccer" means every model-edge row of the
+# soccer family whose ratings are keyed to the laptop's team ids — intl-elo is copied the same way."
+HOST_FENCE_SPORTS = ("SOCCER", "INTL")
 HOST_FENCE_REASON = "host: ratings keyed to the laptop's team ids (#410); the cutover replaces this database"
 ROLE_ENV = "SP_EXPORTS_MIRROR_ROLE"                 # deploy/hosting/closing.py ROLE_SETTING; host.env / the laptop's .env
 ROLES = ("host", "laptop")
@@ -1013,17 +1015,20 @@ def machine_role(env=None) -> str | None:
 
 
 def host_fenced(r) -> str | None:
-    """Addendum 109 item 3 + addendum 110 item 1: the fence's reason for a soccer model row while the fence is on, on a
-    machine whose role is host or unknown; None (not fenced) on the laptop, for every other row, or with the switch
-    off. Only model rows reach desk_call; a market-only row (the venue engine) is never fenced."""
-    if not (HOST_FENCE_RULE["on"] and r["sport"] == "SOCCER"):
+    """Addendum 109 item 3 + addendum 110 item 1 + addendum 115 item 3: the fence's reason for a soccer or INTL model
+    row while the fence is on, on a machine whose role is host or unknown; None (not fenced) on the laptop, for every
+    other row, or with the switch off. Only model rows reach desk_call; a market-only row (the venue engine) is never
+    fenced."""
+    if not (HOST_FENCE_RULE["on"] and r["sport"] in HOST_FENCE_SPORTS):
         return None
     role, value = role_reading()
     if role == "laptop":
         return None
     if role == "host":
         return HOST_FENCE_REASON
-    return f"host fence: role unknown ({ROLE_ENV}={value})" if value else HOST_FENCE_UNSET_REASON
+    if value:
+        return f"host fence: role '{value}' is not host or laptop"                # addendum 115 item 3b, approved
+    return HOST_FENCE_UNSET_REASON
 
 
 def desk_call(r, now_ms: float, postseason_graded: int = 0, intl_graded: int = 0) -> dict:

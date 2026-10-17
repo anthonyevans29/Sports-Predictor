@@ -17,7 +17,7 @@ Addendum 114 item 3: ""Lifted by the flip" (addendum 113) and "the named switch 
 110) are the same thing: the cutover PR does the flip and turns the switch off in the same change; the fence reads the
 switch, never SP_WRITER_OF_RECORD. Code's reading is the ruling."
 The role is read from the machine's host.env (SP_HOST_ENV), then the environment, then the checkout's .env
-(desk_policy.DOTENV). The reason for a value that is neither host nor laptop is built pending the architect's word.
+(desk_policy.DOTENV). The reason for a value that is neither host nor laptop is addendum 115 item 3b's approved wording.
 tests/conftest.py pins every test to role laptop in the environment, with both files at a path that does not exist."""
 import copy
 import io
@@ -45,8 +45,8 @@ NOW = datetime(2026, 10, 17, 15, 0, tzinfo=timezone.utc)
 
 
 def unknown(value):
-    """The reason for a value that is neither host nor laptop (built pending the architect's word)."""
-    return f"host fence: role unknown (SP_EXPORTS_MIRROR_ROLE={value})"
+    """The reason for a value that is neither host nor laptop (addendum 115 item 3b, approved)."""
+    return f"host fence: role '{value}' is not host or laptop"
 
 
 def pl(mid, home, away, leagues, probs, fair, legs=None, src=("model", "model"), comp="PL",
@@ -189,7 +189,7 @@ def test_under_role_unset_every_soccer_model_row_is_pass_host_fence_role_unknown
 @pytest.mark.parametrize("value", ["HOST", "Host", "hosts", "writer", "laptop-host", "1", "Laptop", " LAPTOP\n"])
 def test_a_role_that_is_neither_host_nor_laptop_is_pass_host_fence_naming_the_value(role, value):
     """Neither host nor laptop: the role is unknown, so the row is fenced (law 4). Case and spelling are not guessed.
-    The reason names the value as read, stripped (built pending the architect's word)."""
+    The reason names the value as read, stripped (addendum 115 item 3b, approved)."""
     role(value)
     desk, _ = annotate(mun_ful())
     assert reason(desk) == unknown(value.strip()) and dp.role_reading() == (None, value.strip())
@@ -486,7 +486,7 @@ def test_desk_rescore_cli_prints_host_fence_and_its_count_not_unchanged(role, tm
     assert f"exec — (not priced: {why})" in line and line.endswith("addendum 0 · HOST FENCE")
     assert "UNCHANGED" not in out[who] and "no executable quote" not in out[who]
     assert "0 would have been halved" in out[who]
-    assert ("1 soccer PLAY(s) now PASS under the host fence (this machine's role is not laptop; #410) — not counted "
+    assert ("1 soccer / INTL PLAY(s) now PASS under the host fence (this machine's role is not laptop; #410) — not counted "
             "as halved") in out[who]
     receipt = (tmp_path / f"r-{who}.md").read_text()
     assert line in receipt and "under the host fence" in receipt
@@ -501,3 +501,38 @@ def test_the_frozen_golden_holds_under_role_host_and_role_unknown(role, who):
     results = b.check_against_golden()
     assert results and all(n > 0 and not bad for _, n, bad in results)
     assert dp.HOST_FENCE_RULE["on"] is True
+
+
+def intl_unl(mid=115001, p=(0.60, 0.22, 0.18), fair=(0.54, 0.26, 0.20), ask=0.50):
+    """A UNL model row (sport INTL), a PLAY on the laptop; the shape of tests/test_intl_golive_dark.py's row()."""
+    from src.walters import intl_production as ip
+    from src.walters.venue import kalshi_exec
+    r = {"match_id": mid, "home_team": "Probeland", "away_team": "Probeland B", "utc_date": "2026-11-14T19:00:00",
+         "competition": "UNL", "venue_flag": "home",
+         "prediction": {"probabilities": {"home_win": p[0], "draw": p[1], "away_win": p[2]}, "tier": None},
+         "market": {"bookmaker_count": 8, "fair_prob": {"HOME": fair[0], "DRAW": fair[1], "AWAY": fair[2]},
+                    "fair_source": "1X2"},
+         "market_divergence_pp": ip.divergence_pp(p[0], {"fair_source": "1X2", "fair_prob": {"HOME": fair[0]}})}
+    r["quarantine"] = abs(r["market_divergence_pp"]) >= 15
+    r.update(kalshi_exec(ask - 0.01, ask, "UNL", two_way=False))
+    return r
+
+
+def test_intl_model_rows_are_fenced_with_the_soccer_family(role):
+    """Addendum 115 item 3a, verbatim: "INTL rows ARE fenced under role host. The ruling's "soccer" means every
+    model-edge row of the soccer family whose ratings are keyed to the laptop's team ids — intl-elo is copied the same
+    way. INTL is dark until 11-12 anyway; fencing it costs nothing and the switch lifts both at once."
+    """
+    out = {}
+    for who in ("laptop", "host", None, "HOST"):
+        role(who)
+        desk, _ = annotate(intl_unl(), sport="intl")
+        out[who] = desk[115001]
+    assert out["laptop"]["call"] == "PLAY"
+    for who, why in (("host", REASON), (None, UNSET), ("HOST", unknown("HOST"))):
+        d = out[who]
+        assert (d["call"], d["units"], d["pass_kind"], d["reason"]) == ("PASS", 0, "host_fence", why), (who, d)
+    role("host")
+    with dp.host_fence_rule_off():
+        desk, _ = annotate(intl_unl(), sport="intl")
+    assert desk[115001]["call"] == "PLAY"                                       # the one switch lifts both

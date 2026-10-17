@@ -5226,7 +5226,7 @@ def desk_rescore_cmd(files, out_path):
         lines.append(f"{suspended} MLB PLAY(s) now PASS under the kalshi-only suspension (Q3, ARCHITECT 2026-10-08) — "
                      f"not counted as halved")
     if fenced:
-        lines.append(f"{fenced} soccer PLAY(s) now PASS under the host fence (this machine's role is not laptop; "
+        lines.append(f"{fenced} soccer / INTL PLAY(s) now PASS under the host fence (this machine's role is not laptop; "
                      f"#410) — not counted as halved")
     print("\n".join(lines))
     tgt.parent.mkdir(parents=True, exist_ok=True)

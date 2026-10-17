@@ -49,6 +49,14 @@ and the refusal names the lane and the line. A lane only one side holds needs no
 request quotes carries it, and I read it." Why: "'The earlier date is never erased' (addendum 59 item 5(d)) is a
 sentence about the record, and the record is the moved list."
 
+THE COMPETITIONS FIELD (ARCHITECT 2026-10-17 10:35 ET, addendum 111 item 2, #575), verbatim: "roadmap.json: each lane
+gains `competitions: [codes]` (a data-only roadmap change; I rule it in — the lane text is unchanged). Nations League
+[UNL]; La Liga [PD]; the four-league lane [SA, BL1, FL1, ELC]; College [NCAA]; Hockey [NHL]; Cups [CL, EFL, UEL]; NFL
+QB [NFL]; MLB pitcher [MLB]." Optional in the validation (OPTIONAL_LANE_KEYS): where a lane carries it, it is a
+non-empty list of competition codes as the DB stores them, each named once. The print does not show it; `python cli.py
+coverage` reads it (a lane names a competition through it, never through its prose). The base check compares dates and
+moved lines only, so adding it moves nothing.
+
 Addendum 61 item 5: "#494 is in: a milestone with no due_on key is refused, named." And: "One day is singular: 'in 1
 day', 'OVERDUE 1 day', '(+1 more step overdue)'. Addendum 59 5(e) named the pattern, not the grammar."
 
@@ -71,6 +79,7 @@ STATES = ("to declare", "declared", "confirming", "blocked", "live", "closed")
 OWNERS = ("architect", "operator", "code", "calendar")
 LANE_KEYS = ("lane", "title", "issue", "registry_id", "state", "steps", "earliest_live", "live_needs", "vs_close",
              "moved")
+OPTIONAL_LANE_KEYS = ("competitions",)     # addendum 111 item 2 (#575): the competition codes the lane is for
 STEP_KEYS = ("what", "owner", "due", "done")
 DONE_KEYS = ("date", "receipt")
 # the day it was moved, which date, what it was, what it is now, why, and the addendum and item
@@ -137,6 +146,12 @@ def validate(doc) -> list[str]:
             errs.append(f"{name}: issue {ln['issue']!r} is not an integer")
         if ln["registry_id"] is not None and not _text(ln["registry_id"]):
             errs.append(f"{name}: registry_id {ln['registry_id']!r} is neither null nor an id")
+        if "competitions" in ln:           # addendum 111 item 2 (#575): optional, the codes the lane is for
+            cs = ln["competitions"]
+            if not isinstance(cs, list) or not cs or any(not _text(x) or x != x.strip() for x in cs):
+                errs.append(f"{name}: competitions {cs!r} is not a list of competition codes")
+            elif len(set(cs)) != len(cs):
+                errs.append(f"{name}: competitions {cs!r} names a code twice")
         if ln["state"] not in STATES:
             errs.append(f"{name}: state {ln['state']!r} is not one of {', '.join(STATES)}")
         for k in ("live_needs", "vs_close"):

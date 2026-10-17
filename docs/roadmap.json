@@ -12,6 +12,7 @@
       "title": "Nations League",
       "issue": 220,
       "registry_id": "intl-elo-v2",
+      "competitions": ["UNL"],
       "state": "confirming",
       "steps": [
         {
@@ -37,6 +38,7 @@
       "title": "La Liga",
       "issue": 322,
       "registry_id": "soccer-expansion-v1",
+      "competitions": ["PD"],
       "state": "confirming",
       "steps": [
         {
@@ -62,6 +64,7 @@
       "title": "College football",
       "issue": 79,
       "registry_id": "ncaa-elo-v2",
+      "competitions": ["NCAA"],
       "state": "declared",
       "steps": [
         {
@@ -117,6 +120,7 @@
       "title": "Serie A, Bundesliga, Ligue 1, Championship",
       "issue": 322,
       "registry_id": null,
+      "competitions": ["SA", "BL1", "FL1", "ELC"],
       "state": "to declare",
       "steps": [
         {
@@ -136,6 +140,7 @@
       "title": "Hockey",
       "issue": 105,
       "registry_id": null,
+      "competitions": ["NHL"],
       "state": "to declare",
       "steps": [
         {
@@ -179,6 +184,7 @@
       "title": "Champions League, EFL Cup, Europa League",
       "issue": 106,
       "registry_id": null,
+      "competitions": ["CL", "EFL", "UEL"],
       "state": "declared",
       "steps": [
         {
@@ -240,6 +246,7 @@
       "title": "NFL: the quarterback term",
       "issue": 427,
       "registry_id": null,
+      "competitions": ["NFL"],
       "state": "to declare",
       "steps": [
         {
@@ -271,6 +278,7 @@
       "title": "MLB: the pitcher layer, tested as of each game",
       "issue": 507,
       "registry_id": null,
+      "competitions": ["MLB"],
       "state": "to declare",
       "steps": [
         {

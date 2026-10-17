@@ -1,8 +1,10 @@
 """THE DAY'S COVERAGE (ARCHITECT 2026-10-17 09:30 ET, addendum 107 item C7): `python cli.py coverage [--date]`.
-"Tests on the throwaway DB: a day with rows, a day with a gap, a market-only sport." Against a SCRATCH schedule under
-tmp_path (the tables the command reads, src/db/schema.py names; one test on the real schema), with a scratch roadmap
-and registry where the status rule is under test, and a scratch receipts file for the watch's. The clock is fixed; the
-no-write test blocks the network."""
+"Tests on the throwaway DB: a day with rows, a day with a gap, a market-only sport." Amended by addendum 111 items 1-2
+(#575): a closing run done prints "done (run <run_id>, <exit>)" from the watch's receipt log; the status in the ruled
+order (LIVE, SHADOW, MARKET-ONLY, UNKNOWN), a lane naming a competition through its `competitions` field. Against a
+SCRATCH schedule under tmp_path (the tables the command reads, src/db/schema.py names; one test on the real schema),
+with a scratch roadmap and registry where the status rule is under test, and a scratch receipts file for the watch's.
+The clock is fixed; the no-write test blocks the network."""
 import hashlib
 import inspect
 import json
@@ -28,7 +30,12 @@ from src.walters import registry as reg  # noqa: E402
 
 NOW = datetime(2026, 10, 17, 12, 10, tzinfo=timezone.utc)          # Saturday 08:10 ET
 DAY = "2026-10-17"
-COMPS = {"MLB": 1, "NFL": 2, "PL": 3, "NHL": 4, "UNL": 5, "NCAA": 6, "SA": 7, "CL": 8, "EL1": 9}
+COMPS = {"MLB": 1, "NFL": 2, "PL": 3, "NHL": 4, "UNL": 5, "NCAA": 6, "SA": 7, "CL": 8, "EL1": 9, "EFL": 10,
+         "UEL": 11, "BL1": 12, "FL1": 13, "ELC": 14, "EL2": 15, "CZE": 16, "SCO": 17}
+# model_versions as the ORM stores it (the sport column holds the enum's name): the two production rows the predict
+# path resolves (training.MODEL_FAMILIES); NFL has none (predict-nfl writes nfl_predict.MODEL_VERSION)
+MODELS = (("MLB", "mlb_pythag_negbin", "v2", "production"), ("SOCCER", "soccer_elo_poisson", "v22", "production"),
+          ("SOCCER", "soccer_elo_poisson", "v21", "shelved"))
 
 
 def _ts(dt):
@@ -39,8 +46,9 @@ def utc(s):
     return datetime.fromisoformat(s).replace(tzinfo=timezone.utc)
 
 
-def make_db(path: Path, games, preds=(), wal: bool = False) -> None:
-    """games: (match_id, competition, UTC start 'YYYY-MM-DD HH:MM', status); preds: (match_id, model, UTC computed).
+def make_db(path: Path, games, preds=(), wal: bool = False, models=MODELS) -> None:
+    """games: (match_id, competition, UTC start 'YYYY-MM-DD HH:MM', status); preds: (match_id, model, UTC computed);
+    models: model_versions rows (sport, model_family, version, status), None for no table at all.
     wal: the file in WAL mode, as src/db/database.py leaves the real DB (the mode persists in the file)."""
     con = sqlite3.connect(path)
     if wal:
@@ -58,22 +66,38 @@ def make_db(path: Path, games, preds=(), wal: bool = False) -> None:
     for mid, mv, at in preds:
         con.execute("INSERT INTO predictions(match_id, model_version, computed_at) VALUES (?, ?, ?)",
                     (mid, mv, _ts(utc(at))))
+    if models is not None:
+        con.execute("CREATE TABLE model_versions(id INTEGER PRIMARY KEY, sport VARCHAR(6), model_family VARCHAR(64),"
+                    " version VARCHAR(64), status VARCHAR(32))")
+        con.executemany("INSERT INTO model_versions(sport, model_family, version, status) VALUES (?, ?, ?, ?)",
+                        models)
     con.commit()
     con.close()
 
 
-def lane(lid, state, registry_id=None):
+def lane(lid, state, registry_id=None, comps=None):
     done = state in ("live", "closed")
-    return {"lane": lid, "title": lid.upper(), "issue": 1, "registry_id": registry_id, "state": state,
+    return {"lane": lid, "title": lid.upper(), "issue": 1, "registry_id": registry_id,
+            **({"competitions": comps} if comps else {}), "state": state,
             "steps": [{"what": "a step", "owner": "architect", "due": "2026-11-01",
                        "done": {"date": "2026-10-01", "receipt": "r"} if done else None}],
             "earliest_live": None, "live_needs": "a need", "vs_close": "not read", "moved": []}
 
 
-LANES = [lane("nhl", "to declare"), lane("unl", "confirming", "intl-x"), lane("ncaa", "declared", "ncaa-x"),
-         lane("cl", "confirming", "cl-x"), lane("el1", "declared", "ghost"), lane("leagues", "to declare")]
-ENTRIES = [{"id": "intl-x", "status": "confirming"}, {"id": "ncaa-x", "status": "declared"},
-           {"id": "cl-x", "status": "closed"}]
+# The scratch lanes name their competitions through the ruled field (addendum 111 item 2), as the real file's do; three
+# exercise the registry check (an id the registry does not hold, a lane and an entry that disagree) and one a SHADOW
+# that no market-only set holds.
+LANES = [lane("unl", "confirming", "intl-elo-v9", ["UNL"]), lane("ncaa", "declared", "ncaa-elo-v8", ["NCAA"]),
+         lane("leagues", "to declare", None, ["SA", "BL1", "FL1", "ELC"]), lane("nhl", "to declare", None, ["NHL"]),
+         lane("cups", "declared", None, ["CL", "EFL", "UEL"]), lane("el2", "confirming", "el2-elo-v3", ["EL2"]),
+         lane("ghost", "confirming", "ghost-v1", ["CZE"]), lane("split", "confirming", "split-v4", ["SCO"]),
+         lane("prose", "confirming", "intl-elo-v9")]          # a lane naming nothing: never matched by its id
+ENTRIES = [{"id": "intl-elo-v9", "status": "confirming"}, {"id": "ncaa-elo-v8", "status": "declared"},
+           {"id": "el2-elo-v3", "status": "confirming"}, {"id": "split-v4", "status": "closed"}]
+V7 = "nhl_elo_v7_xg_margin_no_na"                            # nhl_shadow.MODEL_VERSION, pinned below
+NHL_SHADOW = ("export._MARKET_ONLY_REASON; roadmap lane nhl: to declare; chain nhl-daily runs export-nhl-predictions "
+              f"({V7})")
+EXPANSION_SETS = "SHADOW_VENUE_COMPS (_refuse_shadow_league), chains.EXPANSION_CODES, chains.KALSHI_CAPTURE_ONLY"
 
 
 @pytest.fixture
@@ -123,7 +147,7 @@ def test_a_day_with_rows(env):
     assert out[0].startswith(f"COVERAGE {DAY} ET · 1 competition · 2 games · now 2026-10-17 08:10 ET")
     mlb = line_of(out, "MLB")
     assert "· 2 games ·" in mlb
-    assert "· LIVE (closing family MLB) ·" in mlb
+    assert "· LIVE (closing family MLB; production mlb_pythag_negbin v2) ·" in mlb     # the predict path's model
     assert "· rows: mlb_v2 2 (computed 2026-10-17 07:02 ET to 2026-10-17 07:30 ET) ·" in mlb    # computed_at in ET
     assert "· without rows: none ·" in mlb
     assert out[-1] == "GAPS: none"
@@ -167,62 +191,240 @@ def test_a_day_with_a_gap(env):
 
 
 def test_a_market_only_sport(env):
-    """MARKET-ONLY from the roadmap (the nhl lane, to declare) and from the roadmap with the registry (the ncaa lane and
-    its entry, both declared): no prediction rows expected, so no gap is claimed for either."""
+    """MARKET-ONLY from the code (export._MARKET_ONLY_REASON names NHL and NCAA), never from a lane's state; NHL's
+    shadow (v7, run by nhl-daily) rides on the same line. No prediction rows expected, so no gap is claimed."""
     make_db(env, [(501, "NHL", "2026-10-17 23:00", "SCHEDULED"), (502, "NHL", "2026-10-17 23:30", "SCHEDULED"),
                   (601, "NCAA", "2026-10-17 16:00", "SCHEDULED")])
     rc, out = run("--date", DAY)
     assert rc == 0
     nhl = line_of(out, "NHL")
-    assert "· MARKET-ONLY (roadmap lane nhl: to declare) ·" in nhl
+    assert f"· MARKET-ONLY · shadow v7 ({NHL_SHADOW}) ·" in nhl
     assert "· rows: none (none expected: MARKET-ONLY) ·" in nhl
     assert "without rows" not in nhl
     assert nhl.endswith("· closing: none (no closing family covers NHL)")
-    assert "· MARKET-ONLY (roadmap lane ncaa: declared; registry ncaa-x: declared) ·" in line_of(out, "NCAA")
+    assert ("· MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, no shadow export scheduled for "
+            "NCAA (chains.py)) ·" in line_of(out, "NCAA"))
     assert out[-1] == "GAPS: none"
 
 
 # ----------------------------------------------------------------------------------------- the status rule --
+# Addendum 111 item 2: "Status derivation, in this order: LIVE [...]; SHADOW [...]; MARKET-ONLY [...]; UNKNOWN only
+# when none applies."
 
-def test_shadow_and_the_unknowns(env):
-    make_db(env, [(701, "UNL", "2026-10-17 18:45", "SCHEDULED"), (702, "SA", "2026-10-17 13:00", "SCHEDULED"),
-                  (703, "CL", "2026-10-17 19:00", "SCHEDULED"), (704, "EL1", "2026-10-17 14:00", "SCHEDULED")])
+def test_live_is_a_closing_family_and_the_model_its_predict_step_resolves(env, monkeypatch):
+    """LIVE: the closing family and the model of record: PL's one production soccer_elo_poisson row (a shelved row is
+    no model), NFL's nfl_predict.MODEL_VERSION (it has no model_versions row)."""
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED"), (301, "NFL", "2026-10-17 17:00", "SCHEDULED")],
+            [(401, "v22", "2026-10-17 10:00"), (301, "nfl_elo_v1", "2026-10-17 10:00")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert "· LIVE (closing family SOCCER; production soccer_elo_poisson v22) ·" in line_of(out, "PL")
+    assert ("· LIVE (closing family NFL; predict-nfl writes nfl_predict.MODEL_VERSION nfl_elo_v1) ·"
+            in line_of(out, "NFL"))
+    assert out[-1] == "GAPS: none"
+
+
+@pytest.mark.parametrize("models, why", [
+    ((("SOCCER", "soccer_elo_poisson", "v22", "shelved"),), "no production soccer_elo_poisson row in model_versions"),
+    ((("SOCCER", "soccer_elo_poisson", "v22", "production"), ("SOCCER", "soccer_elo_poisson", "v23", "production")),
+     "2 production soccer_elo_poisson rows in model_versions (the predict path resolves exactly one)"),
+    (None, "model_versions cannot be read (OperationalError: no such table: model_versions)"),
+], ids=["no-production-row", "two-production-rows", "no-table"])
+def test_a_closing_family_without_a_live_model_is_not_live(env, models, why):
+    """Not LIVE, the reason on the line, and the derivation goes on: PL is in no lane and no market-only set, so
+    UNKNOWN, named once in the gaps and no gap judged. Its closing groups still print (the watch runs them anyway)."""
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")], models=models)
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    pl = line_of(out, "PL")
+    assert (f"· UNKNOWN (closing family SOCCER, but {why}; no roadmap lane names PL; in none of the code's "
+            "market-only sets) ·") in pl
+    assert pl.endswith("· closing: T-35 09:25 ET [401] → exports/closing_SOCCER_2026-10-17T1400Z.json")
+    assert gaps(out) == ["MODEL STATUS UNKNOWN: PL — no gap is judged for it (its line gives the reason)"]
+
+
+def test_shadow_from_a_confirming_lane_and_its_confirming_registry_entry(env):
+    """SHADOW (a): the unl lane names UNL and is confirming, its entry confirming; UNL is market-only in the code as
+    well, so the line is the ruling's both. EL2 (no market-only set holds it) prints SHADOW and its tag alone. The
+    tag is the registry id's vN token."""
+    make_db(env, [(701, "UNL", "2026-10-17 18:45", "SCHEDULED"), (702, "EL2", "2026-10-17 14:00", "SCHEDULED")])
     rc, out = run("--date", DAY)
     assert rc == 0
     unl = line_of(out, "UNL")
-    assert "· SHADOW (roadmap lane unl: confirming; registry intl-x: confirming) ·" in unl
-    assert "· rows: none (none expected: SHADOW) ·" in unl
-    assert "· UNKNOWN (no closing family covers SA and no roadmap lane is named sa) ·" in line_of(out, "SA")
-    assert ("· UNKNOWN (roadmap lane cl: confirming; registry cl-x: closed (the lane and the registry disagree)) ·"
-            in line_of(out, "CL"))
-    assert "· UNKNOWN (roadmap lane el1: declared; registry id ghost is not in the registry) ·" in line_of(out, "EL1")
-    assert "· without rows: 702 ·" in line_of(out, "SA")                    # unknown: the rows are still shown
-    # one line, no gap judged; the competitions print in status order, then by code
-    assert gaps(out) == ["MODEL STATUS UNKNOWN: CL, EL1, SA — no gap is judged for them (each line gives the reason)"]
-    assert [x.split(" · ")[0] for x in out[1:-2]] == ["UNL", "CL", "EL1", "SA"]
+    assert ("· MARKET-ONLY · shadow v9 (export._MARKET_ONLY_REASON; roadmap lane unl: confirming; registry "
+            "intl-elo-v9: confirming) · rows: none (none expected: MARKET-ONLY) ·") in unl
+    assert ("· SHADOW v3 (roadmap lane el2: confirming; registry el2-elo-v3: confirming) · rows: none (none "
+            "expected: SHADOW) ·") in line_of(out, "EL2")
+    assert out[-1] == "GAPS: none"
+    # the UNL shadow is also the one intl-daily runs; the lane and the registry are where it is read
+    assert any(r["chain"] == "intl-daily" and r["command"] == "export-unl-predictions" for r in cm.scheduled_shadows())
 
 
-def test_an_unreadable_roadmap_is_unknown_never_a_guess(env):
+def test_nhl_qualifies_as_shadow_by_the_shadow_export_nhl_daily_runs(env, monkeypatch):
+    """The ruling's own example: NHL prints exactly "MARKET-ONLY · shadow v7". Its lane is "to declare", not
+    confirming or declared; it qualifies by (b), nhl-daily running export-nhl-predictions (v7) in a chain whose steps
+    name NHL. Without that step the shadow goes and NHL is MARKET-ONLY alone, the reason on its line."""
+    make_db(env, [(501, "NHL", "2026-10-17 23:00", "SCHEDULED")])
+    nhl = line_of(run("--date", DAY)[1], "NHL")
+    assert f"· MARKET-ONLY · shadow v7 ({NHL_SHADOW}) ·" in nhl
+    steps = [s for s in cm.CHAINS["nhl-daily"]["steps"] if s[0] != "export-nhl-predictions"]
+    monkeypatch.setitem(cm.CHAINS, "nhl-daily", {**cm.CHAINS["nhl-daily"], "steps": steps})
+    assert ("· MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane nhl: to declare, no shadow export scheduled for "
+            "NHL (chains.py)) ·") in line_of(run("--date", DAY)[1], "NHL")
+
+
+def test_a_declared_lane_is_shadow_only_where_a_chain_runs_its_shadow_export(env, monkeypatch):
+    """NCAA's lane is declared and no chain runs a college shadow (CLAUDE.md: "No college shadow ... until then"):
+    MARKET-ONLY. Were a chain to run export-ncaa-predictions it would be reported, never hidden: the tag falls back to
+    the full id, ncaa_elo_v1r having no vN token."""
+    make_db(env, [(601, "NCAA", "2026-10-17 16:00", "SCHEDULED")])
+    assert ("· MARKET-ONLY (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared, no shadow export scheduled for "
+            "NCAA (chains.py)) ·") in line_of(run("--date", DAY)[1], "NCAA")
+    ch = cm.CHAINS["ncaa-market"]
+    monkeypatch.setitem(cm.CHAINS, "ncaa-market", {**ch, "steps": [*ch["steps"], ["export-ncaa-predictions"]]})
+    assert ("· MARKET-ONLY · shadow ncaa_elo_v1r (export._MARKET_ONLY_REASON; roadmap lane ncaa: declared; chain "
+            "ncaa-market runs export-ncaa-predictions (ncaa_elo_v1r)) ·") in line_of(run("--date", DAY)[1], "NCAA")
+
+
+def test_the_cups_and_the_four_leagues_are_market_only_from_the_codes_sets(env, monkeypatch):
+    """CL, EFL, UEL from cup_coeff.EXAM_COMPS; SA, BL1, FL1, ELC from the three expansion sets. Read from the code at
+    run time (a set changed in the code changes the line), never a copy: CL out of EXAM_COMPS is UNKNOWN."""
+    make_db(env, [(m, code, "2026-10-17 19:00", "SCHEDULED")
+                  for m, code in enumerate(("CL", "EFL", "UEL", "SA", "BL1", "FL1", "ELC"), 800)])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    for code in ("CL", "EFL", "UEL"):
+        assert (f"· MARKET-ONLY (cup_coeff.EXAM_COMPS; roadmap lane cups: declared, no shadow export scheduled for "
+                f"{code} (chains.py)) ·") in line_of(out, code)
+    for code in ("SA", "BL1", "FL1", "ELC"):
+        assert (f"· MARKET-ONLY ({EXPANSION_SETS}; roadmap lane leagues: to declare, no shadow export scheduled for "
+                f"{code} (chains.py)) ·") in line_of(out, code)
+    assert out[-1] == "GAPS: none"
+    from src.walters import cup_coeff
+    monkeypatch.setattr(cup_coeff, "EXAM_COMPS", {"EFL", "UEL", "EL"})
+    cl_line = line_of(run("--date", DAY)[1], "CL")
+    assert "· UNKNOWN (no closing family covers CL; roadmap lane cups: declared" in cl_line
+
+
+def test_unknown_only_when_none_applies(env):
+    """EL1: no family, no lane, no set. CZE: its lane names a registry id the registry does not hold. SCO: its lane
+    and its registry entry disagree. Each prints UNKNOWN with every reason; one gaps line names them, no gap judged;
+    the competitions print in status order, then by code."""
+    make_db(env, [(704, "EL1", "2026-10-17 14:00", "SCHEDULED"), (705, "CZE", "2026-10-17 15:00", "SCHEDULED"),
+                  (706, "SCO", "2026-10-17 15:00", "SCHEDULED"), (701, "UNL", "2026-10-17 18:45", "SCHEDULED")])
+    rc, out = run("--date", DAY)
+    assert rc == 0
+    assert ("· UNKNOWN (no closing family covers EL1; no roadmap lane names EL1; in none of the code's market-only "
+            "sets) · rows: none · without rows: 704 ·") in line_of(out, "EL1")       # unknown: the rows still shown
+    assert ("· UNKNOWN (no closing family covers CZE; roadmap lane ghost: confirming; registry id ghost-v1 is not in "
+            "the registry; in none of the code's market-only sets) ·") in line_of(out, "CZE")
+    assert ("· UNKNOWN (no closing family covers SCO; roadmap lane split: confirming; registry split-v4: closed (the "
+            "lane and the registry disagree); in none of the code's market-only sets) ·") in line_of(out, "SCO")
+    assert gaps(out) == [
+        "MODEL STATUS UNKNOWN: CZE, EL1, SCO — no gap is judged for them (each line gives the reason)"]
+    assert [x.split(" · ")[0] for x in out[1:-2]] == ["UNL", "CZE", "EL1", "SCO"]
+
+
+def test_an_unreadable_roadmap_judges_no_shadow_never_a_guess(env):
+    """Law 4: with the roadmap unreadable no shadow is judged. NHL stays MARKET-ONLY from the code, the line saying so;
+    EL1 (no set) is UNKNOWN with that reason; PL's LIVE reads neither file."""
     rm.ROADMAP_PATH.write_text("{not json")
-    make_db(env, [(501, "NHL", "2026-10-17 23:00", "SCHEDULED"), (401, "PL", "2026-10-17 14:00", "SCHEDULED")],
+    make_db(env, [(501, "NHL", "2026-10-17 23:00", "SCHEDULED"), (401, "PL", "2026-10-17 14:00", "SCHEDULED"),
+                  (704, "EL1", "2026-10-17 14:00", "SCHEDULED")],
             [(401, "soccer_elo_poisson_v22", "2026-10-17 10:00")])
     rc, out = run("--date", DAY)
     assert rc == 0
-    assert "· UNKNOWN (the roadmap cannot be read:" in line_of(out, "NHL")
-    assert "· LIVE (closing family SOCCER) ·" in line_of(out, "PL")          # C1's families are not the roadmap's
+    assert "· MARKET-ONLY (export._MARKET_ONLY_REASON; shadow not judged: the roadmap cannot be read:" in line_of(out,
+                                                                                                               "NHL")
+    assert "· UNKNOWN (no closing family covers EL1; shadow not judged: the roadmap cannot be read:" in line_of(out,
+                                                                                                             "EL1")
+    assert "· LIVE (closing family SOCCER; production soccer_elo_poisson v22) ·" in line_of(out, "PL")
 
 
-def test_the_real_ledgers_derive_a_status():
-    """On the tracked roadmap and registry: the closing families' competitions are LIVE, and every lane named for a
-    competition code gives a status (none of them disagrees with its registry entry)."""
+RULED = {   # addendum 111 item 2's examples, on the tracked roadmap and registry and the code as it stands
+    "MLB": ("LIVE", "LIVE"), "PL": ("LIVE", "LIVE"), "NFL": ("LIVE", "LIVE"),
+    "NHL": ("MARKET-ONLY", "MARKET-ONLY · shadow v7"), "UNL": ("MARKET-ONLY", "MARKET-ONLY · shadow v2"),
+    "PD": ("MARKET-ONLY", "MARKET-ONLY · shadow v1"), "NCAA": ("MARKET-ONLY", "MARKET-ONLY"),
+    **{c: ("MARKET-ONLY", "MARKET-ONLY") for c in ("CL", "EFL", "UEL", "SA", "BL1", "FL1", "ELC")},
+    "EL1": ("UNKNOWN", "UNKNOWN"),
+}
+
+
+def test_the_real_files_and_code_derive_the_ruled_statuses():
+    """On the tracked roadmap and registry, the code's own sets and chains, and the two production rows the predict
+    path would resolve (MLB v2, PL v22): the ruling's statuses, word for word."""
     lanes, entries, unread = cm.read_ledgers()
     assert unread is None
-    for code in ("MLB", "NFL", "PL"):
-        assert cm.model_status(code, lanes, entries)[0] == "LIVE"
-    for ln in lanes:
-        if ln["lane"].upper() in ("NHL", "NCAA", "UNL", "PD"):
-            st, why = cm.model_status(ln["lane"].upper(), lanes, entries)
-            assert st in ("LIVE", "SHADOW", "MARKET-ONLY"), why
+    prod = {("mlb", "mlb_pythag_negbin"): ["v2"], ("soccer", "soccer_elo_poisson"): ["v22"]}
+    got = {code: cm.model_status(code, lanes, entries, prod) for code in RULED}
+    assert {code: (s["status"], s["label"]) for code, s in got.items()} == RULED, got
+    assert got["PL"]["from"] == "closing family SOCCER; production soccer_elo_poisson v22"
+    assert got["MLB"]["from"] == "closing family MLB; production mlb_pythag_negbin v2"
+    assert got["UNL"]["from"].endswith("roadmap lane unl: confirming; registry intl-elo-v2: confirming")
+    assert got["PD"]["from"].endswith("roadmap lane pd: confirming; registry soccer-expansion-v1: confirming")
+    assert got["NHL"]["from"] == NHL_SHADOW
+
+
+def test_the_market_only_sets_are_the_codes_own():
+    """Imported, never copied: the set cli._refuse_shadow_league refuses, the two chains sets, the market-only fixtures
+    file's list and the cup track's competitions. Their union is the ruling's list (EL: the adapter's alias for UEL)."""
+    import cli
+    from src.walters import cup_coeff, desk_policy, export
+    assert "SHADOW_VENUE_COMPS" in inspect.getsource(cli._refuse_shadow_league)
+    sets = dict(cm.market_only_sets())
+    assert sets == {"SHADOW_VENUE_COMPS (_refuse_shadow_league)": desk_policy.SHADOW_VENUE_COMPS,
+                    "chains.EXPANSION_CODES": frozenset(cm.EXPANSION_CODES),
+                    "chains.KALSHI_CAPTURE_ONLY": frozenset(cm.KALSHI_CAPTURE_ONLY),
+                    "export._MARKET_ONLY_REASON": frozenset(export._MARKET_ONLY_REASON),
+                    "cup_coeff.EXAM_COMPS": frozenset(cup_coeff.EXAM_COMPS)}
+    assert frozenset().union(*sets.values()) == {"NHL", "NCAA", "UNL", "CL", "EFL", "UEL", "EL", "PD", "SA", "BL1",
+                                                 "FL1", "ELC"}
+    src = inspect.getsource(cm)
+    assert not re.search(r'"(NHL|NCAA|UNL|CL|EFL|UEL|PD|SA|BL1|FL1|ELC|MLB|NFL|PL)"', src)   # no competition named
+
+
+def test_the_shadow_exports_are_the_clis_own():
+    """SHADOW_EXPORTS: each command is a cli command whose body reaches its module; each module writes engine
+    model_shadow; every module that does is named. The chains that run one: nhl-daily (its steps name NHL) and
+    intl-daily (its steps name no competition)."""
+    import importlib
+    import cli
+    for cmd, (mod, attr) in cm.SHADOW_EXPORTS.items():
+        assert mod.rsplit(".", 1)[1] in inspect.getsource(cli.cli.commands[cmd].callback), cmd
+        assert importlib.import_module(mod).ENGINE == "model_shadow"
+        assert isinstance(getattr(importlib.import_module(mod), attr), str)
+    writers = sorted(f"src.walters.{p.stem}" for p in (ROOT / "src" / "walters").glob("*.py")
+                     if 'ENGINE = "model_shadow"' in p.read_text(encoding="utf-8"))
+    assert writers == sorted(mod for mod, _ in cm.SHADOW_EXPORTS.values())
+    from src.walters import intl_shadow, nhl_shadow
+    assert nhl_shadow.MODEL_VERSION == V7
+    assert cm.scheduled_shadows() == [
+        {"chain": "nhl-daily", "command": "export-nhl-predictions", "model": V7, "comps": {"NHL"}},
+        {"chain": "intl-daily", "command": "export-unl-predictions", "model": intl_shadow.MODEL_VERSION,
+         "comps": set()}]
+
+
+def test_the_live_model_is_the_one_the_predict_path_resolves():
+    """PREDICT_MODEL, one per PREDICT_COMMANDS (law 1): `predict` resolves the production row of its sport's model
+    family (generate_predictions -> _generate_predictions_soccer / _mlb -> _resolve_model_version with no version ->
+    _current_production_version); `predict-nfl` writes nfl_predict.MODEL_VERSION on every row."""
+    from src.walters import nfl_predict, training
+    assert tuple(cm.PREDICT_MODEL) == cm.PREDICT_COMMANDS
+    cur = inspect.getsource(training._current_production_version)
+    assert '"production"' in cur and "_family_for(sport)" in cur
+    assert "_current_production_version(" in inspect.getsource(training._resolve_model_version)
+    gen = inspect.getsource(training.generate_predictions)
+    for sport in ("soccer", "mlb"):
+        assert f"_generate_predictions_{sport}(" in gen
+        assert "_resolve_model_version(" in inspect.getsource(getattr(training, f"_generate_predictions_{sport}"))
+    assert "model_version=MODEL_VERSION" in inspect.getsource(nfl_predict)
+    assert nfl_predict.MODEL_VERSION == "nfl_elo_v1"
+
+
+@pytest.mark.parametrize("model_id, tag", [(V7, "v7"), ("intl-elo-v2", "v2"), ("soccer-expansion-v1", "v1"),
+                                           ("ncaa_elo_v1r", "ncaa_elo_v1r"), ("nhl-v10", "v10")])
+def test_the_shadow_tag_is_the_ids_vn_token(model_id, tag):
+    assert cm.shadow_tag(model_id) == tag
 
 
 # ------------------------------------------------------------------------------------- the closing groups --
@@ -262,35 +464,118 @@ def test_started_games_leave_the_closing_groups(env, monkeypatch):
 
 
 def receipt(**rec) -> None:
-    """One closing receipt in the scratch receipts file (the fields closing.covered_ids reads)."""
+    """One closing receipt in the scratch receipts file: the keys closing.run's receipt line writes and closing reads
+    back (kind, family, run_id, start, exit, covers; refused / superseded on the runs that are neither)."""
     with open(c.receipts_path(), "a", encoding="utf-8") as f:
         f.write(json.dumps({"kind": "closing", **rec}) + "\n")
+
+
+MLB_RUN = "20260920T163000Z-mlb-closing"     # closing.run's run_id: f"{now:%Y%m%dT%H%M%SZ}-{chain}"
+COVERS_1_2 = [{"match_id": 1, "start": "2026-09-20T17:05:00Z"}, {"match_id": 2, "start": "2026-09-20T17:13:00Z"}]
+MLB_DAY = [(1, "MLB", "2026-09-20 17:05", "SCHEDULED"), (2, "MLB", "2026-09-20 17:13", "SCHEDULED"),
+           (3, "MLB", "2026-09-20 17:20", "SCHEDULED"), (4, "MLB", "2026-09-20 17:27", "SCHEDULED")]
 
 
 def test_the_closing_groups_are_the_watchs_own_after_a_closing(env, monkeypatch):
     """closing.due()'s own inputs, the watch's receipts included: the 17:05Z closing succeeded covering 1 and 2, so
     after first pitch the watch's next start time is 17:20Z [3, 4], never 2 re-anchored at 17:13Z (a file the watch
-    never writes). Each group's state is due()'s: due now from T-35 to T-5; inside T-5 a miss, no file."""
-    games = [(1, "MLB", "2026-09-20 17:05", "SCHEDULED"), (2, "MLB", "2026-09-20 17:13", "SCHEDULED"),
-             (3, "MLB", "2026-09-20 17:20", "SCHEDULED"), (4, "MLB", "2026-09-20 17:27", "SCHEDULED")]
-    make_db(env, games, [(m, "mlb_v2", "2026-09-20 11:00") for m, *_ in games])
-    receipt(family="MLB", start="2026-09-20T17:05:00Z", exit=0,
-            covers=[{"match_id": 1, "start": "2026-09-20T17:05:00Z"}, {"match_id": 2, "start": "2026-09-20T17:13:00Z"}])
+    never writes). The 17:05Z run itself is a done line (addendum 111 item 1). Each group to run has due()'s state:
+    due now from T-35 to T-5; inside T-5 a miss, no file."""
+    make_db(env, MLB_DAY, [(m, "mlb_v2", "2026-09-20 11:00") for m, *_ in MLB_DAY])
+    receipt(family="MLB", run_id=MLB_RUN, start="2026-09-20T17:05:00Z", exit=0, covers=COVERS_1_2)
+    done = f"T-35 12:30 ET [1, 2] done (run {MLB_RUN}, exit 0)"
     for at, state, tail in (
-            ("2026-09-20 17:08", "due", "· closing: started 1; a closing finished with 2; T-35 12:45 ET [3, 4] → "
+            ("2026-09-20 17:08", "due", f"· closing: started 1; {done}; T-35 12:45 ET [3, 4] → "
                                         "exports/closing_MLB_2026-09-20T1720Z.json (due now)"),
-            ("2026-09-20 17:16", "inside", "· closing: started 1, 2; T-35 12:45 ET [3, 4] inside T-5: no attempt, no "
-                                           "file (the watch records a miss)")):
+            ("2026-09-20 17:16", "inside", f"· closing: started 1, 2; {done}; T-35 12:45 ET [3, 4] inside T-5: no "
+                                           "attempt, no file (the watch records a miss)")):
         now = utc(at)
         watch = cl.due("MLB", now)
         mlb = cm.coverage(datetime(2026, 9, 20).date(), now)["competitions"][0]
-        assert [(g["start"], g["match_ids"]) for g in mlb["groups"]] == [
+        to_run = [g for g in mlb["groups"] if g["state"] != "done"]
+        assert [(g["start"], g["match_ids"]) for g in to_run] == [
             (g["start"], [x["match_id"] for x in g["games"]]) for g in watch["groups"]]
-        assert [(g["start"], g["match_ids"]) for g in mlb["groups"]] == [(utc("2026-09-20 17:20"), [3, 4])]
-        assert [g["state"] for g in mlb["groups"]] == [state] and watch[state] == watch["groups"]
+        assert [(g["start"], g["match_ids"]) for g in to_run] == [(utc("2026-09-20 17:20"), [3, 4])]
+        assert [g["state"] for g in to_run] == [state] and watch[state] == watch["groups"]
         monkeypatch.setattr(cl, "clock", lambda now=now: now)
         assert line_of(run("--date", "2026-09-20")[1], "MLB").endswith(tail)
-    assert mlb["groups"][0]["file"] is None
+    assert to_run[0]["file"] is None
+
+
+# ------------------------------------------------------------------------------- a run done (addendum 111 item 1) --
+
+def test_a_closing_run_done_prints_its_run_id_and_exit(env, monkeypatch):
+    """"done (run <run_id>, <exit>)": the receipt's own run_id and exit, its covers as the match ids. A refusal and a
+    superseded run are no run (closing._attempts, 380.4), and a run of another day is no line of this one."""
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-09-20 18:00"))
+    make_db(env, MLB_DAY, [(m, "mlb_v2", "2026-09-20 11:00") for m, *_ in MLB_DAY])
+    receipt(family="MLB", run_id="20260919T163000Z-mlb-closing", start="2026-09-19T17:05:00Z", exit=0,
+            covers=[{"match_id": 9, "start": "2026-09-19T17:05:00Z"}])
+    receipt(family="MLB", run_id=MLB_RUN, start="2026-09-20T17:05:00Z", exit=0, covers=COVERS_1_2)
+    receipt(family="MLB", run_id="20260920T164500Z-mlb-closing", start="2026-09-20T17:20:00Z", exit=2,
+            refused="SP_SKIP_FAMILIES names MLB", covers=[])
+    receipt(family="MLB", run_id="20260920T164600Z-mlb-closing", start="2026-09-20T17:20:00Z", exit=0,
+            superseded=True)
+    receipt(family="NFL", run_id="20260920T163000Z-nfl-closing", start="2026-09-20T17:05:00Z", exit=0,
+            covers=[{"match_id": 1, "start": "2026-09-20T17:05:00Z"}])
+    rc, out = run("--date", "2026-09-20")
+    assert rc == 0
+    assert line_of(out, "MLB").endswith(
+        f"· closing: started 1, 2, 3, 4; T-35 12:30 ET [1, 2] done (run {MLB_RUN}, exit 0); none left to run")
+    g = cm.coverage(datetime(2026, 9, 20).date(), utc("2026-09-20 18:00"))["competitions"][0]["groups"]
+    assert [(x["state"], x["run_id"], x["exit"], x["match_ids"]) for x in g] == [("done", MLB_RUN, 0, [1, 2])]
+
+
+def test_a_game_finished_with_by_a_run_of_the_day_before_keeps_its_line(env, monkeypatch):
+    """The run's start time (23:58 ET on 09-19) is no group of 09-20, but it covered game 2 (00:05 ET on 09-20): the
+    game a closing finished with keeps its own line on 09-20. A run that recorded no covers still prints."""
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-09-20 04:00"))
+    make_db(env, [(1, "MLB", "2026-09-20 03:58", "SCHEDULED"), (2, "MLB", "2026-09-20 04:05", "SCHEDULED")])
+    receipt(family="MLB", run_id="20260920T032300Z-mlb-closing", start="2026-09-20T03:58:00Z", exit=0,
+            covers=[{"match_id": 1, "start": "2026-09-20T03:58:00Z"}, {"match_id": 2, "start": "2026-09-20T04:05:00Z"}])
+    assert line_of(run("--date", "2026-09-20")[1], "MLB").endswith(
+        "· closing: a closing finished with 2; none left to run")
+    receipt(family="MLB", run_id="20260920T120000Z-mlb-closing", start="2026-09-20T12:35:00Z", exit=1, covers=[])
+    assert line_of(run("--date", "2026-09-20")[1], "MLB").endswith(
+        "· closing: a closing finished with 2; T-35 08:00 ET [] done (run 20260920T120000Z-mlb-closing, exit 1); "
+        "none left to run")
+
+
+def test_a_failed_attempt_then_a_success_prints_the_latest(env, monkeypatch):
+    """Two runs for one start time: the latest (the log is append-only), the failed attempt not printed."""
+    monkeypatch.setattr(cl, "clock", lambda: utc("2026-09-20 16:40"))
+    make_db(env, MLB_DAY, [(m, "mlb_v2", "2026-09-20 11:00") for m, *_ in MLB_DAY])
+    receipt(family="MLB", run_id="20260920T163000Z-mlb-closing", start="2026-09-20T17:05:00Z", exit=1,
+            failed="stale prices", covers=COVERS_1_2)
+    receipt(family="MLB", run_id="20260920T163300Z-mlb-closing", start="2026-09-20T17:05:00Z", exit=0,
+            covers=COVERS_1_2)
+    mlb = line_of(run("--date", "2026-09-20")[1], "MLB")
+    assert mlb.endswith("· closing: T-35 12:30 ET [1, 2] done (run 20260920T163300Z-mlb-closing, exit 0); "
+                        "T-35 12:45 ET [3, 4] → exports/closing_MLB_2026-09-20T1720Z.json")
+    assert "20260920T163000Z" not in mlb and "exit 1" not in mlb
+
+
+def test_a_done_start_time_is_never_printed_as_due(env, monkeypatch):
+    """A failed first attempt the watch tries again (one of three, no success: closing.due() holds the start time as
+    due now). Coverage prints the run as done, once, and says the watch tries again; never a second, due line for the
+    same start time. After three failed attempts the watch has finished with it: the latest, and nothing more."""
+    now = utc("2026-09-20 16:40")
+    monkeypatch.setattr(cl, "clock", lambda: now)
+    make_db(env, MLB_DAY, [(m, "mlb_v2", "2026-09-20 11:00") for m, *_ in MLB_DAY])
+    receipt(family="MLB", run_id="20260920T163000Z-mlb-closing", start="2026-09-20T17:05:00Z", exit=1,
+            failed="stale prices", covers=COVERS_1_2)
+    assert [g["start"] for g in cl.due("MLB", now)["due"]] == [utc("2026-09-20 17:05")]   # the watch runs it again
+    mlb = line_of(run("--date", "2026-09-20")[1], "MLB")
+    assert mlb.endswith("· closing: T-35 12:30 ET [1, 2] done (run 20260920T163000Z-mlb-closing, exit 1) (attempt 1 "
+                        "of 3: the watch tries again); T-35 12:45 ET [3, 4] → "
+                        "exports/closing_MLB_2026-09-20T1720Z.json")
+    assert "(due now)" not in mlb and "closing_MLB_2026-09-20T1705Z" not in mlb
+    for k in (2, 3):
+        receipt(family="MLB", run_id=f"20260920T16{30 + k}00Z-mlb-closing", start="2026-09-20T17:05:00Z", exit=1,
+                failed="stale prices", covers=COVERS_1_2)
+    assert line_of(run("--date", "2026-09-20")[1], "MLB").endswith(
+        "· closing: T-35 12:30 ET [1, 2] done (run 20260920T163300Z-mlb-closing, exit 1); T-35 12:45 ET [3, 4] → "
+        "exports/closing_MLB_2026-09-20T1720Z.json")
 
 
 def test_a_family_this_machine_refuses_shows_the_refusal_and_claims_no_gap(env, monkeypatch):
@@ -303,7 +588,8 @@ def test_a_family_this_machine_refuses_shows_the_refusal_and_claims_no_gap(env, 
     rc, out = run("--date", DAY)
     assert rc == 0
     mlb = line_of(out, "MLB")
-    assert "· LIVE (closing family MLB) · rows: none · without rows: 50549, 50548 ·" in mlb
+    assert ("· LIVE (closing family MLB; production mlb_pythag_negbin v2) · rows: none · without rows: 50549, "
+            "50548 ·" in mlb)
     assert mlb.endswith("· closing: refused here (laptop only: SP_SKIP_FAMILIES names MLB here (the host cannot reach "
                         "the MLB feed))")
     assert gaps(out) == ["PL: 1 GAME, 0 PREDICTION ROWS — soccer-prematch has not run"]

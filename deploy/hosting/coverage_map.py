@@ -10,6 +10,19 @@ PREDICTION ROWS — soccer-prematch has not run"). Reads the DB and the schedule
 It becomes the first step of every morning block and the source of the morning page's coverage map. Tests on the
 throwaway DB: a day with rows, a day with a gap, a market-only sport."
 
+THE AMENDMENT (ARCHITECT 2026-10-17 10:35 ET, addendum 111 items 1-2, #575), verbatim:
+"1. Receipts are part of "the schedule". Yes: the watch's own receipt log (logs/receipts.jsonl), read-only, is exactly
+how coverage knows a run is already done, and a run that has run is a fact of the day, not a guess. Print it as "done
+(run <run_id>, <exit>)". Nothing else is read beyond the DB, the registry/roadmap, the watch's schedule inputs and that
+log."
+"2. UNKNOWN for competitions the lanes name only in prose — ruled: add the field, and derive MARKET-ONLY from code, so
+UNKNOWN is rare. [...] Status derivation, in this order: LIVE if the competition has a closing family and a live model
+in the registry (MLB, PL, NFL); SHADOW if a roadmap lane naming it is "confirming" or "declared" with a shadow export
+(NHL v7, UNL, PD); MARKET-ONLY if the code already treats it so (the market-only competitions of docs/CLI.md /
+`_refuse_shadow_league`, EXPANSION, KALSHI_CAPTURE_ONLY: NHL, NCAA, CL, EFL, UEL, UNL and the five expansion leagues);
+UNKNOWN only when none applies. A competition can be both SHADOW and MARKET-ONLY (NHL): print "MARKET-ONLY · shadow
+v7"."
+
     closing.py's own pieces, never re-implemented: a game's day is its America/New_York date (closing.ny_date, the
     date A1 gives a first pitch); VOID statuses are no game (closing.VOID); the closing groups are closing.groups() on
     closing.due()'s own inputs (the stored games plus the unpaged called-off ones, closing.with_called_off, less the
@@ -20,20 +33,40 @@ throwaway DB: a day with rows, a day with a gap, a market-only sport."
     family this machine refuses (closing._family_refusal: SP_SKIP_FAMILIES, as the watch and closing-run read it)
     shows the refusal in place of its groups.
 
-    The model status, per competition:
+    A RUN DONE (item 1): a start time of the day for which the watch's receipt log holds a closing run (closing.
+    _attempts: kind closing, neither a refusal nor a superseded run, 380.4) prints as `done (run <run_id>, exit
+    <exit>)`, the receipt's own `run_id` and `exit` (closing.run's receipt line), its match ids the run's own covers.
+    Several runs for one start time (a failed attempt, then a success): the latest, the log being append-only. A start
+    time printed done is never printed as due: where the latest run failed and the watch has not finished with the
+    start time (fewer than three attempts, closing.covered_ids), the done line says so, `(attempt N of 3: the watch
+    tries again)`. A game a closing finished with whose run is no done line of the day (its run started the day
+    before) keeps its line, `a closing finished with …`.
+
+    The model status, per competition, in the ruled order, each read from data and code (no competition named here):
       LIVE         a closing family covers it (closing.FAMILIES[fam]["comps"]; the families are chains.CLOSING_FAMILIES,
-                   C1: "A closing run exists for every family whose calls come from a live model [...] A league joins
-                   when its model is CONFIRMED and the Desk calls it"): neither the registry nor the roadmap names a
-                   live competition, the three live models predate both. Also the roadmap lane named for it in state
-                   live, its registry entry (if the lane names one) in production.
-      SHADOW       the roadmap lane named for the competition in state confirming, its registry entry (if the lane names
-                   one) confirming (a gate PASS in its declared confirmation window: a shadow, never a call).
-      MARKET-ONLY  a roadmap lane named for the competition in any other state (to declare, declared, blocked,
-                   closed), its registry entry (if it names one) not past its gate.
-      UNKNOWN      law 4, with the reason: no closing family covers it and no roadmap lane is named for it (a lane is
-                   named for a competition when its id is the competition's code: "unl", "pd", "ncaa", "nhl"; the
-                   lanes "leagues" and "cups" name theirs in prose only); the lane and its registry entry disagree; the
-                   lane names a registry id the registry does not hold; or a file cannot be read.
+                   C1) and the model its closing chain's predict step writes with resolves: `predict --sport S` the one
+                   production row of S's model family in the DB's model_versions (training.MODEL_FAMILIES, as
+                   _current_production_version reads it), `predict-nfl` nfl_predict.MODEL_VERSION (no model_versions
+                   row; the predict path writes that constant). The registry holds no live model (the three predate
+                   it): the model of record is what the predict path resolves. No production row (or more than one):
+                   not LIVE, the reason kept on the line, and the derivation goes on.
+      SHADOW       a roadmap lane whose `competitions` names it (addendum 111 item 2; never its prose) and (a) the lane
+                   is confirming and its registry entry is confirming (a gate PASS in its declared confirmation window:
+                   a shadow, never a call), or (b) in any other state, a chain in chains.py runs a shadow export for it
+                   (a step whose command is one of SHADOW_EXPORTS, in a chain whose steps name the competition; an
+                   operator-only chain is no schedule). (b) is how NHL qualifies (its lane is "to declare", and
+                   nhl-daily runs export-nhl-predictions, v7, every day: the ruling's own example) and how a declared
+                   lane would (NCAA's has no shadow export scheduled: CLAUDE.md "No college shadow ... until then").
+                   The tag is the vN token of the shadow's id as the code names it (the registry id in (a), the shadow
+                   module's model id in (b)), the full id where it has none.
+      MARKET-ONLY  the code's own market-only sets, imported (market_only_sets): desk_policy.SHADOW_VENUE_COMPS (the set
+                   cli._refuse_shadow_league refuses), chains.EXPANSION_CODES, chains.KALSHI_CAPTURE_ONLY,
+                   export._MARKET_ONLY_REASON (the market-only fixtures file's NHL, NCAA, UNL) and cup_coeff.EXAM_COMPS
+                   (the cup track's competitions, market-only until its gate passes; EL is the adapter's alias for
+                   UEL). SHADOW and MARKET-ONLY both: `MARKET-ONLY · shadow <tag>`.
+      UNKNOWN      none applies (law 4), with every reason: no closing family or no live model, no lane names it or
+                   none qualifies, in none of the market-only sets. A roadmap or registry that cannot be read judges no
+                   shadow (MARKET-ONLY still holds from code, the line says the shadow was not judged).
 
     The gaps (capitals): a LIVE competition with a game that has no prediction row. Zero rows names the slate chain
     whose model step writes them ("— soccer-prematch has not run"), derived from chains.py: the closing chain's step
@@ -44,14 +77,17 @@ throwaway DB: a day with rows, a day with a gap, a market-only sport."
     refusal. UNKNOWN competitions are named once, in capitals, with no gap judged for them.
 
 Read-only: the DB is opened mode=ro (sp_common.ro_connect: a missing file is refused, never created), plus
-docs/roadmap.json, docs/registry/experiments.json, the watch's receipts (read as closing.covered_ids reads them; no file
-is no receipt) and the settings _family_refusal reads. No row, no export, no receipt is written; no provider call.
-SQLite itself may leave its -wal/-shm sidecars beside a WAL file, as for every ro_connect reader. Exit 0 whatever the
-gaps (it never stops a chain); a date that is not real or a DB that cannot be read exits 2.
+docs/roadmap.json, docs/registry/experiments.json, the watch's schedule inputs (chains.py, closing.py) and its receipt
+log (sp_common.receipts_path(): SP_RECEIPTS or logs/receipts.jsonl, read as closing.receipts reads it; no file is no
+receipt) and the settings _family_refusal reads. No row, no export, no receipt is written; no provider call. SQLite
+itself may leave its -wal/-shm sidecars beside a WAL file, as for every ro_connect reader. Exit 0 whatever the gaps (it
+never stops a chain); a date that is not real or a DB that cannot be read exits 2.
 """
 from __future__ import annotations
 
 import argparse
+import importlib
+import re
 import sqlite3
 import sys
 from datetime import date, datetime, time, timedelta, timezone
@@ -60,7 +96,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 import closing as cl  # noqa: E402
 import sp_common as c  # noqa: E402
-from chains import CHAINS, CLOSING_FAMILIES, FRESHEN_FAMILY  # noqa: E402
+from chains import CHAINS, CLOSING_FAMILIES, EXPANSION_CODES, FRESHEN_FAMILY, KALSHI_CAPTURE_ONLY  # noqa: E402
 
 STATUSES = ("LIVE", "SHADOW", "MARKET-ONLY", "UNKNOWN")       # the order the lines are printed in
 NO_ROWS_EXPECTED = ("SHADOW", "MARKET-ONLY")
@@ -69,11 +105,15 @@ NO_ROWS_EXPECTED = ("SHADOW", "MARKET-ONLY")
 # pins both. The web UI's per-match refresh and admin predict job reach training.generate_predictions too; no chain
 # runs them).
 PREDICT_COMMANDS = ("predict", "predict-nfl")
-# roadmap lane state -> status; registry entry status -> status (src/roadmap.py STATES; registry.py's statuses)
-LANE_STATUS = {"live": "LIVE", "confirming": "SHADOW", "to declare": "MARKET-ONLY", "declared": "MARKET-ONLY",
-               "blocked": "MARKET-ONLY", "closed": "MARKET-ONLY"}
-REGISTRY_STATUS = {"production": "LIVE", "confirming": "SHADOW", "declared": "MARKET-ONLY", "run": "MARKET-ONLY",
-                   "closed": "MARKET-ONLY"}
+# The cli commands that write a shadow export (their rows carry engine model_shadow, the module's ENGINE) and the
+# code's own name for each one's model: {command: (module, attribute)}. A test pins the four to the cli and to every
+# module whose ENGINE is model_shadow.
+SHADOW_EXPORTS = {
+    "export-nhl-predictions": ("src.walters.nhl_shadow", "MODEL_VERSION"),
+    "export-unl-predictions": ("src.walters.intl_shadow", "MODEL_VERSION"),
+    "export-ncaa-predictions": ("src.walters.ncaa_shadow", "MODEL_VERSION"),
+    "export-soccer-expansion-shadow": ("src.walters.soccer_expansion", "EID"),
+}
 _IN_CHUNK = 500              # ids per IN (...) list: under SQLite's variable limit
 
 
@@ -90,9 +130,10 @@ def day_bounds(day: date) -> tuple[datetime, datetime]:
     return lo, hi
 
 
-def read_day(day: date) -> tuple[list[dict], dict]:
-    """The day's stored games (every competition, closing.schedule's shape plus `comp`; VOID ones included, marked)
-    and {match_id: [(model_version, computed_at)]} for them. One read-only connection; nothing else is read."""
+def read_day(day: date) -> tuple[list[dict], dict, dict | str]:
+    """The day's stored games (every competition, closing.schedule's shape plus `comp`; VOID ones included, marked),
+    {match_id: [(model_version, computed_at)]} for them, and the production model rows {(sport, model_family):
+    [version]} (or why model_versions could not be read). One read-only connection; nothing else is read."""
     lo, hi = day_bounds(day)
     fmt = "%Y-%m-%d %H:%M:%S"
     try:
@@ -131,11 +172,18 @@ def read_day(day: date) -> tuple[list[dict], dict]:
                     f"SELECT match_id, model_version, computed_at FROM predictions WHERE match_id IN "
                     f"({','.join('?' * len(part))})", part).fetchall():
                 preds.setdefault(mid, []).append((mv, at))
+        prod: dict | str = {}
+        try:                          # the sport column holds the enum's name: compared lower-cased, as its readers do
+            for sp, fam, ver in con.execute("SELECT lower(sport), model_family, version FROM model_versions "
+                                            "WHERE status = 'production' ORDER BY id").fetchall():
+                prod.setdefault((sp, fam), []).append(ver)
+        except sqlite3.Error as e:    # law 4: no live model is read from a table that cannot be read
+            prod = f"model_versions cannot be read ({type(e).__name__}: {e})"
     except sqlite3.Error as e:
         raise Refused(f"the DB at {p} cannot be read: {type(e).__name__}: {e}") from None
     finally:
         con.close()
-    return games, preds
+    return games, preds, prod
 
 
 # ------------------------------------------------------------------------------------------- the status --
@@ -160,30 +208,131 @@ def read_ledgers(roadmap_path=None, registry_path=None) -> tuple[list[dict], dic
     return lanes, entries, None
 
 
-def model_status(code: str, lanes: list[dict], entries: dict, unread: str | None = None) -> tuple[str, str]:
-    """(LIVE | SHADOW | MARKET-ONLY | UNKNOWN, where it was read). The table is the module docstring's."""
+def _predict_model(step: list[str], prod) -> tuple[str | None, str]:
+    """`predict --sport S`: generate_predictions resolves the production row of S's model family
+    (training._current_production_version: model_versions, status production, model_family MODEL_FAMILIES[S])."""
+    from src.db.schema import Sport
+    from src.walters.training import MODEL_FAMILIES
+    try:
+        sport = Sport(step[step.index("--sport") + 1])
+        mf = MODEL_FAMILIES[sport]
+    except (ValueError, IndexError, KeyError):
+        return None, f"its predict step names no sport with a model family ({' '.join(step)})"
+    if isinstance(prod, str):
+        return None, prod
+    vs = prod.get((sport.value, mf), [])
+    if len(vs) == 1:
+        return vs[0], f"production {mf} {vs[0]}"
+    return None, (f"no production {mf} row in model_versions" if not vs else
+                  f"{len(vs)} production {mf} rows in model_versions (the predict path resolves exactly one)")
+
+
+def _predict_nfl_model(step: list[str], prod) -> tuple[str | None, str]:
+    """`predict-nfl` writes nfl_predict.MODEL_VERSION on every row; it has no model_versions row."""
+    from src.walters.nfl_predict import MODEL_VERSION
+    return MODEL_VERSION, f"predict-nfl writes nfl_predict.MODEL_VERSION {MODEL_VERSION}"
+
+
+PREDICT_MODEL = {"predict": _predict_model, "predict-nfl": _predict_nfl_model}   # one per PREDICT_COMMANDS
+
+
+def live_model(fam: str, prod) -> tuple[str | None, str]:
+    """The model a closing family's calls come from, as its closing chain's predict step resolves it: (model, where it
+    was read), or (None, why there is none)."""
+    chain = CLOSING_FAMILIES[fam]
+    steps = [s for s in CHAINS[chain]["steps"] if s and s[0] in PREDICT_COMMANDS]
+    if not steps:
+        return None, f"closing chain {chain} has no predict step"
+    return PREDICT_MODEL[steps[0][0]](steps[0], prod)
+
+
+def market_only_sets() -> list[tuple[str, frozenset]]:
+    """The code's own market-only sets (addendum 111 item 2), imported, never copied: [(where, codes)]."""
+    from src.walters.cup_coeff import EXAM_COMPS
+    from src.walters.desk_policy import SHADOW_VENUE_COMPS
+    from src.walters.export import _MARKET_ONLY_REASON
+    return [("SHADOW_VENUE_COMPS (_refuse_shadow_league)", frozenset(SHADOW_VENUE_COMPS)),
+            ("chains.EXPANSION_CODES", frozenset(EXPANSION_CODES)),
+            ("chains.KALSHI_CAPTURE_ONLY", frozenset(KALSHI_CAPTURE_ONLY)),
+            ("export._MARKET_ONLY_REASON", frozenset(_MARKET_ONLY_REASON)),
+            ("cup_coeff.EXAM_COMPS", frozenset(EXAM_COMPS))]
+
+
+def scheduled_shadows() -> list[dict]:
+    """The shadow exports a chain runs (chains.py), each {chain, command, model: the code's id for its model, comps:
+    the competitions the chain's steps name}. An operator-only chain has no timer: no schedule."""
+    out = []
+    for name, ch in CHAINS.items():
+        if ch.get("operator_only"):
+            continue
+        steps = [s for s in ch.get("steps") or [] if s]
+        comps = {s[i + 1] for s in steps for i, a in enumerate(s[:-1]) if a == "--competition"}
+        for s in steps:
+            if s[0] in SHADOW_EXPORTS:
+                mod, attr = SHADOW_EXPORTS[s[0]]
+                out.append({"chain": name, "command": s[0], "model": getattr(importlib.import_module(mod), attr),
+                            "comps": comps})
+    return out
+
+
+def shadow_tag(model_id: str) -> str:
+    """The vN token of a shadow's id as the code names it (nhl_elo_v7_xg_margin_no_na v7, intl-elo-v2 v2,
+    soccer-expansion-v1 v1); the full id where it has none (ncaa_elo_v1r)."""
+    return next((t for t in re.split(r"[-_]", model_id) if re.fullmatch(r"v[0-9]+", t)), model_id)
+
+
+def shadow_of(code: str, lanes: list[dict], entries: dict) -> tuple[str | None, str]:
+    """(the shadow's tag, where it was read) when a lane naming the competition makes it SHADOW, else (None, why not).
+    The module docstring's rule: a confirming lane whose registry entry is confirming, or a lane in any state whose
+    competition a chain runs a shadow export for."""
+    naming = [ln for ln in lanes if code in (ln.get("competitions") or [])]
+    if not naming:
+        return None, f"no roadmap lane names {code}"
+    runs = [r for r in scheduled_shadows() if code in r["comps"]]
+    whys = []
+    for ln in naming:
+        src = f"roadmap lane {ln['lane']}: {ln['state']}"
+        rid = ln.get("registry_id")
+        if ln["state"] == "confirming" and rid:
+            e = entries.get(rid)
+            if e is None:
+                whys.append(f"{src}; registry id {rid} is not in the registry")
+                continue
+            if e.get("status") != "confirming":
+                whys.append(f"{src}; registry {rid}: {e.get('status')} (the lane and the registry disagree)")
+                continue
+            return shadow_tag(rid), f"{src}; registry {rid}: confirming"
+        if runs:
+            r = runs[0]
+            return shadow_tag(r["model"]), f"{src}; chain {r['chain']} runs {r['command']} ({r['model']})"
+        whys.append(f"{src}, no shadow export scheduled for {code} (chains.py)")
+    return None, "; ".join(whys)
+
+
+def model_status(code: str, lanes: list[dict], entries: dict, prod, unread: str | None = None) -> dict:
+    """{status: LIVE | SHADOW | MARKET-ONLY | UNKNOWN, label: as printed, from: where it was read, shadow: the shadow's
+    tag or None}, in the ruled order (addendum 111 item 2). The table is the module docstring's."""
     fam = family_of(code)
     if fam:
-        return "LIVE", f"closing family {fam}"
-    if unread:
-        return "UNKNOWN", unread
-    ln = next((x for x in lanes if str(x.get("lane", "")).upper() == code.upper()), None)
-    if ln is None:
-        return "UNKNOWN", f"no closing family covers {code} and no roadmap lane is named {code.lower()}"
-    by_lane = LANE_STATUS.get(ln["state"])
-    src = f"roadmap lane {ln['lane']}: {ln['state']}"
-    rid = ln.get("registry_id")
-    if rid:
-        e = entries.get(rid)
-        if e is None:
-            return "UNKNOWN", f"{src}; registry id {rid} is not in the registry"
-        by_reg = REGISTRY_STATUS.get(e.get("status"))
-        src += f"; registry {rid}: {e.get('status')}"
-        if by_reg != by_lane:
-            return "UNKNOWN", f"{src} (the lane and the registry disagree)"
-    if by_lane is None:
-        return "UNKNOWN", f"{src} (a state with no status)"
-    return by_lane, src
+        model, src = live_model(fam, prod)
+        if model:
+            return {"status": "LIVE", "label": "LIVE", "from": f"closing family {fam}; {src}", "shadow": None}
+        why_not_live = f"closing family {fam}, but {src}"     # not LIVE: the derivation goes on, the reason kept
+    else:
+        why_not_live = f"no closing family covers {code}"
+    market = [where for where, codes in market_only_sets() if code in codes]
+    tag, why = (None, f"shadow not judged: {unread}") if unread else shadow_of(code, lanes, entries)
+    if tag and market:                # the ruling's both: "MARKET-ONLY · shadow v7"
+        return {"status": "MARKET-ONLY", "label": f"MARKET-ONLY · shadow {tag}",
+                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": tag}
+    if tag:
+        return {"status": "SHADOW", "label": f"SHADOW {tag}",
+                "from": "; ".join(([why_not_live] if fam else []) + [why]), "shadow": tag}
+    if market:
+        return {"status": "MARKET-ONLY", "label": "MARKET-ONLY",
+                "from": "; ".join(([why_not_live] if fam else []) + [", ".join(market), why]), "shadow": None}
+    return {"status": "UNKNOWN", "label": "UNKNOWN",
+            "from": "; ".join([why_not_live, why, "in none of the code's market-only sets"]), "shadow": None}
 
 
 def writer_chains(fam: str) -> list[str]:
@@ -209,30 +358,57 @@ def _run_time(start: datetime, day: date) -> str:
 
 
 def watch_groups(fam: str, games: list[dict], day: date, now: datetime) -> dict:
-    """The family's closing groups of the day as the watch forms them: closing.groups() on closing.due()'s own inputs
-    (the stored games plus the unpaged called-off ones, less the games a closing has finished with, read from the
-    watch's receipts), the day standing in for schedule()'s window. Each group's state at `now` is due()'s: ahead
-    (before T-35), due (T-35 to T-5: the watch runs it now) or inside (inside T-5: a miss, no attempt, no file).
-    {"groups", "finished": the ids a closing has finished with, "unread": why the receipts could not be read}."""
+    """The family's closing groups of the day: the runs done (the watch's receipt log, addendum 111 item 1), then the
+    groups the watch will run, as it forms them: closing.groups() on closing.due()'s own inputs (the stored games plus
+    the unpaged called-off ones, less the games a closing has finished with, read from the watch's receipts), the day
+    standing in for schedule()'s window. A done group is the latest closing run of its start time (state done, its
+    run_id and exit); a group the watch still forms at a done start time is no second group (`open` on the done one,
+    with the attempts so far). Each other group's state at `now` is due()'s: ahead (before T-35), due (T-35 to T-5:
+    the watch runs it now) or inside (inside T-5: a miss, no attempt, no file). {"groups" by start time, "finished":
+    the ids a closing has finished with, "unread": why the receipts could not be read}."""
     comps = cl.FAMILIES[fam]["comps"]
     comp_of = {g["match_id"]: g["comp"] for g in games}
     fam_games = [g for g in games if g["comp"] in comps and not g["void"]]
+
+    def comps_of(ids) -> list[str]:
+        # a called-off game no longer stored on the day is its family's (one competition) or no one's
+        return sorted({comp_of.get(i, comps[0] if len(comps) == 1 else None) for i in ids} - {None})
     try:
         covered = cl.covered_ids(fam)
+        runs = cl._attempts(fam)      # the closing runs: refusals and superseded runs are neither (380.4)
         fam_games = [g for g in cl.with_called_off(fam, fam_games, now) if cl.ny_date(g["start"]) == day]
     except (OSError, sqlite3.Error) as e:
         return {"groups": [], "finished": set(), "unread": f"the watch's receipts cannot be read: {type(e).__name__}"}
-    out = []
+    done: dict = {}                   # start -> its latest run (the log is append-only: a later line, a later run)
+    attempts: dict = {}
+    for r in runs:
+        try:
+            s = cl.parse_utc(r["start"])
+        except (KeyError, TypeError, ValueError):
+            continue                  # law 4: a run with no readable start time is no group of any day
+        if cl.ny_date(s) == day:
+            done[s] = r
+            attempts[s] = attempts.get(s, 0) + 1
+    out = [{"start": s, "run_at": s - timedelta(minutes=cl.RUN_LEAD_MIN), "state": "done",
+            "match_ids": [x.get("match_id") for x in r.get("covers") or []], "run_id": r.get("run_id"),
+            "exit": r.get("exit"), "attempts": attempts[s], "open": False,
+            # a run that recorded no covers is still a run of the day: its family's, where it has one competition
+            "comps": comps_of(x.get("match_id") for x in r.get("covers") or [])
+            or (list(comps) if len(comps) == 1 else []),
+            "file": (r.get("closing_file") or {}).get("file")} for s, r in done.items()]
     for gr in cl.groups(fam_games, now, covered):
+        if gr["start"] in done:       # a done start time is never printed as due (addendum 111 item 1)
+            d = next(x for x in out if x["start"] == gr["start"])
+            d["open"] = d["exit"] != 0     # a failed run the watch tries again (fewer than three attempts)
+            continue
         m = cl.minutes_to(gr["start"], now)
         state = "ahead" if m > cl.RUN_LEAD_MIN else "due" if m >= cl.NO_ATTEMPT_INSIDE_MIN else "inside"
         out.append({"start": gr["start"], "run_at": gr["start"] - timedelta(minutes=cl.RUN_LEAD_MIN),
                     "match_ids": [g["match_id"] for g in gr["games"]], "state": state,
-                    # a called-off game no longer stored on the day is its family's (one competition) or no one's
-                    "comps": sorted({comp_of.get(g["match_id"], comps[0] if len(comps) == 1 else None)
-                                     for g in gr["games"]} - {None}),
+                    "comps": comps_of(g["match_id"] for g in gr["games"]),
                     "file": None if state == "inside" else
                     f"{cl.CLOSING_FILE_DIR}/{cl.closing_name(fam, gr['start'])}"})
+    out.sort(key=lambda g: g["start"])
     return {"groups": out, "finished": covered, "unread": None}
 
 
@@ -241,14 +417,14 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
     cannot be read."""
     now = cl.utc(now or cl.clock())
     day = day or cl.ny_date(now)
-    games, preds = read_day(day)
+    games, preds, prod = read_day(day)
     lanes, entries, unread = read_ledgers(roadmap_path, registry_path)
     views: dict = {}                  # family -> watch_groups(), read once per family
     comps: list[dict] = []
     for code in sorted({g["comp"] for g in games}):
         mine = [g for g in games if g["comp"] == code and not g["void"]]
         void = [g for g in games if g["comp"] == code and g["void"]]
-        status, src = model_status(code, lanes, entries, unread)
+        st = model_status(code, lanes, entries, prod, unread)
         by_model: dict = {}
         for g in mine:
             for mv, at in preds.get(g["match_id"], []):
@@ -274,11 +450,14 @@ def coverage(day: date | None = None, now: datetime | None = None, roadmap_path=
                 views[fam] = watch_groups(fam, games, day, now)
             v = views[fam]
             groups = [gr for gr in v["groups"] if code in gr["comps"]]
-            finished = [g["match_id"] for g in mine if g["match_id"] in v["finished"] and not cl.started(g, now)]
+            shown = {i for gr in groups if gr["state"] == "done" for i in gr["match_ids"]}
+            finished = [g["match_id"] for g in mine if g["match_id"] in v["finished"] and not cl.started(g, now)
+                        and g["match_id"] not in shown]    # its run is no done line of the day
             closing_unread = v["unread"]
         comps.append({"code": code, "games": [g["match_id"] for g in mine], "void": [(g["match_id"], g["status"])
                                                                                    for g in void],
-                      "status": status, "status_from": src, "family": fam, "refused": refused,
+                      "status": st["status"], "status_label": st["label"], "status_from": st["from"],
+                      "shadow": st["shadow"], "family": fam, "refused": refused,
                       "rows": sorted(by_model.values(), key=lambda m: m["model_version"]),
                       "without_rows": [g["match_id"] for g in mine if not preds.get(g["match_id"])],
                       "writers": writer_chains(fam) if fam else [], "groups": groups, "started": started,
@@ -317,12 +496,23 @@ def _computed(m: dict) -> str:
     return f" (latest {cl.et(m['latest'])})"
 
 
+def _group_text(g: dict, day: date) -> str:
+    """One closing group: done (addendum 111 item 1: "done (run <run_id>, <exit>)"), due now, ahead, or a miss."""
+    head = f"T-{cl.RUN_LEAD_MIN} {_run_time(g['start'], day)} [{', '.join(map(str, g['match_ids']))}]"
+    if g["state"] == "done":
+        tail = (f" (attempt {g['attempts']} of {cl.MAX_ATTEMPTS}: the watch tries again)" if g["open"] else "")
+        return f"{head} done (run {g['run_id']}, exit {g['exit']}){tail}"
+    if g["state"] == "inside":
+        return f"{head} inside T-5: no attempt, no file (the watch records a miss)"
+    return f"{head} → {g['file']}" + (" (due now)" if g["state"] == "due" else "")
+
+
 def comp_line(x: dict, day: date) -> str:
     """One competition's line."""
     parts = [x["code"], _n(len(x["games"]), "game")
              + (f" (+{len(x['void'])} void, not counted: " + ", ".join(f"{m} {s}" for m, s in x["void"]) + ")"
                 if x["void"] else ""),
-             f"{x['status']} ({x['status_from']})"]
+             f"{x['status_label']} ({x['status_from']})"]
     if x["rows"]:
         parts.append("rows: " + ", ".join(f"{m['model_version']} {m['rows']}" + _computed(m) for m in x["rows"]))
     else:
@@ -337,12 +527,9 @@ def comp_line(x: dict, day: date) -> str:
     elif x["closing_unread"]:
         parts.append(f"closing: not shown ({x['closing_unread']})")
     else:
-        runs = []
-        for g in x["groups"]:
-            head = f"T-{cl.RUN_LEAD_MIN} {_run_time(g['start'], day)} [{', '.join(map(str, g['match_ids']))}]"
-            runs.append(f"{head} inside T-5: no attempt, no file (the watch records a miss)" if g["state"] == "inside"
-                        else f"{head} → {g['file']}" + (" (due now)" if g["state"] == "due" else ""))
-        runs = runs or ["none left to run"]
+        runs = [_group_text(g, day) for g in x["groups"]]
+        if not any(g["state"] != "done" or g["open"] for g in x["groups"]):
+            runs.append("none left to run")
         if x["finished"]:
             runs.insert(0, f"a closing finished with {', '.join(map(str, x['finished']))}")
         if x["started"]:

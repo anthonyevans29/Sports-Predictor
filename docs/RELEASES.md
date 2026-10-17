@@ -77,6 +77,9 @@ The ritual for every tag, v1.0.0 and hotfixes included, with no exceptions:
    ```
    The deploy receipt names the from and to releases and any new
    `migrate_*.py` files. Run those by hand, after a backup.
+   A migration with no DB file at the configured path refuses ("no database
+   at <path>; a migration never creates one — law 5"), exit 1, and writes
+   nothing (addendum 112 item 1, #524).
 
 ## Release record
 One line per tag, from v1.4.0 on. Each release's Issue carries its notes and

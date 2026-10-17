@@ -27,18 +27,16 @@ import sys
 from sqlalchemy import inspect, text
 
 from src.db.database import get_engine
+from src.db.migrate_guard import refuse_missing_db
 from src.db.schema import KalshiSettledMarket
 from src.ingestion.kalshi_history import MIGRATION_MARKER
 from src.timeutil import utc_now_naive
 
 
 def main() -> int:
-    from src.walters.venue_quote_age import db_file_path
-    path = db_file_path()
-    if path is not None and not path.is_file():                 # law 5: a migration never creates a database
-        print(f"✗ no DB file at {path} — nothing to migrate (a migration never creates a database).")
-        return 1
     engine = get_engine()
+    if refuse_missing_db(engine):                               # law 5: a migration never creates a database
+        return 1
     names = inspect(engine).get_table_names()
     if "matches" not in names:
         print("✗ matches table doesn't exist — not a sports_predictor DB; nothing to migrate.")

@@ -28,10 +28,13 @@ import sys
 from sqlalchemy import inspect, text
 
 from src.db.database import get_engine
+from src.db.migrate_guard import refuse_missing_db
 
 
 def main() -> int:
     engine = get_engine()
+    if refuse_missing_db(engine):                               # law 5: a migration never creates a database
+        return 1
     inspector = inspect(engine)
     if "matches" not in inspector.get_table_names():
         print("✗ matches table doesn't exist — nothing to migrate.")

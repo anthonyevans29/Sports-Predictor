@@ -748,10 +748,13 @@ def test_init_db_force_drops_the_marker(fresh_db):
 
 def test_the_migration_never_creates_a_database(tmp_path, monkeypatch, capsys):
     """Law 5: with no DB file at the configured path the migration refuses (exit 1) and creates neither the file nor
-    its directory."""
-    from src.walters import venue_quote_age
+    its directory. The guard is the migrations' shared one (addendum 112 item 1, #524); every migrate_*.py is run
+    against a missing DB in tests/test_migrate_guard.py."""
+    from sqlalchemy import create_engine
+
+    import src.db.database as db
     missing = tmp_path / "nowhere" / "sports.db"
-    monkeypatch.setattr(venue_quote_age, "db_file_path", lambda: missing)   # the configured DB's path, read by it
+    monkeypatch.setattr(db, "_engine", create_engine(f"sqlite:///{missing}", future=True))   # no connection yet
     assert _mig().main() == 1
-    assert f"no DB file at {missing}" in capsys.readouterr().out
+    assert capsys.readouterr().out == f"no database at {missing.resolve()}; a migration never creates one — law 5\n"
     assert not missing.exists() and not missing.parent.exists()

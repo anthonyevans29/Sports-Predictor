@@ -1,4 +1,4 @@
-**2026-10-17 — RULED: the window job's MLB Kalshi step's window ends at {tomorrow}+1 day. Read from code, it has since #205; receipt match 41248 (#175, #PRNUM).**
+**2026-10-17 — RULED: the window job's MLB Kalshi step's window ends at {tomorrow}+1 day. Read from code, it has since #205; receipt match 41248 (#175, #583).**
 - **Ruling (ARCHITECT 2026-10-17 10:40 ET, addendum 112 item 8), verbatim:** "#175 — the window job's MLB Kalshi step (--date-to {tomorrow}) misses games after 00:05 UTC. RULED: the step's window ends at {tomorrow}+1 day; receipt of one late game found by the new window in the PR."
 - **Read from code (main 32e0397):**
   - The step: `deploy/hosting/chains.py:251`, `WINDOW_KALSHI["MLB"]` = `sync-kalshi --date-from {today} --date-to {tomorrow}`. sp_run expands `{today}` as the run's UTC date D and `{tomorrow}` as D+1 (`deploy/hosting/sp_run.py:45-52`; D is `utc_now()`'s date, 426-427).
@@ -6,7 +6,7 @@
   - The filter reads our stored kickoff, both ends inclusive: `lo <= g.utc_date <= hi` in `kalshi_match.place` (`src/ingestion/kalshi_match.py:471`). A game outside is refused as "the pair's game is outside the run's window".
   - So the step's window is [D 00:00Z, D+2 00:00Z). It ends at {tomorrow}+1 day, the ruled end. A window run on D looks 24 hours ahead (`WINDOW_HOURS`), never past D+2 00:00Z.
   - The Issue's window (before #205, `--date-to` read as midnight) was [D 00:00Z, D+1 00:00Z]. A first pitch after 00:00Z on D+1 stayed outside it until the 00:05Z run rolled {today}. #205 fixed that (BACKLOG's #204/#175 backfill entry), but no PR closed #175.
-- **Built (#PRNUM):**
+- **Built (#583):**
   - No change to the step or the sync.
   - One test pins the ruled end: the window chain as sp_run resolves it, where the MLB Kalshi step alone takes the dates and, through the CLI, its window ends at D+2 00:00Z less a microsecond. A second shows the Issue's case: a 00:30Z first pitch on D+1 is stored by the step from a 23:05Z run on D and refused by the Issue's window.
   - docs/CLI.md's `sync-kalshi` row and snapshot-retention (F4) say so.

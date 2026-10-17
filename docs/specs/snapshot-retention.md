@@ -196,7 +196,7 @@ this lane from editing BACKLOG):
   against receipts. It is the M11 family; it bears on line-move coverage,
   not on retention. **Fixed by #205 (2026-10-02):** `--date-to` is now the
   whole UTC day, so the window's step holds tomorrow's UTC games, night
-  games included; #175 records it (#PRNUM).
+  games included; #175 records it (#583).
 
 ### 1.3 Other tables with `captured_at` (out of scope)
 

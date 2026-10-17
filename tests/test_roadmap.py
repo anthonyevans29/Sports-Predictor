@@ -239,7 +239,38 @@ BROKEN = [
     ("was is always a real date (addendum 61 item 4)",
      lambda d: _lane(d, "ncaa")["moved"].append({**_MOVE, "which": "earliest_live", "was": None, "now": None}),
      "lane 'ncaa' moved 1: missing was"),
+    ("competitions a list (addendum 111 item 2)", lambda d: _lane(d, "pd").__setitem__("competitions", "PD"),
+     "lane 'pd': competitions 'PD' is not a list of competition codes"),
+    ("competitions not empty", lambda d: _lane(d, "pd").__setitem__("competitions", []),
+     "lane 'pd': competitions [] is not a list of competition codes"),
+    ("a competition code is text", lambda d: _lane(d, "cups").__setitem__("competitions", ["CL", 7]),
+     "lane 'cups': competitions ['CL', 7] is not a list of competition codes"),
+    ("a competition code is not blank", lambda d: _lane(d, "cups").__setitem__("competitions", ["CL", " "]),
+     "lane 'cups': competitions ['CL', ' '] is not a list of competition codes"),
+    ("a competition code as the DB stores it, unpadded",
+     lambda d: _lane(d, "nhl").__setitem__("competitions", [" NHL"]),
+     "lane 'nhl': competitions [' NHL'] is not a list of competition codes"),
+    ("a competition code named once", lambda d: _lane(d, "leagues").__setitem__("competitions", ["SA", "BL1", "SA"]),
+     "lane 'leagues': competitions ['SA', 'BL1', 'SA'] names a code twice"),
 ]
+
+# Addendum 111 item 2 (ARCHITECT 2026-10-17 10:35 ET, #575), verbatim: "Nations League [UNL]; La Liga [PD]; the
+# four-league lane [SA, BL1, FL1, ELC]; College [NCAA]; Hockey [NHL]; Cups [CL, EFL, UEL]; NFL QB [NFL]; MLB pitcher
+# [MLB]."
+RULED_COMPETITIONS = {"unl": ["UNL"], "pd": ["PD"], "leagues": ["SA", "BL1", "FL1", "ELC"], "ncaa": ["NCAA"],
+                      "nhl": ["NHL"], "cups": ["CL", "EFL", "UEL"], "nfl-qb": ["NFL"], "mlb-pitchers": ["MLB"]}
+
+
+def test_each_lane_carries_the_ruled_competitions():
+    assert {ln["lane"]: ln.get("competitions") for ln in _real()["lanes"]} == RULED_COMPETITIONS
+    assert rm.OPTIONAL_LANE_KEYS == ("competitions",) and "competitions" not in rm.LANE_KEYS
+
+
+def test_competitions_is_optional():
+    """A lane without the field validates (the field is the only optional key); the print does not show it."""
+    assert rm.validate(_broken(lambda d: [ln.pop("competitions") for ln in d["lanes"]])) == []
+    printed = _cli("--today", "2026-10-17").output.splitlines()
+    assert printed and not any("competitions" in line or "'UNL'" in line for line in printed)
 
 # (d): "the day it was moved, which date, what it was, what it is now, why, and the addendum and item"
 SIX_PARTS = ("moved_on", "which", "was", "now", "why", "ruling")

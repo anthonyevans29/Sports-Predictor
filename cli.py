@@ -9156,5 +9156,31 @@ def roadmap_cmd(today_s):
         click.echo(line)
 
 
+@cli.command("coverage")
+@click.option("--date", "date_s", default=None, metavar="YYYY-MM-DD",
+              help="The day to cover, by each game's US Eastern date. Default: today in US Eastern.")
+def coverage_cmd(date_s):
+    """THE DAY'S COVERAGE (ARCHITECT 2026-10-17 09:30 ET, addendum 107 item C7; amended by addendum 111 items 1-2): the
+    first step of every morning block. One line per competition with games that day (by the US Eastern date, as the
+    closing watch dates a first pitch): the games; the status in the ruled order, LIVE (a closing family and the model
+    its predict step resolves), SHADOW (a roadmap lane naming it through its `competitions`: confirming with its
+    registry entry, or a shadow export a chain runs), MARKET-ONLY (the code's own market-only sets; both:
+    "MARKET-ONLY · shadow v7"), UNKNOWN with its reasons; the stored prediction rows by model with their computed_at (a
+    range when the rows differ), and the games with none; the closing runs done today ("done (run <run_id>,
+    <exit>)", from the watch's receipt log) and the groups the watch will run (closing.due's own inputs; T-35 in ET,
+    the match ids) with the file each lands in (exports/closing_<FAMILY>_<start>.json). Then the gaps in capitals ("PL:
+    4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run"). Read-only: the DB opened mode=ro, no row or export
+    written, no provider call. Exit 0 whatever the gaps (it never stops a chain); a --date that is not real or a DB that
+    cannot be read exits 2.
+    (= python deploy/hosting/coverage_map.py)"""
+    import sys as _sys
+    from pathlib import Path as _P
+    _sys.path.insert(0, str(_P(__file__).resolve().parent / "deploy" / "hosting"))
+    import coverage_map as _cm
+    rc = _cm.run(date_s, echo=click.echo)
+    if rc:
+        raise SystemExit(rc)
+
+
 if __name__ == "__main__":
     cli()

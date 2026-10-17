@@ -117,8 +117,21 @@ def _qbs(items) -> dict:
         sts = sorted(x.get("status") or "" for x, _, _ in qs)
         out[k] = {"team": q.get("team"), "player": q.get("player"),
                   "status": sts[0] if len(sts) == 1 else " / ".join(v or "listed" for v in sts),
-                  "statuses": sts, "player_id": pid, "name_key": name_key, "n": len(qs)}
+                  # `last`: the last item's status in the card's order, the one status the pager kept before #458
+                  "statuses": sts, "last": qs[-1][0].get("status") or "",
+                  "player_id": pid, "name_key": name_key, "n": len(qs)}
     return out
+
+
+def _fold(side: dict, keys: list, name_key: str) -> dict:
+    """#458: id-keyed entries of one team and name, folded into one name-level entry (every status, sorted), so a
+    change across the key change is one line, never silent."""
+    es = [side.pop(j) for j in keys]
+    sts = sorted(st for e in es for st in (e.get("statuses") or [e.get("status") or ""]))
+    return {"team": es[0].get("team"), "player": es[0].get("player"),
+            "status": sts[0] if len(sts) == 1 else " / ".join(v or "listed" for v in sts), "statuses": sts,
+            "player_id": ",".join(str(e.get("player_id")) for e in es), "name_key": name_key, "n": len(sts),
+            "ids": set().union(*(e["ids"] for e in es)), "games": [g for e in es for g in e["games"]]}
 
 
 def _move_text(lm) -> str | None:
@@ -173,12 +186,19 @@ def _players(games: dict) -> dict:
 
 
 def _rekey(was: dict, now: dict) -> dict:
-    """#458, the key change, so that a key change is never news. A player keyed by name on one side (a state
-    written before this change, or a row stored with no provider id) and by provider id on the other is carried to
-    his id key when exactly one id-keyed entry of that team and name is on the other side and no name-keyed one.
-    Where two or more id-keyed entries share that team and name (the case #458 names: the old state held one entry
-    for both), the old entry cannot be told apart: that name and those ids make no delta this run (a baseline, in
-    the receipt's `qb_rekey`), and from the next run each is compared by his own id. Mutates `was` and `now`."""
+    """#458, the key change, so that a key change is never news and a change is never hidden by it. Mutates `was`
+    and `now`.
+    - A player keyed by name on one side (a state written before this change, or a row stored with no provider
+      id) and by provider id on the other is carried to his id key when exactly one id-keyed entry of that team
+      and name is on the other side and no name-keyed one.
+    - Two or more id-keyed entries of that team and name against one name-keyed entry (the case #458 names): the
+      players cannot be told apart across the change. If their statuses are the name entry's (the same statuses,
+      sorted; for a state written before this change, which kept one status, that status among theirs), it is a
+      baseline: no delta this run, listed in the receipt's `qb_rekey`, and from the next run each is compared by
+      his own id. Otherwise the ids are folded into one name-level entry and the change pages as one line.
+    - A state written before this change (no `n`: one status, the last item's) against an entry that now holds two
+      or more id-less items under the same key is a baseline when its status is the new entry's last item's: the
+      exact case the pager before this change was silent on too. Otherwise it pages."""
     carried, baseline, skip = [], [], set()
     for a, b in ((was, now), (now, was)):
         ids_by_name: dict = {}
@@ -186,11 +206,11 @@ def _rekey(was: dict, now: dict) -> dict:
             if k.startswith("id:"):
                 ids_by_name.setdefault(e.get("name_key"), []).append(k)
         for k in [k for k in a if not k.startswith("id:")]:
-            # a state written before this change (no `n`: one status, the last item's) against an entry that now
-            # holds two or more id-less items under the same key is a change of format, not news, when its one
-            # status is among theirs: a baseline. Only (was, now) can match: this code always writes `n`.
+            # the old state's one entry (no `n`) against a merged id-less entry: a baseline only where the pager
+            # before this change was silent too (its status is the new last item's). Only (was, now) can match:
+            # this code always writes `n`.
             if (k in b and "n" not in a[k] and (b[k].get("n") or 1) > 1
-                    and (a[k].get("status") or "") in (b[k].get("statuses") or [])):
+                    and (a[k].get("status") or "") == (b[k].get("last") or "")):
                 skip.add(k)
                 baseline.append(k)
                 continue
@@ -198,8 +218,15 @@ def _rekey(was: dict, now: dict) -> dict:
             if not js or k in b:
                 continue
             if len(js) > 1:
-                skip.update([k, *js])
-                baseline.append(k)
+                theirs = sorted((b[j].get("status") or "") for j in js)
+                mine = a[k]
+                same = (sorted(mine.get("statuses") or []) == theirs if "n" in mine
+                        else (mine.get("status") or "") in theirs)
+                if same:
+                    skip.update([k, *js])
+                    baseline.append(k)
+                else:
+                    b[k] = _fold(b, js, k)
             elif js[0] not in a:
                 a[js[0]] = {**a.pop(k), "name_key": k}
                 carried.append(k)

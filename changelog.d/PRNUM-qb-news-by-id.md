@@ -5,16 +5,17 @@
 - src/walters/window.py (`window-card`): each `qb_news` item carries `player_id`, the row's stored id (null where the row has none).
 - deploy/hosting/sp_window_page.py: QB news is keyed by provider id (`id:<id>`); the name is display only. An item with no id keeps the old key, `<team_id>|<name>`, and its page line says `(no provider id)`. Items with no id that share a team and name become one entry holding every status, sorted (`(no provider id, N entries)`), so one never overwrites the other.
   - A change of key is not news. A player keyed by name in the previous state and by id now is carried to his id. Where two or more ids share the old name key, that name makes no delta that run.
-  - The old state's one entry for two id-less same-name items, read against the entry that now holds both, is a baseline when its status is among theirs. A status among neither pages.
+  - The old state's one entry for two id-less same-name items, read against the entry that now holds both, is a baseline only when its status is the new last item's (where the old pager was silent too); otherwise it pages.
+  - Ids arriving for a pair: a baseline only when their statuses are the name entry's; otherwise the ids fold into one name-level line that pages. The same the other way round.
   - The `(no provider id)` label follows the item: a player whose row loses its id keeps the label.
   - The receipt gains `qb_rekey` {`carried`, `baseline`}.
 - docs/CLI.md: the `sync-injuries` and `window-card` rows.
 - tests:
-  - test_qb_news_by_id.py (new, 16), led by the ruled test: two same-name quarterbacks on one team with different ids both appear, and a status change in either pages. The other tests:
+  - test_qb_news_by_id.py (new, 18), led by the ruled test: two same-name quarterbacks on one team with different ids both appear, and a status change in either pages. The other tests:
     - items with no id: keyed by team and name and labelled; two of them are never merged silently.
-    - a deploy before the migration pages nothing new. An id-less same-name pair is a baseline, and a status among neither pages.
+    - a deploy before the migration pages nothing new. An id-less same-name pair is a baseline only where the old pager was silent; otherwise it pages. A state this code wrote is never read as the old format.
     - a player whose row loses its id keeps the label.
-    - the first run with ids pages only real changes. The collapsed pair is a baseline, then each pages by his own id. `run()` receipts `qb_rekey`.
+    - the first run with ids pages only real changes. The collapsed pair is a baseline when its statuses are unchanged, then each pages by his own id; changed statuses page one folded line, both ways. `run()` receipts `qb_rekey`.
     - the adapter carries each entry's own id.
     - `sync-injuries` before the migration writes its rows and no id; after it, it stores the ids, and the card and page key by them.
     - the ORM never names the column.

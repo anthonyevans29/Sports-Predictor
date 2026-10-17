@@ -110,22 +110,50 @@ def test_a_deploy_before_the_migration_pages_nothing_new():
 
 
 def test_a_deploy_before_the_migration_holds_an_id_less_same_name_pair_as_a_baseline():
-    """The state written before this change held ONE entry for two id-less same-name QBs (the last item's status).
-    Read against the entry that now holds both, under the same key, it is a change of format, not news: a baseline
-    when its one status is among theirs. A status that is among neither still pages; from the next run both sides
-    hold the pair and a change in either one pages."""
+    """The state written before this change held ONE entry for two id-less same-name QBs: the last item's status.
+    Read against the entry that now holds both under the same key, it is a baseline only where that pager was
+    silent too (its status is the new last item's), so the deploy run is never quieter than the old pager. Any other
+    status pages; from the next run both sides hold the pair and a change in either one pages."""
     before = old_format(card(row(1, "CHI", "GB", THU, [("John Smith", "Out")])))
-    for pair in ([("John Smith", "Out"), ("John Smith", "Questionable")], [("John Smith", "Out"), ("John Smith", "Out")]):
+    for pair in ([("John Smith", "Questionable"), ("John Smith", "Out")], [("John Smith", "Out"), ("John Smith", "Out")]):
         now = card(row(1, "CHI", "GB", THU, pair))
         assert qb(before, now) == []
         assert page.qb_rekey(before, now) == {"carried": 0, "baseline": ["9|John Smith"]}
-    was_q = old_format(card(row(1, "CHI", "GB", THU, [("John Smith", "Questionable")])))
+    now = card(row(1, "CHI", "GB", THU, [("John Smith", "Out"), ("John Smith", "Questionable")]))   # last: Questionable
+    assert heads(qb(before, now)) == ["QB NEWS CHI John Smith (no provider id, 2 entries): Out -> Out / Questionable "
+                                      "· 1 game(s)"]
+    assert page.qb_rekey(before, now) == {"carried": 0, "baseline": []}
     now = card(row(1, "CHI", "GB", THU, [("John Smith", "Out"), ("John Smith", "Out")]))
-    assert heads(qb(was_q, now)) == ["QB NEWS CHI John Smith (no provider id, 2 entries): Questionable -> Out / Out "
-                                     "· 1 game(s)"]
     later = card(row(1, "CHI", "GB", THU, [("John Smith", "Out"), ("John Smith", "Doubtful")]))
     assert heads(qb(now, later)) == ["QB NEWS CHI John Smith (no provider id, 2 entries): Out / Out -> Doubtful / Out "
                                      "· 1 game(s)"]
+
+
+def test_the_format_baseline_is_for_the_old_state_only():
+    """A state this code wrote (it carries `n`) is never read as the old format: one id-less John Smith, then a
+    second one listed, pages."""
+    before = card(row(1, "CHI", "GB", THU, [("John Smith", "Out")]))
+    now = card(row(1, "CHI", "GB", THU, [("John Smith", "Questionable"), ("John Smith", "Out")]))
+    assert heads(qb(before, now)) == ["QB NEWS CHI John Smith (no provider id, 2 entries): Out -> Out / Questionable "
+                                      "· 1 game(s)"]
+    assert page.qb_rekey(before, now) == {"carried": 0, "baseline": []}
+
+
+def test_ids_arriving_for_a_pair_page_when_the_statuses_changed():
+    """The id-arrival baseline holds only when the ids' statuses are the name entry's. Otherwise the ids fold into
+    one name-level line: a merged id-less pair, the old state's one status among neither, and the reverse (ids gone,
+    e.g. a restore from a backup before the migration)."""
+    merged = card(row(1, "CHI", "GB", THU, [("John Smith", "Out"), ("John Smith", "Questionable")]))
+    same = card(row(1, "CHI", "GB", THU, [("John Smith", "Questionable", "3"), ("John Smith", "Out", "2")]))
+    assert qb(merged, same) == [] and page.qb_rekey(merged, same) == {"carried": 0, "baseline": ["9|John Smith"]}
+    moved = card(row(1, "CHI", "GB", THU, [("John Smith", "Out", "2"), ("John Smith", "Doubtful", "3")]))
+    assert heads(qb(merged, moved)) == ["QB NEWS CHI John Smith (2 entries): Out / Questionable -> Doubtful / Out "
+                                        "· 1 game(s)"]
+    old_q = old_format(card(row(1, "CHI", "GB", THU, [("John Smith", "Questionable")])))
+    assert heads(qb(old_q, moved)) == ["QB NEWS CHI John Smith (2 entries): Questionable -> Doubtful / Out · 1 game(s)"]
+    back = card(row(1, "CHI", "GB", THU, [("John Smith", "Doubtful"), ("John Smith", "Questionable")]))
+    assert heads(qb(same, back)) == ["QB NEWS CHI John Smith (no provider id, 2 entries): Out / Questionable -> "
+                                     "Doubtful / Questionable · 1 game(s)"]
 
 
 def test_a_player_whose_row_loses_its_provider_id_keeps_the_label():

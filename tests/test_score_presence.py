@@ -447,7 +447,7 @@ def test_the_dry_run_lists_every_change_with_its_id_and_writes_nothing():
         "listed_no_status_both_scores": 5, "listed_none_text_both_scores": 2, "already": 1, "none_text_unchanged": 1,
         "left_alone_until_kickoff_age": 0, "not_stored": 2, "sched_both_scores": 6, "sched_both_changed": 2,
         "left": 4, "needs_scores": 1, "needs_scores_ids": [ids[9107]], "apply_ids": [ids[9101]],
-        "held_nfl_not_preseason_ids": [], "held_rekeyed_ids": [], "held_placeholder_ids": [],
+        "held_nfl_not_preseason_ids": [], "held_rekeyed_ids": [], "held_placeholder_ids": [], "held_ambiguous_ids": [],
         "none_text_change_ids": [ids[9106]],
         "clock_moved": {"placeholder": 0, "date only": 0},
         "onto_stored": 8, "rekeyed": 0, "created": 3, "refused": 0, "skipped": 1,
@@ -1096,6 +1096,65 @@ def test_a_row_at_the_ncaa_placeholder_kickoff_is_held_even_without_a_re_key(fre
     assert _dump(fresh) == before                                                # nothing written
     r = IngestionService(_faked(APIAmericanFootballAdapter(), payload)).sync_matches("NCAA", "2024")
     assert r.created == 0                                                        # no twin: the row was never FINISHED
+
+
+def _n_rows():
+    from sqlalchemy import func, select
+    from src.db.database import session_scope
+    from src.db.schema import Match
+    with session_scope() as s:
+        return s.execute(select(func.count(Match.id))).scalar_one()
+
+
+def test_a_row_one_id_lists_twice_is_held_as_ambiguous_and_the_apply_cannot_make_a_twin(fresh, monkeypatch):
+    """#493 review round 3 (attack, P2): one provider id listed twice in one answer. NCAA 2026 row 111 stored SCHEDULED
+    21-14 at a real kickoff; the listing: 111 at the 04:00Z placeholder, 333 (new id, same pair) at 20:00Z, 111 at the
+    stored kickoff, all with no status. Before this fix the row went on the APPLY line (its STORED kickoff is not the
+    placeholder), the apply wrote FINISHED, and the next sync created 333 beside it (the control, no apply, refuses
+    333). Now the row is held, as ambiguous and as listed at the placeholder, and the apply refuses it."""
+    from src.db.schema import Sport
+    from src.ingestion import score_presence as sp
+    from src.ingestion.service import IngestionService
+    d = datetime(2026, 10, 10)
+    stored, ph, new, now = d + timedelta(hours=17), d + timedelta(hours=4), d + timedelta(hours=20), d + timedelta(hours=23)
+    listing = {"response": [_af_game(111, "W1110", "W1111", ph, totals=(21, 14)),
+                            _af_game(333, "W1110", "W1111", new, totals=(21, 14)),
+                            _af_game(111, "W1110", "W1111", stored, totals=(21, 14))]}
+    ids = _world("NCAA", Sport.NFL, "api_american_football", [(111, S, 21, 14, stored)], key="W{}".format,
+                 season="2026")
+    out = []
+    sp.run(["NCAA"], ["2026"], lambda c: _faked(APIAmericanFootballAdapter(), listing), out=out.append, now=now)
+    tail = json.loads(out[-1].split(" ", 1)[1])["by_competition_season"]["NCAA 2026"]
+    assert tail["apply_ids"] == [] and tail["held_ambiguous_ids"] == [ids[111]]
+    assert tail["held_placeholder_ids"] == [ids[111]]
+    res = []
+    assert sp.apply("NCAA", "2026", [ids[111]], lambda c: _faked(APIAmericanFootballAdapter(), listing),
+                    out=res.append, now=now) == 1
+    assert any(f"match {ids[111]}: " in x and sp.HELD_AMBIGUOUS_WHY in x for x in res)
+    monkeypatch.setattr(ass, "utc_now_naive", lambda: now)
+    r = IngestionService(_faked(APIAmericanFootballAdapter(), listing)).sync_matches("NCAA", "2026")
+    assert (r.created, _n_rows()) == (0, 1)                                      # as the control: no twin
+
+
+def test_one_id_listed_twice_with_two_totals_is_held_never_applied(fresh):
+    """#493 review round 3 (attack, P2): one id listed twice with different totals put the row in the change set AND
+    in NEEDS SCORES on one receipt, and the apply accepted it. Now it is one held entry (ambiguous) and refused."""
+    from src.db.schema import Sport
+    from src.ingestion import score_presence as sp
+    d = datetime(2026, 10, 10)
+    stored, now = d + timedelta(hours=17), d + timedelta(hours=23)
+    listing = {"response": [_af_game(111, "V1110", "V1111", stored, totals=(21, 14)),
+                            _af_game(111, "V1110", "V1111", stored, totals=(28, 14))]}
+    ids = _world("NCAA", Sport.NFL, "api_american_football", [(111, S, 21, 14, stored)], key="V{}".format,
+                 season="2026")
+    out = []
+    sp.run(["NCAA"], ["2026"], lambda c: _faked(APIAmericanFootballAdapter(), listing), out=out.append, now=now)
+    tail = json.loads(out[-1].split(" ", 1)[1])["by_competition_season"]["NCAA 2026"]
+    assert tail["apply_ids"] == [] and tail["held_ambiguous_ids"] == [ids[111]]
+    before = _dump(fresh)
+    assert sp.apply("NCAA", "2026", [ids[111]], lambda c: _faked(APIAmericanFootballAdapter(), listing),
+                    out=[].append, now=now) == 1
+    assert _dump(fresh) == before                                                # nothing written
 
 
 def test_a_placeholder_re_key_is_held_and_the_apply_cannot_make_a_twin(fresh):

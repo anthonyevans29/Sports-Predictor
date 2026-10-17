@@ -72,6 +72,9 @@ HELD_REKEY_WHY = ("re-keyed: the sync answers this game under a new provider id;
                   "re-key (the row keeps its old provider id and kickoff), and where the sync matched it through the "
                   "NCAA placeholder window (SCHEDULED rows only) the next sync no longer finds it once FINISHED and "
                   "creates a twin; for the architect")
+HELD_AMBIGUOUS_WHY = ("ambiguous: more than one listed entry reaches this stored row (one id listed twice, a doubled "
+                      "listing); the sync writes the last entry's values, and the entries need not agree; for the "
+                      "architect")
 HELD_PLACEHOLDER_WHY = ("stored at the NCAA TBD placeholder kickoff: the sync's placeholder window re-keys only SCHEDULED rows, "
                         "so a status-only FINISHED here would let a later listing of this game under another id (a "
                         "doubled listing, a real kickoff) create a twin; held until the kickoff is resolved; for the "
@@ -257,6 +260,7 @@ def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict]
          "left": [], "sched_both": 0, "sched_both_changed": 0, "classes": {NO_STATUS: 0, NONE_TEXT: 0},
          "clock_moved": {CLOCK_PLACEHOLDER: 0, CLOCK_DATE_ONLY: 0}, "why_row": {}}
     listed, by_row = {}, {}
+    hits, placeholder_listed = {}, set()                   # listed entries per stored row; rows listed at 04:00Z
     for nm in listing:
         pid = str(nm.source_id)
         short = shorts.get(pid)
@@ -279,6 +283,9 @@ def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict]
         m = {**got["row"], "rekey": got["rekey"]}
         r["onto_stored"] += 1
         by_row[m["id"]] = pid
+        hits[m["id"]] = hits.get(m["id"], 0) + 1
+        if competition_code in PLACEHOLDER_REKEY_COMPETITIONS and is_placeholder_kickoff(nm.utc_date):
+            placeholder_listed.add(m["id"])
         if m["rekey"]:
             r["rekeyed"].append(m)
         if cls:
@@ -324,6 +331,15 @@ def compare(competition_code: str, listing: list, shorts: dict, rows: list[dict]
             what.append(f"status code {m['status_raw'] or '—'} → {nm.status_raw}")
         if what:
             r["fields"].append({**m, "what": " · ".join(what)})
+    # A stored row more than one listed entry reaches (one id listed twice, a doubled listing) is ambiguous: the sync
+    # writes the last entry's values, the receipt saw each. Held, one entry per row; a row also listed at the TBD
+    # placeholder kickoff is held as the placeholder window's door too (#493 review round 3).
+    seen = {}
+    for e in r["changes"]:
+        e["ambiguous"] = hits.get(e["id"], 0) > 1 or any(n["id"] == e["id"] for n in r["needs_scores"])
+        e["placeholder"] = e["placeholder"] or e["id"] in placeholder_listed
+        seen.setdefault(e["id"], e)
+    r["changes"] = list(seen.values())
     change_ids = {m["id"] for m in r["changes"]}
     needs_ids = {m["id"] for m in r["needs_scores"]}
     for m in rows:                                          # the stored SCHEDULED rows carrying both scores
@@ -372,7 +388,8 @@ def holds(m: dict) -> list[str]:
     window's other door, a doubled listing under another id). Empty: the apply accepts it."""
     return (([HELD_NFL_WHY] if m.get("nfl") == NOT_PRESEASON_HELD else [])
             + ([HELD_REKEY_WHY] if m.get("rekey") else [])
-            + ([HELD_PLACEHOLDER_WHY] if m.get("placeholder") else []))
+            + ([HELD_PLACEHOLDER_WHY] if m.get("placeholder") else [])
+            + ([HELD_AMBIGUOUS_WHY] if m.get("ambiguous") else []))
 
 
 def apply_ids(r: dict) -> list[int]:
@@ -389,6 +406,11 @@ def none_text_ids(r: dict) -> list[int]:
 def held_ids(r: dict) -> list[int]:
     """The changes that are NFL rows not preseason (addendum 116 item 4 (2): held, their own Issue), ascending."""
     return sorted(m["id"] for m in r["changes"] if m["nfl"] == NOT_PRESEASON_HELD)
+
+
+def ambiguous_held_ids(r: dict) -> list[int]:
+    """The changes on a stored row more than one listed entry reaches (held: HELD_AMBIGUOUS_WHY), ascending."""
+    return sorted(m["id"] for m in r["changes"] if m.get("ambiguous"))
 
 
 def placeholder_held_ids(r: dict) -> list[int]:
@@ -532,6 +554,9 @@ def lines(code: str, season: str, source: str, r: dict) -> list[str]:
     placeholder = placeholder_held_ids(r)
     if placeholder:
         L.append(f"  HELD ({HELD_PLACEHOLDER_WHY}): match ids {ids(placeholder)}")
+    ambiguous = ambiguous_held_ids(r)
+    if ambiguous:
+        L.append(f"  HELD ({HELD_AMBIGUOUS_WHY}): match ids {ids(ambiguous)}")
     if text:
         L.append(f"  THE TEXT 'None' CHANGES (not on the APPLY line: addendum 116 item 4 (4) expects none; the "
                  f"architect's word whether these ids are applied; score-presence-apply accepts them when named): "
@@ -576,7 +601,7 @@ def summary(r: dict) -> dict:
             "left_alone_until_kickoff_age": len(r["not_yet"]), "not_stored": len(r["not_stored"]),
             "sched_both_scores": r["sched_both"], "sched_both_changed": r["sched_both_changed"], "left": len(r["left"]),
             "needs_scores": len(r["needs_scores"]), "needs_scores_ids": needs_scores_ids(r),
-            "apply_ids": apply_ids(r), "held_nfl_not_preseason_ids": held_ids(r), "held_rekeyed_ids": rekey_held_ids(r), "held_placeholder_ids": placeholder_held_ids(r),
+            "apply_ids": apply_ids(r), "held_nfl_not_preseason_ids": held_ids(r), "held_rekeyed_ids": rekey_held_ids(r), "held_placeholder_ids": placeholder_held_ids(r), "held_ambiguous_ids": ambiguous_held_ids(r),
             "none_text_change_ids": none_text_ids(r), "clock_moved": dict(r["clock_moved"]),
             "onto_stored": r["onto_stored"], "rekeyed": len(r["rekeyed"]), "created": len(r["created"]),
             "refused": len(r["refused"]), "skipped": len(r["skipped"]),
@@ -755,6 +780,8 @@ def apply(competition_code: str, season: str, match_ids, adapter_for: Callable,
                 why.append(f"HELD ({HELD_REKEY_WHY}) · provider {m['rekey']}")
             if m.get("placeholder"):
                 why.append(f"HELD ({HELD_PLACEHOLDER_WHY})")
+            if m.get("ambiguous"):
+                why.append(f"HELD ({HELD_AMBIGUOUS_WHY})")
             refused.append({"id": mid, "why": "; ".join(why)})
     out(f"{code} {season} · source {source} · listing {r['listing']} games · stored {r['stored']} rows · the rule's "
         f"change set {len(changes)} · named {len(named)}: {','.join(map(str, named))}")

@@ -1,4 +1,4 @@
-## 2026-10-17 (#PRNUM: mlb-kalshi-window — #175, ARCHITECT addendum 112 item 8)
+## 2026-10-17 (#PRNUM: mlb-kalshi-window — #175, ARCHITECT addendum 112 item 8, addendum 117 item 1; Closes #175)
 - deploy/hosting/chains.py: unchanged. The window's MLB Kalshi step stays `sync-kalshi --date-from {today} --date-to {tomorrow}`. Since #205 (2026-10-02), `--date-to D` reads the whole UTC day D (cli.py). Read from code, the step's window is our stored kickoffs from {today} 00:00Z up to {tomorrow}+1 day 00:00Z, which is the ruled end. It holds the 24 hours of every window run on {today}. The Issue's window (`--date-to` read as midnight, before #205) ended at {tomorrow} 00:00Z.
 - docs/CLI.md: the `sync-kalshi` row says what `--date-from` / `--date-to` keep and where the window step's window ends.
 - docs/specs/snapshot-retention.md: (F4) says #205 fixed the boundary it describes.

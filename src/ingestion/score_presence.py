@@ -7,18 +7,25 @@ receipt is pasted on the PR before merge."
 
 HOW (law 1: read from the code):
   * The vehicle that writes is sync-matches. For each listed game, _apply_match_updates sets the stored status to the
-    adapter's and also writes the kickoff, matchday, stage and every present score. So the dry run makes the same single
-    /games call a season read makes (no date). It parses the answer with the adapter's own _parse_games and keeps each
-    game's provider status as sent (raw_shorts).
+    adapter's and also writes the kickoff, matchday, stage, season, status code and every present score. So the dry
+    run makes the same single /games call a season read makes (no date). It parses the answer with the adapter's own
+    _parse_games and keeps each game's provider status as sent (raw_shorts).
   * The fix changes exactly two classes of listed game, both with their two totals present (fix_class):
       ABSENT     no status stated: FINISHED now (before #493: SCHEDULED)
       NONE_TEXT  the provider's own text "None", a stated status the map lacks: SCHEDULED now (before #493: FINISHED)
     Every other listed game parses as it did before the fix (src/adapters/api_sports_status.py).
-  * A stored row is found by its provider id (external_ids[<source>]) in the competition-season. It is CHANGED when its
-    stored status differs from the fixed parse's.
+  * Each listed game is resolved to the stored row the sync writes AS THE SYNC RESOLVES IT (resolve): the sync's own
+    cache over the competition's rows (IngestionService._match_cache), its two teams by provider id (a team not
+    stored: the sync skips the game), the row holding its provider id, and for a re-keyed source (api_american_football:
+    NFL, NCAA) the sync's own _rekey_candidate (the row's `_prev` history, the same pair within 12 hours, the NCAA
+    placeholder window; a refusal creates nothing). A stored row is CHANGED when its stored status differs from the
+    fixed parse's.
   * The receipt also reconciles the stored SCHEDULED rows carrying both scores (the count addendum 81 cites: NCAA 2024
-    120, NFL 2024 16), and it says what the same whole-season sync would write besides the rule: other status
-    changes, kickoffs and scores. The kickoffs matter: matches.utc_date is one of the NCAA stream fingerprints' fields
+    120, NFL 2024 16): the rule changes X of them and leaves Y, X + Y = N. And it says what the same whole-season sync
+    would write besides the rule: other status changes, kickoffs, scores, stages, matchdays, seasons and status codes,
+    the provider ids it re-keys, and the listed games it creates (the adapters send no half-time, 90-minute, result or
+    referee field, so the sync writes nothing else); and the listed games it writes nothing for (refused, skipped).
+    The kickoffs matter: matches.utc_date is one of the NCAA stream fingerprints' fields
     (ncaa_v1r_gate.FINGERPRINT_FIELDS) and orders the walk; matches.status is neither.
 Scores are never printed (the NCAA fences print no outcome); ids, kickoffs, stages and statuses are.
 """
@@ -75,32 +82,90 @@ def stored_seasons(competition_code: str) -> list[str] | None:
     return out
 
 
-def stored_rows(competition_code: str, season: str, source: str) -> list[dict]:
-    """Read-only: the competition-season's stored rows, each {id, pid (its `source` id or None), utc_date, stage,
-    status (the enum's name), home_score, away_score}."""
+def _snap(m, source: str) -> dict:
+    """One stored row as the receipt reads it, before anything: {id, pid (its `source` id or None), season, utc_date,
+    stage, matchday, status (the enum's name), status_raw, home_score, away_score}."""
+    sid = (m.external_ids or {}).get(source)
+    return {"id": m.id, "pid": None if sid is None else str(sid), "season": m.season, "utc_date": m.utc_date,
+            "stage": m.stage, "matchday": m.matchday, "status": getattr(m.status, "name", str(m.status)),
+            "status_raw": m.status_raw, "home_score": m.home_score, "away_score": m.away_score}
+
+
+def resolve(competition_code: str, season: str, source: str, listing: list) -> tuple[list[dict], dict]:
+    """Read-only. (the competition-season's stored rows, {listed provider id: what the sync does with that game}).
+
+    Each listed game is resolved as IngestionService.sync_matches resolves it, in the listing's order, with the sync's
+    own pieces: the cache over every stored row of the competition (_match_cache), the two teams (_find_team_by_source),
+    the row holding the game's provider id, and on a miss for a re-keyed source _rekey_candidate, with _upsert_match's
+    bookkeeping (a re-keyed row answers to its new id; a created game holds its id and its pair). The answer per game:
+    {"row": the stored row it writes (_snap, before), "rekey": "old → new" or None}, or {"row": None, "fate":
+    "created" | "refused" | "skipped", "why": ...}.
+
+    Writes nothing: the rows are detached from the session before the walk, so what the walk sets on them (the sync's
+    own _apply_match_updates and re-key, which the next game's re-key reads, as in the sync) is never flushed; the
+    session is rolled back."""
+    from types import SimpleNamespace
+
     from sqlalchemy import select
 
     from src.db.database import session_scope
     from src.db.schema import Competition, Match
+    from src.ingestion.service import IngestionService as IS
 
+    out: dict = {}
     with session_scope() as s:
-        q = (select(Match).join(Competition, Match.competition_id == Competition.id)
-             .where(Competition.code == competition_code, Match.season == season).order_by(Match.utc_date, Match.id))
-        out = [{"id": m.id, "pid": (None if (m.external_ids or {}).get(source) is None
-                                    else str((m.external_ids or {}).get(source))),
-                "utc_date": m.utc_date, "stage": m.stage, "status": getattr(m.status, "name", str(m.status)),
-                "home_score": m.home_score, "away_score": m.away_score} for m in s.execute(q).scalars()]
+        comp = s.execute(select(Competition).where(Competition.code == competition_code)).scalar_one_or_none()
+        stored = list(s.execute(select(Match).where(Match.competition_id == comp.id)).scalars()) if comp else []
+        before = {m.id: _snap(m, source) for m in stored}
+        cache = IS._match_cache(stored, listing, competition_code)
+        s.expunge_all()                                     # detached: nothing the walk sets on a row is flushed
+        pairs = cache.get("__pairs__")
+        for nm in listing:
+            pid = str(nm.source_id)
+            home = IS._find_team_by_source(s, nm.sport, nm.source, nm.home_team_source_id)
+            away = IS._find_team_by_source(s, nm.sport, nm.source, nm.away_team_source_id)
+            if not home or not away:
+                out[pid] = {"row": None, "fate": "skipped", "why": "a team is not stored"}
+                continue
+            m, rekey = cache.get(nm.source_id), None
+            if m is None and pairs is not None:
+                m, refused = IS._rekey_candidate(nm, home.id, away.id, cache)
+                if refused:
+                    out[pid] = {"row": None, "fate": "refused", "why": refused}
+                    continue
+                if m is not None:                           # the sync's re-key: the row answers to the new id
+                    old = (m.external_ids or {}).get(nm.source)
+                    m.external_ids = {**(m.external_ids or {}), nm.source: nm.source_id}
+                    cache[nm.source_id] = m
+                    if old:
+                        cache.pop(old, None)
+                    rekey = f"{old or '—'} → {pid}"
+            if m is None:                                   # a new game: the sync creates it
+                made = SimpleNamespace(id=None, utc_date=nm.utc_date, status=nm.status,
+                                       external_ids={nm.source: nm.source_id})
+                if nm.source_id:
+                    cache[nm.source_id] = made
+                if pairs is not None:
+                    pairs.setdefault((home.id, away.id), []).append(made)
+            if m is None or m.id is None:                   # (or a game this listing already created)
+                out[pid] = {"row": None, "fate": "created"}
+                continue
+            out[pid] = {"row": before[m.id], "rekey": rekey}
+            IS._apply_match_updates(m, nm)                  # on the detached row, as the sync writes it
         s.rollback()
-    return out
+    rows = sorted((x for x in before.values() if x["season"] == season),
+                  key=lambda x: (x["utc_date"] is None, x["utc_date"] or 0, x["id"]))
+    return rows, out
 
 
-def compare(listing: list, shorts: dict, rows: list[dict]) -> dict:
-    """Pure. One competition-season: the fixed parse (`listing`, `shorts`) against the stored `rows`."""
-    by_pid = {r["pid"]: r for r in rows if r["pid"] is not None}        # the sync's cache: the last row of an id
+def compare(listing: list, shorts: dict, rows: list[dict], resolved: dict) -> dict:
+    """Pure. One competition-season: the fixed parse (`listing`, `shorts`), each listed game resolved to what the sync
+    does with it (`resolved`, from resolve), against the season's stored `rows`."""
     r = {"listing": len(listing), "stored": len(rows), "changes": [], "already": [], "not_stored": [],
-         "other_status": [], "kickoff": [], "scores": [], "left": [], "sched_both": 0,
+         "other_status": [], "kickoff": [], "scores": [], "fields": [], "rekeyed": [], "created": [], "refused": [],
+         "skipped": [], "onto_stored": 0, "left": [], "sched_both": 0, "sched_both_changed": 0,
          "classes": {ABSENT: 0, NONE_TEXT: 0}}
-    listed = {}
+    listed, by_row = {}, {}
     for nm in listing:
         pid = str(nm.source_id)
         short = shorts.get(pid)
@@ -108,11 +173,19 @@ def compare(listing: list, shorts: dict, rows: list[dict]) -> dict:
         listed[pid] = (nm, short, cls)
         if cls:
             r["classes"][cls] += 1
-        m = by_pid.get(pid)
-        if m is None:
+        got = resolved[pid]
+        if got["row"] is None:                              # no stored row: the sync creates, refuses or skips it
+            g = {"pid": pid, "class": cls, "utc_date": nm.utc_date, "new": nm.status.name, "fate": got["fate"],
+                 "why": got.get("why")}
             if cls:
-                r["not_stored"].append({"pid": pid, "class": cls, "utc_date": nm.utc_date, "new": nm.status.name})
+                r["not_stored"].append(g)
+            r[got["fate"]].append(g)
             continue
+        m = {**got["row"], "rekey": got["rekey"]}
+        r["onto_stored"] += 1
+        by_row[m["id"]] = pid
+        if m["rekey"]:
+            r["rekeyed"].append(m)
         new = nm.status.name
         if cls:
             (r["changes"] if m["status"] != new else r["already"]).append(
@@ -124,16 +197,37 @@ def compare(listing: list, shorts: dict, rows: list[dict]) -> dict:
         if ((nm.home_score is not None and nm.home_score != m["home_score"])
                 or (nm.away_score is not None and nm.away_score != m["away_score"])):
             r["scores"].append(m)
+        what = []                                           # _apply_match_updates' other fields, its own `or`s
+        if nm.season and nm.season != m["season"]:
+            what.append(f"season {m['season'] or '—'} → {nm.season}")
+        if (nm.stage or m["stage"]) != m["stage"]:
+            what.append(f"stage {m['stage'] or '—'} → {nm.stage}")
+        if (nm.matchday or m["matchday"]) != m["matchday"]:
+            what.append(f"matchday {m['matchday'] if m['matchday'] is not None else '—'} → {nm.matchday}")
+        if nm.status_raw and nm.status_raw != m["status_raw"]:
+            what.append(f"status code {m['status_raw'] or '—'} → {nm.status_raw}")
+        if what:
+            r["fields"].append({**m, "what": " · ".join(what)})
     for m in rows:                                          # the stored SCHEDULED rows carrying both scores
         if m["status"] != "SCHEDULED" or m["home_score"] is None or m["away_score"] is None:
             continue
         r["sched_both"] += 1
-        got = listed.get(m["pid"]) if m["pid"] is not None else None
-        if got is None:
-            r["left"].append({**m, "why": "not in the listing (the sync does not touch it)"})
+        pid = by_row.get(m["id"])
+        if pid is None:                                     # no listed game resolves to it
+            got = resolved.get(m["pid"]) if m["pid"] is not None else None
+            if got is None:
+                why = "not in the listing (the sync does not touch it)"
+            elif got["row"] is not None:
+                why = (f"its provider id is listed, but the sync writes that game to match {got['row']['id']} (it "
+                       f"does not touch this row)")
+            else:
+                why = (f"listed, but {_fate({**got, 'new': listed[m['pid']][0].status.name})} (it does not touch "
+                       f"this row)")
+            r["left"].append({**m, "rekey": None, "why": why})
             continue
-        nm, short, cls = got
+        nm, short, cls = listed[pid]
         if cls and nm.status.name != m["status"]:
+            r["sched_both_changed"] += 1
             continue                                        # the rule changes it (listed above)
         if cls == NONE_TEXT:
             why = "the provider states 'None' (a stated status the map lacks: stays SCHEDULED, law 4)"
@@ -141,8 +235,8 @@ def compare(listing: list, shorts: dict, rows: list[dict]) -> dict:
             why = "no status stated and a score missing in the listing: stays SCHEDULED (no score, not FINISHED)"
         else:
             why = f"the provider states {short!r} (the sync writes {nm.status.name})"
-        r["left"].append({**m, "why": why})
-    for k in ("changes", "already", "other_status", "kickoff", "scores"):
+        r["left"].append({**m, "rekey": resolved[pid]["rekey"], "why": why})
+    for k in ("changes", "already", "other_status", "kickoff", "scores", "fields", "rekeyed"):
         r[k].sort(key=lambda x: (x["utc_date"] is None, x["utc_date"] or 0, x["id"]))
     return r
 
@@ -151,13 +245,29 @@ def _when(d) -> str:
     return d.strftime("%Y-%m-%d %H:%M:%S") if d is not None else "no kickoff"
 
 
+def _pid(m) -> str:
+    return f"{m['rekey']} (re-keyed)" if m.get("rekey") else (m["pid"] or "—")
+
+
 def _row(m) -> str:
-    return f"match {m['id']} · provider {m['pid'] or '—'} · {_when(m['utc_date'])}Z · {m['stage'] or 'no stage'}"
+    return f"match {m['id']} · provider {_pid(m)} · {_when(m['utc_date'])}Z · {m['stage'] or 'no stage'}"
+
+
+def _fate(g) -> str:
+    if g["fate"] == "created":
+        return f"the sync creates it {g['new']}"
+    if g["fate"] == "refused":
+        return f"the sync refuses it, creating nothing: {g['why']}"
+    return f"the sync skips it: {g['why']}"
 
 
 def lines(code: str, season: str, source: str, r: dict) -> list[str]:
     """One competition-season's receipt, every row whole (#491: a receipt cuts nothing)."""
+    also_created = [g for g in r["created"] if not g["class"]]      # the rule's own are under "not stored"
     L = [f"{code} {season} · source {source} · listing {r['listing']} games · stored {r['stored']} rows",
+         f"  THE SYNC'S RESOLUTION (each listed game as sync_matches resolves it): onto a stored row "
+         f"{r['onto_stored']} (re-keyed {len(r['rekeyed'])}) · creates {len(r['created'])} · refuses "
+         f"{len(r['refused'])} · skips {len(r['skipped'])} (a team not stored)",
          f"  THE RULE CHANGES {len(r['changes'])} stored row(s) at the next sync of {code} {season} · listed with both "
          f"scores and no status stated {r['classes'][ABSENT]} · listed with both scores and the text 'None' "
          f"{r['classes'][NONE_TEXT]} · already as the fixed parse reads {len(r['already'])} · not stored "
@@ -166,24 +276,36 @@ def lines(code: str, season: str, source: str, r: dict) -> list[str]:
         L.append(f"    {_row(m)} · {m['class']} · {m['status']} → {m['new']}")
     for m in r["already"]:
         L.append(f"    already: {_row(m)} · {m['class']} · {m['status']}")
-    for m in r["not_stored"]:
-        L.append(f"    not stored: provider {m['pid']} · {_when(m['utc_date'])}Z · {m['class']} · no stored row holds "
-                 f"this id; the sync writes it {m['new']} (created, or re-keyed onto a stored row, if both teams are "
-                 f"stored)")
-    L.append(f"  stored SCHEDULED with both scores: {r['sched_both']} · the rule changes "
-             f"{len([1 for x in r['changes'] if x['status'] == 'SCHEDULED'])} · the rule leaves {len(r['left'])}")
+    for g in r["not_stored"]:
+        L.append(f"    not stored: provider {g['pid']} · {_when(g['utc_date'])}Z · {g['class']} · {_fate(g)}")
+    L.append(f"  stored SCHEDULED with both scores: {r['sched_both']} · the rule changes {r['sched_both_changed']} · "
+             f"the rule leaves {len(r['left'])}")
     for m in r["left"]:
         L.append(f"    left: {_row(m)} · {m['why']}")
     L.append(f"  THE SAME WHOLE-SEASON SYNC ALSO WRITES (not the rule's): status {len(r['other_status'])} · kickoff "
-             f"{len(r['kickoff'])} · scores {len(r['scores'])} (values not printed)")
+             f"{len(r['kickoff'])} · scores {len(r['scores'])} (values not printed) · stage, matchday, season, status "
+             f"code {len(r['fields'])} · provider id (re-key) {len(r['rekeyed'])} · listed games it creates "
+             f"{len(also_created)}")
     for m in r["other_status"]:
         said = "no status stated" if m["short"] is None else f"the provider states {m['short']!r}"
         L.append(f"    status: {_row(m)} · {m['status']} → {m['new']} ({said})")
     for m in r["kickoff"]:
-        L.append(f"    kickoff: match {m['id']} · provider {m['pid']} · {_when(m['utc_date'])}Z → "
+        L.append(f"    kickoff: match {m['id']} · provider {_pid(m)} · {_when(m['utc_date'])}Z → "
                  f"{_when(m['new_utc'])}Z")
     for m in r["scores"]:
         L.append(f"    scores: {_row(m)}")
+    for m in r["fields"]:
+        L.append(f"    fields: {_row(m)} · {m['what']}")
+    for m in r["rekeyed"]:
+        L.append(f"    re-key: {_row(m)}")
+    for g in also_created:
+        L.append(f"    creates: provider {g['pid']} · {_when(g['utc_date'])}Z · {g['new']}")
+    L.append(f"  THE SYNC WRITES NOTHING FOR: refused {len(r['refused'])} · skipped {len(r['skipped'])} (a team not "
+             f"stored)")
+    for g in r["refused"]:
+        L.append(f"    refused: provider {g['pid']} · {_when(g['utc_date'])}Z · {g['why']}")
+    if r["skipped"]:
+        L.append(f"    skipped (a team not stored): provider {', '.join(g['pid'] for g in r['skipped'])}")
     return L
 
 
@@ -191,9 +313,12 @@ def summary(r: dict) -> dict:
     return {"listing": r["listing"], "stored": r["stored"], "changes": len(r["changes"]),
             "listed_absent_both_scores": r["classes"][ABSENT], "listed_none_text_both_scores": r["classes"][NONE_TEXT],
             "already": len(r["already"]), "not_stored": len(r["not_stored"]), "sched_both_scores": r["sched_both"],
-            "left": len(r["left"]),
-            "also_status": len(r["other_status"]), "also_kickoff": len(r["kickoff"]), "also_scores": len(r["scores"])}
-
+            "sched_both_changed": r["sched_both_changed"], "left": len(r["left"]),
+            "onto_stored": r["onto_stored"], "rekeyed": len(r["rekeyed"]), "created": len(r["created"]),
+            "refused": len(r["refused"]), "skipped": len(r["skipped"]),
+            "also_status": len(r["other_status"]), "also_kickoff": len(r["kickoff"]), "also_scores": len(r["scores"]),
+            "also_fields": len(r["fields"]),
+            "also_created": len([1 for g in r["created"] if not g["class"]])}
 
 def missing_db() -> str | None:
     """The configured SQLite file's path when it does not exist, else None. The app's engine creates what is missing on
@@ -244,7 +369,7 @@ def run(competitions, seasons, adapter_for: Callable, out: Callable[[str], None]
                 failed.append(f"{code} {season}")
                 out(f"✗ {code} {season}: the listing could not be read ({type(e).__name__}: {e}) · nothing compared")
                 continue
-            r = compare(listing, shorts, stored_rows(code, season, source))
+            r = compare(listing, shorts, *resolve(code, season, source, listing))
             for ln in lines(code, season, source, r):
                 out(ln)
             totals[f"{code} {season}"] = summary(r)

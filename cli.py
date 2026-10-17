@@ -326,8 +326,9 @@ def resync_diff_cmd(competition_code, season, date_from, date_to, sample):
 def score_presence_dry_run_cmd(competitions, seasons):
     """READ-ONLY (#493; ARCHITECT 2026-10-16, addendum 81 item 3): every stored row the adapters' score-presence rule
     would change at the next sync of its season (a provider status ABSENT with both scores present: FINISHED), counted
-    per competition-season with the ids; and what the same whole-season sync would write besides (other statuses,
-    kickoffs, scores). One /games call per competition-season. Writes nothing: the operator runs it after the backup.
+    per competition-season with the ids, each listed game resolved to its stored row as the sync resolves it (re-keys
+    included); and what the same whole-season sync would write besides (other statuses, kickoffs, scores, stages,
+    matchdays, seasons, status codes, re-keyed ids, created games). One /games call per competition-season. Writes nothing: the operator runs it after the backup.
     Exit 1 when a listing could not be read."""
     from src.ingestion import score_presence as sp
 

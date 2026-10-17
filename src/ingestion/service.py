@@ -350,25 +350,8 @@ class IngestionService:
             # JSON per row — O(n^2) that "fine for now" outgrew when the
             # expansion doubled the table. Prefetch this competition's
             # matches ONCE into a source_id map; lookups become O(1).
-            _cache: dict[str, Match] = {}
-            _src = matches[0].source if matches else ""
-            _pairs: dict[tuple[int, int], list[Match]] = {}
-            for _m in s.execute(
-                select(Match).where(Match.competition_id == comp.id)
-            ).scalars():
-                _sid = (_m.external_ids or {}).get(_src)
-                if _sid:
-                    _cache[_sid] = _m
-                if _src in REKEY_SOURCES:
-                    _pairs.setdefault((_m.home_team_id, _m.away_team_id), []).append(_m)
-                    for _old in ((_m.external_ids or {}).get(f"{_src}_prev") or []):
-                        _cache.setdefault("__prev__", {}).setdefault(str(_old), []).append(_m)
-            if _src in REKEY_SOURCES:
-                # the natural-key index + the ids this listing carries (a stored
-                # id still listed is a different game, never a re-key target)
-                _cache["__pairs__"] = _pairs
-                _cache["__listed__"] = {str(nm.source_id) for nm in matches}
-                _cache["__placeholder_window__"] = comp.code in PLACEHOLDER_REKEY_COMPETITIONS
+            _cache = self._match_cache(
+                s.execute(select(Match).where(Match.competition_id == comp.id)).scalars(), matches, comp.code)
             total = len(matches)
             step = max(1, total // 10)  # report ~10 times through the loop
             for i, nm in enumerate(matches, 1):
@@ -391,6 +374,30 @@ class IngestionService:
         log.info("sync_matches(%s): %s", competition_code, result)
         _report("Done.")
         return result
+
+    @staticmethod
+    def _match_cache(rows: Iterable[Match], matches: list[NormalizedMatch], competition_code: str) -> dict:
+        """sync_matches' lookup over a competition's stored `rows` for the listing `matches`: {provider id: row} (the
+        last row of an id), plus the indexes _rekey_candidate reads for a REKEY_SOURCES source. Shared with the
+        score-presence dry run (#493), which resolves each listed game to the row the sync writes."""
+        _cache: dict = {}
+        _src = matches[0].source if matches else ""
+        _pairs: dict[tuple[int, int], list[Match]] = {}
+        for _m in rows:
+            _sid = (_m.external_ids or {}).get(_src)
+            if _sid:
+                _cache[_sid] = _m
+            if _src in REKEY_SOURCES:
+                _pairs.setdefault((_m.home_team_id, _m.away_team_id), []).append(_m)
+                for _old in ((_m.external_ids or {}).get(f"{_src}_prev") or []):
+                    _cache.setdefault("__prev__", {}).setdefault(str(_old), []).append(_m)
+        if _src in REKEY_SOURCES:
+            # the natural-key index + the ids this listing carries (a stored
+            # id still listed is a different game, never a re-key target)
+            _cache["__pairs__"] = _pairs
+            _cache["__listed__"] = {str(nm.source_id) for nm in matches}
+            _cache["__placeholder_window__"] = competition_code in PLACEHOLDER_REKEY_COMPETITIONS
+        return _cache
 
     def _upsert_match(
         self, s: Session, nm: NormalizedMatch, comp: Competition, result: SyncResult,

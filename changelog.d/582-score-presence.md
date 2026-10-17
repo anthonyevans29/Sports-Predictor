@@ -4,19 +4,23 @@
   - a game sent with no status and both totals is stored FINISHED (it was SCHEDULED: the rule never fired);
   - a game sent with the text `None` and both totals is stored SCHEDULED (it was FINISHED).
   - The hockey parse moves from `list_matches` into `_parse_games`, as the american-football adapter has it; the call and the rows are unchanged. Hockey's `status_raw` keeps a stated `None` text verbatim (it was dropped); a status not stated is still null. Both parses take an opt-in `raw_shorts` dict (the dry run's); by default nothing changes.
-- src/ingestion/score_presence.py + cli.py `score-presence-dry-run` (new, READ-ONLY): every stored row the rule would change at the next sync of its season, counted per competition-season, with the ids. It makes the season read's one `/games` call, parses it with the adapter's own `_parse_games`, and compares by provider id. It prints:
-  - the rule's changes, rows already as the fixed parse reads, and listed rows not stored;
-  - the stored SCHEDULED rows carrying both scores that the rule leaves, each with why;
-  - what the same whole-season sync would write besides: other statuses, kickoffs and scores (values never printed).
+- src/ingestion/score_presence.py + cli.py `score-presence-dry-run` (new, READ-ONLY): every stored row the rule would change at the next sync of its season, counted per competition-season, with the ids. It makes the season read's one `/games` call, parses it with the adapter's own `_parse_games`, and resolves each listed game to the stored row as the sync resolves it (the sync's own cache, team lookup and re-key, on rows detached from the session). It prints:
+  - the sync's resolution of the listing (onto a stored row, re-keyed, created, refused, skipped);
+  - the rule's changes (a re-keyed row with `old → new`), rows already as the fixed parse reads, and listed rule-class games not stored, with what the sync does with each;
+  - the stored SCHEDULED rows carrying both scores: how many the rule changes and every one it leaves, with why (the two add up to the count);
+  - what the same whole-season sync would write besides: other statuses, kickoffs, scores (values never printed), stages, matchdays, seasons and status codes, re-keyed provider ids, and the listed games it creates; then the listed games it writes nothing for (refused, skipped).
   - The last line is `SCORE-PRESENCE-DRY-RUN {counts}`. It writes nothing, refuses (exit 2) when the database file is absent, and exits 1 when a listing could not be read.
+- src/ingestion/service.py: `sync_matches`' match cache moves, unchanged, into `IngestionService._match_cache`, which the dry run shares.
 - scripts/nfl_qb_probe.py: the probe no longer applies the score-presence rule itself; it reads the adapter's parse only, as its header says.
 - docs/CLI.md: the `score-presence-dry-run` row.
 - tests:
-  - test_score_presence.py (13), on the new tests/fixtures/api_sports_status: provider-shaped rows, written, not kept (no kept answer exists; its README says so). Covered:
+  - test_score_presence.py (16), on the new tests/fixtures/api_sports_status: provider-shaped rows, written, not kept (no kept answer exists; its README says so). Covered:
     - every status shape, both adapters, including #493's five-row receipt table;
     - a stated status (`NS` included) is never overridden by scores; no status with a score missing is not FINISHED;
     - hockey's `status_raw`; `raw_shorts` is opt-in;
     - the dry run's lines, ids and counts, and that it writes nothing;
+    - a re-key by the same pair within 12 hours (and the real sync on the same answer doing what the receipt says), a re-key by the row's `_prev` history, and a refusal;
+    - the stored SCHEDULED rows with both scores: changed + left = the count;
     - an unreadable listing exits 1; no database file refuses and creates nothing;
     - the CLI command.
   - test_nfl_qb_probe.py: one docstring.

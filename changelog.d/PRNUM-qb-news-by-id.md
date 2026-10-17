@@ -1,0 +1,19 @@
+## 2026-10-17 (#PRNUM: qb-news-by-id — #458, ARCHITECT addendum 112 item 10)
+- Schema: nullable `injuries.player_source_id` (VARCHAR(64)), the provider's own player id, NOT mapped in the ORM (the ORDER LINE note, as addendum 35 item 2 ruled for `odds.source_updated_at`: every chain reads `injuries`, and the release ritual runs migrations by hand after the checkout). src/db/database.py: `has_injury_player_id`, `write_injury_player_ids`, `read_injury_player_ids` (guarded Core SQL, only when the column exists; per call, never cached).
+- Migration `migrate_injury_player_source_id.py` (new): additive, idempotent, behind the shared guard (`refuse_missing_db`, #524). Its receipt counts the rows that carry the id and the rows that do not, per source. No backfill. Run order: any (backup first, by hand). Laptop: `python migrate_injury_player_source_id.py`. Host: the `--run-migrations` line `sp_deploy.py` prints.
+- src/adapters/api_american_football.py `list_injuries` (NFL, NCAA): each entry's dict carries `player_source_id`, the entry's own `response[].player.id` as a string (None when the entry has none). src/ingestion/service.py stores it on the row after the flush. It is a no-op until the migration.
+- src/walters/window.py (`window-card`): each `qb_news` item carries `player_id`, the row's stored id (null where the row has none).
+- deploy/hosting/sp_window_page.py: QB news is keyed by provider id (`id:<id>`); the name is display only. An item with no id keeps the old key, `<team_id>|<name>`, and its page line says `(no provider id)`. Items with no id that share a team and name become one entry holding every status, sorted (`(no provider id, N entries)`), so one never overwrites the other.
+  - A change of key is not news. A player keyed by name in the previous state and by id now is carried to his id. Where two or more ids share the old name key, that name makes no delta that run.
+  - The receipt gains `qb_rekey` {`carried`, `baseline`}.
+- docs/CLI.md: the `sync-injuries` and `window-card` rows.
+- tests:
+  - test_qb_news_by_id.py (new, 14), led by the ruled test: two same-name quarterbacks on one team with different ids both appear, and a status change in either pages. The other tests:
+    - items with no id: keyed by team and name and labelled; two of them are never merged silently.
+    - a deploy before the migration pages nothing new.
+    - the first run with ids pages only real changes. The collapsed pair is a baseline, then each pages by his own id. `run()` receipts `qb_rekey`.
+    - the adapter carries each entry's own id.
+    - `sync-injuries` before the migration writes its rows and no id; after it, it stores the ids, and the card and page key by them.
+    - the ORM never names the column.
+    - the migration: additive, idempotent and receipted; it refuses without the table and with no database file.
+  - test_qb_one_news_item.py: the helper's items carry a provider id. The card's item gains `player_id` (null for a row with none).

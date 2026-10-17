@@ -422,7 +422,10 @@ class APIAmericanFootballAdapter(DataAdapter):
 
         Contract (mirrors api_football.list_injuries): one dict per player —
         player_name, player_position, reason, type, fixture_source_id,
-        fixture_date. The provider's /injuries is a current-status feed (not
+        fixture_date, plus player_source_id: the entry's own provider id
+        (`response[].player.id`, as a string; None when the entry has none),
+        stored on the row once migrate_injury_player_source_id.py has run
+        (#458, addendum 112 item 10). The provider's /injuries is a current-status feed (not
         fixture history), so no per-fixture dedupe is needed; we stamp
         fixture_date with the report date the provider gives (or None) and
         marks each row current_status=True: membership in this feed is the
@@ -498,6 +501,8 @@ class APIAmericanFootballAdapter(DataAdapter):
                 "fixture_source_id": None,
                 "fixture_date": item.get("date"),
                 "current_status": True,
+                # #458 (addendum 112 item 10): "key by provider player id, name as display only"
+                "player_source_id": str(player["id"]) if player.get("id") is not None else None,
             })
         return out
 

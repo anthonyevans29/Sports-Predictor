@@ -10,12 +10,16 @@ import sp_window_page as page  # noqa: E402
 from src.walters import desk_policy as dp  # noqa: E402
 
 
+PIDS = {"C. Williams": "1001"}      # #458: the card's items carry the provider id (rows with none: test_qb_news_by_id)
+
+
 def row(mid, home, away, utc, qbs=()):
     return {"match_id": mid, "home_team": home, "away_team": away, "home_short": home, "away_short": away,
             "sport": "nfl", "competition": "NFL", "utc_date": utc, "status": "scheduled", "market": None,
             "kalshi": None, "tier": None, "quarantine": False, "venue_flag": None, "edge_pp": None,
             "engine": "market_only", "model": None,
-            "qb_news": [{"team_id": 9, "team": "CHI", "player": n, "status": st} for n, st in qbs]}
+            "qb_news": [{"team_id": 9, "team": "CHI", "player": n, "player_id": PIDS.get(n), "status": st}
+                        for n, st in qbs]}
 
 
 THU, SUN, NEXT = "2026-10-02T00:15:00", "2026-10-05T17:00:00", "2026-10-09T00:15:00"
@@ -90,4 +94,6 @@ def test_window_card_rows_carry_qb_news(tmp_path):
         hid = h.id
     r = next(x for x in build_card(now=ko - timedelta(hours=2), export_dir=str(tmp_path))["fixtures"]
              if x["competition"] == "NFLQB")
-    assert r["qb_news"] == [{"team_id": hid, "team": "CHI", "player": "C. Williams", "status": "Out"}]
+    # #458: a row with no stored provider id carries player_id null (the id itself: test_qb_news_by_id)
+    assert r["qb_news"] == [{"team_id": hid, "team": "CHI", "player": "C. Williams", "player_id": None,
+                             "status": "Out"}]

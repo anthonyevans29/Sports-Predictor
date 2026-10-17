@@ -1,0 +1,31 @@
+**2026-10-17 — The window page keys QB news by provider player id, the name display only; `injuries` stores the id (#458, #PRNUM).**
+- **Ruling (ARCHITECT 2026-10-17 10:40 ET, addendum 112 item 10), verbatim:** "#458 — the window page keys QB news by team and player name, so two same-name injured QBs collapse. RULED: key by provider player id, name as display only; the test uses two same-name players."
+- **The limitation (#458, addendum 48 item 4):** the pager keyed each game's QB news by `f"{team_id}|{player}"`. With #456, two same-name entries on one team are two `injuries` rows and two `qb_news` items. If both were quarterbacks, the last item's status overwrote the first's, and a change in the hidden one paged nothing.
+- **Built (#PRNUM):**
+  - **The id, from the feed.** The american-football adapter (NFL, NCAA) already tells entries apart by `response[].player.id` (addendum 47 item 3; the 2026-09-09 raw probe: player = id/name/image). `list_injuries` now returns it as `player_source_id`, a string, None for an entry with none. tests/fixtures holds no injuries payload; the field is the one `injury_entries` and the position lookup already read.
+  - **Stored.** `injuries.player_source_id` (VARCHAR(64), nullable), added by `migrate_injury_player_source_id.py`.
+    - Not mapped in the ORM: the ORDER LINE note of 2026-10-04, as addendum 35 item 2 ruled for `odds.source_updated_at`. `injuries` is read by every chain: the window card hourly, and `sync-injuries` and the NFL export in the closing chain. The release ritual checks the tag out first and runs migrations by hand afterwards. A mapped column would fail every one of those queries until the script ran.
+    - `sync-injuries` writes the id after the flush by guarded Core SQL. It is a no-op before the migration.
+  - **The card.** Each `qb_news` item carries `player_id`, null where the row has none.
+  - **The page.** A QB is keyed `id:<id>`. The name is display only.
+- **Rows with no id (law 4).** These are rows stored before the migration and the next sync, or entries the feed lists with no id.
+  - They keep the old key, `<team_id>|<name>`, and the page line says `(no provider id)`.
+  - Items with no id that share a team and name are one entry holding every status, sorted, and counted: `(no provider id, N entries)`. A change in any of them pages. None is ever overwritten.
+  - From one read the ingest keeps at most one id-less entry per name, and none where an entry with an id has that name (addendum 47 item 3, as addendum 48 item 3 rewrote it). So the merged entry occurs only in rows stored before the migration.
+- **The first runs after the deploy.**
+  - Before the migration, and until the next `sync-injuries` after it, every item has no id, so the keys are the old ones and nothing new pages.
+  - On the first run where a player's id arrives, he is carried from his name key to his id, so a key change is not news. A real status change on that run still pages, by id.
+  - Where two or more ids share one old name key (the collapsed pair itself), the old single entry cannot be told apart. That name makes no delta on that run and is listed in the receipt's `qb_rekey.baseline`. From the next run each is compared by his own id.
+  - The receipt's `qb_rekey.carried` counts the carried players.
+- **The migration, on each machine (law 5).** Run order: any; the code works before it. The id only starts to count after the migration and the next `sync-injuries`. Take the daily `.backup` first, then run it by hand:
+  - laptop: `python migrate_injury_player_source_id.py`
+  - host: the `--run-migrations` line that `sp_deploy.py` prints for the release that carries it (`sudo -u sp sh -c '… deploy/hosting/sp_deploy.py --expect <sha> --run-migrations migrate_injury_player_source_id.py'`).
+  - It is additive and idempotent, with no backfill. Its receipt counts, per source, the rows with and without the id. It refuses with no database file (the shared guard, #524) and with no `injuries` table.
+- **Not changed:** the window card's T-90 signature. It digests each row's content, so two same-name rows already count separately there; adding the id would change every signature once at deploy and fire freshens with no news. Also unchanged: the QB rule, the closing page and `qb_listed`, which read the rows and see both (addendum 48 item 4). The hockey and soccer injury reads keep no id; their rows stay null and no QB is read from them.
+- **The test (as ruled):** two same-name quarterbacks on one team, ids 2 and 3. Both appear, and a status change in either one pages. It fails on the old pager, which held one key, `{'9|John Smith'}`.
+- **Open for the architect:**
+  1. The column is unmapped (the ORDER LINE convention), not mapped on the model.
+  2. The collapsed pair makes no delta on the run its ids arrive (a receipted baseline) rather than a page.
+  3. An item with no id is labelled on every page line.
+  4. The key is the id alone, not the source and team. One feed (api-sports american-football, NFL and NCAA) is the only source of QB rows.
+- **Ledger:** #458 (`class:limitation`): the PR body carries `Closes #458` and `Resolves limitation`.

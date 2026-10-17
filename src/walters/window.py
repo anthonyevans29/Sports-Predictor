@@ -127,6 +127,7 @@ def build_card(now: datetime | None = None, hours: int = 24,
     from src.walters.venue import kalshi_home_prob, venue_gap
     from src.walters.kalshi_legs import guard_snaps
     from src.ingestion.mlb_apisports import time_unconfirmed
+    from src.db.database import read_injury_player_ids
     from src.db.schema import Injury
     from src.walters.qb_audit import is_qb
 
@@ -163,6 +164,15 @@ def build_card(now: datetime | None = None, hours: int = 24,
                 edge = round((model["top_pick_prob"] - fair[model["top_pick"]]) * 100, 1)
             sport = comp.sport.value if comp and hasattr(comp.sport, "value") else str(
                 comp.sport if comp else "?")
+            # #192 (ruling 2026-10-01): injured QBs on either side, so the pager can page ONE news item per player
+            # across every game that team plays. #458 (ARCHITECT 2026-10-17, addendum 112 item 10): "key by
+            # provider player id, name as display only": each item carries the row's stored provider id,
+            # `player_id`, null where the row has none (written before migrate_injury_player_source_id.py, or an
+            # entry the feed listed with no id).
+            qbs = [(t, i) for t in (m.home_team, m.away_team) if t is not None
+                   for i in s.execute(select(Injury).where(Injury.team_id == t.id)).scalars()
+                   if is_qb(i.player_position)]
+            qb_ids = read_injury_player_ids(s, [i.id for _, i in qbs])
             # DELINEATION (ARCHITECT 2026-10-07): `sport` stays the stored family
             # value ("nfl" for college too: sp_run's FRESHEN_FAMILY keys on
             # (sport, competition)); the row's `competition` (NCAA) and `family`
@@ -180,13 +190,8 @@ def build_card(now: datetime | None = None, hours: int = 24,
                 # MLB start time not confirmed by statsapi (finding 2026-10-01: api-sports
                 # placeholder times for TBD postseason starts); None = confirmed
                 "time_flag": time_unconfirmed(m) if code.upper() == "MLB" else None,
-                # #192 (ruling 2026-10-01): injured QBs on either side, so the pager can
-                # page ONE news item per player across every game that team plays
                 "qb_news": [{"team_id": i.team_id, "team": short_name(t), "player": i.player_name,
-                             "status": i.type or ""}
-                            for t in (m.home_team, m.away_team) if t is not None
-                            for i in s.execute(select(Injury).where(Injury.team_id == t.id)).scalars()
-                            if is_qb(i.player_position)],
+                             "player_id": qb_ids.get(i.id), "status": i.type or ""} for t, i in qbs],
             })
             # F1c (#191): the venue verdict comes from the Python Desk (the
             # Cockpit no longer computes policy) — same inputs the card's

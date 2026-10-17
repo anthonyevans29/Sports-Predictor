@@ -461,10 +461,11 @@ def held_contract_fair(f: dict, c: dict, fair: dict):
 
 def executed_positions(L: dict, fills: list[dict] | None = None) -> dict:
     """executedPositions: per graded, non-shadow, non-parlay call with a close, qty-weighted over its
-    system_matched fills: clv = close fair of the held contract − entry; fee_adj = clv − open fee/contract."""
+    system_matched fills: clv = close fair of the held contract − entry; fee_adj = clv − open fee/contract.
+    A call the Cockpit voided as re-dated (void_redated, ARCHITECT 2026-10-17, addendum 106 item 4) is never one."""
     graded = {c.get("id"): c for c in (L.get("calls") or [])
               if c.get("status") == "graded" and c.get("close_ref") and not is_shadow(c)
-              and c.get("call_type") != "parlay_leg"}
+              and c.get("call_type") != "parlay_leg" and not c.get("void_redated")}
     by: dict = {}
     unpriced = set()
     for f in (fills if fills is not None else classify_fills(L)):

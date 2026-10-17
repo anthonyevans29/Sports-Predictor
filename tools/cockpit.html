@@ -1620,8 +1620,10 @@ function renderLedger(){
   // addendum 114 item 1: a void parlay leg is a push, removed from its ticket; the line says where its ticket stands
   const pushNote=c=>{ if(c.call_type!=="parlay_leg") return "";
     const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id), n=legs.filter(x=>!x.void_redated).length;
-    return " · a push, removed from its ticket: "+(!ticketSettled(legs)?`ticket awaiting its other ${n} leg(s)`
-      :n?`ticket settled on its other ${n} leg(s)${n===1?" (a single)":""}`:"every leg moved, the ticket settled as a push"); };
+    const settled=ticketSettled(legs);
+    return " · a push, removed from its ticket: "+(n&&!settled?`ticket awaiting its other ${n} leg(s)`
+      :n?`ticket settled on its other ${n} leg(s)${n===1?" (a single)":""}`
+      :settled?"every leg moved, the ticket settled as a push":"every leg moved, the ticket settles as a push at the next results intake"); };
   const voidHTML=vr.length?`<div class="note" id="voidRedated"><b>${vr.length} call(s) void</b> (out of every tally; the fresh call on the new date is the graded one):`
     +vr.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · <b>${esc(c.void_redated)}</b>${pushNote(c)}${c.legacy_join?LJ:""}`).join("")+"</div>":"";
   // addendum 109 item 2: the calls paired with a result by the ±1-day team join (no match id), listed with the flag;

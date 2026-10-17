@@ -325,6 +325,47 @@ def test_save_keeps_a_payload_error_answer_whole_before_the_run_stops(fresh_db, 
     assert out[-1].startswith(f"  STOPPED at a payload error on match {ids[0]} (fixture 770): API-Football error:")
 
 
+def test_save_keeps_an_http_error_answers_body_whether_the_run_stops_or_moves_on(fresh_db, tmp_path, monkeypatch):
+    """#565 (Codex on #538, round 2): a 401, 403, 429 or 5xx answer's decoded body is kept under --save, in the
+    HTTPError branch, before the run stops (429 after the adapter's own retry) or moves on (5xx)."""
+    import src.adapters.api_football as af
+    monkeypatch.setattr(af.time, "sleep", lambda s: None)             # the adapter's 60 s wait before its 429 retry
+    ids, _, _ = seed(n=3, fixture_ids=["770", "771", "772"])
+    down = {"message": "upstream timeout", "errors": {"server": "try again later"}}
+    limited = {"message": "Too many requests. Your rate limit is 10 requests per minute."}
+    p772 = payload(772, side(HOME_SID, "H"), side(AWAY_SID, "A"))
+    ad = adapter_with({"770": (500, down), "771": (429, limited), "772": p772})
+    r, out = run(ad, "CL", SEASON, dry_run=True, save=str(tmp_path / "kept"))
+    assert json.loads((tmp_path / "kept" / "770.json").read_text()) == down        # listed, and the run moved on
+    assert json.loads((tmp_path / "kept" / "771.json").read_text()) == limited     # kept before the run stopped
+    assert not (tmp_path / "kept" / "772.json").exists() and r.not_asked == 1
+    assert ad.asked == ["770", "771", "771"]                                      # the adapter's one 429 retry
+    assert out[-1].startswith(f"  STOPPED at status 429 on match {ids[1]} (fixture 771)")
+    assert "  calls 2 of 100 · HTTP requests 429 ×2 · 500 ×1" in out
+
+
+def test_each_fixtures_rows_carry_the_time_they_were_stored(fresh_db, monkeypatch):
+    """#565 (Codex on #538, round 2): refreshed_at is taken per fixture, just before its store, never once for the
+    whole run."""
+    from datetime import timedelta
+
+    import src.timeutil as tu
+    ids, _, _ = seed(n=2, fixture_ids=["770", "771"])
+    t0, n = datetime(2091, 10, 1, 12), {"calls": 0}
+
+    def tick():
+        n["calls"] += 1
+        return t0 + timedelta(minutes=n["calls"])
+    monkeypatch.setattr(tu, "utc_now_naive", tick)
+    run(adapter_with({"770": payload(770, side(HOME_SID, "H"), side(AWAY_SID, "A")),
+                      "771": payload(771, side(HOME_SID, "H"), side(AWAY_SID, "A"))}), "CL", SEASON)
+    with fresh_db.connect() as c:
+        got = c.execute(text("SELECT match_id, COUNT(DISTINCT refreshed_at), MAX(refreshed_at) FROM lineups "
+                             "WHERE kind = 'history' GROUP BY match_id ORDER BY match_id")).all()
+    assert [(m, k) for m, k, _ in got] == [(ids[0], 1), (ids[1], 1)]  # one time per fixture, on every row of it
+    assert got[0][2] < got[1][2]                                      # the second fixture's time is its own, later
+
+
 def test_save_refuses_a_symlink_into_data_and_allows_a_sibling_named_like_it(fresh_db, tmp_path, monkeypatch):
     """The review on #538: a path reaching data/ through a symlink is refused by file identity; a directory whose
     name merely starts with 'data' is not data/. data_dir() is pointed at a stand-in under tmp_path (the test never

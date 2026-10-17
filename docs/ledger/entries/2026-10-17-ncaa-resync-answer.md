@@ -1,0 +1,9 @@
+**2026-10-17 — The 13 old NCAA live_resync rows: strict `sync-matches --match-ids` reaches NCAA, but the adapter drops a date range, so a range line reads and writes the whole season (answer on #399; finding #570).**
+- **Ruling (ARCHITECT 2026-10-17 07:05 ET, addendum 103 item 3), verbatim:** "NO NEW OPTION. main already has strict `sync-matches --match-ids` (cli.py:198, "names the games of one read; not with --seasons"). Code: confirm it reaches NCAA (api_american_football) with --season + a date range per season (2024: twelve ids, 2024-08-25..2024-11-16; 2025: 35238, 2025-10-04) and write the two-line block; backup line first; it runs on my word in a laptop block, not before Monday. These rows touch nothing live."
+- **The answer (on #399, read on main at 468df2b):**
+  - It reaches NCAA: `_sport_for_competition("NCAA")` is `"nfl"`, whose default is `APIAmericanFootballAdapter`. `--match-ids` with `--season` is accepted, and the strict check exits 1 unless every named id was held.
+  - `list_matches` sends `date` only when `date_from == date_to`. So the 2024 line, written with a range, asks `games?league=2&season=2024` and upserts the whole 2024 listing. The 2025 line is one day's listing.
+  - Receipt (scratch DB, provider faked): the provider calls made were `[('games', {'league': 2, 'season': 2024}), ('games', {'league': 2, 'season': 2025, 'date': '2025-10-04'})]`.
+  - A whole-season 2024 write that moves any labelled kickoff changes ncaa-elo-v2's training fingerprint, and `--preflight` then prints CHANGED.
+  - The block is written as ruled, backup line first. Two narrower shapes (single-day lines, or `resync-diff` first) are offered for the architect's call.
+- **Finding (#570):** the american-football adapter (NFL and NCAA) silently drops a date range. No change was proposed; it is for the architect to rule.

@@ -15,7 +15,8 @@ How it reads, so the receipt can be checked against it:
   time filter is sent: the probe found max_close_ts does not narrow the historical list): /historical/markets
   (source 'historical', settled before the cutoff) and /markets?status=settled (source 'live'). A list that does not
   reach its end (a page that fails or holds no list, a cursor that comes back, the page guard) is printed, never
-  retried, and nothing of the run is placed or stored, as for the cap: an event split across the cut would be
+  retried (a 429 alone is first asked again, as below, for any call: the cutoff, a page or a candle call), and nothing
+  of the run is placed or stored, as for the cap: an event split across the cut would be
   matched on part of its legs. The series' competition must be in the DB, or the run refuses before any call.
 - --since / --until keep the markets whose game day falls inside them: the ticker's date (US Eastern, as the matcher
   reads it), else the close_time's UTC date; a market with neither is counted and left out when either is given.
@@ -553,9 +554,9 @@ def _receipt(run: Run, calls: Calls, echo) -> None:
         for ln in run.refused_lines:
             echo(ln)
     echo(f"  candle calls made: {run.candle_calls} · calls in all: {calls.made} of {calls.cap}")
-    echo(f"  429 retries: {calls.retries_429}")
     for nok, n in sorted(run.no_candles.items()):
         echo(f"    {n:>5}  {nok}")
+    echo(f"  429 retries: {calls.retries_429}")
     if run.candle_failed:
         echo(f"  ✗ candle calls that failed: {len(run.candle_failed)} ({run.candle_refused} refused for good: stored "
              f"with no quote; {len(run.candle_failed) - run.candle_refused} not stored: the next run asks again)")

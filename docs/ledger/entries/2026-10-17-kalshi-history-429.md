@@ -4,6 +4,8 @@
 - **Built (#572):**
   - A 429 waits 2 s and the same call is asked again. A second 429 waits 5 s and it is asked once more. A third 429 counts the call failed (the next run asks it, as before). "(2s, then 5s)" is read as those two waits; it is one constant, `RETRY_429_WAITS`, if one retry was meant.
   - Each retry is a call against `--max-calls`. A 429 that meets the cap is not asked again.
-  - The two-rows line takes the ruled words on a clock ticker with no game number, the doubleheader case. On a date-only ticker the line still names the rows dedupe-matches has to merge: there the two rows are a placeholder and a second row (the NCAA case, `test_two_stored_rows_of_one_pair_on_the_date_refuse_the_event_and_name_the_rows`).
+  - On a clock ticker with no game number, the two-rows line takes the ruled words when its rows are hours apart, the doubleheader case.
+  - Rows at one kickoff minute keep the dedupe words: they are one game stored twice (#569), not "two rows hours apart". Where both hold, the line names each.
+  - On a date-only ticker the line still names the rows dedupe-matches has to merge. There the two rows are a placeholder and a second row (the NCAA case, `test_two_stored_rows_of_one_pair_on_the_date_refuse_the_event_and_name_the_rows`).
 - **Not changed:** the refusal and its reason, the matcher's choices, any threshold.
-- **Note (#569):** the same-minute MLB twins also reach the clock-ticker line, which now calls them two games. They are one game twice. The #569 fix lane removes them.
+- **Open for the architect:** the near-twin pairs of #569 (minutes apart, different ids, cause unknown) read as two games under this split. Every dividing line short of the cause read assumes something about them.

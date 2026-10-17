@@ -527,6 +527,34 @@ def test_a_429_that_meets_the_cap_is_not_asked_again(nfl, waits):
     assert (L_TICKER, "status 429") in run.candle_failed
 
 
+@pytest.mark.parametrize("status", [503, 408, 404])
+def test_only_a_429_is_asked_again(nfl, waits, status):
+    """Nothing but a 429 is retried in the run: a 503, a 408 or a 404 is asked once and counted as it was before."""
+    import requests
+
+    class Once(FakeKalshi):
+        def _get(self, path, params=None):
+            if path.endswith("/candlesticks") and L_TICKER in path:
+                self.calls.append((path, dict(params)))
+                resp = requests.Response()
+                resp.status_code = status
+                raise requests.HTTPError(response=resp)
+            return super()._get(path, params)
+    fake = Once()
+    run, out = go(adapter=fake, dry_run=True)
+    assert waits == [] and "  429 retries: 0" in out
+    assert len([p for p, _ in fake.calls if p.endswith("/candlesticks") and L_TICKER in p]) == 1
+    assert (L_TICKER, f"status {status}") in run.candle_failed
+
+
+def test_the_429_line_follows_the_no_candles_breakdown(nfl):
+    """The review before the PR: the no-candles counts stay under the candle-calls line they break down."""
+    run, out = go(dry_run=True)
+    i = next(n for n, ln in enumerate(out) if ln.startswith("  candle calls made: "))
+    j = out.index("  429 retries: 0")
+    assert j > i and all(ln.startswith("    ") for ln in out[i + 1:j])
+
+
 def test_the_receipt_always_says_how_many_429_retries(nfl):
     run, out = go(dry_run=True)
     assert "  429 retries: 0" in out

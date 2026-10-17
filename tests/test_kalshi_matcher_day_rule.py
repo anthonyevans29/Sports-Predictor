@@ -256,6 +256,28 @@ def test_two_games_of_the_pair_on_the_date_with_no_game_number_are_two_rows():
                          "refused; two games of the pair that day; the clock does not separate them"]
 
 
+def test_two_rows_at_one_kickoff_minute_are_one_game_twice_and_keep_the_dedupe_words():
+    """Addendum 104 item 2 gives the doubleheader words for "two rows hours apart"; rows at one kickoff minute are one
+    game stored twice (addendum 105, #569) and keep the dedupe words. The refusal and its reason do not change."""
+    today, _, _ = _nlcs()
+    twin = game(50598, "Los Angeles Dodgers", "Milwaukee Brewers", Z("2026-10-12T21:00"))   # the same minute
+    res = run(LADMIL, [today, twin], now=Z("2026-10-12T12:00"))
+    assert not res.placed and res.refused == {km.TWO_ROWS: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-26OCT122000LADMIL: 2 stored rows of one pair on 2026-10-12 (ids 50542, 50598): "
+                         "refused; rows 50542, 50598 share one kickoff minute: dedupe-matches has to merge them"]
+
+
+def test_a_doubleheader_with_one_game_stored_twice_names_both():
+    today, _, _ = _nlcs()
+    twin = game(50598, "Los Angeles Dodgers", "Milwaukee Brewers", Z("2026-10-12T21:00"))
+    night = game(50599, "Los Angeles Dodgers", "Milwaukee Brewers", Z("2026-10-13T00:00"))   # 8pm ET, same date
+    res = run(LADMIL, [today, twin, night], now=Z("2026-10-12T12:00"))
+    assert not res.placed and res.refused == {km.TWO_ROWS: 2}
+    assert res.lines == ["  ✗ KXMLBGAME-26OCT122000LADMIL: 3 stored rows of one pair on 2026-10-12 (ids 50542, 50598, "
+                         "50599): refused; two games of the pair that day; the clock does not separate them; rows "
+                         "50542, 50598 share one kickoff minute: dedupe-matches has to merge them"]
+
+
 def test_main_s_gate_matched_none_of_the_nlcs_markets():
     """The receipt the ruling asks for: main's time gate (2h of the clock or 5h of occurrence) admits no game."""
     from datetime import timedelta

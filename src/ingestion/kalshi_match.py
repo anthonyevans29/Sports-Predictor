@@ -20,7 +20,8 @@ the ticker carries a clock time, the time gate stays as built, inside the one pa
 ticker's own date (a placeholder and a second row) refuse the event under a reason of their own, naming the rows
 dedupe-matches has to merge. On a clock ticker with no game number (addendum 52 item 4, below) the line says instead
 "two games of the pair that day; the clock does not separate them" (ARCHITECT 2026-10-17, addendum 104 item 2: a real
-doubleheader, two rows hours apart, is two games).
+doubleheader, two rows hours apart, is two games); rows at one kickoff minute keep the dedupe words (one game stored
+twice, addendum 105, #569), named in the same line when both hold.
 
 Addendum 52 item 4 (2026-10-12), replacing the day rule's last sentence above: "Where the ticker carries a clock time
 and no game number, the event's game is the one game of the pair whose stored kickoff, read in US Eastern, falls on
@@ -333,6 +334,22 @@ def behind_out_of_step(by_event: dict, games: list, *, now: datetime, is_tie, im
     return lines
 
 
+def _clock_rows_what(own) -> str:
+    """The two-rows line's words on a clock ticker with no game number. ARCHITECT 2026-10-17, addendum 104 item 2: for
+    a real doubleheader (two rows hours apart) it says "two games of the pair that day; the clock does not separate
+    them", not dedupe. Rows at one kickoff minute are one game stored twice (addendum 105, #569), so they keep the
+    dedupe words; where both hold, the line names each."""
+    by_minute: dict = {}
+    for g, _ in own:
+        by_minute.setdefault(g.utc_date.replace(second=0, microsecond=0), []).append(g.id)
+    twins = [ids for ids in by_minute.values() if len(ids) > 1]
+    if not twins:
+        return "two games of the pair that day; the clock does not separate them"
+    dup = "; ".join(f"rows {', '.join(str(i) for i in ids)} share one kickoff minute: dedupe-matches has to merge them"
+                    for ids in twins)
+    return dup if len(by_minute) == 1 else f"two games of the pair that day; the clock does not separate them; {dup}"
+
+
 def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: datetime,
           is_tie=None, implied_prob=None, spread=None, max_spread: float | None = None) -> Result:
     """Place the markets on the games. `games`: the stored games of the series' own competition (any window: the day
@@ -436,9 +453,7 @@ def place(markets: list[dict], games: list, *, now: datetime, lo: datetime, hi: 
                 # whether or not the market is then placed."
                 own = [x for x in pair_games if et_day(x[0].utc_date) == day]
                 if len(own) > 1:
-                    # ARCHITECT 2026-10-17, addendum 104 item 2: for a real doubleheader (two rows hours apart) the
-                    # line says "two games of the pair that day; the clock does not separate them", not dedupe
-                    two_rows(own, "two games of the pair that day; the clock does not separate them")
+                    two_rows(own, _clock_rows_what(own))
                     continue
                 if not own:
                     refuse(live, NO_GAME_ON_DATE)

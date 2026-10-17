@@ -228,23 +228,36 @@ def test_the_checkouts_env_alone_says_laptop_so_a_script_without_config_is_not_f
     assert reason(annotate(mun_ful())[0]) == REASON
 
 
-def test_an_unreadable_file_falls_through_to_the_next_source(role, files, monkeypatch):
-    """A file that cannot be read (host.env is root:sp 0640) reads as empty: the next source decides."""
-    import dotenv
-    real = dotenv.dotenv_values
+def test_a_host_env_that_exists_but_cannot_be_read_makes_the_role_unknown(role, files, monkeypatch):
+    """Addendum 116 item 2 (law 4), verbatim: "a host.env that EXISTS but cannot be read makes the role UNKNOWN —
+    fenced, reason "host fence: role unknown (host.env unreadable)" — and nothing after it is consulted. Only a host.env
+    that does not exist (the laptop) falls through to the environment and the checkout's .env." host.env is root:sp
+    0640, so a user outside sp cannot read it, while the checkout's .env on the host says laptop."""
+    real = open
 
-    def guarded(path):
-        if str(path).endswith("host.env"):
+    def guarded(path, *a, **kw):
+        if str(path).endswith("host.env") and Path(path).exists():                # it exists; this user cannot read it
             raise PermissionError(13, "Permission denied", str(path))
-        return real(path)
-    monkeypatch.setattr(dotenv, "dotenv_values", guarded)
+        return real(path, *a, **kw)
+    monkeypatch.setattr(dp, "open", guarded, raising=False)          # desk_policy's own open, nothing else's
     files(host_env="SP_EXPORTS_MIRROR_ROLE=host\n", dotenv="SP_EXPORTS_MIRROR_ROLE=laptop\n")
-    role("host")
-    assert dp.role_reading() == ("host", "host")
+    for env_role in ("laptop", "host", None):                        # nothing after host.env is consulted
+        role(env_role)
+        assert dp.role_reading() == (None, dp.HOST_ENV_UNREADABLE) and dp.machine_role() is None
+        desk, _ = annotate(mun_ful())
+        assert (desk[410001]["call"], desk[410001]["pass_kind"], desk[410001]["reason"]) == (
+            "PASS", "host_fence", "host fence: role unknown (host.env unreadable)")
+    assert dp.HOST_FENCE_UNREADABLE_REASON == "host fence: role unknown (host.env unreadable)"
+    files(dotenv="SP_EXPORTS_MIRROR_ROLE=laptop\n")                  # no host.env at all (the laptop): falls through
     role(None)
-    assert dp.role_reading() == ("laptop", "laptop")
-    files(host_env="SP_EXPORTS_MIRROR_ROLE=host\n")
-    assert dp.role_reading() == (None, "") and reason(annotate(mun_ful())[0]) == UNSET
+    assert dp.role_reading() == ("laptop", "laptop") and reason(annotate(mun_ful())[0]) is None
+    monkeypatch.setattr(dp, "open", real, raising=False)
+    files(host_env="")                                                # a directory: exists, cannot be read
+    host_dir = Path(os.environ["SP_HOST_ENV"])
+    host_dir.unlink()
+    host_dir.mkdir()
+    role("laptop")
+    assert dp.role_reading() == (None, dp.HOST_ENV_UNREADABLE)
 
 
 def test_host_env_is_read_first_so_a_hand_run_on_the_host_is_fenced(role, tmp_path, monkeypatch):

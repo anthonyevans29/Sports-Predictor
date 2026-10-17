@@ -26,6 +26,7 @@ Presentation-only pieces (KO line, re-run hint, HTML) are not ported.
 """
 from __future__ import annotations
 
+import io
 import json
 import math
 import os
@@ -195,6 +196,11 @@ HOST_FENCE_REASON = "host: ratings keyed to the laptop's team ids (#410); the cu
 ROLE_ENV = "SP_EXPORTS_MIRROR_ROLE"                 # deploy/hosting/closing.py ROLE_SETTING; host.env / the laptop's .env
 ROLES = ("host", "laptop")
 HOST_FENCE_UNSET_REASON = f"host fence: role unknown ({ROLE_ENV} unset)"     # addendum 110 item 1, verbatim
+# Addendum 116 item 2 (law 4): "a host.env that EXISTS but cannot be read makes the role UNKNOWN — fenced, reason "host
+# fence: role unknown (host.env unreadable)" — and nothing after it is consulted. Only a host.env that does not exist
+# (the laptop) falls through to the environment and the checkout's .env."
+HOST_FENCE_UNREADABLE_REASON = "host fence: role unknown (host.env unreadable)"   # addendum 116 item 2, verbatim
+HOST_ENV_UNREADABLE = object()                       # _env_file(strict=True)'s answer for a file it cannot read
 HOST_ENV_DEFAULT = "/etc/sports-predictor/host.env"  # deploy/hosting/sp_common.py HOST_ENV; SP_HOST_ENV overrides it
 # The checkout's .env, the one config.py loads (PROJECT_ROOT = the directory holding config.py, two above this file;
 # load_dotenv(PROJECT_ROOT / ".env")); sp_common._dotenv reads the same file (REPO / ".env"). tests/conftest.py points
@@ -976,34 +982,46 @@ def kalshi_only_suspended(r) -> bool:
     return bool(KALSHI_ONLY_MLB_SUSPENDED["on"] and r["sport"] == "MLB")
 
 
-def _env_file(path) -> dict:
-    """An env file's KEY=VALUE pairs, read with config.py's reader (python-dotenv). A missing file reads {}; so does an
-    unreadable one (host.env is root:sp 0640), and the next source decides."""
+def _env_file(path, strict: bool = False):
+    """An env file's KEY=VALUE pairs, read with config.py's reader (python-dotenv). A file that does not exist reads {}
+    and the next source decides. One that exists but cannot be read (host.env is root:sp 0640; a directory): with
+    `strict` (host.env, addendum 116 item 2) HOST_ENV_UNREADABLE, which makes the role unknown and stops the reading;
+    without it {} (the checkout's .env, the last source: nothing after it either way)."""
     from dotenv import dotenv_values
     try:
-        return dotenv_values(path)
-    except OSError:
+        with open(path, encoding="utf-8") as fh:
+            text = fh.read()
+    except FileNotFoundError:
         return {}
+    except OSError:
+        return HOST_ENV_UNREADABLE if strict else {}
+    return dotenv_values(stream=io.StringIO(text))
 
 
-def role_reading(env=None) -> tuple[str | None, str]:
+def role_reading(env=None) -> tuple[str | None, object]:
     """(role, value): this machine's SP_EXPORTS_MIRROR_ROLE (addendum 45 P1: host | laptop, no default). `value` is
-    the stripped value that decided, "" when no source holds one; `role` is it when it is host or laptop, else None.
+    the stripped value that decided, "" when no source holds one, HOST_ENV_UNREADABLE when host.env exists but cannot
+    be read; `role` is it when it is host or laptop, else None.
     The first source with a non-empty value decides, in this order:
       1. the machine's own host.env (SP_HOST_ENV, else HOST_ENV_DEFAULT; only the host has one). First, so a run typed
          by hand on the host is fenced (#410 review): closing.mirror_role() reads the environment first
          (sp_common.setting), so a closing-run typed by hand, with no EnvironmentFile, signs its page "machine: host"
-         from host.env while its export step's environment has no role, or the laptop's .env role.
+         from host.env while its export step's environment has no role, or the laptop's .env role. A host.env that
+         exists but cannot be read decides too: the role is unknown and nothing after it is read (addendum 116 item 2),
+         so a user who cannot read it is never answered by the checkout's .env, which on the host says laptop.
       2. the process environment (the units' EnvironmentFile, sp_run's load_host_env, config.py's load_dotenv).
       3. the checkout's .env (DOTENV), so an entry point that never imports config (a script) reads the laptop's
          line as cli.py does (addendum 110 item 1: "The laptop's .env carries the role line").
     A value there that is neither host nor laptop decides too: the role is unknown (law 4), never the next source's.
     `env`: read that mapping alone, not the machine (tests)."""
     reads = (lambda: env,) if env is not None else (
-        lambda: _env_file(os.environ.get("SP_HOST_ENV", HOST_ENV_DEFAULT)), lambda: os.environ,
+        lambda: _env_file(os.environ.get("SP_HOST_ENV", HOST_ENV_DEFAULT), strict=True), lambda: os.environ,
         lambda: _env_file(DOTENV))
     for read in reads:                                  # lazily: the .env is read only when nothing before it says
-        value = (read().get(ROLE_ENV) or "").strip()
+        got = read()
+        if got is HOST_ENV_UNREADABLE:
+            return None, HOST_ENV_UNREADABLE
+        value = (got.get(ROLE_ENV) or "").strip()
         if value:
             return (value if value in ROLES else None), value
     return None, ""
@@ -1026,6 +1044,8 @@ def host_fenced(r) -> str | None:
         return None
     if role == "host":
         return HOST_FENCE_REASON
+    if value is HOST_ENV_UNREADABLE:
+        return HOST_FENCE_UNREADABLE_REASON
     if value:
         return f"host fence: role '{value}' is not host or laptop"                # addendum 115 item 3b, approved
     return HOST_FENCE_UNSET_REASON

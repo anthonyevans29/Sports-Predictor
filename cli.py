@@ -9166,7 +9166,7 @@ def coverage_cmd(date_s):
     its predict step resolves), SHADOW (a roadmap lane naming it through its `competitions`: confirming with its
     registry entry, or a shadow export a chain runs), MARKET-ONLY (the code's own market-only sets; both:
     "MARKET-ONLY · shadow v7"), UNKNOWN with its reasons; the stored prediction rows by model with their computed_at (a
-    range when the rows differ), and the games with none; the closing runs done today ("done (run <run_id>, exit
+    range when the rows differ), and the games with none; the closing runs done today ("done (run <run_id>,
     <exit>)", from the watch's receipt log) and the groups the watch will run (closing.due's own inputs; T-35 in ET,
     the match ids) with the file each lands in (exports/closing_<FAMILY>_<start>.json). Then the gaps in capitals ("PL:
     4 GAMES, 0 PREDICTION ROWS — soccer-prematch has not run"). Read-only: the DB opened mode=ro, no row or export

@@ -34,13 +34,16 @@ v7"."
     shows the refusal in place of its groups.
 
     A RUN DONE (item 1): a start time of the day for which the watch's receipt log holds a closing run (closing.
-    _attempts: kind closing, neither a refusal nor a superseded run, 380.4) prints as `done (run <run_id>, exit
-    <exit>)`, the receipt's own `run_id` and `exit` (closing.run's receipt line), its match ids the run's own covers.
-    Several runs for one start time (a failed attempt, then a success): the latest, the log being append-only. A start
-    time printed done is never printed as due: where the latest run failed and the watch has not finished with the
-    start time (fewer than three attempts, closing.covered_ids), the done line says so, `(attempt N of 3: the watch
-    tries again)`. A game a closing finished with whose run is no done line of the day (its run started the day
-    before) keeps its line, `a closing finished with …`.
+    _attempts: kind closing, neither a refusal nor a superseded run, 380.4) prints as `done (run <run_id>, <exit>)`,
+    the ruling's words, the receipt's own `run_id` and `exit` (closing.run's receipt line), its match ids the run's own
+    covers. Several runs for one start time: the latest success where there is one (closing.closing_state: any exit 0;
+    a later failed run, an operator's re-run, never hides it), else the latest run, the log being append-only. A start
+    time printed done is never printed as due. Where the watch still forms a group at it (closing.groups: games no
+    closing has finished with), the done line says what the watch does with it, as the watch decides: inside T-5 a
+    miss, no attempt (closing.due's "inside", closing.watch); ahead or due, superseded when the start time has a
+    success or three attempts (closing.closing_state, as closing._under_lock reads it), else `(attempt N of 3: the
+    watch tries again)`; and it names the group's games the run's covers do not hold. A game a closing finished with
+    whose run is no done line of the day (its run started the day before) keeps its line, `a closing finished with …`.
 
     The model status, per competition, in the ruled order, each read from data and code (no competition named here):
       LIVE         a closing family covers it (closing.FAMILIES[fam]["comps"]; the families are chains.CLOSING_FAMILIES,
@@ -361,11 +364,13 @@ def watch_groups(fam: str, games: list[dict], day: date, now: datetime) -> dict:
     """The family's closing groups of the day: the runs done (the watch's receipt log, addendum 111 item 1), then the
     groups the watch will run, as it forms them: closing.groups() on closing.due()'s own inputs (the stored games plus
     the unpaged called-off ones, less the games a closing has finished with, read from the watch's receipts), the day
-    standing in for schedule()'s window. A done group is the latest closing run of its start time (state done, its
-    run_id and exit); a group the watch still forms at a done start time is no second group (`open` on the done one,
-    with the attempts so far). Each other group's state at `now` is due()'s: ahead (before T-35), due (T-35 to T-5:
-    the watch runs it now) or inside (inside T-5: a miss, no attempt, no file). {"groups" by start time, "finished":
-    the ids a closing has finished with, "unread": why the receipts could not be read}."""
+    standing in for schedule()'s window. A done group is the run shown for its start time (state done, its run_id and
+    exit): the latest success where there is one, else the latest run. A group the watch still forms at a done start
+    time is no second group: the done one carries what the watch does with it (`next`: "miss" inside T-5, "superseded"
+    with a success or three attempts, "again" otherwise; `open` when again) and the group's games its covers do not
+    hold (`left`). Each other group's state at `now` is due()'s: ahead (before T-35), due (T-35 to T-5: the watch runs
+    it now) or inside (inside T-5: a miss, no attempt, no file). {"groups" by start time, "finished": the ids a closing
+    has finished with, "unread": why the receipts could not be read}."""
     comps = cl.FAMILIES[fam]["comps"]
     comp_of = {g["match_id"]: g["comp"] for g in games}
     fam_games = [g for g in games if g["comp"] in comps and not g["void"]]
@@ -379,7 +384,7 @@ def watch_groups(fam: str, games: list[dict], day: date, now: datetime) -> dict:
         fam_games = [g for g in cl.with_called_off(fam, fam_games, now) if cl.ny_date(g["start"]) == day]
     except (OSError, sqlite3.Error) as e:
         return {"groups": [], "finished": set(), "unread": f"the watch's receipts cannot be read: {type(e).__name__}"}
-    done: dict = {}                   # start -> its latest run (the log is append-only: a later line, a later run)
+    done: dict = {}                   # start -> the run shown: the latest success, else the latest run (append-only)
     attempts: dict = {}
     for r in runs:
         try:
@@ -387,27 +392,40 @@ def watch_groups(fam: str, games: list[dict], day: date, now: datetime) -> dict:
         except (KeyError, TypeError, ValueError):
             continue                  # law 4: a run with no readable start time is no group of any day
         if cl.ny_date(s) == day:
-            done[s] = r
+            if r.get("exit") == 0 or done.get(s, {}).get("exit") != 0:
+                done[s] = r           # a later failed run never hides a success (closing_state: any exit 0)
             attempts[s] = attempts.get(s, 0) + 1
     out = [{"start": s, "run_at": s - timedelta(minutes=cl.RUN_LEAD_MIN), "state": "done",
             "match_ids": [x.get("match_id") for x in r.get("covers") or []], "run_id": r.get("run_id"),
-            "exit": r.get("exit"), "attempts": attempts[s], "open": False,
+            "exit": r.get("exit"), "attempts": attempts[s], "open": False, "next": None, "why": None, "left": [],
             # a run that recorded no covers is still a run of the day: its family's, where it has one competition
             "comps": comps_of(x.get("match_id") for x in r.get("covers") or [])
             or (list(comps) if len(comps) == 1 else []),
             "file": (r.get("closing_file") or {}).get("file")} for s, r in done.items()]
-    for gr in cl.groups(fam_games, now, covered):
-        if gr["start"] in done:       # a done start time is never printed as due (addendum 111 item 1)
-            d = next(x for x in out if x["start"] == gr["start"])
-            d["open"] = d["exit"] != 0     # a failed run the watch tries again (fewer than three attempts)
-            continue
-        m = cl.minutes_to(gr["start"], now)
-        state = "ahead" if m > cl.RUN_LEAD_MIN else "due" if m >= cl.NO_ATTEMPT_INSIDE_MIN else "inside"
-        out.append({"start": gr["start"], "run_at": gr["start"] - timedelta(minutes=cl.RUN_LEAD_MIN),
-                    "match_ids": [g["match_id"] for g in gr["games"]], "state": state,
-                    "comps": comps_of(g["match_id"] for g in gr["games"]),
-                    "file": None if state == "inside" else
-                    f"{cl.CLOSING_FILE_DIR}/{cl.closing_name(fam, gr['start'])}"})
+    try:
+        for gr in cl.groups(fam_games, now, covered):
+            m = cl.minutes_to(gr["start"], now)
+            state = "ahead" if m > cl.RUN_LEAD_MIN else "due" if m >= cl.NO_ATTEMPT_INSIDE_MIN else "inside"
+            if gr["start"] in done:   # a done start time is never printed as due (addendum 111 item 1)
+                d = next(x for x in out if x["start"] == gr["start"])
+                st = cl.closing_state(fam, cl.iso_z(gr["start"]))      # what closing._under_lock reads
+                # what the watch does with it: inside T-5 closing.watch() records a miss and makes no attempt; ahead
+                # or due, _under_lock supersedes a start time with a success or three attempts; else it runs again
+                d["next"] = ("miss" if state == "inside" else "superseded"
+                             if st["success"] or st["attempts"] >= cl.MAX_ATTEMPTS else "again")
+                if d["next"] == "superseded":                           # _under_lock's own words
+                    d["why"] = "a successful closing" if st["success"] else f"{st['attempts']} attempts"
+                d["open"] = d["next"] == "again"
+                d["left"] = [g["match_id"] for g in gr["games"] if g["match_id"] not in d["match_ids"]]
+                d["comps"] = sorted(set(d["comps"]) | set(comps_of(d["left"])))
+                continue
+            out.append({"start": gr["start"], "run_at": gr["start"] - timedelta(minutes=cl.RUN_LEAD_MIN),
+                        "match_ids": [g["match_id"] for g in gr["games"]], "state": state,
+                        "comps": comps_of(g["match_id"] for g in gr["games"]),
+                        "file": None if state == "inside" else
+                        f"{cl.CLOSING_FILE_DIR}/{cl.closing_name(fam, gr['start'])}"})
+    except OSError as e:              # closing_state reads the log again
+        return {"groups": [], "finished": set(), "unread": f"the watch's receipts cannot be read: {type(e).__name__}"}
     out.sort(key=lambda g: g["start"])
     return {"groups": out, "finished": covered, "unread": None}
 
@@ -497,11 +515,16 @@ def _computed(m: dict) -> str:
 
 
 def _group_text(g: dict, day: date) -> str:
-    """One closing group: done (addendum 111 item 1: "done (run <run_id>, <exit>)"), due now, ahead, or a miss."""
+    """One closing group: done (addendum 111 item 1: "done (run <run_id>, <exit>)", then what the watch does with the
+    start time, if it still forms a group there), due now, ahead, or a miss."""
     head = f"T-{cl.RUN_LEAD_MIN} {_run_time(g['start'], day)} [{', '.join(map(str, g['match_ids']))}]"
     if g["state"] == "done":
-        tail = (f" (attempt {g['attempts']} of {cl.MAX_ATTEMPTS}: the watch tries again)" if g["open"] else "")
-        return f"{head} done (run {g['run_id']}, exit {g['exit']}){tail}"
+        tail = {"again": f" (attempt {g['attempts']} of {cl.MAX_ATTEMPTS}: the watch tries again)",
+                "miss": " (inside T-5: no further attempt, the watch records a miss)",
+                "superseded": f" ({g['why']}: the watch runs it no more)"}.get(g["next"], "")
+        if g["left"]:
+            tail += f"; not in its covers: {', '.join(map(str, g['left']))}"
+        return f"{head} done (run {g['run_id']}, {g['exit']}){tail}"
     if g["state"] == "inside":
         return f"{head} inside T-5: no attempt, no file (the watch records a miss)"
     return f"{head} → {g['file']}" + (" (due now)" if g["state"] == "due" else "")
@@ -528,7 +551,8 @@ def comp_line(x: dict, day: date) -> str:
         parts.append(f"closing: not shown ({x['closing_unread']})")
     else:
         runs = [_group_text(g, day) for g in x["groups"]]
-        if not any(g["state"] != "done" or g["open"] for g in x["groups"]):
+        # left to run: a group the watch will run or record a miss for (a done one: tried again, or a miss)
+        if not any(g["state"] != "done" or g["next"] in ("again", "miss") for g in x["groups"]):
             runs.append("none left to run")
         if x["finished"]:
             runs.insert(0, f"a closing finished with {', '.join(map(str, x['finished']))}")

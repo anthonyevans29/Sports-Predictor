@@ -483,7 +483,7 @@ def test_the_closing_groups_are_the_watchs_own_after_a_closing(env, monkeypatch)
     due now from T-35 to T-5; inside T-5 a miss, no file."""
     make_db(env, MLB_DAY, [(m, "mlb_v2", "2026-09-20 11:00") for m, *_ in MLB_DAY])
     receipt(family="MLB", run_id=MLB_RUN, start="2026-09-20T17:05:00Z", exit=0, covers=COVERS_1_2)
-    done = f"T-35 12:30 ET [1, 2] done (run {MLB_RUN}, exit 0)"
+    done = f"T-35 12:30 ET [1, 2] done (run {MLB_RUN}, 0)"
     for at, state, tail in (
             ("2026-09-20 17:08", "due", f"· closing: started 1; {done}; T-35 12:45 ET [3, 4] → "
                                         "exports/closing_MLB_2026-09-20T1720Z.json (due now)"),
@@ -521,7 +521,7 @@ def test_a_closing_run_done_prints_its_run_id_and_exit(env, monkeypatch):
     rc, out = run("--date", "2026-09-20")
     assert rc == 0
     assert line_of(out, "MLB").endswith(
-        f"· closing: started 1, 2, 3, 4; T-35 12:30 ET [1, 2] done (run {MLB_RUN}, exit 0); none left to run")
+        f"· closing: started 1, 2, 3, 4; T-35 12:30 ET [1, 2] done (run {MLB_RUN}, 0); none left to run")
     g = cm.coverage(datetime(2026, 9, 20).date(), utc("2026-09-20 18:00"))["competitions"][0]["groups"]
     assert [(x["state"], x["run_id"], x["exit"], x["match_ids"]) for x in g] == [("done", MLB_RUN, 0, [1, 2])]
 
@@ -537,7 +537,7 @@ def test_a_game_finished_with_by_a_run_of_the_day_before_keeps_its_line(env, mon
         "· closing: a closing finished with 2; none left to run")
     receipt(family="MLB", run_id="20260920T120000Z-mlb-closing", start="2026-09-20T12:35:00Z", exit=1, covers=[])
     assert line_of(run("--date", "2026-09-20")[1], "MLB").endswith(
-        "· closing: a closing finished with 2; T-35 08:00 ET [] done (run 20260920T120000Z-mlb-closing, exit 1); "
+        "· closing: a closing finished with 2; T-35 08:00 ET [] done (run 20260920T120000Z-mlb-closing, 1); "
         "none left to run")
 
 
@@ -550,9 +550,9 @@ def test_a_failed_attempt_then_a_success_prints_the_latest(env, monkeypatch):
     receipt(family="MLB", run_id="20260920T163300Z-mlb-closing", start="2026-09-20T17:05:00Z", exit=0,
             covers=COVERS_1_2)
     mlb = line_of(run("--date", "2026-09-20")[1], "MLB")
-    assert mlb.endswith("· closing: T-35 12:30 ET [1, 2] done (run 20260920T163300Z-mlb-closing, exit 0); "
+    assert mlb.endswith("· closing: T-35 12:30 ET [1, 2] done (run 20260920T163300Z-mlb-closing, 0); "
                         "T-35 12:45 ET [3, 4] → exports/closing_MLB_2026-09-20T1720Z.json")
-    assert "20260920T163000Z" not in mlb and "exit 1" not in mlb
+    assert "20260920T163000Z" not in mlb and ", 1)" not in mlb
 
 
 def test_a_done_start_time_is_never_printed_as_due(env, monkeypatch):
@@ -566,7 +566,7 @@ def test_a_done_start_time_is_never_printed_as_due(env, monkeypatch):
             failed="stale prices", covers=COVERS_1_2)
     assert [g["start"] for g in cl.due("MLB", now)["due"]] == [utc("2026-09-20 17:05")]   # the watch runs it again
     mlb = line_of(run("--date", "2026-09-20")[1], "MLB")
-    assert mlb.endswith("· closing: T-35 12:30 ET [1, 2] done (run 20260920T163000Z-mlb-closing, exit 1) (attempt 1 "
+    assert mlb.endswith("· closing: T-35 12:30 ET [1, 2] done (run 20260920T163000Z-mlb-closing, 1) (attempt 1 "
                         "of 3: the watch tries again); T-35 12:45 ET [3, 4] → "
                         "exports/closing_MLB_2026-09-20T1720Z.json")
     assert "(due now)" not in mlb and "closing_MLB_2026-09-20T1705Z" not in mlb
@@ -574,8 +574,85 @@ def test_a_done_start_time_is_never_printed_as_due(env, monkeypatch):
         receipt(family="MLB", run_id=f"20260920T16{30 + k}00Z-mlb-closing", start="2026-09-20T17:05:00Z", exit=1,
                 failed="stale prices", covers=COVERS_1_2)
     assert line_of(run("--date", "2026-09-20")[1], "MLB").endswith(
-        "· closing: T-35 12:30 ET [1, 2] done (run 20260920T163300Z-mlb-closing, exit 1); T-35 12:45 ET [3, 4] → "
+        "· closing: T-35 12:30 ET [1, 2] done (run 20260920T163300Z-mlb-closing, 1); T-35 12:45 ET [3, 4] → "
         "exports/closing_MLB_2026-09-20T1720Z.json")
+
+
+def test_a_failed_run_inside_t5_is_a_miss_never_tried_again(env, monkeypatch):
+    """Two failed runs for 14:00Z (each about 15 minutes) and the clock at 13:57Z, T-3: closing.due() holds the start
+    time as inside T-5, so closing.watch() records a miss and makes no attempt. The done line says so, never "the watch
+    tries again", and something is still left (the miss), as for a group inside T-5 with no run."""
+    now = utc("2026-10-17 13:57")
+    monkeypatch.setattr(cl, "clock", lambda: now)
+    make_db(env, [(401, "PL", "2026-10-17 14:00", "SCHEDULED")], [(401, "v22", "2026-10-17 10:00")])
+    for rid in ("r1", "r2"):
+        receipt(family="SOCCER", run_id=rid, start="2026-10-17T14:00:00Z", exit=1, failed="stale prices",
+                covers=[{"match_id": 401, "start": "2026-10-17T14:00:00Z"}])
+    watch = cl.due("SOCCER", now)
+    assert [g["start"] for g in watch["inside"]] == [utc("2026-10-17 14:00")] and watch["due"] == []
+    pl = line_of(run("--date", DAY)[1], "PL")
+    assert pl.endswith("· closing: T-35 09:25 ET [401] done (run r2, 1) (inside T-5: no further attempt, the watch "
+                       "records a miss)")
+    assert "the watch tries again" not in pl and "none left to run" not in pl
+
+
+@pytest.mark.parametrize("first, why", [
+    ([1, 1, 1], "3 attempts"),                 # three failed attempts: closing.covered_ids holds the third's covers
+    ([0], "a successful closing")])
+def test_a_start_time_the_watch_supersedes_names_the_games_its_covers_do_not_hold(env, monkeypatch, first, why):
+    """Game 5 stored at 17:05Z after the runs for 17:05Z covered 1 and 2: the watch forms a group [5] there and due()
+    holds it due, but closing._under_lock supersedes a watch run for a start time with a success or three attempts
+    (closing_state), so nothing runs. The done line says so and names 5; never "the watch tries again"."""
+    now = utc("2026-09-20 16:40")
+    monkeypatch.setattr(cl, "clock", lambda: now)
+    make_db(env, MLB_DAY + [(5, "MLB", "2026-09-20 17:05", "SCHEDULED")],
+            [(m, "mlb_v2", "2026-09-20 11:00") for m in (1, 2, 3, 4, 5)])
+    for k, ex in enumerate(first, 1):
+        receipt(family="MLB", run_id=f"F{k}", start="2026-09-20T17:05:00Z", exit=ex, covers=COVERS_1_2)
+    st = cl.closing_state("MLB", "2026-09-20T17:05:00Z")
+    assert st["success"] or st["attempts"] == cl.MAX_ATTEMPTS                       # _under_lock: superseded
+    assert [(g["start"], [x["match_id"] for x in g["games"]]) for g in cl.due("MLB", now)["due"]] == [
+        (utc("2026-09-20 17:05"), [5])]
+    mlb = line_of(run("--date", "2026-09-20")[1], "MLB")
+    assert mlb.endswith(f"· closing: T-35 12:30 ET [1, 2] done (run F{len(first)}, {first[-1]}) ({why}: the watch "
+                        "runs it no more); not in its covers: 5; T-35 12:45 ET [3, 4] → "
+                        "exports/closing_MLB_2026-09-20T1720Z.json")
+    assert "the watch tries again" not in mlb
+
+
+def test_a_game_added_after_a_failed_run_is_named_on_the_line_the_watch_tries_again(env, monkeypatch):
+    """Game 6 stored at 17:10Z after the 17:05Z run failed covering 1 and 2: the watch's next attempt covers [1, 6, 2];
+    the done line says the watch tries again and names 6, which the run's covers do not hold."""
+    now = utc("2026-09-20 16:40")
+    monkeypatch.setattr(cl, "clock", lambda: now)
+    make_db(env, MLB_DAY + [(6, "MLB", "2026-09-20 17:10", "SCHEDULED")],
+            [(m, "mlb_v2", "2026-09-20 11:00") for m in (1, 2, 3, 4, 6)])
+    receipt(family="MLB", run_id="R1", start="2026-09-20T17:05:00Z", exit=1, failed="stale prices", covers=COVERS_1_2)
+    assert [[x["match_id"] for x in g["games"]] for g in cl.due("MLB", now)["due"]] == [[1, 6, 2]]
+    assert line_of(run("--date", "2026-09-20")[1], "MLB").endswith(
+        "· closing: T-35 12:30 ET [1, 2] done (run R1, 1) (attempt 1 of 3: the watch tries again); not in its covers: "
+        "6; T-35 12:45 ET [3, 4] → exports/closing_MLB_2026-09-20T1720Z.json")
+
+
+def test_a_later_failed_run_never_hides_a_success(env, monkeypatch):
+    """A watch success for 17:05Z, then an operator's re-run of the same start time that failed (closing-run with no
+    --start picks the next unstarted start; only a watch run is superseded): closing_state still holds the success,
+    and so does the line. No failed run, no "(attempt" tail."""
+    now = utc("2026-09-20 16:45")
+    monkeypatch.setattr(cl, "clock", lambda: now)
+    make_db(env, MLB_DAY, [(m, "mlb_v2", "2026-09-20 11:00") for m, *_ in MLB_DAY])
+    receipt(family="MLB", run_id="OK1", trigger="watch", start="2026-09-20T17:05:00Z", exit=0, covers=COVERS_1_2,
+            closing_file={"file": "exports/closing_MLB_2026-09-20T1705Z.json"})
+    receipt(family="MLB", run_id="OP2", trigger="operator", start="2026-09-20T17:05:00Z", exit=1,
+            failed="stale prices", covers=COVERS_1_2)
+    assert cl.closing_state("MLB", "2026-09-20T17:05:00Z")["success"] is True
+    mlb = line_of(run("--date", "2026-09-20")[1], "MLB")
+    assert mlb.endswith("· closing: T-35 12:30 ET [1, 2] done (run OK1, 0); T-35 12:45 ET [3, 4] → "
+                        "exports/closing_MLB_2026-09-20T1720Z.json (due now)")
+    assert "OP2" not in mlb and ", 1)" not in mlb and "(attempt" not in mlb
+    g = cm.coverage(datetime(2026, 9, 20).date(), now)["competitions"][0]["groups"][0]
+    assert (g["run_id"], g["exit"], g["attempts"], g["file"]) == (
+        "OK1", 0, 2, "exports/closing_MLB_2026-09-20T1705Z.json")
 
 
 def test_a_family_this_machine_refuses_shows_the_refusal_and_claims_no_gap(env, monkeypatch):

@@ -52,10 +52,10 @@ sentence about the record, and the record is the moved list."
 THE COMPETITIONS FIELD (ARCHITECT 2026-10-17 10:35 ET, addendum 111 item 2, #575), verbatim: "roadmap.json: each lane
 gains `competitions: [codes]` (a data-only roadmap change; I rule it in — the lane text is unchanged). Nations League
 [UNL]; La Liga [PD]; the four-league lane [SA, BL1, FL1, ELC]; College [NCAA]; Hockey [NHL]; Cups [CL, EFL, UEL]; NFL
-QB [NFL]; MLB pitcher [MLB]." Optional in the validation (OPTIONAL_LANE_KEYS): where a lane carries it, it is a
-non-empty list of competition codes as the DB stores them, each named once. The print does not show it; `python cli.py
-coverage` reads it (a lane names a competition through it, never through its prose). The base check compares dates and
-moved lines only, so adding it moves nothing.
+QB [NFL]; MLB pitcher [MLB]." Optional in the validation (validate() checks it by name where a lane carries it;
+OPTIONAL_LANE_KEYS only lists it): a non-empty list of competition codes as the DB stores them, each named once. The
+print does not show it; `python cli.py coverage` reads it (a lane names a competition through it, never through its
+prose). The base check compares dates and moved lines only, so adding it moves nothing.
 
 Addendum 61 item 5: "#494 is in: a milestone with no due_on key is refused, named." And: "One day is singular: 'in 1
 day', 'OVERDUE 1 day', '(+1 more step overdue)'. Addendum 59 5(e) named the pattern, not the grammar."
@@ -79,7 +79,8 @@ STATES = ("to declare", "declared", "confirming", "blocked", "live", "closed")
 OWNERS = ("architect", "operator", "code", "calendar")
 LANE_KEYS = ("lane", "title", "issue", "registry_id", "state", "steps", "earliest_live", "live_needs", "vs_close",
              "moved")
-OPTIONAL_LANE_KEYS = ("competitions",)     # addendum 111 item 2 (#575): the competition codes the lane is for
+OPTIONAL_LANE_KEYS = ("competitions",)     # addendum 111 item 2 (#575): the competition codes the lane is for;
+                                           # a list only: validate() checks the key by name
 STEP_KEYS = ("what", "owner", "due", "done")
 DONE_KEYS = ("date", "receipt")
 # the day it was moved, which date, what it was, what it is now, why, and the addendum and item

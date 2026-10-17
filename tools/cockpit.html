@@ -729,8 +729,20 @@ function loadLedger(){
   try{ const raw=localStorage.getItem(LEDGER_KEY);
     if(!raw) return emptyLedger();
     const L=JSON.parse(raw); if(!L||!Array.isArray(L.calls)) return emptyLedger();
-    L.meta=L.meta||{}; L.meta.policy_version=POLICY_VERSION; return L;
-  }catch(e){ storageOK=false; return window.__ledgerMem||emptyLedger(); }
+    L.meta=L.meta||{}; L.meta.policy_version=POLICY_VERSION; return labelLegacy(L);
+  }catch(e){ storageOK=false; return labelLegacy(window.__ledgerMem||emptyLedger()); }
+}
+// LEGACY JOIN, A LABEL (ARCHITECT 2026-10-17 11:00 ET, addendum 114 item 2): "Calls graded before this change on a game
+// later re-dated stay graded, labelled "legacy join" in the exports — confirmed. Nothing is re-graded retroactively; the
+// record says why those rows differ from the rule." Every call without a match id that a pairing reached (it holds a
+// result, or it is void as re-dated) carries legacy_join, whenever it was graded: set on every read, so the ledger views
+// and the ledger JSON export (the stored ledger) carry it. A label only: its status, result and returns are never
+// touched, and a stored flag is never removed here (a parlay leg the join graded keeps it through a re-log that brings
+// a match id; gradeLedger flags a call the join pairs after this change, as before). An open call with no result is not
+// labelled: no pairing has reached it.
+function labelLegacy(L){
+  for(const c of L.calls||[]) if(c&&c.match_id==null&&(c.result||c.void_redated)) c.legacy_join=true;
+  return L;
 }
 // EVERY write goes through saveLedger, and saveLedger enforces the key
 // (enforceLedger below) — Log, results grading, Import ledger (file or
@@ -800,7 +812,7 @@ function upsertCalls(L,fresh,opts){
   for(const c of fresh){ const k=callKey(c); c.id=c.id||k;
     if(!idx.has(k)&&opts.relog&&pos.has(instKey(c))){      // same position, earlier log day
       const i=pos.get(instKey(c)), cur=L.calls[i];
-      if(cur.status==="graded"||settledVoidLeg(L,cur)){kept++;continue;}
+      if(cur.status==="graded"||pushedLeg(cur)){kept++;continue;}
       L.calls[i]=stampTiming({...cur,...c,id:cur.id,log_date:cur.log_date,
         ...(cur.parlay_id?{parlay_id:cur.parlay_id}:{}),last_logged:c.log_date},c,false);
       reopened(L.calls[i]); repriced++; continue; }
@@ -808,7 +820,7 @@ function upsertCalls(L,fresh,opts){
       idx.set(k,L.calls.length); pos.set(instKey(c),L.calls.length);
       L.calls.push(opts.relog?stampTiming(c,c,true):c); added++; continue; }
     const i=idx.get(k), cur=L.calls[i];
-    if((cur.status==="graded"||settledVoidLeg(L,cur))&&c.status!=="graded"){kept++;}   // graded history is never rewritten
+    if((cur.status==="graded"||pushedLeg(cur)||movedLeg(cur,c))&&c.status!=="graded"){kept++;}   // graded history is never rewritten
     else if(opts.incoming&&JSON.stringify(cur)===JSON.stringify({...c,id:cur.id})){kept++;}
     else if(opts.incoming){L.calls[i]={...c,id:cur.id};updated++;}
     else {L.calls[i]=reopened(stampTiming({...cur,...c,id:cur.id},c,false));updated++;}
@@ -819,10 +831,18 @@ function upsertCalls(L,fresh,opts){
 // with the status, and the next results intake decides again. A parlay leg the legacy join already graded (its ticket
 // waiting: status open, a result) keeps its flag: nothing grades it again
 function reopened(c){ if(c.status==="open"){ delete c.void_redated; if(!c.result) delete c.legacy_join; } return c; }
-// ... except a parlay leg void as re-dated whose ticket has settled without it (a ticket settles once; its legs only
-// reach "graded" there): that ticket's history, never reopened, regraded or re-settled
-function settledVoidLeg(L,c){ return c.call_type==="parlay_leg"&&!!c.void_redated
-  &&L.calls.some(x=>x.parlay_id===c.parlay_id&&x.status==="graded"); }
+// ... except a parlay leg void as re-dated (either label). ARCHITECT 2026-10-17 11:00 ET (addendum 114 item 1): "the leg
+// is a PUSH — removed from the ticket [...] The re-dated game's fresh closing row is never substituted into the ticket:
+// it is a different call made at a different time." Once void, the leg is out of its ticket for good, settled or not:
+// never graded at a later intake, never reopened by a re-log (the re-log at the fresh kickoff is the new start's row)
+function pushedLeg(c){ return c.call_type==="parlay_leg"&&!!c.void_redated; }
+// ... and a same-ticket re-log of a parlay leg at a kickoff more than the hour from the recorded one (redatedLabel, either
+// label) never rewrites it: the moved game's fresh row is never substituted into the ticket. The leg keeps its recorded
+// kickoff, and the results intake voids it against the moved game's row
+function movedLeg(cur,c){ return cur.call_type==="parlay_leg"&&!!redatedLabel(cur.kickoff,c.kickoff); }
+// a ticket has settled when any leg carries its result: its remaining legs (status graded), or, every leg moved, its
+// void legs (addendum 115 item 4). A ticket settles once
+function ticketSettled(legs){ return legs.some(l=>l.status==="graded"||l.ticket_result!=null); }
 // ADDENDUM 109 ITEM 2 (ARCHITECT 2026-10-17): "a Desk call is identified by its match id and its recorded kickoff, not
 // by a ±1-day join": every call carries the file row's match_id (null: the row had none) beside its kickoff, and the
 // ledger JSON export carries both (it is the stored ledger).
@@ -1264,7 +1284,7 @@ function gradeLedger(L,outs){
     if(c.status==="graded"||c.result){                       // #208: graded earlier, close arrives later
       if(!c.close_ref&&c.call_type!=="parlay_leg"){ const b=clvBlock(c,findOutcome(c,outs)); if(b) c.close_ref=b; }
       continue; }
-    if(settledVoidLeg(L,c)) continue;
+    if(pushedLeg(c)) continue;                // addendum 114 item 1: a void parlay leg is a push, out of its ticket for good
     const o=findOutcome(c,outs);
     // its match id on a row naming another game (machine-local ids): counted, never graded, it stays open
     if(!o){ if(idMismatch(c,outs)) c.id_mismatch=true; continue; }
@@ -1294,26 +1314,38 @@ function gradeLedger(L,outs){
       graded++;
     }
   }
-  // parlay tickets settle when every leg has a result
+  // PARLAY TICKETS settle when every leg has a result. ARCHITECT 2026-10-17 11:00 ET (addendum 114 item 1): "A parlay
+  // ticket with a leg void as re-dated: the leg is a PUSH — removed from the ticket, the ticket re-priced on its
+  // remaining legs and settled when they are all graded; a one-leg remainder settles as a single; the void leg stays on
+  // the ticket record labelled "void: re-dated", units unchanged on the record. The re-dated game's fresh closing row is
+  // never substituted into the ticket: it is a different call made at a different time. A ticket settles once (the bug
+  // the review found stays fixed); a ticket never stays open waiting for a game that moved." Addendum 115 item 4: "a
+  // ticket whose every leg moved settles as a push — accepted".
+  // The remaining legs price the ticket the way a push or a called-off leg already drops out of it (pay below: only the
+  // winning legs multiply the stake); one remaining leg pays stake / its price, a single's return. The void leg keeps
+  // its label, status and units, and takes none of the ticket's fields. ticket_legs records how many legs a ticket that
+  // lost one settled on (1: a single; 0: every leg moved, a push carried by its void legs).
   const tickets={}; L.calls.filter(c=>c.call_type==="parlay_leg").forEach(c=>(tickets[c.parlay_id]=tickets[c.parlay_id]||[]).push(c));
   for(const legs of Object.values(tickets)){
-    // a leg void as re-dated (addendum 106 item 4) is never graded: it drops from its ticket, as a void leg does.
-    // A ticket settles once: any graded leg means it has (graded history is never rewritten)
-    if(legs.some(l=>l.status==="graded")||legs.every(l=>l.void_redated)) continue;
-    // settles when every leg has a result — or at once on a losing leg
-    // ("all legs win" is then impossible; later legs keep their own result)
-    if(legs.some(l=>!l.result&&!l.void_redated)&&!legs.some(l=>l.result==="loss")) continue;
+    if(ticketSettled(legs)) continue;                       // a ticket settles once (graded history is never rewritten)
+    const kept=legs.filter(l=>!l.void_redated), moved=legs.length-kept.length;
+    // settles when every remaining leg has a result — or at once on a losing leg ("all legs win" is then impossible;
+    // later legs keep their own result). Every leg moved: no leg left to wait for, a push now
+    if(kept.some(l=>!l.result)&&!kept.some(l=>l.result==="loss")) continue;
     const stake=legs[0].units;
-    const pay=price=>{ if(legs.some(l=>l.result==="loss")) return 0;
-      const live=legs.filter(l=>l.result==="win");            // void/push legs drop
+    const pay=price=>{ if(kept.some(l=>l.result==="loss")) return 0;
+      const live=kept.filter(l=>l.result==="win");            // void/push legs drop
       return live.length?live.reduce((x,l)=>x/(price(l)||1),stake):stake; };
     const ret=pay(execP);
-    const kept=legs.filter(l=>!l.void_redated);
     const cret=kept.every(l=>l.claim_market_p!=null)?pay(l=>l.claim_market_p):null;
-    const res=ret===0?"loss":(legs.every(l=>l.result!=="win")?"void":"win");
-    kept.forEach(l=>{l.status="graded";l.units_returned=+ret.toFixed(4);l.ticket_result=res;
+    const res=!kept.length?"push":ret===0?"loss":(kept.every(l=>l.result!=="win")?"void":"win");
+    const day=kept.length?kept.map(x=>x.graded_date).sort().pop():today;
+    for(const l of kept.length?kept:legs){
+      if(kept.length) l.status="graded";                    // every leg moved: the void legs keep status and label
+      l.units_returned=+ret.toFixed(4); l.ticket_result=res;
       if(cret!=null) l.claim_units_returned=+cret.toFixed(4);
-      l.graded_date=kept.map(x=>x.graded_date).sort().pop();});
+      if(moved) l.ticket_legs=kept.length;
+      l.graded_date=day; }
     graded++;
   }
   return graded;
@@ -1342,10 +1374,13 @@ function settledBets(L){
   const bets=[], seen=new Set(); lastAudit={flagged:0,fallback:0,excluded:0,legNotPlay:0};
   const tally=a=>{ if(!a.flagged) return; lastAudit.flagged++; if(a.excluded) lastAudit.excluded++; else lastAudit.fallback++; };
   for(const c of L.calls){
-    if(c.status!=="graded") continue;
+    // a ticket whose every leg moved settled as a push on its void legs (status void, ticket_result "push"): addendum 115
+    // item 4. It counts as a push does: n, staked and returned (net 0), out of the hit rate
+    if(c.status!=="graded"&&!(c.call_type==="parlay_leg"&&c.ticket_result!=null)) continue;
     if(c.call_type==="parlay_leg"){
       if(seen.has(c.parlay_id)) continue; seen.add(c.parlay_id);
-      const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id&&!x.void_redated);   // addendum 106 item 4: dropped
+      const all=L.calls.filter(x=>x.parlay_id===c.parlay_id);
+      const legs=all.filter(x=>!x.void_redated);   // addendum 114 item 1: a void leg is a push, removed from the ticket
       if(legs.some(l=>l.leg_check&&l.leg_check.status==="not_play")){lastAudit.legNotPlay++; continue;}   // #183: out of the P&L
       const au=new Map(legs.map(l=>[l,auditCall(l)]));
       const flagged=legs.some(l=>au.get(l).flagged);
@@ -1360,11 +1395,12 @@ function settledBets(L){
         returned=+pay(l=>au.get(l).price).toFixed(4);
         claimReturned=legs.every(l=>au.get(l).claimP!=null)?+pay(l=>au.get(l).claimP).toFixed(4):null;
       }
-      bets.push({engine:"model_edge",sport:[...new Set(legs.map(l=>l.sport))].sort().join("+"),
+      const named=legs.length?legs:all;               // every leg moved: the ticket's own legs name it
+      bets.push({engine:"model_edge",sport:[...new Set(named.map(l=>l.sport))].sort().join("+"),
         tier:"parlay",call_type:"parlay",staked:c.units,returned,
         result:c.ticket_result,date:c.graded_date,rules:["parlay 0.25u"],shadow:false,
         claimReturned,exec_mode:legs.some(l=>l.exec_mode==="operator_early")?"operator_early":(c.exec_mode||null),
-        claim_p:null,exec_p:null,tz:flagged,bShadow:(legs.find(l=>l.b_shadow_cut)||{}).b_shadow_cut||null});
+        claim_p:null,exec_p:null,tz:flagged,bShadow:(named.find(l=>l.b_shadow_cut)||{}).b_shadow_cut||null});
       continue;
     }
     const a=auditCall(c); tally(a);
@@ -1550,7 +1586,7 @@ function pnlBlock(L){
     `Value-side counterfactual (v1.2 candidate shadow, NOT staked): n ${vf.n} · notional staked ${fmt(vf.staked)} · net ${vf.net>=0?"+":""}${fmt(vf.net)} · hit ${vf.hit==null?"—":fmt(vf.hit,1)+"%"} · promotion review at ${VALUE.reviewN} graded (${Math.min(vf.n,VALUE.reviewN)}/${VALUE.reviewN}), version bump only`,
     `Open calls: ${L.calls.filter(c=>c.status==="open"&&!c.result).length} unmatched (listed in the Cockpit)`,
     `Void: ${voidCounts(L)} (out of every line above; the fresh call on the new date is the graded one)`,
-    `Legacy join: ${L.calls.filter(c=>c.legacy_join).length} call(s) paired with their result by the ±1-day team join (no match id: logged before the field; addendum 109 item 2)`,
+    `Legacy join: ${L.calls.filter(c=>c.legacy_join).length} call(s) paired with their result by the ±1-day team join (no match id: logged before the field; addendum 109 item 2; those graded before the match-id pairing included, labelled, never re-graded: addendum 114 item 2)`,
     bShadowLine(L,bets),
     auditLine(),
     ...realizedLines(L),
@@ -1581,12 +1617,18 @@ function renderLedger(){
   const waiting=L.calls.filter(c=>c.status==="open"&&c.result).length;
   const vr=L.calls.filter(c=>c.void_redated);       // addendum 106 item 4: listed with the label, out of every tally
   const LJ=" · <b>legacy join</b>", side=c=>esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick);
+  // addendum 114 item 1: a void parlay leg is a push, removed from its ticket; the line says where its ticket stands
+  const pushNote=c=>{ if(c.call_type!=="parlay_leg") return "";
+    const legs=L.calls.filter(x=>x.parlay_id===c.parlay_id), n=legs.filter(x=>!x.void_redated).length;
+    return " · a push, removed from its ticket: "+(!ticketSettled(legs)?`ticket awaiting its other ${n} leg(s)`
+      :n?`ticket settled on its other ${n} leg(s)${n===1?" (a single)":""}`:"every leg moved, the ticket settled as a push"); };
   const voidHTML=vr.length?`<div class="note" id="voidRedated"><b>${vr.length} call(s) void</b> (out of every tally; the fresh call on the new date is the graded one):`
-    +vr.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · <b>${esc(c.void_redated)}</b>${c.legacy_join?LJ:""}`).join("")+"</div>":"";
-  // addendum 109 item 2: the calls paired with a result by the ±1-day team join (no match id), listed with the flag
+    +vr.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · <b>${esc(c.void_redated)}</b>${pushNote(c)}${c.legacy_join?LJ:""}`).join("")+"</div>":"";
+  // addendum 109 item 2: the calls paired with a result by the ±1-day team join (no match id), listed with the flag;
+  // addendum 114 item 2: those graded before the match-id pairing too (labelLegacy), so the list folds under its count
   const lj=L.calls.filter(c=>c.legacy_join&&!c.void_redated);
-  const legacyHTML=lj.length?`<div class="note" id="legacyJoin"><b>${lj.length} call(s) legacy join</b> (no match id: paired with their result by the ±1-day team join, as before the field):`
-    +lj.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · ${esc(c.result||c.status)}${LJ}`).join("")+"</div>":"";
+  const legacyHTML=lj.length?`<details class="note" id="legacyJoin"><summary><b>${lj.length} call(s) legacy join</b> (no match id: paired with their result by the ±1-day team join, as before the field; those graded before the match-id pairing included, labelled, never re-graded)</summary>`
+    +lj.map(c=>`${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · ${esc(c.result||c.status)}${LJ}`).join("<br>")+"</details>":"";
   // the calls whose match id a loaded result row carries for another game (machine-local ids): open, never graded
   const im=L.calls.filter(c=>c.id_mismatch);
   const idmHTML=im.length?`<div class="note" id="idMismatch"><b>${im.length} call(s) id mismatch</b> (a loaded result row carries the call's match id for another game: match ids are machine-local; counted, never graded):`
@@ -1718,7 +1760,8 @@ $("copyLedgerBtn").addEventListener("click",async()=>{
 function importLedgerDoc(inc){
   if(!inc||!Array.isArray(inc.calls)) throw new Error("not a bd_ledger_v1 file (no calls array)");
   const L=loadLedger();
-  const r=upsertCalls(L,inc.calls.map(c=>({...c})),{incoming:true});
+  // the incoming calls carry the stored ledger's label (labelLegacy): an export from before it is not "updated" by it
+  const r=upsertCalls(L,labelLegacy({calls:inc.calls.map(c=>({...c}))}).calls,{incoming:true});
   let nf=0;
   if(Array.isArray(inc.fills)){ L.fills=L.fills||[]; const have=new Set(L.fills.map(x=>x.id));
     inc.fills.forEach(x=>{ if(x&&x.id&&!have.has(x.id)){L.fills.push(x);have.add(x.id);nf++;} }); }

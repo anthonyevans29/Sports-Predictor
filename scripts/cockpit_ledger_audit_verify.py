@@ -146,9 +146,12 @@ def main():
         before = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1')).calls")
         page.evaluate("saveLedger(loadLedger())")
         after = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1')).calls")
-        strip = lambda c: {k: v for k, v in c.items() if k != "tz_audit"}
+        # marks, never stored fields: tz_audit and the legacy-join label (addendum 114 item 2: every graded call without
+        # a match id carries legacy_join; its result and returns are untouched)
+        strip = lambda c: {k: v for k, v in c.items() if k not in ("tz_audit", "legacy_join")}
         check("save: call count unchanged, every stored field unchanged (never deleted)",
-              len(after) == len(before) and [strip(c) for c in after] == before, f"{len(before)} → {len(after)}")
+              len(after) == len(before) and [strip(c) for c in after] == [strip(c) for c in before],
+              f"{len(before)} → {len(after)}")
         marks = {c["id"]: c.get("tz_audit") for c in after}
         check("save: tz_audit marks on the 7 flagged legs/positions only (parlay: per leg)",
               {k for k, v in marks.items() if v} == {"c2", "c3", "c4", "c5", "c7", "c9", "c10"}

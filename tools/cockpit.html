@@ -816,8 +816,9 @@ function upsertCalls(L,fresh,opts){
   return {added,updated,kept,repriced};
 }
 // addendum 106 item 4: a re-log reopens a call void as re-dated (its kickoff is the fresh capture's); the label goes
-// with the status, and the next results intake decides again
-function reopened(c){ if(c.status==="open"){ delete c.void_redated; delete c.legacy_join; } return c; }
+// with the status, and the next results intake decides again. A parlay leg the legacy join already graded (its ticket
+// waiting: status open, a result) keeps its flag: nothing grades it again
+function reopened(c){ if(c.status==="open"){ delete c.void_redated; if(!c.result) delete c.legacy_join; } return c; }
 // ... except a parlay leg void as re-dated whose ticket has settled without it (a ticket settles once; its legs only
 // reach "graded" there): that ticket's history, never reopened, regraded or re-settled
 function settledVoidLeg(L,c){ return c.call_type==="parlay_leg"&&!!c.void_redated
@@ -1172,14 +1173,22 @@ function voidCounts(L){ const v=L.calls.filter(c=>c.void_redated), p=v.filter(c=
 // score; games without one are listed there as ungraded) may grade them: a fixtures file's score includes extra
 // time, so a UNL fixture finished AET/PEN would grade on the later score. An INTL call without one stays open.
 // PAIRING (ARCHITECT 2026-10-17, addendum 109 item 2): "grading pairs a call to a result by match_id". A call with a
-// match id pairs with the result row of that id and no other (no team-name or ±1-day join): a call whose id is in no
-// loaded row stays open. A call without one ("Calls that predate the field (this season's existing ledger rows) are
-// paired as today by the ±1-day join and flagged "legacy join"") takes the join below; gradeLedger flags it.
+// match id pairs with the result row of that id and no other (no ±1-day join): a call whose id is in no loaded row
+// stays open. A match id is machine-local and reusable (the host and the laptop number matches apart:
+// deploy/hosting/compare_exports.py; docs/specs/ncaa-shadow.md "a mismatch is counted, never graded"), and the Cockpit
+// claims from either machine's files, so the row of that id must also name the call's teams (normTeam): a row carrying
+// the id for another game is never the call's (gradeLedger counts it, id_mismatch; the call stays open). A call without
+// one ("Calls that predate the field (this season's existing ledger rows) are paired as today by the ±1-day join and
+// flagged "legacy join"") takes the join below; gradeLedger flags it.
+function idRows(c,outs){ const intl=o=>c.sport!=="INTL"||o.sport==="INTL";
+  return outs.filter(o=>o.match_id!=null&&String(o.match_id)===String(c.match_id)&&intl(o)); }
+function ownGame(c,o){ return normTeam(o.home)===normTeam(c.home)&&normTeam(o.away)===normTeam(c.away); }
+function idMismatch(c,outs){ return c.match_id!=null&&idRows(c,outs).some(o=>!ownGame(c,o)); }
 function findOutcome(c,outs){
   const intl=o=>c.sport!=="INTL"||o.sport==="INTL";
   const one=hit=>{ const same=hit.filter(o=>o.sport===c.sport), pool=same.length?same:hit;
     return pool.length===1?pool[0]:null; };         // ambiguous → stays open
-  if(c.match_id!=null) return one(outs.filter(o=>o.match_id!=null&&String(o.match_id)===String(c.match_id)&&intl(o)));
+  if(c.match_id!=null) return one(idRows(c,outs).filter(o=>ownGame(c,o)));
   const cd=(c.kickoff||c.log_date||"").slice(0,10);
   const near=outs.filter(o=>dayDiff(cd,(o.date||"").slice(0,10))<=1&&intl(o));
   for(const cmp of [(x,y)=>x===y,(x,y)=>normTeam(x)===normTeam(y)]){   // exact first, then normalized
@@ -1256,7 +1265,10 @@ function gradeLedger(L,outs){
       if(!c.close_ref&&c.call_type!=="parlay_leg"){ const b=clvBlock(c,findOutcome(c,outs)); if(b) c.close_ref=b; }
       continue; }
     if(settledVoidLeg(L,c)) continue;
-    const o=findOutcome(c,outs); if(!o) continue;
+    const o=findOutcome(c,outs);
+    // its match id on a row naming another game (machine-local ids): counted, never graded, it stays open
+    if(!o){ if(idMismatch(c,outs)) c.id_mismatch=true; continue; }
+    delete c.id_mismatch;
     // addendum 109 item 2: a call with no match id was paired by the ±1-day team join ("legacy join", shown)
     if(c.match_id==null) c.legacy_join=true; else delete c.legacy_join;
     // addendum 106 item 4: a result whose start moved more than the hour from the call's kickoff voids the call (no
@@ -1316,8 +1328,9 @@ $("resultsFile").addEventListener("change",async e=>{
   }
   $("modelRecord").textContent=recs.join("\n");      // addendum 63 item 3: the win rate never without its line
   const L=loadLedger(); const n=gradeLedger(L,outs); const np=harvestPicks(L,picks); const dd=saveLedger(L);
-  const open=L.calls.filter(c=>c.status==="open").length, lj=L.calls.filter(c=>c.legacy_join).length;
-  $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · void: ${voidCounts(L)} (listed below, out of every tally) · legacy join ${lj} (no match id: the ±1-day team join, listed below) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
+  const open=L.calls.filter(c=>c.status==="open").length, lj=L.calls.filter(c=>c.legacy_join).length,
+    im=L.calls.filter(c=>c.id_mismatch).length;
+  $("ledgerNote").textContent=`${outs.length} finished results read · ${n} calls/tickets graded · ${open} still open (unmatched listed below) · void: ${voidCounts(L)} (listed below, out of every tally) · legacy join ${lj} (no match id: the ±1-day team join, listed below) · id mismatch ${im} (match id on another game: counted, never graded) · stored predictions: ${picks.length} read, ${np} new (fills re-matched).`
     +dedupeNote(dd)+(storageOK?"":" ⚠ browser storage unavailable — Export the ledger to keep it.");
   renderLedger();
 });
@@ -1574,8 +1587,12 @@ function renderLedger(){
   const lj=L.calls.filter(c=>c.legacy_join&&!c.void_redated);
   const legacyHTML=lj.length?`<div class="note" id="legacyJoin"><b>${lj.length} call(s) legacy join</b> (no match id: paired with their result by the ±1-day team join, as before the field):`
     +lj.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · ${esc(c.result||c.status)}${LJ}`).join("")+"</div>":"";
+  // the calls whose match id a loaded result row carries for another game (machine-local ids): open, never graded
+  const im=L.calls.filter(c=>c.id_mismatch);
+  const idmHTML=im.length?`<div class="note" id="idMismatch"><b>${im.length} call(s) id mismatch</b> (a loaded result row carries the call's match id for another game: match ids are machine-local; counted, never graded):`
+    +im.map(c=>`<br>${esc(c.log_date)} · ${esc(c.sport)} · ${esc(c.game)} · ${side(c)} · ${esc(c.engine)} ${esc(c.call_type)} · match ${esc(c.match_id)} · ${esc(c.status)}`).join("")+"</div>":"";
   const px=v=>v==null?"—":(+v).toFixed(3), hm=s=>s?String(s).slice(5,16).replace("T"," "):"";
-  $("openList").innerHTML=voidHTML+legacyHTML+(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th>Order / fill</th><th></th></tr></thead><tbody>`
+  $("openList").innerHTML=voidHTML+legacyHTML+idmHTML+(waiting?`<div class="note">${waiting} parlay leg(s) graded, ticket awaiting its other legs.</div>`:"")+(open.length?`<div class="tablewrap"><table><thead><tr><th>Logged</th><th>Kickoff</th><th>Sport</th><th>Game</th><th>Pick</th><th>Engine</th><th>Type</th><th>Units</th><th>Claim</th><th>Execution</th><th>Order / fill</th><th></th></tr></thead><tbody>`
     +open.map(c=>{const early=c.exec_mode==="operator_early";
       const canExec=!early&&!isShadow(c)&&!kickedOff({utc:c.kickoff},Date.now());
       return `<tr><td>${esc(c.log_date)}</td><td>${esc((c.kickoff||"").slice(0,16).replace("T"," "))}</td><td>${esc(c.sport)}</td><td>${esc(c.game)}</td><td>${esc(c.pick==="HOME"?c.home:c.pick==="AWAY"?c.away:c.pick)}</td><td>${esc(c.engine)}</td><td>${esc(c.call_type)}</td><td>${esc(c.units)}</td>`

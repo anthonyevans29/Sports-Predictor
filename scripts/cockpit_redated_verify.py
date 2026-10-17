@@ -32,7 +32,12 @@ kickoff, not by a ±1-day join" (the calls above carry no match id: each is a le
   "legacy join";
 - a call recorded at the 04:00Z placeholder whose game kicked off at 23:30Z is "void: placeholder kickoff"; an unmoved
   placeholder is graded; the placeholder test and the labels are src/ingestion/placeholder.py's and
-  src/walters/redated.py's, word for word.
+  src/walters/redated.py's, word for word;
+- a match id is machine-local (the host and the laptop number matches apart): an NFL call whose id a loaded MLB row
+  carries, and one whose id an NFL row of other teams carries, stay open, never graded or voided, counted and listed
+  "id mismatch"; its own game's row under the id grades it though another file's row carries the same id, and the flag
+  clears; a soccer call pairs by id with a PL fixtures row naming its teams (the files name the sport apart);
+- a parlay leg the legacy join graded, its ticket waiting, keeps "legacy join" through a re-log that brings a match id.
 
     python3 scripts/cockpit_redated_verify.py
 
@@ -436,6 +441,76 @@ def main():
               and "Void: re-dated 1 · placeholder kickoff 1 (out of every line above" in pnl_b
               and sorted(x[0] for x in page.evaluate("settledBets(loadLedger()).map(b=>[b.call_type])"))
               == ["straight"] * 4, next((x for x in pnl_b.splitlines() if x.startswith("Void:")), ""))
+
+        print("A MATCH ID IS MACHINE-LOCAL (the row of the id must name the call's teams)")
+        # the host and the laptop number matches apart (deploy/hosting/compare_exports.py) and the Cockpit claims from
+        # either machine's files: a call claimed from a host file carries the host's id, graded against laptop results
+        nfl = functools.partial(call, sport="NFL", stage=None)
+        page.evaluate("l => localStorage.setItem('bd_ledger_v1', JSON.stringify(l))", {
+            "meta": {"policy_version": "v1.1"}, "calls": [
+                nfl("kc_host", "Kansas City Chiefs", "Las Vegas Raiders", "2026-10-18T20:25:00", "2026-10-18",
+                    match_id=50548),
+                nfl("den_coll", "Denver Broncos", "Los Angeles Chargers", "2026-10-18T20:05:00", "2026-10-18",
+                    match_id=50549),
+                call("ars_pl", "Arsenal", "Chelsea", "2026-10-18T14:00:00", "2026-10-18", sport="SOCCER", stage=None,
+                     three_way=True, match_id=7100)]})
+        f_lap_mlb, f_lap_nfl, f_pl = (os.path.join(tmp, n) for n in ("lap_mlb.json", "lap_nfl.json", "pl_fx.json"))
+        with open(f_lap_mlb, "w") as fh:     # laptop id 50548: a baseball game, the away side won
+            json.dump({"sport": "mlb", "results": [
+                res(50548, "Toronto Blue Jays", "Seattle Mariners", "2026-10-18T20:08:00", 2, 5)]}, fh)
+        with open(f_lap_nfl, "w") as fh:     # the Chiefs' own game under the laptop's id; 50549 is another NFL game
+            json.dump({"sport": "nfl", "results": [
+                res(61234, "Kansas City Chiefs", "Las Vegas Raiders", "2026-10-18T20:25:00", 27, 20),
+                res(50549, "Buffalo Bills", "New York Jets", "2026-10-18T17:00:00", 24, 10)]}, fh)
+        with open(f_pl, "w") as fh:
+            json.dump({"competition_code": "PL", "fixtures": [
+                fixture(7100, "Arsenal FC", "Chelsea FC", "2026-10-18T14:00:00", 2, 1)]}, fh)
+        note_m, m = intake(page, [f_lap_mlb, f_lap_nfl, f_pl])
+        print("   ", note_m)
+        kc, den = m["kc_host"], m["den_coll"]
+        check("an NFL call whose id a loaded MLB row carries stays open: never graded on the baseball game",
+              kc["status"] == "open" and "result" not in kc and "void_redated" not in kc and "close_ref" not in kc
+              and kc.get("id_mismatch") is True, json.dumps(kc)[:200])
+        check("a same-sport id on another game (other teams, 3h 05m apart) stays open, never voided as re-dated",
+              den["status"] == "open" and "result" not in den and "void_redated" not in den
+              and den.get("id_mismatch") is True, json.dumps(den)[:200])
+        check("a soccer call pairs by id with a PL fixtures row naming its teams (the files name the sport apart)",
+              m["ars_pl"]["status"] == "graded" and m["ars_pl"]["result"] == "win" and "id_mismatch" not in m["ars_pl"],
+              json.dumps(m["ars_pl"])[:200])
+        lst_m = page.inner_text("#idMismatch") if page.query_selector("#idMismatch") else ""
+        check("the intake note counts them and the ledger lists them \"id mismatch\"",
+              "id mismatch 2 (match id on another game: counted, never graded)" in note_m
+              and "2 call(s) id mismatch" in lst_m and "match 50548" in lst_m and "match 50549" in lst_m, lst_m[:300])
+        f_own = os.path.join(tmp, "lap_nfl_own.json")
+        with open(f_own, "w") as fh:          # the Broncos' own game under 50549 beside another file's 50549
+            json.dump({"sport": "nfl", "results": [
+                res(50549, "Denver Broncos", "Los Angeles Chargers", "2026-10-18T20:05:00", 20, 23)]}, fh)
+        note_o, o2 = intake(page, [f_lap_mlb, f_lap_nfl, f_own])
+        check("its own game's row under the id grades it though another file's row carries the id; the flag clears",
+              o2["den_coll"]["status"] == "graded" and o2["den_coll"]["result"] == "loss"
+              and "id_mismatch" not in o2["den_coll"] and o2["kc_host"].get("id_mismatch") is True
+              and "id mismatch 1 (" in note_o, json.dumps(o2["den_coll"])[:200])
+
+        print("A LEGACY LEG GRADED, ITS TICKET WAITING (a re-log keeps the flag)")
+        lz = functools.partial(call, call_type="parlay_leg", parlay_id="P-2026-10-16-Z", units=0.25, tier="parlay")
+        page.evaluate("l => localStorage.setItem('bd_ledger_v1', JSON.stringify(l))", {
+            "meta": {"policy_version": "v1.1"}, "calls": [
+                lz("lz1", *NYM_PHI, "2026-10-17T17:05:00", "2026-10-16"),
+                lz("lz2", "Chicago Cubs", "St. Louis Cardinals", "2026-10-19T00:05:00", "2026-10-16")]})
+        f_lz = os.path.join(tmp, "legacy_leg.json")
+        with open(f_lz, "w") as fh:
+            json.dump({"sport": "mlb", "results": [res(21, *NYM_PHI, "2026-10-17T17:05:00", 6, 2)]}, fh)
+        z = intake(page, f_lz)[1]["lz1"]
+        check("the legacy join grades leg 1; its ticket waits (status open, a result, legacy join)",
+              z.get("result") == "win" and z["status"] == "open" and z.get("legacy_join") is True, json.dumps(z)[:200])
+        rz = page.evaluate("""c => { const L=loadLedger(); const r=upsertCalls(L,[c],{relog:true}); saveLedger(L);
+            renderLedger(); return [r, L.calls.find(x=>x.id==='lz1')]; }""",
+                           lz("lz1_relog", *NYM_PHI, "2026-10-17T17:05:00", "2026-10-17", parlay_id="P-2026-10-17-Z",
+                              match_id=901))
+        check("a re-log bringing a match id keeps the flag and the result (nothing grades that leg again)",
+              rz[0]["repriced"] == 1 and rz[1].get("result") == "win" and rz[1]["status"] == "open"
+              and rz[1].get("legacy_join") is True and rz[1].get("match_id") == 901
+              and "1 call(s) legacy join" in page.inner_text("#legacyJoin"), json.dumps(rz)[:300])
         check("no page errors", not errors, "; ".join(errors))
         browser.close()
     srv.shutdown()

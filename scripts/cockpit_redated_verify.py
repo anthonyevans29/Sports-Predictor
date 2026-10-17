@@ -48,10 +48,15 @@ before this change on a game later re-dated stay graded, labelled "legacy join" 
   on the record; a same-ticket re-log of A at the moved kickoff, before the void or after it, never rewrites A, and a
   fresh call on A's game at the new start is its own call, never a leg; the ticket stays open while C is open (B graded,
   waiting), a later row for A within the hour of its kickoff never undoes the push, and the ticket settles as a two-leg
-  ticket priced on B and C when they grade, once (a later intake changes nothing);
+  ticket priced on B and C when they grade, once (a later intake changes nothing); a later-day re-log of the ticket
+  (P-2026-10-17-T3, A at its new start) reprices B and C and keeps A: no one-leg ticket on the moved game; a legacy
+  ticket the same (a sibling leg anchors it), while a different match id (the series' next game) is never read as moved;
+- a legacy leg (no match id) on an open ticket, voided by the same teams' previous-day game (#578, the ±1-day join),
+  is checked again at each intake: its own game on schedule grades it and the ticket settles on its three legs;
 - a two-leg ticket with one re-dated leg settles as a single on the other leg (settleReturn's return); a ticket whose
   every leg moved (either label) settles as a push on its void legs and counts as a push (n, staked, returned, net 0,
-  out of the hit rate); both settle once;
+  out of the hit rate), executed early it is one early position, and the P&L block's Void line names that exception;
+  both settle once;
 - calls graded before this change (no match id, no flag) are labelled "legacy join" in the ledger, the intake note, the
   P&L block and the ledger JSON export, their status, result and returns unchanged (a disagreeing row re-grades
   nothing); a call graded by its match id and an open call are not; an import of the rows as stored before the label is
@@ -360,6 +365,45 @@ def main():
               json.dumps(t2["leg_a"])[:200])
         check("... the ticket's return and result are unchanged and nothing is graded",
               t2["leg_b"] == t1["leg_b"] and "0 calls/tickets graded" in n2, n2[:120])
+
+        print("A LEGACY LEG ON AN OPEN TICKET (#578: the ±1-day join's neighbouring-day game is not a move)")
+        # three legacy legs (no match id) at 0.5; intake 1 holds only the same two teams' previous game (LCS-style back
+        # to back), the join's only match for leg A: A reads void, a backward "move". Intake 2 holds A's own game on
+        # schedule (a win) and B and C (wins): A is checked again while its ticket is open and graded; the ticket
+        # settles on its three legs, as a straight in A's place would be graded
+        tor_sea = ("Toronto Blue Jays", "Seattle Mariners")
+        lb = functools.partial(call, call_type="parlay_leg", parlay_id="P-2026-10-19-B2B", units=0.25, tier="parlay",
+                               market_p=0.5)
+        page.evaluate("l => localStorage.setItem('bd_ledger_v1', JSON.stringify(l))", {
+            "meta": {"policy_version": "v1.1"}, "calls": [
+                lb("b2b_a", *tor_sea, "2026-10-20T00:08:00", "2026-10-19"),
+                lb("b2b_b", *NYM_PHI, "2026-10-20T20:08:00", "2026-10-19"),
+                lb("b2b_c", "Los Angeles Dodgers", "Milwaukee Brewers", "2026-10-20T23:08:00", "2026-10-19")]})
+        b2b = []
+        for day, rows in (("1", [res(70001, *tor_sea, "2026-10-19T00:08:00", 3, 2)]),
+                          ("2", [res(70002, *tor_sea, "2026-10-20T00:08:00", 5, 1),
+                                 res(70003, *NYM_PHI, "2026-10-20T20:08:00", 4, 2),
+                                 res(70004, "Los Angeles Dodgers", "Milwaukee Brewers", "2026-10-20T23:08:00", 6, 3)])):
+            b2b.append(os.path.join(tmp, f"b2b_{day}.json"))
+            with open(b2b[-1], "w") as fh:
+                json.dump({"sport": "mlb", "results": rows}, fh)
+        nb1, tb1 = intake(page, b2b[0])
+        check("intake 1: leg A void by the previous day's game (the join's only match), the ticket open",
+              tb1["b2b_a"].get("void_redated") == "void: re-dated 2026-10-20 00:08Z → 2026-10-19 00:08Z"
+              and not any("ticket_result" in x for x in tb1.values()) and "0 calls/tickets graded" in nb1,
+              json.dumps(tb1["b2b_a"])[:200])
+        check("... the void list says a legacy leg on an open ticket is checked again",
+              "ticket awaiting its other 2 leg(s) (no match id: checked again at each intake while its ticket is open)"
+              in folded(page, "#voidRedated"), folded(page, "#voidRedated")[:300])
+        nb2, tb2 = intake(page, b2b[1])
+        check("intake 2: A's own game on schedule grades it (label cleared) and the ticket settles on its three legs "
+              "(0.25 / 0.5^3 = 2.0), no ticket_legs",
+              all(tb2[k]["status"] == "graded" and tb2[k].get("result") == "win" and tb2[k].get("ticket_result") == "win"
+                  and tb2[k].get("units_returned") == 2.0 and "ticket_legs" not in tb2[k] and "void_redated" not in tb2[k]
+                  for k in ("b2b_a", "b2b_b", "b2b_c")) and "1 calls/tickets graded" in nb2,
+              json.dumps(tb2["b2b_a"])[:300])
+        bb = page.evaluate("settledBets(loadLedger()).filter(b=>b.call_type==='parlay').map(b=>[b.staked,b.returned,b.result])")
+        check("... settledBets: the ticket once, staked 0.25u, returned 2.0u", bb == [[0.25, 2.0, "win"]], json.dumps(bb))
         print("THE COCKPIT IMPORT (addendum 109 item 2 (a): the 50548 case, export file → call → results intake)")
         # the 50548 export rows at the old start (Friday's file) and at the new one (Sunday's), through #predFile: the
         # auto-claimed calls carry match_id 50548 and their kickoff; the results intake pairs each by the id
@@ -555,6 +599,37 @@ def main():
         check("the moved game's fresh row is never substituted: a same-ticket re-log of leg A at the new kickoff is kept, "
               "A keeps its recorded kickoff", pre[0]["kept"] == 1 and pre[1] == ["t_a", "t_b", "t_c"]
               and pre[2]["kickoff"] == "2026-10-17T00:00:00" and pre[2]["status"] == "open", json.dumps(pre)[:300])
+        # the later-day re-log: the 10-17 Desk re-emits the ticket (P-2026-10-17-T3, the same signature) with A at its new
+        # start and B and C at theirs. B and C reprice into the 10-16 ticket by position; A misses the position index and
+        # is that leg's moved game, never a one-leg ticket of its own (captured before B's kickoff: no tz-audit flag)
+        d2 = functools.partial(tk, log_date="2026-10-17", parlay_id="P-2026-10-17-T3", captured_at="2026-10-17T12:00:00Z")
+        later = page.evaluate("""cs => { const L=loadLedger(); const r=upsertCalls(L,cs,{relog:true}); saveLedger(L);
+            return [r, L.calls.filter(x=>x.parlay_id!=='P-2026-10-16-T3').map(x=>x.id),
+                    L.calls.find(x=>x.id==='t_a')]; }""", [
+            d2("t_a_d2", *TB_CLE, "2026-10-18T21:00:00", match_id=50548),
+            d2("t_b_d2", *lad_mil, "2026-10-17T20:08:00", match_id=50601, pick="AWAY", market_p=0.45),
+            d2("t_c_d2", *NYM_PHI, "2026-10-17T23:05:00", match_id=50602, market_p=0.5)])
+        check("a later-day re-log of the ticket with A at its new start: B and C reprice, A is kept, no ticket added "
+              "(the moved game's fresh row is never a ticket of its own)",
+              later[0] == {"added": 0, "updated": 0, "kept": 1, "repriced": 2} and later[1] == []
+              and later[2]["kickoff"] == "2026-10-17T00:00:00", json.dumps(later)[:300])
+        sandbox = page.evaluate("""([legacy, relogL, series, relogS]) => {
+            const run=(calls,fresh)=>{ const L={meta:{policy_version:'v1.1'},calls:JSON.parse(JSON.stringify(calls))};
+              return [upsertCalls(L,fresh,{relog:true}), L.calls.filter(x=>/^P-2026-10-17-/.test(x.parlay_id)).map(x=>x.id)]; };
+            return [run(legacy,relogL), run(series,relogS)]; }""", [
+            [tk("lg_a", *TB_CLE, "2026-10-17T00:00:00", "2026-10-16", parlay_id="P-2026-10-16-LG"),
+             tk("lg_b", *lad_mil, "2026-10-17T20:08:00", "2026-10-16", parlay_id="P-2026-10-16-LG", pick="AWAY")],
+            [tk("lg_a2", *TB_CLE, "2026-10-18T21:00:00", "2026-10-17", parlay_id="P-2026-10-17-LG", match_id=50548),
+             tk("lg_b2", *lad_mil, "2026-10-17T20:08:00", "2026-10-17", parlay_id="P-2026-10-17-LG", pick="AWAY",
+                match_id=50601)],
+            [tk("sr_d", *NYM_PHI, "2026-10-16T23:05:00", "2026-10-16", parlay_id="P-2026-10-16-SR", match_id=9101),
+             tk("sr_e", *bos_nyy, "2026-10-18T23:00:00", "2026-10-16", parlay_id="P-2026-10-16-SR", match_id=50603)],
+            [tk("sr_d2", *NYM_PHI, "2026-10-17T23:05:00", "2026-10-17", parlay_id="P-2026-10-17-SR", match_id=9102),
+             tk("sr_e2", *bos_nyy, "2026-10-18T23:00:00", "2026-10-17", parlay_id="P-2026-10-17-SR", match_id=50603)]])
+        check("... a legacy ticket (no match id) the same: its sibling leg anchors it, the moved leg is kept, nothing added; "
+              "a different match id (the series' next game) is never read as moved (added, as before)",
+              sandbox[0] == [{"added": 0, "updated": 0, "kept": 1, "repriced": 1}, []]
+              and sandbox[1] == [{"added": 1, "updated": 0, "kept": 0, "repriced": 1}, ["sr_d2"]], json.dumps(sandbox))
         t3_files = {}
         for day, rows in (("1", [res(50548, *TB_CLE, "2026-10-18T21:00:00", 5, 2),
                                  res(50601, *lad_mil, "2026-10-17T20:08:00", 1, 4)]),
@@ -602,8 +677,8 @@ def main():
               and "parlay_id" not in t2["a_fresh_straight"] and "2 calls/tickets graded" in n2, n2[:120])
         bets3 = page.evaluate("settledBets(loadLedger()).filter(b=>b.call_type==='parlay')"
                               ".map(b=>[b.staked,b.returned,b.result])")
-        check("settledBets: the ticket once, staked 0.25u, returned as the two-leg ticket",
-              bets3 == [[0.25, want, "win"]], json.dumps(bets3))
+        check("settledBets: the ticket once, staked 0.25u, returned as the two-leg ticket (the later-day re-log added "
+              "no one-leg ticket on A's moved game)", bets3 == [[0.25, want, "win"]], json.dumps(bets3))
         check("the void list: A's ticket settled on its other 2 legs",
               "a push, removed from its ticket: ticket settled on its other 2 leg(s)" in folded(page, "#voidRedated"))
         L3 = page.evaluate("JSON.parse(localStorage.getItem('bd_ledger_v1'))")
@@ -633,9 +708,9 @@ def main():
                 tk("s_b", *bos_nyy, "2026-10-17T23:00:00", "2026-10-16", parlay_id="P-2026-10-16-T2", match_id=50603,
                    market_p=0.6),
                 tk("v_a", *TB_CLE, "2026-10-17T00:00:00", "2026-10-16", parlay_id="P-2026-10-16-T0", match_id=50548,
-                   pick="AWAY", market_p=0.44),
+                   pick="AWAY", market_p=0.44, exec_mode="operator_early"),
                 tk("v_b", "Hawaii Rainbow Warriors", "Wyoming Cowboys", "2026-10-17T04:00:00", "2026-10-16",
-                   parlay_id="P-2026-10-16-T0", sport="NCAA", match_id=8801, stage=None),
+                   parlay_id="P-2026-10-16-T0", sport="NCAA", match_id=8801, stage=None, exec_mode="operator_early"),
                 *before]})
         page.evaluate("cs => importLedgerDoc({calls: cs})", before[1:])
         imp_note = page.inner_text("#ledgerNote")
@@ -669,6 +744,13 @@ def main():
         check("the tallies count the push as a push: one bet, staked 0.25u, returned 0.25u, net 0, out of the hit rate",
               [0.25, 0.25, "push"] in pb["p"] and [0.25, single, "win"] in pb["p"] and pb["a"]["n"] == 1
               and pb["a"]["net"] == 0 and pb["a"]["hit"] is None, json.dumps(pb))
+        pnl_p = page.inner_text("#pnlBlock")
+        early_p = next((x for x in pnl_p.splitlines() if x.startswith("Early executions")), "")
+        check("the every-leg-moved ticket, executed early, is one early position (its push is a settled bet, as a pushed "
+              "straight is); the P&L block's Void line names that exception",
+              "Early executions: 1 position(s)" in early_p and "(1/50)" in early_p
+              and "(out of every line above, except a ticket whose every leg moved: counted there once, as a push;"
+              in pnl_p, early_p)
         vtext = folded(page, "#voidRedated")
         check("the void list: a single on the other leg; every leg moved, a push",
               "ticket settled on its other 1 leg(s) (a single)" in vtext
